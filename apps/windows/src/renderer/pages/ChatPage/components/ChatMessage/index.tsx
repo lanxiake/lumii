@@ -31,20 +31,11 @@ import styles from './ChatMessage.module.css'
 interface ChatMessageProps {
   message: ChatMessageType
   formatTime: (date: Date) => string
-  isLatestAssistant: boolean
   onCopy: (content: string) => void
   onEdit: (messageId: string, newContent: string) => void
   onDelete: (messageId: string) => void
   onRegenerate: (messageId: string) => void
-  /** 编辑后「基于历史创建新对话分支」 */
-  onFork?: (messageId: string, newContent: string) => void
-  /** 编辑后「删除后续并重新回答」 */
-  onEditAndResend?: (messageId: string, newContent: string) => void
-  /** 删除后续消息的预估条数（用于分支面板提示） */
-  deleteCount?: number
-  /** 打开工作空间版本面板的回调（用于回溯联动） */
-  onOpenVersionPanel?: () => void
-  /** 会话是否正在流式输出：为 true 时禁用用户消息的「重新生成」入口 */
+  /** 会话是否正在流式输出：为 true 时禁用「重新生成」入口 */
   sessionBusy?: boolean
   /** 关联的工具调用项，按 textPositionAtStart 与文字交错显示 */
   toolItems?: AgentWorkflowItem[]
@@ -587,15 +578,10 @@ const ToolsSection: React.FC<ToolsSectionProps> = ({
 const ChatMessage: React.FC<ChatMessageProps> = ({
   message,
   formatTime,
-  isLatestAssistant,
   onCopy,
   onEdit,
   onDelete,
   onRegenerate,
-  onFork,
-  onEditAndResend,
-  deleteCount,
-  onOpenVersionPanel,
   sessionBusy = false,
   toolItems,
   streamingThinkingText,
@@ -606,9 +592,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   replayMessageId,
 }) => {
   const [isEditing, setIsEditing] = useState(false)
-  /** 编辑后分支选择状态：null=无选择；有值则展示选择面板 */
-  const [pendingEdit, setPendingEdit] = useState<{ newContent: string } | null>(null)
-  const [deleteConfirming, setDeleteConfirming] = useState(false)
   const [memoryExpanded, setMemoryExpanded] = useState(false)
   const [previewFileId, setPreviewFileId] = useState<string | null>(null)
   const [previewFileName, setPreviewFileName] = useState<string>('')
@@ -648,21 +631,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   )
 
   const handleEditStart = () => { setIsEditing(true) }
-  const handleEditCancel = () => { setIsEditing(false); setPendingEdit(null) }
+  const handleEditCancel = () => { setIsEditing(false) }
   const handleEditSave = (newContent: string) => {
-    // user 消息且内容有实质变化 → 弹出分支选择；非 user 或内容未变 → 原路保存
-    if (message.role === 'user' && newContent.trim() !== message.content.trim() && (onFork || onEditAndResend)) {
-      setIsEditing(false)
-      setPendingEdit({ newContent })
-      return
+    // 内容有实质变化才触发「删后续重答」，未变则视为取消编辑
+    if (newContent.trim() !== message.content.trim()) {
+      onEdit(message.id, newContent)
     }
-    onEdit(message.id, newContent)
     setIsEditing(false)
-  }
-  /** 「重新生成 ▾」直达入口：不经编辑态，直接以原文触发回溯/分支面板 */
-  const handleRegenerateMenu = () => {
-    if (message.role !== 'user') return
-    setPendingEdit({ newContent: message.content })
   }
 
   /** 构建包含文字 + 工具调用详情的完整复制文本 */
@@ -1194,7 +1169,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             messageId={message.id}
             role={message.role}
             content={message.content}
-            isLatestAssistant={isLatestAssistant}
             isEditing={isEditing}
             onCopy={handleCopy}
             onEditStart={handleEditStart}
@@ -1202,129 +1176,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             onEditSave={handleEditSave}
             onDelete={onDelete}
             onRegenerate={onRegenerate}
-            onRegenerateMenu={(!sessionBusy && (onFork || onEditAndResend)) ? handleRegenerateMenu : undefined}
+            sessionBusy={sessionBusy}
             isVoice={message.isVoice}
             isReplaying={replayMessageId === message.id}
             onReplay={onReplay ? () => onReplay(message.id) : undefined}
           />
-          </div>
-        )}
-
-        {/* 编辑后分支选择面板 */}
-        {pendingEdit && (
-          <div className={styles['edit-branch-panel']}>
-            <p className={styles['edit-branch-hint']}>
-              {pendingEdit.newContent.trim() === message.content.trim()
-                ? '从这条消息重新开始，请选择方式：'
-                : '消息已编辑，请选择后续操作：'}
-            </p>
-            <div className={styles['edit-branch-actions']}>
-              {onFork && (
-                <button
-                  type="button"
-                  className={styles['edit-branch-btn']}
-                  onClick={() => {
-                    onFork(message.id, pendingEdit.newContent)
-                    setPendingEdit(null)
-                    setDeleteConfirming(false)
-                  }}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
-                    <line x1="6" y1="3" x2="6" y2="15" />
-                    <circle cx="18" cy="6" r="3" />
-                    <circle cx="6" cy="18" r="3" />
-                    <path d="M18 9a9 9 0 0 1-9 9" />
-                  </svg>
-                  基于当前历史创建新对话
-                </button>
-              )}
-              {onEditAndResend && (
-                deleteConfirming ? (
-                  <>
-                    <p className={styles['edit-branch-note']} style={{ color: 'var(--color-error, #ef4444)', fontWeight: 500 }}>
-                      {typeof deleteCount === 'number' && deleteCount > 0
-                        ? `确认删除后续 ${deleteCount} 条消息并重新回答？此操作不可撤销。`
-                        : '确认删除后续消息并重新回答？此操作不可撤销。'}
-                    </p>
-                    <div className={styles['edit-branch-actions']}>
-                      <button
-                        type="button"
-                        className={styles['edit-branch-btn']}
-                        style={{ color: 'var(--color-error, #ef4444)', borderColor: 'var(--color-error, #ef4444)' }}
-                        onClick={() => {
-                          onEditAndResend(message.id, pendingEdit.newContent)
-                          setPendingEdit(null)
-                          setDeleteConfirming(false)
-                        }}
-                      >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
-                          <polyline points="23 4 23 10 17 10" />
-                          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                        </svg>
-                        确认删除
-                      </button>
-                      <button
-                        type="button"
-                        className={styles['edit-branch-btn']}
-                        onClick={() => setDeleteConfirming(false)}
-                      >
-                        取消
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    className={styles['edit-branch-btn']}
-                    onClick={() => {
-                      if (typeof deleteCount === 'number' && deleteCount > 0) {
-                        setDeleteConfirming(true)
-                      } else {
-                        onEditAndResend(message.id, pendingEdit.newContent)
-                        setPendingEdit(null)
-                      }
-                    }}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
-                      <polyline points="23 4 23 10 17 10" />
-                      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                    </svg>
-                    {typeof deleteCount === 'number' && deleteCount > 0
-                      ? `删除后续 ${deleteCount} 条并重新回答`
-                      : '删除后续并重新回答'}
-                  </button>
-                )
-              )}
-              <button
-                type="button"
-                className={styles['edit-branch-btn']}
-                onClick={() => { setPendingEdit(null); setDeleteConfirming(false) }}
-              >
-                取消
-              </button>
-            </div>
-            <p className={styles['edit-branch-note']}>
-              提示：工作空间文件不会自动回退。
-              {onOpenVersionPanel ? (
-                <>
-                  {' '}
-                  <button
-                    type="button"
-                    className={styles['edit-branch-note-btn']}
-                    onClick={() => {
-                      onOpenVersionPanel()
-                      setPendingEdit(null)
-                      setDeleteConfirming(false)
-                    }}
-                  >
-                    打开工作空间版本
-                  </button>
-                  {' '}手动回滚。
-                </>
-              ) : (
-                '如需可在「工作空间版本」中手动回滚。'
-              )}
-            </p>
           </div>
         )}
 

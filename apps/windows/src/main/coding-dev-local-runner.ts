@@ -5,9 +5,11 @@
  */
 
 import { spawn } from 'node:child_process'
+import path from 'node:path'
 import {
   detectLocalAcpTool,
   isPrimaryLocalAcpToolId,
+  needsWindowsShell,
   type PrimaryLocalAcpToolId,
 } from './coding-dev-cli-detect.js'
 import type {
@@ -43,18 +45,25 @@ function buildLocalCliArgs(
         args: ['exec', '--skip-git-repo-check', prompt],
       }
     case 'cursor':
-      // cursor-agent / agent 常见 print 模式
+      // Cursor Agent CLI：非交互 print 模式
       return {
         command: resolvedCommand,
-        args: resolvedCommand.toLowerCase().includes('cursor-agent') || resolvedCommand.toLowerCase().endsWith('agent')
-          ? ['-p', prompt]
-          : ['agent', '-p', prompt],
+        args: ['-p', prompt],
       }
-    case 'copilot':
+    case 'copilot': {
+      const base = path.basename(resolvedCommand).toLowerCase()
+      // 独立 @github/copilot：非交互 print；旧版 gh copilot suggest
+      if (base.startsWith('gh')) {
+        return {
+          command: resolvedCommand,
+          args: ['copilot', 'suggest', '-t', 'shell', '-s', prompt],
+        }
+      }
       return {
         command: resolvedCommand,
-        args: ['copilot', 'suggest', '-t', 'shell', '-s', prompt],
+        args: ['-p', prompt],
       }
+    }
     default:
       return { command: resolvedCommand, args: [prompt] }
   }
@@ -75,8 +84,12 @@ export async function runLocalAcpCli(
 
   const status = await detectLocalAcpTool(id)
   if (!status.installed || !status.resolvedPath) {
+    const winHint =
+      id === 'cursor' && process.platform === 'win32'
+        ? ` Windows 可在 PowerShell 执行：irm 'https://cursor.com/install?win32=true' | iex（安装的是 agent，不是编辑器里的 cursor）。`
+        : ''
     throw new Error(
-      `未检测到 ${status.label}。请先安装：${status.installUrl}`,
+      `未检测到 ${status.label}。请先安装：${status.installUrl}${winHint}`,
     )
   }
 
@@ -89,11 +102,13 @@ export async function runLocalAcpCli(
   })
 
   return new Promise((resolve, reject) => {
+    // Windows 上 .cmd/.bat 必须经 shell，否则 spawn 报 ENOENT
+    const useShell = needsWindowsShell(command)
     const child = spawn(command, args, {
       cwd: params.cwd,
       windowsHide: true,
       env: { ...process.env },
-      shell: false,
+      shell: useShell,
     })
 
     let stdout = ''

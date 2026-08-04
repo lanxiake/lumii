@@ -20,20 +20,28 @@ const log = {
 export class StatefulContextStrategy implements ContextStrategy {
   /** sessionKey → 上次同步时的 DB 消息数 */
   private readonly lastSyncedCount = new Map<string, number>()
+  /** 需强制从 DB 全量重注入的 sessionKey（edit-and-resend 截断后，内存比 DB 多，须以 DB 为准） */
+  private readonly forceResync = new Set<string>()
 
   constructor(private readonly bridge: AgentRuntimeBridge) {}
+
+  /** 标记下次 beforePrompt 强制以 DB 为准重注入内存（用于 edit-and-resend / 重新生成的截断重放） */
+  markForceResync(sessionKey: string): void {
+    this.forceResync.add(sessionKey)
+  }
 
   async beforePrompt(instanceId: string, sessionKey: string, pendingUserMsgId?: string): Promise<void> {
     const currentCount = this.bridge.getDbMessageCount(sessionKey)
     const lastCount = this.lastSyncedCount.get(sessionKey) ?? -1
     const memoryEmpty = this.bridge.hasEmptyInstanceMemory(instanceId)
+    const forced = this.forceResync.delete(sessionKey)
 
-    if (currentCount === lastCount && !memoryEmpty) {
+    if (!forced && currentCount === lastCount && !memoryEmpty) {
       log.debug(`[beforePrompt] DB 无新消息，跳过同步: sessionKey=${sessionKey} count=${currentCount}`)
       return
     }
 
-    if (!memoryEmpty && this.bridge.isInstanceMemoryRicherThanDb(instanceId, sessionKey, pendingUserMsgId)) {
+    if (!forced && !memoryEmpty && this.bridge.isInstanceMemoryRicherThanDb(instanceId, sessionKey, pendingUserMsgId)) {
       log.info(
         `[beforePrompt] 实例内存比 DB 更完整，跳过同步以免丢失上下文: sessionKey=${sessionKey}`,
       )

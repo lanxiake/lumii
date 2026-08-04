@@ -107,6 +107,7 @@ import {
   resolveCodingDevAcpWorkspacePath,
 } from './coding-dev-env.js'
 import { detectAllLocalAcpTools } from './coding-dev-cli-detect.js'
+import { installLocalAcpTool } from './coding-dev-cli-install.js'
 import {
   createProject,
   openExistingProject,
@@ -1639,6 +1640,10 @@ function setupIpcHandlers(): void {
 
   ipcMain.handle('app:detectCodingDevTools', async () => {
     return detectAllLocalAcpTools()
+  })
+
+  ipcMain.handle('app:installCodingDevTool', async (_event, toolId: string) => {
+    return installLocalAcpTool(toolId)
   })
 
   ipcMain.handle('app:setCodingDevAcpWorkspace', async (_event, dirPath: string | undefined) => {

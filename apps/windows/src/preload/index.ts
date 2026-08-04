@@ -212,7 +212,27 @@ export interface ElectronAPI {
       homepageUrl: string
       githubUrl?: string
       installUrl: string
+      installCommand: string
+      installHint: string
     }>>
+    /** 一键安装本机 ACP CLI（执行官方白名单安装命令） */
+    installCodingDevTool: (toolId: string) => Promise<{
+      ok: boolean
+      toolId: string
+      exitCode: number | null
+      stdout: string
+      stderr: string
+      status: {
+        id: string
+        label: string
+        installed: boolean
+        resolvedPath?: string
+        installCommand: string
+        installHint: string
+        installUrl: string
+      }
+      message: string
+    }>
     /** 设置 ACP 专用工作目录；传 undefined 或空则与主工作区一致 */
     setCodingDevAcpWorkspace: (dirPath: string | undefined) => Promise<void>
     /** 列出 ACP 项目及当前活动项目 */
@@ -1045,6 +1065,7 @@ const electronAPI: ElectronAPI = {
     resetAllData: () => ipcRenderer.invoke('app:resetAllData'),
     getCodingDevEnvInfo: () => ipcRenderer.invoke('app:getCodingDevEnvInfo'),
     detectCodingDevTools: () => ipcRenderer.invoke('app:detectCodingDevTools'),
+    installCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:installCodingDevTool', toolId),
     setCodingDevAcpWorkspace: (dirPath: string | undefined) =>
       ipcRenderer.invoke('app:setCodingDevAcpWorkspace', dirPath),
     listCodingDevProjects: () => ipcRenderer.invoke('app:listCodingDevProjects'),

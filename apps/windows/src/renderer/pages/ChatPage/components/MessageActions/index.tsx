@@ -7,7 +7,6 @@ interface MessageActionsProps {
   messageId: string
   role: 'user' | 'assistant' | 'system'
   content: string
-  isLatestAssistant: boolean
   isEditing: boolean
   onCopy: (content: string) => void
   onEditStart: () => void
@@ -15,8 +14,8 @@ interface MessageActionsProps {
   onEditSave: (newContent: string) => void
   onDelete: (messageId: string) => void
   onRegenerate: (messageId: string) => void
-  /** 用户消息「重新生成」：打开回溯/分支面板（内容可改可不改），仅 user 消息可用 */
-  onRegenerateMenu?: () => void
+  /** 会话流式中：禁用「重新生成」按钮 */
+  sessionBusy?: boolean
   /** 是否语音消息（显示回放按钮） */
   isVoice?: boolean
   /** 当前消息是否正在回放 */
@@ -29,7 +28,6 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   messageId,
   role,
   content,
-  isLatestAssistant,
   isEditing,
   onCopy,
   onEditStart,
@@ -37,7 +35,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   onEditSave,
   onDelete,
   onRegenerate,
-  onRegenerateMenu,
+  sessionBusy,
   isVoice,
   isReplaying,
   onReplay,
@@ -297,16 +295,6 @@ const MessageActions: React.FC<MessageActionsProps> = ({
         </button>
       )}
 
-      {/* 重新生成（仅 user）：回溯到此条，删后续重答 或 新开会话分支 */}
-      {role === 'user' && onRegenerateMenu && (
-        <button className={clsx(styles['action-btn'], styles.regenerate)} onClick={onRegenerateMenu} title="重新生成（回溯/新分支）">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polyline points="23 4 23 10 17 10" />
-            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-          </svg>
-        </button>
-      )}
-
       {/* 回放对话（仅语音消息） */}
       {isVoice && onReplay && (
         <button
@@ -327,9 +315,14 @@ const MessageActions: React.FC<MessageActionsProps> = ({
         </button>
       )}
 
-      {/* 重新生成（仅最新 assistant） */}
-      {isLatestAssistant && (
-        <button className={clsx(styles['action-btn'], styles.regenerate)} onClick={() => onRegenerate(messageId)} title="重新生成">
+      {/* 重新生成（user / assistant 均可）：回到对应提问，删后续重答 */}
+      {(role === 'user' || role === 'assistant') && (
+        <button
+          className={clsx(styles['action-btn'], styles.regenerate)}
+          onClick={() => onRegenerate(messageId)}
+          disabled={sessionBusy}
+          title={sessionBusy ? '正在回复中…' : '重新生成'}
+        >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="23 4 23 10 17 10" />
             <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />

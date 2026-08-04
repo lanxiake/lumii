@@ -94,12 +94,6 @@ interface ChatContainerProps {
   onEditMessage?: (messageId: string, newContent: string) => void
   onDeleteMessage?: (messageId: string) => void
   onRegenerateMessage?: (messageId: string) => void
-  /** 编辑用户消息后「基于历史创建新对话分支」 */
-  onForkConversation?: (messageId: string, newContent: string) => void
-  /** 编辑用户消息后「删除后续并重新回答」 */
-  onEditAndResend?: (messageId: string, newContent: string) => void
-  /** 打开工作空间版本面板的回调 */
-  onOpenVersionPanel?: () => void
   onSuggestionClick?: (suggestion: string) => void
   /**
    * 本地 Agent Runtime：当前轮次流式思考文本（与最后一条 assistant 气泡同步展示）
@@ -135,9 +129,6 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   onEditMessage,
   onDeleteMessage,
   onRegenerateMessage,
-  onForkConversation,
-  onEditAndResend,
-  onOpenVersionPanel,
   onSuggestionClick,
   streamingThinkingText,
   fileEvents,
@@ -509,15 +500,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               key={`${item.id}-${index}`}
               message={message}
               formatTime={formatTime}
-              isLatestAssistant={isLatestAssistant}
               onCopy={onCopyMessage || (() => {})}
               onEdit={onEditMessage || (() => {})}
               onDelete={onDeleteMessage || (() => {})}
               onRegenerate={onRegenerateMessage || (() => {})}
-              onFork={onForkConversation}
-              onEditAndResend={onEditAndResend}
-              deleteCount={chatItems.length - index - 1}
-              onOpenVersionPanel={onOpenVersionPanel}
               sessionBusy={isStreaming}
               toolItems={toolItems.length > 0 ? toolItems : undefined}
               streamingThinkingText={

@@ -21,6 +21,7 @@ import { parseThinkTagsFromRaw } from '../agent-runtime/event-converter'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
 import { AcpBackendManager } from '../channel/acp-backend-manager'
 import { IpcChannelAdapter } from '../channel/adapters/ipc-channel-adapter'
+import { StatefulContextStrategy } from '../channel/context-strategy/stateful-strategy'
 import type { WeixinSessionBindingManager } from '../channel/weixin-session-binding'
 import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
 import { extractDocumentText } from '../vendor/document-parser.js'
@@ -1079,8 +1080,15 @@ async function handleCommand(
           // 3. 重新触发 Agent 回复（复用 compact 路径的 getInstanceForSession）
           const instanceId = await getInstanceForSession(bridge, convId)
           if (instanceId) {
+            // 截断重放：DB 已删后续消息，但 Agent 内存仍保留完整历史。
+            // 强制下次 beforePrompt 以 DB 为准重注入，否则「内存更完整」启发式会把后续消息一并发给 LLM。
+            const adapter = getIpcChannelAdapter(bridge)
+            const strategy = adapter.getContextStrategy()
+            if (strategy instanceof StatefulContextStrategy) {
+              strategy.markForceResync(convId)
+            }
             // 排除已更新的用户消息，避免 restore + prompt 重复注入
-            await getIpcChannelAdapter(bridge).sendPrompt(
+            await adapter.sendPrompt(
               instanceId,
               convId,
               newContent,

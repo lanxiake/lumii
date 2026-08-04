@@ -13,9 +13,7 @@ describe('Phase 3: 消息功能 - MessageActions组件', () => {
     messageId: 'msg-123',
     role: 'user' as const,
     content: 'Test message content',
-    isLatestAssistant: false,
     isEditing: false,
-    isVisible: true,
     onCopy: vi.fn(),
     onEditStart: vi.fn(),
     onEditCancel: vi.fn(),
@@ -126,27 +124,16 @@ describe('Phase 3: 消息功能 - MessageActions组件', () => {
       expect(mockProps.onDelete).not.toHaveBeenCalled()
     })
 
-    it('TC-3.1.11: 最后一条assistant消息显示"重新生成"按钮', () => {
-      render(
-        <MessageActions
-          {...mockProps}
-          role="assistant"
-          isLatestAssistant={true}
-        />
-      )
+    it('TC-3.1.11: user 和 assistant 消息都显示"重新生成"按钮', () => {
+      const { rerender } = render(<MessageActions {...mockProps} role="user" />)
+      expect(screen.getByTitle('重新生成')).toBeInTheDocument()
 
-      const regenerateBtn = screen.getByTitle('重新生成')
-      expect(regenerateBtn).toBeInTheDocument()
+      rerender(<MessageActions {...mockProps} role="assistant" />)
+      expect(screen.getByTitle('重新生成')).toBeInTheDocument()
     })
 
     it('TC-3.1.12: 点击"重新生成"触发回调', () => {
-      render(
-        <MessageActions
-          {...mockProps}
-          role="assistant"
-          isLatestAssistant={true}
-        />
-      )
+      render(<MessageActions {...mockProps} role="assistant" />)
 
       const regenerateBtn = screen.getByTitle('重新生成')
       fireEvent.click(regenerateBtn)
@@ -160,16 +147,11 @@ describe('Phase 3: 消息功能 - MessageActions组件', () => {
       expect(screen.queryByTitle('编辑')).not.toBeInTheDocument()
     })
 
-    it('TC-3.1.14: 非最后assistant消息不显示"重新生成"按钮', () => {
-      render(
-        <MessageActions
-          {...mockProps}
-          role="assistant"
-          isLatestAssistant={false}
-        />
-      )
+    it('TC-3.1.14: sessionBusy 时"重新生成"按钮禁用', () => {
+      render(<MessageActions {...mockProps} role="assistant" sessionBusy={true} />)
 
-      expect(screen.queryByTitle('重新生成')).not.toBeInTheDocument()
+      const regenerateBtn = screen.getByTitle('正在回复中…')
+      expect(regenerateBtn).toBeDisabled()
     })
   })
 })

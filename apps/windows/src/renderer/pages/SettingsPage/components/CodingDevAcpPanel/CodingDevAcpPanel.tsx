@@ -1,7 +1,7 @@
 /**
  * CodingDevAcpPanel - 本机开发类 AI 工具（ACP）设置
  *
- * 仅展示用户关心的内容：工具安装状态、官网链接、工作目录。
+ * 仅展示用户关心的内容：工具安装状态、一键安装、官网链接、工作目录。
  */
 
 import React, { useCallback, useEffect, useState } from 'react'
@@ -23,6 +23,8 @@ export type LocalAcpToolStatusView = {
   homepageUrl: string
   githubUrl?: string
   installUrl: string
+  installCommand: string
+  installHint: string
 }
 
 export type CodingDevEnvInfo = {
@@ -40,6 +42,8 @@ export const CodingDevAcpPanel: React.FC = () => {
   const [tools, setTools] = useState<LocalAcpToolStatusView[]>([])
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [detecting, setDetecting] = useState(false)
+  const [installingId, setInstallingId] = useState<string | null>(null)
+  const [installMsg, setInstallMsg] = useState<string | null>(null)
   const projectsApi = useCodingDevProjects()
   const { projects, activeProject, error: opErr, setActive } = projectsApi
 
@@ -101,6 +105,38 @@ export const CodingDevAcpPanel: React.FC = () => {
     void window.electronAPI.app.openExternal(url)
   }, [])
 
+  /**
+   * 复制官方安装命令到剪贴板
+   */
+  const copyInstallCommand = useCallback(async (cmd: string) => {
+    try {
+      await navigator.clipboard.writeText(cmd)
+      setInstallMsg(`已复制安装命令：${cmd}`)
+    } catch {
+      setInstallMsg(`请手动复制：${cmd}`)
+    }
+  }, [])
+
+  /**
+   * 一键执行官方安装命令
+   */
+  const handleInstall = useCallback(async (toolId: string) => {
+    setInstallingId(toolId)
+    setInstallMsg('正在执行官方安装脚本，请稍候…')
+    try {
+      const result = await window.electronAPI.app.installCodingDevTool(toolId)
+      setInstallMsg(result.message)
+      setTools((prev) =>
+        prev.map((t) => (t.id === result.status.id ? { ...t, ...result.status } : t)),
+      )
+      await reloadTools()
+    } catch (e: unknown) {
+      setInstallMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setInstallingId(null)
+    }
+  }, [reloadTools])
+
   return (
     <Card>
       <div className={styles.panel}>
@@ -108,7 +144,8 @@ export const CodingDevAcpPanel: React.FC = () => {
           <div>
             <div className={styles.title}>开发类 AI 工具（本机 ACP）</div>
             <p className={styles.desc}>
-              仅连接本机已安装的 CLI。对话中用 /cursor、/claude、/codex、/copilot 切换，/mtbot 回到主代理。
+              仅连接本机已安装的 CLI（Cursor 需单独安装 Agent CLI，不是编辑器自带的 cursor）。
+              对话中用 /cursor、/claude、/codex、/copilot 切换，/mtbot 回到主代理。
             </p>
           </div>
           <Button variant="secondary" size="sm" loading={detecting} onClick={() => { void reloadTools() }}>
@@ -117,6 +154,7 @@ export const CodingDevAcpPanel: React.FC = () => {
         </div>
 
         {loadErr && <div className={styles.error}>加载失败：{loadErr}</div>}
+        {installMsg && <div className={styles.installMsg}>{installMsg}</div>}
 
         <div className={styles.sectionLabel}>本机工具</div>
         <div className={styles.toolList}>
@@ -133,6 +171,12 @@ export const CodingDevAcpPanel: React.FC = () => {
                 {t.installed && t.resolvedPath && (
                   <code className={styles.path}>{t.resolvedPath}</code>
                 )}
+                {!t.installed && t.installCommand && (
+                  <div className={styles.installBlock}>
+                    <code className={styles.installCmd}>{t.installCommand}</code>
+                    {t.installHint && <div className={styles.toolDesc}>{t.installHint}</div>}
+                  </div>
+                )}
               </div>
               <div className={styles.toolActions}>
                 <button type="button" className={styles.linkBtn} onClick={() => openUrl(t.homepageUrl)}>
@@ -144,9 +188,26 @@ export const CodingDevAcpPanel: React.FC = () => {
                   </button>
                 )}
                 {!t.installed && (
-                  <Button size="sm" onClick={() => openUrl(t.installUrl)}>
-                    安装
-                  </Button>
+                  <>
+                    <button
+                      type="button"
+                      className={styles.linkBtn}
+                      onClick={() => void copyInstallCommand(t.installCommand)}
+                    >
+                      复制命令
+                    </button>
+                    <Button
+                      size="sm"
+                      loading={installingId === t.id}
+                      disabled={installingId != null && installingId !== t.id}
+                      onClick={() => void handleInstall(t.id)}
+                    >
+                      一键安装
+                    </Button>
+                    <button type="button" className={styles.linkBtn} onClick={() => openUrl(t.installUrl)}>
+                      文档
+                    </button>
+                  </>
                 )}
               </div>
             </div>

@@ -96,6 +96,41 @@
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 22rem;
+}
+
+.installBlock {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.installCmd {
+  display: block;
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--color-text-primary, inherit);
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.installMsg {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-text-primary, inherit);
+  background: color-mix(in srgb, var(--mt-accent-600, #2563eb) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--mt-accent-600, #2563eb) 22%, transparent);
 }
 
 .badgeOk,

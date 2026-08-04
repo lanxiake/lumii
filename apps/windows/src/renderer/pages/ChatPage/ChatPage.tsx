@@ -1201,38 +1201,14 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
     })
   }, [])
 
+  // 编辑用户消息保存 = 改问题重新问：删后续 + 用新内容重答（与「重新生成」统一）
   const handleEditMessage = useCallback((messageId: string, newContent: string) => {
     const sessionKey = runtimeCurrentSessionKey
     if (!sessionKey) return
-    void runtimeActions.editMessage(messageId, newContent, { sessionKey }).catch((err) => {
+    void runtimeActions.editAndResend(messageId, newContent, { sessionKey }).catch((err) => {
       logger.error(`[handleEditMessage] 编辑失败: ${err instanceof Error ? err.message : String(err)}`)
       setToast({ message: '编辑失败，请重试', type: 'error' })
     })
-  }, [runtimeActions, runtimeCurrentSessionKey])
-
-  const handleForkConversation = useCallback(async (messageId: string, newContent: string) => {
-    const sessionKey = runtimeCurrentSessionKey
-    if (!sessionKey) return
-    try {
-      const newSessionKey = await runtimeActions.forkConversation(sessionKey, messageId, newContent)
-      void runtimeActions.switchSession(newSessionKey)
-      void refreshLocalSessions()
-      setToast({ message: '已创建新对话分支', type: 'success' })
-    } catch (err) {
-      logger.error(`[handleForkConversation] 失败: ${err instanceof Error ? err.message : String(err)}`)
-      setToast({ message: '创建分支失败，请重试', type: 'error' })
-    }
-  }, [runtimeActions, runtimeCurrentSessionKey, refreshLocalSessions])
-
-  const handleEditAndResend = useCallback(async (messageId: string, newContent: string) => {
-    const sessionKey = runtimeCurrentSessionKey
-    if (!sessionKey) return
-    try {
-      await runtimeActions.editAndResend(messageId, newContent, { sessionKey })
-    } catch (err) {
-      logger.error(`[handleEditAndResend] 失败: ${err instanceof Error ? err.message : String(err)}`)
-      setToast({ message: '重新发送失败，请重试', type: 'error' })
-    }
   }, [runtimeActions, runtimeCurrentSessionKey])
 
   const handleDeleteMessage = useCallback((messageId: string) => {
@@ -1247,22 +1223,23 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
   const handleRegenerateMessage = useCallback((messageId: string) => {
     const sessionKey = runtimeCurrentSessionKey
     if (!sessionKey) return
-    // 找到该 assistant 消息，删除它，然后重发最后一条 user 消息
+    // 统一语义：回到对应的用户提问 → 删除其后所有消息 → 复用原文重新回答。
+    // assistant 消息回退到它前面最近的 user；user 消息就以自身为锚点。
     const messages = runtimeMessages
     const msgIndex = messages.findIndex((m) => m.id === messageId)
     if (msgIndex === -1) return
-    // 找到该消息之前最近的 user 消息
-    let lastUserMsg: typeof messages[0] | null = null
-    for (let i = msgIndex - 1; i >= 0; i--) {
-      if (messages[i].role === 'user') { lastUserMsg = messages[i]; break }
+    let anchor: typeof messages[0] | null = null
+    for (let i = messages[msgIndex].role === 'user' ? msgIndex : msgIndex - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') { anchor = messages[i]; break }
     }
-    if (!lastUserMsg) return
-    const userContent = lastUserMsg.content.map((c) => ('text' in c ? c.text : '')).join('')
+    if (!anchor) return
+    const anchorIdx = messages.findIndex((m) => m.id === anchor!.id)
+    const userContent = anchor.content.map((c) => ('text' in c ? c.text : '')).join('')
     if (!userContent.trim()) return
 
-    // 删除 assistant 消息，然后重发 user 消息内容
-    void runtimeActions.deleteMessage(messageId, { sessionKey }).then(() => {
-      return runtimeActions.sendMessage(userContent, { sessionKey })
+    const removedCount = messages.length - anchorIdx - 1
+    void runtimeActions.editAndResend(anchor.id, userContent, { sessionKey }).then(() => {
+      if (removedCount > 0) setToast({ message: `已删除后续 ${removedCount} 条消息`, type: 'info' })
     }).catch((err) => {
       logger.error(`[handleRegenerateMessage] 重新生成失败: ${err instanceof Error ? err.message : String(err)}`)
       setToast({ message: '重新生成失败，请重试', type: 'error' })
@@ -1311,7 +1288,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
   }, [setInputValue])
 
   // 稳定化传给 ChatContainer 的回调，避免每次 render 新建函数破坏 memo
-  const handleOpenVersionPanel = useCallback(() => setShowVersionPanel(true), [])
   const handleReplayFromMessage = useCallback((messageId: string) => {
     if (conversationReplay.isReplaying) {
       conversationReplay.stopReplay()
@@ -1414,9 +1390,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
             onEditMessage={handleEditMessage}
             onDeleteMessage={handleDeleteMessage}
             onRegenerateMessage={handleRegenerateMessage}
-            onForkConversation={handleForkConversation}
-            onEditAndResend={handleEditAndResend}
-            onOpenVersionPanel={handleOpenVersionPanel}
             onSuggestionClick={handleSuggestionClick}
             streamingThinkingText={runtimeThinkingLive}
             fileEvents={runtimeFileEvents}
