@@ -1,0 +1,150 @@
+/* ChatPage Global Styles - 细节优化 */
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-gray-600);
+  border-radius: var(--radius-full);
+  transition: background 0.2s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gray-500);
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-gray-600) var(--color-bg-tertiary);
+}
+
+/* Smooth scroll */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Focus visible styles for accessibility */
+*:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Selection color — 与对话输入框一致 */
+::selection {
+  background-color: var(--mt-accent-500, #3b82f6);
+  color: #fff;
+}
+
+[data-theme='light'] ::selection {
+  background-color: var(--mt-accent-300, #93c5fd);
+  color: #0f172a;
+}
+
+[data-theme='dark'] ::selection {
+  background-color: var(--mt-accent-500, #3b82f6);
+  color: #fff;
+}
+
+/* 仅对侧栏导航等交互壳关闭选中；正文/输入默认可选中复制 */
+.chat-sidebar,
+.chat-toolbar {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Prevent zoom on input focus on mobile */
+@media screen and (max-width: 768px) {
+  input,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Loading shimmer animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-secondary) 25%,
+    var(--color-bg-tertiary) 50%,
+    var(--color-bg-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Pulse animation for buttons */
+@keyframes button-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.95);
+  }
+}
+
+.btn-active:active {
+  animation: button-pulse 0.2s ease;
+}
+
+/* Tooltip styles */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-8px);
+  padding: var(--spacing-1) var(--spacing-2);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-md);
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s;
+  pointer-events: none;
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--color-border);
+}
+
+[data-tooltip]:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(-4px);
+}
+
+/* Message highlight animation */
+@keyframes highlight-message {
+  0% {
+    background-color: var(--color-primary-20);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.message-highlight {
+  animation: highlight-message 2s ease-out;
+}

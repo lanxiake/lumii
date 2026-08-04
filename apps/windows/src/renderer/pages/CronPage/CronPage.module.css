@@ -1,0 +1,138 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  padding: 20px 24px 16px;
+  gap: 14px;
+}
+
+.pageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--color-text-primary);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.refreshBtn {
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  transition: background 0.15s;
+}
+
+.refreshBtn:hover {
+  background: var(--color-bg-secondary);
+}
+
+.createBtn {
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: none;
+  background: var(--color-primary-500);
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.createBtn:hover {
+  background: var(--color-primary-600);
+}
+
+/* Tab 栏 */
+.tabBar {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 0;
+}
+
+.tab {
+  font-size: 13px;
+  padding: 6px 14px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+
+.tab:hover {
+  color: var(--color-text-primary);
+}
+
+.tabActive {
+  color: var(--color-primary-500);
+  border-bottom-color: var(--color-primary-500);
+  font-weight: 500;
+}
+
+/* 内容区 */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+/* 空状态 */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.emptyIcon {
+  font-size: 48px;
+  opacity: 0.4;
+}
+
+.emptyText {
+  font-size: 14px;
+}
+
+/* 加载状态 */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-tertiary);
+  font-size: 14px;
+}
+
+/* 错误状态 */
+.errorBanner {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--color-danger-50, #fef2f2);
+  color: var(--color-danger-600, #dc2626);
+  font-size: 13px;
+  flex-shrink: 0;
+}

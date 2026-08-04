@@ -1,0 +1,169 @@
+.pipelinesTab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* 顶部操作栏 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.createBtn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: none;
+  background: var(--color-primary-500);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.createBtn:hover {
+  opacity: 0.9;
+}
+
+/* Pipeline 卡片列表 */
+.pipelineList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pipelineCard {
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.pipelineCard:hover {
+  border-color: var(--color-primary-400);
+}
+
+.pipelineCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.pipelineName {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.pipelineActions {
+  display: flex;
+  gap: 6px;
+}
+
+.actionBtn {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  background: none;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.actionBtn:hover {
+  border-color: var(--color-primary-400);
+  color: var(--color-primary-500);
+}
+
+.actionBtnDanger:hover {
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.pipelineDescription {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  margin-bottom: 8px;
+}
+
+/* Pipeline 边关系 */
+.edgeList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.edgeTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  background: var(--color-bg-tertiary, rgba(128, 128, 128, 0.1));
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.edgeArrow {
+  color: var(--color-primary-400);
+  font-weight: 600;
+}
+
+/* Pipeline 状态 */
+.statusBadge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.statusEnabled {
+  background: rgba(34, 197, 94, 0.12);
+  color: var(--color-success, #22c55e);
+}
+
+.statusDisabled {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--color-text-tertiary);
+}
+
+/* 元信息 */
+.pipelineMeta {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  margin-top: 8px;
+}
+
+/* 空状态 */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 0;
+  color: var(--color-text-tertiary);
+}
+
+.emptyIcon {
+  font-size: 36px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+.emptyText {
+  font-size: 14px;
+}
+
+.emptyHint {
+  font-size: 12px;
+  margin-top: 4px;
+  color: var(--color-text-tertiary);
+  opacity: 0.7;
+}

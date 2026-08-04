@@ -1,0 +1,942 @@
+import React, { useState, useCallback, useEffect, useRef } from 'react'
+import { Package, ShoppingBag, Wrench, Radio, Loader2, FolderOpen, Download, Circle, ChevronDown, ChevronRight, ToggleLeft, ToggleRight, Folder, Trash2, Tag } from 'lucide-react'
+import clsx from 'clsx'
+import { Card } from '../../components/ui/Card/Card'
+import { Button } from '../../components/ui/Button/Button'
+import { Input } from '../../components/ui/Input/Input'
+import { Loading } from '../../components/ui/Loading/Loading'
+import { Empty } from '../../components/ui/Empty/Empty'
+import { Modal } from '../../components/ui/Modal/Modal'
+import { PageHeader } from '../../components/ui/PageHeader/PageHeader'
+import { ErrorBanner } from '../../components/ui/ErrorBanner/ErrorBanner'
+import { Select } from '../../components/ui/Select/Select'
+import { SkillStoreView } from '../../components/business/SkillStoreView'
+import { ToolCard } from './components/ToolCard'
+import { useSkills } from '../../hooks/business/useSkills'
+import { useToolSearch } from '../../hooks/business/useToolSearch'
+import styles from './SkillsPage.module.css'
+
+interface MySkillDetailInfo {
+  skillItemId: string
+  isEnabled: boolean
+  category: string
+  skill: {
+    name: string
+    description?: string
+    version: string
+    tags?: string[]
+  }
+}
+
+const MySkillDetailModal: React.FC<{
+  skillInfo: MySkillDetailInfo | null
+  isOpen: boolean
+  isOperating: boolean
+  onClose: () => void
+  onToggle: () => void
+  onUninstall: () => void
+  onOpenDir?: () => void
+}> = ({ skillInfo, isOpen, isOperating, onClose, onToggle, onUninstall, onOpenDir }) => {
+  if (!skillInfo) return null
+  const { skill, isEnabled, category } = skillInfo
+
+  const footer = (
+    <>
+      <Button variant="ghost" onClick={onClose}>关闭</Button>
+      {onOpenDir && (
+        <Button variant="ghost" onClick={onOpenDir}>打开目录</Button>
+      )}
+      <Button
+        variant={isEnabled ? 'secondary' : 'primary'}
+        onClick={onToggle}
+        loading={isOperating}
+      >
+        {isEnabled ? '禁用' : '启用'}
+      </Button>
+      <Button variant="danger" onClick={onUninstall} disabled={isOperating}>卸载</Button>
+    </>
+  )
+
+  return (
+    <Modal open={isOpen} onClose={onClose} width={460} footer={footer}>
+      <div style={{ padding: '4px 0' }}>
+        {/* 头部 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+          <span style={{
+            width: 44, height: 44, borderRadius: 8, background: 'var(--color-bg-tertiary, var(--bg-tertiary))',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+          }}>
+            <Wrench size={22} />
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{skill.name}</h3>
+              <span style={{
+                fontSize: 11, padding: '2px 8px', borderRadius: 10, fontWeight: 500,
+                background: isEnabled ? 'rgba(34,197,94,0.12)' : 'rgba(107,114,128,0.12)',
+                color: isEnabled ? 'var(--color-success)' : 'var(--color-text-tertiary)',
+              }}>
+                {isEnabled ? '已启用' : '已禁用'}
+              </span>
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>v{skill.version}</span>
+          </div>
+        </div>
+
+        {/* 统计栏 */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8,
+          padding: 12, background: 'var(--color-bg-secondary)', borderRadius: 8, marginBottom: 14
+        }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 2 }}>版本</div>
+            <div style={{ fontSize: 13 }}>v{skill.version}</div>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 2 }}>分类</div>
+            <div style={{ fontSize: 13 }}>{category || '未分类'}</div>
+          </div>
+        </div>
+
+        {/* 描述 */}
+        {skill.description && (
+          <div style={{ marginBottom: 14 }}>
+            <h4 style={{ fontSize: 12, fontWeight: 600, margin: '0 0 6px 0', color: 'var(--color-text-secondary)' }}>描述</h4>
+            <p style={{ fontSize: 13, lineHeight: 1.6, margin: 0, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {skill.description}
+            </p>
+          </div>
+        )}
+
+        {/* 标签 */}
+        {skill.tags && skill.tags.length > 0 && (
+          <div>
+            <h4 style={{ fontSize: 12, fontWeight: 600, margin: '0 0 6px 0', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Tag size={12} /> 标签
+            </h4>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {skill.tags.map(tag => (
+                <span key={tag} style={{
+                  fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                  background: 'var(--color-bg-tertiary, var(--bg-tertiary))',
+                  color: 'var(--color-text-secondary)',
+                  border: '1px solid var(--color-border)'
+                }}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+/** 工具分类中文标签 */
+const CATEGORY_LABELS: Record<string, string> = {
+  filesystem: '文件工具',
+  shell: 'Shell 工具',
+  web: '网络工具',
+  memory: '记忆工具',
+  agent: 'Agent 工具',
+  channel: 'MCP 工具',
+}
+
+/** 工具分类排序权重（数字越小越靠前） */
+const CATEGORY_ORDER: Record<string, number> = {
+  filesystem: 1,
+  shell: 2,
+  web: 3,
+  agent: 4,
+  memory: 5,
+  channel: 6,
+}
+
+/**
+ * 标签页类型
+ */
+type TabType = 'my-skills' | 'store' | 'tools' | 'mcp'
+
+/**
+ * 筛选状态类型
+ */
+type FilterStatus = 'all' | 'enabled' | 'disabled'
+
+/**
+ * SkillsPage - 技能管理页面
+ *
+ * 基于 SkillsView.tsx 重构
+ * 显示已安装技能
+ * 支持启用/禁用/卸载技能
+ * 包含技能商店入口
+ */
+const SkillsPage: React.FC = () => {
+  const { installedSkills, stats: skillStats, isLoading, error, loadInstalledSkills, enableSkill, disableSkill, uninstallSkill } = useSkills()
+  const { filtered: filteredTools, grouped: groupedTools, stats: toolStats, query: toolQuery, setQuery: setToolQuery, isLoading: isToolsLoading, togglingTool, toggleTool, mcpStatus } = useToolSearch()
+
+  // 标签页状态
+  const [activeTab, setActiveTab] = useState<TabType>('my-skills')
+
+  // 搜索和筛选状态
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
+
+  // 操作状态
+  const [operatingSkillId, setOperatingSkillId] = useState<string | null>(null)
+  const [resultMessage, setResultMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  // 卸载确认对话框
+  const [showUninstallModal, setShowUninstallModal] = useState(false)
+  const [skillToUninstall, setSkillToUninstall] = useState<string | null>(null)
+
+  // 技能详情弹窗
+  const [detailSkillInfo, setDetailSkillInfo] = useState<MySkillDetailInfo | null>(null)
+
+  // 本地技能导入 - 拖放状态
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [isInstalling, setIsInstalling] = useState(false)
+
+  // 使用 hook 返回的 stats
+  const stats = skillStats
+
+  /**
+   * 过滤技能列表
+   */
+  const filteredSkills = installedSkills.filter(skillInfo => {
+    const skill = skillInfo.skill
+    // 搜索过滤
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
+      const matchName = skill.name.toLowerCase().includes(query)
+      const matchDesc = (skill.description ?? '').toLowerCase().includes(query)
+      if (!matchName && !matchDesc) return false
+    }
+    
+    // 状态过滤
+    if (filterStatus === 'enabled' && !skillInfo.isEnabled) return false
+    if (filterStatus === 'disabled' && skillInfo.isEnabled) return false
+    
+    return true
+  })
+
+  /**
+   * 按分类分组（无分类归入"其他"）
+   * 分类内按启用状态排序：启用在前
+   */
+  const groupedByCategory = React.useMemo(() => {
+    const map = new Map<string, typeof filteredSkills>()
+    for (const s of filteredSkills) {
+      const key = s.category || ''
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(s)
+    }
+    // 分类内：启用在前
+    for (const [, list] of map) {
+      list.sort((a, b) => (b.isEnabled ? 1 : 0) - (a.isEnabled ? 1 : 0))
+    }
+    // 排序：有名称的分类按字母，无分类（''）放最后
+    return [...map.entries()].sort(([a], [b]) => {
+      if (a === '' && b !== '') return 1
+      if (a !== '' && b === '') return -1
+      return a.localeCompare(b, 'zh')
+    })
+  }, [filteredSkills])
+
+  /**
+   * 手动刷新：重新扫描本地技能目录并上报到 Gateway，然后刷新列表
+   */
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true)
+    try {
+      const result = await window.electronAPI.skills.refresh() as { success: boolean; count: number }
+      await loadInstalledSkills()
+      setResultMessage({ type: 'success', text: `已刷新，检测到 ${result.count} 个技能` })
+    } catch (err) {
+      setResultMessage({ type: 'error', text: err instanceof Error ? err.message : '刷新失败' })
+    } finally {
+      setIsRefreshing(false)
+      setTimeout(() => setResultMessage(null), 3000)
+    }
+  }, [loadInstalledSkills])
+
+  /**
+   * 处理技能启用/禁用切换
+   */
+  const handleToggleSkill = useCallback(async (skillItemId: string) => {
+    const skillInfo = installedSkills.find(s => s.skillItemId === skillItemId)
+    if (!skillInfo) return
+
+    setOperatingSkillId(skillItemId)
+    try {
+      if (skillInfo.isEnabled) {
+        await disableSkill(skillItemId)
+        setResultMessage({ type: 'success', text: '技能已禁用' })
+      } else {
+        await enableSkill(skillItemId)
+        setResultMessage({ type: 'success', text: '技能已启用' })
+      }
+      // 状态变更后触发上报（fire-and-forget，不阻塞 UI）
+      window.electronAPI.skills.refresh().catch(() => {})
+    } catch (err) {
+      setResultMessage({
+        type: 'error',
+        text: err instanceof Error ? err.message : '操作失败'
+      })
+    } finally {
+      setOperatingSkillId(null)
+      setTimeout(() => setResultMessage(null), 3000)
+    }
+  }, [installedSkills, enableSkill, disableSkill])
+
+  /**
+   * 处理技能卸载
+   */
+  const handleUninstall = useCallback(async () => {
+    if (!skillToUninstall) return
+
+    setOperatingSkillId(skillToUninstall)
+    try {
+      await uninstallSkill(skillToUninstall)
+      setResultMessage({ type: 'success', text: '技能已卸载' })
+      if (detailSkillInfo?.skillItemId === skillToUninstall) {
+        setDetailSkillInfo(null)
+      }
+      // 卸载后触发上报
+      window.electronAPI.skills.refresh().catch(() => {})
+    } catch (err) {
+      setResultMessage({
+        type: 'error',
+        text: err instanceof Error ? err.message : '卸载失败'
+      })
+    } finally {
+      setOperatingSkillId(null)
+      setShowUninstallModal(false)
+      setSkillToUninstall(null)
+      setTimeout(() => setResultMessage(null), 3000)
+    }
+  }, [skillToUninstall, uninstallSkill, detailSkillInfo])
+
+  /**
+   * 打开技能所在目录
+   */
+  const handleOpenDir = useCallback(async (skillItemId: string) => {
+    try {
+      const dirPath = await window.electronAPI.skills.getSkillDir(skillItemId)
+      await window.electronAPI.app.showItemInFolder(dirPath)
+    } catch (err) {
+      setResultMessage({ type: 'error', text: err instanceof Error ? err.message : '打开目录失败' })
+      setTimeout(() => setResultMessage(null), 3000)
+    }
+  }, [])
+
+  /**
+   * 打开卸载确认对话框
+   */
+  const openUninstallModal = useCallback((skillId: string) => {
+    setSkillToUninstall(skillId)
+    setShowUninstallModal(true)
+  }, [])
+
+  /**
+   * 从本地目录安装技能（拖放或点击选择）
+   */
+  const handleInstallFromDirectory = useCallback(async (sourcePath: string) => {
+    setIsInstalling(true)
+    try {
+      await window.electronAPI.skills.importDirectory(sourcePath)
+      await loadInstalledSkills()
+      setResultMessage({ type: 'success', text: `技能 ${sourcePath.split(/[\\/]/).pop()} 导入成功` })
+    } catch (err) {
+      setResultMessage({ type: 'error', text: err instanceof Error ? err.message : '导入失败' })
+    } finally {
+      setIsInstalling(false)
+      setTimeout(() => setResultMessage(null), 4000)
+    }
+  }, [loadInstalledSkills])
+
+  /**
+   * 点击 Drop Zone：打开系统目录选择对话框
+   */
+  const handleDropZoneClick = useCallback(async () => {
+    try {
+      const result = await window.electronAPI.dialog.showOpenDialog({
+        properties: ['openDirectory'],
+        title: '选择技能目录',
+        buttonLabel: '导入技能',
+      })
+      if (!result.canceled && result.filePaths.length > 0) {
+        await handleInstallFromDirectory(result.filePaths[0])
+      }
+    } catch (err) {
+      setResultMessage({ type: 'error', text: err instanceof Error ? err.message : '无法打开目录选择器' })
+      setTimeout(() => setResultMessage(null), 3000)
+    }
+  }, [handleInstallFromDirectory])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+  }, [])
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+
+    const items = Array.from(e.dataTransfer.items).filter(item => item.kind === 'file')
+    if (items.length === 0) return
+
+    const firstItem = items[0]
+
+    // 检测 ZIP 文件
+    if (firstItem.type === 'application/zip' || firstItem.type === 'application/x-zip-compressed') {
+      setResultMessage({ type: 'error', text: '请先解压后再拖入技能目录' })
+      setTimeout(() => setResultMessage(null), 3000)
+      return
+    }
+
+    const file = firstItem.getAsFile()
+    if (!file) return
+
+    // 用 Electron webUtils.getPathForFile 获取真实本地路径
+    const filePath = window.electronAPI.app.getPathForFile(file)
+    if (!filePath) {
+      setResultMessage({ type: 'error', text: '无法获取路径，请尝试点击选择目录' })
+      setTimeout(() => setResultMessage(null), 3000)
+      return
+    }
+
+    await handleInstallFromDirectory(filePath)
+  }, [handleInstallFromDirectory])
+
+  // 折叠状态：存储已折叠的分类 key
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
+
+  const toggleCategoryCollapse = useCallback((key: string) => {
+    setCollapsedCategories(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
+  // 分类导航点击：滚动到对应分类
+  const categoryRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const scrollToCategory = useCallback((key: string) => {
+    const el = categoryRefs.current.get(key)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // 如果该分类已折叠，展开它
+    setCollapsedCategories(prev => {
+      if (!prev.has(key)) return prev
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
+  }, [])
+
+  // 监听来自 AgentsPage 的「去商店下载」事件：切换到商店 tab 并预填搜索词
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const query = (e as CustomEvent<{ query?: string }>).detail?.query ?? ''
+      setActiveTab('store')
+      if (query) {
+        // SkillStoreView 通过挂载时 loadStoreSkills() 初始化，
+        // 这里借 sessionStorage 传递初始搜索词，SkillStoreView 挂载后读取。
+        sessionStorage.setItem('mtbot_skill_store_init_query', query)
+      }
+    }
+    window.addEventListener('mtbot:open-skill-store', handler)
+    return () => window.removeEventListener('mtbot:open-skill-store', handler)
+  }, [])
+
+  // 独立版：技能全部走本地 IPC（workspace/skills），无需网关连接
+  const isConnected = true
+
+  return (
+    <div className={styles['skills-page']}>
+      {/* 标签页导航：我的技能 → 技能商店 → 工具 → MCP工具 */}
+      <div className={styles['skills-tabs']}>
+        <button
+          className={clsx(styles['skills-tab'], activeTab === 'my-skills' && styles['active'])}
+          onClick={() => setActiveTab('my-skills')}
+        >
+          <span className={styles['tab-icon']}><Package size={14} /></span>
+          <span className={styles['tab-label']}>我的技能</span>
+          <span className={styles['tab-badge']}>{stats.total}</span>
+        </button>
+        <button
+          className={clsx(styles['skills-tab'], activeTab === 'store' && styles['active'])}
+          onClick={() => setActiveTab('store')}
+        >
+          <span className={styles['tab-icon']}><ShoppingBag size={14} /></span>
+          <span className={styles['tab-label']}>技能商店</span>
+        </button>
+        <button
+          className={clsx(styles['skills-tab'], activeTab === 'tools' && styles['active'])}
+          onClick={() => setActiveTab('tools')}
+        >
+          <span className={styles['tab-icon']}><Wrench size={14} /></span>
+          <span className={styles['tab-label']}>工具</span>
+          <span className={styles['tab-badge']}>{toolStats.total - (groupedTools.get('channel')?.length ?? 0)}</span>
+        </button>
+        <button
+          className={clsx(styles['skills-tab'], activeTab === 'mcp' && styles['active'])}
+          onClick={() => setActiveTab('mcp')}
+        >
+          <span className={styles['tab-icon']}><Radio size={14} /></span>
+          <span className={styles['tab-label']}>MCP 工具</span>
+          {/* 修复: 只统计有对应 MCP Server 的 channel 工具,避免与页面内容不一致 */}
+          {(() => {
+            const channelTools = groupedTools.get('channel') ?? []
+            const mcpToolCount = channelTools.filter(tool => 
+              mcpStatus.some(server => tool.name.startsWith(`mcp__${server.name}__`))
+            ).length
+            return mcpToolCount > 0 ? (
+              <span className={styles['tab-badge']}>{mcpToolCount}</span>
+            ) : null
+          })()}
+        </button>
+      </div>
+
+      {/* 我的技能标签页 */}
+      {activeTab === 'my-skills' && (
+        <>
+          {/* 工具栏 */}
+          <div className={styles['skills-toolbar']}>
+            <div className={styles['skills-stats']}>
+              <span className={styles['stat-item']}>
+                <strong>{stats.total}</strong> 总数
+              </span>
+              <span className={clsx(styles['stat-item'], styles['enabled'])}>
+                <strong>{stats.enabled}</strong> 已启用
+              </span>
+              <span className={clsx(styles['stat-item'], styles['disabled'])}>
+                <strong>{stats.disabled}</strong> 已禁用
+              </span>
+            </div>
+            <div className={styles['skills-filters']}>
+              <Input
+                placeholder="搜索技能..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={styles['skills-search']}
+              />
+              <Select
+                options={[
+                  { value: 'all', label: '全部状态' },
+                  { value: 'enabled', label: '已启用' },
+                  { value: 'disabled', label: '已禁用' },
+                ]}
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value as FilterStatus)}
+                className={styles['status-filter']}
+              />
+              <Button onClick={handleRefresh} loading={isRefreshing || isLoading}>
+                刷新
+              </Button>
+            </div>
+          </div>
+
+          {/* 结果提示 */}
+          {resultMessage && (
+            <div className={clsx(styles['skills-result-banner'], styles[resultMessage.type])}>
+              {resultMessage.text}
+              <button onClick={() => setResultMessage(null)}>✕</button>
+            </div>
+          )}
+
+          {/* 错误提示 */}
+          {error && (
+            <ErrorBanner
+              message={error.message}
+              onRetry={() => loadInstalledSkills()}
+            />
+          )}
+
+          {/* 本地技能导入 Drop Zone */}
+          <div
+            className={clsx(
+              styles['drop-zone'],
+              isDragOver && styles['drop-zone--active'],
+              isInstalling && styles['drop-zone--installing'],
+            )}
+            onClick={isInstalling ? undefined : handleDropZoneClick}
+            onDragOver={handleDragOver}
+            onDragEnter={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Enter' && !isInstalling && handleDropZoneClick()}
+            aria-label="从本地导入技能，点击选择目录或拖入目录"
+          >
+            {isInstalling ? (
+              <>
+                <span className={styles['drop-zone-icon']}><Loader2 size={24} className="animate-spin" /></span>
+                <span className={styles['drop-zone-text']}>正在安装...</span>
+              </>
+            ) : (
+              <>
+                <span className={styles['drop-zone-icon']}>{isDragOver ? <FolderOpen size={24} /> : <Download size={24} />}</span>
+                <span className={styles['drop-zone-text']}>
+                  {isDragOver ? '松开以导入技能目录' : '拖入技能目录 · 或点击选择'}
+                </span>
+              </>
+            )}
+          </div>
+
+          {/* 主体：左侧分类导航 + 右侧技能列表 */}
+          {isLoading && installedSkills.length === 0 && !error ? (
+            <Loading text="加载技能中..." />
+          ) : filteredSkills.length === 0 ? (
+            <Empty
+              description={searchQuery || filterStatus !== 'all' ? '没有找到匹配的技能' : '暂无已安装技能'}
+              action={
+                !searchQuery && filterStatus === 'all' && (
+                  <Button onClick={() => setActiveTab('store')}>
+                    浏览技能商店
+                  </Button>
+                )
+              }
+            />
+          ) : (
+            <div className={styles['skills-body']}>
+              {/* 左侧分类导航 */}
+              <nav className={styles['category-nav']}>
+                <button
+                  className={clsx(styles['category-nav-item'], styles['category-nav-all'])}
+                  onClick={() => {
+                    const first = groupedByCategory[0]
+                    if (first) scrollToCategory(first[0])
+                  }}
+                >
+                  <span className={styles['category-nav-label']}>全部</span>
+                  <span className={styles['category-nav-count']}>{filteredSkills.length}</span>
+                </button>
+                {groupedByCategory.map(([category, skills]) => (
+                  <button
+                    key={category || '__no_category__'}
+                    className={styles['category-nav-item']}
+                    onClick={() => scrollToCategory(category)}
+                    title={category || '未分类'}
+                  >
+                    <span className={styles['category-nav-label']}>{category || '未分类'}</span>
+                    <span className={styles['category-nav-count']}>{skills.length}</span>
+                  </button>
+                ))}
+              </nav>
+
+              {/* 右侧技能列表 */}
+              <div className={styles['skills-list-scroll']}>
+                {groupedByCategory.map(([category, skills]) => {
+                  const isCollapsed = collapsedCategories.has(category)
+                  return (
+                    <div
+                      key={category || '__no_category__'}
+                      className={styles['skill-group']}
+                      ref={(el) => {
+                        if (el) categoryRefs.current.set(category, el)
+                        else categoryRefs.current.delete(category)
+                      }}
+                    >
+                      {/* 分类标题行（可折叠） */}
+                      <button
+                        className={styles['skill-group-header']}
+                        onClick={() => toggleCategoryCollapse(category)}
+                        aria-expanded={!isCollapsed}
+                      >
+                        <span className={styles['skill-group-chevron']}>
+                          {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                        </span>
+                        <span className={styles['skill-group-name']}>
+                          {category || '未分类'}
+                        </span>
+                        <span className={styles['skill-group-count']}>{skills.length}</span>
+                      </button>
+
+                      {/* 技能行列表 */}
+                      {!isCollapsed && (
+                        <div className={styles['skill-rows']}>
+                          {skills.map((skillInfo) => (
+                            <SkillRow
+                              key={skillInfo.skillItemId}
+                              skillInfo={skillInfo}
+                              isOperating={operatingSkillId === skillInfo.skillItemId}
+                              onDetail={() => setDetailSkillInfo({
+                                skillItemId: skillInfo.skillItemId,
+                                isEnabled: skillInfo.isEnabled,
+                                category: skillInfo.category,
+                                skill: skillInfo.skill,
+                              })}
+                              onToggle={() => handleToggleSkill(skillInfo.skillItemId)}
+                              onUninstall={() => openUninstallModal(skillInfo.skillItemId)}
+                              onOpenDir={skillInfo.skill.tags?.includes('本地') ? () => handleOpenDir(skillInfo.skillItemId) : undefined}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* 工具管理标签页（内建工具，不含 MCP） */}
+      {activeTab === 'tools' && (
+        <>
+          <PageHeader
+            title="工具管理"
+            subtitle={`共 ${toolStats.total - (groupedTools.get('channel')?.length ?? 0)} 个内建工具`}
+          />
+          <div className={styles['skills-toolbar']}>
+            <div className={styles['skills-filters']}>
+              <Input
+                placeholder="搜索工具..."
+                value={toolQuery}
+                onChange={(e) => setToolQuery(e.target.value)}
+                className={styles['skills-search']}
+              />
+            </div>
+          </div>
+          <Card className={styles['skills-list-card']}>
+            {isToolsLoading ? (
+              <Loading text="加载工具中..." />
+            ) : filteredTools.filter(t => t.category !== 'channel').length === 0 ? (
+              <Empty description={toolQuery ? '没有找到匹配的工具' : '暂无内建工具'} />
+            ) : (
+              <div className={styles['skills-list']}>
+                {[...groupedTools.entries()]
+                  .filter(([category]) => category !== 'channel')
+                  .sort(([a], [b]) => (CATEGORY_ORDER[a] ?? 99) - (CATEGORY_ORDER[b] ?? 99))
+                  .map(([category, categoryTools]) => (
+                    <div key={category} className={styles['skill-group']}>
+                      <h3 className={styles['skill-group-title']}>
+                        {CATEGORY_LABELS[category] ?? category}（{categoryTools.length}）
+                      </h3>
+                      {categoryTools.map((tool) => (
+                        <ToolCard
+                          key={tool.name}
+                          name={tool.name}
+                          label={tool.label}
+                          description={tool.description}
+                          category={tool.category}
+                          isReadOnly={tool.isReadOnly}
+                          enabled={tool.enabled}
+                          isToggling={togglingTool === tool.name}
+                          onToggle={(enabled) => toggleTool(tool.name, enabled)}
+                        />
+                      ))}
+                    </div>
+                  ))}
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+
+      {/* MCP 工具标签页 */}
+      {activeTab === 'mcp' && (
+        <>
+          <PageHeader
+            title="MCP 工具"
+            subtitle={
+              mcpStatus.length > 0
+                ? `已连接 ${mcpStatus.filter(s => s.connected).length}/${mcpStatus.length} 个 Server，共 ${groupedTools.get('channel')?.length ?? 0} 个工具`
+                : '暂无 MCP Server'
+            }
+          />
+          <div className={styles['skills-toolbar']}>
+            <div className={styles['skills-filters']}>
+              <Input
+                placeholder="搜索 MCP 工具..."
+                value={toolQuery}
+                onChange={(e) => setToolQuery(e.target.value)}
+                className={styles['skills-search']}
+              />
+            </div>
+          </div>
+          <Card className={styles['skills-list-card']}>
+            {mcpStatus.length === 0 ? (
+              <div style={{ padding: '16px', color: 'var(--mt-fg-3, var(--color-text-secondary))', fontSize: 13 }}>
+                暂无 MCP Server。在 <code>~/.lumii/config/mcp-servers.json</code> 中配置后重启生效。
+              </div>
+            ) : (() => {
+              const mcpTools = filteredTools.filter(t => t.category === 'channel')
+              if (mcpTools.length === 0) {
+                return <Empty description={toolQuery ? '没有找到匹配的 MCP 工具' : '所有 MCP Server 均未提供工具'} />
+              }
+              return (
+                <div className={styles['skills-list']}>
+                  {mcpStatus.map(server => {
+                    const serverTools = mcpTools.filter(t => t.name.startsWith(`mcp__${server.name}__`))
+                    if (serverTools.length === 0) return null
+                    return (
+                      <div key={server.name} className={styles['skill-group']}>
+                        <h3 className={styles['skill-group-title']}>
+                          {server.connected
+                            ? <Circle size={8} className={styles['status-dot-online']} />
+                            : <Circle size={8} className={styles['status-dot-offline']} />
+                          } {server.name}（{serverTools.length} 个工具）
+                        </h3>
+                        {serverTools.map((tool) => (
+                          <ToolCard
+                            key={tool.name}
+                            name={tool.name}
+                            label={tool.label}
+                            description={tool.description}
+                            category={tool.category}
+                            isReadOnly={tool.isReadOnly}
+                            enabled={tool.enabled}
+                            isToggling={togglingTool === tool.name}
+                            onToggle={(enabled) => toggleTool(tool.name, enabled)}
+                          />
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+          </Card>
+        </>
+      )}
+
+      {/* 技能商店标签页 */}
+      {activeTab === 'store' && (
+        <SkillStoreView
+          isConnected={isConnected}
+          onInstallComplete={() => loadInstalledSkills()}
+        />
+      )}
+
+      {/* 技能详情对话框 */}
+      <MySkillDetailModal
+        skillInfo={detailSkillInfo}
+        isOpen={detailSkillInfo !== null}
+        isOperating={detailSkillInfo ? operatingSkillId === detailSkillInfo.skillItemId : false}
+        onClose={() => setDetailSkillInfo(null)}
+        onToggle={() => {
+          if (detailSkillInfo) handleToggleSkill(detailSkillInfo.skillItemId)
+        }}
+        onUninstall={() => {
+          if (detailSkillInfo) {
+            setDetailSkillInfo(null)
+            openUninstallModal(detailSkillInfo.skillItemId)
+          }
+        }}
+        onOpenDir={detailSkillInfo?.skill.tags?.includes('本地')
+          ? () => { if (detailSkillInfo) handleOpenDir(detailSkillInfo.skillItemId) }
+          : undefined
+        }
+      />
+
+      {/* 卸载确认对话框 */}
+      <Modal
+        open={showUninstallModal}
+        title="确认卸载"
+        onClose={() => setShowUninstallModal(false)}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowUninstallModal(false)}>
+              取消
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleUninstall}
+              loading={!!operatingSkillId}
+            >
+              卸载
+            </Button>
+          </>
+        }
+      >
+        <p>确定要卸载此技能吗？此操作不可恢复。</p>
+      </Modal>
+    </div>
+  )
+}
+
+/**
+ * SkillRow - 紧凑技能行（替代大卡片）
+ * 高度约 36px，hover 时显示操作按钮
+ */
+interface SkillRowProps {
+  skillInfo: {
+    skillItemId: string
+    isEnabled: boolean
+    skill: { name: string; description?: string; version: string; tags?: string[] }
+  }
+  isOperating: boolean
+  onDetail: () => void
+  onToggle: () => void
+  onUninstall: () => void
+  onOpenDir?: () => void
+}
+
+const SkillRow: React.FC<SkillRowProps> = ({ skillInfo, isOperating, onDetail, onToggle, onUninstall, onOpenDir }) => {
+  return (
+    <div
+      className={clsx(styles['skill-row'], !skillInfo.isEnabled && styles['skill-row--disabled'])}
+      onClick={onDetail}
+      style={{ cursor: 'pointer' }}
+    >
+      {/* 状态指示点 */}
+      <span className={clsx(styles['skill-row-dot'], skillInfo.isEnabled ? styles['dot-enabled'] : styles['dot-disabled'])} />
+
+      {/* 名称 + 描述 */}
+      <span className={styles['skill-row-name']} title={skillInfo.skill.name}>
+        {skillInfo.skill.name}
+      </span>
+      {skillInfo.skill.description && (
+        <span className={styles['skill-row-desc']} title={skillInfo.skill.description}>
+          {skillInfo.skill.description}
+        </span>
+      )}
+
+      {/* 操作区（hover 显示） */}
+      <div className={styles['skill-row-actions']}>
+        <button
+          className={clsx(styles['skill-row-btn'], skillInfo.isEnabled ? styles['btn-disable'] : styles['btn-enable'])}
+          onClick={(e) => { e.stopPropagation(); onToggle() }}
+          disabled={isOperating}
+          title={skillInfo.isEnabled ? '禁用' : '启用'}
+        >
+          {isOperating ? <Loader2 size={13} className="animate-spin" /> : skillInfo.isEnabled ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
+        </button>
+        {onOpenDir && (
+          <button
+            className={styles['skill-row-btn']}
+            onClick={(e) => { e.stopPropagation(); onOpenDir() }}
+            title="打开目录"
+          >
+            <Folder size={13} />
+          </button>
+        )}
+        <button
+          className={clsx(styles['skill-row-btn'], styles['btn-danger'])}
+          onClick={(e) => { e.stopPropagation(); onUninstall() }}
+          disabled={isOperating}
+          title="卸载"
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export { SkillsPage };
+export default SkillsPage

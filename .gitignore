@@ -1,0 +1,38 @@
+# Lumii local dev runtime files
+.lumii-dev.pid
+.lumii-dev.log
+
+# Dependencies
+node_modules/
+
+# Build / package outputs
+dist/
+build/
+out/
+release/
+release-build-*/
+coverage/
+*.tsbuildinfo
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+**/.env
+!**/.env.example
+
+# Logs & OS junk
+*.log
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Turbo / caches
+.turbo/
+.cache/
+**/node_modules/.cache/

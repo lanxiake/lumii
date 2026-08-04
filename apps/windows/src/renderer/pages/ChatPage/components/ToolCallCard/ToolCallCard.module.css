@@ -1,0 +1,741 @@
+/**
+ * ToolCallCard.module.css - 工具调用紧凑行样式
+ *
+ * 设计特点：
+ * - 单行紧凑，不占用大量空间
+ * - 微妙的颜色，不喧宾夺主
+ * - 可展开查看详情
+ */
+
+/* 单行工具调用 */
+.row {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-md, 6px);
+  overflow: hidden;
+}
+
+/* 行头部 */
+.rowHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  cursor: pointer;
+  border-radius: var(--radius-sm, 4px);
+  transition: background-color 0.15s;
+  user-select: none;
+  min-height: 24px;
+}
+
+.rowHeader:hover {
+  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.05));
+}
+
+/* 图标 */
+.icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.4));
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+/* 旋转动画（运行中状态） */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinIcon {
+  animation: spin 1.5s linear infinite;
+  color: var(--color-primary-400, #60a5fa);
+}
+
+/* 子 Agent 来源标签徽章 */
+.agentLabelBadge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(139, 92, 246, 0.18);
+  color: rgba(167, 139, 250, 0.9);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: var(--font-family-mono, monospace);
+  letter-spacing: 0.02em;
+}
+
+/* 工具名称标签（明确显示调用的是哪个工具） */
+.toolNameBadge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(59, 130, 246, 0.14);
+  color: rgba(96, 165, 250, 0.95);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-family: var(--font-family-mono, monospace);
+  letter-spacing: 0.02em;
+}
+
+/* 标签文本 */
+.label {
+  flex: 1;
+  font-size: 12px;
+  color: var(--color-text-secondary, rgba(255,255,255,0.55));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+/* 运行中 - 略微加亮 */
+.running .label {
+  color: var(--color-text-primary, rgba(255,255,255,0.75));
+}
+
+/* 失败 - 红色 */
+.failed .icon,
+.failed .label {
+  color: var(--color-error, #f87171);
+  opacity: 0.8;
+}
+
+/* 展开/折叠切换符 */
+.toggle {
+  font-size: 9px;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.3));
+  flex-shrink: 0;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+/* todo_write 内联预览（折叠即可见，不必依赖「已写入文件」误分类） */
+.todoPreviewWrap {
+  padding: 4px 6px 6px 22px;
+  border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
+}
+
+.todoList {
+  margin: 0;
+  padding: 0 0 0 16px;
+  font-size: 11px;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
+  line-height: 1.45;
+}
+
+.todoListItem {
+  margin: 2px 0;
+  list-style: disc;
+}
+
+.todoId {
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.4));
+  margin-right: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.todoSubject {
+  margin-right: 6px;
+}
+
+.todoStatus {
+  font-size: 10px;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.35));
+}
+
+/* 任务状态徽章 */
+.todoStatusBadge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  line-height: 14px;
+  vertical-align: middle;
+}
+
+.todoStatusBadge--pending {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.todoStatusBadge--todo {
+  background: rgba(156, 163, 175, 0.15);
+  color: #9ca3af;
+}
+
+.todoStatusBadge--in_progress {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+
+.todoStatusBadge--review {
+  background: rgba(251, 146, 60, 0.15);
+  color: #fb923c;
+}
+
+.todoStatusBadge--done {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.todoStatusBadge--blocked {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+.todoStatusBadge--cancelled {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.25);
+  text-decoration: line-through;
+}
+
+.todoSingle {
+  font-size: 11px;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.todoMeta {
+  font-size: 10px;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.35));
+}
+
+.todoPreviewError {
+  font-size: 11px;
+  color: var(--color-error, #f87171);
+}
+
+/* 详情区域 */
+.details {
+  padding: 4px 6px 6px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detailBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.detailHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.copy-btn {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm, 4px);
+  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
+  background: transparent;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1.6;
+  flex-shrink: 0;
+}
+
+.copy-btn:hover {
+  background: var(--color-bg-tertiary, rgba(255,255,255,0.06));
+  color: var(--color-text-secondary, rgba(255,255,255,0.55));
+  border-color: var(--color-border-hover, rgba(255,255,255,0.18));
+}
+
+.copy-btn--copied {
+  color: var(--color-success, #34d399);
+  border-color: var(--color-success, #34d399);
+}
+
+.detailLabel {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.code {
+  background: var(--color-bg-secondary, rgba(0,0,0,0.2));
+  border: 1px solid var(--color-border, rgba(255,255,255,0.08));
+  border-radius: var(--radius-sm, 4px);
+  padding: 6px 8px;
+  font-family: var(--font-family-mono, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-text-primary, rgba(255,255,255,0.8));
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 0;
+}
+
+.errorText {
+  font-size: 12px;
+  color: var(--color-error, #f87171);
+}
+
+/* 列表容器 */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* ─── 子 Agent 专属样式 ─────────────────────────── */
+
+/* 子 Agent 卡片 - 视觉上更突出，与普通工具调用区分 */
+.subagentRow {
+  border-left: 2px solid var(--color-primary-500, #6366f1);
+  border-radius: 0 var(--radius-md, 6px) var(--radius-md, 6px) 0;
+  background: var(--color-bg-secondary, rgba(99, 102, 241, 0.04));
+  margin: 2px 0;
+  overflow: hidden;
+}
+
+.subagentRow.running {
+  border-left-color: var(--color-primary-400, #818cf8);
+  background: rgba(99, 102, 241, 0.07);
+}
+
+.subagentRow.failed {
+  border-left-color: var(--color-error, #f87171);
+  background: rgba(248, 113, 113, 0.04);
+}
+
+/* 子 Agent 头部行 - 稍微大一点 */
+.subagentHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px 5px 10px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  user-select: none;
+  min-height: 30px;
+}
+
+.subagentHeader:hover {
+  background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.04));
+}
+
+/* 子 Agent 图标 */
+.subagentIcon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--color-primary-400, #818cf8);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.subagentRow.failed .subagentIcon {
+  color: var(--color-error, #f87171);
+}
+
+/* 子 Agent 主要信息列 */
+.subagentMain {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 子 Agent 任务标签 */
+.subagentTask {
+  font-size: 12px;
+  color: var(--color-text-primary, rgba(255,255,255,0.82));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+.subagentRow.running .subagentTask {
+  color: var(--color-text-primary, rgba(255,255,255,0.9));
+}
+
+.subagentRow.failed .subagentTask {
+  color: var(--color-error, #f87171);
+}
+
+/* 子 Agent 会话 Key / 标签 */
+.subagentMeta {
+  font-size: 10px;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-family-mono, monospace);
+  letter-spacing: 0.2px;
+}
+
+/* 子 Agent 右侧元信息（耗时 + 状态标签） */
+.subagentRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* 耗时显示 */
+.subagentDuration {
+  font-size: 10px;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.3));
+  font-family: var(--font-family-mono, monospace);
+}
+
+/* 状态徽标 */
+.subagentBadge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.subagentBadge--running {
+  background: rgba(99, 102, 241, 0.2);
+  color: var(--color-primary-300, #a5b4fc);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
+.subagentBadge--completed {
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--color-success, #34d399);
+  border: 1px solid rgba(52, 211, 153, 0.2);
+}
+
+.subagentBadge--failed {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--color-error, #f87171);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+}
+
+/* 展开折叠符 */
+.subagentToggle {
+  font-size: 9px;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.3));
+  padding: 0 2px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+/* 子 Agent 详情区 */
+.subagentDetails {
+  padding: 6px 10px 8px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--color-border, rgba(255,255,255,0.06));
+}
+
+/* 子 Agent 会话信息块 */
+.subagentSessionInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.subagentSessionRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.subagentSessionLabel {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+  min-width: 50px;
+}
+
+.subagentSessionValue {
+  font-size: 10px;
+  color: var(--color-text-secondary, rgba(255,255,255,0.5));
+  font-family: var(--font-family-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 脉冲动画（运行中） */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.subagentRow.running .subagentIcon {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* 子 Agent 名称行（包含 badge 和耗时） */
+.subagentNameRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+/* 子 Agent 名称（首行，最突出） */
+.subagentName {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-primary-300, #a5b4fc);
+  font-family: var(--font-family-mono, monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.subagentRow.failed .subagentName {
+  color: var(--color-error, #f87171);
+}
+
+/* 运行中提示文字（脉冲效果） */
+.subagentRunningHint {
+  font-size: 10px;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  font-style: italic;
+  margin-top: 1px;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* 内联错误（卡片未展开时也可见） */
+.subagentInlineError {
+  font-size: 10px;
+  color: var(--color-error, #f87171);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 内联摘要（卡片未展开时也可见） */
+.subagentInlineSummary {
+  font-size: 10px;
+  color: var(--color-text-secondary, rgba(255,255,255,0.5));
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── 子 Agent 内部工具调用列表 ─────────────────────────── */
+
+.childItemsList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.childToolRow {
+  border-radius: 4px;
+  border-left: 2px solid var(--color-border, rgba(255,255,255,0.1));
+  overflow: hidden;
+}
+
+.childTool--running { border-left-color: var(--color-accent, #6366f1); }
+.childTool--completed { border-left-color: var(--color-success, #22c55e); }
+.childTool--failed { border-left-color: var(--color-error, #f87171); }
+
+.childToolHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--color-text-secondary, rgba(255,255,255,0.6));
+  background: rgba(255,255,255,0.02);
+  user-select: none;
+}
+
+.childToolHeader:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+.childToolIcon {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.childToolName {
+  flex: 1;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--color-text, rgba(255,255,255,0.8));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.childToolDuration {
+  font-size: 10px;
+  color: var(--color-text-secondary, rgba(255,255,255,0.4));
+  flex-shrink: 0;
+}
+
+.childToolToggle {
+  font-size: 9px;
+  color: var(--color-text-secondary, rgba(255,255,255,0.4));
+  flex-shrink: 0;
+}
+
+/* 普通工具调用耗时 */
+.duration {
+  font-size: 10px;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.3));
+  font-family: var(--font-family-mono, monospace);
+  flex-shrink: 0;
+}
+
+/* 子 Agent 折叠状态工具计数 */
+.subagentChildCount {
+  font-size: 10px;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  margin-top: 1px;
+}
+
+/* 智能输出折叠 */
+.outputToggle {
+  font-size: 10px;
+  color: var(--color-primary-400, #60a5fa);
+  cursor: pointer;
+  margin-top: 2px;
+}
+
+.outputToggle:hover {
+  text-decoration: underline;
+}
+
+.childToolDetails {
+  padding: 4px 8px 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(0,0,0,0.15);
+}
+
+/* 文件名 + 行号范围徽章（读写类工具头部） */
+.fileChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--color-surface-elevated, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  font-size: 11px;
+  font-family: var(--font-family-mono, monospace);
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.65));
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.fileChipClickable {
+  cursor: pointer;
+  color: var(--color-primary-400, #60a5fa);
+  border-color: color-mix(in srgb, var(--color-primary-400, #60a5fa) 35%, transparent);
+  background: color-mix(in srgb, var(--color-primary-400, #60a5fa) 8%, transparent);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.fileChipClickable:hover {
+  background: color-mix(in srgb, var(--color-primary-400, #60a5fa) 18%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary-400, #60a5fa) 60%, transparent);
+  text-decoration: underline;
+}
+
+.fileChipName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.fileChipRange {
+  font-size: 10px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--color-bg-secondary, rgba(0, 0, 0, 0.18));
+  color: var(--color-text-primary, rgba(255, 255, 255, 0.85));
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+/* ─── image_generate 内联图片预览 ──────────────────────── */
+
+.imagePreviewWrap {
+  padding: 6px 8px 8px 8px;
+  border-top: 1px solid var(--color-border, rgba(255,255,255,0.06));
+}
+
+.imageThumb {
+  max-width: 200px;
+  max-height: 150px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
+  object-fit: contain;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  display: block;
+}
+
+.imageThumb:hover {
+  opacity: 0.85;
+}
+
+.imageFull {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
+  object-fit: contain;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.imageMeta {
+  font-size: 10px;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  font-family: var(--font-family-mono, monospace);
+}
+
+.imageLoading {
+  font-size: 11px;
+  color: var(--color-text-tertiary, rgba(255,255,255,0.35));
+  padding: 6px 0;
+}

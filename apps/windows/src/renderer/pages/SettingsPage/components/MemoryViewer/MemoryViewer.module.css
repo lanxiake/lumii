@@ -1,0 +1,145 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lead {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+.privacy {
+  display: block;
+  margin-top: 8px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.empty {
+  font-size: 14px;
+  color: var(--color-text-tertiary);
+  margin: 0;
+}
+
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.groupTitle {
+  font-size: 15px;
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.groupDesc {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  margin: 0 0 8px;
+}
+
+.card {
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+
+.cardText {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.cardEditor {
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  font-family: inherit;
+  color: var(--color-text);
+  background: var(--color-bg-elevated, var(--color-bg));
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.cardMeta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.cardTime {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  margin-right: auto;
+}
+
+.expandLink {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  color: var(--color-primary, #6366f1);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.expandLink:hover {
+  opacity: 0.85;
+}
+
+.expandLinkBottom {
+  align-self: flex-start;
+}
+
+.provenance {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--color-primary, #6366f1);
+  background: var(--color-bg-subtle, rgba(99, 102, 241, 0.06));
+  border-radius: 0 6px 6px 0;
+}
+
+.provenanceMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  margin-bottom: 8px;
+}
+
+.provenanceText {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow-y: auto;
+  color: var(--color-text-secondary);
+}
+
+.provenanceEmpty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}

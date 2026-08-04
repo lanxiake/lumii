@@ -1,0 +1,90 @@
+diff --git a/dist/providers/openai-completions.js b/dist/providers/openai-completions.js
+index 156bdc60702c5924ca38c6b69304f173301e8591..e3ff9326b5c8ccd8ca840d7c64607b06893ff3d0 100644
+--- a/dist/providers/openai-completions.js
++++ b/dist/providers/openai-completions.js
+@@ -314,11 +314,47 @@ function createClient(model, context, apiKey, optionsHeaders) {
+     if (optionsHeaders) {
+         Object.assign(headers, optionsHeaders);
+     }
++    // 自定义 fetch：在 SSE 帧边界（\n\n）处重新缓冲，防止 DeepSeek 等提供商的大 JSON 帧被 TCP 分片截断
++    const safeFetch = async (input, init) => {
++        const res = await globalThis.fetch(input, init);
++        if (!res.body || !res.headers.get("content-type")?.includes("text/event-stream")) {
++            return res;
++        }
++        const reader = res.body.getReader();
++        const decoder = new TextDecoder();
++        let buffer = "";
++        const stream = new ReadableStream({
++            async pull(controller) {
++                while (true) {
++                    const { done, value } = await reader.read();
++                    if (done) {
++                        if (buffer.trim()) {
++                            controller.enqueue(new TextEncoder().encode(buffer));
++                        }
++                        controller.close();
++                        return;
++                    }
++                    buffer += decoder.decode(value, { stream: true });
++                    const parts = buffer.split("\n\n");
++                    buffer = parts.pop() ?? "";
++                    for (const part of parts) {
++                        if (part.trim()) {
++                            controller.enqueue(new TextEncoder().encode(part + "\n\n"));
++                        }
++                    }
++                    if (parts.length > 0) return;
++                }
++            },
++            cancel() { reader.cancel(); },
++        });
++        return new Response(stream, { headers: res.headers, status: res.status, statusText: res.statusText });
++    };
+     return new OpenAI({
+         apiKey,
+         baseURL: model.baseUrl,
+         dangerouslyAllowBrowser: true,
+         defaultHeaders: headers,
++        fetch: safeFetch,
+     });
+ }
+ function buildParams(model, context, options) {
+@@ -511,6 +547,9 @@ export function convertMessages(model, context, compat) {
+             const thinkingBlocks = msg.content.filter((b) => b.type === "thinking");
+             // Filter out empty thinking blocks to avoid API validation errors
+             const nonEmptyThinkingBlocks = thinkingBlocks.filter((b) => b.thinking && b.thinking.trim().length > 0);
++            if (thinkingBlocks.length > 0) {
++                console.log(`[pi-ai:convertMessages] assistant msg thinkingBlocks=${thinkingBlocks.length} nonEmpty=${nonEmptyThinkingBlocks.length} signatures=${JSON.stringify(thinkingBlocks.map(b => b.thinkingSignature))} thinkingLens=${JSON.stringify(thinkingBlocks.map(b => b.thinking?.length ?? 0))}`);
++            }
+             if (nonEmptyThinkingBlocks.length > 0) {
+                 if (compat.requiresThinkingAsText) {
+                     // Convert thinking blocks to plain text (no tags to avoid model mimicking them)
+@@ -525,7 +564,9 @@ export function convertMessages(model, context, compat) {
+                 }
+                 else {
+                     // Use the signature from the first thinking block if available (for llama.cpp server + gpt-oss)
+-                    const signature = nonEmptyThinkingBlocks[0].thinkingSignature;
++                    // Fallback to "reasoning_content" for DeepSeek endpoints that always require it
++                    const signature = nonEmptyThinkingBlocks[0].thinkingSignature
++                        || (model.baseUrl && model.baseUrl.includes("deepseek") ? "reasoning_content" : undefined);
+                     if (signature && signature.length > 0) {
+                         assistantMsg[signature] = nonEmptyThinkingBlocks.map((b) => b.thinking).join("\n");
+                     }
+diff --git a/dist/providers/transform-messages.js b/dist/providers/transform-messages.js
+index 3d29acb1eea69db48ab6f60517b738087697b3d4..b476f50d158b99aa16b83dfb232e8a2041df83c5 100644
+--- a/dist/providers/transform-messages.js
++++ b/dist/providers/transform-messages.js
+@@ -28,9 +28,9 @@ export function transformMessages(messages, model, normalizeToolCallId) {
+                 assistantMsg.model === model.id;
+             const transformedContent = assistantMsg.content.flatMap((block) => {
+                 if (block.type === "thinking") {
+-                    // For same model: keep thinking blocks with signatures (needed for replay)
+-                    // even if the thinking text is empty (OpenAI encrypted reasoning)
+-                    if (isSameModel && block.thinkingSignature)
++                    // Keep thinking blocks with signatures regardless of model match.
++                    // thinkingSignature means the API requires it to be passed back (e.g. DeepSeek reasoning_content).
++                    if (block.thinkingSignature)
+                         return block;
+                     // Skip empty thinking blocks, convert others to plain text
+                     if (!block.thinking || block.thinking.trim() === "")

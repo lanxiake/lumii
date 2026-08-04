@@ -1,0 +1,157 @@
+/* ── FileTree — 树形目录 ── */
+
+.tree {
+  padding: var(--spacing-1) 0;
+}
+
+/* 节点行 */
+.node {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 30px;
+  padding-right: var(--spacing-2);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  position: relative;
+  user-select: none;
+  transition: background var(--transition-fast);
+  margin: 1px var(--spacing-1);
+}
+
+.node:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.node--selected {
+  background: var(--color-primary-500-10, rgba(59, 130, 246, 0.1));
+  color: var(--color-primary);
+}
+
+.node--selected .fileIcon {
+  color: var(--color-primary);
+}
+
+/* 展开箭头 */
+.arrow {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+  transition: transform var(--mt-dur-fast) var(--mt-ease-standard);
+  border-radius: var(--radius-sm);
+}
+
+.arrow:hover {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+}
+
+.arrow--expanded {
+  transform: rotate(90deg);
+}
+
+/* 箭头占位（文件节点对齐用） */
+.arrowPlaceholder {
+  width: 16px;
+  flex-shrink: 0;
+}
+
+/* 文件/文件夹图标 */
+.fileIcon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+}
+
+.fileIcon--dir {
+  color: var(--color-primary, #3b82f6);
+  opacity: 0.85;
+}
+
+/* 文件名 */
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  line-height: 1;
+}
+
+/* 悬停操作按钮（默认隐藏） */
+.actions {
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.node:hover .actions {
+  opacity: 1;
+}
+
+.actionBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.actionBtn:hover {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+}
+
+/* loading 占位行 */
+.loadingRow {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  gap: var(--spacing-2);
+}
+
+.loadingSpinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 空状态 */
+.emptyDir {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-style: italic;
+}

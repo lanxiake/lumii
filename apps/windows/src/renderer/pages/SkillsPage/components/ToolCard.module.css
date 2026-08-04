@@ -1,0 +1,109 @@
+.tool-card {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  padding: var(--spacing-2-5) var(--spacing-3);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  transition: border-color 0.2s;
+}
+
+.tool-card:hover {
+  border-color: var(--color-primary-500);
+}
+
+.tool-card.disabled {
+  opacity: 0.6;
+}
+
+/* 分类图标 */
+.tool-icon {
+  font-size: 20px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-bg-tertiary);
+  border-radius: var(--radius);
+  flex-shrink: 0;
+}
+
+/* 工具名称区域 */
+.tool-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  flex-shrink: 0;
+}
+
+.tool-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.tool-name {
+  font-size: 10px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  color: var(--color-text-tertiary);
+}
+
+/* 描述 */
+.tool-description {
+  flex: 1;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 只读标记 */
+.tool-readonly {
+  font-size: 10px;
+  padding: 2px var(--spacing-1-5);
+  background-color: rgba(99, 102, 241, 0.12);
+  color: var(--color-primary-500);
+  border-radius: var(--radius);
+  flex-shrink: 0;
+}
+
+/* 开关按钮 */
+.toggle-btn {
+  padding: var(--spacing-1) var(--spacing-2-5);
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: var(--radius);
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.toggle-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toggle-btn.on {
+  background-color: rgba(245, 158, 11, 0.15);
+  color: var(--color-warning, #f59e0b);
+}
+
+.toggle-btn.on:hover:not(:disabled) {
+  background-color: rgba(245, 158, 11, 0.25);
+}
+
+.toggle-btn.off {
+  background-color: rgba(34, 197, 94, 0.15);
+  color: var(--color-success, #22c55e);
+}
+
+.toggle-btn.off:hover:not(:disabled) {
+  background-color: rgba(34, 197, 94, 0.25);
+}

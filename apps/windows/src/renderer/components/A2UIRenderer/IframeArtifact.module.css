@@ -1,0 +1,45 @@
+.artifact-wrap {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 全屏模式：占满父容器（fullscreen-dialog 的 fullscreen-content） */
+.artifact-wrap-fullscreen {
+  flex: 1;
+  height: 100%;
+}
+
+.artifact-title {
+  padding: 6px 12px;
+  font-size: 0.85em;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.artifact-frame {
+  width: 100%;
+  min-height: 200px;
+  height: 400px;
+  border: none;
+  background: white;
+  display: block;
+}
+
+/* 全屏模式：高度填充父容器 */
+.artifact-frame-fullscreen {
+  flex: 1;
+  height: 100%;
+  min-height: unset;
+}
+
+.artifact-error {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 0.9em;
+  background: var(--color-bg-secondary);
+}

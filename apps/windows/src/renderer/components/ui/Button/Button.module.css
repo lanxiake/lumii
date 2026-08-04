@@ -1,0 +1,105 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-2);
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background-color var(--mt-dur-fast) var(--mt-ease-standard),
+              transform var(--mt-dur-fast) var(--mt-ease-standard),
+              box-shadow var(--mt-dur-fast) var(--mt-ease-standard);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Sizes */
+.btn-sm {
+  padding: var(--spacing-1-5) var(--spacing-3);
+  font-size: var(--font-size-xs);
+  height: 28px;
+}
+
+.btn-md {
+  padding: var(--spacing-2) var(--spacing-4);
+  font-size: var(--font-size-sm);
+  height: 36px;
+}
+
+.btn-lg {
+  padding: var(--spacing-2-5) var(--spacing-5);
+  font-size: var(--font-size-base);
+  height: 44px;
+}
+
+/* Variants */
+.btn-primary {
+  background: var(--mt-accent-500);
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--mt-accent-600);
+}
+
+.btn-secondary {
+  background: var(--color-bg-tertiary);
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--color-gray-600);
+}
+
+.btn-danger {
+  background: var(--color-error);
+  color: var(--color-gray-50);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--color-error-dark);
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+/* Loading state */
+.btn-loading {
+  position: relative;
+}
+
+.btn-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: btn-spin 0.8s linear infinite;
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.btn-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

@@ -1,0 +1,326 @@
+/**
+ * TTS (Text-To-Speech) Provider 抽象层
+ * 支持本地 VITS/Matcha 和 Edge TTS
+ */
+import path from 'node:path'
+import fs from 'node:fs'
+import { app } from 'electron'
+
+const log = {
+  info: (...args: unknown[]) => console.log('[TtsEngine]', ...args),
+  debug: (...args: unknown[]) => console.log('[TtsEngine:DEBUG]', ...args),
+  warn: (...args: unknown[]) => console.warn('[TtsEngine]', ...args),
+  error: (...args: unknown[]) => console.error('[TtsEngine]', ...args),
+}
+
+// ─── 接口定义 ─────────────────────────────────────────────────────────────
+
+export interface TtsChunk {
+  /** 普通 JS 数字数组，确保 IPC 传输不携带外部 ArrayBuffer */
+  samples: number[]
+  sampleRate: number
+  isFinal: boolean
+}
+
+export interface TtsProvider {
+  readonly name: string
+  readonly isLocal: boolean
+  sampleRate: number
+  initialize(): Promise<void>
+  synthesize(
+    text: string,
+    onChunk: (chunk: TtsChunk) => void,
+    signal?: AbortSignal,
+    onAudioFile?: (audioPath: string, isFinal: boolean) => void,
+  ): Promise<void>
+  /** 热更新语速（不重建引擎） */
+  setSpeed?(speed: number): void
+  /** 热更新说话人 ID（不重建引擎） */
+  setSpeakerId?(id: number): void
+  /** 热更新音色（Edge TTS 专用，需重建 WebSocket） */
+  setVoice?(voice: string): Promise<void>
+  destroy(): void
+}
+
+// ─── 本地 VITS 中文 TTS ────────────────────────────────────────────────────
+
+export class LocalVitsTts implements TtsProvider {
+  readonly name = 'local-vits-zh'
+  readonly isLocal = true
+  sampleRate = 22050
+  private tts: any = null
+
+  constructor(
+    private modelDir: string,
+    private speakerId = 0,
+    private speed = 1.0,
+  ) {}
+
+  setSpeed(speed: number): void {
+    this.speed = speed
+    log.info(`[setSpeed] 语速热更新: ${speed}`)
+  }
+
+  setSpeakerId(id: number): void {
+    this.speakerId = id
+    log.info(`[setSpeakerId] 说话人 ID 热更新: ${id}`)
+  }
+
+  async initialize(): Promise<void> {
+    log.info(`[initialize] 加载 VITS 中文 TTS: ${this.modelDir}`)
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const SherpaOnnx = require('sherpa-onnx-node') as any
+
+    // 收集可用的 FST 规范化文件（日期/数字/电话）
+    const fstFiles = ['date.fst', 'phone.fst', 'number.fst']
+      .map((f) => path.join(this.modelDir, f))
+      .filter((p) => fs.existsSync(p))
+
+    this.tts = new SherpaOnnx.OfflineTts({
+      model: {
+        vits: {
+          model: path.join(this.modelDir, 'model.onnx'),
+          lexicon: path.join(this.modelDir, 'lexicon.txt'),
+          tokens: path.join(this.modelDir, 'tokens.txt'),
+        },
+        numThreads: 2,
+        provider: 'cpu',
+        debug: 0,
+      },
+      maxNumSentences: 1,
+      ...(fstFiles.length > 0 ? { ruleFsts: fstFiles.join(',') } : {}),
+    })
+
+    this.sampleRate = this.tts.sampleRate
+    log.info(
+      `[initialize] VITS 加载完成，说话人数: ${this.tts.numSpeakers}，采样率: ${this.sampleRate}`,
+    )
+  }
+
+  async synthesize(
+    text: string,
+    onChunk: (chunk: TtsChunk) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (!this.tts) throw new Error('TTS 未初始化，请先调用 initialize()')
+    if (signal?.aborted) return
+    if (!text.trim()) return
+
+    log.debug(`[synthesize] 合成文本: "${text.slice(0, 60)}"`)
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const SherpaOnnx = require('sherpa-onnx-node') as any
+
+    const generationConfig = new SherpaOnnx.GenerationConfig({
+      sid: this.speakerId,
+      speed: this.speed,
+      silenceScale: 0.2,
+    })
+
+    // 跟踪 onProgress 是否产出了音频（短句可能 0 次回调）
+    let progressHadSamples = false
+
+    const result = await this.tts.generateAsync({
+      text,
+      generationConfig,
+      // Electron V8 sandbox 禁止外部 ArrayBuffer，必须关闭零拷贝
+      enableExternalBuffer: false,
+      onProgress: ({ samples }: { samples: Float32Array; progress: number }) => {
+        if (signal?.aborted) return 0 // 返回 0 中止生成
+        try {
+          if (samples.length > 0) progressHadSamples = true
+          onChunk({
+            samples: Array.from(samples),
+            sampleRate: this.sampleRate,
+            isFinal: false,
+          })
+        } catch (e) {
+          // 绝不允许 JS 异常逃逸进 native generateAsync，否则进程崩溃
+          log.error(`[synthesize] onProgress 回调错误: ${(e as Error).message}`)
+        }
+        return 1 // 继续
+      },
+    })
+
+    // 短句场景：onProgress 未产出音频，从 generateAsync 返回值取完整音频
+    if (!progressHadSamples && result?.samples?.length > 0 && !signal?.aborted) {
+      log.debug(`[synthesize] onProgress 无音频，使用 generateAsync 返回值 (${result.samples.length} samples)`)
+      onChunk({
+        samples: Array.from(result.samples as Float32Array),
+        sampleRate: this.sampleRate,
+        isFinal: false,
+      })
+    }
+
+    // 发送 isFinal 标记帧
+    if (!signal?.aborted) {
+      onChunk({
+        samples: [],
+        sampleRate: this.sampleRate,
+        isFinal: true,
+      })
+    }
+  }
+
+  destroy(): void {
+    this.tts = null
+    log.info('[destroy] VITS 资源已释放')
+  }
+}
+
+// ─── Edge TTS（客户端直接调用，无需网关） ─────────────────────────────────
+
+/**
+ * Edge TTS Provider
+ * 使用 msedge-tts 包直接调用 Microsoft Edge Read Aloud API，
+ * 通过 toStream 在内存中收集 mp3 字节，不写临时文件。
+ */
+export class EdgeTtsFallback implements TtsProvider {
+  readonly name = 'edge-tts'
+  readonly isLocal = false
+  sampleRate = 24000
+  private ttsInstance: any = null
+
+  constructor(
+    private voice = 'zh-CN-XiaoxiaoNeural',
+    private speed = 1.0,
+  ) {}
+
+  setSpeed(speed: number): void {
+    this.speed = speed
+    log.info(`[EdgeTts.setSpeed] 语速热更新: ${speed}`)
+  }
+
+  async setVoice(voice: string): Promise<void> {
+    this.voice = voice
+    if (this.ttsInstance) {
+      const { OUTPUT_FORMAT } = await import('msedge-tts')
+      await this.ttsInstance.setMetadata(this.voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {})
+    }
+    log.info(`[EdgeTts.setVoice] 音色热更新: ${voice}`)
+  }
+
+  async initialize(): Promise<void> {
+    const { MsEdgeTTS, OUTPUT_FORMAT } = await import('msedge-tts')
+    this.ttsInstance = new MsEdgeTTS()
+    await this.ttsInstance.setMetadata(this.voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {})
+    log.info(`[EdgeTts.initialize] Edge TTS 已就绪, voice=${this.voice}`)
+  }
+
+  async synthesize(
+    text: string,
+    onChunk: (chunk: TtsChunk) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (!text.trim()) return
+    if (signal?.aborted) return
+    if (!this.ttsInstance) throw new Error('Edge TTS 未初始化')
+
+    log.debug(`[EdgeTts.synthesize] text="${text.slice(0, 60)}"`)
+
+    const rate = this.speed
+
+    try {
+      const { audioStream } = this.ttsInstance.toStream(text, { rate })
+
+      // 收集 mp3 流到内存 Buffer
+      const chunks: Buffer[] = []
+
+      await new Promise<void>((resolve, reject) => {
+        // abort 时：将 _streams 中所有条目替换为 noop 哑对象，阻止 WS 残留消息写入已删除的流。
+        // 注意：不调 audioStream.destroy()（会触发 delete _streams[requestId]，使 noop 立刻失效）；
+        // 也不调 close()（WS 关闭期间仍可能有 in-flight 帧到达）。
+        // resolve() 之后 signal.aborted === true，后续走重建 WS 逻辑。
+        const onAbort = () => {
+          try {
+            const streams = (this.ttsInstance as any)?._streams as Record<string, unknown> | undefined
+            if (streams) {
+              const noop = { audio: { push: () => {}, destroy: () => {} }, metadata: null }
+              for (const id of Object.keys(streams)) {
+                streams[id] = noop
+              }
+            }
+          } catch { /* ignore */ }
+          resolve()
+        }
+        signal?.addEventListener('abort', onAbort, { once: true })
+
+        audioStream.on('data', (chunk: Buffer) => {
+          if (signal?.aborted) return // 已 abort，忽略后续数据
+          chunks.push(Buffer.from(chunk))
+        })
+        audioStream.on('end', () => {
+          signal?.removeEventListener('abort', onAbort)
+          resolve()
+        })
+        audioStream.on('error', (err: Error) => {
+          signal?.removeEventListener('abort', onAbort)
+          if (signal?.aborted) resolve()
+          else reject(err)
+        })
+      })
+
+      // abort 后：重建 WebSocket，以备下次合成
+      if (signal?.aborted) {
+        try {
+          const { MsEdgeTTS, OUTPUT_FORMAT } = await import('msedge-tts')
+          this.ttsInstance = new MsEdgeTTS()
+          await this.ttsInstance.setMetadata(this.voice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3, {})
+          log.info('[EdgeTts.synthesize] abort 后已重建 WebSocket 连接')
+        } catch (e) {
+          log.warn(`[EdgeTts.synthesize] abort 后重建连接失败: ${(e as Error).message}`)
+        }
+        return
+      }
+
+      const audioBuffer = Buffer.concat(chunks)
+      log.info(`[EdgeTts.synthesize] 音频数据收集完成: ${audioBuffer.length} bytes`)
+
+      // 通过 onChunk 发送 mp3 原始字节（特殊标记 sampleRate=-1 表示编码音频）
+      onChunk({
+        samples: Array.from(new Uint8Array(audioBuffer)),
+        sampleRate: -1, // 标记为编码音频（非 PCM），渲染端需解码
+        isFinal: false,
+      })
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError' && !signal?.aborted) {
+        log.error(`[EdgeTts.synthesize] 合成失败: ${(e as Error).message}`)
+        throw e
+      }
+    }
+
+    // isFinal 标记
+    if (!signal?.aborted) {
+      onChunk({ samples: [], sampleRate: this.sampleRate, isFinal: true })
+    }
+  }
+
+  destroy(): void {
+    log.info('[EdgeTts.destroy] Edge TTS 资源已释放')
+  }
+}
+
+// ─── 工厂函数 ─────────────────────────────────────────────────────────────
+
+export function createTtsProvider(config: {
+  provider: string
+  modelDir?: string
+  vocoderPath?: string
+  speed?: number
+  voice?: string
+}): TtsProvider {
+  switch (config.provider) {
+    case 'local-vits':
+      if (!config.modelDir) throw new Error('local-vits 需要 modelDir')
+      return new LocalVitsTts(config.modelDir, 0, config.speed ?? 1.2)
+    case 'edge':
+      return new EdgeTtsFallback(config.voice ?? 'zh-CN-XiaoxiaoNeural', config.speed ?? 1.2)
+    default:
+      if (config.modelDir) {
+        log.warn(`[createTtsProvider] 未知 provider "${config.provider}"，回退到 local-vits`)
+        return new LocalVitsTts(config.modelDir, 0, config.speed ?? 1.2)
+      }
+      throw new Error(`未知 TTS Provider: ${config.provider}`)
+  }
+}

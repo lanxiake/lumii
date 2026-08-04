@@ -1,0 +1,112 @@
+.voice-call-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 16px 16px;
+  gap: 12px;
+  min-height: 120px;
+  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  background: var(--input-bg, rgba(0, 0, 0, 0.2));
+  border-radius: 0 0 8px 8px;
+}
+
+/* 波形动画 */
+.voice-waveform {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 32px;
+}
+
+.voice-waveform-bar {
+  display: inline-block;
+  width: 3px;
+  height: 8px;
+  background: var(--text-muted, rgba(255, 255, 255, 0.3));
+  border-radius: 2px;
+  transition: height 0.1s ease;
+}
+
+.voice-waveform--active .voice-waveform-bar {
+  background: var(--accent, #4f9eff);
+  animation: voice-pulse 0.8s ease-in-out infinite alternate;
+}
+
+.voice-waveform--active .voice-waveform-bar:nth-child(1) { animation-delay: 0.0s; }
+.voice-waveform--active .voice-waveform-bar:nth-child(2) { animation-delay: 0.1s; }
+.voice-waveform--active .voice-waveform-bar:nth-child(3) { animation-delay: 0.2s; }
+.voice-waveform--active .voice-waveform-bar:nth-child(4) { animation-delay: 0.3s; }
+.voice-waveform--active .voice-waveform-bar:nth-child(5) { animation-delay: 0.4s; }
+
+@keyframes voice-pulse {
+  from { height: 8px; }
+  to   { height: 24px; }
+}
+
+/* 状态文字 */
+.voice-state-label {
+  font-size: 13px;
+  color: var(--text-muted, rgba(255, 255, 255, 0.5));
+  font-weight: 500;
+}
+
+.state-listening  { color: var(--accent, #4f9eff); }
+.state-recognizing { color: #f0a500; }
+.state-speaking   { color: #52c41a; }
+.state-thinking   { color: rgba(255, 255, 255, 0.6); }
+
+/* 字幕区 */
+.voice-transcript {
+  width: 100%;
+  max-width: 520px;
+  min-height: 36px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.transcript-final {
+  font-size: 14px;
+  color: var(--text-primary, rgba(255, 255, 255, 0.9));
+  line-height: 1.5;
+}
+
+/* 错误信息 */
+.voice-error-message {
+  font-size: 12px;
+  color: #ff6b6b;
+  max-width: 480px;
+  text-align: center;
+  word-break: break-all;
+  padding: 4px 8px;
+  background: rgba(255, 107, 107, 0.08);
+  border-radius: 4px;
+}
+
+/* 挂断按钮 */
+.voice-hangup-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  background: #e53935;
+  color: #fff;
+  border: none;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  user-select: none;
+}
+
+.voice-hangup-btn:hover {
+  background: #c62828;
+  transform: scale(1.03);
+}
+
+.voice-hangup-btn:active {
+  transform: scale(0.97);
+}

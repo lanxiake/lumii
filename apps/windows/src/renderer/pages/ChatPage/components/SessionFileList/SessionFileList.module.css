@@ -1,0 +1,286 @@
+/* 会话文件列表（可折叠） */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  margin: 6px 12px 0 12px;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  background: var(--color-surface, rgba(255, 255, 255, 0.03));
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* 单行容器（包含文件行 + 内联预览） */
+.rowWrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.65));
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  width: 100%;
+  transition: background 0.15s ease;
+}
+
+.header:hover {
+  background: var(--color-surface-hover, rgba(255, 255, 255, 0.04));
+}
+
+.headerIcon {
+  font-size: 10px;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.45));
+  width: 12px;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.headerTitle {
+  flex: 1;
+  color: var(--color-text-primary, rgba(255, 255, 255, 0.85));
+}
+
+.headerCount {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-primary-400, #60a5fa) 18%, transparent);
+  color: var(--color-primary-400, #60a5fa);
+  font-family: var(--font-family-mono, monospace);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 8px 8px 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
+}
+
+/* 单个文件行 */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--color-surface-elevated, rgba(255, 255, 255, 0.04));
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.row:hover {
+  background: var(--color-surface-hover, rgba(255, 255, 255, 0.06));
+  border-color: var(--color-border, rgba(255, 255, 255, 0.08));
+}
+
+.rowUpload {
+  border-left: 2px solid color-mix(in srgb, var(--color-primary-400, #60a5fa) 50%, transparent);
+}
+
+.icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary, rgba(255, 255, 255, 0.9));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metaLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.45));
+  flex-wrap: wrap;
+}
+
+.size {
+  font-family: var(--font-family-mono, monospace);
+}
+
+.badge {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 3px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.badgeUpload {
+  background: color-mix(in srgb, var(--color-primary-400, #60a5fa) 18%, transparent);
+  color: var(--color-primary-400, #60a5fa);
+}
+
+.badgeOutput {
+  background: color-mix(in srgb, var(--color-success, #34d399) 18%, transparent);
+  color: var(--color-success, #34d399);
+}
+
+.error {
+  color: var(--color-error, #f87171);
+}
+
+.localPath {
+  font-family: var(--font-family-mono, monospace);
+  font-size: 10px;
+  color: var(--color-text-tertiary, #94a3b8);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.btn {
+  padding: 3px 10px;
+  font-size: 12px;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.12));
+  border-radius: 4px;
+  background: var(--color-surface, rgba(255, 255, 255, 0.05));
+  color: var(--color-text-primary, rgba(255, 255, 255, 0.85));
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  line-height: 1.4;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--color-surface-hover, rgba(255, 255, 255, 0.1));
+  border-color: var(--color-border-strong, rgba(255, 255, 255, 0.18));
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  background: color-mix(in srgb, var(--color-primary-400, #60a5fa) 18%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary-400, #60a5fa) 40%, transparent);
+  color: var(--color-primary-400, #60a5fa);
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary-400, #60a5fa) 28%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary-400, #60a5fa) 60%, transparent);
+}
+
+.btnDanger {
+  border-color: color-mix(in srgb, var(--color-error, #f87171) 45%, transparent);
+  color: var(--color-error, #f87171);
+}
+
+.btnDanger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-error, #f87171) 14%, transparent);
+  border-color: color-mix(in srgb, var(--color-error, #f87171) 55%, transparent);
+}
+
+/* ── 紧凑模式：小图标 + 悬停弹出层 ── */
+
+.compactWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.compactTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--color-border, rgba(255, 255, 255, 0.08)) 35%, transparent);
+  border-radius: var(--radius-md, 6px);
+  background: transparent;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.65));
+  cursor: default;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.compactWrap:hover .compactTrigger {
+  border-color: var(--color-primary, #60a5fa);
+  color: var(--color-primary, #60a5fa);
+  background: var(--color-primary-500-10, rgba(59, 130, 246, 0.1));
+}
+
+.compactBadge {
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--font-family-mono, monospace);
+  line-height: 1;
+  color: inherit;
+}
+
+.compactPopover {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  z-index: 200;
+  padding-bottom: 6px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.compactWrap:hover .compactPopover {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.compactPopoverInner {
+  min-width: 320px;
+  max-width: min(480px, 90vw);
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-bg-primary, #1a1a2e);
+  box-shadow: var(--mt-shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.35));
+  overflow: hidden;
+}
+
+.compactPopoverHeader {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-primary, rgba(255, 255, 255, 0.85));
+  border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
+  background: var(--color-bg-secondary, rgba(255, 255, 255, 0.03));
+}
+
+.compactWrap .list {
+  max-height: 280px;
+  border-top: none;
+}

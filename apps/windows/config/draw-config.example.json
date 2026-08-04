@@ -1,0 +1,7 @@
+{
+  "_comment": "生图上游配置。复制为 draw-config.json 并填入 Key；打包时随 extraResources 打入安装包。gpt-image-2 推荐配置 imageUpstream（llm-link）并走流式；nano-banana 系列用 drawApiKey。",
+  "drawApiBaseUrl": "https://www.right.codes/draw",
+  "drawApiKey": "sk-your-draw-key-here",
+  "imageUpstreamBaseUrl": "https://www.llm-link.top/v1",
+  "imageUpstreamApiKey": "sk-your-llm-link-key-here"
+}

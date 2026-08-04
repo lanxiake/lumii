@@ -1,0 +1,18 @@
+# 构建产物
+out/
+release/
+release-build-*/
+node_modules/.cache/
+config/.env.pack
+# pet-lab 第三方 Live2D 示例仓库（体积大，仅本地预览参考）
+pet-lab/live2d-master/
+pet-lab/live2d-master.zip
+
+# bundled-skills 开发/示例资源（不应打入安装包）
+bundled-skills/**/chrome-profile/
+bundled-skills/**/data/k8s-xhs-series/
+bundled-skills/设计与可视化/Art/YouTubeThumbnailExamples/
+bundled-skills/设计与可视化/Art/ThumbnailExamples/
+bundled-skills/设计与可视化/Art/Examples/
+bundled-skills/设计与可视化/Art/HeadshotExamples/
+.mtbot/

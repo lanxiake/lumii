@@ -1,0 +1,435 @@
+/**
+ * Design Tokens CSS Variables
+ * 设计令牌CSS变量
+ *
+ * Generated from TypeScript tokens
+ * 与现有global.css变量保持兼容
+ */
+
+:root {
+  /* ============================================
+     COLORS - Primary (Indigo)
+     ============================================ */
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+  --color-primary-950: #1e1b4b;
+
+  /* ============================================
+     COLORS - Semantic
+     ============================================ */
+  --color-success-light: #86efac;
+  --color-success: #22c55e;
+  --color-success-dark: #15803d;
+  
+  --color-warning-light: #fde047;
+  --color-warning: #f59e0b;
+  --color-warning-dark: #b45309;
+  
+  --color-error-light: #fca5a5;
+  --color-error: #ef4444;
+  --color-error-dark: #b91c1c;
+  
+  --color-info-light: #93c5fd;
+  --color-info: #3b82f6;
+  --color-info-dark: #1d4ed8;
+
+  /* ============================================
+     COLORS - Grayscale (Slate)
+     ============================================ */
+  --color-gray-50: #f8fafc;
+  --color-gray-100: #f1f5f9;
+  --color-gray-200: #e2e8f0;
+  --color-gray-300: #cbd5e1;
+  --color-gray-400: #94a3b8;
+  --color-gray-500: #64748b;
+  --color-gray-600: #475569;
+  --color-gray-700: #334155;
+  --color-gray-800: #1e293b;
+  --color-gray-900: #0f172a;
+  --color-gray-950: #020617;
+
+  /* ============================================
+     COLORS - Background
+     ============================================ */
+  --color-bg-primary: #0f172a;
+  --color-bg-secondary: #1e293b;
+  --color-bg-tertiary: #334155;
+  --color-bg-elevated: #1e293b;
+  --color-bg-overlay: rgba(0, 0, 0, 0.5);
+
+  /* ============================================
+     COLORS - Text
+     ============================================ */
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #94a3b8;
+  --color-text-tertiary: #64748b;
+  --color-text-disabled: #475569;
+  --color-text-inverse: #0f172a;
+
+  /* ============================================
+     COLORS - Border
+     ============================================ */
+  --color-border: #334155;
+  --color-border-light: #475569;
+  --color-border-dark: #1e293b;
+
+  /* ============================================
+     SPACING (4px base unit)
+     ============================================ */
+  --spacing-0: 0px;
+  --spacing-0-5: 2px;
+  --spacing-1: 4px;
+  --spacing-1-5: 6px;
+  --spacing-2: 8px;
+  --spacing-2-5: 10px;
+  --spacing-3: 12px;
+  --spacing-3-5: 14px;
+  --spacing-4: 16px;
+  --spacing-5: 20px;
+  --spacing-6: 24px;
+  --spacing-7: 28px;
+  --spacing-8: 32px;
+  --spacing-9: 36px;
+  --spacing-10: 40px;
+  --spacing-11: 44px;
+  --spacing-12: 48px;
+  --spacing-14: 56px;
+  --spacing-16: 64px;
+  --spacing-20: 80px;
+  --spacing-24: 96px;
+  --spacing-28: 112px;
+  --spacing-32: 128px;
+  --spacing-36: 144px;
+  --spacing-40: 160px;
+  --spacing-44: 176px;
+  --spacing-48: 192px;
+  --spacing-52: 208px;
+  --spacing-56: 224px;
+  --spacing-60: 240px;
+  --spacing-64: 256px;
+  --spacing-72: 288px;
+  --spacing-80: 320px;
+  --spacing-96: 384px;
+
+  /* ============================================
+     TYPOGRAPHY
+     ============================================ */
+  --font-family-sans: 'Segoe UI', 'Microsoft YaHei', system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  --font-family-mono: 'JetBrains Mono', 'Fira Code', Consolas, Monaco, monospace;
+
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 30px;
+  --font-size-4xl: 36px;
+  --font-size-5xl: 48px;
+
+  --font-weight-thin: 100;
+  --font-weight-extralight: 200;
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+  --font-weight-black: 900;
+
+  --line-height-none: 1;
+  --line-height-tight: 1.25;
+  --line-height-snug: 1.375;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.625;
+  --line-height-loose: 2;
+
+  --letter-spacing-tighter: -0.05em;
+  --letter-spacing-tight: -0.025em;
+  --letter-spacing-normal: 0em;
+  --letter-spacing-wide: 0.025em;
+  --letter-spacing-wider: 0.05em;
+  --letter-spacing-widest: 0.1em;
+
+  /* ============================================
+     SHADOWS
+     ============================================ */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+  --shadow-inner: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
+  --shadow-none: none;
+
+  /* ============================================
+     BORDER RADIUS
+     ============================================ */
+  --radius-none: 0px;
+  --radius-sm: 2px;
+  --radius: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 24px;
+  --radius-full: 9999px;
+
+  /* ============================================
+     Z-INDEX
+     ============================================ */
+  --z-hide: -1;
+  --z-auto: auto;
+  --z-base: 0;
+  --z-docked: 10;
+  --z-dropdown: 1000;
+  --z-sticky: 1100;
+  --z-banner: 1200;
+  --z-overlay: 1300;
+  --z-modal: 1400;
+  --z-popover: 1500;
+  --z-skip-link: 1600;
+  --z-toast: 1700;
+  --z-tooltip: 1800;
+
+  /* ============================================
+     TRANSITIONS
+     ============================================ */
+  --transition-fast: 100ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slower: 500ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ============================================
+     BREAKPOINTS (for reference)
+     ============================================ */
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+
+  /* ============================================
+     SEMANTIC COLORS - Tag & Badge
+     ============================================ */
+  --color-tag-fact-bg: #e3f2fd;
+  --color-tag-fact-text: #1565c0;
+  --color-tag-profile-bg: #f3e5f5;
+  --color-tag-profile-text: #7b1fa2;
+  --color-tag-preference-bg: #e8f5e9;
+  --color-tag-preference-text: #2e7d32;
+  --color-tag-episodic-bg: #fff3e0;
+  --color-tag-episodic-text: #e65100;
+
+  /* ============================================
+     SEMANTIC COLORS - Importance Levels
+     ============================================ */
+  --color-importance-high-bg: #ffebee;
+  --color-importance-high-text: #c62828;
+  --color-importance-medium-bg: #fff8e1;
+  --color-importance-medium-text: #f57f17;
+  --color-importance-low-bg: #e8f5e9;
+  --color-importance-low-text: #2e7d32;
+
+  /* ============================================
+     ALPHA COLORS - RGBA Variants
+     ============================================ */
+  --color-primary-500-5: rgba(99, 102, 241, 0.05);
+  --color-primary-500-10: rgba(99, 102, 241, 0.10);
+  --color-primary-500-15: rgba(99, 102, 241, 0.15);
+  --color-primary-500-20: rgba(99, 102, 241, 0.20);
+  --color-success-10: rgba(34, 197, 94, 0.10);
+  --color-success-15: rgba(34, 197, 94, 0.15);
+  --color-warning-15: rgba(245, 158, 11, 0.15);
+  --color-error-10: rgba(239, 68, 68, 0.10);
+  --color-error-15: rgba(239, 68, 68, 0.15);
+  --color-overlay: rgba(0, 0, 0, 0.50);
+  --color-overlay-dark: rgba(0, 0, 0, 0.70);
+
+  /* ============================================
+     GRADIENT COLORS
+     ============================================ */
+  /* 与 [data-theme] 覆盖前保持一致：默认按深色画布（首帧无 data-theme 时少闪屏） */
+  --gradient-auth-start: #0b1220;
+  --gradient-auth-end: #1e1b4b;
+  --gradient-quota-start: #3b82f6;
+  --gradient-quota-end: #8b5cf6;
+
+  /* ============================================
+     LAYOUT DIMENSIONS
+     ============================================ */
+  --width-sidebar-sm: 180px;
+  --width-sidebar: 200px;
+  --width-sidebar-lg: 280px;
+  --width-input-sm: 100px;
+  --width-input: 200px;
+  --width-input-lg: 350px;
+  --width-panel: 400px;
+  --width-page: 1200px;
+  --height-empty-state: 200px;
+  --size-avatar-sm: 24px;
+  --size-avatar: 36px;
+  --size-avatar-lg: 40px;
+  --size-icon-display: 48px;
+
+  /* ============================================
+     LEGACY VARIABLES (for backward compatibility)
+     ============================================ */
+  --color-primary: var(--color-primary-500);
+  --color-primary-hover: var(--color-primary-600);
+  --color-secondary: var(--color-gray-500);
+  --bg-primary: var(--color-bg-primary);
+  --bg-secondary: var(--color-bg-secondary);
+  --bg-tertiary: var(--color-bg-tertiary);
+  --bg-hover: var(--color-gray-600);
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-tertiary);
+  --border-color: var(--color-border);
+  --border-radius: var(--radius-lg);
+  --font-family: var(--font-family-sans);
+  --font-size-sm: var(--font-size-xs);
+  --font-size-md: var(--font-size-sm);
+  --font-size-lg: var(--font-size-base);
+  --spacing-xs: var(--spacing-1);
+  --spacing-sm: var(--spacing-2);
+  --spacing-md: var(--spacing-4);
+  --spacing-lg: var(--spacing-6);
+}
+
+/* ============================================================
+   兼容映射层: 旧 --color-* 变量 → 新 --mt-* 设计系统
+   保证现有所有组件无需修改即可响应主题切换
+   ============================================================ */
+
+/* 注意: 此块需在 design-system.css 之后加载，design-system.css 通过
+   data-theme 属性控制 --mt-* 变量值，此处只做引用转发 */
+
+:root {
+  /* 背景色映射 */
+  --color-bg-primary:   var(--mt-bg-primary);
+  --color-bg-secondary: var(--mt-bg-secondary);
+  --color-bg-tertiary:  var(--mt-bg-tertiary);
+  --color-bg-elevated:  var(--mt-bg-elevated);
+  --color-bg-overlay:   var(--mt-bg-overlay);
+
+  /* 文字色映射 */
+  --color-text-primary:   var(--mt-fg-1);
+  --color-text-secondary: var(--mt-fg-3);   /* 注意: 原 #94a3b8 → 新 mt-fg-3 */
+  --color-text-tertiary:  var(--mt-fg-4);
+  --color-text-disabled:  var(--mt-fg-4);
+  --color-text-inverse:   var(--mt-fg-inverse);
+
+  /* 边框色映射 */
+  --color-border:       var(--mt-border);
+  --color-border-light: var(--mt-border-light);
+  --color-border-dark:  var(--mt-border-dark);
+
+  /* 主色映射 (Indigo → Blue) */
+  --color-primary-500: var(--mt-accent-500);
+  --color-primary-600: var(--mt-accent-600);
+  --color-primary-700: var(--mt-accent-700);
+  --color-primary-900: var(--mt-accent-900);
+  --color-primary:     var(--mt-accent-500);
+  --color-primary-hover: var(--mt-accent-600);
+
+  /* Alpha 主色 — 使用新蓝色 */
+  --color-primary-500-5:  rgba(59, 130, 246, 0.05);
+  --color-primary-500-10: rgba(59, 130, 246, 0.10);
+  --color-primary-500-15: rgba(59, 130, 246, 0.15);
+  --color-primary-500-20: rgba(59, 130, 246, 0.20);
+
+  /* 语义色映射 */
+  --color-success:       var(--mt-success);
+  --color-success-dark:  var(--mt-success-dark);
+  --color-success-light: var(--mt-success-light);
+  --color-warning:       var(--mt-warning);
+  --color-warning-dark:  var(--mt-warning-dark);
+  --color-warning-light: var(--mt-warning-light);
+  --color-error:         var(--mt-error);
+  --color-error-dark:    var(--mt-error-dark);
+  --color-error-light:   var(--mt-error-light);
+  --color-info:          var(--mt-info);
+  --color-info-dark:     var(--mt-info-dark);
+  --color-info-light:    var(--mt-info-light);
+
+  /* 阴影映射 */
+  --shadow-sm: var(--mt-shadow-xs);
+  --shadow:    var(--mt-shadow-sm);
+  --shadow-md: var(--mt-shadow-sm);
+  --shadow-lg: var(--mt-shadow-md);
+  --shadow-xl: var(--mt-shadow-lg);
+  --shadow-2xl: var(--mt-shadow-xl);
+  --shadow-inner: var(--mt-shadow-inner);
+
+  /* 圆角映射 */
+  --radius-sm:  var(--mt-radius-sm);
+  --radius:     var(--mt-radius-sm);
+  --radius-md:  var(--mt-radius-md);
+  --radius-lg:  var(--mt-radius-lg);
+  --radius-xl:  var(--mt-radius-xl);
+  --radius-2xl: var(--mt-radius-2xl);
+  --radius-3xl: var(--mt-radius-3xl);
+  --radius-full: var(--mt-radius-full);
+
+  /* 过渡映射 */
+  --transition-fast:   var(--mt-dur-fast) var(--mt-ease-standard);
+  --transition-normal: var(--mt-dur-normal) var(--mt-ease-standard);
+  --transition-slow:   var(--mt-dur-slow) var(--mt-ease-standard);
+  --transition-slower: var(--mt-dur-slower) var(--mt-ease-standard);
+
+  /* 字体映射 */
+  --font-family-sans: var(--mt-font-sans);
+  --font-family-mono: var(--mt-font-mono);
+
+  /* 旧别名兼容 */
+  --bg-primary:    var(--mt-bg-primary);
+  --bg-secondary:  var(--mt-bg-secondary);
+  --bg-tertiary:   var(--mt-bg-tertiary);
+  --bg-hover:      var(--mt-bg-tertiary);
+  --text-primary:  var(--mt-fg-1);
+  --text-secondary: var(--mt-fg-3);
+  --text-muted:    var(--mt-fg-4);
+  --border-color:  var(--mt-border);
+  --border-radius: var(--mt-radius-lg);
+  --font-family:   var(--mt-font-sans);
+}
+
+/* ============================================================
+   RGB 原始值 -- 用于构造 rgba() 透明变体
+   ============================================================ */
+:root {
+  --mt-accent-rgb:  59, 130, 246;   /* #3b82f6 蓝色品牌色 */
+  --mt-success-rgb: 34, 197, 94;    /* #22c55e 成功绿 */
+  --mt-warning-rgb: 245, 158, 11;   /* #f59e0b 警告黄 */
+  --mt-error-rgb:   239, 68, 68;    /* #ef4444 错误红 */
+  --mt-fg-rgb:      248, 250, 252;  /* #f8fafc 亮色文字 */
+}
+
+/* 深色主题 RGB 变体 */
+[data-theme="dark"] {
+  --mt-surface-rgb: 30, 41, 59;   /* #1e293b secondary bg */
+  /* 登录页背景：与深色画布、品牌主色协调，替代固定紫蓝渐变 */
+  --gradient-auth-start: #0b1220;
+  --gradient-auth-end: #1e1b4b;
+  --mt-grad-auth: linear-gradient(135deg, #0b1220 0%, #172554 42%, #1e1b4b 100%);
+}
+
+/* 浅色主题 RGB 变体 */
+[data-theme="light"] {
+  --mt-surface-rgb: 249, 246, 238; /* #F9F6EE elevated bg */
+  --mt-fg-rgb: 31, 30, 27;        /* #1F1E1B 暖棕文字 */
+  /* 登录页：暖色画布渐变（与 --mt-bg-primary 同系，避免冷紫与卡片冲突） */
+  --gradient-auth-start: #f5f1e9;
+  --gradient-auth-end: #ede8dd;
+  --mt-grad-auth: linear-gradient(168deg, #f5f1e9 0%, #ede8dd 55%, #f0ebe0 100%);
+}

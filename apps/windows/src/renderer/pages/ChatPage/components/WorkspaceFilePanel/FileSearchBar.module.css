@@ -1,0 +1,207 @@
+/* ── FileSearchBar — 工作空间文件搜索 ── */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  flex-shrink: 0;
+}
+
+/* 搜索态：占满抽屉剩余高度，使结果列表与"全部文件"树等长 */
+.container--searching {
+  flex: 1;
+  min-height: 0;
+  border-bottom: none;
+}
+
+/* 输入栏 */
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: 6px var(--spacing-3);
+  position: relative;
+}
+
+.searchIcon {
+  display: flex;
+  align-items: center;
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.input:focus {
+  border-color: var(--color-primary);
+}
+
+.input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.clearBtn {
+  position: absolute;
+  right: calc(var(--spacing-3) + 4px);
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.clearBtn:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+/* 过滤标签栏 */
+.filterRow {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 var(--spacing-3) 6px;
+  flex-wrap: wrap;
+}
+
+.filterIcon {
+  display: flex;
+  align-items: center;
+  color: var(--color-text-tertiary);
+  margin-right: 2px;
+  flex-shrink: 0;
+}
+
+.filterChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.filterChip:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.filterChip--active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.filterChip--active:hover {
+  color: #fff;
+}
+
+/* 搜索结果列表 */
+.results {
+  flex: 1;
+  min-height: 120px;
+  max-height: 360px;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-border);
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+/* 搜索态下结果区撑满剩余高度，去掉 max-height 限制 */
+.container--searching .results {
+  max-height: none;
+}
+
+.results::-webkit-scrollbar {
+  width: 4px;
+}
+
+.results::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+.statusRow {
+  padding: var(--spacing-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+.error {
+  color: var(--color-error);
+}
+
+/* 单条结果 */
+.resultItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 6px var(--spacing-3);
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition-fast);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.resultItem:last-child {
+  border-bottom: none;
+}
+
+.resultItem:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.resultName {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.resultDirBadge {
+  color: var(--color-primary);
+  opacity: 0.7;
+}
+
+.resultPath {
+  width: 100%;
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-family-mono, monospace);
+}

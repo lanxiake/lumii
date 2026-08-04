@@ -1,0 +1,98 @@
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: none;
+  border-radius: var(--radius-full);
+  background-color: var(--color-gray-600);
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+  outline: none;
+}
+
+.switch:hover:not(.switch-disabled) {
+  background-color: var(--color-gray-500);
+}
+
+.switch-checked {
+  background-color: var(--color-primary-500);
+}
+
+.switch-checked:hover:not(.switch-disabled) {
+  background-color: var(--color-primary-600);
+}
+
+.switch-disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 2px;
+}
+
+/* Sizes */
+.switch-sm {
+  width: 32px;
+  height: 18px;
+}
+
+.switch-md {
+  width: 44px;
+  height: 24px;
+}
+
+.switch-lg {
+  width: 56px;
+  height: 30px;
+}
+
+.switch-handle {
+  position: absolute;
+  left: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: white;
+  border-radius: var(--radius-full);
+  transition: transform var(--transition-fast);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Handle sizes */
+.switch-sm .switch-handle {
+  width: 14px;
+  height: 14px;
+}
+
+.switch-md .switch-handle {
+  width: 20px;
+  height: 20px;
+}
+
+.switch-lg .switch-handle {
+  width: 26px;
+  height: 26px;
+}
+
+/* Handle transform for checked state */
+.switch-checked.switch-sm .switch-handle {
+  transform: translateX(14px);
+}
+
+.switch-checked.switch-md .switch-handle {
+  transform: translateX(20px);
+}
+
+.switch-checked.switch-lg .switch-handle {
+  transform: translateX(26px);
+}
+
+.switch-text {
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}

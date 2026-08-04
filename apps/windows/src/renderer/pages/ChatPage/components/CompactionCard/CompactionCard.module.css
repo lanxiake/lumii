@@ -1,0 +1,76 @@
+/**
+ * CompactionCard.module.css —— 上下文压缩卡片样式
+ *
+ * 设计：对话流中的紧凑折叠卡片，虚线边框区分于普通消息气泡，
+ * 视觉权重与工具调用行一致，不喧宾夺主。
+ */
+
+.card {
+  margin: 8px auto;
+  max-width: 480px;
+  border-radius: var(--radius-md, 8px);
+  border: 1px dashed var(--color-border, rgba(128, 128, 128, 0.28));
+  background: var(--color-bg-secondary, rgba(128, 128, 128, 0.06));
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 12px;
+  color: var(--color-text-secondary, rgba(128, 128, 128, 0.85));
+  transition: background-color 0.15s;
+}
+
+.header:hover {
+  background: var(--color-bg-tertiary, rgba(128, 128, 128, 0.1));
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-primary-400, #60a5fa);
+  flex-shrink: 0;
+}
+
+.title {
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-text-primary, inherit);
+}
+
+.summary {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-tertiary, rgba(128, 128, 128, 0.7));
+}
+
+.chevron {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--color-text-tertiary, rgba(128, 128, 128, 0.6));
+}
+
+.detail {
+  padding: 4px 12px 8px 34px;
+  font-size: 11px;
+  color: var(--color-text-tertiary, rgba(128, 128, 128, 0.7));
+}
+
+.detailRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}

@@ -1,0 +1,99 @@
+/**
+ * UpdaterView Styles
+ */
+
+.updater-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.updater-view.standalone {
+  padding: 20px;
+  background-color: var(--bg-secondary, #1a1a3e);
+  border-radius: 8px;
+}
+
+.updater-info {
+  display: flex;
+  gap: 24px;
+}
+
+.version-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.version-label {
+  font-size: 12px;
+  color: var(--text-muted, #718096);
+}
+
+.version-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #ffffff);
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.updater-status {
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-text {
+  font-size: 14px;
+  margin: 0;
+}
+
+.status-text.success {
+  color: var(--color-success, #22c55e);
+}
+
+.status-text.info {
+  color: var(--primary-color, #6366f1);
+}
+
+.status-text.error {
+  color: var(--color-error, #ef4444);
+}
+
+.status-loading {
+  display: flex;
+  justify-content: center;
+}
+
+.download-progress {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background-color: var(--bg-tertiary, #2a2a4a);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background-color: var(--primary-color, #6366f1);
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 12px;
+  color: var(--text-secondary, #a0aec0);
+}
+
+.updater-actions {
+  display: flex;
+  justify-content: center;
+}

@@ -1,0 +1,34 @@
+/**
+ * Windows 开发启动包装：先切 UTF-8 代码页，再启动 electron-vite，减少控制台中文乱码
+ */
+const { spawn, execSync } = require('node:child_process')
+const path = require('node:path')
+
+if (process.platform === 'win32') {
+  try {
+    execSync('chcp 65001', { stdio: 'ignore', shell: true })
+  } catch {
+    /* ignore */
+  }
+  process.env.PYTHONIOENCODING = 'utf-8'
+  // Electron/Chromium 控制台在 Windows 上尽量走 UTF-8
+  if (!process.env.NODE_OPTIONS) {
+    process.env.NODE_OPTIONS = ''
+  }
+}
+
+const cwd = path.resolve(__dirname, '..')
+const child = spawn('npx', ['electron-vite', 'dev'], {
+  cwd,
+  stdio: 'inherit',
+  shell: true,
+  env: {
+    ...process.env,
+    PYTHONIOENCODING: 'utf-8',
+  },
+})
+
+child.on('exit', (code, signal) => {
+  if (signal) process.kill(process.pid, signal)
+  process.exit(code ?? 1)
+})

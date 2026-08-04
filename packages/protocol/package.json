@@ -1,0 +1,19 @@
+{
+  "name": "@mtbot/protocol",
+  "version": "0.1.0",
+  "description": "Stable facade for MtBot gateway protocol types (re-exports the TypeBox/AJV source of truth in src/gateway/protocol)",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

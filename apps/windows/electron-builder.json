@@ -1,0 +1,151 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.lumii.app",
+  "productName": "Lumii",
+  "copyright": "Copyright © 2026 Lumii",
+  "afterPack": "build/after-pack.js",
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "files": [
+    "out/**/*",
+    "!out/**/*.map",
+    "package.json",
+    "node_modules/playwright-core/**/*",
+    "node_modules/@img/sharp-win32-x64/**/*",
+    "node_modules/sherpa-onnx-node/**/*",
+    "node_modules/sherpa-onnx-win-x64/**/*",
+    "node_modules/sherpa-onnx-win-ia32/**/*",
+    "node_modules/msedge-tts/**/*",
+    "node_modules/silk-sdk/**/*",
+    "!node_modules/lucide-react/**",
+    "!node_modules/recharts/**",
+    "!node_modules/@uiw/**",
+    "!node_modules/pdfjs-dist/**",
+    "!node_modules/@xyflow/**",
+    "!node_modules/@dagrejs/**",
+    "!node_modules/mafs/**",
+    "!node_modules/react-markdown/**",
+    "!node_modules/rehype-highlight/**",
+    "!node_modules/rehype-katex/**",
+    "!node_modules/remark-gfm/**",
+    "!node_modules/remark-math/**",
+    "!node_modules/highlight.js/**",
+    "!node_modules/katex/**",
+    "!node_modules/clsx/**",
+    "!node_modules/computer-modern/**"
+  ],
+  "electronLanguages": ["zh-CN", "en-US"],
+  "extraResources": [
+    {
+      "from": "assets",
+      "to": "assets",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "config",
+      "to": "config",
+      "filter": ["server-config.json", "draw-config.json"]
+    },
+    {
+      "from": "config/.env.pack",
+      "to": ".env"
+    },
+    {
+      "from": "bundled-skills",
+      "to": "bundled-skills",
+      "filter": [
+        "**/*",
+        "!**/chrome-profile/**",
+        "!**/data/k8s-xhs-series/**",
+        "!**/Art/YouTubeThumbnailExamples/**",
+        "!**/Art/ThumbnailExamples/**",
+        "!**/Art/Examples/**",
+        "!**/Art/HeadshotExamples/**"
+      ]
+    },
+    {
+      "from": "resources/pet-models",
+      "to": "pet-models",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "resources/live2d",
+      "to": "live2d",
+      "filter": ["**/*"]
+    }
+  ],
+  "asar": true,
+  "asarUnpack": [
+    "**/*.node",
+    "**/*.wasm",
+    "node_modules/sherpa-onnx-node/**/*",
+    "node_modules/sherpa-onnx-win-x64/**/*",
+    "node_modules/sherpa-onnx-win-ia32/**/*",
+    "node_modules/@img/sharp-win32-x64/**/*"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64", "ia32"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "assets/icon.ico",
+    "executableName": "Lumii",
+    "signAndEditExecutable": false,
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "requestedExecutionLevel": "asInvoker",
+    "verifyUpdateCodeSignature": false,
+    "forceCodeSigning": false
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "assets/icon.ico",
+    "uninstallerIcon": "assets/icon.ico",
+    "installerHeaderIcon": "assets/icon.ico",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "灵栖 Lumii",
+    "menuCategory": "Lumii",
+    "runAfterFinish": true,
+    "allowElevation": true,
+    "perMachine": false,
+    "language": "2052",
+    "license": "build/license.txt",
+    "installerLanguages": ["zh_CN", "en_US"],
+    "multiLanguageInstaller": true,
+    "deleteAppDataOnUninstall": false,
+    "displayLanguageSelector": true,
+    "include": "build/installer.nsh",
+    "warningsAsErrors": false,
+    "packElevateHelper": true,
+    "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
+  },
+  "portable": {
+    "artifactName": "${productName}-${version}-portable.${ext}",
+    "requestExecutionLevel": "user"
+  },
+  "publish": {
+    "provider": "github",
+    "owner": "lumii",
+    "repo": "lumii",
+    "releaseType": "release"
+  },
+  "electronDownload": {
+    "mirror": "https://npmmirror.com/mirrors/electron/"
+  },
+  "buildDependenciesFromSource": false,
+  "nodeGypRebuild": false,
+  "npmRebuild": false
+}

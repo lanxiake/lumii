@@ -1,0 +1,192 @@
+/* ── WorkspaceFilePanel — 右侧抽屉 ── */
+
+/* 抽屉主体 */
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 300px;
+  z-index: 150;
+  background: var(--color-bg-secondary);
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform var(--mt-dur-normal) var(--mt-ease-decel);
+  box-shadow: var(--mt-shadow-lg);
+  /* 确保在 Electron titlebar 下方 */
+  top: var(--mt-titlebar-h, 36px);
+}
+
+.drawer--open {
+  transform: translateX(0);
+}
+
+/* 标题栏 */
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: 0 var(--spacing-2) 0 var(--spacing-4);
+  height: 44px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.title {
+  flex: 1;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 标题栏图标按钮 */
+.headerBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.headerBtn:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+.headerBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.headerBtn--spinning svg {
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 树形区域（可滚动） */
+.treeArea {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* 自定义滚动条 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.treeArea::-webkit-scrollbar {
+  width: 4px;
+}
+
+.treeArea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.treeArea::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+/* 空状态 */
+.empty {
+  padding: var(--spacing-8) var(--spacing-4);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.emptyIcon {
+  opacity: 0.4;
+}
+
+/* 错误状态 */
+.errorState {
+  padding: var(--spacing-4);
+  color: var(--color-error);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+/* ── 右键菜单 ── */
+.contextMenu {
+  position: fixed;
+  z-index: 400;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--mt-shadow-md);
+  padding: var(--spacing-1) 0;
+  min-width: 168px;
+  animation: menuIn var(--mt-dur-fast) var(--mt-ease-decel);
+}
+
+@keyframes menuIn {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.contextMenuItem {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  width: 100%;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition-fast);
+  white-space: nowrap;
+}
+
+.contextMenuItem:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.contextMenuItem--danger {
+  color: var(--color-error);
+}
+
+.contextMenuItem--danger:hover {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.contextMenuIcon {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  display: flex;
+  align-items: center;
+}
+
+.contextMenuItem--danger .contextMenuIcon {
+  color: var(--color-error);
+  opacity: 0.8;
+}
+
+.contextMenuDivider {
+  height: 1px;
+  background: var(--color-border);
+  margin: var(--spacing-1) 0;
+}

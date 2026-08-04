@@ -1,0 +1,79 @@
+/**
+ * MainLayout Styles - 主布局样式
+ */
+
+/* 主布局容器 */
+.main-layout {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+/* 主体区域 */
+.main-layout-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 内容区域 */
+.main-layout-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-bg-primary);
+}
+
+.main-layout-content-inner {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 20px;
+}
+
+/* 自定义滚动条 */
+.main-layout-content-inner::-webkit-scrollbar {
+  width: 8px;
+}
+
+.main-layout-content-inner::-webkit-scrollbar-track {
+  background: var(--color-bg-secondary);
+}
+
+.main-layout-content-inner::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+.main-layout-content-inner::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-tertiary);
+}
+
+/* 移动端遮罩层 */
+.main-layout-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+}
+
+/* 响应式适配 */
+@media (max-width: 768px) {
+  .main-layout-content-inner {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .main-layout-content-inner {
+    padding: 12px;
+  }
+}

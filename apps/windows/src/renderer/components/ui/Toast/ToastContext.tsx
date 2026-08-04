@@ -1,0 +1,21 @@
+import React, { createContext, useCallback, useState } from 'react';
+
+export type ToastType = 'success' | 'error' | 'warning' | 'info';
+
+export interface ToastItem {
+  id: string;
+  type: ToastType;
+  message: string;
+  duration?: number;
+}
+
+export interface ToastContextType {
+  toasts: ToastItem[];
+  showToast: (toast: Omit<ToastItem, 'id'>) => string;
+  hideToast: (id: string) => void;
+  hideAllToasts: () => void;
+}
+
+const ToastContext = createContext<ToastContextType | null>(null);
+
+export { ToastContext };

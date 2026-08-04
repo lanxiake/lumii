@@ -1,0 +1,197 @@
+/**
+ * TrayManager - 系统托盘管理
+ *
+ * 管理 Windows 系统托盘图标和菜单
+ */
+
+import { Tray, Menu, nativeImage, BrowserWindow } from 'electron'
+import { join } from 'path'
+
+// 日志输出
+const log = {
+  info: (...args: unknown[]) => console.log('[TrayManager]', ...args),
+  error: (...args: unknown[]) => console.error('[TrayManager]', ...args),
+}
+
+/**
+ * 托盘管理器配置
+ */
+export interface TrayManagerConfig {
+  /** 显示窗口回调 */
+  onShowWindow: () => void
+  /** 退出应用回调 */
+  onQuit: () => void
+  /** 切换连接状态回调 */
+  onToggleConnection: () => void
+  /** 打开设置窗口回调 */
+  onOpenSettings: () => void
+  /** 切换宠物模式回调（进入/退出由 TrayManager 当前状态决定） */
+  onTogglePetMode?: () => void
+  /** 关闭强制穿透（仅宠物模式 + 穿透开启时可用） */
+  onDisableForceIgnore?: () => void
+}
+
+/**
+ * 托盘管理器类
+ */
+export class TrayManager {
+  private tray: Tray | null = null
+  private config: TrayManagerConfig
+  private isConnected = false
+  private petModeActive = false
+  private forceIgnoreActive = false
+
+  constructor(config: TrayManagerConfig) {
+    this.config = config
+    this.createTray()
+  }
+
+  /**
+   * 创建系统托盘
+   */
+  private createTray(): void {
+    log.info('创建系统托盘')
+
+    // 创建托盘图标
+    const iconPath = this.getIconPath()
+    const icon = nativeImage.createFromPath(iconPath)
+
+    this.tray = new Tray(icon.resize({ width: 16, height: 16 }))
+    this.tray.setToolTip('灵栖 Lumii')
+
+    // 设置右键菜单
+    this.updateContextMenu()
+
+    // 点击托盘图标显示窗口
+    this.tray.on('click', () => {
+      this.config.onShowWindow()
+    })
+
+    // 双击也显示窗口
+    this.tray.on('double-click', () => {
+      this.config.onShowWindow()
+    })
+  }
+
+  /**
+   * 获取图标路径
+   */
+  private getIconPath(): string {
+    // 开发环境和生产环境的图标路径不同
+    // Windows 使用 .ico 格式
+    if (process.env.NODE_ENV === 'development') {
+      return join(__dirname, '../../assets/icon.ico')
+    }
+    return join(process.resourcesPath, 'assets/icon.ico')
+  }
+
+  /**
+   * 更新右键菜单
+   */
+  private updateContextMenu(): void {
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: '显示窗口',
+        click: () => this.config.onShowWindow(),
+      },
+      { type: 'separator' },
+      {
+        label: this.isConnected ? '断开连接' : '连接 Gateway',
+        click: () => this.config.onToggleConnection(),
+      },
+      {
+        label: this.isConnected ? '[已连接]' : '[未连接]',
+        enabled: false,
+      },
+      { type: 'separator' },
+      ...(this.config.onTogglePetMode
+        ? [
+            {
+              label: this.petModeActive ? '退出宠物模式' : '进入宠物模式',
+              click: () => this.config.onTogglePetMode!(),
+            },
+            ...(this.petModeActive && this.forceIgnoreActive && this.config.onDisableForceIgnore
+              ? [
+                  {
+                    label: '退出穿透（恢复点击）',
+                    click: () => this.config.onDisableForceIgnore!(),
+                  },
+                ]
+              : []),
+            { type: 'separator' as const },
+          ]
+        : []),
+      {
+        label: '设置',
+        click: () => {
+          this.config.onOpenSettings()
+        },
+      },
+      { type: 'separator' },
+      {
+        label: '退出',
+        click: () => this.config.onQuit(),
+      },
+    ])
+
+    this.tray?.setContextMenu(contextMenu)
+  }
+
+  /**
+   * 更新连接状态
+   */
+  updateConnectionStatus(connected: boolean): void {
+    log.info(`连接状态更新: ${connected ? '已连接' : '未连接'}`)
+    this.isConnected = connected
+    this.tray?.setToolTip(`灵栖 Lumii - ${connected ? '已连接' : '未连接'}`)
+    this.updateContextMenu()
+  }
+
+  updatePetMode(active: boolean): void {
+    this.petModeActive = active
+    if (!active) this.forceIgnoreActive = false
+    this.updateContextMenu()
+  }
+
+  /** 更新强制穿透状态（托盘显示「退出穿透」入口） */
+  updateForceIgnore(active: boolean): void {
+    this.forceIgnoreActive = active
+    this.updateContextMenu()
+  }
+
+  /**
+   * 显示通知（托盘气球，Windows 专用）
+   */
+  showNotification(title: string, body: string): void {
+    if (this.tray) {
+      this.tray.displayBalloon({
+        title,
+        content: body,
+        iconType: 'info',
+      })
+    }
+  }
+
+  /**
+   * 闪烁任务栏/托盘图标以提醒用户
+   */
+  flashWindow(window: BrowserWindow): void {
+    window.flashFrame(true)
+  }
+
+  /**
+   * 停止闪烁任务栏/托盘图标
+   */
+  stopFlash(window: BrowserWindow): void {
+    window.flashFrame(false)
+  }
+
+  /**
+   * 销毁托盘
+   */
+  destroy(): void {
+    log.info('销毁系统托盘')
+    this.tray?.destroy()
+    this.tray = null
+  }
+}

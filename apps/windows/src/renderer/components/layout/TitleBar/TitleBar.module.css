@@ -1,0 +1,170 @@
+/**
+ * TitleBar Styles - 标题栏样式
+ */
+
+.title-bar {
+  display: flex;
+  align-items: center;
+  height: var(--mt-titlebar-h, 36px);
+  background-color: var(--mt-bg-secondary);
+  border-bottom: 1px solid var(--mt-border);
+  -webkit-app-region: drag;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+/* 左侧区域 */
+.title-bar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  padding-left: var(--spacing-3);
+  -webkit-app-region: no-drag;
+}
+
+/* 菜单按钮 */
+.title-bar-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.title-bar-menu-btn:hover {
+  background-color: var(--mt-bg-tertiary);
+  color: var(--mt-fg-1);
+}
+
+/* 品牌区域 */
+.title-bar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  -webkit-app-region: drag;
+}
+
+.title-bar-app-name {
+  font-size: 13px;
+  font-weight: var(--mt-fw-semibold);
+  color: var(--mt-fg-2);
+}
+
+.title-bar-separator {
+  font-size: 13px;
+  color: var(--mt-fg-4);
+}
+
+.title-bar-title-text {
+  font-size: 13px;
+  color: var(--mt-fg-1);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 连接状态指示器 */
+.title-bar-status {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  margin-left: var(--spacing-1);
+  transition: all 0.3s ease;
+}
+
+/* 主题切换按钮容器（注入到连接状态右边） */
+.title-bar-theme-toggle {
+  display: flex;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
+.title-bar-status.connected {
+  background-color: var(--color-success, #10b981);
+  box-shadow: 0 0 6px var(--color-success, #10b981);
+}
+
+.title-bar-status.disconnected {
+  background-color: var(--color-error, #ef4444);
+}
+
+/* 可拖拽区域 */
+.title-bar-drag-region {
+  flex: 1;
+  height: 100%;
+}
+
+/* 窗口控制按钮区域 */
+.title-bar-controls {
+  display: flex;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+/* 窗口控制按钮 */
+.title-bar-control-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.title-bar-control-btn:hover {
+  background-color: var(--mt-bg-tertiary);
+  color: var(--mt-fg-1);
+}
+
+.title-bar-control-btn.close:hover {
+  background-color: var(--color-error, #ef4444);
+  color: white;
+}
+
+/* 响应式适配 */
+@media (max-width: 768px) {
+  .title-bar {
+    height: 48px;
+  }
+
+  .title-bar-menu-btn {
+    width: 36px;
+    height: 32px;
+  }
+
+  .title-bar-title-text {
+    max-width: 120px;
+  }
+
+  .title-bar-control-btn {
+    width: 48px;
+  }
+}
+
+@media (max-width: 480px) {
+  .title-bar-app-name {
+    font-size: var(--font-size-xs);
+  }
+
+  .title-bar-title-text {
+    max-width: 80px;
+    font-size: var(--font-size-xs);
+  }
+
+  .title-bar-control-btn {
+    width: 44px;
+  }
+}

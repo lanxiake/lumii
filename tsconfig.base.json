@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["DOM", "DOM.Iterable", "ES2023", "ScriptHost"],
+    "declaration": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "es2023"
+  }
+}

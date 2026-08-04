@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>宠物口型/表情/动作 可视化 Lab</title>
+    <!-- Live2D 官方专有运行时（从 resources/live2d 经中间件加载），须在业务脚本前注入 -->
+    <script src="/live2d/live2dcubismcore.min.js"></script>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+        background: #1a1a1e;
+        color: #e8e8ea;
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+      #stage {
+        flex: 1;
+        position: relative;
+        background:
+          linear-gradient(45deg, #26262c 25%, transparent 25%) -10px 0,
+          linear-gradient(-45deg, #26262c 25%, transparent 25%) -10px 0,
+          linear-gradient(45deg, transparent 75%, #26262c 75%),
+          linear-gradient(-45deg, transparent 75%, #26262c 75%);
+        background-size: 20px 20px;
+        background-color: #1e1e22;
+      }
+      #petCanvas { width: 100%; height: 100%; display: block; }
+      #panel {
+        width: 420px;
+        padding: 16px;
+        overflow-y: auto;
+        background: #232329;
+        border-left: 1px solid #35353c;
+      }
+      h1 { font-size: 15px; margin: 0 0 12px; color: #9ad; }
+      h2 { font-size: 13px; margin: 18px 0 8px; color: #8a8; border-bottom: 1px solid #35353c; padding-bottom: 4px; }
+      .scenario-btn {
+        display: block; width: 100%; margin: 6px 0; padding: 10px 12px;
+        background: #2f7; color: #123; border: none; border-radius: 6px;
+        font-size: 13px; font-weight: 600; cursor: pointer; text-align: left;
+      }
+      .scenario-btn:hover { background: #4f9; }
+      .scenario-btn.stop { background: #f56; color: #fff; }
+      .scenario-btn.stop:hover { background: #f78; }
+      .row { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+      .chip {
+        padding: 5px 9px; background: #33333a; border: 1px solid #44444c;
+        border-radius: 5px; font-size: 12px; cursor: pointer; color: #cde;
+      }
+      .chip:hover { background: #3d3d46; }
+      .chip.model { border-color: #4a6; background: #2a3330; }
+      .chip.model:hover { background: #35443f; }
+      .chip.registry { border-color: #68a; background: #2a2d38; }
+      .chip.registry:hover { background: #353a4a; }
+      .chip-sub { font-size: 10px; color: #8a9; margin-left: 4px; }
+      .chip-section { margin: 10px 0 4px; font-size: 11px; color: #9ab; }
+      select {
+        width: 100%; padding: 8px 10px; background: #16161a; border: 1px solid #44444c;
+        border-radius: 5px; color: #e8e8ea; font-size: 13px; cursor: pointer;
+      }
+      #modelInfo {
+        font-size: 11px; line-height: 1.65; background: #16161a; padding: 8px 10px;
+        border-radius: 6px; margin-top: 6px; color: #9ab; font-family: 'Cascadia Code', monospace;
+        white-space: pre-wrap; max-height: 140px; overflow-y: auto;
+      }
+      #mouthCurve { width: 100%; height: 90px; background: #16161a; border-radius: 6px; margin-top: 6px; }
+      #readingText {
+        font-size: 15px; line-height: 1.9; background: #16161a; padding: 10px 12px;
+        border-radius: 6px; min-height: 52px; color: #566; letter-spacing: 1px;
+      }
+      #readingText .read { color: #2f7; font-weight: 600; }
+      #readingText .cursor { color: #fc8; animation: blink 0.8s step-end infinite; }
+      @keyframes blink { 50% { opacity: 0; } }
+      #motionFeedback {
+        font-size: 12px; font-family: 'Cascadia Code', monospace; line-height: 1.6;
+        background: #16161a; padding: 8px 10px; border-radius: 6px; margin-top: 6px;
+        color: #8a9; min-height: 20px;
+      }
+      #motionFeedback .ok { color: #2f7; }
+      #motionFeedback .fail { color: #f56; }
+      #status {
+        font-size: 12px; line-height: 1.7; background: #16161a; padding: 10px;
+        border-radius: 6px; margin-top: 8px; white-space: pre-wrap; font-family: 'Cascadia Code', monospace;
+      }
+      .metric { color: #fc8; }
+      #log {
+        font-size: 11px; font-family: 'Cascadia Code', monospace; line-height: 1.5;
+        background: #141417; padding: 8px; border-radius: 6px; margin-top: 8px;
+        height: 160px; overflow-y: auto; color: #8a9;
+      }
+      label { font-size: 12px; color: #aab; display: block; margin: 8px 0 3px; }
+      input[type='text'] { width: 100%; padding: 7px; background: #16161a; border: 1px solid #44444c; border-radius: 5px; color: #e8e8ea; font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <div id="stage"><canvas id="petCanvas"></canvas></div>
+    <div id="panel">
+      <h1>宠物口型 / 表情 / 动作 Lab</h1>
+
+      <label>模型选择（registry.json）</label>
+      <select id="modelSelect"></select>
+      <div id="modelInfo">加载中…</div>
+
+      <h2>固定场景（说话 = 伪口型脉冲）</h2>
+      <button class="scenario-btn" data-scene="idle-talk">① 静止 + 说话</button>
+      <button class="scenario-btn" data-scene="motion-talk">② 动作 + 说话</button>
+      <button class="scenario-btn" data-scene="expr-talk">③ 表情 + 说话</button>
+      <button class="scenario-btn" data-scene="motion-expr-talk">④ 动作 + 表情 + 说话</button>
+      <button class="scenario-btn stop" data-scene="stop">■ 停止 / 归位</button>
+
+      <label>自定义流式文本（含 [表情] / [motion:动作] 标签）</label>
+      <input type="text" id="customText" value="[joy]你好呀[motion:开心跳]今天天气真不错[smile]我们一起玩吧" />
+      <button class="scenario-btn" id="feedCustom">▶ 播放自定义文本</button>
+
+      <label>文字输出速度：<span id="speedLabel" class="metric">120ms/块</span>（越小越快）</label>
+      <input type="range" id="feedSpeed" min="30" max="400" step="10" value="120" style="width:100%" />
+
+      <label style="display:flex;align-items:center;gap:6px;margin-top:10px;cursor:pointer">
+        <input type="checkbox" id="idleToggle" style="width:auto;margin:0" />
+        <span>播放后允许随机待机动作（默认关闭 = 播完保持静止）</span>
+      </label>
+
+      <h2>朗读 + 口型（文字与曲线时间对齐）</h2>
+      <div id="readingText">（点击场景后，这里逐字显示朗读进度）</div>
+      <canvas id="mouthCurve"></canvas>
+      <button class="scenario-btn" id="copyDiag" style="background:#59f;color:#fff">⧉ 复制口型诊断数据（mouth / ParamA）</button>
+
+      <h2>手动触发</h2>
+      <div class="chip-section">模型表情（自动读取 model3.json）</div>
+      <div class="row" id="modelExprChips"></div>
+      <div class="chip-section">模型动作（自动读取 model3.json）</div>
+      <div class="row" id="modelMotionChips"></div>
+      <div class="chip-section">注册表表情标签（emotionMap）</div>
+      <div class="row" id="registryExprChips"></div>
+      <div class="chip-section">注册表动作标签（actionMotions）</div>
+      <div class="row" id="registryMotionChips"></div>
+      <div id="motionFeedback">动作反馈：点击上方动作 chip 后显示是否播放成功</div>
+
+      <h2>状态</h2>
+      <div id="status">未加载</div>
+      <div id="log"></div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

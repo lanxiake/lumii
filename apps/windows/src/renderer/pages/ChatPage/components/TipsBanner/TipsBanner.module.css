@@ -1,0 +1,100 @@
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: 4px var(--spacing-4) 2px;
+  background: transparent;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  transition: opacity 0.25s ease, color 0.2s ease;
+  min-height: 22px;
+  flex-shrink: 0;
+  user-select: none;
+  cursor: default;
+}
+
+.banner:hover {
+  color: var(--color-text-primary);
+}
+
+.visible {
+  opacity: 0.55;
+}
+
+/* 悬停时加深，表示用户正在关注 */
+.faded {
+  opacity: 0.85;
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  color: var(--color-primary, #6366f1);
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.text {
+  flex: 1;
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmd {
+  display: inline-block;
+  padding: 0 4px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--color-primary, #6366f1);
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.banner:hover .controls {
+  opacity: 1;
+}
+
+.counter {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  min-width: 28px;
+  text-align: center;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 0;
+  transition: background 0.12s, color 0.12s;
+}
+
+.nav:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}

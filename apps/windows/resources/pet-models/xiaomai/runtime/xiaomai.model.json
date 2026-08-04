@@ -1,0 +1,277 @@
+{
+	"version": "Sample 1.0.0",
+	"model": "umaru.moc",
+	"textures": [
+		"umaru2048/texture_00.png"
+	],
+	"expressions": [
+		{
+			"name": "f00",
+			"file": "expressions/f00.exp.json"
+		}
+	],
+	"physics": "physics.json",
+	"layout": {
+		"width": 1.8376,
+		"center_x": -0.0507,
+		"center_y": -0.089
+	},
+	"hit_areas": [
+		{
+			"name": "head",
+			"id": "D_REF.PT_HEAD"
+		},
+		{
+			"name": "body",
+			"id": "D_REF.PT_BODY"
+		}
+	],
+	"motions": {
+		"idle": [
+			{
+				"file": "mtn/umaru_idle.mtn",
+				"fade_in": 500,
+				"fade_out": 500,
+				"expressions": "F00"
+			}
+		],
+		"start": [
+			{
+				"file": "mtn/rita_Live2D_003.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_026.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_001.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_002.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_003.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_004.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_005.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_006.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_007.mtn",
+				"fade_in": 500,
+				"fade_out": 1000
+			},
+			{
+				"file": "mtn/rita_Live2D_008.mtn",
+				"fade_in": 500,
+				"fade_out": 1000
+			},
+			{
+				"file": "mtn/rita_Live2D_009.mtn",
+				"fade_in": 500,
+				"fade_out": 1000
+			},
+			{
+				"file": "mtn/rita_Live2D_010.mtn",
+				"expressions": "F00"
+			}
+		],
+		"tap_head": [
+			{
+				"file": "mtn/rita_Live2D_027.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_028.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_029.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_030.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_031.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_032.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_033.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_034.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_034.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_021.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_022.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_023.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_024.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_025.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_026.mtn",
+				"expressions": "F00"
+			}
+		],
+		"tap_body": [
+			{
+				"file": "mtn/rita_Live2D_011.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_012.mtn",
+				"fade_in": 500,
+				"fade_out": 1000
+			},
+			{
+				"file": "mtn/rita_Live2D_013.mtn",
+				"fade_in": 500,
+				"fade_out": 500
+			},
+			{
+				"file": "mtn/rita_Live2D_014.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_015.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_016.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_017.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_018.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_019.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_020.mtn",
+				"fade_in": 500,
+				"fade_out": 1000
+			}
+		],
+		"shake": [
+			{
+				"file": "mtn/rita_Live2D_021.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_022.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_023.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_024.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_025.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_026.mtn",
+				"expressions": "F00"
+			}
+		],
+		"random": [
+			{
+				"file": "mtn/rita_Live2D_027.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_028.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_029.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_030.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_031.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_032.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_033.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_034.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_034.mtn",
+				"expressions": "F00"
+			},
+			{
+				"file": "mtn/rita_Live2D_021.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_022.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_023.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_024.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_025.mtn"
+			},
+			{
+				"file": "mtn/rita_Live2D_026.mtn",
+				"expressions": "F00"
+			}
+		],
+		"new_msg": [
+			{
+				"file": "mtn/rita_Live2D_033.mtn",
+				"expressions": "F00"
+			}
+		]
+	}
+}

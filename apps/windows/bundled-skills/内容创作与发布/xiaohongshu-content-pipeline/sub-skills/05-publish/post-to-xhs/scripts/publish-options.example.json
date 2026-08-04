@@ -1,0 +1,9 @@
+{
+  "publish_mode": "image-text",
+  "account": "default",
+  "content_type": "knowledge",
+  "title": "02：kubectl背后站着6个打工仔",
+  "content": "正文描述……",
+  "schedule": "2026-06-13 20:00",
+  "tags": ["K8s入门", "云原生", "程序员"]
+}

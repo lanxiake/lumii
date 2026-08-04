@@ -1,0 +1,43 @@
+# 宠物模型资源目录
+
+## 许可证声明（重要）
+
+| 组件 | 协议 | 约束 |
+|------|------|------|
+| Live2D 样本模型（shizuku / mao_pro / haru / natori / ren） | Free Material License | **仅限开发测试**；产品化发布前必须替换为自有/商用授权模型 |
+| UG Official（ug_official） | 第三方模型（见 ReadMe.txt） | **仅限开发测试**；商用前须确认原作者授权 |
+| 白眉墨（baimeimo） | 第三方模型（见 ReadMe.txt） | **仅限开发测试**；商用前须确认原作者授权 |
+| Castorice V2（castorice_v2） | 第三方模型（见 ReadMe.txt） | **仅限开发测试**；商用前须确认原作者授权 |
+| Akyuu（akyuu） | 第三方模型（见 ReadMe.txt） | **仅限开发测试**；商用前须确认原作者授权 |
+| Live2D Cubism SDK | Live2D Open Software License | 遵守 SDK 许可 |
+| Cubism Core (`live2dcubismcore.min.js`) | Live2D Proprietary License | 遵守分发条款，放在 `../live2d/` |
+
+⚠️ **发布检查清单强约束**：免费样本模型禁止随产品发布，必须替换或购买商用授权。
+
+## 目录结构
+
+```
+pet-models/
+├── registry.json          # 模型注册表（已提供）
+├── LICENSE                # 本文件
+└── default-pet/           # 默认模型（需手动放置）
+    └── runtime/
+        ├── model.model3.json   # 模型入口
+        ├── *.moc3              # 模型数据
+        ├── *.physics3.json     # 物理
+        ├── textures/           # 贴图
+        └── motions/            # 动作
+```
+
+## 如何放置默认模型（开发测试）
+
+1. 从 Open-LLM-VTuber 或 Live2D 官方下载免费样本模型（如 Hiyori / Mao）
+2. 解压到 `default-pet/runtime/`，确保入口文件名为 `model.model3.json`
+   （或修改 `registry.json` 的 `modelUrl` 指向实际入口文件名）
+3. 确认 `motions/` 中含 `Idle` 与 `Talk` 动作组（或调整 registry 的 motionGroup）
+
+## Cubism Core（必需）
+
+`pixi-live2d-display/cubism4` 运行时依赖 `window.Live2DCubismCore`。
+请从 Live2D 官方 Cubism SDK for Web 下载 `live2dcubismcore.min.js`，
+放入 `../live2d/live2dcubismcore.min.js`（与本目录同级的 live2d/ 目录）。

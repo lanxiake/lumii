@@ -1,0 +1,63 @@
+.card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  transition: all var(--transition-fast);
+}
+
+.card-hover {
+  transition: border-color var(--mt-dur-fast) var(--mt-ease-standard),
+              transform var(--mt-dur-fast) var(--mt-ease-spring),
+              box-shadow var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.card-hover:hover {
+  border-color: var(--mt-accent-500);
+  transform: translateY(-2px);
+  box-shadow: var(--mt-shadow-md);
+}
+
+.card-clickable {
+  cursor: pointer;
+}
+
+.card-header {
+  padding: var(--spacing-4) var(--spacing-5) 0;
+}
+
+.card-title {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.card-body {
+  padding: var(--spacing-4) var(--spacing-5);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.card-header + .card-body {
+  padding-top: var(--spacing-3);
+}
+
+.card-footer {
+  padding: var(--spacing-3) var(--spacing-5) var(--spacing-4);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+/* Card variants */
+.card-primary {
+  background: linear-gradient(135deg, var(--color-primary-600), var(--color-primary-500));
+  border-color: var(--color-primary-500);
+}
+
+.card-primary .card-title,
+.card-primary .card-body {
+  color: var(--color-gray-50);
+}

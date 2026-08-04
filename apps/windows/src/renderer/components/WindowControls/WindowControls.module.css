@@ -1,0 +1,39 @@
+/* 窗口控制按钮样式 */
+
+.window-controls {
+  position: fixed;
+  top: 0;
+  right: 0;
+  display: flex;
+  height: 32px;
+  z-index: 1000;
+  -webkit-app-region: no-drag;
+}
+
+.window-control-button {
+  width: 46px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary, #333);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+  padding: 0;
+}
+
+.window-control-button:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.close-button:hover {
+  background-color: #e81123;
+  color: white;
+}
+
+.window-control-button svg {
+  width: 10px;
+  height: 10px;
+}

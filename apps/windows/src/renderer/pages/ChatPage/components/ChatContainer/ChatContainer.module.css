@@ -1,0 +1,76 @@
+.chat-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-4);
+  padding-top: calc(var(--chat-overlay-top, 44px) + var(--spacing-4));
+  padding-bottom: calc(var(--chat-overlay-bottom, 210px) + var(--spacing-4));
+  background-color: transparent;
+  position: relative;
+}
+
+/*
+ * 浮动"回到最新消息"按钮
+ * 用户上滑查看历史消息时显示，点击回到底部并重新启用自动跟随
+ */
+.scroll-to-latest {
+  position: sticky;
+  bottom: 12px;
+  align-self: center;
+  margin: 0 auto -8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--color-text-primary, #fff);
+  background: var(--color-primary, rgba(66, 153, 225, 0.92));
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.15));
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease, background 0.15s ease;
+  z-index: 10;
+}
+
+.scroll-to-latest:hover {
+  transform: translateY(-1px);
+  background: var(--color-primary-hover, rgba(49, 130, 206, 0.98));
+}
+
+.messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  width: 100%;
+  max-width: var(--chat-content-max-width, 820px);
+  margin: 0 auto;
+  min-width: 0;
+}
+
+/* 会话切换时：容器整体淡入 */
+@keyframes session-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.messages-list--switching {
+  animation: session-fade-in 0.18s ease-out;
+}
+
+/* 上下文自动压缩标记（轻量小标签，替代横线分割） */
+.compaction-marker {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0;
+  user-select: none;
+}
+
+.compaction-marker__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+  background: var(--color-bg-secondary, rgba(255, 255, 255, 0.04));
+  font-size: 11px;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.35));
+  white-space: nowrap;
+}

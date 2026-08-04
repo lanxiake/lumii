@@ -1,0 +1,37 @@
+<!--
+全屏动效模板 · 用于"成果演示"GIF(烟花/庆祝/加载等)
+用途：展示 AI 生成的网页跑起来的真实动态效果,录成 GIF 放进文章
+用法：改 H1/P 文案;录 GIF:
+  python scripts/html_to_gif.py templates/firework.html out.gif 28 110 600 380
+说明：Canvas 烟花粒子,5 秒后文字常驻。全屏粒子动画 GIF 约 1-2MB。
+-->
+<!DOCTYPE html>
+<html lang="zh"><head><meta charset="UTF-8">
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#0a0a23;font-family:"PingFang SC","Microsoft YaHei",sans-serif;}
+  canvas{display:block;position:fixed;inset:0;}
+  .center{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:10;text-align:center;pointer-events:none;}
+  h1{font-size:72px;margin:0;color:#fff;text-shadow:0 0 18px #ff6b35,0 0 36px #ff6b35;letter-spacing:4px;}
+  p{font-size:28px;margin:18px 0 0;color:#ffd9c2;text-shadow:0 0 10px rgba(255,107,53,.6);}
+</style></head>
+<body>
+<canvas id="fw"></canvas>
+<div class="center">
+  <h1>hello world</h1>
+  <p>【副标题文案,改这里】</p>
+</div>
+<script>
+const c=document.getElementById('fw'),x=c.getContext('2d');let W,H;
+function rs(){W=c.width=innerWidth;H=c.height=innerHeight;}rs();addEventListener('resize',rs);
+const parts=[];const colors=['#ff6b35','#ffd23f','#3fa9ff','#ff3f9a','#7CFC00','#fff'];
+function burst(cx,cy){const n=60,col=colors[Math.random()*colors.length|0];
+  for(let i=0;i<n;i++){const a=Math.PI*2*i/n,s=Math.random()*4+2;parts.push({x:cx,y:cy,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:80,col});}}
+function loop(){x.fillStyle='rgba(10,10,35,.18)';x.fillRect(0,0,W,H);
+  for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.x+=p.vx;p.y+=p.vy;p.vy+=.03;p.life--;
+    x.globalAlpha=Math.max(p.life/80,0);x.fillStyle=p.col;x.beginPath();x.arc(p.x,p.y,2.4,0,7);x.fill();
+    if(p.life<=0)parts.splice(i,1);}x.globalAlpha=1;requestAnimationFrame(loop);}
+loop();
+for(let k=0;k<6;k++)burst(W*(0.2+0.12*k),H*(0.3+(k%2)*0.18));
+setInterval(()=>burst(Math.random()*W,Math.random()*H*0.6),700);
+</script>
+</body></html>

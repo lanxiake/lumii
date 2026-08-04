@@ -1,0 +1,249 @@
+.plan-card {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(79, 70, 229, 0.12) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 8px 0;
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.plan-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.plan-icon-wrapper {
+  width: 36px;
+  height: 36px;
+  background: rgba(99, 102, 241, 0.15);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.plan-icon {
+  font-size: 18px;
+}
+
+.plan-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary, #f1f5f9);
+}
+
+.plan-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary, #94a3b8);
+  margin-top: 2px;
+}
+
+.plan-summary {
+  font-size: 13px;
+  color: var(--text-primary, #e2e8f0);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.plan-steps {
+  margin-bottom: 14px;
+}
+
+.plan-steps-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
+}
+
+.plan-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.plan-step:last-child {
+  border-bottom: none;
+}
+
+.plan-step-number {
+  width: 24px;
+  height: 24px;
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #a5b4fc;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.plan-step-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.plan-step-agent {
+  font-size: 12px;
+  font-weight: 600;
+  color: #a5b4fc;
+  margin-bottom: 2px;
+}
+
+.plan-step-desc {
+  font-size: 12px;
+  color: var(--text-secondary, #94a3b8);
+  line-height: 1.4;
+}
+
+.plan-step-parallel {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 10px;
+  padding: 1px 6px;
+  background: rgba(52, 211, 153, 0.1);
+  color: #34d399;
+  border-radius: 4px;
+  border: 1px solid rgba(52, 211, 153, 0.2);
+}
+
+.plan-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.plan-btn {
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.plan-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.plan-btn--primary {
+  background: rgba(99, 102, 241, 0.8);
+  color: white;
+}
+
+.plan-btn--primary:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 1);
+}
+
+.plan-btn--secondary {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.plan-btn--secondary:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+.plan-btn--danger {
+  background: rgba(239, 68, 68, 0.8);
+  color: white;
+}
+
+.plan-btn--danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 1);
+}
+
+.plan-btn--ghost {
+  background: transparent;
+  color: var(--text-secondary, #94a3b8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.plan-btn--ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.plan-feedback {
+  margin-top: 12px;
+}
+
+.plan-feedback-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-primary, #f1f5f9);
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.plan-feedback-input:focus {
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.plan-feedback-input::placeholder {
+  color: var(--text-secondary, #94a3b8);
+}
+
+.plan-feedback-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Result states */
+.plan-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.plan-result--approved {
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.2);
+  color: #34d399;
+}
+
+.plan-result--rejected {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.result-icon {
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.result-text {
+  font-weight: 500;
+}

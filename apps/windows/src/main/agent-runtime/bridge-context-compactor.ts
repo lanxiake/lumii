@@ -1,0 +1,395 @@
+/**
+ * AgentRuntimeBridge 上下文压缩 / 单次 LLM 调用服务
+ *
+ * 拆自 bridge.ts，封装 callLLM / compactContext / compactContextAsync 三个跨实例方法。
+ * 不持有 per-instance Map，仅通过 deps 注入仓库引用与 stream getter。
+ */
+
+import {
+  type ConversationRepo,
+  type SummaryGeneratorFn,
+  type DatabaseAdapter,
+  estimateTokenCount,
+  createGatewayStreamFn,
+} from '@mtbot/agent-runtime'
+import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
+import { analyticsReporter } from './analytics-reporter'
+import { agentRuntimeLog as log } from './bridge-utils'
+
+type ModelRef = import('@mariozechner/pi-ai').Model<any>
+type InnerStreamRef = ReturnType<typeof createGatewayStreamFn>
+
+/** 压缩埋点所需的运行上下文（用于把压缩事件关联到 run_id / agent / model） */
+export interface CompactionRunContext {
+  runId: string
+  agentId?: string
+  modelName?: string
+}
+
+export interface BridgeContextCompactorDeps {
+  getConversationRepo: () => ConversationRepo | null
+  /** 根据 instanceId 查询 (innerStream, model) — 用于优先选择该实例的 stream */
+  getInstanceStream: (
+    instanceId: string,
+  ) => { innerStream: InnerStreamRef; model: ModelRef } | undefined
+  /** 主 Agent 实例的 innerStream（降级用） */
+  getMainInnerStream: () => InnerStreamRef | null
+  /** 主 Agent 实例的 model（降级用） */
+  getMainModel: () => ModelRef | null
+  /** 任一可用实例的 (innerStream, model)（二次降级用，供后台总结等无指定实例的调用） */
+  getAnyInstanceStream?: () => { innerStream: InnerStreamRef; model: ModelRef } | undefined
+  /** 数据库连接（用于直接 prepare DELETE 等操作） */
+  getDb: () => DatabaseAdapter
+  ipcChannel: BridgeRendererIpcChannel
+  /**
+   * 同步 Agent 内存（在 LLM 摘要写入 DB 后调用，重新拉取最新消息注入实例）。
+   */
+  restoreHistoryForInstance: (instanceId: string, conversationId: string, limit: number) => void
+  /**
+   * 构造 LLM 摘要生成器：把 AgentMessage[] 拼接 prompt 后流式收集摘要文本。
+   */
+  createSummaryGenerator: (innerStream: InnerStreamRef, model: ModelRef) => SummaryGeneratorFn
+  /**
+   * 按 instanceId 解析压缩埋点所需的运行上下文（run_id / agent / model）。
+   * 找不到（如未知实例）返回 undefined，此时跳过分析埋点但不影响压缩本身。
+   */
+  getCompactionRunContext?: (instanceId: string) => CompactionRunContext | undefined
+  /** 压缩/清空后使提供商 token 缓存失效 */
+  onSessionContextInvalidated?: (sessionKey: string) => void
+}
+
+export class BridgeContextCompactor {
+  constructor(private readonly deps: BridgeContextCompactorDeps) {}
+
+  /**
+   * 单次 LLM 调用，复用现有 Agent 实例的 innerStream（继承用户配置的模型和认证）。
+   * @param purpose 业务用途标签，写入 LLM 调用日志 metadata.purpose
+   */
+  async callLLM(prompt: string, instanceId?: string, purpose = 'chat'): Promise<string> {
+    const entry = instanceId ? this.deps.getInstanceStream(instanceId) : undefined
+    let innerStream = entry?.innerStream ?? this.deps.getMainInnerStream()
+    let model = entry?.model ?? this.deps.getMainModel()
+
+    // 二次降级：主 stream 仅在 agent id==='main' 时设置，普通 agent（如 assistant）为空。
+    // 后台总结等无指定实例的调用，兜底用任一可用实例的 stream。
+    if (!innerStream || !model) {
+      const any = this.deps.getAnyInstanceStream?.()
+      if (any) {
+        innerStream = any.innerStream
+        model = any.model
+      }
+    }
+
+    if (!innerStream || !model) {
+      throw new Error(
+        'callLLM: 没有可用的 Agent 实例 stream，请确保至少有一个 Agent 实例已初始化',
+      )
+    }
+    const context: import('@mariozechner/pi-ai').Context = {
+      messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
+    }
+    const streamResult = await innerStream(model, context, { purpose } as Parameters<InnerStreamRef>[2])
+    let text = ''
+    for await (const event of streamResult) {
+      if (event.type === 'text_delta') {
+        text += event.delta
+      }
+    }
+    return text.trim()
+  }
+
+  /**
+   * 手动压缩指定会话的上下文（删除旧消息，仅保留最近 N 轮）
+   */
+  compactContext(
+    sessionKey: string,
+    keepRecentTurns = 6,
+  ): { success: boolean; previousMessageCount: number; newMessageCount: number; messagesRemoved: number } {
+    const repo = this.deps.getConversationRepo()
+    if (!repo) {
+      throw new Error('ConversationRepo not initialized')
+    }
+    const db = this.deps.getDb()
+    const allMessages = db.prepare<{ id: string }>(
+      `SELECT id FROM messages WHERE conversation_id = ? AND is_streaming = 0 ORDER BY timestamp ASC`,
+    ).all(sessionKey) as { id: string }[]
+
+    const previousMessageCount = allMessages.length
+    const keepCount = keepRecentTurns * 2
+    if (allMessages.length <= keepCount) {
+      log.info(
+        `[compactContext] sessionKey=${sessionKey} 消息数(${allMessages.length}) <= keepCount(${keepCount})，无需压缩`,
+      )
+      return { success: true, previousMessageCount, newMessageCount: allMessages.length, messagesRemoved: 0 }
+    }
+
+    const toDelete = allMessages.slice(0, allMessages.length - keepCount)
+    const ids = toDelete.map((m) => m.id)
+
+    // 在删除前先计算压缩前的 token 数，避免删除后无法获取原始数据
+    const allPiMessages = repo.loadMessagesAsPiFormat(sessionKey, { limit: allMessages.length }) as AgentMessage[]
+    const prevTokenCount = estimateTokenCount(allPiMessages)
+    const newPiMessages = allPiMessages.slice(ids.length)
+    const newTokenCount = estimateTokenCount(newPiMessages)
+
+    const placeholders = ids.map(() => '?').join(', ')
+    db.prepare(`DELETE FROM messages WHERE id IN (${placeholders})`).run(...ids)
+
+    const newMessageCount = allMessages.length - ids.length
+    log.info(`[compactContext] sessionKey=${sessionKey} 压缩完成: 删除${ids.length}条, 保留${newMessageCount}条`)
+
+    this.deps.onSessionContextInvalidated?.(sessionKey)
+
+    this.deps.ipcChannel.forwardIpcEvent({
+      type: 'agent:context:compacted',
+      sessionKey,
+      previousTokenCount: prevTokenCount,
+      newTokenCount,
+      messagesRemoved: ids.length,
+      messagesBefore: allMessages.length,
+      messagesAfter: newMessageCount,
+      timestamp: Date.now(),
+    })
+
+    return {
+      success: true,
+      previousMessageCount,
+      newMessageCount,
+      messagesRemoved: ids.length,
+    }
+  }
+
+  /**
+   * 异步压缩上下文（含 LLM 摘要生成）。
+   *
+   * 流程：
+   * 1. 从 DB 加载待压缩消息
+   * 2. 调用 LLM 生成摘要（失败时降级为纯删除）
+   * 3. 删除旧消息（复用同步逻辑）
+   * 4. 将摘要写入 DB（作为 assistant 消息）
+   * 5. 同步 Agent 内存（restoreHistoryForInstance）
+   * 6. 推送 agent:context:compacted 事件
+   */
+  async compactContextAsync(
+    instanceId: string,
+    sessionKey: string,
+    keepRecentTurns = 6,
+    signal?: AbortSignal,
+  ): Promise<{
+    success: boolean
+    previousMessageCount: number
+    newMessageCount: number
+    messagesRemoved: number
+    hadSummary: boolean
+  }> {
+    const repo = this.deps.getConversationRepo()
+    if (!repo) throw new Error('ConversationRepo not initialized')
+
+    const db = this.deps.getDb()
+    const allMessages = db.prepare<{ id: string }>(
+      `SELECT id FROM messages WHERE conversation_id = ? AND is_streaming = 0 ORDER BY timestamp ASC`,
+    ).all(sessionKey) as { id: string }[]
+
+    const previousMessageCount = allMessages.length
+    const keepCount = keepRecentTurns * 2
+
+    if (allMessages.length <= keepCount) {
+      log.info(
+        `[compactContextAsync] 消息数(${allMessages.length}) <= keepCount(${keepCount})，无需压缩: sessionKey=${sessionKey}`,
+      )
+      return {
+        success: true,
+        previousMessageCount,
+        newMessageCount: allMessages.length,
+        messagesRemoved: 0,
+        hadSummary: false,
+      }
+    }
+
+    const toDelete = allMessages.slice(0, allMessages.length - keepCount)
+    const ids = toDelete.map((m) => m.id)
+
+    // 尝试 LLM 摘要
+    let summaryText: string | null = null
+    const piMessages = repo.loadMessagesAsPiFormat(sessionKey, { limit: allMessages.length }) as AgentMessage[]
+    const previousTokenCount = estimateTokenCount(piMessages)
+    // 优先用当前实例的 stream，降级到主 Agent stream
+    const instanceStreamEntry = this.deps.getInstanceStream(instanceId)
+    const activeInnerStream = instanceStreamEntry?.innerStream ?? this.deps.getMainInnerStream()
+    const activeModel = instanceStreamEntry?.model ?? this.deps.getMainModel()
+    if (activeInnerStream && activeModel) {
+      try {
+        const toSummarize = piMessages.slice(0, toDelete.length)
+        const summaryPrompt =
+          '请用简洁的中文总结以上对话的关键信息、决策和结论，以便后续对话可以继续。'
+        const generator = this.deps.createSummaryGenerator(activeInnerStream, activeModel)
+        summaryText = await generator(toSummarize, summaryPrompt, signal)
+        log.info(`[compactContextAsync] LLM 摘要生成成功: ${summaryText?.length ?? 0} 字符`)
+      } catch (err) {
+        log.warn(
+          `[compactContextAsync] LLM 摘要生成失败，降级为纯删除: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    } else {
+      log.warn(`[compactContextAsync] mainInnerStream/mainModel 未初始化，跳过 LLM 摘要`)
+    }
+
+    // 删除旧消息
+    const placeholders = ids.map(() => '?').join(', ')
+    db.prepare(`DELETE FROM messages WHERE id IN (${placeholders})`).run(...ids)
+    log.info(`[compactContextAsync] 已删除 ${ids.length} 条旧消息: sessionKey=${sessionKey}`)
+
+    // 写入摘要消息
+    if (summaryText) {
+      try {
+        repo.saveMessage({
+          conversationId: sessionKey,
+          role: 'assistant',
+          contentJson: {
+            type: 'text' as const,
+            text: `[对话摘要]\n${summaryText}`,
+          },
+        })
+        log.info(`[compactContextAsync] 摘要已写入 DB: sessionKey=${sessionKey}`)
+      } catch (err) {
+        log.warn(
+          `[compactContextAsync] 摘要写入 DB 失败: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    }
+
+    const newMessageCount = allMessages.length - ids.length + (summaryText ? 1 : 0)
+
+    // 同步 Agent 内存
+    try {
+      this.deps.restoreHistoryForInstance(instanceId, sessionKey, newMessageCount + 10)
+      log.info(`[compactContextAsync] 内存同步完成: instanceId=${instanceId}`)
+    } catch (err) {
+      log.warn(
+        `[compactContextAsync] 内存同步失败（非致命）: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+
+    // 计算压缩后 token 数
+    const newPiMessages = repo.loadMessagesAsPiFormat(sessionKey, {
+      limit: newMessageCount + 10,
+    }) as AgentMessage[]
+    const newTokenCount = estimateTokenCount(newPiMessages)
+
+    this.deps.onSessionContextInvalidated?.(sessionKey)
+
+    this.deps.ipcChannel.forwardIpcEvent({
+      type: 'agent:context:compacted',
+      sessionKey,
+      previousTokenCount,
+      newTokenCount,
+      messagesRemoved: ids.length,
+      messagesBefore: previousMessageCount,
+      messagesAfter: newMessageCount,
+      timestamp: Date.now(),
+    })
+
+    // 分析埋点：自动/异步压缩（与 agent-instance onCompaction 路径互补，确保桥接侧压缩也入库）
+    this.reportCompaction(instanceId, {
+      sessionKey,
+      beforeTokens: previousTokenCount,
+      afterTokens: newTokenCount,
+      strategy: summaryText ? 'summary' : 'hard-trim',
+    })
+
+    return {
+      success: true,
+      previousMessageCount,
+      newMessageCount,
+      messagesRemoved: ids.length,
+      hadSummary: !!summaryText,
+    }
+  }
+
+  /**
+   * 上报压缩分析埋点（fire-and-forget）。解析不到运行上下文时静默跳过。
+   * 抽出独立方法，供 compactContext（同步，无 instanceId）与 compactContextAsync 复用。
+   */
+  private reportCompaction(
+    instanceId: string | undefined,
+    info: {
+      sessionKey: string
+      beforeTokens?: number
+      afterTokens?: number
+      strategy: 'micro' | 'summary' | 'hard-trim'
+    },
+  ): void {
+    const runCtx = instanceId ? this.deps.getCompactionRunContext?.(instanceId) : undefined
+    if (!runCtx) {
+      return
+    }
+    try {
+      analyticsReporter.reportContextCompaction({
+        runId: runCtx.runId,
+        agentId: runCtx.agentId,
+        sessionKey: info.sessionKey,
+        modelName: runCtx.modelName,
+        beforeTokens: info.beforeTokens,
+        afterTokens: info.afterTokens,
+        success: true,
+        strategy: info.strategy,
+      })
+    } catch (err) {
+      log.warn(
+        `[reportCompaction] 压缩埋点上报失败（非致命）: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+  }
+}
+
+/**
+ * 构建 LLM 摘要生成器（用于上下文压缩）
+ *
+ * 使用当前 Agent 实例的 streamFn 调用 LLM 生成结构化摘要。
+ * 将 AgentMessage[] 转换为 user-only 历史，拼接摘要提示词作为最后一条 user 消息，
+ * 然后流式收集文本输出。
+ */
+export function createLlmSummaryGenerator(
+  innerStream: ReturnType<typeof createGatewayStreamFn>,
+  model: import('@mariozechner/pi-ai').Model<any>,
+): SummaryGeneratorFn {
+  return async (
+    messages: AgentMessage[],
+    summaryPrompt: string,
+    signal?: AbortSignal,
+  ): Promise<string | null> => {
+    // 将 AgentMessage[] 转换为 LLM 兼容的 Message[]（只保留 user/assistant/toolResult）
+    const llmMessages: import('@mariozechner/pi-ai').Message[] = messages.flatMap((m) => {
+      if (typeof m !== 'object' || m === null || !('role' in m)) return []
+      const role = (m as { role: string }).role
+      if (role !== 'user' && role !== 'assistant' && role !== 'toolResult') return []
+      return [m as import('@mariozechner/pi-ai').Message]
+    })
+
+    // 附加摘要指令作为最后一条 user 消息
+    const messagesWithPrompt: import('@mariozechner/pi-ai').Message[] = [
+      ...llmMessages,
+      { role: 'user', content: summaryPrompt, timestamp: Date.now() },
+    ]
+
+    const context: import('@mariozechner/pi-ai').Context = {
+      messages: messagesWithPrompt,
+    }
+
+    // 流式调用并收集文本
+    const streamResult = await innerStream(model, context, {
+      purpose: 'session_summary',
+    } as Parameters<typeof innerStream>[2])
+    let summaryText = ''
+
+    for await (const event of streamResult) {
+      if (signal?.aborted) return null
+      if (event.type === 'text_delta') {
+        summaryText += event.delta
+      }
+    }
+
+    return summaryText.trim() || null
+  }
+}

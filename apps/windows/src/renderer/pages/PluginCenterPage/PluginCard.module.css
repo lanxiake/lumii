@@ -1,0 +1,223 @@
+.card {
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  transition: border-color 0.2s;
+}
+
+.card:hover {
+  border-color: var(--color-border-hover, var(--color-border));
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-3);
+}
+
+.icon {
+  font-size: 2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  flex-wrap: wrap;
+}
+
+.name {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.tags {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin-top: var(--spacing-1);
+  flex-wrap: wrap;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-xl);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+.tagInstalled {
+  background: color-mix(in srgb, var(--color-success, #22c55e) 15%, transparent);
+  color: var(--color-success, #22c55e);
+}
+
+.tagNotInstalled {
+  background: var(--color-bg-tertiary, var(--color-gray-700));
+  color: var(--color-text-secondary);
+}
+
+.tagBusy {
+  background: color-mix(in srgb, var(--color-primary-500) 15%, transparent);
+  color: var(--color-primary-500);
+}
+
+.tagCategory {
+  background: var(--color-bg-tertiary, var(--color-gray-700));
+  color: var(--color-text-secondary);
+  padding: 2px 8px;
+  border-radius: var(--radius-xl);
+  font-size: var(--font-size-xs);
+}
+
+.tagSize {
+  color: var(--color-text-muted, var(--color-text-secondary));
+  font-size: var(--font-size-xs);
+}
+
+.tagVersion {
+  background: color-mix(in srgb, var(--color-primary-500) 10%, transparent);
+  color: var(--color-primary-400, var(--color-primary-500));
+  padding: 2px 8px;
+  border-radius: var(--radius-xl);
+  font-size: var(--font-size-xs);
+}
+
+.desc {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.features {
+  margin: 0;
+  padding: 0 0 0 var(--spacing-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.features li {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.progressWrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.progressBar {
+  height: 4px;
+  background: var(--color-bg-tertiary, var(--color-gray-700));
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--color-primary-500);
+  border-radius: 2px;
+  transition: width 0.2s;
+}
+
+.progressInfo {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.error {
+  font-size: var(--font-size-xs);
+  color: var(--color-error, #ef4444);
+  background: color-mix(in srgb, var(--color-error, #ef4444) 10%, transparent);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-2) var(--spacing-3);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+  padding-top: var(--spacing-2);
+}
+
+.btnInstall {
+  padding: var(--spacing-2) var(--spacing-5);
+  background: var(--color-primary-500);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.btnInstall:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.btnInstall:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnUninstall {
+  padding: var(--spacing-2) var(--spacing-5);
+  background: transparent;
+  color: var(--color-error, #ef4444);
+  border: 1px solid var(--color-error, #ef4444);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.btnUninstall:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-error, #ef4444) 10%, transparent);
+}
+
+.btnUninstall:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnCancel {
+  padding: var(--spacing-2) var(--spacing-5);
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.btnCancel:hover:not(:disabled) {
+  background: var(--color-bg-tertiary, var(--color-gray-700));
+  color: var(--color-text-primary);
+}
+
+.btnCancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

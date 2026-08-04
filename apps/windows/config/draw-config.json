@@ -1,0 +1,5 @@
+{
+  "_comment": "Right Code Draw API。复制本文件为 draw-config.json 并填入 drawApiKey；打包时会随 extraResources 打入安装包。",
+  "drawApiBaseUrl": "https://www.right.codes/draw",
+  "drawApiKey": "sk-936ec9a0365f4aa2b117d637c1e7c842"
+}

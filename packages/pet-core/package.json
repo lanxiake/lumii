@@ -1,0 +1,25 @@
+{
+  "name": "@mtbot/pet-core",
+  "version": "0.1.0",
+  "description": "Shared pet logic (state machine, event mapping, expression/motion policy, lip sync, model config) for Windows and kids-mobile. Pure TS, no react/rn/electron/pixi/DOM deps.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "preview": "vite --config preview/vite.config.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^5.4.0",
+    "vitest": "^4.1.0"
+  }
+}

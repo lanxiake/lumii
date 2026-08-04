@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Build artifacts
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Session/test artifacts
+*.json
+!pytest.ini

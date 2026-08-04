@@ -1,0 +1,86 @@
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: var(--spacing-0-5) var(--spacing-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  line-height: var(--line-height-normal);
+}
+
+.tag-default {
+  background-color: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  border-color: var(--color-border);
+}
+
+.tag-primary {
+  background-color: rgba(99, 102, 241, 0.1);
+  color: var(--color-primary-400);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+
+.tag-success {
+  background-color: rgba(34, 197, 94, 0.1);
+  color: var(--color-success);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.tag-warning {
+  background-color: rgba(245, 158, 11, 0.1);
+  color: var(--color-warning);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.tag-error {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--color-error);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.tag-info {
+  background-color: rgba(59, 130, 246, 0.1);
+  color: var(--color-info);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.tag-icon {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+}
+
+.tag-content {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tag-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: var(--spacing-1);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: var(--font-size-base);
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  opacity: 0.6;
+  transition: all var(--transition-fast);
+}
+
+.tag-close-btn:hover {
+  opacity: 1;
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.tag-closable {
+  padding-right: var(--spacing-1);
+}
