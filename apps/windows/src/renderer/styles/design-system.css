@@ -3,6 +3,13 @@
    来源: .qoder/design/MtBot-Design-System/黑暗主题/colors_and_type.css
    ============================================================= */
 
+/* 可插值自定义属性：让指针光斑强度能走 transition，而不是硬切 */
+@property --spot {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
 /* ---- 1. 全局固定变量 (不随主题变化) ---- */
 :root {
   /* Brand — Sky → Blue (匹配应用图标渐变) */
@@ -128,6 +135,7 @@
   --mt-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
   --mt-ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);  /* 消息进入 */
   --mt-ease-decel:    cubic-bezier(0, 0, 0.2, 1);
+  --mt-dur-breathe:   3400ms;  /* 焦点呼吸循环 */
 
   /* 动画时长 */
   --mt-dur-fast:   120ms;
@@ -158,6 +166,23 @@
   --mt-glass-bg:     rgba(30, 41, 59, 0.55);
   --mt-glass-stroke: rgba(255, 255, 255, 0.08);
   --mt-glass-blur:   24px;
+
+  /* 内嵌表面层级 — 卡片内的次级/三级填充 */
+  --mt-surface-2: #162033;
+  --mt-surface-3: #1c2a40;
+
+  /* 语音 / 思考态语义色 */
+  --mt-violet: #8b5cf6;
+
+  /* 卡片斜向高光 + 页面底噪光斑 */
+  --mt-shine: linear-gradient(145deg, rgba(56, 189, 248, 0.08), transparent 48%);
+  --mt-mesh:
+    radial-gradient(ellipse 72% 48% at 10% -8%, rgba(56, 189, 248, 0.16), transparent),
+    radial-gradient(ellipse 48% 38% at 90% 6%, rgba(37, 99, 235, 0.14), transparent),
+    radial-gradient(ellipse 55% 32% at 48% 110%, rgba(45, 212, 191, 0.07), transparent);
+
+  /* 代码块 / 展开体底色 */
+  --mt-code-bg: rgba(0, 0, 0, 0.28);
 
   /* 前景文字 */
   --mt-fg-1: #f8fafc;   /* 主文字 */
@@ -196,6 +221,23 @@
   --mt-glass-bg:     rgba(249, 246, 238, 0.80);  /* 暖白 80% */
   --mt-glass-stroke: rgba(31, 30, 27, 0.08);
   --mt-glass-blur:   24px;
+
+  /* 内嵌表面层级 — 暖奶油系 */
+  --mt-surface-2: #EDE8DD;
+  --mt-surface-3: #E4DECE;
+
+  /* 语音 / 思考态语义色 — 浅色下加深保证对比 */
+  --mt-violet: #7c3aed;
+
+  /* 卡片斜向高光 + 页面底噪光斑 — 暖调低强度 */
+  --mt-shine: linear-gradient(145deg, rgba(37, 99, 235, 0.05), transparent 48%);
+  --mt-mesh:
+    radial-gradient(ellipse 72% 48% at 10% -8%, rgba(37, 99, 235, 0.07), transparent),
+    radial-gradient(ellipse 48% 38% at 90% 6%, rgba(14, 165, 233, 0.05), transparent),
+    radial-gradient(ellipse 55% 32% at 48% 110%, rgba(180, 83, 9, 0.04), transparent);
+
+  /* 代码块 / 展开体底色 */
+  --mt-code-bg: rgba(31, 30, 27, 0.04);
 
   /* 前景文字 — 暖棕色系 */
   --mt-fg-1: #1F1E1B;   /* 主文本，近黑暖棕 */
@@ -241,4 +283,52 @@
 .mt-aurora {
   background-color: var(--mt-bg-primary);
   background-image: var(--mt-grad-aurora);
+}
+
+/* ---- 6. 微动基座 ----
+   全应用共享的交互反馈。@keyframes 名是全局的，此处统一 mt- 前缀避免与
+   各组件 module.css 内的同名动画互相覆盖。 */
+
+/* 按压回弹：给可点元素加 .mt-press */
+.mt-press {
+  transition: transform var(--mt-dur-fast) var(--mt-ease-spring);
+}
+.mt-press:active {
+  transform: scale(0.94);
+}
+
+/* 指针光斑：卡片跟随鼠标的柔光。需 JS 写入 --mx/--my（见 usePointerSpot） */
+.mt-spot {
+  --mx: 50%;
+  --my: 0%;
+  background-image:
+    radial-gradient(420px circle at var(--mx) var(--my),
+      color-mix(in srgb, var(--mt-accent-500) calc(var(--spot) * 11%), transparent),
+      transparent 62%),
+    var(--mt-shine);
+  transition: --spot var(--mt-dur-slower) var(--mt-ease-standard);
+}
+.mt-spot:hover {
+  --spot: 1;
+}
+
+/* 数字变化时向上跳一下：切换 .mt-tick 类触发 */
+@keyframes mt-tick {
+  from { opacity: 0.4; transform: translateY(4px); }
+  to   { opacity: 1;   transform: none; }
+}
+.mt-tick {
+  display: inline-block;
+  animation: mt-tick var(--mt-dur-slow) var(--mt-ease-spring);
+}
+
+/* 无障碍逃逸口：系统开启「减少动态效果」时停掉所有动画 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
