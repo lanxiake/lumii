@@ -33,7 +33,6 @@ describe("messageRowToAgentMessages", () => {
           },
         ],
       }),
-      is_proactive: 0,
       timestamp: "2026-07-05T10:00:00.000Z",
       is_streaming: 0,
     };

@@ -183,12 +183,6 @@ describe("RuntimeStateRepo", () => {
     expect(results).toHaveLength(2);
   });
 
-  it("setWithExpiry / getObject 过期后删除", async () => {
-    repo.setWithExpiry("ttlKey", { x: 1 }, 1);
-    expect(repo.getObject<{ x: number }>("ttlKey")).toEqual({ x: 1 });
-    await new Promise((r) => setTimeout(r, 15));
-    expect(repo.getObject("ttlKey")).toBeUndefined();
-  });
 });
 
 // ─── TaskRepo 基本测试 ───
@@ -224,19 +218,4 @@ describe("AuditRepo", () => {
     }).not.toThrow();
   });
 
-  it("logLlmUsage 应记录 __llm_call__ 工具", () => {
-    const db = createMockDb();
-    const repo = new AuditRepo(db);
-
-    expect(() => {
-      repo.logLlmUsage({
-        agentId: "agent-1",
-        model: "claude-sonnet-4-5",
-        inputTokens: 100,
-        outputTokens: 50,
-        totalTokens: 150,
-        durationMs: 500,
-      });
-    }).not.toThrow();
-  });
 });

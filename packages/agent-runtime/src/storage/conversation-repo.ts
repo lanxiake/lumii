@@ -13,7 +13,6 @@ import { withTransaction } from "./local-database.js";
 export interface ConversationRow {
   readonly id: string;
   readonly user_id: string;
-  readonly type: string;
   readonly title: string | null;
   readonly is_active: number;
   readonly is_pinned: number;
@@ -27,7 +26,6 @@ export interface MessageRow {
   readonly agent_id: string | null;
   readonly role: string;
   readonly content_json: string;
-  readonly is_proactive: number;
   readonly timestamp: string;
   /** 1 表示流式未完成行，UI 与 pi 历史加载应忽略 */
   readonly is_streaming: number;
@@ -202,17 +200,15 @@ export class ConversationRepo {
 
   createConversation(params: {
     readonly userId: string;
-    readonly type?: "direct" | "group" | "broadcast";
     readonly title?: string;
     readonly participants: ReadonlyArray<{ readonly type: "user" | "agent"; readonly id: string }>;
   }): ConversationRow {
     const id = generateId();
     const now = new Date().toISOString();
-    const convType = params.type ?? "direct";
 
     const insertConv = this.db.prepare(
-      `INSERT INTO conversations (id, user_id, type, title, is_active, created_at)
-       VALUES (?, ?, ?, ?, 1, ?)`,
+      `INSERT INTO conversations (id, user_id, title, is_active, created_at)
+       VALUES (?, ?, ?, 1, ?)`,
     );
     const insertParticipant = this.db.prepare(
       `INSERT INTO conversation_participants (conversation_id, participant_type, participant_id, joined_at)
@@ -220,7 +216,7 @@ export class ConversationRepo {
     );
 
     withTransaction(this.db, () => {
-      insertConv.run(id, params.userId, convType, params.title ?? null, now);
+      insertConv.run(id, params.userId, params.title ?? null, now);
       for (const p of params.participants) {
         insertParticipant.run(id, p.type, p.id, now);
       }
@@ -229,7 +225,6 @@ export class ConversationRepo {
     const row: ConversationRow = {
       id,
       user_id: params.userId,
-      type: convType,
       title: params.title ?? null,
       is_active: 1,
       is_pinned: 0,
@@ -535,7 +530,6 @@ export class ConversationRepo {
     readonly agentId?: string;
     readonly role: "user" | "assistant" | "system";
     readonly contentJson: MessageContentJson;
-    readonly isProactive?: boolean;
     /** 为 true 时表示流式中的助手行，重启后应忽略 */
     readonly isStreaming?: boolean;
   }): MessageRow {
@@ -547,8 +541,8 @@ export class ConversationRepo {
     withTransaction(this.db, () => {
       this.db
         .prepare(
-          `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, is_proactive, timestamp, is_streaming)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp, is_streaming)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -556,7 +550,6 @@ export class ConversationRepo {
           params.agentId ?? null,
           params.role,
           contentStr,
-          params.isProactive ? 1 : 0,
           now,
           streamFlag,
         );
@@ -575,7 +568,6 @@ export class ConversationRepo {
       agent_id: params.agentId ?? null,
       role: params.role,
       content_json: contentStr,
-      is_proactive: params.isProactive ? 1 : 0,
       timestamp: now,
       is_streaming: streamFlag,
     };
@@ -675,8 +667,8 @@ export class ConversationRepo {
 
     const now = new Date().toISOString();
     const insertMsg = this.db.prepare(
-      `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, is_proactive, timestamp, is_streaming)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp, is_streaming)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
 
     withTransaction(this.db, () => {
@@ -688,7 +680,6 @@ export class ConversationRepo {
           row.agent_id,
           row.role,
           row.content_json,
-          row.is_proactive,
           row.timestamp,
           0,
         );
@@ -700,7 +691,6 @@ export class ConversationRepo {
         null,
         "user",
         JSON.stringify({ type: "text", text: newUserContent }),
-        0,
         now,
         0,
       );

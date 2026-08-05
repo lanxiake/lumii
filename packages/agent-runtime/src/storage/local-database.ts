@@ -133,6 +133,8 @@ async function createNodeSqliteAdapter(dbPath: string): Promise<DatabaseAdapter>
   db.exec("PRAGMA journal_mode=WAL");
   db.exec("PRAGMA synchronous=NORMAL");
   db.exec("PRAGMA foreign_keys=ON");
+  // 默认 1000 页（4MB）才 checkpoint，实测 WAL 会长到主库的 10 倍。降到 256 页（1MB）。
+  db.exec("PRAGMA wal_autocheckpoint=256");
 
   return {
     exec: (sql: string) => db.exec(sql),
@@ -195,6 +197,7 @@ async function createBetterSqliteAdapter(dbPath: string): Promise<DatabaseAdapte
   db.pragma("journal_mode = WAL");
   db.pragma("synchronous = NORMAL");
   db.pragma("foreign_keys = ON");
+  db.pragma("wal_autocheckpoint = 256");
 
   return {
     exec: (sql: string) => db.exec(sql),

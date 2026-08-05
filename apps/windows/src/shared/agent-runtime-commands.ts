@@ -916,7 +916,6 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       id: number
       agent_id: string
       tool_name: string
-      args_hash: string | null
       result_summary: string | null
       is_error: number
       duration_ms: number | null

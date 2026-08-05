@@ -34,6 +34,10 @@ const TABLE_NAMES = [
   "tasks",
   "tool_audit_log",
   "runtime_state",
+  "memory_segments",
+  "client_files",
+  "local_cron_jobs",
+  "local_cron_runs",
 ] as const;
 
 /**

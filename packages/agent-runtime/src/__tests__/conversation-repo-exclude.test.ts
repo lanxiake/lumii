@@ -38,7 +38,6 @@ function row(id: string, role: "user" | "assistant", text: string): MessageRow {
     agent_id: null,
     role,
     content_json: JSON.stringify({ type: "text", text }),
-    is_proactive: 0,
     timestamp: new Date().toISOString(),
     is_streaming: 0,
   };
