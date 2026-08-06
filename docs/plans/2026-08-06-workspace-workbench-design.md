@@ -8,7 +8,8 @@
 
 把对话页右侧的文件抽屉与版本面板，收成**同一套工作台**，优先提升**扫读效率**与**和对话页 `--mt-*` 玻璃体系的视觉统一**。版本 Tab 的信息架构对齐 Cursor「Changes」式堆叠多文件 Diff，而不是旧的「左列表 + 右单文件」。
 
-非目标：设置页工作空间目录、软件更新/关于、FilesPage、IPC / `useWorkspace` / `useWorkspaceVcs` 业务语义大改、Git 暂存区、Push、blame、冲突解决。
+非目标：设置页工作空间目录、软件更新/关于、FilesPage、Git 暂存区、Push、blame、冲突解决。  
+允许改动：`workspace-vcs` 主进程 Diff 实现、相关 IPC / preload / `useWorkspaceVcs`（性能与按需 hunks），UI 壳与视觉仍按本文其余章节。
 
 ## 方案选择
 
@@ -80,10 +81,11 @@ Subnav: [更改] [历史]     未提交  +N −M     [保存版本]
 
 | 规则 | 行为 |
 |------|------|
-| 默认 | 打开 vcs →「更改」；有变更时并行加载带 hunks 的 Diff |
-| Diff 卡片 | 每文件一张：路径、`+n −m`、状态、撤销、可选「在文件中显示」 |
+| 默认 | 打开 vcs →「更改」；先拉**文件级列表**（无 hunks），卡片按需 / 视口内懒加载 hunks |
+| Diff 卡片 | 每文件一张：路径、`+n −m`、状态、撤销、可选「在文件中显示」；hunks 未到时显示轻量 skeleton，禁止整页卡在「加载差异中…」 |
 | 未改行 | 连续未改行收成 `N unmodified lines`，可点开 |
-| 右栏 | 路径 + `+n −m`；点击 → 主区 `scrollIntoView` 到对应卡片 |
+| 右栏 | 路径 + `+n −m`；点击 → 主区 `scrollIntoView` 到对应卡片（若该卡尚无 hunks 则触发单文件加载） |
+| 历史 | 选中某版 → 先 OID walk 拿变更文件列表（秒开）；再对可见卡片按文件拉 hunks |
 | 保存 | 主钮「保存版本」= 现有 `commit()`；`Ctrl+S` 同效（仅更改子页） |
 | 单文件撤销 | 卡片头 ghost 危险色 → `ConfirmModal` → `revertFile('HEAD', path)` |
 | 空态 | 无变更时轻提示，可引导切「历史」 |
@@ -100,7 +102,7 @@ Subnav: [更改] [历史]     未提交  +N −M     [保存版本]
 | 暂存 checkbox | **不做**（`commit()` 全量，不做假 staging） |
 | 行内 AI 标记 | 不做 |
 
-未提交 hunks：优先复用已有 IPC（`statusDiff` 若已带 hunks 则直用；否则用 `diff` / `readFileAt` 在 UI 层组合）。**不新造协议，除非现有 API 无法给出逐行 Diff**——若无法，卡片内明确提示，禁止伪造 Diff。
+未提交 / 历史 hunks：列表与逐行分离（见 §7）。可新增轻量 IPC（如 `vcs:diffFile`）专供单文件 hunks；禁止再对「展开历史 / 打开更改」调用一次 `withHunks: true` 全量 diff。若单文件无法算出 Diff（二进制等），卡片内提示，禁止伪造。
 
 ### 2.3 版本 Tab — 历史子页
 
@@ -193,11 +195,43 @@ Subnav: [更改] [历史]     未提交  +N −M     [保存版本]
 ## 5. 测试与验收
 
 - 手动：深/浅主题下打开关闭、files↔vcs 宽度过渡、更改堆叠 Diff、右栏跳转、保存/撤销/回滚确认、Esc、`1`/`2`、`Ctrl+S`、`@` 定位仍可用
-- 自动化：若已有 FilePanel / VCS 相关测试则更新选择器；不强制本轮新写大套 E2E
+- 性能（本机典型工作区，数百文件、单 commit 改动个位数～数十文件）：
+  - 打开「更改」或选中历史版本后，**文件列表**应在约 **1s 内**可见（不再出现 10s+「加载差异中…」堵死）
+  - 单文件 Diff 卡片 hunks 应在约 **300ms～1s** 内出现（视文件大小）；大文件可截断并提示
+- 自动化：扩展 `vcs-repo.test.ts` — OID walk 只对变更路径 readBlob；`withHunks: false` 列表不含 hunks；单文件 diff API 行为正确
 - 类型：`apps/windows` 下 `tsc --noEmit` **不新增** error（基线以改造前计数为准）
 
 ## 6. 实施约束
 
-- 纯前端：CSS Modules + 少量 JSX；不动主进程 / preload，除非证实无法取得未提交 hunks
+- UI：CSS Modules + 少量 JSX，对齐 tech-refresh token / lucide / 浅色暖奶油
+- 性能：允许改 `apps/windows/src/main/workspace-vcs/*`、IPC、preload、`useWorkspaceVcs`
 - 中文注释；函数级注释保留项目习惯
-- 与 `docs/plans/2026-08-05-ui-tech-refresh-client-implementation.md` 的 token / lucide / 浅色暖奶油约定一致
+- 与 `docs/plans/2026-08-05-ui-tech-refresh-client-implementation.md` 约定一致
+
+## 7. Diff 性能（必做）
+
+### 现状根因
+
+`WorkspaceVcs.diffCommits`（`vcs-repo.ts`）对两棵快照的**路径并集**逐文件串行 `readFileAt`（全文），再 `===` 判断是否变更；历史展开时 UI 又调用 `diffWithHunks`（`withHunks: true`），一次算齐**所有**变更文件的 Myers 行级 Diff 并经 IPC 回传。瓶颈在 **Main**，不在 Renderer。典型工作区会出现 10s+「加载差异中…」。
+
+`types.ts` 已写「hunks 按需」；`statusDiff` 遵守，历史路径未遵守。
+
+### 必做修复（按优先级）
+
+| # | 改动 | 预期 |
+|---|------|------|
+| 1 | `diffCommits` 改为 isomorphic-git **`git.walk` + TREE OID 比较**；OID 相同跳过（含子树剪枝）；**仅变更路径** `readBlob` | 列表从 O(全文件) → O(变更)；去掉 10s 主因 |
+| 2 | 列表默认 `withHunks: false`；UI / 新 IPC **按文件**拉 hunks（可见卡片或点击时） | 历史/更改秒开；避免巨大 IPC payload |
+| 3 | 防护：单文件超过体积/行数阈值则跳过或截断 hunks，并在卡片提示 | 防极端大文件 Myers 卡死 Main |
+| 4 | （可选）变更路径 blob 读取有限并发（如 8）；`(fromOid,toOid)` 无 hunks 列表短缓存 | 进一步削峰、重复展开秒开 |
+
+### API 方向
+
+- `vcs:diff`：默认或不传 `withHunks` 时只返回 `filepath / status / insertions / deletions`
+- 新增或约定：`vcs:diffFile`（或 `diff` + `filepath`）返回单文件 hunks
+- Renderer：堆叠卡片对视口内文件并发请求 hunks（限制并发），已加载缓存于组件 state
+
+### 明确不做（性能向）
+
+- 不引入系统 `git` CLI 作为默认路径（保持 isomorphic-git）
+- 不为本问题单独上 Worker（先做 OID walk + 懒加载；仍不够再议）
