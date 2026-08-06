@@ -121,8 +121,12 @@ export function useWorkspaceVcs() {
   const diffWithHunks = useCallback(
     async (fromOid: string, toOid: string): Promise<VcsDiffItem[]> => {
       const items = await diffList(fromOid, toOid)
-      const detailedItems = await Promise.all(items.map((item) => diffFile(fromOid, toOid, item.filepath)))
-      return detailedItems.filter((item): item is VcsDiffItem => item !== null)
+      return Promise.all(
+        items.map(async (item) => {
+          const detailed = await diffFile(fromOid, toOid, item.filepath)
+          return detailed ?? item
+        }),
+      )
     },
     [diffFile, diffList],
   )

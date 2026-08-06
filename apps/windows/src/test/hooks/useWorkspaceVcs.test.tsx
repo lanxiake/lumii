@@ -106,4 +106,25 @@ describe('useWorkspaceVcs', () => {
     expect(vcs.diffFile).toHaveBeenNthCalledWith(2, { fromOid: 'from', toOid: 'to', filepath: 'src/b.ts' })
     expect(received).toEqual(detailedItems)
   })
+
+  it('diffWithHunks 在单文件 hunk 加载失败时保留列表项', async () => {
+    const vcs = createVcsMock()
+    const items = [
+      { filepath: 'src/a.ts', status: 'modified', insertions: 1, deletions: 0 },
+      { filepath: 'src/b.ts', status: 'added', insertions: 2, deletions: 0 },
+    ]
+    const detailedFirst = { ...items[0], hunks: [] }
+    vcs.diff.mockResolvedValue({ success: true, data: items })
+    vcs.diffFile
+      .mockResolvedValueOnce({ success: true, data: detailedFirst })
+      .mockResolvedValueOnce({ success: false, error: 'read failed' })
+    const { result } = await renderWorkspaceVcsHook(vcs)
+
+    let received: unknown
+    await act(async () => {
+      received = await result.current.diffWithHunks('from', 'to')
+    })
+
+    expect(received).toEqual([detailedFirst, items[1]])
+  })
 })
