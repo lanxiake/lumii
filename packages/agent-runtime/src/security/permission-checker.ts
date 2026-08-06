@@ -234,33 +234,44 @@ function checkByMode(
 
 /**
  * 构建用户确认消息
+ *
+ * 显示足够让用户审查的信息：文件路径、命令、或完整参数 JSON。
  */
-function buildConfirmationMessage(toolName: string, toolInput: Record<string, unknown>): string {
+export function buildConfirmationMessage(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+): string {
   switch (toolName) {
     case "Bash":
     case "bash": {
-      const cmd = (toolInput.command as string) ?? "<unknown>";
+      const cmd = (toolInput.command as string) ?? "";
+      if (!cmd) break;
       const truncated = cmd.length > 500 ? `${cmd.slice(0, 500)}...` : cmd;
       return `执行命令：${truncated}`;
     }
     case "Edit":
     case "file_edit": {
-      const filePath = (toolInput.file_path as string) ?? "<unknown>";
-      return `编辑文件：${filePath}`;
+      const p = (toolInput.filePath as string) ?? (toolInput.file_path as string) ?? "";
+      if (p) return `编辑文件：${p}`;
+      break;
     }
     case "Write":
     case "file_write": {
-      const filePath = (toolInput.file_path as string) ?? "<unknown>";
-      return `写入文件：${filePath}`;
+      const p = (toolInput.filePath as string) ?? (toolInput.file_path as string) ?? "";
+      if (p) return `写入文件：${p}`;
+      break;
     }
     case "Read":
     case "file_read": {
-      const filePath = (toolInput.file_path as string) ?? "<unknown>";
-      return `读取文件：${filePath}`;
+      const p = (toolInput.filePath as string) ?? (toolInput.file_path as string) ?? "";
+      if (p) return `读取文件：${p}`;
+      break;
     }
-    default:
-      return `执行工具：${toolName}`;
   }
+  // 未覆盖的工具或参数缺失：完整展示参数，不显示 <unknown>
+  const json = JSON.stringify(toolInput, null, 2);
+  const truncated = json.length > 600 ? `${json.slice(0, 600)}...` : json;
+  return `${toolName}\n${truncated}`;
 }
 
 /**

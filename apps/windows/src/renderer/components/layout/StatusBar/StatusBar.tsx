@@ -1,14 +1,11 @@
 /**
  * StatusBar - 底部状态条（原型 .sbar）
  *
- * 右侧 HUD 是全应用唯一的会话级观测出口：消息数 / 上下文占用 / token 上下行 /
- * tok/s / 延迟 / 花费。同一指标不在别处重复展示（见计划 Task 3.2）。
- *
- * 全部读本地 store 与本机 IPC，不发网络请求。
+ * 右侧 HUD：消息数 / token 上下行 / tok/s / 延迟 / 花费。
+ * 上下文占用已在输入框上方显示，此处不重复。
  */
 
 import React, { useEffect, useState } from 'react'
-import clsx from 'clsx'
 import { useAgentRuntimeState } from '../../../hooks/business/useAgentRuntime'
 import { formatCostCny } from '../../../../shared/model-pricing'
 import { sessionMetrics } from './session-metrics'
@@ -35,7 +32,6 @@ const Tick: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 export const StatusBar: React.FC = () => {
   const messages = useAgentRuntimeState((s) => s.messages)
-  const contextUsage = useAgentRuntimeState((s) => s.contextUsage)
   const modelId = useAgentRuntimeState((s) => s.currentLlmModelId)
   const [latency, setLatency] = useState<{ medianMs?: number; isLocal: boolean }>({ isLocal: false })
 
@@ -54,11 +50,7 @@ export const StatusBar: React.FC = () => {
   }, [])
 
   const { upTokens, downTokens, costCents, hasPrice } = sessionMetrics(messages, modelId)
-
   const lastMetrics = [...messages].reverse().find((m) => m.streamMetrics)?.streamMetrics
-  const ctxRatio = contextUsage
-    ? Math.min(100, (contextUsage.usedTokens / Math.max(1, contextUsage.contextWindow)) * 100)
-    : 0
 
   return (
     <footer className={styles.sbar}>
@@ -72,16 +64,6 @@ export const StatusBar: React.FC = () => {
         <i className={styles.item}>
           <Tick>{messages.length}</Tick> 条
         </i>
-        <span className={styles.sep} />
-        <span className={styles.ctx}>
-          上下文
-          <span
-            className={clsx(styles['ctx-bar'], contextUsage?.isNearThreshold && styles['ctx-bar--hot'])}
-          >
-            <i style={{ width: `${ctxRatio}%` }} />
-          </span>
-          <Tick>{contextUsage ? `${Math.round(ctxRatio)}%` : '—'}</Tick>
-        </span>
         <span className={styles.sep} />
         <i className={styles.item}>
           ↑<Tick>{fmtTokens(upTokens)}</Tick> ↓<Tick>{fmtTokens(downTokens)}</Tick> tok
