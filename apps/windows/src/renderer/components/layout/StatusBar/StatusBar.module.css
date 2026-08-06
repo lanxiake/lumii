@@ -1,0 +1,80 @@
+/**
+ * StatusBar Styles - 底部状态条（对齐原型 .sbar + .hud）
+ */
+
+.sbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 9px;
+  height: 26px;
+  padding: 0 14px;
+  border-top: 1px solid var(--mt-border);
+  background: var(--mt-glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  color: var(--mt-fg-4);
+  font-family: var(--mt-font-mono);
+  font-size: 10px;
+  user-select: none;
+}
+
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-style: normal;
+}
+
+.item b {
+  color: var(--mt-fg-2);
+  font-weight: var(--mt-fw-medium);
+}
+
+.sep {
+  width: 1px;
+  height: 11px;
+  background: var(--mt-border);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* 观测数据集中区：所有会话级指标只在这里出现一次 */
+.hud {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 2px 10px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: var(--mt-radius-full);
+  background: var(--mt-surface-2);
+}
+
+.ctx {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ctx-bar {
+  width: 56px;
+  height: 3px;
+  border-radius: var(--mt-radius-full);
+  background: var(--mt-surface-3);
+  overflow: hidden;
+}
+
+.ctx-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--mt-accent-500), var(--mt-violet));
+  transition: width var(--mt-dur-slower) var(--mt-ease-standard);
+}
+
+/* 接近压缩阈值时转警示色，提示即将触发上下文压缩 */
+.ctx-bar--hot > i {
+  background: linear-gradient(90deg, var(--mt-warning), var(--mt-error));
+}
