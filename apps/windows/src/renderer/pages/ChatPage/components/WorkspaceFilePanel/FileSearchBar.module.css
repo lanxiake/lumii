@@ -3,9 +3,12 @@
 .container {
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--mt-border-hairline);
+  background: var(--mt-surface-2);
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 /* 搜索态：占满抽屉剩余高度，使结果列表与"全部文件"树等长 */
@@ -35,21 +38,21 @@
   flex: 1;
   min-width: 0;
   padding: 5px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 8px;
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
+  font-size: var(--mt-fs-xs);
   outline: none;
-  transition: border-color var(--transition-fast);
+  transition: border-color var(--mt-dur-fast) var(--mt-ease-standard);
 }
 
 .input:focus {
-  border-color: var(--color-primary);
+  border-color: var(--mt-accent-500);
 }
 
 .input::placeholder {
-  color: var(--color-text-tertiary);
+  color: var(--mt-fg-4);
 }
 
 .clearBtn {
