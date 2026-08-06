@@ -5,13 +5,19 @@
 .panel {
   display: flex;
   flex-direction: column;
-  padding: 15px;
+  min-height: 0;
+  padding: 11px 13px 12px;
 }
 
-/* 页脚贴底，条目少时不上浮 */
+/* 页脚贴底，条目少时不上浮；条目多时只有列表自己滚 */
 .list,
 .empty {
   flex: 1;
+  min-height: 0;
+}
+
+.list {
+  overflow-y: auto;
 }
 
 .head {

@@ -14,12 +14,15 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 52px;
-  height: 52px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
-  background: conic-gradient(var(--mt-accent-500) calc(var(--mt-p) * 1%), var(--mt-surface-3) 0);
+  background: conic-gradient(
+    var(--mt-tone, var(--mt-accent-500)) calc(var(--mt-p) * 1%),
+    var(--mt-surface-3) 0
+  );
   font-family: var(--mt-font-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: var(--mt-fw-semibold);
   transition: --mt-p var(--mt-dur-slow) var(--mt-ease-standard),
     transform var(--mt-dur-normal) var(--mt-ease-spring);
@@ -43,7 +46,7 @@
 .label {
   position: absolute;
   right: 0;
-  bottom: -15px;
+  bottom: -14px;
   left: 0;
   font-size: 9px;
   font-style: normal;

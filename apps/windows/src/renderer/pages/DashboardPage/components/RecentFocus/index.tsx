@@ -20,7 +20,7 @@ const TABS: ReadonlyArray<{ id: string; label: string; categories: readonly stri
   { id: 'feedback', label: '约定', categories: ['feedback'] },
 ]
 
-const MAX_ITEMS = 6
+const MAX_ITEMS = 5
 
 function formatWhen(ts: number): string {
   if (!ts) return ''
