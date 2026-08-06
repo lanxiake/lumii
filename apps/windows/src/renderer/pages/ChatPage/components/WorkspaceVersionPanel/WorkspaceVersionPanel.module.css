@@ -21,6 +21,15 @@
   animation: vcs-slide-in 0.2s ease-out;
 }
 
+.vcs-panel--embedded {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  border-left: none;
+  animation: none;
+  background: transparent;
+}
+
 @keyframes vcs-slide-in {
   from { transform: translateX(20%); opacity: 0.8; }
   to { transform: translateX(0); opacity: 1; }

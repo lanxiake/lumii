@@ -13,6 +13,8 @@ import { Toast } from './components/Toast'
 import { ConfirmModal } from '../../components/ui/Modal/ConfirmModal'
 import { WorkspaceFilePanel } from './components/WorkspaceFilePanel'
 import { WorkspaceVersionPanel } from './components/WorkspaceVersionPanel/WorkspaceVersionPanel'
+import { WorkspaceWorkbench, type WorkbenchTab } from './components/WorkspaceWorkbench'
+import { useWorkspaceVcs } from '../../hooks/business/useWorkspaceVcs'
 import { useAgents } from '../../hooks/business/useAgents'
 import {
   useAgentRuntimeActions,
@@ -726,10 +728,24 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const planApprovalItems = EMPTY_PLAN_APPROVAL_ITEMS
   const planResolvingIds = EMPTY_RESOLVING_IDS
   const workflowItems = EMPTY_WORKFLOW_ITEMS
-  const [showFilePanel, setShowFilePanel] = useState(false)
-  const [showVersionPanel, setShowVersionPanel] = useState(false)
+  const [workbench, setWorkbench] = useState<{ open: boolean; tab: WorkbenchTab }>({
+    open: false,
+    tab: 'files',
+  })
   /** 点击输入框 @引用 chip 时要在工作空间面板定位的绝对路径（含一次性 token 触发重复定位） */
   const [locateFileTarget, setLocateFileTarget] = useState<{ path: string; token: number } | null>(null)
+  const { uncommittedDiff, refresh: refreshVcs } = useWorkspaceVcs()
+
+  const toggleFilesWorkbench = useCallback(() => {
+    setWorkbench((w) =>
+      w.open && w.tab === 'files' ? { ...w, open: false } : { open: true, tab: 'files' },
+    )
+  }, [])
+  const toggleVcsWorkbench = useCallback(() => {
+    setWorkbench((w) =>
+      w.open && w.tab === 'vcs' ? { ...w, open: false } : { open: true, tab: 'vcs' },
+    )
+  }, [])
   /** 单调递增定位 token，避免 Date.now() 在快速点击时碰撞 */
   const locateTokenRef = useRef(0)
 
@@ -1461,19 +1477,19 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             </button>
             <button
               type="button"
-              className={clsx(styles['icon-btn'], showFilePanel && styles['icon-btn--active'])}
-              onClick={() => setShowFilePanel((v) => !v)}
+              className={clsx(styles['icon-btn'], workbench.open && workbench.tab === 'files' && styles['icon-btn--active'])}
+              onClick={toggleFilesWorkbench}
               title="工作空间文件"
-              aria-pressed={showFilePanel}
+              aria-pressed={workbench.open && workbench.tab === 'files'}
             >
               <FolderTree size={16} strokeWidth={1.8} />
             </button>
             <button
               type="button"
-              className={clsx(styles['icon-btn'], showVersionPanel && styles['icon-btn--active'])}
-              onClick={() => setShowVersionPanel((v) => !v)}
+              className={clsx(styles['icon-btn'], workbench.open && workbench.tab === 'vcs' && styles['icon-btn--active'])}
+              onClick={toggleVcsWorkbench}
               title="工作空间版本"
-              aria-pressed={showVersionPanel}
+              aria-pressed={workbench.open && workbench.tab === 'vcs'}
             >
               <GitBranch size={16} strokeWidth={1.8} />
             </button>
@@ -1603,7 +1619,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onFileReferenceRemove={handleFileReferenceRemove}
             onVoiceCallStart={runtimeCurrentSessionKey ? () => void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id) : undefined}
             onLocateFile={(absolutePath) => {
-              setShowFilePanel(true)
+              setWorkbench({ open: true, tab: 'files' })
               locateTokenRef.current += 1
               setLocateFileTarget({ path: absolutePath, token: locateTokenRef.current })
             }}
@@ -1658,17 +1674,29 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         />
       ) : null}
 
-      {/* 工作空间文件抽屉面板 */}
-      <WorkspaceFilePanel
-        open={showFilePanel}
-        onClose={() => setShowFilePanel(false)}
-        locateTarget={locateFileTarget}
-      />
-
-      {/* 工作空间版本管理面板 */}
-      <WorkspaceVersionPanel
-        open={showVersionPanel}
-        onClose={() => setShowVersionPanel(false)}
+      {/* 工作空间共享壳：文件 + 版本 */}
+      <WorkspaceWorkbench
+        open={workbench.open}
+        tab={workbench.tab}
+        onTabChange={(tab) => setWorkbench((w) => ({ ...w, tab, open: true }))}
+        onClose={() => setWorkbench((w) => ({ ...w, open: false }))}
+        uncommittedCount={uncommittedDiff.length}
+        onRefresh={() => { void refreshVcs() }}
+        childrenFiles={
+          <WorkspaceFilePanel
+            open={workbench.open}
+            onClose={() => setWorkbench((w) => ({ ...w, open: false }))}
+            locateTarget={locateFileTarget}
+            embedded
+          />
+        }
+        childrenVcs={
+          <WorkspaceVersionPanel
+            open={workbench.open}
+            onClose={() => setWorkbench((w) => ({ ...w, open: false }))}
+            embedded
+          />
+        }
       />
     </div>
   )

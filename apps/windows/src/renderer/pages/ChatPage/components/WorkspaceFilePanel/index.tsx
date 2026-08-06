@@ -281,9 +281,16 @@ export interface WorkspaceFilePanelProps {
   onClose: () => void
   /** 外部请求定位到指定绝对路径的文件（点击输入框 @引用 chip 触发） */
   locateTarget?: { path: string; token: number } | null
+  /** 嵌入 WorkspaceWorkbench 时去掉独立抽屉壳与关闭钮 */
+  embedded?: boolean
 }
 
-export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, onClose, locateTarget }) => {
+export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
+  open,
+  onClose,
+  locateTarget,
+  embedded = false,
+}) => {
   const { workspaceDir, isInitializing } = useWorkspace()
   const { renameFile } = useFiles(
     workspaceDir ? { initialPath: workspaceDir, rootPath: workspaceDir, watchIntervalMs: 0 } : undefined
@@ -310,9 +317,9 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, on
     if (!item.isDirectory) setPreviewFile(item)
   }, [])
 
-  // Escape 关闭抽屉（预览 Modal 自己处理 Escape，不冲突）
+  // Escape 关闭抽屉（嵌入壳时由 WorkspaceWorkbench 统一处理 Esc）
   useEffect(() => {
-    if (!open) return
+    if (!open || embedded) return
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !previewFile && !renameTarget && !deleteTarget && !contextMenu) {
         onClose()
@@ -320,7 +327,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, on
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose, previewFile, renameTarget, deleteTarget, contextMenu])
+  }, [open, embedded, onClose, previewFile, renameTarget, deleteTarget, contextMenu])
 
   // 面板每次重新打开时刷新文件列表与项目列表
   useEffect(() => {
@@ -424,28 +431,50 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, on
     })
   }, [workspaceDir])
 
-  if (!open && !workspaceDir) return null
+  if (!embedded && !open && !workspaceDir) return null
+  if (embedded && !open) return null
 
   return (
     <>
-      {/* 抽屉主体 */}
-      <div className={clsx(styles.drawer, open && styles['drawer--open'])} aria-label="工作空间文件">
+      {/* 抽屉主体（embedded 时填满 Workbench body） */}
+      <div
+        className={clsx(
+          styles.drawer,
+          open && styles['drawer--open'],
+          embedded && styles.drawerEmbedded,
+        )}
+        aria-label="工作空间文件"
+      >
 
-        {/* 标题栏 */}
-        <div className={styles.header}>
-          <span className={styles.title}>工作空间文件</span>
-          <button
-            className={clsx(styles.headerBtn, isRefreshing && styles['headerBtn--spinning'])}
-            onClick={handleRefresh}
-            disabled={isRefreshing || isInitializing}
-            title="刷新"
-          >
-            <IconRefresh size={14} />
-          </button>
-          <button className={styles.headerBtn} onClick={onClose} title="关闭">
-            <IconX size={14} />
-          </button>
-        </div>
+        {/* 独立模式才显示标题栏；嵌入时由壳层提供 tabs */}
+        {!embedded && (
+          <div className={styles.header}>
+            <span className={styles.title}>工作空间文件</span>
+            <button
+              className={clsx(styles.headerBtn, isRefreshing && styles['headerBtn--spinning'])}
+              onClick={handleRefresh}
+              disabled={isRefreshing || isInitializing}
+              title="刷新"
+            >
+              <IconRefresh size={14} />
+            </button>
+            <button className={styles.headerBtn} onClick={onClose} title="关闭">
+              <IconX size={14} />
+            </button>
+          </div>
+        )}
+        {embedded && (
+          <div className={styles.embeddedToolbar}>
+            <button
+              className={clsx(styles.headerBtn, isRefreshing && styles['headerBtn--spinning'])}
+              onClick={handleRefresh}
+              disabled={isRefreshing || isInitializing}
+              title="刷新"
+            >
+              <IconRefresh size={14} />
+            </button>
+          </div>
+        )}
 
         {/* ACP 项目列表（根仍为 workspaceDir，projects/ 在树中自动出现） */}
         {!isInitializing && workspaceDir && (

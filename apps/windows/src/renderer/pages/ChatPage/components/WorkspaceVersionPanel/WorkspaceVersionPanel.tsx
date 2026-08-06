@@ -80,6 +80,8 @@ function hunkLineClass(line: string): string {
 interface WorkspaceVersionPanelProps {
   open: boolean
   onClose: () => void
+  /** 嵌入 WorkspaceWorkbench 时去掉全屏遮罩与自有 header */
+  embedded?: boolean
 }
 
 /**
@@ -99,7 +101,11 @@ interface SelectedFile {
 
 // ── 组件 ─────────────────────────────────────────────────────
 
-export const WorkspaceVersionPanel: React.FC<WorkspaceVersionPanelProps> = ({ open, onClose }) => {
+export const WorkspaceVersionPanel: React.FC<WorkspaceVersionPanelProps> = ({
+  open,
+  onClose,
+  embedded = false,
+}) => {
   const { history, uncommittedDiff, loading, commit, rollback, revertFile, diffWithHunks, refresh } = useWorkspaceVcs()
   const [saving, setSaving] = useState(false)
   const [rollbackTarget, setRollbackTarget] = useState<{ oid: string; label: string } | null>(null)
@@ -250,14 +256,18 @@ export const WorkspaceVersionPanel: React.FC<WorkspaceVersionPanelProps> = ({ op
     )
   }
 
-  return createPortal(
-    <div className={styles['vcs-overlay']} onClick={onClose}>
-      <div className={styles['vcs-panel']} onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className={styles['vcs-header']}>
-          <h3 className={styles['vcs-title']}>工作空间版本</h3>
-          <button className={styles['vcs-close']} onClick={onClose}><IconClose /></button>
-        </div>
+  const panel = (
+      <div
+        className={clsx(styles['vcs-panel'], embedded && styles['vcs-panel--embedded'])}
+        onClick={embedded ? undefined : (e) => e.stopPropagation()}
+      >
+        {/* Header：嵌入时由 Workbench 提供 tabs */}
+        {!embedded && (
+          <div className={styles['vcs-header']}>
+            <h3 className={styles['vcs-title']}>工作空间版本</h3>
+            <button className={styles['vcs-close']} onClick={onClose}><IconClose /></button>
+          </div>
+        )}
 
         {/* 两栏主体 */}
         <div className={styles['vcs-body']}>
@@ -456,6 +466,14 @@ export const WorkspaceVersionPanel: React.FC<WorkspaceVersionPanelProps> = ({ op
         onConfirm={handleRevertConfirm}
         onCancel={() => setRevertConfirming(false)}
       />
+    </div>
+  )
+
+  if (embedded) return panel
+
+  return createPortal(
+    <div className={styles['vcs-overlay']} onClick={onClose}>
+      {panel}
     </div>,
     document.body,
   )

@@ -25,6 +25,30 @@
   transform: translateX(0);
 }
 
+/* 嵌入 Workbench：取消 fixed 抽屉行为，填满父级 */
+.drawerEmbedded {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  height: 100%;
+  transform: none;
+  border-left: none;
+  box-shadow: none;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  z-index: auto;
+}
+
+.embeddedToolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--mt-space-1) var(--mt-space-2);
+  flex-shrink: 0;
+}
+
 /* 标题栏 */
 .header {
   display: flex;
