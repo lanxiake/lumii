@@ -1,0 +1,173 @@
+/* DiffFileCard — 堆叠多文件 Diff 卡片 */
+
+.card {
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--mt-code-bg);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--mt-space-2);
+  min-height: 36px;
+  padding: 0 var(--mt-space-3);
+  background: var(--mt-surface-2);
+  border-bottom: 1px solid var(--mt-border-hairline);
+}
+
+.badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.badge_added {
+  color: var(--mt-success);
+  background: color-mix(in srgb, var(--mt-success) 14%, transparent);
+}
+.badge_deleted {
+  color: var(--mt-error);
+  background: color-mix(in srgb, var(--mt-error) 14%, transparent);
+}
+.badge_modified {
+  color: var(--mt-accent-500);
+  background: color-mix(in srgb, var(--mt-accent-500) 14%, transparent);
+}
+
+.path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mt-fs-xs);
+  color: var(--mt-fg-1);
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+}
+
+.stats {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--mt-fs-xs);
+}
+
+.ins { color: var(--mt-success); }
+.del { color: var(--mt-error); }
+
+.actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+  transition: color var(--mt-dur-fast), background var(--mt-dur-fast);
+}
+
+.iconBtn:hover {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
+}
+
+.revertBtn:hover {
+  color: var(--mt-error);
+  background: color-mix(in srgb, var(--mt-error) 12%, transparent);
+}
+
+.body {
+  padding: var(--mt-space-2) 0;
+}
+
+.notice {
+  margin: 0;
+  padding: var(--mt-space-3) var(--mt-space-4);
+  font-size: var(--mt-fs-xs);
+  color: var(--mt-fg-4);
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--mt-space-3) var(--mt-space-4);
+}
+
+.skelRow,
+.skelRowShort {
+  height: 10px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--mt-fg-4) 18%, transparent);
+  animation: mt-skel 1.2s ease-in-out infinite;
+}
+
+.skelRowShort { width: 62%; }
+
+@keyframes mt-skel {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.85; }
+}
+
+.hunks {
+  overflow-x: auto;
+  font-family: var(--mt-font-mono, ui-monospace, Consolas, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.lineAdd,
+.lineDel,
+.lineCtx {
+  margin: 0;
+  padding: 0 var(--mt-space-3);
+  white-space: pre;
+  color: var(--mt-fg-2);
+}
+
+.lineAdd { background: var(--mt-diff-add-bg); }
+.lineDel { background: var(--mt-diff-del-bg); }
+.lineCtx { color: var(--mt-fg-3); }
+
+.fold {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 4px var(--mt-space-3);
+  border: none;
+  border-top: 1px solid var(--mt-border-hairline);
+  border-bottom: 1px solid var(--mt-border-hairline);
+  background: transparent;
+  color: var(--mt-fg-4);
+  font-size: 11px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fold:hover {
+  color: var(--mt-fg-2);
+  background: var(--mt-surface-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skelRow,
+  .skelRowShort {
+    animation: none;
+  }
+}

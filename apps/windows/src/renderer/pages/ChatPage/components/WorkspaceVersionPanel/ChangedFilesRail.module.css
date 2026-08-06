@@ -1,0 +1,95 @@
+/* ChangedFilesRail — 右栏变更文件导航 */
+
+.rail {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--mt-surface-2);
+  border-left: 1px solid var(--mt-border-hairline);
+  overflow: hidden;
+}
+
+.header {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--mt-space-3);
+  border-bottom: 1px solid var(--mt-border-hairline);
+  flex-shrink: 0;
+}
+
+.headerLabel {
+  font-size: var(--mt-fs-xs);
+  font-weight: 600;
+  color: var(--mt-fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: var(--mt-space-1) 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--mt-space-2);
+  width: 100%;
+  height: 28px;
+  padding: 0 var(--mt-space-3);
+  border: none;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--mt-fg-2);
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--mt-fs-xs);
+  transition: background var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.item:hover {
+  background: var(--mt-surface-3);
+}
+
+.itemActive {
+  border-left-color: var(--mt-accent-500);
+  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
+  color: var(--mt-fg-1);
+}
+
+.status {
+  flex-shrink: 0;
+  width: 14px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+}
+
+.status_added { color: var(--mt-success); }
+.status_deleted { color: var(--mt-error); }
+.status_modified { color: var(--mt-accent-500); }
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats {
+  flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+}
+
+.ins { color: var(--mt-success); }
+.del { color: var(--mt-error); }
