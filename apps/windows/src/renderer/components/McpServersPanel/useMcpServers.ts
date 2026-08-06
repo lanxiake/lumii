@@ -89,13 +89,33 @@ export function useMcpServers() {
   )
 
   const setEnabled = useCallback(
-    (name: string, enabled: boolean) =>
-      mutate(name, () => send<MutationResult>({ type: 'mcp:setEnabled', name, enabled })),
+    (name: string, enabled: boolean) => {
+      // 乐观更新：立刻反映开关与「连接中」，避免长时间无反馈像卡死
+      setServers((prev) =>
+        prev.map((s) =>
+          s.name === name
+            ? {
+                ...s,
+                enabled,
+                connecting: enabled,
+                connected: enabled ? s.connected : false,
+                ...(enabled ? {} : { tools: [] as readonly string[], lastError: undefined }),
+              }
+            : s,
+        ),
+      )
+      return mutate(name, () => send<MutationResult>({ type: 'mcp:setEnabled', name, enabled }))
+    },
     [mutate],
   )
 
   const reconnect = useCallback(
-    (name: string) => mutate(name, () => send<MutationResult>({ type: 'mcp:reconnect', name })),
+    (name: string) => {
+      setServers((prev) =>
+        prev.map((s) => (s.name === name ? { ...s, connecting: true, lastError: undefined } : s)),
+      )
+      return mutate(name, () => send<MutationResult>({ type: 'mcp:reconnect', name }))
+    },
     [mutate],
   )
 

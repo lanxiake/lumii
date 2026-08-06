@@ -171,6 +171,18 @@ export class BridgePromptDispatcher {
       log.error(`[prompt] instance not found: ${instanceId}`)
       throw new Error(`Agent instance not found: ${instanceId}`)
     }
+
+    // 上一轮 abort 后 pi 循环可能尚未退出；短等空闲，避免 "already processing"
+    if (instance.state === 'running' || instance.state === 'aborted') {
+      try {
+        await Promise.race([
+          instance.waitForIdle(),
+          new Promise<void>((resolve) => setTimeout(resolve, 2500)),
+        ])
+      } catch (err) {
+        log.warn(`[prompt] waitForIdle: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
     // 每轮发消息前刷新动态部分（用户记忆 + 活跃任务），确保 AI 拿到最新内容
     const state = this.deps.instanceStates.get(instanceId)
     let baseResult = state?.basePrompt

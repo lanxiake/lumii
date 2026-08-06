@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronRight, Ellipsis, FileJson, Plus, RefreshCw } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronRight, Ellipsis, FileJson, Loader2, Plus, RefreshCw } from 'lucide-react'
 import { Button, Empty, Input, Loading, Switch } from '../ui'
 import { useToolSearch } from '../../hooks/business/useToolSearch'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
@@ -21,15 +21,21 @@ function commandSummary(server: McpServer): string {
   return [server.command, ...(server.args ?? [])].join(' ')
 }
 
-function statusText(server: McpServer): string {
+/** 是否处于连接/写操作忙态（用于禁用开关与展示「连接中」） */
+function isServerBusy(server: McpServer, busyName: string | null): boolean {
+  return server.connecting || busyName === server.name
+}
+
+function statusText(server: McpServer, busy: boolean): string {
+  if (busy) return '连接中'
   if (server.enabled === false) return '已停用'
-  if (server.connecting) return '连接中'
   if (server.connected) return '已连接'
   return server.lastError ? '连接失败' : '未连接'
 }
 
-/** 状态点的 class：停用灰、失败红、已连接绿、其余黄 */
-function statusClass(server: McpServer): string {
+/** 状态点的 class：停用灰、失败红、已连接绿、连接中/其余黄 */
+function statusClass(server: McpServer, busy: boolean): string {
+  if (busy) return styles['dot-pending']
   if (server.enabled === false) return styles['dot-off']
   if (server.connected) return styles['dot-on']
   if (server.lastError) return styles['dot-error']
@@ -193,6 +199,7 @@ export const McpServersPanel: React.FC = () => {
           {visible.map(({ server, tools: shownTools, matchedByTool }) => {
           // 搜索命中工具时自动展开，让用户直接看到结果
           const isOpen = expanded.has(server.name) || matchedByTool
+          const busy = isServerBusy(server, busyName)
           return (
             <li key={server.name} className={styles['server-item']}>
             <div className={styles['server-row']}>
@@ -201,7 +208,7 @@ export const McpServersPanel: React.FC = () => {
                 className={styles['expand-btn']}
                 aria-expanded={isOpen}
                 aria-label={`${isOpen ? '收起' : '展开'} ${server.name} 的工具`}
-                disabled={server.tools.length === 0}
+                disabled={server.tools.length === 0 || busy}
                 onClick={() => toggleExpand(server.name)}
               >
                 {server.tools.length === 0
@@ -209,18 +216,24 @@ export const McpServersPanel: React.FC = () => {
                   : isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               </button>
 
-              <span className={`${styles['dot']} ${statusClass(server)}`} aria-hidden />
+              {busy ? (
+                <Loader2 size={14} className={styles['spin']} aria-hidden />
+              ) : (
+                <span className={`${styles['dot']} ${statusClass(server, busy)}`} aria-hidden />
+              )}
 
               <div className={styles['server-main']}>
                 <div className={styles['server-title-row']}>
                   <span className={styles['server-name']}>{server.name}</span>
-                  <span className={styles['server-status']}>{statusText(server)}</span>
-                  {server.lastError && server.enabled !== false && (
+                  <span className={busy ? styles['server-status-busy'] : styles['server-status']}>
+                    {statusText(server, busy)}
+                  </span>
+                  {!busy && server.lastError && server.enabled !== false && (
                     <span className={styles['server-error-inline']} title={server.lastError}>
                       {server.lastError}
                     </span>
                   )}
-                  {server.tools.length > 0 && (
+                  {!busy && server.tools.length > 0 && (
                     <button
                       type="button"
                       className={styles['tool-count']}
@@ -235,7 +248,7 @@ export const McpServersPanel: React.FC = () => {
 
               <Switch
                 checked={server.enabled !== false}
-                disabled={busyName === server.name}
+                disabled={busy}
                 onChange={(checked) => void withToolRefresh(setEnabled(server.name, checked))}
               />
 

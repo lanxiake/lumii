@@ -42,7 +42,10 @@ function toolTitle(toolName: string): string {
     spawn_agent: '创建子 Agent',
     send_message: '发送消息',
   }
-  return map[toolName] ?? `执行工具 ${toolName}`
+  if (map[toolName]) return map[toolName]!
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(toolName)
+  if (mcp) return `MCP ${mcp[1]} · ${mcp[2]}`
+  return `执行工具 ${toolName}`
 }
 
 /**

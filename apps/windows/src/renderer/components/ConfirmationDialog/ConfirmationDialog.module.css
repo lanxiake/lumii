@@ -3,7 +3,9 @@
 .card {
   position: relative;
   overflow: hidden;
+  width: min(520px, 100%);
   max-width: 520px;
+  margin: 0 auto;
   padding: 12px 14px 12px 16px;
   border: 1px solid color-mix(in srgb, var(--mt-warning, #e8a317) 35%, var(--mt-border, #e5e7eb));
   border-radius: 12px;

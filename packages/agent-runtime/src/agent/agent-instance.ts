@@ -581,6 +581,9 @@ export class AgentInstance {
     this.endingPause = false;
     this.agent.abort();
     this.setState("aborted");
+    // 立刻结束 prompt() 等待，避免 SessionManager 会话锁卡住后续 user:send
+    this._promptDoneResolve?.();
+    this._promptDoneResolve = null;
   }
 
   /** 订阅事件（UI 侧监听） */

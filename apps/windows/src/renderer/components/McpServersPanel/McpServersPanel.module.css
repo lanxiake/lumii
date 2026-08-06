@@ -137,6 +137,16 @@
   background: var(--mt-fg-4);
 }
 
+@keyframes mcp-spin {
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  flex-shrink: 0;
+  color: var(--mt-warning);
+  animation: mcp-spin 0.8s linear infinite;
+}
+
 .server-main {
   flex: 1;
   min-width: 0;
@@ -162,11 +172,16 @@
 }
 
 .server-status,
+.server-status-busy,
 .server-tools {
   font-family: var(--mt-font-mono, ui-monospace, monospace);
   font-size: var(--mt-fs-xs, 11px);
   color: var(--mt-fg-4);
   flex-shrink: 0;
+}
+
+.server-status-busy {
+  color: var(--mt-warning);
 }
 
 .server-command {

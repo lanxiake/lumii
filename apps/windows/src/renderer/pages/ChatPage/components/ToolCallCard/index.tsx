@@ -169,10 +169,17 @@ interface ToolCallCardProps {
 }
 
 /**
- * 统一渲染工具名称标签，保证卡片上始终可见原始工具名。
+ * 统一渲染工具名称标签。
+ *
+ * MCP 工具名形如 mcp__<server>__<tool>，展示为「server · tool」。
  */
 function getToolDisplayName(name: string): string {
-  return name || 'unknown_tool'
+  if (!name) return 'unknown_tool'
+  const mcpMatch = /^mcp__(.+?)__(.+)$/.exec(name)
+  if (mcpMatch) {
+    return `${mcpMatch[1]} · ${mcpMatch[2]}`
+  }
+  return name
 }
 
 /**

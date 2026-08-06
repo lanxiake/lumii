@@ -646,9 +646,11 @@ async function handleCommand(
           if (command.runId) untrackRun(command.runId)
           return undefined
         }
-        // 2. 现有 openclaw 中止逻辑
+        // 2. 现有 openclaw 中止逻辑：清挂起等待 + 级联 abort + 释放会话串行锁
         if (command.sessionKey) {
           const abortedRoots = bridge.abortSession(command.sessionKey)
+          // 无论是否找到根实例，都清锁，防止上一轮 prompt Promise 未 settle 卡住后续 send
+          getIpcChannelAdapter(bridge).sessionManager.clearLock(command.sessionKey)
           if (abortedRoots > 0) {
             if (command.runId) untrackRun(command.runId)
             return undefined
@@ -663,7 +665,10 @@ async function handleCommand(
           return undefined
         }
         // 仅中止当前 run 对应实例（及其子 Agent），避免误伤其他会话
-        bridge.abortWithChildren(instanceIdToAbort)
+        bridge.abortWithChildrenAndPending(instanceIdToAbort)
+        if (command.sessionKey) {
+          getIpcChannelAdapter(bridge).sessionManager.clearLock(command.sessionKey)
+        }
         if (command.runId) untrackRun(command.runId)
         return undefined
       }

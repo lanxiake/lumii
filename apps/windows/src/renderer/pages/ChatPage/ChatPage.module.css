@@ -76,11 +76,13 @@
   pointer-events: auto;
 }
 
-/* 行内权限审批卡：贴在输入框上方，限制宽度避免整行遮挡 */
+/* 行内权限审批卡：输入框上方水平居中 */
 .chat-inline-approval {
   padding: 0 var(--mt-space-4) var(--mt-space-2);
   display: flex;
-  justify-content: flex-start;
+  justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* Toolbar — 单行玻璃头部。高度须与 --chat-overlay-top(44px) 保持一致，

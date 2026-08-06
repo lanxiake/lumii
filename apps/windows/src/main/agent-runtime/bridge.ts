@@ -929,7 +929,24 @@ export class AgentRuntimeBridge {
   steer(instanceId: string, message: string): void { this.promptDispatcher.steer(instanceId, message) }
   abort(instanceId: string): void { this.promptDispatcher.abort(instanceId) }
   abortWithChildren(instanceId: string): void { this.promptDispatcher.abortWithChildren(instanceId) }
-  abortSession(rootSessionKey: string): number { return this.promptDispatcher.abortSession(rootSessionKey) }
+
+  /**
+   * 中止会话：清掉挂起的权限/提问，再级联 abort，避免 tool 等待挂死导致会话锁不释放
+   */
+  abortSession(rootSessionKey: string): number {
+    this.permissionController.rejectAllPending()
+    this.askUserQuestionController.clearAll()
+    return this.promptDispatcher.abortSession(rootSessionKey)
+  }
+
+  /**
+   * 中止指定实例（含子 Agent），同时释放挂起的人机交互等待
+   */
+  abortWithChildrenAndPending(instanceId: string): void {
+    this.permissionController.rejectAllPending()
+    this.askUserQuestionController.clearAll()
+    this.promptDispatcher.abortWithChildren(instanceId)
+  }
   destroy(instanceId: string): void { this.lifecycle.destroy(instanceId) }
   destroyAll(): void { this.lifecycle.destroyAll() }
 

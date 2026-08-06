@@ -488,6 +488,14 @@ const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ thinkingText, isStreaming
 // ToolsSection — 工具调用折叠列表
 // ---------------------------------------------------------------
 
+/** MCP 工具名 mcp__server__tool →「server · tool」 */
+function formatToolLabel(name: string): string {
+  if (!name) return 'unknown_tool'
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(name)
+  if (mcp) return `${mcp[1]} · ${mcp[2]}`
+  return name
+}
+
 interface ToolsSectionProps {
   tools: AgentWorkflowItem[]
   runningTools: AgentWorkflowItem[]
@@ -507,9 +515,8 @@ const ToolsSection: React.FC<ToolsSectionProps> = ({
 
   const totalCount = tools.length
   const hasRunning = runningTools.length > 0
-
-  // 折叠时只展示运行中的工具；展开后展示全部
-  const visibleTools = expanded ? tools : runningTools
+  /** 当前正在执行的工具（取最后一个 running，通常即最新） */
+  const currentTool = hasRunning ? runningTools[runningTools.length - 1] : undefined
 
   const summaryLabel = expanded
     ? `收起（共 ${totalCount} 步）`
@@ -525,38 +532,17 @@ const ToolsSection: React.FC<ToolsSectionProps> = ({
 
   return (
     <div className={styles['rt-tools-section']}>
-      {/* 顶部也提供收起按钮，便于在思考卡片下方就地操作 */}
-      {totalCount > 0 && expanded && (
-        <button
-          type="button"
-          className={styles['rt-tools-toggle']}
-          onClick={() => setExpanded(false)}
-        >
-          <span className={styles['rt-tools-toggle-icon']}>▾</span>
-          <span>收起（共 {totalCount} 步）</span>
-          {statusMeta && <span className={styles['rt-tools-toggle-meta']}>{statusMeta}</span>}
-        </button>
-      )}
-
-      {/* 运行中的工具（始终可见） */}
-      {visibleTools.length > 0 && (
-        <div className={styles['rt-tools-list']}>
-          {visibleTools.map((item, idx) => {
-            const globalIdx = expanded ? idx : tools.indexOf(item)
-            return (
-              <div key={item.id} className={styles['rt-tool-row']}>
-                <div className={styles['rt-tool-step-line']}>
-                  <span className={styles['rt-step-num']}>{globalIdx + 1}</span>
-                  {idx < visibleTools.length - 1 && (
-                    <span className={styles['rt-step-connector']} />
-                  )}
-                </div>
-                <div className={styles['rt-tool-card']}>
-                  <ToolCallCard item={item} />
-                </div>
-              </div>
-            )
-          })}
+      {/* 折叠态：在「展开全部」上方展示当前执行工具，完成后自动隐藏 */}
+      {!expanded && currentTool && (
+        <div className={styles['rt-current-tool']} role="status" aria-live="polite">
+          <span className={styles['rt-current-tool-spin']} aria-hidden />
+          <span className={styles['rt-current-tool-label']}>正在执行</span>
+          <span className={styles['rt-current-tool-name']} title={currentTool.name}>
+            {formatToolLabel(currentTool.name)}
+          </span>
+          {runningTools.length > 1 && (
+            <span className={styles['rt-current-tool-more']}>+{runningTools.length - 1}</span>
+          )}
         </div>
       )}
 
@@ -571,6 +557,25 @@ const ToolsSection: React.FC<ToolsSectionProps> = ({
           <span>{summaryLabel}</span>
           {statusMeta && <span className={styles['rt-tools-toggle-meta']}>{statusMeta}</span>}
         </button>
+      )}
+
+      {/* 展开后展示全部工具步骤 */}
+      {expanded && tools.length > 0 && (
+        <div className={styles['rt-tools-list']}>
+          {tools.map((item, idx) => (
+            <div key={item.id} className={styles['rt-tool-row']}>
+              <div className={styles['rt-tool-step-line']}>
+                <span className={styles['rt-step-num']}>{idx + 1}</span>
+                {idx < tools.length - 1 && (
+                  <span className={styles['rt-step-connector']} />
+                )}
+              </div>
+              <div className={styles['rt-tool-card']}>
+                <ToolCallCard item={item} />
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )
@@ -761,7 +766,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
    * 设计：
    * - 不再用卡片包裹，直接展开显示在消息气泡上方
    * - 思考内容框默认滚动展示（max-height + overflow-y: auto）
-   * - 工具列表默认折叠，只展示「运行中」的工具卡片；展开后按顺序显示全部
+   * - 工具列表默认折叠：在「展开全部」上方显示当前执行工具条；展开后按顺序显示全部
    */
   const renderReasoningTimeline = () => {
     const live = streamingThinkingText?.trim()
@@ -800,7 +805,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
           />
         )}
 
-        {/* 工具调用列表：默认折叠，只展示运行中；展开后显示全部 */}
+        {/* 工具调用：折叠态在「展开全部」上方显示当前执行工具；展开后显示全部步骤 */}
         {hasTools && (
           <ToolsSection
             tools={tools}
