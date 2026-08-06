@@ -175,8 +175,19 @@ const SkillsPage: React.FC = () => {
   const { installedSkills, stats: skillStats, isLoading, error, loadInstalledSkills, enableSkill, disableSkill, uninstallSkill } = useSkills()
   const { filtered: filteredTools, grouped: groupedTools, stats: toolStats, query: toolQuery, setQuery: setToolQuery, isLoading: isToolsLoading, togglingTool, toggleTool, mcpStatus } = useToolSearch()
 
-  // 标签页状态
-  const [activeTab, setActiveTab] = useState<TabType>('my-skills')
+  // 标签页状态（Composer「管理」可经 sessionStorage 指定初始 Tab）
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    try {
+      const init = sessionStorage.getItem('mtbot_skills_init_tab') as TabType | null
+      if (init === 'my-skills' || init === 'store' || init === 'tools' || init === 'mcp') {
+        sessionStorage.removeItem('mtbot_skills_init_tab')
+        return init
+      }
+    } catch {
+      /* ignore */
+    }
+    return 'my-skills'
+  })
 
   // 搜索和筛选状态
   const [searchQuery, setSearchQuery] = useState('')
@@ -457,6 +468,18 @@ const SkillsPage: React.FC = () => {
     }
     window.addEventListener('mtbot:open-skill-store', handler)
     return () => window.removeEventListener('mtbot:open-skill-store', handler)
+  }, [])
+
+  // 监听 Composer「+」菜单「管理技能 / 管理 MCP」：打开对应 Tab
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab?: TabType }>).detail?.tab
+      if (tab === 'my-skills' || tab === 'store' || tab === 'tools' || tab === 'mcp') {
+        setActiveTab(tab)
+      }
+    }
+    window.addEventListener('mtbot:open-skills-tab', handler)
+    return () => window.removeEventListener('mtbot:open-skills-tab', handler)
   }, [])
 
   // 独立版：技能全部走本地 IPC（workspace/skills），无需网关连接

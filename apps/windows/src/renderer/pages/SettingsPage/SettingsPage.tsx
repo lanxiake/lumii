@@ -18,6 +18,7 @@ import {
   Clock,
   Brain,
   Boxes,
+  Plug,
 } from '../../components/ui/Icon'
 import type { ViewType } from '../../components/Router'
 import { Card } from '../../components/ui/Card/Card'
@@ -87,6 +88,7 @@ const MOVED_PAGES: Array<{ id: ViewType; label: string; icon: ReactNode }> = [
   { id: 'cron', label: '定时任务', icon: <Clock size={SETTINGS_ICON_SIZE} /> },
   { id: 'memories', label: '记忆管理', icon: <Brain size={SETTINGS_ICON_SIZE} /> },
   { id: 'files', label: '文件管理', icon: <FolderOpen size={SETTINGS_ICON_SIZE} /> },
+  { id: 'plugins', label: '插件中心', icon: <Plug size={SETTINGS_ICON_SIZE} /> },
 ]
 
 const CATEGORIES: Array<{ id: SettingsCategory; label: string; icon: ReactNode }> = [
@@ -113,7 +115,7 @@ const CATEGORIES: Array<{ id: SettingsCategory; label: string; icon: ReactNode }
  * 主题、语言设置
  */
 interface SettingsPageProps {
-  /** 跳转到独立功能页（AI 团队 / 技能 / 定时任务 / 记忆 / 文件） */
+  /** 跳转到独立功能页（AI 团队 / 技能 / 定时任务 / 记忆 / 文件 / 插件中心） */
   onViewChange?: (view: ViewType) => void
 }
 

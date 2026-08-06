@@ -325,3 +325,8 @@ export function getSupportedDocumentAccept(): string {
 export function getSupportedImageAccept(): string {
   return [...IMAGE_MIME_TYPES, ...IMAGE_EXTENSIONS].join(',')
 }
+
+/** 汇总图片 + 文档统一附件 accept，供 Composer「+」菜单单一文件选择器使用 */
+export function getSupportedAttachmentAccept(): string {
+  return [getSupportedImageAccept(), getSupportedDocumentAccept()].filter(Boolean).join(',')
+}

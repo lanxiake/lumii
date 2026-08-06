@@ -122,6 +122,14 @@
     0 0 0 3px color-mix(in srgb, var(--mt-accent-500) 28%, transparent);
 }
 
+/* 「+」与文本域同一行 — 已迁至底部工具栏，保留兼容 */
+.composer-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
+}
+
 /* 文本域 */
 .chat-textarea {
   width: 100%;

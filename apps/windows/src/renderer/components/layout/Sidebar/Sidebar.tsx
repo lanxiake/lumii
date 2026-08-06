@@ -1,7 +1,7 @@
 /**
  * Sidebar Component - 侧边栏导航组件
  *
- * 只留高频入口（概览 / 插件中心），其余功能页移入设置。
+ * 只留高频入口（概览），其余功能页（含插件中心）移入设置。
  * 之下常驻会话列表（默认/渠道 tab，由 ChatPage portal 填充）。
  */
 
@@ -11,7 +11,6 @@ import {
   LayoutDashboard,
   Settings,
   ChevronLeft,
-  Plug,
 } from '../../ui/Icon';
 import { LumiiLogo } from '../../brand/LumiiLogo';
 import styles from './Sidebar.module.css';
@@ -63,11 +62,10 @@ export interface SidebarProps {
 const ICON_SIZE = 18;
 
 /**
- * 默认导航菜单配置
+ * 默认导航菜单配置（插件中心等低频入口改由设置页「功能」区进入）
  */
 const defaultNavItems: NavItem[] = [
   { id: 'dashboard', label: '概览', icon: <LayoutDashboard size={ICON_SIZE} /> },
-  { id: 'plugins', label: '插件中心', icon: <Plug size={ICON_SIZE} /> },
 ];
 
 /** 会话列表挂载点 id：ChatPage 通过 portal 把 ChatSidebar 渲染进来 */
