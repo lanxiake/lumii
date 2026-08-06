@@ -51,8 +51,8 @@ ChatPage toolbar
 ### 代码落点
 
 - 新增薄壳组件：`WorkspaceWorkbench`（或等价命名）
-- 现有 `WorkspaceFilePanel` / `WorkspaceVersionPanel` 变为壳内 tab 内容；业务 hook 原样复用
-- 不改 `useWorkspace` / `useWorkspaceVcs` 的对外契约；仅在 UI 层组合调用（例如为堆叠 Diff 补拉 hunks）
+- 现有 `WorkspaceFilePanel` / `WorkspaceVersionPanel` 变为壳内 tab 内容
+- `useWorkspace` 业务语义尽量不动；`useWorkspaceVcs` 扩展列表/单文件 hunks API，配合 §7 性能改造
 
 ## 2. 交互流
 
