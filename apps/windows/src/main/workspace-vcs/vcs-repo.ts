@@ -19,7 +19,7 @@ import type {
   VcsRollbackResult,
 } from './types'
 import { buildDefaultGitignore, VCS_SKIP_DIRS } from './vcs-ignore'
-import { computeFileDiff, computeDiffStats } from './vcs-diff'
+import { computeFileDiff, computeDiffStats, MAX_DIFF_BYTES } from './vcs-diff'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WorkspaceVcs]', ...args),
@@ -280,6 +280,45 @@ export class WorkspaceVcs {
     })
 
     return entries
+  }
+
+  /**
+   * 单文件逐行 diff。任一侧超过 MAX_DIFF_BYTES 则返回 truncated，不跑 Myers。
+   * fromOid/toOid 可为 commit oid；一侧不存在视为空内容。
+   */
+  async diffFile(fromOid: string, toOid: string, filepath: string): Promise<VcsDiffEntry> {
+    const oldContent = (await this.readFileAt(fromOid, filepath)) ?? ''
+    const newContent = (await this.readFileAt(toOid, filepath)) ?? ''
+    const status: VcsFileStatus =
+      oldContent === '' && newContent !== ''
+        ? 'added'
+        : newContent === '' && oldContent !== ''
+          ? 'deleted'
+          : 'modified'
+
+    if (
+      Buffer.byteLength(oldContent, 'utf8') > MAX_DIFF_BYTES ||
+      Buffer.byteLength(newContent, 'utf8') > MAX_DIFF_BYTES
+    ) {
+      return {
+        filepath,
+        status,
+        insertions: 0,
+        deletions: 0,
+        hunks: [],
+        truncated: true,
+        skipReason: '文件过大，已跳过逐行差异',
+      }
+    }
+
+    const d = computeFileDiff(filepath, oldContent, newContent)
+    return {
+      filepath,
+      status,
+      insertions: d.insertions,
+      deletions: d.deletions,
+      hunks: d.hunks,
+    }
   }
 
   /**

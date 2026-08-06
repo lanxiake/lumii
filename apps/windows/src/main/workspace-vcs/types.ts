@@ -48,6 +48,10 @@ export interface VcsDiffEntry {
   readonly deletions: number
   /** 逐行 hunks（按需加载；statusDiff 默认不带） */
   readonly hunks?: readonly VcsDiffHunk[]
+  /** 内容过大时跳过逐行 diff */
+  readonly truncated?: boolean
+  /** 跳过逐行 diff 的原因说明 */
+  readonly skipReason?: string
 }
 
 /** 回滚结果 */

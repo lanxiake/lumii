@@ -162,6 +162,29 @@ describe('WorkspaceVcs', () => {
     expect(ms).toBeLessThan(2000) // 本地 CI 宽松上限；改造前会远超
   })
 
+  it('diffFile: 返回单文件 hunks', async () => {
+    await vcs.ensureInitialized()
+    writeFile('x.md', 'a\n')
+    const c1 = await vcs.commit({ author: 'user', message: '1' })
+    writeFile('x.md', 'a\nb\n')
+    const c2 = await vcs.commit({ author: 'user', message: '2' })
+    const one = await vcs.diffFile(c1!.oid, c2!.oid, 'x.md')
+    expect(one.filepath).toBe('x.md')
+    expect(one.hunks!.length).toBeGreaterThan(0)
+  })
+
+  it('diffFile: 超大文件标记 truncated 且不抛错', async () => {
+    await vcs.ensureInitialized()
+    const big = 'x'.repeat(600_000) + '\n'
+    writeFile('big.txt', big)
+    const c1 = await vcs.commit({ author: 'user', message: 'big1' })
+    writeFile('big.txt', big + 'y\n')
+    const c2 = await vcs.commit({ author: 'user', message: 'big2' })
+    const one = await vcs.diffFile(c1!.oid, c2!.oid, 'big.txt')
+    expect(one.truncated).toBe(true)
+    expect(one.hunks ?? []).toEqual([])
+  })
+
   it('diffCommits: withHunks true 时仅变更文件带 hunks', async () => {
     await vcs.ensureInitialized()
     writeFile('a.md', '1\n')
