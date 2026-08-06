@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { Button } from '../../components/ui/Button/Button'
 import { ChatSidebar } from './components/ChatSidebar'
 import { ChatContainer } from './components/ChatContainer'
 import { ChatInput } from './components/ChatInput'
@@ -13,7 +12,7 @@ import { Toast } from './components/Toast'
 import { ConfirmModal } from '../../components/ui/Modal/ConfirmModal'
 import { WorkspaceFilePanel } from './components/WorkspaceFilePanel'
 import { WorkspaceVersionPanel } from './components/WorkspaceVersionPanel/WorkspaceVersionPanel'
-import { WorkspaceWorkbench, type WorkbenchTab } from './components/WorkspaceWorkbench'
+import { WorkspaceWorkbench, type WorkbenchTab, type WorkbenchLayoutMode } from './components/WorkspaceWorkbench'
 import { useWorkspaceVcs } from '../../hooks/business/useWorkspaceVcs'
 import { useWorkspace } from '../../hooks/business/useWorkspace'
 import { useAgents } from '../../hooks/business/useAgents'
@@ -52,7 +51,7 @@ import {
   type ImageProcessingResult,
 } from './utils/image-processing-strategy'
 import { InterruptBanner } from './components/InterruptBanner'
-import { PanelLeft, Sparkles, Type, FolderTree, GitBranch } from 'lucide-react'
+import { PanelLeft, Sparkles, Type, FolderOpen } from 'lucide-react'
 
 /** 将 File 读取为 base64 字符串（当 file.path 不可用时使用） */
 function readFileAsBase64(file: File): Promise<string> {
@@ -733,20 +732,36 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     open: false,
     tab: 'files',
   })
+  /** 工作台当前宽度（px），用于对话区 padding 自适应 */
+  const [workbenchWidth, setWorkbenchWidth] = useState(0)
+  const [workbenchResizing, setWorkbenchResizing] = useState(false)
+  const [workbenchLayout, setWorkbenchLayout] = useState<WorkbenchLayoutMode>('default')
   /** 点击输入框 @引用 chip 时要在工作空间面板定位的绝对路径（含一次性 token 触发重复定位） */
   const [locateFileTarget, setLocateFileTarget] = useState<{ path: string; token: number } | null>(null)
   const { uncommittedDiff, refresh: refreshVcs } = useWorkspaceVcs()
   const { workspaceDir } = useWorkspace()
 
   const toggleFilesWorkbench = useCallback(() => {
+    setWorkbenchLayout('default')
     setWorkbench((w) =>
       w.open && w.tab === 'files' ? { ...w, open: false } : { open: true, tab: 'files' },
     )
   }, [])
-  const toggleVcsWorkbench = useCallback(() => {
-    setWorkbench((w) =>
-      w.open && w.tab === 'vcs' ? { ...w, open: false } : { open: true, tab: 'vcs' },
-    )
+
+  /** 离开对话视图时关闭工作台（设置/概览等） */
+  useEffect(() => {
+    if (activeView && activeView !== 'chat') {
+      setWorkbench((w) => (w.open ? { ...w, open: false } : w))
+    }
+  }, [activeView])
+
+  /** 工作台宽度变化；拖拽中关闭 padding transition */
+  const handleWorkbenchWidthChange = useCallback((w: number) => {
+    setWorkbenchWidth(w)
+  }, [])
+
+  const handleWorkbenchLayoutChange = useCallback((mode: WorkbenchLayoutMode) => {
+    setWorkbenchLayout(mode)
   }, [])
   /** 单调递增定位 token，避免 Date.now() 在快速点击时碰撞 */
   const locateTokenRef = useRef(0)
@@ -1399,7 +1414,18 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           sessionSlot,
         )}
 
-      <div className={styles['chat-main']}>
+      <div
+        className={clsx(styles['chat-main'], workbenchResizing && styles.chatMainResizing)}
+        data-chat-dialog
+        style={
+          workbench.open && workbenchWidth > 0
+            ? {
+                paddingRight: workbenchWidth,
+                ['--workbench-inset' as string]: `${workbenchWidth}px`,
+              }
+            : undefined
+        }
+      >
         {/* 消息层：全屏滚动，顶部/底部浮层可透视 */}
         <div
           className={styles['chat-main-body']}
@@ -1479,21 +1505,13 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             </button>
             <button
               type="button"
-              className={clsx(styles['icon-btn'], workbench.open && workbench.tab === 'files' && styles['icon-btn--active'])}
+              className={clsx(styles['icon-btn'], workbench.open && styles['icon-btn--active'])}
               onClick={toggleFilesWorkbench}
               title="工作空间文件"
-              aria-pressed={workbench.open && workbench.tab === 'files'}
+              aria-label="打开工作空间文件"
+              aria-pressed={workbench.open}
             >
-              <FolderTree size={16} strokeWidth={1.8} />
-            </button>
-            <button
-              type="button"
-              className={clsx(styles['icon-btn'], workbench.open && workbench.tab === 'vcs' && styles['icon-btn--active'])}
-              onClick={toggleVcsWorkbench}
-              title="工作空间版本"
-              aria-pressed={workbench.open && workbench.tab === 'vcs'}
-            >
-              <GitBranch size={16} strokeWidth={1.8} />
+              <FolderOpen size={16} strokeWidth={1.8} />
             </button>
             <button
               type="button"
@@ -1513,9 +1531,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             >
               <Sparkles size={16} strokeWidth={1.8} />
             </button>
-            <Button variant="ghost" size="sm" onClick={() => handleNewConversation()}>
-              新建
-            </Button>
             </div>
           </div>
         </div>
@@ -1612,10 +1627,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onCompactContext={handleCompactContext}
             pendingAttachments={pendingAttachments}
             onFileUpload={handleFilesImport}
-            onImageUpload={handleFilesImport}
             onRemoveAttachment={(filePath) => {
               setPendingAttachments((prev) => prev.filter((a) => a.filePath !== filePath))
             }}
+            onViewChange={onViewChange}
             fileReferences={activeFileReferences}
             onFileReferenceAdd={handleFileReferenceAdd}
             onFileReferenceRemove={handleFileReferenceRemove}
@@ -1676,14 +1691,21 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         />
       ) : null}
 
-      {/* 工作空间共享壳：文件 + 版本 */}
+      {/* 工作空间共享壳：文件 + 版本（可拖拽改宽，对话区自适应） */}
       <WorkspaceWorkbench
         open={workbench.open}
         tab={workbench.tab}
-        onTabChange={(tab) => setWorkbench((w) => ({ ...w, tab, open: true }))}
+        onTabChange={(tab) => {
+          setWorkbenchLayout('default')
+          setWorkbench((w) => ({ ...w, tab, open: true }))
+        }}
         onClose={() => setWorkbench((w) => ({ ...w, open: false }))}
         uncommittedCount={uncommittedDiff.length}
         onRefresh={() => { void refreshVcs() }}
+        onWidthChange={handleWorkbenchWidthChange}
+        onResizingChange={setWorkbenchResizing}
+        layoutMode={workbenchLayout}
+        onLayoutModeChange={handleWorkbenchLayoutChange}
         childrenFiles={
           <WorkspaceFilePanel
             open={workbench.open}
@@ -1697,11 +1719,14 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             open={workbench.open}
             onClose={() => setWorkbench((w) => ({ ...w, open: false }))}
             embedded
+            layoutMode={workbenchLayout}
+            onLayoutModeChange={handleWorkbenchLayoutChange}
             onRevealInFiles={(relPath) => {
               const root = (workspaceDir ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
               const abs = root
                 ? `${root}/${relPath.replace(/^\/+/, '')}`
                 : relPath
+              setWorkbenchLayout('default')
               setWorkbench({ open: true, tab: 'files' })
               locateTokenRef.current += 1
               setLocateFileTarget({ path: abs, token: locateTokenRef.current })

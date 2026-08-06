@@ -560,96 +560,207 @@
   overflow: hidden;
 }
 
-.timeline {
-  width: 220px;
+/* ── Cursor 式历史侧栏：极简两行 ── */
+.historyRail {
+  width: 188px;
   flex-shrink: 0;
   border-right: 1px solid var(--mt-border-hairline);
   overflow-y: auto;
-  padding: var(--mt-space-2) 0;
+  padding: var(--mt-space-1) 0;
   background: var(--mt-surface-2);
 }
-.timelineList { list-style: none; margin: 0; padding: 0; }
-.timelineItem {
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  padding: 0 8px 0 12px;
+
+.historyList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
-.timelineItem:hover .rollbackBtn { opacity: 1; }
-.timelineBtn {
-  flex: 1;
-  min-width: 0;
+
+.historyItem {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: 8px 8px 8px 14px;
+  width: 100%;
+  padding: 8px 12px;
   border: none;
-  border-radius: 6px;
+  border-left: 2px solid transparent;
   background: transparent;
   text-align: left;
   cursor: pointer;
   color: var(--mt-fg-2);
 }
-.timelineBtn:hover { background: var(--mt-surface-3); }
-.timelineBtnActive {
+
+.historyItem:hover {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
+}
+
+.historyItemActive {
+  border-left-color: var(--mt-accent-500);
   background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
   color: var(--mt-fg-1);
 }
-.timelineDot {
-  position: absolute;
-  left: 14px;
-  top: 14px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--mt-accent-500);
-}
-.timelineMsg {
-  font-size: var(--mt-fs-xs);
-  font-weight: 600;
-  padding-left: 10px;
+
+.historyTitle {
+  width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  width: 100%;
+  font-size: var(--mt-fs-xs);
+  font-weight: 600;
+  line-height: 1.35;
 }
-.timelineMeta {
+
+.historyMeta {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 10px;
   color: var(--mt-fg-4);
-  padding-left: 10px;
+  line-height: 1.3;
 }
-.rollbackBtn {
-  opacity: 0;
+
+/* 选中版本后的详情条（回滚放这里） */
+.historyDetail {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--mt-border-hairline);
+  background: var(--mt-surface-2);
+}
+
+.historyDetailText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.historyDetailTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mt-fs-sm);
+  font-weight: 600;
+  color: var(--mt-fg-1);
+}
+
+.historyDetailMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--mt-fg-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.historyOid {
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  color: var(--mt-fg-4);
+  background: color-mix(in srgb, var(--mt-fg-4) 12%, transparent);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.historyConv {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mt-fg-2);
+  font-weight: 500;
+}
+
+.historyRollback {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  margin-top: 8px;
-  padding: 2px 6px;
-  border: 1px solid var(--mt-border-hairline);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--mt-fg-3);
-  font-size: 10px;
-  cursor: pointer;
+  gap: 5px;
   flex-shrink: 0;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mt-fg-2);
+  font-size: var(--mt-fs-xs);
+  font-weight: 600;
+  cursor: pointer;
 }
-.rollbackBtn:hover {
+
+.historyRollback:hover {
   color: var(--mt-error);
   border-color: var(--mt-error);
   background: color-mix(in srgb, var(--mt-error) 10%, transparent);
 }
 
-.diffArea {
+.layoutBtns {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+}
+.layoutBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+}
+.layoutBtn:hover {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
+}
+.layoutBtnActive {
+  color: var(--mt-fg-1);
+  background: color-mix(in srgb, var(--mt-accent-500) 14%, transparent);
+}
+
+.vcs-panel--wide .historyRail {
+  width: 160px;
+}
+.vcs-panel--fullscreen .historyRail {
+  display: none;
+}
+.vcs-panel--fullscreen .diffArea {
   flex: 1;
+}
+
+.diffArea {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.diffBody {
+  flex: 1;
+  min-height: 0;
   min-width: 0;
   display: flex;
   overflow: hidden;
 }
+
+.diffAreaSolo .stack {
+  padding-right: 40px;
+}
 .stack {
   flex: 1;
   min-width: 0;
-  overflow-y: auto;
+  overflow: auto;
   padding: var(--mt-space-3);
   display: flex;
   flex-direction: column;

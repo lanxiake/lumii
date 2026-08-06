@@ -45,6 +45,7 @@
 .embeddedToolbar {
   display: flex;
   justify-content: flex-end;
+  gap: 2px;
   padding: var(--mt-space-1) var(--mt-space-2);
   flex-shrink: 0;
 }

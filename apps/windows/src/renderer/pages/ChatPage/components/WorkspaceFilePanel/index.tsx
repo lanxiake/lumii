@@ -1,11 +1,10 @@
 /**
  * WorkspaceFilePanel — 对话页面右侧工作空间文件抽屉
  *
- * - 右侧滑入 overlay 抽屉，不压缩聊天区域
- * - 树形目录（FileTree），懒加载，展示全部文件
- * - 点击文件 → 复用 FilePreviewModal 居中浮层预览
- * - 右键菜单 / 悬停按钮：预览、重命名、删除
- * - 所有颜色使用 CSS 变量，自动跟随深色/浅色主题
+ * - 右侧滑入 overlay 抽屉 / 或嵌入 WorkspaceWorkbench
+ * - 树形目录（FileTree），懒加载
+ * - 点击文件 → FilePreviewModal 弹窗预览（可全屏盖对话区、可弹出独立窗）
+ * - 右键菜单：预览、重命名、删除等
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react'
@@ -403,13 +402,14 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
     try {
       await window.electronAPI.file.delete(deleteTarget.path)
       if (selectedPath === deleteTarget.path) setSelectedPath(null)
+      if (previewFile?.path === deleteTarget.path) setPreviewFile(null)
       setRefreshToken((t) => t + 1)
     } catch (err) {
       console.error('[WorkspaceFilePanel] 删除失败:', err)
     } finally {
       setDeleteTarget(null)
     }
-  }, [deleteTarget, selectedPath])
+  }, [deleteTarget, selectedPath, previewFile])
 
   const handleOpenExternal = useCallback((item: FileItem) => {
     window.electronAPI.app.showItemInFolder(item.path)
@@ -445,7 +445,6 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
         )}
         aria-label="工作空间文件"
       >
-
         {/* 独立模式才显示标题栏；嵌入时由壳层提供 tabs */}
         {!embedded && (
           <div className={styles.header}>
@@ -476,7 +475,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
           </div>
         )}
 
-        {/* ACP 项目列表（根仍为 workspaceDir，projects/ 在树中自动出现） */}
+        {/* ACP 项目列表 */}
         {!isInitializing && workspaceDir && (
           <ProjectsSection
             api={projectsApi}
@@ -485,7 +484,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
           />
         )}
 
-        {/* 搜索栏（workspaceDir 就绪后显示） */}
+        {/* 搜索栏 */}
         {!isInitializing && workspaceDir && (
           <FileSearchBar
             rootPath={workspaceDir}
@@ -495,7 +494,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
           />
         )}
 
-        {/* 树形目录区域（搜索态隐藏，避免与搜索结果争抢高度导致结果只展示一半） */}
+        {/* 树形目录 */}
         {!isSearching && (
           <div className={styles.treeArea}>
             {isInitializing && (
@@ -531,7 +530,10 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
         <ContextMenu
           state={contextMenu}
           onClose={() => setContextMenu(null)}
-          onPreview={(item) => { setPreviewFile(item); setSelectedPath(item.path) }}
+          onPreview={(item) => {
+            setPreviewFile(item)
+            setSelectedPath(item.path)
+          }}
           onRename={(item) => setRenameTarget(item)}
           onDelete={(item) => setDeleteTarget(item)}
           onOpenExternal={handleOpenExternal}
@@ -539,7 +541,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
         />
       )}
 
-      {/* 文件预览 Modal（复用现有组件，createPortal 挂到 body） */}
+      {/* 文件预览弹窗（可全屏盖对话区、可弹出独立窗） */}
       {previewFile && (
         <FilePreviewModal
           filePath={previewFile.path}

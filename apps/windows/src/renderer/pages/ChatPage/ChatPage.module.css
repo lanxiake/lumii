@@ -16,6 +16,13 @@
   /* 消息区滚动留白，避免被顶部/底部浮层遮挡 */
   --chat-overlay-top: 44px;
   --chat-overlay-bottom: 210px;
+  /* 工作台占用宽度：流式内容用 padding，绝对定位浮层用 right */
+  --workbench-inset: 0px;
+  transition: padding-right var(--mt-dur-normal, 0.2s) var(--mt-ease-decel, ease);
+}
+
+.chatMainResizing {
+  transition: none;
 }
 
 .chat-main-body {
@@ -36,10 +43,17 @@
 .chat-overlay-bottom {
   position: absolute;
   left: 0;
-  right: 0;
+  /* 与工作台宽度对齐，避免浮层伸进 padding-right 被挡住 */
+  right: var(--workbench-inset, 0px);
   z-index: 30;
   pointer-events: none;
   background: transparent;
+  transition: right var(--mt-dur-normal, 0.2s) var(--mt-ease-decel, ease);
+}
+
+.chatMainResizing .chat-overlay-top,
+.chatMainResizing .chat-overlay-bottom {
+  transition: none;
 }
 
 .chat-overlay-top {

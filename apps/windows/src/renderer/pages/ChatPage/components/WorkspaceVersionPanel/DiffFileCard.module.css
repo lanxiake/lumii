@@ -126,9 +126,12 @@
 
 .hunks {
   overflow-x: auto;
+  overflow-y: hidden;
   font-family: var(--mt-font-mono, ui-monospace, Consolas, monospace);
   font-size: 12px;
   line-height: 1.45;
+  /* 长行可左右滑动预览 */
+  max-width: 100%;
 }
 
 .lineAdd,
@@ -137,6 +140,9 @@
   margin: 0;
   padding: 0 var(--mt-space-3);
   white-space: pre;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
   color: var(--mt-fg-2);
 }
 

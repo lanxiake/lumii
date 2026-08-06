@@ -1,7 +1,7 @@
-/* ChangedFilesRail — 右栏变更文件导航 */
+/* ChangedFilesRail — 目录树 + 显隐 */
 
 .rail {
-  width: 200px;
+  width: 220px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -10,16 +10,40 @@
   overflow: hidden;
 }
 
+.showBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 6px;
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-3);
+  cursor: pointer;
+}
+
+.showBtn:hover {
+  color: var(--mt-fg-1);
+  background: var(--mt-surface-3);
+}
+
 .header {
   height: 36px;
   display: flex;
   align-items: center;
-  padding: 0 var(--mt-space-3);
+  gap: var(--mt-space-2);
+  padding: 0 var(--mt-space-2) 0 var(--mt-space-3);
   border-bottom: 1px solid var(--mt-border-hairline);
   flex-shrink: 0;
 }
 
 .headerLabel {
+  flex: 1;
   font-size: var(--mt-fs-xs);
   font-weight: 600;
   color: var(--mt-fg-3);
@@ -27,21 +51,69 @@
   letter-spacing: 0.04em;
 }
 
+.iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+}
+
+.iconBtn:hover {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
+}
+
 .list {
-  list-style: none;
   margin: 0;
   padding: var(--mt-space-1) 0;
   overflow-y: auto;
   flex: 1;
 }
 
-.item {
+.dirBlock {
+  display: flex;
+  flex-direction: column;
+}
+
+.dirItem {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dirItem:hover {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-2);
+}
+
+.dirName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileItem {
   display: flex;
   align-items: center;
   gap: var(--mt-space-2);
   width: 100%;
   height: 28px;
-  padding: 0 var(--mt-space-3);
+  padding-right: var(--mt-space-3);
   border: none;
   border-left: 2px solid transparent;
   background: transparent;
@@ -49,14 +121,13 @@
   cursor: pointer;
   text-align: left;
   font-size: var(--mt-fs-xs);
-  transition: background var(--mt-dur-fast) var(--mt-ease-standard);
 }
 
-.item:hover {
+.fileItem:hover {
   background: var(--mt-surface-3);
 }
 
-.itemActive {
+.fileItemActive {
   border-left-color: var(--mt-accent-500);
   background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
   color: var(--mt-fg-1);

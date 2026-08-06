@@ -1,4 +1,4 @@
-/* WorkspaceWorkbench — 右侧共享玻璃壳 */
+/* WorkspaceWorkbench — 右侧共享玻璃壳（可拖拽改宽） */
 
 .shell {
   position: fixed;
@@ -18,19 +18,46 @@
     transform var(--mt-dur-normal) var(--mt-ease-decel),
     width var(--mt-dur-normal) var(--mt-ease-decel);
   overflow: hidden;
+  width: 280px;
+  max-width: calc(100vw - 120px);
 }
 
 .shellOpen {
   transform: translateX(0);
 }
 
-.shellNarrow {
-  width: 280px;
+.shellResizing {
+  transition: transform var(--mt-dur-normal) var(--mt-ease-decel);
+  user-select: none;
 }
 
-.shellWide {
-  width: 760px;
-  max-width: 96vw;
+/* 左缘拖拽条 */
+.resizeHandle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  z-index: 6;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.resizeHandle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 1px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+
+.resizeHandle:hover::after,
+.shellResizing .resizeHandle::after {
+  background: color-mix(in srgb, var(--mt-accent-500) 55%, transparent);
 }
 
 .header {
