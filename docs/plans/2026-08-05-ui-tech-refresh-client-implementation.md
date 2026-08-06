@@ -402,13 +402,37 @@ Phase 1 全部 11 个任务已落地，`npx tsc --noEmit`（在 `apps/windows` �
 | 4.2 GPU | **不做** | 已决定 |
 | 4.3 本地用量与花费 | 完成 | `usage-store.ts` + `shared/model-pricing.ts` + `usage:query` |
 | 4.4 网络延迟 | 完成 | provider TTFB 中位数 |
-| 4.5 MCP 指标 | **另立项** | 需要 MCP client 连接管理，超出 UI 改造范围 |
+| 4.5 MCP 指标 | 完成（2026-08-06） | 见下方「MCP 服务补记」——计划里「客户端没有 MCP 模块」的前提是错的 |
 | 5.1 删死代码 | 完成 | 另删 `useServerCaptcha` |
 | 5.2 拆 AuthContext | 完成 | 实际消费者 5 处（非计划所说 11 处），页面重构已提前清掉大半 |
 | 5.3 登出 UI | 完成 | 由 Phase 3.1 侧栏重构顺带完成 |
 | 5.4 概览页去 SaaS | 完成 | — |
 | 5.5 清桩 IPC | 完成 | **`api:getUsage` 直接删而非重写**——4.3 的 `usage:query` 已承担该职责，概览页直读它，重写会多出一个无人调用的桩。同时清掉同样无 handler 的支付/订单/积分/邀请 preload 暴露 |
 | 5.6 移除遥测 | 完成 | 连带清掉 `parentAnalyticsRunId`、`resolveGatewaySecretFromEnv` 等级联死代码 |
+
+### MCP 服务补记（2026-08-06）
+
+**计划 Task 4.5 与 3.3 的前提是错的：客户端一直有完整的 MCP 模块。**
+`packages/agent-runtime/src/tools/mcp/`（`McpStdioClient` JSON-RPC over stdio + `loadMcpTools` 代理工具）、
+`main/config/mcp-config.ts`（读 `~/.lumii/config/mcp-servers.json`）、
+`main/agent-runtime/mcp-manager.ts`（连接、注册工具、断线重连 3 次）、
+`mcp:status` IPC、SkillsPage 的 MCP 工具 Tab 全部早已存在并在跑。
+
+缺的不是「MCP client 连接管理」，只是**配置只读**：只能手改 JSON 再重启客户端。所以本轮做的是补 CRUD 与热更新，不是新建模块。
+
+改动：
+- `mcp-config.ts` — 落盘改用标准 `{ "mcpServers": { ... } }`（兼容读旧的 `servers` 数组）；新增 `saveMcpServerConfigs` / `validateMcpServerEntry`；**`expandEntry` 从加载路径移到连接路径**，否则编辑保存会把 `${TOKEN}` 展开后的密钥明文写回磁盘
+- `mcp-manager.ts` — 新增 `upsert` / `importEntries` / `remove` / `setEnabled` / `reconnect` / `disconnect`；`getStatus()` 从「只返回已连接的」改为「返回所有已配置的」，带 `connecting` / `tools` / `lastError`；断开时用 `toolRegistry.unregister()` 注销该 Server 的工具；`intentionalStops` 抑制主动断开时的自动重连
+- `agent-runtime-commands.ts` + `agent-runtime-ipc.ts` — 5 条写命令，统一经 `toMcpResult()` 包成 `{ success, error }`，配置错误不外抛成 renderer 的未捕获 rejection
+- `renderer/components/McpServersPanel/` — 列表（状态点 / 命令摘要 / 工具数 / 启用开关 / 编辑·重连·删除菜单）+ 编辑弹窗（表单模式、JSON 粘贴模式）
+- `parse-mcp-json.ts` — 兼容社区四种写法：标准 `mcpServers` 包裹、裸 `{name:{...}}`、单条带 name、数组。有 5 条 vitest 用例
+- 接入点是 **`SettingsHubModal` 的 mcp Tab**，不是 SettingsPage —— 期间设置页被重构成 7 个合并分类，MCP 提到了 Hub 顶栏
+
+⚠️ preload 的 `agentRuntime.sendCommand` 声明是 `(command: unknown) => Promise<unknown>`，`AgentRuntimeCommandResult<T>` 条件类型在 renderer 侧拿不到，必须自己断言。hook 里用一个本地 `send<T>()` 收口。
+
+未做：Server 级的工具批量开关（现有 `tools:toggle` 是单个工具粒度，`ComposerPlusMenu` 已按 Server 分组循环调用，够用）。
+
+---
 
 **计划内已无待执行任务。** 剩余的是计划外事项：
 
