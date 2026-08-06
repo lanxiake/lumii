@@ -33,8 +33,10 @@ export interface VcsDiffItem {
   status: 'added' | 'modified' | 'deleted'
   insertions: number
   deletions: number
-  /** 逐行 hunks（vcs:diff withHunks 时填充） */
+  /** 逐行 hunks（按需加载） */
   hunks?: VcsDiffHunk[]
+  truncated?: boolean
+  skipReason?: string
 }
 
 export interface VcsDiffHunk {

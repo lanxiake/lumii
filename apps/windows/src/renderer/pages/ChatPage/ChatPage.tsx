@@ -15,6 +15,7 @@ import { WorkspaceFilePanel } from './components/WorkspaceFilePanel'
 import { WorkspaceVersionPanel } from './components/WorkspaceVersionPanel/WorkspaceVersionPanel'
 import { WorkspaceWorkbench, type WorkbenchTab } from './components/WorkspaceWorkbench'
 import { useWorkspaceVcs } from '../../hooks/business/useWorkspaceVcs'
+import { useWorkspace } from '../../hooks/business/useWorkspace'
 import { useAgents } from '../../hooks/business/useAgents'
 import {
   useAgentRuntimeActions,
@@ -735,6 +736,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   /** 点击输入框 @引用 chip 时要在工作空间面板定位的绝对路径（含一次性 token 触发重复定位） */
   const [locateFileTarget, setLocateFileTarget] = useState<{ path: string; token: number } | null>(null)
   const { uncommittedDiff, refresh: refreshVcs } = useWorkspaceVcs()
+  const { workspaceDir } = useWorkspace()
 
   const toggleFilesWorkbench = useCallback(() => {
     setWorkbench((w) =>
@@ -1695,6 +1697,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             open={workbench.open}
             onClose={() => setWorkbench((w) => ({ ...w, open: false }))}
             embedded
+            onRevealInFiles={(relPath) => {
+              const root = (workspaceDir ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
+              const abs = root
+                ? `${root}/${relPath.replace(/^\/+/, '')}`
+                : relPath
+              setWorkbench({ open: true, tab: 'files' })
+              locateTokenRef.current += 1
+              setLocateFileTarget({ path: abs, token: locateTokenRef.current })
+            }}
           />
         }
       />

@@ -284,11 +284,17 @@ export class WorkspaceVcs {
 
   /**
    * 单文件逐行 diff。任一侧超过 MAX_DIFF_BYTES 则返回 truncated，不跑 Myers。
-   * fromOid/toOid 可为 commit oid；一侧不存在视为空内容。
+   * fromOid/toOid 可为 commit oid；toOid 也可为 'WORKTREE' 读工作区当前内容。
    */
   async diffFile(fromOid: string, toOid: string, filepath: string): Promise<VcsDiffEntry> {
-    const oldContent = (await this.readFileAt(fromOid, filepath)) ?? ''
-    const newContent = (await this.readFileAt(toOid, filepath)) ?? ''
+    const oldContent =
+      fromOid === 'WORKTREE'
+        ? this.readWorktreeFile(filepath)
+        : (await this.readFileAt(fromOid, filepath)) ?? ''
+    const newContent =
+      toOid === 'WORKTREE'
+        ? this.readWorktreeFile(filepath)
+        : (await this.readFileAt(toOid, filepath)) ?? ''
     const status: VcsFileStatus =
       oldContent === '' && newContent !== ''
         ? 'added'
