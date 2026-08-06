@@ -11,6 +11,7 @@ import type { PetElectronAPI } from '../shared/pet-mode'
 // 仅类型引用，编译期擦除，不会把主进程代码打进 preload
 import type { UsageSummary } from '../main/usage-store'
 import type { NewsSnapshot } from '../main/news-store'
+import type { DashboardFeedSnapshot } from '../main/dashboard-feed-store'
 import type { LatencyView } from '../main/provider-latency'
 
 // 日志输出
@@ -183,6 +184,21 @@ export interface ElectronAPI {
     refresh: () => Promise<{
       success: boolean
       data?: { summary: string; snapshot: NewsSnapshot | null }
+      error?: string
+    }>
+  }
+
+  /** Dashboard 当前激活的通用 feed；默认是资讯，也可由工作流替换。 */
+  dashboardFeed: {
+    latest: () => Promise<{ success: boolean; data?: DashboardFeedSnapshot | null; error?: string }>
+    refresh: () => Promise<{
+      success: boolean
+      data?: { summary: string; snapshot: DashboardFeedSnapshot | null }
+      error?: string
+    }>
+    setActive: (feedId: string) => Promise<{
+      success: boolean
+      data?: DashboardFeedSnapshot | null
       error?: string
     }>
   }
@@ -1007,6 +1023,12 @@ const electronAPI: ElectronAPI = {
   news: {
     latest: () => ipcRenderer.invoke('news:latest'),
     refresh: () => ipcRenderer.invoke('news:refresh'),
+  },
+
+  dashboardFeed: {
+    latest: () => ipcRenderer.invoke('dashboard-feed:latest'),
+    refresh: () => ipcRenderer.invoke('dashboard-feed:refresh'),
+    setActive: (feedId: string) => ipcRenderer.invoke('dashboard-feed:set-active', feedId),
   },
 
   // 窗口操作 API

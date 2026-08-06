@@ -5,8 +5,11 @@
  * 缺字段跳过、条数上限。抓取与落盘走网络和磁盘，不在单测范围。
  */
 
-import { describe, expect, it } from 'vitest'
-import { __testables } from './news-store'
+import { mkdtemp, rm } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { describe, expect, it, vi } from 'vitest'
+import { __testables, readNewsSnapshot, runNewsPipeline } from './news-store'
 
 const { parseRss, stripTags, decodeEntities } = __testables
 
@@ -77,5 +80,40 @@ describe('news-store 解析', () => {
 
   it('stripTags 压缩空白', () => {
     expect(stripTags('<p>  a  </p>\n<p>b</p>')).toBe('a b')
+  })
+
+  it('跑通抓取到落盘的流水线', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'lumii-news-test-'))
+    const previousRoot = process.env.LUMII_CLIENT_DATA_DIR
+    process.env.LUMII_CLIENT_DATA_DIR = root
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const source = String(input).includes('sspai') ? '少数派' : 'IT之家'
+      return new Response(
+        rss(`
+          <item>
+            <title>${source} 测试资讯</title>
+            <description><![CDATA[<p>测试摘要</p>]]></description>
+            <link>https://example.com/${source}</link>
+            <pubDate>Thu, 06 Aug 2026 07:00:30 GMT</pubDate>
+          </item>`),
+        { status: 200 },
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    try {
+      await expect(runNewsPipeline()).resolves.toMatch(/^executed: 抓取 2 条资讯/)
+      const snapshot = await readNewsSnapshot()
+      expect(snapshot?.items).toHaveLength(2)
+      expect(snapshot?.items.map((item) => item.title)).toEqual(
+        expect.arrayContaining(['IT之家 测试资讯', '少数派 测试资讯']),
+      )
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.unstubAllGlobals()
+      if (previousRoot === undefined) delete process.env.LUMII_CLIENT_DATA_DIR
+      else process.env.LUMII_CLIENT_DATA_DIR = previousRoot
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })

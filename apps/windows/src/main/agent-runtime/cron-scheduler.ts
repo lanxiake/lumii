@@ -178,12 +178,30 @@ export class CronScheduler {
   /**
    * 更新本地 Cron 任务基础字段。
    */
-  updateLocalCronJobRecord(params: { id: string; name: string; taskText: string; enabled: boolean }): number {
+  updateLocalCronJobRecord(params: {
+    id: string
+    name: string
+    taskText: string
+    enabled: boolean
+    scheduleType: 'at' | 'every' | 'cron'
+    scheduleExpr: string
+    nextRunAt: number
+    intervalMs?: number
+  }): number {
     const result = this.localDb.db.prepare(
       `UPDATE local_cron_jobs
-       SET name = ?, task_text = ?, enabled = ?
+       SET name = ?, task_text = ?, enabled = ?, schedule_type = ?, schedule_expr = ?, next_run_at = ?, interval_ms = ?
        WHERE id = ?`
-    ).run(params.name, params.taskText, params.enabled ? 1 : 0, params.id)
+    ).run(
+      params.name,
+      params.taskText,
+      params.enabled ? 1 : 0,
+      params.scheduleType,
+      params.scheduleExpr,
+      params.nextRunAt,
+      params.intervalMs ?? null,
+      params.id,
+    )
     return result.changes
   }
 

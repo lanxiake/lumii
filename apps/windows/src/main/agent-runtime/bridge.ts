@@ -72,10 +72,9 @@ import {
   migrateLocalCompanionPrefsToVhSettings,
 } from './local-companion-handler'
 import {
-  NEWS_PIPELINE_INSTRUCTION,
   ensureNewsCronJobSeeded,
-  runNewsPipeline,
 } from '../news-store'
+import { handleWorkflowInstruction } from '../workflow-runtime'
 import { isPetMode, onVirtualHumanSettingsChanged } from '../pet/pet-mode-ipc'
 import { getVirtualHumanSettings } from '../pet/pet-mode-store'
 import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
@@ -493,11 +492,10 @@ export class AgentRuntimeBridge {
       getFileRepo: () => this._fileRepo,
       getCwd: () => this.config.getCwd(),
       handleCompanionInstruction: async (instruction: string) => {
-        if (instruction.trim() === NEWS_PIPELINE_INSTRUCTION) {
-          return runNewsPipeline({
-            callLLM: (prompt, purpose) => this.callLLM(prompt, undefined, purpose),
-          })
-        }
+        const workflowResult = await handleWorkflowInstruction(instruction, {
+          callLLM: (prompt, purpose) => this.callLLM(prompt, undefined, purpose),
+        })
+        if (workflowResult !== null) return workflowResult
         if (!isLocalCompanionInstruction(instruction)) return null
         return handleLocalCompanionInstruction(instruction, {
           getDb: () => this.localDb.db,
@@ -1161,7 +1159,7 @@ export class AgentRuntimeBridge {
 
   deleteLocalCronJobRecord(id: string): number { return this.cronScheduler.deleteLocalCronJobRecord(id) }
 
-  updateLocalCronJobRecord(params: { id: string; name: string; taskText: string; enabled: boolean }): number {
+  updateLocalCronJobRecord(params: { id: string; name: string; taskText: string; enabled: boolean; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number }): number {
     return this.cronScheduler.updateLocalCronJobRecord(params)
   }
 

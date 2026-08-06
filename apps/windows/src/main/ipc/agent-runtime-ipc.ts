@@ -10,6 +10,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { ipcMain, shell, dialog, type BrowserWindow } from 'electron'
+import { Cron } from 'croner'
 import { BUILT_IN_AGENTS, type AgentDefinition } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../shared/agent-runtime-commands'
 import type { AgentRuntimeEvent } from '../../shared/agent-runtime-events'
@@ -2052,24 +2053,8 @@ function createLocalCronJob(
   }
 
   const now = Date.now()
-  let nextRunAt = now
-  let intervalMs: number | undefined
-  if (command.scheduleType === 'every') {
-    const ms = parseStrictMs(scheduleExpr)
-    if (!ms || ms <= 0) {
-      return { status: 'error', message: 'Invalid scheduleExpr for every' }
-    }
-    intervalMs = ms
-    nextRunAt = now + ms
-  } else if (command.scheduleType === 'at') {
-    const atMs = parseAtScheduleExprLite(scheduleExpr)
-    if (atMs === undefined) {
-      return { status: 'error', message: 'Invalid scheduleExpr for at' }
-    }
-    nextRunAt = atMs
-  } else {
-    return { status: 'error', message: 'Local IPC create supports only at/every' }
-  }
+  const schedule = resolveLocalCronSchedule(command.scheduleType, scheduleExpr, now)
+  if (!schedule.ok) return { status: 'error', message: schedule.message }
 
   const id = `local-cron-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   bridge.createLocalCronJobRecord({
@@ -2079,8 +2064,8 @@ function createLocalCronJob(
     agentId: command.agentId,
     scheduleType: command.scheduleType,
     scheduleExpr,
-    nextRunAt,
-    intervalMs,
+    nextRunAt: schedule.nextRunAt,
+    intervalMs: schedule.intervalMs,
     enabled: true,
     createdAt: now,
   })
@@ -2093,8 +2078,8 @@ function createLocalCronJob(
       name,
       scheduleType: command.scheduleType,
       scheduleExpr,
-      nextRunAt,
-      intervalMs,
+      nextRunAt: schedule.nextRunAt,
+      intervalMs: schedule.intervalMs,
       enabled: true,
     },
   }
@@ -2150,7 +2135,13 @@ function deleteLocalCronJob(
 function updateLocalCronJob(
   bridge: AgentRuntimeBridge,
   id: string,
-  patch: { enabled?: boolean; name?: string; taskText?: string },
+  patch: {
+    enabled?: boolean
+    name?: string
+    taskText?: string
+    scheduleType?: 'at' | 'every' | 'cron'
+    scheduleExpr?: string
+  },
 ): { status: 'ok' | 'not_found' | 'error'; id: string; message?: string } {
   const cleanId = id.trim()
   if (!cleanId) return { status: 'error', id, message: 'id is required' }
@@ -2159,14 +2150,53 @@ function updateLocalCronJob(
   const nextName = patch.name?.trim() || row.name
   const nextTaskText = patch.taskText?.trim() || row.task_text
   const nextEnabled = typeof patch.enabled === 'boolean' ? (patch.enabled ? 1 : 0) : row.enabled
+  const nextScheduleType = patch.scheduleType ?? row.schedule_type
+  const nextScheduleExpr = patch.scheduleExpr?.trim() || row.schedule_expr
+  const schedule = resolveLocalCronSchedule(nextScheduleType, nextScheduleExpr, Date.now(), false)
+  if (!schedule.ok) return { status: 'error', id: cleanId, message: schedule.message }
   bridge.updateLocalCronJobRecord({
     id: cleanId,
     name: nextName,
     taskText: nextTaskText,
     enabled: nextEnabled === 1,
+    scheduleType: nextScheduleType,
+    scheduleExpr: nextScheduleExpr,
+    nextRunAt: schedule.nextRunAt,
+    intervalMs: schedule.intervalMs,
   })
   bridge.reloadLocalCronScheduler()
   return { status: 'ok', id: cleanId }
+}
+
+function resolveLocalCronSchedule(
+  scheduleType: 'at' | 'every' | 'cron',
+  scheduleExpr: string,
+  now: number,
+  requireFuture = true,
+): { ok: true; nextRunAt: number; intervalMs?: number } | { ok: false; message: string } {
+  if (scheduleType === 'every') {
+    const intervalMs = parseStrictMs(scheduleExpr)
+    if (!intervalMs || intervalMs <= 0) {
+      return { ok: false, message: 'Invalid scheduleExpr for every' }
+    }
+    return { ok: true, nextRunAt: now + intervalMs, intervalMs }
+  }
+
+  if (scheduleType === 'at') {
+    const nextRunAt = parseAtScheduleExprLite(scheduleExpr)
+    if (nextRunAt === undefined || (requireFuture && nextRunAt < now)) {
+      return { ok: false, message: 'Invalid scheduleExpr for at' }
+    }
+    return { ok: true, nextRunAt }
+  }
+
+  try {
+    const next = new Cron(scheduleExpr, { timezone: 'Asia/Shanghai' }).nextRun()
+    if (!next) return { ok: false, message: 'Cron expression has no next run' }
+    return { ok: true, nextRunAt: next.getTime() }
+  } catch {
+    return { ok: false, message: 'Invalid scheduleExpr for cron' }
+  }
 }
 
 /**

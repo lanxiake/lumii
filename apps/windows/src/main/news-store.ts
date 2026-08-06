@@ -14,6 +14,11 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import { resolveWindowsClientDataRoot } from './client-data-root'
+import {
+  readDashboardFeedSnapshot,
+  writeDashboardFeedSnapshot,
+  type DashboardFeedSnapshot,
+} from './dashboard-feed-store'
 
 const log = {
   info: (...a: unknown[]) => console.log('[NewsStore]', ...a),
@@ -56,6 +61,24 @@ export interface NewsSnapshot {
   items: NewsItem[]
   /** AI 对这批资讯的整体综述；未生成或生成失败时缺省 */
   digest?: string
+}
+
+function toDashboardFeedSnapshot(snapshot: NewsSnapshot): DashboardFeedSnapshot {
+  return {
+    feedId: 'news',
+    title: '最近资讯',
+    updatedAt: snapshot.fetchedAt,
+    ...(snapshot.digest ? { summary: snapshot.digest } : {}),
+    items: snapshot.items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      ...(item.excerpt ? { summary: item.excerpt } : {}),
+      href: item.link,
+      source: item.source,
+      timestamp: item.pubTs,
+      kind: 'news',
+    })),
+  }
 }
 
 function newsDir(): string {
@@ -165,17 +188,25 @@ export async function fetchLatestNews(): Promise<NewsItem[]> {
 // ── 读写快照 ──
 
 export async function readNewsSnapshot(): Promise<NewsSnapshot | null> {
-  try {
-    const raw = await fs.readFile(snapshotPath(), 'utf-8')
-    const snap = JSON.parse(raw) as NewsSnapshot
-    if (!Array.isArray(snap.items)) return null
-    return snap
-  } catch {
-    return null
+  const snapshot = await readDashboardFeedSnapshot('news')
+  if (!snapshot) return null
+  return {
+    fetchedAt: snapshot.updatedAt,
+    items: snapshot.items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      link: item.href ?? '',
+      source: item.source ?? '未知来源',
+      pubTs: item.timestamp ?? snapshot.updatedAt,
+      excerpt: item.summary ?? '',
+    })),
+    ...(snapshot.summary ? { digest: snapshot.summary } : {}),
   }
 }
 
 async function writeNewsSnapshot(snap: NewsSnapshot): Promise<void> {
+  // Dashboard 使用规范化 feed；旧路径继续写，兼容已有诊断脚本和旧版本客户端。
+  await writeDashboardFeedSnapshot(toDashboardFeedSnapshot(snap))
   await fs.mkdir(newsDir(), { recursive: true })
   await fs.writeFile(snapshotPath(), JSON.stringify(snap, null, 2), 'utf-8')
 }
@@ -234,7 +265,9 @@ export async function runNewsPipeline(deps: NewsPipelineDeps = {}): Promise<stri
  * 走 cron 的 companion 拦截通道：任务文本命中它就跑流水线，返回值落 cron_runs.summary，
  * 于是「定时任务」页面能直接看到每次抓取的结果，不需要另造一套运行记录。
  */
-export const NEWS_PIPELINE_INSTRUCTION = '__news_pipeline__'
+export const NEWS_PIPELINE_INSTRUCTION = '__lumii_workflow__:news'
+/** 旧版本已经写入数据库的 task_text，升级时继续识别。 */
+export const LEGACY_NEWS_PIPELINE_INSTRUCTION = '__news_pipeline__'
 
 const NEWS_CRON_JOB = {
   id: 'news-pipeline',
@@ -247,9 +280,43 @@ const NEWS_CRON_JOB = {
 export function ensureNewsCronJobSeeded(db: DatabaseAdapter): void {
   try {
     const existing = db
-      .prepare<{ id: string }>(`SELECT id FROM local_cron_jobs WHERE id = ?`)
-      .get(NEWS_CRON_JOB.id) as { id: string } | undefined
-    if (existing) return
+      .prepare<{
+        id: string
+        task_text: string
+        agent_id: string | null
+        schedule_type: string
+        schedule_expr: string
+      }>(
+        `SELECT id, task_text, agent_id, schedule_type, schedule_expr
+         FROM local_cron_jobs
+         WHERE id = ?`,
+      )
+      .get(NEWS_CRON_JOB.id)
+    if (existing) {
+      // 旧版本可能已经种过同名的普通提醒任务；修复其接线字段，保留用户的 enabled 选择。
+      const needsRepair =
+        existing.task_text !== NEWS_PIPELINE_INSTRUCTION
+        || existing.agent_id !== null
+        || existing.schedule_type !== 'cron'
+        || existing.schedule_expr !== NEWS_CRON_JOB.scheduleExpr
+      if (needsRepair) {
+        const now = Date.now()
+        db.prepare(
+          `UPDATE local_cron_jobs
+           SET name = ?, task_text = ?, agent_id = NULL, schedule_type = 'cron',
+               schedule_expr = ?, next_run_at = ?
+           WHERE id = ?`,
+        ).run(
+          NEWS_CRON_JOB.name,
+          NEWS_PIPELINE_INSTRUCTION,
+          NEWS_CRON_JOB.scheduleExpr,
+          now,
+          NEWS_CRON_JOB.id,
+        )
+        log.info(`已修复资讯流水线定时任务接线 id=${NEWS_CRON_JOB.id}`)
+      }
+      return
+    }
 
     const now = Date.now()
     db.prepare(

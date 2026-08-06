@@ -206,6 +206,8 @@ export interface CronUpdateCommand {
     readonly enabled?: boolean
     readonly name?: string
     readonly taskText?: string
+    readonly scheduleType?: 'at' | 'every' | 'cron'
+    readonly scheduleExpr?: string
   }
 }
 

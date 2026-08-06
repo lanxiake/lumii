@@ -120,9 +120,11 @@ export function useCronJobs() {
         scheduleExpr: data.scheduleExpr,
         agentId: data.agentId,
       }) as { status: 'ok' | 'error'; job?: Record<string, unknown> }
-      if (created.status === 'ok') {
-        await fetchJobs()
+      if (created.status !== 'ok') {
+        setError((created as { message?: string }).message ?? '创建任务失败')
+        return null
       }
+      await fetchJobs()
       return created.job ? normalizeJob(created.job) : null
     } catch (err) {
       const msg = err instanceof Error ? err.message : '创建任务失败'
@@ -134,15 +136,21 @@ export function useCronJobs() {
   /** 更新任务 */
   const updateJob = useCallback(async (id: string, patch: Partial<CronJob>): Promise<boolean> => {
     try {
-      await window.electronAPI.agentRuntime.sendCommand({
+      const result = await window.electronAPI.agentRuntime.sendCommand({
         type: 'cron:update',
         id,
         patch: {
           enabled: typeof patch.enabled === 'boolean' ? patch.enabled : undefined,
           name: typeof patch.name === 'string' ? patch.name : undefined,
           taskText: typeof patch.taskText === 'string' ? patch.taskText : undefined,
+          scheduleType: patch.scheduleType,
+          scheduleExpr: patch.scheduleExpr,
         },
-      })
+      }) as { status?: 'ok' | 'not_found' | 'error'; message?: string }
+      if (result.status && result.status !== 'ok') {
+        setError(result.message ?? '更新任务失败')
+        return false
+      }
       await fetchJobs()
       return true
     } catch (err) {

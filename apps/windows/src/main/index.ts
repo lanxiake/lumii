@@ -35,7 +35,16 @@ import { promises as fs, existsSync, readdirSync } from 'fs'
 import { TrayManager } from './tray-manager'
 import { SystemService } from './system-service'
 import { queryUsage, type UsageQuery } from './usage-store'
-import { readNewsSnapshot, runNewsPipeline } from './news-store'
+import { readNewsSnapshot } from './news-store'
+import {
+  readActiveDashboardFeedSnapshot,
+  setActiveDashboardFeedId,
+} from './dashboard-feed-store'
+import {
+  hasWorkflow,
+  runActiveDashboardFeedWorkflow,
+  runWorkflow,
+} from './workflow-runtime'
 import { getLatency } from './provider-latency'
 import { UpdaterService, setupUpdaterIpcHandlers } from './updater-service'
 import { ClientSkillRuntime } from './skill-runtime'
@@ -2201,15 +2210,54 @@ function setupApiIpcHandlers(): void {
   /** 手动立即跑一次流水线（概览页刷新按钮），逻辑与定时任务完全同一条 */
   ipcMain.handle('news:refresh', async () => {
     try {
-      const summary = await runNewsPipeline({
+      const result = await runWorkflow('news', {
         callLLM: (prompt, purpose) => {
           if (!agentRuntimeBridge) throw new Error('Agent Runtime 未就绪')
           return agentRuntimeBridge.callLLM(prompt, undefined, purpose)
         },
       })
-      return { success: true, data: { summary, snapshot: await readNewsSnapshot() } }
+      return { success: true, data: { summary: result.summary, snapshot: await readNewsSnapshot() } }
     } catch (error) {
       console.error('[IPC] news:refresh 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  // === Dashboard 通用 feed（资讯只是默认 feed，后续工作流可替换其内容）===
+  ipcMain.handle('dashboard-feed:latest', async () => {
+    try {
+      return { success: true, data: await readActiveDashboardFeedSnapshot() }
+    } catch (error) {
+      console.error('[IPC] dashboard-feed:latest 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  ipcMain.handle('dashboard-feed:refresh', async () => {
+    try {
+      const result = await runActiveDashboardFeedWorkflow({
+        callLLM: (prompt, purpose) => {
+          if (!agentRuntimeBridge) throw new Error('Agent Runtime 未就绪')
+          return agentRuntimeBridge.callLLM(prompt, undefined, purpose)
+        },
+      })
+      return {
+        success: true,
+        data: { summary: result.summary, snapshot: result.snapshot ?? await readActiveDashboardFeedSnapshot() },
+      }
+    } catch (error) {
+      console.error('[IPC] dashboard-feed:refresh 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  ipcMain.handle('dashboard-feed:set-active', async (_event, feedId: string) => {
+    try {
+      if (!hasWorkflow(feedId)) throw new Error(`工作流尚未注册: ${feedId}`)
+      await setActiveDashboardFeedId(feedId)
+      return { success: true, data: await readActiveDashboardFeedSnapshot() }
+    } catch (error) {
+      console.error('[IPC] dashboard-feed:set-active 失败:', error)
       return { success: false, error: error instanceof Error ? error.message : String(error) }
     }
   })
