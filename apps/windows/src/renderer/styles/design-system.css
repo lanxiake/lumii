@@ -190,6 +190,10 @@
   /* 代码块 / 展开体底色 */
   --mt-code-bg: rgba(0, 0, 0, 0.28);
 
+  /* Diff 行背景 — 语义色混透明 */
+  --mt-diff-add-bg: color-mix(in srgb, var(--mt-success) 18%, transparent);
+  --mt-diff-del-bg: color-mix(in srgb, var(--mt-error) 16%, transparent);
+
   /* 前景文字 */
   --mt-fg-1: #f8fafc;   /* 主文字 */
   --mt-fg-2: #cbd5e1;   /* 次要文字 */
@@ -244,6 +248,10 @@
 
   /* 代码块 / 展开体底色 */
   --mt-code-bg: rgba(15, 23, 42, 0.04);
+
+  /* Diff 行背景 — 浅色略降透明度 */
+  --mt-diff-add-bg: color-mix(in srgb, var(--mt-success) 14%, transparent);
+  --mt-diff-del-bg: color-mix(in srgb, var(--mt-error) 12%, transparent);
 
   /* 指标卡分色：浅色下压深，保证在浅底上仍有对比 */
   --mt-tone-a: #0284c7;
