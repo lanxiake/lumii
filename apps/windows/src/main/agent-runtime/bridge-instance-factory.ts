@@ -294,7 +294,7 @@ export class BridgeInstanceFactory {
     // 用户确认交互（IPC 弹窗 → 失败回退 native dialog → 等待响应），封装成注入式 PermissionProvider
     const permission: PermissionProvider = {
       requestPermission: async (input) => {
-        const timeoutMs = 30_000
+        const timeoutMs = 5 * 60 * 1000
         const ipcSent = this.deps.ipcChannel.forwardIpcEvent({
           type: 'agent:permission:request',
           requestId: input.requestId,

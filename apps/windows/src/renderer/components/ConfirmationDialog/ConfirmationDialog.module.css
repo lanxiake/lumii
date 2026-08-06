@@ -1,13 +1,15 @@
-/* 行内审批卡（对齐原型 .apr）：输入框上方，不遮挡上下文 */
+/* 行内审批卡：原型风格 — 浅底、左侧警示条、三按钮 */
+
 .card {
   position: relative;
   overflow: hidden;
-  padding: 11px 12px;
-  border: 1px solid color-mix(in srgb, var(--mt-warning) 42%, var(--mt-border));
-  border-radius: var(--mt-radius-lg);
-  background: color-mix(in srgb, var(--mt-warning) 8%, var(--mt-surface-2));
-  box-shadow: var(--mt-shadow-sm);
-  animation: mt-approval-in var(--mt-dur-normal) var(--mt-ease-spring);
+  max-width: 520px;
+  padding: 12px 14px 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--mt-warning, #e8a317) 35%, var(--mt-border, #e5e7eb));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--mt-warning, #e8a317) 7%, var(--mt-bg-primary, #fff));
+  box-shadow: var(--mt-shadow-sm, 0 1px 4px rgba(0, 0, 0, 0.06));
+  animation: mt-approval-in var(--mt-dur-normal, 0.2s) var(--mt-ease-spring, ease);
 }
 
 .card::before {
@@ -16,8 +18,8 @@
   left: 0;
   top: 0;
   bottom: 0;
-  width: 2.5px;
-  background: var(--mt-warning);
+  width: 3px;
+  background: var(--mt-warning, #e8a317);
 }
 
 @keyframes mt-approval-in {
@@ -30,53 +32,51 @@
 .head {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 11.5px;
-  font-weight: var(--mt-fw-semibold);
-  color: color-mix(in srgb, var(--mt-warning) 78%, var(--mt-fg-1));
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--mt-warning, #e8a317) 70%, var(--mt-fg-1, #111));
 }
 
 .glyph {
-  display: grid;
-  place-items: center;
-  width: 15px;
-  height: 15px;
-  border-radius: var(--mt-radius-full);
-  background: var(--mt-warning);
-  color: #fff;
-  font-size: 10px;
-  font-weight: var(--mt-fw-bold);
+  flex-shrink: 0;
+  font-size: 13px;
   line-height: 1;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
 }
 
 .countdown {
   margin-left: auto;
-  font-family: var(--mt-font-mono);
-  font-size: 10px;
-  font-weight: var(--mt-fw-normal);
-  color: var(--mt-fg-4);
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--mt-fg-3, #6b7280);
 }
 
 .lead {
-  margin-top: 7px;
-  font-size: var(--mt-fs-xs);
-  font-weight: var(--mt-fw-medium);
-  color: var(--mt-fg-1);
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mt-fg-1, #111);
 }
 
 .code {
-  margin: 7px 0 0;
+  margin: 8px 0 0;
   padding: 8px 10px;
-  border-radius: var(--mt-radius-md);
-  background: var(--mt-code-bg);
-  font-family: var(--mt-font-mono);
-  font-size: 10.5px;
-  line-height: var(--mt-lh-relaxed);
-  color: var(--mt-fg-2);
+  border-radius: 8px;
+  background: var(--mt-surface-2, #f3f4f6);
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--mt-fg-2, #374151);
   white-space: pre-wrap;
   word-break: break-word;
   overflow: auto;
-  max-height: 132px;
+  max-height: 120px;
 }
 
 .meta {
@@ -85,39 +85,44 @@
   align-items: center;
   gap: 6px;
   margin-top: 8px;
-  font-size: 10.5px;
-  color: var(--mt-fg-4);
+  font-size: 11px;
+  color: var(--mt-fg-4, #9ca3af);
 }
 
 .tool {
   padding: 1px 6px;
-  border: 1px solid var(--mt-border);
-  border-radius: var(--mt-radius-full);
-  background: var(--mt-surface-3);
-  font-family: var(--mt-font-mono);
-  color: var(--mt-fg-3);
+  border: 1px solid var(--mt-border, #e5e7eb);
+  border-radius: 999px;
+  background: var(--mt-surface-3, #eee);
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  color: var(--mt-fg-3, #6b7280);
 }
 
 .hint {
-  color: var(--mt-fg-4);
+  color: var(--mt-fg-4, #9ca3af);
 }
 
 .actions {
   display: flex;
-  gap: 7px;
-  margin-top: 9px;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .btn {
-  padding: 5px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
   border: 1px solid transparent;
-  border-radius: var(--mt-radius-md);
-  font-size: 11px;
-  font-weight: var(--mt-fw-medium);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   transition:
-    transform var(--mt-dur-fast) var(--mt-ease-spring),
-    filter var(--mt-dur-normal) var(--mt-ease-standard);
+    transform 0.12s ease,
+    filter 0.15s ease,
+    background 0.15s ease;
 }
 
 .btn:active:not(:disabled) {
@@ -130,21 +135,31 @@
 }
 
 .btn--allow {
-  background: var(--mt-grad-brand);
+  background: #22c55e;
   color: #fff;
 }
 
 .btn--allow:hover:not(:disabled) {
-  filter: brightness(1.08);
+  filter: brightness(1.06);
 }
 
 .btn--deny {
-  border-color: var(--mt-border);
-  background: var(--mt-surface-3);
-  color: var(--mt-fg-2);
+  border-color: var(--mt-border, #e5e7eb);
+  background: var(--mt-surface-2, #f3f4f6);
+  color: var(--mt-fg-2, #374151);
 }
 
 .btn--deny:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--mt-error) 40%, var(--mt-border));
-  color: var(--mt-error);
+  border-color: color-mix(in srgb, var(--mt-error, #ef4444) 40%, var(--mt-border, #e5e7eb));
+  color: var(--mt-error, #ef4444);
+}
+
+.btn--always {
+  border-color: var(--mt-border, #e5e7eb);
+  background: var(--mt-surface-2, #f3f4f6);
+  color: var(--mt-fg-2, #374151);
+}
+
+.btn--always:hover:not(:disabled) {
+  background: var(--mt-surface-3, #e5e7eb);
 }
