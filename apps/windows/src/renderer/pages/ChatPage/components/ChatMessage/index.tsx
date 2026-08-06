@@ -10,7 +10,6 @@ import 'katex/dist/katex.min.css'
 /** 浅色对话气泡上与正文对比协调；避免 one-dark 黑底与主题文字色冲突导致「深底深字」 */
 import 'highlight.js/styles/github.css'
 import { Lightbulb, Inbox, AlertTriangle, Ban, Timer, Zap, AlertCircle } from 'lucide-react'
-import { TypingIndicator } from '../TypingIndicator'
 import { MessageActions } from '../MessageActions'
 import { ToolCallCard, ToolFilePreviewProvider, ToolFilePreviewContext } from '../ToolCallCard'
 import toolCardStyles from '../ToolCallCard/ToolCallCard.module.css'
@@ -823,28 +822,19 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     const hasTools = toolItems && toolItems.length > 0
     const hasContent = !!message.content
 
+    // 流式空内容只保留一处「正在思考」占位，避免 TypingIndicator 叠出白条
     if (!hasContent && !hasTools) {
       if (message.isStreaming) {
-        return wrapSubAgent(
-          <>
-            {renderReasoningTimeline()}
-            {!message.thinkingText && !streamingThinkingText && <TypingIndicator />}
-          </>,
-        )
+        return wrapSubAgent(renderReasoningTimeline())
       }
-      if (message.thinkingText?.trim()) {
+      if (message.thinkingText?.trim() || streamingThinkingText?.trim()) {
         return wrapSubAgent(renderReasoningTimeline())
       }
       return null
     }
 
     if (!hasContent && hasTools) {
-      return wrapSubAgent(
-        <>
-          {renderReasoningTimeline()}
-          {message.isStreaming && <TypingIndicator />}
-        </>,
-      )
+      return wrapSubAgent(renderReasoningTimeline())
     }
 
     return wrapSubAgent(

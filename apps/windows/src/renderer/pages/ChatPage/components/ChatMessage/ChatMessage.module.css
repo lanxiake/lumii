@@ -851,18 +851,18 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
    推理时间线 v2（Reasoning Timeline）
    --------------------------------------------------------------- */
 
-/* 占位行：流式刚开始无任何内容时 */
+/* 占位行：流式刚开始无任何内容时（轻量，避免实心底块白条） */
 .rt-placeholder {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  margin-bottom: 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary, #f1f5f9);
+  padding: 4px 0;
+  margin-bottom: 4px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   font-size: 13px;
-  color: var(--color-text-secondary);
+  color: var(--mt-fg-3, var(--color-text-secondary));
   animation: thinking-fade-in 0.25s ease;
 }
 
