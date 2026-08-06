@@ -1,30 +1,33 @@
 /* TodoPanel — 输入框上方的任务列表面板 */
 
+/* 与工具卡/审批卡同族的内嵌卡 */
 .panel {
-  margin: 0 var(--spacing-4) var(--spacing-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
+  margin: 0 var(--mt-space-4) var(--mt-space-2);
+  border: 1px solid var(--mt-border);
+  border-radius: 11px;
+  background: var(--mt-surface-2);
   overflow: hidden;
-  font-size: var(--font-size-xs);
+  font-size: var(--mt-fs-xs);
 }
 
 .header {
   display: flex;
   align-items: center;
-  gap: var(--spacing-2);
+  gap: var(--mt-space-2);
   width: 100%;
-  padding: var(--spacing-2) var(--spacing-3);
+  padding: 5px var(--mt-space-3);
+  min-height: 28px;
   border: none;
   background: transparent;
   cursor: pointer;
-  color: var(--color-text-secondary);
+  color: var(--mt-fg-3);
+  font-family: var(--mt-font-mono);
   text-align: left;
-  transition: background 0.15s;
+  transition: background var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
 .header:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--mt-surface-3);
 }
 
 .headerIcon {
@@ -132,30 +135,43 @@
 
 /* 状态样式 */
 .taskDone .taskIcon {
-  color: #22c55e;
+  color: var(--mt-success);
 }
 
 .taskDone .taskSubject {
   text-decoration: line-through;
-  opacity: 0.5;
+  color: var(--mt-fg-4);
+}
+
+/* 进行中：accent 左边框 + 呼吸圆点，让当前进度一眼可见 */
+.taskActive {
+  padding-left: 5px;
+  border-left: 2px solid var(--mt-accent-500);
+  background: color-mix(in srgb, var(--mt-accent-500) 7%, transparent);
+  border-radius: 0 var(--mt-radius-sm) var(--mt-radius-sm) 0;
 }
 
 .taskActive .taskIcon {
-  color: var(--color-primary);
+  color: var(--mt-accent-500);
+  animation: mt-todo-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes mt-todo-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .taskActive .taskSubject {
-  color: var(--color-primary);
-  font-weight: 500;
+  color: var(--mt-accent-500);
+  font-weight: var(--mt-fw-medium);
 }
 
 .taskFailed .taskIcon {
-  color: var(--color-error, #ef4444);
+  color: var(--mt-error);
 }
 
 .taskPending .taskIcon {
-  color: var(--color-text-secondary);
-  opacity: 0.5;
+  color: var(--mt-fg-4);
 }
 
 /* ── 紧凑模式：小图标 + 悬停弹出层 ── */

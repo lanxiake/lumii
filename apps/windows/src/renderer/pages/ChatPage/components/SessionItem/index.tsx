@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import clsx from 'clsx'
+import { Pin, PinOff, Trash2, PenLine } from '../../../../components/ui/Icon'
 import { ContextMenu } from '../ContextMenu'
 import type { ContextMenuItem } from '../ContextMenu'
 import type { ChatSession } from '../../../../hooks/business/useChat'
@@ -71,19 +72,19 @@ const SessionItem: React.FC<SessionItemProps> = ({
     {
       id: 'pin',
       label: session.isPinned ? '取消置顶' : '置顶会话',
-      icon: session.isPinned ? '📌' : '📍',
+      icon: session.isPinned ? <PinOff size={14} strokeWidth={1.8} /> : <Pin size={14} strokeWidth={1.8} />,
       onClick: onPin,
     },
     {
       id: 'rename',
       label: '重命名',
-      icon: '✏️',
+      icon: <PenLine size={14} strokeWidth={1.8} />,
       onClick: handleStartRename,
     },
     {
       id: 'delete',
       label: '删除会话',
-      icon: '🗑️',
+      icon: <Trash2 size={14} strokeWidth={1.8} />,
       danger: true,
       onClick: onDelete,
     },
@@ -136,7 +137,9 @@ const SessionItem: React.FC<SessionItemProps> = ({
       >
         <div className={styles['session-content']}>
           <div className={styles['session-title-row']}>
-            {session.isPinned && <span className={styles['session-pin-icon']}>📌</span>}
+            {session.isPinned && (
+              <Pin className={styles['session-pin-icon']} size={11} strokeWidth={2} />
+            )}
             <span className={styles['session-title']}>{session.title || '新对话'}</span>
             <div className={styles['status-badges']}>
               {isActive && <span className={styles['active-dot']} title="当前查看会话" />}
@@ -159,8 +162,13 @@ const SessionItem: React.FC<SessionItemProps> = ({
               onPin()
             }}
             title={session.isPinned ? '取消置顶' : '置顶'}
+            aria-label={session.isPinned ? '取消置顶' : '置顶'}
           >
-            {session.isPinned ? '📌' : '📍'}
+            {session.isPinned ? (
+              <PinOff size={13} strokeWidth={1.8} />
+            ) : (
+              <Pin size={13} strokeWidth={1.8} />
+            )}
           </button>
           <button
             className={clsx(styles['session-action-btn'], styles.delete)}
@@ -169,8 +177,9 @@ const SessionItem: React.FC<SessionItemProps> = ({
               onDelete()
             }}
             title="删除"
+            aria-label="删除会话"
           >
-            🗑️
+            <Trash2 size={13} strokeWidth={1.8} />
           </button>
         </div>
       </div>

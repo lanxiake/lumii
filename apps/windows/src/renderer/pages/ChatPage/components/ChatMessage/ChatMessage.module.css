@@ -141,7 +141,7 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   flex-direction: row-reverse;
   margin-left: auto;
   /* 用户消息限制宽度，避免气泡过宽 */
-  max-width: 75%;
+  max-width: min(560px, 78%);
   width: auto;
 }
 
@@ -152,38 +152,39 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   width: 100%;
 }
 
+/* 角色标识：文字胶囊代替头像图形（lumii / 你 / 系统） */
 .message-avatar {
-  width: var(--size-avatar);
-  height: var(--size-avatar);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  align-self: flex-start;
   flex-shrink: 0;
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
+  padding: 2px 7px;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-full);
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-3);
+  font-family: var(--mt-font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: var(--mt-tracking-wide);
+  white-space: nowrap;
+  user-select: none;
 }
 
 .message.user .message-avatar {
-  background: linear-gradient(145deg, rgba(var(--color-primary-rgb, 59, 130, 246), 0.2), var(--color-bg-secondary));
-  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--mt-accent-500) 34%, transparent);
+  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
+  color: var(--mt-accent-500);
 }
 
 .message.assistant .message-avatar {
-  background: linear-gradient(145deg, rgba(var(--color-primary-rgb, 59, 130, 246), 0.10), var(--color-bg-secondary));
-  color: var(--mt-accent-500, var(--color-primary, #3b82f6));
-}
-
-.avatar-svg {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
+  border-color: color-mix(in srgb, var(--mt-accent-500) 22%, var(--mt-border));
+  color: var(--mt-fg-2);
 }
 
 .message.system .message-avatar,
 .message.has-error .message-avatar {
-  background-color: var(--color-error-15);
-  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--mt-error) 34%, transparent);
+  background: color-mix(in srgb, var(--mt-error) 10%, transparent);
+  color: var(--mt-error);
 }
 
 .message-content-wrapper {
@@ -203,32 +204,38 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   word-break: break-word;
 }
 
+/* 用户气泡：主色渐变 + 右上切角，指向发送者 */
 .message.user .message-text {
-  background-color: var(--mt-user-bubble-bg, rgba(59, 130, 246, 0.25));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--mt-accent-600) 26%, transparent),
+    color-mix(in srgb, var(--mt-accent-700) 34%, transparent)
+  );
   color: var(--mt-fg-1);
-  border-bottom-right-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 26%, transparent);
+  border-top-right-radius: 5px;
 }
 
-[data-theme="light"] .message.user .message-text {
-  --mt-user-bubble-bg: rgba(59, 130, 246, 0.12);
-}
-
-[data-theme="dark"] .message.user .message-text {
-  --mt-user-bubble-bg: rgba(59, 130, 246, 0.22);
-}
-
+/* 助手气泡：玻璃态 + 左上切角，与用户侧形成非对称 */
 .message.assistant .message-text {
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  border-bottom-left-radius: var(--radius-md);
+  background: var(--mt-glass-bg);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid var(--mt-glass-stroke);
+  color: var(--mt-fg-1);
+  border-top-left-radius: 5px;
   overflow: hidden; /* 让工具区块负边距不溢出气泡 */
   width: 100%;
   min-width: 0;
 }
 
+/* 元信息行：等宽小字，用 order 提到气泡上方而不动 JSX 结构 */
 .message-meta {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
+  order: -1;
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  letter-spacing: var(--mt-tracking-wide);
+  color: var(--mt-fg-4);
 }
 
 .message.user .message-meta {
@@ -1092,12 +1099,14 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   width: 100%;
 }
 
-/* 思考过程折叠卡片 */
+/* 思考过程折叠卡片 — 虚线紫框，与工具卡的实线内嵌卡区分开：
+   思考是「过程」不是「结果」，虚线暗示未定稿 */
 .rt-thinking-card {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
-  border-radius: 6px;
+  border: 1px dashed color-mix(in srgb, var(--mt-violet) 40%, var(--mt-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mt-violet) 8%, transparent);
   overflow: hidden;
 }
 
@@ -1106,30 +1115,62 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  background: var(--color-bg-secondary, rgba(255,255,255,0.04));
+  min-height: 28px;
+  background: transparent;
   cursor: pointer;
   user-select: none;
   border: none;
   width: 100%;
   text-align: left;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 500;
+  color: var(--mt-fg-3);
+  font-family: var(--mt-font-mono);
+  font-size: var(--mt-fs-xs);
+  transition: background var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
 .rt-thinking-card-header:hover {
-  background: var(--color-bg-tertiary, rgba(255,255,255,0.07));
+  background: color-mix(in srgb, var(--mt-violet) 10%, transparent);
 }
 
 .rt-thinking-card-icon {
   flex-shrink: 0;
   font-size: 13px;
+  color: var(--mt-violet);
+}
+
+/* 流式思考时的跳动竖条：比脉冲整行更能表达「正在进行」 */
+.rt-thinking-wave {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.rt-thinking-wave i {
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--mt-violet);
+  transform-origin: bottom;
+  animation: mt-wave 1s ease-in-out infinite;
+}
+
+.rt-thinking-wave i:nth-child(2) { animation-delay: 0.12s; }
+.rt-thinking-wave i:nth-child(3) { animation-delay: 0.24s; }
+.rt-thinking-wave i:nth-child(4) { animation-delay: 0.36s; }
+.rt-thinking-wave i:nth-child(5) { animation-delay: 0.48s; }
+
+@keyframes mt-wave {
+  0%, 100% { transform: scaleY(0.35); opacity: 0.55; }
+  50%      { transform: scaleY(1);    opacity: 1; }
 }
 
 .rt-thinking-card-title {
   flex-shrink: 0;
 }
 
+/* 折叠态摘要：严格单行，避免思考文字把消息流撑开 */
 .rt-thinking-card-preview {
   flex: 1;
   min-width: 0;
@@ -1137,7 +1178,8 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-style: italic;
-  opacity: 0.55;
+  opacity: 0.85;
+  color: var(--mt-fg-4);
   font-size: 11px;
   margin-left: 4px;
 }
@@ -1153,10 +1195,11 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
 .rt-thinking-pre {
   margin: 0;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: var(--mt-fs-xs);
   line-height: 1.6;
-  color: var(--color-text-secondary);
-  background: var(--color-bg-primary);
+  color: var(--mt-fg-2);
+  border-top: 1px solid var(--mt-border-hairline);
+  background: var(--mt-code-bg);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 220px;

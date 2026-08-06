@@ -520,14 +520,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           )
         })}
 
-        {showTypingIndicator && (
-          <div className={clsx(styles.message, styles.assistant)}>
-            <div className={styles['message-avatar']}>🤖</div>
-            <div className={styles['message-content-wrapper']}>
-              <TypingIndicator label="正在思考…" />
-            </div>
-          </div>
-        )}
+        {/* 等待首个 token 的占位。原先带  头像，且那两个 class 在本模块 CSS 里没定义，
+            表现为一闪而过的裸 emoji，直接去掉容器只留指示器 */}
+        {showTypingIndicator && <TypingIndicator label="正在思考…" />}
 
         <div ref={messagesEndRef} />
       </div>

@@ -5,12 +5,13 @@
  * 视觉权重与工具调用行一致，不喧宾夺主。
  */
 
+/* 系统提示胶囊：居中虚线，读起来像「流程说明」而不是错误 */
 .card {
   margin: 8px auto;
   max-width: 480px;
-  border-radius: var(--radius-md, 8px);
-  border: 1px dashed var(--color-border, rgba(128, 128, 128, 0.28));
-  background: var(--color-bg-secondary, rgba(128, 128, 128, 0.06));
+  border-radius: var(--mt-radius-full);
+  border: 1px dashed var(--mt-border);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -19,31 +20,32 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 6px 12px;
+  padding: 5px 14px;
   background: transparent;
   border: none;
   cursor: pointer;
   text-align: left;
-  font-size: 12px;
-  color: var(--color-text-secondary, rgba(128, 128, 128, 0.85));
-  transition: background-color 0.15s;
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  color: var(--mt-fg-3);
+  transition: background var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
 .header:hover {
-  background: var(--color-bg-tertiary, rgba(128, 128, 128, 0.1));
+  background: var(--mt-bg-overlay);
 }
 
 .icon {
   display: inline-flex;
   align-items: center;
-  color: var(--color-primary-400, #60a5fa);
+  color: var(--mt-accent-500);
   flex-shrink: 0;
 }
 
 .title {
-  font-weight: 600;
+  font-weight: var(--mt-fw-medium);
   white-space: nowrap;
-  color: var(--color-text-primary, inherit);
+  color: var(--mt-fg-2);
 }
 
 .summary {
@@ -52,20 +54,21 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--color-text-tertiary, rgba(128, 128, 128, 0.7));
+  color: var(--mt-fg-4);
 }
 
 .chevron {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  color: var(--color-text-tertiary, rgba(128, 128, 128, 0.6));
+  color: var(--mt-fg-4);
 }
 
 .detail {
-  padding: 4px 12px 8px 34px;
+  padding: 4px 14px 8px 34px;
+  font-family: var(--mt-font-mono);
   font-size: 11px;
-  color: var(--color-text-tertiary, rgba(128, 128, 128, 0.7));
+  color: var(--mt-fg-4);
 }
 
 .detailRow {

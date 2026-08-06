@@ -1,31 +1,94 @@
+/* 挂在最外层侧栏的会话槽里：撑满槽宽高，不再自带宽度和右边框 */
 .chat-sidebar {
-  width: var(--width-sidebar-lg);
-  border-right: 1px solid var(--color-border);
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  background-color: var(--color-bg-secondary);
+  border-top: 1px solid var(--mt-border-hairline);
+  background: transparent;
 }
 
-.sidebar-header {
-  padding: var(--spacing-4);
-  border-bottom: 1px solid var(--color-border);
+/* 列表底部主操作（新建对话 / 绑定渠道） */
+.sidebar-footer {
+  flex-shrink: 0;
+  padding: var(--mt-space-2);
+  border-top: 1px solid var(--mt-border-hairline);
+}
+
+.footer-btn {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 32px;
+  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 30%, transparent);
+  border-radius: var(--mt-radius-lg);
+  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
+  color: var(--mt-accent-500);
+  font-size: var(--mt-fs-xs);
+  font-weight: var(--mt-fw-medium);
+  cursor: pointer;
+  transition:
+    transform var(--mt-dur-fast) var(--mt-ease-spring),
+    background var(--mt-dur-normal) var(--mt-ease-standard),
+    border-color var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
-.bind-channel-btn {
-  width: 100%;
+.footer-btn:hover {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 55%, transparent);
+  background: color-mix(in srgb, var(--mt-accent-500) 18%, transparent);
 }
 
-.new-chat-btn {
-  width: 100%;
+.footer-btn:active {
+  transform: scale(0.97);
 }
+
+.footer-btn-glyph {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* 默认 / 渠道 分段控件 — 会话区顶部第一个元素 */
+.session-seg {
+  display: flex;
+  gap: 2px;
+  margin: var(--mt-space-2) var(--mt-space-2) 0;
+  padding: 2px;
+  border-radius: var(--mt-radius-lg);
+  background: var(--mt-bg-overlay);
+}
+
+.seg-btn {
+  flex: 1;
+  height: 26px;
+  border: none;
+  border-radius: var(--mt-radius-md);
+  background: transparent;
+  color: var(--mt-fg-3);
+  font-size: var(--mt-fs-xs);
+  cursor: pointer;
+  transition:
+    background var(--mt-dur-normal) var(--mt-ease-standard),
+    color var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+.seg-btn:hover {
+  color: var(--mt-fg-1);
+}
+
+.seg-btn--active {
+  background: var(--mt-bg-secondary);
+  color: var(--mt-accent-500);
+  font-weight: var(--mt-fw-medium);
+  box-shadow: var(--mt-shadow-xs);
+}
+
 
 /* Search */
 .session-search {
-  padding: var(--spacing-3);
-  border-bottom: 1px solid var(--color-border);
+  padding: var(--mt-space-2);
 }
 
 .search-input-wrapper {
@@ -81,11 +144,15 @@
   color: var(--color-text-primary);
 }
 
-/* Conversations list */
+/* 会话列表容器（原型 .slist）：2px 行距，两侧留出竖条空间 */
 .conversations-list {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: var(--spacing-2) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--mt-space-2) var(--mt-space-2);
 }
 
 /* Session groups */
@@ -144,8 +211,18 @@
   overflow: hidden;
 }
 
+/* 渠道标识：文字胶囊，和消息头像 / 绑定弹窗同一套视觉 */
 .group-icon {
-  font-size: 12px;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 24%, var(--mt-border));
+  border-radius: var(--mt-radius-full);
+  background: color-mix(in srgb, var(--mt-accent-500) 8%, transparent);
+  color: var(--mt-fg-2);
+  font-family: var(--mt-font-mono);
+  font-size: 10px;
+  font-weight: var(--mt-fw-normal);
+  line-height: 1.6;
+  letter-spacing: var(--mt-tracking-wide);
 }
 
 .group-count {
@@ -156,28 +233,14 @@
 /* Empty states */
 .no-conversations,
 .no-search-results {
-  padding: var(--spacing-6);
+  padding: var(--mt-space-5) var(--mt-space-3);
   text-align: center;
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  color: var(--mt-fg-3);
+  font-size: var(--mt-fs-xs);
+  line-height: var(--mt-lh-normal);
 }
 
-/* Responsive */
-@media (max-width: 768px) {
-  .chat-sidebar {
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 100;
-    transform: translateX(-100%);
-    transition: transform 0.3s;
-  }
-
-  .chat-sidebar.open {
-    transform: translateX(0);
-  }
-}
+/* 移动端滑出由最外层 Sidebar 负责，这里不再自己定位 */
 
 /* ── 渠道分组 ── */
 .channel-group {
@@ -223,9 +286,12 @@
 }
 
 .channel-subgroup-label {
-  padding: 4px 16px 2px;
-  font-size: 11px;
-  color: var(--color-text-tertiary, rgba(128, 128, 128, 0.7));
+  padding: 5px 9px 3px;
+  font-family: var(--mt-font-mono);
+  font-size: 9.5px;
+  font-weight: var(--mt-fw-semibold);
+  letter-spacing: var(--mt-tracking-wide);
+  color: var(--mt-fg-4);
 }
 
 .channel-empty {

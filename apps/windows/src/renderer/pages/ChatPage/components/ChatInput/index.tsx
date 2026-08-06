@@ -897,7 +897,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             </div>
 
             {/* 思考模式 + 推理强度（紧邻模型选择） */}
-            <div className={styles['thinking-controls']}>
+            <div className={clsx(styles['thinking-controls'], thinkingEnabled && styles['thinking-controls-on'])}>
               <label className={styles['thinking-toggle']} title="控制是否开启模型思考模式">
                 <span className={styles['thinking-toggle-label']}>思考</span>
                 <Switch
@@ -1151,10 +1151,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 className={styles['voice-btn']}
                 title="语音通话"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                   <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
                   <path d="M19 10v2a7 7 0 0 1-14 0v-2H3v2a9 9 0 0 0 8 8.94V23h2v-2.06A9 9 0 0 0 21 12v-2h-2z" />
                 </svg>
+                通话
               </button>
             )}
             <button
@@ -1181,6 +1182,17 @@ const ChatInput: React.FC<ChatInputProps> = ({
           </div>
         </div>
       </div>
+
+      {/* 输入卡下方单行提示：只在有输入时出现，补上 placeholder 消失后丢掉的快捷键说明。
+          空闲态的 tips 仍走 placeholder，不在这里重复一遍 */}
+      {value.trim().length > 0 && (
+        <div className={styles['composer-hint']}>
+          <span><kbd className={styles['hint-kbd']}>Enter</kbd> 发送</span>
+          <span><kbd className={styles['hint-kbd']}>Shift+Enter</kbd> 换行</span>
+          <span><kbd className={styles['hint-kbd']}>/</kbd> 技能</span>
+          <span className={styles['hint-count']}>{value.length} 字</span>
+        </div>
+      )}
 
       {/* 隐藏的文件/图片 input：accept 列表来自 file-attachment-strategy，支持所有已注册策略的扩展名 */}
       <input

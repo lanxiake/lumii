@@ -330,7 +330,7 @@ export const WorkspaceVersionPanel: React.FC<WorkspaceVersionPanelProps> = ({ op
                           </button>
                           <div className={styles['vcs-history-meta']}>
                             <span className={styles['vcs-history-author']}>
-                              {entry.author === 'agent' ? '🤖' : '👤'}
+                              {entry.author === 'agent' ? '' : '👤'}
                             </span>
                             <span className={styles['vcs-history-msg']}>{entry.message || shortOid(entry.oid)}</span>
                             <span className={styles['vcs-history-time']}>{formatTime(entry.timestamp)}</span>

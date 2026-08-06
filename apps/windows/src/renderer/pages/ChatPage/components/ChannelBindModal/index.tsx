@@ -33,19 +33,19 @@ const CHANNEL_DEFS: Array<Omit<ChannelRow, 'status' | 'detail'>> = [
   {
     id: 'wechat',
     name: '个人微信',
-    icon: '💬',
+    icon: '微信',
     description: '扫码登录 iLink Bot，收发个人微信消息',
   },
   {
     id: 'wecom',
     name: '企业微信',
-    icon: '🏢',
+    icon: '企微',
     description: '扫码接入 AI 智能机器人（长连接）',
   },
   {
     id: 'feishu',
     name: '飞书',
-    icon: '🐦',
+    icon: '飞书',
     description: '扫码一键创建飞书机器人应用',
   },
 ]

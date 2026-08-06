@@ -454,7 +454,13 @@ const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ thinkingText, isStreaming
         className={styles['rt-thinking-card-header']}
         onClick={handleToggle}
       >
-        <span className={styles['rt-thinking-card-icon']}>💭</span>
+        {isStreaming ? (
+          <span className={styles['rt-thinking-wave']} aria-hidden>
+            <i /><i /><i /><i /><i />
+          </span>
+        ) : (
+          <span className={styles['rt-thinking-card-icon']}>💭</span>
+        )}
         <span className={styles['rt-thinking-card-title']}>思考过程</span>
         {isLive && isStreaming && (
           <span className={styles['rt-live-badge']}>实时</span>
@@ -1061,47 +1067,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     )
   }
 
-  /**
-   * 渲染会话头像：用户 / 助手 / 告警 使用简洁 SVG，避免 emoji，风格与 MtBot 助手产品一致。
-   */
-  const renderAvatar = () => {
-    if (message.role === 'user') {
-      return (
-        <svg className={styles['avatar-svg']} viewBox="0 0 24 24" fill="none" aria-hidden>
-          <circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.75" />
-          <path
-            d="M5 20c.8-3.2 3.6-5 7-5s6.2 1.8 7 5"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-          />
-        </svg>
-      )
-    }
-    if (message.error || message.role === 'system') {
-      return (
-        <svg className={styles['avatar-svg']} viewBox="0 0 24 24" fill="none" aria-hidden>
-          <path
-            d="M12 3L3 19h18L12 3z"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinejoin="round"
-          />
-          <path d="M12 9v4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-          <circle cx="12" cy="17" r="1" fill="currentColor" />
-        </svg>
-      )
-    }
-    return (
-      <svg className={styles['avatar-svg']} viewBox="0 0 24 24" fill="none" aria-hidden>
-        <rect x="5" y="10" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="1.75" />
-        <path d="M9 10V8a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-        <circle cx="9" cy="15" r="1" fill="currentColor" />
-        <circle cx="15" cy="15" r="1" fill="currentColor" />
-        <path d="M9 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.35" />
-      </svg>
-    )
-  }
+  /** 角色标识：用文字代替头像图形 */
+  const roleLabel =
+    message.role === 'user'
+      ? '你'
+      : message.error || message.role === 'system'
+        ? '系统'
+        : 'lumii'
 
   const content = renderContent()
 
@@ -1151,7 +1123,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
           onClose={() => setPreviewByPath(null)}
         />
       )}
-      <div className={styles['message-avatar']}>{renderAvatar()}</div>
+      <div className={styles['message-avatar']}>{roleLabel}</div>
       <div className={styles['message-content-wrapper']}>
         {content}
         {message.role === 'assistant' && renderTokenUsage()}

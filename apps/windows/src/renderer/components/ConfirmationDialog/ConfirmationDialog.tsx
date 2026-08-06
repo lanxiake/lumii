@@ -1,12 +1,11 @@
 /**
- * Agent Runtime 高危工具确认弹窗（极简：允许 / 取消）
+ * Agent Runtime 高危工具确认卡片（行内，不再是弹窗）
  *
- * 「允许」对应 24h 内同类工具自动允许（主进程 allow-always + PermissionMemory）
+ * 对齐原型 `.apr`：挂在输入框上方的消息流末尾，不遮挡上下文。
+ * 「允许执行」对应 24h 内同类工具自动允许（主进程 allow-always + PermissionMemory）
  */
 
 import React, { useEffect, useState } from 'react'
-import { Modal } from '../ui/Modal/Modal'
-import { Button } from '../ui/Button/Button'
 import styles from './ConfirmationDialog.module.css'
 
 export interface ConfirmationDialogProps {
@@ -46,7 +45,7 @@ function toolTitle(toolName: string): string {
 
 export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
   open,
-  title = '确认操作',
+  title = '需要确认',
   description,
   toolName,
   timeoutMs,
@@ -70,17 +69,9 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
     return () => clearInterval(t)
   }, [open, timeoutMs])
 
-  const footer = (
-    <>
-      <Button variant="secondary" disabled={busy} onClick={() => void handleDeny()}>
-        取消
-      </Button>
-      <Button variant="primary" disabled={busy} onClick={() => void handleAllow()}>
-        允许执行
-      </Button>
-    </>
-  )
+  if (!open) return null
 
+  /** 允许执行（24h 内同类工具免询问） */
   async function handleAllow(): Promise<void> {
     if (busy) return
     setBusy(true)
@@ -91,6 +82,7 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
     }
   }
 
+  /** 拒绝本次执行 */
   async function handleDeny(): Promise<void> {
     if (busy) return
     setBusy(true)
@@ -102,22 +94,42 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
   }
 
   return (
-    <Modal open={open} title={`⚠️ ${title}`} footer={footer} maskClosable={false} width={440}>
-      <div className={styles.body}>
-        <p className={styles.lead}>AI 想要执行：<strong>{toolTitle(toolName)}</strong></p>
-        <div className={styles.detail}>
-          <span className={styles.label}>说明</span>
-          <p className={styles.desc}>{description}</p>
-        </div>
-        <div className={styles.meta}>
-          <span>🛠️ 工具：<code>{toolName}</code></span>
-        </div>
-        {sessionHint ? <p className={styles.hint}>{sessionHint}</p> : null}
-        <p className={styles.hint}>
-          点击「允许执行」后，同类操作在 24 小时内可自动执行，无需再次确认。
-        </p>
-        <p className={styles.countdown}>{leftSec} 秒内未操作将自动取消</p>
+    <div className={styles.card} role="alertdialog" aria-label={title}>
+      <div className={styles.head}>
+        <span className={styles.glyph}>!</span>
+        <span className={styles.title}>{title}</span>
+        <span className={styles.countdown}>{leftSec}s 后自动取消</span>
       </div>
-    </Modal>
+
+      <div className={styles.lead}>{toolTitle(toolName)}</div>
+      <pre className={styles.code}>
+        <code>{description}</code>
+      </pre>
+
+      <div className={styles.meta}>
+        <span className={styles.tool}>{toolName}</span>
+        {sessionHint ? <span className={styles.hint}>{sessionHint}</span> : null}
+        <span className={styles.hint}>允许后同类操作 24 小时内免询问</span>
+      </div>
+
+      <div className={styles.actions}>
+        <button
+          type="button"
+          className={`${styles.btn} ${styles['btn--allow']}`}
+          disabled={busy}
+          onClick={() => void handleAllow()}
+        >
+          允许执行
+        </button>
+        <button
+          type="button"
+          className={`${styles.btn} ${styles['btn--deny']}`}
+          disabled={busy}
+          onClick={() => void handleDeny()}
+        >
+          拒绝
+        </button>
+      </div>
+    </div>
   )
 }

@@ -1,14 +1,27 @@
+/* 通话条 — 紫框玻璃条，与输入区的「通话」键同一语义色 */
 .voice-call-panel {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 20px 16px 16px;
+  padding: 16px;
   gap: 12px;
   min-height: 120px;
-  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
-  background: var(--input-bg, rgba(0, 0, 0, 0.2));
-  border-radius: 0 0 8px 8px;
+  border: 1px solid color-mix(in srgb, var(--mt-violet) 38%, transparent);
+  border-radius: var(--mt-radius-2xl);
+  background:
+    linear-gradient(color-mix(in srgb, var(--mt-violet) 8%, transparent),
+                    color-mix(in srgb, var(--mt-violet) 8%, transparent)),
+    var(--mt-glass-bg);
+  backdrop-filter: blur(var(--mt-glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--mt-glass-blur)) saturate(160%);
+  box-shadow: var(--mt-shadow-lg);
+  animation: mt-voice-in var(--mt-dur-slow) var(--mt-ease-spring);
+}
+
+@keyframes mt-voice-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
 }
 
 /* 波形动画 */
@@ -23,13 +36,13 @@
   display: inline-block;
   width: 3px;
   height: 8px;
-  background: var(--text-muted, rgba(255, 255, 255, 0.3));
+  background: var(--mt-fg-4);
   border-radius: 2px;
-  transition: height 0.1s ease;
+  transition: height 0.12s linear;
 }
 
 .voice-waveform--active .voice-waveform-bar {
-  background: var(--accent, #4f9eff);
+  background: linear-gradient(180deg, var(--mt-violet), var(--mt-accent-500));
   animation: voice-pulse 0.8s ease-in-out infinite alternate;
 }
 
@@ -46,15 +59,16 @@
 
 /* 状态文字 */
 .voice-state-label {
-  font-size: 13px;
-  color: var(--text-muted, rgba(255, 255, 255, 0.5));
-  font-weight: 500;
+  font-family: var(--mt-font-mono);
+  font-size: var(--mt-fs-xs);
+  color: var(--mt-fg-3);
+  font-weight: var(--mt-fw-medium);
 }
 
-.state-listening  { color: var(--accent, #4f9eff); }
-.state-recognizing { color: #f0a500; }
-.state-speaking   { color: #52c41a; }
-.state-thinking   { color: rgba(255, 255, 255, 0.6); }
+.state-listening   { color: var(--mt-accent-500); }
+.state-recognizing { color: var(--mt-warning); }
+.state-speaking    { color: var(--mt-success); }
+.state-thinking    { color: var(--mt-violet); }
 
 /* 字幕区 */
 .voice-transcript {
@@ -68,21 +82,21 @@
 }
 
 .transcript-final {
-  font-size: 14px;
-  color: var(--text-primary, rgba(255, 255, 255, 0.9));
+  font-size: var(--mt-fs-sm);
+  color: var(--mt-fg-1);
   line-height: 1.5;
 }
 
 /* 错误信息 */
 .voice-error-message {
-  font-size: 12px;
-  color: #ff6b6b;
+  font-size: var(--mt-fs-xs);
+  color: var(--mt-error);
   max-width: 480px;
   text-align: center;
   word-break: break-all;
   padding: 4px 8px;
-  background: rgba(255, 107, 107, 0.08);
-  border-radius: 4px;
+  background: color-mix(in srgb, var(--mt-error) 10%, transparent);
+  border-radius: var(--mt-radius-sm);
 }
 
 /* 挂断按钮 */
@@ -90,21 +104,23 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 20px;
-  background: #e53935;
+  padding: 7px 18px;
+  background: var(--mt-error);
   color: #fff;
   border: none;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 500;
+  border-radius: var(--mt-radius-full);
+  font-size: var(--mt-fs-xs);
+  font-weight: var(--mt-fw-medium);
   cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
+  transition:
+    background var(--mt-dur-normal) var(--mt-ease-standard),
+    transform var(--mt-dur-fast) var(--mt-ease-spring);
   user-select: none;
 }
 
 .voice-hangup-btn:hover {
-  background: #c62828;
-  transform: scale(1.03);
+  background: var(--mt-error-dark);
+  transform: scale(1.04);
 }
 
 .voice-hangup-btn:active {

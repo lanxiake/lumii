@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { Button } from '../../components/ui/Button/Button'
 import { ChatSidebar } from './components/ChatSidebar'
 import { ChatContainer } from './components/ChatContainer'
@@ -23,6 +24,7 @@ import {
 import { ConfirmationDialog } from '../../components/ConfirmationDialog'
 import { AskUserModal } from '../../components/AskUserModal'
 import type { ViewType } from '../../components/Router'
+import { SIDEBAR_SESSION_SLOT_ID, SIDEBAR_TOGGLE_EVENT } from '../../components/layout/Sidebar'
 import { executeSlashCommand } from './commands/slash-command-executor'
 import { loadSlashCommandsFromIpc } from './commands/slash-commands'
 import { updateSessionState } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
@@ -47,7 +49,7 @@ import {
   type ImageProcessingResult,
 } from './utils/image-processing-strategy'
 import { InterruptBanner } from './components/InterruptBanner'
-import { PanelLeft, Sparkles } from 'lucide-react'
+import { PanelLeft, Sparkles, Type, FolderTree, GitBranch } from 'lucide-react'
 
 /** 将 File 读取为 base64 字符串（当 file.path 不可用时使用） */
 function readFileAsBase64(file: File): Promise<string> {
@@ -68,6 +70,8 @@ export interface ChatPageProps {
    * 当前主导航视图；切换到「对话」时会再次拉取会话列表，避免启动竞态下侧栏长期为空。
    */
   activeView?: ViewType
+  /** 侧栏里点会话 / 新建会话时切到对话视图（会话列表常驻侧栏，不再有「对话」菜单） */
+  onViewChange?: (view: ViewType) => void
 }
 
 const logger = {
@@ -103,7 +107,7 @@ const FONT_SCALE_LABEL: Record<'small' | 'medium' | 'large', string> = {
   large: '大',
 }
 
-const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
+const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewChange }) => {
   // Hooks
   const { agents, userAgents, selectedAgent, isLoading: agentsLoading, selectAgent, selectAgentById, mainAgentId, agentsMap, refreshAgents } = useAgents()
 
@@ -146,19 +150,17 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
   }, [listSessions, activeView])
 
   /**
-   * 会话列表加载：不能仅依赖 `useAgentRuntimeGlobalState(s => s.isReady)` + useEffect。
-   * 认证后 ChatPage 才挂载时，`runtime:ready` 往往已把 `store.isReady` 设为 true，
-   * 此时 React 可能从未以 `isReady===false` 渲染过本组件，导致「就绪后拉列表」的 effect 不执行。
-   * 这里直接订阅 runtimeStore：挂载时若已就绪则立即拉取；否则在 isReady 从 false→true 时再拉取。
+   * 会话列表加载：挂载即拉一次 + 订阅 isReady 兜底。
+   * 只等 `runtime:ready` 不可靠——它是一次性推送，主进程先就绪、渲染侧后订阅时事件已错过，
+   * store.isReady 会一直是 false，「就绪后拉列表」的分支永不执行（表现为启动后列表空白）。
    */
   useEffect(() => {
     let prevReady = runtimeStore.getState().isReady
-    if (prevReady) {
-      logger.info('[ChatPage] 挂载时 runtime 已就绪，立即 refreshLocalSessions')
-      void refreshLocalSessions()
-      // 从主进程 IPC 加载基础命令列表（统一命令元数据）
-      void loadSlashCommandsFromIpc()
-    }
+    // 无条件拉一次：`runtime:ready` 是一次性推送，渲染侧订阅晚于它就永远收不到，
+    // 只等事件会导致启动后列表空白。listSessions 内部已对 NOT_READY 重试，早拉无害。
+    logger.info('[ChatPage] 挂载即 refreshLocalSessions', { prevReady })
+    void refreshLocalSessions()
+    void loadSlashCommandsFromIpc()
     const unsub = runtimeStore.subscribe(() => {
       const ready = runtimeStore.getState().isReady
       if (ready && !prevReady) {
@@ -511,7 +513,19 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
       })()
     }
   }, [])
-  const [showSidebar, setShowSidebar] = useState(false)
+  /**
+   * 外层侧栏的会话列表挂载点。首帧 DOM 未提交必然取不到，用一次 layout effect 触发重渲染后
+   * 每帧重新解析：节点被替换也能自愈，不会像「只取一次」那样永久落空。
+   */
+  const [slotReady, setSlotReady] = useState(false)
+  useLayoutEffect(() => {
+    setSlotReady(true)
+  }, [])
+  const sessionSlot = slotReady ? document.getElementById(SIDEBAR_SESSION_SLOT_ID) : null
+  // 会话列表已挪进最外层侧栏，折叠由 MainLayout 统一管，这里只发事件
+  const toggleOuterSidebar = useCallback(() => {
+    window.dispatchEvent(new Event(SIDEBAR_TOGGLE_EVENT))
+  }, [])
   // 改为 per-session 跟踪，避免会话A发消息时阻塞会话B的输入
   const [sendingSessionIds, setSendingSessionIds] = useState<Set<string>>(new Set())
   const isSending = sendingSessionIds.has(runtimeCurrentSessionKey ?? '')
@@ -1310,23 +1324,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
         e.preventDefault()
         handleNewConversation()
       }
-      // Ctrl/Cmd + B: Toggle sidebar
+      // Ctrl/Cmd + B: 折叠/展开最外层侧栏（会话列表在里面）
       if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
         e.preventDefault()
-        setShowSidebar((prev) => !prev)
-      }
-      // Escape: Close sidebar on mobile
-      if (e.key === 'Escape' && showSidebar) {
-        const isMobile = window.innerWidth <= 768
-        if (isMobile) {
-          setShowSidebar(false)
-        }
+        toggleOuterSidebar()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleNewConversation, showSidebar])
+  }, [handleNewConversation, toggleOuterSidebar])
 
   // 客户端命令工具事件监听（Agent 主动调用工具时触发）
   useEffect(() => {
@@ -1349,22 +1356,30 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
       ref={chatPageRef}
       style={pageZoom !== 1 ? ({ zoom: pageZoom } as React.CSSProperties) : undefined}
     >
-      {showSidebar && (
-        <ChatSidebar
-          sessions={localRuntimeSessionsAsChatSessions}
-          activeSessionId={runtimeCurrentSessionKey ?? null}
-          onSelectSession={(sessionKey) => { void runtimeActions.switchSession(sessionKey, selectedModelId || undefined) }}
-          onCreateSession={() => {
-            void (async () => {
-              await runtimeActions.createSession('新对话', selectedAgent?.id, selectedModelId || undefined)
-              void refreshLocalSessions()
-            })()
-          }}
-          onPinSession={handlePinSession}
-          onDeleteSession={handleDeleteSession}
-          onRenameSession={handleRenameSession}
-        />
-      )}
+      {/* 会话列表 portal 进最外层侧栏。不做「原地渲染」兜底：ChatPage 在非对话视图下被
+          display:none 包着，退回原地等于把列表藏起来，比直接不渲染更难发现 */}
+      {sessionSlot &&
+        createPortal(
+          <ChatSidebar
+            sessions={localRuntimeSessionsAsChatSessions}
+            activeSessionId={runtimeCurrentSessionKey ?? null}
+            onSelectSession={(sessionKey) => {
+              onViewChange?.('chat')
+              void runtimeActions.switchSession(sessionKey, selectedModelId || undefined)
+            }}
+            onCreateSession={() => {
+              onViewChange?.('chat')
+              void (async () => {
+                await runtimeActions.createSession('新对话', selectedAgent?.id, selectedModelId || undefined)
+                void refreshLocalSessions()
+              })()
+            }}
+            onPinSession={handlePinSession}
+            onDeleteSession={handleDeleteSession}
+            onRenameSession={handleRenameSession}
+          />,
+          sessionSlot,
+        )}
 
       <div className={styles['chat-main']}>
         {/* 消息层：全屏滚动，顶部/底部浮层可透视 */}
@@ -1404,11 +1419,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
           <div className={styles['chat-toolbar']}>
             <button
               type="button"
-              className={clsx(styles['icon-btn'], showSidebar && styles['icon-btn--active'])}
-              onClick={() => setShowSidebar(!showSidebar)}
-              title={showSidebar ? '收起会话列表 (Ctrl+B)' : '展开会话列表 (Ctrl+B)'}
-              aria-label="切换会话列表"
-              aria-pressed={showSidebar}
+              className={styles['icon-btn']}
+              onClick={toggleOuterSidebar}
+              title="折叠/展开侧栏 (Ctrl+B)"
+              aria-label="折叠/展开侧栏"
             >
               <PanelLeft size={16} strokeWidth={1.8} />
             </button>
@@ -1434,19 +1448,12 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
               onClick={cycleFontScale}
               title={`消息字号：${FONT_SCALE_LABEL[fontScale]}（点击切换 小/中/大）`}
               aria-label="切换消息字号"
-              style={{ display: 'inline-flex', alignItems: 'flex-end', gap: 1 }}
             >
-              <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1 }}>A</span>
-              <span style={{ fontSize: 15, fontWeight: 700, lineHeight: 1 }}>A</span>
+              <Type size={16} strokeWidth={1.8} />
             </button>
             <button
               type="button"
-              className={styles['auto-approve-toggle']}
-              style={autoApprove ? {
-                background: 'var(--color-success-10, rgba(34, 197, 94, 0.12))',
-                borderColor: 'var(--mt-success, #22c55e)',
-                color: 'var(--mt-success, #22c55e)',
-              } : undefined}
+              className={clsx(styles['auto-approve-toggle'], autoApprove && styles['auto-approve-toggle--on'])}
               onClick={handleToggleAutoApprove}
               title={autoApprove ? '自动审批已开启，点击关闭' : '自动审批已关闭，点击开启'}
             >
@@ -1459,9 +1466,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
               title="工作空间文件"
               aria-pressed={showFilePanel}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
+              <FolderTree size={16} strokeWidth={1.8} />
             </button>
             <button
               type="button"
@@ -1470,10 +1475,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
               title="工作空间版本"
               aria-pressed={showVersionPanel}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="1 4 1 10 7 10" />
-                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-              </svg>
+              <GitBranch size={16} strokeWidth={1.8} />
             </button>
             <button
               type="button"
@@ -1517,6 +1519,25 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
                   compact
                 />
               )}
+            </div>
+          )}
+
+          {/* 权限审批：行内卡片贴在输入框上方（原型 .apr），不再弹窗遮挡上下文 */}
+          {runtimePendingPermission && !autoApprove && (
+            <div className={styles['chat-inline-approval']}>
+              <ConfirmationDialog
+                open
+                description={runtimePendingPermission.description}
+                toolName={runtimePendingPermission.toolName}
+                timeoutMs={runtimePendingPermission.timeoutMs}
+                sessionHint={
+                  permissionSessionKey && permissionSessionKey !== runtimeCurrentSessionKey
+                    ? `来自后台会话：${permissionSessionKey}`
+                    : undefined
+                }
+                onAllow={() => runtimeActions.respondPermission('allow-always')}
+                onDeny={() => runtimeActions.respondPermission('deny')}
+              />
             </div>
           )}
 
@@ -1626,22 +1647,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
         onConfirm={handleConfirmDeleteSession}
         onCancel={handleCancelDeleteSession}
       />
-
-      {runtimePendingPermission && !autoApprove ? (
-        <ConfirmationDialog
-          open
-          description={runtimePendingPermission.description}
-          toolName={runtimePendingPermission.toolName}
-          timeoutMs={runtimePendingPermission.timeoutMs}
-          sessionHint={
-            permissionSessionKey && permissionSessionKey !== runtimeCurrentSessionKey
-              ? `来自后台会话：${permissionSessionKey}`
-              : undefined
-          }
-          onAllow={() => runtimeActions.respondPermission('allow-always')}
-          onDeny={() => runtimeActions.respondPermission('deny')}
-        />
-      ) : null}
 
       {runtimePendingAskUser ? (
         <AskUserModal

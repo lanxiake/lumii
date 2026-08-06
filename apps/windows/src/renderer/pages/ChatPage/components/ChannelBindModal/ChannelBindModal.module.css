@@ -37,11 +37,21 @@
   gap: 10px;
 }
 
+/* 渠道标识用文字胶囊，和设置页渠道卡片一致，不用 emoji */
 .rowIcon {
-  font-size: 20px;
-  line-height: 1;
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 1px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 24%, var(--mt-border));
+  border-radius: var(--mt-radius-full);
+  background: color-mix(in srgb, var(--mt-accent-500) 8%, transparent);
+  color: var(--mt-fg-2);
+  font-family: var(--mt-font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: var(--mt-tracking-wide);
+  white-space: nowrap;
+  user-select: none;
 }
 
 .rowText {
