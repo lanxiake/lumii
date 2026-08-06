@@ -896,7 +896,7 @@ export const FilesPage: React.FC = () => {
               className={clsx(styles['quick-location-item'], viewMode === 'agent' && styles['active'])}
               onClick={() => setViewMode('agent')}
             >
-              <span className={styles['loc-icon']}>🤖</span>
+              <span className={styles['loc-icon']}></span>
               <span className={styles['loc-label']}>AI 生成文件</span>
             </button>
           </nav>

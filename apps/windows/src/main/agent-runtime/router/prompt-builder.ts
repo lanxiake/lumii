@@ -86,7 +86,7 @@ function formatAgents(agents: readonly RouterAgentInfo[]): string {
 
 function formatOneAgent(a: RouterAgentInfo): string {
   const lines: string[] = []
-  lines.push(`### ${a.emoji ?? "🤖"} ${a.name} (id: \`${a.id}\`)`)
+  lines.push(`### ${a.emoji ?? ""} ${a.name} (id: \`${a.id}\`)`)
   if (a.description) lines.push(`Description: ${truncate(a.description, 150)}`)
   if (a.whenToUse) lines.push(`Use when: ${truncate(a.whenToUse, 100)}`)
   if (a.triggerExamples?.length) {

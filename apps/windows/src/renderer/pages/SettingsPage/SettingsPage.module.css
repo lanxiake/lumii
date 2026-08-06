@@ -47,6 +47,17 @@
   font-weight: 500;
 }
 
+/* 分组标签：分隔「设置分类」与「功能页跳转」 */
+.settings-nav-divider {
+  margin: var(--mt-space-3) var(--mt-space-4) var(--mt-space-1);
+  padding-top: var(--mt-space-3);
+  border-top: 1px solid var(--mt-border-hairline);
+  font-size: var(--mt-fs-xs);
+  font-weight: var(--mt-fw-semibold);
+  letter-spacing: var(--mt-tracking-caps);
+  color: var(--mt-fg-4);
+}
+
 .nav-icon {
   display: flex;
   align-items: center;

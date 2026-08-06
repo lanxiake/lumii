@@ -13,7 +13,13 @@ import {
   Smartphone,
   Mic,
   Cpu,
+  Users,
+  Wrench,
+  Clock,
+  Brain,
+  Boxes,
 } from '../../components/ui/Icon'
+import type { ViewType } from '../../components/Router'
 import { Card } from '../../components/ui/Card/Card'
 import { Button } from '../../components/ui/Button/Button'
 import { Input } from '../../components/ui/Input/Input'
@@ -62,7 +68,7 @@ import styles from './SettingsPage.module.css'
 /**
  * 设置分类
  */
-type SettingsCategory = 'account' | 'workspace' | 'channels' | 'notification' | 'privacy' | 'shortcuts' | 'update' | 'about' | 'voice' | 'modelConfig' | 'pet'
+type SettingsCategory = 'account' | 'workspace' | 'channels' | 'notification' | 'privacy' | 'shortcuts' | 'update' | 'about' | 'voice' | 'modelConfig' | 'pet' | 'mcp'
 
 /**
  * 设置分类图标尺寸
@@ -72,11 +78,24 @@ const SETTINGS_ICON_SIZE = 16
 /**
  * 分类配置
  */
+/**
+ * 从侧边栏移入设置的功能页。这些是独立页面，不是设置面板，
+ * 点击直接跳转，不切 activeCategory。
+ */
+const MOVED_PAGES: Array<{ id: ViewType; label: string; icon: ReactNode }> = [
+  { id: 'agents', label: 'AI 团队', icon: <Users size={SETTINGS_ICON_SIZE} /> },
+  { id: 'skills', label: '技能中心', icon: <Wrench size={SETTINGS_ICON_SIZE} /> },
+  { id: 'cron', label: '定时任务', icon: <Clock size={SETTINGS_ICON_SIZE} /> },
+  { id: 'memories', label: '记忆管理', icon: <Brain size={SETTINGS_ICON_SIZE} /> },
+  { id: 'files', label: '文件管理', icon: <FolderOpen size={SETTINGS_ICON_SIZE} /> },
+]
+
 const CATEGORIES: Array<{ id: SettingsCategory; label: string; icon: ReactNode }> = [
   { id: 'account', label: '通用', icon: <User size={SETTINGS_ICON_SIZE} /> },
   { id: 'workspace', label: '工作空间', icon: <FolderOpen size={SETTINGS_ICON_SIZE} /> },
   { id: 'modelConfig', label: '模型配置', icon: <Cpu size={SETTINGS_ICON_SIZE} /> },
   { id: 'voice', label: '语音设置', icon: <Mic size={SETTINGS_ICON_SIZE} /> },
+  { id: 'mcp', label: 'MCP 服务', icon: <Boxes size={SETTINGS_ICON_SIZE} /> },
   { id: 'pet', label: '宠物模式', icon: <Smartphone size={SETTINGS_ICON_SIZE} /> },
   { id: 'channels', label: '渠道设置', icon: <Radio size={SETTINGS_ICON_SIZE} /> },
   { id: 'notification', label: '通知设置', icon: <Bell size={SETTINGS_ICON_SIZE} /> },
@@ -94,7 +113,12 @@ const CATEGORIES: Array<{ id: SettingsCategory; label: string; icon: ReactNode }
  * 工作空间设置
  * 主题、语言设置
  */
-const SettingsPage: React.FC = () => {
+interface SettingsPageProps {
+  /** 跳转到独立功能页（AI 团队 / 技能 / 定时任务 / 记忆 / 文件） */
+  onViewChange?: (view: ViewType) => void
+}
+
+const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
   const { user, setUser, isLoading: authLoading } = useAuth()
   const toast = useToast()
   const {
@@ -1423,6 +1447,43 @@ const SettingsPage: React.FC = () => {
   )
 
   /**
+   * 渲染 MCP 服务设置
+   *
+   * 客户端目前没有 MCP 模块，这里如实说明现状并给出替代路径，
+   * 不做一个点得动但什么都不发生的假开关。
+   */
+  const renderMcpSettings = () => (
+    <div className={styles['settings-section']}>
+      <h3>MCP 服务</h3>
+
+      <div className={styles['setting-group']}>
+        <div className={styles['setting-item']}>
+          <div className={styles['setting-label']}>
+            <span>当前状态</span>
+            <span className={styles['setting-hint']}>
+              尚未接入 Model Context Protocol。灵栖现在通过「技能」扩展能力：
+              技能是磁盘上的 SKILL.md 加脚本，由本机执行器运行，能力边界和 MCP 类似但不依赖常驻服务进程。
+            </span>
+          </div>
+          <Tag>未实现</Tag>
+        </div>
+
+        <div className={styles['setting-item']}>
+          <div className={styles['setting-label']}>
+            <span>替代路径</span>
+            <span className={styles['setting-hint']}>
+              需要扩展工具能力时，先到技能中心安装或编写技能。
+            </span>
+          </div>
+          <Button variant="secondary" onClick={() => onViewChange?.('skills')}>
+            前往技能中心
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+
+  /**
    * 渲染快捷键设置
    */
   const renderShortcutsSettings = () => (
@@ -1738,6 +1799,8 @@ const SettingsPage: React.FC = () => {
         return renderNotificationSettings()
       case 'privacy':
         return renderPrivacySettings()
+      case 'mcp':
+        return renderMcpSettings()
       case 'shortcuts':
         return renderShortcutsSettings()
       case 'update':
@@ -1780,6 +1843,23 @@ const SettingsPage: React.FC = () => {
               <span className={styles['nav-label']}>{category.label}</span>
             </button>
           ))}
+
+          {/* 从侧边栏移入的功能页：点击跳转，不是设置分类 */}
+          {onViewChange && (
+            <>
+              <div className={styles['settings-nav-divider']}>功能</div>
+              {MOVED_PAGES.map((page) => (
+                <button
+                  key={page.id}
+                  className={styles['settings-nav-item']}
+                  onClick={() => onViewChange(page.id)}
+                >
+                  <span className={styles['nav-icon']}>{page.icon}</span>
+                  <span className={styles['nav-label']}>{page.label}</span>
+                </button>
+              ))}
+            </>
+          )}
         </nav>
 
         {/* 设置内容 */}

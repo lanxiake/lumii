@@ -184,6 +184,39 @@
 
 ---
 
+## Phase 1 实施记录与前提更正（2026-08-05）
+
+Phase 1 全部 11 个任务已落地，`npx tsc --noEmit`（在 `apps/windows` 下）保持 **49 个既有 error，无新增**，`pnpm build` 通过。实现时发现计划里有四处前提与真实代码不符，已按真实代码执行：
+
+**1. Task 1.9 的「两行合并」前提是错的 —— 未合并**
+- 计划说 `.chat-toolbar` 与 `.chat-meta-bar` 是头部两行、信息分散
+- 实际：`.chat-toolbar` 在**顶部** overlay（`ChatPage.tsx` L1403-1501），`.chat-meta-bar` 在**底部** overlay（L1504-1521）装的是 `SessionFileList` + `TodoPanel`
+- 两者在页面两端、职责不同。合并会把文件列表搬进头部，是功能回归
+- 实际做法：头部本来就是单行，只加玻璃底 + hairline + token 对齐。`--chat-overlay-top:44px` 未动，因为头部高度没变
+
+**2. Task 1.10 的 1px 发丝线坑不存在 —— 未按计划改**
+- 计划要求 `border-left:0 solid` + 展开态才给宽度
+- 实际：抽屉是 `position:fixed` + `transform:translateX(100%)` 滑出，不是宽度过渡，整个盒子（含边框）移出视口，收起后不留残留
+- 实际做法：只做玻璃底 + token 对齐
+
+**3. `.llm-route-indicator` 是死 CSS**
+- `ChatPage.module.css` L160 有样式，但全 `ChatPage/` 无任何 JSX 消费
+- 计划要求「移到标题右侧同一行」，指向的是不存在的元素。未新建，那属于功能开发不是样式改造
+
+**4. 通话中的图标摇摆不属于 ChatInput**
+- `voice-btn` 只有 `onVoiceCallStart`，无通话中态；通话时 `VoiceCallPanel` 整块替换 ChatInput（`ChatPage.tsx` L1531）
+- 摇摆动画归 Task 1.11，ChatInput 侧只做静态胶囊
+
+**另外两项顺带修掉的隐患：**
+- `VoiceCallPanel.module.css` 与 `WaveformVisualizer.tsx` 原本用 `--border-color` / `--input-bg` / `--text-muted` / `--accent` 四个**设计系统里不存在**的变量，一直在吃硬编码深色 fallback，浅色主题下必然失真。已全部换成 `--mt-*`；canvas 的 5 个硬编码 hex 改为运行时读 token
+- `.auto-approve-toggle--on` 在 CSS 里早已存在，但 JSX 用 inline style 重复实现了一遍。已改为用 class，删掉 inline style
+
+**关于 `@keyframes` 全局冲突（计划里的 ⚠️）：** 实测 `spin` 有 7 份、`pulse` 有 6 份定义。逐个比对后确认 7 份 `spin` 完全相同（都是 360° 旋转），6 份 `pulse` 仅 opacity 下限差 0.4/0.5，肉眼无差别，**属无害冲突，未改**。本次新增动画一律 `mt-` 前缀：`mt-todo-breathe` / `mt-wave` / `mt-voice-in`。
+
+**未做（不属于样式范围）：** Task 1.4 的 tips 轮播已由 `useRotatingTip` 走 textarea placeholder 实现，未再加一份行内轮播避免重复；提示行只补了 placeholder 消失后丢掉的快捷键与字数。
+
+---
+
 ## Phase 2：概览页
 
 ### Task 2.1: 指标卡改为真实可得的数据
@@ -197,7 +230,7 @@
 | 内存 | `system-service.ts` L515-558 `getSystemInfo()` 返回 `memoryUsagePercent`，实时 | 直接接 |
 | 磁盘 | 同文件 L564-607 `getDiskInfo()`，PowerShell WMI，30s 缓存 | 直接接 |
 | **CPU%** | `SystemInfo.cpuUsage` 在 L115 **声明了但从未赋值**；只有 `cpuModel`/`cpuCores` | **Phase 4 补采集** |
-| **GPU** | 完全没有采集代码 | **Phase 4 新开发** |
+| ~~GPU~~ | 无采集代码 | **已决定不做**，仪表盘只留 CPU/内存/磁盘 三环 |
 | **今日调用 / Token** | `api:getUsage` 在 `main/index.ts` L2185-2201 是**恒定全 0 的桩**，不是真实数据 | **Phase 4 新开发** |
 | **花费金额** | 同上，桩里没有 cost 字段 | **Phase 4 新开发** |
 | **时间范围查询** | 桩只有 daily/monthly 两个固定形状 | **Phase 4 新开发** |
@@ -265,16 +298,9 @@
 - ⚠️ `getSystemInfo()` 有 10s 缓存（L138），CPU 差分要走缓存外的独立路径，否则差分间隔失真
 - Verify: 跑满一个核时数值明显上升；空闲时回落；首次调用不显示 0
 
-### Task 4.2: GPU 采集
-- Create: `apps/windows/src/main/gpu-service.ts`
-- Electron 自带 `app.getGPUInfo('complete')` 能拿到型号/驱动，**但拿不到利用率**
-- 利用率方案（Windows）：
-  1. NVIDIA → `nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits`
-  2. 无 nvidia-smi → 降级只显示型号，利用率显示「不支持」
-- ⚠️ 走 `securityUtils.isCommandAllowed()` 白名单（L705），新命令要先加白名单
-- ⚠️ 缓存 ≥2s，`nvidia-smi` 冷启动约 100-200ms，3s 刷新间隔下别每次都调
-- ⚠️ AMD/Intel 集显没有统一 CLI，明确降级，不要为了填满仪表盘而估算
-- Verify: 有 N 卡的机器显示真实利用率；无 N 卡显示型号 + 不支持；不报错
+### Task 4.2: ~~GPU 采集~~ —— 已决定不做
+- **不监控 GPU。** 仪表盘只保留 CPU / 内存 / 磁盘 三环
+- 概览页布局按三环排，不要留空位等 GPU
 
 ### Task 4.3: 本地用量与花费统计
 - Create: `apps/windows/src/main/usage-store.ts`
@@ -351,11 +377,12 @@
 - ⚠️ 删 IPC 前先删 renderer 侧调用，否则运行时报 "No handler registered"
 - Verify: 断网启动，所有页面正常，无网络报错
 
-### Task 5.6: 遥测上报
-- Modify: `src/main/agent-runtime/analytics-reporter.ts` L32-62
-- 现在会把工具调用事件 POST 到 `/api/internal/agent-analytics/ingest`
-- 开源本地产品默认不该外发数据。建议**默认关闭**，若保留必须是设置里的显式 opt-in
-- ⚠️ 这是唯一一处真实的对外网络请求，删/关之前跟用户确认
+### Task 5.6: 移除遥测上报（已确认移除）
+- Modify/Delete: `src/main/agent-runtime/analytics-reporter.ts`
+- 移除对 `/api/internal/agent-analytics/ingest` 的 POST。这是全项目唯一一处真实外发请求
+- ⚠️ 先 grep 所有调用 reporter 的地方（工具调用、上下文压缩事件等埋点），连调用一起删，不要留空转的 reporter 实例
+- ⚠️ 缓冲/定时器（5s flush、200 条批量）也一并清掉，避免留下空跑的 interval
+- Verify: 全程抓包无对外请求；断网启动无报错
 
 ---
 
