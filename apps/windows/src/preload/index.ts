@@ -410,89 +410,6 @@ export interface ElectronAPI {
     ) => Promise<unknown>
     deleteMemory: (id: string) => Promise<unknown>
 
-    // --- 订阅接口 ---
-    /** 获取订阅计划列表 */
-    getPlans: () => Promise<unknown>
-    /** 获取可用计划列表（别名，兼容旧代码） */
-    getAvailablePlans: () => Promise<unknown>
-    /** 获取指定计划详情 */
-    getPlan: (planId: string) => Promise<unknown>
-    /** 获取当前用户订阅信息 */
-    getSubscription: () => Promise<unknown>
-    /** 获取当前用户使用量 */
-    getUsage: () => Promise<unknown>
-    /** 获取订阅概览（订阅+计划+使用量） */
-    getSubscriptionOverview: () => Promise<unknown>
-    /** 创建订阅 */
-    createSubscription: (params: {
-      planId: string
-      billingPeriod: 'monthly' | 'yearly'
-      paymentMethodId?: string
-      startTrial?: boolean
-    }) => Promise<unknown>
-    /** 取消订阅 */
-    cancelSubscription: (subscriptionId: string, params?: {
-      immediately?: boolean
-      reason?: string
-      feedback?: string
-    }) => Promise<unknown>
-    /** 更新订阅 */
-    updateSubscription: (subscriptionId: string, params: {
-      planId?: string
-      billingPeriod?: 'monthly' | 'yearly'
-      cancelAtPeriodEnd?: boolean
-    }) => Promise<unknown>
-    /** 检查配额 */
-    checkQuota: (quotaType: string) => Promise<unknown>
-
-    // --- 支付接口 ---
-    /** 获取可用支付方式 */
-    getPaymentProviders: () => Promise<unknown>
-    /** 获取用户订单列表 */
-    getUserOrders: (options?: {
-      status?: string | string[]
-      page?: number
-      limit?: number
-    }) => Promise<unknown>
-    /** 获取订单详情 */
-    getOrder: (orderId: string) => Promise<unknown>
-    /** 计算价格 */
-    calculatePrice: (params: {
-      type: string
-      itemId: string
-      billingPeriod?: string
-      couponCode?: string
-    }) => Promise<unknown>
-    /** 创建订单并发起支付（购买订阅） */
-    purchaseSubscription: (params: {
-      type: string
-      planId: string
-      billingPeriod?: string
-      provider: string
-      couponCode?: string
-    }) => Promise<unknown>
-    /** 取消订单 */
-    cancelOrder: (orderId: string) => Promise<unknown>
-    /** 发起支付（对已有订单） */
-    initiatePayment: (orderId: string, params: {
-      provider: string
-      returnUrl?: string
-    }) => Promise<unknown>
-    /** 查询支付状态 */
-    queryPaymentStatus: (orderId: string) => Promise<unknown>
-    /** 模拟支付完成（仅测试） */
-    mockPaymentComplete: (params: {
-      orderId: string
-      success?: boolean
-    }) => Promise<unknown>
-    /** 创建退款 */
-    createRefund: (params: {
-      orderId: string
-      amount?: number
-      reason: string
-      description?: string
-    }) => Promise<unknown>
-
     // --- 技能商店接口 ---
     /** 获取商店技能列表 */
     getStoreSkills: (filters?: {
@@ -583,18 +500,6 @@ export interface ElectronAPI {
     getSoulContent: () => Promise<unknown>
     /** 更新 AI 灵魂内容（本地文件） */
     updateSoulContent: (content: string) => Promise<unknown>
-
-    // --- 积分接口 ---
-    /** 获取用户积分余额 */
-    getCreditBalance: () => Promise<unknown>
-    /** 获取用户积分流水 */
-    getCreditHistory: (options?: { limit?: number; offset?: number }) => Promise<unknown>
-    /** 获取积分批次列表（含过期时间） */
-    getCreditBatches: () => Promise<unknown>
-    /** 获取邀请统计 */
-    getInviteStats: () => Promise<unknown>
-    /** 获取邀请记录列表 */
-    getInviteList: () => Promise<unknown>
 
     // --- 技能运行时 + 节点列表 + 文件上传 ---
     /** 获取所有已加载技能列表（通过 Gateway WS） */
@@ -950,6 +855,42 @@ export interface ElectronAPI {
   }
   /** 宠物模式 API */
   pet: PetElectronAPI
+  /** 文件预览独立窗口（可拖出主窗口） */
+  filePreview: {
+    open: (payload: {
+      fileName: string
+      fileId?: string
+      filePath?: string
+      userId?: string
+      startLine?: number
+      endLine?: number
+      mdBasePath?: string
+      editablePath?: string
+    }) => Promise<{ ok: boolean }>
+    close: () => Promise<{ ok: boolean }>
+    getPayload: () => Promise<{
+      fileName: string
+      fileId?: string
+      filePath?: string
+      userId?: string
+      startLine?: number
+      endLine?: number
+      mdBasePath?: string
+      editablePath?: string
+    } | null>
+    onPayloadUpdated: (
+      callback: (payload: {
+        fileName: string
+        fileId?: string
+        filePath?: string
+        userId?: string
+        startLine?: number
+        endLine?: number
+        mdBasePath?: string
+        editablePath?: string
+      }) => void,
+    ) => () => void
+  }
   /** 插件中心 API */
   plugins: {
     cloak_browser: {
@@ -1229,70 +1170,6 @@ const electronAPI: ElectronAPI = {
     ) => ipcRenderer.invoke('api:updateMemory', id, data),
     deleteMemory: (id: string) => ipcRenderer.invoke('api:deleteMemory', id),
 
-    // --- 订阅接口 ---
-    getPlans: () => ipcRenderer.invoke('api:getPlans'),
-    getAvailablePlans: () => ipcRenderer.invoke('api:getPlans'),
-    getPlan: (planId: string) => ipcRenderer.invoke('api:getPlan', planId),
-    getSubscription: () => ipcRenderer.invoke('api:getSubscription'),
-    getUsage: () => ipcRenderer.invoke('api:getUsage'),
-    getSubscriptionOverview: () => ipcRenderer.invoke('api:getSubscriptionOverview'),
-    createSubscription: (params: {
-      planId: string
-      billingPeriod: 'monthly' | 'yearly'
-      paymentMethodId?: string
-      startTrial?: boolean
-    }) => ipcRenderer.invoke('api:createSubscription', params),
-    cancelSubscription: (subscriptionId: string, params?: {
-      immediately?: boolean
-      reason?: string
-      feedback?: string
-    }) => ipcRenderer.invoke('api:cancelSubscription', subscriptionId, params),
-    updateSubscription: (subscriptionId: string, params: {
-      planId?: string
-      billingPeriod?: 'monthly' | 'yearly'
-      cancelAtPeriodEnd?: boolean
-    }) => ipcRenderer.invoke('api:updateSubscription', subscriptionId, params),
-    checkQuota: (quotaType: string) => ipcRenderer.invoke('api:checkQuota', quotaType),
-
-    // --- 支付接口 ---
-    getPaymentProviders: () => ipcRenderer.invoke('api:getPaymentProviders'),
-    getUserOrders: (options?: {
-      status?: string | string[]
-      page?: number
-      limit?: number
-    }) => ipcRenderer.invoke('api:getUserOrders', options),
-    getOrder: (orderId: string) => ipcRenderer.invoke('api:getOrder', orderId),
-    calculatePrice: (params: {
-      type: string
-      itemId: string
-      billingPeriod?: string
-      couponCode?: string
-    }) => ipcRenderer.invoke('api:calculatePrice', params),
-    purchaseSubscription: (params: {
-      type: string
-      planId: string
-      billingPeriod?: string
-      provider: string
-      couponCode?: string
-    }) => ipcRenderer.invoke('api:purchaseSubscription', params),
-    cancelOrder: (orderId: string) => ipcRenderer.invoke('api:cancelOrder', orderId),
-    initiatePayment: (orderId: string, params: {
-      provider: string
-      returnUrl?: string
-    }) => ipcRenderer.invoke('api:initiatePayment', orderId, params),
-    queryPaymentStatus: (orderId: string) =>
-      ipcRenderer.invoke('api:queryPaymentStatus', orderId),
-    mockPaymentComplete: (params: {
-      orderId: string
-      success?: boolean
-    }) => ipcRenderer.invoke('api:mockPaymentComplete', params),
-    createRefund: (params: {
-      orderId: string
-      amount?: number
-      reason: string
-      description?: string
-    }) => ipcRenderer.invoke('api:createRefund', params),
-
     // --- 技能商店接口 ---
     getStoreSkills: (filters?: {
       category?: string
@@ -1373,18 +1250,6 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke('api:getSoulContent'),
     updateSoulContent: (content: string) =>
       ipcRenderer.invoke('api:updateSoulContent', content),
-
-    // --- 积分接口 ---
-    getCreditBalance: () =>
-      ipcRenderer.invoke('api:getCreditBalance'),
-    getCreditHistory: (options?: { limit?: number; offset?: number }) =>
-      ipcRenderer.invoke('api:getCreditHistory', options),
-    getCreditBatches: () =>
-      ipcRenderer.invoke('api:getCreditBatches'),
-    getInviteStats: () =>
-      ipcRenderer.invoke('api:getInviteStats'),
-    getInviteList: () =>
-      ipcRenderer.invoke('api:getInviteList'),
 
     // --- 技能运行时 + 节点列表 + 文件上传 ---
     listAllSkills: () =>
@@ -1646,6 +1511,22 @@ const electronAPI: ElectronAPI = {
 
   // 宠物模式 API
   pet: petApi,
+  filePreview: {
+    open: (payload) => ipcRenderer.invoke('file-preview:open', payload),
+    close: () => ipcRenderer.invoke('file-preview:close'),
+    getPayload: () => ipcRenderer.invoke('file-preview:get-payload'),
+    onPayloadUpdated: (callback) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: Parameters<typeof callback>[0],
+      ) => callback(payload)
+      ipcRenderer.on('file-preview:payload-updated', listener)
+      return () => {
+        ipcRenderer.removeListener('file-preview:payload-updated', listener)
+      }
+    },
+  },
+  /** 插件中心 API */
 
   // 插件中心 API
   plugins: {

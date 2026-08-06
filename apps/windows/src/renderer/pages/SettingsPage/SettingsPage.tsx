@@ -29,7 +29,6 @@ import { Select } from '../../components/ui/Select/Select'
 import { Badge } from '../../components/ui/Badge/Badge'
 import { Tag } from '../../components/ui/Tag/Tag'
 import { UpdaterView } from '../../components/business/UpdaterView'
-import { useAuth } from '../../contexts/AuthContext/AuthContext'
 import { useSettings, useCategorySettings } from '../../hooks/business/useSettings'
 import { useToast } from '../../components/ui/Toast/useToast'
 import { PageHeader } from '../../components/ui/PageHeader/PageHeader'
@@ -119,7 +118,6 @@ interface SettingsPageProps {
 }
 
 const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
-  const { user, setUser, isLoading: authLoading } = useAuth()
   const toast = useToast()
   const {
     settings,
@@ -158,8 +156,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
   const [isPetModeActive, setIsPetModeActive] = useState<boolean>(false)
   
   // 账户设置状态
-  const [displayName, setDisplayName] = useState('')
-  const [savingProfile, setSavingProfile] = useState(false)
 
   // 工作空间设置状态
   const [defaultWorkspaceDir, setDefaultWorkspaceDir] = useState<string>('')
@@ -179,8 +175,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
   const [voiceSaving, setVoiceSaving] = useState(false)
   const [voicePreviewing, setVoicePreviewing] = useState(false)
   const previewAudioCtxRef = React.useRef<AudioContext | null>(null)
-  
-  const isLoading = authLoading
 
   // Category-level save hooks (must be at top level, not in render functions)
   const workspaceSave = useCategorySettings({
@@ -381,33 +375,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
   }, [])
 
   /**
-   * 同步用户显示名称
-   */
-  useEffect(() => {
-    if (user?.displayName) {
-      setDisplayName(user.displayName)
-    }
-  }, [user?.displayName])
-
-  /**
-   * 保存用户显示名称
-   */
-  const handleSaveProfile = useCallback(async () => {
-    if (!displayName.trim()) return
-
-    setSavingProfile(true)
-    try {
-      // 独立版无服务端：显示名称仅存本地（useAuth 持久化到 localStorage）
-      setUser({ ...user, displayName: displayName.trim() })
-      toast.success('显示名称已更新')
-    } catch (err) {
-      toast.error('保存失败: ' + (err instanceof Error ? err.message : '未知错误'))
-    } finally {
-      setSavingProfile(false)
-    }
-  }, [displayName, user, setUser, toast])
-
-  /**
    * 选择工作空间目录
    */
   const handleSelectWorkspaceDir = useCallback(async () => {
@@ -529,27 +496,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
   const renderAccountSettings = () => (
     <div className={styles['settings-section']}>
       <h3>通用</h3>
-
-      <div className={styles['setting-group']}>
-        <div className={styles['setting-item']}>
-          <label className={styles['setting-label']}>显示名称</label>
-          <div className={styles['setting-row']}>
-            <Input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="设置你的显示名称"
-              maxLength={30}
-            />
-            <Button
-              onClick={handleSaveProfile}
-              loading={savingProfile}
-              disabled={!displayName.trim() || displayName === user?.displayName}
-            >
-              保存
-            </Button>
-          </div>
-        </div>
-      </div>
 
       <h4 className={styles['settings-subsection-title']}>系统偏好</h4>
 
@@ -1816,14 +1762,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
       default:
         return null
     }
-  }
-
-  if (isLoading) {
-    return (
-      <div className={styles['settings-page']}>
-        <Loading text="加载设置中..." />
-      </div>
-    )
   }
 
   return (

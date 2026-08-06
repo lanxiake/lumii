@@ -75,7 +75,6 @@ import os from 'os'
 import { loadServerConfig, type ServerConfig } from './server-config'
 import { directoryManager } from './directory-manager'
 import { ConfigManager } from './config-manager'
-import { AuthManager } from './auth-manager'
 
 import { WeixinLoginService } from './weixin-login-service'
 import { WeixinChannelAdapter } from './channel/adapters/weixin-channel-adapter'
@@ -125,6 +124,7 @@ import {
   disablePetForceIgnore,
   disposePetModeIpc,
 } from './pet/pet-mode-ipc'
+import { registerFilePreviewWindowIpc } from './file-preview/preview-window-ipc'
 
 if (process.platform === 'win32') {
   try {
@@ -212,7 +212,6 @@ let updaterService: UpdaterService | null = null
 let skillRuntime: ClientSkillRuntime | null = null
 let skillWatcher: SkillWatcher | null = null
 let configManager: ConfigManager | null = null
-let authManager: AuthManager | null = null
 
 let weixinLoginService: WeixinLoginService | null = null  // 微信(iLink)登录服务
 let wecomLoginService: WecomLoginService | null = null  // 企业微信 AI Bot 扫码服务
@@ -2153,59 +2152,6 @@ function setupApiIpcHandlers(): void {
     return testProviderConnection(slot, cfg)
   })
 
-  // === 订阅相关 stub（独立版无云订阅，避免 No handler registered） ===
-  const freeSubscriptionStub = {
-    success: true,
-    data: {
-      subscription: {
-        planId: 'free',
-        planName: '免费版',
-        status: 'active',
-        billingPeriod: 'monthly' as const,
-        currentPeriodEnd: undefined as string | undefined,
-      },
-      plan: {
-        id: 'free',
-        displayName: '免费版',
-        name: 'free',
-      },
-      plans: [],
-    },
-  }
-  ipcMain.handle('api:getSubscription', async () => freeSubscriptionStub)
-  ipcMain.handle('api:getSubscriptionOverview', async () => freeSubscriptionStub)
-  ipcMain.handle('api:getPlans', async () => ({ success: true, data: { plans: [] } }))
-  ipcMain.handle('api:getAvailablePlans', async () => ({ success: true, data: { plans: [] } }))
-  ipcMain.handle('api:createSubscription', async () => ({
-    success: false,
-    error: '独立版不支持云订阅',
-  }))
-  ipcMain.handle('api:cancelSubscription', async () => ({
-    success: false,
-    error: '独立版不支持云订阅',
-  }))
-  ipcMain.handle('api:getCreditBalance', async () => ({
-    success: true,
-    data: { balance: 0, unlimited: true },
-  }))
-  ipcMain.handle('api:getUsage', async () => ({
-    success: true,
-    data: {
-      daily: {
-        conversations: 0,
-        aiCalls: 0,
-        skillExecutions: 0,
-        fileOperations: 0,
-        storageUsedMb: 0,
-      },
-      monthly: {
-        conversations: 0,
-        aiCalls: 0,
-        storageUsedMb: 0,
-      },
-    },
-  }))
-
   // === 本地用量查询（Task 4.3）===
   ipcMain.handle('usage:query', async (_e, query: UsageQuery) => {
     try {
@@ -2939,6 +2885,14 @@ async function initialize(): Promise<void> {
     },
   })
 
+  // 文件预览独立窗口（可拖出主窗口外）
+  registerFilePreviewWindowIpc({
+    getMainWindow: () => mainWindow,
+    preloadPath: join(__dirname, '../preload/index.js'),
+    rendererUrl: process.env.ELECTRON_RENDERER_URL,
+    indexHtmlPath: join(__dirname, '../renderer/index.html'),
+  })
+
   initTray()
   initSystemService()
   setupIpcHandlers()
@@ -2956,7 +2910,7 @@ async function initialize(): Promise<void> {
   log.info('目录和配置管理器初始化完成')
 
   // 灵栖/Lumii 独立版：无后端、无登录。
-  // 不构造 authManager / apiClient / gatewayClient / nodeModeCoordinator / devicePairingService，
+  // 不构造 apiClient / gatewayClient / nodeModeCoordinator / devicePairingService，
   // 这些实例保持 null，相关能力（provider 配置、agents 存储）由本地能力层（阶段 4/5）接管。
   // setupApiIpcHandlers 仍注册（内部 handler 已对 !apiClient 做本地兜底/降级）。
   setupApiIpcHandlers()

@@ -5,7 +5,6 @@
  */
 
 import React from 'react'
-import { AuthProvider } from './AuthContext/AuthContext'
 import { ThemeProvider } from './ThemeContext/ThemeContext'
 import { SettingsProvider } from './SettingsContext/SettingsContext'
 import { SkillsProvider } from './SkillsContext/SkillsContext'
@@ -18,23 +17,21 @@ interface AppProvidersProps {
 
 /**
  * 应用上下文提供者组合
- * 按照依赖顺序排列：Auth -> Settings -> Theme -> Skills -> Toast
+ * 按照依赖顺序排列：Settings -> Theme -> Skills -> Toast
  */
 export const AppProviders: React.FC<AppProvidersProps> = ({ children }) => {
   return (
-    <AuthProvider>
-      <SettingsProvider>
-        <ThemeProvider>
-          <SkillsProvider>
-            <PluginsProvider>
-              <ToastProvider>
-                {children}
-              </ToastProvider>
-            </PluginsProvider>
-          </SkillsProvider>
-        </ThemeProvider>
-      </SettingsProvider>
-    </AuthProvider>
+    <SettingsProvider>
+      <ThemeProvider>
+        <SkillsProvider>
+          <PluginsProvider>
+            <ToastProvider>
+              {children}
+            </ToastProvider>
+          </PluginsProvider>
+        </SkillsProvider>
+      </ThemeProvider>
+    </SettingsProvider>
   )
 }
 

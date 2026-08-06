@@ -1,1 +1,0 @@
-export { useServerCaptcha } from './useServerCaptcha'

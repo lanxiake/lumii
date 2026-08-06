@@ -5,7 +5,6 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { useAuth } from '../contexts/AuthContext/AuthContext'
 import { useSettings } from '../hooks/business/useSettings/useSettings'
 import styles from './WorkspaceWizard.module.css'
 
@@ -48,7 +47,6 @@ async function migrateWorkspaceData(oldDir: string, newDir: string): Promise<voi
  * 工作空间向导弹窗组件
  */
 export const WorkspaceWizard: React.FC = () => {
-  const { isAuthenticated } = useAuth()
   const { updateWorkspace, saveSettings } = useSettings()
   
   // 向导状态
@@ -60,19 +58,16 @@ export const WorkspaceWizard: React.FC = () => {
   // 工作空间检查是否已完成
   const workspaceCheckDoneRef = useRef(false)
 
-  /**
-   * 首次登录检测
-   */
+  /** 首次启动检测 */
   useEffect(() => {
-    if (!isAuthenticated || workspaceCheckDoneRef.current) return
+    if (workspaceCheckDoneRef.current) return
     workspaceCheckDoneRef.current = true
 
-    const firstLoginDone = localStorage.getItem(FIRST_LOGIN_KEY)
-    if (firstLoginDone) return // 非首次登录，跳过
+    if (localStorage.getItem(FIRST_LOGIN_KEY)) return // 非首次启动，跳过
 
-    console.log('[WorkspaceWizard] 首次登录，弹出工作空间向导')
+    console.log('[WorkspaceWizard] 首次启动，弹出工作空间向导')
     setWizardState('selecting')
-  }, [isAuthenticated])
+  }, [])
 
   /**
    * 选择目录
