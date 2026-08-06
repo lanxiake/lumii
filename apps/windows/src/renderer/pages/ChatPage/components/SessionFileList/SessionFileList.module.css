@@ -284,3 +284,102 @@
   max-height: 280px;
   border-top: none;
 }
+
+/* 左侧轨道：Files Changed 风格 */
+.railCard {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--mt-border, #e5e7eb);
+  border-radius: 12px;
+  background: var(--mt-bg-primary, #fff);
+  box-shadow: var(--mt-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.04));
+  overflow: hidden;
+}
+
+.railHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--mt-border-hairline, rgba(0, 0, 0, 0.06));
+}
+
+.railHeaderTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--mt-fg-3, #6b7280);
+}
+
+.railReview {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 11px;
+  color: var(--mt-fg-3, #6b7280);
+  cursor: pointer;
+}
+
+.railReview:hover {
+  color: var(--mt-accent-500, #4f8ef7);
+}
+
+.railList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+  overflow-y: auto;
+  max-height: min(40vh, 320px);
+  scrollbar-width: thin;
+}
+
+.railRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mt-fg-1, #111);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.railRow:hover {
+  background: var(--mt-surface-2, #f3f4f6);
+}
+
+.railRowIcon {
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.railRowName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railRowTag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-weight: 600;
+}
+
+.railRowTagOutput {
+  color: #16a34a;
+}
+
+.railRowTagUpload {
+  color: #2563eb;
+}

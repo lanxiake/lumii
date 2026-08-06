@@ -33,6 +33,10 @@ export interface SessionFileListProps {
   defaultExpanded?: boolean
   /** 紧凑模式：仅显示小图标，悬停时弹出完整列表 */
   compact?: boolean
+  /** 左侧轨道：常驻「N 个文件变更」列表 */
+  variant?: 'default' | 'rail'
+  /** 轨道「查看」回调（打开工作空间） */
+  onReview?: () => void
 }
 
 /** 格式化文件大小（B / KB / MB） */
@@ -363,10 +367,10 @@ const FileRow: React.FC<{
 }
 
 /**
- * 会话文件列表（可折叠卡片）
+ * 会话文件列表（可折叠卡片 / 左侧轨道）
  *
  * - 列表为空时整个组件不渲染
- * - 默认展开，顶部有折叠/展开按钮
+ * - variant=rail：常驻「N 个文件变更」列表
  */
 export const SessionFileList: React.FC<SessionFileListProps> = ({
   files,
@@ -374,20 +378,82 @@ export const SessionFileList: React.FC<SessionFileListProps> = ({
   sessionKey,
   defaultExpanded = false,
   compact = false,
+  variant = 'default',
+  onReview,
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded)
+  const [previewingId, setPreviewingId] = useState<string | null>(null)
+  const { toAbsolutePath } = useWorkspace()
 
-  /** 去重：相同 fileId 取最新一条；按生成时间（这里近似为列表顺序）倒序展示（新 → 旧） */
+  /** 去重：相同 fileId 取最新一条；新文件在前 */
   const dedupedFiles = useMemo(() => {
     const map = new Map<string, RuntimeFileEvent>()
     for (const f of files) {
       map.set(f.fileId, f)
     }
-    // 保留原始顺序，最新的在末尾；这里反转为"新文件在前"
     return Array.from(map.values()).reverse()
   }, [files])
 
   if (dedupedFiles.length === 0) return null
+
+  /** 左侧轨道：Files Changed 风格 */
+  if (variant === 'rail') {
+    const previewFile = previewingId
+      ? dedupedFiles.find((f) => f.fileId === previewingId)
+      : null
+    return (
+      <div className={styles.railCard}>
+        <div className={styles.railHeader}>
+          <span className={styles.railHeaderTitle}>
+            {dedupedFiles.length} 个文件变更
+          </span>
+          {onReview && (
+            <button type="button" className={styles.railReview} onClick={onReview}>
+              查看
+            </button>
+          )}
+        </div>
+        <div className={styles.railList}>
+          {dedupedFiles.map((file) => {
+            const icon = getFileIcon(file.mimeType, file.fileName)
+            const tag = file.category === 'upload' ? '上传' : '产出'
+            return (
+              <button
+                type="button"
+                key={file.fileId}
+                className={styles.railRow}
+                title={file.localPath || file.fileName}
+                onClick={() => {
+                  if (isPreviewable(file.mimeType, file.fileName)) {
+                    setPreviewingId(file.fileId)
+                  }
+                }}
+              >
+                <span className={styles.railRowIcon} aria-hidden>{icon}</span>
+                <span className={styles.railRowName}>{file.fileName}</span>
+                <span className={clsx(
+                  styles.railRowTag,
+                  file.category === 'upload' ? styles.railRowTagUpload : styles.railRowTagOutput,
+                )}>
+                  {tag}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+        {previewFile && (
+          <FilePreviewModal
+            fileId={previewFile.fileId}
+            fileName={previewFile.fileName}
+            userId={userId}
+            mdBasePath={previewFile.localPath ?? undefined}
+            editablePath={previewFile.localPath ? toAbsolutePath(previewFile.localPath) : undefined}
+            onClose={() => setPreviewingId(null)}
+          />
+        )}
+      </div>
+    )
+  }
 
   /** 紧凑模式：小图标触发器 + 悬停弹出层 */
   if (compact) {

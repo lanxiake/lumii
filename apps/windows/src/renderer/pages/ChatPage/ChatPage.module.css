@@ -18,6 +18,8 @@
   --chat-overlay-bottom: 210px;
   /* 工作台占用宽度：流式内容用 padding，绝对定位浮层用 right */
   --workbench-inset: 0px;
+  /* 左侧 Todo/文件轨道宽度（有内容时由 JSX 覆盖） */
+  --chat-left-rail-inset: 0px;
   transition: padding-right var(--mt-dur-normal, 0.2s) var(--mt-ease-decel, ease);
 }
 
@@ -33,7 +35,7 @@
   overflow: hidden;
 }
 
-.chat-main-body > :first-child {
+.chat-main-body > :last-child {
   flex: 1;
   min-width: 0;
 }
@@ -42,13 +44,15 @@
 .chat-overlay-top,
 .chat-overlay-bottom {
   position: absolute;
-  left: 0;
+  left: var(--chat-left-rail-inset, 0px);
   /* 与工作台宽度对齐，避免浮层伸进 padding-right 被挡住 */
   right: var(--workbench-inset, 0px);
   z-index: 30;
   pointer-events: none;
   background: transparent;
-  transition: right var(--mt-dur-normal, 0.2s) var(--mt-ease-decel, ease);
+  transition:
+    right var(--mt-dur-normal, 0.2s) var(--mt-ease-decel, ease),
+    left var(--mt-dur-normal, 0.2s) var(--mt-ease-decel, ease);
 }
 
 .chatMainResizing .chat-overlay-top,
@@ -72,9 +76,11 @@
   pointer-events: auto;
 }
 
-/* 行内权限审批卡的定位容器：贴在输入框上方 */
+/* 行内权限审批卡：贴在输入框上方，限制宽度避免整行遮挡 */
 .chat-inline-approval {
   padding: 0 var(--mt-space-4) var(--mt-space-2);
+  display: flex;
+  justify-content: flex-start;
 }
 
 /* Toolbar — 单行玻璃头部。高度须与 --chat-overlay-top(44px) 保持一致，

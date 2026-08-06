@@ -27,6 +27,8 @@ interface TodoPanelProps {
   }[]
   /** 紧凑模式：仅显示小图标，悬停时弹出完整列表 */
   compact?: boolean
+  /** 左侧轨道：常驻展开，对齐「任务进度」原型 */
+  variant?: 'default' | 'rail'
 }
 
 function extractText(output: unknown): string | null {
@@ -196,8 +198,8 @@ function isActive(status?: string): boolean {
   return status === 'in_progress' || status === 'in-progress'
 }
 
-export const TodoPanel: React.FC<TodoPanelProps> = ({ toolCalls, compact = false }) => {
-  const [expanded, setExpanded] = useState(false)
+export const TodoPanel: React.FC<TodoPanelProps> = ({ toolCalls, compact = false, variant = 'default' }) => {
+  const [expanded, setExpanded] = useState(variant === 'rail')
 
   const tasks = useMemo(() => aggregateTasks(toolCalls), [toolCalls])
 
@@ -214,19 +216,28 @@ export const TodoPanel: React.FC<TodoPanelProps> = ({ toolCalls, compact = false
           className={`${styles.taskItem} ${statusClass(task.status)}`}
         >
           <span className={styles.taskIcon}>{statusIcon(task.status)}</span>
-          {task.id !== undefined && (
-            <span className={styles.taskId}>#{String(task.id)}</span>
-          )}
           <span className={styles.taskSubject}>{task.subject ?? '（无标题）'}</span>
-          {task.description && (
-            <span className={styles.taskDesc}>{task.description}</span>
-          )}
         </li>
       ))}
     </ul>
   )
 
+  /** 左侧轨道：常驻展开的任务进度卡 */
+  if (variant === 'rail') {
+    return (
+      <div className={styles.railCard}>
+        <div className={styles.railHeader}>
+          <span className={styles.railHeaderIcon} aria-hidden>◈</span>
+          <span className={styles.railTitle}>任务进度</span>
+          <span className={styles.railCount}>{doneCount}/{tasks.length}</span>
+        </div>
+        {taskList}
+      </div>
+    )
+  }
+
   /** 紧凑模式：小图标触发器 + 悬停弹出层 */
+
   if (compact) {
     return (
       <div className={styles.compactWrap}>

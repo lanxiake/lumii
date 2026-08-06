@@ -3,11 +3,10 @@ import { createPortal } from 'react-dom'
 import { ChatSidebar } from './components/ChatSidebar'
 import { ChatContainer } from './components/ChatContainer'
 import { ChatInput } from './components/ChatInput'
+import { ChatSessionRail } from './components/ChatSessionRail'
 import type { FileReference } from './components/ChatInput'
 import type { ModelOption } from '../../services/model-config-service'
 import { fetchModelCatalog, fetchChatModelChoices, saveChatModel } from '../../services/model-config-service'
-import { TodoPanel } from './components/TodoPanel'
-import { SessionFileList } from './components/SessionFileList'
 import { Toast } from './components/Toast'
 import { ConfirmModal } from '../../components/ui/Modal/ConfirmModal'
 import { WorkspaceFilePanel } from './components/WorkspaceFilePanel'
@@ -1417,20 +1416,29 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       <div
         className={clsx(styles['chat-main'], workbenchResizing && styles.chatMainResizing)}
         data-chat-dialog
-        style={
-          workbench.open && workbenchWidth > 0
+        style={{
+          ...(workbench.open && workbenchWidth > 0
             ? {
                 paddingRight: workbenchWidth,
                 ['--workbench-inset' as string]: `${workbenchWidth}px`,
               }
-            : undefined
-        }
+            : {}),
+          ...(runtimeFileEvents.length > 0 || sessionTodoCalls.length > 0
+            ? { ['--chat-left-rail-inset' as string]: '220px' }
+            : {}),
+        }}
       >
         {/* 消息层：全屏滚动，顶部/底部浮层可透视 */}
         <div
           className={styles['chat-main-body']}
           style={{ ['--chat-font-size' as string]: FONT_SCALE_PX[fontScale] }}
         >
+          <ChatSessionRail
+            todoCalls={sessionTodoCalls}
+            files={runtimeFileEvents}
+            sessionKey={runtimeCurrentSessionKey}
+            onReviewFiles={toggleFilesWorkbench}
+          />
           <ChatContainer
             session={localRuntimeSession}
             approvalItems={approvalItems}
@@ -1535,27 +1543,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           </div>
         </div>
 
-        {/* 底部毛玻璃浮层：文件/任务、Tips、输入框 */}
+        {/* 底部毛玻璃浮层：Tips、审批、输入框（Todo/文件已迁至左侧轨道） */}
         <div className={styles['chat-overlay-bottom']}>
-          {(runtimeFileEvents.length > 0 || sessionTodoCalls.length > 0) && (
-            <div className={styles['chat-meta-bar']}>
-              <SessionFileList
-                files={runtimeFileEvents}
-                userId="local-user"
-                sessionKey={runtimeCurrentSessionKey}
-                compact
-              />
-              {sessionTodoCalls.length > 0 && (
-                <TodoPanel
-                  key={runtimeCurrentSessionKey ?? ''}
-                  toolCalls={sessionTodoCalls}
-                  compact
-                />
-              )}
-            </div>
-          )}
-
-          {/* 权限审批：行内卡片贴在输入框上方（原型 .apr），不再弹窗遮挡上下文 */}
+          {/* 权限审批：行内卡片贴在输入框上方 */}
           {runtimePendingPermission && !autoApprove && (
             <div className={styles['chat-inline-approval']}>
               <ConfirmationDialog
@@ -1568,7 +1558,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
                     ? `来自后台会话：${permissionSessionKey}`
                     : undefined
                 }
-                onAllow={() => runtimeActions.respondPermission('allow-always')}
+                onAllowOnce={() => runtimeActions.respondPermission('allow-once')}
+                onAllowAlways={() => runtimeActions.respondPermission('allow-always')}
                 onDeny={() => runtimeActions.respondPermission('deny')}
               />
             </div>

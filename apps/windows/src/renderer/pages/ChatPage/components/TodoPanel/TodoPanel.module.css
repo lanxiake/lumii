@@ -265,3 +265,53 @@
   max-height: 240px;
   padding-top: var(--spacing-2);
 }
+
+
+/* 左侧轨道：任务进度卡 */
+.railCard {
+  border: 1px solid var(--mt-border, #e5e7eb);
+  border-radius: 12px;
+  background: var(--mt-bg-primary, #fff);
+  overflow: hidden;
+  box-shadow: var(--mt-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.04));
+}
+
+.railHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mt-fg-2, #374151);
+}
+
+.railHeaderIcon {
+  color: var(--mt-fg-3, #9ca3af);
+  font-size: 11px;
+}
+
+.railTitle { flex: 1; min-width: 0; }
+
+.railCount {
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--mt-fg-3, #6b7280);
+}
+
+.railCard .taskList {
+  max-height: 220px;
+  padding: 2px 8px 8px;
+}
+
+.railCard .taskItem {
+  padding: 4px 4px;
+  border-radius: 6px;
+}
+
+.railCard .taskSubject {
+  white-space: normal;
+  line-height: 1.35;
+  font-size: 12px;
+}
