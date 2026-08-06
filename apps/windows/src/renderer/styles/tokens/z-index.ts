@@ -17,6 +17,8 @@ export const zIndex = {
   skipLink: 1600,
   toast: 1700,
   tooltip: 1800,
+  /** 设置中心：高于对话工作台等浮层 */
+  settingsHub: 12000,
 } as const;
 
 export type ZIndex = typeof zIndex;
