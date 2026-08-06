@@ -11,7 +11,7 @@ import { Undo2, FolderOpen } from 'lucide-react'
 import type {
   VcsDiffHunk,
   VcsDiffItem,
-} from '../../../../hooks/business/useWorkspaceVcs'
+} from '../../../../hooks/business/useWorkspaceVcs/useWorkspaceVcs'
 import styles from './DiffFileCard.module.css'
 
 export interface DiffFileCardProps {
