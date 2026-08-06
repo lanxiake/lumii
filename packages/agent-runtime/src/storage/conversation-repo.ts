@@ -7,6 +7,7 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { DatabaseAdapter } from "./local-database.js";
 import { withTransaction } from "./local-database.js";
+import { providerPromptTokens } from "../compact/token-estimate.js";
 
 // ─── 类型定义 ───
 
@@ -310,8 +311,11 @@ export class ConversationRepo {
   }
 
   /**
-   * 获取最近一条带 usage 的助手消息的 inputTokens（提供商真实 prompt tokens）。
+   * 获取最近一条带 usage 的助手消息的 prompt tokens（提供商真实读数）。
    * 用于重启或切换会话后恢复上下文用量展示。
+   *
+   * 必须把 cacheRead/cacheWrite 一起算：开了 prompt cache 后系统提示词等稳定前缀
+   * 记在缓存字段里，inputTokens 只剩本轮增量，单取它会让上下文读数虚低一个量级。
    */
   getLastAssistantProviderInputTokens(conversationId: string): number | undefined {
     const rows = this.db
@@ -325,9 +329,11 @@ export class ConversationRepo {
 
     for (const row of rows) {
       const parsed = parseMessageContentJson(row.content_json);
-      const inputTokens = parsed?.type === "text" ? parsed.usage?.inputTokens : undefined;
-      if (typeof inputTokens === "number" && inputTokens > 0) {
-        return inputTokens;
+      const usage = parsed?.type === "text" ? parsed.usage : undefined;
+      if (!usage) continue;
+      const promptTokens = providerPromptTokens(usage);
+      if (promptTokens > 0) {
+        return promptTokens;
       }
     }
     return undefined;

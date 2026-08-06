@@ -4,6 +4,7 @@
  */
 
 import type { AgentRuntimeEvent } from '@mtbot/agent-runtime'
+import { providerPromptTokens } from '@mtbot/agent-runtime'
 import { analyticsReporter } from './analytics-reporter'
 import type { ConversationRepo, FileRepo } from '@mtbot/agent-runtime'
 import { convertOldEventToIpcEvents, parseThinkTagsFromRaw, type RunContext } from './event-converter'
@@ -464,12 +465,11 @@ export function createAgentInstanceRuntimeEventHandler(
       if (event.usage && state) {
         state.lastAssistantUsage = event.usage
       }
-      if (
-        event.usage?.inputTokens &&
-        event.usage.inputTokens > 0 &&
-        ctx.sessionKey === ctx.rootSessionKey
-      ) {
-        setSessionProviderInputTokens(ctx.rootSessionKey, event.usage.inputTokens)
+      if (event.usage && ctx.sessionKey === ctx.rootSessionKey) {
+        const promptTokens = providerPromptTokens(event.usage)
+        if (promptTokens > 0) {
+          setSessionProviderInputTokens(ctx.rootSessionKey, promptTokens)
+        }
       }
       // 落盘用量：只在服务商真给了 usage 时记，估算值不入库（否则花费统计会失真）
       if (event.usage && ctx.resolvedModelId) {

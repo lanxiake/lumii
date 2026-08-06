@@ -162,7 +162,11 @@ export {
   type CompactionInfo,
   type SummaryGeneratorFn,
 } from "./agent/index.js";
-export { estimateTextTokenCount, ceilTokenEstimate } from "./agent/index.js";
+export {
+  estimateTextTokenCount,
+  ceilTokenEstimate,
+  providerPromptTokens,
+} from "./agent/index.js";
 export {
   AgentOrchestrator,
   type AgentOrchestratorDeps,

@@ -34,7 +34,12 @@ export {
 } from "./types.js";
 
 // === token 估算（基础设施，供 token-budget 等复用） ===
-export { estimateTokenCount, estimateTextTokenCount, ceilTokenEstimate } from "./token-estimate.js";
+export {
+  estimateTokenCount,
+  estimateTextTokenCount,
+  ceilTokenEstimate,
+  providerPromptTokens,
+} from "./token-estimate.js";
 
 // === 策略（供测试 / 高级宿主直接调用） ===
 export { microcompactToolResults } from "./strategies/micro-compact.js";

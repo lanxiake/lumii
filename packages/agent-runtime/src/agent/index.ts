@@ -33,7 +33,11 @@ export {
   type CompactionInfo,
   type SummaryGeneratorFn,
 } from "../compact/index.js";
-export { estimateTextTokenCount, ceilTokenEstimate } from "../compact/index.js";
+export {
+  estimateTextTokenCount,
+  ceilTokenEstimate,
+  providerPromptTokens,
+} from "../compact/index.js";
 export {
   AgentOrchestrator,
   type AgentOrchestratorDeps,
