@@ -57,6 +57,12 @@
   --mt-info-dark:     #1d4ed8;
   --mt-info-light:    #93c5fd;
 
+  /* 指标卡分色（原型 --tone-a..d）：只用于区分四张卡，不承载语义 */
+  --mt-tone-a: #38bdf8;
+  --mt-tone-b: #2dd4bf;
+  --mt-tone-c: #60a5fa;
+  --mt-tone-d: #fb923c;
+
   /* 渐变集合 */
   --mt-grad-auth:        linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   --mt-grad-quota:       linear-gradient(90deg, #3b82f6 0%, #8b5cf6 100%);
@@ -207,58 +213,64 @@
   --mt-shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
-/* ---- 3. 浅色主题 (参考 光模式美学 UI 设计规范) ---- */
+/* ---- 3. 浅色主题 (对齐 demos/ui-tech-refresh 的冷调浅色) ---- */
 [data-theme="light"] {
-  /* 表面层级 — 暖奶油色调（来自设计稿 #F5F1E9 系列） */
-  --mt-bg-primary:   #F5F1E9;   /* 暖奶油主画布 */
-  --mt-bg-secondary: #EDE8DD;   /* 侧边栏、卡片背景 */
-  --mt-bg-tertiary:  #E4DECE;   /* 输入填充、hover 态 */
-  --mt-bg-elevated:  #F9F6EE;   /* 卡片/代码块浮层 */
-  --mt-bg-overlay:   rgba(31, 30, 27, 0.06);  /* 浅色遮罩 — 极浅暖黑，用于内嵌区块背景 */
-  --mt-bg-modal-overlay: rgba(31, 30, 27, 0.40); /* 全屏Modal遮罩 */
+  /* 表面层级 — 冷调蓝灰（原型 --bg/--surface 系列） */
+  --mt-bg-primary:   #f3f5f9;   /* 主画布 */
+  --mt-bg-secondary: #ffffff;   /* 侧边栏、卡片背景 */
+  --mt-bg-tertiary:  #e8eef6;   /* 输入填充、hover 态 */
+  --mt-bg-elevated:  #ffffff;   /* 卡片/代码块浮层 */
+  --mt-bg-overlay:   rgba(15, 23, 42, 0.05);  /* 内嵌区块背景 */
+  --mt-bg-modal-overlay: rgba(15, 23, 42, 0.40); /* 全屏Modal遮罩 */
 
-  /* 毛玻璃 (浅色暖白版) */
-  --mt-glass-bg:     rgba(249, 246, 238, 0.80);  /* 暖白 80% */
-  --mt-glass-stroke: rgba(31, 30, 27, 0.08);
+  /* 毛玻璃 (浅色冷白版) */
+  --mt-glass-bg:     rgba(255, 255, 255, 0.82);
+  --mt-glass-stroke: rgba(15, 23, 42, 0.08);
   --mt-glass-blur:   24px;
 
-  /* 内嵌表面层级 — 暖奶油系 */
-  --mt-surface-2: #EDE8DD;
-  --mt-surface-3: #E4DECE;
+  /* 内嵌表面层级 — 冷调蓝灰 */
+  --mt-surface-2: #f7f9fc;
+  --mt-surface-3: #e8eef6;
 
   /* 语音 / 思考态语义色 — 浅色下加深保证对比 */
   --mt-violet: #7c3aed;
 
-  /* 卡片斜向高光 + 页面底噪光斑 — 暖调低强度 */
-  --mt-shine: linear-gradient(145deg, rgba(37, 99, 235, 0.05), transparent 48%);
+  /* 卡片斜向高光 + 页面底噪光斑 — 冷调低强度（原型 --shine/--mesh） */
+  --mt-shine: linear-gradient(145deg, rgba(14, 165, 233, 0.05), transparent 48%);
   --mt-mesh:
-    radial-gradient(ellipse 72% 48% at 10% -8%, rgba(37, 99, 235, 0.07), transparent),
-    radial-gradient(ellipse 48% 38% at 90% 6%, rgba(14, 165, 233, 0.05), transparent),
-    radial-gradient(ellipse 55% 32% at 48% 110%, rgba(180, 83, 9, 0.04), transparent);
+    radial-gradient(ellipse 72% 48% at 10% -8%, rgba(14, 165, 233, 0.09), transparent),
+    radial-gradient(ellipse 48% 38% at 90% 6%, rgba(37, 99, 235, 0.07), transparent),
+    radial-gradient(ellipse 55% 32% at 48% 110%, rgba(13, 148, 136, 0.05), transparent);
 
   /* 代码块 / 展开体底色 */
-  --mt-code-bg: rgba(31, 30, 27, 0.04);
+  --mt-code-bg: rgba(15, 23, 42, 0.04);
 
-  /* 前景文字 — 暖棕色系 */
-  --mt-fg-1: #1F1E1B;   /* 主文本，近黑暖棕 */
-  --mt-fg-2: #504E49;   /* 次要文本 */
-  --mt-fg-3: #8A8578;   /* 三级/说明/图标 */
-  --mt-fg-4: #B5B09F;   /* 占位符/禁用 */
-  --mt-fg-inverse: #F5F1E9;  /* 深色背景上的文字 */
+  /* 指标卡分色：浅色下压深，保证在浅底上仍有对比 */
+  --mt-tone-a: #0284c7;
+  --mt-tone-b: #0d9488;
+  --mt-tone-c: #2563eb;
+  --mt-tone-d: #ea580c;
 
-  /* 边框 — 暖灰系 */
-  --mt-border:          #DDD7C6;   /* 标准分割线 */
-  --mt-border-light:    #E8E2D2;   /* 柔和分割线 */
-  --mt-border-dark:     #C8C2B0;   /* 强调边框 */
-  --mt-border-hairline: rgba(31, 30, 27, 0.06);
+  /* 前景文字 — 冷调 Slate（原型 --fg1..--fg4） */
+  --mt-fg-1: #0f172a;   /* 主文本 */
+  --mt-fg-2: #334155;   /* 次要文本 */
+  --mt-fg-3: #64748b;   /* 三级/说明/图标 */
+  --mt-fg-4: #94a3b8;   /* 占位符/禁用 */
+  --mt-fg-inverse: #f3f5f9;  /* 深色背景上的文字 */
 
-  /* 阴影 — 暖棕调 */
-  --mt-shadow-xs:  0 1px 2px rgba(31, 30, 27, 0.06);
-  --mt-shadow-sm:  0 2px 4px rgba(31, 30, 27, 0.06), 0 1px 1px rgba(31, 30, 27, 0.04);
-  --mt-shadow-md:  0 6px 14px rgba(31, 30, 27, 0.08), 0 2px 4px rgba(31, 30, 27, 0.05);
-  --mt-shadow-lg:  0 18px 32px rgba(31, 30, 27, 0.10), 0 4px 8px rgba(31, 30, 27, 0.06);
-  --mt-shadow-xl:  0 30px 60px rgba(31, 30, 27, 0.12);
-  --mt-shadow-glow: 0 0 0 1px rgba(37, 99, 235, 0.20), 0 10px 40px rgba(37, 99, 235, 0.15);
+  /* 边框 — 冷调半透明（原型 --border/--hairline） */
+  --mt-border:          rgba(15, 23, 42, 0.08);   /* 标准分割线 */
+  --mt-border-light:    rgba(15, 23, 42, 0.05);   /* 柔和分割线 */
+  --mt-border-dark:     rgba(15, 23, 42, 0.14);   /* 强调边框 */
+  --mt-border-hairline: rgba(15, 23, 42, 0.045);
+
+  /* 阴影 — 冷调 Slate（原型 --shadow: 0 10px 28px rgba(15,23,42,.07)） */
+  --mt-shadow-xs:  0 1px 2px rgba(15, 23, 42, 0.05);
+  --mt-shadow-sm:  0 2px 4px rgba(15, 23, 42, 0.06), 0 1px 1px rgba(15, 23, 42, 0.04);
+  --mt-shadow-md:  0 6px 14px rgba(15, 23, 42, 0.07), 0 2px 4px rgba(15, 23, 42, 0.05);
+  --mt-shadow-lg:  0 10px 28px rgba(15, 23, 42, 0.07), 0 4px 8px rgba(15, 23, 42, 0.05);
+  --mt-shadow-xl:  0 30px 60px rgba(15, 23, 42, 0.12);
+  --mt-shadow-glow: 0 0 0 1px rgba(14, 165, 233, 0.22), 0 10px 40px rgba(37, 99, 235, 0.15);
   --mt-shadow-inner: inset 0 1px 0 rgba(255, 255, 255, 0.60);  /* 浅色内高光 */
 }
 

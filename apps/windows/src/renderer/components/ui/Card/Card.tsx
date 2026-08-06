@@ -10,6 +10,8 @@ export interface CardProps {
   hover?: boolean;
   onClick?: () => void;
   className?: string;
+  /** 让 children 直接参与 .card 的布局（外层自带 padding / flex 时用） */
+  flush?: boolean;
 }
 
 const Card: React.FC<CardProps> = ({
@@ -20,9 +22,19 @@ const Card: React.FC<CardProps> = ({
   hover = false,
   onClick,
   className = '',
+  flush = false,
 }) => {
   return (
-    <div className={clsx(styles.card, hover && styles['card-hover'], onClick && styles['card-clickable'], className)} onClick={onClick}>
+    <div
+      className={clsx(
+        styles.card,
+        hover && styles['card-hover'],
+        onClick && styles['card-clickable'],
+        flush && styles['card-flush'],
+        className,
+      )}
+      onClick={onClick}
+    >
       {(title || header) && (
         <div className={styles['card-header']}>
           {header || (title && <h4 className={styles['card-title']}>{title}</h4>)}

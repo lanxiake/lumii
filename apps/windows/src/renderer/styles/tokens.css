@@ -426,10 +426,10 @@
 
 /* 浅色主题 RGB 变体 */
 [data-theme="light"] {
-  --mt-surface-rgb: 249, 246, 238; /* #F9F6EE elevated bg */
-  --mt-fg-rgb: 31, 30, 27;        /* #1F1E1B 暖棕文字 */
-  /* 登录页：暖色画布渐变（与 --mt-bg-primary 同系，避免冷紫与卡片冲突） */
-  --gradient-auth-start: #f5f1e9;
-  --gradient-auth-end: #ede8dd;
-  --mt-grad-auth: linear-gradient(168deg, #f5f1e9 0%, #ede8dd 55%, #f0ebe0 100%);
+  --mt-surface-rgb: 255, 255, 255; /* #ffffff elevated bg */
+  --mt-fg-rgb: 15, 23, 42;        /* #0f172a 冷调文字 */
+  /* 冷调浅色画布渐变（与 --mt-bg-primary 同系） */
+  --gradient-auth-start: #f3f5f9;
+  --gradient-auth-end: #e8eef6;
+  --mt-grad-auth: linear-gradient(168deg, #f3f5f9 0%, #e8eef6 55%, #eef2f8 100%);
 }
