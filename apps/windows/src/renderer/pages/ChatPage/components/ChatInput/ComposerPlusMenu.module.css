@@ -238,6 +238,11 @@
   white-space: nowrap;
 }
 
+.listNameError {
+  color: var(--mt-danger, #e5484d);
+  font-weight: 400;
+}
+
 .listDesc {
   font-size: 11px;
   color: var(--mt-fg-3, var(--color-text-secondary));

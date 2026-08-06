@@ -6,11 +6,12 @@
  */
 
 import React, { useMemo, useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronRight, Ellipsis, Plus, RefreshCw } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronRight, Ellipsis, FileJson, Plus, RefreshCw } from 'lucide-react'
 import { Button, Empty, Input, Loading, Switch } from '../ui'
 import { useToolSearch } from '../../hooks/business/useToolSearch'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import type { McpServerConfigInput } from '@shared/agent-runtime-commands'
+import { McpConfigFileModal } from './McpConfigFileModal'
 import { McpServerEditModal } from './McpServerEditModal'
 import { type McpServer, useMcpServers } from './useMcpServers'
 import styles from './McpServersPanel.module.css'
@@ -36,11 +37,24 @@ function statusClass(server: McpServer): string {
 }
 
 export const McpServersPanel: React.FC = () => {
-  const { servers, isLoading, error, busyName, refresh, upsert, importServers, remove, setEnabled, reconnect } =
-    useMcpServers()
+  const {
+    servers,
+    isLoading,
+    error,
+    busyName,
+    refresh,
+    upsert,
+    importServers,
+    remove,
+    setEnabled,
+    reconnect,
+    readConfigFile,
+    writeConfigFile,
+  } = useMcpServers()
   // 工具的单个开关沿用现成的 tools:toggle，不另造一套
   const { tools, togglingTool, toggleTool, refresh: refreshTools } = useToolSearch()
   const [editOpen, setEditOpen] = useState(false)
+  const [configFileOpen, setConfigFileOpen] = useState(false)
   const [editing, setEditing] = useState<McpServerConfigInput | undefined>(undefined)
   const [menuOpenFor, setMenuOpenFor] = useState<string | null>(null)
   const [removingName, setRemovingName] = useState<string | null>(null)
@@ -139,6 +153,14 @@ export const McpServersPanel: React.FC = () => {
           <Button variant="ghost" size="sm" onClick={refreshAll} title="刷新状态">
             <RefreshCw size={14} />
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setConfigFileOpen(true)}
+            title="编辑 mcp-servers.json"
+          >
+            <FileJson size={14} /> 配置文件
+          </Button>
           <Button size="sm" onClick={openAdd}>
             <Plus size={14} /> 添加
           </Button>
@@ -163,7 +185,7 @@ export const McpServersPanel: React.FC = () => {
       {isLoading ? (
         <Loading text="读取 MCP 配置中..." />
       ) : servers.length === 0 ? (
-        <Empty description="还没有配置 MCP Server，点「添加」粘贴官方配置即可" />
+        <Empty description="还没有配置 MCP Server，点「添加」或「配置文件」即可接入" />
       ) : visible.length === 0 ? (
         <Empty description="没有匹配的 Server 或工具" />
       ) : (
@@ -193,6 +215,11 @@ export const McpServersPanel: React.FC = () => {
                 <div className={styles['server-title-row']}>
                   <span className={styles['server-name']}>{server.name}</span>
                   <span className={styles['server-status']}>{statusText(server)}</span>
+                  {server.lastError && server.enabled !== false && (
+                    <span className={styles['server-error-inline']} title={server.lastError}>
+                      {server.lastError}
+                    </span>
+                  )}
                   {server.tools.length > 0 && (
                     <button
                       type="button"
@@ -204,9 +231,6 @@ export const McpServersPanel: React.FC = () => {
                   )}
                 </div>
                 <code className={styles['server-command']}>{commandSummary(server)}</code>
-                {server.lastError && server.enabled !== false && (
-                  <span className={styles['server-error']}>{server.lastError}</span>
-                )}
               </div>
 
               <Switch
@@ -287,7 +311,7 @@ export const McpServersPanel: React.FC = () => {
       )}
 
       <p className={styles['panel-foot']}>
-        配置存于 <code>~/.lumii/config/mcp-servers.json</code>，格式与其他 MCP 客户端一致。
+        配置存于 <code>~/.lumii/config/mcp-servers.json</code>，可用「配置文件」在客户端内直接编辑。
       </p>
 
       <McpServerEditModal
@@ -295,6 +319,14 @@ export const McpServersPanel: React.FC = () => {
         editing={editing}
         onClose={() => setEditOpen(false)}
         onSubmit={handleSubmit}
+      />
+
+      <McpConfigFileModal
+        open={configFileOpen}
+        onClose={() => setConfigFileOpen(false)}
+        onRead={readConfigFile}
+        onWrite={writeConfigFile}
+        onSaved={() => void refreshTools()}
       />
 
       <ConfirmModal

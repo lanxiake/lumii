@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import type { McpServerConfigInput, McpServerStatusResult } from '@shared/agent-runtime-commands'
+import type { McpServerConfigInput, McpServerStatusResult, McpStatusPayload } from '@shared/agent-runtime-commands'
 
 export type McpServer = McpServerStatusResult
 
@@ -20,6 +20,8 @@ type McpCommand =
   | { type: 'mcp:remove'; name: string }
   | { type: 'mcp:setEnabled'; name: string; enabled: boolean }
   | { type: 'mcp:reconnect'; name: string }
+  | { type: 'mcp:readConfigFile' }
+  | { type: 'mcp:writeConfigFile'; content: string }
 
 function send<T>(command: McpCommand): Promise<T> {
   return window.electronAPI.agentRuntime.sendCommand(command) as Promise<T>
@@ -34,9 +36,9 @@ export function useMcpServers() {
 
   const refresh = useCallback(async () => {
     try {
-      const result = await send<readonly McpServer[]>({ type: 'mcp:status' })
-      setServers(result ?? [])
-      setError(null)
+      const result = await send<McpStatusPayload>({ type: 'mcp:status' })
+      setServers(result?.servers ?? [])
+      setError(result?.configError ?? null)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -97,6 +99,18 @@ export function useMcpServers() {
     [mutate],
   )
 
+  /** 读取 mcp-servers.json 原文 */
+  const readConfigFile = useCallback(
+    () => send<{ path: string; content: string }>({ type: 'mcp:readConfigFile' }),
+    [],
+  )
+
+  /** 写入原文并全量重载 */
+  const writeConfigFile = useCallback(
+    (content: string) => mutate('', () => send<MutationResult>({ type: 'mcp:writeConfigFile', content })),
+    [mutate],
+  )
+
   return {
     servers,
     isLoading,
@@ -109,5 +123,7 @@ export function useMcpServers() {
     remove,
     setEnabled,
     reconnect,
+    readConfigFile,
+    writeConfigFile,
   }
 }

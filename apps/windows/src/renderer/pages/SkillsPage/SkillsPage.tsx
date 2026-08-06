@@ -835,7 +835,16 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
                           {server.connected
                             ? <Circle size={8} className={styles['status-dot-online']} />
                             : <Circle size={8} className={styles['status-dot-offline']} />
-                          } {server.name}（{serverTools.length} 个工具）
+                          }{' '}
+                          {server.name}（{serverTools.length} 个工具）
+                          {server.lastError && !server.connected ? (
+                            <span
+                              style={{ marginLeft: 8, color: 'var(--mt-error)', fontWeight: 400, fontSize: 12 }}
+                              title={server.lastError}
+                            >
+                              {server.lastError}
+                            </span>
+                          ) : null}
                         </h3>
                         {serverTools.map((tool) => (
                           <ToolCard

@@ -1,8 +1,7 @@
 /**
  * MCP Server 新增/编辑弹窗
  *
- * 三种录入方式：
- *   常用服务 —— 从内置清单里挑，点一下填好表单
+ * 两种录入方式：
  *   表单 —— 逐字段填，适合改一两个参数
  *   JSON —— 粘贴官方文档里的配置块，支持一次导入多个
  */
@@ -11,7 +10,6 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Button, Input, Modal } from '../ui'
 import type { McpServerConfigInput } from '@shared/agent-runtime-commands'
 import { parseMcpJson } from './parse-mcp-json'
-import { MCP_PRESETS, MCP_PRESET_CATEGORIES, type McpPreset, type McpPresetCategory } from '@shared/mcp-presets'
 import styles from './McpServersPanel.module.css'
 
 interface McpServerEditModalProps {
@@ -49,9 +47,8 @@ function textToEnv(text: string): Record<string, string> | undefined {
 }
 
 export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, editing, onClose, onSubmit }) => {
-  // 新增默认停在「常用服务」，编辑时直接进表单
-  const [mode, setMode] = useState<'presets' | 'form' | 'json'>('presets')
-  const [presetCat, setPresetCat] = useState<McpPresetCategory>('office')
+  // 新增默认进 JSON（最常见是粘贴官方配置），编辑进表单
+  const [mode, setMode] = useState<'form' | 'json'>('json')
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
   const [argsText, setArgsText] = useState('')
@@ -59,17 +56,13 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
   const [cwd, setCwd] = useState('')
   const [jsonText, setJsonText] = useState('')
   const [error, setError] = useState<string | null>(null)
-  /** 刚选中的预置项，用于在表单顶部提示还要补什么，与报错分开显示 */
-  const [notice, setNotice] = useState<McpPreset | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   // 每次打开都从 editing 重置，避免残留上一次的输入
   useEffect(() => {
     if (!open) return
-    setMode(editing ? 'form' : 'presets')
-    setPresetCat('office')
+    setMode(editing ? 'form' : 'json')
     setError(null)
-    setNotice(null)
     setName(editing?.name ?? '')
     setCommand(editing?.command ?? '')
     setArgsText((editing?.args ?? []).join('\n'))
@@ -77,18 +70,6 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
     setCwd(editing?.cwd ?? '')
     setJsonText('')
   }, [open, editing])
-
-  /** 选中预置项：填进表单让用户核对路径/密钥，不直接保存 */
-  const applyPreset = (preset: McpPreset) => {
-    setName(preset.name)
-    setCommand(preset.command)
-    setArgsText(preset.args.join('\n'))
-    setEnvText(envToText(preset.env))
-    setCwd('')
-    setError(null)
-    setNotice(preset)
-    setMode('form')
-  }
 
   /** JSON 模式下实时预览将导入哪些 Server */
   const jsonPreview = useMemo(() => (mode === 'json' && jsonText.trim() ? parseMcpJson(jsonText) : null), [mode, jsonText])
@@ -134,29 +115,16 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={submitting}>取消</Button>
-          {mode !== 'presets' && (
-            <Button onClick={() => void handleSubmit()} loading={submitting}>
-              {mode === 'json' && jsonPreview?.ok && jsonPreview.entries.length > 1
-                ? `导入 ${jsonPreview.entries.length} 个`
-                : '保存'}
-            </Button>
-          )}
+          <Button onClick={() => void handleSubmit()} loading={submitting}>
+            {mode === 'json' && jsonPreview?.ok && jsonPreview.entries.length > 1
+              ? `导入 ${jsonPreview.entries.length} 个`
+              : '保存'}
+          </Button>
         </>
       }
     >
       <div className={styles['edit-body']}>
         <div className={styles['mode-tabs']} role="tablist">
-          {!editing && (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === 'presets'}
-              className={mode === 'presets' ? styles['mode-tab-active'] : styles['mode-tab']}
-              onClick={() => { setMode('presets'); setError(null) }}
-            >
-              常用服务
-            </button>
-          )}
           <button
             type="button"
             role="tab"
@@ -177,38 +145,7 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
           </button>
         </div>
 
-        {mode === 'presets' ? (
-          <div className={styles['preset-wrap']}>
-            <div className={styles['preset-cats']}>
-              {MCP_PRESET_CATEGORIES.map((cat) => (
-                <button
-                  key={cat.id}
-                  type="button"
-                  className={presetCat === cat.id ? styles['preset-cat-active'] : styles['preset-cat']}
-                  onClick={() => setPresetCat(cat.id)}
-                >
-                  {cat.label}
-                </button>
-              ))}
-            </div>
-            <ul className={styles['preset-list']}>
-              {MCP_PRESETS.filter((p) => p.categories.includes(presetCat)).map((preset) => (
-                <li key={preset.name}>
-                  <button type="button" className={styles['preset-item']} onClick={() => applyPreset(preset)}>
-                    <span className={styles['preset-title']}>
-                      {preset.title}
-                      {preset.todo && <span className={styles['preset-badge']}>需配置</span>}
-                    </span>
-                    <span className={styles['preset-desc']}>{preset.description}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <span className={styles['field-hint']}>
-              点一下把配置填进表单，核对后保存即生效。首次连接会自动下载依赖，可能要等十几秒
-            </span>
-          </div>
-        ) : mode === 'form' ? (
+        {mode === 'form' ? (
           <>
             <label className={styles['field']}>
               <span className={styles['field-label']}>名称</span>
@@ -277,20 +214,6 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
           </label>
         )}
 
-        {notice && mode === 'form' && (
-          <div className={styles['edit-notice']}>
-            已填入「{notice.title}」{notice.todo ? `，还需要：${notice.todo}` : '，可直接保存'}
-            {notice.keyUrl && (
-              <button
-                type="button"
-                className={styles['notice-link']}
-                onClick={() => void window.electronAPI.app.openExternal(notice.keyUrl!)}
-              >
-                去申请 Key
-              </button>
-            )}
-          </div>
-        )}
         {error && <div className={styles['edit-error']}>{error}</div>}
       </div>
     </Modal>

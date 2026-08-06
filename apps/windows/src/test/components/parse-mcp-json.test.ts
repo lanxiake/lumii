@@ -34,10 +34,37 @@ describe('parseMcpJson', () => {
     expect(result.ok && result.entries.map((e) => e.name)).toEqual(['a', 'b'])
   })
 
-  it('缺少 command 时报错，不静默产出半个配置', () => {
+  it('缺少 command 且没有 url 时报错，不静默产出半个配置', () => {
     const result = parseMcpJson('{"mcpServers":{"broken":{"args":["x"]}}}')
     expect(result.ok).toBe(false)
     expect(result.ok === false && result.error).toContain('command')
+  })
+
+  it('仅有 url 的 HTTP MCP 自动转成 npx mcp-remote', () => {
+    const result = parseMcpJson(JSON.stringify({
+      mcpServers: {
+        firecrawl: { url: 'https://mcp.firecrawl.dev/token/v2/mcp' },
+      },
+    }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.entries[0]).toEqual({
+      name: 'firecrawl',
+      command: 'npx',
+      args: ['-y', 'mcp-remote@latest', 'https://mcp.firecrawl.dev/token/v2/mcp'],
+    })
+  })
+
+  it('非法名称与 disabled 会被规范化', () => {
+    const result = parseMcpJson(JSON.stringify({
+      mcpServers: {
+        'github.com/org/mcp-tool': { command: 'node', args: ['x.js'], disabled: true },
+      },
+    }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.entries[0]?.name).toBe('github-com-org-mcp-tool')
+    expect(result.entries[0]?.enabled).toBe(false)
   })
 
   it('拒绝空内容、坏 JSON 和错误的 args 类型', () => {

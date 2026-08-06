@@ -76,10 +76,91 @@ export function expandEntry(entry: McpServerEntry): McpServerEntry {
 }
 
 /**
+ * 名称只保留字母数字下划线短横线
+ *
+ * Cursor 配置里常见 github.com/org/repo，本客户端校验不允许 `/` `.`。
+ */
+function sanitizeMcpName(name: string): string {
+  const cleaned = name
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+  return cleaned || 'mcp-server'
+}
+
+/**
+ * 规范化单条原始记录：补 name、把 url-only 转成 mcp-remote、disabled→enabled
+ */
+function normalizeRawEntry(name: string, rec: McpServerRecord & { url?: string; disabled?: boolean }): McpServerEntry | null {
+  const safeName = sanitizeMcpName(name)
+  let command = rec.command
+  let args = rec.args
+
+  // HTTP/SSE MCP（只有 url）：用 mcp-remote 桥成 stdio
+  if ((!command || !String(command).trim()) && typeof rec.url === 'string' && rec.url.trim()) {
+    command = 'npx'
+    args = ['-y', 'mcp-remote@latest', rec.url.trim()]
+  }
+
+  if (!safeName || !command || !String(command).trim()) {
+    log.warn(`[normalizeRawEntry] 跳过无效条目（缺少 name 或 command/url）: ${JSON.stringify({ name, ...rec })}`)
+    return null
+  }
+
+  let enabled = rec.enabled
+  if (enabled === undefined && typeof rec.disabled === 'boolean') {
+    enabled = !rec.disabled
+  }
+
+  return {
+    name: safeName,
+    command: String(command).trim(),
+    ...(args ? { args } : {}),
+    ...(rec.env ? { env: rec.env } : {}),
+    ...(rec.cwd ? { cwd: rec.cwd } : {}),
+    ...(enabled !== undefined ? { enabled } : {}),
+  }
+}
+
+/** 解析配置文本为条目列表；失败时抛出带原因的 Error */
+export function parseMcpServerConfigs(raw: string): McpServerEntry[] {
+  let parsed: McpServersFile & {
+    mcpServers?: Record<string, McpServerRecord & { url?: string; disabled?: boolean }>
+  }
+  try {
+    parsed = JSON.parse(raw) as typeof parsed
+  } catch (err) {
+    throw new Error(`配置文件 JSON 解析失败：${(err as Error).message}`)
+  }
+
+  if (!parsed.mcpServers && !Array.isArray(parsed.servers)) {
+    throw new Error('配置文件格式错误：缺少 mcpServers 对象或 servers 数组')
+  }
+
+  // 标准格式优先，旧数组格式兼容；url-only / disabled / 非法名称一并规范化
+  const rawPairs: Array<{ name: string; rec: McpServerRecord & { url?: string; disabled?: boolean } }> =
+    parsed.mcpServers
+      ? Object.entries(parsed.mcpServers).map(([name, rec]) => ({ name, rec }))
+      : (parsed.servers ?? []).map((entry) => {
+          const { name, ...rec } = entry as McpServerEntry & { url?: string; disabled?: boolean }
+          return { name, rec }
+        })
+
+  const entries: McpServerEntry[] = []
+  for (const { name, rec } of rawPairs) {
+    const entry = normalizeRawEntry(name, rec)
+    if (entry) entries.push(entry)
+  }
+
+  return entries
+}
+
+/**
  * 加载 MCP Server 配置列表（原始值，未展开环境变量）
  *
- * 若配置文件不存在，返回空数组（静默跳过）。
- * 若文件解析失败，记录错误并返回空数组。
+ * 若配置文件不存在，先播种默认清单。
+ * 若文件解析失败，抛错（由调用方写入 lastError / UI）。
  */
 export function loadMcpServerConfigs(): McpServerEntry[] {
   const configPath = getMcpConfigPath()
@@ -93,41 +174,52 @@ export function loadMcpServerConfigs(): McpServerEntry[] {
   try {
     raw = fs.readFileSync(configPath, 'utf-8')
   } catch (err) {
-    log.error(`[loadMcpServerConfigs] 读取配置文件失败: ${(err as Error).message}`)
-    return []
+    const message = `读取配置文件失败: ${(err as Error).message}`
+    log.error(`[loadMcpServerConfigs] ${message}`)
+    throw new Error(message)
   }
 
-  let parsed: McpServersFile
-  try {
-    parsed = JSON.parse(raw) as McpServersFile
-  } catch (err) {
-    log.error(`[loadMcpServerConfigs] 配置文件 JSON 解析失败: ${(err as Error).message}`)
-    return []
-  }
-
-  // 标准格式优先，旧数组格式兼容
-  const rawEntries: McpServerEntry[] = parsed.mcpServers
-    ? Object.entries(parsed.mcpServers).map(([name, rec]) => ({ ...rec, name }))
-    : Array.isArray(parsed.servers)
-      ? parsed.servers
-      : []
-
-  if (!parsed.mcpServers && !Array.isArray(parsed.servers)) {
-    log.warn('[loadMcpServerConfigs] 配置文件格式错误：缺少 mcpServers 对象或 servers 数组')
-    return []
-  }
-
-  const entries = rawEntries.filter((entry) => {
-    if (!entry.name || !entry.command) {
-      log.warn(`[loadMcpServerConfigs] 跳过无效条目（缺少 name 或 command）: ${JSON.stringify(entry)}`)
-      return false
-    }
-    return true
-  })
-
+  const entries = parseMcpServerConfigs(raw)
   const enabledCount = entries.filter((e) => e.enabled !== false).length
   log.info(`[loadMcpServerConfigs] 加载完成，共 ${entries.length} 个 Server，${enabledCount} 个已启用`)
+  return entries
+}
 
+/** 读取 mcp-servers.json 原文（不存在则先播种） */
+export function readMcpConfigRaw(): { path: string; content: string } {
+  const configPath = getMcpConfigPath()
+  if (!fs.existsSync(configPath)) {
+    seedDefaultMcpServers()
+  }
+  if (!fs.existsSync(configPath)) {
+    const empty = '{\n  "mcpServers": {}\n}\n'
+    fs.mkdirSync(path.dirname(configPath), { recursive: true })
+    fs.writeFileSync(configPath, empty, 'utf-8')
+    return { path: configPath, content: empty }
+  }
+  return { path: configPath, content: fs.readFileSync(configPath, 'utf-8') }
+}
+
+/**
+ * 校验并写入 mcp-servers.json 原文
+ *
+ * 先 parse + validate，再落盘，避免写坏文件后连不上。
+ */
+export function writeMcpConfigRaw(content: string): McpServerEntry[] {
+  const entries = parseMcpServerConfigs(content)
+  for (const entry of entries) {
+    const error = validateMcpServerEntry(entry)
+    if (error) throw new Error(`MCP Server「${entry.name}」配置无效：${error}`)
+  }
+  const names = new Set<string>()
+  for (const entry of entries) {
+    if (names.has(entry.name)) throw new Error(`MCP Server 名称重复：${entry.name}`)
+    names.add(entry.name)
+  }
+
+  // 规范化为标准 mcpServers 格式再写回，避免用户粘贴旧数组格式后下次编辑不一致
+  saveMcpServerConfigs(entries)
+  log.info(`[writeMcpConfigRaw] 已写入 ${entries.length} 个 Server 到 ${getMcpConfigPath()}`)
   return entries
 }
 

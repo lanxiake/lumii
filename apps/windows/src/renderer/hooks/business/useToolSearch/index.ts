@@ -19,6 +19,9 @@ export interface ToolInfo {
 export interface McpServerStatus {
   name: string
   connected: boolean
+  connecting?: boolean
+  enabled?: boolean
+  lastError?: string
 }
 
 const BUILTIN_TOOL_I18N: Record<string, { label: string; description: string }> = {
@@ -68,10 +71,16 @@ export function useToolSearch() {
     try {
       const [toolsResult, mcpResult] = await Promise.all([
         window.electronAPI.agentRuntime.sendCommand({ type: 'tools:list' }) as Promise<ToolInfo[]>,
-        window.electronAPI.agentRuntime.sendCommand({ type: 'mcp:status' }) as Promise<McpServerStatus[]>,
+        window.electronAPI.agentRuntime.sendCommand({ type: 'mcp:status' }) as Promise<{
+          servers?: McpServerStatus[]
+        }>,
       ])
       setTools(localizeTools(toolsResult ?? []))
-      setMcpStatus(mcpResult ?? [])
+      // 兼容旧版直接返回数组的调用方（若有）
+      const servers = Array.isArray(mcpResult)
+        ? mcpResult
+        : (mcpResult?.servers ?? [])
+      setMcpStatus(servers)
     } catch {
       setTools([])
     } finally {

@@ -9,8 +9,10 @@ import { McpStdioClient, loadMcpTools, type ToolRegistry } from '@mtbot/agent-ru
 import {
   expandEntry,
   loadMcpServerConfigs,
+  readMcpConfigRaw,
   saveMcpServerConfigs,
   validateMcpServerEntry,
+  writeMcpConfigRaw,
   type McpServerEntry,
 } from '../config/mcp-config'
 
@@ -47,11 +49,23 @@ export class McpManager {
   /** 主动断开的 Server，用于抑制 exit 事件里的自动重连 */
   private readonly intentionalStops = new Set<string>()
 
+  /** 配置文件级错误（JSON 损坏等），展示在面板顶部 */
+  private configError: string | null = null
+
   /**
    * 加载并连接配置的 MCP Server，将工具注册到 toolRegistry
    */
   async load(): Promise<void> {
-    const configs = loadMcpServerConfigs()
+    this.configError = null
+    let configs: McpServerEntry[]
+    try {
+      configs = loadMcpServerConfigs()
+    } catch (err) {
+      this.configError = (err as Error).message
+      log.error(`[load] ${this.configError}`)
+      this.configs = new Map()
+      return
+    }
     this.configs = new Map(configs.map((c) => [c.name, c]))
 
     for (const config of configs) {
@@ -98,7 +112,9 @@ export class McpManager {
           log.info(`[connect] ${delay}ms 后尝试重连 [${name}]（第 ${retryCount + 1} 次）`)
           setTimeout(() => void this.connect(config, retryCount + 1), delay)
         } else {
-          log.error(`[connect] MCP Server [${name}] 重连次数已达上限，放弃`)
+          const message = '进程退出后重连次数已达上限'
+          log.error(`[connect] MCP Server [${name}] ${message}`)
+          this.lastErrors.set(name, message)
         }
       })
     } catch (err) {
@@ -152,6 +168,38 @@ export class McpManager {
       tools: this.serverTools.get(config.name) ?? [],
       lastError: this.lastErrors.get(config.name),
     }))
+  }
+
+  /** 配置文件级错误（解析失败等），无则 null */
+  getConfigError(): string | null {
+    return this.configError
+  }
+
+  /** 读取 mcp-servers.json 原文供客户端内编辑 */
+  readConfigFile(): { path: string; content: string } {
+    return readMcpConfigRaw()
+  }
+
+  /**
+   * 写入 mcp-servers.json 原文并全量重载连接
+   *
+   * 先断开全部，再按新配置连接；写失败不改运行时状态。
+   */
+  async writeConfigFile(content: string): Promise<void> {
+    writeMcpConfigRaw(content)
+    await this.reloadFromDisk()
+  }
+
+  /** 从磁盘重新加载配置并重连全部 Server */
+  async reloadFromDisk(): Promise<void> {
+    const names = [...this.configs.keys()]
+    for (const name of names) {
+      await this.disconnect(name)
+    }
+    this.configs.clear()
+    this.lastErrors.clear()
+    this.configError = null
+    await this.load()
   }
 
   /** 新增或更新一条配置并立即生效 */

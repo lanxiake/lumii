@@ -7,9 +7,11 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createInterface, type Interface } from "node:readline";
+import { fileURLToPath } from "node:url";
 
 /** MCP Server 配置 */
 export interface McpServerConfig {
@@ -76,11 +78,9 @@ export interface ResolvedCommand {
 /**
  * 解析 MCP Server 的启动命令
  *
- * npx / npm 优先用**客户端自带的 Node**（Electron 的 process.execPath 配
- * ELECTRON_RUN_AS_NODE）直接跑 npx-cli.js，这样用户机器上没装 Node 也能拉包，
- * 也绕开了 Windows 上 .cmd 找不到的问题。找不到 npm 的 JS 入口时退回 PATH 查找。
- *
- * 其他命令只做 PATH + PATHEXT 补全，不改语义。
+ * npx / npm 优先直接跑 npx-cli.js / npm-cli.js（不走 .cmd，避免弹控制台）。
+ * 解释器优先用系统 node.exe；没有再退回 Electron 的 process.execPath +
+ * ELECTRON_RUN_AS_NODE。其他命令只做 PATH + PATHEXT 补全。
  */
 export function resolveCommand(command: string, execPath = process.execPath): ResolvedCommand {
   const plain = { command, prefixArgs: [] as readonly string[] };
@@ -96,10 +96,129 @@ export function resolveCommand(command: string, execPath = process.execPath): Re
     // 先从 PATH 上的 npx/npm 旁边找 JS 入口；找不到再看自带 Node 同级的
     const entry =
       (found && npmJsEntry(found, script)) ?? npmJsEntry(execPath, script);
-    if (entry) return { command: execPath, prefixArgs: [entry] };
+    if (entry) {
+      // 优先系统 node.exe：CONSOLE 子系统 + windowsHide 比 Electron GUI 更稳
+      const nodeExe = findOnPath("node") ?? execPath;
+      return { command: nodeExe, prefixArgs: [entry] };
+    }
   }
 
   return found ? { command: found, prefixArgs: [] } : plain;
+}
+
+/** 预加载脚本内容（与 windows-hide-spawn-preload.cjs 同源，写入临时目录以便 asar 内外都能 -r） */
+const HIDE_SPAWN_PRELOAD_SOURCE = `"use strict";
+(function () {
+  if (process.platform !== "win32") return;
+  var cp = require("child_process");
+  function withHide(options) {
+    if (options == null) return { windowsHide: true };
+    if (typeof options !== "object") return options;
+    return Object.assign({}, options, { windowsHide: true });
+  }
+  var origSpawn = cp.spawn;
+  cp.spawn = function (command, args, options) {
+    if (args != null && !Array.isArray(args)) { options = args; args = undefined; }
+    return origSpawn.call(this, command, args || [], withHide(options));
+  };
+  var origSpawnSync = cp.spawnSync;
+  cp.spawnSync = function (command, args, options) {
+    if (args != null && !Array.isArray(args)) { options = args; args = undefined; }
+    return origSpawnSync.call(this, command, args || [], withHide(options));
+  };
+  var origExecFile = cp.execFile;
+  cp.execFile = function (file, args, options, callback) {
+    if (typeof args === "function") { callback = args; args = undefined; options = undefined; }
+    else if (typeof options === "function") { callback = options; options = undefined; }
+    else if (args != null && !Array.isArray(args) && typeof args === "object") { options = args; args = undefined; }
+    return origExecFile.call(this, file, args, withHide(options), callback);
+  };
+  var origExecFileSync = cp.execFileSync;
+  cp.execFileSync = function (file, args, options) {
+    if (args != null && !Array.isArray(args) && typeof args === "object") { options = args; args = undefined; }
+    return origExecFileSync.call(this, file, args, withHide(options));
+  };
+  var origFork = cp.fork;
+  cp.fork = function (modulePath, args, options) {
+    if (args != null && !Array.isArray(args) && typeof args === "object") { options = args; args = undefined; }
+    return origFork.call(this, modulePath, args, withHide(options));
+  };
+  var origExec = cp.exec;
+  cp.exec = function (command, options, callback) {
+    if (typeof options === "function") { callback = options; options = undefined; }
+    return origExec.call(this, command, withHide(options), callback);
+  };
+  var origExecSync = cp.execSync;
+  cp.execSync = function (command, options) {
+    return origExecSync.call(this, command, withHide(options));
+  };
+})();
+`;
+
+/** 确保 Windows hide-spawn 预加载脚本落盘，返回绝对路径 */
+function ensureHideSpawnPreload(): string {
+  const dir = path.join(os.tmpdir(), "lumii-mcp");
+  const file = path.join(dir, "windows-hide-spawn-preload.cjs");
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, HIDE_SPAWN_PRELOAD_SOURCE, "utf8");
+  } catch {
+    // 写临时目录失败时退回包内文件（开发态）
+    try {
+      return path.join(path.dirname(fileURLToPath(import.meta.url)), "windows-hide-spawn-preload.cjs");
+    } catch {
+      return file;
+    }
+  }
+  return file;
+}
+
+/**
+ * 判断命令是否为 Node/Electron 解释器（可安全注入 -r 预加载）
+ */
+function isNodeInterpreter(command: string, execPath = process.execPath): boolean {
+  const base = path.basename(command).toLowerCase();
+  if (base === "node.exe" || base === "node") return true;
+  if (command === execPath) return true;
+  if (base === "electron.exe" || base === "electron") return true;
+  return false;
+}
+
+/**
+ * Windows 上给 Node 解释器注入 hide-spawn 预加载；.cmd/.bat 改走隐藏的 cmd /d /s /c
+ */
+function buildSpawnTarget(
+  command: string,
+  args: readonly string[],
+  execPath = process.execPath,
+): { command: string; args: string[]; envExtra: Record<string, string> } {
+  if (process.platform !== "win32") {
+    return { command, args: [...args], envExtra: {} };
+  }
+
+  const lower = command.toLowerCase();
+  if (lower.endsWith(".cmd") || lower.endsWith(".bat")) {
+    const comspec = process.env.ComSpec || "cmd.exe";
+    const quoted = [command, ...args]
+      .map((a) => `"${String(a).replace(/"/g, '\\"')}"`)
+      .join(" ");
+    return {
+      command: comspec,
+      args: ["/d", "/s", "/c", quoted],
+      envExtra: {},
+    };
+  }
+
+  if (isNodeInterpreter(command, execPath)) {
+    const preload = ensureHideSpawnPreload();
+    return {
+      command,
+      args: ["-r", preload, ...args],
+      envExtra: command === execPath ? { ELECTRON_RUN_AS_NODE: "1" } : {},
+    };
+  }
+
+  return { command, args: [...args], envExtra: {} };
 }
 
 /**
@@ -140,22 +259,37 @@ export class McpStdioClient extends EventEmitter {
     if (this.process) return;
 
     const { command, prefixArgs } = resolveCommand(this.config.command);
-    const usingBundledNode = command === process.execPath;
+    const target = buildSpawnTarget(
+      command,
+      [...prefixArgs, ...(this.config.args ?? [])],
+    );
+    const usingBundledNode =
+      target.command === process.execPath || Boolean(target.envExtra.ELECTRON_RUN_AS_NODE);
+    /** 握手前累计的 stderr，失败时拼进错误信息 */
+    let stderrBuf = "";
 
-    this.process = spawn(command, [...prefixArgs, ...(this.config.args ?? [])], {
+    this.process = spawn(target.command, target.args, {
       stdio: ["pipe", "pipe", "pipe"],
       env: {
         ...process.env,
         // 让 Electron 的 execPath 当纯 Node 用，否则会又起一个应用窗口
         ...(usingBundledNode ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+        ...target.envExtra,
         ...this.config.env,
       },
       cwd: this.config.cwd,
+      // Windows 上不隐藏控制台会弹出大量黑窗口（npx/node 子进程尤其明显）
+      windowsHide: true,
     });
 
     if (!this.process.stdout || !this.process.stdin) {
       throw new Error("Failed to create stdio pipes for MCP server process");
     }
+
+    this.process.stderr?.on("data", (chunk: Buffer | string) => {
+      stderrBuf += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+      if (stderrBuf.length > 4000) stderrBuf = stderrBuf.slice(-4000);
+    });
 
     /**
      * spawn 失败（命令不存在、没有执行权限）会走 error 事件
@@ -166,6 +300,21 @@ export class McpStdioClient extends EventEmitter {
     const spawnFailed = new Promise<never>((_, reject) => {
       this.process?.once("error", (err: Error) => {
         reject(new Error(`启动 MCP Server 失败（${this.config.command}）：${err.message}`));
+      });
+    });
+
+    /** 握手完成前进程退出时带上 stderr，便于 UI 展示真实原因 */
+    const exitedEarly = new Promise<never>((_, reject) => {
+      this.process?.once("exit", (code) => {
+        if (this._initialized) return;
+        const detail = stderrBuf.trim();
+        reject(
+          new Error(
+            detail
+              ? `MCP Server 进程提前退出（code=${code}）：${detail.slice(0, 500)}`
+              : `MCP Server 进程提前退出（code=${code}）`,
+          ),
+        );
       });
     });
 
@@ -186,19 +335,30 @@ export class McpStdioClient extends EventEmitter {
       this.cleanup();
     });
 
-    // 初始化握手；spawn 失败时直接以 spawnFailed 的错误结束，不必等握手超时
-    const initResult = (await Promise.race([
-      this.sendRequest("initialize", {
-        protocolVersion: "2024-11-05",
-        capabilities: {},
-        clientInfo: { name: "mtbot-agent-runtime", version: "0.1.0" },
-      }),
-      spawnFailed,
-    ])) as any;
+    // 初始化握手；spawn 失败 / 提前退出时不必等握手超时
+    let initResult: unknown;
+    try {
+      initResult = await Promise.race([
+        this.sendRequest("initialize", {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "mtbot-agent-runtime", version: "0.1.0" },
+        }),
+        spawnFailed,
+        exitedEarly,
+      ]);
+    } catch (err) {
+      const detail = stderrBuf.trim();
+      if (detail && err instanceof Error && !err.message.includes(detail.slice(0, 80))) {
+        throw new Error(`${err.message}\n${detail.slice(0, 500)}`);
+      }
+      throw err;
+    }
 
     // 提取服务器说明（如果有）
-    if (initResult?.serverInfo?.instructions) {
-      this._instructions = initResult.serverInfo.instructions;
+    const typed = initResult as { serverInfo?: { instructions?: string } } | null;
+    if (typed?.serverInfo?.instructions) {
+      this._instructions = typed.serverInfo.instructions;
     }
 
     // 发送 initialized 通知

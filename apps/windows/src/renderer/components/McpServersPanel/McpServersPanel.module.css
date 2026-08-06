@@ -183,6 +183,17 @@
   color: var(--mt-error);
 }
 
+/* 紧跟服务名后的错误摘要：单行省略，完整内容放 title */
+.server-error-inline {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--mt-fs-xs, 11px);
+  color: var(--mt-error);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---- 展开的工具列表 ---- */
 
 .tool-list {
@@ -459,115 +470,6 @@
 .preview-err {
   font-size: var(--mt-fs-xs, 11px);
   color: var(--mt-error);
-}
-
-/* ---- 常用服务清单 ---- */
-
-.preset-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.preset-cats {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.preset-cat,
-.preset-cat-active {
-  padding: 4px 11px;
-  border: 1px solid var(--mt-border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--mt-fg-3);
-  font-size: var(--mt-fs-xs, 12px);
-  cursor: pointer;
-}
-
-.preset-cat:hover {
-  color: var(--mt-fg-1);
-}
-
-.preset-cat-active {
-  border-color: color-mix(in srgb, var(--mt-accent-500) 55%, transparent);
-  background: color-mix(in srgb, var(--mt-accent-500) 14%, transparent);
-  color: var(--mt-fg-1);
-  font-weight: 600;
-}
-
-.preset-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 320px;
-  overflow-y: auto;
-}
-
-.preset-item {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 9px 11px;
-  border: 1px solid var(--mt-border);
-  border-radius: 10px;
-  background: var(--mt-surface-2);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color var(--mt-dur-fast, 140ms) ease;
-}
-
-.preset-item:hover {
-  border-color: color-mix(in srgb, var(--mt-accent-500) 45%, var(--mt-border));
-}
-
-.preset-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: var(--mt-fs-sm, 13px);
-  font-weight: 600;
-  color: var(--mt-fg-1);
-}
-
-.preset-badge {
-  padding: 1px 6px;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--mt-warning) 16%, transparent);
-  color: var(--mt-warning);
-  font-size: var(--mt-fs-xs, 11px);
-  font-weight: 500;
-}
-
-.preset-desc {
-  font-size: var(--mt-fs-xs, 11px);
-  color: var(--mt-fg-3);
-  line-height: 1.5;
-}
-
-.notice-link {
-  margin-left: 6px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--mt-accent-400);
-  font-size: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
-
-.edit-notice {
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 34%, transparent);
-  background: color-mix(in srgb, var(--mt-accent-500) 8%, transparent);
-  border-radius: 8px;
-  font-size: var(--mt-fs-sm, 13px);
-  color: var(--mt-fg-2);
 }
 
 .edit-error {

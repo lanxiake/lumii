@@ -875,7 +875,11 @@ async function handleCommand(
       }
 
       case 'mcp:status': {
-        return bridge.getMcpStatus()
+        const configError = bridge.getMcpConfigError()
+        return {
+          servers: bridge.getMcpStatus(),
+          ...(configError ? { configError } : {}),
+        }
       }
 
       case 'mcp:upsert': {
@@ -896,6 +900,14 @@ async function handleCommand(
 
       case 'mcp:reconnect': {
         return toMcpResult(() => bridge.reconnectMcpServer(command.name))
+      }
+
+      case 'mcp:readConfigFile': {
+        return bridge.readMcpConfigFile()
+      }
+
+      case 'mcp:writeConfigFile': {
+        return toMcpResult(() => bridge.writeMcpConfigFile(command.content))
       }
 
       // ---- 主进程桥接（原 agent-runtime:* 独立通道）----

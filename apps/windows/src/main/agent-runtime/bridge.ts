@@ -1023,6 +1023,12 @@ export class AgentRuntimeBridge {
 
   getMcpStatus(): McpServerRuntimeStatus[] { return this.mcpManager.getStatus() }
 
+  getMcpConfigError(): string | null { return this.mcpManager.getConfigError() }
+
+  readMcpConfigFile(): { path: string; content: string } { return this.mcpManager.readConfigFile() }
+
+  writeMcpConfigFile(content: string): Promise<void> { return this.mcpManager.writeConfigFile(content) }
+
   upsertMcpServer(entry: McpServerEntry, originalName?: string): Promise<void> { return this.mcpManager.upsert(entry, originalName) }
 
   importMcpServers(entries: readonly McpServerEntry[]): Promise<void> { return this.mcpManager.importEntries(entries) }

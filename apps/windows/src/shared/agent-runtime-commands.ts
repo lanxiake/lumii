@@ -321,12 +321,29 @@ export interface McpReconnectCommand {
   readonly name: string
 }
 
+/** 读取 mcp-servers.json 原文 */
+export interface McpReadConfigFileCommand {
+  readonly type: 'mcp:readConfigFile'
+}
+
+/** 写入 mcp-servers.json 原文并重载全部连接 */
+export interface McpWriteConfigFileCommand {
+  readonly type: 'mcp:writeConfigFile'
+  readonly content: string
+}
+
 /** mcp:status 返回的单条运行时状态 */
 export interface McpServerStatusResult extends McpServerConfigInput {
   readonly connected: boolean
   readonly connecting: boolean
   readonly tools: readonly string[]
   readonly lastError?: string
+}
+
+/** mcp:status 的完整返回（含配置文件级错误） */
+export interface McpStatusPayload {
+  readonly servers: readonly McpServerStatusResult[]
+  readonly configError?: string
 }
 
 // ============================================================
@@ -778,6 +795,8 @@ export type AgentRuntimeCommand =
   | McpRemoveCommand
   | McpSetEnabledCommand
   | McpReconnectCommand
+  | McpReadConfigFileCommand
+  | McpWriteConfigFileCommand
   | RuntimePingCommand
   | RuntimeFeatureFlagsGetCommand
   | RuntimeFeatureFlagsSetCommand
@@ -962,7 +981,9 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       enabled: boolean
     }[]
   : T extends 'tools:toggle' ? { success: boolean }
-  : T extends 'mcp:status' ? readonly McpServerStatusResult[]
+  : T extends 'mcp:status' ? McpStatusPayload
+  : T extends 'mcp:readConfigFile' ? { path: string; content: string }
+  : T extends 'mcp:writeConfigFile' ? { success: boolean; error?: string }
   : T extends 'mcp:upsert' | 'mcp:import' | 'mcp:remove' | 'mcp:setEnabled' | 'mcp:reconnect'
     ? { success: boolean; error?: string }
   : T extends 'storage:auditRecent' ? readonly {

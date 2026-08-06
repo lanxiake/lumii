@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { McpStdioClient, resolveCommand } from "./mcp-client";
 
 describe("resolveCommand", () => {
-  it("npx 交给自带 Node 跑 npx-cli.js，不依赖系统 npx 可执行文件", () => {
+  it("npx 直接跑 npx-cli.js，优先系统 node", () => {
     const fakeExec = process.execPath;
     const { command, prefixArgs } = resolveCommand("npx", fakeExec);
 
@@ -12,7 +12,9 @@ describe("resolveCommand", () => {
     if (prefixArgs.length > 0) {
       expect(path.basename(prefixArgs[0]!)).toBe("npx-cli.js");
       expect(existsSync(prefixArgs[0]!)).toBe(true);
-      expect(command).toBe(fakeExec);
+      // 有系统 node 时用 node.exe，否则退回传入的 execPath
+      const nodeFromPath = existsSync(command) && path.basename(command).toLowerCase().startsWith("node");
+      expect(nodeFromPath || command === fakeExec).toBe(true);
     } else {
       expect(command).toMatch(/npx/);
     }

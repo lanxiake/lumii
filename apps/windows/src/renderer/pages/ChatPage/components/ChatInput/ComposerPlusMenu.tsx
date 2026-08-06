@@ -161,6 +161,7 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
         return {
           name,
           connected: status?.connected ?? false,
+          lastError: status?.lastError,
           tools: serverTools,
           enabled: serverTools.length > 0 && enabledCount === serverTools.length,
           partial: enabledCount > 0 && enabledCount < serverTools.length,
@@ -334,17 +335,27 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
                 mcpServers.map((server) => {
                   const toolNames = server.tools.map((t) => t.name)
                   const busy = toolNames.some((n) => togglingTool === n)
+                  const errorHint = !server.connected ? server.lastError : undefined
                   return (
                     <div key={server.name} className={styles.listRow}>
                       <div className={styles.listMain}>
-                        <span className={styles.listName}>{server.name}</span>
+                        <span className={styles.listName}>
+                          {server.name}
+                          {errorHint ? (
+                            <span className={styles.listNameError} title={errorHint}>
+                              {' '}· {errorHint}
+                            </span>
+                          ) : null}
+                        </span>
                         <span className={clsx(
                           styles.listDesc,
                           !server.connected && styles.listDescError,
                         )}>
                           {server.connected
                             ? `${server.tools.length} 个工具${server.partial ? ' · 部分启用' : ''}`
-                            : '未连接'}
+                            : errorHint
+                              ? '连接失败'
+                              : '未连接'}
                         </span>
                       </div>
                       {server.tools.length > 0 ? (
@@ -355,7 +366,9 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
                           onChange={(checked) => void handleToggleMcpServer(server.name, checked, toolNames)}
                         />
                       ) : (
-                        <span className={styles.listStatus}>{server.connected ? '无工具' : 'Error'}</span>
+                        <span className={styles.listStatus} title={errorHint}>
+                          {server.connected ? '无工具' : '连接失败'}
+                        </span>
                       )}
                     </div>
                   )
