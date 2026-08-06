@@ -368,6 +368,23 @@ export function installAgentRuntimeCommandIpc(): void {
 /**
  * 解析记忆列表/清空所用的 Agent 定义 ID
  */
+/**
+ * 把 MCP 写操作包成 { success, error }
+ *
+ * 配置无效、名称冲突、命令启动失败都是用户可修的日常错误，
+ * 不该抛到 IPC 边界外变成 renderer 的未捕获 rejection。
+ */
+async function toMcpResult(action: () => Promise<void>): Promise<{ success: boolean; error?: string }> {
+  try {
+    await action()
+    return { success: true }
+  } catch (err) {
+    const error = (err as Error).message
+    log.error('[mcp] 操作失败:', error)
+    return { success: false, error }
+  }
+}
+
 function resolveAgentIdForMemories(
   bridge: AgentRuntimeBridge,
   sessionKey?: string,
@@ -859,6 +876,26 @@ async function handleCommand(
 
       case 'mcp:status': {
         return bridge.getMcpStatus()
+      }
+
+      case 'mcp:upsert': {
+        return toMcpResult(() => bridge.upsertMcpServer(command.entry, command.originalName))
+      }
+
+      case 'mcp:import': {
+        return toMcpResult(() => bridge.importMcpServers(command.entries))
+      }
+
+      case 'mcp:remove': {
+        return toMcpResult(() => bridge.removeMcpServer(command.name))
+      }
+
+      case 'mcp:setEnabled': {
+        return toMcpResult(() => bridge.setMcpServerEnabled(command.name, command.enabled))
+      }
+
+      case 'mcp:reconnect': {
+        return toMcpResult(() => bridge.reconnectMcpServer(command.name))
       }
 
       // ---- 主进程桥接（原 agent-runtime:* 独立通道）----

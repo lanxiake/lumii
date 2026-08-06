@@ -57,7 +57,8 @@ import {
   fetchLocal,
 } from './tool-providers'
 import { McpStdioClient } from '@mtbot/agent-runtime'
-import { McpManager } from './mcp-manager'
+import { McpManager, type McpServerRuntimeStatus } from './mcp-manager'
+import type { McpServerEntry } from '../config/mcp-config'
 import { PermissionController } from './permission-controller'
 import { AskUserQuestionController } from './ask-user-question-controller'
 import { FileMemoryHandler } from './file-memory-handler'
@@ -70,6 +71,11 @@ import {
   syncCompanionTickJobEnabled,
   migrateLocalCompanionPrefsToVhSettings,
 } from './local-companion-handler'
+import {
+  NEWS_PIPELINE_INSTRUCTION,
+  ensureNewsCronJobSeeded,
+  runNewsPipeline,
+} from '../news-store'
 import { isPetMode, onVirtualHumanSettingsChanged } from '../pet/pet-mode-ipc'
 import { getVirtualHumanSettings } from '../pet/pet-mode-store'
 import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
@@ -487,6 +493,11 @@ export class AgentRuntimeBridge {
       getFileRepo: () => this._fileRepo,
       getCwd: () => this.config.getCwd(),
       handleCompanionInstruction: async (instruction: string) => {
+        if (instruction.trim() === NEWS_PIPELINE_INSTRUCTION) {
+          return runNewsPipeline({
+            callLLM: (prompt, purpose) => this.callLLM(prompt, undefined, purpose),
+          })
+        }
         if (!isLocalCompanionInstruction(instruction)) return null
         return handleLocalCompanionInstruction(instruction, {
           getDb: () => this.localDb.db,
@@ -508,6 +519,7 @@ export class AgentRuntimeBridge {
     // 旧版 local_companion_prefs 一次性迁移到 vhSettings（幂等，需先于 seed 执行）
     migrateLocalCompanionPrefsToVhSettings(this.localDb.db)
     ensureCompanionCronJobsSeeded(this.localDb.db)
+    ensureNewsCronJobSeeded(this.localDb.db)
     // 设置页修改主动联系开关时，同步 tick job 的 enabled 状态并重载本地 cron 调度
     this.unsubscribeVhSettings?.()
     this.unsubscribeVhSettings = onVirtualHumanSettingsChanged((_settings, patch) => {
@@ -1009,7 +1021,17 @@ export class AgentRuntimeBridge {
     return this.toolRegistry.getToolStatus()
   }
 
-  getMcpStatus(): Array<{ name: string; connected: boolean }> { return this.mcpManager.getStatus() }
+  getMcpStatus(): McpServerRuntimeStatus[] { return this.mcpManager.getStatus() }
+
+  upsertMcpServer(entry: McpServerEntry, originalName?: string): Promise<void> { return this.mcpManager.upsert(entry, originalName) }
+
+  importMcpServers(entries: readonly McpServerEntry[]): Promise<void> { return this.mcpManager.importEntries(entries) }
+
+  removeMcpServer(name: string): Promise<void> { return this.mcpManager.remove(name) }
+
+  setMcpServerEnabled(name: string, enabled: boolean): Promise<void> { return this.mcpManager.setEnabled(name, enabled) }
+
+  reconnectMcpServer(name: string): Promise<void> { return this.mcpManager.reconnect(name) }
 
   compactContext(sessionKey: string, keepRecentTurns = 6): { success: boolean; previousMessageCount: number; newMessageCount: number; messagesRemoved: number } {
     return this.compactor.compactContext(sessionKey, keepRecentTurns)

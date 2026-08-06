@@ -6,7 +6,25 @@
  */
 
 import { McpStdioClient, loadMcpTools, type ToolRegistry } from '@mtbot/agent-runtime'
-import { loadMcpServerConfigs, type McpServerEntry } from '../config/mcp-config'
+import {
+  expandEntry,
+  loadMcpServerConfigs,
+  saveMcpServerConfigs,
+  validateMcpServerEntry,
+  type McpServerEntry,
+} from '../config/mcp-config'
+
+/** 单个 MCP Server 的运行时状态（含配置本身，供设置页直接渲染） */
+export interface McpServerRuntimeStatus extends McpServerEntry {
+  /** 是否已建立连接 */
+  readonly connected: boolean
+  /** 是否正在连接中 */
+  readonly connecting: boolean
+  /** 该 Server 已注册的工具名 */
+  readonly tools: readonly string[]
+  /** 最近一次连接失败的原因 */
+  readonly lastError?: string
+}
 
 const log = {
   info: (...args: unknown[]) => console.log('[McpManager]', ...args),
@@ -20,12 +38,21 @@ export class McpManager {
     private readonly mcpClients: Map<string, McpStdioClient>,
   ) {}
 
+  /** 配置快照，以 name 为键 */
+  private configs = new Map<string, McpServerEntry>()
+  /** 每个 Server 注册的工具名，断开时用于注销 */
+  private readonly serverTools = new Map<string, string[]>()
+  private readonly connecting = new Set<string>()
+  private readonly lastErrors = new Map<string, string>()
+  /** 主动断开的 Server，用于抑制 exit 事件里的自动重连 */
+  private readonly intentionalStops = new Set<string>()
+
   /**
    * 加载并连接配置的 MCP Server，将工具注册到 toolRegistry
    */
   async load(): Promise<void> {
     const configs = loadMcpServerConfigs()
-    if (configs.length === 0) return
+    this.configs = new Map(configs.map((c) => [c.name, c]))
 
     for (const config of configs) {
       if (config.enabled === false) {
@@ -40,10 +67,12 @@ export class McpManager {
    * 连接单个 MCP Server，失败时最多重试 3 次
    */
   private async connect(config: McpServerEntry, retryCount = 0): Promise<void> {
-    const { name, command, args, env, cwd } = config
+    const { name, command, args, env, cwd } = expandEntry(config)
     log.info(`[connect] 连接 MCP Server: ${name} (${command} ${(args ?? []).join(' ')})`)
 
     const client = new McpStdioClient({ command, args, env, cwd })
+    this.connecting.add(name)
+    this.intentionalStops.delete(name)
 
     try {
       await client.start()
@@ -54,12 +83,16 @@ export class McpManager {
       }
 
       this.mcpClients.set(name, client)
+      this.serverTools.set(name, tools.map((t) => t.name))
+      this.lastErrors.delete(name)
       log.info(`[connect] MCP Server [${name}] 已连接，加载 ${tools.length} 个工具`)
 
       // 监听进程退出，尝试自动重连（最多 3 次）
       client.once('exit', () => {
         log.warn(`[connect] MCP Server [${name}] 已断开`)
         this.mcpClients.delete(name)
+        this.unregisterTools(name)
+        if (this.intentionalStops.has(name)) return
         if (retryCount < 3) {
           const delay = (retryCount + 1) * 2000
           log.info(`[connect] ${delay}ms 后尝试重连 [${name}]（第 ${retryCount + 1} 次）`)
@@ -69,17 +102,110 @@ export class McpManager {
         }
       })
     } catch (err) {
-      log.error(`[connect] MCP Server [${name}] 连接失败: ${(err as Error).message}`)
+      const message = (err as Error).message
+      log.error(`[connect] MCP Server [${name}] 连接失败: ${message}`)
+      this.lastErrors.set(name, message)
+      await client.stop().catch(() => {})
+    } finally {
+      this.connecting.delete(name)
     }
   }
 
+  /** 注销某个 Server 注册过的所有工具 */
+  private unregisterTools(name: string): void {
+    for (const toolName of this.serverTools.get(name) ?? []) {
+      this.toolRegistry.unregister(toolName)
+    }
+    this.serverTools.delete(name)
+  }
+
+  /** 断开某个 Server 并注销其工具（不改配置） */
+  async disconnect(name: string): Promise<void> {
+    this.intentionalStops.add(name)
+    const client = this.mcpClients.get(name)
+    if (client) {
+      await client.stop().catch((err) => log.warn(`[disconnect] 停止 [${name}] 失败: ${err}`))
+      this.mcpClients.delete(name)
+    }
+    this.unregisterTools(name)
+    this.lastErrors.delete(name)
+  }
+
+  /** 重连某个 Server（配置改动后调用），Server 已禁用则只断开 */
+  async reconnect(name: string): Promise<void> {
+    await this.disconnect(name)
+    const config = this.configs.get(name)
+    if (!config || config.enabled === false) return
+    await this.connect(config)
+  }
+
   /**
-   * 返回所有 MCP Server 的连接状态
+   * 返回所有已配置 MCP Server 的状态（含未连接的）
+   *
+   * 兼容旧签名：调用方原本只读 name / connected 两个字段。
    */
-  getStatus(): Array<{ name: string; connected: boolean }> {
-    return Array.from(this.mcpClients.entries()).map(([name, client]) => ({
-      name,
-      connected: client.initialized,
+  getStatus(): McpServerRuntimeStatus[] {
+    return [...this.configs.values()].map((config) => ({
+      ...config,
+      connected: this.mcpClients.get(config.name)?.initialized === true,
+      connecting: this.connecting.has(config.name),
+      tools: this.serverTools.get(config.name) ?? [],
+      lastError: this.lastErrors.get(config.name),
     }))
+  }
+
+  /** 新增或更新一条配置并立即生效 */
+  async upsert(entry: McpServerEntry, originalName?: string): Promise<void> {
+    const error = validateMcpServerEntry(entry)
+    if (error) throw new Error(error)
+
+    // 改名时先断开旧连接，再删旧键
+    if (originalName && originalName !== entry.name) {
+      await this.disconnect(originalName)
+      this.configs.delete(originalName)
+    } else if (this.configs.has(entry.name) && !originalName) {
+      throw new Error(`MCP Server 名称已存在：${entry.name}`)
+    }
+
+    this.configs.set(entry.name, entry)
+    this.persist()
+    await this.reconnect(entry.name)
+  }
+
+  /** 批量导入（标准 mcpServers 格式），同名覆盖 */
+  async importEntries(entries: readonly McpServerEntry[]): Promise<void> {
+    for (const entry of entries) {
+      const error = validateMcpServerEntry(entry)
+      if (error) throw new Error(`「${entry.name || '未命名'}」：${error}`)
+    }
+
+    for (const entry of entries) {
+      this.configs.set(entry.name, entry)
+    }
+    this.persist()
+
+    for (const entry of entries) {
+      await this.reconnect(entry.name)
+    }
+  }
+
+  /** 删除一条配置 */
+  async remove(name: string): Promise<void> {
+    await this.disconnect(name)
+    this.configs.delete(name)
+    this.persist()
+  }
+
+  /** 启用/禁用一条配置 */
+  async setEnabled(name: string, enabled: boolean): Promise<void> {
+    const config = this.configs.get(name)
+    if (!config) throw new Error(`MCP Server 不存在：${name}`)
+    this.configs.set(name, { ...config, enabled })
+    this.persist()
+    await this.reconnect(name)
+  }
+
+  private persist(): void {
+    saveMcpServerConfigs([...this.configs.values()])
   }
 }

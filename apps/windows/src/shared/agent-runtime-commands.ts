@@ -283,6 +283,52 @@ export interface McpStatusCommand {
   readonly type: 'mcp:status'
 }
 
+/** MCP Server 配置（与主进程 McpServerEntry 一致） */
+export interface McpServerConfigInput {
+  readonly name: string
+  readonly command: string
+  readonly args?: readonly string[]
+  readonly env?: Record<string, string>
+  readonly cwd?: string
+  readonly enabled?: boolean
+}
+
+export interface McpUpsertCommand {
+  readonly type: 'mcp:upsert'
+  readonly entry: McpServerConfigInput
+  /** 编辑已有条目时传入原名称，用于支持改名 */
+  readonly originalName?: string
+}
+
+export interface McpImportCommand {
+  readonly type: 'mcp:import'
+  readonly entries: readonly McpServerConfigInput[]
+}
+
+export interface McpRemoveCommand {
+  readonly type: 'mcp:remove'
+  readonly name: string
+}
+
+export interface McpSetEnabledCommand {
+  readonly type: 'mcp:setEnabled'
+  readonly name: string
+  readonly enabled: boolean
+}
+
+export interface McpReconnectCommand {
+  readonly type: 'mcp:reconnect'
+  readonly name: string
+}
+
+/** mcp:status 返回的单条运行时状态 */
+export interface McpServerStatusResult extends McpServerConfigInput {
+  readonly connected: boolean
+  readonly connecting: boolean
+  readonly tools: readonly string[]
+  readonly lastError?: string
+}
+
 // ============================================================
 // 主进程桥接（原独立 IPC，统一经 sendCommand）
 // ============================================================
@@ -727,6 +773,11 @@ export type AgentRuntimeCommand =
   | ToolsListCommand
   | ToolsToggleCommand
   | McpStatusCommand
+  | McpUpsertCommand
+  | McpImportCommand
+  | McpRemoveCommand
+  | McpSetEnabledCommand
+  | McpReconnectCommand
   | RuntimePingCommand
   | RuntimeFeatureFlagsGetCommand
   | RuntimeFeatureFlagsSetCommand
@@ -911,7 +962,9 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       enabled: boolean
     }[]
   : T extends 'tools:toggle' ? { success: boolean }
-  : T extends 'mcp:status' ? readonly { name: string; connected: boolean }[]
+  : T extends 'mcp:status' ? readonly McpServerStatusResult[]
+  : T extends 'mcp:upsert' | 'mcp:import' | 'mcp:remove' | 'mcp:setEnabled' | 'mcp:reconnect'
+    ? { success: boolean; error?: string }
   : T extends 'storage:auditRecent' ? readonly {
       id: number
       agent_id: string
