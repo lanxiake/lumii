@@ -386,6 +386,39 @@ Phase 1 全部 11 个任务已落地，`npx tsc --noEmit`（在 `apps/windows` �
 
 ---
 
+## 进度总表（2026-08-06 核对）
+
+| Task | 状态 | 与计划的偏差 |
+|---|---|---|
+| 0.1 / 0.2 token 与微动基座 | 完成 | — |
+| 1.1 – 1.11 对话页 | 完成 | 见上方「Phase 1 实施记录与前提更正」四条 |
+| 2.1 指标卡 | 完成 | MCP 卡显式标注「MCP 模块尚未接入」，不填 0 |
+| 2.2 运行时态势卡 | 完成 | CPU/内存/磁盘 三环，无 GPU |
+| 2.3 近期关注面板 | 完成 | `components/RecentFocus/`，数据来自真实记忆条目 |
+| 3.1 侧边栏收敛 | 完成 | 底部默认/渠道 tab 钻取已落地 |
+| 3.2 底栏观测 HUD | 完成 | 上下文占用改由输入框上方单独显示，HUD 不重复 |
+| 3.3 设置页 tab | 完成 | 已含 MCP 服务 tab（标注未接入），技能中心接现有 SkillsPage |
+| 4.1 CPU 采集 | 完成 | `os.cpus()` times 差分，首次返回 undefined |
+| 4.2 GPU | **不做** | 已决定 |
+| 4.3 本地用量与花费 | 完成 | `usage-store.ts` + `shared/model-pricing.ts` + `usage:query` |
+| 4.4 网络延迟 | 完成 | provider TTFB 中位数 |
+| 4.5 MCP 指标 | **另立项** | 需要 MCP client 连接管理，超出 UI 改造范围 |
+| 5.1 删死代码 | 完成 | 另删 `useServerCaptcha` |
+| 5.2 拆 AuthContext | 完成 | 实际消费者 5 处（非计划所说 11 处），页面重构已提前清掉大半 |
+| 5.3 登出 UI | 完成 | 由 Phase 3.1 侧栏重构顺带完成 |
+| 5.4 概览页去 SaaS | 完成 | — |
+| 5.5 清桩 IPC | 完成 | **`api:getUsage` 直接删而非重写**——4.3 的 `usage:query` 已承担该职责，概览页直读它，重写会多出一个无人调用的桩。同时清掉同样无 handler 的支付/订单/积分/邀请 preload 暴露 |
+| 5.6 移除遥测 | 完成 | 连带清掉 `parentAnalyticsRunId`、`resolveGatewaySecretFromEnv` 等级联死代码 |
+
+**计划内已无待执行任务。** 剩余的是计划外事项：
+
+1. **`src/test` 约 47 个失败 + `src/main/pet/virtual-human-context.test.ts` 1 个失败** —— 早于本轮改造（在 `a339b2c` 上即存在）。成因：测试断言全局类名 `.session-item`，组件实际输出 CSS Modules 哈希类名。需单独一轮修测试。
+2. **eslint 未安装**，`pnpm lint` 无法执行（既有状态）。
+3. **typecheck 基线 46 error / 17 文件**，全部位于 `packages/browser-control`、`packages/agent-runtime` 等既有位置，与本改造无关。验收标准是不新增。
+4. **人工验收未做** —— `apps/windows` 未装 Playwright，无法截图或跑 UI 流程。下方验证清单第 2–8 项需人工点一遍。
+
+---
+
 ## 验证清单（每个 Phase 结束跑一次）
 
 0. ⚠️ **基线**：改造开始前 `npx tsc --noEmit` 已有 **49 个既有 error**（bridge.ts、mempalace-mcp-client.ts、WorkspaceVersionPanel.tsx 等，与本次改造无关）。验收标准是「不新增 error」，不是「零 error」。每个 Phase 结束重新计数对比
