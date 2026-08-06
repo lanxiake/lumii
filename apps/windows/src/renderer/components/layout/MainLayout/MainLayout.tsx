@@ -6,9 +6,11 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
+import clsx from 'clsx';
 import { Sidebar, SIDEBAR_TOGGLE_EVENT, ViewType } from '../Sidebar';
 import { TitleBar } from '../TitleBar';
 import { StatusBar } from '../StatusBar';
+import { WindowEdgeGlow } from '../WindowEdgeGlow';
 import styles from './MainLayout.module.css';
 
 export interface MainLayoutProps {
@@ -18,6 +20,8 @@ export interface MainLayoutProps {
   activeView?: ViewType;
   /** 视图切换回调 */
   onViewChange?: (view: ViewType) => void;
+  /** Settings Hub 是否打开（侧栏设置按钮高亮） */
+  settingsHubOpen?: boolean;
   /** 窗口标题 */
   title?: string;
   /** 应用名称 */
@@ -55,6 +59,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   children,
   activeView = 'dashboard',
   onViewChange,
+  settingsHubOpen = false,
   title,
   appName = '灵栖 Lumii',
   isConnected = false,
@@ -70,6 +75,26 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultSidebarCollapsed);
   const [isMobile, setIsMobile] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  /**
+   * 刷新最大化状态（最大化时不展示边缘特效）
+   */
+  const refreshMaximized = useCallback(async () => {
+    try {
+      const api = electronAPI?.window ?? window.electronAPI?.window;
+      if (api && 'isMaximized' in api && typeof api.isMaximized === 'function') {
+        setIsMaximized(await api.isMaximized());
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+    setIsMaximized(
+      window.outerWidth >= window.screen.availWidth - 2
+      && window.outerHeight >= window.screen.availHeight - 2,
+    );
+  }, [electronAPI]);
 
   // 检测移动端
   useEffect(() => {
@@ -85,6 +110,16 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  // 最大化状态（最大化时关闭边缘手电筒特效）
+  useEffect(() => {
+    const onResize = () => { void refreshMaximized(); };
+    window.addEventListener('resize', onResize);
+    void refreshMaximized();
+    return () => {
+      window.removeEventListener('resize', onResize);
+    };
+  }, [refreshMaximized]);
 
   // 页面内的折叠按钮 / Ctrl+B 都发事件到这里，避免出现第二份折叠状态
   useEffect(() => {
@@ -119,7 +154,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   }, [onViewChange, isMobile]);
 
   return (
-    <div className={`${styles['main-layout']} ${className}`}>
+    <div
+      className={clsx(
+        styles['main-layout'],
+        isMaximized && styles['main-layout--maximized'],
+        className,
+      )}
+    >
       {/* 标题栏 */}
       {customTitleBar || (
         <TitleBar
@@ -133,6 +174,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         />
       )}
 
+      {/* 边缘光效置于标题栏之后、更高 z-index，避免被顶栏遮挡；pointer-events:none 不挡拖拽 */}
+      <WindowEdgeGlow disabled={isMaximized} />
+
       {/* 主体区域 */}
       <div className={styles['main-layout-body']}>
         {/* 侧边栏 */}
@@ -142,6 +186,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
               <Sidebar
                 activeView={activeView}
                 onViewChange={handleViewChange}
+                settingsHubOpen={settingsHubOpen}
                 isConnected={isConnected}
                 collapsed={isMobile ? false : sidebarCollapsed}
                 onCollapseChange={isMobile ? undefined : setSidebarCollapsed}

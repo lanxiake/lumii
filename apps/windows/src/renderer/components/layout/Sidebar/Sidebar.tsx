@@ -21,13 +21,13 @@ import styles from './Sidebar.module.css';
 export type ViewType =
   | 'dashboard'
   | 'chat'
-  | 'files'
   | 'skills'
   | 'settings'
   | 'memories'
   | 'agents'
   | 'cron'
-  | 'plugins';
+  | 'plugins'
+  | 'mcp';
 
 /**
  * 导航菜单项
@@ -44,6 +44,8 @@ export interface SidebarProps {
   activeView?: ViewType;
   /** 视图切换回调 */
   onViewChange?: (view: ViewType) => void;
+  /** Settings Hub 打开时高亮设置按钮 */
+  settingsHubOpen?: boolean;
   /** 是否已连接 */
   isConnected?: boolean;
   /** 是否折叠 */
@@ -80,6 +82,7 @@ export const SIDEBAR_TOGGLE_EVENT = 'lumii:toggle-sidebar';
 export const Sidebar: React.FC<SidebarProps> = ({
   activeView = 'dashboard',
   onViewChange,
+  settingsHubOpen = false,
   isConnected = false,
   collapsed = false,
   onCollapseChange,
@@ -155,7 +158,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className={styles['sidebar-footer']}>
         {/* 设置按钮 */}
         <button
-          className={`${styles['settings-button']} ${activeView === 'settings' ? styles.active : ''}`}
+          className={`${styles['settings-button']} ${settingsHubOpen || activeView === 'settings' ? styles.active : ''}`}
           onClick={() => handleViewChange('settings')}
           title="设置"
         >

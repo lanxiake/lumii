@@ -13,6 +13,8 @@
   background: var(--mt-mesh), var(--mt-bg-primary);
   color: var(--color-text-primary);
   isolation: isolate;
+  box-sizing: border-box;
+  border: none;
 }
 
 .main-layout::before {

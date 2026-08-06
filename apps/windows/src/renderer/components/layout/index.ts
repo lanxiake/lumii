@@ -13,5 +13,8 @@ export { TitleBar, type TitleBarProps } from './TitleBar';
 // MainLayout
 export { MainLayout, type MainLayoutProps } from './MainLayout';
 
+// WindowEdgeGlow
+export { WindowEdgeGlow } from './WindowEdgeGlow';
+
 // StatusBar
 export { StatusBar } from './StatusBar';

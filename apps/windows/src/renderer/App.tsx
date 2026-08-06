@@ -12,6 +12,7 @@ import { DeviceBindWizard } from './components/DeviceBindWizard'
 import { WorkspaceWizard } from './components/WorkspaceWizard'
 import { GlobalModals } from './components/GlobalModals'
 import { MainLayout } from './components/layout/MainLayout/MainLayout'
+import { SettingsHubModal, useSettingsHub, isHubView } from './components/SettingsHub'
 import { useTheme } from './contexts/ThemeContext/ThemeContext'
 import {
   useAgentRuntimeActions,
@@ -37,11 +38,12 @@ const PetSessionSync: React.FC = () => {
 }
 
 /**
- * 认证包装组件 - 处理认证状态
+ * 认证包装组件 - 处理认证状态与 Settings Hub 分流
  */
 const AuthenticatedApp: React.FC = () => {
   const [activeView, setActiveView] = useState<ViewType>('dashboard')
   const { appliedTheme, toggleTheme } = useTheme()
+  const { openHub, openHubForView, closeHub, isOpen: hubOpen } = useSettingsHub()
   /** 本地 chat 模型是否已启用并可调用（独立版用此驱动标题栏绿点） */
   const [modelReady, setModelReady] = useState(false)
 
@@ -71,16 +73,28 @@ const AuthenticatedApp: React.FC = () => {
   // 独立版：本地 chat 模型就绪即视为「已连接」
   const isConnected = modelReady
 
+  /**
+   * 视图切换：Hub 视图打开浮层；主壳视图关闭浮层并切换底层页面
+   */
+  const handleViewChange = useCallback((view: ViewType) => {
+    if (isHubView(view)) {
+      openHubForView(view)
+      return
+    }
+    closeHub()
+    setActiveView(view)
+  }, [openHubForView, closeHub])
+
   // 监听主进程发送的导航到设置页面事件
   useEffect(() => {
     const handleNavigateToSettings = () => {
-      setActiveView('settings')
+      openHub('settings')
     }
     window.electronAPI.on('navigate-to-settings', handleNavigateToSettings)
     return () => {
       window.electronAPI.off('navigate-to-settings', handleNavigateToSettings)
     }
-  }, [])
+  }, [openHub])
 
   const themeToggleBtn = (
     <button
@@ -127,13 +141,15 @@ const AuthenticatedApp: React.FC = () => {
   return (
     <MainLayout
       activeView={activeView}
-      onViewChange={setActiveView}
+      onViewChange={handleViewChange}
+      settingsHubOpen={hubOpen}
       isConnected={isConnected}
       themeToggle={themeToggleBtn}
       defaultSidebarCollapsed={false}
     >
       <PetSessionSync />
-      <Router activeView={activeView} onViewChange={setActiveView} />
+      <Router activeView={activeView} onViewChange={handleViewChange} />
+      <SettingsHubModal onViewChange={handleViewChange} />
     </MainLayout>
   )
 }
