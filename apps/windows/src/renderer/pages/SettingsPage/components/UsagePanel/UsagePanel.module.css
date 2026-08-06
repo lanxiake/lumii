@@ -1,0 +1,223 @@
+/**
+ * UsagePanel Styles - 用量与花费（设置中心）
+ *
+ * 样式承自原概览页用量卡：主数字 + 三格 + 已计价轨道 + 明细图表。
+ * 设置面板宽度可变，主数字分栏在窄宽度下换行而不是压扁。
+ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.title {
+  color: var(--mt-fg-1);
+  font-size: 15px;
+  font-weight: var(--mt-fw-semibold);
+}
+
+.seg {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  width: 186px;
+  margin-left: auto;
+  padding: 3px;
+  border: 1px solid var(--mt-border);
+  border-radius: 9px;
+  background: var(--mt-surface-2);
+  box-shadow: var(--mt-shadow-inner);
+}
+
+.seg-btn {
+  flex: 1;
+  padding: 4px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.seg-btn:hover {
+  color: var(--mt-fg-1);
+}
+
+.seg-btn--on {
+  background: var(--mt-bg-elevated);
+  color: var(--mt-fg-1);
+  font-weight: var(--mt-fw-semibold);
+  box-shadow: var(--mt-shadow-sm);
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.hero {
+  flex-shrink: 0;
+  min-width: 168px;
+  padding-right: 16px;
+  border-right: 1px solid var(--mt-border-hairline);
+}
+
+.hero-k {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--mt-fg-4);
+  font-size: 10.5px;
+}
+
+.hero-v {
+  margin: 2px 0 1px;
+  background: var(--mt-grad-brand-diag);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-family: var(--mt-font-mono);
+  font-size: 30px;
+  font-weight: var(--mt-fw-bold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+
+.hero-sub {
+  color: var(--mt-fg-4);
+  font-family: var(--mt-font-mono);
+  font-size: 10px;
+}
+
+.sum-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  flex: 1;
+  min-width: 260px;
+}
+
+.stat {
+  padding: 9px 11px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 9px;
+  background: var(--mt-surface-2);
+}
+
+.stat-k {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--mt-fg-4);
+  font-size: 10px;
+}
+
+.stat-v {
+  margin-top: 4px;
+  color: var(--mt-fg-1);
+  font-family: var(--mt-font-mono);
+  font-size: 16px;
+  font-weight: var(--mt-fw-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.stat-v--accent {
+  color: var(--mt-accent-500);
+}
+
+.priced {
+  flex-shrink: 0;
+  width: 118px;
+}
+
+.priced-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  color: var(--mt-fg-4);
+  font-size: 10px;
+}
+
+.priced-line b {
+  color: var(--mt-fg-2);
+  font-family: var(--mt-font-mono);
+  font-weight: var(--mt-fw-semibold);
+}
+
+.trk {
+  position: relative;
+  height: 4px;
+  border-radius: var(--mt-radius-full);
+  background: var(--mt-surface-3);
+  overflow: hidden;
+}
+
+.trk > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mt-grad-brand-diag);
+  transition: width var(--mt-dur-slow) var(--mt-ease-decel);
+}
+
+.body {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--mt-border-hairline);
+}
+
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.subhead {
+  display: flex;
+  align-items: center;
+  margin: 14px 0 6px;
+  color: var(--mt-fg-1);
+  font-size: 12.5px;
+  font-weight: var(--mt-fw-semibold);
+}
+
+.meta {
+  margin-left: auto;
+  color: var(--mt-fg-4);
+  font-family: var(--mt-font-mono);
+  font-size: 10px;
+}
+
+.footnote {
+  padding-top: 12px;
+  color: var(--mt-fg-3);
+  font-size: 10.5px;
+  line-height: 1.75;
+}
+
+.footnote b {
+  color: var(--mt-accent-500);
+  font-weight: var(--mt-fw-semibold);
+}
+
+.footnote code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--mt-code-bg);
+  font-family: var(--mt-font-mono);
+  font-size: 10px;
+}
