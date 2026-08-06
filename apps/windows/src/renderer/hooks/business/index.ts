@@ -34,7 +34,7 @@ export type { UseSystemReturn, SystemInfo, DiskInfo, ProcessInfo, ProcessSortBy 
 
 // 仪表盘数据
 export { useDashboard } from './useDashboard'
-export type { UseDashboardReturn, Subscription, SubscriptionPlan, UsageStats, SkillStats } from './useDashboard'
+export type { UseDashboardReturn, RuntimeGauges, SkillStats, UsageRange, UsageView } from './useDashboard'
 
 // 设置管理
 export { useSettings } from './useSettings'

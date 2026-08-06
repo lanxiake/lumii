@@ -1,0 +1,157 @@
+/**
+ * RecentFocus Styles - 近期关注（对齐原型 .pnl + .feed）
+ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  padding: 15px;
+}
+
+/* 页脚贴底，条目少时不上浮 */
+.list,
+.empty {
+  flex: 1;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--mt-space-2);
+  margin-bottom: var(--mt-space-3);
+}
+
+.title {
+  font-size: 13px;
+  font-weight: var(--mt-fw-semibold);
+  color: var(--mt-fg-1);
+}
+
+.tag {
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 24%, var(--mt-border));
+  border-radius: var(--mt-radius-full);
+  background: color-mix(in srgb, var(--mt-accent-500) 8%, transparent);
+  color: var(--mt-fg-3);
+  font-family: var(--mt-font-mono);
+  font-size: 9.5px;
+  line-height: 1.6;
+}
+
+/* 分段控件（原型 .seg），靠 margin-left 顶到右侧 */
+.seg {
+  display: flex;
+  gap: 2px;
+  width: 196px;
+  margin-left: auto;
+  padding: 4px;
+  border: 1px solid var(--mt-border);
+  border-radius: 9px;
+  background: var(--mt-surface-2);
+  box-shadow: var(--mt-shadow-inner);
+}
+
+.seg-btn {
+  flex: 1;
+  padding: 5px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.seg-btn:hover {
+  color: var(--mt-fg-1);
+}
+
+.seg-btn--on {
+  background: var(--mt-bg-elevated);
+  color: var(--mt-fg-1);
+  font-weight: var(--mt-fw-semibold);
+  box-shadow: var(--mt-shadow-sm);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mt-space-2);
+  padding: 8px 9px;
+  border-radius: 8px;
+  transition: background var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.item:hover {
+  background: var(--mt-surface-2);
+}
+
+/* 重要度映射到圆点不透明度（inline style），比再加一列数字更省地方 */
+.dot {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--mt-accent-500);
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mt-fg-2);
+  font-size: 11.5px;
+  line-height: 1.65;
+  /* 最多两行，长记忆不撑破面板 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.when {
+  flex-shrink: 0;
+  color: var(--mt-fg-4);
+  font-family: var(--mt-font-mono);
+  font-size: 9.5px;
+}
+
+.empty {
+  padding: 22px 4px;
+  color: var(--mt-fg-3);
+  font-size: 12px;
+  line-height: 1.75;
+  text-align: center;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: var(--mt-space-2);
+  padding-top: 10px;
+  color: var(--mt-fg-4);
+  font-size: 10.5px;
+}
+
+.link {
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--mt-accent-500);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}

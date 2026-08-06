@@ -1,13 +1,14 @@
 /**
- * useDashboard/index.ts - 仪表盘数据统一导出
+ * useDashboard/index.ts - 概览页数据统一导出
  */
 
 export { useDashboard } from './useDashboard'
 export type { UseDashboardReturn } from './useDashboard'
 export type {
-  Subscription,
-  SubscriptionPlan,
-  UsageStats,
-  SkillQuotaStats,
-  SkillQuotaStats as SkillStats,
+  LatencyStats,
+  RuntimeGauges,
+  SkillStats,
+  UsageRange,
+  UsageView,
+  UsageBucketView,
 } from './useDashboard.types'

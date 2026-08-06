@@ -17,7 +17,7 @@ const WORKSPACE_LOCATIONS: WorkspaceLocation[] = [
   // 配置文件组（与 Gateway 工作空间一致）
   { id: 'soul', label: 'SOUL.md', icon: '📝', relativePath: 'SOUL.md', group: 'config' },
   { id: 'identity', label: 'IDENTITY.md', icon: '🪪', relativePath: 'IDENTITY.md', group: 'config' },
-  { id: 'agents', label: 'AGENTS.md', icon: '🤖', relativePath: 'AGENTS.md', group: 'config' },
+  { id: 'agents', label: 'AGENTS.md', icon: '', relativePath: 'AGENTS.md', group: 'config' },
   { id: 'tools', label: 'TOOLS.md', icon: '🔧', relativePath: 'TOOLS.md', group: 'config' },
   { id: 'heartbeat', label: 'HEARTBEAT.md', icon: '💓', relativePath: 'HEARTBEAT.md', group: 'config' },
   { id: 'bootstrap', label: 'BOOTSTRAP.md', icon: '🚀', relativePath: 'BOOTSTRAP.md', group: 'config' },

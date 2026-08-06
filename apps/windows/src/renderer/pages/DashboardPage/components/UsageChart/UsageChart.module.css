@@ -1,0 +1,53 @@
+/**
+ * UsageChart Styles - 调用分布（对齐原型 .uchart）
+ */
+
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 88px;
+  padding: 4px 0 2px;
+}
+
+.col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 4px;
+  height: 100%;
+  overflow: hidden;
+  border-radius: 3px 3px 0 0;
+  cursor: default;
+  transition: transform var(--mt-dur-normal) var(--mt-ease-standard),
+    filter var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+.col:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.08);
+}
+
+.col > span {
+  display: block;
+  width: 100%;
+  min-height: 1px;
+  background: var(--mt-grad-brand);
+  transition: height var(--mt-dur-slower) var(--mt-ease-standard);
+}
+
+.empty {
+  display: grid;
+  place-items: center;
+  height: 88px;
+  color: var(--mt-fg-4);
+  font-size: var(--mt-fs-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .col,
+  .col > span {
+    transition: none;
+  }
+}
