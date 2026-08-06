@@ -8,6 +8,9 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { petApi } from './pet-api'
 import type { PetElectronAPI } from '../shared/pet-mode'
+// 仅类型引用，编译期擦除，不会把主进程代码打进 preload
+import type { UsageSummary } from '../main/usage-store'
+import type { LatencyView } from '../main/provider-latency'
 
 // 日志输出
 const log = {
@@ -158,6 +161,17 @@ export interface ElectronAPI {
       documents: string
       downloads: string
     }>
+  }
+
+  /** 本地用量与花费统计（Task 4.3，数据来自 ~/.lumii/usage/*.jsonl） */
+  usage: {
+    query: (query: {
+      from: number
+      to: number
+      groupBy: 'hour' | 'day'
+    }) => Promise<{ success: boolean; data?: UsageSummary; error?: string }>
+    /** 到当前模型 provider 的首字节延迟（最近 N 次中位数） */
+    latency: () => Promise<{ success: boolean; data?: LatencyView }>
   }
 
   // 窗口操作
@@ -1023,6 +1037,12 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke('system:launchApp', appPath, args),
     executeCommand: (command: string) => ipcRenderer.invoke('system:executeCommand', command),
     getUserPaths: () => ipcRenderer.invoke('system:getUserPaths'),
+  },
+
+  usage: {
+    query: (query: { from: number; to: number; groupBy: 'hour' | 'day' }) =>
+      ipcRenderer.invoke('usage:query', query),
+    latency: () => ipcRenderer.invoke('usage:latency'),
   },
 
   // 窗口操作 API

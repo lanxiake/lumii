@@ -34,6 +34,8 @@ import { join, extname, basename, dirname } from 'path'
 import { promises as fs, existsSync, readdirSync } from 'fs'
 import { TrayManager } from './tray-manager'
 import { SystemService } from './system-service'
+import { queryUsage, type UsageQuery } from './usage-store'
+import { getLatency } from './provider-latency'
 import { UpdaterService, setupUpdaterIpcHandlers } from './updater-service'
 import { ClientSkillRuntime } from './skill-runtime'
 import { wrapSingleFile } from './skill-wrapper'
@@ -2199,6 +2201,19 @@ function setupApiIpcHandlers(): void {
       },
     },
   }))
+
+  // === 本地用量查询（Task 4.3）===
+  ipcMain.handle('usage:query', async (_e, query: UsageQuery) => {
+    try {
+      return { success: true, data: await queryUsage(query) }
+    } catch (error) {
+      console.error('[IPC] usage:query 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  // === 服务商首字节延迟（Task 4.4）===
+  ipcMain.handle('usage:latency', () => ({ success: true, data: getLatency() }))
 
   // === 开机启动 ===
   ipcMain.handle('app:getOpenAtLogin', async () => {

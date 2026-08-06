@@ -136,6 +136,8 @@ export class SystemService {
   private diskCache = new SimpleCache<DiskInfo[]>(30000)
   private processCache = new SimpleCache<ProcessInfo[]>(5000)
   private systemInfoCache = new SimpleCache<SystemInfo>(10000)
+  /** CPU 差分基准：上一次采样的累计 times 之和。首次调用无基准，返回 undefined */
+  private cpuSample?: { idle: number; total: number }
 
   constructor() {
     // 初始化时添加用户目录到允许的路径
@@ -509,8 +511,40 @@ export class SystemService {
   }
 
   /**
+   * CPU 瞬时使用率（0-100，整数）。
+   *
+   * 用 `os.cpus()` 的累计 times 做两次采样差分：`1 - idleDelta / totalDelta`。
+   * 首次调用没有基准，返回 undefined（前端显示「—」而不是 0）。
+   * 必须走 getSystemInfo 的 10s 缓存之外，否则差分间隔会失真。
+   *
+   * 不用 PowerShell `Get-Process` 的 CPU 字段：那是进程累计 CPU 秒数，
+   * 不是瞬时百分比，当百分比用是错的。
+   */
+  private sampleCpuUsage(): number | undefined {
+    let idle = 0
+    let total = 0
+    for (const cpu of os.cpus()) {
+      const t = cpu.times
+      idle += t.idle
+      total += t.user + t.nice + t.sys + t.idle + t.irq
+    }
+
+    const prev = this.cpuSample
+    this.cpuSample = { idle, total }
+    if (!prev) return undefined
+
+    const totalDelta = total - prev.total
+    const idleDelta = idle - prev.idle
+    // 两次采样间隔过近（times 精度为 ms，可能完全没走动）时不给结论
+    if (totalDelta <= 0) return undefined
+
+    const usage = (1 - idleDelta / totalDelta) * 100
+    return Math.round(Math.min(100, Math.max(0, usage)))
+  }
+
+  /**
    * 获取系统信息
-   * 静态信息使用缓存，动态信息（内存）实时获取
+   * 静态信息使用缓存，动态信息（内存 / CPU）实时获取
    */
   getSystemInfo(): SystemInfo {
     // 检查缓存（静态信息部分）
@@ -525,6 +559,7 @@ export class SystemService {
         usedMemory,
         memoryUsagePercent: Math.round((usedMemory / cached.totalMemory) * 100),
         uptime: os.uptime(),
+        cpuUsage: this.sampleCpuUsage(),
       }
     }
 
@@ -548,6 +583,7 @@ export class SystemService {
       usedMemory,
       memoryUsagePercent,
       uptime: os.uptime(),
+      cpuUsage: this.sampleCpuUsage(),
     }
 
     // 缓存静态部分

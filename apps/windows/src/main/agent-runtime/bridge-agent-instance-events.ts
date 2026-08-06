@@ -13,6 +13,8 @@ import type { FileMemoryHandler } from './file-memory-handler'
 import type { AgentRuntimeEvent as RendererIpcEvent } from '../../shared/agent-runtime-events'
 import type { InstanceStateStore } from './bridge-instance-state'
 import { agentRuntimeLog as log, parseJsonToolResultPayload } from './bridge-utils'
+import { recordUsage } from '../usage-store'
+import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
 
 /** 单实例运行时累计指标（主进程内部，与 DetailPanel「运行状态」对应） */
 export interface InstanceRuntimeMetrics {
@@ -158,6 +160,8 @@ export function createAgentInstanceRuntimeEventHandler(
 
   return (event: AgentRuntimeEvent) => {
     if (event.type === 'message:delta') {
+      // 首个 delta 即首字节，配对 agent:start 得到 TTFB；后续 delta 无副作用
+      markFirstToken(instanceId, ctx.resolvedModelId ?? 'unknown')
       log.info(`[event] message:delta delta="${event.delta?.slice(0, 80)}"`)
     } else if (event.type === 'message:end') {
       const llmErr = (event as {
@@ -181,6 +185,7 @@ export function createAgentInstanceRuntimeEventHandler(
     }
 
     if (event.type === 'agent:start') {
+      markRunStart(instanceId)
       const state = instanceStates.get(instanceId)
       // 自愈重试时，删除上一轮的空占位行；有内容的行应 finalize 保留，供「继续」恢复历史
       const prevMsgId = state?.streamingAssistantMsgId
@@ -466,6 +471,15 @@ export function createAgentInstanceRuntimeEventHandler(
       ) {
         setSessionProviderInputTokens(ctx.rootSessionKey, event.usage.inputTokens)
       }
+      // 落盘用量：只在服务商真给了 usage 时记，估算值不入库（否则花费统计会失真）
+      if (event.usage && ctx.resolvedModelId) {
+        void recordUsage({
+          model: ctx.resolvedModelId,
+          promptTokens: event.usage.inputTokens ?? 0,
+          completionTokens: event.usage.outputTokens ?? 0,
+          sessionKey: ctx.rootSessionKey,
+        })
+      }
       const msgId = state?.streamingAssistantMsgId
       const convId = instanceToConversation.get(instanceId)
       const accumulated = state?.accumulatedText ?? ''
@@ -543,6 +557,8 @@ export function createAgentInstanceRuntimeEventHandler(
     }
 
     if (event.type === 'agent:error') {
+      // 请求失败不该留下未配对的起点污染下一轮延迟
+      clearRun(instanceId)
       const state = instanceStates.get(instanceId)
       const msgId = state?.streamingAssistantMsgId
       const convId = instanceToConversation.get(instanceId)
@@ -592,6 +608,8 @@ export function createAgentInstanceRuntimeEventHandler(
     }
 
     if (event.type === 'agent:end') {
+      // 一轮没产出任何 delta（纯工具轮 / 中断）时清掉起点，否则会被下一轮误配成超长延迟
+      clearRun(instanceId)
       const state = instanceStates.get(instanceId)
       const convId = instanceToConversation.get(instanceId)
       const msgId = state?.streamingAssistantMsgId
