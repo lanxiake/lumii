@@ -92,7 +92,7 @@ export const CreateJobModal: FC<CreateJobModalProps> = ({ agents, editingJob, on
   const tzOptions = getTimezoneOptions()
 
   return (
-    <Modal open title={editingJob ? '编辑定时任务' : '新建定时任务'} onClose={onClose} width={520}>
+    <Modal open title={editingJob ? '编辑定时任务' : '新建定时任务'} onClose={onClose} width={560} layer="aboveHub">
       <div className={styles.formContainer}>
         {/* 任务名称 */}
         <div className={styles.formGroup}>

@@ -47,7 +47,7 @@ export const PipelinesTab: FC<PipelinesTabProps> = ({ jobs }) => {
   }, [])
 
   if (loading) {
-    return <div className={styles.empty}>加载 Pipeline 列表中...</div>
+    return <div className={styles.empty}>正在加载流水线列表…</div>
   }
 
   return (
@@ -55,10 +55,10 @@ export const PipelinesTab: FC<PipelinesTabProps> = ({ jobs }) => {
       {/* 操作栏 */}
       <div className={styles.toolbar}>
         <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
-          共 {pipelines.length} 个 Pipeline
+          共 {pipelines.length} 条流水线
         </span>
         <button className={styles.createBtn} onClick={() => setShowCreateModal(true)}>
-          + 新建 Pipeline
+          + 新建流水线
         </button>
       </div>
 
@@ -66,8 +66,8 @@ export const PipelinesTab: FC<PipelinesTabProps> = ({ jobs }) => {
       {pipelines.length === 0 ? (
         <div className={styles.empty}>
           <div className={styles.emptyIcon}>🔗</div>
-          <div className={styles.emptyText}>暂无 Pipeline</div>
-          <div className={styles.emptyHint}>创建 Pipeline 来串联多个定时任务的执行流程</div>
+          <div className={styles.emptyText}>暂无流水线</div>
+          <div className={styles.emptyHint}>创建流水线，把多个定时任务按顺序串联执行</div>
         </div>
       ) : (
         <div className={styles.pipelineList}>
@@ -158,10 +158,11 @@ export const PipelinesTab: FC<PipelinesTabProps> = ({ jobs }) => {
       {/* 删除确认弹窗 */}
       <ConfirmModal
         open={!!deleteTarget}
-        title="删除 Pipeline"
-        content={`确定要删除 Pipeline「${deleteTarget?.name ?? ''}」吗？删除后无法恢复。`}
+        title="删除流水线"
+        content={`确定要删除流水线「${deleteTarget?.name ?? ''}」吗？删除后无法恢复。`}
         confirmText="删除"
         confirmVariant="danger"
+        layer="aboveHub"
         onConfirm={() => {
           if (deleteTarget) handleDelete(deleteTarget.id)
           setDeleteTarget(null)
