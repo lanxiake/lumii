@@ -6,8 +6,9 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { Sidebar, ViewType, User } from '../Sidebar';
+import { Sidebar, SIDEBAR_TOGGLE_EVENT, ViewType } from '../Sidebar';
 import { TitleBar } from '../TitleBar';
+import { StatusBar } from '../StatusBar';
 import styles from './MainLayout.module.css';
 
 export interface MainLayoutProps {
@@ -23,10 +24,6 @@ export interface MainLayoutProps {
   appName?: string;
   /** 是否已连接 */
   isConnected?: boolean;
-  /** 用户信息 */
-  user?: User | null;
-  /** 登出回调 */
-  onLogout?: () => void;
   /** 应用版本 */
   version?: string;
   /** 侧边栏是否默认折叠 */
@@ -61,8 +58,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   title,
   appName = '灵栖 Lumii',
   isConnected = false,
-  user,
-  onLogout,
   version = 'v0.2.0',
   defaultSidebarCollapsed = false,
   electronAPI,
@@ -90,6 +85,16 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
+
+  // 页面内的折叠按钮 / Ctrl+B 都发事件到这里，避免出现第二份折叠状态
+  useEffect(() => {
+    const onToggle = () => {
+      if (isMobile) setMobileMenuOpen((prev) => !prev);
+      else setSidebarCollapsed((prev) => !prev);
+    };
+    window.addEventListener(SIDEBAR_TOGGLE_EVENT, onToggle);
+    return () => window.removeEventListener(SIDEBAR_TOGGLE_EVENT, onToggle);
+  }, [isMobile]);
 
   // 处理移动端菜单切换
   const handleMenuClick = useCallback(() => {
@@ -140,8 +145,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 isConnected={isConnected}
                 collapsed={isMobile ? false : sidebarCollapsed}
                 onCollapseChange={isMobile ? undefined : setSidebarCollapsed}
-                user={user}
-                onLogout={onLogout}
                 version={version}
                 className={isMobile ? (mobileMenuOpen ? 'sidebar-open' : '') : ''}
               />
@@ -158,11 +161,18 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
         {/* 内容区域 */}
         <main className={styles['main-layout-content']}>
-          <div className={styles['main-layout-content-inner']}>
+          <div
+            className={`${styles['main-layout-content-inner']} ${
+              activeView === 'chat' ? styles['main-layout-content-inner--flush'] : ''
+            }`}
+          >
             {children}
           </div>
         </main>
       </div>
+
+      {/* 底部状态条：会话级观测指标的唯一出口 */}
+      <StatusBar />
     </div>
   );
 };

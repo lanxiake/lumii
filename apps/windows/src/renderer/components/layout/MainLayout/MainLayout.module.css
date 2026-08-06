@@ -2,15 +2,45 @@
  * MainLayout Styles - 主布局样式
  */
 
-/* 主布局容器 */
+/* 主布局容器：mesh 渐变 + 缓慢漂移的网格（对齐原型 .app / .app::before） */
 .main-layout {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background-color: var(--color-bg-primary);
+  background: var(--mt-mesh), var(--mt-bg-primary);
   color: var(--color-text-primary);
+  isolation: isolate;
+}
+
+.main-layout::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--mt-border-hairline) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mt-border-hairline) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000, transparent 75%);
+  animation: mt-grid-drift 24s linear infinite;
+}
+
+@keyframes mt-grid-drift {
+  to {
+    background-position:
+      44px 44px,
+      44px 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .main-layout::before {
+    animation: none;
+  }
 }
 
 /* 主体区域 */
@@ -21,12 +51,13 @@
 }
 
 /* 内容区域 */
+/* 背景由 .main-layout 统一提供，这里保持透明否则会盖掉 mesh + 网格 */
 .main-layout-content {
   flex: 1;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background-color: var(--color-bg-primary);
+  background: transparent;
 }
 
 .main-layout-content-inner {
@@ -34,6 +65,12 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding: 20px;
+}
+
+/* 聊天视图铺满：工具栏要贴住标题栏，不能被这层 padding 顶下来 */
+.main-layout-content-inner--flush {
+  padding: 0;
+  overflow: hidden;
 }
 
 /* 自定义滚动条 */

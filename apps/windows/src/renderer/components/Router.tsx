@@ -5,7 +5,6 @@
  */
 
 import React from 'react'
-import { useAuth } from '../contexts/AuthContext/AuthContext'
 import { DashboardPage } from '../pages/DashboardPage/DashboardPage'
 import { ChatPage } from '../pages/ChatPage/ChatPage'
 import { FilesPage } from '../pages/FilesPage/FilesPage'
@@ -45,8 +44,6 @@ interface RouterProps {
  * 保留 useChat 状态（streamMap、runIdToMessageIdRef 等）不因页面切换而丢失。
  */
 export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
-  const { user } = useAuth()
-
   // ChatPage 始终挂载，通过 display 控制显隐
   // 这样 useChat hook 的状态（runIdToMessageIdRef 等）在页面切换时不会丢失
   const showChat = activeView === 'chat'
@@ -55,18 +52,13 @@ export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
   const renderOtherPage = () => {
     switch (activeView) {
       case 'dashboard':
-        return (
-          <DashboardPage
-            displayName={user?.displayName}
-            onViewChange={onViewChange}
-          />
-        )
+        return <DashboardPage onViewChange={onViewChange} />
       case 'files':
         return <FilesPage />
       case 'skills':
         return <SkillsPage />
       case 'settings':
-        return <SettingsPage />
+        return <SettingsPage onViewChange={onViewChange} />
       case 'memories':
         return <MemoriesPage onViewChange={onViewChange} />
       case 'agents':
@@ -76,12 +68,7 @@ export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
       case 'plugins':
         return <PluginCenterPage />
       default:
-        return (
-          <DashboardPage
-            displayName={user?.displayName}
-            onViewChange={onViewChange}
-          />
-        )
+        return <DashboardPage onViewChange={onViewChange} />
     }
   }
 
@@ -89,7 +76,7 @@ export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
     <>
       {/* ChatPage 始终挂载，用 display 控制显隐 */}
       <div style={{ display: showChat ? 'contents' : 'none' }}>
-        <ChatPage activeView={activeView} />
+        <ChatPage activeView={activeView} onViewChange={onViewChange} />
       </div>
       {/* 其他页面：非 chat 视图时渲染 */}
       {!showChat && renderOtherPage()}

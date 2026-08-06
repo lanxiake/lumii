@@ -12,7 +12,6 @@ import { DeviceBindWizard } from './components/DeviceBindWizard'
 import { WorkspaceWizard } from './components/WorkspaceWizard'
 import { GlobalModals } from './components/GlobalModals'
 import { MainLayout } from './components/layout/MainLayout/MainLayout'
-import { useAuth } from './contexts/AuthContext/AuthContext'
 import { useTheme } from './contexts/ThemeContext/ThemeContext'
 import {
   useAgentRuntimeActions,
@@ -42,7 +41,6 @@ const PetSessionSync: React.FC = () => {
  */
 const AuthenticatedApp: React.FC = () => {
   const [activeView, setActiveView] = useState<ViewType>('dashboard')
-  const { logout } = useAuth()
   const { appliedTheme, toggleTheme } = useTheme()
   /** 本地 chat 模型是否已启用并可调用（独立版用此驱动标题栏绿点） */
   const [modelReady, setModelReady] = useState(false)
@@ -83,15 +81,6 @@ const AuthenticatedApp: React.FC = () => {
       window.electronAPI.off('navigate-to-settings', handleNavigateToSettings)
     }
   }, [])
-
-  const handleLogout = useCallback(async () => {
-    console.log('[App] 用户登出')
-    try {
-      await logout()
-    } catch (err) {
-      console.error('[App] 登出失败:', err)
-    }
-  }, [logout])
 
   const themeToggleBtn = (
     <button
@@ -140,9 +129,8 @@ const AuthenticatedApp: React.FC = () => {
       activeView={activeView}
       onViewChange={setActiveView}
       isConnected={isConnected}
-      onLogout={handleLogout}
       themeToggle={themeToggleBtn}
-      defaultSidebarCollapsed={true}
+      defaultSidebarCollapsed={false}
     >
       <PetSessionSync />
       <Router activeView={activeView} onViewChange={setActiveView} />
