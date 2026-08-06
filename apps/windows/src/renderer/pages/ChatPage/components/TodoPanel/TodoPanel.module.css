@@ -266,7 +266,6 @@
   padding-top: var(--spacing-2);
 }
 
-
 /* 左侧轨道：任务进度卡 */
 .railCard {
   border: 1px solid var(--mt-border, #e5e7eb);
@@ -291,7 +290,10 @@
   font-size: 11px;
 }
 
-.railTitle { flex: 1; min-width: 0; }
+.railTitle {
+  flex: 1;
+  min-width: 0;
+}
 
 .railCount {
   font-family: var(--mt-font-mono, ui-monospace, monospace);

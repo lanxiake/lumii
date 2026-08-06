@@ -1374,13 +1374,20 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       const { sessionKey } = (e as CustomEvent<{ sessionKey: string }>).detail ?? {}
       if (sessionKey) void runtimeActions.switchSession(sessionKey)
     }
+    // 概览页点资讯卡片 → 预填输入框但不自动发送，用户还能改
+    const onDraftRequest = (e: Event) => {
+      const { text } = (e as CustomEvent<{ text: string }>).detail ?? {}
+      if (text) setInputValue(text)
+    }
     window.addEventListener('mtbot:session-create-request', onCreateRequest)
     window.addEventListener('mtbot:session-switch-request', onSwitchRequest)
+    window.addEventListener('mtbot:chat-draft-request', onDraftRequest)
     return () => {
       window.removeEventListener('mtbot:session-create-request', onCreateRequest)
       window.removeEventListener('mtbot:session-switch-request', onSwitchRequest)
+      window.removeEventListener('mtbot:chat-draft-request', onDraftRequest)
     }
-  }, [handleNewConversation, runtimeActions])
+  }, [handleNewConversation, runtimeActions, setInputValue])
 
   return (
     <div

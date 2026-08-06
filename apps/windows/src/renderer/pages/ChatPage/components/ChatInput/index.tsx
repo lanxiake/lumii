@@ -461,8 +461,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [disabled, isConnected, openAttachmentPicker])
 
-  /** 跳转技能中心并可选打开指定 Tab（SkillsPage 可能尚未挂载，用 sessionStorage 传递初始 Tab） */
+  /** 跳转技能中心 / MCP（由 Settings Hub 浮层承接） */
   const navigateSkillsTab = useCallback((tab?: 'my-skills' | 'mcp') => {
+    if (tab === 'mcp') {
+      onViewChange?.('mcp')
+      return
+    }
     if (tab) {
       try {
         sessionStorage.setItem('mtbot_skills_init_tab', tab)
