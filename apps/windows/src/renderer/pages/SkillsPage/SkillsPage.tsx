@@ -163,6 +163,17 @@ type TabType = 'my-skills' | 'store' | 'tools' | 'mcp'
  */
 type FilterStatus = 'all' | 'enabled' | 'disabled'
 
+interface SkillsPageProps {
+  /** Hub 嵌入时收紧 padding */
+  embedded?: boolean
+  /** 初始 Tab（Hub MCP Tab 用 mcp） */
+  initialTab?: TabType
+  /** Hub 已把 MCP 提到顶栏时隐藏页内 MCP Tab */
+  hideMcpTab?: boolean
+  /** 仅展示 MCP Tab 内容（隐藏其它 Tab 导航） */
+  mcpOnly?: boolean
+}
+
 /**
  * SkillsPage - 技能管理页面
  *
@@ -171,12 +182,18 @@ type FilterStatus = 'all' | 'enabled' | 'disabled'
  * 支持启用/禁用/卸载技能
  * 包含技能商店入口
  */
-const SkillsPage: React.FC = () => {
+const SkillsPage: React.FC<SkillsPageProps> = ({
+  embedded = false,
+  initialTab,
+  hideMcpTab = false,
+  mcpOnly = false,
+}) => {
   const { installedSkills, stats: skillStats, isLoading, error, loadInstalledSkills, enableSkill, disableSkill, uninstallSkill } = useSkills()
   const { filtered: filteredTools, grouped: groupedTools, stats: toolStats, query: toolQuery, setQuery: setToolQuery, isLoading: isToolsLoading, togglingTool, toggleTool, mcpStatus } = useToolSearch()
 
   // 标签页状态（Composer「管理」可经 sessionStorage 指定初始 Tab）
   const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (initialTab) return initialTab
     try {
       const init = sessionStorage.getItem('mtbot_skills_init_tab') as TabType | null
       if (init === 'my-skills' || init === 'store' || init === 'tools' || init === 'mcp') {
@@ -186,8 +203,13 @@ const SkillsPage: React.FC = () => {
     } catch {
       /* ignore */
     }
-    return 'my-skills'
+    return mcpOnly ? 'mcp' : 'my-skills'
   })
+
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab)
+    else if (mcpOnly) setActiveTab('mcp')
+  }, [initialTab, mcpOnly])
 
   // 搜索和筛选状态
   const [searchQuery, setSearchQuery] = useState('')
@@ -486,8 +508,9 @@ const SkillsPage: React.FC = () => {
   const isConnected = true
 
   return (
-    <div className={styles['skills-page']}>
+    <div className={clsx(styles['skills-page'], embedded && styles['skills-page--embedded'])}>
       {/* 标签页导航：我的技能 → 技能商店 → 工具 → MCP工具 */}
+      {!mcpOnly && (
       <div className={styles['skills-tabs']}>
         <button
           className={clsx(styles['skills-tab'], activeTab === 'my-skills' && styles['active'])}
@@ -512,6 +535,7 @@ const SkillsPage: React.FC = () => {
           <span className={styles['tab-label']}>工具</span>
           <span className={styles['tab-badge']}>{toolStats.total - (groupedTools.get('channel')?.length ?? 0)}</span>
         </button>
+        {!hideMcpTab && (
         <button
           className={clsx(styles['skills-tab'], activeTab === 'mcp' && styles['active'])}
           onClick={() => setActiveTab('mcp')}
@@ -529,7 +553,9 @@ const SkillsPage: React.FC = () => {
             ) : null
           })()}
         </button>
+        )}
       </div>
+      )}
 
       {/* 我的技能标签页 */}
       {activeTab === 'my-skills' && (
@@ -773,13 +799,10 @@ const SkillsPage: React.FC = () => {
       {/* MCP 工具标签页 */}
       {activeTab === 'mcp' && (
         <>
+          {/* 连接数由上方 McpServersPanel 展示，这里只讲工具 */}
           <PageHeader
             title="MCP 工具"
-            subtitle={
-              mcpStatus.length > 0
-                ? `已连接 ${mcpStatus.filter(s => s.connected).length}/${mcpStatus.length} 个 Server，共 ${groupedTools.get('channel')?.length ?? 0} 个工具`
-                : '暂无 MCP Server'
-            }
+            subtitle={`已加载 ${groupedTools.get('channel')?.length ?? 0} 个工具，可单独开关`}
           />
           <div className={styles['skills-toolbar']}>
             <div className={styles['skills-filters']}>
@@ -794,7 +817,7 @@ const SkillsPage: React.FC = () => {
           <Card className={styles['skills-list-card']}>
             {mcpStatus.length === 0 ? (
               <div style={{ padding: '16px', color: 'var(--mt-fg-3, var(--color-text-secondary))', fontSize: 13 }}>
-                暂无 MCP Server。在 <code>~/.lumii/config/mcp-servers.json</code> 中配置后重启生效。
+                暂无 MCP Server。在上方「添加」里配置后立即生效。
               </div>
             ) : (() => {
               const mcpTools = filteredTools.filter(t => t.category === 'channel')

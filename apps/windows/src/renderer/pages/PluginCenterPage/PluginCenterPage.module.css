@@ -7,6 +7,10 @@
   gap: var(--spacing-6);
 }
 
+.pageEmbedded {
+  padding: 12px 16px 16px;
+}
+
 .header {
   display: flex;
   flex-direction: column;
