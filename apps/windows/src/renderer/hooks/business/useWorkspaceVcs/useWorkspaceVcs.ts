@@ -12,6 +12,7 @@ const VCS = (window as any).electronAPI?.vcs as {
   log(opts?: { limit?: number; offset?: number }): Promise<{ success: boolean; data?: any }>
   statusDiff(opts?: { baseOid?: string }): Promise<{ success: boolean; data?: any }>
   diff(opts: { fromOid: string; toOid: string; withHunks?: boolean }): Promise<{ success: boolean; data?: any }>
+  diffFile(opts: { fromOid: string; toOid: string; filepath: string }): Promise<{ success: boolean; data?: any }>
   readFileAt(opts: { oid: string; filepath: string }): Promise<{ success: boolean; data?: any }>
   rollback(opts: { oid: string }): Promise<{ success: boolean; data?: any }>
   revertFile(opts: { oid: string; filepath: string }): Promise<{ success: boolean; data?: any }>
@@ -97,13 +98,34 @@ export function useWorkspaceVcs() {
     return res.data as VcsRollbackResult
   }, [])
 
-  /** 获取两个版本间的逐行 diff（含 hunks） */
-  const diffWithHunks = useCallback(async (fromOid: string, toOid: string): Promise<VcsDiffItem[]> => {
+  /** 获取两个版本间不含 hunks 的文件差异列表。 */
+  const diffList = useCallback(async (fromOid: string, toOid: string): Promise<VcsDiffItem[]> => {
     if (!VCS) return []
-    const res = await VCS.diff({ fromOid, toOid, withHunks: true })
+    const res = await VCS.diff({ fromOid, toOid, withHunks: false })
     if (res.success && res.data) return res.data as VcsDiffItem[]
     return []
   }, [])
+
+  /** 获取两个版本间指定文件的逐行差异。 */
+  const diffFile = useCallback(
+    async (fromOid: string, toOid: string, filepath: string): Promise<VcsDiffItem | null> => {
+      if (!VCS) return null
+      const res = await VCS.diffFile({ fromOid, toOid, filepath })
+      if (res.success && res.data) return res.data as VcsDiffItem
+      return null
+    },
+    [],
+  )
+
+  /** 兼容旧调用：先获取文件列表，再逐文件加载 hunks。 */
+  const diffWithHunks = useCallback(
+    async (fromOid: string, toOid: string): Promise<VcsDiffItem[]> => {
+      const items = await diffList(fromOid, toOid)
+      const detailedItems = await Promise.all(items.map((item) => diffFile(fromOid, toOid, item.filepath)))
+      return detailedItems.filter((item): item is VcsDiffItem => item !== null)
+    },
+    [diffFile, diffList],
+  )
 
   /** 读取某版本下单文件内容（用于并排对比视图）；oid 传 'HEAD' 读最近提交，'WORKTREE' 读工作区当前 */
   const readFileAt = useCallback(async (oid: string, filepath: string): Promise<string | null> => {
@@ -146,6 +168,8 @@ export function useWorkspaceVcs() {
     rollback,
     revertFile,
     readFileAt,
+    diffList,
+    diffFile,
     diffWithHunks,
     findCommitByConversation,
     refresh,

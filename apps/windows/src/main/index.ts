@@ -1292,6 +1292,20 @@ function setupIpcHandlers(): void {
     }
   })
 
+  ipcMain.handle(
+    'vcs:diffFile',
+    async (_event, opts: { fromOid: string; toOid: string; filepath: string }) => {
+      try {
+        const repo = getWorkspaceVcs(getWorkspaceDir())
+        const entry = await repo.diffFile(opts.fromOid, opts.toOid, opts.filepath)
+        return { success: true, data: entry }
+      } catch (err) {
+        vcsWarn(`diffFile 失败: ${err instanceof Error ? err.message : String(err)}`)
+        return { success: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    },
+  )
+
   ipcMain.handle('vcs:readFileAt', async (_event, opts: { oid: string; filepath: string }) => {
     try {
       const repo = getWorkspaceVcs(getWorkspaceDir())

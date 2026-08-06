@@ -976,6 +976,7 @@ export interface ElectronAPI {
     log: (opts?: { limit?: number; offset?: number }) => Promise<{ success: boolean; data?: unknown }>
     statusDiff: (opts?: { baseOid?: string }) => Promise<{ success: boolean; data?: unknown }>
     diff: (opts: { fromOid: string; toOid: string; withHunks?: boolean }) => Promise<{ success: boolean; data?: unknown }>
+    diffFile: (opts: { fromOid: string; toOid: string; filepath: string }) => Promise<{ success: boolean; data?: unknown }>
     readFileAt: (opts: { oid: string; filepath: string }) => Promise<{ success: boolean; data?: unknown }>
     rollback: (opts: { oid: string }) => Promise<{ success: boolean; data?: unknown }>
     revertFile: (opts: { oid: string; filepath: string }) => Promise<{ success: boolean; data?: unknown }>
@@ -1669,6 +1670,8 @@ const electronAPI: ElectronAPI = {
     log: (opts?: { limit?: number; offset?: number }) => ipcRenderer.invoke('vcs:log', opts),
     statusDiff: (opts?: { baseOid?: string }) => ipcRenderer.invoke('vcs:statusDiff', opts),
     diff: (opts: { fromOid: string; toOid: string; withHunks?: boolean }) => ipcRenderer.invoke('vcs:diff', opts),
+    diffFile: (opts: { fromOid: string; toOid: string; filepath: string }) =>
+      ipcRenderer.invoke('vcs:diffFile', opts),
     readFileAt: (opts: { oid: string; filepath: string }) => ipcRenderer.invoke('vcs:readFileAt', opts),
     rollback: (opts: { oid: string }) => ipcRenderer.invoke('vcs:rollback', opts),
     revertFile: (opts: { oid: string; filepath: string }) => ipcRenderer.invoke('vcs:revertFile', opts),
