@@ -10,6 +10,7 @@ import { petApi } from './pet-api'
 import type { PetElectronAPI } from '../shared/pet-mode'
 // 仅类型引用，编译期擦除，不会把主进程代码打进 preload
 import type { UsageSummary } from '../main/usage-store'
+import type { NewsSnapshot } from '../main/news-store'
 import type { LatencyView } from '../main/provider-latency'
 
 // 日志输出
@@ -174,12 +175,28 @@ export interface ElectronAPI {
     latency: () => Promise<{ success: boolean; data?: LatencyView }>
   }
 
+  /** 概览页资讯（由「资讯抓取与综述」定时任务写入 ~/.lumii/news/latest.json） */
+  news: {
+    /** 读最新一批资讯；从未抓过时 data 为 null */
+    latest: () => Promise<{ success: boolean; data?: NewsSnapshot | null; error?: string }>
+    /** 立即跑一次抓取+综述流水线，返回新快照 */
+    refresh: () => Promise<{
+      success: boolean
+      data?: { summary: string; snapshot: NewsSnapshot | null }
+      error?: string
+    }>
+  }
+
   // 窗口操作
   window: {
     minimize: () => void
     maximize: () => void
     close: () => void
     isMaximized: () => Promise<boolean>
+    /**
+     * 光标相对窗口内容区坐标（穿透标题栏 drag 区域；边缘光效用）
+     */
+    getCursorClientPos: () => Promise<{ x: number; y: number; inside: boolean } | null>
   }
 
   /**
@@ -987,12 +1004,23 @@ const electronAPI: ElectronAPI = {
     latency: () => ipcRenderer.invoke('usage:latency'),
   },
 
+  news: {
+    latest: () => ipcRenderer.invoke('news:latest'),
+    refresh: () => ipcRenderer.invoke('news:refresh'),
+  },
+
   // 窗口操作 API
   window: {
     minimize: () => ipcRenderer.send('window:minimize'),
     maximize: () => ipcRenderer.send('window:maximize'),
     close: () => ipcRenderer.send('window:close'),
     isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+    getCursorClientPos: () =>
+      ipcRenderer.invoke('window:getCursorClientPos') as Promise<{
+        x: number
+        y: number
+        inside: boolean
+      } | null>,
   },
 
   notifyDesktop: (title: string, body: string) =>

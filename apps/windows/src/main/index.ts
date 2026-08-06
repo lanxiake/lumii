@@ -35,6 +35,7 @@ import { promises as fs, existsSync, readdirSync } from 'fs'
 import { TrayManager } from './tray-manager'
 import { SystemService } from './system-service'
 import { queryUsage, type UsageQuery } from './usage-store'
+import { readNewsSnapshot, runNewsPipeline } from './news-store'
 import { getLatency } from './provider-latency'
 import { UpdaterService, setupUpdaterIpcHandlers } from './updater-service'
 import { ClientSkillRuntime } from './skill-runtime'
@@ -1410,6 +1411,28 @@ function setupIpcHandlers(): void {
   ipcMain.on('window:close', () => mainWindow?.hide())
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false)
 
+  /**
+   * 光标相对内容区坐标（供边缘光效使用）。
+   * 标题栏 `-webkit-app-region: drag` 会吞掉 DOM mousemove，必须走主进程 screen API。
+   */
+  ipcMain.handle('window:getCursorClientPos', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindow
+    if (!win || win.isDestroyed()) return null
+    const point = screen.getCursorScreenPoint()
+    const bounds = win.getContentBounds()
+    const x = point.x - bounds.x
+    const y = point.y - bounds.y
+    return {
+      x,
+      y,
+      inside:
+        point.x >= bounds.x
+        && point.y >= bounds.y
+        && point.x < bounds.x + bounds.width
+        && point.y < bounds.y + bounds.height,
+    }
+  })
+
   /** 渲染进程请求桌面通知（如 Agent 回合结束且窗口在后台） */
   ipcMain.handle('notify:desktop', async (_event, payload: { title?: string; body?: string }) => {
     const title = typeof payload?.title === 'string' && payload.title.trim() ? payload.title.trim() : 'MtBot'
@@ -2164,6 +2187,32 @@ function setupApiIpcHandlers(): void {
 
   // === 服务商首字节延迟（Task 4.4）===
   ipcMain.handle('usage:latency', () => ({ success: true, data: getLatency() }))
+
+  // === 概览页资讯（数据由「资讯抓取与综述」定时任务写入 ~/.lumii/news/latest.json）===
+  ipcMain.handle('news:latest', async () => {
+    try {
+      return { success: true, data: await readNewsSnapshot() }
+    } catch (error) {
+      console.error('[IPC] news:latest 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  /** 手动立即跑一次流水线（概览页刷新按钮），逻辑与定时任务完全同一条 */
+  ipcMain.handle('news:refresh', async () => {
+    try {
+      const summary = await runNewsPipeline({
+        callLLM: (prompt, purpose) => {
+          if (!agentRuntimeBridge) throw new Error('Agent Runtime 未就绪')
+          return agentRuntimeBridge.callLLM(prompt, undefined, purpose)
+        },
+      })
+      return { success: true, data: { summary, snapshot: await readNewsSnapshot() } }
+    } catch (error) {
+      console.error('[IPC] news:refresh 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
 
   // === 开机启动 ===
   ipcMain.handle('app:getOpenAtLogin', async () => {
