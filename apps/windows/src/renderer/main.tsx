@@ -28,7 +28,16 @@ window.addEventListener('unhandledrejection', (e) => {
 const _searchParams = new URLSearchParams(window.location.search)
 const _hashParams = new URLSearchParams(window.location.hash.replace(/^#\??/, ''))
 const isPetMode = _searchParams.get('mode') === 'pet' || _hashParams.get('mode') === 'pet'
-console.log('[Renderer] href=' + window.location.href + ' isPetMode=' + String(isPetMode))
+const isFilePreviewMode =
+  _searchParams.get('mode') === 'file-preview' || _hashParams.get('mode') === 'file-preview'
+console.log(
+  '[Renderer] href=' +
+    window.location.href +
+    ' isPetMode=' +
+    String(isPetMode) +
+    ' isFilePreviewMode=' +
+    String(isFilePreviewMode),
+)
 const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement)
 
 /** 顶层错误边界：渲染崩溃时显示错误信息而非纯黑屏，便于定位 */
@@ -117,6 +126,22 @@ if (isPetMode) {
       <RootErrorBoundary>
         <Suspense fallback={null}>
           <PetModeShell />
+        </Suspense>
+      </RootErrorBoundary>
+    </React.StrictMode>,
+  )
+} else if (isFilePreviewMode) {
+  console.log('[Renderer] 文件预览独立窗口启动')
+  const FilePreviewWindowApp = React.lazy(() =>
+    import('./file-preview/FilePreviewWindowApp').then((m) => ({
+      default: m.FilePreviewWindowApp,
+    })),
+  )
+  root.render(
+    <React.StrictMode>
+      <RootErrorBoundary>
+        <Suspense fallback={null}>
+          <FilePreviewWindowApp />
         </Suspense>
       </RootErrorBoundary>
     </React.StrictMode>,

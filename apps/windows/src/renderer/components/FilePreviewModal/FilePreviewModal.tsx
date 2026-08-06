@@ -1,17 +1,24 @@
-/**
- * FilePreviewModal — 文件内容预览弹窗
+﻿/**
+ * FilePreviewModal — 文件内容预览
  *
- * 支持 HTML/CSS/JS/SVG（sandbox webview）、图片、纯文本/代码、Markdown、
- * PDF（PDF.js canvas + 可选中文字层）、DOCX（mammoth 转 HTML）、
- * XLSX/XLS（SheetJS 转 HTML 表格）、PPTX（pptx-preview 渲染幻灯片）。
- * 旧版 .doc / .ppt 仅提示用系统应用打开。超过 10MB 的文件显示降级 UI。
- * 顶栏提供"复制内容"（正文文本）与"复制文件"（文件对象入剪贴板）。
+ * - variant=modal（默认）：居中弹窗；全屏时覆盖对话区（data-chat-dialog）
+ * - variant=window：独立 BrowserWindow 内铺满，可拖出主窗口外
+ * - variant=embedded：填满父容器（保留兼容）
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import MDEditor from '@uiw/react-md-editor'
+import {
+  X,
+  Maximize2,
+  Minimize2,
+  Copy,
+  Pencil,
+  AppWindow,
+  File,
+} from 'lucide-react'
 import { useDataThemeColorMode } from '../../hooks/common/useDataThemeColorMode'
 import { PdfJsPreview } from './PdfJsPreview'
 import { ExcelPreview } from './ExcelPreview'
@@ -323,6 +330,41 @@ export interface FilePreviewModalProps {
    */
   editablePath?: string
   onClose: () => void
+  /**
+   * 呈现形态：modal=应用内弹窗；window=独立窗；embedded=填满父级
+   * 兼容旧 prop：embedded=true 等价于 variant='embedded'
+   */
+  variant?: 'modal' | 'window' | 'embedded'
+  /** @deprecated 使用 variant='embedded' */
+  embedded?: boolean
+}
+
+/** 读取对话区边界，供全屏预览覆盖整个对话框 */
+function useChatDialogBounds(active: boolean): DOMRect | null {
+  const [bounds, setBounds] = useState<DOMRect | null>(null)
+  useEffect(() => {
+    if (!active) {
+      setBounds(null)
+      return
+    }
+    const update = () => {
+      const el = document.querySelector('[data-chat-dialog]')
+      setBounds(el?.getBoundingClientRect() ?? null)
+    }
+    update()
+    window.addEventListener('resize', update)
+    const ro =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(update)
+        : null
+    const el = document.querySelector('[data-chat-dialog]')
+    if (el && ro) ro.observe(el)
+    return () => {
+      window.removeEventListener('resize', update)
+      ro?.disconnect()
+    }
+  }, [active])
+  return bounds
 }
 
 export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
@@ -335,13 +377,22 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   mdBasePath,
   editablePath,
   onClose,
+  variant: variantProp,
+  embedded = false,
 }) => {
+  const variant = variantProp ?? (embedded ? 'embedded' : 'modal')
+  const isWindow = variant === 'window'
+  const isEmbedded = variant === 'embedded'
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<PreviewResult | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  /** Markdown 非编辑态：预览 / 源码 */
+  const [mdViewMode, setMdViewMode] = useState<'preview' | 'source'>('preview')
   /** 与系统/应用主题一致，驱动 MDEditor 代码块与表格明暗样式 */
   const mdColorMode = useDataThemeColorMode()
+  const dialogBounds = useChatDialogBounds(isFullscreen && variant === 'modal')
 
   /** DOCX：mammoth 转 HTML */
   const [docxHtml, setDocxHtml] = useState<string | null>(null)
@@ -363,25 +414,51 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     setIsFullscreen((v) => !v)
   }, [])
 
+  /** 弹出独立窗口，关闭当前应用内预览 */
+  const handlePopOut = useCallback(async () => {
+    try {
+      await window.electronAPI.filePreview.open({
+        fileName,
+        fileId,
+        filePath,
+        userId,
+        startLine,
+        endLine,
+        mdBasePath,
+        editablePath,
+      })
+      onClose()
+    } catch (err) {
+      console.error('[FilePreviewModal] 弹出独立窗口失败:', err)
+    }
+  }, [fileName, fileId, filePath, userId, startLine, endLine, mdBasePath, editablePath, onClose])
+
   // Esc 退出全屏；编辑模式下 Esc 先退出编辑
   useEffect(() => {
+    if (isWindow) return // 独立窗由系统关闭 / 顶栏关闭
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (isEditingMarkdown) {
-          e.stopPropagation()
-          setIsEditingMarkdown(false)
-          setSaveError(null)
-        } else if (isFullscreen) {
-          e.stopPropagation()
-          setIsFullscreen(false)
-        } else {
-          onClose()
-        }
+      if (e.key !== 'Escape') return
+      if (isEditingMarkdown) {
+        e.stopPropagation()
+        setIsEditingMarkdown(false)
+        setSaveError(null)
+      } else if (isFullscreen) {
+        e.stopPropagation()
+        setIsFullscreen(false)
+      } else {
+        onClose()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isFullscreen, isEditingMarkdown, onClose])
+  }, [isFullscreen, isEditingMarkdown, onClose, isWindow])
+
+  /** 切换文件时重置 Markdown 视图为预览 */
+  useEffect(() => {
+    setMdViewMode('preview')
+    setIsEditingMarkdown(false)
+    setIsFullscreen(false)
+  }, [fileId, filePath, fileName])
 
   const handleEnterEdit = useCallback(() => {
     setEditingContent(result?.content ?? '')
@@ -493,6 +570,12 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     [filePath, editablePath, result, route],
   )
 
+  /** Markdown 文件（可切换预览/源码，不要求可写） */
+  const isMarkdown = useMemo(
+    () => result?.mimeType === 'text/markdown' && route === 'code',
+    [result, route],
+  )
+
   const imageDataUrl = useMemo(() => {
     if (!result || route !== 'image' || result.truncated) return ''
     return buildImageDataUrl(result)
@@ -585,105 +668,142 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     }
   }, [copyableFilePath])
 
-  /** 挂到 document.body，避免嵌在 SessionFileList 内被消息区层叠上下文压住 */
-  const modalTree = (
-    <div className={clsx(styles.overlay, isFullscreen && styles.overlayFullscreen)} onClick={isFullscreen ? undefined : onClose}>
-      <div className={clsx(styles.modal, isFullscreen && styles.modalFullscreen)} onClick={(e) => e.stopPropagation()}>
-        {isFullscreen && (
-          <div className={styles.floatingControls}>
-            <button
-              className={styles.floatingBtn}
-              onClick={toggleFullscreen}
-              title="缩小预览"
-              aria-label="缩小预览"
-            >
-              缩小
-            </button>
-            <button
-              className={clsx(styles.floatingBtn, styles.floatingBtnDanger)}
-              onClick={onClose}
-              title="关闭预览"
-              aria-label="关闭预览"
-            >
-              关闭
-            </button>
-          </div>
-        )}
+  /** 面板外壳 class */
+  const shellClass = clsx(
+    styles.modal,
+    isWindow && styles.modalWindow,
+    isEmbedded && styles.modalEmbedded,
+    isFullscreen && !isWindow && styles.modalDialogFullscreen,
+  )
+
+  const panel = (
+      <div className={shellClass} onClick={(e) => e.stopPropagation()}>
         {/* 标题栏 */}
         <div className={styles.header}>
-          <span className={styles.title} title={fileName}>{fileName}</span>
-          {result && (
-            <span className={styles.meta}>
-              {formatSize(result.size)}
-              {result.mimeType && ` · ${result.mimeType}`}
-              {result.ranged && result.startLine !== undefined && (
-                <>
-                  {' · '}
-                  L{result.startLine}
-                  {result.endLine !== undefined && result.endLine !== result.startLine
-                    ? `-${result.endLine}`
-                    : ''}
-                </>
-              )}
-            </span>
-          )}
-          {/* Markdown 编辑按钮组 */}
-          {isMarkdownEditable && !isEditingMarkdown && (
-            <button
-              className={styles.editBtn}
-              onClick={handleEnterEdit}
-              title="编辑 Markdown"
-              aria-label="编辑"
-            >
-              ✎
-            </button>
-          )}
-          {isEditingMarkdown && (
-            <>
-              {saveError && <span className={styles.saveError}>{saveError}</span>}
+          <div className={styles.titleBlock}>
+            <File size={15} strokeWidth={1.8} className={styles.titleIcon} aria-hidden />
+            <span className={styles.title} title={fileName}>{fileName}</span>
+            {result && (
+              <span className={styles.meta}>
+                {formatSize(result.size)}
+                {result.ranged && result.startLine !== undefined && (
+                  <>
+                    {' · '}
+                    L{result.startLine}
+                    {result.endLine !== undefined && result.endLine !== result.startLine
+                      ? `-${result.endLine}`
+                      : ''}
+                  </>
+                )}
+              </span>
+            )}
+          </div>
+          <div className={styles.headerActions}>
+            {/* Markdown：预览 / 源码切换（非编辑态） */}
+            {isMarkdown && !isEditingMarkdown && (
+              <div className={styles.mdToggle} role="group" aria-label="Markdown 视图">
+                <button
+                  type="button"
+                  className={clsx(styles.mdToggleBtn, mdViewMode === 'preview' && styles.mdToggleBtnActive)}
+                  onClick={() => setMdViewMode('preview')}
+                >
+                  预览
+                </button>
+                <button
+                  type="button"
+                  className={clsx(styles.mdToggleBtn, mdViewMode === 'source' && styles.mdToggleBtnActive)}
+                  onClick={() => setMdViewMode('source')}
+                >
+                  源码
+                </button>
+              </div>
+            )}
+            {isMarkdownEditable && !isEditingMarkdown && (
               <button
-                className={clsx(styles.actionBtn, styles.saveBtn)}
-                onClick={() => void handleSaveEdit()}
-                disabled={isSaving}
-                title="保存 (Ctrl+S)"
+                type="button"
+                className={styles.iconBtn}
+                onClick={handleEnterEdit}
+                title="编辑 Markdown"
+                aria-label="编辑"
               >
-                {isSaving ? '保存中…' : '保存'}
+                <Pencil size={14} strokeWidth={1.8} />
               </button>
+            )}
+            {isEditingMarkdown && (
+              <>
+                {saveError && <span className={styles.saveError}>{saveError}</span>}
+                <button
+                  type="button"
+                  className={clsx(styles.actionBtn, styles.saveBtn)}
+                  onClick={() => void handleSaveEdit()}
+                  disabled={isSaving}
+                  title="保存 (Ctrl+S)"
+                >
+                  {isSaving ? '保存中…' : '保存'}
+                </button>
+                <button
+                  type="button"
+                  className={styles.actionBtn}
+                  onClick={handleCancelEdit}
+                  disabled={isSaving}
+                  title="取消编辑 (Esc)"
+                >
+                  取消
+                </button>
+              </>
+            )}
+            {!isEditingMarkdown && copyHint && (
+              <span className={styles.copyHint}>
+                {copyHint === 'file' ? '已复制' : '复制失败'}
+              </span>
+            )}
+            {!isEditingMarkdown && copyableFilePath && (
               <button
-                className={styles.actionBtn}
-                onClick={handleCancelEdit}
-                disabled={isSaving}
-                title="取消编辑 (Esc)"
+                type="button"
+                className={styles.iconBtn}
+                onClick={() => void handleCopyFile()}
+                title="复制文件到剪贴板"
+                aria-label="复制文件"
               >
-                取消
+                <Copy size={14} strokeWidth={1.8} />
               </button>
-            </>
-          )}
-          {/* 复制文件（编辑模式下隐藏）。正文文本改用鼠标选中 + 右键复制 */}
-          {!isEditingMarkdown && copyHint && (
-            <span className={styles.copyHint}>
-              {copyHint === 'file' ? '已复制文件' : '复制失败'}
-            </span>
-          )}
-          {!isEditingMarkdown && copyableFilePath && (
+            )}
+            {!isWindow && (
+              <button
+                type="button"
+                className={styles.iconBtn}
+                onClick={() => void handlePopOut()}
+                title="弹出独立窗口（可拖到主窗口外）"
+                aria-label="弹出独立窗口"
+              >
+                <AppWindow size={14} strokeWidth={1.8} />
+              </button>
+            )}
+            {!isWindow && (
+              <button
+                type="button"
+                className={styles.iconBtn}
+                onClick={toggleFullscreen}
+                aria-label={isFullscreen ? '退出全屏' : '全屏覆盖对话区'}
+                title={isFullscreen ? '退出全屏 (Esc)' : '全屏覆盖对话区'}
+              >
+                {isFullscreen ? (
+                  <Minimize2 size={14} strokeWidth={1.8} />
+                ) : (
+                  <Maximize2 size={14} strokeWidth={1.8} />
+                )}
+              </button>
+            )}
             <button
+              type="button"
               className={styles.iconBtn}
-              onClick={() => void handleCopyFile()}
-              title="复制文件到剪贴板（可在资源管理器/聊天框粘贴）"
-              aria-label="复制文件"
+              onClick={onClose}
+              aria-label="关闭"
+              title="关闭"
             >
-              🗎
+              <X size={15} strokeWidth={2} />
             </button>
-          )}
-          <button
-            className={styles.fullscreenBtn}
-            onClick={toggleFullscreen}
-            aria-label={isFullscreen ? '退出全屏' : '全屏预览'}
-            title={isFullscreen ? '退出全屏 (Esc)' : '全屏预览'}
-          >
-            {isFullscreen ? '⊡' : '⊞'}
-          </button>
-          <button className={styles.closeBtn} onClick={onClose} aria-label="关闭">×</button>
+          </div>
         </div>
 
         {/* 内容区 */}
@@ -698,7 +818,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           {error && (
             <div className={styles.center}>
               <p className={styles.errorMsg}>{error}</p>
-              <button className={styles.actionBtn} onClick={handleOpen}>
+              <button type="button" className={styles.actionBtn} onClick={handleOpen}>
                 用系统应用打开
               </button>
             </div>
@@ -707,7 +827,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           {!loading && !error && result && result.truncated && (
             <div className={styles.center}>
               <p>文件过大（{formatSize(result.size)}），无法预览</p>
-              <button className={styles.actionBtn} onClick={handleOpen}>
+              <button type="button" className={styles.actionBtn} onClick={handleOpen}>
                 用系统应用打开
               </button>
             </div>
@@ -764,6 +884,10 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                     }
                   }}
                 />
+              ) : mdViewMode === 'source' ? (
+                <pre className={styles.code}>
+                  <code>{result.content}</code>
+                </pre>
               ) : (
                 <MDEditor.Markdown
                   source={result.content ?? ''}
@@ -799,7 +923,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               {docxError && (
                 <div className={styles.center}>
                   <p className={styles.errorMsg}>{docxError}</p>
-                  <button className={styles.actionBtn} onClick={handleOpen}>
+                  <button type="button" className={styles.actionBtn} onClick={handleOpen}>
                     用系统应用打开
                   </button>
                 </div>
@@ -807,7 +931,6 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               {!docxLoading && !docxError && docxHtml !== null && (
                 <div
                   className={styles.docxHtml}
-                  // mammoth 输出为安全 HTML 子集；仍限制在隔离容器内
                   dangerouslySetInnerHTML={{ __html: docxHtml }}
                 />
               )}
@@ -825,7 +948,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           {!loading && !error && result && !result.truncated && route === 'legacy-doc' && (
             <div className={styles.center}>
               <p>旧版 Word（.doc）无法在应用内预览，请使用系统应用打开。</p>
-              <button className={styles.actionBtn} onClick={handleOpen}>
+              <button type="button" className={styles.actionBtn} onClick={handleOpen}>
                 用系统应用打开
               </button>
             </div>
@@ -834,7 +957,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           {!loading && !error && result && !result.truncated && route === 'legacy-ppt' && (
             <div className={styles.center}>
               <p>旧版 PowerPoint（.ppt）无法在应用内预览，请使用系统应用打开。</p>
-              <button className={styles.actionBtn} onClick={handleOpen}>
+              <button type="button" className={styles.actionBtn} onClick={handleOpen}>
                 用系统应用打开
               </button>
             </div>
@@ -843,16 +966,71 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           {!loading && !error && result && !result.truncated && route === 'unsupported' && (
             <div className={styles.center}>
               <p>该文件类型不支持预览</p>
-              <button className={styles.actionBtn} onClick={handleOpen}>
+              <button type="button" className={styles.actionBtn} onClick={handleOpen}>
                 用系统应用打开
               </button>
             </div>
           )}
         </div>
       </div>
-    </div>
   )
 
+  // 独立窗口：直接铺满
+  if (isWindow) {
+    return <div className={styles.windowHost}>{panel}</div>
+  }
+
+  // 内嵌：填满父级
+  if (isEmbedded) {
+    return <div className={styles.embeddedHost}>{panel}</div>
+  }
+
+  // 全屏：覆盖对话区（有 data-chat-dialog 时按边界定位；否则铺满主内容区）
+  if (isFullscreen) {
+    if (typeof document === 'undefined') return null
+    const overlayStyle: React.CSSProperties = dialogBounds
+      ? {
+          position: 'fixed',
+          top: dialogBounds.top,
+          left: dialogBounds.left,
+          width: dialogBounds.width,
+          height: dialogBounds.height,
+        }
+      : {
+          position: 'fixed',
+          top: 'var(--mt-titlebar-h, 36px)',
+          left: 0,
+          right: 0,
+          bottom: 0,
+        }
+    return createPortal(
+      <div
+        className={styles.dialogOverlay}
+        style={overlayStyle}
+        role="dialog"
+        aria-modal="true"
+        aria-label="文件预览全屏"
+        data-file-preview-open
+      >
+        {panel}
+      </div>,
+      document.body,
+    )
+  }
+
+  // 默认弹窗
   if (typeof document === 'undefined') return null
-  return createPortal(modalTree, document.body)
+  return createPortal(
+    <div
+      className={styles.overlay}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="文件预览"
+      data-file-preview-open
+    >
+      {panel}
+    </div>,
+    document.body,
+  )
 }
