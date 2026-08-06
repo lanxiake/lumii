@@ -1,0 +1,168 @@
+/**
+ * Settings Hub 浮层样式 — mesh 网格底 + 高级玻璃分段导航
+ */
+
+.hubHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--mt-space-3, 12px);
+  flex: 1;
+  min-width: 0;
+}
+
+.hubTitle {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mt-fg-3, var(--color-text-secondary));
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hubTabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--mt-bg-primary, #0a101c) 35%, transparent);
+  border: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.06));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent);
+  overflow-x: auto;
+  backdrop-filter: blur(12px);
+}
+
+.hubTab {
+  flex: 0 0 auto;
+  padding: 7px 13px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mt-fg-3, var(--color-text-secondary));
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.18s var(--mt-ease-standard, ease),
+    color 0.18s var(--mt-ease-standard, ease),
+    box-shadow 0.18s var(--mt-ease-standard, ease);
+}
+
+.hubTab:hover {
+  color: var(--mt-fg-1, var(--color-text-primary));
+  background: color-mix(in srgb, var(--mt-fg-1, #fff) 5%, transparent);
+}
+
+.hubTabActive {
+  background: color-mix(in srgb, var(--mt-accent-500, #3b82f6) 16%, var(--mt-surface-2, rgba(22, 32, 51, 0.85)));
+  color: var(--mt-fg-1, var(--color-text-primary));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--mt-accent-400, #60a5fa) 28%, transparent),
+    0 0 16px color-mix(in srgb, var(--mt-accent-500, #3b82f6) 12%, transparent);
+}
+
+.hubBody {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.settingsPane {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.categoryNav {
+  width: 208px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--mt-space-3, 12px);
+  border-right: 1px solid var(--mt-border-hairline, var(--color-border));
+  background: color-mix(in srgb, var(--mt-bg-primary, #0a101c) 28%, transparent);
+  overflow-y: auto;
+}
+
+.categoryItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--mt-fg-3, var(--color-text-secondary));
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.categoryItem:hover {
+  background: color-mix(in srgb, var(--mt-fg-1, #fff) 5%, transparent);
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.categoryItemActive {
+  background: color-mix(in srgb, var(--mt-accent-500, #3b82f6) 14%, transparent);
+  color: color-mix(in srgb, var(--mt-accent-300, #93c5fd) 70%, var(--mt-fg-1, #fff));
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mt-accent-400, #60a5fa) 22%, transparent);
+}
+
+.categoryIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  opacity: 0.9;
+}
+
+.categoryLabel {
+  flex: 1;
+  min-width: 0;
+}
+
+.settingsContent {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--mt-space-4, 16px) var(--mt-space-5, 20px);
+  background: color-mix(in srgb, var(--mt-bg-primary, #0a101c) 12%, transparent);
+}
+
+.embedPane {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.embedPane > * {
+  flex: 1;
+  min-height: 0;
+}
+
+/* MCP Tab 是「配置面板 + 工具列表」两块纵向堆叠，整体滚动，不各占一半 */
+.mcpPane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mt-space-5, 20px);
+  padding: var(--mt-space-4, 16px) var(--mt-space-5, 20px);
+}
