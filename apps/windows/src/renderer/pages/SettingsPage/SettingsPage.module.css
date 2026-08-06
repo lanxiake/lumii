@@ -80,6 +80,12 @@
   max-width: 600px;
 }
 
+.settings-merged-block {
+  margin-top: var(--spacing-8, 32px);
+  padding-top: var(--spacing-6, 24px);
+  border-top: 1px solid var(--mt-border-hairline, var(--color-border));
+}
+
 .settings-section h3 {
   font-size: var(--font-size-lg);
   font-weight: 600;
@@ -601,4 +607,147 @@
   50% {
     opacity: 0.5;
   }
+}
+
+/* ── 统一设置面板（隐私 / 关于等） ── */
+.settings-panel {
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panel-header {
+  margin-bottom: 2px;
+}
+
+.panel-title {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--mt-fg-1, var(--color-text-primary));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--mt-fg-3, var(--color-text-secondary));
+}
+
+.panel-card {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--mt-border-hairline, var(--color-border));
+  background: color-mix(in srgb, var(--mt-bg-primary, #0a101c) 22%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent);
+}
+
+.panel-card--danger {
+  border-color: color-mix(in srgb, var(--mt-error, #ef4444) 28%, transparent);
+  background: color-mix(in srgb, var(--mt-error, #ef4444) 6%, transparent);
+}
+
+.panel-card--about {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel-card-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.panel-card-desc {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--mt-fg-3, var(--color-text-secondary));
+}
+
+.panel-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--mt-border-hairline, transparent);
+}
+
+.panel-row:last-child {
+  border-bottom: none;
+}
+
+.panel-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.panel-row-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.panel-row-hint {
+  font-size: 12px;
+  color: var(--mt-fg-3, var(--color-text-secondary));
+  line-height: 1.4;
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.panel-storage {
+  margin-top: 12px;
+}
+
+.panel-footer-note {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--mt-fg-4, var(--color-text-tertiary));
+  text-align: center;
+}
+
+.about-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.about-name {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.about-version {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--mt-fg-3, var(--color-text-secondary));
+}
+
+.about-description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--mt-fg-2, var(--color-text-secondary));
 }

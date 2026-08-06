@@ -4,23 +4,14 @@ import {
   User,
   FolderOpen,
   Radio,
-  Bell,
   Shield,
-  Keyboard,
-  RefreshCw,
-  Info,
-  Lock,
   Smartphone,
-  Mic,
   Cpu,
-  Users,
+  Mic,
   Wrench,
-  Clock,
-  Brain,
-  Boxes,
-  Plug,
+  Info,
+  BarChart2,
 } from '../../components/ui/Icon'
-import type { ViewType } from '../../components/Router'
 import { Card } from '../../components/ui/Card/Card'
 import { Button } from '../../components/ui/Button/Button'
 import { Input } from '../../components/ui/Input/Input'
@@ -28,7 +19,6 @@ import { Loading } from '../../components/ui/Loading/Loading'
 import { Checkbox } from '../../components/ui/Checkbox/Checkbox'
 import { Select } from '../../components/ui/Select/Select'
 import { Badge } from '../../components/ui/Badge/Badge'
-import { Tag } from '../../components/ui/Tag/Tag'
 import { UpdaterView } from '../../components/business/UpdaterView'
 import { useSettings, useCategorySettings } from '../../hooks/business/useSettings'
 import { useToast } from '../../components/ui/Toast/useToast'
@@ -39,6 +29,7 @@ import { WecomChannelSettings } from './components/WecomChannelSettings'
 import { FeishuChannelSettings } from './components/FeishuChannelSettings'
 import { StorageInfo } from './components/StorageInfo'
 import { SecurityLogViewer } from './components/SecurityLogViewer/SecurityLogViewer'
+import { UsagePanel } from './components/UsagePanel'
 import { LumiiLogo } from '../../components/brand/LumiiLogo'
 import {
   getProviderConfig,
@@ -63,12 +54,10 @@ import {
   type VirtualHumanSettingsDTO,
   DEFAULT_VH_SETTINGS,
 } from '../../../shared/virtual-human'
+import type {
+  MergedSettingsCategory,
+} from '../../components/SettingsHub/types'
 import styles from './SettingsPage.module.css'
-
-/**
- * 设置分类
- */
-type SettingsCategory = 'account' | 'workspace' | 'channels' | 'notification' | 'privacy' | 'shortcuts' | 'update' | 'about' | 'voice' | 'modelConfig' | 'pet' | 'mcp'
 
 /**
  * 设置分类图标尺寸
@@ -76,50 +65,37 @@ type SettingsCategory = 'account' | 'workspace' | 'channels' | 'notification' | 
 const SETTINGS_ICON_SIZE = 16
 
 /**
- * 分类配置
+ * 合并后的左侧分类（整页模式备用；Hub 自带导航时可不渲染）
  */
-/**
- * 从侧边栏移入设置的功能页。这些是独立页面，不是设置面板，
- * 点击直接跳转，不切 activeCategory。
- */
-const MOVED_PAGES: Array<{ id: ViewType; label: string; icon: ReactNode }> = [
-  { id: 'agents', label: 'AI 团队', icon: <Users size={SETTINGS_ICON_SIZE} /> },
-  { id: 'skills', label: '技能中心', icon: <Wrench size={SETTINGS_ICON_SIZE} /> },
-  { id: 'cron', label: '定时任务', icon: <Clock size={SETTINGS_ICON_SIZE} /> },
-  { id: 'memories', label: '记忆管理', icon: <Brain size={SETTINGS_ICON_SIZE} /> },
-  { id: 'files', label: '文件管理', icon: <FolderOpen size={SETTINGS_ICON_SIZE} /> },
-  { id: 'plugins', label: '插件中心', icon: <Plug size={SETTINGS_ICON_SIZE} /> },
-]
-
-const CATEGORIES: Array<{ id: SettingsCategory; label: string; icon: ReactNode }> = [
-  { id: 'account', label: '通用', icon: <User size={SETTINGS_ICON_SIZE} /> },
+const CATEGORIES: Array<{ id: MergedSettingsCategory; label: string; icon: ReactNode }> = [
+  { id: 'general', label: '通用', icon: <User size={SETTINGS_ICON_SIZE} /> },
   { id: 'workspace', label: '工作空间', icon: <FolderOpen size={SETTINGS_ICON_SIZE} /> },
   { id: 'modelConfig', label: '模型配置', icon: <Cpu size={SETTINGS_ICON_SIZE} /> },
   { id: 'voice', label: '语音设置', icon: <Mic size={SETTINGS_ICON_SIZE} /> },
-  { id: 'mcp', label: 'MCP 服务', icon: <Boxes size={SETTINGS_ICON_SIZE} /> },
-  { id: 'pet', label: '宠物模式', icon: <Smartphone size={SETTINGS_ICON_SIZE} /> },
   { id: 'channels', label: '渠道设置', icon: <Radio size={SETTINGS_ICON_SIZE} /> },
-  { id: 'notification', label: '通知设置', icon: <Bell size={SETTINGS_ICON_SIZE} /> },
-  { id: 'privacy', label: '隐私安全', icon: <Shield size={SETTINGS_ICON_SIZE} /> },
-  { id: 'shortcuts', label: '快捷键', icon: <Keyboard size={SETTINGS_ICON_SIZE} /> },
-  { id: 'update', label: '软件更新', icon: <RefreshCw size={SETTINGS_ICON_SIZE} /> },
-  { id: 'about', label: '关于', icon: <Info size={SETTINGS_ICON_SIZE} /> },
+  { id: 'codingDev', label: 'ACP 设置', icon: <Wrench size={SETTINGS_ICON_SIZE} /> },
+  { id: 'pet', label: '宠物模式', icon: <Smartphone size={SETTINGS_ICON_SIZE} /> },
+  { id: 'usage', label: '用量与花费', icon: <BarChart2 size={SETTINGS_ICON_SIZE} /> },
+  { id: 'privacy', label: '隐私与数据', icon: <Shield size={SETTINGS_ICON_SIZE} /> },
+  { id: 'aboutAndUpdate', label: '关于与更新', icon: <Info size={SETTINGS_ICON_SIZE} /> },
 ]
 
 /**
- * SettingsPage - 设置页面
- * 
- * 基于 SettingsView.tsx 重构
- * Gateway 连接设置
- * 工作空间设置
- * 主题、语言设置
+ * SettingsPage - 设置面板
+ *
+ * Hub 嵌入时只渲染右侧分类内容；整页模式保留左导航壳。
  */
 interface SettingsPageProps {
-  /** 跳转到独立功能页（AI 团队 / 技能 / 定时任务 / 记忆 / 文件 / 插件中心） */
-  onViewChange?: (view: ViewType) => void
+  /** 是否作为 Hub 右侧面板嵌入 */
+  embedded?: boolean
+  /** 受控分类（Hub 左侧导航驱动） */
+  activeCategory?: MergedSettingsCategory
 }
 
-const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
+const SettingsPage: React.FC<SettingsPageProps> = ({
+  embedded = false,
+  activeCategory: controlledCategory,
+}) => {
   const toast = useToast()
   const {
     settings,
@@ -134,7 +110,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
     importSettings,
   } = useSettings()
   
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>('account')
+  const [internalCategory, setInternalCategory] = useState<MergedSettingsCategory>('general')
+  const activeCategory = controlledCategory ?? internalCategory
+  const setActiveCategory = setInternalCategory
   const [appVersion, setAppVersion] = useState<string>('0.1.0')
 
   // 本地 LLM Provider 配置（按能力槽）
@@ -590,7 +568,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
         <p style={{ fontSize: 13, color: 'var(--mt-fg-3)', margin: '0 0 16px' }}>
           配置各个即时通信渠道的接入与登录状态。
         </p>
-        {/* 个人微信 / 企业微信 / 飞书 置顶并排 */}
         <div
           style={{
             display: 'grid',
@@ -603,10 +580,22 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
           <WecomChannelSettings />
           <FeishuChannelSettings />
         </div>
-        <CodingDevAcpPanel />
       </div>
     )
   }
+
+  /**
+   * 渲染本机 ACP / 开发工具设置
+   */
+  const renderCodingDevSettings = () => (
+    <div className={styles['settings-section']}>
+      <h3>ACP 设置</h3>
+      <p style={{ fontSize: 13, color: 'var(--mt-fg-3)', margin: '0 0 16px' }}>
+        管理本机开发类 AI 工具（ACP）的安装状态与工作目录。
+      </p>
+      <CodingDevAcpPanel />
+    </div>
+  )
 
   /**
    * 渲染通知设置
@@ -680,151 +669,119 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
   }
 
   /**
-   * 渲染隐私设置
+   * 渲染隐私与数据：统一卡片分区，本地优先说明在前
    */
   const renderPrivacySettings = () => {
     return (
-      <div className={styles['settings-section']}>
-        <h3>
-          隐私与安全
-          {privacySave.hasChanges && <Badge dot />}
-        </h3>
+      <div className={styles['settings-panel']}>
+        <header className={styles['panel-header']}>
+          <h3 className={styles['panel-title']}>
+            隐私与数据
+            {privacySave.hasChanges && <Badge dot />}
+          </h3>
+          <p className={styles['panel-desc']}>
+            对话与记忆默认只保存在本机。可按需调整本地留存与数据导出。
+          </p>
+        </header>
 
-        <h4 className={styles['settings-subsection-title']}>安全设置</h4>
-
-        <div className={styles['setting-group']}>
-            <div className={styles['security-card']}>
-            <div className={styles['security-card-header']}>
-              <span className={styles['security-icon']}><Lock size={18} /></span>
-              <div className={styles['security-card-info']}>
-                <span className={styles['security-card-title']}>两步验证</span>
-                <span className={styles['security-card-desc']}>通过手机验证码或认证器 App 增加账户安全性</span>
+        <section className={styles['panel-card']}>
+          <h4 className={styles['panel-card-title']}>本地留存</h4>
+          <div className={styles['panel-rows']}>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>保存聊天历史</span>
+                <span className={styles['panel-row-hint']}>关闭后不再把新对话写入本机</span>
               </div>
+              <Checkbox
+                checked={settings.privacy.saveChatHistory}
+                onChange={(checked) => updatePrivacy({ saveChatHistory: checked })}
+              />
             </div>
-            <Tag color="default">即将推出</Tag>
-          </div>
 
-          <div className={styles['security-card']}>
-            <div className={styles['security-card-header']}>
-              <span className={styles['security-icon']}><Smartphone size={18} /></span>
-              <div className={styles['security-card-info']}>
-                <span className={styles['security-card-title']}>登录设备管理</span>
-                <span className={styles['security-card-desc']}>查看和管理已登录的设备，可远程注销可疑设备</span>
+            {settings.privacy.saveChatHistory && (
+              <div className={styles['panel-row']}>
+                <div className={styles['panel-row-text']}>
+                  <span className={styles['panel-row-label']}>历史保留天数</span>
+                  <span className={styles['panel-row-hint']}>超过天数的记录将被清理</span>
+                </div>
+                <div className={styles['setting-input-with-unit']}>
+                  <Input
+                    type="number"
+                    value={settings.privacy.historyRetentionDays}
+                    onChange={(e) => updatePrivacy({ historyRetentionDays: Number(e.target.value) })}
+                    min={1}
+                    max={365}
+                  />
+                  <span className={styles['setting-unit']}>天</span>
+                </div>
               </div>
-            </div>
-            <Tag color="default">即将推出</Tag>
-          </div>
-        </div>
+            )}
 
-        <h4 className={styles['settings-subsection-title']}>本地安全日志</h4>
-        <p className={styles['setting-hint']} style={{ marginBottom: 8 }}>
-          查看 AI 工具与权限相关操作摘要（最近 20 条，存于本机数据库）
-        </p>
-        <div className={styles['setting-group']}>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>匿名使用统计</span>
+                <span className={styles['panel-row-hint']}>仅用于改进产品，不含对话内容</span>
+              </div>
+              <Checkbox
+                checked={settings.privacy.sendUsageStats}
+                onChange={(checked) => updatePrivacy({ sendUsageStats: checked })}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className={styles['panel-card']}>
+          <h4 className={styles['panel-card-title']}>安全日志</h4>
+          <p className={styles['panel-card-desc']}>
+            查看本机 AI 工具与权限相关操作摘要（最近 20 条）
+          </p>
           <SecurityLogViewer />
-        </div>
+        </section>
 
-        <h4 className={styles['settings-subsection-title']}>隐私偏好</h4>
-
-        <div className={styles['setting-group']}>
-          <div className={styles['setting-item']}>
-            <Checkbox
-              checked={settings.privacy.saveChatHistory}
-              onChange={(checked) => updatePrivacy({ saveChatHistory: checked })}
-            >
-              保存聊天历史
-            </Checkbox>
-            <span className={styles['setting-hint']}>关闭后将不会在本地保存聊天记录</span>
+        <section className={styles['panel-card']}>
+          <h4 className={styles['panel-card-title']}>数据管理</h4>
+          <p className={styles['panel-card-desc']}>导出/导入应用设置，或清理本地缓存数据</p>
+          <div className={styles['panel-actions']}>
+            <Button variant="secondary" onClick={handleExport}>导出设置</Button>
+            <Button variant="secondary" onClick={handleImport}>导入设置</Button>
+            <Button variant="danger" onClick={handleClearData}>清除数据</Button>
           </div>
-
-          {settings.privacy.saveChatHistory && (
-            <div className={styles['setting-item']}>
-              <label className={styles['setting-label']}>历史记录保留天数</label>
-              <div className={styles['setting-input-with-unit']}>
-                <Input
-                  type="number"
-                  value={settings.privacy.historyRetentionDays}
-                  onChange={(e) => updatePrivacy({ historyRetentionDays: Number(e.target.value) })}
-                  min={1}
-                  max={365}
-                />
-                <span className={styles['setting-unit']}>天</span>
-              </div>
-            </div>
-          )}
-
-          <div className={styles['setting-item']}>
-            <Checkbox
-              checked={settings.privacy.sendUsageStats}
-              onChange={(checked) => updatePrivacy({ sendUsageStats: checked })}
-            >
-              发送匿名使用统计
-            </Checkbox>
-            <span className={styles['setting-hint']}>帮助我们改进产品体验</span>
+          <div className={styles['panel-storage']}>
+            <StorageInfo toast={toast} />
           </div>
-        </div>
+        </section>
 
-        <h4 className={styles['settings-subsection-title']}>数据管理</h4>
-
-        <div className={styles['setting-group']}>
-          <div className={styles['setting-actions']}>
-            <Button variant="secondary" onClick={handleExport}>
-              导出设置
-            </Button>
-            <Button variant="secondary" onClick={handleImport}>
-              导入设置
-            </Button>
-            <Button variant="danger" onClick={handleClearData}>
-              清除数据
-            </Button>
-          </div>
-        </div>
-
-        <StorageInfo toast={toast} />
-
-        <h4 className="settings-subsection-title">恢复出厂设置</h4>
-
-        <div className="setting-group">
-          <div className="setting-item">
-            <div className="setting-info">
-              <span className="setting-label">重置所有设置</span>
-              <span className="setting-hint">
-                {resetConfirmPending
-                  ? '⚠️ 确认后将清除所有配置文件、登录状态和缓存，应用自动重启，不可恢复'
-                  : '清除所有配置文件、登录状态和缓存，应用将自动重启'}
-              </span>
-            </div>
-          </div>
-          <div className="setting-actions">
+        <section className={clsx(styles['panel-card'], styles['panel-card--danger'])}>
+          <h4 className={styles['panel-card-title']}>恢复出厂</h4>
+          <p className={styles['panel-card-desc']}>
+            {resetConfirmPending
+              ? '确认后将清除所有配置、登录状态与缓存，应用会自动重启，且不可恢复。'
+              : '清除全部配置与缓存并重启应用。请谨慎操作。'}
+          </p>
+          <div className={styles['panel-actions']}>
             {resetConfirmPending ? (
               <>
-                <Button variant="secondary" onClick={() => setResetConfirmPending(false)}>
-                  取消
-                </Button>
-                <Button variant="danger" onClick={handleResetAll}>
-                  确认重置
-                </Button>
+                <Button variant="secondary" onClick={() => setResetConfirmPending(false)}>取消</Button>
+                <Button variant="danger" onClick={handleResetAll}>确认重置</Button>
               </>
             ) : (
-              <Button variant="danger" onClick={handleResetAll}>
-                重置并重启
-              </Button>
+              <Button variant="danger" onClick={handleResetAll}>重置并重启</Button>
             )}
           </div>
-        </div>
+        </section>
 
         {privacySave.hasChanges && (
           <div className={styles['category-save-actions']}>
-            <Button 
-              onClick={privacySave.save} 
+            <Button
+              onClick={privacySave.save}
               loading={privacySave.isSaving}
               disabled={privacySave.isSaving}
             >
-              {privacySave.saveStatus === 'saved' 
-                ? '✓ 已保存' 
+              {privacySave.saveStatus === 'saved'
+                ? '✓ 已保存'
                 : privacySave.saveStatus === 'error'
                   ? '保存失败'
-                  : '保存隐私设置'}
+                  : '保存更改'}
             </Button>
           </div>
         )}
@@ -1353,81 +1310,64 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
   }
 
   /**
-   * 渲染关于页面
+   * 渲染关于与更新：版本信息 + 检查更新合并为一页
    */
-  const renderAboutSettings = () => (
-    <div className={styles['settings-section']}>
-      <h3>关于灵栖 Lumii</h3>
+  const renderAboutAndUpdateSettings = () => (
+    <div className={styles['settings-panel']}>
+      <header className={styles['panel-header']}>
+        <h3 className={styles['panel-title']}>关于与更新</h3>
+        <p className={styles['panel-desc']}>查看版本信息，并管理软件更新偏好</p>
+      </header>
 
-      <div className={styles['about-content']}>
-        <div className={styles['about-logo']}>
-          <LumiiLogo size={64} />
+      <section className={clsx(styles['panel-card'], styles['panel-card--about'])}>
+        <div className={styles['about-brand']}>
+          <LumiiLogo size={48} />
+          <div>
+            <h2 className={styles['about-name']}>灵栖 Lumii</h2>
+            <p className={styles['about-version']}>版本 {appVersion} · 开源独立版</p>
+          </div>
         </div>
-        <h2 className={styles['about-name']}>灵栖 Lumii</h2>
-        <p className={styles['about-version']}>版本 {appVersion}</p>
-
-        <div className={styles['about-links']}>
-          <button
-            className={styles['about-link']}
+        <p className={styles['about-description']}>
+          本地优先的 Windows 桌面 AI 伙伴：对话、技能、定时任务与渠道接入都在本机完成，无需自建后端。
+        </p>
+        <div className={styles['panel-actions']}>
+          <Button
+            variant="secondary"
             onClick={() => window.electronAPI.app.openExternal('https://github.com/open-source/lumii')}
           >
-            GitHub
-          </button>
-          <button
-            className={styles['about-link']}
+            项目主页
+          </Button>
+          <Button
+            variant="secondary"
             onClick={() => window.electronAPI.app.openExternal('https://github.com/open-source/lumii/issues')}
           >
             问题反馈
-          </button>
-        </div>
-
-        <p className={styles['about-description']}>
-          灵栖 Lumii 是本地优先的 AI 桌面伙伴，在你的设备上运行智能助理，
-          管理文件、执行任务、连接常用渠道。
-        </p>
-
-        <div className={styles['about-footer']}>
-          <p>© 2026 Lumii</p>
-          <p>开源独立版</p>
-        </div>
-      </div>
-    </div>
-  )
-
-  /**
-   * 渲染 MCP 服务设置
-   *
-   * 客户端目前没有 MCP 模块，这里如实说明现状并给出替代路径，
-   * 不做一个点得动但什么都不发生的假开关。
-   */
-  const renderMcpSettings = () => (
-    <div className={styles['settings-section']}>
-      <h3>MCP 服务</h3>
-
-      <div className={styles['setting-group']}>
-        <div className={styles['setting-item']}>
-          <div className={styles['setting-label']}>
-            <span>当前状态</span>
-            <span className={styles['setting-hint']}>
-              尚未接入 Model Context Protocol。灵栖现在通过「技能」扩展能力：
-              技能是磁盘上的 SKILL.md 加脚本，由本机执行器运行，能力边界和 MCP 类似但不依赖常驻服务进程。
-            </span>
-          </div>
-          <Tag>未实现</Tag>
-        </div>
-
-        <div className={styles['setting-item']}>
-          <div className={styles['setting-label']}>
-            <span>替代路径</span>
-            <span className={styles['setting-hint']}>
-              需要扩展工具能力时，先到技能中心安装或编写技能。
-            </span>
-          </div>
-          <Button variant="secondary" onClick={() => onViewChange?.('skills')}>
-            前往技能中心
           </Button>
         </div>
-      </div>
+      </section>
+
+      <section className={styles['panel-card']}>
+        <h4 className={styles['panel-card-title']}>软件更新</h4>
+        <p className={styles['panel-card-desc']}>检查并安装新版本</p>
+        <UpdaterView standalone />
+        <div className={styles['panel-rows']} style={{ marginTop: 12 }}>
+          <div className={styles['panel-row']}>
+            <div className={styles['panel-row-text']}>
+              <span className={styles['panel-row-label']}>启动时检查更新</span>
+              <span className={styles['panel-row-hint']}>打开应用时自动查询是否有新版本</span>
+            </div>
+            <Checkbox
+              checked={settings.checkUpdateOnStartup}
+              onChange={async (checked) => {
+                updateSettings({ checkUpdateOnStartup: checked })
+                await saveSettings()
+              }}
+            />
+          </div>
+        </div>
+      </section>
+
+      <p className={styles['panel-footer-note']}>© 2026 Lumii</p>
     </div>
   )
 
@@ -1463,31 +1403,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
       <p className={styles['settings-note']}>
         快捷键自定义功能将在后续版本中提供
       </p>
-    </div>
-  )
-
-  /**
-   * 渲染更新设置
-   */
-  const renderUpdateSettings = () => (
-    <div className={styles['settings-section']}>
-      <h3>软件更新</h3>
-      <UpdaterView standalone />
-      
-        <div className={styles['setting-group']} style={{ marginTop: '20px' }}>
-        <div className={styles['setting-item']}>
-          <Checkbox
-            checked={settings.checkUpdateOnStartup}
-            onChange={async (checked) => {
-              updateSettings({ checkUpdateOnStartup: checked })
-              // 立即保存
-              await saveSettings()
-            }}
-          >
-            启动时检查更新
-          </Checkbox>
-        </div>
-      </div>
     </div>
   )
 
@@ -1733,37 +1648,47 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
   }
 
   /**
-   * 渲染当前分类内容
+   * 渲染当前分类内容（合并分类在此拼接子面板）
    */
   const renderCategoryContent = () => {
     switch (activeCategory) {
-      case 'account':
-        return renderAccountSettings()
+      case 'general':
+        return (
+          <>
+            {renderAccountSettings()}
+            <div className={styles['settings-merged-block']}>
+              {renderNotificationSettings()}
+            </div>
+            <div className={styles['settings-merged-block']}>
+              {renderShortcutsSettings()}
+            </div>
+          </>
+        )
       case 'workspace':
         return renderWorkspaceSettings()
-      case 'channels':
-        return renderChannelsSettings()
-      case 'notification':
-        return renderNotificationSettings()
-      case 'privacy':
-        return renderPrivacySettings()
-      case 'mcp':
-        return renderMcpSettings()
-      case 'shortcuts':
-        return renderShortcutsSettings()
-      case 'update':
-        return renderUpdateSettings()
-      case 'about':
-        return renderAboutSettings()
-      case 'voice':
-        return renderVoiceSettings()
-      case 'pet':
-        return renderPetSettings()
       case 'modelConfig':
         return renderModelConfigSettings()
+      case 'voice':
+        return renderVoiceSettings()
+      case 'channels':
+        return renderChannelsSettings()
+      case 'codingDev':
+        return renderCodingDevSettings()
+      case 'privacy':
+        return renderPrivacySettings()
+      case 'pet':
+        return renderPetSettings()
+      case 'usage':
+        return <UsagePanel />
+      case 'aboutAndUpdate':
+        return renderAboutAndUpdateSettings()
       default:
         return null
     }
+  }
+
+  if (embedded) {
+    return <>{renderCategoryContent()}</>
   }
 
   return (
@@ -1771,7 +1696,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
       <PageHeader title="设置" />
 
       <div className={styles['settings-body']}>
-        {/* 分类导航 */}
         <nav className={styles['settings-nav']}>
           {CATEGORIES.map((category) => (
             <button
@@ -1783,26 +1707,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ onViewChange }) => {
               <span className={styles['nav-label']}>{category.label}</span>
             </button>
           ))}
-
-          {/* 从侧边栏移入的功能页：点击跳转，不是设置分类 */}
-          {onViewChange && (
-            <>
-              <div className={styles['settings-nav-divider']}>功能</div>
-              {MOVED_PAGES.map((page) => (
-                <button
-                  key={page.id}
-                  className={styles['settings-nav-item']}
-                  onClick={() => onViewChange(page.id)}
-                >
-                  <span className={styles['nav-icon']}>{page.icon}</span>
-                  <span className={styles['nav-label']}>{page.label}</span>
-                </button>
-              ))}
-            </>
-          )}
         </nav>
 
-        {/* 设置内容 */}
         <div className={styles['settings-content']}>
           {renderCategoryContent()}
         </div>
