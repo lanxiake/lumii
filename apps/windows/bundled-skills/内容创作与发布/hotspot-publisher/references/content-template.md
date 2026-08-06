@@ -114,7 +114,7 @@
       ✍️ <strong>内容创作</strong>：AI写作助手帮助创作者突破瓶颈
     </p>
     <p style="font-size: 15px; line-height: 1.8; color: #666; margin: 0;">
-      🤖 <strong>自动化</strong>：智能机器人接管重复性工作
+       <strong>自动化</strong>：智能机器人接管重复性工作
     </p>
   </div>
   

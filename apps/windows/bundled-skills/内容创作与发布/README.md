@@ -32,7 +32,7 @@
 
 ---
 
-### 🤖 intelligent-content-system · 智能内容系统
+###  intelligent-content-system · 智能内容系统
 **根据用户需求自动识别场景，编排调用多个子技能完成全流程。**
 支持场景：
 - 网页内容采集与再创作（采集 → 配图 → 发布）
