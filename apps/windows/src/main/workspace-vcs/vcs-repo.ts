@@ -227,39 +227,58 @@ export class WorkspaceVcs {
 
   /**
    * 两个 commit 之间的文件级差异；withHunks=true 时附带逐行 hunks。
+   * 通过 git.walk 对比 tree OID，跳过未变更子树，避免全量 readBlob。
    */
   async diffCommits(
     fromOid: string,
     toOid: string,
     opts?: { withHunks?: boolean },
   ): Promise<VcsDiffEntry[]> {
-    const fromFiles = await this.listFilesAt(fromOid)
-    const toFiles = await this.listFilesAt(toOid)
-    const allPaths = new Set<string>([...fromFiles, ...toFiles])
+    const withHunks = opts?.withHunks === true
     const entries: VcsDiffEntry[] = []
 
-    for (const filepath of allPaths) {
-      const inFrom = fromFiles.has(filepath)
-      const inTo = toFiles.has(filepath)
-      const oldContent = inFrom ? (await this.readFileAt(fromOid, filepath)) ?? '' : ''
-      const newContent = inTo ? (await this.readFileAt(toOid, filepath)) ?? '' : ''
-      if (oldContent === newContent) continue
+    await git.walk({
+      ...this.base,
+      trees: [git.TREE({ ref: fromOid }), git.TREE({ ref: toOid })],
+      map: async (filepath, [a, b]) => {
+        if (filepath === '.') return
+        const aType = a ? await a.type() : null
+        const bType = b ? await b.type() : null
+        // 两侧都是 tree 且 OID 相同 → 剪枝整棵子树
+        if (aType === 'tree' || bType === 'tree') {
+          if (a && b && (await a.oid()) === (await b.oid())) return null
+          return undefined // 继续往下走
+        }
+        // blob（或一侧缺失）
+        const aOid = a ? await a.oid() : null
+        const bOid = b ? await b.oid() : null
+        if (aOid === bOid) return undefined
 
-      const status: VcsFileStatus = !inFrom ? 'added' : !inTo ? 'deleted' : 'modified'
-      if (opts?.withHunks) {
-        const d = computeFileDiff(filepath, oldContent, newContent)
-        entries.push({
-          filepath,
-          status,
-          insertions: d.insertions,
-          deletions: d.deletions,
-          hunks: d.hunks,
-        })
-      } else {
-        const stats = computeDiffStats(oldContent, newContent)
-        entries.push({ filepath, status, ...stats })
-      }
-    }
+        const status: VcsFileStatus = !a ? 'added' : !b ? 'deleted' : 'modified'
+        const oldContent = a
+          ? new TextDecoder().decode((await a.content()) ?? new Uint8Array())
+          : ''
+        const newContent = b
+          ? new TextDecoder().decode((await b.content()) ?? new Uint8Array())
+          : ''
+
+        if (withHunks) {
+          const d = computeFileDiff(filepath, oldContent, newContent)
+          entries.push({
+            filepath,
+            status,
+            insertions: d.insertions,
+            deletions: d.deletions,
+            hunks: d.hunks,
+          })
+        } else {
+          const stats = computeDiffStats(oldContent, newContent)
+          entries.push({ filepath, status, ...stats })
+        }
+        return undefined
+      },
+    })
+
     return entries
   }
 
