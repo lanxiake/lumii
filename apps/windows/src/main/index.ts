@@ -72,7 +72,7 @@ import { SkillWatcher } from './skill-watcher'
 import { seedBundledSkills, SEED_VERSION_FILENAME } from './bundled-skills-seeder'
 import { startBrowserService, stopBrowserService, getBrowserContext } from './browser-service'
 import os from 'os'
-import { loadServerConfig, resolveGatewaySecretFromEnv, type ServerConfig } from './server-config'
+import { loadServerConfig, type ServerConfig } from './server-config'
 import { directoryManager } from './directory-manager'
 import { ConfigManager } from './config-manager'
 import { AuthManager } from './auth-manager'
@@ -99,7 +99,6 @@ import { VoiceModelManager } from './voice/model-manager.js'
 import { VoiceCallService } from './voice/voice-service.js'
 import { registerVoiceIpc } from './voice/voice-ipc.js'
 import { loadVoiceEngineConfig } from './voice/voice-config-store.js'
-import { analyticsReporter } from './agent-runtime/analytics-reporter'
 import { getWorkspaceVcs, resetWorkspaceVcs } from './workspace-vcs/vcs-snapshot'
 import { findBuiltInAgent, mapApiRecordToAgentDefinition } from '@mtbot/agent-runtime'
 import {
@@ -584,15 +583,6 @@ async function initAgentRuntime(): Promise<void> {
   const rawGatewayUrl = config.gatewayUrl ?? 'http://127.0.0.1:18789'
   const gatewayUrl = rawGatewayUrl.replace(/^ws(s?):\/\//, 'http$1://')
   log.info(`[AgentRuntime] 独立版本地模式（不连接云端 Gateway）`)
-
-  // 独立版不启用云端 analytics（无需 gateway secret）
-  const analyticsApiUrl = config.apiUrl ?? 'http://127.0.0.1:3000'
-  const analyticsGatewaySecret = resolveGatewaySecretFromEnv()
-  if (analyticsGatewaySecret) {
-    analyticsReporter.configure(analyticsApiUrl, analyticsGatewaySecret)
-  } else {
-    log.info('[AgentRuntime] 独立版：跳过云端 analytics 上报')
-  }
 
   agentRuntimeBridge = new AgentRuntimeBridge({
     gatewayUrl,

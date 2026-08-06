@@ -52,11 +52,6 @@ export interface RunContext {
   toolStartTimes: Map<string, number>
   /** Agent 显示名称（= AgentDefinition.name，用于分析埋点 agentId，与工具埋点口径一致） */
   agentName?: string
-  /**
-   * 子 Agent 专用：创建时刻父实例的 runId。
-   * subagent_complete 须与 subagent_spawn 使用同一父 runId，才能在时间线/聚合中关联。
-   */
-  parentAnalyticsRunId?: string
 }
 
 /**

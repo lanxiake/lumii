@@ -52,29 +52,3 @@
   background: var(--mt-surface-2);
 }
 
-.ctx {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.ctx-bar {
-  width: 56px;
-  height: 3px;
-  border-radius: var(--mt-radius-full);
-  background: var(--mt-surface-3);
-  overflow: hidden;
-}
-
-.ctx-bar > i {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, var(--mt-accent-500), var(--mt-violet));
-  transition: width var(--mt-dur-slower) var(--mt-ease-standard);
-}
-
-/* 接近压缩阈值时转警示色，提示即将触发上下文压缩 */
-.ctx-bar--hot > i {
-  background: linear-gradient(90deg, var(--mt-warning), var(--mt-error));
-}

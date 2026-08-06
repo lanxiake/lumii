@@ -56,7 +56,6 @@ import {
   grepLocal,
   fetchLocal,
 } from './tool-providers'
-import { analyticsReporter } from './analytics-reporter'
 import { McpStdioClient } from '@mtbot/agent-runtime'
 import { McpManager } from './mcp-manager'
 import { PermissionController } from './permission-controller'
@@ -236,15 +235,6 @@ export class AgentRuntimeBridge {
       restoreHistoryForInstance: (instanceId, conversationId, limit) =>
         this.restoreHistoryForInstance(instanceId, conversationId, limit),
       createSummaryGenerator: (innerStream, model) => createLlmSummaryGenerator(innerStream, model),
-      getCompactionRunContext: (instanceId) => {
-        const st = this.instanceStates.get(instanceId)
-        if (!st) return undefined
-        return {
-          runId: st.ctx.runId,
-          agentId: st.ctx.agentName,
-          modelName: st.ctx.resolvedModelId,
-        }
-      },
       onSessionContextInvalidated: (sessionKey) => this.clearSessionProviderInputTokens(sessionKey),
     })
     this.conversationManager = new BridgeConversationManager({

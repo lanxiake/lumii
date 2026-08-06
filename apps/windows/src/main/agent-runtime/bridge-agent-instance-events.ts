@@ -5,7 +5,6 @@
 
 import type { AgentRuntimeEvent } from '@mtbot/agent-runtime'
 import { providerPromptTokens } from '@mtbot/agent-runtime'
-import { analyticsReporter } from './analytics-reporter'
 import type { ConversationRepo, FileRepo } from '@mtbot/agent-runtime'
 import { convertOldEventToIpcEvents, parseThinkTagsFromRaw, type RunContext } from './event-converter'
 import { forwardPermissionRuntimeToIpc } from './bridge-permission-ipc-forward'
@@ -341,74 +340,6 @@ export function createAgentInstanceRuntimeEventHandler(
         })
       }
 
-      // 分析埋点：子 Agent 派生（result 为 AgentToolResult，须解析 content[0].text JSON）
-      if (event.toolName === 'spawn_agent' && !event.isError) {
-        const payload = parseJsonToolResultPayload(event.result)
-        const childInstanceId =
-          typeof payload?.instanceId === 'string' ? payload.instanceId : undefined
-        if (!childInstanceId) {
-          log.warn('[analytics] spawn_agent 结果缺少 instanceId，跳过 subagent_spawn 上报')
-        } else {
-          const taskText =
-            typeof args.prompt === 'string'
-              ? args.prompt
-              : typeof args.task === 'string'
-                ? args.task
-                : typeof args.name === 'string'
-                  ? args.name
-                  : undefined
-          analyticsReporter.reportSubagentSpawn({
-            runId: ctx.runId,
-            agentId: agentName,
-            sessionKey: ctx.sessionKey,
-            parentAgentId: agentName,
-            childAgentId: childInstanceId,
-            childRunId: childInstanceId,
-            task: taskText,
-            modelTier: typeof args.model === 'string' ? args.model : undefined,
-          })
-        }
-      }
-
-      // 分析埋点：内存读取 / 写入
-      // 关键：profile_memory 是读写合一工具，由 args.action 区分；
-      // update_memory → 记忆写入；read_memory/get_preferences → 记忆读取。
-      // memory_search 始终为读取。历史埋点误把所有 profile_memory 当读取且监听不存在的
-      // *_update 工具名，导致 analytics_memory_updates 恒为 0。
-      if (event.toolName === 'memory_search' && !event.isError) {
-        const result = event.result as { results?: unknown[] } | null
-        const hit = Array.isArray(result?.results) && result.results.length > 0
-        analyticsReporter.reportMemoryGet({
-          runId: ctx.runId,
-          agentId: agentName,
-          sessionKey: ctx.sessionKey,
-          hit,
-          contentLength: result ? JSON.stringify(result).length : 0,
-        })
-      } else if (event.toolName === 'profile_memory' && !event.isError) {
-        const action = typeof args.action === 'string' ? args.action : 'read_memory'
-        if (action === 'update_memory') {
-          analyticsReporter.reportMemoryUpdate({
-            runId: ctx.runId,
-            agentId: agentName,
-            sessionKey: ctx.sessionKey,
-            contentLength: typeof args.content === 'string' ? args.content.length : undefined,
-          })
-        } else {
-          const result = event.result as { results?: unknown[]; content?: unknown } | null
-          const hit =
-            (Array.isArray(result?.results) && result.results.length > 0) ||
-            (result?.content != null && String(result.content).length > 0)
-          analyticsReporter.reportMemoryGet({
-            runId: ctx.runId,
-            agentId: agentName,
-            sessionKey: ctx.sessionKey,
-            hit,
-            contentLength: result ? JSON.stringify(result).length : 0,
-          })
-        }
-      }
-
       // 兼容新旧两套工具名：
       // - file_write（覆盖写）、file_edit（按字符串替换写回）使用 params.filePath
       // - writeLocalFile 为旧命名保留兼容
@@ -595,16 +526,6 @@ export function createAgentInstanceRuntimeEventHandler(
         state.lastAssistantUsage = undefined
       }
 
-      // 分析埋点：子 Agent 错误完成（childRunId 用 instanceId，runId 用父 run 以便时间线聚合）
-      if (isSubAgent) {
-        analyticsReporter.reportSubagentComplete({
-          runId: ctx.parentAnalyticsRunId ?? ctx.runId,
-          agentId: agentName,
-          sessionKey: ctx.sessionKey,
-          childRunId: instanceId,
-          status: 'error',
-        })
-      }
     }
 
     if (event.type === 'agent:end') {
@@ -719,35 +640,11 @@ export function createAgentInstanceRuntimeEventHandler(
         log.warn(`[event] agent:end 持久化未成功，保留内存数据 instanceId=${instanceId}`)
       }
 
-      // 分析埋点：子 Agent 完成（childRunId 与 spawn 的 instanceId 对齐）
-      if (isSubAgent) {
-        const startedAt = instanceStates.get(instanceId)?.metrics.runningStartedAt
-        analyticsReporter.reportSubagentComplete({
-          runId: ctx.parentAnalyticsRunId ?? ctx.runId,
-          agentId: agentName,
-          sessionKey: ctx.sessionKey,
-          childRunId: instanceId,
-          status: 'success',
-          durationMs: startedAt != null ? Math.max(0, Date.now() - startedAt) : undefined,
-        })
-      }
     }
 
-    // 分析埋点：上下文压缩
-    if (event.type === 'context:compaction') {
-      if (ctx.sessionKey === ctx.rootSessionKey) {
-        clearSessionProviderInputTokens(ctx.rootSessionKey)
-      }
-      analyticsReporter.reportContextCompaction({
-        runId: ctx.runId,
-        agentId: agentName,
-        sessionKey: ctx.sessionKey,
-        modelName: ctx.resolvedModelId,
-        beforeTokens: event.tokensBefore,
-        afterTokens: event.tokensAfter,
-        success: true,
-        strategy: event.strategy,
-      })
+    // 压缩后清掉提供商 token 缓存，让上下文读数回落到估算直至下次 LLM 响应
+    if (event.type === 'context:compaction' && ctx.sessionKey === ctx.rootSessionKey) {
+      clearSessionProviderInputTokens(ctx.rootSessionKey)
     }
 
     ipcChannel.forwardToRenderer(event)

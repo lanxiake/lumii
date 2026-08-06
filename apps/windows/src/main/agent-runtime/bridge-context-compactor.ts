@@ -14,18 +14,10 @@ import {
 } from '@mtbot/agent-runtime'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
-import { analyticsReporter } from './analytics-reporter'
 import { agentRuntimeLog as log } from './bridge-utils'
 
 type ModelRef = import('@mariozechner/pi-ai').Model<any>
 type InnerStreamRef = ReturnType<typeof createGatewayStreamFn>
-
-/** 压缩埋点所需的运行上下文（用于把压缩事件关联到 run_id / agent / model） */
-export interface CompactionRunContext {
-  runId: string
-  agentId?: string
-  modelName?: string
-}
 
 export interface BridgeContextCompactorDeps {
   getConversationRepo: () => ConversationRepo | null
@@ -50,11 +42,6 @@ export interface BridgeContextCompactorDeps {
    * 构造 LLM 摘要生成器：把 AgentMessage[] 拼接 prompt 后流式收集摘要文本。
    */
   createSummaryGenerator: (innerStream: InnerStreamRef, model: ModelRef) => SummaryGeneratorFn
-  /**
-   * 按 instanceId 解析压缩埋点所需的运行上下文（run_id / agent / model）。
-   * 找不到（如未知实例）返回 undefined，此时跳过分析埋点但不影响压缩本身。
-   */
-  getCompactionRunContext?: (instanceId: string) => CompactionRunContext | undefined
   /** 压缩/清空后使提供商 token 缓存失效 */
   onSessionContextInvalidated?: (sessionKey: string) => void
 }
@@ -290,55 +277,12 @@ export class BridgeContextCompactor {
       timestamp: Date.now(),
     })
 
-    // 分析埋点：自动/异步压缩（与 agent-instance onCompaction 路径互补，确保桥接侧压缩也入库）
-    this.reportCompaction(instanceId, {
-      sessionKey,
-      beforeTokens: previousTokenCount,
-      afterTokens: newTokenCount,
-      strategy: summaryText ? 'summary' : 'hard-trim',
-    })
-
     return {
       success: true,
       previousMessageCount,
       newMessageCount,
       messagesRemoved: ids.length,
       hadSummary: !!summaryText,
-    }
-  }
-
-  /**
-   * 上报压缩分析埋点（fire-and-forget）。解析不到运行上下文时静默跳过。
-   * 抽出独立方法，供 compactContext（同步，无 instanceId）与 compactContextAsync 复用。
-   */
-  private reportCompaction(
-    instanceId: string | undefined,
-    info: {
-      sessionKey: string
-      beforeTokens?: number
-      afterTokens?: number
-      strategy: 'micro' | 'summary' | 'hard-trim'
-    },
-  ): void {
-    const runCtx = instanceId ? this.deps.getCompactionRunContext?.(instanceId) : undefined
-    if (!runCtx) {
-      return
-    }
-    try {
-      analyticsReporter.reportContextCompaction({
-        runId: runCtx.runId,
-        agentId: runCtx.agentId,
-        sessionKey: info.sessionKey,
-        modelName: runCtx.modelName,
-        beforeTokens: info.beforeTokens,
-        afterTokens: info.afterTokens,
-        success: true,
-        strategy: info.strategy,
-      })
-    } catch (err) {
-      log.warn(
-        `[reportCompaction] 压缩埋点上报失败（非致命）: ${err instanceof Error ? err.message : String(err)}`,
-      )
     }
   }
 }

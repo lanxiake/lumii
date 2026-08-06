@@ -49,9 +49,7 @@ import type { StreamFn } from '@mariozechner/pi-agent-core'
 
 import { createRunContext } from './event-converter'
 import { riskLevelForTool, createLargeToolResultHook } from './permission-tool-wrap'
-import { createAnalyticsToolHook } from './hooks/analytics-tool-hook'
 import { createSkillHitRateHook } from './hooks/skill-hit-rate-hook'
-import { analyticsReporter } from './analytics-reporter'
 import type { McpStdioClient } from '@mtbot/agent-runtime'
 import type { PermissionController } from './permission-controller'
 import type { AgentRuntimeBridgeConfig } from './bridge'
@@ -176,9 +174,6 @@ export class BridgeInstanceFactory {
 
     // 创建运行上下文（在 streamFn 之前，因为 getMetadata 需要引用 ctx）
     const ctx = createRunContext(effectiveSessionKey, instanceId, rootSessionKey)
-    if (parentCtx) {
-      ctx.parentAnalyticsRunId = parentCtx.runId
-    }
     ctx.agentName = def.name
     // 初始化 InstanceState（ctx 已就绪，metrics 在 agent 创建后赋值）
     const metrics: InstanceRuntimeMetrics = {
@@ -330,12 +325,6 @@ export class BridgeInstanceFactory {
       if (s) s.skillHitRateTracker = skillHitRateTracker
     }
     const optionalHooks = [
-      createAnalyticsToolHook(analyticsReporter, {
-        // getter：每次工具调用动态读取当前 run 的 runId（ctx.runId 会在每轮 agent:start 更新）
-        getRunId: () => ctx.runId,
-        agentId: def.name,
-        sessionKey: ctx.sessionKey,
-      }),
       createLargeToolResultHook({ getCwd, getConversationId }),
       skillHitRateTracker.hook,
     ]
