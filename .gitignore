@@ -34,6 +34,7 @@ Thumbs.db
 
 # 本机 agent 配置与临时素材
 .claude/settings.local.json
+.superpowers/
 docs/temp/
 
 # Turbo / caches
