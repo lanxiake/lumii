@@ -22,8 +22,12 @@ import {
 import { useDataThemeColorMode } from '../../hooks/common/useDataThemeColorMode'
 import { PdfJsPreview } from './PdfJsPreview'
 import { ExcelPreview } from './ExcelPreview'
-import { PptxPreview } from './PptxPreview'
 import styles from './FilePreviewModal.module.css'
+
+/** PPTX 预览按需加载，避免启动时拉 pptx-preview/lodash 导致白屏 */
+const PptxPreview = React.lazy(() =>
+  import('./PptxPreview').then((m) => ({ default: m.PptxPreview })),
+)
 
 /**
  * HTML 文件预览（可能含内联 <script>，如 AI 生成的小游戏）：
@@ -942,7 +946,9 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           )}
 
           {!loading && !error && result && !result.truncated && route === 'pptx' && officeBytes && (
-            <PptxPreview bytes={officeBytes} fileName={fileName} onOpenExternal={handleOpen} />
+            <React.Suspense fallback={<div className={styles.center}>正在加载 PPT 预览…</div>}>
+              <PptxPreview bytes={officeBytes} fileName={fileName} onOpenExternal={handleOpen} />
+            </React.Suspense>
           )}
 
           {!loading && !error && result && !result.truncated && route === 'legacy-doc' && (

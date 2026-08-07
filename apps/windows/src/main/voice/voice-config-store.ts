@@ -18,11 +18,24 @@ function getConfigPath(): string {
   return path.join(resolveSharedConfigDir(), 'voice-engine-config.json')
 }
 
-/** 深合并，只合并已知字段，忽略未知字段 */
+/** 深合并，只合并已知字段，忽略未知字段；并迁移旧「用 Base 变体表示克隆」配置 */
 function mergeWithDefaults(saved: Partial<VoiceEngineConfig>): VoiceEngineConfig {
+  const ttsSaved = { ...(saved.tts ?? {}) } as VoiceEngineConfig['tts'] & {
+    qwen3Variant?: string
+  }
+  // 旧版：qwen3Variant 为 *-base 即表示克隆出声 → 拆到独立开关
+  if (
+    ttsSaved.qwen3CloneEnabled === undefined &&
+    (ttsSaved.qwen3Variant === '0.6b-base' || ttsSaved.qwen3Variant === '1.7b-base')
+  ) {
+    ttsSaved.qwen3CloneEnabled = true
+    ttsSaved.qwen3CloneVariant = ttsSaved.qwen3Variant as '0.6b-base' | '1.7b-base'
+    ttsSaved.qwen3Variant = '0.6b-custom'
+  }
+
   return {
     asr: { ...DEFAULT_VOICE_ENGINE_CONFIG.asr, ...saved.asr },
-    tts: { ...DEFAULT_VOICE_ENGINE_CONFIG.tts, ...saved.tts },
+    tts: { ...DEFAULT_VOICE_ENGINE_CONFIG.tts, ...ttsSaved },
     vad: { ...DEFAULT_VOICE_ENGINE_CONFIG.vad, ...saved.vad },
     autoMuteMicWhileSpeaking:
       saved.autoMuteMicWhileSpeaking ?? DEFAULT_VOICE_ENGINE_CONFIG.autoMuteMicWhileSpeaking,

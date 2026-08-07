@@ -44,6 +44,28 @@ export function AsrLiveTestPanel(): React.ReactElement {
     const unsub = api.voice.onEvent((event: any) => {
       if (event.type === 'voice:models:status' || event.type === 'voice:models:progress') {
         void refreshReady()
+        return
+      }
+      if (!callIdRef.current) return
+      if (event.callId && event.callId !== callIdRef.current) return
+      if (event.type === 'voice:transcript') {
+        if (event.isFinal) {
+          setFinals((prev) => [...prev, event.text].slice(-8))
+          setPartial('')
+        } else {
+          setPartial(event.text)
+        }
+      }
+      if (event.type === 'voice:call:state') {
+        setCallState(event.state)
+      }
+      if (event.type === 'voice:call:ended' && event.callId === callIdRef.current) {
+        callIdRef.current = null
+        setRunning(false)
+        setCallState('idle')
+      }
+      if (event.type === 'voice:error') {
+        setError(event.message ?? '识别出错')
       }
     })
     return () => {
@@ -73,37 +95,6 @@ export function AsrLiveTestPanel(): React.ReactElement {
     setRunning(false)
     setCallState('idle')
   }, [stopCapture])
-
-  useEffect(() => {
-    const api = (window as any).electronAPI
-    if (!api?.voice?.onEvent) return
-    const unsub = api.voice.onEvent((event: any) => {
-      if (!callIdRef.current) return
-      if (event.callId && event.callId !== callIdRef.current) return
-      if (event.type === 'voice:transcript') {
-        if (event.isFinal) {
-          setFinals((prev) => [...prev, event.text].slice(-8))
-          setPartial('')
-        } else {
-          setPartial(event.text)
-        }
-      }
-      if (event.type === 'voice:call:state') {
-        setCallState(event.state)
-      }
-      if (event.type === 'voice:call:ended' && event.callId === callIdRef.current) {
-        callIdRef.current = null
-        setRunning(false)
-        setCallState('idle')
-      }
-      if (event.type === 'voice:error') {
-        setError(event.message ?? '识别出错')
-      }
-    })
-    return () => {
-      if (typeof unsub === 'function') unsub()
-    }
-  }, [])
 
   useEffect(() => {
     return () => {

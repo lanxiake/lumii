@@ -8,6 +8,7 @@ import { type VoiceModelManager } from './model-manager.js'
 import { AsrTestSession } from './asr-test-session.js'
 import type { VoiceCommand } from '../../shared/voice-commands.js'
 import { saveVoiceEngineConfig } from './voice-config-store.js'
+import { prepareQwen3TtsRuntime } from './qwen3-tts-client.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceIPC]', ...args),
@@ -17,6 +18,22 @@ const log = {
 }
 
 let voiceIpcInstalled = false
+
+/**
+ * 若已下载任意 Qwen3 TTS 权重，后台预装 qwen-tts（不阻塞 UI）
+ */
+function maybePrepareQwen3Runtime(modelManager: VoiceModelManager, reason: string): void {
+  const hasQwenModel =
+    modelManager.isModelDownloaded('tts-qwen3-0.6b-custom') ||
+    modelManager.isModelDownloaded('tts-qwen3-1.7b-custom') ||
+    modelManager.isModelDownloaded('tts-qwen3-0.6b-base') ||
+    modelManager.isModelDownloaded('tts-qwen3-1.7b-base')
+  if (!hasQwenModel) return
+  log.info(`[prepareQwen3] 触发预装 reason=${reason}`)
+  void prepareQwen3TtsRuntime().catch((e) => {
+    log.warn(`[prepareQwen3] 预装失败: ${(e as Error).message}`)
+  })
+}
 
 /**
  * 注册语音相关 IPC（命令 / 音频帧 / 模型下载 / ASR 测试）
@@ -33,6 +50,12 @@ export function registerVoiceIpc(
   voiceIpcInstalled = true
 
   const asrTest = new AsrTestSession(modelManager, () => voiceService.getConfig())
+
+  // 启动时若模型已在本地，提前装依赖，避免首次预览卡住
+  maybePrepareQwen3Runtime(modelManager, 'ipc-register')
+  if (voiceService.getConfig().tts.provider === 'qwen3') {
+    maybePrepareQwen3Runtime(modelManager, 'config-qwen3')
+  }
 
   /**
    * 推送模型进度事件
@@ -79,7 +102,7 @@ export function registerVoiceIpc(
           const micless = (command as { micless?: boolean }).micless === true
           const cfg = voiceService.getConfig().tts
           const ttsProvider = cfg.provider
-          const variant = cfg.qwen3Variant
+          const variant = voiceService.resolveActiveQwen3Variant()
           if (micless) {
             if (!modelManager.isTtsReady(ttsProvider, variant)) {
               return {
@@ -108,7 +131,17 @@ export function registerVoiceIpc(
         case 'voice:models:download':
           modelManager.startDownload(
             command.modelId,
-            (progress) => sendModelProgress(command.modelId, progress),
+            (progress) => {
+              sendModelProgress(command.modelId, progress)
+              // Qwen3 权重下完后立刻后台预装 pip 依赖
+              if (
+                progress.state === 'ready' &&
+                String(command.modelId).startsWith('tts-qwen3-') &&
+                !String(command.modelId).includes('tokenizer')
+              ) {
+                maybePrepareQwen3Runtime(modelManager, `download-ready:${command.modelId}`)
+              }
+            },
             (message) => {
               if (!win.isDestroyed()) {
                 win.webContents.send('voice:event', {
@@ -147,6 +180,9 @@ export function registerVoiceIpc(
               log.warn(`[voice:config:set] 推送 config:updated 失败: ${(e as Error).message}`)
             }
           }
+          if (voiceService.getConfig().tts.provider === 'qwen3') {
+            maybePrepareQwen3Runtime(modelManager, 'config-set-qwen3')
+          }
           return { ok: true }
 
         case 'voice:playback:finished':
@@ -155,7 +191,8 @@ export function registerVoiceIpc(
 
         case 'voice:tts:preview': {
           const cfg = voiceService.getConfig().tts
-          if (!modelManager.isTtsReady(cfg.provider, cfg.qwen3Variant)) {
+          const activeVariant = voiceService.resolveActiveQwen3Variant()
+          if (!modelManager.isTtsReady(cfg.provider, activeVariant)) {
             const models = modelManager.getModelsStatus()
             if (!win.isDestroyed()) {
               try {
@@ -169,17 +206,18 @@ export function registerVoiceIpc(
             }
             return { error: 'models_not_ready', models }
           }
-          if (cfg.provider === 'qwen3') {
-            const variant = cfg.qwen3Variant ?? '0.6b-custom'
-            const needClone = variant === '0.6b-base' || variant === '1.7b-base'
-            if (needClone && !cfg.qwen3ProfileId) {
-              return {
-                error: 'profile_required',
-                message: '声音克隆模式请先创建并选择音色；或改用 CustomVoice 内置音色',
-              }
+          if (
+            cfg.provider === 'qwen3' &&
+            cfg.qwen3CloneEnabled === true &&
+            !cfg.qwen3ProfileId
+          ) {
+            return {
+              error: 'profile_required',
+              message: '已开启声音克隆，请先创建并选择音色档案',
             }
           }
-          const previewText = command.text ?? '你好，这是声音预览。'
+          const raw = (command.text ?? '你好，这是声音预览。').trim()
+          const previewText = raw.slice(0, 100) || '你好，这是声音预览。'
           void voiceService.previewTts(previewText, win)
           return { ok: true }
         }

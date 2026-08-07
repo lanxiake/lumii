@@ -103,6 +103,37 @@ export type VoiceModelsErrorEvent = {
   message: string
 }
 
+/**
+ * 语音引擎运行时阶段（依赖安装、模型加载、合成等，与下载状态独立）
+ */
+export type VoiceRuntimePhase =
+  | 'idle'
+  | 'checking_python'
+  | 'installing_deps'
+  | 'starting_engine'
+  | 'loading_model'
+  | 'synthesizing'
+  | 'playing'
+  | 'ready'
+  | 'error'
+
+/** 主进程 → 渲染：TTS/依赖安装等长耗时步骤的可读状态 */
+export type VoiceRuntimeStatusEvent = {
+  readonly type: 'voice:runtime:status'
+  phase: VoiceRuntimePhase
+  /** 面向用户的短说明 */
+  message: string
+  /** 可选补充（如 pip 输出摘要） */
+  detail?: string
+}
+
+/** TTS 预览结束（成功或失败），便于 UI 结束「播放中」并展示错误 */
+export type VoiceTtsPreviewEndedEvent = {
+  readonly type: 'voice:tts:preview:ended'
+  ok: boolean
+  message?: string
+}
+
 export type VoiceErrorEvent = {
   readonly type: 'voice:error'
   callId?: string
@@ -125,6 +156,8 @@ export type VoiceEvent =
   | VoiceModelsStatusEvent
   | VoiceModelsProgressEvent
   | VoiceModelsErrorEvent
+  | VoiceRuntimeStatusEvent
+  | VoiceTtsPreviewEndedEvent
   | VoiceErrorEvent
   | VoiceConfigUpdatedEvent
 
@@ -187,7 +220,14 @@ export type VoiceTtsConfig = {
   qwen3Speaker?: string
   /** 1.7B CustomVoice 可选风格指令 */
   qwen3Instruct?: string
-  /** 当前使用的克隆音色档案 ID（仅 Base 变体需要） */
+  /**
+   * 是否启用声音克隆出声（默认 false）。
+   * 仅当为 true 且已选择 qwen3ProfileId 时，才使用 Base 克隆音色。
+   */
+  qwen3CloneEnabled?: boolean
+  /** 克隆所用 Base 规格（与 CustomVoice 的 qwen3Variant 分开） */
+  qwen3CloneVariant?: '0.6b-base' | '1.7b-base'
+  /** 当前使用的克隆音色档案 ID（启用克隆时需要） */
   qwen3ProfileId?: string
   /**
    * 合成语言（Qwen3）：`Auto` 或官方支持语言名，如 Chinese / English
@@ -290,6 +330,8 @@ export const DEFAULT_VOICE_ENGINE_CONFIG: VoiceEngineConfig = {
     voice: 'zh-CN-XiaoxiaoNeural',
     qwen3Variant: '0.6b-custom',
     qwen3Speaker: 'Vivian',
+    qwen3CloneEnabled: false,
+    qwen3CloneVariant: '0.6b-base',
     language: 'Auto',
   },
   vad: {

@@ -23,16 +23,25 @@ const MAX_ENTRY_ESTIMATED_BYTES = 32 * 1024 * 1024
 
 /**
  * 生成缓存键：TTS 参数 + 正文 SHA256，避免 Map 键过长。
+ * 必须包含会影响音色/合成结果的字段，否则换内置音色会误命中旧缓存。
  */
 export function buildTtsPreviewCacheKey(text: string, tts: VoiceTtsConfig): string {
   const normalized = text.trim().replace(/\s+/g, ' ')
   const hash = createHash('sha256').update(normalized, 'utf8').digest('hex')
+  const cloneOn = tts.qwen3CloneEnabled === true && Boolean(tts.qwen3ProfileId)
   return [
     tts.provider,
     String(tts.speed),
     tts.voice ?? '',
     String(tts.speakerId ?? 0),
     String(tts.volume ?? 1),
+    tts.qwen3Variant ?? '',
+    tts.qwen3Speaker ?? '',
+    tts.qwen3Instruct ?? '',
+    tts.language ?? '',
+    cloneOn ? '1' : '0',
+    tts.qwen3CloneVariant ?? '',
+    tts.qwen3ProfileId ?? '',
     hash,
   ].join('|')
 }

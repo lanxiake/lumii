@@ -311,7 +311,7 @@ function createWindow(isTestMode: boolean = false, startHidden: boolean = false)
     transparent: false,
     resizable: true,
     show: false, // 初始不显示，等待 ready-to-show（此时 early-splash 已在绘海报/视频）
-    backgroundColor: '#070d18', // 与开机画面底色一致，避免出窗瞬间闪白/纯黑
+    backgroundColor: '#e8f2fa', // 与开机画面柔和冰蓝白底色一致，避免出窗瞬间闪深色
     icon: getAppIconPath(), // 窗口 / 任务栏圆形图标（与产品 Logo 一致）
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

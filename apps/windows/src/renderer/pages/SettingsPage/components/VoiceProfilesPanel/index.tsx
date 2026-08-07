@@ -10,6 +10,7 @@ import styles from '../VoiceModelsPanel/VoiceModelsPanel.module.css'
 type SaveConfig = (partial: {
   tts?: {
     qwen3ProfileId?: string
+    qwen3CloneEnabled?: boolean
     language?: string
   }
 }) => Promise<void>
@@ -126,7 +127,7 @@ export function VoiceProfilesPanel({
       await api.voice.sendCommand({ type: 'voice:profiles:delete', profileId: id })
       if (selectedProfileId === id) {
         onSelectProfile(undefined)
-        await saveVoiceConfig({ tts: { qwen3ProfileId: undefined } })
+        await saveVoiceConfig({ tts: { qwen3ProfileId: undefined, qwen3CloneEnabled: false } })
       }
       await refresh()
     } finally {
@@ -138,7 +139,7 @@ export function VoiceProfilesPanel({
     <div className={styles.panel} style={{ marginTop: 12 }}>
       <h4 className={styles.title}>我的音色（声音克隆 · 可选）</h4>
       <p className={styles.hint}>
-        仅在使用 Qwen3 Base 克隆模式时需要。日常出声请用上方 CustomVoice 内置音色，无需在此创建。
+        默认不开启克隆。先创建并选择音色，再到上方勾选「启用声音克隆出声」后才会用克隆声。
         上传 ≥3 秒清晰人声参考音，并填写对应转写文本。
       </p>
 

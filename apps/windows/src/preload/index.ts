@@ -23,6 +23,34 @@ const log = {
 log.info('预加载脚本开始执行')
 
 /**
+ * voice:event 单路复用：设置页有多个面板各自 onEvent，若每个都 ipcRenderer.on 会触发 MaxListenersExceeded。
+ */
+const voiceEventSubscribers = new Set<(event: unknown) => void>()
+let voiceEventIpcBound = false
+
+/**
+ * 订阅语音事件（内部只挂一条 ipcRenderer 监听）
+ */
+function subscribeVoiceEvent(callback: (event: unknown) => void): () => void {
+  voiceEventSubscribers.add(callback)
+  if (!voiceEventIpcBound) {
+    voiceEventIpcBound = true
+    ipcRenderer.on('voice:event', (_evt, data: unknown) => {
+      for (const cb of voiceEventSubscribers) {
+        try {
+          cb(data)
+        } catch (e) {
+          log.error('voice:event 订阅回调异常:', e)
+        }
+      }
+    })
+  }
+  return () => {
+    voiceEventSubscribers.delete(callback)
+  }
+}
+
+/**
  * ACP 项目条目（与 main/config/types.ts 的 CodingDevProject 对齐）
  */
 export interface CodingDevProject {
@@ -1560,7 +1588,7 @@ const electronAPI: ElectronAPI = {
     }): Promise<void> => ipcRenderer.invoke('settings:updateMemoryInjection', config),
   },
 
-  // 语音通话 API
+  // 语音通话 API（voice:event 经单路复用，避免设置页多面板叠加触发 MaxListenersExceeded）
   voice: {
     /** 发送语音命令（invoke 模式，有响应） */
     sendCommand: (command: unknown): Promise<unknown> =>
@@ -1570,11 +1598,9 @@ const electronAPI: ElectronAPI = {
       const buf = Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength)
       ipcRenderer.send('voice:audio:chunk', callId, buf)
     },
-    /** 订阅语音事件，返回取消订阅函数 */
+    /** 订阅语音事件，返回取消订阅函数（单路 IPC，避免 MaxListenersExceeded） */
     onEvent: (callback: (event: unknown) => void): () => void => {
-      const listener = (_evt: Electron.IpcRendererEvent, data: unknown) => callback(data)
-      ipcRenderer.on('voice:event', listener)
-      return () => ipcRenderer.removeListener('voice:event', listener)
+      return subscribeVoiceEvent(callback)
     },
   },
 

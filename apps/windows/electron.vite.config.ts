@@ -103,8 +103,9 @@ function petResourcesDevPlugin(): Plugin {
 }
 
 /**
- * 修补 pptx-preview：slideLayout / slideMaster 缺失时访问 .background 会抛
- * "Cannot read properties of undefined (reading 'background')"。
+ * 修补 pptx-preview：
+ * 1) slideLayout / slideMaster 缺失时访问 .background 会抛
+ * 2) 库用 `import { get, omit } from "lodash"`，CJS lodash 在 Vite 直链 ESM 下无具名导出
  * 库为压缩单行包，不适合用 pnpm patch，改在 Vite 转换阶段替换。
  */
 function patchPptxPreviewPlugin(): Plugin {
@@ -118,16 +119,52 @@ function patchPptxPreviewPlugin(): Plugin {
   const NEW_UMD =
     'var i=t.background||{type:"none"};if((!i||"none"===i.type)&&(i=(null==t.slideLayout?void 0:t.slideLayout.background)||{type:"none"}),"none"===i.type&&(i=(null==t.slideMaster?void 0:t.slideMaster.background)||{type:"none"})'
 
+  /** 将 lodash CJS 具名导入改为 lodash-es（真 ESM），避免 Vite /@fs 直链无 export */
+  const LODASH_NAMED =
+    /import\s*\{\s*get\s+as\s+(\w+)\s*,\s*omit\s+as\s+(\w+)\s*\}\s*from\s*["']lodash["']\s*;/
+  const LODASH_NAMED_ALT =
+    /import\s*\{\s*omit\s+as\s+(\w+)\s*,\s*get\s+as\s+(\w+)\s*\}\s*from\s*["']lodash["']\s*;/
+  /** 兼容上一版误改成的 default import */
+  const LODASH_DEFAULT =
+    /import\s+lodash\s+from\s*["']lodash["']\s*;\s*var\s+(\w+)\s*=\s*lodash\.get\s*,\s*(\w+)\s*=\s*lodash\.omit\s*;/
+
   return {
     name: 'patch-pptx-preview-background',
     enforce: 'pre',
     transform(code, id) {
       const norm = id.replace(/\\/g, '/')
       if (!norm.includes('pptx-preview')) return null
-      if (!code.includes('slideLayout.background')) return null
       let next = code
-      if (next.includes(OLD)) next = next.replace(OLD, NEW)
-      if (next.includes(OLD_UMD)) next = next.replace(OLD_UMD, NEW_UMD)
+      if (next.includes('slideLayout.background')) {
+        if (next.includes(OLD)) next = next.replace(OLD, NEW)
+        if (next.includes(OLD_UMD)) next = next.replace(OLD_UMD, NEW_UMD)
+      }
+      let patchedLodash = false
+      const afterDefault = next.replace(
+        LODASH_DEFAULT,
+        'import{get as $1,omit as $2}from"lodash-es";',
+      )
+      if (afterDefault !== next) {
+        next = afterDefault
+        patchedLodash = true
+      }
+      if (!patchedLodash) {
+        const afterNamed = next.replace(
+          LODASH_NAMED,
+          'import{get as $1,omit as $2}from"lodash-es";',
+        )
+        if (afterNamed !== next) {
+          next = afterNamed
+          patchedLodash = true
+        }
+      }
+      if (!patchedLodash) {
+        const afterAlt = next.replace(
+          LODASH_NAMED_ALT,
+          'import{get as $2,omit as $1}from"lodash-es";',
+        )
+        if (afterAlt !== next) next = afterAlt
+      }
       if (next === code) return null
       return { code: next, map: null }
     },
@@ -257,6 +294,7 @@ export default defineConfig({
         'remark-math', 'rehype-katex', 'katex',
         'pdfjs-dist',
         'pixi.js', 'pixi-live2d-display/cubism4',
+        'lodash-es',
       ]
     }
   }

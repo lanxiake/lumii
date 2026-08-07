@@ -1,5 +1,5 @@
 /**
- * 语音模型下载面板：按「识别 / 合成 / 克隆」分区，显示速度与新手引导
+ * 语音模型下载面板（可按分组嵌入「识别 / 合成 / 克隆」各区块）
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '../../../../components/ui/Button/Button'
@@ -33,46 +33,55 @@ interface ProgressInfo {
   bytesPerSecond?: number
 }
 
-const GROUP_META: Record<string, { title: string; hint: string }> = {
-  'asr-core': {
-    title: '① 基础识别（通话听懂你说话）',
-    hint: '建议先下载 VAD + ASR。仅用 Edge TTS 出声时，这两项仍建议下载以便语音通话。',
-  },
-  'tts-synth': {
-    title: '② 语音合成（出声，无需声音克隆）',
-    hint: 'VITS 或 Qwen3 CustomVoice 二选一即可本地出声。Qwen3 请先下 Tokenizer，再下 CustomVoice（内置北京话/四川话等音色）。',
-  },
-  'tts-clone': {
-    title: '③ 声音克隆（可选，非必须）',
-    hint: '只有需要「用自己的声音说话」时才下载 Base 模型，并在下方「声音克隆」区创建音色。普通合成请用上一区的 CustomVoice。',
-  },
+/** 分组 ID */
+export type VoiceModelGroupId = 'asr-core' | 'tts-synth' | 'tts-clone'
+
+export interface VoiceModelsPanelProps {
+  /** 只展示这些分组；不传则展示全部 */
+  groups?: VoiceModelGroupId[]
+  /** 是否显示顶部总说明（整页总览时用；分区内一般关闭） */
+  showGuide?: boolean
+  /** 区块内标题，如「下载模型」；传空则不显示外层大标题 */
+  title?: string
+  /** 区块内简短说明 */
+  hint?: string
 }
 
 /**
  * 推断模型分组（兼容旧状态无 group 字段）
  */
-function resolveGroup(m: VoiceModelStatus): string {
-  if (m.group) return m.group
-  if (m.id === 'vad' || m.id.startsWith('asr-')) return 'asr-core'
-  if (m.id.includes('base')) return 'tts-clone'
+function resolveGroup(m: VoiceModelStatus): VoiceModelGroupId {
+  if (m.group === 'asr-core' || m.group === 'tts-synth' || m.group === 'tts-clone') {
+    return m.group
+  }
+  const id = m.id || ''
+  if (id === 'vad' || id.startsWith('asr-')) return 'asr-core'
+  if (id.includes('-base') || id.endsWith('base')) return 'tts-clone'
+  if (id.includes('custom') || id.includes('tokenizer') || id.includes('vits')) return 'tts-synth'
   return 'tts-synth'
 }
 
 /**
  * 语音模型本地下载管理 UI
  */
-export function VoiceModelsPanel(): React.ReactElement {
+export function VoiceModelsPanel({
+  groups,
+  showGuide = false,
+  title = '模型下载',
+  hint,
+}: VoiceModelsPanelProps = {}): React.ReactElement {
   const [models, setModels] = useState<VoiceModelStatus[]>([])
   const [progress, setProgress] = useState<Record<string, ProgressInfo>>({})
   const [loading, setLoading] = useState(true)
-  const [guideOpen, setGuideOpen] = useState(true)
+  const [guideOpen, setGuideOpen] = useState(false)
+  const [lastError, setLastError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     const api = (window as any).electronAPI
     if (!api?.voice?.sendCommand) return
     try {
       const list = await api.voice.sendCommand({ type: 'voice:models:get' })
-      if (Array.isArray(list)) setModels(list)
+      if (Array.isArray(list)) setModels(list as VoiceModelStatus[])
     } finally {
       setLoading(false)
     }
@@ -100,8 +109,14 @@ export function VoiceModelsPanel(): React.ReactElement {
         if (event.state === 'ready' || event.state === 'paused' || event.progress >= 1) {
           void refresh()
         }
+        if (event.state === 'ready') {
+          setLastError(null)
+        }
       }
       if (event.type === 'voice:models:error') {
+        setLastError(
+          `${event.modelId ? `[${event.modelId}] ` : ''}${event.message || '下载失败'}`,
+        )
         void refresh()
       }
     })
@@ -117,17 +132,13 @@ export function VoiceModelsPanel(): React.ReactElement {
     void refresh()
   }
 
-  const grouped = useMemo(() => {
-    const order = ['asr-core', 'tts-synth', 'tts-clone']
-    const map = new Map<string, VoiceModelStatus[]>()
-    for (const g of order) map.set(g, [])
-    for (const m of models) {
+  const filtered = useMemo(() => {
+    const allow = groups && groups.length > 0 ? new Set(groups) : null
+    return models.filter((m) => {
       const g = resolveGroup(m)
-      if (!map.has(g)) map.set(g, [])
-      map.get(g)!.push(m)
-    }
-    return order.map((id) => ({ id, models: map.get(id) || [] })).filter((x) => x.models.length > 0)
-  }, [models])
+      return allow ? allow.has(g) : true
+    })
+  }, [models, groups])
 
   /**
    * 渲染单个模型卡片
@@ -144,26 +155,62 @@ export function VoiceModelsPanel(): React.ReactElement {
     const speedText =
       state === 'downloading' ? formatSpeed(p?.bytesPerSecond ?? m.bytesPerSecond) : ''
 
+    const statusLabel = m.downloaded
+      ? '已就绪'
+      : state === 'downloading'
+        ? `下载中 ${pct}%`
+        : state === 'paused'
+          ? `已暂停 ${pct}%`
+          : state === 'extracting'
+            ? '解压/安装中…'
+            : state === 'error'
+              ? '失败'
+              : '未下载'
+
+    const badgeClass =
+      m.downloaded || state === 'ready'
+        ? styles.stateReady
+        : state === 'downloading' || state === 'extracting'
+          ? styles.stateDownloading
+          : state === 'paused'
+            ? styles.statePaused
+            : state === 'error'
+              ? styles.stateError
+              : styles.stateIdle
+
+    const cardClass = [
+      styles.card,
+      m.downloaded || state === 'ready'
+        ? styles.cardReady
+        : state === 'downloading' || state === 'extracting'
+          ? styles.cardActive
+          : state === 'error'
+            ? styles.cardError
+            : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+
     return (
-      <div key={m.id} className={styles.card}>
+      <div key={m.id} className={cardClass}>
         <div className={styles.cardHead}>
           <div>
             <div className={styles.name}>{m.name}</div>
             <div className={styles.meta}>
               {formatBytes(m.sizeBytes)}
               {m.description ? ` · ${m.description}` : ''}
-              {' · '}
-              {m.downloaded
-                ? '已就绪'
-                : state === 'downloading'
-                  ? `下载中 ${pct}%${speedText ? ` · ${speedText}` : ''}`
-                  : state === 'paused'
-                    ? `已暂停 ${pct}%（可继续）`
-                    : state === 'extracting'
-                      ? '解压中...'
-                      : state === 'error'
-                        ? m.errorMessage || '下载失败'
-                        : '未下载'}
+            </div>
+            <div className={styles.statusLine}>
+              <span className={`${styles.stateBadge} ${badgeClass}`}>{statusLabel}</span>
+              {!m.downloaded && state === 'downloading' && speedText ? (
+                <span className={styles.statusLineMuted}> · {speedText}</span>
+              ) : null}
+              {!m.downloaded && state === 'paused' ? (
+                <span className={styles.statusLineMuted}> · 可点「继续」恢复</span>
+              ) : null}
+              {!m.downloaded && state === 'idle' ? (
+                <span className={styles.statusLineMuted}> · 点击右侧下载</span>
+              ) : null}
             </div>
           </div>
           <div className={styles.actions}>
@@ -203,6 +250,7 @@ export function VoiceModelsPanel(): React.ReactElement {
               {formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}
               {speedText ? ` · ${speedText}` : ''}
               {state === 'paused' ? ' · 已暂停' : ''}
+              {state === 'extracting' ? ' · 正在解压/校验' : ''}
             </div>
           </div>
         )}
@@ -214,7 +262,7 @@ export function VoiceModelsPanel(): React.ReactElement {
   if (loading) {
     return (
       <div className={styles.panel}>
-        <h4 className={styles.title}>语音模型</h4>
+        {title ? <h4 className={styles.title}>{title}</h4> : null}
         <p className={styles.hint}>加载模型状态...</p>
       </div>
     )
@@ -222,44 +270,29 @@ export function VoiceModelsPanel(): React.ReactElement {
 
   return (
     <div className={styles.panel}>
-      <h4 className={styles.title}>语音模型下载</h4>
+      {title ? <h4 className={styles.title}>{title}</h4> : null}
+      {hint ? <p className={styles.hint}>{hint}</p> : null}
+      {lastError ? <p className={styles.error}>下载出错：{lastError}</p> : null}
 
-      <div className={styles.guide}>
-        <button type="button" className={styles.guideToggle} onClick={() => setGuideOpen((v) => !v)}>
-          {guideOpen ? '收起使用说明' : '展开使用说明（新手必读）'}
-        </button>
-        {guideOpen && (
-          <ol className={styles.guideList}>
-            <li>
-              <strong>声音克隆不是必须的。</strong>
-              日常对话出声：下载「② 语音合成」里的 VITS，或 Qwen3 Tokenizer + CustomVoice 即可。
-            </li>
-            <li>
-              <strong>推荐路径（Qwen3 内置音色）</strong>：Tokenizer → 0.6B CustomVoice → 下方 TTS 选
-              Qwen3 → 选说话人（含北京话 Dylan、四川话 Eric 等）→ 预览。
-            </li>
-            <li>
-              <strong>可选：声音克隆</strong>：仅当你要用自己的声音时，再下「③ Base」并创建「我的音色」。
-            </li>
-            <li>
-              <strong>最省事</strong>：不下本地 TTS，引擎选 Edge TTS（需联网）。
-            </li>
-          </ol>
-        )}
-      </div>
+      {showGuide && (
+        <div className={styles.guide}>
+          <button type="button" className={styles.guideToggle} onClick={() => setGuideOpen((v) => !v)}>
+            {guideOpen ? '收起总说明' : '展开总说明'}
+          </button>
+          {guideOpen && (
+            <ol className={styles.guideList}>
+              <li>语音识别、语音合成、声音克隆彼此独立，按需下载即可。</li>
+              <li>日常出声：合成区下载 Tokenizer + CustomVoice，不必做声音克隆。</li>
+            </ol>
+          )}
+        </div>
+      )}
 
-      <p className={styles.hint}>模型目录：用户数据根下 models/voice（默认 ~/.lumii）。国内优先魔搭。</p>
-
-      {grouped.map((g) => {
-        const meta = GROUP_META[g.id] || { title: g.id, hint: '' }
-        return (
-          <div key={g.id} className={styles.group}>
-            <h5 className={styles.groupTitle}>{meta.title}</h5>
-            {meta.hint && <p className={styles.groupHint}>{meta.hint}</p>}
-            <div className={styles.list}>{g.models.map(renderCard)}</div>
-          </div>
-        )
-      })}
+      {filtered.length === 0 ? (
+        <p className={styles.hint}>暂无该分组的模型条目（请确认应用已更新到最新版本并重启）。</p>
+      ) : (
+        <div className={styles.list}>{filtered.map(renderCard)}</div>
+      )}
     </div>
   )
 }

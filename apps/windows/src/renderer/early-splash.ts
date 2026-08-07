@@ -67,10 +67,11 @@ function mountEarlySplash(): void {
 
   const style = document.createElement('style')
   style.textContent = `
-#${EARLY_ID}{position:fixed;inset:0;z-index:100000;display:grid;place-items:center;overflow:hidden;background:#070d18;-webkit-app-region:drag}
-#${EARLY_ID} .lumii-es-bg{position:absolute;inset:-4%;width:108%;height:108%;object-fit:cover;filter:blur(28px) saturate(1.15) brightness(0.55);transform:scale(1.08);pointer-events:none}
-#${EARLY_ID} .lumii-es-vignette{position:absolute;inset:0;background:radial-gradient(ellipse 70% 60% at 50% 45%,transparent 35%,rgba(7,13,24,.55) 100%),linear-gradient(90deg,rgba(7,13,24,.35) 0%,transparent 18%,transparent 82%,rgba(7,13,24,.35) 100%);pointer-events:none}
-#${EARLY_ID} .lumii-es-fg{position:relative;z-index:1;width:min(100%,920px);height:min(100%,820px);max-width:100%;max-height:100%;object-fit:contain;box-shadow:0 0 0 1px color-mix(in srgb,#7dd3fc 18%,transparent),0 24px 80px rgba(0,0,0,.45);background:transparent;-webkit-app-region:no-drag}
+#${EARLY_ID}{position:fixed;inset:0;z-index:100000;display:grid;place-items:center;overflow:hidden;background:radial-gradient(ellipse 85% 70% at 50% 42%,#f7fbff 0%,#e8f2fa 55%,#d9e8f4 100%);-webkit-app-region:drag}
+#${EARLY_ID} .lumii-es-bg{position:absolute;inset:-6%;width:112%;height:112%;object-fit:cover;filter:blur(42px) saturate(1.08) brightness(1.08) contrast(.92);transform:scale(1.12);opacity:.92;pointer-events:none}
+#${EARLY_ID} .lumii-es-vignette{position:absolute;inset:0;background:radial-gradient(ellipse 75% 65% at 50% 45%,rgba(247,251,255,.15) 20%,rgba(217,232,244,.35) 70%,rgba(196,220,236,.55) 100%),linear-gradient(90deg,rgba(214,230,242,.55) 0%,transparent 22%,transparent 78%,rgba(214,230,242,.55) 100%);pointer-events:none}
+#${EARLY_ID} .lumii-es-glow{position:absolute;inset:0;background:linear-gradient(105deg,color-mix(in srgb,#9fd0f0 28%,transparent) 0%,transparent 30%,transparent 70%,color-mix(in srgb,#b8d4f0 22%,transparent) 100%);opacity:.65;pointer-events:none}
+#${EARLY_ID} .lumii-es-fg{position:relative;z-index:1;width:min(100%,920px);height:min(100%,820px);max-width:100%;max-height:100%;object-fit:contain;box-shadow:0 0 0 1px color-mix(in srgb,#8ec5e8 22%,transparent),0 18px 56px rgba(120,160,190,.22);background:transparent;-webkit-app-region:no-drag}
 #${EARLY_ID}.lumii-es-fading{opacity:0;pointer-events:none;transition:opacity .55s ease}
 `
   document.head.appendChild(style)
@@ -82,6 +83,7 @@ function mountEarlySplash(): void {
   root.innerHTML = `
     <video id="${BG_ID}" class="lumii-es-bg" src="${splashUrl}" poster="${posterUrl}" muted playsinline preload="auto" aria-hidden="true"></video>
     <div class="lumii-es-vignette" aria-hidden="true"></div>
+    <div class="lumii-es-glow" aria-hidden="true"></div>
     <video id="${FG_ID}" class="lumii-es-fg" src="${splashUrl}" poster="${posterUrl}" autoplay playsinline preload="auto"></video>
   `
   document.body.appendChild(root)

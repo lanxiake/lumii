@@ -69,6 +69,12 @@ def handle_load(params: dict[str, Any]) -> dict[str, Any]:
     else:
         _device = device
 
+    print(
+        f"[qwen3_tts_sidecar] load device={_device} cuda_available={torch.cuda.is_available()}",
+        file=sys.stderr,
+        flush=True,
+    )
+
     dtype = torch.float16 if _device.startswith("cuda") else torch.float32
     # 部分版本支持 speech_tokenizer / tokenizer 路径参数；失败则仅用 model_dir
     try:

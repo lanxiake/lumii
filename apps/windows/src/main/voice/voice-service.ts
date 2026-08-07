@@ -14,7 +14,7 @@ import { SentenceSplitter } from './sentence-splitter.js'
 import { VoiceCallStateMachine } from './voice-state-machine.js'
 import { type VoiceModelManager } from './model-manager.js'
 import { voiceEventBus } from './voice-event-bus.js'
-import type { VoiceEngineConfig } from '../../shared/voice-events.js'
+import type { VoiceEngineConfig, VoiceRuntimePhase } from '../../shared/voice-events.js'
 import type { TtsChunk } from './tts-engine.js'
 import { VoiceProfileStore } from './voice-profile-store.js'
 import {
@@ -23,6 +23,7 @@ import {
   TTS_PREVIEW_CACHE_MAX_TEXT_CHARS,
 } from './tts-preview-cache.js'
 import { stripVirtualHumanTags } from '../../shared/virtual-human.js'
+import { setQwen3TtsStatusCallback } from './qwen3-tts-client.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceService]', ...args),
@@ -126,6 +127,23 @@ export class VoiceCallService {
         timestamp: Date.now(),
       })
     })
+
+    // 将 Qwen3 安装/加载等长耗时步骤推到设置页等 UI
+    setQwen3TtsStatusCallback((phase, message, detail) => {
+      this.emitRuntimeStatus(phase, message, detail)
+    })
+  }
+
+  /**
+   * 推送运行时状态（依赖安装、模型加载等）给渲染进程
+   */
+  private emitRuntimeStatus(phase: VoiceRuntimePhase, message: string, detail?: string): void {
+    this.pushVoiceEvent({
+      type: 'voice:runtime:status',
+      phase,
+      message,
+      detail,
+    })
   }
 
   // ── 惰性初始化 ─────────────────────────────────────────────────────────
@@ -137,12 +155,26 @@ export class VoiceCallService {
   async ensureTtsInitialized(): Promise<void> {
     if (this.ttsInitialized && this.ttsProvider) return
 
-    const variant = this.config.tts.qwen3Variant ?? '0.6b-custom'
+    const cloneOn =
+      this.config.tts.qwen3CloneEnabled === true && Boolean(this.config.tts.qwen3ProfileId)
+    const variant = cloneOn
+      ? (this.config.tts.qwen3CloneVariant ?? '0.6b-base')
+      : (() => {
+          const v = this.config.tts.qwen3Variant ?? '0.6b-custom'
+          return v === '0.6b-base' || v === '1.7b-base' ? '0.6b-custom' : v
+        })()
+
     if (!this.modelManager.isTtsReady(this.config.tts.provider, variant)) {
       throw new Error('TTS 模型未下载，请前往「设置 → 语音」下载本地模型，或切换为 Edge TTS')
     }
 
-    log.info('[ensureTtsInitialized] 初始化 TTS 引擎...')
+    this.emitRuntimeStatus(
+      'starting_engine',
+      this.config.tts.provider === 'qwen3'
+        ? '正在初始化本地语音合成（可能包含依赖安装与模型加载）…'
+        : '正在初始化语音合成引擎…',
+    )
+    log.info(`[ensureTtsInitialized] 初始化 TTS 引擎... clone=${cloneOn} variant=${variant}`)
     const paths = await this.modelManager.getModelPaths()
 
     let refAudio: string | undefined
@@ -153,23 +185,17 @@ export class VoiceCallService {
     let speaker = this.config.tts.qwen3Speaker ?? 'Vivian'
     const instruct = this.config.tts.qwen3Instruct
 
-    if (this.config.tts.provider === 'qwen3') {
-      const isClone = variant === '0.6b-base' || variant === '1.7b-base'
-      mode = isClone ? 'clone' : 'custom'
-      if (isClone) {
-        const profileId = this.config.tts.qwen3ProfileId
-        if (!profileId) {
-          throw new Error('声音克隆模式需要先在设置中创建并选择「我的音色」；或改用 CustomVoice 内置音色')
-        }
-        const profile = this.profileStore.get(profileId)
-        if (!profile) {
-          throw new Error(`克隆音色不存在: ${profileId}`)
-        }
-        refAudio = this.profileStore.getRefAudioPath(profile)
-        refText = profile.refText
-        xVectorOnly = profile.xVectorOnly
-        language = this.config.tts.language || profile.language || 'Auto'
+    if (this.config.tts.provider === 'qwen3' && cloneOn) {
+      mode = 'clone'
+      const profileId = this.config.tts.qwen3ProfileId!
+      const profile = this.profileStore.get(profileId)
+      if (!profile) {
+        throw new Error(`克隆音色不存在: ${profileId}`)
       }
+      refAudio = this.profileStore.getRefAudioPath(profile)
+      refText = profile.refText
+      xVectorOnly = profile.xVectorOnly
+      language = this.config.tts.language || profile.language || 'Auto'
     }
 
     const qwenModelDir = (() => {
@@ -202,7 +228,21 @@ export class VoiceCallService {
     })
     await this.ttsProvider.initialize()
     this.ttsInitialized = true
+    this.emitRuntimeStatus('ready', '语音合成引擎就绪')
     log.info('[ensureTtsInitialized] TTS 引擎就绪')
+  }
+
+  /**
+   * 解析当前应加载的 Qwen3 变体（克隆开关开启且有档案时用 Base）
+   */
+  resolveActiveQwen3Variant(): string {
+    const tts = this.config.tts
+    if (tts.qwen3CloneEnabled === true && tts.qwen3ProfileId) {
+      return tts.qwen3CloneVariant ?? '0.6b-base'
+    }
+    const v = tts.qwen3Variant ?? '0.6b-custom'
+    if (v === '0.6b-base' || v === '1.7b-base') return '0.6b-custom'
+    return v
   }
 
   /** 暴露音色档案存储给 IPC */
@@ -217,7 +257,7 @@ export class VoiceCallService {
 
     if (!this.modelManager.areRequiredModelsReady(
       this.config.tts.provider,
-      this.config.tts.qwen3Variant,
+      this.resolveActiveQwen3Variant(),
     )) {
       throw new Error('语音模型未就绪，请先下载所需本地模型（设置 → 语音设置）')
     }
@@ -738,20 +778,49 @@ export class VoiceCallService {
     log.info(`[previewTts] 开始预览: "${preview}"`)
     const abort = new AbortController()
     this.previewAbort = abort
+
+    /** 通知渲染进程预览结束 */
+    const endPreview = (ok: boolean, message?: string) => {
+      try {
+        if (!win.isDestroyed()) {
+          win.webContents.send('voice:event', {
+            type: 'voice:tts:preview:ended',
+            ok,
+            message,
+          })
+        }
+      } catch (e) {
+        log.warn(`[previewTts] 推送 preview:ended 失败: ${(e as Error).message}`)
+      }
+      this.pushVoiceEvent({
+        type: 'voice:runtime:status',
+        phase: ok ? 'ready' : 'error',
+        message: message ?? (ok ? '预览完成，正在播放…' : '预览失败'),
+      })
+    }
+
     try {
+      this.emitRuntimeStatus('starting_engine', '正在准备语音预览…')
       await this.ensureTtsInitialized()
 
       const trimmed = text.trim()
-      if (!trimmed) return
+      if (!trimmed) {
+        endPreview(false, '测试文案为空')
+        return
+      }
 
       const cacheKey = buildTtsPreviewCacheKey(text, this.config.tts)
       if (trimmed.length <= TTS_PREVIEW_CACHE_MAX_TEXT_CHARS) {
         const cached = ttsPreviewCache.get(cacheKey)
         if (cached && cached.length > 0) {
           log.info('[previewTts] 缓存命中，跳过 TTS 合成')
+          this.emitRuntimeStatus('playing', '正在播放预览（缓存）…')
           let chunkIndex = 0
           for (const chunk of cached) {
-            if (win.isDestroyed() || abort.signal.aborted) return
+            if (win.isDestroyed() || abort.signal.aborted) {
+              endPreview(false, '预览已取消')
+              return
+            }
             try {
               win.webContents.send('voice:event', {
                 type: 'voice:tts:preview:chunk',
@@ -765,16 +834,21 @@ export class VoiceCallService {
             }
             await new Promise<void>((r) => setImmediate(r))
           }
+          endPreview(true)
           return
         }
       }
 
+      this.emitRuntimeStatus('synthesizing', '正在合成预览语音…')
       const recorded: TtsChunk[] = []
       let chunkIndex = 0
       await this.ttsProvider!.synthesize(
         text,
         (chunk) => {
           if (win.isDestroyed() || abort.signal.aborted) return
+          if (chunkIndex === 0) {
+            this.emitRuntimeStatus('playing', '正在播放预览…')
+          }
           recorded.push({
             samples: chunk.samples.slice(),
             sampleRate: chunk.sampleRate,
@@ -795,16 +869,26 @@ export class VoiceCallService {
         abort.signal,
       )
 
+      if (abort.signal.aborted) {
+        endPreview(false, '预览已取消')
+        return
+      }
+
       if (
-        !abort.signal.aborted
-        && recorded.length > 0
+        recorded.length > 0
         && trimmed.length <= TTS_PREVIEW_CACHE_MAX_TEXT_CHARS
       ) {
         ttsPreviewCache.set(cacheKey, recorded)
       }
+      endPreview(true)
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
-        log.error(`[previewTts] 预览合成失败: ${(e as Error).message}`)
+        const msg = (e as Error).message || '预览合成失败'
+        log.error(`[previewTts] 预览合成失败: ${msg}`)
+        this.emitRuntimeStatus('error', `预览失败：${msg}`)
+        endPreview(false, msg)
+      } else {
+        endPreview(false, '预览已取消')
       }
     } finally {
       if (this.previewAbort === abort) {

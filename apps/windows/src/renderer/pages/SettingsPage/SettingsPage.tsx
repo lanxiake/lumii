@@ -166,6 +166,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       qwen3Variant?: string
       qwen3Speaker?: string
       qwen3Instruct?: string
+      qwen3CloneEnabled?: boolean
+      qwen3CloneVariant?: '0.6b-base' | '1.7b-base'
       qwen3ProfileId?: string
       language?: string
     }
@@ -174,12 +176,24 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   } | null>(null)
   const [voiceSaving, setVoiceSaving] = useState(false)
   const [voicePreviewing, setVoicePreviewing] = useState(false)
+  /** 语音合成测试文案（默认与预览默认句一致，最多 100 字） */
+  const [voicePreviewText, setVoicePreviewText] = useState('你好，这是声音预览。')
+  /** TTS 运行时阶段文案（安装依赖 / 加载模型等） */
+  const [voiceRuntimeStatus, setVoiceRuntimeStatus] = useState<{
+    phase: string
+    message: string
+    detail?: string
+  } | null>(null)
   /** 本地 VITS 模型是否已下载 */
   const [vitsModelReady, setVitsModelReady] = useState(false)
   /** Qwen3 CustomVoice（内置音色）是否可用 */
   const [qwen3CustomReady, setQwen3CustomReady] = useState(false)
+  const [qwen3Custom06Ready, setQwen3Custom06Ready] = useState(false)
+  const [qwen3Custom17Ready, setQwen3Custom17Ready] = useState(false)
   /** Qwen3 Base（声音克隆）是否可用 */
   const [qwen3CloneReady, setQwen3CloneReady] = useState(false)
+  const [qwen3Clone06Ready, setQwen3Clone06Ready] = useState(false)
+  const [qwen3Clone17Ready, setQwen3Clone17Ready] = useState(false)
   const previewAudioCtxRef = React.useRef<AudioContext | null>(null)
 
   // Category-level save hooks (must be at top level, not in render functions)
@@ -312,7 +326,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       const c17 = Boolean(list.find((m: any) => m.id === 'tts-qwen3-1.7b-custom')?.downloaded)
       const b06 = Boolean(list.find((m: any) => m.id === 'tts-qwen3-0.6b-base')?.downloaded)
       const b17 = Boolean(list.find((m: any) => m.id === 'tts-qwen3-1.7b-base')?.downloaded)
+      setQwen3Custom06Ready(tok && c06)
+      setQwen3Custom17Ready(tok && c17)
       setQwen3CustomReady(tok && (c06 || c17))
+      setQwen3Clone06Ready(tok && b06)
+      setQwen3Clone17Ready(tok && b17)
       setQwen3CloneReady(tok && (b06 || b17))
     }
     electronAPI.voice.sendCommand({ type: 'voice:models:get' }).then((list: any) => {
@@ -354,13 +372,31 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   }, [activeCategory, toast])
 
   /**
-   * 监听 TTS 预览音频块，接收后用 Web Audio API 播放
+   * 监听 TTS 预览音频块与运行时状态，接收后用 Web Audio API 播放 / 展示进度
    */
   useEffect(() => {
     const electronAPI = (window as any).electronAPI
     if (!electronAPI?.voice?.onEvent) return
     let nextStartTime = 0
     const unsubscribe = electronAPI.voice.onEvent((event: any) => {
+      if (event.type === 'voice:runtime:status') {
+        setVoiceRuntimeStatus({
+          phase: String(event.phase || ''),
+          message: String(event.message || ''),
+          detail: event.detail ? String(event.detail) : undefined,
+        })
+        return
+      }
+      if (event.type === 'voice:tts:preview:ended') {
+        setVoicePreviewing(false)
+        if (!event.ok && event.message) {
+          setVoiceRuntimeStatus({
+            phase: 'error',
+            message: `预览失败：${event.message}`,
+          })
+        }
+        return
+      }
       if (event.type !== 'voice:tts:preview:chunk') return
       const ctx = previewAudioCtxRef.current
       if (!ctx) return
@@ -1575,7 +1611,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   )
 
   /**
-   * 渲染语音设置
+   * 渲染语音设置：三大独立区块（识别 / 合成 / 克隆）
    */
   const renderVoiceSettings = () => {
     const saveVoiceConfig = async (partial: {
@@ -1589,6 +1625,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         qwen3Variant?: string
         qwen3Speaker?: string
         qwen3Instruct?: string
+        qwen3CloneEnabled?: boolean
+        qwen3CloneVariant?: '0.6b-base' | '1.7b-base'
         qwen3ProfileId?: string
         language?: string
       }
@@ -1614,10 +1652,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       }
     }
 
+    /** 用当前测试文案触发 TTS 预览（最多 100 字） */
     const handlePreview = async () => {
       const electronAPI = (window as any).electronAPI
       if (!electronAPI?.voice?.sendCommand) return
-      // 创建（或复用）AudioContext
       if (!previewAudioCtxRef.current || previewAudioCtxRef.current.state === 'closed') {
         previewAudioCtxRef.current = new AudioContext()
       }
@@ -1625,358 +1663,538 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         await previewAudioCtxRef.current.resume()
       }
       setVoicePreviewing(true)
-      await electronAPI.voice.sendCommand({ type: 'voice:tts:preview' }).catch(() => setVoicePreviewing(false))
+      const text = voicePreviewText.trim().slice(0, 100) || '你好，这是声音预览。'
+      await electronAPI.voice
+        .sendCommand({ type: 'voice:tts:preview', text })
+        .catch(() => setVoicePreviewing(false))
     }
 
     const vitsDownloaded = vitsModelReady
+    const qwenVariant = voiceConfig?.tts.qwen3Variant ?? '0.6b-custom'
+    const cloneEnabled = voiceConfig?.tts.qwen3CloneEnabled === true
+    const cloneVariant = voiceConfig?.tts.qwen3CloneVariant ?? '0.6b-base'
+    const previewDisabled =
+      !voiceConfig ||
+      voicePreviewing ||
+      (voiceConfig.tts.provider === 'local-vits' && !vitsDownloaded) ||
+      (voiceConfig.tts.provider === 'qwen3' &&
+        (cloneEnabled
+          ? !qwen3CloneReady || !voiceConfig.tts.qwen3ProfileId
+          : !qwen3CustomReady))
+
+    /**
+     * 运行时阶段中文短标签
+     */
+    const runtimePhaseLabel = (phase: string): string => {
+      switch (phase) {
+        case 'checking_python':
+          return '检查环境'
+        case 'installing_deps':
+          return '安装依赖'
+        case 'starting_engine':
+          return '启动引擎'
+        case 'loading_model':
+          return '加载模型'
+        case 'synthesizing':
+          return '合成中'
+        case 'playing':
+          return '播放中'
+        case 'ready':
+          return '就绪'
+        case 'error':
+          return '出错'
+        case 'idle':
+          return '空闲'
+        default:
+          return phase || '状态'
+      }
+    }
+
+    const runtimeBusy =
+      !!voiceRuntimeStatus &&
+      !['idle', 'ready', 'error'].includes(voiceRuntimeStatus.phase)
+
+    /**
+     * 渲染语音运行时状态条
+     */
+    const renderRuntimeStatus = () => {
+      if (!voiceRuntimeStatus?.message) return null
+      const phase = voiceRuntimeStatus.phase
+      const cls = [
+        styles['voice-runtime-status'],
+        phase === 'error'
+          ? styles['voice-runtime-status-error']
+          : phase === 'ready' || phase === 'idle'
+            ? styles['voice-runtime-status-ready']
+            : styles['voice-runtime-status-busy'],
+      ].join(' ')
+      return (
+        <div className={cls} role="status" aria-live="polite">
+          <span className={styles['voice-runtime-phase']}>{runtimePhaseLabel(phase)}</span>
+          {voiceRuntimeStatus.message}
+          {voiceRuntimeStatus.detail ? (
+            <div className={styles['voice-runtime-detail']}>{voiceRuntimeStatus.detail}</div>
+          ) : null}
+        </div>
+      )
+    }
+
+    const previewButtonLabel = (() => {
+      if (!voicePreviewing && !runtimeBusy) return '▶ 预览合成声音'
+      const phase = voiceRuntimeStatus?.phase
+      if (phase === 'installing_deps') return '安装依赖中…'
+      if (phase === 'loading_model') return '加载模型中…'
+      if (phase === 'checking_python' || phase === 'starting_engine') return '启动引擎中…'
+      if (phase === 'synthesizing') return '合成中…'
+      if (phase === 'playing') return '播放中…'
+      return voicePreviewing ? '处理中…' : '▶ 预览合成声音'
+    })()
 
     return (
       <div className={styles['settings-section']}>
         <h3>语音设置</h3>
-
-        <VoiceModelsPanel />
+        <p className={styles['settings-note']}>
+          分为三块独立能力：语音识别、语音合成、声音克隆。各自下载与测试，互不强制。
+        </p>
 
         {!voiceConfig ? (
           <p className={styles['settings-note']}>加载语音配置中...</p>
         ) : (
           <>
-            {/* ASR 识别 */}
-            <div className={styles['setting-group']}>
-              <h4 className={styles['setting-group-title']}>语音识别（ASR）</h4>
-              <div className={styles['setting-item']}>
-                <label className={styles['setting-label']}>识别引擎</label>
-                <Select
-                  value={voiceConfig.asr.provider}
-                  options={[
-                    { label: '本地 Paraformer（离线）', value: 'local-paraformer' },
-                    { label: 'OpenAI Whisper（云端）', value: 'openai-whisper' },
-                  ]}
-                  onChange={(e) => saveVoiceConfig({ asr: { provider: e.target.value } })}
-                />
-              </div>
-              {voiceConfig.asr.provider === 'openai-whisper' && (
-                <div className={styles['setting-item']}>
-                  <label className={styles['setting-label']}>OpenAI API Key</label>
-                  <Input
-                    type={showVoiceApiKey ? 'text' : 'password'}
-                    placeholder="sk-..."
-                    value={voiceConfig.asr.apiKey ?? ''}
-                    onChange={(e) => saveVoiceConfig({ asr: { apiKey: e.target.value } })}
-                    style={{ width: '280px' }}
-                    suffix={
-                      <button
-                        type="button"
-                        aria-label={showVoiceApiKey ? '隐藏 API Key' : '显示 API Key'}
-                        onClick={() => setShowVoiceApiKey((v) => !v)}
-                        style={{ display: 'inline-flex', alignItems: 'center', padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
-                      >
-                        {showVoiceApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    }
-                  />
-                  <p className={styles['settings-note']} style={{ marginTop: 4 }}>
-                    用于 Whisper 语音识别（不影响其他 AI 功能）
-                  </p>
-                </div>
-              )}
-            </div>
+            {/* ═══ 1. 语音识别 ═══ */}
+            <div className={styles['voice-block']}>
+              <h4 className={styles['voice-block-title']}>一、语音识别</h4>
+              <p className={styles['voice-block-desc']}>
+                把你的说话转成文字。通话听懂你需要下载 VAD + ASR；与是否克隆声音无关。
+              </p>
 
-            {/* TTS 合成 */}
-            <div className={styles['setting-group']}>
-              <h4 className={styles['setting-group-title']}>语音合成（TTS）</h4>
-              <div className={styles['setting-item']}>
-                <label className={styles['setting-label']}>合成引擎</label>
-                <Select
-                  value={voiceConfig.tts.provider}
-                  options={[
-                    {
-                      label: vitsDownloaded ? '本地 VITS（离线）' : '本地 VITS（需先下载模型）',
-                      value: 'local-vits',
-                      disabled: !vitsDownloaded,
-                    },
-                    {
-                      label: qwen3CustomReady
-                        ? 'Qwen3-TTS（本地内置音色）'
-                        : 'Qwen3-TTS（需先下载 Tokenizer+CustomVoice）',
-                      value: 'qwen3',
-                      disabled: !qwen3CustomReady,
-                    },
-                    { label: 'Edge TTS（联网）', value: 'edge' },
-                  ]}
-                  onChange={(e) => {
-                    if (e.target.value === 'local-vits' && !vitsDownloaded) return
-                    if (e.target.value === 'qwen3' && !qwen3CustomReady) return
-                    saveVoiceConfig({ tts: { provider: e.target.value } })
-                  }}
-                />
-                {!vitsDownloaded && (
-                  <p className={styles['settings-note']} style={{ marginTop: 4 }}>
-                    请先在上方「语音模型」中下载 VITS，即可启用离线合成。
-                  </p>
+              <VoiceModelsPanel
+                groups={['asr-core']}
+                title="下载"
+                hint="建议两项都下载。仅用文字输入可不下。"
+              />
+
+              <div className={styles['setting-group']}>
+                <h5 className={styles['voice-block-subtitle']}>设置</h5>
+                <div className={styles['setting-item']}>
+                  <label className={styles['setting-label']}>识别引擎</label>
+                  <Select
+                    value={voiceConfig.asr.provider}
+                    options={[
+                      { label: '本地 Paraformer（离线）', value: 'local-paraformer' },
+                      { label: 'OpenAI Whisper（云端）', value: 'openai-whisper' },
+                    ]}
+                    onChange={(e) => saveVoiceConfig({ asr: { provider: e.target.value } })}
+                  />
+                </div>
+                {voiceConfig.asr.provider === 'openai-whisper' && (
+                  <div className={styles['setting-item']}>
+                    <label className={styles['setting-label']}>OpenAI API Key</label>
+                    <Input
+                      type={showVoiceApiKey ? 'text' : 'password'}
+                      placeholder="sk-..."
+                      value={voiceConfig.asr.apiKey ?? ''}
+                      onChange={(e) => saveVoiceConfig({ asr: { apiKey: e.target.value } })}
+                      style={{ width: '280px' }}
+                      suffix={
+                        <button
+                          type="button"
+                          aria-label={showVoiceApiKey ? '隐藏 API Key' : '显示 API Key'}
+                          onClick={() => setShowVoiceApiKey((v) => !v)}
+                          style={{ display: 'inline-flex', alignItems: 'center', padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
+                        >
+                          {showVoiceApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      }
+                    />
+                  </div>
                 )}
-                {!qwen3CustomReady && (
-                  <p className={styles['settings-note']} style={{ marginTop: 4 }}>
-                    请先下载「Tokenizer 12Hz」+「0.6B CustomVoice」（声音克隆不是必须的）。
-                  </p>
-                )}
-              </div>
-              <div className={styles['setting-item']}>
-                <label className={styles['setting-label']}>
-                  语速：{voiceConfig.tts.speed.toFixed(1)}x
-                </label>
-                <input
-                  type="range"
-                  min={0.8}
-                  max={1.5}
-                  step={0.1}
-                  value={voiceConfig.tts.speed}
-                  onChange={(e) =>
-                    saveVoiceConfig({ tts: { speed: parseFloat(e.target.value) } })
-                  }
-                  style={{ width: '200px' }}
-                />
-              </div>
-              <div className={styles['setting-item']}>
-                <label className={styles['setting-label']}>
-                  音量：{Math.round((voiceConfig.tts.volume ?? 0.8) * 100)}%
-                </label>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={voiceConfig.tts.volume ?? 0.8}
-                  onChange={(e) =>
-                    saveVoiceConfig({ tts: { volume: parseFloat(e.target.value) } })
-                  }
-                  style={{ width: '200px' }}
-                />
-              </div>
-              {voiceConfig.tts.provider === 'local-vits' && (
+                <div className={styles['setting-item']}>
+                  <Checkbox
+                    checked={voiceConfig.autoMuteMicWhileSpeaking ?? true}
+                    onChange={(checked) => saveVoiceConfig({ autoMuteMicWhileSpeaking: checked })}
+                  >
+                    AI 朗读时自动闭麦
+                  </Checkbox>
+                </div>
                 <div className={styles['setting-item']}>
                   <label className={styles['setting-label']}>
-                    说话人 ID
-                    <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginLeft: 6, fontWeight: 400 }}>
-                      (0 ~ 173，共 174 个音色)
-                    </span>
+                    语音识别阈值：{(voiceConfig.vad?.threshold ?? 0.5).toFixed(2)}
                   </label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={173}
-                    value={String(voiceConfig.tts.speakerId ?? 0)}
-                    onChange={(e) =>
-                      saveVoiceConfig({
-                        tts: { speakerId: Math.max(0, Math.min(173, parseInt(e.target.value, 10) || 0)) },
-                      })
-                    }
-                    style={{ width: '80px' }}
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={0.9}
+                    step={0.05}
+                    value={voiceConfig.vad?.threshold ?? 0.5}
+                    onChange={(e) => saveVoiceConfig({ vad: { threshold: parseFloat(e.target.value) } })}
+                    style={{ width: '200px' }}
                   />
                 </div>
-              )}
-              {voiceConfig.tts.provider === 'edge' && (
                 <div className={styles['setting-item']}>
-                  <label className={styles['setting-label']}>音色</label>
-                  <Select
-                    value={voiceConfig.tts.voice ?? 'zh-CN-XiaoxiaoNeural'}
-                    options={[
-                      { label: '晓晓 - 女声·温暖亲切', value: 'zh-CN-XiaoxiaoNeural' },
-                      { label: '晓伊 - 女声·活泼可爱', value: 'zh-CN-XiaoyiNeural' },
-                      { label: '云健 - 男声·沉稳大气', value: 'zh-CN-YunjianNeural' },
-                      { label: '云希 - 男声·阳光少年', value: 'zh-CN-YunxiNeural' },
-                      { label: '云夏 - 男声·少年音', value: 'zh-CN-YunxiaNeural' },
-                      { label: '云扬 - 男声·新闻播报', value: 'zh-CN-YunyangNeural' },
-                      { label: '晓北 - 女声·东北方言', value: 'zh-CN-liaoning-XiaobeiNeural' },
-                      { label: '晓妮 - 女声·陕西方言', value: 'zh-CN-shaanxi-XiaoniNeural' },
-                    ]}
-                    onChange={(e) => saveVoiceConfig({ tts: { voice: e.target.value } })}
+                  <label className={styles['setting-label']}>
+                    负面语音阈值：{(voiceConfig.vad?.energyGateMultiplier ?? 1.5).toFixed(1)}x
+                  </label>
+                  <input
+                    type="range"
+                    min={1.0}
+                    max={4.0}
+                    step={0.1}
+                    value={voiceConfig.vad?.energyGateMultiplier ?? 1.5}
+                    onChange={(e) =>
+                      saveVoiceConfig({ vad: { energyGateMultiplier: parseFloat(e.target.value) } })
+                    }
+                    style={{ width: '200px' }}
                   />
                 </div>
-              )}
-              {voiceConfig.tts.provider === 'qwen3' && (
-                <>
+              </div>
+
+              <div className={styles['setting-group']}>
+                <h5 className={styles['voice-block-subtitle']}>测试</h5>
+                <AsrLiveTestPanel />
+              </div>
+            </div>
+
+            {/* ═══ 2. 语音合成 ═══ */}
+            <div className={styles['voice-block']}>
+              <h4 className={styles['voice-block-title']}>二、语音合成</h4>
+              <p className={styles['voice-block-desc']}>
+                让 AI 出声。推荐：Edge（联网免下载）或 Qwen3 CustomVoice（本地内置音色，含北京话/四川话）。
+                <strong>不必做声音克隆。</strong>
+              </p>
+
+              <VoiceModelsPanel
+                groups={['tts-synth']}
+                title="下载"
+                hint="Qwen3 路径：先下 Tokenizer 12Hz，再下 0.6B CustomVoice（内置 9 种音色）。权重下完后会后台预装 Python 依赖，进度见下方「测试」状态条。"
+              />
+
+              <div className={styles['setting-group']}>
+                <h5 className={styles['voice-block-subtitle']}>设置</h5>
+                {cloneEnabled && voiceConfig.tts.provider === 'qwen3' && (
+                  <p className={styles['settings-note']} style={{ marginBottom: 8 }}>
+                    已开启声音克隆：实际出声使用下方「我的音色」。关闭克隆后将恢复此处内置音色 / Edge / VITS。
+                  </p>
+                )}
+                <div className={styles['setting-item']}>
+                  <label className={styles['setting-label']}>合成引擎</label>
+                  <Select
+                    value={voiceConfig.tts.provider}
+                    options={[
+                      { label: 'Edge TTS（联网，免下载）', value: 'edge' },
+                      {
+                        label: vitsDownloaded ? '本地 VITS（离线）' : '本地 VITS（需先下载）',
+                        value: 'local-vits',
+                        disabled: !vitsDownloaded,
+                      },
+                      {
+                        label: qwen3CustomReady
+                          ? 'Qwen3 CustomVoice（本地内置音色）'
+                          : 'Qwen3 CustomVoice（需先下载 Tokenizer+CustomVoice）',
+                        value: 'qwen3',
+                        disabled: !qwen3CustomReady,
+                      },
+                    ]}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      if (v === 'local-vits' && !vitsDownloaded) return
+                      if (v === 'qwen3' && !qwen3CustomReady) return
+                      if (v === 'qwen3') {
+                        const prefer = qwen3Custom06Ready ? '0.6b-custom' : '1.7b-custom'
+                        saveVoiceConfig({
+                          tts: { provider: 'qwen3', qwen3Variant: prefer, qwen3CloneEnabled: false },
+                        })
+                        return
+                      }
+                      saveVoiceConfig({ tts: { provider: v, qwen3CloneEnabled: false } })
+                    }}
+                  />
+                </div>
+                <div className={styles['setting-item']}>
+                  <label className={styles['setting-label']}>
+                    语速：{voiceConfig.tts.speed.toFixed(1)}x
+                  </label>
+                  <input
+                    type="range"
+                    min={0.8}
+                    max={1.5}
+                    step={0.1}
+                    value={voiceConfig.tts.speed}
+                    onChange={(e) => saveVoiceConfig({ tts: { speed: parseFloat(e.target.value) } })}
+                    style={{ width: '200px' }}
+                  />
+                </div>
+                <div className={styles['setting-item']}>
+                  <label className={styles['setting-label']}>
+                    音量：{Math.round((voiceConfig.tts.volume ?? 0.8) * 100)}%
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={voiceConfig.tts.volume ?? 0.8}
+                    onChange={(e) => saveVoiceConfig({ tts: { volume: parseFloat(e.target.value) } })}
+                    style={{ width: '200px' }}
+                  />
+                </div>
+                {voiceConfig.tts.provider === 'local-vits' && (
                   <div className={styles['setting-item']}>
-                    <label className={styles['setting-label']}>Qwen3 模型</label>
-                    <Select
-                      value={voiceConfig.tts.qwen3Variant ?? '0.6b-custom'}
-                      options={[
-                        { label: '0.6B CustomVoice（推荐·内置音色）', value: '0.6b-custom' },
-                        { label: '1.7B CustomVoice（高质·含风格指令）', value: '1.7b-custom' },
-                        {
-                          label: qwen3CloneReady
-                            ? '0.6B Base（声音克隆·可选）'
-                            : '0.6B Base（需先下载克隆模型）',
-                          value: '0.6b-base',
-                          disabled: !qwen3CloneReady,
-                        },
-                        {
-                          label: qwen3CloneReady
-                            ? '1.7B Base（高质克隆·可选）'
-                            : '1.7B Base（需先下载克隆模型）',
-                          value: '1.7b-base',
-                          disabled: !qwen3CloneReady,
-                        },
-                      ]}
-                      onChange={(e) => saveVoiceConfig({ tts: { qwen3Variant: e.target.value } })}
+                    <label className={styles['setting-label']}>说话人 ID（0~173）</label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={173}
+                      value={String(voiceConfig.tts.speakerId ?? 0)}
+                      onChange={(e) =>
+                        saveVoiceConfig({
+                          tts: {
+                            speakerId: Math.max(0, Math.min(173, parseInt(e.target.value, 10) || 0)),
+                          },
+                        })
+                      }
+                      style={{ width: '80px' }}
                     />
-                    <p className={styles['settings-note']} style={{ marginTop: 4 }}>
-                      日常请用 CustomVoice。Base 仅用于声音克隆，需额外下载并创建音色。
-                    </p>
                   </div>
+                )}
+                {voiceConfig.tts.provider === 'edge' && (
                   <div className={styles['setting-item']}>
-                    <label className={styles['setting-label']}>合成语言</label>
+                    <label className={styles['setting-label']}>Edge 音色</label>
                     <Select
-                      value={voiceConfig.tts.language ?? 'Auto'}
+                      value={voiceConfig.tts.voice ?? 'zh-CN-XiaoxiaoNeural'}
                       options={[
-                        { label: '自动检测', value: 'Auto' },
-                        { label: '中文', value: 'Chinese' },
-                        { label: 'English', value: 'English' },
-                        { label: '日本語', value: 'Japanese' },
-                        { label: '한국어', value: 'Korean' },
-                        { label: 'Deutsch', value: 'German' },
-                        { label: 'Français', value: 'French' },
-                        { label: 'Русский', value: 'Russian' },
-                        { label: 'Português', value: 'Portuguese' },
-                        { label: 'Español', value: 'Spanish' },
-                        { label: 'Italiano', value: 'Italian' },
+                        { label: '晓晓 - 女声·温暖亲切', value: 'zh-CN-XiaoxiaoNeural' },
+                        { label: '晓伊 - 女声·活泼可爱', value: 'zh-CN-XiaoyiNeural' },
+                        { label: '云健 - 男声·沉稳大气', value: 'zh-CN-YunjianNeural' },
+                        { label: '云希 - 男声·阳光少年', value: 'zh-CN-YunxiNeural' },
+                        { label: '云夏 - 男声·少年音', value: 'zh-CN-YunxiaNeural' },
+                        { label: '云扬 - 男声·新闻播报', value: 'zh-CN-YunyangNeural' },
+                        { label: '晓北 - 女声·东北方言', value: 'zh-CN-liaoning-XiaobeiNeural' },
+                        { label: '晓妮 - 女声·陕西方言', value: 'zh-CN-shaanxi-XiaoniNeural' },
                       ]}
-                      onChange={(e) => saveVoiceConfig({ tts: { language: e.target.value } })}
+                      onChange={(e) => saveVoiceConfig({ tts: { voice: e.target.value } })}
                     />
                   </div>
-                  {(voiceConfig.tts.qwen3Variant ?? '0.6b-custom').includes('custom') && (
-                    <>
+                )}
+                {voiceConfig.tts.provider === 'qwen3' && !cloneEnabled && (
+                  <>
+                    <div className={styles['setting-item']}>
+                      <label className={styles['setting-label']}>CustomVoice 规格</label>
+                      <Select
+                        value={qwenVariant}
+                        options={[
+                          {
+                            label: qwen3Custom06Ready
+                              ? '0.6B CustomVoice（推荐）'
+                              : '0.6B CustomVoice（未下载）',
+                            value: '0.6b-custom',
+                            disabled: !qwen3Custom06Ready,
+                          },
+                          {
+                            label: qwen3Custom17Ready
+                              ? '1.7B CustomVoice（高质）'
+                              : '1.7B CustomVoice（未下载）',
+                            value: '1.7b-custom',
+                            disabled: !qwen3Custom17Ready,
+                          },
+                        ]}
+                        onChange={(e) => saveVoiceConfig({ tts: { qwen3Variant: e.target.value } })}
+                      />
+                    </div>
+                    <div className={styles['setting-item']}>
+                      <label className={styles['setting-label']}>合成语言</label>
+                      <Select
+                        value={voiceConfig.tts.language ?? 'Auto'}
+                        options={[
+                          { label: '自动检测', value: 'Auto' },
+                          { label: '中文', value: 'Chinese' },
+                          { label: 'English', value: 'English' },
+                          { label: '日本語', value: 'Japanese' },
+                          { label: '한국어', value: 'Korean' },
+                          { label: 'Deutsch', value: 'German' },
+                          { label: 'Français', value: 'French' },
+                          { label: 'Русский', value: 'Russian' },
+                          { label: 'Português', value: 'Portuguese' },
+                          { label: 'Español', value: 'Spanish' },
+                          { label: 'Italiano', value: 'Italian' },
+                        ]}
+                        onChange={(e) => saveVoiceConfig({ tts: { language: e.target.value } })}
+                      />
+                    </div>
+                    <div className={styles['setting-item']}>
+                      <label className={styles['setting-label']}>内置音色</label>
+                      <Select
+                        value={voiceConfig.tts.qwen3Speaker ?? 'Vivian'}
+                        options={[
+                          { label: 'Vivian · 女 · 明亮 · 中文', value: 'Vivian' },
+                          { label: 'Serena · 女 · 温暖 · 中文', value: 'Serena' },
+                          { label: 'Uncle Fu · 男 · 沉稳 · 中文', value: 'Uncle_Fu' },
+                          { label: 'Dylan · 男 · 北京话', value: 'Dylan' },
+                          { label: 'Eric · 男 · 四川话', value: 'Eric' },
+                          { label: 'Ryan · 男 · English', value: 'Ryan' },
+                          { label: 'Aiden · 男 · English', value: 'Aiden' },
+                          { label: 'Ono Anna · 女 · 日本語', value: 'Ono_Anna' },
+                          { label: 'Sohee · 女 · 한국어', value: 'Sohee' },
+                        ]}
+                        onChange={(e) => saveVoiceConfig({ tts: { qwen3Speaker: e.target.value } })}
+                      />
+                    </div>
+                    {qwenVariant === '1.7b-custom' && (
                       <div className={styles['setting-item']}>
-                        <label className={styles['setting-label']}>内置音色</label>
-                        <Select
-                          value={voiceConfig.tts.qwen3Speaker ?? 'Vivian'}
-                          options={[
-                            { label: 'Vivian · 女 · 明亮 · 中文', value: 'Vivian' },
-                            { label: 'Serena · 女 · 温暖 · 中文', value: 'Serena' },
-                            { label: 'Uncle Fu · 男 · 沉稳 · 中文', value: 'Uncle_Fu' },
-                            { label: 'Dylan · 男 · 北京话', value: 'Dylan' },
-                            { label: 'Eric · 男 · 四川话', value: 'Eric' },
-                            { label: 'Ryan · 男 · English', value: 'Ryan' },
-                            { label: 'Aiden · 男 · English', value: 'Aiden' },
-                            { label: 'Ono Anna · 女 · 日本語', value: 'Ono_Anna' },
-                            { label: 'Sohee · 女 · 한국어', value: 'Sohee' },
-                          ]}
-                          onChange={(e) => saveVoiceConfig({ tts: { qwen3Speaker: e.target.value } })}
+                        <label className={styles['setting-label']}>风格指令（可选）</label>
+                        <Input
+                          placeholder="例如：用特别开心的语气说"
+                          value={voiceConfig.tts.qwen3Instruct ?? ''}
+                          onChange={(e) => saveVoiceConfig({ tts: { qwen3Instruct: e.target.value } })}
+                          style={{ width: '320px' }}
                         />
                       </div>
-                      {(voiceConfig.tts.qwen3Variant === '1.7b-custom') && (
-                        <div className={styles['setting-item']}>
-                          <label className={styles['setting-label']}>风格指令（可选）</label>
-                          <Input
-                            placeholder="例如：用特别开心的语气说"
-                            value={voiceConfig.tts.qwen3Instruct ?? ''}
-                            onChange={(e) => saveVoiceConfig({ tts: { qwen3Instruct: e.target.value } })}
-                            style={{ width: '320px' }}
-                          />
-                        </div>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
-            </div>
+                    )}
+                  </>
+                )}
+              </div>
 
-            {/* 麦克风与识别阈值（VAD） */}
-            <div className={styles['setting-group']}>
-              <h4 className={styles['setting-group-title']}>麦克风与识别</h4>
-              <div className={styles['setting-item']}>
-                <Checkbox
-                  checked={voiceConfig.autoMuteMicWhileSpeaking ?? true}
-                  onChange={(checked) => saveVoiceConfig({ autoMuteMicWhileSpeaking: checked })}
+              <div className={styles['setting-group']}>
+                <h5 className={styles['voice-block-subtitle']}>测试</h5>
+                {renderRuntimeStatus()}
+                <div className={styles['setting-item']}>
+                  <label className={styles['setting-label']}>
+                    测试文案（最多 100 字）剩余 {100 - voicePreviewText.length}
+                  </label>
+                  <Input
+                    value={voicePreviewText}
+                    maxLength={100}
+                    onChange={(e) => setVoicePreviewText(e.target.value.slice(0, 100))}
+                    style={{ width: '100%', maxWidth: 420 }}
+                    placeholder="你好，这是声音预览。"
+                  />
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handlePreview}
+                  disabled={previewDisabled || runtimeBusy}
                 >
-                  AI 朗读时自动闭麦
-                </Checkbox>
-                <span className={styles['setting-hint']}>开启后 AI 说话期间暂停麦克风采集，朗读结束自动恢复，避免自说自话/回声打断</span>
-              </div>
-              <div className={styles['setting-item']}>
-                <label className={styles['setting-label']}>
-                  语音识别阈值：{(voiceConfig.vad?.threshold ?? 0.5).toFixed(2)}
-                </label>
-                <span className={styles['setting-hint']}>VAD 语音概率阈值，越高越不容易把噪声当成语音（0.1~0.9）</span>
-                <input
-                  type="range"
-                  min={0.1}
-                  max={0.9}
-                  step={0.05}
-                  value={voiceConfig.vad?.threshold ?? 0.5}
-                  onChange={(e) => saveVoiceConfig({ vad: { threshold: parseFloat(e.target.value) } })}
-                  style={{ width: '200px' }}
-                />
-              </div>
-              <div className={styles['setting-item']}>
-                <label className={styles['setting-label']}>
-                  负面语音阈值：{(voiceConfig.vad?.energyGateMultiplier ?? 1.5).toFixed(1)}x
-                </label>
-                <span className={styles['setting-hint']}>多大声才算真的在说话：相对底噪的能量倍数，越高越能过滤背景噪声与回声（1.0~4.0）</span>
-                <input
-                  type="range"
-                  min={1.0}
-                  max={4.0}
-                  step={0.1}
-                  value={voiceConfig.vad?.energyGateMultiplier ?? 1.5}
-                  onChange={(e) => saveVoiceConfig({ vad: { energyGateMultiplier: parseFloat(e.target.value) } })}
-                  style={{ width: '200px' }}
-                />
+                  {previewButtonLabel}
+                </Button>
+                {cloneEnabled && (
+                  <p className={styles['settings-note']} style={{ marginTop: 6 }}>
+                    当前已开启声音克隆，预览将使用「我的音色」。
+                  </p>
+                )}
               </div>
             </div>
 
-            {/* 预览声音按钮 */}
-            <div className={styles['setting-item']} style={{ marginTop: 8 }}>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handlePreview}
-                disabled={
-                  voicePreviewing ||
-                  (voiceConfig.tts.provider === 'local-vits' && !vitsDownloaded) ||
-                  (voiceConfig.tts.provider === 'qwen3' &&
-                    (!(voiceConfig.tts.qwen3Variant ?? '0.6b-custom').includes('custom')
-                      ? !qwen3CloneReady || !voiceConfig.tts.qwen3ProfileId
-                      : !qwen3CustomReady))
-                }
-              >
-                {voicePreviewing ? '播放中...' : '▶ 预览声音'}
-              </Button>
-              {voicePreviewing && (
-                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginLeft: 8 }}>
-                  正在播放示例语音
-                </span>
-              )}
-              {voiceConfig.tts.provider === 'local-vits' && vitsDownloaded && !voicePreviewing && (
-                <span className={styles['settings-note']} style={{ marginLeft: 8 }}>
-                  使用已下载的离线 VITS 试听
-                </span>
-              )}
-            </div>
-
-
-            {/* 声音克隆（可选，与常规 TTS 分离） */}
-            <div className={styles['setting-group']}>
-              <h4 className={styles['setting-group-title']}>声音克隆（可选）</h4>
-              <p className={styles['settings-note']}>
-                不必下载也能正常用 Edge / VITS / Qwen3 内置音色。仅当你要「用自己的声音」时，再下载上方③区 Base 模型并创建音色，然后在 TTS 里把 Qwen3 模型切到 Base。
+            {/* ═══ 3. 声音克隆 ═══ */}
+            <div className={styles['voice-block']}>
+              <h4 className={styles['voice-block-title']}>三、声音克隆（可选）</h4>
+              <p className={styles['voice-block-desc']}>
+                默认关闭。开启后需已录制并选择音色，才会用克隆声出声；关闭时仍用上方合成引擎（Edge / VITS / CustomVoice）。
               </p>
-              <VoiceProfilesPanel
-                selectedProfileId={voiceConfig.tts.qwen3ProfileId}
-                onSelectProfile={(id) =>
-                  setVoiceConfig((prev) =>
-                    prev ? { ...prev, tts: { ...prev.tts, qwen3ProfileId: id } } : prev,
-                  )
-                }
-                saveVoiceConfig={saveVoiceConfig}
-                disabled={!qwen3CloneReady}
+
+              <VoiceModelsPanel
+                groups={['tts-clone']}
+                title="下载"
+                hint="下载 0.6B Base（或 1.7B）。Tokenizer 请在「语音合成」区已下载。"
               />
+
+              <div className={styles['setting-group']}>
+                <h5 className={styles['voice-block-subtitle']}>设置 · 我的音色</h5>
+                <div className={styles['setting-item']}>
+                  <Checkbox
+                    checked={cloneEnabled}
+                    disabled={!qwen3CloneReady || !voiceConfig.tts.qwen3ProfileId}
+                    onChange={(checked) => {
+                      if (checked) {
+                        const prefer = qwen3Clone06Ready ? '0.6b-base' : '1.7b-base'
+                        saveVoiceConfig({
+                          tts: {
+                            provider: 'qwen3',
+                            qwen3CloneEnabled: true,
+                            qwen3CloneVariant:
+                              voiceConfig.tts.qwen3CloneVariant ?? prefer,
+                          },
+                        })
+                      } else {
+                        saveVoiceConfig({ tts: { qwen3CloneEnabled: false } })
+                      }
+                    }}
+                  >
+                    启用声音克隆出声
+                  </Checkbox>
+                  {(!qwen3CloneReady || !voiceConfig.tts.qwen3ProfileId) && (
+                    <p className={styles['settings-note']} style={{ marginTop: 6 }}>
+                      {!qwen3CloneReady
+                        ? '请先下载 Base 模型，并创建/选择音色后再开启。'
+                        : '请先创建并选择一个音色档案后再开启。'}
+                    </p>
+                  )}
+                </div>
+                <VoiceProfilesPanel
+                  selectedProfileId={voiceConfig.tts.qwen3ProfileId}
+                  onSelectProfile={(id) =>
+                    setVoiceConfig((prev) =>
+                      prev ? { ...prev, tts: { ...prev.tts, qwen3ProfileId: id } } : prev,
+                    )
+                  }
+                  saveVoiceConfig={saveVoiceConfig}
+                  disabled={!qwen3CloneReady}
+                />
+                <div className={styles['setting-item']} style={{ marginTop: 12 }}>
+                  <label className={styles['setting-label']}>克隆模型规格</label>
+                  <Select
+                    value={cloneVariant}
+                    options={[
+                      {
+                        label: qwen3Clone06Ready ? '0.6B Base' : '0.6B Base（未下载）',
+                        value: '0.6b-base',
+                        disabled: !qwen3Clone06Ready,
+                      },
+                      {
+                        label: qwen3Clone17Ready ? '1.7B Base' : '1.7B Base（未下载）',
+                        value: '1.7b-base',
+                        disabled: !qwen3Clone17Ready,
+                      },
+                    ]}
+                    onChange={(e) =>
+                      saveVoiceConfig({
+                        tts: {
+                          qwen3CloneVariant: e.target.value as '0.6b-base' | '1.7b-base',
+                        },
+                      })
+                    }
+                  />
+                </div>
+                {cloneEnabled && voiceConfig.tts.provider === 'qwen3' && (
+                  <p className={styles['settings-note']}>当前已启用克隆出声。</p>
+                )}
+              </div>
+
+              <div className={styles['setting-group']}>
+                <h5 className={styles['voice-block-subtitle']}>测试</h5>
+                {renderRuntimeStatus()}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handlePreview}
+                  disabled={
+                    voicePreviewing ||
+                    runtimeBusy ||
+                    !cloneEnabled ||
+                    voiceConfig.tts.provider !== 'qwen3' ||
+                    !voiceConfig.tts.qwen3ProfileId ||
+                    !qwen3CloneReady
+                  }
+                >
+                  {previewButtonLabel.replace('合成声音', '克隆音色')}
+                </Button>
+                <p className={styles['settings-note']} style={{ marginTop: 6 }}>
+                  使用上方「语音合成 → 测试」中的文案（最多 100 字）。首次预览可能需安装依赖并加载模型，请看状态条。
+                </p>
+              </div>
             </div>
 
-            <AsrLiveTestPanel />
-
-            {voiceSaving && (
-              <p className={styles['settings-note']}>保存中...</p>
-            )}
+            {voiceSaving && <p className={styles['settings-note']}>保存中...</p>}
           </>
         )}
       </div>

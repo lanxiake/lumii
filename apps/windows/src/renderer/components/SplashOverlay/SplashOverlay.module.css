@@ -1,7 +1,8 @@
 /**
  * SplashOverlay — 主窗口内全屏开机画面样式
  *
- * 背景层 cover + 模糊铺满；前景 contain 居中，两侧由同源模糊画面补齐。
+ * 底色与海报浅色氛围统一：柔和冰蓝白铺底；
+ * 背景层 cover 强模糊作两侧填充，亮度偏高、饱和略收，避免发脏发灰。
  */
 
 .overlay {
@@ -11,7 +12,9 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: #070d18;
+  /* 与 splash 海报主色协调的柔和冰蓝白 */
+  background:
+    radial-gradient(ellipse 85% 70% at 50% 42%, #f7fbff 0%, #e8f2fa 55%, #d9e8f4 100%);
   opacity: 1;
   transition: opacity 0.55s ease;
   -webkit-app-region: drag;
@@ -24,12 +27,14 @@
 
 .bgVideo {
   position: absolute;
-  inset: -4%;
-  width: 108%;
-  height: 108%;
+  inset: -6%;
+  width: 112%;
+  height: 112%;
   object-fit: cover;
-  filter: blur(28px) saturate(1.15) brightness(0.55);
-  transform: scale(1.08);
+  /* 强模糊 + 提亮，两侧填充更显、更匀、更柔 */
+  filter: blur(42px) saturate(1.08) brightness(1.08) contrast(0.92);
+  transform: scale(1.12);
+  opacity: 0.92;
   pointer-events: none;
   -webkit-app-region: no-drag;
 }
@@ -38,8 +43,19 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 70% 60% at 50% 45%, transparent 35%, rgba(7, 13, 24, 0.55) 100%),
-    linear-gradient(90deg, rgba(7, 13, 24, 0.35) 0%, transparent 18%, transparent 82%, rgba(7, 13, 24, 0.35) 100%);
+    radial-gradient(
+      ellipse 75% 65% at 50% 45%,
+      rgba(247, 251, 255, 0.15) 20%,
+      rgba(217, 232, 244, 0.35) 70%,
+      rgba(196, 220, 236, 0.55) 100%
+    ),
+    linear-gradient(
+      90deg,
+      rgba(214, 230, 242, 0.55) 0%,
+      transparent 22%,
+      transparent 78%,
+      rgba(214, 230, 242, 0.55) 100%
+    );
   pointer-events: none;
 }
 
@@ -49,12 +65,12 @@
   background:
     linear-gradient(
       105deg,
-      color-mix(in srgb, #38bdf8 12%, transparent) 0%,
-      transparent 28%,
-      transparent 72%,
-      color-mix(in srgb, #6366f1 10%, transparent) 100%
+      color-mix(in srgb, #9fd0f0 28%, transparent) 0%,
+      transparent 30%,
+      transparent 70%,
+      color-mix(in srgb, #b8d4f0 22%, transparent) 100%
     );
-  opacity: 0.55;
+  opacity: 0.65;
   pointer-events: none;
   animation: splashShimmer 5.5s ease-in-out infinite;
 }
@@ -62,10 +78,10 @@
 @keyframes splashShimmer {
   0%,
   100% {
-    opacity: 0.4;
+    opacity: 0.5;
   }
   50% {
-    opacity: 0.7;
+    opacity: 0.78;
   }
 }
 
@@ -78,8 +94,9 @@
   max-height: 100%;
   object-fit: contain;
   border-radius: 0;
-  box-shadow: 0 0 0 1px color-mix(in srgb, #7dd3fc 18%, transparent),
-    0 24px 80px rgba(0, 0, 0, 0.45);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #8ec5e8 22%, transparent),
+    0 18px 56px rgba(120, 160, 190, 0.22);
   background: transparent;
   -webkit-app-region: no-drag;
 }
@@ -87,6 +104,6 @@
 @media (prefers-reduced-motion: reduce) {
   .sideGlow {
     animation: none;
-    opacity: 0.5;
+    opacity: 0.55;
   }
 }

@@ -105,6 +105,82 @@
   border-top: 1px solid var(--mt-border-hairline, var(--color-border));
 }
 
+/* 语音设置三大区块 */
+.voice-block {
+  margin: 20px 0 28px;
+  padding: 16px 16px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 12px);
+  background: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);
+}
+
+.voice-block-title {
+  margin: 0 0 6px !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: var(--color-text-primary) !important;
+}
+
+.voice-block-desc {
+  margin: 0 0 14px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+}
+
+.voice-block-subtitle {
+  margin: 12px 0 8px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--color-text-secondary);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* 语音运行时状态条（安装依赖 / 加载模型 / 预览失败等） */
+.voice-runtime-status {
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--color-border);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-text-primary);
+}
+
+.voice-runtime-status-busy {
+  border-color: color-mix(in srgb, #0ea5e9 45%, var(--color-border));
+  background: color-mix(in srgb, #0ea5e9 12%, transparent);
+}
+
+.voice-runtime-status-error {
+  border-color: color-mix(in srgb, var(--color-danger, #ef4444) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, transparent);
+  color: var(--color-danger, #b91c1c);
+}
+
+.voice-runtime-status-ready {
+  border-color: color-mix(in srgb, var(--color-success, #16a34a) 40%, var(--color-border));
+  background: color-mix(in srgb, var(--color-success, #16a34a) 10%, transparent);
+}
+
+.voice-runtime-phase {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.voice-runtime-detail {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.85;
+  word-break: break-all;
+}
+
 .settings-section h3 {
   font-size: var(--font-size-lg);
   font-weight: 600;
