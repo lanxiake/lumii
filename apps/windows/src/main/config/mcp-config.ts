@@ -53,6 +53,52 @@ export function getMcpConfigPath(): string {
   return path.join(os.homedir(), '.lumii', 'config', 'mcp-servers.json')
 }
 
+/** 预置/旧配置里表示「用户文档目录」的占位符与历史硬编码路径 */
+const USER_DOCUMENTS_TOKENS = new Set([
+  '{{USER_DOCUMENTS}}',
+  'D:/Documents',
+  'D:\\Documents',
+])
+
+/**
+ * 解析本机可用于 filesystem MCP 的默认文档目录
+ *
+ * 优先 `%USERPROFILE%\\Documents`，再试中文「文档」，都不可用则回退到用户主目录。
+ * 避免预置写死 `D:/Documents` 导致安装包首启启用后进程立刻退出。
+ */
+export function getDefaultMcpDocumentsDir(): string {
+  const candidates = [
+    path.join(os.homedir(), 'Documents'),
+    path.join(os.homedir(), '文档'),
+    os.homedir(),
+  ]
+  for (const dir of candidates) {
+    try {
+      if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+        fs.accessSync(dir, fs.constants.R_OK)
+        return dir
+      }
+    } catch {
+      // 试下一个候选
+    }
+  }
+  return os.homedir()
+}
+
+/**
+ * 把 filesystem 参数里的文档占位符 / 历史错误路径替换为真实可访问目录
+ */
+export function resolveMcpEntryPaths(entry: McpServerEntry): McpServerEntry {
+  if (!entry.args?.length) return entry
+  let changed = false
+  const args = entry.args.map((arg) => {
+    if (!USER_DOCUMENTS_TOKENS.has(arg)) return arg
+    changed = true
+    return getDefaultMcpDocumentsDir()
+  })
+  return changed ? { ...entry, args } : entry
+}
+
 /** 展开环境变量 ${VAR_NAME} */
 function expandEnvVars(value: string): string {
   return value.replace(/\$\{([^}]+)\}/g, (_, varName: string) => {
@@ -161,6 +207,7 @@ export function parseMcpServerConfigs(raw: string): McpServerEntry[] {
  *
  * 若配置文件不存在，先播种默认清单。
  * 若文件解析失败，抛错（由调用方写入 lastError / UI）。
+ * 加载时会把 filesystem 的文档占位符 / 历史 `D:/Documents` 迁移为真实目录并写回。
  */
 export function loadMcpServerConfigs(): McpServerEntry[] {
   const configPath = getMcpConfigPath()
@@ -179,10 +226,36 @@ export function loadMcpServerConfigs(): McpServerEntry[] {
     throw new Error(message)
   }
 
-  const entries = parseMcpServerConfigs(raw)
+  const original = parseMcpServerConfigs(raw)
+  const entries = original.map(resolveMcpEntryPaths)
+  if (maybePersistResolvedPaths(entries, original)) {
+    log.info('[loadMcpServerConfigs] 已迁移 filesystem 文档路径到本机真实目录')
+  }
   const enabledCount = entries.filter((e) => e.enabled !== false).length
   log.info(`[loadMcpServerConfigs] 加载完成，共 ${entries.length} 个 Server，${enabledCount} 个已启用`)
   return entries
+}
+
+/**
+ * 若解析后路径有变化则写回磁盘；写失败只打日志，不阻断加载
+ */
+function maybePersistResolvedPaths(
+  resolved: readonly McpServerEntry[],
+  original: readonly McpServerEntry[],
+): boolean {
+  const changed = resolved.some((entry, i) => {
+    const before = original[i]?.args?.join('\0') ?? ''
+    const after = entry.args?.join('\0') ?? ''
+    return before !== after
+  })
+  if (!changed) return false
+  try {
+    saveMcpServerConfigs(resolved)
+    return true
+  } catch (err) {
+    log.warn(`[maybePersistResolvedPaths] 写回失败: ${(err as Error).message}`)
+    return false
+  }
 }
 
 /** 读取 mcp-servers.json 原文（不存在则先播种） */
@@ -206,7 +279,7 @@ export function readMcpConfigRaw(): { path: string; content: string } {
  * 先 parse + validate，再落盘，避免写坏文件后连不上。
  */
 export function writeMcpConfigRaw(content: string): McpServerEntry[] {
-  const entries = parseMcpServerConfigs(content)
+  const entries = parseMcpServerConfigs(content).map(resolveMcpEntryPaths)
   for (const entry of entries) {
     const error = validateMcpServerEntry(entry)
     if (error) throw new Error(`MCP Server「${entry.name}」配置无效：${error}`)
@@ -230,13 +303,15 @@ export function writeMcpConfigRaw(content: string): McpServerEntry[] {
  * 零配置的默认启用，需要填路径或 Key 的先停用，避免首启一堆连接失败。
  */
 function seedDefaultMcpServers(): void {
-  const entries = MCP_PRESETS.map((preset) => ({
-    name: preset.name,
-    command: preset.command,
-    args: preset.args,
-    ...(preset.env ? { env: preset.env } : {}),
-    enabled: isReadyToUse(preset),
-  }))
+  const entries = MCP_PRESETS.map((preset) =>
+    resolveMcpEntryPaths({
+      name: preset.name,
+      command: preset.command,
+      args: [...preset.args],
+      ...(preset.env ? { env: preset.env } : {}),
+      enabled: isReadyToUse(preset),
+    }),
+  )
 
   try {
     saveMcpServerConfigs(entries)
@@ -262,7 +337,7 @@ export function validateMcpServerEntry(entry: McpServerEntry): string | null {
 export function saveMcpServerConfigs(entries: readonly McpServerEntry[]): void {
   const mcpServers: Record<string, McpServerRecord> = {}
 
-  for (const entry of entries) {
+  for (const entry of entries.map(resolveMcpEntryPaths)) {
     const error = validateMcpServerEntry(entry)
     if (error) throw new Error(`MCP Server「${entry.name || '未命名'}」配置无效：${error}`)
     if (mcpServers[entry.name]) throw new Error(`MCP Server 名称重复：${entry.name}`)

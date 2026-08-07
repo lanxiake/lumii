@@ -47,6 +47,37 @@
   color: var(--mt-error);
 }
 
+.panel-error-icon {
+  flex-shrink: 0;
+}
+
+.panel-error-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.error-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--mt-error) 32%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--mt-error) 10%, transparent);
+  color: var(--mt-error);
+  font-size: var(--mt-fs-xs, 11px);
+  cursor: pointer;
+}
+
+.error-copy-btn:hover {
+  background: color-mix(in srgb, var(--mt-error) 18%, transparent);
+}
+
 /* ---- Server 列表 ---- */
 
 .server-list {
@@ -198,15 +229,55 @@
   color: var(--mt-error);
 }
 
-/* 紧跟服务名后的错误摘要：单行省略，完整内容放 title */
+/* 错误摘要 + 复制按钮 */
+.server-error-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 紧跟服务名后的错误摘要：单行省略，点击复制完整内容 */
 .server-error-inline {
   flex: 1;
   min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
   font-size: var(--mt-fs-xs, 11px);
   color: var(--mt-error);
+  text-align: left;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.server-error-inline:hover {
+  text-decoration: underline;
+}
+
+.error-copy-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--mt-error);
+  cursor: pointer;
+  opacity: 0.72;
+}
+
+.error-copy-icon:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--mt-error) 12%, transparent);
 }
 
 /* ---- 展开的工具列表 ---- */

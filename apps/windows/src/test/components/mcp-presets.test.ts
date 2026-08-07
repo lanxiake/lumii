@@ -53,4 +53,12 @@ describe('MCP 内置清单', () => {
       if (preset.todo || preset.env) expect(isReadyToUse(preset)).toBe(false)
     }
   })
+
+  it('filesystem 不写死盘符路径，用占位符交给主进程解析', () => {
+    const fsPreset = MCP_PRESETS.find((p) => p.name === 'filesystem')
+    expect(fsPreset).toBeTruthy()
+    expect(fsPreset!.args).toContain('{{USER_DOCUMENTS}}')
+    expect(fsPreset!.args).not.toContain('D:/Documents')
+    expect(fsPreset!.args).not.toContain('D:\\Documents')
+  })
 })

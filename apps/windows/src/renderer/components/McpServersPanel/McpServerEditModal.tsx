@@ -24,7 +24,7 @@ const JSON_PLACEHOLDER = `{
   "mcpServers": {
     "filesystem": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "D:/work"]
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "C:/Users/你的用户名/Documents"]
     }
   }
 }`
@@ -165,7 +165,7 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
                 rows={3}
                 value={argsText}
                 onChange={(e) => setArgsText(e.target.value)}
-                placeholder={'-y\n@modelcontextprotocol/server-filesystem\nD:/work'}
+                placeholder={'-y\n@modelcontextprotocol/server-filesystem\nC:/Users/你的用户名/Documents'}
               />
               <span className={styles['field-hint']}>每行一个参数</span>
             </label>

@@ -54,8 +54,9 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     description: '读写指定文件夹里的文档，整理资料、批量改名、汇总内容、生成项目文件',
     categories: ['office', 'frontend', 'creator'],
     command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-filesystem', 'D:/Documents'],
-    todo: '把参数最后一行改成你愿意开放给 AI 的文件夹',
+    // {{USER_DOCUMENTS}} 由主进程播种/加载时解析为真实「文档」目录，勿写死盘符
+    args: ['-y', '@modelcontextprotocol/server-filesystem', '{{USER_DOCUMENTS}}'],
+    todo: '确认参数最后一行目录：默认为本机「文档」文件夹，可改成任意愿意开放给 AI 的路径',
   },
   {
     name: 'sequential-thinking',

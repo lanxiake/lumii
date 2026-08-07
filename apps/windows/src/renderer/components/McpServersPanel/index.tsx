@@ -6,8 +6,9 @@
  */
 
 import React, { useMemo, useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronRight, Ellipsis, FileJson, Loader2, Plus, RefreshCw } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronRight, Copy, Ellipsis, FileJson, Loader2, Plus, RefreshCw } from 'lucide-react'
 import { Button, Empty, Input, Loading, Switch } from '../ui'
+import { useToast } from '../ui/Toast/useToast'
 import { useToolSearch } from '../../hooks/business/useToolSearch'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import type { McpServerConfigInput } from '@shared/agent-runtime-commands'
@@ -33,6 +34,18 @@ function statusText(server: McpServer, busy: boolean): string {
   return server.lastError ? '连接失败' : '未连接'
 }
 
+/**
+ * 组装可转发的 MCP 错误文本（含服务名与命令，便于排查）
+ */
+function formatMcpErrorReport(server: McpServer, error: string): string {
+  return [
+    `MCP Server: ${server.name}`,
+    `状态: ${statusText(server, false)}`,
+    `命令: ${commandSummary(server)}`,
+    `错误: ${error}`,
+  ].join('\n')
+}
+
 /** 状态点的 class：停用灰、失败红、已连接绿、连接中/其余黄 */
 function statusClass(server: McpServer, busy: boolean): string {
   if (busy) return styles['dot-pending']
@@ -43,6 +56,7 @@ function statusClass(server: McpServer, busy: boolean): string {
 }
 
 export const McpServersPanel: React.FC = () => {
+  const toast = useToast()
   const {
     servers,
     isLoading,
@@ -116,6 +130,18 @@ export const McpServersPanel: React.FC = () => {
     void refreshTools()
   }
 
+  /**
+   * 把错误文本写入剪贴板，成功/失败用 toast 反馈
+   */
+  const copyErrorText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success('错误信息已复制')
+    } catch {
+      toast.error('复制失败，请手动选中错误文本')
+    }
+  }
+
   const openAdd = () => { setEditing(undefined); setEditOpen(true) }
   const openEdit = (server: McpServer) => {
     setMenuOpenFor(null)
@@ -184,7 +210,18 @@ export const McpServersPanel: React.FC = () => {
 
       {error && (
         <div className={styles['panel-error']}>
-          <AlertCircle size={14} /> {error}
+          <AlertCircle size={14} className={styles['panel-error-icon']} />
+          <span className={styles['panel-error-text']} title={error}>{error}</span>
+          <button
+            type="button"
+            className={styles['error-copy-btn']}
+            title="复制错误信息"
+            aria-label="复制配置错误信息"
+            onClick={() => void copyErrorText(`MCP 配置错误:\n${error}`)}
+          >
+            <Copy size={13} />
+            复制
+          </button>
         </div>
       )}
 
@@ -229,8 +266,24 @@ export const McpServersPanel: React.FC = () => {
                     {statusText(server, busy)}
                   </span>
                   {!busy && server.lastError && server.enabled !== false && (
-                    <span className={styles['server-error-inline']} title={server.lastError}>
-                      {server.lastError}
+                    <span className={styles['server-error-wrap']}>
+                      <button
+                        type="button"
+                        className={styles['server-error-inline']}
+                        title={`${server.lastError}\n\n点击复制完整错误`}
+                        onClick={() => void copyErrorText(formatMcpErrorReport(server, server.lastError!))}
+                      >
+                        {server.lastError}
+                      </button>
+                      <button
+                        type="button"
+                        className={styles['error-copy-icon']}
+                        title="复制错误信息"
+                        aria-label={`复制 ${server.name} 的错误信息`}
+                        onClick={() => void copyErrorText(formatMcpErrorReport(server, server.lastError!))}
+                      >
+                        <Copy size={12} />
+                      </button>
                     </span>
                   )}
                   {!busy && server.tools.length > 0 && (
@@ -273,6 +326,18 @@ export const McpServersPanel: React.FC = () => {
                       >
                         重新连接
                       </button>
+                      {server.lastError && (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setMenuOpenFor(null)
+                            void copyErrorText(formatMcpErrorReport(server, server.lastError!))
+                          }}
+                        >
+                          复制错误
+                        </button>
+                      )}
                       <button
                         type="button"
                         role="menuitem"
