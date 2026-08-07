@@ -1,7 +1,8 @@
 /**
  * TrayManager - 系统托盘管理
  *
- * 管理 Windows 系统托盘图标和菜单
+ * 管理 Windows 系统托盘图标和菜单。
+ * 独立版不依赖 Gateway，托盘仅保留窗口/宠物/设置/退出。
  */
 
 import { Tray, Menu, nativeImage, BrowserWindow } from 'electron'
@@ -21,8 +22,6 @@ export interface TrayManagerConfig {
   onShowWindow: () => void
   /** 退出应用回调 */
   onQuit: () => void
-  /** 切换连接状态回调 */
-  onToggleConnection: () => void
   /** 打开设置窗口回调 */
   onOpenSettings: () => void
   /** 切换宠物模式回调（进入/退出由 TrayManager 当前状态决定） */
@@ -37,7 +36,6 @@ export interface TrayManagerConfig {
 export class TrayManager {
   private tray: Tray | null = null
   private config: TrayManagerConfig
-  private isConnected = false
   private petModeActive = false
   private forceIgnoreActive = false
 
@@ -99,15 +97,6 @@ export class TrayManager {
         click: () => this.config.onShowWindow(),
       },
       { type: 'separator' },
-      {
-        label: this.isConnected ? '断开连接' : '连接 Gateway',
-        click: () => this.config.onToggleConnection(),
-      },
-      {
-        label: this.isConnected ? '[已连接]' : '[未连接]',
-        enabled: false,
-      },
-      { type: 'separator' },
       ...(this.config.onTogglePetMode
         ? [
             {
@@ -142,15 +131,8 @@ export class TrayManager {
   }
 
   /**
-   * 更新连接状态
+   * 更新宠物模式状态，刷新托盘菜单文案
    */
-  updateConnectionStatus(connected: boolean): void {
-    log.info(`连接状态更新: ${connected ? '已连接' : '未连接'}`)
-    this.isConnected = connected
-    this.tray?.setToolTip(`灵栖 Lumii - ${connected ? '已连接' : '未连接'}`)
-    this.updateContextMenu()
-  }
-
   updatePetMode(active: boolean): void {
     this.petModeActive = active
     if (!active) this.forceIgnoreActive = false

@@ -463,9 +463,6 @@ function initTray(): void {
       isQuitting = true
       app.quit()
     },
-    onToggleConnection: async () => {
-      // 灵栖/Lumii 独立版：无网关连接，托盘连接开关为 no-op
-    },
     onOpenSettings: () => {
       // 显示并聚焦主窗口
       mainWindow?.show()
@@ -2161,29 +2158,12 @@ function setupIpcHandlers(): void {
 }
 
 /**
- * 将 resources / 环境变量中的服务器地址同步到用户配置。
- * 打包后以 server-config.json 为准，避免用户 app.json 中残留 localhost 导致混用环境。
+ * 将 resources / 环境变量中的本地占位配置同步到运行时。
+ * 独立版不依赖云端 Gateway / api-server；仅保留本地配置加载。
  */
 async function syncRuntimeServerConfig(): Promise<void> {
   const resourcesConfig = await loadServerConfig()
   serverConfig = resourcesConfig
-
-  if (configManager) {
-    const current = configManager.getServerConfig()
-    const isLocalDefault =
-      current.apiUrl.includes('127.0.0.1') || current.apiUrl.includes('localhost')
-    const resourcesIsProd =
-      !resourcesConfig.apiUrl.includes('127.0.0.1') &&
-      !resourcesConfig.apiUrl.includes('localhost')
-
-    if (isLocalDefault && resourcesIsProd) {
-      await configManager.updateServerConfig({
-        apiUrl: resourcesConfig.apiUrl,
-        gatewayUrl: resourcesConfig.gatewayUrl,
-      })
-      log.info('[Config] 已将用户配置中的本地地址升级为打包资源地址', resourcesConfig)
-    }
-  }
 }
 
 /**
