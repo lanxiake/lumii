@@ -1,8 +1,8 @@
 /**
- * AppFontScaleContext - 全局 UI 字号缩放
+ * AppFontScaleContext - 全局 UI 字号（小 / 中 / 大）
  *
- * 通过改写 :root 上的字体 CSS 变量，统一放大/缩小整个应用的文字。
- * 控制入口在 TitleBar（A− / A+），与对话页解耦。
+ * 沿用原对话页三档字号：点击 TitleBar Type 图标循环切换。
+ * 通过改写 :root 字体 CSS 变量，统一控制全应用文字大小。
  */
 
 import React, {
@@ -15,15 +15,36 @@ import React, {
   type ReactNode,
 } from 'react'
 
+/** 与原对话页 `mtbot:chat-font-scale` 对齐；同时兼容旧全局 key */
 const STORAGE_KEY = 'mtbot:app-font-scale'
-const SCALE_MIN = 0.8
-const SCALE_MAX = 1.4
-const SCALE_STEP = 0.1
-const SCALE_DEFAULT = 1
+const LEGACY_CHAT_KEY = 'mtbot:chat-font-scale'
+
+export type FontScaleLevel = 'small' | 'medium' | 'large'
+
+const LEVELS: readonly FontScaleLevel[] = ['small', 'medium', 'large']
+
+const LEVEL_LABEL: Record<FontScaleLevel, string> = {
+  small: '小',
+  medium: '中',
+  large: '大',
+}
+
+/** 相对 medium 的倍率；仅三档，不提供连续百分比 */
+const LEVEL_FACTOR: Record<FontScaleLevel, number> = {
+  small: 0.875,
+  medium: 1,
+  large: 1.125,
+}
+
+/** 对话消息区字号（与原 ChatPage FONT_SCALE_PX 一致） */
+const CHAT_FONT_PX: Record<FontScaleLevel, number> = {
+  small: 13,
+  medium: 15,
+  large: 17,
+}
 
 /**
- * 基准字号（px）。缩放时按 scale 重写到 documentElement。
- * 与 tokens.css / design-system.css 中的默认值对齐。
+ * 基准字号（px，medium 档）。缩放时按 LEVEL_FACTOR 重写到 documentElement。
  */
 const FONT_VAR_BASES: Readonly<Record<string, number>> = {
   '--font-size-xs': 12,
@@ -45,71 +66,81 @@ const FONT_VAR_BASES: Readonly<Record<string, number>> = {
   '--mt-fs-4xl': 36,
   '--mt-fs-5xl': 48,
   '--mt-fs-6xl': 64,
-  /** 对话消息区默认字号（原 medium 档） */
-  '--chat-font-size': 15,
 }
 
 interface AppFontScaleContextType {
-  /** 当前缩放倍率（1 = 默认） */
-  scale: number
-  /** 缩小一档 */
-  decrease: () => void
-  /** 放大一档 */
-  increase: () => void
-  /** 复位为默认 */
-  reset: () => void
-  canDecrease: boolean
-  canIncrease: boolean
+  /** 当前档位 */
+  level: FontScaleLevel
+  /** 档位中文标签 */
+  label: string
+  /** 循环切换：小 → 中 → 大 → 小 */
+  cycle: () => void
 }
 
 const AppFontScaleContext = createContext<AppFontScaleContextType | null>(null)
 
 /**
- * 将倍率限制在合法区间，并按步进对齐
+ * 解析合法档位；兼容旧版数值倍率（映射到最近档）
  */
-function clampScale(value: number): number {
-  const stepped = Math.round(value / SCALE_STEP) * SCALE_STEP
-  const clamped = Math.min(SCALE_MAX, Math.max(SCALE_MIN, stepped))
-  return Math.round(clamped * 100) / 100
+function parseLevel(raw: string | null): FontScaleLevel | null {
+  if (!raw) return null
+  if (raw === 'small' || raw === 'medium' || raw === 'large') return raw
+  const n = parseFloat(raw)
+  if (!Number.isFinite(n)) return null
+  if (n < 0.94) return 'small'
+  if (n > 1.06) return 'large'
+  return 'medium'
 }
 
 /**
- * 从 localStorage 读取已保存的字号倍率
+ * 从 localStorage 读取字号档位
  */
-function loadScale(): number {
+function loadLevel(): FontScaleLevel {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return SCALE_DEFAULT
-    const parsed = parseFloat(raw)
-    if (!Number.isFinite(parsed)) return SCALE_DEFAULT
-    return clampScale(parsed)
+    const fromApp = parseLevel(localStorage.getItem(STORAGE_KEY))
+    if (fromApp) return fromApp
+    const fromChat = parseLevel(localStorage.getItem(LEGACY_CHAT_KEY))
+    if (fromChat) return fromChat
   } catch {
-    return SCALE_DEFAULT
+    /* ignore */
   }
+  return 'medium'
 }
 
 /**
- * 把字号 CSS 变量写到 documentElement
+ * 把三档字号写到 documentElement
  */
-function applyFontScale(scale: number): void {
+function applyFontLevel(level: FontScaleLevel): void {
   if (typeof document === 'undefined') return
   const root = document.documentElement
-  root.style.setProperty('--app-font-scale', String(scale))
+  const factor = LEVEL_FACTOR[level]
+  root.style.setProperty('--app-font-scale', String(factor))
+  root.dataset.fontScale = level
   for (const [key, base] of Object.entries(FONT_VAR_BASES)) {
-    const px = Math.round(base * scale * 10) / 10
+    const px = Math.round(base * factor * 10) / 10
     root.style.setProperty(key, `${px}px`)
   }
+  root.style.setProperty('--chat-font-size', `${CHAT_FONT_PX[level]}px`)
 }
 
 /**
- * 持久化字号倍率
+ * 持久化字号档位
  */
-function persistScale(scale: number): void {
+function persistLevel(level: FontScaleLevel): void {
   try {
-    localStorage.setItem(STORAGE_KEY, String(scale))
+    localStorage.setItem(STORAGE_KEY, level)
+    localStorage.setItem(LEGACY_CHAT_KEY, level)
   } catch {
     /* ignore quota / private mode */
   }
+}
+
+/**
+ * 下一档：小 → 中 → 大 → 小
+ */
+function nextLevel(current: FontScaleLevel): FontScaleLevel {
+  const idx = LEVELS.indexOf(current)
+  return LEVELS[(idx + 1) % LEVELS.length]
 }
 
 export interface AppFontScaleProviderProps {
@@ -117,46 +148,30 @@ export interface AppFontScaleProviderProps {
 }
 
 /**
- * 全局字号 Provider：启动时恢复倍率，并向子树提供增减 API
+ * 全局字号 Provider：启动时恢复档位，并向子树提供循环切换 API
  */
 export const AppFontScaleProvider: React.FC<AppFontScaleProviderProps> = ({ children }) => {
-  const [scale, setScale] = useState<number>(() => loadScale())
+  const [level, setLevel] = useState<FontScaleLevel>(() => loadLevel())
 
   useLayoutEffect(() => {
-    applyFontScale(scale)
-  }, [scale])
+    applyFontLevel(level)
+  }, [level])
 
-  const decrease = useCallback(() => {
-    setScale((prev) => {
-      const next = clampScale(prev - SCALE_STEP)
-      persistScale(next)
+  const cycle = useCallback(() => {
+    setLevel((prev) => {
+      const next = nextLevel(prev)
+      persistLevel(next)
       return next
     })
-  }, [])
-
-  const increase = useCallback(() => {
-    setScale((prev) => {
-      const next = clampScale(prev + SCALE_STEP)
-      persistScale(next)
-      return next
-    })
-  }, [])
-
-  const reset = useCallback(() => {
-    persistScale(SCALE_DEFAULT)
-    setScale(SCALE_DEFAULT)
   }, [])
 
   const value = useMemo<AppFontScaleContextType>(
     () => ({
-      scale,
-      decrease,
-      increase,
-      reset,
-      canDecrease: scale > SCALE_MIN + 1e-9,
-      canIncrease: scale < SCALE_MAX - 1e-9,
+      level,
+      label: LEVEL_LABEL[level],
+      cycle,
     }),
-    [scale, decrease, increase, reset],
+    [level, cycle],
   )
 
   return (
@@ -167,7 +182,7 @@ export const AppFontScaleProvider: React.FC<AppFontScaleProviderProps> = ({ chil
 }
 
 /**
- * 读取全局字号缩放 API
+ * 读取全局字号 API
  */
 export function useAppFontScale(): AppFontScaleContextType {
   const ctx = useContext(AppFontScaleContext)

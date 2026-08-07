@@ -6,6 +6,7 @@
  */
 
 import React, { useCallback, useState, useEffect } from 'react';
+import { Type } from 'lucide-react';
 import { useAppFontScale } from '../../../contexts/AppFontScaleContext/AppFontScaleContext';
 import styles from './TitleBar.module.css';
 
@@ -51,7 +52,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   electronAPI,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
-  const { scale, decrease, increase, reset, canDecrease, canIncrease } = useAppFontScale();
+  const { level, label, cycle } = useAppFontScale();
 
   // 监听窗口最大化状态变化
   useEffect(() => {
@@ -103,8 +104,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     }
   }, [electronAPI]);
 
-  const scalePercent = Math.round(scale * 100);
-
   return (
     <header className={`${styles['title-bar']} ${className}`}>
       {/* 左侧区域 */}
@@ -138,37 +137,17 @@ export const TitleBar: React.FC<TitleBarProps> = ({
               {themeToggle}
             </div>
           )}
-          <div className={styles['title-bar-font-scale']} role="group" aria-label="全局字号">
-            <button
-              type="button"
-              className={styles['title-bar-font-btn']}
-              onClick={decrease}
-              disabled={!canDecrease}
-              title="缩小全局字号"
-              aria-label="缩小全局字号"
-            >
-              A−
-            </button>
-            <button
-              type="button"
-              className={styles['title-bar-font-pct']}
-              onClick={reset}
-              title="复位字号（点击恢复默认）"
-              aria-label={`当前字号 ${scalePercent}%，点击复位`}
-            >
-              {scalePercent}%
-            </button>
-            <button
-              type="button"
-              className={styles['title-bar-font-btn']}
-              onClick={increase}
-              disabled={!canIncrease}
-              title="放大全局字号"
-              aria-label="放大全局字号"
-            >
-              A+
-            </button>
-          </div>
+          {/* 与原对话页工具栏一致：Type 图标循环切换 小/中/大 */}
+          <button
+            type="button"
+            className={styles['title-bar-font-btn']}
+            onClick={cycle}
+            title={`字号：${label}（点击切换 小/中/大）`}
+            aria-label={`切换字号，当前${label}`}
+            data-font-level={level}
+          >
+            <Type size={14} strokeWidth={1.8} />
+          </button>
         </div>
       </div>
 
