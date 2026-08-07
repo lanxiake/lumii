@@ -1981,8 +1981,12 @@ function getConversationMessages(
         const aw = (parsed as { audioWavBase64?: unknown }).audioWavBase64
         if (typeof aw === 'string' && aw.length > 0) audioWavBase64 = aw
       }
+      // 仅工具调用、无正文的 assistant 回合 text 为空，此时不能兜到 JSON.stringify，
+      // 否则 null 会渲染成字面量 "null"、tool_result 会渲染成整坨 JSON。
       contentText = typeof parsed === 'string' ? parsed
-        : parsed?.text ?? parsed?.content ?? JSON.stringify(parsed)
+        : typeof parsed?.text === 'string' ? parsed.text
+          : typeof parsed?.content === 'string' ? parsed.content
+            : ''
       // 读取存库的 thinkingText（新格式）
       if (parsed && typeof parsed === 'object' && typeof (parsed as { thinkingText?: unknown }).thinkingText === 'string') {
         thinkingText = (parsed as { thinkingText: string }).thinkingText || undefined
