@@ -17,6 +17,9 @@ export type AssistantPart =
       meta?: { sourceAgent?: { instanceId: string; label: string } };
     };
 
+/** 工具类 assistant part */
+export type ToolAssistantPart = Extract<AssistantPart, { type: "tool" }>;
+
 /** 回合工作区净文件变更条目 */
 export type FileChangeEntry = {
   path: string;
@@ -47,7 +50,7 @@ export type AssistantPartEvent =
       id: string;
       name: string;
       args: Record<string, unknown>;
-      meta?: AssistantPart extends { type: "tool" } ? AssistantPart["meta"] : never;
+      meta?: ToolAssistantPart["meta"];
     }
   | {
       kind: "tool_end";
@@ -191,16 +194,13 @@ export function applyAssistantPartEvent(
   }
 }
 
-/** idle 时把所有 streaming / running 标为 done（error 保持不变） */
+/** idle 时把 streaming thinking/text 标为 done；running tool 保持不变 */
 export function finalizeAssistantParts(parts: readonly AssistantPart[]): AssistantPart[] {
   return parts.map((part) => {
     if (part.type === "thinking" && part.status === "streaming") {
       return { ...part, status: "done" };
     }
     if (part.type === "text" && part.status === "streaming") {
-      return { ...part, status: "done" };
-    }
-    if (part.type === "tool" && part.status === "running") {
       return { ...part, status: "done" };
     }
     return part;

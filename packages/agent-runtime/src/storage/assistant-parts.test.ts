@@ -47,6 +47,62 @@ describe("applyAssistantPartEvent", () => {
     expect(parts).toHaveLength(1);
     expect(parts[0]).toMatchObject({ type: "tool", args: { command: "ls" }, status: "done" });
   });
+
+  it("tool_start 透传 meta", () => {
+    const meta = { sourceAgent: { instanceId: "a1", label: "子 Agent" } };
+    const parts = applyAssistantPartEvent([], {
+      kind: "tool_start",
+      id: "t1",
+      name: "file_read",
+      args: { path: "a.ts" },
+      meta,
+    });
+    expect(parts[0]).toMatchObject({ type: "tool", meta });
+  });
+});
+
+describe("finalizeAssistantParts", () => {
+  it("streaming thinking/text → done", () => {
+    const parts = finalizeAssistantParts([
+      { type: "thinking", id: "th-1", text: "想", status: "streaming" },
+      { type: "text", id: "tx-1", text: "答", status: "streaming" },
+      { type: "thinking", id: "th-2", text: "完", status: "done" },
+    ]);
+    expect(parts[0]).toMatchObject({ status: "done" });
+    expect(parts[1]).toMatchObject({ status: "done" });
+    expect(parts[2]).toMatchObject({ status: "done" });
+  });
+
+  it("running tool 保持不变", () => {
+    const running = {
+      type: "tool" as const,
+      id: "t1",
+      name: "bash",
+      args: { command: "ls" },
+      status: "running" as const,
+    };
+    const done = {
+      type: "tool" as const,
+      id: "t2",
+      name: "bash",
+      args: {},
+      status: "done" as const,
+      result: "ok",
+    };
+    const error = {
+      type: "tool" as const,
+      id: "t3",
+      name: "bash",
+      args: {},
+      status: "error" as const,
+      result: "fail",
+      isError: true,
+    };
+    const parts = finalizeAssistantParts([running, done, error]);
+    expect(parts[0]).toMatchObject({ status: "running" });
+    expect(parts[1]).toMatchObject({ status: "done" });
+    expect(parts[2]).toMatchObject({ status: "error" });
+  });
 });
 
 describe("diffTurnSnapshots", () => {
@@ -69,5 +125,13 @@ describe("diffTurnSnapshots", () => {
 
   it("start/end 皆无某路径 → 不收录", () => {
     expect(diffTurnSnapshots(new Map(), new Map())).toEqual([]);
+  });
+
+  it("反斜杠路径规范为正斜杠", () => {
+    const start = new Map([["src\\a.ts", "h1"]]);
+    const end = new Map([["src/a.ts", "h2"]]);
+    expect(diffTurnSnapshots(start, end)).toEqual([
+      { path: "src/a.ts", status: "modified" },
+    ]);
   });
 });
