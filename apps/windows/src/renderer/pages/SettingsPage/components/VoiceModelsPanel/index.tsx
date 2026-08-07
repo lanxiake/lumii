@@ -89,7 +89,8 @@ export function VoiceModelsPanel(): React.ReactElement {
     <div className={styles.panel}>
       <h4 className={styles.title}>语音模型</h4>
       <p className={styles.hint}>
-        本地 VAD / ASR / TTS 模型可分别下载。支持暂停、取消与断点续传。使用 Edge TTS 时可不下载 TTS 模型。
+        本地 VAD / ASR / TTS 可分别下载，支持暂停、取消与断点续传。VAD/ASR 优先经 ModelScope
+        官方 SDK；TTS 走国内镜像（hf-mirror），失败再回退 GitHub。使用 Edge TTS 时可跳过 TTS 模型。
       </p>
       <div className={styles.list}>
         {models.map((m) => {

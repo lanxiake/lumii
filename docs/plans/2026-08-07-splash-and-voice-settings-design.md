@@ -18,6 +18,11 @@
 
 - VAD / ASR(Paraformer) / TTS(VITS) 分项下载
 - 进度、暂停、继续、取消；HTTP Range 断点续传（`.partial`）
+- **下载源优先级**（国内加速）：
+  1. VAD/ASR：ModelScope 官方 Python SDK（`model_file_download`，见 [魔搭下载文档](https://www.modelscope.cn/docs/models/download)）
+  2. TTS：hf-mirror 多文件直链（`csukuangfj/vits-zh-aishell3`）
+  3. 回退：GitHub Releases + `gh.ddlc.top` / `gh-proxy.com` 等镜像
+- 辅助脚本：`assets/scripts/modelscope_voice_download.py`（随包；首次会 pip 安装 `modelscope`）
 - Edge TTS 通话仅需 VAD+ASR；本地 VITS 需先下载才可选
 - 聊天缺模型：toast「请先在设置中下载语音模型」+「去设置」
 
@@ -26,11 +31,13 @@
 - `voice:asr:test:start|stop`，不拉起 Agent
 - 设置页试麦：伪流式中间结果 + VAD 端点最终句
 
-## 后续规划（未实现）
+## 后续规划
 
-- **Qwen3-TTS**：用户可选模型变体下载，与现有 VITS/Edge 并列切换
-- **声音克隆**：基于选定离线 TTS 引擎的克隆流程与素材管理
-- 可选：增加魔搭（ModelScope）作为国内优先下载源
+Qwen3-TTS / 声音克隆的调研与设计已单独成文，见：
+
+- [2026-08-07-qwen3-tts-voice-clone-design.md](./2026-08-07-qwen3-tts-voice-clone-design.md)
+
+要点：魔搭优先下载；一期落地 `0.6B-Base` + Python sidecar；模型与克隆档案存 `clientDataRoot`；与 VITS/Edge 并列；1.7B / 量化轻量档为二期。
 
 ## 关键路径
 

@@ -1,6 +1,7 @@
 /**
  * 语音模型管理器
- * 模型存储在客户端本地；支持分项下载、暂停、取消与 HTTP Range 断点续传
+ * 优先 ModelScope SDK（官方文档 https://www.modelscope.cn/docs/models/download）；
+ * 无 SDK 源时用 hf-mirror 直链；最后回退 GitHub Releases + 镜像。
  */
 import { app } from 'electron'
 import path from 'node:path'
@@ -9,6 +10,10 @@ import https from 'node:https'
 import http from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import {
+  downloadViaModelScopeSdk,
+  type ModelScopeDownloadSpec,
+} from './modelscope-downloader.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -55,6 +60,12 @@ export interface VoiceModelPaths {
   ttsVocoder?: string
 }
 
+/** 国内 HTTP 直链文件映射（不经 GitHub） */
+interface HttpFileMapping {
+  url: string
+  local: string
+}
+
 const MODEL_CATALOG = {
   vad: {
     id: 'vad',
@@ -64,6 +75,10 @@ const MODEL_CATALOG = {
     dir: 'vad',
     downloadUrl: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx',
     type: 'single' as const,
+    modelscope: {
+      modelId: 'pengzhendong/silero-vad',
+      files: [{ remote: 'v4/silero_vad.onnx', local: 'silero_vad.onnx' }],
+    } satisfies Omit<ModelScopeDownloadSpec, 'outDir'>,
   },
   'asr-paraformer-zh': {
     id: 'asr-paraformer-zh',
@@ -74,6 +89,15 @@ const MODEL_CATALOG = {
     downloadUrl: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2',
     extractedDir: 'sherpa-onnx-paraformer-zh-small-2024-03-09',
     type: 'tar' as const,
+    modelscope: {
+      modelId: 'crazyant/speech_paraformer_asr_nat-zh-cn-16k-common-vocab8358-onnx',
+      files: [
+        { remote: 'model_quant.onnx', local: 'model.int8.onnx' },
+        { remote: 'am.mvn', local: 'am.mvn' },
+        { remote: 'config.yaml', local: 'config.yaml' },
+      ],
+      extractTokensFromConfig: true,
+    } satisfies Omit<ModelScopeDownloadSpec, 'outDir'>,
   },
   'tts-vits-zh': {
     id: 'tts-vits-zh',
@@ -84,6 +108,33 @@ const MODEL_CATALOG = {
     downloadUrl: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-zh-aishell3.tar.bz2',
     extractedDir: 'vits-zh-aishell3',
     type: 'tar' as const,
+    /** 魔搭无同款；优先 hf-mirror 多文件直链 */
+    httpFiles: [
+      {
+        url: 'https://hf-mirror.com/csukuangfj/vits-zh-aishell3/resolve/main/vits-aishell3.onnx',
+        local: 'model.onnx',
+      },
+      {
+        url: 'https://hf-mirror.com/csukuangfj/vits-zh-aishell3/resolve/main/lexicon.txt',
+        local: 'lexicon.txt',
+      },
+      {
+        url: 'https://hf-mirror.com/csukuangfj/vits-zh-aishell3/resolve/main/tokens.txt',
+        local: 'tokens.txt',
+      },
+      {
+        url: 'https://hf-mirror.com/csukuangfj/vits-zh-aishell3/resolve/main/date.fst',
+        local: 'date.fst',
+      },
+      {
+        url: 'https://hf-mirror.com/csukuangfj/vits-zh-aishell3/resolve/main/phone.fst',
+        local: 'phone.fst',
+      },
+      {
+        url: 'https://hf-mirror.com/csukuangfj/vits-zh-aishell3/resolve/main/number.fst',
+        local: 'number.fst',
+      },
+    ] as HttpFileMapping[],
   },
 } as const
 
@@ -367,6 +418,65 @@ export class VoiceModelManager {
       onProgress({ progress, downloadedBytes, totalBytes, state })
     }
 
+    // 1) ModelScope 官方 SDK（国内高速）
+    if ('modelscope' in model && model.modelscope) {
+      try {
+        log.info(`[_downloadModel] 优先魔搭 SDK: ${model.modelscope.modelId}`)
+        await downloadViaModelScopeSdk(
+          {
+            modelId: model.modelscope.modelId,
+            outDir: targetDir,
+            files: [...model.modelscope.files],
+            extractTokensFromConfig:
+              'extractTokensFromConfig' in model.modelscope
+                ? Boolean(model.modelscope.extractTokensFromConfig)
+                : false,
+          },
+          (p) => {
+            const bytes = Math.round((p.percent || 0) * model.sizeBytes)
+            report(bytes, model.sizeBytes, 'downloading')
+          },
+          signal,
+        )
+        if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
+        // 清理中间产物
+        const cfg = path.join(targetDir, 'config.yaml')
+        if (fs.existsSync(cfg)) {
+          try {
+            fs.unlinkSync(cfg)
+          } catch {
+            /* ignore */
+          }
+        }
+        if (!this.isModelDownloaded(model.id as ModelId)) {
+          throw new Error('魔搭下载完成但缺少必需文件')
+        }
+        log.info(`[_downloadModel] ${model.name} 魔搭 SDK 完成`)
+        return
+      } catch (e) {
+        if (signal.aborted) throw e
+        const msg = e instanceof Error ? e.message : String(e)
+        log.warn(`[_downloadModel] 魔搭 SDK 失败，回退 HTTP: ${msg}`)
+      }
+    }
+
+    // 2) 国内 HTTP 多文件直链（如 hf-mirror）
+    if ('httpFiles' in model && model.httpFiles && model.httpFiles.length > 0) {
+      try {
+        await this._downloadHttpFiles(model.httpFiles, targetDir, model, task, report, signal)
+        if (!this.isModelDownloaded(model.id as ModelId)) {
+          throw new Error('HTTP 多文件下载完成但缺少必需文件')
+        }
+        log.info(`[_downloadModel] ${model.name} 国内直链完成`)
+        return
+      } catch (e) {
+        if (signal.aborted) throw e
+        const msg = e instanceof Error ? e.message : String(e)
+        log.warn(`[_downloadModel] 国内直链失败，回退 GitHub: ${msg}`)
+      }
+    }
+
+    // 3) GitHub Releases（镜像 + Range 续传）
     if (model.type === 'single') {
       const filename = (model as { filename: string }).filename
       const partialFile = this.partialPath(model.id)
@@ -380,7 +490,6 @@ export class VoiceModelManager {
       await this._downloadFile(model.downloadUrl, tarPartial, task, report, signal)
       if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
 
-      // 下载完成：partial → 正式 tar 名再解压
       if (fs.existsSync(tarFile)) {
         try {
           fs.unlinkSync(tarFile)
@@ -422,6 +531,65 @@ export class VoiceModelManager {
       }
 
       log.info(`[_downloadModel] ${model.name} 下载并解压完成`)
+    }
+  }
+
+  /**
+   * 按文件列表直链下载（支持单文件 Range 续传到 .partial）
+   * 核心文件失败则抛错；可选文件（.fst）失败仅告警
+   */
+  private async _downloadHttpFiles(
+    files: readonly HttpFileMapping[],
+    targetDir: string,
+    model: (typeof MODEL_CATALOG)[ModelId],
+    task: TaskRuntime,
+    onProgress: (downloadedBytes: number, totalBytes: number, state: VoiceModelDownloadState) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const requiredLocals =
+      'files' in model ? new Set(model.files) : new Set<string>(['model.onnx', 'lexicon.txt', 'tokens.txt'])
+    const total = files.length
+    let done = 0
+    for (const item of files) {
+      if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
+      const dest = path.join(targetDir, item.local)
+      const optional = !requiredLocals.has(item.local)
+      if (fs.existsSync(dest) && fs.statSync(dest).size > 0) {
+        done += 1
+        onProgress(Math.round((done / total) * model.sizeBytes), model.sizeBytes, 'downloading')
+        continue
+      }
+      const partial = path.join(this.tempDir, `${model.id}-${item.local.replace(/[\\/]/g, '_')}.partial`)
+      try {
+        await this._downloadFileOnce(
+          item.url,
+          partial,
+          task,
+          (downloaded, fileTotal, state) => {
+            const fileFrac = fileTotal > 0 ? downloaded / fileTotal : 0
+            const overall = (done + fileFrac) / total
+            onProgress(Math.round(overall * model.sizeBytes), model.sizeBytes, state)
+          },
+          signal,
+        )
+        if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
+        fs.mkdirSync(path.dirname(dest), { recursive: true })
+        fs.renameSync(partial, dest)
+      } catch (e) {
+        if (signal.aborted) throw e
+        try {
+          if (fs.existsSync(partial)) fs.unlinkSync(partial)
+        } catch {
+          /* ignore */
+        }
+        if (optional) {
+          log.warn(`[_downloadHttpFiles] 可选文件跳过 ${item.local}: ${e instanceof Error ? e.message : e}`)
+        } else {
+          throw e
+        }
+      }
+      done += 1
+      onProgress(Math.round((done / total) * model.sizeBytes), model.sizeBytes, 'downloading')
     }
   }
 
