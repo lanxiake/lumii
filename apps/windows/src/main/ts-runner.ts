@@ -14,6 +14,7 @@ import * as path from 'node:path'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import { createHash } from 'node:crypto'
+import { buildScriptEnv, resolveNodeExec } from './runtime-env'
 
 /** 日志 */
 const log = {
@@ -67,11 +68,13 @@ export interface RunnerResult {
  * TypeScript/JavaScript 技能脚本运行器
  */
 export class TypeScriptRunner {
-  private readonly nodePath: string
+  private readonly nodePath: string | undefined
   private readonly defaultMaxMemoryMb: number
 
   constructor(opts?: { nodePath?: string; defaultMaxMemoryMb?: number }) {
-    this.nodePath = opts?.nodePath ?? 'node'
+    // 不在构造时定死 'node'：未显式指定时交给 resolveNodeExec()，
+    // 系统没装 Node 时回退到 Electron 内置 Node（见 runtime-env.ts）
+    this.nodePath = opts?.nodePath
     this.defaultMaxMemoryMb = opts?.defaultMaxMemoryMb ?? 256
   }
 
@@ -114,15 +117,18 @@ export class TypeScriptRunner {
       let timeoutId: ReturnType<typeof setTimeout> | null = null
 
       try {
-        child = spawn(this.nodePath, args, {
+        const node = this.nodePath
+          ? { command: this.nodePath, env: {} }
+          : resolveNodeExec()
+        child = spawn(node.command, args, {
           // 始终使用原始入口文件的目录，确保技能内相对路径正确
           cwd: cwd ?? path.dirname(entryPath),
-          env: {
-            ...process.env,
+          env: buildScriptEnv({
+            ...node.env,
             ...(extraEnv ?? {}),
             SKILL_PARAMS: JSON.stringify(params),
             NODE_OPTIONS: `--max-old-space-size=${maxMemoryMb}`,
-          },
+          }),
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
         })

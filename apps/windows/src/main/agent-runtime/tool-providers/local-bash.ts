@@ -10,6 +10,7 @@
 import { spawn } from 'child_process'
 import * as iconv from 'iconv-lite'
 import { resolveShell } from '@mtbot/agent-runtime'
+import { buildScriptEnv } from '../../runtime-env'
 
 // 主题3 P1-1：输出上限提升到 1MB（配合 tool-result-persist hook 落盘）。
 // 超出时截断并追加告警，避免单条命令输出撑爆上下文。
@@ -44,7 +45,8 @@ export async function executeLocalCommand(
     const child = spawn(shellPath, shellArgs, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env },
+      // 追加内置 node / python shim 到 PATH，用户没装环境也能跑 `node x.js` / `python3 x.py`
+      env: buildScriptEnv(),
       windowsHide: true,
     })
 

@@ -122,6 +122,7 @@ import {
   createProject,
   openExistingProject,
   removeProject,
+  reconcileProjectsWithDisk,
 } from './coding-dev-projects.js'
 import { resolveClientStateDir, resolvePluginRuntimeDir } from './paths'
 import { registerSkillnetStoreHandlers } from './skillnet-store'
@@ -1709,11 +1710,24 @@ function setupIpcHandlers(): void {
 
   // === ACP 项目管理 ===
   ipcMain.handle('app:listCodingDevProjects', async () => {
-    if (!configManager) throw new Error('ConfigManager 未初始化')
+    if (!configManager || !directoryManager) throw new Error('未初始化')
     const cfg = configManager.getAppConfig()
-    return {
-      projects: cfg.codingDevProjects ?? [],
+    const projectsDir = directoryManager.getDirectory('projects')
+    const reconciled = await reconcileProjectsWithDisk({
+      projectsDir,
+      existing: cfg.codingDevProjects ?? [],
       activeProject: cfg.codingDevActiveProject,
+    })
+    if (reconciled.changed) {
+      await configManager.updateAppConfig({
+        codingDevProjects: reconciled.projects,
+        codingDevActiveProject: reconciled.activeProject,
+      })
+      reapplyCodingDevAcpEnvFromConfig()
+    }
+    return {
+      projects: reconciled.projects,
+      activeProject: reconciled.activeProject,
     }
   })
 
@@ -2443,23 +2457,28 @@ function setupApiIpcHandlers(): void {
 import { execFile as _execFile } from 'child_process'
 import { promisify as _promisify } from 'util'
 import { MemPalaceMcpBridge } from './mempalace-mcp-client'
+import {
+  PYPI_MIRROR,
+  ensureBundledPython,
+  getBundledPythonExe,
+  getBundledSitePackages,
+  getPythonRuntimeDir,
+  hasPackage as hasPythonPackage,
+} from './python-env'
+import { initScriptRuntimes } from './runtime-env'
 
 const _execFileAsync = _promisify(_execFile)
 
-const MEMPALACE_RUNTIME_NAME = 'python-embed'
-const PYPI_MIRROR = 'https://pypi.tuna.tsinghua.edu.cn/simple'
-const PYTHON_EMBED_URLS = [
-  'https://npmmirror.com/mirrors/python/3.11.9/python-3.11.9-embed-amd64.zip',
-  'https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip',
-]
-
-/** MemPalace Python 运行时目录（与客户端数据根目录一致） */
+/**
+ * MemPalace 复用公共内置 Python 运行时（见 python-env.ts）。
+ * 运行时目录与旧版一致（~/.lumii/runtimes/python-embed），已装用户不必重下。
+ */
 function getMemPalaceRuntimeDir(): string {
-  return resolvePluginRuntimeDir(MEMPALACE_RUNTIME_NAME)
+  return getPythonRuntimeDir()
 }
 
 function getMemPalacePythonExe(): string {
-  return join(getMemPalaceRuntimeDir(), 'python.exe')
+  return getBundledPythonExe()
 }
 
 function getMemPalacePalaceDir(): string {
@@ -2467,14 +2486,8 @@ function getMemPalacePalaceDir(): string {
 }
 
 /** 检测 site-packages 中是否已有 mempalace 包（快速路径） */
-function hasMemPalacePackage(runtimeDir: string): boolean {
-  const sitePackages = join(runtimeDir, 'Lib', 'site-packages')
-  if (!existsSync(sitePackages)) return false
-  try {
-    return readdirSync(sitePackages).some((name) => name === 'mempalace' || name.startsWith('mempalace-'))
-  } catch {
-    return false
-  }
+function hasMemPalacePackage(): boolean {
+  return hasPythonPackage('mempalace')
 }
 
 function getSoulFilePath(): string {
@@ -2520,7 +2533,7 @@ async function checkMemPalaceInstalled(): Promise<boolean> {
   const runtimeDir = getMemPalaceRuntimeDir()
   const pythonExe = getMemPalacePythonExe()
   if (!existsSync(pythonExe)) return false
-  if (!hasMemPalacePackage(runtimeDir)) return false
+  if (!hasMemPalacePackage()) return false
   try {
     await _execFileAsync(pythonExe, ['-c', 'import mempalace'], {
       timeout: 30000,
@@ -2551,100 +2564,33 @@ function setupMemPalaceIpcHandlers(): void {
   })
 
   ipcMain.handle('plugin:mempalace:install', async (_event) => {
-    const runtimeDir = getMemPalaceRuntimeDir()
-    const tmpDir = `${runtimeDir}.tmp`
-
     const sendProgress = (msg: string) => {
       _event.sender.send('plugin:mempalace:install:progress', msg)
     }
 
     try {
-      // 清理残留 tmp
-      if (existsSync(tmpDir)) {
-        await fs.rm(tmpDir, { recursive: true, force: true })
-      }
-      await fs.mkdir(tmpDir, { recursive: true })
-
-      sendProgress('正在下载 Python Embeddable...')
-      const zipPath = join(tmpDir, 'python-embed.zip')
-      let pythonDownloaded = false
-      for (const embedUrl of PYTHON_EMBED_URLS) {
-        try {
-          sendProgress(`正在下载 Python Embeddable (${new URL(embedUrl).hostname})...`)
-          await downloadFileMain(embedUrl, zipPath, (pct) => sendProgress(`正在下载 Python Embeddable... ${pct}%`))
-          pythonDownloaded = true
-          break
-        } catch (err) {
-          log.warn(`[MemPalace] Python 下载失败 ${embedUrl}:`, err instanceof Error ? err.message : err)
-          try { await fs.unlink(zipPath) } catch { /* ignore */ }
-        }
-      }
-      if (!pythonDownloaded) {
-        throw new Error('Python 运行时下载失败，请检查网络后重试')
-      }
-
-      sendProgress('正在解压...')
-      if (!existsSync(zipPath)) {
-        throw new Error(`Python 运行时下载失败：未找到 ${zipPath}，请检查网络后重试`)
-      }
-      await _execFileAsync('powershell', [
-        '-NoProfile', '-Command',
-        `Expand-Archive -Path '${zipPath}' -DestinationPath '${tmpDir}' -Force`,
-      ], { timeout: 60000 })
-      await fs.unlink(zipPath)
-
-      sendProgress('正在配置 sys.path...')
-      const pthFiles = (await fs.readdir(tmpDir)).filter((f) => f.endsWith('._pth'))
-      if (pthFiles.length === 0) throw new Error('未找到 ._pth 文件')
-      const pthPath = join(tmpDir, pthFiles[0])
-      const sitePackagesDir = join(tmpDir, 'Lib', 'site-packages')
-      await fs.mkdir(sitePackagesDir, { recursive: true })
-      // embeddable 包默认禁用 site，需取消注释 import site 并添加 site-packages 路径
-      let pthContent = await fs.readFile(pthPath, 'utf-8')
-      // 取消注释 #import site（如果存在）
-      pthContent = pthContent.replace(/^#import site/m, 'import site')
-      if (!pthContent.includes('import site')) {
-        pthContent += '\nimport site\n'
-      }
-      if (!pthContent.includes('Lib/site-packages')) {
-        pthContent += './Lib/site-packages\n'
-      }
-      await fs.writeFile(pthPath, pthContent, 'utf-8')
-
-      sendProgress('正在安装 pip...')
-      const getPipPath = join(tmpDir, 'get-pip.py')
-      await downloadFileMain('https://bootstrap.pypa.io/get-pip.py', getPipPath)
-      const tmpPython = join(tmpDir, 'python.exe')
-      await _execFileAsync(tmpPython, [getPipPath, '--no-warn-script-location', '--target', sitePackagesDir], { timeout: 120000 })
-      await fs.unlink(getPipPath)
+      // Python 运行时由公共模块保证（已装则秒过），这里只负责装 mempalace 包
+      const pythonExe = await ensureBundledPython(sendProgress)
+      const sitePackagesDir = getBundledSitePackages()
 
       sendProgress('正在安装 mempalace...')
-      await _execFileAsync(tmpPython, [
+      await _execFileAsync(pythonExe, [
         '-m', 'pip', 'install', 'mempalace',
         '--no-warn-script-location',
         '--target', sitePackagesDir,
         '-i', PYPI_MIRROR,
-      ], {
-        timeout: 300000,
-      })
+      ], { timeout: 300000, windowsHide: true })
 
       sendProgress('正在验证安装...')
-      await _execFileAsync(tmpPython, ['-c', 'import mempalace; print("ok")'], {
+      await _execFileAsync(pythonExe, ['-c', 'import mempalace; print("ok")'], {
         timeout: 30000,
-        cwd: tmpDir,
-        env: { ...process.env, PYTHONHOME: tmpDir },
+        cwd: getPythonRuntimeDir(),
+        env: { ...process.env, PYTHONHOME: getPythonRuntimeDir() },
       })
-
-      sendProgress('正在完成安装...')
-      if (existsSync(runtimeDir)) {
-        await fs.rm(runtimeDir, { recursive: true, force: true })
-      }
-      await fs.rename(tmpDir, runtimeDir)
 
       log.info('[MemPalace] 安装完成')
       return { success: true }
     } catch (err) {
-      try { await fs.rm(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
       const message = err instanceof Error ? err.message : String(err)
       log.error('[MemPalace] 安装失败:', message)
       return { success: false, error: message }
@@ -2812,87 +2758,6 @@ function setupCloakBrowserIpcHandlers(): void {
   })
 }
 
-async function downloadFileMain(
-  url: string,
-  dest: string,
-  onProgress?: (pct: number) => void,
-): Promise<void> {
-  const https = await import('https')
-  const http = await import('http')
-  const { createWriteStream } = await import('fs')
-
-  // 写入流延迟到拿到最终 200 响应（重定向解析完）后再创建，
-  // 避免重定向时关闭旧流却仍向其 pipe，导致目标文件为空。
-  await new Promise<void>((resolve, reject) => {
-    let settled = false
-    const MAX_REDIRECTS = 5
-
-    const fail = (err: Error) => {
-      if (settled) return
-      settled = true
-      reject(err)
-    }
-
-    const request = (targetUrl: string, redirectsLeft: number) => {
-      const client = targetUrl.startsWith('https') ? https : http
-      client
-        .get(targetUrl, (res) => {
-          const status = res.statusCode ?? 0
-          if (status >= 300 && status < 400 && res.headers.location) {
-            res.resume() // 丢弃重定向响应体，释放 socket
-            if (redirectsLeft <= 0) {
-              fail(new Error(`重定向次数过多: ${targetUrl}`))
-              return
-            }
-            const next = new URL(res.headers.location, targetUrl).toString()
-            request(next, redirectsLeft - 1)
-            return
-          }
-          if (status !== 200) {
-            res.resume()
-            fail(new Error(`HTTP ${status}: ${targetUrl}`))
-            return
-          }
-
-          const total = parseInt(res.headers['content-length'] ?? '0', 10)
-          let received = 0
-          const file = createWriteStream(dest)
-          file.on('error', fail)
-          res.on('error', fail)
-          res.on('data', (chunk: Buffer) => {
-            received += chunk.length
-            if (total > 0 && onProgress) {
-              onProgress(Math.round((received / total) * 100))
-            }
-          })
-          res.pipe(file)
-          file.on('finish', () => {
-            file.close(() => {
-              if (settled) return
-              settled = true
-              resolve()
-            })
-          })
-        })
-        .on('error', fail)
-    }
-
-    request(url, MAX_REDIRECTS)
-  })
-
-  // 下载成功校验：文件必须存在且非空，否则后续解压会报"找不到文件"
-  const { promises: fsp } = await import('fs')
-  let size = 0
-  try {
-    size = (await fsp.stat(dest)).size
-  } catch {
-    throw new Error(`下载失败：文件未生成（${dest}）`)
-  }
-  if (size === 0) {
-    await fsp.rm(dest, { force: true }).catch(() => {})
-    throw new Error(`下载失败：文件为空（${dest}）`)
-  }
-}
 
 /**
  * 应用初始化
@@ -3015,6 +2880,9 @@ async function initialize(): Promise<void> {
   setupCloakBrowserIpcHandlers()
 
   await initSkillRuntime()  // 初始化技能运行时
+
+  // 脚本运行环境：写 node/python shim，缺 Python 时后台下载内置运行时
+  await initScriptRuntimes()
 
   // 种子内置技能（必须在 initSkillWatcher 之前，确保文件就绪后再启动监控）
   const mtbotDataDirForSeed = resolveClientStateDir()
