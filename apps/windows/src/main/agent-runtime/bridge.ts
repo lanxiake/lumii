@@ -1159,7 +1159,7 @@ export class AgentRuntimeBridge {
 
   deleteLocalCronJobRecord(id: string): number { return this.cronScheduler.deleteLocalCronJobRecord(id) }
 
-  updateLocalCronJobRecord(params: { id: string; name: string; taskText: string; enabled: boolean; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number }): number {
+  updateLocalCronJobRecord(params: { id: string; name: string; taskText: string; agentId?: string; enabled: boolean; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number }): number {
     return this.cronScheduler.updateLocalCronJobRecord(params)
   }
 

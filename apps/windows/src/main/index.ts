@@ -1598,10 +1598,20 @@ function setupIpcHandlers(): void {
     if (typeof dirPath !== 'string') {
       throw new Error('路径必须是字符串')
     }
-    if (typeof pattern !== 'string' || pattern.length > 100) {
+    // 类型筛选可传空 pattern（由 extensions 驱动）；关键词 pattern 放宽上限
+    if (typeof pattern !== 'string' || pattern.length > 500) {
       throw new Error('搜索模式无效')
     }
-    return systemService?.searchFiles(dirPath, pattern, options as { recursive?: boolean; maxResults?: number })
+    return systemService?.searchFiles(
+      dirPath,
+      pattern,
+      options as {
+        recursive?: boolean
+        maxResults?: number
+        extensions?: readonly string[]
+        skipDirs?: readonly string[]
+      },
+    )
   })
 
   // === 系统信息 ===

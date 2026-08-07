@@ -54,8 +54,10 @@ export const StatusBar: React.FC = () => {
 
   return (
     <footer className={styles.sbar}>
-      <i className={styles.item}>
-        <b>灵有所栖，人有所归。不催不诫，如友如时。</b>
+      <i className={`${styles.item} ${styles.slogan}`} title="灵栖产品标语">
+        <span className={styles.sloganText}>
+          灵有所栖，人有所归。不催不诫，如友如时。
+        </span>
       </i>
 
       <span className={styles.spacer} />

@@ -1326,13 +1326,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         <div className={styles['panel-actions']}>
           <Button
             variant="secondary"
-            onClick={() => window.electronAPI.app.openExternal('https://github.com/open-source/lumii')}
+            onClick={() => window.electronAPI.app.openExternal('https://github.com/lanxiake/lumii')}
           >
             项目主页
           </Button>
           <Button
             variant="secondary"
-            onClick={() => window.electronAPI.app.openExternal('https://github.com/open-source/lumii/issues')}
+            onClick={() => window.electronAPI.app.openExternal('https://github.com/lanxiake/lumii/issues')}
           >
             问题反馈
           </Button>

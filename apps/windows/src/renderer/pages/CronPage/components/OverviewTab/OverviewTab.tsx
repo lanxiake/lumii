@@ -3,12 +3,15 @@ import { useState } from 'react'
 import { AlertCircle, Clock3, Pencil, Play, Trash2 } from 'lucide-react'
 import styles from './OverviewTab.module.css'
 import type { CronJob } from '../../../../hooks/business/useCron/types'
+import type { Agent } from '../../../../services/agent-service'
 import { describeCron } from '../../utils/cron-utils'
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
 import { useToast } from '../../../../components/ui/Toast/useToast'
 
 interface OverviewTabProps {
   jobs: CronJob[]
+  agents: Agent[]
+  isHistory: boolean
   onToggle: (id: string, enabled: boolean) => Promise<boolean>
   onRun: (id: string, force?: boolean) => Promise<boolean>
   onDelete: (id: string) => Promise<boolean>
@@ -21,16 +24,16 @@ function formatNextRun(job: CronJob): string {
   return `下次 ${new Date(job.nextRunAt).toLocaleString()}`
 }
 
-export const OverviewTab: FC<OverviewTabProps> = ({ jobs, onToggle, onRun, onDelete, onEdit }) => {
+export const OverviewTab: FC<OverviewTabProps> = ({ jobs, agents, isHistory, onToggle, onRun, onDelete, onEdit }) => {
   const [deleteTarget, setDeleteTarget] = useState<CronJob | null>(null)
   const toast = useToast()
 
   return (
     <div className={styles.overviewTab}>
-      <div className={styles.summary}>共 {jobs.length} 个自动任务。开启后，到点会自动执行。</div>
+      <div className={styles.summary}>{isHistory ? `共 ${jobs.length} 个历史任务，可重新启用或编辑。` : `共 ${jobs.length} 个自动任务。开启后，到点会自动执行。`}</div>
 
       {jobs.length === 0 ? (
-        <div className={styles.emptyList}>还没有定时任务，点击右上角“新建任务”开始设置。</div>
+        <div className={styles.emptyList}>{isHistory ? '还没有历史任务。' : '还没有定时任务，点击右上角“新建任务”开始设置。'}</div>
       ) : (
         <div className={styles.jobList}>
           {jobs.map((job) => (
@@ -42,6 +45,7 @@ export const OverviewTab: FC<OverviewTabProps> = ({ jobs, onToggle, onRun, onDel
                 </div>
                 <div className={styles.jobMeta}>
                   <span><Clock3 size={14} />{describeCron(job)}</span>
+                  <span>Agent：{agents.find((agent) => agent.id === job.agentId)?.name ?? '系统默认 Agent'}</span>
                   <span>{formatNextRun(job)}</span>
                 </div>
                 {job.lastError && <p className={styles.errorText} title={job.lastError}>上次执行失败：{job.lastError}</p>}

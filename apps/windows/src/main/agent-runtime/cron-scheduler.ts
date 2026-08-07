@@ -190,11 +190,12 @@ export class CronScheduler {
   }): number {
     const result = this.localDb.db.prepare(
       `UPDATE local_cron_jobs
-       SET name = ?, task_text = ?, enabled = ?, schedule_type = ?, schedule_expr = ?, next_run_at = ?, interval_ms = ?
+       SET name = ?, task_text = ?, agent_id = ?, enabled = ?, schedule_type = ?, schedule_expr = ?, next_run_at = ?, interval_ms = ?
        WHERE id = ?`
     ).run(
       params.name,
       params.taskText,
+      params.agentId?.trim() || null,
       params.enabled ? 1 : 0,
       params.scheduleType,
       params.scheduleExpr,

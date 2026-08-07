@@ -206,6 +206,7 @@ export interface CronUpdateCommand {
     readonly enabled?: boolean
     readonly name?: string
     readonly taskText?: string
+    readonly agentId?: string | null
     readonly scheduleType?: 'at' | 'every' | 'cron'
     readonly scheduleExpr?: string
   }
@@ -535,6 +536,13 @@ export interface CommandsListCommand {
   readonly type: 'commands:list'
 }
 
+/** 按会话列出 TaskRepo 中的任务（重启后恢复 TodoPanel） */
+export interface TasksListCommand {
+  readonly type: 'tasks:list'
+  /** 会话 key / conversationId */
+  readonly conversationId: string
+}
+
 /** 命令列表条目（通用跨渠道格式） */
 export interface CommandListEntry {
   readonly key: string
@@ -840,6 +848,7 @@ export type AgentRuntimeCommand =
   | FilesReadPreviewByPathCommand
   | FilesImportCommand
   | CommandsListCommand
+  | TasksListCommand
   | CodingDevSetBackendCommand
   | CodingDevGetBackendCommand
   | CodingDevListBackendsCommand
@@ -1063,6 +1072,15 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       encoding?: 'utf-8' | 'base64'
     }
   : T extends 'commands:list' ? readonly CommandListEntry[]
+  : T extends 'tasks:list' ? {
+      tasks: readonly {
+        id: string
+        subject: string
+        description: string | null
+        status: string
+        owner: string | null
+      }[]
+    }
   : T extends 'files:import' ? {
       fileId: string
       /** workspace 内的相对路径 */

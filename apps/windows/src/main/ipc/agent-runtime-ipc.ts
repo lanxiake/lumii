@@ -1191,6 +1191,20 @@ async function handleCommand(
         return bridge.fileRepo.listByUser(userId, { agentId, channel, category, limit, offset })
       }
 
+      case 'tasks:list': {
+        const { conversationId } = command
+        const rows = bridge.taskRepo.list(conversationId)
+        return {
+          tasks: rows.map((t) => ({
+            id: t.id,
+            subject: t.subject,
+            description: t.description,
+            status: t.status,
+            owner: t.owner,
+          })),
+        }
+      }
+
       case 'files:search': {
         const { userId, query, filters } = command
         const results = bridge.fileRepo.search(userId, query, filters)
@@ -2143,6 +2157,7 @@ function updateLocalCronJob(
     enabled?: boolean
     name?: string
     taskText?: string
+    agentId?: string | null
     scheduleType?: 'at' | 'every' | 'cron'
     scheduleExpr?: string
   },
@@ -2153,6 +2168,7 @@ function updateLocalCronJob(
   if (!row) return { status: 'not_found', id: cleanId }
   const nextName = patch.name?.trim() || row.name
   const nextTaskText = patch.taskText?.trim() || row.task_text
+  const nextAgentId = patch.agentId === undefined ? row.agent_id : patch.agentId?.trim() || null
   const nextEnabled = typeof patch.enabled === 'boolean' ? (patch.enabled ? 1 : 0) : row.enabled
   const nextScheduleType = patch.scheduleType ?? row.schedule_type
   const nextScheduleExpr = patch.scheduleExpr?.trim() || row.schedule_expr
@@ -2162,6 +2178,7 @@ function updateLocalCronJob(
     id: cleanId,
     name: nextName,
     taskText: nextTaskText,
+    agentId: nextAgentId ?? undefined,
     enabled: nextEnabled === 1,
     scheduleType: nextScheduleType,
     scheduleExpr: nextScheduleExpr,

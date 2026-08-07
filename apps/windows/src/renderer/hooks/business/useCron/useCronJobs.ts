@@ -143,6 +143,7 @@ export function useCronJobs() {
           enabled: typeof patch.enabled === 'boolean' ? patch.enabled : undefined,
           name: typeof patch.name === 'string' ? patch.name : undefined,
           taskText: typeof patch.taskText === 'string' ? patch.taskText : undefined,
+          agentId: typeof patch.agentId === 'string' ? patch.agentId : undefined,
           scheduleType: patch.scheduleType,
           scheduleExpr: patch.scheduleExpr,
         },

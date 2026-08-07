@@ -22,8 +22,29 @@ import {
   createSearchRegExp,
   sanitizeCommandArg,
 } from './security-utils'
+import { VCS_SKIP_DIRS } from './workspace-vcs/vcs-ignore'
 
 const execAsync = promisify(exec)
+
+/** 文件搜索时直接剪枝的重目录（避免扫进 node_modules 等） */
+const FILE_SEARCH_SKIP_DIRS: ReadonlySet<string> = new Set([
+  ...VCS_SKIP_DIRS,
+  'dist',
+  'out',
+  'build',
+  '.next',
+  '.nuxt',
+  '.turbo',
+  '.vercel',
+  'coverage',
+  '__pycache__',
+  '.venv',
+  'venv',
+  'target',
+  '.idea',
+  '.vs',
+  'Pods',
+])
 
 // 日志输出
 const log = {
@@ -437,30 +458,57 @@ export class SystemService {
   }
 
   /**
-   * 搜索文件
+   * 搜索文件。
+   * 优化：跳过 node_modules 等重目录；扩展名集合走 Set 快路径；尽量用 Dirent 避免全量 stat。
    */
   async searchFiles(
     dirPath: string,
     pattern: string,
-    options: { recursive?: boolean; maxResults?: number } = {}
+    options: {
+      recursive?: boolean
+      maxResults?: number
+      /** 仅匹配这些扩展名（不含点，小写）；有值时优先于 pattern 做后缀筛选 */
+      extensions?: readonly string[]
+      /** 额外跳过的目录名（默认已含 node_modules/.git 等） */
+      skipDirs?: readonly string[]
+    } = {}
   ): Promise<FileInfo[]> {
     const { recursive = true, maxResults = 100 } = options
-    log.info(`搜索文件: ${dirPath}, 模式: ${pattern}`)
+    log.info(`搜索文件: ${dirPath}, 模式: ${pattern}, ext=${options.extensions?.length ?? 0}`)
 
-    // 安全验证路径
     const safePath = this.validatePath(dirPath)
-
     const results: FileInfo[] = []
-    // 调用方（前端 FileSearchBar）已构造好正则模式（后缀 `\.md$` / 通配符 `.*` / 字面量子串）。
-    // 此处不再二次转义，否则正则元字符会被当成字面量，导致后缀/通配符搜索永远匹配不到。
-    const regex = createSearchRegExp(pattern)
+    const skipDirs = new Set([...FILE_SEARCH_SKIP_DIRS, ...(options.skipDirs ?? [])])
+    const extSet =
+      options.extensions && options.extensions.length > 0
+        ? new Set(options.extensions.map((e) => e.replace(/^\./, '').toLowerCase()))
+        : null
+    // 空 pattern / '.'：仅按扩展名筛；否则作文件名正则（可与扩展名组合）
+    const namePattern = pattern && pattern !== '.' && pattern.trim().length > 0 ? pattern.trim() : ''
+    const regex = namePattern ? createSearchRegExp(namePattern) : null
+    if (!extSet && !regex) {
+      return []
+    }
+
+    /** 从文件名取扩展名（不含点） */
+    const fileExt = (name: string): string => {
+      const dot = name.lastIndexOf('.')
+      if (dot <= 0) return ''
+      return name.slice(dot + 1).toLowerCase()
+    }
+
+    /** 判断条目是否匹配（扩展名优先，可选文件名二次过滤） */
+    const matches = (name: string, isDirectory: boolean): boolean => {
+      if (extSet) {
+        if (isDirectory) return false
+        if (!extSet.has(fileExt(name))) return false
+        return regex ? regex.test(name) : true
+      }
+      return regex ? regex.test(name) : false
+    }
 
     const search = async (currentPath: string) => {
-      if (results.length >= maxResults) {
-        return
-      }
-
-      // 验证当前搜索路径仍在安全范围内
+      if (results.length >= maxResults) return
       if (!securityUtils.isPathSafe(currentPath)) {
         log.warn(`跳过不安全路径: ${currentPath}`)
         return
@@ -470,30 +518,44 @@ export class SystemService {
         const entries = await fs.readdir(currentPath, { withFileTypes: true })
 
         for (const entry of entries) {
-          if (results.length >= maxResults) {
-            break
+          if (results.length >= maxResults) break
+
+          const name = entry.name
+          // 用 Dirent 判定目录，避免对每个文件 stat（大仓库加速关键）
+          let isDirectory = entry.isDirectory()
+          const isSymlink = entry.isSymbolicLink()
+
+          if (isDirectory && skipDirs.has(name)) continue
+
+          // 仅 junction/symlink 需 stat 跟随；普通文件匹配时再懒加载元数据
+          let stats: Awaited<ReturnType<typeof fs.stat>> | null = null
+          if (isSymlink) {
+            try {
+              stats = await fs.stat(join(currentPath, name))
+              isDirectory = stats.isDirectory()
+              if (isDirectory && skipDirs.has(name)) continue
+            } catch {
+              continue
+            }
           }
 
-          const filePath = join(currentPath, entry.name)
+          const filePath = join(currentPath, name)
 
-          let isDirectory = entry.isDirectory()
-          try {
-            // Windows junction：Dirent.isDirectory() 为 false，需用 stat 跟随链接判定
-            const stats = await fs.stat(filePath)
-            isDirectory = stats.isDirectory()
-            if (regex.test(entry.name)) {
+          if (matches(name, isDirectory)) {
+            try {
+              if (!stats) stats = await fs.stat(filePath)
               results.push({
-                name: entry.name,
+                name,
                 path: filePath,
                 isDirectory,
                 size: stats.size,
                 createdAt: stats.birthtime,
                 modifiedAt: stats.mtime,
-                extension: isDirectory ? '' : extname(entry.name).toLowerCase(),
+                extension: isDirectory ? '' : extname(name).toLowerCase(),
               })
+            } catch {
+              // 跳过无法访问的文件
             }
-          } catch {
-            // 跳过无法访问的文件
           }
 
           if (recursive && isDirectory) {

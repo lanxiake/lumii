@@ -187,7 +187,11 @@ export default defineConfig({
     assetsInclude: ['**/*.moc3', '**/*.model3.json', '**/*.motion3.json', '**/*.physics3.json', '**/*.cdi3.json', '**/*.exp3.json'],
     server: {
       port: 5174,
-      host: '127.0.0.1' // 确保监听 IPv4，避免 Electron 在 Windows 上无法连接 IPv6-only 的 Vite
+      host: '127.0.0.1', // 确保监听 IPv4，避免 Electron 在 Windows 上无法连接 IPv6-only 的 Vite
+      fs: {
+        // 允许从 apps/windows/assets 导入产品 logo 等静态资源
+        allow: [resolve(__dirname)],
+      },
     },
     build: {
       outDir: resolve(__dirname, 'out/renderer'),
@@ -202,6 +206,7 @@ export default defineConfig({
         '@': resolve(__dirname, 'src/renderer'),
         '@renderer': resolve(__dirname, 'src/renderer'),
         '@shared': resolve(__dirname, 'src/shared'),
+        '@app-assets': resolve(__dirname, 'assets'),
         // Node built-in stub: renderer 无 nodeIntegration，object-inspect 等库顶层访问
         // util.inspect.custom 会导致模块初始化崩溃（白屏）。提供最小 stub 解决。
         'util': resolve(__dirname, 'src/renderer/stubs/util.ts'),

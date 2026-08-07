@@ -13,9 +13,11 @@ import { useToast } from '../../components/ui/Toast/useToast'
 export const CronPage: FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingJob, setEditingJob] = useState<CronJob | null>(null)
+  const [view, setView] = useState<'active' | 'history'>('active')
   const toast = useToast()
   const { jobs, loading, error, fetchJobs, addJob, updateJob, removeJob, runJob, toggleJob } = useCronJobs()
-  const { agents } = useAgents()
+  const { agents, mainAgentId } = useAgents()
+  const visibleJobs = jobs.filter((job) => view === 'active' ? job.enabled : !job.enabled)
 
   return (
     <div className={clsx(styles.page, embedded && styles.pageEmbedded)}>
@@ -31,13 +33,18 @@ export const CronPage: FC<{ embedded?: boolean }> = ({ embedded = false }) => {
       </div>
 
       {error && <div className={styles.errorBanner}>{error}</div>}
+      <div className={styles.tabBar} role="tablist" aria-label="定时任务视图">
+        <button type="button" role="tab" aria-selected={view === 'active'} className={view === 'active' ? styles.tabActive : styles.tab} onClick={() => setView('active')}>任务列表</button>
+        <button type="button" role="tab" aria-selected={view === 'history'} className={view === 'history' ? styles.tabActive : styles.tab} onClick={() => setView('history')}>历史任务</button>
+      </div>
       <div className={styles.content}>
-        {loading ? <div className={styles.loading}>正在加载定时任务...</div> : <OverviewTab jobs={jobs} onToggle={toggleJob} onRun={runJob} onDelete={removeJob} onEdit={setEditingJob} />}
+        {loading ? <div className={styles.loading}>正在加载定时任务...</div> : <OverviewTab jobs={visibleJobs} agents={agents} isHistory={view === 'history'} onToggle={toggleJob} onRun={runJob} onDelete={removeJob} onEdit={setEditingJob} />}
       </div>
 
       {(showCreateModal || editingJob) && (
         <CreateJobModal
           agents={agents}
+          defaultAgentId={mainAgentId}
           editingJob={editingJob ?? undefined}
           onSubmit={async (data) => {
             const result = await addJob(data)
@@ -45,7 +52,7 @@ export const CronPage: FC<{ embedded?: boolean }> = ({ embedded = false }) => {
             else toast.error('创建任务失败')
           }}
           onUpdate={async (id, data) => {
-            const ok = await updateJob(id, { name: data.name, taskText: data.taskText, scheduleType: data.scheduleType, scheduleExpr: data.scheduleExpr })
+            const ok = await updateJob(id, { name: data.name, taskText: data.taskText, agentId: data.agentId, scheduleType: data.scheduleType, scheduleExpr: data.scheduleExpr })
             if (ok) { setEditingJob(null); toast.success('任务已更新') }
             else toast.error('更新任务失败')
           }}

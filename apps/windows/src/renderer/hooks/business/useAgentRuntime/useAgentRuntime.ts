@@ -528,7 +528,7 @@ export function useAgentRuntimeActions() {
    * 切换会话
    *
    * 多会话架构下，切换只需：
-   * 1. 目标会话内存中已有消息（含后台路由的消息）→ 直接切换
+   * 1. 目标会话内存中已有消息（含后台路由的消息）→ 直接切换，但仍刷新 files/tasks
    * 2. 否则从 DB 加载历史，在 setState updater 内与最新内存状态合并（避免竞态）
    * 后台会话的事件已被持续路由到对应会话，无需缓存恢复。
    */
@@ -541,21 +541,126 @@ export function useAgentRuntimeActions() {
       await api.sendCommand({ type: 'session:preferredModel:set', sessionKey, modelId: preferredModelId }).catch(() => undefined)
     }
 
-    // 目标会话内存中已有消息（含新建会话收到的后台事件），直接切换
+    type DbFileRow = {
+      id: string; fileName: string; localPath: string; mimeType: string | null
+      fileSize: number | null; conversationId: string | null; messageId: string | null
+      agentId: string | null; channel: string; category: 'upload' | 'output'
+    }
+    type DbTaskRow = {
+      id: string; subject: string; description: string | null; status: string; owner: string | null
+    }
+
+    /** 将 FileRepo 行转为 RuntimeFileEvent */
+    const toFileEvents = (files: readonly DbFileRow[]): RuntimeFileEvent[] =>
+      files.map((f) => ({
+        fileId: f.id,
+        fileName: f.fileName,
+        localPath: f.localPath,
+        mimeType: f.mimeType,
+        fileSize: f.fileSize,
+        conversationId: f.conversationId,
+        messageId: f.messageId,
+        agentId: f.agentId,
+        channel: f.channel,
+        category: f.category,
+      }))
+
+    /**
+     * 用 TaskRepo 权威任务列表注入一条合成 todo_write，供 TodoPanel 在重启后展示。
+     * 追加到最后一条 assistant 消息，aggregateTasks 会以最后一个 tasks[] 为基线。
+     */
+    const injectRestoredTasks = (
+      messages: RuntimeMessage[],
+      tasks: readonly DbTaskRow[],
+    ): RuntimeMessage[] => {
+      if (tasks.length === 0) return messages
+      const synthetic: RuntimeToolCall = {
+        id: '__restored_todo_' + sessionKey,
+        name: 'todo_write',
+        args: { action: 'list' },
+        result: {
+          action: 'list',
+          status: 'ok',
+          tasks: tasks.map((t) => ({
+            id: t.id,
+            subject: t.subject,
+            description: t.description,
+            status: t.status,
+            owner: t.owner,
+          })),
+          total: tasks.length,
+        },
+        status: 'completed',
+        isError: false,
+      }
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i]!
+        if (msg.role !== 'assistant') continue
+        const withoutDup = (msg.toolCalls ?? []).filter((tc) => tc.id !== synthetic.id)
+        const next = [...messages]
+        next[i] = { ...msg, toolCalls: [...withoutDup, synthetic] }
+        return next
+      }
+      return [
+        ...messages,
+        {
+          id: '__restored_todo_msg_' + sessionKey,
+          role: 'assistant' as const,
+          content: [{ type: 'text' as const, text: '' }],
+          timestamp: Date.now(),
+          isStreaming: false,
+          toolCalls: [synthetic],
+        },
+      ]
+    }
+
+    /** 拉取会话关联的文件与任务（缓存命中与冷加载共用） */
+    const fetchSessionMeta = async () => {
+      const [dbFilesResult, dbTasksResult] = await Promise.all([
+        api.sendCommand({
+          type: 'files:list',
+          userId: 'local-user',
+          conversationId: sessionKey,
+        }).catch((err) => {
+          debugLog('[switchSession] files:list 失败 sessionKey=' + sessionKey, err)
+          return null
+        }) as Promise<{ files: readonly DbFileRow[]; total: number } | null>,
+        api.sendCommand({
+          type: 'tasks:list',
+          conversationId: sessionKey,
+        }).catch((err) => {
+          debugLog('[switchSession] tasks:list 失败 sessionKey=' + sessionKey, err)
+          return null
+        }) as Promise<{ tasks: readonly DbTaskRow[] } | null>,
+      ])
+      return {
+        fileEvents: toFileEvents(dbFilesResult?.files ?? []),
+        tasks: dbTasksResult?.tasks ?? [],
+      }
+    }
+
+    // 目标会话内存中已有消息 → 直接切换，但仍刷新 files/tasks
     const existingSession = runtimeStore.getState().sessions.get(sessionKey)
     if (existingSession && existingSession.messages.length > 0) {
       runtimeStore.setState((prev) => ({ ...prev, currentSessionKey: sessionKey }))
       try {
-        const contextUsage = await api.sendCommand({
-          type: 'conversation:context-usage',
-          sessionKey,
-        }) as { usedTokens: number; contextWindow: number; triggerThreshold: number }
+        const [contextUsage, meta] = await Promise.all([
+          api.sendCommand({
+            type: 'conversation:context-usage',
+            sessionKey,
+          }) as Promise<{ usedTokens: number; contextWindow: number; triggerThreshold: number }>,
+          fetchSessionMeta(),
+        ])
         updateSessionState(sessionKey, (prev) => {
           const ratio = contextUsage.contextWindow > 0
             ? contextUsage.usedTokens / contextUsage.contextWindow
             : 0
+          const dbFileIds = new Set(meta.fileEvents.map((f) => f.fileId))
+          const onlyInMem = prev.fileEvents.filter((f) => !dbFileIds.has(f.fileId))
           return {
             ...prev,
+            messages: injectRestoredTasks(prev.messages as RuntimeMessage[], meta.tasks),
+            fileEvents: [...meta.fileEvents, ...onlyInMem],
             contextUsage: {
               usedTokens: contextUsage.usedTokens,
               contextWindow: contextUsage.contextWindow,
@@ -566,9 +671,9 @@ export function useAgentRuntimeActions() {
           }
         })
       } catch (err) {
-        debugLog(`[switchSession] 拉取上下文用量失败（已忽略） sessionKey=${sessionKey}`, err)
+        debugLog('[switchSession] 刷新缓存会话元数据失败（已忽略） sessionKey=' + sessionKey, err)
       }
-      debugLog(`[switchSession] 切换到已缓存会话 sessionKey=${sessionKey} msgs=${existingSession.messages.length}`)
+      debugLog('[switchSession] 切换到已缓存会话 sessionKey=' + sessionKey + ' msgs=' + existingSession.messages.length)
       return
     }
 
@@ -592,36 +697,20 @@ export function useAgentRuntimeActions() {
       sourceAgent?: { instanceId: string; label: string }
     }
 
-    const [dbMessages, dbFilesResult, dbContextUsage] = await Promise.all([
+    const [dbMessages, meta, dbContextUsage] = await Promise.all([
       api.sendCommand({
         type: 'conversation:messages',
         sessionKey,
       }) as Promise<readonly DbMessage[]>,
-      api.sendCommand({
-        type: 'files:list',
-        userId: 'local-user',
-        conversationId: sessionKey,
-      }).catch(() => null) as Promise<{ files: readonly { id: string; fileName: string; localPath: string; mimeType: string | null; fileSize: number | null; conversationId: string | null; messageId: string | null; agentId: string | null; channel: string; category: 'upload' | 'output' }[]; total: number } | null>,
+      fetchSessionMeta(),
       api.sendCommand({
         type: 'conversation:context-usage',
         sessionKey,
       }).catch(() => null) as Promise<{ usedTokens: number; contextWindow: number; triggerThreshold: number } | null>,
     ])
 
-    // 将 DB 文件记录转换为 RuntimeFileEvent 格式
-    const dbFileEvents: RuntimeFileEvent[] = (dbFilesResult?.files ?? []).map((f) => ({
-      fileId: f.id,
-      fileName: f.fileName,
-      localPath: f.localPath,
-      mimeType: f.mimeType,
-      fileSize: f.fileSize,
-      conversationId: f.conversationId,
-      messageId: f.messageId,
-      agentId: f.agentId,
-      channel: f.channel,
-      category: f.category,
-    }))
-    debugLog(`[switchSession] 加载历史文件 sessionKey=${sessionKey} files=${dbFileEvents.length}`)
+    const dbFileEvents = meta.fileEvents
+    debugLog('[switchSession] 加载历史文件/任务 sessionKey=' + sessionKey + ' files=' + dbFileEvents.length + ' tasks=' + meta.tasks.length)
 
     const toRuntimeMsg = (msg: DbMessage): RuntimeMessage => ({
       id: msg.id,
@@ -640,9 +729,9 @@ export function useAgentRuntimeActions() {
       ...(msg.audioWavBase64 ? { audioWavBase64: msg.audioWavBase64 } : {}),
     })
 
-    const dbMsgList: RuntimeMessage[] = dbMessages.map(toRuntimeMsg)
+    const dbMsgList: RuntimeMessage[] = injectRestoredTasks(dbMessages.map(toRuntimeMsg), meta.tasks)
     const hasDbStreamingMsg = dbMsgList.some((m) => m.isStreaming)
-    debugLog(`[switchSession] 加载会话 sessionKey=${sessionKey} dbMsgs=${dbMsgList.length} hasDbStreamingMsg=${hasDbStreamingMsg}`)
+    debugLog('[switchSession] 加载会话 sessionKey=' + sessionKey + ' dbMsgs=' + dbMsgList.length + ' hasDbStreamingMsg=' + hasDbStreamingMsg)
 
     /**
      * 合并逻辑放在 setState updater 内，确保基于写入时刻的最新内存状态做合并，
@@ -650,7 +739,6 @@ export function useAgentRuntimeActions() {
      */
     runtimeStore.setState((prev) => {
       const newSessions = new Map(prev.sessions)
-      // 读取 updater 执行时的最新内存会话状态（await 期间可能已有后台事件写入）
       const latestMemSession = prev.sessions.get(sessionKey)
       const baseState = latestMemSession ?? getDefaultPerSessionState()
 
@@ -660,12 +748,9 @@ export function useAgentRuntimeActions() {
       let restoredCurrentTool: RuntimeToolCall | null = null
 
       if (latestMemSession && latestMemSession.messages.length > 0) {
-        // 内存中已有消息（来自后台事件路由），合并 DB 消息和内存消息
         const dbMsgIds = new Set(dbMsgList.map((m) => m.id))
-        // DB 中没有的消息是后台事件路由产生的流式消息
         const pendingMsgs = latestMemSession.messages.filter((m) => !dbMsgIds.has(m.id))
 
-        // 对于 DB 中已存在的同 ID 消息，补齐内存中更完整的工具卡片
         const mergedDbMsgs = dbMsgList.map((dbMsg) => {
           const memMsg = latestMemSession.messages.find((m) => m.id === dbMsg.id)
           if (!memMsg) return dbMsg
@@ -675,23 +760,22 @@ export function useAgentRuntimeActions() {
         })
 
         if (pendingMsgs.length > 0) {
-          effectiveMessages = [...mergedDbMsgs, ...pendingMsgs]
+          effectiveMessages = injectRestoredTasks([...mergedDbMsgs, ...pendingMsgs], meta.tasks)
           restoredActiveRunId = latestMemSession.activeRunId
           restoredIsStreaming = latestMemSession.isStreaming || hasDbStreamingMsg
           restoredCurrentTool = latestMemSession.currentTool
         } else {
-          effectiveMessages = mergedDbMsgs
+          effectiveMessages = injectRestoredTasks(mergedDbMsgs, meta.tasks)
           restoredActiveRunId = hasDbStreamingMsg ? latestMemSession.activeRunId : null
           restoredIsStreaming = hasDbStreamingMsg
           restoredCurrentTool = hasDbStreamingMsg ? latestMemSession.currentTool : null
         }
-        debugLog(`[switchSession] 内存合并后 effectiveMsgs=${effectiveMessages.length} restoredIsStreaming=${restoredIsStreaming}`)
+        debugLog('[switchSession] 内存合并后 effectiveMsgs=' + effectiveMessages.length + ' restoredIsStreaming=' + restoredIsStreaming)
       }
 
       newSessions.set(sessionKey, {
         ...baseState,
         messages: effectiveMessages,
-        // 合并历史文件列表：以 DB 为基准，内存中新增的（当前会话产生但未刷盘的）追加在后
         fileEvents: (() => {
           const memFileEvents = latestMemSession?.fileEvents ?? []
           const dbFileIds = new Set(dbFileEvents.map((f) => f.fileId))

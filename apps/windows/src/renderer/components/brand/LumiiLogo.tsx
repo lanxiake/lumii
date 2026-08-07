@@ -1,8 +1,9 @@
 /**
- * LumiiLogo — 灵栖品牌标识（光栖：柔和光晕 + 抽象 L）
+ * LumiiLogo — 灵栖品牌标识（使用产品 logo 图片）
  */
 
 import React from 'react'
+import logoSrc from '@app-assets/logo.png'
 
 export interface LumiiLogoProps {
   /** 图标边长（px） */
@@ -14,7 +15,7 @@ export interface LumiiLogoProps {
 }
 
 /**
- * 渲染 Lumii 品牌 Logo（SVG）
+ * 渲染 Lumii 品牌 Logo（图片 + 可选文字）
  */
 export const LumiiLogo: React.FC<LumiiLogoProps> = ({
   size = 28,
@@ -31,47 +32,21 @@ export const LumiiLogo: React.FC<LumiiLogoProps> = ({
         lineHeight: 1,
       }}
     >
-      <svg
+      <img
+        src={logoSrc}
+        alt="灵栖 Lumii"
         width={size}
         height={size}
-        viewBox="0 0 64 64"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-label="Lumii"
-        role="img"
-      >
-        <defs>
-          <linearGradient id="lumiiGrad" x1="12" y1="8" x2="52" y2="56" gradientUnits="userSpaceOnUse">
-            <stop stopColor="#7DD3FC" />
-            <stop offset="0.45" stopColor="#38BDF8" />
-            <stop offset="1" stopColor="#2563EB" />
-          </linearGradient>
-          <radialGradient id="lumiiGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(32 28) rotate(90) scale(28 28)">
-            <stop stopColor="#7DD3FC" stopOpacity="0.55" />
-            <stop offset="1" stopColor="#2563EB" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-        <circle cx="32" cy="32" r="30" fill="url(#lumiiGlow)" />
-        <circle cx="32" cy="32" r="22" fill="url(#lumiiGrad)" />
-        {/* 抽象栖息光弧 */}
-        <path
-          d="M22 38.5C22 30.5 27.2 24 34.5 24C40.2 24 44.5 27.8 45.5 33"
-          stroke="white"
-          strokeWidth="3.2"
-          strokeLinecap="round"
-          fill="none"
-          opacity="0.92"
-        />
-        {/* L 形光柱 */}
-        <path
-          d="M26 20.5V43.5H40"
-          stroke="white"
-          strokeWidth="4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          opacity="0.95"
-        />
-      </svg>
+        draggable={false}
+        style={{
+          width: size,
+          height: size,
+          objectFit: 'contain',
+          borderRadius: Math.max(4, Math.round(size * 0.18)),
+          flexShrink: 0,
+          display: 'block',
+        }}
+      />
       {showWordmark && (
         <span
           style={{

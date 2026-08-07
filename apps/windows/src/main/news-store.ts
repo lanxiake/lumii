@@ -275,6 +275,7 @@ const NEWS_CRON_JOB = {
   /** 每 2 小时整点抓一次：资讯源本身更新频率有限，再密只是白跑 */
   scheduleExpr: '0 */2 * * *',
 } as const
+const NEWS_CRON_SEEDED_KEY = 'workflow:news:seeded'
 
 /** 确保资讯流水线定时任务存在（幂等，每次启动检查）。默认启用。 */
 export function ensureNewsCronJobSeeded(db: DatabaseAdapter): void {
@@ -293,30 +294,14 @@ export function ensureNewsCronJobSeeded(db: DatabaseAdapter): void {
       )
       .get(NEWS_CRON_JOB.id)
     if (existing) {
-      // 旧版本可能已经种过同名的普通提醒任务；修复其接线字段，保留用户的 enabled 选择。
-      const needsRepair =
-        existing.task_text !== NEWS_PIPELINE_INSTRUCTION
-        || existing.agent_id !== null
-        || existing.schedule_type !== 'cron'
-        || existing.schedule_expr !== NEWS_CRON_JOB.scheduleExpr
-      if (needsRepair) {
-        const now = Date.now()
-        db.prepare(
-          `UPDATE local_cron_jobs
-           SET name = ?, task_text = ?, agent_id = NULL, schedule_type = 'cron',
-               schedule_expr = ?, next_run_at = ?
-           WHERE id = ?`,
-        ).run(
-          NEWS_CRON_JOB.name,
-          NEWS_PIPELINE_INSTRUCTION,
-          NEWS_CRON_JOB.scheduleExpr,
-          now,
-          NEWS_CRON_JOB.id,
-        )
-        log.info(`已修复资讯流水线定时任务接线 id=${NEWS_CRON_JOB.id}`)
-      }
+      markNewsCronSeeded(db)
       return
     }
+
+    const seeded = db.prepare<{ value: string }>(
+      `SELECT value FROM runtime_state WHERE key = ?`,
+    ).get(NEWS_CRON_SEEDED_KEY)
+    if (seeded) return
 
     const now = Date.now()
     db.prepare(
@@ -324,10 +309,17 @@ export function ensureNewsCronJobSeeded(db: DatabaseAdapter): void {
        (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at)
        VALUES (?, ?, ?, NULL, 'cron', ?, ?, NULL, 1, ?)`,
     ).run(NEWS_CRON_JOB.id, NEWS_CRON_JOB.name, NEWS_PIPELINE_INSTRUCTION, NEWS_CRON_JOB.scheduleExpr, now, now)
+    markNewsCronSeeded(db)
     log.info(`已种入资讯流水线定时任务 id=${NEWS_CRON_JOB.id}`)
   } catch (err) {
     log.error('种入资讯定时任务失败:', err)
   }
+}
+
+function markNewsCronSeeded(db: DatabaseAdapter): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO runtime_state (key, value, updated_at) VALUES (?, '1', ?)`,
+  ).run(NEWS_CRON_SEEDED_KEY, new Date().toISOString())
 }
 
 /** 仅供单测：解析逻辑不走网络也要能验 */
