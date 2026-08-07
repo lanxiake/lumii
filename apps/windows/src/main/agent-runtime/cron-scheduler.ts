@@ -91,8 +91,12 @@ export interface CronSchedulerDeps {
   /**
    * Companion 魔法指令处理器（__companion_tick__ 等）
    * 返回执行结果描述供 cron_runs 记录；返回 null 表示不拦截（走正常 Agent 流程）
+   * @param options.manual 来自「立即执行」时为 true，供 companion 绕过软门闩
    */
-  handleCompanionInstruction?: (instruction: string) => Promise<string | null>
+  handleCompanionInstruction?: (
+    instruction: string,
+    options?: { manual?: boolean },
+  ) => Promise<string | null>
 }
 
 export class CronScheduler {
@@ -603,7 +607,9 @@ export class CronScheduler {
       // Companion 魔法指令拦截：优先走本地 companion handler，不创建 Agent 实例
       const companionHandler = this.deps.handleCompanionInstruction
       if (companionHandler && !job.agent_id) {
-        const companionResult = await companionHandler(job.task_text)
+        const companionResult = await companionHandler(job.task_text, {
+          manual: options.manual === true,
+        })
         if (companionResult !== null) {
           log.info(`[runLocalCronJob] companion 指令处理完成 jobId=${job.id} result="${companionResult}"`)
           const finishedAt = Date.now()

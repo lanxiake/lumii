@@ -167,6 +167,8 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
       expect(screen.getByText('置顶会话')).toBeInTheDocument()
     })
 
+    // 时间分组（今天/昨天/更早）只在搜索模式下切分，平时列表按更新时间平铺，
+    // 所以这三条都要先输入搜索词才能看到分组标签。
     it('TC-4.2.2: 今天创建的会话显示在"今天"分组', () => {
       const today = new Date()
       const sessions = [
@@ -177,6 +179,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
         }),
       ]
       render(<ChatSidebar {...mockProps} sessions={sessions} />)
+      fireEvent.change(screen.getByPlaceholderText('搜索会话...'), { target: { value: '会话' } })
 
       expect(screen.getByText('今天')).toBeInTheDocument()
     })
@@ -192,6 +195,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
         }),
       ]
       render(<ChatSidebar {...mockProps} sessions={sessions} />)
+      fireEvent.change(screen.getByPlaceholderText('搜索会话...'), { target: { value: '会话' } })
 
       expect(screen.getByText('昨天')).toBeInTheDocument()
     })
@@ -207,17 +211,21 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
         }),
       ]
       render(<ChatSidebar {...mockProps} sessions={sessions} />)
+      fireEvent.change(screen.getByPlaceholderText('搜索会话...'), { target: { value: '会话' } })
 
       expect(screen.getByText('更早')).toBeInTheDocument()
     })
 
     it('TC-4.2.5: 分组数量显示正确', () => {
       const today = new Date()
+      // 渠道计数只在「渠道」tab 的分组标题上展示（默认 tab 只有一个分组，
+      // tab 本身已表明来源，不重复标题与计数），所以用外部渠道会话来验。
       const sessions = [
-        createMockSession({ id: 's1', updatedAt: today }),
-        createMockSession({ id: 's2', updatedAt: today }),
+        createMockSession({ id: 's1', channel: 'wechat', updatedAt: today }),
+        createMockSession({ id: 's2', channel: 'wechat', updatedAt: today }),
       ]
       render(<ChatSidebar {...mockProps} sessions={sessions} />)
+      fireEvent.click(screen.getByRole('tab', { name: '渠道' }))
 
       expect(screen.getByText('(2)')).toBeInTheDocument()
     })
@@ -227,7 +235,8 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
     it('TC-4.3.1: 点击新建按钮触发回调', () => {
       render(<ChatSidebar {...mockProps} />)
 
-      const newBtn = screen.getByText('+ 新建对话')
+      // 「+」是独立 span，文本被拆开，按可访问名匹配整个按钮
+      const newBtn = screen.getByRole('button', { name: /新建对话/ })
       fireEvent.click(newBtn)
 
       expect(mockProps.onCreateSession).toHaveBeenCalled()
@@ -238,7 +247,9 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
     it('TC-4.4.1: 无会话时显示提示', () => {
       render(<ChatSidebar {...mockProps} sessions={[]} />)
 
-      expect(screen.getByText('暂无会话,点击上方按钮创建')).toBeInTheDocument()
+      // 默认 tab 下「系统默认」分组始终渲染（total=0 也不隐藏），
+      // 因此走的是分组内空态「暂无会话」，而非顶层「暂无会话，点击上方按钮创建」
+      expect(screen.getByText('暂无会话')).toBeInTheDocument()
     })
   })
 })

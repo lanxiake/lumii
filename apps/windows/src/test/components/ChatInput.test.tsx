@@ -69,7 +69,8 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
     it('TC-3.2.6: 点击发送按钮触发发送', () => {
       render(<ChatInput {...mockProps} value="Test message" />)
 
-      const sendBtn = screen.getByRole('button')
+      // 输入区有模型/推理/帮助等多个按钮，按 title 精确定位发送键
+      const sendBtn = screen.getByTitle('发送消息')
       fireEvent.click(sendBtn)
 
       expect(mockProps.onSend).toHaveBeenCalled()
@@ -82,25 +83,25 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
       expect(textarea).toBeDisabled()
     })
 
-    it('TC-3.2.8: 流式生成时发送按钮显示停止图标', () => {
+    // 图标从 emoji 换成了内联 SVG，textContent 已取不到字形，改判按钮语义
+    it('TC-3.2.8: 流式生成时发送按钮切换为停止', () => {
       render(<ChatInput {...mockProps} isStreaming={true} />)
 
-      const sendBtn = screen.getByRole('button')
-      expect(sendBtn.textContent).toContain('⏹️')
+      expect(screen.getByTitle('停止生成')).toBeInTheDocument()
+      expect(screen.queryByTitle('发送消息')).not.toBeInTheDocument()
     })
 
-    it('TC-3.2.9: 非流式时发送按钮显示发送图标', () => {
+    it('TC-3.2.9: 非流式时发送按钮显示发送', () => {
       render(<ChatInput {...mockProps} isStreaming={false} />)
 
-      const sendBtn = screen.getByRole('button')
-      expect(sendBtn.textContent).toContain('➤')
+      expect(screen.getByTitle('发送消息')).toBeInTheDocument()
+      expect(screen.queryByTitle('停止生成')).not.toBeInTheDocument()
     })
 
     it('TC-3.2.10: 禁用时发送按钮不可点击', () => {
       render(<ChatInput {...mockProps} disabled={true} />)
 
-      const sendBtn = screen.getByRole('button')
-      expect(sendBtn).toBeDisabled()
+      expect(screen.getByTitle('发送消息')).toBeDisabled()
     })
 
     it('TC-3.2.11: 未连接时显示警告提示', () => {
@@ -109,23 +110,25 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
       expect(screen.getByText(/未连接到服务器/)).toBeInTheDocument()
     })
 
+    // 生成中提示改由 placeholder 承载（见 index.tsx 的 effectivePlaceholder）
     it('TC-3.2.12: 流式生成时显示生成中提示', () => {
       render(<ChatInput {...mockProps} isStreaming={true} />)
 
-      expect(screen.getByText(/生成中.../)).toBeInTheDocument()
+      expect(screen.getByPlaceholderText(/AI 回复中/)).toBeInTheDocument()
     })
 
-    it('TC-3.2.13: 正常状态显示快捷键提示', () => {
-      render(<ChatInput {...mockProps} />)
+    // 快捷键提示挪到输入卡下方 composer-hint，只在有输入时出现，按键各自是 <kbd>
+    it('TC-3.2.13: 有输入时显示快捷键提示', () => {
+      render(<ChatInput {...mockProps} value="hi" />)
 
-      expect(screen.getByText(/Enter 发送，Shift\+Enter 换行/)).toBeInTheDocument()
+      expect(screen.getByText('Enter')).toBeInTheDocument()
+      expect(screen.getByText('Shift+Enter')).toBeInTheDocument()
     })
 
     it('TC-3.2.14: 空白内容发送按钮禁用', () => {
       render(<ChatInput {...mockProps} value="" />)
 
-      const sendBtn = screen.getByRole('button')
-      expect(sendBtn).toBeDisabled()
+      expect(screen.getByTitle('发送消息')).toBeDisabled()
     })
   })
 })

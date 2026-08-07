@@ -1,5 +1,5 @@
 import type { FC } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Modal } from '../../../../../components/ui/Modal'
 import type { CreateCronJobParams, CronJob, CronScheduleType } from '../../../../../hooks/business/useCron/types'
 import type { Agent } from '../../../../../services/agent-service'
@@ -68,11 +68,30 @@ export const CreateJobModal: FC<CreateJobModalProps> = ({ agents, defaultAgentId
   const [onceAt, setOnceAt] = useState(editingJob?.scheduleType === 'at' ? msToDatetimeLocal(Number(editingJob.scheduleExpr)) : getDefaultDatetime())
   const [notify, setNotify] = useState<string[]>(editingJob?.notifyTargets?.split(',').filter(Boolean) ?? ['system'])
   const [feishuReady, setFeishuReady] = useState(false)
+  const [notifyOpen, setNotifyOpen] = useState(false)
+  const notifyRef = useRef<HTMLDivElement>(null)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     void window.feishuService?.getStatus().then((status) => setFeishuReady(status === 'connected')).catch(() => setFeishuReady(false))
   }, [])
+
+  // 点外面收起下拉。渠道会越加越多，面板挡住下方表单时得能随手关掉。
+  useEffect(() => {
+    if (!notifyOpen) return
+    const onPointerDown = (event: MouseEvent) => {
+      if (!notifyRef.current?.contains(event.target as Node)) setNotifyOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setNotifyOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [notifyOpen])
 
   const schedule = useMemo((): { type: CronScheduleType; expr: string } => {
     if (mode === 'keep' && editingJob) return { type: editingJob.scheduleType, expr: editingJob.scheduleExpr }
@@ -89,6 +108,11 @@ export const CreateJobModal: FC<CreateJobModalProps> = ({ agents, defaultAgentId
 
   const toggleDay = (day: string) => setDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day])
   const toggleNotify = (id: string) => setNotify((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+
+  /** 收起状态下要能看出选了哪些渠道，所以按 NOTIFY_TARGETS 顺序拼名字而不是显示「已选 2 项」 */
+  const notifySummary = notify.length === 0
+    ? '不通知'
+    : NOTIFY_TARGETS.filter((target) => notify.includes(target.id)).map((target) => target.label).join('、')
 
   const handleSubmit = async () => {
     if (!canSubmit) return
@@ -210,18 +234,33 @@ export const CreateJobModal: FC<CreateJobModalProps> = ({ agents, defaultAgentId
         {mode === 'keep' && <div className={styles.currentRule}>当前规则：{editingJob?.scheduleExpr}</div>}
 
         <div className={styles.formGroup}>
-          <label className={styles.label}>通知渠道</label>
-          <div className={styles.notifyList}>
-            {NOTIFY_TARGETS.map((target) => {
-              const disabled = 'needsFeishu' in target && target.needsFeishu === true && !feishuReady
-              return (
-                <label key={target.id} className={`${styles.notifyItem} ${disabled ? styles.notifyDisabled : ''}`}>
-                  <input type="checkbox" checked={notify.includes(target.id)} disabled={disabled} onChange={() => toggleNotify(target.id)} />
-                  <span className={styles.notifyLabel}>{target.label}</span>
-                  <span className={styles.notifyHint}>{disabled ? '需先在设置中登录飞书' : target.hint}</span>
-                </label>
-              )
-            })}
+          <label className={styles.label} id="cron-job-notify-label">通知渠道</label>
+          <div className={styles.notifySelect} ref={notifyRef}>
+            <button
+              type="button"
+              className={styles.notifyTrigger}
+              onClick={() => setNotifyOpen((open) => !open)}
+              aria-haspopup="listbox"
+              aria-expanded={notifyOpen}
+              aria-labelledby="cron-job-notify-label"
+            >
+              <span className={notify.length ? styles.notifyValue : styles.notifyPlaceholder}>{notifySummary}</span>
+              <span className={styles.notifyArrow} aria-hidden="true">▾</span>
+            </button>
+            {notifyOpen && (
+              <div className={styles.notifyPanel} role="listbox" aria-multiselectable="true">
+                {NOTIFY_TARGETS.map((target) => {
+                  const disabled = 'needsFeishu' in target && target.needsFeishu === true && !feishuReady
+                  return (
+                    <label key={target.id} className={`${styles.notifyItem} ${disabled ? styles.notifyDisabled : ''}`}>
+                      <input type="checkbox" checked={notify.includes(target.id)} disabled={disabled} onChange={() => toggleNotify(target.id)} />
+                      <span className={styles.notifyLabel}>{target.label}</span>
+                      <span className={styles.notifyHint}>{disabled ? '需先在设置中登录飞书' : target.hint}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            )}
           </div>
           <p className={styles.hint}>企业微信与微信的机器人只能被动回复用户消息，暂不支持主动推送。</p>
         </div>

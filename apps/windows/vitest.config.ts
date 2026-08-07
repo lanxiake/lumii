@@ -16,6 +16,8 @@ export default defineConfig({
     },
   },
   test: {
+    // 处理 CSS Modules 才会应用上面的 classNameStrategy；默认 false 时样式整体被 stub 掉
+    css: { modules: { classNameStrategy: "non-scoped" } },
     testTimeout: 30_000,
     hookTimeout: 30_000,
     pool: "forks",

@@ -499,27 +499,34 @@ export class AgentRuntimeBridge {
           content,
         })
       },
-      handleCompanionInstruction: async (instruction: string) => {
+      handleCompanionInstruction: async (instruction: string, options) => {
         const workflowResult = await handleWorkflowInstruction(instruction, {
           callLLM: (prompt, purpose) => this.callLLM(prompt, undefined, purpose),
         })
         if (workflowResult !== null) return workflowResult
         if (!isLocalCompanionInstruction(instruction)) return null
-        return handleLocalCompanionInstruction(instruction, {
-          getDb: () => this.localDb.db,
-          showNotification: this.config.showCronNotification
-            ? (title, body) => this.config.showCronNotification!(title, body)
-            : undefined,
-          isPetMode: () => isPetMode(),
-          getProactiveCare: () => {
-            const s = getVirtualHumanSettings()
-            return {
-              enabled: s.proactiveCareEnabled,
-              mode: s.proactiveCareMode,
-              nickname: s.proactiveCareNickname,
-            }
+        return handleLocalCompanionInstruction(
+          instruction,
+          {
+            getDb: () => this.localDb.db,
+            showNotification: this.config.showCronNotification
+              ? (title, body) => this.config.showCronNotification!(title, body)
+              : undefined,
+            isPetMode: () => isPetMode(),
+            getProactiveCare: () => {
+              const s = getVirtualHumanSettings()
+              return {
+                enabled: s.proactiveCareEnabled,
+                mode: s.proactiveCareMode,
+                nickname: s.proactiveCareNickname,
+              }
+            },
+            getUserMemory: this.config.getUserMemory,
+            updateUserMemory: this.config.updateUserMemory,
+            callLLM: (prompt) => this.callLLM(prompt, undefined, 'memory_consolidation'),
           },
-        })
+          options,
+        )
       },
     })
     // 旧版 local_companion_prefs 一次性迁移到 vhSettings（幂等，需先于 seed 执行）

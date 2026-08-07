@@ -3,10 +3,11 @@
  * 测试 Phase 1: 架构重构 - 组件拆分和集成
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import ChatPage from '../../renderer/pages/ChatPage/ChatPage'
+import { SIDEBAR_SESSION_SLOT_ID } from '../../renderer/components/layout/Sidebar'
 
 // Mock hooks
 vi.mock('../../renderer/hooks/business/useChat', () => ({
@@ -30,9 +31,26 @@ vi.mock('../../renderer/hooks/business/useChat', () => ({
 // Mock electronAPI
 global.window.electronAPI = {} as any
 
+/**
+ * 会话列表已挪到最外层侧栏，ChatPage 用 createPortal 投进 MainLayout 提供的挂载点。
+ * 单独渲染 ChatPage 时没有 MainLayout，必须自己把挂载点摆进 document，
+ * 否则 ChatSidebar 整个不渲染（见 ChatPage.tsx 的 sessionSlot）。
+ */
+function mountSidebarSlot(): HTMLElement {
+  const slot = document.createElement('div')
+  slot.id = SIDEBAR_SESSION_SLOT_ID
+  document.body.appendChild(slot)
+  return slot
+}
+
 describe('Phase 1: 架构重构 - ChatPage组件', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mountSidebarSlot()
+  })
+
+  afterEach(() => {
+    document.getElementById(SIDEBAR_SESSION_SLOT_ID)?.remove()
   })
 
   describe('TC-1.1 组件拆分测试', () => {
@@ -42,8 +60,9 @@ describe('Phase 1: 架构重构 - ChatPage组件', () => {
     })
 
     it('TC-1.1.2: ChatSidebar 组件渲染', () => {
-      const { container } = render(<ChatPage />)
-      expect(container.querySelector('.chat-sidebar')).toBeInTheDocument()
+      render(<ChatPage />)
+      // portal 到 body 上的挂载点，不在 render 返回的 container 里
+      expect(document.querySelector('.chat-sidebar')).toBeInTheDocument()
     })
 
     it('TC-1.1.3: ChatContainer 组件渲染', () => {
@@ -61,8 +80,8 @@ describe('Phase 1: 架构重构 - ChatPage组件', () => {
     it('TC-1.2.1: ChatPage 渲染所有主要子组件', () => {
       const { container } = render(<ChatPage />)
 
-      // 检查主要子组件都存在
-      expect(container.querySelector('.chat-sidebar')).toBeInTheDocument()
+      // 检查主要子组件都存在（sidebar 是 portal，查 document）
+      expect(document.querySelector('.chat-sidebar')).toBeInTheDocument()
       expect(container.querySelector('.chat-main')).toBeInTheDocument()
       expect(container.querySelector('.chat-input-wrapper')).toBeInTheDocument()
     })
@@ -71,7 +90,7 @@ describe('Phase 1: 架构重构 - ChatPage组件', () => {
       const { container } = render(<ChatPage />)
 
       // 默认显示侧边栏
-      expect(container.querySelector('.chat-sidebar')).toBeInTheDocument()
+      expect(document.querySelector('.chat-sidebar')).toBeInTheDocument()
 
       // 找到切换按钮（如果存在）
       const toggleBtn = container.querySelector('[title*="侧边栏"]') as HTMLElement

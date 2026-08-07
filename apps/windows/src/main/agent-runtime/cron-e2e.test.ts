@@ -175,13 +175,12 @@ describe.skipIf(!hasSqlite)('预置定时任务端到端', () => {
     }
   })
 
-  it('资讯任务默认开启，其余默认关闭', () => {
+  it('全部预置任务默认开启，资讯任务不挂 Agent', () => {
     const jobs = listJobs(db)
     const news = jobs.find((j) => j.id === 'news-pipeline')
-    expect(news?.enabled).toBe(1)
     expect(news?.agent_id).toBeNull()
-    for (const job of jobs.filter((j) => j.id !== 'news-pipeline')) {
-      expect(job.enabled, job.id).toBe(0)
+    for (const job of jobs) {
+      expect(job.enabled, job.id).toBe(1)
     }
   })
 

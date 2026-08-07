@@ -95,33 +95,34 @@ describe('Phase 3: 消息功能 - MessageActions组件', () => {
       expect(mockProps.onEditCancel).toHaveBeenCalled()
     })
 
+    // 删除确认已从原生 confirm() 换成 ConfirmModal（portal 到 document.body）
     it('TC-3.1.8: 点击"删除"按钮显示确认对话框', () => {
       render(<MessageActions {...mockProps} />)
 
-      const deleteBtn = screen.getByTitle('删除')
-      fireEvent.click(deleteBtn)
+      fireEvent.click(screen.getByTitle('删除'))
 
-      expect(global.confirm).toHaveBeenCalled()
+      expect(screen.getByText('确认删除消息')).toBeInTheDocument()
+      expect(mockProps.onDelete).not.toHaveBeenCalled()
     })
 
     it('TC-3.1.9: 确认删除后触发回调', () => {
-      global.confirm = vi.fn(() => true)
       render(<MessageActions {...mockProps} />)
 
-      const deleteBtn = screen.getByTitle('删除')
-      fireEvent.click(deleteBtn)
+      fireEvent.click(screen.getByTitle('删除'))
+      // 图标按钮靠 title 暴露同名可访问名，这里按文本取弹窗底部按钮
+      fireEvent.click(screen.getByText('删除'))
 
       expect(mockProps.onDelete).toHaveBeenCalledWith(mockProps.messageId)
     })
 
     it('TC-3.1.10: 取消删除不触发回调', () => {
-      global.confirm = vi.fn(() => false)
       render(<MessageActions {...mockProps} />)
 
-      const deleteBtn = screen.getByTitle('删除')
-      fireEvent.click(deleteBtn)
+      fireEvent.click(screen.getByTitle('删除'))
+      fireEvent.click(screen.getByRole('button', { name: '取消' }))
 
       expect(mockProps.onDelete).not.toHaveBeenCalled()
+      expect(screen.queryByText('确认删除消息')).not.toBeInTheDocument()
     })
 
     it('TC-3.1.11: user 和 assistant 消息都显示"重新生成"按钮', () => {

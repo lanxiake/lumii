@@ -8,11 +8,12 @@
  *
  * 支持的魔法指令：
  *   __companion_tick__         → 感知→决策→通知
- *   __companion_memory_fast__  → 暂不实现，直接跳过（本地无记忆整理需求）
- *   __companion_memory_deep__  → 暂不实现，直接跳过（本地无记忆整理需求）
+ *   __companion_memory_fast__  → 轻量整理：只在检测出重复/冲突时才叫 LLM
+ *   __companion_memory_deep__  → 深度整理：无条件重写一遍个人记忆全文
  */
 
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
+import { consolidateUserMemory, needsPersonalMemoryConsolidation } from '@mtbot/agent-runtime'
 import { getVirtualHumanSettings, setVirtualHumanSettings } from '../pet/pet-mode-store'
 import { DEFAULT_VH_SETTINGS } from '../../shared/virtual-human'
 
@@ -109,6 +110,22 @@ export interface LocalCompanionDeps {
     mode: 'gentle' | 'active'
     nickname: string
   }
+  /** 读取个人记忆全文（Markdown）；未注入则记忆整理任务直接跳过 */
+  getUserMemory?: () => Promise<{ content: string } | undefined>
+  /** 覆盖写个人记忆全文 */
+  updateUserMemory?: (content: string) => Promise<unknown>
+  /** 整理用记忆的 LLM 调用 */
+  callLLM?: (prompt: string) => Promise<string>
+}
+
+/** Companion 指令执行选项 */
+export interface LocalCompanionRunOptions {
+  /**
+   * 是否来自定时任务列表的「立即执行」。
+   * 手动触发视为用户明确意图：绕过宠物模式 / 免打扰 / 日限额 / 最小间隔 / 工作日等软门闩，
+   * 与 cron 生效窗口对手动执行的放行策略一致；主动联系总开关仍生效。
+   */
+  manual?: boolean
 }
 
 /**
@@ -118,13 +135,15 @@ export interface LocalCompanionDeps {
 export async function handleLocalCompanionInstruction(
   instruction: string,
   deps: LocalCompanionDeps,
+  options: LocalCompanionRunOptions = {},
 ): Promise<string> {
   switch (instruction.trim()) {
     case '__companion_tick__':
-      return handleTick(deps)
+      return handleTick(deps, options)
     case '__companion_memory_fast__':
+      return handleMemoryConsolidation(deps, 'fast')
     case '__companion_memory_deep__':
-      return 'skipped: memory consolidation not implemented locally'
+      return handleMemoryConsolidation(deps, 'deep')
     default:
       return `unknown companion instruction: ${instruction}`
   }
@@ -132,16 +151,24 @@ export async function handleLocalCompanionInstruction(
 
 // ── Tick：感知→决策→通知 ──
 
-async function handleTick(deps: LocalCompanionDeps): Promise<string> {
-  log.info('[handleTick] 开始')
+/**
+ * 桌宠主动关心：按门闩决策是否发送关怀消息。
+ * 自动调度走完整门闩；手动「立即执行」绕过软门闩以便用户自测。
+ */
+async function handleTick(
+  deps: LocalCompanionDeps,
+  options: LocalCompanionRunOptions = {},
+): Promise<string> {
+  const manual = options.manual === true
+  log.info(`[handleTick] 开始 manual=${manual}`)
 
-  // 1. 宠物模式门闩：仅当前处于宠物模式才触达
-  if (!deps.isPetMode()) {
+  // 1. 宠物模式门闩：自动调度仅当前处于宠物模式才触达；手动执行可在主窗口自测
+  if (!manual && !deps.isPetMode()) {
     log.info('[handleTick] 非宠物模式, skip')
     return 'skipped: not in pet mode'
   }
 
-  // 2. 主动联系总开关（读虚拟人设置）
+  // 2. 主动联系总开关（读虚拟人设置；手动/自动均生效）
   const care = deps.getProactiveCare()
   if (!care.enabled) {
     log.info('[handleTick] 主动联系已关闭, skip')
@@ -149,37 +176,39 @@ async function handleTick(deps: LocalCompanionDeps): Promise<string> {
   }
 
   const db = deps.getDb()
-
-  // 3. 免打扰时段（隐藏默认值，不暴露 UI）
   const now = new Date()
-  const hour = now.getHours()
-  const quietStartHour = parseHour(QUIET_HOURS_START)
-  const quietEndHour = parseHour(QUIET_HOURS_END)
-  if (isInQuietHours(hour, quietStartHour, quietEndHour)) {
-    log.info(`[handleTick] 免打扰时段 hour=${hour}, skip`)
-    return 'skipped: quiet hours'
-  }
 
-  // 4. 日限额
-  const todayCount = readTodayCount(db)
-  if (todayCount >= MAX_DAILY_COUNT) {
-    log.info(`[handleTick] 日限额已满 count=${todayCount}/${MAX_DAILY_COUNT}, skip`)
-    return 'skipped: daily limit'
-  }
+  if (!manual) {
+    // 3. 免打扰时段（隐藏默认值，不暴露 UI）
+    const hour = now.getHours()
+    const quietStartHour = parseHour(QUIET_HOURS_START)
+    const quietEndHour = parseHour(QUIET_HOURS_END)
+    if (isInQuietHours(hour, quietStartHour, quietEndHour)) {
+      log.info(`[handleTick] 免打扰时段 hour=${hour}, skip`)
+      return 'skipped: quiet hours'
+    }
 
-  // 5. 最小间隔（gentle=4h, active=2h）
-  const minIntervalMs = care.mode === 'active' ? 2 * 60 * 60 * 1000 : 4 * 60 * 60 * 1000
-  const lastSentAt = readLastSentAt(db)
-  if (lastSentAt && Date.now() - lastSentAt < minIntervalMs) {
-    log.info(`[handleTick] 间隔未到 minInterval=${minIntervalMs}ms, skip`)
-    return 'skipped: too soon'
-  }
+    // 4. 日限额
+    const todayCount = readTodayCount(db)
+    if (todayCount >= MAX_DAILY_COUNT) {
+      log.info(`[handleTick] 日限额已满 count=${todayCount}/${MAX_DAILY_COUNT}, skip`)
+      return 'skipped: daily limit'
+    }
 
-  // 6. 工作日模式判断（gentle 模式仅工作日触发，active 模式全周期）
-  const dayOfWeek = now.getDay()
-  if (care.mode === 'gentle' && !GENTLE_WORK_DAYS.has(dayOfWeek)) {
-    log.info(`[handleTick] gentle 模式非工作日 day=${dayOfWeek}, skip`)
-    return 'skipped: not workday in gentle mode'
+    // 5. 最小间隔（gentle=4h, active=2h）
+    const minIntervalMs = care.mode === 'active' ? 2 * 60 * 60 * 1000 : 4 * 60 * 60 * 1000
+    const lastSentAt = readLastSentAt(db)
+    if (lastSentAt && Date.now() - lastSentAt < minIntervalMs) {
+      log.info(`[handleTick] 间隔未到 minInterval=${minIntervalMs}ms, skip`)
+      return 'skipped: too soon'
+    }
+
+    // 6. 工作日模式判断（gentle 模式仅工作日触发，active 模式全周期）
+    const dayOfWeek = now.getDay()
+    if (care.mode === 'gentle' && !GENTLE_WORK_DAYS.has(dayOfWeek)) {
+      log.info(`[handleTick] gentle 模式非工作日 day=${dayOfWeek}, skip`)
+      return 'skipped: not workday in gentle mode'
+    }
   }
 
   // 7. 生成并发送消息（标题避免使用「AI 伙伴」旧品牌文案）
@@ -200,6 +229,67 @@ async function handleTick(deps: LocalCompanionDeps): Promise<string> {
     return `executed: ${message.slice(0, 60)}`
   } catch (err) {
     log.error('[handleTick] 发送消息失败:', err)
+    return `error: ${err instanceof Error ? err.message : String(err)}`
+  }
+}
+
+// ── 记忆整理：fast 按需、deep 强制 ──
+
+/**
+ * 整理个人记忆（Markdown 全文）。
+ *
+ * fast：先用 needsPersonalMemoryConsolidation 做本地体检，只有查出重复/冲突/超长才叫 LLM。
+ *       半小时一次的任务不该每次都烧一次模型调用。
+ * deep：无条件重写一遍，捞 fast 那套启发式查不出来的陈旧表述。
+ */
+async function handleMemoryConsolidation(
+  deps: LocalCompanionDeps,
+  depth: 'fast' | 'deep',
+): Promise<string> {
+  const { getUserMemory, updateUserMemory, callLLM } = deps
+  if (!getUserMemory || !updateUserMemory || !callLLM) {
+    return 'skipped: 记忆读写未注入'
+  }
+
+  try {
+    const existing = (await getUserMemory())?.content ?? ''
+    if (!existing.trim()) return 'skipped: 个人记忆为空，无需整理'
+
+    if (depth === 'fast' && !needsPersonalMemoryConsolidation(existing).needed) {
+      return 'skipped: 记忆无重复或冲突，跳过整理'
+    }
+
+    // consolidateUserMemory 会吞掉 LLM 异常并回退成「无变化」。自己记一笔，
+    // 否则模型故障在定时任务页面上会显示成「跳过」，看不出是失败。
+    let llmError: unknown
+    const result = await consolidateUserMemory({
+      existingContent: existing,
+      newCandidates: [],
+      callLLM: async (prompt) => {
+        try {
+          return await callLLM(prompt)
+        } catch (err) {
+          llmError = err
+          throw err
+        }
+      },
+      forceConsolidate: true,
+    })
+    if (llmError) {
+      throw llmError
+    }
+    if (!result.merged || result.content.trim() === existing.trim()) {
+      return 'skipped: 整理后无变化'
+    }
+
+    await updateUserMemory(result.content)
+    const delta = existing.length - result.content.length
+    log.info(`[handleMemoryConsolidation] ${depth} 完成，字数变化 ${-delta}`)
+    return `executed: ${depth === 'fast' ? '轻量' : '深度'}整理完成，${
+      delta > 0 ? `精简 ${delta} 字` : `补充 ${-delta} 字`
+    }`
+  } catch (err) {
+    log.error(`[handleMemoryConsolidation] ${depth} 失败:`, err)
     return `error: ${err instanceof Error ? err.message : String(err)}`
   }
 }
@@ -331,22 +421,40 @@ function writeLastSentAt(db: DatabaseAdapter, ts: number): void {
 // ── Cron Job 种子 ──
 
 const COMPANION_CRON_JOBS = [
-  { id: 'companion-tick', name: 'companion:tick', taskText: '__companion_tick__', scheduleExpr: '*/15 * * * *' },
-  { id: 'companion-memory-fast', name: 'companion:memory_fast', taskText: '__companion_memory_fast__', scheduleExpr: '*/30 * * * *' },
-  { id: 'companion-memory-deep', name: 'companion:memory_deep', taskText: '__companion_memory_deep__', scheduleExpr: '0 */6 * * *' },
+  {
+    id: 'companion-tick',
+    name: '桌宠主动关心',
+    taskText: '__companion_tick__',
+    scheduleExpr: '*/15 * * * *',
+  },
+  {
+    id: 'companion-memory-fast',
+    name: '记忆轻量整理',
+    taskText: '__companion_memory_fast__',
+    scheduleExpr: '*/30 * * * *',
+  },
+  {
+    id: 'companion-memory-deep',
+    name: '记忆深度整理',
+    taskText: '__companion_memory_deep__',
+    scheduleExpr: '0 */6 * * *',
+  },
 ] as const
 
 /**
  * 确保 companion cron jobs 存在于 local_cron_jobs 表中（幂等，每次启动检查）
  *
- * enabled 字段来源于虚拟人设置 vhSettings.proactiveCareEnabled（新真源）。
+ * 三条都默认开启。只有 companion-tick 的 enabled 跟随虚拟人设置
+ * vhSettings.proactiveCareEnabled —— 那个开关管的是「主动联系」这件事本身；
+ * 两条记忆整理任务与它无关，enabled 交给用户在定时任务页自己控制，
+ * 启动时不覆盖，否则用户关掉了下次启动又被打开。
  */
 export function ensureCompanionCronJobsSeeded(db: DatabaseAdapter): void {
   try {
-    const enabled = getVirtualHumanSettings().proactiveCareEnabled
-    // 不管是否 enabled，都确保 job 行存在（enabled 字段同步）
+    const careEnabled = getVirtualHumanSettings().proactiveCareEnabled
     const now = Date.now()
     for (const job of COMPANION_CRON_JOBS) {
+      const isTick = job.id === 'companion-tick'
       const existing = db.prepare<{ id: string }>(
         `SELECT id FROM local_cron_jobs WHERE id = ?`
       ).get(job.id) as { id: string } | undefined
@@ -362,15 +470,17 @@ export function ensureCompanionCronJobsSeeded(db: DatabaseAdapter): void {
           job.taskText,
           job.scheduleExpr,
           now,
-          enabled ? 1 : 0,
+          isTick && !careEnabled ? 0 : 1,
           now,
         )
         log.info(`[ensureCompanionCronJobsSeeded] 新建 job id=${job.id}`)
-      } else {
-        // 同步 enabled 状态
+      } else if (isTick) {
         db.prepare(
-          `UPDATE local_cron_jobs SET enabled = ? WHERE id = ?`
-        ).run(enabled ? 1 : 0, job.id)
+          `UPDATE local_cron_jobs SET name = ?, enabled = ? WHERE id = ?`
+        ).run(job.name, careEnabled ? 1 : 0, job.id)
+      } else {
+        // 老库里存的是 companion:memory_fast 这类英文名，补一次中文名；enabled 不动
+        db.prepare(`UPDATE local_cron_jobs SET name = ? WHERE id = ?`).run(job.name, job.id)
       }
     }
     log.info(`[ensureCompanionCronJobsSeeded] companion cron jobs 已就绪`)
