@@ -25,6 +25,7 @@ import { ImageLightbox } from '../../../../components/ImageLightbox'
 import { useWorkspace } from '../../../../hooks/business/useWorkspace'
 import type { ChatMessage as ChatMessageType, AgentWorkflowItem } from '../../../../hooks/business/useChat'
 import type { RuntimeFileEvent } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
+import { parseMediaAttachments, mergeEditedUserMessage } from '../../utils/file-attachment-strategy'
 import styles from './ChatMessage.module.css'
 
 interface ChatMessageProps {
@@ -199,28 +200,6 @@ function buildMarkdownComponents(isStreaming: boolean): Components {
 // ---------------------------------------------------------------
 // 交错渲染逻辑
 // ---------------------------------------------------------------
-
-/** 解析消息文本中的 [media attached: path (fileName)] 行，返回文件列表和剩余文本 */
-function parseMediaAttachments(content: string): {
-  textWithoutMedia: string
-  mediaFiles: Array<{ filePath: string; fileName: string }>
-} {
-  const MEDIA_RE = /^\[media attached:\s*(.+?)(?:\s+\(([^)]+)\))?\]$/
-  const lines = content.split('\n')
-  const mediaFiles: Array<{ filePath: string; fileName: string }> = []
-  const textLines: string[] = []
-  for (const line of lines) {
-    const m = MEDIA_RE.exec(line.trim())
-    if (m) {
-      const rawPath = m[1].trim()
-      const fileName = m[2]?.trim() ?? rawPath.split(/[\\/]/).pop() ?? rawPath
-      mediaFiles.push({ filePath: rawPath, fileName })
-    } else {
-      textLines.push(line)
-    }
-  }
-  return { textWithoutMedia: textLines.join('\n').trim(), mediaFiles }
-}
 
 /** 用户消息中的媒体文件附件列表，复用工具卡片的 fileChip 样式和 ToolFilePreviewContext */
 function MediaFileChips({ mediaFiles }: { mediaFiles: Array<{ filePath: string; fileName: string }> }) {
@@ -643,14 +622,19 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   const handleEditStart = () => { setIsEditing(true) }
   const handleEditCancel = () => { setIsEditing(false) }
   const handleEditSave = (newContent: string) => {
+    // 用户消息：编辑器只含可见正文，保存时拼回附件 / parsed text 等 Agent 后缀
+    const toSave =
+      message.role === 'user'
+        ? mergeEditedUserMessage(message.content, newContent)
+        : newContent
     // 内容有实质变化才触发「删后续重答」，未变则视为取消编辑
-    if (newContent.trim() !== message.content.trim()) {
-      onEdit(message.id, newContent)
+    if (toSave.trim() !== message.content.trim()) {
+      onEdit(message.id, toSave)
     }
     setIsEditing(false)
   }
 
-  /** 构建包含文字 + 工具调用详情的完整复制文本 */
+  /** 构建包含文字 + 工具调用详情的完整复制文本（用户消息剥离 Agent 注入标记） */
   const buildCopyContent = useCallback((): string => {
     const parts: string[] = []
     const thinking =
@@ -659,7 +643,14 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     if (thinking) {
       parts.push(`[思考过程]\n${thinking}`)
     }
-    if (message.content) parts.push(message.content)
+    if (message.content) {
+      if (message.role === 'user') {
+        const { textWithoutMedia } = parseMediaAttachments(message.content)
+        if (textWithoutMedia) parts.push(textWithoutMedia)
+      } else {
+        parts.push(message.content)
+      }
+    }
     if (toolItems && toolItems.length > 0) {
       for (const item of toolItems) {
         const lines: string[] = [`[工具调用: ${item.name}]`]
@@ -676,7 +667,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       }
     }
     return parts.join('\n\n')
-  }, [message.content, message.thinkingText, streamingThinkingText, toolItems])
+  }, [message.content, message.role, message.thinkingText, streamingThinkingText, toolItems])
 
   const handleCopy = useCallback(() => {
     onCopy(buildCopyContent())
@@ -1125,7 +1116,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         {message.role === 'assistant' && renderMemoryHint()}
         {/*
           注意：消息气泡底部不再重复渲染 fileAttachments。
-          Agent 生成/上传的文件由会话底部统一的 SessionFileList 展示，
+          Agent 生成/上传的文件由对话流内的 SessionFileList 轻量卡片展示，
           避免「消息气泡底部附件列表 + 会话文件列表」双重冗余。
           fileAttachments prop 仍保留，供工具卡片按 fileName 匹配 fileId 做内联预览。
         */}
@@ -1135,7 +1126,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
           <MessageActions
             messageId={message.id}
             role={message.role}
-            content={message.content}
+            content={
+              message.role === 'user'
+                ? parseMediaAttachments(message.content).textWithoutMedia
+                : message.content
+            }
             isEditing={isEditing}
             onCopy={handleCopy}
             onEditStart={handleEditStart}
