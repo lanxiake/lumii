@@ -11,6 +11,7 @@
     "dev:stop": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-dev.ps1",
     "dev:restart": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-dev.ps1 -Force",
     "dist": "pnpm --filter ./apps/windows package:win",
+    "package:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/package-win.ps1",
     "typecheck": "pnpm -r typecheck"
   },
   "pnpm": {

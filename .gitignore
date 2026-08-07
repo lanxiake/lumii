@@ -10,7 +10,10 @@ dist/
 build/
 out/
 release/
+release-build/
 release-build-*/
+release-ok-*/
+**/win-unpacked.tmp/
 coverage/
 *.tsbuildinfo
 
@@ -20,11 +23,15 @@ coverage/
 !.env.example
 **/.env
 !**/.env.example
+**/config/.env.pack
 
 # Logs & OS junk
 *.log
 .DS_Store
 Thumbs.db
+# Windows: redirecting to NUL can create a real file named "nul"
+**/nul
+nul
 
 # Editor / IDE
 .idea/

@@ -1,13 +1,11 @@
-# MtBot Windows 客户端一键打包脚本
+# Lumii Windows packaging helper (prefer root scripts/package-win.ps1)
 #
-# 用法:
-#   .\scripts\build.ps1                      # 默认: 清理 + 构建 + 打包 NSIS x64
-#   .\scripts\build.ps1 -SkipClean           # 跳过清理（增量构建）
-#   .\scripts\build.ps1 -Target portable     # 打包便携版
-#   .\scripts\build.ps1 -Target zip          # 打包 ZIP
-#   .\scripts\build.ps1 -Arch ia32           # 打包 32 位
-#   .\scripts\build.ps1 -Arch both           # 同时打包 x64 和 ia32
-#   .\scripts\build.ps1 -All                 # 打包所有格式（nsis + portable + zip）
+# Usage:
+#   .\scripts\build.ps1                      # clean + build + NSIS x64
+#   .\scripts\build.ps1 -SkipClean           # incremental
+#   .\scripts\build.ps1 -Target portable
+#   .\scripts\build.ps1 -Arch both
+#   .\scripts\build.ps1 -All                 # nsis + portable + zip
 
 param(
     [switch]$SkipClean,
@@ -81,11 +79,10 @@ function Step-Clean {
 function Step-Verify {
     Write-Step '步骤 2/4: 验证必要文件'
     $required = @(
-        @{ Path = 'config\server-config.json'; Desc = '服务器配置' },
-        @{ Path = 'assets\icon.ico';           Desc = '应用图标'   },
-        @{ Path = 'electron-builder.json';     Desc = 'builder 配置' },
-        @{ Path = 'build\license.txt';         Desc = '许可证文件' },
-        @{ Path = 'build\installer.nsh';       Desc = 'NSIS 脚本'  }
+        @{ Path = 'assets\icon.ico';                        Desc = 'app icon' },
+        @{ Path = 'electron-builder.json';                  Desc = 'builder config' },
+        @{ Path = 'build-resources\license.txt';            Desc = 'license' },
+        @{ Path = 'build-resources\installer.nsh';          Desc = 'NSIS script' }
     )
     $allGood = $true
     foreach ($item in $required) {
@@ -96,12 +93,6 @@ function Step-Verify {
             Write-Warn "缺少 $($item.Desc): $($item.Path)"
             $allGood = $false
         }
-    }
-    $configPath = Join-Path $WindowsRoot 'config\server-config.json'
-    if (Test-Path $configPath) {
-        $cfg = Get-Content $configPath -Raw | ConvertFrom-Json
-        Write-Host "     API URL:     $($cfg.apiUrl)" -ForegroundColor DarkGray
-        Write-Host "     Gateway URL: $($cfg.gatewayUrl)" -ForegroundColor DarkGray
     }
     if (-not $allGood) { Write-Warn '部分文件缺失，打包可能失败' }
     Write-Ok '验证完成'
@@ -160,7 +151,7 @@ $startTime = Get-Date
 
 Write-Host ''
 Write-Host '========================================' -ForegroundColor Cyan
-Write-Host '  MtBot Windows 客户端打包工具'          -ForegroundColor Cyan
+Write-Host '  Lumii Windows package'          -ForegroundColor Cyan
 Write-Host '========================================' -ForegroundColor Cyan
 if ($All) {
     Write-Host '  目标: 全部 (nsis + portable + zip)'

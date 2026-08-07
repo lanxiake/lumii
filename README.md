@@ -51,7 +51,7 @@ pnpm package:zip      # 仅 zip
 - `~/.mtbot-client/config/` —— 服务商、Agent 配置
 - `~/.mtbot-client/data/` —— 人格（soul.md）、个人记忆、对话数据
 
-Web 搜索为可选功能，需在 `apps/windows/config/.env.pack`（打包期）或 `~/.mtbot-client/.env`（运行期）配置 `SEARXNG_BASE_URL` 或 `LANGSEARCH_API_KEY`。
+Web 搜索为可选功能，可在 `apps/windows/.env` 或用户数据目录下的 `.env` 配置 `SEARXNG_BASE_URL` 或 `LANGSEARCH_API_KEY`。核心对话与 Agent 不依赖网关 / API Server。
 
 ## 许可
 
