@@ -80,8 +80,8 @@ function walkWorkspace(
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(absDir, { withFileTypes: true });
-  } catch {
-    return;
+  } catch (error) {
+    throw new Error(`读取工作区目录失败: ${absDir}`, { cause: error });
   }
 
   for (const entry of entries) {

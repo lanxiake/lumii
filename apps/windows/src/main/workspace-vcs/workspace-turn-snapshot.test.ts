@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -59,5 +59,24 @@ describe("captureWorkspaceTurnSnapshot", () => {
     await expect(
       captureWorkspaceTurnSnapshot(path.join(dir, "missing")),
     ).rejects.toThrow();
+  });
+
+  it("readdir 失败时拒绝整个快照而非返回空 Map", async () => {
+    fs.writeFileSync(path.join(dir, "a.ts"), "v1");
+    fs.mkdirSync(path.join(dir, "subdir"));
+    fs.writeFileSync(path.join(dir, "subdir", "b.ts"), "v2");
+
+    const subdir = path.join(dir, "subdir");
+    const originalReaddir = fs.readdirSync.bind(fs);
+    vi.spyOn(fs, "readdirSync").mockImplementation((target, options) => {
+      if (String(target) === subdir) {
+        throw new Error("EACCES: permission denied");
+      }
+      return originalReaddir(target, options);
+    });
+
+    await expect(captureWorkspaceTurnSnapshot(dir)).rejects.toThrow(
+      /读取工作区目录失败/,
+    );
   });
 });
