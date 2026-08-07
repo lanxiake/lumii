@@ -52,3 +52,6 @@ apps/windows/assets/icon.ico.bak_20260807130342
 apps/windows/dist-release-20260807-174125/win-unpacked.tmp/resources/default_app.asar
 apps/windows/database.db
 apps/windows/.pack-out-dir.txt
+
+# Git worktrees (local isolation)
+.worktrees/
