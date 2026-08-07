@@ -3,9 +3,18 @@
  * 从 AgentRuntimeBridge.createInstance 拆出以降低主类体积并保持职责单一。
  */
 
-import type { AgentRuntimeEvent } from '@mtbot/agent-runtime'
-import { providerPromptTokens } from '@mtbot/agent-runtime'
-import type { ConversationRepo, FileRepo } from '@mtbot/agent-runtime'
+import type {
+  AgentRuntimeEvent,
+  AssistantPart,
+  AssistantPartsContent,
+  ConversationRepo,
+  FileRepo,
+} from '@mtbot/agent-runtime'
+import {
+  applyAssistantPartEvent,
+  finalizeAssistantParts,
+  providerPromptTokens,
+} from '@mtbot/agent-runtime'
 import { convertOldEventToIpcEvents, parseThinkTagsFromRaw, type RunContext } from './event-converter'
 import { forwardPermissionRuntimeToIpc } from './bridge-permission-ipc-forward'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
@@ -25,15 +34,78 @@ export interface InstanceRuntimeMetrics {
   outputTokens: number
 }
 
-/** 助手轮次内待合并落库的 tool 调用记录 */
-export type AssistantTurnToolRecord = {
-  id: string
-  name: string
-  args: Record<string, unknown>
-  result: unknown
-  isError: boolean
-  textPositionAtStart?: number
-  durationMs?: number
+type AssistantPartsMetadata = Pick<AssistantPartsContent, 'usage' | 'sourceAgent'>
+
+/**
+ * 将 parts 收尾为数据库内容，并兼容仅通过原始 <think> 标签提供思考内容的模型。
+ */
+export function createAssistantPartsContent(
+  parts: readonly AssistantPart[],
+  metadata: AssistantPartsMetadata = {},
+): AssistantPartsContent {
+  let finalizedParts = finalizeAssistantParts(parts)
+  const hasThinkingPart = finalizedParts.some((part) => part.type === 'thinking')
+  const fallbackThinkingTexts: string[] = []
+  const normalizedParts: AssistantPart[] = []
+
+  for (const part of finalizedParts) {
+    if (part.type !== 'text') {
+      normalizedParts.push(part)
+      continue
+    }
+    const { thinkingText, finalText } = parseThinkTagsFromRaw(part.text)
+    if (!thinkingText) {
+      normalizedParts.push(part)
+      continue
+    }
+    fallbackThinkingTexts.push(thinkingText)
+    if (finalText) normalizedParts.push({ ...part, text: finalText, status: 'done' })
+  }
+  finalizedParts = normalizedParts
+
+  if (!hasThinkingPart && fallbackThinkingTexts.length > 0) {
+    const fallbackThinking = finalizeAssistantParts(
+      applyAssistantPartEvent([], {
+        kind: 'thinking_delta',
+        delta: fallbackThinkingTexts.join('\n\n'),
+      }),
+    )[0]
+    if (fallbackThinking) {
+      finalizedParts.unshift(fallbackThinking)
+    }
+  }
+
+  return {
+    type: 'assistant_parts',
+    parts: finalizedParts,
+    ...(metadata.usage ? { usage: metadata.usage } : {}),
+    ...(metadata.sourceAgent ? { sourceAgent: metadata.sourceAgent } : {}),
+  }
+}
+
+/**
+ * 提取 parts 中的最终正文，供记忆与技能进化回调复用。
+ */
+function assistantTextFromParts(parts: readonly AssistantPart[]): string {
+  return parts
+    .filter((part): part is Extract<AssistantPart, { type: 'text' }> => part.type === 'text')
+    .map((part) => part.text)
+    .join('')
+}
+
+/**
+ * 构造流式写入内容，保持 pendingParts 中的实时状态不被提前收尾。
+ */
+function createStreamingAssistantPartsContent(
+  parts: readonly AssistantPart[],
+  metadata: AssistantPartsMetadata = {},
+): AssistantPartsContent {
+  return {
+    type: 'assistant_parts',
+    parts: [...parts],
+    ...(metadata.usage ? { usage: metadata.usage } : {}),
+    ...(metadata.sourceAgent ? { sourceAgent: metadata.sourceAgent } : {}),
+  }
 }
 
 /**
@@ -44,33 +116,26 @@ function finalizeStreamingAssistantMessage(params: {
   conversationRepo: ConversationRepo
   messageId: string
   conversationId: string
-  text: string
-  thinkingText?: string
-  tools: readonly AssistantTurnToolRecord[]
+  parts: readonly AssistantPart[]
   usage?: { inputTokens: number; outputTokens: number; cacheRead?: number; cacheWrite?: number }
   sourceAgent?: { instanceId: string; label: string }
   logTag: string
 }): boolean {
-  const { conversationRepo, messageId, conversationId, text, thinkingText, tools, usage, sourceAgent, logTag } =
-    params
-  const hasContent = text.trim().length > 0 || tools.length > 0
+  const { conversationRepo, messageId, conversationId, parts, usage, sourceAgent, logTag } = params
+  const contentJson = createAssistantPartsContent(parts, { usage, sourceAgent })
+  const hasContent = contentJson.parts.some(
+    (part) => part.type === 'tool' || part.text.trim().length > 0,
+  )
   if (!hasContent) return false
   try {
     conversationRepo.updateMessageContent({
       messageId,
       conversationId,
-      contentJson: {
-        type: 'text',
-        text,
-        ...(thinkingText ? { thinkingText } : {}),
-        ...(tools.length > 0 ? { toolCalls: tools } : {}),
-        ...(usage ? { usage } : {}),
-        ...(sourceAgent ? { sourceAgent } : {}),
-      },
+      contentJson,
       isStreaming: false,
     })
     log.info(
-      `[event] ${logTag} 已保留中断消息 messageId=${messageId}, len=${text.length}, tools=${tools.length}`,
+      `[event] ${logTag} 已保留中断消息 messageId=${messageId}, parts=${contentJson.parts.length}`,
     )
     return true
   } catch (err) {
@@ -143,7 +208,6 @@ export function createAgentInstanceRuntimeEventHandler(
     instanceStates,
     instanceToConversation,
     toolCallInstanceMap,
-    toolTextPositionMap,
     toolStartTimeMap,
     nodeStreamCallbacks,
     getCompactionForRootSession,
@@ -157,6 +221,75 @@ export function createAgentInstanceRuntimeEventHandler(
     onTurnComplete,
     onAssistantMessagePersisted,
   } = deps
+  const sourceAgentInfo = isSubAgent && agentName ? { instanceId, label: agentName } : undefined
+  const streamingPersistIntervalMs = 100
+  let streamingPersistTimer: ReturnType<typeof setTimeout> | undefined
+  let lastStreamingPersistAt = 0
+
+  /**
+   * 立即将当前 pendingParts 同步到流式占位行。
+   */
+  function writeCurrentStreamingParts(logTag: string): void {
+    const state = instanceStates.get(instanceId)
+    const messageId = state?.streamingAssistantMsgId
+    const conversationId = instanceToConversation.get(instanceId)
+    if (
+      !state ||
+      !messageId ||
+      messageId === '__PLACEHOLDER_FAILED__' ||
+      !conversationId ||
+      !conversationRepo
+    ) {
+      return
+    }
+
+    try {
+      lastStreamingPersistAt = Date.now()
+      conversationRepo.updateMessageContent({
+        messageId,
+        conversationId,
+        contentJson: createStreamingAssistantPartsContent(state.pendingParts, {
+          usage: state.lastAssistantUsage,
+          sourceAgent: sourceAgentInfo,
+        }),
+        isStreaming: true,
+      })
+    } catch (err) {
+      log.error(`[event] ${logTag} 持久化失败:`, err)
+    }
+  }
+
+  /**
+   * 合并高频 token 写入；工具边界可强制立即落库。
+   */
+  function persistCurrentStreamingParts(logTag: string, force = false): void {
+    if (force) {
+      cancelPendingStreamingPersist()
+      writeCurrentStreamingParts(logTag)
+      return
+    }
+
+    const delay = streamingPersistIntervalMs - (Date.now() - lastStreamingPersistAt)
+    if (delay <= 0 && !streamingPersistTimer) {
+      writeCurrentStreamingParts(logTag)
+      return
+    }
+    if (streamingPersistTimer) return
+
+    streamingPersistTimer = setTimeout(() => {
+      streamingPersistTimer = undefined
+      writeCurrentStreamingParts(logTag)
+    }, Math.max(0, delay))
+  }
+
+  /**
+   * 取消尚未执行的流式写，避免覆盖 message:end / agent:end 的终态。
+   */
+  function cancelPendingStreamingPersist(): void {
+    if (!streamingPersistTimer) return
+    clearTimeout(streamingPersistTimer)
+    streamingPersistTimer = undefined
+  }
 
   return (event: AgentRuntimeEvent) => {
     if (event.type === 'message:delta') {
@@ -185,30 +318,25 @@ export function createAgentInstanceRuntimeEventHandler(
     }
 
     if (event.type === 'agent:start') {
+      cancelPendingStreamingPersist()
       markRunStart(instanceId)
       const state = instanceStates.get(instanceId)
       // 自愈重试时，删除上一轮的空占位行；有内容的行应 finalize 保留，供「继续」恢复历史
       const prevMsgId = state?.streamingAssistantMsgId
-      const prevRawText = state?.accumulatedText ?? ''
-      const prevTools = state?.pendingTools ?? []
-      const prevHasContent = prevRawText.trim().length > 0 || prevTools.length > 0
+      const prevParts = state?.pendingParts ?? []
+      const prevHasContent = prevParts.some(
+        (part) => part.type === 'tool' || part.text.trim().length > 0,
+      )
       if (prevMsgId && prevMsgId !== '__PLACEHOLDER_FAILED__' && conversationRepo) {
         const convId = instanceToConversation.get(instanceId)
         if (convId) {
           try {
             if (prevHasContent) {
-              const { thinkingText: tagThinking, finalText } = parseThinkTagsFromRaw(prevRawText)
-              const prevThinking = (state?.accumulatedThinking ?? '').trim().length > 0
-                ? state!.accumulatedThinking
-                : tagThinking
-              const sourceAgentInfo = isSubAgent && agentName ? { instanceId, label: agentName } : undefined
               finalizeStreamingAssistantMessage({
                 conversationRepo,
                 messageId: prevMsgId,
                 conversationId: convId,
-                text: finalText,
-                thinkingText: prevThinking || undefined,
-                tools: prevTools,
+                parts: prevParts,
                 usage: state?.lastAssistantUsage,
                 sourceAgent: sourceAgentInfo,
                 logTag: 'agent:start',
@@ -224,9 +352,7 @@ export function createAgentInstanceRuntimeEventHandler(
       }
       if (state) {
         state.streamingAssistantMsgId = undefined
-        state.accumulatedText = ''
-        state.accumulatedThinking = ''
-        state.pendingTools = []
+        state.pendingParts = []
         state.toolCallArgs = new Map()
         state.lastAssistantUsage = undefined
       }
@@ -243,15 +369,12 @@ export function createAgentInstanceRuntimeEventHandler(
           log.info(`[event] agent:start 跳过占位行：对话已不存在 conversationId=${convId}`)
         } else {
           try {
-            const sourceAgentInfo = isSubAgent && agentName
-              ? { instanceId, label: agentName }
-              : undefined
             const row = conversationRepo.saveMessage({
               conversationId: convId,
               role: 'assistant',
               contentJson: {
-                type: 'text',
-                text: '',
+                type: 'assistant_parts',
+                parts: [],
                 ...(sourceAgentInfo ? { sourceAgent: sourceAgentInfo } : {}),
               },
               isStreaming: true,
@@ -297,13 +420,18 @@ export function createAgentInstanceRuntimeEventHandler(
       )
       const state = instanceStates.get(instanceId)
       if (state) {
-        state.toolCallArgs.set(event.toolCallId, (event.args ?? {}) as Record<string, unknown>)
+        const args = (event.args ?? {}) as Record<string, unknown>
+        state.toolCallArgs.set(event.toolCallId, args)
+        state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
+          kind: 'tool_start',
+          id: event.toolCallId,
+          name: event.toolName,
+          args,
+          ...(sourceAgentInfo ? { meta: { sourceAgent: sourceAgentInfo } } : {}),
+        })
       }
-      const rawTextAtStart = state?.accumulatedText ?? ''
-      // textPositionAtStart 必须基于剥离 <think> 后的正文长度，与 UI 渲染位置对齐
-      const { finalText: cleanTextAtStart } = parseThinkTagsFromRaw(rawTextAtStart)
-      toolTextPositionMap.set(`${instanceId}:${event.toolCallId}`, cleanTextAtStart.length)
       toolStartTimeMap.set(`${instanceId}:${event.toolCallId}`, Date.now())
+      persistCurrentStreamingParts('tool:start', true)
 
       if (
         state && !state.memoryGuideInjected &&
@@ -323,22 +451,18 @@ export function createAgentInstanceRuntimeEventHandler(
       const argMap = state?.toolCallArgs
       const args = argMap?.get(event.toolCallId) ?? {}
       argMap?.delete(event.toolCallId)
-      const textPositionAtStart = toolTextPositionMap.get(`${instanceId}:${event.toolCallId}`)
-      toolTextPositionMap.delete(`${instanceId}:${event.toolCallId}`)
       const toolStartMs = toolStartTimeMap.get(`${instanceId}:${event.toolCallId}`)
       toolStartTimeMap.delete(`${instanceId}:${event.toolCallId}`)
-      const durationMs = toolStartMs ? Math.max(0, Date.now() - toolStartMs) : undefined
       if (state) {
-        state.pendingTools.push({
+        state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
+          kind: 'tool_end',
           id: event.toolCallId,
           name: event.toolName,
-          args,
           result: event.result,
           isError: event.isError,
-          textPositionAtStart,
-          durationMs,
         })
       }
+      persistCurrentStreamingParts('tool:end', true)
 
       // 兼容新旧两套工具名：
       // - file_write（覆盖写）、file_edit（按字符串替换写回）使用 params.filePath
@@ -360,41 +484,38 @@ export function createAgentInstanceRuntimeEventHandler(
         })
       }
     }
-    if (event.type === 'message:delta' && event.fullText !== undefined) {
+    if (event.type === 'message:delta') {
       const state = instanceStates.get(instanceId)
-      const msgId = state?.streamingAssistantMsgId
-      const convId = instanceToConversation.get(instanceId)
-      if (msgId && convId && conversationRepo) {
-        /** 前序已结束的助手段（message:end 累加）；fullText 为当前段内累积全文 */
-        const base = state?.accumulatedText ?? ''
-        const text = base + event.fullText
-        try {
-          conversationRepo.updateMessageContent({
-            messageId: msgId,
-            conversationId: convId,
-            contentJson: { type: 'text', text },
-            isStreaming: true,
-          })
-        } catch (err) {
-          log.error(`[event] message:delta 持久化失败:`, err)
-        }
+      if (state && event.delta) {
+        state.pendingParts = applyAssistantPartEvent(state.pendingParts, { kind: 'thinking_end' })
+        state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
+          kind: 'text_delta',
+          delta: event.delta,
+        })
+        persistCurrentStreamingParts('message:delta')
       }
     }
 
     if (event.type === 'message:thinking') {
       const state = instanceStates.get(instanceId)
-      if (state) state.accumulatedThinking = state.accumulatedThinking + event.delta
-    }
-
-    if (event.type === 'message:end' && event.fullText !== undefined) {
-      const state = instanceStates.get(instanceId)
-      if (state) state.accumulatedText = state.accumulatedText + event.fullText
+      if (state && event.delta) {
+        state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
+          kind: 'thinking_delta',
+          delta: event.delta,
+        })
+        persistCurrentStreamingParts('message:thinking')
+      }
     }
 
     if (event.type === 'message:end') {
+      cancelPendingStreamingPersist()
       const state = instanceStates.get(instanceId)
       if (event.usage && state) {
         state.lastAssistantUsage = event.usage
+      }
+      if (state) {
+        state.pendingParts = applyAssistantPartEvent(state.pendingParts, { kind: 'thinking_end' })
+        state.pendingParts = createAssistantPartsContent(state.pendingParts).parts
       }
       if (event.usage && ctx.sessionKey === ctx.rootSessionKey) {
         const promptTokens = providerPromptTokens(event.usage)
@@ -413,30 +534,12 @@ export function createAgentInstanceRuntimeEventHandler(
       }
       const msgId = state?.streamingAssistantMsgId
       const convId = instanceToConversation.get(instanceId)
-      const accumulated = state?.accumulatedText ?? ''
-      const pendingTools = state?.pendingTools ?? []
-      const sourceAgentInfo = isSubAgent && agentName ? { instanceId, label: agentName } : undefined
+      const contentJson = createAssistantPartsContent(state?.pendingParts ?? [], {
+        usage: event.usage,
+        sourceAgent: sourceAgentInfo,
+      })
       if (msgId && convId && conversationRepo) {
         try {
-          const contentJson: {
-            type: 'text'
-            text: string
-            toolCalls?: typeof pendingTools
-            usage?: NonNullable<(typeof event)['usage']>
-            sourceAgent?: { instanceId: string; label: string }
-          } = {
-            type: 'text',
-            text: accumulated,
-          }
-          if (pendingTools.length > 0) {
-            contentJson.toolCalls = pendingTools
-          }
-          if (event.usage) {
-            contentJson.usage = event.usage
-          }
-          if (sourceAgentInfo) {
-            contentJson.sourceAgent = sourceAgentInfo
-          }
           if (msgId === '__PLACEHOLDER_FAILED__') {
             const row = conversationRepo.saveMessage({
               conversationId: convId,
@@ -457,17 +560,10 @@ export function createAgentInstanceRuntimeEventHandler(
         } catch (err) {
           log.error(`[event] message:end 持久化失败，尝试 saveMessage 降级:`, err)
           try {
-            const fallbackContent = {
-              type: 'text' as const,
-              text: accumulated,
-              ...(pendingTools.length > 0 ? { toolCalls: pendingTools } : {}),
-              ...(event.usage ? { usage: event.usage } : {}),
-              ...(sourceAgentInfo ? { sourceAgent: sourceAgentInfo } : {}),
-            }
             const row = conversationRepo.saveMessage({
               conversationId: convId,
               role: 'assistant',
-              contentJson: fallbackContent,
+              contentJson,
               isStreaming: true,
             })
             if (state) state.streamingAssistantMsgId = row.id
@@ -488,26 +584,19 @@ export function createAgentInstanceRuntimeEventHandler(
     }
 
     if (event.type === 'agent:error') {
+      cancelPendingStreamingPersist()
       // 请求失败不该留下未配对的起点污染下一轮延迟
       clearRun(instanceId)
       const state = instanceStates.get(instanceId)
       const msgId = state?.streamingAssistantMsgId
       const convId = instanceToConversation.get(instanceId)
-      const rawText = state?.accumulatedText ?? ''
-      const tools = state?.pendingTools ?? []
-      const sourceAgentInfo = isSubAgent && agentName ? { instanceId, label: agentName } : undefined
-      const accumulatedThinking = state?.accumulatedThinking ?? ''
-      const { thinkingText: tagThinkingText, finalText: text } = parseThinkTagsFromRaw(rawText)
-      const thinkingText = accumulatedThinking.trim().length > 0 ? accumulatedThinking : tagThinkingText
 
       if (msgId && convId && conversationRepo) {
         const preserved = finalizeStreamingAssistantMessage({
           conversationRepo,
           messageId: msgId,
           conversationId: convId,
-          text,
-          thinkingText: thinkingText || undefined,
-          tools,
+          parts: state?.pendingParts ?? [],
           usage: state?.lastAssistantUsage,
           sourceAgent: sourceAgentInfo,
           logTag: 'agent:error',
@@ -519,6 +608,8 @@ export function createAgentInstanceRuntimeEventHandler(
           } catch (err) {
             log.error(`[event] agent:error 删除流式行失败:`, err)
           }
+        } else if (state) {
+          state.pendingParts = []
         }
       }
       if (state) {
@@ -529,44 +620,50 @@ export function createAgentInstanceRuntimeEventHandler(
     }
 
     if (event.type === 'agent:end') {
+      cancelPendingStreamingPersist()
       // 一轮没产出任何 delta（纯工具轮 / 中断）时清掉起点，否则会被下一轮误配成超长延迟
       clearRun(instanceId)
       const state = instanceStates.get(instanceId)
       const convId = instanceToConversation.get(instanceId)
       const msgId = state?.streamingAssistantMsgId
-      const tools = state?.pendingTools ?? []
-      const rawText = state?.accumulatedText ?? ''
       const usage = state?.lastAssistantUsage
-      const sourceAgentInfo = isSubAgent && agentName ? { instanceId, label: agentName } : undefined
-
-      // 优先使用 message:thinking 事件累积的 thinking 内容（DeepSeek reasoning_content 等）
-      // 若无，则回退到解析 <think> 标签（兼容旧格式）
-      const accumulatedThinking = state?.accumulatedThinking ?? ''
-      const { thinkingText: tagThinkingText, finalText: text } = parseThinkTagsFromRaw(rawText)
-      const thinkingText = accumulatedThinking.trim().length > 0 ? accumulatedThinking : tagThinkingText
+      const contentJson = createAssistantPartsContent(state?.pendingParts ?? [], {
+        usage,
+        sourceAgent: sourceAgentInfo,
+      })
+      const text = assistantTextFromParts(contentJson.parts)
+      const toolParts = contentJson.parts.filter(
+        (part): part is Extract<AssistantPart, { type: 'tool' }> => part.type === 'tool',
+      )
+      const thinkingLength = contentJson.parts
+        .filter((part) => part.type === 'thinking')
+        .reduce((length, part) => length + part.text.length, 0)
 
       let persistSuccess = false
       if (convId && msgId && conversationRepo) {
         try {
-          conversationRepo.updateMessageContent({
-            messageId: msgId,
-            conversationId: convId,
-            contentJson: {
-              type: 'text',
-              text,
-              ...(thinkingText ? { thinkingText } : {}),
-              ...(tools.length > 0 ? { toolCalls: tools } : {}),
-              ...(usage ? { usage } : {}),
-              ...(sourceAgentInfo ? { sourceAgent: sourceAgentInfo } : {}),
-            },
-            isStreaming: false,
-          })
-          log.info(`[event] 持久化 AI 回复（收尾） conversationId=${convId}, len=${text.length}, tools=${tools.length}, thinkingLen=${thinkingText?.length ?? 0}`)
+          if (msgId === '__PLACEHOLDER_FAILED__') {
+            const row = conversationRepo.saveMessage({
+              conversationId: convId,
+              role: 'assistant',
+              contentJson,
+              isStreaming: false,
+            })
+            if (state) state.streamingAssistantMsgId = row.id
+          } else {
+            conversationRepo.updateMessageContent({
+              messageId: msgId,
+              conversationId: convId,
+              contentJson,
+              isStreaming: false,
+            })
+          }
+          log.info(`[event] 持久化 AI 回复（收尾） conversationId=${convId}, len=${text.length}, tools=${toolParts.length}, thinkingLen=${thinkingLength}`)
           persistSuccess = true
         } catch (err) {
           log.error(`[event] 持久化 AI 回复失败，保留内存数据以备恢复:`, err)
         }
-      } else if (convId && (text.trim() || tools.length > 0)) {
+      } else if (convId && (text.trim() || toolParts.length > 0)) {
         const convExists = conversationRepo?.getConversation(convId)
         if (!convExists) {
           log.info(`[event] agent:end 跳过持久化：对话已不存在 conversationId=${convId}`)
@@ -575,17 +672,10 @@ export function createAgentInstanceRuntimeEventHandler(
             conversationRepo?.saveMessage({
               conversationId: convId,
               role: 'assistant',
-              contentJson: {
-                type: 'text',
-                text,
-                ...(thinkingText ? { thinkingText } : {}),
-                ...(tools.length > 0 ? { toolCalls: tools } : {}),
-                ...(usage ? { usage } : {}),
-                ...(sourceAgentInfo ? { sourceAgent: sourceAgentInfo } : {}),
-              },
+              contentJson,
             })
             log.info(
-              `[event] 持久化 AI 回复（无流式占位） conversationId=${convId}, len=${text.length}, tools=${tools.length}, thinkingLen=${thinkingText?.length ?? 0}`,
+              `[event] 持久化 AI 回复（无流式占位） conversationId=${convId}, len=${text.length}, tools=${toolParts.length}, thinkingLen=${thinkingLength}`,
             )
             persistSuccess = true
           } catch (err) {
@@ -596,10 +686,9 @@ export function createAgentInstanceRuntimeEventHandler(
 
       if (persistSuccess || !convId) {
         // 在清空之前保存本轮工具调用记录，供技能进化使用
-        const toolsBeforeClear = state?.pendingTools ?? []
+        const toolsBeforeClear = toolParts.filter((part) => part.status !== 'running')
         if (state) {
-          state.pendingTools = []
-          state.accumulatedText = ''
+          state.pendingParts = []
           state.streamingAssistantMsgId = undefined
           state.lastAssistantUsage = undefined
         }

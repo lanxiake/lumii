@@ -82,7 +82,6 @@ import { BridgePromptComposer } from './bridge-prompt-composer'
 import { resizeImageIfNeeded } from './image-resizer'
 import {
   createAgentInstanceRuntimeEventHandler,
-  type AssistantTurnToolRecord,
   type InstanceRuntimeMetrics,
 } from './bridge-agent-instance-events'
 import {
