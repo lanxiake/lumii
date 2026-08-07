@@ -278,8 +278,14 @@ const ContextMenu: React.FC<{
 export interface WorkspaceFilePanelProps {
   open: boolean
   onClose: () => void
-  /** 外部请求定位到指定绝对路径的文件（点击输入框 @引用 chip 触发） */
-  locateTarget?: { path: string; token: number } | null
+  /** 外部请求定位到指定绝对路径的文件（@引用 / 会话文件列表触发） */
+  locateTarget?: {
+    path: string
+    token: number
+    /** 为 true 时同时打开预览窗口 */
+    preview?: boolean
+    fileName?: string
+  } | null
   /** 嵌入 WorkspaceWorkbench 时去掉独立抽屉壳与关闭钮 */
   embedded?: boolean
 }
@@ -341,13 +347,30 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
     if (!item.isDirectory) setPreviewFile(item)
   }, [])
 
-  // 外部定位请求：选中并触发树形展开/滚动（token 变化即重复定位）
+  // 外部定位请求：选中并触发树形展开/滚动；可选同时打开预览
   useEffect(() => {
     if (!locateTarget?.path) return
-    setSelectedPath(locateTarget.path)
-    setRevealPath(locateTarget.path)
+    // 与 FileTree 统一为正斜杠，确保展开祖先 / 选中高亮 / 滚动命中
+    const normalized = locateTarget.path.replace(/\\/g, '/')
+    setSelectedPath(normalized)
+    setRevealPath(normalized)
     setRevealToken(locateTarget.token)
-  }, [locateTarget?.token, locateTarget?.path])
+    if (locateTarget.preview) {
+      const name =
+        locateTarget.fileName
+        || normalized.split('/').pop()
+        || normalized
+      const now = new Date()
+      setPreviewFile({
+        name,
+        path: normalized,
+        isDirectory: false,
+        size: 0,
+        modifiedAt: now,
+        createdAt: now,
+      })
+    }
+  }, [locateTarget?.token, locateTarget?.path, locateTarget?.preview, locateTarget?.fileName])
 
   /**
    * 构造 workspace/projects/<name> 绝对路径并定位文件树。

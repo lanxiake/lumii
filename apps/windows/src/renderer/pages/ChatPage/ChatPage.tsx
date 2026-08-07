@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom'
 import { ChatSidebar } from './components/ChatSidebar'
 import { ChatContainer } from './components/ChatContainer'
 import { ChatInput } from './components/ChatInput'
-import { ChatSessionRail } from './components/ChatSessionRail'
 import type { FileReference } from './components/ChatInput'
 import type { ModelOption } from '../../services/model-config-service'
 import { fetchModelCatalog, fetchChatModelChoices, saveChatModel } from '../../services/model-config-service'
@@ -735,10 +734,17 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const [workbenchWidth, setWorkbenchWidth] = useState(0)
   const [workbenchResizing, setWorkbenchResizing] = useState(false)
   const [workbenchLayout, setWorkbenchLayout] = useState<WorkbenchLayoutMode>('default')
-  /** 点击输入框 @引用 chip 时要在工作空间面板定位的绝对路径（含一次性 token 触发重复定位） */
-  const [locateFileTarget, setLocateFileTarget] = useState<{ path: string; token: number } | null>(null)
+  /** 点击输入框 @引用 / 会话文件列表时要在工作空间面板定位的绝对路径 */
+  const [locateFileTarget, setLocateFileTarget] = useState<{
+    path: string
+    token: number
+    preview?: boolean
+    fileName?: string
+  } | null>(null)
   const { uncommittedDiff, refresh: refreshVcs } = useWorkspaceVcs()
-  const { workspaceDir } = useWorkspace()
+  const { workspaceDir, toAbsolutePath } = useWorkspace()
+  /** 单调递增定位 token，避免 Date.now() 在快速点击时碰撞 */
+  const locateTokenRef = useRef(0)
 
   const toggleFilesWorkbench = useCallback(() => {
     setWorkbenchLayout('default')
@@ -746,6 +752,44 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       w.open && w.tab === 'files' ? { ...w, open: false } : { open: true, tab: 'files' },
     )
   }, [])
+
+  /**
+   * 会话文件「查看」：打开工作空间并定位到指定文件（展开目录树并选中，不强制预览）
+   */
+  const handleReviewSessionFile = useCallback(
+    (file: { localPath: string; fileName: string }) => {
+      const abs = toAbsolutePath(file.localPath)
+      setWorkbenchLayout('default')
+      setWorkbench({ open: true, tab: 'files' })
+      locateTokenRef.current += 1
+      setLocateFileTarget({
+        path: abs,
+        token: locateTokenRef.current,
+        preview: false,
+        fileName: file.fileName,
+      })
+    },
+    [toAbsolutePath],
+  )
+
+  /**
+   * 会话文件列表点击：打开右侧工作空间、定位到该文件，并打开预览
+   */
+  const handleSessionFileOpen = useCallback(
+    (file: { localPath: string; fileName: string }) => {
+      const abs = toAbsolutePath(file.localPath)
+      setWorkbenchLayout('default')
+      setWorkbench({ open: true, tab: 'files' })
+      locateTokenRef.current += 1
+      setLocateFileTarget({
+        path: abs,
+        token: locateTokenRef.current,
+        preview: true,
+        fileName: file.fileName,
+      })
+    },
+    [toAbsolutePath],
+  )
 
   /** 离开对话视图时关闭工作台（设置/概览等） */
   useEffect(() => {
@@ -762,8 +806,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const handleWorkbenchLayoutChange = useCallback((mode: WorkbenchLayoutMode) => {
     setWorkbenchLayout(mode)
   }, [])
-  /** 单调递增定位 token，避免 Date.now() 在快速点击时碰撞 */
-  const locateTokenRef = useRef(0)
 
   const [autoApprove, setAutoApprove] = useState<boolean>(() => {
     try {
@@ -1430,9 +1472,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
                 ['--workbench-inset' as string]: `${workbenchWidth}px`,
               }
             : {}),
-          ...(runtimeFileEvents.length > 0 || sessionTodoCalls.length > 0
-            ? { ['--chat-left-rail-inset' as string]: '220px' }
-            : {}),
         }}
       >
         {/* 消息层：全屏滚动，顶部/底部浮层可透视 */}
@@ -1440,12 +1479,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           className={styles['chat-main-body']}
           style={{ ['--chat-font-size' as string]: FONT_SCALE_PX[fontScale] }}
         >
-          <ChatSessionRail
-            todoCalls={sessionTodoCalls}
-            files={runtimeFileEvents}
-            sessionKey={runtimeCurrentSessionKey}
-            onReviewFiles={toggleFilesWorkbench}
-          />
           <ChatContainer
             session={localRuntimeSession}
             approvalItems={approvalItems}
@@ -1470,6 +1503,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             compactionEvents={runtimeCompactionEvents}
             onReplayFromMessage={handleReplayFromMessage}
             replayMessageId={conversationReplay.replayMessageId}
+            todoCalls={sessionTodoCalls}
+            sessionKey={runtimeCurrentSessionKey}
+            onReviewFiles={handleReviewSessionFile}
+            onSessionFileOpen={handleSessionFileOpen}
           />
         </div>
 
@@ -1550,7 +1587,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           </div>
         </div>
 
-        {/* 底部毛玻璃浮层：Tips、审批、输入框（Todo/文件已迁至左侧轨道） */}
+        {/* 底部毛玻璃浮层：Tips、审批、输入框 */}
         <div className={styles['chat-overlay-bottom']}>
           {/* 权限审批：行内卡片贴在输入框上方 */}
           {runtimePendingPermission && !autoApprove && (

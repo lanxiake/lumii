@@ -4,7 +4,8 @@
   position: fixed;
   top: var(--mt-titlebar-h, 36px);
   right: 0;
-  bottom: 0;
+  /* 避开底部 StatusBar，避免 frameless 缩放时与底栏叠层错位 */
+  bottom: 26px;
   z-index: 150;
   display: flex;
   flex-direction: column;
@@ -19,7 +20,7 @@
     width var(--mt-dur-normal) var(--mt-ease-decel);
   overflow: hidden;
   width: 280px;
-  max-width: calc(100vw - 120px);
+  max-width: calc(100% - 120px);
 }
 
 .shellOpen {

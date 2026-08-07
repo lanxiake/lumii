@@ -108,7 +108,8 @@ function parseRawItem(raw: {
   const ext = raw.isDirectory ? undefined : getExtension(raw.name)
   return {
     name: raw.name,
-    path: raw.path,
+    // 统一为正斜杠，避免 Windows 下 locateTarget(/) 与 file:list(\) 无法匹配
+    path: raw.path.replace(/\\/g, '/'),
     isDirectory: raw.isDirectory,
     size: raw.size,
     modifiedAt: new Date(raw.modifiedAt),
@@ -116,6 +117,11 @@ function parseRawItem(raw: {
     extension: ext,
     icon: '',
   }
+}
+
+/** 路径比较用：统一分隔符并去掉尾部斜杠 */
+function normPath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
 // ── 单节点（递归） ────────────────────────────────────────────────────────
@@ -241,10 +247,10 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
               item={child}
               depth={depth + 1}
               rootPath={rootPath}
-              isExpanded={expandedDirs.has(child.path)}
-              isSelected={selectedPath === child.path}
-              isLoading={loadingDirs.has(child.path)}
-              children={dirContents.get(child.path) ?? []}
+              isExpanded={expandedDirs.has(normPath(child.path))}
+              isSelected={!!selectedPath && normPath(selectedPath) === normPath(child.path)}
+              isLoading={loadingDirs.has(normPath(child.path))}
+              children={dirContents.get(normPath(child.path)) ?? []}
               expandedDirs={expandedDirs}
               dirContents={dirContents}
               loadingDirs={loadingDirs}
@@ -278,16 +284,20 @@ export interface FileTreeProps {
 export const FileTree: React.FC<FileTreeProps> = ({
   rootPath, selectedPath, revealPath, revealToken, onSelect, onContextMenu, onMoreClick, refreshToken,
 }) => {
-  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set([rootPath]))
+  const rootNorm = normPath(rootPath)
+  const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set([rootNorm]))
   const [dirContents, setDirContents] = useState<Map<string, FileItem[]>>(new Map())
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set())
+  const selectedNorm = selectedPath ? normPath(selectedPath) : null
 
   // 加载目录内容（force=true 时忽略 loadingDirs 去重，用于展开/刷新强制读取最新）
   const loadDir = useCallback(async (dirPath: string, force = false) => {
-    if (!force && loadingDirs.has(dirPath)) return
-    setLoadingDirs((prev) => new Set(prev).add(dirPath))
+    const key = normPath(dirPath)
+    if (!force && loadingDirs.has(key)) return
+    setLoadingDirs((prev) => new Set(prev).add(key))
     try {
-      const raw = await window.electronAPI.file.list(dirPath) as Array<{
+      // Electron file:list 在 Windows 上接受 / 与 \；统一用规范化路径请求
+      const raw = await window.electronAPI.file.list(key) as Array<{
         name: string; path: string; isDirectory: boolean
         size: number; modifiedAt: string; createdAt: string
       }>
@@ -297,18 +307,21 @@ export const FileTree: React.FC<FileTreeProps> = ({
           if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
           return a.name.localeCompare(b.name, 'zh-CN', { numeric: true })
         })
-      setDirContents((prev) => new Map(prev).set(dirPath, items))
+      setDirContents((prev) => new Map(prev).set(key, items))
     } catch (err) {
       console.error('[FileTree] 加载目录失败:', dirPath, err)
-      setDirContents((prev) => new Map(prev).set(dirPath, []))
+      setDirContents((prev) => new Map(prev).set(key, []))
     } finally {
-      setLoadingDirs((prev) => { const s = new Set(prev); s.delete(dirPath); return s })
+      setLoadingDirs((prev) => { const s = new Set(prev); s.delete(key); return s })
     }
   }, [loadingDirs])
 
   // 初始加载根目录
   useEffect(() => {
-    if (rootPath) void loadDir(rootPath)
+    if (rootPath) {
+      setExpandedDirs(new Set([normPath(rootPath)]))
+      void loadDir(rootPath)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rootPath])
 
@@ -318,72 +331,67 @@ export const FileTree: React.FC<FileTreeProps> = ({
     setDirContents(new Map())
     const toReload = new Set(expandedDirs)
     toReload.forEach((dir) => {
-      void (async () => {
-        try {
-          const raw = await window.electronAPI.file.list(dir) as Array<{
-            name: string; path: string; isDirectory: boolean
-            size: number; modifiedAt: string; createdAt: string
-          }>
-          const items = raw
-            .map(parseRawItem)
-            .sort((a, b) => {
-              if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
-              return a.name.localeCompare(b.name, 'zh-CN', { numeric: true })
-            })
-          setDirContents((prev) => new Map(prev).set(dir, items))
-        } catch {
-          setDirContents((prev) => new Map(prev).set(dir, []))
-        }
-      })()
+      void loadDir(dir, true)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshToken])
 
   // 展开/折叠目录
   const handleToggle = useCallback((dirPath: string) => {
+    const key = normPath(dirPath)
     setExpandedDirs((prev) => {
       const next = new Set(prev)
-      if (next.has(dirPath)) {
-        next.delete(dirPath)
+      if (next.has(key)) {
+        next.delete(key)
       } else {
-        next.add(dirPath)
-        // 展开时强制重载，保证读取的是最新磁盘内容（即使此前已缓存）
-        void loadDir(dirPath, true)
+        next.add(key)
+        void loadDir(key, true)
       }
       return next
     })
   }, [loadDir])
 
-  const rootItems = dirContents.get(rootPath) ?? []
-  const isRootLoading = loadingDirs.has(rootPath)
+  const rootItems = dirContents.get(rootNorm) ?? []
+  const isRootLoading = loadingDirs.has(rootNorm)
 
   // 外部定位：展开目标的所有祖先目录，加载内容后滚动到该节点
   useEffect(() => {
     if (!revealPath || !rootPath) return
-    const sep = rootPath.includes('\\') ? '\\' : '/'
-    const root = rootPath.replace(/[\\/]+$/, '')
-    if (!revealPath.startsWith(root)) return
-    const rest = revealPath.slice(root.length).replace(/^[\\/]+/, '')
-    const parts = rest.split(/[\\/]+/).filter(Boolean)
-    // 逐级构造祖先目录（不含目标自身），全部展开 + 按需加载
+    const root = rootNorm
+    const target = normPath(revealPath)
+    if (target !== root && !target.startsWith(root + '/')) return
+
+    const rest = target === root ? '' : target.slice(root.length + 1)
+    const parts = rest.split('/').filter(Boolean)
     const ancestors: string[] = [root]
     let acc = root
     for (let i = 0; i < parts.length - 1; i++) {
-      acc = acc + sep + parts[i]
+      acc = `${acc}/${parts[i]}`
       ancestors.push(acc)
     }
+
     setExpandedDirs((prev) => {
       const next = new Set(prev)
       ancestors.forEach((d) => next.add(d))
       return next
     })
-    ancestors.forEach((d) => { if (!dirContents.has(d)) void loadDir(d) })
-    // 内容渲染后滚动到目标节点（稍作延迟等待懒加载完成）
-    const timer = setTimeout(() => {
-      const el = document.querySelector(`[data-tree-path="${CSS.escape(revealPath)}"]`)
-      el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-    }, 250)
-    return () => clearTimeout(timer)
+
+    // 串行加载祖先目录，确保嵌套目录（如 outputs/子目录）展开后再滚动
+    let cancelled = false
+    void (async () => {
+      for (const d of ancestors) {
+        if (cancelled) return
+        await loadDir(d, true)
+      }
+      if (cancelled) return
+      // 再等一帧让节点挂载
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-tree-path="${CSS.escape(target)}"]`)
+        el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      })
+    })()
+
+    return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealPath, revealToken])
 
@@ -400,15 +408,15 @@ export const FileTree: React.FC<FileTreeProps> = ({
           key={item.path}
           item={item}
           depth={0}
-          rootPath={rootPath}
-          isExpanded={expandedDirs.has(item.path)}
-          isSelected={selectedPath === item.path}
-          isLoading={loadingDirs.has(item.path)}
-          children={dirContents.get(item.path) ?? []}
+          rootPath={rootNorm}
+          isExpanded={expandedDirs.has(normPath(item.path))}
+          isSelected={selectedNorm === normPath(item.path)}
+          isLoading={loadingDirs.has(normPath(item.path))}
+          children={dirContents.get(normPath(item.path)) ?? []}
           expandedDirs={expandedDirs}
           dirContents={dirContents}
           loadingDirs={loadingDirs}
-          selectedPath={selectedPath}
+          selectedPath={selectedNorm}
           onToggle={handleToggle}
           onSelect={onSelect}
           onContextMenu={onContextMenu}

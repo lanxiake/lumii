@@ -18,8 +18,6 @@
   --chat-overlay-bottom: 210px;
   /* 工作台占用宽度：流式内容用 padding，绝对定位浮层用 right */
   --workbench-inset: 0px;
-  /* 左侧 Todo/文件轨道宽度（有内容时由 JSX 覆盖） */
-  --chat-left-rail-inset: 0px;
   transition: padding-right var(--mt-dur-normal, 0.2s) var(--mt-ease-decel, ease);
 }
 
@@ -30,29 +28,22 @@
 .chat-main-body {
   flex: 1;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
-}
-
-.chat-main-body > :last-child {
-  flex: 1;
-  min-width: 0;
 }
 
 /* 顶部 / 底部透明浮层：消息可透见，不使用毛玻璃 */
 .chat-overlay-top,
 .chat-overlay-bottom {
   position: absolute;
-  left: var(--chat-left-rail-inset, 0px);
+  left: 0;
   /* 与工作台宽度对齐，避免浮层伸进 padding-right 被挡住 */
   right: var(--workbench-inset, 0px);
   z-index: 30;
   pointer-events: none;
   background: transparent;
-  transition:
-    right var(--mt-dur-normal, 0.2s) var(--mt-ease-decel, ease),
-    left var(--mt-dur-normal, 0.2s) var(--mt-ease-decel, ease);
+  transition: right var(--mt-dur-normal, 0.2s) var(--mt-ease-decel, ease);
 }
 
 .chatMainResizing .chat-overlay-top,

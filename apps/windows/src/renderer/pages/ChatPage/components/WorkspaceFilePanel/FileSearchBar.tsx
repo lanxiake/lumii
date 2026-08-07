@@ -116,6 +116,17 @@ function buildSearchPattern(query: string): string | null {
   return escaped
 }
 
+/**
+ * 按类型构造「仅匹配该类型后缀」的正则，服务端先按扩展名筛选，避免 maxResults 被目录占满。
+ */
+function buildTypeExtPattern(type: FileTypeFilter): string | null {
+  if (type === 'all') return null
+  const exts = TYPE_EXT_GROUPS[type]
+  if (!exts || exts.length === 0) return null
+  const escaped = exts.map((e) => e.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+  return `\\.(?:${escaped})$`
+}
+
 export interface FileSearchBarProps {
   /** 搜索根路径（workspace 根） */
   rootPath: string
@@ -146,12 +157,14 @@ export const FileSearchBar: React.FC<FileSearchBarProps> = ({
     onSearchStateChange?.(isSearching)
   }, [isSearching, onSearchStateChange])
 
-  // 防抖搜索
+  // 防抖搜索：类型筛选时用后缀正则在服务端过滤，避免 maxResults 被目录占满导致结果为空
   useEffect(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current)
     const userPattern = buildSearchPattern(query)
-    // 仅选了分类（无文字）时用 match-all 模式枚举全部文件，再按扩展名客户端过滤
-    const pattern = userPattern ?? (typeFilter !== 'all' ? '.' : null)
+    const typePattern = buildTypeExtPattern(typeFilter)
+
+    // 有类型筛选 → 优先用后缀正则；仅关键词 → 用关键词；两者皆无 → 不搜索
+    const pattern = typePattern ?? userPattern
     if (!pattern || !rootPath) {
       setResults([])
       setLoading(false)
@@ -164,29 +177,28 @@ export const FileSearchBar: React.FC<FileSearchBarProps> = ({
       try {
         const raw = await window.electronAPI.file.search(rootPath, pattern, {
           recursive: true,
-          maxResults: 200,
+          maxResults: 500,
         }) as Array<{
           name: string; path: string; isDirectory: boolean
           size: number; modifiedAt: string | Date; createdAt: string | Date
           extension?: string
         }>
-        // 过期请求直接丢弃
         if (myRequestId !== requestIdRef.current) return
-        const parsed = raw.map(parseRawItem)
-        // 按类型过滤（仅对文件）
-        const filtered = typeFilter === 'all'
-          ? parsed
-          : parsed.filter((f) => {
-              if (f.isDirectory) return false
-              const allowed = TYPE_EXT_GROUPS[typeFilter]
-              return allowed.includes((f.extension ?? '').toLowerCase())
-            })
-        // 文件夹在前，再按名称排序
-        filtered.sort((a, b) => {
-          if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
-          return a.name.localeCompare(b.name, 'zh-CN', { numeric: true })
-        })
-        setResults(filtered)
+        let parsed = raw.map(parseRawItem).filter((f) => !f.isDirectory)
+
+        if (typeFilter !== 'all') {
+          const allowed = TYPE_EXT_GROUPS[typeFilter]
+          parsed = parsed.filter((f) => allowed.includes((f.extension ?? '').toLowerCase()))
+        }
+
+        // 同时有关键词与类型时：类型已在服务端筛，再按文件名做客户端子串过滤
+        if (typePattern && userPattern && query.trim()) {
+          const q = query.trim().toLowerCase()
+          parsed = parsed.filter((f) => f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q))
+        }
+
+        parsed.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN', { numeric: true }))
+        setResults(parsed)
         setError(null)
       } catch (err) {
         if (myRequestId !== requestIdRef.current) return

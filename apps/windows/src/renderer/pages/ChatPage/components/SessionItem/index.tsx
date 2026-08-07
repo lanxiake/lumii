@@ -4,6 +4,7 @@ import { Pin, PinOff, Trash2, PenLine } from '../../../../components/ui/Icon'
 import { ContextMenu } from '../ContextMenu'
 import type { ContextMenuItem } from '../ContextMenu'
 import type { ChatSession } from '../../../../hooks/business/useChat'
+import { getDisplayMessagePreview } from '../../utils/file-attachment-strategy'
 import styles from './SessionItem.module.css'
 
 interface SessionItemProps {
@@ -90,10 +91,10 @@ const SessionItem: React.FC<SessionItemProps> = ({
     },
   ]
 
-  // Get last message preview
+  // Get last message preview（剥离附件与 Agent 注入的 parsed text 等标记）
   const lastMessage = session.messages[session.messages.length - 1]
   const preview = lastMessage?.content
-    ? lastMessage.content.slice(0, 30) + (lastMessage.content.length > 30 ? '...' : '')
+    ? getDisplayMessagePreview(lastMessage.content)
     : '暂无消息'
 
   if (isEditing) {

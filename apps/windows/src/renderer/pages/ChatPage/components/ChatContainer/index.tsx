@@ -7,6 +7,8 @@ import { PlanApprovalCard } from '../PlanApprovalCard'
 import { TypingIndicator } from '../TypingIndicator'
 import { EmptyState } from '../EmptyState'
 import { CompactionCard } from '../CompactionCard'
+import { TodoPanel } from '../TodoPanel'
+import { SessionFileList } from '../SessionFileList'
 import type { ChatSession, ChatMessage as ChatMessageType, AgentWorkflowItem, ToolCall } from '../../../../hooks/business/useChat'
 import type { ExecApprovalRequest, ExecApprovalDecision } from '../../../../types/exec-approvals'
 import type { PlanApprovalRequest } from '../../../../types/plan-approval'
@@ -109,6 +111,20 @@ interface ChatContainerProps {
   onReplayFromMessage?: (messageId: string) => void
   /** 当前正在回放的消息 ID（用于高亮显示） */
   replayMessageId?: string | null
+  /** 当前会话 todo 工具调用（渲染为对话流内轻量任务卡） */
+  todoCalls?: readonly {
+    id: string
+    name: string
+    status: 'running' | 'completed' | 'failed' | 'error'
+    result?: unknown
+    output?: unknown
+  }[]
+  /** 当前会话 key，供会话文件列表删除后更新 store */
+  sessionKey?: string | null
+  /** 打开工作空间并定位到会话文件 */
+  onReviewFiles?: (file: RuntimeFileEvent) => void
+  /** 点击会话文件：定位工作空间并预览 */
+  onSessionFileOpen?: (file: RuntimeFileEvent) => void
 }
 
 const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -136,6 +152,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   userId,
   onReplayFromMessage,
   replayMessageId,
+  todoCalls = [],
+  sessionKey = null,
+  onReviewFiles,
+  onSessionFileOpen,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -523,6 +543,26 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         {/* 等待首个 token 的占位。原先带  头像，且那两个 class 在本模块 CSS 里没定义，
             表现为一闪而过的裸 emoji，直接去掉容器只留指示器 */}
         {showTypingIndicator && <TypingIndicator label="正在思考…" />}
+
+        {/* 会话元信息：轻量居中卡片，随消息流滚动，不固定遮挡输入区 */}
+        {(todoCalls.length > 0 || (fileEvents && fileEvents.length > 0)) && (
+          <div className={styles['session-meta-inline']}>
+            <TodoPanel
+              toolCalls={todoCalls}
+              variant="inline"
+              defaultExpanded
+            />
+            <SessionFileList
+              files={fileEvents ?? []}
+              sessionKey={sessionKey}
+              userId={userId}
+              variant="inline"
+              defaultExpanded
+              onReview={onReviewFiles}
+              onFileOpen={onSessionFileOpen}
+            />
+          </div>
+        )}
 
         <div ref={messagesEndRef} />
       </div>

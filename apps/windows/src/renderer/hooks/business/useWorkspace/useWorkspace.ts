@@ -92,14 +92,15 @@ export function useWorkspace(): UseWorkspaceReturn {
   )
 
   /**
-   * 相对路径 -> 绝对路径
+   * 相对路径 -> 绝对路径（统一正斜杠，与 FileTree 路径规范化一致）
    */
   const toAbsolutePath = useCallback(
     (relativePath: string): string => {
       if (!workspaceDir) return relativePath
-      if (!relativePath || relativePath === '/') return workspaceDir
-      const root = workspaceDir.replace(/\\/g, '/')
-      return root + '/' + relativePath
+      if (!relativePath || relativePath === '/') return workspaceDir.replace(/\\/g, '/')
+      const root = workspaceDir.replace(/\\/g, '/').replace(/\/+$/, '')
+      const rel = relativePath.replace(/^[\\/]+/, '').replace(/\\/g, '/')
+      return `${root}/${rel}`
     },
     [workspaceDir]
   )

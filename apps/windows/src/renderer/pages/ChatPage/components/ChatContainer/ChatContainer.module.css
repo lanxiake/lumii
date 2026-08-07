@@ -54,6 +54,17 @@
   animation: session-fade-in 0.18s ease-out;
 }
 
+/* 对话流内 Todo / 会话文件：居中轻量栈，宽度随消息列 */
+.session-meta-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 560px;
+  margin: 4px auto 0;
+  align-self: center;
+}
+
 /* 上下文自动压缩标记（轻量小标签，替代横线分割） */
 .compaction-marker {
   display: flex;
