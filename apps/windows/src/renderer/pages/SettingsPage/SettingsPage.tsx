@@ -107,6 +107,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     updateNotification,
     updatePrivacy,
     updateWorkspace,
+    updateSystem,
     updateSettings,
     saveSettings,
     resetSettings,
@@ -457,6 +458,22 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   }, [])
 
   /**
+   * 切换启动开机动画（立即写入 localStorage，供下次启动 early-splash 读取）
+   */
+  const handleToggleSplash = useCallback(async (enable: boolean) => {
+    updateSystem({ showSplashOnStartup: enable })
+    try {
+      const nextSystem = { ...settings.system, showSplashOnStartup: enable }
+      const nextSettings = { ...settings, system: nextSystem }
+      localStorage.setItem('mtbot-assistant-settings', JSON.stringify(nextSettings))
+      toast.success(enable ? '已开启启动开机动画' : '已关闭启动开机动画')
+    } catch (err) {
+      console.error('[SettingsPage] 保存开机动画设置失败:', err)
+      toast.error('保存失败')
+    }
+  }, [settings, toast, updateSystem])
+
+  /**
    * 清除本地数据（仅清除 localStorage 设置）
    */
   const handleClearData = useCallback(() => {
@@ -542,6 +559,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             开机时自动启动
           </Checkbox>
           <span className={styles['setting-hint']}>登录系统后自动启动灵栖 / Lumii</span>
+        </div>
+        <div className={styles['setting-item']}>
+          <Checkbox
+            checked={settings.system?.showSplashOnStartup !== false}
+            onChange={(checked) => { void handleToggleSplash(checked) }}
+          >
+            启动时播放开机动画
+          </Checkbox>
+          <span className={styles['setting-hint']}>
+            关闭后主窗口直接进入界面；文件预览等独立窗口本就不播放
+          </span>
         </div>
       </div>
     </div>

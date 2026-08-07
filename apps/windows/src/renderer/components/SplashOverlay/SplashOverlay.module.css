@@ -13,7 +13,7 @@
   overflow: hidden;
   background: #070d18;
   opacity: 1;
-  transition: opacity 0.32s ease;
+  transition: opacity 0.55s ease;
   -webkit-app-region: drag;
 }
 

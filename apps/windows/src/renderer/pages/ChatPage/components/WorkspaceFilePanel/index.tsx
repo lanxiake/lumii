@@ -220,7 +220,8 @@ const ContextMenu: React.FC<{
   const isFile = !state.item.isDirectory
   const previewable = isFile && [
     // 文档
-    'md', 'txt', 'log', 'csv', 'xml', 'pdf', 'docx',
+    'md', 'txt', 'log', 'csv', 'xml', 'pdf', 'docx', 'doc',
+    'xls', 'xlsx', 'ppt', 'pptx',
     // 代码
     'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'json', 'json5',
     'py', 'sh', 'bash', 'java', 'kt', 'go', 'rs', 'cpp', 'c', 'h', 'cs', 'rb', 'php',

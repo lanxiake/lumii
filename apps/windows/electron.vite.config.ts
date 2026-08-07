@@ -102,6 +102,38 @@ function petResourcesDevPlugin(): Plugin {
   }
 }
 
+/**
+ * 修补 pptx-preview：slideLayout / slideMaster 缺失时访问 .background 会抛
+ * "Cannot read properties of undefined (reading 'background')"。
+ * 库为压缩单行包，不适合用 pnpm patch，改在 Vite 转换阶段替换。
+ */
+function patchPptxPreviewPlugin(): Plugin {
+  const OLD =
+    'var n=t.background;if("none"===n.type&&(n=t.slideLayout.background),"none"===n.type&&(n=t.slideMaster.background)'
+  const NEW =
+    'var n=t.background||{type:"none"};if((!n||"none"===n.type)&&(n=(null==t.slideLayout?void 0:t.slideLayout.background)||{type:"none"}),"none"===n.type&&(n=(null==t.slideMaster?void 0:t.slideMaster.background)||{type:"none"})'
+  // UMD 构建使用变量名 i
+  const OLD_UMD =
+    'var i=t.background;if("none"===i.type&&(i=t.slideLayout.background),"none"===i.type&&(i=t.slideMaster.background)'
+  const NEW_UMD =
+    'var i=t.background||{type:"none"};if((!i||"none"===i.type)&&(i=(null==t.slideLayout?void 0:t.slideLayout.background)||{type:"none"}),"none"===i.type&&(i=(null==t.slideMaster?void 0:t.slideMaster.background)||{type:"none"})'
+
+  return {
+    name: 'patch-pptx-preview-background',
+    enforce: 'pre',
+    transform(code, id) {
+      const norm = id.replace(/\\/g, '/')
+      if (!norm.includes('pptx-preview')) return null
+      if (!code.includes('slideLayout.background')) return null
+      let next = code
+      if (next.includes(OLD)) next = next.replace(OLD, NEW)
+      if (next.includes(OLD_UMD)) next = next.replace(OLD_UMD, NEW_UMD)
+      if (next === code) return null
+      return { code: next, map: null }
+    },
+  }
+}
+
 export default defineConfig({
   main: {
     plugins: [
@@ -214,10 +246,12 @@ export default defineConfig({
       // 明确指定模块查找路径
       mainFields: ['module', 'jsnext:main', 'jsnext', 'main']
     },
-    plugins: [react(), petResourcesDevPlugin()],
+    plugins: [react(), petResourcesDevPlugin(), patchPptxPreviewPlugin()],
     // 解决 @uiw/react-md-editor 依赖解析失败
     // 将 renderer 依赖包含在预构建中，确保 Vite 能正确解析 pnpm 符号链接
     optimizeDeps: {
+      // 必须走 transform 补丁，不能进 esbuild 预构建缓存
+      exclude: ['pptx-preview'],
       include: [
         '@uiw/react-md-editor', 'react-markdown', 'remark-gfm', 'rehype-highlight',
         'remark-math', 'rehype-katex', 'katex',

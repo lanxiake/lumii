@@ -119,6 +119,7 @@ function validateTextBoxPosition(slideData, bodyDimensions) {
 
 // Helper: Add background to slide
 async function addBackground(slideData, targetSlide, tmpDir) {
+  if (!slideData || !slideData.background) return;
   if (slideData.background.type === 'image' && slideData.background.path) {
     let imagePath = slideData.background.path.startsWith('file://')
       ? slideData.background.path.replace('file://', '')

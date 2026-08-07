@@ -97,6 +97,8 @@ export class PreviewWindowManager {
         nodeIntegration: false,
         sandbox: false,
         webviewTag: true,
+        // 独立预览窗不播开机动画（early-splash 亦按 mode=file-preview 跳过）
+        additionalArguments: ['--skip-splash'],
       },
     })
 

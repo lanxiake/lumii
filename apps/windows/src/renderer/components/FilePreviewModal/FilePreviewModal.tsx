@@ -942,7 +942,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           )}
 
           {!loading && !error && result && !result.truncated && route === 'pptx' && officeBytes && (
-            <PptxPreview bytes={officeBytes} fileName={fileName} />
+            <PptxPreview bytes={officeBytes} fileName={fileName} onOpenExternal={handleOpen} />
           )}
 
           {!loading && !error && result && !result.truncated && route === 'legacy-doc' && (

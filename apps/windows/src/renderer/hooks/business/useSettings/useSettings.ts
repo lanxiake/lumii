@@ -71,6 +71,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   system: {
     autoStart: false,
     minimizeToTray: true,
+    showSplashOnStartup: true,
   },
   memory: {
     injectPersonalMemory: true,

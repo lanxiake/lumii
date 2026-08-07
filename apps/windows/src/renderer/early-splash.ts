@@ -1,6 +1,8 @@
 /**
  * 尽早启动开机画面：在 React 挂载前注入 DOM 并开始加载/播放视频。
  * 由 index.html 在 main.tsx 之前以 module 引入。
+ *
+ * 注意：本文件不可依赖 React / App，仅用同步可读的 URL / localStorage / preload。
  */
 import splashUrl from '@app-assets/splash.mp4'
 import posterUrl from '@app-assets/splash-poster.jpg'
@@ -8,11 +10,42 @@ import posterUrl from '@app-assets/splash-poster.jpg'
 const EARLY_ID = 'lumii-early-splash'
 const FG_ID = 'lumii-early-splash-fg'
 const BG_ID = 'lumii-early-splash-bg'
+const SETTINGS_STORAGE_KEY = 'mtbot-assistant-settings'
+
+/**
+ * 辅助窗口（文件预览 / 宠物）不播放开机动画
+ */
+function isAuxiliaryWindowMode(): boolean {
+  try {
+    const search = new URLSearchParams(window.location.search)
+    const hash = new URLSearchParams(window.location.hash.replace(/^#\??/, ''))
+    const mode = search.get('mode') || hash.get('mode')
+    return mode === 'file-preview' || mode === 'pet'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 设置中关闭开机动画时跳过（默认开启）
+ */
+function isSplashDisabledInSettings(): boolean {
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    if (!raw) return false
+    const parsed = JSON.parse(raw) as { system?: { showSplashOnStartup?: boolean } }
+    return parsed?.system?.showSplashOnStartup === false
+  } catch {
+    return false
+  }
+}
 
 /**
  * 是否应跳过开机画面（与 App.shouldSkipSplash 对齐）
  */
 function shouldSkip(): boolean {
+  if (isAuxiliaryWindowMode()) return true
+  if (isSplashDisabledInSettings()) return true
   try {
     if (sessionStorage.getItem('lumii.splash.done') === '1') return true
   } catch {
@@ -38,7 +71,7 @@ function mountEarlySplash(): void {
 #${EARLY_ID} .lumii-es-bg{position:absolute;inset:-4%;width:108%;height:108%;object-fit:cover;filter:blur(28px) saturate(1.15) brightness(0.55);transform:scale(1.08);pointer-events:none}
 #${EARLY_ID} .lumii-es-vignette{position:absolute;inset:0;background:radial-gradient(ellipse 70% 60% at 50% 45%,transparent 35%,rgba(7,13,24,.55) 100%),linear-gradient(90deg,rgba(7,13,24,.35) 0%,transparent 18%,transparent 82%,rgba(7,13,24,.35) 100%);pointer-events:none}
 #${EARLY_ID} .lumii-es-fg{position:relative;z-index:1;width:min(100%,920px);height:min(100%,820px);max-width:100%;max-height:100%;object-fit:contain;box-shadow:0 0 0 1px color-mix(in srgb,#7dd3fc 18%,transparent),0 24px 80px rgba(0,0,0,.45);background:transparent;-webkit-app-region:no-drag}
-#${EARLY_ID}.lumii-es-fading{opacity:0;pointer-events:none;transition:opacity .32s ease}
+#${EARLY_ID}.lumii-es-fading{opacity:0;pointer-events:none;transition:opacity .55s ease}
 `
   document.head.appendChild(style)
 

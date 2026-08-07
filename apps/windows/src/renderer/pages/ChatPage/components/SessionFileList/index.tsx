@@ -111,6 +111,7 @@ function isPreviewable(mimeType: string | null, fileName: string): boolean {
   if (mimeType) {
     if (mimeType.startsWith('image/')) return true
     if (mimeType.startsWith('text/')) return true
+    if (mimeType.startsWith('audio/') || mimeType.startsWith('video/')) return true
     if (
       mimeType === 'application/json' ||
       mimeType === 'application/javascript' ||
@@ -123,9 +124,27 @@ function isPreviewable(mimeType: string | null, fileName: string): boolean {
       return true
     }
     if (mimeType === 'application/msword') return true
+    if (
+      mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+      mimeType === 'application/vnd.ms-excel'
+    ) {
+      return true
+    }
+    if (
+      mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+      mimeType === 'application/vnd.ms-powerpoint'
+    ) {
+      return true
+    }
   }
   const ext = name.includes('.') ? (name.split('.').pop() ?? '') : ''
-  return ['txt', 'md', 'json', 'pdf', 'doc', 'docx', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'htm', 'html', 'css', 'js', 'ts', 'tsx', 'jsx'].includes(ext)
+  return [
+    'txt', 'md', 'json', 'pdf', 'doc', 'docx',
+    'xls', 'xlsx', 'ppt', 'pptx',
+    'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg',
+    'htm', 'html', 'css', 'js', 'ts', 'tsx', 'jsx',
+    'mp3', 'wav', 'ogg', 'm4a', 'mp4', 'webm',
+  ].includes(ext)
 }
 
 /** 单个文件行（default / compact 完整操作） */

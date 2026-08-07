@@ -5,7 +5,7 @@
  * 原 546 行代码精简为 ~60 行，通过提取组件实现职责分离
  */
 
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { AppProviders } from './contexts/AppProviders'
 import { Router, ViewType } from './components/Router'
 import { DeviceBindWizard } from './components/DeviceBindWizard'
@@ -22,31 +22,11 @@ import {
 } from './hooks/business/useAgentRuntime/useAgentRuntime'
 import { readPersistedSessionThinkingPrefs } from '../shared/session-thinking-prefs'
 import { getProviderConfig, isChatProviderReady } from './services/model-config-service'
+import {
+  removeEarlySplashIfPresent,
+  shouldSkipSplash,
+} from './utils/splash-preference'
 
-/**
- * 是否跳过开机画面（托盘静默启动 / 测试 / 本会话已播过）
- */
-function shouldSkipSplash(): boolean {
-  try {
-    if (sessionStorage.getItem('lumii.splash.done') === '1') return true
-  } catch {
-    // ignore
-  }
-  if (typeof window === 'undefined') return false
-  const skip = window.electronAPI?.splash?.shouldSkip?.()
-  return Boolean(skip)
-}
-
-/**
- * 跳过开机画面时移除 early-splash DOM（若仍存在）
- */
-function removeEarlySplashIfPresent(): void {
-  try {
-    document.getElementById('lumii-early-splash')?.remove()
-  } catch {
-    // ignore
-  }
-}
 /**
  * 宠物模式会话同步：把主窗口当前 sessionKey 同步到主进程，
  * 供独立宠物窗口语音通话跟随当前 Chat 会话（D4 决策）。
@@ -63,16 +43,35 @@ const PetSessionSync: React.FC = () => {
   return null
 }
 
+export interface AuthenticatedAppProps {
+  /** 主壳（MainLayout）首次布局完成后回调，供开机动画等待 */
+  onShellReady?: () => void
+}
+
 /**
  * 认证包装组件 - 处理认证状态与 Settings Hub 分流
  */
-const AuthenticatedApp: React.FC = () => {
+const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => {
   const [activeView, setActiveView] = useState<ViewType>('dashboard')
   const { appliedTheme, toggleTheme } = useTheme()
   const { openHub, openHubForView, closeHub, isOpen: hubOpen } = useSettingsHub()
   const { showToast } = useToast()
   /** 本地 chat 模型是否已启用并可调用（独立版用此驱动标题栏绿点） */
   const [modelReady, setModelReady] = useState(false)
+  const shellReadySent = useRef(false)
+
+  /**
+   * 主壳挂载后通知开机动画可以开始淡出
+   */
+  useEffect(() => {
+    if (shellReadySent.current) return
+    shellReadySent.current = true
+    // 等一帧布局，再通知就绪
+    const id = requestAnimationFrame(() => {
+      onShellReady?.()
+    })
+    return () => cancelAnimationFrame(id)
+  }, [onShellReady])
 
   /**
    * 刷新本地模型就绪状态
@@ -166,11 +165,10 @@ const AuthenticatedApp: React.FC = () => {
           <line x1="12" y1="1" x2="12" y2="3" />
           <line x1="12" y1="21" x2="12" y2="23" />
           <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
           <line x1="1" y1="12" x2="3" y2="12" />
           <line x1="21" y1="12" x2="23" y2="12" />
           <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
         </svg>
       ) : (
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -206,11 +204,27 @@ const AppContent: React.FC = () => {
     return skip
   })
 
+  /** 主壳就绪 Promise：Splash 播完后等待，避免过早揭开 */
+  const shellReadyGate = useMemo(() => {
+    let resolve!: () => void
+    const promise = new Promise<void>((r) => {
+      resolve = r
+    })
+    return { promise, resolve: () => resolve() }
+  }, [])
+
+  const waitForShellReady = useCallback(() => shellReadyGate.promise, [shellReadyGate])
+
   // 独立版无登录：直接渲染主应用；开机画面覆盖在主窗口内全屏播放
   return (
     <>
-      {!splashDone && <SplashOverlay onDone={() => setSplashDone(true)} />}
-      <AuthenticatedApp />
+      {!splashDone && (
+        <SplashOverlay
+          onDone={() => setSplashDone(true)}
+          waitForReady={waitForShellReady}
+        />
+      )}
+      <AuthenticatedApp onShellReady={shellReadyGate.resolve} />
       <DeviceBindWizard />
       <WorkspaceWizard />
       <GlobalModals />
