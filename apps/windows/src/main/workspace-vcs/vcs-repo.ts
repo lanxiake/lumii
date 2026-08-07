@@ -18,7 +18,7 @@ import type {
   VcsFileStatus,
   VcsRollbackResult,
 } from './types'
-import { buildDefaultGitignore, VCS_SKIP_DIRS } from './vcs-ignore'
+import { buildDefaultGitignore, VCS_SKIP_DIRS, stripOutputsIgnoreRules, isVcsBinaryPath } from './vcs-ignore'
 import { computeFileDiff, computeDiffStats, MAX_DIFF_BYTES } from './vcs-diff'
 
 const log = {
@@ -56,29 +56,50 @@ export class WorkspaceVcs {
 
   /**
    * 确保仓库存在：首次 init → 写 .gitignore → 首个 commit。
-   * 幂等，可重复调用。
+   * 幂等，可重复调用。已初始化时也会校正 .gitignore，确保 outputs/ 不被误忽略。
    */
   async ensureInitialized(): Promise<void> {
-    if (this.isInitialized()) return
-
-    log.info(`[ensureInitialized] 初始化工作空间仓库: ${this.workspaceDir}`)
-    fs.mkdirSync(this.workspaceDir, { recursive: true })
-    await git.init({ ...this.base, defaultBranch: 'main' })
-
-    // 写默认 .gitignore（若用户已有则不覆盖）
     const gitignorePath = path.join(this.workspaceDir, '.gitignore')
-    if (!fs.existsSync(gitignorePath)) {
-      fs.writeFileSync(gitignorePath, buildDefaultGitignore(), 'utf-8')
+
+    if (!this.isInitialized()) {
+      log.info(`[ensureInitialized] 初始化工作空间仓库: ${this.workspaceDir}`)
+      fs.mkdirSync(this.workspaceDir, { recursive: true })
+      await git.init({ ...this.base, defaultBranch: 'main' })
+
+      // 写默认 .gitignore（若用户已有则不覆盖）
+      if (!fs.existsSync(gitignorePath)) {
+        fs.writeFileSync(gitignorePath, buildDefaultGitignore(), 'utf-8')
+      }
+
+      // 首个 commit（即使工作区为空也建立 root commit，便于后续 diff/rollback）
+      await this.stageAll()
+      await git.commit({
+        ...this.base,
+        message: this.buildMessage('初始化工作空间版本管理', 'user'),
+        author: GIT_AUTHOR,
+      })
+      log.info('[ensureInitialized] 完成，已建立初始提交')
     }
 
-    // 首个 commit（即使工作区为空也建立 root commit，便于后续 diff/rollback）
-    await this.stageAll()
-    await git.commit({
-      ...this.base,
-      message: this.buildMessage('初始化工作空间版本管理', 'user'),
-      author: GIT_AUTHOR,
-    })
-    log.info('[ensureInitialized] 完成，已建立初始提交')
+    // 校正：去掉误忽略整个 outputs/ 的规则（Agent 产出需纳入版本管理）
+    this.ensureOutputsTracked(gitignorePath)
+  }
+
+  /**
+   * 若 .gitignore 中存在 `outputs/` 等目录级忽略，移除之并写回磁盘
+   */
+  private ensureOutputsTracked(gitignorePath: string): void {
+    try {
+      if (!fs.existsSync(gitignorePath)) return
+      const raw = fs.readFileSync(gitignorePath, 'utf-8')
+      const next = stripOutputsIgnoreRules(raw)
+      if (next !== raw) {
+        fs.writeFileSync(gitignorePath, next.endsWith('\n') ? next : `${next}\n`, 'utf-8')
+        log.info('[ensureOutputsTracked] 已移除 .gitignore 中对 outputs/ 的目录级忽略')
+      }
+    } catch (err) {
+      log.warn('[ensureOutputsTracked] 校正 .gitignore 失败:', err)
+    }
   }
 
   /**
@@ -207,6 +228,7 @@ export class WorkspaceVcs {
 
   /**
    * 工作区相对某 commit（默认 HEAD）的文件级变更列表（不含 hunks）。
+   * 二进制（如 outputs/*.pdf）跳过文本 diff，仅报告状态，避免把 PDF 当 UTF-8 解析拖垮面板。
    */
   async statusDiff(baseOid?: string): Promise<VcsDiffEntry[]> {
     if (!this.isInitialized()) return []
@@ -217,6 +239,19 @@ export class WorkspaceVcs {
     for (const [filepath, head, workdir] of matrix) {
       if (head === workdir) continue
       const status: VcsFileStatus = head === 0 ? 'added' : workdir === 0 ? 'deleted' : 'modified'
+
+      if (isVcsBinaryPath(filepath)) {
+        entries.push({
+          filepath,
+          status,
+          insertions: status === 'deleted' ? 0 : 1,
+          deletions: status === 'added' ? 0 : 1,
+          truncated: true,
+          skipReason: '二进制文件（已纳入版本管理，跳过文本 diff）',
+        })
+        continue
+      }
+
       const oldContent = head === 0 ? '' : (await this.readFileAt(ref, filepath)) ?? ''
       const newContent = workdir === 0 ? '' : this.readWorktreeFile(filepath)
       const stats = computeDiffStats(oldContent, newContent)

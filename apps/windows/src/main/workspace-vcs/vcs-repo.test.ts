@@ -55,6 +55,35 @@ describe('WorkspaceVcs', () => {
     expect(c2).toBeNull()
   })
 
+  it('statusDiff: outputs 下 PDF 纳入变更列表且跳过文本 diff', async () => {
+    await vcs.ensureInitialized()
+    // 写入伪 PDF 二进制内容
+    const pdfRel = path.join('outputs', '合并_同意函.pdf')
+    writeFile(pdfRel, '%PDF-1.4 binary\x00\x01\x02 content')
+
+    const diff = await vcs.statusDiff()
+    const entry = diff.find((d) => d.filepath.replace(/\\/g, '/') === 'outputs/合并_同意函.pdf')
+    expect(entry).toBeDefined()
+    expect(entry?.status).toBe('added')
+    expect(entry?.truncated).toBe(true)
+    expect(entry?.skipReason).toMatch(/二进制/)
+
+    const committed = await vcs.commit({ author: 'agent', message: '产出 PDF' })
+    expect(committed).not.toBeNull()
+  })
+
+  it('ensureInitialized: 移除误忽略 outputs/ 的 gitignore 规则', async () => {
+    fs.writeFileSync(
+      path.join(workspaceDir, '.gitignore'),
+      'node_modules/\noutputs/\nuploads/**/*.pdf\n',
+      'utf-8',
+    )
+    await vcs.ensureInitialized()
+    const gi = fs.readFileSync(path.join(workspaceDir, '.gitignore'), 'utf-8')
+    expect(gi).not.toMatch(/^outputs\/?$/m)
+    expect(gi).toContain('node_modules/')
+  })
+
   it('log: 记录 author / conversationId / runId 元信息', async () => {
     await vcs.ensureInitialized()
     writeFile('a.md', 'v1')

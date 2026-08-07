@@ -353,7 +353,7 @@ export function createAgentInstanceRuntimeEventHandler(
         })
       }
 
-      // bash/exec 工具：脚本写出的文件（Python/shell）不走 file_write，扫描 workspace/outputs 补齐注册
+      // bash/exec 工具：脚本写出的文件（Python/shell）不走 file_write，扫描 outputs/ 补齐注册
       if (event.toolName === 'bash' && !event.isError && fileRepo) {
         void fileMemoryHandler.scanAndRegisterOutputs(instanceId, toolStartMs).catch((err: unknown) => {
           log.error(`[file:created] 扫描 outputs 注册失败 instanceId=${instanceId}:`, err)

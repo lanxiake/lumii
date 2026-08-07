@@ -10,7 +10,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import type { FileRepo } from '@mtbot/agent-runtime'
-import { consolidateUserMemory } from '@mtbot/agent-runtime'
+import { consolidateUserMemory, resolveAgentFilePath } from '@mtbot/agent-runtime'
 import type { InstanceStateStore } from './bridge-instance-state'
 import type { AgentRuntimeEvent as IpcEvent } from '../../shared/agent-runtime-events'
 
@@ -54,7 +54,10 @@ export class FileMemoryHandler {
    */
   determineFileCategory(filePath: string): 'upload' | 'output' {
     const normalized = filePath.replace(/\\/g, '/').toLowerCase()
-    if (normalized.includes('/workspace/uploads/')) return 'upload'
+    // cwd 即为 workspace 根；兼容绝对路径中带 /workspace/uploads/ 的历史形式
+    if (normalized.includes('/uploads/') || normalized.includes('/workspace/uploads/')) {
+      return 'upload'
+    }
     return 'output'
   }
 
@@ -108,16 +111,17 @@ export class FileMemoryHandler {
     const msgId = state?.streamingAssistantMsgId ?? null
     const cwd = this.deps.getCwd()
 
-    const resolvedAbs = path.resolve(absPath)
-    const resolvedCwd = path.resolve(cwd)
-    if (!resolvedAbs.startsWith(resolvedCwd + path.sep) && resolvedAbs !== resolvedCwd) {
+    // 相对路径（如 outputs/foo.pdf）必须相对 agent cwd，而非 Electron process.cwd()
+    let resolvedAbs: string
+    try {
+      resolvedAbs = resolveAgentFilePath(absPath, cwd)
+    } catch (err) {
       log.warn(
-        `[file:created] 路径超出 workspace，拒绝注册: path=${resolvedAbs} cwd=${resolvedCwd}`,
+        `[file:created] 路径无效或超出 workspace，拒绝注册: path=${absPath} cwd=${cwd}`,
+        err,
       )
       return
     }
-
-    const localRelPath = path.relative(cwd, resolvedAbs).replace(/\\/g, '/')
 
     let fileSize: number | null = null
     try {
@@ -200,14 +204,15 @@ export class FileMemoryHandler {
   }
 
   /**
-   * exec / bash 类工具执行后，扫描 workspace/outputs 目录，注册自工具开始后新增/修改的文件
+   * exec / bash 类工具执行后，扫描 workspace 根下的 outputs/，注册自工具开始后新增/修改的文件
+   * （与 workspaceLayout.outputsDir = 'outputs' 一致；cwd 即为 workspace 根）
    */
   async scanAndRegisterOutputs(instanceId: string, sinceMs: number | undefined): Promise<void> {
     const fileRepo = this.deps.getFileRepo()
     if (!fileRepo) return
 
     const cwd = this.deps.getCwd()
-    const outputsDir = path.join(cwd, 'workspace', 'outputs')
+    const outputsDir = path.join(cwd, 'outputs')
 
     let entries: string[]
     try {
