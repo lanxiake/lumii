@@ -8,6 +8,11 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { DatabaseAdapter } from "./local-database.js";
 import { withTransaction } from "./local-database.js";
 import { providerPromptTokens } from "../compact/token-estimate.js";
+import type {
+  AssistantPart,
+  AssistantPartsContent,
+  ToolAssistantPart,
+} from "./assistant-parts.js";
 
 // ─── 类型定义 ───
 
@@ -39,7 +44,7 @@ export interface PiMessage {
 }
 
 export interface PiContentBlock {
-  readonly type: "text" | "tool_use" | "tool_result" | "thinking";
+  readonly type: "text" | "tool_use" | "tool_result" | "toolCall" | "thinking";
   readonly [key: string]: unknown;
 }
 
@@ -90,7 +95,7 @@ export interface ToolResultContent {
 }
 
 /** content_json 联合类型 — 覆盖 messages 表中所有合法 JSON 结构 */
-export type MessageContentJson = TextMessageContent | ToolResultContent;
+export type MessageContentJson = AssistantPartsContent | TextMessageContent | ToolResultContent;
 
 /**
  * 将数据库存储的 content_json 字符串解析为强类型结构。
@@ -133,6 +138,9 @@ export function parseMessageContentJson(raw: string): MessageContentJson | undef
         ...(isVoice ? { isVoice: true } : {}),
         ...(audioWavBase64 ? { audioWavBase64 } : {}),
       } as TextMessageContent;
+    }
+    if (o.type === "assistant_parts" && Array.isArray(o.parts)) {
+      return parsed as AssistantPartsContent;
     }
     if (o.type === "tool_result") {
       return parsed as ToolResultContent;
@@ -823,60 +831,85 @@ export class ConversationRepo {
 
 /**
  * 将 DB 消息行转换为 pi-agent AgentMessage 序列。
- * assistant 消息中的 toolCalls 会展开为 toolCall block + 对应的 toolResult 消息，
+ * assistant_parts 按时间线顺序转换为内容块，并展开已完成工具的 toolResult 消息，
  * 确保 restoreHistoryForInstance 能恢复完整的工具执行上下文。
  */
 export function messageRowToAgentMessages(row: MessageRow): readonly AgentMessage[] {
   const parsed = parseMessageContentJson(row.content_json);
-  if (!parsed || parsed.type !== "text") {
+  if (!parsed) {
     return [];
   }
 
-  const blocks: PiContentBlock[] = [];
-
-  if (parsed.thinkingText && parsed.thinkingText.trim().length > 0) {
-    blocks.push({
-      type: "thinking",
-      thinking: parsed.thinkingText,
-      thinkingSignature: "reasoning_content",
-    });
+  if (parsed.type === "text") {
+    if (row.role !== "user") {
+      return [];
+    }
+    return [{ role: "user", content: [{ type: "text", text: parsed.text }] } as AgentMessage];
   }
 
-  blocks.push({ type: "text", text: parsed.text ?? "" });
-
-  if (row.role === "user") {
-    return [{ role: "user", content: blocks } as AgentMessage];
+  if (parsed.type !== "assistant_parts" || row.role !== "assistant") {
+    return [];
   }
 
-  const toolCalls = parsed.toolCalls ?? [];
-  const assistantBlocks: PiContentBlock[] = [...blocks];
-  for (const tc of toolCalls) {
-    assistantBlocks.push({
-      type: "toolCall",
-      id: tc.id,
-      name: tc.name,
-      arguments: tc.args ?? {},
-    });
-  }
+  const assistantBlocks = parsed.parts.map((part) => assistantPartToPiBlock(part));
+  const result: AgentMessage[] = [
+    { role: "assistant", content: assistantBlocks } as unknown as AgentMessage,
+  ];
 
-  const result: AgentMessage[] = [{ role: "assistant", content: assistantBlocks } as AgentMessage];
-
-  for (const tc of toolCalls) {
-    if (tc.result === undefined) continue;
+  for (const part of parsed.parts) {
+    if (
+      part.type !== "tool" ||
+      part.status === "running" ||
+      part.result === undefined
+    ) {
+      continue;
+    }
     const resultText =
-      typeof tc.result === "string" ? tc.result : JSON.stringify(tc.result);
+      typeof part.result === "string" ? part.result : JSON.stringify(part.result);
     result.push({
       role: "toolResult",
-      toolCallId: tc.id,
-      toolName: tc.name,
+      toolCallId: part.id,
+      toolName: part.name,
       content: [{ type: "text", text: resultText }],
-      ...(tc.isError ? { isError: true } : {}),
+      ...(part.isError ? { isError: true } : {}),
     } as AgentMessage);
   }
 
   return result;
 }
 
+/**
+ * 将单个助手时间线 part 转换为 pi-agent 内容块。
+ */
+function assistantPartToPiBlock(part: AssistantPart): PiContentBlock {
+  if (part.type === "thinking") {
+    return {
+      type: "thinking",
+      thinking: part.text,
+      thinkingSignature: "reasoning_content",
+    };
+  }
+  if (part.type === "text") {
+    return { type: "text", text: part.text };
+  }
+  return toolAssistantPartToPiBlock(part);
+}
+
+/**
+ * 将工具 part 转换为 pi-agent toolCall 内容块。
+ */
+function toolAssistantPartToPiBlock(part: ToolAssistantPart): PiContentBlock {
+  return {
+    type: "toolCall",
+    id: part.id,
+    name: part.name,
+    arguments: part.args,
+  };
+}
+
+/**
+ * 生成消息、会话使用的随机十六进制 ID。
+ */
 function generateId(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
