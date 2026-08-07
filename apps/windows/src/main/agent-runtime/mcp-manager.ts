@@ -163,7 +163,8 @@ export class McpManager {
   getStatus(): McpServerRuntimeStatus[] {
     return [...this.configs.values()].map((config) => ({
       ...config,
-      connected: this.mcpClients.get(config.name)?.initialized === true,
+      // 成功 connect 后才会写入 mcpClients，以此判定在线
+      connected: this.mcpClients.has(config.name),
       connecting: this.connecting.has(config.name),
       tools: this.serverTools.get(config.name) ?? [],
       lastError: this.lastErrors.get(config.name),

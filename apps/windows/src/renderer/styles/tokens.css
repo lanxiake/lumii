@@ -135,6 +135,10 @@
   --font-size-4xl: 36px;
   --font-size-5xl: 48px;
 
+  /* 对话消息默认字号；全局 A−/A+ 会覆盖 */
+  --chat-font-size: 15px;
+  --app-font-scale: 1;
+
   --font-weight-thin: 100;
   --font-weight-extralight: 200;
   --font-weight-light: 300;

@@ -9,6 +9,7 @@ import { ThemeProvider } from './ThemeContext/ThemeContext'
 import { SettingsProvider } from './SettingsContext/SettingsContext'
 import { SkillsProvider } from './SkillsContext/SkillsContext'
 import { PluginsProvider } from './PluginsContext/PluginsContext'
+import { AppFontScaleProvider } from './AppFontScaleContext/AppFontScaleContext'
 import { ToastProvider } from '../components/ui/Toast/ToastContainer'
 import { SettingsHubProvider } from '../components/SettingsHub'
 
@@ -18,21 +19,23 @@ interface AppProvidersProps {
 
 /**
  * 应用上下文提供者组合
- * 按照依赖顺序排列：Settings -> Theme -> Skills -> Toast -> SettingsHub
+ * 按照依赖顺序排列：Settings -> Theme -> FontScale -> Skills -> Toast -> SettingsHub
  */
 export const AppProviders: React.FC<AppProvidersProps> = ({ children }) => {
   return (
     <SettingsProvider>
       <ThemeProvider>
-        <SkillsProvider>
-          <PluginsProvider>
-            <ToastProvider>
-              <SettingsHubProvider>
-                {children}
-              </SettingsHubProvider>
-            </ToastProvider>
-          </PluginsProvider>
-        </SkillsProvider>
+        <AppFontScaleProvider>
+          <SkillsProvider>
+            <PluginsProvider>
+              <ToastProvider>
+                <SettingsHubProvider>
+                  {children}
+                </SettingsHubProvider>
+              </ToastProvider>
+            </PluginsProvider>
+          </SkillsProvider>
+        </AppFontScaleProvider>
       </ThemeProvider>
     </SettingsProvider>
   )

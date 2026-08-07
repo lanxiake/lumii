@@ -35,11 +35,17 @@ export interface DashboardPageProps {
 
 const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
   const { gauges, skillStats, usage, isRefreshing, error, refresh } = useDashboard()
-  const { servers: mcpServers } = useMcpServers()
+  const { servers: mcpServers, refresh: refreshMcp } = useMcpServers()
 
   const mcpConnected = mcpServers.filter((s) => s.connected).length
   const mcpTotal = mcpServers.length
   const spark = sparkBars(usage?.buckets ?? [], usage?.groupBy ?? 'hour')
+
+  /** 刷新概览指标，并同步拉一次 MCP 在线状态 */
+  const handleRefresh = () => {
+    void refresh()
+    void refreshMcp()
+  }
 
   return (
     <div className={styles['dashboard-page']}>
@@ -53,7 +59,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
           </div>
         </div>
         <div className={styles['page-actions']}>
-          <Button onClick={refresh} loading={isRefreshing} variant="secondary">
+          <Button onClick={handleRefresh} loading={isRefreshing} variant="secondary">
             刷新
           </Button>
         </div>
@@ -140,7 +146,11 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
             value={gauges.diskPercent}
             label="磁盘"
             tone="var(--mt-tone-d)"
-            title="系统盘占用"
+            title={
+              gauges.diskUsed != null && gauges.diskTotal != null
+                ? `全部磁盘 ${formatGb(gauges.diskUsed)} / ${formatGb(gauges.diskTotal)}`
+                : '全部本地磁盘合计占用'
+            }
           />
         </div>
       </Card>

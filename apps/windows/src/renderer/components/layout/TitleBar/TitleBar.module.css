@@ -87,6 +87,54 @@
   -webkit-app-region: no-drag;
 }
 
+/* 全局字号 A− / % / A+ */
+.title-bar-font-scale {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: var(--spacing-1);
+  -webkit-app-region: no-drag;
+}
+
+.title-bar-font-btn,
+.title-bar-font-pct {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-family: var(--mt-font-sans, inherit);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, opacity 0.15s;
+}
+
+.title-bar-font-btn {
+  min-width: 26px;
+}
+
+.title-bar-font-pct {
+  min-width: 36px;
+  font-variant-numeric: tabular-nums;
+}
+
+.title-bar-font-btn:hover:not(:disabled),
+.title-bar-font-pct:hover {
+  background-color: var(--mt-bg-tertiary);
+  color: var(--mt-fg-1);
+}
+
+.title-bar-font-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .title-bar-status.connected {
   background-color: var(--color-success, #10b981);
   box-shadow: 0 0 6px var(--color-success, #10b981);

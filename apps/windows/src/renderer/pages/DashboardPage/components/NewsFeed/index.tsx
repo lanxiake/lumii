@@ -42,18 +42,19 @@ function formatWhen(ts?: number): string {
 }
 
 /**
- * 拼给 AI 的解读请求
+ * 拼给 AI 的解读请求（带上卡片标题、来源、摘要等完整信息）
  */
 function buildInterpretPrompt(item: FeedItem): string {
-  return [
+  const lines = [
     `帮我解读这条内容：${item.title}`,
     item.source || item.href ? `来源：${[item.source, item.href].filter(Boolean).join(' · ')}` : '',
+    item.kind ? `类型：${item.kind}` : '',
+    item.timestamp ? `时间：${new Date(item.timestamp).toLocaleString()}` : '',
     item.summary ? `摘要：${item.summary}` : '',
     '',
     '请先说清它讲了什么，再说说值得关注的点。',
   ]
-    .filter(Boolean)
-    .join('\n')
+  return lines.filter(Boolean).join('\n')
 }
 
 export interface NewsFeedProps {
@@ -133,7 +134,7 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
           <RefreshCw size={12} strokeWidth={2} className={refreshing ? styles.spin : undefined} />
         </button>
         <button type="button" className={styles.link} onClick={() => onViewChange?.('cron')}>
-          流水线
+          定时任务
         </button>
       </div>
 

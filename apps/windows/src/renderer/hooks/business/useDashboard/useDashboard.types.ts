@@ -24,8 +24,12 @@ export interface RuntimeGauges {
   /** CPU 占用百分比；首次采样无基准时为 undefined */
   cpuPercent?: number
   memoryPercent?: number
-  /** 系统盘占用百分比 */
+  /** 全部本地磁盘合计占用百分比 */
   diskPercent?: number
+  /** 全部本地磁盘已用字节合计 */
+  diskUsed?: number
+  /** 全部本地磁盘总容量字节合计 */
+  diskTotal?: number
   cpuModel?: string
   cpuCores?: number
   totalMemory?: number

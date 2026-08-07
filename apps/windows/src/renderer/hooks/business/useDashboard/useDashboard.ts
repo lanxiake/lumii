@@ -24,7 +24,10 @@ type SystemInfoShape = {
   usedMemory?: number
 }
 
-type DiskShape = { mount?: string; usagePercent?: number }
+type DiskShape = { mount?: string; usagePercent?: number; used?: number; total?: number }
+
+/** 全盘合计：已用 / 总量 / 占用百分比 */
+type DiskAggregate = { percent: number; used: number; total: number }
 
 /** 区间起止（epoch ms）与桶粒度 */
 function resolveRange(range: UsageRange): { from: number; to: number; groupBy: 'hour' | 'day' } {
@@ -50,12 +53,24 @@ export function useDashboard() {
     return info ?? null
   }, [])
 
-  const fetchDisk = useCallback(async (): Promise<number | undefined> => {
+  /**
+   * 汇总本机全部本地磁盘（DriveType=3）的已用与总量
+   */
+  const fetchDisk = useCallback(async (): Promise<DiskAggregate | undefined> => {
     const disks = (await window.electronAPI.system.getDiskInfo()) as DiskShape[] | null
     if (!disks?.length) return undefined
-    // 取 C 盘，取不到就退回第一块——概览只需要一个「系统盘」代表值
-    const target = disks.find((d) => d.mount?.toUpperCase().startsWith('C')) ?? disks[0]
-    return target?.usagePercent
+    let used = 0
+    let total = 0
+    for (const disk of disks) {
+      used += typeof disk.used === 'number' ? disk.used : 0
+      total += typeof disk.total === 'number' ? disk.total : 0
+    }
+    if (total <= 0) return undefined
+    return {
+      used,
+      total,
+      percent: Math.round((used / total) * 100),
+    }
   }, [])
 
   const fetchSkills = useCallback(async (): Promise<SkillStats> => {
@@ -87,7 +102,7 @@ export function useDashboard() {
     retryCount: 0,
   })
 
-  const { data: diskPercent, refetch: refetchDisk } = useQuery<number | undefined>({
+  const { data: diskAgg, refetch: refetchDisk } = useQuery<DiskAggregate | undefined>({
     queryKey: ['dashboard', 'disk'],
     queryFn: fetchDisk,
     refetchInterval: DISK_POLL_MS,
@@ -122,13 +137,15 @@ export function useDashboard() {
       cpuPercent: systemInfo?.cpuUsage,
       memoryPercent: systemInfo?.memoryUsagePercent,
       // useQuery 未取数时 data 为 null，统一成 undefined 表达「无数据」
-      diskPercent: diskPercent ?? undefined,
+      diskPercent: diskAgg?.percent,
+      diskUsed: diskAgg?.used,
+      diskTotal: diskAgg?.total,
       cpuModel: systemInfo?.cpuModel,
       cpuCores: systemInfo?.cpuCores,
       totalMemory: systemInfo?.totalMemory,
       usedMemory: systemInfo?.usedMemory,
     }),
-    [systemInfo, diskPercent],
+    [systemInfo, diskAgg],
   )
 
   const refresh = useCallback(async () => {

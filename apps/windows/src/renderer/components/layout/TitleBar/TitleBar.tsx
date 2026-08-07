@@ -1,10 +1,12 @@
 /**
  * TitleBar Component - 自定义窗口标题栏
  *
- * 无边框窗口的自定义标题栏，包含拖拽区域和窗口控制按钮
+ * 无边框窗口的自定义标题栏，包含拖拽区域和窗口控制按钮。
+ * 主题切换与全局字号 A−/A+ 放在品牌区右侧，任意页面均可调节。
  */
 
 import React, { useCallback, useState, useEffect } from 'react';
+import { useAppFontScale } from '../../../contexts/AppFontScaleContext/AppFontScaleContext';
 import styles from './TitleBar.module.css';
 
 export interface TitleBarProps {
@@ -49,13 +51,14 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   electronAPI,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
+  const { scale, decrease, increase, reset, canDecrease, canIncrease } = useAppFontScale();
 
   // 监听窗口最大化状态变化
   useEffect(() => {
     const handleResize = () => {
       // 检查窗口是否最大化（通过窗口尺寸与屏幕尺寸比较）
       if (typeof window !== 'undefined') {
-        const isMax = window.innerWidth === window.screen.availWidth && 
+        const isMax = window.innerWidth === window.screen.availWidth &&
                       window.innerHeight === window.screen.availHeight;
         setIsMaximized(isMax);
       }
@@ -100,6 +103,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     }
   }, [electronAPI]);
 
+  const scalePercent = Math.round(scale * 100);
+
   return (
     <header className={`${styles['title-bar']} ${className}`}>
       {/* 左侧区域 */}
@@ -133,6 +138,37 @@ export const TitleBar: React.FC<TitleBarProps> = ({
               {themeToggle}
             </div>
           )}
+          <div className={styles['title-bar-font-scale']} role="group" aria-label="全局字号">
+            <button
+              type="button"
+              className={styles['title-bar-font-btn']}
+              onClick={decrease}
+              disabled={!canDecrease}
+              title="缩小全局字号"
+              aria-label="缩小全局字号"
+            >
+              A−
+            </button>
+            <button
+              type="button"
+              className={styles['title-bar-font-pct']}
+              onClick={reset}
+              title="复位字号（点击恢复默认）"
+              aria-label={`当前字号 ${scalePercent}%，点击复位`}
+            >
+              {scalePercent}%
+            </button>
+            <button
+              type="button"
+              className={styles['title-bar-font-btn']}
+              onClick={increase}
+              disabled={!canIncrease}
+              title="放大全局字号"
+              aria-label="放大全局字号"
+            >
+              A+
+            </button>
+          </div>
         </div>
       </div>
 

@@ -49,7 +49,7 @@ import {
   type ImageProcessingResult,
 } from './utils/image-processing-strategy'
 import { InterruptBanner } from './components/InterruptBanner'
-import { PanelLeft, Sparkles, Type, FolderOpen } from 'lucide-react'
+import { PanelLeft, Sparkles, FolderOpen } from 'lucide-react'
 
 /** 将 File 读取为 base64 字符串（当 file.path 不可用时使用） */
 function readFileAsBase64(file: File): Promise<string> {
@@ -82,7 +82,6 @@ const logger = {
 }
 
 const AUTO_APPROVE_KEY = 'mtbot-auto-approve'
-const FONT_SCALE_KEY = 'mtbot:chat-font-scale'
 const PAGE_ZOOM_KEY = 'mtbot:chat-page-zoom'
 const ZOOM_MIN = 0.6
 
@@ -94,18 +93,6 @@ const EMPTY_WORKFLOW_ITEMS: never[] = []
 const EMPTY_RESOLVING_IDS: Set<string> = new Set<string>()
 const ZOOM_MAX = 2.0
 const ZOOM_STEP = 0.1
-
-/** 字号档位 → 消息区根字号（px），通过 CSS 变量 --chat-font-size 注入 */
-const FONT_SCALE_PX: Record<'small' | 'medium' | 'large', string> = {
-  small: '13px',
-  medium: '15px',
-  large: '17px',
-}
-const FONT_SCALE_LABEL: Record<'small' | 'medium' | 'large', string> = {
-  small: '小',
-  medium: '中',
-  large: '大',
-}
 
 const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewChange }) => {
   // Hooks
@@ -815,22 +802,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     }
   })
 
-  /** 消息字号档位：small | medium | large，存 localStorage，作用于消息区 CSS 变量 */
-  const [fontScale, setFontScale] = useState<'small' | 'medium' | 'large'>(() => {
-    try {
-      const v = localStorage.getItem(FONT_SCALE_KEY)
-      return v === 'small' || v === 'large' ? v : 'medium'
-    } catch {
-      return 'medium'
-    }
-  })
-  const cycleFontScale = useCallback(() => {
-    setFontScale((prev) => {
-      const next = prev === 'small' ? 'medium' : prev === 'medium' ? 'large' : 'small'
-      try { localStorage.setItem(FONT_SCALE_KEY, next) } catch { /* ignore */ }
-      return next
-    })
-  }, [])
+  /** 消息字号改由 TitleBar 全局 A−/A+ 控制（--chat-font-size） */
 
   /**
    * 对话页整体缩放比例（Ctrl + 滚轮调节），仅作用于 ChatPage 根容器，
@@ -1419,11 +1391,19 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     // 概览页点资讯卡片 → 预填输入框但不自动发送，用户还能改。
     // newSession=true 时先开一个干净会话：解读某条资讯和用户当前对话无关，
     // 塞进正在进行的会话里会污染上下文。
+    // 必须用 createSession 返回的 sessionKey 写草稿——setInputValue 闭包里的
+    // runtimeCurrentSessionKey 仍是旧值，会把内容写到旧会话或 globalDraft。
     const onDraftRequest = (e: Event) => {
       const { text, newSession } = (e as CustomEvent<{ text: string; newSession?: boolean }>).detail ?? {}
       if (!text) return
       if (newSession) {
-        void handleNewConversation().then(() => setInputValue(text))
+        void handleNewConversation().then((sessionKey) => {
+          if (sessionKey) {
+            setDraftsBySession((prev) => ({ ...prev, [sessionKey]: text }))
+          } else {
+            setGlobalDraft(text)
+          }
+        })
         return
       }
       setInputValue(text)
@@ -1481,11 +1461,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             : {}),
         }}
       >
-        {/* 消息层：全屏滚动，顶部/底部浮层可透视 */}
-        <div
-          className={styles['chat-main-body']}
-          style={{ ['--chat-font-size' as string]: FONT_SCALE_PX[fontScale] }}
-        >
+        {/* 消息层：全屏滚动，顶部/底部浮层可透视；字号跟全局 --chat-font-size */}
+        <div className={styles['chat-main-body']}>
           <ChatContainer
             session={localRuntimeSession}
             approvalItems={approvalItems}
@@ -1545,15 +1522,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
                 {Math.round(pageZoom * 100)}%
               </button>
             )}
-            <button
-              type="button"
-              className={styles['icon-btn']}
-              onClick={cycleFontScale}
-              title={`消息字号：${FONT_SCALE_LABEL[fontScale]}（点击切换 小/中/大）`}
-              aria-label="切换消息字号"
-            >
-              <Type size={16} strokeWidth={1.8} />
-            </button>
             <button
               type="button"
               className={clsx(styles['auto-approve-toggle'], autoApprove && styles['auto-approve-toggle--on'])}

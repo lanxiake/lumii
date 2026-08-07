@@ -48,6 +48,11 @@ export function useMcpServers() {
 
   useEffect(() => {
     void refresh()
+    // MCP 连接启动较慢：挂载后周期刷新，避免概览长期停在「0 在线」
+    const timer = window.setInterval(() => {
+      void refresh()
+    }, 5000)
+    return () => window.clearInterval(timer)
   }, [refresh])
 
   /** 执行一次写操作：置忙 → 发命令 → 刷新 → 返回结果 */
