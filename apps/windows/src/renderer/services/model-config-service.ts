@@ -18,6 +18,8 @@ export interface LocalProviderConfigView {
   baseUrl: string
   modelId: string
   apiKey: string
+  /** chat/vision：对话框可选模型；缺省时回退 [modelId] */
+  allowedModelIds?: string[]
 }
 
 /** 全部能力槽 */
@@ -77,6 +79,22 @@ export const CAPABILITY_SLOTS: CapabilitySlot[] = ['chat', 'vision', 'image']
 const CHAT_LISTED_MODELS_KEY = 'lumii:chat-listed-models'
 
 /**
+ * 规范化允许模型列表
+ */
+export function normalizeAllowedModelIds(
+  allowed: string[] | undefined,
+  modelId: string,
+): string[] {
+  const ids = (allowed ?? [])
+    .map((id) => (typeof id === 'string' ? id.trim() : ''))
+    .filter(Boolean)
+  const unique = [...new Set(ids)]
+  const fallback = modelId.trim()
+  if (unique.length === 0) return fallback ? [fallback] : []
+  return unique
+}
+
+/**
  * 创建默认单槽配置（不预填模型名）
  */
 export function createDefaultSlotConfig(_slot: CapabilitySlot): LocalProviderConfigView {
@@ -86,6 +104,7 @@ export function createDefaultSlotConfig(_slot: CapabilitySlot): LocalProviderCon
     baseUrl: PROVIDER_DEFAULT_BASE_URL.openai,
     modelId: '',
     apiKey: '',
+    allowedModelIds: [],
   }
 }
 
@@ -162,36 +181,17 @@ export interface ChatModelChoices {
 }
 
 /**
- * 读取设置页缓存的 chat 模型列表
- */
-function readCachedChatListedModels(): ModelOption[] {
-  try {
-    const raw = localStorage.getItem(CHAT_LISTED_MODELS_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw) as ListedModel[]
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter((m) => m && typeof m.id === 'string' && m.id.trim())
-      .map((m) => ({ id: m.id, name: m.name || m.id }))
-  } catch {
-    return []
-  }
-}
-
-/**
- * 由 chat 槽 + 缓存列表构造候选（已启用且填写了模型时可用）
+ * 由 chat 槽 allowedModelIds 构造对话框候选（仅已勾选模型）
  */
 async function localModelOptions(): Promise<ModelOption[]> {
   const cfg = await getProviderConfig()
   const chat = cfg.chat
-  if (!chat.enabled || !chat.modelId?.trim()) return []
+  if (!chat.enabled) return []
 
-  const map = new Map<string, ModelOption>()
-  map.set(chat.modelId, { id: chat.modelId, name: chat.modelId })
-  for (const m of readCachedChatListedModels()) {
-    if (!map.has(m.id)) map.set(m.id, m)
-  }
-  return Array.from(map.values())
+  const allowed = normalizeAllowedModelIds(chat.allowedModelIds, chat.modelId)
+  if (allowed.length === 0) return []
+
+  return allowed.map((id) => ({ id, name: id }))
 }
 
 /** 获取模型 catalog */
@@ -201,20 +201,33 @@ export async function fetchModelCatalog(): Promise<ModelOption[]> {
 
 /** 获取 chat 候选与当前选择 */
 export async function fetchChatModelChoices(): Promise<ChatModelChoices> {
+  const cfg = await getProviderConfig()
   const candidates = await localModelOptions()
-  const selected = candidates[0]?.id ?? ''
+  const selected =
+    (cfg.chat.modelId && candidates.some((c) => c.id === cfg.chat.modelId)
+      ? cfg.chat.modelId
+      : candidates[0]?.id) ?? ''
   return { candidates, selected }
 }
 
 /**
- * 保存 chat 模型选择：写入 chat 槽的 modelId（保留其余字段）
+ * 保存 chat 模型选择：写入 chat 槽的 modelId（保留 allowlist）
  */
 export async function saveChatModel(modelId: string): Promise<void> {
   const id = modelId?.trim()
   if (!id) return
   const cfg = await getProviderConfig()
-  if (cfg.chat.modelId === id) return
-  cfg.chat = { ...cfg.chat, modelId: id, enabled: true }
+  const allowed = normalizeAllowedModelIds(cfg.chat.allowedModelIds, cfg.chat.modelId)
+  const nextAllowed = allowed.includes(id) ? allowed : [...allowed, id]
+  if (cfg.chat.modelId === id && JSON.stringify(cfg.chat.allowedModelIds ?? []) === JSON.stringify(nextAllowed)) {
+    return
+  }
+  cfg.chat = {
+    ...cfg.chat,
+    modelId: id,
+    allowedModelIds: nextAllowed,
+    enabled: true,
+  }
   await saveProviderConfig(cfg)
   window.dispatchEvent(new CustomEvent('mtbot:provider-config-changed'))
 }

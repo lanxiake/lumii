@@ -8,4 +8,5 @@ export {
   setIpcMainWindow,
   getAcpBackendManager,
   getSessionKeyForInstance,
+  invalidateAgentInstancesForProviderChange,
 } from '../ipc/agent-runtime-ipc'

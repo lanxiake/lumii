@@ -292,6 +292,28 @@ export function setAudioTranscribeCallback(cb: ((base64: string, mimeType: strin
 }
 
 /**
+ * Provider 配置变更后使会话 Agent 实例失效，下次发消息按新配置重建（走 direct）。
+ * 不关闭数据库，仅销毁内存中的实例与 session 映射。
+ */
+export function invalidateAgentInstancesForProviderChange(): void {
+  if (!ipcBridgeRef) {
+    log.warn('[invalidateAgentInstancesForProviderChange] bridge 未就绪，跳过')
+    return
+  }
+  const instances = ipcBridgeRef.getInstances()
+  log.info(`[invalidateAgentInstancesForProviderChange] 销毁 ${instances.length} 个实例`)
+  for (const inst of instances) {
+    try {
+      untrackInstanceRuns(inst.id)
+      ipcBridgeRef.destroy(inst.id)
+    } catch (err) {
+      log.warn(`[invalidateAgentInstancesForProviderChange] destroy ${inst.id} 失败:`, err)
+    }
+  }
+  sessionToInstance.clear()
+}
+
+/**
  * 将 Bridge 实例挂到 IPC（或卸载时传 null）
  */
 export function setAgentRuntimeBridgeForIpc(bridge: AgentRuntimeBridge | null): void {

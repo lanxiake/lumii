@@ -12,6 +12,7 @@ import {
   Info,
   BarChart2,
 } from '../../components/ui/Icon'
+import { Eye, EyeOff, FileText } from 'lucide-react'
 import { Card } from '../../components/ui/Card/Card'
 import { Button } from '../../components/ui/Button/Button'
 import { Input } from '../../components/ui/Input/Input'
@@ -125,6 +126,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [expandedSlots, setExpandedSlots] = useState<Partial<Record<CapabilitySlot, boolean>>>({
     chat: true,
   })
+  /** API Key 明文可见性（按槽） */
+  const [showApiKeyBySlot, setShowApiKeyBySlot] = useState<Partial<Record<CapabilitySlot, boolean>>>({})
+  /** 语音 ASR API Key 可见性 */
+  const [showVoiceApiKey, setShowVoiceApiKey] = useState(false)
 
   // 宠物模式 Agent + 模型 + 设置
   const PET_AGENT_STORAGE_KEY = 'mtbot:pet-agent-id'
@@ -216,14 +221,19 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   }, [])
 
   /**
-   * 获取默认工作空间路径
+   * 获取工作空间路径：以主进程 getDir 为权威源并回填展示
    */
   useEffect(() => {
     window.electronAPI.workspace?.getDir().then((dir) => {
+      if (!dir) return
       setDefaultWorkspaceDir(dir)
+      // 主进程权威路径回填到设置草稿，避免 Wizard/setDir 与 localStorage 不同步时仍显示默认目录
+      updateWorkspace({ directory: dir })
     }).catch(() => {
-      console.warn('[SettingsPage] 获取默认工作空间路径失败')
+      console.warn('[SettingsPage] 获取工作空间路径失败')
     })
+  // 仅挂载时同步一次
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /**
@@ -732,6 +742,31 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </section>
 
         <section className={styles['panel-card']}>
+          <h4 className={styles['panel-card-title']}>系统日志</h4>
+          <p className={styles['panel-card-desc']}>
+            打开应用运行日志文件，便于排查连接、对话与启动问题
+          </p>
+          <div className={styles['panel-actions']}>
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                try {
+                  const res = await window.electronAPI.app.openLogFile()
+                  if (!res.success) {
+                    toast.error(res.error || '打开日志失败')
+                  }
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : '打开日志失败')
+                }
+              }}
+            >
+              <FileText size={16} style={{ marginRight: 6 }} />
+              打开系统日志
+            </Button>
+          </div>
+        </section>
+
+        <section className={styles['panel-card']}>
           <h4 className={styles['panel-card-title']}>数据管理</h4>
           <p className={styles['panel-card-desc']}>导出/导入应用设置，或清理本地缓存数据</p>
           <div className={styles['panel-actions']}>
@@ -811,6 +846,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           type: chat.type,
           baseUrl: chat.baseUrl,
           apiKey: chat.apiKey,
+          modelId: chat.modelId,
+          allowedModelIds: slot === 'vision' ? [...(chat.allowedModelIds ?? (chat.modelId ? [chat.modelId] : []))] : prev[slot].allowedModelIds,
           enabled: true,
         },
       }
@@ -992,10 +1029,23 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
               <div className={styles['setting-control']}>
                 <Input
-                  type="password"
+                  type={showApiKeyBySlot[slot] ? 'text' : 'password'}
                   value={cfg.apiKey}
                   placeholder={isLocalProvider ? '（可留空）' : 'sk-...'}
                   onChange={(e) => patchSlot(slot, { apiKey: e.target.value })}
+                  suffix={
+                    <button
+                      type="button"
+                      className={styles['about-link']}
+                      aria-label={showApiKeyBySlot[slot] ? '隐藏 API Key' : '显示 API Key'}
+                      onClick={() =>
+                        setShowApiKeyBySlot((s) => ({ ...s, [slot]: !s[slot] }))
+                      }
+                      style={{ display: 'inline-flex', alignItems: 'center', padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
+                    >
+                      {showApiKeyBySlot[slot] ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  }
                 />
               </div>
             </div>
@@ -1007,30 +1057,84 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   {slot === 'image'
                     ? '请填写或从列表选择，如 dall-e-3 / gpt-image-1'
                     : slot === 'vision'
-                      ? '请填写或从列表选择，如 gpt-4o / claude-sonnet'
-                      : '请填写或从列表选择，如 deepseek-chat / gpt-4o'}
+                      ? '可勾选多个模型；对话/识别时再选用其一'
+                      : '可勾选多个模型；对话框中切换使用'}
                 </span>
               </div>
               <div className={styles['setting-control']} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {models.length > 0 ? (
-                  <Select
-                    value={cfg.modelId}
-                    options={[
-                      { value: '', label: '（请选择模型）' },
-                      ...models.map((m) => ({ value: m.id, label: m.name })),
-                      ...(cfg.modelId && !models.some((m) => m.id === cfg.modelId)
-                        ? [{ value: cfg.modelId, label: `${cfg.modelId}（当前）` }]
-                        : []),
-                    ]}
-                    onChange={(e) => patchSlot(slot, { modelId: e.target.value })}
-                  />
+                {slot === 'image' ? (
+                  models.length > 0 ? (
+                    <Select
+                      value={cfg.modelId}
+                      options={[
+                        { value: '', label: '（请选择模型）' },
+                        ...models.map((m) => ({ value: m.id, label: m.name })),
+                        ...(cfg.modelId && !models.some((m) => m.id === cfg.modelId)
+                          ? [{ value: cfg.modelId, label: `${cfg.modelId}（当前）` }]
+                          : []),
+                      ]}
+                      onChange={(e) => patchSlot(slot, { modelId: e.target.value })}
+                    />
+                  ) : (
+                    <Input
+                      type="text"
+                      value={cfg.modelId}
+                      placeholder="请输入模型 ID"
+                      onChange={(e) => patchSlot(slot, { modelId: e.target.value })}
+                    />
+                  )
                 ) : (
-                  <Input
-                    type="text"
-                    value={cfg.modelId}
-                    placeholder="请输入模型 ID"
-                    onChange={(e) => patchSlot(slot, { modelId: e.target.value })}
-                  />
+                  <>
+                    {models.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 220, overflow: 'auto' }}>
+                        {models.map((m) => {
+                          const allowed = cfg.allowedModelIds?.length
+                            ? cfg.allowedModelIds
+                            : (cfg.modelId ? [cfg.modelId] : [])
+                          const checked = allowed.includes(m.id)
+                          return (
+                            <Checkbox
+                              key={m.id}
+                              checked={checked}
+                              onChange={(next) => {
+                                const prev = cfg.allowedModelIds?.length
+                                  ? [...cfg.allowedModelIds]
+                                  : (cfg.modelId ? [cfg.modelId] : [])
+                                const nextIds = next
+                                  ? [...new Set([...prev, m.id])]
+                                  : prev.filter((id) => id !== m.id)
+                                const nextModelId =
+                                  nextIds.includes(cfg.modelId) ? cfg.modelId : (nextIds[0] ?? '')
+                                patchSlot(slot, { allowedModelIds: nextIds, modelId: nextModelId })
+                              }}
+                            >
+                              {m.name || m.id}
+                            </Checkbox>
+                          )
+                        })}
+                      </div>
+                    ) : null}
+                    <Input
+                      type="text"
+                      value={cfg.modelId}
+                      placeholder="默认模型 ID（可手动填写；勾选列表后可多选）"
+                      onChange={(e) => {
+                        const id = e.target.value
+                        const prev = cfg.allowedModelIds?.length
+                          ? [...cfg.allowedModelIds]
+                          : []
+                        const nextIds = id.trim()
+                          ? [...new Set([...prev.filter((x) => x !== cfg.modelId), id.trim()])]
+                          : prev.filter((x) => x !== cfg.modelId)
+                        patchSlot(slot, { modelId: id, allowedModelIds: nextIds })
+                      }}
+                    />
+                    {(cfg.allowedModelIds?.length ?? 0) > 0 && (
+                      <span className={styles['setting-desc']}>
+                        已选 {cfg.allowedModelIds!.length} 个；默认使用：{cfg.modelId || '（未设）'}
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -1468,11 +1572,21 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 <div className={styles['setting-item']}>
                   <label className={styles['setting-label']}>OpenAI API Key</label>
                   <Input
-                    type="password"
+                    type={showVoiceApiKey ? 'text' : 'password'}
                     placeholder="sk-..."
                     value={voiceConfig.asr.apiKey ?? ''}
                     onChange={(e) => saveVoiceConfig({ asr: { apiKey: e.target.value } })}
                     style={{ width: '280px' }}
+                    suffix={
+                      <button
+                        type="button"
+                        aria-label={showVoiceApiKey ? '隐藏 API Key' : '显示 API Key'}
+                        onClick={() => setShowVoiceApiKey((v) => !v)}
+                        style={{ display: 'inline-flex', alignItems: 'center', padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
+                      >
+                        {showVoiceApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    }
                   />
                   <p className={styles['settings-note']} style={{ marginTop: 4 }}>
                     用于 Whisper 语音识别（不影响其他 AI 功能）

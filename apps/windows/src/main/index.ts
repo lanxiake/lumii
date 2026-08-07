@@ -103,6 +103,7 @@ import {
   setIpcMainWindow,
   getAcpBackendManager,
   getSessionKeyForInstance,
+  invalidateAgentInstancesForProviderChange,
 } from './agent-runtime'
 import { submitVoiceTranscript } from './ipc/agent-runtime-ipc.js'
 import { VoiceModelManager } from './voice/model-manager.js'
@@ -1180,7 +1181,18 @@ function setupIpcHandlers(): void {
         throw err
       }
     }
-    return dirPath
+
+    const mtbotDataDir = resolveClientStateDir()
+    const defaultWorkspace = join(mtbotDataDir, 'workspace')
+    const resolved = dirPath !== '' ? dirPath : defaultWorkspace
+    // 与 notifyChanged 对齐：校验通过后立即写入主进程权威配置
+    if (configManager) {
+      await configManager.updateAppConfig({
+        workspaceDirectory: resolved !== defaultWorkspace ? resolved : undefined,
+      })
+    }
+    reapplyCodingDevAcpEnvFromConfig()
+    return (resolved).replace(/\\/g, '/')
   })
 
   /**
@@ -1838,6 +1850,23 @@ function setupIpcHandlers(): void {
     shell.showItemInFolder(filePath)
   })
 
+  /**
+   * 在资源管理器中打开当前应用日志文件（便于用户排查问题）
+   */
+  ipcMain.handle('app:openLogFile', async () => {
+    const logFile = fileLogger.getCurrentLogFilePath()
+    if (logFile && existsSync(logFile)) {
+      shell.showItemInFolder(logFile)
+      return { success: true, path: logFile }
+    }
+    const logDir = fileLogger.getLogDir()
+    if (logDir && existsSync(logDir)) {
+      await shell.openPath(logDir)
+      return { success: true, path: logDir }
+    }
+    return { success: false, error: '未找到日志文件' }
+  })
+
   // === 对话框 ===
   ipcMain.handle('dialog:showOpenDialog', async (_event, options: Electron.OpenDialogOptions) => {
     return dialog.showOpenDialog(mainWindow!, options)
@@ -2215,6 +2244,8 @@ function setupApiIpcHandlers(): void {
     } else {
       saveProviderConfig(cfg as LocalProviderConfigView)
     }
+    // 配置变更后销毁旧实例，避免继续走创建时快照的 Gateway/旧凭据
+    invalidateAgentInstancesForProviderChange()
     return loadProviderSlotsConfig()
   })
 

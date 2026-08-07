@@ -23,6 +23,7 @@ import {
   type MemoryManager,
   ModelRouter,
   createGatewayStreamFn,
+  createDirectStreamFn,
   DEFAULT_GATEWAY_STREAM_PATH,
   ProactivityScheduler,
   BUILT_IN_AGENTS,
@@ -188,21 +189,51 @@ export class BridgeInstanceFactory {
     const purpose = def.defaultPurpose ?? 'chat'
 
     const streamPathOverride = process.env.MTBOT_GATEWAY_STREAM_PATH?.trim()
-    // 灵栖/Lumii 独立版：读取本地 provider 配置，enabled 时 Agent 走 direct 直连。
-    const providerCfg = this.deps.config.getProviderConfig?.()
-    const useDirect = providerCfg?.enabled === true
-    const resolveDirectBaseUrl = () =>
-      providerCfg
-        ? ensureProviderBaseUrl(providerCfg.baseUrl, providerCfg.type)
-        : undefined
-    // host-kit streamFn 工厂：gateway 分支（云端代理）+ direct 分支（本地直连）。
-    // 动态 metadata（runId/thinking）经 getMetadataExtras 注入，诊断经 onDiagnostic 转 IPC。
+    /**
+     * 每次调用时读取最新 chat 槽配置（避免 createInstance 闭包快照过期）。
+     */
+    const readLiveProviderCfg = () => this.deps.config.getProviderConfig?.()
+    /**
+     * 解析直连 baseUrl；无配置时返回 undefined。
+     */
+    const resolveDirectBaseUrl = (cfg = readLiveProviderCfg()) =>
+      cfg ? ensureProviderBaseUrl(cfg.baseUrl, cfg.type) : undefined
+    /**
+     * 独立版始终走本地 direct：每轮用最新 apiKey/baseUrl 建流，禁止空 token Gateway 回退。
+     */
+    const buildLiveDirectStream = (): StreamFn => {
+      return (model, context, options) => {
+        const cfg = readLiveProviderCfg()
+        if (!cfg?.enabled) {
+          throw new Error('请先在设置中启用并配置文本对话模型（chat 能力槽）')
+        }
+        const isLocal = cfg.type === 'ollama' || cfg.type === 'lmstudio'
+        if (!isLocal && !cfg.apiKey?.trim()) {
+          throw new Error('请先在设置中填写文本对话模型的 API Key')
+        }
+        if (!cfg.modelId?.trim() && !model?.id) {
+          throw new Error('请先在设置中填写或选择文本对话模型 ID')
+        }
+        const direct = createDirectStreamFn({
+          credentials: {
+            baseUrl: resolveDirectBaseUrl(cfg),
+            apiKey: cfg.apiKey,
+          },
+          log: (msg) => log.info(msg),
+        })
+        return direct(model, context, options)
+      }
+    }
+    // host-kit 仍装配 gateway 配置（兼容类型），但 resolveModel 固定 direct，实际调用走 liveDirect。
     const streamFnFactory = createStreamFnFactory({
       direct: {
-        resolveCredentials: () => ({
-          baseUrl: resolveDirectBaseUrl(),
-          apiKey: providerCfg?.apiKey,
-        }),
+        resolveCredentials: () => {
+          const cfg = readLiveProviderCfg()
+          return {
+            baseUrl: resolveDirectBaseUrl(cfg),
+            apiKey: cfg?.apiKey,
+          }
+        },
         log: (msg) => log.info(msg),
       },
       gateway: {
@@ -249,11 +280,11 @@ export class BridgeInstanceFactory {
       },
     })
 
-    // wrapStreamFn 捕获工厂产出的 innerStream（供 compaction / summary 复用），
-    // 并保留「按会话覆盖模型」语义：优先根会话键的用户选模，否则回退默认。
-    let capturedInnerStream: ReturnType<typeof createGatewayStreamFn> | null = null
-    const wrapStreamFn = (inner: StreamFn, resolved: ResolvedModel): StreamFn => {
-      capturedInnerStream = inner as ReturnType<typeof createGatewayStreamFn>
+    // wrapStreamFn：每轮 live direct + 按会话覆盖模型；压缩/摘要复用同一 live 流。
+    let capturedInnerStream: StreamFn | null = null
+    const wrapStreamFn = (_inner: StreamFn, resolved: ResolvedModel): StreamFn => {
+      const liveDirect = buildLiveDirectStream()
+      capturedInnerStream = liveDirect
       return (model, context, options) => {
         const pref = this.deps.sessionModelCatalog.getPreferredModelRawForStream(rootSessionKey, effectiveSessionKey)
         const thinking = this.deps.sessionThinkingPrefs.getThinkingPrefs(rootSessionKey)
@@ -263,11 +294,11 @@ export class BridgeInstanceFactory {
         if (pref) {
           const explicit = this.deps.modelRouter.resolveExplicitModelId(pref)
           ctx.resolvedModelId = explicit.id
-          log.info(`[streamFn] 使用用户选择模型: ${explicit.id} (api=${explicit.api})`)
-          return inner(explicit, context, options)
+          log.info(`[streamFn] 使用用户选择模型(direct): ${explicit.id} (api=${explicit.api})`)
+          return liveDirect(explicit, context, options)
         }
-        log.info(`[streamFn] 无用户选择，回退默认模型: ${resolved.model.id}`)
-        return inner(model, context, options)
+        log.info(`[streamFn] 无用户选择，回退默认模型(direct): ${resolved.model.id}`)
+        return liveDirect(model, context, options)
       }
     }
 
@@ -330,24 +361,29 @@ export class BridgeInstanceFactory {
     ]
 
     // ── 注入接口：ConfigProvider（模型解析 + feature flags） ──
-    // 灵栖/Lumii：本地 provider enabled 时走 direct（显式 modelId 直连），否则回退 gateway（purpose 图槽）。
+    // 灵栖/Lumii 独立版：始终声明 direct；未启用时由 liveDirect 在真正请求时抛出可读错误。
     const config: ConfigProvider = {
-      getProviderCredentials: () =>
-        useDirect
-          ? { apiKey: providerCfg?.apiKey, baseUrl: resolveDirectBaseUrl() }
-          : {},
-      resolveModel: (p: string, _override?: ModelOverride): ResolvedModel =>
-        useDirect
-          ? {
-              model: this.deps.modelRouter.resolveExplicitModelId(providerCfg!.modelId),
-              providerSource: 'local',
-              streamFnKind: 'direct',
-            }
-          : {
-              model: this.deps.modelRouter.resolve(p),
-              providerSource: 'cloud',
-              streamFnKind: 'gateway',
-            },
+      getProviderCredentials: () => {
+        const cfg = readLiveProviderCfg()
+        return cfg?.enabled
+          ? { apiKey: cfg.apiKey, baseUrl: resolveDirectBaseUrl(cfg) }
+          : {}
+      },
+      resolveModel: (p: string, _override?: ModelOverride): ResolvedModel => {
+        const cfg = readLiveProviderCfg()
+        if (cfg?.enabled && cfg.modelId?.trim()) {
+          return {
+            model: this.deps.modelRouter.resolveExplicitModelId(cfg.modelId),
+            providerSource: 'local',
+            streamFnKind: 'direct',
+          }
+        }
+        return {
+          model: this.deps.modelRouter.resolve(p),
+          providerSource: 'local',
+          streamFnKind: 'direct',
+        }
+      },
       getFeatureFlags: () => this.deps.featureFlags,
     }
 
@@ -625,13 +661,18 @@ export class BridgeInstanceFactory {
 
     // 缓存主 Agent 的 innerStream 和 model，供 compactContextAsync 生成 LLM 摘要
     if (def.id === 'main') {
-      this.deps.mainInnerStreamRef.value = capturedInnerStream
+      this.deps.mainInnerStreamRef.value = capturedInnerStream as ReturnType<typeof createGatewayStreamFn> | null
       this.deps.mainModelRef.value = model
     }
     // 所有实例均缓存 stream，供 compactContextAsync 按 instanceId 查找
     {
       const s = this.deps.instanceStates.get(instanceId)
-      if (s && capturedInnerStream) s.stream = { innerStream: capturedInnerStream, model }
+      if (s && capturedInnerStream) {
+        s.stream = {
+          innerStream: capturedInnerStream as ReturnType<typeof createGatewayStreamFn>,
+          model,
+        }
+      }
     }
 
     log.info(`Created agent instance: ${instanceId} (${def.name})`)

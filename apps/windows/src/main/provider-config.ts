@@ -24,8 +24,13 @@ export interface LocalProviderConfig {
   type: ProviderType
   /** OpenAI 兼容端点；本地 provider 有默认值 */
   baseUrl: string
-  /** 模型 id */
+  /** 模型 id（默认/当前选用） */
   modelId: string
+  /**
+   * 允许在对话中切换的模型 ID 列表（chat / vision）。
+   * 缺省或空时视为 `[modelId]`，兼容旧配置。
+   */
+  allowedModelIds?: string[]
 }
 
 /** 渲染进程可见的单槽配置（含 apiKey 明文，仅本机用户可见） */
@@ -71,6 +76,7 @@ const DEFAULT_CHAT: LocalProviderConfigView = {
   baseUrl: PROVIDER_DEFAULT_BASE_URL.openai,
   modelId: '',
   apiKey: '',
+  allowedModelIds: [],
 }
 
 const DEFAULT_VISION: LocalProviderConfigView = {
@@ -79,6 +85,7 @@ const DEFAULT_VISION: LocalProviderConfigView = {
   baseUrl: PROVIDER_DEFAULT_BASE_URL.openai,
   modelId: '',
   apiKey: '',
+  allowedModelIds: [],
 }
 
 const DEFAULT_IMAGE: LocalProviderConfigView = {
@@ -161,7 +168,25 @@ function decryptApiKey(enc?: string): string {
 }
 
 /**
- * 规范化单槽视图（补默认值、修剪空白）
+ * 规范化允许模型列表：去重、去空；若为空则回退到 modelId。
+ */
+export function normalizeAllowedModelIds(
+  allowed: string[] | undefined,
+  modelId: string,
+): string[] {
+  const ids = (allowed ?? [])
+    .map((id) => (typeof id === 'string' ? id.trim() : ''))
+    .filter(Boolean)
+  const unique = [...new Set(ids)]
+  const fallback = modelId.trim()
+  if (unique.length === 0) {
+    return fallback ? [fallback] : []
+  }
+  return unique
+}
+
+/**
+ * 规范化单槽视图（补默认值、修剪空白、对齐 allowedModelIds 与 modelId）
  */
 function normalizeSlotView(
   raw: Partial<LocalProviderConfigView> | PersistedSlot | undefined,
@@ -172,12 +197,28 @@ function normalizeSlotView(
     raw && 'apiKey' in raw && typeof (raw as LocalProviderConfigView).apiKey === 'string'
       ? (raw as LocalProviderConfigView).apiKey
       : decryptApiKey((raw as PersistedSlot | undefined)?.apiKeyEnc)
+  const modelId = raw?.modelId?.trim() || fallback.modelId
+  const rawAllowed =
+    raw && Array.isArray((raw as LocalProviderConfigView).allowedModelIds)
+      ? (raw as LocalProviderConfigView).allowedModelIds
+      : undefined
+  let allowedModelIds = normalizeAllowedModelIds(rawAllowed, modelId)
+  // modelId 必须落在 allowlist；否则取第一项
+  let nextModelId = modelId
+  if (allowedModelIds.length > 0 && nextModelId && !allowedModelIds.includes(nextModelId)) {
+    nextModelId = allowedModelIds[0]!
+  } else if (allowedModelIds.length > 0 && !nextModelId) {
+    nextModelId = allowedModelIds[0]!
+  } else if (nextModelId && allowedModelIds.length === 0) {
+    allowedModelIds = [nextModelId]
+  }
   return {
     enabled: raw?.enabled === true,
     type,
     baseUrl: (raw?.baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type] || fallback.baseUrl).replace(/\/+$/, ''),
-    modelId: raw?.modelId?.trim() || fallback.modelId,
+    modelId: nextModelId,
     apiKey: apiKey ?? '',
+    allowedModelIds,
   }
 }
 
@@ -186,12 +227,15 @@ function normalizeSlotView(
  */
 function toPersistedSlot(view: LocalProviderConfigView): PersistedSlot {
   const type = view.type
+  const modelId = view.modelId?.trim() || ''
+  const allowedModelIds = normalizeAllowedModelIds(view.allowedModelIds, modelId)
   return {
     enabled: view.enabled === true,
     type,
     // 落盘保留用户填写的地址（可不含 /v1）；调用时再 ensureProviderBaseUrl
     baseUrl: (view.baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type]).replace(/\/+$/, ''),
-    modelId: view.modelId?.trim() || '',
+    modelId,
+    allowedModelIds,
     apiKeyEnc: encryptApiKey(view.apiKey ?? ''),
   }
 }

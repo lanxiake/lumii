@@ -40,6 +40,8 @@ export interface LocalProviderConfigView {
   baseUrl: string
   modelId: string
   apiKey: string
+  /** chat/vision：对话框可选模型列表 */
+  allowedModelIds?: string[]
 }
 
 /** 模型能力槽 */
@@ -240,6 +242,8 @@ export interface ElectronAPI {
     quit: () => void
     openExternal: (url: string) => Promise<void>
     showItemInFolder: (filePath: string) => Promise<void>
+    /** 在资源管理器中打开当前应用日志文件 */
+    openLogFile: () => Promise<{ success: boolean; path?: string; error?: string }>
     /** 获取开机自启状态 */
     getOpenAtLogin: () => Promise<boolean>
     /** 设置开机自启 */
@@ -1084,6 +1088,8 @@ const electronAPI: ElectronAPI = {
     quit: () => ipcRenderer.send('app:quit'),
     openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
     showItemInFolder: (filePath: string) => ipcRenderer.invoke('app:showItemInFolder', filePath),
+    openLogFile: () =>
+      ipcRenderer.invoke('app:openLogFile') as Promise<{ success: boolean; path?: string; error?: string }>,
     getPathForFile: (file: File) => webUtils.getPathForFile(file),
     getOpenAtLogin: () => ipcRenderer.invoke('app:getOpenAtLogin'),
     setOpenAtLogin: (enable: boolean) => ipcRenderer.invoke('app:setOpenAtLogin', enable),
