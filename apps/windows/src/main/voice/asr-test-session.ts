@@ -69,20 +69,31 @@ export class AsrTestSession {
     const paths = await this.modelManager.getModelPaths()
     const config = this.getConfig()
 
-    this.asr = createAsrProvider({
-      provider: config.asr.provider,
-      modelDir: paths.asr,
-      apiKey: config.asr.apiKey,
-    })
-    await this.asr.initialize()
-    this.asrStream = this.asr.createStream()
+    try {
+      this.asr = createAsrProvider({
+        provider: config.asr.provider,
+        modelDir: paths.asr,
+        apiKey: config.asr.apiKey,
+      })
+      await this.asr.initialize()
+      this.asrStream = this.asr.createStream()
 
-    this.vad = new VadEngine(paths.vad)
-    await this.vad.initialize(
-      config.vad.threshold,
-      config.vad.minSpeechMs,
-      config.vad.minSilenceMs,
-    )
+      this.vad = new VadEngine(paths.vad)
+      await this.vad.initialize(
+        config.vad.threshold,
+        config.vad.minSpeechMs,
+        config.vad.minSilenceMs,
+      )
+    } catch (e) {
+      this.asr?.destroy()
+      this.asr = null
+      this.asrStream = null
+      this.vad?.destroy()
+      this.vad = null
+      const message = e instanceof Error ? e.message : String(e)
+      log.error(`[start] 初始化失败: ${message}`)
+      return { error: message }
+    }
 
     this.callId = `asr-test-${randomUUID()}`
     this.win = win

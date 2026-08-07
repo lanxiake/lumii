@@ -29,11 +29,15 @@ export type VoiceModelStatus = {
   id: string
   name: string
   description?: string
+  /** 设置页分组：asr-core / tts-synth / tts-clone */
+  group?: string
   sizeBytes: number
   downloaded: boolean
   required?: boolean
   downloadState?: VoiceModelDownloadState
   downloadedBytes?: number
+  /** 瞬时下载速度（字节/秒） */
+  bytesPerSecond?: number
   errorMessage?: string
   path?: string
 }
@@ -88,6 +92,8 @@ export type VoiceModelsProgressEvent = {
   totalBytes: number
   /** 下载任务状态 */
   state?: VoiceModelDownloadState
+  /** 瞬时下载速度（字节/秒） */
+  bytesPerSecond?: number
 }
 
 /** 模型下载失败事件 */
@@ -143,9 +149,30 @@ export type VoiceAsrConfig = {
   apiKey?: string
 }
 
+/** Qwen3-TTS 模型变体：CustomVoice=内置音色；Base=声音克隆 */
+export type Qwen3TtsVariant =
+  | '0.6b-custom'
+  | '1.7b-custom'
+  | '0.6b-base'
+  | '1.7b-base'
+
+/**
+ * 是否为声音克隆（Base）变体
+ */
+export function isQwen3CloneVariant(variant?: string): boolean {
+  return variant === '0.6b-base' || variant === '1.7b-base'
+}
+
+/**
+ * 是否为内置音色（CustomVoice）变体
+ */
+export function isQwen3CustomVariant(variant?: string): boolean {
+  return variant === '0.6b-custom' || variant === '1.7b-custom' || !variant
+}
+
 export type VoiceTtsConfig = {
-  /** TTS 提供者：local-vits = 本地 sherpa-onnx，edge = Edge TTS */
-  provider: 'local-vits' | 'edge'
+  /** TTS 提供者：local-vits / edge / qwen3（本地 Qwen3-TTS） */
+  provider: 'local-vits' | 'edge' | 'qwen3'
   /** 语速（0.8 ~ 1.5） */
   speed: number
   /** 播放音量（0.0 ~ 1.0） */
@@ -154,6 +181,62 @@ export type VoiceTtsConfig = {
   speakerId?: number
   /** Edge TTS 音色名称 */
   voice?: string
+  /** Qwen3 模型挡位（默认 0.6b-custom，无需克隆即可用） */
+  qwen3Variant?: Qwen3TtsVariant
+  /** CustomVoice 内置说话人（如 Vivian / Dylan） */
+  qwen3Speaker?: string
+  /** 1.7B CustomVoice 可选风格指令 */
+  qwen3Instruct?: string
+  /** 当前使用的克隆音色档案 ID（仅 Base 变体需要） */
+  qwen3ProfileId?: string
+  /**
+   * 合成语言（Qwen3）：`Auto` 或官方支持语言名，如 Chinese / English
+   */
+  language?: string
+}
+
+/** Qwen3 CustomVoice 内置音色（含方言） */
+export const QWEN3_CUSTOM_SPEAKERS = [
+  { id: 'Vivian', name: 'Vivian', gender: '女', style: '明亮略带锋芒', native: '中文' },
+  { id: 'Serena', name: 'Serena', gender: '女', style: '温暖柔和', native: '中文' },
+  { id: 'Uncle_Fu', name: 'Uncle Fu', gender: '男', style: '沉稳低沉', native: '中文' },
+  { id: 'Dylan', name: 'Dylan', gender: '男', style: '清朗自然', native: '中文·北京话' },
+  { id: 'Eric', name: 'Eric', gender: '男', style: '略带沙哑明亮', native: '中文·四川话' },
+  { id: 'Ryan', name: 'Ryan', gender: '男', style: '节奏感强', native: 'English' },
+  { id: 'Aiden', name: 'Aiden', gender: '男', style: '阳光清晰', native: 'English' },
+  { id: 'Ono_Anna', name: 'Ono Anna', gender: '女', style: '轻快灵动', native: '日本語' },
+  { id: 'Sohee', name: 'Sohee', gender: '女', style: '情感丰富', native: '한국어' },
+] as const
+
+/** Qwen3 官方语言列表（与模型能力对齐，供设置页选用） */
+export const QWEN3_TTS_LANGUAGES = [
+  { id: 'Auto', name: '自动检测' },
+  { id: 'Chinese', name: '中文' },
+  { id: 'English', name: 'English' },
+  { id: 'Japanese', name: '日本語' },
+  { id: 'Korean', name: '한국어' },
+  { id: 'German', name: 'Deutsch' },
+  { id: 'French', name: 'Français' },
+  { id: 'Russian', name: 'Русский' },
+  { id: 'Portuguese', name: 'Português' },
+  { id: 'Spanish', name: 'Español' },
+  { id: 'Italian', name: 'Italiano' },
+] as const
+
+/** 克隆音色档案元数据（存于 clientDataRoot/voice/profiles） */
+export type VoiceCloneProfile = {
+  id: string
+  name: string
+  /** 参考音频相对 profiles/<id>/ 的文件名 */
+  refAudioFile: string
+  refText: string
+  language: string
+  /** 创建时使用的模型变体 */
+  qwen3Variant: Qwen3TtsVariant
+  /** false = ICL（需 refText）；true = 仅 x-vector */
+  xVectorOnly: boolean
+  createdAt: number
+  updatedAt: number
 }
 
 /** Edge TTS 可用中文音色 */
@@ -205,6 +288,9 @@ export const DEFAULT_VOICE_ENGINE_CONFIG: VoiceEngineConfig = {
     volume: 0.8,
     speakerId: 0,
     voice: 'zh-CN-XiaoxiaoNeural',
+    qwen3Variant: '0.6b-custom',
+    qwen3Speaker: 'Vivian',
+    language: 'Auto',
   },
   vad: {
     threshold: 0.5,

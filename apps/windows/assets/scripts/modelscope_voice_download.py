@@ -84,6 +84,7 @@ def main() -> int:
     out_dir = spec["outDir"]
     files = spec.get("files") or []
     extract_tokens = bool(spec.get("extractTokensFromConfig"))
+    mode = spec.get("mode") or ("snapshot" if not files else "files")
 
     os.makedirs(cache_dir, exist_ok=True)
     os.makedirs(out_dir, exist_ok=True)
@@ -93,6 +94,32 @@ def main() -> int:
     except ImportError:
         emit({"event": "error", "message": "未安装 modelscope，请先 pip install modelscope"})
         return 3
+
+    # 整库快照：用于 Qwen3-TTS 等多文件大模型
+    if mode == "snapshot":
+        emit({"event": "start", "modelId": model_id, "mode": "snapshot", "percent": 0.02})
+        emit({
+            "event": "progress",
+            "percent": 0.05,
+            "message": f"魔搭 snapshot 下载 {model_id}（体积较大，请耐心等待）",
+        })
+        try:
+            from modelscope.hub.snapshot_download import snapshot_download
+        except ImportError:
+            emit({"event": "error", "message": "modelscope 缺少 snapshot_download"})
+            return 3
+        try:
+            # local_dir 直接落到目标目录，避免二次拷贝
+            snapshot_download(
+                model_id=model_id,
+                cache_dir=cache_dir,
+                local_dir=out_dir,
+            )
+        except Exception as e:
+            emit({"event": "error", "message": f"snapshot 下载失败: {e}"})
+            return 4
+        emit({"event": "done", "outDir": out_dir, "percent": 1.0, "mode": "snapshot"})
+        return 0
 
     total = max(len(files), 1)
     emit({"event": "start", "modelId": model_id, "totalFiles": total})

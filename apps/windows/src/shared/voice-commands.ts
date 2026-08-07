@@ -83,6 +83,31 @@ export type VoiceAsrTestStopCommand = {
   readonly type: 'voice:asr:test:stop'
 }
 
+/** 列出克隆音色档案 */
+export type VoiceProfilesListCommand = {
+  readonly type: 'voice:profiles:list'
+}
+
+/** 创建/更新克隆音色档案（refAudioPath 为绝对路径，将拷贝入库） */
+export type VoiceProfilesUpsertCommand = {
+  readonly type: 'voice:profiles:upsert'
+  profile: {
+    id?: string
+    name: string
+    refAudioPath: string
+    refText: string
+    language?: string
+    qwen3Variant?: import('./voice-events.js').Qwen3TtsVariant
+    xVectorOnly?: boolean
+  }
+}
+
+/** 删除克隆音色档案 */
+export type VoiceProfilesDeleteCommand = {
+  readonly type: 'voice:profiles:delete'
+  profileId: string
+}
+
 export type VoiceCommand =
   | VoiceStartCallCommand
   | VoiceStopCallCommand
@@ -98,3 +123,6 @@ export type VoiceCommand =
   | VoiceTtsGenerateFileCommand
   | VoiceAsrTestStartCommand
   | VoiceAsrTestStopCommand
+  | VoiceProfilesListCommand
+  | VoiceProfilesUpsertCommand
+  | VoiceProfilesDeleteCommand

@@ -39,7 +39,13 @@ export function registerVoiceIpc(
    */
   const sendModelProgress = (
     modelId: string,
-    progress: { progress: number; downloadedBytes: number; totalBytes: number; state: string },
+    progress: {
+      progress: number
+      downloadedBytes: number
+      totalBytes: number
+      state: string
+      bytesPerSecond?: number
+    },
   ) => {
     if (win.isDestroyed()) return
     try {
@@ -50,8 +56,9 @@ export function registerVoiceIpc(
         bytesDownloaded: progress.downloadedBytes,
         totalBytes: progress.totalBytes,
         state: progress.state,
+        bytesPerSecond: progress.bytesPerSecond,
       })
-      if (progress.state === 'ready' || progress.progress >= 1) {
+      if (progress.state === 'ready' || progress.state === 'paused' || progress.progress >= 1) {
         win.webContents.send('voice:event', {
           type: 'voice:models:status',
           models: modelManager.getModelsStatus(),
@@ -70,15 +77,17 @@ export function registerVoiceIpc(
       switch (command.type) {
         case 'voice:call:start': {
           const micless = (command as { micless?: boolean }).micless === true
-          const ttsProvider = voiceService.getConfig().tts.provider
+          const cfg = voiceService.getConfig().tts
+          const ttsProvider = cfg.provider
+          const variant = cfg.qwen3Variant
           if (micless) {
-            if (!modelManager.isTtsReady(ttsProvider)) {
+            if (!modelManager.isTtsReady(ttsProvider, variant)) {
               return {
                 error: 'models_not_ready',
                 models: modelManager.getModelsStatus(),
               }
             }
-          } else if (!modelManager.areRequiredModelsReady(ttsProvider)) {
+          } else if (!modelManager.areRequiredModelsReady(ttsProvider, variant)) {
             return {
               error: 'models_not_ready',
               models: modelManager.getModelsStatus(),
@@ -145,8 +154,8 @@ export function registerVoiceIpc(
           return { ok: true }
 
         case 'voice:tts:preview': {
-          const ttsProvider = voiceService.getConfig().tts.provider
-          if (!modelManager.isTtsReady(ttsProvider)) {
+          const cfg = voiceService.getConfig().tts
+          if (!modelManager.isTtsReady(cfg.provider, cfg.qwen3Variant)) {
             const models = modelManager.getModelsStatus()
             if (!win.isDestroyed()) {
               try {
@@ -159,6 +168,16 @@ export function registerVoiceIpc(
               }
             }
             return { error: 'models_not_ready', models }
+          }
+          if (cfg.provider === 'qwen3') {
+            const variant = cfg.qwen3Variant ?? '0.6b-custom'
+            const needClone = variant === '0.6b-base' || variant === '1.7b-base'
+            if (needClone && !cfg.qwen3ProfileId) {
+              return {
+                error: 'profile_required',
+                message: '声音克隆模式请先创建并选择音色；或改用 CustomVoice 内置音色',
+              }
+            }
           }
           const previewText = command.text ?? '你好，这是声音预览。'
           void voiceService.previewTts(previewText, win)
@@ -184,6 +203,17 @@ export function registerVoiceIpc(
         case 'voice:asr:test:stop':
           await asrTest.stop()
           return { ok: true }
+
+        case 'voice:profiles:list':
+          return voiceService.getProfileStore().list()
+
+        case 'voice:profiles:upsert': {
+          const profile = voiceService.getProfileStore().upsert(command.profile)
+          return { ok: true, profile }
+        }
+
+        case 'voice:profiles:delete':
+          return { ok: voiceService.getProfileStore().delete(command.profileId) }
 
         default:
           log.warn(`[voice:command] 未知命令: ${(command as any).type}`)

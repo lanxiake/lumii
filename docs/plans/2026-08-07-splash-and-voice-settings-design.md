@@ -19,10 +19,12 @@
 - VAD / ASR(Paraformer) / TTS(VITS) 分项下载
 - 进度、暂停、继续、取消；HTTP Range 断点续传（`.partial`）
 - **下载源优先级**（国内加速）：
-  1. VAD/ASR：ModelScope 官方 Python SDK（`model_file_download`，见 [魔搭下载文档](https://www.modelscope.cn/docs/models/download)）
-  2. TTS：hf-mirror 多文件直链（`csukuangfj/vits-zh-aishell3`）
-  3. 回退：GitHub Releases + `gh.ddlc.top` / `gh-proxy.com` 等镜像
+  1. VAD：ModelScope 官方 Python SDK（`model_file_download`）
+  2. ASR：hf-mirror 上的 **sherpa 注入 metadata** 版（`csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09`）；**不要**用魔搭 FunASR 原版（缺 `vocab_size`，sherpa 会原生 abort）
+  3. TTS：hf-mirror 多文件直链（`csukuangfj/vits-zh-aishell3`）
+  4. 回退：GitHub Releases + `gh.ddlc.top` / `gh-proxy.com` 等镜像
 - 辅助脚本：`assets/scripts/modelscope_voice_download.py`（随包；首次会 pip 安装 `modelscope`）
+- ASR 就绪检测会校验 ONNX 是否含 `vocab_size`，不兼容缓存会自动清理并要求重下
 - Edge TTS 通话仅需 VAD+ASR；本地 VITS 需先下载才可选
 - 聊天缺模型：toast「请先在设置中下载语音模型」+「去设置」
 

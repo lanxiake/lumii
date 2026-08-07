@@ -3,12 +3,34 @@
  * 支持本地 Paraformer 流式识别和云端降级
  */
 import path from 'node:path'
+import fs from 'node:fs'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AsrEngine]', ...args),
   debug: (...args: unknown[]) => console.log('[AsrEngine:DEBUG]', ...args),
   warn: (...args: unknown[]) => console.warn('[AsrEngine]', ...args),
   error: (...args: unknown[]) => console.error('[AsrEngine]', ...args),
+}
+
+/**
+ * 检查 ONNX 尾部是否含 sherpa Paraformer 元数据（进入原生库前拦截）
+ */
+function hasSherpaAsrMetadata(modelPath: string): boolean {
+  try {
+    const size = fs.statSync(modelPath).size
+    if (size < 1_000_000) return false
+    const readLen = Math.min(131_072, size)
+    const buf = Buffer.alloc(readLen)
+    const fd = fs.openSync(modelPath, 'r')
+    try {
+      fs.readSync(fd, buf, 0, readLen, Math.max(0, size - readLen))
+    } finally {
+      fs.closeSync(fd)
+    }
+    return buf.includes(Buffer.from('vocab_size')) && buf.includes(Buffer.from('paraformer'))
+  } catch {
+    return false
+  }
 }
 
 // ─── 接口定义 ─────────────────────────────────────────────────────────────
@@ -120,21 +142,38 @@ export class LocalOfflineParaformerAsr implements AsrProvider {
   async initialize(): Promise<void> {
     log.info(`[initialize] 加载 Offline Paraformer: ${this.modelDir}`)
 
+    const modelPath = path.join(this.modelDir, 'model.int8.onnx')
+    const tokensPath = path.join(this.modelDir, 'tokens.txt')
+    if (!fs.existsSync(modelPath) || !fs.existsSync(tokensPath)) {
+      throw new Error(`ASR 模型文件缺失: ${this.modelDir}`)
+    }
+    // 在进入原生库前拦截 FunASR 原版，避免进程 abort
+    if (!hasSherpaAsrMetadata(modelPath)) {
+      throw new Error(
+        'ASR 模型不是 sherpa-onnx 格式（缺少 vocab_size 元数据）。请到设置 → 语音重新下载 Paraformer。',
+      )
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const SherpaOnnx = require('sherpa-onnx-node') as any
 
-    this.recognizer = new SherpaOnnx.OfflineRecognizer({
-      featConfig: { sampleRate: 16000, featureDim: 80 },
-      modelConfig: {
-        paraformer: {
-          model: path.join(this.modelDir, 'model.int8.onnx'),
+    try {
+      this.recognizer = new SherpaOnnx.OfflineRecognizer({
+        featConfig: { sampleRate: 16000, featureDim: 80 },
+        modelConfig: {
+          paraformer: {
+            model: modelPath,
+          },
+          tokens: tokensPath,
+          numThreads: 4,
+          provider: 'cpu',
+          debug: 0,
         },
-        tokens: path.join(this.modelDir, 'tokens.txt'),
-        numThreads: 4,
-        provider: 'cpu',
-        debug: 0,
-      },
-    })
+      })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      throw new Error(`Offline Paraformer 初始化失败: ${msg}`)
+    }
 
     log.info('[initialize] Offline Paraformer 初始化完成')
   }

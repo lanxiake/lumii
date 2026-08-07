@@ -30,7 +30,12 @@ export interface ModelScopeFileMapping {
 export interface ModelScopeDownloadSpec {
   modelId: string
   outDir: string
+  /** 单文件映射；snapshot 模式下可为空 */
   files: ModelScopeFileMapping[]
+  /**
+   * files = 按映射拉单文件；snapshot = 整库下载到 outDir（Qwen3 等大模型）
+   */
+  mode?: 'files' | 'snapshot'
   /** 从 config.yaml 的 token_list 生成 tokens.txt（FunASR → sherpa） */
   extractTokensFromConfig?: boolean
 }
@@ -137,6 +142,7 @@ export async function downloadViaModelScopeSdk(
     cacheDir,
     outDir: spec.outDir,
     files: spec.files,
+    mode: spec.mode ?? (spec.files.length === 0 ? 'snapshot' : 'files'),
     extractTokensFromConfig: spec.extractTokensFromConfig === true,
   })
 

@@ -1,7 +1,7 @@
 /**
  * 语音模型管理器
- * 优先 ModelScope SDK（官方文档 https://www.modelscope.cn/docs/models/download）；
- * 无 SDK 源时用 hf-mirror 直链；最后回退 GitHub Releases + 镜像。
+ * VAD 优先 ModelScope SDK；ASR/TTS 优先 hf-mirror 上的 sherpa 兼容包；
+ * 失败再回退 GitHub Releases + 镜像。支持分项下载、暂停、取消与 HTTP Range 断点续传。
  */
 import { app } from 'electron'
 import path from 'node:path'
@@ -10,6 +10,7 @@ import https from 'node:https'
 import http from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { resolveWindowsClientDataRoot } from '../client-data-root.js'
 import {
   downloadViaModelScopeSdk,
   type ModelScopeDownloadSpec,
@@ -27,6 +28,9 @@ const DOWNLOAD_MIRROR_PREFIXES = [
 
 const CONNECT_TIMEOUT_MS = 60_000
 const DATA_IDLE_TIMEOUT_MS = 120_000
+
+/** snapshot/dir 模型下载成功后写入，避免仅有 config.json 就误判就绪 */
+const DOWNLOAD_COMPLETE_MARKER = '.lumii-complete'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceModelManager]', ...args),
@@ -58,7 +62,20 @@ export interface VoiceModelPaths {
   asr: string
   tts: string
   ttsVocoder?: string
+  /** Qwen3 Tokenizer-12Hz 目录 */
+  qwen3Tokenizer?: string
+  /** Qwen3 CustomVoice 0.6B */
+  qwen3Custom06?: string
+  /** Qwen3 CustomVoice 1.7B */
+  qwen3Custom17?: string
+  /** Qwen3 Base 0.6B（克隆） */
+  qwen3Base06?: string
+  /** Qwen3 Base 1.7B（克隆） */
+  qwen3Base17?: string
 }
+
+/** 模型在设置页中的分组（下载区分区展示） */
+export type VoiceModelUiGroup = 'asr-core' | 'tts-synth' | 'tts-clone'
 
 /** 国内 HTTP 直链文件映射（不经 GitHub） */
 interface HttpFileMapping {
@@ -66,10 +83,86 @@ interface HttpFileMapping {
   local: string
 }
 
+/**
+ * sherpa Offline Paraformer 的 ONNX 必须带 vocab_size 等元数据。
+ * 魔搭 FunASR 原版没有，OfflineRecognizer 构造会原生 abort 拖垮进程。
+ */
+function hasSherpaParaformerMetadata(modelPath: string): boolean {
+  try {
+    const size = fs.statSync(modelPath).size
+    if (size < 1_000_000) return false
+    const readLen = Math.min(131_072, size)
+    const buf = Buffer.alloc(readLen)
+    const fd = fs.openSync(modelPath, 'r')
+    try {
+      fs.readSync(fd, buf, 0, readLen, Math.max(0, size - readLen))
+    } finally {
+      fs.closeSync(fd)
+    }
+    return buf.includes(Buffer.from('vocab_size')) && buf.includes(Buffer.from('paraformer'))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 目录内是否存在模型权重（避免 snapshot 中途仅有 config.json 误判完成）
+ */
+function hasModelWeightFiles(modelDir: string): boolean {
+  if (!fs.existsSync(modelDir)) return false
+  try {
+    const entries = fs.readdirSync(modelDir)
+    return entries.some((name) => {
+      const lower = name.toLowerCase()
+      return (
+        lower.endsWith('.safetensors') ||
+        lower.endsWith('.bin') ||
+        lower.endsWith('.onnx') ||
+        lower.endsWith('.pt') ||
+        lower.endsWith('.ckpt') ||
+        lower === 'model.safetensors.index.json' ||
+        lower.includes('pytorch_model')
+      )
+    })
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 递归统计目录占用字节（用于 snapshot 暂停时估算进度）
+ */
+function dirSizeBytes(dir: string): number {
+  if (!fs.existsSync(dir)) return 0
+  let total = 0
+  const walk = (d: string) => {
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const ent of entries) {
+      if (ent.name === DOWNLOAD_COMPLETE_MARKER) continue
+      const p = path.join(d, ent.name)
+      try {
+        if (ent.isDirectory()) walk(p)
+        else if (ent.isFile()) total += fs.statSync(p).size
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  walk(dir)
+  return total
+}
+
 const MODEL_CATALOG = {
   vad: {
     id: 'vad',
     name: 'Silero VAD',
+    description: '语音活动检测：区分说话与静音（通话必下）',
+    group: 'asr-core' as const,
     filename: 'silero_vad.onnx',
     sizeBytes: 1_900_000,
     dir: 'vad',
@@ -83,25 +176,38 @@ const MODEL_CATALOG = {
   'asr-paraformer-zh': {
     id: 'asr-paraformer-zh',
     name: 'Paraformer 中文离线 ASR (Small)',
+    description: '语音转文字：听懂你说的话（通话必下）',
+    group: 'asr-core' as const,
     sizeBytes: 78_000_000,
     dir: 'asr/paraformer-zh-small',
     files: ['model.int8.onnx', 'tokens.txt', 'am.mvn'],
     downloadUrl: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-small-2024-03-09.tar.bz2',
     extractedDir: 'sherpa-onnx-paraformer-zh-small-2024-03-09',
     type: 'tar' as const,
-    modelscope: {
-      modelId: 'crazyant/speech_paraformer_asr_nat-zh-cn-16k-common-vocab8358-onnx',
-      files: [
-        { remote: 'model_quant.onnx', local: 'model.int8.onnx' },
-        { remote: 'am.mvn', local: 'am.mvn' },
-        { remote: 'config.yaml', local: 'config.yaml' },
-      ],
-      extractTokensFromConfig: true,
-    } satisfies Omit<ModelScopeDownloadSpec, 'outDir'>,
+    /**
+     * 必须用 sherpa 注入过 metadata（vocab_size）的版本。
+     * 魔搭 crazyant FunASR 原版缺元数据，加载会原生 abort。
+     */
+    httpFiles: [
+      {
+        url: 'https://hf-mirror.com/csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09/resolve/main/model.int8.onnx',
+        local: 'model.int8.onnx',
+      },
+      {
+        url: 'https://hf-mirror.com/csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09/resolve/main/tokens.txt',
+        local: 'tokens.txt',
+      },
+      {
+        url: 'https://hf-mirror.com/csukuangfj/sherpa-onnx-paraformer-zh-small-2024-03-09/resolve/main/am.mvn',
+        local: 'am.mvn',
+      },
+    ] as HttpFileMapping[],
   },
   'tts-vits-zh': {
     id: 'tts-vits-zh',
     name: 'VITS 中文 TTS (Aishell3)',
+    description: '本地离线合成（多音色，无需克隆）',
+    group: 'tts-synth' as const,
     sizeBytes: 128_000_000,
     dir: 'tts/vits-zh-aishell3',
     files: ['model.onnx', 'lexicon.txt', 'tokens.txt'],
@@ -136,6 +242,86 @@ const MODEL_CATALOG = {
       },
     ] as HttpFileMapping[],
   },
+  'tts-qwen3-tokenizer-12hz': {
+    id: 'tts-qwen3-tokenizer-12hz',
+    name: 'Qwen3-TTS Tokenizer 12Hz',
+    description: 'Qwen3 共用编解码器（用 Qwen3 合成/克隆前必下）',
+    group: 'tts-synth' as const,
+    sizeBytes: 500_000_000,
+    dir: 'tts/qwen3/tokenizer-12hz',
+    files: ['config.json'],
+    downloadUrl: '',
+    type: 'dir' as const,
+    modelscope: {
+      modelId: 'Qwen/Qwen3-TTS-Tokenizer-12Hz',
+      files: [] as { remote: string; local: string }[],
+      mode: 'snapshot' as const,
+    } satisfies Omit<ModelScopeDownloadSpec, 'outDir'>,
+  },
+  'tts-qwen3-0.6b-custom': {
+    id: 'tts-qwen3-0.6b-custom',
+    name: 'Qwen3-TTS 0.6B CustomVoice（推荐）',
+    description: '内置 9 种高级音色，含北京话/四川话等，无需克隆即可用',
+    group: 'tts-synth' as const,
+    sizeBytes: 2_500_000_000,
+    dir: 'tts/qwen3/0.6b-custom',
+    files: ['config.json'],
+    downloadUrl: '',
+    type: 'dir' as const,
+    modelscope: {
+      modelId: 'Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice',
+      files: [] as { remote: string; local: string }[],
+      mode: 'snapshot' as const,
+    } satisfies Omit<ModelScopeDownloadSpec, 'outDir'>,
+  },
+  'tts-qwen3-1.7b-custom': {
+    id: 'tts-qwen3-1.7b-custom',
+    name: 'Qwen3-TTS 1.7B CustomVoice（高质）',
+    description: '更高音质内置音色 + 自然语言风格指令（可选）',
+    group: 'tts-synth' as const,
+    sizeBytes: 4_500_000_000,
+    dir: 'tts/qwen3/1.7b-custom',
+    files: ['config.json'],
+    downloadUrl: '',
+    type: 'dir' as const,
+    modelscope: {
+      modelId: 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice',
+      files: [] as { remote: string; local: string }[],
+      mode: 'snapshot' as const,
+    } satisfies Omit<ModelScopeDownloadSpec, 'outDir'>,
+  },
+  'tts-qwen3-0.6b-base': {
+    id: 'tts-qwen3-0.6b-base',
+    name: 'Qwen3-TTS 0.6B Base（声音克隆）',
+    description: '可选：3 秒参考音克隆自定义音色（非必须）',
+    group: 'tts-clone' as const,
+    sizeBytes: 2_500_000_000,
+    dir: 'tts/qwen3/0.6b-base',
+    files: ['config.json'],
+    downloadUrl: '',
+    type: 'dir' as const,
+    modelscope: {
+      modelId: 'Qwen/Qwen3-TTS-12Hz-0.6B-Base',
+      files: [] as { remote: string; local: string }[],
+      mode: 'snapshot' as const,
+    } satisfies Omit<ModelScopeDownloadSpec, 'outDir'>,
+  },
+  'tts-qwen3-1.7b-base': {
+    id: 'tts-qwen3-1.7b-base',
+    name: 'Qwen3-TTS 1.7B Base（高质克隆）',
+    description: '可选：更高音质声音克隆',
+    group: 'tts-clone' as const,
+    sizeBytes: 4_500_000_000,
+    dir: 'tts/qwen3/1.7b-base',
+    files: ['config.json'],
+    downloadUrl: '',
+    type: 'dir' as const,
+    modelscope: {
+      modelId: 'Qwen/Qwen3-TTS-12Hz-1.7B-Base',
+      files: [] as { remote: string; local: string }[],
+      mode: 'snapshot' as const,
+    } satisfies Omit<ModelScopeDownloadSpec, 'outDir'>,
+  },
 } as const
 
 type ModelId = keyof typeof MODEL_CATALOG
@@ -150,6 +336,10 @@ interface TaskRuntime {
   errorMessage?: string
   /** 上次成功使用的镜像前缀，续传优先 */
   lastMirrorPrefix?: string
+  /** 速度估算 */
+  lastSpeedAt?: number
+  lastSpeedBytes?: number
+  bytesPerSecond?: number
 }
 
 /**
@@ -159,11 +349,24 @@ export class VoiceModelManager {
   private tasks = new Map<string, TaskRuntime>()
 
   private get baseDir(): string {
+    return path.join(resolveWindowsClientDataRoot(), 'models', 'voice')
+  }
+
+  private get legacyBaseDir(): string {
     return path.join(app.getPath('userData'), 'models', 'voice')
   }
 
   private get tempDir(): string {
-    return path.join(app.getPath('temp'), 'mtbot-voice-models')
+    return path.join(app.getPath('temp'), 'lumii-voice-models')
+  }
+
+  /** 解析模型目录：新路径优先，否则回退 legacy userData */
+  private resolveModelDir(relDir: string): string {
+    const primary = path.join(this.baseDir, relDir)
+    if (fs.existsSync(primary)) return primary
+    const legacy = path.join(this.legacyBaseDir, relDir)
+    if (fs.existsSync(legacy)) return legacy
+    return primary
   }
 
   /**
@@ -197,43 +400,151 @@ export class VoiceModelManager {
   }
 
   async getModelPaths(): Promise<VoiceModelPaths> {
-    const base = this.baseDir
     return {
-      vad: path.join(base, 'vad', 'silero_vad.onnx'),
-      asr: path.join(base, 'asr', 'paraformer-zh-small'),
-      tts: path.join(base, 'tts', 'vits-zh-aishell3'),
+      vad: path.join(this.resolveModelDir('vad'), 'silero_vad.onnx'),
+      asr: this.resolveModelDir('asr/paraformer-zh-small'),
+      tts: this.resolveModelDir('tts/vits-zh-aishell3'),
+      qwen3Tokenizer: this.resolveModelDir('tts/qwen3/tokenizer-12hz'),
+      qwen3Custom06: this.resolveModelDir('tts/qwen3/0.6b-custom'),
+      qwen3Custom17: this.resolveModelDir('tts/qwen3/1.7b-custom'),
+      qwen3Base06: this.resolveModelDir('tts/qwen3/0.6b-base'),
+      qwen3Base17: this.resolveModelDir('tts/qwen3/1.7b-base'),
     }
   }
 
   isModelDownloaded(modelId: ModelId): boolean {
     const model = MODEL_CATALOG[modelId]
     if (!model) return false
-    const modelDir = path.join(this.baseDir, model.dir)
 
-    if ('files' in model) {
-      return model.files.every((f) => fs.existsSync(path.join(modelDir, f)))
+    const tryDir = (root: string): boolean => {
+      const modelDir = path.join(root, model.dir)
+      if (!fs.existsSync(modelDir)) return false
+
+      // snapshot/dir：必须完成标记 + 清单文件 + 权重，防止暂停后误判就绪
+      if (model.type === 'dir') {
+        const markerOk = fs.existsSync(path.join(modelDir, DOWNLOAD_COMPLETE_MARKER))
+        const filesOk =
+          'files' in model ? model.files.every((f) => fs.existsSync(path.join(modelDir, f))) : true
+        return markerOk && filesOk && hasModelWeightFiles(modelDir)
+      }
+
+      if ('files' in model) {
+        const allPresent = model.files.every((f) => fs.existsSync(path.join(modelDir, f)))
+        if (!allPresent) return false
+        if (modelId === 'asr-paraformer-zh') {
+          const onnx = path.join(modelDir, 'model.int8.onnx')
+          if (!hasSherpaParaformerMetadata(onnx)) {
+            log.warn(
+              `[isModelDownloaded] ASR 模型缺少 sherpa metadata（vocab_size），已标记未就绪并清理，请重新下载`,
+            )
+            this.purgeModelDir(modelDir)
+            return false
+          }
+        }
+        return true
+      }
+      const filename = (model as { filename?: string }).filename
+      if (!filename) return false
+      return fs.existsSync(path.join(root, model.dir, filename))
     }
-    return fs.existsSync(path.join(this.baseDir, model.dir, (model as { filename: string }).filename))
+
+    return tryDir(this.baseDir) || tryDir(this.legacyBaseDir)
+  }
+
+  /**
+   * 写入 snapshot 完成标记
+   */
+  private markDownloadComplete(modelDir: string): void {
+    try {
+      fs.mkdirSync(modelDir, { recursive: true })
+      fs.writeFileSync(
+        path.join(modelDir, DOWNLOAD_COMPLETE_MARKER),
+        JSON.stringify({ completedAt: Date.now() }),
+        'utf8',
+      )
+    } catch (e) {
+      log.warn(`[markDownloadComplete] 写入标记失败 ${modelDir}:`, e)
+    }
+  }
+
+  /**
+   * 目录模型是否存在未完成残留（可继续下载）
+   */
+  private hasIncompleteDirDownload(modelId: ModelId): boolean {
+    const model = MODEL_CATALOG[modelId]
+    if (!model || model.type !== 'dir') return false
+    const modelDir = path.join(this.baseDir, model.dir)
+    if (!fs.existsSync(modelDir)) return false
+    if (fs.existsSync(path.join(modelDir, DOWNLOAD_COMPLETE_MARKER))) return false
+    return dirSizeBytes(modelDir) > 0
+  }
+
+  /**
+   * 删除模型目录（用于清除不兼容的缓存）
+   */
+  private purgeModelDir(modelDir: string): void {
+    try {
+      if (fs.existsSync(modelDir)) {
+        fs.rmSync(modelDir, { recursive: true, force: true })
+      }
+    } catch (e) {
+      log.warn(`[purgeModelDir] 清理失败 ${modelDir}:`, e)
+    }
   }
 
   /**
    * 判断通话所需模型是否就绪。
-   * Edge TTS 无需本地下载 VITS；其余（含未传 provider）要求 VITS。
+   * Edge 无需本地 TTS；qwen3 需 Tokenizer + Base；其余要求 VITS。
    */
-  areRequiredModelsReady(ttsProvider?: string): boolean {
+  areRequiredModelsReady(ttsProvider?: string, qwen3Variant?: string): boolean {
     if (!this.isModelDownloaded('vad') || !this.isModelDownloaded('asr-paraformer-zh')) {
       return false
     }
     if (ttsProvider === 'edge') return true
+    if (ttsProvider === 'qwen3') {
+      return this.isQwen3Ready(qwen3Variant ?? '0.6b-custom')
+    }
     return this.isModelDownloaded('tts-vits-zh')
   }
 
   /**
-   * 判断当前 TTS 引擎是否可用（Edge 无需本地模型，VITS 需已下载）
+   * 判断当前 TTS 引擎是否可用
    */
-  isTtsReady(provider: string): boolean {
+  isTtsReady(provider: string, qwen3Variant?: string): boolean {
     if (provider === 'edge') return true
+    if (provider === 'qwen3') {
+      return this.isQwen3Ready(qwen3Variant ?? '0.6b-custom')
+    }
     return this.isModelDownloaded('tts-vits-zh')
+  }
+
+  /**
+   * Qwen3：Tokenizer + 对应变体均已下载
+   */
+  isQwen3Ready(variant: string = '0.6b-custom'): boolean {
+    if (!this.isModelDownloaded('tts-qwen3-tokenizer-12hz')) return false
+    switch (variant) {
+      case '1.7b-custom':
+        return this.isModelDownloaded('tts-qwen3-1.7b-custom')
+      case '0.6b-base':
+        return this.isModelDownloaded('tts-qwen3-0.6b-base')
+      case '1.7b-base':
+        return this.isModelDownloaded('tts-qwen3-1.7b-base')
+      case '0.6b-custom':
+      default:
+        return this.isModelDownloaded('tts-qwen3-0.6b-custom')
+    }
+  }
+
+  /**
+   * 是否已具备可不克隆的 Qwen3 合成（Tokenizer + 任一 CustomVoice）
+   */
+  isQwen3CustomSynthReady(): boolean {
+    return (
+      this.isModelDownloaded('tts-qwen3-tokenizer-12hz') &&
+      (this.isModelDownloaded('tts-qwen3-0.6b-custom') ||
+        this.isModelDownloaded('tts-qwen3-1.7b-custom'))
+    )
   }
 
   /**
@@ -260,16 +571,25 @@ export class VoiceModelManager {
           } catch {
             // ignore
           }
+        } else if (!downloaded && this.hasIncompleteDirDownload(id)) {
+          // snapshot 暂停/中断：用目录体积估算进度，并标为可继续
+          downloadedBytes = dirSizeBytes(path.join(this.baseDir, m.dir))
+          if (!task || task.state === 'idle') {
+            downloadState = 'paused'
+          }
         }
       }
       return {
         id: m.id,
         name: m.name,
+        description: 'description' in m ? String((m as { description?: string }).description || '') : undefined,
         sizeBytes: m.sizeBytes,
         downloaded,
         path: path.join(this.baseDir, m.dir),
         downloadState,
         downloadedBytes,
+        bytesPerSecond: task?.bytesPerSecond,
+        group: 'group' in m ? String((m as { group?: string }).group || '') : undefined,
         errorMessage: task?.errorMessage,
       }
     })
@@ -289,6 +609,7 @@ export class VoiceModelManager {
       downloadedBytes: number
       totalBytes: number
       state: VoiceModelDownloadState
+      bytesPerSecond?: number
     }) => void,
     onError?: (message: string) => void,
   ): void {
@@ -332,15 +653,22 @@ export class VoiceModelManager {
         if (task.pausing) {
           task.state = 'paused'
           task.abort = null
-          const partialSize = fs.existsSync(this.partialPath(modelId))
+          task.bytesPerSecond = 0
+          let partialSize = fs.existsSync(this.partialPath(modelId))
             ? fs.statSync(this.partialPath(modelId)).size
             : task.downloadedBytes
+          if (model.type === 'dir') {
+            const dirBytes = dirSizeBytes(path.join(this.baseDir, model.dir))
+            if (dirBytes > 0) partialSize = dirBytes
+          }
           task.downloadedBytes = partialSize
+          const total = task.totalBytes || model.sizeBytes
           onProgress({
-            progress: task.totalBytes > 0 ? partialSize / task.totalBytes : 0,
+            progress: total > 0 ? Math.min(0.99, partialSize / total) : 0,
             downloadedBytes: partialSize,
-            totalBytes: task.totalBytes || model.sizeBytes,
+            totalBytes: total,
             state: 'paused',
+            bytesPerSecond: 0,
           })
           return
         }
@@ -367,6 +695,15 @@ export class VoiceModelManager {
     }
     task.pausing = true
     task.abort.abort()
+    const model = MODEL_CATALOG[modelId as ModelId]
+    if (model?.type === 'dir') {
+      const size = dirSizeBytes(path.join(this.baseDir, model.dir))
+      if (size > 0) {
+        task.downloadedBytes = size
+        task.totalBytes = Math.max(task.totalBytes, model.sizeBytes)
+      }
+    }
+    task.bytesPerSecond = 0
     log.info(`[pauseDownload] 已暂停: ${modelId}`)
     return true
   }
@@ -387,9 +724,15 @@ export class VoiceModelManager {
     } catch {
       // ignore
     }
+    // snapshot 未完成目录一并清理，避免残留 config 误导
+    const model = MODEL_CATALOG[modelId as ModelId]
+    if (model?.type === 'dir' && !this.isModelDownloaded(modelId as ModelId)) {
+      this.purgeModelDir(path.join(this.baseDir, model.dir))
+    }
     task.state = 'idle'
     task.downloadedBytes = 0
     task.totalBytes = 0
+    task.bytesPerSecond = 0
     task.errorMessage = undefined
     log.info(`[cancelDownload] 已取消并清理: ${modelId}`)
     return true
@@ -403,41 +746,92 @@ export class VoiceModelManager {
       downloadedBytes: number
       totalBytes: number
       state: VoiceModelDownloadState
+      bytesPerSecond?: number
     }) => void,
     signal: AbortSignal,
   ): Promise<void> {
     fs.mkdirSync(this.tempDir, { recursive: true })
     const targetDir = path.join(this.baseDir, model.dir)
     fs.mkdirSync(targetDir, { recursive: true })
+    // 重新下载前去掉旧完成标记，避免半成品仍显示就绪
+    try {
+      const marker = path.join(targetDir, DOWNLOAD_COMPLETE_MARKER)
+      if (fs.existsSync(marker)) fs.unlinkSync(marker)
+    } catch {
+      /* ignore */
+    }
 
     const report = (downloadedBytes: number, totalBytes: number, state: VoiceModelDownloadState) => {
+      const now = Date.now()
+      if (task.lastSpeedAt != null && task.lastSpeedBytes != null) {
+        const dt = (now - task.lastSpeedAt) / 1000
+        if (dt >= 0.4) {
+          const db = downloadedBytes - task.lastSpeedBytes
+          task.bytesPerSecond = Math.max(0, db / dt)
+          task.lastSpeedAt = now
+          task.lastSpeedBytes = downloadedBytes
+        }
+      } else {
+        task.lastSpeedAt = now
+        task.lastSpeedBytes = downloadedBytes
+        task.bytesPerSecond = 0
+      }
       task.downloadedBytes = downloadedBytes
       task.totalBytes = totalBytes
       task.state = state
       const progress = totalBytes > 0 ? Math.min(1, downloadedBytes / totalBytes) : 0
-      onProgress({ progress, downloadedBytes, totalBytes, state })
+      onProgress({
+        progress,
+        downloadedBytes,
+        totalBytes,
+        state,
+        bytesPerSecond: task.bytesPerSecond,
+      })
     }
 
     // 1) ModelScope 官方 SDK（国内高速）
     if ('modelscope' in model && model.modelscope) {
+      let dirPoll: ReturnType<typeof setInterval> | null = null
       try {
         log.info(`[_downloadModel] 优先魔搭 SDK: ${model.modelscope.modelId}`)
+        // snapshot 下载时 SDK 进度可能稀疏，定时用目录体积刷新速度
+        if (model.type === 'dir') {
+          dirPoll = setInterval(() => {
+            if (signal.aborted) return
+            const bytes = dirSizeBytes(targetDir)
+            if (bytes > 0) {
+              report(Math.min(bytes, model.sizeBytes), model.sizeBytes, 'downloading')
+            }
+          }, 1000)
+        }
         await downloadViaModelScopeSdk(
           {
             modelId: model.modelscope.modelId,
             outDir: targetDir,
             files: [...model.modelscope.files],
+            mode:
+              'mode' in model.modelscope && model.modelscope.mode
+                ? model.modelscope.mode
+                : model.modelscope.files.length === 0
+                  ? 'snapshot'
+                  : 'files',
             extractTokensFromConfig:
               'extractTokensFromConfig' in model.modelscope
                 ? Boolean(model.modelscope.extractTokensFromConfig)
                 : false,
           },
           (p) => {
-            const bytes = Math.round((p.percent || 0) * model.sizeBytes)
-            report(bytes, model.sizeBytes, 'downloading')
+            const fromDir = model.type === 'dir' ? dirSizeBytes(targetDir) : 0
+            const fromPct = Math.round((p.percent || 0) * model.sizeBytes)
+            const bytes = Math.max(fromDir, fromPct)
+            report(Math.min(bytes, model.sizeBytes), model.sizeBytes, 'downloading')
           },
           signal,
         )
+        if (dirPoll) {
+          clearInterval(dirPoll)
+          dirPoll = null
+        }
         if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
         // 清理中间产物
         const cfg = path.join(targetDir, 'config.yaml')
@@ -448,15 +842,29 @@ export class VoiceModelManager {
             /* ignore */
           }
         }
+        if (model.type === 'dir') {
+          if (!hasModelWeightFiles(targetDir)) {
+            throw new Error('魔搭下载完成但未发现模型权重文件，请重试')
+          }
+          this.markDownloadComplete(targetDir)
+        }
         if (!this.isModelDownloaded(model.id as ModelId)) {
           throw new Error('魔搭下载完成但缺少必需文件')
         }
         log.info(`[_downloadModel] ${model.name} 魔搭 SDK 完成`)
         return
       } catch (e) {
+        if (dirPoll) {
+          clearInterval(dirPoll)
+          dirPoll = null
+        }
         if (signal.aborted) throw e
         const msg = e instanceof Error ? e.message : String(e)
         log.warn(`[_downloadModel] 魔搭 SDK 失败，回退 HTTP: ${msg}`)
+        // Qwen3 等仅魔搭 snapshot 的条目：无直链/GitHub 包，直接失败
+        if (model.type === 'dir' && !model.downloadUrl) {
+          throw new Error(`魔搭下载失败（无备用源）: ${msg}`)
+        }
       }
     }
 

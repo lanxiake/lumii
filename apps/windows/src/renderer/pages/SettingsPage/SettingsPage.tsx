@@ -33,6 +33,7 @@ import { SecurityLogViewer } from './components/SecurityLogViewer/SecurityLogVie
 import { UsagePanel } from './components/UsagePanel'
 import { LumiiLogo } from '../../components/brand/LumiiLogo'
 import { VoiceModelsPanel } from './components/VoiceModelsPanel'
+import { VoiceProfilesPanel } from './components/VoiceProfilesPanel'
 import { AsrLiveTestPanel } from './components/AsrLiveTestPanel'
 import {
   getProviderConfig,
@@ -155,7 +156,18 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   // 语音设置状态
   const [voiceConfig, setVoiceConfig] = useState<{
     asr: { provider: string; language?: string; apiKey?: string }
-    tts: { provider: string; speed: number; volume: number; speakerId?: number; voice?: string }
+    tts: {
+      provider: string
+      speed: number
+      volume: number
+      speakerId?: number
+      voice?: string
+      qwen3Variant?: string
+      qwen3Speaker?: string
+      qwen3Instruct?: string
+      qwen3ProfileId?: string
+      language?: string
+    }
     vad: { threshold: number; minSpeechMs: number; minSilenceMs: number; energyGateMultiplier: number }
     autoMuteMicWhileSpeaking: boolean
   } | null>(null)
@@ -163,6 +175,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [voicePreviewing, setVoicePreviewing] = useState(false)
   /** 本地 VITS 模型是否已下载 */
   const [vitsModelReady, setVitsModelReady] = useState(false)
+  /** Qwen3 CustomVoice（内置音色）是否可用 */
+  const [qwen3CustomReady, setQwen3CustomReady] = useState(false)
+  /** Qwen3 Base（声音克隆）是否可用 */
+  const [qwen3CloneReady, setQwen3CloneReady] = useState(false)
   const previewAudioCtxRef = React.useRef<AudioContext | null>(null)
 
   // Category-level save hooks (must be at top level, not in render functions)
@@ -288,14 +304,24 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     }).catch(() => {
       console.warn('[SettingsPage] 获取语音配置失败')
     })
+    const applyModelReady = (list: any[]) => {
+      setVitsModelReady(Boolean(list.find((m: any) => m.id === 'tts-vits-zh')?.downloaded))
+      const tok = Boolean(list.find((m: any) => m.id === 'tts-qwen3-tokenizer-12hz')?.downloaded)
+      const c06 = Boolean(list.find((m: any) => m.id === 'tts-qwen3-0.6b-custom')?.downloaded)
+      const c17 = Boolean(list.find((m: any) => m.id === 'tts-qwen3-1.7b-custom')?.downloaded)
+      const b06 = Boolean(list.find((m: any) => m.id === 'tts-qwen3-0.6b-base')?.downloaded)
+      const b17 = Boolean(list.find((m: any) => m.id === 'tts-qwen3-1.7b-base')?.downloaded)
+      setQwen3CustomReady(tok && (c06 || c17))
+      setQwen3CloneReady(tok && (b06 || b17))
+    }
     electronAPI.voice.sendCommand({ type: 'voice:models:get' }).then((list: any) => {
       if (!Array.isArray(list)) return
-      setVitsModelReady(Boolean(list.find((m: any) => m.id === 'tts-vits-zh')?.downloaded))
+      applyModelReady(list)
     }).catch(() => undefined)
 
     const unsub = electronAPI.voice.onEvent?.((event: any) => {
       if (event.type === 'voice:models:status' && Array.isArray(event.models)) {
-        setVitsModelReady(Boolean(event.models.find((m: any) => m.id === 'tts-vits-zh')?.downloaded))
+        applyModelReady(event.models)
       }
     })
     return () => {
@@ -1526,7 +1552,18 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const renderVoiceSettings = () => {
     const saveVoiceConfig = async (partial: {
       asr?: { provider?: string; language?: string; apiKey?: string }
-      tts?: { provider?: string; speed?: number; volume?: number; speakerId?: number; voice?: string }
+      tts?: {
+        provider?: string
+        speed?: number
+        volume?: number
+        speakerId?: number
+        voice?: string
+        qwen3Variant?: string
+        qwen3Speaker?: string
+        qwen3Instruct?: string
+        qwen3ProfileId?: string
+        language?: string
+      }
       vad?: { threshold?: number; minSpeechMs?: number; minSilenceMs?: number; energyGateMultiplier?: number }
       autoMuteMicWhileSpeaking?: boolean
     }) => {
@@ -1629,16 +1666,29 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                       value: 'local-vits',
                       disabled: !vitsDownloaded,
                     },
+                    {
+                      label: qwen3CustomReady
+                        ? 'Qwen3-TTS（本地内置音色）'
+                        : 'Qwen3-TTS（需先下载 Tokenizer+CustomVoice）',
+                      value: 'qwen3',
+                      disabled: !qwen3CustomReady,
+                    },
                     { label: 'Edge TTS（联网）', value: 'edge' },
                   ]}
                   onChange={(e) => {
                     if (e.target.value === 'local-vits' && !vitsDownloaded) return
+                    if (e.target.value === 'qwen3' && !qwen3CustomReady) return
                     saveVoiceConfig({ tts: { provider: e.target.value } })
                   }}
                 />
                 {!vitsDownloaded && (
                   <p className={styles['settings-note']} style={{ marginTop: 4 }}>
                     请先在上方「语音模型」中下载 VITS，即可启用离线合成。
+                  </p>
+                )}
+                {!qwen3CustomReady && (
+                  <p className={styles['settings-note']} style={{ marginTop: 4 }}>
+                    请先下载「Tokenizer 12Hz」+「0.6B CustomVoice」（声音克隆不是必须的）。
                   </p>
                 )}
               </div>
@@ -1715,6 +1765,91 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   />
                 </div>
               )}
+              {voiceConfig.tts.provider === 'qwen3' && (
+                <>
+                  <div className={styles['setting-item']}>
+                    <label className={styles['setting-label']}>Qwen3 模型</label>
+                    <Select
+                      value={voiceConfig.tts.qwen3Variant ?? '0.6b-custom'}
+                      options={[
+                        { label: '0.6B CustomVoice（推荐·内置音色）', value: '0.6b-custom' },
+                        { label: '1.7B CustomVoice（高质·含风格指令）', value: '1.7b-custom' },
+                        {
+                          label: qwen3CloneReady
+                            ? '0.6B Base（声音克隆·可选）'
+                            : '0.6B Base（需先下载克隆模型）',
+                          value: '0.6b-base',
+                          disabled: !qwen3CloneReady,
+                        },
+                        {
+                          label: qwen3CloneReady
+                            ? '1.7B Base（高质克隆·可选）'
+                            : '1.7B Base（需先下载克隆模型）',
+                          value: '1.7b-base',
+                          disabled: !qwen3CloneReady,
+                        },
+                      ]}
+                      onChange={(e) => saveVoiceConfig({ tts: { qwen3Variant: e.target.value } })}
+                    />
+                    <p className={styles['settings-note']} style={{ marginTop: 4 }}>
+                      日常请用 CustomVoice。Base 仅用于声音克隆，需额外下载并创建音色。
+                    </p>
+                  </div>
+                  <div className={styles['setting-item']}>
+                    <label className={styles['setting-label']}>合成语言</label>
+                    <Select
+                      value={voiceConfig.tts.language ?? 'Auto'}
+                      options={[
+                        { label: '自动检测', value: 'Auto' },
+                        { label: '中文', value: 'Chinese' },
+                        { label: 'English', value: 'English' },
+                        { label: '日本語', value: 'Japanese' },
+                        { label: '한국어', value: 'Korean' },
+                        { label: 'Deutsch', value: 'German' },
+                        { label: 'Français', value: 'French' },
+                        { label: 'Русский', value: 'Russian' },
+                        { label: 'Português', value: 'Portuguese' },
+                        { label: 'Español', value: 'Spanish' },
+                        { label: 'Italiano', value: 'Italian' },
+                      ]}
+                      onChange={(e) => saveVoiceConfig({ tts: { language: e.target.value } })}
+                    />
+                  </div>
+                  {(voiceConfig.tts.qwen3Variant ?? '0.6b-custom').includes('custom') && (
+                    <>
+                      <div className={styles['setting-item']}>
+                        <label className={styles['setting-label']}>内置音色</label>
+                        <Select
+                          value={voiceConfig.tts.qwen3Speaker ?? 'Vivian'}
+                          options={[
+                            { label: 'Vivian · 女 · 明亮 · 中文', value: 'Vivian' },
+                            { label: 'Serena · 女 · 温暖 · 中文', value: 'Serena' },
+                            { label: 'Uncle Fu · 男 · 沉稳 · 中文', value: 'Uncle_Fu' },
+                            { label: 'Dylan · 男 · 北京话', value: 'Dylan' },
+                            { label: 'Eric · 男 · 四川话', value: 'Eric' },
+                            { label: 'Ryan · 男 · English', value: 'Ryan' },
+                            { label: 'Aiden · 男 · English', value: 'Aiden' },
+                            { label: 'Ono Anna · 女 · 日本語', value: 'Ono_Anna' },
+                            { label: 'Sohee · 女 · 한국어', value: 'Sohee' },
+                          ]}
+                          onChange={(e) => saveVoiceConfig({ tts: { qwen3Speaker: e.target.value } })}
+                        />
+                      </div>
+                      {(voiceConfig.tts.qwen3Variant === '1.7b-custom') && (
+                        <div className={styles['setting-item']}>
+                          <label className={styles['setting-label']}>风格指令（可选）</label>
+                          <Input
+                            placeholder="例如：用特别开心的语气说"
+                            value={voiceConfig.tts.qwen3Instruct ?? ''}
+                            onChange={(e) => saveVoiceConfig({ tts: { qwen3Instruct: e.target.value } })}
+                            style={{ width: '320px' }}
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </>
+              )}
             </div>
 
             {/* 麦克风与识别阈值（VAD） */}
@@ -1769,7 +1904,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 onClick={handlePreview}
                 disabled={
                   voicePreviewing ||
-                  (voiceConfig.tts.provider === 'local-vits' && !vitsDownloaded)
+                  (voiceConfig.tts.provider === 'local-vits' && !vitsDownloaded) ||
+                  (voiceConfig.tts.provider === 'qwen3' &&
+                    (!(voiceConfig.tts.qwen3Variant ?? '0.6b-custom').includes('custom')
+                      ? !qwen3CloneReady || !voiceConfig.tts.qwen3ProfileId
+                      : !qwen3CustomReady))
                 }
               >
                 {voicePreviewing ? '播放中...' : '▶ 预览声音'}
@@ -1784,6 +1923,25 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   使用已下载的离线 VITS 试听
                 </span>
               )}
+            </div>
+
+
+            {/* 声音克隆（可选，与常规 TTS 分离） */}
+            <div className={styles['setting-group']}>
+              <h4 className={styles['setting-group-title']}>声音克隆（可选）</h4>
+              <p className={styles['settings-note']}>
+                不必下载也能正常用 Edge / VITS / Qwen3 内置音色。仅当你要「用自己的声音」时，再下载上方③区 Base 模型并创建音色，然后在 TTS 里把 Qwen3 模型切到 Base。
+              </p>
+              <VoiceProfilesPanel
+                selectedProfileId={voiceConfig.tts.qwen3ProfileId}
+                onSelectProfile={(id) =>
+                  setVoiceConfig((prev) =>
+                    prev ? { ...prev, tts: { ...prev.tts, qwen3ProfileId: id } } : prev,
+                  )
+                }
+                saveVoiceConfig={saveVoiceConfig}
+                disabled={!qwen3CloneReady}
+              />
             </div>
 
             <AsrLiveTestPanel />

@@ -16,6 +16,7 @@ import { type VoiceModelManager } from './model-manager.js'
 import { voiceEventBus } from './voice-event-bus.js'
 import type { VoiceEngineConfig } from '../../shared/voice-events.js'
 import type { TtsChunk } from './tts-engine.js'
+import { VoiceProfileStore } from './voice-profile-store.js'
 import {
   buildTtsPreviewCacheKey,
   ttsPreviewCache,
@@ -86,6 +87,7 @@ export class VoiceCallService {
   private _lastSpeechSegment: Float32Array | null = null
   /** micless 模式：文字回复出声（不采麦），仅做 TTS 播放，结束回 idle 而非 listening */
   private micless = false
+  private profileStore = new VoiceProfileStore()
 
   constructor(
     private win: BrowserWindow,
@@ -135,21 +137,77 @@ export class VoiceCallService {
   async ensureTtsInitialized(): Promise<void> {
     if (this.ttsInitialized && this.ttsProvider) return
 
-    if (!this.modelManager.isTtsReady(this.config.tts.provider)) {
+    const variant = this.config.tts.qwen3Variant ?? '0.6b-custom'
+    if (!this.modelManager.isTtsReady(this.config.tts.provider, variant)) {
       throw new Error('TTS 模型未下载，请前往「设置 → 语音」下载本地模型，或切换为 Edge TTS')
     }
 
     log.info('[ensureTtsInitialized] 初始化 TTS 引擎...')
     const paths = await this.modelManager.getModelPaths()
+
+    let refAudio: string | undefined
+    let refText: string | undefined
+    let xVectorOnly: boolean | undefined
+    let language = this.config.tts.language ?? 'Auto'
+    let mode: 'custom' | 'clone' = 'custom'
+    let speaker = this.config.tts.qwen3Speaker ?? 'Vivian'
+    const instruct = this.config.tts.qwen3Instruct
+
+    if (this.config.tts.provider === 'qwen3') {
+      const isClone = variant === '0.6b-base' || variant === '1.7b-base'
+      mode = isClone ? 'clone' : 'custom'
+      if (isClone) {
+        const profileId = this.config.tts.qwen3ProfileId
+        if (!profileId) {
+          throw new Error('声音克隆模式需要先在设置中创建并选择「我的音色」；或改用 CustomVoice 内置音色')
+        }
+        const profile = this.profileStore.get(profileId)
+        if (!profile) {
+          throw new Error(`克隆音色不存在: ${profileId}`)
+        }
+        refAudio = this.profileStore.getRefAudioPath(profile)
+        refText = profile.refText
+        xVectorOnly = profile.xVectorOnly
+        language = this.config.tts.language || profile.language || 'Auto'
+      }
+    }
+
+    const qwenModelDir = (() => {
+      switch (variant) {
+        case '1.7b-custom':
+          return paths.qwen3Custom17
+        case '0.6b-base':
+          return paths.qwen3Base06
+        case '1.7b-base':
+          return paths.qwen3Base17
+        case '0.6b-custom':
+        default:
+          return paths.qwen3Custom06
+      }
+    })()
+
     this.ttsProvider = createTtsProvider({
       provider: this.config.tts.provider,
-      modelDir: paths.tts,
+      modelDir: this.config.tts.provider === 'qwen3' ? qwenModelDir : paths.tts,
+      tokenizerDir: paths.qwen3Tokenizer,
       speed: this.config.tts.speed,
       voice: this.config.tts.voice,
+      language,
+      mode,
+      speaker,
+      instruct,
+      refAudio,
+      refText,
+      xVectorOnly,
     })
     await this.ttsProvider.initialize()
     this.ttsInitialized = true
     log.info('[ensureTtsInitialized] TTS 引擎就绪')
+  }
+
+  /** 暴露音色档案存储给 IPC */
+  getProfileStore(): VoiceProfileStore {
+    return this.profileStore
   }
 
   /** 初始化完整语音通话链路（VAD + ASR + TTS） */
@@ -157,7 +215,10 @@ export class VoiceCallService {
     if (this.initialized) return
     log.info('[ensureInitialized] 初始化语音引擎...')
 
-    if (!this.modelManager.areRequiredModelsReady(this.config.tts.provider)) {
+    if (!this.modelManager.areRequiredModelsReady(
+      this.config.tts.provider,
+      this.config.tts.qwen3Variant,
+    )) {
       throw new Error('语音模型未就绪，请先下载所需本地模型（设置 → 语音设置）')
     }
 

@@ -1,10 +1,10 @@
 /**
  * TTS (Text-To-Speech) Provider 抽象层
- * 支持本地 VITS/Matcha 和 Edge TTS
+ * 支持本地 VITS、Edge TTS、Qwen3-TTS（sidecar）
  */
 import path from 'node:path'
 import fs from 'node:fs'
-import { app } from 'electron'
+import { getSharedQwen3TtsClient } from './qwen3-tts-client.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[TtsEngine]', ...args),
@@ -301,14 +301,143 @@ export class EdgeTtsFallback implements TtsProvider {
   }
 }
 
+// ─── Qwen3-TTS（Python sidecar）──────────────────────────────────────────
+
+export class Qwen3Tts implements TtsProvider {
+  readonly name = 'qwen3-tts'
+  readonly isLocal = true
+  sampleRate = 24000
+
+  private client = getSharedQwen3TtsClient()
+  private initialized = false
+
+  constructor(
+    private modelDir: string,
+    private tokenizerDir: string,
+    private opts: {
+      speed?: number
+      language?: string
+      /** custom=内置音色；clone=声音克隆 */
+      mode?: 'custom' | 'clone'
+      speaker?: string
+      instruct?: string
+      refAudio?: string
+      refText?: string
+      xVectorOnly?: boolean
+    } = {},
+  ) {}
+
+  /**
+   * 热更新语速（sidecar 侧一期忽略，保留接口兼容）
+   */
+  setSpeed(speed: number): void {
+    this.opts.speed = speed
+  }
+
+  /**
+   * 热更新 CustomVoice 说话人
+   */
+  setSpeakerName(speaker: string): void {
+    this.opts.speaker = speaker
+  }
+
+  /**
+   * 更新克隆参考（切换音色档案时）
+   */
+  setCloneRef(ref: { refAudio: string; refText: string; language?: string; xVectorOnly?: boolean }): void {
+    this.opts.mode = 'clone'
+    this.opts.refAudio = ref.refAudio
+    this.opts.refText = ref.refText
+    if (ref.language) this.opts.language = ref.language
+    if (ref.xVectorOnly !== undefined) this.opts.xVectorOnly = ref.xVectorOnly
+  }
+
+  async initialize(): Promise<void> {
+    log.info(`[Qwen3Tts.initialize] mode=${this.opts.mode ?? 'custom'} model=${this.modelDir}`)
+    await this.client.load(this.modelDir, this.tokenizerDir, 'auto')
+    this.initialized = true
+    log.info('[Qwen3Tts.initialize] 就绪')
+  }
+
+  async synthesize(
+    text: string,
+    onChunk: (chunk: TtsChunk) => void,
+    signal?: AbortSignal,
+    onAudioFile?: (audioPath: string, isFinal: boolean) => void,
+  ): Promise<void> {
+    if (!this.initialized) throw new Error('Qwen3 TTS 未初始化')
+    if (signal?.aborted) return
+    if (!text.trim()) return
+
+    const mode = this.opts.mode ?? 'custom'
+    if (mode === 'clone' && !this.opts.refAudio) {
+      throw new Error('未配置克隆音色：请在设置中创建并选择「我的音色」，或改用 CustomVoice 内置音色')
+    }
+
+    const { wavPath, sampleRate } = await this.client.synthesize({
+      text,
+      language: this.opts.language || 'Auto',
+      mode,
+      speaker: this.opts.speaker || 'Vivian',
+      instruct: this.opts.instruct,
+      refAudio: this.opts.refAudio,
+      refText: this.opts.refText || '',
+      xVectorOnly: this.opts.xVectorOnly === true,
+    })
+
+    if (signal?.aborted) {
+      try {
+        fs.unlinkSync(wavPath)
+      } catch {
+        /* ignore */
+      }
+      return
+    }
+
+    this.sampleRate = sampleRate
+    onAudioFile?.(wavPath, true)
+
+    // 读 wav PCM 发给渲染层（简易：跳过 44 字节头，按 int16 → float）
+    const buf = fs.readFileSync(wavPath)
+    const pcmOffset = buf.toString('ascii', 0, 4) === 'RIFF' ? 44 : 0
+    const samples: number[] = []
+    for (let i = pcmOffset; i + 1 < buf.length; i += 2) {
+      const s = buf.readInt16LE(i)
+      samples.push(s / 32768)
+    }
+    onChunk({ samples, sampleRate, isFinal: false })
+    onChunk({ samples: [], sampleRate, isFinal: true })
+
+    try {
+      fs.unlinkSync(wavPath)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  destroy(): void {
+    // 共享 sidecar 不在单次 destroy 时杀掉，避免频繁冷启动
+    this.initialized = false
+    log.info('[Qwen3Tts.destroy] 已释放实例引用（sidecar 保持共享）')
+  }
+}
+
 // ─── 工厂函数 ─────────────────────────────────────────────────────────────
 
 export function createTtsProvider(config: {
   provider: string
   modelDir?: string
+  tokenizerDir?: string
   vocoderPath?: string
   speed?: number
   voice?: string
+  language?: string
+  mode?: 'custom' | 'clone'
+  speaker?: string
+  instruct?: string
+  refAudio?: string
+  refText?: string
+  xVectorOnly?: boolean
 }): TtsProvider {
   switch (config.provider) {
     case 'local-vits':
@@ -316,6 +445,19 @@ export function createTtsProvider(config: {
       return new LocalVitsTts(config.modelDir, 0, config.speed ?? 1.2)
     case 'edge':
       return new EdgeTtsFallback(config.voice ?? 'zh-CN-XiaoxiaoNeural', config.speed ?? 1.2)
+    case 'qwen3':
+      if (!config.modelDir) throw new Error('qwen3 需要 modelDir')
+      if (!config.tokenizerDir) throw new Error('qwen3 需要 tokenizerDir')
+      return new Qwen3Tts(config.modelDir, config.tokenizerDir, {
+        speed: config.speed,
+        language: config.language,
+        mode: config.mode ?? 'custom',
+        speaker: config.speaker,
+        instruct: config.instruct,
+        refAudio: config.refAudio,
+        refText: config.refText,
+        xVectorOnly: config.xVectorOnly,
+      })
     default:
       if (config.modelDir) {
         log.warn(`[createTtsProvider] 未知 provider "${config.provider}"，回退到 local-vits`)
