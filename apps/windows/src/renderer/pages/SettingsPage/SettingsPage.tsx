@@ -563,19 +563,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
   const renderChannelsSettings = () => {
     return (
-      <div className={styles['settings-section']}>
+      <div className={`${styles['settings-section']} ${styles['settings-section--channels']}`}>
         <h3>渠道设置</h3>
         <p style={{ fontSize: 13, color: 'var(--mt-fg-3)', margin: '0 0 16px' }}>
           配置各个即时通信渠道的接入与登录状态。
         </p>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-            gap: 12,
-            marginBottom: 12,
-          }}
-        >
+        <div className={styles['channels-grid']}>
           <WeixinChannelSettings />
           <WecomChannelSettings />
           <FeishuChannelSettings />

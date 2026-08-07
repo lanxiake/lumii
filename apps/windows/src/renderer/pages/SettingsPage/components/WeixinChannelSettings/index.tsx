@@ -21,14 +21,16 @@ function formatSessionInfo(session: WeixinSession): string {
       ? `已连接 ${elapsedDays} 天 ${elapsedHours} 小时`
       : `已连接 ${elapsedHours} 小时`
 
+  const userPart = session.userId ? `用户ID: ${session.userId} · ` : ''
+
   if (session.expiresAt) {
     const remainMs = session.expiresAt - now
-    if (remainMs <= 0) return `${elapsedStr}（会话已过期）`
+    if (remainMs <= 0) return `${userPart}${elapsedStr}（会话已过期）`
     const remainDays = Math.ceil(remainMs / (24 * 3600 * 1000))
-    return `${elapsedStr}  ·  有效期剩余 ${remainDays} 天`
+    return `${userPart}${elapsedStr}  ·  有效期剩余 ${remainDays} 天`
   }
 
-  return `${elapsedStr}  ·  登录于 ${new Date(session.loginAt).toLocaleDateString()}`
+  return `${userPart}${elapsedStr}  ·  登录于 ${new Date(session.loginAt).toLocaleDateString()}`
 }
 
 interface WeixinSession {
@@ -180,23 +182,22 @@ export const WeixinChannelSettings: React.FC = () => {
   )
 
   return (
-    <>
+    <div style={{ height: '100%', minWidth: 0 }}>
       <ChannelCard
         icon={<ChannelBrandIcon kind="weixin" />}
         name="微信（个人）"
         description="通过 iLink Bot API 接入个人微信，扫码登录后自动收发消息"
-        statusSlot={<LoginStatus status={status} session={session} />}
+        statusSlot={<LoginStatus status={status} />}
         actionsSlot={actions}
         errorMessage={errorMsg}
         extraSlot={isConnected && session ? formatSessionInfo(session) : undefined}
       />
-
       <QrCodeModal
         open={qrModalOpen}
         qrcodeDataUrl={qrcodeDataUrl}
         onClose={handleCloseModal}
       />
-    </>
+    </div>
   )
 }
 

@@ -80,6 +80,25 @@
   max-width: 600px;
 }
 
+/* ????????????????? auto-fit ?? 2+1 */
+.settings-section--channels {
+  max-width: 960px;
+}
+
+.channels-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+  align-items: stretch;
+}
+
+@media (max-width: 900px) {
+  .channels-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .settings-merged-block {
   margin-top: var(--spacing-8, 32px);
   padding-top: var(--spacing-6, 24px);

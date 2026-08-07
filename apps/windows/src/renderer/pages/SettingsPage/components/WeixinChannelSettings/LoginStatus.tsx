@@ -12,6 +12,7 @@ interface WeixinSession {
 
 interface LoginStatusProps {
   status: WeixinLoginStatus
+  /** @deprecated 用户 ID 已改由 ChannelCard.extraSlot 展示，保留参数以免破坏调用方 */
   session?: WeixinSession | null
 }
 
@@ -33,18 +34,10 @@ const STATUS_COLORS: Record<WeixinLoginStatus, 'default' | 'success' | 'warning'
   error: 'error',
 }
 
-export const LoginStatus: React.FC<LoginStatusProps> = ({ status, session }) => {
+export const LoginStatus: React.FC<LoginStatusProps> = ({ status }) => {
   const label = STATUS_LABELS[status] ?? status
   const color = STATUS_COLORS[status] ?? 'default'
 
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-      <Tag color={color}>{label}</Tag>
-      {status === 'logged_in' && session?.userId && (
-        <span style={{ fontSize: 12, color: '#999' }}>
-          用户ID: {session.userId}
-        </span>
-      )}
-    </div>
-  )
+  // 仅展示状态 Tag；用户 ID 等细节放到 ChannelCard.extraSlot，避免挤占标题行宽度
+  return <Tag color={color}>{label}</Tag>
 }

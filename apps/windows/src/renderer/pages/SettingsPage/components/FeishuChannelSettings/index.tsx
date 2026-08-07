@@ -158,7 +158,7 @@ export const FeishuChannelSettings: React.FC = () => {
       : undefined
 
   return (
-    <>
+    <div style={{ height: '100%', minWidth: 0 }}>
       <ChannelCard
         icon={<ChannelBrandIcon kind="feishu" />}
         name="飞书"
@@ -208,7 +208,7 @@ export const FeishuChannelSettings: React.FC = () => {
           </p>
         </div>
       </Modal>
-    </>
+    </div>
   )
 }
 

@@ -163,7 +163,7 @@ export const WecomChannelSettings: React.FC = () => {
       : undefined
 
   return (
-    <>
+    <div style={{ height: '100%', minWidth: 0 }}>
       <ChannelCard
         icon={<ChannelBrandIcon kind="wecom" />}
         name="企业微信"
@@ -215,7 +215,7 @@ export const WecomChannelSettings: React.FC = () => {
           </p>
         </div>
       </Modal>
-    </>
+    </div>
   )
 }
 
