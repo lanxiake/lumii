@@ -19,8 +19,11 @@
   box-sizing: border-box;
 }
 
-/* 页面基础样式 */
+/* 页面基础样式 — frameless Electron：用 fixed + inset 锁死客户区，
+ * 避免缩放时 100%/100vh 与窗口客户区短暂不同步导致顶栏/底栏被裁切 */
 html, body {
+  position: fixed;
+  inset: 0;
   width: 100%;
   height: 100%;
   font-family: var(--mt-font-sans);
@@ -35,8 +38,11 @@ html, body {
 
 /* React 根节点 */
 #root {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
+  overflow: hidden;
 }
 
 /* 滚动条样式 */

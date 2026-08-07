@@ -134,12 +134,8 @@
   color: white;
 }
 
-/* 响应式适配 */
+/* 响应式适配：标题栏高度始终跟随 --mt-titlebar-h，避免与固定定位面板错位 */
 @media (max-width: 768px) {
-  .title-bar {
-    height: 48px;
-  }
-
   .title-bar-menu-btn {
     width: 36px;
     height: 32px;

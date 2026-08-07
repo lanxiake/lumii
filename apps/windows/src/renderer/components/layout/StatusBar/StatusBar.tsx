@@ -55,7 +55,7 @@ export const StatusBar: React.FC = () => {
   return (
     <footer className={styles.sbar}>
       <i className={styles.item}>
-        本地运行 <b>无需登录</b>
+        <b>灵有所栖，人有所归。不催不诫，如友如时。</b>
       </i>
 
       <span className={styles.spacer} />
