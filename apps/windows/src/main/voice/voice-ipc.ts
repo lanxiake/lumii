@@ -8,7 +8,7 @@ import { type VoiceModelManager } from './model-manager.js'
 import { AsrTestSession } from './asr-test-session.js'
 import type { VoiceCommand } from '../../shared/voice-commands.js'
 import { saveVoiceEngineConfig } from './voice-config-store.js'
-import { prepareQwen3TtsRuntime } from './qwen3-tts-client.js'
+import { prepareQwen3TtsRuntime, invalidateQwen3TtsPrepare, resetSharedQwen3TtsClient } from './qwen3-tts-client.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceIPC]', ...args),
@@ -22,15 +22,20 @@ let voiceIpcInstalled = false
 /**
  * 若已下载任意 Qwen3 TTS 权重，后台预装 qwen-tts（不阻塞 UI）
  */
-function maybePrepareQwen3Runtime(modelManager: VoiceModelManager, reason: string): void {
+function maybePrepareQwen3Runtime(
+  modelManager: VoiceModelManager,
+  voiceService: VoiceCallService,
+  reason: string,
+): void {
   const hasQwenModel =
     modelManager.isModelDownloaded('tts-qwen3-0.6b-custom') ||
     modelManager.isModelDownloaded('tts-qwen3-1.7b-custom') ||
     modelManager.isModelDownloaded('tts-qwen3-0.6b-base') ||
     modelManager.isModelDownloaded('tts-qwen3-1.7b-base')
   if (!hasQwenModel) return
-  log.info(`[prepareQwen3] 触发预装 reason=${reason}`)
-  void prepareQwen3TtsRuntime().catch((e) => {
+  const devicePref = voiceService.getConfig().tts.qwen3Device ?? 'auto'
+  log.info(`[prepareQwen3] 触发预装 reason=${reason} device=${devicePref}`)
+  void prepareQwen3TtsRuntime(devicePref).catch((e) => {
     log.warn(`[prepareQwen3] 预装失败: ${(e as Error).message}`)
   })
 }
@@ -52,9 +57,9 @@ export function registerVoiceIpc(
   const asrTest = new AsrTestSession(modelManager, () => voiceService.getConfig())
 
   // 启动时若模型已在本地，提前装依赖，避免首次预览卡住
-  maybePrepareQwen3Runtime(modelManager, 'ipc-register')
+  maybePrepareQwen3Runtime(modelManager, voiceService, 'ipc-register')
   if (voiceService.getConfig().tts.provider === 'qwen3') {
-    maybePrepareQwen3Runtime(modelManager, 'config-qwen3')
+    maybePrepareQwen3Runtime(modelManager, voiceService, 'config-qwen3')
   }
 
   /**
@@ -139,7 +144,7 @@ export function registerVoiceIpc(
                 String(command.modelId).startsWith('tts-qwen3-') &&
                 !String(command.modelId).includes('tokenizer')
               ) {
-                maybePrepareQwen3Runtime(modelManager, `download-ready:${command.modelId}`)
+                maybePrepareQwen3Runtime(modelManager, voiceService, `download-ready:${command.modelId}`)
               }
             },
             (message) => {
@@ -167,9 +172,16 @@ export function registerVoiceIpc(
         case 'voice:config:get':
           return voiceService.getConfig()
 
-        case 'voice:config:set':
+        case 'voice:config:set': {
+          const prevDevice = voiceService.getConfig().tts.qwen3Device ?? 'auto'
           await voiceService.setConfig(command.config as any)
           await saveVoiceEngineConfig(voiceService.getConfig())
+          const nextDevice = voiceService.getConfig().tts.qwen3Device ?? 'auto'
+          if (prevDevice !== nextDevice) {
+            invalidateQwen3TtsPrepare()
+            void resetSharedQwen3TtsClient().catch(() => undefined)
+            log.info(`[voice:config:set] 设备偏好变更 ${prevDevice} → ${nextDevice}，将重装 PyTorch`)
+          }
           if (!win.isDestroyed()) {
             try {
               win.webContents.send('voice:event', {
@@ -181,9 +193,10 @@ export function registerVoiceIpc(
             }
           }
           if (voiceService.getConfig().tts.provider === 'qwen3') {
-            maybePrepareQwen3Runtime(modelManager, 'config-set-qwen3')
+            maybePrepareQwen3Runtime(modelManager, voiceService, 'config-set-qwen3')
           }
           return { ok: true }
+        }
 
         case 'voice:playback:finished':
           voiceService.onPlaybackFinished()

@@ -169,6 +169,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       qwen3CloneEnabled?: boolean
       qwen3CloneVariant?: '0.6b-base' | '1.7b-base'
       qwen3ProfileId?: string
+      qwen3Device?: 'auto' | 'cpu' | 'cuda'
       language?: string
     }
     vad: { threshold: number; minSpeechMs: number; minSilenceMs: number; energyGateMultiplier: number }
@@ -1628,6 +1629,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         qwen3CloneEnabled?: boolean
         qwen3CloneVariant?: '0.6b-base' | '1.7b-base'
         qwen3ProfileId?: string
+        qwen3Device?: 'auto' | 'cpu' | 'cuda'
         language?: string
       }
       vad?: { threshold?: number; minSpeechMs?: number; minSilenceMs?: number; energyGateMultiplier?: number }
@@ -1910,6 +1912,35 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     }}
                   />
                 </div>
+                {voiceConfig.tts.provider === 'qwen3' && (
+                  <div className={styles['setting-item']}>
+                    <label className={styles['setting-label']}>推理设备</label>
+                    <Select
+                      value={voiceConfig.tts.qwen3Device ?? 'auto'}
+                      options={[
+                        {
+                          label: '自动（有 NVIDIA 显卡则用 GPU）',
+                          value: 'auto',
+                        },
+                        {
+                          label: 'GPU（CUDA，需 NVIDIA 驱动）',
+                          value: 'cuda',
+                        },
+                        {
+                          label: 'CPU（兼容性最好，较慢）',
+                          value: 'cpu',
+                        },
+                      ]}
+                      onChange={(e) => {
+                        const v = e.target.value as 'auto' | 'cpu' | 'cuda'
+                        void saveVoiceConfig({ tts: { qwen3Device: v } })
+                      }}
+                    />
+                    <span className={styles['setting-hint']}>
+                      切换到 GPU 会卸载 CPU 版 PyTorch 并重新下载 CUDA 轮（约 2GB+），请保持网络畅通。
+                    </span>
+                  </div>
+                )}
                 <div className={styles['setting-item']}>
                   <label className={styles['setting-label']}>
                     语速：{voiceConfig.tts.speed.toFixed(1)}x

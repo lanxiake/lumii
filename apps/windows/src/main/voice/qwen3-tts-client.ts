@@ -158,12 +158,30 @@ async function probeTorchHealth(pythonExe: string): Promise<TorchHealth> {
 
 /**
  * 在内置 Python 中执行 pip install
+ * @param indexUrl 若传入则作为唯一 index（避免 PIP_INDEX_URL 镜像把 CUDA 轮解析成 CPU）
  */
-async function pipInstall(pythonExe: string, args: string[], label: string): Promise<void> {
+async function pipInstall(
+  pythonExe: string,
+  args: string[],
+  label: string,
+  indexUrl?: string,
+): Promise<void> {
+  const envExtra: Record<string, string> = {}
+  if (indexUrl) {
+    envExtra.PIP_INDEX_URL = indexUrl
+  } else {
+    envExtra.PIP_INDEX_URL = PYPI_MIRROR
+  }
   await new Promise<void>((resolve, reject) => {
+    const env = buildIsolatedPythonEnv(envExtra)
+    // 强制单一 index：清空镜像/额外源，否则 cu121 会和 ustc 混用导致仍命中 +cpu
+    if (indexUrl) {
+      delete env.PIP_EXTRA_INDEX_URL
+      delete env.PIP_TRUSTED_HOST
+    }
     const p = spawn(pythonExe, ['-m', 'pip', 'install', ...args], {
       windowsHide: true,
-      env: buildIsolatedPythonEnv({ PIP_INDEX_URL: PYPI_MIRROR }),
+      env,
     })
     let err = ''
     let out = ''
@@ -187,48 +205,90 @@ async function pipInstall(pythonExe: string, args: string[], label: string): Pro
 }
 
 /**
- * 安装配对的 torch + torchaudio（优先 CUDA，失败回退 CPU）
+ * 卸载旧 torch 栈，避免 “Requirement already satisfied” 卡住 CPU 轮
  */
-async function installTorchStack(pythonExe: string, preferCuda: boolean): Promise<'cuda' | 'cpu'> {
-  if (preferCuda) {
+async function pipUninstallTorch(pythonExe: string): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const p = spawn(
+      pythonExe,
+      ['-m', 'pip', 'uninstall', '-y', 'torch', 'torchaudio', 'torchvision'],
+      { windowsHide: true, env: buildIsolatedPythonEnv() },
+    )
+    p.on('error', () => resolve())
+    p.on('exit', () => resolve())
+  })
+}
+
+export type Qwen3DevicePref = 'auto' | 'cpu' | 'cuda'
+
+/**
+ * 根据用户偏好决定是否要装/用 CUDA
+ */
+function resolveWantCuda(pref: Qwen3DevicePref): boolean {
+  if (pref === 'cpu') return false
+  if (pref === 'cuda') return true
+  return hasNvidiaGpu()
+}
+
+/**
+ * 安装配对的 torch + torchaudio。
+ * 关键 CUDA：先卸载再强制装 cu121；失败时仅在允许回退时改装 CPU。
+ */
+async function installTorchStack(
+  pythonExe: string,
+  wantCuda: boolean,
+  allowCpuFallback: boolean,
+): Promise<'cuda' | 'cpu'> {
+  if (wantCuda) {
     emitStatus(
       'installing_deps',
-      '检测到 NVIDIA 显卡，正在安装 PyTorch CUDA（约 2GB+，首次较慢，请耐心等待）…',
+      '正在安装 PyTorch CUDA 12.1（约 2GB+，会先卸载旧的 CPU 版，请勿关闭应用）…',
     )
     try {
+      await pipUninstallTorch(pythonExe)
       await pipInstall(
         pythonExe,
         [
+          '--no-cache-dir',
+          '--force-reinstall',
           'torch==2.5.1',
           'torchaudio==2.5.1',
           '--index-url',
           'https://download.pytorch.org/whl/cu121',
         ],
         '正在安装 PyTorch CUDA 12.1…',
+        'https://download.pytorch.org/whl/cu121',
       )
-      const health = await probeTorchHealth(pythonExe)
-      // torch 装上后 qwen_tts 可能尚未安装，仅检查 torch cuda：
-      if (health.ok && health.cuda) return 'cuda'
-      // 仅 torch 的探测：
       const torchCuda = await probeTorchCudaOnly(pythonExe)
-      if (torchCuda) return 'cuda'
-      log.warn('[installTorch] CUDA 轮已安装但 torch.cuda 不可用，回退 CPU')
+      if (torchCuda) {
+        log.info('[installTorch] CUDA 轮安装成功')
+        return 'cuda'
+      }
+      const msg = 'CUDA 轮安装后 torch.cuda 仍不可用（可能驱动/ wheel 不匹配）'
+      log.warn(`[installTorch] ${msg}`)
+      if (!allowCpuFallback) throw new Error(msg)
+      emitStatus('installing_deps', `${msg}，回退安装 CPU 版…`)
     } catch (e) {
-      log.warn(`[installTorch] CUDA 安装失败，回退 CPU: ${(e as Error).message}`)
+      log.warn(`[installTorch] CUDA 安装失败: ${(e as Error).message}`)
+      if (!allowCpuFallback) throw e
       emitStatus('installing_deps', 'CUDA 版安装失败，改为安装 CPU 版 PyTorch…')
     }
   }
 
-  emitStatus('installing_deps', '正在安装 PyTorch CPU（无独显或 CUDA 不可用时使用，合成较慢）…')
+  emitStatus('installing_deps', '正在安装 PyTorch CPU…')
+  await pipUninstallTorch(pythonExe)
   await pipInstall(
     pythonExe,
     [
+      '--no-cache-dir',
+      '--force-reinstall',
       'torch==2.5.1',
       'torchaudio==2.5.1',
       '--index-url',
       'https://download.pytorch.org/whl/cpu',
     ],
     '正在安装 PyTorch CPU…',
+    'https://download.pytorch.org/whl/cpu',
   )
   return 'cpu'
 }
@@ -240,7 +300,10 @@ async function probeTorchCudaOnly(pythonExe: string): Promise<boolean> {
   return new Promise((resolve) => {
     const p = spawn(
       pythonExe,
-      ['-c', 'import torch; print("1" if torch.cuda.is_available() else "0")'],
+      [
+        '-c',
+        'import torch; print(("1" if torch.cuda.is_available() else "0")+"|"+torch.__version__)',
+      ],
       { windowsHide: true, env: buildIsolatedPythonEnv() },
     )
     let out = ''
@@ -248,7 +311,11 @@ async function probeTorchCudaOnly(pythonExe: string): Promise<boolean> {
       out += b.toString()
     })
     p.on('error', () => resolve(false))
-    p.on('exit', (code) => resolve(code === 0 && out.trim().startsWith('1')))
+    p.on('exit', (code) => {
+      const line = out.trim()
+      log.info(`[probeCuda] ${line || '(empty)'}`)
+      resolve(code === 0 && line.startsWith('1') && !line.includes('+cpu'))
+    })
   })
 }
 
@@ -275,63 +342,82 @@ async function installQwenDeps(pythonExe: string): Promise<void> {
 }
 
 /**
- * 确保内置 Python 中 qwen-tts 及相关依赖已安装；有 NVIDIA 时优先 CUDA
+ * 确保内置 Python 中 qwen-tts 已安装，并按用户设备偏好对齐 CPU/CUDA 轮
  */
-async function ensureQwenTtsPackage(pythonExe: string): Promise<void> {
+async function ensureQwenTtsPackage(
+  pythonExe: string,
+  devicePref: Qwen3DevicePref = 'auto',
+): Promise<void> {
   if (pythonExe !== getBundledPythonExe()) {
     throw new Error(`Qwen3 TTS 仅支持内置 Python，当前: ${pythonExe}`)
   }
 
-  const preferCuda = hasNvidiaGpu()
-  log.info(`[ensureQwenTtsPackage] nvidiaGpu=${preferCuda}`)
+  if (devicePref === 'cuda' && !hasNvidiaGpu()) {
+    throw new Error('已选择 GPU，但未检测到 NVIDIA 显卡/驱动（nvidia-smi 不可用）')
+  }
+
+  const wantCuda = resolveWantCuda(devicePref)
+  const allowCpuFallback = devicePref !== 'cuda'
+  log.info(`[ensureQwenTtsPackage] pref=${devicePref} wantCuda=${wantCuda} nvidia=${hasNvidiaGpu()}`)
 
   const health = await probeTorchHealth(pythonExe)
-  if (health.ok && (!preferCuda || health.cuda)) {
+  const cudaReady = health.ok && health.cuda && !health.detail.includes('+cpu')
+  const cpuReady = health.ok && !health.cuda
+
+  if (wantCuda && cudaReady) {
     emitStatus(
       'ready',
-      health.cuda
-        ? `语音合成运行时已就绪（GPU：${health.detail.split('|dev=').pop() || 'CUDA'}）`
-        : '语音合成运行时已就绪（CPU，合成较慢）',
+      `语音合成运行时已就绪（GPU：${health.detail.split('|dev=').pop() || 'CUDA'}）`,
     )
     return
   }
+  if (!wantCuda && cpuReady) {
+    emitStatus('ready', '语音合成运行时已就绪（CPU）')
+    return
+  }
+  // 用户要 CPU，但当前是 CUDA 轮：可直接用（CUDA 轮也能跑 CPU），不必重装
+  if (!wantCuda && cudaReady) {
+    emitStatus('ready', '语音合成运行时已就绪（已装 CUDA 轮，将按设置使用 CPU 推理）')
+    return
+  }
 
-  // 已有 CPU 包但机器有独显 → 升级为 CUDA，避免一直慢
-  if (health.ok && preferCuda && !health.cuda) {
-    emitStatus('installing_deps', '当前为 CPU 版 PyTorch，正在升级为 CUDA 以使用显卡加速…')
-    const kind = await installTorchStack(pythonExe, true)
+  if (wantCuda && cpuReady) {
+    emitStatus('installing_deps', '检测到 CPU 版 PyTorch，正在强制更换为 CUDA 版…')
+    const kind = await installTorchStack(pythonExe, true, allowCpuFallback)
     await resetSharedQwen3TtsClient()
     const after = await probeTorchHealth(pythonExe)
-    if (!after.ok) {
-      throw new Error('升级 CUDA 后依赖校验失败：' + after.detail)
+    if (!after.ok) throw new Error('更换 CUDA 后依赖校验失败：' + after.detail)
+    if (kind === 'cuda' && after.cuda) {
+      emitStatus('ready', `已切换为 GPU 加速（${after.detail.split('|dev=').pop() || 'CUDA'}）`)
+      return
     }
-    emitStatus(
-      'ready',
-      kind === 'cuda' && after.cuda
-        ? `已升级为 GPU 加速（${after.detail.split('|dev=').pop() || 'CUDA'}）`
-        : '仍在使用 CPU（CUDA 不可用）',
-    )
+    if (!allowCpuFallback) {
+      throw new Error('无法启用 GPU：CUDA 版 PyTorch 安装后仍不可用')
+    }
+    emitStatus('ready', '仍在使用 CPU（CUDA 不可用）')
     return
   }
 
+  // 全新安装
   emitStatus(
     'installing_deps',
-    preferCuda
+    wantCuda
       ? '正在安装 qwen-tts 依赖（含 CUDA PyTorch，首次约 2GB+）…'
       : '正在安装 qwen-tts 依赖（CPU PyTorch）…',
   )
-
-  const kind = await installTorchStack(pythonExe, preferCuda)
+  const kind = await installTorchStack(pythonExe, wantCuda, allowCpuFallback)
   await installQwenDeps(pythonExe)
-
   const after = await probeTorchHealth(pythonExe)
   if (!after.ok) {
     throw new Error(
-      '依赖已安装但仍无法加载（WinError 127 类问题）。请删除目录后重试：' +
+      '依赖已安装但仍无法加载。请删除目录后重试：' +
         path.dirname(pythonExe) +
         ' | ' +
         after.detail,
     )
+  }
+  if (wantCuda && !after.cuda && !allowCpuFallback) {
+    throw new Error('已选择 GPU，但安装后 torch.cuda 仍不可用')
   }
   emitStatus(
     'installing_deps',
@@ -343,24 +429,42 @@ async function ensureQwenTtsPackage(pythonExe: string): Promise<void> {
 
 /** 预装进行中的 Promise（并发调用复用同一次安装） */
 let prepareRuntimePromise: Promise<void> | null = null
+let preparedForDevice: Qwen3DevicePref | null = null
+/** 最近一次请求的设备偏好（ensureStarted 无参时复用） */
+let lastDevicePref: Qwen3DevicePref = 'auto'
 
 /**
- * 提前准备 Qwen3 TTS 运行时（Python + qwen-tts），可在模型下载完成后后台调用，
- * 避免用户点「预览」时才开始装依赖。
+ * 使预装缓存失效（切换 CPU/GPU 偏好后调用）
  */
-export function prepareQwen3TtsRuntime(): Promise<void> {
-  if (!prepareRuntimePromise) {
-    prepareRuntimePromise = (async () => {
-      emitStatus('checking_python', '正在预装语音合成运行时…')
-      const pythonExe = await resolvePythonExe()
-      await ensureQwenTtsPackage(pythonExe)
-      emitStatus('ready', '语音合成运行时检查完成')
-    })().catch((e) => {
-      prepareRuntimePromise = null
-      emitStatus('error', `语音合成运行时准备失败：${(e as Error).message}`)
-      throw e
-    })
+export function invalidateQwen3TtsPrepare(): void {
+  prepareRuntimePromise = null
+  preparedForDevice = null
+}
+
+/**
+ * 提前准备 Qwen3 TTS 运行时（Python + qwen-tts），可在模型下载完成后后台调用。
+ */
+export function prepareQwen3TtsRuntime(devicePref: Qwen3DevicePref = 'auto'): Promise<void> {
+  lastDevicePref = devicePref
+  if (prepareRuntimePromise && preparedForDevice === devicePref) {
+    return prepareRuntimePromise
   }
+  const previous = prepareRuntimePromise
+  prepareRuntimePromise = (async () => {
+    if (previous) {
+      await previous.catch(() => undefined)
+    }
+    preparedForDevice = devicePref
+    emitStatus('checking_python', `正在预装语音合成运行时（设备：${devicePref}）…`)
+    const pythonExe = await resolvePythonExe()
+    await ensureQwenTtsPackage(pythonExe, devicePref)
+    emitStatus('ready', '语音合成运行时检查完成')
+  })().catch((e) => {
+    prepareRuntimePromise = null
+    preparedForDevice = null
+    emitStatus('error', `语音合成运行时准备失败：${(e as Error).message}`)
+    throw e
+  })
   return prepareRuntimePromise
 }
 
@@ -369,6 +473,15 @@ export function prepareQwen3TtsRuntime(): Promise<void> {
  */
 export function isQwen3TtsRuntimePrepareInFlight(): boolean {
   return prepareRuntimePromise !== null
+}
+
+/**
+ * 将用户偏好解析为 sidecar load 的 device 参数
+ */
+export function resolveQwen3LoadDevice(pref: Qwen3DevicePref = 'auto'): 'auto' | 'cpu' | 'cuda:0' {
+  if (pref === 'cpu') return 'cpu'
+  if (pref === 'cuda') return 'cuda:0'
+  return 'auto'
 }
 
 /**
@@ -392,7 +505,7 @@ export class Qwen3TtsClient {
 
     emitStatus('starting_engine', '正在启动语音合成引擎…')
     // 复用预装 Promise：模型下载后若已后台装好，此处几乎立即返回
-    await prepareQwen3TtsRuntime()
+    await prepareQwen3TtsRuntime(lastDevicePref)
     const pythonExe = await resolvePythonExe()
     const script = resolveSidecarScript()
     const args = ['-u', script]

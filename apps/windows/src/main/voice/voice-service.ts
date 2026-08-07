@@ -23,7 +23,7 @@ import {
   TTS_PREVIEW_CACHE_MAX_TEXT_CHARS,
 } from './tts-preview-cache.js'
 import { stripVirtualHumanTags } from '../../shared/virtual-human.js'
-import { setQwen3TtsStatusCallback } from './qwen3-tts-client.js'
+import { setQwen3TtsStatusCallback, resolveQwen3LoadDevice, prepareQwen3TtsRuntime } from './qwen3-tts-client.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceService]', ...args),
@@ -225,7 +225,11 @@ export class VoiceCallService {
       refAudio,
       refText,
       xVectorOnly,
+      device: resolveQwen3LoadDevice(this.config.tts.qwen3Device ?? 'auto'),
     })
+    if (this.config.tts.provider === 'qwen3') {
+      await prepareQwen3TtsRuntime(this.config.tts.qwen3Device ?? 'auto')
+    }
     await this.ttsProvider.initialize()
     this.ttsInitialized = true
     this.emitRuntimeStatus('ready', '语音合成引擎就绪')

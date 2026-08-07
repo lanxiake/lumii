@@ -42,6 +42,7 @@ export function buildTtsPreviewCacheKey(text: string, tts: VoiceTtsConfig): stri
     cloneOn ? '1' : '0',
     tts.qwen3CloneVariant ?? '',
     tts.qwen3ProfileId ?? '',
+    tts.qwen3Device ?? 'auto',
     hash,
   ].join('|')
 }

@@ -230,6 +230,10 @@ export type VoiceTtsConfig = {
   /** 当前使用的克隆音色档案 ID（启用克隆时需要） */
   qwen3ProfileId?: string
   /**
+   * Qwen3 推理设备：auto=有 NVIDIA 则优先 GPU；cpu/cuda 为强制指定
+   */
+  qwen3Device?: 'auto' | 'cpu' | 'cuda'
+  /**
    * 合成语言（Qwen3）：`Auto` 或官方支持语言名，如 Chinese / English
    */
   language?: string
@@ -332,6 +336,7 @@ export const DEFAULT_VOICE_ENGINE_CONFIG: VoiceEngineConfig = {
     qwen3Speaker: 'Vivian',
     qwen3CloneEnabled: false,
     qwen3CloneVariant: '0.6b-base',
+    qwen3Device: 'auto',
     language: 'Auto',
   },
   vad: {

@@ -324,6 +324,8 @@ export class Qwen3Tts implements TtsProvider {
       refAudio?: string
       refText?: string
       xVectorOnly?: boolean
+      /** sidecar load device：auto / cpu / cuda:0 */
+      device?: string
     } = {},
   ) {}
 
@@ -353,8 +355,9 @@ export class Qwen3Tts implements TtsProvider {
   }
 
   async initialize(): Promise<void> {
-    log.info(`[Qwen3Tts.initialize] mode=${this.opts.mode ?? 'custom'} model=${this.modelDir}`)
-    await this.client.load(this.modelDir, this.tokenizerDir, 'auto')
+    const device = this.opts.device ?? 'auto'
+    log.info(`[Qwen3Tts.initialize] mode=${this.opts.mode ?? 'custom'} model=${this.modelDir} device=${device}`)
+    await this.client.load(this.modelDir, this.tokenizerDir, device)
     this.initialized = true
     log.info('[Qwen3Tts.initialize] 就绪')
   }
@@ -438,6 +441,7 @@ export function createTtsProvider(config: {
   refAudio?: string
   refText?: string
   xVectorOnly?: boolean
+  device?: string
 }): TtsProvider {
   switch (config.provider) {
     case 'local-vits':
@@ -457,6 +461,7 @@ export function createTtsProvider(config: {
         refAudio: config.refAudio,
         refText: config.refText,
         xVectorOnly: config.xVectorOnly,
+        device: config.device,
       })
     default:
       if (config.modelDir) {
