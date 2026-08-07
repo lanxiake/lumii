@@ -15,6 +15,8 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { Cron } from 'croner'
 import type { LocalDatabase, FileRepo } from '@mtbot/agent-runtime'
+import { prependActiveDashboardFeedItem } from '../dashboard-feed-store'
+import { formatForTarget } from './cron-notify-format'
 
 const log = {
   info: (...args: unknown[]) => console.log('[CronScheduler]', ...args),
@@ -36,6 +38,35 @@ export type LocalCronJobRow = {
   created_at: number
   last_run_at: number | null
   last_status: 'ok' | 'error' | 'running' | null
+  /** 生效星期 "0,1,..,6"（0=周日）；NULL/空 表示每天 */
+  active_days: string | null
+  /** 生效时段 [start, end) 的起止小时；NULL 表示全天 */
+  active_hour_start: number | null
+  active_hour_end: number | null
+  system_prompt: string | null
+  /** 逗号分隔的推送目标：system/news/focus/feishu */
+  notify_targets: string | null
+}
+
+/** LocalCronJobRow 的完整列清单，避免多处 SELECT 漂移 */
+const CRON_JOB_COLUMNS = `id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms,
+        enabled, created_at, last_run_at, last_status,
+        active_days, active_hour_start, active_hour_end, system_prompt, notify_targets`
+
+/** 任务在 at 时刻是否落在生效窗口内。窗口未配置时恒为 true。 */
+export function isWithinActiveWindow(
+  job: { active_days?: string | null; active_hour_start?: number | null; active_hour_end?: number | null },
+  at: Date = new Date(),
+): boolean {
+  const days = job.active_days?.trim()
+  if (days && !days.split(',').includes(String(at.getDay()))) return false
+
+  const start = job.active_hour_start
+  const end = job.active_hour_end
+  if (start == null || end == null || start === end) return true
+  const hour = at.getHours()
+  // end < start 视为跨午夜窗口，例如 22 点到次日 6 点
+  return end > start ? hour >= start && hour < end : hour >= start || hour < end
 }
 
 export interface CronSchedulerDeps {
@@ -53,6 +84,10 @@ export interface CronSchedulerDeps {
   getFileRepo: () => FileRepo | null
   /** 获取 workspace 根目录（用于文件清理任务） */
   getCwd: () => string
+  /** 主动推送文本到飞书（notify_targets 含 feishu 时用） */
+  sendFeishuMessage?: (text: string) => Promise<{ ok: boolean; error?: string }>
+  /** 写入一条 Agent 记忆（notify_targets 含 focus 时用，概览页「近期关注」读记忆） */
+  addMemory?: (content: string) => void
   /**
    * Companion 魔法指令处理器（__companion_tick__ 等）
    * 返回执行结果描述供 cron_runs 记录；返回 null 表示不拦截（走正常 Agent 流程）
@@ -125,11 +160,17 @@ export class CronScheduler {
     intervalMs?: number
     enabled?: boolean
     createdAt: number
+    activeDays?: string | null
+    activeHourStart?: number | null
+    activeHourEnd?: number | null
+    systemPrompt?: string | null
+    notifyTargets?: string | null
   }): void {
     this.localDb.db.prepare(
       `INSERT INTO local_cron_jobs
-       (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at,
+        active_days, active_hour_start, active_hour_end, system_prompt, notify_targets)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       params.id,
       params.name,
@@ -141,6 +182,11 @@ export class CronScheduler {
       params.intervalMs ?? null,
       params.enabled === false ? 0 : 1,
       params.createdAt,
+      params.activeDays?.trim() || null,
+      params.activeHourStart ?? null,
+      params.activeHourEnd ?? null,
+      params.systemPrompt?.trim() || null,
+      params.notifyTargets?.trim() || null,
     )
   }
 
@@ -149,7 +195,7 @@ export class CronScheduler {
    */
   listLocalCronJobRecords(includeDisabled: boolean): Array<LocalCronJobRow> {
     return this.localDb.db.prepare<LocalCronJobRow>(
-      `SELECT id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, last_run_at, last_status
+      `SELECT ${CRON_JOB_COLUMNS}
        FROM local_cron_jobs
        ${includeDisabled ? '' : 'WHERE enabled = 1'}
        ORDER BY created_at DESC`
@@ -161,7 +207,7 @@ export class CronScheduler {
    */
   getLocalCronJobRecordById(id: string): LocalCronJobRow | undefined {
     return this.localDb.db.prepare<LocalCronJobRow>(
-      `SELECT id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, last_run_at, last_status
+      `SELECT ${CRON_JOB_COLUMNS}
        FROM local_cron_jobs
        WHERE id = ?`
     ).get(id)
@@ -182,15 +228,21 @@ export class CronScheduler {
     id: string
     name: string
     taskText: string
+    agentId?: string
     enabled: boolean
     scheduleType: 'at' | 'every' | 'cron'
     scheduleExpr: string
     nextRunAt: number
     intervalMs?: number
+    activeDays?: string | null
+    activeHourStart?: number | null
+    activeHourEnd?: number | null
+    notifyTargets?: string | null
   }): number {
     const result = this.localDb.db.prepare(
       `UPDATE local_cron_jobs
-       SET name = ?, task_text = ?, agent_id = ?, enabled = ?, schedule_type = ?, schedule_expr = ?, next_run_at = ?, interval_ms = ?
+       SET name = ?, task_text = ?, agent_id = ?, enabled = ?, schedule_type = ?, schedule_expr = ?, next_run_at = ?, interval_ms = ?,
+           active_days = ?, active_hour_start = ?, active_hour_end = ?, notify_targets = ?
        WHERE id = ?`
     ).run(
       params.name,
@@ -201,6 +253,10 @@ export class CronScheduler {
       params.scheduleExpr,
       params.nextRunAt,
       params.intervalMs ?? null,
+      params.activeDays?.trim() || null,
+      params.activeHourStart ?? null,
+      params.activeHourEnd ?? null,
+      params.notifyTargets?.trim() || null,
       params.id,
     )
     return result.changes
@@ -239,7 +295,7 @@ export class CronScheduler {
    * 公开接口：手动立即执行一次 Cron 任务（与自动触发走同一路径）。
    */
   async runCronJobManually(job: { id: string; task_text: string; agent_id: string | null }): Promise<void> {
-    return this.runLocalCronJob(job)
+    return this.runLocalCronJob(job, { manual: true })
   }
 
   /**
@@ -410,17 +466,110 @@ export class CronScheduler {
   }
 
   /**
+   * 回读会话中 since 之后的最后一条 assistant 文本回复。
+   * 取不到（纯工具调用回合、流式未落库等）返回 null，由调用方回落。
+   *
+   * messages.timestamp 是 ISO 字符串（见 conversation-repo.saveMessage），
+   * 必须用同类型比较：SQLite 里整数排在文本之前，传数字会让 since 恒真，
+   * 从而把本次运行之前的旧回复当成产出推出去。
+   */
+  private readLatestAssistantText(conversationId: string, since: number): string | null {
+    try {
+      const row = this.localDb.db.prepare<{ content_json: string }>(
+        `SELECT content_json FROM messages
+         WHERE conversation_id = ? AND role = 'assistant' AND timestamp >= ?
+         ORDER BY timestamp DESC LIMIT 1`
+      ).get(conversationId, new Date(since).toISOString())
+      if (!row) return null
+      const parsed: unknown = JSON.parse(row.content_json)
+      if (!parsed || typeof parsed !== 'object') return null
+      const content = parsed as { type?: string; text?: string }
+      const text = content.type === 'text' ? (content.text ?? '').trim() : ''
+      return text || null
+    } catch (err) {
+      log.warn('[readLatestAssistantText] 回读失败:', err)
+      return null
+    }
+  }
+
+  /**
+   * 按 notify_targets 派发执行结果。
+   *
+   * 未配置时回落系统通知 —— 老任务没有这一列，静默不通知会像任务没跑。
+   * 单个渠道失败只记日志，不影响其余渠道，也不让整个任务判定为失败。
+   */
+  private async dispatchNotifications(
+    job: { name: string; task_text: string },
+    notifyTargets: string | null,
+    output: string,
+  ): Promise<void> {
+    const targets = notifyTargets?.trim()
+      ? notifyTargets.split(',').map((t) => t.trim()).filter(Boolean)
+      : ['system']
+    // 任务名缺失时退回任务指令首句，用作各渠道的来源标签
+    const label = job.name?.trim() || job.task_text.slice(0, 20)
+
+    for (const target of targets) {
+      // 只为命中的渠道取它自己的格式化策略
+      const payload = formatForTarget(target, label, output)
+      try {
+        switch (target) {
+          case 'system':
+            this.deps.showCronNotification?.(payload.title ?? '灵栖 定时任务', payload.body)
+            break
+          case 'news':
+            await prependActiveDashboardFeedItem({
+              id: `cron-${Date.now()}`,
+              title: payload.title ?? label,
+              summary: payload.body,
+              source: '定时任务',
+              timestamp: Date.now(),
+              kind: 'cron',
+            })
+            break
+          case 'focus':
+            this.deps.addMemory?.(payload.body)
+            break
+          case 'feishu': {
+            if (!this.deps.sendFeishuMessage) break
+            const res = await this.deps.sendFeishuMessage(payload.body)
+            if (!res.ok) log.warn('[dispatchNotifications] 飞书推送失败:', res.error)
+            break
+          }
+          default:
+            log.warn(`[dispatchNotifications] 未知推送目标，已忽略: ${target}`)
+        }
+      } catch (err) {
+        // 单渠道失败不影响其余渠道，也不让整个任务判定为失败
+        log.warn(`[dispatchNotifications] 渠道 ${target} 推送失败:`, err)
+      }
+    }
+  }
+
+  /**
    * 执行本地定时任务：推送系统通知，并按需驱动指定 Agent 完成任务。
    */
-  private async runLocalCronJob(job: { id: string; task_text: string; agent_id: string | null }): Promise<void> {
+  private async runLocalCronJob(
+    job: { id: string; task_text: string; agent_id: string | null },
+    options: { manual?: boolean } = {},
+  ): Promise<void> {
     if (this.localCronRunningJobs.has(job.id)) {
       log.info(`[runLocalCronJob] jobId=${job.id} 已在运行中，跳过`)
       return
     }
 
     // 执行前从 DB 重新校验任务是否仍存在且 enabled=1（防止任务已删除/禁用但 timer 尚未清理时触发）
-    const currentRow = this.localDb.db.prepare<{ enabled: number }>(
-      `SELECT enabled FROM local_cron_jobs WHERE id = ?`
+    const currentRow = this.localDb.db.prepare<{
+      name: string
+      enabled: number
+      active_days: string | null
+      active_hour_start: number | null
+      active_hour_end: number | null
+      system_prompt: string | null
+      notify_targets: string | null
+    }>(
+      `SELECT name, enabled, active_days, active_hour_start, active_hour_end, system_prompt, notify_targets
+       FROM local_cron_jobs WHERE id = ?`
     ).get(job.id)
     if (!currentRow) {
       log.warn(`[runLocalCronJob] 任务 jobId=${job.id} 已从 DB 删除，跳过执行`)
@@ -430,6 +579,13 @@ export class CronScheduler {
     if (currentRow.enabled === 0) {
       log.warn(`[runLocalCronJob] 任务 jobId=${job.id} 已禁用，跳过执行`)
       this.clearLocalCronTimer(job.id)
+      return
+    }
+    // 生效窗口过滤：「按间隔」靠 setInterval 触发，无法在调度层限定星期/时段。
+    // 不在窗口内就静默跳过，且不写 run 记录 —— 否则执行记录会被跳过项灌满。
+    // 手动「立即执行」是用户明确意图，不受窗口约束。
+    if (!options.manual && !isWithinActiveWindow(currentRow)) {
+      log.info(`[runLocalCronJob] jobId=${job.id} 不在生效窗口内，跳过本次触发`)
       return
     }
 
@@ -462,22 +618,29 @@ export class CronScheduler {
         }
       }
 
+      let output = job.task_text
       if (job.agent_id) {
         // 有指定 Agent：驱动 Agent 执行任务，通知在 Agent 完成后发出
         log.info(`[runLocalCronJob] 驱动 Agent agentId=${job.agent_id} 执行任务`)
         const convId = this.deps.getLastActiveConvId() ?? undefined
         const instanceId = await this.deps.createInstanceById(job.agent_id, convId, convId)
         try {
-          await this.deps.prompt(instanceId, job.task_text)
+          // 预置任务带完整系统提示词，拼在任务指令之前
+          const message = currentRow.system_prompt
+            ? `${currentRow.system_prompt}\n\n---\n\n${job.task_text}`
+            : job.task_text
+          await this.deps.prompt(instanceId, message)
         } finally {
           this.deps.destroy(instanceId)
         }
-        // Agent 完成后发系统通知（告知用户任务已执行）
-        this.deps.showCronNotification?.('灵栖 定时任务已完成', job.task_text)
-      } else {
-        // 纯提醒任务（无 Agent）：直接发系统通知
-        this.deps.showCronNotification?.('灵栖 定时提醒', job.task_text)
+        // prompt() 不返回内容，从会话里回读 Agent 的最后一条回复作为推送正文
+        if (convId) output = this.readLatestAssistantText(convId, startedAt) ?? job.task_text
       }
+      await this.dispatchNotifications(
+        { name: currentRow.name, task_text: job.task_text },
+        currentRow.notify_targets,
+        output,
+      )
 
       const finishedAt = Date.now()
       // 更新任务状态为 ok + last_run_at
@@ -487,7 +650,7 @@ export class CronScheduler {
       this.localDb.db.prepare(
         `INSERT INTO local_cron_runs (id, job_id, status, started_at, finished_at, duration_ms, summary, error)
          VALUES (?, ?, 'ok', ?, ?, ?, ?, NULL)`
-      ).run(runId, job.id, startedAt, finishedAt, finishedAt - startedAt, job.task_text)
+      ).run(runId, job.id, startedAt, finishedAt, finishedAt - startedAt, output.slice(0, 2000))
       log.info(`[runLocalCronJob] 执行完成 jobId=${job.id} durationMs=${finishedAt - startedAt}`)
     } catch (err) {
       log.error(`[runLocalCronJob] 执行失败 jobId=${job.id}:`, err)

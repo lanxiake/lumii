@@ -187,6 +187,13 @@ export interface CronCreateCommand {
   readonly scheduleType: 'at' | 'every' | 'cron'
   readonly scheduleExpr: string
   readonly agentId?: string
+  /** 生效星期 "0,1,..,6"（0=周日）；省略表示每天 */
+  readonly activeDays?: string
+  /** 生效时段 [start, end) 的起止小时；省略表示全天 */
+  readonly activeHourStart?: number
+  readonly activeHourEnd?: number
+  /** 逗号分隔的推送目标：system/news/focus/feishu */
+  readonly notifyTargets?: string
 }
 
 export interface CronListCommand {
@@ -209,6 +216,10 @@ export interface CronUpdateCommand {
     readonly agentId?: string | null
     readonly scheduleType?: 'at' | 'every' | 'cron'
     readonly scheduleExpr?: string
+    readonly activeDays?: string
+    readonly activeHourStart?: number | null
+    readonly activeHourEnd?: number | null
+    readonly notifyTargets?: string
   }
 }
 
@@ -929,6 +940,12 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
         intervalMs?: number
         enabled: boolean
         createdAt: number
+        lastRunAt?: number
+        lastStatus?: 'ok' | 'error' | 'running'
+        activeDays?: string
+        activeHourStart?: number
+        activeHourEnd?: number
+        notifyTargets?: string
       }[]
       total: number
     }

@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 /**
  * V1 DDL — 初始 schema
@@ -326,6 +326,24 @@ DROP INDEX IF EXISTS idx_client_files_channel;
 
 CREATE INDEX IF NOT EXISTS idx_audit_ts
   ON tool_audit_log (timestamp DESC);
+`,
+  ],
+  // V11: 定时任务的生效窗口、系统提示词与通知渠道
+  //
+  // - active_days：生效星期，"0,1,...,6"（0=周日，与 Date#getDay 对齐）；NULL 表示每天
+  // - active_hour_start / active_hour_end：生效时段的起止小时 [start, end)，NULL 表示全天
+  //   「按间隔」类型靠 setInterval 触发，无法用 cron 表达式限定星期与时段，
+  //   故存成独立列，在 runLocalCronJob 入口做运行时过滤。
+  // - system_prompt：预置任务的完整系统提示词；用户自建任务留空
+  // - notify_targets：执行结果的推送目标，逗号分隔（system/news/focus/feishu）
+  [
+    11,
+    `
+ALTER TABLE local_cron_jobs ADD COLUMN active_days TEXT;
+ALTER TABLE local_cron_jobs ADD COLUMN active_hour_start INTEGER;
+ALTER TABLE local_cron_jobs ADD COLUMN active_hour_end INTEGER;
+ALTER TABLE local_cron_jobs ADD COLUMN system_prompt TEXT;
+ALTER TABLE local_cron_jobs ADD COLUMN notify_targets TEXT;
 `,
   ],
 ] as const;

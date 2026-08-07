@@ -13,6 +13,7 @@ import { WorkspaceWizard } from './components/WorkspaceWizard'
 import { GlobalModals } from './components/GlobalModals'
 import { MainLayout } from './components/layout/MainLayout/MainLayout'
 import { SettingsHubModal, useSettingsHub, isHubView } from './components/SettingsHub'
+import { SplashOverlay } from './components/SplashOverlay/SplashOverlay'
 import { useTheme } from './contexts/ThemeContext/ThemeContext'
 import {
   useAgentRuntimeActions,
@@ -21,6 +22,19 @@ import {
 import { readPersistedSessionThinkingPrefs } from '../shared/session-thinking-prefs'
 import { getProviderConfig, isChatProviderReady } from './services/model-config-service'
 
+/**
+ * 是否跳过开机画面（托盘静默启动 / 测试 / 本会话已播过）
+ */
+function shouldSkipSplash(): boolean {
+  try {
+    if (sessionStorage.getItem('lumii.splash.done') === '1') return true
+  } catch {
+    // ignore
+  }
+  if (typeof window === 'undefined') return false
+  const skip = window.electronAPI?.splash?.shouldSkip?.()
+  return Boolean(skip)
+}
 /**
  * 宠物模式会话同步：把主窗口当前 sessionKey 同步到主进程，
  * 供独立宠物窗口语音通话跟随当前 Chat 会话（D4 决策）。
@@ -158,9 +172,12 @@ const AuthenticatedApp: React.FC = () => {
  * 主应用内容组件
  */
 const AppContent: React.FC = () => {
-  // 独立版无登录：直接渲染主应用
+  const [splashDone, setSplashDone] = useState(shouldSkipSplash)
+
+  // 独立版无登录：直接渲染主应用；开机画面覆盖在主窗口内全屏播放
   return (
     <>
+      {!splashDone && <SplashOverlay onDone={() => setSplashDone(true)} />}
       <AuthenticatedApp />
       <DeviceBindWizard />
       <WorkspaceWizard />

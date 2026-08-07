@@ -7,6 +7,7 @@ import { useCronJobs } from '../../hooks/business/useCron/useCronJobs'
 import { useAgents } from '../../hooks/business/useAgents/useAgents'
 import type { CronJob } from '../../hooks/business/useCron/types'
 import { OverviewTab } from './components/OverviewTab/OverviewTab'
+import { HistoryTab } from './components/HistoryTab/HistoryTab'
 import { CreateJobModal } from './components/shared/CreateJobModal'
 import { useToast } from '../../components/ui/Toast/useToast'
 
@@ -17,7 +18,6 @@ export const CronPage: FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const toast = useToast()
   const { jobs, loading, error, fetchJobs, addJob, updateJob, removeJob, runJob, toggleJob } = useCronJobs()
   const { agents, mainAgentId } = useAgents()
-  const visibleJobs = jobs.filter((job) => view === 'active' ? job.enabled : !job.enabled)
 
   return (
     <div className={clsx(styles.page, embedded && styles.pageEmbedded)}>
@@ -35,10 +35,15 @@ export const CronPage: FC<{ embedded?: boolean }> = ({ embedded = false }) => {
       {error && <div className={styles.errorBanner}>{error}</div>}
       <div className={styles.tabBar} role="tablist" aria-label="定时任务视图">
         <button type="button" role="tab" aria-selected={view === 'active'} className={view === 'active' ? styles.tabActive : styles.tab} onClick={() => setView('active')}>任务列表</button>
-        <button type="button" role="tab" aria-selected={view === 'history'} className={view === 'history' ? styles.tabActive : styles.tab} onClick={() => setView('history')}>历史任务</button>
+        {/* 执行记录读 cron:runs，与任务启停无关 */}
+        <button type="button" role="tab" aria-selected={view === 'history'} className={view === 'history' ? styles.tabActive : styles.tab} onClick={() => setView('history')}>执行记录</button>
       </div>
       <div className={styles.content}>
-        {loading ? <div className={styles.loading}>正在加载定时任务...</div> : <OverviewTab jobs={visibleJobs} agents={agents} isHistory={view === 'history'} onToggle={toggleJob} onRun={runJob} onDelete={removeJob} onEdit={setEditingJob} />}
+        {loading
+          ? <div className={styles.loading}>正在加载定时任务...</div>
+          : view === 'history'
+            ? <HistoryTab jobs={jobs} />
+            : <OverviewTab jobs={jobs} agents={agents} onToggle={toggleJob} onRun={runJob} onDelete={removeJob} onEdit={setEditingJob} />}
       </div>
 
       {(showCreateModal || editingJob) && (

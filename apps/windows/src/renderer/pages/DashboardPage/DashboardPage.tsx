@@ -19,7 +19,7 @@ import { Gauge } from './components/Gauge'
 import { RecentFocus } from './components/RecentFocus'
 import { NewsFeed } from './components/NewsFeed'
 import { VirtualHuman } from './components/VirtualHuman'
-import { sparkHeights } from './spark-heights'
+import { sparkBars } from './spark-heights'
 import clsx from 'clsx'
 import styles from './DashboardPage.module.css'
 
@@ -38,7 +38,8 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
   const { servers: mcpServers } = useMcpServers()
 
   const mcpConnected = mcpServers.filter((s) => s.connected).length
-  const spark = sparkHeights(usage?.buckets ?? [])
+  const mcpTotal = mcpServers.length
+  const spark = sparkBars(usage?.buckets ?? [], usage?.groupBy ?? 'hour')
 
   return (
     <div className={styles['dashboard-page']}>
@@ -60,8 +61,8 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
 
       {error && <ErrorBanner message={error instanceof Error ? error.message : String(error)} />}
 
-      {/* 运行时条：三环仪表 + 装载 chip + 节律微图，一行读完 */}
-      <Card className={styles.runtime} flush>
+      {/* 运行时条：三环仪表 + 装载统计 + 调用节律微图 */}
+      <Card className={styles.runtime} flush overflowVisible>
         <div className={styles['rt-info']}>
           <div className={styles['rt-title']}>运行时态势</div>
           <div className={styles['rt-desc']}>
@@ -71,31 +72,50 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ onViewChange }) => {
           </div>
         </div>
 
-        <div className={styles.spark} aria-hidden="true">
-          {spark.map((h, i) => (
-            <i key={i} style={{ height: `${h}%` }} />
+        <div className={styles.spark} role="img" aria-label="近期调用节律">
+          {spark.map((bar, i) => (
+            <i
+              key={i}
+              style={{ height: `${bar.height}%` }}
+              data-tip={bar.title}
+            />
           ))}
         </div>
 
-        <div className={styles['rt-chips']}>
+        <div className={styles['rt-stats']}>
           <button
             type="button"
-            className={clsx(styles['rt-chip'], styles['t-b'])}
+            className={clsx(styles['rt-stat'], styles['t-b'])}
             onClick={() => onViewChange?.('skills')}
             title="进入技能管理"
           >
-            <Wrench size={13} strokeWidth={1.8} />
-            技能 <b>{skillStats.installed}</b>
+            <span className={styles['rt-stat-icon']} aria-hidden="true">
+              <Wrench size={14} strokeWidth={1.8} />
+            </span>
+            <span className={styles['rt-stat-body']}>
+              <span className={styles['rt-stat-label']}>技能</span>
+              <span className={styles['rt-stat-value']}>
+                <b>{skillStats.installed}</b>
+                <em>已安装</em>
+              </span>
+            </span>
           </button>
           <button
             type="button"
-            className={clsx(styles['rt-chip'], styles['t-a'])}
+            className={clsx(styles['rt-stat'], styles['t-a'])}
             onClick={() => onViewChange?.('mcp')}
             title="进入 MCP 管理"
           >
-            <Boxes size={13} strokeWidth={1.8} />
-            MCP <b>{mcpConnected}</b>
-            <span className={styles['rt-chip-dim']}>/ {mcpServers.length}</span>
+            <span className={styles['rt-stat-icon']} aria-hidden="true">
+              <Boxes size={14} strokeWidth={1.8} />
+            </span>
+            <span className={styles['rt-stat-body']}>
+              <span className={styles['rt-stat-label']}>MCP</span>
+              <span className={styles['rt-stat-value']}>
+                <b>{mcpConnected}</b>
+                <em>/ {mcpTotal} 在线</em>
+              </span>
+            </span>
           </button>
         </div>
 

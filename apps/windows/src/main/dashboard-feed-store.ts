@@ -198,6 +198,28 @@ export async function readActiveDashboardFeedSnapshot(): Promise<DashboardFeedSn
   return readDashboardFeedSnapshot(await readActiveDashboardFeedId())
 }
 
+/**
+ * 向当前活跃 feed 头部插入一条内容（定时任务结果推送用）。
+ *
+ * 写活跃 feed 而不是独立的 cron feed：概览页只渲染活跃 feed，
+ * 独立 feed 用户根本看不到。代价是下次资讯抓取会整体重建 news feed 覆盖掉这条，
+ * 需要长期留存就得让 feed 支持多来源合并。
+ */
+export async function prependActiveDashboardFeedItem(
+  item: DashboardFeedItem,
+  maxItems = 30,
+): Promise<void> {
+  const feedId = await readActiveDashboardFeedId()
+  const existing = await readDashboardFeedSnapshot(feedId)
+  await writeDashboardFeedSnapshot({
+    feedId,
+    title: existing?.title ?? (feedId === DEFAULT_DASHBOARD_FEED_ID ? '最近资讯' : feedId),
+    updatedAt: Date.now(),
+    ...(existing?.summary ? { summary: existing.summary } : {}),
+    items: [item, ...(existing?.items ?? []).filter((i) => i.id !== item.id)].slice(0, maxItems),
+  })
+}
+
 export const __testables = {
   normalizeItem,
   normalizeSnapshot,

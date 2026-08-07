@@ -1,9 +1,8 @@
 /**
- * NewsFeed - 最近资讯（概览页，替换原「用量与花费」位置）
+ * NewsFeed - 最近资讯（概览页）
  *
- * 数据由主进程「资讯抓取与综述」定时任务写入 ~/.lumii/news/latest.json，
- * 这里只读快照 + 提供「立即抓取」。点卡片会把解读请求预填进对话页输入框，
- * 不自动发送——让用户看得见要问什么，也能改。
+ * 左右对称两列卡片（含序号），摘要两行便于扫读。
+ * 点卡片把解读请求预填进对话页输入框。
  */
 
 import React, { useCallback, useEffect, useState } from 'react'
@@ -12,7 +11,7 @@ import { Card } from '../../../../components/ui/Card/Card'
 import type { ViewType } from '../../../../components/layout/Sidebar/Sidebar'
 import styles from './NewsFeed.module.css'
 
-/** Dashboard 通用 feed 条目；资讯只是默认的一种内容。 */
+/** Dashboard 通用 feed 条目 */
 interface FeedItem {
   id: string
   title: string
@@ -31,7 +30,7 @@ interface DashboardFeedSnapshot {
   summary?: string
 }
 
-/** 卡片区最多展示几条，多了会顶破一屏布局 */
+/** 卡片区最多展示条数（两列对称） */
 const MAX_CARDS = 6
 
 function formatWhen(ts?: number): string {
@@ -43,8 +42,7 @@ function formatWhen(ts?: number): string {
 }
 
 /**
- * 拼给 AI 的解读请求。带上链接让 web_fetch 能取原文，
- * 摘要作为兜底：抓不到网页时至少还有标题和摘要可谈。
+ * 拼给 AI 的解读请求
  */
 function buildInterpretPrompt(item: FeedItem): string {
   return [
@@ -104,10 +102,12 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
     }
   }
 
-  /** 跳对话页并预填解读请求，由 ChatPage 侧监听同名事件写入草稿 */
+  /** 跳对话页并预填解读请求；解读资讯是独立话题，开新会话而不是接在当前对话后面。 */
   const interpret = (item: FeedItem) => {
     window.dispatchEvent(
-      new CustomEvent('mtbot:chat-draft-request', { detail: { text: buildInterpretPrompt(item) } }),
+      new CustomEvent('mtbot:chat-draft-request', {
+        detail: { text: buildInterpretPrompt(item), newSession: true },
+      }),
     )
     onViewChange?.('chat')
   }
@@ -117,7 +117,7 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
   return (
     <Card className={styles.panel} flush>
       <div className={styles.head}>
-        <Newspaper size={13} strokeWidth={1.8} className={styles['head-icon']} />
+        <Newspaper size={14} strokeWidth={1.8} className={styles['head-icon']} />
         <span className={styles.title}>{snapshot?.title ?? '最近资讯'}</span>
         <span className={styles.tag}>
           {snapshot ? `更新于 ${formatWhen(snapshot.updatedAt)}` : '尚未抓取'}
@@ -139,7 +139,7 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
 
       {snapshot?.summary && (
         <div className={styles.digest}>
-          <Sparkles size={11} strokeWidth={1.8} />
+          <Sparkles size={12} strokeWidth={1.8} />
           <span>{snapshot.summary}</span>
         </div>
       )}
@@ -153,26 +153,34 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
           还没有数据。当前工作流每 2 小时运行一次，也可以点右侧刷新。
         </div>
       ) : (
-        <div className={styles.grid}>
-          {items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={styles.card}
-              onClick={() => interpret(item)}
-              title="点击让 Lumii 解读这条资讯"
-            >
-              <span className={styles.marker} aria-hidden="true" />
-              <span className={styles['card-main']}>
-                <span className={styles['card-title']}>{item.title}</span>
-                {item.summary && <span className={styles['card-excerpt']}>{item.summary}</span>}
-                <span className={styles['card-foot']}>
-                  {item.source && <span className={styles.source}>{item.source}</span>}
-                  <span className={styles.when}>{formatWhen(item.timestamp)}</span>
+        <div className={styles.scroll}>
+          <div className={styles.grid}>
+            {items.map((item, index) => (
+              <button
+                key={item.id}
+                type="button"
+                className={styles.card}
+                style={{ ['--i' as string]: index }}
+                onClick={() => interpret(item)}
+                title="点击让 Lumii 解读这条资讯"
+              >
+                <span className={styles.idx} aria-hidden="true">
+                  {String(index + 1).padStart(2, '0')}
                 </span>
-              </span>
-            </button>
-          ))}
+                <span className={styles['card-main']}>
+                  <span className={styles['card-title']}>{item.title}</span>
+                  {item.summary && (
+                    <span className={styles['card-excerpt']}>{item.summary}</span>
+                  )}
+                  <span className={styles['card-foot']}>
+                    {item.source && <span className={styles.source}>{item.source}</span>}
+                    <span className={styles.when}>{formatWhen(item.timestamp)}</span>
+                    <span className={styles.hint}>解读 →</span>
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </Card>

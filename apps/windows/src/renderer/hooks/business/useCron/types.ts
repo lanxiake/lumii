@@ -31,6 +31,13 @@ export interface CronJob {
   lastDurationMs?: number | null
   createdAt: string
   updatedAt: string
+  /** 生效星期 "0,1,..,6"（0=周日）；空表示每天 */
+  activeDays?: string | null
+  /** 生效时段 [start, end) 的起止小时；空表示全天 */
+  activeHourStart?: number | null
+  activeHourEnd?: number | null
+  /** 逗号分隔的推送目标：system/news/focus/feishu */
+  notifyTargets?: string | null
 }
 
 /** 运行记录 */
@@ -83,6 +90,10 @@ export interface CreateCronJobParams {
   scheduleExpr: string
   scheduleTz?: string
   taskText: string
+  activeDays?: string
+  activeHourStart?: number | null
+  activeHourEnd?: number | null
+  notifyTargets?: string
 }
 
 /** 运行统计 */

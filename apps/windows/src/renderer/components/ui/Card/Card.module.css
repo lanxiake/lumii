@@ -17,6 +17,11 @@
     border-color var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
+/* 允许子元素悬停提示等溢出卡片边界（如运行时条形图 tip） */
+.card-overflow-visible {
+  overflow: visible;
+}
+
 .card:hover {
   --spot: 1;
 }

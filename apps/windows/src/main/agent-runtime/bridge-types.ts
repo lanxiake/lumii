@@ -73,6 +73,11 @@ export interface AgentRuntimeBridgeConfig {
    */
   sendWeixinMessage?: (params: { text?: string; filePath?: string }) => Promise<{ ok: boolean; error?: string }>
   /**
+   * 主动推送文本到飞书（由 index.ts 注入，调用 feishuLoginService.pushText）。
+   * 收件人是登录时记录的 openId，定时任务结果推送用。
+   */
+  sendFeishuMessage?: (text: string) => Promise<{ ok: boolean; error?: string }>
+  /**
    * 将文本合成为语音文件并返回文件绝对路径（由 index.ts 注入，调用 voiceCallService）。
    */
   generateVoiceFile?: (text: string) => Promise<string>

@@ -228,6 +228,11 @@ export interface ElectronAPI {
     listModels: (slot: CapabilitySlot) => Promise<{ success: boolean; data?: ListedModel[]; error?: string }>
     testConnection: (slot: CapabilitySlot) => Promise<ProviderTestResult>
   }
+  /** 开机画面（主窗口内全屏） */
+  splash: {
+    /** 是否应跳过开机画面（托盘静默启动 / 测试模式 / 环境变量） */
+    shouldSkip: () => boolean
+  }
   app: {
     getVersion: () => Promise<string>
     getServerConfig: () => Promise<{ apiUrl: string; gatewayUrl: string }>
@@ -1061,6 +1066,14 @@ const electronAPI: ElectronAPI = {
       }>,
     testConnection: (slot: CapabilitySlot) =>
       ipcRenderer.invoke('provider:testConnection', slot) as Promise<ProviderTestResult>,
+  },
+
+  splash: {
+    shouldSkip: () =>
+      process.argv.includes('--skip-splash')
+      || process.argv.includes('--test-mode')
+      || process.argv.includes('--startup-launched')
+      || process.env.LUMII_SKIP_SPLASH === '1',
   },
 
   // 应用操作 API

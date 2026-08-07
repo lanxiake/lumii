@@ -1,0 +1,223 @@
+/**
+ * 预置定时任务播种
+ *
+ * 这些任务是「直接可用、入库的真实任务」，不是表单预填模版：首启写入 local_cron_jobs，
+ * 用户在定时任务页看到即可开关、编辑、删除。
+ *
+ * 默认全部开启：装完即用，用户不必逐条打开才发现能干什么。不想要的自己关掉或删掉。
+ *
+ * 幂等策略沿用 news-store 的 ensureNewsCronJobSeeded：
+ * 每条任务一个 runtime_state 哨兵键，用户删掉后不会被下次启动重新种回来。
+ */
+
+import type { DatabaseAdapter } from '@mtbot/agent-runtime'
+import { NEWS_PIPELINE_INSTRUCTION } from './news-store'
+
+const log = {
+  info: (...a: unknown[]) => console.log('[SeedCronJobs]', ...a),
+  error: (...a: unknown[]) => console.error('[SeedCronJobs]', ...a),
+}
+
+/** 默认执行 Agent：内置 assistant，ID 稳定 */
+const DEFAULT_AGENT_ID = 'assistant'
+
+interface SeedJob {
+  id: string
+  name: string
+  /** 每次触发发给 Agent 的任务指令；工作流任务写 __lumii_workflow__:<id> 魔法指令 */
+  taskText: string
+  /** 完整系统提示词，执行时拼在任务指令之前。工作流任务不走 Agent，留空 */
+  systemPrompt?: string
+  /**
+   * 执行 Agent。null 表示不驱动 Agent —— 走 companion/workflow 拦截通道，
+   * 例如资讯抓取由 workflow-runtime 直接跑流水线。
+   */
+  agentId?: string | null
+  /** 默认开启。个别任务想默认关闭时显式写 false */
+  enabled?: boolean
+  /** 旧版本用过的 runtime_state 哨兵键，迁移进来的任务要一并识别 */
+  legacySeededKey?: string
+  scheduleType: 'cron' | 'every'
+  scheduleExpr: string
+  intervalMs?: number
+  /** 生效星期 "0,1,..,6"（0=周日）；空表示每天 */
+  activeDays?: string
+  activeHourStart?: number
+  activeHourEnd?: number
+  notifyTargets: string
+}
+
+const SEED_JOBS: readonly SeedJob[] = [
+  {
+    // 概览页「最近资讯」的数据来源。沿用旧 id，老库里已有这条就不会重复种。
+    id: 'news-pipeline',
+    name: '资讯抓取与综述',
+    taskText: NEWS_PIPELINE_INSTRUCTION,
+    // 不驱动 Agent：workflow-runtime 拦截魔法指令直接跑抓取流水线
+    agentId: null,
+    scheduleType: 'cron',
+    /** 每 2 小时整点抓一次：资讯源本身更新频率有限，再密只是白跑 */
+    scheduleExpr: '0 */2 * * *',
+    notifyTargets: 'news',
+    // 旧的 ensureNewsCronJobSeeded 用的哨兵键。用户在老版本删过这条任务，升级后不该复活。
+    legacySeededKey: 'workflow:news:seeded',
+  },
+  {
+    id: 'seed-morning-briefing',
+    name: '早间简报',
+    taskText: '汇总我今天需要关注的事项，生成一份早间简报。',
+    systemPrompt: [
+      '你在为用户生成每日早间简报。请按下面的顺序组织内容，全文控制在 300 字内：',
+      '1. 今天的日期与星期；',
+      '2. 从记忆中取出用户近期在推进的事项，挑出今天最该动手的 2-3 件，各一句话；',
+      '3. 若有明确的截止时间或约定时间，单独列出；',
+      '4. 结尾一句简短的开场提示，不要说教、不要客套。',
+      '没有可用信息的段落直接省略，不要编造事项，也不要输出「暂无数据」这类占位内容。',
+    ].join('\n'),
+    scheduleType: 'cron',
+    scheduleExpr: '30 8 * * 1,2,3,4,5',
+    activeDays: '1,2,3,4,5',
+    notifyTargets: 'system,focus',
+  },
+  {
+    id: 'seed-daily-report',
+    name: '工作日报整理',
+    taskText: '整理我今天的工作进度，生成一份简短日报。',
+    systemPrompt: [
+      '你在帮用户整理当天工作日报。请输出三段，全文不超过 400 字：',
+      '「今天完成」——具体做完的事，一条一行，动词开头；',
+      '「进行中」——已开始但没收尾的事，各标注卡在哪一步；',
+      '「明天优先」——最多 3 条，按重要性排序。',
+      '只依据记忆与会话里真实出现过的信息，宁可少写也不要推测。',
+      '不要加标题、寒暄和总结性评价。',
+    ].join('\n'),
+    scheduleType: 'cron',
+    scheduleExpr: '0 18 * * 1,2,3,4,5',
+    activeDays: '1,2,3,4,5',
+    notifyTargets: 'system,focus',
+  },
+  {
+    id: 'seed-weekly-review',
+    name: '每周复盘',
+    taskText: '汇总本周完成的事项、遗留问题和下周计划，生成一份复盘。',
+    systemPrompt: [
+      '你在帮用户做每周复盘。请输出四段，全文不超过 600 字：',
+      '「本周产出」——按主题归并，不要逐日罗列；',
+      '「卡住的地方」——写清阻塞原因，而不只是现象；',
+      '「值得留下的判断」——本周做过的关键取舍，各一句；',
+      '「下周计划」——最多 5 条，可执行、有明确产出。',
+      '基于记忆中本周的真实记录来写，信息不足的段落如实说明缺什么，不要凑数。',
+    ].join('\n'),
+    scheduleType: 'cron',
+    scheduleExpr: '0 17 * * 5',
+    activeDays: '5',
+    notifyTargets: 'system,focus',
+  },
+  {
+    id: 'seed-focus-check',
+    name: '专注提醒',
+    taskText: '提醒我确认当前最重要的一件事。',
+    systemPrompt: [
+      '你在做一次轻量的专注提醒。只输出一到两句话，不超过 50 字：',
+      '结合用户近期在推进的事项，提示他确认此刻手上的事是否就是最该做的那件。',
+      '语气平和、不催促、不说教，不要提问式追问，不要列清单。',
+    ].join('\n'),
+    scheduleType: 'every',
+    scheduleExpr: String(2 * 60 * 60 * 1000),
+    intervalMs: 2 * 60 * 60 * 1000,
+    activeDays: '1,2,3,4,5',
+    activeHourStart: 10,
+    activeHourEnd: 18,
+    notifyTargets: 'system',
+  },
+  {
+    id: 'seed-workspace-tidy',
+    name: '工作区文件整理',
+    taskText: '检查工作区里新增的文件，按类型归类并指出可以清理的内容。',
+    systemPrompt: [
+      '你在帮用户整理本地工作区。请：',
+      '1. 列出最近新增或修改的文件，按用途归类（文档 / 代码 / 数据 / 临时产物）；',
+      '2. 指出明显可以清理的内容（重复文件、空文件、过期临时产物），说明判断依据；',
+      '3. 给出建议的归档位置。',
+      '只做检查和建议，不要实际移动或删除任何文件 —— 清理由用户确认后自己执行。',
+      '全文不超过 400 字，没有发现可整理的内容就直接说明。',
+    ].join('\n'),
+    scheduleType: 'cron',
+    scheduleExpr: '0 20 * * 0',
+    activeDays: '0',
+    notifyTargets: 'system',
+  },
+]
+
+function seededKey(jobId: string): string {
+  return `cron:seeded:${jobId}`
+}
+
+/** 计算首次 next_run_at。cron 类由 croner 按表达式接管，这里给个合理初值即可 */
+function initialNextRunAt(job: SeedJob, now: number): number {
+  return job.scheduleType === 'every' ? now + (job.intervalMs ?? 0) : now
+}
+
+/**
+ * 确保预置定时任务已入库（幂等，每次启动检查）。
+ *
+ * 已存在同 ID 记录 → 跳过（用户可能改过配置，不覆盖）；
+ * 哨兵键已置位 → 跳过（用户删过这条任务，不再种回）。
+ */
+export function ensureSeedCronJobsSeeded(db: DatabaseAdapter): void {
+  const now = Date.now()
+  for (const job of SEED_JOBS) {
+    try {
+      const existing = db
+        .prepare<{ id: string }>(`SELECT id FROM local_cron_jobs WHERE id = ?`)
+        .get(job.id)
+      if (existing) {
+        markSeeded(db, job.id)
+        continue
+      }
+      // 命中任一哨兵键都算种过。legacySeededKey 用于接管旧版本自己那套键，
+      // 否则用户当年删掉的资讯任务会在升级后被重新种回来。
+      const sentinels = [seededKey(job.id), ...(job.legacySeededKey ? [job.legacySeededKey] : [])]
+      const seeded = sentinels.some((key) =>
+        db.prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`).get(key),
+      )
+      if (seeded) continue
+
+      db.prepare(
+        `INSERT INTO local_cron_jobs
+         (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at,
+          active_days, active_hour_start, active_hour_end, system_prompt, notify_targets)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        job.id,
+        job.name,
+        job.taskText,
+        job.agentId === null ? null : (job.agentId ?? DEFAULT_AGENT_ID),
+        job.scheduleType,
+        job.scheduleExpr,
+        initialNextRunAt(job, now),
+        job.intervalMs ?? null,
+        job.enabled === false ? 0 : 1,
+        now,
+        job.activeDays ?? null,
+        job.activeHourStart ?? null,
+        job.activeHourEnd ?? null,
+        job.systemPrompt ?? null,
+        job.notifyTargets,
+      )
+      markSeeded(db, job.id)
+      log.info(`已种入预置定时任务 id=${job.id}（${job.enabled === false ? '默认关闭' : '默认开启'}）`)
+    } catch (err) {
+      log.error(`种入预置定时任务失败 id=${job.id}:`, err)
+    }
+  }
+}
+
+function markSeeded(db: DatabaseAdapter, jobId: string): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO runtime_state (key, value, updated_at) VALUES (?, '1', ?)`,
+  ).run(seededKey(jobId), new Date().toISOString())
+}
+
+/** 仅供单测：断言「入库条数 == 定义条数」需要拿到定义本身 */
+export const __testables = { SEED_JOBS, seededKey }

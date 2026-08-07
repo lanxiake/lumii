@@ -1,6 +1,5 @@
-.formContainer, .templatePicker { display: flex; flex-direction: column; gap: 14px; }
-.intro, .hint { margin: 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.5; }
-.hint { font-size: 12px; }
+.formContainer { display: flex; flex-direction: column; gap: 14px; }
+.hint { margin: 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
 .formGroup, .inlineField { display: flex; flex-direction: column; gap: 6px; }
 .label { color: var(--color-text-primary); font-size: 13px; font-weight: 600; }
 .fieldLabel { color: var(--color-text-secondary); font-size: 12px; }
@@ -8,10 +7,20 @@
 .input:focus, .select:focus, .textarea:focus, .searchBox:focus-within { border-color: var(--color-primary-500); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary-500) 16%, transparent); }
 .textarea { min-height: 88px; resize: vertical; line-height: 1.5; }
 .inlineFields { display: flex; gap: 10px; }.inlineField { flex: 1; min-width: 0; }
+/* 时间/每隔/单位/生效时间/星期 齐平放一行 */
+.scheduleRow { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.scheduleRow .inlineField { flex: 0 1 auto; }
+.hourRange { display: flex; align-items: center; gap: 4px; }.hourSep { color: var(--color-text-secondary); font-size: 12px; }
+.notifyList { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+.notifyItem { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border: 1px solid var(--color-border); border-radius: 6px; cursor: pointer; font-size: 13px; }
+.notifyItem:hover { border-color: var(--color-primary-400); }
+.notifyDisabled { cursor: not-allowed; opacity: .55; }
+.notifyLabel { color: var(--color-text-primary); }
+.notifyHint { flex: 1; min-width: 0; overflow: hidden; color: var(--color-text-secondary); font-size: 11px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.errorText { color: var(--color-error, #dc2626); }
 .segmented { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 8px; background: var(--color-bg-secondary); }.segmented button, .days button { border: 0; border-radius: 6px; background: transparent; color: var(--color-text-secondary); cursor: pointer; font-size: 13px; }.segmented button { padding: 7px; }.segmented .segmentActive { background: var(--color-bg-primary); color: var(--color-text-primary); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
-.days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }.days button { padding: 7px 2px; border: 1px solid var(--color-border); }.days .dayActive { border-color: var(--color-primary-500); background: color-mix(in srgb, var(--color-primary-500) 12%, transparent); color: var(--color-primary-500); }
+.days { display: flex; gap: 4px; }.days button { flex: 0 0 auto; width: 28px; padding: 7px 0; border: 1px solid var(--color-border); }.days .dayActive { border-color: var(--color-primary-500); background: color-mix(in srgb, var(--color-primary-500) 12%, transparent); color: var(--color-primary-500); }
 .currentRule { padding: 8px 10px; border-left: 3px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .nextRunPreview { display: flex; flex-wrap: wrap; gap: 4px; padding: 9px 10px; border-radius: 6px; background: var(--color-bg-secondary); font-size: 12px; }.nextRunLabel { color: var(--color-text-secondary); }.nextRunTime { color: var(--color-text-primary); font-weight: 600; }.nextRunRelative { color: var(--color-text-tertiary, var(--color-text-secondary)); }.nextRunError { color: var(--color-error, #dc2626); }
-.footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 2px; }.btnSecondary, .btnPrimary, .blankButton { padding: 7px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; }.btnSecondary { border: 1px solid var(--color-border); background: transparent; color: var(--color-text-secondary); }.btnPrimary { border: 1px solid var(--color-primary-500); background: var(--color-primary-500); color: #fff; }.btnPrimary:disabled { cursor: not-allowed; opacity: .5; }
-.searchBox { display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--color-border); border-radius: 6px; color: var(--color-text-secondary); }.searchBox input { border: 0; box-shadow: none; padding-left: 0; }.templateList { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }.templateCard { min-height: 74px; padding: 12px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-primary); color: var(--color-text-primary); text-align: left; cursor: pointer; }.templateCard:hover { border-color: var(--color-primary-400); background: var(--color-bg-secondary); }.templateCard strong, .templateCard span { display: block; }.templateCard strong { font-size: 13px; }.templateCard span { margin-top: 6px; color: var(--color-text-secondary); font-size: 12px; }.blankButton { align-self: flex-start; border: 0; padding-left: 0; background: transparent; color: var(--color-primary-500); }
-@media (max-width: 520px) { .templateList { grid-template-columns: 1fr; }.days { grid-template-columns: repeat(4, 1fr); } }
+.footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 2px; }.btnSecondary, .btnPrimary { padding: 7px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; }.btnSecondary { border: 1px solid var(--color-border); background: transparent; color: var(--color-text-secondary); }.btnPrimary { border: 1px solid var(--color-primary-500); background: var(--color-primary-500); color: #fff; }.btnPrimary:disabled { cursor: not-allowed; opacity: .5; }
+@media (max-width: 520px) { .notifyList { grid-template-columns: 1fr; }.days button { width: 26px; } }

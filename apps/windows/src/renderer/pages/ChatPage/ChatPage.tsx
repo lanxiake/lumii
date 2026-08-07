@@ -1416,10 +1416,17 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       const { sessionKey } = (e as CustomEvent<{ sessionKey: string }>).detail ?? {}
       if (sessionKey) void runtimeActions.switchSession(sessionKey)
     }
-    // 概览页点资讯卡片 → 预填输入框但不自动发送，用户还能改
+    // 概览页点资讯卡片 → 预填输入框但不自动发送，用户还能改。
+    // newSession=true 时先开一个干净会话：解读某条资讯和用户当前对话无关，
+    // 塞进正在进行的会话里会污染上下文。
     const onDraftRequest = (e: Event) => {
-      const { text } = (e as CustomEvent<{ text: string }>).detail ?? {}
-      if (text) setInputValue(text)
+      const { text, newSession } = (e as CustomEvent<{ text: string; newSession?: boolean }>).detail ?? {}
+      if (!text) return
+      if (newSession) {
+        void handleNewConversation().then(() => setInputValue(text))
+        return
+      }
+      setInputValue(text)
     }
     window.addEventListener('mtbot:session-create-request', onCreateRequest)
     window.addEventListener('mtbot:session-switch-request', onSwitchRequest)

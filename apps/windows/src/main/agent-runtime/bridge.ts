@@ -71,9 +71,7 @@ import {
   syncCompanionTickJobEnabled,
   migrateLocalCompanionPrefsToVhSettings,
 } from './local-companion-handler'
-import {
-  ensureNewsCronJobSeeded,
-} from '../news-store'
+import { ensureSeedCronJobsSeeded } from '../seed-cron-jobs'
 import { handleWorkflowInstruction } from '../workflow-runtime'
 import { isPetMode, onVirtualHumanSettingsChanged } from '../pet/pet-mode-ipc'
 import { getVirtualHumanSettings } from '../pet/pet-mode-store'
@@ -491,6 +489,16 @@ export class AgentRuntimeBridge {
       destroy: (instanceId) => this.destroy(instanceId),
       getFileRepo: () => this._fileRepo,
       getCwd: () => this.config.getCwd(),
+      ...(this.config.sendFeishuMessage ? { sendFeishuMessage: this.config.sendFeishuMessage } : {}),
+      addMemory: (content: string) => {
+        // category 用 project：概览页「近期关注」的默认分段就是它
+        this._memoryManager?.addMemory({
+          agentId: 'assistant',
+          userId: 'local-user',
+          category: 'project',
+          content,
+        })
+      },
       handleCompanionInstruction: async (instruction: string) => {
         const workflowResult = await handleWorkflowInstruction(instruction, {
           callLLM: (prompt, purpose) => this.callLLM(prompt, undefined, purpose),
@@ -517,7 +525,8 @@ export class AgentRuntimeBridge {
     // 旧版 local_companion_prefs 一次性迁移到 vhSettings（幂等，需先于 seed 执行）
     migrateLocalCompanionPrefsToVhSettings(this.localDb.db)
     ensureCompanionCronJobsSeeded(this.localDb.db)
-    ensureNewsCronJobSeeded(this.localDb.db)
+    // 资讯任务已并入 ensureSeedCronJobsSeeded，不再单独播种
+    ensureSeedCronJobsSeeded(this.localDb.db)
     // 设置页修改主动联系开关时，同步 tick job 的 enabled 状态并重载本地 cron 调度
     this.unsubscribeVhSettings?.()
     this.unsubscribeVhSettings = onVirtualHumanSettingsChanged((_settings, patch) => {
@@ -693,8 +702,8 @@ export class AgentRuntimeBridge {
 
     log.warn(`[restoreDatabaseFromBackupFile] 开始从备份恢复: ${backupFileName}`)
     this.lifecycle.destroyAll()
+    // 停掉旧调度器即可；下面 initialize() 会重新 new 一个覆盖上去
     this.cronScheduler?.stop()
-    this.cronScheduler = undefined
 
     const ok = restoreDatabaseFromBackup(dbPath, backupPath)
     if (!ok) {
@@ -1145,7 +1154,7 @@ export class AgentRuntimeBridge {
   // ── Cron 公共接口 ──
   reloadLocalCronScheduler(): void { this.cronScheduler.reloadLocalCronScheduler() }
 
-  createLocalCronJobRecord(params: { id: string; name: string; taskText: string; agentId?: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number; enabled?: boolean; createdAt: number }): void {
+  createLocalCronJobRecord(params: Parameters<CronScheduler['createLocalCronJobRecord']>[0]): void {
     this.cronScheduler.createLocalCronJobRecord(params)
   }
 
@@ -1159,7 +1168,7 @@ export class AgentRuntimeBridge {
 
   deleteLocalCronJobRecord(id: string): number { return this.cronScheduler.deleteLocalCronJobRecord(id) }
 
-  updateLocalCronJobRecord(params: { id: string; name: string; taskText: string; agentId?: string; enabled: boolean; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number }): number {
+  updateLocalCronJobRecord(params: Parameters<CronScheduler['updateLocalCronJobRecord']>[0]): number {
     return this.cronScheduler.updateLocalCronJobRecord(params)
   }
 

@@ -33,6 +33,7 @@ import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, shell, cl
 import { join, extname, basename, dirname } from 'path'
 import { promises as fs, existsSync, readdirSync } from 'fs'
 import { TrayManager } from './tray-manager'
+import { getAppIconPath } from './asset-paths'
 import { SystemService } from './system-service'
 import { queryUsage, type UsageQuery } from './usage-store'
 import { readNewsSnapshot } from './news-store'
@@ -288,11 +289,17 @@ async function setupContentSecurityPolicy(window: BrowserWindow): Promise<void> 
   })
 }
 
-function createWindow(isTestMode: boolean = false, startHidden: boolean = false): void {
+function createWindow(isTestMode: boolean = false, startHidden: boolean = false): Promise<void> {
   log.info('创建主窗口', { isTestMode, startHidden })
 
   // 动态计算窗口大小
   const { width, height } = calculateWindowSize()
+
+  const extraArgs = [
+    ...(isTestMode ? ['--test-mode'] : []),
+    // 托盘静默启动时跳过主窗口内开机画面
+    ...(startHidden ? ['--skip-splash'] : []),
+  ]
 
   mainWindow = new BrowserWindow({
     width,
@@ -303,27 +310,24 @@ function createWindow(isTestMode: boolean = false, startHidden: boolean = false)
     transparent: false,
     resizable: true,
     show: false, // 初始不显示，等待 ready-to-show
-    icon: join(__dirname, '../../assets/icon.ico'), // 设置窗口图标
+    icon: getAppIconPath(), // 窗口 / 任务栏圆形图标（与产品 Logo 一致）
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false, // 需要关闭 sandbox 以支持 node 模块
       webviewTag: true, // 允许 <webview> 用于 HTML 文件沙箱预览
-      additionalArguments: isTestMode ? ['--test-mode'] : [], // 传递测试模式参数到渲染进程
+      // 开机动画带声自动播放
+      autoplayPolicy: 'no-user-gesture-required',
+      additionalArguments: extraArgs,
     },
   })
 
-  // 窗口准备好后显示并获取焦点（开机启动时直接隐藏到托盘）
-  mainWindow.once('ready-to-show', () => {
-    if (startHidden) {
-      log.info('开机启动模式：窗口已就绪，隐藏到托盘（不显示）')
-      // 不调用 show()，窗口保持隐藏状态，用户可通过托盘图标打开
-    } else {
-      log.info('窗口准备就绪，显示并聚焦')
-      mainWindow?.show()
-      mainWindow?.focus()
-    }
+  const readyToShow = new Promise<void>((resolve) => {
+    mainWindow!.once('ready-to-show', () => {
+      log.info('主窗口 ready-to-show')
+      resolve()
+    })
   })
 
   // 窗口显示时确保 webContents 获得焦点（修复无边框窗口输入问题）
@@ -367,8 +371,8 @@ function createWindow(isTestMode: boolean = false, startHidden: boolean = false)
   mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
     log.error(`[Renderer] preload 脚本错误 path=${preloadPath} error=${error?.message}`)
   })
-  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDesc, validatedURL) => {
-    log.error(`[Renderer] 页面加载失败 code=${errorCode} desc=${errorDesc} url=${validatedURL}`)
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    log.error(`[Renderer] 页面加载失败 code=${errorCode} desc=${errorDescription} url=${validatedURL}`)
   })
 
   /**
@@ -398,7 +402,7 @@ function createWindow(isTestMode: boolean = false, startHidden: boolean = false)
     Menu.buildFromTemplate(template).popup({ window: mainWindow! })
   })
 
-  // 加载渲染进程页面
+  // 加载渲染进程页面（与开机画面并行）
   if (process.env.ELECTRON_RENDERER_URL) {
     const rendererUrl = process.env.ELECTRON_RENDERER_URL
 
@@ -425,6 +429,21 @@ function createWindow(isTestMode: boolean = false, startHidden: boolean = false)
       mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
     }
   }
+
+  return (async () => {
+    if (startHidden) {
+      await readyToShow
+      log.info('开机启动模式：窗口已就绪，隐藏到托盘（不显示）')
+      return
+    }
+
+    await readyToShow
+    log.info('窗口准备就绪，显示并聚焦（开机画面在主窗口内全屏播放）')
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })()
 }
 
 /**
@@ -877,6 +896,10 @@ async function initAgentRuntime(): Promise<void> {
         log.error(`[sendWeixinMessage] 异常: ${msg}`)
         return { ok: false, error: `发送异常: ${msg}` }
       }
+    },
+    sendFeishuMessage: async (text: string) => {
+      if (!feishuLoginService) return { ok: false, error: '飞书服务未初始化' }
+      return feishuLoginService.pushText(text)
     },
     generateVoiceFile: async (text: string) => {
       if (!voiceCallService) throw new Error('语音通话服务未初始化')
@@ -2836,7 +2859,8 @@ async function initialize(): Promise<void> {
   installAgentRuntimeCommandIpc()
 
   // 初始化各模块（开机启动时隐藏窗口，只显示托盘图标）
-  createWindow(isTestMode, isStartupLaunch)
+  // 等待开机画面完整播放后再显示主窗口
+  await createWindow(isTestMode, isStartupLaunch)
 
   // 注册宠物模式 IPC（独立透明窗口，与 mainWindow 解耦）
   registerPetModeIpc({
@@ -2980,7 +3004,7 @@ async function initialize(): Promise<void> {
 // macOS 特殊处理
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
+    void createWindow()
   } else {
     mainWindow?.show()
   }

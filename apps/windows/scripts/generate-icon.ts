@@ -1,6 +1,7 @@
 /**
- * 生成 Lumii 应用图标（icon.png / icon.ico）
- * 运行: pnpm exec tsx scripts/generate-icon.ts（在 apps/windows 下）
+ * 生成 Lumii 应用图标（圆形 icon.png / icon.ico）
+ * 源图：assets/logo.png
+ * 运行: pnpm exec tsx scripts/generate-icon.ts
  */
 
 import fs from 'node:fs'
@@ -8,27 +9,10 @@ import path from 'node:path'
 import sharp from 'sharp'
 
 const OUT_DIR = path.resolve(__dirname, '../assets')
-
-/** 生成 256×256 SVG 源图（光栖：渐变圆 + L） */
-function buildSvg(size: number): string {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 64 64">
-  <defs>
-    <linearGradient id="g" x1="12" y1="8" x2="52" y2="56" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#7DD3FC"/>
-      <stop offset="0.45" stop-color="#38BDF8"/>
-      <stop offset="1" stop-color="#2563EB"/>
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" rx="14" fill="#0F172A"/>
-  <circle cx="32" cy="32" r="22" fill="url(#g)"/>
-  <path d="M22 38.5C22 30.5 27.2 24 34.5 24C40.2 24 44.5 27.8 45.5 33" stroke="white" stroke-width="3.2" stroke-linecap="round" fill="none" opacity="0.92"/>
-  <path d="M26 20.5V43.5H40" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>
-</svg>`
-}
+const LOGO_SRC = path.join(OUT_DIR, 'logo.png')
 
 /**
- * 将多尺寸 PNG 打包为简易 ICO（含 ICONDIR + 各 PNG 图像）
+ * 将多尺寸 PNG 打包为简易 ICO
  */
 function pngsToIco(pngBuffers: Buffer[]): Buffer {
   const count = pngBuffers.length
@@ -37,7 +21,6 @@ function pngsToIco(pngBuffers: Buffer[]): Buffer {
   const entries: Array<{ width: number; height: number; size: number; offset: number; data: Buffer }> = []
 
   for (const data of pngBuffers) {
-    // 从 IHDR 读宽高（大端）
     const width = data.readUInt32BE(16)
     const height = data.readUInt32BE(20)
     entries.push({
@@ -51,18 +34,18 @@ function pngsToIco(pngBuffers: Buffer[]): Buffer {
   }
 
   const buf = Buffer.alloc(offset)
-  buf.writeUInt16LE(0, 0) // reserved
-  buf.writeUInt16LE(1, 2) // type = icon
+  buf.writeUInt16LE(0, 0)
+  buf.writeUInt16LE(1, 2)
   buf.writeUInt16LE(count, 4)
 
   let entryAt = 6
   for (const e of entries) {
     buf.writeUInt8(e.width, entryAt)
     buf.writeUInt8(e.height, entryAt + 1)
-    buf.writeUInt8(0, entryAt + 2) // color palette
+    buf.writeUInt8(0, entryAt + 2)
     buf.writeUInt8(0, entryAt + 3)
-    buf.writeUInt16LE(1, entryAt + 4) // planes
-    buf.writeUInt16LE(32, entryAt + 6) // bit count
+    buf.writeUInt16LE(1, entryAt + 4)
+    buf.writeUInt16LE(32, entryAt + 6)
     buf.writeUInt32LE(e.size, entryAt + 8)
     buf.writeUInt32LE(e.offset, entryAt + 12)
     entryAt += 16
@@ -74,22 +57,51 @@ function pngsToIco(pngBuffers: Buffer[]): Buffer {
   return buf
 }
 
+/** 圆形遮罩 SVG */
+function circleMaskSvg(size: number): Buffer {
+  const r = size / 2
+  return Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">` +
+      `<circle cx="${r}" cy="${r}" r="${r}" fill="#fff"/>` +
+      `</svg>`,
+  )
+}
+
+/** 将 logo 裁成圆形 PNG */
+async function circularLogo(size: number): Promise<Buffer> {
+  return sharp(LOGO_SRC)
+    .resize(size, size, { fit: 'cover', position: 'centre' })
+    .ensureAlpha()
+    .composite([{ input: circleMaskSvg(size), blend: 'dest-in' }])
+    .png()
+    .toBuffer()
+}
+
 /**
- * 主入口：写出 icon.png 与多尺寸 icon.ico
+ * 主入口：圆形 icon.png / icon.ico / tray-icon.png
  */
 async function main(): Promise<void> {
-  fs.mkdirSync(OUT_DIR, { recursive: true })
-  const svg = Buffer.from(buildSvg(256))
-  const png256 = await sharp(svg).png().toBuffer()
-  fs.writeFileSync(path.join(OUT_DIR, 'icon.png'), png256)
+  if (!fs.existsSync(LOGO_SRC)) {
+    throw new Error(`缺少产品 Logo：${LOGO_SRC}`)
+  }
 
-  const sizes = [16, 32, 48, 64, 128, 256]
-  const pngs = await Promise.all(
-    sizes.map(async (s) => sharp(svg).resize(s, s).png().toBuffer()),
-  )
-  const ico = pngsToIco(pngs)
-  fs.writeFileSync(path.join(OUT_DIR, 'icon.ico'), ico)
-  console.log(`[generate-icon] wrote ${path.join(OUT_DIR, 'icon.png')} and icon.ico`)
+  fs.mkdirSync(OUT_DIR, { recursive: true })
+  fs.writeFileSync(path.join(OUT_DIR, 'icon.png'), await circularLogo(256))
+
+  const sizes = [16, 24, 32, 48, 64, 128, 256]
+  const pngs = await Promise.all(sizes.map((s) => circularLogo(s)))
+  const icoTmp = path.join(OUT_DIR, 'icon.ico.tmp')
+  const icoOut = path.join(OUT_DIR, 'icon.ico')
+  fs.writeFileSync(icoTmp, pngsToIco(pngs))
+  try {
+    fs.renameSync(icoTmp, icoOut)
+  } catch {
+    fs.copyFileSync(icoTmp, icoOut)
+    fs.unlinkSync(icoTmp)
+  }
+
+  fs.writeFileSync(path.join(OUT_DIR, 'tray-icon.png'), await circularLogo(32))
+  console.log('[generate-icon] wrote circular icon.png, icon.ico, tray-icon.png from logo.png')
 }
 
 main().catch((err) => {

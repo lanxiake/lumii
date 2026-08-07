@@ -2061,6 +2061,10 @@ function createLocalCronJob(
     scheduleType: 'at' | 'every' | 'cron'
     scheduleExpr: string
     agentId?: string
+    activeDays?: string
+    activeHourStart?: number
+    activeHourEnd?: number
+    notifyTargets?: string
   },
 ): { status: 'ok' | 'error'; job?: { id: string; name: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt?: number; intervalMs?: number; enabled: boolean }; message?: string } {
   const name = command.name.trim()
@@ -2086,6 +2090,10 @@ function createLocalCronJob(
     intervalMs: schedule.intervalMs,
     enabled: true,
     createdAt: now,
+    activeDays: command.activeDays ?? null,
+    activeHourStart: command.activeHourStart ?? null,
+    activeHourEnd: command.activeHourEnd ?? null,
+    notifyTargets: command.notifyTargets ?? null,
   })
   bridge.reloadLocalCronScheduler()
 
@@ -2109,7 +2117,7 @@ function createLocalCronJob(
 function listLocalCronJobs(
   bridge: AgentRuntimeBridge,
   includeDisabled: boolean,
-): { status: 'ok'; jobs: Array<{ id: string; name: string; taskText: string; agentId?: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number; enabled: boolean; createdAt: number; lastRunAt?: number; lastStatus?: 'ok' | 'error' | 'running' }>; total: number } {
+): { status: 'ok'; jobs: Array<{ id: string; name: string; taskText: string; agentId?: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number; enabled: boolean; createdAt: number; lastRunAt?: number; lastStatus?: 'ok' | 'error' | 'running'; activeDays?: string; activeHourStart?: number; activeHourEnd?: number; notifyTargets?: string }>; total: number } {
   const rows = bridge.listLocalCronJobRecords(includeDisabled)
   return {
     status: 'ok',
@@ -2126,6 +2134,10 @@ function listLocalCronJobs(
       createdAt: r.created_at,
       ...(r.last_run_at != null ? { lastRunAt: r.last_run_at } : {}),
       ...(r.last_status != null ? { lastStatus: r.last_status } : {}),
+      ...(r.active_days != null ? { activeDays: r.active_days } : {}),
+      ...(r.active_hour_start != null ? { activeHourStart: r.active_hour_start } : {}),
+      ...(r.active_hour_end != null ? { activeHourEnd: r.active_hour_end } : {}),
+      ...(r.notify_targets != null ? { notifyTargets: r.notify_targets } : {}),
     })),
     total: rows.length,
   }
@@ -2160,6 +2172,10 @@ function updateLocalCronJob(
     agentId?: string | null
     scheduleType?: 'at' | 'every' | 'cron'
     scheduleExpr?: string
+    activeDays?: string
+    activeHourStart?: number | null
+    activeHourEnd?: number | null
+    notifyTargets?: string
   },
 ): { status: 'ok' | 'not_found' | 'error'; id: string; message?: string } {
   const cleanId = id.trim()
@@ -2184,6 +2200,11 @@ function updateLocalCronJob(
     scheduleExpr: nextScheduleExpr,
     nextRunAt: schedule.nextRunAt,
     intervalMs: schedule.intervalMs,
+    // undefined 表示本次 patch 不涉及该字段，沿用旧值
+    activeDays: patch.activeDays === undefined ? row.active_days : patch.activeDays,
+    activeHourStart: patch.activeHourStart === undefined ? row.active_hour_start : patch.activeHourStart,
+    activeHourEnd: patch.activeHourEnd === undefined ? row.active_hour_end : patch.activeHourEnd,
+    notifyTargets: patch.notifyTargets === undefined ? row.notify_targets : patch.notifyTargets,
   })
   bridge.reloadLocalCronScheduler()
   return { status: 'ok', id: cleanId }

@@ -11,7 +11,6 @@ import { useToast } from '../../../../components/ui/Toast/useToast'
 interface OverviewTabProps {
   jobs: CronJob[]
   agents: Agent[]
-  isHistory: boolean
   onToggle: (id: string, enabled: boolean) => Promise<boolean>
   onRun: (id: string, force?: boolean) => Promise<boolean>
   onDelete: (id: string) => Promise<boolean>
@@ -24,16 +23,16 @@ function formatNextRun(job: CronJob): string {
   return `下次 ${new Date(job.nextRunAt).toLocaleString()}`
 }
 
-export const OverviewTab: FC<OverviewTabProps> = ({ jobs, agents, isHistory, onToggle, onRun, onDelete, onEdit }) => {
+export const OverviewTab: FC<OverviewTabProps> = ({ jobs, agents, onToggle, onRun, onDelete, onEdit }) => {
   const [deleteTarget, setDeleteTarget] = useState<CronJob | null>(null)
   const toast = useToast()
 
   return (
     <div className={styles.overviewTab}>
-      <div className={styles.summary}>{isHistory ? `共 ${jobs.length} 个历史任务，可重新启用或编辑。` : `共 ${jobs.length} 个自动任务。开启后，到点会自动执行。`}</div>
+      <div className={styles.summary}>{`共 ${jobs.length} 个自动任务，其中 ${jobs.filter((job) => job.enabled).length} 个已开启。`}</div>
 
       {jobs.length === 0 ? (
-        <div className={styles.emptyList}>{isHistory ? '还没有历史任务。' : '还没有定时任务，点击右上角“新建任务”开始设置。'}</div>
+        <div className={styles.emptyList}>还没有定时任务，点击右上角“新建任务”开始设置。</div>
       ) : (
         <div className={styles.jobList}>
           {jobs.map((job) => (
@@ -79,6 +78,7 @@ export const OverviewTab: FC<OverviewTabProps> = ({ jobs, agents, isHistory, onT
 
       <ConfirmModal
         open={Boolean(deleteTarget)}
+        layer="aboveHub"
         title="删除定时任务"
         content={`确定删除“${deleteTarget?.name ?? ''}”吗？删除后无法恢复。`}
         confirmText="删除"

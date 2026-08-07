@@ -5,7 +5,7 @@
  */
 
 import { Tray, Menu, nativeImage, BrowserWindow } from 'electron'
-import { join } from 'path'
+import { getTrayIconPath } from './asset-paths'
 
 // 日志输出
 const log = {
@@ -52,11 +52,20 @@ export class TrayManager {
   private createTray(): void {
     log.info('创建系统托盘')
 
-    // 创建托盘图标
-    const iconPath = this.getIconPath()
-    const icon = nativeImage.createFromPath(iconPath)
+    // 托盘图标与产品 Logo 一致（tray-icon.png 由 logo.png 生成）
+    const iconPath = getTrayIconPath()
+    let icon = nativeImage.createFromPath(iconPath)
+    if (icon.isEmpty()) {
+      log.error('托盘图标加载失败:', iconPath)
+    } else {
+      // Windows 托盘约 16px；保留清晰缩略
+      const size = icon.getSize()
+      if (size.width > 16 || size.height > 16) {
+        icon = icon.resize({ width: 16, height: 16, quality: 'best' })
+      }
+    }
 
-    this.tray = new Tray(icon.resize({ width: 16, height: 16 }))
+    this.tray = new Tray(icon)
     this.tray.setToolTip('灵栖 Lumii')
 
     // 设置右键菜单
@@ -74,15 +83,10 @@ export class TrayManager {
   }
 
   /**
-   * 获取图标路径
+   * @deprecated 保留兼容；实际路径见 getTrayIconPath
    */
   private getIconPath(): string {
-    // 开发环境和生产环境的图标路径不同
-    // Windows 使用 .ico 格式
-    if (process.env.NODE_ENV === 'development') {
-      return join(__dirname, '../../assets/icon.ico')
-    }
-    return join(process.resourcesPath, 'assets/icon.ico')
+    return getTrayIconPath()
   }
 
   /**

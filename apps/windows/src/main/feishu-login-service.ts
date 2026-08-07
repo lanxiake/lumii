@@ -182,6 +182,31 @@ export class FeishuLoginService extends EventEmitter {
   }
 
   /**
+   * 主动推送文本给扫码登录的用户（无需入站消息）。
+   *
+   * 定时任务结果推送用。收件人固定为登录时记录的 openId ——
+   * 机器人是用户自己扫码建的，除了他本人没有别的合理收件人。
+   */
+  async pushText(text: string): Promise<{ ok: boolean; error?: string }> {
+    if (!this.httpClient) return { ok: false, error: '飞书未连接' }
+    const openId = this.session?.openId
+    if (!openId) return { ok: false, error: '飞书会话缺少 openId，请重新扫码登录' }
+    try {
+      const res = await this.httpClient.im.message.create({
+        params: { receive_id_type: 'open_id' },
+        data: { receive_id: openId, content: JSON.stringify({ text }), msg_type: 'text' },
+      })
+      if (res.code === 0) return { ok: true }
+      log.error('pushText failed:', res.code, res.msg)
+      return { ok: false, error: `飞书返回 ${res.code}: ${res.msg}` }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.error('pushText threw:', msg)
+      return { ok: false, error: msg }
+    }
+  }
+
+  /**
    * 轮询扫码结果直至成功/拒绝/过期。
    */
   private async runPollLoop(params: {

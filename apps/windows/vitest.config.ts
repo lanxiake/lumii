@@ -11,6 +11,8 @@ export default defineConfig({
       "@main/": path.resolve(__dirname, "./src/main/"),
       "@renderer/": path.resolve(__dirname, "./src/renderer/"),
       "@shared/": path.resolve(__dirname, "./src/shared/"),
+      // 注意不要带末尾斜杠：path.resolve 会剥掉它，前缀替换后会拼成 assetslogo.png
+      "@app-assets": path.resolve(__dirname, "assets"),
     },
   },
   test: {

@@ -14,27 +14,44 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 46px;
-  height: 46px;
+  width: 50px;
+  height: 50px;
   border-radius: 50%;
   background: conic-gradient(
     var(--mt-tone, var(--mt-accent-500)) calc(var(--mt-p) * 1%),
     var(--mt-surface-3) 0
   );
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 24%, transparent),
+    0 0 18px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 32%, transparent);
   font-family: var(--mt-font-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: var(--mt-fw-semibold);
   transition: --mt-p var(--mt-dur-slow) var(--mt-ease-standard),
-    transform var(--mt-dur-normal) var(--mt-ease-spring);
+    transform var(--mt-dur-normal) var(--mt-ease-spring),
+    box-shadow var(--mt-dur-normal) var(--mt-ease-standard);
+  animation: mt-gauge-in 0.6s var(--mt-ease-spring) both;
+}
+
+@keyframes mt-gauge-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* 挖出中心，形成环 */
 .gauge::after {
   content: '';
   position: absolute;
-  inset: 4px;
+  inset: 5px;
   border-radius: 50%;
   background: var(--mt-bg-elevated);
+  box-shadow: inset 0 0 10px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 8%, transparent);
 }
 
 .text {
@@ -46,9 +63,9 @@
 .label {
   position: absolute;
   right: 0;
-  bottom: -14px;
+  bottom: -15px;
   left: 0;
-  font-size: 9px;
+  font-size: 9.5px;
   font-style: normal;
   color: var(--mt-fg-4);
   text-align: center;
@@ -59,5 +76,6 @@
   .gauge {
     transition: none;
     transform: none !important;
+    animation: none;
   }
 }

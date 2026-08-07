@@ -201,11 +201,11 @@
   margin-right: 4px;
 }
 
-/* 模型列 */
-.modelCell {
+/* 结果摘要列 */
+.summaryCell {
   font-size: 11px;
   color: var(--color-text-secondary);
-  max-width: 150px;
+  max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

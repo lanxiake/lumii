@@ -12,6 +12,8 @@ export interface CardProps {
   className?: string;
   /** 让 children 直接参与 .card 的布局（外层自带 padding / flex 时用） */
   flush?: boolean;
+  /** 允许内容溢出（悬停 tip 等），默认裁剪以配合圆角 */
+  overflowVisible?: boolean;
 }
 
 const Card: React.FC<CardProps> = ({
@@ -23,6 +25,7 @@ const Card: React.FC<CardProps> = ({
   onClick,
   className = '',
   flush = false,
+  overflowVisible = false,
 }) => {
   return (
     <div
@@ -31,6 +34,7 @@ const Card: React.FC<CardProps> = ({
         hover && styles['card-hover'],
         onClick && styles['card-clickable'],
         flush && styles['card-flush'],
+        overflowVisible && styles['card-overflow-visible'],
         className,
       )}
       onClick={onClick}

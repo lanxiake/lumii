@@ -119,6 +119,10 @@ export function useCronJobs() {
         scheduleType: data.scheduleType,
         scheduleExpr: data.scheduleExpr,
         agentId: data.agentId,
+        activeDays: data.activeDays,
+        activeHourStart: data.activeHourStart ?? undefined,
+        activeHourEnd: data.activeHourEnd ?? undefined,
+        notifyTargets: data.notifyTargets,
       }) as { status: 'ok' | 'error'; job?: Record<string, unknown> }
       if (created.status !== 'ok') {
         setError((created as { message?: string }).message ?? '创建任务失败')
@@ -146,6 +150,10 @@ export function useCronJobs() {
           agentId: typeof patch.agentId === 'string' ? patch.agentId : undefined,
           scheduleType: patch.scheduleType,
           scheduleExpr: patch.scheduleExpr,
+          activeDays: typeof patch.activeDays === 'string' ? patch.activeDays : undefined,
+          activeHourStart: patch.activeHourStart,
+          activeHourEnd: patch.activeHourEnd,
+          notifyTargets: typeof patch.notifyTargets === 'string' ? patch.notifyTargets : undefined,
         },
       }) as { status?: 'ok' | 'not_found' | 'error'; message?: string }
       if (result.status && result.status !== 'ok') {

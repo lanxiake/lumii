@@ -13,6 +13,10 @@
   min-height: 0;
   margin: 0 auto;
   overflow: hidden;
+  /* 概览页局部提亮强调色（不改全局 token，避免自引用） */
+  --mt-accent-500: #4f8ff7;
+  --mt-tone-a: #22d3ee;
+  --mt-tone-b: #34d399;
 }
 
 /* 页头（原型 .ph）：不用通用 PageHeader，原型这里没有下边框、字号也更紧 */
@@ -21,12 +25,32 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+  animation: mt-dash-head-in 0.5s var(--mt-ease-standard) both;
+}
+
+@keyframes mt-dash-head-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .page-title {
   margin: 0;
-  color: var(--mt-fg-1);
+  background: linear-gradient(
+    105deg,
+    var(--mt-fg-1) 0%,
+    color-mix(in srgb, var(--mt-accent-500) 55%, var(--mt-fg-1)) 55%,
+    color-mix(in srgb, var(--mt-tone-a) 45%, var(--mt-fg-1)) 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
   font-size: 22px;
   font-weight: var(--mt-fw-bold);
   letter-spacing: -0.025em;
@@ -76,24 +100,107 @@
 
 /* ── 运行时条：文案 + 节律微图 + 装载 chip + 三环 ── */
 .runtime {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 16px;
   flex-shrink: 0;
-  margin-bottom: 10px;
-  /* 环标签是 -14px 绝对定位，靠 padding-bottom 让出空间 */
-  padding: 12px 16px 22px;
+  margin-bottom: 12px;
+  padding: 14px 16px 36px;
+  overflow: visible;
+  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 22%, var(--mt-border));
+  background:
+    linear-gradient(
+      115deg,
+      color-mix(in srgb, var(--mt-accent-500) 12%, var(--mt-bg-elevated)) 0%,
+      color-mix(in srgb, var(--mt-tone-a, #38bdf8) 9%, var(--mt-surface-2)) 48%,
+      color-mix(in srgb, var(--mt-tone-b) 5%, var(--mt-bg-elevated)) 100%
+    );
+  animation: mt-dash-runtime-in 0.55s var(--mt-ease-standard) 0.06s both;
+}
+
+@keyframes mt-dash-runtime-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.runtime::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(
+    180deg,
+    var(--mt-accent-500),
+    color-mix(in srgb, var(--mt-tone-a, #38bdf8) 70%, transparent),
+    color-mix(in srgb, var(--mt-tone-b) 80%, transparent)
+  );
+  border-radius: 0 2px 2px 0;
+  opacity: 1;
+  animation: mt-rt-bar-shimmer 3.2s ease-in-out infinite;
+}
+
+@keyframes mt-rt-bar-shimmer {
+  0%,
+  100% {
+    opacity: 0.75;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 1;
+    filter: brightness(1.25);
+  }
+}
+
+.runtime::after {
+  content: '';
+  position: absolute;
+  top: -40%;
+  right: -8%;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--mt-accent-500) 22%, transparent),
+    color-mix(in srgb, var(--mt-tone-a) 10%, transparent) 45%,
+    transparent 70%
+  );
+  pointer-events: none;
+  animation: mt-rt-glow 4.5s var(--mt-ease-standard) infinite;
+}
+
+@keyframes mt-rt-glow {
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: scale(1) translate(0, 0);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12) translate(-4%, 3%);
+  }
 }
 
 .rt-info {
+  position: relative;
+  z-index: 1;
   min-width: 0;
 }
 
 .rt-title {
   margin-bottom: 3px;
   color: var(--mt-fg-1);
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: var(--mt-fw-semibold);
+  letter-spacing: -0.01em;
 }
 
 .rt-desc {
@@ -104,101 +211,259 @@
   text-overflow: ellipsis;
 }
 
-/* 条形微图（原型 .spark alive）：只表达「在动」的节律，数值语义由用量图表承担 */
+/* 条形微图：悬停说明放在柱下方，避免被卡片 overflow / 顶边裁切 */
 .spark {
+  position: relative;
+  z-index: 4;
   display: flex;
   align-items: flex-end;
-  gap: 2px;
+  gap: 3px;
   flex: 1;
-  min-width: 80px;
-  max-width: 200px;
-  height: 24px;
+  min-width: 88px;
+  max-width: 240px;
+  height: 32px;
+  padding: 0 2px;
+  overflow: visible;
 }
 
 .spark i {
+  position: relative;
   flex: 1;
-  min-width: 2px;
-  border-radius: 1px;
-  background: linear-gradient(180deg, var(--mt-accent-500), transparent);
+  min-width: 3px;
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--mt-accent-500) 85%, #fff) 0%,
+    var(--mt-accent-500) 35%,
+    color-mix(in srgb, var(--mt-tone-a, #38bdf8) 80%, transparent) 100%
+  );
+  box-shadow: 0 0 10px color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
   transform-origin: bottom;
-  animation: mt-dash-spark var(--mt-dur-breathe) var(--mt-ease-standard) infinite;
-  transition: height var(--mt-dur-slow) var(--mt-ease-standard);
+  cursor: default;
+  animation: mt-dash-spark 1.8s var(--mt-ease-standard) infinite;
+  transition: height var(--mt-dur-slow) var(--mt-ease-standard),
+    filter var(--mt-dur-fast) var(--mt-ease-standard),
+    box-shadow var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.spark i:hover {
+  z-index: 6;
+  filter: brightness(1.3);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--mt-accent-500) 65%, transparent);
+  animation-play-state: paused;
+}
+
+/* tip 在柱下方，落在 runtime 底部留白区内 */
+.spark i::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  z-index: 8;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 35%, var(--mt-border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--mt-bg-elevated) 92%, var(--mt-accent-500));
+  color: var(--mt-fg-1);
+  font-family: var(--mt-font-sans, inherit);
+  font-size: 10.5px;
+  font-style: normal;
+  line-height: 1.35;
+  white-space: nowrap;
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, 0.22),
+    0 0 0 1px color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(-4px);
+  transition: opacity var(--mt-dur-fast) var(--mt-ease-standard),
+    transform var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+/* 小三角朝上指向柱体 */
+.spark i::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 3px);
+  z-index: 8;
+  border: 5px solid transparent;
+  border-bottom-color: color-mix(in srgb, var(--mt-bg-elevated) 92%, var(--mt-accent-500));
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.spark i:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.spark i:hover::before {
+  opacity: 1;
+}
+
+/* 首尾柱 tip 贴边对齐，避免横向裁切 */
+.spark i:first-child::after {
+  left: 0;
+  transform: translateX(0) translateY(-4px);
+}
+
+.spark i:first-child::before {
+  left: 10px;
+  transform: none;
+}
+
+.spark i:first-child:hover::after {
+  transform: translateX(0) translateY(0);
+}
+
+.spark i:last-child::after {
+  left: auto;
+  right: 0;
+  transform: translateX(0) translateY(-4px);
+}
+
+.spark i:last-child::before {
+  left: auto;
+  right: 10px;
+  transform: none;
+}
+
+.spark i:last-child:hover::after {
+  transform: translateX(0) translateY(0);
 }
 
 .spark i:nth-child(odd) {
-  animation-delay: 0.2s;
+  animation-delay: 0.15s;
 }
 
 .spark i:nth-child(3n) {
-  animation-delay: 0.45s;
+  animation-delay: 0.35s;
+}
+
+.spark i:nth-child(4n) {
+  animation-delay: 0.55s;
 }
 
 @keyframes mt-dash-spark {
   0%,
   100% {
-    opacity: 0.55;
+    opacity: 0.45;
+    filter: brightness(0.9);
   }
   50% {
     opacity: 1;
+    filter: brightness(1.15);
   }
 }
 
-.rt-chips {
+/* 技能 / MCP：迷你统计卡，替代扁 chip */
+.rt-stats {
+  position: relative;
+  z-index: 1;
   display: flex;
-  gap: 7px;
+  gap: 8px;
   flex-shrink: 0;
   margin-left: auto;
 }
 
-.rt-chip {
+.rt-stat {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 5px 11px;
-  border: 1px solid color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 24%, var(--mt-border));
-  border-radius: var(--mt-radius-full);
-  background: color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 9%, transparent);
-  color: var(--mt-fg-3);
-  font-size: 11px;
-  white-space: nowrap;
+  gap: 9px;
+  min-width: 118px;
+  padding: 7px 11px 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 32%, var(--mt-border));
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 20%, var(--mt-bg-elevated)),
+      color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 6%, var(--mt-surface-2))
+    );
+  color: var(--mt-fg-2);
   cursor: pointer;
+  text-align: left;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent);
   transition: border-color var(--mt-dur-fast) var(--mt-ease-standard),
-    background var(--mt-dur-fast) var(--mt-ease-standard);
+    transform var(--mt-dur-fast) var(--mt-ease-spring),
+    box-shadow var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
-.rt-chip > svg {
+.rt-stat:hover {
+  border-color: color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 58%, var(--mt-border));
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 24%, transparent);
+}
+
+.rt-stat-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 24%, transparent);
   color: var(--mt-tone, var(--mt-accent-500));
+  flex-shrink: 0;
+  transition: transform var(--mt-dur-fast) var(--mt-ease-spring);
 }
 
-.rt-chip:hover {
-  border-color: color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 50%, var(--mt-border));
-  background: color-mix(in srgb, var(--mt-tone, var(--mt-accent-500)) 16%, transparent);
+.rt-stat:hover .rt-stat-icon {
+  transform: rotate(-8deg) scale(1.08);
 }
 
-.rt-chip b {
+.rt-stat-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rt-stat-label {
+  color: var(--mt-fg-4);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.rt-stat-value {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  line-height: 1.2;
+}
+
+.rt-stat-value b {
   color: var(--mt-fg-1);
   font-family: var(--mt-font-mono);
+  font-size: 16px;
   font-weight: var(--mt-fw-semibold);
+  font-style: normal;
 }
 
-.rt-chip-dim {
-  color: var(--mt-fg-4);
+.rt-stat-value em {
+  color: var(--mt-fg-3);
   font-family: var(--mt-font-mono);
+  font-size: 10px;
+  font-style: normal;
 }
 
 .rt-gauges {
+  position: relative;
+  z-index: 1;
   display: flex;
-  gap: 16px;
+  gap: 18px;
   flex-shrink: 0;
 }
 
-/* 整组 hover 抬一下，单个再抬一点（原型 .gauge-wrap:hover .gauge） */
+/* 整组 hover 抬一下，单个再抬一点 */
 .rt-gauges:hover > * {
   transform: translateY(-2px);
 }
 
 .rt-gauges > *:hover {
-  transform: translateY(-4px) scale(1.06);
+  transform: translateY(-4px) scale(1.08);
 }
 
 /* 分色：只区分元素，不承载语义 */
@@ -209,16 +474,26 @@
   --mt-tone: var(--mt-tone-b);
 }
 
-/* ── 底部双栏：吃掉剩余高度，内部各自滚动 ──
-   资讯卡片区插到上面后剩余空间变少，这里给上限压住高度：
-   高分屏上双栏不会被拉成两块空旷的长条，低分屏靠 min-height 保底可读。 */
+/* ── 底部双栏：略压缩，把垂直空间让给资讯区 ── */
 .bottom-grid {
   display: grid;
-  grid-template-columns: 1fr 252px;
+  grid-template-columns: 1fr 240px;
   gap: 10px;
-  flex: 1;
-  min-height: 190px;
-  max-height: 268px;
+  flex: 0 0 auto;
+  min-height: 168px;
+  max-height: 220px;
+  animation: mt-dash-bottom-in 0.55s var(--mt-ease-standard) 0.14s both;
+}
+
+@keyframes mt-dash-bottom-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .bottom-grid > * {
@@ -241,6 +516,10 @@
     order: 3;
   }
 
+  .rt-stats {
+    order: 3;
+  }
+
   .bottom-grid {
     grid-template-columns: 1fr 220px;
   }
@@ -260,8 +539,20 @@
 
 @media (prefers-reduced-motion: reduce) {
   .spark i,
-  .dot {
+  .dot,
+  .runtime::after,
+  .runtime::before,
+  .page-head,
+  .runtime,
+  .bottom-grid {
     animation: none;
+  }
+
+  .page-head,
+  .runtime,
+  .bottom-grid {
+    opacity: 1;
+    transform: none;
   }
 
   .chev {
@@ -269,7 +560,21 @@
   }
 
   .rt-gauges:hover > *,
-  .rt-gauges > *:hover {
+  .rt-gauges > *:hover,
+  .rt-stat:hover,
+  .rt-stat:hover .rt-stat-icon {
     transform: none;
+  }
+
+  .spark i::after,
+  .spark i::before {
+    transition: none;
+  }
+
+  .page-title {
+    color: var(--mt-fg-1);
+    background: none;
+    -webkit-background-clip: unset;
+    background-clip: unset;
   }
 }

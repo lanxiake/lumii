@@ -1,29 +1,18 @@
 /**
- * 生成 Lumii 应用图标（icon.png / icon.ico）
+ * 生成 Lumii 应用图标（圆形 icon.png / icon.ico / tray-icon.png）
+ * 源图：assets/logo.png
+ * 运行: pnpm generate:icon（在 apps/windows 下）
  */
 const fs = require('node:fs')
 const path = require('node:path')
 const sharp = require('sharp')
 
 const OUT_DIR = path.resolve(__dirname, '../assets')
+const LOGO_SRC = path.join(OUT_DIR, 'logo.png')
 
-function buildSvg() {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64">
-  <defs>
-    <linearGradient id="g" x1="12" y1="8" x2="52" y2="56" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#7DD3FC"/>
-      <stop offset="0.45" stop-color="#38BDF8"/>
-      <stop offset="1" stop-color="#2563EB"/>
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" rx="14" fill="#0F172A"/>
-  <circle cx="32" cy="32" r="22" fill="url(#g)"/>
-  <path d="M22 38.5C22 30.5 27.2 24 34.5 24C40.2 24 44.5 27.8 45.5 33" stroke="white" stroke-width="3.2" stroke-linecap="round" fill="none" opacity="0.92"/>
-  <path d="M26 20.5V43.5H40" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>
-</svg>`
-}
-
+/**
+ * 将多尺寸 PNG 打包为简易 ICO
+ */
 function pngsToIco(pngBuffers) {
   const count = pngBuffers.length
   const headerSize = 6 + count * 16
@@ -67,16 +56,67 @@ function pngsToIco(pngBuffers) {
   return buf
 }
 
+/**
+ * 圆形遮罩 SVG（白色圆，配合 dest-in 裁切）
+ */
+function circleMaskSvg(size) {
+  const r = size / 2
+  return Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}">` +
+      `<circle cx="${r}" cy="${r}" r="${r}" fill="#fff"/>` +
+      `</svg>`,
+  )
+}
+
+/**
+ * 将 logo 裁成圆形 PNG（cover 填满圆，透明底）
+ */
+async function circularLogo(size) {
+  return sharp(LOGO_SRC)
+    .resize(size, size, {
+      fit: 'cover',
+      position: 'centre',
+    })
+    .ensureAlpha()
+    .composite([
+      {
+        input: circleMaskSvg(size),
+        blend: 'dest-in',
+      },
+    ])
+    .png()
+    .toBuffer()
+}
+
+/**
+ * 主入口：圆形 icon.png / icon.ico / tray-icon.png
+ */
 async function main() {
+  if (!fs.existsSync(LOGO_SRC)) {
+    throw new Error(`缺少产品 Logo：${LOGO_SRC}`)
+  }
+
   fs.mkdirSync(OUT_DIR, { recursive: true })
-  const svg = Buffer.from(buildSvg())
-  const png256 = await sharp(svg).png().toBuffer()
+
+  const png256 = await circularLogo(256)
+  // 先写临时文件再替换，避免被运行中的 Electron 锁住
+  const icoTmp = path.join(OUT_DIR, 'icon.ico.tmp')
+  const icoOut = path.join(OUT_DIR, 'icon.ico')
   fs.writeFileSync(path.join(OUT_DIR, 'icon.png'), png256)
 
-  const sizes = [16, 32, 48, 64, 128, 256]
-  const pngs = await Promise.all(sizes.map((s) => sharp(svg).resize(s, s).png().toBuffer()))
-  fs.writeFileSync(path.join(OUT_DIR, 'icon.ico'), pngsToIco(pngs))
-  console.log('[generate-icon] wrote icon.png and icon.ico')
+  const sizes = [16, 24, 32, 48, 64, 128, 256]
+  const pngs = await Promise.all(sizes.map((s) => circularLogo(s)))
+  fs.writeFileSync(icoTmp, pngsToIco(pngs))
+  try {
+    fs.renameSync(icoTmp, icoOut)
+  } catch {
+    fs.copyFileSync(icoTmp, icoOut)
+    fs.unlinkSync(icoTmp)
+  }
+
+  fs.writeFileSync(path.join(OUT_DIR, 'tray-icon.png'), await circularLogo(32))
+
+  console.log('[generate-icon] wrote circular icon.png, icon.ico, tray-icon.png from logo.png')
 }
 
 main().catch((err) => {
