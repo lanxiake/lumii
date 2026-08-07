@@ -40,7 +40,6 @@ import { processFilesWithStrategies, appendAttachmentsToMessage } from './utils/
 import { useVoiceCall } from '../../hooks/business/useVoiceCall'
 import { useConversationReplay } from '../../hooks/business/useConversationReplay'
 import { VoiceCallPanel } from './components/VoiceCallPanel'
-import { VoiceModelDownloadDialog } from './components/VoiceModelDownloadDialog'
 import type { AttachmentCategory } from './utils/file-attachment-strategy'
 import {
   getDefaultStrategies,
@@ -1655,20 +1654,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           )}
         </div>
       </div>
-
-      {/* 语音模型下载对话框 */}
-      {voiceCallState.modelsNotReady && (
-        <VoiceModelDownloadDialog
-          models={voiceCallState.modelsNotReady}
-          onClose={() => voiceCallActions.dismissModelDownload()}
-          onAllReady={() => {
-            voiceCallActions.dismissModelDownload()
-            if (runtimeCurrentSessionKey) {
-              void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id)
-            }
-          }}
-        />
-      )}
 
       {/* Toast notification */}
       {toast && (

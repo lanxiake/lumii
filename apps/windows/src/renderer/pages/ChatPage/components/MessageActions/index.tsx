@@ -123,7 +123,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
         acceptTtsChunksRef.current = false
         clearPlaybackEndTimer()
         setIsSpeaking(false)
-        window.dispatchEvent(new CustomEvent('voice:tts:models-not-ready', { detail: result.models }))
+        window.dispatchEvent(new CustomEvent('voice:models:need-download'))
       }
     } catch {
       acceptTtsChunksRef.current = false

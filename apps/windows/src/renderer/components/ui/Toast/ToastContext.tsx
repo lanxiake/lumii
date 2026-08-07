@@ -7,6 +7,10 @@ export interface ToastItem {
   type: ToastType;
   message: string;
   duration?: number;
+  /** 可选操作按钮文案 */
+  actionLabel?: string;
+  /** 点击操作按钮回调（点击后会关闭 toast） */
+  onAction?: () => void;
 }
 
 export interface ToastContextType {

@@ -1,12 +1,14 @@
 /**
  * SplashOverlay — 主窗口内全屏开机画面
  *
- * 底层用同一视频模糊铺满左右（相似画面补边），上层清晰主画面居中 contain，
- * 避免宽屏两侧留大块空黑。
+ * 优先接管 index.html 引入的 early-splash（已在 React 前开始播放）；
+ * 若不存在则自行挂载双层 video + 海报，避免首帧前纯黑屏。
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import splashUrl from '@app-assets/splash.mp4'
+import posterUrl from '@app-assets/splash-poster.jpg'
+import { EARLY_ID, FG_ID } from '../../early-splash'
 import styles from './SplashOverlay.module.css'
 
 export interface SplashOverlayProps {
@@ -17,6 +19,28 @@ export interface SplashOverlayProps {
 const FALLBACK_MS = 12_000
 
 /**
+ * 标记本会话已播过开机画面
+ */
+function markSplashDone(): void {
+  try {
+    sessionStorage.setItem('lumii.splash.done', '1')
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * 淡出并移除早期 Splash DOM
+ */
+function fadeOutEarlySplash(el: HTMLElement, onComplete: () => void): void {
+  el.classList.add('lumii-es-fading')
+  window.setTimeout(() => {
+    el.remove()
+    onComplete()
+  }, 320)
+}
+
+/**
  * 主窗口内全屏播放开机动画
  */
 export const SplashOverlay: React.FC<SplashOverlayProps> = ({ onDone }) => {
@@ -24,22 +48,54 @@ export const SplashOverlay: React.FC<SplashOverlayProps> = ({ onDone }) => {
   const bgRef = useRef<HTMLVideoElement>(null)
   const doneRef = useRef(false)
   const [fading, setFading] = useState(false)
+  /** 是否由 React 自己渲染视频（early splash 不存在时） */
+  const [useReactVideo, setUseReactVideo] = useState(false)
 
   const finish = useCallback(() => {
     if (doneRef.current) return
     doneRef.current = true
+    markSplashDone()
+
+    const early = document.getElementById(EARLY_ID)
+    if (early) {
+      fadeOutEarlySplash(early, onDone)
+      return
+    }
+
     setFading(true)
-    window.setTimeout(() => {
-      try {
-        sessionStorage.setItem('lumii.splash.done', '1')
-      } catch {
-        // ignore
-      }
-      onDone()
-    }, 320)
+    window.setTimeout(() => onDone(), 320)
   }, [onDone])
 
+  // 接管 early splash 或回退到 React 自管视频
   useEffect(() => {
+    const early = document.getElementById(EARLY_ID)
+    const earlyFg = document.getElementById(FG_ID) as HTMLVideoElement | null
+
+    if (early && earlyFg) {
+      const onEnded = () => finish()
+      const onError = () => finish()
+      earlyFg.addEventListener('ended', onEnded)
+      earlyFg.addEventListener('error', onError)
+
+      // 若 early 已播完（React 挂载偏晚），直接结束
+      if (earlyFg.ended || earlyFg.error) {
+        finish()
+      }
+
+      const fallback = window.setTimeout(() => finish(), FALLBACK_MS)
+      return () => {
+        earlyFg.removeEventListener('ended', onEnded)
+        earlyFg.removeEventListener('error', onError)
+        window.clearTimeout(fallback)
+      }
+    }
+
+    setUseReactVideo(true)
+  }, [finish])
+
+  // React 自管视频播放
+  useEffect(() => {
+    if (!useReactVideo) return
     const fg = fgRef.current
     const bg = bgRef.current
     if (!fg) return
@@ -91,7 +147,12 @@ export const SplashOverlay: React.FC<SplashOverlayProps> = ({ onDone }) => {
       fg.removeEventListener('timeupdate', onTimeUpdate)
       window.clearTimeout(fallback)
     }
-  }, [finish])
+  }, [finish, useReactVideo])
+
+  // early splash 已存在时不额外盖一层，避免双重视频
+  if (!useReactVideo) {
+    return null
+  }
 
   return (
     <div
@@ -99,11 +160,11 @@ export const SplashOverlay: React.FC<SplashOverlayProps> = ({ onDone }) => {
       role="presentation"
       aria-label="灵栖启动动画"
     >
-      {/* 模糊铺底：左右铺满，与主画面同源 */}
       <video
         ref={bgRef}
         className={styles.bgVideo}
         src={splashUrl}
+        poster={posterUrl}
         muted
         playsInline
         preload="auto"
@@ -111,12 +172,11 @@ export const SplashOverlay: React.FC<SplashOverlayProps> = ({ onDone }) => {
       />
       <div className={styles.vignette} aria-hidden="true" />
       <div className={styles.sideGlow} aria-hidden="true" />
-
-      {/* 清晰主画面 */}
       <video
         ref={fgRef}
         className={styles.fgVideo}
         src={splashUrl}
+        poster={posterUrl}
         autoPlay
         playsInline
         preload="auto"

@@ -9,14 +9,19 @@ import { loadAudioWorkletModule } from './load-audio-worklet.js'
 import pcmProcessorSource from './worklets/pcm-processor.js?raw'
 import type { VoiceCallState } from '../../../../shared/voice-events.js'
 
+/**
+ * 通知渲染层：语音模型未就绪，应引导用户前往设置下载
+ */
+function notifyModelsNeedDownload(): void {
+  window.dispatchEvent(new CustomEvent('voice:models:need-download'))
+}
+
 export interface VoiceCallHookState {
   state: VoiceCallState | 'idle'
   callId: string | null
   partialTranscript: string
   finalTranscript: string
   isModelReady: boolean
-  /** 模型未就绪时，返回待下载的模型列表，用于触发下载对话框 */
-  modelsNotReady: Array<{ id: string; name: string; sizeBytes: number; downloaded: boolean }> | null
   error: string | null
   /** 实时波形分析节点（可选，供 WaveformVisualizer 使用） */
   analyserNode: AnalyserNode | null
@@ -47,7 +52,6 @@ export interface VoiceCallHookState {
 export interface VoiceCallActions {
   startCall: (sessionKey: string, agentId?: string, opts?: { micless?: boolean }) => Promise<void>
   stopCall: () => Promise<void>
-  dismissModelDownload: () => void
   getModelsStatus: () => Promise<unknown>
   downloadModel: (modelId: string) => Promise<void>
   /** 实时调整播放音量（0.0 ~ 1.0，仅渲染侧，不持久化） */
@@ -67,7 +71,6 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     partialTranscript: '',
     finalTranscript: '',
     isModelReady: false,
-    modelsNotReady: null,
     error: null,
     analyserNode: null,
     playbackAnalyserNode: null,
@@ -214,13 +217,6 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
           callIdRef.current = null
           break
 
-        case 'voice:models:status':
-          // 模型下载完成后，如果全部就绪，清除 modelsNotReady 标志
-          if (event.models && event.models.every((m: any) => m.downloaded)) {
-            setState((s) => ({ ...s, modelsNotReady: null }))
-          }
-          break
-
         case 'voice:error':
           setState((s) => ({ ...s, state: 'error', error: event.message }))
           break
@@ -252,14 +248,9 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     return unsubscribe
   }, [])
 
-  // 消息朗读等场景：TTS 模型未就绪时弹出下载对话框
+  // 消息朗读等场景：TTS 模型未就绪 → 引导去设置页下载
   useEffect(() => {
-    const handler = (e: Event) => {
-      const models = (e as CustomEvent<Array<{ id: string; name: string; sizeBytes: number; downloaded: boolean }>>).detail
-      if (models?.length) {
-        setState((s) => ({ ...s, modelsNotReady: models }))
-      }
-    }
+    const handler = () => notifyModelsNeedDownload()
     window.addEventListener('voice:tts:models-not-ready', handler)
     return () => window.removeEventListener('voice:tts:models-not-ready', handler)
   }, [])
@@ -343,8 +334,8 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
         setState((s) => ({
           ...s,
           state: 'idle',
-          modelsNotReady: result.models ?? [],
         }))
+        notifyModelsNeedDownload()
         // 清理已创建的音频资源
         streamRef.current?.getTracks().forEach((t) => t.stop())
         streamRef.current = null
@@ -433,7 +424,6 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
   const actions: VoiceCallActions = {
     startCall,
     stopCall,
-    dismissModelDownload: () => setState((s) => ({ ...s, modelsNotReady: null })),
     getModelsStatus: () => {
       const electronAPI = (window as any).electronAPI
       return electronAPI?.voice?.sendCommand({ type: 'voice:models:get' }) ?? Promise.resolve([])

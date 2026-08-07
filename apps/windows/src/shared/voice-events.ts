@@ -14,6 +14,30 @@ export type VoiceCallState =
   | 'ending'        // 通话结束中
   | 'error'         // 错误状态
 
+// ─── 模型状态 ────────────────────────────────────────────────────────────────
+
+/** 单项下载任务状态 */
+export type VoiceModelDownloadState =
+  | 'idle'
+  | 'downloading'
+  | 'paused'
+  | 'extracting'
+  | 'ready'
+  | 'error'
+
+export type VoiceModelStatus = {
+  id: string
+  name: string
+  description?: string
+  sizeBytes: number
+  downloaded: boolean
+  required?: boolean
+  downloadState?: VoiceModelDownloadState
+  downloadedBytes?: number
+  errorMessage?: string
+  path?: string
+}
+
 // ─── 事件类型 ────────────────────────────────────────────────────────────────
 
 export type VoiceCallStateEvent = {
@@ -62,6 +86,15 @@ export type VoiceModelsProgressEvent = {
   progress: number    // 0.0 ~ 1.0
   bytesDownloaded: number
   totalBytes: number
+  /** 下载任务状态 */
+  state?: VoiceModelDownloadState
+}
+
+/** 模型下载失败事件 */
+export type VoiceModelsErrorEvent = {
+  readonly type: 'voice:models:error'
+  modelId: string
+  message: string
 }
 
 export type VoiceErrorEvent = {
@@ -85,6 +118,7 @@ export type VoiceEvent =
   | VoiceCallEndedEvent
   | VoiceModelsStatusEvent
   | VoiceModelsProgressEvent
+  | VoiceModelsErrorEvent
   | VoiceErrorEvent
   | VoiceConfigUpdatedEvent
 
@@ -99,17 +133,6 @@ export type VoiceErrorCode =
   | 'call_already_active'     // 已有通话进行中
   | 'no_active_call'          // 无活跃通话
   | 'unknown'                 // 未知错误
-
-// ─── 模型状态 ────────────────────────────────────────────────────────────────
-
-export type VoiceModelStatus = {
-  id: string
-  name: string
-  description: string
-  sizeBytes: number
-  downloaded: boolean
-  required: boolean
-}
 
 // ─── 引擎配置 ────────────────────────────────────────────────────────────────
 

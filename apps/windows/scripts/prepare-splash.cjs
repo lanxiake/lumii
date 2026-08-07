@@ -1,5 +1,5 @@
 /**
- * 从源视频生成开机画面 splash.mp4（裁掉下方 12%）
+ * 从源视频生成开机画面 splash.mp4（裁掉下方 12%），并抽取首帧海报 splash-poster.jpg
  * 用法: node scripts/prepare-splash.cjs [source.mp4]
  */
 const fs = require('node:fs')
@@ -9,6 +9,19 @@ const { spawnSync } = require('node:child_process')
 const OUT_DIR = path.resolve(__dirname, '../assets')
 const DEFAULT_SRC = path.join(OUT_DIR, 'source', 'logo-splash-src.mp4')
 const OUT = path.join(OUT_DIR, 'splash.mp4')
+const POSTER_OUT = path.join(OUT_DIR, 'splash-poster.jpg')
+
+/**
+ * 运行 ffmpeg，失败则退出进程
+ */
+function runFfmpeg(ffmpegPath, args, label) {
+  const r = spawnSync(ffmpegPath, args, { encoding: 'utf8' })
+  if (r.status !== 0) {
+    console.error(`[prepare-splash] ${label} 失败`)
+    console.error(r.stderr?.slice(-1000))
+    process.exit(r.status || 1)
+  }
+}
 
 function main() {
   const src = path.resolve(process.argv[2] || DEFAULT_SRC)
@@ -26,7 +39,7 @@ function main() {
 
   console.log('[prepare-splash] src =', src)
   console.log('[prepare-splash] ffmpeg =', ffmpegPath)
-  const r = spawnSync(
+  runFfmpeg(
     ffmpegPath,
     [
       '-y',
@@ -48,13 +61,17 @@ function main() {
       '+faststart',
       OUT,
     ],
-    { encoding: 'utf8' },
+    '编码 splash.mp4',
   )
-  if (r.status !== 0) {
-    console.error(r.stderr?.slice(-1000))
-    process.exit(r.status || 1)
-  }
   console.log('[prepare-splash] wrote', OUT, fs.statSync(OUT).size, 'bytes')
+
+  // 从成品视频抽首帧作海报，避免 React 挂载前纯黑屏
+  runFfmpeg(
+    ffmpegPath,
+    ['-y', '-i', OUT, '-vf', 'select=eq(n\\,0)', '-vframes', '1', '-q:v', '3', POSTER_OUT],
+    '抽取 splash-poster.jpg',
+  )
+  console.log('[prepare-splash] wrote', POSTER_OUT, fs.statSync(POSTER_OUT).size, 'bytes')
 }
 
 main()

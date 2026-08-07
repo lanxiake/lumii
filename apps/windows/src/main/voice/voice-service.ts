@@ -157,8 +157,8 @@ export class VoiceCallService {
     if (this.initialized) return
     log.info('[ensureInitialized] 初始化语音引擎...')
 
-    if (!this.modelManager.areRequiredModelsReady()) {
-      throw new Error('语音模型未就绪，请先下载 VAD / ASR / TTS 本地模型')
+    if (!this.modelManager.areRequiredModelsReady(this.config.tts.provider)) {
+      throw new Error('语音模型未就绪，请先下载所需本地模型（设置 → 语音设置）')
     }
 
     const paths = await this.modelManager.getModelPaths()

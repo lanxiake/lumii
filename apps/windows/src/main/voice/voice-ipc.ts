@@ -5,6 +5,7 @@
 import { ipcMain, type BrowserWindow } from 'electron'
 import { type VoiceCallService } from './voice-service.js'
 import { type VoiceModelManager } from './model-manager.js'
+import { AsrTestSession } from './asr-test-session.js'
 import type { VoiceCommand } from '../../shared/voice-commands.js'
 import { saveVoiceEngineConfig } from './voice-config-store.js'
 
@@ -17,6 +18,9 @@ const log = {
 
 let voiceIpcInstalled = false
 
+/**
+ * 注册语音相关 IPC（命令 / 音频帧 / 模型下载 / ASR 测试）
+ */
 export function registerVoiceIpc(
   win: BrowserWindow,
   voiceService: VoiceCallService,
@@ -27,6 +31,36 @@ export function registerVoiceIpc(
     return
   }
   voiceIpcInstalled = true
+
+  const asrTest = new AsrTestSession(modelManager, () => voiceService.getConfig())
+
+  /**
+   * 推送模型进度事件
+   */
+  const sendModelProgress = (
+    modelId: string,
+    progress: { progress: number; downloadedBytes: number; totalBytes: number; state: string },
+  ) => {
+    if (win.isDestroyed()) return
+    try {
+      win.webContents.send('voice:event', {
+        type: 'voice:models:progress',
+        modelId,
+        progress: progress.progress,
+        bytesDownloaded: progress.downloadedBytes,
+        totalBytes: progress.totalBytes,
+        state: progress.state,
+      })
+      if (progress.state === 'ready' || progress.progress >= 1) {
+        win.webContents.send('voice:event', {
+          type: 'voice:models:status',
+          models: modelManager.getModelsStatus(),
+        })
+      }
+    } catch (e) {
+      log.error(`[voice:models] IPC 发送失败: ${(e as Error).message}`)
+    }
+  }
 
   // ── 命令通道（invoke 模式，有响应）─────────────────────────────────────
   ipcMain.handle('voice:command', async (_event, command: VoiceCommand) => {
@@ -44,7 +78,7 @@ export function registerVoiceIpc(
                 models: modelManager.getModelsStatus(),
               }
             }
-          } else if (!modelManager.areRequiredModelsReady()) {
+          } else if (!modelManager.areRequiredModelsReady(ttsProvider)) {
             return {
               error: 'models_not_ready',
               models: modelManager.getModelsStatus(),
@@ -65,27 +99,7 @@ export function registerVoiceIpc(
         case 'voice:models:download':
           modelManager.startDownload(
             command.modelId,
-            (progress) => {
-              if (!win.isDestroyed()) {
-                try {
-                  win.webContents.send('voice:event', {
-                    type: 'voice:models:progress',
-                    modelId: command.modelId,
-                    progress: progress.progress,
-                    bytesDownloaded: progress.downloadedBytes,
-                    totalBytes: progress.totalBytes,
-                  })
-                  if (progress.progress >= 1) {
-                    win.webContents.send('voice:event', {
-                      type: 'voice:models:status',
-                      models: modelManager.getModelsStatus(),
-                    })
-                  }
-                } catch (e) {
-                  log.error(`[voice:models:download] IPC 发送失败: ${(e as Error).message}`)
-                }
-              }
-            },
+            (progress) => sendModelProgress(command.modelId, progress),
             (message) => {
               if (!win.isDestroyed()) {
                 win.webContents.send('voice:event', {
@@ -93,19 +107,27 @@ export function registerVoiceIpc(
                   modelId: command.modelId,
                   message,
                 })
+                win.webContents.send('voice:event', {
+                  type: 'voice:models:status',
+                  models: modelManager.getModelsStatus(),
+                })
               }
             },
           )
           return { ok: true }
+
+        case 'voice:models:pause':
+          return { ok: modelManager.pauseDownload(command.modelId) }
+
+        case 'voice:models:cancel':
+          return { ok: modelManager.cancelDownload(command.modelId) }
 
         case 'voice:config:get':
           return voiceService.getConfig()
 
         case 'voice:config:set':
           await voiceService.setConfig(command.config as any)
-          // 持久化到磁盘，确保重启后配置不丢失
           await saveVoiceEngineConfig(voiceService.getConfig())
-          // 推送配置更新事件，渲染进程可热更新音量等渲染侧状态
           if (!win.isDestroyed()) {
             try {
               win.webContents.send('voice:event', {
@@ -156,6 +178,13 @@ export function registerVoiceIpc(
           return { ok: true, filePath }
         }
 
+        case 'voice:asr:test:start':
+          return await asrTest.start(win)
+
+        case 'voice:asr:test:stop':
+          await asrTest.stop()
+          return { ok: true }
+
         default:
           log.warn(`[voice:command] 未知命令: ${(command as any).type}`)
           return { error: 'unknown_command' }
@@ -173,10 +202,19 @@ export function registerVoiceIpc(
   ipcMain.on('voice:audio:chunk', (_event, callId: string, buffer: Buffer) => {
     const samples = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4)
 
+    // ASR 测试会话优先消费音频
+    if (asrTest.isActive() && asrTest.getCallId() === callId) {
+      try {
+        asrTest.handleAudioChunk(samples)
+      } catch (e) {
+        log.error(`[voice:audio:chunk] ASR 测试失败: ${(e as Error).message}`)
+      }
+      return
+    }
+
     voiceService.handleAudioChunk(samples).catch((e: Error) => {
       const msg = e.message
       if (msg !== lastAudioErrorMsg) {
-        // 新错误：记录 + 通知渲染进程
         lastAudioErrorMsg = msg
         audioErrorRepeatCount = 1
         log.error(`[voice:audio:chunk] 处理失败: ${msg}`)
@@ -188,12 +226,11 @@ export function registerVoiceIpc(
               code: 'unknown',
               message: msg,
             })
-          } catch (e) {
-            log.error(`[voice:audio:chunk] IPC 发送失败: ${(e as Error).message}`)
+          } catch (err) {
+            log.error(`[voice:audio:chunk] IPC 发送失败: ${(err as Error).message}`)
           }
         }
       } else {
-        // 重复错误：每 100 次打印一次，不推送重复事件
         audioErrorRepeatCount++
         if (audioErrorRepeatCount % 100 === 0) {
           log.warn(`[voice:audio:chunk] 同一错误已重复 ${audioErrorRepeatCount} 次: ${msg}`)

@@ -23,6 +23,18 @@ export type VoiceDownloadModelCommand = {
   modelId: string
 }
 
+/** 暂停模型下载（保留 partial，可续传） */
+export type VoicePauseModelCommand = {
+  readonly type: 'voice:models:pause'
+  modelId: string
+}
+
+/** 取消模型下载并清理 partial */
+export type VoiceCancelModelCommand = {
+  readonly type: 'voice:models:cancel'
+  modelId: string
+}
+
 export type VoiceGetConfigCommand = {
   readonly type: 'voice:config:get'
 }
@@ -33,6 +45,7 @@ export type VoiceSetConfigCommand = {
     asr?: Partial<import('./voice-events.js').VoiceAsrConfig>
     tts?: Partial<import('./voice-events.js').VoiceTtsConfig>
     vad?: Partial<import('./voice-events.js').VoiceVadConfig>
+    autoMuteMicWhileSpeaking?: boolean
   }
 }
 
@@ -60,14 +73,28 @@ export type VoiceTtsGenerateFileCommand = {
   destDir: string
 }
 
+/** 开始 ASR 实时识别测试（不拉起 Agent） */
+export type VoiceAsrTestStartCommand = {
+  readonly type: 'voice:asr:test:start'
+}
+
+/** 停止 ASR 实时识别测试 */
+export type VoiceAsrTestStopCommand = {
+  readonly type: 'voice:asr:test:stop'
+}
+
 export type VoiceCommand =
   | VoiceStartCallCommand
   | VoiceStopCallCommand
   | VoiceGetModelsCommand
   | VoiceDownloadModelCommand
+  | VoicePauseModelCommand
+  | VoiceCancelModelCommand
   | VoiceGetConfigCommand
   | VoiceSetConfigCommand
   | VoicePlaybackFinishedCommand
   | VoiceTtsPreviewCommand
   | VoiceTtsStopPreviewCommand
   | VoiceTtsGenerateFileCommand
+  | VoiceAsrTestStartCommand
+  | VoiceAsrTestStopCommand

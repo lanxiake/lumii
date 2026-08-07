@@ -122,6 +122,22 @@
   line-height: var(--line-height-normal);
 }
 
+.toast-action {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary, transparent);
+  color: var(--color-accent, var(--color-info));
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toast-action:hover {
+  background-color: var(--color-bg-tertiary);
+}
+
 .toast-close {
   display: flex;
   align-items: center;

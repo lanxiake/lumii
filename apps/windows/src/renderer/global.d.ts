@@ -45,4 +45,19 @@ declare module '*.mp4' {
   export default src
 }
 
+declare module '@app-assets/*' {
+  const src: string
+  export default src
+}
+
+declare module '@app-assets/splash.mp4' {
+  const src: string
+  export default src
+}
+
+declare module '@app-assets/splash-poster.jpg' {
+  const src: string
+  export default src
+}
+
 export {}

@@ -1,6 +1,6 @@
 /**
  * 语音模型管理器
- * 模型存储在客户端本地，与网关完全隔离
+ * 模型存储在客户端本地；支持分项下载、暂停、取消与 HTTP Range 断点续传
  */
 import { app } from 'electron'
 import path from 'node:path'
@@ -29,12 +29,23 @@ const log = {
   error: (...args: unknown[]) => console.error('[VoiceModelManager]', ...args),
 }
 
+import type { VoiceModelDownloadState } from '../../shared/voice-events.js'
+
+/** 单项下载任务状态（与 shared 对齐） */
+export type { VoiceModelDownloadState }
+
 export interface VoiceModelStatus {
   id: string
   name: string
   sizeBytes: number
   downloaded: boolean
   path?: string
+  /** 下载任务状态 */
+  downloadState: VoiceModelDownloadState
+  /** 已下载字节（含 partial） */
+  downloadedBytes: number
+  /** 最近错误信息 */
+  errorMessage?: string
 }
 
 export interface VoiceModelPaths {
@@ -78,9 +89,60 @@ const MODEL_CATALOG = {
 
 type ModelId = keyof typeof MODEL_CATALOG
 
+interface TaskRuntime {
+  abort: AbortController | null
+  /** pause 时置 true，abort 后不删 partial */
+  pausing: boolean
+  state: VoiceModelDownloadState
+  downloadedBytes: number
+  totalBytes: number
+  errorMessage?: string
+  /** 上次成功使用的镜像前缀，续传优先 */
+  lastMirrorPrefix?: string
+}
+
+/**
+ * 语音模型本地下载与就绪检测
+ */
 export class VoiceModelManager {
+  private tasks = new Map<string, TaskRuntime>()
+
   private get baseDir(): string {
     return path.join(app.getPath('userData'), 'models', 'voice')
+  }
+
+  private get tempDir(): string {
+    return path.join(app.getPath('temp'), 'mtbot-voice-models')
+  }
+
+  /**
+   * 获取或创建任务运行时状态
+   */
+  private getOrCreateTask(modelId: string): TaskRuntime {
+    let t = this.tasks.get(modelId)
+    if (!t) {
+      t = {
+        abort: null,
+        pausing: false,
+        state: 'idle',
+        downloadedBytes: 0,
+        totalBytes: 0,
+      }
+      this.tasks.set(modelId, t)
+    }
+    return t
+  }
+
+  /**
+   * partial 临时文件路径
+   */
+  private partialPath(modelId: string): string {
+    const model = MODEL_CATALOG[modelId as ModelId]
+    if (!model) return path.join(this.tempDir, `${modelId}.partial`)
+    if (model.type === 'single') {
+      return path.join(this.tempDir, `${(model as { filename: string }).filename}.partial`)
+    }
+    return path.join(this.tempDir, `${model.id}.tar.bz2.partial`)
   }
 
   async getModelPaths(): Promise<VoiceModelPaths> {
@@ -103,12 +165,16 @@ export class VoiceModelManager {
     return fs.existsSync(path.join(this.baseDir, model.dir, (model as { filename: string }).filename))
   }
 
-  areRequiredModelsReady(): boolean {
-    return (
-      this.isModelDownloaded('vad') &&
-      this.isModelDownloaded('asr-paraformer-zh') &&
-      this.isModelDownloaded('tts-vits-zh')
-    )
+  /**
+   * 判断通话所需模型是否就绪。
+   * Edge TTS 无需本地下载 VITS；其余（含未传 provider）要求 VITS。
+   */
+  areRequiredModelsReady(ttsProvider?: string): boolean {
+    if (!this.isModelDownloaded('vad') || !this.isModelDownloaded('asr-paraformer-zh')) {
+      return false
+    }
+    if (ttsProvider === 'edge') return true
+    return this.isModelDownloaded('tts-vits-zh')
   }
 
   /**
@@ -119,14 +185,43 @@ export class VoiceModelManager {
     return this.isModelDownloaded('tts-vits-zh')
   }
 
+  /**
+   * 汇总各模型状态（含下载进度字段）
+   */
   getModelsStatus(): VoiceModelStatus[] {
-    return Object.values(MODEL_CATALOG).map((m) => ({
-      id: m.id,
-      name: m.name,
-      sizeBytes: m.sizeBytes,
-      downloaded: this.isModelDownloaded(m.id as ModelId),
-      path: path.join(this.baseDir, m.dir),
-    }))
+    return Object.values(MODEL_CATALOG).map((m) => {
+      const id = m.id as ModelId
+      const downloaded = this.isModelDownloaded(id)
+      const task = this.tasks.get(id)
+      let downloadState: VoiceModelDownloadState = task?.state ?? 'idle'
+      if (downloaded && downloadState !== 'downloading' && downloadState !== 'extracting') {
+        downloadState = 'ready'
+      }
+      let downloadedBytes = task?.downloadedBytes ?? 0
+      if (!task || task.state === 'idle' || task.state === 'paused') {
+        const partial = this.partialPath(id)
+        if (fs.existsSync(partial)) {
+          try {
+            downloadedBytes = fs.statSync(partial).size
+            if (!task || task.state === 'idle') {
+              downloadState = downloaded ? 'ready' : 'paused'
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
+      return {
+        id: m.id,
+        name: m.name,
+        sizeBytes: m.sizeBytes,
+        downloaded,
+        path: path.join(this.baseDir, m.dir),
+        downloadState,
+        downloadedBytes,
+        errorMessage: task?.errorMessage,
+      }
+    })
   }
 
   getModelBaseDir(): string {
@@ -134,63 +229,174 @@ export class VoiceModelManager {
   }
 
   /**
-   * 下载模型（支持断点续传思路：先下载到临时文件，完成后移动）
+   * 开始或从暂停处续传下载
    */
   startDownload(
     modelId: string,
-    onProgress: (p: { progress: number; downloadedBytes: number; totalBytes: number }) => void,
+    onProgress: (p: {
+      progress: number
+      downloadedBytes: number
+      totalBytes: number
+      state: VoiceModelDownloadState
+    }) => void,
     onError?: (message: string) => void,
-  ): AbortController {
-    const abort = new AbortController()
+  ): void {
     const model = MODEL_CATALOG[modelId as ModelId]
     if (!model) {
       log.error(`[startDownload] 未知模型 ID: ${modelId}`)
       onError?.(`未知模型: ${modelId}`)
-      return abort
+      return
     }
 
+    const task = this.getOrCreateTask(modelId)
+    if (task.state === 'downloading' || task.state === 'extracting') {
+      log.warn(`[startDownload] ${modelId} 已在下载中，忽略重复请求`)
+      return
+    }
+    if (this.isModelDownloaded(modelId as ModelId)) {
+      task.state = 'ready'
+      onProgress({ progress: 1, downloadedBytes: model.sizeBytes, totalBytes: model.sizeBytes, state: 'ready' })
+      return
+    }
+
+    task.pausing = false
+    task.errorMessage = undefined
+    task.abort = new AbortController()
+    task.state = 'downloading'
+
     log.info(`[startDownload] 开始下载: ${model.name}`)
-    this._downloadModel(model, onProgress, abort.signal).catch((e) => {
-      if (!abort.signal.aborted) {
+    this._downloadModel(model, task, onProgress, task.abort.signal)
+      .then(() => {
+        task.state = 'ready'
+        task.downloadedBytes = model.sizeBytes
+        task.abort = null
+        onProgress({
+          progress: 1,
+          downloadedBytes: model.sizeBytes,
+          totalBytes: model.sizeBytes,
+          state: 'ready',
+        })
+      })
+      .catch((e) => {
+        if (task.pausing) {
+          task.state = 'paused'
+          task.abort = null
+          const partialSize = fs.existsSync(this.partialPath(modelId))
+            ? fs.statSync(this.partialPath(modelId)).size
+            : task.downloadedBytes
+          task.downloadedBytes = partialSize
+          onProgress({
+            progress: task.totalBytes > 0 ? partialSize / task.totalBytes : 0,
+            downloadedBytes: partialSize,
+            totalBytes: task.totalBytes || model.sizeBytes,
+            state: 'paused',
+          })
+          return
+        }
+        if (task.abort?.signal.aborted) {
+          // cancel 路径已在 cancelDownload 清理
+          return
+        }
         const message = e instanceof Error ? e.message : String(e)
+        task.state = 'error'
+        task.errorMessage = message
+        task.abort = null
         log.error(`[startDownload] 下载失败 ${modelId}: ${message}`)
         onError?.(message)
-      }
-    })
+      })
+  }
 
-    return abort
+  /**
+   * 暂停下载（保留 partial，支持后续续传）
+   */
+  pauseDownload(modelId: string): boolean {
+    const task = this.tasks.get(modelId)
+    if (!task || task.state !== 'downloading' || !task.abort) {
+      return false
+    }
+    task.pausing = true
+    task.abort.abort()
+    log.info(`[pauseDownload] 已暂停: ${modelId}`)
+    return true
+  }
+
+  /**
+   * 取消下载并删除 partial
+   */
+  cancelDownload(modelId: string): boolean {
+    const task = this.getOrCreateTask(modelId)
+    task.pausing = false
+    if (task.abort) {
+      task.abort.abort()
+      task.abort = null
+    }
+    const partial = this.partialPath(modelId)
+    try {
+      if (fs.existsSync(partial)) fs.unlinkSync(partial)
+    } catch {
+      // ignore
+    }
+    task.state = 'idle'
+    task.downloadedBytes = 0
+    task.totalBytes = 0
+    task.errorMessage = undefined
+    log.info(`[cancelDownload] 已取消并清理: ${modelId}`)
+    return true
   }
 
   private async _downloadModel(
     model: (typeof MODEL_CATALOG)[ModelId],
-    onProgress: (p: { progress: number; downloadedBytes: number; totalBytes: number }) => void,
+    task: TaskRuntime,
+    onProgress: (p: {
+      progress: number
+      downloadedBytes: number
+      totalBytes: number
+      state: VoiceModelDownloadState
+    }) => void,
     signal: AbortSignal,
   ): Promise<void> {
-    const tempDir = path.join(app.getPath('temp'), 'mtbot-voice-models')
-    fs.mkdirSync(tempDir, { recursive: true })
-
+    fs.mkdirSync(this.tempDir, { recursive: true })
     const targetDir = path.join(this.baseDir, model.dir)
     fs.mkdirSync(targetDir, { recursive: true })
 
+    const report = (downloadedBytes: number, totalBytes: number, state: VoiceModelDownloadState) => {
+      task.downloadedBytes = downloadedBytes
+      task.totalBytes = totalBytes
+      task.state = state
+      const progress = totalBytes > 0 ? Math.min(1, downloadedBytes / totalBytes) : 0
+      onProgress({ progress, downloadedBytes, totalBytes, state })
+    }
+
     if (model.type === 'single') {
-      // 单文件下载
       const filename = (model as { filename: string }).filename
-      const tempFile = path.join(tempDir, filename)
-      await this._downloadFile(model.downloadUrl, tempFile, onProgress, signal)
-      fs.renameSync(tempFile, path.join(targetDir, filename))
+      const partialFile = this.partialPath(model.id)
+      await this._downloadFile(model.downloadUrl, partialFile, task, report, signal)
+      if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
+      fs.renameSync(partialFile, path.join(targetDir, filename))
       log.info(`[_downloadModel] ${model.name} 下载完成`)
     } else {
-      // tar.bz2 下载后解压
-      const tarFile = path.join(tempDir, `${model.id}.tar.bz2`)
-      await this._downloadFile(model.downloadUrl, tarFile, onProgress, signal)
+      const tarPartial = this.partialPath(model.id)
+      const tarFile = path.join(this.tempDir, `${model.id}.tar.bz2`)
+      await this._downloadFile(model.downloadUrl, tarPartial, task, report, signal)
+      if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
 
+      // 下载完成：partial → 正式 tar 名再解压
+      if (fs.existsSync(tarFile)) {
+        try {
+          fs.unlinkSync(tarFile)
+        } catch {
+          /* ignore */
+        }
+      }
+      fs.renameSync(tarPartial, tarFile)
+
+      task.state = 'extracting'
+      report(task.totalBytes || model.sizeBytes, task.totalBytes || model.sizeBytes, 'extracting')
       log.info(`[_downloadModel] 解压 ${model.name}...`)
-      // 使用 Windows 系统 tar，避免 git bash 拦截
       const tarExe = process.platform === 'win32' ? 'C:\\Windows\\System32\\tar.exe' : 'tar'
-      await execFileAsync(tarExe, ['-xf', tarFile, '-C', tempDir])
+      await execFileAsync(tarExe, ['-xf', tarFile, '-C', this.tempDir])
 
-      // 复制所需文件
-      const extractedDir = path.join(tempDir, (model as { extractedDir: string }).extractedDir)
+      const extractedDir = path.join(this.tempDir, (model as { extractedDir: string }).extractedDir)
       for (const file of model.files) {
         const src = path.join(extractedDir, file)
         const dst = path.join(targetDir, file)
@@ -201,7 +407,6 @@ export class VoiceModelManager {
         }
       }
 
-      // 复制 FST 规范化文件（可选）
       for (const fst of ['date.fst', 'phone.fst', 'number.fst']) {
         const src = path.join(extractedDir, fst)
         if (fs.existsSync(src)) {
@@ -209,43 +414,58 @@ export class VoiceModelManager {
         }
       }
 
-      // 清理临时文件
       try {
         fs.rmSync(tarFile, { force: true })
         fs.rmSync(extractedDir, { recursive: true, force: true })
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
 
       log.info(`[_downloadModel] ${model.name} 下载并解压完成`)
     }
   }
 
   /**
-   * 依次尝试镜像与直连下载语音模型文件
+   * 依次尝试镜像与直连；支持 Range 续传
    */
   private async _downloadFile(
     url: string,
-    destPath: string,
-    onProgress: (p: { progress: number; downloadedBytes: number; totalBytes: number }) => void,
+    destPartialPath: string,
+    task: TaskRuntime,
+    onProgress: (downloadedBytes: number, totalBytes: number, state: VoiceModelDownloadState) => void,
     signal: AbortSignal,
   ): Promise<void> {
     const errors: string[] = []
+    const prefixes = [...DOWNLOAD_MIRROR_PREFIXES]
+    if (task.lastMirrorPrefix !== undefined) {
+      const idx = prefixes.indexOf(task.lastMirrorPrefix)
+      if (idx > 0) {
+        prefixes.splice(idx, 1)
+        prefixes.unshift(task.lastMirrorPrefix)
+      }
+    }
 
-    for (const prefix of DOWNLOAD_MIRROR_PREFIXES) {
+    for (const prefix of prefixes) {
+      if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
       const mirrorUrl = prefix ? `${prefix}${url}` : url
       const label = prefix ? new URL(prefix).hostname : 'github.com'
       try {
-        await this._downloadFileOnce(mirrorUrl, destPath, onProgress, signal)
-        log.info(`[_downloadFile] 下载成功 (${label}): ${path.basename(destPath)}`)
+        await this._downloadFileOnce(mirrorUrl, destPartialPath, task, onProgress, signal)
+        task.lastMirrorPrefix = prefix
+        log.info(`[_downloadFile] 下载成功 (${label}): ${path.basename(destPartialPath)}`)
         return
       } catch (err) {
         if (signal.aborted) throw err
         const msg = err instanceof Error ? err.message : String(err)
         log.warn(`[_downloadFile] ${label} 失败: ${msg}`)
         errors.push(`${label}: ${msg}`)
-        try {
-          fs.unlinkSync(destPath)
-        } catch {
-          /* ignore */
+        // 不支持 Range 或损坏时删掉 partial 整文件重试下一镜像
+        if (msg.includes('不支持断点续传') || msg.includes('HTTP 416') || msg.includes('范围无效')) {
+          try {
+            fs.unlinkSync(destPartialPath)
+          } catch {
+            /* ignore */
+          }
         }
       }
     }
@@ -254,17 +474,18 @@ export class VoiceModelManager {
   }
 
   /**
-   * 从单个 URL 下载文件（支持重定向、连接/数据双超时）
+   * 单 URL 下载（支持重定向、Range 续传、连接/数据双超时）
    */
   private _downloadFileOnce(
     url: string,
-    destPath: string,
-    onProgress: (p: { progress: number; downloadedBytes: number; totalBytes: number }) => void,
+    destPartialPath: string,
+    task: TaskRuntime,
+    onProgress: (downloadedBytes: number, totalBytes: number, state: VoiceModelDownloadState) => void,
     signal: AbortSignal,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       if (signal.aborted) {
-        reject(new Error('已取消'))
+        reject(new Error(task.pausing ? '已暂停' : '已取消'))
         return
       }
 
@@ -272,6 +493,7 @@ export class VoiceModelManager {
       let idleTimer: ReturnType<typeof setTimeout> | undefined
       let connectTimer: ReturnType<typeof setTimeout> | undefined
       let currentReq: http.ClientRequest | null = null
+      let fileStream: fs.WriteStream | null = null
 
       const finish = (err?: Error) => {
         if (settled) return
@@ -290,14 +512,22 @@ export class VoiceModelManager {
         }, DATA_IDLE_TIMEOUT_MS)
       }
 
+      const existingBytes =
+        fs.existsSync(destPartialPath) ? fs.statSync(destPartialPath).size : 0
+
       const doRequest = (reqUrl: string, redirectCount = 0): void => {
         if (redirectCount > 5) {
           finish(new Error('重定向次数过多'))
           return
         }
 
+        const headers: Record<string, string> = { 'User-Agent': 'lumii-client' }
+        if (existingBytes > 0) {
+          headers.Range = `bytes=${existingBytes}-`
+        }
+
         const protocol = reqUrl.startsWith('https') ? https : http
-        const req = protocol.get(reqUrl, { headers: { 'User-Agent': 'mtbot-client' } }, (res) => {
+        const req = protocol.get(reqUrl, { headers }, (res) => {
           currentReq = req
           if (connectTimer) {
             clearTimeout(connectTimer)
@@ -312,40 +542,70 @@ export class VoiceModelManager {
             return
           }
 
-          if (res.statusCode !== 200) {
+          // 续传但服务端不支持 Range：回落整文件重下
+          if (existingBytes > 0 && res.statusCode === 200) {
+            res.resume()
+            try {
+              fs.unlinkSync(destPartialPath)
+            } catch {
+              /* ignore */
+            }
+            finish(new Error('不支持断点续传'))
+            return
+          }
+
+          if (existingBytes > 0 && res.statusCode === 416) {
+            res.resume()
+            finish(new Error('HTTP 416'))
+            return
+          }
+
+          const ok =
+            res.statusCode === 200 || (existingBytes > 0 && res.statusCode === 206)
+          if (!ok) {
             res.resume()
             finish(new Error(`HTTP ${res.statusCode}`))
             return
           }
 
-          const totalBytes = parseInt(res.headers['content-length'] ?? '0', 10)
-          let downloadedBytes = 0
-          const fileStream = fs.createWriteStream(destPath)
+          let totalBytes = 0
+          if (res.statusCode === 206 && res.headers['content-range']) {
+            const m = /\/(\d+)\s*$/.exec(res.headers['content-range'])
+            totalBytes = m ? parseInt(m[1], 10) : existingBytes + parseInt(res.headers['content-length'] ?? '0', 10)
+          } else {
+            totalBytes = parseInt(res.headers['content-length'] ?? '0', 10)
+          }
 
-          signal.addEventListener('abort', () => {
+          let downloadedBytes = existingBytes
+          const append = existingBytes > 0 && res.statusCode === 206
+          fileStream = fs.createWriteStream(destPartialPath, { flags: append ? 'a' : 'w' })
+
+          const onAbort = () => {
             req.destroy()
-            fileStream.close()
-            fs.unlink(destPath, () => {})
-            finish(new Error('已取消'))
-          }, { once: true })
+            fileStream?.close()
+            finish(new Error(task.pausing ? '已暂停' : '已取消'))
+          }
+          signal.addEventListener('abort', onAbort, { once: true })
 
           resetIdleTimer()
+          onProgress(downloadedBytes, totalBytes || task.totalBytes, 'downloading')
 
           res.on('data', (chunk: Buffer) => {
             downloadedBytes += chunk.length
             resetIdleTimer()
-            const progress = totalBytes > 0 ? downloadedBytes / totalBytes : 0
-            onProgress({ progress, downloadedBytes, totalBytes })
+            onProgress(downloadedBytes, totalBytes || downloadedBytes, 'downloading')
           })
 
           res.pipe(fileStream)
 
           fileStream.on('finish', () => {
-            fileStream.close(() => finish())
+            fileStream?.close(() => {
+              signal.removeEventListener('abort', onAbort)
+              finish()
+            })
           })
 
           fileStream.on('error', (e) => {
-            fs.unlink(destPath, () => {})
             finish(e)
           })
 

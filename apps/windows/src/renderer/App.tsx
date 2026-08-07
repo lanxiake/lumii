@@ -15,6 +15,7 @@ import { MainLayout } from './components/layout/MainLayout/MainLayout'
 import { SettingsHubModal, useSettingsHub, isHubView } from './components/SettingsHub'
 import { SplashOverlay } from './components/SplashOverlay/SplashOverlay'
 import { useTheme } from './contexts/ThemeContext/ThemeContext'
+import { useToast } from './components/ui/Toast/useToast'
 import {
   useAgentRuntimeActions,
   useAgentRuntimeGlobalState,
@@ -34,6 +35,17 @@ function shouldSkipSplash(): boolean {
   if (typeof window === 'undefined') return false
   const skip = window.electronAPI?.splash?.shouldSkip?.()
   return Boolean(skip)
+}
+
+/**
+ * 跳过开机画面时移除 early-splash DOM（若仍存在）
+ */
+function removeEarlySplashIfPresent(): void {
+  try {
+    document.getElementById('lumii-early-splash')?.remove()
+  } catch {
+    // ignore
+  }
 }
 /**
  * 宠物模式会话同步：把主窗口当前 sessionKey 同步到主进程，
@@ -58,6 +70,7 @@ const AuthenticatedApp: React.FC = () => {
   const [activeView, setActiveView] = useState<ViewType>('dashboard')
   const { appliedTheme, toggleTheme } = useTheme()
   const { openHub, openHubForView, closeHub, isOpen: hubOpen } = useSettingsHub()
+  const { showToast } = useToast()
   /** 本地 chat 模型是否已启用并可调用（独立版用此驱动标题栏绿点） */
   const [modelReady, setModelReady] = useState(false)
 
@@ -109,6 +122,21 @@ const AuthenticatedApp: React.FC = () => {
       window.electronAPI.off('navigate-to-settings', handleNavigateToSettings)
     }
   }, [openHub])
+
+  // 语音模型未就绪：toast + 引导前往语音设置
+  useEffect(() => {
+    const handler = () => {
+      showToast({
+        type: 'warning',
+        message: '请先在设置中下载语音模型',
+        duration: 6000,
+        actionLabel: '去设置',
+        onAction: () => openHub('settings', 'voice'),
+      })
+    }
+    window.addEventListener('voice:models:need-download', handler)
+    return () => window.removeEventListener('voice:models:need-download', handler)
+  }, [openHub, showToast])
 
   const themeToggleBtn = (
     <button
@@ -172,7 +200,11 @@ const AuthenticatedApp: React.FC = () => {
  * 主应用内容组件
  */
 const AppContent: React.FC = () => {
-  const [splashDone, setSplashDone] = useState(shouldSkipSplash)
+  const [splashDone, setSplashDone] = useState(() => {
+    const skip = shouldSkipSplash()
+    if (skip) removeEarlySplashIfPresent()
+    return skip
+  })
 
   // 独立版无登录：直接渲染主应用；开机画面覆盖在主窗口内全屏播放
   return (

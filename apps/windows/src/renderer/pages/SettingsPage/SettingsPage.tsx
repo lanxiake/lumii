@@ -32,6 +32,8 @@ import { StorageInfo } from './components/StorageInfo'
 import { SecurityLogViewer } from './components/SecurityLogViewer/SecurityLogViewer'
 import { UsagePanel } from './components/UsagePanel'
 import { LumiiLogo } from '../../components/brand/LumiiLogo'
+import { VoiceModelsPanel } from './components/VoiceModelsPanel'
+import { AsrLiveTestPanel } from './components/AsrLiveTestPanel'
 import {
   getProviderConfig,
   saveProviderConfig,
@@ -159,6 +161,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   } | null>(null)
   const [voiceSaving, setVoiceSaving] = useState(false)
   const [voicePreviewing, setVoicePreviewing] = useState(false)
+  /** 本地 VITS 模型是否已下载 */
+  const [vitsModelReady, setVitsModelReady] = useState(false)
   const previewAudioCtxRef = React.useRef<AudioContext | null>(null)
 
   // Category-level save hooks (must be at top level, not in render functions)
@@ -273,7 +277,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   }, [])
 
   /**
-   * 切换到语音设置时加载配置
+   * 切换到语音设置时加载配置与本地 TTS 模型就绪状态
    */
   useEffect(() => {
     if (activeCategory !== 'voice') return
@@ -284,6 +288,19 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     }).catch(() => {
       console.warn('[SettingsPage] 获取语音配置失败')
     })
+    electronAPI.voice.sendCommand({ type: 'voice:models:get' }).then((list: any) => {
+      if (!Array.isArray(list)) return
+      setVitsModelReady(Boolean(list.find((m: any) => m.id === 'tts-vits-zh')?.downloaded))
+    }).catch(() => undefined)
+
+    const unsub = electronAPI.voice.onEvent?.((event: any) => {
+      if (event.type === 'voice:models:status' && Array.isArray(event.models)) {
+        setVitsModelReady(Boolean(event.models.find((m: any) => m.id === 'tts-vits-zh')?.downloaded))
+      }
+    })
+    return () => {
+      if (typeof unsub === 'function') unsub()
+    }
   }, [activeCategory])
 
   /**
@@ -1546,9 +1563,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       await electronAPI.voice.sendCommand({ type: 'voice:tts:preview' }).catch(() => setVoicePreviewing(false))
     }
 
+    const vitsDownloaded = vitsModelReady
+
     return (
       <div className={styles['settings-section']}>
         <h3>语音设置</h3>
+
+        <VoiceModelsPanel />
 
         {!voiceConfig ? (
           <p className={styles['settings-note']}>加载语音配置中...</p>
@@ -1603,11 +1624,23 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 <Select
                   value={voiceConfig.tts.provider}
                   options={[
-                    { label: '本地 VITS（离线）', value: 'local-vits' },
+                    {
+                      label: vitsDownloaded ? '本地 VITS（离线）' : '本地 VITS（需先下载模型）',
+                      value: 'local-vits',
+                      disabled: !vitsDownloaded,
+                    },
                     { label: 'Edge TTS（联网）', value: 'edge' },
                   ]}
-                  onChange={(e) => saveVoiceConfig({ tts: { provider: e.target.value } })}
+                  onChange={(e) => {
+                    if (e.target.value === 'local-vits' && !vitsDownloaded) return
+                    saveVoiceConfig({ tts: { provider: e.target.value } })
+                  }}
                 />
+                {!vitsDownloaded && (
+                  <p className={styles['settings-note']} style={{ marginTop: 4 }}>
+                    请先在上方「语音模型」中下载 VITS，即可启用离线合成。
+                  </p>
+                )}
               </div>
               <div className={styles['setting-item']}>
                 <label className={styles['setting-label']}>
@@ -1734,7 +1767,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 variant="secondary"
                 size="sm"
                 onClick={handlePreview}
-                disabled={voicePreviewing}
+                disabled={
+                  voicePreviewing ||
+                  (voiceConfig.tts.provider === 'local-vits' && !vitsDownloaded)
+                }
               >
                 {voicePreviewing ? '播放中...' : '▶ 预览声音'}
               </Button>
@@ -1743,7 +1779,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   正在播放示例语音
                 </span>
               )}
+              {voiceConfig.tts.provider === 'local-vits' && vitsDownloaded && !voicePreviewing && (
+                <span className={styles['settings-note']} style={{ marginLeft: 8 }}>
+                  使用已下载的离线 VITS 试听
+                </span>
+              )}
             </div>
+
+            <AsrLiveTestPanel />
 
             {voiceSaving && (
               <p className={styles['settings-note']}>保存中...</p>
