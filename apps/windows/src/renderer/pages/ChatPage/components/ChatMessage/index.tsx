@@ -795,7 +795,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         const hasParts = (message.parts?.length ?? 0) > 0
         return (
           <>
-            {hasParts ? renderPartsTimeline() : (
+            {hasParts ? wrapSubAgent(renderPartsTimeline()) : (
               message.content && (
                 <div className={styles['message-text']}>
                   <div className={styles['message-content-partial']}>

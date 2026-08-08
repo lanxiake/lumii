@@ -11,6 +11,7 @@ import { TodoPanel } from '../TodoPanel'
 import { SessionFileList } from '../SessionFileList'
 import type { ChatSession, ChatMessage as ChatMessageType, AgentWorkflowItem, ToolCall } from '../../../../hooks/business/useChat'
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime'
+import { mergeAssistantParts, mergeFileChanges } from './mergeAssistantParts'
 import type { ExecApprovalRequest, ExecApprovalDecision } from '../../../../types/exec-approvals'
 import type { PlanApprovalRequest } from '../../../../types/plan-approval'
 import type { RuntimeFileEvent, RuntimeCompactionEvent } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
@@ -330,11 +331,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
           const parent = result[parentIdx] as MessageItem
           result[parentIdx] = {
             ...parent,
-            parts: [...(parent.parts ?? []), ...(msgItem.parts ?? [])],
-            fileChanges: [
-              ...(parent.fileChanges ?? []),
-              ...(msgItem.fileChanges ?? []),
-            ],
+            parts: mergeAssistantParts(parent.parts, msgItem.parts),
+            fileChanges: mergeFileChanges(parent.fileChanges, msgItem.fileChanges),
             isStreaming: msgItem.isStreaming ? true : parent.isStreaming,
           }
         }
