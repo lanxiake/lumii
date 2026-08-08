@@ -13,6 +13,7 @@ import {
   invalidateQwen3TtsPrepare,
   resetSharedQwen3TtsClient,
 } from './qwen3-tts-client.js'
+import { saveTempCloneRefAudio } from './voice-temp-ref.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceIPC]', ...args),
@@ -337,6 +338,12 @@ export function registerVoiceIpc(
 
         case 'voice:profiles:delete':
           return { ok: voiceService.getProfileStore().delete(command.profileId) }
+
+        case 'voice:profiles:save-temp-ref': {
+          const { audioBase64, ext } = command
+          const filePath = saveTempCloneRefAudio(audioBase64, ext ?? 'wav')
+          return { ok: true, filePath }
+        }
 
         default:
           log.warn(`[voice:command] 未知命令: ${(command as any).type}`)

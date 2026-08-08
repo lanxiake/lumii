@@ -119,6 +119,15 @@ export type VoiceProfilesDeleteCommand = {
   profileId: string
 }
 
+/** 将克隆参考音频写入临时目录，返回绝对路径 */
+export type VoiceProfilesSaveTempRefCommand = {
+  readonly type: 'voice:profiles:save-temp-ref'
+  /** 原始音频字节的 base64 */
+  audioBase64: string
+  /** 扩展名，默认 wav */
+  ext?: 'wav' | 'webm'
+}
+
 export type VoiceCommand =
   | VoiceStartCallCommand
   | VoiceStopCallCommand
@@ -138,3 +147,4 @@ export type VoiceCommand =
   | VoiceProfilesListCommand
   | VoiceProfilesUpsertCommand
   | VoiceProfilesDeleteCommand
+  | VoiceProfilesSaveTempRefCommand
