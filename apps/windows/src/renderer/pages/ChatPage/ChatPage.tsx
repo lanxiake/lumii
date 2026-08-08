@@ -993,6 +993,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           id: msgId,
           role: 'system' as const,
           content: [{ type: 'text' as const, text }],
+          parts: [],
           timestamp: Date.now(),
           isStreaming: false,
           toolCalls: [],

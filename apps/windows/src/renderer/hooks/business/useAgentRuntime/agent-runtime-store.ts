@@ -15,6 +15,7 @@ import type {
   ContentBlock,
   TokenUsage,
 } from '../../../../shared/agent-runtime-events'
+import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime'
 
 // ============================================================
 // 状态类型定义
@@ -34,6 +35,10 @@ export interface RuntimeMessage {
   /** system 仅用于客户端本地注入的命令反馈消息，不发给 LLM、不持久化 */
   readonly role: 'user' | 'assistant' | 'system'
   readonly content: readonly ContentBlock[]
+  /** 助手消息的结构化时间线；用户和 system 消息使用空数组 */
+  readonly parts: readonly AssistantPart[]
+  /** 本轮助手回复关联的工作区净文件变更 */
+  readonly fileChanges?: readonly FileChangeEntry[]
   readonly timestamp: number
   readonly isStreaming: boolean
   /** 是否为语音识别消息（用户通过语音通话输入的消息） */

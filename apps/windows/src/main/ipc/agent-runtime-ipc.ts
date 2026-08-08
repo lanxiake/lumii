@@ -1989,7 +1989,7 @@ async function migrateThinkTagsInDb(bridge: AgentRuntimeBridge): Promise<void> {
 function getConversationMessages(
   bridge: AgentRuntimeBridge,
   sessionKey: string,
-): readonly { id: string; role: string; content: readonly { type: 'text'; text: string }[]; timestamp: number; isStreaming?: boolean; thinkingText?: string; toolCalls?: readonly { id: string; name: string; args: Record<string, unknown>; result?: unknown; isError?: boolean; textPositionAtStart?: number }[]; sourceAgent?: { instanceId: string; label: string }; isVoice?: boolean; audioWavBase64?: string }[] {
+): readonly { id: string; role: string; content: readonly { type: 'text'; text: string }[]; contentJson: string; timestamp: number; isStreaming?: boolean; thinkingText?: string; toolCalls?: readonly { id: string; name: string; args: Record<string, unknown>; result?: unknown; isError?: boolean; textPositionAtStart?: number }[]; sourceAgent?: { instanceId: string; label: string }; isVoice?: boolean; audioWavBase64?: string }[] {
   const conversationId = sessionKey
   bridge.setLastActiveConversation(conversationId)
   const messages = bridge.conversationRepo.loadRecentMessages(conversationId, 2000, true)
@@ -2061,6 +2061,8 @@ function getConversationMessages(
       id: msg.id,
       role: msg.role,
       content: [{ type: 'text' as const, text: contentText }],
+      // renderer 使用共享 parser 恢复 assistant_parts，保留旧 content 字段兼容历史消息。
+      contentJson: msg.content_json,
       timestamp: new Date(msg.timestamp).getTime(),
       ...(msg.is_streaming === 1 ? { isStreaming: true } : {}),
       ...(thinkingText ? { thinkingText } : {}),

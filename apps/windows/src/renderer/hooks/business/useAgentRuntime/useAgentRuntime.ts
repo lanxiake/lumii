@@ -22,6 +22,11 @@ import {
 import { handleRuntimeEvent } from './event-handler'
 import type { AgentRuntimeEvent } from '../../../../shared/agent-runtime-events'
 import { isCommandError } from '../../../../shared/agent-runtime-commands'
+import {
+  parseMessageContentJson,
+  type AssistantPart,
+  type FileChangeEntry,
+} from '@mtbot/agent-runtime'
 
 /** 仅在开发环境输出详细日志，避免生产环境噪音 */
 const debugLog = process.env.NODE_ENV === 'development'
@@ -322,6 +327,7 @@ export function useAgentRuntimeActions() {
             id: msgId,
             role: 'user' as const,
             content: [{ type: 'text' as const, text: content }],
+            parts: [],
             timestamp: Date.now(),
             isStreaming: false,
             toolCalls: [],
@@ -607,6 +613,7 @@ export function useAgentRuntimeActions() {
           id: '__restored_todo_msg_' + sessionKey,
           role: 'assistant' as const,
           content: [{ type: 'text' as const, text: '' }],
+          parts: [],
           timestamp: Date.now(),
           isStreaming: false,
           toolCalls: [synthetic],
@@ -686,6 +693,7 @@ export function useAgentRuntimeActions() {
       isStreaming?: boolean
       isVoice?: boolean
       audioWavBase64?: string
+      contentJson?: string
       toolCalls?: readonly {
         id: string
         name: string
@@ -712,22 +720,47 @@ export function useAgentRuntimeActions() {
     const dbFileEvents = meta.fileEvents
     debugLog('[switchSession] 加载历史文件/任务 sessionKey=' + sessionKey + ' files=' + dbFileEvents.length + ' tasks=' + meta.tasks.length)
 
-    const toRuntimeMsg = (msg: DbMessage): RuntimeMessage => ({
-      id: msg.id,
-      role: msg.role,
-      content: msg.content,
-      timestamp: msg.timestamp,
-      isStreaming: msg.isStreaming ?? false,
-      toolCalls: (msg.toolCalls ?? []).map((tc) => ({
-        ...tc,
-        status: (tc.isError ? 'error' : 'completed') as 'error' | 'completed',
-        isError: tc.isError ?? false,
-        textPositionAtStart: tc.textPositionAtStart,
-      })),
-      ...(msg.sourceAgent ? { sourceAgent: msg.sourceAgent } : {}),
-      ...(msg.isVoice ? { isVoice: true } : {}),
-      ...(msg.audioWavBase64 ? { audioWavBase64: msg.audioWavBase64 } : {}),
-    })
+    /**
+     * 将主进程返回的 DB 消息映射为 renderer 消息，并恢复 assistant_parts。
+     */
+    const toRuntimeMsg = (msg: DbMessage): RuntimeMessage => {
+      const parsed = msg.contentJson ? parseMessageContentJson(msg.contentJson) : undefined
+      const assistantContent = parsed?.type === 'assistant_parts' ? parsed : undefined
+      const parts: readonly AssistantPart[] = assistantContent?.parts ?? []
+      const fileChanges: readonly FileChangeEntry[] | undefined = assistantContent?.fileChanges
+      const content = assistantContent
+        ? [{
+            type: 'text' as const,
+            text: parts
+              .filter((part): part is Extract<AssistantPart, { type: 'text' }> => part.type === 'text')
+              .map((part) => part.text)
+              .join(''),
+          }]
+        : msg.content
+
+      return {
+        id: msg.id,
+        role: msg.role,
+        content,
+        parts,
+        timestamp: msg.timestamp,
+        isStreaming: msg.isStreaming ?? false,
+        toolCalls: (msg.toolCalls ?? []).map((tc) => ({
+          ...tc,
+          status: (tc.isError ? 'error' : 'completed') as 'error' | 'completed',
+          isError: tc.isError ?? false,
+          textPositionAtStart: tc.textPositionAtStart,
+        })),
+        ...(assistantContent?.sourceAgent
+          ? { sourceAgent: assistantContent.sourceAgent }
+          : msg.sourceAgent
+            ? { sourceAgent: msg.sourceAgent }
+            : {}),
+        ...(fileChanges ? { fileChanges } : {}),
+        ...(msg.isVoice ? { isVoice: true } : {}),
+        ...(msg.audioWavBase64 ? { audioWavBase64: msg.audioWavBase64 } : {}),
+      }
+    }
 
     const dbMsgList: RuntimeMessage[] = injectRestoredTasks(dbMessages.map(toRuntimeMsg), meta.tasks)
     const hasDbStreamingMsg = dbMsgList.some((m) => m.isStreaming)
@@ -754,6 +787,15 @@ export function useAgentRuntimeActions() {
         const mergedDbMsgs = dbMsgList.map((dbMsg) => {
           const memMsg = latestMemSession.messages.find((m) => m.id === dbMsg.id)
           if (!memMsg) return dbMsg
+          // 流式中的内存 parts 比 DB 快照新，切换会话时必须保留时间线增量。
+          if (memMsg.isStreaming && memMsg.parts.length > 0) {
+            return {
+              ...dbMsg,
+              content: memMsg.content,
+              parts: memMsg.parts,
+              ...(memMsg.fileChanges ? { fileChanges: memMsg.fileChanges } : {}),
+            }
+          }
           const shouldOverlayToolCalls = (memMsg.toolCalls?.length ?? 0) > (dbMsg.toolCalls?.length ?? 0)
           if (!shouldOverlayToolCalls) return dbMsg
           return { ...dbMsg, toolCalls: memMsg.toolCalls }
