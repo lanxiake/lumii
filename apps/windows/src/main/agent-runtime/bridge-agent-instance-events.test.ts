@@ -192,7 +192,6 @@ describe("assistant parts bridge persistence", () => {
         instanceStates,
         instanceToConversation: new Map([["instance", "conversation-1"]]),
         toolCallInstanceMap: new Map(),
-        toolTextPositionMap: new Map(),
         toolStartTimeMap: new Map(),
         nodeStreamCallbacks: new Map(),
         getCompactionForRootSession: () => ({

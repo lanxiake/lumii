@@ -92,7 +92,6 @@ export interface BridgeInstanceFactoryDeps {
   instanceToRootSessionKey: Map<string, string>
   nodeStreamCallbacks: Map<string, (event: AgentRuntimeEvent) => void>
   toolCallInstanceMap: Map<string, string>
-  toolTextPositionMap: Map<string, number>
   toolStartTimeMap: Map<string, number>
   /** 可变引用：当前正在执行工具的实例 ID */
   currentToolExecutorInstanceId: MutableRef<string | undefined>
@@ -462,7 +461,6 @@ export class BridgeInstanceFactory {
       agentName: def.name,
       isSubAgent: Boolean(options?.parentInstanceId),
       toolCallInstanceMap: this.deps.toolCallInstanceMap,
-      toolTextPositionMap: this.deps.toolTextPositionMap,
       toolStartTimeMap: this.deps.toolStartTimeMap,
       nodeStreamCallbacks: this.deps.nodeStreamCallbacks,
       getCompactionForRootSession: (k) => this.deps.sessionModelCatalog.getCompactionForRootSession(k),

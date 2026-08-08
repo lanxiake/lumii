@@ -5,7 +5,7 @@
  * 用于简化 createInstance / destroy / destroyAll 等生命周期逻辑。
  *
  * 注意：以下字段仍保持为独立 Map（不放入 InstanceState）：
- * - toolTextPositionMap / toolStartTimeMap：复合键 `${instanceId}:${toolCallId}`
+ * - toolStartTimeMap：复合键 `${instanceId}:${toolCallId}`
  * - toolCallInstanceMap：键为 toolCallId 而非 instanceId
  * - instanceToConversation：promptComposer 等外部组件直接依赖
  * - nodeStreamCallbacks：节点流式回调，跨生命周期使用

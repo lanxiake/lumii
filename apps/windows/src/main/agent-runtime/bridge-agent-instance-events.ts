@@ -162,7 +162,6 @@ export interface BridgeAgentInstanceEventDeps {
   instanceStates: InstanceStateStore
   instanceToConversation: Map<string, string>
   toolCallInstanceMap: Map<string, string>
-  toolTextPositionMap: Map<string, number>
   toolStartTimeMap: Map<string, number>
   nodeStreamCallbacks: Map<string, (event: AgentRuntimeEvent) => void>
   getCompactionForRootSession: (rootSessionKey: string) => {

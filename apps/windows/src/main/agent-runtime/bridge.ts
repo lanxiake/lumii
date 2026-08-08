@@ -130,7 +130,6 @@ export class AgentRuntimeBridge {
   private get lastActiveConvId(): string | null { return this.lastActiveConvIdRef.value }
   private set lastActiveConvId(v: string | null) { this.lastActiveConvIdRef.value = v }
   /** `${instanceId}:${toolCallId}` 复合键 Map（独立维护） */
-  private readonly toolTextPositionMap = new Map<string, number>()
   private readonly toolStartTimeMap = new Map<string, number>()
 
   // 存储层 Repos — 初始化后可用
@@ -259,7 +258,6 @@ export class AgentRuntimeBridge {
       ipcChannel: this.ipcChannel,
       getCronScheduler: () => this.cronScheduler,
       getDefinitionStore: () => this.definitionStore,
-      toolTextPositionMap: this.toolTextPositionMap,
       toolStartTimeMap: this.toolStartTimeMap,
       toolCallInstanceMap: this.toolCallInstanceMap,
       nodeStreamCallbacks: this.nodeStreamCallbacks,
@@ -566,7 +564,6 @@ export class AgentRuntimeBridge {
       instanceToRootSessionKey: this.instanceToRootSessionKey,
       nodeStreamCallbacks: this.nodeStreamCallbacks,
       toolCallInstanceMap: this.toolCallInstanceMap,
-      toolTextPositionMap: this.toolTextPositionMap,
       toolStartTimeMap: this.toolStartTimeMap,
       currentToolExecutorInstanceId: this.currentToolExecutorInstanceIdRef,
       mainInnerStreamRef: this.mainInnerStreamRef,
