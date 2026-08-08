@@ -118,6 +118,19 @@
   white-space: nowrap;
 }
 
+.versionRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-primary, inherit);
+}
+
+.versionLabel {
+  color: var(--color-text-secondary, #8c8c8c);
+}
+
 .toolCardFooter {
   display: flex;
   align-items: center;

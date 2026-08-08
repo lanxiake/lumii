@@ -10,7 +10,7 @@ import {
   Mic,
   Wrench,
   Info,
-  BarChart2,
+  Zap,
 } from '../../components/ui/Icon'
 import { Eye, EyeOff, FileText } from 'lucide-react'
 import { Card } from '../../components/ui/Card/Card'
@@ -79,7 +79,7 @@ const CATEGORIES: Array<{ id: MergedSettingsCategory; label: string; icon: React
   { id: 'channels', label: '渠道设置', icon: <Radio size={SETTINGS_ICON_SIZE} /> },
   { id: 'codingDev', label: 'ACP 设置', icon: <Wrench size={SETTINGS_ICON_SIZE} /> },
   { id: 'pet', label: '宠物模式', icon: <Smartphone size={SETTINGS_ICON_SIZE} /> },
-  { id: 'usage', label: '用量与花费', icon: <BarChart2 size={SETTINGS_ICON_SIZE} /> },
+  { id: 'usage', label: '用量与花费', icon: <Zap size={SETTINGS_ICON_SIZE} /> },
   { id: 'privacy', label: '隐私与数据', icon: <Shield size={SETTINGS_ICON_SIZE} /> },
   { id: 'aboutAndUpdate', label: '关于与更新', icon: <Info size={SETTINGS_ICON_SIZE} /> },
 ]
@@ -178,7 +178,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [voiceSaving, setVoiceSaving] = useState(false)
   const [voicePreviewing, setVoicePreviewing] = useState(false)
   /** 语音合成测试文案（默认与预览默认句一致，最多 100 字） */
-  const [voicePreviewText, setVoicePreviewText] = useState('你好，这是声音预览。')
+  const [voicePreviewText, setVoicePreviewText] = useState('你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。。')
   /** TTS 运行时阶段文案（安装依赖 / 加载模型等） */
   const [voiceRuntimeStatus, setVoiceRuntimeStatus] = useState<{
     phase: string
@@ -327,7 +327,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       console.warn('[SettingsPage] 获取语音配置失败')
     })
     const applyModelReady = (list: any[]) => {
-      setVitsModelReady(Boolean(list.find((m: any) => m.id === 'tts-vits-zh')?.downloaded))
+      setVitsModelReady(Boolean(list.find((m: any) => m.id === 'tts-melo-zh-en')?.downloaded))
       const tok = Boolean(list.find((m: any) => m.id === 'tts-qwen3-tokenizer-12hz')?.downloaded)
       const c06 = Boolean(list.find((m: any) => m.id === 'tts-qwen3-0.6b-custom')?.downloaded)
       const c17 = Boolean(list.find((m: any) => m.id === 'tts-qwen3-1.7b-custom')?.downloaded)
@@ -1682,7 +1682,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         await previewAudioCtxRef.current.resume()
       }
       setVoicePreviewing(true)
-      const text = voicePreviewText.trim().slice(0, 100) || '你好，这是声音预览。'
+      const text = voicePreviewText.trim().slice(0, 100) || '你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。。'
       await electronAPI.voice
         .sendCommand({ type: 'voice:tts:preview', text, maxChars: 100 })
         .catch(() => setVoicePreviewing(false))
@@ -1892,7 +1892,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 <h5 className={styles['voice-block-subtitle']}>设置</h5>
                 {cloneEnabled && voiceConfig.tts.provider === 'qwen3' && (
                   <p className={styles['settings-note']} style={{ marginBottom: 8 }}>
-                    已开启声音克隆：实际出声使用下方「我的音色」。关闭克隆后将恢复此处内置音色 / Edge / VITS。
+                    已开启声音克隆：实际出声使用下方「我的音色」。关闭克隆后将恢复此处内置音色 / Edge / MeloTTS。
                   </p>
                 )}
                 <div className={styles['setting-item']}>
@@ -1902,7 +1902,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     options={[
                       { label: 'Edge TTS（联网，免下载）', value: 'edge' },
                       {
-                        label: vitsDownloaded ? '本地 VITS（离线）' : '本地 VITS（需先下载）',
+                        label: vitsDownloaded
+                          ? '本地 MeloTTS 中英混读（离线）'
+                          : '本地 MeloTTS 中英混读（需先下载）',
                         value: 'local-vits',
                         disabled: !vitsDownloaded,
                       },
@@ -1995,25 +1997,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     style={{ width: '200px' }}
                   />
                 </div>
-                {voiceConfig.tts.provider === 'local-vits' && (
-                  <div className={styles['setting-item']}>
-                    <label className={styles['setting-label']}>说话人 ID（0~173）</label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={173}
-                      value={String(voiceConfig.tts.speakerId ?? 0)}
-                      onChange={(e) =>
-                        saveVoiceConfig({
-                          tts: {
-                            speakerId: Math.max(0, Math.min(173, parseInt(e.target.value, 10) || 0)),
-                          },
-                        })
-                      }
-                      style={{ width: '80px' }}
-                    />
-                  </div>
-                )}
                 {voiceConfig.tts.provider === 'edge' && (
                   <div className={styles['setting-item']}>
                     <label className={styles['setting-label']}>Edge 音色</label>
@@ -2124,7 +2107,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     value={voicePreviewText}
                     maxLength={100}
                     onChange={(e) => setVoicePreviewText(e.target.value.slice(0, 100))}
-                    placeholder="你好，这是声音预览。"
+                    placeholder="你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。。"
                   />
                 </div>
                 <Button
@@ -2147,7 +2130,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             <div className={styles['voice-block']}>
               <h4 className={styles['voice-block-title']}>三、声音克隆（可选）</h4>
               <p className={styles['voice-block-desc']}>
-                默认关闭。开启后需已录制并选择音色，才会用克隆声出声；关闭时仍用上方合成引擎（Edge / VITS / CustomVoice）。
+                默认关闭。开启后需已录制并选择音色，才会用克隆声出声；关闭时仍用上方合成引擎（Edge / MeloTTS / CustomVoice）。
               </p>
 
               <VoiceModelsPanel

@@ -28,12 +28,15 @@ const PRICES: Readonly<Record<string, ModelPrice>> = {
   'gpt-4.1-mini': { inputCentsPerMTok: 40, outputCentsPerMTok: 160 },
   'gpt-4.1': { inputCentsPerMTok: 200, outputCentsPerMTok: 800 },
   o3: { inputCentsPerMTok: 200, outputCentsPerMTok: 800 },
-  // DeepSeek
+  // DeepSeek（官方价：$/1M → 美分/1M；cache miss 口径，本地估算不含 cache）
+  'deepseek-v4-pro': { inputCentsPerMTok: 43.5, outputCentsPerMTok: 87 },
+  'deepseek-v4-flash': { inputCentsPerMTok: 14, outputCentsPerMTok: 28 },
   'deepseek-chat': { inputCentsPerMTok: 27, outputCentsPerMTok: 110 },
   'deepseek-reasoner': { inputCentsPerMTok: 55, outputCentsPerMTok: 219 },
   // 阿里通义 / 智谱 / 月之暗面（按公开人民币价折算，约 7.2 汇率）
   'qwen-max': { inputCentsPerMTok: 33, outputCentsPerMTok: 133 },
   'qwen-plus': { inputCentsPerMTok: 11, outputCentsPerMTok: 28 },
+  'qwen-turbo': { inputCentsPerMTok: 4, outputCentsPerMTok: 8 },
   'glm-4': { inputCentsPerMTok: 14, outputCentsPerMTok: 14 },
   'kimi-k2': { inputCentsPerMTok: 56, outputCentsPerMTok: 222 },
 }
@@ -84,9 +87,17 @@ export function estimateCostCents(
 /** 美分 → 人民币展示的固定汇率。价目表本身是美元计价，换算仅供本地参考 */
 export const CNY_PER_USD = 7.2
 
-/** 美分格式化成人民币字符串；undefined → 「—」（无价目表时不能显示 0） */
+/** 美分 → 人民币数值（元） */
+export function centsToCny(cents: number): number {
+  return (cents / 100) * CNY_PER_USD
+}
+
+/**
+ * 美分格式化成人民币字符串（中文单位「元」）。
+ * undefined → 「—」（无价目表时不能显示 0）
+ */
 export function formatCostCny(cents: number | undefined): string {
   if (cents === undefined) return '—'
-  const cny = (cents / 100) * CNY_PER_USD
-  return cny >= 1 ? `¥${cny.toFixed(2)}` : `¥${cny.toFixed(3)}`
+  const cny = centsToCny(cents)
+  return cny >= 1 ? `${cny.toFixed(2)} 元` : `${cny.toFixed(4)} 元`
 }

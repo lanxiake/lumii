@@ -385,6 +385,7 @@ export function VoiceModelsPanel({
         confirmText="卸载"
         cancelText="取消"
         confirmVariant="danger"
+        layer="aboveHub"
         onCancel={() => {
           if (!uninstallingId) setConfirmUninstall(null)
         }}

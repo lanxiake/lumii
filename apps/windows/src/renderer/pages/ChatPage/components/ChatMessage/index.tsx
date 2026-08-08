@@ -11,7 +11,7 @@ import 'katex/dist/katex.min.css'
 import 'highlight.js/styles/github.css'
 import { Lightbulb, Inbox, AlertTriangle, Ban, Timer, Zap, AlertCircle } from 'lucide-react'
 import { MessageActions } from '../MessageActions'
-import { ToolCallCard, ToolFilePreviewProvider, ToolFilePreviewContext } from '../ToolCallCard'
+import { ToolFilePreviewProvider, ToolFilePreviewContext } from '../ToolCallCard'
 import toolCardStyles from '../ToolCallCard/ToolCallCard.module.css'
 import { A2UIRenderer } from '../../../../components/A2UIRenderer'
 import { ArtifactBlock } from '../../../../components/A2UIRenderer/ArtifactBlock'
@@ -24,10 +24,11 @@ import { FilePreviewModal } from '../../../../components/FilePreviewModal/FilePr
 import { ImageLightbox } from '../../../../components/ImageLightbox'
 import { useWorkspace } from '../../../../hooks/business/useWorkspace'
 import type { ChatMessage as ChatMessageType, AgentWorkflowItem } from '../../../../hooks/business/useChat'
-import type { AssistantPart } from '@mtbot/agent-runtime'
+import type { AssistantPart } from '@mtbot/agent-runtime/browser'
 import type { RuntimeFileEvent } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import { parseMediaAttachments, mergeEditedUserMessage } from '../../utils/file-attachment-strategy'
 import { TurnFileChangesCard } from '../TurnFileChangesCard'
+import { ToolBatchGroup } from '../ToolBatchGroup'
 import styles from './ChatMessage.module.css'
 
 interface ChatMessageProps {
@@ -289,7 +290,7 @@ const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ thinkingText, isStreaming
         ) : (
           <span className={styles['rt-thinking-card-icon']}>💭</span>
         )}
-        <span className={styles['rt-thinking-card-title']}>思考过程</span>
+        <span className={styles['rt-thinking-card-title']}>{isStreaming ? '正在思考' : '思考片刻'}</span>
         {isLive && isStreaming && (
           <span className={styles['rt-live-badge']}>实时</span>
         )}
@@ -336,6 +337,46 @@ function toWorkflowItem(
     toolCallId: part.id,
     agentLabel: part.meta?.sourceAgent?.label,
   }
+}
+
+/** 时间线渲染单元：思考 / 文本 / 工具批次组 */
+type RenderUnit =
+  | { kind: 'thinking'; part: Extract<AssistantPart, { type: 'thinking' }> }
+  | { kind: 'text'; part: Extract<AssistantPart, { type: 'text' }> }
+  | { kind: 'toolGroup'; items: AgentWorkflowItem[]; key: string }
+
+/**
+ * 把扁平的 parts 折叠成渲染单元序列：
+ * 1. 先过滤 trim 后为空的 text part（根治空气泡）
+ * 2. 连续的 tool part 合并为一个批次组，遇到 thinking/text 即结束当前组
+ */
+function buildRenderUnits(parts: readonly AssistantPart[], message: ChatMessageType): RenderUnit[] {
+  const meaningful = parts.filter((p) => p.type !== 'text' || p.text.trim().length > 0)
+
+  const units: RenderUnit[] = []
+  let pending: Extract<AssistantPart, { type: 'tool' }>[] = []
+
+  const flush = () => {
+    if (pending.length === 0) return
+    units.push({
+      kind: 'toolGroup',
+      items: pending.map((t) => toWorkflowItem(t, message)),
+      key: `grp-${pending[0]!.id}`,
+    })
+    pending = []
+  }
+
+  for (const part of meaningful) {
+    if (part.type === 'tool') {
+      pending.push(part)
+      continue
+    }
+    flush()
+    units.push({ kind: part.type, part } as RenderUnit)
+  }
+  flush()
+
+  return units
 }
 
 // ---------------------------------------------------------------
@@ -561,34 +602,34 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
 
   /** 按 parts 时间线渲染助手气泡（Cursor 式交错） */
   const renderPartsTimeline = () => {
-    const parts = message.parts ?? []
+    const units = buildRenderUnits(message.parts ?? [], message)
 
     return (
       <div className={styles['parts-timeline']}>
-        {parts.map((part) => {
-          if (part.type === 'thinking') {
+        {units.map((unit) => {
+          if (unit.kind === 'thinking') {
             return (
               <ThinkingBlock
-                key={part.id}
-                thinkingText={part.text}
-                isStreaming={part.status === 'streaming' && !!message.isStreaming}
+                key={unit.part.id}
+                thinkingText={unit.part.text}
+                isStreaming={unit.part.status === 'streaming' && !!message.isStreaming}
                 isLive={!!message.isStreaming}
               />
             )
           }
-          if (part.type === 'text') {
+          if (unit.kind === 'text') {
             return (
-              <div key={part.id} className={clsx(styles['message-text'], styles['part-block'])}>
-                {renderTextContent(part.text)}
-                {part.status === 'streaming' && message.isStreaming && (
+              <div key={unit.part.id} className={clsx(styles['message-text'], styles['part-block'])}>
+                {renderTextContent(unit.part.text)}
+                {unit.part.status === 'streaming' && message.isStreaming && (
                   <span className={styles['streaming-cursor']} />
                 )}
               </div>
             )
           }
           return (
-            <div key={part.id} className={styles['part-block']}>
-              <ToolCallCard item={toWorkflowItem(part, message)} />
+            <div key={unit.key} className={styles['part-block']}>
+              <ToolBatchGroup items={unit.items} />
             </div>
           )
         })}
@@ -642,11 +683,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             {message.isStreaming && <span className={styles['streaming-cursor']} />}
           </div>
         )}
-        {hasTools && toolItems!.map((item) => (
-          <div key={item.id} className={styles['part-block']}>
-            <ToolCallCard item={item} />
+        {hasTools && (
+          <div className={styles['part-block']}>
+            <ToolBatchGroup items={toolItems!} />
           </div>
-        ))}
+        )}
         {message.fileChanges && message.fileChanges.length > 0 && (
           <TurnFileChangesCard
             changes={message.fileChanges}

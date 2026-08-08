@@ -71,6 +71,18 @@ const WIN_INSTALL_RECIPES: Record<PrimaryLocalAcpToolId, InstallRecipe> = {
     timeoutMs: 8 * 60_000,
     hint: '需已安装 Node.js 22+。也可使用 winget install GitHub.Copilot。',
   },
+  gemini: {
+    displayCommand: 'npm install -g @google/gemini-cli',
+    powershellCommand: 'npm install -g @google/gemini-cli',
+    timeoutMs: 8 * 60_000,
+    hint: '需已安装 Node.js 20+。官方 npm 包，同一命令可用于升级到最新版。',
+  },
+  opencode: {
+    displayCommand: '请参考 https://opencode.ai/docs 官网安装步骤',
+    powershellCommand: '',
+    timeoutMs: 0,
+    hint: '安装方式因平台而异，暂不支持一键安装，请查看官网文档手动安装。',
+  },
 }
 
 /** 进行中的安装，防止重复点击 */
@@ -190,7 +202,8 @@ export async function installLocalAcpTool(toolIdRaw: string): Promise<AcpInstall
   if (!isPrimaryLocalAcpToolId(toolId)) {
     throw new Error(`不支持安装未知工具：${toolIdRaw}`)
   }
-  if (process.platform !== 'win32') {
+  // opencode 无统一安装命令，不走 PowerShell 执行，直接引导官网文档
+  if (process.platform !== 'win32' || !WIN_INSTALL_RECIPES[toolId].powershellCommand) {
     const status = await detectLocalAcpTool(toolId)
     return {
       ok: false,
@@ -199,7 +212,7 @@ export async function installLocalAcpTool(toolIdRaw: string): Promise<AcpInstall
       stdout: '',
       stderr: '',
       status,
-      message: `当前平台暂不支持一键安装，请打开文档手动安装：${status.installUrl}`,
+      message: `当前暂不支持一键安装，请打开文档手动安装：${status.installUrl}`,
     }
   }
 

@@ -2,9 +2,9 @@
  * useChat.types.ts - 对话管理类型定义
  */
 
-import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime'
+import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 
-export type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime'
+export type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 
 /** 消息附件类型 */
 export interface MessageAttachment {

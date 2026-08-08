@@ -204,7 +204,7 @@ export function isQwen3CustomVariant(variant?: string): boolean {
 }
 
 export type VoiceTtsConfig = {
-  /** TTS 提供者：local-vits / edge / qwen3（本地 Qwen3-TTS） */
+  /** TTS 提供者：local-vits（本地 MeloTTS 中英双语，sherpa-onnx）/ edge / qwen3（本地 Qwen3-TTS） */
   provider: 'local-vits' | 'edge' | 'qwen3'
   /** 语速（0.8 ~ 1.5） */
   speed: number

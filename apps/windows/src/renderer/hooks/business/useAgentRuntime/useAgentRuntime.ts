@@ -26,7 +26,7 @@ import {
   parseMessageContentJson,
   type AssistantPart,
   type FileChangeEntry,
-} from '@mtbot/agent-runtime'
+} from '@mtbot/agent-runtime/browser'
 
 /** 仅在开发环境输出详细日志，避免生产环境噪音 */
 const debugLog = process.env.NODE_ENV === 'development'

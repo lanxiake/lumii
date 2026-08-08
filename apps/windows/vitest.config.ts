@@ -13,6 +13,14 @@ export default defineConfig({
       "@shared/": path.resolve(__dirname, "./src/shared/"),
       // 注意不要带末尾斜杠：path.resolve 会剥掉它，前缀替换后会拼成 assetslogo.png
       "@app-assets": path.resolve(__dirname, "assets"),
+      "@mtbot/agent-runtime/browser": path.resolve(
+        __dirname,
+        "../../packages/agent-runtime/src/browser.ts",
+      ),
+      "@mtbot/agent-runtime": path.resolve(
+        __dirname,
+        "../../packages/agent-runtime/src/index.ts",
+      ),
     },
   },
   test: {

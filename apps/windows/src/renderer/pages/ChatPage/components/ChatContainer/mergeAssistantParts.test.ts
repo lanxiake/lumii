@@ -2,7 +2,7 @@
  * mergeAssistantParts / mergeFileChanges 单元测试
  */
 import { describe, it, expect } from 'vitest'
-import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime'
+import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import { mergeAssistantParts, mergeFileChanges } from './mergeAssistantParts'
 
 describe('mergeAssistantParts', () => {

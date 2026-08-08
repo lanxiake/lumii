@@ -5,7 +5,7 @@
 
 import React from 'react'
 import clsx from 'clsx'
-import type { FileChangeEntry } from '@mtbot/agent-runtime'
+import type { FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import styles from './TurnFileChangesCard.module.css'
 
 /** 状态 → 中文标签 */

@@ -83,6 +83,15 @@ export interface WeixinCtxAccessor {
 }
 
 /**
+ * 从 sessionKey 前缀解析出创建定时任务时所在的渠道，用作 notify_targets 默认值。
+ * 微信/企微是被动回复模式，没有主动推送渠道，回落系统通知；只有飞书有主动推送能力。
+ */
+export function resolveChannelFromSessionKey(sessionKey: string | undefined): string {
+  if (sessionKey?.startsWith('feishu:')) return 'feishu'
+  return 'system'
+}
+
+/**
  * 注册器依赖集合。所有字段都是只读引用，注册器不创建/销毁这些对象。
  */
 export interface BridgeToolRegistrarDeps {
@@ -570,6 +579,7 @@ export class BridgeToolRegistrar {
           scheduleType: 'at' | 'every' | 'cron'
           scheduleExpr: string
           agentId?: string
+          notifyTargets?: string
         }
         const scheduleExpr = p.scheduleExpr?.trim() ?? ''
         if (!p.name?.trim()) {
@@ -628,6 +638,14 @@ export class BridgeToolRegistrar {
           return jsonToolResult({ status: 'ok', job: gatewayResult })
         }
 
+        // 未显式指定推送渠道时，默认使用当前对话所在渠道（sessionKey 前缀解析）—
+        // 微信/企微是被动回复模式没有主动推送能力，回落系统通知
+        const currentInstanceId = this.deps.getCurrentToolExecutorInstanceId()
+        const sessionKey = currentInstanceId
+          ? this.deps.instanceToConversation.get(currentInstanceId)
+          : undefined
+        const notifyTargets = p.notifyTargets?.trim() || resolveChannelFromSessionKey(sessionKey)
+
         const jobId = `local-cron-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
         const row = {
           id: jobId,
@@ -640,12 +658,13 @@ export class BridgeToolRegistrar {
           interval_ms: intervalMs,
           enabled: 1,
           created_at: now,
+          notify_targets: notifyTargets,
         } as const
 
         this.deps.localDb.db.prepare(
           `INSERT INTO local_cron_jobs
-           (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, notify_targets)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           row.id,
           row.name,
@@ -657,6 +676,7 @@ export class BridgeToolRegistrar {
           row.interval_ms,
           row.enabled,
           row.created_at,
+          row.notify_targets,
         )
 
         this.deps.getCronScheduler().scheduleJob(row)

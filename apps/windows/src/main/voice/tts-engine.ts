@@ -83,12 +83,17 @@ export class LocalVitsTts implements TtsProvider {
       .map((f) => path.join(this.modelDir, f))
       .filter((p) => fs.existsSync(p))
 
+    // MeloTTS 需 jieba 分词目录 dict/（中文分词/韵律）；Aishell3 无此目录时省略
+    const dictDir = path.join(this.modelDir, 'dict')
+    const hasDict = fs.existsSync(dictDir)
+
     this.tts = new SherpaOnnx.OfflineTts({
       model: {
         vits: {
           model: path.join(this.modelDir, 'model.onnx'),
           lexicon: path.join(this.modelDir, 'lexicon.txt'),
           tokens: path.join(this.modelDir, 'tokens.txt'),
+          ...(hasDict ? { dictDir } : {}),
         },
         numThreads: 2,
         provider: 'cpu',

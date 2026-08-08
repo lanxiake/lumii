@@ -223,6 +223,7 @@ export default defineConfig({
         '@main': resolve(__dirname, 'src/main'),
         '@shared': resolve(__dirname, 'src/shared'),
         // monorepo workspace 包 - 指向源码确保 Vite 能正确解析
+        '@mtbot/agent-runtime/browser': resolve(ROOT, 'packages/agent-runtime/src/browser.ts'),
         '@mtbot/agent-runtime': resolve(ROOT, 'packages/agent-runtime/src/index.ts'),
         '@mtbot/browser-control': resolve(ROOT, 'packages/browser-control/src/index.ts'),
         '@mtbot/protocol': resolve(ROOT, 'packages/protocol/src/index.ts'),
@@ -279,6 +280,8 @@ export default defineConfig({
         // Node built-in stub: renderer 无 nodeIntegration，object-inspect 等库顶层访问
         // util.inspect.custom 会导致模块初始化崩溃（白屏）。提供最小 stub 解决。
         'util': resolve(__dirname, 'src/renderer/stubs/util.ts'),
+        // 仅允许 browser 子路径进入 renderer；主入口含 tools/sqlite 等 Node 代码
+        '@mtbot/agent-runtime/browser': resolve(ROOT, 'packages/agent-runtime/src/browser.ts'),
       },
       // 明确指定模块查找路径
       mainFields: ['module', 'jsnext:main', 'jsnext', 'main']

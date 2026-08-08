@@ -12,6 +12,7 @@ import React, { useState, useCallback, useMemo, useEffect, createContext, useCon
 import clsx from 'clsx'
 import type { AgentWorkflowItem, ChildToolItem } from '../../../../hooks/business/useChat'
 import { ImageLightbox } from '../../../../components/ImageLightbox/ImageLightbox'
+import { classifyToolFamily } from './toolTaxonomy'
 import styles from './ToolCallCard.module.css'
 
 // ─── 文件预览上下文 ─────────────────────────────────────
@@ -211,20 +212,22 @@ function truncate(text: string, maxLength: number = 80): string {
   return text.slice(0, maxLength) + '…'
 }
 
+/** 工具家族 → 单行图标符号 */
+const FAMILY_ICON: Record<ReturnType<typeof classifyToolFamily>, string> = {
+  todo: '◉',
+  read: '◎',
+  search: '›',
+  write: '◈',
+  exec: '⟩',
+  agent: '◌',
+  image: '◈',
+  other: '›',
+}
+
 function getToolIcon(name: string, type: AgentWorkflowItem['type'], status: AgentWorkflowItem['status']): string {
   if (status === 'failed') return '✕'
   if (type === 'subagent') return status === 'running' ? '◌' : '◎'
-
-  const lname = name.toLowerCase()
-  /** todo_write 含子串 "write"，必须先于 write 分支判断 */
-  if (lname.includes('todo')) return '◉'
-  if (lname.includes('read') || lname.includes('view')) return '◎'
-  if (lname.includes('search') || lname.includes('grep') || lname.includes('glob')) return '›'
-  if (lname.includes('write') || lname.includes('edit') || lname.includes('create')) return '◈'
-  if (lname.includes('bash') || lname.includes('exec') || lname.includes('run')) return '⟩'
-  if (lname.includes('agent') || lname.includes('spawn')) return '◌'
-  if (lname === 'image_generate') return '◈'
-  return '›'
+  return FAMILY_ICON[classifyToolFamily(name)]
 }
 
 /** 从 input 中提取有意义的目标名称（文件名/搜索词/命令等） */
@@ -285,7 +288,8 @@ function extractTargetName(input: Record<string, unknown> | undefined, toolName:
   return ''
 }
 
-function getStatusLabel(item: AgentWorkflowItem): string {
+/** 生成工具的中文动作短句（如「已查看 xxx」「正在执行 xxx」），供单行卡片与批次分组复用 */
+export function getStatusLabel(item: AgentWorkflowItem): string {
   const name = item.name || ''
   const lname = name.toLowerCase()
   const target = extractTargetName(item.input, name)

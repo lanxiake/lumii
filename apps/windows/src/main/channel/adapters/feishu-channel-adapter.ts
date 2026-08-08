@@ -20,6 +20,10 @@ import { AcpBackendManager } from '../acp-backend-manager'
 import { clearCommand } from '../slash-commands/clear'
 import { createHelpCommand } from '../slash-commands/help'
 import { compactCommand } from '../slash-commands/compact'
+import { backendCommand } from '../slash-commands/backend'
+import { createSwitchBackendCommand, lumiiCommand } from '../slash-commands/switch-backend'
+import { runCodingDevAcpPrompt } from '../../coding-dev-backends-stub/run-coding-dev-acp-prompt.js'
+import { resolveAcpTimeoutMs } from '../../coding-dev-backends-stub/acp-config.js'
 
 /**
  * 飞书专用 /new。
@@ -162,6 +166,13 @@ export class FeishuChannelAdapter implements IChannelAdapter {
       this.bridge.notifyIncomingMessage(session.sessionKey, prompt)
       this.bridge.notifyNavigateToSession(session.sessionKey)
 
+      // 非主代理后端：走本机 ACP 子进程路径
+      const currentBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
+      if (currentBackend !== 'openclaw') {
+        await this.handleAcpPrompt(session, prompt, currentBackend)
+        return
+      }
+
       const instanceId = await this.getOrCreateInstance(session.sessionKey)
       const activeSession = { ...session, instanceId }
 
@@ -205,6 +216,93 @@ export class FeishuChannelAdapter implements IChannelAdapter {
     }
   }
 
+  /**
+   * ACP 子进程路径：通过 emitProgress 推送工具进度，超时可配置。
+   * 工具执行状态以短消息推送，最终结果一次性回复。
+   */
+  private async handleAcpPrompt(
+    session: ChannelSession,
+    prompt: string,
+    backendId: string,
+  ): Promise<void> {
+    log.info(`[handleAcpPrompt] 走 ACP 路径: backendId=${backendId} sessionKey=${session.sessionKey}`)
+
+    const abortController = new AbortController()
+    const timeoutMs = resolveAcpTimeoutMs()
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined
+    let timedOut = false
+
+    if (timeoutMs !== undefined && timeoutMs > 0) {
+      timeoutHandle = setTimeout(() => {
+        timedOut = true
+        abortController.abort()
+      }, timeoutMs)
+    }
+
+    const startedAt = Date.now()
+    const sentToolNames = new Set<string>()
+    const ACP_STATUS_THROTTLE_MS = 3000
+    let lastStatusSentAt = 0
+
+    try {
+      const output = await runCodingDevAcpPrompt({
+        backendId,
+        text: prompt,
+        accountId: session.channelUserId,
+        peerId: session.sessionKey,
+        senderId: session.channelUserId,
+        emitProgress: async (progress) => {
+          if (abortController.signal.aborted) {
+            return
+          }
+          if (progress.kind === "tool" && progress.tool) {
+            const { toolName, phase } = progress.tool
+            if (phase === "start" && !sentToolNames.has(progress.tool.toolCallId)) {
+              sentToolNames.add(progress.tool.toolCallId)
+              await this.sendTextReply(session, `🔧 执行中：${toolName || "工具"}`)
+            }
+          }
+          const now = Date.now()
+          if (now - lastStatusSentAt > ACP_STATUS_THROTTLE_MS && progress.kind === "status") {
+            lastStatusSentAt = now
+            await this.sendTextReply(session, "💭 思考中…")
+          }
+        },
+        abortSignal: abortController.signal,
+      })
+
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle)
+      }
+      if (timedOut) {
+        return
+      }
+
+      const replyText = output?.text?.trim() ?? ''
+      log.info(`[handleAcpPrompt] ACP 完成，回复长度=${replyText.length}`)
+      if (replyText) {
+        await this.sendTextReply(session, replyText)
+      } else {
+        await this.sendTextReply(session, "✅ ACP 任务完成（无文本输出）。")
+      }
+    } catch (err) {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle)
+      }
+      if (abortController.signal.aborted) {
+        const reason = timedOut ? "超时" : "已取消"
+        const waitedMinutes = Math.max(1, Math.round((Date.now() - startedAt) / 60_000))
+        const timeoutHint = timedOut
+          ? `\n若任务较重，可设置 MTBOT_ACP_TIMEOUT_MS=0 取消限制，或拆分任务后重试。`
+          : ""
+        await this.sendTextReply(session, `❌ ACP 执行${reason}（已等待 ${waitedMinutes} 分钟）。${timeoutHint}`)
+      } else {
+        log.error(`[handleAcpPrompt] ACP 执行失败: ${err instanceof Error ? err.message : String(err)}`)
+        await this.sendTextReply(session, `❌ ACP 执行失败：${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+  }
+
   private buildSession(msg: FeishuNormalizedMessage): ChannelSession {
     const sessionKey = this.getActiveSessionKey(msg.channelUserId)
     return {
@@ -238,6 +336,22 @@ export class FeishuChannelAdapter implements IChannelAdapter {
     registry.register('new', feishuNewCommand)
     registry.register('clear', clearCommand)
     registry.register('compact', compactCommand)
+    // ACP 后端查看/切回主代理
+    registry.register('backend', backendCommand)
+    registry.register('lumii', lumiiCommand)
+    // ACP 后端切换（含别名）
+    const claudeCmd = createSwitchBackendCommand('claude')
+    registry.register('claude', claudeCmd)
+    registry.register('claude-code', claudeCmd)       // 别名
+    registry.register('codex', createSwitchBackendCommand('codex'))
+    registry.register('opencode', createSwitchBackendCommand('opencode'))
+    registry.register('gemini', createSwitchBackendCommand('gemini'))
+    registry.register('qoder', createSwitchBackendCommand('qoder'))
+    registry.register('qwen', createSwitchBackendCommand('qwen'))
+    registry.register('kimi', createSwitchBackendCommand('kimi'))
+    registry.register('copilot', createSwitchBackendCommand('copilot'))
+    registry.register('auggie', createSwitchBackendCommand('auggie'))
+    registry.register('cursor', createSwitchBackendCommand('cursor'))
     return registry
   }
 }

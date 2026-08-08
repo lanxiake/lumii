@@ -6,7 +6,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import type { FileChangeEntry } from '@mtbot/agent-runtime'
+import type { FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import { TurnFileChangesCard } from '../../renderer/pages/ChatPage/components/TurnFileChangesCard'
 
 const CHANGES: FileChangeEntry[] = [

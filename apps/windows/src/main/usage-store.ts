@@ -163,6 +163,8 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
 
   for (const rec of shards.flat()) {
     if (rec.ts < from || rec.ts >= to) continue
+    // 查询时按当前价目表重算：历史记录可能缺 costCents，或价目表已更新
+    const costCents = estimateCostCents(rec.model, rec.promptTokens, rec.completionTokens)
     const key = bucketStart(rec.ts, groupBy)
     const bucket = buckets.get(key) ?? {
       ts: key,
@@ -175,15 +177,15 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
     bucket.calls += 1
     bucket.promptTokens += rec.promptTokens
     bucket.completionTokens += rec.completionTokens
-    if (rec.costCents === undefined) bucket.unpricedCalls += 1
-    else bucket.costCents += rec.costCents
+    if (costCents === undefined) bucket.unpricedCalls += 1
+    else bucket.costCents += costCents
     buckets.set(key, bucket)
 
     summary.totalCalls += 1
     summary.totalPromptTokens += rec.promptTokens
     summary.totalCompletionTokens += rec.completionTokens
-    if (rec.costCents === undefined) summary.unpricedCalls += 1
-    else summary.totalCostCents += rec.costCents
+    if (costCents === undefined) summary.unpricedCalls += 1
+    else summary.totalCostCents += costCents
   }
 
   summary.totalCostCents = Math.round(summary.totalCostCents * 10_000) / 10_000

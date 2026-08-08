@@ -1104,9 +1104,10 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
 .rt-thinking-card {
   display: flex;
   flex-direction: column;
-  border: 1px dashed color-mix(in srgb, var(--mt-violet) 40%, var(--mt-border));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--mt-violet) 8%, transparent);
+  border: none;
+  border-left: 2px solid color-mix(in srgb, var(--mt-violet) 35%, transparent);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--mt-violet) 6%, transparent);
   overflow: hidden;
 }
 
@@ -1114,8 +1115,8 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
-  min-height: 28px;
+  padding: 3px 8px;
+  min-height: 24px;
   background: transparent;
   cursor: pointer;
   user-select: none;
@@ -1455,7 +1456,7 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
 .parts-timeline {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-2, 8px);
+  gap: var(--spacing-1, 4px);
 }
 
 .part-block {

@@ -291,13 +291,13 @@ export function registerVoiceIpc(
               message: '已开启声音克隆，请先创建并选择音色档案',
             }
           }
-          const raw = (command.text ?? '你好，这是声音预览。').trim()
+          const raw = (command.text ?? '你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。。').trim()
           // 设置页试听默认 100；消息朗读等应显式传入更大 maxChars，避免后半段被静默截断
           const maxChars = Math.max(
             1,
             Math.min(typeof command.maxChars === 'number' ? command.maxChars : 100, 20_000),
           )
-          const previewText = raw.slice(0, maxChars) || '你好，这是声音预览。'
+          const previewText = raw.slice(0, maxChars) || '你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。。'
           if (raw.length > maxChars) {
             log.warn(
               `[voice:tts:preview] 文本 ${raw.length} 字已截断为 ${maxChars} 字（请提高 maxChars 以朗读全文）`,

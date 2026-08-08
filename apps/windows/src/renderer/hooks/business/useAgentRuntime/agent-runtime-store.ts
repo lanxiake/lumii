@@ -15,7 +15,7 @@ import type {
   ContentBlock,
   TokenUsage,
 } from '../../../../shared/agent-runtime-events'
-import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime'
+import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 
 // ============================================================
 // 状态类型定义

@@ -8,11 +8,12 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import fs from 'node:fs'
 import path from 'node:path'
+import { detectToolVersion, fetchNpmLatestVersion } from './coding-dev-cli-version.js'
 
 const execFileAsync = promisify(execFile)
 
-/** 面板主推的 4 个本机工具 */
-export const PRIMARY_LOCAL_ACP_TOOLS = ['cursor', 'claude', 'codex', 'copilot'] as const
+/** 面板主推的本机工具 */
+export const PRIMARY_LOCAL_ACP_TOOLS = ['cursor', 'claude', 'codex', 'copilot', 'gemini', 'opencode'] as const
 
 export type PrimaryLocalAcpToolId = (typeof PRIMARY_LOCAL_ACP_TOOLS)[number]
 
@@ -29,6 +30,8 @@ export interface LocalAcpToolMeta {
   installCommand: string
   /** 安装说明 */
   installHint: string
+  /** npm 包名，用于查询最新版本（registry.npmjs.org）；不设置则跳过最新版本查询（如 cursor-agent 无公开查询接口） */
+  npmPackageName?: string
 }
 
 export interface LocalAcpToolStatus extends LocalAcpToolMeta {
@@ -37,6 +40,10 @@ export interface LocalAcpToolStatus extends LocalAcpToolMeta {
   resolvedPath?: string
   /** 实际命中的命令名 */
   resolvedCommand?: string
+  /** 当前已安装版本号（跑 --version 解析，探测失败为 undefined） */
+  currentVersion?: string
+  /** npm registry 上的最新版本号（仅 npmPackageName 存在时查询） */
+  latestVersion?: string
 }
 
 /** 工具元数据（官网 / GitHub / 安装页） */
@@ -63,6 +70,7 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     installUrl: 'https://code.claude.com/docs/en/installation',
     installCommand: 'irm https://claude.ai/install.ps1 | iex',
     installHint: '官方原生安装脚本（推荐）',
+    npmPackageName: '@anthropic-ai/claude-code',
   },
   codex: {
     id: 'codex',
@@ -74,6 +82,7 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     installUrl: 'https://github.com/openai/codex#installation',
     installCommand: 'irm https://chatgpt.com/codex/install.ps1 | iex',
     installHint: '官方独立安装脚本',
+    npmPackageName: '@openai/codex',
   },
   copilot: {
     id: 'copilot',
@@ -85,6 +94,31 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     installUrl: 'https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli',
     installCommand: 'npm install -g @github/copilot',
     installHint: '需 Node.js 22+；也可 winget install GitHub.Copilot',
+    npmPackageName: '@github/copilot',
+  },
+  gemini: {
+    id: 'gemini',
+    label: 'Gemini CLI',
+    description: 'Google Gemini CLI',
+    commands: ['gemini'],
+    homepageUrl: 'https://github.com/google-gemini/gemini-cli',
+    githubUrl: 'https://github.com/google-gemini/gemini-cli',
+    installUrl: 'https://github.com/google-gemini/gemini-cli#installation',
+    installCommand: 'npm install -g @google/gemini-cli',
+    installHint: '需 Node.js 20+；官方 npm 包',
+    npmPackageName: '@google/gemini-cli',
+  },
+  opencode: {
+    id: 'opencode',
+    label: 'OpenCode',
+    description: 'OpenCode 开源编码助手',
+    commands: ['opencode'],
+    homepageUrl: 'https://opencode.ai',
+    githubUrl: 'https://github.com/sst/opencode',
+    installUrl: 'https://opencode.ai/docs',
+    installCommand: '请参考官网安装步骤',
+    installHint: '安装方式因平台而异，请查看官网文档',
+    // npm 包名未核实，不编造，暂不查询最新版本
   },
 }
 
@@ -202,6 +236,28 @@ export function needsWindowsShell(commandPath: string): boolean {
 }
 
 /**
+ * 已安装时补充版本信息：当前版本探测 + npm 最新版本查询（并行，互不阻塞）
+ */
+async function withVersionInfo(
+  meta: LocalAcpToolMeta,
+  resolvedPath: string,
+  resolvedCommand: string,
+): Promise<LocalAcpToolStatus> {
+  const [currentVersion, latestVersion] = await Promise.all([
+    detectToolVersion(resolvedPath),
+    meta.npmPackageName ? fetchNpmLatestVersion(meta.npmPackageName) : Promise.resolve(undefined),
+  ])
+  return {
+    ...meta,
+    installed: true,
+    resolvedPath,
+    resolvedCommand,
+    ...(currentVersion ? { currentVersion } : {}),
+    ...(latestVersion ? { latestVersion } : {}),
+  }
+}
+
+/**
  * 探测单个工具是否已安装
  */
 export async function detectLocalAcpTool(id: PrimaryLocalAcpToolId): Promise<LocalAcpToolStatus> {
@@ -217,12 +273,12 @@ export async function detectLocalAcpTool(id: PrimaryLocalAcpToolId): Promise<Loc
           timeout: 10_000,
           maxBuffer: 1024 * 512,
         })
-        return { ...meta, installed: true, resolvedPath: resolved, resolvedCommand: 'gh copilot' }
+        return await withVersionInfo(meta, resolved, 'gh copilot')
       } catch {
         continue
       }
     }
-    return { ...meta, installed: true, resolvedPath: resolved, resolvedCommand: cmd }
+    return await withVersionInfo(meta, resolved, cmd)
   }
   return { ...meta, installed: false }
 }

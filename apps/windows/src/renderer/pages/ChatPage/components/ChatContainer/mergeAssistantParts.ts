@@ -1,4 +1,4 @@
-import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime'
+import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 
 /**
  * 将子 Agent parts 插到父消息末尾连续 text 段之前，避免工具全部落到终稿之后

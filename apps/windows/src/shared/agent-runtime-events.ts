@@ -6,7 +6,7 @@
  *
  * 设计依据: .qoder/design/client-agent-runtime/08-前端渲染与IPC通讯.md §2.1
  */
-import type { FileChangeEntry } from '@mtbot/agent-runtime'
+import type { FileChangeEntry } from '@mtbot/agent-runtime/browser'
 
 // ============================================================
 // 共享数据结构

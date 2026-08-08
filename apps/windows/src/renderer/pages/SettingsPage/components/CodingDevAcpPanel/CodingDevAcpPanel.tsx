@@ -25,6 +25,8 @@ export type LocalAcpToolStatusView = {
   installUrl: string
   installCommand: string
   installHint: string
+  currentVersion?: string
+  latestVersion?: string
 }
 
 /** 工具图标色块（品牌色 + 首字母，与 ChannelBrandIcon 同思路，避免引入外部 logo 资源） */
@@ -33,6 +35,8 @@ const TOOL_ICON: Record<string, { bg: string; label: string }> = {
   claude: { bg: '#CC785C', label: 'Cl' },
   codex: { bg: '#10A37F', label: 'Co' },
   copilot: { bg: '#238636', label: 'Gh' },
+  gemini: { bg: '#4285F4', label: 'Ge' },
+  opencode: { bg: '#fb923c', label: 'Oc' },
 }
 
 /**
@@ -206,15 +210,29 @@ export const CodingDevAcpPanel: React.FC = () => {
               </div>
 
               <div className={styles.toolCardBody}>
-                <div className={styles.toolDesc}>{t.description}</div>
-                {t.installed && t.resolvedPath && (
-                  <code className={styles.path} title={t.resolvedPath}>{t.resolvedPath}</code>
-                )}
-                {!t.installed && t.installCommand && (
-                  <div className={styles.installBlock}>
-                    <code className={styles.installCmd}>{t.installCommand}</code>
-                    {t.installHint && <div className={styles.toolDesc}>{t.installHint}</div>}
-                  </div>
+                {t.installed ? (
+                  <>
+                    <div className={styles.versionRow}>
+                      <span className={styles.versionLabel}>当前版本</span>
+                      <span>{t.currentVersion ?? '未知'}</span>
+                    </div>
+                    {t.latestVersion && (
+                      <div className={styles.versionRow}>
+                        <span className={styles.versionLabel}>最新版本</span>
+                        <span>{t.latestVersion}</span>
+                      </div>
+                    )}
+                    {t.resolvedPath && (
+                      <code className={styles.path} title={t.resolvedPath}>{t.resolvedPath}</code>
+                    )}
+                  </>
+                ) : (
+                  t.installCommand && (
+                    <div className={styles.installBlock}>
+                      <code className={styles.installCmd}>{t.installCommand}</code>
+                      {t.installHint && <div className={styles.toolDesc}>{t.installHint}</div>}
+                    </div>
+                  )
                 )}
               </div>
 
@@ -245,6 +263,15 @@ export const CodingDevAcpPanel: React.FC = () => {
                       一键安装
                     </Button>
                   </>
+                ) : t.latestVersion && t.latestVersion !== t.currentVersion ? (
+                  <Button
+                    size="sm"
+                    loading={installingId === t.id}
+                    disabled={installingId != null && installingId !== t.id}
+                    onClick={() => void handleInstall(t.id)}
+                  >
+                    升级到 {t.latestVersion}
+                  </Button>
                 ) : (
                   <span className={styles.badgeOk}>已安装</span>
                 )}

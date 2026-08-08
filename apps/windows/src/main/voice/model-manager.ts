@@ -229,44 +229,20 @@ const MODEL_CATALOG = {
       },
     ] as HttpFileMapping[],
   },
-  'tts-vits-zh': {
-    id: 'tts-vits-zh',
-    name: 'VITS 中文 TTS (Aishell3)',
-    description: '本地离线合成（多音色，无需克隆）',
+  'tts-melo-zh-en': {
+    id: 'tts-melo-zh-en',
+    name: 'MeloTTS 中英双语（离线）',
+    description: '本地离线合成，中英混读自然、发音清晰（单音色）',
     group: 'tts-synth' as const,
-    sizeBytes: 128_000_000,
-    dir: 'tts/vits-zh-aishell3',
+    sizeBytes: 180_000_000,
+    dir: 'tts/melo-zh-en',
     files: ['model.onnx', 'lexicon.txt', 'tokens.txt'],
-    downloadUrl: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-zh-aishell3.tar.bz2',
-    extractedDir: 'vits-zh-aishell3',
+    /** MeloTTS 需 jieba 分词目录 dict/（解压时整目录拷贝） */
+    dirs: ['dict'],
+    downloadUrl:
+      'https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-melo-tts-zh_en.tar.bz2',
+    extractedDir: 'vits-melo-tts-zh_en',
     type: 'tar' as const,
-    /** 魔搭无同款；优先 hf-mirror 多文件直链 */
-    httpFiles: [
-      {
-        url: 'https://hf-mirror.com/csukuangfj/vits-zh-aishell3/resolve/main/vits-aishell3.onnx',
-        local: 'model.onnx',
-      },
-      {
-        url: 'https://hf-mirror.com/csukuangfj/vits-zh-aishell3/resolve/main/lexicon.txt',
-        local: 'lexicon.txt',
-      },
-      {
-        url: 'https://hf-mirror.com/csukuangfj/vits-zh-aishell3/resolve/main/tokens.txt',
-        local: 'tokens.txt',
-      },
-      {
-        url: 'https://hf-mirror.com/csukuangfj/vits-zh-aishell3/resolve/main/date.fst',
-        local: 'date.fst',
-      },
-      {
-        url: 'https://hf-mirror.com/csukuangfj/vits-zh-aishell3/resolve/main/phone.fst',
-        local: 'phone.fst',
-      },
-      {
-        url: 'https://hf-mirror.com/csukuangfj/vits-zh-aishell3/resolve/main/number.fst',
-        local: 'number.fst',
-      },
-    ] as HttpFileMapping[],
   },
   'tts-qwen3-tokenizer-12hz': {
     id: 'tts-qwen3-tokenizer-12hz',
@@ -461,7 +437,7 @@ export class VoiceModelManager {
     return {
       vad: path.join(this.resolveModelDir('vad'), 'silero_vad.onnx'),
       asr: this.resolveModelDir('asr/paraformer-zh-small'),
-      tts: this.resolveModelDir('tts/vits-zh-aishell3'),
+      tts: this.resolveModelDir('tts/melo-zh-en'),
       qwen3Tokenizer: this.resolveModelDir('tts/qwen3/tokenizer-12hz'),
       qwen3Custom06: this.resolveModelDir('tts/qwen3/0.6b-custom'),
       qwen3Custom17: this.resolveModelDir('tts/qwen3/1.7b-custom'),
@@ -499,6 +475,18 @@ export class VoiceModelManager {
       if ('files' in model) {
         const allPresent = model.files.every((f) => fs.existsSync(path.join(modelDir, f)))
         if (!allPresent) return false
+        // 需整目录的模型（如 MeloTTS 的 dict/），目录须存在且非空
+        if ('dirs' in model && Array.isArray(model.dirs)) {
+          const dirsOk = model.dirs.every((d) => {
+            const dp = path.join(modelDir, d)
+            try {
+              return fs.existsSync(dp) && fs.readdirSync(dp).length > 0
+            } catch {
+              return false
+            }
+          })
+          if (!dirsOk) return false
+        }
         if (modelId === 'asr-paraformer-zh') {
           const onnx = path.join(modelDir, 'model.int8.onnx')
           if (!hasSherpaParaformerMetadata(onnx)) {
@@ -620,7 +608,7 @@ export class VoiceModelManager {
     if (ttsProvider === 'qwen3') {
       return this.isQwen3Ready(qwen3Variant ?? '0.6b-custom')
     }
-    return this.isModelDownloaded('tts-vits-zh')
+    return this.isModelDownloaded('tts-melo-zh-en')
   }
 
   /**
@@ -631,7 +619,7 @@ export class VoiceModelManager {
     if (provider === 'qwen3') {
       return this.isQwen3Ready(qwen3Variant ?? '0.6b-custom')
     }
-    return this.isModelDownloaded('tts-vits-zh')
+    return this.isModelDownloaded('tts-melo-zh-en')
   }
 
   /**
@@ -1156,6 +1144,19 @@ export class VoiceModelManager {
         const src = path.join(extractedDir, fst)
         if (fs.existsSync(src)) {
           fs.copyFileSync(src, path.join(targetDir, fst))
+        }
+      }
+
+      // 整目录拷贝（如 MeloTTS 的 dict/ jieba 分词目录）
+      if ('dirs' in model && Array.isArray(model.dirs)) {
+        for (const d of model.dirs) {
+          const src = path.join(extractedDir, d)
+          const dst = path.join(targetDir, d)
+          if (fs.existsSync(src)) {
+            fs.cpSync(src, dst, { recursive: true })
+          } else {
+            log.warn(`[_downloadModel] 目录不存在: ${src}`)
+          }
         }
       }
 

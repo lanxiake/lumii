@@ -536,6 +536,14 @@ function buildProgressiveLoadingSection(toolNames: readonly string[], detail: Pr
     "",
   )
 
+  lines.push(
+    "### 工具调用风格",
+    "- 能并行或批量完成的工具调用，在同一轮尽量一次性全部发起，而不是逐个调用、等结果再发下一个",
+    "- 调用工具前后不要额外补充解释或说明步骤——工具调用本身已能表达你的行动意图",
+    "- 不在正文里重复叙述工具刚做过的事；让结果说话，保持回复简洁",
+    "",
+  )
+
   return lines
 }
 

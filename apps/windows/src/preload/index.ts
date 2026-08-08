@@ -285,7 +285,7 @@ export interface ElectronAPI {
       powershellGatewayEnvBlock: string
       weixinSlashHint: string
     }>
-    /** 探测本机 Cursor/Claude/Codex/Copilot 是否已安装 */
+    /** 探测本机 Cursor/Claude/Codex/Copilot/Gemini/OpenCode 是否已安装 */
     detectCodingDevTools: () => Promise<Array<{
       id: string
       label: string
@@ -298,6 +298,8 @@ export interface ElectronAPI {
       installUrl: string
       installCommand: string
       installHint: string
+      currentVersion?: string
+      latestVersion?: string
     }>>
     /** 一键安装本机 ACP CLI（执行官方白名单安装命令） */
     installCodingDevTool: (toolId: string) => Promise<{
@@ -314,6 +316,8 @@ export interface ElectronAPI {
         installCommand: string
         installHint: string
         installUrl: string
+        currentVersion?: string
+        latestVersion?: string
       }
       message: string
     }>

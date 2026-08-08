@@ -17,7 +17,7 @@ import {
   Mic,
   Wrench,
   Info,
-  BarChart2,
+  Zap,
 } from '../ui/Icon'
 import { McpServersPanel } from '../McpServersPanel'
 import { SettingsPage } from '../../pages/SettingsPage/SettingsPage'
@@ -49,7 +49,7 @@ const SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
   { id: 'channels', label: '渠道设置', icon: <Radio size={ICON_SIZE} /> },
   { id: 'codingDev', label: 'ACP 设置', icon: <Wrench size={ICON_SIZE} /> },
   { id: 'pet', label: '宠物模式', icon: <Smartphone size={ICON_SIZE} /> },
-  { id: 'usage', label: '用量与花费', icon: <BarChart2 size={ICON_SIZE} /> },
+  { id: 'usage', label: '用量与花费', icon: <Zap size={ICON_SIZE} /> },
   { id: 'privacy', label: '隐私与数据', icon: <Shield size={ICON_SIZE} /> },
   { id: 'aboutAndUpdate', label: '关于与更新', icon: <Info size={ICON_SIZE} /> },
 ]
