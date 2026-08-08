@@ -29,4 +29,11 @@ describe('resolveQwen3TtsLanguage', () => {
   it('Auto + 英文为主 → English', () => {
     expect(resolveQwen3TtsLanguage('Auto', 'Hello, this is a voice preview.')).toBe('English')
   })
+
+  it('短英文句单独会判 English，整段中文应锁 Chinese（供流水线锁定）', () => {
+    expect(resolveQwen3TtsLanguage('Auto', 'Hello there.')).toBe('English')
+    expect(
+      resolveQwen3TtsLanguage('Auto', '今天天气不错。Hello there. 我们继续聊。'),
+    ).toBe('Chinese')
+  })
 })

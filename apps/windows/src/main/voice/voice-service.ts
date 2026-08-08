@@ -19,12 +19,21 @@ import type { TtsChunk } from './tts-engine.js'
 import { VoiceProfileStore } from './voice-profile-store.js'
 import {
   buildTtsPreviewCacheKey,
+  getTtsSynthConcurrency,
+  normalizeSentenceChunks,
+  splitTextForTtsCache,
   ttsPreviewCache,
   TTS_PREVIEW_CACHE_MAX_TEXT_CHARS,
+  TTS_SENTENCE_CACHE_MAX_CHARS,
 } from './tts-preview-cache.js'
 import { stripVirtualHumanTags } from '../../shared/virtual-human.js'
-import { sanitizeTtsPlainText } from './tts-text-utils.js'
-import { setQwen3TtsStatusCallback, resolveQwen3LoadDevice, prepareQwen3TtsRuntime } from './qwen3-tts-client.js'
+import { resolveQwen3TtsLanguage, sanitizeTtsPlainText } from './tts-text-utils.js'
+import {
+  setQwen3TtsStatusCallback,
+  resolveQwen3LoadDevice,
+  prepareQwen3TtsRuntime,
+  getQwen3SynthConcurrency,
+} from './qwen3-tts-client.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceService]', ...args),
@@ -61,6 +70,10 @@ export class VoiceCallService {
   private ttsQueue: Array<{ text: string }> = []
   private isTtsBusy = false
   private ttsGeneration = 0
+  /**
+   * 通话内 Sticky 语种：首段有效文本锁定后，后续短句不再按句 Auto 漂音色
+   */
+  private ttsLanguageSticky: string | null = null
   private initialized = false
   /** TTS 引擎是否已单独初始化（预览/生成文件可不依赖 VAD/ASR） */
   private ttsInitialized = false
@@ -632,42 +645,190 @@ export class VoiceCallService {
     }
   }
 
+  /**
+   * 当前 TTS 引擎建议并行度
+   */
+  private getTtsConcurrency(): number {
+    const provider = this.config.tts.provider
+    return getTtsSynthConcurrency(
+      provider,
+      provider === 'qwen3' ? getQwen3SynthConcurrency() : 1,
+    )
+  }
+
+  /**
+   * 解析并锁定本批/本通话语种，避免短句 Auto 导致「多人交替」听感
+   */
+  private lockTtsLanguageForText(fullText: string): string {
+    const configured = this.config.tts.language || 'Auto'
+    if (configured.trim().toLowerCase() !== 'auto') {
+      return resolveQwen3TtsLanguage(configured, fullText)
+    }
+    if (this.ttsLanguageSticky) return this.ttsLanguageSticky
+    const locked = resolveQwen3TtsLanguage('Auto', fullText)
+    this.ttsLanguageSticky = locked
+    log.info(`[lockTtsLanguageForText] sticky language=${locked}`)
+    return locked
+  }
+
+  /**
+   * 合成单句：优先按句 LRU；未命中则调用 provider，可缓存则写入。
+   * liveEmit 为 true 时边合成边回调（仅用于当前正在播放的头句，降低 TTFA）。
+   */
+  private async synthesizeSentenceCached(
+    text: string,
+    opts: {
+      signal?: AbortSignal
+      liveEmit?: (chunk: TtsChunk) => void
+      /** 整段锁定语种，写入缓存键并 setLanguageOverride */
+      languageLock?: string
+    } = {},
+  ): Promise<TtsChunk[]> {
+    const languageLock = opts.languageLock
+    const cacheable =
+      text.length > 0
+      && text.length <= TTS_SENTENCE_CACHE_MAX_CHARS
+    const key = buildTtsPreviewCacheKey(text, this.config.tts, languageLock)
+
+    if (cacheable) {
+      const hit = ttsPreviewCache.get(key)
+      if (hit && hit.length > 0) {
+        log.info(`[synthesizeSentenceCached] 句缓存命中: "${text.slice(0, 32)}"`)
+        return hit
+      }
+    }
+
+    if (languageLock) {
+      this.ttsProvider!.setLanguageOverride?.(languageLock)
+    }
+
+    const recorded: TtsChunk[] = []
+    await this.ttsProvider!.synthesize(
+      text,
+      (chunk) => {
+        if (opts.signal?.aborted) return
+        if (chunk.samples.length > 0) {
+          recorded.push({
+            samples: chunk.samples.slice(),
+            sampleRate: chunk.sampleRate,
+            isFinal: false,
+          })
+        }
+        opts.liveEmit?.(chunk)
+      },
+      opts.signal,
+    )
+
+    const normalized = normalizeSentenceChunks(recorded)
+    if (cacheable && normalized.length > 0 && !opts.signal?.aborted) {
+      ttsPreviewCache.set(key, normalized)
+    }
+    return normalized
+  }
+
   private async processTtsQueue(): Promise<void> {
     const gen = this.ttsGeneration
     this.isTtsBusy = true
     let chunkIndex = 0
+    const concurrency = this.getTtsConcurrency()
 
     while (this.ttsQueue.length > 0 && gen === this.ttsGeneration) {
-      const { text } = this.ttsQueue.shift()!
+      // 取出当前积压的一批句子，并行预取 + 按序播放
+      const batch: string[] = []
+      while (this.ttsQueue.length > 0) {
+        batch.push(this.ttsQueue.shift()!.text)
+      }
+
+      // 批次内再按硬标点细拆，提升跨轮次句缓存命中
+      const sentences = batch.flatMap((t) => splitTextForTtsCache(t))
+      const languageLock = this.lockTtsLanguageForText(sentences.join(''))
+      log.info(
+        `[processTtsQueue] 批次 ${sentences.length} 句, concurrency=${concurrency}, lang=${languageLock}`,
+      )
+
       this.ttsAbort = new AbortController()
+      const signal = this.ttsAbort.signal
+      const n = sentences.length
+      const tasks: Array<Promise<TtsChunk[]> | undefined> = new Array(n)
+      let started = 0
+      const liveStreamed = new Set<number>()
 
-      log.info(`[processTtsQueue] 合成句子: "${text}"`)
+      /** 启动下标 i 的合成（幂等）；仅首句允许边合成边推，降低 TTFA */
+      const ensureStarted = (i: number): Promise<TtsChunk[]> => {
+        if (tasks[i]) return tasks[i]!
+        const text = sentences[i]!
+        tasks[i] = this.synthesizeSentenceCached(text, {
+          signal,
+          languageLock,
+          liveEmit:
+            i === 0
+              ? (chunk) => {
+                  if (!this.callId || gen !== this.ttsGeneration || signal.aborted) return
+                  if (chunk.samples.length === 0) return
+                  liveStreamed.add(0)
+                  this.pushVoiceEvent({
+                    type: 'voice:tts:chunk',
+                    callId: this.callId,
+                    samples: Array.from(chunk.samples),
+                    sampleRate: chunk.sampleRate,
+                    chunkIndex: chunkIndex++,
+                    isFinal: false,
+                    text,
+                  })
+                }
+              : undefined,
+        }).catch((e) => {
+          if ((e as Error).name !== 'AbortError') {
+            log.error(`[processTtsQueue] TTS 合成失败: ${(e as Error).message}`)
+          }
+          return [] as TtsChunk[]
+        })
+        return tasks[i]!
+      }
 
-      try {
-        await this.ttsProvider!.synthesize(
-          text,
-          (chunk) => {
-            if (!this.callId || gen !== this.ttsGeneration) return
-            const samples = Array.from(chunk.samples)
-            log.info(`[processTtsQueue] 发送 TTS 音频块 chunkIdx=${chunkIndex} samples=${samples.length} isFinal=${chunk.isFinal}`)
+      for (let i = 0; i < n; i++) {
+        if (gen !== this.ttsGeneration || signal.aborted) break
+
+        while (started < n && started < i + concurrency) {
+          void ensureStarted(started++)
+        }
+
+        const text = sentences[i]!
+        const chunks = await ensureStarted(i)
+        if (gen !== this.ttsGeneration || signal.aborted) break
+
+        log.info(`[processTtsQueue] 播放句子[${i}]: "${text.slice(0, 40)}"`)
+
+        if (!liveStreamed.has(i)) {
+          for (const chunk of chunks) {
+            if (!this.callId || gen !== this.ttsGeneration) break
             this.pushVoiceEvent({
               type: 'voice:tts:chunk',
               callId: this.callId,
-              samples,
+              samples: Array.from(chunk.samples),
               sampleRate: chunk.sampleRate,
               chunkIndex: chunkIndex++,
-              isFinal: chunk.isFinal,
-              /** 本句清洁文字，每个 chunk 都带，供渲染侧按字数+音频时长计算逐字口型脉冲间隔。 */
+              isFinal: false,
               text,
             })
-          },
-          this.ttsAbort.signal,
-        )
-      } catch (e) {
-        if ((e as Error).name !== 'AbortError') {
-          log.error(`[processTtsQueue] TTS 合成失败: ${(e as Error).message}`)
+          }
+        }
+
+        if (this.callId && gen === this.ttsGeneration) {
+          const sr = chunks[0]?.sampleRate ?? this.ttsProvider?.sampleRate ?? 24000
+          this.pushVoiceEvent({
+            type: 'voice:tts:chunk',
+            callId: this.callId,
+            samples: [],
+            sampleRate: sr,
+            chunkIndex: chunkIndex++,
+            isFinal: true,
+            text,
+          })
         }
       }
+
+      // 合成期间又入队的句子，下一轮 while 继续处理
     }
 
     // 仅当 generation 未变（没有被打断）时才更新状态
@@ -738,6 +899,8 @@ export class VoiceCallService {
     this.callId = null
     this.sessionKey = null
     this.micless = false
+    this.ttsLanguageSticky = null
+    this.ttsProvider?.setLanguageOverride?.(null)
 
     this.pushVoiceEvent({
       type: 'voice:call:ended',
@@ -773,7 +936,7 @@ export class VoiceCallService {
 
   /**
    * 合成一段试听音频并推送 voice:tts:preview:chunk 事件到渲染进程。
-   * 相同文本 + 当前 TTS 配置会命中内存 LRU 缓存，跳过再次调用 TTS（降低 Edge API 等用量）。
+   * 按句 LRU 缓存 + 有限并发并行合成，相同句子跨预览可复用。
    */
   async previewTts(text: string, win: import('electron').BrowserWindow): Promise<void> {
     // 停止上一次预览（如果有）
@@ -790,8 +953,18 @@ export class VoiceCallService {
       return
     }
 
+    if (cleaned.length > TTS_PREVIEW_CACHE_MAX_TEXT_CHARS) {
+      this.pushVoiceEvent({
+        type: 'voice:runtime:status',
+        phase: 'error',
+        message: `预览文案过长（>${TTS_PREVIEW_CACHE_MAX_TEXT_CHARS} 字），请缩短后重试`,
+      })
+      return
+    }
+
+    const sentences = splitTextForTtsCache(cleaned)
     const preview = cleaned.length > 120 ? `${cleaned.slice(0, 120)}…` : cleaned
-    log.info(`[previewTts] 开始预览: "${preview}"`)
+    log.info(`[previewTts] 开始预览: ${sentences.length} 句 "${preview}"`)
     const abort = new AbortController()
     this.previewAbort = abort
 
@@ -819,78 +992,91 @@ export class VoiceCallService {
       this.emitRuntimeStatus('starting_engine', '正在准备语音预览…')
       await this.ensureTtsInitialized()
 
-      const trimmed = cleaned
-      const cacheKey = buildTtsPreviewCacheKey(cleaned, this.config.tts)
-      if (trimmed.length <= TTS_PREVIEW_CACHE_MAX_TEXT_CHARS) {
-        const cached = ttsPreviewCache.get(cacheKey)
-        if (cached && cached.length > 0) {
-          log.info('[previewTts] 缓存命中，跳过 TTS 合成')
-          this.emitRuntimeStatus('playing', '正在播放预览（缓存）…')
-          let chunkIndex = 0
-          for (const chunk of cached) {
-            if (win.isDestroyed() || abort.signal.aborted) {
-              endPreview(false, '预览已取消')
-              return
-            }
-            try {
-              win.webContents.send('voice:event', {
-                type: 'voice:tts:preview:chunk',
-                samples: chunk.samples,
-                sampleRate: chunk.sampleRate,
-                chunkIndex: chunkIndex++,
-                isFinal: chunk.isFinal,
-              })
-            } catch (e) {
-              log.warn(`[previewTts] IPC 发送失败: ${(e as Error).message}`)
-            }
-            await new Promise<void>((r) => setImmediate(r))
-          }
-          endPreview(true)
-          return
+      const concurrency = this.getTtsConcurrency()
+      // 预览按整段判定一次语种，禁止逐句 Auto（否则短英文句会换成外语音色）
+      const languageLock = resolveQwen3TtsLanguage(this.config.tts.language || 'Auto', cleaned)
+      this.ttsProvider!.setLanguageOverride?.(languageLock)
+      this.emitRuntimeStatus(
+        'synthesizing',
+        `正在合成预览（${sentences.length} 句，并行 ${concurrency}，${languageLock}）…`,
+      )
+
+      let chunkIndex = 0
+      let playingStatusSent = false
+      const n = sentences.length
+      const tasks: Array<Promise<TtsChunk[]> | undefined> = new Array(n)
+      let started = 0
+      const liveStreamed = new Set<number>()
+      const signal = abort.signal
+
+      /** 推送预览音频块 */
+      const sendPreviewChunk = (chunk: TtsChunk, isFinal: boolean) => {
+        if (win.isDestroyed() || signal.aborted) return
+        if (!playingStatusSent && chunk.samples.length > 0) {
+          playingStatusSent = true
+          this.emitRuntimeStatus('playing', '正在播放预览…')
+        }
+        try {
+          win.webContents.send('voice:event', {
+            type: 'voice:tts:preview:chunk',
+            samples: chunk.samples,
+            sampleRate: chunk.sampleRate,
+            chunkIndex: chunkIndex++,
+            isFinal,
+          })
+        } catch (e) {
+          log.warn(`[previewTts] IPC 发送失败: ${(e as Error).message}`)
         }
       }
 
-      this.emitRuntimeStatus('synthesizing', '正在合成预览语音…')
-      const recorded: TtsChunk[] = []
-      let chunkIndex = 0
-      await this.ttsProvider!.synthesize(
-        cleaned,
-        (chunk) => {
-          if (win.isDestroyed() || abort.signal.aborted) return
-          if (chunkIndex === 0) {
-            this.emitRuntimeStatus('playing', '正在播放预览…')
-          }
-          recorded.push({
-            samples: chunk.samples.slice(),
-            sampleRate: chunk.sampleRate,
-            isFinal: chunk.isFinal,
-          })
-          try {
-            win.webContents.send('voice:event', {
-              type: 'voice:tts:preview:chunk',
-              samples: chunk.samples,
-              sampleRate: chunk.sampleRate,
-              chunkIndex: chunkIndex++,
-              isFinal: chunk.isFinal,
-            })
-          } catch (e) {
-            log.warn(`[previewTts] IPC 发送失败: ${(e as Error).message}`)
-          }
-        },
-        abort.signal,
-      )
+      const ensureStarted = (i: number): Promise<TtsChunk[]> => {
+        if (tasks[i]) return tasks[i]!
+        const sentence = sentences[i]!
+        tasks[i] = this.synthesizeSentenceCached(sentence, {
+          signal,
+          languageLock,
+          liveEmit:
+            i === 0
+              ? (chunk) => {
+                  if (chunk.samples.length === 0) return
+                  liveStreamed.add(0)
+                  sendPreviewChunk(chunk, false)
+                }
+              : undefined,
+        })
+        return tasks[i]!
+      }
 
-      if (abort.signal.aborted) {
+      for (let i = 0; i < n; i++) {
+        if (signal.aborted || win.isDestroyed()) {
+          endPreview(false, '预览已取消')
+          return
+        }
+        while (started < n && started < i + concurrency) {
+          void ensureStarted(started++)
+        }
+
+        const chunks = await ensureStarted(i)
+        if (signal.aborted || win.isDestroyed()) {
+          endPreview(false, '预览已取消')
+          return
+        }
+
+        if (!liveStreamed.has(i)) {
+          for (const chunk of chunks) {
+            sendPreviewChunk(chunk, false)
+            await new Promise<void>((r) => setImmediate(r))
+          }
+        }
+      }
+
+      if (signal.aborted) {
         endPreview(false, '预览已取消')
         return
       }
 
-      if (
-        recorded.length > 0
-        && trimmed.length <= TTS_PREVIEW_CACHE_MAX_TEXT_CHARS
-      ) {
-        ttsPreviewCache.set(cacheKey, recorded)
-      }
+      const lastSr = this.ttsProvider?.sampleRate ?? 24000
+      sendPreviewChunk({ samples: [], sampleRate: lastSr, isFinal: true }, true)
       endPreview(true)
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
@@ -902,6 +1088,7 @@ export class VoiceCallService {
         endPreview(false, '预览已取消')
       }
     } finally {
+      this.ttsProvider?.setLanguageOverride?.(null)
       if (this.previewAbort === abort) {
         this.previewAbort = null
       }

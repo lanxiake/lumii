@@ -4,7 +4,7 @@
  */
 import path from 'node:path'
 import fs from 'node:fs'
-import { getSharedQwen3TtsClient } from './qwen3-tts-client.js'
+import { getSharedQwen3TtsClient, borrowQwen3TtsClient, releaseQwen3TtsClient } from './qwen3-tts-client.js'
 import { resolveQwen3TtsLanguage, sanitizeTtsPlainText } from './tts-text-utils.js'
 
 const log = {
@@ -40,6 +40,11 @@ export interface TtsProvider {
   setSpeakerId?(id: number): void
   /** 热更新音色（Edge TTS 专用，需重建 WebSocket） */
   setVoice?(voice: string): Promise<void>
+  /**
+   * 锁定本次合成语种（Qwen3）：避免按句 Auto 判定导致中英音色交替
+   * 传 null 清除锁定
+   */
+  setLanguageOverride?(language: string | null): void
   destroy(): void
 }
 
@@ -311,6 +316,8 @@ export class Qwen3Tts implements TtsProvider {
 
   private client = getSharedQwen3TtsClient()
   private initialized = false
+  /** 整段/会话级语种锁定，优先于逐句 Auto */
+  private languageOverride: string | null = null
 
   constructor(
     private modelDir: string,
@@ -342,6 +349,13 @@ export class Qwen3Tts implements TtsProvider {
    */
   setSpeakerName(speaker: string): void {
     this.opts.speaker = speaker
+  }
+
+  /**
+   * 锁定语种，消除按句 Auto 漂音色
+   */
+  setLanguageOverride(language: string | null): void {
+    this.languageOverride = language && language.trim() ? language.trim() : null
   }
 
   /**
@@ -378,36 +392,44 @@ export class Qwen3Tts implements TtsProvider {
       throw new Error('未配置克隆音色：请在设置中创建并选择「我的音色」，或改用 CustomVoice 内置音色')
     }
 
-    // 清洗 Markdown；Auto + 中文为主时钉死 Chinese，避免中途漂到其他语种音色
+    // 清洗 Markdown；语种优先用整段锁定，避免短句 Auto 漂到外语音色
     const plain = sanitizeTtsPlainText(text)
     if (!plain) return
-    const language = resolveQwen3TtsLanguage(this.opts.language || 'Auto', plain)
+    const language =
+      this.languageOverride
+      ?? resolveQwen3TtsLanguage(this.opts.language || 'Auto', plain)
     if (language !== (this.opts.language || 'Auto')) {
       log.info(`[Qwen3Tts.synthesize] language ${this.opts.language || 'Auto'} → ${language}`)
     }
 
-    const { sampleRate } = await this.client.synthesizeStream(
-      {
-        text: plain,
-        language,
-        mode,
-        speaker: this.opts.speaker || 'Vivian',
-        instruct: this.opts.instruct,
-        refAudio: this.opts.refAudio,
-        refText: this.opts.refText || '',
-        xVectorOnly: this.opts.xVectorOnly === true,
-      },
-      (part) => {
-        if (signal?.aborted) return
-        this.sampleRate = part.sampleRate
-        onChunk({ samples: part.samples, sampleRate: part.sampleRate, isFinal: false })
-      },
-    )
+    const client = await borrowQwen3TtsClient()
+    try {
+      await client.load(this.modelDir, this.tokenizerDir, this.opts.device ?? 'auto')
+      const { sampleRate } = await client.synthesizeStream(
+        {
+          text: plain,
+          language,
+          mode,
+          speaker: this.opts.speaker || 'Vivian',
+          instruct: this.opts.instruct,
+          refAudio: this.opts.refAudio,
+          refText: this.opts.refText || '',
+          xVectorOnly: this.opts.xVectorOnly === true,
+        },
+        (part) => {
+          if (signal?.aborted) return
+          this.sampleRate = part.sampleRate
+          onChunk({ samples: part.samples, sampleRate: part.sampleRate, isFinal: false })
+        },
+      )
 
-    if (signal?.aborted) return
-    this.sampleRate = sampleRate
-    void onAudioFile // 流式路径不写整段 wav，保留参数以兼容 TtsProvider 接口
-    onChunk({ samples: [], sampleRate, isFinal: true })
+      if (signal?.aborted) return
+      this.sampleRate = sampleRate
+      void onAudioFile // 流式路径不写整段 wav，保留参数以兼容 TtsProvider 接口
+      onChunk({ samples: [], sampleRate, isFinal: true })
+    } finally {
+      releaseQwen3TtsClient(client)
+    }
   }
 
   destroy(): void {

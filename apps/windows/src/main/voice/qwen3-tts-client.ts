@@ -934,6 +934,12 @@ export class Qwen3TtsClient {
 /** 进程内单例，避免重复加载大模型 */
 let sharedClient: Qwen3TtsClient | null = null
 
+/** 并行合成池（多 sidecar 实例，CUDA 上可同时跑多句） */
+const QWEN3_SYNTH_POOL_SIZE = 2
+const synthPool: Qwen3TtsClient[] = []
+const synthIdle: Qwen3TtsClient[] = []
+const synthWaiters: Array<(c: Qwen3TtsClient) => void> = []
+
 /**
  * 获取共享 Qwen3 sidecar 客户端
  */
@@ -943,14 +949,56 @@ export function getSharedQwen3TtsClient(): Qwen3TtsClient {
 }
 
 /**
+ * 从合成池借出一个客户端（最多 QWEN3_SYNTH_POOL_SIZE 个进程）
+ */
+export async function borrowQwen3TtsClient(): Promise<Qwen3TtsClient> {
+  if (synthIdle.length > 0) {
+    return synthIdle.pop()!
+  }
+  if (synthPool.length < QWEN3_SYNTH_POOL_SIZE) {
+    const client = synthPool.length === 0 ? getSharedQwen3TtsClient() : new Qwen3TtsClient()
+    if (!synthPool.includes(client)) synthPool.push(client)
+    return client
+  }
+  return new Promise<Qwen3TtsClient>((resolve) => {
+    synthWaiters.push(resolve)
+  })
+}
+
+/**
+ * 归还合成池客户端
+ */
+export function releaseQwen3TtsClient(client: Qwen3TtsClient): void {
+  const waiter = synthWaiters.shift()
+  if (waiter) {
+    waiter(client)
+    return
+  }
+  if (!synthIdle.includes(client)) synthIdle.push(client)
+}
+
+/**
+ * Qwen3 并行合成建议并发度
+ */
+export function getQwen3SynthConcurrency(): number {
+  return QWEN3_SYNTH_POOL_SIZE
+}
+
+/**
  * 销毁共享 sidecar（升级 CUDA / 重装依赖后需重启进程）
  */
 export async function resetSharedQwen3TtsClient(): Promise<void> {
-  if (!sharedClient) return
-  try {
-    await sharedClient.destroy()
-  } catch {
-    /* ignore */
+  const all = new Set<Qwen3TtsClient>([...synthPool, ...synthIdle])
+  if (sharedClient) all.add(sharedClient)
+  for (const c of all) {
+    try {
+      await c.destroy()
+    } catch {
+      /* ignore */
+    }
   }
+  synthPool.length = 0
+  synthIdle.length = 0
+  synthWaiters.length = 0
   sharedClient = null
 }

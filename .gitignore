@@ -16,7 +16,7 @@ release-ok-*/
 **/win-unpacked.tmp/
 coverage/
 *.tsbuildinfo
-
+.tts-probe/
 # Environment & secrets
 .env
 .env.*
