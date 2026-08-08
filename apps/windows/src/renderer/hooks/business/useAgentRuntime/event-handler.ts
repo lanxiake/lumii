@@ -62,22 +62,50 @@ const runIdToSessionKey = new Map<string, string>()
 // Delta 批处理 — 将高频 delta 事件合并为每帧一次 store 更新
 // ============================================================
 
-interface PendingDelta {
-  /** 主消息 delta 文本，按 sessionKey 累积 */
-  messageDelta: Map<string, { messageId?: string; text: string }>
-  /** 子 Agent 消息 delta，按 sessionKey+instanceId 累积 */
-  subAgentDelta: Map<string, { instanceId: string; text: string }>
-  /** thinking delta，按会话与子 Agent 实例累积 */
-  thinkingDelta: Map<string, { sessionKey: string; instanceId?: string; text: string }>
+/** 待刷新的 delta 目标：主 Agent 文本、子 Agent 文本或 thinking */
+type PendingDeltaTarget =
+  | { kind: 'main_text'; sessionKey: string; messageId?: string }
+  | { kind: 'sub_agent_text'; sessionKey: string; instanceId: string }
+  | { kind: 'thinking'; sessionKey: string; instanceId?: string }
+
+/** 按到达顺序排队的 delta 批次（同目标连续事件合并为同一批次） */
+interface PendingDeltaBatch {
+  target: PendingDeltaTarget
+  text: string
 }
 
-const pendingDelta: PendingDelta = {
-  messageDelta: new Map(),
-  subAgentDelta: new Map(),
-  thinkingDelta: new Map(),
-}
+const pendingDeltaQueue: PendingDeltaBatch[] = []
 
 let deltaFlushScheduled = false
+
+/**
+ * 生成 delta 目标的唯一键，用于判断相邻批次是否可合并。
+ */
+function pendingDeltaTargetKey(target: PendingDeltaTarget): string {
+  switch (target.kind) {
+    case 'main_text':
+      return `main_text::${target.sessionKey}`
+    case 'sub_agent_text':
+      return `sub_text::${target.sessionKey}::${target.instanceId}`
+    case 'thinking':
+      return `thinking::${target.sessionKey}::${target.instanceId ?? '__main__'}`
+  }
+}
+
+/**
+ * 将 delta 追加到有序队列；与上一批次同目标则合并文本，否则新建批次。
+ */
+function enqueuePendingDelta(target: PendingDeltaTarget, delta: string): void {
+  const last = pendingDeltaQueue[pendingDeltaQueue.length - 1]
+  if (last && pendingDeltaTargetKey(last.target) === pendingDeltaTargetKey(target)) {
+    last.text += delta
+    if (target.kind === 'main_text' && target.messageId) {
+      last.target = { ...last.target, messageId: target.messageId } as PendingDeltaTarget
+    }
+    return
+  }
+  pendingDeltaQueue.push({ target, text: delta })
+}
 
 function scheduleDeltaFlush(): void {
   if (deltaFlushScheduled) return
@@ -85,90 +113,136 @@ function scheduleDeltaFlush(): void {
   requestAnimationFrame(flushPendingDeltas)
 }
 
+/**
+ * 将 thinking delta 应用到目标 assistant 消息。
+ */
+function applyThinkingDeltaBatch(
+  sessionKey: string,
+  instanceId: string | undefined,
+  text: string,
+): void {
+  updateSessionState(sessionKey, (prev) => {
+    const msgs = [...prev.messages]
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const message = msgs[i]!
+      if (message.role !== 'assistant' || !message.isStreaming) continue
+      if (instanceId && message.sourceAgent?.instanceId !== instanceId) continue
+      if (!instanceId && message.sourceAgent) continue
+      msgs[i] = {
+        ...message,
+        parts: applyRuntimeAssistantPartEvent(message.parts, {
+          kind: 'thinking_delta',
+          delta: text,
+        }),
+      }
+      break
+    }
+    return {
+      ...prev,
+      messages: msgs,
+      ...(instanceId
+        ? {}
+        : {
+            isThinking: true,
+            currentThinkingText: prev.currentThinkingText + text,
+          }),
+    }
+  })
+}
+
+/**
+ * 将主 Agent text delta 应用到目标 assistant 消息。
+ */
+function applyMainTextDeltaBatch(
+  sessionKey: string,
+  messageId: string | undefined,
+  text: string,
+): void {
+  updateSessionState(sessionKey, (prev) => {
+    const msgs = [...prev.messages]
+    let targetIdx = messageId ? msgs.findIndex((m) => m.id === messageId) : -1
+    if (targetIdx < 0) {
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i]!.role === 'assistant' && msgs[i]!.isStreaming && !msgs[i]!.sourceAgent) {
+          targetIdx = i
+          break
+        }
+      }
+    }
+    if (targetIdx < 0) return prev
+    const last = msgs[targetIdx]!
+    if (last.role !== 'assistant' || !last.isStreaming) return prev
+    const currentText = last.content[0]?.text ?? ''
+    msgs[targetIdx] = {
+      ...last,
+      content: [{ type: 'text' as const, text: currentText + text }],
+      parts: applyRuntimeAssistantPartEvent(last.parts, { kind: 'text_delta', delta: text }),
+    }
+    return { ...prev, messages: msgs }
+  })
+}
+
+/**
+ * 将子 Agent text delta 应用到目标 assistant 消息。
+ */
+function applySubAgentTextDeltaBatch(
+  sessionKey: string,
+  instanceId: string,
+  text: string,
+): void {
+  const mid = getSubAgentMsgId(sessionKey, instanceId)
+  updateSessionState(sessionKey, (prev) => {
+    const msgs = [...prev.messages]
+    const idx = mid ? msgs.findIndex((m) => m.id === mid) : -1
+    if (idx < 0) return prev
+    const last = msgs[idx]!
+    if (last.role !== 'assistant' || !last.isStreaming) return prev
+    const currentText = last.content[0]?.text ?? ''
+    msgs[idx] = {
+      ...last,
+      content: [{ type: 'text' as const, text: currentText + text }],
+      parts: applyRuntimeAssistantPartEvent(last.parts, { kind: 'text_delta', delta: text }),
+    }
+    return { ...prev, messages: msgs }
+  })
+}
+
+/**
+ * 按到达顺序刷新所有待处理 delta，保持 text/thinking 交错顺序。
+ */
 function flushPendingDeltas(): void {
   deltaFlushScheduled = false
 
-  // 1) 先归约 thinking，保持常规 thinking → text 的事件顺序。
-  for (const { sessionKey, instanceId, text } of pendingDelta.thinkingDelta.values()) {
-    updateSessionState(sessionKey, (prev) => {
-      const msgs = [...prev.messages]
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        const message = msgs[i]!
-        if (message.role !== 'assistant' || !message.isStreaming) continue
-        if (instanceId && message.sourceAgent?.instanceId !== instanceId) continue
-        if (!instanceId && message.sourceAgent) continue
-        msgs[i] = {
-          ...message,
-          parts: applyRuntimeAssistantPartEvent(message.parts, {
-            kind: 'thinking_delta',
-            delta: text,
-          }),
-        }
+  for (const { target, text } of pendingDeltaQueue) {
+    if (!text) continue
+    switch (target.kind) {
+      case 'thinking':
+        applyThinkingDeltaBatch(target.sessionKey, target.instanceId, text)
         break
-      }
-      return {
-        ...prev,
-        messages: msgs,
-        ...(instanceId
-          ? {}
-          : {
-              isThinking: true,
-              currentThinkingText: prev.currentThinkingText + text,
-            }),
-      }
-    })
+      case 'main_text':
+        applyMainTextDeltaBatch(target.sessionKey, target.messageId, text)
+        break
+      case 'sub_agent_text':
+        applySubAgentTextDeltaBatch(target.sessionKey, target.instanceId, text)
+        break
+    }
   }
-  pendingDelta.thinkingDelta.clear()
+  pendingDeltaQueue.length = 0
+}
 
-  // 2) Flush message deltas
-  for (const [sessionKey, { messageId, text }] of pendingDelta.messageDelta) {
-    updateSessionState(sessionKey, (prev) => {
-      const msgs = [...prev.messages]
-      let targetIdx = messageId
-        ? msgs.findIndex((m) => m.id === messageId)
-        : -1
-      if (targetIdx < 0) {
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          if (msgs[i]!.role === 'assistant' && msgs[i]!.isStreaming && !msgs[i]!.sourceAgent) {
-            targetIdx = i
-            break
-          }
-        }
-      }
-      if (targetIdx < 0) return prev
-      const last = msgs[targetIdx]!
-      if (last.role !== 'assistant' || !last.isStreaming) return prev
-      const currentText = last.content[0]?.text ?? ''
-      msgs[targetIdx] = {
-        ...last,
-        content: [{ type: 'text' as const, text: currentText + text }],
-        parts: applyRuntimeAssistantPartEvent(last.parts, { kind: 'text_delta', delta: text }),
-      }
-      return { ...prev, messages: msgs }
-    })
-  }
-  pendingDelta.messageDelta.clear()
-
-  // 3) Flush sub-agent deltas
-  for (const [compositeKey, { instanceId, text }] of pendingDelta.subAgentDelta) {
-    const sk = compositeKey.split('::')[0]!
-    const mid = getSubAgentMsgId(sk, instanceId)
-    updateSessionState(sk, (prev) => {
-      const msgs = [...prev.messages]
-      const idx = mid ? msgs.findIndex((m) => m.id === mid) : -1
-      if (idx < 0) return prev
-      const last = msgs[idx]!
-      if (last.role !== 'assistant' || !last.isStreaming) return prev
-      const currentText = last.content[0]?.text ?? ''
-      msgs[idx] = {
-        ...last,
-        content: [{ type: 'text' as const, text: currentText + text }],
-        parts: applyRuntimeAssistantPartEvent(last.parts, { kind: 'text_delta', delta: text }),
-      }
-      return { ...prev, messages: msgs }
-    })
-  }
-  pendingDelta.subAgentDelta.clear()
+/**
+ * 在 finalize 前将 LLM 错误文本注入 parts（content 为空时）。
+ */
+function partsWithLlmErrorIfNeeded(
+  parts: readonly AssistantPart[],
+  err: { code: string; message: string } | undefined,
+  contentText: string | undefined,
+): AssistantPart[] {
+  if (!err || contentText?.trim()) return [...parts]
+  return applyRuntimeAssistantPartEvent(parts, {
+    kind: 'text_delta',
+    delta: `[${err.code}] ${err.message}`,
+  })
 }
 
 /**
@@ -184,9 +258,7 @@ export function resetAgentRuntimeEventHandlerForTests(): void {
   streamLlmStartByRunId.clear()
   subAgentStreamingMessageId.clear()
   runIdToSessionKey.clear()
-  pendingDelta.messageDelta.clear()
-  pendingDelta.subAgentDelta.clear()
-  pendingDelta.thinkingDelta.clear()
+  pendingDeltaQueue.length = 0
   deltaFlushScheduled = false
   rendererPartIdSequence = 0
 }
@@ -501,22 +573,15 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
 
     case 'agent:message:delta': {
       if (isSubAgentStreamEvent(event) && event.instanceId) {
-        const key = `${sessionKey}::${event.instanceId}`
-        const existing = pendingDelta.subAgentDelta.get(key)
-        if (existing) {
-          existing.text += event.delta
-        } else {
-          pendingDelta.subAgentDelta.set(key, { instanceId: event.instanceId, text: event.delta })
-        }
-        scheduleDeltaFlush()
-        break
-      }
-      const existing = pendingDelta.messageDelta.get(sessionKey)
-      if (existing) {
-        existing.text += event.delta
-        if (event.messageId) existing.messageId = event.messageId
+        enqueuePendingDelta(
+          { kind: 'sub_agent_text', sessionKey, instanceId: event.instanceId },
+          event.delta,
+        )
       } else {
-        pendingDelta.messageDelta.set(sessionKey, { messageId: event.messageId, text: event.delta })
+        enqueuePendingDelta(
+          { kind: 'main_text', sessionKey, messageId: event.messageId },
+          event.delta,
+        )
       }
       scheduleDeltaFlush()
       break
@@ -579,7 +644,9 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           msgs[idx] = {
             ...last,
             content: mergedContent,
-            parts: finalizeAssistantParts(last.parts),
+            parts: finalizeAssistantParts(
+              partsWithLlmErrorIfNeeded(last.parts, err, finalContent[0]?.text),
+            ),
             isStreaming: keepStreaming,
             usage: event.usage,
             ...(streamMetrics ? { streamMetrics } : {}),
@@ -671,7 +738,9 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         msgs[targetIdx] = {
           ...last,
           content: mergedContent,
-          parts: finalizeAssistantParts(last.parts),
+          parts: finalizeAssistantParts(
+            partsWithLlmErrorIfNeeded(last.parts, err, finalContent[0]?.text),
+          ),
           isStreaming: keepStreamingMain,
           usage: event.usage,
           ...(streamMetrics ? { streamMetrics } : {}),
@@ -707,13 +776,14 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
     case 'agent:thinking:delta': {
       const instanceId =
         isSubAgentStreamEvent(event) && event.instanceId ? event.instanceId : undefined
-      const key = `${sessionKey}::${instanceId ?? '__main__'}`
-      const existing = pendingDelta.thinkingDelta.get(key)
-      pendingDelta.thinkingDelta.set(key, {
-        sessionKey,
-        ...(instanceId ? { instanceId } : {}),
-        text: (existing?.text ?? '') + event.delta,
-      })
+      enqueuePendingDelta(
+        {
+          kind: 'thinking',
+          sessionKey,
+          ...(instanceId ? { instanceId } : {}),
+        },
+        event.delta,
+      )
       scheduleDeltaFlush()
       break
     }

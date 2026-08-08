@@ -150,6 +150,101 @@ describe('handleRuntimeEvent assistant parts', () => {
     ])
   })
 
+  it('同一批次内按 text、thinking 的到达顺序生成 parts', () => {
+    startAssistantMessage()
+
+    handleRuntimeEvent({
+      type: 'agent:message:delta',
+      runId: 'run-1',
+      sessionKey: 'session-1',
+      messageId: 'message-1',
+      delta: '先回答',
+      totalLength: 3,
+    })
+    handleRuntimeEvent({
+      type: 'agent:thinking:delta',
+      runId: 'run-1',
+      sessionKey: 'session-1',
+      delta: '后思考',
+    })
+    handleRuntimeEvent({
+      type: 'agent:idle',
+      runId: 'run-1',
+      sessionKey: 'session-1',
+    })
+
+    const message = runtimeStore.getState().sessions.get('session-1')?.messages[0]
+    expect(message?.parts).toEqual([
+      expect.objectContaining({ type: 'text', text: '先回答', status: 'done' }),
+      expect.objectContaining({ type: 'thinking', text: '后思考', status: 'done' }),
+    ])
+  })
+
+  it('主 Agent LLM 错误应同时写入 content 与 parts', () => {
+    startAssistantMessage()
+
+    handleRuntimeEvent({
+      type: 'agent:message:end',
+      runId: 'run-1',
+      sessionKey: 'session-1',
+      messageId: 'message-1',
+      content: [{ type: 'text', text: '' }],
+      usage: { inputTokens: 1, outputTokens: 0 },
+      stopReason: 'error',
+      llmError: {
+        code: 'insufficient_balance',
+        message: '余额不足',
+        retryable: false,
+      },
+    })
+
+    const message = runtimeStore.getState().sessions.get('session-1')?.messages[0]
+    expect(message?.content[0]?.text).toBe('[insufficient_balance] 余额不足')
+    expect(message?.parts).toContainEqual(expect.objectContaining({
+      type: 'text',
+      text: '[insufficient_balance] 余额不足',
+      status: 'done',
+    }))
+  })
+
+  it('子 Agent LLM 错误应同时写入 content 与 parts', () => {
+    handleRuntimeEvent({
+      type: 'agent:message:start',
+      runId: 'run-1',
+      sessionKey: 'sub-session-1',
+      rootSessionKey: 'session-1',
+      instanceId: 'sub-agent-1',
+      messageId: 'sub-message-1',
+      model: 'test-model',
+      timestamp: 100,
+    })
+
+    handleRuntimeEvent({
+      type: 'agent:message:end',
+      runId: 'run-1',
+      sessionKey: 'sub-session-1',
+      rootSessionKey: 'session-1',
+      instanceId: 'sub-agent-1',
+      messageId: 'sub-message-1',
+      content: [{ type: 'text', text: '' }],
+      usage: { inputTokens: 1, outputTokens: 0 },
+      stopReason: 'error',
+      llmError: {
+        code: 'provider_error',
+        message: '服务暂不可用',
+        retryable: true,
+      },
+    })
+
+    const message = runtimeStore.getState().sessions.get('session-1')?.messages[0]
+    expect(message?.content[0]?.text).toBe('[provider_error] 服务暂不可用')
+    expect(message?.parts).toContainEqual(expect.objectContaining({
+      type: 'text',
+      text: '[provider_error] 服务暂不可用',
+      status: 'done',
+    }))
+  })
+
   it('将回合文件变更写入事件指定的 assistant 消息', () => {
     startAssistantMessage()
     const fileChanges = [
