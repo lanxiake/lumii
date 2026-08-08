@@ -211,7 +211,12 @@ describe("assistant parts bridge persistence", () => {
         getCwd: () => activeWorkspaceDir,
       });
 
-      await handler({ type: "agent:end" } as never);
+      const firstResult = handler({ type: "agent:end" } as never);
+
+      expect(firstResult).toBeUndefined();
+      await vi.waitFor(() => {
+        expect(updateMessageContent).toHaveBeenCalled();
+      });
 
       expect(updateMessageContent).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -239,7 +244,12 @@ describe("assistant parts bridge persistence", () => {
       state.turnSnapshotStart = new Map([["tracked.txt", "old-hash"]]);
       activeWorkspaceDir = path.join(workspaceDir, "missing");
 
-      await handler({ type: "agent:end" } as never);
+      const secondResult = handler({ type: "agent:end" } as never);
+
+      expect(secondResult).toBeUndefined();
+      await vi.waitFor(() => {
+        expect(updateMessageContent).toHaveBeenCalled();
+      });
 
       expect(updateMessageContent).toHaveBeenCalledWith(
         expect.objectContaining({

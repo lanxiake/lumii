@@ -298,7 +298,10 @@ export function createAgentInstanceRuntimeEventHandler(
     streamingPersistTimer = undefined
   }
 
-  return async (event: AgentRuntimeEvent) => {
+  /**
+   * 执行单个运行时事件；仅 agent:end 的工作区结束快照会异步让出。
+   */
+  async function handleRuntimeEvent(event: AgentRuntimeEvent): Promise<void> {
     if (event.type === 'message:delta') {
       // 首个 delta 即首字节，配对 agent:start 得到 TTFB；后续 delta 无副作用
       markFirstToken(instanceId, ctx.resolvedModelId ?? 'unknown')
@@ -801,5 +804,16 @@ export function createAgentInstanceRuntimeEventHandler(
         `[event] 推送 contextUsage: used=${usage.usedTokens}/${usage.contextWindow} (${usage.contextWindow > 0 ? ((usage.usedTokens / usage.contextWindow) * 100).toFixed(1) : '0'}%)`,
       )
     }
+  }
+
+  /**
+   * 保持 EventSink 的同步 void 契约，并显式兜住内部异步处理失败。
+   */
+  return (event: AgentRuntimeEvent): void => {
+    void handleRuntimeEvent(event).catch((err: unknown) => {
+      log.error(
+        `[event] 异步事件处理失败 type=${event.type}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    })
   }
 }
