@@ -1,11 +1,19 @@
 /**
- * Qwen3 克隆音色档案管理面板
+ * Qwen3 克隆音色档案管理面板（含麦克风朗读录制样本）
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '../../../../components/ui/Button/Button'
 import { Input } from '../../../../components/ui/Input/Input'
 import type { VoiceCloneProfile } from '../../../../../shared/voice-events'
 import styles from '../VoiceModelsPanel/VoiceModelsPanel.module.css'
+import {
+  CLONE_REF_PROMPT_ZH,
+  MAX_CLONE_RECORD_MS,
+  MIN_CLONE_RECORD_MS,
+  resolveCloneRefText,
+  type CloneSampleSource,
+} from './clone-ref-prompt'
+import { arrayBufferToBase64, encodePcmToWav } from './encode-wav'
 
 type SaveConfig = (partial: {
   tts?: {
@@ -23,7 +31,30 @@ interface Props {
 }
 
 /**
- * 列出 / 新建 / 删除克隆音色，并同步当前选中档案到语音配置
+ * 将一段 Float32 块 RMS 映射为 0–100 音量
+ */
+function pcmChunkLevel(chunk: Float32Array): number {
+  let sum = 0
+  for (let i = 0; i < chunk.length; i++) {
+    const v = chunk[i]!
+    sum += v * v
+  }
+  const rms = Math.sqrt(sum / Math.max(1, chunk.length))
+  return Math.min(100, Math.round(rms * 280))
+}
+
+/**
+ * 格式化录音时长 mm:ss
+ */
+function formatElapsed(ms: number): string {
+  const totalSec = Math.floor(ms / 1000)
+  const m = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+/**
+ * 列出 / 新建 / 删除克隆音色，并支持麦克风朗读录制参考样本
  */
 export function VoiceProfilesPanel({
   selectedProfileId,
@@ -35,8 +66,28 @@ export function VoiceProfilesPanel({
   const [name, setName] = useState('我的音色')
   const [refText, setRefText] = useState('')
   const [refPath, setRefPath] = useState('')
+  const [sampleSource, setSampleSource] = useState<CloneSampleSource>('file')
   const [busy, setBusy] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const [micLevel, setMicLevel] = useState(0)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const streamRef = useRef<MediaStream | null>(null)
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const processorRef = useRef<ScriptProcessorNode | null>(null)
+  const chunksRef = useRef<Float32Array[]>([])
+  const startedAtRef = useRef(0)
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const maxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const stoppingRef = useRef(false)
+  const previewUrlRef = useRef<string | null>(null)
+  const stopRecordingRef = useRef<(opts?: { skipMinCheck?: boolean }) => Promise<void>>(
+    async () => undefined,
+  )
+
+  previewUrlRef.current = previewUrl
 
   const refresh = useCallback(async () => {
     const api = (window as any).electronAPI
@@ -48,6 +99,43 @@ export function VoiceProfilesPanel({
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+    }
+  }, [previewUrl])
+
+  /**
+   * 释放麦克风与 AudioContext
+   */
+  const teardownCapture = useCallback(() => {
+    if (elapsedTimerRef.current) {
+      clearInterval(elapsedTimerRef.current)
+      elapsedTimerRef.current = null
+    }
+    if (maxTimerRef.current) {
+      clearTimeout(maxTimerRef.current)
+      maxTimerRef.current = null
+    }
+    try {
+      processorRef.current?.disconnect()
+    } catch {
+      /* ignore */
+    }
+    processorRef.current = null
+    try {
+      void audioCtxRef.current?.close()
+    } catch {
+      /* ignore */
+    }
+    audioCtxRef.current = null
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
+    setMicLevel(0)
+  }, [])
+
+  useEffect(() => () => teardownCapture(), [teardownCapture])
 
   /**
    * 通过系统对话框选择参考音频
@@ -64,10 +152,182 @@ export function VoiceProfilesPanel({
         filters: [{ name: 'Audio', extensions: ['wav', 'mp3', 'flac', 'ogg', 'm4a'] }],
       })
       const filePath = result?.filePaths?.[0]
-      if (filePath) setRefPath(filePath)
+      if (filePath) {
+        setRefPath(filePath)
+        setSampleSource('file')
+        if (previewUrl) {
+          URL.revokeObjectURL(previewUrl)
+          setPreviewUrl(null)
+        }
+      }
     } catch (e) {
       setError((e as Error).message)
     }
+  }
+
+  /**
+   * 停止录音：校验最短时长后编码 WAV 并写入临时文件
+   */
+  const stopRecording = useCallback(async (opts?: { skipMinCheck?: boolean }) => {
+    if (stoppingRef.current) return
+    stoppingRef.current = true
+    setError(null)
+
+    const elapsed = Date.now() - startedAtRef.current
+    const chunks = chunksRef.current
+    const sampleRate = audioCtxRef.current?.sampleRate ?? 48000
+    teardownCapture()
+    setRecording(false)
+    setElapsedMs(elapsed)
+
+    try {
+      if (!opts?.skipMinCheck && elapsed < MIN_CLONE_RECORD_MS) {
+        setError(`录音太短，请至少录制 ${Math.round(MIN_CLONE_RECORD_MS / 1000)} 秒`)
+        chunksRef.current = []
+        return
+      }
+
+      let total = 0
+      for (const c of chunks) total += c.length
+      if (total === 0) {
+        setError('未采集到有效音频，请重试')
+        return
+      }
+      const merged = new Float32Array(total)
+      let offset = 0
+      for (const c of chunks) {
+        merged.set(c, offset)
+        offset += c.length
+      }
+      chunksRef.current = []
+
+      const wav = encodePcmToWav(merged, sampleRate)
+      const blob = new Blob([wav], { type: 'audio/wav' })
+      const prevUrl = previewUrlRef.current
+      if (prevUrl) URL.revokeObjectURL(prevUrl)
+      setPreviewUrl(URL.createObjectURL(blob))
+
+      const api = (window as any).electronAPI
+      if (!api?.voice?.sendCommand) {
+        setError('语音接口不可用')
+        return
+      }
+      setBusy(true)
+      const res = await api.voice.sendCommand({
+        type: 'voice:profiles:save-temp-ref',
+        audioBase64: arrayBufferToBase64(wav),
+        ext: 'wav',
+      })
+      if (res?.error || !res?.filePath) {
+        setError(String(res?.error || '写入临时音频失败'))
+        return
+      }
+      setRefPath(String(res.filePath))
+      setRefText(CLONE_REF_PROMPT_ZH)
+      setSampleSource('record')
+    } catch (e) {
+      const msg = (e as Error).message || '录音失败'
+      if (/NotAllowedError|Permission denied|permission/i.test(msg)) {
+        setError('麦克风权限被拒绝，请在系统设置中允许后重试')
+      } else if (/NotFoundError|DevicesNotFound/i.test(msg)) {
+        setError('未检测到麦克风')
+      } else {
+        setError(msg)
+      }
+    } finally {
+      setBusy(false)
+      stoppingRef.current = false
+    }
+  }, [teardownCapture])
+
+  stopRecordingRef.current = stopRecording
+
+  /**
+   * 开始麦克风录制
+   */
+  const startRecording = async () => {
+    setError(null)
+    if (recording || busy || disabled) return
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('当前环境不支持麦克风录音')
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          channelCount: 1,
+        },
+      })
+      streamRef.current = stream
+      const audioCtx = new AudioContext()
+      audioCtxRef.current = audioCtx
+      if (audioCtx.state === 'suspended') await audioCtx.resume()
+
+      const source = audioCtx.createMediaStreamSource(stream)
+      const processor = audioCtx.createScriptProcessor(4096, 1, 1)
+      processorRef.current = processor
+      chunksRef.current = []
+      processor.onaudioprocess = (ev) => {
+        const input = ev.inputBuffer.getChannelData(0)
+        chunksRef.current.push(new Float32Array(input))
+        setMicLevel(pcmChunkLevel(input))
+      }
+      const mute = audioCtx.createGain()
+      mute.gain.value = 0
+      source.connect(processor)
+      processor.connect(mute)
+      mute.connect(audioCtx.destination)
+
+      startedAtRef.current = Date.now()
+      setElapsedMs(0)
+      setRecording(true)
+      elapsedTimerRef.current = setInterval(() => {
+        setElapsedMs(Date.now() - startedAtRef.current)
+      }, 200)
+      maxTimerRef.current = setTimeout(() => {
+        void stopRecordingRef.current()
+      }, MAX_CLONE_RECORD_MS)
+    } catch (e) {
+      teardownCapture()
+      setRecording(false)
+      const msg = (e as Error).message || '无法访问麦克风'
+      if (/NotAllowedError|Permission denied|permission/i.test(msg)) {
+        setError('麦克风权限被拒绝，请在系统设置中允许后重试')
+      } else if (/NotFoundError|DevicesNotFound/i.test(msg)) {
+        setError('未检测到麦克风')
+      } else if (/NotReadableError|Could not start/i.test(msg)) {
+        setError('麦克风被占用，请先结束语音通话或其他录音后再试')
+      } else {
+        setError(msg)
+      }
+    }
+  }
+
+  /**
+   * 预听最近一次录制
+   */
+  const playPreview = () => {
+    if (!previewUrl) return
+    const audio = new Audio(previewUrl)
+    void audio.play().catch((e) => setError((e as Error).message))
+  }
+
+  /**
+   * 清空录制结果并准备重录
+   */
+  const clearRecordingSample = () => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl)
+      setPreviewUrl(null)
+    }
+    if (sampleSource === 'record') {
+      setRefPath('')
+      setRefText('')
+      setSampleSource('file')
+    }
+    setElapsedMs(0)
   }
 
   /**
@@ -76,10 +336,11 @@ export function VoiceProfilesPanel({
   const handleCreate = async () => {
     setError(null)
     if (!refPath) {
-      setError('请先选择参考音频（建议 ≥3 秒）')
+      setError('请先选择参考音频或完成麦克风录制（建议 ≥3 秒）')
       return
     }
-    if (!refText.trim()) {
+    const text = resolveCloneRefText(sampleSource, refText)
+    if (!text) {
       setError('请填写参考音频对应的转写文本')
       return
     }
@@ -92,7 +353,7 @@ export function VoiceProfilesPanel({
         profile: {
           name: name.trim() || '我的音色',
           refAudioPath: refPath,
-          refText: refText.trim(),
+          refText: text,
           language: 'Auto',
           qwen3Variant: '0.6b-base',
         },
@@ -109,6 +370,11 @@ export function VoiceProfilesPanel({
       }
       setRefText('')
       setRefPath('')
+      setSampleSource('file')
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl)
+        setPreviewUrl(null)
+      }
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -135,12 +401,14 @@ export function VoiceProfilesPanel({
     }
   }
 
+  const controlsDisabled = busy || disabled || recording
+
   return (
     <div className={styles.panel} style={{ marginTop: 12 }}>
       <h4 className={styles.title}>我的音色（声音克隆 · 可选）</h4>
       <p className={styles.hint}>
         默认不开启克隆。先创建并选择音色，再到上方勾选「启用声音克隆出声」后才会用克隆声。
-        上传 ≥3 秒清晰人声参考音，并填写对应转写文本。
+        可上传 ≥3 秒清晰人声，或对着麦克风朗读下方文案录制样本。
       </p>
 
       {profiles.length === 0 ? (
@@ -155,7 +423,7 @@ export function VoiceProfilesPanel({
                     type="radio"
                     name="qwen3-profile"
                     checked={selectedProfileId === p.id}
-                    disabled={disabled || busy}
+                    disabled={disabled || busy || recording}
                     onChange={() => {
                       onSelectProfile(p.id)
                       void saveVoiceConfig({ tts: { qwen3ProfileId: p.id } })
@@ -169,7 +437,7 @@ export function VoiceProfilesPanel({
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={busy || disabled}
+                  disabled={busy || disabled || recording}
                   onClick={() => void handleDelete(p.id)}
                 >
                   删除
@@ -184,24 +452,86 @@ export function VoiceProfilesPanel({
         <Input
           placeholder="音色名称"
           value={name}
-          disabled={busy || disabled}
+          disabled={controlsDisabled}
           onChange={(e) => setName(e.target.value)}
         />
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <Button variant="secondary" size="sm" disabled={busy || disabled} onClick={() => void pickAudio()}>
+
+        <div className={styles.promptCard}>
+          <p className={styles.promptLabel}>请用自然语速朗读（建议不少于 3 秒）</p>
+          <p className={styles.promptText}>{CLONE_REF_PROMPT_ZH}</p>
+        </div>
+
+        <div className={styles.recordRow}>
+          {!recording ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={busy || disabled}
+              onClick={() => void startRecording()}
+            >
+              开始录制
+            </Button>
+          ) : (
+            <Button variant="secondary" size="sm" disabled={busy} onClick={() => void stopRecording()}>
+              停止录制
+            </Button>
+          )}
+          <Button variant="secondary" size="sm" disabled={controlsDisabled} onClick={() => void pickAudio()}>
             选择参考音频
           </Button>
+          {previewUrl && !recording && (
+            <>
+              <Button variant="ghost" size="sm" disabled={busy || disabled} onClick={playPreview}>
+                预听
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy || disabled}
+                onClick={clearRecordingSample}
+              >
+                重录
+              </Button>
+            </>
+          )}
           <span className={styles.meta} style={{ fontSize: 12 }}>
-            {refPath ? refPath.split(/[/\\]/).pop() : '未选择'}
+            {recording
+              ? `录音中 ${formatElapsed(elapsedMs)}`
+              : refPath
+                ? refPath.split(/[/\\]/).pop()
+                : '未选择样本'}
           </span>
         </div>
-        <Input
-          placeholder="参考音频转写文本（必填）"
-          value={refText}
-          disabled={busy || disabled}
-          onChange={(e) => setRefText(e.target.value)}
-        />
-        <Button variant="primary" size="sm" disabled={busy || disabled} onClick={() => void handleCreate()}>
+
+        {recording && (
+          <div className={styles.volumeRow} aria-label="麦克风音量">
+            <span className={styles.volumeLabel}>麦克风</span>
+            <div className={styles.volumeBarTrack}>
+              <div className={styles.volumeBarFill} style={{ width: `${micLevel}%` }} />
+            </div>
+            <span className={styles.meta}>{formatElapsed(elapsedMs)}</span>
+          </div>
+        )}
+
+        {sampleSource === 'record' ? (
+          <p className={styles.hint} style={{ margin: 0 }}>
+            转写文本（自动）：{CLONE_REF_PROMPT_ZH}
+          </p>
+        ) : (
+          <Input
+            placeholder="参考音频转写文本（必填）"
+            value={refText}
+            disabled={controlsDisabled}
+            onChange={(e) => setRefText(e.target.value)}
+          />
+        )}
+
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={controlsDisabled}
+          onClick={() => void handleCreate()}
+        >
           {busy ? '保存中...' : '保存音色'}
         </Button>
         {error && <p className={styles.error}>{error}</p>}
