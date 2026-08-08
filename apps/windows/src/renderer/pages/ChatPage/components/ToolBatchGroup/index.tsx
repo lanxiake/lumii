@@ -27,7 +27,7 @@ const FAMILY_LABEL: Record<ToolFamily, (n: number) => string> = {
 }
 
 /** 按家族计数，生成「读取 2 个文件 · 搜索 3 次」式摘要 */
-function summarizeToolBatch(items: readonly AgentWorkflowItem[]): string {
+export function summarizeToolBatch(items: readonly AgentWorkflowItem[]): string {
   const counts = new Map<ToolFamily, number>()
   for (const item of items) {
     const family = classifyToolFamily(item.name)
@@ -41,10 +41,12 @@ function summarizeToolBatch(items: readonly AgentWorkflowItem[]): string {
 export interface ToolBatchGroupProps {
   /** 组内工具项，已由 toWorkflowItem 转换为 AgentWorkflowItem */
   items: readonly AgentWorkflowItem[]
+  /** 内嵌于「执行过程」时用扁平行样式（去掉外层卡片描边/背景），减少视觉噪声 */
+  compact?: boolean
 }
 
 /** 渲染一批连续工具调用的折叠分组 */
-const ToolBatchGroup: React.FC<ToolBatchGroupProps> = ({ items }) => {
+const ToolBatchGroup: React.FC<ToolBatchGroupProps> = ({ items, compact = false }) => {
   const [expanded, setExpanded] = useState(false)
 
   if (items.length === 0) return null
@@ -61,20 +63,32 @@ const ToolBatchGroup: React.FC<ToolBatchGroupProps> = ({ items }) => {
         ? `${runningItems.length} 个工具执行中`
         : ''
 
+  const runningCount = runningItems.length
+
   return (
-    <div className={clsx(styles.group, failedCount > 0 && styles['group--hasFailed'])}>
+    <div
+      className={clsx(
+        styles.group,
+        compact && styles['group--compact'],
+        failedCount > 0 && styles['group--hasFailed'],
+        runningCount > 0 && styles['group--running'],
+      )}
+    >
       <button
         type="button"
         className={styles.header}
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
+        title={expanded ? '收起工具详情' : '展开工具详情'}
       >
-        <span className={styles.icon}>{failedCount > 0 ? '✕' : '⋯'}</span>
+        <span className={clsx(styles.chevron, expanded && styles['chevron--open'])} aria-hidden>›</span>
+        {failedCount > 0 && <span className={styles.icon} aria-hidden>✕</span>}
+        <span className={styles.label}>工具</span>
         <span className={styles.summary}>{summaryText}</span>
         {currentActionText && <span className={styles.current}>{currentActionText}</span>}
         {failedCount > 0 && <span className={styles.failedBadge}>{failedCount} 失败</span>}
         <span className={styles.count}>{items.length}</span>
-        <span className={styles.chevron}>{expanded ? '∧' : '∨'}</span>
+        <span className={styles.hint}>{expanded ? '收起' : '展开'}</span>
       </button>
       {expanded && (
         <div className={styles.body}>

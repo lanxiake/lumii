@@ -1,0 +1,172 @@
+/* ActivityFold — 执行过程折叠块：清晰的展开/收起交互 + 流式科技感动效 */
+
+.fold {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--spacing-1, 4px);
+  border: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.06));
+  border-radius: var(--mt-radius-lg, 8px);
+  background: color-mix(in srgb, var(--mt-accent-500) 4%, transparent);
+  overflow: hidden;
+  transition: border-color var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+.fold--streaming {
+  border-color: color-mix(in srgb, var(--color-primary-400, #818cf8) 40%, transparent);
+}
+
+/* 流式时顶部一条流光扫描线，表达「正在执行」的科技感 */
+.fold--streaming::before {
+  content: '';
+  display: block;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-primary-400, #818cf8),
+    var(--mt-violet, #8b5cf6),
+    transparent
+  );
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: activityScan 1.4s var(--mt-ease-standard) infinite;
+}
+
+@keyframes activityScan {
+  0%   { background-position: -40% 0; }
+  100% { background-position: 140% 0; }
+}
+
+/* 摘要行头部（默认折叠时唯一可见部分） */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  min-height: 30px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--mt-font-mono);
+  color: var(--mt-fg-3, #94a3b8);
+  text-align: left;
+  width: 100%;
+  transition: background var(--mt-dur-normal) var(--mt-ease-standard);
+  user-select: none;
+}
+
+.header:hover {
+  background: color-mix(in srgb, var(--mt-accent-500) 8%, transparent);
+}
+
+.header--expanded {
+  border-bottom: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.06));
+}
+
+/* 左侧 chevron：折叠→收起随状态旋转，符合用户习惯 */
+.chevron {
+  flex-shrink: 0;
+  color: var(--color-primary-400, #818cf8);
+  transition: transform var(--mt-dur-normal) var(--mt-ease-spring);
+}
+
+.chevron--open {
+  transform: rotate(90deg);
+}
+
+/* 「执行过程」主标签 */
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mt-fg-2, #cbd5e1);
+}
+
+/* 标签内的旋转 loader（流式） */
+.spinner {
+  color: var(--color-primary-400, #818cf8);
+  animation: activitySpin 0.8s linear infinite;
+}
+
+@keyframes activitySpin {
+  to { transform: rotate(360deg); }
+}
+
+/* 分隔点：标签与摘要之间 */
+.label::after {
+  content: '·';
+  margin-left: 5px;
+  color: var(--mt-fg-4, #64748b);
+  font-weight: 400;
+}
+
+/* 流式实时状态行（正在思考 / 正在执行 grep...） */
+.status {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--color-primary-400, #818cf8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 完成后的静态摘要（💭 思考 · 读取 3 个文件） */
+.summary {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--mt-fg-3, #94a3b8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.duration {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--mt-fg-4, #64748b);
+  font-family: var(--mt-font-mono, monospace);
+}
+
+/* 右侧展开/收起文字提示：让交互语义一目了然 */
+.hint {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--mt-fg-3, #94a3b8);
+  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
+  transition: color var(--mt-dur-fast) var(--mt-ease-standard),
+              background var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.header:hover .hint {
+  color: var(--color-primary-400, #818cf8);
+  background: color-mix(in srgb, var(--color-primary-400, #818cf8) 16%, transparent);
+}
+
+/* 展开体：按时间线渲染 thinking / 工具组 / 中间文本 */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1, 4px);
+  padding: 8px;
+  background: color-mix(in srgb, var(--mt-surface-2) 40%, transparent);
+  animation: activityReveal var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+@keyframes activityReveal {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fold--streaming::before,
+  .spinner,
+  .body { animation: none; }
+  .chevron { transition: none; }
+}

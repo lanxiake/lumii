@@ -440,8 +440,8 @@ export class BridgeInstanceFactory {
             const tools = this.deps.toolRegistry
               .getEnabledTools()
               .filter((t) => t.name.startsWith(`mcp__${name}__`))
-              .map((t) => t.name)
-            hints.push({ name, toolNames: tools, instructions: client.getInstructions() })
+              .map((t) => ({ name: t.name, description: t.description }))
+            hints.push({ name, tools, instructions: client.getInstructions() })
           }
         }
         return hints

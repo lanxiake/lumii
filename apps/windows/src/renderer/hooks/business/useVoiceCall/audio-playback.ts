@@ -81,9 +81,13 @@ export class AudioPlaybackEngine {
       source.buffer = buffer
       source.connect(this.gainNode)
 
-      // 链式调度：每段接在上一段结束时播放，预缓冲 40ms 避免断音
+      // 链式调度：每段接在上一段结束时播放。
+      // 首段用较大预缓冲(180ms)攒够缓冲头，吸收后续逐句合成抖动，避免句间断音；
+      // 续接段仅需 40ms 兜底（正常应直接接在 nextStartTime）。
       const now = this.audioCtx.currentTime
-      const startTime = Math.max(now + 0.04, this.nextStartTime)
+      const isFirst = this.nextStartTime === 0
+      const lead = isFirst ? 0.18 : 0.04
+      const startTime = Math.max(now + lead, this.nextStartTime)
       source.start(startTime)
       this.nextStartTime = startTime + buffer.duration
 

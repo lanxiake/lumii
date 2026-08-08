@@ -991,11 +991,13 @@ export class VoiceCallService {
     try {
       this.emitRuntimeStatus('starting_engine', '正在准备语音预览…')
       await this.ensureTtsInitialized()
+      // 防御：初始化后若引擎被并发的 setConfig 销毁（如改音量旧逻辑），直接终止本次预览
+      if (!this.ttsProvider) throw new Error('TTS 引擎不可用（可能正在重建，请重试）')
 
       const concurrency = this.getTtsConcurrency()
       // 预览按整段判定一次语种，禁止逐句 Auto（否则短英文句会换成外语音色）
       const languageLock = resolveQwen3TtsLanguage(this.config.tts.language || 'Auto', cleaned)
-      this.ttsProvider!.setLanguageOverride?.(languageLock)
+      this.ttsProvider.setLanguageOverride?.(languageLock)
       this.emitRuntimeStatus(
         'synthesizing',
         `正在合成预览（${sentences.length} 句，并行 ${concurrency}，${languageLock}）…`,
@@ -1288,7 +1290,9 @@ export class VoiceCallService {
       changedKeys.length === 1 &&
       changedKeys[0] === 'tts' &&
       partial.tts !== undefined &&
-      Object.keys(partial.tts).every((k) => k === 'speed' || k === 'speakerId' || k === 'voice')
+      Object.keys(partial.tts).every(
+        (k) => k === 'speed' || k === 'speakerId' || k === 'voice' || k === 'volume',
+      )
 
     if (isTtsParamOnlyUpdate) {
       if (partial.tts?.speed !== undefined) {
@@ -1300,6 +1304,7 @@ export class VoiceCallService {
       if (partial.tts?.voice !== undefined) {
         void this.ttsProvider!.setVoice?.(partial.tts.voice)
       }
+      // volume 仅播放端 gainNode 增益，主进程无需动作，持久化即可
       log.info(`[setConfig] TTS 参数热更新，引擎保持运行`)
       return
     }

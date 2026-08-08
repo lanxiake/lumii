@@ -28,7 +28,9 @@ import type { AssistantPart } from '@mtbot/agent-runtime/browser'
 import type { RuntimeFileEvent } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import { parseMediaAttachments, mergeEditedUserMessage } from '../../utils/file-attachment-strategy'
 import { TurnFileChangesCard } from '../TurnFileChangesCard'
-import { ToolBatchGroup } from '../ToolBatchGroup'
+import { ToolBatchGroup, summarizeToolBatch } from '../ToolBatchGroup'
+import { getStatusLabel } from '../ToolCallCard'
+import { ActivityFold } from '../ActivityFold'
 import styles from './ChatMessage.module.css'
 
 interface ChatMessageProps {
@@ -243,9 +245,11 @@ interface ThinkingBlockProps {
   thinkingText: string
   isStreaming: boolean
   isLive: boolean
+  /** 内嵌于「执行过程」时用扁平行样式（去掉外层卡片描边/背景），减少视觉噪声 */
+  compact?: boolean
 }
 
-const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ thinkingText, isStreaming, isLive }) => {
+const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ thinkingText, isStreaming, isLive, compact = false }) => {
   const [expanded, setExpanded] = useState(false)
   // 内容高度锁定：一旦内容区被渲染过，就固定 max-height 不再变化
   const [heightLocked, setHeightLocked] = useState(false)
@@ -277,27 +281,28 @@ const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ thinkingText, isStreaming
   const preview = thinkingText.slice(0, 60).replace(/\n/g, ' ')
 
   return (
-    <div className={styles['rt-thinking-card']}>
+    <div className={clsx(styles['rt-thinking-card'], compact && styles['rt-thinking-card--compact'])}>
       <button
         type="button"
         className={styles['rt-thinking-card-header']}
         onClick={handleToggle}
+        aria-expanded={expanded}
+        title={expanded ? '收起思考内容' : '展开思考内容'}
       >
-        {isStreaming ? (
+        <span className={clsx(styles['rt-unit-chevron'], expanded && styles['rt-unit-chevron--open'])} aria-hidden>›</span>
+        {isStreaming && (
           <span className={styles['rt-thinking-wave']} aria-hidden>
             <i /><i /><i /><i /><i />
           </span>
-        ) : (
-          <span className={styles['rt-thinking-card-icon']}>💭</span>
         )}
-        <span className={styles['rt-thinking-card-title']}>{isStreaming ? '正在思考' : '思考片刻'}</span>
+        <span className={styles['rt-thinking-card-title']}>{isStreaming ? '正在思考' : '思考'}</span>
         {isLive && isStreaming && (
           <span className={styles['rt-live-badge']}>实时</span>
         )}
         {!expanded && (
           <span className={styles['rt-thinking-card-preview']}>{preview}…</span>
         )}
-        <span className={styles['rt-thinking-card-chevron']}>{expanded ? '∧' : '∨'}</span>
+        <span className={styles['rt-unit-hint']}>{expanded ? '收起' : '展开'}</span>
       </button>
       {expanded && (
         <pre
@@ -377,6 +382,51 @@ function buildRenderUnits(parts: readonly AssistantPart[], message: ChatMessageT
   flush()
 
   return units
+}
+
+/**
+ * 把渲染单元切成「过程区 / 答案区」：
+ * - 过程区 = 从头到最后一个 thinking/toolGroup（含）之间的所有单元
+ * - 答案区 = 其后的末尾 text 单元（最终总结性输出，露在折叠块外）
+ * - 无 thinking 也无 tool 的纯问答：过程区为空，全部落入答案区（不折叠）
+ */
+function splitProcessAndAnswer(units: RenderUnit[]): { process: RenderUnit[]; answer: RenderUnit[] } {
+  let lastProcessIdx = -1
+  for (let i = 0; i < units.length; i++) {
+    if (units[i]!.kind === 'thinking' || units[i]!.kind === 'toolGroup') {
+      lastProcessIdx = i
+    }
+  }
+  if (lastProcessIdx === -1) {
+    return { process: [], answer: units }
+  }
+  return {
+    process: units.slice(0, lastProcessIdx + 1),
+    answer: units.slice(lastProcessIdx + 1),
+  }
+}
+
+/** 过程区摘要：思考 + 全部工具批次合并计数（思考 · 读取 3 个文件 · 搜索 2 次） */
+function buildProcessSummary(process: RenderUnit[]): string {
+  const hasThinking = process.some((u) => u.kind === 'thinking')
+  const allTools = process.flatMap((u) => (u.kind === 'toolGroup' ? u.items : []))
+  const parts: string[] = []
+  if (hasThinking) parts.push('思考')
+  if (allTools.length > 0) parts.push(summarizeToolBatch(allTools))
+  return parts.join(' · ') || '工作过程'
+}
+
+/** 流式实时状态：末个过程单元决定当前动作（正在思考 / 正在执行 grep…） */
+function buildCurrentStatus(process: RenderUnit[]): string {
+  const last = process[process.length - 1]
+  if (!last) return '正在处理…'
+  if (last.kind === 'thinking') return '正在思考…'
+  if (last.kind === 'toolGroup') {
+    const running = last.items.find((i) => i.status === 'running')
+    if (running) return getStatusLabel(running)
+    return summarizeToolBatch(last.items)
+  }
+  return '正在处理…'
 }
 
 // ---------------------------------------------------------------
@@ -600,39 +650,64 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     </div>
   )
 
-  /** 按 parts 时间线渲染助手气泡（Cursor 式交错） */
+  /**
+   * 渲染单个时间线单元（思考 / 文本 / 工具组）。
+   * inFold=true 时为「执行过程」内的中间单元，文本用低调的说明样式，
+   * 与折叠块外的最终答案（玻璃气泡）区分开。
+   */
+  const renderUnit = (unit: RenderUnit, inFold: boolean) => {
+    if (unit.kind === 'thinking') {
+      return (
+        <ThinkingBlock
+          key={unit.part.id}
+          thinkingText={unit.part.text}
+          isStreaming={unit.part.status === 'streaming' && !!message.isStreaming}
+          isLive={!!message.isStreaming}
+          compact={inFold}
+        />
+      )
+    }
+    if (unit.kind === 'text') {
+      return (
+        <div
+          key={unit.part.id}
+          className={clsx(inFold ? styles['fold-note'] : styles['message-text'], styles['part-block'])}
+        >
+          {renderTextContent(unit.part.text)}
+          {unit.part.status === 'streaming' && message.isStreaming && (
+            <span className={styles['streaming-cursor']} />
+          )}
+        </div>
+      )
+    }
+    return (
+      <div key={unit.key} className={styles['part-block']}>
+        <ToolBatchGroup items={unit.items} compact={inFold} />
+      </div>
+    )
+  }
+
+  /**
+   * 按 parts 时间线渲染助手气泡（Cursor 式）：
+   * 中间过程（思考 + 工具 + 中间文本）折叠进 ActivityFold，最终答案露在外面。
+   */
   const renderPartsTimeline = () => {
     const units = buildRenderUnits(message.parts ?? [], message)
-
+    const { process, answer } = splitProcessAndAnswer(units)
+    const isStreaming = !!message.isStreaming
     return (
       <div className={styles['parts-timeline']}>
-        {units.map((unit) => {
-          if (unit.kind === 'thinking') {
-            return (
-              <ThinkingBlock
-                key={unit.part.id}
-                thinkingText={unit.part.text}
-                isStreaming={unit.part.status === 'streaming' && !!message.isStreaming}
-                isLive={!!message.isStreaming}
-              />
-            )
-          }
-          if (unit.kind === 'text') {
-            return (
-              <div key={unit.part.id} className={clsx(styles['message-text'], styles['part-block'])}>
-                {renderTextContent(unit.part.text)}
-                {unit.part.status === 'streaming' && message.isStreaming && (
-                  <span className={styles['streaming-cursor']} />
-                )}
-              </div>
-            )
-          }
-          return (
-            <div key={unit.key} className={styles['part-block']}>
-              <ToolBatchGroup items={unit.items} />
-            </div>
-          )
-        })}
+        {process.length > 0 && (
+          <ActivityFold
+            summary={buildProcessSummary(process)}
+            currentStatus={isStreaming ? buildCurrentStatus(process) : undefined}
+            isStreaming={isStreaming}
+            durationMs={message.streamMetrics?.durationMs}
+          >
+            {process.map((u) => renderUnit(u, true))}
+          </ActivityFold>
+        )}
+        {answer.map((u) => renderUnit(u, false))}
         {message.fileChanges && message.fileChanges.length > 0 && (
           <TurnFileChangesCard
             changes={message.fileChanges}

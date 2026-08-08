@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '../../../../components/ui/Button/Button'
 import { loadAudioWorkletModule } from '../../../../hooks/business/useVoiceCall/load-audio-worklet'
 import { pcmProcessorSource } from '../../../../hooks/business/useVoiceCall/worklets/pcm-processor-source'
+import { WaveformVisualizer } from '../../../ChatPage/components/VoiceCallPanel/WaveformVisualizer'
 import styles from './AsrLiveTestPanel.module.css'
 
 /**
@@ -39,6 +40,8 @@ export function AsrLiveTestPanel(): React.ReactElement {
   const [hasStartedOnce, setHasStartedOnce] = useState(false)
   /** 麦克风音量 0–100，仅测试中更新 */
   const [micLevel, setMicLevel] = useState(0)
+  /** 波形可视化专用 analyser（独立于音量条，避免 fftSize 冲突） */
+  const [waveAnalyser, setWaveAnalyser] = useState<AnalyserNode | null>(null)
 
   const callIdRef = useRef<string | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -123,6 +126,7 @@ export function AsrLiveTestPanel(): React.ReactElement {
 
   const stopCapture = useCallback(async () => {
     stopVolumeMeter()
+    setWaveAnalyser(null)
     workletRef.current?.port.close()
     workletRef.current?.disconnect()
     workletRef.current = null
@@ -213,6 +217,11 @@ export function AsrLiveTestPanel(): React.ReactElement {
       source.connect(worklet)
       startVolumeMeter(analyser)
 
+      // 波形可视化专用 analyser（WaveformVisualizer 会自行设 fftSize）
+      const waveNode = audioCtx.createAnalyser()
+      source.connect(waveNode)
+      setWaveAnalyser(waveNode)
+
       setHasStartedOnce(true)
       setRunning(true)
       setCallState('listening')
@@ -262,6 +271,7 @@ export function AsrLiveTestPanel(): React.ReactElement {
       {running && (
         <div className={styles.volumeRow} aria-label="麦克风音量">
           <span className={styles.volumeLabel}>麦克风</span>
+          <WaveformVisualizer state="listening" analyserNode={waveAnalyser} />
           <div className={styles.volumeBarTrack}>
             <div
               className={styles.volumeBarFill}

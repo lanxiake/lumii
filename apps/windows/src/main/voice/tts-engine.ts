@@ -129,8 +129,9 @@ export class LocalVitsTts implements TtsProvider {
       silenceScale: 0.2,
     })
 
-    // 跟踪 onProgress 是否产出了音频（短句可能 0 次回调）
-    let progressHadSamples = false
+    // 整句先缓冲再归一化：MeloTTS 逐句响度有波动，统一峰值后听感一致
+    // （单句约 120 字、RTF≈0.43，缓冲一整句的额外延迟可接受）
+    const collected: number[] = []
 
     const result = await this.tts.generateAsync({
       text,
@@ -140,12 +141,7 @@ export class LocalVitsTts implements TtsProvider {
       onProgress: ({ samples }: { samples: Float32Array; progress: number }) => {
         if (signal?.aborted) return 0 // 返回 0 中止生成
         try {
-          if (samples.length > 0) progressHadSamples = true
-          onChunk({
-            samples: Array.from(samples),
-            sampleRate: this.sampleRate,
-            isFinal: false,
-          })
+          for (let i = 0; i < samples.length; i++) collected.push(samples[i]!)
         } catch (e) {
           // 绝不允许 JS 异常逃逸进 native generateAsync，否则进程崩溃
           log.error(`[synthesize] onProgress 回调错误: ${(e as Error).message}`)
@@ -155,13 +151,25 @@ export class LocalVitsTts implements TtsProvider {
     })
 
     // 短句场景：onProgress 未产出音频，从 generateAsync 返回值取完整音频
-    if (!progressHadSamples && result?.samples?.length > 0 && !signal?.aborted) {
-      log.debug(`[synthesize] onProgress 无音频，使用 generateAsync 返回值 (${result.samples.length} samples)`)
-      onChunk({
-        samples: Array.from(result.samples as Float32Array),
-        sampleRate: this.sampleRate,
-        isFinal: false,
-      })
+    if (collected.length === 0 && result?.samples?.length > 0) {
+      const ret = result.samples as Float32Array
+      for (let i = 0; i < ret.length; i++) collected.push(ret[i]!)
+    }
+
+    if (signal?.aborted) return
+
+    // 峰值归一化到 ~0.95：消除逐句忽大忽小；静音/极小段不放大避免噪声抬升
+    if (collected.length > 0) {
+      let peak = 0
+      for (let i = 0; i < collected.length; i++) {
+        const a = Math.abs(collected[i]!)
+        if (a > peak) peak = a
+      }
+      if (peak > 0.02) {
+        const gain = Math.min(4, 0.95 / peak)
+        for (let i = 0; i < collected.length; i++) collected[i] = collected[i]! * gain
+      }
+      onChunk({ samples: collected, sampleRate: this.sampleRate, isFinal: false })
     }
 
     // 发送 isFinal 标记帧

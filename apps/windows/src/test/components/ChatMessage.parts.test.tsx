@@ -27,9 +27,9 @@ function buildPartsMessage(parts: AssistantPart[]): ChatMessageType {
 }
 
 describe('ChatMessage parts 时间线', () => {
-  it('按 thinking、工具批次、两段 text 的 parts 顺序交错渲染 DOM', () => {
-    // 工具已折叠为批次分组：默认折叠，摘要行显示「调用 N 次工具」，
-    // 单个工具名不再直接暴露，验证以批次摘要在时间线中的位置为准。
+  it('中间过程（思考+工具）折叠进过程区摘要，末尾两段 text 作为答案露在折叠块外', () => {
+    // 新行为：思考 + 工具 = 过程区，默认折叠进 ActivityFold（收起时不渲染详情），
+    // 摘要行显示「💭 思考 · 调用 1 次工具」；末尾连续 text 为答案区，直接可见且保持顺序。
     const parts: AssistantPart[] = [
       { type: 'thinking', id: 'th-1', text: 'MARKER_ALPHA_THINK', status: 'done' },
       { type: 'tool', id: 'tool-1', name: 'MARKER_BETA_TOOL', args: {}, status: 'done' },
@@ -49,14 +49,17 @@ describe('ChatMessage parts 时间线', () => {
     )
 
     const text = container.textContent ?? ''
-    const idxThinking = text.indexOf('MARKER_ALPHA_THINK')
-    const idxToolBatch = text.indexOf('调用 1 次工具')
+    // 过程区摘要包含思考前缀与工具计数（已去掉表情符号）
+    const idxSummary = text.indexOf('思考 · 调用 1 次工具')
     const idxGamma = text.indexOf('MARKER_GAMMA_TEXT')
     const idxDelta = text.indexOf('MARKER_DELTA_TEXT')
 
-    expect(idxThinking).toBeGreaterThanOrEqual(0)
-    expect(idxToolBatch).toBeGreaterThan(idxThinking)
-    expect(idxGamma).toBeGreaterThan(idxToolBatch)
+    expect(idxSummary).toBeGreaterThanOrEqual(0)
+    // 折叠默认收起：思考原文与工具名不出现在 DOM
+    expect(text.indexOf('MARKER_ALPHA_THINK')).toBe(-1)
+    expect(text.indexOf('MARKER_BETA_TOOL')).toBe(-1)
+    // 答案区在过程摘要之后，且两段 text 保持顺序
+    expect(idxGamma).toBeGreaterThan(idxSummary)
     expect(idxDelta).toBeGreaterThan(idxGamma)
   })
 

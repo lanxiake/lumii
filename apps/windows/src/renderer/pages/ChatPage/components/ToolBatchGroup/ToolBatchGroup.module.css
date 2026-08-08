@@ -13,6 +13,87 @@
   border-color: color-mix(in srgb, var(--mt-error, #dc2626) 45%, var(--mt-border));
 }
 
+/* 内嵌「执行过程」：扁平行，去掉外层描边/背景/圆角，避免与 ActivityFold 边框二重嵌套 */
+.group--compact {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.group--compact .header {
+  padding: 3px 4px;
+  min-height: 26px;
+}
+
+.group--compact .header:hover {
+  background: var(--mt-surface-2, rgba(255, 255, 255, 0.03));
+  border-radius: 6px;
+}
+
+.group--compact .body {
+  padding-left: 20px;
+  border-top: none;
+}
+
+/* 扁平行不需要外框呼吸发光（无边框），关掉避免残留 box-shadow */
+.group--compact.group--running {
+  animation: none;
+}
+
+/* 执行中：边框呼吸发光，表达「工具正在跑」 */
+.group--running {
+  border-color: color-mix(in srgb, var(--color-primary-400, #818cf8) 45%, var(--mt-border));
+  animation: toolGroupBreath 1.6s var(--mt-ease-standard) infinite;
+}
+
+@keyframes toolGroupBreath {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary-400, #818cf8) 22%, transparent); }
+  50%      { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary-400, #818cf8) 12%, transparent); }
+}
+
+/* 左侧 chevron：随展开旋转 */
+.chevron {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--color-primary-400, #818cf8);
+  transition: transform var(--mt-dur-normal, 220ms) var(--mt-ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+}
+
+.chevron--open {
+  transform: rotate(90deg);
+}
+
+/* 「工具」标签 */
+.label {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mt-fg-2, rgba(255, 255, 255, 0.85));
+}
+
+/* 右侧展开/收起提示 */
+.hint {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.5));
+  background: var(--mt-surface-3, rgba(255, 255, 255, 0.06));
+  transition: color var(--mt-dur-fast, 120ms) var(--mt-ease-standard),
+              background var(--mt-dur-fast, 120ms) var(--mt-ease-standard);
+}
+
+.header:hover .hint {
+  color: var(--color-primary-400, #818cf8);
+  background: color-mix(in srgb, var(--color-primary-400, #818cf8) 16%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .group--running { animation: none; }
+  .chevron { transition: none; }
+}
+
 /* 摘要行头部 */
 .header {
   display: flex;
@@ -86,17 +167,13 @@
   font-family: var(--mt-font-mono, monospace);
 }
 
-.chevron {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.45));
-}
-
-/* 展开体：逐个 ToolCallCard */
+/* 展开体：逐个 ToolCallCard；几十个工具时限高滚动，避免撑爆页面 */
 .body {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 2px 6px 6px;
+  padding: 4px 6px 6px;
   border-top: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.06));
+  max-height: 420px;
+  overflow-y: auto;
 }

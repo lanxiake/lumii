@@ -135,12 +135,20 @@ export interface UserDeviceInfo {
   readonly connected: boolean
 }
 
+/** 单个 MCP 工具的名称与描述 */
+export interface McpToolInfo {
+  /** 工具全名（含 mcp__server__ 前缀） */
+  readonly name: string
+  /** 工具自带的说明（来自 MCP Server 元数据） */
+  readonly description?: string
+}
+
 /** MCP Server 提示词描述 */
 export interface McpServerHint {
   /** MCP Server 名称 */
   readonly name: string
-  /** 提供的工具名称列表 */
-  readonly toolNames: readonly string[]
+  /** 提供的工具（名称 + 描述） */
+  readonly tools: readonly McpToolInfo[]
   /** 可选的使用说明 */
   readonly instructions?: string
 }
@@ -391,6 +399,10 @@ const TOOL_SUMMARIES: Record<string, string> = {
 
   // Task Completion
   task_complete: "Signal that the task is fully done — provide a brief summary of what was accomplished. MUST be called to mark task completion.",
+
+  // Interaction & Media
+  ask_user_question: "Ask the user a clarifying question with preset options when requirements are ambiguous and you cannot safely proceed",
+  tts_generate: "Synthesize speech audio from text and save it under workspace/outputs",
 }
 
 const FILE_TOOLS = new Set(["file_read", "file_write", "file_edit", "glob", "grep"])
@@ -471,11 +483,13 @@ function categorizeTools(toolNames: readonly string[]): string[] {
     ...FILE_TOOLS, ...COMMAND_TOOLS, ...MEDIA_GENERATION_TOOLS, ...TASK_TOOLS, ...AGENT_TOOLS,
     ...SCHEDULING_TOOLS, ...GUIDE_TOOLS, ...BACKEND_SERVICE_TOOLS, ...BROWSER_TOOLS, ...CLIENT_COMMAND_TOOLS, ...AGENT_MANAGEMENT_TOOLS, ...TASK_COMPLETION_TOOLS,
   ])
-  const otherTools = toolNames.filter((t) => !knownTools.has(t))
+  // mcp__ 工具统一在「## MCP Servers」section 列出（含描述），此处不重复
+  const otherTools = toolNames.filter((t) => !knownTools.has(t) && !t.startsWith("mcp__"))
   if (otherTools.length > 0) {
     lines.push("### Other Tools")
     for (const name of otherTools) {
-      lines.push(`- \`${name}\``)
+      const summary = TOOL_SUMMARIES[name] ?? ""
+      lines.push(summary ? `- \`${name}\`: ${summary}` : `- \`${name}\``)
     }
     lines.push("")
   }
@@ -538,9 +552,11 @@ function buildProgressiveLoadingSection(toolNames: readonly string[], detail: Pr
 
   lines.push(
     "### 工具调用风格",
-    "- 能并行或批量完成的工具调用，在同一轮尽量一次性全部发起，而不是逐个调用、等结果再发下一个",
-    "- 调用工具前后不要额外补充解释或说明步骤——工具调用本身已能表达你的行动意图",
-    "- 不在正文里重复叙述工具刚做过的事；让结果说话，保持回复简洁",
+    "客户端会把「思考 + 工具调用 + 中间说明」折叠进一个可展开的过程区，只把你最后的总结性正文显示在外面。据此调整表达：",
+    "- **批量优先**：相互独立的工具调用，在同一轮一次性全部发起（如同时读多个文件、多次搜索），不要逐个调用、等结果再发下一个",
+    "- **批次前一句意图**：开始一批工具前，用一句话说明这批要做什么、为什么（如「先并行读取这 3 个配置文件确认现状」），而不是每个工具都解释一次",
+    "- **中间从简**：工具执行之间不逐条复述刚做了什么；让工具结果说话",
+    "- **结尾给明确总括**：任务收尾时输出一段清晰的总结性正文（改了什么 / 结论 / 下一步）——这是用户在折叠区外唯一直接看到的内容，要能独立读懂",
     "",
   )
 
@@ -1530,20 +1546,13 @@ function buildUserDevicesSection(devices?: readonly UserDeviceInfo[]): string[] 
 function buildBrowserSection(toolNames: readonly string[]): string[] {
   const hasBrowser = toolNames.some((t) => t.startsWith("browser_"))
   if (!hasBrowser) return []
+  // 工具清单已在「## Tooling → Browser Tools」列出，此处只讲操作要点，不重复罗列
   return [
     "",
     "## Browser Control",
-    "You have access to a live browser. Use these tools to automate web tasks:",
-    "- `browser_navigate`: Go to a URL",
-    "- `browser_screenshot`: Capture the current page (call first to see the page state)",
-    "- `browser_click`: Click an element by its index from the snapshot",
-    "- `browser_type`: Type text into an input by index",
-    "- `browser_scroll`: Scroll the page (direction: up/down/left/right)",
-    "- `browser_wait`: Wait for a duration (ms) or for a CSS selector to appear",
-    "- `browser_eval`: Run JavaScript in the page context",
-    "- `browser_back` / `browser_forward`: Navigate browser history",
-    "",
-    "**Workflow**: call `browser_screenshot` after each action to observe the result before proceeding.",
+    "你可以操控一个实时浏览器完成网页任务（工具见 Browser Tools）。要点：",
+    "- 索引来自快照：`browser_click` / `browser_type` 的元素 index 取自最近一次 `browser_screenshot`",
+    "- **每次操作后先 `browser_screenshot` 观察结果，再决定下一步**",
     "",
   ]
 }
@@ -1584,20 +1593,21 @@ function buildMcpSection(hints?: readonly McpServerHint[]): string[] {
   if (!hints?.length) return []
 
   const lines: string[] = [
-    "## MCP Server Instructions",
+    "## MCP Servers",
     "",
-    "The following MCP servers have provided instructions for how to use their tools and resources:",
+    "以下 MCP Server 提供了额外工具（工具名区分大小写，按列出的全名调用）：",
     "",
   ]
 
   for (const hint of hints) {
+    if (hint.tools.length === 0) continue
     lines.push(`### ${hint.name}`)
     if (hint.instructions?.trim()) {
-      lines.push(hint.instructions.trim())
+      lines.push(hint.instructions.trim(), "")
     }
-    if (hint.toolNames.length > 0) {
-      lines.push("")
-      lines.push(`Available tools: ${hint.toolNames.map((t) => `\`${t}\``).join(", ")}`)
+    for (const tool of hint.tools) {
+      const desc = tool.description?.trim()
+      lines.push(desc ? `- \`${tool.name}\`: ${desc}` : `- \`${tool.name}\``)
     }
     lines.push("")
   }
@@ -1827,7 +1837,6 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
         "",
         "**工具选择优先级：**",
         "- 文件操作优先用专用工具（`file_read`/`file_write`/`glob`/`grep`），`bash` 只用于无对应专用工具的纯命令行操作",
-        "- 多个互相独立的工具调用放在同一条消息里并行发出，不要逐个串行等待",
       )
       if (hasSkillTools || hasMemoryTools || hasWebTools) {
         staticLines.push("- 信息获取优先级：成套任务先 `skill_search` → 历史偏好先 `memory_search` → 时效事实用 `web_search` → 指定网页用 `web_fetch`")

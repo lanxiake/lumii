@@ -14,6 +14,7 @@ import {
   type CloneSampleSource,
 } from './clone-ref-prompt'
 import { arrayBufferToBase64, encodePcmToWav } from './encode-wav'
+import { WaveformVisualizer } from '../../../ChatPage/components/VoiceCallPanel/WaveformVisualizer'
 
 type SaveConfig = (partial: {
   tts?: {
@@ -71,6 +72,7 @@ export function VoiceProfilesPanel({
   const [recording, setRecording] = useState(false)
   const [elapsedMs, setElapsedMs] = useState(0)
   const [micLevel, setMicLevel] = useState(0)
+  const [waveAnalyser, setWaveAnalyser] = useState<AnalyserNode | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -133,6 +135,7 @@ export function VoiceProfilesPanel({
     streamRef.current?.getTracks().forEach((t) => t.stop())
     streamRef.current = null
     setMicLevel(0)
+    setWaveAnalyser(null)
   }, [])
 
   useEffect(() => () => teardownCapture(), [teardownCapture])
@@ -279,6 +282,11 @@ export function VoiceProfilesPanel({
       source.connect(processor)
       processor.connect(mute)
       mute.connect(audioCtx.destination)
+
+      // 波形可视化 analyser（旁路，不影响录音数据）
+      const waveNode = audioCtx.createAnalyser()
+      source.connect(waveNode)
+      setWaveAnalyser(waveNode)
 
       startedAtRef.current = Date.now()
       setElapsedMs(0)
@@ -506,6 +514,7 @@ export function VoiceProfilesPanel({
         {recording && (
           <div className={styles.volumeRow} aria-label="麦克风音量">
             <span className={styles.volumeLabel}>麦克风</span>
+            <WaveformVisualizer state="listening" analyserNode={waveAnalyser} />
             <div className={styles.volumeBarTrack}>
               <div className={styles.volumeBarFill} style={{ width: `${micLevel}%` }} />
             </div>
