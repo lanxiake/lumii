@@ -39,6 +39,58 @@
   color: var(--color-text-secondary);
 }
 
+.volumeRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.volumeLabel {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.volumeBarTrack {
+  flex: 1;
+  max-width: 280px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-bg-tertiary, var(--color-bg-secondary));
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.volumeBarFill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--color-accent, #38bdf8);
+  transition: width 60ms linear;
+}
+
+.volumeBarFill[data-level='low'] {
+  background: var(--color-text-tertiary, #94a3b8);
+}
+
+.volumeBarFill[data-level='mid'] {
+  background: var(--color-accent, #38bdf8);
+}
+
+.volumeBarFill[data-level='high'] {
+  background: var(--color-success, #22c55e);
+}
+
+.volumeValue {
+  flex-shrink: 0;
+  min-width: 28px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+  text-align: right;
+}
+
 .error {
   margin: 0 0 8px;
   font-size: 12px;

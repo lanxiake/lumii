@@ -35,6 +35,12 @@ export type VoiceCancelModelCommand = {
   modelId: string
 }
 
+/** 卸载已下载的模型/运行时（删除本地文件；PyTorch 另卸 pip 包） */
+export type VoiceUninstallModelCommand = {
+  readonly type: 'voice:models:uninstall'
+  modelId: string
+}
+
 export type VoiceGetConfigCommand = {
   readonly type: 'voice:config:get'
 }
@@ -120,6 +126,7 @@ export type VoiceCommand =
   | VoiceDownloadModelCommand
   | VoicePauseModelCommand
   | VoiceCancelModelCommand
+  | VoiceUninstallModelCommand
   | VoiceGetConfigCommand
   | VoiceSetConfigCommand
   | VoicePlaybackFinishedCommand

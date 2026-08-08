@@ -15,7 +15,10 @@ import {
   downloadViaModelScopeSdk,
   type ModelScopeDownloadSpec,
 } from './modelscope-downloader.js'
-import { installPytorchCudaFromWheelDir } from './qwen3-tts-client.js'
+import {
+  installPytorchCudaFromWheelDir,
+  uninstallPytorchFromBundledPython,
+} from './qwen3-tts-client.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -874,6 +877,77 @@ export class VoiceModelManager {
     task.errorMessage = undefined
     log.info(`[cancelDownload] 已取消并清理: ${modelId}`)
     return true
+  }
+
+  /**
+   * 卸载已下载模型/运行时：取消进行中的下载，删除本地目录与断点文件；
+   * PyTorch CUDA 运行时额外从内置 Python pip 卸载 torch 栈。
+   */
+  async uninstallModel(modelId: string): Promise<{ ok: boolean; error?: string }> {
+    const model = MODEL_CATALOG[modelId as ModelId]
+    if (!model) {
+      return { ok: false, error: `未知模型: ${modelId}` }
+    }
+
+    // 先停下载并清 partial（cancel 对已就绪目录不会删）
+    this.cancelDownload(modelId)
+
+    try {
+      if (modelId === PYTORCH_CUDA_RUNTIME_ID) {
+        await uninstallPytorchFromBundledPython()
+      }
+
+      this.purgeModelDir(path.join(this.baseDir, model.dir))
+      this.purgeModelDir(path.join(this.legacyBaseDir, model.dir))
+
+      // 再清一遍可能残留的 partial / tar
+      const partial = this.partialPath(modelId)
+      try {
+        if (fs.existsSync(partial)) fs.unlinkSync(partial)
+      } catch {
+        /* ignore */
+      }
+      if (model.type !== 'single' && model.type !== 'wheels') {
+        const tarFile = path.join(this.tempDir, `${model.id}.tar.bz2`)
+        try {
+          if (fs.existsSync(tarFile)) fs.unlinkSync(tarFile)
+        } catch {
+          /* ignore */
+        }
+      }
+      if ('httpFiles' in model && model.httpFiles) {
+        for (const item of model.httpFiles) {
+          const httpPartial = path.join(
+            this.tempDir,
+            `${model.id}-${item.local.replace(/[\\/]/g, '_')}.partial`,
+          )
+          try {
+            if (fs.existsSync(httpPartial)) fs.unlinkSync(httpPartial)
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
+      const task = this.getOrCreateTask(modelId)
+      task.state = 'idle'
+      task.downloadedBytes = 0
+      task.totalBytes = 0
+      task.bytesPerSecond = 0
+      task.errorMessage = undefined
+      task.abort = null
+
+      if (this.isModelDownloaded(modelId as ModelId)) {
+        return { ok: false, error: '卸载后仍检测到本地文件，请手动删除后重试' }
+      }
+
+      log.info(`[uninstallModel] 已卸载: ${modelId}`)
+      return { ok: true }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      log.error(`[uninstallModel] 失败 ${modelId}: ${message}`)
+      return { ok: false, error: message }
+    }
   }
 
   private async _downloadModel(

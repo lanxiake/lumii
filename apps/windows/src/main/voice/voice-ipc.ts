@@ -8,7 +8,11 @@ import { type VoiceModelManager, PYTORCH_CUDA_RUNTIME_ID } from './model-manager
 import { AsrTestSession } from './asr-test-session.js'
 import type { VoiceCommand } from '../../shared/voice-commands.js'
 import { saveVoiceEngineConfig } from './voice-config-store.js'
-import { prepareQwen3TtsRuntime, invalidateQwen3TtsPrepare, resetSharedQwen3TtsClient } from './qwen3-tts-client.js'
+import {
+  prepareQwen3TtsRuntime,
+  invalidateQwen3TtsPrepare,
+  resetSharedQwen3TtsClient,
+} from './qwen3-tts-client.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceIPC]', ...args),
@@ -174,6 +178,31 @@ export function registerVoiceIpc(
 
         case 'voice:models:cancel':
           return { ok: modelManager.cancelDownload(command.modelId) }
+
+        case 'voice:models:uninstall': {
+          // 卸载前停 ASR 测试与 TTS 预览，避免占用模型文件
+          await asrTest.stop().catch(() => undefined)
+          voiceService.stopPreview()
+          const result = await modelManager.uninstallModel(command.modelId)
+          if (String(command.modelId).startsWith('tts-qwen3-') || command.modelId === PYTORCH_CUDA_RUNTIME_ID) {
+            invalidateQwen3TtsPrepare()
+            void resetSharedQwen3TtsClient().catch(() => undefined)
+          }
+          if (!win.isDestroyed()) {
+            win.webContents.send('voice:event', {
+              type: 'voice:models:status',
+              models: modelManager.getModelsStatus(),
+            })
+            if (!result.ok) {
+              win.webContents.send('voice:event', {
+                type: 'voice:models:error',
+                modelId: command.modelId,
+                message: result.error || '卸载失败',
+              })
+            }
+          }
+          return result
+        }
 
         case 'voice:config:get':
           return voiceService.getConfig()

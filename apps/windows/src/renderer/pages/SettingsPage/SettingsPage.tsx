@@ -2118,11 +2118,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   <label className={styles['setting-label']}>
                     测试文案（最多 100 字）剩余 {100 - voicePreviewText.length}
                   </label>
-                  <Input
+                  <input
+                    className={styles['voice-preview-input']}
+                    type="text"
                     value={voicePreviewText}
                     maxLength={100}
                     onChange={(e) => setVoicePreviewText(e.target.value.slice(0, 100))}
-                    style={{ width: '100%', maxWidth: 420 }}
                     placeholder="你好，这是声音预览。"
                   />
                 </div>

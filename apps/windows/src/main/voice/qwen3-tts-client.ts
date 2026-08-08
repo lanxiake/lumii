@@ -245,6 +245,23 @@ async function pipUninstallTorch(pythonExe: string): Promise<void> {
   })
 }
 
+/**
+ * 从内置 Python 卸载 PyTorch（设置页「卸载 CUDA 运行时」）
+ */
+export async function uninstallPytorchFromBundledPython(): Promise<void> {
+  const pythonExe = await resolvePythonExe()
+  if (pythonExe !== getBundledPythonExe()) {
+    log.warn(`[uninstallPytorch] 非内置 Python，跳过 pip 卸载: ${pythonExe}`)
+    return
+  }
+  emitStatus('installing_deps', '正在卸载内置 Python 中的 PyTorch…')
+  await pipUninstallTorch(pythonExe)
+  invalidateQwen3TtsPrepare()
+  await resetSharedQwen3TtsClient().catch(() => undefined)
+  emitStatus('idle', 'PyTorch 已从内置 Python 卸载')
+  log.info('[uninstallPytorchFromBundledPython] 完成')
+}
+
 export type Qwen3DevicePref = 'auto' | 'cpu' | 'cuda'
 
 /**

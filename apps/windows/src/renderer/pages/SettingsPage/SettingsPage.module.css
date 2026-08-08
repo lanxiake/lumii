@@ -483,6 +483,33 @@
   gap: var(--spacing-2);
 }
 
+/* 语音合成测试文案：单层输入，避免 Input 组件套娃边框 */
+.voice-preview-input {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.voice-preview-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.voice-preview-input:focus {
+  border-color: var(--mt-accent-500, var(--color-primary-500));
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
 .setting-unit {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);

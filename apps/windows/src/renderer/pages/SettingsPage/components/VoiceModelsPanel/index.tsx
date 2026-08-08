@@ -1,8 +1,10 @@
 /**
  * 语音模型下载面板（可按分组嵌入「识别 / 合成 / 克隆」各区块）
+ * 支持下载 / 暂停 / 取消 / 卸载已就绪项。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '../../../../components/ui/Button/Button'
+import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
 import type { VoiceModelDownloadState, VoiceModelStatus } from '../../../../../shared/voice-events'
 import styles from './VoiceModelsPanel.module.css'
 
@@ -76,6 +78,10 @@ export function VoiceModelsPanel({
   const [loading, setLoading] = useState(true)
   const [guideOpen, setGuideOpen] = useState(false)
   const [lastError, setLastError] = useState<string | null>(null)
+  /** 正在卸载的 modelId */
+  const [uninstallingId, setUninstallingId] = useState<string | null>(null)
+  /** 待确认卸载的模型 */
+  const [confirmUninstall, setConfirmUninstall] = useState<VoiceModelStatus | null>(null)
 
   const refresh = useCallback(async () => {
     const api = (window as any).electronAPI
@@ -133,6 +139,32 @@ export function VoiceModelsPanel({
     void refresh()
   }
 
+  /**
+   * 执行模型/运行时卸载
+   */
+  const doUninstall = async (model: VoiceModelStatus) => {
+    const api = (window as any).electronAPI
+    if (!api?.voice?.sendCommand) return
+    setUninstallingId(model.id)
+    setLastError(null)
+    try {
+      const result = await api.voice.sendCommand({
+        type: 'voice:models:uninstall',
+        modelId: model.id,
+      })
+      if (result?.ok === false) {
+        setLastError(
+          `${model.name}：${result.error || '卸载失败'}`,
+        )
+      }
+    } catch (e) {
+      setLastError(`${model.name}：${(e as Error).message || '卸载失败'}`)
+    } finally {
+      setUninstallingId(null)
+      void refresh()
+    }
+  }
+
   const filtered = useMemo(() => {
     const allow = groups && groups.length > 0 ? new Set(groups) : null
     return models.filter((m) => {
@@ -156,17 +188,20 @@ export function VoiceModelsPanel({
     const speedText =
       state === 'downloading' ? formatSpeed(p?.bytesPerSecond ?? m.bytesPerSecond) : ''
 
-    const statusLabel = m.downloaded
-      ? '已就绪'
-      : state === 'downloading'
-        ? `下载中 ${pct}%`
-        : state === 'paused'
-          ? `已暂停 ${pct}%`
-          : state === 'extracting'
-            ? '解压/安装中…'
-            : state === 'error'
-              ? '失败'
-              : '未下载'
+    const isUninstalling = uninstallingId === m.id
+    const statusLabel = isUninstalling
+      ? '卸载中…'
+      : m.downloaded
+        ? '已就绪'
+        : state === 'downloading'
+          ? `下载中 ${pct}%`
+          : state === 'paused'
+            ? `已暂停 ${pct}%`
+            : state === 'extracting'
+              ? '解压/安装中…'
+              : state === 'error'
+                ? '失败'
+                : '未下载'
 
     const badgeClass =
       m.downloaded || state === 'ready'
@@ -215,32 +250,72 @@ export function VoiceModelsPanel({
             </div>
           </div>
           <div className={styles.actions}>
-            {m.downloaded ? (
-              <span className={styles.readyBadge}>就绪</span>
+            {m.downloaded || isUninstalling ? (
+              <>
+                {!isUninstalling && <span className={styles.readyBadge}>就绪</span>}
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={Boolean(uninstallingId)}
+                  onClick={() => setConfirmUninstall(m)}
+                >
+                  {isUninstalling ? '卸载中…' : '卸载'}
+                </Button>
+              </>
             ) : state === 'downloading' ? (
               <>
-                <Button variant="secondary" size="sm" onClick={() => void send('voice:models:pause', m.id)}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={Boolean(uninstallingId)}
+                  onClick={() => void send('voice:models:pause', m.id)}
+                >
                   暂停
                 </Button>
-                <Button variant="secondary" size="sm" onClick={() => void send('voice:models:cancel', m.id)}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={Boolean(uninstallingId)}
+                  onClick={() => void send('voice:models:cancel', m.id)}
+                >
                   取消
                 </Button>
               </>
             ) : state === 'extracting' ? (
-              <Button variant="secondary" size="sm" onClick={() => void send('voice:models:cancel', m.id)}>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={Boolean(uninstallingId)}
+                onClick={() => void send('voice:models:cancel', m.id)}
+              >
                 取消安装
               </Button>
             ) : state === 'paused' ? (
               <>
-                <Button variant="primary" size="sm" onClick={() => void send('voice:models:download', m.id)}>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={Boolean(uninstallingId)}
+                  onClick={() => void send('voice:models:download', m.id)}
+                >
                   继续
                 </Button>
-                <Button variant="secondary" size="sm" onClick={() => void send('voice:models:cancel', m.id)}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={Boolean(uninstallingId)}
+                  onClick={() => void send('voice:models:cancel', m.id)}
+                >
                   取消
                 </Button>
               </>
             ) : (
-              <Button variant="primary" size="sm" onClick={() => void send('voice:models:download', m.id)}>
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={Boolean(uninstallingId)}
+                onClick={() => void send('voice:models:download', m.id)}
+              >
                 {state === 'error' ? '重试' : '下载'}
               </Button>
             )}
@@ -298,6 +373,28 @@ export function VoiceModelsPanel({
       ) : (
         <div className={styles.list}>{filtered.map(renderCard)}</div>
       )}
+
+      <ConfirmModal
+        open={Boolean(confirmUninstall)}
+        title="确认卸载"
+        content={
+          confirmUninstall
+            ? `确定卸载「${confirmUninstall.name}」？将删除本地文件（运行时还会卸掉相关依赖），可稍后重新下载。`
+            : ''
+        }
+        confirmText="卸载"
+        cancelText="取消"
+        confirmVariant="danger"
+        onCancel={() => {
+          if (!uninstallingId) setConfirmUninstall(null)
+        }}
+        onConfirm={() => {
+          if (!confirmUninstall || uninstallingId) return
+          const target = confirmUninstall
+          setConfirmUninstall(null)
+          void doUninstall(target)
+        }}
+      />
     </div>
   )
 }
