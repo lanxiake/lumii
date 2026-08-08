@@ -1027,7 +1027,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                       后端切换
                       <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--color-text-tertiary)', fontWeight: 400 }}>
                         当前：<strong style={{ color: 'var(--color-accent, #4f8ef7)' }}>
-                          {currentBackend === 'openclaw' ? 'MtBot' : currentBackend}
+                          {currentBackend === 'openclaw' ? '灵栖' : currentBackend}
                         </strong>
                       </span>
                     </div>
@@ -1042,7 +1042,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                       { cmd: '/copilot', label: 'Copilot' },
                       { cmd: '/auggie', label: 'Augment' },
                       { cmd: '/cursor', label: 'Cursor' },
-                      { cmd: '/mtbot', label: 'MtBot（默认）' },
+                      { cmd: '/lumii', label: '灵栖（默认）' },
                     ].map(({ cmd, label }) => (
                       <div key={cmd} className={styles['help-item']}>
                         <code

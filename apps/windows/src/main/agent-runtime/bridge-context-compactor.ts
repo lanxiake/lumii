@@ -31,6 +31,11 @@ export interface BridgeContextCompactorDeps {
   getMainModel: () => ModelRef | null
   /** 任一可用实例的 (innerStream, model)（二次降级用，供后台总结等无指定实例的调用） */
   getAnyInstanceStream?: () => { innerStream: InnerStreamRef; model: ModelRef } | undefined
+  /**
+   * 无任何 Agent 实例时的兜底 stream（三次降级）。
+   * 供 cron / companion workflow 等不创建实例的后台 LLM 调用（如资讯综述）。
+   */
+  getFallbackStream?: () => { innerStream: InnerStreamRef; model: ModelRef } | undefined
   /** 数据库连接（用于直接 prepare DELETE 等操作） */
   getDb: () => DatabaseAdapter
   ipcChannel: BridgeRendererIpcChannel
@@ -65,6 +70,15 @@ export class BridgeContextCompactor {
       if (any) {
         innerStream = any.innerStream
         model = any.model
+      }
+    }
+
+    // 三次降级：cron / companion 故意不建实例，用独立 direct stream（不依赖会话是否打开）。
+    if (!innerStream || !model) {
+      const fallback = this.deps.getFallbackStream?.()
+      if (fallback) {
+        innerStream = fallback.innerStream
+        model = fallback.model
       }
     }
 

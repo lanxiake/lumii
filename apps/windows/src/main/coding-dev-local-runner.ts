@@ -78,7 +78,7 @@ export async function runLocalAcpCli(
   const id = params.backendId.trim().toLowerCase()
   if (!isPrimaryLocalAcpToolId(id)) {
     throw new Error(
-      `当前仅支持本机 Cursor / Claude Code / Codex / GitHub Copilot。请改用 /cursor、/claude、/codex、/copilot，或 /mtbot 切回主代理。`,
+      `当前仅支持本机 Cursor / Claude Code / Codex / GitHub Copilot。请改用 /cursor、/claude、/codex、/copilot，或 /lumii 切回主代理。`,
     )
   }
 

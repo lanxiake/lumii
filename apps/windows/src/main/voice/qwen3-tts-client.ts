@@ -10,6 +10,7 @@ import {
   ensureBundledPython,
   getBundledPythonExe,
 } from '../python-env.js'
+import { resolveWindowsClientDataRoot } from '../client-data-root.js'
 import type { VoiceRuntimePhase } from '../../shared/voice-events.js'
 
 const log = {
@@ -49,20 +50,24 @@ function emitStatus(phase: VoiceRuntimePhase, message: string, detail?: string):
 }
 
 /**
- * 解析 sidecar 脚本路径
+ * 解析 sidecar 脚本路径（优先主源码，避免 assets 副本过期仍用 float16）
  */
 function resolveSidecarScript(): string {
   const packaged = app.isPackaged
     ? path.join(process.resourcesPath, 'assets', 'scripts', 'qwen3_tts_sidecar.py')
     : path.join(__dirname, '../../assets/scripts/qwen3_tts_sidecar.py')
   const candidates = [
-    packaged,
-    path.join(__dirname, 'qwen3_tts_sidecar.py'),
-    path.join(app.getAppPath(), 'src/main/voice/qwen3_tts_sidecar.py'),
+    // 开发态：优先 src 主文件，防止 assets 副本未同步
     path.join(process.cwd(), 'apps/windows/src/main/voice/qwen3_tts_sidecar.py'),
+    path.join(app.getAppPath(), 'src/main/voice/qwen3_tts_sidecar.py'),
+    path.join(__dirname, 'qwen3_tts_sidecar.py'),
+    packaged,
   ]
   for (const c of candidates) {
-    if (fs.existsSync(c)) return c
+    if (fs.existsSync(c)) {
+      log.info(`[resolveSidecarScript] ${c}`)
+      return c
+    }
   }
   throw new Error('找不到 qwen3_tts_sidecar.py')
 }
@@ -165,6 +170,7 @@ async function pipInstall(
   args: string[],
   label: string,
   indexUrl?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const envExtra: Record<string, string> = {}
   if (indexUrl) {
@@ -173,6 +179,10 @@ async function pipInstall(
     envExtra.PIP_INDEX_URL = PYPI_MIRROR
   }
   await new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error('已取消'))
+      return
+    }
     const env = buildIsolatedPythonEnv(envExtra)
     // 强制单一 index：清空镜像/额外源，否则 cu121 会和 ustc 混用导致仍命中 +cpu
     if (indexUrl) {
@@ -185,6 +195,14 @@ async function pipInstall(
     })
     let err = ''
     let out = ''
+    const onAbort = () => {
+      try {
+        p.kill()
+      } catch {
+        /* ignore */
+      }
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
     const onChunk = (b: Buffer, isErr: boolean) => {
       const t = b.toString()
       if (isErr) err += t
@@ -196,8 +214,16 @@ async function pipInstall(
     }
     p.stdout?.on('data', (b: Buffer) => onChunk(b, false))
     p.stderr?.on('data', (b: Buffer) => onChunk(b, true))
-    p.on('error', reject)
+    p.on('error', (e) => {
+      signal?.removeEventListener('abort', onAbort)
+      reject(e)
+    })
     p.on('exit', (code) => {
+      signal?.removeEventListener('abort', onAbort)
+      if (signal?.aborted) {
+        reject(new Error('已取消'))
+        return
+      }
       if (code === 0) resolve()
       else reject(new Error(`${label} 失败 (code=${code}): ${(err || out).slice(-600)}`))
     })
@@ -232,46 +258,39 @@ function resolveWantCuda(pref: Qwen3DevicePref): boolean {
 
 /**
  * 安装配对的 torch + torchaudio。
- * 关键 CUDA：先卸载再强制装 cu121；失败时仅在允许回退时改装 CPU。
+ * CUDA：仅从本地已下载的 wheel 安装（与模型下载同 UI）；失败时按策略回退 CPU。
  */
 async function installTorchStack(
   pythonExe: string,
   wantCuda: boolean,
   allowCpuFallback: boolean,
+  wheelDir?: string | null,
 ): Promise<'cuda' | 'cpu'> {
   if (wantCuda) {
-    emitStatus(
-      'installing_deps',
-      '正在安装 PyTorch CUDA 12.1（约 2GB+，会先卸载旧的 CPU 版，请勿关闭应用）…',
-    )
-    try {
-      await pipUninstallTorch(pythonExe)
-      await pipInstall(
-        pythonExe,
-        [
-          '--no-cache-dir',
-          '--force-reinstall',
-          'torch==2.5.1',
-          'torchaudio==2.5.1',
-          '--index-url',
-          'https://download.pytorch.org/whl/cu121',
-        ],
-        '正在安装 PyTorch CUDA 12.1…',
-        'https://download.pytorch.org/whl/cu121',
-      )
-      const torchCuda = await probeTorchCudaOnly(pythonExe)
-      if (torchCuda) {
-        log.info('[installTorch] CUDA 轮安装成功')
-        return 'cuda'
-      }
-      const msg = 'CUDA 轮安装后 torch.cuda 仍不可用（可能驱动/ wheel 不匹配）'
+    if (!wheelDir || !fs.existsSync(wheelDir)) {
+      const msg =
+        '尚未下载 PyTorch CUDA 运行时。请在设置 → 语音合成 → 模型列表下载「PyTorch CUDA 运行时」'
       log.warn(`[installTorch] ${msg}`)
       if (!allowCpuFallback) throw new Error(msg)
-      emitStatus('installing_deps', `${msg}，回退安装 CPU 版…`)
-    } catch (e) {
-      log.warn(`[installTorch] CUDA 安装失败: ${(e as Error).message}`)
-      if (!allowCpuFallback) throw e
-      emitStatus('installing_deps', 'CUDA 版安装失败，改为安装 CPU 版 PyTorch…')
+      emitStatus('installing_deps', `${msg}；暂用 CPU…`)
+    } else {
+      emitStatus('installing_deps', '正在从已下载的 wheel 安装 PyTorch CUDA…')
+      try {
+        await installPytorchCudaFromWheelDir(wheelDir)
+        const torchCuda = await probeTorchCudaOnly(pythonExe)
+        if (torchCuda) {
+          log.info('[installTorch] 本地 CUDA 轮安装成功')
+          return 'cuda'
+        }
+        const msg = '本地 CUDA 轮安装后 torch.cuda 仍不可用'
+        log.warn(`[installTorch] ${msg}`)
+        if (!allowCpuFallback) throw new Error(msg)
+        emitStatus('installing_deps', `${msg}，回退安装 CPU 版…`)
+      } catch (e) {
+        log.warn(`[installTorch] CUDA 安装失败: ${(e as Error).message}`)
+        if (!allowCpuFallback) throw e
+        emitStatus('installing_deps', 'CUDA 版安装失败，改为安装 CPU 版 PyTorch…')
+      }
     }
   }
 
@@ -294,8 +313,63 @@ async function installTorchStack(
 }
 
 /**
- * 仅检查 torch.cuda（升级 GPU 轮时 qwen_tts 可能已在）
+ * 从本地 wheel 目录安装 PyTorch CUDA（供模型下载完成后 / prepare 复用）
  */
+export async function installPytorchCudaFromWheelDir(
+  wheelDir: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const pythonExe = await resolvePythonExe()
+  if (pythonExe !== getBundledPythonExe()) {
+    throw new Error(`Qwen3 TTS 仅支持内置 Python，当前: ${pythonExe}`)
+  }
+  const wheels = fs
+    .readdirSync(wheelDir)
+    .filter((n) => n.endsWith('.whl') && n.includes('torch'))
+    .map((n) => path.join(wheelDir, n))
+  if (wheels.length < 2) {
+    throw new Error(`wheel 目录不完整: ${wheelDir}`)
+  }
+  if (signal?.aborted) throw new Error('已取消')
+
+  emitStatus('installing_deps', '正在卸载旧版 PyTorch，准备安装 GPU 轮…')
+  await pipUninstallTorch(pythonExe)
+  if (signal?.aborted) throw new Error('已取消')
+
+  emitStatus('installing_deps', '正在安装本地 PyTorch CUDA wheel（无需再下载）…')
+  await pipInstall(
+    pythonExe,
+    ['--no-cache-dir', '--force-reinstall', '--no-deps', ...wheels],
+    '正在安装本地 PyTorch CUDA…',
+    undefined,
+    signal,
+  )
+  await pipInstall(
+    pythonExe,
+    [
+      'filelock',
+      'typing-extensions',
+      'networkx',
+      'jinja2',
+      'fsspec',
+      'sympy',
+      'mpmath',
+      'MarkupSafe',
+    ],
+    '正在补齐 PyTorch 依赖…',
+    undefined,
+    signal,
+  )
+
+  const ok = await probeTorchCudaOnly(pythonExe)
+  if (!ok) {
+    throw new Error('本地 wheel 已安装但 torch.cuda 不可用，请检查 NVIDIA 驱动')
+  }
+  await resetSharedQwen3TtsClient()
+  emitStatus('ready', 'PyTorch CUDA 已安装到内置 Python')
+  log.info('[installPytorchCudaFromWheelDir] 完成')
+}
+
 async function probeTorchCudaOnly(pythonExe: string): Promise<boolean> {
   return new Promise((resolve) => {
     const p = spawn(
@@ -320,13 +394,14 @@ async function probeTorchCudaOnly(pythonExe: string): Promise<boolean> {
 }
 
 /**
- * 安装 qwen-tts 推理依赖（不含 gradio）
+ * 安装 qwen-tts + faster-qwen3-tts（CUDA Graph 加速）推理依赖
  */
 async function installQwenDeps(pythonExe: string): Promise<void> {
   await pipInstall(
     pythonExe,
     [
       'qwen-tts',
+      'faster-qwen3-tts>=0.3.2',
       'transformers==4.57.3',
       'accelerate==1.12.0',
       'soundfile',
@@ -337,8 +412,40 @@ async function installQwenDeps(pythonExe: string): Promise<void> {
       '-i',
       PYPI_MIRROR,
     ],
-    '正在安装 qwen-tts 及相关依赖…',
+    '正在安装 qwen-tts / faster-qwen3-tts 及相关依赖…',
   )
+}
+
+/**
+ * 确保已安装 faster-qwen3-tts（已有 CUDA 运行时时补装）
+ */
+async function ensureFasterQwen3Tts(pythonExe: string): Promise<boolean> {
+  const code =
+    'import importlib.util; print("1" if importlib.util.find_spec("faster_qwen3_tts") else "0")'
+  const has = await new Promise<boolean>((resolve) => {
+    const p = spawn(pythonExe, ['-c', code], {
+      windowsHide: true,
+      env: buildIsolatedPythonEnv(),
+    })
+    let out = ''
+    p.stdout?.on('data', (b: Buffer) => {
+      out += b.toString()
+    })
+    p.on('error', () => resolve(false))
+    p.on('exit', (c) => resolve(c === 0 && out.trim() === '1'))
+  })
+  if (has) return true
+  try {
+    await pipInstall(
+      pythonExe,
+      ['faster-qwen3-tts>=0.3.2', '-i', PYPI_MIRROR],
+      '正在安装 faster-qwen3-tts（CUDA Graph 加速）…',
+    )
+    return true
+  } catch (e) {
+    log.warn(`[ensureFasterQwen3Tts] 安装失败，将回退官方路径: ${(e as Error).message}`)
+    return false
+  }
 }
 
 /**
@@ -358,13 +465,21 @@ async function ensureQwenTtsPackage(
 
   const wantCuda = resolveWantCuda(devicePref)
   const allowCpuFallback = devicePref !== 'cuda'
-  log.info(`[ensureQwenTtsPackage] pref=${devicePref} wantCuda=${wantCuda} nvidia=${hasNvidiaGpu()}`)
+  const wheelDir = path.join(
+    resolveWindowsClientDataRoot(),
+    'models',
+    'voice',
+    'runtime',
+    'pytorch-cu121',
+  )
+  log.info(`[ensureQwenTtsPackage] pref=${devicePref} wantCuda=${wantCuda} nvidia=${hasNvidiaGpu()} wheelDir=${wheelDir}`)
 
   const health = await probeTorchHealth(pythonExe)
   const cudaReady = health.ok && health.cuda && !health.detail.includes('+cpu')
   const cpuReady = health.ok && !health.cuda
 
   if (wantCuda && cudaReady) {
+    await ensureFasterQwen3Tts(pythonExe)
     emitStatus(
       'ready',
       `语音合成运行时已就绪（GPU：${health.detail.split('|dev=').pop() || 'CUDA'}）`,
@@ -383,11 +498,12 @@ async function ensureQwenTtsPackage(
 
   if (wantCuda && cpuReady) {
     emitStatus('installing_deps', '检测到 CPU 版 PyTorch，正在强制更换为 CUDA 版…')
-    const kind = await installTorchStack(pythonExe, true, allowCpuFallback)
+    const kind = await installTorchStack(pythonExe, true, allowCpuFallback, wheelDir)
     await resetSharedQwen3TtsClient()
     const after = await probeTorchHealth(pythonExe)
     if (!after.ok) throw new Error('更换 CUDA 后依赖校验失败：' + after.detail)
     if (kind === 'cuda' && after.cuda) {
+      await ensureFasterQwen3Tts(pythonExe)
       emitStatus('ready', `已切换为 GPU 加速（${after.detail.split('|dev=').pop() || 'CUDA'}）`)
       return
     }
@@ -402,11 +518,14 @@ async function ensureQwenTtsPackage(
   emitStatus(
     'installing_deps',
     wantCuda
-      ? '正在安装 qwen-tts 依赖（含 CUDA PyTorch，首次约 2GB+）…'
+      ? '正在安装 qwen-tts 依赖（使用已下载的 CUDA wheel）…'
       : '正在安装 qwen-tts 依赖（CPU PyTorch）…',
   )
-  const kind = await installTorchStack(pythonExe, wantCuda, allowCpuFallback)
+  const kind = await installTorchStack(pythonExe, wantCuda, allowCpuFallback, wheelDir)
   await installQwenDeps(pythonExe)
+  if (kind === 'cuda') {
+    await ensureFasterQwen3Tts(pythonExe)
+  }
   const after = await probeTorchHealth(pythonExe)
   if (!after.ok) {
     throw new Error(
@@ -492,7 +611,12 @@ export class Qwen3TtsClient {
   private nextId = 1
   private pending = new Map<
     number,
-    { resolve: (v: RpcResult) => void; reject: (e: Error) => void }
+    {
+      resolve: (v: RpcResult) => void
+      reject: (e: Error) => void
+      /** 流式 partial 回调（同 id 多段） */
+      onPartial?: (result: Record<string, unknown>) => void
+    }
   >()
   private stdoutBuf = ''
   private loadedKey: string | null = null
@@ -546,20 +670,29 @@ export class Qwen3TtsClient {
    */
   async load(modelDir: string, tokenizerDir: string, device = 'auto'): Promise<void> {
     await this.ensureStarted()
-    const key = `${modelDir}||${tokenizerDir}||${device}`
+    // 含精度/后端标记，避免旧进程被误判为已加载
+    const key = `${modelDir}||${tokenizerDir}||${device}||faster-v1`
     if (this.loadedKey === key) {
       emitStatus('ready', '语音模型已就绪')
       return
     }
-    emitStatus('loading_model', '正在加载本地语音模型到内存（首次较慢，请稍候）…', path.basename(modelDir))
-    const res = await this.call('load', { modelDir, tokenizerDir, device }, 600_000)
+    emitStatus(
+      'loading_model',
+      '正在加载本地语音模型（含 CUDA Graph 预热，首次较慢）…',
+      path.basename(modelDir),
+    )
+    const res = await this.call('load', { modelDir, tokenizerDir, device, preferFaster: true }, 600_000)
     if (!res.ok) throw new Error(res.error || 'load 失败')
     this.loadedKey = key
     const deviceLabel = String(res.result?.device || device)
+    const dtypeLabel = res.result?.dtype ? String(res.result.dtype) : ''
+    const backendLabel = res.result?.backend ? String(res.result.backend) : ''
+    const backendHint =
+      backendLabel === 'faster' ? ' / CUDA Graph' : backendLabel ? ` / ${backendLabel}` : ''
     emitStatus(
       'ready',
       deviceLabel.startsWith('cuda')
-        ? `语音模型已加载（GPU ${deviceLabel}）`
+        ? `语音模型已加载（GPU ${deviceLabel}${dtypeLabel ? ` / ${dtypeLabel}` : ''}${backendHint}）`
         : `语音模型已加载（CPU，合成较慢）`,
     )
     log.info('模型已加载', res.result)
@@ -594,13 +727,100 @@ export class Qwen3TtsClient {
       },
       600_000,
     )
-    if (!res.ok) throw new Error(res.error || 'synthesize 失败')
+    if (!res.ok) {
+      const err = res.error || 'synthesize 失败'
+      if (/device-side assert|GPU 合成失败|CUDA error/i.test(err)) {
+        log.warn('[synthesize] 检测到 CUDA 损坏，重启 sidecar')
+        this.loadedKey = null
+        try {
+          await this.destroy()
+        } catch {
+          /* ignore */
+        }
+      }
+      throw new Error(err)
+    }
     const wavPath = String(res.result?.wavPath || '')
     const sampleRate = Number(res.result?.sampleRate || 24000)
     if (!wavPath || !fs.existsSync(wavPath)) {
       throw new Error('sidecar 未返回有效 wav')
     }
     return { wavPath, sampleRate }
+  }
+
+  /**
+   * 句级流式合成：每段 PCM 通过 onChunk 回调立即返回，缩短首包延迟
+   */
+  async synthesizeStream(
+    params: {
+      text: string
+      language: string
+      mode?: 'custom' | 'clone'
+      speaker?: string
+      instruct?: string
+      refAudio?: string
+      refText?: string
+      xVectorOnly?: boolean
+    },
+    onChunk: (chunk: { samples: number[]; sampleRate: number; text?: string }) => void,
+  ): Promise<{ sampleRate: number; chunks: number }> {
+    await this.ensureStarted()
+    emitStatus('synthesizing', '正在流式合成语音…')
+
+    let sampleRate = 24000
+    let chunks = 0
+
+    const res = await this.call(
+      'synthesize_stream',
+      {
+        mode: params.mode ?? 'clone',
+        text: params.text,
+        language: params.language,
+        speaker: params.speaker,
+        instruct: params.instruct,
+        refAudio: params.refAudio,
+        refText: params.refText,
+        xVectorOnly: params.xVectorOnly,
+      },
+      600_000,
+      (partial) => {
+        const b64 = String(partial.pcmInt16Base64 || '')
+        const sr = Number(partial.sampleRate || 24000)
+        sampleRate = sr
+        if (!b64) return
+        const buf = Buffer.from(b64, 'base64')
+        const samples: number[] = []
+        for (let i = 0; i + 1 < buf.length; i += 2) {
+          samples.push(buf.readInt16LE(i) / 32768)
+        }
+        chunks += 1
+        if (chunks === 1) {
+          emitStatus('playing', '首段已合成，边播边继续…')
+        }
+        onChunk({
+          samples,
+          sampleRate: sr,
+          text: typeof partial.text === 'string' ? partial.text : undefined,
+        })
+      },
+    )
+
+    if (!res.ok) {
+      const err = res.error || 'synthesize_stream 失败'
+      if (/device-side assert|GPU 合成失败|CUDA error/i.test(err)) {
+        log.warn('[synthesizeStream] 检测到 CUDA 损坏，重启 sidecar')
+        this.loadedKey = null
+        try {
+          await this.destroy()
+        } catch {
+          /* ignore */
+        }
+      }
+      throw new Error(err)
+    }
+
+    const doneChunks = Number(res.result?.chunks ?? chunks)
+    return { sampleRate: Number(res.result?.sampleRate || sampleRate), chunks: doneChunks }
   }
 
   /**
@@ -623,12 +843,13 @@ export class Qwen3TtsClient {
   }
 
   /**
-   * 发送 RPC
+   * 发送 RPC（可选 onPartial 支持同 id 多段流式响应）
    */
   private call(
     method: string,
     params: Record<string, unknown>,
     timeoutMs = 120_000,
+    onPartial?: (result: Record<string, unknown>) => void,
   ): Promise<RpcResult> {
     return new Promise((resolve, reject) => {
       if (!this.child || !this.child.stdin.writable) {
@@ -649,6 +870,7 @@ export class Qwen3TtsClient {
           clearTimeout(timer)
           reject(e)
         },
+        onPartial,
       })
       this.child.stdin.write(JSON.stringify({ id, method, params }) + '\n')
     })
@@ -665,11 +887,24 @@ export class Qwen3TtsClient {
       const trimmed = line.trim()
       if (!trimmed) continue
       try {
-        const msg = JSON.parse(trimmed) as { id?: number; ok?: boolean; result?: Record<string, unknown>; error?: string }
+        const msg = JSON.parse(trimmed) as {
+          id?: number
+          ok?: boolean
+          partial?: boolean
+          result?: Record<string, unknown>
+          error?: string
+        }
         const id = msg.id
         if (typeof id !== 'number') continue
         const pending = this.pending.get(id)
         if (!pending) continue
+
+        // 流式中间段：不 resolve，继续等 final
+        if (msg.partial === true && msg.ok) {
+          if (msg.result) pending.onPartial?.(msg.result)
+          continue
+        }
+
         this.pending.delete(id)
         pending.resolve({ ok: Boolean(msg.ok), result: msg.result, error: msg.error })
       } catch {

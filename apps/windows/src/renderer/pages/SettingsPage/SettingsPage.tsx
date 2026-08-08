@@ -196,6 +196,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [qwen3Clone06Ready, setQwen3Clone06Ready] = useState(false)
   const [qwen3Clone17Ready, setQwen3Clone17Ready] = useState(false)
   const previewAudioCtxRef = React.useRef<AudioContext | null>(null)
+  const previewGainRef = React.useRef<GainNode | null>(null)
+  const previewVolumeRef = React.useRef(1.0)
 
   // Category-level save hooks (must be at top level, not in render functions)
   const workspaceSave = useCategorySettings({
@@ -316,7 +318,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     const electronAPI = (window as any).electronAPI
     if (!electronAPI?.voice?.sendCommand) return
     electronAPI.voice.sendCommand({ type: 'voice:config:get' }).then((cfg: any) => {
-      if (cfg?.asr && cfg?.tts) setVoiceConfig(cfg)
+      if (cfg?.asr && cfg?.tts) {
+        setVoiceConfig(cfg)
+        const vol = typeof cfg.tts?.volume === 'number' ? cfg.tts.volume : 1.0
+        previewVolumeRef.current = Math.max(0, Math.min(2, vol))
+      }
     }).catch(() => {
       console.warn('[SettingsPage] 获取语音配置失败')
     })
@@ -408,13 +414,23 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       }
       if (!event.samples || event.samples.length === 0) return
       try {
+        // 预览也走 GainNode，否则设置里的音量滑条对试听无效
+        if (!previewGainRef.current || previewGainRef.current.context !== ctx) {
+          const gain = ctx.createGain()
+          gain.gain.value = Math.max(0, Math.min(2, previewVolumeRef.current))
+          gain.connect(ctx.destination)
+          previewGainRef.current = gain
+        } else {
+          previewGainRef.current.gain.value = Math.max(0, Math.min(2, previewVolumeRef.current))
+        }
+        const dest = previewGainRef.current
         if (event.sampleRate === -1) {
           // Edge TTS 编码音频（MP3），需解码
           const buf = new Uint8Array(event.samples).buffer
           ctx.decodeAudioData(buf).then((decoded) => {
             const source = ctx.createBufferSource()
             source.buffer = decoded
-            source.connect(ctx.destination)
+            source.connect(dest)
             const now = ctx.currentTime
             const start = Math.max(now + 0.04, nextStartTime)
             source.start(start)
@@ -427,7 +443,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           buffer.copyToChannel(samples, 0)
           const source = ctx.createBufferSource()
           source.buffer = buffer
-          source.connect(ctx.destination)
+          source.connect(dest)
           const now = ctx.currentTime
           const start = Math.max(now + 0.04, nextStartTime)
           source.start(start)
@@ -440,6 +456,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     })
     return () => {
       unsubscribe?.()
+      previewGainRef.current = null
       previewAudioCtxRef.current?.close().catch(() => {})
       previewAudioCtxRef.current = null
     }
@@ -1667,7 +1684,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       setVoicePreviewing(true)
       const text = voicePreviewText.trim().slice(0, 100) || '你好，这是声音预览。'
       await electronAPI.voice
-        .sendCommand({ type: 'voice:tts:preview', text })
+        .sendCommand({ type: 'voice:tts:preview', text, maxChars: 100 })
         .catch(() => setVoicePreviewing(false))
     }
 
@@ -1937,7 +1954,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                       }}
                     />
                     <span className={styles['setting-hint']}>
-                      切换到 GPU 会卸载 CPU 版 PyTorch 并重新下载 CUDA 轮（约 2GB+），请保持网络畅通。
+                      GPU 需先在下方模型列表下载「PyTorch CUDA 运行时」（可暂停/续传/取消，约
+                      2.3GB）；下载完成后自动安装。
                     </span>
                   </div>
                 )}
@@ -1957,15 +1975,23 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
                 <div className={styles['setting-item']}>
                   <label className={styles['setting-label']}>
-                    音量：{Math.round((voiceConfig.tts.volume ?? 0.8) * 100)}%
+                    音量：{Math.round((voiceConfig.tts.volume ?? 1.0) * 100)}%
+                    {(voiceConfig.tts.volume ?? 1.0) > 1 ? '（增强）' : ''}
                   </label>
                   <input
                     type="range"
                     min={0}
-                    max={1}
+                    max={2}
                     step={0.05}
-                    value={voiceConfig.tts.volume ?? 0.8}
-                    onChange={(e) => saveVoiceConfig({ tts: { volume: parseFloat(e.target.value) } })}
+                    value={voiceConfig.tts.volume ?? 1.0}
+                    onChange={(e) => {
+                      const vol = parseFloat(e.target.value)
+                      previewVolumeRef.current = vol
+                      if (previewGainRef.current) {
+                        previewGainRef.current.gain.value = Math.max(0, Math.min(2, vol))
+                      }
+                      saveVoiceConfig({ tts: { volume: vol } })
+                    }}
                     style={{ width: '200px' }}
                   />
                 </div>

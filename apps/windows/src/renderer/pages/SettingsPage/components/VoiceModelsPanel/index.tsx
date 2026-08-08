@@ -57,7 +57,8 @@ function resolveGroup(m: VoiceModelStatus): VoiceModelGroupId {
   const id = m.id || ''
   if (id === 'vad' || id.startsWith('asr-')) return 'asr-core'
   if (id.includes('-base') || id.endsWith('base')) return 'tts-clone'
-  if (id.includes('custom') || id.includes('tokenizer') || id.includes('vits')) return 'tts-synth'
+  if (id.includes('custom') || id.includes('tokenizer') || id.includes('vits') || id.startsWith('runtime-'))
+    return 'tts-synth'
   return 'tts-synth'
 }
 
@@ -216,7 +217,7 @@ export function VoiceModelsPanel({
           <div className={styles.actions}>
             {m.downloaded ? (
               <span className={styles.readyBadge}>就绪</span>
-            ) : state === 'downloading' || state === 'extracting' ? (
+            ) : state === 'downloading' ? (
               <>
                 <Button variant="secondary" size="sm" onClick={() => void send('voice:models:pause', m.id)}>
                   暂停
@@ -225,6 +226,10 @@ export function VoiceModelsPanel({
                   取消
                 </Button>
               </>
+            ) : state === 'extracting' ? (
+              <Button variant="secondary" size="sm" onClick={() => void send('voice:models:cancel', m.id)}>
+                取消安装
+              </Button>
             ) : state === 'paused' ? (
               <>
                 <Button variant="primary" size="sm" onClick={() => void send('voice:models:download', m.id)}>
@@ -250,7 +255,7 @@ export function VoiceModelsPanel({
               {formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}
               {speedText ? ` · ${speedText}` : ''}
               {state === 'paused' ? ' · 已暂停' : ''}
-              {state === 'extracting' ? ' · 正在解压/校验' : ''}
+              {state === 'extracting' ? ' · 正在安装到内置 Python' : ''}
             </div>
           </div>
         )}

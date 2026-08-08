@@ -15,6 +15,7 @@ import {
   downloadViaModelScopeSdk,
   type ModelScopeDownloadSpec,
 } from './modelscope-downloader.js'
+import { installPytorchCudaFromWheelDir } from './qwen3-tts-client.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -77,10 +78,32 @@ export interface VoiceModelPaths {
 /** 模型在设置页中的分组（下载区分区展示） */
 export type VoiceModelUiGroup = 'asr-core' | 'tts-synth' | 'tts-clone'
 
-/** 国内 HTTP 直链文件映射（不经 GitHub） */
+/** 国内 HTTP 直链文件映射（不经 GitHub）；可多源回退 + 按字节估进度 */
 interface HttpFileMapping {
+  /** 主下载 URL */
   url: string
+  /** 备用 URL（主源失败时依次尝试） */
+  urls?: readonly string[]
   local: string
+  /** 已知文件大小（用于多文件加权进度；缺省则按文件个数均分） */
+  sizeBytes?: number
+}
+
+/** PyTorch CUDA 运行时（与语音模型同 UI：进度 / 暂停 / 续传 / 取消） */
+export const PYTORCH_CUDA_RUNTIME_ID = 'runtime-pytorch-cu121' as const
+
+const TORCH_CU121_WHL = 'torch-2.5.1+cu121-cp311-cp311-win_amd64.whl'
+const TORCHAUDIO_CU121_WHL = 'torchaudio-2.5.1+cu121-cp311-cp311-win_amd64.whl'
+const TORCH_CU121_SIZE = 2_449_385_544
+const TORCHAUDIO_CU121_SIZE = 4_136_125
+const PYTORCH_CUDA_RUNTIME_SIZE = TORCH_CU121_SIZE + TORCHAUDIO_CU121_SIZE
+
+/**
+ * 解析 HTTP 条目的全部候选 URL（主源 + 备用）
+ */
+function httpFileCandidateUrls(item: HttpFileMapping): string[] {
+  const list = [item.url, ...(item.urls ?? [])]
+  return [...new Set(list.filter(Boolean))]
 }
 
 /**
@@ -322,6 +345,38 @@ const MODEL_CATALOG = {
       mode: 'snapshot' as const,
     } satisfies Omit<ModelScopeDownloadSpec, 'outDir'>,
   },
+  [PYTORCH_CUDA_RUNTIME_ID]: {
+    id: PYTORCH_CUDA_RUNTIME_ID,
+    name: 'PyTorch CUDA 运行时（GPU 加速）',
+    description:
+      'Qwen3 GPU 合成依赖（约 2.3GB）。支持断点续传；下载完成后自动安装到内置 Python。仅 CPU 可跳过。',
+    group: 'tts-synth' as const,
+    sizeBytes: PYTORCH_CUDA_RUNTIME_SIZE,
+    dir: 'runtime/pytorch-cu121',
+    files: [TORCH_CU121_WHL, TORCHAUDIO_CU121_WHL],
+    downloadUrl: '',
+    type: 'wheels' as const,
+    httpFiles: [
+      {
+        local: TORCH_CU121_WHL,
+        sizeBytes: TORCH_CU121_SIZE,
+        url: `https://mirrors.aliyun.com/pytorch-wheels/cu121/${TORCH_CU121_WHL}`,
+        urls: [
+          `https://download-r2.pytorch.org/whl/cu121/${TORCH_CU121_WHL}`,
+          `https://download.pytorch.org/whl/cu121/torch/${TORCH_CU121_WHL}`,
+        ],
+      },
+      {
+        local: TORCHAUDIO_CU121_WHL,
+        sizeBytes: TORCHAUDIO_CU121_SIZE,
+        url: `https://mirrors.aliyun.com/pytorch-wheels/cu121/${TORCHAUDIO_CU121_WHL}`,
+        urls: [
+          `https://download-r2.pytorch.org/whl/cu121/${TORCHAUDIO_CU121_WHL}`,
+          `https://download.pytorch.org/whl/cu121/torchaudio/${TORCHAUDIO_CU121_WHL}`,
+        ],
+      },
+    ] as HttpFileMapping[],
+  },
 } as const
 
 type ModelId = keyof typeof MODEL_CATALOG
@@ -428,6 +483,16 @@ export class VoiceModelManager {
         return markerOk && filesOk && hasModelWeightFiles(modelDir)
       }
 
+      // wheel 运行时：文件齐 + 安装完成标记（pip 装进内置 Python 后写入）
+      if (model.type === 'wheels') {
+        const markerOk = fs.existsSync(path.join(modelDir, DOWNLOAD_COMPLETE_MARKER))
+        const filesOk = model.files.every((f) => {
+          const p = path.join(modelDir, f)
+          return fs.existsSync(p) && fs.statSync(p).size > 0
+        })
+        return markerOk && filesOk
+      }
+
       if ('files' in model) {
         const allPresent = model.files.every((f) => fs.existsSync(path.join(modelDir, f)))
         if (!allPresent) return false
@@ -449,6 +514,54 @@ export class VoiceModelManager {
     }
 
     return tryDir(this.baseDir) || tryDir(this.legacyBaseDir)
+  }
+
+  /**
+   * 返回已下载的 PyTorch CUDA wheel 目录（未就绪则 null）
+   */
+  getPytorchCudaWheelDir(): string | null {
+    if (!this.isModelDownloaded(PYTORCH_CUDA_RUNTIME_ID)) return null
+    return path.join(this.baseDir, MODEL_CATALOG[PYTORCH_CUDA_RUNTIME_ID].dir)
+  }
+
+  /**
+   * 统计 httpFiles 模型已落地字节（含 .partial），用于暂停续传进度展示
+   */
+  private httpFilesProgressBytes(modelId: ModelId): number {
+    const model = MODEL_CATALOG[modelId]
+    if (!model || !('httpFiles' in model) || !model.httpFiles) return 0
+    const targetDir = path.join(this.baseDir, model.dir)
+    let bytes = 0
+    for (const item of model.httpFiles) {
+      const dest = path.join(targetDir, item.local)
+      if (fs.existsSync(dest)) {
+        try {
+          bytes += fs.statSync(dest).size
+          continue
+        } catch {
+          /* ignore */
+        }
+      }
+      const partial = path.join(this.tempDir, `${model.id}-${item.local.replace(/[\\/]/g, '_')}.partial`)
+      if (fs.existsSync(partial)) {
+        try {
+          bytes += fs.statSync(partial).size
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    return bytes
+  }
+
+  /**
+   * httpFiles 是否有未完成残留（可继续）
+   */
+  private hasIncompleteHttpDownload(modelId: ModelId): boolean {
+    const model = MODEL_CATALOG[modelId]
+    if (!model || !('httpFiles' in model) || !model.httpFiles) return false
+    if (this.isModelDownloaded(modelId)) return false
+    return this.httpFilesProgressBytes(modelId) > 0
   }
 
   /**
@@ -577,6 +690,11 @@ export class VoiceModelManager {
           if (!task || task.state === 'idle') {
             downloadState = 'paused'
           }
+        } else if (!downloaded && this.hasIncompleteHttpDownload(id)) {
+          downloadedBytes = this.httpFilesProgressBytes(id)
+          if (!task || task.state === 'idle') {
+            downloadState = 'paused'
+          }
         }
       }
       return {
@@ -660,6 +778,9 @@ export class VoiceModelManager {
           if (model.type === 'dir') {
             const dirBytes = dirSizeBytes(path.join(this.baseDir, model.dir))
             if (dirBytes > 0) partialSize = dirBytes
+          } else if ('httpFiles' in model && model.httpFiles) {
+            const httpBytes = this.httpFilesProgressBytes(modelId as ModelId)
+            if (httpBytes > 0) partialSize = httpBytes
           }
           task.downloadedBytes = partialSize
           const total = task.totalBytes || model.sizeBytes
@@ -728,6 +849,23 @@ export class VoiceModelManager {
     const model = MODEL_CATALOG[modelId as ModelId]
     if (model?.type === 'dir' && !this.isModelDownloaded(modelId as ModelId)) {
       this.purgeModelDir(path.join(this.baseDir, model.dir))
+    }
+    if (model?.type === 'wheels' && !this.isModelDownloaded(modelId as ModelId)) {
+      this.purgeModelDir(path.join(this.baseDir, model.dir))
+      // 清理各 wheel 的 .partial
+      if ('httpFiles' in model && model.httpFiles) {
+        for (const item of model.httpFiles) {
+          const partial = path.join(
+            this.tempDir,
+            `${model.id}-${item.local.replace(/[\\/]/g, '_')}.partial`,
+          )
+          try {
+            if (fs.existsSync(partial)) fs.unlinkSync(partial)
+          } catch {
+            /* ignore */
+          }
+        }
+      }
     }
     task.state = 'idle'
     task.downloadedBytes = 0
@@ -868,10 +1006,22 @@ export class VoiceModelManager {
       }
     }
 
-    // 2) 国内 HTTP 多文件直链（如 hf-mirror）
+    // 2) 国内 HTTP 多文件直链（如 hf-mirror / PyTorch wheel）
     if ('httpFiles' in model && model.httpFiles && model.httpFiles.length > 0) {
       try {
         await this._downloadHttpFiles(model.httpFiles, targetDir, model, task, report, signal)
+        if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
+
+        // CUDA wheel：下载后本地 pip 安装（仍走模型进度 UI 的 extracting 态）
+        if (model.id === PYTORCH_CUDA_RUNTIME_ID) {
+          task.state = 'extracting'
+          report(model.sizeBytes, model.sizeBytes, 'extracting')
+          log.info(`[_downloadModel] 正在从本地 wheel 安装 PyTorch CUDA…`)
+          await installPytorchCudaFromWheelDir(targetDir, signal)
+          if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
+          this.markDownloadComplete(targetDir)
+        }
+
         if (!this.isModelDownloaded(model.id as ModelId)) {
           throw new Error('HTTP 多文件下载完成但缺少必需文件')
         }
@@ -880,6 +1030,10 @@ export class VoiceModelManager {
       } catch (e) {
         if (signal.aborted) throw e
         const msg = e instanceof Error ? e.message : String(e)
+        // 纯 wheel 条目无 GitHub 回退
+        if (model.type === 'wheels' || !model.downloadUrl) {
+          throw e
+        }
         log.warn(`[_downloadModel] 国内直链失败，回退 GitHub: ${msg}`)
       }
     }
@@ -943,7 +1097,7 @@ export class VoiceModelManager {
   }
 
   /**
-   * 按文件列表直链下载（支持单文件 Range 续传到 .partial）
+   * 按文件列表直链下载（支持单文件 Range 续传到 .partial、多源回退、按字节加权进度）
    * 核心文件失败则抛错；可选文件（.fst）失败仅告警
    */
   private async _downloadHttpFiles(
@@ -956,48 +1110,93 @@ export class VoiceModelManager {
   ): Promise<void> {
     const requiredLocals =
       'files' in model ? new Set(model.files) : new Set<string>(['model.onnx', 'lexicon.txt', 'tokens.txt'])
-    const total = files.length
-    let done = 0
-    for (const item of files) {
+    const knownTotal = files.reduce((sum, f) => sum + (f.sizeBytes ?? 0), 0)
+    const useByteWeights = knownTotal > 0
+    const modelTotal = useByteWeights ? knownTotal : model.sizeBytes
+    let completedBytes = 0
+
+    for (let i = 0; i < files.length; i++) {
+      const item = files[i]!
       if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
       const dest = path.join(targetDir, item.local)
       const optional = !requiredLocals.has(item.local)
+      const fileWeight = useByteWeights
+        ? (item.sizeBytes ?? Math.max(1, Math.floor(modelTotal / files.length)))
+        : Math.floor(model.sizeBytes / files.length)
+
       if (fs.existsSync(dest) && fs.statSync(dest).size > 0) {
-        done += 1
-        onProgress(Math.round((done / total) * model.sizeBytes), model.sizeBytes, 'downloading')
+        completedBytes += useByteWeights ? fs.statSync(dest).size : fileWeight
+        onProgress(Math.min(completedBytes, modelTotal), modelTotal, 'downloading')
         continue
       }
+
       const partial = path.join(this.tempDir, `${model.id}-${item.local.replace(/[\\/]/g, '_')}.partial`)
-      try {
-        await this._downloadFileOnce(
-          item.url,
-          partial,
-          task,
-          (downloaded, fileTotal, state) => {
-            const fileFrac = fileTotal > 0 ? downloaded / fileTotal : 0
-            const overall = (done + fileFrac) / total
-            onProgress(Math.round(overall * model.sizeBytes), model.sizeBytes, state)
-          },
-          signal,
-        )
+      const candidates = httpFileCandidateUrls(item)
+      let lastErr: unknown
+      let ok = false
+      for (const candidate of candidates) {
         if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
-        fs.mkdirSync(path.dirname(dest), { recursive: true })
-        fs.renameSync(partial, dest)
-      } catch (e) {
-        if (signal.aborted) throw e
+        try {
+          await this._downloadFileOnce(
+            candidate,
+            partial,
+            task,
+            (downloaded, fileTotal, state) => {
+              const curFileTotal = fileTotal > 0 ? fileTotal : fileWeight
+              const overall = completedBytes + downloaded
+              const total = useByteWeights
+                ? Math.max(modelTotal, completedBytes + curFileTotal)
+                : model.sizeBytes
+              onProgress(Math.min(overall, total), total, state)
+            },
+            signal,
+          )
+          ok = true
+          break
+        } catch (e) {
+          lastErr = e
+          if (signal.aborted) throw e
+          log.warn(
+            `[_downloadHttpFiles] ${item.local} 源失败 ${candidate.slice(0, 80)}…: ${
+              e instanceof Error ? e.message : e
+            }`,
+          )
+          // Range/损坏时清 partial 换源重试
+          const msg = e instanceof Error ? e.message : String(e)
+          if (msg.includes('不支持断点续传') || msg.includes('HTTP 416') || msg.includes('范围无效')) {
+            try {
+              if (fs.existsSync(partial)) fs.unlinkSync(partial)
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      }
+
+      if (!ok) {
         try {
           if (fs.existsSync(partial)) fs.unlinkSync(partial)
         } catch {
           /* ignore */
         }
         if (optional) {
-          log.warn(`[_downloadHttpFiles] 可选文件跳过 ${item.local}: ${e instanceof Error ? e.message : e}`)
-        } else {
-          throw e
+          log.warn(
+            `[_downloadHttpFiles] 可选文件跳过 ${item.local}: ${
+              lastErr instanceof Error ? lastErr.message : lastErr
+            }`,
+          )
+          continue
         }
+        throw lastErr instanceof Error
+          ? lastErr
+          : new Error(`下载失败: ${item.local}`)
       }
-      done += 1
-      onProgress(Math.round((done / total) * model.sizeBytes), model.sizeBytes, 'downloading')
+
+      if (signal.aborted) throw new Error(task.pausing ? '已暂停' : '已取消')
+      fs.mkdirSync(path.dirname(dest), { recursive: true })
+      fs.renameSync(partial, dest)
+      completedBytes += useByteWeights ? fs.statSync(dest).size : fileWeight
+      onProgress(Math.min(completedBytes, modelTotal), modelTotal, 'downloading')
     }
   }
 

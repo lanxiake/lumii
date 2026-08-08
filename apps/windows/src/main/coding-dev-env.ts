@@ -81,7 +81,7 @@ export function buildCodingDevEnvInfo(params: {
     usesDedicatedWorkspace,
     powershellGatewayEnvBlock: '',
     weixinSlashHint:
-      '对话中可用 /cursor、/claude、/codex、/copilot 切换本机工具，/mtbot 切回主代理。',
+      '对话中可用 /cursor、/claude、/codex、/copilot 切换本机工具，/lumii 切回主代理。',
   }
 }
 

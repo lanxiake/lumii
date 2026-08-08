@@ -13,6 +13,7 @@ import {
   ToolRegistry,
   createMtBotTool,
   createGatewayStreamFn,
+  createDirectStreamFn,
   DEFAULT_GATEWAY_STREAM_PATH,
   ModelRouter,
   resolveAgentFilePath,
@@ -107,6 +108,7 @@ import { RouterService } from './router/router-service'
 import { GatewayRouterLlmCaller } from './router/llm-caller'
 import { RouterHitRateTracker } from './router/router-hit-rate-tracker'
 import type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot } from './bridge-types'
+import { ensureProviderBaseUrl } from '../provider-config'
 
 export type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot }
 
@@ -188,6 +190,11 @@ export class AgentRuntimeBridge {
   /** 主 Agent 实例的 innerStream / model（仅 def.id === 'main' 时设置） */
   private readonly mainInnerStreamRef: { value: ReturnType<typeof createGatewayStreamFn> | null } = { value: null }
   private readonly mainModelRef: { value: import('@mariozechner/pi-ai').Model<any> | null } = { value: null }
+  /**
+   * callLLM 兜底用的独立 direct stream（懒创建）。
+   * 不依赖任何 Agent 实例，供 cron / companion workflow 在无人会话时调用 LLM。
+   */
+  private callLlmFallbackStream: ReturnType<typeof createDirectStreamFn> | null = null
 
   private readonly imageServices: BridgeImageServices
   private readonly compactor: BridgeContextCompactor
@@ -233,6 +240,7 @@ export class AgentRuntimeBridge {
         }
         return undefined
       },
+      getFallbackStream: () => this.getCallLlmFallbackStream(),
       getDb: () => this.localDb.db,
       ipcChannel: this.ipcChannel,
       restoreHistoryForInstance: (instanceId, conversationId, limit) =>
@@ -309,6 +317,52 @@ export class AgentRuntimeBridge {
 
   callLLM(prompt: string, instanceId?: string, purpose?: string): Promise<string> {
     return this.compactor.callLLM(prompt, instanceId, purpose)
+  }
+
+  /**
+   * 无 Agent 实例时为 callLLM 构造独立 direct stream + chat 模型。
+   * 读取最新 chat 槽配置；未启用或缺少 modelId 时返回 undefined（由 callLLM 抛明确错误）。
+   */
+  private getCallLlmFallbackStream():
+    | { innerStream: ReturnType<typeof createDirectStreamFn>; model: import('@mariozechner/pi-ai').Model<any> }
+    | undefined {
+    const cfg = this.config.getProviderConfig?.()
+    if (!cfg?.enabled) {
+      log.warn('[callLLM fallback] chat 能力槽未启用，无法创建兜底 stream')
+      return undefined
+    }
+    const modelId = cfg.modelId?.trim()
+    if (!modelId) {
+      log.warn('[callLLM fallback] chat 模型 ID 为空，无法创建兜底 stream')
+      return undefined
+    }
+    const isLocal = cfg.type === 'ollama' || cfg.type === 'lmstudio'
+    if (!isLocal && !cfg.apiKey?.trim()) {
+      log.warn('[callLLM fallback] 缺少 API Key，无法创建兜底 stream')
+      return undefined
+    }
+
+    if (!this.callLlmFallbackStream) {
+      log.info('[callLLM fallback] 创建后台 LLM 专用 direct stream')
+      // 每轮读取最新凭据，避免设置变更后仍用旧 Key
+      this.callLlmFallbackStream = ((model, context, options) => {
+        const live = this.config.getProviderConfig?.()
+        if (!live?.enabled) {
+          throw new Error('请先在设置中启用并配置文本对话模型（chat 能力槽）')
+        }
+        const direct = createDirectStreamFn({
+          credentials: {
+            baseUrl: ensureProviderBaseUrl(live.baseUrl, live.type),
+            apiKey: live.apiKey,
+          },
+          log: (msg) => log.info(`[callLlmFallback] ${msg}`),
+        })
+        return direct(model, context, options)
+      }) as ReturnType<typeof createDirectStreamFn>
+    }
+
+    const model = this.modelRouter.resolveExplicitModelId(modelId)
+    return { innerStream: this.callLlmFallbackStream, model }
   }
 
   /** 初始化（打开数据库 + 注册内建工具） */

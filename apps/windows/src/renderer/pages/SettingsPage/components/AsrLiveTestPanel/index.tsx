@@ -1,6 +1,7 @@
 /**
  * ASR 实时识别测试面板（设置页）
- * 采麦推送 PCM，订阅 voice:transcript 展示中间/最终结果
+ * 采麦推送 PCM，订阅 voice:transcript 展示中间/最终结果。
+ * 进入面板且模型就绪后自动开始测试。
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '../../../../components/ui/Button/Button'
@@ -24,6 +25,9 @@ export function AsrLiveTestPanel(): React.ReactElement {
   const streamRef = useRef<MediaStream | null>(null)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const workletRef = useRef<AudioWorkletNode | null>(null)
+  /** 防止 ready 抖动或严格模式重复自动启动 */
+  const autoStartTriedRef = useRef(false)
+  const startingRef = useRef(false)
 
   /**
    * 刷新 VAD/ASR 就绪状态
@@ -92,6 +96,7 @@ export function AsrLiveTestPanel(): React.ReactElement {
       await api.voice.sendCommand({ type: 'voice:asr:test:stop' }).catch(() => undefined)
     }
     callIdRef.current = null
+    startingRef.current = false
     setRunning(false)
     setCallState('idle')
   }, [stopCapture])
@@ -102,30 +107,36 @@ export function AsrLiveTestPanel(): React.ReactElement {
     }
   }, [stop])
 
-  const start = async () => {
+  /**
+   * 启动 ASR 测试（采麦 + 主进程识别会话）
+   */
+  const start = useCallback(async () => {
+    if (startingRef.current || callIdRef.current) return
+    startingRef.current = true
     setError(null)
     setPartial('')
     setFinals([])
     const api = (window as any).electronAPI
     if (!api?.voice?.sendCommand) {
       setError('语音 API 不可用')
+      startingRef.current = false
       return
     }
-
-    const result = await api.voice.sendCommand({ type: 'voice:asr:test:start' })
-    if (result?.error === 'models_not_ready') {
-      setError('请先下载 VAD 与 ASR 模型')
-      return
-    }
-    if (result?.error) {
-      setError(String(result.error))
-      return
-    }
-
-    const callId = result?.callId as string
-    callIdRef.current = callId
 
     try {
+      const result = await api.voice.sendCommand({ type: 'voice:asr:test:start' })
+      if (result?.error === 'models_not_ready') {
+        setError('请先下载 VAD 与 ASR 模型')
+        return
+      }
+      if (result?.error) {
+        setError(String(result.error))
+        return
+      }
+
+      const callId = result?.callId as string
+      callIdRef.current = callId
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -157,16 +168,25 @@ export function AsrLiveTestPanel(): React.ReactElement {
       await api.voice.sendCommand({ type: 'voice:asr:test:stop' }).catch(() => undefined)
       callIdRef.current = null
       await stopCapture()
+    } finally {
+      startingRef.current = false
     }
-  }
+  }, [stopCapture])
 
   const ready = asrReady && vadReady
+
+  // 模型就绪后自动开始测试（进入语音识别设置即可试麦）
+  useEffect(() => {
+    if (!ready || running || autoStartTriedRef.current) return
+    autoStartTriedRef.current = true
+    void start()
+  }, [ready, running, start])
 
   return (
     <div className={styles.panel}>
       <h4 className={styles.title}>ASR 识别测试</h4>
       <p className={styles.hint}>
-        实时试麦：说话时显示中间结果，停顿后给出最终句子。需先下载 VAD 与 ASR 模型。
+        进入本页且模型就绪后会自动开麦试听；也可手动停止/重新开始。说话时显示中间结果，停顿后给出最终句子。
       </p>
       {!ready && (
         <p className={styles.warn}>
@@ -179,8 +199,16 @@ export function AsrLiveTestPanel(): React.ReactElement {
       )}
       <div className={styles.toolbar}>
         {!running ? (
-          <Button variant="primary" size="sm" disabled={!ready} onClick={() => void start()}>
-            开始测试
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!ready}
+            onClick={() => {
+              autoStartTriedRef.current = true
+              void start()
+            }}
+          >
+            {autoStartTriedRef.current ? '重新开始' : '开始测试'}
           </Button>
         ) : (
           <Button variant="secondary" size="sm" onClick={() => void stop()}>
@@ -202,7 +230,9 @@ export function AsrLiveTestPanel(): React.ReactElement {
         ))}
         {partial && <div className={styles.partialLine}>{partial}</div>}
         {!partial && finals.length === 0 && (
-          <div className={styles.placeholder}>{running ? '请对着麦克风说话…' : '点击开始后说话'}</div>
+          <div className={styles.placeholder}>
+            {running ? '请对着麦克风说话…' : ready ? '正在自动开启测试…' : '请先下载模型'}
+          </div>
         )}
       </div>
     </div>

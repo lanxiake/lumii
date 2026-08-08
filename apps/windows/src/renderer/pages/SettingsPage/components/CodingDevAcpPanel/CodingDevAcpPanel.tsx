@@ -27,6 +27,41 @@ export type LocalAcpToolStatusView = {
   installHint: string
 }
 
+/** 工具图标色块（品牌色 + 首字母，与 ChannelBrandIcon 同思路，避免引入外部 logo 资源） */
+const TOOL_ICON: Record<string, { bg: string; label: string }> = {
+  cursor: { bg: '#1a1a1a', label: 'Cu' },
+  claude: { bg: '#CC785C', label: 'Cl' },
+  codex: { bg: '#10A37F', label: 'Co' },
+  copilot: { bg: '#238636', label: 'Gh' },
+}
+
+/**
+ * 工具图标色块，未知工具回落首字母
+ */
+const ToolIcon: React.FC<{ id: string; label: string }> = ({ id, label }) => {
+  const meta = TOOL_ICON[id] ?? { bg: '#4f8ef7', label: label.slice(0, 2) }
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 28,
+        height: 28,
+        borderRadius: 8,
+        background: meta.bg,
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: 700,
+        flexShrink: 0,
+        userSelect: 'none',
+      }}
+    >
+      {meta.label}
+    </span>
+  )
+}
+
 export type CodingDevEnvInfo = {
   resolvedWorkspace: string
   usesDedicatedWorkspace: boolean
@@ -145,7 +180,7 @@ export const CodingDevAcpPanel: React.FC = () => {
             <div className={styles.title}>开发类 AI 工具（本机 ACP）</div>
             <p className={styles.desc}>
               仅连接本机已安装的 CLI（Cursor 需单独安装 Agent CLI，不是编辑器自带的 cursor）。
-              对话中用 /cursor、/claude、/codex、/copilot 切换，/mtbot 回到主代理。
+              对话中用 /cursor、/claude、/codex、/copilot 切换，/lumii 回到主代理。
             </p>
           </div>
           <Button variant="secondary" size="sm" loading={detecting} onClick={() => { void reloadTools() }}>
@@ -157,19 +192,23 @@ export const CodingDevAcpPanel: React.FC = () => {
         {installMsg && <div className={styles.installMsg}>{installMsg}</div>}
 
         <div className={styles.sectionLabel}>本机工具</div>
-        <div className={styles.toolList}>
+        <div className={styles.toolGrid}>
           {tools.map((t) => (
-            <div key={t.id} className={styles.toolRow}>
-              <div className={styles.toolMain}>
-                <div className={styles.toolNameRow}>
-                  <span className={styles.toolName}>{t.label}</span>
-                  <span className={t.installed ? styles.badgeOk : styles.badgeOff}>
-                    {t.installed ? '已安装' : '未安装'}
-                  </span>
-                </div>
+            <div key={t.id} className={styles.toolCard}>
+              <div className={styles.toolCardHeader}>
+                <ToolIcon id={t.id} label={t.label} />
+                <span className={styles.toolName}>{t.label}</span>
+                <span
+                  className={t.installed ? styles.statusDotOk : styles.statusDotOff}
+                  title={t.installed ? '已安装' : '未安装'}
+                  aria-label={t.installed ? '已安装' : '未安装'}
+                />
+              </div>
+
+              <div className={styles.toolCardBody}>
                 <div className={styles.toolDesc}>{t.description}</div>
                 {t.installed && t.resolvedPath && (
-                  <code className={styles.path}>{t.resolvedPath}</code>
+                  <code className={styles.path} title={t.resolvedPath}>{t.resolvedPath}</code>
                 )}
                 {!t.installed && t.installCommand && (
                   <div className={styles.installBlock}>
@@ -178,7 +217,8 @@ export const CodingDevAcpPanel: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div className={styles.toolActions}>
+
+              <div className={styles.toolCardFooter}>
                 <button type="button" className={styles.linkBtn} onClick={() => openUrl(t.homepageUrl)}>
                   官网
                 </button>
@@ -187,7 +227,7 @@ export const CodingDevAcpPanel: React.FC = () => {
                     GitHub
                   </button>
                 )}
-                {!t.installed && (
+                {!t.installed ? (
                   <>
                     <button
                       type="button"
@@ -204,10 +244,9 @@ export const CodingDevAcpPanel: React.FC = () => {
                     >
                       一键安装
                     </Button>
-                    <button type="button" className={styles.linkBtn} onClick={() => openUrl(t.installUrl)}>
-                      文档
-                    </button>
                   </>
+                ) : (
+                  <span className={styles.badgeOk}>已安装</span>
                 )}
               </div>
             </div>

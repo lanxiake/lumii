@@ -23,6 +23,7 @@ import {
   TTS_PREVIEW_CACHE_MAX_TEXT_CHARS,
 } from './tts-preview-cache.js'
 import { stripVirtualHumanTags } from '../../shared/virtual-human.js'
+import { sanitizeTtsPlainText } from './tts-text-utils.js'
 import { setQwen3TtsStatusCallback, resolveQwen3LoadDevice, prepareQwen3TtsRuntime } from './qwen3-tts-client.js'
 
 const log = {
@@ -106,7 +107,7 @@ export class VoiceCallService {
       tts: {
         provider: 'edge',
         speed: 1.0,
-        volume: 0.8,
+        volume: 1.0,
         ...config?.tts,
       },
       vad: {
@@ -778,7 +779,18 @@ export class VoiceCallService {
     // 停止上一次预览（如果有）
     this.stopPreview()
 
-    const preview = text.length > 120 ? `${text.slice(0, 120)}…` : text
+    // 与通话队列一致：预览也必须剥 Markdown，否则 ** 等符号易触发多语种音色漂移
+    const cleaned = this._cleanTtsText(text)
+    if (!cleaned) {
+      this.pushVoiceEvent({
+        type: 'voice:runtime:status',
+        phase: 'error',
+        message: '测试文案清洗后为空（请去掉纯 Markdown/符号）',
+      })
+      return
+    }
+
+    const preview = cleaned.length > 120 ? `${cleaned.slice(0, 120)}…` : cleaned
     log.info(`[previewTts] 开始预览: "${preview}"`)
     const abort = new AbortController()
     this.previewAbort = abort
@@ -807,13 +819,8 @@ export class VoiceCallService {
       this.emitRuntimeStatus('starting_engine', '正在准备语音预览…')
       await this.ensureTtsInitialized()
 
-      const trimmed = text.trim()
-      if (!trimmed) {
-        endPreview(false, '测试文案为空')
-        return
-      }
-
-      const cacheKey = buildTtsPreviewCacheKey(text, this.config.tts)
+      const trimmed = cleaned
+      const cacheKey = buildTtsPreviewCacheKey(cleaned, this.config.tts)
       if (trimmed.length <= TTS_PREVIEW_CACHE_MAX_TEXT_CHARS) {
         const cached = ttsPreviewCache.get(cacheKey)
         if (cached && cached.length > 0) {
@@ -847,7 +854,7 @@ export class VoiceCallService {
       const recorded: TtsChunk[] = []
       let chunkIndex = 0
       await this.ttsProvider!.synthesize(
-        text,
+        cleaned,
         (chunk) => {
           if (win.isDestroyed() || abort.signal.aborted) return
           if (chunkIndex === 0) {
@@ -1152,33 +1159,8 @@ export class VoiceCallService {
 
   /** 清洗 TTS 输入文本：移除 markdown/emoji/OOV 字符，使日志与实际语音一致 */
   private _cleanTtsText(text: string): string {
-    const cleaned = stripVirtualHumanTags(text)
-      // 0. 兜底剥离虚拟人标签（[emotion] / [motion:xxx] / <vh_action>）；
-      //    onDelta 按分片 strip 时标签可能跨 delta 被切断，此处对已聚合的整句再剥一次
-      // 1. 移除 markdown 格式标记
-      .replace(/\*{1,3}([^*]*)\*{1,3}/g, '$1')   // **bold** / *italic*
-      .replace(/~~([^~]*)~~/g, '$1')               // ~~strikethrough~~
-      .replace(/^#{1,6}\s+/gm, '')                 // ## headings
-      .replace(/^[-*+]\s+/gm, '')                  // - list items
-      .replace(/^>\s+/gm, '')                      // > blockquotes
-      .replace(/`([^`]*)`/g, '$1')                 // `code`
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')     // [link](url)
-      .replace(/\*+/g, '')                         // 残留的 *
-      // 2. 替换 VITS OOV 字符为等价形式
-      .replace(/[—–]/g, '，')                       // em/en dash → 逗号停顿
-      .replace(/—/g, '，')                       // em/en dash → 逗号停顿
-      .replace(/[\u201C\u201D]/g, '')               // "" 弯引号 → 移除
-      .replace(/[\u2018\u2019]/g, '')               // '' 弯引号 → 移除
-      // 3. 移除 emoji
-      .replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu, '')
-      .trim()
-
-    // 清洗后若仅剩标点/空白，返回空串
-    if (/^[\s。！？…，；、：《》【】（）.!?,;:\n\r\t-]*$/u.test(cleaned)) {
-      return ''
-    }
-
-    return cleaned
+    // 先剥虚拟人标签（可能跨 delta 切断），再统一走 sanitize
+    return sanitizeTtsPlainText(stripVirtualHumanTags(text))
   }
 
   private pushVoiceEvent(event: any): void {

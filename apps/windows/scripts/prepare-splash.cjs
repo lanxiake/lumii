@@ -1,5 +1,5 @@
 /**
- * 从源视频生成开机画面 splash.mp4（裁掉下方 12%），并抽取首帧海报 splash-poster.jpg
+ * 从源视频生成开机画面 splash.mp4（上下各裁掉 8%，保留中间 84%），并抽取首帧海报 splash-poster.jpg
  * 用法: node scripts/prepare-splash.cjs [source.mp4]
  */
 const fs = require('node:fs')
@@ -45,8 +45,9 @@ function main() {
       '-y',
       '-i',
       src,
+      // 上下各裁 8%：起点 y=ih*0.08，高度 ih*0.84
       '-vf',
-      'crop=iw:ih*0.88:0:0',
+      'crop=iw:ih*0.84:0:ih*0.08',
       '-c:v',
       'libx264',
       '-preset',

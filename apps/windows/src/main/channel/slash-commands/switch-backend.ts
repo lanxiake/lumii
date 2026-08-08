@@ -30,11 +30,11 @@ export function createSwitchBackendCommand(backendId: CodingDevBackendId): Comma
 }
 
 /**
- * /mtbot — 切回 MtBot 主代理（openclaw）。
+ * /lumii — 切回灵栖主代理（openclaw）。
  * 微信单聊：写入 openclaw 覆盖用户级全局轻量后端。
  */
-export const mtbotCommand: CommandHandler = {
-  description: '切回 MtBot 主代理',
+export const lumiiCommand: CommandHandler = {
+  description: '切回灵栖主代理',
   async execute(ctx: CommandContext): Promise<void> {
     const { session, adapter, acpBackendManager } = ctx
     const { channelUserId, sessionKey } = session
@@ -45,7 +45,7 @@ export const mtbotCommand: CommandHandler = {
 
     await adapter.sendTextReply(
       session,
-      `✅ 已切回 MtBot 主代理（${CODING_DEV_BACKEND_LABELS[DEFAULT_CODING_DEV_BACKEND_ID]}）\n后续消息将由 MtBot 内置 Agent 处理。`,
+      `✅ 已切回灵栖主代理（${CODING_DEV_BACKEND_LABELS[DEFAULT_CODING_DEV_BACKEND_ID]}）\n后续消息将由灵栖内置 Agent 处理。`,
     )
   },
 }

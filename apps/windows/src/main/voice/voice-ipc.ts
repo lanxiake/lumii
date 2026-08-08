@@ -4,7 +4,7 @@
  */
 import { ipcMain, type BrowserWindow } from 'electron'
 import { type VoiceCallService } from './voice-service.js'
-import { type VoiceModelManager } from './model-manager.js'
+import { type VoiceModelManager, PYTORCH_CUDA_RUNTIME_ID } from './model-manager.js'
 import { AsrTestSession } from './asr-test-session.js'
 import type { VoiceCommand } from '../../shared/voice-commands.js'
 import { saveVoiceEngineConfig } from './voice-config-store.js'
@@ -138,13 +138,19 @@ export function registerVoiceIpc(
             command.modelId,
             (progress) => {
               sendModelProgress(command.modelId, progress)
+              if (progress.state !== 'ready') return
               // Qwen3 权重下完后立刻后台预装 pip 依赖
               if (
-                progress.state === 'ready' &&
                 String(command.modelId).startsWith('tts-qwen3-') &&
                 !String(command.modelId).includes('tokenizer')
               ) {
                 maybePrepareQwen3Runtime(modelManager, voiceService, `download-ready:${command.modelId}`)
+              }
+              // CUDA 运行时安装完成后，按当前设备偏好重新准备
+              if (command.modelId === PYTORCH_CUDA_RUNTIME_ID) {
+                invalidateQwen3TtsPrepare()
+                void resetSharedQwen3TtsClient().catch(() => undefined)
+                maybePrepareQwen3Runtime(modelManager, voiceService, 'cuda-runtime-ready')
               }
             },
             (message) => {
@@ -181,6 +187,33 @@ export function registerVoiceIpc(
             invalidateQwen3TtsPrepare()
             void resetSharedQwen3TtsClient().catch(() => undefined)
             log.info(`[voice:config:set] 设备偏好变更 ${prevDevice} → ${nextDevice}，将重装 PyTorch`)
+            // 选 GPU / 自动且未下载 CUDA 运行时时，自动开始可断点续传的下载
+            if (
+              (nextDevice === 'cuda' || nextDevice === 'auto') &&
+              !modelManager.isModelDownloaded(PYTORCH_CUDA_RUNTIME_ID)
+            ) {
+              log.info('[voice:config:set] 自动开始下载 PyTorch CUDA 运行时')
+              modelManager.startDownload(
+                PYTORCH_CUDA_RUNTIME_ID,
+                (progress) => {
+                  sendModelProgress(PYTORCH_CUDA_RUNTIME_ID, progress)
+                  if (progress.state === 'ready') {
+                    invalidateQwen3TtsPrepare()
+                    void resetSharedQwen3TtsClient().catch(() => undefined)
+                    maybePrepareQwen3Runtime(modelManager, voiceService, 'cuda-runtime-ready')
+                  }
+                },
+                (message) => {
+                  if (!win.isDestroyed()) {
+                    win.webContents.send('voice:event', {
+                      type: 'voice:models:error',
+                      modelId: PYTORCH_CUDA_RUNTIME_ID,
+                      message,
+                    })
+                  }
+                },
+              )
+            }
           }
           if (!win.isDestroyed()) {
             try {
@@ -230,7 +263,17 @@ export function registerVoiceIpc(
             }
           }
           const raw = (command.text ?? '你好，这是声音预览。').trim()
-          const previewText = raw.slice(0, 100) || '你好，这是声音预览。'
+          // 设置页试听默认 100；消息朗读等应显式传入更大 maxChars，避免后半段被静默截断
+          const maxChars = Math.max(
+            1,
+            Math.min(typeof command.maxChars === 'number' ? command.maxChars : 100, 20_000),
+          )
+          const previewText = raw.slice(0, maxChars) || '你好，这是声音预览。'
+          if (raw.length > maxChars) {
+            log.warn(
+              `[voice:tts:preview] 文本 ${raw.length} 字已截断为 ${maxChars} 字（请提高 maxChars 以朗读全文）`,
+            )
+          }
           void voiceService.previewTts(previewText, win)
           return { ok: true }
         }

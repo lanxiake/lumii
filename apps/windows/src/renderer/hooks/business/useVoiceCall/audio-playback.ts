@@ -26,13 +26,13 @@ export class AudioPlaybackEngine {
 
   constructor(private audioCtx: AudioContext) {
     this.gainNode = audioCtx.createGain()
-    this.gainNode.gain.value = 0.8
+    this.gainNode.gain.value = 1.0
     this.gainNode.connect(audioCtx.destination)
   }
 
-  /** 设置播放音量（0.0 ~ 1.0） */
+  /** 设置播放音量（0.0 ~ 2.0，>1 为增益增强） */
   setVolume(value: number): void {
-    this.gainNode.gain.value = Math.max(0, Math.min(1, value))
+    this.gainNode.gain.value = Math.max(0, Math.min(2, value))
   }
 
   get volume(): number {

@@ -131,6 +131,6 @@ export function normalizeCodingDevBackendId(raw: string): CodingDevBackendId | u
   if (trimmed === "augment") return "auggie";
   if (trimmed === "github-copilot" || trimmed === "copilot-cli") return "copilot";
   if (trimmed === "cursor-cli" || trimmed === "cursor-agent") return "cursor";
-  if (trimmed === "mtbot" || trimmed === "main") return "openclaw";
+  if (trimmed === "mtbot" || trimmed === "lumii" || trimmed === "main") return "openclaw";
   return isCodingDevBackendId(trimmed) ? trimmed : undefined;
 }

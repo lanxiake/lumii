@@ -5,6 +5,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { getSharedQwen3TtsClient } from './qwen3-tts-client.js'
+import { resolveQwen3TtsLanguage, sanitizeTtsPlainText } from './tts-text-utils.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[TtsEngine]', ...args),
@@ -377,45 +378,36 @@ export class Qwen3Tts implements TtsProvider {
       throw new Error('未配置克隆音色：请在设置中创建并选择「我的音色」，或改用 CustomVoice 内置音色')
     }
 
-    const { wavPath, sampleRate } = await this.client.synthesize({
-      text,
-      language: this.opts.language || 'Auto',
-      mode,
-      speaker: this.opts.speaker || 'Vivian',
-      instruct: this.opts.instruct,
-      refAudio: this.opts.refAudio,
-      refText: this.opts.refText || '',
-      xVectorOnly: this.opts.xVectorOnly === true,
-    })
-
-    if (signal?.aborted) {
-      try {
-        fs.unlinkSync(wavPath)
-      } catch {
-        /* ignore */
-      }
-      return
+    // 清洗 Markdown；Auto + 中文为主时钉死 Chinese，避免中途漂到其他语种音色
+    const plain = sanitizeTtsPlainText(text)
+    if (!plain) return
+    const language = resolveQwen3TtsLanguage(this.opts.language || 'Auto', plain)
+    if (language !== (this.opts.language || 'Auto')) {
+      log.info(`[Qwen3Tts.synthesize] language ${this.opts.language || 'Auto'} → ${language}`)
     }
 
+    const { sampleRate } = await this.client.synthesizeStream(
+      {
+        text: plain,
+        language,
+        mode,
+        speaker: this.opts.speaker || 'Vivian',
+        instruct: this.opts.instruct,
+        refAudio: this.opts.refAudio,
+        refText: this.opts.refText || '',
+        xVectorOnly: this.opts.xVectorOnly === true,
+      },
+      (part) => {
+        if (signal?.aborted) return
+        this.sampleRate = part.sampleRate
+        onChunk({ samples: part.samples, sampleRate: part.sampleRate, isFinal: false })
+      },
+    )
+
+    if (signal?.aborted) return
     this.sampleRate = sampleRate
-    onAudioFile?.(wavPath, true)
-
-    // 读 wav PCM 发给渲染层（简易：跳过 44 字节头，按 int16 → float）
-    const buf = fs.readFileSync(wavPath)
-    const pcmOffset = buf.toString('ascii', 0, 4) === 'RIFF' ? 44 : 0
-    const samples: number[] = []
-    for (let i = pcmOffset; i + 1 < buf.length; i += 2) {
-      const s = buf.readInt16LE(i)
-      samples.push(s / 32768)
-    }
-    onChunk({ samples, sampleRate, isFinal: false })
+    void onAudioFile // 流式路径不写整段 wav，保留参数以兼容 TtsProvider 接口
     onChunk({ samples: [], sampleRate, isFinal: true })
-
-    try {
-      fs.unlinkSync(wavPath)
-    } catch {
-      /* ignore */
-    }
   }
 
   destroy(): void {

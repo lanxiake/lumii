@@ -19,7 +19,7 @@ import { resumeCommand } from '../slash-commands/resume'
 import { createHelpCommand } from '../slash-commands/help'
 import { compactCommand } from '../slash-commands/compact'
 import { backendCommand } from '../slash-commands/backend'
-import { createSwitchBackendCommand, mtbotCommand } from '../slash-commands/switch-backend'
+import { createSwitchBackendCommand, lumiiCommand } from '../slash-commands/switch-backend'
 import { linkCommand, unlinkCommand } from '../slash-commands/link'
 import { runCodingDevAcpPrompt } from '../../coding-dev-backends-stub/run-coding-dev-acp-prompt.js'
 import { resolveAcpTimeoutMs } from '../../coding-dev-backends-stub/acp-config.js'
@@ -506,7 +506,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     registry.register('compact', compactCommand)
     registry.register('backend', backendCommand)
     // 切回主代理
-    registry.register('mtbot', mtbotCommand)
+    registry.register('lumii', lumiiCommand)
     // ACP 后端切换（含别名）
     const claudeCmd = createSwitchBackendCommand('claude')
     registry.register('claude', claudeCmd)

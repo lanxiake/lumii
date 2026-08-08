@@ -302,8 +302,8 @@ export const BACKEND_INFO: Record<string, { label: string; desc: string; acpBack
   copilot:  { label: 'GitHub Copilot',   acpBackendId: 'copilot',  desc: 'GitHub Copilot，代码补全与对话' },
   auggie:   { label: 'Augment Code',     acpBackendId: 'auggie',   desc: 'Augment Code，企业级编程助手' },
   cursor:   { label: 'Cursor',           acpBackendId: 'cursor',   desc: 'Cursor AI 编辑器后端' },
-  mtbot:    { label: 'MtBot 主 Agent',   acpBackendId: 'openclaw', desc: '默认 MtBot Agent（OpenClaw），支持全功能对话' },
-  openclaw: { label: 'MtBot 主 Agent',   acpBackendId: 'openclaw', desc: '默认 MtBot Agent（OpenClaw），支持全功能对话' },
+  lumii:    { label: '灵栖主 Agent',      acpBackendId: 'openclaw', desc: '默认灵栖 Agent（OpenClaw），支持全功能对话' },
+  openclaw: { label: '灵栖主 Agent',      acpBackendId: 'openclaw', desc: '默认灵栖 Agent（OpenClaw），支持全功能对话' },
 }
 
 /** localStorage key，与 node 端 `CODING_DEV_USER_GLOBAL_ACCOUNT` 选择策略对应 */
@@ -321,7 +321,7 @@ export function getSelectedAcpBackendId(): string {
 function handleBackend(backend: string, ctx: CommandContext): void {
   const info = BACKEND_INFO[backend]
   if (!info) {
-    ctx.addSystemMessage(`❌ 未知后端: \`${backend}\`\n\n可用: /claude /codex /opencode /gemini /qoder /qwen /kimi /copilot /auggie /cursor /mtbot`)
+    ctx.addSystemMessage(`❌ 未知后端: \`${backend}\`\n\n可用: /claude /codex /opencode /gemini /qoder /qwen /kimi /copilot /auggie /cursor /lumii`)
     return
   }
 
@@ -346,9 +346,6 @@ function handleBackend(backend: string, ctx: CommandContext): void {
     })
   }
 
-  ctx.addSystemMessage(
-    `**已切换后端：${info.label}**\n\n${info.desc}\n\n后端偏好已保存，下次使用 ACP 工具（如 \`/claude\` 对话）时生效。`,
-  )
   ctx.showToast?.(`已切换到 ${info.label}`, 'success')
 }
 
@@ -459,8 +456,8 @@ export async function executeSlashCommand(
       case '/cursor':
         handleBackend('cursor', ctx)
         break
-      case '/mtbot':
-        handleBackend('mtbot', ctx)
+      case '/lumii':
+        handleBackend('lumii', ctx)
         break
       case '/think':
         await handleThink(args, ctx)

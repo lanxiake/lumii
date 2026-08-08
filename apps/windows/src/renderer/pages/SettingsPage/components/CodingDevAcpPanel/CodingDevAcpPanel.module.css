@@ -33,14 +33,12 @@
   letter-spacing: 0.02em;
 }
 
-.toolList,
 .projectList {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.toolRow,
 .projectRow {
   display: flex;
   align-items: flex-start;
@@ -50,6 +48,83 @@
   border-radius: 10px;
   border: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
   background: var(--color-bg-secondary, rgba(0, 0, 0, 0.02));
+}
+
+/* 本机工具：卡片网格 */
+.toolGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.toolCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
+  background: var(--color-bg-secondary, rgba(0, 0, 0, 0.02));
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.toolCard:hover {
+  border-color: color-mix(in srgb, var(--mt-accent-600, #2563eb) 35%, transparent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.toolCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolCardHeader .toolName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statusDotOk,
+.statusDotOff {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statusDotOk {
+  background: #22c55e;
+}
+
+.statusDotOff {
+  background: #d1d5db;
+}
+
+.toolCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 48px;
+}
+
+.toolCardBody .path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolCardFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.06));
 }
 
 .projectActive {

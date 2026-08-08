@@ -208,7 +208,7 @@ export type VoiceTtsConfig = {
   provider: 'local-vits' | 'edge' | 'qwen3'
   /** 语速（0.8 ~ 1.5） */
   speed: number
-  /** 播放音量（0.0 ~ 1.0） */
+  /** 播放音量（0.0 ~ 2.0，>1 为增益增强，适配偏安静的本地模型） */
   volume: number
   /** VITS 说话人 ID */
   speakerId?: number
@@ -329,7 +329,7 @@ export const DEFAULT_VOICE_ENGINE_CONFIG: VoiceEngineConfig = {
   tts: {
     provider: 'edge',
     speed: 1.2,
-    volume: 0.8,
+    volume: 1.0,
     speakerId: 0,
     voice: 'zh-CN-XiaoxiaoNeural',
     qwen3Variant: '0.6b-custom',

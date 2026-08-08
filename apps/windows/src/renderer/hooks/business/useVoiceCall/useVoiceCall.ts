@@ -76,7 +76,7 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     playbackAnalyserNode: null,
     charPulsePoll: null,
     isAudioPlaying: null,
-    volume: 0.8,
+    volume: 1.0,
     speed: 1.2,
     speakerId: 0,
     ttsProvider: 'edge',
@@ -89,7 +89,7 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
   const callIdRef = useRef<string | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
-  const volumeRef = useRef<number>(0.8)
+  const volumeRef = useRef<number>(1.0)
 
   // ── 加载初始配置（语速、音量、音色） ─────────────────────────────────────
 
@@ -436,7 +436,7 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
       )
     },
     setVolume: (value: number) => {
-      const clamped = Math.max(0, Math.min(1, value))
+      const clamped = Math.max(0, Math.min(2, value))
       volumeRef.current = clamped
       playbackRef.current?.setVolume(clamped)
       setState((s) => ({ ...s, volume: clamped }))

@@ -147,7 +147,11 @@ export function useConversationReplay(): ConversationReplayState & ConversationR
       await new Promise<void>((resolve) => {
         if (abortRef.current) { resolve(); return }
         audioFinishedRef.current = resolve
-        electronAPI.voice.sendCommand({ type: 'voice:tts:preview', text: msg.content }).catch(() => {
+        electronAPI.voice.sendCommand({
+          type: 'voice:tts:preview',
+          text: msg.content,
+          maxChars: 8000,
+        }).catch(() => {
           resolve()
         })
       })

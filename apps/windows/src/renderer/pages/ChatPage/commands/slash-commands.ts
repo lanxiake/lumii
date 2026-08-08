@@ -102,9 +102,9 @@ const CLIENT_ONLY_COMMANDS: SlashCommand[] = [
     category: 'backend',
   },
   {
-    name: '/mtbot',
-    description: '切换回 MtBot 主 Agent（默认）',
-    usage: '/mtbot',
+    name: '/lumii',
+    description: '切换回灵栖主 Agent（默认）',
+    usage: '/lumii',
     category: 'backend',
   },
 ]

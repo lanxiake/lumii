@@ -71,7 +71,7 @@ function mountEarlySplash(): void {
 #${EARLY_ID} .lumii-es-bg{position:absolute;inset:-6%;width:112%;height:112%;object-fit:cover;filter:blur(42px) saturate(1.08) brightness(1.08) contrast(.92);transform:scale(1.12);opacity:.92;pointer-events:none}
 #${EARLY_ID} .lumii-es-vignette{position:absolute;inset:0;background:radial-gradient(ellipse 75% 65% at 50% 45%,rgba(247,251,255,.15) 20%,rgba(217,232,244,.35) 70%,rgba(196,220,236,.55) 100%),linear-gradient(90deg,rgba(214,230,242,.55) 0%,transparent 22%,transparent 78%,rgba(214,230,242,.55) 100%);pointer-events:none}
 #${EARLY_ID} .lumii-es-glow{position:absolute;inset:0;background:linear-gradient(105deg,color-mix(in srgb,#9fd0f0 28%,transparent) 0%,transparent 30%,transparent 70%,color-mix(in srgb,#b8d4f0 22%,transparent) 100%);opacity:.65;pointer-events:none}
-#${EARLY_ID} .lumii-es-fg{position:relative;z-index:1;width:min(100%,920px);height:min(100%,820px);max-width:100%;max-height:100%;object-fit:contain;box-shadow:0 0 0 1px color-mix(in srgb,#8ec5e8 22%,transparent),0 18px 56px rgba(120,160,190,.22);background:transparent;-webkit-app-region:no-drag}
+#${EARLY_ID} .lumii-es-fg{position:relative;z-index:1;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;background:transparent;-webkit-app-region:no-drag}
 #${EARLY_ID}.lumii-es-fading{opacity:0;pointer-events:none;transition:opacity .55s ease}
 `
   document.head.appendChild(style)

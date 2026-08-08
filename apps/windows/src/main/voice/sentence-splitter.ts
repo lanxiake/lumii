@@ -11,7 +11,7 @@ export class SentenceSplitter {
   private buffer = ''
   private readonly HARD_PUNCT = /[。！？…\n]|[.!?](?=\s)/
   private readonly SOFT_PUNCT = /[，；]/
-  private readonly MIN_SOFT_LEN = 15
+  private readonly MIN_SOFT_LEN = 8
   private readonly MAX_LEN = 50
   private readonly MIN_SENTENCE_LEN = 3
   private readonly MAX_ITERATIONS = 100

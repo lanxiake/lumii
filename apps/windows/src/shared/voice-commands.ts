@@ -55,10 +55,15 @@ export type VoicePlaybackFinishedCommand = {
   callId: string
 }
 
-/** 预览 TTS 声音（设置页用，不影响当前通话） */
+/** 预览/朗读 TTS（设置页短试听；消息朗读可传更大 maxChars） */
 export type VoiceTtsPreviewCommand = {
   readonly type: 'voice:tts:preview'
   text?: string
+  /**
+   * 最大朗读字符数。设置页试听建议 100；消息朗读可到数千。
+   * 默认 100（兼容旧调用）。上限 20000。
+   */
+  maxChars?: number
 }
 
 /** 停止 TTS 预览/朗读播放 */
