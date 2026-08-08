@@ -232,7 +232,13 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       messages: runtimeMessages.map((msg) => ({
         id: msg.id,
         role: msg.role as 'user' | 'assistant' | 'system',
-        content: msg.content.map((c) => c.text).join(''),
+        content: msg.parts
+          .filter((part): part is Extract<typeof msg.parts[number], { type: 'text' }> => part.type === 'text')
+          .map((part) => part.text)
+          .join('\n\n')
+          || msg.content.map((c) => c.text).join(''),
+        parts: msg.parts,
+        fileChanges: msg.fileChanges,
         timestamp: new Date(msg.timestamp),
         isStreaming: msg.isStreaming,
         toolCalls: msg.toolCalls.map((tc) => ({

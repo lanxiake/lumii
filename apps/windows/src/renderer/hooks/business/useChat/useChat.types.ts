@@ -2,6 +2,10 @@
  * useChat.types.ts - 对话管理类型定义
  */
 
+import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime'
+
+export type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime'
+
 /** 消息附件类型 */
 export interface MessageAttachment {
   type: 'file' | 'image'
@@ -50,6 +54,10 @@ export interface ChatMessage {
   isVoice?: boolean
   /** 原始录音 WAV base64（仅语音消息，用于气泡点击回放） */
   audioWavBase64?: string
+  /** 助手消息结构化时间线（thinking / text / tool 交错） */
+  parts?: readonly AssistantPart[]
+  /** 本轮助手回复关联的工作区净文件变更 */
+  fileChanges?: readonly FileChangeEntry[]
 }
 
 /** 工具调用 */

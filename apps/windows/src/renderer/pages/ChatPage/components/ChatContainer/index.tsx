@@ -10,6 +10,7 @@ import { CompactionCard } from '../CompactionCard'
 import { TodoPanel } from '../TodoPanel'
 import { SessionFileList } from '../SessionFileList'
 import type { ChatSession, ChatMessage as ChatMessageType, AgentWorkflowItem, ToolCall } from '../../../../hooks/business/useChat'
+import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime'
 import type { ExecApprovalRequest, ExecApprovalDecision } from '../../../../types/exec-approvals'
 import type { PlanApprovalRequest } from '../../../../types/plan-approval'
 import type { RuntimeFileEvent, RuntimeCompactionEvent } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
@@ -63,6 +64,10 @@ interface MessageItem {
   isVoice?: boolean
   /** 原始录音 WAV base64，用于气泡点击回放 */
   audioWavBase64?: string
+  /** 助手消息结构化时间线 */
+  parts?: readonly AssistantPart[]
+  /** 本轮助手回复关联的文件变更 */
+  fileChanges?: readonly FileChangeEntry[]
 }
 
 interface CompactionItem {
@@ -268,6 +273,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         sourceAgent: (msg as { sourceAgent?: MessageItem['sourceAgent'] }).sourceAgent,
         isVoice: (msg as { isVoice?: boolean }).isVoice,
         audioWavBase64: (msg as { audioWavBase64?: string }).audioWavBase64,
+        parts: (msg as { parts?: readonly AssistantPart[] }).parts,
+        fileChanges: (msg as { fileChanges?: readonly FileChangeEntry[] }).fileChanges,
       }))
   }, [session?.messages])
 
@@ -284,14 +291,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   /**
    * 合并消息和审批项，按时间排序。
    *
-   * 关键设计：子 Agent 消息（有 sourceAgent）不单独渲染气泡，而是将其 toolCalls
-   * （带 agentLabel 标注）合并到前一条主 Agent 消息的 toolCalls 中。
-   * 为了让主/子 Agent 的工具卡片与主 Agent 文本按真实时间顺序交错渲染，
-   * 这里按「子 Agent 工具的 startTime」继承「主 Agent 在该时刻的文本位置」作为
-   * textPositionAtStart —— 即：找到主 Agent 工具列表中 startTime ≤ 当前子 Agent
-   * 工具的最近一条，沿用其 textPositionAtStart；若更早于所有主 Agent 工具，
-   * 则取 0（插入到文字最开头）。这样 buildSegments 就能把子 Agent 卡片按时间
-   * 插入到主 Agent 文本的对应位置，而不是全部扎堆在末尾。
+   * 子 Agent 消息（有 sourceAgent）不单独渲染气泡，将其 parts 合并到前一条主 Agent 消息。
    */
   // 压缩事件 → CompactionItem，按 timestamp 与消息交错插入对话流
   const compactionItems: CompactionItem[] = useMemo(() => {
@@ -328,60 +328,13 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         }
         if (parentIdx >= 0) {
           const parent = result[parentIdx] as MessageItem
-          const parentToolCalls = parent.toolCalls ?? []
-
-          /**
-           * 主 Agent 工具按 startTime 升序收集 [startMs, textPositionAtStart] 对，
-           * 便于按时间二分查找子 Agent 工具的插入位置。
-           */
-          const mainTools = parentToolCalls
-            .filter((tc) => !tc.agentLabel) // 排除已合并的其他子 Agent 工具
-            .map((tc) => ({
-              startMs: tc.startTime ? tc.startTime.getTime() : 0,
-              pos: tc.textPositionAtStart ?? 0,
-            }))
-            .sort((a, b) => a.startMs - b.startMs)
-
-          /**
-           * 主 Agent 文本总长度（作为子 Agent 工具的最晚插入位置上限）。
-           * 若子 Agent 晚于所有主 Agent 工具，则插到文本末尾（而不是 MAX_SAFE_INTEGER）。
-           */
-          const parentTextLen = parent.content?.length ?? 0
-
-          /**
-           * 根据子 Agent 工具 startTime，推断其在主 Agent 文本中的插入位置：
-           * 取 startMs ≤ 当前时间 的最近一条主 Agent 工具的 textPositionAtStart；
-           * 若没有这样的主 Agent 工具（发生在所有主 Agent 工具之前），返回 0；
-           * 若晚于所有主 Agent 工具，返回主 Agent 当前文本总长度。
-           */
-          const inferTextPosition = (subStartMs: number): number => {
-            if (mainTools.length === 0) return parentTextLen
-            let candidatePos = 0
-            let found = false
-            for (const t of mainTools) {
-              if (t.startMs <= subStartMs) {
-                candidatePos = t.pos
-                found = true
-              } else {
-                break
-              }
-            }
-            return found ? candidatePos : parentTextLen
-          }
-
-          const labeledToolCalls = (msgItem.toolCalls ?? []).map((tc) => {
-            const subStartMs = tc.startTime ? tc.startTime.getTime() : msgItem.timestamp.getTime()
-            const inferredPos = inferTextPosition(subStartMs)
-            return {
-              ...tc,
-              agentLabel: srcAgent.label ?? '子 Agent',
-              textPositionAtStart: inferredPos,
-            }
-          })
-
           result[parentIdx] = {
             ...parent,
-            toolCalls: [...parentToolCalls, ...labeledToolCalls],
+            parts: [...(parent.parts ?? []), ...(msgItem.parts ?? [])],
+            fileChanges: [
+              ...(parent.fileChanges ?? []),
+              ...(msgItem.fileChanges ?? []),
+            ],
             isStreaming: msgItem.isStreaming ? true : parent.isStreaming,
           }
         }
@@ -477,19 +430,21 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             injectedMemories: item.injectedMemories,
             sourceAgent: item.sourceAgent,
             isVoice: item.isVoice,
+            parts: item.parts,
+            fileChanges: item.fileChanges,
           }
 
           const isLatestAssistant = item.id === latestAssistantMessageId
+          const hasPartsTimeline = (item.parts?.length ?? 0) > 0
 
-          // 查找该 assistant 消息关联的工具调用（嵌入消息内部显示）
-          // 优先从 workflowByRunId（Gateway 模式），降级到消息内嵌 toolCalls（本地 Runtime 模式）
-          const workflowToolItems = item.role === 'assistant' && item.runId
+          // Gateway 模式仍走 workflowItems；本地 Runtime 有 parts 时由时间线渲染工具
+          const workflowToolItems = !hasPartsTimeline && item.role === 'assistant' && item.runId
             ? (workflowByRunId.get(item.runId) || [])
             : []
 
           const toolItems: AgentWorkflowItem[] = workflowToolItems.length > 0
             ? workflowToolItems
-            : (item.toolCalls && item.toolCalls.length > 0
+            : (!hasPartsTimeline && item.toolCalls && item.toolCalls.length > 0
               ? item.toolCalls.map((tc): AgentWorkflowItem => ({
                   id: tc.id,
                   type: 'tool' as const,

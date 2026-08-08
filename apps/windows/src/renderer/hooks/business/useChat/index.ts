@@ -19,4 +19,6 @@ export type {
   ChildToolItem,
   SubagentRun,
   RunRecord,
+  AssistantPart,
+  FileChangeEntry,
 } from './useChat.types'
