@@ -1,41 +1,91 @@
 /**
- * TurnFileChangesCard — 回合文件变更摘要（Task 7 最小 stub，Task 8 完善样式）
+ * TurnFileChangesCard — 回合文件净变更卡片
+ * 仅展示本轮工作区的新增/修改/删除，无上传语义、无 +/- 行数；点击「查看」定位首个文件。
  */
 
 import React from 'react'
+import clsx from 'clsx'
 import type { FileChangeEntry } from '@mtbot/agent-runtime'
+import styles from './TurnFileChangesCard.module.css'
 
+/** 状态 → 中文标签 */
 const STATUS_LABEL: Record<FileChangeEntry['status'], string> = {
   added: '新增',
   modified: '修改',
   deleted: '删除',
 }
 
-export interface TurnFileChangesCardProps {
-  changes: readonly FileChangeEntry[]
-  onReview?: () => void
+/** 状态 → 左侧短标 */
+const STATUS_SHORT: Record<FileChangeEntry['status'], string> = {
+  added: 'A',
+  modified: 'M',
+  deleted: 'D',
 }
 
-/** 渲染本轮助手回复关联的工作区文件变更列表 */
+export interface TurnFileChangesCardProps {
+  changes: readonly FileChangeEntry[]
+  /** 点击「查看」：透传首个文件相对路径，交由上层打开 Workbench 并定位 */
+  onReview?: (path: string) => void
+}
+
+/** 从路径末段推断扩展名归类，用于扩展名徽章配色 */
+function classifyExt(path: string): { label: string; kind: string } {
+  const base = path.split('/').pop() ?? path
+  const dot = base.lastIndexOf('.')
+  if (dot <= 0) return { label: '·', kind: 'default' }
+  const ext = base.slice(dot + 1).toLowerCase()
+  if (ext === 'ts' || ext === 'tsx') return { label: 'TS', kind: 'ts' }
+  if (ext === 'js' || ext === 'jsx' || ext === 'cjs' || ext === 'mjs') return { label: 'JS', kind: 'js' }
+  if (ext === 'css' || ext === 'scss' || ext === 'less') return { label: 'CSS', kind: 'css' }
+  if (ext === 'md' || ext === 'mdx') return { label: 'MD', kind: 'md' }
+  if (ext === 'json') return { label: 'JSON', kind: 'json' }
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) return { label: 'IMG', kind: 'img' }
+  return { label: ext.slice(0, 4).toUpperCase(), kind: 'default' }
+}
+
+/** 渲染本轮助手回复关联的工作区文件净变更列表 */
 const TurnFileChangesCard: React.FC<TurnFileChangesCardProps> = ({ changes, onReview }) => {
   if (changes.length === 0) return null
 
   return (
-    <div data-testid="turn-file-changes-card">
-      <div>{changes.length} 个文件变更</div>
-      <ul>
-        {changes.map((entry) => (
-          <li key={`${entry.status}:${entry.path}`}>
-            <span>{entry.path}</span>
-            <span>{STATUS_LABEL[entry.status]}</span>
-          </li>
-        ))}
-      </ul>
-      {onReview && (
-        <button type="button" onClick={onReview}>
-          查看变更
-        </button>
-      )}
+    <div className={styles.card} data-testid="turn-file-changes-card">
+      <div className={styles.header}>
+        <span className={styles.headerTitle}>{changes.length} 个文件变更</span>
+        {onReview && (
+          <button
+            type="button"
+            className={styles.review}
+            onClick={() => onReview(changes[0].path)}
+          >
+            查看
+          </button>
+        )}
+      </div>
+      <div className={styles.list}>
+        {changes.map((entry) => {
+          const ext = classifyExt(entry.path)
+          return (
+            <button
+              key={`${entry.status}:${entry.path}`}
+              type="button"
+              className={styles.row}
+              onClick={() => onReview?.(entry.path)}
+              title={entry.path}
+            >
+              <span className={clsx(styles.statusBadge, styles[`statusBadge--${entry.status}`])}>
+                {STATUS_SHORT[entry.status]}
+              </span>
+              <span className={clsx(styles.extBadge, styles[`extBadge--${ext.kind}`])}>
+                {ext.label}
+              </span>
+              <span className={styles.name}>{entry.path}</span>
+              <span className={clsx(styles.statusLabel, styles[`statusLabel--${entry.status}`])}>
+                {STATUS_LABEL[entry.status]}
+              </span>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }

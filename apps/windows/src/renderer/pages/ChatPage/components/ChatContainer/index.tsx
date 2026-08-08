@@ -8,7 +8,6 @@ import { TypingIndicator } from '../TypingIndicator'
 import { EmptyState } from '../EmptyState'
 import { CompactionCard } from '../CompactionCard'
 import { TodoPanel } from '../TodoPanel'
-import { SessionFileList } from '../SessionFileList'
 import type { ChatSession, ChatMessage as ChatMessageType, AgentWorkflowItem, ToolCall } from '../../../../hooks/business/useChat'
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime'
 import { mergeAssistantParts, mergeFileChanges } from './mergeAssistantParts'
@@ -125,12 +124,8 @@ interface ChatContainerProps {
     result?: unknown
     output?: unknown
   }[]
-  /** 当前会话 key，供会话文件列表删除后更新 store */
-  sessionKey?: string | null
-  /** 打开工作空间并定位到会话文件 */
-  onReviewFiles?: (file: RuntimeFileEvent) => void
-  /** 点击会话文件：定位工作空间并预览 */
-  onSessionFileOpen?: (file: RuntimeFileEvent) => void
+  /** 点击回合文件变更卡「查看」：透传首个文件相对路径，交由上层打开 Workbench 并定位 */
+  onReviewFileChanges?: (path: string) => void
 }
 
 const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -159,9 +154,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   onReplayFromMessage,
   replayMessageId,
   todoCalls = [],
-  sessionKey = null,
-  onReviewFiles,
-  onSessionFileOpen,
+  onReviewFileChanges,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -489,6 +482,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               userId={userId}
               onReplay={onReplayFromMessage}
               replayMessageId={replayMessageId}
+              onReviewFileChanges={onReviewFileChanges}
             />
           )
         })}
@@ -497,22 +491,15 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             表现为一闪而过的裸 emoji，直接去掉容器只留指示器 */}
         {showTypingIndicator && <TypingIndicator label="正在思考…" />}
 
-        {/* 会话元信息：轻量居中卡片，随消息流滚动，不固定遮挡输入区 */}
-        {(todoCalls.length > 0 || (fileEvents && fileEvents.length > 0)) && (
+        {/* 会话元信息：轻量居中卡片，随消息流滚动，不固定遮挡输入区。
+            文件变更改由每条助手气泡底部的 TurnFileChangesCard 呈现本轮净变更，
+            对话流不再用 fileEvents 驱动 SessionFileList（上传/产出语义留给 rail/composer）。 */}
+        {todoCalls.length > 0 && (
           <div className={styles['session-meta-inline']}>
             <TodoPanel
               toolCalls={todoCalls}
               variant="inline"
               defaultExpanded
-            />
-            <SessionFileList
-              files={fileEvents ?? []}
-              sessionKey={sessionKey}
-              userId={userId}
-              variant="inline"
-              defaultExpanded
-              onReview={onReviewFiles}
-              onFileOpen={onSessionFileOpen}
             />
           </div>
         )}

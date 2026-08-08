@@ -746,11 +746,12 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [])
 
   /**
-   * 会话文件「查看」：打开工作空间并定位到指定文件（展开目录树并选中，不强制预览）
+   * 回合文件变更卡「查看」：相对路径转绝对路径后打开工作空间并定位（不强制预览）
    */
-  const handleReviewSessionFile = useCallback(
-    (file: { localPath: string; fileName: string }) => {
-      const abs = toAbsolutePath(file.localPath)
+  const handleReviewTurnFileChange = useCallback(
+    (relPath: string) => {
+      const abs = toAbsolutePath(relPath)
+      const fileName = relPath.split('/').pop() ?? relPath
       setWorkbenchLayout('default')
       setWorkbench({ open: true, tab: 'files' })
       locateTokenRef.current += 1
@@ -758,26 +759,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         path: abs,
         token: locateTokenRef.current,
         preview: false,
-        fileName: file.fileName,
-      })
-    },
-    [toAbsolutePath],
-  )
-
-  /**
-   * 会话文件列表点击：打开右侧工作空间、定位到该文件，并打开预览
-   */
-  const handleSessionFileOpen = useCallback(
-    (file: { localPath: string; fileName: string }) => {
-      const abs = toAbsolutePath(file.localPath)
-      setWorkbenchLayout('default')
-      setWorkbench({ open: true, tab: 'files' })
-      locateTokenRef.current += 1
-      setLocateFileTarget({
-        path: abs,
-        token: locateTokenRef.current,
-        preview: true,
-        fileName: file.fileName,
+        fileName,
       })
     },
     [toAbsolutePath],
@@ -1494,9 +1476,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onReplayFromMessage={handleReplayFromMessage}
             replayMessageId={conversationReplay.replayMessageId}
             todoCalls={sessionTodoCalls}
-            sessionKey={runtimeCurrentSessionKey}
-            onReviewFiles={handleReviewSessionFile}
-            onSessionFileOpen={handleSessionFileOpen}
+            onReviewFileChanges={handleReviewTurnFileChange}
           />
         </div>
 
