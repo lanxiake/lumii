@@ -205,6 +205,9 @@ export {
   maybeRunAutoVacuumSync,
   parseMessageContentJson,
   FileRepo,
+  applyAssistantPartEvent,
+  finalizeAssistantParts,
+  diffTurnSnapshots,
 } from "./storage/index.js";
 export type {
   DatabaseAdapter,
@@ -226,6 +229,12 @@ export type {
   RegisterFileParams,
   ListFilesOpts,
   SearchFilesOpts,
+  AssistantPart,
+  AssistantPartEvent,
+  AssistantPartsContent,
+  FileChangeEntry,
+  TurnFileSnapshot,
+  ApplyAssistantPartEventOptions,
 } from "./storage/index.js";
 
 // === 记忆系统导出 ===

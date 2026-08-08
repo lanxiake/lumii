@@ -11,11 +11,34 @@
 import type { AgentRuntimeEvent, AgentRuntimeEventType } from '../../../../shared/agent-runtime-events'
 import type { RuntimeToolCall, RuntimeMessage, StreamMetrics, ContextUsage, PerSessionState, RuntimeFileEvent, RuntimeCompactionEvent } from './agent-runtime-store'
 import { runtimeStore, updateSessionState, getDefaultPerSessionState } from './agent-runtime-store'
+import {
+  applyAssistantPartEvent,
+  finalizeAssistantParts,
+  type AssistantPart,
+  type AssistantPartEvent,
+} from '@mtbot/agent-runtime'
 
 /** 仅在开发环境输出详细日志，避免生产环境噪音 */
 const debugLog = process.env.NODE_ENV === 'development'
   ? (...args: unknown[]) => console.log(...args)
   : () => undefined
+
+let rendererPartIdSequence = 0
+
+/**
+ * 使用 renderer 命名空间生成 part id，避免与主进程持久化序号冲突。
+ */
+function applyRuntimeAssistantPartEvent(
+  parts: readonly AssistantPart[],
+  event: AssistantPartEvent,
+): AssistantPart[] {
+  return applyAssistantPartEvent(parts, event, {
+    createId: () => {
+      rendererPartIdSequence += 1
+      return `renderer-part-${rendererPartIdSequence}`
+    },
+  })
+}
 
 /**
  * 每个会话内：同一 run 内每次 LLM 调用的首包时间（用于总耗时与 token/s）
@@ -39,22 +62,50 @@ const runIdToSessionKey = new Map<string, string>()
 // Delta 批处理 — 将高频 delta 事件合并为每帧一次 store 更新
 // ============================================================
 
-interface PendingDelta {
-  /** 主消息 delta 文本，按 sessionKey 累积 */
-  messageDelta: Map<string, { messageId?: string; text: string }>
-  /** 子 Agent 消息 delta，按 sessionKey+instanceId 累积 */
-  subAgentDelta: Map<string, { instanceId: string; text: string }>
-  /** thinking delta，按 sessionKey 累积 */
-  thinkingDelta: Map<string, string>
+/** 待刷新的 delta 目标：主 Agent 文本、子 Agent 文本或 thinking */
+type PendingDeltaTarget =
+  | { kind: 'main_text'; sessionKey: string; messageId?: string }
+  | { kind: 'sub_agent_text'; sessionKey: string; instanceId: string }
+  | { kind: 'thinking'; sessionKey: string; instanceId?: string }
+
+/** 按到达顺序排队的 delta 批次（同目标连续事件合并为同一批次） */
+interface PendingDeltaBatch {
+  target: PendingDeltaTarget
+  text: string
 }
 
-const pendingDelta: PendingDelta = {
-  messageDelta: new Map(),
-  subAgentDelta: new Map(),
-  thinkingDelta: new Map(),
-}
+const pendingDeltaQueue: PendingDeltaBatch[] = []
 
 let deltaFlushScheduled = false
+
+/**
+ * 生成 delta 目标的唯一键，用于判断相邻批次是否可合并。
+ */
+function pendingDeltaTargetKey(target: PendingDeltaTarget): string {
+  switch (target.kind) {
+    case 'main_text':
+      return `main_text::${target.sessionKey}`
+    case 'sub_agent_text':
+      return `sub_text::${target.sessionKey}::${target.instanceId}`
+    case 'thinking':
+      return `thinking::${target.sessionKey}::${target.instanceId ?? '__main__'}`
+  }
+}
+
+/**
+ * 将 delta 追加到有序队列；与上一批次同目标则合并文本，否则新建批次。
+ */
+function enqueuePendingDelta(target: PendingDeltaTarget, delta: string): void {
+  const last = pendingDeltaQueue[pendingDeltaQueue.length - 1]
+  if (last && pendingDeltaTargetKey(last.target) === pendingDeltaTargetKey(target)) {
+    last.text += delta
+    if (target.kind === 'main_text' && target.messageId) {
+      last.target = { ...last.target, messageId: target.messageId } as PendingDeltaTarget
+    }
+    return
+  }
+  pendingDeltaQueue.push({ target, text: delta })
+}
 
 function scheduleDeltaFlush(): void {
   if (deltaFlushScheduled) return
@@ -62,66 +113,136 @@ function scheduleDeltaFlush(): void {
   requestAnimationFrame(flushPendingDeltas)
 }
 
+/**
+ * 将 thinking delta 应用到目标 assistant 消息。
+ */
+function applyThinkingDeltaBatch(
+  sessionKey: string,
+  instanceId: string | undefined,
+  text: string,
+): void {
+  updateSessionState(sessionKey, (prev) => {
+    const msgs = [...prev.messages]
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const message = msgs[i]!
+      if (message.role !== 'assistant' || !message.isStreaming) continue
+      if (instanceId && message.sourceAgent?.instanceId !== instanceId) continue
+      if (!instanceId && message.sourceAgent) continue
+      msgs[i] = {
+        ...message,
+        parts: applyRuntimeAssistantPartEvent(message.parts, {
+          kind: 'thinking_delta',
+          delta: text,
+        }),
+      }
+      break
+    }
+    return {
+      ...prev,
+      messages: msgs,
+      ...(instanceId
+        ? {}
+        : {
+            isThinking: true,
+            currentThinkingText: prev.currentThinkingText + text,
+          }),
+    }
+  })
+}
+
+/**
+ * 将主 Agent text delta 应用到目标 assistant 消息。
+ */
+function applyMainTextDeltaBatch(
+  sessionKey: string,
+  messageId: string | undefined,
+  text: string,
+): void {
+  updateSessionState(sessionKey, (prev) => {
+    const msgs = [...prev.messages]
+    let targetIdx = messageId ? msgs.findIndex((m) => m.id === messageId) : -1
+    if (targetIdx < 0) {
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i]!.role === 'assistant' && msgs[i]!.isStreaming && !msgs[i]!.sourceAgent) {
+          targetIdx = i
+          break
+        }
+      }
+    }
+    if (targetIdx < 0) return prev
+    const last = msgs[targetIdx]!
+    if (last.role !== 'assistant' || !last.isStreaming) return prev
+    const currentText = last.content[0]?.text ?? ''
+    msgs[targetIdx] = {
+      ...last,
+      content: [{ type: 'text' as const, text: currentText + text }],
+      parts: applyRuntimeAssistantPartEvent(last.parts, { kind: 'text_delta', delta: text }),
+    }
+    return { ...prev, messages: msgs }
+  })
+}
+
+/**
+ * 将子 Agent text delta 应用到目标 assistant 消息。
+ */
+function applySubAgentTextDeltaBatch(
+  sessionKey: string,
+  instanceId: string,
+  text: string,
+): void {
+  const mid = getSubAgentMsgId(sessionKey, instanceId)
+  updateSessionState(sessionKey, (prev) => {
+    const msgs = [...prev.messages]
+    const idx = mid ? msgs.findIndex((m) => m.id === mid) : -1
+    if (idx < 0) return prev
+    const last = msgs[idx]!
+    if (last.role !== 'assistant' || !last.isStreaming) return prev
+    const currentText = last.content[0]?.text ?? ''
+    msgs[idx] = {
+      ...last,
+      content: [{ type: 'text' as const, text: currentText + text }],
+      parts: applyRuntimeAssistantPartEvent(last.parts, { kind: 'text_delta', delta: text }),
+    }
+    return { ...prev, messages: msgs }
+  })
+}
+
+/**
+ * 按到达顺序刷新所有待处理 delta，保持 text/thinking 交错顺序。
+ */
 function flushPendingDeltas(): void {
   deltaFlushScheduled = false
 
-  // 1) Flush message deltas
-  for (const [sessionKey, { messageId, text }] of pendingDelta.messageDelta) {
-    updateSessionState(sessionKey, (prev) => {
-      const msgs = [...prev.messages]
-      let targetIdx = messageId
-        ? msgs.findIndex((m) => m.id === messageId)
-        : -1
-      if (targetIdx < 0) {
-        for (let i = msgs.length - 1; i >= 0; i--) {
-          if (msgs[i]!.role === 'assistant' && msgs[i]!.isStreaming && !msgs[i]!.sourceAgent) {
-            targetIdx = i
-            break
-          }
-        }
-      }
-      if (targetIdx < 0) return prev
-      const last = msgs[targetIdx]!
-      if (last.role !== 'assistant' || !last.isStreaming) return prev
-      const currentText = last.content[0]?.text ?? ''
-      msgs[targetIdx] = {
-        ...last,
-        content: [{ type: 'text' as const, text: currentText + text }],
-      }
-      return { ...prev, messages: msgs }
-    })
+  for (const { target, text } of pendingDeltaQueue) {
+    if (!text) continue
+    switch (target.kind) {
+      case 'thinking':
+        applyThinkingDeltaBatch(target.sessionKey, target.instanceId, text)
+        break
+      case 'main_text':
+        applyMainTextDeltaBatch(target.sessionKey, target.messageId, text)
+        break
+      case 'sub_agent_text':
+        applySubAgentTextDeltaBatch(target.sessionKey, target.instanceId, text)
+        break
+    }
   }
-  pendingDelta.messageDelta.clear()
+  pendingDeltaQueue.length = 0
+}
 
-  // 2) Flush sub-agent deltas
-  for (const [compositeKey, { instanceId, text }] of pendingDelta.subAgentDelta) {
-    const sk = compositeKey.split('::')[0]!
-    const mid = getSubAgentMsgId(sk, instanceId)
-    updateSessionState(sk, (prev) => {
-      const msgs = [...prev.messages]
-      const idx = mid ? msgs.findIndex((m) => m.id === mid) : -1
-      if (idx < 0) return prev
-      const last = msgs[idx]!
-      if (last.role !== 'assistant' || !last.isStreaming) return prev
-      const currentText = last.content[0]?.text ?? ''
-      msgs[idx] = {
-        ...last,
-        content: [{ type: 'text' as const, text: currentText + text }],
-      }
-      return { ...prev, messages: msgs }
-    })
-  }
-  pendingDelta.subAgentDelta.clear()
-
-  // 3) Flush thinking deltas
-  for (const [sessionKey, text] of pendingDelta.thinkingDelta) {
-    updateSessionState(sessionKey, (prev) => ({
-      ...prev,
-      isThinking: true,
-      currentThinkingText: prev.currentThinkingText + text,
-    }))
-  }
-  pendingDelta.thinkingDelta.clear()
+/**
+ * 在 finalize 前将 LLM 错误文本注入 parts（content 为空时）。
+ */
+function partsWithLlmErrorIfNeeded(
+  parts: readonly AssistantPart[],
+  err: { code: string; message: string } | undefined,
+  contentText: string | undefined,
+): AssistantPart[] {
+  if (!err || contentText?.trim()) return [...parts]
+  return applyRuntimeAssistantPartEvent(parts, {
+    kind: 'text_delta',
+    delta: `[${err.code}] ${err.message}`,
+  })
 }
 
 /**
@@ -137,6 +258,9 @@ export function resetAgentRuntimeEventHandlerForTests(): void {
   streamLlmStartByRunId.clear()
   subAgentStreamingMessageId.clear()
   runIdToSessionKey.clear()
+  pendingDeltaQueue.length = 0
+  deltaFlushScheduled = false
+  rendererPartIdSequence = 0
 }
 
 // ============================================================
@@ -209,6 +333,30 @@ function hasSubAgentMsgId(sessionKey: string, instanceId: string): boolean {
 function trimMessages(messages: readonly RuntimeMessage[]): readonly RuntimeMessage[] {
   if (messages.length <= MAX_MESSAGES_PER_SESSION) return messages
   return messages.slice(messages.length - MAX_MESSAGES_PER_SESSION)
+}
+
+/**
+ * 仅收尾仍含流式 part 的助手消息，避免 idle 时重建全部历史消息引用。
+ */
+function finalizeStreamingAssistantMessages(
+  messages: readonly RuntimeMessage[],
+  closeMessages = false,
+): readonly RuntimeMessage[] {
+  let changed = false
+  const next = messages.map((message) => {
+    if (message.role !== 'assistant') return message
+    const hasStreamingPart = message.parts.some(
+      (part) => (part.type === 'thinking' || part.type === 'text') && part.status === 'streaming',
+    )
+    if (!hasStreamingPart && !(closeMessages && message.isStreaming)) return message
+    changed = true
+    return {
+      ...message,
+      parts: hasStreamingPart ? finalizeAssistantParts(message.parts) : message.parts,
+      ...(closeMessages ? { isStreaming: false } : {}),
+    }
+  })
+  return changed ? next : messages
 }
 
 // ============================================================
@@ -333,6 +481,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
                 id: event.messageId,
                 role: 'assistant' as const,
                 content: [{ type: 'text' as const, text: '' }],
+                parts: [],
                 timestamp: event.timestamp,
                 isStreaming: true,
                 toolCalls: [],
@@ -371,16 +520,22 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
 
         if (reuseIdx >= 0) {
           const existingText = prev.messages[reuseIdx]?.content[0]?.text ?? ''
-          const nextText = existingText && !existingText.endsWith('\n')
-            ? `${existingText}\n`
-            : existingText
+          const separator = existingText ? '\n\n' : ''
+          const nextText = existingText + separator
           const msgs = [...prev.messages]
+          const existingMessage = msgs[reuseIdx]!
           msgs[reuseIdx] = {
-            ...msgs[reuseIdx]!,
+            ...existingMessage,
             id: event.messageId,
             isStreaming: true,
             turnId,
             content: [{ type: 'text' as const, text: nextText }],
+            parts: separator
+              ? applyRuntimeAssistantPartEvent(existingMessage.parts, {
+                  kind: 'text_delta',
+                  delta: separator,
+                })
+              : existingMessage.parts,
           }
           return {
             ...prev,
@@ -404,6 +559,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
               id: event.messageId,
               role: 'assistant' as const,
               content: [{ type: 'text' as const, text: '' }],
+              parts: [],
               timestamp: event.timestamp,
               isStreaming: true,
               toolCalls: [],
@@ -417,22 +573,15 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
 
     case 'agent:message:delta': {
       if (isSubAgentStreamEvent(event) && event.instanceId) {
-        const key = `${sessionKey}::${event.instanceId}`
-        const existing = pendingDelta.subAgentDelta.get(key)
-        if (existing) {
-          existing.text += event.delta
-        } else {
-          pendingDelta.subAgentDelta.set(key, { instanceId: event.instanceId, text: event.delta })
-        }
-        scheduleDeltaFlush()
-        break
-      }
-      const existing = pendingDelta.messageDelta.get(sessionKey)
-      if (existing) {
-        existing.text += event.delta
-        if (event.messageId) existing.messageId = event.messageId
+        enqueuePendingDelta(
+          { kind: 'sub_agent_text', sessionKey, instanceId: event.instanceId },
+          event.delta,
+        )
       } else {
-        pendingDelta.messageDelta.set(sessionKey, { messageId: event.messageId, text: event.delta })
+        enqueuePendingDelta(
+          { kind: 'main_text', sessionKey, messageId: event.messageId },
+          event.delta,
+        )
       }
       scheduleDeltaFlush()
       break
@@ -495,6 +644,9 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           msgs[idx] = {
             ...last,
             content: mergedContent,
+            parts: finalizeAssistantParts(
+              partsWithLlmErrorIfNeeded(last.parts, err, finalContent[0]?.text),
+            ),
             isStreaming: keepStreaming,
             usage: event.usage,
             ...(streamMetrics ? { streamMetrics } : {}),
@@ -586,13 +738,14 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         msgs[targetIdx] = {
           ...last,
           content: mergedContent,
+          parts: finalizeAssistantParts(
+            partsWithLlmErrorIfNeeded(last.parts, err, finalContent[0]?.text),
+          ),
           isStreaming: keepStreamingMain,
           usage: event.usage,
           ...(streamMetrics ? { streamMetrics } : {}),
           ...(llmErrorBlock ? { llmError: llmErrorBlock } : {}),
           ...(injected ? { injectedMemories: injected } : {}),
-          // thinkingText 由 agent:thinking:end（先于此事件处理）负责追加，此处不再重复设置，
-          // 避免多轮 think 时第二轮覆盖掉前几轮已累积的内容
         }
         debugLog('[AgentRuntime] message:end updated:', {
           id: msgs[targetIdx]!.id,
@@ -621,36 +774,53 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
     }
 
     case 'agent:thinking:delta': {
-      const existing = pendingDelta.thinkingDelta.get(sessionKey)
-      pendingDelta.thinkingDelta.set(sessionKey, (existing ?? '') + event.delta)
+      const instanceId =
+        isSubAgentStreamEvent(event) && event.instanceId ? event.instanceId : undefined
+      enqueuePendingDelta(
+        {
+          kind: 'thinking',
+          sessionKey,
+          ...(instanceId ? { instanceId } : {}),
+        },
+        event.delta,
+      )
       scheduleDeltaFlush()
       break
     }
 
     case 'agent:thinking:end': {
       flushPendingDeltas()
+      const isSubAgentThinking = isSubAgentStreamEvent(event) && Boolean(event.instanceId)
       updateSessionState(sessionKey, (prev) => {
         const msgs = [...prev.messages]
-        const lastIdx = msgs.length - 1
-        if (lastIdx >= 0 && msgs[lastIdx]!.role === 'assistant') {
-          const existing = msgs[lastIdx]!.thinkingText
-          msgs[lastIdx] = {
-            ...msgs[lastIdx]!,
-            // 多轮工具调用时每轮都有 thinking，追加而不是覆盖
-            thinkingText: existing ? existing + '\n\n' + event.thinkingText : event.thinkingText,
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const message = msgs[i]!
+          if (message.role !== 'assistant') continue
+          if (isSubAgentThinking && message.sourceAgent?.instanceId !== event.instanceId) continue
+          if (!isSubAgentThinking && message.sourceAgent) continue
+          msgs[i] = {
+            ...message,
+            parts: applyRuntimeAssistantPartEvent(message.parts, { kind: 'thinking_end' }),
           }
+          break
         }
         return {
           ...prev,
           messages: msgs,
-          isThinking: false,
-          currentThinkingText: '',
+          ...(isSubAgentThinking
+            ? {}
+            : {
+                isThinking: false,
+                currentThinkingText: '',
+              }),
         }
       })
       break
     }
 
     case 'agent:tool:start': {
+      // 工具事件是时间线边界，先提交前序 delta，避免批处理改变 part 顺序。
+      flushPendingDeltas()
       if ('instanceId' in event && event.instanceId && hasSubAgentMsgId(sessionKey, event.instanceId)) {
         updateSessionState(sessionKey, (prev) => {
           const msgs = [...prev.messages]
@@ -658,7 +828,9 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           if (idx < 0) return prev
           const msg = msgs[idx]!
           // 防重复：同一 toolCallId 已存在则跳过
-          if (msg.toolCalls.some((tc) => tc.id === event.toolCallId)) return prev
+          if (msg.parts.some((part) => part.type === 'tool' && part.id === event.toolCallId)) {
+            return prev
+          }
           // 优先使用事件携带的权威位置（主进程注入，已剥离 thinking 内容）；
           // 仅在未提供时回退到当前消息文本长度估算
           const textLen = event.textPositionAtStart ?? msg.content[0]?.text?.length ?? 0
@@ -673,7 +845,13 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           }
           msgs[idx] = {
             ...msg,
-            toolCalls: [...msg.toolCalls, newTool],
+            parts: applyRuntimeAssistantPartEvent(msg.parts, {
+              kind: 'tool_start',
+              id: event.toolCallId,
+              name: event.toolName,
+              args: event.args,
+              ...(msg.sourceAgent ? { meta: { sourceAgent: msg.sourceAgent } } : {}),
+            }),
           }
           return { ...prev, messages: msgs, currentTool: newTool }
         })
@@ -693,8 +871,8 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         }
         const targetMsg = targetIdx >= 0 ? msgs[targetIdx] : null
         // 防重复：同一 toolCallId 已存在则只更新 currentTool
-        if (targetMsg && targetMsg.toolCalls.some((tc) => tc.id === event.toolCallId)) {
-          return { ...prev, currentTool: targetMsg.toolCalls.find((tc) => tc.id === event.toolCallId) ?? prev.currentTool }
+        if (targetMsg?.parts.some((part) => part.type === 'tool' && part.id === event.toolCallId)) {
+          return prev
         }
         // 优先使用事件携带的权威位置（主进程注入，已剥离 thinking 内容）；
         // 仅在未提供时回退到当前消息文本长度估算
@@ -711,7 +889,12 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         if (targetMsg) {
           msgs[targetIdx] = {
             ...targetMsg,
-            toolCalls: [...targetMsg.toolCalls, newTool],
+            parts: applyRuntimeAssistantPartEvent(targetMsg.parts, {
+              kind: 'tool_start',
+              id: event.toolCallId,
+              name: event.toolName,
+              args: event.args,
+            }),
           }
           return { ...prev, messages: msgs, currentTool: newTool }
         }
@@ -734,86 +917,46 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
     }
 
     case 'agent:tool:end': {
-      // 从 result 中提取错误信息
-      const extractErrorMessage = (result: unknown): string | undefined => {
-        if (!event.isError) return undefined
-        if (typeof result === 'string') return result
-        if (result && typeof result === 'object') {
-          const r = result as Record<string, unknown>
-          if (typeof r.message === 'string') return r.message
-          if (typeof r.error === 'string') return r.error
-          if (r.error && typeof r.error === 'object' && typeof (r.error as Record<string, unknown>).message === 'string') {
-            return (r.error as Record<string, unknown>).message as string
-          }
-        }
-        return '工具执行失败'
-      }
-      const errorMessage = extractErrorMessage(event.result)
+      // 工具完成同样是时间线边界，先提交前序文字增量。
+      flushPendingDeltas()
       // 调试：记录工具结果
       const resultPreview = event.result == null
         ? 'null'
         : typeof event.result === 'object'
           ? JSON.stringify(event.result).slice(0, 300)
           : String(event.result).slice(0, 300)
-      console.log(`[AgentRuntime] tool:end toolName=${event.toolName} isError=${event.isError} resultPreview=${resultPreview}`)
+      debugLog(`[AgentRuntime] tool:end toolName=${event.toolName} isError=${event.isError} resultPreview=${resultPreview}`)
 
-      if ('instanceId' in event && event.instanceId && hasSubAgentMsgId(sessionKey, event.instanceId)) {
-        updateSessionState(sessionKey, (prev) => {
-          const msgs = prev.messages.map((msg): RuntimeMessage => {
-            if (msg.role !== 'assistant') return msg
-            if (msg.sourceAgent?.instanceId !== event.instanceId) return msg
-            const runningTool = msg.toolCalls.find((tc) => tc.id === event.toolCallId)
-            if (!runningTool) return msg
-            const completedTool: RuntimeToolCall = {
+      const isSubAgentTool =
+        'instanceId' in event &&
+        Boolean(event.instanceId) &&
+        hasSubAgentMsgId(sessionKey, event.instanceId!)
+      updateSessionState(sessionKey, (prev) => {
+        const msgs = [...prev.messages]
+        let targetIdx = -1
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const message = msgs[i]!
+          if (message.role !== 'assistant') continue
+          if (isSubAgentTool && message.sourceAgent?.instanceId !== event.instanceId) continue
+          if (!isSubAgentTool && message.sourceAgent) continue
+          if (message.parts.some((part) => part.type === 'tool' && part.id === event.toolCallId)) {
+            targetIdx = i
+            break
+          }
+        }
+        if (targetIdx >= 0) {
+          const message = msgs[targetIdx]!
+          msgs[targetIdx] = {
+            ...message,
+            parts: applyRuntimeAssistantPartEvent(message.parts, {
+              kind: 'tool_end',
               id: event.toolCallId,
               name: event.toolName,
-              args: runningTool.args ?? prev.currentTool?.args ?? {},
-              status: event.isError ? 'error' : 'completed',
               result: event.result,
               isError: event.isError,
-              error: errorMessage,
-              durationMs: event.durationMs,
-              startMs: runningTool.startMs,
-              endMs: Date.now(),
-              textPositionAtStart: runningTool.textPositionAtStart,
-            }
-            return {
-              ...msg,
-              toolCalls: msg.toolCalls.map((tc) =>
-                tc.id === event.toolCallId ? completedTool : tc,
-              ),
-            }
-          })
-          return { ...prev, messages: msgs, currentTool: null }
-        })
-        break
-      }
-      updateSessionState(sessionKey, (prev) => {
-        const msgs = prev.messages.map((msg): RuntimeMessage => {
-          if (msg.role !== 'assistant') return msg
-          const runningTool = msg.toolCalls.find((tc) => tc.id === event.toolCallId)
-          if (!runningTool) return msg
-          // 保留 textPositionAtStart，使工具完成后仍能在正确位置渲染
-          const completedTool: RuntimeToolCall = {
-            id: event.toolCallId,
-            name: event.toolName,
-            args: runningTool.args ?? prev.currentTool?.args ?? {},
-            status: event.isError ? 'error' : 'completed',
-            result: event.result,
-            isError: event.isError,
-            error: errorMessage,
-            durationMs: event.durationMs,
-            startMs: runningTool.startMs,
-            endMs: Date.now(),
-            textPositionAtStart: runningTool.textPositionAtStart,
+            }),
           }
-          return {
-            ...msg,
-            toolCalls: msg.toolCalls.map((tc) =>
-              tc.id === event.toolCallId ? completedTool : tc,
-            ),
-          }
-        })
+        }
         return { ...prev, messages: msgs, currentTool: null }
       })
       // 检测 task_complete 工具调用，设置任务完成状态
@@ -904,6 +1047,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
               id: `loop-interrupt-${Date.now()}`,
               role: 'system',
               content: [{ type: 'text', text: '⚠️ 检测到工具调用循环，已自动中止。请重新描述你的需求，或提供更多信息。' }],
+              parts: [],
               timestamp: Date.now(),
               isStreaming: false,
               toolCalls: [],
@@ -929,12 +1073,43 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       break
     }
 
+    case 'agent:turn:file-changes': {
+      if (event.fileChanges.length === 0) break
+      updateSessionState(sessionKey, (prev) => {
+        let targetIdx = prev.messages.findIndex(
+          (message) => message.id === event.messageId && message.role === 'assistant',
+        )
+        if (targetIdx < 0) {
+          for (let i = prev.messages.length - 1; i >= 0; i--) {
+            const message = prev.messages[i]!
+            if (message.role === 'assistant' && !message.sourceAgent && message.turnId === event.runId) {
+              targetIdx = i
+              break
+            }
+          }
+        }
+        if (targetIdx < 0) {
+          debugLog('[AgentRuntime] file-changes 未找到目标消息:', event.messageId)
+          return prev
+        }
+        const messages = [...prev.messages]
+        messages[targetIdx] = {
+          ...messages[targetIdx]!,
+          fileChanges: [...event.fileChanges],
+        }
+        return { ...prev, messages }
+      })
+      break
+    }
+
     case 'agent:idle': {
+      flushPendingDeltas()
       // 子 Agent 空闲不重置主 Agent 全局状态
       if (isSubAgentStreamEvent(event)) break
       // idle 是 turn:end 之后的收尾事件，此时映射已由 turn:end 清理，无需重复清理
       updateSessionState(sessionKey, (prev) => ({
         ...prev,
+        messages: finalizeStreamingAssistantMessages(prev.messages, true),
         activeRunId: null,
         isStreaming: false,
         isThinking: false,
@@ -944,10 +1119,12 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
     }
 
     case 'agent:error': {
+      flushPendingDeltas()
       // 错误路径：turn:end 不会到来，需在此清理映射
       unregisterRunSession(event.runId)
       updateSessionState(sessionKey, (prev) => ({
         ...prev,
+        messages: finalizeStreamingAssistantMessages(prev.messages, true),
         error: {
           code: event.errorCode,
           message: event.errorMessage,
@@ -979,10 +1156,12 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
     }
 
     case 'agent:abort': {
+      flushPendingDeltas()
       // 中止路径：turn:end 不会到来，需在此清理映射
       unregisterRunSession(event.runId)
       updateSessionState(sessionKey, (prev) => ({
         ...prev,
+        messages: finalizeStreamingAssistantMessages(prev.messages, true),
         activeRunId: null,
         isStreaming: false,
         isThinking: false,
@@ -1066,6 +1245,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
               id: event.message.id,
               role: event.message.role,
               content: event.message.content,
+              parts: [],
               timestamp: event.message.timestamp,
               isStreaming: false,
               ...(event.message.isVoice ? { isVoice: true } : {}),

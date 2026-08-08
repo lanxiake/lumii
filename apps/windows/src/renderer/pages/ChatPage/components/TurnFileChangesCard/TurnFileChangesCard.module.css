@@ -1,0 +1,169 @@
+/* 回合文件净变更卡片（气泡底部，仅新增/修改/删除，无上传无行数） */
+
+.card {
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--mt-border-hairline, rgba(0, 0, 0, 0.08));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mt-bg-primary, #fff) 88%, transparent);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  min-height: 32px;
+}
+
+.headerTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mt-fg-3, #6b7280);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.review {
+  border: none;
+  background: transparent;
+  padding: 2px 6px;
+  font-size: 12px;
+  color: var(--mt-fg-3, #6b7280);
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
+.review:hover {
+  color: var(--mt-fg-1, #111);
+  background: var(--mt-surface-2, rgba(0, 0, 0, 0.04));
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  padding: 0 4px 6px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mt-fg-1, #111);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--mt-surface-2, rgba(0, 0, 0, 0.04));
+}
+
+/* 左侧状态短标：A / M / D */
+.statusBadge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  line-height: 1;
+  color: #fff;
+}
+
+.statusBadge--added {
+  background: #16a34a;
+}
+
+.statusBadge--modified {
+  background: #d97706;
+}
+
+.statusBadge--deleted {
+  background: #dc2626;
+}
+
+/* 扩展名徽章 */
+.extBadge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  line-height: 1;
+  color: #fff;
+  background: #6b7280;
+}
+
+.extBadge--ts {
+  background: #3178c6;
+}
+
+.extBadge--js {
+  background: #ca8a04;
+  color: #111;
+}
+
+.extBadge--css {
+  background: #7c3aed;
+}
+
+.extBadge--md {
+  background: #64748b;
+}
+
+.extBadge--json {
+  background: #4b5563;
+}
+
+.extBadge--img {
+  background: #059669;
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mt-fg-1, #1f2937);
+}
+
+/* 右侧中文状态标签 */
+.statusLabel {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.statusLabel--added {
+  color: #16a34a;
+}
+
+.statusLabel--modified {
+  color: #d97706;
+}
+
+.statusLabel--deleted {
+  color: #dc2626;
+}

@@ -1450,3 +1450,18 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   background-color: var(--mt-accent-500);
   color: #fff;
 }
+
+/* parts 时间线：thinking / text / tool 交错块间距 */
+.parts-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2, 8px);
+}
+
+.part-block {
+  width: 100%;
+}
+
+.parts-timeline .message-text {
+  margin-bottom: 0;
+}

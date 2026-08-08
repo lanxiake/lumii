@@ -6,6 +6,7 @@
  *
  * 设计依据: .qoder/design/client-agent-runtime/08-前端渲染与IPC通讯.md §2.1
  */
+import type { FileChangeEntry } from '@mtbot/agent-runtime'
 
 // ============================================================
 // 共享数据结构
@@ -172,6 +173,15 @@ export interface AgentTurnEndEvent {
   readonly durationMs: number
   /** 循环检测触发硬打断时为 true，UI 应展示提示 */
   readonly loopInterrupted?: true
+}
+
+/** 一轮 Agent 执行完成后检测到的工作区净文件变更。 */
+export interface AgentTurnFileChangesEvent {
+  readonly type: 'agent:turn:file-changes'
+  readonly runId: string
+  readonly sessionKey: string
+  readonly messageId: string
+  readonly fileChanges: readonly FileChangeEntry[]
 }
 
 // ============================================================
@@ -461,6 +471,7 @@ export type AgentRuntimeEvent =
   | (AgentToolEndEvent & AgentEventInstanceMeta)
   | (AgentTurnStartEvent & AgentEventInstanceMeta)
   | (AgentTurnEndEvent & AgentEventInstanceMeta)
+  | (AgentTurnFileChangesEvent & AgentEventInstanceMeta)
   | (AgentIdleEvent & AgentEventInstanceMeta)
   | (AgentErrorEvent & AgentEventInstanceMeta)
   | (AgentAbortEvent & AgentEventInstanceMeta)

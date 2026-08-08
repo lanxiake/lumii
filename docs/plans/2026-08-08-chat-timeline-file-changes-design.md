@@ -2,8 +2,9 @@
 
 > 日期：2026-08-08  
 > 范围：Chat 气泡内助手消息渲染（思考 / 工具 / 正文交错）+ 本轮文件净变更卡片  
-> 状态：设计已确认；实施计划见 `2026-08-08-chat-timeline-file-changes-implementation.md`  
-> 参考：Cursor Agent 面板的时间线与 Files Changed 收尾卡
+> 状态：已实施完成（Task 1–9）；实施计划见 `2026-08-08-chat-timeline-file-changes-implementation.md`  
+> 参考：Cursor Agent 面板的时间线与 Files Changed 收尾卡  
+> 数据迁移：不做旧 assistant `text+thinkingText+toolCalls` 兼容；升级/切换分支前需清空 `~/.lumii` 会话 DB（`LUMII_CLIENT_DATA_DIR` 可覆盖根目录）
 
 ## 目标
 

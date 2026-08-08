@@ -12,6 +12,7 @@ import {
   type AgentRegistry,
   type AgentRuntimeFeatureFlags,
   type ConversationRepo,
+  type FileChangeEntry,
   type ModelRouter,
   type SkillActivationHint,
   type SkillInfo,
@@ -20,10 +21,11 @@ import {
   estimateTokenCount,
   microcompactToolResults,
   DEFAULT_COMPACTION_TRIGGER_RATIO,
+  diffTurnSnapshots,
 } from '@mtbot/agent-runtime'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
 import type { AgentRuntimeBridgeConfig } from './bridge'
-import type { InstanceStateStore } from './bridge-instance-state'
+import type { InstanceState, InstanceStateStore } from './bridge-instance-state'
 import type { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
 import type { BridgePromptComposer } from './bridge-prompt-composer'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
@@ -38,6 +40,7 @@ import { toRouterResultLite, type RouterAgentInfo, type RouterSkillInfo } from '
 import { summarizeRecentTurns } from './router/recent-turns-summarizer'
 import { classifyImageModel, IMAGE_MODEL_SIMPLE } from './image-intent-classifier'
 import type { RouterLlmCaller } from './router/llm-caller'
+import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
 
 export type WeixinCtxValue = {
   channelUserId: string
@@ -151,6 +154,38 @@ export class BridgePromptDispatcher {
   /** 标记本轮已通过 message 工具发送微信消息（供 ToolRegistrar 调用） */
   markWeixinMessageSentViaTool(): void {
     this.weixinMessageSentViaTool = true
+  }
+
+  /**
+   * 捕获直接生图轮次的工作区起点；失败时不阻断生图。
+   */
+  private async captureDirectImageTurnStart(state: InstanceState | undefined): Promise<void> {
+    if (!state) return
+    try {
+      state.turnSnapshotStart = await captureWorkspaceTurnSnapshot(this.deps.config.getCwd())
+    } catch (err) {
+      state.turnSnapshotStart = undefined
+      log.warn(`[turn-snapshot] direct image start failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  /**
+   * 完成直接生图轮次快照并返回净变更，同时确保起点不会污染下一轮。
+   */
+  private async finishDirectImageTurnSnapshot(
+    state: InstanceState | undefined,
+  ): Promise<FileChangeEntry[] | undefined> {
+    const turnSnapshotStart = state?.turnSnapshotStart
+    if (state) state.turnSnapshotStart = undefined
+    if (!turnSnapshotStart) return undefined
+
+    try {
+      const turnSnapshotEnd = await captureWorkspaceTurnSnapshot(this.deps.config.getCwd())
+      return diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd)
+    } catch (err) {
+      log.warn(`[turn-snapshot] direct image end failed: ${err instanceof Error ? err.message : String(err)}`)
+      return undefined
+    }
   }
 
   /**
@@ -326,6 +361,7 @@ export class BridgePromptDispatcher {
     log.info(`[prompt] modelId=${currentModelId ?? '(default)'}, isImageGenerationModel=${isImageGenerationModel}`)
 
     if (isImageGenerationModel) {
+      await this.captureDirectImageTurnStart(state)
       // 意图分级：用户停留在通用生图入口（gpt-image-2）时，按需求复杂度自动选择
       //   简单/快速 → gpt-image-2；复杂/高清 → gpt-image-2-vip。
       // 用户若已显式选了 pro 或其它生图模型，则尊重其选择，不再自动改写。
@@ -382,6 +418,43 @@ export class BridgePromptDispatcher {
           signal: imgAbort.signal,
         })
         const durationMs = Date.now() - startMs
+        const fileChanges = await this.finishDirectImageTurnSnapshot(state)
+        const assistantText = `图片已生成：${result.filePath}（${result.width}×${result.height}，模型：${result.model}）`
+        let persistedMessageId: string | undefined
+
+        if (imgSessionKey && conversationRepo) {
+          try {
+            const row = conversationRepo.saveMessage({
+              conversationId: imgSessionKey,
+              role: 'assistant',
+              contentJson: {
+                type: 'assistant_parts',
+                parts: [{
+                  type: 'text',
+                  id: `text-${runId}`,
+                  text: assistantText,
+                  status: 'done',
+                }],
+                ...(fileChanges ? { fileChanges } : {}),
+              },
+            })
+            persistedMessageId = row.id
+          } catch (err) {
+            log.error(`[prompt] 直接生图 assistant 消息持久化失败:`, err)
+          }
+        }
+
+        if (fileChanges && persistedMessageId) {
+          this.deps.ipcChannel.forwardIpcEvent({
+            type: 'agent:turn:file-changes',
+            runId,
+            sessionKey: imgSessionKey,
+            messageId: persistedMessageId,
+            fileChanges,
+            instanceId,
+            rootSessionKey: rootSessionKey ?? imgSessionKey,
+          })
+        }
 
         // 发送工具调用结束事件
         this.deps.ipcChannel.forwardIpcEvent({
@@ -409,7 +482,6 @@ export class BridgePromptDispatcher {
 
         // 把结果注入 Agent 历史，确保下次对话有上下文
         try {
-          const assistantText = `图片已生成：${result.filePath}（${result.width}×${result.height}，模型：${result.model}）`
           instance.appendMessage({ role: 'assistant', content: [{ type: 'text', text: assistantText }] } as any)
         } catch (e) {
           log.warn(`[prompt] 注入 assistant 消息失败: ${e instanceof Error ? e.message : String(e)}`)
@@ -456,6 +528,9 @@ export class BridgePromptDispatcher {
         })
         this.deps.ipcChannel.forwardIpcEvent({ type: 'agent:idle', runId, sessionKey: imgSessionKey })
       } finally {
+        if (state?.turnSnapshotStart) {
+          await this.finishDirectImageTurnSnapshot(state)
+        }
         // 仅当某键仍指向自己时清理，避免误删后续轮次注册的控制器
         for (const k of abortKeys) {
           if (this.directImageAborts.get(k) === imgAbort) {
@@ -476,7 +551,17 @@ export class BridgePromptDispatcher {
           return
         }
       }
-      await instance.prompt(message, await this.deps.instanceFactory.buildImageContents(imageAttachmentPaths))
+      const imageContents = await this.deps.instanceFactory.buildImageContents(imageAttachmentPaths)
+      // 在 Agent 真正处理提示词前记录工作区起点；失败时不生成伪造的文件变更。
+      if (state) {
+        try {
+          state.turnSnapshotStart = await captureWorkspaceTurnSnapshot(this.deps.config.getCwd())
+        } catch (err) {
+          state.turnSnapshotStart = undefined
+          log.warn(`[turn-snapshot] start failed: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+      await instance.prompt(message, imageContents)
       log.info(`[prompt] completed: instanceId=${instanceId}`)
       this.deps.instanceStates.get(instanceId)?.skillHitRateTracker?.flush(instanceId)
     } catch (err) {

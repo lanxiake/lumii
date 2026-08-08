@@ -41,7 +41,6 @@ export interface BridgeLifecycleDeps {
   ipcChannel: BridgeRendererIpcChannel
   getCronScheduler: () => CronScheduler | undefined
   getDefinitionStore: () => AgentDefinitionStore | null
-  toolTextPositionMap: Map<string, number>
   toolStartTimeMap: Map<string, number>
   toolCallInstanceMap: Map<string, string>
   nodeStreamCallbacks: Map<string, (event: AgentRuntimeEvent) => void>
@@ -100,7 +99,6 @@ export class BridgeLifecycle {
     this.deps.instanceToConversation.delete(instanceId)
     this.deps.agentRegistry.destroy(instanceId)
     this.deps.instanceStates.delete(instanceId)
-    this.clearPrefixedMapEntries(this.deps.toolTextPositionMap as Map<string, unknown>, instanceId)
     this.clearPrefixedMapEntries(this.deps.toolStartTimeMap as Map<string, unknown>, instanceId)
     for (const [key, val] of this.deps.toolCallInstanceMap) {
       if (val === instanceId) this.deps.toolCallInstanceMap.delete(key)
