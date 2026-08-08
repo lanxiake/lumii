@@ -472,6 +472,7 @@ export class BridgeInstanceFactory {
       setCurrentToolExecutorInstanceId: (id) => {
         this.deps.currentToolExecutorInstanceId.value = id
       },
+      getCwd: this.deps.config.getCwd,
       onConversationEnd: this.deps.config.onConversationEnd,
       onAssistantMessagePersisted: ({ conversationId, runId }) => {
         const cwd = this.deps.config.getCwd()

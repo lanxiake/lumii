@@ -38,6 +38,7 @@ import { toRouterResultLite, type RouterAgentInfo, type RouterSkillInfo } from '
 import { summarizeRecentTurns } from './router/recent-turns-summarizer'
 import { classifyImageModel, IMAGE_MODEL_SIMPLE } from './image-intent-classifier'
 import type { RouterLlmCaller } from './router/llm-caller'
+import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
 
 export type WeixinCtxValue = {
   channelUserId: string
@@ -476,7 +477,17 @@ export class BridgePromptDispatcher {
           return
         }
       }
-      await instance.prompt(message, await this.deps.instanceFactory.buildImageContents(imageAttachmentPaths))
+      const imageContents = await this.deps.instanceFactory.buildImageContents(imageAttachmentPaths)
+      // 在 Agent 真正处理提示词前记录工作区起点；失败时不生成伪造的文件变更。
+      if (state) {
+        try {
+          state.turnSnapshotStart = await captureWorkspaceTurnSnapshot(this.deps.config.getCwd())
+        } catch (err) {
+          state.turnSnapshotStart = undefined
+          log.warn(`[turn-snapshot] start failed: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+      await instance.prompt(message, imageContents)
       log.info(`[prompt] completed: instanceId=${instanceId}`)
       this.deps.instanceStates.get(instanceId)?.skillHitRateTracker?.flush(instanceId)
     } catch (err) {

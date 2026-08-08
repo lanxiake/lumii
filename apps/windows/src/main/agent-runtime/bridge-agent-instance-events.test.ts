@@ -1,8 +1,14 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import type { AssistantPart } from "@mtbot/agent-runtime";
 import { createRunContext } from "./event-converter";
-import { createInstanceState } from "./bridge-instance-state";
-import { createAssistantPartsContent } from "./bridge-agent-instance-events";
+import { createInstanceState, InstanceStateStore } from "./bridge-instance-state";
+import {
+  createAgentInstanceRuntimeEventHandler,
+  createAssistantPartsContent,
+} from "./bridge-agent-instance-events";
 
 describe("assistant parts bridge persistence", () => {
   it("实例状态只以 pendingParts 保存助手轮次内容", () => {
@@ -42,6 +48,7 @@ describe("assistant parts bridge persistence", () => {
       createAssistantPartsContent(parts, {
         usage: { inputTokens: 10, outputTokens: 4 },
         sourceAgent: { instanceId: "child-1", label: "子 Agent" },
+        fileChanges: [{ path: "src/index.ts", status: "modified" }],
       }),
     ).toEqual({
       type: "assistant_parts",
@@ -60,6 +67,7 @@ describe("assistant parts bridge persistence", () => {
       ],
       usage: { inputTokens: 10, outputTokens: 4 },
       sourceAgent: { instanceId: "child-1", label: "子 Agent" },
+      fileChanges: [{ path: "src/index.ts", status: "modified" }],
     });
   });
 
@@ -143,5 +151,107 @@ describe("assistant parts bridge persistence", () => {
     expect(createAssistantPartsContent(parts).parts).toEqual([
       { type: "text", id: "text-1", text: "\n\n  缩进正文", status: "done" },
     ]);
+  });
+
+  it("agent:end 将工作区净变更写入消息并转发事件", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-turn-snapshot-"));
+    fs.writeFileSync(path.join(workspaceDir, "tracked.txt"), "new content");
+
+    try {
+      const ctx = createRunContext("session", "instance", "session");
+      const instanceStates = new InstanceStateStore();
+      const state = createInstanceState(ctx, {
+        definitionId: "agent",
+        runningStartedAt: null,
+        completedTurns: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      });
+      state.pendingParts = [
+        { type: "text", id: "text-1", text: "完成", status: "done" },
+      ];
+      state.streamingAssistantMsgId = "message-1";
+      state.turnSnapshotStart = new Map([["tracked.txt", "old-hash"]]);
+      instanceStates.set("instance", state);
+
+      const updateMessageContent = vi.fn();
+      const forwardIpcEvent = vi.fn();
+      let activeWorkspaceDir = workspaceDir;
+      const handler = createAgentInstanceRuntimeEventHandler({
+        instanceId: "instance",
+        ctx,
+        ipcChannel: {
+          forwardIpcEvent,
+          forwardToRenderer: vi.fn(),
+        } as never,
+        conversationRepo: {
+          updateMessageContent,
+        } as never,
+        fileRepo: null,
+        fileMemoryHandler: {} as never,
+        instanceStates,
+        instanceToConversation: new Map([["instance", "conversation-1"]]),
+        toolCallInstanceMap: new Map(),
+        toolTextPositionMap: new Map(),
+        toolStartTimeMap: new Map(),
+        nodeStreamCallbacks: new Map(),
+        getCompactionForRootSession: () => ({
+          contextWindow: 128_000,
+          outputReserveTokens: 8_000,
+          summaryReserveTokens: 4_000,
+        }),
+        getSessionContextUsage: () => ({
+          usedTokens: 0,
+          contextWindow: 128_000,
+          triggerThreshold: 102_400,
+        }),
+        setSessionProviderInputTokens: vi.fn(),
+        clearSessionProviderInputTokens: vi.fn(),
+        setCurrentToolExecutorInstanceId: vi.fn(),
+        getCwd: () => activeWorkspaceDir,
+      });
+
+      await handler({ type: "agent:end" } as never);
+
+      expect(updateMessageContent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          messageId: "message-1",
+          contentJson: expect.objectContaining({
+            fileChanges: [{ path: "tracked.txt", status: "modified" }],
+          }),
+        }),
+      );
+      expect(forwardIpcEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "agent:turn:file-changes",
+          messageId: "message-1",
+          fileChanges: [{ path: "tracked.txt", status: "modified" }],
+        }),
+      );
+      expect(state.turnSnapshotStart).toBeUndefined();
+
+      updateMessageContent.mockClear();
+      forwardIpcEvent.mockClear();
+      state.pendingParts = [
+        { type: "text", id: "text-2", text: "失败降级", status: "done" },
+      ];
+      state.streamingAssistantMsgId = "message-2";
+      state.turnSnapshotStart = new Map([["tracked.txt", "old-hash"]]);
+      activeWorkspaceDir = path.join(workspaceDir, "missing");
+
+      await handler({ type: "agent:end" } as never);
+
+      expect(updateMessageContent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contentJson: expect.not.objectContaining({ fileChanges: expect.anything() }),
+        }),
+      );
+      expect(forwardIpcEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "agent:turn:file-changes" }),
+      );
+      expect(state.turnSnapshotStart).toBeUndefined();
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
   });
 });

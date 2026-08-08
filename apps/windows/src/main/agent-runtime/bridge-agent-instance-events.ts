@@ -8,10 +8,12 @@ import type {
   AssistantPart,
   AssistantPartsContent,
   ConversationRepo,
+  FileChangeEntry,
   FileRepo,
 } from '@mtbot/agent-runtime'
 import {
   applyAssistantPartEvent,
+  diffTurnSnapshots,
   finalizeAssistantParts,
   providerPromptTokens,
 } from '@mtbot/agent-runtime'
@@ -24,6 +26,7 @@ import type { InstanceStateStore } from './bridge-instance-state'
 import { agentRuntimeLog as log, parseJsonToolResultPayload } from './bridge-utils'
 import { recordUsage } from '../usage-store'
 import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
+import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
 
 /** 单实例运行时累计指标（主进程内部，与 DetailPanel「运行状态」对应） */
 export interface InstanceRuntimeMetrics {
@@ -34,7 +37,7 @@ export interface InstanceRuntimeMetrics {
   outputTokens: number
 }
 
-type AssistantPartsMetadata = Pick<AssistantPartsContent, 'usage' | 'sourceAgent'>
+type AssistantPartsMetadata = Pick<AssistantPartsContent, 'usage' | 'sourceAgent' | 'fileChanges'>
 
 /**
  * 将 parts 收尾为数据库内容，并兼容仅通过原始 <think> 标签提供思考内容的模型。
@@ -80,6 +83,7 @@ export function createAssistantPartsContent(
     parts: finalizedParts,
     ...(metadata.usage ? { usage: metadata.usage } : {}),
     ...(metadata.sourceAgent ? { sourceAgent: metadata.sourceAgent } : {}),
+    ...(metadata.fileChanges ? { fileChanges: metadata.fileChanges } : {}),
   }
 }
 
@@ -184,6 +188,8 @@ export interface BridgeAgentInstanceEventDeps {
   isSubAgent?: boolean
   /** 对话结束后回调（客户端侧记忆记录，fire-and-forget） */
   onConversationEnd?: (convId: string, assistantText: string) => void
+  /** 获取当前工作区目录，用于回合结束快照。 */
+  getCwd: () => string
   /** 每条 assistant 消息持久化完成后回调（用于自动快照等工作） */
   onAssistantMessagePersisted?: (params: { conversationId: string; runId: string }) => void
   /** 技能进化：轮次结束后回调（fire-and-forget） */
@@ -218,6 +224,7 @@ export function createAgentInstanceRuntimeEventHandler(
     agentName,
     isSubAgent,
     onConversationEnd,
+    getCwd,
     onTurnComplete,
     onAssistantMessagePersisted,
   } = deps
@@ -291,7 +298,7 @@ export function createAgentInstanceRuntimeEventHandler(
     streamingPersistTimer = undefined
   }
 
-  return (event: AgentRuntimeEvent) => {
+  return async (event: AgentRuntimeEvent) => {
     if (event.type === 'message:delta') {
       // 首个 delta 即首字节，配对 agent:start 得到 TTFB；后续 delta 无副作用
       markFirstToken(instanceId, ctx.resolvedModelId ?? 'unknown')
@@ -626,10 +633,23 @@ export function createAgentInstanceRuntimeEventHandler(
       const state = instanceStates.get(instanceId)
       const convId = instanceToConversation.get(instanceId)
       const msgId = state?.streamingAssistantMsgId
+      let persistedMessageId = msgId
       const usage = state?.lastAssistantUsage
+      let fileChanges: FileChangeEntry[] | undefined
+      const turnSnapshotStart = state?.turnSnapshotStart
+      if (state) state.turnSnapshotStart = undefined
+      if (turnSnapshotStart) {
+        try {
+          const turnSnapshotEnd = await captureWorkspaceTurnSnapshot(getCwd())
+          fileChanges = diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd)
+        } catch (err) {
+          log.warn(`[turn-snapshot] end failed: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
       const contentJson = createAssistantPartsContent(state?.pendingParts ?? [], {
         usage,
         sourceAgent: sourceAgentInfo,
+        fileChanges,
       })
       const text = assistantTextFromParts(contentJson.parts)
       const toolParts = contentJson.parts.filter(
@@ -650,6 +670,7 @@ export function createAgentInstanceRuntimeEventHandler(
               isStreaming: false,
             })
             if (state) state.streamingAssistantMsgId = row.id
+            persistedMessageId = row.id
           } else {
             conversationRepo.updateMessageContent({
               messageId: msgId,
@@ -669,11 +690,12 @@ export function createAgentInstanceRuntimeEventHandler(
           log.info(`[event] agent:end 跳过持久化：对话已不存在 conversationId=${convId}`)
         } else {
           try {
-            conversationRepo?.saveMessage({
+            const row = conversationRepo?.saveMessage({
               conversationId: convId,
               role: 'assistant',
               contentJson,
             })
+            persistedMessageId = row?.id
             log.info(
               `[event] 持久化 AI 回复（无流式占位） conversationId=${convId}, len=${text.length}, tools=${toolParts.length}, thinkingLen=${thinkingLength}`,
             )
@@ -727,6 +749,18 @@ export function createAgentInstanceRuntimeEventHandler(
         }
       } else {
         log.warn(`[event] agent:end 持久化未成功，保留内存数据 instanceId=${instanceId}`)
+      }
+
+      if (persistSuccess && fileChanges && persistedMessageId) {
+        ipcChannel.forwardIpcEvent({
+          type: 'agent:turn:file-changes',
+          runId: ctx.runId,
+          sessionKey: ctx.sessionKey,
+          messageId: persistedMessageId,
+          fileChanges,
+          instanceId: ctx.instanceId,
+          rootSessionKey: ctx.rootSessionKey,
+        })
       }
 
     }
