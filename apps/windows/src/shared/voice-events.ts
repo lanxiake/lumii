@@ -127,11 +127,25 @@ export type VoiceRuntimeStatusEvent = {
   detail?: string
 }
 
+/** TTS 预览音频块（主进程 → 渲染，流式推送） */
+export type VoiceTtsPreviewChunkEvent = {
+  readonly type: 'voice:tts:preview:chunk'
+  /** PCM Float32 采样（sampleRate=-1 时为 Edge MP3 字节） */
+  samples: Float32Array | number[]
+  sampleRate: number
+  chunkIndex: number
+  isFinal: boolean
+  /** 发起该次预览时传入的会话标识，消费端据此过滤（省略=旧行为） */
+  previewId?: string
+}
+
 /** TTS 预览结束（成功或失败），便于 UI 结束「播放中」并展示错误 */
 export type VoiceTtsPreviewEndedEvent = {
   readonly type: 'voice:tts:preview:ended'
   ok: boolean
   message?: string
+  /** 发起该次预览时传入的会话标识 */
+  previewId?: string
 }
 
 export type VoiceErrorEvent = {

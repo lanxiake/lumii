@@ -47,10 +47,17 @@ export interface VoiceCallHookState {
   ttsProvider: 'local-vits' | 'edge'
   /** Edge TTS 音色 ID */
   edgeVoice: string
+  /**
+   * 静默实时朗读是否激活（silent micless 通话进行中）。不驱动 VoiceCallPanel，
+   * 仅供右上角「实时朗读」开关判断按钮态。
+   */
+  readAloudActive: boolean
+  /** 静默实时朗读当前是否正在出声（speaking），供按钮波纹动画 */
+  readAloudSpeaking: boolean
 }
 
 export interface VoiceCallActions {
-  startCall: (sessionKey: string, agentId?: string, opts?: { micless?: boolean }) => Promise<void>
+  startCall: (sessionKey: string, agentId?: string, opts?: { micless?: boolean; persistent?: boolean; silent?: boolean }) => Promise<void>
   stopCall: () => Promise<void>
   getModelsStatus: () => Promise<unknown>
   downloadModel: (modelId: string) => Promise<void>
@@ -81,8 +88,12 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     speakerId: 0,
     ttsProvider: 'edge',
     edgeVoice: 'zh-CN-XiaoxiaoNeural',
+    readAloudActive: false,
+    readAloudSpeaking: false,
   })
 
+  // 静默实时朗读标志：事件处理器据此把状态写入 readAloud* 而非驱动 VoiceCallPanel 的 state
+  const silentRef = useRef(false)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const workletNodeRef = useRef<AudioWorkletNode | null>(null)
   const playbackRef = useRef<AudioPlaybackEngine | null>(null)
@@ -123,6 +134,11 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     const unsubscribe = electronAPI.voice.onEvent((event: any) => {
       switch (event.type) {
         case 'voice:call:state':
+          // 静默实时朗读：不驱动 VoiceCallPanel 的 state，只映射到 readAloudSpeaking 供按钮波纹
+          if (silentRef.current) {
+            setState((s) => ({ ...s, readAloudSpeaking: event.state === 'speaking' }))
+            break
+          }
           if (event.state === 'listening' && event.interrupted) {
             // 用户打断：立即清空播放缓冲并切换状态
             setState((s) => ({ ...s, state: event.state }))

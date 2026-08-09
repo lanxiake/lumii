@@ -390,6 +390,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [runtimeCurrentSessionKey])
   const [voiceCallState, voiceCallActions] = useVoiceCall()
   const conversationReplay = useConversationReplay()
+  // 实时朗读模式：开启后每轮 Agent 回复正常结束时自动朗读最新一条 assistant 消息
+  const [autoReadEnabled, setAutoReadEnabled] = useState(false)
   /**
    * pendingAttachments 存储当前待发附件的元信息：
    * - fileName / filePath / category 来自策略层
@@ -1345,6 +1347,40 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     }
   }, [conversationReplay, localRuntimeSession])
 
+  // 切换实时朗读模式：关闭时若正在朗读则立即停止
+  const handleToggleAutoRead = useCallback(() => {
+    setAutoReadEnabled((prev) => {
+      const next = !prev
+      if (!next && conversationReplay.isReplaying) {
+        conversationReplay.stopReplay()
+      }
+      return next
+    })
+  }, [conversationReplay])
+
+  // 实时朗读：每轮 Agent 正常结束（turnEndAt 边沿变化）时朗读最新一条 assistant 消息。
+  // 用 ref 记录已处理的 turnEndAt，避免重复触发；中止/错误不更新 turnEndAt 故不会误读。
+  const handledAutoReadTurnRef = useRef<number | null>(runtimeLastTurnEndAt ?? null)
+  useEffect(() => {
+    if (!autoReadEnabled) {
+      // 关闭朗读时同步基线，避免重新开启后补读历史轮次
+      handledAutoReadTurnRef.current = runtimeLastTurnEndAt ?? null
+      return
+    }
+    if (runtimeLastTurnEndAt == null) return
+    if (runtimeLastTurnEndAt === handledAutoReadTurnRef.current) return
+    handledAutoReadTurnRef.current = runtimeLastTurnEndAt
+
+    const msgs = localRuntimeSession?.messages ?? []
+    // 找最新一条有内容的 assistant 消息
+    let latest: (typeof msgs)[number] | null = null
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]
+      if (m.role === 'assistant' && m.content) { latest = m; break }
+    }
+    if (latest) conversationReplay.startReplay(latest.id, msgs)
+  }, [autoReadEnabled, runtimeLastTurnEndAt, localRuntimeSession, conversationReplay])
+
   // 处理手动中断 Agent
   const handleAbort = useCallback(async () => {
     await runtimeActions.abort()
@@ -1632,6 +1668,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onFileReferenceAdd={handleFileReferenceAdd}
             onFileReferenceRemove={handleFileReferenceRemove}
             onVoiceCallStart={runtimeCurrentSessionKey ? () => void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id) : undefined}
+            autoReadEnabled={autoReadEnabled}
+            onToggleAutoRead={handleToggleAutoRead}
             onLocateFile={(absolutePath) => {
               setWorkbench({ open: true, tab: 'files' })
               locateTokenRef.current += 1

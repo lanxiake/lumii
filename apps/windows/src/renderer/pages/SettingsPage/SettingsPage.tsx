@@ -110,9 +110,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     updateSystem,
     updateSettings,
     saveSettings,
-    resetSettings,
-    exportSettings,
-    importSettings,
   } = useSettings()
   
   const [internalCategory, setInternalCategory] = useState<MergedSettingsCategory>('general')
@@ -152,7 +149,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   // 开机启动状态
   const [openAtLogin, setOpenAtLogin] = useState(false)
   const [openAtLoginLoading, setOpenAtLoginLoading] = useState(false)
-  const [resetConfirmPending, setResetConfirmPending] = useState(false)
 
   // 语音设置状态
   const [voiceConfig, setVoiceConfig] = useState<{
@@ -198,6 +194,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const previewAudioCtxRef = React.useRef<AudioContext | null>(null)
   const previewGainRef = React.useRef<GainNode | null>(null)
   const previewVolumeRef = React.useRef(1.0)
+  // 当前试听会话标识：只播放本次试听的 chunk，隔离消息朗读等其它来源
+  const previewIdRef = React.useRef<string | null>(null)
 
   // Category-level save hooks (must be at top level, not in render functions)
   const workspaceSave = useCategorySettings({
@@ -395,6 +393,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         return
       }
       if (event.type === 'voice:tts:preview:ended') {
+        // 只响应本次试听；他处（如消息朗读）的结束事件忽略
+        if (previewIdRef.current && event.previewId !== previewIdRef.current) return
         setVoicePreviewing(false)
         if (!event.ok && event.message) {
           setVoiceRuntimeStatus({
@@ -405,6 +405,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         return
       }
       if (event.type !== 'voice:tts:preview:chunk') return
+      // 只播放本次试听的 chunk，丢弃消息朗读等其它来源，避免串流
+      if (previewIdRef.current && event.previewId !== previewIdRef.current) return
       const ctx = previewAudioCtxRef.current
       if (!ctx) return
       if (event.isFinal && (!event.samples || event.samples.length === 0)) {
@@ -526,73 +528,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       toast.error('保存失败')
     }
   }, [settings, toast, updateSystem])
-
-  /**
-   * 清除本地数据（仅清除 localStorage 设置）
-   */
-  const handleClearData = useCallback(() => {
-    localStorage.removeItem('mtbot-assistant-settings')
-    localStorage.removeItem('mtbot_app_settings')
-    window.location.reload()
-  }, [])
-
-  /**
-   * 重置所有数据 - 清除配置文件、认证信息并重启应用
-   * 第一次点击进入确认状态，第二次点击执行重置
-   */
-  const handleResetAll = useCallback(async () => {
-    if (!resetConfirmPending) {
-      setResetConfirmPending(true)
-      return
-    }
-
-    setResetConfirmPending(false)
-    try {
-      // 清除渲染进程 localStorage
-      localStorage.removeItem('mtbot-assistant-settings')
-      localStorage.removeItem('mtbot_app_settings')
-      localStorage.removeItem('mtbot_access_token')
-      localStorage.removeItem('mtbot_refresh_token')
-      localStorage.removeItem('mtbot_user')
-
-      // 通知主进程清除配置文件并重启
-      await window.electronAPI.app.resetAllData()
-    } catch (err) {
-      console.error('[SettingsPage] 重置失败:', err)
-      toast.error(`重置失败: ${err instanceof Error ? err.message : String(err)}`)
-    }
-  }, [resetConfirmPending, toast])
-
-  /**
-   * 导出设置
-   */
-  const handleExport = useCallback(async () => {
-    const json = exportSettings()
-    try {
-      await window.electronAPI.clipboard.writeText(json)
-      toast.success('设置已复制到剪贴板')
-    } catch (err) {
-      console.error('[SettingsPage] 导出设置失败:', err)
-      toast.error('导出失败')
-    }
-  }, [exportSettings, toast])
-
-  /**
-   * 导入设置
-   */
-  const handleImport = useCallback(async () => {
-    try {
-      const json = await window.electronAPI.clipboard.readText()
-      if (importSettings(json)) {
-        toast.success('设置已导入')
-      } else {
-        toast.error('导入失败：无效的设置数据')
-      }
-    } catch (err) {
-      console.error('[SettingsPage] 导入设置失败:', err)
-      toast.error('导入失败')
-    }
-  }, [importSettings, toast])
 
   /**
    * 渲染账户设置
@@ -892,34 +827,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </section>
 
         <section className={styles['panel-card']}>
-          <h4 className={styles['panel-card-title']}>数据管理</h4>
-          <p className={styles['panel-card-desc']}>导出/导入应用设置，或清理本地缓存数据</p>
-          <div className={styles['panel-actions']}>
-            <Button variant="secondary" onClick={handleExport}>导出设置</Button>
-            <Button variant="secondary" onClick={handleImport}>导入设置</Button>
-            <Button variant="danger" onClick={handleClearData}>清除数据</Button>
-          </div>
+          <h4 className={styles['panel-card-title']}>备份与恢复</h4>
+          <p className={styles['panel-card-desc']}>查看本地存储占用，管理数据库备份并按需恢复</p>
           <div className={styles['panel-storage']}>
             <StorageInfo toast={toast} />
-          </div>
-        </section>
-
-        <section className={clsx(styles['panel-card'], styles['panel-card--danger'])}>
-          <h4 className={styles['panel-card-title']}>恢复出厂</h4>
-          <p className={styles['panel-card-desc']}>
-            {resetConfirmPending
-              ? '确认后将清除所有配置、登录状态与缓存，应用会自动重启，且不可恢复。'
-              : '清除全部配置与缓存并重启应用。请谨慎操作。'}
-          </p>
-          <div className={styles['panel-actions']}>
-            {resetConfirmPending ? (
-              <>
-                <Button variant="secondary" onClick={() => setResetConfirmPending(false)}>取消</Button>
-                <Button variant="danger" onClick={handleResetAll}>确认重置</Button>
-              </>
-            ) : (
-              <Button variant="danger" onClick={handleResetAll}>重置并重启</Button>
-            )}
           </div>
         </section>
 
@@ -1682,9 +1593,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         await previewAudioCtxRef.current.resume()
       }
       setVoicePreviewing(true)
+      const previewId = `settings-${Date.now()}`
+      previewIdRef.current = previewId
       const text = voicePreviewText.trim().slice(0, 100) || '你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。'
       await electronAPI.voice
-        .sendCommand({ type: 'voice:tts:preview', text, maxChars: 100 })
+        .sendCommand({ type: 'voice:tts:preview', text, maxChars: 100, previewId })
         .catch(() => setVoicePreviewing(false))
     }
 
@@ -1701,12 +1614,15 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         await previewAudioCtxRef.current.resume()
       }
       setVoicePreviewing(true)
+      const previewId = `settings-clone-${profileId}-${Date.now()}`
+      previewIdRef.current = previewId
       const text = voicePreviewText.trim().slice(0, 100) || '你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。'
       await electronAPI.voice
         .sendCommand({
           type: 'voice:tts:preview',
           text,
           maxChars: 100,
+          previewId,
           override: {
             provider: 'qwen3',
             cloneEnabled: true,

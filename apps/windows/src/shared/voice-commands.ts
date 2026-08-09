@@ -7,6 +7,13 @@ export type VoiceStartCallCommand = {
   readonly type: 'voice:call:start'
   sessionKey: string
   agentId?: string
+  /** 文字回复出声（不采麦），仅做 TTS 播放 */
+  micless?: boolean
+  /**
+   * 持续朗读模式（仅 micless）：一轮 TTS 结束不结束通话，回到等待态朗读下一轮回复。
+   * 用于「实时朗读」开关常驻；省略时为旧行为（一轮即停）。
+   */
+  persistent?: boolean
 }
 
 export type VoiceStopCallCommand = {
@@ -95,6 +102,11 @@ export type VoiceTtsPreviewCommand = {
    * 省略时沿用全局 config，行为与旧版一致。
    */
   override?: VoiceTtsPreviewOverride
+  /**
+   * 可选：本次预览的会话标识。主进程会原样带回 preview:chunk / preview:ended 事件，
+   * 消费端据此只播放自己发起的那次的音频，避免设置页试听与消息朗读互相串流。
+   */
+  previewId?: string
 }
 
 /** 停止 TTS 预览/朗读播放 */

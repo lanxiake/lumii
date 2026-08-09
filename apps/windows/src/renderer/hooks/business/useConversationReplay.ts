@@ -23,6 +23,8 @@ export function useConversationReplay(): ConversationReplayState & ConversationR
   const audioCtxRef = useRef<AudioContext | null>(null)
   const nextPlayTimeRef = useRef<number>(0)
   const abortRef = useRef<boolean>(false)
+  // 当前朗读会话标识：只播放本会话发起的 chunk，隔离设置页试听等其它来源
+  const previewIdRef = useRef<string | null>(null)
 
   // 等待当前消息音频播放完毕的 resolve 函数
   const audioFinishedRef = useRef<(() => void) | null>(null)
@@ -36,6 +38,8 @@ export function useConversationReplay(): ConversationReplayState & ConversationR
       if (!isReplaying) return
 
       if (event.type === 'voice:tts:preview:chunk') {
+        // 只处理本朗读会话的 chunk，丢弃设置页试听等其它来源，避免串流
+        if (previewIdRef.current && event.previewId !== previewIdRef.current) return
         const ctx = audioCtxRef.current
         if (!ctx) return
 
@@ -101,6 +105,7 @@ export function useConversationReplay(): ConversationReplayState & ConversationR
 
   const stopReplay = useCallback(() => {
     abortRef.current = true
+    previewIdRef.current = null
     setIsReplaying(false)
     setReplayMessageId(null)
     audioFinishedRef.current?.()
@@ -143,6 +148,11 @@ export function useConversationReplay(): ConversationReplayState & ConversationR
 
       setReplayMessageId(msg.id)
 
+      // 每条消息一个 previewId，主进程会原样带回 chunk，事件处理据此过滤
+      const previewId = `replay-${msg.id}-${Date.now()}`
+      previewIdRef.current = previewId
+      nextPlayTimeRef.current = audioCtxRef.current?.currentTime ?? 0
+
       // 等待当前消息音频播放完毕
       await new Promise<void>((resolve) => {
         if (abortRef.current) { resolve(); return }
@@ -151,6 +161,7 @@ export function useConversationReplay(): ConversationReplayState & ConversationR
           type: 'voice:tts:preview',
           text: msg.content,
           maxChars: 8000,
+          previewId,
         }).catch(() => {
           resolve()
         })

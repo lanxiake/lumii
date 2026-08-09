@@ -126,8 +126,12 @@ export function registerVoiceIpc(
               models: modelManager.getModelsStatus(),
             }
           }
+          const persistent = (command as { persistent?: boolean }).persistent === true
           return {
-            callId: await voiceService.startCall(command.sessionKey, command.agentId, { micless }),
+            callId: await voiceService.startCall(command.sessionKey, command.agentId, {
+              micless,
+              persistent,
+            }),
           }
         }
 
@@ -319,7 +323,7 @@ export function registerVoiceIpc(
               `[voice:tts:preview] 文本 ${raw.length} 字已截断为 ${maxChars} 字（请提高 maxChars 以朗读全文）`,
             )
           }
-          void voiceService.previewTts(previewText, win, override)
+          void voiceService.previewTts(previewText, win, override, command.previewId)
           return { ok: true }
         }
 
