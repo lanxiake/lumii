@@ -276,8 +276,6 @@ export interface ElectronAPI {
     getOpenAtLogin: () => Promise<boolean>
     /** 设置开机自启 */
     setOpenAtLogin: (enable: boolean) => Promise<boolean>
-    /** 重置所有数据并重启应用 */
-    resetAllData: () => Promise<void>
     /** 开发类 AI 工具（ACP）环境说明与当前解析的工作区 */
     getCodingDevEnvInfo: () => Promise<{
       resolvedWorkspace: string
@@ -1125,7 +1123,6 @@ const electronAPI: ElectronAPI = {
     getPathForFile: (file: File) => webUtils.getPathForFile(file),
     getOpenAtLogin: () => ipcRenderer.invoke('app:getOpenAtLogin'),
     setOpenAtLogin: (enable: boolean) => ipcRenderer.invoke('app:setOpenAtLogin', enable),
-    resetAllData: () => ipcRenderer.invoke('app:resetAllData'),
     getCodingDevEnvInfo: () => ipcRenderer.invoke('app:getCodingDevEnvInfo'),
     detectCodingDevTools: () => ipcRenderer.invoke('app:detectCodingDevTools'),
     installCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:installCodingDevTool', toolId),
