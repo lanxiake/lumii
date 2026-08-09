@@ -118,6 +118,8 @@ def _try_load_faster(model_dir: str, device: str, dtype: Any) -> Any:
         model.warmup(prefill_len=64)
     except Exception as e:
         print(f"[qwen3_tts_sidecar] faster warmup 警告: {e}", file=sys.stderr, flush=True)
+    # 再跑一句真实生成，摊掉首句生成路径成本（prefill 预热不覆盖流式生成图）
+    _warmup_faster_model(model)
     return model
 
 
@@ -233,14 +235,38 @@ def handle_load(params: dict[str, Any]) -> dict[str, Any]:
 
 
 def _warmup_stock_model(model: Any) -> None:
-    """官方模型短句预热"""
+    """官方模型预热：跑一句代表性中文，摊掉首句真实生成路径的 CUDA kernel 编译"""
     import torch
 
     try:
-        model.generate_custom_voice(text="测", language="Chinese", speaker="Vivian")
+        # 用较完整句子而非单字，触发与真实朗读一致的生成图/kernel
+        model.generate_custom_voice(
+            text="你好，这是一段用于预热的中文示例。",
+            language="Chinese",
+            speaker="Vivian",
+        )
     except Exception:
         # Base/克隆模型可能没有 custom voice
         pass
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+
+
+def _warmup_faster_model(model: Any) -> None:
+    """faster 后端：除 prefill 预热外，再跑一句真实 custom_voice 生成，捕获生成路径 CUDA Graph"""
+    import torch
+
+    try:
+        gen = model.generate_custom_voice_streaming(
+            text="你好，这是一段用于预热的中文示例。",
+            language="Chinese",
+            speaker="Vivian",
+            chunk_size=4,
+        )
+        for _ in gen:
+            pass
+    except Exception as e:
+        print(f"[qwen3_tts_sidecar] faster 真实句预热跳过: {e}", file=sys.stderr, flush=True)
     if torch.cuda.is_available():
         torch.cuda.synchronize()
 
@@ -447,13 +473,14 @@ def _resolve_language(language: str, text: str) -> str:
     latin = sum(1 for ch in text if ("a" <= ch.lower() <= "z"))
     kana = sum(1 for ch in text if "\u3040" <= ch <= "\u30ff")
     hangul = sum(1 for ch in text if "\uac00" <= ch <= "\ud7af")
-    if hangul > cjk * 0.3 and hangul >= 2:
-        return "Korean"
-    if kana >= 2 and kana >= cjk * 0.15:
-        return "Japanese"
-    if cjk >= 2 and cjk >= latin:
+    # 强中文偏置：出现任意汉字即锁 Chinese，杜绝中文长文里零星谚文/假名漂成韩/日
+    if cjk > 0:
         return "Chinese"
-    if latin >= 4 and latin > cjk * 2:
+    if hangul >= 2:
+        return "Korean"
+    if kana >= 2:
+        return "Japanese"
+    if latin >= 4:
         return "English"
     return "Chinese"
 

@@ -267,8 +267,27 @@ export function registerVoiceIpc(
 
         case 'voice:tts:preview': {
           const cfg = voiceService.getConfig().tts
-          const activeVariant = voiceService.resolveActiveQwen3Variant()
-          if (!modelManager.isTtsReady(cfg.provider, activeVariant)) {
+          const override = command.override
+          // 校验目标：override 存在时按覆盖后的音色判断就绪状态，否则按全局配置
+          const targetProvider = override?.provider ?? cfg.provider
+          const targetCloneEnabled =
+            override?.cloneEnabled ?? cfg.qwen3CloneEnabled === true
+          const targetProfileId =
+            override?.qwen3ProfileId ?? cfg.qwen3ProfileId
+          const targetVariant = override
+            ? voiceService.resolveVariantForTts({
+                ...cfg,
+                provider: targetProvider,
+                qwen3CloneEnabled: targetCloneEnabled,
+                qwen3ProfileId: targetProfileId,
+                qwen3Variant: override.qwen3Variant ?? cfg.qwen3Variant,
+                qwen3CloneVariant:
+                  override.qwen3Variant === '0.6b-base' || override.qwen3Variant === '1.7b-base'
+                    ? override.qwen3Variant
+                    : cfg.qwen3CloneVariant,
+              })
+            : voiceService.resolveActiveQwen3Variant()
+          if (!modelManager.isTtsReady(targetProvider, targetVariant)) {
             const models = modelManager.getModelsStatus()
             if (!win.isDestroyed()) {
               try {
@@ -282,11 +301,7 @@ export function registerVoiceIpc(
             }
             return { error: 'models_not_ready', models }
           }
-          if (
-            cfg.provider === 'qwen3' &&
-            cfg.qwen3CloneEnabled === true &&
-            !cfg.qwen3ProfileId
-          ) {
+          if (targetProvider === 'qwen3' && targetCloneEnabled && !targetProfileId) {
             return {
               error: 'profile_required',
               message: '已开启声音克隆，请先创建并选择音色档案',
@@ -304,7 +319,7 @@ export function registerVoiceIpc(
               `[voice:tts:preview] 文本 ${raw.length} 字已截断为 ${maxChars} 字（请提高 maxChars 以朗读全文）`,
             )
           }
-          void voiceService.previewTts(previewText, win)
+          void voiceService.previewTts(previewText, win, override)
           return { ok: true }
         }
 
@@ -338,6 +353,12 @@ export function registerVoiceIpc(
 
         case 'voice:profiles:delete':
           return { ok: voiceService.getProfileStore().delete(command.profileId) }
+
+        case 'voice:profiles:rename': {
+          const profile = voiceService.getProfileStore().rename(command.profileId, command.name)
+          if (!profile) return { error: '音色不存在或重命名失败' }
+          return { ok: true, profile }
+        }
 
         case 'voice:profiles:save-temp-ref': {
           const { audioBase64, ext } = command

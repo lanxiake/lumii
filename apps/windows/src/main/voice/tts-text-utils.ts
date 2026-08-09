@@ -64,9 +64,12 @@ export function resolveQwen3TtsLanguage(configured: string | undefined, text: st
   // 日文假名较多时留给 Auto/Japanese；纯汉字+少量英文仍按中文
   const kana = (text.match(/[\u3040-\u30ff]/g) || []).length
   const hangul = (text.match(/[\uac00-\ud7af]/g) || []).length
-  if (hangul > cjk * 0.3 && hangul >= 2) return 'Korean'
-  if (kana >= 2 && kana >= cjk * 0.15) return 'Japanese'
-  if (cjk >= 2 && cjk >= latin) return 'Chinese'
-  if (latin >= 4 && latin > cjk * 2) return 'English'
+  // 强中文偏置：出现任意汉字即锁 Chinese（han = cjk 去掉假名/谚文），
+  // 杜绝中文长文里零星谚文/假名漂成韩/日。
+  const han = cjk - kana - hangul
+  if (han > 0) return 'Chinese'
+  if (hangul >= 2) return 'Korean'
+  if (kana >= 2) return 'Japanese'
+  if (latin >= 4) return 'English'
   return 'Chinese'
 }

@@ -231,8 +231,11 @@ describe.skipIf(!hasSqlite)('预置定时任务端到端', () => {
     expect(totalPushes).toBeGreaterThanOrEqual(jobs.length)
   })
 
-  it('资讯任务改为 Agent 驱动（去魔法指令），产出经 Agent 回读推送到资讯卡片', async () => {
+  it('资讯任务改为 Agent 驱动 + silent：Agent 直接写卡片，派发器不重复塞脏卡片', async () => {
     const newsJob = listJobs(db).find((j) => j.id === 'news-pipeline')!
+    // notify_targets 应为 silent（Agent 通过 dashboard_feed_write 自己写卡片）
+    expect(newsJob.notify_targets).toBe('silent')
+
     const { run, captured } = makeScheduler(db, '已写入 12 条资讯卡片')
     await run({ id: 'news-pipeline', task_text: newsJob.task_text, agent_id: newsJob.agent_id })
 
@@ -240,8 +243,8 @@ describe.skipIf(!hasSqlite)('预置定时任务端到端', () => {
       .prepare<{ summary: string | null }>(`SELECT summary FROM local_cron_runs WHERE job_id = ?`)
       .all('news-pipeline')
     expect(runs[0].summary).toBe('已写入 12 条资讯卡片')
-    // notify_targets='news' → 推到资讯卡片，不是系统通知/记忆
-    expect(prependMock).toHaveBeenCalledTimes(1)
+    // silent → 派发器完全不推送：既不塞资讯卡片，也不发系统通知/记忆
+    expect(prependMock).not.toHaveBeenCalled()
     expect(captured.notifications).toHaveLength(0)
     expect(captured.memories).toHaveLength(0)
   })

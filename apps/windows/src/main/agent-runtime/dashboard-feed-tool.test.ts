@@ -66,7 +66,8 @@ describe('dashboard_feed_write execute', () => {
     expect(JSON.parse(text)).toMatchObject({ status: 'ok', itemCount: 2 })
 
     expect(writeDashboardFeedSnapshotMock).toHaveBeenCalledTimes(1)
-    const snapshot = writeDashboardFeedSnapshotMock.mock.calls[0][0] as {
+    const calls = writeDashboardFeedSnapshotMock.mock.calls as unknown as unknown[][]
+    const snapshot = calls[0][0] as {
       feedId: string
       title: string
       summary?: string

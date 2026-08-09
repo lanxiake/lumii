@@ -103,6 +103,33 @@ export function splitTextForTtsCache(text: string, softMax = 120): string[] {
   return out.length > 0 ? out : [src]
 }
 
+/**
+ * 把句子合并成更大的合成单元，减少自回归 TTS（Qwen3）的独立生成次数，
+ * 压制逐句音色/音量漂移。首组小（快首包），后续组按 budget 合并。
+ * @param firstBudget 首组字符预算（小 → 首包快）
+ * @param restBudget 后续组字符预算（大 → 音色更连贯）
+ */
+export function groupSentencesForSynth(
+  sentences: readonly string[],
+  firstBudget = 24,
+  restBudget = 90,
+): string[] {
+  const groups: string[] = []
+  let buf = ''
+  const budget = () => (groups.length === 0 ? firstBudget : restBudget)
+  for (const s of sentences) {
+    if (!s) continue
+    if (buf && buf.length + s.length > budget()) {
+      groups.push(buf)
+      buf = s
+    } else {
+      buf += s
+    }
+  }
+  if (buf) groups.push(buf)
+  return groups
+}
+
 function cloneChunks(chunks: readonly TtsChunk[]): TtsChunk[] {
   return chunks.map((c) => ({
     samples: c.samples.slice(),

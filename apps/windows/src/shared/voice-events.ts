@@ -328,7 +328,7 @@ export const DEFAULT_VOICE_ENGINE_CONFIG: VoiceEngineConfig = {
   },
   tts: {
     provider: 'edge',
-    speed: 1.2,
+    speed: 1.0,
     volume: 1.0,
     speakerId: 0,
     voice: 'zh-CN-XiaoxiaoNeural',

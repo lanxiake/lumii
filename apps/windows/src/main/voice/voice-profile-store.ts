@@ -122,6 +122,27 @@ export class VoiceProfileStore {
   }
 
   /**
+   * 重命名档案（只改 meta.json 的 name / updatedAt，不重拷参考音频）
+   */
+  rename(profileId: string, name: string): VoiceCloneProfile | null {
+    const existing = this.get(profileId)
+    if (!existing) return null
+    const nextName = name.trim() || '未命名音色'
+    const profile: VoiceCloneProfile = {
+      ...existing,
+      name: nextName,
+      updatedAt: Date.now(),
+    }
+    fs.writeFileSync(
+      path.join(this.rootDir, profileId, 'meta.json'),
+      JSON.stringify(profile, null, 2),
+      'utf8',
+    )
+    log.info(`[rename] 已重命名档案 ${profileId} → ${nextName}`)
+    return profile
+  }
+
+  /**
    * 删除档案目录
    */
   delete(profileId: string): boolean {

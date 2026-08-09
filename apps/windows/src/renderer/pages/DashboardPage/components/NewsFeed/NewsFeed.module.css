@@ -231,11 +231,11 @@
 .card-excerpt {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 4;
   overflow: hidden;
   color: var(--mt-fg-3);
   font-size: 11px;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .card-foot {

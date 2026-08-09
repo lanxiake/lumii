@@ -49,15 +49,16 @@ interface SeedJob {
  */
 export const NEWS_PIPELINE_TASK_TEXT =
   '搜索今天值得关注的热门资讯（优先 IT之家、少数派等中文科技媒体），整理 10-15 条，' +
-  '每条包含标题、一句话摘要、来源、链接，并写一段不超过 120 字的整体综述，' +
-  '调用 dashboard_feed_write 工具写入概览页资讯卡片（标题「最近资讯」）。'
+  '每条包含标题、2-3 句话的正文摘要（交代清楚事件是什么、有什么值得关注的点）、来源、链接，' +
+  '并写一段不超过 120 字的整体综述，调用 dashboard_feed_write 工具写入概览页资讯卡片（标题「最近资讯」）。'
 
 export const NEWS_PIPELINE_SYSTEM_PROMPT = [
   '你在为概览页生成「最近资讯」卡片，这是结构化数据源，不是普通对话回复：',
   '1. 用 web_search 搜索今天的科技资讯，优先中文科技媒体（IT之家、少数派等）；',
-  '2. 挑选 10-15 条有实质信息量的条目，逐条给出标题、一句话摘要、来源站点、原文链接；',
+  '2. 挑选 10-15 条有实质信息量的条目，逐条给出：标题、2-3 句话的正文摘要、来源站点、原文链接。',
+  '   正文摘要要像新闻导语一样交代清楚事件本身与看点，不要只写一个短语；',
   '3. 最后写一段不超过 120 字的整体综述，点出这批资讯里最值得关注的 1-2 个趋势；',
-  '4. 必须调用 dashboard_feed_write 工具把结果写入卡片 —— 只在对话里回复文本不会显示在概览页上。',
+  '4. 必须调用 dashboard_feed_write 工具把结果写入卡片（每条的 summary 字段放正文摘要）—— 只在对话里回复文本不会显示在概览页上。',
   '搜索失败或没有找到有效资讯时，不要编造条目，也不要调用 dashboard_feed_write。',
 ].join('\n')
 
@@ -72,7 +73,9 @@ const SEED_JOBS: readonly SeedJob[] = [
     scheduleType: 'cron',
     /** 每 2 小时整点抓一次：资讯源本身更新频率有限，再密只是白跑 */
     scheduleExpr: '0 */2 * * *',
-    notifyTargets: 'news',
+    // silent：Agent 已通过 dashboard_feed_write 直接写好资讯卡片，
+    // 不能再用 'news' 让派发器把 Agent 原始回复当成一条资讯重复塞进卡片顶部
+    notifyTargets: 'silent',
     // 旧的 ensureNewsCronJobSeeded 用的哨兵键。用户在老版本删过这条任务，升级后不该复活。
     legacySeededKey: 'workflow:news:seeded',
   },
@@ -235,25 +238,37 @@ function markSeeded(db: DatabaseAdapter, jobId: string): void {
 }
 
 /**
- * 就地升级老库里的资讯任务：老版本 news-pipeline 是 agent_id=null + 魔法指令
- * `__lumii_workflow__:news`，去魔法指令后这条老任务触发会走空指令降级（无处理器）。
- * 这里把它改写成 Agent 驱动的新定义，不新建/不删除，保留用户可能改过的调度/开关状态。
- * 只认「魔法指令前缀」这一特征，用户如果已经手动改成别的 taskText 就不动。
+ * 就地修正老库里的资讯任务，覆盖两种历史状态（不新建/不删除，保留用户改过的调度/开关）：
+ * 1) 最早版本：agent_id=null + 魔法指令 `__lumii_workflow__:news`，去魔法指令后会走空指令降级 →
+ *    改写成 Agent 驱动新定义。
+ * 2) 中间版本：已是 Agent 驱动但 notify_targets 仍是 'news'，导致派发器把 Agent 原始回复
+ *    当成一条资讯重复塞进卡片顶部（概览页出现「资讯抓取与综述/来源:定时任务」的脏卡片）→
+ *    把 notify_targets 改为 'silent'。
+ * 只在命中这两种「系统预置特征」时才动，用户手改成别的 taskText 的不碰。
  */
 function migrateLegacyNewsPipeline(db: DatabaseAdapter): void {
   try {
     const row = db
-      .prepare<{ task_text: string; agent_id: string | null }>(
-        `SELECT task_text, agent_id FROM local_cron_jobs WHERE id = 'news-pipeline'`,
+      .prepare<{ task_text: string; agent_id: string | null; notify_targets: string | null }>(
+        `SELECT task_text, agent_id, notify_targets FROM local_cron_jobs WHERE id = 'news-pipeline'`,
       )
       .get()
     if (!row) return
-    const isLegacy = row.agent_id === null && row.task_text.startsWith('__lumii_workflow__:')
-    if (!isLegacy) return
-    db.prepare(
-      `UPDATE local_cron_jobs SET task_text = ?, system_prompt = ?, agent_id = ? WHERE id = 'news-pipeline'`,
-    ).run(NEWS_PIPELINE_TASK_TEXT, NEWS_PIPELINE_SYSTEM_PROMPT, DEFAULT_AGENT_ID)
-    log.info('[migrateLegacyNewsPipeline] 已将旧资讯任务从魔法指令升级为 Agent 驱动')
+
+    // 状态 1：魔法指令老数据 → 整体改写成 Agent 驱动 + silent
+    if (row.agent_id === null && row.task_text.startsWith('__lumii_workflow__:')) {
+      db.prepare(
+        `UPDATE local_cron_jobs SET task_text = ?, system_prompt = ?, agent_id = ?, notify_targets = 'silent' WHERE id = 'news-pipeline'`,
+      ).run(NEWS_PIPELINE_TASK_TEXT, NEWS_PIPELINE_SYSTEM_PROMPT, DEFAULT_AGENT_ID)
+      log.info('[migrateLegacyNewsPipeline] 已将旧资讯任务从魔法指令升级为 Agent 驱动')
+      return
+    }
+
+    // 状态 2：中间版本 notify_targets 还是 'news'，会重复塞脏卡片 → 收敛为 silent
+    if (row.notify_targets === 'news') {
+      db.prepare(`UPDATE local_cron_jobs SET notify_targets = 'silent' WHERE id = 'news-pipeline'`).run()
+      log.info('[migrateLegacyNewsPipeline] 已将资讯任务 notify_targets 从 news 收敛为 silent')
+    }
   } catch (err) {
     log.error('[migrateLegacyNewsPipeline] 迁移失败:', err)
   }

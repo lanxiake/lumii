@@ -16,18 +16,17 @@ import {
 import { arrayBufferToBase64, encodePcmToWav } from './encode-wav'
 import { WaveformVisualizer } from '../../../ChatPage/components/VoiceCallPanel/WaveformVisualizer'
 
-type SaveConfig = (partial: {
-  tts?: {
-    qwen3ProfileId?: string
-    qwen3CloneEnabled?: boolean
-    language?: string
-  }
-}) => Promise<void>
-
 interface Props {
+  /** 当前选中的克隆音色（用于高亮）；由父组件统一音色选择器传入 */
   selectedProfileId?: string
+  /** 选中某条克隆音色（父组件负责写入 qwen3CloneEnabled + qwen3ProfileId） */
   onSelectProfile: (id: string | undefined) => void
-  saveVoiceConfig: SaveConfig
+  /** 试听某条克隆音色（走 override，不改全局配置） */
+  onPreviewProfile?: (id: string) => void
+  /** 是否有试听正在进行（禁用试听按钮） */
+  previewing?: boolean
+  /** 克隆 Base 模型是否就绪（未就绪时试听/选中禁用并提示下载） */
+  cloneReady?: boolean
   disabled?: boolean
 }
 
@@ -60,11 +59,15 @@ function formatElapsed(ms: number): string {
 export function VoiceProfilesPanel({
   selectedProfileId,
   onSelectProfile,
-  saveVoiceConfig,
+  onPreviewProfile,
+  previewing,
+  cloneReady = true,
   disabled,
 }: Props): React.ReactElement {
   const [profiles, setProfiles] = useState<VoiceCloneProfile[]>([])
   const [name, setName] = useState('我的音色')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
   const [refText, setRefText] = useState('')
   const [refPath, setRefPath] = useState('')
   const [sampleSource, setSampleSource] = useState<CloneSampleSource>('file')
@@ -372,10 +375,8 @@ export function VoiceProfilesPanel({
       }
       const profile = res?.profile as VoiceCloneProfile | undefined
       await refresh()
-      if (profile?.id) {
-        onSelectProfile(profile.id)
-        await saveVoiceConfig({ tts: { qwen3ProfileId: profile.id } })
-      }
+      // 新建后自动选中（父组件负责写入 qwen3ProfileId + 启用克隆）
+      if (profile?.id) onSelectProfile(profile.id)
       setRefText('')
       setRefPath('')
       setSampleSource('file')
@@ -383,6 +384,46 @@ export function VoiceProfilesPanel({
         URL.revokeObjectURL(previewUrl)
         setPreviewUrl(null)
       }
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 进入重命名编辑态
+   */
+  const startRename = (p: VoiceCloneProfile) => {
+    setRenamingId(p.id)
+    setRenameValue(p.name)
+    setError(null)
+  }
+
+  /**
+   * 提交重命名
+   */
+  const commitRename = async (id: string) => {
+    const next = renameValue.trim()
+    if (!next) {
+      setRenamingId(null)
+      return
+    }
+    const api = (window as any).electronAPI
+    if (!api?.voice?.sendCommand) return
+    setBusy(true)
+    try {
+      const res = await api.voice.sendCommand({
+        type: 'voice:profiles:rename',
+        profileId: id,
+        name: next,
+      })
+      if (res?.error) {
+        setError(String(res.error))
+        return
+      }
+      await refresh()
+      setRenamingId(null)
     } catch (e) {
       setError((e as Error).message)
     } finally {
@@ -399,10 +440,8 @@ export function VoiceProfilesPanel({
     setBusy(true)
     try {
       await api.voice.sendCommand({ type: 'voice:profiles:delete', profileId: id })
-      if (selectedProfileId === id) {
-        onSelectProfile(undefined)
-        await saveVoiceConfig({ tts: { qwen3ProfileId: undefined, qwen3CloneEnabled: false } })
-      }
+      // 删除的是当前选中音色时，通知父组件清空（父组件会关闭克隆出声）
+      if (selectedProfileId === id) onSelectProfile(undefined)
       await refresh()
     } finally {
       setBusy(false)
@@ -413,46 +452,104 @@ export function VoiceProfilesPanel({
 
   return (
     <div className={styles.panel} style={{ marginTop: 12 }}>
-      <h4 className={styles.title}>我的音色（声音克隆 · 可选）</h4>
+      <h4 className={styles.title}>我的音色</h4>
       <p className={styles.hint}>
-        默认不开启克隆。先创建并选择音色，再到上方勾选「启用声音克隆出声」后才会用克隆声。
-        可上传 ≥3 秒清晰人声，或对着麦克风朗读下方文案录制样本。
+        在这里管理你克隆的音色：上传 ≥3 秒清晰人声或对着麦克风朗读文案创建，可试听、重命名、删除。
+        创建后到上方「AI 声音」列表选中它即生效。
       </p>
+      {!cloneReady && (
+        <p className={styles.hint} style={{ color: 'var(--color-warning, #d97706)' }}>
+          克隆 Base 模型尚未下载，试听与出声不可用。请先在上方「下载」区下载 Base 模型。
+        </p>
+      )}
 
       {profiles.length === 0 ? (
         <p className={styles.hint}>暂无音色档案</p>
       ) : (
         <ul className={styles.list}>
-          {profiles.map((p) => (
-            <li key={p.id} className={styles.card}>
-              <div className={styles.cardHead}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
-                  <input
-                    type="radio"
-                    name="qwen3-profile"
-                    checked={selectedProfileId === p.id}
-                    disabled={disabled || busy || recording}
-                    onChange={() => {
-                      onSelectProfile(p.id)
-                      void saveVoiceConfig({ tts: { qwen3ProfileId: p.id } })
-                    }}
-                  />
-                  <span className={styles.name}>
-                    {p.name}
-                    <span className={styles.meta}> · {p.qwen3Variant}</span>
-                  </span>
-                </label>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={busy || disabled || recording}
-                  onClick={() => void handleDelete(p.id)}
-                >
-                  删除
-                </Button>
-              </div>
-            </li>
-          ))}
+          {profiles.map((p) => {
+            const isSelected = selectedProfileId === p.id
+            const rowDisabled = disabled || busy || recording
+            return (
+              <li
+                key={p.id}
+                className={[styles.card, isSelected ? styles.cardActive : ''].join(' ')}
+              >
+                <div className={styles.cardHead}>
+                  {renamingId === p.id ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+                      <Input
+                        autoFocus
+                        value={renameValue}
+                        disabled={busy}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void commitRename(p.id)
+                          if (e.key === 'Escape') setRenamingId(null)
+                        }}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => void commitRename(p.id)}
+                      >
+                        确定
+                      </Button>
+                      <Button variant="ghost" size="sm" disabled={busy} onClick={() => setRenamingId(null)}>
+                        取消
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+                        <input
+                          type="radio"
+                          name="qwen3-profile"
+                          checked={isSelected}
+                          disabled={rowDisabled || !cloneReady}
+                          onChange={() => onSelectProfile(p.id)}
+                        />
+                        <span className={styles.name}>
+                          {p.name}
+                          <span className={styles.meta}> · {p.qwen3Variant}</span>
+                          {isSelected && <span className={styles.readyBadge}> 使用中</span>}
+                        </span>
+                      </label>
+                      <div className={styles.actions}>
+                        {onPreviewProfile && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={rowDisabled || !cloneReady || previewing}
+                            onClick={() => onPreviewProfile(p.id)}
+                          >
+                            ▶ 试听
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={rowDisabled}
+                          onClick={() => startRename(p)}
+                        >
+                          重命名
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={rowDisabled}
+                          onClick={() => void handleDelete(p.id)}
+                        >
+                          删除
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
 

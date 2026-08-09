@@ -578,6 +578,9 @@ export class CronScheduler {
             if (!res.ok) log.warn('[dispatchNotifications] 飞书推送失败:', res.error)
             break
           }
+          case 'silent':
+            // 与多渠道混用时的显式空操作（单独 'silent' 已在上方提前返回）
+            break
           default:
             log.warn(`[dispatchNotifications] 未知推送目标，已忽略: ${target}`)
         }

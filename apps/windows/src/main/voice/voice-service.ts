@@ -169,39 +169,58 @@ export class VoiceCallService {
   async ensureTtsInitialized(): Promise<void> {
     if (this.ttsInitialized && this.ttsProvider) return
 
-    const cloneOn =
-      this.config.tts.qwen3CloneEnabled === true && Boolean(this.config.tts.qwen3ProfileId)
-    const variant = cloneOn
-      ? (this.config.tts.qwen3CloneVariant ?? '0.6b-base')
-      : (() => {
-          const v = this.config.tts.qwen3Variant ?? '0.6b-custom'
-          return v === '0.6b-base' || v === '1.7b-base' ? '0.6b-custom' : v
-        })()
-
-    if (!this.modelManager.isTtsReady(this.config.tts.provider, variant)) {
-      throw new Error('TTS 模型未下载，请前往「设置 → 语音」下载本地模型，或切换为 Edge TTS')
-    }
-
     this.emitRuntimeStatus(
       'starting_engine',
       this.config.tts.provider === 'qwen3'
         ? '正在初始化本地语音合成（可能包含依赖安装与模型加载）…'
         : '正在初始化语音合成引擎…',
     )
-    log.info(`[ensureTtsInitialized] 初始化 TTS 引擎... clone=${cloneOn} variant=${variant}`)
+    this.ttsProvider = await this.createTtsProviderFrom(this.config.tts)
+    this.ttsInitialized = true
+    this.emitRuntimeStatus('ready', '语音合成引擎就绪')
+    log.info('[ensureTtsInitialized] TTS 引擎就绪')
+  }
+
+  /**
+   * 解析某份 TTS 配置对应应加载的 Qwen3 变体
+   * （克隆开关开启且有档案时用 Base 克隆变体，否则用 CustomVoice 变体）
+   */
+  resolveVariantForTts(tts: VoiceEngineConfig['tts']): string {
+    const cloneOn = tts.qwen3CloneEnabled === true && Boolean(tts.qwen3ProfileId)
+    if (cloneOn) return tts.qwen3CloneVariant ?? '0.6b-base'
+    const v = tts.qwen3Variant ?? '0.6b-custom'
+    return v === '0.6b-base' || v === '1.7b-base' ? '0.6b-custom' : v
+  }
+
+  /**
+   * 依据传入的 TTS 配置构建并初始化一个 TtsProvider 实例。
+   * 不写入 this.ttsProvider / this.config，供全局引擎初始化与「临时试听」共用。
+   * 调用方负责在临时使用后 destroy()。
+   */
+  private async createTtsProviderFrom(
+    tts: VoiceEngineConfig['tts'],
+  ): Promise<TtsProvider> {
+    const cloneOn = tts.qwen3CloneEnabled === true && Boolean(tts.qwen3ProfileId)
+    const variant = this.resolveVariantForTts(tts)
+
+    if (!this.modelManager.isTtsReady(tts.provider, variant)) {
+      throw new Error('TTS 模型未下载，请前往「设置 → 语音」下载本地模型，或切换为 Edge TTS')
+    }
+
+    log.info(`[createTtsProviderFrom] 构建 TTS 引擎... provider=${tts.provider} clone=${cloneOn} variant=${variant}`)
     const paths = await this.modelManager.getModelPaths()
 
     let refAudio: string | undefined
     let refText: string | undefined
     let xVectorOnly: boolean | undefined
-    let language = this.config.tts.language ?? 'Auto'
+    let language = tts.language ?? 'Auto'
     let mode: 'custom' | 'clone' = 'custom'
-    let speaker = this.config.tts.qwen3Speaker ?? 'Vivian'
-    const instruct = this.config.tts.qwen3Instruct
+    const speaker = tts.qwen3Speaker ?? 'Vivian'
+    const instruct = tts.qwen3Instruct
 
-    if (this.config.tts.provider === 'qwen3' && cloneOn) {
+    if (tts.provider === 'qwen3' && cloneOn) {
       mode = 'clone'
-      const profileId = this.config.tts.qwen3ProfileId!
+      const profileId = tts.qwen3ProfileId!
       const profile = this.profileStore.get(profileId)
       if (!profile) {
         throw new Error(`克隆音色不存在: ${profileId}`)
@@ -209,7 +228,7 @@ export class VoiceCallService {
       refAudio = this.profileStore.getRefAudioPath(profile)
       refText = profile.refText
       xVectorOnly = profile.xVectorOnly
-      language = this.config.tts.language || profile.language || 'Auto'
+      language = tts.language || profile.language || 'Auto'
     }
 
     const qwenModelDir = (() => {
@@ -226,12 +245,12 @@ export class VoiceCallService {
       }
     })()
 
-    this.ttsProvider = createTtsProvider({
-      provider: this.config.tts.provider,
-      modelDir: this.config.tts.provider === 'qwen3' ? qwenModelDir : paths.tts,
+    const provider = createTtsProvider({
+      provider: tts.provider,
+      modelDir: tts.provider === 'qwen3' ? qwenModelDir : paths.tts,
       tokenizerDir: paths.qwen3Tokenizer,
-      speed: this.config.tts.speed,
-      voice: this.config.tts.voice,
+      speed: tts.speed,
+      voice: tts.voice,
       language,
       mode,
       speaker,
@@ -239,15 +258,41 @@ export class VoiceCallService {
       refAudio,
       refText,
       xVectorOnly,
-      device: resolveQwen3LoadDevice(this.config.tts.qwen3Device ?? 'auto'),
+      device: resolveQwen3LoadDevice(tts.qwen3Device ?? 'auto'),
     })
-    if (this.config.tts.provider === 'qwen3') {
-      await prepareQwen3TtsRuntime(this.config.tts.qwen3Device ?? 'auto')
+    if (tts.provider === 'qwen3') {
+      await prepareQwen3TtsRuntime(tts.qwen3Device ?? 'auto')
     }
-    await this.ttsProvider.initialize()
-    this.ttsInitialized = true
-    this.emitRuntimeStatus('ready', '语音合成引擎就绪')
-    log.info('[ensureTtsInitialized] TTS 引擎就绪')
+    await provider.initialize()
+    return provider
+  }
+
+  /**
+   * 将试听 override 合并到基准 TTS 配置，得到「本次试听生效」的完整配置。
+   * 不修改全局 this.config。override 省略字段沿用全局。
+   */
+  private mergeTtsOverride(
+    base: VoiceEngineConfig['tts'],
+    override: import('../../shared/voice-commands.js').VoiceTtsPreviewOverride,
+  ): VoiceEngineConfig['tts'] {
+    const next: VoiceEngineConfig['tts'] = { ...base }
+    if (override.provider) next.provider = override.provider
+    if (override.cloneEnabled !== undefined) next.qwen3CloneEnabled = override.cloneEnabled
+    if (override.qwen3ProfileId !== undefined) next.qwen3ProfileId = override.qwen3ProfileId
+    if (override.qwen3Speaker) next.qwen3Speaker = override.qwen3Speaker
+    if (override.voice) next.voice = override.voice
+    if (override.language) next.language = override.language
+    // qwen3Variant 按克隆开关分派到对应字段
+    if (override.qwen3Variant) {
+      const isCloneVariant =
+        override.qwen3Variant === '0.6b-base' || override.qwen3Variant === '1.7b-base'
+      if (next.qwen3CloneEnabled === true && isCloneVariant) {
+        next.qwen3CloneVariant = override.qwen3Variant as '0.6b-base' | '1.7b-base'
+      } else if (!isCloneVariant) {
+        next.qwen3Variant = override.qwen3Variant
+      }
+    }
+    return next
   }
 
   /**
@@ -682,13 +727,18 @@ export class VoiceCallService {
       liveEmit?: (chunk: TtsChunk) => void
       /** 整段锁定语种，写入缓存键并 setLanguageOverride */
       languageLock?: string
+      /** 临时试听 provider（override 模式）；省略时用全局 this.ttsProvider */
+      provider?: TtsProvider
+      /** 缓存键所依据的 TTS 配置；省略时用全局 this.config.tts */
+      cacheConfig?: VoiceEngineConfig['tts']
     } = {},
   ): Promise<TtsChunk[]> {
+    const provider = opts.provider ?? this.ttsProvider!
     const languageLock = opts.languageLock
     const cacheable =
       text.length > 0
       && text.length <= TTS_SENTENCE_CACHE_MAX_CHARS
-    const key = buildTtsPreviewCacheKey(text, this.config.tts, languageLock)
+    const key = buildTtsPreviewCacheKey(text, opts.cacheConfig ?? this.config.tts, languageLock)
 
     if (cacheable) {
       const hit = ttsPreviewCache.get(key)
@@ -699,11 +749,11 @@ export class VoiceCallService {
     }
 
     if (languageLock) {
-      this.ttsProvider!.setLanguageOverride?.(languageLock)
+      provider.setLanguageOverride?.(languageLock)
     }
 
     const recorded: TtsChunk[] = []
-    await this.ttsProvider!.synthesize(
+    await provider.synthesize(
       text,
       (chunk) => {
         if (opts.signal?.aborted) return
@@ -739,7 +789,9 @@ export class VoiceCallService {
         batch.push(this.ttsQueue.shift()!.text)
       }
 
-      // 批次内再按硬标点细拆，提升跨轮次句缓存命中
+      // 对话是实时路径：按句细拆，逐句合成保证首包快、边合边播。
+      // （大批合并虽减少音色漂移，但首包过慢达不到实时，故对话不合并；
+      //  非实时的 tts_generate 工具走整段大批，见 generateAudioFile。）
       const sentences = batch.flatMap((t) => splitTextForTtsCache(t))
       const languageLock = this.lockTtsLanguageForText(sentences.join(''))
       log.info(
@@ -938,7 +990,11 @@ export class VoiceCallService {
    * 合成一段试听音频并推送 voice:tts:preview:chunk 事件到渲染进程。
    * 按句 LRU 缓存 + 有限并发并行合成，相同句子跨预览可复用。
    */
-  async previewTts(text: string, win: import('electron').BrowserWindow): Promise<void> {
+  async previewTts(
+    text: string,
+    win: import('electron').BrowserWindow,
+    override?: import('../../shared/voice-commands.js').VoiceTtsPreviewOverride,
+  ): Promise<void> {
     // 停止上一次预览（如果有）
     this.stopPreview()
 
@@ -962,6 +1018,7 @@ export class VoiceCallService {
       return
     }
 
+    // 预览也是即时试听：按句细拆，保证首包快（与对话一致）
     const sentences = splitTextForTtsCache(cleaned)
     const preview = cleaned.length > 120 ? `${cleaned.slice(0, 120)}…` : cleaned
     log.info(`[previewTts] 开始预览: ${sentences.length} 句 "${preview}"`)
@@ -988,16 +1045,34 @@ export class VoiceCallService {
       })
     }
 
+    // override 存在时构建临时试听 provider（不污染全局引擎，播完 destroy）
+    const hasOverride = !!override && Object.keys(override).length > 0
+    const effectiveTts = hasOverride
+      ? this.mergeTtsOverride(this.config.tts, override!)
+      : this.config.tts
+    let tempProvider: TtsProvider | null = null
+
     try {
       this.emitRuntimeStatus('starting_engine', '正在准备语音预览…')
-      await this.ensureTtsInitialized()
-      // 防御：初始化后若引擎被并发的 setConfig 销毁（如改音量旧逻辑），直接终止本次预览
-      if (!this.ttsProvider) throw new Error('TTS 引擎不可用（可能正在重建，请重试）')
+      let activeProvider: TtsProvider
+      if (hasOverride) {
+        log.info(`[previewTts] 使用临时试听音色 provider=${effectiveTts.provider} clone=${effectiveTts.qwen3CloneEnabled === true} profile=${effectiveTts.qwen3ProfileId ?? '-'} speaker=${effectiveTts.qwen3Speaker ?? '-'}`)
+        tempProvider = await this.createTtsProviderFrom(effectiveTts)
+        activeProvider = tempProvider
+      } else {
+        await this.ensureTtsInitialized()
+        // 防御：初始化后若引擎被并发的 setConfig 销毁（如改音量旧逻辑），直接终止本次预览
+        if (!this.ttsProvider) throw new Error('TTS 引擎不可用（可能正在重建，请重试）')
+        activeProvider = this.ttsProvider
+      }
 
-      const concurrency = this.getTtsConcurrency()
+      const concurrency = getTtsSynthConcurrency(
+        effectiveTts.provider,
+        effectiveTts.provider === 'qwen3' ? getQwen3SynthConcurrency() : 1,
+      )
       // 预览按整段判定一次语种，禁止逐句 Auto（否则短英文句会换成外语音色）
-      const languageLock = resolveQwen3TtsLanguage(this.config.tts.language || 'Auto', cleaned)
-      this.ttsProvider.setLanguageOverride?.(languageLock)
+      const languageLock = resolveQwen3TtsLanguage(effectiveTts.language || 'Auto', cleaned)
+      activeProvider.setLanguageOverride?.(languageLock)
       this.emitRuntimeStatus(
         'synthesizing',
         `正在合成预览（${sentences.length} 句，并行 ${concurrency}，${languageLock}）…`,
@@ -1037,6 +1112,8 @@ export class VoiceCallService {
         tasks[i] = this.synthesizeSentenceCached(sentence, {
           signal,
           languageLock,
+          provider: activeProvider,
+          cacheConfig: effectiveTts,
           liveEmit:
             i === 0
               ? (chunk) => {
@@ -1077,7 +1154,7 @@ export class VoiceCallService {
         return
       }
 
-      const lastSr = this.ttsProvider?.sampleRate ?? 24000
+      const lastSr = activeProvider.sampleRate ?? 24000
       sendPreviewChunk({ samples: [], sampleRate: lastSr, isFinal: true }, true)
       endPreview(true)
     } catch (e) {
@@ -1090,7 +1167,17 @@ export class VoiceCallService {
         endPreview(false, '预览已取消')
       }
     } finally {
-      this.ttsProvider?.setLanguageOverride?.(null)
+      // 临时试听 provider 用完即弃；全局引擎仅解除语种锁定
+      if (tempProvider) {
+        try {
+          tempProvider.setLanguageOverride?.(null)
+          tempProvider.destroy()
+        } catch (e) {
+          log.warn(`[previewTts] 临时 provider 释放失败: ${(e as Error).message}`)
+        }
+      } else {
+        this.ttsProvider?.setLanguageOverride?.(null)
+      }
       if (this.previewAbort === abort) {
         this.previewAbort = null
       }
@@ -1114,21 +1201,30 @@ export class VoiceCallService {
 
     log.info(`[generateAudioFile] 开始合成文本: "${text.slice(0, 40)}"`)
 
-    await this.ttsProvider!.synthesize(
-      text,
-      (chunk) => {
-        if (chunk.sampleRate === -1) {
-          // Edge TTS: mp3 bytes
-          isEdgeTts = true
-          mp3Chunks.push(new Uint8Array(chunk.samples))
-        } else {
-          // VITS: PCM Float32
-          if (chunk.sampleRate > 0) detectedSampleRate = chunk.sampleRate
-          pcmChunks.push(new Float32Array(chunk.samples))
-        }
-      },
-      abort.signal,
-    )
+    // 整段锁定语种，避免长文工具（tts_generate）中途漂语种。
+    // 工具是一次性完整文本，直接按全文解析，不复用通话级 sticky（可能残留上次的语种）。
+    const languageLock = resolveQwen3TtsLanguage(this.config.tts.language || 'Auto', text)
+    this.ttsProvider!.setLanguageOverride?.(languageLock)
+
+    try {
+      await this.ttsProvider!.synthesize(
+        text,
+        (chunk) => {
+          if (chunk.sampleRate === -1) {
+            // Edge TTS: mp3 bytes
+            isEdgeTts = true
+            mp3Chunks.push(new Uint8Array(chunk.samples))
+          } else {
+            // VITS: PCM Float32
+            if (chunk.sampleRate > 0) detectedSampleRate = chunk.sampleRate
+            pcmChunks.push(new Float32Array(chunk.samples))
+          }
+        },
+        abort.signal,
+      )
+    } finally {
+      this.ttsProvider?.setLanguageOverride?.(null)
+    }
 
     const fileId = randomUUID()
     fs.mkdirSync(destDir, { recursive: true })

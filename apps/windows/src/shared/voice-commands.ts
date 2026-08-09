@@ -61,6 +61,26 @@ export type VoicePlaybackFinishedCommand = {
   callId: string
 }
 
+/**
+ * 试听时临时覆盖的音色参数（不写入全局配置，仅本次预览生效）。
+ * 用于「语音合成」区试听内置音色、「我的音色」列表逐条试听克隆声，避免串声。
+ */
+export type VoiceTtsPreviewOverride = {
+  provider?: 'local-vits' | 'edge' | 'qwen3'
+  /** 是否用克隆出声（true 时配合 qwen3ProfileId 走 Base 克隆） */
+  cloneEnabled?: boolean
+  /** 克隆音色档案 ID */
+  qwen3ProfileId?: string
+  /** Qwen3 模型变体（内置 custom / 克隆 base） */
+  qwen3Variant?: import('./voice-events.js').Qwen3TtsVariant
+  /** CustomVoice 内置说话人 */
+  qwen3Speaker?: string
+  /** Edge 音色名 */
+  voice?: string
+  /** 合成语言 */
+  language?: string
+}
+
 /** 预览/朗读 TTS（设置页短试听；消息朗读可传更大 maxChars） */
 export type VoiceTtsPreviewCommand = {
   readonly type: 'voice:tts:preview'
@@ -70,6 +90,11 @@ export type VoiceTtsPreviewCommand = {
    * 默认 100（兼容旧调用）。上限 20000。
    */
   maxChars?: number
+  /**
+   * 可选：临时覆盖音色（仅本次预览生效，不改全局配置）。
+   * 省略时沿用全局 config，行为与旧版一致。
+   */
+  override?: VoiceTtsPreviewOverride
 }
 
 /** 停止 TTS 预览/朗读播放 */
@@ -119,6 +144,13 @@ export type VoiceProfilesDeleteCommand = {
   profileId: string
 }
 
+/** 重命名克隆音色档案（仅改名称，不动参考音频） */
+export type VoiceProfilesRenameCommand = {
+  readonly type: 'voice:profiles:rename'
+  profileId: string
+  name: string
+}
+
 /** 将克隆参考音频写入临时目录，返回绝对路径 */
 export type VoiceProfilesSaveTempRefCommand = {
   readonly type: 'voice:profiles:save-temp-ref'
@@ -147,4 +179,5 @@ export type VoiceCommand =
   | VoiceProfilesListCommand
   | VoiceProfilesUpsertCommand
   | VoiceProfilesDeleteCommand
+  | VoiceProfilesRenameCommand
   | VoiceProfilesSaveTempRefCommand

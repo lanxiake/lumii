@@ -137,6 +137,31 @@
   letter-spacing: 0;
 }
 
+/* 统一音色列表：内置音色 radio 项 */
+.voice-speaker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-bg-secondary, transparent);
+}
+
+.voice-speaker-item {
+  padding: 4px 6px;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.voice-speaker-item:hover {
+  background: color-mix(in srgb, var(--color-primary, #0ea5e9) 8%, transparent);
+}
+
 /* 语音运行时状态条（安装依赖 / 加载模型 / 预览失败等） */
 .voice-runtime-status {
   margin: 10px 0 12px;

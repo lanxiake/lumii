@@ -1688,6 +1688,60 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         .catch(() => setVoicePreviewing(false))
     }
 
+    /**
+     * 试听指定克隆音色（走 override，不改全局配置，不受当前生效音色影响）
+     */
+    const handlePreviewProfile = async (profileId: string) => {
+      const electronAPI = (window as any).electronAPI
+      if (!electronAPI?.voice?.sendCommand) return
+      if (!previewAudioCtxRef.current || previewAudioCtxRef.current.state === 'closed') {
+        previewAudioCtxRef.current = new AudioContext()
+      }
+      if (previewAudioCtxRef.current.state === 'suspended') {
+        await previewAudioCtxRef.current.resume()
+      }
+      setVoicePreviewing(true)
+      const text = voicePreviewText.trim().slice(0, 100) || '你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。'
+      await electronAPI.voice
+        .sendCommand({
+          type: 'voice:tts:preview',
+          text,
+          maxChars: 100,
+          override: {
+            provider: 'qwen3',
+            cloneEnabled: true,
+            qwen3ProfileId: profileId,
+          },
+        })
+        .catch(() => setVoicePreviewing(false))
+    }
+
+    /**
+     * 选中某条克隆音色作为当前生效音色（互斥：开启克隆出声）；传 undefined 则关闭克隆
+     */
+    const selectCloneProfile = (id: string | undefined) => {
+      if (id) {
+        const prefer = qwen3Clone06Ready ? '0.6b-base' : '1.7b-base'
+        void saveVoiceConfig({
+          tts: {
+            provider: 'qwen3',
+            qwen3CloneEnabled: true,
+            qwen3ProfileId: id,
+            qwen3CloneVariant: voiceConfig?.tts.qwen3CloneVariant ?? prefer,
+          },
+        })
+      } else {
+        void saveVoiceConfig({ tts: { qwen3CloneEnabled: false, qwen3ProfileId: undefined } })
+      }
+    }
+
+    /**
+     * 选中内置音色作为当前生效音色（互斥：关闭克隆出声）
+     */
+    const selectBuiltinSpeaker = (speaker: string) => {
+      void saveVoiceConfig({ tts: { qwen3Speaker: speaker, qwen3CloneEnabled: false } })
+    }
+
     const vitsDownloaded = vitsModelReady
     const qwenVariant = voiceConfig?.tts.qwen3Variant ?? '0.6b-custom'
     const cloneEnabled = voiceConfig?.tts.qwen3CloneEnabled === true
@@ -1874,27 +1928,22 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
             </div>
 
-            {/* ═══ 2. 语音合成 ═══ */}
+            {/* ═══ 2. AI 声音（合成引擎 + 音色，含克隆） ═══ */}
             <div className={styles['voice-block']}>
-              <h4 className={styles['voice-block-title']}>二、语音合成</h4>
+              <h4 className={styles['voice-block-title']}>二、AI 声音</h4>
               <p className={styles['voice-block-desc']}>
-                让 AI 出声。推荐：Edge（联网免下载）或 Qwen3 CustomVoice（本地内置音色，含北京话/四川话）。
-                <strong>不必做声音克隆。</strong>
+                让 AI 出声。先选合成引擎，再在下方选一个音色即生效。
+                Qwen3 下「内置音色」与「我的音色（克隆）」在同一列表里，选谁用谁。
               </p>
 
               <VoiceModelsPanel
-                groups={['tts-synth']}
+                groups={['tts-synth', 'tts-clone']}
                 title="下载"
-                hint="Qwen3 路径：先下 Tokenizer 12Hz，再下 0.6B CustomVoice（内置 9 种音色）。权重下完后会后台预装 Python 依赖，进度见下方「测试」状态条。"
+                hint="内置音色：先下 Tokenizer 12Hz，再下 0.6B CustomVoice（9 种音色）。声音克隆额外需要 0.6B Base（或 1.7B）。权重下完后台预装依赖，进度见下方「测试」状态条。"
               />
 
               <div className={styles['setting-group']}>
                 <h5 className={styles['voice-block-subtitle']}>设置</h5>
-                {cloneEnabled && voiceConfig.tts.provider === 'qwen3' && (
-                  <p className={styles['settings-note']} style={{ marginBottom: 8 }}>
-                    已开启声音克隆：实际出声使用下方「我的音色」。关闭克隆后将恢复此处内置音色 / Edge / MeloTTS。
-                  </p>
-                )}
                 <div className={styles['setting-item']}>
                   <label className={styles['setting-label']}>合成引擎</label>
                   <Select
@@ -1910,8 +1959,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                       },
                       {
                         label: qwen3CustomReady
-                          ? 'Qwen3 CustomVoice（本地内置音色）'
-                          : 'Qwen3 CustomVoice（需先下载 Tokenizer+CustomVoice）',
+                          ? 'Qwen3（本地多音色 + 声音克隆）'
+                          : 'Qwen3（需先下载 Tokenizer+CustomVoice）',
                         value: 'qwen3',
                         disabled: !qwen3CustomReady,
                       },
@@ -2016,31 +2065,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     />
                   </div>
                 )}
-                {voiceConfig.tts.provider === 'qwen3' && !cloneEnabled && (
+                {voiceConfig.tts.provider === 'qwen3' && (
                   <>
-                    <div className={styles['setting-item']}>
-                      <label className={styles['setting-label']}>CustomVoice 规格</label>
-                      <Select
-                        value={qwenVariant}
-                        options={[
-                          {
-                            label: qwen3Custom06Ready
-                              ? '0.6B CustomVoice（推荐）'
-                              : '0.6B CustomVoice（未下载）',
-                            value: '0.6b-custom',
-                            disabled: !qwen3Custom06Ready,
-                          },
-                          {
-                            label: qwen3Custom17Ready
-                              ? '1.7B CustomVoice（高质）'
-                              : '1.7B CustomVoice（未下载）',
-                            value: '1.7b-custom',
-                            disabled: !qwen3Custom17Ready,
-                          },
-                        ]}
-                        onChange={(e) => saveVoiceConfig({ tts: { qwen3Variant: e.target.value } })}
-                      />
-                    </div>
                     <div className={styles['setting-item']}>
                       <label className={styles['setting-label']}>合成语言</label>
                       <Select
@@ -2061,25 +2087,48 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         onChange={(e) => saveVoiceConfig({ tts: { language: e.target.value } })}
                       />
                     </div>
-                    <div className={styles['setting-item']}>
-                      <label className={styles['setting-label']}>内置音色</label>
-                      <Select
-                        value={voiceConfig.tts.qwen3Speaker ?? 'Vivian'}
-                        options={[
-                          { label: 'Vivian · 女 · 明亮 · 中文', value: 'Vivian' },
-                          { label: 'Serena · 女 · 温暖 · 中文', value: 'Serena' },
-                          { label: 'Uncle Fu · 男 · 沉稳 · 中文', value: 'Uncle_Fu' },
-                          { label: 'Dylan · 男 · 北京话', value: 'Dylan' },
-                          { label: 'Eric · 男 · 四川话', value: 'Eric' },
-                          { label: 'Ryan · 男 · English', value: 'Ryan' },
-                          { label: 'Aiden · 男 · English', value: 'Aiden' },
-                          { label: 'Ono Anna · 女 · 日本語', value: 'Ono_Anna' },
-                          { label: 'Sohee · 女 · 한국어', value: 'Sohee' },
-                        ]}
-                        onChange={(e) => saveVoiceConfig({ tts: { qwen3Speaker: e.target.value } })}
-                      />
+
+                    {/* 统一音色列表：内置音色 + 我的音色（克隆） */}
+                    <div className={styles['setting-item']} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                      <label className={styles['setting-label']}>音色（选中即生效）</label>
+                      <div className={styles['voice-speaker-list']}>
+                        {[
+                          { id: 'Vivian', desc: '女 · 明亮 · 中文' },
+                          { id: 'Serena', desc: '女 · 温暖 · 中文' },
+                          { id: 'Uncle_Fu', desc: '男 · 沉稳 · 中文', name: 'Uncle Fu' },
+                          { id: 'Dylan', desc: '男 · 北京话' },
+                          { id: 'Eric', desc: '男 · 四川话' },
+                          { id: 'Ryan', desc: '男 · English' },
+                          { id: 'Aiden', desc: '男 · English' },
+                          { id: 'Ono_Anna', desc: '女 · 日本語', name: 'Ono Anna' },
+                          { id: 'Sohee', desc: '女 · 한국어' },
+                        ].map((sp) => {
+                          const active = !cloneEnabled && (voiceConfig.tts.qwen3Speaker ?? 'Vivian') === sp.id
+                          return (
+                            <label
+                              key={sp.id}
+                              className={styles['voice-speaker-item']}
+                              style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                            >
+                              <input
+                                type="radio"
+                                name="qwen3-active-voice"
+                                checked={active}
+                                onChange={() => selectBuiltinSpeaker(sp.id)}
+                              />
+                              <span>
+                                内置 · {sp.name ?? sp.id}
+                                <span className={styles['settings-note']} style={{ marginLeft: 6 }}>
+                                  {sp.desc}
+                                </span>
+                              </span>
+                            </label>
+                          )
+                        })}
+                      </div>
                     </div>
-                    {qwenVariant === '1.7b-custom' && (
+
+                    {qwenVariant === '1.7b-custom' && !cloneEnabled && (
                       <div className={styles['setting-item']}>
                         <label className={styles['setting-label']}>风格指令（可选）</label>
                         <Input
@@ -2087,6 +2136,43 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                           value={voiceConfig.tts.qwen3Instruct ?? ''}
                           onChange={(e) => saveVoiceConfig({ tts: { qwen3Instruct: e.target.value } })}
                           style={{ width: '320px' }}
+                        />
+                      </div>
+                    )}
+
+                    {/* 我的音色（克隆档案）：与内置音色同为可选音色，选中即用克隆出声 */}
+                    <VoiceProfilesPanel
+                      selectedProfileId={cloneEnabled ? voiceConfig.tts.qwen3ProfileId : undefined}
+                      onSelectProfile={selectCloneProfile}
+                      onPreviewProfile={(id) => void handlePreviewProfile(id)}
+                      previewing={voicePreviewing || runtimeBusy}
+                      cloneReady={qwen3CloneReady}
+                    />
+
+                    {qwen3CloneReady && (
+                      <div className={styles['setting-item']} style={{ marginTop: 12 }}>
+                        <label className={styles['setting-label']}>克隆模型规格</label>
+                        <Select
+                          value={cloneVariant}
+                          options={[
+                            {
+                              label: qwen3Clone06Ready ? '0.6B Base' : '0.6B Base（未下载）',
+                              value: '0.6b-base',
+                              disabled: !qwen3Clone06Ready,
+                            },
+                            {
+                              label: qwen3Clone17Ready ? '1.7B Base' : '1.7B Base（未下载）',
+                              value: '1.7b-base',
+                              disabled: !qwen3Clone17Ready,
+                            },
+                          ]}
+                          onChange={(e) =>
+                            saveVoiceConfig({
+                              tts: {
+                                qwen3CloneVariant: e.target.value as '0.6b-base' | '1.7b-base',
+                              },
+                            })
+                          }
                         />
                       </div>
                     )}
@@ -2118,119 +2204,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 >
                   {previewButtonLabel}
                 </Button>
-                {cloneEnabled && (
-                  <p className={styles['settings-note']} style={{ marginTop: 6 }}>
-                    当前已开启声音克隆，预览将使用「我的音色」。
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* ═══ 3. 声音克隆 ═══ */}
-            <div className={styles['voice-block']}>
-              <h4 className={styles['voice-block-title']}>三、声音克隆（可选）</h4>
-              <p className={styles['voice-block-desc']}>
-                默认关闭。开启后需已录制并选择音色，才会用克隆声出声；关闭时仍用上方合成引擎（Edge / MeloTTS / CustomVoice）。
-              </p>
-
-              <VoiceModelsPanel
-                groups={['tts-clone']}
-                title="下载"
-                hint="下载 0.6B Base（或 1.7B）。Tokenizer 请在「语音合成」区已下载。"
-              />
-
-              <div className={styles['setting-group']}>
-                <h5 className={styles['voice-block-subtitle']}>设置 · 我的音色</h5>
-                <div className={styles['setting-item']}>
-                  <Checkbox
-                    checked={cloneEnabled}
-                    disabled={!qwen3CloneReady || !voiceConfig.tts.qwen3ProfileId}
-                    onChange={(checked) => {
-                      if (checked) {
-                        const prefer = qwen3Clone06Ready ? '0.6b-base' : '1.7b-base'
-                        saveVoiceConfig({
-                          tts: {
-                            provider: 'qwen3',
-                            qwen3CloneEnabled: true,
-                            qwen3CloneVariant:
-                              voiceConfig.tts.qwen3CloneVariant ?? prefer,
-                          },
-                        })
-                      } else {
-                        saveVoiceConfig({ tts: { qwen3CloneEnabled: false } })
-                      }
-                    }}
-                  >
-                    启用声音克隆出声
-                  </Checkbox>
-                  {(!qwen3CloneReady || !voiceConfig.tts.qwen3ProfileId) && (
-                    <p className={styles['settings-note']} style={{ marginTop: 6 }}>
-                      {!qwen3CloneReady
-                        ? '请先下载 Base 模型，并创建/选择音色后再开启。'
-                        : '请先创建并选择一个音色档案后再开启。'}
-                    </p>
-                  )}
-                </div>
-                <VoiceProfilesPanel
-                  selectedProfileId={voiceConfig.tts.qwen3ProfileId}
-                  onSelectProfile={(id) =>
-                    setVoiceConfig((prev) =>
-                      prev ? { ...prev, tts: { ...prev.tts, qwen3ProfileId: id } } : prev,
-                    )
-                  }
-                  saveVoiceConfig={saveVoiceConfig}
-                  disabled={!qwen3CloneReady}
-                />
-                <div className={styles['setting-item']} style={{ marginTop: 12 }}>
-                  <label className={styles['setting-label']}>克隆模型规格</label>
-                  <Select
-                    value={cloneVariant}
-                    options={[
-                      {
-                        label: qwen3Clone06Ready ? '0.6B Base' : '0.6B Base（未下载）',
-                        value: '0.6b-base',
-                        disabled: !qwen3Clone06Ready,
-                      },
-                      {
-                        label: qwen3Clone17Ready ? '1.7B Base' : '1.7B Base（未下载）',
-                        value: '1.7b-base',
-                        disabled: !qwen3Clone17Ready,
-                      },
-                    ]}
-                    onChange={(e) =>
-                      saveVoiceConfig({
-                        tts: {
-                          qwen3CloneVariant: e.target.value as '0.6b-base' | '1.7b-base',
-                        },
-                      })
-                    }
-                  />
-                </div>
-                {cloneEnabled && voiceConfig.tts.provider === 'qwen3' && (
-                  <p className={styles['settings-note']}>当前已启用克隆出声。</p>
-                )}
-              </div>
-
-              <div className={styles['setting-group']}>
-                <h5 className={styles['voice-block-subtitle']}>测试</h5>
-                {renderRuntimeStatus()}
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handlePreview}
-                  disabled={
-                    voicePreviewing ||
-                    runtimeBusy ||
-                    !cloneEnabled ||
-                    voiceConfig.tts.provider !== 'qwen3' ||
-                    !voiceConfig.tts.qwen3ProfileId ||
-                    !qwen3CloneReady
-                  }
-                >
-                  {previewButtonLabel.replace('合成声音', '克隆音色')}
-                </Button>
                 <p className={styles['settings-note']} style={{ marginTop: 6 }}>
-                  使用上方「语音合成 → 测试」中的文案（最多 100 字）。首次预览可能需安装依赖并加载模型，请看状态条。
+                  {cloneEnabled
+                    ? '当前生效：克隆音色。试听将使用你选中的「我的音色」。'
+                    : '当前生效：内置/引擎音色。要试听某条克隆音色，用列表里每条的「试听」。'}
                 </p>
               </div>
             </div>

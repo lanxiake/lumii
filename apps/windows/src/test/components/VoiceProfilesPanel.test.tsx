@@ -21,12 +21,7 @@ describe('VoiceProfilesPanel', () => {
   })
 
   it('渲染固定朗读稿', async () => {
-    render(
-      <VoiceProfilesPanel
-        onSelectProfile={vi.fn()}
-        saveVoiceConfig={vi.fn(async () => undefined)}
-      />,
-    )
+    render(<VoiceProfilesPanel onSelectProfile={vi.fn()} />)
     expect(await screen.findByText(CLONE_REF_PROMPT_ZH)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '开始录制' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '选择参考音频' })).toBeInTheDocument()

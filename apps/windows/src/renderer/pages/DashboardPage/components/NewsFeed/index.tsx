@@ -30,8 +30,7 @@ interface DashboardFeedSnapshot {
   summary?: string
 }
 
-/** 卡片区最多展示条数（两列对称） */
-const MAX_CARDS = 6
+/** 卡片区展示全部 Agent 抓到的条目，容器内部纵向滚动，不再截断到固定条数 */
 
 function formatWhen(ts?: number): string {
   if (!ts) return ''
@@ -113,7 +112,7 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
     onViewChange?.('chat')
   }
 
-  const items = (snapshot?.items ?? []).slice(0, MAX_CARDS)
+  const items = snapshot?.items ?? []
 
   return (
     <Card className={styles.panel} flush>

@@ -123,10 +123,11 @@ export class LocalVitsTts implements TtsProvider {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const SherpaOnnx = require('sherpa-onnx-node') as any
 
+    // silenceScale 放大句内标点(，、；)停顿时长，让朗读更从容（0.2 过于急促）
     const generationConfig = new SherpaOnnx.GenerationConfig({
       sid: this.speakerId,
       speed: this.speed,
-      silenceScale: 0.2,
+      silenceScale: 0.8,
     })
 
     // 整句先缓冲再归一化：MeloTTS 逐句响度有波动，统一峰值后听感一致
@@ -169,6 +170,13 @@ export class LocalVitsTts implements TtsProvider {
         const gain = Math.min(4, 0.95 / peak)
         for (let i = 0; i < collected.length; i++) collected[i] = collected[i]! * gain
       }
+      // 句尾补静音：让句间/分段有呼吸停顿（播放引擎无缝拼接会吃掉句间空隙）。
+      // 句末硬标点或换行 → 长停顿；软标点/无标点 → 短停顿。
+      const tail = text.trimEnd().slice(-1)
+      const isHardEnd = /[。！？…\n.!?]/.test(tail)
+      const pauseMs = isHardEnd ? 320 : 160
+      const silenceLen = Math.round((this.sampleRate * pauseMs) / 1000)
+      for (let i = 0; i < silenceLen; i++) collected.push(0)
       onChunk({ samples: collected, sampleRate: this.sampleRate, isFinal: false })
     }
 
@@ -473,7 +481,7 @@ export function createTtsProvider(config: {
   switch (config.provider) {
     case 'local-vits':
       if (!config.modelDir) throw new Error('local-vits 需要 modelDir')
-      return new LocalVitsTts(config.modelDir, 0, config.speed ?? 1.2)
+      return new LocalVitsTts(config.modelDir, 0, config.speed ?? 1.0)
     case 'edge':
       return new EdgeTtsFallback(config.voice ?? 'zh-CN-XiaoxiaoNeural', config.speed ?? 1.2)
     case 'qwen3':

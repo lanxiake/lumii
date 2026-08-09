@@ -62,6 +62,31 @@ describe('VoiceProfileStore', () => {
     ).toThrow(/refText/)
   })
 
+  it('rename 只改名称、不动参考音频', () => {
+    const wav = makeWav()
+    const profile = store.upsert({
+      name: '旧名',
+      refAudioPath: wav,
+      refText: '一句文本',
+    })
+    const refPath = store.getRefAudioPath(profile)
+    const renamed = store.rename(profile.id, '新名字')
+    expect(renamed?.name).toBe('新名字')
+    expect(renamed?.updatedAt).toBeGreaterThanOrEqual(profile.updatedAt)
+    expect(store.get(profile.id)?.name).toBe('新名字')
+    expect(fs.existsSync(refPath)).toBe(true)
+  })
+
+  it('rename 空白名回退为未命名音色', () => {
+    const wav = makeWav()
+    const profile = store.upsert({ name: '原名', refAudioPath: wav, refText: '文本' })
+    expect(store.rename(profile.id, '   ')?.name).toBe('未命名音色')
+  })
+
+  it('rename 不存在的档案返回 null', () => {
+    expect(store.rename('missing-id', '任意')).toBeNull()
+  })
+
   it('delete 移除档案目录', () => {
     const wav = makeWav()
     const profile = store.upsert({

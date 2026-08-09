@@ -96,12 +96,13 @@ describe('ensureSeedCronJobsSeeded', () => {
     expect(db.jobs.has('seed-morning-briefing')).toBe(true)
   })
 
-  it('资讯任务挂 assistant、推送到资讯卡片，任务指令为自然语言', () => {
+  it('资讯任务挂 assistant、静默通知（Agent 直接写卡片），任务指令为自然语言', () => {
     const db = createFakeDb()
     ensureSeedCronJobsSeeded(db.adapter)
     const row = db.jobs.get('news-pipeline')!
     expect(row[COL.agentId]).toBe('assistant')
-    expect(row[COL.notifyTargets]).toBe('news')
+    // silent：Agent 通过 dashboard_feed_write 直接写卡片，派发器不再重复塞入原始回复
+    expect(row[COL.notifyTargets]).toBe('silent')
     expect(row[COL.taskText]).not.toContain('__lumii_workflow__')
     expect(String(row[COL.taskText])).toContain('dashboard_feed_write')
   })
