@@ -73,7 +73,6 @@ import {
   migrateLocalCompanionPrefsToVhSettings,
 } from './local-companion-handler'
 import { ensureSeedCronJobsSeeded } from '../seed-cron-jobs'
-import { handleWorkflowInstruction } from '../workflow-runtime'
 import { isPetMode, onVirtualHumanSettingsChanged } from '../pet/pet-mode-ipc'
 import { getVirtualHumanSettings } from '../pet/pet-mode-store'
 import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
@@ -538,6 +537,8 @@ export class AgentRuntimeBridge {
         this.createInstanceById(agentId, sessionKey, conversationId),
       prompt: (instanceId, message) => this.prompt(instanceId, message),
       destroy: (instanceId) => this.destroy(instanceId),
+      ensureConversationExists: (conversationId, title) => this.ensureConversationExists(conversationId, title),
+      notifyIncomingMessage: (sessionKey, text) => this.notifyIncomingMessage(sessionKey, text),
       getFileRepo: () => this._fileRepo,
       getCwd: () => this.config.getCwd(),
       ...(this.config.sendFeishuMessage ? { sendFeishuMessage: this.config.sendFeishuMessage } : {}),
@@ -551,10 +552,6 @@ export class AgentRuntimeBridge {
         })
       },
       handleCompanionInstruction: async (instruction: string, options) => {
-        const workflowResult = await handleWorkflowInstruction(instruction, {
-          callLLM: (prompt, purpose) => this.callLLM(prompt, undefined, purpose),
-        })
-        if (workflowResult !== null) return workflowResult
         if (!isLocalCompanionInstruction(instruction)) return null
         return handleLocalCompanionInstruction(
           instruction,

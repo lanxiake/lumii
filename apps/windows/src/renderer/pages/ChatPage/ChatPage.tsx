@@ -746,10 +746,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [])
 
   /**
-   * 回合文件变更卡「查看」：相对路径转绝对路径后打开工作空间并定位（不强制预览）
+   * 回合文件变更卡「查看」：相对路径转绝对路径后打开工作空间，定位到该文件并打开预览
    */
   const handleReviewTurnFileChange = useCallback(
-    (relPath: string) => {
+    (relPath: string, status: 'added' | 'modified' | 'deleted') => {
       const abs = toAbsolutePath(relPath)
       const fileName = relPath.split('/').pop() ?? relPath
       setWorkbenchLayout('default')
@@ -758,7 +758,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       setLocateFileTarget({
         path: abs,
         token: locateTokenRef.current,
-        preview: false,
+        // 已删除的文件不存在，只定位不预览；新增/修改的打开预览
+        preview: status !== 'deleted',
         fileName,
       })
     },

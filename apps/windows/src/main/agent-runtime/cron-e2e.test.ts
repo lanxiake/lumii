@@ -69,7 +69,6 @@ interface Captured {
 
 function makeScheduler(db: DatabaseAdapter, agentReply: string | null) {
   const captured: Captured = { notifications: [], memories: [], feishu: [] }
-  const convId = 'conv-e2e'
 
   const deps = {
     showCronNotification: (title: string, body: string) => {
@@ -82,18 +81,34 @@ function makeScheduler(db: DatabaseAdapter, agentReply: string | null) {
       captured.feishu.push(text)
       return { ok: true }
     },
-    getLastActiveConvId: () => convId,
+    getLastActiveConvId: () => null,
+    // 每个任务用固定 sessionKey（cron:${jobId}），生产代码里驱动 Agent 前会先确保对话存在
+    ensureConversationExists: (conversationId: string) => {
+      const existing = db.prepare<{ id: string }>(`SELECT id FROM conversations WHERE id = ?`).get(conversationId)
+      if (existing) return false
+      db.prepare(
+        `INSERT INTO conversations (id, user_id, type, title, created_at) VALUES (?, 'local-user', 'direct', '定时任务', ?)`,
+      ).run(conversationId, new Date().toISOString())
+      return true
+    },
+    notifyIncomingMessage: () => undefined,
     createInstanceById: async () => 'inst-1',
     // Agent 回复落库，走生产的 readLatestAssistantText 回读路径。
     // timestamp 用 ISO 字符串，与 conversation-repo.saveMessage 写入格式一致。
-    prompt: async () => {
+    // convId 由生产代码在调用 prompt 前已 ensureConversationExists，这里从最新一条会话记录里取，
+    // 保持与 runLocalCronJob 内部使用的 `cron:${job.id}` 一致（测试不重复该字符串拼接逻辑，直接查表）。
+    prompt: async (_instanceId: string) => {
       if (agentReply === null) return
+      const conv = db
+        .prepare<{ id: string }>(`SELECT id FROM conversations ORDER BY created_at DESC LIMIT 1`)
+        .get()
+      if (!conv) return
       db.prepare(
         `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp)
          VALUES (?, ?, 'assistant', 'assistant', ?, ?)`,
       ).run(
         `msg-${Math.random().toString(36).slice(2)}`,
-        convId,
+        conv.id,
         JSON.stringify({ type: 'text', text: agentReply }),
         new Date().toISOString(),
       )
@@ -175,10 +190,10 @@ describe.skipIf(!hasSqlite)('预置定时任务端到端', () => {
     }
   })
 
-  it('全部预置任务默认开启，资讯任务不挂 Agent', () => {
+  it('全部预置任务默认开启，资讯任务挂 assistant Agent', () => {
     const jobs = listJobs(db)
     const news = jobs.find((j) => j.id === 'news-pipeline')
-    expect(news?.agent_id).toBeNull()
+    expect(news?.agent_id).toBe('assistant')
     for (const job of jobs) {
       expect(job.enabled, job.id).toBe(1)
     }
@@ -216,17 +231,70 @@ describe.skipIf(!hasSqlite)('预置定时任务端到端', () => {
     expect(totalPushes).toBeGreaterThanOrEqual(jobs.length)
   })
 
-  it('资讯任务走 workflow 拦截，产出写进概览资讯而非 Agent 回读', async () => {
-    const { run, captured } = makeScheduler(db, null)
-    await run({ id: 'news-pipeline', task_text: '__lumii_workflow__:news', agent_id: null })
+  it('资讯任务改为 Agent 驱动（去魔法指令），产出经 Agent 回读推送到资讯卡片', async () => {
+    const newsJob = listJobs(db).find((j) => j.id === 'news-pipeline')!
+    const { run, captured } = makeScheduler(db, '已写入 12 条资讯卡片')
+    await run({ id: 'news-pipeline', task_text: newsJob.task_text, agent_id: newsJob.agent_id })
 
     const runs = db
       .prepare<{ summary: string | null }>(`SELECT summary FROM local_cron_runs WHERE job_id = ?`)
       .all('news-pipeline')
-    expect(runs[0].summary).toContain('抓取 12 条资讯')
-    // 未驱动 Agent，所以没有系统通知/记忆写入
+    expect(runs[0].summary).toBe('已写入 12 条资讯卡片')
+    // notify_targets='news' → 推到资讯卡片，不是系统通知/记忆
+    expect(prependMock).toHaveBeenCalledTimes(1)
     expect(captured.notifications).toHaveLength(0)
     expect(captured.memories).toHaveLength(0)
+  })
+
+  it('每个 job 用固定 sessionKey（cron:${jobId}）建会话，与「上次活跃会话」无关', async () => {
+    db.prepare(
+      `INSERT INTO local_cron_jobs
+       (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, notify_targets)
+       VALUES ('sess-check', '会话检查', '做点什么', 'assistant', 'cron', '0 9 * * *', 0, NULL, 1, 0, 'system')`,
+    ).run()
+
+    const ensured: string[] = []
+    const scheduler = new CronScheduler({ isOpen: true, db } as never, {
+      showCronNotification: () => undefined,
+      getLastActiveConvId: () => null, // 模拟客户端从未活跃过 —— 旧实现在这种场景下会拿到 undefined convId
+      ensureConversationExists: (conversationId: string) => {
+        ensured.push(conversationId)
+        db.prepare(
+          `INSERT INTO conversations (id, user_id, type, title, created_at) VALUES (?, 'local-user', 'direct', '定时任务', ?)`,
+        ).run(conversationId, new Date().toISOString())
+        return true
+      },
+      notifyIncomingMessage: () => undefined,
+      createInstanceById: async () => 'inst-sess-check',
+      prompt: async () => {
+        db.prepare(
+          `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp)
+           VALUES (?, 'cron:sess-check', 'assistant', 'assistant', ?, ?)`,
+        ).run(
+          `msg-${Math.random().toString(36).slice(2)}`,
+          JSON.stringify({ type: 'text', text: '已完成' }),
+          new Date().toISOString(),
+        )
+      },
+      destroy: () => undefined,
+      getFileRepo: () => null,
+      getCwd: () => 'C:/tmp',
+    } as never)
+
+    await (scheduler as unknown as {
+      runLocalCronJob: (j: unknown, o?: unknown) => Promise<void>
+    }).runLocalCronJob.call(
+      scheduler,
+      { id: 'sess-check', task_text: '做点什么', agent_id: 'assistant' },
+      { manual: true },
+    )
+
+    // 固定用 cron:${job.id}，不依赖 getLastActiveConvId
+    expect(ensured).toEqual(['cron:sess-check'])
+    const runs = db
+      .prepare<{ summary: string | null }>(`SELECT summary FROM local_cron_runs WHERE job_id = 'sess-check'`)
+      .all()
+    expect(runs[0].summary).toBe('已完成')
   })
 
   it('Agent 产出按渠道格式化后分发到各自渠道', async () => {
@@ -263,6 +331,8 @@ describe.skipIf(!hasSqlite)('预置定时任务端到端', () => {
     const scheduler = new CronScheduler({ isOpen: true, db } as never, {
       showCronNotification: () => undefined,
       getLastActiveConvId: () => null,
+      ensureConversationExists: () => true,
+      notifyIncomingMessage: () => undefined,
       createInstanceById: async () => {
         throw new Error('模型未配置')
       },
@@ -289,6 +359,58 @@ describe.skipIf(!hasSqlite)('预置定时任务端到端', () => {
     expect(runs[0].error).toContain('模型未配置')
   })
 
+  it('手动执行绕过 enabled=0（已失效的一次性任务可重新执行）', async () => {
+    db.prepare(
+      `INSERT INTO local_cron_jobs
+       (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, notify_targets)
+       VALUES ('expired-1', '已失效任务', '再跑一次', 'assistant', 'at', '0', 0, NULL, 0, 0, 'system')`,
+    ).run()
+
+    const { run } = makeScheduler(db, '重新执行的产出')
+    await run({ id: 'expired-1', task_text: '再跑一次', agent_id: 'assistant' })
+
+    const row = db
+      .prepare<{ last_status: string | null }>(`SELECT last_status FROM local_cron_jobs WHERE id = 'expired-1'`)
+      .get()
+    expect(row?.last_status).toBe('ok')
+    const runs = db
+      .prepare<{ summary: string | null }>(`SELECT summary FROM local_cron_runs WHERE job_id = 'expired-1'`)
+      .all()
+    expect(runs).toHaveLength(1)
+    expect(runs[0].summary).toBe('重新执行的产出')
+  })
+
+  it('已失效的一次性任务只保留近 20 条，超出的连同运行记录一并清理', () => {
+    // 造 25 条已失效一次性任务，last_run_at 递增（越大越新）
+    for (let i = 0; i < 25; i++) {
+      db.prepare(
+        `INSERT INTO local_cron_jobs
+         (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, last_run_at, notify_targets)
+         VALUES (?, ?, '内容', 'assistant', 'at', '0', 0, NULL, 0, 0, ?, 'system')`,
+      ).run(`exp-${i}`, `失效任务${i}`, 1000 + i)
+      db.prepare(
+        `INSERT INTO local_cron_runs (id, job_id, status, started_at, finished_at, duration_ms, summary, error)
+         VALUES (?, ?, 'ok', 0, 1, 1, '产出', NULL)`,
+      ).run(`run-${i}`, `exp-${i}`)
+    }
+
+    const { scheduler } = makeScheduler(db, null)
+    ;(scheduler as unknown as { pruneExpiredOneShotJobs: () => void }).pruneExpiredOneShotJobs()
+
+    const remaining = db
+      .prepare<{ id: string }>(`SELECT id FROM local_cron_jobs WHERE schedule_type = 'at' AND enabled = 0 ORDER BY last_run_at DESC`)
+      .all()
+    expect(remaining).toHaveLength(20)
+    // 保留的是最新的 20 条（exp-24 ... exp-5），最旧的 exp-0 被删
+    expect(remaining.map((r) => r.id)).toContain('exp-24')
+    expect(remaining.map((r) => r.id)).not.toContain('exp-0')
+    // 被删任务的运行记录一并清理
+    const orphanRuns = db
+      .prepare<{ c: number }>(`SELECT COUNT(*) as c FROM local_cron_runs WHERE job_id = 'exp-0'`)
+      .get()
+    expect(orphanRuns?.c).toBe(0)
+  })
+
   it('scheduleJob 能为每条预置任务注册定时器且算出未来的 next_run_at', () => {
     const { scheduler } = makeScheduler(db, '产出')
     const jobs = listJobs(db)
@@ -309,5 +431,38 @@ describe.skipIf(!hasSqlite)('预置定时任务端到端', () => {
     db.prepare(`DELETE FROM local_cron_jobs WHERE id = 'seed-morning-briefing'`).run()
     ensureSeedCronJobsSeeded(db)
     expect(listJobs(db).find((j) => j.id === 'seed-morning-briefing')).toBeUndefined()
+  })
+
+  it('老库里的魔法指令资讯任务被就地升级为 Agent 驱动', () => {
+    // 模拟旧版本数据：agent_id=null + __lumii_workflow__:news
+    db.prepare(
+      `UPDATE local_cron_jobs SET agent_id = NULL, task_text = '__lumii_workflow__:news', system_prompt = NULL WHERE id = 'news-pipeline'`,
+    ).run()
+
+    ensureSeedCronJobsSeeded(db)
+
+    const row = db
+      .prepare<{ agent_id: string | null; task_text: string; system_prompt: string | null }>(
+        `SELECT agent_id, task_text, system_prompt FROM local_cron_jobs WHERE id = 'news-pipeline'`,
+      )
+      .get()
+    expect(row?.agent_id).toBe('assistant')
+    expect(row?.task_text).not.toContain('__lumii_workflow__')
+    expect(row?.task_text).toContain('dashboard_feed_write')
+    expect(row?.system_prompt?.trim()).toBeTruthy()
+  })
+
+  it('迁移只认魔法指令特征，用户手改过的资讯任务不被覆盖', () => {
+    // 用户已手动改成 Agent 驱动的自定义指令
+    db.prepare(
+      `UPDATE local_cron_jobs SET agent_id = 'assistant', task_text = '我自己的资讯指令', system_prompt = '自定义' WHERE id = 'news-pipeline'`,
+    ).run()
+
+    ensureSeedCronJobsSeeded(db)
+
+    const row = db
+      .prepare<{ task_text: string }>(`SELECT task_text FROM local_cron_jobs WHERE id = 'news-pipeline'`)
+      .get()
+    expect(row?.task_text).toBe('我自己的资讯指令')
   })
 })

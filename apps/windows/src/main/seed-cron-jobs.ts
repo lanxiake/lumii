@@ -11,7 +11,6 @@
  */
 
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
-import { NEWS_PIPELINE_INSTRUCTION } from './news-store'
 
 const log = {
   info: (...a: unknown[]) => console.log('[SeedCronJobs]', ...a),
@@ -24,14 +23,11 @@ const DEFAULT_AGENT_ID = 'assistant'
 interface SeedJob {
   id: string
   name: string
-  /** 每次触发发给 Agent 的任务指令；工作流任务写 __lumii_workflow__:<id> 魔法指令 */
+  /** 每次触发发给 Agent 的自然语言任务指令 */
   taskText: string
-  /** 完整系统提示词，执行时拼在任务指令之前。工作流任务不走 Agent，留空 */
+  /** 完整系统提示词，执行时拼在任务指令之前 */
   systemPrompt?: string
-  /**
-   * 执行 Agent。null 表示不驱动 Agent —— 走 companion/workflow 拦截通道，
-   * 例如资讯抓取由 workflow-runtime 直接跑流水线。
-   */
+  /** 执行 Agent。null 表示不驱动 Agent —— 走 companion 拦截通道（如桌宠主动关心/记忆整理） */
   agentId?: string | null
   /** 默认开启。个别任务想默认关闭时显式写 false */
   enabled?: boolean
@@ -47,14 +43,32 @@ interface SeedJob {
   notifyTargets: string
 }
 
+/**
+ * 资讯抓取任务的指令文案，同时供预置 cron 任务和概览页「立即抓取」手动按钮复用，
+ * 保证两条触发路径（定时 / 手动）驱动 Agent 的方式完全一致。
+ */
+export const NEWS_PIPELINE_TASK_TEXT =
+  '搜索今天值得关注的热门资讯（优先 IT之家、少数派等中文科技媒体），整理 10-15 条，' +
+  '每条包含标题、一句话摘要、来源、链接，并写一段不超过 120 字的整体综述，' +
+  '调用 dashboard_feed_write 工具写入概览页资讯卡片（标题「最近资讯」）。'
+
+export const NEWS_PIPELINE_SYSTEM_PROMPT = [
+  '你在为概览页生成「最近资讯」卡片，这是结构化数据源，不是普通对话回复：',
+  '1. 用 web_search 搜索今天的科技资讯，优先中文科技媒体（IT之家、少数派等）；',
+  '2. 挑选 10-15 条有实质信息量的条目，逐条给出标题、一句话摘要、来源站点、原文链接；',
+  '3. 最后写一段不超过 120 字的整体综述，点出这批资讯里最值得关注的 1-2 个趋势；',
+  '4. 必须调用 dashboard_feed_write 工具把结果写入卡片 —— 只在对话里回复文本不会显示在概览页上。',
+  '搜索失败或没有找到有效资讯时，不要编造条目，也不要调用 dashboard_feed_write。',
+].join('\n')
+
 const SEED_JOBS: readonly SeedJob[] = [
   {
     // 概览页「最近资讯」的数据来源。沿用旧 id，老库里已有这条就不会重复种。
     id: 'news-pipeline',
     name: '资讯抓取与综述',
-    taskText: NEWS_PIPELINE_INSTRUCTION,
-    // 不驱动 Agent：workflow-runtime 拦截魔法指令直接跑抓取流水线
-    agentId: null,
+    taskText: NEWS_PIPELINE_TASK_TEXT,
+    systemPrompt: NEWS_PIPELINE_SYSTEM_PROMPT,
+    agentId: DEFAULT_AGENT_ID,
     scheduleType: 'cron',
     /** 每 2 小时整点抓一次：资讯源本身更新频率有限，再密只是白跑 */
     scheduleExpr: '0 */2 * * *',
@@ -166,6 +180,7 @@ function initialNextRunAt(job: SeedJob, now: number): number {
  */
 export function ensureSeedCronJobsSeeded(db: DatabaseAdapter): void {
   const now = Date.now()
+  migrateLegacyNewsPipeline(db)
   for (const job of SEED_JOBS) {
     try {
       const existing = db
@@ -217,6 +232,31 @@ function markSeeded(db: DatabaseAdapter, jobId: string): void {
   db.prepare(
     `INSERT OR REPLACE INTO runtime_state (key, value, updated_at) VALUES (?, '1', ?)`,
   ).run(seededKey(jobId), new Date().toISOString())
+}
+
+/**
+ * 就地升级老库里的资讯任务：老版本 news-pipeline 是 agent_id=null + 魔法指令
+ * `__lumii_workflow__:news`，去魔法指令后这条老任务触发会走空指令降级（无处理器）。
+ * 这里把它改写成 Agent 驱动的新定义，不新建/不删除，保留用户可能改过的调度/开关状态。
+ * 只认「魔法指令前缀」这一特征，用户如果已经手动改成别的 taskText 就不动。
+ */
+function migrateLegacyNewsPipeline(db: DatabaseAdapter): void {
+  try {
+    const row = db
+      .prepare<{ task_text: string; agent_id: string | null }>(
+        `SELECT task_text, agent_id FROM local_cron_jobs WHERE id = 'news-pipeline'`,
+      )
+      .get()
+    if (!row) return
+    const isLegacy = row.agent_id === null && row.task_text.startsWith('__lumii_workflow__:')
+    if (!isLegacy) return
+    db.prepare(
+      `UPDATE local_cron_jobs SET task_text = ?, system_prompt = ?, agent_id = ? WHERE id = 'news-pipeline'`,
+    ).run(NEWS_PIPELINE_TASK_TEXT, NEWS_PIPELINE_SYSTEM_PROMPT, DEFAULT_AGENT_ID)
+    log.info('[migrateLegacyNewsPipeline] 已将旧资讯任务从魔法指令升级为 Agent 驱动')
+  } catch (err) {
+    log.error('[migrateLegacyNewsPipeline] 迁移失败:', err)
+  }
 }
 
 /** 仅供单测：断言「入库条数 == 定义条数」需要拿到定义本身 */

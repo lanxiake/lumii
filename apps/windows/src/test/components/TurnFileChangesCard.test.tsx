@@ -46,10 +46,17 @@ describe('TurnFileChangesCard', () => {
     expect(screen.queryByText('上传')).not.toBeInTheDocument()
   })
 
-  it('点击查看时回调透传首个文件路径', () => {
+  it('点击查看时回调透传首个文件路径与状态', () => {
     const onReview = vi.fn()
     render(<TurnFileChangesCard changes={CHANGES} onReview={onReview} />)
     fireEvent.click(screen.getByRole('button', { name: /查看/ }))
-    expect(onReview).toHaveBeenCalledWith('src/a.ts')
+    expect(onReview).toHaveBeenCalledWith('src/a.ts', 'added')
+  })
+
+  it('点击具体文件行透传对应路径与状态', () => {
+    const onReview = vi.fn()
+    render(<TurnFileChangesCard changes={CHANGES} onReview={onReview} />)
+    fireEvent.click(screen.getByRole('button', { name: /src\/c\.ts/ }))
+    expect(onReview).toHaveBeenCalledWith('src/c.ts', 'deleted')
   })
 })

@@ -124,8 +124,8 @@ interface ChatContainerProps {
     result?: unknown
     output?: unknown
   }[]
-  /** 点击回合文件变更卡「查看」：透传首个文件相对路径，交由上层打开 Workbench 并定位 */
-  onReviewFileChanges?: (path: string) => void
+  /** 点击回合文件变更卡「查看」：透传文件相对路径与状态，交由上层打开 Workbench 并定位 */
+  onReviewFileChanges?: (path: string, status: 'added' | 'modified' | 'deleted') => void
 }
 
 const ChatContainer: React.FC<ChatContainerProps> = ({

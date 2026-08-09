@@ -5,6 +5,7 @@ import type { CreateCronJobParams, CronJob, CronScheduleType } from '../../../..
 import type { Agent } from '../../../../../services/agent-service'
 import { getDefaultDatetime, intervalToMs, msToDatetimeLocal, msToInterval, type IntervalUnit, validateSchedule } from './schedule-helpers'
 import { NextRunPreview } from './NextRunPreview'
+import { describeCron } from '../../../utils/cron-utils'
 import styles from './CreateJobModal.module.css'
 
 type ScheduleMode = 'repeat' | 'interval' | 'once' | 'keep'
@@ -102,9 +103,8 @@ export const CreateJobModal: FC<CreateJobModalProps> = ({ agents, defaultAgentId
   }, [days, editingJob, intervalAmount, intervalUnit, mode, onceAt, time])
 
   const scheduleError = validateSchedule(schedule.type, schedule.expr)
-  const isSystemWorkflow = taskText.trim().startsWith('__lumii_workflow__:')
   const noDaySelected = (mode === 'repeat' || mode === 'interval') && days.length === 0
-  const canSubmit = Boolean(name.trim() && taskText.trim() && (agentId || isSystemWorkflow) && !scheduleError && !noDaySelected && !submitting)
+  const canSubmit = Boolean(name.trim() && taskText.trim() && agentId && !scheduleError && !noDaySelected && !submitting)
 
   const toggleDay = (day: string) => setDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day])
   const toggleNotify = (id: string) => setNotify((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
@@ -148,7 +148,6 @@ export const CreateJobModal: FC<CreateJobModalProps> = ({ agents, defaultAgentId
         <div className={styles.formGroup}>
           <label className={styles.label} htmlFor="cron-job-agent">执行 Agent</label>
           <select id="cron-job-agent" value={agentId} onChange={(event) => setAgentId(event.target.value)} className={styles.select}>
-            {isSystemWorkflow && <option value="">系统内置工作流</option>}
             {agents.map((agent) => <option key={agent.id} value={agent.id}>{agent.id === defaultAgentId ? `系统默认 Agent（${agent.name}）` : agent.name}</option>)}
           </select>
         </div>
@@ -231,7 +230,7 @@ export const CreateJobModal: FC<CreateJobModalProps> = ({ agents, defaultAgentId
           </div>
         )}
 
-        {mode === 'keep' && <div className={styles.currentRule}>当前规则：{editingJob?.scheduleExpr}</div>}
+        {mode === 'keep' && editingJob && <div className={styles.currentRule}>当前规则：{describeCron(editingJob)}</div>}
 
         <div className={styles.formGroup}>
           <label className={styles.label} id="cron-job-notify-label">通知渠道</label>

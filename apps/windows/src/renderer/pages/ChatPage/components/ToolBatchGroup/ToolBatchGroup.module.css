@@ -21,13 +21,20 @@
 }
 
 .group--compact .header {
-  padding: 3px 4px;
-  min-height: 26px;
+  padding: 5px 6px;
+  min-height: 30px;
+  gap: 8px;
 }
 
 .group--compact .header:hover {
-  background: var(--mt-surface-2, rgba(255, 255, 255, 0.03));
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-primary-400, #818cf8) 10%, transparent);
+  border-radius: 8px;
+}
+
+/* 摘要文案提高对比度、放大字号 */
+.group--compact .summary {
+  color: var(--mt-fg-2, rgba(255, 255, 255, 0.85));
+  font-size: 12px;
 }
 
 .group--compact .body {
@@ -64,12 +71,16 @@
   transform: rotate(90deg);
 }
 
-/* 「工具」标签 */
+/* 「工具」标签：蓝色笔记标签风胶囊，与「思考」（紫）区分 */
 .label {
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--mt-fg-2, rgba(255, 255, 255, 0.85));
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--color-primary-400, #818cf8);
+  background: color-mix(in srgb, var(--color-primary-400, #818cf8) 16%, transparent);
 }
 
 /* 右侧展开/收起提示 */

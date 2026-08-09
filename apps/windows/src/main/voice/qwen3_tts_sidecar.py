@@ -260,10 +260,12 @@ def _split_text_for_stream(text: str) -> List[str]:
     if not text:
         return []
 
+    # 长文稳定性：大幅调大粒度，减少段数 → 压制自回归逐段音色漂移/错语种/段间空隙。
+    # 只在硬标点切句；软标点(，；)仅当段落超 max_len 时兜底，不再激进细拆。
     hard_chars = set("。！？…\n")
     soft_chars = set("，；、,;")
-    min_soft = 2
-    max_len = 36
+    min_soft = 60
+    max_len = 140
 
     parts: List[str] = []
     buf = text

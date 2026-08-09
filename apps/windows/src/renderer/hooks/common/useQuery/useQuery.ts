@@ -154,6 +154,15 @@ export function useQuery<T>(
     prevEnabledRef.current = enabled
   }, [enabled])
 
+  // queryKey 变化时重新请求
+  const prevQueryKeyRef = useRef<string>(queryKeyString)
+  useEffect(() => {
+    if (enabled && prevQueryKeyRef.current !== queryKeyString && hasInitialLoadRef.current) {
+      prevQueryKeyRef.current = queryKeyString
+      refetchRef.current()
+    }
+  }, [enabled, queryKeyString])
+
   // 静默刷新（后台轮询专用，不触发 isLoading 闪动）
   const silentRefetch = useCallback(async (): Promise<void> => {
     try {

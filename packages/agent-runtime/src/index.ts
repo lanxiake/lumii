@@ -83,6 +83,7 @@ export {
   cronCreateToolConfig,
   cronListToolConfig,
   cronDeleteToolConfig,
+  dashboardFeedWriteToolConfig,
   messageToolConfig,
   nodesToolConfig,
   memorySearchToolConfig,

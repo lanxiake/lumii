@@ -309,7 +309,13 @@ export const FileTree: React.FC<FileTreeProps> = ({
         })
       setDirContents((prev) => new Map(prev).set(key, items))
     } catch (err) {
-      console.error('[FileTree] 加载目录失败:', dirPath, err)
+      // 目录不存在（尚未生成 / 已删除）属正常情况，降级为 warn，避免刷红控制台
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('ENOENT') || msg.includes('no such file')) {
+        console.warn('[FileTree] 目录不存在，跳过:', dirPath)
+      } else {
+        console.error('[FileTree] 加载目录失败:', dirPath, err)
+      }
       setDirContents((prev) => new Map(prev).set(key, []))
     } finally {
       setLoadingDirs((prev) => { const s = new Set(prev); s.delete(key); return s })

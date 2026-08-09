@@ -19,6 +19,12 @@ import {
 import { useDashboard, type UsageRange } from '../../../../hooks/business/useDashboard'
 import { UsageChart } from '../../../DashboardPage/components/UsageChart'
 import { formatCostCny as formatCost } from '../../../../../shared/model-pricing'
+
+/** 模型 id 去掉 provider 前缀，展示更短 */
+function shortModel(id: string): string {
+  const slash = id.lastIndexOf('/')
+  return slash >= 0 ? id.slice(slash + 1) : id
+}
 import clsx from 'clsx'
 import styles from './UsagePanel.module.css'
 
@@ -72,6 +78,17 @@ export const UsagePanel: React.FC = () => {
       ? ((usage.totalCalls - usage.unpricedCalls) / usage.totalCalls) * 100
       : 0
   const approx = formatTokensApprox(totalTokens)
+
+  // 图表下方总结：按花费排名，最多取 5 个模型
+  const models = usage?.byModel ?? []
+  const topModels = models.slice(0, 5)
+  const topCostModel = hasPricedSample
+    ? models.find((m) => m.costCents > 0)
+    : undefined
+  const topCallsModel = models.reduce<(typeof models)[number] | undefined>(
+    (max, m) => (max === undefined || m.calls > max.calls ? m : max),
+    undefined,
+  )
 
   return (
     <div className={styles.panel}>
@@ -187,6 +204,58 @@ export const UsagePanel: React.FC = () => {
           <span className={styles.meta}>{usage?.groupBy === 'day' ? '按天' : '按小时'}</span>
         </div>
         <UsageChart buckets={usage?.buckets ?? []} groupBy={usage?.groupBy ?? 'hour'} />
+
+        {topModels.length > 0 ? (
+          <div className={styles.models}>
+            <div className={styles.subhead}>
+              <span>模型明细</span>
+              <span className={styles.meta}>共 {models.length} 个模型</span>
+            </div>
+            <div className={styles['models-lead']}>
+              本区间共调用 <b>{usage?.totalCalls ?? 0}</b> 次。
+              {topCallsModel ? (
+                <>
+                  {' '}
+                  请求最多的是 <b>{shortModel(topCallsModel.model)}</b>（
+                  {topCallsModel.calls} 次）。
+                </>
+              ) : null}
+              {topCostModel ? (
+                <>
+                  {' '}
+                  花费最多的是 <b>{shortModel(topCostModel.model)}</b>，约{' '}
+                  <span className={styles.cost}>{formatCost(topCostModel.costCents)}</span>。
+                </>
+              ) : null}
+            </div>
+            <div className={styles.mlist}>
+              {topModels.map((m, i) => (
+                <div
+                  key={m.model}
+                  className={clsx(styles.mrow, i === 0 && styles['mrow--top'])}
+                >
+                  <span className={styles.mrank}>{i + 1}</span>
+                  <span className={styles.mname} title={m.model}>
+                    {shortModel(m.model)}
+                  </span>
+                  <span className={styles.mmetric}>
+                    <b>{m.calls}</b>次
+                  </span>
+                  <span className={styles.mmetric}>
+                    <b>{formatTokens(m.promptTokens + m.completionTokens)}</b>Tokens
+                  </span>
+                  <span className={clsx(styles.mmetric, styles['mmetric--cost'])}>
+                    <b>
+                      {m.unpricedCalls === m.calls && m.costCents === 0
+                        ? '—'
+                        : formatCost(m.costCents)}
+                    </b>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className={styles.footnote}>
           花费按<b>各模型公开单价</b>本地估算，仅供参考；本地模型不计费。记录写在{' '}

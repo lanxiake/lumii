@@ -80,6 +80,10 @@ export interface CronSchedulerDeps {
   prompt: (instanceId: string, message: string) => Promise<void>
   /** 销毁 Agent 实例 */
   destroy: (instanceId: string) => void
+  /** 确保对话记录存在（cron 任务用固定 sessionKey，让每个任务在会话列表里有专属可查看的记录） */
+  ensureConversationExists: (conversationId: string, title?: string) => boolean
+  /** 通知渲染进程有新的用户消息（不落库，仅推送 UI 展示；不跳转视图，避免打断用户当前操作） */
+  notifyIncomingMessage: (sessionKey: string, text: string) => void
   /** 获取文件仓储（用于文件清理任务） */
   getFileRepo: () => FileRepo | null
   /** 获取 workspace 根目录（用于文件清理任务） */
@@ -323,6 +327,8 @@ export class CronScheduler {
           this.clearLocalCronTimer(job.id)
           // one-shot 任务执行后仅禁用，保留记录与历史
           this.localDb.db.prepare(`UPDATE local_cron_jobs SET enabled = 0 WHERE id = ?`).run(job.id)
+          // 已失效的一次性任务只保留近 20 条，超出的连同运行记录一并清理
+          this.pruneExpiredOneShotJobs()
         })
       }, delay)
       this.localCronTimers.set(job.id, handle)
@@ -390,6 +396,35 @@ export class CronScheduler {
     clearTimeout(handle)
     clearInterval(handle)
     this.localCronTimers.delete(jobId)
+  }
+
+  /** 已失效一次性任务的保留上限；超出的按最后执行时间从旧到新删除 */
+  private static readonly MAX_EXPIRED_ONE_SHOT_JOBS = 20
+
+  /**
+   * 裁剪已失效的一次性任务（schedule_type='at' 且 enabled=0），只保留最近 MAX 条。
+   * 删除任务本身与其 cron_runs 运行记录；已失效任务无计时器，无需清理定时器。
+   * last_run_at 为 NULL（异常未执行）的排最后，优先被清掉。
+   */
+  private pruneExpiredOneShotJobs(): void {
+    try {
+      const stale = this.localDb.db.prepare<{ id: string }>(
+        `SELECT id FROM local_cron_jobs
+         WHERE schedule_type = 'at' AND enabled = 0
+         ORDER BY last_run_at DESC NULLS LAST
+         LIMIT -1 OFFSET ?`
+      ).all(CronScheduler.MAX_EXPIRED_ONE_SHOT_JOBS)
+      if (stale.length === 0) return
+      const deleteJob = this.localDb.db.prepare(`DELETE FROM local_cron_jobs WHERE id = ?`)
+      const deleteRuns = this.localDb.db.prepare(`DELETE FROM local_cron_runs WHERE job_id = ?`)
+      for (const { id } of stale) {
+        deleteRuns.run(id)
+        deleteJob.run(id)
+      }
+      log.info(`[pruneExpiredOneShotJobs] 清理 ${stale.length} 条超额的已失效一次性任务`)
+    } catch (err) {
+      log.warn('[pruneExpiredOneShotJobs] 裁剪失败:', err)
+    }
   }
 
   // ─── 私有方法 ───────────────────────────────────────────────
@@ -510,6 +545,9 @@ export class CronScheduler {
     const targets = notifyTargets?.trim()
       ? notifyTargets.split(',').map((t) => t.trim()).filter(Boolean)
       : ['system']
+    // 'silent'：任务自己已经写好产出（如资讯任务直接调 dashboard_feed_write 写卡片），
+    // 不需要再由派发器把 Agent 原始回复当成通知重复推一遍
+    if (targets.length === 1 && targets[0] === 'silent') return
     // 任务名缺失时退回任务指令首句，用作各渠道的来源标签
     const label = job.name?.trim() || job.task_text.slice(0, 20)
 
@@ -580,7 +618,8 @@ export class CronScheduler {
       this.clearLocalCronTimer(job.id)
       return
     }
-    if (currentRow.enabled === 0) {
+    // 已禁用任务不自动触发；但手动「立即执行/重新执行」是用户明确意图（含已失效的一次性任务），放行
+    if (currentRow.enabled === 0 && !options.manual) {
       log.warn(`[runLocalCronJob] 任务 jobId=${job.id} 已禁用，跳过执行`)
       this.clearLocalCronTimer(job.id)
       return
@@ -628,7 +667,12 @@ export class CronScheduler {
       if (job.agent_id) {
         // 有指定 Agent：驱动 Agent 执行任务，通知在 Agent 完成后发出
         log.info(`[runLocalCronJob] 驱动 Agent agentId=${job.agent_id} 执行任务`)
-        const convId = this.deps.getLastActiveConvId() ?? undefined
+        // 固定 sessionKey（而非「上次活跃会话」）：每个任务在会话列表里有专属可查看的记录，
+        // 不依赖用户此前是否打开过某个会话，客户端重启后也不受影响
+        const convId = `cron:${job.id}`
+        const title = `定时任务 · ${currentRow.name}`
+        this.deps.ensureConversationExists(convId, title)
+        this.deps.notifyIncomingMessage(convId, job.task_text)
         const instanceId = await this.deps.createInstanceById(job.agent_id, convId, convId)
         try {
           // 预置任务带完整系统提示词，拼在任务指令之前
@@ -640,7 +684,7 @@ export class CronScheduler {
           this.deps.destroy(instanceId)
         }
         // prompt() 不返回内容，从会话里回读 Agent 的最后一条回复作为推送正文
-        if (convId) output = this.readLatestAssistantText(convId, startedAt) ?? job.task_text
+        output = this.readLatestAssistantText(convId, startedAt) ?? job.task_text
       }
       await this.dispatchNotifications(
         { name: currentRow.name, task_text: job.task_text },

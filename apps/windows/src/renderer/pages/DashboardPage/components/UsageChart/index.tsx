@@ -1,15 +1,14 @@
 /**
- * UsageChart - 用量趋势多色组合图
+ * UsageChart - 用量趋势折线图
  *
- * 柱：输入 / 输出 Token；折线：请求次数、花费（元）。
- * 悬停 Tooltip 展示该时间桶的完整明细。
+ * 三条折线：输入 / 输出 Token（左轴）、花费（元，右轴）。
+ * 悬停 Tooltip 展示该时间桶的完整明细（含请求次数）。
  */
 
 import React, { useMemo } from 'react'
 import {
   ResponsiveContainer,
   ComposedChart,
-  Bar,
   Line,
   XAxis,
   YAxis,
@@ -170,21 +169,25 @@ export const UsageChart: React.FC<UsageChartProps> = ({ buckets, groupBy }) => {
             iconType="circle"
             iconSize={8}
           />
-          <Bar
+          <Line
             yAxisId="tok"
+            type="monotone"
             dataKey="输入"
-            fill={COLOR.input}
-            radius={[3, 3, 0, 0]}
-            maxBarSize={18}
-            opacity={0.9}
+            name="输入 Token"
+            stroke={COLOR.input}
+            strokeWidth={2}
+            dot={{ r: 2.5, fill: COLOR.input }}
+            activeDot={{ r: 4 }}
           />
-          <Bar
+          <Line
             yAxisId="tok"
+            type="monotone"
             dataKey="输出"
-            fill={COLOR.output}
-            radius={[3, 3, 0, 0]}
-            maxBarSize={18}
-            opacity={0.9}
+            name="输出 Token"
+            stroke={COLOR.output}
+            strokeWidth={2}
+            dot={{ r: 2.5, fill: COLOR.output }}
+            activeDot={{ r: 4 }}
           />
           <Line
             yAxisId="meta"

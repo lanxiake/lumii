@@ -24,8 +24,11 @@ const STATUS_SHORT: Record<FileChangeEntry['status'], string> = {
 
 export interface TurnFileChangesCardProps {
   changes: readonly FileChangeEntry[]
-  /** 点击「查看」：透传首个文件相对路径，交由上层打开 Workbench 并定位 */
-  onReview?: (path: string) => void
+  /**
+   * 点击某行「查看」：透传相对路径与状态，交由上层打开 Workbench 并定位。
+   * deleted 文件已不存在，上层据 status 跳过预览（仅定位）。
+   */
+  onReview?: (path: string, status: FileChangeEntry['status']) => void
 }
 
 /** 从路径末段推断扩展名归类，用于扩展名徽章配色 */
@@ -55,7 +58,7 @@ const TurnFileChangesCard: React.FC<TurnFileChangesCardProps> = ({ changes, onRe
           <button
             type="button"
             className={styles.review}
-            onClick={() => onReview(changes[0].path)}
+            onClick={() => onReview(changes[0].path, changes[0].status)}
           >
             查看
           </button>
@@ -69,7 +72,7 @@ const TurnFileChangesCard: React.FC<TurnFileChangesCardProps> = ({ changes, onRe
               key={`${entry.status}:${entry.path}`}
               type="button"
               className={styles.row}
-              onClick={() => onReview?.(entry.path)}
+              onClick={() => onReview?.(entry.path, entry.status)}
               title={entry.path}
             >
               <span className={clsx(styles.statusBadge, styles[`statusBadge--${entry.status}`])}>

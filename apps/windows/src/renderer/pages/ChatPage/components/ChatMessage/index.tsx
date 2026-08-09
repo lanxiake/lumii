@@ -62,8 +62,8 @@ interface ChatMessageProps {
   onReplay?: (messageId: string) => void
   /** 当前正在回放的消息 ID */
   replayMessageId?: string | null
-  /** 点击回合文件变更卡片的「查看」，透传首个文件相对路径 */
-  onReviewFileChanges?: (path: string) => void
+  /** 点击回合文件变更卡片的「查看」，透传文件相对路径与状态 */
+  onReviewFileChanges?: (path: string, status: 'added' | 'modified' | 'deleted') => void
 }
 
 // ---------------------------------------------------------------

@@ -257,19 +257,5 @@ export async function runNewsPipeline(deps: NewsPipelineDeps = {}): Promise<stri
   return `executed: 抓取 ${items.length} 条资讯${digest ? '，已生成综述' : ''}`
 }
 
-// ── 定时任务接线 ──
-
-/**
- * 资讯流水线的魔法指令。
- * 走 cron 的 companion 拦截通道：任务文本命中它就跑流水线，返回值落 cron_runs.summary，
- * 于是「定时任务」页面能直接看到每次抓取的结果，不需要另造一套运行记录。
- */
-export const NEWS_PIPELINE_INSTRUCTION = '__lumii_workflow__:news'
-/** 旧版本已经写入数据库的 task_text，升级时继续识别。 */
-export const LEGACY_NEWS_PIPELINE_INSTRUCTION = '__news_pipeline__'
-
-/** 旧版本 ensureNewsCronJobSeeded 的哨兵键，播种逻辑已并入 seed-cron-jobs.ts。 */
-export const LEGACY_NEWS_CRON_SEEDED_KEY = 'workflow:news:seeded'
-
 /** 仅供单测：解析逻辑不走网络也要能验 */
 export const __testables = { parseRss, stripTags, decodeEntities }

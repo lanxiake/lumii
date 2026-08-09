@@ -178,7 +178,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [voiceSaving, setVoiceSaving] = useState(false)
   const [voicePreviewing, setVoicePreviewing] = useState(false)
   /** 语音合成测试文案（默认与预览默认句一致，最多 100 字） */
-  const [voicePreviewText, setVoicePreviewText] = useState('你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。。')
+  const [voicePreviewText, setVoicePreviewText] = useState('你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。')
   /** TTS 运行时阶段文案（安装依赖 / 加载模型等） */
   const [voiceRuntimeStatus, setVoiceRuntimeStatus] = useState<{
     phase: string
@@ -1682,7 +1682,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         await previewAudioCtxRef.current.resume()
       }
       setVoicePreviewing(true)
-      const text = voicePreviewText.trim().slice(0, 100) || '你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。。'
+      const text = voicePreviewText.trim().slice(0, 100) || '你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。'
       await electronAPI.voice
         .sendCommand({ type: 'voice:tts:preview', text, maxChars: 100 })
         .catch(() => setVoicePreviewing(false))
@@ -2107,7 +2107,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     value={voicePreviewText}
                     maxLength={100}
                     onChange={(e) => setVoicePreviewText(e.target.value.slice(0, 100))}
-                    placeholder="你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。。"
+                    placeholder="你好，我叫 Lumii。I’m your best partner，是你的最佳伙伴呀。"
                   />
                 </div>
                 <Button

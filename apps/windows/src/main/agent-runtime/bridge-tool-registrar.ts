@@ -32,6 +32,7 @@ import {
   cronCreateToolConfig,
   cronListToolConfig,
   cronDeleteToolConfig,
+  dashboardFeedWriteToolConfig,
   messageToolConfig,
   nodesToolConfig,
   memorySearchToolConfig,
@@ -63,6 +64,7 @@ import type { InstanceStateStore } from './bridge-instance-state'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import type { CronScheduler } from './cron-scheduler'
 import { registerBrowserTools as registerBrowserToolsFn } from './bridge-browser-tools'
+import { writeDashboardFeedSnapshot, DEFAULT_DASHBOARD_FEED_ID } from '../dashboard-feed-store'
 import {
   agentRuntimeLog as log,
   jsonToolResult,
@@ -143,6 +145,8 @@ export class BridgeToolRegistrar {
     this.registerSendMessageOverride()
     // 本地 cron 工具无需 Gateway，始终注册
     this.registerLocalCronTools()
+    // 资讯卡片写入，供 Agent 驱动的资讯抓取任务落盘结构化结果
+    this.registerDashboardFeedTool()
     // 渐进式加载指南工具（a2ui_guide / cron_guide）
     this.registerGuideTools()
     if (this.deps.config.callGateway) {
@@ -762,6 +766,57 @@ export class BridgeToolRegistrar {
     }
     this.deps.toolRegistry.register(createMtBotTool(cronDelete, ctx))
     log.info('[registerToolOverrides] local cron tools registered: cron_create/cron_list/cron_delete')
+  }
+
+  /**
+   * 注册 dashboard_feed_write：Agent 抓取资讯后落盘结构化结果到概览页资讯卡片。
+   * feedId 固定用 DEFAULT_DASHBOARD_FEED_ID（'news'）—— 当前仅有这一个 feed 在用。
+   */
+  private registerDashboardFeedTool(): void {
+    const ctx = this.deps.toolContext
+    if (!ctx) return
+
+    const dashboardFeedWrite: MtBotToolConfig = {
+      ...dashboardFeedWriteToolConfig,
+      execute: async (_id, rawParams) => {
+        const p = rawParams as {
+          title: string
+          summary?: string
+          items: Array<{ title: string; summary?: string; href?: string; source?: string }>
+        }
+        if (!p.title?.trim()) {
+          return jsonToolResult({ status: 'error', message: 'title is required' })
+        }
+        if (!Array.isArray(p.items) || p.items.length === 0) {
+          return jsonToolResult({ status: 'error', message: 'items must be a non-empty array' })
+        }
+        try {
+          await writeDashboardFeedSnapshot({
+            feedId: DEFAULT_DASHBOARD_FEED_ID,
+            title: p.title.trim(),
+            updatedAt: Date.now(),
+            ...(p.summary?.trim() ? { summary: p.summary.trim() } : {}),
+            items: p.items.map((item, index) => ({
+              id: item.href?.trim() || `${item.title}-${index}`,
+              title: item.title,
+              ...(item.summary ? { summary: item.summary } : {}),
+              ...(item.href ? { href: item.href } : {}),
+              ...(item.source ? { source: item.source } : {}),
+              timestamp: Date.now(),
+              kind: 'news',
+            })),
+          })
+          return jsonToolResult({ status: 'ok', itemCount: p.items.length })
+        } catch (err) {
+          return jsonToolResult({
+            status: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          })
+        }
+      },
+    }
+    this.deps.toolRegistry.register(createMtBotTool(dashboardFeedWrite, ctx))
+    log.info('[registerDashboardFeedTool] dashboard_feed_write registered')
   }
 
   /**

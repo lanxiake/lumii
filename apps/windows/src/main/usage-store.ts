@@ -53,6 +53,18 @@ export interface UsageBucket {
   unpricedCalls: number
 }
 
+/** 单个模型的用量聚合，用于图表下方的总结卡片 */
+export interface UsageModelStat {
+  model: string
+  calls: number
+  promptTokens: number
+  completionTokens: number
+  /** 已知价格部分的花费合计（美分） */
+  costCents: number
+  /** 价格未知的调用次数 */
+  unpricedCalls: number
+}
+
 export interface UsageSummary {
   totalCalls: number
   totalPromptTokens: number
@@ -60,6 +72,8 @@ export interface UsageSummary {
   totalCostCents: number
   unpricedCalls: number
   buckets: UsageBucket[]
+  /** 按模型聚合，花费降序。总结卡片用它算「花费最多的模型」等 */
+  byModel: UsageModelStat[]
 }
 
 function usageDir(): string {
@@ -152,6 +166,7 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
   const shards = await Promise.all(shardsInRange(from, to).map(readShard))
 
   const buckets = new Map<number, UsageBucket>()
+  const models = new Map<string, UsageModelStat>()
   const summary: UsageSummary = {
     totalCalls: 0,
     totalPromptTokens: 0,
@@ -159,6 +174,7 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
     totalCostCents: 0,
     unpricedCalls: 0,
     buckets: [],
+    byModel: [],
   }
 
   for (const rec of shards.flat()) {
@@ -181,6 +197,21 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
     else bucket.costCents += costCents
     buckets.set(key, bucket)
 
+    const stat = models.get(rec.model) ?? {
+      model: rec.model,
+      calls: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      costCents: 0,
+      unpricedCalls: 0,
+    }
+    stat.calls += 1
+    stat.promptTokens += rec.promptTokens
+    stat.completionTokens += rec.completionTokens
+    if (costCents === undefined) stat.unpricedCalls += 1
+    else stat.costCents += costCents
+    models.set(rec.model, stat)
+
     summary.totalCalls += 1
     summary.totalPromptTokens += rec.promptTokens
     summary.totalCompletionTokens += rec.completionTokens
@@ -190,5 +221,8 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
 
   summary.totalCostCents = Math.round(summary.totalCostCents * 10_000) / 10_000
   summary.buckets = [...buckets.values()].sort((a, b) => a.ts - b.ts)
+  summary.byModel = [...models.values()]
+    .map((m) => ({ ...m, costCents: Math.round(m.costCents * 10_000) / 10_000 }))
+    .sort((a, b) => b.costCents - a.costCents || b.calls - a.calls)
   return summary
 }

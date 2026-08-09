@@ -49,6 +49,16 @@ export interface UsageBucketView {
   unpricedCalls: number
 }
 
+/** 单个模型的用量聚合，供图表下方总结卡片 */
+export interface UsageModelStatView {
+  model: string
+  calls: number
+  promptTokens: number
+  completionTokens: number
+  costCents: number
+  unpricedCalls: number
+}
+
 /** 用量与花费聚合视图 */
 export interface UsageView {
   totalCalls: number
@@ -59,6 +69,8 @@ export interface UsageView {
   /** 价格未知的调用次数，>0 时 UI 需标注「部分未计价」 */
   unpricedCalls: number
   buckets: UsageBucketView[]
+  /** 按模型聚合，花费降序 */
+  byModel: UsageModelStatView[]
   /** 桶粒度，用于图表 x 轴文案 */
   groupBy: 'hour' | 'day'
 }

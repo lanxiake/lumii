@@ -11,4 +11,5 @@ export type {
   UsageRange,
   UsageView,
   UsageBucketView,
+  UsageModelStatView,
 } from './useDashboard.types'

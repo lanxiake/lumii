@@ -14,6 +14,7 @@ export { spawnAgentToolConfig } from "./spawn-agent-tool.js";
 export { sendMessageToolConfig } from "./send-message-tool.js";
 export { todoWriteToolConfig } from "./task-tools.js";
 export { cronCreateToolConfig, cronListToolConfig, cronDeleteToolConfig } from "./cron-tools.js";
+export { dashboardFeedWriteToolConfig } from "./dashboard-feed-tool.js";
 export {
   messageToolConfig,
   nodesToolConfig,
@@ -77,6 +78,7 @@ import { spawnAgentToolConfig } from "./spawn-agent-tool.js";
 import { sendMessageToolConfig } from "./send-message-tool.js";
 import { todoWriteToolConfig } from "./task-tools.js";
 import { cronCreateToolConfig, cronListToolConfig, cronDeleteToolConfig } from "./cron-tools.js";
+import { dashboardFeedWriteToolConfig } from "./dashboard-feed-tool.js";
 import {
   messageToolConfig,
   nodesToolConfig,
@@ -127,6 +129,7 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   cronCreateToolConfig,
   cronListToolConfig,
   cronDeleteToolConfig,
+  dashboardFeedWriteToolConfig,
   messageToolConfig,
   nodesToolConfig,
   memorySearchToolConfig,

@@ -1,38 +1,42 @@
+/**
+ * ExpiredTab - 已失效任务
+ *
+ * 一次性任务（scheduleType='at'）执行完自动禁用后归档于此，
+ * 与用户手动暂停的重复任务分开展示，避免混淆"已完成"和"被暂停"两种语义。
+ * 支持编辑（改时间/内容后重新排期）、重新执行（立即再跑一次）、删除。
+ * 后端最多保留近 20 条，超出的自动清理。
+ */
 import type { FC } from 'react'
 import { useState } from 'react'
 import { AlertCircle, Clock3, Loader2, Pencil, Play, Trash2 } from 'lucide-react'
-import styles from './OverviewTab.module.css'
+import styles from '../OverviewTab/OverviewTab.module.css'
 import type { CronJob } from '../../../../hooks/business/useCron/types'
-import type { Agent } from '../../../../services/agent-service'
 import { describeCron } from '../../utils/cron-utils'
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
 import { useToast } from '../../../../components/ui/Toast/useToast'
 
-interface OverviewTabProps {
+interface ExpiredTabProps {
   jobs: CronJob[]
-  agents: Agent[]
-  onToggle: (id: string, enabled: boolean) => Promise<boolean>
+  onEdit: (job: CronJob) => void
   onRun: (id: string, force?: boolean) => Promise<boolean>
   onDelete: (id: string) => Promise<boolean>
-  onEdit: (job: CronJob) => void
 }
 
-function formatNextRun(job: CronJob): string {
-  if (!job.enabled) return '已暂停'
-  if (!job.nextRunAt) return '等待安排下次执行'
-  return `下次 ${new Date(job.nextRunAt).toLocaleString()}`
+function formatLastRun(job: CronJob): string {
+  if (!job.lastRunAt) return '尚未执行'
+  return `执行于 ${new Date(job.lastRunAt).toLocaleString()}`
 }
 
-export const OverviewTab: FC<OverviewTabProps> = ({ jobs, agents, onToggle, onRun, onDelete, onEdit }) => {
+export const ExpiredTab: FC<ExpiredTabProps> = ({ jobs, onEdit, onRun, onDelete }) => {
   const [deleteTarget, setDeleteTarget] = useState<CronJob | null>(null)
   const toast = useToast()
 
   return (
     <div className={styles.overviewTab}>
-      <div className={styles.summary}>{`共 ${jobs.length} 个自动任务，其中 ${jobs.filter((job) => job.enabled).length} 个已开启。`}</div>
+      <div className={styles.summary}>{`共 ${jobs.length} 个已失效的一次性任务（最多保留近 20 条）。`}</div>
 
       {jobs.length === 0 ? (
-        <div className={styles.emptyList}>还没有定时任务，点击右上角“新建任务”开始设置。</div>
+        <div className={styles.emptyList}>还没有已失效的任务。一次性任务执行完成后会自动归档到这里。</div>
       ) : (
         <div className={styles.jobList}>
           {jobs.map((job) => (
@@ -45,31 +49,18 @@ export const OverviewTab: FC<OverviewTabProps> = ({ jobs, agents, onToggle, onRu
                       <Loader2 size={12} className={styles.spin} />运行中
                     </span>
                   )}
-                  {job.status === 'error' && <AlertCircle className={styles.errorIcon} size={16} aria-label="上次执行失败" />}
+                  {job.status === 'error' && <AlertCircle className={styles.errorIcon} size={16} aria-label="执行失败" />}
                 </div>
                 <div className={styles.jobMeta}>
                   <span><Clock3 size={14} />{describeCron(job)}</span>
-                  <span>Agent：{agents.find((agent) => agent.id === job.agentId)?.name ?? '系统默认 Agent'}</span>
-                  <span>{formatNextRun(job)}</span>
+                  <span>{formatLastRun(job)}</span>
                 </div>
-                {job.lastError && <p className={styles.errorText} title={job.lastError}>上次执行失败：{job.lastError}</p>}
+                {job.lastError && <p className={styles.errorText} title={job.lastError}>执行失败：{job.lastError}</p>}
               </div>
 
               <div className={styles.jobControls}>
-                <label className={styles.switch} title={job.enabled ? '暂停任务' : '启用任务'}>
-                  <input
-                    type="checkbox"
-                    checked={job.enabled}
-                    onChange={async () => {
-                      const ok = await onToggle(job.id, !job.enabled)
-                      if (ok) toast.success(job.enabled ? '任务已暂停' : '任务已启用')
-                      else toast.error('修改任务状态失败')
-                    }}
-                  />
-                  <span aria-hidden="true" />
-                </label>
-                <button type="button" className={styles.iconButton} title="编辑任务" aria-label="编辑任务" onClick={() => onEdit(job)}><Pencil size={16} /></button>
-                <button type="button" className={styles.iconButton} title={job.status === 'running' ? '正在执行中' : '立即执行'} aria-label="立即执行" disabled={job.status === 'running'} onClick={async () => {
+                <button type="button" className={styles.iconButton} title="编辑并重新排期" aria-label="编辑任务" onClick={() => onEdit(job)}><Pencil size={16} /></button>
+                <button type="button" className={styles.iconButton} title={job.status === 'running' ? '正在执行中' : '重新执行一次'} aria-label="重新执行" disabled={job.status === 'running'} onClick={async () => {
                   const ok = await onRun(job.id, true)
                   if (ok) toast.success('任务已开始执行')
                   else toast.error('启动任务失败')
@@ -84,7 +75,7 @@ export const OverviewTab: FC<OverviewTabProps> = ({ jobs, agents, onToggle, onRu
       <ConfirmModal
         open={Boolean(deleteTarget)}
         layer="aboveHub"
-        title="删除定时任务"
+        title="删除已失效任务"
         content={`确定删除“${deleteTarget?.name ?? ''}”吗？删除后无法恢复。`}
         confirmText="删除"
         confirmVariant="danger"
@@ -100,3 +91,5 @@ export const OverviewTab: FC<OverviewTabProps> = ({ jobs, agents, onToggle, onRu
     </div>
   )
 }
+
+export default ExpiredTab
