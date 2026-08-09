@@ -1,8 +1,27 @@
 diff --git a/dist/providers/openai-completions.js b/dist/providers/openai-completions.js
-index 156bdc60702c5924ca38c6b69304f173301e8591..e3ff9326b5c8ccd8ca840d7c64607b06893ff3d0 100644
+index 156bdc60702c5924ca38c6b69304f173301e8591..8d6570732ba09d7a1322b395339161242dff1305 100644
 --- a/dist/providers/openai-completions.js
 +++ b/dist/providers/openai-completions.js
-@@ -314,11 +314,47 @@ function createClient(model, context, apiKey, optionsHeaders) {
+@@ -132,6 +132,9 @@ export const streamOpenAICompletions = (model, context, options) => {
+                     continue;
+                 if (choice.finish_reason) {
+                     output.stopReason = mapStopReason(choice.finish_reason);
++                    if (output.stopReason === "error" && choice.finish_reason !== "content_filter") {
++                        output.errorMessage = `Provider 返回了未识别的 finish_reason: "${choice.finish_reason}"`;
++                    }
+                 }
+                 if (choice.delta) {
+                     if (choice.delta.content !== null &&
+@@ -245,7 +248,7 @@ export const streamOpenAICompletions = (model, context, options) => {
+                 throw new Error("Request was aborted");
+             }
+             if (output.stopReason === "aborted" || output.stopReason === "error") {
+-                throw new Error("An unknown error occurred");
++                throw new Error(output.errorMessage || "An unknown error occurred");
+             }
+             stream.push({ type: "done", reason: output.stopReason, message: output });
+             stream.end();
+@@ -314,11 +317,47 @@ function createClient(model, context, apiKey, optionsHeaders) {
      if (optionsHeaders) {
          Object.assign(headers, optionsHeaders);
      }
@@ -50,7 +69,7 @@ index 156bdc60702c5924ca38c6b69304f173301e8591..e3ff9326b5c8ccd8ca840d7c64607b06
      });
  }
  function buildParams(model, context, options) {
-@@ -511,6 +547,9 @@ export function convertMessages(model, context, compat) {
+@@ -511,6 +550,9 @@ export function convertMessages(model, context, compat) {
              const thinkingBlocks = msg.content.filter((b) => b.type === "thinking");
              // Filter out empty thinking blocks to avoid API validation errors
              const nonEmptyThinkingBlocks = thinkingBlocks.filter((b) => b.thinking && b.thinking.trim().length > 0);
@@ -60,7 +79,7 @@ index 156bdc60702c5924ca38c6b69304f173301e8591..e3ff9326b5c8ccd8ca840d7c64607b06
              if (nonEmptyThinkingBlocks.length > 0) {
                  if (compat.requiresThinkingAsText) {
                      // Convert thinking blocks to plain text (no tags to avoid model mimicking them)
-@@ -525,7 +564,9 @@ export function convertMessages(model, context, compat) {
+@@ -525,7 +567,9 @@ export function convertMessages(model, context, compat) {
                  }
                  else {
                      // Use the signature from the first thinking block if available (for llama.cpp server + gpt-oss)
@@ -71,8 +90,23 @@ index 156bdc60702c5924ca38c6b69304f173301e8591..e3ff9326b5c8ccd8ca840d7c64607b06
                      if (signature && signature.length > 0) {
                          assistantMsg[signature] = nonEmptyThinkingBlocks.map((b) => b.thinking).join("\n");
                      }
+@@ -658,10 +702,10 @@ function mapStopReason(reason) {
+             return "toolUse";
+         case "content_filter":
+             return "error";
+-        default: {
+-            const _exhaustive = reason;
+-            throw new Error(`Unhandled stop reason: ${_exhaustive}`);
+-        }
++        default:
++            // 未知/上游自定义 finish_reason（如某些 OpenAI 兼容代理用非标准值表示上游失败）
++            // 不再抛异常中断流，降级为 error，原始值由调用方拼接进 errorMessage
++            return "error";
+     }
+ }
+ /**
 diff --git a/dist/providers/transform-messages.js b/dist/providers/transform-messages.js
-index 3d29acb1eea69db48ab6f60517b738087697b3d4..b476f50d158b99aa16b83dfb232e8a2041df83c5 100644
+index 3d29acb1eea69db48ab6f60517b738087697b3d4..7516dad1f65a767fb445c27022870ccb5a3c8401 100644
 --- a/dist/providers/transform-messages.js
 +++ b/dist/providers/transform-messages.js
 @@ -28,9 +28,9 @@ export function transformMessages(messages, model, normalizeToolCallId) {

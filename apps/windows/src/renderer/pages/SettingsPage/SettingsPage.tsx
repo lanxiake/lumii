@@ -122,6 +122,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [providerLoading, setProviderLoading] = useState(false)
   const [providerSaving, setProviderSaving] = useState(false)
   const [slotModels, setSlotModels] = useState<Partial<Record<CapabilitySlot, ListedModel[]>>>({})
+  /** 模型 ID 输入框本地缓冲文本（未提交前不解析进 allowedModelIds） */
+  const [slotModelIdsText, setSlotModelIdsText] = useState<Partial<Record<CapabilitySlot, string>>>({})
   const [slotListing, setSlotListing] = useState<Partial<Record<CapabilitySlot, boolean>>>({})
   const [slotTesting, setSlotTesting] = useState<Partial<Record<CapabilitySlot, boolean>>>({})
   const [expandedSlots, setExpandedSlots] = useState<Partial<Record<CapabilitySlot, boolean>>>({
@@ -853,7 +855,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     )
   }
 
-  /** 更新指定能力槽字段（切换类型时同步默认 baseUrl） */
+  /** 更新指定能力槽字段（切换类型时同步默认 baseUrl 并清空已选模型，避免残留旧 Provider 的模型） */
   const patchSlot = useCallback((slot: CapabilitySlot, patch: Partial<LocalProviderConfigView>) => {
     setProviderSlots((prev) => {
       if (!prev) return prev
@@ -861,11 +863,31 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       const nextSlot = { ...current, ...patch }
       if (patch.type && patch.type !== current.type) {
         nextSlot.baseUrl = PROVIDER_DEFAULT_BASE_URL[patch.type]
+        nextSlot.modelId = ''
+        nextSlot.allowedModelIds = []
+        setSlotModels((m) => ({ ...m, [slot]: [] }))
+        setSlotModelIdsText((t) => ({ ...t, [slot]: undefined }))
       }
       if (patch.enabled === true) {
         setExpandedSlots((e) => ({ ...e, [slot]: true }))
       }
       return { ...prev, [slot]: nextSlot }
+    })
+  }, [])
+
+  /** 提交模型 ID 输入框的手动编辑文本：按逗号切分、去重后写入 allowedModelIds */
+  const commitSlotModelIdsText = useCallback((slot: CapabilitySlot) => {
+    setSlotModelIdsText((textState) => {
+      const text = textState[slot]
+      if (text === undefined) return textState
+      const ids = [...new Set(text.split(',').map((s) => s.trim()).filter(Boolean))]
+      setProviderSlots((prev) => {
+        if (!prev) return prev
+        const current = prev[slot]
+        const nextModelId = ids.includes(current.modelId) ? current.modelId : (ids[0] ?? '')
+        return { ...prev, [slot]: { ...current, allowedModelIds: ids, modelId: nextModelId } }
+      })
+      return { ...textState, [slot]: undefined }
     })
   }, [])
 
@@ -892,15 +914,25 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     toast.success(`已从「文本对话」复制到「${CAPABILITY_SLOT_LABEL[slot]}」`)
   }, [toast])
 
-  /** 拉取指定槽模型列表 */
+  /** 拉取指定槽模型列表（只用当前草稿探测，不落盘、不影响运行中的 Agent） */
   const handleListModels = useCallback(async (slot: CapabilitySlot) => {
     if (!providerSlots) return
     setSlotListing((s) => ({ ...s, [slot]: true }))
     try {
-      // 先保存当前草稿到主进程，保证拉列表用最新凭据
-      await saveProviderConfig(providerSlots)
-      const models = await listProviderModels(slot)
+      const models = await listProviderModels(slot, providerSlots[slot])
       setSlotModels((m) => ({ ...m, [slot]: models }))
+      // 清理不在新列表中的旧选择，避免切换 Provider 后残留幽灵模型 ID
+      if (models.length > 0) {
+        const validIds = new Set(models.map((m) => m.id))
+        const currentAllowed = providerSlots[slot].allowedModelIds ?? []
+        const nextAllowed = currentAllowed.filter((id) => validIds.has(id))
+        if (nextAllowed.length !== currentAllowed.length) {
+          const nextModelId = nextAllowed.includes(providerSlots[slot].modelId)
+            ? providerSlots[slot].modelId
+            : (nextAllowed[0] ?? '')
+          patchSlot(slot, { allowedModelIds: nextAllowed, modelId: nextModelId })
+        }
+      }
       if (models.length === 0) {
         toast.warning('未获取到模型，可手动填写模型 ID')
       } else {
@@ -912,30 +944,16 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     } finally {
       setSlotListing((s) => ({ ...s, [slot]: false }))
     }
-  }, [providerSlots, toast])
+  }, [providerSlots, toast, patchSlot])
 
-  /** 测试指定槽连通性 */
+  /** 测试指定槽连通性（只用当前草稿探测，不落盘、不广播事件） */
   const handleTestSlot = useCallback(async (slot: CapabilitySlot) => {
     if (!providerSlots) return
     setSlotTesting((s) => ({ ...s, [slot]: true }))
     try {
-      // 测试前自动启用该槽，避免「配好了但没开」
-      const nextSlots = {
-        ...providerSlots,
-        [slot]: { ...providerSlots[slot], enabled: true },
-      }
-      setProviderSlots(nextSlots)
-      setExpandedSlots((s) => ({ ...s, [slot]: true }))
-      await saveProviderConfig(nextSlots)
-      const result = await testProviderConnection(slot)
+      const result = await testProviderConnection(slot, { ...providerSlots[slot], enabled: true })
       if (result.ok) {
         toast.success(result.message)
-        window.dispatchEvent(new CustomEvent('mtbot:provider-config-changed'))
-        if (slot === 'chat' && nextSlots.chat.modelId) {
-          window.dispatchEvent(
-            new CustomEvent('mtbot:chat-model-changed', { detail: { modelId: nextSlots.chat.modelId } }),
-          )
-        }
       } else {
         toast.error(result.message)
       }
@@ -1142,6 +1160,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                                 const nextModelId =
                                   nextIds.includes(cfg.modelId) ? cfg.modelId : (nextIds[0] ?? '')
                                 patchSlot(slot, { allowedModelIds: nextIds, modelId: nextModelId })
+                                // 勾选是结构化操作，优先覆盖输入框里未提交的手动编辑
+                                setSlotModelIdsText((t) => ({ ...t, [slot]: undefined }))
                               }}
                             >
                               {m.name || m.id}
@@ -1152,17 +1172,19 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     ) : null}
                     <Input
                       type="text"
-                      value={cfg.modelId}
-                      placeholder="默认模型 ID（可手动填写；勾选列表后可多选）"
+                      value={
+                        slotModelIdsText[slot] ?? (cfg.allowedModelIds ?? []).join(', ')
+                      }
+                      placeholder="模型 ID，多个用逗号分隔；可手动输入，勾选后自动填充"
                       onChange={(e) => {
-                        const id = e.target.value
-                        const prev = cfg.allowedModelIds?.length
-                          ? [...cfg.allowedModelIds]
-                          : []
-                        const nextIds = id.trim()
-                          ? [...new Set([...prev.filter((x) => x !== cfg.modelId), id.trim()])]
-                          : prev.filter((x) => x !== cfg.modelId)
-                        patchSlot(slot, { modelId: id, allowedModelIds: nextIds })
+                        setSlotModelIdsText((t) => ({ ...t, [slot]: e.target.value }))
+                      }}
+                      onBlur={() => commitSlotModelIdsText(slot)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          commitSlotModelIdsText(slot)
+                        }
                       }}
                     />
                     {(cfg.allowedModelIds?.length ?? 0) > 0 && (

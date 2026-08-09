@@ -144,9 +144,12 @@ export async function saveProviderConfig(
   return window.electronAPI.provider.setConfig(cfg)
 }
 
-/** 拉取指定槽的远端模型列表 */
-export async function listProviderModels(slot: CapabilitySlot): Promise<ListedModel[]> {
-  const res = await window.electronAPI.provider.listModels(slot)
+/** 拉取指定槽的远端模型列表（可传入未保存的草稿配置，避免必须先落盘） */
+export async function listProviderModels(
+  slot: CapabilitySlot,
+  draftCfg?: LocalProviderConfigView,
+): Promise<ListedModel[]> {
+  const res = await window.electronAPI.provider.listModels(slot, draftCfg)
   if (!res.success) throw new Error(res.error || '获取模型列表失败')
   const models = res.data ?? []
   if (slot === 'chat' && models.length > 0) {
@@ -157,9 +160,12 @@ export async function listProviderModels(slot: CapabilitySlot): Promise<ListedMo
   return models
 }
 
-/** 测试指定槽连通性 */
-export async function testProviderConnection(slot: CapabilitySlot): Promise<ProviderTestResult> {
-  return window.electronAPI.provider.testConnection(slot)
+/** 测试指定槽连通性（可传入未保存的草稿配置，避免必须先落盘） */
+export async function testProviderConnection(
+  slot: CapabilitySlot,
+  draftCfg?: LocalProviderConfigView,
+): Promise<ProviderTestResult> {
+  return window.electronAPI.provider.testConnection(slot, draftCfg)
 }
 
 // ── ChatPage 兼容适配层 ──

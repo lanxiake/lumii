@@ -2230,16 +2230,16 @@ function setupApiIpcHandlers(): void {
     return loadProviderSlotsConfig()
   })
 
-  ipcMain.handle('provider:listModels', async (_event, slot: CapabilitySlot) => {
+  ipcMain.handle('provider:listModels', async (_event, slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => {
     if (!isCapabilitySlot(slot)) throw new Error(`无效能力槽: ${slot}`)
-    const cfg = loadSlotConfig(slot)
+    const cfg = draftCfg ?? loadSlotConfig(slot)
     const models = await listProviderModels(cfg)
     return { success: true, data: models }
   })
 
-  ipcMain.handle('provider:testConnection', async (_event, slot: CapabilitySlot) => {
+  ipcMain.handle('provider:testConnection', async (_event, slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => {
     if (!isCapabilitySlot(slot)) throw new Error(`无效能力槽: ${slot}`)
-    const cfg = loadSlotConfig(slot)
+    const cfg = draftCfg ?? loadSlotConfig(slot)
     return testProviderConnection(slot, cfg)
   })
 

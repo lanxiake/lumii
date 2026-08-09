@@ -255,8 +255,8 @@ export interface ElectronAPI {
   provider: {
     getConfig: () => Promise<ProviderSlotsConfigView>
     setConfig: (cfg: ProviderSlotsConfigView | LocalProviderConfigView) => Promise<ProviderSlotsConfigView>
-    listModels: (slot: CapabilitySlot) => Promise<{ success: boolean; data?: ListedModel[]; error?: string }>
-    testConnection: (slot: CapabilitySlot) => Promise<ProviderTestResult>
+    listModels: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => Promise<{ success: boolean; data?: ListedModel[]; error?: string }>
+    testConnection: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => Promise<ProviderTestResult>
   }
   /** 开机画面（主窗口内全屏） */
   splash: {
@@ -1092,14 +1092,14 @@ const electronAPI: ElectronAPI = {
     getConfig: () => ipcRenderer.invoke('provider:getConfig') as Promise<ProviderSlotsConfigView>,
     setConfig: (cfg: ProviderSlotsConfigView | LocalProviderConfigView) =>
       ipcRenderer.invoke('provider:setConfig', cfg) as Promise<ProviderSlotsConfigView>,
-    listModels: (slot: CapabilitySlot) =>
-      ipcRenderer.invoke('provider:listModels', slot) as Promise<{
+    listModels: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) =>
+      ipcRenderer.invoke('provider:listModels', slot, draftCfg) as Promise<{
         success: boolean
         data?: ListedModel[]
         error?: string
       }>,
-    testConnection: (slot: CapabilitySlot) =>
-      ipcRenderer.invoke('provider:testConnection', slot) as Promise<ProviderTestResult>,
+    testConnection: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) =>
+      ipcRenderer.invoke('provider:testConnection', slot, draftCfg) as Promise<ProviderTestResult>,
   },
 
   splash: {
