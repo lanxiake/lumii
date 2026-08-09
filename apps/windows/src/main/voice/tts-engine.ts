@@ -38,6 +38,8 @@ export interface TtsProvider {
   setSpeed?(speed: number): void
   /** 热更新说话人 ID（不重建引擎） */
   setSpeakerId?(id: number): void
+  /** 热更新 CustomVoice 说话人名（Qwen3 专用） */
+  setSpeakerName?(speaker: string): void
   /** 热更新音色（Edge TTS 专用，需重建 WebSocket） */
   setVoice?(voice: string): Promise<void>
   /**

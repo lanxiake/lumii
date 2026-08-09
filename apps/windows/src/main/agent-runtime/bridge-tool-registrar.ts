@@ -39,7 +39,7 @@ import {
   memoryReadToolConfig,
   profileMemoryToolConfig,
   systemPromptToolConfig,
-  ttsGenerateToolConfig,
+  speechGenerateToolConfig,
   imageGenerateToolConfig,
   skillListToolConfig,
   skillSearchToolConfig,
@@ -1165,11 +1165,11 @@ export class BridgeToolRegistrar {
     }
     this.deps.toolRegistry.register(createMtBotTool(systemPromptTool, ctx))
 
-    const ttsGenerateTool: MtBotToolConfig = {
-      ...ttsGenerateToolConfig,
+    const speechGenerateTool: MtBotToolConfig = {
+      ...speechGenerateToolConfig,
       execute: async (_id, rawParams) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const text = String((rawParams as any).text ?? '').trim()
+        const p = rawParams as { text?: string; speaker?: string; speed?: number }
+        const text = String(p.text ?? '').trim()
         if (!text) {
           return jsonToolResult({ status: 'error', message: 'text 参数不能为空' })
         }
@@ -1177,7 +1177,12 @@ export class BridgeToolRegistrar {
           return jsonToolResult({ status: 'error', message: 'TTS 功能未初始化，请确保语音模型已就绪' })
         }
         try {
-          const filePath = await this.deps.config.generateVoiceFile(text)
+          const speed =
+            typeof p.speed === 'number' ? Math.max(0.8, Math.min(1.3, p.speed)) : undefined
+          const filePath = await this.deps.config.generateVoiceFile(text, {
+            speaker: p.speaker?.trim() || undefined,
+            speed,
+          })
           // 与 image_generate 同风格：防止路径编造
           const result = {
             status: 'ok' as const,
@@ -1196,7 +1201,7 @@ export class BridgeToolRegistrar {
         }
       },
     }
-    this.deps.toolRegistry.register(createMtBotTool(ttsGenerateTool, ctx))
+    this.deps.toolRegistry.register(createMtBotTool(speechGenerateTool, ctx))
 
     const imageGenerateTool: MtBotToolConfig = {
       ...imageGenerateToolConfig,

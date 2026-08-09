@@ -102,6 +102,8 @@ export class VoiceCallService {
   private _lastSpeechSegment: Float32Array | null = null
   /** micless 模式：文字回复出声（不采麦），仅做 TTS 播放，结束回 idle 而非 listening */
   private micless = false
+  /** 持续朗读模式（仅 micless）：一轮 TTS 结束不 stopCall，回 thinking 等下一轮回复 */
+  private persistent = false
   private profileStore = new VoiceProfileStore()
 
   constructor(
@@ -351,10 +353,16 @@ export class VoiceCallService {
 
   // ── 开始通话 ────────────────────────────────────────────────────────────
 
-  async startCall(sessionKey: string, agentId?: string, opts?: { micless?: boolean }): Promise<string> {
+  async startCall(
+    sessionKey: string,
+    agentId?: string,
+    opts?: { micless?: boolean; persistent?: boolean },
+  ): Promise<string> {
     const micless = opts?.micless === true
     this.micless = micless
-    log.info(`[startCall] sessionKey=${sessionKey}, agentId=${agentId}, micless=${micless}`)
+    // 持续朗读仅在 micless 下有意义
+    this.persistent = micless && opts?.persistent === true
+    log.info(`[startCall] sessionKey=${sessionKey}, agentId=${agentId}, micless=${micless}, persistent=${this.persistent}`)
 
     // 文字回复出声（micless）仅需 TTS；完整语音通话需要 VAD + ASR + TTS
     if (micless) {
@@ -892,7 +900,11 @@ export class VoiceCallService {
       // TTS 队列清空：micless（文字回复）无需回 listening，结束通话回 idle；
       // 普通语音通话回 listening 继续等用户说话。
       if (this.stateMachine.is('speaking')) {
-        if (this.micless) {
+        if (this.micless && this.persistent) {
+          // 持续朗读：本轮读完回 thinking 等下一轮回复，不结束通话
+          this.stateMachine.transition('thinking')
+          this.splitter.reset()
+        } else if (this.micless) {
           this.stateMachine.transition('ending')
           void this.stopCall()
         } else {
@@ -951,6 +963,7 @@ export class VoiceCallService {
     this.callId = null
     this.sessionKey = null
     this.micless = false
+    this.persistent = false
     this.ttsLanguageSticky = null
     this.ttsProvider?.setLanguageOverride?.(null)
 
@@ -994,6 +1007,7 @@ export class VoiceCallService {
     text: string,
     win: import('electron').BrowserWindow,
     override?: import('../../shared/voice-commands.js').VoiceTtsPreviewOverride,
+    previewId?: string,
   ): Promise<void> {
     // 停止上一次预览（如果有）
     this.stopPreview()
@@ -1033,6 +1047,7 @@ export class VoiceCallService {
             type: 'voice:tts:preview:ended',
             ok,
             message,
+            previewId,
           })
         }
       } catch (e) {
@@ -1100,6 +1115,7 @@ export class VoiceCallService {
             sampleRate: chunk.sampleRate,
             chunkIndex: chunkIndex++,
             isFinal,
+            previewId,
           })
         } catch (e) {
           log.warn(`[previewTts] IPC 发送失败: ${(e as Error).message}`)
@@ -1190,7 +1206,11 @@ export class VoiceCallService {
    * 将文本合成为音频文件并保存到 destDir，返回文件绝对路径。
    * VITS（PCM）→ WAV；Edge TTS（mp3 bytes）→ MP3
    */
-  async generateAudioFile(text: string, destDir: string): Promise<string> {
+  async generateAudioFile(
+    text: string,
+    destDir: string,
+    opts?: { speaker?: string; speed?: number },
+  ): Promise<string> {
     await this.ensureTtsInitialized()
 
     const abort = new AbortController()
@@ -1199,12 +1219,18 @@ export class VoiceCallService {
     let detectedSampleRate = 22050
     let isEdgeTts = false
 
-    log.info(`[generateAudioFile] 开始合成文本: "${text.slice(0, 40)}"`)
+    log.info(
+      `[generateAudioFile] 开始合成文本: "${text.slice(0, 40)}" speaker=${opts?.speaker ?? '-'} speed=${opts?.speed ?? '-'}`,
+    )
 
-    // 整段锁定语种，避免长文工具（tts_generate）中途漂语种。
+    // 整段锁定语种，避免长文工具（speech_generate）中途漂语种。
     // 工具是一次性完整文本，直接按全文解析，不复用通话级 sticky（可能残留上次的语种）。
     const languageLock = resolveQwen3TtsLanguage(this.config.tts.language || 'Auto', text)
     this.ttsProvider!.setLanguageOverride?.(languageLock)
+
+    // 临时覆盖音色/语速（仅当前引擎支持时生效），合成后按全局 config 恢复。
+    if (opts?.speaker) this.ttsProvider!.setSpeakerName?.(opts.speaker)
+    if (typeof opts?.speed === 'number') this.ttsProvider!.setSpeed?.(opts.speed)
 
     try {
       await this.ttsProvider!.synthesize(
@@ -1224,6 +1250,9 @@ export class VoiceCallService {
       )
     } finally {
       this.ttsProvider?.setLanguageOverride?.(null)
+      // 恢复全局配置的音色/语速，避免污染后续通话/预览
+      if (opts?.speaker) this.ttsProvider?.setSpeakerName?.(this.config.tts.qwen3Speaker ?? 'Vivian')
+      if (typeof opts?.speed === 'number') this.ttsProvider?.setSpeed?.(this.config.tts.speed)
     }
 
     const fileId = randomUUID()

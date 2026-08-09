@@ -934,8 +934,11 @@ export class Qwen3TtsClient {
 /** 进程内单例，避免重复加载大模型 */
 let sharedClient: Qwen3TtsClient | null = null
 
-/** 并行合成池（多 sidecar 实例，CUDA 上可同时跑多句） */
-const QWEN3_SYNTH_POOL_SIZE = 2
+/** 并行合成池（多 sidecar 实例，CUDA 上可同时跑多句）；
+ * 设为 1 避免首次预览时第 2 个 sidecar 冷启动拖累首包;
+ * 若要并发可改回 2,但需在启动时预热所有池成员(否则第 2 个进程首次 load 仍慢)
+ */
+const QWEN3_SYNTH_POOL_SIZE = 1
 const synthPool: Qwen3TtsClient[] = []
 const synthIdle: Qwen3TtsClient[] = []
 const synthWaiters: Array<(c: Qwen3TtsClient) => void> = []

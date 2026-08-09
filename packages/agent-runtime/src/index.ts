@@ -90,7 +90,7 @@ export {
   memoryReadToolConfig,
   profileMemoryToolConfig,
   systemPromptToolConfig,
-  ttsGenerateToolConfig,
+  speechGenerateToolConfig,
   imageGenerateToolConfig,
   DEFAULT_IMAGE_MODEL_ID,
   IMAGE_GENERATION_MODEL_OPTIONS,

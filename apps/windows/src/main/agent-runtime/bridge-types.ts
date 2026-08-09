@@ -80,7 +80,10 @@ export interface AgentRuntimeBridgeConfig {
   /**
    * 将文本合成为语音文件并返回文件绝对路径（由 index.ts 注入，调用 voiceCallService）。
    */
-  generateVoiceFile?: (text: string) => Promise<string>
+  generateVoiceFile?: (
+    text: string,
+    opts?: { speaker?: string; speed?: number },
+  ) => Promise<string>
   /**
    * 设置 ACP 后端（由 index.ts 注入，调用 AcpBackendManager.setBackend）
    */

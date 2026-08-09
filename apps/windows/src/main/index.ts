@@ -76,7 +76,7 @@ import {
 import { fileLogger } from './file-logger'
 import { createWindowsLogShipper, type RemoteLogShipper } from './remote-log-shipper'
 import { SkillWatcher } from './skill-watcher'
-import { seedBundledSkills, SEED_VERSION_FILENAME } from './bundled-skills-seeder'
+import { seedBundledSkills } from './bundled-skills-seeder'
 import { startBrowserService, stopBrowserService, getBrowserContext } from './browser-service'
 import os from 'os'
 import { loadServerConfig, type ServerConfig } from './server-config'
@@ -896,12 +896,15 @@ async function initAgentRuntime(): Promise<void> {
       if (!feishuLoginService) return { ok: false, error: '飞书服务未初始化' }
       return feishuLoginService.pushText(text)
     },
-    generateVoiceFile: async (text: string) => {
+    generateVoiceFile: async (
+      text: string,
+      opts?: { speaker?: string; speed?: number },
+    ) => {
       if (!voiceCallService) throw new Error('语音通话服务未初始化')
       const workspaceDir = getWorkspaceDir()
       const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
       const destDir = join(workspaceDir, 'uploads', dateStr)
-      return voiceCallService.generateAudioFile(text, destDir)
+      return voiceCallService.generateAudioFile(text, destDir, opts)
     },
     /** 执行本地 executable 技能（由 execute_skill 工具调用） */
     executeSkill: async (skillId: string, params: Record<string, unknown>) => {
@@ -2326,59 +2329,6 @@ function setupApiIpcHandlers(): void {
     return app.getLoginItemSettings().openAtLogin
   })
 
-  /**
-   * 重置所有数据 - 清除配置文件并重启应用
-   *
-   * 清除范围：
-   * - 客户端数据根下 config/（如 app.json, pairing.json, auth.json 等）
-   * - safeStorage 加密存储的 token（通过 configManager 清除）
-   * 保留范围：
-   * - workspace/ 用户工作区数据
-   * - logs/ 日志文件
-   */
-  ipcMain.handle('app:resetAllData', async () => {
-    log.info('开始重置所有数据')
-    try {
-      const dirs = directoryManager.getDirectories()
-      const configDir = dirs.config
-
-      // 删除 config 目录下所有文件
-      try {
-        const files = await fs.readdir(configDir)
-        for (const file of files) {
-          await fs.rm(join(configDir, file), { recursive: true, force: true })
-          log.info(`已删除配置文件: ${file}`)
-        }
-      } catch (err) {
-        log.warn('清除配置目录失败（可能不存在）:', err)
-      }
-
-      // 清除 cache 目录
-      try {
-        await fs.rm(dirs.cache, { recursive: true, force: true })
-        log.info('已清除缓存目录')
-      } catch (err) {
-        log.warn('清除缓存目录失败:', err)
-      }
-
-      // 清除内置技能种子版本标记，确保重启后重新初始化内置技能
-      try {
-        await fs.rm(join(dirs.root, SEED_VERSION_FILENAME), { force: true })
-        log.info('已清除技能种子版本标记')
-      } catch (err) {
-        log.warn('清除技能种子版本标记失败:', err)
-      }
-
-      log.info('数据重置完成，准备重启应用')
-
-      // 重启应用
-      app.relaunch()
-      app.exit(0)
-    } catch (error) {
-      log.error('重置数据失败:', error)
-      throw new Error(`重置失败: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  })
 
   // === 灵栖/Lumii 独立版：无后端，云端配置/技能/节点接口降级为本地空返回 ===
 

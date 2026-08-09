@@ -22,7 +22,7 @@ export {
   memoryReadToolConfig,
   profileMemoryToolConfig,
   systemPromptToolConfig,
-  ttsGenerateToolConfig,
+  speechGenerateToolConfig,
 } from "./integration-tools.js";
 export {
   askUserQuestionToolConfig,
@@ -86,7 +86,7 @@ import {
   memoryReadToolConfig,
   profileMemoryToolConfig,
   systemPromptToolConfig,
-  ttsGenerateToolConfig,
+  speechGenerateToolConfig,
 } from "./integration-tools.js";
 import { askUserQuestionToolConfig } from "./ask-user-question-tool.js";
 import {
@@ -136,7 +136,7 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   memoryReadToolConfig,
   profileMemoryToolConfig,
   systemPromptToolConfig,
-  ttsGenerateToolConfig,
+  speechGenerateToolConfig,
   askUserQuestionToolConfig,
   skillListToolConfig,
   skillSearchToolConfig,
