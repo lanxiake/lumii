@@ -12,7 +12,7 @@ import { safeStorage } from 'electron'
 import { resolveWindowsClientDataRoot } from './client-data-root.js'
 
 /** provider 类型（决定默认 baseUrl 与 api 归一化） */
-export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio'
+export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi'
 
 /** 模型能力槽（本阶段不含 ASR/TTS） */
 export type CapabilitySlot = 'chat' | 'vision' | 'image'
@@ -52,6 +52,7 @@ export const PROVIDER_DEFAULT_BASE_URL: Record<ProviderType, string> = {
   gemini: 'https://generativelanguage.googleapis.com',
   ollama: 'http://localhost:11434',
   lmstudio: 'http://localhost:1234',
+  rightapi: 'https://www.rightapi.ai/draw/v1',
 }
 
 /** 能力槽展示名 */
@@ -126,6 +127,7 @@ interface LegacyPersistedShape extends LocalProviderConfig {
 /**
  * 规范化 OpenAI 兼容 Base URL：去尾斜杠，缺 /v1 时自动补全
  * anthropic / gemini 不强制追加 /v1
+ * rightapi 保持原样（已含 /draw/v1）
  */
 export function ensureProviderBaseUrl(baseUrl: string, type: ProviderType): string {
   let u = (baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type]).replace(/\/+$/, '')
@@ -330,17 +332,21 @@ export function saveProviderConfig(view: LocalProviderConfigView): void {
 
 /**
  * 将 image 槽同步到生图环境变量（供 right-codes-draw-client 读取）
+ *
+ * rightapi 走独立的异步客户端（直接读槽配置，不经环境变量），
+ * 这里只设置 DIRECT_ONLY 以关掉 Gateway 路径。
  */
 export function applyImageSlotToDrawEnv(): void {
   const image = loadSlotConfig('image')
   if (!image.enabled || !image.apiKey) return
+  process.env.MTBOT_IMAGE_DIRECT_ONLY = 'true'
+  if (image.type === 'rightapi') return
   const base = ensureProviderBaseUrl(
     image.baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[image.type],
     image.type,
   )
   process.env.MTBOT_IMAGE_UPSTREAM_BASE_URL = base
   process.env.MTBOT_IMAGE_UPSTREAM_API_KEY = image.apiKey
-  process.env.MTBOT_IMAGE_DIRECT_ONLY = 'true'
 }
 
 /**

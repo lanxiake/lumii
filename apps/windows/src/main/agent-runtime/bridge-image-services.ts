@@ -12,9 +12,11 @@ import {
   createDirectStreamFn,
   DEFAULT_GATEWAY_STREAM_PATH,
   ModelRouter,
+  resolveAgentFilePath,
 } from '@mtbot/agent-runtime'
 import { resizeImageIfNeeded } from './image-resizer'
 import { generateImageViaRightCodesDraw } from './right-codes-draw-client'
+import { generateImageViaRightApi, DEFAULT_RIGHTAPI_BASE_URL } from './rightapi-image-client'
 import { generateImageViaGateway } from './gateway-image-client'
 import { agentRuntimeLog as log } from './bridge-utils'
 import { loadSlotConfig, applyImageSlotToDrawEnv, ensureProviderBaseUrl } from '../provider-config'
@@ -172,10 +174,55 @@ export class BridgeImageServices {
   }
 
   /**
+   * 读取参考图并转为 data URL 数组（供图生图使用）。
+   *
+   * 逐张做格式嗅探与压缩，避免超大原图把请求体撑爆。
+   * 路径经 resolveAgentFilePath 校验：参考图内容会上传到第三方生图服务商，
+   * 必须挡住 ../ 穿越与工作区外的绝对路径，避免本地任意图片被外传。
+   */
+  private async loadReferenceImages(paths: string[]): Promise<string[]> {
+    const cwd = this.deps.getCwd()
+    const dataUrls: string[] = []
+
+    for (const p of paths) {
+      const trimmed = p?.trim()
+      if (!trimmed) continue
+      let absPath: string
+      try {
+        absPath = resolveAgentFilePath(trimmed, cwd)
+      } catch (err) {
+        throw Object.assign(
+          new Error(`参考图路径不合法: ${err instanceof Error ? err.message : String(err)}`),
+          { code: 'REFERENCE_IMAGE_PATH_INVALID' },
+        )
+      }
+      if (!fs.existsSync(absPath)) {
+        throw Object.assign(new Error(`参考图不存在: ${trimmed}`), {
+          code: 'REFERENCE_IMAGE_NOT_FOUND',
+        })
+      }
+      const raw = await fs.promises.readFile(absPath)
+      const { buffer, mimeType, wasResized } = await resizeImageIfNeeded(
+        raw,
+        path.extname(absPath),
+      )
+      log.info(
+        `[loadReferenceImages] 已加载参考图 ${trimmed} (${Math.round(buffer.byteLength / 1024)}KB, ` +
+          `mime=${mimeType}, 压缩=${wasResized})`,
+      )
+      dataUrls.push(`data:${mimeType};base64,${buffer.toString('base64')}`)
+    }
+
+    return dataUrls
+  }
+
+  /**
    * 根据文字描述生成图片，保存到 workspace/outputs/YYYYMMDD/ 目录。
    *
-   * 优先经 Gateway POST /v1/image/generate（流式上游 + 服务端 IMAGE_UPSTREAM 配置）；
-   * 无 token 或 MTBOT_IMAGE_DIRECT_ONLY=true 时直连上游（统一流式 chat/completions）。
+   * 三条上游路径：
+   * - image 槽 type=rightapi：RightAPI 异步任务（提交 → 轮询 → 下载），支持参考图
+   * - 无 token 或 MTBOT_IMAGE_DIRECT_ONLY=true：直连 OpenAI 兼容上游（原有同步/流式逻辑）
+   * - 其余：经 Gateway POST /v1/image/generate
    */
   async generateImage(params: {
     prompt: string
@@ -183,18 +230,34 @@ export class BridgeImageServices {
     width?: number
     height?: number
     filename?: string
+    /** 参考图的 workspace 相对路径（仅 rightapi 支持） */
+    referenceImagePaths?: string[]
     signal?: AbortSignal
   }): Promise<{ filePath: string; width: number; height: number; model: string; revisedPrompt: string }> {
     applyImageSlotToDrawEnv()
+    const imageSlot = loadSlotConfig('image')
+    const useRightApi = imageSlot.enabled && imageSlot.type === 'rightapi'
     const modelId = params.modelId ?? (() => {
-      const image = loadSlotConfig('image')
-      if (image.enabled && image.modelId) return image.modelId
+      if (imageSlot.enabled && imageSlot.modelId) return imageSlot.modelId
       return 'gpt-image-2'
     })()
-    log.info(`[generateImage] 开始: modelId=${modelId} prompt="${params.prompt.slice(0, 80)}..."`)
+    const refPaths = params.referenceImagePaths?.filter((p) => p?.trim()) ?? []
+    log.info(
+      `[generateImage] 开始: provider=${useRightApi ? 'rightapi' : imageSlot.type} ` +
+        `modelId=${modelId} 参考图=${refPaths.length} prompt="${params.prompt.slice(0, 80)}..."`,
+    )
 
     if (params.signal?.aborted) {
       throw Object.assign(new Error('图片生成已被用户中断'), { code: 'ABORTED' })
+    }
+
+    if (refPaths.length > 0 && !useRightApi) {
+      throw Object.assign(
+        new Error(
+          '当前生图提供商不支持参考图（图生图）。请在「设置 → 模型配置 → 图片生成」中把 Provider 类型切换为「RightAPI 异步生图」后重试。',
+        ),
+        { code: 'REFERENCE_IMAGE_UNSUPPORTED' },
+      )
     }
 
     const directOnly = process.env.MTBOT_IMAGE_DIRECT_ONLY === 'true'
@@ -207,7 +270,19 @@ export class BridgeImageServices {
       effectiveModelId: string
     }
 
-    if (!directOnly) {
+    if (useRightApi) {
+      data = await generateImageViaRightApi({
+        prompt: params.prompt,
+        modelId,
+        baseUrl: imageSlot.baseUrl?.trim() || DEFAULT_RIGHTAPI_BASE_URL,
+        apiKey: imageSlot.apiKey,
+        width: params.width ?? 1024,
+        height: params.height ?? 1024,
+        referenceImageDataUrls:
+          refPaths.length > 0 ? await this.loadReferenceImages(refPaths) : undefined,
+        signal: params.signal,
+      })
+    } else if (!directOnly) {
       try {
         data = await generateImageViaGateway({
           gatewayUrl: this.deps.getGatewayUrl(),

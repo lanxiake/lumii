@@ -29,6 +29,21 @@ function normalizeBaseUrl(baseUrl: string, type: ProviderType): string {
 }
 
 /**
+ * RightAPI 的模型列表在站点级 /v1/models（绘图地址带 /draw 前缀，需剥掉）。
+ */
+function rightApiModelsUrl(baseUrl: string): string {
+  const url = new URL(baseUrl.replace(/\/+$/, ''))
+  const siteRoot = url.pathname
+    .replace(/\/+$/, '')
+    .replace(/\/images\/generations$/i, '')
+    .replace(/\/v1$/i, '')
+    .replace(/\/draw$/i, '')
+  url.pathname = `${siteRoot}/v1/models`
+  url.search = ''
+  return url.toString()
+}
+
+/**
  * 构造带鉴权的请求头
  */
 function authHeaders(cfg: LocalProviderConfigView): Record<string, string> {
@@ -89,6 +104,14 @@ export async function listProviderModels(cfg: LocalProviderConfigView): Promise<
 
     if (cfg.type === 'anthropic') {
       const res = await fetch(`${base}/v1/models`, { headers, signal: ctrl.signal })
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
+      }
+      return parseOpenAiModels(await res.json())
+    }
+
+    if (cfg.type === 'rightapi') {
+      const res = await fetch(rightApiModelsUrl(base), { headers, signal: ctrl.signal })
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`)
       }
@@ -166,7 +189,8 @@ export async function testProviderConnection(
         /* continue */
       }
       // OpenAI Images 轻量校验：发极小请求可能扣费，改为 GET models 已失败时再测 chat
-      const res = await fetch(`${base}/models`, { headers, signal: ctrl.signal })
+      const modelsUrl = cfg.type === 'rightapi' ? rightApiModelsUrl(base) : `${base}/models`
+      const res = await fetch(modelsUrl, { headers, signal: ctrl.signal })
       const latencyMs = Date.now() - started
       if (res.ok) {
         return { ok: true, message: `连接成功（耗时 ${latencyMs}ms）`, latencyMs }

@@ -64,7 +64,7 @@ export interface CodingDevProject {
  */
 export interface LocalProviderConfigView {
   enabled: boolean
-  type: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio'
+  type: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi'
   baseUrl: string
   modelId: string
   apiKey: string

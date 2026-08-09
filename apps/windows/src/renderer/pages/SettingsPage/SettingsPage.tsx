@@ -42,6 +42,7 @@ import {
   testProviderConnection,
   PROVIDER_DEFAULT_BASE_URL,
   PROVIDER_TYPE_LABEL,
+  listProviderTypesForSlot,
   CAPABILITY_SLOT_LABEL,
   CAPABILITY_SLOT_DESC,
   CAPABILITY_SLOTS,
@@ -1048,11 +1049,22 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className={styles['setting-control']}>
                 <Select
                   value={cfg.type}
-                  options={(Object.keys(PROVIDER_TYPE_LABEL) as ProviderType[]).map((t) => ({
+                  options={listProviderTypesForSlot(slot).map((t) => ({
                     value: t,
                     label: PROVIDER_TYPE_LABEL[t],
                   }))}
-                  onChange={(e) => patchSlot(slot, { type: e.target.value as ProviderType })}
+                  onChange={(e) => {
+                    const nextType = e.target.value as ProviderType
+                    // 地址仍是某个 provider 的默认值（用户没自定义过）时才跟随切换，
+                    // 避免覆盖用户手填的中转站地址
+                    const isUntouched =
+                      !cfg.baseUrl?.trim() ||
+                      Object.values(PROVIDER_DEFAULT_BASE_URL).includes(cfg.baseUrl.trim())
+                    patchSlot(slot, {
+                      type: nextType,
+                      ...(isUntouched ? { baseUrl: PROVIDER_DEFAULT_BASE_URL[nextType] } : {}),
+                    })
+                  }}
                 />
               </div>
             </div>
@@ -1061,7 +1073,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className={styles['setting-label']}>
                 <span>接口地址（Base URL）</span>
                 <span className={styles['setting-desc']}>
-                  无需手写 /v1，保存与调用时会自动补全（OpenAI 兼容 / Ollama / LM Studio）
+                  {cfg.type === 'rightapi'
+                    ? '填到绘图根地址（含 /draw/v1）；任务查询地址会自动推导为站点级 /v1/tasks'
+                    : '无需手写 /v1，保存与调用时会自动补全（OpenAI 兼容 / Ollama / LM Studio）'}
                 </span>
               </div>
               <div className={styles['setting-control']}>
@@ -1109,7 +1123,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 <span>模型 ID</span>
                 <span className={styles['setting-desc']}>
                   {slot === 'image'
-                    ? '请填写或从列表选择，如 dall-e-3 / gpt-image-1'
+                    ? cfg.type === 'rightapi'
+                      ? '异步生图模型，如 nano-banana-fast / nano-banana-pro / gpt-image-2；支持参考图（图生图）'
+                      : '请填写或从列表选择，如 dall-e-3 / gpt-image-1'
                     : slot === 'vision'
                       ? '可勾选多个模型；对话/识别时再选用其一'
                       : '可勾选多个模型；对话框中切换使用'}

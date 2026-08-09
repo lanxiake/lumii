@@ -19,7 +19,7 @@ import {
   ConversationRepo,
   LocalDatabase,
   createMtBotTool,
-  DEFAULT_IMAGE_MODEL_ID,
+  isKnownImageGenerationModel,
   normalizeImageModelId,
   type ToolExecutionContext,
   type MtBotToolConfig,
@@ -128,6 +128,7 @@ export interface BridgeToolRegistrarDeps {
     width?: number
     height?: number
     filename?: string
+    referenceImagePaths?: string[]
     signal?: AbortSignal
   }) => Promise<{ filePath: string; width: number; height: number; model: string; revisedPrompt: string }>
 }
@@ -1206,20 +1207,35 @@ export class BridgeToolRegistrar {
     const imageGenerateTool: MtBotToolConfig = {
       ...imageGenerateToolConfig,
       execute: async (_id, rawParams, _ctx, signal) => {
-        const params = rawParams as { prompt?: string; modelId?: string; width?: number; height?: number; filename?: string }
+        const params = rawParams as {
+          prompt?: string
+          modelId?: string
+          width?: number
+          height?: number
+          filename?: string
+          referenceImagePaths?: string[]
+        }
         if (!params.prompt || typeof params.prompt !== 'string') {
           return jsonToolResult({ status: 'error', message: 'prompt 参数不能为空' })
         }
         try {
-          const resolvedModelId = params.modelId?.trim()
-            ? normalizeImageModelId(params.modelId)
-            : DEFAULT_IMAGE_MODEL_ID
+          // 未显式指定模型时交给 bridge 按 image 槽配置决定（槽内可能是 rightapi 等自有命名空间的模型）；
+          // 显式指定但不在已知白名单内的，同样原样透传，避免把自定义模型强行改写成 gpt-image-2。
+          const requestedModelId = params.modelId?.trim()
+          const resolvedModelId = requestedModelId
+            ? isKnownImageGenerationModel(requestedModelId)
+              ? normalizeImageModelId(requestedModelId)
+              : requestedModelId
+            : undefined
           const result = await this.deps.generateImage({
             prompt: params.prompt,
             modelId: resolvedModelId,
             width: params.width,
             height: params.height,
             filename: params.filename,
+            referenceImagePaths: Array.isArray(params.referenceImagePaths)
+              ? params.referenceImagePaths
+              : undefined,
             signal,
           })
           // 在返回给模型的文本里强制回显真实路径并禁止编造文件名——

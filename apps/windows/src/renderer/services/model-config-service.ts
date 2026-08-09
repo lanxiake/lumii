@@ -6,7 +6,7 @@
  */
 
 /** provider 类型 */
-export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio'
+export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi'
 
 /** 模型能力槽 */
 export type CapabilitySlot = 'chat' | 'vision' | 'image'
@@ -49,6 +49,7 @@ export const PROVIDER_DEFAULT_BASE_URL: Record<ProviderType, string> = {
   gemini: 'https://generativelanguage.googleapis.com',
   ollama: 'http://localhost:11434',
   lmstudio: 'http://localhost:1234',
+  rightapi: 'https://www.rightapi.ai/draw/v1',
 }
 
 /** provider 类型展示名 */
@@ -58,6 +59,22 @@ export const PROVIDER_TYPE_LABEL: Record<ProviderType, string> = {
   gemini: 'Google Gemini',
   ollama: 'Ollama（本地）',
   lmstudio: 'LM Studio（本地）',
+  rightapi: 'RightAPI 异步生图',
+}
+
+/** 仅在特定能力槽可选的 provider 类型 */
+export const PROVIDER_TYPE_SLOT_RESTRICTION: Partial<Record<ProviderType, CapabilitySlot[]>> = {
+  rightapi: ['image'],
+}
+
+/**
+ * 列出某能力槽可选的 provider 类型
+ */
+export function listProviderTypesForSlot(slot: CapabilitySlot): ProviderType[] {
+  return (Object.keys(PROVIDER_TYPE_LABEL) as ProviderType[]).filter((t) => {
+    const allowed = PROVIDER_TYPE_SLOT_RESTRICTION[t]
+    return !allowed || allowed.includes(slot)
+  })
 }
 
 /** 能力槽展示名 */

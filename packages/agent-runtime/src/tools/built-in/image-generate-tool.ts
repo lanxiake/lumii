@@ -16,6 +16,9 @@
  *
  * 迭代修改：将上一次返回的 revisedPrompt 与用户修改指令合并后传入 prompt，
  * 不要只传修改片段，否则模型会丢失上下文。
+ *
+ * 图生图：传 referenceImagePaths（workspace 相对路径数组），由平台层读取压缩后上传。
+ * 仅部分提供商支持（如 RightAPI 异步生图）。
  */
 
 /** Right Code 绘图接口文档（供工具描述与错误提示引用） */
@@ -46,9 +49,10 @@ const ImageGenerateParams = Type.Object({
   modelId: Type.Optional(
     Type.String({
       description:
-        "生图模型 id，可选；不传时默认 gpt-image-2（流式）。" +
-        "日常简单图可不传或传 gpt-image-2；高清/4K 用 gpt-image-2-vip；" +
-        "若 right.codes 不稳定可试 nano-banana-2（Draw 流式）；快速草稿 nano-banana；专业艺术风 nano-banana-pro。" +
+        "生图模型 id，可选。【推荐不传】——不传时平台会使用用户在设置里配置的生图模型，" +
+        "这通常是最稳妥的选择（用户的服务商可能有自己的模型命名，如 nano-banana-fast）。" +
+        "仅当用户明确要求某个模型、或需要更高分辨率时才显式指定：" +
+        "高清/4K 用 gpt-image-2-vip；快速草稿 nano-banana；专业艺术风 nano-banana-pro。" +
         `详见工具描述中的选型指南。接口文档：${IMAGE_DRAW_API_DOCS}`,
     }),
   ),
@@ -62,9 +66,13 @@ const ImageGenerateParams = Type.Object({
       description: "图片高度（像素），默认 1024。仅支持 1024 或 1536（竖版）。",
     }),
   ),
-  referenceImagePath: Type.Optional(
-    Type.String({
-      description: "【预留，暂未实现】参考图的 workspace 相对路径，用于图生图局部修改。",
+  referenceImagePaths: Type.Optional(
+    Type.Array(Type.String(), {
+      description:
+        "参考图的 workspace 相对路径数组（图生图）。" +
+        "传入后模型会基于参考图生成，可用于风格迁移、局部修改、角色保持、多图融合。" +
+        "路径必须是真实存在的图片（如之前生成的 outputs/20260809/cover_xxx.png 或用户上传的图片），" +
+        "严禁编造路径。仅部分生图提供商支持；不支持时平台会返回明确错误。",
     }),
   ),
 });
@@ -95,6 +103,9 @@ export const imageGenerateToolConfig: MtBotToolConfig<typeof ImageGenerateParams
     "\n" +
     "【重要】调用时请务必传入 filename 参数（如 'cover'、'banner'、'k8s-arch'），" +
     "文件将以 filename_YYYYMMDD_uuid.ext 格式保存，方便后续引用时识别对应哪张图。\n" +
+    "【图生图】需要基于已有图片修改、做风格迁移或保持角色一致时，" +
+    "把图片的 workspace 相对路径传入 referenceImagePaths（数组，可多张）；" +
+    "路径必须来自真实存在的文件（上一次生成结果的 filePath 或用户提供的图片），不得编造。\n" +
     "【关键】返回的 filePath 是图片的唯一有效路径，引用/预览/发送/写入文档时必须原样使用，" +
     "严禁根据语义自行编造文件名（如 cover.png / k8s-01.png）。\n" +
     "返回的 revisedPrompt 是模型优化后的完整描述——用户要求修改时，" +
