@@ -76,13 +76,6 @@ interface ChatInputProps {
   onSendWithValue?: (value: string) => void
   /** 开始语音通话回调 */
   onVoiceCallStart?: () => void
-  /**
-   * 实时朗读模式开关状态。开启后自动朗读 Agent 每次最新回复。
-   * 输入框为空时，发送按钮位置显示语音朗读切换按钮。
-   */
-  autoReadEnabled?: boolean
-  /** 切换实时朗读模式（输入框为空时点击发送按钮位置触发） */
-  onToggleAutoRead?: () => void
   /** 工作空间文件被拖入输入框（用于在工作空间面板定位） */
   fileReferences?: FileReference[]
   onFileReferenceAdd?: (ref: FileReference) => void
@@ -162,8 +155,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onFileReferenceRemove,
   onLocateFile,
   showTips = false,
-  autoReadEnabled = false,
-  onToggleAutoRead,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const attachmentInputRef = useRef<HTMLInputElement>(null)
@@ -556,10 +547,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     value.trim().length > 0 ||
     pendingAttachments.length > 0 ||
     fileReferences.length > 0
-
-  // 空闲态（非流式、无输入、无队列）且父组件提供了朗读切换时，发送按钮位置改为实时朗读切换
-  const showAutoReadButton =
-    !isStreaming && !value.trim() && queuedMessages.length === 0 && Boolean(onToggleAutoRead)
 
   const isDisabled = disabled || !isConnected
   const effectivePlaceholder = !isConnected
@@ -1110,58 +1097,27 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 通话
               </button>
             )}
-            {showAutoReadButton ? (
-              <button
-                type="button"
-                onClick={() => onToggleAutoRead?.()}
-                disabled={isDisabled}
-                className={clsx(
-                  styles['send-btn'],
-                  styles['autoread-btn'],
-                  autoReadEnabled && styles['autoread-btn-active'],
-                )}
-                title={autoReadEnabled ? '实时朗读进行中，点击关闭' : '开启实时朗读（自动朗读 AI 最新回复）'}
-                aria-pressed={autoReadEnabled}
-              >
-                {autoReadEnabled ? (
-                  // 朗读进行中：声波播放图标
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="M11 5 6 9H2v6h4l5 4V5z" />
-                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                  </svg>
-                ) : (
-                  // 关闭态：麦克风/波纹图标
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="M11 5 6 9H2v6h4l5 4V5z" />
-                    <line x1="23" y1="9" x2="17" y2="15" />
-                    <line x1="17" y1="9" x2="23" y2="15" />
-                  </svg>
-                )}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleButtonClick}
-                disabled={isStreaming ? false : (isDisabled || (!value.trim() && queuedMessages.length === 0))}
-                className={clsx(styles['send-btn'], isStreaming && styles['stop-btn'])}
-                title={
-                  isStreaming
-                    ? (queuedMessages.length > 0 ? '停止并发送队列' : '停止生成')
-                    : (queuedMessages.length > 0 ? '发送队列' : '发送消息')
-                }
-              >
-                {isStreaming ? (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                    <rect x="4" y="4" width="16" height="16" rx="2" />
-                  </svg>
-                ) : (
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M2 21L23 12 2 3v7l15 2-15 2v7z" />
-                  </svg>
-                )}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleButtonClick}
+              disabled={isStreaming ? false : (isDisabled || (!value.trim() && queuedMessages.length === 0))}
+              className={clsx(styles['send-btn'], isStreaming && styles['stop-btn'])}
+              title={
+                isStreaming
+                  ? (queuedMessages.length > 0 ? '停止并发送队列' : '停止生成')
+                  : (queuedMessages.length > 0 ? '发送队列' : '发送消息')
+              }
+            >
+              {isStreaming ? (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M2 21L23 12 2 3v7l15 2-15 2v7z" />
+                </svg>
+              )}
+            </button>
           </div>
         </div>
       </div>

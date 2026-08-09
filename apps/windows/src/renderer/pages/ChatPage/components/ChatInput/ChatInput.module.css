@@ -466,36 +466,6 @@
   background: var(--mt-error-dark);
 }
 
-/* 实时朗读切换（空输入态占据发送按钮位置）：关闭态为中性描边按钮 */
-.send-btn.autoread-btn {
-  background: color-mix(in srgb, var(--mt-violet) 12%, transparent);
-  color: var(--mt-violet);
-  border: 1px solid color-mix(in srgb, var(--mt-violet) 38%, transparent);
-  box-shadow: none;
-}
-
-.send-btn.autoread-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--mt-violet) 20%, transparent);
-  border-color: color-mix(in srgb, var(--mt-violet) 60%, transparent);
-}
-
-/* 朗读进行中：实心紫 + 脉冲波纹 */
-.send-btn.autoread-btn.autoread-btn-active {
-  background: linear-gradient(135deg, var(--mt-violet), color-mix(in srgb, var(--mt-violet) 70%, #000));
-  color: #fff;
-  border-color: transparent;
-  animation: pulse-autoread 1.6s infinite;
-}
-
-@keyframes pulse-autoread {
-  0%, 100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--mt-violet) 45%, transparent);
-  }
-  50% {
-    box-shadow: 0 0 0 6px color-mix(in srgb, var(--mt-violet) 0%, transparent);
-  }
-}
-
 /* 通话键 — 胶囊按钮，用 violet 语义色与发送键区分主次 */
 .voice-btn {
   display: inline-flex;

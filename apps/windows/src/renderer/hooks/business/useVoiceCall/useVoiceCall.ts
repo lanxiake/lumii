@@ -229,7 +229,12 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
           break
 
         case 'voice:call:ended':
-          setState((s) => ({ ...s, state: 'idle', callId: null }))
+          if (silentRef.current) {
+            silentRef.current = false
+            setState((s) => ({ ...s, readAloudActive: false, readAloudSpeaking: false, callId: null }))
+          } else {
+            setState((s) => ({ ...s, state: 'idle', callId: null }))
+          }
           callIdRef.current = null
           break
 
@@ -273,15 +278,23 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
 
   // ── 开始通话 ──────────────────────────────────────────────────────────
 
-  const startCall = useCallback(async (sessionKey: string, agentId?: string, opts?: { micless?: boolean }) => {
+  const startCall = useCallback(async (sessionKey: string, agentId?: string, opts?: { micless?: boolean; persistent?: boolean; silent?: boolean }) => {
     const micless = opts?.micless === true
+    const persistent = opts?.persistent === true
+    const silent = opts?.silent === true
+    silentRef.current = silent
     const electronAPI = (window as any).electronAPI
     if (!electronAPI?.voice) {
       setState((s) => ({ ...s, error: '语音 API 不可用' }))
       return
     }
 
-    setState((s) => ({ ...s, state: 'initializing' as VoiceCallState, error: null }))
+    // 静默实时朗读不占用 VoiceCallPanel：不写 state，改标记 readAloudActive
+    if (silent) {
+      setState((s) => ({ ...s, readAloudActive: true, readAloudSpeaking: false, error: null }))
+    } else {
+      setState((s) => ({ ...s, state: 'initializing' as VoiceCallState, error: null }))
+    }
 
     try {
       let source: MediaStreamAudioSourceNode | null = null
@@ -344,12 +357,16 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
         sessionKey,
         agentId,
         micless,
+        persistent,
       })
 
       if (result?.error === 'models_not_ready') {
+        silentRef.current = false
         setState((s) => ({
           ...s,
-          state: 'idle',
+          state: silent ? s.state : 'idle',
+          readAloudActive: false,
+          readAloudSpeaking: false,
         }))
         notifyModelsNeedDownload()
         // 清理已创建的音频资源
@@ -383,6 +400,8 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     } catch (e) {
       const errorMessage = (e as Error).message
       console.error('[useVoiceCall] startCall 失败:', e)
+      const wasSilent = silentRef.current
+      silentRef.current = false
 
       // 清理资源
       streamRef.current?.getTracks().forEach((t) => t.stop())
@@ -390,13 +409,18 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
       await audioCtxRef.current?.close().catch(() => {})
       audioCtxRef.current = null
 
-      setState((s) => ({
-        ...s,
-        state: 'error',
-        error: errorMessage.includes('Permission')
-          ? '麦克风权限被拒绝，请在系统设置中允许访问麦克风'
-          : `启动语音通话失败: ${errorMessage}`,
-      }))
+      // 静默朗读失败不弹通话错误面板，只复位开关态
+      if (wasSilent) {
+        setState((s) => ({ ...s, readAloudActive: false, readAloudSpeaking: false }))
+      } else {
+        setState((s) => ({
+          ...s,
+          state: 'error',
+          error: errorMessage.includes('Permission')
+            ? '麦克风权限被拒绝，请在系统设置中允许访问麦克风'
+            : `启动语音通话失败: ${errorMessage}`,
+        }))
+      }
     }
   }, [])
 
@@ -404,6 +428,7 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
 
   const stopCall = useCallback(async () => {
     const electronAPI = (window as any).electronAPI
+    silentRef.current = false
 
     if (callIdRef.current && electronAPI?.voice) {
       await electronAPI.voice
@@ -434,6 +459,8 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
       playbackAnalyserNode: null,
       charPulsePoll: null,
       isAudioPlaying: null,
+      readAloudActive: false,
+      readAloudSpeaking: false,
     }))
   }, [])
 

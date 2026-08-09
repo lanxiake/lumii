@@ -268,3 +268,17 @@
   color: var(--mt-accent-500);
 }
 
+/* 实时朗读正在出声：声波脉冲，提示当前有音频在播 */
+.read-aloud-speaking {
+  animation: read-aloud-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes read-aloud-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--mt-accent-500) 0%, transparent);
+  }
+}
+

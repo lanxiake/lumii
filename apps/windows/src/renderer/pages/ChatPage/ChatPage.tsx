@@ -48,7 +48,7 @@ import {
   type ImageProcessingResult,
 } from './utils/image-processing-strategy'
 import { InterruptBanner } from './components/InterruptBanner'
-import { PanelLeft, Sparkles, FolderOpen } from 'lucide-react'
+import { PanelLeft, Sparkles, FolderOpen, Volume2, VolumeX } from 'lucide-react'
 
 /** 将 File 读取为 base64 字符串（当 file.path 不可用时使用） */
 function readFileAsBase64(file: File): Promise<string> {
@@ -390,8 +390,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [runtimeCurrentSessionKey])
   const [voiceCallState, voiceCallActions] = useVoiceCall()
   const conversationReplay = useConversationReplay()
-  // 实时朗读模式：开启后每轮 Agent 回复正常结束时自动朗读最新一条 assistant 消息
-  const [autoReadEnabled, setAutoReadEnabled] = useState(false)
   /**
    * pendingAttachments 存储当前待发附件的元信息：
    * - fileName / filePath / category 来自策略层
@@ -1347,39 +1345,29 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     }
   }, [conversationReplay, localRuntimeSession])
 
-  // 切换实时朗读模式：关闭时若正在朗读则立即停止
-  const handleToggleAutoRead = useCallback(() => {
-    setAutoReadEnabled((prev) => {
-      const next = !prev
-      if (!next && conversationReplay.isReplaying) {
-        conversationReplay.stopReplay()
-      }
-      return next
-    })
-  }, [conversationReplay])
-
-  // 实时朗读：每轮 Agent 正常结束（turnEndAt 边沿变化）时朗读最新一条 assistant 消息。
-  // 用 ref 记录已处理的 turnEndAt，避免重复触发；中止/错误不更新 turnEndAt 故不会误读。
-  const handledAutoReadTurnRef = useRef<number | null>(runtimeLastTurnEndAt ?? null)
-  useEffect(() => {
-    if (!autoReadEnabled) {
-      // 关闭朗读时同步基线，避免重新开启后补读历史轮次
-      handledAutoReadTurnRef.current = runtimeLastTurnEndAt ?? null
+  // 实时朗读模式开关：开启=启动静默持续 micless 播报（右上角按钮，波纹见 readAloudSpeaking）
+  const readAloudActive = voiceCallState.readAloudActive
+  const handleToggleReadAloud = useCallback(() => {
+    if (readAloudActive) {
+      void voiceCallActions.stopCall()
       return
     }
-    if (runtimeLastTurnEndAt == null) return
-    if (runtimeLastTurnEndAt === handledAutoReadTurnRef.current) return
-    handledAutoReadTurnRef.current = runtimeLastTurnEndAt
-
-    const msgs = localRuntimeSession?.messages ?? []
-    // 找最新一条有内容的 assistant 消息
-    let latest: (typeof msgs)[number] | null = null
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i]
-      if (m.role === 'assistant' && m.content) { latest = m; break }
+    if (!runtimeCurrentSessionKey) {
+      setToast({ message: '请先开始一个对话再开启实时朗读', type: 'info' })
+      return
     }
-    if (latest) conversationReplay.startReplay(latest.id, msgs)
-  }, [autoReadEnabled, runtimeLastTurnEndAt, localRuntimeSession, conversationReplay])
+    void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id, {
+      micless: true,
+      persistent: true,
+      silent: true,
+    })
+  }, [readAloudActive, voiceCallActions, runtimeCurrentSessionKey, selectedAgent])
+
+  // 切换会话时停止实时朗读（避免朗读上一会话）
+  useEffect(() => {
+    if (readAloudActive) void voiceCallActions.stopCall()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runtimeCurrentSessionKey])
 
   // 处理手动中断 Agent
   const handleAbort = useCallback(async () => {
@@ -1555,6 +1543,20 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             </button>
             <button
               type="button"
+              className={clsx(
+                styles['icon-btn'],
+                readAloudActive && styles['icon-btn--active'],
+                voiceCallState.readAloudSpeaking && styles['read-aloud-speaking'],
+              )}
+              onClick={handleToggleReadAloud}
+              title={readAloudActive ? '实时朗读已开启，点击关闭' : '开启实时朗读（AI 回复边生成边朗读）'}
+              aria-label="实时朗读"
+              aria-pressed={readAloudActive}
+            >
+              {readAloudActive ? <Volume2 size={16} strokeWidth={1.8} /> : <VolumeX size={16} strokeWidth={1.8} />}
+            </button>
+            <button
+              type="button"
               className={clsx(styles['icon-btn'], workbench.open && styles['icon-btn--active'])}
               onClick={toggleFilesWorkbench}
               title="工作空间文件"
@@ -1668,8 +1670,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onFileReferenceAdd={handleFileReferenceAdd}
             onFileReferenceRemove={handleFileReferenceRemove}
             onVoiceCallStart={runtimeCurrentSessionKey ? () => void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id) : undefined}
-            autoReadEnabled={autoReadEnabled}
-            onToggleAutoRead={handleToggleAutoRead}
             onLocateFile={(absolutePath) => {
               setWorkbench({ open: true, tab: 'files' })
               locateTokenRef.current += 1
