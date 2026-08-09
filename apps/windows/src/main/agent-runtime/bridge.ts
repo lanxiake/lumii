@@ -703,7 +703,7 @@ export class AgentRuntimeBridge {
     const backupPath = runBackupNow(
       dbPath,
       backupDir,
-      7,
+      10,
       this.localDb.isOpen ? this.localDb.db : undefined,
     )
     if (!backupPath) {

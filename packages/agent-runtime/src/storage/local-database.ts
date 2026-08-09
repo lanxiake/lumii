@@ -251,8 +251,8 @@ export interface LocalDatabaseOptions {
   readonly enableScheduledBackup?: boolean;
   /** 备份目录，默认与数据库同级的 `backups/` */
   readonly backupDirectory?: string;
-  /** 保留备份天数，默认 7 */
-  readonly backupRetentionDays?: number;
+  /** 最多保留的备份数量，默认 10 */
+  readonly backupMaxCount?: number;
   /** 本地时间每日备份小时（0–23），默认 3 */
   readonly backupHourLocal?: number;
   /** 打开成功后立即执行一次备份 */
@@ -499,7 +499,7 @@ export class LocalDatabase {
       this._stopBackup = startScheduledDatabaseBackup({
         dbPath: actualDbPath,
         backupDir,
-        retentionDays: options.backupRetentionDays ?? 7,
+        maxBackupCount: options.backupMaxCount ?? 10,
         hourLocal: options.backupHourLocal ?? 3,
         // 启动时立即备份一次：保住启动前的干净状态，恢复时可回退到本次启动前
         backupOnOpen: options.backupOnOpen ?? true,

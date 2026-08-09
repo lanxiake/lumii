@@ -61,6 +61,7 @@ export const StorageInfo: React.FC<StorageInfoProps> = ({ toast }) => {
   const [backups, setBackups] = useState<DatabaseBackupView[]>([])
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState(false)
+  const [backupsExpanded, setBackupsExpanded] = useState(false)
   const [busy, setBusy] = useState(false)
 
   /**
@@ -309,7 +310,7 @@ export const StorageInfo: React.FC<StorageInfoProps> = ({ toast }) => {
       <h4 className={styles['settings-subsection-title']}>本地聊天记录存储</h4>
       <p className={styles['settings-note']}>
         聊天记录存储在本地 SQLite，网关不保存对话内容，便于保护隐私。
-        系统会在每日凌晨自动备份，保留最近 7 天；你也可以随时手动备份或从备份恢复。
+        系统会在每日凌晨自动备份，最多保留最近 10 次；你也可以随时手动备份或从备份恢复。
       </p>
 
       {showEmptyDbWarning && (
@@ -404,6 +405,16 @@ export const StorageInfo: React.FC<StorageInfoProps> = ({ toast }) => {
         {backups.length === 0 ? (
           <p className={styles['settings-note']}>暂无备份文件，可点击「立即备份」创建第一份备份。</p>
         ) : (
+          <>
+            <button
+              type="button"
+              className={styles['about-link']}
+              style={{ cursor: 'pointer', border: 'none', background: 'none', padding: 0, font: 'inherit', marginBottom: 8 }}
+              onClick={() => setBackupsExpanded((v) => !v)}
+            >
+              备份记录（{backups.length}）{backupsExpanded ? ' ▲' : ' ▼'}
+            </button>
+            {backupsExpanded && (
           <ul style={{ margin: 0, paddingLeft: 0, listStyle: 'none', fontSize: 13 }}>
             {backups.map((b) => (
               <li
@@ -442,6 +453,8 @@ export const StorageInfo: React.FC<StorageInfoProps> = ({ toast }) => {
               </li>
             ))}
           </ul>
+            )}
+          </>
         )}
       </div>
 

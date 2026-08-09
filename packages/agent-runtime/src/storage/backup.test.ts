@@ -10,6 +10,7 @@ import {
   deleteDatabaseBackup,
   deleteSqliteSidecarFiles,
   listDatabaseBackups,
+  pruneOldBackups,
   restoreDatabaseFromBackup,
   tryRestoreFromLatestBackup,
 } from "./backup.js";
@@ -102,5 +103,37 @@ describe("backup", () => {
     expect(fs.existsSync(target)).toBe(false);
     expect(deleteDatabaseBackup(backupDir, "../escape.db.bak")).toBe(false);
     expect(deleteDatabaseBackup(backupDir, "not-a-backup.txt")).toBe(false);
+  });
+
+  it("pruneOldBackups 只保留最近 N 个备份，删除较旧的", () => {
+    const dir = makeTmpDir();
+    // 创建 5 个备份，mtime 依次递增（后者更新）
+    for (let i = 0; i < 5; i += 1) {
+      const full = path.join(dir, `agent-runtime_2026-06-2${i}_00-00-00.db.bak`);
+      fs.writeFileSync(full, `backup-${i}`);
+      const t = (Date.now() - (5 - i) * 60_000) / 1000;
+      fs.utimesSync(full, t, t);
+    }
+
+    pruneOldBackups(dir, 3);
+
+    const remaining = listDatabaseBackups(dir);
+    expect(remaining).toHaveLength(3);
+    // 保留的应为最新的 3 个（i=2,3,4）
+    expect(remaining.map((b) => b.fileName)).toEqual([
+      "agent-runtime_2026-06-24_00-00-00.db.bak",
+      "agent-runtime_2026-06-23_00-00-00.db.bak",
+      "agent-runtime_2026-06-22_00-00-00.db.bak",
+    ]);
+  });
+
+  it("pruneOldBackups 备份数不超过上限时不删除", () => {
+    const dir = makeTmpDir();
+    fs.writeFileSync(path.join(dir, "agent-runtime_2026-06-20_00-00-00.db.bak"), "a");
+    fs.writeFileSync(path.join(dir, "agent-runtime_2026-06-21_00-00-00.db.bak"), "b");
+
+    pruneOldBackups(dir, 10);
+
+    expect(listDatabaseBackups(dir)).toHaveLength(2);
   });
 });
