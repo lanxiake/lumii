@@ -104,6 +104,14 @@
   background: #d1d5db;
 }
 
+/* 卡片已渲染但版本/安装状态仍在探测 */
+.detectingTag {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-text-tertiary, #9ca3af);
+  white-space: nowrap;
+}
+
 .toolCardBody {
   display: flex;
   flex-direction: column;
@@ -262,6 +270,12 @@
 
 .dangerBtn {
   color: #cf1322;
+}
+
+.linkBtn:disabled,
+.dangerBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .cwdBox {

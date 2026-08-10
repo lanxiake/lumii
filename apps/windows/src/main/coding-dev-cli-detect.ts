@@ -8,12 +8,28 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import fs from 'node:fs'
 import path from 'node:path'
-import { detectToolVersion, fetchNpmLatestVersion } from './coding-dev-cli-version.js'
+import {
+  detectToolVersion,
+  fetchNpmLatestVersion,
+  fetchPypiLatestVersion,
+} from './coding-dev-cli-version.js'
 
 const execFileAsync = promisify(execFile)
 
-/** 面板主推的本机工具 */
-export const PRIMARY_LOCAL_ACP_TOOLS = ['cursor', 'claude', 'codex', 'copilot', 'gemini', 'opencode'] as const
+/** 面板主推的本机工具（与斜杠命令可切换的后端一一对应） */
+export const PRIMARY_LOCAL_ACP_TOOLS = [
+  'cursor',
+  'claude',
+  'codex',
+  'copilot',
+  'gemini',
+  'opencode',
+  'qwen',
+  'qoder',
+  'auggie',
+  'kimi',
+  'hermes',
+] as const
 
 export type PrimaryLocalAcpToolId = (typeof PRIMARY_LOCAL_ACP_TOOLS)[number]
 
@@ -24,7 +40,6 @@ export interface LocalAcpToolMeta {
   /** where 探测候选命令（按优先级） */
   commands: string[]
   homepageUrl: string
-  githubUrl?: string
   installUrl: string
   /** 官方一键安装命令（Windows PowerShell，供 UI 展示） */
   installCommand: string
@@ -32,6 +47,8 @@ export interface LocalAcpToolMeta {
   installHint: string
   /** npm 包名，用于查询最新版本（registry.npmjs.org）；不设置则跳过最新版本查询（如 cursor-agent 无公开查询接口） */
   npmPackageName?: string
+  /** PyPI 包名，用于查询最新版本；与 npmPackageName 互斥（Python 系工具） */
+  pypiPackageName?: string
 }
 
 export interface LocalAcpToolStatus extends LocalAcpToolMeta {
@@ -55,7 +72,6 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     description: '独立安装的 agent / cursor-agent（非 Cursor 编辑器本身）',
     commands: ['cursor-agent', 'agent'],
     homepageUrl: 'https://cursor.com/docs/cli/overview',
-    githubUrl: 'https://github.com/getcursor/cursor',
     installUrl: 'https://cursor.com/docs/cli/installation',
     installCommand: "irm 'https://cursor.com/install?win32=true' | iex",
     installHint: '安装的是 Agent CLI，不是 Cursor 编辑器',
@@ -66,7 +82,6 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     description: 'Anthropic Claude Code CLI',
     commands: ['claude'],
     homepageUrl: 'https://code.claude.com/docs/en/installation',
-    githubUrl: 'https://github.com/anthropics/claude-code',
     installUrl: 'https://code.claude.com/docs/en/installation',
     installCommand: 'irm https://claude.ai/install.ps1 | iex',
     installHint: '官方原生安装脚本（推荐）',
@@ -78,8 +93,7 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     description: 'OpenAI Codex CLI',
     commands: ['codex'],
     homepageUrl: 'https://openai.com/codex',
-    githubUrl: 'https://github.com/openai/codex',
-    installUrl: 'https://github.com/openai/codex#installation',
+    installUrl: 'https://developers.openai.com/codex/cli',
     installCommand: 'irm https://chatgpt.com/codex/install.ps1 | iex',
     installHint: '官方独立安装脚本',
     npmPackageName: '@openai/codex',
@@ -90,7 +104,6 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     description: '独立 Copilot CLI（npm：@github/copilot）',
     commands: ['copilot', 'gh'],
     homepageUrl: 'https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli',
-    githubUrl: 'https://github.com/github/copilot-cli',
     installUrl: 'https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli',
     installCommand: 'npm install -g @github/copilot',
     installHint: '需 Node.js 22+；也可 winget install GitHub.Copilot',
@@ -101,9 +114,8 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     label: 'Gemini CLI',
     description: 'Google Gemini CLI',
     commands: ['gemini'],
-    homepageUrl: 'https://github.com/google-gemini/gemini-cli',
-    githubUrl: 'https://github.com/google-gemini/gemini-cli',
-    installUrl: 'https://github.com/google-gemini/gemini-cli#installation',
+    homepageUrl: 'https://geminicli.com',
+    installUrl: 'https://google-gemini.github.io/gemini-cli/docs/get-started/installation.html',
     installCommand: 'npm install -g @google/gemini-cli',
     installHint: '需 Node.js 20+；官方 npm 包',
     npmPackageName: '@google/gemini-cli',
@@ -114,11 +126,65 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     description: 'OpenCode 开源编码助手',
     commands: ['opencode'],
     homepageUrl: 'https://opencode.ai',
-    githubUrl: 'https://github.com/sst/opencode',
     installUrl: 'https://opencode.ai/docs',
-    installCommand: '请参考官网安装步骤',
-    installHint: '安装方式因平台而异，请查看官网文档',
-    // npm 包名未核实，不编造，暂不查询最新版本
+    installCommand: 'npm install -g opencode-ai',
+    installHint: '官方 npm 包（内含各平台预编译二进制）',
+    npmPackageName: 'opencode-ai',
+  },
+  qwen: {
+    id: 'qwen',
+    label: 'Qwen Code',
+    description: '通义千问代码 CLI（gemini-cli 分支）',
+    commands: ['qwen'],
+    homepageUrl: 'https://qwenlm.github.io/qwen-code-docs/',
+    installUrl: 'https://qwenlm.github.io/qwen-code-docs/en/',
+    installCommand: 'npm install -g @qwen-code/qwen-code',
+    installHint: '需 Node.js 20+；官方 npm 包',
+    npmPackageName: '@qwen-code/qwen-code',
+  },
+  qoder: {
+    id: 'qoder',
+    label: 'Qoder CLI',
+    description: '阿里 Qoder AI 编码 CLI',
+    commands: ['qoder', 'qodercli'],
+    homepageUrl: 'https://qoder.com/cli',
+    installUrl: 'https://qoder.com/cli',
+    installCommand: 'irm https://qoder.com/install.ps1 | iex',
+    installHint: '官方 Windows 安装脚本（推荐）；也可用 npm install -g @qoder-ai/qodercli',
+    npmPackageName: '@qoder-ai/qodercli',
+  },
+  auggie: {
+    id: 'auggie',
+    label: 'Auggie (Augment Code)',
+    description: 'Augment Code 的 auggie CLI',
+    commands: ['auggie'],
+    homepageUrl: 'https://www.augmentcode.com/product/CLI',
+    installUrl: 'https://docs.augmentcode.com/cli/overview',
+    installCommand: 'npm install -g @augmentcode/auggie',
+    installHint: '需 Node.js 22+；官方 npm 包',
+    npmPackageName: '@augmentcode/auggie',
+  },
+  kimi: {
+    id: 'kimi',
+    label: 'Kimi CLI',
+    description: 'Moonshot Kimi CLI（Python 包）',
+    commands: ['kimi'],
+    homepageUrl: 'https://www.kimi.com/coding/docs/',
+    installUrl: 'https://moonshotai.github.io/kimi-cli/en/guides/getting-started.html',
+    installCommand: 'uv tool install --python 3.13 kimi-cli',
+    installHint: '需 Python 3.13 与 uv；PyPI 包 kimi-cli',
+    pypiPackageName: 'kimi-cli',
+  },
+  hermes: {
+    id: 'hermes',
+    label: 'Hermes Agent',
+    description: 'Nous Research Hermes Agent（Python 包）',
+    commands: ['hermes'],
+    homepageUrl: 'https://hermes-agent.nousresearch.com/',
+    installUrl: 'https://hermes-agent.nousresearch.com/docs/getting-started/installation',
+    installCommand: 'iex (irm https://hermes-agent.nousresearch.com/install.ps1)',
+    installHint: '官方 Windows 安装脚本（推荐）；需 Python 3.11–3.13',
+    pypiPackageName: 'hermes-agent',
   },
 }
 
@@ -156,13 +222,16 @@ function scoreWindowsCliPath(filePath: string): number {
 
 /**
  * 从 where 输出中选出 Windows 可启动的最佳路径
+ *
+ * 保持 candidates 原有顺序（where.exe 按 PATH 先后返回）不重排：
+ * PATH 里排前面的才是用户实际在用的那个。分数只用来剔除不可 spawn 的
+ * shim（bash 脚本等），否则一台机器上任何同名的 .exe（哪怕是完全无关的
+ * 桌面应用）都会盖过真正的 CLI，spawn 时把那个无关程序的窗口弹出来。
  */
-function pickBestWindowsCliPath(candidates: string[]): string | undefined {
-  const scored = candidates
-    .map((p) => ({ p, score: scoreWindowsCliPath(p) }))
-    .filter((x) => x.score > 0 && fs.existsSync(x.p))
-    .sort((a, b) => b.score - a.score)
-  if (scored[0]) return scored[0].p
+export function pickBestWindowsCliPath(candidates: string[]): string | undefined {
+  for (const p of candidates) {
+    if (p && scoreWindowsCliPath(p) > 0 && fs.existsSync(p)) return p
+  }
 
   // 无扩展名命中但同目录有 .cmd：补全扩展名
   for (const p of candidates) {
@@ -236,7 +305,7 @@ export function needsWindowsShell(commandPath: string): boolean {
 }
 
 /**
- * 已安装时补充版本信息：当前版本探测 + npm 最新版本查询（并行，互不阻塞）
+ * 已安装时补充版本信息：当前版本探测 + npm/PyPI 最新版本查询（并行，互不阻塞）
  */
 async function withVersionInfo(
   meta: LocalAcpToolMeta,
@@ -245,7 +314,11 @@ async function withVersionInfo(
 ): Promise<LocalAcpToolStatus> {
   const [currentVersion, latestVersion] = await Promise.all([
     detectToolVersion(resolvedPath),
-    meta.npmPackageName ? fetchNpmLatestVersion(meta.npmPackageName) : Promise.resolve(undefined),
+    meta.npmPackageName
+      ? fetchNpmLatestVersion(meta.npmPackageName)
+      : meta.pypiPackageName
+        ? fetchPypiLatestVersion(meta.pypiPackageName)
+        : Promise.resolve(undefined),
   ])
   return {
     ...meta,
@@ -258,7 +331,15 @@ async function withVersionInfo(
 }
 
 /**
- * 探测单个工具是否已安装
+ * 仅返回工具元数据清单（名称、链接、安装命令），无版本/状态探测。
+ * 适用于初始渲染，避免批量探测阻塞 UI。
+ */
+export function listLocalAcpToolsMetadata(): LocalAcpToolMeta[] {
+  return PRIMARY_LOCAL_ACP_TOOLS.map((id) => LOCAL_ACP_TOOL_META[id])
+}
+
+/**
+ * 探测单个工具是否已安装，并补充版本信息（当前 + 最新）
  */
 export async function detectLocalAcpTool(id: PrimaryLocalAcpToolId): Promise<LocalAcpToolStatus> {
   const meta = LOCAL_ACP_TOOL_META[id]
@@ -281,17 +362,6 @@ export async function detectLocalAcpTool(id: PrimaryLocalAcpToolId): Promise<Loc
     return await withVersionInfo(meta, resolved, cmd)
   }
   return { ...meta, installed: false }
-}
-
-/**
- * 探测全部主推工具
- */
-export async function detectAllLocalAcpTools(): Promise<LocalAcpToolStatus[]> {
-  const list: LocalAcpToolStatus[] = []
-  for (const id of PRIMARY_LOCAL_ACP_TOOLS) {
-    list.push(await detectLocalAcpTool(id))
-  }
-  return list
 }
 
 /**

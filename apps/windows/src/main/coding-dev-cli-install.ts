@@ -29,6 +29,36 @@ export type AcpInstallResult = {
   message: string
 }
 
+/** 卸载结果 */
+export type AcpUninstallResult = {
+  ok: boolean
+  toolId: PrimaryLocalAcpToolId
+  exitCode: number | null
+  stdout: string
+  stderr: string
+  /** 卸载后重新探测的状态 */
+  status: LocalAcpToolStatus
+  /** 给用户看的摘要 */
+  message: string
+  /** 实际执行（或建议手动执行）的命令 */
+  command?: string
+  /** 该卸载方式是否有官方文档依据 */
+  documented?: boolean
+}
+
+/** 卸载预览（供 UI 确认弹窗展示，不执行任何命令） */
+export type AcpUninstallPreview = {
+  toolId: PrimaryLocalAcpToolId
+  label: string
+  installed: boolean
+  /** 展示给用户的命令；空串表示需手动移除 */
+  displayCommand: string
+  /** 是否能自动执行 */
+  automatic: boolean
+  documented: boolean
+  hint: string
+}
+
 /** 官方安装配方（Windows PowerShell） */
 type InstallRecipe = {
   /** UI 展示的命令 */
@@ -78,15 +108,154 @@ const WIN_INSTALL_RECIPES: Record<PrimaryLocalAcpToolId, InstallRecipe> = {
     hint: '需已安装 Node.js 20+。官方 npm 包，同一命令可用于升级到最新版。',
   },
   opencode: {
-    displayCommand: '请参考 https://opencode.ai/docs 官网安装步骤',
-    powershellCommand: '',
-    timeoutMs: 0,
-    hint: '安装方式因平台而异，暂不支持一键安装，请查看官网文档手动安装。',
+    displayCommand: 'npm install -g opencode-ai',
+    powershellCommand: 'npm install -g opencode-ai',
+    timeoutMs: 8 * 60_000,
+    hint: '官方 npm 包（内含各平台预编译二进制）。同一命令可用于升级。',
   },
+  qwen: {
+    displayCommand: 'npm install -g @qwen-code/qwen-code',
+    powershellCommand: 'npm install -g @qwen-code/qwen-code',
+    timeoutMs: 8 * 60_000,
+    hint: '需已安装 Node.js 20+。官方 npm 包，同一命令可用于升级。',
+  },
+  qoder: {
+    displayCommand: 'irm https://qoder.com/install.ps1 | iex',
+    powershellCommand: 'irm https://qoder.com/install.ps1 | iex',
+    timeoutMs: 10 * 60_000,
+    hint: '官方 Windows 安装脚本。完成后可能需重启灵栖以刷新 PATH。',
+  },
+  auggie: {
+    displayCommand: 'npm install -g @augmentcode/auggie',
+    powershellCommand: 'npm install -g @augmentcode/auggie',
+    timeoutMs: 8 * 60_000,
+    hint: '需已安装 Node.js 22+。官方 npm 包，同一命令可用于升级。',
+  },
+  kimi: {
+    displayCommand: 'uv tool install --python 3.13 kimi-cli',
+    powershellCommand: 'uv tool install --python 3.13 kimi-cli',
+    timeoutMs: 10 * 60_000,
+    hint: '需先安装 uv（irm https://astral.sh/uv/install.ps1 | iex）。升级用 uv tool upgrade kimi-cli。',
+  },
+  hermes: {
+    displayCommand: 'iex (irm https://hermes-agent.nousresearch.com/install.ps1)',
+    powershellCommand: 'iex (irm https://hermes-agent.nousresearch.com/install.ps1)',
+    timeoutMs: 15 * 60_000,
+    hint: '官方 Windows 安装脚本，需 Python 3.11–3.13。完成后可能需重启灵栖以刷新 PATH。',
+  },
+}
+
+/** 卸载配方 */
+type UninstallRecipe = {
+  /** UI 展示 / 确认弹窗里给用户看的命令 */
+  displayCommand: string
+  /** 传给 powershell -Command 的脚本；空串表示无法自动卸载 */
+  powershellCommand: string
+  /** 该卸载方式是否有官方文档依据（false = 从安装脚本推断，UI 需提示） */
+  documented: boolean
+  hint: string
+}
+
+/** npm 全局包卸载配方 */
+function npmUninstall(pkg: string, extraHint = ''): UninstallRecipe {
+  return {
+    displayCommand: `npm uninstall -g ${pkg}`,
+    powershellCommand: `npm uninstall -g ${pkg}`,
+    documented: true,
+    hint: `移除 npm 全局包 ${pkg}。${extraHint}`.trim(),
+  }
+}
+
+/** 解析出的路径是否来自 npm 全局安装 */
+function isNpmGlobalPath(resolvedPath: string | undefined): boolean {
+  if (!resolvedPath) return false
+  const lower = resolvedPath.toLowerCase()
+  return lower.includes('node_modules') || /[\\/]npm[\\/]/.test(lower)
+}
+
+/**
+ * 依据实际安装位置解析卸载配方
+ *
+ * 部分工具同时有官方脚本安装与 npm 安装两条路径，卸载方式不同，
+ * 因此按探测到的 resolvedPath 判断，而不是写死一个常量。
+ */
+function resolveUninstallRecipe(status: LocalAcpToolStatus): UninstallRecipe {
+  const npmPath = isNpmGlobalPath(status.resolvedPath)
+  switch (status.id) {
+    case 'claude':
+      if (npmPath) return npmUninstall('@anthropic-ai/claude-code')
+      // 官方文档给出的原生安装卸载路径（不动 ~/.claude 用户配置）
+      return {
+        displayCommand:
+          'Remove-Item "$env:USERPROFILE\\.local\\bin\\claude.exe"; Remove-Item "$env:USERPROFILE\\.local\\share\\claude" -Recurse',
+        powershellCommand:
+          'Remove-Item -LiteralPath "$env:USERPROFILE\\.local\\bin\\claude.exe" -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath "$env:USERPROFILE\\.local\\share\\claude" -Recurse -Force -ErrorAction SilentlyContinue',
+        documented: true,
+        hint: '按官方文档移除原生安装文件；~/.claude 用户配置与登录状态保留，需要彻底清理请手动删除。',
+      }
+    case 'codex':
+      if (npmPath) return npmUninstall('@openai/codex')
+      return {
+        displayCommand: 'Remove-Item "$env:LOCALAPPDATA\\Programs\\OpenAI\\Codex" -Recurse',
+        powershellCommand:
+          'Remove-Item -LiteralPath "$env:LOCALAPPDATA\\Programs\\OpenAI\\Codex" -Recurse -Force -ErrorAction SilentlyContinue',
+        documented: false,
+        hint: 'Codex 官方未提供卸载命令，此路径取自官方安装脚本的默认安装目录；~/.codex 配置保留。PATH 中的残留条目需手动清理。',
+      }
+    case 'cursor':
+      return {
+        displayCommand: 'Remove-Item "$env:LOCALAPPDATA\\cursor-agent" -Recurse',
+        powershellCommand:
+          'Remove-Item -LiteralPath "$env:LOCALAPPDATA\\cursor-agent" -Recurse -Force -ErrorAction SilentlyContinue',
+        documented: false,
+        hint: 'Cursor 官方未提供卸载命令，此路径为官方安装脚本的默认安装目录。PATH 中的残留条目需手动清理。',
+      }
+    case 'copilot':
+      return npmUninstall('@github/copilot', '若当初用 winget 安装，请改用 winget uninstall GitHub.Copilot。')
+    case 'gemini':
+      return npmUninstall('@google/gemini-cli')
+    case 'qwen':
+      return npmUninstall('@qwen-code/qwen-code')
+    case 'auggie':
+      return npmUninstall('@augmentcode/auggie')
+    case 'opencode':
+      if (npmPath) return npmUninstall('opencode-ai')
+      return {
+        displayCommand: `（手动）删除 ${status.resolvedPath ?? 'OpenCode 可执行文件'} 并清理 PATH`,
+        powershellCommand: '',
+        documented: false,
+        hint: '本机 OpenCode 不是 npm 全局安装（可能是 choco / scoop / 安装脚本 / 独立安装包），无法自动卸载，需按当初的安装方式手动移除。',
+      }
+    case 'qoder':
+      if (npmPath) return npmUninstall('@qoder-ai/qodercli')
+      return {
+        displayCommand: `（手动）删除 ${status.resolvedPath ?? 'Qoder 可执行文件'} 并清理 PATH`,
+        powershellCommand: '',
+        documented: false,
+        hint: 'Qoder 官方脚本安装无卸载命令，需手动删除可执行文件并清理 PATH。',
+      }
+    case 'kimi':
+      return {
+        displayCommand: 'uv tool uninstall kimi-cli',
+        powershellCommand: 'uv tool uninstall kimi-cli',
+        documented: true,
+        hint: '按官方文档用 uv 卸载。',
+      }
+    case 'hermes':
+      return {
+        displayCommand: 'hermes uninstall --yes',
+        powershellCommand: 'hermes uninstall --yes',
+        documented: true,
+        hint: '调用 Hermes 内置卸载命令（非交互）；~/.hermes 数据默认保留，彻底清理需加 --all。',
+      }
+  }
 }
 
 /** 进行中的安装，防止重复点击 */
 const inflight = new Map<PrimaryLocalAcpToolId, Promise<AcpInstallResult>>()
+
+/** 进行中的卸载，防止重复点击 */
+const uninstallInflight = new Map<PrimaryLocalAcpToolId, Promise<AcpUninstallResult>>()
 
 /**
  * 获取某工具的安装命令文案（供 UI 展示）
@@ -134,15 +303,16 @@ export function refreshCommonCliPathsInProcessEnv(): void {
 }
 
 /**
- * 在 PowerShell 中执行白名单安装脚本
+ * 在 PowerShell 中执行白名单脚本（安装 / 卸载共用）
  */
-function runPowershellInstall(
-  recipe: InstallRecipe,
+function runPowershell(
+  command: string,
+  timeoutMs: number,
 ): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     const child = spawn(
       'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', recipe.powershellCommand],
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
       {
         windowsHide: true,
         env: { ...process.env },
@@ -165,9 +335,9 @@ function runPowershellInstall(
       resolve({
         exitCode: null,
         stdout,
-        stderr: `${stderr}\n安装超时（>${Math.round(recipe.timeoutMs / 60000)} 分钟）`.trim(),
+        stderr: `${stderr}\n执行超时（>${Math.round(timeoutMs / 60000)} 分钟）`.trim(),
       })
-    }, recipe.timeoutMs)
+    }, timeoutMs)
 
     child.stdout?.on('data', (buf: Buffer) => {
       stdout += buf.toString('utf8')
@@ -223,7 +393,10 @@ export async function installLocalAcpTool(toolIdRaw: string): Promise<AcpInstall
     const recipe = WIN_INSTALL_RECIPES[toolId]
     log.info('开始一键安装', { toolId, command: recipe.displayCommand })
 
-    const { exitCode, stdout, stderr } = await runPowershellInstall(recipe)
+    const { exitCode, stdout, stderr } = await runPowershell(
+      recipe.powershellCommand,
+      recipe.timeoutMs,
+    )
     refreshCommonCliPathsInProcessEnv()
     const status = await detectLocalAcpTool(toolId)
 
@@ -247,5 +420,106 @@ export async function installLocalAcpTool(toolIdRaw: string): Promise<AcpInstall
     return await job
   } finally {
     inflight.delete(toolId)
+  }
+}
+
+/**
+ * 一键卸载指定 ACP 工具（仅 Windows；白名单卸载命令）
+ *
+ * 仅对有官方文档卸载方法的工具执行自动卸载；无文档的工具（Cursor/Codex）返回手动移除步骤。
+ */
+export async function uninstallLocalAcpTool(toolIdRaw: string): Promise<AcpUninstallResult> {
+  const toolId = String(toolIdRaw ?? '').trim().toLowerCase()
+  if (!isPrimaryLocalAcpToolId(toolId)) {
+    throw new Error(`不支持卸载未知工具：${toolIdRaw}`)
+  }
+
+  const status = await detectLocalAcpTool(toolId)
+
+  // 未安装，无需卸载
+  if (!status.installed) {
+    return {
+      ok: true,
+      toolId,
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      status,
+      message: `${status.label} 未检测到安装，无需卸载。`,
+    }
+  }
+
+  const recipe = resolveUninstallRecipe(status)
+
+  // 无法自动卸载：返回手动步骤
+  if (!recipe.powershellCommand || process.platform !== 'win32') {
+    return {
+      ok: false,
+      toolId,
+      exitCode: 1,
+      stdout: '',
+      stderr: '',
+      status,
+      message: `暂不支持一键卸载：${recipe.hint}`,
+      command: recipe.displayCommand,
+      documented: recipe.documented,
+    }
+  }
+
+  const existing = uninstallInflight.get(toolId)
+  if (existing) return existing
+
+  const job = (async (): Promise<AcpUninstallResult> => {
+    log.info('开始卸载', { toolId, command: recipe.displayCommand })
+    const { exitCode, stdout, stderr } = await runPowershell(recipe.powershellCommand, 5 * 60_000)
+    refreshCommonCliPathsInProcessEnv()
+    const after = await detectLocalAcpTool(toolId)
+
+    const ok = !after.installed
+    const tail = [stdout, stderr].filter(Boolean).join('\n').trim().slice(-800)
+    const message = ok
+      ? `${after.label} 已卸载。${recipe.hint}`
+      : `卸载命令已执行（退出码 ${exitCode ?? '超时'}），但仍检测到 CLI${after.resolvedPath ? `：${after.resolvedPath}` : ''}。可能有其他安装方式的残留，需手动移除。${tail ? `\n\n${tail}` : ''}`
+
+    log.info('卸载结束', { toolId, exitCode, stillInstalled: after.installed })
+    return {
+      ok,
+      toolId,
+      exitCode,
+      stdout,
+      stderr,
+      status: after,
+      message,
+      command: recipe.displayCommand,
+      documented: recipe.documented,
+    }
+  })()
+
+  uninstallInflight.set(toolId, job)
+  try {
+    return await job
+  } finally {
+    uninstallInflight.delete(toolId)
+  }
+}
+
+/**
+ * 卸载预览：告诉 UI 将要执行什么命令、是否有官方文档依据（用于确认弹窗）
+ */
+export async function previewUninstallLocalAcpTool(toolIdRaw: string): Promise<AcpUninstallPreview> {
+  const toolId = String(toolIdRaw ?? '').trim().toLowerCase()
+  if (!isPrimaryLocalAcpToolId(toolId)) {
+    throw new Error(`不支持卸载未知工具：${toolIdRaw}`)
+  }
+  const status = await detectLocalAcpTool(toolId)
+  const recipe = resolveUninstallRecipe(status)
+  return {
+    toolId,
+    label: status.label,
+    installed: status.installed,
+    displayCommand: recipe.displayCommand,
+    automatic: Boolean(recipe.powershellCommand) && process.platform === 'win32',
+    documented: recipe.documented,
+    hint: recipe.hint,
   }
 }

@@ -17,6 +17,7 @@ import {
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
 import { DiffFileCard } from './DiffFileCard'
 import { ChangedFilesRail } from './ChangedFilesRail'
+import { ProjectGitSection } from './ProjectGitSection'
 import type { WorkbenchLayoutMode } from '../WorkspaceWorkbench'
 import styles from './WorkspaceVersionPanel.module.css'
 
@@ -621,6 +622,29 @@ export const WorkspaceVersionPanel: React.FC<WorkspaceVersionPanelProps> = ({
                       </div>
                     )
                   })}
+                {/* 项目汇总区：仅在 Changes 子页显示 */}
+                {subnav === 'changes' && !historyLoading && (
+                  <ProjectGitSection
+                    hunkCache={hunkCache}
+                    onEnsureHunks={(projectName, filepath) => {
+                      const key = `project:${projectName}:${filepath}`
+                      void ensureHunks(key)
+                    }}
+                    onRevert={(projectName, filepath) => {
+                      setRevertTarget({
+                        filepath: `projects/${projectName}/${filepath}`,
+                        revertOid: 'HEAD',
+                        source: 'uncommitted',
+                      })
+                      setRevertConfirming(true)
+                    }}
+                    onRevealInFiles={
+                      onRevealInFiles
+                        ? (projectName, filepath) => onRevealInFiles(`projects/${projectName}/${filepath}`)
+                        : undefined
+                    }
+                  />
+                )}
               </div>
               {layoutMode !== 'fullscreen' && (
                 <ChangedFilesRail

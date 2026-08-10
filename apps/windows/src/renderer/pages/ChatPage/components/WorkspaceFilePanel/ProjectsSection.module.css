@@ -220,3 +220,64 @@
   color: var(--color-danger, #cf1322);
   background: var(--color-bg-tertiary);
 }
+
+.gitInfo {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+.gitBranch {
+  color: var(--color-text-secondary);
+}
+
+.gitAhead {
+  color: var(--color-success);
+}
+
+.gitBehind {
+  color: var(--color-warning);
+}
+
+.gitRemote {
+  color: var(--color-text-tertiary);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gitNone {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  margin-left: 6px;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+/* Git 统计数字（替代原 gitInfo，显示 +n ~m −p） */
+.gitStats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  margin-left: auto;
+  margin-right: 4px;
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.statAdded {
+  color: var(--color-success, #52c41a);
+}
+
+.statModified {
+  color: var(--color-warning, #faad14);
+}
+
+.statDeleted {
+  color: var(--color-error, #ff4d4f);
+}

@@ -17,12 +17,10 @@ export const CODING_DEV_BACKEND_IDS = [
   "auggie",
   "cursor",
   "gemini",
+  "hermes",
 ] as const;
 
-/** gemini 为预留后端，尚未实现，不在 IMPLEMENTED 列表中 */
-export const IMPLEMENTED_CODING_DEV_BACKEND_IDS = CODING_DEV_BACKEND_IDS.filter(
-  (id) => id !== "gemini",
-) as unknown as readonly Exclude<(typeof CODING_DEV_BACKEND_IDS)[number], "gemini">[];
+export const IMPLEMENTED_CODING_DEV_BACKEND_IDS = CODING_DEV_BACKEND_IDS;
 
 export type CodingDevBackendId = (typeof CODING_DEV_BACKEND_IDS)[number];
 export type ImplementedCodingDevBackendId = (typeof IMPLEMENTED_CODING_DEV_BACKEND_IDS)[number];
@@ -41,7 +39,8 @@ export const CODING_DEV_BACKEND_LABELS: Record<CodingDevBackendId, string> = {
   copilot: "GitHub Copilot",
   auggie: "Auggie",
   cursor: "Cursor CLI",
-  gemini: "Gemini CLI (预留)",
+  gemini: "Gemini CLI",
+  hermes: "Hermes Agent",
 };
 
 export type BackendSelectionSource = "default" | "stored" | "fallback";

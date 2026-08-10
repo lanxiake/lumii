@@ -111,6 +111,16 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
     setActiveView(view)
   }, [openHubForView, closeHub])
 
+  // 组件内跨层导航（如设置中心内的按钮要跳回对话页）
+  useEffect(() => {
+    const onNavigate = (e: Event) => {
+      const view = (e as CustomEvent<{ view?: ViewType }>).detail?.view
+      if (view) handleViewChange(view)
+    }
+    window.addEventListener('mtbot:navigate-request', onNavigate)
+    return () => window.removeEventListener('mtbot:navigate-request', onNavigate)
+  }, [handleViewChange])
+
   // 监听主进程发送的导航到设置页面事件
   useEffect(() => {
     const handleNavigateToSettings = () => {

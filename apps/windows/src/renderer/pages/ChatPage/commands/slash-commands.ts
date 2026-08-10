@@ -79,7 +79,7 @@ const CLIENT_ONLY_COMMANDS: SlashCommand[] = [
   },
   {
     name: '/kimi',
-    description: '切换到 Kimi K1.5 后端',
+    description: '切换到 Kimi CLI 后端',
     usage: '/kimi',
     category: 'backend',
   },
@@ -99,6 +99,12 @@ const CLIENT_ONLY_COMMANDS: SlashCommand[] = [
     name: '/cursor',
     description: '切换到 Cursor 后端',
     usage: '/cursor',
+    category: 'backend',
+  },
+  {
+    name: '/hermes',
+    description: '切换到 Hermes Agent 后端',
+    usage: '/hermes',
     category: 'backend',
   },
   {

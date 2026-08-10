@@ -31,20 +31,30 @@ function execFileWithOutput(
 }
 
 /**
- * 探测本机已安装 CLI 的版本号（跑 `<path> --version` 解析 stdout）
+ * 各 CLI 对"版本"参数的叫法不完全统一，按顺序尝试到第一个成功的为止。
+ * 只用带 - 前缀的写法：这批工具多数是"无 flag 时把位置参数当 prompt 发给
+ * 大模型"的 agent CLI，裸词 `version` 可能被当成一次真实对话请求发出去。
+ */
+const VERSION_FLAGS = ['--version', '-v', '-V']
+
+/**
+ * 探测本机已安装 CLI 的版本号（依次尝试常见版本参数，解析 stdout/stderr）
  */
 export async function detectToolVersion(resolvedPath: string): Promise<string | undefined> {
-  try {
-    const { stdout, stderr } = await execFileWithOutput(resolvedPath, ['--version'], {
-      windowsHide: true,
-      timeout: 8_000,
-      maxBuffer: 1024 * 64,
-    })
-    const match = VERSION_REGEX.exec(stdout) ?? VERSION_REGEX.exec(stderr)
-    return match?.[1]
-  } catch {
-    return undefined
+  for (const flag of VERSION_FLAGS) {
+    try {
+      const { stdout, stderr } = await execFileWithOutput(resolvedPath, [flag], {
+        windowsHide: true,
+        timeout: 8_000,
+        maxBuffer: 1024 * 64,
+      })
+      const match = VERSION_REGEX.exec(stdout) ?? VERSION_REGEX.exec(stderr)
+      if (match) return match[1]
+    } catch {
+      /* 该参数不支持或报错，试下一个 */
+    }
   }
+  return undefined
 }
 
 function httpsGetJson(url: string, timeoutMs: number): Promise<unknown> {
@@ -79,6 +89,20 @@ export async function fetchNpmLatestVersion(pkgName: string): Promise<string | u
     const url = `https://registry.npmjs.org/${encodeURIComponent(pkgName)}/latest`
     const data = await httpsGetJson(url, 5_000)
     const version = (data as { version?: string })?.version
+    return typeof version === 'string' && version.trim() ? version.trim() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 查询 PyPI 上某包的最新版本号（Python 系工具，如 kimi-cli / hermes-agent）
+ */
+export async function fetchPypiLatestVersion(pkgName: string): Promise<string | undefined> {
+  try {
+    const url = `https://pypi.org/pypi/${encodeURIComponent(pkgName)}/json`
+    const data = await httpsGetJson(url, 5_000)
+    const version = (data as { info?: { version?: string } })?.info?.version
     return typeof version === 'string' && version.trim() ? version.trim() : undefined
   } catch {
     return undefined

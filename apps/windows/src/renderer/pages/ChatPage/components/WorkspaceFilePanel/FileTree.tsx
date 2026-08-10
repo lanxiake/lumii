@@ -7,10 +7,54 @@
  * - refreshToken 变化时清空缓存，重新加载已展开目录
  */
 
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import clsx from 'clsx'
 import type { FileItem } from '../../../../hooks/business/useFiles/useFiles.types'
+import { useCodingDevProjects } from '../../../../hooks/business/useCodingDevProjects'
+import { useWorkspaceVcs } from '../../../../hooks/business/useWorkspaceVcs'
+import type { ProjectGitStatus } from '@main/project-git/types'
 import styles from './FileTree.module.css'
+
+// key: 相对工作区根的路径（POSIX），工作区自身文件用原始相对路径；
+// 挂载项目内的文件加 `projects/<name>/` 前缀，与文件树的绝对路径换算方式一致
+type GitState = 'conflict' | 'added' | 'modified' | 'untracked' | 'ignored'
+
+/** 真实 git（挂载项目）index/worktree 状态字符 → GitState */
+function resolveRealGitState(s: { index: string; worktree: string }): GitState | undefined {
+  if (s.index === 'U' || s.worktree === 'U' || (s.index === 'A' && s.worktree === 'A')) return 'conflict'
+  if (s.index === 'A') return 'added'
+  if (s.worktree === 'M' || s.index === 'M') return 'modified'
+  if (s.index === '?' && s.worktree === '?') return 'untracked'
+  if (s.index === '!' && s.worktree === '!') return 'ignored'
+  return undefined
+}
+
+/** 文件或目录的 git 状态：直接查文件，目录扫描子树取最高优先级（冲突>新增>修改>未跟踪>忽略） */
+function getGitState(
+  relPath: string | null,
+  isDirectory: boolean,
+  gitMap: Map<string, GitState>,
+): GitState | undefined {
+  if (!relPath) return undefined
+  if (!isDirectory) return gitMap.get(relPath)
+
+  // 目录：先看是否有折叠条目直接命中（`?? dir/` `!! dir/`），否则聚合子树取最高优先级
+  const dirKey = `${relPath}/`
+  const direct = gitMap.get(dirKey)
+  if (direct === 'ignored' || direct === 'untracked') return direct
+
+  const prefix = dirKey
+  let result: GitState | undefined
+  for (const [path, state] of gitMap) {
+    if (!path.startsWith(prefix)) continue
+    if (state === 'conflict') return 'conflict'
+    if (state === 'added') result = 'added'
+    else if (state === 'modified' && result !== 'added') result = 'modified'
+    else if (state === 'untracked' && !result) result = 'untracked'
+    else if (state === 'ignored' && !result) result = 'ignored'
+  }
+  return result
+}
 
 // ── SVG 图标（内联，无外部依赖） ──────────────────────────────────────────
 
@@ -145,6 +189,7 @@ interface FileTreeNodeProps {
   dirContents: Map<string, FileItem[]>
   loadingDirs: Set<string>
   selectedPath: string | null
+  gitMap: Map<string, GitState>
   onToggle: (path: string) => void
   onSelect: (item: FileItem) => void
   onContextMenu: (e: React.MouseEvent, item: FileItem) => void
@@ -153,10 +198,13 @@ interface FileTreeNodeProps {
 
 const FileTreeNode: React.FC<FileTreeNodeProps> = ({
   item, depth, rootPath, isExpanded, isSelected, isLoading, children,
-  expandedDirs, dirContents, loadingDirs, selectedPath,
+  expandedDirs, dirContents, loadingDirs, selectedPath, gitMap,
   onToggle, onSelect, onContextMenu, onMoreClick,
 }) => {
   const indent = depth * 16 + 8
+
+  const relPath = toRelative(rootPath, item.path)
+  const gitState = getGitState(relPath, item.isDirectory, gitMap)
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
@@ -212,8 +260,8 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
         {/* 文件图标 */}
         <FileIcon extension={item.extension} isDir={item.isDirectory} isExpanded={isExpanded} />
 
-        {/* 文件名 */}
-        <span className={styles.name}>{item.name}</span>
+        {/* 文件名（按 git 状态着色） */}
+        <span className={clsx(styles.name, gitState && styles[`name--git-${gitState}`])}>{item.name}</span>
 
         {/* 悬停操作按钮 */}
         <div className={styles.actions} onClick={(e) => e.stopPropagation()}>
@@ -255,6 +303,7 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
               dirContents={dirContents}
               loadingDirs={loadingDirs}
               selectedPath={selectedPath}
+              gitMap={gitMap}
               onToggle={onToggle}
               onSelect={onSelect}
               onContextMenu={onContextMenu}
@@ -289,6 +338,46 @@ export const FileTree: React.FC<FileTreeProps> = ({
   const [dirContents, setDirContents] = useState<Map<string, FileItem[]>>(new Map())
   const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set())
   const selectedNorm = selectedPath ? normPath(selectedPath) : null
+
+  // Git 状态徽标数据源：工作区自身（isomorphic-git）+ 每个挂载项目（真实 git CLI）
+  const { projects } = useCodingDevProjects()
+  const { uncommittedDiff, refresh: refreshWorkspaceVcs } = useWorkspaceVcs()
+  const [projectGitStatuses, setProjectGitStatuses] = useState<Map<string, ProjectGitStatus>>(new Map())
+
+  const refreshProjectGitStatuses = useCallback(async () => {
+    if (projects.length === 0) {
+      setProjectGitStatuses(new Map())
+      return
+    }
+    const entries = await Promise.all(
+      projects.map(async (p) => [p.name, await window.electronAPI.app.getProjectGitStatus(p.name)] as const),
+    )
+    setProjectGitStatuses(new Map(entries))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects.map((p) => p.name).join(',')])
+
+  useEffect(() => { void refreshProjectGitStatuses() }, [refreshProjectGitStatuses])
+
+  // 合并为单个 Map：key 为相对工作区根的路径（POSIX）。
+  // 工作区自身文件用原始相对路径；挂载项目内的文件加 `projects/<name>/` 前缀，
+  // 与 toRelative(rootPath, item.path) 的换算结果对齐。
+  const gitMap = useMemo<Map<string, GitState>>(() => {
+    const map = new Map<string, GitState>()
+    for (const d of uncommittedDiff) {
+      // deleted 文件已不在磁盘上，文件树不会渲染对应节点，故此处只需处理 added/modified
+      if (d.status === 'added') map.set(d.filepath, 'added')
+      else if (d.status === 'modified') map.set(d.filepath, 'modified')
+    }
+    for (const p of projects) {
+      const status = projectGitStatuses.get(p.name)
+      if (!status?.available || !status.isRepo) continue
+      for (const f of status.files) {
+        const state = resolveRealGitState({ index: f.index, worktree: f.worktree })
+        if (state) map.set(`projects/${p.name}/${f.path}`, state)
+      }
+    }
+    return map
+  }, [uncommittedDiff, projects, projectGitStatuses])
 
   // 加载目录内容（force=true 时忽略 loadingDirs 去重，用于展开/刷新强制读取最新）
   const loadDir = useCallback(async (dirPath: string, force = false) => {
@@ -341,6 +430,12 @@ export const FileTree: React.FC<FileTreeProps> = ({
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshToken])
+
+  // 文件树刷新时同步刷新 git 状态，保证徽标与磁盘一致
+  useEffect(() => {
+    void refreshWorkspaceVcs()
+    void refreshProjectGitStatuses()
+  }, [refreshToken, refreshWorkspaceVcs, refreshProjectGitStatuses])
 
   // 展开/折叠目录
   const handleToggle = useCallback((dirPath: string) => {
@@ -423,6 +518,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
           dirContents={dirContents}
           loadingDirs={loadingDirs}
           selectedPath={selectedNorm}
+          gitMap={gitMap}
           onToggle={handleToggle}
           onSelect={onSelect}
           onContextMenu={onContextMenu}

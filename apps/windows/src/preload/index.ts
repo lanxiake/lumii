@@ -50,6 +50,8 @@ function subscribeVoiceEvent(callback: (event: unknown) => void): () => void {
   }
 }
 
+import type { ProjectGitStatus } from '../main/project-git/types'
+
 /**
  * ACP 项目条目（与 main/config/types.ts 的 CodingDevProject 对齐）
  */
@@ -283,8 +285,21 @@ export interface ElectronAPI {
       powershellGatewayEnvBlock: string
       weixinSlashHint: string
     }>
-    /** 探测本机 Cursor/Claude/Codex/Copilot/Gemini/OpenCode 是否已安装 */
-    detectCodingDevTools: () => Promise<Array<{
+    /** 获取本机 ACP 工具元数据（无版本/状态探测，快速返回） */
+    listCodingDevToolsMetadata: () => Promise<Array<{
+      id: string
+      label: string
+      description: string
+      commands: string[]
+      homepageUrl: string
+      installUrl: string
+      installCommand: string
+      installHint: string
+      npmPackageName?: string
+      pypiPackageName?: string
+    }>>
+    /** 探测单个本机 ACP 工具是否已安装（并补充版本信息） */
+    detectCodingDevTool: (toolId: string) => Promise<{
       id: string
       label: string
       description: string
@@ -292,13 +307,12 @@ export interface ElectronAPI {
       resolvedPath?: string
       resolvedCommand?: string
       homepageUrl: string
-      githubUrl?: string
       installUrl: string
       installCommand: string
       installHint: string
       currentVersion?: string
       latestVersion?: string
-    }>>
+    }>
     /** 一键安装本机 ACP CLI（执行官方白名单安装命令） */
     installCodingDevTool: (toolId: string) => Promise<{
       ok: boolean
@@ -319,6 +333,38 @@ export interface ElectronAPI {
       }
       message: string
     }>
+    /** 卸载本机 ACP CLI（执行官方白名单卸载命令） */
+    uninstallCodingDevTool: (toolId: string) => Promise<{
+      ok: boolean
+      toolId: string
+      exitCode: number | null
+      stdout: string
+      stderr: string
+      status: {
+        id: string
+        label: string
+        installed: boolean
+        resolvedPath?: string
+        installCommand: string
+        installHint: string
+        installUrl: string
+        currentVersion?: string
+        latestVersion?: string
+      }
+      message: string
+      command?: string
+      documented?: boolean
+    }>
+    /** 卸载前预览：将要执行的命令与风险提示（不执行任何命令） */
+    previewUninstallCodingDevTool: (toolId: string) => Promise<{
+      toolId: string
+      label: string
+      installed: boolean
+      displayCommand: string
+      automatic: boolean
+      documented: boolean
+      hint: string
+    }>
     /** 设置 ACP 专用工作目录；传 undefined 或空则与主工作区一致 */
     setCodingDevAcpWorkspace: (dirPath: string | undefined) => Promise<void>
     /** 列出 ACP 项目及当前活动项目 */
@@ -331,6 +377,8 @@ export interface ElectronAPI {
     removeCodingDevProject: (name: string) => Promise<{ projects: CodingDevProject[]; activeProject?: string }>
     /** 设置活动项目（其 realPath 作为 ACP cwd） */
     setCodingDevActiveProject: (name: string) => Promise<{ projects: CodingDevProject[]; activeProject?: string }>
+    /** 只读获取项目的 Git 状态（分支/ahead-behind/远程/文件状态） */
+    getProjectGitStatus: (projectName: string) => Promise<ProjectGitStatus>
     /** 获取拖拽 File 对象的本地文件系统路径（Electron webUtils.getPathForFile） */
     getPathForFile: (file: File) => string
   }
@@ -1124,8 +1172,12 @@ const electronAPI: ElectronAPI = {
     getOpenAtLogin: () => ipcRenderer.invoke('app:getOpenAtLogin'),
     setOpenAtLogin: (enable: boolean) => ipcRenderer.invoke('app:setOpenAtLogin', enable),
     getCodingDevEnvInfo: () => ipcRenderer.invoke('app:getCodingDevEnvInfo'),
-    detectCodingDevTools: () => ipcRenderer.invoke('app:detectCodingDevTools'),
+    listCodingDevToolsMetadata: () => ipcRenderer.invoke('app:listCodingDevToolsMetadata'),
+    detectCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:detectCodingDevTool', toolId),
     installCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:installCodingDevTool', toolId),
+    uninstallCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:uninstallCodingDevTool', toolId),
+    previewUninstallCodingDevTool: (toolId: string) =>
+      ipcRenderer.invoke('app:previewUninstallCodingDevTool', toolId),
     setCodingDevAcpWorkspace: (dirPath: string | undefined) =>
       ipcRenderer.invoke('app:setCodingDevAcpWorkspace', dirPath),
     listCodingDevProjects: () => ipcRenderer.invoke('app:listCodingDevProjects'),
@@ -1137,6 +1189,8 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke('app:removeCodingDevProject', name),
     setCodingDevActiveProject: (name: string) =>
       ipcRenderer.invoke('app:setCodingDevActiveProject', name),
+    getProjectGitStatus: (projectName: string) =>
+      ipcRenderer.invoke('app:getProjectGitStatus', projectName),
   },
 
   // 对话框 API

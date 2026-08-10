@@ -57,6 +57,15 @@ describe('detectToolVersion', () => {
     const result = await detectToolVersion('/usr/bin/tool')
     expect(result).toBeUndefined()
   })
+
+  it('--version 不支持时回退到 -v', async () => {
+    execFileMock.mockImplementation((_cmd, args, _opts, cb) => {
+      if (args[0] === '--version') cb(new Error('unknown flag'), '', '')
+      else cb(null, 'tool v3.4.5', '')
+    })
+    const result = await detectToolVersion('/usr/bin/tool')
+    expect(result).toBe('3.4.5')
+  })
 })
 
 describe('fetchNpmLatestVersion', () => {

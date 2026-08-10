@@ -298,10 +298,11 @@ export const BACKEND_INFO: Record<string, { label: string; desc: string; acpBack
   gemini:   { label: 'Gemini CLI',       acpBackendId: 'gemini',   desc: 'Google Gemini CLI，多模态编程助手' },
   qoder:    { label: 'Qoder',            acpBackendId: 'qoder',    desc: 'Qoder 编程助手' },
   qwen:     { label: 'Qwen Code',        acpBackendId: 'qwen',     desc: '通义千问代码模型' },
-  kimi:     { label: 'Kimi K1.5',        acpBackendId: 'kimi',     desc: 'Moonshot Kimi 长上下文编程助手' },
+  kimi:     { label: 'Kimi CLI',         acpBackendId: 'kimi',     desc: 'Moonshot Kimi CLI，长上下文编程助手' },
   copilot:  { label: 'GitHub Copilot',   acpBackendId: 'copilot',  desc: 'GitHub Copilot，代码补全与对话' },
   auggie:   { label: 'Augment Code',     acpBackendId: 'auggie',   desc: 'Augment Code，企业级编程助手' },
-  cursor:   { label: 'Cursor',           acpBackendId: 'cursor',   desc: 'Cursor AI 编辑器后端' },
+  cursor:   { label: 'Cursor Agent CLI', acpBackendId: 'cursor',   desc: 'Cursor Agent CLI（独立安装，非编辑器）' },
+  hermes:   { label: 'Hermes Agent',     acpBackendId: 'hermes',   desc: 'Nous Research Hermes Agent' },
   lumii:    { label: '灵栖主 Agent',      acpBackendId: 'openclaw', desc: '默认灵栖 Agent（OpenClaw），支持全功能对话' },
   openclaw: { label: '灵栖主 Agent',      acpBackendId: 'openclaw', desc: '默认灵栖 Agent（OpenClaw），支持全功能对话' },
 }
@@ -321,7 +322,11 @@ export function getSelectedAcpBackendId(): string {
 function handleBackend(backend: string, ctx: CommandContext): void {
   const info = BACKEND_INFO[backend]
   if (!info) {
-    ctx.addSystemMessage(`❌ 未知后端: \`${backend}\`\n\n可用: /claude /codex /opencode /gemini /qoder /qwen /kimi /copilot /auggie /cursor /lumii`)
+    const available = Object.keys(BACKEND_INFO)
+      .filter((k) => k !== 'claude-code' && k !== 'openclaw')
+      .map((k) => `/${k}`)
+      .join(' ')
+    ctx.addSystemMessage(`❌ 未知后端: \`${backend}\`\n\n可用: ${available}`)
     return
   }
 
@@ -455,6 +460,9 @@ export async function executeSlashCommand(
         break
       case '/cursor':
         handleBackend('cursor', ctx)
+        break
+      case '/hermes':
+        handleBackend('hermes', ctx)
         break
       case '/lumii':
         handleBackend('lumii', ctx)

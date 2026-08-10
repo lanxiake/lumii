@@ -13,6 +13,7 @@ import clsx from 'clsx'
 import { useWorkspace } from '../../../../hooks/business/useWorkspace'
 import { useFiles } from '../../../../hooks/business/useFiles'
 import { useCodingDevProjects } from '../../../../hooks/business/useCodingDevProjects'
+import { useWorkspaceVcs } from '../../../../hooks/business/useWorkspaceVcs'
 import type { FileItem } from '../../../../hooks/business/useFiles/useFiles.types'
 import { FilePreviewModal } from '../../../../components/FilePreviewModal'
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
@@ -302,6 +303,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
     workspaceDir ? { initialPath: workspaceDir, rootPath: workspaceDir, watchIntervalMs: 0 } : undefined
   )
   const projectsApi = useCodingDevProjects()
+  const { uncommittedDiff } = useWorkspaceVcs()
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   /** 外部定位请求的目标路径（驱动 FileTree 展开并滚动到该节点） */
@@ -342,6 +344,12 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
       void projectsApi.reload()
     }
   }, [open, workspaceDir]) // eslint-disable-line react-hooks/exhaustive-deps -- 仅在打开/工作区变更时刷新
+
+  // 工作区 VCS 未提交变更变化时自动刷新文件树 git 状态
+  useEffect(() => {
+    if (!open || !workspaceDir) return
+    setRefreshToken((t) => t + 1)
+  }, [open, workspaceDir, uncommittedDiff])
 
   const handleSelect = useCallback((item: FileItem) => {
     setSelectedPath(item.path)

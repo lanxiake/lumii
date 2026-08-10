@@ -1,5 +1,5 @@
 /**
- * 本机 ACP / CLI 运行器：在活动工作目录 spawn Cursor / Claude / Codex / Copilot
+ * 本机 ACP / CLI 运行器：在活动工作目录 spawn 各开发类 AI CLI
  *
  * 不经 Gateway，仅连接本机已安装的 CLI（print / exec 非交互模式）。
  */
@@ -10,6 +10,7 @@ import {
   detectLocalAcpTool,
   isPrimaryLocalAcpToolId,
   needsWindowsShell,
+  PRIMARY_LOCAL_ACP_TOOLS,
   type PrimaryLocalAcpToolId,
 } from './coding-dev-cli-detect.js'
 import type {
@@ -64,8 +65,35 @@ function buildLocalCliArgs(
         args: ['-p', prompt],
       }
     }
-    default:
-      return { command: resolvedCommand, args: [prompt] }
+    // gemini-cli 及其分支（qwen）：-p 非交互 + 纯文本输出
+    case 'gemini':
+    case 'qwen':
+      return {
+        command: resolvedCommand,
+        args: ['-p', prompt, '--output-format', 'text'],
+      }
+    case 'opencode':
+      return {
+        command: resolvedCommand,
+        args: ['run', prompt],
+      }
+    case 'auggie':
+      return {
+        command: resolvedCommand,
+        args: ['--print', prompt, '--quiet'],
+      }
+    case 'kimi':
+    case 'qoder':
+      return {
+        command: resolvedCommand,
+        args: ['-p', prompt],
+      }
+    case 'hermes':
+      // 注意：hermes 的 -p 是 --profile，一次性执行用 -z
+      return {
+        command: resolvedCommand,
+        args: ['-z', prompt],
+      }
   }
 }
 
@@ -78,7 +106,7 @@ export async function runLocalAcpCli(
   const id = params.backendId.trim().toLowerCase()
   if (!isPrimaryLocalAcpToolId(id)) {
     throw new Error(
-      `当前仅支持本机 Cursor / Claude Code / Codex / GitHub Copilot。请改用 /cursor、/claude、/codex、/copilot，或 /lumii 切回主代理。`,
+      `未知的本机工具「${id}」。可用命令：${PRIMARY_LOCAL_ACP_TOOLS.map((t) => `/${t}`).join('、')}，或 /lumii 切回主代理。`,
     )
   }
 
@@ -104,11 +132,14 @@ export async function runLocalAcpCli(
   return new Promise((resolve, reject) => {
     // Windows 上 .cmd/.bat 必须经 shell，否则 spawn 报 ENOENT
     const useShell = needsWindowsShell(command)
+    // ponytail: stdin:'ignore' 防挂住 — codex/cursor 之类即使传了位置参数 prompt
+    // 也会检测 stdin 可读性，有就阻塞等更多输入。关掉 stdin 让 CLI 知道这是单发。
     const child = spawn(command, args, {
       cwd: params.cwd,
       windowsHide: true,
       env: { ...process.env },
       shell: useShell,
+      stdio: ['ignore', 'pipe', 'pipe'],
     })
 
     let stdout = ''

@@ -141,6 +141,8 @@ export class WorkspaceVcs {
       }
       for (const entry of entries) {
         if (entry.name === '.mtbot-vcs' || entry.name === '.git') continue
+        // 根层跳过挂载项目目录，不依赖 junction Dirent 类型的隐式行为
+        if (relDir === '' && entry.name === 'projects') continue
         if (VCS_SKIP_DIRS.has(entry.name)) continue
         const abs = path.join(absDir, entry.name)
         const rel = relDir ? `${relDir}/${entry.name}` : entry.name

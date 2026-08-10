@@ -514,6 +514,8 @@ export class SystemService {
         return
       }
 
+      const isRoot = currentPath === safePath
+
       try {
         const entries = await fs.readdir(currentPath, { withFileTypes: true })
 
@@ -526,6 +528,9 @@ export class SystemService {
           const isSymlink = entry.isSymbolicLink()
 
           if (isDirectory && skipDirs.has(name)) continue
+          // 工作区根层跳过挂载项目目录（其自身可能是编译产物遍地的代码仓库，严重拖慢搜索）；
+          // 仅根层跳过，避免误伤用户项目内部同名子目录
+          if (isRoot && isDirectory && name === 'projects') continue
 
           // 仅 junction/symlink 需 stat 跟随；普通文件匹配时再懒加载元数据
           let stats: Awaited<ReturnType<typeof fs.stat>> | null = null

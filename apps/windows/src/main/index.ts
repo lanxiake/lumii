@@ -107,6 +107,7 @@ import { VoiceCallService } from './voice/voice-service.js'
 import { registerVoiceIpc } from './voice/voice-ipc.js'
 import { loadVoiceEngineConfig } from './voice/voice-config-store.js'
 import { getWorkspaceVcs, resetWorkspaceVcs } from './workspace-vcs/vcs-snapshot'
+import { getProjectGitStatus } from './project-git/project-git-status'
 import { findBuiltInAgent, mapApiRecordToAgentDefinition } from '@mtbot/agent-runtime'
 import {
   applyCodingDevAcpEnvToProcess,
@@ -114,8 +115,16 @@ import {
   defaultWorkspaceFallback,
   resolveCodingDevAcpWorkspacePath,
 } from './coding-dev-env.js'
-import { detectAllLocalAcpTools } from './coding-dev-cli-detect.js'
-import { installLocalAcpTool } from './coding-dev-cli-install.js'
+import {
+  detectLocalAcpTool,
+  isPrimaryLocalAcpToolId,
+  listLocalAcpToolsMetadata,
+} from './coding-dev-cli-detect.js'
+import {
+  installLocalAcpTool,
+  previewUninstallLocalAcpTool,
+  uninstallLocalAcpTool,
+} from './coding-dev-cli-install.js'
 import {
   createProject,
   openExistingProject,
@@ -1719,12 +1728,31 @@ function setupIpcHandlers(): void {
     })
   })
 
-  ipcMain.handle('app:detectCodingDevTools', async () => {
-    return detectAllLocalAcpTools()
+  /** 获取本机 ACP 工具元数据（名称、链接、安装命令）— 同步读取，无版本探测 */
+  ipcMain.handle('app:listCodingDevToolsMetadata', () => {
+    return listLocalAcpToolsMetadata()
+  })
+
+  /** 探测单个本机 ACP 工具是否已安装，并返回版本信息 */
+  ipcMain.handle('app:detectCodingDevTool', async (_event, toolId: string) => {
+    if (!isPrimaryLocalAcpToolId(toolId)) {
+      throw new Error(`未知工具 ID: ${toolId}`)
+    }
+    return detectLocalAcpTool(toolId)
   })
 
   ipcMain.handle('app:installCodingDevTool', async (_event, toolId: string) => {
     return installLocalAcpTool(toolId)
+  })
+
+  /** 卸载本机 ACP CLI（执行官方白名单卸载命令或手动移除文档化路径） */
+  ipcMain.handle('app:uninstallCodingDevTool', async (_event, toolId: string) => {
+    return uninstallLocalAcpTool(toolId)
+  })
+
+  /** 卸载前预览：将要执行的命令与风险提示（不执行） */
+  ipcMain.handle('app:previewUninstallCodingDevTool', async (_event, toolId: string) => {
+    return previewUninstallLocalAcpTool(toolId)
   })
 
   ipcMain.handle('app:setCodingDevAcpWorkspace', async (_event, dirPath: string | undefined) => {
@@ -1827,6 +1855,14 @@ function setupIpcHandlers(): void {
     await configManager.updateAppConfig({ codingDevActiveProject: trimmed || undefined })
     reapplyCodingDevAcpEnvFromConfig()
     return { projects, activeProject: trimmed || undefined }
+  })
+
+  ipcMain.handle('app:getProjectGitStatus', async (_event, projectName: string) => {
+    if (!configManager) throw new Error('ConfigManager 未初始化')
+    const projects = configManager.getAppConfig().codingDevProjects ?? []
+    const project = projects.find((p) => p.name === projectName)
+    if (!project) return { available: false, isRepo: false, files: [] }
+    return getProjectGitStatus(project.realPath)
   })
 
   // === 应用操作 ===

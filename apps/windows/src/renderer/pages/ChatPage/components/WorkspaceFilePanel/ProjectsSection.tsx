@@ -5,7 +5,121 @@ import React, { useCallback, useState } from 'react'
 import clsx from 'clsx'
 import type { UseCodingDevProjectsResult } from '../../../../hooks/business/useCodingDevProjects'
 import { useCodingDevProjectModals } from '../../../../hooks/business/useCodingDevProjects'
+import { useProjectGitStatus } from '../../../../hooks/business/useProjectGitStatus'
 import styles from './ProjectsSection.module.css'
+
+/** 项目行末的 Git 统计数字：新增/修改/删除文件数 */
+function ProjectGitStats({ projectName }: { projectName: string }) {
+  const { status } = useProjectGitStatus(projectName)
+  if (!status || !status.available || !status.isRepo || status.files.length === 0) {
+    return null
+  }
+
+  let added = 0
+  let modified = 0
+  let deleted = 0
+
+  for (const f of status.files) {
+    if (f.index === 'A' || (f.index === '?' && f.worktree === '?')) added++
+    else if (f.index === 'M' || f.worktree === 'M') modified++
+    else if (f.index === 'D' || f.worktree === 'D') deleted++
+  }
+
+  const total = added + modified + deleted
+  if (total === 0) return null
+
+  return (
+    <span className={styles.gitStats}>
+      {added > 0 && <span className={styles.statAdded}>+{added}</span>}
+      {modified > 0 && <span className={styles.statModified}>~{modified}</span>}
+      {deleted > 0 && <span className={styles.statDeleted}>−{deleted}</span>}
+    </span>
+  )
+}
+
+/** 构建项目的 Git 详细信息悬停文本：分支/ahead/behind/remote/路径 */
+function buildGitTooltip(
+  projectName: string,
+  realPath: string,
+  status: ReturnType<typeof useProjectGitStatus>['status']
+): string {
+  const parts: string[] = [projectName]
+  parts.push(`路径: ${realPath}`)
+
+  if (!status || !status.available) return parts.join('\n')
+  if (!status.isRepo) {
+    parts.push('非 Git 仓库')
+    return parts.join('\n')
+  }
+
+  if (status.branch) parts.push(`分支: ${status.branch}`)
+  if (status.ahead) parts.push(`领先 ${status.ahead} 个提交`)
+  if (status.behind) parts.push(`落后 ${status.behind} 个提交`)
+  if (status.remoteUrl) {
+    try {
+      const host = new URL(status.remoteUrl).hostname
+      parts.push(`远程: ${host}`)
+    } catch {
+      parts.push(`远程: ${status.remoteUrl.split('/')[0]}`)
+    }
+  }
+  return parts.join('\n')
+}
+
+/** 单个项目列表项 */
+function ProjectItem({
+  project,
+  isActive,
+  onSelect,
+  onRemove,
+}: {
+  project: { name: string; realPath: string; isExternal?: boolean }
+  isActive: boolean
+  onSelect: () => void
+  onRemove: () => void
+}) {
+  const { status } = useProjectGitStatus(project.name)
+  const tooltip = buildGitTooltip(project.name, project.realPath, status)
+
+  return (
+    <li className={isActive ? styles.itemActive : styles.item}>
+      <button
+        type="button"
+        className={styles.itemMain}
+        onClick={onSelect}
+        title={tooltip}
+      >
+        <span className={styles.folderIcon} aria-hidden>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+        </span>
+        <span className={styles.name}>{project.name}</span>
+        {project.isExternal && <span className={styles.badge}>链接</span>}
+        <ProjectGitStats projectName={project.name} />
+        {isActive && <span className={styles.activeDot}>活动</span>}
+      </button>
+      {!isActive && (
+        <button
+          type="button"
+          className={styles.setActive}
+          title="设为活动项目"
+          onClick={onSelect}
+        >
+          设为活动
+        </button>
+      )}
+      <button
+        type="button"
+        className={styles.remove}
+        title="移除"
+        onClick={onRemove}
+      >
+        ×
+      </button>
+    </li>
+  )
+}
 
 const COLLAPSE_KEY = 'lumii.workspace.projectsCollapsed'
 
@@ -108,41 +222,13 @@ export const ProjectsSection: React.FC<Props> = ({ api, onLocateProject, onTreeR
           {projects.map((p) => {
             const isActive = p.name === activeProject
             return (
-              <li key={p.name} className={isActive ? styles.itemActive : styles.item}>
-                <button
-                  type="button"
-                  className={styles.itemMain}
-                  onClick={() => void handleSelect(p.name)}
-                  title={isActive ? `当前活动 · ${p.realPath}` : `设为活动并定位 · ${p.realPath}`}
-                >
-                  <span className={styles.folderIcon} aria-hidden>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                    </svg>
-                  </span>
-                  <span className={styles.name}>{p.name}</span>
-                  {p.isExternal && <span className={styles.badge}>链接</span>}
-                  {isActive && <span className={styles.activeDot}>活动</span>}
-                </button>
-                {!isActive && (
-                  <button
-                    type="button"
-                    className={styles.setActive}
-                    title="设为活动项目"
-                    onClick={() => void handleSelect(p.name)}
-                  >
-                    设为活动
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className={styles.remove}
-                  title="移除"
-                  onClick={() => beginRemove(p.name)}
-                >
-                  ×
-                </button>
-              </li>
+              <ProjectItem
+                key={p.name}
+                project={p}
+                isActive={isActive}
+                onSelect={() => void handleSelect(p.name)}
+                onRemove={() => beginRemove(p.name)}
+              />
             )
           })}
         </ul>

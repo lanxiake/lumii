@@ -89,6 +89,13 @@
   line-height: 1;
 }
 
+/* Git 状态着色：冲突红、新增绿、修改橙、未跟踪绿、忽略灰 */
+.name--git-conflict   { color: var(--color-error); }
+.name--git-added      { color: var(--color-success); }
+.name--git-modified   { color: var(--color-warning); }
+.name--git-untracked  { color: var(--color-success); }
+.name--git-ignored    { color: var(--color-text-tertiary); opacity: 0.5; }
+
 /* 悬停操作按钮（默认隐藏） */
 .actions {
   display: flex;

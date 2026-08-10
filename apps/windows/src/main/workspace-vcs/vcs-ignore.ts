@@ -29,6 +29,7 @@ export const DEFAULT_VCS_IGNORE_RULES: readonly string[] = [
   'uploads/**/*.jpeg',
   'uploads/**/*.gif',
   'uploads/**/*.pdf',
+  'projects/',   // 挂载的用户项目，由项目自身 .git 管理，不纳入工作空间快照
 ]
 
 /** 生成 .gitignore 文件内容 */
