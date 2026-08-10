@@ -242,7 +242,7 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
         draggable
         onDragStart={handleDragStart}
         onClick={handleClick}
-        onContextMenu={(e) => { e.preventDefault(); onContextMenu(e, item) }}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, item) }}
         title={item.name}
       >
         {/* 展开箭头 */}
@@ -496,8 +496,22 @@ export const FileTree: React.FC<FileTreeProps> = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealPath, revealToken])
 
+  // 点击树容器空白区域（未命中任何节点）触发根目录右键菜单，允许在根目录下新建文件/文件夹
+  const handleTreeContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const rootItem: FileItem = {
+      name: '',
+      path: rootPath,
+      isDirectory: true,
+      size: 0,
+      modifiedAt: new Date(),
+      createdAt: new Date(),
+    }
+    onContextMenu(e, rootItem)
+  }, [rootPath, onContextMenu])
+
   return (
-    <div className={styles.tree}>
+    <div className={styles.tree} onContextMenu={handleTreeContextMenu}>
       {isRootLoading && (
         <div className={styles.loadingRow} style={{ paddingLeft: 8 }}>
           <span className={styles.loadingSpinner} />

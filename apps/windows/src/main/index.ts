@@ -1162,11 +1162,22 @@ function setupIpcHandlers(): void {
   )
 
   // === 工作空间 ===
-  ipcMain.handle('workspace:getDir', async () => {
+
+  /**
+   * 解析当前生效的工作空间根目录：优先用户在设置页配置的 workspaceDirectory，
+   * 否则回退到数据根目录下的默认 workspace/。
+   * 所有依赖“工作空间根”的子路径（projects、skills 等）必须经此函数派生，
+   * 不能直接读 directoryManager 的固定路径，否则用户切换数据/工作空间目录后会失联。
+   */
+  function resolveActiveWorkspaceDir(): string {
     const mtbotDataDir = resolveClientStateDir()
     const defaultWorkspace = join(mtbotDataDir, 'workspace')
     const configured = configManager?.getAppConfig().workspaceDirectory
-    return (configured || defaultWorkspace).replace(/\\/g, '/')
+    return configured || defaultWorkspace
+  }
+
+  ipcMain.handle('workspace:getDir', async () => {
+    return resolveActiveWorkspaceDir().replace(/\\/g, '/')
   })
 
   ipcMain.handle('workspace:setDir', async (_event, dirPath: string) => {
@@ -1783,7 +1794,7 @@ function setupIpcHandlers(): void {
   ipcMain.handle('app:listCodingDevProjects', async () => {
     if (!configManager || !directoryManager) throw new Error('未初始化')
     const cfg = configManager.getAppConfig()
-    const projectsDir = directoryManager.getDirectory('projects')
+    const projectsDir = join(resolveActiveWorkspaceDir(), 'projects')
     const reconciled = await reconcileProjectsWithDisk({
       projectsDir,
       existing: cfg.codingDevProjects ?? [],
@@ -1804,7 +1815,7 @@ function setupIpcHandlers(): void {
 
   ipcMain.handle('app:createCodingDevProject', async (_event, name: string) => {
     if (!configManager || !directoryManager) throw new Error('未初始化')
-    const projectsDir = directoryManager.getDirectory('projects')
+    const projectsDir = join(resolveActiveWorkspaceDir(), 'projects')
     const existing = configManager.getAppConfig().codingDevProjects ?? []
     const projects = await createProject({ projectsDir, name: String(name ?? ''), existing })
     const activeProject = projects[projects.length - 1]?.name
@@ -1815,7 +1826,7 @@ function setupIpcHandlers(): void {
 
   ipcMain.handle('app:openCodingDevProject', async (_event, name: string, targetPath: string) => {
     if (!configManager || !directoryManager) throw new Error('未初始化')
-    const projectsDir = directoryManager.getDirectory('projects')
+    const projectsDir = join(resolveActiveWorkspaceDir(), 'projects')
     const existing = configManager.getAppConfig().codingDevProjects ?? []
     const projects = await openExistingProject({
       projectsDir,
@@ -1831,7 +1842,7 @@ function setupIpcHandlers(): void {
 
   ipcMain.handle('app:removeCodingDevProject', async (_event, name: string) => {
     if (!configManager || !directoryManager) throw new Error('未初始化')
-    const projectsDir = directoryManager.getDirectory('projects')
+    const projectsDir = join(resolveActiveWorkspaceDir(), 'projects')
     const cfg = configManager.getAppConfig()
     const existing = cfg.codingDevProjects ?? []
     const projects = await removeProject({ projectsDir, name: String(name ?? ''), existing })

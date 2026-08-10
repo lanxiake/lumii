@@ -8,6 +8,7 @@ import {
   createProject,
   openExistingProject,
   removeProject,
+  reconcileProjectsWithDisk,
 } from './coding-dev-projects'
 
 let base: string
@@ -93,11 +94,22 @@ describe('removeProject（安全：不删真实目录）', () => {
     const content = await fs.readFile(join(real, 'keep.txt'), 'utf-8')
     expect(content).toBe('data')
   })
-  it('移除内部项目仅从列表移除，磁盘目录保留', async () => {
+  it('移除内部项目仅从列表移除，磁盘数据重命名为 .removed- 前缀保留', async () => {
     const list = await createProject({ projectsDir, name: 'demo', existing: [] })
     const after = await removeProject({ projectsDir, name: 'demo', existing: list })
     expect(after).toHaveLength(0)
-    const stat = await fs.stat(join(projectsDir, 'demo'))
-    expect(stat.isDirectory()).toBe(true)
+    // 原目录名已不存在（被重命名）
+    await expect(fs.stat(join(projectsDir, 'demo'))).rejects.toThrow()
+    // 但数据以 .removed- 前缀保留在 projectsDir 下
+    const entries = await fs.readdir(projectsDir)
+    const removedEntry = entries.find((e) => e.startsWith('.removed-demo-'))
+    expect(removedEntry).toBeDefined()
+  })
+  it('移除内部项目后 reconcile 不会把它重新扫描回列表', async () => {
+    const list = await createProject({ projectsDir, name: 'demo', existing: [] })
+    const after = await removeProject({ projectsDir, name: 'demo', existing: list })
+    const { projects, changed } = await reconcileProjectsWithDisk({ projectsDir, existing: after })
+    expect(projects).toHaveLength(0)
+    expect(changed).toBe(false)
   })
 })

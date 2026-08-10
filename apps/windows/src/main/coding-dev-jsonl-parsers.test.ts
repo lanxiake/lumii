@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest'
 import { AcpToolStreamParser } from './coding-dev-jsonl-parsers.js'
 
 describe('AcpToolStreamParser', () => {
-  it('claude: 识别 tool_use 与 tool_result', () => {
+  it('claude: 识别 tool_use 与 tool_result（真实 stream-json schema）', () => {
     const parser = new AcpToolStreamParser('claude')
     const toolUse = parser.parseLine(
-      '{"type":"message","content":[{"type":"tool_use","id":"toolu_01ABC","name":"bash","input":{"command":"ls"}}]}',
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_01ABC","name":"bash","input":{"command":"ls"}}]}}',
     )
     expect(toolUse).toEqual({
       kind: 'tool',
@@ -19,17 +19,38 @@ describe('AcpToolStreamParser', () => {
     })
 
     const toolResult = parser.parseLine(
-      '{"type":"message","content":[{"type":"tool_result","tool_use_id":"toolu_01ABC","content":"file1.txt\\nfile2.txt"}]}',
+      '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_01ABC","content":"file1.txt\\nfile2.txt"}]}}',
     )
     expect(toolResult?.kind).toBe('tool')
     expect(toolResult?.tool?.phase).toBe('end')
     expect(toolResult?.tool?.result).toContain('file1.txt')
   })
 
-  it('claude: 纯文本 content 转消息', () => {
+  it('claude: assistant 纯文本 content 转消息', () => {
     const parser = new AcpToolStreamParser('claude')
-    const msg = parser.parseLine('{"type":"text","text":"Hello world"}')
+    const msg = parser.parseLine(
+      '{"type":"assistant","message":{"content":[{"type":"text","text":"Hello world"}]}}',
+    )
     expect(msg).toEqual({ kind: 'message', text: 'Hello world' })
+  })
+
+  it('claude: system/hook 事件被忽略，不产生进度事件', () => {
+    const parser = new AcpToolStreamParser('claude')
+    const hookStarted = parser.parseLine(
+      '{"type":"system","subtype":"hook_started","hook_id":"7562c964-7395-4b7b-a5de-001a487bbfb7","hook_name":"SessionStart:startup","hook_event":"SessionStart","uuid":"e44262ab-5d10-490c-800c-7fb0554ac821","session_id":"dd2a3b11-a74f-4fdc-a1a1-6bd966c9c214"}',
+    )
+    expect(hookStarted).toBeNull()
+
+    const hookResponse = parser.parseLine(
+      '{"type":"system","subtype":"hook_response","hook_id":"7562c964-7395-4b7b-a5de-001a487bbfb7","hook_name":"SessionStart:startup","hook_event":"SessionStart","output":"PONYTAIL MODE ACTIVE"}',
+    )
+    expect(hookResponse).toBeNull()
+  })
+
+  it('claude: result 事件转为最终消息', () => {
+    const parser = new AcpToolStreamParser('claude')
+    const result = parser.parseLine('{"type":"result","subtype":"success","result":"任务完成"}')
+    expect(result).toEqual({ kind: 'message', text: '任务完成' })
   })
 
   it('codex: 识别 command_execution 开始与结束', () => {

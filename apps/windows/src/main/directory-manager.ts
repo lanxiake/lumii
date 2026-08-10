@@ -304,6 +304,7 @@ export class DirectoryManager {
       'uploads',
       'outputs',
       'files',
+      'projects',
       '.system/threads',
     ]
     for (const sub of subDirs) {

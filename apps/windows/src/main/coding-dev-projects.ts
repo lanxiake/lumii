@@ -56,6 +56,8 @@ export async function createProject(params: {
   if (params.existing.some((p) => p.name === name)) {
     throw new Error(`项目「${name}」已存在`)
   }
+  // 确保 projectsDir 父目录存在
+  await fs.mkdir(params.projectsDir, { recursive: true })
   const realPath = join(params.projectsDir, name)
   await fs.mkdir(realPath, { recursive: true })
   return [...params.existing, { name, realPath, isExternal: false }]
@@ -145,7 +147,9 @@ export async function reconcileProjectsWithDisk(params: {
 
 /**
  * 移除项目。外部项目仅删除 junction 链接（保留真实目标）；
- * 内部项目仅从列表移除，保留磁盘目录（避免破坏性删除用户数据）。
+ * 内部项目保留磁盘数据，但重命名为 `.removed-<name>-<ts>` 前缀
+ * （避免破坏性删除用户数据，同时让 reconcileProjectsWithDisk 的
+ * `name.startsWith('.')` 跳过逻辑不再把它当"新项目"扫描回列表）。
  * 返回移除后的新项目列表。
  */
 export async function removeProject(params: {
@@ -164,6 +168,12 @@ export async function removeProject(params: {
         await fs.rmdir(linkPath).catch(() => {})
         return
       }
+      if (err.code !== 'ENOENT') throw err
+    })
+  } else {
+    const oldPath = join(params.projectsDir, target.name)
+    const removedPath = join(params.projectsDir, `.removed-${target.name}-${Date.now()}`)
+    await fs.rename(oldPath, removedPath).catch((err: NodeJS.ErrnoException) => {
       if (err.code !== 'ENOENT') throw err
     })
   }

@@ -16,6 +16,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { MCP_PRESETS, isReadyToUse } from '../../shared/mcp-presets'
+import { resolveClientStateDir, resolveSharedConfigDir } from '../paths.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[MCP-Config]', ...args),
@@ -50,7 +51,7 @@ interface McpServersFile {
 
 /** MCP 配置文件路径 */
 export function getMcpConfigPath(): string {
-  return path.join(os.homedir(), '.lumii', 'config', 'mcp-servers.json')
+  return path.join(resolveSharedConfigDir(), 'mcp-servers.json')
 }
 
 /** 预置/旧配置里表示「用户文档目录」的占位符与历史硬编码路径 */

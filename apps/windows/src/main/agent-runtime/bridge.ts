@@ -8,6 +8,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { app } from 'electron'
+import { resolveClientStateDir } from '../paths.js'
 import {
   AgentRegistry,
   ToolRegistry,
@@ -1235,7 +1236,7 @@ export class AgentRuntimeBridge {
   }
 
   private getDefaultDbPath(): string {
-    return path.join(app.getPath('home'), '.lumii', 'data', 'agent-runtime.db')
+    return path.join(resolveClientStateDir(), 'data', 'agent-runtime.db')
   }
 
   private ensureDirectory(dir: string): void {

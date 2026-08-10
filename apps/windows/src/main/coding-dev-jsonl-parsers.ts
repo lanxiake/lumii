@@ -16,15 +16,39 @@ type ParsedLine =
   | { kind: 'message'; text: string }
   | { kind: 'ignore' }
 
+// 调试日志开关（可通过环境变量 DEBUG_ACP_PARSER=1 启用）
+const DEBUG = process.env.DEBUG_ACP_PARSER === '1'
+
+function debugLog(backendId: string, message: string, data?: unknown): void {
+  if (DEBUG) {
+    console.log(`[ACP-Parser:${backendId}]`, message, data !== undefined ? data : '')
+  }
+}
+
 /**
- * Claude Code (stream-json --verbose): JSONL 中 type:"message" 下 content[] 包含 tool_use/tool_result
+ * Claude Code (--output-format stream-json --verbose) 真实 JSONL schema：
+ *
+ *   {"type":"system","subtype":"init"|"hook_started"|"hook_response",...}     — 系统/hook 事件，忽略
+ *   {"type":"assistant","message":{"content":[{"type":"text","text":"..."}|{"type":"tool_use","id":"...","name":"...","input":{...}}]}}
+ *   {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"...","content":"...","is_error":bool}]}}
+ *   {"type":"result","subtype":"success"|"error","result":"...",...}         — 最终结果
+ *
+ * 注：早期实现假设顶层 type:"message"，与实际输出不符，导致工具调用从未被识别过。
  */
 function parseClaudeJsonLine(line: string): ParsedLine {
   try {
     const obj = JSON.parse(line)
-    if (obj.type === 'message' && Array.isArray(obj.content)) {
-      for (const item of obj.content) {
+    debugLog('claude', '解析到 JSON 对象', { type: obj.type, subtype: obj.subtype })
+
+    if (obj.type === 'system') {
+      // hook_started/hook_response/init 等系统事件，不作为消息展示，避免刷屏
+      return { kind: 'ignore' }
+    }
+
+    if ((obj.type === 'assistant' || obj.type === 'user') && Array.isArray(obj.message?.content)) {
+      for (const item of obj.message.content) {
         if (item.type === 'tool_use') {
+          debugLog('claude', '识别到 tool_use', { id: item.id, name: item.name })
           return {
             kind: 'tool',
             tool: {
@@ -36,6 +60,7 @@ function parseClaudeJsonLine(line: string): ParsedLine {
           }
         }
         if (item.type === 'tool_result') {
+          debugLog('claude', '识别到 tool_result', { tool_use_id: item.tool_use_id })
           return {
             kind: 'tool',
             tool: {
@@ -47,15 +72,21 @@ function parseClaudeJsonLine(line: string): ParsedLine {
             },
           }
         }
+        if (item.type === 'text' && item.text) {
+          return { kind: 'message', text: item.text }
+        }
       }
     }
-    if (obj.type === 'text' && obj.text) {
-      return { kind: 'message', text: obj.text }
+
+    if (obj.type === 'result' && typeof obj.result === 'string') {
+      return { kind: 'message', text: obj.result }
     }
-  } catch {
+  } catch (err) {
     /* 非 JSON 或结构不匹配，回落普通文本 */
+    debugLog('claude', 'JSON 解析失败，回落文本', { error: err instanceof Error ? err.message : String(err), line: line.slice(0, 100) })
+    return { kind: 'message', text: line }
   }
-  return { kind: 'message', text: line }
+  return { kind: 'ignore' }
 }
 
 /**
@@ -64,7 +95,10 @@ function parseClaudeJsonLine(line: string): ParsedLine {
 function parseCodexJsonLine(line: string): ParsedLine {
   try {
     const obj = JSON.parse(line)
+    debugLog('codex', '解析到 JSON 对象', { type: obj.type })
+
     if (obj.type === 'item.started' && obj.item?.type === 'command_execution') {
+      debugLog('codex', '识别到 command_execution started', { id: obj.item.id })
       return {
         kind: 'tool',
         tool: {
@@ -76,6 +110,7 @@ function parseCodexJsonLine(line: string): ParsedLine {
       }
     }
     if (obj.type === 'item.completed' && obj.item?.type === 'command_execution') {
+      debugLog('codex', '识别到 command_execution completed', { id: obj.item.id, exit_code: obj.item.exit_code })
       return {
         kind: 'tool',
         tool: {
@@ -87,8 +122,9 @@ function parseCodexJsonLine(line: string): ParsedLine {
         },
       }
     }
-  } catch {
+  } catch (err) {
     /* 非 JSON */
+    debugLog('codex', 'JSON 解析失败，回落文本', { error: err instanceof Error ? err.message : String(err), line: line.slice(0, 100) })
   }
   return { kind: 'message', text: line }
 }
@@ -99,8 +135,11 @@ function parseCodexJsonLine(line: string): ParsedLine {
 function parseCursorJsonLine(line: string): ParsedLine {
   try {
     const obj = JSON.parse(line)
+    debugLog('cursor', '解析到 JSON 对象', { type: obj.type })
+
     // ponytail: 本机未装 cursor，schema 待实测后补全；暂时回落文本
     if (obj.type === 'tool_use') {
+      debugLog('cursor', '识别到 tool_use', { id: obj.id, name: obj.name })
       return {
         kind: 'tool',
         tool: {
@@ -112,6 +151,7 @@ function parseCursorJsonLine(line: string): ParsedLine {
       }
     }
     if (obj.type === 'tool_result') {
+      debugLog('cursor', '识别到 tool_result', { tool_use_id: obj.tool_use_id })
       return {
         kind: 'tool',
         tool: {
@@ -124,8 +164,53 @@ function parseCursorJsonLine(line: string): ParsedLine {
       }
     }
     if (obj.text) return { kind: 'message', text: obj.text }
-  } catch {
+  } catch (err) {
     /* 非 JSON */
+    debugLog('cursor', 'JSON 解析失败，回落文本', { error: err instanceof Error ? err.message : String(err), line: line.slice(0, 100) })
+  }
+  return { kind: 'message', text: line }
+}
+
+/**
+ * OpenCode (run): 输出格式待确认，先尝试通用 JSONL 解析
+ */
+function parseOpenCodeJsonLine(line: string): ParsedLine {
+  try {
+    const obj = JSON.parse(line)
+    debugLog('opencode', '解析到 JSON 对象', obj)
+
+    // 尝试通用的工具调用格式
+    if (obj.type === 'tool_call' || obj.type === 'tool_use') {
+      debugLog('opencode', '识别到工具调用', { id: obj.id, name: obj.name })
+      return {
+        kind: 'tool',
+        tool: {
+          toolCallId: obj.id ?? `tool-${Date.now()}`,
+          toolName: obj.name ?? obj.tool_name ?? 'unknown',
+          phase: 'start',
+          args: obj.args ?? obj.input ?? obj.parameters,
+        },
+      }
+    }
+    if (obj.type === 'tool_result' || obj.type === 'tool_output') {
+      debugLog('opencode', '识别到工具结果', { id: obj.id })
+      return {
+        kind: 'tool',
+        tool: {
+          toolCallId: obj.id ?? obj.call_id ?? `tool-${Date.now()}`,
+          toolName: 'unknown',
+          phase: 'end',
+          result: obj.result ?? obj.output ?? obj.content,
+          isError: obj.is_error === true || obj.error === true,
+        },
+      }
+    }
+    // 通用消息格式
+    if (obj.message || obj.text || obj.content) {
+      return { kind: 'message', text: obj.message ?? obj.text ?? obj.content }
+    }
+  } catch (err) {
+    debugLog('opencode', 'JSON 解析失败，回落文本', { error: err instanceof Error ? err.message : String(err), line: line.slice(0, 100) })
   }
   return { kind: 'message', text: line }
 }
@@ -137,11 +222,11 @@ const PARSERS: Record<
   claude: parseClaudeJsonLine,
   codex: parseCodexJsonLine,
   cursor: parseCursorJsonLine,
+  opencode: parseOpenCodeJsonLine,
   // 其余后端暂无解析器，回落纯文本
   qoder: null,
   qwen: null,
   kimi: null,
-  opencode: null,
   copilot: null,
   auggie: null,
   gemini: null,
