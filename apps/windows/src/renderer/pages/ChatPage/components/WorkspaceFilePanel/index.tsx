@@ -316,6 +316,8 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
   const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  /** 检测到 git 状态变化但未手动刷新时，在刷新按钮上提示 */
+  const [hasPendingUpdate, setHasPendingUpdate] = useState(false)
   /** 搜索模式下隐藏树形视图，只显示搜索结果（由 FileSearchBar 内部渲染） */
   const [isSearching, setIsSearching] = useState(false)
 
@@ -345,10 +347,16 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
     }
   }, [open, workspaceDir]) // eslint-disable-line react-hooks/exhaustive-deps -- 仅在打开/工作区变更时刷新
 
-  // 工作区 VCS 未提交变更变化时自动刷新文件树 git 状态
+  // 工作区 VCS 未提交变更变化时，不自动刷新（避免频繁重渲染影响性能），
+  // 仅在刷新按钮上提示用户有新变更，手动点击刷新
+  const lastSeenDiffRef = useRef<string | null>(null)
   useEffect(() => {
     if (!open || !workspaceDir) return
-    setRefreshToken((t) => t + 1)
+    const signature = uncommittedDiff.map((d) => `${d.filepath}:${d.status}`).join('|')
+    if (lastSeenDiffRef.current !== null && lastSeenDiffRef.current !== signature) {
+      setHasPendingUpdate(true)
+    }
+    lastSeenDiffRef.current = signature
   }, [open, workspaceDir, uncommittedDiff])
 
   const handleSelect = useCallback((item: FileItem) => {
@@ -413,6 +421,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true)
+    setHasPendingUpdate(false)
     setRefreshToken((t) => t + 1)
     setTimeout(() => setIsRefreshing(false), 600)
   }, [])
@@ -485,9 +494,10 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
               className={clsx(styles.headerBtn, isRefreshing && styles['headerBtn--spinning'])}
               onClick={handleRefresh}
               disabled={isRefreshing || isInitializing}
-              title="刷新"
+              title={hasPendingUpdate ? '检测到文件变更，点击刷新' : '刷新'}
             >
               <IconRefresh size={14} />
+              {hasPendingUpdate && <span className={styles.pendingDot} aria-hidden />}
             </button>
             <button className={styles.headerBtn} onClick={onClose} title="关闭">
               <IconX size={14} />
@@ -500,9 +510,10 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
               className={clsx(styles.headerBtn, isRefreshing && styles['headerBtn--spinning'])}
               onClick={handleRefresh}
               disabled={isRefreshing || isInitializing}
-              title="刷新"
+              title={hasPendingUpdate ? '检测到文件变更，点击刷新' : '刷新'}
             >
               <IconRefresh size={14} />
+              {hasPendingUpdate && <span className={styles.pendingDot} aria-hidden />}
             </button>
           </div>
         )}

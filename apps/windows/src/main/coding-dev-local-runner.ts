@@ -17,6 +17,7 @@ import type {
   CodingDevLightweightBackendOutput,
   CodingDevLightweightBackendProgress,
 } from './coding-dev-backends-stub/contracts.js'
+import { AcpToolStreamParser } from './coding-dev-jsonl-parsers.js'
 
 export type LocalAcpRunParams = {
   backendId: string
@@ -38,18 +39,17 @@ function buildLocalCliArgs(
     case 'claude':
       return {
         command: resolvedCommand,
-        args: ['-p', prompt, '--output-format', 'text'],
+        args: ['-p', prompt, '--output-format', 'stream-json', '--verbose'],
       }
     case 'codex':
       return {
         command: resolvedCommand,
-        args: ['exec', '--skip-git-repo-check', prompt],
+        args: ['exec', '--skip-git-repo-check', '--json', prompt],
       }
     case 'cursor':
-      // Cursor Agent CLI：非交互 print 模式
       return {
         command: resolvedCommand,
-        args: ['-p', prompt],
+        args: ['-p', prompt, '--output-format', 'stream-json'],
       }
     case 'copilot': {
       const base = path.basename(resolvedCommand).toLowerCase()
@@ -145,6 +145,8 @@ export async function runLocalAcpCli(
     let stdout = ''
     let stderr = ''
     let settled = false
+    const parser = new AcpToolStreamParser(id)
+    let stdoutBuffer = ''
 
     const onAbort = () => {
       try {
@@ -160,7 +162,14 @@ export async function runLocalAcpCli(
     child.stdout?.on('data', (buf: Buffer) => {
       const chunk = buf.toString('utf8')
       stdout += chunk
-      void params.emitProgress?.({ kind: 'message', text: chunk })
+      stdoutBuffer += chunk
+      // 逐行解析（JSONL 是行分隔 JSON）
+      const lines = stdoutBuffer.split('\n')
+      stdoutBuffer = lines.pop() ?? ''
+      for (const line of lines) {
+        const progress = parser.parseLine(line)
+        if (progress) void params.emitProgress?.(progress)
+      }
     })
     child.stderr?.on('data', (buf: Buffer) => {
       const chunk = buf.toString('utf8')
@@ -179,6 +188,11 @@ export async function runLocalAcpCli(
       params.abortSignal?.removeEventListener('abort', onAbort)
       if (settled) return
       settled = true
+      // 处理末尾未闭合行（如果有）
+      if (stdoutBuffer.trim()) {
+        const progress = parser.parseLine(stdoutBuffer)
+        if (progress) void params.emitProgress?.(progress)
+      }
       const text = stdout.trim() || stderr.trim()
       if (code !== 0 && !text) {
         reject(new Error(`${status.label} 退出码 ${code}${stderr ? `：${stderr.slice(0, 300)}` : ''}`))
