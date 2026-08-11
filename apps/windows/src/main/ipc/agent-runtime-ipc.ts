@@ -272,7 +272,8 @@ const BASE_SLASH_COMMANDS = [
   },
 ] as const
 
-const LOCAL_USER_ID = 'local-user'
+/** 客户端侧固定 accountId：user-global 后端选择写在这个 key 下 */
+export const LOCAL_USER_ID = 'local-user'
 
 /**
  * 当前挂载到 IPC 的 Bridge（在 initAgentRuntime 创建实例后立即赋值，早于 initialize 完成）
@@ -448,6 +449,15 @@ function pushEvent(win: BrowserWindow, event: AgentRuntimeEvent): void {
   } catch (e) {
     log.error(`[pushEvent] voiceEventBus 回调异常 type=${(event as any)?.type}: ${(e as Error).message}`)
   }
+}
+
+/**
+ * 供渠道适配器（飞书/企微/微信）推送 Agent 事件到渲染进程。
+ * 渠道消息与客户端自发消息共用同一套事件通道，客户端才能实时看到渠道会话的运行过程。
+ */
+export function pushAgentRuntimeEvent(event: AgentRuntimeEvent): void {
+  const win = ipcMainWindowRef
+  if (win && !win.isDestroyed()) pushEvent(win, event)
 }
 
 /**

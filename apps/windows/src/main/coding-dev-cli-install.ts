@@ -81,7 +81,7 @@ const WIN_INSTALL_RECIPES: Record<PrimaryLocalAcpToolId, InstallRecipe> = {
     displayCommand: "irm 'https://cursor.com/install?win32=true' | iex",
     powershellCommand: "irm 'https://cursor.com/install?win32=true' | iex",
     timeoutMs: 10 * 60_000,
-    hint: '安装 Cursor Agent CLI（agent），不是 Cursor 编辑器。完成后可能需重启灵栖以刷新 PATH。',
+    hint: '安装 Cursor Agent CLI（agent），不是 Cursor 编辑器。装到 ~/.local/bin，完成后可能需重启灵栖以刷新 PATH。',
   },
   claude: {
     displayCommand: 'irm https://claude.ai/install.ps1 | iex',
@@ -203,12 +203,14 @@ function resolveUninstallRecipe(status: LocalAcpToolStatus): UninstallRecipe {
         hint: 'Codex 官方未提供卸载命令，此路径取自官方安装脚本的默认安装目录；~/.codex 配置保留。PATH 中的残留条目需手动清理。',
       }
     case 'cursor':
+      // 官方装到 ~/.local/bin（旧版在 %LOCALAPPDATA%\cursor-agent），两处都清
       return {
-        displayCommand: 'Remove-Item "$env:LOCALAPPDATA\\cursor-agent" -Recurse',
+        displayCommand:
+          'Remove-Item "$env:USERPROFILE\\.local\\bin\\agent.exe"; Remove-Item "$env:LOCALAPPDATA\\cursor-agent" -Recurse',
         powershellCommand:
-          'Remove-Item -LiteralPath "$env:LOCALAPPDATA\\cursor-agent" -Recurse -Force -ErrorAction SilentlyContinue',
+          'Remove-Item -LiteralPath "$env:USERPROFILE\\.local\\bin\\agent.exe" -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath "$env:USERPROFILE\\.local\\bin\\cursor-agent.exe" -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath "$env:LOCALAPPDATA\\cursor-agent" -Recurse -Force -ErrorAction SilentlyContinue',
         documented: false,
-        hint: 'Cursor 官方未提供卸载命令，此路径为官方安装脚本的默认安装目录。PATH 中的残留条目需手动清理。',
+        hint: 'Cursor 官方未提供卸载命令，此路径取自官方安装脚本的安装目录（~/.local/bin）。PATH 中的残留条目需手动清理。',
       }
     case 'copilot':
       return npmUninstall('@github/copilot', '若当初用 winget 安装，请改用 winget uninstall GitHub.Copilot。')
@@ -391,27 +393,43 @@ export async function installLocalAcpTool(toolIdRaw: string): Promise<AcpInstall
 
   const job = (async (): Promise<AcpInstallResult> => {
     const recipe = WIN_INSTALL_RECIPES[toolId]
-    log.info('开始一键安装', { toolId, command: recipe.displayCommand })
+    const before = await detectLocalAcpTool(toolId)
+    // 已装且 CLI 自带升级命令（如 Cursor 的 agent update）：走自更新，
+    // 重跑安装脚本对这类工具是错的（官方明确用 update 子命令）。
+    const selfUpdate = before.installed && before.selfUpdateCommand
+      ? { command: before.selfUpdateCommand, path: before.resolvedPath }
+      : null
+    const command = selfUpdate
+      ? `& '${selfUpdate.path}' update`
+      : recipe.powershellCommand
+    const displayCommand = selfUpdate ? selfUpdate.command : recipe.displayCommand
+    log.info(selfUpdate ? '开始自更新' : '开始一键安装', { toolId, command: displayCommand })
 
-    const { exitCode, stdout, stderr } = await runPowershell(
-      recipe.powershellCommand,
-      recipe.timeoutMs,
-    )
+    const { exitCode, stdout, stderr } = await runPowershell(command, recipe.timeoutMs)
     refreshCommonCliPathsInProcessEnv()
     const status = await detectLocalAcpTool(toolId)
 
     const ok = exitCode === 0 || status.installed
     const tail = [stdout, stderr].filter(Boolean).join('\n').trim().slice(-800)
     let message: string
-    if (status.installed) {
+    if (selfUpdate) {
+      const versionInfo = status.currentVersion
+        ? before.currentVersion && before.currentVersion !== status.currentVersion
+          ? `已从 ${before.currentVersion} 更新到 ${status.currentVersion}。`
+          : `当前版本 ${status.currentVersion}（已是最新或无需更新）。`
+        : ''
+      message = exitCode === 0
+        ? `${status.label} 检查更新完成。${versionInfo}${tail ? `\n\n${tail}` : ''}`
+        : `检查更新失败（退出码 ${exitCode ?? '超时'}）。可手动执行：${displayCommand}${tail ? `\n\n${tail}` : ''}`
+    } else if (status.installed) {
       message = `${status.label} 已可用${status.resolvedPath ? `：${status.resolvedPath}` : ''}。${recipe.hint}`
     } else if (exitCode === 0) {
       message = `安装命令已结束，但尚未检测到 CLI。请重启灵栖后再点「重新检测」。${recipe.hint}${tail ? `\n\n${tail}` : ''}`
     } else {
-      message = `安装失败（退出码 ${exitCode ?? '超时'}）。可复制命令到 PowerShell 手动执行：${recipe.displayCommand}${tail ? `\n\n${tail}` : ''}`
+      message = `安装失败（退出码 ${exitCode ?? '超时'}）。可复制命令到 PowerShell 手动执行：${displayCommand}${tail ? `\n\n${tail}` : ''}`
     }
 
-    log.info('一键安装结束', { toolId, exitCode, installed: status.installed })
+    log.info(selfUpdate ? '自更新结束' : '一键安装结束', { toolId, exitCode, installed: status.installed })
     return { ok, toolId, exitCode, stdout, stderr, status, message }
   })()
 

@@ -28,6 +28,8 @@ export type LocalAcpToolStatusView = {
   installHint: string
   currentVersion?: string
   latestVersion?: string
+  /** CLI 自带升级命令（查不到 registry 版本号的工具，如 Cursor 的 agent update） */
+  selfUpdateCommand?: string
   /** 该卡片的探测状态：元数据已渲染但尚未探测时为 pending */
   detectState: 'pending' | 'detecting' | 'done'
 }
@@ -421,6 +423,20 @@ export const CodingDevAcpPanel: React.FC = () => {
                         onClick={() => void handleInstall(t.id)}
                       >
                         升级到 {t.latestVersion}
+                      </Button>
+                    ) : t.selfUpdateCommand ? (
+                      // 查不到 registry 最新版号，交给 CLI 自己比对（如 agent update）
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={installingId === t.id}
+                        disabled={
+                          (installingId != null && installingId !== t.id) || uninstallingId === t.id
+                        }
+                        onClick={() => void handleInstall(t.id)}
+                        title={`执行 ${t.selfUpdateCommand}`}
+                      >
+                        检查更新
                       </Button>
                     ) : (
                       <span className={styles.badgeOk}>已安装</span>

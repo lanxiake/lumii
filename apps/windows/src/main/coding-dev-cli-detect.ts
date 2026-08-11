@@ -7,6 +7,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import {
   detectToolVersion,
@@ -49,6 +50,12 @@ export interface LocalAcpToolMeta {
   npmPackageName?: string
   /** PyPI 包名，用于查询最新版本；与 npmPackageName 互斥（Python 系工具） */
   pypiPackageName?: string
+  /**
+   * CLI 自带的升级命令（如 Cursor 的 `agent update`）。
+   * 这类工具查不到 registry 最新版号，只能让 CLI 自己去比对更新，
+   * 因此 UI 不显示「升级到 x.y.z」而是显示「检查更新」。
+   */
+  selfUpdateCommand?: string
 }
 
 export interface LocalAcpToolStatus extends LocalAcpToolMeta {
@@ -69,12 +76,15 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     id: 'cursor',
     label: 'Cursor Agent CLI',
     // 注意：IDE 自带的 cursor.cmd 不是 Agent CLI，勿当作已安装
-    description: '独立安装的 agent / cursor-agent（非 Cursor 编辑器本身）',
-    commands: ['cursor-agent', 'agent'],
+    // 官方文档的命令名是 agent，cursor-agent 是旧名，保留兜底
+    description: '独立安装的 agent（非 Cursor 编辑器本身）',
+    commands: ['agent', 'cursor-agent'],
     homepageUrl: 'https://cursor.com/docs/cli/overview',
-    installUrl: 'https://cursor.com/docs/cli/installation',
+    installUrl: 'https://cursor.com/cn/docs/cli/installation',
     installCommand: "irm 'https://cursor.com/install?win32=true' | iex",
-    installHint: '安装的是 Agent CLI，不是 Cursor 编辑器',
+    installHint: '安装的是 Agent CLI，不是 Cursor 编辑器；安装到 ~/.local/bin',
+    // 无 npm/PyPI 包可查最新版；官方提供自更新命令
+    selfUpdateCommand: 'agent update',
   },
   claude: {
     id: 'claude',
@@ -245,17 +255,20 @@ export function pickBestWindowsCliPath(candidates: string[]): string | undefined
 }
 
 /**
- * Windows 上 Cursor Agent 的常见安装目录（Electron 进程可能读不到刚写入的 User PATH）
+ * Cursor Agent 的常见安装目录（Electron 进程可能读不到刚写入的 User PATH）
+ *
+ * 官方安装脚本装到 ~/.local/bin（文档：cursor.com/cn/docs/cli/installation）；
+ * %LOCALAPPDATA%\cursor-agent 是早期版本的位置，保留兜底。
  */
 function windowsCursorAgentWellKnownPaths(command: string): string[] {
+  const roots = [path.join(os.homedir(), '.local', 'bin')]
   const local = process.env.LOCALAPPDATA
-  if (!local) return []
-  const root = path.join(local, 'cursor-agent')
+  if (local) roots.push(path.join(local, 'cursor-agent'))
   const names =
     command === 'agent'
       ? ['agent.exe', 'agent.cmd', 'cursor-agent.exe', 'cursor-agent.cmd']
       : ['cursor-agent.exe', 'cursor-agent.cmd', 'agent.exe', 'agent.cmd']
-  return names.map((n) => path.join(root, n))
+  return roots.flatMap((root) => names.map((n) => path.join(root, n)))
 }
 
 /**

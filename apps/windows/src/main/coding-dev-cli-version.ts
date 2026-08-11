@@ -10,7 +10,11 @@
 import { execFile } from 'node:child_process'
 import https from 'node:https'
 
-const VERSION_REGEX = /(\d+\.\d+\.\d+)/
+/**
+ * 版本号：语义化 x.y.z，或 Cursor 那种日期版本 2026.07.23-e383d2b。
+ * 预发布/构建后缀（-beta.1、-e383d2b）一并保留，否则 Cursor 的 build hash 会被截掉。
+ */
+const VERSION_REGEX = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/
 
 /** 手写 Promise 包装而非 util.promisify —— execFile 的多值回调依赖 Node 内部的
  *  customPromisifyArgs 符号，直接 promisify 在测试 mock 场景下会丢失 stderr。 */

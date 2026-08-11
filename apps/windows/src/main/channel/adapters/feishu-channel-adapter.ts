@@ -22,8 +22,8 @@ import { createHelpCommand } from '../slash-commands/help'
 import { compactCommand } from '../slash-commands/compact'
 import { backendCommand } from '../slash-commands/backend'
 import { createSwitchBackendCommand, lumiiCommand } from '../slash-commands/switch-backend'
-import { runCodingDevAcpPrompt } from '../../coding-dev-backends-stub/run-coding-dev-acp-prompt.js'
-import { resolveAcpTimeoutMs } from '../../coding-dev-backends-stub/acp-config.js'
+import { getAcpRunController } from '../../coding-dev-acp-run.js'
+import { pushAgentRuntimeEvent } from '../../ipc/agent-runtime-ipc.js'
 
 /**
  * 飞书专用 /new。
@@ -50,6 +50,14 @@ const log = {
   info: (...args: unknown[]) => console.log('[FeishuChannelAdapter]', ...args),
   warn: (...args: unknown[]) => console.warn('[FeishuChannelAdapter]', ...args),
   error: (...args: unknown[]) => console.error('[FeishuChannelAdapter]', ...args),
+}
+
+/** 取消息内容块里的纯文本（忽略图片等非文本块） */
+function textOfContent(content: ReadonlyArray<{ type: string; text?: string }>): string {
+  return content
+    .map((c) => (c.type === 'text' ? (c.text ?? '') : ''))
+    .join('')
+    .trim()
 }
 
 /**
@@ -217,8 +225,10 @@ export class FeishuChannelAdapter implements IChannelAdapter {
   }
 
   /**
-   * ACP 子进程路径：通过 emitProgress 推送工具进度，超时可配置。
-   * 工具执行状态以短消息推送，最终结果一次性回复。
+   * ACP 子进程路径：走 AcpRunController，与客户端自发消息共用同一套运行时。
+   *
+   * 这样渠道会话的工具调用/流式回复会同步渲染到客户端对话页，并持久化到 DB；
+   * 飞书侧仍按渠道习惯只推「执行中」短消息 + 最终结果，避免刷屏。
    */
   private async handleAcpPrompt(
     session: ChannelSession,
@@ -227,80 +237,57 @@ export class FeishuChannelAdapter implements IChannelAdapter {
   ): Promise<void> {
     log.info(`[handleAcpPrompt] 走 ACP 路径: backendId=${backendId} sessionKey=${session.sessionKey}`)
 
-    const abortController = new AbortController()
-    const timeoutMs = resolveAcpTimeoutMs()
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined
-    let timedOut = false
-
-    if (timeoutMs !== undefined && timeoutMs > 0) {
-      timeoutHandle = setTimeout(() => {
-        timedOut = true
-        abortController.abort()
-      }, timeoutMs)
-    }
-
-    const startedAt = Date.now()
-    const sentToolNames = new Set<string>()
+    const runId = `feishu-acp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    const sentToolIds = new Set<string>()
     const ACP_STATUS_THROTTLE_MS = 3000
     let lastStatusSentAt = 0
+    let finalText = ''
+    let errorText = ''
 
-    try {
-      const output = await runCodingDevAcpPrompt({
-        backendId,
-        text: prompt,
-        accountId: session.channelUserId,
-        peerId: session.sessionKey,
-        senderId: session.channelUserId,
-        emitProgress: async (progress) => {
-          if (abortController.signal.aborted) {
-            return
-          }
-          if (progress.kind === "tool" && progress.tool) {
-            const { toolName, phase } = progress.tool
-            if (phase === "start" && !sentToolNames.has(progress.tool.toolCallId)) {
-              sentToolNames.add(progress.tool.toolCallId)
-              await this.sendTextReply(session, `🔧 执行中：${toolName || "工具"}`)
-            }
-          }
+    await getAcpRunController().startRun({
+      runId,
+      sessionKey: session.sessionKey,
+      backendId,
+      text: prompt,
+      instanceId: session.instanceId ?? session.sessionKey,
+      bridge: this.bridge,
+      accountId: session.channelUserId,
+      senderId: session.channelUserId,
+      pushEvent: (event) => {
+        // 先转发给渲染进程，客户端对话页由此渲染工具卡片与流式文本
+        pushAgentRuntimeEvent(event)
+
+        // 再按渠道习惯挑重点回飞书
+        if (event.type === 'agent:tool:start' && !sentToolIds.has(event.toolCallId)) {
+          sentToolIds.add(event.toolCallId)
+          void this.sendTextReply(session, `🔧 执行中：${event.toolName || '工具'}`)
+          return
+        }
+        if (event.type === 'agent:thinking:delta') {
           const now = Date.now()
-          if (now - lastStatusSentAt > ACP_STATUS_THROTTLE_MS && progress.kind === "status") {
+          if (now - lastStatusSentAt > ACP_STATUS_THROTTLE_MS) {
             lastStatusSentAt = now
-            await this.sendTextReply(session, "💭 思考中…")
+            void this.sendTextReply(session, '💭 思考中…')
           }
-        },
-        abortSignal: abortController.signal,
-      })
+          return
+        }
+        if (event.type === 'agent:message:end') {
+          finalText = textOfContent(event.content)
+          return
+        }
+        // controller 中止/失败时会推一条带用户可读文案的助手消息，直接复用
+        if (event.type === 'conversation:message:new' && event.message.role === 'assistant') {
+          errorText = textOfContent(event.message.content)
+        }
+      },
+    })
 
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle)
-      }
-      if (timedOut) {
-        return
-      }
-
-      const replyText = output?.text?.trim() ?? ''
-      log.info(`[handleAcpPrompt] ACP 完成，回复长度=${replyText.length}`)
-      if (replyText) {
-        await this.sendTextReply(session, replyText)
-      } else {
-        await this.sendTextReply(session, "✅ ACP 任务完成（无文本输出）。")
-      }
-    } catch (err) {
-      if (timeoutHandle) {
-        clearTimeout(timeoutHandle)
-      }
-      if (abortController.signal.aborted) {
-        const reason = timedOut ? "超时" : "已取消"
-        const waitedMinutes = Math.max(1, Math.round((Date.now() - startedAt) / 60_000))
-        const timeoutHint = timedOut
-          ? `\n若任务较重，可设置 MTBOT_ACP_TIMEOUT_MS=0 取消限制，或拆分任务后重试。`
-          : ""
-        await this.sendTextReply(session, `❌ ACP 执行${reason}（已等待 ${waitedMinutes} 分钟）。${timeoutHint}`)
-      } else {
-        log.error(`[handleAcpPrompt] ACP 执行失败: ${err instanceof Error ? err.message : String(err)}`)
-        await this.sendTextReply(session, `❌ ACP 执行失败：${err instanceof Error ? err.message : String(err)}`)
-      }
+    if (errorText) {
+      await this.sendTextReply(session, errorText)
+      return
     }
+    log.info(`[handleAcpPrompt] ACP 完成，回复长度=${finalText.length}`)
+    await this.sendTextReply(session, finalText || '✅ ACP 任务完成（无文本输出）。')
   }
 
   private buildSession(msg: FeishuNormalizedMessage): ChannelSession {

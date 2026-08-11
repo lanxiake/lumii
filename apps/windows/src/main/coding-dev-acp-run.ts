@@ -11,7 +11,7 @@
  */
 
 import type { AgentRuntimeBridge } from './agent-runtime/bridge'
-import type { AgentRuntimeEvent } from '../../shared/agent-runtime-events'
+import type { AgentRuntimeEvent } from '../shared/agent-runtime-events'
 import { runCodingDevAcpPrompt } from './coding-dev-backends-stub/run-coding-dev-acp-prompt.js'
 import { resolveAcpTimeoutMs } from './coding-dev-backends-stub/acp-config.js'
 import type {
@@ -125,6 +125,20 @@ export class AcpRunController {
 
       const finalText = output?.text ?? this.pendingMessageDelta.get(sessionKey)?.text ?? ''
       const content = [{ type: 'text' as const, text: finalText }]
+
+      // 渲染进程的 message:end 用流式累积的文本、不用 event.content（见 event-handler
+      // 的 finalContent = last.content）。所以从未推过 delta 的 run 必须先补一条，
+      // 否则气泡是空的 —— 比如 cursor 未登录时只往 stderr 写错误、stdout 全空。
+      if (finalText && handle.totalLength === 0) {
+        pushEvent({
+          type: 'agent:message:delta',
+          runId,
+          sessionKey,
+          messageId,
+          delta: finalText,
+          totalLength: finalText.length,
+        })
+      }
 
       if (finalText) {
         this.persistAssistantMessage(bridge, sessionKey, messageId, finalText)
@@ -312,7 +326,8 @@ export class AcpRunController {
       pushEvent({
         type: 'agent:tool:start',
         runId,
-        sessionKey,
+        // 工具事件类型里没有 sessionKey，渲染进程按 rootSessionKey / runId 映射路由
+        rootSessionKey: sessionKey,
         toolCallId,
         toolName,
         args: args ?? {},
@@ -326,7 +341,7 @@ export class AcpRunController {
       pushEvent({
         type: 'agent:tool:progress',
         runId,
-        sessionKey,
+        rootSessionKey: sessionKey,
         toolCallId,
         toolName,
         progressText: typeof result === 'string' ? result : undefined,
@@ -341,7 +356,7 @@ export class AcpRunController {
       pushEvent({
         type: 'agent:tool:end',
         runId,
-        sessionKey,
+        rootSessionKey: sessionKey,
         toolCallId,
         toolName,
         result,

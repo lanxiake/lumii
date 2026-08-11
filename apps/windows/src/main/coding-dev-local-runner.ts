@@ -28,6 +28,17 @@ export type LocalAcpRunParams = {
 }
 
 /**
+ * 把单个参数包成 cmd.exe 能还原的引号形式。
+ *
+ * ponytail: cmd 的命令行放不下字面换行符，多行 prompt 在此仍会被截到第一行。
+ * 影响面仅限 .cmd/.bat shim（如 cursor 的 agent.cmd）；claude/codex 这类
+ * 解析到 .exe 的走非 shell 分支不受影响。要彻底解决得按 CLI 逐个改走 stdin。
+ */
+export function quoteForCmd(arg: string): string {
+  return `"${arg.replace(/"/g, '""')}"`
+}
+
+/**
  * 为各工具构造本机非交互命令行
  */
 function buildLocalCliArgs(
@@ -132,9 +143,15 @@ export async function runLocalAcpCli(
   return new Promise((resolve, reject) => {
     // Windows 上 .cmd/.bat 必须经 shell，否则 spawn 报 ENOENT
     const useShell = needsWindowsShell(command)
+    // shell:true 时 Node 直接把 args 空格拼进命令行，不做引号化：
+    // 带空格的 prompt 会被 cmd 切成多个 argv（CLI 只收到第一个词），
+    // 而 & | > 等元字符会被 cmd 当命令分隔符执行 —— 既是功能 bug 也是注入面。
+    // 自己引号化后整行交给 shell（args 置空），由 cmd 还原成单个参数。
+    const spawnCmd = useShell ? [command, ...args].map(quoteForCmd).join(' ') : command
+    const spawnArgs = useShell ? [] : args
     // ponytail: stdin:'ignore' 防挂住 — codex/cursor 之类即使传了位置参数 prompt
     // 也会检测 stdin 可读性，有就阻塞等更多输入。关掉 stdin 让 CLI 知道这是单发。
-    const child = spawn(command, args, {
+    const child = spawn(spawnCmd, spawnArgs, {
       cwd: params.cwd,
       windowsHide: true,
       env: { ...process.env },

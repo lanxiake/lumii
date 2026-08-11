@@ -66,6 +66,23 @@ describe('detectToolVersion', () => {
     const result = await detectToolVersion('/usr/bin/tool')
     expect(result).toBe('3.4.5')
   })
+
+  it('保留 Cursor 的日期版本与 build hash', async () => {
+    // agent --version 实际输出：2026.07.23-e383d2b，截成 2026.07.23 会丢 build 标识
+    execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
+      cb(null, '2026.07.23-e383d2b\n', '')
+    })
+    const result = await detectToolVersion('/usr/bin/agent')
+    expect(result).toBe('2026.07.23-e383d2b')
+  })
+
+  it('保留语义化预发布后缀', async () => {
+    execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
+      cb(null, 'tool 1.2.3-beta.4', '')
+    })
+    const result = await detectToolVersion('/usr/bin/tool')
+    expect(result).toBe('1.2.3-beta.4')
+  })
 })
 
 describe('fetchNpmLatestVersion', () => {
