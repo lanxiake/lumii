@@ -69,6 +69,24 @@
   background: var(--mt-surface-2, rgba(0, 0, 0, 0.04));
 }
 
+/* 折叠/展开开关：与 .row 同缩进，弱化为次要动作 */
+.toggle {
+  align-self: flex-start;
+  margin: 2px 8px 0;
+  padding: 3px 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--mt-fg-3, #6b7280);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  color: var(--mt-fg-1, #111);
+  background: var(--mt-surface-2, rgba(0, 0, 0, 0.04));
+}
+
 /* 左侧状态短标：A / M / D */
 .statusBadge {
   flex-shrink: 0;

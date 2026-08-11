@@ -59,4 +59,32 @@ describe('TurnFileChangesCard', () => {
     fireEvent.click(screen.getByRole('button', { name: /src\/c\.ts/ }))
     expect(onReview).toHaveBeenCalledWith('src/c.ts', 'deleted')
   })
+
+  it('不超过 6 个文件时全部展示且无展开按钮', () => {
+    const six: FileChangeEntry[] = Array.from({ length: 6 }, (_, i) => ({
+      path: `src/f${i}.ts`,
+      status: 'modified' as const,
+    }))
+    render(<TurnFileChangesCard changes={six} />)
+    expect(screen.getByText('src/f5.ts')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /展开/ })).not.toBeInTheDocument()
+  })
+
+  it('超过 6 个文件时收起多余项，点击展开后全部可见', () => {
+    const nine: FileChangeEntry[] = Array.from({ length: 9 }, (_, i) => ({
+      path: `src/f${i}.ts`,
+      status: 'modified' as const,
+    }))
+    render(<TurnFileChangesCard changes={nine} />)
+    // 标题仍报总数，但第 7 项起不渲染
+    expect(screen.getByText('9 个文件变更')).toBeInTheDocument()
+    expect(screen.getByText('src/f5.ts')).toBeInTheDocument()
+    expect(screen.queryByText('src/f6.ts')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '展开其余 3 个文件' }))
+    expect(screen.getByText('src/f8.ts')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '收起' }))
+    expect(screen.queryByText('src/f6.ts')).not.toBeInTheDocument()
+  })
 })

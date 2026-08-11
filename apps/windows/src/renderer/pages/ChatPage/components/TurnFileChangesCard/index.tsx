@@ -3,7 +3,7 @@
  * 仅展示本轮工作区的新增/修改/删除，无上传语义、无 +/- 行数；点击「查看」定位首个文件。
  */
 
-import React from 'react'
+import React, { useState } from 'react'
 import clsx from 'clsx'
 import type { FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import styles from './TurnFileChangesCard.module.css'
@@ -46,9 +46,16 @@ function classifyExt(path: string): { label: string; kind: string } {
   return { label: ext.slice(0, 4).toUpperCase(), kind: 'default' }
 }
 
+/** 超过此数量的文件默认收起，其余由「展开」按钮释放 */
+const COLLAPSED_COUNT = 6
+
 /** 渲染本轮助手回复关联的工作区文件净变更列表 */
 const TurnFileChangesCard: React.FC<TurnFileChangesCardProps> = ({ changes, onReview }) => {
+  const [expanded, setExpanded] = useState(false)
   if (changes.length === 0) return null
+
+  const hidden = changes.length - COLLAPSED_COUNT
+  const visible = expanded ? changes : changes.slice(0, COLLAPSED_COUNT)
 
   return (
     <div className={styles.card} data-testid="turn-file-changes-card">
@@ -65,7 +72,7 @@ const TurnFileChangesCard: React.FC<TurnFileChangesCardProps> = ({ changes, onRe
         )}
       </div>
       <div className={styles.list}>
-        {changes.map((entry) => {
+        {visible.map((entry) => {
           const ext = classifyExt(entry.path)
           return (
             <button
@@ -88,6 +95,16 @@ const TurnFileChangesCard: React.FC<TurnFileChangesCardProps> = ({ changes, onRe
             </button>
           )
         })}
+        {hidden > 0 && (
+          <button
+            type="button"
+            className={styles.toggle}
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+          >
+            {expanded ? '收起' : `展开其余 ${hidden} 个文件`}
+          </button>
+        )}
       </div>
     </div>
   )

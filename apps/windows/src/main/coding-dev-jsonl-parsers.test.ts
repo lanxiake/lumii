@@ -24,6 +24,26 @@ describe('AcpToolStreamParser', () => {
     expect(toolResult?.kind).toBe('tool')
     expect(toolResult?.tool?.phase).toBe('end')
     expect(toolResult?.tool?.result).toContain('file1.txt')
+    // tool_result 不带工具名，须从前序 tool_use 回填，否则卡片标题渲染成 unknown
+    expect(toolResult?.tool?.toolName).toBe('bash')
+  })
+
+  it('claude: 多个工具并行时 end 事件各自回填正确名字', () => {
+    const parser = new AcpToolStreamParser('claude')
+    parser.parseLine(
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"a.ts"}}]}}',
+    )
+    parser.parseLine(
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Grep","input":{"pattern":"foo"}}]}}',
+    )
+    const end2 = parser.parseLine(
+      '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"hit"}]}}',
+    )
+    const end1 = parser.parseLine(
+      '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"src"}]}}',
+    )
+    expect(end2?.tool?.toolName).toBe('Grep')
+    expect(end1?.tool?.toolName).toBe('Read')
   })
 
   it('claude: assistant 纯文本 content 转消息', () => {
@@ -50,7 +70,28 @@ describe('AcpToolStreamParser', () => {
   it('claude: result 事件转为最终消息', () => {
     const parser = new AcpToolStreamParser('claude')
     const result = parser.parseLine('{"type":"result","subtype":"success","result":"任务完成"}')
-    expect(result).toEqual({ kind: 'message', text: '任务完成' })
+    expect(result).toEqual({ kind: 'final_result', text: '任务完成' })
+  })
+
+  it('claude: 整段真实流不会把 JSONL 原文当消息漏出', () => {
+    const parser = new AcpToolStreamParser('claude')
+    const lines = [
+      '{"type":"system","subtype":"init","session_id":"s1","tools":["Bash"]}',
+      '{"type":"system","subtype":"hook_started","hook_name":"SessionStart:startup"}',
+      '{"type":"system","subtype":"hook_response","hook_name":"SessionStart:startup","output":"PONYTAIL MODE ACTIVE"}',
+      '{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"WebSearch","input":{"query":"成都天气"}}]}}',
+      '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"Web search results"}]}}',
+      '{"type":"result","subtype":"success","result":"今天成都多云。"}',
+    ]
+    const out = lines.map((l) => parser.parseLine(l))
+    // 任何 message 事件的文本都不该是 JSON 原文
+    for (const ev of out) {
+      if (ev?.kind === 'message') expect(ev.text.trimStart().startsWith('{')).toBe(false)
+    }
+    expect(out.filter((e) => e === null)).toHaveLength(3) // 3 条 system 全被忽略
+    expect(out[3]?.tool?.toolName).toBe('WebSearch')
+    expect(out[4]?.tool?.toolName).toBe('WebSearch') // end 回填
+    expect(out[5]).toEqual({ kind: 'final_result', text: '今天成都多云。' })
   })
 
   it('codex: 识别 command_execution 开始与结束', () => {

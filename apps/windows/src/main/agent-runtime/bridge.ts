@@ -604,6 +604,11 @@ export class AgentRuntimeBridge {
       .catch((err) => log.error('[initialize] 同步用户 Agent 失败:', err))
 
     this.mcpManager = new McpManager(this.toolRegistry, this.mcpClients)
+    // 注入工具变更监听器: MCP 重连后刷新运行中实例的工具
+    this.mcpManager.setToolsChangedListener(() => {
+      log.info('[McpManager] 工具列表变更,刷新所有实例工具')
+      this.refreshAllInstanceTools()
+    })
     void this.mcpManager.load()
 
     this.instanceFactory = new BridgeInstanceFactory({
@@ -1014,6 +1019,20 @@ export class AgentRuntimeBridge {
 
   getInstances(): Array<{ id: string; definitionId: string; state: string }> {
     return this.agentRegistry.getAll().map((i) => ({ id: i.id, definitionId: i.definitionId, state: i.state }))
+  }
+
+  /**
+   * MCP 工具变更后使现有实例失效，下次发消息按最新 toolRegistry 快照重建。
+   * 与 Provider 配置变更（invalidateAgentInstancesForProviderChange）同一套路：
+   * 逐个 destroy（而非 destroyAll，后者会关库/停 cron），
+   * getInstanceForSession 检测到实例已消失会自动重建。
+   */
+  private refreshAllInstanceTools(): void {
+    const instances = this.agentRegistry.getAll()
+    for (const inst of instances) {
+      this.destroy(inst.id)
+    }
+    log.info(`[refreshAllInstanceTools] 已销毁 ${instances.length} 个实例，等待下次消息按新工具列表重建`)
   }
 
   /** 确保对话记录存在（idempotent） */

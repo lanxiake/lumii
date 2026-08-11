@@ -220,7 +220,47 @@ export class BridgeInstanceFactory {
           },
           log: (msg) => log.info(msg),
         })
-        return direct(model, context, options)
+        const startedAt = Date.now()
+        const modelLabel = `llm:${cfg.type}:${model?.id ?? cfg.modelId ?? '(unknown)'}`
+        try {
+          const streamOrPromise = direct(model, context, options)
+          // 记录每次模型请求到审计日志（复用现有「安全日志」面板）：
+          // StreamFn 可能同步返回事件流也可能返回 Promise，成败都要等 result() resolve
+          // 才知道（错误通过 stopReason==="error" 承载，而非 reject），故异步记录、不阻塞流本身。
+          void Promise.resolve(streamOrPromise)
+            .then((s) => s.result())
+            .then((finalMessage: { stopReason?: string; errorMessage?: string }) => {
+              const isError = finalMessage?.stopReason === 'error'
+              this.deps.getAuditRepo()?.log({
+                agentId: instanceId,
+                toolName: modelLabel,
+                resultSummary: isError
+                  ? finalMessage.errorMessage ?? '请求失败'
+                  : `baseUrl=${resolveDirectBaseUrl(cfg) ?? '(none)'}`,
+                isError,
+                durationMs: Date.now() - startedAt,
+              })
+            })
+            .catch((err: unknown) => {
+              this.deps.getAuditRepo()?.log({
+                agentId: instanceId,
+                toolName: modelLabel,
+                resultSummary: err instanceof Error ? err.message : String(err),
+                isError: true,
+                durationMs: Date.now() - startedAt,
+              })
+            })
+          return streamOrPromise
+        } catch (err) {
+          this.deps.getAuditRepo()?.log({
+            agentId: instanceId,
+            toolName: modelLabel,
+            resultSummary: err instanceof Error ? err.message : String(err),
+            isError: true,
+            durationMs: Date.now() - startedAt,
+          })
+          throw err
+        }
       }
     }
     // host-kit 仍装配 gateway 配置（兼容类型），但 resolveModel 固定 direct，实际调用走 liveDirect。

@@ -147,6 +147,12 @@ export async function runLocalAcpCli(
     let settled = false
     const parser = new AcpToolStreamParser(id)
     let stdoutBuffer = ''
+    let finalResult: string | null = null
+    /**
+     * 解析出的助手文本。有解析器的后端 stdout 是 JSONL，不能直接回给用户，
+     * 缺 final_result 时用这些文本兜底而非原始流。
+     */
+    const messageTexts: string[] = []
 
     const onAbort = () => {
       try {
@@ -168,7 +174,12 @@ export async function runLocalAcpCli(
       stdoutBuffer = lines.pop() ?? ''
       for (const line of lines) {
         const progress = parser.parseLine(line)
-        if (progress) void params.emitProgress?.(progress)
+        if (progress?.kind === 'final_result') {
+          finalResult = progress.text
+        } else if (progress) {
+          if (progress.kind === 'message' && progress.text) messageTexts.push(progress.text)
+          void params.emitProgress?.(progress)
+        }
       }
     })
     child.stderr?.on('data', (buf: Buffer) => {
@@ -191,9 +202,19 @@ export async function runLocalAcpCli(
       // 处理末尾未闭合行（如果有）
       if (stdoutBuffer.trim()) {
         const progress = parser.parseLine(stdoutBuffer)
-        if (progress) void params.emitProgress?.(progress)
+        if (progress?.kind === 'final_result') {
+          finalResult = progress.text
+        } else if (progress) {
+          if (progress.kind === 'message' && progress.text) messageTexts.push(progress.text)
+          void params.emitProgress?.(progress)
+        }
       }
-      const text = stdout.trim() || stderr.trim()
+      // 有解析器的后端 stdout 是 JSONL，绝不能直接回给用户：
+      // final_result → 解析出的助手文本 → stderr。无解析器的后端才用原始 stdout。
+      const parsedText = finalResult ?? (messageTexts.length > 0 ? messageTexts.join('\n') : '')
+      const text = parser.hasParser
+        ? parsedText || stderr.trim()
+        : parsedText || stdout.trim() || stderr.trim()
       if (code !== 0 && !text) {
         reject(new Error(`${status.label} 退出码 ${code}${stderr ? `：${stderr.slice(0, 300)}` : ''}`))
         return

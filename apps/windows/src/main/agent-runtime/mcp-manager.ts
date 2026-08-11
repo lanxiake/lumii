@@ -151,8 +151,32 @@ export class McpManager {
   async reconnect(name: string): Promise<void> {
     await this.disconnect(name)
     const config = this.configs.get(name)
-    if (!config || config.enabled === false) return
+    if (!config || config.enabled === false) {
+      this.notifyToolsChanged()
+      return
+    }
     await this.connect(config)
+    // 通知 Bridge 刷新运行中实例的工具列表(避免对话窗口看不到新工具)
+    this.notifyToolsChanged()
+  }
+
+  /** 工具列表变更回调(由 Bridge 注入) */
+  private onToolsChanged: (() => void) | null = null
+
+  /** Bridge 注入工具变更监听器 */
+  setToolsChangedListener(listener: (() => void) | null): void {
+    this.onToolsChanged = listener
+  }
+
+  /** 触发工具变更通知 */
+  private notifyToolsChanged(): void {
+    if (this.onToolsChanged) {
+      try {
+        this.onToolsChanged()
+      } catch (err) {
+        log.error('[notifyToolsChanged] 回调执行失败:', err)
+      }
+    }
   }
 
   /**
@@ -201,6 +225,7 @@ export class McpManager {
     this.lastErrors.clear()
     this.configError = null
     await this.load()
+    this.notifyToolsChanged()
   }
 
   /** 新增或更新一条配置并立即生效 */
@@ -243,6 +268,7 @@ export class McpManager {
     await this.disconnect(name)
     this.configs.delete(name)
     this.persist()
+    this.notifyToolsChanged()
   }
 
   /** 启用/禁用一条配置 */
