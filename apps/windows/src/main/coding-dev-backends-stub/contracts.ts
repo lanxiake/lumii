@@ -65,7 +65,7 @@ export type CodingDevToolProgress = {
 };
 
 export type CodingDevLightweightBackendProgress = {
-  kind: "message" | "plan" | "status" | "tool" | "thinking";
+  kind: "message" | "plan" | "status" | "tool";
   text: string;
   /** 当 kind:"tool" 时携带结构化工具信息 */
   tool?: CodingDevToolProgress;

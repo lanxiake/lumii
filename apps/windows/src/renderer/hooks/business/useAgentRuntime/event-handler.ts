@@ -536,6 +536,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
                   delta: separator,
                 })
               : existingMessage.parts,
+            sourceAgent: existingMessage.sourceAgent,
           }
           return {
             ...prev,

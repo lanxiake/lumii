@@ -14,12 +14,11 @@ import type {
 type ParsedLine =
   | { kind: 'tool'; tool: CodingDevToolProgress }
   | { kind: 'message'; text: string }
-  | { kind: 'thinking'; text: string }
   | { kind: 'ignore' }
   | { kind: 'final_result'; text: string }
 
-// 调试日志开关（可通过环境变量 DEBUG_ACP_PARSER=1 启用，或主动在代码中改为 true）
-const DEBUG = process.env.DEBUG_ACP_PARSER === '1' || true
+// 调试日志开关（可通过环境变量 DEBUG_ACP_PARSER=1 启用）
+const DEBUG = process.env.DEBUG_ACP_PARSER === '1'
 
 function debugLog(backendId: string, message: string, data?: unknown): void {
   if (DEBUG) {
@@ -162,12 +161,8 @@ function parseCursorJsonLine(line: string): ParsedLine {
       return { kind: 'ignore' }
     }
 
-    // 思考过程：delta 增量作为 thinking 展示，completed 忽略
+    // 思考过程：暂不展示，仅忽略
     if (obj.type === 'thinking') {
-      if (obj.subtype === 'delta' && obj.text) {
-        debugLog('cursor', '识别到 thinking delta', { text: obj.text.slice(0, 50) })
-        return { kind: 'thinking', text: obj.text }
-      }
       return { kind: 'ignore' }
     }
 
@@ -287,6 +282,8 @@ export class AcpToolStreamParser {
    * 名字缺失就会渲染成 unknown。这里在 start 时记下，end 时回填。
    */
   private toolNames = new Map<string, string>()
+  /** 是否已看到过至少一行有效 JSON。Cursor 等 CLI 在 JSONL 之前会 echo 用户输入和时间戳，需跳过 */
+  private seenJson = false
 
   constructor(backendId: LightweightCodingDevBackendId) {
     this.parser = PARSERS[backendId] ?? null
@@ -300,6 +297,10 @@ export class AcpToolStreamParser {
     if (!trimmed) return null
     if (!this.parser) return { kind: 'message', text: line }
 
+    // Cursor 等 CLI 在首行 JSON 前会 echo 用户输入和时间戳，跳过
+    if (!this.seenJson && !trimmed.startsWith('{')) return null
+    if (trimmed.startsWith('{')) this.seenJson = true
+
     const parsed = this.parser(trimmed)
     if (parsed.kind === 'tool') {
       const tool = this.withResolvedToolName(parsed.tool)
@@ -307,9 +308,6 @@ export class AcpToolStreamParser {
     }
     if (parsed.kind === 'message') {
       return { kind: 'message', text: parsed.text }
-    }
-    if (parsed.kind === 'thinking') {
-      return { kind: 'thinking', text: parsed.text }
     }
     if (parsed.kind === 'final_result') {
       return { kind: 'final_result', text: parsed.text }
