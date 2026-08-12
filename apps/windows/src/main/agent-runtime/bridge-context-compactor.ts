@@ -221,12 +221,13 @@ export class BridgeContextCompactor {
     const activeModel = instanceStreamEntry?.model ?? this.deps.getMainModel()
     if (activeInnerStream && activeModel) {
       try {
-        const toSummarize = piMessages.slice(0, toDelete.length)
+        // ✅ 修复：传完整消息（包含最近消息）给 LLM，而非仅旧消息
+        // 这样 LLM 能看到完整对话上下文，生成更准确的摘要
         const summaryPrompt =
-          '请用简洁的中文总结以上对话的关键信息、决策和结论，以便后续对话可以继续。'
+          '请用简洁的中文总结以上对话的关键信息、决策和结论，以便后续对话可以继续。重点关注前面较早的对话内容。'
         const generator = this.deps.createSummaryGenerator(activeInnerStream, activeModel)
-        summaryText = await generator(toSummarize, summaryPrompt, signal)
-        log.info(`[compactContextAsync] LLM 摘要生成成功: ${summaryText?.length ?? 0} 字符`)
+        summaryText = await generator(piMessages, summaryPrompt, signal)
+        log.info(`[compactContextAsync] LLM 摘要生成成功（已看完整 ${piMessages.length} 条消息）: ${summaryText?.length ?? 0} 字符`)
       } catch (err) {
         log.warn(
           `[compactContextAsync] LLM 摘要生成失败，降级为纯删除: ${err instanceof Error ? err.message : String(err)}`,

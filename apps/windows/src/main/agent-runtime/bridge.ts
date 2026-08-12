@@ -859,7 +859,8 @@ export class AgentRuntimeBridge {
     const liveInstance = this.resolveMainInstanceForSession(k)
     const messages = liveInstance
       ? (liveInstance.getAgentMessages() as AgentMessage[])
-      : (this.conversationRepo.loadMessagesAsPiFormat(k, { limit: 4000 }) as AgentMessage[])
+      : // ✅ 修复：无活跃实例时，只加载最近 120 条消息（而非 4000），避免 UI 显示虚高
+        (this.conversationRepo.loadMessagesAsPiFormat(k, { limit: 120 }) as AgentMessage[])
 
     let usedTokens = estimateTokenCount(messages)
 

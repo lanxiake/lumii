@@ -370,11 +370,12 @@ export function installAgentRuntimeCommandIpc(): void {
       log.warn(`[command] bridge 未就绪（不应发生）: ${command?.type}`)
       return { ok: false, error: 'NOT_READY' }
     }
-    // 高频命令降级为 debug，避免日志刷屏
+    // 高频/轮询命令降级为静默，避免日志刷屏
     const QUIET_COMMANDS = new Set([
       'agentInstance:lifecycleSnapshot',
       'runtime:modelCatalog:set',
       'conversation:list',
+      'agentDefinition:syncStatus',
     ])
     if (!QUIET_COMMANDS.has(command?.type)) {
       log.info(`[command] received: ${command?.type}`)
