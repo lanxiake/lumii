@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Setup script for 腾讯文档 MCP Skill (内部 OpenClaw 版本) 一体化配置与授权脚本
+# Setup script for 腾讯文档 MCP Skill 一体化配置与授权脚本
 #
 # 功能：
 #   1. 检查 mcporter 是否已配置 tencent-docs（含 Authorization 可用）

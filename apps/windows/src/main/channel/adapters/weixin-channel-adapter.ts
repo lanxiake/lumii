@@ -23,6 +23,7 @@ import { createSwitchBackendCommand, lumiiCommand } from '../slash-commands/swit
 import { linkCommand, unlinkCommand } from '../slash-commands/link'
 import { runCodingDevAcpPrompt } from '../../coding-dev-backends-stub/run-coding-dev-acp-prompt.js'
 import { resolveAcpTimeoutMs } from '../../coding-dev-backends-stub/acp-config.js'
+import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WeixinChannelAdapter]', ...args),
@@ -141,7 +142,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       this.bridge.notifyNavigateToSession(session.sessionKey)
 
       const currentBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
-      if (currentBackend !== 'openclaw') {
+      if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
         await this.handleAcpPrompt(msg, session, voiceTranscript, currentBackend)
         return
       }
@@ -257,14 +258,14 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       this.bridge.notifyIncomingMessage(session.sessionKey, prompt)
       this.bridge.notifyNavigateToSession(session.sessionKey)
 
-      // 检查当前后端：非 openclaw 走 ACP 子进程路径
+      // 检查当前后端：非主代理走 ACP 子进程路径
       const currentBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
-      if (currentBackend !== 'openclaw') {
+      if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
         await this.handleAcpPrompt(msg, session, prompt, currentBackend)
         return
       }
 
-      // openclaw：走原有 bridge.prompt() 路径
+      // 主代理：走原有 bridge.prompt() 路径
       const instanceId = await this.getOrCreateInstance(session.sessionKey)
       const activeSession = { ...session, instanceId }
 

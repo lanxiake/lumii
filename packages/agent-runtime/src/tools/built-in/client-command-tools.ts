@@ -115,7 +115,7 @@ export const settingsThinkToolConfig: MtBotToolConfig<typeof SettingsThinkParams
 const SettingsBackendParams = Type.Object({
   backendId: Type.String({
     description:
-      "ACP backend ID: openclaw | claude | codex | opencode | gemini | qoder | qwen | kimi | copilot | auggie | cursor",
+      "ACP backend ID: lumii | claude | codex | opencode | gemini | qoder | qwen | kimi | copilot | auggie | cursor",
   }),
 });
 type SettingsBackendInput = Static<typeof SettingsBackendParams>;
@@ -123,7 +123,7 @@ type SettingsBackendInput = Static<typeof SettingsBackendParams>;
 export const settingsBackendToolConfig: MtBotToolConfig<typeof SettingsBackendParams> = {
   name: "settings_backend",
   label: "Set ACP Backend",
-  description: "Switch the ACP coding assistant backend (e.g., claude, opencode, openclaw).",
+  description: "Switch the ACP coding assistant backend (e.g., claude, opencode, lumii).",
   parameters: SettingsBackendParams,
   category: "agent",
   isReadOnly: false,

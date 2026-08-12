@@ -1,7 +1,7 @@
 /**
  * WeixinLoginService - Manages WeChat Personal (iLink) login flow and message polling.
  *
- * API reference: https://github.com/pzx521521/openclaw-weixin-cli
+ * API reference: https://github.com/pzx521521/openclaw-weixin-cli （第三方微信 iLink 协议实现）
  *
  * Key differences from the old ilink-bot.shab.cn API:
  * - Base URL: https://ilinkai.weixin.qq.com (host root — paths are /ilink/bot/..., not /api/ilink/...)
@@ -51,7 +51,7 @@ const QR_CHECK_TIMEOUT_MS = 60_000
 const LONG_POLL_TIMEOUT_MS = 35_000
 
 /**
- * 与 openclaw-weixin-cli 一致：接口路径挂在域名根下（/ilink/bot/...）。
+ * 与上游微信 CLI 实现一致：接口路径挂在域名根下（/ilink/bot/...）。
  * 旧默认曾误用 `.../api`，会导致 404。仍支持通过环境变量传入带 `/api` 的官方域名并自动纠正。
  */
 function normalizeIlinkBaseUrl(url: string): string {
@@ -104,7 +104,7 @@ export interface WeixinNormalizedMessage {
   contextToken?: string
 }
 
-// ─── iLink API types (matching openclaw-weixin-cli) ────────────────────────
+// ─── iLink API types (matching upstream weixin-cli) ────────────────────────
 
 interface QRCodeResponse {
   qrcode: string
@@ -132,7 +132,7 @@ interface CdnMediaRef {
 
 interface MessageItem {
   // iLink MessageItemType: 1=text, 2=image, 3=voice, 4=file, 5=video
-  // (confirmed per @tencent-weixin/openclaw-weixin protocol spec)
+  // (confirmed per @tencent-weixin upstream protocol spec)
   type: number
   text_item?: { text: string }
   voice_item?: (CdnMediaRef & { text?: string; media?: CdnMediaRef })
@@ -1100,7 +1100,7 @@ export class WeixinLoginService extends EventEmitter {
     fileSize: number,
   ): Record<string, unknown>[] {
     const itemType = this.mimeToMessageItemType(mimeType)
-    // aes_key 编码：将 hex 字符串的 ASCII 字节做 base64（与 openclaw-weixin send.ts 一致）
+    // aes_key 编码：将 hex 字符串的 ASCII 字节做 base64（与上游 weixin send.ts 一致）
     // 接收端 parseAesKeyLocal: base64 decode → hex 字符串 → hex decode → 16 bytes key
     const cdnMedia = {
       encrypt_query_param: mediaInfo.downloadEncryptedQueryParam,

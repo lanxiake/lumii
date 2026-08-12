@@ -5,7 +5,7 @@ import type { Agent } from '../../../../services/agent-service'
 import type { ContextUsage } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import { searchCommands, CATEGORY_LABELS } from '../../commands/slash-commands'
 import type { SlashCommand } from '../../commands/slash-commands'
-import { getSelectedAcpBackendId, BACKEND_INFO } from '../../commands/slash-command-executor'
+import { getSelectedAcpBackendId, BACKEND_INFO, MAIN_BACKEND_ID } from '../../commands/slash-command-executor'
 import { getSupportedAttachmentAccept } from '../../utils/file-attachment-strategy'
 import Switch from '../../../../components/ui/Switch/Switch'
 import { formatContextUsageCompact, formatTokenCount } from '../../../../utils/format-token-count'
@@ -885,7 +885,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
           {/* 右侧：工具按钮 + 发送 */}
           <div className={styles['toolbar-right']}>
             {/* 当前后端标识（非默认时显示） */}
-            {currentBackend !== 'openclaw' && (
+            {currentBackend !== MAIN_BACKEND_ID && (
               <span className={styles['backend-badge']} title={`当前后端: ${currentBackend}`}>
                 {Object.values(BACKEND_INFO).find(b => b.acpBackendId === currentBackend)?.label ?? currentBackend}
               </span>
@@ -1027,7 +1027,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                       后端切换
                       <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--color-text-tertiary)', fontWeight: 400 }}>
                         当前：<strong style={{ color: 'var(--color-accent, #4f8ef7)' }}>
-                          {currentBackend === 'openclaw' ? '灵栖' : currentBackend}
+                          {currentBackend === MAIN_BACKEND_ID ? '灵栖' : currentBackend}
                         </strong>
                       </span>
                     </div>

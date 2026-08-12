@@ -23,6 +23,7 @@ import { compactCommand } from '../slash-commands/compact'
 import { backendCommand } from '../slash-commands/backend'
 import { createSwitchBackendCommand, lumiiCommand } from '../slash-commands/switch-backend'
 import { getAcpRunController } from '../../coding-dev-acp-run.js'
+import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
 import { pushAgentRuntimeEvent } from '../../ipc/agent-runtime-ipc.js'
 
 /**
@@ -176,7 +177,7 @@ export class FeishuChannelAdapter implements IChannelAdapter {
 
       // 非主代理后端：走本机 ACP 子进程路径
       const currentBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
-      if (currentBackend !== 'openclaw') {
+      if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
         await this.handleAcpPrompt(session, prompt, currentBackend)
         return
       }

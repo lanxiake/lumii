@@ -387,7 +387,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   session_compact: "Compress context by removing older messages, keeping recent turns",
   session_resume: "Switch to a previous conversation session by sessionKey",
   settings_think: "Set LLM thinking/reasoning level: off / low / medium / high",
-  settings_backend: "Switch ACP coding assistant backend (openclaw / claude / codex / opencode / gemini / ...)",
+  settings_backend: "Switch ACP coding assistant backend (lumii / claude / codex / opencode / gemini / ...)",
   info_status: "Query current session status: message count and active model",
   memory_manage:
     "Manage the current agent's working memory: add/update/delete/archive single entries or list/clear all — keep memory accurate by removing stale/wrong entries",

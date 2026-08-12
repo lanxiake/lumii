@@ -21,7 +21,7 @@ import argparse
 import os
 import sys
 
-DEFAULT_OUTPUT = os.path.expanduser("~/.openclaw/workspace/skills")
+DEFAULT_OUTPUT = os.path.expanduser("~/.lumii/workspace/skills")
 
 
 def main():

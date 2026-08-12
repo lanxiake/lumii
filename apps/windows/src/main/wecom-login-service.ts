@@ -1,7 +1,7 @@
 /**
  * WecomLoginService - 企业微信 AI Bot 扫码接入 + WebSocket 长连接。
  *
- * 扫码链路（与 @wecom/wecom-openclaw-cli / Clawith 一致）：
+ * 扫码链路（与上游企业微信 CLI 实现 / Clawith 一致）：
  * 1. GET https://work.weixin.qq.com/ai/qc/generate → {scode, auth_url}
  * 2. 前端用 auth_url 渲染二维码；主进程每 3s 轮询 query_result
  * 3. status=success 时拿到 botid/secret，落盘并启动 WSClient

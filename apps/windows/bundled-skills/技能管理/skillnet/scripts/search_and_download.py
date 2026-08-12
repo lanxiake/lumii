@@ -3,7 +3,7 @@
 
 Usage:
   python search_and_download.py "query" [--mode vector] [--threshold 0.7] \
-        [--download] [--target-dir ~/.openclaw/workspace/skills] [--no-fallback]
+        [--download] [--target-dir ~/.lumii/workspace/skills] [--no-fallback]
 
 Requires: pip install skillnet-ai
 """
@@ -21,7 +21,7 @@ def main():
     parser.add_argument("--threshold", type=float, default=0.75, help="Similarity threshold (vector mode)")
     parser.add_argument("--min-stars", type=int, default=0, help="Minimum star rating")
     parser.add_argument("--download", action="store_true", help="Auto-download the top result")
-    parser.add_argument("--target-dir", default=os.path.expanduser("~/.openclaw/workspace/skills"),
+    parser.add_argument("--target-dir", default=os.path.expanduser("~/.lumii/workspace/skills"),
                         help="Directory to install downloaded skills into")
     parser.add_argument("--no-fallback", action="store_true",
                         help="Disable automatic retry with vector mode when keyword returns 0 results")

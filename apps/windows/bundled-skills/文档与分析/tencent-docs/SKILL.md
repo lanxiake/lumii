@@ -4,7 +4,7 @@ description: 腾讯文档（docs.qq.com）-在线云文档平台，是创建、�
 homepage: https://docs.qq.com/home
 version: 1.0.31
 author: tencent-docs
-metadata: {"openclaw":{"primaryEnv":"TENCENT_DOCS_TOKEN","category":"tencent","tencentTokenMode":"custom","tokenUrl":"https://docs.qq.com/scenario/open-claw.html?nlc=1","emoji":"📝"}}
+metadata: {"mtbot":{"primaryEnv":"TENCENT_DOCS_TOKEN","category":"tencent","tencentTokenMode":"custom","tokenUrl":"https://docs.qq.com/scenario/open-claw.html?nlc=1","emoji":"📝"}}
 ---
 
 # 腾讯文档 MCP 使用指南

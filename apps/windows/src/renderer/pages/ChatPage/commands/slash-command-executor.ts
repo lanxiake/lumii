@@ -303,19 +303,24 @@ export const BACKEND_INFO: Record<string, { label: string; desc: string; acpBack
   auggie:   { label: 'Augment Code',     acpBackendId: 'auggie',   desc: 'Augment Code，企业级编程助手' },
   cursor:   { label: 'Cursor Agent CLI', acpBackendId: 'cursor',   desc: 'Cursor Agent CLI（独立安装，非编辑器）' },
   hermes:   { label: 'Hermes Agent',     acpBackendId: 'hermes',   desc: 'Nous Research Hermes Agent' },
-  lumii:    { label: '灵栖主 Agent',      acpBackendId: 'openclaw', desc: '默认灵栖 Agent（OpenClaw），支持全功能对话' },
-  openclaw: { label: '灵栖主 Agent',      acpBackendId: 'openclaw', desc: '默认灵栖 Agent（OpenClaw），支持全功能对话' },
+  lumii:    { label: '灵栖主 Agent',      acpBackendId: 'lumii',    desc: '默认灵栖 Agent，支持全功能对话' },
 }
+
+/**
+ * 内置主代理后端 ID，与 main 侧 `DEFAULT_CODING_DEV_BACKEND_ID` 保持一致。
+ * renderer 不能 import main，故在此单独声明。
+ */
+export const MAIN_BACKEND_ID = 'lumii'
 
 /** localStorage key，与 node 端 `CODING_DEV_USER_GLOBAL_ACCOUNT` 选择策略对应 */
 const ACP_BACKEND_STORAGE_KEY = 'mtbot:acp-backend'
 
-/** 读取当前已选 ACP 后端 ID（默认 openclaw） */
+/** 读取当前已选 ACP 后端 ID（默认主代理） */
 export function getSelectedAcpBackendId(): string {
   try {
-    return localStorage.getItem(ACP_BACKEND_STORAGE_KEY) ?? 'openclaw'
+    return localStorage.getItem(ACP_BACKEND_STORAGE_KEY) ?? MAIN_BACKEND_ID
   } catch {
-    return 'openclaw'
+    return MAIN_BACKEND_ID
   }
 }
 
@@ -323,7 +328,7 @@ function handleBackend(backend: string, ctx: CommandContext): void {
   const info = BACKEND_INFO[backend]
   if (!info) {
     const available = Object.keys(BACKEND_INFO)
-      .filter((k) => k !== 'claude-code' && k !== 'openclaw')
+      .filter((k) => k !== 'claude-code')
       .map((k) => `/${k}`)
       .join(' ')
     ctx.addSystemMessage(`❌ 未知后端: \`${backend}\`\n\n可用: ${available}`)

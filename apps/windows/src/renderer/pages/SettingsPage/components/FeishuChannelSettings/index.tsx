@@ -1,5 +1,5 @@
 /**
- * 飞书渠道设置：扫码新建机器人（对齐 OpenClaw / Nemo 官方插件式接入）。
+ * 飞书渠道设置：扫码新建机器人（流程对齐上游飞书 CLI 参考实现 / Nemo 的官方插件式接入）。
  */
 
 import React, { useState, useEffect, useCallback } from 'react'

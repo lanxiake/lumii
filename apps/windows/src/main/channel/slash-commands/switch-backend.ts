@@ -47,8 +47,8 @@ export function createSwitchBackendCommand(backendId: CodingDevBackendId): Comma
 }
 
 /**
- * /lumii — 切回灵栖主代理（openclaw）。
- * 微信单聊：写入 openclaw 覆盖用户级全局轻量后端。
+ * /lumii — 切回灵栖主代理。
+ * 微信单聊：写入主代理 ID 覆盖用户级全局轻量后端。
  */
 export const lumiiCommand: CommandHandler = {
   description: '切回灵栖主代理',
@@ -56,7 +56,7 @@ export const lumiiCommand: CommandHandler = {
     const { session, adapter, acpBackendManager } = ctx
     const { channelUserId, sessionKey } = session
 
-    // 先尝试清除 peer 级选择，再写入 openclaw 确保覆盖用户级全局
+    // 先尝试清除 peer 级选择，再写入主代理 ID 确保覆盖用户级全局
     await acpBackendManager.clearBackend('peer', channelUserId, sessionKey)
     await acpBackendManager.setBackend(DEFAULT_CODING_DEV_BACKEND_ID, 'peer', channelUserId, sessionKey)
     await syncBackendToClient(acpBackendManager, DEFAULT_CODING_DEV_BACKEND_ID)
