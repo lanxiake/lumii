@@ -60,6 +60,8 @@ interface MessageItem {
   injectedMemories?: readonly { id: string; content: string; category: string }[]
   /** 本地 Runtime：子 Agent 嵌套气泡 */
   sourceAgent?: { instanceId: string; label: string }
+  /** ACP 后端标识（Cursor / Claude Code 等） */
+  acpBackendLabel?: string
   /** 是否为语音识别消息 */
   isVoice?: boolean
   /** 原始录音 WAV base64，用于气泡点击回放 */
@@ -265,6 +267,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         llmError: (msg as { llmError?: { code: string; message: string; retryable: boolean } }).llmError,
         injectedMemories: (msg as { injectedMemories?: MessageItem['injectedMemories'] }).injectedMemories,
         sourceAgent: (msg as { sourceAgent?: MessageItem['sourceAgent'] }).sourceAgent,
+        acpBackendLabel: (msg as { acpBackendLabel?: string }).acpBackendLabel,
         isVoice: (msg as { isVoice?: boolean }).isVoice,
         audioWavBase64: (msg as { audioWavBase64?: string }).audioWavBase64,
         parts: (msg as { parts?: readonly AssistantPart[] }).parts,
@@ -420,6 +423,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             llmError: item.llmError,
             injectedMemories: item.injectedMemories,
             sourceAgent: item.sourceAgent,
+            acpBackendLabel: item.acpBackendLabel,
             isVoice: item.isVoice,
             parts: item.parts,
             fileChanges: item.fileChanges,

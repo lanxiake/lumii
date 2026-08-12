@@ -58,6 +58,8 @@ export interface RuntimeMessage {
   }
   /** 子 Agent 块是否折叠（仅 sourceAgent 存在时有效） */
   readonly subAgentCollapsed?: boolean
+  /** ACP 后端标识（如 Cursor / Claude Code），仅本机 CLI 后端回复时存在 */
+  readonly acpBackendLabel?: string
   readonly thinkingText?: string
   readonly usage?: TokenUsage
   /** 流式可视化指标（message:end 时写入） */

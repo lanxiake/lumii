@@ -50,6 +50,8 @@ export interface ChatMessage {
   injectedMemories?: readonly { id: string; content: string; category: string }[]
   /** 本地 Runtime：子 Agent 消息嵌套展示 */
   sourceAgent?: { instanceId: string; label: string }
+  /** ACP 后端标识（Cursor / Claude Code 等本机 CLI 回复） */
+  acpBackendLabel?: string
   /** 是否为语音识别消息（用户通过语音通话输入） */
   isVoice?: boolean
   /** 原始录音 WAV base64（仅语音消息，用于气泡点击回放） */

@@ -57,6 +57,20 @@ export type AcpRunStartOptions = {
 
 const DEFAULT_DELTA_FLUSH_MS = 16
 
+/**
+ * 移除 CLI 输出开头对用户输入的回显。
+ *
+ * Cursor 等 CLI 会把用户 prompt 原样放进第一条 assistant text 里，
+ * 这段回显在 JSON 事件内部，行级解析器（seenJson）拦不住。
+ */
+export function stripUserEcho(text: string, userInput: string): string {
+  const prompt = userInput.trim()
+  if (!prompt) return text
+  const head = text.trimStart()
+  if (!head.startsWith(prompt)) return text
+  return head.slice(prompt.length).trimStart()
+}
+
 export class AcpRunController {
   private readonly runs = new Map<string, AcpRunHandle>()
   private pendingMessageDelta = new Map<string, { messageId: string; text: string }>()
@@ -127,7 +141,9 @@ export class AcpRunController {
       this.clearTimeout(handle)
       this.flushMessageDelta(sessionKey, pushEvent)
 
-      const finalText = output?.text ?? this.pendingMessageDelta.get(sessionKey)?.text ?? ''
+      const rawFinalText = output?.text ?? this.pendingMessageDelta.get(sessionKey)?.text ?? ''
+      // output.text 是整段聚合输出，没走过 handleProgress 的逐条剥离，这里再兜一次
+      const finalText = stripUserEcho(rawFinalText, text)
       const content = [{ type: 'text' as const, text: finalText }]
 
       // 渲染进程的 message:end 用流式累积的文本、不用 event.content（见 event-handler
@@ -280,15 +296,9 @@ export class AcpRunController {
         if (delta.length === 0) return
 
         // Cursor 等 CLI 会在输出开头回显用户输入，首次收到消息时检测并移除
-        if (!handle.echoStripped && handle.backendId === 'cursor') {
+        if (!handle.echoStripped) {
           handle.echoStripped = true
-          const userInput = handle.userInputText.trim()
-          const deltaStart = delta.trimStart()
-          // 如果输出以用户输入开头（可能有换行），移除这部分
-          if (userInput && deltaStart.startsWith(userInput)) {
-            delta = deltaStart.slice(userInput.length).trimStart()
-            log.info(`[handleProgress] 移除 Cursor 回显: "${userInput}"`)
-          }
+          delta = stripUserEcho(delta, handle.userInputText)
         }
 
         if (delta.length === 0) return

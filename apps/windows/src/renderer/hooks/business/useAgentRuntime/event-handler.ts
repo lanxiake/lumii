@@ -557,7 +557,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
                   delta: separator,
                 })
               : existingMessage.parts,
-            sourceAgent: acpBackend ? { instanceId: `acp-${acpBackend.backendId}`, label: acpBackend.label } : existingMessage.sourceAgent,
+            acpBackendLabel: acpBackend?.label ?? existingMessage.acpBackendLabel,
           }
           return {
             ...prev,
@@ -587,7 +587,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
               isStreaming: true,
               toolCalls: [],
               turnId,
-              sourceAgent: acpBackend ? { instanceId: `acp-${acpBackend.backendId}`, label: acpBackend.label } : undefined,
+              acpBackendLabel: acpBackend?.label,
             },
           ]),
         }

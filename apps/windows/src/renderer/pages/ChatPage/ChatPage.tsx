@@ -266,6 +266,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         llmError: msg.llmError,
         injectedMemories: msg.injectedMemories,
         sourceAgent: msg.sourceAgent,
+        acpBackendLabel: msg.acpBackendLabel,
         isVoice: msg.isVoice,
         audioWavBase64: msg.audioWavBase64,
       })),

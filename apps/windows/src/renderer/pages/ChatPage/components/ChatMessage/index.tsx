@@ -1092,7 +1092,12 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
           </div>
         )}
 
-        <div className={styles['message-meta']}>{formatTime(message.timestamp)}</div>
+        <div className={styles['message-meta']}>
+          {message.acpBackendLabel && (
+            <span className={styles['acp-backend-badge']}>{message.acpBackendLabel}</span>
+          )}
+          {formatTime(message.timestamp)}
+        </div>
       </div>
     </div>
     </ToolFilePreviewProvider>
