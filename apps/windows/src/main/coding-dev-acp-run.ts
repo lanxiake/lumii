@@ -39,6 +39,8 @@ export type AcpRunHandle = {
   toolStartTextPositions: Map<string, number>
   settled: boolean
   abortReason?: 'user_cancel' | 'timeout'
+  userInputText: string
+  echoStripped: boolean
 }
 
 export type AcpRunStartOptions = {
@@ -82,6 +84,8 @@ export class AcpRunController {
       thinkingEmitted: false,
       toolStartTextPositions: new Map(),
       settled: false,
+      userInputText: text,
+      echoStripped: false,
     }
     this.runs.set(runId, handle)
 
@@ -272,7 +276,21 @@ export class AcpRunController {
 
     switch (progress.kind) {
       case 'message': {
-        const delta = progress.text
+        let delta = progress.text
+        if (delta.length === 0) return
+
+        // Cursor 等 CLI 会在输出开头回显用户输入，首次收到消息时检测并移除
+        if (!handle.echoStripped && handle.backendId === 'cursor') {
+          handle.echoStripped = true
+          const userInput = handle.userInputText.trim()
+          const deltaStart = delta.trimStart()
+          // 如果输出以用户输入开头（可能有换行），移除这部分
+          if (userInput && deltaStart.startsWith(userInput)) {
+            delta = deltaStart.slice(userInput.length).trimStart()
+            log.info(`[handleProgress] 移除 Cursor 回显: "${userInput}"`)
+          }
+        }
+
         if (delta.length === 0) return
 
         const pending = this.pendingMessageDelta.get(sessionKey)

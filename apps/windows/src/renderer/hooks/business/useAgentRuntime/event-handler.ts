@@ -26,6 +26,26 @@ const debugLog = process.env.NODE_ENV === 'development'
 let rendererPartIdSequence = 0
 
 /**
+ * ACP 后端标签映射
+ */
+const ACP_BACKEND_LABELS: Record<string, string> = {
+  cursor: 'Cursor',
+  claude: 'Claude Code',
+  codex: 'Codex',
+  opencode: 'OpenCode',
+}
+
+/**
+ * 从 model 字段提取 ACP 后端信息（model 格式：acp:cursor / acp:claude 等）
+ */
+function extractAcpBackend(model?: string): { backendId: string; label: string } | null {
+  if (!model || !model.startsWith('acp:')) return null
+  const backendId = model.slice(4) // 移除 "acp:" 前缀
+  const label = ACP_BACKEND_LABELS[backendId] ?? backendId
+  return { backendId, label }
+}
+
+/**
  * 使用 renderer 命名空间生成 part id，避免与主进程持久化序号冲突。
  */
 function applyRuntimeAssistantPartEvent(
@@ -524,6 +544,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           const nextText = existingText + separator
           const msgs = [...prev.messages]
           const existingMessage = msgs[reuseIdx]!
+          const acpBackend = extractAcpBackend(event.model)
           msgs[reuseIdx] = {
             ...existingMessage,
             id: event.messageId,
@@ -536,7 +557,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
                   delta: separator,
                 })
               : existingMessage.parts,
-            sourceAgent: existingMessage.sourceAgent,
+            sourceAgent: acpBackend ? { instanceId: `acp-${acpBackend.backendId}`, label: acpBackend.label } : existingMessage.sourceAgent,
           }
           return {
             ...prev,
@@ -548,6 +569,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           }
         }
 
+        const acpBackend = extractAcpBackend(event.model)
         return {
           ...prev,
           activeRunId: event.runId,
@@ -565,6 +587,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
               isStreaming: true,
               toolCalls: [],
               turnId,
+              sourceAgent: acpBackend ? { instanceId: `acp-${acpBackend.backendId}`, label: acpBackend.label } : undefined,
             },
           ]),
         }
