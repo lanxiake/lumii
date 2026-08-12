@@ -49,8 +49,8 @@ describe('previewUninstallLocalAcpTool', () => {
   })
 
   it('qoder 脚本安装无法自动卸载', async () => {
-    mockDetect(stub('qoder', 'C:\\tools\\qoder\\qoder.exe'))
-    const p = await previewUninstallLocalAcpTool('qoder')
+    mockDetect(stub('cursor', 'C:\\tools\\qoder\\qoder.exe'))
+    const p = await previewUninstallLocalAcpTool('cursor')
     expect(p.automatic).toBe(false)
   })
 

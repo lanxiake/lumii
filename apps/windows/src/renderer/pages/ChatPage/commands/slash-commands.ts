@@ -60,51 +60,9 @@ const CLIENT_ONLY_COMMANDS: SlashCommand[] = [
     category: 'backend',
   },
   {
-    name: '/gemini',
-    description: '切换到 Gemini CLI 后端',
-    usage: '/gemini',
-    category: 'backend',
-  },
-  {
-    name: '/qoder',
-    description: '切换到 Qoder 后端',
-    usage: '/qoder',
-    category: 'backend',
-  },
-  {
-    name: '/qwen',
-    description: '切换到 Qwen Code 后端',
-    usage: '/qwen',
-    category: 'backend',
-  },
-  {
-    name: '/kimi',
-    description: '切换到 Kimi CLI 后端',
-    usage: '/kimi',
-    category: 'backend',
-  },
-  {
-    name: '/copilot',
-    description: '切换到 GitHub Copilot 后端',
-    usage: '/copilot',
-    category: 'backend',
-  },
-  {
-    name: '/auggie',
-    description: '切换到 Augment Code 后端',
-    usage: '/auggie',
-    category: 'backend',
-  },
-  {
     name: '/cursor',
     description: '切换到 Cursor 后端',
     usage: '/cursor',
-    category: 'backend',
-  },
-  {
-    name: '/hermes',
-    description: '切换到 Hermes Agent 后端',
-    usage: '/hermes',
     category: 'backend',
   },
   {

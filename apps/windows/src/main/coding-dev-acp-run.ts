@@ -285,6 +285,17 @@ export class AcpRunController {
         this.scheduleDeltaFlush(sessionKey, pushEvent)
         return
       }
+      case 'thinking': {
+        const delta = progress.text
+        if (delta.length === 0) return
+        pushEvent({
+          type: 'agent:thinking:delta',
+          runId,
+          sessionKey,
+          delta,
+        })
+        return
+      }
       case 'status': {
         if (progress.text === 'thinking' && !handle.thinkingEmitted) {
           handle.thinkingEmitted = true

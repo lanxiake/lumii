@@ -28,7 +28,7 @@ process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
   process.exit(1)
 })
 
-import { execSync } from 'child_process'
+import { execSync, spawn } from 'child_process'
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, shell, clipboard, screen, Notification } from 'electron'
 import { join, extname, basename, dirname } from 'path'
 import { promises as fs, existsSync, readdirSync } from 'fs'
@@ -119,6 +119,7 @@ import {
   detectLocalAcpTool,
   isPrimaryLocalAcpToolId,
   listLocalAcpToolsMetadata,
+  needsWindowsShell,
 } from './coding-dev-cli-detect.js'
 import {
   installLocalAcpTool,
@@ -1764,6 +1765,56 @@ function setupIpcHandlers(): void {
   /** 卸载前预览：将要执行的命令与风险提示（不执行） */
   ipcMain.handle('app:previewUninstallCodingDevTool', async (_event, toolId: string) => {
     return previewUninstallLocalAcpTool(toolId)
+  })
+
+  /** 触发 CLI 登录流程（如 cursor 的 agent login，打开浏览器 OAuth） */
+  ipcMain.handle('app:loginCodingDevTool', async (_event, toolId: string) => {
+    if (!isPrimaryLocalAcpToolId(toolId)) {
+      throw new Error(`未知工具 ID: ${toolId}`)
+    }
+    const status = await detectLocalAcpTool(toolId)
+    if (!status.installed || !status.resolvedPath) {
+      throw new Error(`${status.label} 未安装`)
+    }
+    // cursor: agent login 打开浏览器，等待用户完成授权
+    // 其他 CLI 同样逻辑，按需扩展
+    const loginArgs: Record<string, string[]> = {
+      cursor: ['login'],
+      claude: ['login'],
+      codex: ['auth', 'login'],
+      opencode: ['login'],
+    }
+    const args = loginArgs[toolId]
+    if (!args) {
+      throw new Error(`${status.label} 暂不支持客户端一键登录，请在命令行手动执行`)
+    }
+    return new Promise<{ success: boolean; message: string }>((resolve, reject) => {
+      const useShell = needsWindowsShell(status.resolvedPath!)
+      const child = spawn(status.resolvedPath!, args, {
+        windowsHide: false, // 显示窗口，让用户看到登录进度
+        shell: useShell,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = ''
+      let stderr = ''
+      child.stdout?.on('data', (buf: Buffer) => {
+        stdout += buf.toString('utf8')
+      })
+      child.stderr?.on('data', (buf: Buffer) => {
+        stderr += buf.toString('utf8')
+      })
+      child.on('error', (err) => {
+        reject(err)
+      })
+      child.on('close', (code) => {
+        if (code === 0) {
+          resolve({ success: true, message: '登录成功' })
+        } else {
+          const err = stderr || stdout || `退出码 ${code}`
+          resolve({ success: false, message: `登录失败：${err.slice(0, 300)}` })
+        }
+      })
+    })
   })
 
   ipcMain.handle('app:setCodingDevAcpWorkspace', async (_event, dirPath: string | undefined) => {

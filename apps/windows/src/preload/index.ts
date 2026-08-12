@@ -312,6 +312,8 @@ export interface ElectronAPI {
       installHint: string
       currentVersion?: string
       latestVersion?: string
+      selfUpdateCommand?: string
+      authStatus?: 'ok' | 'required' | 'unknown'
     }>
     /** 一键安装本机 ACP CLI（执行官方白名单安装命令） */
     installCodingDevTool: (toolId: string) => Promise<{
@@ -365,6 +367,8 @@ export interface ElectronAPI {
       documented: boolean
       hint: string
     }>
+    /** 触发 CLI 登录（如 cursor agent login 打开浏览器 OAuth） */
+    loginCodingDevTool: (toolId: string) => Promise<{ success: boolean; message: string }>
     /** 设置 ACP 专用工作目录；传 undefined 或空则与主工作区一致 */
     setCodingDevAcpWorkspace: (dirPath: string | undefined) => Promise<void>
     /** 列出 ACP 项目及当前活动项目 */
@@ -1178,6 +1182,7 @@ const electronAPI: ElectronAPI = {
     uninstallCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:uninstallCodingDevTool', toolId),
     previewUninstallCodingDevTool: (toolId: string) =>
       ipcRenderer.invoke('app:previewUninstallCodingDevTool', toolId),
+    loginCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:loginCodingDevTool', toolId),
     setCodingDevAcpWorkspace: (dirPath: string | undefined) =>
       ipcRenderer.invoke('app:setCodingDevAcpWorkspace', dirPath),
     listCodingDevProjects: () => ipcRenderer.invoke('app:listCodingDevProjects'),

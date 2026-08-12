@@ -14,11 +14,12 @@ import type {
 type ParsedLine =
   | { kind: 'tool'; tool: CodingDevToolProgress }
   | { kind: 'message'; text: string }
+  | { kind: 'thinking'; text: string }
   | { kind: 'ignore' }
   | { kind: 'final_result'; text: string }
 
-// 调试日志开关（可通过环境变量 DEBUG_ACP_PARSER=1 启用）
-const DEBUG = process.env.DEBUG_ACP_PARSER === '1'
+// 调试日志开关（可通过环境变量 DEBUG_ACP_PARSER=1 启用，或主动在代码中改为 true）
+const DEBUG = process.env.DEBUG_ACP_PARSER === '1' || true
 
 function debugLog(backendId: string, message: string, data?: unknown): void {
   if (DEBUG) {
@@ -143,16 +144,34 @@ function parseCodexJsonLine(line: string): ParsedLine {
 }
 
 /**
- * Cursor Agent (stream-json): 与 claude 类似但细节不同（未实测，先占位）
+ * Cursor Agent (stream-json): 实际格式
  *
- * 假设与 Claude 结构相近，最终结果可能在 type:"result" 或 type:"response" 中
+ * {"type":"system","subtype":"init",...}                           — 系统事件，忽略
+ * {"type":"thinking","subtype":"delta","text":"..."}               — 思考过程增量，可选展示
+ * {"type":"thinking","subtype":"completed"}                        — 思考完成，忽略
+ * {"type":"assistant"|"user","message":{"content":[...]}}          — 工具调用与结果（与 Claude 类似）
+ * 最后是纯文本输出（非 JSON）                                      — 最终回复文本
  */
 function parseCursorJsonLine(line: string): ParsedLine {
   try {
     const obj = JSON.parse(line)
-    debugLog('cursor', '解析到 JSON 对象', { type: obj.type })
+    debugLog('cursor', '解析到 JSON 对象', { type: obj.type, subtype: obj.subtype })
 
-    // 尝试与 Claude 相同的 assistant/user message 结构
+    // 系统事件：init、hook 等，静默忽略
+    if (obj.type === 'system') {
+      return { kind: 'ignore' }
+    }
+
+    // 思考过程：delta 增量作为 thinking 展示，completed 忽略
+    if (obj.type === 'thinking') {
+      if (obj.subtype === 'delta' && obj.text) {
+        debugLog('cursor', '识别到 thinking delta', { text: obj.text.slice(0, 50) })
+        return { kind: 'thinking', text: obj.text }
+      }
+      return { kind: 'ignore' }
+    }
+
+    // 工具调用与结果：与 Claude 相同结构
     if ((obj.type === 'assistant' || obj.type === 'user') && Array.isArray(obj.message?.content)) {
       for (const item of obj.message.content) {
         if (item.type === 'tool_use') {
@@ -185,21 +204,12 @@ function parseCursorJsonLine(line: string): ParsedLine {
         }
       }
     }
-
-    // 最终结果（猜测可能是 type:"result" 或 type:"response"）
-    if ((obj.type === 'result' || obj.type === 'response') && typeof obj.result === 'string') {
-      debugLog('cursor', '识别到最终结果', { result: obj.result.slice(0, 100) })
-      return { kind: 'final_result', text: obj.result }
-    }
-    if ((obj.type === 'result' || obj.type === 'response') && typeof obj.text === 'string') {
-      debugLog('cursor', '识别到最终结果', { text: obj.text.slice(0, 100) })
-      return { kind: 'final_result', text: obj.text }
-    }
   } catch (err) {
-    /* 非 JSON */
-    debugLog('cursor', 'JSON 解析失败，回落文本', { error: err instanceof Error ? err.message : String(err), line: line.slice(0, 100) })
+    /* 非 JSON：Cursor 的最终文本回复是纯文本（非 JSON 行），这里当作消息 */
+    debugLog('cursor', 'JSON 解析失败，回落文本', { line: line.slice(0, 100) })
+    return { kind: 'message', text: line }
   }
-  return { kind: 'message', text: line }
+  return { kind: 'ignore' }
 }
 
 /**
@@ -254,14 +264,6 @@ const PARSERS: Record<
   codex: parseCodexJsonLine,
   cursor: parseCursorJsonLine,
   opencode: parseOpenCodeJsonLine,
-  // 其余后端暂无解析器，回落纯文本
-  qoder: null,
-  qwen: null,
-  kimi: null,
-  copilot: null,
-  auggie: null,
-  gemini: null,
-  hermes: null,
 }
 
 /** parseLine 的返回类型：在通用进度事件之外，额外区分「最终结果」与「静默忽略」 */
@@ -305,6 +307,9 @@ export class AcpToolStreamParser {
     }
     if (parsed.kind === 'message') {
       return { kind: 'message', text: parsed.text }
+    }
+    if (parsed.kind === 'thinking') {
+      return { kind: 'thinking', text: parsed.text }
     }
     if (parsed.kind === 'final_result') {
       return { kind: 'final_result', text: parsed.text }

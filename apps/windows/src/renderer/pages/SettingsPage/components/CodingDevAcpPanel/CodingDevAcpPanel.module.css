@@ -142,10 +142,11 @@
 .toolCardFooter {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
-  padding-top: 4px;
+  padding-top: 6px;
   border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.06));
+  min-height: 32px;
 }
 
 .projectActive {
@@ -261,15 +262,26 @@
   background: transparent;
   cursor: pointer;
   font-size: 12px;
-  padding: 2px 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background 0.12s ease, opacity 0.12s ease;
+  font-weight: 500;
 }
 
 .linkBtn {
   color: var(--mt-accent-600, #2563eb);
 }
 
+.linkBtn:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.08);
+}
+
 .dangerBtn {
   color: #cf1322;
+}
+
+.dangerBtn:hover:not(:disabled) {
+  background: rgba(207, 19, 34, 0.08);
 }
 
 .linkBtn:disabled,

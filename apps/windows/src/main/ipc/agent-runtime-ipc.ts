@@ -540,6 +540,101 @@ async function handleCommand(
   switch (command.type) {
       // ---- 用户交互 ----
       case 'user:send': {
+        // 检查 ACP 后端：per-peer 优先，回退到 user-global，再回退到默认 openclaw
+        const acpMgr = getAcpBackendManager()
+        const currentBackend = acpMgr.getBackendWithFallback(LOCAL_USER_ID, command.sessionKey)
+
+        // ACP 路径（非 openclaw）：不需要 Agent 实例，但需要确保会话存在于数据库
+        if (currentBackend !== 'openclaw') {
+          log.info(`[user:send] ACP 路径: backendId=${currentBackend} sessionKey=${command.sessionKey}`)
+
+          // 确保会话存在于数据库（ACP 会话可能在前端直接创建 sessionKey 而未调用 conversation:create）
+          try {
+            const existingConv = bridge.conversationRepo.getConversation(command.sessionKey)
+            if (!existingConv) {
+              log.info(`[user:send] ACP 会话不存在，自动创建: sessionKey=${command.sessionKey}`)
+              bridge.conversationRepo.createConversation({
+                id: command.sessionKey,
+                userId: 'local-user',
+                title: '新对话',
+                participants: [
+                  { type: 'user', id: 'local-user' },
+                  { type: 'agent', id: command.agentId ?? 'default' },
+                ],
+              })
+            }
+          } catch (err) {
+            log.error(`[user:send] 确保 ACP 会话存在失败:`, err)
+          }
+
+          bridge.setSessionPreferredModel(command.sessionKey, command.modelId)
+
+          // 持久化用户消息到 DB
+          try {
+            const voice = 'isVoice' in command && command.isVoice === true
+            const wav = 'audioWavBase64' in command && typeof (command as { audioWavBase64?: string }).audioWavBase64 === 'string'
+              ? (command as { audioWavBase64: string }).audioWavBase64
+              : undefined
+            bridge.conversationRepo.saveMessage({
+              id: command.msgId,
+              conversationId: command.sessionKey,
+              role: 'user',
+              contentJson: {
+                type: 'text',
+                text: command.content,
+                ...(voice ? { isVoice: true as const } : {}),
+                ...(wav ? { audioWavBase64: wav } : {}),
+              },
+            })
+            // 广播用户消息
+            const win = ipcMainWindowRef
+            if (win && !win.isDestroyed() && command.msgId) {
+              pushEvent(win, {
+                type: 'conversation:message:new',
+                sessionKey: command.sessionKey,
+                message: {
+                  id: command.msgId,
+                  role: 'user',
+                  content: [{ type: 'text', text: command.content }],
+                  timestamp: Date.now(),
+                  ...(voice ? { isVoice: true as const } : {}),
+                  ...(wav ? { audioWavBase64: wav } : {}),
+                },
+              })
+            }
+            // 首条用户消息时，更新会话标题
+            const userCount = bridge.conversationRepo.countUserMessages(command.sessionKey)
+            if (userCount === 1) {
+              const conv = bridge.conversationRepo.getConversation(command.sessionKey)
+              const currentTitle = conv?.title?.trim()
+              if (!currentTitle || currentTitle === '新对话') {
+                const newTitle = deriveConversationTitleFromUserText(command.content)
+                bridge.conversationRepo.updateTitle(command.sessionKey, newTitle)
+                log.info(`[user:send] ACP 首条消息更新会话标题 sessionKey=${command.sessionKey} → "${newTitle}"`)
+              }
+            }
+          } catch (err) {
+            log.error(`[user:send] ACP 路径保存用户消息失败:`, err)
+          }
+
+          const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+          const controller = getAcpRunController()
+          void controller.startRun({
+            runId,
+            sessionKey: command.sessionKey,
+            backendId: currentBackend,
+            text: command.content,
+            instanceId: `acp-${currentBackend}-${command.sessionKey}`,
+            bridge,
+            pushEvent: (event) => {
+              const win = ipcMainWindowRef
+              if (win && !win.isDestroyed()) pushEvent(win, event)
+            },
+          })
+          return { runId }
+        }
+
+        // openclaw 路径：需要 Agent 实例
         const instanceId = await getInstanceForSession(bridge, command.sessionKey, command.agentId)
         if (!instanceId) {
           throw new Error(`No agent instance found for session: ${command.sessionKey}. Create a conversation first.`)
@@ -615,29 +710,6 @@ async function handleCommand(
 
         const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
         trackRunInstance(runId, instanceId)
-
-        // 检查 ACP 后端：per-peer 优先，回退到 user-global，再回退到默认 openclaw
-        const acpMgr = getAcpBackendManager()
-        const currentBackend = acpMgr.getBackendWithFallback(LOCAL_USER_ID, command.sessionKey)
-        if (currentBackend !== 'openclaw') {
-          log.info(`[user:send] ACP 路径: backendId=${currentBackend} sessionKey=${command.sessionKey}`)
-          // Controller 内部负责：turn:start / message:start / delta / tool:start/progress/end /
-          // message:end / idle / timeout / abort / DB 持久化。异步执行，不阻塞 IPC 响应。
-          const controller = getAcpRunController()
-          void controller.startRun({
-            runId,
-            sessionKey: command.sessionKey,
-            backendId: currentBackend,
-            text: command.content,
-            instanceId,
-            bridge,
-            pushEvent: (event) => {
-              const win = ipcMainWindowRef
-              if (win && !win.isDestroyed()) pushEvent(win, event)
-            },
-          })
-          return { runId }
-        }
 
         // openclaw：通过 IpcChannelAdapter → SessionManager 发送（含并发保护 + 增量同步）
         // 不 await，让它在后台运行

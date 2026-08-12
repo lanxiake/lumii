@@ -95,53 +95,11 @@ const WIN_INSTALL_RECIPES: Record<PrimaryLocalAcpToolId, InstallRecipe> = {
     timeoutMs: 10 * 60_000,
     hint: '官方 Codex 独立安装脚本；若失败可改用 npm install -g @openai/codex。',
   },
-  copilot: {
-    displayCommand: 'npm install -g @github/copilot',
-    powershellCommand: 'npm install -g @github/copilot',
-    timeoutMs: 8 * 60_000,
-    hint: '需已安装 Node.js 22+。也可使用 winget install GitHub.Copilot。',
-  },
-  gemini: {
-    displayCommand: 'npm install -g @google/gemini-cli',
-    powershellCommand: 'npm install -g @google/gemini-cli',
-    timeoutMs: 8 * 60_000,
-    hint: '需已安装 Node.js 20+。官方 npm 包，同一命令可用于升级到最新版。',
-  },
   opencode: {
     displayCommand: 'npm install -g opencode-ai',
     powershellCommand: 'npm install -g opencode-ai',
     timeoutMs: 8 * 60_000,
     hint: '官方 npm 包（内含各平台预编译二进制）。同一命令可用于升级。',
-  },
-  qwen: {
-    displayCommand: 'npm install -g @qwen-code/qwen-code',
-    powershellCommand: 'npm install -g @qwen-code/qwen-code',
-    timeoutMs: 8 * 60_000,
-    hint: '需已安装 Node.js 20+。官方 npm 包，同一命令可用于升级。',
-  },
-  qoder: {
-    displayCommand: 'irm https://qoder.com/install.ps1 | iex',
-    powershellCommand: 'irm https://qoder.com/install.ps1 | iex',
-    timeoutMs: 10 * 60_000,
-    hint: '官方 Windows 安装脚本。完成后可能需重启灵栖以刷新 PATH。',
-  },
-  auggie: {
-    displayCommand: 'npm install -g @augmentcode/auggie',
-    powershellCommand: 'npm install -g @augmentcode/auggie',
-    timeoutMs: 8 * 60_000,
-    hint: '需已安装 Node.js 22+。官方 npm 包，同一命令可用于升级。',
-  },
-  kimi: {
-    displayCommand: 'uv tool install --python 3.13 kimi-cli',
-    powershellCommand: 'uv tool install --python 3.13 kimi-cli',
-    timeoutMs: 10 * 60_000,
-    hint: '需先安装 uv（irm https://astral.sh/uv/install.ps1 | iex）。升级用 uv tool upgrade kimi-cli。',
-  },
-  hermes: {
-    displayCommand: 'iex (irm https://hermes-agent.nousresearch.com/install.ps1)',
-    powershellCommand: 'iex (irm https://hermes-agent.nousresearch.com/install.ps1)',
-    timeoutMs: 15 * 60_000,
-    hint: '官方 Windows 安装脚本，需 Python 3.11–3.13。完成后可能需重启灵栖以刷新 PATH。',
   },
 }
 
@@ -212,14 +170,6 @@ function resolveUninstallRecipe(status: LocalAcpToolStatus): UninstallRecipe {
         documented: false,
         hint: 'Cursor 官方未提供卸载命令，此路径取自官方安装脚本的安装目录（~/.local/bin）。PATH 中的残留条目需手动清理。',
       }
-    case 'copilot':
-      return npmUninstall('@github/copilot', '若当初用 winget 安装，请改用 winget uninstall GitHub.Copilot。')
-    case 'gemini':
-      return npmUninstall('@google/gemini-cli')
-    case 'qwen':
-      return npmUninstall('@qwen-code/qwen-code')
-    case 'auggie':
-      return npmUninstall('@augmentcode/auggie')
     case 'opencode':
       if (npmPath) return npmUninstall('opencode-ai')
       return {
@@ -227,28 +177,6 @@ function resolveUninstallRecipe(status: LocalAcpToolStatus): UninstallRecipe {
         powershellCommand: '',
         documented: false,
         hint: '本机 OpenCode 不是 npm 全局安装（可能是 choco / scoop / 安装脚本 / 独立安装包），无法自动卸载，需按当初的安装方式手动移除。',
-      }
-    case 'qoder':
-      if (npmPath) return npmUninstall('@qoder-ai/qodercli')
-      return {
-        displayCommand: `（手动）删除 ${status.resolvedPath ?? 'Qoder 可执行文件'} 并清理 PATH`,
-        powershellCommand: '',
-        documented: false,
-        hint: 'Qoder 官方脚本安装无卸载命令，需手动删除可执行文件并清理 PATH。',
-      }
-    case 'kimi':
-      return {
-        displayCommand: 'uv tool uninstall kimi-cli',
-        powershellCommand: 'uv tool uninstall kimi-cli',
-        documented: true,
-        hint: '按官方文档用 uv 卸载。',
-      }
-    case 'hermes':
-      return {
-        displayCommand: 'hermes uninstall --yes',
-        powershellCommand: 'hermes uninstall --yes',
-        documented: true,
-        hint: '调用 Hermes 内置卸载命令（非交互）；~/.hermes 数据默认保留，彻底清理需加 --all。',
       }
   }
 }

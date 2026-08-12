@@ -30,6 +30,8 @@ export type LocalAcpToolStatusView = {
   latestVersion?: string
   /** CLI 自带升级命令（查不到 registry 版本号的工具，如 Cursor 的 agent update） */
   selfUpdateCommand?: string
+  /** 认证状态：ok=已登录，required=需登录，unknown=未知 */
+  authStatus?: 'ok' | 'required' | 'unknown'
   /** 该卡片的探测状态：元数据已渲染但尚未探测时为 pending */
   detectState: 'pending' | 'detecting' | 'done'
 }
@@ -39,14 +41,7 @@ const TOOL_ICON: Record<string, { bg: string; label: string }> = {
   cursor: { bg: '#1a1a1a', label: 'Cu' },
   claude: { bg: '#CC785C', label: 'Cl' },
   codex: { bg: '#10A37F', label: 'Co' },
-  copilot: { bg: '#238636', label: 'Gh' },
-  gemini: { bg: '#4285F4', label: 'Ge' },
   opencode: { bg: '#fb923c', label: 'Oc' },
-  qwen: { bg: '#615ced', label: 'Qw' },
-  qoder: { bg: '#ff6a00', label: 'Qo' },
-  auggie: { bg: '#7c3aed', label: 'Au' },
-  kimi: { bg: '#0f172a', label: 'Ki' },
-  hermes: { bg: '#0ea5e9', label: 'He' },
 }
 
 /**
@@ -148,6 +143,7 @@ export const CodingDevAcpPanel: React.FC = () => {
   /** 与 installingId 分开：同一张卡片"安装/升级中"与"卸载中"是互斥的两种状态，
    * 共用一个标记会导致卸载执行时误渲染成升级按钮的 loading 态 */
   const [uninstallingId, setUninstallingId] = useState<string | null>(null)
+  const [loggingInId, setLoggingInId] = useState<string | null>(null)
   const [installMsg, setInstallMsg] = useState<string | null>(null)
   const [uninstallTarget, setUninstallTarget] = useState<UninstallPreview | null>(null)
   const projectsApi = useCodingDevProjects()
@@ -305,6 +301,25 @@ export const CodingDevAcpPanel: React.FC = () => {
   }, [uninstallTarget, detectOne])
 
   /**
+   * 触发 CLI 登录（如 cursor agent login 打开浏览器 OAuth）
+   */
+  const handleLogin = useCallback(async (toolId: string) => {
+    setLoggingInId(toolId)
+    setInstallMsg('正在打开登录窗口，请在浏览器中完成授权…')
+    try {
+      const result = await window.electronAPI.app.loginCodingDevTool(toolId)
+      setInstallMsg(result.message)
+      if (result.success) {
+        await detectOne(toolId)
+      }
+    } catch (e: unknown) {
+      setInstallMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoggingInId(null)
+    }
+  }, [detectOne])
+
+  /**
    * 交给 AI 安装：新开会话并预填提示词，让 Agent 查最新文档后动手
    */
   const handleAiInstall = useCallback((t: LocalAcpToolStatusView) => {
@@ -325,7 +340,7 @@ export const CodingDevAcpPanel: React.FC = () => {
             <div className={styles.title}>开发类 AI 工具（本机 ACP）</div>
             <p className={styles.desc}>
               仅连接本机已安装的 CLI（Cursor 需单独安装 Agent CLI，不是编辑器自带的 cursor）。
-              对话中用 /{'{'}工具名{'}'} 切换到对应后端（如 /claude、/codex、/hermes），/lumii 回到主代理。
+              对话中用 /{'{'}工具名{'}'} 切换到对应后端（如 /claude、/codex、/cursor），/lumii 回到主代理。
             </p>
           </div>
           <Button variant="secondary" size="sm" loading={detecting} onClick={() => { void reloadTools() }}>
@@ -367,6 +382,14 @@ export const CodingDevAcpPanel: React.FC = () => {
                         <span>{t.latestVersion}</span>
                       </div>
                     )}
+                    {t.authStatus && (
+                      <div className={styles.versionRow}>
+                        <span className={styles.versionLabel}>认证状态</span>
+                        <span className={t.authStatus === 'ok' ? styles.badgeOk : styles.badgeOff}>
+                          {t.authStatus === 'ok' ? '已登录' : '需登录'}
+                        </span>
+                      </div>
+                    )}
                     {t.resolvedPath && (
                       <code className={styles.path} title={t.resolvedPath}>{t.resolvedPath}</code>
                     )}
@@ -380,25 +403,18 @@ export const CodingDevAcpPanel: React.FC = () => {
               </div>
 
               <div className={styles.toolCardFooter}>
-                <button type="button" className={styles.linkBtn} onClick={() => openUrl(t.homepageUrl)}>
-                  官网
-                </button>
-                <button
-                  type="button"
-                  className={styles.linkBtn}
-                  onClick={() => handleAiInstall(t)}
-                  title="新开会话，让 AI 查最新文档后安装并配置"
-                >
-                  让 AI 安装
-                </button>
                 {!t.installed ? (
                   <>
+                    <button type="button" className={styles.linkBtn} onClick={() => openUrl(t.homepageUrl)}>
+                      官网
+                    </button>
                     <button
                       type="button"
                       className={styles.linkBtn}
-                      onClick={() => void copyInstallCommand(t.installCommand)}
+                      onClick={() => handleAiInstall(t)}
+                      title="新开会话，让 AI 查最新文档后安装并配置"
                     >
-                      复制命令
+                      让 AI 安装
                     </button>
                     <Button
                       size="sm"
@@ -418,33 +434,42 @@ export const CodingDevAcpPanel: React.FC = () => {
                         size="sm"
                         loading={installingId === t.id}
                         disabled={
-                          (installingId != null && installingId !== t.id) || uninstallingId === t.id
+                          (installingId != null && installingId !== t.id) || uninstallingId === t.id || loggingInId === t.id
                         }
                         onClick={() => void handleInstall(t.id)}
                       >
                         升级到 {t.latestVersion}
                       </Button>
                     ) : t.selfUpdateCommand ? (
-                      // 查不到 registry 最新版号，交给 CLI 自己比对（如 agent update）
                       <Button
                         size="sm"
                         variant="secondary"
                         loading={installingId === t.id}
                         disabled={
-                          (installingId != null && installingId !== t.id) || uninstallingId === t.id
+                          (installingId != null && installingId !== t.id) || uninstallingId === t.id || loggingInId === t.id
                         }
                         onClick={() => void handleInstall(t.id)}
                         title={`执行 ${t.selfUpdateCommand}`}
                       >
                         检查更新
                       </Button>
-                    ) : (
-                      <span className={styles.badgeOk}>已安装</span>
+                    ) : null}
+                    {t.authStatus === 'required' && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={loggingInId === t.id}
+                        disabled={installingId != null || uninstallingId != null || (loggingInId != null && loggingInId !== t.id)}
+                        onClick={() => void handleLogin(t.id)}
+                        title="打开浏览器完成 OAuth 授权"
+                      >
+                        {loggingInId === t.id ? '登录中…' : '登录'}
+                      </Button>
                     )}
                     <button
                       type="button"
-                      className={styles.dangerBtn}
-                      disabled={installingId != null || uninstallingId != null}
+                      className={styles.linkBtn}
+                      disabled={installingId != null || uninstallingId != null || loggingInId != null}
                       onClick={() => void beginUninstall(t.id)}
                     >
                       {uninstallingId === t.id ? '卸载中…' : '卸载'}

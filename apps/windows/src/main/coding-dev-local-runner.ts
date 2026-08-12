@@ -60,50 +60,12 @@ function buildLocalCliArgs(
     case 'cursor':
       return {
         command: resolvedCommand,
-        args: ['-p', prompt, '--output-format', 'stream-json'],
-      }
-    case 'copilot': {
-      const base = path.basename(resolvedCommand).toLowerCase()
-      // 独立 @github/copilot：非交互 print；旧版 gh copilot suggest
-      if (base.startsWith('gh')) {
-        return {
-          command: resolvedCommand,
-          args: ['copilot', 'suggest', '-t', 'shell', '-s', prompt],
-        }
-      }
-      return {
-        command: resolvedCommand,
-        args: ['-p', prompt],
-      }
-    }
-    // gemini-cli 及其分支（qwen）：-p 非交互 + 纯文本输出
-    case 'gemini':
-    case 'qwen':
-      return {
-        command: resolvedCommand,
-        args: ['-p', prompt, '--output-format', 'text'],
+        args: ['-p', prompt, '--output-format', 'stream-json', '--trust'],
       }
     case 'opencode':
       return {
         command: resolvedCommand,
         args: ['run', prompt],
-      }
-    case 'auggie':
-      return {
-        command: resolvedCommand,
-        args: ['--print', prompt, '--quiet'],
-      }
-    case 'kimi':
-    case 'qoder':
-      return {
-        command: resolvedCommand,
-        args: ['-p', prompt],
-      }
-    case 'hermes':
-      // 注意：hermes 的 -p 是 --profile，一次性执行用 -z
-      return {
-        command: resolvedCommand,
-        args: ['-z', prompt],
       }
   }
 }

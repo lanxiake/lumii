@@ -1,15 +1,22 @@
 /**
  * coding-dev-cli-version 单元测试
  *
- * detectToolVersion 依赖 child_process.execFile，fetchNpmLatestVersion 依赖 node:https，
+ * detectToolVersion 依赖 child_process.spawn，fetchNpmLatestVersion 依赖 node:https，
  * 都 mock 掉外部依赖，只验证解析逻辑和失败静默降级。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
+import { Readable } from 'node:stream'
 
-const execFileMock = vi.fn()
+class MockChildProcess extends EventEmitter {
+  stdout = new Readable({ read() {} })
+  stderr = new Readable({ read() {} })
+  kill = vi.fn()
+}
+
+const spawnMock = vi.fn()
 vi.mock('node:child_process', () => {
-  const mod = { execFile: (...args: unknown[]) => execFileMock(...args) }
+  const mod = { spawn: (...args: unknown[]) => spawnMock(...args) }
   return { default: mod, ...mod }
 })
 
@@ -23,64 +30,104 @@ const { detectToolVersion, fetchNpmLatestVersion } = await import('./coding-dev-
 
 describe('detectToolVersion', () => {
   beforeEach(() => {
-    execFileMock.mockReset()
+    spawnMock.mockReset()
   })
 
   it('从 stdout 提取语义化版本号', async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
-      cb(null, 'claude-code 1.2.3\n', '')
+    const child = new MockChildProcess()
+    spawnMock.mockReturnValue(child)
+    const promise = detectToolVersion('/usr/bin/claude')
+    setImmediate(() => {
+      child.stdout.push('claude-code 1.2.3\n')
+      child.stdout.push(null)
+      child.emit('close', 0)
     })
-    const result = await detectToolVersion('/usr/bin/claude')
+    const result = await promise
     expect(result).toBe('1.2.3')
   })
 
   it('stdout 没有版本号但 stderr 有时也能提取', async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
-      cb(null, '', 'version: 2.0.1')
+    const child = new MockChildProcess()
+    spawnMock.mockReturnValue(child)
+    const promise = detectToolVersion('/usr/bin/tool')
+    setImmediate(() => {
+      child.stderr.push('version: 2.0.1')
+      child.stderr.push(null)
+      child.emit('close', 0)
     })
-    const result = await detectToolVersion('/usr/bin/tool')
+    const result = await promise
     expect(result).toBe('2.0.1')
   })
 
   it('命令执行失败时返回 undefined，不抛出', async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
-      cb(new Error('ENOENT'), '', '')
+    spawnMock.mockImplementation(() => {
+      const child = new MockChildProcess()
+      setImmediate(() => {
+        child.emit('error', new Error('ENOENT'))
+      })
+      return child
     })
     const result = await detectToolVersion('/usr/bin/missing')
     expect(result).toBeUndefined()
   })
 
   it('输出里没有版本号格式时返回 undefined', async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
-      cb(null, 'no version info here', '')
+    spawnMock.mockImplementation(() => {
+      const child = new MockChildProcess()
+      setImmediate(() => {
+        child.stdout.push('no version info here')
+        child.stdout.push(null)
+        child.emit('close', 0)
+      })
+      return child
     })
     const result = await detectToolVersion('/usr/bin/tool')
     expect(result).toBeUndefined()
   })
 
   it('--version 不支持时回退到 -v', async () => {
-    execFileMock.mockImplementation((_cmd, args, _opts, cb) => {
-      if (args[0] === '--version') cb(new Error('unknown flag'), '', '')
-      else cb(null, 'tool v3.4.5', '')
+    let callCount = 0
+    spawnMock.mockImplementation(() => {
+      const child = new MockChildProcess()
+      callCount++
+      if (callCount === 1) {
+        setTimeout(() => child.emit('error', new Error('unknown flag')), 0)
+      } else {
+        setTimeout(() => {
+          child.stdout.push('tool v3.4.5')
+          child.stdout.push(null)
+          child.emit('close', 0)
+        }, 0)
+      }
+      return child
     })
     const result = await detectToolVersion('/usr/bin/tool')
     expect(result).toBe('3.4.5')
   })
 
   it('保留 Cursor 的日期版本与 build hash', async () => {
-    // agent --version 实际输出：2026.07.23-e383d2b，截成 2026.07.23 会丢 build 标识
-    execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
-      cb(null, '2026.07.23-e383d2b\n', '')
+    const child = new MockChildProcess()
+    spawnMock.mockReturnValue(child)
+    const promise = detectToolVersion('/usr/bin/agent')
+    setImmediate(() => {
+      child.stdout.push('2026.07.23-e383d2b\n')
+      child.stdout.push(null)
+      child.emit('close', 0)
     })
-    const result = await detectToolVersion('/usr/bin/agent')
+    const result = await promise
     expect(result).toBe('2026.07.23-e383d2b')
   })
 
   it('保留语义化预发布后缀', async () => {
-    execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
-      cb(null, 'tool 1.2.3-beta.4', '')
+    const child = new MockChildProcess()
+    spawnMock.mockReturnValue(child)
+    const promise = detectToolVersion('/usr/bin/tool')
+    setImmediate(() => {
+      child.stdout.push('tool 1.2.3-beta.4')
+      child.stdout.push(null)
+      child.emit('close', 0)
     })
-    const result = await detectToolVersion('/usr/bin/tool')
+    const result = await promise
     expect(result).toBe('1.2.3-beta.4')
   })
 })

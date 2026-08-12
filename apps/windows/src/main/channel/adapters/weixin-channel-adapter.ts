@@ -513,12 +513,6 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     registry.register('claude-code', claudeCmd)       // 别名
     registry.register('codex', createSwitchBackendCommand('codex'))
     registry.register('opencode', createSwitchBackendCommand('opencode'))
-    registry.register('gemini', createSwitchBackendCommand('gemini'))
-    registry.register('qoder', createSwitchBackendCommand('qoder'))
-    registry.register('qwen', createSwitchBackendCommand('qwen'))
-    registry.register('kimi', createSwitchBackendCommand('kimi'))
-    registry.register('copilot', createSwitchBackendCommand('copilot'))
-    registry.register('auggie', createSwitchBackendCommand('auggie'))
     registry.register('cursor', createSwitchBackendCommand('cursor'))
     // 跨通道绑定
     registry.register('link', linkCommand)

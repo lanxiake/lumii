@@ -7,17 +7,10 @@ export const DEFAULT_CODING_DEV_BACKEND_ID = "openclaw" as const;
 
 export const CODING_DEV_BACKEND_IDS = [
   DEFAULT_CODING_DEV_BACKEND_ID,
-  "codex",
-  "claude",
-  "qoder",
-  "qwen",
-  "kimi",
-  "opencode",
-  "copilot",
-  "auggie",
   "cursor",
-  "gemini",
-  "hermes",
+  "claude",
+  "codex",
+  "opencode",
 ] as const;
 
 export const IMPLEMENTED_CODING_DEV_BACKEND_IDS = CODING_DEV_BACKEND_IDS;
@@ -30,17 +23,10 @@ export type LightweightCodingDevBackendId = Exclude<ImplementedCodingDevBackendI
 
 export const CODING_DEV_BACKEND_LABELS: Record<CodingDevBackendId, string> = {
   openclaw: "OpenClaw / MtBot 主代理",
-  codex: "Codex",
-  claude: "Claude Code",
-  qoder: "Qoder CLI",
-  qwen: "Qwen Code",
-  kimi: "Kimi CLI",
-  opencode: "OpenCode",
-  copilot: "GitHub Copilot",
-  auggie: "Auggie",
   cursor: "Cursor CLI",
-  gemini: "Gemini CLI",
-  hermes: "Hermes Agent",
+  claude: "Claude Code",
+  codex: "Codex",
+  opencode: "OpenCode",
 };
 
 export type BackendSelectionSource = "default" | "stored" | "fallback";
@@ -79,7 +65,7 @@ export type CodingDevToolProgress = {
 };
 
 export type CodingDevLightweightBackendProgress = {
-  kind: "message" | "plan" | "status" | "tool";
+  kind: "message" | "plan" | "status" | "tool" | "thinking";
   text: string;
   /** 当 kind:"tool" 时携带结构化工具信息 */
   tool?: CodingDevToolProgress;
@@ -123,12 +109,7 @@ export function normalizeCodingDevBackendId(raw: string): CodingDevBackendId | u
   const trimmed = raw.trim().toLowerCase();
   if (!trimmed) return undefined;
   if (trimmed === "claude-code") return "claude";
-  if (trimmed === "qoder-cli") return "qoder";
-  if (trimmed === "qwen-code") return "qwen";
-  if (trimmed === "kimi-code" || trimmed === "kimi-cli") return "kimi";
   if (trimmed === "open-code" || trimmed === "opencode-ai") return "opencode";
-  if (trimmed === "augment") return "auggie";
-  if (trimmed === "github-copilot" || trimmed === "copilot-cli") return "copilot";
   if (trimmed === "cursor-cli" || trimmed === "cursor-agent") return "cursor";
   if (trimmed === "mtbot" || trimmed === "lumii" || trimmed === "main") return "openclaw";
   return isCodingDevBackendId(trimmed) ? trimmed : undefined;

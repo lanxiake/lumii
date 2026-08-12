@@ -113,7 +113,7 @@ describe('AcpToolStreamParser', () => {
   })
 
   it('无解析器后端回落为纯文本', () => {
-    const parser = new AcpToolStreamParser('qwen')
+    const parser = new AcpToolStreamParser('codex')
     const msg = parser.parseLine('some random output')
     expect(msg).toEqual({ kind: 'message', text: 'some random output' })
   })

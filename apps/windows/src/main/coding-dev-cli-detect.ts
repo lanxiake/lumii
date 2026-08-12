@@ -1,7 +1,7 @@
 /**
  * 本机开发类 AI 工具（ACP）元数据与 CLI 探测
  *
- * 常用子集：cursor / claude / codex / copilot
+ * 常用子集：cursor / claude / codex / opencode
  */
 
 import { execFile } from 'node:child_process'
@@ -22,14 +22,7 @@ export const PRIMARY_LOCAL_ACP_TOOLS = [
   'cursor',
   'claude',
   'codex',
-  'copilot',
-  'gemini',
   'opencode',
-  'qwen',
-  'qoder',
-  'auggie',
-  'kimi',
-  'hermes',
 ] as const
 
 export type PrimaryLocalAcpToolId = (typeof PRIMARY_LOCAL_ACP_TOOLS)[number]
@@ -68,6 +61,8 @@ export interface LocalAcpToolStatus extends LocalAcpToolMeta {
   currentVersion?: string
   /** npm registry 上的最新版本号（仅 npmPackageName 存在时查询） */
   latestVersion?: string
+  /** 认证状态：ok=已登录，required=需登录，unknown=未知 */
+  authStatus?: 'ok' | 'required' | 'unknown'
 }
 
 /** 工具元数据（官网 / GitHub / 安装页） */
@@ -108,28 +103,6 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     installHint: '官方独立安装脚本',
     npmPackageName: '@openai/codex',
   },
-  copilot: {
-    id: 'copilot',
-    label: 'GitHub Copilot CLI',
-    description: '独立 Copilot CLI（npm：@github/copilot）',
-    commands: ['copilot', 'gh'],
-    homepageUrl: 'https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli',
-    installUrl: 'https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli',
-    installCommand: 'npm install -g @github/copilot',
-    installHint: '需 Node.js 22+；也可 winget install GitHub.Copilot',
-    npmPackageName: '@github/copilot',
-  },
-  gemini: {
-    id: 'gemini',
-    label: 'Gemini CLI',
-    description: 'Google Gemini CLI',
-    commands: ['gemini'],
-    homepageUrl: 'https://geminicli.com',
-    installUrl: 'https://google-gemini.github.io/gemini-cli/docs/get-started/installation.html',
-    installCommand: 'npm install -g @google/gemini-cli',
-    installHint: '需 Node.js 20+；官方 npm 包',
-    npmPackageName: '@google/gemini-cli',
-  },
   opencode: {
     id: 'opencode',
     label: 'OpenCode',
@@ -140,61 +113,6 @@ export const LOCAL_ACP_TOOL_META: Record<PrimaryLocalAcpToolId, LocalAcpToolMeta
     installCommand: 'npm install -g opencode-ai',
     installHint: '官方 npm 包（内含各平台预编译二进制）',
     npmPackageName: 'opencode-ai',
-  },
-  qwen: {
-    id: 'qwen',
-    label: 'Qwen Code',
-    description: '通义千问代码 CLI（gemini-cli 分支）',
-    commands: ['qwen'],
-    homepageUrl: 'https://qwenlm.github.io/qwen-code-docs/',
-    installUrl: 'https://qwenlm.github.io/qwen-code-docs/en/',
-    installCommand: 'npm install -g @qwen-code/qwen-code',
-    installHint: '需 Node.js 20+；官方 npm 包',
-    npmPackageName: '@qwen-code/qwen-code',
-  },
-  qoder: {
-    id: 'qoder',
-    label: 'Qoder CLI',
-    description: '阿里 Qoder AI 编码 CLI',
-    commands: ['qoder', 'qodercli'],
-    homepageUrl: 'https://qoder.com/cli',
-    installUrl: 'https://qoder.com/cli',
-    installCommand: 'irm https://qoder.com/install.ps1 | iex',
-    installHint: '官方 Windows 安装脚本（推荐）；也可用 npm install -g @qoder-ai/qodercli',
-    npmPackageName: '@qoder-ai/qodercli',
-  },
-  auggie: {
-    id: 'auggie',
-    label: 'Auggie (Augment Code)',
-    description: 'Augment Code 的 auggie CLI',
-    commands: ['auggie'],
-    homepageUrl: 'https://www.augmentcode.com/product/CLI',
-    installUrl: 'https://docs.augmentcode.com/cli/overview',
-    installCommand: 'npm install -g @augmentcode/auggie',
-    installHint: '需 Node.js 22+；官方 npm 包',
-    npmPackageName: '@augmentcode/auggie',
-  },
-  kimi: {
-    id: 'kimi',
-    label: 'Kimi CLI',
-    description: 'Moonshot Kimi CLI（Python 包）',
-    commands: ['kimi'],
-    homepageUrl: 'https://www.kimi.com/coding/docs/',
-    installUrl: 'https://moonshotai.github.io/kimi-cli/en/guides/getting-started.html',
-    installCommand: 'uv tool install --python 3.13 kimi-cli',
-    installHint: '需 Python 3.13 与 uv；PyPI 包 kimi-cli',
-    pypiPackageName: 'kimi-cli',
-  },
-  hermes: {
-    id: 'hermes',
-    label: 'Hermes Agent',
-    description: 'Nous Research Hermes Agent（Python 包）',
-    commands: ['hermes'],
-    homepageUrl: 'https://hermes-agent.nousresearch.com/',
-    installUrl: 'https://hermes-agent.nousresearch.com/docs/getting-started/installation',
-    installCommand: 'iex (irm https://hermes-agent.nousresearch.com/install.ps1)',
-    installHint: '官方 Windows 安装脚本（推荐）；需 Python 3.11–3.13',
-    pypiPackageName: 'hermes-agent',
   },
 }
 
@@ -318,6 +236,59 @@ export function needsWindowsShell(commandPath: string): boolean {
 }
 
 /**
+ * 检测工具认证状态（cursor 用 agent status）
+ */
+async function detectAuthStatus(
+  id: PrimaryLocalAcpToolId,
+  resolvedPath: string,
+): Promise<'ok' | 'required' | 'unknown'> {
+  if (id !== 'cursor') return 'unknown' // 暂时只支持 cursor
+  try {
+    const useShell = needsWindowsShell(resolvedPath)
+    const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+      const { spawn } = require('node:child_process')
+      const child = spawn(resolvedPath, ['status'], {
+        windowsHide: true,
+        shell: useShell,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = ''
+      let stderr = ''
+      const timeout = setTimeout(() => {
+        child.kill()
+        reject(new Error('timeout'))
+      }, 5_000)
+      child.stdout?.on('data', (buf: Buffer) => {
+        stdout += buf.toString('utf8')
+      })
+      child.stderr?.on('data', (buf: Buffer) => {
+        stderr += buf.toString('utf8')
+      })
+      child.on('error', (err: Error) => {
+        clearTimeout(timeout)
+        reject(err)
+      })
+      child.on('close', () => {
+        clearTimeout(timeout)
+        resolve({ stdout, stderr })
+      })
+    })
+    const output = (result.stdout + result.stderr).toLowerCase()
+    // "not logged in" 表示需要登录
+    if (output.includes('not logged in') || output.includes('not authenticated')) {
+      return 'required'
+    }
+    // 有 "logged in" 或 "authenticated" 表示已登录
+    if (output.includes('logged in') || output.includes('authenticated')) {
+      return 'ok'
+    }
+    return 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+/**
  * 已安装时补充版本信息：当前版本探测 + npm/PyPI 最新版本查询（并行，互不阻塞）
  */
 async function withVersionInfo(
@@ -325,13 +296,14 @@ async function withVersionInfo(
   resolvedPath: string,
   resolvedCommand: string,
 ): Promise<LocalAcpToolStatus> {
-  const [currentVersion, latestVersion] = await Promise.all([
+  const [currentVersion, latestVersion, authStatus] = await Promise.all([
     detectToolVersion(resolvedPath),
     meta.npmPackageName
       ? fetchNpmLatestVersion(meta.npmPackageName)
       : meta.pypiPackageName
         ? fetchPypiLatestVersion(meta.pypiPackageName)
         : Promise.resolve(undefined),
+    detectAuthStatus(meta.id, resolvedPath),
   ])
   return {
     ...meta,
@@ -340,6 +312,7 @@ async function withVersionInfo(
     resolvedCommand,
     ...(currentVersion ? { currentVersion } : {}),
     ...(latestVersion ? { latestVersion } : {}),
+    ...(authStatus !== 'unknown' ? { authStatus } : {}),
   }
 }
 
@@ -359,19 +332,6 @@ export async function detectLocalAcpTool(id: PrimaryLocalAcpToolId): Promise<Loc
   for (const cmd of meta.commands) {
     const resolved = await resolveCommandPath(cmd)
     if (!resolved) continue
-    // copilot：仅 gh 不算装好，需能跑 gh copilot
-    if (id === 'copilot' && path.basename(resolved).toLowerCase().startsWith('gh')) {
-      try {
-        await execFileAsync(resolved, ['copilot', '--help'], {
-          windowsHide: true,
-          timeout: 10_000,
-          maxBuffer: 1024 * 512,
-        })
-        return await withVersionInfo(meta, resolved, 'gh copilot')
-      } catch {
-        continue
-      }
-    }
     return await withVersionInfo(meta, resolved, cmd)
   }
   return { ...meta, installed: false }

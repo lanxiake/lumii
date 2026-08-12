@@ -7,7 +7,8 @@
  * 两者都是"最好有，没有也不影响主功能"，失败都静默返回 undefined。
  */
 
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
+import path from 'node:path'
 import https from 'node:https'
 
 /**
@@ -16,20 +17,59 @@ import https from 'node:https'
  */
 const VERSION_REGEX = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/
 
-/** 手写 Promise 包装而非 util.promisify —— execFile 的多值回调依赖 Node 内部的
- *  customPromisifyArgs 符号，直接 promisify 在测试 mock 场景下会丢失 stderr。 */
-function execFileWithOutput(
+/**
+ * .cmd/.bat 必须经 shell 启动
+ */
+function needsWindowsShell(commandPath: string): boolean {
+  if (process.platform !== 'win32') return false
+  const ext = path.extname(commandPath).toLowerCase()
+  return ext === '.cmd' || ext === '.bat'
+}
+
+/**
+ * spawn 版本探测（支持 .cmd/.bat，与 local-runner 统一）
+ */
+function spawnWithOutput(
   cmd: string,
   args: string[],
-  options: { windowsHide: boolean; timeout: number; maxBuffer: number },
+  timeoutMs: number,
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, options, (error, stdout, stderr) => {
-      if (error) {
-        reject(error)
-        return
+    const useShell = needsWindowsShell(cmd)
+    const child = spawn(cmd, args, {
+      windowsHide: true,
+      shell: useShell,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true
+        child.kill()
+        reject(new Error('版本探测超时'))
       }
-      resolve({ stdout: String(stdout), stderr: String(stderr) })
+    }, timeoutMs)
+    child.stdout?.on('data', (buf: Buffer) => {
+      stdout += buf.toString('utf8')
+    })
+    child.stderr?.on('data', (buf: Buffer) => {
+      stderr += buf.toString('utf8')
+    })
+    child.on('error', (err) => {
+      if (!settled) {
+        settled = true
+        clearTimeout(timer)
+        reject(err)
+      }
+    })
+    child.on('close', () => {
+      if (!settled) {
+        settled = true
+        clearTimeout(timer)
+        resolve({ stdout, stderr })
+      }
     })
   })
 }
@@ -47,11 +87,7 @@ const VERSION_FLAGS = ['--version', '-v', '-V']
 export async function detectToolVersion(resolvedPath: string): Promise<string | undefined> {
   for (const flag of VERSION_FLAGS) {
     try {
-      const { stdout, stderr } = await execFileWithOutput(resolvedPath, [flag], {
-        windowsHide: true,
-        timeout: 8_000,
-        maxBuffer: 1024 * 64,
-      })
+      const { stdout, stderr } = await spawnWithOutput(resolvedPath, [flag], 8_000)
       const match = VERSION_REGEX.exec(stdout) ?? VERSION_REGEX.exec(stderr)
       if (match) return match[1]
     } catch {
