@@ -25,6 +25,7 @@ import { IpcChannelAdapter } from '../channel/adapters/ipc-channel-adapter'
 import { StatefulContextStrategy } from '../channel/context-strategy/stateful-strategy'
 import type { WeixinSessionBindingManager } from '../channel/weixin-session-binding'
 import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
+import { DEFAULT_CODING_DEV_BACKEND_ID } from '../coding-dev-backends-stub/contracts.js'
 import { extractDocumentText } from '../vendor/document-parser.js'
 import { getAcpRunController } from '../coding-dev-acp-run.js'
 
@@ -551,6 +552,27 @@ async function handleCommand(
           `[user:send] sessionKey=${command.sessionKey}, instanceId=${instanceId}, modelId=${command.modelId ?? '(default)'}, content="${command.content.slice(0, 50)}"`,
         )
 
+        // 确保会话存在于数据库（防止前端 createSession IPC 尚未完成时用户就发送了消息）
+        const existingConv = bridge.conversationRepo.getConversation(command.sessionKey)
+        if (!existingConv) {
+          log.warn(`[user:send] 会话 ${command.sessionKey} 不存在，自动创建`)
+          const agentId = command.agentId ?? 'assistant'
+          // 直接插入数据库，使用前端传入的 sessionKey 作为 conversation.id
+          const now = new Date().toISOString()
+          bridge.conversationRepo['db'].prepare(
+            `INSERT INTO conversations (id, user_id, title, is_active, created_at)
+             VALUES (?, ?, ?, 1, ?)`,
+          ).run(command.sessionKey, LOCAL_USER_ID, '新对话', now)
+          // 插入参与者（user + agent）
+          const insertParticipant = bridge.conversationRepo['db'].prepare(
+            `INSERT INTO conversation_participants (conversation_id, participant_type, participant_id, joined_at)
+             VALUES (?, ?, ?, ?)`,
+          )
+          insertParticipant.run(command.sessionKey, 'user', LOCAL_USER_ID, now)
+          insertParticipant.run(command.sessionKey, 'agent', agentId, now)
+          log.info(`[user:send] 自动创建会话 ${command.sessionKey}, agentId=${agentId}`)
+        }
+
         // 持久化用户消息到 DB（sessionKey === conversationId；语音消息含 WAV 供历史回放）
         try {
           const voice = 'isVoice' in command && command.isVoice === true
@@ -616,10 +638,10 @@ async function handleCommand(
         const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
         trackRunInstance(runId, instanceId)
 
-        // 检查 ACP 后端：per-peer 优先，回退到 user-global，再回退到默认 openclaw
+        // 检查 ACP 后端：per-peer 优先，回退到 user-global，再回退到默认主代理
         const acpMgr = getAcpBackendManager()
         const currentBackend = acpMgr.getBackendWithFallback(LOCAL_USER_ID, command.sessionKey)
-        if (currentBackend !== 'openclaw') {
+        if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
           log.info(`[user:send] ACP 路径: backendId=${currentBackend} sessionKey=${command.sessionKey}`)
           // Controller 内部负责：turn:start / message:start / delta / tool:start/progress/end /
           // message:end / idle / timeout / abort / DB 持久化。异步执行，不阻塞 IPC 响应。
@@ -639,7 +661,7 @@ async function handleCommand(
           return { runId }
         }
 
-        // openclaw：通过 IpcChannelAdapter → SessionManager 发送（含并发保护 + 增量同步）
+        // 主代理：通过 IpcChannelAdapter → SessionManager 发送（含并发保护 + 增量同步）
         // 不 await，让它在后台运行
         // 图片附件路径透传给 bridge.prompt，由其读盘转 base64 构造多模态 ImageContent 块
         const imageAttachmentPaths = command.imageAttachmentPaths
@@ -679,7 +701,7 @@ async function handleCommand(
           if (command.runId) untrackRun(command.runId)
           return undefined
         }
-        // 2. 现有 openclaw 中止逻辑：清挂起等待 + 级联 abort + 释放会话串行锁
+        // 2. 现有主代理中止逻辑：清挂起等待 + 级联 abort + 释放会话串行锁
         if (command.sessionKey) {
           const abortedRoots = bridge.abortSession(command.sessionKey)
           // 无论是否找到根实例，都清锁，防止上一轮 prompt Promise 未 settle 卡住后续 send
