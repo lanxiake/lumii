@@ -11,6 +11,11 @@ import {
   type DatabaseAdapter,
   estimateTokenCount,
   createGatewayStreamFn,
+  resolveManualCompactKeepCount,
+  buildCompactSummaryPrompt,
+  formatCompactSummary,
+  NO_TOOLS_PREAMBLE,
+  NO_TOOLS_TRAILER,
 } from '@mtbot/agent-runtime'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
@@ -101,7 +106,8 @@ export class BridgeContextCompactor {
   }
 
   /**
-   * 手动压缩指定会话的上下文（删除旧消息，仅保留最近 N 轮）
+   * 同步裁剪指定会话上下文（无 LLM 摘要，至少保留 1 条）。
+   * 短对话也会按一半历史删除，不再因「不足 12 条」直接跳过。
    */
   compactContext(
     sessionKey: string,
@@ -117,10 +123,11 @@ export class BridgeContextCompactor {
     ).all(sessionKey) as { id: string }[]
 
     const previousMessageCount = allMessages.length
-    const keepCount = keepRecentTurns * 2
-    if (allMessages.length <= keepCount) {
+    // 同步路径无 LLM 摘要，至少保留 1 条，避免把会话清空
+    const keepCount = Math.max(1, resolveManualCompactKeepCount(allMessages.length, keepRecentTurns))
+    if (allMessages.length === 0 || keepCount >= allMessages.length) {
       log.info(
-        `[compactContext] sessionKey=${sessionKey} 消息数(${allMessages.length}) <= keepCount(${keepCount})，无需压缩`,
+        `[compactContext] sessionKey=${sessionKey} 消息数(${allMessages.length}) 无法在无摘要时压缩，跳过`,
       )
       return { success: true, previousMessageCount, newMessageCount: allMessages.length, messagesRemoved: 0 }
     }
@@ -164,10 +171,11 @@ export class BridgeContextCompactor {
   /**
    * 异步压缩上下文（含 LLM 摘要生成）。
    *
+   * 手动压缩不看 token 阈值、也不因「不足 12 条」跳过：只要有消息就发出摘要请求。
    * 流程：
    * 1. 从 DB 加载待压缩消息
-   * 2. 调用 LLM 生成摘要（失败时降级为纯删除）
-   * 3. 删除旧消息（复用同步逻辑）
+   * 2. 调用 LLM 生成结构化摘要（失败时降级为纯删除，且绝不清空会话）
+   * 3. 删除旧段，保留最近一半或请求轮数
    * 4. 将摘要写入 DB（作为 assistant 消息）
    * 5. 同步 Agent 内存（restoreHistoryForInstance）
    * 6. 推送 agent:context:compacted 事件
@@ -193,25 +201,20 @@ export class BridgeContextCompactor {
     ).all(sessionKey) as { id: string }[]
 
     const previousMessageCount = allMessages.length
-    const keepCount = keepRecentTurns * 2
-
-    if (allMessages.length <= keepCount) {
-      log.info(
-        `[compactContextAsync] 消息数(${allMessages.length}) <= keepCount(${keepCount})，无需压缩: sessionKey=${sessionKey}`,
-      )
+    if (previousMessageCount === 0) {
+      log.info(`[compactContextAsync] 无消息可压缩: sessionKey=${sessionKey}`)
       return {
         success: true,
-        previousMessageCount,
-        newMessageCount: allMessages.length,
+        previousMessageCount: 0,
+        newMessageCount: 0,
         messagesRemoved: 0,
         hadSummary: false,
       }
     }
 
-    const toDelete = allMessages.slice(0, allMessages.length - keepCount)
-    const ids = toDelete.map((m) => m.id)
+    let keepCount = resolveManualCompactKeepCount(previousMessageCount, keepRecentTurns)
 
-    // 尝试 LLM 摘要
+    // 尝试 LLM 摘要：手动压缩无论消息多少都发出摘要请求
     let summaryText: string | null = null
     const piMessages = repo.loadMessagesAsPiFormat(sessionKey, { limit: allMessages.length }) as AgentMessage[]
     const previousTokenCount = estimateTokenCount(piMessages)
@@ -221,13 +224,20 @@ export class BridgeContextCompactor {
     const activeModel = instanceStreamEntry?.model ?? this.deps.getMainModel()
     if (activeInnerStream && activeModel) {
       try {
-        // ✅ 修复：传完整消息（包含最近消息）给 LLM，而非仅旧消息
-        // 这样 LLM 能看到完整对话上下文，生成更准确的摘要
         const summaryPrompt =
-          '请用简洁的中文总结以上对话的关键信息、决策和结论，以便后续对话可以继续。重点关注前面较早的对话内容。'
+          NO_TOOLS_PREAMBLE +
+          buildCompactSummaryPrompt({ domainHint: 'general' }) +
+          NO_TOOLS_TRAILER
         const generator = this.deps.createSummaryGenerator(activeInnerStream, activeModel)
-        summaryText = await generator(piMessages, summaryPrompt, signal)
-        log.info(`[compactContextAsync] LLM 摘要生成成功（已看完整 ${piMessages.length} 条消息）: ${summaryText?.length ?? 0} 字符`)
+        const rawSummary = await generator(piMessages, summaryPrompt, signal)
+        summaryText = rawSummary ? formatCompactSummary(rawSummary) : null
+        if (summaryText) {
+          log.info(
+            `[compactContextAsync] LLM 摘要生成成功（已看完整 ${piMessages.length} 条消息）: ${summaryText.length} 字符`,
+          )
+        } else {
+          log.warn(`[compactContextAsync] LLM 摘要返回空文本，降级为纯删除`)
+        }
       } catch (err) {
         log.warn(
           `[compactContextAsync] LLM 摘要生成失败，降级为纯删除: ${err instanceof Error ? err.message : String(err)}`,
@@ -236,6 +246,26 @@ export class BridgeContextCompactor {
     } else {
       log.warn(`[compactContextAsync] mainInnerStream/mainModel 未初始化，跳过 LLM 摘要`)
     }
+
+    // 无摘要时绝不清空会话：至少保留 1 条
+    if (!summaryText) {
+      keepCount = Math.max(keepCount, 1)
+    }
+    if (keepCount >= previousMessageCount) {
+      log.info(
+        `[compactContextAsync] 无法压缩（无摘要且仅 ${previousMessageCount} 条）: sessionKey=${sessionKey}`,
+      )
+      return {
+        success: true,
+        previousMessageCount,
+        newMessageCount: previousMessageCount,
+        messagesRemoved: 0,
+        hadSummary: false,
+      }
+    }
+
+    const toDelete = allMessages.slice(0, allMessages.length - keepCount)
+    const ids = toDelete.map((m) => m.id)
 
     // 删除旧消息
     const placeholders = ids.map(() => '?').join(', ')

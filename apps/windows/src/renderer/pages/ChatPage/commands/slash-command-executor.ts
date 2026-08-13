@@ -220,14 +220,21 @@ async function handleCompact(args: string, ctx: CommandContext): Promise<void> {
       type: 'user:compact-context',
       sessionKey: ctx.sessionKey,
       keepRecentTurns: 6,
-    }) as { success: boolean; messagesRemoved: number }
+    }) as { success: boolean; messagesRemoved: number; previousMessageCount?: number; hadSummary?: boolean }
 
     if (result.success) {
-      ctx.showToast?.(`上下文已压缩，删除 ${result.messagesRemoved} 条旧消息`, 'success')
+      if ((result.previousMessageCount ?? 0) === 0) {
+        ctx.addSystemMessage('ℹ️ 当前没有消息可压缩')
+      } else if (result.messagesRemoved === 0 && !result.hadSummary) {
+        ctx.addSystemMessage('⚠️ 压缩未完成，会话未修改')
+      } else {
+        const summaryNote = result.hadSummary ? '，已生成摘要' : ''
+        ctx.showToast?.(`上下文已压缩，删除 ${result.messagesRemoved} 条旧消息${summaryNote}`, 'success')
+      }
       // 重新加载当前会话消息
       await api.sendCommand({ type: 'conversation:switch', sessionKey: ctx.sessionKey })
     } else {
-      ctx.addSystemMessage('压缩完成，无需删除消息')
+      ctx.addSystemMessage('压缩失败')
     }
   } catch (err) {
     logger.error('[handleCompact] 压缩失败:', err)

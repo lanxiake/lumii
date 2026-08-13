@@ -953,8 +953,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         keepRecentTurns: 6,
       }) as { success: boolean; previousMessageCount: number; newMessageCount: number; messagesRemoved: number; hadSummary?: boolean }
       if (result.success) {
-        if (result.messagesRemoved === 0) {
-          setToast({ message: '上下文消息较少，无需压缩', type: 'info' })
+        if (result.previousMessageCount === 0) {
+          setToast({ message: '当前没有消息可压缩', type: 'info' })
+        } else if (result.messagesRemoved === 0 && !result.hadSummary) {
+          setToast({ message: '压缩未完成，会话未修改', type: 'info' })
         } else {
           const summaryNote = result.hadSummary ? '，已生成摘要保留关键信息' : ''
           setToast({ message: `上下文已压缩${summaryNote}`, type: 'success' })

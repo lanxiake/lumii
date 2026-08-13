@@ -43,6 +43,7 @@ export {
 
 // === 策略（供测试 / 高级宿主直接调用） ===
 export { microcompactToolResults } from "./strategies/micro-compact.js";
+export { resolveManualCompactKeepCount } from "./policy.js";
 
 // === 提示词（供宿主自定义摘要时复用） ===
 export {

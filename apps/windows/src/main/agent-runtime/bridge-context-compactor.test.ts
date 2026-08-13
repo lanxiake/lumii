@@ -1,8 +1,11 @@
 /**
  * BridgeContextCompactor.callLLM：无 Agent 实例时须能走 fallback stream。
  * 覆盖定时任务 / companion workflow 在无人会话打开时仍需单次 LLM 的场景。
+ *
+ * compactContextAsync：手动压缩无论消息多少都应发出 LLM 摘要请求并真正压缩。
  */
 import { describe, expect, it, vi } from 'vitest'
+import type { AgentMessage } from '@mariozechner/pi-agent-core'
 import { BridgeContextCompactor } from './bridge-context-compactor'
 
 /** 构造最小 deps，默认全部 stream getter 返回空 */
@@ -69,5 +72,135 @@ describe('BridgeContextCompactor.callLLM', () => {
 
     await expect(compactor.callLLM('hi')).resolves.toBe('来自主实例')
     expect(fallbackStream).not.toHaveBeenCalled()
+  })
+})
+
+/** 构造 n 条 user/assistant 交替的 Pi 消息 */
+function makePiMessages(n: number): AgentMessage[] {
+  return Array.from({ length: n }, (_, i) => ({
+    role: i % 2 === 0 ? 'user' : 'assistant',
+    content: `msg-${i}`,
+    timestamp: Date.now(),
+  })) as AgentMessage[]
+}
+
+/**
+ * 构造 compactContext / compactContextAsync 所需的最小 DB + repo + stream。
+ */
+function makeCompactHarness(messageCount: number, summaryText: string | null = '结构化摘要') {
+  const rows = Array.from({ length: messageCount }, (_, i) => ({ id: `m${i + 1}` }))
+  let remaining = [...rows]
+  const deleted: string[] = []
+  const saved: Array<{ role: string; contentJson: { text: string } }> = []
+  const generator = vi.fn(async () => summaryText)
+  const restoreHistoryForInstance = vi.fn()
+  const forwardIpcEvent = vi.fn()
+  const piMessages = makePiMessages(messageCount)
+
+  const db = {
+    prepare: (sql: string) => {
+      if (sql.includes('SELECT id FROM messages')) {
+        return { all: () => remaining }
+      }
+      if (sql.includes('DELETE FROM messages')) {
+        return {
+          run: (...ids: string[]) => {
+            const drop = new Set(ids)
+            remaining = remaining.filter((row) => !drop.has(row.id))
+            deleted.push(...ids)
+          },
+        }
+      }
+      return { all: () => [], run: () => undefined }
+    },
+  }
+
+  const repo = {
+    loadMessagesAsPiFormat: vi.fn(() => piMessages),
+    saveMessage: vi.fn((msg: { role: string; contentJson: { text: string } }) => {
+      saved.push(msg)
+    }),
+  }
+
+  const innerStream = vi.fn()
+  const model = { id: 'm', api: 'openai' }
+  const compactor = new BridgeContextCompactor(
+    makeDeps({
+      getConversationRepo: () => repo as never,
+      getDb: () => db as never,
+      getInstanceStream: () => ({ innerStream: innerStream as never, model: model as never }),
+      getMainInnerStream: () => innerStream as never,
+      getMainModel: () => model as never,
+      createSummaryGenerator: () => generator,
+      restoreHistoryForInstance,
+      ipcChannel: { forwardIpcEvent } as never,
+    }),
+  )
+
+  return { compactor, generator, deleted, saved, restoreHistoryForInstance, forwardIpcEvent }
+}
+
+describe('BridgeContextCompactor.compactContextAsync — 短对话也真正压缩', () => {
+  it('4 条消息（少于默认 12 条）仍调用 LLM 并删除旧段、写入摘要', async () => {
+    const { compactor, generator, deleted, saved, restoreHistoryForInstance, forwardIpcEvent } =
+      makeCompactHarness(4)
+
+    const result = await compactor.compactContextAsync('inst-1', 'sess-1', 6)
+
+    expect(generator).toHaveBeenCalledOnce()
+    expect(String(generator.mock.calls[0]?.[1])).toContain('Do NOT call any tools')
+    expect(String(generator.mock.calls[0]?.[1])).toContain('Primary Request and Intent')
+    expect(result.hadSummary).toBe(true)
+    expect(result.messagesRemoved).toBe(2)
+    expect(result.previousMessageCount).toBe(4)
+    expect(deleted).toEqual(['m1', 'm2'])
+    expect(saved).toHaveLength(1)
+    expect(saved[0]?.contentJson.text).toContain('结构化摘要')
+    expect(restoreHistoryForInstance).toHaveBeenCalledOnce()
+    expect(forwardIpcEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'agent:context:compacted', messagesRemoved: 2 }),
+    )
+  })
+
+  it('1 条消息也会发出摘要请求，并用摘要替换原文', async () => {
+    const { compactor, generator, deleted, saved } = makeCompactHarness(1)
+
+    const result = await compactor.compactContextAsync('inst-1', 'sess-1', 6)
+
+    expect(generator).toHaveBeenCalledOnce()
+    expect(result.hadSummary).toBe(true)
+    expect(result.messagesRemoved).toBe(1)
+    expect(deleted).toEqual(['m1'])
+    expect(saved).toHaveLength(1)
+  })
+
+  it('空会话不调用 LLM', async () => {
+    const { compactor, generator } = makeCompactHarness(0)
+
+    const result = await compactor.compactContextAsync('inst-1', 'sess-1', 6)
+
+    expect(generator).not.toHaveBeenCalled()
+    expect(result.messagesRemoved).toBe(0)
+    expect(result.hadSummary).toBe(false)
+  })
+
+  it('摘要失败且仅 1 条消息时不清空会话', async () => {
+    const { compactor, deleted, saved } = makeCompactHarness(1, null)
+
+    const result = await compactor.compactContextAsync('inst-1', 'sess-1', 6)
+
+    expect(result.messagesRemoved).toBe(0)
+    expect(result.hadSummary).toBe(false)
+    expect(deleted).toEqual([])
+    expect(saved).toHaveLength(0)
+  })
+})
+
+describe('BridgeContextCompactor.compactContext — 同步短对话仍可裁剪', () => {
+  it('4 条消息时删除一半，不再因不足 12 条而跳过', () => {
+    const { compactor, deleted } = makeCompactHarness(4)
+    const result = compactor.compactContext('sess-1', 6)
+    expect(result.messagesRemoved).toBe(2)
+    expect(deleted).toEqual(['m1', 'm2'])
   })
 })

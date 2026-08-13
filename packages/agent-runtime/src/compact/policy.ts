@@ -25,6 +25,32 @@ export function computeMaxEstimatedHistoryTokens(config: CompactConfig): number 
 }
 
 /**
+ * 计算手动压缩时实际保留的最近消息条数。
+ *
+ * 自动压缩看 token 阈值；手动压缩是用户明确请求，因此：
+ * - 只要有消息，就必须留出至少 1 条旧段去生成摘要（不能因「不足 12 条」直接跳过）
+ * - 长对话仍按请求轮数保留（一轮 ≈ user+assistant 共 2 条）
+ * - 短于请求保留量时，保留最近一半，保证有旧段可送去 LLM
+ *
+ * @param messageCount 当前会话已落库的非流式消息数
+ * @param keepRecentTurns 调用方请求保留的最近轮数；0 表示全部纳入摘要
+ * @returns 实际保留条数；0 表示全部纳入摘要
+ */
+export function resolveManualCompactKeepCount(
+  messageCount: number,
+  keepRecentTurns: number,
+): number {
+  if (messageCount <= 0) return 0;
+
+  const requestedKeep = Math.max(0, Math.floor(keepRecentTurns)) * 2;
+  if (requestedKeep === 0) return 0;
+  if (messageCount > requestedKeep) return requestedKeep;
+  if (messageCount === 1) return 0;
+
+  return Math.max(1, Math.floor(messageCount / 2));
+}
+
+/**
  * 检查是否需要压缩
  *
  * 触发判断只看「真实上下文窗口 × triggerRatio」（如 1M × 0.78 = 780k），
