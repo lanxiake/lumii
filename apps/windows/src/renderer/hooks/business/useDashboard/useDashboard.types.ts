@@ -47,6 +47,8 @@ export interface UsageBucketView {
   completionTokens: number
   costCents: number
   unpricedCalls: number
+  /** 桶内按模型细分（花费降序），堆叠图按它分色 */
+  byModel: UsageModelStatView[]
 }
 
 /** 单个模型的用量聚合，供图表下方总结卡片 */

@@ -21,7 +21,10 @@ import { convertOldEventToIpcEvents, parseThinkTagsFromRaw, type RunContext } fr
 import { forwardPermissionRuntimeToIpc } from './bridge-permission-ipc-forward'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import type { FileMemoryHandler } from './file-memory-handler'
-import type { AgentRuntimeEvent as RendererIpcEvent } from '../../shared/agent-runtime-events'
+import type {
+  AgentRuntimeEvent as RendererIpcEvent,
+  ContextUsageBreakdownEntry,
+} from '../../shared/agent-runtime-events'
 import type { InstanceStateStore } from './bridge-instance-state'
 import { agentRuntimeLog as log, parseJsonToolResultPayload } from './bridge-utils'
 import { recordUsage } from '../usage-store'
@@ -174,6 +177,7 @@ export interface BridgeAgentInstanceEventDeps {
     usedTokens: number
     contextWindow: number
     triggerThreshold: number
+    breakdown?: readonly ContextUsageBreakdownEntry[]
   }
   /** 记录提供商返回的 inputTokens，供上下文用量条使用 */
   setSessionProviderInputTokens: (sessionKey: string, inputTokens: number) => void
@@ -392,7 +396,7 @@ export function createAgentInstanceRuntimeEventHandler(
             })
             if (state) state.streamingAssistantMsgId = row.id
             ctx.currentMessageId = row.id
-            log.info(`[event] 流式助手占位行 conversationId=${convId}, messageId=${row.id}`)
+            log.info(`[event] agent:start 创建流式占位行: msgId=${row.id}, conversationId=${convId}, is_streaming=${row.is_streaming}`)
           } catch (err) {
             log.error(`[event] 流式助手占位行失败:`, err)
             if (state) state.streamingAssistantMsgId = '__PLACEHOLDER_FAILED__'
@@ -564,6 +568,7 @@ export function createAgentInstanceRuntimeEventHandler(
               contentJson,
               isStreaming: true,
             })
+            log.info(`[event] message:end 更新流式消息内容: msgId=${msgId}, conversationId=${convId}, is_streaming=1, contentLength=${JSON.stringify(contentJson).length}`)
           }
         } catch (err) {
           log.error(`[event] message:end 持久化失败，尝试 saveMessage 降级:`, err)
@@ -578,6 +583,7 @@ export function createAgentInstanceRuntimeEventHandler(
             log.info(`[event] message:end saveMessage 降级成功, newMsgId=${row.id}`)
           } catch (err2) {
             log.error(`[event] message:end 降级也失败，消息可能丢失:`, err2)
+            log.error(`[event] message:end 丢失消息上下文: msgId=${msgId}, convId=${convId}, contentLength=${JSON.stringify(contentJson).length}`)
           }
         }
         // 持久化完成 → 触发快照等后处理（fire-and-forget）
@@ -679,6 +685,7 @@ export function createAgentInstanceRuntimeEventHandler(
               contentJson,
               isStreaming: false,
             })
+            log.info(`[event] agent:end 最终确认消息: msgId=${msgId}, conversationId=${convId}, is_streaming=0, contentLength=${JSON.stringify(contentJson).length}`)
           }
           log.info(`[event] 持久化 AI 回复（收尾） conversationId=${convId}, len=${text.length}, tools=${toolParts.length}, thinkingLen=${thinkingLength}`)
           persistSuccess = true
@@ -698,7 +705,7 @@ export function createAgentInstanceRuntimeEventHandler(
             })
             persistedMessageId = row?.id
             log.info(
-              `[event] 持久化 AI 回复（无流式占位） conversationId=${convId}, len=${text.length}, tools=${toolParts.length}, thinkingLen=${thinkingLength}`,
+              `[event] 持久化 AI 回复（无流式占位） conversationId=${convId}, msgId=${row?.id}, is_streaming=0, len=${text.length}, tools=${toolParts.length}, thinkingLen=${thinkingLength}`,
             )
             persistSuccess = true
           } catch (err) {
@@ -797,9 +804,13 @@ export function createAgentInstanceRuntimeEventHandler(
         usedTokens: usage.usedTokens,
         contextWindow: usage.contextWindow,
         triggerThreshold: CONTEXT_USAGE_TRIGGER_THRESHOLD,
+        ...(usage.breakdown ? { breakdown: usage.breakdown } : {}),
       } as unknown as RendererIpcEvent)
+      const breakdownText = usage.breakdown?.length
+        ? ` breakdown=${usage.breakdown.map((e) => `${e.category}:${e.tokens}`).join(',')}`
+        : ''
       log.info(
-        `[event] 推送 contextUsage: used=${usage.usedTokens}/${usage.contextWindow} (${usage.contextWindow > 0 ? ((usage.usedTokens / usage.contextWindow) * 100).toFixed(1) : '0'}%)`,
+        `[event] 推送 contextUsage: used=${usage.usedTokens}/${usage.contextWindow} (${usage.contextWindow > 0 ? ((usage.usedTokens / usage.contextWindow) * 100).toFixed(1) : '0'}%)${breakdownText}`,
       )
     }
   }

@@ -58,7 +58,7 @@ const MySkillDetailModal: React.FC<{
   )
 
   return (
-    <Modal open={isOpen} onClose={onClose} width={460} footer={footer}>
+    <Modal open={isOpen} onClose={onClose} width={460} footer={footer} layer="aboveHub">
       <div style={{ padding: '4px 0' }}>
         {/* 头部 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -784,6 +784,8 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
                           category={tool.category}
                           isReadOnly={tool.isReadOnly}
                           enabled={tool.enabled}
+                          usageCount={tool.usageCount}
+                          lastUsedAt={tool.lastUsedAt}
                           isToggling={togglingTool === tool.name}
                           onToggle={(enabled) => toggleTool(tool.name, enabled)}
                         />
@@ -855,6 +857,8 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
                             category={tool.category}
                             isReadOnly={tool.isReadOnly}
                             enabled={tool.enabled}
+                            usageCount={tool.usageCount}
+                            lastUsedAt={tool.lastUsedAt}
                             isToggling={togglingTool === tool.name}
                             onToggle={(enabled) => toggleTool(tool.name, enabled)}
                           />

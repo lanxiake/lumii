@@ -28,6 +28,10 @@ export interface ToolCardProps {
   isReadOnly: boolean
   /** 启用状态 */
   enabled: boolean
+  /** 累计调用次数，从未调用过为 0 */
+  usageCount?: number
+  /** 最后一次调用时刻（epoch ms） */
+  lastUsedAt?: number
   /** 操作中（切换时） */
   isToggling?: boolean
   /** 切换启用/禁用回调 */
@@ -46,6 +50,8 @@ export const ToolCard: React.FC<ToolCardProps> = ({
   category,
   isReadOnly,
   enabled,
+  usageCount = 0,
+  lastUsedAt,
   isToggling = false,
   onToggle,
 }) => {
@@ -75,6 +81,18 @@ export const ToolCard: React.FC<ToolCardProps> = ({
       <p className={styles['tool-description']} title={description}>
         {description}
       </p>
+
+      {/* 调用次数：从未用过的弱化显示，提示可关掉省上下文 */}
+      <span
+        className={clsx(styles['tool-usage'], usageCount === 0 && styles['tool-usage-never'])}
+        title={
+          usageCount === 0
+            ? '从未调用过，可考虑禁用以节省上下文'
+            : `累计调用 ${usageCount} 次${lastUsedAt ? `，最后使用 ${new Date(lastUsedAt).toLocaleString()}` : ''}`
+        }
+      >
+        {usageCount === 0 ? '未用过' : `${usageCount} 次`}
+      </span>
 
       {/* 只读标记 */}
       {isReadOnly && (

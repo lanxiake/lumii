@@ -46,7 +46,7 @@ function resolveRange(range: UsageRange): { from: number; to: number; groupBy: '
 }
 
 export function useDashboard() {
-  const [usageRange, setUsageRange] = useState<UsageRange>('today')
+  const [usageRange, setUsageRange] = useState<UsageRange>('7d')
 
   const fetchSystem = useCallback(async (): Promise<SystemInfoShape | null> => {
     const info = (await window.electronAPI.system.getInfo()) as SystemInfoShape | null

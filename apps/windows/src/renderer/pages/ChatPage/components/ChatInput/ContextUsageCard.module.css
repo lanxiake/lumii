@@ -1,0 +1,130 @@
+.card {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 300px;
+  padding: 10px 12px 8px;
+  background: var(--color-bg-elevated, var(--color-bg-secondary));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--mt-shadow-xl, 0 8px 32px rgba(0, 0, 0, 0.28));
+  color: var(--color-text-primary);
+  z-index: 320;
+  animation: ctx-card-enter 0.16s ease-out;
+  cursor: default;
+}
+
+@keyframes ctx-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.total {
+  font-family: var(--mt-font-mono);
+  font-size: var(--mt-fs-xs, 11px);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.percent {
+  font-family: var(--mt-font-mono);
+  font-size: var(--mt-fs-xs, 11px);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.bar {
+  display: flex;
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-bg-tertiary, rgba(148, 163, 184, 0.28));
+}
+
+.bar-segment {
+  display: block;
+  height: 100%;
+  min-width: 1px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px;
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm, 4px);
+}
+
+.item:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tokens {
+  font-family: var(--mt-font-mono);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.empty {
+  padding: 4px 2px 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.footer {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border);
+  font-size: var(--mt-fs-xs, 11px);
+  color: var(--color-text-secondary);
+}

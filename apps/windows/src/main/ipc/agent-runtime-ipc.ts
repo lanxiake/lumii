@@ -20,6 +20,7 @@ import { deriveConversationTitleFromUserText } from '../../shared/conversation-t
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 import { parseThinkTagsFromRaw } from '../agent-runtime/event-converter'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
+import { getToolUsage } from '../tool-usage-store'
 import { AcpBackendManager } from '../channel/acp-backend-manager'
 import { IpcChannelAdapter } from '../channel/adapters/ipc-channel-adapter'
 import { StatefulContextStrategy } from '../channel/context-strategy/stateful-strategy'
@@ -926,7 +927,16 @@ async function handleCommand(
 
       // ---- 工具管理 ----
       case 'tools:list': {
-        return bridge.listTools()
+        // 附带累计调用次数，让 UI 能标出高频/从未使用的工具
+        const usage = await getToolUsage()
+        return bridge.listTools().map((tool) => {
+          const stat = usage[tool.name]
+          return {
+            ...tool,
+            usageCount: stat?.count ?? 0,
+            ...(stat?.lastUsedAt ? { lastUsedAt: stat.lastUsedAt } : {}),
+          }
+        })
       }
 
       case 'tools:toggle': {

@@ -230,7 +230,7 @@ export class CronScheduler {
   }
 
   /**
-   * 更新本地 Cron 任务基础字段。
+   * 更新本地 Cron 任务基础字段。停用任务时同步清除 last_status='running'，避免已中断任务卡在"运行中"。
    */
   updateLocalCronJobRecord(params: {
     id: string
@@ -267,6 +267,19 @@ export class CronScheduler {
       params.notifyTargets?.trim() || null,
       params.id,
     )
+    // 禁用任务时：清理运行集合 + 无条件清除 last_status='running'
+    // 不能只看 wasRunning：应用重启后内存集合为空，DB 里可能残留上次中断的 'running'
+    if (!params.enabled) {
+      const setSize = this.localCronRunningJobs.size
+      const wasRunning = this.localCronRunningJobs.has(params.id)
+      this.localCronRunningJobs.delete(params.id)
+      const afterSize = this.localCronRunningJobs.size
+      log.info(`[updateLocalCronJob] 禁用任务 ${params.id}: wasRunning=${wasRunning}, Set size ${setSize} -> ${afterSize}`)
+      const result2 = this.localDb.db
+        .prepare(`UPDATE local_cron_jobs SET last_status = NULL WHERE id = ? AND last_status = 'running'`)
+        .run(params.id)
+      log.info(`[updateLocalCronJob] 清除运行状态: id=${params.id}, SQL changes=${result2.changes}`)
+    }
     return result.changes
   }
 
@@ -454,6 +467,13 @@ export class CronScheduler {
       ).all()
       for (const job of jobs) {
         this.scheduleJob(job)
+      }
+      // 启动时清掉上次异常退出遗留的 'running' 状态（正常运行时不会有任务处于 running）
+      const stale = this.localDb.db
+        .prepare(`UPDATE local_cron_jobs SET last_status = NULL WHERE last_status = 'running'`)
+        .run()
+      if (stale.changes > 0) {
+        log.info(`[startLocalCronScheduler] 清除 ${stale.changes} 条启动时残留的 running 状态`)
       }
       log.info(`[startLocalCronScheduler] 已恢复 ${jobs.length} 个本地定时任务`)
     } catch (err) {

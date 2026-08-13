@@ -106,6 +106,25 @@ describe('usage-store', () => {
     expect(r.totalCalls).toBe(1)
   })
 
+  it('桶内按模型细分：同桶多模型分开统计，按花费降序', async () => {
+    const { recordUsage, queryUsage } = await store()
+    const now = Date.now()
+    await recordUsage({ model: 'gpt-4o', promptTokens: 100, completionTokens: 50, ts: now })
+    await recordUsage({ model: 'gpt-4o-mini', promptTokens: 1000, completionTokens: 500, ts: now })
+    await recordUsage({ model: 'gpt-4o-mini', promptTokens: 2000, completionTokens: 1000, ts: now })
+
+    const r = await queryUsage({ from: now - DAY, to: now + DAY, groupBy: 'day' })
+    expect(r.buckets).toHaveLength(1)
+    const byModel = r.buckets[0].byModel
+    expect(byModel).toHaveLength(2)
+    expect(byModel[0].model).toBe('gpt-4o-mini')
+    expect(byModel[0].calls).toBe(2)
+    expect(byModel[0].promptTokens).toBe(3000)
+    expect(byModel[0].completionTokens).toBe(1500)
+    expect(byModel[1].model).toBe('gpt-4o')
+    expect(byModel[1].calls).toBe(1)
+  })
+
   it('没有任何记录时返回全 0 空桶，而不是抛错', async () => {
     const { queryUsage } = await store()
     const now = Date.now()

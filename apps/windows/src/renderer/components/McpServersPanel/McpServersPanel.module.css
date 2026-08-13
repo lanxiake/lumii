@@ -347,6 +347,29 @@
   white-space: nowrap;
 }
 
+/* 单个工具的调用次数 */
+.tool-chip-usage,
+.tool-chip-usage-never {
+  margin-left: 4px;
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-size: var(--mt-fs-xs, 11px);
+  color: var(--mt-fg-4);
+  flex-shrink: 0;
+}
+
+/* 从未调用过：弱化但可辨，提示可以关掉 */
+.tool-chip-usage-never {
+  opacity: 0.7;
+}
+
+/* Server 级累计调用次数 */
+.server-usage {
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-size: var(--mt-fs-xs, 11px);
+  color: var(--mt-fg-4);
+  flex-shrink: 0;
+}
+
 .tool-empty {
   padding: 2px 0;
   font-size: var(--mt-fs-xs, 11px);

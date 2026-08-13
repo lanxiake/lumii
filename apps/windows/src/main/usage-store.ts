@@ -51,6 +51,8 @@ export interface UsageBucket {
   costCents: number
   /** 桶内有多少次调用价格未知——有则 UI 需标注「部分未计价」 */
   unpricedCalls: number
+  /** 桶内按模型细分（花费降序），堆叠图按它分色 */
+  byModel: UsageModelStat[]
 }
 
 /** 单个模型的用量聚合，用于图表下方的总结卡片 */
@@ -166,6 +168,7 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
   const shards = await Promise.all(shardsInRange(from, to).map(readShard))
 
   const buckets = new Map<number, UsageBucket>()
+  const bucketModels = new Map<number, Map<string, UsageModelStat>>()
   const models = new Map<string, UsageModelStat>()
   const summary: UsageSummary = {
     totalCalls: 0,
@@ -189,6 +192,7 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
       completionTokens: 0,
       costCents: 0,
       unpricedCalls: 0,
+      byModel: [],
     }
     bucket.calls += 1
     bucket.promptTokens += rec.promptTokens
@@ -196,6 +200,23 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
     if (costCents === undefined) bucket.unpricedCalls += 1
     else bucket.costCents += costCents
     buckets.set(key, bucket)
+
+    const bm = bucketModels.get(key) ?? new Map<string, UsageModelStat>()
+    const bstat = bm.get(rec.model) ?? {
+      model: rec.model,
+      calls: 0,
+      promptTokens: 0,
+      completionTokens: 0,
+      costCents: 0,
+      unpricedCalls: 0,
+    }
+    bstat.calls += 1
+    bstat.promptTokens += rec.promptTokens
+    bstat.completionTokens += rec.completionTokens
+    if (costCents === undefined) bstat.unpricedCalls += 1
+    else bstat.costCents += costCents
+    bm.set(rec.model, bstat)
+    bucketModels.set(key, bm)
 
     const stat = models.get(rec.model) ?? {
       model: rec.model,
@@ -219,10 +240,18 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
     else summary.totalCostCents += costCents
   }
 
-  summary.totalCostCents = Math.round(summary.totalCostCents * 10_000) / 10_000
-  summary.buckets = [...buckets.values()].sort((a, b) => a.ts - b.ts)
+  const round = (c: number) => Math.round(c * 10_000) / 10_000
+  const byCostDesc = (a: UsageModelStat, b: UsageModelStat) =>
+    b.costCents - a.costCents || b.calls - a.calls
+  summary.totalCostCents = round(summary.totalCostCents)
+  summary.buckets = [...buckets.values()].sort((a, b) => a.ts - b.ts).map((b) => ({
+    ...b,
+    byModel: [...(bucketModels.get(b.ts)?.values() ?? [])]
+      .map((m) => ({ ...m, costCents: round(m.costCents) }))
+      .sort(byCostDesc),
+  }))
   summary.byModel = [...models.values()]
-    .map((m) => ({ ...m, costCents: Math.round(m.costCents * 10_000) / 10_000 }))
-    .sort((a, b) => b.costCents - a.costCents || b.calls - a.calls)
+    .map((m) => ({ ...m, costCents: round(m.costCents) }))
+    .sort(byCostDesc)
   return summary
 }

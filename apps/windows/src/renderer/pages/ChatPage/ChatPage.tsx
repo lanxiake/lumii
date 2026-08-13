@@ -1238,7 +1238,12 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [])
 
   const formatTime = useCallback((date: Date): string => {
-    return new Date(date).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    const now = new Date()
+    const target = new Date(date)
+    const isToday = now.toDateString() === target.toDateString()
+    return isToday
+      ? target.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      : target.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
   }, [])
 
   // Message action handlers

@@ -165,6 +165,7 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
           tools: serverTools,
           enabled: serverTools.length > 0 && enabledCount === serverTools.length,
           partial: enabledCount > 0 && enabledCount < serverTools.length,
+          usageCount: serverTools.reduce((sum, t) => sum + (t.usageCount ?? 0), 0),
         }
       })
       .filter((row) => {
@@ -352,7 +353,7 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
                           !server.connected && styles.listDescError,
                         )}>
                           {server.connected
-                            ? `${server.tools.length} 个工具${server.partial ? ' · 部分启用' : ''}`
+                            ? `${server.tools.length} 个工具 · 调用 ${server.usageCount} 次${server.partial ? ' · 部分启用' : ''}`
                             : errorHint
                               ? '连接失败'
                               : '未连接'}

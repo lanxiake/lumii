@@ -629,6 +629,11 @@ export class AgentInstance {
     return this.agent.state.messages ?? [];
   }
 
+  /** 读取当前生效的工具列表（用于上下文用量分类估算工具定义开销） */
+  getTools(): AgentTool[] {
+    return this.agent.state.tools ?? [];
+  }
+
   /** 清空消息历史 */
   clearMessages(): void {
     this.agent.clearMessages();

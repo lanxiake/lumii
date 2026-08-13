@@ -932,6 +932,14 @@
   white-space: nowrap;
 }
 
+/* 上下文指示器容器：为占用明细卡片提供定位锚点 */
+.context-usage-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 /* 工具栏图标按钮激活态 */
 .toolbar-icon-btn--active {
   border-color: color-mix(in srgb, var(--mt-accent-500) 38%, transparent);

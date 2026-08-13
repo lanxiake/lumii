@@ -115,6 +115,13 @@ export class BridgeLifecycle {
     this.deps.permissionController.clearAll()
     this.deps.askUserQuestionController.clearAll()
 
+    log.info('[destroyAll] 开始销毁所有实例前，先最终确认所有流式消息')
+    const conversationRepo = this.deps.getConversationRepo()
+    if (conversationRepo) {
+      const finalizedCount = conversationRepo.finalizeAllStreamingMessages()
+      log.info(`[destroyAll] 已最终确认 ${finalizedCount} 条流式消息`)
+    }
+
     try {
       for (const s of this.deps.instanceStates.values()) {
         s.proactivityScheduler?.stop()

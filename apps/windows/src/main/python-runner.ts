@@ -10,7 +10,7 @@
  * - AbortSignal 外部取消
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import type { RunnerOptions, RunnerResult } from './ts-runner'
@@ -143,17 +143,12 @@ export class PythonRunner {
         stderr += chunk.toString()
       })
 
-      // 超时处理：SIGTERM → 2s → SIGKILL
+      // 超时处理：Windows 用 taskkill /T /F 杀整棵进程树（否则孙进程存活会导致 close 事件永不触发）
       timeoutId = setTimeout(() => {
         if (!killed) {
           killed = true
           log.warn('Python 脚本执行超时，终止子进程', { entryPath, timeoutMs })
-          child.kill('SIGTERM')
-          setTimeout(() => {
-            if (!child.killed) {
-              child.kill('SIGKILL')
-            }
-          }, 2000)
+          forceKillProcess(child)
         }
       }, timeoutMs)
 
@@ -163,7 +158,7 @@ export class PythonRunner {
           if (!killed) {
             killed = true
             log.info('Python 脚本被外部取消', { entryPath })
-            child.kill('SIGTERM')
+            forceKillProcess(child)
           }
         }
         abortSignal.addEventListener('abort', onAbort, { once: true })
@@ -263,5 +258,30 @@ export class PythonRunner {
       return { command: 'py', args: ['-3', entryPath] }
     }
     return { command: pythonPath, args: [entryPath] }
+  }
+}
+
+/**
+ * 强制终止子进程（含进程树）。
+ * Windows 上 kill('SIGTERM'/'SIGKILL') 只杀 python.exe 本身，若脚本又 fork 了子进程，
+ * 其占用的 stdio 管道 handle 会导致 'close' 事件永远不触发、Promise 永久挂起。
+ */
+function forceKillProcess(child: ChildProcess): void {
+  const pid = child.pid
+  if (!pid) {
+    child.kill('SIGKILL')
+    return
+  }
+  if (process.platform === 'win32') {
+    try {
+      spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', timeout: 5000, windowsHide: true })
+    } catch {
+      child.kill('SIGKILL')
+    }
+  } else {
+    child.kill('SIGTERM')
+    setTimeout(() => {
+      if (!child.killed) child.kill('SIGKILL')
+    }, 2000)
   }
 }

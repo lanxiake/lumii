@@ -341,6 +341,22 @@ export interface AgentActivitySnapshotEvent {
  *
  * 用于 ChatInput 工具栏显示上下文指示器（绿/黄/红）。
  */
+/** 上下文占用分类（与 UI 卡片行一一对应） */
+export type ContextUsageCategory =
+  | 'systemPrompt'
+  | 'tools'
+  | 'skills'
+  | 'mcp'
+  | 'subagents'
+  | 'memory'
+  | 'conversation'
+
+/** 单个分类的 token 占用 */
+export interface ContextUsageBreakdownEntry {
+  readonly category: ContextUsageCategory
+  readonly tokens: number
+}
+
 export interface AgentContextUsageEvent {
   readonly type: 'agent:context:usage'
   readonly sessionKey: string
@@ -350,6 +366,8 @@ export interface AgentContextUsageEvent {
   readonly contextWindow: number
   /** 触发自动压缩的阈值比例（0-1，默认 0.8） */
   readonly triggerThreshold: number
+  /** 分类明细（估算后按 usedTokens 等比缩放，之和≈usedTokens），无活跃实例时为空 */
+  readonly breakdown?: readonly ContextUsageBreakdownEntry[]
 }
 
 /**

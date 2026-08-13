@@ -13,6 +13,7 @@
 import type {
   AgentRuntimeEvent,
   ContentBlock,
+  ContextUsageBreakdownEntry,
   TokenUsage,
 } from '../../../../shared/agent-runtime-events'
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
@@ -138,6 +139,8 @@ export interface ContextUsage {
   readonly triggerThreshold: number
   /** 是否已接近阈值（usedTokens / contextWindow > 0.6） */
   readonly isNearThreshold: boolean
+  /** 分类明细（主进程估算后按 usedTokens 缩放），无活跃实例时缺省 */
+  readonly breakdown?: readonly ContextUsageBreakdownEntry[]
 }
 
 /** 错误状态 */

@@ -36,6 +36,7 @@ import { TrayManager } from './tray-manager'
 import { getAppIconPath } from './asset-paths'
 import { SystemService } from './system-service'
 import { queryUsage, type UsageQuery } from './usage-store'
+import { flushToolUsage } from './tool-usage-store'
 import { readNewsSnapshot } from './news-store'
 import { NEWS_PIPELINE_TASK_TEXT, NEWS_PIPELINE_SYSTEM_PROMPT } from './seed-cron-jobs'
 import {
@@ -3078,9 +3079,13 @@ async function performCleanup(): Promise<void> {
     // 销毁所有 Agent 实例并关闭本地数据库
     // 触发 abort → agent:error 事件 → bridge 删除流式占位行，确保 is_streaming 不残留
     if (agentRuntimeBridge) {
+      log.info('[performCleanup] 开始销毁 Agent Runtime Bridge')
       agentRuntimeBridge.destroyAll()
-      log.info('Agent Runtime Bridge 已销毁')
+      log.info('[performCleanup] Agent Runtime Bridge 已销毁')
     }
+
+    // 工具调用计数是 debounce 落盘的，退出前补一次，避免丢掉最后几次调用
+    await flushToolUsage()
 
     updaterService?.destroy()
     trayManager?.destroy()

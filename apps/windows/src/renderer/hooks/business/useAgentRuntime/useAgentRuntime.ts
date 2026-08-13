@@ -20,7 +20,10 @@ import {
   type PendingPermissionSnapshot,
 } from './agent-runtime-store'
 import { handleRuntimeEvent } from './event-handler'
-import type { AgentRuntimeEvent } from '../../../../shared/agent-runtime-events'
+import type {
+  AgentRuntimeEvent,
+  ContextUsageBreakdownEntry,
+} from '../../../../shared/agent-runtime-events'
 import { isCommandError } from '../../../../shared/agent-runtime-commands'
 import {
   parseMessageContentJson,
@@ -655,7 +658,12 @@ export function useAgentRuntimeActions() {
           api.sendCommand({
             type: 'conversation:context-usage',
             sessionKey,
-          }) as Promise<{ usedTokens: number; contextWindow: number; triggerThreshold: number }>,
+          }) as Promise<{
+            usedTokens: number
+            contextWindow: number
+            triggerThreshold: number
+            breakdown?: readonly ContextUsageBreakdownEntry[]
+          }>,
           fetchSessionMeta(),
         ])
         updateSessionState(sessionKey, (prev) => {
@@ -673,6 +681,7 @@ export function useAgentRuntimeActions() {
               contextWindow: contextUsage.contextWindow,
               triggerThreshold: contextUsage.triggerThreshold,
               isNearThreshold: ratio > 0.6,
+              ...(contextUsage.breakdown ? { breakdown: contextUsage.breakdown } : {}),
             },
             isAutoCompacting: ratio >= contextUsage.triggerThreshold,
           }
@@ -714,7 +723,12 @@ export function useAgentRuntimeActions() {
       api.sendCommand({
         type: 'conversation:context-usage',
         sessionKey,
-      }).catch(() => null) as Promise<{ usedTokens: number; contextWindow: number; triggerThreshold: number } | null>,
+      }).catch(() => null) as Promise<{
+        usedTokens: number
+        contextWindow: number
+        triggerThreshold: number
+        breakdown?: readonly ContextUsageBreakdownEntry[]
+      } | null>,
     ])
 
     const dbFileEvents = meta.fileEvents
@@ -841,6 +855,7 @@ export function useAgentRuntimeActions() {
             isNearThreshold: dbContextUsage.contextWindow > 0
               ? dbContextUsage.usedTokens / dbContextUsage.contextWindow > 0.6
               : false,
+            ...(dbContextUsage.breakdown ? { breakdown: dbContextUsage.breakdown } : {}),
           },
           isAutoCompacting: dbContextUsage.contextWindow > 0
             ? dbContextUsage.usedTokens / dbContextUsage.contextWindow >= dbContextUsage.triggerThreshold
@@ -972,7 +987,12 @@ export function useAgentRuntimeActions() {
   const applyContextUsage = useCallback(
     (
       sessionKey: string,
-      raw: { usedTokens: number; contextWindow: number; triggerThreshold: number },
+      raw: {
+        usedTokens: number
+        contextWindow: number
+        triggerThreshold: number
+        breakdown?: readonly ContextUsageBreakdownEntry[]
+      },
     ) => {
       const ratio = raw.contextWindow > 0 ? raw.usedTokens / raw.contextWindow : 0
       updateSessionState(sessionKey, (prev) => ({
@@ -982,6 +1002,7 @@ export function useAgentRuntimeActions() {
           contextWindow: raw.contextWindow,
           triggerThreshold: raw.triggerThreshold,
           isNearThreshold: ratio > 0.6,
+          ...(raw.breakdown ? { breakdown: raw.breakdown } : {}),
         },
         isAutoCompacting: ratio >= raw.triggerThreshold,
       }))
@@ -1000,7 +1021,12 @@ export function useAgentRuntimeActions() {
         const usage = await api.sendCommand({
           type: 'conversation:context-usage',
           sessionKey,
-        }) as { usedTokens: number; contextWindow: number; triggerThreshold: number }
+        }) as {
+          usedTokens: number
+          contextWindow: number
+          triggerThreshold: number
+          breakdown?: readonly ContextUsageBreakdownEntry[]
+        }
         applyContextUsage(sessionKey, usage)
       } catch (err) {
         debugLog(`[refreshContextUsage] 失败 sessionKey=${sessionKey}`, err)

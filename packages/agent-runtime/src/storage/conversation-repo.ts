@@ -311,6 +311,18 @@ export class ConversationRepo {
     const rows = this.db
       .prepare<MessageRow>("SELECT * FROM messages WHERE is_streaming = 1")
       .all() as MessageRow[];
+
+    console.log(`[finalizeAllStreamingMessages] 查询到 ${rows.length} 条流式残留消息`)
+    if (rows.length > 0) {
+      console.log('[finalizeAllStreamingMessages] 残留消息明细:', rows.map(r => ({
+        id: r.id,
+        conversation_id: r.conversation_id,
+        role: r.role,
+        timestamp: r.timestamp,
+        content_json_length: r.content_json?.length ?? 0
+      })))
+    }
+
     if (rows.length === 0) return 0;
 
     const now = new Date().toISOString();
@@ -330,6 +342,7 @@ export class ConversationRepo {
       this.conversationCache.delete(row.conversation_id);
       this.messageCache.deleteWhere((k) => k.startsWith(`${row.conversation_id}|`));
     }
+    console.log(`[finalizeAllStreamingMessages] 已将 ${rows.length} 条消息标记为已完成`)
     return rows.length;
   }
 

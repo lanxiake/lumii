@@ -9,7 +9,7 @@ import React, { useMemo, useState } from 'react'
 import { AlertCircle, ChevronDown, ChevronRight, Copy, Ellipsis, FileJson, Loader2, Plus, RefreshCw } from 'lucide-react'
 import { Button, Empty, Input, Loading, Switch } from '../ui'
 import { useToast } from '../ui/Toast/useToast'
-import { useToolSearch } from '../../hooks/business/useToolSearch'
+import { formatToolUsageCount, formatToolUsageTitle, useToolSearch } from '../../hooks/business/useToolSearch'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import type { McpServerConfigInput } from '@shared/agent-runtime-commands'
 import { McpConfigFileModal } from './McpConfigFileModal'
@@ -90,6 +90,10 @@ export const McpServersPanel: React.FC = () => {
   /** 该 Server 有多少工具处于启用态（工具列表还没加载时按全部可用算） */
   const enabledCount = (server: McpServer) =>
     server.tools.filter((name) => toolByName.get(name)?.enabled !== false).length
+
+  /** 该 Server 下所有工具的累计调用次数之和 */
+  const serverUsageCount = (server: McpServer) =>
+    server.tools.reduce((sum, name) => sum + (toolByName.get(name)?.usageCount ?? 0), 0)
 
   /**
    * 搜索同时命中 Server 与工具：
@@ -295,6 +299,14 @@ export const McpServersPanel: React.FC = () => {
                       {enabledCount(server)}/{server.tools.length} 个工具可用
                     </button>
                   )}
+                  {!busy && server.tools.length > 0 && (
+                    <span
+                      className={styles['server-usage']}
+                      title="该 Server 下所有工具的累计调用次数，长期为 0 可考虑停用以节省上下文"
+                    >
+                      共调用 {serverUsageCount(server)} 次
+                    </span>
+                  )}
                 </div>
                 <code className={styles['server-command']}>{commandSummary(server)}</code>
               </div>
@@ -368,14 +380,21 @@ export const McpServersPanel: React.FC = () => {
                         <button
                           type="button"
                           className={on ? styles['tool-chip'] : styles['tool-chip-off']}
-                          // 悬浮看说明；没有说明就退回工具全名
-                          title={tool?.description || toolName}
+                          // 悬浮看说明 + 用量；没有说明就退回工具全名
+                          title={[tool?.description || toolName, tool ? formatToolUsageTitle(tool) : '']
+                            .filter(Boolean)
+                            .join('\n')}
                           aria-pressed={on}
                           disabled={locked}
                           onClick={() => void toggleTool(toolName, !on)}
                         >
                           <span className={styles['tool-chip-mark']} aria-hidden>{on ? '✓' : '✕'}</span>
                           <span className={styles['tool-chip-name']}>{shortName}</span>
+                          <span
+                            className={tool?.usageCount ? styles['tool-chip-usage'] : styles['tool-chip-usage-never']}
+                          >
+                            {formatToolUsageCount(tool?.usageCount)}
+                          </span>
                         </button>
                       </li>
                     )

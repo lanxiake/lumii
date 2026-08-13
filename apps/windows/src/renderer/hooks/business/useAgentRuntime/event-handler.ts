@@ -1365,6 +1365,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         contextWindow: event.contextWindow,
         triggerThreshold: event.triggerThreshold,
         isNearThreshold: ratio > 0.6,
+        ...(event.breakdown ? { breakdown: event.breakdown } : {}),
       }
       const isAutoCompacting = ratio >= event.triggerThreshold
       updateSessionState(sessionKey, (prev) => ({ ...prev, contextUsage, isAutoCompacting }))

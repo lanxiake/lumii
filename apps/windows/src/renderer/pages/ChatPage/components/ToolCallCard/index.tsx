@@ -362,7 +362,7 @@ function formatMs(ms: number): string {
   return `${Math.floor(ms / 60000)}m${Math.floor((ms % 60000) / 1000)}s`
 }
 
-/** 计算耗时字符串 */
+/** 计算耗时字符串（优先用后端 durationMs，running 时用实时 Date.now() 而非 liveNow 避免 1 秒跳变） */
 function formatDuration(startTime: Date, endTime?: Date, durationMs?: number): string {
   // 优先使用后端计算的 durationMs（精确且不受前端时间重置影响）
   if (durationMs !== undefined && durationMs >= 0) return formatMs(durationMs)
@@ -744,7 +744,7 @@ const ChildToolRow: React.FC<{ child: ChildToolItem }> = ({ child }) => {
         )}
         {(child.endTime || child.status === 'running') && (
           <span className={styles.childToolDuration}>
-            {formatDuration(child.startTime, child.endTime ?? liveNow)}
+            {formatDuration(child.startTime, child.endTime)}
           </span>
         )}
         <span className={styles.childToolToggle}>{isExpanded ? '∧' : '∨'}</span>
@@ -794,7 +794,7 @@ const SubagentCard: React.FC<{ item: AgentWorkflowItem }> = ({ item }) => {
   const shortKey = extractShortKey(item.childSessionKey)
   // 优先用 agentLabel（子 Agent 名称/标识），其次 agentId，最后用 shortKey
   const agentLabel = item.agentLabel || item.agentId || shortKey
-  const duration = formatDuration(item.startTime, item.endTime ?? liveNow, item.status !== 'running' ? item.durationMs : undefined)
+  const duration = formatDuration(item.startTime, item.endTime, item.status !== 'running' ? item.durationMs : undefined)
   const outputObj = item.output as Record<string, unknown> | undefined
   const summary = outputObj?.summary as string | undefined
   // 提取完整输出文本：优先 result/text/content，其次整个 output

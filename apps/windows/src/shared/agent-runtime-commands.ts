@@ -1007,6 +1007,10 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       isReadOnly: boolean
       needsPermission: boolean
       enabled: boolean
+      /** 累计调用次数，从未调用过为 0 */
+      usageCount: number
+      /** 最后一次调用时刻（epoch ms），从未调用过时缺省 */
+      lastUsedAt?: number
     }[]
   : T extends 'tools:toggle' ? { success: boolean }
   : T extends 'mcp:status' ? McpStatusPayload

@@ -49,6 +49,8 @@ import {
 } from '@mtbot/agent-runtime'
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import { buildContextUsageBreakdown } from './context-usage-breakdown.js'
+import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
 
 import {
   executeLocalCommand,
@@ -872,11 +874,39 @@ export class AgentRuntimeBridge {
     return usedTokens
   }
 
-  getSessionContextUsage(sessionKey: string): { usedTokens: number; contextWindow: number; triggerThreshold: number } {
+  getSessionContextUsage(sessionKey: string): {
+    usedTokens: number
+    contextWindow: number
+    triggerThreshold: number
+    breakdown?: readonly ContextUsageBreakdownEntry[]
+  } {
     const k = sessionKey.trim()
     const usedTokens = this.resolveSessionUsedTokens(k)
     const comp = this.sessionModelCatalog.getCompactionForRootSession(k)
-    return { usedTokens, contextWindow: comp.contextWindow, triggerThreshold: DEFAULT_COMPACTION_TRIGGER_RATIO }
+    return {
+      usedTokens,
+      contextWindow: comp.contextWindow,
+      triggerThreshold: DEFAULT_COMPACTION_TRIGGER_RATIO,
+      breakdown: this.resolveSessionUsageBreakdown(k, usedTokens),
+    }
+  }
+
+  /**
+   * 分类明细：只有活跃实例能拿到系统提示词与工具定义，无实例时返回 undefined
+   * （UI 退化为只显示总量）。
+   */
+  private resolveSessionUsageBreakdown(
+    sessionKey: string,
+    usedTokens: number,
+  ): readonly ContextUsageBreakdownEntry[] | undefined {
+    const instance = this.resolveMainInstanceForSession(sessionKey)
+    if (!instance) return undefined
+    return buildContextUsageBreakdown({
+      systemPrompt: instance.getSystemPrompt(),
+      toolDefinitions: instance.getTools(),
+      messages: instance.getAgentMessages() as AgentMessage[],
+      usedTokens,
+    })
   }
 
   /**

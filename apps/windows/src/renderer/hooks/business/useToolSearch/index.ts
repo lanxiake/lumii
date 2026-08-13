@@ -14,6 +14,10 @@ export interface ToolInfo {
   isReadOnly: boolean
   needsPermission: boolean
   enabled: boolean
+  /** 累计调用次数，从未调用过为 0 */
+  usageCount?: number
+  /** 最后一次调用时刻（epoch ms） */
+  lastUsedAt?: number
 }
 
 export interface McpServerStatus {
@@ -39,6 +43,20 @@ const BUILTIN_TOOL_I18N: Record<string, { label: string; description: string }> 
   cron_create: { label: '创建定时任务', description: '创建 cron、间隔或一次性定时任务。' },
   cron_list: { label: '查看定时任务', description: '查看当前定时任务列表和状态。' },
   cron_delete: { label: '删除定时任务', description: '按任务 ID 删除定时任务。' },
+}
+
+/** 调用次数的简短展示：0 次显示「未用过」，上千折成 k */
+export function formatToolUsageCount(count?: number): string {
+  if (!count) return '未用过'
+  if (count >= 1000) return `${(count / 1000).toFixed(1)}k 次`
+  return `${count} 次`
+}
+
+/** 悬浮提示用的完整用量说明（含最后使用时间） */
+export function formatToolUsageTitle(tool: ToolInfo): string {
+  if (!tool.usageCount) return '从未调用过，可考虑关闭以节省上下文'
+  const last = tool.lastUsedAt ? `，最后使用 ${new Date(tool.lastUsedAt).toLocaleString()}` : ''
+  return `累计调用 ${tool.usageCount} 次${last}`
 }
 
 /**

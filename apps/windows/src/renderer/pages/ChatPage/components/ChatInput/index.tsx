@@ -9,6 +9,7 @@ import { getSelectedAcpBackendId, BACKEND_INFO, MAIN_BACKEND_ID } from '../../co
 import { getSupportedAttachmentAccept } from '../../utils/file-attachment-strategy'
 import Switch from '../../../../components/ui/Switch/Switch'
 import { formatContextUsageCompact, formatTokenCount } from '../../../../utils/format-token-count'
+import ContextUsageCard from './ContextUsageCard'
 import { useRotatingTip } from '../TipsBanner/useRotatingTip'
 import { ComposerPlusMenu } from './ComposerPlusMenu'
 import type { ViewType } from '../../../../components/Router'
@@ -94,9 +95,9 @@ export interface FileReference {
 }
 
 /**
- * 构造上下文状态提示文案，用于悬浮 title。
+ * 构造上下文状态无障碍标签（视觉信息由悬浮卡片承载）。
  */
-function formatContextUsageTitle(contextUsage: ContextUsage): string {
+function formatContextUsageLabel(contextUsage: ContextUsage): string {
   const used = contextUsage.usedTokens
   const total = contextUsage.contextWindow
   const ratio = total > 0 ? used / total : 0
@@ -109,11 +110,11 @@ function formatContextUsageTitle(contextUsage: ContextUsage): string {
       : '状态健康'
 
   return [
-    `上下文使用: ${formatTokenCount(used)} / ${formatTokenCount(total)} tokens (${percent}%)`,
-    `压缩阈值: ${threshold}%`,
-    `状态: ${level}`,
+    `上下文使用 ${formatTokenCount(used)} / ${formatTokenCount(total)} tokens，${percent}%`,
+    `压缩阈值 ${threshold}%`,
+    `状态 ${level}`,
     '点击可主动压缩上下文',
-  ].join('\n')
+  ].join('，')
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -172,6 +173,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const [modelPanelOpen, setModelPanelOpen] = useState(false)
   // 帮助面板状态
   const [helpPanelOpen, setHelpPanelOpen] = useState(false)
+  // 上下文占用卡片悬浮态
+  const [contextCardOpen, setContextCardOpen] = useState(false)
   const [currentBackend, setCurrentBackend] = useState(() => getSelectedAcpBackendId())
   // 启动时从主进程同步后端选择（主进程持久化到 config 目录，比 localStorage 更可靠）
   useEffect(() => {
@@ -579,14 +582,14 @@ const ChatInput: React.FC<ChatInputProps> = ({
     (contextUsage?.contextWindow && contextUsage.contextWindow > 0
       ? contextUsage.contextWindow
       : modelContextWindow) ?? 0
-  const contextUsageTitle = contextUsage || effectiveContextWindow > 0
-    ? formatContextUsageTitle({
+  const contextUsageLabel = contextUsage || effectiveContextWindow > 0
+    ? formatContextUsageLabel({
         usedTokens: contextUsage?.usedTokens ?? 0,
         contextWindow: effectiveContextWindow,
         triggerThreshold: contextUsage?.triggerThreshold ?? 0.8,
         isNearThreshold: contextUsage?.isNearThreshold ?? false,
       })
-    : ''
+    : '点击可主动压缩上下文'
   const contextWindowText =
     effectiveContextWindow > 0
       ? formatContextUsageCompact(contextUsage?.usedTokens ?? 0, effectiveContextWindow)
@@ -926,43 +929,55 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 中途插话
               </button>
             )}
-            {/* 上下文压缩图标：支持悬浮信息和主动触发，始终显示（有 onCompactContext 时） */}
+            {/* 上下文压缩图标：悬浮展开占用明细卡片，点击主动压缩 */}
             {(isCompacting || onCompactContext) && (
-              <button
-                type="button"
-                className={clsx(
-                  styles['context-compact'],
-                  isCompacting
-                    ? styles['context-compact-compacting']
-                    : contextUsage && effectiveContextWindow > 0
-                      ? (
-                          contextUsage.usedTokens / effectiveContextWindow > (contextUsage.triggerThreshold ?? 0.8)
-                            ? styles['context-compact-danger']
-                            : contextUsage.isNearThreshold
-                              ? styles['context-compact-warn']
-                              : styles['context-compact-safe']
-                        )
-                      : styles['context-compact-safe'],
-                )}
-                title={isCompacting ? '正在自动压缩上下文...' : (contextUsage ? contextUsageTitle : '点击可主动压缩上下文')}
-                onClick={() => !isCompacting && onCompactContext?.()}
-                disabled={isCompacting || !onCompactContext || isDisabled}
+              <div
+                className={styles['context-usage-wrapper']}
+                onMouseEnter={() => setContextCardOpen(true)}
+                onMouseLeave={() => setContextCardOpen(false)}
               >
-                <span className={clsx(styles['context-compact-icon'], isCompacting && styles['context-compact-icon--spinning'])} aria-hidden>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M8 4v4H4" />
-                    <path d="M20 10A8 8 0 0 0 6.6 5.3L4 8" />
-                    <path d="M16 20v-4h4" />
-                    <path d="M4 14a8 8 0 0 0 13.4 4.7L20 16" />
-                  </svg>
-                </span>
-                <span className={styles['context-compact-text']}>
-                  <span className={styles['context-compact-line']}>
-                    {isCompacting ? '压缩中...' : ''}
+                <button
+                  type="button"
+                  className={clsx(
+                    styles['context-compact'],
+                    isCompacting
+                      ? styles['context-compact-compacting']
+                      : contextUsage && effectiveContextWindow > 0
+                        ? (
+                            contextUsage.usedTokens / effectiveContextWindow > (contextUsage.triggerThreshold ?? 0.8)
+                              ? styles['context-compact-danger']
+                              : contextUsage.isNearThreshold
+                                ? styles['context-compact-warn']
+                                : styles['context-compact-safe']
+                          )
+                        : styles['context-compact-safe'],
+                  )}
+                  aria-label={isCompacting ? '正在自动压缩上下文' : contextUsageLabel}
+                  onClick={() => !isCompacting && onCompactContext?.()}
+                  disabled={isCompacting || !onCompactContext || isDisabled}
+                >
+                  <span className={clsx(styles['context-compact-icon'], isCompacting && styles['context-compact-icon--spinning'])} aria-hidden>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M8 4v4H4" />
+                      <path d="M20 10A8 8 0 0 0 6.6 5.3L4 8" />
+                      <path d="M16 20v-4h4" />
+                      <path d="M4 14a8 8 0 0 0 13.4 4.7L20 16" />
+                    </svg>
                   </span>
-                  <span className={styles['context-compact-line']}>{contextWindowText}</span>
-                </span>
-              </button>
+                  <span className={styles['context-compact-text']}>
+                    <span className={styles['context-compact-line']}>
+                      {isCompacting ? '压缩中...' : ''}
+                    </span>
+                    <span className={styles['context-compact-line']}>{contextWindowText}</span>
+                  </span>
+                </button>
+                {contextCardOpen && !isCompacting && (
+                  <ContextUsageCard
+                    contextUsage={contextUsage}
+                    contextWindow={effectiveContextWindow}
+                  />
+                )}
+              </div>
             )}
             {/* 帮助/功能提示按钮 */}
             <div className={styles['help-panel-wrapper']} ref={helpPanelRef}>

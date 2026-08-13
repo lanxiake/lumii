@@ -51,6 +51,7 @@ import type { StreamFn } from '@mariozechner/pi-agent-core'
 import { createRunContext } from './event-converter'
 import { riskLevelForTool, createLargeToolResultHook } from './permission-tool-wrap'
 import { createSkillHitRateHook } from './hooks/skill-hit-rate-hook'
+import { createToolUsageHook } from './hooks/tool-usage-hook'
 import type { McpStdioClient } from '@mtbot/agent-runtime'
 import type { PermissionController } from './permission-controller'
 import type { AgentRuntimeBridgeConfig } from './bridge'
@@ -131,6 +132,7 @@ export interface BridgeInstanceFactoryDeps {
     usedTokens: number
     contextWindow: number
     triggerThreshold: number
+    breakdown?: readonly import('../../shared/agent-runtime-events').ContextUsageBreakdownEntry[]
   }
   /** 记录提供商返回的 inputTokens */
   setSessionProviderInputTokens: (sessionKey: string, inputTokens: number) => void
@@ -330,14 +332,23 @@ export class BridgeInstanceFactory {
         log.info(
           `[streamFn] rootKey=${rootSessionKey} effKey=${effectiveSessionKey} pref=${pref ?? '(none)'} defaultModel=${model.id} thinking=${thinking.thinkingEnabled} effort=${thinking.reasoningEffort}`,
         )
+        // 思考开关必须传到 direct 请求上。pi-ai 的 streamSimple 把 options.reasoning 映射成
+        // reasoningEffort，再据此决定是否发 reasoning_effort（OpenAI 系）或 thinking:disabled
+        // （z.ai 系）。此前 direct 路径只读了偏好却没往下传，所以关掉思考后 DeepSeek 照旧推理。
+        // 注意不要顺手把 model.reasoning 改成 false：z.ai 的「显式关闭」分支依赖它为真，
+        // 置 false 会导致该分支被跳过，反而回到服务端默认开启思考。
+        const streamOptions = thinking.thinkingEnabled
+          ? { ...options, reasoning: options?.reasoning ?? thinking.reasoningEffort }
+          : { ...options, reasoning: undefined, reasoningEffort: undefined }
+
         if (pref) {
           const explicit = this.deps.modelRouter.resolveExplicitModelId(pref)
           ctx.resolvedModelId = explicit.id
           log.info(`[streamFn] 使用用户选择模型(direct): ${explicit.id} (api=${explicit.api})`)
-          return liveDirect(explicit, context, options)
+          return liveDirect(explicit, context, streamOptions)
         }
         log.info(`[streamFn] 无用户选择，回退默认模型(direct): ${resolved.model.id}`)
-        return liveDirect(model, context, options)
+        return liveDirect(model, context, streamOptions)
       }
     }
 
@@ -397,6 +408,7 @@ export class BridgeInstanceFactory {
     const optionalHooks = [
       createLargeToolResultHook({ getCwd, getConversationId }),
       skillHitRateTracker.hook,
+      createToolUsageHook(),
     ]
 
     // ── 注入接口：ConfigProvider（模型解析 + feature flags） ──
