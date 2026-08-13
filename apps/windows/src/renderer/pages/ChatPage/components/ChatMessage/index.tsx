@@ -703,6 +703,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             currentStatus={isStreaming ? buildCurrentStatus(process) : undefined}
             isStreaming={isStreaming}
             durationMs={message.streamMetrics?.durationMs}
+            startTime={message.timestamp}
           >
             {process.map((u) => renderUnit(u, true))}
           </ActivityFold>

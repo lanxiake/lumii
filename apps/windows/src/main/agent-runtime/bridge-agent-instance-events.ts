@@ -300,11 +300,13 @@ export function createAgentInstanceRuntimeEventHandler(
   /**
    * 执行单个运行时事件；仅 agent:end 的工作区结束快照会异步让出。
    */
+  // 高频流式事件（逐 chunk 触发），不逐条落日志，避免刷屏
+  const SILENT_EVENT_TYPES = new Set(['message:delta', 'message:thinking', 'tool:update'])
+
   async function handleRuntimeEvent(event: AgentRuntimeEvent): Promise<void> {
     if (event.type === 'message:delta') {
       // 首个 delta 即首字节，配对 agent:start 得到 TTFB；后续 delta 无副作用
       markFirstToken(instanceId, ctx.resolvedModelId ?? 'unknown')
-      log.info(`[event] message:delta delta="${event.delta?.slice(0, 80)}"`)
     } else if (event.type === 'message:end') {
       const llmErr = (event as {
         llmError?: { httpStatus?: number; code?: string; message?: string; retryable?: boolean }
@@ -315,14 +317,14 @@ export function createAgentInstanceRuntimeEventHandler(
         )
       } else {
         log.info(
-          `[event] message:end fullText="${event.fullText?.slice(0, 200)}", usage=${JSON.stringify(event.usage)}`,
+          `[event] message:end fullText="${event.fullText?.slice(0, 80)}", usage=${JSON.stringify(event.usage)}`,
         )
       }
     } else if (event.type === 'agent:error') {
       log.error(
         `[event] agent:error error="${event.error}" errorCode="${(event as { errorCode?: string }).errorCode ?? 'N/A'}"`,
       )
-    } else {
+    } else if (!SILENT_EVENT_TYPES.has(event.type)) {
       log.info(`[event] type=${event.type}`)
     }
 
@@ -424,9 +426,6 @@ export function createAgentInstanceRuntimeEventHandler(
     if (event.type === 'tool:start') {
       setCurrentToolExecutorInstanceId(instanceId)
       toolCallInstanceMap.set(event.toolCallId, instanceId)
-      log.info(
-        `[DEBUG tool:start] toolCallId=${event.toolCallId}, instanceId=${instanceId}, toolName=${event.toolName}, mapSize=${toolCallInstanceMap.size}`,
-      )
       const state = instanceStates.get(instanceId)
       if (state) {
         const args = (event.args ?? {}) as Record<string, unknown>

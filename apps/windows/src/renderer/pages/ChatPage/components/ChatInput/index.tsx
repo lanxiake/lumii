@@ -307,6 +307,20 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   }
 
+  // 剪贴板粘贴处理：提取文件/图片并上传
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const { clipboardData } = e
+    if (!clipboardData || !clipboardData.files || clipboardData.files.length === 0) {
+      return // 无文件，继续默认粘贴（文本）
+    }
+    // 有文件：阻止默认行为（避免粘贴 [object File] 等无效文本），调用上传处理器
+    e.preventDefault()
+    const handler = onFileUpload ?? onImageUpload
+    if (handler) {
+      handler(clipboardData.files)
+    }
+  }, [onFileUpload, onImageUpload])
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // IME 组合期间（中文选词等）的回车/方向键属输入法操作，不触发补全导航或发送
     if (isComposingRef.current || e.nativeEvent.isComposing || e.key === 'Process') {
@@ -785,6 +799,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
           onKeyDown={handleKeyDown}
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
+          onPaste={handlePaste}
           disabled={isDisabled}
           placeholder={effectivePlaceholder}
           rows={1}
@@ -987,6 +1002,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
                     <div className={styles['help-item']}>
                       <kbd className={styles['help-kbd']}>Ctrl+U</kbd>
                       <span>添加文件或图片</span>
+                    </div>
+                    <div className={styles['help-item']}>
+                      <kbd className={styles['help-kbd']}>Ctrl+V</kbd>
+                      <span>粘贴文件或图片</span>
                     </div>
                     <div className={styles['help-item']}>
                       <kbd className={styles['help-kbd']}>Ctrl+N</kbd>

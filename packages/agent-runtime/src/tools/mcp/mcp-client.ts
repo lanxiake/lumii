@@ -450,6 +450,10 @@ export class McpStdioClient extends EventEmitter {
   }
 
   private handleLine(line: string): void {
+    if (!line.trim()) {
+      // ✅ 修复：空行直接忽略，避免无意义的 JSON 解析
+      return;
+    }
     try {
       const msg = JSON.parse(line) as JsonRpcResponse;
       if (typeof msg.id === "number" && this.pending.has(msg.id)) {
@@ -460,8 +464,22 @@ export class McpStdioClient extends EventEmitter {
           entry.resolve(msg.result);
         }
       }
-    } catch {
-      // 非 JSON 行（如 stderr 泄漏到 stdout），忽略
+    } catch (parseErr) {
+      // ✅ 修复：非 JSON 行可能是 MCP Server 崩溃输出，记录日志并检查是否应终止 pending 请求
+      const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+      console.warn(`[MCP Client] Failed to parse JSON-RPC response (ignoring): ${errMsg}`, { line: line.slice(0, 200) });
+
+      // 如果是明显的错误标记（如 Python traceback / Error:），主动中断所有 pending 请求
+      const lower = line.toLowerCase();
+      if (lower.includes('traceback') || lower.includes('error:') || lower.includes('exception')) {
+        console.error(`[MCP Client] Detected server-side error output, aborting all pending requests`);
+        const entries = [...this.pending.values()];
+        this.pending.clear();
+        for (const entry of entries) {
+          clearTimeout(entry.timer);
+          entry.reject(new Error(`MCP server process error: ${line.slice(0, 200)}`));
+        }
+      }
     }
   }
 

@@ -6,7 +6,7 @@
  * 交互清晰化：左侧旋转 chevron + 「执行过程」标签 + 展开/收起提示文字。
  */
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import clsx from 'clsx'
 import { ChevronRight, Loader2 } from 'lucide-react'
 import styles from './ActivityFold.module.css'
@@ -20,6 +20,8 @@ export interface ActivityFoldProps {
   isStreaming: boolean
   /** 完成后的耗时（毫秒），仅非流式且 >0 时展示 */
   durationMs?: number
+  /** 流式开始时间（用于实时计时器） */
+  startTime?: Date
   /** 展开体：按时间线渲染的过程单元 */
   children: React.ReactNode
 }
@@ -36,9 +38,36 @@ const ActivityFold: React.FC<ActivityFoldProps> = ({
   currentStatus,
   isStreaming,
   durationMs,
+  startTime,
   children,
 }) => {
   const [expanded, setExpanded] = useState(false)
+  // 流式进行中的实时计时器（秒）
+  const [liveElapsedSec, setLiveElapsedSec] = useState(0)
+
+  // 流式中每秒更新 liveElapsedSec
+  useEffect(() => {
+    if (!isStreaming || !startTime) {
+      setLiveElapsedSec(0)
+      return
+    }
+    const initial = Math.floor((Date.now() - startTime.getTime()) / 1000)
+    setLiveElapsedSec(initial)
+
+    const timer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTime.getTime()) / 1000)
+      setLiveElapsedSec(elapsed)
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [isStreaming, startTime])
+
+  // 展示的耗时文本
+  const displayedDuration = isStreaming
+    ? formatDuration(liveElapsedSec * 1000)
+    : durationMs !== undefined && durationMs > 0
+      ? formatDuration(durationMs)
+      : null
 
   return (
     <div className={clsx(styles.fold, isStreaming && styles['fold--streaming'])}>
@@ -63,8 +92,8 @@ const ActivityFold: React.FC<ActivityFoldProps> = ({
         ) : (
           <span className={styles.summary}>{summary}</span>
         )}
-        {!isStreaming && durationMs !== undefined && durationMs > 0 && (
-          <span className={styles.duration}>{formatDuration(durationMs)}</span>
+        {displayedDuration && (
+          <span className={styles.duration}>{displayedDuration}</span>
         )}
         <span className={styles.hint}>{expanded ? '收起' : '展开'}</span>
       </button>

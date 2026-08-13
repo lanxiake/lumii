@@ -1025,29 +1025,22 @@ async function initAgentRuntime(): Promise<void> {
   }, 5000)
 
 
-  // 初始化技能自进化引擎（LLM 调用复用 bridge.callLLM，继承用户配置的模型和认证）
+  // ── 技能自进化引擎（已关闭）──
+  // 代码保留，但暂不启用，效果不太好。移除了以下内容：
+  // - 初始化 SkillEvolutionEngine 实例
+  // - bridge.setSkillEvolutionEngine(engine) 注册
+  // - 事件监听（improvement_ready, inject_message）
+  // 如需恢复，取消下方注释并确保 user-dialog.ts / conversation-observer.ts 依赖完整。
+  /*
   const skillEvolutionEngine = new SkillEvolutionEngine((prompt, instanceId) => agentRuntimeBridge!.callLLM(prompt, instanceId))
   agentRuntimeBridge.setSkillEvolutionEngine(skillEvolutionEngine)
-
-  // 将技能自进化事件桥接到渲染进程
-  // 注意：skill_draft_ready 和 deprecation_suggested 已改为通过对话 inject_message 通知用户
-  // improvement_ready 仍保留事件（供未来扩展使用）
   skillEvolutionEngine.on('improvement_ready', (evt: { type: string; skillName: string; naturalLanguageDiff: string }) => {
     log.info(`[SkillEvolution] 改进方案已生成: skillName=${evt.skillName}`)
   })
-
-  // inject_message：将进化引擎生成的消息作为 assistant 消息推送到渲染层，并持久化到 DB
   skillEvolutionEngine.on('inject_message', (evt: { instanceId: string; text: string }) => {
     const sessionKey = getSessionKeyForInstance(evt.instanceId)
-    if (!sessionKey) {
-      log.warn(`[SkillEvolution] inject_message: 无法找到 instanceId=${evt.instanceId} 对应的 sessionKey，消息丢弃`)
-      return
-    }
-
+    if (!sessionKey) return
     const msgId = `skill-evo-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-    log.info(`[SkillEvolution] 注入消息: sessionKey=${sessionKey}, msgId=${msgId}, text="${evt.text.slice(0, 50)}"`)
-
-    // 持久化到 DB，避免重启后消息丢失
     try {
       agentRuntimeBridge?.conversationRepo?.saveMessage?.({
         id: msgId,
@@ -1058,7 +1051,6 @@ async function initAgentRuntime(): Promise<void> {
     } catch (err) {
       log.warn(`[SkillEvolution] inject_message 持久化失败: ${err instanceof Error ? err.message : String(err)}`)
     }
-
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('agent-runtime:event', {
         type: 'conversation:message:new',
@@ -1073,6 +1065,7 @@ async function initAgentRuntime(): Promise<void> {
     }
   })
   log.info('[SkillEvolution] 技能自进化引擎已启动')
+  */
 }
 
 /**
