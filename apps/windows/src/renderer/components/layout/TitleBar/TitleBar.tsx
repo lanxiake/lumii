@@ -2,7 +2,7 @@
  * TitleBar Component - 自定义窗口标题栏
  *
  * 无边框窗口的自定义标题栏，包含拖拽区域和窗口控制按钮。
- * 主题切换与全局字号 A−/A+ 放在品牌区右侧，任意页面均可调节。
+ * 主题切换与全局字号（小/中/大/超大）放在品牌区右侧，任意页面均可调节。
  */
 
 import React, { useCallback, useState, useEffect } from 'react';
@@ -137,12 +137,12 @@ export const TitleBar: React.FC<TitleBarProps> = ({
               {themeToggle}
             </div>
           )}
-          {/* 与原对话页工具栏一致：Type 图标循环切换 小/中/大 */}
+          {/* 与原对话页工具栏一致：Type 图标循环切换 小/中/大/超大 */}
           <button
             type="button"
             className={styles['title-bar-font-btn']}
             onClick={cycle}
-            title={`字号：${label}（点击切换 小/中/大）`}
+            title={`字号：${label}（点击切换 小/中/大/超大）`}
             aria-label={`切换字号，当前${label}`}
             data-font-level={level}
           >

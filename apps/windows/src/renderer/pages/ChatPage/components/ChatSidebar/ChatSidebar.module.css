@@ -7,6 +7,8 @@
   flex-direction: column;
   border-top: 1px solid var(--mt-border-hairline);
   background: transparent;
+  /* 会话列表字号相对全局再放大 10% */
+  --session-list-font-boost: 1.1;
 }
 
 /* 列表底部主操作（新建对话 / 绑定渠道） */
@@ -27,7 +29,7 @@
   border-radius: var(--mt-radius-lg);
   background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
   color: var(--mt-accent-500);
-  font-size: var(--mt-fs-xs);
+  font-size: calc(var(--mt-fs-xs) * var(--session-list-font-boost));
   font-weight: var(--mt-fw-medium);
   cursor: pointer;
   transition:
@@ -46,7 +48,7 @@
 }
 
 .footer-btn-glyph {
-  font-size: 13px;
+  font-size: calc(14.3px * var(--app-font-scale, 1));
   line-height: 1;
 }
 
@@ -67,7 +69,7 @@
   border-radius: var(--mt-radius-md);
   background: transparent;
   color: var(--mt-fg-3);
-  font-size: var(--mt-fs-xs);
+  font-size: calc(var(--mt-fs-xs) * var(--session-list-font-boost));
   cursor: pointer;
   transition:
     background var(--mt-dur-normal) var(--mt-ease-standard),
@@ -113,7 +115,7 @@
   border-radius: var(--radius-lg);
   background: var(--color-bg-tertiary);
   color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
+  font-size: calc(var(--font-size-sm) * var(--session-list-font-boost));
   transition: border-color 0.2s;
 }
 
@@ -134,7 +136,7 @@
   color: var(--color-text-secondary);
   cursor: pointer;
   padding: var(--spacing-1);
-  font-size: 12px;
+  font-size: calc(13.2px * var(--app-font-scale, 1));
   border-radius: var(--radius-sm);
   transition: all 0.2s;
 }
@@ -165,7 +167,7 @@
   align-items: center;
   gap: var(--spacing-2);
   padding: var(--spacing-2) var(--spacing-4);
-  font-size: var(--font-size-xs);
+  font-size: calc(var(--font-size-xs) * var(--session-list-font-boost));
   color: var(--color-text-secondary);
   font-weight: 600;
   text-transform: uppercase;
@@ -185,7 +187,7 @@
 
 .group-chevron {
   margin-left: auto;
-  font-size: 10px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   color: var(--color-text-tertiary);
   transition: transform 0.2s;
 }
@@ -219,7 +221,7 @@
   background: color-mix(in srgb, var(--mt-accent-500) 8%, transparent);
   color: var(--mt-fg-2);
   font-family: var(--mt-font-mono);
-  font-size: 10px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   font-weight: var(--mt-fw-normal);
   line-height: 1.6;
   letter-spacing: var(--mt-tracking-wide);
@@ -236,7 +238,7 @@
   padding: var(--mt-space-5) var(--mt-space-3);
   text-align: center;
   color: var(--mt-fg-3);
-  font-size: var(--mt-fs-xs);
+  font-size: calc(var(--mt-fs-xs) * var(--session-list-font-boost));
   line-height: var(--mt-lh-normal);
 }
 
@@ -252,7 +254,7 @@
   align-items: center;
   gap: 6px;
   padding: 8px 12px 4px;
-  font-size: 12px;
+  font-size: calc(13.2px * var(--app-font-scale, 1));
   font-weight: 600;
   color: var(--color-text-secondary, rgba(128, 128, 128, 0.9));
   user-select: none;
@@ -288,7 +290,7 @@
 .channel-subgroup-label {
   padding: 5px 9px 3px;
   font-family: var(--mt-font-mono);
-  font-size: 9.5px;
+  font-size: calc(10.45px * var(--app-font-scale, 1));
   font-weight: var(--mt-fw-semibold);
   letter-spacing: var(--mt-tracking-wide);
   color: var(--mt-fg-4);
@@ -296,6 +298,6 @@
 
 .channel-empty {
   padding: 6px 16px 10px;
-  font-size: 12px;
+  font-size: calc(13.2px * var(--app-font-scale, 1));
   color: var(--color-text-tertiary, rgba(128, 128, 128, 0.65));
 }

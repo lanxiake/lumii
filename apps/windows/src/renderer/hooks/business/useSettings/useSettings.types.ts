@@ -17,7 +17,7 @@ export interface ThemeConfig {
   /** light/dark/system 为标准模式；ragdoll 为奶油布偶猫治愈浅色主题（原型 UI 方案一） */
   mode: 'light' | 'dark' | 'system' | 'ragdoll'
   primaryColor: string
-  fontSize: 'small' | 'medium' | 'large'
+  fontSize: 'small' | 'medium' | 'large' | 'xlarge'
   enableAnimations: boolean
 }
 

@@ -89,7 +89,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  /* 基准 12px +10%，并跟随全局字号档位 */
+  font-size: calc(13.2px * var(--app-font-scale, 1));
   color: inherit;
 }
 
@@ -97,7 +98,7 @@
 .session-time {
   flex-shrink: 0;
   font-family: var(--mt-font-mono);
-  font-size: 9.5px;
+  font-size: calc(10.45px * var(--app-font-scale, 1));
   color: var(--mt-fg-4);
 }
 
@@ -113,7 +114,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: calc(11px * var(--app-font-scale, 1));
   color: var(--mt-fg-4);
 }
 
@@ -127,7 +128,7 @@
   background: color-mix(in srgb, var(--mt-accent-500) 22%, transparent);
   color: var(--mt-accent-500);
   font-family: var(--mt-font-mono);
-  font-size: 9.5px;
+  font-size: calc(10.45px * var(--app-font-scale, 1));
   font-weight: var(--mt-fw-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -182,7 +183,7 @@
   border-radius: 7px;
   background: var(--mt-bg-elevated);
   color: var(--mt-fg-1);
-  font-size: 12px;
+  font-size: calc(13.2px * var(--app-font-scale, 1));
   outline: none;
 }
 
