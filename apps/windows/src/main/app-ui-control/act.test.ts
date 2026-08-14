@@ -1,3 +1,7 @@
+/**
+ * @vitest-environment jsdom
+ * 本文件含 eval 注入脚本的 DOM 行为断言，需在 jsdom 下运行（从仓库根目录跑 vitest 时也生效）。
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   assertClickAllowed,
