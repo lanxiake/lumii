@@ -151,4 +151,5 @@ export const WRITE_TOOL_NAMES = new Set([
   "file_write",
   "notebook_edit",
   "channel_send",
+  "app_act",
 ]);
