@@ -350,6 +350,9 @@ export function getStatusLabel(item: AgentWorkflowItem): string {
     const prompt = item.input?.prompt as string | undefined
     return prompt ? `${prefix}生成图片：${truncate(prompt, 40)}` : `${prefix}生成图片`
   }
+  if (lname === 'app_screenshot') {
+    return `${prefix}截取界面`
+  }
 
   // 通用技能/工具
   return target ? `${prefix}调用 ${name}: ${target}` : `${prefix}调用 ${name}`
@@ -442,21 +445,73 @@ function formatInputSummary(input: Record<string, unknown> | undefined, toolName
   return formatParams(input)
 }
 
-// ─── image_generate 内联图片预览 ──────────────────────────
+// ─── 工具内联图片预览（image_generate / app_screenshot）──────────────────────────
 
-/** 从工具 output 提取 image_generate 的 details */
-function extractImageGenerateDetails(output: unknown): { filePath: string; width: number; height: number; model: string; revisedPrompt: string } | null {
+/** app_screenshot text 块 JSON 的最小字段（供路径回退与尺寸展示） */
+interface AppScreenshotPayload {
+  ok?: boolean
+  snapshotId?: string
+  width?: number
+  height?: number
+}
+
+/**
+ * 从 app_screenshot 工具 output 的 text 块解析 payload。
+ * previewPath 缺失时用于构造 ~/.lumii/temp/screenshots/{snapshotId}.jpg。
+ */
+function parseAppScreenshotPayload(output: Record<string, unknown>): AppScreenshotPayload | null {
+  const content = output.content
+  if (!Array.isArray(content)) return null
+  for (const block of content) {
+    if (!block || typeof block !== 'object' || (block as { type?: string }).type !== 'text') continue
+    const text = (block as { text?: string }).text
+    if (typeof text !== 'string') continue
+    try {
+      const parsed = JSON.parse(text) as AppScreenshotPayload
+      if (parsed && typeof parsed === 'object' && parsed.ok) return parsed
+    } catch {
+      // 非 JSON 文本块，跳过
+    }
+  }
+  return null
+}
+
+/**
+ * 从工具 output 提取可预览图片路径与元数据。
+ * image_generate 使用 details.filePath；app_screenshot 优先 details.previewPath。
+ */
+function extractToolImagePreviewDetails(output: unknown): {
+  filePath: string
+  width: number
+  height: number
+  model: string
+  revisedPrompt: string
+} | null {
   if (!output || typeof output !== 'object') return null
   const o = output as Record<string, unknown>
   const details = (o.details && typeof o.details === 'object') ? o.details as Record<string, unknown> : null
-  if (!details) return null
-  if (typeof details.filePath !== 'string' || !details.filePath) return null
+
+  let filePath: string | null = null
+  if (details) {
+    if (typeof details.previewPath === 'string' && details.previewPath) {
+      filePath = details.previewPath
+    } else if (typeof details.filePath === 'string' && details.filePath) {
+      filePath = details.filePath
+    }
+  }
+
+  const screenshotPayload = parseAppScreenshotPayload(o)
+  if (!filePath && screenshotPayload?.snapshotId) {
+    filePath = `~/.lumii/temp/screenshots/${screenshotPayload.snapshotId}.jpg`
+  }
+  if (!filePath) return null
+
   return {
-    filePath: details.filePath as string,
-    width: (details.width as number) ?? 0,
-    height: (details.height as number) ?? 0,
-    model: (details.model as string) ?? '',
-    revisedPrompt: (details.revisedPrompt as string) ?? '',
+    filePath,
+    width: (details?.width as number) ?? screenshotPayload?.width ?? 0,
+    height: (details?.height as number) ?? screenshotPayload?.height ?? 0,
+    model: (details?.model as string) ?? '',
+    revisedPrompt: (details?.revisedPrompt as string) ?? '',
   }
 }
 
@@ -465,7 +520,7 @@ const ImageGeneratePreview: React.FC<{ output: unknown; fullSize?: boolean }> = 
   const [loading, setLoading] = useState(true)
   const [zoomed, setZoomed] = useState(false)
 
-  const imgDetails = useMemo(() => extractImageGenerateDetails(output), [output])
+  const imgDetails = useMemo(() => extractToolImagePreviewDetails(output), [output])
 
   useEffect(() => {
     if (!imgDetails?.filePath) {
@@ -512,7 +567,9 @@ const ImageGeneratePreview: React.FC<{ output: unknown; fullSize?: boolean }> = 
           />
           {fullSize && imgDetails.width > 0 && (
             <div className={styles.imageMeta}>
-              {imgDetails.width}×{imgDetails.height} · {imgDetails.model} · {fileName}
+              {imgDetails.model
+                ? `${imgDetails.width}×${imgDetails.height} · ${imgDetails.model} · ${fileName}`
+                : `${imgDetails.width}×${imgDetails.height} · ${fileName}`}
             </div>
           )}
           {zoomed && (
@@ -964,8 +1021,10 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
   const isTodoWrite = (item.name || '').toLowerCase() === 'todo_write'
   const showTodoPreview =
     isTodoWrite && !isRunning && (item.status === 'completed' || item.status === 'failed')
-  const isImageGenerate = (item.name || '').toLowerCase() === 'image_generate'
-  const showImagePreview = isImageGenerate && item.status === 'completed' && !!extractImageGenerateDetails(item.output)
+  const toolNameLower = (item.name || '').toLowerCase()
+  const isImagePreviewTool = toolNameLower === 'image_generate' || toolNameLower === 'app_screenshot'
+  const showImagePreview =
+    isImagePreviewTool && item.status === 'completed' && !!extractToolImagePreviewDetails(item.output)
 
   // 提取文件读写元数据：存在时在头部显示"可点击文件名 + 行号范围"
   const fileInfo = useMemo(

@@ -22,6 +22,6 @@ export function classifyToolFamily(name: string): ToolFamily {
   if (n.includes('write') || n.includes('edit') || n.includes('create')) return 'write'
   if (n.includes('bash') || n.includes('exec') || n.includes('run')) return 'exec'
   if (n.includes('agent') || n.includes('spawn')) return 'agent'
-  if (n === 'image_generate') return 'image'
+  if (n === 'image_generate' || n === 'app_screenshot') return 'image'
   return 'other'
 }
