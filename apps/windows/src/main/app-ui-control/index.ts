@@ -1,5 +1,9 @@
 export type {
+  ActClickInput,
   ActInput,
+  ActKeyInput,
+  ActScrollInput,
+  ActTypeInput,
   AppUiClickContext,
   AppUiHubState,
   AppUiRef,
@@ -12,10 +16,21 @@ export type {
   RawSnapshotNode,
 } from './types'
 
-export { assertClickAllowed, buildClickPrepareScript, CLICK_BLOCK_ROLES } from './act'
+export {
+  assertClickAllowed,
+  buildClickPrepareScript,
+  buildScrollScript,
+  buildTypeScript,
+  CLICK_BLOCK_ROLES,
+  isKeyAllowed,
+  KEY_WHITELIST,
+} from './act'
 export type {
+  ActUsageError,
+  AllowedKey,
   AssertClickAllowedParams,
   AssertClickAllowedResult,
+  AppUiActError,
   AppUiClickError,
   ClickAllowedError,
   ClickPrepareError,
@@ -35,6 +50,8 @@ export {
 } from './snapshot'
 
 export type {
+  AppUiActFailure,
+  AppUiActResult,
   AppUiController,
   AppUiControllerDeps,
   AppUiClickFailure,

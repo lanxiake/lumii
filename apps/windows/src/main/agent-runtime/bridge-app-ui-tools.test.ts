@@ -18,13 +18,16 @@ function stubContext(): ToolExecutionContext {
   }
 }
 
-/** 最小 AppUiController stub（含 goto/click） */
+/** 最小 AppUiController stub（含 goto/click/type/key/scroll） */
 function stubController(overrides: Partial<AppUiController> = {}): AppUiController {
   return {
     screenshot: vi.fn(),
     getSnapshotCache: vi.fn(),
     goto: vi.fn(),
     click: vi.fn(),
+    type: vi.fn(),
+    key: vi.fn(),
+    scroll: vi.fn(),
     ...overrides,
   }
 }
@@ -208,9 +211,70 @@ describe('registerAppUiTools', () => {
     const click = vi.fn()
     const execute = registerAndGetExecute('app_act', stubController({ click }))
 
-    const result = await execute('call-a2', { action: 'type', ref: 'e1' })
+    const result = await execute('call-a2', { action: 'invalid', ref: 'e1' })
     expect(parseJsonToolResultPayload(result)).toEqual({ ok: false, error: 'usage' })
     expect(click).not.toHaveBeenCalled()
+  })
+
+  it('app_act type 成功时调用 controller.type', async () => {
+    const type = vi.fn(async () => ({ ok: true as const }))
+    const execute = registerAndGetExecute('app_act', stubController({ type }))
+
+    const result = await execute('call-a-type', {
+      action: 'type',
+      ref: 'e2',
+      text: '你好',
+      snapshotId: 'snap-001',
+    })
+    expect(parseJsonToolResultPayload(result)).toEqual({ ok: true })
+    expect(type).toHaveBeenCalledWith({
+      action: 'type',
+      ref: 'e2',
+      text: '你好',
+      snapshotId: 'snap-001',
+    })
+  })
+
+  it('app_act key 成功时调用 controller.key', async () => {
+    const key = vi.fn(async () => ({ ok: true as const }))
+    const execute = registerAndGetExecute('app_act', stubController({ key }))
+
+    const result = await execute('call-a-key', { action: 'key', key: 'Tab' })
+    expect(parseJsonToolResultPayload(result)).toEqual({ ok: true })
+    expect(key).toHaveBeenCalledWith({ action: 'key', key: 'Tab' })
+  })
+
+  it('app_act scroll 成功时调用 controller.scroll', async () => {
+    const scroll = vi.fn(async () => ({ ok: true as const }))
+    const execute = registerAndGetExecute('app_act', stubController({ scroll }))
+
+    const result = await execute('call-a-scroll', {
+      action: 'scroll',
+      ref: 'e5',
+      dy: 200,
+      snapshotId: 'snap-001',
+    })
+    expect(parseJsonToolResultPayload(result)).toEqual({ ok: true })
+    expect(scroll).toHaveBeenCalledWith({
+      action: 'scroll',
+      ref: 'e5',
+      dy: 200,
+      snapshotId: 'snap-001',
+    })
+  })
+
+  it('app_act 描述含 type/key/scroll 说明', () => {
+    const registry = new ToolRegistry()
+    registerAppUiTools(registry, stubContext(), {
+      getMainWindow: () => null,
+      resizeImageIfNeeded: vi.fn(),
+      controller: stubController(),
+    })
+
+    const tool = registry.get('app_act')
+    expect(tool?.description).toContain('app_act type')
+    expect(tool?.description).toContain('app_act key')
+    expect(tool?.description).toContain('app_act scroll')
   })
 
   it('app_act click 失败时透传 controller 错误', async () => {

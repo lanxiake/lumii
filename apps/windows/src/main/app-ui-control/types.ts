@@ -85,12 +85,40 @@ export interface GotoInput {
   category?: AppUiSettingsCategory
 }
 
-/** app_act 工具入参（MVP 仅 click） */
-export interface ActInput {
+/** app_act click 入参 */
+export interface ActClickInput {
   action: 'click'
   ref: string
   snapshotId?: string
 }
+
+/** app_act type 入参 */
+export interface ActTypeInput {
+  action: 'type'
+  ref: string
+  text: string
+  clear?: boolean
+  snapshotId?: string
+}
+
+/** app_act key 入参（无需 ref，发往当前聚焦的 webContents） */
+export interface ActKeyInput {
+  action: 'key'
+  key: string
+  snapshotId?: string
+}
+
+/** app_act scroll 入参 */
+export interface ActScrollInput {
+  action: 'scroll'
+  ref: string
+  dx?: number
+  dy?: number
+  snapshotId?: string
+}
+
+/** app_act 工具入参 */
+export type ActInput = ActClickInput | ActTypeInput | ActKeyInput | ActScrollInput
 
 /** click 校验所需的快照上下文 */
 export interface AppUiClickContext {

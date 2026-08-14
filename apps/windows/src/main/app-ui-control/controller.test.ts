@@ -40,6 +40,8 @@ function fakeWindow(options: {
           })
         }
         if (script.includes('elementFromPoint')) {
+          if (script.includes('scrollBy')) return true
+          if (script.includes('setNativeValue')) return true
           return { x: 10, y: 20, w: 100, h: 40 }
         }
         return [] as RawSnapshotNode[]
@@ -348,6 +350,115 @@ describe('createAppUiController', () => {
       button: 'left',
       clickCount: 1,
     })
+  })
+
+  it('type 成功注入 native setter 脚本', async () => {
+    const rawNodes: RawSnapshotNode[] = [
+      { role: 'input', name: '搜索', x: 10, y: 20, w: 100, h: 40 },
+    ]
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script === SNAPSHOT_SCRIPT) return rawNodes
+      if (script.includes('__LUMII_APP_UI_STATE__')) {
+        return JSON.stringify({
+          view: 'chat',
+          hub: { open: false, tab: null, category: null },
+        })
+      }
+      if (script.includes('setNativeValue')) return true
+      return null
+    })
+    const { controller } = makeController(() => fakeWindow({ executeJavaScript }))
+
+    await controller.screenshot()
+    const result = await controller.type({
+      action: 'type',
+      ref: 'e1',
+      text: '你好🎉',
+      snapshotId: '1',
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('getOwnPropertyDescriptor'),
+    )
+    expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('你好🎉'))
+  })
+
+  it('type 目标丢失返回 click_target_lost', async () => {
+    const rawNodes: RawSnapshotNode[] = [
+      { role: 'input', name: '搜索', x: 10, y: 20, w: 100, h: 40 },
+    ]
+    const { controller } = makeController(() =>
+      fakeWindow({
+        executeJavaScript: async (script: string) => {
+          if (script === SNAPSHOT_SCRIPT) return rawNodes
+          if (script.includes('__LUMII_APP_UI_STATE__')) {
+            return JSON.stringify({
+              view: 'chat',
+              hub: { open: false, tab: null, category: null },
+            })
+          }
+          if (script.includes('setNativeValue')) return null
+          return null
+        },
+      }),
+    )
+    await controller.screenshot()
+    const result = await controller.type({
+      action: 'type',
+      ref: 'e1',
+      text: 'x',
+      snapshotId: '1',
+    })
+    expect(result).toEqual({ ok: false, error: 'click_target_lost' })
+  })
+
+  it('key 白名单外返回 usage', async () => {
+    const { controller } = makeController(() => fakeWindow({}))
+    const result = await controller.key({ action: 'key', key: 'a' })
+    expect(result).toEqual({ ok: false, error: 'usage' })
+  })
+
+  it('key 成功发送 keyDown/keyUp', async () => {
+    const sendInputEvent = vi.fn()
+    const { controller } = makeController(() => fakeWindow({ sendInputEvent }))
+
+    const result = await controller.key({ action: 'key', key: 'Enter' })
+
+    expect(result).toEqual({ ok: true })
+    expect(sendInputEvent).toHaveBeenCalledTimes(2)
+    expect(sendInputEvent).toHaveBeenNthCalledWith(1, { type: 'keyDown', keyCode: 'Enter' })
+    expect(sendInputEvent).toHaveBeenNthCalledWith(2, { type: 'keyUp', keyCode: 'Enter' })
+  })
+
+  it('scroll 成功注入 scrollBy 脚本', async () => {
+    const rawNodes: RawSnapshotNode[] = [
+      { role: 'list', name: '列表', x: 0, y: 0, w: 200, h: 300 },
+    ]
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script === SNAPSHOT_SCRIPT) return rawNodes
+      if (script.includes('__LUMII_APP_UI_STATE__')) {
+        return JSON.stringify({
+          view: 'chat',
+          hub: { open: false, tab: null, category: null },
+        })
+      }
+      if (script.includes('scrollBy')) return true
+      return null
+    })
+    const { controller } = makeController(() => fakeWindow({ executeJavaScript }))
+
+    await controller.screenshot()
+    const result = await controller.scroll({
+      action: 'scroll',
+      ref: 'e1',
+      dx: 0,
+      dy: 120,
+      snapshotId: '1',
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('scrollBy(0, 120)'))
   })
 })
 

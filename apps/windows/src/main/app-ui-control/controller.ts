@@ -6,7 +6,11 @@ import { resolveWindowsClientDataRoot } from '../client-data-root'
 import {
   assertClickAllowed,
   buildClickPrepareScript,
+  buildScrollScript,
+  buildTypeScript,
   CLICK_BLOCK_ROLES,
+  isKeyAllowed,
+  type AppUiActError,
   type AppUiClickError,
   type ClickPrepareRect,
 } from './act'
@@ -14,7 +18,17 @@ import { devicePixelsToDip } from './coords'
 import { parseGotoInput } from './goto'
 import { filterSnapshotNodes, nextSnapshotId, SNAPSHOT_SCRIPT } from './snapshot'
 import { getScreenshotTempDir } from './screenshot-cleanup'
-import type { ActInput, AppUiHubState, AppUiRef, AppUiViewState, RawSnapshotNode } from './types'
+import type {
+  ActClickInput,
+  ActInput,
+  ActKeyInput,
+  ActScrollInput,
+  ActTypeInput,
+  AppUiHubState,
+  AppUiRef,
+  AppUiViewState,
+  RawSnapshotNode,
+} from './types'
 
 /** 截图长边最大像素（与设计 §7 一致） */
 export const SCREENSHOT_MAX_DIMENSION = 1280
@@ -134,6 +148,14 @@ export interface AppUiControllerDeps {
   getScaleFactor?: (win: BrowserWindow) => number
 }
 
+export type AppUiActResult = AppUiClickResult | AppUiActFailure
+
+/** act 失败结果（含 usage，供 key 白名单拒绝） */
+export interface AppUiActFailure {
+  ok: false
+  error: AppUiActError
+}
+
 /** 控制器对外 API */
 export interface AppUiController {
   screenshot(): Promise<AppUiScreenshotResult>
@@ -142,7 +164,13 @@ export interface AppUiController {
   /** 声明式导航并回读渲染层 view/hub */
   goto(input: unknown): Promise<AppUiGotoResult>
   /** 按 ref 在快照坐标处模拟单击 */
-  click(input: unknown): Promise<AppUiClickResult>
+  click(input: unknown): Promise<AppUiActResult>
+  /** 按 ref 在输入框写入文本（native value setter） */
+  type(input: unknown): Promise<AppUiActResult>
+  /** 发送白名单按键到当前聚焦的 webContents */
+  key(input: unknown): Promise<AppUiActResult>
+  /** 按 ref 对目标元素 scrollBy */
+  scroll(input: unknown): Promise<AppUiActResult>
 }
 
 /** 无法读取渲染层状态时的兜底视图（screenshot 用） */
@@ -207,22 +235,148 @@ function parseGotoReadback(raw: unknown): { view: string | null; hub: AppUiHubSt
 /**
  * 解析 app_act click 入参。
  */
-function parseClickInput(raw: unknown): ActInput | null {
+function parseClickInput(raw: unknown): ActClickInput | null {
+  const parsed = parseActInput(raw)
+  if (!parsed || parsed.action !== 'click') {
+    return null
+  }
+  return parsed
+}
+
+/**
+ * 解析 app_act type 入参。
+ */
+function parseTypeInput(raw: unknown): ActTypeInput | null {
+  const parsed = parseActInput(raw)
+  if (!parsed || parsed.action !== 'type') {
+    return null
+  }
+  return parsed
+}
+
+/**
+ * 解析 app_act key 入参。
+ */
+function parseKeyInput(raw: unknown): ActKeyInput | null {
+  const parsed = parseActInput(raw)
+  if (!parsed || parsed.action !== 'key') {
+    return null
+  }
+  return parsed
+}
+
+/**
+ * 解析 app_act scroll 入参。
+ */
+function parseScrollInput(raw: unknown): ActScrollInput | null {
+  const parsed = parseActInput(raw)
+  if (!parsed || parsed.action !== 'scroll') {
+    return null
+  }
+  return parsed
+}
+
+/**
+ * 解析 app_act 工具入参（click / type / key / scroll）。
+ */
+function parseActInput(raw: unknown): ActInput | null {
   if (raw == null || typeof raw !== 'object') {
     return null
   }
   const params = raw as Record<string, unknown>
-  if (params.action !== 'click') {
-    return null
+  const snapshotId = typeof params.snapshotId === 'string' ? params.snapshotId : undefined
+
+  if (params.action === 'click') {
+    if (typeof params.ref !== 'string') {
+      return null
+    }
+    const input: ActClickInput = { action: 'click', ref: params.ref }
+    if (snapshotId) input.snapshotId = snapshotId
+    return input
   }
-  if (typeof params.ref !== 'string') {
-    return null
+
+  if (params.action === 'type') {
+    if (typeof params.ref !== 'string' || typeof params.text !== 'string') {
+      return null
+    }
+    const input: ActTypeInput = {
+      action: 'type',
+      ref: params.ref,
+      text: params.text,
+    }
+    if (params.clear === true) input.clear = true
+    if (snapshotId) input.snapshotId = snapshotId
+    return input
   }
-  const input: ActInput = { action: 'click', ref: params.ref }
-  if (typeof params.snapshotId === 'string') {
-    input.snapshotId = params.snapshotId
+
+  if (params.action === 'key') {
+    if (typeof params.key !== 'string') {
+      return null
+    }
+    const input: ActKeyInput = { action: 'key', key: params.key }
+    if (snapshotId) input.snapshotId = snapshotId
+    return input
   }
-  return input
+
+  if (params.action === 'scroll') {
+    if (typeof params.ref !== 'string') {
+      return null
+    }
+    const input: ActScrollInput = { action: 'scroll', ref: params.ref }
+    if (typeof params.dx === 'number') input.dx = params.dx
+    if (typeof params.dy === 'number') input.dy = params.dy
+    if (snapshotId) input.snapshotId = snapshotId
+    return input
+  }
+
+  return null
+}
+
+type RefActValidationSuccess = {
+  ok: true
+  win: BrowserWindow
+  ref: AppUiRef
+}
+
+type RefActValidationFailure = {
+  ok: false
+  error: AppUiClickError
+}
+
+/**
+ * 校验需要 ref 的 act 操作：窗口、快照缓存、assertClickAllowed。
+ */
+function validateRefAct(
+  actInput: { ref: string; snapshotId?: string },
+  cacheById: Map<string, AppUiSnapshotCache>,
+  getMainWindow: () => BrowserWindow | null,
+): RefActValidationSuccess | RefActValidationFailure {
+  const win = getMainWindow()
+  if (!win || win.isDestroyed()) {
+    return { ok: false, error: 'app_not_running' }
+  }
+
+  const snapshotId = actInput.snapshotId
+  if (!snapshotId) {
+    return { ok: false, error: 'stale_snapshot' }
+  }
+
+  const cache = cacheById.get(snapshotId)
+  if (!cache) {
+    return { ok: false, error: 'stale_snapshot' }
+  }
+
+  const allowed = assertClickAllowed({
+    ref: actInput.ref,
+    snapshotId,
+    current: { snapshotId: cache.snapshotId, refs: cache.refs },
+    blockRoles: CLICK_BLOCK_ROLES,
+  })
+  if (!allowed.ok) {
+    return { ok: false, error: allowed.error }
+  }
+
+  return { ok: true, win, ref: allowed.ref }
 }
 
 /**
@@ -418,43 +572,20 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
   /**
    * 按 ref 模拟单击：校验快照 → scrollIntoView 重测 → sendInputEvent。
    */
-  async function click(input: unknown): Promise<AppUiClickResult> {
+  async function click(input: unknown): Promise<AppUiActResult> {
     const actInput = parseClickInput(input)
     if (!actInput) {
       return { ok: false, error: 'missing_ref' }
     }
 
-    const win = deps.getMainWindow()
-    if (!win || win.isDestroyed()) {
-      return { ok: false, error: 'app_not_running' }
+    const validated = validateRefAct(actInput, cacheById, deps.getMainWindow)
+    if (!validated.ok) {
+      return validated
     }
 
-    const snapshotId = actInput.snapshotId
-    if (!snapshotId) {
-      return { ok: false, error: 'stale_snapshot' }
-    }
+    const { win, ref } = validated
 
-    const cache = cacheById.get(snapshotId)
-    if (!cache) {
-      return { ok: false, error: 'stale_snapshot' }
-    }
-
-    const allowed = assertClickAllowed({
-      ref: actInput.ref,
-      snapshotId,
-      current: { snapshotId: cache.snapshotId, refs: cache.refs },
-      blockRoles: CLICK_BLOCK_ROLES,
-    })
-    if (!allowed.ok) {
-      return { ok: false, error: allowed.error }
-    }
-
-    const script = buildClickPrepareScript(
-      allowed.ref.x,
-      allowed.ref.y,
-      allowed.ref.w,
-      allowed.ref.h,
-    )
+    const script = buildClickPrepareScript(ref.x, ref.y, ref.w, ref.h)
     const newRect = (await win.webContents.executeJavaScript(script)) as ClickPrepareRect | null
     if (!newRect || newRect.w <= 0 || newRect.h <= 0) {
       return { ok: false, error: 'click_target_lost' }
@@ -482,10 +613,87 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
     return { ok: true }
   }
 
+  /**
+   * 按 ref 写入文本：校验快照 → native value setter 注入。
+   */
+  async function type(input: unknown): Promise<AppUiActResult> {
+    const actInput = parseTypeInput(input)
+    if (!actInput) {
+      return { ok: false, error: 'missing_ref' }
+    }
+
+    const validated = validateRefAct(actInput, cacheById, deps.getMainWindow)
+    if (!validated.ok) {
+      return validated
+    }
+
+    const { win, ref } = validated
+    const script = buildTypeScript(ref.x, ref.y, ref.w, ref.h, actInput.text, actInput.clear)
+    const ok = (await win.webContents.executeJavaScript(script)) as boolean | null
+    if (!ok) {
+      return { ok: false, error: 'click_target_lost' }
+    }
+
+    return { ok: true }
+  }
+
+  /**
+   * 发送白名单按键：无需 ref，发往当前聚焦的 webContents。
+   */
+  async function key(input: unknown): Promise<AppUiActResult> {
+    const actInput = parseKeyInput(input)
+    if (!actInput) {
+      return { ok: false, error: 'usage' }
+    }
+
+    if (!isKeyAllowed(actInput.key)) {
+      return { ok: false, error: 'usage' }
+    }
+
+    const win = deps.getMainWindow()
+    if (!win || win.isDestroyed()) {
+      return { ok: false, error: 'app_not_running' }
+    }
+
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: actInput.key })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: actInput.key })
+
+    return { ok: true }
+  }
+
+  /**
+   * 按 ref 滚动目标元素：校验快照 → scrollBy 注入。
+   */
+  async function scroll(input: unknown): Promise<AppUiActResult> {
+    const actInput = parseScrollInput(input)
+    if (!actInput) {
+      return { ok: false, error: 'missing_ref' }
+    }
+
+    const validated = validateRefAct(actInput, cacheById, deps.getMainWindow)
+    if (!validated.ok) {
+      return validated
+    }
+
+    const { win, ref } = validated
+    const dx = actInput.dx ?? 0
+    const dy = actInput.dy ?? 0
+    const script = buildScrollScript(ref.x, ref.y, ref.w, ref.h, dx, dy)
+    const ok = (await win.webContents.executeJavaScript(script)) as boolean | null
+    if (!ok) {
+      return { ok: false, error: 'click_target_lost' }
+    }
+
+    return { ok: true }
+  }
+
   return {
     screenshot,
     getSnapshotCache,
     goto,
     click,
+    type,
+    key,
+    scroll,
   }
 }
