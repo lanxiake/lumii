@@ -161,6 +161,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className={`${styles['settings-button']} ${settingsHubOpen || activeView === 'settings' ? styles.active : ''}`}
           onClick={() => handleViewChange('settings')}
           title="设置"
+          data-app-ui="nav-settings"
         >
           <Settings size={16} />
           {!isCollapsed && <span>设置</span>}

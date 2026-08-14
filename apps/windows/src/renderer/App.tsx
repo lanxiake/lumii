@@ -13,6 +13,7 @@ import { WorkspaceWizard } from './components/WorkspaceWizard'
 import { GlobalModals } from './components/GlobalModals'
 import { MainLayout } from './components/layout/MainLayout/MainLayout'
 import { SettingsHubModal, useSettingsHub, isHubView } from './components/SettingsHub'
+import type { GotoInput } from '@main/app-ui-control/types'
 import { SplashOverlay } from './components/SplashOverlay/SplashOverlay'
 import { useTheme } from './contexts/ThemeContext/ThemeContext'
 import { useToast } from './components/ui/Toast/useToast'
@@ -54,7 +55,7 @@ export interface AuthenticatedAppProps {
 const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => {
   const [activeView, setActiveView] = useState<ViewType>('dashboard')
   const { appliedTheme, toggleTheme } = useTheme()
-  const { openHub, openHubForView, closeHub, isOpen: hubOpen } = useSettingsHub()
+  const { openHub, openHubForView, closeHub, isOpen: hubOpen, state: hubState } = useSettingsHub()
   const { showToast } = useToast()
   /** 本地 chat 模型是否已启用并可调用（独立版用此驱动标题栏绿点） */
   const [modelReady, setModelReady] = useState(false)
@@ -131,6 +132,46 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
       window.electronAPI.off('navigate-to-settings', handleNavigateToSettings)
     }
   }, [openHub])
+
+  /**
+   * Agent app-ui:goto — 声明式导航（精确发主窗，不走 pet 镜像）
+   */
+  useEffect(() => {
+    const handleAppUiGoto = (input: GotoInput) => {
+      const { view, category } = input
+      if (isHubView(view)) {
+        if (view === 'settings' && category) {
+          openHub('settings', category)
+        } else {
+          openHubForView(view)
+        }
+        return
+      }
+      handleViewChange(view)
+    }
+    window.electronAPI.on('app-ui:goto', handleAppUiGoto)
+    return () => {
+      window.electronAPI.off('app-ui:goto', handleAppUiGoto)
+    }
+  }, [handleViewChange, openHub, openHubForView])
+
+  /**
+   * 挂载 window.__LUMII_APP_UI_STATE__ 供主进程 executeJavaScript 回读
+   */
+  useEffect(() => {
+    window.__LUMII_APP_UI_STATE__ = () =>
+      JSON.stringify({
+        view: activeView,
+        hub: {
+          open: hubState.open,
+          tab: hubState.tab,
+          category: hubState.category,
+        },
+      })
+    return () => {
+      delete window.__LUMII_APP_UI_STATE__
+    }
+  }, [activeView, hubState])
 
   // 语音模型未就绪：toast + 引导前往语音设置
   useEffect(() => {

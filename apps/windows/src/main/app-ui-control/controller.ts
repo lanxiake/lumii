@@ -3,9 +3,18 @@ import path from 'node:path'
 import type { BrowserWindow } from 'electron'
 import { MAX_IMAGE_BYTES, type ResizeResult } from '../agent-runtime/image-resizer'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
+import {
+  assertClickAllowed,
+  buildClickPrepareScript,
+  CLICK_BLOCK_ROLES,
+  type AppUiClickError,
+  type ClickPrepareRect,
+} from './act'
+import { devicePixelsToDip } from './coords'
+import { parseGotoInput } from './goto'
 import { filterSnapshotNodes, nextSnapshotId, SNAPSHOT_SCRIPT } from './snapshot'
 import { getScreenshotTempDir } from './screenshot-cleanup'
-import type { AppUiRef, AppUiViewState, RawSnapshotNode } from './types'
+import type { ActInput, AppUiHubState, AppUiRef, AppUiViewState, RawSnapshotNode } from './types'
 
 /** 截图长边最大像素（与设计 §7 一致） */
 export const SCREENSHOT_MAX_DIMENSION = 1280
@@ -28,6 +37,40 @@ export const VIEW_STATE_SCRIPT = `(function () {
     return null;
   }
 })()`
+
+/** goto 失败时的稳定错误码 */
+export type AppUiGotoError = 'usage' | 'app_not_running'
+
+/** goto 成功结果（回读渲染层真实 view/hub） */
+export interface AppUiGotoSuccess {
+  ok: true
+  view: string | null
+  hub: AppUiHubState
+}
+
+/** goto 失败结果 */
+export interface AppUiGotoFailure {
+  ok: false
+  error: AppUiGotoError
+}
+
+export type AppUiGotoResult = AppUiGotoSuccess | AppUiGotoFailure
+
+/** click 成功结果 */
+export interface AppUiClickSuccess {
+  ok: true
+}
+
+/** click 失败结果 */
+export interface AppUiClickFailure {
+  ok: false
+  error: AppUiClickError
+}
+
+export type AppUiClickResult = AppUiClickSuccess | AppUiClickFailure
+
+/** goto 等待 React setState 落定的默认毫秒数 */
+export const GOTO_SETTLE_MS = 100
 
 /** 截图失败时的稳定错误码 */
 export type AppUiScreenshotError = 'app_not_running'
@@ -85,6 +128,10 @@ export interface AppUiControllerDeps {
   resizeImageIfNeeded: ResizeImageFn
   /** 测试注入数据根；默认 resolveWindowsClientDataRoot */
   resolveDataRoot?: () => string
+  /** goto 后等待 React 状态落定的毫秒数；默认 GOTO_SETTLE_MS */
+  gotoSettleMs?: number
+  /** 坐标换算用 scaleFactor；默认 1（DOM getBoundingClientRect 已是 DIP） */
+  getScaleFactor?: (win: BrowserWindow) => number
 }
 
 /** 控制器对外 API */
@@ -92,12 +139,90 @@ export interface AppUiController {
   screenshot(): Promise<AppUiScreenshotResult>
   /** 按 snapshotId 读取内存快照缓存 */
   getSnapshotCache(snapshotId: string): AppUiSnapshotCache | undefined
+  /** 声明式导航并回读渲染层 view/hub */
+  goto(input: unknown): Promise<AppUiGotoResult>
+  /** 按 ref 在快照坐标处模拟单击 */
+  click(input: unknown): Promise<AppUiClickResult>
 }
 
-/** 无法读取渲染层状态时的兜底视图 */
+/** 无法读取渲染层状态时的兜底视图（screenshot 用） */
 const DEFAULT_VIEW_STATE: AppUiViewState = {
   view: 'unknown',
   hub: { open: false, tab: null, category: null },
+}
+
+/** goto 回读失败时的兜底 hub */
+const NULL_HUB_STATE: AppUiHubState = { open: false, tab: null, category: null }
+
+/**
+ * 等待指定毫秒（goto 后让 React setState 落定）。
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
+/**
+ * 从 goto executeJavaScript 回读结果解析 view/hub；无挂载函数时 view 为 null。
+ */
+function parseGotoReadback(raw: unknown): { view: string | null; hub: AppUiHubState } {
+  if (raw == null) {
+    return { view: null, hub: NULL_HUB_STATE }
+  }
+  let parsed: unknown = raw
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      return { view: null, hub: NULL_HUB_STATE }
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    return { view: null, hub: NULL_HUB_STATE }
+  }
+  const record = parsed as Record<string, unknown>
+  const hubRaw = record.hub
+  const hub =
+    hubRaw && typeof hubRaw === 'object'
+      ? {
+          open: Boolean((hubRaw as Record<string, unknown>).open),
+          tab:
+            typeof (hubRaw as Record<string, unknown>).tab === 'string'
+              ? ((hubRaw as Record<string, unknown>).tab as string)
+              : null,
+          category:
+            typeof (hubRaw as Record<string, unknown>).category === 'string'
+              ? ((hubRaw as Record<string, unknown>).category as string)
+              : null,
+        }
+      : NULL_HUB_STATE
+
+  return {
+    view: typeof record.view === 'string' ? record.view : null,
+    hub,
+  }
+}
+
+/**
+ * 解析 app_act click 入参。
+ */
+function parseClickInput(raw: unknown): ActInput | null {
+  if (raw == null || typeof raw !== 'object') {
+    return null
+  }
+  const params = raw as Record<string, unknown>
+  if (params.action !== 'click') {
+    return null
+  }
+  if (typeof params.ref !== 'string') {
+    return null
+  }
+  const input: ActInput = { action: 'click', ref: params.ref }
+  if (typeof params.snapshotId === 'string') {
+    input.snapshotId = params.snapshotId
+  }
+  return input
 }
 
 /**
@@ -195,11 +320,13 @@ function writeScreenshotTempFile(
 }
 
 /**
- * 创建 Agent App UI 截图控制器（Part A：仅 screenshot）。
+ * 创建 Agent App UI 控制器（截图 / goto / click）。
  */
 export function createAppUiController(deps: AppUiControllerDeps): AppUiController {
   let snapshotSequence = 0
   const cacheById = new Map<string, AppUiSnapshotCache>()
+  const gotoSettleMs = deps.gotoSettleMs ?? GOTO_SETTLE_MS
+  const getScaleFactor = deps.getScaleFactor ?? (() => 1)
 
   /**
    * 截取主窗口 JPEG、采集 refs，并缓存快照供后续 click 校验。
@@ -266,8 +393,99 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
     return cacheById.get(snapshotId)
   }
 
+  /**
+   * 声明式导航：精确 send 主窗 → 等待 setState → executeJavaScript 回读。
+   */
+  async function goto(input: unknown): Promise<AppUiGotoResult> {
+    const parsed = parseGotoInput(input)
+    if (!parsed.ok) {
+      return { ok: false, error: 'usage' }
+    }
+
+    const win = deps.getMainWindow()
+    if (!win || win.isDestroyed()) {
+      return { ok: false, error: 'app_not_running' }
+    }
+
+    win.webContents.send('app-ui:goto', parsed.input)
+    await sleep(gotoSettleMs)
+
+    const raw = await win.webContents.executeJavaScript(VIEW_STATE_SCRIPT)
+    const { view, hub } = parseGotoReadback(raw)
+    return { ok: true, view, hub }
+  }
+
+  /**
+   * 按 ref 模拟单击：校验快照 → scrollIntoView 重测 → sendInputEvent。
+   */
+  async function click(input: unknown): Promise<AppUiClickResult> {
+    const actInput = parseClickInput(input)
+    if (!actInput) {
+      return { ok: false, error: 'missing_ref' }
+    }
+
+    const win = deps.getMainWindow()
+    if (!win || win.isDestroyed()) {
+      return { ok: false, error: 'app_not_running' }
+    }
+
+    const snapshotId = actInput.snapshotId
+    if (!snapshotId) {
+      return { ok: false, error: 'stale_snapshot' }
+    }
+
+    const cache = cacheById.get(snapshotId)
+    if (!cache) {
+      return { ok: false, error: 'stale_snapshot' }
+    }
+
+    const allowed = assertClickAllowed({
+      ref: actInput.ref,
+      snapshotId,
+      current: { snapshotId: cache.snapshotId, refs: cache.refs },
+      blockRoles: CLICK_BLOCK_ROLES,
+    })
+    if (!allowed.ok) {
+      return { ok: false, error: allowed.error }
+    }
+
+    const script = buildClickPrepareScript(
+      allowed.ref.x,
+      allowed.ref.y,
+      allowed.ref.w,
+      allowed.ref.h,
+    )
+    const newRect = (await win.webContents.executeJavaScript(script)) as ClickPrepareRect | null
+    if (!newRect || newRect.w <= 0 || newRect.h <= 0) {
+      return { ok: false, error: 'click_target_lost' }
+    }
+
+    const scaleFactor = getScaleFactor(win)
+    const cx = devicePixelsToDip(newRect.x + newRect.w / 2, scaleFactor)
+    const cy = devicePixelsToDip(newRect.y + newRect.h / 2, scaleFactor)
+
+    win.webContents.sendInputEvent({
+      type: 'mouseDown',
+      x: cx,
+      y: cy,
+      button: 'left',
+      clickCount: 1,
+    })
+    win.webContents.sendInputEvent({
+      type: 'mouseUp',
+      x: cx,
+      y: cy,
+      button: 'left',
+      clickCount: 1,
+    })
+
+    return { ok: true }
+  }
+
   return {
     screenshot,
     getSnapshotCache,
+    goto,
+    click,
   }
 }

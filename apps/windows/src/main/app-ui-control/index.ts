@@ -12,11 +12,14 @@ export type {
   RawSnapshotNode,
 } from './types'
 
-export { assertClickAllowed } from './act'
+export { assertClickAllowed, buildClickPrepareScript, CLICK_BLOCK_ROLES } from './act'
 export type {
   AssertClickAllowedParams,
   AssertClickAllowedResult,
+  AppUiClickError,
   ClickAllowedError,
+  ClickPrepareError,
+  ClickPrepareRect,
 } from './act'
 
 export { devicePixelsToDip } from './coords'
@@ -34,6 +37,13 @@ export {
 export type {
   AppUiController,
   AppUiControllerDeps,
+  AppUiClickFailure,
+  AppUiClickResult,
+  AppUiClickSuccess,
+  AppUiGotoError,
+  AppUiGotoFailure,
+  AppUiGotoResult,
+  AppUiGotoSuccess,
   AppUiScreenshotBounds,
   AppUiScreenshotError,
   AppUiScreenshotFailure,
@@ -45,6 +55,7 @@ export type {
 
 export {
   createAppUiController,
+  GOTO_SETTLE_MS,
   SCREENSHOT_MAX_DIMENSION,
   VIEW_STATE_SCRIPT,
 } from './controller'

@@ -45,6 +45,11 @@ export const SNAPSHOT_SCRIPT = `(function () {
   }
 
   function getRole(el) {
+    var blockHost = el.closest('[data-app-ui-block]');
+    if (blockHost) {
+      var blockRole = blockHost.getAttribute('data-app-ui-block');
+      if (blockRole === 'composer' || blockRole === 'runtime') return blockRole;
+    }
     var explicit = el.getAttribute('role');
     if (explicit) return explicit;
     var tag = el.tagName.toLowerCase();

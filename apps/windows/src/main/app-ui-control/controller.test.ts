@@ -4,7 +4,7 @@ import path from 'node:path'
 import type { NativeImage } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SNAPSHOT_SCRIPT } from './snapshot'
-import { createAppUiController } from './controller'
+import { createAppUiController, VIEW_STATE_SCRIPT } from './controller'
 import { clearScreenshotTempDir, getScreenshotTempDir } from './screenshot-cleanup'
 import type { RawSnapshotNode } from './types'
 
@@ -22,7 +22,12 @@ function fakeWindow(options: {
   visible?: boolean
   capturePage?: () => Promise<NativeImage>
   executeJavaScript?: (script: string) => Promise<unknown>
+  send?: ReturnType<typeof vi.fn>
+  sendInputEvent?: ReturnType<typeof vi.fn>
 }) {
+  const send = options.send ?? vi.fn()
+  const sendInputEvent = options.sendInputEvent ?? vi.fn()
+
   const webContents = {
     capturePage: options.capturePage ?? (async () => fakeNativeImage()),
     executeJavaScript:
@@ -34,14 +39,21 @@ function fakeWindow(options: {
             hub: { open: false, tab: null, category: null },
           })
         }
+        if (script.includes('elementFromPoint')) {
+          return { x: 10, y: 20, w: 100, h: 40 }
+        }
         return [] as RawSnapshotNode[]
       }),
+    send,
+    sendInputEvent,
   }
 
   return {
     isDestroyed: () => options.destroyed ?? false,
     isVisible: () => options.visible ?? true,
     webContents,
+    send,
+    sendInputEvent,
   }
 }
 
@@ -62,6 +74,7 @@ describe('createAppUiController', () => {
     getMainWindow: () => ReturnType<typeof fakeWindow> | null,
     overrides: {
       resizeImageIfNeeded?: ReturnType<typeof vi.fn>
+      deps?: Partial<Parameters<typeof createAppUiController>[0]>
     } = {},
   ) {
     const resizeImageIfNeeded =
@@ -79,6 +92,8 @@ describe('createAppUiController', () => {
         getMainWindow: getMainWindow as never,
         resizeImageIfNeeded,
         resolveDataRoot: () => tmpDataRoot,
+        gotoSettleMs: 0,
+        ...overrides.deps,
       }),
       resizeImageIfNeeded,
     }
@@ -189,6 +204,150 @@ describe('createAppUiController', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.windowVisible).toBe(false)
+  })
+
+  it('goto 非法入参返回 usage', async () => {
+    const { controller } = makeController(() => fakeWindow({}))
+    const result = await controller.goto({ view: 'invalid' })
+    expect(result).toEqual({ ok: false, error: 'usage' })
+  })
+
+  it('goto 无主窗返回 app_not_running', async () => {
+    const { controller } = makeController(() => null)
+    const result = await controller.goto({ view: 'chat' })
+    expect(result).toEqual({ ok: false, error: 'app_not_running' })
+  })
+
+  it('goto 发送 app-ui:goto 并回读 view/hub', async () => {
+    const send = vi.fn()
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script === VIEW_STATE_SCRIPT) {
+        return JSON.stringify({
+          view: 'skills',
+          hub: { open: true, tab: 'skills', category: 'general' },
+        })
+      }
+      return null
+    })
+    const win = fakeWindow({ send, executeJavaScript })
+    const { controller } = makeController(() => win)
+
+    const result = await controller.goto({ view: 'skills' })
+
+    expect(send).toHaveBeenCalledWith('app-ui:goto', { view: 'skills' })
+    expect(result).toEqual({
+      ok: true,
+      view: 'skills',
+      hub: { open: true, tab: 'skills', category: 'general' },
+    })
+  })
+
+  it('goto 无回读函数时 view 为 null', async () => {
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script === VIEW_STATE_SCRIPT) return null
+      return null
+    })
+    const { controller } = makeController(() => fakeWindow({ executeJavaScript }))
+
+    const result = await controller.goto({ view: 'chat' })
+    expect(result).toEqual({
+      ok: true,
+      view: null,
+      hub: { open: false, tab: null, category: null },
+    })
+  })
+
+  it('click 缺 ref 返回 missing_ref', async () => {
+    const { controller } = makeController(() => fakeWindow({}))
+    const result = await controller.click({ action: 'click' })
+    expect(result).toEqual({ ok: false, error: 'missing_ref' })
+  })
+
+  it('click 快照过期返回 stale_snapshot', async () => {
+    const { controller } = makeController(() => fakeWindow({}))
+    const result = await controller.click({
+      action: 'click',
+      ref: 'e1',
+      snapshotId: 'missing',
+    })
+    expect(result).toEqual({ ok: false, error: 'stale_snapshot' })
+  })
+
+  it('click composer 禁点返回 blocked_composer', async () => {
+    const win = fakeWindow({})
+    const { controller } = makeController(() => win)
+    await controller.screenshot()
+
+    const cache = controller.getSnapshotCache('1')
+    expect(cache).toBeDefined()
+    if (!cache) return
+
+    cache.refs.push({
+      ref: 'e2',
+      role: 'composer',
+      name: '输入框',
+      x: 0,
+      y: 0,
+      w: 100,
+      h: 40,
+    })
+
+    const result = await controller.click({
+      action: 'click',
+      ref: 'e2',
+      snapshotId: '1',
+    })
+    expect(result).toEqual({ ok: false, error: 'blocked_composer' })
+  })
+
+  it('click 成功发送 mousedown/mouseup', async () => {
+    const rawNodes: RawSnapshotNode[] = [
+      { role: 'button', name: '设置', x: 10, y: 20, w: 100, h: 40 },
+    ]
+    const sendInputEvent = vi.fn()
+    const win = fakeWindow({
+      sendInputEvent,
+      executeJavaScript: async (script: string) => {
+        if (script === SNAPSHOT_SCRIPT) return rawNodes
+        if (script.includes('__LUMII_APP_UI_STATE__')) {
+          return JSON.stringify({
+            view: 'chat',
+            hub: { open: false, tab: null, category: null },
+          })
+        }
+        if (script.includes('elementFromPoint')) {
+          return { x: 10, y: 20, w: 100, h: 40 }
+        }
+        return null
+      },
+    })
+    const { controller } = makeController(() => win, {
+      deps: { getScaleFactor: () => 2 },
+    })
+
+    await controller.screenshot()
+    const result = await controller.click({
+      action: 'click',
+      ref: 'e1',
+      snapshotId: '1',
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(sendInputEvent).toHaveBeenCalledTimes(2)
+    expect(sendInputEvent).toHaveBeenNthCalledWith(1, {
+      type: 'mouseDown',
+      x: 30,
+      y: 20,
+      button: 'left',
+      clickCount: 1,
+    })
+    expect(sendInputEvent).toHaveBeenNthCalledWith(2, {
+      type: 'mouseUp',
+      x: 30,
+      y: 20,
+      button: 'left',
+      clickCount: 1,
+    })
   })
 })
 
