@@ -337,24 +337,193 @@ npx vitest run apps/windows/src/main/app-ui-control
 
 ---
 
-## Part D：三期（Task 13–14，声明式补齐 + 桌宠点击）
+## Part D：三期（Task 13–16，CLI 统一控制面）
 
-以下两项依赖产品对「哪些声明式 API 优先」「桌宠点击是否真的需要」的确认，暂不细化到 Files/Step 粒度，先给方向：
+> **规格：** 设计 v0.6 §14（`docs/design/2026-08-13-agent-app-ui-control-design.md`）。  
+> **前提：** Part C（Task 10–12）全部验收通过，`server.ts` 控制口已运行，`lumii-ui.mjs` 含 screenshot/goto/click 三条命令。  
+> **核心认知转变：** 三期原计划的 4 个声明式 API 全部已存在，无需新建。任务本质是「暴露」而非「创建」。
 
-### Task 13: 声明式能力补齐
+---
 
-按设计 §4.4 逐个加，优先：
+### Task 13: `external_cli` origin + CapabilityRegistry 护栏
 
-1. `skill_set_enabled`
-2. `settings_chat_model`
-3. `cron_run_now`
-4. `pet_mode_set`
+**背景：** in-client Agent 可通过 `bash lumii-ui …` 绕过 6 步权限管线，须在能力层设防线。
 
-每加一个，工具描述里写「不要用 click 做这件事」，且要在 `app_act` 的 description 里同步提示，避免模型绕开声明式 API 硬点。
+**Files:**
+- Modify: `packages/protocol/src/agent/kernel.ts` — 追加 `external_cli` 到 `AgentTurnOrigin` union（第 21-26 行）
+- Modify: `packages/agent-runtime/src/capability/capability-registry.ts` — `isAllowedForOrigin`（89 行）补 `external_cli` 分支，复用 `cloud_channel` 拒绝规则（`isHighRisk=true` 和 `shell`/`admin` 权限拒绝）
 
-### Task 14: 桌宠点击
+**Step 1: 写失败测试**
 
-画布 DIP 坐标；不做 DOM ref（pixi.js canvas 没有 DOM 树）。点击目标需要桌宠侧提供命中测试 API（当前 `pet-core` 是否已有类似接口需先确认，可能是本任务里最大的未知项）。
+`capability-registry.test.ts` 补：
+- `external_cli` 拒绝 `isHighRisk=true` 的能力
+- `external_cli` 拒绝 permissions 含 `shell` 的能力
+- `external_cli` 允许普通只读能力
+
+```bash
+npx vitest run packages/agent-runtime/src/capability
+```
+
+**Step 2: 最小实现**
+
+```ts
+// capability-registry.ts isAllowedForOrigin 新增分支
+if (origin === 'external_cli') {
+  if (c.isHighRisk) return false
+  if (c.permissions.some(p => CLOUD_CHANNEL_DENIED_PERMISSIONS.has(p))) return false
+}
+```
+
+**Step 3: 测试通过后提交**
+
+```bash
+git add packages/protocol/src packages/agent-runtime/src/capability
+git commit -m "feat(app-ui): 添加 external_cli origin 与能力层护栏"
+```
+
+---
+
+### Task 14: 控制口扩展 — 命令总线路由（A 层）
+
+**背景：** Task 10 的 `server.ts` 只有 `/screenshot`、`/goto`、`/click` 三条路由。三期追加 `/command` 泛化转发，复用 `handleCommand`（`agent-runtime-ipc.ts:406`）。
+
+**Files:**
+- Modify: `apps/windows/src/main/app-ui-control/server.ts` — 追加 `POST /command` 路由
+- Modify: `apps/windows/src/main/app-ui-control/server.test.ts` — 补命令黑名单过滤测试
+
+**`/command` 路由逻辑：**
+
+```ts
+// 黑名单（不暴露列表，见设计 §14.2）
+const COMMAND_BLACKLIST = new Set([
+  'user:send', 'user:steer', 'user:abort',
+  'user:permissionRespond', 'user:askUserRespond',
+  'storage:clearMalformed', 'storage:restoreBackup',
+  'storage:restoreLatestBackup', 'storage:deleteBackup',
+  'agentInstance:create', 'agentInstance:createById', 'agentInstance:destroy',
+  'runtime:featureFlags:set',
+  'message:delete', 'message:edit', 'message:editAndResend',
+])
+
+app.post('/command', authenticate, async (req, res) => {
+  const command = req.body as AgentRuntimeCommand
+  if (COMMAND_BLACKLIST.has(command?.type)) {
+    return res.json({ ok: false, error: 'not_exposed' })
+  }
+  // 注入 external_cli origin（若命令类型携带 origin 字段）
+  const result = await handleCommand(ipcBridgeRef, command)
+  res.json(result)
+})
+```
+
+**测试重点：** 黑名单命令返回 `not_exposed`；白名单命令 mock `handleCommand` 确认透传。
+
+**跑：**
+```bash
+npx vitest run apps/windows/src/main/app-ui-control/server.test.ts
+```
+
+提交：`feat(app-ui): 控制口 /command 泛化转发（命令总线 A 层）`
+
+---
+
+### Task 15: 控制口扩展 — 设置写通道（C 层）+ 碎片能力（B 层）
+
+**Files:**
+- Modify: `apps/windows/src/main/app-ui-control/server.ts` — 追加以下路由
+- Modify: `apps/windows/src/main/app-ui-control/server.test.ts` — 补对应测试
+
+**新增路由：**
+
+1. **`POST /settings/read`** — `executeJavaScript("localStorage.getItem('mtbot-assistant-settings')")`，返回解析后的 JSON 对象
+
+2. **`POST /settings/write`** — body: `{ path?: string, value: unknown }` 或 `{ patch: Record<string, unknown> }`
+   - 先通过 `/settings/read` 读出完整 JSON
+   - 深 merge（实现参照 `useSettings.ts:85-112`）
+   - 注入渲染进程：
+     ```ts
+     mainWindow.webContents.executeJavaScript(`(() => {
+       localStorage.setItem('mtbot-assistant-settings', ${JSON.stringify(JSON.stringify(merged))})
+       window.dispatchEvent(new CustomEvent('mtbot-settings-update', { detail: ${JSON.stringify(merged)} }))
+     })()`)
+     ```
+
+3. **`POST /ipc/skills/setEnabled`** — body: `{ id: string, enabled: boolean }`；调用 `index.ts:2154` 的 `skills:setEnabled` handler（通过 `bridge` 直调，不走 IPC）
+
+4. **`POST /ipc/pet/switchMode`** — body: `{ mode: string }`；调用 `pet-mode-ipc.ts:121` handler
+
+5. **`POST /ipc/pet/getMode`** — 无 body；调用 `pet-mode-ipc.ts:126`
+
+6. **`POST /ipc/pet/listModels`** — 无 body；调用 `pet-mode-ipc.ts:129`
+
+**测试重点：**
+- `settings/write` 深 merge 不丢失未修改字段
+- `ipc/skills/setEnabled` 调用 bridge 的对应方法（mock bridge）
+- token 校验失败返回 401（复用 Task 10 已有测试模式）
+
+**跑：**
+```bash
+npx vitest run apps/windows/src/main/app-ui-control/server.test.ts
+```
+
+提交：`feat(app-ui): 控制口 settings 读写通道 + skills/pet 碎片能力 B 层`
+
+---
+
+### Task 16: lumii-ui CLI 扩展 + 三期整体验收
+
+**Files:**
+- Modify: `apps/windows/resources/app-ui-cli/lumii-ui.mjs` — 追加子命令（零依赖，纯 `fetch`）
+
+**追加子命令：**
+
+```
+lumii-ui command <type> [--data <json>]
+lumii-ui settings get [<key.path>]
+lumii-ui settings set <key.path> <value>
+lumii-ui skill list
+lumii-ui skill enable <id>
+lumii-ui skill disable <id>
+lumii-ui cron list
+lumii-ui cron run <id>
+lumii-ui model set <modelId>
+lumii-ui pet mode <modeName>
+lumii-ui pet modes
+```
+
+实现要点：
+- `settings get key.path` 支持点号路径解析（`key.path → obj.key.path`），无参数时返回完整 JSON
+- `settings set key.path value` 先 `settings get` 拿完整对象，深 merge 单字段后调 `/settings/write`
+- `lumii-ui command <type> --data -` 从 stdin 读 JSON（管道友好）
+- 所有 stdout 输出工具/控制口返回的 JSON 原样；HTTP 层错误包一层 `{ ok: false, error: 'connection_failed' }`
+
+**跑类型检查（lumii-ui.mjs 是纯 JS，无 TS；验证项目其余部分无类型破坏）：**
+```bash
+pnpm --filter @mtbot/windows typecheck
+```
+
+**手工验收：**
+
+1. 应用运行中：
+   - `lumii-ui command '{"type":"cron:list"}' ` → 返回定时任务列表 JSON
+   - `lumii-ui cron list` → 同上（快捷封装等价）
+   - `lumii-ui settings get privacy.allowAgentAppUiControl` → 返回 `true`
+   - `lumii-ui settings set privacy.allowAgentAppUiControl false` → 返回 ok；在设置页确认开关已关闭
+   - `lumii-ui skill list` → 返回技能列表
+   - `lumii-ui skill enable <某技能 id>` → 返回 ok；在技能页确认已启用
+   - `lumii-ui pet modes` → 返回桌宠模型列表
+   - `lumii-ui command '{"type":"user:send","conversationId":"x","content":"test"}'` → 返回 `{ ok: false, error: 'not_exposed' }`（黑名单验证）
+
+2. 关闭应用后：
+   - 任意命令 → `exit 3`
+
+3. 类型检查：
+   - `pnpm --filter @mtbot/windows typecheck` 无新错误
+   - `npx vitest run apps/windows/src/main/app-ui-control` 全绿
+
+全部通过才算三期完成。
+
+提交：`feat(app-ui): lumii-ui CLI 三期扩展 + 三期整体验收`
 
 ---
 
@@ -363,4 +532,4 @@ npx vitest run apps/windows/src/main/app-ui-control
 Part A（Task 1→4）先跑通并手工验收，可独立演示「看」的闭环。  
 Part B（Task 5→9）在 Part A 基础上叠「动」，全部完成才算 MVP——**已完成**。  
 Part C（Task 10→12）是二期，三个任务相对独立，建议先做 Task 11（后续 CLI 复用它），用 executing-plans 逐任务跑测试。  
-Part D（Task 13→14）等产品确认优先级后再排期，不要在没有明确需求信号时开工。
+Part D（Task 13→16）是三期，四个任务依序执行：先打 origin 护栏（Task 13），再扩展控制口 A 层（Task 14），再扩展 B/C 层（Task 15），最后扩展 CLI 并整体验收（Task 16）。Task 14 和 Task 15 的 server.ts 修改可合并一次提交，但测试须分步确认。

@@ -579,4 +579,176 @@ app_act click "始终允许"仅本次运行有效，重启后重置
 | v0.3 | 2026-08-14 | 完整目标 + 能力全景 + 闭环；MVP 收成 screenshot + goto/click；CLI 改二期 |
 | v0.4 | 2026-08-14 | 代码事实核查后修正：补回读通道（executeJavaScript）、修正 pet 误伤、补配额落点、补截图清理、修正 browser_* 复用边界 |
 | v0.5 | 2026-08-14 | MVP（Part A/B）验收通过并已合并至 `feat/agent-app-ui-control`；补全二期设计代码事实核查：CLI 运行时复用 `runtime-env.ts` 的 `resolveNodeExec()`/`writeShimPair()`（不需要 extraFiles 带 node）、控制口端口探测复用 `browser-control` 的 `findAvailablePort()`、token 用 `randomUUID()` 落 `resolveWindowsClientDataRoot()`；pet/preview 截图窗口改经 `getPetWindowManager().getPetBrowserWindow()`，非 `getMainWindow()`；type 补 native value setter 与 browser_type 不可复用的核查结论；修正正文中残留的 v0.3 期 `ipcRenderer.invoke('app-ui:query-state')` 措辞，统一为已实现的 `executeJavaScript` 回读 |
-| v0.6 | 2026-08-15 | 三期目标改为「CLI 作为统一对外控制面」（尽量把能封装的都封装成 CLI）。新增 §14：核查出 `agent-runtime-commands.ts` 是 93 命令 + `AgentRuntimeCommandResult` 返回类型映射的完整类型化总线，CLI 主体可做**泛化转发**而非逐个手写；原三期 4 个"待建声明式 API"全部已存在（`cron:run`、`skills:setEnabled`、`session:preferredModel:set`、`PET_IPC.switchMode`），三期性质从"造 API"变为"暴露既有 API"；唯一真实缺口是设置**只能读不能写**；补 `bash → CLI` 绕过权限管线的护栏设计（`AgentTurnOrigin` 加 `external_cli`） |
+| v0.6 | 2026-08-15 | 三期目标改为「CLI 作为统一对外控制面」（尽量把能封装的都封装成 CLI）。新增 §14：核查出 `agent-runtime-commands.ts` 是 **92** 命令 + `AgentRuntimeCommandResult` 返回类型映射的完整类型化总线，CLI 主体可做**泛化转发**而非逐个手写；原三期 4 个"待建声明式 API"全部已存在（`cron:run`、`skills:setEnabled`、`session:preferredModel:set`、`PET_IPC.switchMode`），三期性质从"造 API"变为"暴露既有 API"；唯一真实缺口是设置**只能读不能写**；补 `bash → CLI` 绕过权限管线的护栏设计（`AgentTurnOrigin` 加 `external_cli`） |
+
+---
+
+## 14. 三期：CLI 作为统一对外控制面
+
+### 14.1 为何 CLI 是三期核心
+
+原三期计划的 4 个「待建声明式 API」经代码核查**全部已存在**：
+
+| 能力 | 已存在于 | 代码位置 |
+|------|---------|---------|
+| `cron:run`（立即执行定时任务） | 命令总线 | `agent-runtime-ipc.ts:852` |
+| `skills:setEnabled`（启用/禁用技能） | 独立 `ipcMain.handle` | `index.ts:2154` |
+| `session:preferredModel:set`（切换模型） | 命令总线 | `AgentRuntimeCommand` union |
+| `pet:switchMode`（桌宠模式切换） | 独立 `ipcMain.handle` | `pet-mode-ipc.ts:121` |
+
+三期性质因此从**「造 API」变为「暴露既有 API」**。新建工作只有三件：
+1. **设置写通道**：主进程目前只有读，无写路径
+2. **CLI 命令集扩展**：Task 10 只规划了 screenshot/goto/click 3 条
+3. **来源标识与权限护栏**：`bash → lumii-ui` 可绕过权限管线，需要在服务端闭合
+
+---
+
+### 14.2 能力分层架构
+
+```
+lumii-ui CLI
+    │  HTTP POST 127.0.0.1:<port>  Authorization: Bearer <token>
+    ▼
+app-ui-control/server.ts（控制口）
+    ├── POST /command      → handleCommand(bridge, body)        A 层：命令总线泛化转发
+    ├── POST /settings/*   → executeJavaScript 读写 localStorage C 层：设置写通道
+    ├── POST /ipc/skills/* → index.ts skills:setEnabled          B 层：碎片能力白名单
+    └── POST /ipc/pet/*    → pet-mode-ipc.ts PET_IPC handlers    B 层：碎片能力白名单
+```
+
+#### A 层：命令总线泛化转发
+
+`AgentRuntimeCommand`（`shared/agent-runtime-commands.ts:779`）是 92 成员的判别联合类型，对应 `AgentRuntimeCommandResult<T>` 精确返回类型映射。控制口收到 `POST /command` 后直接调用已有的分发函数：
+
+```ts
+// server.ts — /command 路由核心（伪代码）
+const result = await handleCommand(ipcBridgeRef, command)   // 复用 agent-runtime-ipc.ts 已有函数
+res.json(result)
+```
+
+`handleCommand` 已在 `agent-runtime-ipc.ts:406` 内使用，三期直接复用，不重写分发逻辑。
+
+**明确不暴露的命令**（服务端黑名单，请求直接返回 `{ ok: false, error: 'not_exposed' }`）：
+
+| 命令 | 拒绝原因 |
+|------|---------|
+| `user:send` / `user:steer` / `user:abort` | CLI 不得成为隐蔽注入对话的通道 |
+| `user:permissionRespond` / `user:askUserRespond` | UI 交互应答，不属于外部控制 |
+| `storage:clearMalformed` / `storage:restore*` / `storage:deleteBackup` | 破坏性存储操作 |
+| `agentInstance:create` / `agentInstance:createById` / `agentInstance:destroy` | 生命周期管理属于 UI 职责 |
+| `runtime:featureFlags:set` | 实验性，保留内部调试 |
+| `message:delete` / `message:edit` / `message:editAndResend` | 会话内容破坏性修改 |
+
+其余命令（`cron:*`、`tools:toggle`、`mcp:*`、`session:preferredModel:set`、`session:thinkingPrefs:set`、`conversation:list/messages/rename/pinToggle`、`files:*`、`image:*`、`skill:confirmDraft`等）直接转发。
+
+#### B 层：碎片能力白名单
+
+166 个 `ipcMain.handle` 分布在 7 个文件（`index.ts` 126、`pet-mode-ipc.ts` 17、`skillnet-store` 10、`updater-service` 8、`preview-window-ipc` 3、`agent-runtime-ipc` 1、`voice-ipc` 1）。非命令总线的 handler 只暴露安全子集：
+
+| 控制口路由 | 转发目标 | 代码位置 |
+|-----------|---------|---------|
+| `POST /ipc/skills/setEnabled` | `skills:setEnabled` | `index.ts:2154` |
+| `POST /ipc/pet/switchMode` | `pet:switchMode` | `pet-mode-ipc.ts:121` |
+| `POST /ipc/pet/getMode` | `pet:getMode` | `pet-mode-ipc.ts:126` |
+| `POST /ipc/pet/listModels` | `pet:listModels` | `pet-mode-ipc.ts:129` |
+
+原则：**不在 B 层暴露任何文件系统操作、渠道登录、技能安装/卸载**。这类操作若已建模进命令总线则走 A 层，否则等产品评审后再开放。
+
+#### C 层：设置写通道
+
+主进程无设置写路径（`localStorage.getItem` 仅 2 处：`bridge-tool-registrar.ts:1634`、`index.ts:1117`）。控制口通过 `executeJavaScript` 在渲染进程内完成读写：
+
+**读**：
+```ts
+mainWindow.webContents.executeJavaScript(
+  `localStorage.getItem('mtbot-assistant-settings')`
+)
+```
+
+**写**（服务端先读出完整 JSON 做深 merge，再注入）：
+```ts
+mainWindow.webContents.executeJavaScript(`(() => {
+  const raw = localStorage.getItem('mtbot-assistant-settings')
+  const next = ${JSON.stringify(merged)}
+  localStorage.setItem('mtbot-assistant-settings', JSON.stringify(next))
+  window.dispatchEvent(new CustomEvent('mtbot-settings-update', { detail: next }))
+})()`)
+```
+
+`useSettings.ts:228-229` 的监听器收到 `mtbot-settings-update` 事件后 React 立即生效，无需重启。深 merge 逻辑参照 `useSettings.ts:85-112` 的 `deepMerge` 实现。
+
+---
+
+### 14.3 lumii-ui CLI 命令集（三期扩展）
+
+Task 10（二期）已规划 `screenshot` / `goto` / `click`。三期追加：
+
+| 命令 | 控制口路由 | 对应能力 | 层 |
+|------|-----------|---------|---|
+| `lumii-ui command <type> [--data <json>]` | `POST /command` | 命令总线泛化透传 | A |
+| `lumii-ui settings get [<key.path>]` | `POST /settings/read` | 读 localStorage | C |
+| `lumii-ui settings set <key.path> <value>` | `POST /settings/write` | 写 localStorage + dispatch | C |
+| `lumii-ui skill list` | `POST /command {"type":"skills:list"}` | A 层 | A |
+| `lumii-ui skill enable <id>` | `POST /ipc/skills/setEnabled` | `index.ts:2154` | B |
+| `lumii-ui skill disable <id>` | `POST /ipc/skills/setEnabled` | `index.ts:2154` | B |
+| `lumii-ui cron list` | `POST /command {"type":"cron:list"}` | A 层 | A |
+| `lumii-ui cron run <id>` | `POST /command {"type":"cron:run","id":"..."}` | `agent-runtime-ipc.ts:852` | A |
+| `lumii-ui model set <modelId>` | `POST /command {"type":"session:preferredModel:set"}` | A 层 | A |
+| `lumii-ui pet mode <modeName>` | `POST /ipc/pet/switchMode` | `pet-mode-ipc.ts:121` | B |
+| `lumii-ui pet modes` | `POST /ipc/pet/listModels` | `pet-mode-ipc.ts:129` | B |
+
+`lumii-ui command` 是泛化入口，可访问全部未被黑名单拦截的 92 条命令。具名子命令是高频操作的快捷封装，参数更友好。
+
+stdout 统一输出工具/控制口返回的 JSON 原样；`--data` 接受 JSON 字符串或 `-`（从 stdin 读）。
+
+---
+
+### 14.4 来源标识与权限护栏
+
+#### 14.4.1 bash 绕过风险
+
+in-client Agent 可通过 `bash lumii-ui …` 调用控制口，从而绕过 6 步权限管线（`permission-checker.ts`），因为：
+- `bash-tool.ts` 对命令字符串内容**无任何检查**（直接 spawn）
+- `ToolParamConstraint`（`param-permission-parser.ts`）可配置前缀黑名单，但需用户手动配置，非默认生效
+- `SkillRunner.execute` 同样无 `SkillPermissions` 强制执行（`skill-runtime.ts:121-135` 定义但未校验）
+
+#### 14.4.2 `external_cli` origin
+
+在 `packages/protocol/src/agent/kernel.ts:21-26` 扩展 `AgentTurnOrigin`：
+
+```ts
+export type AgentTurnOrigin =
+  | 'local_ui'
+  | 'cloud_channel'
+  | 'subagent'
+  | 'scheduled'
+  | 'internal'
+  | 'external_cli'   // 三期新增：来自控制口的 CLI 调用
+```
+
+控制口服务端在收到请求时将 `origin: 'external_cli'` 注入命令对象，再调用 `handleCommand`。`CapabilityRegistry.isAllowedForOrigin`（`capability-registry.ts:89`）对 `external_cli` 复用 `cloud_channel` 规则：拒绝 `isHighRisk=true` 和含 `shell`/`admin` 权限的能力。
+
+#### 14.4.3 服务端黑名单是主要防线
+
+不依赖「禁止 Agent 调用 bash」——该假设不可靠，Skill 同样无约束。防线落在控制口本身：
+
+1. **token 隔离**：`~/.lumii/runtime/app-ui.json` 权限 600，仅当前用户可读；外部进程和网络无法获取 token
+2. **loopback 绑定**：控制口只监听 `127.0.0.1`，不跨网络
+3. **命令黑名单**：`/command` 路由在 `handleCommand` 前先过滤黑名单（§14.2），对话流、破坏性存储、实例生命周期命令无论调用者是谁都拒绝
+4. **`external_cli` origin 能力过滤**：高风险工具和 shell/admin 能力自动拒绝
+
+以上四层组合，即使 Agent 通过 bash 调用 `lumii-ui`，也无法执行黑名单命令或触发高风险工具。
+
+---
+
+### 14.5 三期文件清单（对 Task 10 的增量）
+
+| 文件 | 变更类型 | 内容 |
+|------|---------|------|
+| `packages/protocol/src/agent/kernel.ts` | Modify | 追加 `external_cli` 到 `AgentTurnOrigin` 类型 |
+| `packages/agent-runtime/src/capability/capability-registry.ts` | Modify | `isAllowedForOrigin` 补 `external_cli` 分支，复用 cloud_channel 拒绝规则 |
+| `apps/windows/src/main/app-ui-control/server.ts` | Modify | 追加 `/command`（含黑名单过滤）、`/settings/read`、`/settings/write`、`/ipc/skills/*`、`/ipc/pet/*` 路由 |
+| `apps/windows/src/main/app-ui-control/server.test.ts` | Modify | 补命令黑名单过滤、settings 深 merge、B 层路由测试 |
+| `apps/windows/resources/app-ui-cli/lumii-ui.mjs` | Modify | 追加 `command`、`settings`、`skill`、`cron`、`model`、`pet` 子命令（零依赖，纯 fetch） |
+
+注：`handleCommand` 函数已在 `agent-runtime-ipc.ts` 中存在，三期直接复用，**不新建任何 dispatch 逻辑**。
