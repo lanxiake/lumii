@@ -21,8 +21,13 @@ const log = createLogger('BundledSkillsSeeder')
 export const SEED_VERSION_FILENAME = '.bundled-skills-seeded'
 const BUNDLED_SKILLS_DIR_NAME = 'bundled-skills'
 
-/** 已从 bundled-skills 下线的技能（相对根目录路径，启动时从 workspace 清掉） */
+/**
+ * 已从 bundled-skills 下线的技能（相对根目录路径，启动时从 workspace 清掉）。
+ *
+ * 2026-08-15 激进内置集：通用生产力 + H3 视频 + 小红书流水线；其余垂直/同质包全部下线。
+ */
 export const RETIRED_BUNDLED_SKILLS: readonly string[] = [
+  // —— 历史下线 ——
   '产品与项目管理/product-manager-toolkit',
   '电商与营销/ecommerce-copywriter',
   '电商与营销/ecommerce-video-marketing',
@@ -34,6 +39,31 @@ export const RETIRED_BUNDLED_SKILLS: readonly string[] = [
   '语音与音频/qwen3-asr-assistant',
   '语音与音频/sherpa-onnx-tts',
   '语音与音频/tts-voice-synthesis',
+  // —— 2026-08-15 激进瘦身 ——
+  '技能管理/skillnet',
+  '内容创作与发布/douyin-content-pipeline',
+  '内容创作与发布/wechat-content-pipeline',
+  '内容创作与发布/hotspot-publisher',
+  '文档与分析/paper-analysis-assistant',
+  '文档与分析/stock-analysis',
+  '文档与分析/tencent-docs',
+  '文化创作/poetry-music-visual',
+  '智能体协作/multi-agent-meeting',
+  '电商与营销/product-video-creator',
+  '视频创作/historical-interview-scripts',
+  '视频创作/historical-science-video-prod',
+  '视频创作/three-body-video-creator',
+  '视频创作/video-creation-collaborator',
+  '视频创作/video-creation-pro',
+  '视频创作/video-creation-suite',
+  '视频创作/video-frame-extractor',
+  '视频创作/video-recreation',
+  '视频创作/viral-video-copywriting',
+  '数字人与视频配音/agentkit-multimedia-shopping',
+  '数字人与视频配音/digital-avatar-shopping-video',
+  '数字人与视频配音/dream-video-prompt-generator',
+  '数字人与视频配音/infinitetalk',
+  '数字人与视频配音/infinitetalk-shopping-avatar',
 ]
 
 /** 读取上次种子时的 app 版本 */

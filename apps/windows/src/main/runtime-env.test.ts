@@ -56,4 +56,9 @@ describe('runtime-env', () => {
     expect(buildScriptEnv({ PIP_INDEX_URL: 'https://my.mirror/simple' }).PIP_INDEX_URL)
       .toBe('https://my.mirror/simple')
   })
+
+  it('默认注入 CLI_HUB_NO_ANALYTICS=1，已有值不覆盖', () => {
+    expect(buildScriptEnv().CLI_HUB_NO_ANALYTICS).toBe('1')
+    expect(buildScriptEnv({ CLI_HUB_NO_ANALYTICS: '0' }).CLI_HUB_NO_ANALYTICS).toBe('0')
+  })
 })

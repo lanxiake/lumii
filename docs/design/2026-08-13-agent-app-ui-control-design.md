@@ -467,15 +467,16 @@ CLI 的 shim 生成直接照抄 `writeShimPair()`（`runtime-env.ts:84-118`）�
 
 点击：pet 用画布 DIP 坐标，三期，不做 DOM ref（pet 渲染是 pixi.js canvas，没有 DOM 树可供 `SNAPSHOT_SCRIPT` 遍历）。
 
-### 8.4 与 `browser_*` 的分界
+### 8.4 与 `browser_*` / 外部软件 CLI 的分界
 
 | 对象 | 工具 |
 |------|------|
-| Lumii 自己的窗 | `app_*` / `lumii-ui` |
+| Lumii 自己的窗 | `app_*` / `lumii-ui`（app-ui-control 范围） |
 | 外部网页 | `browser_*` |
-| 其它桌面软件 | 不做 |
+| 其它桌面软件 | **不走 app-ui-control**；走内置技能 `cli-hub`（CLI-Anything / CLI-Hub），Agent 用 `bash` 调 `cli-hub` / `cli-anything-*` |
 
-Lumii Agent **禁止**用 `bash lumii-ui` 代替进程内工具。
+Lumii Agent **禁止**用 `bash lumii-ui` 代替进程内工具。  
+外部软件 harness 的安装与调用见 `apps/windows/bundled-skills/技能管理/cli-hub/SKILL.md` 与 `docs/design/2026-08-15-cli-hub-external-software-design.md`。
 
 ---
 
@@ -500,8 +501,8 @@ Lumii Agent **禁止**用 `bash lumii-ui` 代替进程内工具。
 |----|------|------|
 | **MVP / 一期** | 闭环可演示 | 主窗 screenshot + goto（executeJavaScript 回读）+ click(ref)；data-app-ui 主入口；composer 拦截；时间线缩略图；截图临时目录清理 |
 | **二期** | 对外 AI + 完整交互 | CLI+控制口（自带运行时）、type/key/scroll、坐标、SoM、桌宠/预览截图 |
-| **三期** | 声明式补齐 + 画布 | skill 启停、chat 模型、cron 立即执行、pet 点击 |
-| 以后 | 系统级 Computer Use | 单独评审 |
+| **三期** | CLI 作为统一对外控制面 | 命令总线整体转发 + 碎片能力白名单 + 设置写通道 + 来源标识与权限护栏；详见 **§14** |
+| 以后 | 系统级 Computer Use、桌宠画布点击 | 单独评审 |
 
 YAGNI（完整目标也不做）：录屏、暴露 CSS/XPath、`app_eval`、自动启动 Lumii。
 
@@ -578,3 +579,4 @@ app_act click "始终允许"仅本次运行有效，重启后重置
 | v0.3 | 2026-08-14 | 完整目标 + 能力全景 + 闭环；MVP 收成 screenshot + goto/click；CLI 改二期 |
 | v0.4 | 2026-08-14 | 代码事实核查后修正：补回读通道（executeJavaScript）、修正 pet 误伤、补配额落点、补截图清理、修正 browser_* 复用边界 |
 | v0.5 | 2026-08-14 | MVP（Part A/B）验收通过并已合并至 `feat/agent-app-ui-control`；补全二期设计代码事实核查：CLI 运行时复用 `runtime-env.ts` 的 `resolveNodeExec()`/`writeShimPair()`（不需要 extraFiles 带 node）、控制口端口探测复用 `browser-control` 的 `findAvailablePort()`、token 用 `randomUUID()` 落 `resolveWindowsClientDataRoot()`；pet/preview 截图窗口改经 `getPetWindowManager().getPetBrowserWindow()`，非 `getMainWindow()`；type 补 native value setter 与 browser_type 不可复用的核查结论；修正正文中残留的 v0.3 期 `ipcRenderer.invoke('app-ui:query-state')` 措辞，统一为已实现的 `executeJavaScript` 回读 |
+| v0.6 | 2026-08-15 | 三期目标改为「CLI 作为统一对外控制面」（尽量把能封装的都封装成 CLI）。新增 §14：核查出 `agent-runtime-commands.ts` 是 93 命令 + `AgentRuntimeCommandResult` 返回类型映射的完整类型化总线，CLI 主体可做**泛化转发**而非逐个手写；原三期 4 个"待建声明式 API"全部已存在（`cron:run`、`skills:setEnabled`、`session:preferredModel:set`、`PET_IPC.switchMode`），三期性质从"造 API"变为"暴露既有 API"；唯一真实缺口是设置**只能读不能写**；补 `bash → CLI` 绕过权限管线的护栏设计（`AgentTurnOrigin` 加 `external_cli`） |

@@ -171,6 +171,11 @@ export function buildScriptEnv(extra?: Record<string, string>): Record<string, s
     env.PIP_INDEX_URL = PYPI_MIRROR
   }
 
+  // CLI-Hub 默认关闭匿名统计；用户或调用方已显式设置时不覆盖。
+  if (env.CLI_HUB_NO_ANALYTICS === undefined) {
+    env.CLI_HUB_NO_ANALYTICS = '1'
+  }
+
   return env
 }
 
