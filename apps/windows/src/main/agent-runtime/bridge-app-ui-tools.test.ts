@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToolRegistry } from '@mtbot/agent-runtime'
 import type { ToolExecutionContext } from '@mtbot/agent-runtime'
 import type { AppUiController } from '../app-ui-control'
