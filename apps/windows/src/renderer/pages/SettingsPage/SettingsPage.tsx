@@ -741,6 +741,24 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </header>
 
         <section className={styles['panel-card']}>
+          <h4 className={styles['panel-card-title']}>Agent 界面控制</h4>
+          <div className={styles['panel-rows']}>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>允许 Agent 操作本软件界面</span>
+                <span className={styles['panel-row-hint']}>
+                  关闭后 Agent 无法截图、导航或点击本客户端界面
+                </span>
+              </div>
+              <Checkbox
+                checked={settings.privacy.allowAgentAppUiControl !== false}
+                onChange={(checked) => updatePrivacy({ allowAgentAppUiControl: checked })}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className={styles['panel-card']}>
           <h4 className={styles['panel-card-title']}>本地留存</h4>
           <div className={styles['panel-rows']}>
             <div className={styles['panel-row']}>

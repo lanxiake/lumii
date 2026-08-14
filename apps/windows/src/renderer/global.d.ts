@@ -7,6 +7,8 @@ import type { ElectronAPI } from '../preload/index'
 declare global {
   interface Window {
     electronAPI: ElectronAPI
+    /** Agent App UI 状态回读（主进程 executeJavaScript 调用） */
+    __LUMII_APP_UI_STATE__?: () => string
   }
 }
 

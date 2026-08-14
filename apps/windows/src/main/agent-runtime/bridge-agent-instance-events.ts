@@ -18,6 +18,7 @@ import {
   providerPromptTokens,
 } from '@mtbot/agent-runtime'
 import { convertOldEventToIpcEvents, parseThinkTagsFromRaw, type RunContext } from './event-converter'
+import { resetAppUiToolTurnQuotas } from './bridge-app-ui-tools'
 import { forwardPermissionRuntimeToIpc } from './bridge-permission-ipc-forward'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import type { FileMemoryHandler } from './file-memory-handler'
@@ -817,6 +818,9 @@ export function createAgentInstanceRuntimeEventHandler(
 
     const ipcEvents = convertOldEventToIpcEvents(event, ctx)
     for (const ipcEvent of ipcEvents) {
+      if (ipcEvent.type === 'agent:turn:end') {
+        resetAppUiToolTurnQuotas()
+      }
       if (ipcEvent.type === 'agent:context:compacted' && compactionOverlay) {
         ipcChannel.forwardIpcEvent({
           ...ipcEvent,

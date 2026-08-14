@@ -51,6 +51,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     sendUsageStats: false,
     saveChatHistory: true,
     historyRetentionDays: 30,
+    allowAgentAppUiControl: true,
   },
   shortcuts: {
     sendMessage: 'Enter',

@@ -75,6 +75,7 @@ export const SettingsHubModal: React.FC<{
               aria-selected={state.tab === item.id}
               className={clsx(styles.hubTab, state.tab === item.id && styles.hubTabActive)}
               onClick={() => setTab(item.id)}
+              data-app-ui="hub-tab"
             >
               {item.label}
             </button>

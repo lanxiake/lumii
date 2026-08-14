@@ -98,6 +98,9 @@ import {
 } from './channel/channel-hub-bootstrap'
 import { handleChannelList, handleChannelSend } from './channel/channel-service-ipc'
 import { resolveWindowsClientDataRoot } from './client-data-root'
+import { clearScreenshotTempDir } from './app-ui-control/screenshot-cleanup'
+import { startAppUiControlServer, stopAppUiControlServer } from './app-ui-control/server'
+import { resizeImageIfNeeded } from './agent-runtime/image-resizer'
 import {
   AgentRuntimeBridge,
   installAgentRuntimeCommandIpc,
@@ -2850,6 +2853,7 @@ async function initialize(): Promise<void> {
 
   // 初始化文件日志系统（必须在 app.whenReady() 之后）
   fileLogger.initialize()
+  clearScreenshotTempDir()
   // 服务启动时在控制台打印日志文件路径
   log.info('日志文件:', fileLogger.getCurrentLogFilePath())
 
@@ -2879,6 +2883,16 @@ async function initialize(): Promise<void> {
   // 初始化各模块（开机启动时隐藏窗口，只显示托盘图标）
   // 等待开机画面完整播放后再显示主窗口
   await createWindow(isTestMode, isStartupLaunch)
+
+  // App UI 本机控制口（lumii-ui CLI）
+  try {
+    await startAppUiControlServer({
+      getWindow: (target) => (target === 'main' ? mainWindow : null),
+      resizeImageIfNeeded,
+    })
+  } catch (err) {
+    log.warn('App UI 本机控制口启动失败:', err instanceof Error ? err.message : err)
+  }
 
   // 注册宠物模式 IPC（独立透明窗口，与 mainWindow 解耦）
   registerPetModeIpc({
@@ -3065,6 +3079,7 @@ async function performCleanup(): Promise<void> {
     disposePetModeIpc()
 
     await skillWatcher?.stop()
+    await stopAppUiControlServer()
     await stopBrowserService()
 
     // 微信登出清理

@@ -9,6 +9,7 @@
 
 import path from 'node:path'
 import fs from 'node:fs'
+import os from 'node:os'
 import { ipcMain, shell, dialog, type BrowserWindow } from 'electron'
 import { Cron } from 'croner'
 import { BUILT_IN_AGENTS, type AgentDefinition } from '@mtbot/agent-runtime'
@@ -180,10 +181,30 @@ function shouldReadPreviewAsUtf8(effectiveMime: string | null, fileName: string)
 }
 
 /**
+ * 展开以 ~ 开头的路径为当前用户主目录下的绝对路径。
+ */
+function expandTildePath(input: string): string {
+  const trimmed = input.trim()
+  if (trimmed.startsWith('~')) {
+    return path.resolve(trimmed.replace(/^~(?=$|[/\\])/, os.homedir()))
+  }
+  return trimmed
+}
+
+/**
  * 解析后的绝对路径须落在 Agent workspace（cwd）内，防止路径穿越
  */
 function isResolvedPathInsideWorkspace(resolvedAbs: string, resolvedCwd: string): boolean {
   return resolvedAbs.startsWith(resolvedCwd + path.sep) || resolvedAbs === resolvedCwd
+}
+
+/**
+ * 判断预览路径是否在允许范围内：Agent 工作区或 Lumii 截图临时目录（app_screenshot 缩略图）。
+ */
+function isAllowedPreviewPath(resolvedAbs: string, resolvedCwd: string): boolean {
+  if (isResolvedPathInsideWorkspace(resolvedAbs, resolvedCwd)) return true
+  const screenshotDir = path.resolve(path.join(resolveWindowsClientDataRoot(), 'temp', 'screenshots'))
+  return resolvedAbs.startsWith(screenshotDir + path.sep)
 }
 
 /**
@@ -1401,14 +1422,12 @@ async function handleCommand(
       case 'files:read-preview-by-path': {
         const { filePath, startLine, endLine } = command
         const cwd = bridge.getCwd()
-        // 路径安全：必须位于 workspace 内
-        const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(cwd, filePath)
+        const expandedPath = expandTildePath(filePath)
+        // 路径安全：须位于 workspace 或 Lumii 截图临时目录内
+        const absPath = path.isAbsolute(expandedPath) ? expandedPath : path.resolve(cwd, expandedPath)
         const resolvedAbs = path.resolve(absPath)
         const resolvedCwd = path.resolve(cwd)
-        if (
-          !resolvedAbs.startsWith(resolvedCwd + path.sep) &&
-          resolvedAbs !== resolvedCwd
-        ) {
+        if (!isAllowedPreviewPath(resolvedAbs, resolvedCwd)) {
           throw new Error('该路径不在当前 Agent 工作目录内，无法预览')
         }
         if (!fs.existsSync(resolvedAbs)) {

@@ -29,6 +29,7 @@ export const SettingsCategoryNav: React.FC<SettingsCategoryNavProps> = ({
           type="button"
           className={clsx(styles.categoryItem, activeCategory === item.id && styles.categoryItemActive)}
           onClick={() => onChange(item.id)}
+          data-app-ui="hub-category"
         >
           <span className={styles.categoryIcon}>{item.icon}</span>
           <span className={styles.categoryLabel}>{item.label}</span>

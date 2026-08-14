@@ -34,6 +34,8 @@ export interface PrivacyConfig {
   sendUsageStats: boolean
   saveChatHistory: boolean
   historyRetentionDays: number
+  /** 是否允许 Agent 操作本软件界面（app_screenshot / app_goto / app_act），默认开启 */
+  allowAgentAppUiControl: boolean
 }
 
 /** 快捷键配置 */
