@@ -876,40 +876,6 @@ async function initAgentRuntime(): Promise<void> {
       log.info(`[AgentRuntime:CronNotify] title="${title}" body="${body.slice(0, 60)}"`)
       showDesktopTaskNotification(title, body)
     },
-    sendWeixinMessage: async ({ text, filePath }) => {
-      try {
-        if (!weixinLoginService) {
-          return { ok: false, error: '微信服务未初始化' }
-        }
-        // bridge 内部已检查 currentWeixinCtx 非空才会调用此回调，直接从 bridge 获取
-        const weixinCtx = agentRuntimeBridge?.getCurrentWeixinCtx()
-        if (!weixinCtx) {
-          return { ok: false, error: '没有活跃的微信会话上下文，请先在微信发送一条消息' }
-        }
-        const { channelUserId, contextToken, botToken, ilinkBaseUrl } = weixinCtx
-        log.info(`[sendWeixinMessage] ctx: channelUserId=${channelUserId} contextToken=${contextToken ? '有' : '无'} botToken=${botToken ? '有' : '无'} ilinkBaseUrl=${ilinkBaseUrl ?? '默认'}`)
-        if (filePath) {
-          const fileName = filePath.split(/[\\/]/).pop() ?? filePath
-          // 先发文字说明（如果有），再发文件
-          if (text) {
-            await weixinLoginService.sendTextReply(channelUserId, text, contextToken, botToken, ilinkBaseUrl)
-          }
-          const ok = await weixinLoginService.sendMediaReply(channelUserId, filePath, fileName, contextToken, botToken, ilinkBaseUrl)
-          log.info(`[sendWeixinMessage] 文件发送 ok=${ok} channelUserId=${channelUserId} file=${fileName}`)
-          return { ok, error: ok ? undefined : '文件发送失败，请查看主进程日志' }
-        }
-        if (text) {
-          const ok = await weixinLoginService.sendTextReply(channelUserId, text, contextToken, botToken, ilinkBaseUrl)
-          log.info(`[sendWeixinMessage] 文本发送 ok=${ok} channelUserId=${channelUserId}`)
-          return { ok }
-        }
-        return { ok: false, error: '未提供 text 或 mediaUrl 参数' }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        log.error(`[sendWeixinMessage] 异常: ${msg}`)
-        return { ok: false, error: `发送异常: ${msg}` }
-      }
-    },
     sendFeishuMessage: async (text: string) => {
       if (!feishuLoginService) return { ok: false, error: '飞书服务未初始化' }
       return feishuLoginService.pushText(text)
@@ -1464,7 +1430,31 @@ function setupIpcHandlers(): void {
   ipcMain.handle('feishu:getSession', () => {
     return feishuLoginService?.getSessionPublic() ?? null
   })
-  
+
+  // === 渠道出站 Hub（与 Agent channel_list/channel_send 同源，仅供 Settings 面板只读展示/调试） ===
+  ipcMain.handle('channel:list', async () => {
+    if (!channelHub) return { channels: [] }
+    return { channels: await channelHub.router.list() }
+  })
+
+  ipcMain.handle('channel:send', async (_event, params: unknown) => {
+    if (!channelHub) {
+      return { ok: false, errorCode: 'HUB_NOT_READY', message: '渠道出站 Hub 尚未就绪，请稍后再试' }
+    }
+    const p = (params ?? {}) as Record<string, unknown>
+    const channel = String(p.channel ?? '').trim()
+    if (channel !== 'feishu' && channel !== 'weixin' && channel !== 'wecom') {
+      return { ok: false, errorCode: 'PEER_NOT_FOUND', message: "channel 必须是 'feishu' | 'weixin' | 'wecom'" }
+    }
+    return channelHub.router.send({
+      channel,
+      to: String(p.to ?? ''),
+      text: String(p.text ?? ''),
+      ...(typeof p.mediaPath === 'string' && p.mediaPath ? { mediaPath: p.mediaPath } : {}),
+      ...(typeof p.fileName === 'string' && p.fileName ? { fileName: p.fileName } : {}),
+    })
+  })
+
   // === 窗口控制 ===
   ipcMain.on('window:minimize', () => mainWindow?.minimize())
   ipcMain.on('window:maximize', () => {

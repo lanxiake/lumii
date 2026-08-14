@@ -211,10 +211,6 @@ export class AgentRuntimeBridge {
     this.promptDispatcher.setWeixinMessageContext(ctx)
   }
 
-  getCurrentWeixinCtx(): { channelUserId: string; contextToken: string; botToken?: string; ilinkBaseUrl?: string } | null {
-    return this.promptDispatcher.getCurrentWeixinCtx()
-  }
-
   getWeixinMessageSentViaTool(): boolean {
     return this.promptDispatcher.getWeixinMessageSentViaTool()
   }

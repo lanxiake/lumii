@@ -1807,6 +1807,20 @@ contextBridge.exposeInMainWorld('feishuService', {
   },
 })
 
+// === 渠道出站 Hub（与 Agent channel_list/channel_send 同源，仅供 Settings 面板只读展示/调试） ===
+contextBridge.exposeInMainWorld('channelService', {
+  /** 列出已注册渠道快照（含未连接渠道） */
+  list: (): Promise<{ channels: unknown[] }> => ipcRenderer.invoke('channel:list'),
+  /** 向指定 channel + to 发送文本/富媒体；仅供调试，非 Agent 主路径 */
+  send: (params: {
+    channel: 'feishu' | 'weixin' | 'wecom'
+    to: string
+    text: string
+    mediaPath?: string
+    fileName?: string
+  }): Promise<unknown> => ipcRenderer.invoke('channel:send', params),
+})
+
 log.info('预加载脚本执行完成，API 已暴露')
 
 // 为 TypeScript 类型声明
@@ -1840,6 +1854,16 @@ declare global {
       onStatusChange: (callback: (status: string, session?: unknown) => void) => (() => void)
       onQrcode: (callback: (dataUrl: string) => void) => (() => void)
       onError: (callback: (message: string) => void) => (() => void)
+    }
+    channelService: {
+      list: () => Promise<{ channels: unknown[] }>
+      send: (params: {
+        channel: 'feishu' | 'weixin' | 'wecom'
+        to: string
+        text: string
+        mediaPath?: string
+        fileName?: string
+      }) => Promise<unknown>
     }
   }
 }

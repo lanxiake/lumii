@@ -8,11 +8,11 @@
 
 **Tech Stack:** Electron `capturePage` + `sendInputEvent` + `executeJavaScript`、TypeBox 工具、现有 IPC 事件前转、Vitest、JPEG `resizeImageIfNeeded`
 
-**规格：** `docs/design/2026-08-13-agent-app-ui-control-design.md`（v0.4，代码核查后修正版）
+**规格：** `docs/design/2026-08-13-agent-app-ui-control-design.md`（v0.5，MVP 验收通过 + 二期代码核查修正版）
 
-**范围锁：** 下列任务 1–9 是 MVP，**拆成两部分独立可交付**：Part A（任务 1–4）只做「看」，Part B（任务 5–9）在 A 之上做「动」。任务 10+ 是完整规划，未完成 MVP 前不要做。
+**范围锁：** 任务 1–9 是 MVP，已完成实现与验收（`feat/agent-app-ui-control` 分支）。任务 10–12 是二期（Part C），任务 13–14 是三期（Part D），按下方 Part C/D 详细步骤执行。
 
-**为何拆两部分**：v0.4 核查发现 goto 的回读机制、pet 窗口隔离、配额计数器都是新代码而非复用，风险集中在「动」这一半。把「看」单独跑通（截图闭环已经是可演示、可验收的功能），再叠「动」，任何一部分卡住不影响另一部分先交付。
+**为何拆两部分（MVP 内部）**：v0.4 核查发现 goto 的回读机制、pet 窗口隔离、配额计数器都是新代码而非复用，风险集中在「动」这一半。把「看」单独跑通（截图闭环已经是可演示、可验收的功能），再叠「动」，任何一部分卡住不影响另一部分先交付。
 
 ---
 
@@ -234,47 +234,133 @@ npx vitest run apps/windows/src/main/app-ui-control apps/windows/src/main/agent-
 
 ---
 
-## 完整规划（MVP 之后）
+## Part C：二期（Task 10–12，对外 CLI + 完整交互 + 多窗）
 
-### Task 10: 本机控制口 + `lumii-ui` CLI（二期）
+> MVP（Task 1–9）已实现验收通过，见 `feat/agent-app-ui-control` 分支。以下按设计 v0.5 §8 的代码事实核查（`runtime-env.ts` 的 `resolveNodeExec()`、`browser-control` 的端口探测、`pet-window-manager.ts` 的窗口获取）拆到可执行粒度。三份任务相对独立，可并行但建议先做 Task 11（完整 `app_act`），因为 Task 10 的 CLI 命令要复用它。
 
-- `server.ts` 绑 `127.0.0.1` 随机端口，写 `~/.lumii/runtime/app-ui.json`  
-- `apps/windows/scripts/lumii-ui.mjs` 零依赖；**打包必须带运行时，禁止假设系统有 node**（用 `Lumii.exe` 子命令或 extraFiles node）  
-- 命令：`screenshot` / `goto` / `click`，stdout JSON，exit 码见设计 §8.2  
-- 应用未开 exit 3，不自动启动  
+### Task 10: 本机控制口 + `lumii-ui` CLI
 
-### Task 11: 完整 `app_act`（二期）
+**Files:**
+- Create: `apps/windows/src/main/app-ui-control/server.ts`
+- Create: `apps/windows/src/main/app-ui-control/server.test.ts`
+- Create: `apps/windows/resources/app-ui-cli/lumii-ui.mjs`
+- Modify: `apps/windows/src/main/runtime-env.ts` — 复用现有 `writeShimPair()`（84-118 行）为 `lumii-ui` 生成一对 shim，target 用 `resolveNodeExec()` 的 command/env 去 exec `lumii-ui.mjs`
+- Modify: `apps/windows/electron-builder.json` — `extraResources` 加一条 `resources/app-ui-cli` → `app-ui-cli`（不改 asar/asarUnpack 结构）
+- Modify: `apps/windows/src/main/index.ts` 或 app 启动流程 — 应用启动时调用 `server.ts` 的 start，随主进程生命周期关闭
 
-- type：React native value setter + `insertText`  
-- key 白名单、scroll、坐标 click、右键/双击  
-- 单测中文受控输入  
+**内容：**
 
-### Task 12: SoM 与多窗（二期）
+1. `server.ts`：
+   - 端口探测直接照抄 `packages/browser-control/src/browser/control-service.ts:144` 的 `findAvailablePort(startPort, label)` 模式（`+10` 步长、重试 3 次、都占用则落到 `startPort + 3*10`），不要重新发明随机端口逻辑；起始端口另分配（避开 `DEFAULT_CDP_PORT` 和 extension relay 端口，三个常量放一起方便比对）
+   - `createServer` 只监听 `127.0.0.1`（参照 `extension-relay.ts:166` 的 `isLoopbackHost` 校验思路，拒绝非 loopback bind）
+   - token：`randomUUID()`（`node:crypto`，先例 `voice-temp-ref.ts:7,24`），启动时生成，写入 `path.join(resolveWindowsClientDataRoot(), 'runtime', 'app-ui.json')`（用已有的 `resolveWindowsClientDataRoot()`，不要硬编码 `~/.lumii`）
+   - 路由：`POST /screenshot`、`POST /goto`、`POST /click` 直接调 `createAppUiController()` 现有的 `screenshot()/goto()/click()`（Task 1-9 已实现，不要重复写业务逻辑），校验 `Authorization: Bearer <token>` 不通过 401
+   - 应用关闭时 `server.close()`
 
-- `annotate=true` 在截图副本上画编号  
-- `target=pet|preview` 仅截图（pet 截图与 goto 隔离处理方式相同：直接指定窗口，不走广播通道）
-- `app_ui_state` 只读工具  
+2. `lumii-ui.mjs`（零依赖 ESM，纯 `fetch` 调本机 HTTP）：
+   - 读 `~/.lumii/runtime/app-ui.json` 拿 port/token；文件不存在或连不上 → `exit 3`（应用未运行，不自动拉起）
+   - 命令：`screenshot [--annotate]` / `goto --view <v> [--category <c>]` / `click --ref <r> [--snapshot-id <id>]`
+   - stdout 输出工具返回的 JSON 原样；HTTP 层错误单独包一层 `{ ok: false, error: 'connection_failed' }`
 
-### Task 13: 声明式能力补齐（三期）
+3. shim：在 `writeShims()`（`runtime-env.ts:126`）里补一段，用 `writeShimPair(dir, 'lumii-ui', target, [scriptPath], envFromResolveNodeExec)` 写 `lumii-ui` + `lumii-ui.cmd`，`target`/`env` 来自 `resolveNodeExec()`（68-72 行，已存在，不要重新判断系统 node）
+
+**测试：**
+
+```bash
+npx vitest run apps/windows/src/main/app-ui-control/server.test.ts
+```
+mock `createAppUiController`，只测路由/token 校验/端口探测重试逻辑，不测真实 HTTP。
+
+**手工验收：**
+1. 应用运行中，终端跑 `lumii-ui screenshot` → 收到 JSON + 能确认截图文件生成
+2. 关闭应用后跑 `lumii-ui goto --view chat` → `exit 3`
+3. 改错 token 文件内容后跑 → 401
+
+提交：`feat(app-ui): 本机控制口 + lumii-ui CLI`
+
+---
+
+### Task 11: 完整 `app_act`（type / key / scroll）
+
+**Files:**
+- Modify: `apps/windows/src/main/app-ui-control/act.ts` — 加 `buildTypeScript` / `buildScrollScript`，key 白名单常量
+- Modify: `apps/windows/src/main/app-ui-control/act.test.ts`
+- Modify: `apps/windows/src/main/app-ui-control/controller.ts` — `click()` 旁加 `type()` / `key()` / `scroll()`，复用现有 `assertClickAllowed` 的 ref/snapshot 校验逻辑（校验部分不区分 action）
+- Modify: `apps/windows/src/main/agent-runtime/bridge-app-ui-tools.ts` — `app_act` 的 `action` 枚举从只接受 `click` 扩展为 `click | type | key | scroll`
+
+**内容（设计 §8.1）：**
+
+- `type`：注入脚本用 native value setter，不能用 `el.value = text` 直接赋值（React 受控组件检测不到）：
+  ```js
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, text)
+  el.dispatchEvent(new Event('input', { bubbles: true }))
+  ```
+  参数 `{ action: 'type', ref, text, clear?: boolean }`；`clear=true` 先设空字符串再设新值。禁止用 `sendInputEvent` 敲 keyCode 模拟中文输入（拼音会被打成乱码）。
+- `key`：白名单 `Enter | Escape | Tab | Backspace | Delete | ArrowUp/Down/Left/Right`，非白名单返回 `{ ok: false, error: 'usage' }`；用 `sendInputEvent({ type: 'keyDown' })` + `keyUp`
+- `scroll`：复用 `buildClickPrepareScript`（`act.ts:62`）里 `elementFromPoint` 定位元素的逻辑，改造成新函数返回元素后跑 `el.scrollBy(dx, dy)`；参数 `{ action: 'scroll', ref, dx?: number, dy?: number }`
+- 全部复用现有 `assertClickAllowed` 做 ref/snapshotId/composer 校验（这部分与 action 类型无关，不要重复写）
+
+**测试重点：** 中文字符串（含多字节 emoji）通过 native setter 写入后 `input` 元素的值和 React state 是否同步——需要一个真实渲染的测试页面或 mock `dispatchEvent` 校验调用参数，不能只测字符串本身。
+
+跑：
+```bash
+npx vitest run apps/windows/src/main/app-ui-control
+```
+
+提交：`feat(app-ui): app_act 补 type/key/scroll`
+
+---
+
+### Task 12: SoM 编号图 + pet/preview 截图
+
+**Files:**
+- Modify: `apps/windows/src/main/app-ui-control/controller.ts` — `AppUiControllerDeps.getMainWindow` 扩展成 `getWindow(target: 'main' | 'pet' | 'preview')`；`screenshot()` 加 `annotate` 参数
+- Modify: `apps/windows/src/main/app-ui-control/annotate.ts`（新建）— 在 JPEG 上画编号，纯函数：输入 refs + 图片 buffer，输出画好编号的新 buffer
+- Modify: `apps/windows/src/main/app-ui-control/annotate.test.ts`
+- Modify: `apps/windows/src/main/agent-runtime/bridge-app-ui-tools.ts` — `app_screenshot` 参数加 `target?: 'main' | 'pet' | 'preview'`（默认 `main`），`annotate` 从「忽略」改为真正接入
+
+**内容：**
+
+- pet/preview 窗口获取：**不能**用 `getMainWindow()`。要经 `apps/windows/src/main/pet/pet-mode-ipc.ts` 的 `getPetWindowManager()`，再调 `PetWindowManager.getPetBrowserWindow()`（`pet-window-manager.ts:115-117`，内部已处理 `isDestroyed()`）。`target=pet` 但 pet 窗口未开 → 返回 `{ ok: false, error: 'pet_not_running' }`（新错误码，与 `app_not_running` 区分）
+- `target=preview` 二期先占位返回 `usage`（预览窗当前代码里没有独立可截图的窗口概念，需要先确认是哪个窗口，不在本任务内臆造）
+- SoM：`annotate=true` 时截图流程末尾调 `annotate.ts` 的函数，在每个 ref 的 `(x, y, w, h)` 左上角画半透明编号（数字文本 + 背景色块），复用截图已有的 JPEG buffer，不额外截一次图
+- pet 截图同样不走 `forwardIpcEvent` 广播，直接拿到窗口后 `capturePage`，与 goto 的隔离思路一致（Task 6 已定的模式）
+
+**测试：** `annotate.ts` 纯函数用固定 refs + 假 buffer 测试编号位置计算是否正确（不需要真的验证图片像素，验证传给绘图库的坐标参数）；`controller.test.ts` mock `getPetWindowManager` 返回 null/mock window 两种场景。
+
+跑：
+```bash
+npx vitest run apps/windows/src/main/app-ui-control
+```
+
+提交：`feat(app-ui): SoM 编号图 + pet/preview 截图`
+
+---
+
+## Part D：三期（Task 13–14，声明式补齐 + 桌宠点击）
+
+以下两项依赖产品对「哪些声明式 API 优先」「桌宠点击是否真的需要」的确认，暂不细化到 Files/Step 粒度，先给方向：
+
+### Task 13: 声明式能力补齐
 
 按设计 §4.4 逐个加，优先：
 
-1. `skill_set_enabled`  
-2. `settings_chat_model`  
-3. `cron_run_now`  
-4. `pet_mode_set`  
+1. `skill_set_enabled`
+2. `settings_chat_model`
+3. `cron_run_now`
+4. `pet_mode_set`
 
-每加一个，工具描述里写「不要用 click 做这件事」。
+每加一个，工具描述里写「不要用 click 做这件事」，且要在 `app_act` 的 description 里同步提示，避免模型绕开声明式 API 硬点。
 
-### Task 14: 桌宠点击（三期）
+### Task 14: 桌宠点击
 
-画布 DIP 坐标；不做 DOM ref。
+画布 DIP 坐标；不做 DOM ref（pixi.js canvas 没有 DOM 树）。点击目标需要桌宠侧提供命中测试 API（当前 `pet-core` 是否已有类似接口需先确认，可能是本任务里最大的未知项）。
 
 ---
 
 ## 执行方式
 
 Part A（Task 1→4）先跑通并手工验收，可独立演示「看」的闭环。  
-Part B（Task 5→9）在 Part A 基础上叠「动」，全部完成才算 MVP。  
-用 executing-plans **按 Task 1→9 顺序**，每任务测试过再进下一个。  
-Task 10+ 等产品确认「要 CLI / 要输入」后再开。
+Part B（Task 5→9）在 Part A 基础上叠「动」，全部完成才算 MVP——**已完成**。  
+Part C（Task 10→12）是二期，三个任务相对独立，建议先做 Task 11（后续 CLI 复用它），用 executing-plans 逐任务跑测试。  
+Part D（Task 13→14）等产品确认优先级后再排期，不要在没有明确需求信号时开工。

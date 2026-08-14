@@ -68,11 +68,6 @@ export interface AgentRuntimeBridgeConfig {
    */
   showCronNotification?: (title: string, body: string) => void
   /**
-   * 通过微信通道发送消息给用户（由 index.ts 注入，调用 weixinLoginService）。
-   * channelUserId 和 contextToken 从当前活跃的微信会话上下文中获取。
-   */
-  sendWeixinMessage?: (params: { text?: string; filePath?: string }) => Promise<{ ok: boolean; error?: string }>
-  /**
    * 主动推送文本到飞书（由 index.ts 注入，调用 feishuLoginService.pushText）。
    * 收件人是登录时记录的 openId，定时任务结果推送用。
    */

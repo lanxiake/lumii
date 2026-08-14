@@ -1209,7 +1209,7 @@ function buildMessagingSection(params: {
   ]
   if (hasMessage) {
     lines.push(
-      "- Use `message` for in-turn reply in the current conversation (esp. WeChat NO_REPLY flow).",
+      "- Use `message` ONLY for in-turn reply in the current active conversation (esp. WeChat NO_REPLY flow). Do not set `channel`/`to` to target a different peer — it will hard-fail; use `channel_list` + `channel_send` for that.",
       "- Do not use shell/curl for provider messaging.",
       "- If a user-visible reply is already delivered via `message`, respond with ONLY `NO_REPLY` to avoid duplicate delivery.",
     )

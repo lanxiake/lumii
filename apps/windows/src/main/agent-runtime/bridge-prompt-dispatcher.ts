@@ -2,7 +2,7 @@
  * AgentRuntimeBridge prompt 分发器
  *
  * 拆自 bridge.ts。封装 prompt / steer / abort / abortWithChildren / abortSession
- * 以及微信会话上下文（currentWeixinCtx / lastKnownWeixinCtx / weixinMessageSentViaTool）。
+ * 以及微信会话上下文（currentWeixinCtx / weixinMessageSentViaTool）。
  *
  * 不持有数据库/Agent 实例的拥有权，全部通过 deps 注入引用。
  */
@@ -94,9 +94,6 @@ export class BridgePromptDispatcher {
   /** 当前活跃的微信会话上下文（由 index.ts 在处理消息前注入，供 message 工具发送时使用） */
   private currentWeixinCtx: WeixinCtxValue | null = null
 
-  /** 最后一次已知的微信会话上下文（不随消息处理结束而清除，供客户端 UI 发起的 Agent 调用使用） */
-  private lastKnownWeixinCtx: WeixinCtxValue | null = null
-
   /** 本轮是否已通过 message 工具成功发送微信消息（用于避免 adapter 重复发送文本回复） */
   private weixinMessageSentViaTool = false
 
@@ -129,16 +126,10 @@ export class BridgePromptDispatcher {
   setWeixinMessageContext(ctx: WeixinCtxValue | null): void {
     this.currentWeixinCtx = ctx
     if (ctx) {
-      // 新一轮消息开始，更新持久化上下文并重置标志
-      this.lastKnownWeixinCtx = ctx
+      // 新一轮消息开始，重置标志
       this.weixinMessageSentViaTool = false
     }
-    log.info(`[setWeixinMessageContext] 已${ctx ? `设置 channelUserId=${ctx.channelUserId}` : '清除（保留 lastKnown）'}微信上下文`)
-  }
-
-  /** 获取当前活跃的微信会话上下文；无活跃上下文时回退到最后已知上下文（供客户端 UI 发起的 Agent 调用使用） */
-  getCurrentWeixinCtx(): WeixinCtxValue | null {
-    return this.currentWeixinCtx ?? this.lastKnownWeixinCtx
+    log.info(`[setWeixinMessageContext] 已${ctx ? `设置 channelUserId=${ctx.channelUserId}` : '清除'}微信上下文`)
   }
 
   /** 本轮是否已通过 message 工具成功发送微信消息 */

@@ -929,57 +929,42 @@ export class BridgeToolRegistrar {
         // 后者让 agent 无需显式设 channel/to 即可回当前微信用户，避免被 'to' 必填误导。
         const isImplicitWeixin =
           channel === '' || channel === 'windows-agent-runtime'
-        const weixinCtx =
-          this.deps.config.sendWeixinMessage ? this.deps.weixinCtx.getCurrent() : null
-        if (this.deps.config.sendWeixinMessage && (channel === 'weixin' || (isImplicitWeixin && weixinCtx))) {
+        const weixinCtx = this.deps.weixinCtx.getCurrent()
+        if (channel === 'weixin' || (isImplicitWeixin && weixinCtx)) {
           if (!weixinCtx) {
             log.warn('[message tool] channel=weixin 但无活跃微信会话上下文，无法发送')
             return jsonToolResult({ status: 'error', message: '当前没有活跃的微信会话，无法发送消息。请先在微信发送消息建立会话后再试。' })
           }
-          const text = p.text ? String(p.text) : undefined
+          const router = this.deps.getChannelRouter()
+          if (!router) {
+            return jsonToolResult({ status: 'error', message: '渠道出站 Hub 尚未就绪，请稍后再试' })
+          }
+          const text = p.text ? String(p.text) : ''
           const filePath = p.mediaUrl ? String(p.mediaUrl) : undefined
-          log.info(`[message tool] 微信本地发送 channelUserId=${weixinCtx.channelUserId} text=${text?.slice(0, 50)} filePath=${filePath}`)
-          const res = await this.deps.config.sendWeixinMessage({ text, filePath })
-          if (res.ok) {
+          log.info(`[message tool] 微信本地发送（经 ChannelOutboundRouter）channelUserId=${weixinCtx.channelUserId} text=${text.slice(0, 50)} filePath=${filePath}`)
+          const result = await router.send({
+            channel: 'weixin',
+            to: weixinCtx.channelUserId,
+            text,
+            ...(filePath ? { mediaPath: filePath } : {}),
+          })
+          if (result.ok) {
             this.deps.weixinCtx.markSentViaTool()
           }
-          return jsonToolResult(res.ok
+          return jsonToolResult(result.ok
             ? {
                 status: 'ok',
                 message: '消息已发送',
                 note: '消息已通过微信投递给用户。本轮请回复 NO_REPLY，避免对话流再次重复发送相同内容。',
               }
-            : { status: 'error', message: res.error ?? '发送失败' })
+            : { status: 'error', message: result.message ?? '发送失败' })
         }
 
-        // 其他通道：走 Gateway WebSocket RPC
-        // 网关 SendParamsSchema 不接受 action 字段，且 idempotencyKey 为必填
-        const rp = p as Record<string, unknown>
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { action: _action, ...rest } = rp
-
-        // 防御性检查：to 参数必填
-        if (!rest.to || (typeof rest.to === 'string' && !rest.to.trim())) {
-          return jsonToolResult({ status: 'error', message: "'to' parameter is required for message send" })
-        }
-
-        // 清理不支持的 channel 值（windows-agent-runtime 不是真实通道，移除后走默认）
-        if (typeof rest.channel === 'string') {
-          const ch = rest.channel.trim().toLowerCase()
-          if (ch === 'windows-agent-runtime' || ch === '') {
-            delete rest.channel
-          }
-        }
-
-        const sendPayload: Record<string, unknown> = {
-          ...rest,
-          idempotencyKey: typeof rest.idempotencyKey === 'string' && rest.idempotencyKey
-            ? rest.idempotencyKey
-            : `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        }
-        log.info(`[message tool] 发送 Gateway send: to=${String(sendPayload['to'] ?? '')} channel=${String(sendPayload['channel'] ?? '')} idempotencyKey=${String(sendPayload['idempotencyKey'])}`)
-        const result = await callGateway('send', sendPayload)
-        return jsonToolResult(result)
+        // 非微信通道：message 工具不再支持主动出站（原 Gateway send RPC 为迁移遗留代码，已移除）
+        return jsonToolResult({
+          status: 'error',
+          message: '该场景请改用 channel_list 查询可发送的 peer，再调用 channel_send 发送；message 工具仅用于回复当前会话（含隐式回微信）。',
+        })
       },
     }
     this.deps.toolRegistry.register(createMtBotTool(messageTool, ctx))

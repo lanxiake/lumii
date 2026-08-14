@@ -1,9 +1,9 @@
 # Agent 操作客户端自身 — 完整设计
 
 > 日期：2026-08-14  
-> 状态：v0.4 代码核查后完整规格（事实修正 + 缺口补全）  
+> 状态：v0.5，MVP 已实现验收通过，二期完整规格补代码事实核查  
 > 实施计划：`docs/plans/2026-08-14-agent-app-ui-control-implementation.md`  
-> 相关：`bridge-browser-tools.ts`、`SettingsHubContext.tsx`、`Router.tsx`、`App.tsx`、`bridge-renderer-ipc.ts`
+> 相关：`bridge-browser-tools.ts`、`SettingsHubContext.tsx`、`Router.tsx`、`App.tsx`、`bridge-renderer-ipc.ts`、`runtime-env.ts`、`pet-window-manager.ts`
 
 ---
 
@@ -12,7 +12,7 @@
 | 问题 | 结论 |
 |------|------|
 | 方案是否可行 | **可行**，但"无新原生依赖、复用现有基础设施"过于乐观：`capturePage`/`sendInputEvent`/DOM 快照/配额计数器均为**全新代码**，只是不需要安装新 npm 包。 |
-| v0.3 最大遗漏 | **`app_goto` 回读缺口**：现有 `forwardIpcEvent` 是单向 fire-and-forget，主进程拿不到渲染进程执行 `openHub` 后的真实状态。必须新增 `ipcRenderer.invoke('app-ui:query-state')` 反向通道。 |
+| v0.3 最大遗漏 | **`app_goto` 回读缺口**：现有 `forwardIpcEvent` 是单向 fire-and-forget，主进程拿不到渲染进程执行 `openHub` 后的真实状态。已实现：主进程 `send('app-ui:goto')` 后 `executeJavaScript` 读取渲染层挂的 `window.__LUMII_APP_UI_STATE__`，不新增 IPC 通道（§7.8）。 |
 | 其它须修正 | pet 窗口误伤；截图文件清理；配额计数器落点；permission memory 仅进程内；browser_* 只能参考结构而非复用实现。|
 | MVP 不变 | 两个功能：**看** `app_screenshot` + **动** `app_goto` / `app_act(click)`。主窗 only。进程内工具。走通「看→跳/点→再看」闭环。 |
 | CLI | 完整设计保留，**二期再做**。 |
@@ -82,9 +82,7 @@
 
 现有双向通道只有 `ipcMain.handle('agent-runtime:command', ...)` (`agent-runtime-ipc.ts:391`)，方向正好相反（渲染→主）。
 
-**必须新增**：渲染进程响应 `app-ui:goto` 后，通过 `ipcRenderer.invoke('app-ui:query-state')` 把当前 `{ view, hub }` 同步返回给主进程。工具的 `app_goto.execute` 要 `await` 这个 invoke 结果。
-
-这是 MVP 必须单独设计的子任务，详见 §7.8。
+**已实现方案**：渲染进程响应 `app-ui:goto` 后在 `window.__LUMII_APP_UI_STATE__` 挂一个同步读取函数，主进程 `executeJavaScript` 主动读，不需要渲染进程反向 invoke、不用改 preload。详见 §7.8。
 
 #### P4：`forwardIpcEvent` 会自动镜像到 pet 窗口
 
@@ -114,7 +112,7 @@
 
 ```
 用户：「帮我打开技能页，看看有没有未启用的。」
-  1. app_goto({ view: "skills" })     → 触发主窗口 openHub，await invoke 回读 { view, hub }
+  1. app_goto({ view: "skills" })     → 触发主窗口 openHub，executeJavaScript 回读 { view, hub }
   2. app_screenshot()                → 图 + refs（看见技能列表）
   3. （可选）app_act click 某个开关
   4. app_screenshot()                → 确认开关状态变了
@@ -125,7 +123,7 @@
 
 1. **看**：任何「界面怎样了」都必须能截图 + 元素清单。
 2. **动**：优先声明式 API（goto / 已有 `settings_*` / `skill_*` / `cron_*`）；没有 API 再用 click。
-3. **验**：写操作之后用截图或 `info_status` 一类只读查询确认，禁止只凭工具 `ok: true` 向用户交差。`app_goto` 的返回 `{ view, hub }` 是 invoke 回读的真实值，但仍建议紧跟一张截图作为最终验收。
+3. **验**：写操作之后用截图或 `info_status` 一类只读查询确认，禁止只凭工具 `ok: true` 向用户交差。`app_goto` 的返回 `{ view, hub }` 是 `executeJavaScript` 回读的真实值，但仍建议紧跟一张截图作为最终验收。
 4. **不自伤**：不准点当前会话 composer / 停止按钮。
 5. **失败可懂**：窗不存在、Hub 未开、ref 过期，返回稳定 `error` 码。
 
@@ -207,10 +205,10 @@
             + DOM 快照         .send('app-ui:goto')      （click / 二期 type）
             （新写）            （精确，非广播）
 
-                   ▲ invoke 回读
+                   ▲ executeJavaScript 回读
                    │
-            ipcMain.handle('app-ui:query-state')
-            渲染进程响应后把 { view, hub } 同步返回主进程
+            window.__LUMII_APP_UI_STATE__()
+            渲染进程挂的同步读取函数，主进程直接读，无需渲染配合 invoke
 ```
 
 窗口支持：`main` | `pet`（二期）| `preview`（二期）。MVP 只支持 `main`，未知 target 报错。
@@ -229,11 +227,11 @@
 ### 7.2 MVP 用户故事（验收即这些）
 
 1. 「截一张当前界面」→ 时间线缩略图，模型能描述侧栏/主区。
-2. 「打开设置里的语音」→ Hub 打开、分类 `voice`；invoke 回读确认；再截图能看到语音相关文案。
+2. 「打开设置里的语音」→ Hub 打开、分类 `voice`；executeJavaScript 回读确认；再截图能看到语音相关文案。
 3. 「打开技能页」→ Hub `tab=skills`；截图能看到技能列表。
 4. 在技能页按 ref 点一个非 composer 控件 → 界面有可见变化，再截图确认。
 5. 点自己的输入框/发送 → `blocked_composer`，会话不被污染。
-6. 无视觉模型：只凭 refs / goto invoke 回读仍能打开设置。
+6. 无视觉模型：只凭 refs / goto 回读值仍能打开设置。
 
 ### 7.3 MVP 明确砍掉
 
@@ -249,8 +247,8 @@
 用户 → Agent
   A: app_goto({ view: "skills" })
   主进程: mainWindow.webContents.send('app-ui:goto', { view: "skills" })
-  渲染进程: openHub('skills') → ipcRenderer.invoke('app-ui:query-state')
-  主进程 handle: return { view: activeView, hub: { open, tab, category } }
+  渲染进程: openHub('skills') → 挂 window.__LUMII_APP_UI_STATE__
+  主进程: executeJavaScript 读取 → { view: activeView, hub: { open, tab, category } }
   工具返回: { ok: true, view: "skills", hub: { open: true, tab: "skills", category: null } }
 
   A: app_screenshot()
@@ -275,7 +273,7 @@
 
 - `dashboard` / `chat`：发 `app-ui:goto`，渲染层关 Hub 切主视图。
 - 其余：发 `app-ui:goto`，渲染层 `openHub(tab, category)`。
-- 发完后 `await ipcMain.handle('app-ui:query-state')` 回读真实状态。
+- 发完后 `await executeJavaScript('window.__LUMII_APP_UI_STATE__?.()')` 回读真实状态。
 - 返回 `{ ok, view, hub: { open, tab, category } }`，此值为**真实渲染状态**。
 - `isReadOnly: false`，`needsPermission: false`。
 
@@ -340,12 +338,12 @@ const SELECTORS = [
 |------|------|
 | `apps/windows/src/main/app-ui-control/capture.ts` | `capturePage` + JPEG 压缩（长边 ≤ 1280），返回 base64 |
 | `apps/windows/src/main/app-ui-control/snapshot.ts` | `executeJavaScript` 注入快照脚本，返回 refs + snapshotId |
-| `apps/windows/src/main/app-ui-control/goto.ts` | 发 `app-ui:goto` → await `app-ui:query-state` invoke |
+| `apps/windows/src/main/app-ui-control/goto.ts` | 发 `app-ui:goto` → `executeJavaScript` 读 `window.__LUMII_APP_UI_STATE__` |
 | `apps/windows/src/main/app-ui-control/act.ts` | ref 解析 → `sendInputEvent` click；composer block 检查 |
 | `apps/windows/src/main/app-ui-control/types.ts` | 共享类型（`AppUiRef`、`AppUiState`、`GotoParams` 等） |
 | `apps/windows/src/main/app-ui-control/screenshot-cleanup.ts` | 启动时清空 `~/.lumii/temp/screenshots/` |
 | `bridge-app-ui-tools.ts` + `BridgeToolRegistrar.registerAll()` | 注册三工具 |
-| `apps/windows/src/renderer/App.tsx` | 监听 `app-ui:goto` → `handleViewChange` / `openHub`；注册 `app-ui:query-state` handle（`ipcRenderer.on` + `invoke` 回应） |
+| `apps/windows/src/renderer/App.tsx` | 监听 `app-ui:goto` → `handleViewChange` / `openHub`；挂 `window.__LUMII_APP_UI_STATE__ = () => JSON.stringify({ view, hub })` |
 | `apps/windows/src/renderer/pages/ChatPage/components/ChatInput/index.tsx` | 根元素加 `data-app-ui-block="composer"` |
 | Sidebar 设置按钮 | `data-app-ui="nav-settings"` |
 | Hub Tab 按钮行 | `data-app-ui="hub-tab"` |
@@ -406,6 +404,8 @@ bridgeRendererIpcChannel.on('turn:end', () => {
 
 ## 8. 完整规格（二期及以后）
 
+> 2026-08-14 补充：MVP（Part A/B）已实现并验收通过（`feat/agent-app-ui-control` 分支 9 commits）。以下二期设计在 §8.5 补了代码事实核查，其余章节按核查结果修正。
+
 ### 8.1 `app_act` 完整 action
 
 `click | type | key | scroll`
@@ -419,6 +419,12 @@ el.dispatchEvent(new Event('input', { bubbles: true }))
 
 再辅以 `insertText`。禁止 keyCode 打拼音。
 
+全仓库核查（`packages/browser-control/src` 及 `app-ui-control/`）确认：**没有任何现成的受控输入注入实现**可参考，`browser_type` 走的是 Playwright CDP `Input.insertText`，与 `app_act type` 要用的 native value setter + dispatchEvent 是完全不同的两套代码，不能抽公共函数，只能在 `act.ts` 里独立实现并单测中文输入。
+
+`scroll` 复用 `buildClickPrepareScript`（`act.ts:62`）里已有的 `elementFromPoint` 定位逻辑，改成 `el.scrollBy(dx, dy)`，不需要新的坐标换算。
+
+`key` 白名单只收 `Enter | Escape | Tab | Backspace | Delete | ArrowUp/Down/Left/Right`，用 `sendInputEvent({ type: 'keyDown'|'keyUp', keyCode })`，禁止任意 keyCode（防止拼音注入绕过 `type` 的 native setter 路径）。
+
 ### 8.2 CLI（二期）
 
 ```
@@ -430,13 +436,36 @@ lumii-ui type --ref 7 --text "..." --clear
 
 stdout JSON；应用未运行 exit 3；不自动拉起客户端。
 
-控制口：`127.0.0.1` 随机端口 + `~/.lumii/runtime/app-ui.json`。  
-打包方案：用同目录的 `Lumii.exe` 作运行时或 extraFiles 带 node，不依赖系统 `node`（这是 v0.2 的关键漏洞）。
+**运行时依赖（代码事实核查后修正）**：v0.2 假设的"打包时带 node 或用 `Lumii.exe` 当运行时"其实已有现成方案，不需要新设计——`apps/windows/src/main/runtime-env.ts` 的 `resolveNodeExec()`（第 68-72 行）就是这个问题的答案：
+
+```ts
+// runtime-env.ts:68-72，已存在，直接复用
+export function resolveNodeExec(): { command: string; env: Record<string, string> } {
+  const system = detectSystemNode()
+  if (system) return { command: system, env: {} }
+  return { command: process.execPath, env: { ELECTRON_RUN_AS_NODE: '1' } }
+}
+```
+
+系统有 node 就用系统的；没有就用 `Lumii.exe` 自己的 `process.execPath` 配 `ELECTRON_RUN_AS_NODE=1` 当纯 Node 跑——这正是 mcp-client.ts 已经在用的模式，`lumii-ui` 不需要发明新机制。
+
+CLI 的 shim 生成直接照抄 `writeShimPair()`（`runtime-env.ts:84-118`）的做法：安装时把 `lumii-ui.mjs`（零依赖 ESM 脚本，放 `apps/windows/resources/app-ui-cli/`）与一对 shim（`lumii-ui` sh 脚本 + `lumii-ui.cmd`）一起写到 `getShimDir()`（`~/.lumii/runtimes/bin`，已在 PATH 末尾），shim 的 target 用 `resolveNodeExec()` 算出的 command/env 去 `exec` 这个 `.mjs`。这样用户装完客户端、跑过一次 `initScriptRuntimes()` 之后，`lumii-ui` 命令在任意终端都能跑，不需要额外的 extraFiles 打包节点。
+
+**控制口**：复用 `packages/browser-control` 已有的端口探测模式而不是"随机端口"——`findAvailablePort(startPort, label)`（`packages/browser-control/src/browser/control-service.ts:144`，`apps/windows/src/main/browser-service.ts` 有相同实现）以 `+10` 步长重试 3 次，找不到就落到 `startPort + 3*10`。`app-ui` 控制口起始端口另分配一个不冲突的默认值（避开 CDP `DEFAULT_CDP_PORT` 与 extension relay 端口），同样只监听 `127.0.0.1`（参考 `extension-relay.ts:166` 的 `isLoopbackHost` 校验，拒绝非 loopback host）。
+
+**Token**：用 `node:crypto` 的 `randomUUID()`（已有先例：`voice-temp-ref.ts:7,24`），每次应用启动生成一个，写入 `resolveWindowsClientDataRoot()/runtime/app-ui.json`（即 `~/.lumii/runtime/app-ui.json`，用已有的 `resolveWindowsClientDataRoot()` 而不是硬编码 `~/.lumii`，保证 `LUMII_CLIENT_DATA_DIR` 覆盖时行为一致）。CLI 请求头带 `Authorization: Bearer <token>`，控制口校验不通过返回 401。
+
+打包方案（修正）：**不需要** extraFiles 带 node，也不需要用 `Lumii.exe` 加子命令模式——上面的 shim + `resolveNodeExec()` 组合已经覆盖"不依赖系统 node"这个 v0.2 关键漏洞。`electron-builder.json` 目前没有为此新增任何 extraResources 条目；`lumii-ui.mjs` 走 `files` 里已有的 `out/**/*` 或单独加一条 `resources/app-ui-cli` 到 `extraResources`（二期开工时定，不改变现有 asar/asarUnpack 结构）。
 
 ### 8.3 桌宠 / 预览
 
-截图：`target=pet|preview`，画布也能 `capturePage`。  
-点击：pet 用画布 DIP 坐标，三期。
+截图：`target=pet|preview`，画布也能 `capturePage`。
+
+**窗口获取方式（代码事实核查）**：pet 窗口不是通过 `getMainWindow()` 拿到的，要经 `apps/windows/src/main/pet/pet-mode-ipc.ts:57` 的 `getPetWindowManager()`，再调 `PetWindowManager.getPetBrowserWindow()`（`pet-window-manager.ts:115-117`，内部已判 `isDestroyed()`）。`createAppUiController` 的 `deps.getMainWindow` 签名需要扩展成按 `target` 分发的 `getWindow(target)`，`main` 走原逻辑，`pet`/`preview` 走 `getPetWindowManager()?.getPetBrowserWindow() ?? null`，找不到窗口时返回与 `app_not_running` 同结构的 error（如 `pet_not_running`）。
+
+这与 goto 的隔离思路一致（§4.2/§7.8 提到的"不走会镜像到 pet 窗口的 `forwardIpcEvent`，而是精确 send"）：截图同样不该走任何广播通道，是"按 target 精确取窗口 → 直接 capturePage"，天然不会误伤。
+
+点击：pet 用画布 DIP 坐标，三期，不做 DOM ref（pet 渲染是 pixi.js canvas，没有 DOM 树可供 `SNAPSHOT_SCRIPT` 遍历）。
 
 ### 8.4 与 `browser_*` 的分界
 
@@ -461,7 +490,7 @@ Lumii Agent **禁止**用 `bash lumii-ui` 代替进程内工具。
 | CLI | — | 开关控制 | 二期 |
 
 拦截：`[data-app-ui-block="composer"]`、runtime 停止键、系统原生文件对话框（`blocked_native_dialog`，二期）。  
-总开关关闭：三工具 `isEnabled()=false`，`app-ui:query-state` 返回 `{ enabled: false }`。
+总开关关闭：三工具 `guardAppUiTool()` 直接返回 `{ ok: false, error: 'disabled' }`（`bridge-app-ui-tools.ts:90-98`，已实现）。
 
 ---
 
@@ -548,3 +577,4 @@ app_act click "始终允许"仅本次运行有效，重启后重置
 | v0.2 | 2026-08-14 | CLI 作主契约（一期过重） |
 | v0.3 | 2026-08-14 | 完整目标 + 能力全景 + 闭环；MVP 收成 screenshot + goto/click；CLI 改二期 |
 | v0.4 | 2026-08-14 | 代码事实核查后修正：补回读通道（executeJavaScript）、修正 pet 误伤、补配额落点、补截图清理、修正 browser_* 复用边界 |
+| v0.5 | 2026-08-14 | MVP（Part A/B）验收通过并已合并至 `feat/agent-app-ui-control`；补全二期设计代码事实核查：CLI 运行时复用 `runtime-env.ts` 的 `resolveNodeExec()`/`writeShimPair()`（不需要 extraFiles 带 node）、控制口端口探测复用 `browser-control` 的 `findAvailablePort()`、token 用 `randomUUID()` 落 `resolveWindowsClientDataRoot()`；pet/preview 截图窗口改经 `getPetWindowManager().getPetBrowserWindow()`，非 `getMainWindow()`；type 补 native value setter 与 browser_type 不可复用的核查结论；修正正文中残留的 v0.3 期 `ipcRenderer.invoke('app-ui:query-state')` 措辞，统一为已实现的 `executeJavaScript` 回读 |

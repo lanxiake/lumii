@@ -42,6 +42,8 @@ export interface ChannelSnapshot {
   connected: boolean
   pushMode: ChannelPushMode
   peers: ChannelPeer[]
+  /** 预留多账号；一期单账号场景下始终为空，Router/Provider 均不读取 */
+  accountId?: string
 }
 
 /** channel_send / Router.send 入参 */
@@ -54,6 +56,8 @@ export interface ChannelSendParams {
   mediaPath?: string
   /** 展示文件名，缺省时从 mediaPath 取 basename */
   fileName?: string
+  /** 预留多账号；一期单账号场景下不生效，Router 不做任何路由判断 */
+  accountId?: string
 }
 
 /** Provider.sendMedia 入参 */

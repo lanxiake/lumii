@@ -28,6 +28,7 @@ import { WeixinChannelSettings } from './components/WeixinChannelSettings'
 import { CodingDevAcpPanel } from './components/CodingDevAcpPanel'
 import { WecomChannelSettings } from './components/WecomChannelSettings'
 import { FeishuChannelSettings } from './components/FeishuChannelSettings'
+import { ChannelPeerPanel } from './components/ChannelPeerPanel'
 import { StorageInfo } from './components/StorageInfo'
 import { SecurityLogViewer } from './components/SecurityLogViewer/SecurityLogViewer'
 import { UsagePanel } from './components/UsagePanel'
@@ -646,6 +647,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           <WecomChannelSettings />
           <FeishuChannelSettings />
         </div>
+        <ChannelPeerPanel />
       </div>
     )
   }
