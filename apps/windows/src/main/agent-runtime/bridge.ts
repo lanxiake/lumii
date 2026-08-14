@@ -532,6 +532,7 @@ export class AgentRuntimeBridge {
         getCurrent: () => this.promptDispatcher.getCurrentWeixinCtxRaw(),
         markSentViaTool: () => { this.promptDispatcher.markWeixinMessageSentViaTool() },
       },
+      getChannelRouter: () => this.config.getChannelRouter?.() ?? null,
       generateImage: (params) => this.generateImage(params),
     })
     this.toolRegistrar.registerAll()
@@ -548,6 +549,9 @@ export class AgentRuntimeBridge {
       getFileRepo: () => this._fileRepo,
       getCwd: () => this.config.getCwd(),
       ...(this.config.sendFeishuMessage ? { sendFeishuMessage: this.config.sendFeishuMessage } : {}),
+      ...(this.config.getChannelRouter
+        ? { getChannelRouter: this.config.getChannelRouter }
+        : {}),
       addMemory: (content: string) => {
         // category 用 project：概览页「近期关注」的默认分段就是它
         this._memoryManager?.addMemory({

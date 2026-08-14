@@ -1192,22 +1192,41 @@ function buildToolNamingContractSection(toolNames: readonly string[], detail: Pr
 }
 
 /**
- * 构建消息投递 section（仅在 message 工具可用时注入）。
+ * 构建消息投递 section（message 或 channel_* 工具可用时注入）。
  */
 function buildMessagingSection(params: {
   toolNames: readonly string[];
   runtimeChannel?: string;
 }): string[] {
-  if (!params.toolNames.includes("message")) {
+  const hasMessage = params.toolNames.includes("message")
+  const hasChannelOutbound =
+    params.toolNames.includes("channel_list") || params.toolNames.includes("channel_send")
+  if (!hasMessage && !hasChannelOutbound) {
     return []
   }
   const lines: string[] = [
     "## Messaging",
-    "- Use `message` for proactive delivery and channel actions.",
-    "- Do not use shell/curl for provider messaging.",
-    "- If a user-visible reply is already delivered via `message`, respond with ONLY `NO_REPLY` to avoid duplicate delivery.",
-    "",
   ]
+  if (hasMessage) {
+    lines.push(
+      "- Use `message` for in-turn reply in the current conversation (esp. WeChat NO_REPLY flow).",
+      "- Do not use shell/curl for provider messaging.",
+      "- If a user-visible reply is already delivered via `message`, respond with ONLY `NO_REPLY` to avoid duplicate delivery.",
+    )
+  }
+  if (hasChannelOutbound) {
+    lines.push(
+      "",
+      "## Channel outbound",
+      "- 先 `channel_list` 获取已连接渠道与 peer id，再 `channel_send`。",
+      "- `to` 必填；不要猜测收件人。",
+      "- 微信需用户曾给 Bot 发过消息；否则提示用户先发一条激活。",
+      "- 企微不支持主动推送；仅能在企微会话内被动回复。",
+      "- 发送失败时如实告知 errorCode 与 message，不要假装成功。",
+      "- 主动出站用 `channel_send`；会话内快捷回复仍可用 `message`（已 deprecated 作为出站主路径）。",
+    )
+  }
+  lines.push("")
   if (params.runtimeChannel === "weixin" || params.toolNames.includes("weixin_send_guide")) {
     lines.push(
       "### WeChat Personal Delivery",

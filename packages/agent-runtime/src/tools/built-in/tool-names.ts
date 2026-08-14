@@ -23,3 +23,5 @@ export const SKILL_INVOKE_TOOL_NAME = "skill_invoke";
 /** 可执行技能入口（与 skill_invoke 区分） */
 export const EXECUTE_SKILL_TOOL_NAME = "execute_skill";
 export const TASK_COMPLETE_TOOL_NAME = "task_complete";
+export const CHANNEL_LIST_TOOL_NAME = "channel_list";
+export const CHANNEL_SEND_TOOL_NAME = "channel_send";

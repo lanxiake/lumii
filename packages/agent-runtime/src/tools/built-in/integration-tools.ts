@@ -26,7 +26,7 @@ type MessageInput = Static<typeof MessageParams>;
 export const messageToolConfig: MtBotToolConfig<typeof MessageParams> = {
   name: "message",
   label: "Message",
-  description: "Send a message back to the user in the current conversation, or to another channel/recipient. To reply to the user you are currently talking to (including WeChat), just provide text (and/or mediaUrl for files/images) — 'to' and 'channel' are optional and the active session's recipient is used automatically.",
+  description: "Send a message back to the user in the current conversation (in-turn reply). For proactive outbound to feishu/weixin peers, prefer channel_list + channel_send. To reply to the user you are currently talking to (including WeChat), just provide text (and/or mediaUrl for files/images) — 'to' and 'channel' are optional and the active session's recipient is used automatically. [outbound via message is deprecated]",
   parameters: MessageParams,
   category: "channel",
   isReadOnly: false,

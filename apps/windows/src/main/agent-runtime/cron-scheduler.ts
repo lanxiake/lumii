@@ -88,8 +88,12 @@ export interface CronSchedulerDeps {
   getFileRepo: () => FileRepo | null
   /** 获取 workspace 根目录（用于文件清理任务） */
   getCwd: () => string
-  /** 主动推送文本到飞书（notify_targets 含 feishu 时用） */
+  /** 主动推送文本到飞书（notify_targets 含 feishu 时用；优先走 channelRouter） */
   sendFeishuMessage?: (text: string) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * 惰性获取渠道出站 Router（feishu / weixin:<peer> 同源发送）。
+   */
+  getChannelRouter?: () => import('../channel/channel-outbound-router').ChannelOutboundRouter | null | undefined
   /** 写入一条 Agent 记忆（notify_targets 含 focus 时用，概览页「近期关注」读记忆） */
   addMemory?: (content: string) => void
   /**
@@ -556,6 +560,7 @@ export class CronScheduler {
    *
    * 未配置时回落系统通知 —— 老任务没有这一列，静默不通知会像任务没跑。
    * 单个渠道失败只记日志，不影响其余渠道，也不让整个任务判定为失败。
+   * 飞书/微信出站优先走 ChannelOutboundRouter（与 Agent channel_send 同源）。
    */
   private async dispatchNotifications(
     job: { name: string; task_text: string },
@@ -575,7 +580,11 @@ export class CronScheduler {
       // 只为命中的渠道取它自己的格式化策略
       const payload = formatForTarget(target, label, output)
       try {
-        switch (target) {
+        const colon = target.indexOf(':')
+        const kind = colon > 0 ? target.slice(0, colon) : target
+        const peerFromTarget = colon > 0 ? target.slice(colon + 1).trim() : ''
+
+        switch (kind) {
           case 'system':
             this.deps.showCronNotification?.(payload.title ?? '灵栖 定时任务', payload.body)
             break
@@ -593,9 +602,49 @@ export class CronScheduler {
             this.deps.addMemory?.(payload.body)
             break
           case 'feishu': {
-            if (!this.deps.sendFeishuMessage) break
-            const res = await this.deps.sendFeishuMessage(payload.body)
-            if (!res.ok) log.warn('[dispatchNotifications] 飞书推送失败:', res.error)
+            const router = this.deps.getChannelRouter?.()
+            if (router) {
+              const snaps = await router.list()
+              const feishu = snaps.find((s) => s.channel === 'feishu')
+              const to = peerFromTarget || feishu?.peers.find((p) => p.canSend)?.id || feishu?.peers[0]?.id
+              if (!to) {
+                log.warn('[dispatchNotifications] 飞书无可用 peer，已跳过')
+                break
+              }
+              const res = await router.send({ channel: 'feishu', to, text: payload.body })
+              if (!res.ok) {
+                log.warn('[dispatchNotifications] 飞书推送失败:', res.errorCode, res.message)
+              }
+            } else if (this.deps.sendFeishuMessage) {
+              const res = await this.deps.sendFeishuMessage(payload.body)
+              if (!res.ok) log.warn('[dispatchNotifications] 飞书推送失败:', res.error)
+            } else {
+              log.warn('[dispatchNotifications] 飞书 Router/sendFeishuMessage 均未注入，已跳过')
+            }
+            break
+          }
+          case 'weixin': {
+            const router = this.deps.getChannelRouter?.()
+            if (!peerFromTarget) {
+              log.warn('[dispatchNotifications] weixin 目标缺少 peerId，请使用 weixin:<peerId>，已跳过')
+              break
+            }
+            if (!router) {
+              log.warn('[dispatchNotifications] ChannelOutboundRouter 未就绪，weixin 推送已跳过')
+              break
+            }
+            const res = await router.send({
+              channel: 'weixin',
+              to: peerFromTarget,
+              text: payload.body,
+            })
+            if (!res.ok) {
+              log.warn('[dispatchNotifications] 微信推送失败:', res.errorCode, res.message)
+            }
+            break
+          }
+          case 'wecom': {
+            log.warn('[dispatchNotifications] 企业微信不支持主动推送（reply_only），已跳过')
             break
           }
           case 'silent':

@@ -85,7 +85,7 @@ describe('dispatchNotifications', () => {
     expect(s.sendFeishuMessage).toHaveBeenCalledWith('【早间简报】\n今天\n\n· 写方案\n· 评审')
   })
 
-  it('未知渠道被忽略，不抛错', async () => {
+  it('企微目标只 warn 跳过，不伪装成功', async () => {
     const s = makeScheduler()
     await expect(s.dispatch(job, 'wecom', '结果')).resolves.toBeUndefined()
     expect(s.showCronNotification).not.toHaveBeenCalled()
@@ -102,5 +102,50 @@ describe('dispatchNotifications', () => {
     const s = makeScheduler()
     await s.dispatch({ name: '  ', task_text: '汇总今天要做的事' }, 'focus', '结果')
     expect(s.addMemory).toHaveBeenCalledWith('汇总今天要做的事：结果')
+  })
+
+  it('feishu 走 channelRouter.send，默认 peer 来自 list', async () => {
+    const send = vi.fn(async () => ({ ok: true }))
+    const list = vi.fn(async () => [
+      {
+        channel: 'feishu' as const,
+        connected: true,
+        pushMode: 'native_push' as const,
+        peers: [{ id: 'ou_me', label: '我', canSend: true }],
+      },
+    ])
+    const s = makeScheduler({
+      getChannelRouter: () => ({ list, send }) as never,
+      sendFeishuMessage: undefined,
+    })
+    await s.dispatch(job, 'feishu', '结果')
+    expect(send).toHaveBeenCalledWith({
+      channel: 'feishu',
+      to: 'ou_me',
+      text: '【早间简报】\n结果',
+    })
+  })
+
+  it('weixin:peer 走 router.send 且 to 正确', async () => {
+    const send = vi.fn(async () => ({ ok: true }))
+    const list = vi.fn(async () => [])
+    const s = makeScheduler({
+      getChannelRouter: () => ({ list, send }) as never,
+    })
+    await s.dispatch(job, 'weixin:wxid_abc', '结果')
+    expect(send).toHaveBeenCalledWith({
+      channel: 'weixin',
+      to: 'wxid_abc',
+      text: '【早间简报】\n结果',
+    })
+  })
+
+  it('plain weixin 无 peer 时不调用 send', async () => {
+    const send = vi.fn(async () => ({ ok: true }))
+    const s = makeScheduler({
+      getChannelRouter: () => ({ list: async () => [], send }) as never,
+    })
+    await s.dispatch(job, 'weixin', '结果')
+    expect(send).not.toHaveBeenCalled()
   })
 })

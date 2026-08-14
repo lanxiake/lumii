@@ -92,6 +92,12 @@ import { FeishuLoginService } from './feishu-login-service'
 import { FeishuChannelAdapter } from './channel/adapters/feishu-channel-adapter'
 import { AcpBackendManager } from './channel/acp-backend-manager'
 import {
+  createChannelHub,
+  createWeixinReplyContextStore,
+  type ChannelHub,
+} from './channel/channel-hub-bootstrap'
+import { resolveWindowsClientDataRoot } from './client-data-root'
+import {
   AgentRuntimeBridge,
   installAgentRuntimeCommandIpc,
   setAgentRuntimeBridgeForIpc,
@@ -236,6 +242,7 @@ let configManager: ConfigManager | null = null
 let weixinLoginService: WeixinLoginService | null = null  // 微信(iLink)登录服务
 let wecomLoginService: WecomLoginService | null = null  // 企业微信 AI Bot 扫码服务
 let feishuLoginService: FeishuLoginService | null = null  // 飞书扫码服务
+let channelHub: ChannelHub | null = null  // 渠道出站 Hub（list/send）
 let agentRuntimeBridge: AgentRuntimeBridge | null = null  // 客户端 Agent Runtime
 let voiceCallService: VoiceCallService | null = null  // 语音通话服务
 let isQuitting = false
@@ -907,6 +914,7 @@ async function initAgentRuntime(): Promise<void> {
       if (!feishuLoginService) return { ok: false, error: '飞书服务未初始化' }
       return feishuLoginService.pushText(text)
     },
+    getChannelRouter: () => channelHub?.router ?? null,
     generateVoiceFile: async (
       text: string,
       opts?: { speaker?: string; speed?: number },
@@ -2991,7 +2999,13 @@ async function initialize(): Promise<void> {
 
   // 微信消息：通过 WeixinChannelAdapter 处理，支持完整斜杠命令集和 ACP 后端路由
   const weixinAcpBackendManager = new AcpBackendManager()
-  const weixinChannelAdapter = new WeixinChannelAdapter(weixinLoginService, agentRuntimeBridge!, weixinAcpBackendManager)
+  const weixinReplyContextStore = createWeixinReplyContextStore(resolveWindowsClientDataRoot())
+  const weixinChannelAdapter = new WeixinChannelAdapter(
+    weixinLoginService,
+    agentRuntimeBridge!,
+    weixinAcpBackendManager,
+    weixinReplyContextStore,
+  )
   weixinChannelAdapter.startListening()
   setWeixinBindingManagerForIpc(weixinChannelAdapter.bindingManager)
 
@@ -3038,6 +3052,17 @@ async function initialize(): Promise<void> {
     mainWindow?.webContents.send('feishu:error', message)
   })
   log.info('飞书服务已初始化')
+
+  // 装配渠道出站 Hub（Agent channel_list/send + cron 同源）
+  channelHub = createChannelHub({
+    feishu: feishuLoginService,
+    weixin: weixinLoginService,
+    wecom: wecomLoginService,
+    dataRoot: resolveWindowsClientDataRoot(),
+    weixinStore: weixinReplyContextStore,
+  })
+  weixinChannelAdapter.setReplyContextStore(channelHub.weixinStore)
+  log.info('渠道出站 Hub 已装配')
 }
 
 // macOS 特殊处理

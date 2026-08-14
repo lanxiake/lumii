@@ -1,7 +1,7 @@
 /**
  * Channel 层核心类型定义
  *
- * 设计文档：.qoder/design/channel/2026-04-19-windows-channel-unified-architecture.md
+ * 入站统一架构 + 出站 Hub：docs/design/2026-08-14-channel-outbound-hub-design.md
  */
 
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'

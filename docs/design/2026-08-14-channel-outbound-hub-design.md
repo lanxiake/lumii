@@ -516,6 +516,7 @@ system,news,feishu,weixin:wxid_abc
 | errorCode | 含义 | Agent 建议动作 |
 |-----------|------|----------------|
 | `CHANNEL_NOT_CONNECTED` | 渠道未登录 | 提示用户去 Settings 连接 |
+| `HUB_NOT_READY` | 出站 Hub 尚未装配 | 稍后重试；勿提示重新扫码 |
 | `PEER_NOT_FOUND` | to 不在 list | 先 channel_list |
 | `NO_REPLY_CONTEXT` | 微信无 token | 提示用户给 Bot 发消息 |
 | `TOKEN_STALE` | token 过旧 | 同上 |

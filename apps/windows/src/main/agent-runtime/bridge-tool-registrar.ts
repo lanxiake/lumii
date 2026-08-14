@@ -34,6 +34,8 @@ import {
   cronDeleteToolConfig,
   dashboardFeedWriteToolConfig,
   messageToolConfig,
+  channelListToolConfig,
+  channelSendToolConfig,
   nodesToolConfig,
   memorySearchToolConfig,
   memoryReadToolConfig,
@@ -125,6 +127,8 @@ export interface BridgeToolRegistrarDeps {
   ensureOrchestrator: () => AgentOrchestrator
   /** 微信会话上下文访问器（message 工具用） */
   weixinCtx: WeixinCtxAccessor
+  /** 惰性获取渠道出站 Router（channel_list / channel_send） */
+  getChannelRouter: () => import('../channel/channel-outbound-router').ChannelOutboundRouter | null
   /** 图片生成（image_generate 工具用） */
   generateImage: (params: {
     prompt: string
@@ -152,6 +156,8 @@ export class BridgeToolRegistrar {
     this.registerLocalCronTools()
     // 资讯卡片写入，供 Agent 驱动的资讯抓取任务落盘结构化结果
     this.registerDashboardFeedTool()
+    // 渠道出站：不依赖 Gateway，始终注册
+    this.registerChannelTools()
     // 渐进式加载指南工具（a2ui_guide / cron_guide）
     this.registerGuideTools()
     if (this.deps.config.callGateway) {
@@ -829,6 +835,63 @@ export class BridgeToolRegistrar {
     }
     this.deps.toolRegistry.register(createMtBotTool(dashboardFeedWrite, ctx))
     log.info('[registerDashboardFeedTool] dashboard_feed_write registered')
+  }
+
+  /**
+   * 注册渠道出站工具 channel_list / channel_send（走 ChannelOutboundRouter）。
+   */
+  private registerChannelTools(): void {
+    const ctx = this.deps.toolContext
+    if (!ctx) return
+
+    const channelList: MtBotToolConfig = {
+      ...channelListToolConfig,
+      execute: async () => {
+        const router = this.deps.getChannelRouter()
+        if (!router) {
+          return jsonToolResult({
+            ok: false,
+            errorCode: 'HUB_NOT_READY',
+            message: '渠道出站 Hub 尚未就绪，请稍后再试（非未登录）',
+            channels: [],
+          })
+        }
+        const channels = await router.list()
+        return jsonToolResult({ channels })
+      },
+    }
+    this.deps.toolRegistry.register(createMtBotTool(channelList, ctx))
+
+    const channelSend: MtBotToolConfig = {
+      ...channelSendToolConfig,
+      execute: async (_id, rawParams) => {
+        const router = this.deps.getChannelRouter()
+        if (!router) {
+          return jsonToolResult({
+            ok: false,
+            errorCode: 'HUB_NOT_READY',
+            message: '渠道出站 Hub 尚未就绪，请稍后再试（非未登录）',
+          })
+        }
+        const p = rawParams as { channel?: string; to?: string; text?: string }
+        const channel = String(p.channel ?? '').trim() as 'feishu' | 'weixin' | 'wecom'
+        if (channel !== 'feishu' && channel !== 'weixin' && channel !== 'wecom') {
+          return jsonToolResult({
+            ok: false,
+            errorCode: 'PEER_NOT_FOUND',
+            message: "channel 必须是 'feishu' | 'weixin' | 'wecom'",
+          })
+        }
+        const result = await router.send({
+          channel,
+          to: String(p.to ?? ''),
+          text: String(p.text ?? ''),
+        })
+        return jsonToolResult(result)
+      },
+    }
+    this.deps.toolRegistry.register(createMtBotTool(channelSend, ctx))
+    log.info('[registerChannelTools] channel_list/channel_send registered')
   }
 
   /**

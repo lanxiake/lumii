@@ -78,6 +78,10 @@ export interface AgentRuntimeBridgeConfig {
    */
   sendFeishuMessage?: (text: string) => Promise<{ ok: boolean; error?: string }>
   /**
+   * 惰性获取渠道出站 Router（Hub 在登录服务初始化后才装配，故用 getter）。
+   */
+  getChannelRouter?: () => import('../channel/channel-outbound-router').ChannelOutboundRouter | null | undefined
+  /**
    * 将文本合成为语音文件并返回文件绝对路径（由 index.ts 注入，调用 voiceCallService）。
    */
   generateVoiceFile?: (

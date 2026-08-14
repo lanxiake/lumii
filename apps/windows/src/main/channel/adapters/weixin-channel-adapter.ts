@@ -8,6 +8,7 @@
 import type { WeixinLoginService, WeixinNormalizedMessage } from '../../weixin-login-service'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import type { IChannelAdapter, ChannelSession, ContextStrategy } from '../types'
+import type { WeixinReplyContextStore } from '../weixin-reply-context-store'
 import { StatelessContextStrategy } from '../context-strategy/stateless-strategy'
 import { SlashCommandRegistry } from '../slash-command-registry'
 import { AcpBackendManager } from '../acp-backend-manager'
@@ -49,16 +50,42 @@ export class WeixinChannelAdapter implements IChannelAdapter {
   private readonly sessionManager: SessionManager
   readonly bindingManager: WeixinSessionBindingManager
 
+  /** 入站时 upsert context_token，供 channel_send 伪 Push */
+  private replyContextStore: WeixinReplyContextStore | null = null
+
   constructor(
     private readonly weixinLoginService: WeixinLoginService,
     private readonly bridge: AgentRuntimeBridge,
     private readonly acpBackendManager: AcpBackendManager,
+    replyContextStore?: WeixinReplyContextStore | null,
   ) {
+    this.replyContextStore = replyContextStore ?? null
     this.contextStrategy = new StatelessContextStrategy(bridge)
     this.sessionManager = new SessionManager(bridge)
     this.bindingManager = new WeixinSessionBindingManager(bridge.runtimeStateRepo)
     this.bindingManager.initialize()
     this.registry = this.buildRegistry()
+  }
+
+  /**
+   * 绑定/替换微信 reply context 持久化 store（Hub 晚于 adapter 装配时用）。
+   */
+  setReplyContextStore(store: WeixinReplyContextStore | null): void {
+    this.replyContextStore = store
+  }
+
+  /**
+   * 将入站 context_token 写入 store（不落凭证到 info 日志）。
+   */
+  private persistReplyContext(msg: WeixinNormalizedMessage): void {
+    if (!this.replyContextStore || !msg.contextToken) return
+    this.replyContextStore.upsert({
+      channelUserId: msg.channelUserId,
+      contextToken: msg.contextToken,
+      updatedAt: Date.now(),
+      ...(msg.botToken ? { botToken: msg.botToken } : {}),
+      ...(msg.ilinkBaseUrl ? { ilinkBaseUrl: msg.ilinkBaseUrl } : {}),
+    })
   }
 
   // ── IChannelAdapter 接口实现 ──────────────────────────────────────────────
@@ -169,6 +196,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       })
 
       if (msg.contextToken) {
+        this.persistReplyContext(msg)
         this.bridge.setWeixinMessageContext({
           channelUserId: msg.channelUserId,
           contextToken: msg.contextToken,
@@ -291,6 +319,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
 
       // 注入微信会话上下文
       if (msg.contextToken) {
+        this.persistReplyContext(msg)
         this.bridge.setWeixinMessageContext({
           channelUserId: msg.channelUserId,
           contextToken: msg.contextToken,

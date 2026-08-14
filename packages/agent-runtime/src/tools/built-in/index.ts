@@ -25,6 +25,12 @@ export {
   speechGenerateToolConfig,
 } from "./integration-tools.js";
 export {
+  channelListToolConfig,
+  channelSendToolConfig,
+  CHANNEL_LIST_TOOL_NAME,
+  CHANNEL_SEND_TOOL_NAME,
+} from "./channel-tools.js";
+export {
   askUserQuestionToolConfig,
   formatAskUserQuestionResult,
   type AskUserQuestionInput,
@@ -88,6 +94,10 @@ import {
   systemPromptToolConfig,
   speechGenerateToolConfig,
 } from "./integration-tools.js";
+import {
+  channelListToolConfig,
+  channelSendToolConfig,
+} from "./channel-tools.js";
 import { askUserQuestionToolConfig } from "./ask-user-question-tool.js";
 import {
   skillListToolConfig,
@@ -131,6 +141,8 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   cronDeleteToolConfig,
   dashboardFeedWriteToolConfig,
   messageToolConfig,
+  channelListToolConfig,
+  channelSendToolConfig,
   nodesToolConfig,
   memorySearchToolConfig,
   memoryReadToolConfig,

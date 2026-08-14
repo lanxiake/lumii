@@ -112,6 +112,14 @@ export const NOTIFY_STRATEGIES: Record<string, NotifyFormatStrategy> = {
     },
   },
 
+  /** 微信主动推送：与飞书同级纯文本（经 ChannelOutboundRouter） */
+  weixin: {
+    limit: 1500,
+    format(label, output) {
+      return { body: `【${label}】\n${truncate(markdownToPlainText(output), this.limit)}` }
+    },
+  },
+
   /** 概览页资讯卡片：标题取任务名，摘要取正文，均为单行纯文本 */
   news: {
     limit: 200,
@@ -134,11 +142,12 @@ export const NOTIFY_STRATEGIES: Record<string, NotifyFormatStrategy> = {
 }
 
 /**
- * 取渠道策略并格式化。未注册的渠道回落纯文本单行，
- * 保证新渠道漏配策略时推送内容仍可读而不是原样 Markdown。
+ * 取渠道策略并格式化。支持 `weixin:<peerId>` 前缀语法（策略键取冒号前）。
+ * 未注册的渠道回落纯文本单行。
  */
 export function formatForTarget(target: string, label: string, output: string): FormattedPayload {
-  const strategy = NOTIFY_STRATEGIES[target]
+  const base = target.includes(':') ? target.slice(0, target.indexOf(':')) : target
+  const strategy = NOTIFY_STRATEGIES[base]
   if (strategy) return strategy.format(label, output)
   return { body: truncate(toSingleLine(markdownToPlainText(output)), 500) }
 }
