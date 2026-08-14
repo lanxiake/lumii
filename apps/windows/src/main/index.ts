@@ -97,6 +97,7 @@ import {
   type ChannelHub,
 } from './channel/channel-hub-bootstrap'
 import { resolveWindowsClientDataRoot } from './client-data-root'
+import { clearScreenshotTempDir } from './app-ui-control/screenshot-cleanup'
 import {
   AgentRuntimeBridge,
   installAgentRuntimeCommandIpc,
@@ -2879,6 +2880,7 @@ async function initialize(): Promise<void> {
 
   // 初始化文件日志系统（必须在 app.whenReady() 之后）
   fileLogger.initialize()
+  clearScreenshotTempDir()
   // 服务启动时在控制台打印日志文件路径
   log.info('日志文件:', fileLogger.getCurrentLogFilePath())
 
