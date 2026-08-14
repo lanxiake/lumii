@@ -1,0 +1,76 @@
+/* ChannelStatusPill — 渠道连接状态徽章（圆点 + 文案），四态共用一套色板 */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border-radius: var(--mt-radius-full);
+  font-size: 12px;
+  font-weight: var(--mt-fw-medium);
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--mt-radius-full);
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.connected {
+  background: color-mix(in srgb, var(--mt-success) 16%, transparent);
+  color: var(--mt-success);
+}
+
+.pending {
+  background: color-mix(in srgb, var(--mt-warning) 16%, transparent);
+  color: var(--mt-warning);
+}
+
+.idle {
+  background: color-mix(in srgb, var(--mt-fg-3) 14%, transparent);
+  color: var(--mt-fg-3);
+}
+
+.error {
+  background: color-mix(in srgb, var(--mt-error) 16%, transparent);
+  color: var(--mt-error);
+}
+
+/* 浅色主题下 500 级语义色对比度不足，换用 dark 档 */
+[data-theme='light'] .connected {
+  color: var(--mt-success-dark);
+}
+
+[data-theme='light'] .pending {
+  color: var(--mt-warning-dark);
+}
+
+[data-theme='light'] .error {
+  color: var(--mt-error-dark);
+}
+
+/* 等待态圆点呼吸，提示流程进行中 */
+.pending .dot {
+  animation: pulse 1.4s var(--mt-ease-standard) infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pending .dot {
+    animation: none;
+  }
+}

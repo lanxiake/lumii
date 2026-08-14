@@ -80,23 +80,9 @@
   max-width: 600px;
 }
 
-/* ????????????????? auto-fit ?? 2+1 */
+/* 渠道设置改为整宽卡片列表，容器比其他分区宽一档 */
 .settings-section--channels {
-  max-width: 960px;
-}
-
-.channels-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 12px;
-  align-items: stretch;
-}
-
-@media (max-width: 900px) {
-  .channels-grid {
-    grid-template-columns: 1fr;
-  }
+  max-width: 880px;
 }
 
 .settings-merged-block {

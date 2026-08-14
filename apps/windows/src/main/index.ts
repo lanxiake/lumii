@@ -96,6 +96,7 @@ import {
   createWeixinReplyContextStore,
   type ChannelHub,
 } from './channel/channel-hub-bootstrap'
+import { handleChannelList, handleChannelSend } from './channel/channel-service-ipc'
 import { resolveWindowsClientDataRoot } from './client-data-root'
 import {
   AgentRuntimeBridge,
@@ -1432,28 +1433,8 @@ function setupIpcHandlers(): void {
   })
 
   // === 渠道出站 Hub（与 Agent channel_list/channel_send 同源，仅供 Settings 面板只读展示/调试） ===
-  ipcMain.handle('channel:list', async () => {
-    if (!channelHub) return { channels: [] }
-    return { channels: await channelHub.router.list() }
-  })
-
-  ipcMain.handle('channel:send', async (_event, params: unknown) => {
-    if (!channelHub) {
-      return { ok: false, errorCode: 'HUB_NOT_READY', message: '渠道出站 Hub 尚未就绪，请稍后再试' }
-    }
-    const p = (params ?? {}) as Record<string, unknown>
-    const channel = String(p.channel ?? '').trim()
-    if (channel !== 'feishu' && channel !== 'weixin' && channel !== 'wecom') {
-      return { ok: false, errorCode: 'PEER_NOT_FOUND', message: "channel 必须是 'feishu' | 'weixin' | 'wecom'" }
-    }
-    return channelHub.router.send({
-      channel,
-      to: String(p.to ?? ''),
-      text: String(p.text ?? ''),
-      ...(typeof p.mediaPath === 'string' && p.mediaPath ? { mediaPath: p.mediaPath } : {}),
-      ...(typeof p.fileName === 'string' && p.fileName ? { fileName: p.fileName } : {}),
-    })
-  })
+  ipcMain.handle('channel:list', async () => handleChannelList(channelHub))
+  ipcMain.handle('channel:send', async (_event, params: unknown) => handleChannelSend(channelHub, params))
 
   // === 窗口控制 ===
   ipcMain.on('window:minimize', () => mainWindow?.minimize())

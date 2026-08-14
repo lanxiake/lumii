@@ -431,14 +431,18 @@ system,news,feishu,weixin:wxid_abc
 - 调研企业微信 **应用消息 API** 或 aibot 新版本主动消息能力
 - 新增 `pushMode: native_push` 时升级 Provider，而非缓存 rawFrame
 
+> **现状确认（2026-08-14 复核）：** 当前 `wecom-login-service` 走 aibot 个人扫码协议，无 corpid/corpsecret/access_token 体系，真推送需要用户提供企业微信管理后台凭据后才能开发测试，本次暂缓。
+
 ### 8.3 Renderer Channel 面板（可选）
 
 - Settings → channels 增加「已连接 peer 列表 / 最近出站记录」只读视图
 - IPC：`channel:list` / `channel:send` 仅供调试，非 Agent 主路径
+- ✅ **已落地（2026-08-14）**：Settings 渠道设置下方 `ChannelPeerPanel` 只读汇总三渠道 peer（connected / pushMode / canSend / blockedReason）；不做发送表单，发送仍走 Agent `channel_send`
 
 ### 8.4 统一 ChannelService IPC
 
 - preload 暴露 `channelService.list()` / `status()`，与 Agent 工具同源
+- ✅ **已落地（2026-08-14）**：`channel:list` / `channel:send` + preload `channelService`；与 `ChannelOutboundRouter` 同源；Hub 未就绪时 list 返回空、send 返回 `HUB_NOT_READY`
 
 ### 8.5 频率限制与重试
 
@@ -448,6 +452,7 @@ system,news,feishu,weixin:wxid_abc
 ### 8.6 废弃 message 出站
 
 - 三期移除 Gateway send 分支；微信会话内回复合并进 `channel_send` + `replyInTurn` 标志
+- ✅ **已落地（2026-08-14）**：`message` 工具微信分支（含隐式会话）改走 `ChannelOutboundRouter.send`；非微信主动出站硬失败并引导 `channel_list` + `channel_send`；Gateway `send` RPC 遗留分支与 `sendWeixinMessage` 已移除。工具名保留以免旧 Agent 定义报错。
 
 ---
 
@@ -463,11 +468,11 @@ system,news,feishu,weixin:wxid_abc
 
 ## 10. 分期
 
-| 期 | 内容 |
-|----|------|
-| **一期 MVP** | Hub + list/send + 微信 token store + cron Router + 单测 |
-| **二期** | 富媒体；企微 Push 调研落地；Settings peer 视图 |
-| **三期** | 废弃 message 出站；统一 IPC；多账号 |
+| 期 | 内容 | 状态（2026-08-14） |
+|----|------|-------------------|
+| **一期 MVP** | Hub + list/send + 微信 token store + cron Router + 单测 | ✅ 完成 |
+| **二期** | 富媒体；企微 Push 调研落地；Settings peer 视图 | ✅ 富媒体 + Settings peer 面板已完成；企微真 Push **暂缓**（见 §8.2 现状确认） |
+| **三期** | 废弃 message 出站；统一 IPC；多账号 | ✅ message 废弃合并 + `channelService` IPC 已完成；多账号仅做 `accountId?` 类型预留（Registry 仍按 channel 单键，功能未启用） |
 
 ---
 
@@ -536,3 +541,4 @@ export const CHANNEL_SEND_TOOL = 'channel_send'
 | 版本 | 日期 | 描述 |
 |------|------|------|
 | v1.0 | 2026-08-14 | 初始方案：Channel Hub、双工具、硬失败、cron 统一 Router |
+| v1.1 | 2026-08-14 | 二期/三期落地补档：富媒体、channelService IPC、Settings peer 面板、message→Router；企微真 Push 暂缓；多账号仅类型预留 |
