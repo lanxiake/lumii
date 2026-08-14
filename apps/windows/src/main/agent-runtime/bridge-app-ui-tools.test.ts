@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ToolRegistry } from '@mtbot/agent-runtime'
 import type { ToolExecutionContext } from '@mtbot/agent-runtime'
 import type { AppUiController } from '../app-ui-control'
-import { registerAppUiTools } from './bridge-app-ui-tools'
+import { registerAppUiTools, resetAppUiToolTurnQuotas } from './bridge-app-ui-tools'
 import { parseJsonToolResultPayload } from './bridge-utils'
 
 /** 最小 ToolExecutionContext stub */
@@ -30,13 +30,19 @@ function stubController(overrides: Partial<AppUiController> = {}): AppUiControll
 }
 
 /** 注册工具并返回指定工具的 execute */
-function registerAndGetExecute(toolName: string, controller: AppUiController) {
+function registerAndGetExecute(
+  toolName: string,
+  controller: AppUiController,
+  deps: Partial<Parameters<typeof registerAppUiTools>[2]> = {},
+) {
+  resetAppUiToolTurnQuotas()
   const registry = new ToolRegistry()
   const ctx = stubContext()
   registerAppUiTools(registry, ctx, {
     getMainWindow: () => null,
     resizeImageIfNeeded: vi.fn(),
     controller,
+    ...deps,
   })
   const tool = registry.get(toolName)
   expect(tool).toBeDefined()
@@ -44,6 +50,9 @@ function registerAndGetExecute(toolName: string, controller: AppUiController) {
 }
 
 describe('registerAppUiTools', () => {
+  beforeEach(() => {
+    resetAppUiToolTurnQuotas()
+  })
   it('注册 app_screenshot：只读、无需权限、描述含「只截图，不操作」', () => {
     const registry = new ToolRegistry()
     registerAppUiTools(registry, stubContext(), {
@@ -215,5 +224,80 @@ describe('registerAppUiTools', () => {
       snapshotId: 'snap-old',
     })
     expect(parseJsonToolResultPayload(result)).toEqual({ ok: false, error: 'stale_snapshot' })
+  })
+
+  it('总开关关闭时三工具均返回 disabled', async () => {
+    const disabledDeps = {
+      readSettingsJson: async () =>
+        JSON.stringify({ privacy: { allowAgentAppUiControl: false } }),
+    }
+    const screenshot = vi.fn(async () => ({ ok: true as const, snapshotId: 's', imageBase64: 'x', mimeType: 'image/jpeg', width: 1, height: 1, viewState: { view: 'chat', hub: null }, refs: [], truncated: false, previewPath: '', windowVisible: true }))
+    const goto = vi.fn(async () => ({ ok: true as const, view: 'chat', hub: null }))
+    const click = vi.fn(async () => ({ ok: true as const }))
+    const ctrl = stubController({ screenshot, goto, click })
+
+    for (const name of ['app_screenshot', 'app_goto', 'app_act'] as const) {
+      const execute = registerAndGetExecute(name, ctrl, disabledDeps)
+      const params = name === 'app_act' ? { action: 'click', ref: 'e1' } : name === 'app_goto' ? { view: 'chat' } : {}
+      const result = await execute(`call-${name}`, params)
+      expect(parseJsonToolResultPayload(result)).toEqual({ ok: false, error: 'disabled' })
+    }
+    expect(screenshot).not.toHaveBeenCalled()
+    expect(goto).not.toHaveBeenCalled()
+    expect(click).not.toHaveBeenCalled()
+  })
+
+  it('screenshot 超出单轮配额 8 次后返回 quota_exceeded', async () => {
+    const screenshot = vi.fn(async () => ({
+      ok: true as const,
+      snapshotId: 'snap',
+      imageBase64: 'abc',
+      mimeType: 'image/jpeg',
+      width: 100,
+      height: 100,
+      viewState: { view: 'chat', hub: null },
+      refs: [],
+      truncated: false,
+      previewPath: '/tmp/snap.jpg',
+      windowVisible: true,
+    }))
+    const execute = registerAndGetExecute('app_screenshot', stubController({ screenshot }))
+
+    for (let i = 0; i < 8; i++) {
+      const result = await execute(`call-q${i}`, {})
+      expect(parseJsonToolResultPayload(result)).toMatchObject({ ok: true })
+    }
+    const over = await execute('call-q9', {})
+    expect(parseJsonToolResultPayload(over)).toEqual({ ok: false, error: 'quota_exceeded' })
+    expect(screenshot).toHaveBeenCalledTimes(8)
+  })
+
+  it('resetAppUiToolTurnQuotas 后配额计数清零', async () => {
+    const screenshot = vi.fn(async () => ({
+      ok: true as const,
+      snapshotId: 'snap',
+      imageBase64: 'abc',
+      mimeType: 'image/jpeg',
+      width: 100,
+      height: 100,
+      viewState: { view: 'chat', hub: null },
+      refs: [],
+      truncated: false,
+      previewPath: '/tmp/snap.jpg',
+      windowVisible: true,
+    }))
+    const execute = registerAndGetExecute('app_screenshot', stubController({ screenshot }))
+
+    for (let i = 0; i < 8; i++) {
+      await execute(`call-r${i}`, {})
+    }
+    expect(parseJsonToolResultPayload(await execute('call-r-over', {}))).toEqual({
+      ok: false,
+      error: 'quota_exceeded',
+    })
+
+    resetAppUiToolTurnQuotas()
+    expect(parseJsonToolResultPayload(await execute('call-r-after', {}))).toMatchObject({ ok: true })
+    expect(screenshot).toHaveBeenCalledTimes(9)
   })
 })

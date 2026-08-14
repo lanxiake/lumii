@@ -1626,6 +1626,17 @@ export class BridgeToolRegistrar {
     registerAppUiToolsFn(this.deps.toolRegistry, this.deps.toolContext, {
       getMainWindow: getWindow,
       resizeImageIfNeeded,
+      readSettingsJson: async () => {
+        const win = getWindow()
+        if (!win || win.isDestroyed()) return null
+        try {
+          return await win.webContents.executeJavaScript(
+            `localStorage.getItem('mtbot-assistant-settings')`,
+          )
+        } catch {
+          return null
+        }
+      },
     })
   }
 }
