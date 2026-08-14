@@ -20,6 +20,7 @@ import {
   getBundledPythonExe,
   getBundledSitePackages,
 } from './python-env'
+import { resolveLumiiUiScriptPath } from './app-ui-control/cli-paths'
 import { resolvePluginRuntimeDir } from './paths'
 
 const log = {
@@ -140,6 +141,12 @@ export async function writeShims(): Promise<void> {
     }
     log.info('已写入 python/python3 shim（系统未装 Python，使用内置运行时）')
   }
+
+  // lumii-ui CLI：始终写入 shim，target 用 resolveNodeExec()（系统 node 或 Electron 内置）
+  const node = resolveNodeExec()
+  const scriptPath = resolveLumiiUiScriptPath()
+  await writeShimPair(dir, 'lumii-ui', node.command, [scriptPath], node.env)
+  log.info('已写入 lumii-ui shim')
 }
 
 /**

@@ -78,3 +78,16 @@ export {
 } from './controller'
 
 export { clearScreenshotTempDir, getScreenshotTempDir } from './screenshot-cleanup'
+
+export { resolveLumiiUiScriptPath } from './cli-paths'
+
+export {
+  APP_UI_CONTROL_PORT_START,
+  DEFAULT_BROWSER_CONTROL_PORT,
+  DEFAULT_CDP_PORT,
+  DEFAULT_EXTENSION_RELAY_PORT,
+  findAvailablePort,
+  startAppUiControlServer,
+  stopAppUiControlServer,
+} from './server'
+export type { AppUiControlServerDeps, AppUiRuntimeConfig } from './server'

@@ -98,6 +98,8 @@ import {
 } from './channel/channel-hub-bootstrap'
 import { resolveWindowsClientDataRoot } from './client-data-root'
 import { clearScreenshotTempDir } from './app-ui-control/screenshot-cleanup'
+import { startAppUiControlServer, stopAppUiControlServer } from './app-ui-control/server'
+import { resizeImageIfNeeded } from './agent-runtime/image-resizer'
 import {
   AgentRuntimeBridge,
   installAgentRuntimeCommandIpc,
@@ -2911,6 +2913,16 @@ async function initialize(): Promise<void> {
   // 等待开机画面完整播放后再显示主窗口
   await createWindow(isTestMode, isStartupLaunch)
 
+  // App UI 本机控制口（lumii-ui CLI）
+  try {
+    await startAppUiControlServer({
+      getMainWindow: () => mainWindow,
+      resizeImageIfNeeded,
+    })
+  } catch (err) {
+    log.warn('App UI 本机控制口启动失败:', err instanceof Error ? err.message : err)
+  }
+
   // 注册宠物模式 IPC（独立透明窗口，与 mainWindow 解耦）
   registerPetModeIpc({
     getMainWindow: () => mainWindow,
@@ -3096,6 +3108,7 @@ async function performCleanup(): Promise<void> {
     disposePetModeIpc()
 
     await skillWatcher?.stop()
+    await stopAppUiControlServer()
     await stopBrowserService()
 
     // 微信登出清理
