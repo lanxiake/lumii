@@ -53,3 +53,47 @@ export interface FilterSnapshotOptions {
   /** 最大保留节点数，默认 80 */
   limit?: number
 }
+
+/** 主窗口路由视图（对齐 Router.tsx ViewType） */
+export type AppUiViewType =
+  | 'dashboard'
+  | 'chat'
+  | 'skills'
+  | 'settings'
+  | 'memories'
+  | 'agents'
+  | 'cron'
+  | 'plugins'
+  | 'mcp'
+
+/** Settings Hub 分类（对齐 SettingsHub/types MergedSettingsCategory） */
+export type AppUiSettingsCategory =
+  | 'general'
+  | 'workspace'
+  | 'modelConfig'
+  | 'voice'
+  | 'channels'
+  | 'codingDev'
+  | 'pet'
+  | 'usage'
+  | 'privacy'
+  | 'aboutAndUpdate'
+
+/** app_goto 工具入参 */
+export interface GotoInput {
+  view: AppUiViewType
+  category?: AppUiSettingsCategory
+}
+
+/** app_act 工具入参（MVP 仅 click） */
+export interface ActInput {
+  action: 'click'
+  ref: string
+  snapshotId?: string
+}
+
+/** click 校验所需的快照上下文 */
+export interface AppUiClickContext {
+  snapshotId: string
+  refs: AppUiRef[]
+}

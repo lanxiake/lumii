@@ -1,11 +1,28 @@
 export type {
+  ActInput,
+  AppUiClickContext,
   AppUiHubState,
   AppUiRef,
+  AppUiSettingsCategory,
   AppUiViewState,
+  AppUiViewType,
   FilterSnapshotOptions,
   FilterSnapshotResult,
+  GotoInput,
   RawSnapshotNode,
 } from './types'
+
+export { assertClickAllowed } from './act'
+export type {
+  AssertClickAllowedParams,
+  AssertClickAllowedResult,
+  ClickAllowedError,
+} from './act'
+
+export { devicePixelsToDip } from './coords'
+
+export { parseGotoInput } from './goto'
+export type { ParseGotoInputResult } from './goto'
 
 export {
   DEFAULT_SNAPSHOT_NODE_LIMIT,
