@@ -66,6 +66,8 @@ import type { InstanceStateStore } from './bridge-instance-state'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import type { CronScheduler } from './cron-scheduler'
 import { registerBrowserTools as registerBrowserToolsFn } from './bridge-browser-tools'
+import { registerAppUiTools as registerAppUiToolsFn } from './bridge-app-ui-tools'
+import { resizeImageIfNeeded } from './image-resizer'
 import {
   writeDashboardFeedSnapshot,
   DEFAULT_DASHBOARD_FEED_ID,
@@ -158,6 +160,8 @@ export class BridgeToolRegistrar {
     this.registerDashboardFeedTool()
     // 渠道出站：不依赖 Gateway，始终注册
     this.registerChannelTools()
+    // Agent 操作本客户端界面（Part A：app_screenshot），始终注册
+    this.registerAppUiTools()
     // 渐进式加载指南工具（a2ui_guide / cron_guide）
     this.registerGuideTools()
     if (this.deps.config.callGateway) {
@@ -1613,5 +1617,15 @@ export class BridgeToolRegistrar {
     const getBrowserContext = this.deps.config.getBrowserContext
     if (!this.deps.toolContext || !getBrowserContext) return
     registerBrowserToolsFn(this.deps.toolRegistry, this.deps.toolContext, getBrowserContext)
+  }
+
+  /** 注册 Agent App UI 控制工具（app_screenshot 等） */
+  private registerAppUiTools(): void {
+    const getWindow = this.deps.config.getWindow
+    if (!this.deps.toolContext || !getWindow) return
+    registerAppUiToolsFn(this.deps.toolRegistry, this.deps.toolContext, {
+      getMainWindow: getWindow,
+      resizeImageIfNeeded,
+    })
   }
 }
