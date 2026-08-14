@@ -42,7 +42,7 @@ function registerAndGetExecute(
   const registry = new ToolRegistry()
   const ctx = stubContext()
   registerAppUiTools(registry, ctx, {
-    getMainWindow: () => null,
+    getWindow: () => null,
     resizeImageIfNeeded: vi.fn(),
     controller,
     ...deps,
@@ -59,7 +59,7 @@ describe('registerAppUiTools', () => {
   it('注册 app_screenshot：只读、无需权限、描述含「只截图，不操作」', () => {
     const registry = new ToolRegistry()
     registerAppUiTools(registry, stubContext(), {
-      getMainWindow: () => null,
+      getWindow: () => null,
       resizeImageIfNeeded: vi.fn(),
       controller: stubController(),
     })
@@ -111,6 +111,26 @@ describe('registerAppUiTools', () => {
     expect(result.details).toEqual({ previewPath: '/tmp/snap-001.jpg' })
   })
 
+  it('app_screenshot 透传 annotate 与 target 参数', async () => {
+    const screenshot = vi.fn(async () => ({
+      ok: true as const,
+      snapshotId: 'snap',
+      imageBase64: 'abc',
+      mimeType: 'image/jpeg',
+      width: 100,
+      height: 100,
+      viewState: { view: 'chat', hub: { open: false, tab: null, category: null } },
+      refs: [],
+      truncated: false,
+      previewPath: '/tmp/snap.jpg',
+      windowVisible: true,
+    }))
+    const execute = registerAndGetExecute('app_screenshot', stubController({ screenshot }))
+
+    await execute('call-annotate', { annotate: true, target: 'pet' })
+    expect(screenshot).toHaveBeenCalledWith({ annotate: true, target: 'pet' })
+  })
+
   it('app_not_running 时仅返回 text JSON 失败', async () => {
     const execute = registerAndGetExecute('app_screenshot', stubController({
       screenshot: vi.fn(async () => ({ ok: false as const, error: 'app_not_running' })),
@@ -136,7 +156,7 @@ describe('registerAppUiTools', () => {
   it('注册 app_goto：非只读、无需权限、描述含「不要点侧栏」', () => {
     const registry = new ToolRegistry()
     registerAppUiTools(registry, stubContext(), {
-      getMainWindow: () => null,
+      getWindow: () => null,
       resizeImageIfNeeded: vi.fn(),
       controller: stubController(),
     })
@@ -177,7 +197,7 @@ describe('registerAppUiTools', () => {
   it('注册 app_act：非只读、需权限、描述含始终允许提示', () => {
     const registry = new ToolRegistry()
     registerAppUiTools(registry, stubContext(), {
-      getMainWindow: () => null,
+      getWindow: () => null,
       resizeImageIfNeeded: vi.fn(),
       controller: stubController(),
     })
@@ -266,7 +286,7 @@ describe('registerAppUiTools', () => {
   it('app_act 描述含 type/key/scroll 说明', () => {
     const registry = new ToolRegistry()
     registerAppUiTools(registry, stubContext(), {
-      getMainWindow: () => null,
+      getWindow: () => null,
       resizeImageIfNeeded: vi.fn(),
       controller: stubController(),
     })

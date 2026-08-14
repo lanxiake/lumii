@@ -2916,7 +2916,7 @@ async function initialize(): Promise<void> {
   // App UI 本机控制口（lumii-ui CLI）
   try {
     await startAppUiControlServer({
-      getMainWindow: () => mainWindow,
+      getWindow: (target) => (target === 'main' ? mainWindow : null),
       resizeImageIfNeeded,
     })
   } catch (err) {

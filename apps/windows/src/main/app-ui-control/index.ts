@@ -39,6 +39,9 @@ export type {
 
 export { devicePixelsToDip } from './coords'
 
+export { buildAnnotateOverlays, annotateSnapshot } from './annotate'
+export type { AnnotateOverlay } from './annotate'
+
 export { parseGotoInput } from './goto'
 export type { ParseGotoInputResult } from './goto'
 
@@ -64,9 +67,12 @@ export type {
   AppUiScreenshotBounds,
   AppUiScreenshotError,
   AppUiScreenshotFailure,
+  AppUiScreenshotOptions,
   AppUiScreenshotResult,
   AppUiScreenshotSuccess,
+  AppUiScreenshotTarget,
   AppUiSnapshotCache,
+  AppUiWindowTarget,
   ResizeImageFn,
 } from './controller'
 

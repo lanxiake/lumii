@@ -14,8 +14,10 @@ import {
   type AppUiClickError,
   type ClickPrepareRect,
 } from './act'
+import { annotateSnapshot } from './annotate'
 import { devicePixelsToDip } from './coords'
 import { parseGotoInput } from './goto'
+import { getPetWindowManager } from '../pet/pet-mode-ipc'
 import { filterSnapshotNodes, nextSnapshotId, SNAPSHOT_SCRIPT } from './snapshot'
 import { getScreenshotTempDir } from './screenshot-cleanup'
 import type {
@@ -86,8 +88,19 @@ export type AppUiClickResult = AppUiClickSuccess | AppUiClickFailure
 /** goto 等待 React setState 落定的默认毫秒数 */
 export const GOTO_SETTLE_MS = 100
 
+/** 截图目标窗口 */
+export type AppUiScreenshotTarget = 'main' | 'pet' | 'preview'
+
+/** screenshot() 可选参数 */
+export interface AppUiScreenshotOptions {
+  /** 是否在 JPEG 上绘制 SoM 编号，默认 false */
+  annotate?: boolean
+  /** 截图目标，默认 main */
+  target?: AppUiScreenshotTarget
+}
+
 /** 截图失败时的稳定错误码 */
-export type AppUiScreenshotError = 'app_not_running'
+export type AppUiScreenshotError = 'app_not_running' | 'pet_not_running' | 'usage'
 
 /** 截图图片边界（与返回给模型的 width/height 一致） */
 export interface AppUiScreenshotBounds {
@@ -136,9 +149,12 @@ export type ResizeImageFn = (
   maxBytes?: number,
 ) => Promise<ResizeResult>
 
+/** 控制器可解析的窗口目标（pet 截图走 getPetWindowManager，不经此回调） */
+export type AppUiWindowTarget = 'main' | 'pet' | 'preview'
+
 /** createAppUiController 依赖 */
 export interface AppUiControllerDeps {
-  getMainWindow: () => BrowserWindow | null
+  getWindow: (target: AppUiWindowTarget) => BrowserWindow | null
   resizeImageIfNeeded: ResizeImageFn
   /** 测试注入数据根；默认 resolveWindowsClientDataRoot */
   resolveDataRoot?: () => string
@@ -158,7 +174,7 @@ export interface AppUiActFailure {
 
 /** 控制器对外 API */
 export interface AppUiController {
-  screenshot(): Promise<AppUiScreenshotResult>
+  screenshot(options?: AppUiScreenshotOptions): Promise<AppUiScreenshotResult>
   /** 按 snapshotId 读取内存快照缓存 */
   getSnapshotCache(snapshotId: string): AppUiSnapshotCache | undefined
   /** 声明式导航并回读渲染层 view/hub */
@@ -349,9 +365,9 @@ type RefActValidationFailure = {
 function validateRefAct(
   actInput: { ref: string; snapshotId?: string },
   cacheById: Map<string, AppUiSnapshotCache>,
-  getMainWindow: () => BrowserWindow | null,
+  getWindow: (target: AppUiWindowTarget) => BrowserWindow | null,
 ): RefActValidationSuccess | RefActValidationFailure {
-  const win = getMainWindow()
+  const win = getWindow('main')
   if (!win || win.isDestroyed()) {
     return { ok: false, error: 'app_not_running' }
   }
@@ -474,6 +490,42 @@ function writeScreenshotTempFile(
 }
 
 /**
+ * 按截图 target 解析 BrowserWindow；preview 不在此解析。
+ */
+function resolveScreenshotWindow(
+  target: AppUiScreenshotTarget,
+  getWindow: (t: AppUiWindowTarget) => BrowserWindow | null,
+): BrowserWindow | null {
+  if (target === 'pet') {
+    return getPetWindowManager()?.getPetBrowserWindow() ?? null
+  }
+  return getWindow('main')
+}
+
+/**
+ * 将 DOM refs 坐标缩放到与输出 JPEG 一致的尺寸。
+ */
+function scaleRefsToBounds(
+  refs: AppUiRef[],
+  origWidth: number,
+  origHeight: number,
+  bounds: AppUiScreenshotBounds,
+): AppUiRef[] {
+  if (origWidth <= 0 || origHeight <= 0) {
+    return refs
+  }
+  const scaleX = bounds.width / origWidth
+  const scaleY = bounds.height / origHeight
+  return refs.map((r) => ({
+    ...r,
+    x: Math.round(r.x * scaleX),
+    y: Math.round(r.y * scaleY),
+    w: Math.round(r.w * scaleX),
+    h: Math.round(r.h * scaleY),
+  }))
+}
+
+/**
  * 创建 Agent App UI 控制器（截图 / goto / click）。
  */
 export function createAppUiController(deps: AppUiControllerDeps): AppUiController {
@@ -483,12 +535,22 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
   const getScaleFactor = deps.getScaleFactor ?? (() => 1)
 
   /**
-   * 截取主窗口 JPEG、采集 refs，并缓存快照供后续 click 校验。
+   * 截取目标窗口 JPEG、采集 refs，并缓存快照供后续 click 校验。
    */
-  async function screenshot(): Promise<AppUiScreenshotResult> {
-    const win = deps.getMainWindow()
+  async function screenshot(options?: AppUiScreenshotOptions): Promise<AppUiScreenshotResult> {
+    const target = options?.target ?? 'main'
+    const annotate = options?.annotate ?? false
+
+    if (target === 'preview') {
+      return { ok: false, error: 'usage' }
+    }
+
+    const win = resolveScreenshotWindow(target, deps.getWindow)
     if (!win || win.isDestroyed()) {
-      return { ok: false, error: 'app_not_running' }
+      return {
+        ok: false,
+        error: target === 'pet' ? 'pet_not_running' : 'app_not_running',
+      }
     }
 
     const windowVisible = win.isVisible()
@@ -515,7 +577,13 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
     ])
     const { refs, truncated } = filterSnapshotNodes(rawNodes)
 
-    const previewPath = writeScreenshotTempFile(dataRoot, snapshotId, resized.buffer)
+    let outputBuffer = resized.buffer
+    if (annotate && refs.length > 0) {
+      const scaledRefs = scaleRefsToBounds(refs, origWidth, origHeight, bounds)
+      outputBuffer = await annotateSnapshot(outputBuffer, scaledRefs)
+    }
+
+    const previewPath = writeScreenshotTempFile(dataRoot, snapshotId, outputBuffer)
 
     const cacheEntry: AppUiSnapshotCache = {
       snapshotId,
@@ -528,7 +596,7 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
     return {
       ok: true,
       snapshotId,
-      imageBase64: resized.buffer.toString('base64'),
+      imageBase64: outputBuffer.toString('base64'),
       mimeType: resized.mimeType,
       width: bounds.width,
       height: bounds.height,
@@ -556,7 +624,7 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
       return { ok: false, error: 'usage' }
     }
 
-    const win = deps.getMainWindow()
+    const win = deps.getWindow('main')
     if (!win || win.isDestroyed()) {
       return { ok: false, error: 'app_not_running' }
     }
@@ -578,7 +646,7 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
       return { ok: false, error: 'missing_ref' }
     }
 
-    const validated = validateRefAct(actInput, cacheById, deps.getMainWindow)
+    const validated = validateRefAct(actInput, cacheById, deps.getWindow)
     if (!validated.ok) {
       return validated
     }
@@ -622,7 +690,7 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
       return { ok: false, error: 'missing_ref' }
     }
 
-    const validated = validateRefAct(actInput, cacheById, deps.getMainWindow)
+    const validated = validateRefAct(actInput, cacheById, deps.getWindow)
     if (!validated.ok) {
       return validated
     }
@@ -650,7 +718,7 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
       return { ok: false, error: 'usage' }
     }
 
-    const win = deps.getMainWindow()
+    const win = deps.getWindow('main')
     if (!win || win.isDestroyed()) {
       return { ok: false, error: 'app_not_running' }
     }
@@ -670,7 +738,7 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
       return { ok: false, error: 'missing_ref' }
     }
 
-    const validated = validateRefAct(actInput, cacheById, deps.getMainWindow)
+    const validated = validateRefAct(actInput, cacheById, deps.getWindow)
     if (!validated.ok) {
       return validated
     }

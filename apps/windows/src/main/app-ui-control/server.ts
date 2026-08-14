@@ -39,7 +39,7 @@ export interface AppUiRuntimeConfig {
 
 /** startAppUiControlServer 依赖 */
 export interface AppUiControlServerDeps {
-  getMainWindow: () => BrowserWindow | null
+  getWindow: (target: 'main' | 'pet' | 'preview') => BrowserWindow | null
   resizeImageIfNeeded?: ResizeImageFn
   /** 测试注入：跳过 createAppUiController */
   controller?: AppUiController
@@ -217,7 +217,7 @@ export async function startAppUiControlServer(
   const controller =
     deps.controller ??
     createAppUiController({
-      getMainWindow: deps.getMainWindow,
+      getWindow: deps.getWindow,
       resizeImageIfNeeded: deps.resizeImageIfNeeded ?? resizeImageIfNeeded,
     })
 

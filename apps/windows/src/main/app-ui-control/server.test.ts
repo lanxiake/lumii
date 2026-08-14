@@ -126,7 +126,7 @@ describe('startAppUiControlServer', () => {
     server.close()
 
     const config = await startAppUiControlServer({
-      getMainWindow: () => null,
+      getWindow: () => null,
       controller,
       port,
       token: 'test-token-123',

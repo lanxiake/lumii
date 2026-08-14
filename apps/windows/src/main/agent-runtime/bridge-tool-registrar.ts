@@ -1621,13 +1621,13 @@ export class BridgeToolRegistrar {
 
   /** 注册 Agent App UI 控制工具（app_screenshot 等） */
   private registerAppUiTools(): void {
-    const getWindow = this.deps.config.getWindow
-    if (!this.deps.toolContext || !getWindow) return
+    const getMainWindow = this.deps.config.getWindow
+    if (!this.deps.toolContext || !getMainWindow) return
     registerAppUiToolsFn(this.deps.toolRegistry, this.deps.toolContext, {
-      getMainWindow: getWindow,
+      getWindow: (target) => (target === 'main' ? getMainWindow() : null),
       resizeImageIfNeeded,
       readSettingsJson: async () => {
-        const win = getWindow()
+        const win = getMainWindow()
         if (!win || win.isDestroyed()) return null
         try {
           return await win.webContents.executeJavaScript(

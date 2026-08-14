@@ -8,6 +8,20 @@ import { createAppUiController, VIEW_STATE_SCRIPT } from './controller'
 import { clearScreenshotTempDir, getScreenshotTempDir } from './screenshot-cleanup'
 import type { RawSnapshotNode } from './types'
 
+vi.mock('../pet/pet-mode-ipc', () => ({
+  getPetWindowManager: vi.fn(() => null),
+}))
+
+vi.mock('./annotate', () => ({
+  annotateSnapshot: vi.fn(async (buf: Buffer) => Buffer.from(`${buf.toString()}-annotated`)),
+}))
+
+import { getPetWindowManager } from '../pet/pet-mode-ipc'
+import { annotateSnapshot } from './annotate'
+
+const mockedGetPetWindowManager = vi.mocked(getPetWindowManager)
+const mockedAnnotateSnapshot = vi.mocked(annotateSnapshot)
+
 /** 构造 fake NativeImage，供 capturePage mock 使用 */
 function fakeNativeImage(width = 1920, height = 1080): NativeImage {
   return {
@@ -65,6 +79,8 @@ describe('createAppUiController', () => {
   beforeEach(() => {
     tmpDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-screenshot-'))
     clearScreenshotTempDir(tmpDataRoot)
+    mockedGetPetWindowManager.mockReturnValue(null)
+    mockedAnnotateSnapshot.mockClear()
   })
 
   afterEach(() => {
@@ -73,7 +89,7 @@ describe('createAppUiController', () => {
 
   /** 构造带 fake 依赖的控制器 */
   function makeController(
-    getMainWindow: () => ReturnType<typeof fakeWindow> | null,
+    getWindow: (target?: 'main' | 'pet' | 'preview') => ReturnType<typeof fakeWindow> | null,
     overrides: {
       resizeImageIfNeeded?: ReturnType<typeof vi.fn>
       deps?: Partial<Parameters<typeof createAppUiController>[0]>
@@ -91,7 +107,8 @@ describe('createAppUiController', () => {
 
     return {
       controller: createAppUiController({
-        getMainWindow: getMainWindow as never,
+        getWindow: ((target: 'main' | 'pet' | 'preview') =>
+          getWindow(target)) as never,
         resizeImageIfNeeded,
         resolveDataRoot: () => tmpDataRoot,
         gotoSettleMs: 0,
@@ -105,6 +122,63 @@ describe('createAppUiController', () => {
     const { controller } = makeController(() => null)
     const result = await controller.screenshot()
     expect(result).toEqual({ ok: false, error: 'app_not_running' })
+  })
+
+  it('target=preview 返回 usage', async () => {
+    const { controller } = makeController(() => fakeWindow({}))
+    const result = await controller.screenshot({ target: 'preview' })
+    expect(result).toEqual({ ok: false, error: 'usage' })
+  })
+
+  it('target=pet 且桌宠未运行返回 pet_not_running', async () => {
+    mockedGetPetWindowManager.mockReturnValue(null)
+    const { controller } = makeController(() => fakeWindow({}))
+    const result = await controller.screenshot({ target: 'pet' })
+    expect(result).toEqual({ ok: false, error: 'pet_not_running' })
+  })
+
+  it('target=pet 且桌宠窗口可用时成功截图', async () => {
+    const petWin = fakeWindow({ visible: true })
+    mockedGetPetWindowManager.mockReturnValue({
+      getPetBrowserWindow: () => petWin,
+    } as never)
+
+    const { controller } = makeController(() => fakeWindow({}))
+    const result = await controller.screenshot({ target: 'pet' })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.snapshotId).toBe('1')
+  })
+
+  it('annotate=true 时调用 annotateSnapshot 并写入标注图', async () => {
+    const rawNodes: RawSnapshotNode[] = [
+      { role: 'button', name: '发送', x: 10, y: 20, w: 80, h: 32 },
+    ]
+    const win = fakeWindow({
+      executeJavaScript: async (script) => {
+        if (script === SNAPSHOT_SCRIPT) return rawNodes
+        if (script.includes('__LUMII_APP_UI_STATE__')) {
+          return JSON.stringify({
+            view: 'chat',
+            hub: { open: false, tab: null, category: null },
+          })
+        }
+        return null
+      },
+    })
+
+    const { controller } = makeController(() => win)
+    const result = await controller.screenshot({ annotate: true })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(mockedAnnotateSnapshot).toHaveBeenCalledTimes(1)
+    expect(result.imageBase64).toBe(
+      Buffer.from('fake-jpeg-1920x1080-annotated').toString('base64'),
+    )
+    const written = fs.readFileSync(result.previewPath)
+    expect(written.equals(Buffer.from('fake-jpeg-1920x1080-annotated'))).toBe(true)
   })
 
   it('主窗已销毁时返回 app_not_running', async () => {
