@@ -18,7 +18,7 @@ const log = {
 }
 
 /** 默认执行 Agent：内置 assistant，ID 稳定 */
-const DEFAULT_AGENT_ID = 'assistant'
+export const DEFAULT_AGENT_ID = 'assistant'
 
 interface SeedJob {
   id: string

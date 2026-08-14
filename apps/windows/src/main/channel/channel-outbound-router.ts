@@ -4,11 +4,14 @@
  * 硬失败：ok:false + 稳定 errorCode；禁止 silent success。
  */
 
+import fs from 'node:fs'
+import path from 'node:path'
 import type { ChannelRegistry } from './channel-registry'
 import type {
   ChannelSendParams,
   ChannelSendResult,
   ChannelSnapshot,
+  IChannelOutboundProvider,
 } from './outbound-types'
 
 /**
@@ -29,12 +32,13 @@ export class ChannelOutboundRouter {
   }
 
   /**
-   * 向指定 channel + to 发送文本；失败返回硬失败结果。
+   * 向指定 channel + to 发送文本或富媒体；失败返回硬失败结果。
    */
   async send(params: ChannelSendParams): Promise<ChannelSendResult> {
     const channel = params.channel
     const to = typeof params.to === 'string' ? params.to.trim() : ''
     const text = typeof params.text === 'string' ? params.text : ''
+    const mediaPath = typeof params.mediaPath === 'string' ? params.mediaPath.trim() : ''
 
     if (!to) {
       return {
@@ -78,11 +82,56 @@ export class ChannelOutboundRouter {
       }
     }
 
-    const result = await provider.sendText({ to, text })
+    const result = mediaPath
+      ? await this.dispatchMedia(provider, { to, text, mediaPath, fileName: params.fileName })
+      : await provider.sendText({ to, text })
     return {
       ...result,
       channel: result.channel ?? channel,
       to: result.to ?? to,
     }
+  }
+
+  /**
+   * 富媒体分发：校验渠道能力与本地文件后交给 Provider.sendMedia。
+   */
+  private async dispatchMedia(
+    provider: IChannelOutboundProvider,
+    params: { to: string; text: string; mediaPath: string; fileName?: string },
+  ): Promise<ChannelSendResult> {
+    const channel = provider.channel
+    if (!provider.sendMedia) {
+      return {
+        ok: false,
+        errorCode: 'UNSUPPORTED_MEDIA',
+        message: `渠道 ${channel} 不支持发送富媒体，请改用纯文本`,
+        channel,
+        to: params.to,
+      }
+    }
+    if (!path.isAbsolute(params.mediaPath)) {
+      return {
+        ok: false,
+        errorCode: 'MEDIA_NOT_FOUND',
+        message: `mediaPath 必须是本地绝对路径，收到：${params.mediaPath}`,
+        channel,
+        to: params.to,
+      }
+    }
+    if (!fs.existsSync(params.mediaPath)) {
+      return {
+        ok: false,
+        errorCode: 'MEDIA_NOT_FOUND',
+        message: `文件不存在：${params.mediaPath}`,
+        channel,
+        to: params.to,
+      }
+    }
+    return provider.sendMedia({
+      to: params.to,
+      text: params.text,
+      mediaPath: params.mediaPath,
+      fileName: params.fileName?.trim() || path.basename(params.mediaPath),
+    })
   }
 }

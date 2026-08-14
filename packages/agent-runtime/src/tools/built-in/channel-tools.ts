@@ -49,17 +49,28 @@ const ChannelSendParams = Type.Object({
     Type.Literal("wecom"),
   ], { description: "Target channel id from channel_list" }),
   to: Type.String({ description: "Peer id from channel_list (required). Do not guess." }),
-  text: Type.String({ description: "Plain text to send" }),
+  text: Type.String({ description: "Plain text to send. With mediaPath, sent as a separate leading message; may be empty." }),
+  mediaPath: Type.Optional(
+    Type.String({
+      description:
+        "Absolute local path of a file to send (image/document/audio/video). " +
+        "Feishu and WeChat only; WeCom hard-fails. Omit for text-only messages.",
+    }),
+  ),
+  fileName: Type.Optional(
+    Type.String({ description: "Display file name for mediaPath. Defaults to the path basename." }),
+  ),
 });
 type ChannelSendInput = Static<typeof ChannelSendParams>;
 
-/** 向指定 channel + peer 主动发文本（需用户确认） */
+/** 向指定 channel + peer 主动发文本或本地文件（需用户确认） */
 export const channelSendToolConfig: MtBotToolConfig<typeof ChannelSendParams> = {
   name: CHANNEL_SEND_TOOL_NAME,
   label: "Channel Send",
   description:
-    "Send a text message to an explicit channel peer. Always call channel_list first. " +
-    "'to' is required. WeChat needs a prior inbound message (cached context token). " +
+    "Send a text and/or a local file to an explicit channel peer. Always call channel_list first. " +
+    "'to' is required. Set 'mediaPath' to an absolute local path to send images/documents/audio/video. " +
+    "WeChat needs a prior inbound message (cached context token). " +
     "WeCom does not support proactive push (will hard-fail). " +
     "On failure, report errorCode/message honestly — never pretend success. " +
     "For in-turn WeChat replies in the active session, prefer the legacy `message` tool.",

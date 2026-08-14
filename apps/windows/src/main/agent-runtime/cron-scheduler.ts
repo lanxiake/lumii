@@ -16,6 +16,7 @@ import fs from 'node:fs'
 import { Cron } from 'croner'
 import type { LocalDatabase, FileRepo } from '@mtbot/agent-runtime'
 import { prependActiveDashboardFeedItem } from '../dashboard-feed-store'
+import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { formatForTarget } from './cron-notify-format'
 
 const log = {
@@ -663,6 +664,36 @@ export class CronScheduler {
   /**
    * 执行本地定时任务：推送系统通知，并按需驱动指定 Agent 完成任务。
    */
+  /**
+   * 驱动指定 Agent 执行任务，返回用于推送的正文（回读 Agent 最后一条回复）。
+   *
+   * 固定 sessionKey（而非「上次活跃会话」）：每个任务在会话列表里有专属可查看的记录，
+   * 不依赖用户此前是否打开过某个会话，客户端重启后也不受影响。
+   */
+  private async driveAgent(
+    job: { id: string; task_text: string },
+    currentRow: { name: string; system_prompt: string | null },
+    agentId: string,
+    startedAt: number,
+  ): Promise<string> {
+    log.info(`[driveAgent] 驱动 Agent agentId=${agentId} 执行任务 jobId=${job.id}`)
+    const convId = `cron:${job.id}`
+    this.deps.ensureConversationExists(convId, `定时任务 · ${currentRow.name}`)
+    this.deps.notifyIncomingMessage(convId, job.task_text)
+    const instanceId = await this.deps.createInstanceById(agentId, convId, convId)
+    try {
+      // 预置任务带完整系统提示词，拼在任务指令之前
+      const message = currentRow.system_prompt
+        ? `${currentRow.system_prompt}\n\n---\n\n${job.task_text}`
+        : job.task_text
+      await this.deps.prompt(instanceId, message)
+    } finally {
+      this.deps.destroy(instanceId)
+    }
+    // prompt() 不返回内容，从会话里回读 Agent 的最后一条回复作为推送正文
+    return this.readLatestAssistantText(convId, startedAt) ?? job.task_text
+  }
+
   private async runLocalCronJob(
     job: { id: string; task_text: string; agent_id: string | null },
     options: { manual?: boolean } = {},
@@ -737,26 +768,16 @@ export class CronScheduler {
 
       let output = job.task_text
       if (job.agent_id) {
-        // 有指定 Agent：驱动 Agent 执行任务，通知在 Agent 完成后发出
-        log.info(`[runLocalCronJob] 驱动 Agent agentId=${job.agent_id} 执行任务`)
-        // 固定 sessionKey（而非「上次活跃会话」）：每个任务在会话列表里有专属可查看的记录，
-        // 不依赖用户此前是否打开过某个会话，客户端重启后也不受影响
-        const convId = `cron:${job.id}`
-        const title = `定时任务 · ${currentRow.name}`
-        this.deps.ensureConversationExists(convId, title)
-        this.deps.notifyIncomingMessage(convId, job.task_text)
-        const instanceId = await this.deps.createInstanceById(job.agent_id, convId, convId)
+        output = await this.driveAgent(job, currentRow, job.agent_id, startedAt)
+      } else {
+        // 未绑定 Agent 且不是 companion 指令：task_text 是写给 Agent 的指令，
+        // 不驱动 Agent 就只会把指令原文当通知正文推出去，任务实际从未执行。
+        // 默认 Agent 不可用时退回原有的纯通知模式，不让任务整体失败。
         try {
-          // 预置任务带完整系统提示词，拼在任务指令之前
-          const message = currentRow.system_prompt
-            ? `${currentRow.system_prompt}\n\n---\n\n${job.task_text}`
-            : job.task_text
-          await this.deps.prompt(instanceId, message)
-        } finally {
-          this.deps.destroy(instanceId)
+          output = await this.driveAgent(job, currentRow, DEFAULT_AGENT_ID, startedAt)
+        } catch (err) {
+          log.warn(`[runLocalCronJob] 回落默认 Agent 失败，退回通知模式 jobId=${job.id}:`, err)
         }
-        // prompt() 不返回内容，从会话里回读 Agent 的最后一条回复作为推送正文
-        output = this.readLatestAssistantText(convId, startedAt) ?? job.task_text
       }
       await this.dispatchNotifications(
         { name: currentRow.name, task_text: job.task_text },

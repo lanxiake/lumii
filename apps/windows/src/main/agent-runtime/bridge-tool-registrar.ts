@@ -661,12 +661,19 @@ export class BridgeToolRegistrar {
           : undefined
         const notifyTargets = p.notifyTargets?.trim() || resolveChannelFromSessionKey(sessionKey)
 
+        // 未指定执行 Agent 时回落到当前 Agent：任务文本本就是写给 Agent 的指令，
+        // agent_id 为空会让调度器把指令原文当通知正文推送，任务实际从未执行
+        const fallbackAgentId = currentInstanceId
+          ? this.deps.getDefinitionIdByInstanceId(currentInstanceId)
+          : undefined
+        const agentId = p.agentId?.trim() || fallbackAgentId || null
+
         const jobId = `local-cron-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
         const row = {
           id: jobId,
           name: p.name.trim(),
           task_text: p.taskText,
-          agent_id: p.agentId?.trim() || null,
+          agent_id: agentId,
           schedule_type: p.scheduleType,
           schedule_expr: scheduleExpr,
           next_run_at: nextRunAt,
@@ -873,7 +880,13 @@ export class BridgeToolRegistrar {
             message: '渠道出站 Hub 尚未就绪，请稍后再试（非未登录）',
           })
         }
-        const p = rawParams as { channel?: string; to?: string; text?: string }
+        const p = rawParams as {
+          channel?: string
+          to?: string
+          text?: string
+          mediaPath?: string
+          fileName?: string
+        }
         const channel = String(p.channel ?? '').trim() as 'feishu' | 'weixin' | 'wecom'
         if (channel !== 'feishu' && channel !== 'weixin' && channel !== 'wecom') {
           return jsonToolResult({
@@ -886,6 +899,8 @@ export class BridgeToolRegistrar {
           channel,
           to: String(p.to ?? ''),
           text: String(p.text ?? ''),
+          ...(p.mediaPath ? { mediaPath: String(p.mediaPath) } : {}),
+          ...(p.fileName ? { fileName: String(p.fileName) } : {}),
         })
         return jsonToolResult(result)
       },

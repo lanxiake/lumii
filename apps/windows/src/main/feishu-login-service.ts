@@ -8,6 +8,8 @@
  */
 
 import { EventEmitter } from 'events'
+import fs from 'node:fs'
+import path from 'node:path'
 import QRCode from 'qrcode'
 import * as Lark from '@larksuiteoapi/node-sdk'
 import {
@@ -43,6 +45,22 @@ export interface FeishuNormalizedMessage {
   text: string
   msgId: string
   timestamp: number
+}
+
+/** 走 im.image 上传并以 msg_type=image 发送的扩展名 */
+const FEISHU_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'])
+
+/** 扩展名 → 飞书 im.file file_type；未命中回落 stream */
+const FEISHU_FILE_TYPES: Record<string, 'opus' | 'mp4' | 'pdf' | 'doc' | 'xls' | 'ppt' | 'stream'> = {
+  '.opus': 'opus',
+  '.mp4': 'mp4',
+  '.pdf': 'pdf',
+  '.doc': 'doc',
+  '.docx': 'doc',
+  '.xls': 'xls',
+  '.xlsx': 'xls',
+  '.ppt': 'ppt',
+  '.pptx': 'ppt',
 }
 
 const log = {
@@ -204,6 +222,97 @@ export class FeishuLoginService extends EventEmitter {
       log.error('pushText threw:', msg)
       return { ok: false, error: msg }
     }
+  }
+
+  /**
+   * 主动推送本地文件：图片走 im.image + msg_type=image，其余走 im.file + msg_type=file。
+   *
+   * @param filePath 本地绝对路径
+   * @param to 可选收件人 open_id；缺省为登录会话的 openId
+   * @param fileName 展示文件名，缺省取 basename
+   */
+  async pushMedia(
+    filePath: string,
+    to?: string,
+    fileName?: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    if (!this.httpClient) return { ok: false, error: '飞书未连接' }
+    const receiveId = (to?.trim() || this.session?.openId || '').trim()
+    if (!receiveId) return { ok: false, error: '飞书会话缺少 openId，请重新扫码登录' }
+
+    const name = fileName?.trim() || path.basename(filePath)
+    const ext = path.extname(name).toLowerCase()
+    const isImage = FEISHU_IMAGE_EXTS.has(ext)
+    try {
+      const uploaded = isImage
+        ? await this.uploadImage(filePath)
+        : await this.uploadFile(filePath, name, ext)
+      if (!uploaded.ok) return uploaded
+
+      const res = await this.httpClient.im.message.create({
+        params: { receive_id_type: 'open_id' },
+        data: {
+          receive_id: receiveId,
+          msg_type: isImage ? 'image' : 'file',
+          content: JSON.stringify(
+            isImage ? { image_key: uploaded.key } : { file_key: uploaded.key },
+          ),
+        },
+      })
+      if (res.code === 0) return { ok: true }
+      log.error('pushMedia send failed:', res.code, res.msg)
+      return { ok: false, error: `飞书返回 ${res.code}: ${res.msg}` }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.error('pushMedia threw:', msg)
+      return { ok: false, error: msg }
+    }
+  }
+
+  /**
+   * 上传图片素材，返回 image_key。
+   */
+  private async uploadImage(
+    filePath: string,
+  ): Promise<{ ok: true; key: string } | { ok: false; error: string }> {
+    const res = (await this.httpClient!.im.image.create({
+      data: { image_type: 'message', image: fs.createReadStream(filePath) },
+    })) as {
+      code?: number
+      msg?: string
+      data?: { image_key?: string }
+      image_key?: string
+    } | null
+    const key = res?.data?.image_key ?? res?.image_key
+    if (res && (res.code === undefined || res.code === 0) && key) return { ok: true, key }
+    log.error('uploadImage failed:', res?.code, res?.msg)
+    return { ok: false, error: `飞书图片上传失败 ${res?.code ?? 'unknown'}: ${res?.msg ?? '缺少 image_key'}` }
+  }
+
+  /**
+   * 上传文件素材，返回 file_key。
+   */
+  private async uploadFile(
+    filePath: string,
+    fileName: string,
+    ext: string,
+  ): Promise<{ ok: true; key: string } | { ok: false; error: string }> {
+    const res = (await this.httpClient!.im.file.create({
+      data: {
+        file_type: FEISHU_FILE_TYPES[ext] ?? 'stream',
+        file_name: fileName,
+        file: fs.createReadStream(filePath),
+      },
+    })) as {
+      code?: number
+      msg?: string
+      data?: { file_key?: string }
+      file_key?: string
+    } | null
+    const key = res?.data?.file_key ?? res?.file_key
+    if (res && (res.code === undefined || res.code === 0) && key) return { ok: true, key }
+    log.error('uploadFile failed:', res?.code, res?.msg)
+    return { ok: false, error: `飞书文件上传失败 ${res?.code ?? 'unknown'}: ${res?.msg ?? '缺少 file_key'}` }
   }
 
   /**

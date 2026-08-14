@@ -1222,6 +1222,7 @@ function buildMessagingSection(params: {
       "- `to` 必填；不要猜测收件人。",
       "- 微信需用户曾给 Bot 发过消息；否则提示用户先发一条激活。",
       "- 企微不支持主动推送；仅能在企微会话内被动回复。",
+      "- 发图片/文件：`channel_send` 传 `mediaPath`（本地绝对路径），可同时带 `text` 作为说明（会先单独发一条）。仅飞书/微信支持。",
       "- 发送失败时如实告知 errorCode 与 message，不要假装成功。",
       "- 主动出站用 `channel_send`；会话内快捷回复仍可用 `message`（已 deprecated 作为出站主路径）。",
     )

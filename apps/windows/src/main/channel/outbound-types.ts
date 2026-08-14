@@ -18,6 +18,8 @@ export type ChannelSendErrorCode =
   | 'NO_REPLY_CONTEXT'
   | 'TOKEN_STALE'
   | 'UNSUPPORTED_PUSH'
+  | 'UNSUPPORTED_MEDIA'
+  | 'MEDIA_NOT_FOUND'
   | 'RATE_LIMITED'
   | 'UPSTREAM_ERROR'
 
@@ -48,6 +50,20 @@ export interface ChannelSendParams {
   /** 必填收件人 */
   to: string
   text: string
+  /** 富媒体本地绝对路径；给出时走 Provider.sendMedia */
+  mediaPath?: string
+  /** 展示文件名，缺省时从 mediaPath 取 basename */
+  fileName?: string
+}
+
+/** Provider.sendMedia 入参 */
+export interface ChannelSendMediaParams {
+  to: string
+  /** 已由 Router 校验存在的本地绝对路径 */
+  mediaPath: string
+  fileName: string
+  /** 可选随附文本，各渠道自行决定是否单独先发一条 */
+  text?: string
 }
 
 /** 出站结果：失败必须 ok:false + errorCode */
@@ -77,6 +93,8 @@ export interface IChannelOutboundProvider {
   getSnapshot(): ChannelSnapshot | Promise<ChannelSnapshot>
   /** 向指定 peer 发文本；不支持时返回 UNSUPPORTED_PUSH */
   sendText(params: { to: string; text: string }): Promise<ChannelSendResult>
+  /** 向指定 peer 发富媒体；未实现的渠道由 Router 兜底为 UNSUPPORTED_MEDIA */
+  sendMedia?(params: ChannelSendMediaParams): Promise<ChannelSendResult>
 }
 
 export const CHANNEL_LIST_TOOL = 'channel_list'

@@ -1201,23 +1201,15 @@ export class WeixinLoginService extends EventEmitter {
     }
     const bodyBytes = Buffer.from(JSON.stringify(bodyObj), 'utf8')
 
-    const uin = Buffer.from(String(Math.floor(Math.random() * 0xffffffff))).toString('base64')
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'AuthorizationType': 'ilink_bot_token',
-      'Authorization': `Bearer ${botToken}`,
-      'X-WECHAT-UIN': uin,
-      'Content-Length': String(bodyBytes.length),
-    }
-
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), 10_000)
 
     try {
       console.info('[WeixinLogin] [apiSendTextChunk] →', url, 'to=', toUserId, 'len=', text.length)
+      // 勿手动设 Content-Length：新版 undici/fetch 会判为 invalid content-length（UND_ERR_INVALID_ARG）
       const res = await fetch(url, {
         method: 'POST',
-        headers,
+        headers: this.buildHeaders(botToken),
         signal: controller.signal,
         body: bodyBytes,
       })
@@ -1257,16 +1249,13 @@ export class WeixinLoginService extends EventEmitter {
     return headers
   }
 
-  /** 构建带 Content-Length 的请求头（iLink 必需字段，否则静默丢消息） */
-  private buildHeadersWithLength(botToken: string, bodyBytes: Buffer): Record<string, string> {
-    const uin = Buffer.from(String(Math.floor(Math.random() * 0xffffffff))).toString('base64')
-    return {
-      'Content-Type': 'application/json',
-      'AuthorizationType': 'ilink_bot_token',
-      'Authorization': `Bearer ${botToken}`,
-      'X-WECHAT-UIN': uin,
-      'Content-Length': String(bodyBytes.length),
-    }
+  /**
+   * 构建 POST 请求头。
+   * 不设置 Content-Length：fetch 会按 body 自动计算；手动设置会与新版 undici 冲突，
+   * 抛出 InvalidArgumentError: invalid content-length header（微信发送失败）。
+   */
+  private buildHeadersWithLength(botToken: string, _bodyBytes?: Buffer): Record<string, string> {
+    return this.buildHeaders(botToken)
   }
 
   private async apiFetchQrCode(): Promise<QRCodeResponse> {
