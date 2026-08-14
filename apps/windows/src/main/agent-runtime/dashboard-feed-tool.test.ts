@@ -8,10 +8,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const writeDashboardFeedSnapshotMock = vi.fn(async () => undefined)
-vi.mock('../dashboard-feed-store', () => ({
-  writeDashboardFeedSnapshot: writeDashboardFeedSnapshotMock,
-  DEFAULT_DASHBOARD_FEED_ID: 'news',
-}))
+vi.mock('../dashboard-feed-store', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../dashboard-feed-store')>()
+  return {
+    ...actual,
+    writeDashboardFeedSnapshot: writeDashboardFeedSnapshotMock,
+  }
+})
 
 const { BridgeToolRegistrar } = await import('./bridge-tool-registrar')
 
@@ -78,6 +81,24 @@ describe('dashboard_feed_write execute', () => {
     expect(snapshot.summary).toBe('今天的趋势')
     expect(snapshot.items[0]).toMatchObject({ id: 'https://a.com', title: 'A 条目', href: 'https://a.com', source: '来源A' })
     expect(snapshot.items[1].id).toBe('B 条目-1')
+  })
+
+  it('相同 href 的多条资讯写入互不相同的 id', async () => {
+    const tool = makeRegistrar()
+    await tool.execute('call-dup', {
+      title: '最近资讯',
+      items: [
+        { title: '广播 1', href: 'http://www.xinhuanet.com/guangbo/' },
+        { title: '广播 2', href: 'http://www.xinhuanet.com/guangbo/' },
+      ],
+    })
+    const snapshot = writeDashboardFeedSnapshotMock.mock.calls[0][0] as {
+      items: Array<{ id: string }>
+    }
+    expect(snapshot.items.map((item) => item.id)).toEqual([
+      'http://www.xinhuanet.com/guangbo/',
+      'http://www.xinhuanet.com/guangbo/#1',
+    ])
   })
 
   it('写盘抛异常时捕获并返回错误结果，不向外抛出', async () => {

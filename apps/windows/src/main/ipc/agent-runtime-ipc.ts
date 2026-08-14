@@ -1233,6 +1233,12 @@ async function handleCommand(
           const instanceId = await getInstanceForSession(bridge, command.sessionKey)
           if (instanceId) {
             const result = await bridge.compactContextAsync(instanceId, command.sessionKey, keepTurns)
+            // 压缩后 DB 比内存短，必须强制下次 prompt 以 DB（含摘要）为准重注入
+            const adapter = getIpcChannelAdapter(bridge)
+            const strategy = adapter.getContextStrategy()
+            if (strategy instanceof StatefulContextStrategy) {
+              strategy.markForceResync(command.sessionKey)
+            }
             return result
           } else {
             log.warn(`[user:compact-context] 无法恢复 instanceId，降级为同步压缩: sessionKey=${command.sessionKey}`)

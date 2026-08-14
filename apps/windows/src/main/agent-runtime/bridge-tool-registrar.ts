@@ -64,7 +64,11 @@ import type { InstanceStateStore } from './bridge-instance-state'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import type { CronScheduler } from './cron-scheduler'
 import { registerBrowserTools as registerBrowserToolsFn } from './bridge-browser-tools'
-import { writeDashboardFeedSnapshot, DEFAULT_DASHBOARD_FEED_ID } from '../dashboard-feed-store'
+import {
+  writeDashboardFeedSnapshot,
+  DEFAULT_DASHBOARD_FEED_ID,
+  uniqueDashboardFeedItemId,
+} from '../dashboard-feed-store'
 import {
   agentRuntimeLog as log,
   jsonToolResult,
@@ -797,15 +801,22 @@ export class BridgeToolRegistrar {
             title: p.title.trim(),
             updatedAt: Date.now(),
             ...(p.summary?.trim() ? { summary: p.summary.trim() } : {}),
-            items: p.items.map((item, index) => ({
-              id: item.href?.trim() || `${item.title}-${index}`,
-              title: item.title,
-              ...(item.summary ? { summary: item.summary } : {}),
-              ...(item.href ? { href: item.href } : {}),
-              ...(item.source ? { source: item.source } : {}),
-              timestamp: Date.now(),
-              kind: 'news',
-            })),
+            items: (() => {
+              const seenIds = new Map<string, number>()
+              return p.items.map((item, index) => ({
+                id: uniqueDashboardFeedItemId(
+                  { href: item.href?.trim(), title: item.title },
+                  index,
+                  seenIds,
+                ),
+                title: item.title,
+                ...(item.summary ? { summary: item.summary } : {}),
+                ...(item.href ? { href: item.href } : {}),
+                ...(item.source ? { source: item.source } : {}),
+                timestamp: Date.now(),
+                kind: 'news',
+              }))
+            })(),
           })
           return jsonToolResult({ status: 'ok', itemCount: p.items.length })
         } catch (err) {

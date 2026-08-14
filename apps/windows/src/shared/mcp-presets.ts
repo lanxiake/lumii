@@ -7,6 +7,7 @@
  *   3. 官方或一方维护，包名可确认
  *
  * 需要密钥的一律把 env 值留空并给出申请地址，不写死假值。
+ * 非密钥（如服务 URL）可以写默认值，播种时视为已就绪。
  *
  * 不收录 @playwright/mcp 与 chrome-devtools-mcp：客户端已内置 browser_* 工具
  * （导航/点击/输入/滚动/截图/执行 JS）和 HTML 预览，装了只是重复一套还多依赖 Chrome。
@@ -38,13 +39,16 @@ export interface McpPreset {
 }
 
 /**
- * 预置项是否零配置（没有待办、不需要密钥）
+ * 预置项是否已可直接启用
  *
- * 首次播种时只有零配置的才默认启用：需要填路径或 Key 的先写进列表但停用，
+ * 首次播种时只有就绪项才默认打开：还要填路径 / Key 的先写进列表但停用，
  * 否则首启就会连一串必定失败的 Server，用户打开设置看到满屏红点。
+ * env 里若全是非空默认值（例如服务 URL）也算就绪。
  */
 export function isReadyToUse(preset: McpPreset): boolean {
-  return !preset.todo && !preset.env
+  if (preset.todo) return false
+  if (!preset.env) return true
+  return Object.values(preset.env).every((value) => value.trim() !== '')
 }
 
 export const MCP_PRESETS: readonly McpPreset[] = [
@@ -67,44 +71,18 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     args: ['-y', '@modelcontextprotocol/server-sequential-thinking'],
   },
   {
-    name: 'memory',
-    title: '知识记忆',
-    description: '用知识图谱记住人物、概念和它们的关系，跨对话随时追问复习',
-    categories: ['office', 'kids', 'life'],
+    name: 'comfyui-remote',
+    title: 'ComfyUI 生图',
+    description: '连接远程 ComfyUI，用工作流生成图片、处理图像',
+    categories: ['creator'],
     command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-memory'],
-  },
-  {
-    name: 'chart',
-    title: '图表生成',
-    description: '一句话生成柱状图、折线图、饼图、思维导图，出图直接贴进报告或图文',
-    categories: ['office', 'creator', 'kids'],
-    command: 'npx',
-    args: ['-y', '@antv/mcp-server-chart'],
-  },
-  {
-    name: 'context7',
-    title: '最新框架文档',
-    description: '写代码时自动查 React / Vue / Tailwind 等库的最新用法，避免 AI 编出过时或不存在的 API',
-    categories: ['frontend'],
-    command: 'npx',
-    args: ['-y', '@upstash/context7-mcp'],
-  },
-  {
-    name: 'amap',
-    title: '高德地图',
-    description: '查地点、算路线、看天气，规划出行和亲子活动',
-    categories: ['life', 'kids'],
-    command: 'npx',
-    args: ['-y', '@amap/amap-maps-mcp-server'],
-    env: { AMAP_MAPS_API_KEY: '' },
-    keyUrl: 'https://console.amap.com/dev/key/app',
-    todo: '申请免费 Key（选「Web 服务」类型）填进环境变量',
+    args: ['-y', 'comfyui-mcp'],
+    env: { COMFYUI_URL: 'https://cfui.cpolar.top' },
   },
   {
     name: 'baidu-map',
     title: '百度地图',
-    description: '地点检索、路线规划、周边推荐，高德之外的另一个选择',
+    description: '地点检索、路线规划、周边推荐',
     categories: ['life', 'kids'],
     command: 'npx',
     args: ['-y', '@baidumap/mcp-server-baidu-map'],

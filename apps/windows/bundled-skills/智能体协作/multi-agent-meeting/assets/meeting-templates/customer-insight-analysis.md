@@ -189,8 +189,6 @@ python scripts/customer_interview_analyzer.py interview.txt json
 
 ## 相关资源
 
-- **访谈分析工具**: product-manager-toolkit/scripts/customer_interview_analyzer.py
-- **PRD模板**: product-manager-toolkit/references/prd_templates.md
 - **会议记录格式**: multi-agent-meeting/references/meeting-record-format.md
 
 ## 使用示例

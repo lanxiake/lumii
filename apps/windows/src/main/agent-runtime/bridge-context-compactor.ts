@@ -17,9 +17,18 @@ import {
   NO_TOOLS_PREAMBLE,
   NO_TOOLS_TRAILER,
 } from '@mtbot/agent-runtime'
+import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
+import {
+  applyConversationCompactToUsage,
+  patchBreakdownAfterConversationCompact,
+} from './context-usage-breakdown'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import { agentRuntimeLog as log } from './bridge-utils'
+import {
+  buildPersistedCompactSummary,
+  resolveCompactSummaryTimestamp,
+} from './compact-persist'
 
 type ModelRef = import('@mariozechner/pi-ai').Model<any>
 type InnerStreamRef = ReturnType<typeof createGatewayStreamFn>
@@ -54,6 +63,15 @@ export interface BridgeContextCompactorDeps {
   createSummaryGenerator: (innerStream: InnerStreamRef, model: ModelRef) => SummaryGeneratorFn
   /** 压缩/清空后使提供商 token 缓存失效 */
   onSessionContextInvalidated?: (sessionKey: string) => void
+  /** 压缩后写入整窗占用（只扣对话差值），避免下一次读数把 MCP 一并缩放 */
+  onSessionContextTokensUpdated?: (sessionKey: string, usedTokens: number) => void
+  /** 读取压缩前的整窗占用（与占用卡片同一口径） */
+  getSessionContextUsage?: (sessionKey: string) => {
+    usedTokens: number
+    contextWindow: number
+    triggerThreshold: number
+    breakdown?: readonly ContextUsageBreakdownEntry[]
+  }
 }
 
 export class BridgeContextCompactor {
@@ -135,11 +153,11 @@ export class BridgeContextCompactor {
     const toDelete = allMessages.slice(0, allMessages.length - keepCount)
     const ids = toDelete.map((m) => m.id)
 
-    // 在删除前先计算压缩前的 token 数，避免删除后无法获取原始数据
+    // 删除前快照整窗占用与对话估算，压缩只扣对话差值
+    const usageBefore = this.deps.getSessionContextUsage?.(sessionKey)
     const allPiMessages = repo.loadMessagesAsPiFormat(sessionKey, { limit: allMessages.length }) as AgentMessage[]
-    const prevTokenCount = estimateTokenCount(allPiMessages)
-    const newPiMessages = allPiMessages.slice(ids.length)
-    const newTokenCount = estimateTokenCount(newPiMessages)
+    const conversationBefore = estimateTokenCount(allPiMessages)
+    const conversationAfter = estimateTokenCount(allPiMessages.slice(ids.length))
 
     const placeholders = ids.map(() => '?').join(', ')
     db.prepare(`DELETE FROM messages WHERE id IN (${placeholders})`).run(...ids)
@@ -147,17 +165,14 @@ export class BridgeContextCompactor {
     const newMessageCount = allMessages.length - ids.length
     log.info(`[compactContext] sessionKey=${sessionKey} 压缩完成: 删除${ids.length}条, 保留${newMessageCount}条`)
 
-    this.deps.onSessionContextInvalidated?.(sessionKey)
-
-    this.deps.ipcChannel.forwardIpcEvent({
-      type: 'agent:context:compacted',
+    this.emitCompacted({
       sessionKey,
-      previousTokenCount: prevTokenCount,
-      newTokenCount,
+      conversationBefore,
+      conversationAfter,
       messagesRemoved: ids.length,
       messagesBefore: allMessages.length,
       messagesAfter: newMessageCount,
-      timestamp: Date.now(),
+      usageBefore,
     })
 
     return {
@@ -196,9 +211,9 @@ export class BridgeContextCompactor {
     if (!repo) throw new Error('ConversationRepo not initialized')
 
     const db = this.deps.getDb()
-    const allMessages = db.prepare<{ id: string }>(
-      `SELECT id FROM messages WHERE conversation_id = ? AND is_streaming = 0 ORDER BY timestamp ASC`,
-    ).all(sessionKey) as { id: string }[]
+    const allMessages = db.prepare<{ id: string; timestamp: string }>(
+      `SELECT id, timestamp FROM messages WHERE conversation_id = ? AND is_streaming = 0 ORDER BY timestamp ASC`,
+    ).all(sessionKey) as { id: string; timestamp: string }[]
 
     const previousMessageCount = allMessages.length
     if (previousMessageCount === 0) {
@@ -214,10 +229,13 @@ export class BridgeContextCompactor {
 
     let keepCount = resolveManualCompactKeepCount(previousMessageCount, keepRecentTurns)
 
+    // 删除前快照整窗占用（含 MCP/工具定义），避免事后清缓存把定义一并缩放
+    const usageBefore = this.deps.getSessionContextUsage?.(sessionKey)
+
     // 尝试 LLM 摘要：手动压缩无论消息多少都发出摘要请求
     let summaryText: string | null = null
     const piMessages = repo.loadMessagesAsPiFormat(sessionKey, { limit: allMessages.length }) as AgentMessage[]
-    const previousTokenCount = estimateTokenCount(piMessages)
+    const conversationBefore = estimateTokenCount(piMessages)
     // 优先用当前实例的 stream，降级到主 Agent stream
     const instanceStreamEntry = this.deps.getInstanceStream(instanceId)
     const activeInnerStream = instanceStreamEntry?.innerStream ?? this.deps.getMainInnerStream()
@@ -272,16 +290,15 @@ export class BridgeContextCompactor {
     db.prepare(`DELETE FROM messages WHERE id IN (${placeholders})`).run(...ids)
     log.info(`[compactContextAsync] 已删除 ${ids.length} 条旧消息: sessionKey=${sessionKey}`)
 
-    // 写入摘要消息
+    // 写入摘要：必须用 assistant_parts，且时间戳插在保留段之前，否则后续 prompt 读不到
     if (summaryText) {
       try {
+        const firstKept = allMessages[allMessages.length - keepCount]
         repo.saveMessage({
           conversationId: sessionKey,
           role: 'assistant',
-          contentJson: {
-            type: 'text' as const,
-            text: `[对话摘要]\n${summaryText}`,
-          },
+          contentJson: buildPersistedCompactSummary(summaryText),
+          timestamp: resolveCompactSummaryTimestamp(firstKept?.timestamp),
         })
         log.info(`[compactContextAsync] 摘要已写入 DB: sessionKey=${sessionKey}`)
       } catch (err) {
@@ -303,23 +320,20 @@ export class BridgeContextCompactor {
       )
     }
 
-    // 计算压缩后 token 数
     const newPiMessages = repo.loadMessagesAsPiFormat(sessionKey, {
       limit: newMessageCount + 10,
     }) as AgentMessage[]
-    const newTokenCount = estimateTokenCount(newPiMessages)
+    const conversationAfter = estimateTokenCount(newPiMessages)
 
-    this.deps.onSessionContextInvalidated?.(sessionKey)
-
-    this.deps.ipcChannel.forwardIpcEvent({
-      type: 'agent:context:compacted',
+    this.emitCompacted({
       sessionKey,
-      previousTokenCount,
-      newTokenCount,
+      conversationBefore,
+      conversationAfter,
       messagesRemoved: ids.length,
       messagesBefore: previousMessageCount,
       messagesAfter: newMessageCount,
-      timestamp: Date.now(),
+      summaryText,
+      usageBefore,
     })
 
     return {
@@ -328,6 +342,73 @@ export class BridgeContextCompactor {
       newMessageCount,
       messagesRemoved: ids.length,
       hadSummary: !!summaryText,
+    }
+  }
+
+  /**
+   * 推送压缩完成事件：token 用整窗口径，只扣对话差值；MCP/工具定义保持压缩前的展示值。
+   */
+  private emitCompacted(params: {
+    sessionKey: string
+    conversationBefore: number
+    conversationAfter: number
+    messagesRemoved: number
+    messagesBefore: number
+    messagesAfter: number
+    summaryText?: string | null
+    usageBefore?: {
+      usedTokens: number
+      contextWindow: number
+      triggerThreshold: number
+      breakdown?: readonly ContextUsageBreakdownEntry[]
+    }
+  }): void {
+    const { sessionKey, conversationBefore, conversationAfter, usageBefore } = params
+    const previousTokenCount =
+      usageBefore && usageBefore.usedTokens > 0 ? usageBefore.usedTokens : conversationBefore
+    const newTokenCount = applyConversationCompactToUsage(
+      previousTokenCount,
+      conversationBefore,
+      conversationAfter,
+    )
+    const breakdown = usageBefore?.breakdown
+      ? patchBreakdownAfterConversationCompact(
+          usageBefore.breakdown,
+          conversationBefore,
+          conversationAfter,
+        )
+      : undefined
+
+    if (this.deps.onSessionContextTokensUpdated) {
+      this.deps.onSessionContextTokensUpdated(sessionKey, newTokenCount)
+    } else {
+      this.deps.onSessionContextInvalidated?.(sessionKey)
+    }
+
+    this.deps.ipcChannel.forwardIpcEvent({
+      type: 'agent:context:compacted',
+      sessionKey,
+      previousTokenCount,
+      newTokenCount,
+      messagesRemoved: params.messagesRemoved,
+      messagesBefore: params.messagesBefore,
+      messagesAfter: params.messagesAfter,
+      timestamp: Date.now(),
+      conversationTokensBefore: conversationBefore,
+      conversationTokensAfter: conversationAfter,
+      ...(params.summaryText ? { summaryText: params.summaryText } : {}),
+      ...(breakdown ? { breakdown } : {}),
+    })
+
+    if (usageBefore) {
+      this.deps.ipcChannel.forwardIpcEvent({
+        type: 'agent:context:usage',
+        sessionKey,
+        usedTokens: newTokenCount,
+        contextWindow: usageBefore.contextWindow,
+        triggerThreshold: usageBefore.triggerThreshold,
+        ...(breakdown ? { breakdown } : {}),
+      })
     }
   }
 }

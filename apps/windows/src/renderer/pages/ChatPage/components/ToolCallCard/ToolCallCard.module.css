@@ -290,6 +290,23 @@
   max-height: 200px;
   overflow-y: auto;
   margin: 0;
+  /* 同 ToolBatchGroup .body：多个嵌套滚动区叠加 WebKit 自定义滚动条会
+     与 Electron GPU 合成层冲突，改用原生细滚动条避免卡片渲染重叠 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--mt-border) transparent;
+}
+
+.code::-webkit-scrollbar {
+  width: 6px;
+}
+
+.code::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.code::-webkit-scrollbar-thumb {
+  background: var(--mt-border);
+  border-radius: 3px;
 }
 
 .errorText {

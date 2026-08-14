@@ -13,6 +13,12 @@
   border: 1px dashed var(--mt-border);
   background: transparent;
   overflow: hidden;
+  transition: max-width var(--mt-dur-normal, 160ms) var(--mt-ease-standard, ease);
+}
+
+.cardExpanded {
+  max-width: 640px;
+  border-radius: var(--mt-radius-lg, 12px);
 }
 
 .header {
@@ -76,4 +82,25 @@
   justify-content: space-between;
   gap: 12px;
   padding: 2px 0;
+}
+
+.summaryBody {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--mt-font-sans, inherit);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--mt-fg-2);
+  background: var(--mt-bg-overlay, rgba(148, 163, 184, 0.08));
+  border-radius: var(--mt-radius-md, 8px);
+}
+
+.summaryEmpty {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--mt-fg-4);
 }

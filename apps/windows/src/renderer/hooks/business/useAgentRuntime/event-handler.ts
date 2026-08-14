@@ -9,6 +9,7 @@
  */
 
 import type { AgentRuntimeEvent, AgentRuntimeEventType } from '../../../../shared/agent-runtime-events'
+import { patchBreakdownAfterConversationCompact } from '../../../../shared/context-usage-compact'
 import type { RuntimeToolCall, RuntimeMessage, StreamMetrics, ContextUsage, PerSessionState, RuntimeFileEvent, RuntimeCompactionEvent } from './agent-runtime-store'
 import { runtimeStore, updateSessionState, getDefaultPerSessionState } from './agent-runtime-store'
 import {
@@ -1360,15 +1361,22 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
 
     case 'agent:context:usage': {
       const ratio = event.contextWindow > 0 ? event.usedTokens / event.contextWindow : 0
-      const contextUsage: ContextUsage = {
-        usedTokens: event.usedTokens,
-        contextWindow: event.contextWindow,
-        triggerThreshold: event.triggerThreshold,
-        isNearThreshold: ratio > 0.6,
-        ...(event.breakdown ? { breakdown: event.breakdown } : {}),
-      }
       const isAutoCompacting = ratio >= event.triggerThreshold
-      updateSessionState(sessionKey, (prev) => ({ ...prev, contextUsage, isAutoCompacting }))
+      updateSessionState(sessionKey, (prev) => ({
+        ...prev,
+        isAutoCompacting,
+        contextUsage: {
+          usedTokens: event.usedTokens,
+          contextWindow: event.contextWindow,
+          triggerThreshold: event.triggerThreshold,
+          isNearThreshold: ratio > 0.6,
+          ...(event.breakdown
+            ? { breakdown: event.breakdown }
+            : prev.contextUsage?.breakdown
+              ? { breakdown: prev.contextUsage.breakdown }
+              : {}),
+        },
+      }))
       break
     }
 
@@ -1377,7 +1385,13 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         const ratio = prev.contextUsage && prev.contextUsage.contextWindow > 0
           ? event.newTokenCount / prev.contextUsage.contextWindow
           : 0
-        const newCompactionEvent = {
+        const convBefore = event.conversationTokensBefore
+        const convAfter = event.conversationTokensAfter
+        const breakdown = event.breakdown
+          ?? (prev.contextUsage?.breakdown && convBefore != null && convAfter != null
+            ? patchBreakdownAfterConversationCompact(prev.contextUsage.breakdown, convBefore, convAfter)
+            : prev.contextUsage?.breakdown)
+        const newCompactionEvent: RuntimeCompactionEvent = {
           id: `compaction-${event.timestamp}`,
           timestamp: event.timestamp,
           tokensBefore: event.previousTokenCount,
@@ -1385,6 +1399,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           messagesRemoved: event.messagesRemoved,
           messagesBefore: event.messagesBefore ?? event.messagesRemoved,
           messagesAfter: event.messagesAfter ?? 0,
+          ...(event.summaryText ? { summaryText: event.summaryText } : {}),
         }
         return {
           ...prev,
@@ -1395,6 +1410,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
               ...prev.contextUsage,
               usedTokens: event.newTokenCount,
               isNearThreshold: ratio > 0.6,
+              ...(breakdown ? { breakdown } : {}),
             },
           } : {}),
         }

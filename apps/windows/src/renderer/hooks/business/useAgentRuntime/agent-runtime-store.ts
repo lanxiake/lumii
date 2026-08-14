@@ -176,6 +176,8 @@ export interface RuntimeCompactionEvent {
   readonly messagesBefore: number
   /** 压缩后消息条数（精确值，非估算） */
   readonly messagesAfter: number
+  /** LLM 摘要正文，供压缩卡片展开查看 */
+  readonly summaryText?: string
 }
 
 /** Agent 生成文件事件（文件附件卡片数据） */

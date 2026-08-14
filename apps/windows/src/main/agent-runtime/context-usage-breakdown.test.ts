@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
-import { buildContextUsageBreakdown } from './context-usage-breakdown'
+import {
+  applyConversationCompactToUsage,
+  buildContextUsageBreakdown,
+  patchBreakdownAfterConversationCompact,
+} from './context-usage-breakdown'
 
 const SYSTEM_PROMPT = [
   '你是灵栖。',
@@ -61,6 +65,27 @@ describe('buildContextUsageBreakdown', () => {
     })
     expect(result.length).toBeGreaterThan(0)
     expect(result.every((e) => e.tokens > 0)).toBe(true)
+  })
+
+  it('压缩只扣对话差值，MCP/工具总量保持', () => {
+    // 212K 总量、对话估算 101.1K → 36.4K，应对齐用户看到的 212K → ~147K
+    expect(applyConversationCompactToUsage(212_000, 101_100, 36_400)).toBe(147_300)
+  })
+
+  it('patchBreakdown 只缩小 conversation，mcp 行不变', () => {
+    const patched = patchBreakdownAfterConversationCompact(
+      [
+        { category: 'mcp', tokens: 93_300 },
+        { category: 'conversation', tokens: 100_000 },
+        { category: 'tools', tokens: 9_200 },
+      ],
+      101_100,
+      36_400,
+    )
+    const byCategory = new Map(patched.map((e) => [e.category, e.tokens]))
+    expect(byCategory.get('mcp')).toBe(93_300)
+    expect(byCategory.get('tools')).toBe(9_200)
+    expect(byCategory.get('conversation')).toBe(Math.round(100_000 * (36_400 / 101_100)))
   })
 
   it('空输入返回空数组', () => {

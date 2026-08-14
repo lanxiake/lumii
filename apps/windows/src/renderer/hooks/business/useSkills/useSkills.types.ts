@@ -11,6 +11,8 @@ export interface InstalledSkillInfo {
   isEnabled: boolean
   installedAt: string
   lastUsedAt?: string
+  /** 累计调用次数 */
+  executionCount?: number
   /** 分类目录名，无分类时为空字符串 */
   category: string
   skill: {

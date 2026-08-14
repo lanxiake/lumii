@@ -14,6 +14,7 @@ import { mergeAssistantParts, mergeFileChanges } from './mergeAssistantParts'
 import type { ExecApprovalRequest, ExecApprovalDecision } from '../../../../types/exec-approvals'
 import type { PlanApprovalRequest } from '../../../../types/plan-approval'
 import type { RuntimeFileEvent, RuntimeCompactionEvent } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
+import { isCompactSummaryText, unwrapCompactSummaryText } from '../../../../../shared/compact-summary-text'
 import styles from './ChatContainer.module.css'
 
 interface ApprovalItem {
@@ -81,6 +82,7 @@ interface CompactionItem {
   messagesRemoved: number
   messagesBefore?: number
   messagesAfter?: number
+  summaryText?: string
 }
 
 type ChatItem = MessageItem | ApprovalItem | PlanApprovalItem | CompactionItem
@@ -128,6 +130,21 @@ interface ChatContainerProps {
   }[]
   /** 点击回合文件变更卡「查看」：透传文件相对路径与状态，交由上层打开 Workbench 并定位 */
   onReviewFileChanges?: (path: string, status: 'added' | 'modified' | 'deleted') => void
+}
+
+/**
+ * 从对话消息抽出压缩摘要正文；命中则这条消息应折叠进压缩卡片，不再当普通气泡。
+ */
+function extractCompactSummaryFromMessage(item: MessageItem): string | null {
+  const texts: string[] = []
+  if (item.content) texts.push(item.content)
+  for (const part of item.parts ?? []) {
+    if (part.type === 'text' && typeof part.text === 'string') texts.push(part.text)
+  }
+  for (const text of texts) {
+    if (isCompactSummaryText(text)) return unwrapCompactSummaryText(text)
+  }
+  return null
 }
 
 const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -278,7 +295,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   // Find the latest assistant message for regenerate functionality
   const latestAssistantMessageId = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'assistant') {
+      if (messages[i].role === 'assistant' && !extractCompactSummaryFromMessage(messages[i])) {
         return messages[i].id
       }
     }
@@ -286,13 +303,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   }, [messages])
 
   /**
-   * 合并消息和审批项，按时间排序。
-   *
-   * 子 Agent 消息（有 sourceAgent）不单独渲染气泡，将其 parts 合并到前一条主 Agent 消息。
+   * 压缩事件 → 卡片；落库的摘要气泡折叠进卡片（刷新后无事件时用摘要消息合成卡片）。
    */
-  // 压缩事件 → CompactionItem，按 timestamp 与消息交错插入对话流
   const compactionItems: CompactionItem[] = useMemo(() => {
-    return (compactionEvents ?? []).map((e) => ({
+    const cards: CompactionItem[] = (compactionEvents ?? []).map((e) => ({
       itemType: 'compaction' as const,
       id: e.id,
       timestamp: new Date(e.timestamp),
@@ -301,8 +315,43 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       messagesRemoved: e.messagesRemoved,
       messagesBefore: e.messagesBefore,
       messagesAfter: e.messagesAfter,
+      ...(e.summaryText ? { summaryText: e.summaryText } : {}),
     }))
-  }, [compactionEvents])
+
+    const leftovers: Array<{ timestamp: Date; text: string }> = []
+    for (const msg of messages) {
+      const text = extractCompactSummaryFromMessage(msg)
+      if (text) leftovers.push({ timestamp: msg.timestamp, text })
+    }
+
+    for (const leftover of leftovers) {
+      let best: CompactionItem | undefined
+      let bestDist = Number.POSITIVE_INFINITY
+      for (const card of cards) {
+        if (card.summaryText) continue
+        const dist = Math.abs(card.timestamp.getTime() - leftover.timestamp.getTime())
+        if (dist < bestDist) {
+          best = card
+          bestDist = dist
+        }
+      }
+      if (best && bestDist <= 60_000) {
+        best.summaryText = leftover.text
+      } else if (!cards.some((c) => c.summaryText === leftover.text)) {
+        cards.push({
+          itemType: 'compaction',
+          id: `summary-${leftover.timestamp.getTime()}`,
+          timestamp: leftover.timestamp,
+          tokensBefore: 0,
+          tokensAfter: 0,
+          messagesRemoved: 0,
+          summaryText: leftover.text,
+        })
+      }
+    }
+
+    return cards
+  }, [compactionEvents, messages])
 
   const chatItems: ChatItem[] = useMemo(() => {
     const sorted: ChatItem[] = [...messages, ...approvalItems, ...planApprovalItems, ...compactionItems]
@@ -310,6 +359,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
     const result: ChatItem[] = []
     for (const item of sorted) {
+      if ((item as MessageItem).itemType === 'message' && extractCompactSummaryFromMessage(item as MessageItem)) {
+        continue
+      }
       const msgItem = item as MessageItem
       const srcAgent = msgItem.sourceAgent
 
@@ -404,6 +456,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                 messagesRemoved={item.messagesRemoved}
                 messagesBefore={item.messagesBefore}
                 messagesAfter={item.messagesAfter}
+                summaryText={item.summaryText}
               />
             )
           }

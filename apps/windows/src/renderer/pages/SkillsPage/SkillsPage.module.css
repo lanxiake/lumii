@@ -382,6 +382,14 @@
   flex: 1;
 }
 
+/* 调用次数 */
+.skill-row-usage {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 /* 操作区（默认隐藏，hover 显示） */
 .skill-row-actions {
   display: flex;

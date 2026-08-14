@@ -203,12 +203,61 @@ export function parseMcpServerConfigs(raw: string): McpServerEntry[] {
   return entries
 }
 
+/** 已下线的内置 MCP：仅当 args 仍指向原包时才删，避免误删用户同名自定义服务 */
+const RETIRED_BUILTIN_MCP: ReadonlyArray<{ name: string; pkg: string }> = [
+  { name: 'memory', pkg: '@modelcontextprotocol/server-memory' },
+  { name: 'chart', pkg: '@antv/mcp-server-chart' },
+  { name: 'context7', pkg: '@upstash/context7-mcp' },
+  { name: 'amap', pkg: '@amap/amap-maps-mcp-server' },
+]
+
+/**
+ * 同步内置清单变更：去掉已下线原包；仅在这次确实删过旧项时才补 comfyui-remote，
+ * 避免用户手动删除后又被每次启动加回来。
+ */
+export function reconcileBuiltinMcpPresets(entries: readonly McpServerEntry[]): McpServerEntry[] {
+  const retiredNames = new Set(
+    RETIRED_BUILTIN_MCP.filter(({ name, pkg }) =>
+      entries.some((entry) => entry.name === name && entry.args?.includes(pkg)),
+    ).map((item) => item.name),
+  )
+  if (retiredNames.size === 0) return [...entries]
+
+  const next: McpServerEntry[] = entries.filter((entry) => !retiredNames.has(entry.name))
+  if (next.some((entry) => entry.name === 'comfyui-remote')) return next
+
+  const preset = MCP_PRESETS.find((item) => item.name === 'comfyui-remote')
+  if (!preset) return next
+
+  next.push(
+    resolveMcpEntryPaths({
+      name: preset.name,
+      command: preset.command,
+      args: [...preset.args],
+      ...(preset.env ? { env: { ...preset.env } } : {}),
+      enabled: isReadyToUse(preset),
+    }),
+  )
+  return next
+}
+
+function mcpEntriesSignature(entries: readonly McpServerEntry[]): string {
+  return JSON.stringify(entries.map((entry) => ({
+    name: entry.name,
+    command: entry.command,
+    args: entry.args,
+    env: entry.env,
+    enabled: entry.enabled,
+  })))
+}
+
 /**
  * 加载 MCP Server 配置列表（原始值，未展开环境变量）
  *
  * 若配置文件不存在，先播种默认清单。
  * 若文件解析失败，抛错（由调用方写入 lastError / UI）。
- * 加载时会把 filesystem 的文档占位符 / 历史 `D:/Documents` 迁移为真实目录并写回。
+ * 加载时会把 filesystem 的文档占位符 / 历史 `D:/Documents` 迁移为真实目录并写回，
+ * 并同步已下线/新增的内置 MCP。
  */
 export function loadMcpServerConfigs(): McpServerEntry[] {
   const configPath = getMcpConfigPath()
@@ -228,35 +277,18 @@ export function loadMcpServerConfigs(): McpServerEntry[] {
   }
 
   const original = parseMcpServerConfigs(raw)
-  const entries = original.map(resolveMcpEntryPaths)
-  if (maybePersistResolvedPaths(entries, original)) {
-    log.info('[loadMcpServerConfigs] 已迁移 filesystem 文档路径到本机真实目录')
+  const entries = reconcileBuiltinMcpPresets(original.map(resolveMcpEntryPaths))
+  if (mcpEntriesSignature(entries) !== mcpEntriesSignature(original)) {
+    try {
+      saveMcpServerConfigs(entries)
+      log.info('[loadMcpServerConfigs] 已同步内置 MCP 清单 / 文档路径')
+    } catch (err) {
+      log.warn(`[loadMcpServerConfigs] 同步写回失败: ${(err as Error).message}`)
+    }
   }
   const enabledCount = entries.filter((e) => e.enabled !== false).length
   log.info(`[loadMcpServerConfigs] 加载完成，共 ${entries.length} 个 Server，${enabledCount} 个已启用`)
   return entries
-}
-
-/**
- * 若解析后路径有变化则写回磁盘；写失败只打日志，不阻断加载
- */
-function maybePersistResolvedPaths(
-  resolved: readonly McpServerEntry[],
-  original: readonly McpServerEntry[],
-): boolean {
-  const changed = resolved.some((entry, i) => {
-    const before = original[i]?.args?.join('\0') ?? ''
-    const after = entry.args?.join('\0') ?? ''
-    return before !== after
-  })
-  if (!changed) return false
-  try {
-    saveMcpServerConfigs(resolved)
-    return true
-  } catch (err) {
-    log.warn(`[maybePersistResolvedPaths] 写回失败: ${(err as Error).message}`)
-    return false
-  }
 }
 
 /** 读取 mcp-servers.json 原文（不存在则先播种） */

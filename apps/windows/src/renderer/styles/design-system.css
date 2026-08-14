@@ -165,6 +165,7 @@
   --mt-bg-secondary: #1e293b;   /* slate-800 — 侧边栏、卡片 */
   --mt-bg-tertiary:  #334155;   /* slate-700 — 输入填充、hover */
   --mt-bg-elevated:  #1e293b;
+  --mt-surface-1:    var(--mt-bg-elevated);
   --mt-bg-overlay:   rgba(0, 0, 0, 0.14);  /* 内嵌区块背景（工具区、输入框等） */
   --mt-bg-modal-overlay: rgba(0, 0, 0, 0.60); /* 全屏Modal遮罩 */
 
@@ -224,6 +225,7 @@
   --mt-bg-secondary: #ffffff;   /* 侧边栏、卡片背景 */
   --mt-bg-tertiary:  #e8eef6;   /* 输入填充、hover 态 */
   --mt-bg-elevated:  #ffffff;   /* 卡片/代码块浮层 */
+  --mt-surface-1:    var(--mt-bg-elevated);
   --mt-bg-overlay:   rgba(15, 23, 42, 0.05);  /* 内嵌区块背景 */
   --mt-bg-modal-overlay: rgba(15, 23, 42, 0.40); /* 全屏Modal遮罩 */
 

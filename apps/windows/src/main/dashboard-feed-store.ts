@@ -69,6 +69,20 @@ function asFiniteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
+/**
+ * 为资讯条目生成唯一 id。优先已有 id / href；同一基准重复出现时追加 #n。
+ */
+export function uniqueDashboardFeedItemId(
+  item: { id?: string; href?: string; title: string },
+  index: number,
+  seen: Map<string, number>,
+): string {
+  const base = item.id?.trim() || item.href?.trim() || `${item.title}-${index}`
+  const count = seen.get(base) ?? 0
+  seen.set(base, count + 1)
+  return count === 0 ? base : `${base}#${count}`
+}
+
 function normalizeMetadata(value: unknown): DashboardFeedMetadata | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
   const metadata: DashboardFeedMetadata = {}
@@ -85,7 +99,11 @@ function normalizeMetadata(value: unknown): DashboardFeedMetadata | undefined {
   return Object.keys(metadata).length > 0 ? metadata : undefined
 }
 
-function normalizeItem(raw: unknown, index: number): DashboardFeedItem | null {
+function normalizeItem(
+  raw: unknown,
+  index: number,
+  seen: Map<string, number>,
+): DashboardFeedItem | null {
   if (!raw || typeof raw !== 'object') return null
   const value = raw as Record<string, unknown>
   const title = asNonEmptyString(value.title)
@@ -94,7 +112,11 @@ function normalizeItem(raw: unknown, index: number): DashboardFeedItem | null {
   const href = asNonEmptyString(value.href) ?? asNonEmptyString(value.link)
   const summary = asNonEmptyString(value.summary) ?? asNonEmptyString(value.excerpt)
   const timestamp = asFiniteNumber(value.timestamp) ?? asFiniteNumber(value.pubTs)
-  const id = asNonEmptyString(value.id) ?? href ?? `${title}-${index}`
+  const id = uniqueDashboardFeedItemId(
+    { id: asNonEmptyString(value.id), href, title },
+    index,
+    seen,
+  )
 
   return {
     id,
@@ -113,8 +135,9 @@ function normalizeSnapshot(raw: unknown, fallbackFeedId: string): DashboardFeedS
   const value = raw as Record<string, unknown>
   if (!Array.isArray(value.items)) return null
 
+  const seenIds = new Map<string, number>()
   const items = value.items
-    .map((item, index) => normalizeItem(item, index))
+    .map((item, index) => normalizeItem(item, index, seenIds))
     .filter((item): item is DashboardFeedItem => item !== null)
   const feedId = asNonEmptyString(value.feedId) ?? fallbackFeedId
   const title = asNonEmptyString(value.title) ?? (feedId === 'news' ? '最近资讯' : feedId)
@@ -224,4 +247,5 @@ export const __testables = {
   normalizeItem,
   normalizeSnapshot,
   validateFeedId,
+  uniqueDashboardFeedItemId,
 }

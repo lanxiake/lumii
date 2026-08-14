@@ -210,6 +210,7 @@ export {
   exportLocalDataAsJSONL,
   maybeRunAutoVacuumSync,
   parseMessageContentJson,
+  messageRowToAgentMessages,
   FileRepo,
   applyAssistantPartEvent,
   finalizeAssistantParts,

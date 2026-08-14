@@ -30,6 +30,7 @@ import { agentRuntimeLog as log, parseJsonToolResultPayload } from './bridge-uti
 import { recordUsage } from '../usage-store'
 import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
 import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
+import { applyConversationCompactToUsage } from '../../shared/context-usage-compact'
 
 /** 单实例运行时累计指标（主进程内部，与 DetailPanel「运行状态」对应） */
 export interface InstanceRuntimeMetrics {
@@ -222,7 +223,6 @@ export function createAgentInstanceRuntimeEventHandler(
     getCompactionForRootSession,
     getSessionContextUsage,
     setSessionProviderInputTokens,
-    clearSessionProviderInputTokens,
     setCurrentToolExecutorInstanceId,
     agentName,
     isSubAgent,
@@ -773,9 +773,33 @@ export function createAgentInstanceRuntimeEventHandler(
 
     }
 
-    // 压缩后清掉提供商 token 缓存，让上下文读数回落到估算直至下次 LLM 响应
+    // 自动压缩只扣对话历史：用压缩前整窗占用减对话差值，并写入种子，避免 MCP 定义被等比缩放
+    let compactionOverlay: {
+      previousTokenCount: number
+      newTokenCount: number
+      conversationTokensBefore: number
+      conversationTokensAfter: number
+      contextWindow: number
+      triggerThreshold: number
+    } | null = null
     if (event.type === 'context:compaction' && ctx.sessionKey === ctx.rootSessionKey) {
-      clearSessionProviderInputTokens(ctx.rootSessionKey)
+      const usageBefore = getSessionContextUsage(ctx.rootSessionKey)
+      const previousTokenCount =
+        usageBefore.usedTokens > 0 ? usageBefore.usedTokens : event.tokensBefore
+      const newTokenCount = applyConversationCompactToUsage(
+        previousTokenCount,
+        event.tokensBefore,
+        event.tokensAfter,
+      )
+      setSessionProviderInputTokens(ctx.rootSessionKey, newTokenCount)
+      compactionOverlay = {
+        previousTokenCount,
+        newTokenCount,
+        conversationTokensBefore: event.tokensBefore,
+        conversationTokensAfter: event.tokensAfter,
+        contextWindow: usageBefore.contextWindow,
+        triggerThreshold: usageBefore.triggerThreshold,
+      }
     }
 
     ipcChannel.forwardToRenderer(event)
@@ -793,7 +817,24 @@ export function createAgentInstanceRuntimeEventHandler(
 
     const ipcEvents = convertOldEventToIpcEvents(event, ctx)
     for (const ipcEvent of ipcEvents) {
-      ipcChannel.forwardIpcEvent(ipcEvent)
+      if (ipcEvent.type === 'agent:context:compacted' && compactionOverlay) {
+        ipcChannel.forwardIpcEvent({
+          ...ipcEvent,
+          previousTokenCount: compactionOverlay.previousTokenCount,
+          newTokenCount: compactionOverlay.newTokenCount,
+          conversationTokensBefore: compactionOverlay.conversationTokensBefore,
+          conversationTokensAfter: compactionOverlay.conversationTokensAfter,
+        })
+        ipcChannel.forwardIpcEvent({
+          type: 'agent:context:usage',
+          sessionKey: ctx.rootSessionKey,
+          usedTokens: compactionOverlay.newTokenCount,
+          contextWindow: compactionOverlay.contextWindow,
+          triggerThreshold: compactionOverlay.triggerThreshold,
+        } as unknown as RendererIpcEvent)
+      } else {
+        ipcChannel.forwardIpcEvent(ipcEvent)
+      }
     }
 
     if (event.type === 'agent:end' && ctx.sessionKey === ctx.rootSessionKey) {

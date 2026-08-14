@@ -470,9 +470,11 @@ export class ConversationRepo {
     readonly contentJson: MessageContentJson;
     /** 为 true 时表示流式中的助手行，重启后应忽略 */
     readonly isStreaming?: boolean;
+    /** 可选落库时间；压缩摘要需插在保留段之前时传入更早的 timestamp */
+    readonly timestamp?: string;
   }): MessageRow {
     const id = params.id ?? generateId();
-    const now = new Date().toISOString();
+    const now = params.timestamp ?? new Date().toISOString();
     const contentStr = JSON.stringify(params.contentJson);
     const streamFlag = params.isStreaming ? 1 : 0;
 

@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useState, useEffect } from 'react'
+import React, { useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
 import clsx from 'clsx'
 import styles from './ChatInput.module.css'
 import type { Agent } from '../../../../services/agent-service'
@@ -12,11 +12,16 @@ import { formatContextUsageCompact, formatTokenCount } from '../../../../utils/f
 import ContextUsageCard from './ContextUsageCard'
 import { useRotatingTip } from '../TipsBanner/useRotatingTip'
 import { ComposerPlusMenu } from './ComposerPlusMenu'
+import { useComposerDraft } from './useComposerDraft'
 import type { ViewType } from '../../../../components/Router'
 
 interface ChatInputProps {
   value: string
   onChange: (value: string) => void
+  /** 当前会话 key；切换时把未 flush 的本地草稿写回旧会话 */
+  sessionKey?: string | null
+  /** 按指定 sessionKey 持久化草稿，避免切会话后写到新会话 */
+  onPersistDraft?: (sessionKey: string | null, value: string) => void
   onSend: () => void
   onAbort?: () => void | Promise<void>
   disabled?: boolean
@@ -117,9 +122,14 @@ function formatContextUsageLabel(contextUsage: ContextUsage): string {
   ].join('，')
 }
 
+/**
+ * 对话输入卡：本地草稿 + IME 延迟同步，避免每个按键重绘整个 ChatPage。
+ */
 const ChatInput: React.FC<ChatInputProps> = ({
   value,
   onChange,
+  sessionKey = null,
+  onPersistDraft,
   onSend,
   onAbort,
   disabled,
@@ -205,26 +215,54 @@ const ChatInput: React.FC<ChatInputProps> = ({
   // 拖入的工作空间文件 @引用（textarea 为纯文本，引用以独立 chip 展示，可点击定位）
   const [isDragOver, setIsDragOver] = useState(false)
 
-  // 中文输入法（IME）组合态标记：组合期间不触发斜杠补全/回车发送，避免逐字上屏卡顿与误发
-  const isComposingRef = useRef(false)
+  const {
+    innerValue,
+    isComposingRef,
+    setDraft,
+    flushDraft,
+    handleDraftChange,
+    handleCompositionStart,
+    handleCompositionEnd: commitComposition,
+    handleBlur: flushDraftOnBlur,
+  } = useComposerDraft({
+    value,
+    sessionKey,
+    onChange,
+    onPersistDraft,
+  })
+
+  /**
+   * 按当前草稿更新斜杠补全；非 / 开头且已空时跳过 setState，避免每个按键多一次渲染。
+   */
+  const applySlashSuggestions = useCallback((nextValue: string) => {
+    if (nextValue.startsWith('/') && !nextValue.includes('\n')) {
+      setSlashSuggestions(searchCommands(nextValue))
+      setSlashSuggestionIndex(0)
+      return
+    }
+    setSlashSuggestions((prev) => (prev.length === 0 ? prev : []))
+  }, [])
 
   // 在光标处插入 @引用文本
   const insertAtCursor = useCallback((text: string) => {
     const el = textareaRef.current
     if (!el) {
-      onChange(value + text)
+      const next = innerValue + text
+      setDraft(next)
+      flushDraft(next)
       return
     }
-    const start = el.selectionStart ?? value.length
-    const end = el.selectionEnd ?? value.length
-    const next = value.slice(0, start) + text + value.slice(end)
-    onChange(next)
+    const start = el.selectionStart ?? innerValue.length
+    const end = el.selectionEnd ?? innerValue.length
+    const next = innerValue.slice(0, start) + text + innerValue.slice(end)
+    setDraft(next)
+    flushDraft(next)
     requestAnimationFrame(() => {
       const pos = start + text.length
       el.selectionStart = el.selectionEnd = pos
       el.focus()
     })
-  }, [value, onChange])
+  }, [innerValue, setDraft, flushDraft])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     const raw = e.dataTransfer.getData('application/x-mtbot-file')
@@ -234,13 +272,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
     try {
       const ref = JSON.parse(raw) as FileReference
       // 在文本中插入 @相对路径（保证带空格分隔，便于 Agent 解析）
-      const needsSpace = value.length > 0 && !/\s$/.test(value)
+      const needsSpace = innerValue.length > 0 && !/\s$/.test(innerValue)
       insertAtCursor(`${needsSpace ? ' ' : ''}@${ref.relativePath} `)
       onFileReferenceAdd?.(ref)
     } catch (err) {
       console.error('[ChatInput] 解析拖入文件失败:', err)
     }
-  }, [value, insertAtCursor, onFileReferenceAdd])
+  }, [innerValue, insertAtCursor, onFileReferenceAdd])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (e.dataTransfer.types.includes('application/x-mtbot-file')) {
@@ -270,44 +308,28 @@ const ChatInput: React.FC<ChatInputProps> = ({
     el.style.height = Math.min(el.scrollHeight, 200) + 'px'
   }, [])
 
-  // 外部设置 value（如点击快捷指令）时同步调整高度
-  useEffect(() => {
+  // 本地草稿或外部写入变化时同步高度（不再在 onChange 里重复读 layout）
+  useLayoutEffect(() => {
     adjustHeight()
-  }, [value, adjustHeight])
+  }, [innerValue, adjustHeight])
 
+  /**
+   * 输入变化：只更新本地草稿；IME 组合期间跳过斜杠匹配。
+   */
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value
-    onChange(newValue)
-    adjustHeight()
-
-    // IME 组合期间跳过斜杠补全计算，减少逐字上屏时的同步开销
+    handleDraftChange(newValue)
     if (isComposingRef.current) return
-
-    // 斜杠命令补全：单行且以 / 开头时触发
-    if (newValue.startsWith('/') && !newValue.includes('\n')) {
-      const suggestions = searchCommands(newValue)
-      setSlashSuggestions(suggestions)
-      setSlashSuggestionIndex(0)
-    } else {
-      setSlashSuggestions([])
-    }
+    applySlashSuggestions(newValue)
   }
 
-  const handleCompositionStart = () => {
-    isComposingRef.current = true
-  }
-
-  // 组合结束（如中文选词完成）后补算一次斜杠补全，并允许后续回车发送
+  /**
+   * 组合结束：一次性 flush 最终文案，并补算斜杠补全。
+   */
   const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
-    isComposingRef.current = false
-    const newValue = e.currentTarget.value
-    if (newValue.startsWith('/') && !newValue.includes('\n')) {
-      const suggestions = searchCommands(newValue)
-      setSlashSuggestions(suggestions)
-      setSlashSuggestionIndex(0)
-    } else {
-      setSlashSuggestions([])
-    }
+    const newValue = (e.target as HTMLTextAreaElement).value
+    commitComposition(newValue)
+    applySlashSuggestions(newValue)
   }
 
   // 剪贴板粘贴处理：提取文件/图片并上传
@@ -348,7 +370,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
           setSlashSuggestions([])
           // 命令无参数：直接发送，绕过 React 状态批处理
           if (!selected.usage || selected.usage === selected.name) {
-            onChange(selected.name)
+            setDraft(selected.name)
+            flushDraft(selected.name)
             if (onSendWithValue) {
               onSendWithValue(selected.name)
             } else {
@@ -357,7 +380,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
           } else {
             // 有参数：填充命令名 + 空格，等待用户继续输入
             const fill = `${selected.name} `
-            onChange(fill)
+            setDraft(fill)
+            flushDraft(fill)
             textareaRef.current?.focus()
           }
           return
@@ -374,11 +398,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
       if (disabled) return
       // AI 正在回复时：回车不直接发送
       if (isStreaming) {
-        const text = value.trim()
+        const text = innerValue.trim()
         if (text) {
           // 有内容 → 追加到等待队列，清空输入框，可继续输入下一条
           setQueuedMessages((prev) => [...prev, text])
-          onChange('')
+          setDraft('')
+          flushDraft('')
           if (textareaRef.current) textareaRef.current.style.height = 'auto'
         } else if (queuedMessages.length > 0) {
           // 输入框为空且队列非空 → 打断当前回复，合并发送队列
@@ -387,7 +412,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
         return
       }
       // 非流式状态：空输入框 + 队列非空 → 直接发送队列（修复队列被孤立无法发出）
-      if (!value.trim()) {
+      if (!innerValue.trim()) {
         if (queuedMessages.length > 0) void flushQueuedMessages()
         return
       }
@@ -429,8 +454,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setQueuedMessages((prev) => prev.filter((_, i) => i !== index))
   }
 
+  /**
+   * 用本地草稿发送。先 flush 再发，避免发送失败时父组件空草稿把输入框冲掉。
+   */
   const handleSend = () => {
-    onSend()
+    flushDraft(innerValue)
+    if (onSendWithValue) {
+      onSendWithValue(innerValue)
+    } else {
+      onSend()
+    }
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
@@ -447,7 +480,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     } else if (queuedMessages.length > 0) {
       // 非流式但队列有数据：直接发送队列
       void flushQueuedMessages()
-    } else if (value.trim()) {
+    } else if (innerValue.trim()) {
       handleSend()
     }
   }
@@ -493,6 +526,18 @@ const ChatInput: React.FC<ChatInputProps> = ({
       window.dispatchEvent(new CustomEvent('mtbot:open-skills-tab', { detail: { tab } }))
     }
     onViewChange?.('skills')
+  }, [onViewChange])
+
+  const handleManageSkills = useCallback(() => {
+    navigateSkillsTab('my-skills')
+  }, [navigateSkillsTab])
+
+  const handleManageMcp = useCallback(() => {
+    navigateSkillsTab('mcp')
+  }, [navigateSkillsTab])
+
+  const handleManageAgents = useCallback(() => {
+    onViewChange?.('agents')
   }, [onViewChange])
 
   const handleSteerSend = useCallback(() => {
@@ -556,12 +601,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [slashSuggestions.length])
 
-  const tipsEnabled = Boolean(showTips && isConnected && !isStreaming && !value.trim())
+  const tipsEnabled = Boolean(showTips && isConnected && !isStreaming && !innerValue.trim())
   const rotatingTip = useRotatingTip(tipsEnabled)
 
   /** 有输入内容或附件时，输入卡片改为不透明，避免与透出的消息文字重叠 */
   const hasInputContent =
-    value.trim().length > 0 ||
+    innerValue.trim().length > 0 ||
     pendingAttachments.length > 0 ||
     fileReferences.length > 0
 
@@ -632,14 +677,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
                       onClick={() => {
                         setSlashSuggestions([])
                         if (!cmd.usage || cmd.usage === cmd.name) {
-                          onChange(cmd.name)
+                          setDraft(cmd.name)
+                          flushDraft(cmd.name)
                           if (onSendWithValue) {
                             onSendWithValue(cmd.name)
                           } else {
                             setTimeout(() => handleSend(), 0)
                           }
                         } else {
-                          onChange(`${cmd.name} `)
+                          setDraft(`${cmd.name} `)
+                          flushDraft(`${cmd.name} `)
                           textareaRef.current?.focus()
                         }
                       }}
@@ -797,15 +844,19 @@ const ChatInput: React.FC<ChatInputProps> = ({
         {/* 文本域 */}
         <textarea
           ref={textareaRef}
-          value={value}
+          value={innerValue}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
+          onBlur={flushDraftOnBlur}
           onPaste={handlePaste}
           disabled={isDisabled}
           placeholder={effectivePlaceholder}
           rows={1}
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="off"
           className={styles['chat-textarea']}
         />
 
@@ -820,9 +871,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
               selectedAgent={selectedAgent}
               agentsLoading={agentsLoading}
               onAgentChange={onAgentChange}
-              onManageSkills={() => navigateSkillsTab('my-skills')}
-              onManageMcp={() => navigateSkillsTab('mcp')}
-              onManageAgents={() => onViewChange?.('agents')}
+              onManageSkills={handleManageSkills}
+              onManageMcp={handleManageMcp}
+              onManageAgents={handleManageAgents}
             />
 
             {/* 模型切换 */}
@@ -1042,7 +1093,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
                             const fill = cmd.usage && cmd.usage !== cmd.name
                               ? `${cmd.name} `
                               : cmd.name
-                            onChange(fill)
+                            setDraft(fill)
+                            flushDraft(fill)
                             setHelpPanelOpen(false)
                             textareaRef.current?.focus()
                           }}
@@ -1083,7 +1135,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
                           className={styles['help-code']}
                           style={{ cursor: 'pointer' }}
                           onClick={() => {
-                            onChange(cmd)
+                            setDraft(cmd)
+                            flushDraft(cmd)
                             setHelpPanelOpen(false)
                             textareaRef.current?.focus()
                           }}
@@ -1134,7 +1187,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             <button
               type="button"
               onClick={handleButtonClick}
-              disabled={isStreaming ? false : (isDisabled || (!value.trim() && queuedMessages.length === 0))}
+              disabled={isStreaming ? false : (isDisabled || (!innerValue.trim() && queuedMessages.length === 0))}
               className={clsx(styles['send-btn'], isStreaming && styles['stop-btn'])}
               title={
                 isStreaming
@@ -1158,12 +1211,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
       {/* 输入卡下方单行提示：只在有输入时出现，补上 placeholder 消失后丢掉的快捷键说明。
           空闲态的 tips 仍走 placeholder，不在这里重复一遍 */}
-      {value.trim().length > 0 && (
+      {innerValue.trim().length > 0 && (
         <div className={styles['composer-hint']}>
           <span><kbd className={styles['hint-kbd']}>Enter</kbd> 发送</span>
           <span><kbd className={styles['hint-kbd']}>Shift+Enter</kbd> 换行</span>
           <span><kbd className={styles['hint-kbd']}>Ctrl+U</kbd> 附件</span>
-          <span className={styles['hint-count']}>{value.length} 字</span>
+          <span className={styles['hint-count']}>{innerValue.length} 字</span>
         </div>
       )}
 
@@ -1180,5 +1233,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
   )
 }
 
-export default ChatInput
-export { ChatInput }
+const ChatInputMemo = React.memo(ChatInput)
+ChatInputMemo.displayName = 'ChatInput'
+
+export default ChatInputMemo
+export { ChatInputMemo as ChatInput }

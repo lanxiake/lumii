@@ -4,26 +4,20 @@
 
 打包前请确保以下文件存在：
 
+### icon.png
+- **应用图标源图**（桌面快捷方式 / 任务栏 / 安装程序 / 窗口）
+- `pnpm generate:icon` 不会覆盖此文件
+
 ### icon.ico
-- 应用图标，用于：
-  - 安装程序图标
-  - 任务栏图标
-  - 桌面快捷方式图标
-  - 窗口标题栏（系统）
-- **由 `logo.png` 生成**：`pnpm generate:icon`
-- 推荐尺寸：256x256 或更大
-- 支持的尺寸层级：16x16, 24x24, 32x32, 48x48, 64x64, 128x128, 256x256
+- 由 `icon.png` 生成的多尺寸 ICO，electron-builder 写入 `Lumii.exe`
+- 生成：`pnpm generate:icon`
+- 尺寸：16, 24, 32, 48, 64, 128, 256
 
 ### logo.png
 - 产品主 Logo（侧栏 / 关于页 / 标题栏 UI）
-- 也是生成 `icon.ico` / `icon.png` / `tray-icon.png` 的唯一源图
 
 ### tray-icon.png
-- 系统托盘专用 32×32 PNG（由 logo.png 生成，托盘缩放到 16px 显示）
-
-### icon.png (可选)
-- PNG 格式图标（256×256，由 logo.png 生成）
-- 备选托盘 / 窗口图标
+- 系统托盘专用 32×32 PNG（由 icon.png 生成）
 
 ### installer-header.bmp (可选)
 - 安装程序标题区域图片
@@ -121,7 +115,7 @@ magick icon.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
 - 次色：#38BDF8 (Sky)
 - 强调：#7DD3FC (Sky lift)
 - Logo：`assets/logo.png`（侧栏 / 关于 / 标题栏 UI）
-- 系统图标由 Logo 生成：`pnpm generate:icon` → `icon.ico` / `icon.png` / `tray-icon.png`
+- 系统图标由 `icon.png` 生成：`pnpm generate:icon` → `icon.ico` / `tray-icon.png`
 
 ### 背景色
 - 深色背景：#0F172A
@@ -139,8 +133,8 @@ magick icon.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
 
 | 文件名 | 必需 | 说明 |
 |--------|------|------|
-| icon.ico | ✅ | 应用图标 |
-| icon.png | 可选 | PNG 格式图标 |
+| icon.png | ✅ | 应用图标源图 |
+| icon.ico | ✅ | 由 icon.png 生成，写入 exe |
 | installer-header.bmp | 可选 | 安装程序标题图 |
 | installer-sidebar.bmp | 可选 | 安装程序侧边栏图 |
 | uninstaller-sidebar.bmp | 可选 | 卸载程序侧边栏图 |

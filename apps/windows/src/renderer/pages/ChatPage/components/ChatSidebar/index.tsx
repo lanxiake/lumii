@@ -369,5 +369,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   )
 }
 
-export default ChatSidebar
-export { ChatSidebar }
+const ChatSidebarMemo = React.memo(ChatSidebar)
+ChatSidebarMemo.displayName = 'ChatSidebar'
+
+export default ChatSidebarMemo
+export { ChatSidebarMemo as ChatSidebar }

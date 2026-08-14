@@ -936,6 +936,7 @@ interface SkillRowProps {
   skillInfo: {
     skillItemId: string
     isEnabled: boolean
+    executionCount?: number
     skill: { name: string; description?: string; version: string; tags?: string[] }
   }
   isOperating: boolean
@@ -964,6 +965,14 @@ const SkillRow: React.FC<SkillRowProps> = ({ skillInfo, isOperating, onDetail, o
           {skillInfo.skill.description}
         </span>
       )}
+
+      {/* 调用次数 */}
+      <span
+        className={styles['skill-row-usage']}
+        title={skillInfo.executionCount ? `累计调用 ${skillInfo.executionCount} 次` : '从未调用过'}
+      >
+        {skillInfo.executionCount ? `${skillInfo.executionCount} 次` : '未用过'}
+      </span>
 
       {/* 操作区（hover 显示） */}
       <div className={styles['skill-row-actions']}>

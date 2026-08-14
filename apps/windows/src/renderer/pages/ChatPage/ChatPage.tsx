@@ -4,6 +4,7 @@ import { ChatSidebar } from './components/ChatSidebar'
 import { ChatContainer } from './components/ChatContainer'
 import { ChatInput } from './components/ChatInput'
 import type { FileReference } from './components/ChatInput'
+import type { Agent } from '../../services/agent-service'
 import type { ModelOption } from '../../services/model-config-service'
 import { fetchModelCatalog, fetchChatModelChoices, saveChatModel } from '../../services/model-config-service'
 import { Toast } from './components/Toast'
@@ -356,14 +357,22 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const fileReferenceKey = runtimeCurrentSessionKey ?? '__global__'
   const inputValue = runtimeCurrentSessionKey ? (draftsBySession[runtimeCurrentSessionKey] ?? '') : globalDraft
   const activeFileReferences = fileReferencesBySession[fileReferenceKey] ?? []
-  const setInputValue = useCallback((nextValue: string) => {
-    const sessionKey = runtimeCurrentSessionKey
+  /**
+   * 把草稿写入指定会话（切会话时对准旧 key，避免写到新会话）。
+   */
+  const persistDraftForSession = useCallback((sessionKey: string | null, nextValue: string) => {
     if (!sessionKey) {
-      setGlobalDraft(nextValue)
+      setGlobalDraft((prev) => (prev === nextValue ? prev : nextValue))
       return
     }
-    setDraftsBySession((prev) => ({ ...prev, [sessionKey]: nextValue }))
-  }, [runtimeCurrentSessionKey])
+    setDraftsBySession((prev) => {
+      if (prev[sessionKey] === nextValue) return prev
+      return { ...prev, [sessionKey]: nextValue }
+    })
+  }, [])
+  const setInputValue = useCallback((nextValue: string) => {
+    persistDraftForSession(runtimeCurrentSessionKey, nextValue)
+  }, [persistDraftForSession, runtimeCurrentSessionKey])
   const clearCurrentInputState = useCallback((targetSessionKey: string | null = runtimeCurrentSessionKey) => {
     const refKey = targetSessionKey ?? '__global__'
     if (!targetSessionKey) {
@@ -405,18 +414,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     recognitionResults?: ImageProcessingResult[]
   }>>([])
 
-  /** 输入框空白且无附件时展示 Tips 轮播 */
+  /** 允许展示 Tips 轮播（是否空白由 ChatInput 用本地草稿自行判断，避免每个按键抬升到本页） */
   const showInputTips = useMemo(() => {
     if (voiceCallState.state !== 'idle') return false
     if (currentSessionInterrupted) return false
-    if (inputValue.trim()) return false
     if (pendingAttachments.length > 0) return false
     if (activeFileReferences.length > 0) return false
     return true
   }, [
     voiceCallState.state,
     currentSessionInterrupted,
-    inputValue,
     pendingAttachments.length,
     activeFileReferences.length,
   ])
@@ -680,6 +687,12 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     if (shortId && KNOWN[shortId]) return KNOWN[shortId]
     return undefined
   }, [selectedModelId, availableModels, chatModelChoices])
+
+  /** 稳定化模型下拉选项，避免每个按键 map 出新数组破坏 ChatInput memo */
+  const chatModelChoiceItems = useMemo(
+    () => chatModelChoices.map((m) => ({ id: m.id, name: m.name })),
+    [chatModelChoices],
+  )
 
   /**
    * 思考模式开关变更：持久化并同步到当前会话主进程
@@ -1339,6 +1352,67 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     })
   }, [runtimeActions, refreshLocalSessions])
 
+  /**
+   * 侧栏点选会话：切到对话视图并切换 runtime 会话。
+   */
+  const handleSelectSidebarSession = useCallback((sessionKey: string) => {
+    onViewChange?.('chat')
+    void runtimeActions.switchSession(sessionKey, selectedModelId || undefined)
+  }, [onViewChange, runtimeActions, selectedModelId])
+
+  /**
+   * 侧栏新建对话。
+   */
+  const handleCreateSidebarSession = useCallback(() => {
+    onViewChange?.('chat')
+    void (async () => {
+      await runtimeActions.createSession('新对话', selectedAgent?.id, selectedModelId || undefined)
+      void refreshLocalSessions()
+    })()
+  }, [onViewChange, runtimeActions, selectedAgent?.id, selectedModelId, refreshLocalSessions])
+
+  /**
+   * 输入框切换 Agent：选中后开一个新会话。
+   */
+  const handleComposerAgentChange = useCallback((agent: Agent | null) => {
+    selectAgent(agent)
+    if (!agent) return
+    void runtimeActions.createSession('新对话', agent.id, selectedModelId || undefined).then(() => {
+      void refreshLocalSessions()
+    })
+  }, [selectAgent, runtimeActions, selectedModelId, refreshLocalSessions])
+
+  /**
+   * 输入框切换模型。
+   */
+  const handleComposerModelChange = useCallback((modelId: string) => {
+    void handleSelectChatModel(modelId)
+  }, [handleSelectChatModel])
+
+  /**
+   * 移除待发附件 chip。
+   */
+  const handleRemoveAttachment = useCallback((filePath: string) => {
+    setPendingAttachments((prev) => prev.filter((a) => a.filePath !== filePath))
+  }, [])
+
+  /**
+   * 点击 @引用 chip：打开工作台并定位文件。
+   */
+  const handleLocateFile = useCallback((absolutePath: string) => {
+    setWorkbench({ open: true, tab: 'files' })
+    locateTokenRef.current += 1
+    setLocateFileTarget({ path: absolutePath, token: locateTokenRef.current })
+  }, [])
+
+  /**
+   * 从输入框发起语音通话。
+   */
+  const handleVoiceCallStart = useCallback(() => {
+    if (!runtimeCurrentSessionKey) return
+    void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id)
+  }, [runtimeCurrentSessionKey, voiceCallActions, selectedAgent?.id])
+
   // Handle suggestion click from empty state
   const handleSuggestionClick = useCallback((suggestion: string) => {
     setInputValue(suggestion)
@@ -1452,17 +1526,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           <ChatSidebar
             sessions={localRuntimeSessionsAsChatSessions}
             activeSessionId={runtimeCurrentSessionKey ?? null}
-            onSelectSession={(sessionKey) => {
-              onViewChange?.('chat')
-              void runtimeActions.switchSession(sessionKey, selectedModelId || undefined)
-            }}
-            onCreateSession={() => {
-              onViewChange?.('chat')
-              void (async () => {
-                await runtimeActions.createSession('新对话', selectedAgent?.id, selectedModelId || undefined)
-                void refreshLocalSessions()
-              })()
-            }}
+            onSelectSession={handleSelectSidebarSession}
+            onCreateSession={handleCreateSidebarSession}
             onPinSession={handlePinSession}
             onDeleteSession={handleDeleteSession}
             onRenameSession={handleRenameSession}
@@ -1638,6 +1703,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           <ChatInput
             value={inputValue}
             onChange={setInputValue}
+            sessionKey={runtimeCurrentSessionKey}
+            onPersistDraft={persistDraftForSession}
             onSend={handleSend}
             onSendWithValue={handleSend}
             onAbort={handleAbort}
@@ -1648,17 +1715,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             agents={userAgents}
             selectedAgent={selectedAgent}
             agentsLoading={agentsLoading}
-            onAgentChange={(agent) => {
-              selectAgent(agent)
-              if (!agent) return
-              void runtimeActions.createSession('新对话', agent.id, selectedModelId || undefined).then(() => {
-                void refreshLocalSessions()
-              })
-            }}
-            modelChoices={chatModelChoices.map((m) => ({ id: m.id, name: m.name }))}
+            onAgentChange={handleComposerAgentChange}
+            modelChoices={chatModelChoiceItems}
             selectedModelId={selectedModelId}
             modelsLoading={modelsLoading}
-            onModelChange={(modelId) => { void handleSelectChatModel(modelId) }}
+            onModelChange={handleComposerModelChange}
             thinkingEnabled={thinkingEnabled}
             reasoningEffort={reasoningEffort}
             onThinkingEnabledChange={handleThinkingEnabledChange}
@@ -1670,19 +1731,13 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onCompactContext={handleCompactContext}
             pendingAttachments={pendingAttachments}
             onFileUpload={handleFilesImport}
-            onRemoveAttachment={(filePath) => {
-              setPendingAttachments((prev) => prev.filter((a) => a.filePath !== filePath))
-            }}
+            onRemoveAttachment={handleRemoveAttachment}
             onViewChange={onViewChange}
             fileReferences={activeFileReferences}
             onFileReferenceAdd={handleFileReferenceAdd}
             onFileReferenceRemove={handleFileReferenceRemove}
-            onVoiceCallStart={runtimeCurrentSessionKey ? () => void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id) : undefined}
-            onLocateFile={(absolutePath) => {
-              setWorkbench({ open: true, tab: 'files' })
-              locateTokenRef.current += 1
-              setLocateFileTarget({ path: absolutePath, token: locateTokenRef.current })
-            }}
+            onVoiceCallStart={runtimeCurrentSessionKey ? handleVoiceCallStart : undefined}
+            onLocateFile={handleLocateFile}
             showTips={showInputTips}
           />
           )}

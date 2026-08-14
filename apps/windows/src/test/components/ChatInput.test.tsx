@@ -8,6 +8,36 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import ChatInput from '../../renderer/pages/ChatPage/components/ChatInput'
 
+vi.mock('../../renderer/pages/ChatPage/components/ChatInput/ComposerPlusMenu', () => ({
+  ComposerPlusMenu: () => null,
+}))
+
+vi.mock('../../renderer/pages/ChatPage/commands/slash-command-executor', () => ({
+  getSelectedAcpBackendId: () => 'lumii',
+  BACKEND_INFO: {},
+  MAIN_BACKEND_ID: 'lumii',
+}))
+
+vi.mock('../../renderer/hooks/business/useSkills', () => ({
+  useSkills: () => ({
+    installedSkills: [],
+    isLoading: false,
+    enableSkill: vi.fn(async () => true),
+    disableSkill: vi.fn(async () => true),
+  }),
+}))
+
+vi.mock('../../renderer/hooks/business/useToolSearch', () => ({
+  useToolSearch: () => ({
+    tools: [],
+    mcpStatus: [],
+    isLoading: false,
+    togglingTool: null,
+    toggleTool: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}))
+
 describe('Phase 3: 消息功能 - ChatInput组件', () => {
   const mockProps = {
     value: '',
@@ -30,12 +60,16 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
       expect(container.querySelector('.chat-textarea')).toBeInTheDocument()
     })
 
-    it('TC-3.2.2: 输入文本触发onChange回调', () => {
+    it('TC-3.2.2: 输入文本立即显示在输入框，失焦后才通知父组件', () => {
       render(<ChatInput {...mockProps} />)
 
       const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
       fireEvent.change(textarea, { target: { value: 'Test message' } })
 
+      expect(textarea.value).toBe('Test message')
+      expect(mockProps.onChange).not.toHaveBeenCalled()
+
+      fireEvent.blur(textarea)
       expect(mockProps.onChange).toHaveBeenCalledWith('Test message')
     })
 
@@ -129,6 +163,78 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
       render(<ChatInput {...mockProps} value="" />)
 
       expect(screen.getByTitle('发送消息')).toBeDisabled()
+    })
+  })
+
+  describe('输入性能：本地草稿与 IME', () => {
+    it('IME 组合期间不把中间拼音同步给父组件', () => {
+      render(<ChatInput {...mockProps} />)
+
+      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
+      fireEvent.compositionStart(textarea)
+      fireEvent.change(textarea, { target: { value: 'ni' } })
+      fireEvent.change(textarea, { target: { value: 'nihao' } })
+
+      expect(textarea.value).toBe('nihao')
+      expect(mockProps.onChange).not.toHaveBeenCalled()
+    })
+
+    it('IME 组合结束后把最终文案一次性同步给父组件', () => {
+      render(<ChatInput {...mockProps} />)
+
+      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
+      fireEvent.compositionStart(textarea)
+      fireEvent.change(textarea, { target: { value: 'nihao' } })
+      fireEvent.compositionEnd(textarea, { target: { value: '你好' } })
+
+      expect(textarea.value).toBe('你好')
+      expect(mockProps.onChange).toHaveBeenCalledTimes(1)
+      expect(mockProps.onChange).toHaveBeenCalledWith('你好')
+    })
+
+    it('未失焦直接回车时用本地草稿发送', () => {
+      const onSendWithValue = vi.fn()
+      render(<ChatInput {...mockProps} onSendWithValue={onSendWithValue} />)
+
+      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
+      fireEvent.change(textarea, { target: { value: 'hello' } })
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false })
+
+      expect(onSendWithValue).toHaveBeenCalledWith('hello')
+      expect(mockProps.onSend).not.toHaveBeenCalled()
+    })
+
+    it('切换会话时把未同步的旧草稿写回对应 session', () => {
+      const onPersistDraft = vi.fn()
+      const { rerender } = render(
+        <ChatInput
+          {...mockProps}
+          sessionKey="session-a"
+          value=""
+          onPersistDraft={onPersistDraft}
+        />,
+      )
+
+      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
+      fireEvent.change(textarea, { target: { value: 'draft-a' } })
+
+      rerender(
+        <ChatInput
+          {...mockProps}
+          sessionKey="session-b"
+          value=""
+          onPersistDraft={onPersistDraft}
+        />,
+      )
+
+      expect(onPersistDraft).toHaveBeenCalledWith('session-a', 'draft-a')
+    })
+
+    it('关闭浏览器拼写检查以免中英混输卡顿', () => {
+      render(<ChatInput {...mockProps} />)
+
+      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
+      expect(textarea).toHaveAttribute('spellcheck', 'false')
     })
   })
 })

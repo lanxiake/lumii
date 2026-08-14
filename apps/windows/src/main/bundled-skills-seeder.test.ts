@@ -14,7 +14,12 @@ vi.mock('electron', () => ({
   },
 }))
 
-import { seedBundledSkills, resolveBundledSkillsSourceDir } from './bundled-skills-seeder'
+import {
+  seedBundledSkills,
+  resolveBundledSkillsSourceDir,
+  pruneRetiredBundledSkills,
+  RETIRED_BUNDLED_SKILLS,
+} from './bundled-skills-seeder'
 
 describe('BundledSkillsSeeder', () => {
   let tmpDir: string
@@ -61,15 +66,31 @@ describe('BundledSkillsSeeder', () => {
       expect(fs.readFileSync(versionFile, 'utf-8').trim()).toBe('1.0.0')
     })
 
-    it('版本未变化：标记版本 = 当前版本 → 跳过', async () => {
-      // 先写入版本标记
+    it('版本未变化：仍会补上缺失技能', async () => {
       fs.writeFileSync(path.join(mtbotDataDir, '.bundled-skills-seeded'), '1.0.0')
 
       await seedBundledSkills(workspaceDir, mtbotDataDir)
 
-      // workspace/skills 不应被创建（跳过了）
       const skillsDir = path.join(workspaceDir, 'skills')
-      expect(fs.existsSync(path.join(skillsDir, 'weather'))).toBe(false)
+      expect(fs.existsSync(path.join(skillsDir, 'weather', 'SKILL.md'))).toBe(true)
+      expect(fs.existsSync(path.join(skillsDir, 'github', 'SKILL.md'))).toBe(true)
+    })
+
+    it('已下线技能：从 workspace 删除，空分类目录一并清掉', async () => {
+      const retiredRel = RETIRED_BUNDLED_SKILLS[0]
+      const retiredDir = path.join(workspaceDir, 'skills', ...retiredRel.split('/'))
+      fs.mkdirSync(retiredDir, { recursive: true })
+      fs.writeFileSync(path.join(retiredDir, 'SKILL.md'), '# retired')
+      const sibling = path.join(path.dirname(retiredDir), 'keep-me')
+      fs.mkdirSync(sibling, { recursive: true })
+      fs.writeFileSync(path.join(sibling, 'SKILL.md'), '# keep')
+
+      const stats = { pruned: 0 }
+      pruneRetiredBundledSkills(path.join(workspaceDir, 'skills'), stats)
+
+      expect(stats.pruned).toBe(1)
+      expect(fs.existsSync(retiredDir)).toBe(false)
+      expect(fs.existsSync(sibling)).toBe(true)
     })
 
     it('版本升级：标记版本 ≠ 当前版本 → 执行种子', async () => {

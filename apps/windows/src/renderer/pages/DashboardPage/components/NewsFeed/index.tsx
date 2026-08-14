@@ -157,7 +157,7 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
           <div className={styles.grid}>
             {items.map((item, index) => (
               <button
-                key={item.id}
+                key={`${item.id}::${index}`}
                 type="button"
                 className={styles.card}
                 style={{ ['--i' as string]: index }}

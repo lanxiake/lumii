@@ -13,6 +13,11 @@ import type {
   ContextUsageCategory,
 } from '../../shared/agent-runtime-events'
 
+export {
+  applyConversationCompactToUsage,
+  patchBreakdownAfterConversationCompact,
+} from '../../shared/context-usage-compact'
+
 /** 工具定义的最小形状（名称 + 描述 + 参数 schema，不含 execute） */
 export interface ToolDefinitionLite {
   readonly name: string

@@ -38,6 +38,7 @@ export function useSkills() {
         isEnabled: s.enabled ?? true,
         installedAt: s.installedAt || new Date().toISOString(),
         lastUsedAt: s.lastExecutedAt,
+        executionCount: s.executionCount,
         category: s.category || '',
         skill: {
           id: s.id,

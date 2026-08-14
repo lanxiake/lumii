@@ -406,6 +406,8 @@ function ensureDrawConfigForPackaging() {
 /** electron-vite 生产构建 */
 function stepBuild() {
   log('步骤 4/5: 构建项目 (electron-vite build)')
+  log('从 assets/icon.png 生成 icon.ico（桌面 / 任务栏）')
+  run('node scripts/generate-icon.cjs')
   run('npx electron-vite build')
   success('构建完成')
 }

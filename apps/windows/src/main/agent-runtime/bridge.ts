@@ -247,6 +247,9 @@ export class AgentRuntimeBridge {
         this.restoreHistoryForInstance(instanceId, conversationId, limit),
       createSummaryGenerator: (innerStream, model) => createLlmSummaryGenerator(innerStream, model),
       onSessionContextInvalidated: (sessionKey) => this.clearSessionProviderInputTokens(sessionKey),
+      onSessionContextTokensUpdated: (sessionKey, usedTokens) =>
+        this.setSessionProviderInputTokens(sessionKey, usedTokens),
+      getSessionContextUsage: (sessionKey) => this.getSessionContextUsage(sessionKey),
     })
     this.conversationManager = new BridgeConversationManager({
       localDb: this.localDb,
@@ -839,23 +842,19 @@ export class AgentRuntimeBridge {
   }
 
   /**
-   * 解析会话上下文已用 token：优先提供商 inputTokens，其次本地消息估算。
+   * 解析会话上下文已用 token：优先内存缓存（含压缩后的整窗种子），再 DB，再本地估算。
    */
   private resolveSessionUsedTokens(sessionKey: string): number {
     const k = sessionKey.trim()
+    const cached = this.sessionProviderInputTokens.get(k)
+    if (cached != null && cached > 0) {
+      return cached
+    }
+
     const fromDb = this._conversationRepo?.getLastAssistantProviderInputTokens(k)
     if (fromDb != null && fromDb > 0) {
       this.sessionProviderInputTokens.set(k, fromDb)
       return fromDb
-    }
-
-    const cached = this.sessionProviderInputTokens.get(k)
-    if (cached != null && cached > 0) {
-      // 无 DB 记录时，仅在有活跃实例时信任内存缓存（当前轮次尚未落库）
-      if (this.resolveMainInstanceForSession(k)) {
-        return cached
-      }
-      this.sessionProviderInputTokens.delete(k)
     }
 
     const liveInstance = this.resolveMainInstanceForSession(k)

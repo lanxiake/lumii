@@ -42,6 +42,27 @@ describe('dashboard-feed-store', () => {
     })
   })
 
+  it('相同 href/id 的多条资讯会生成唯一 id，避免 React key 冲突', () => {
+    const snapshot = __testables.normalizeSnapshot(
+      {
+        items: [
+          { title: '广播 1', href: 'http://www.xinhuanet.com/guangbo/' },
+          { title: '广播 2', href: 'http://www.xinhuanet.com/guangbo/' },
+          { title: '独立稿', href: 'https://example.com/unique' },
+        ],
+      },
+      'news',
+    )
+
+    const ids = snapshot?.items.map((item) => item.id) ?? []
+    expect(ids).toEqual([
+      'http://www.xinhuanet.com/guangbo/',
+      'http://www.xinhuanet.com/guangbo/#1',
+      'https://example.com/unique',
+    ])
+    expect(new Set(ids).size).toBe(3)
+  })
+
   it('没有新 feed 文件时从旧 news/latest.json 读取', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'lumii-feed-test-'))
     const previousRoot = process.env.LUMII_CLIENT_DATA_DIR

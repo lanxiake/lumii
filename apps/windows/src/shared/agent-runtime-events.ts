@@ -376,7 +376,9 @@ export interface AgentContextUsageEvent {
 export interface AgentContextCompactedEvent {
   readonly type: 'agent:context:compacted'
   readonly sessionKey: string
+  /** 压缩前整窗占用（含系统提示/工具/MCP，与占用卡片同一口径） */
   readonly previousTokenCount: number
+  /** 压缩后整窗占用（只扣对话历史，MCP 定义不变） */
   readonly newTokenCount: number
   readonly messagesRemoved: number
   readonly timestamp: number
@@ -384,6 +386,14 @@ export interface AgentContextCompactedEvent {
   readonly messagesBefore?: number
   /** 压缩后消息条数（精确值，非估算） */
   readonly messagesAfter?: number
+  /** LLM 摘要正文，供压缩卡片展开查看 */
+  readonly summaryText?: string
+  /** 压缩后的分类明细（对话已缩小，其余分类保持） */
+  readonly breakdown?: readonly ContextUsageBreakdownEntry[]
+  /** 压缩前对话历史估算（不含 MCP/工具定义） */
+  readonly conversationTokensBefore?: number
+  /** 压缩后对话历史估算 */
+  readonly conversationTokensAfter?: number
 }
 
 // ============================================================

@@ -198,10 +198,8 @@ API开放平台,400,massive,medium,xl
 
 ## 相关资源
 
-- **RICE方法详解**: product-manager-toolkit/SKILL.md
 - **会议记录格式**: multi-agent-meeting/references/meeting-record-format.md
 - **智能体协作框架**: agent-team/SKILL.md
-- **PRD模板**: product-manager-toolkit/references/prd_templates.md
 
 ## 注意事项
 

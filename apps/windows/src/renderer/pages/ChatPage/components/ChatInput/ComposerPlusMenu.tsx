@@ -42,7 +42,7 @@ function parseMcpServerName(toolName: string): string | null {
 /**
  * Composer 左侧「+」菜单：附件 + 技能/MCP/Agent 快捷管理
  */
-export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
+const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
   disabled = false,
   onAttachFiles,
   agents = [],
@@ -490,4 +490,8 @@ function SubPanel({
   )
 }
 
-export default ComposerPlusMenu
+const ComposerPlusMenuMemo = React.memo(ComposerPlusMenu)
+ComposerPlusMenuMemo.displayName = 'ComposerPlusMenu'
+
+export default ComposerPlusMenuMemo
+export { ComposerPlusMenuMemo as ComposerPlusMenu }

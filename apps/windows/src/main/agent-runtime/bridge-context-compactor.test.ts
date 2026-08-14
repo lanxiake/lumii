@@ -88,18 +88,24 @@ function makePiMessages(n: number): AgentMessage[] {
  * 构造 compactContext / compactContextAsync 所需的最小 DB + repo + stream。
  */
 function makeCompactHarness(messageCount: number, summaryText: string | null = '结构化摘要') {
-  const rows = Array.from({ length: messageCount }, (_, i) => ({ id: `m${i + 1}` }))
+  const rows = Array.from({ length: messageCount }, (_, i) => ({
+    id: `m${i + 1}`,
+    timestamp: `2026-08-13T12:00:0${i}.000Z`,
+  }))
   let remaining = [...rows]
   const deleted: string[] = []
-  const saved: Array<{ role: string; contentJson: { text: string } }> = []
+  const saved: Array<{
+    role: string
+    contentJson: { type?: string; text?: string; parts?: Array<{ text?: string }> }
+    timestamp?: string
+  }> = []
   const generator = vi.fn(async () => summaryText)
   const restoreHistoryForInstance = vi.fn()
   const forwardIpcEvent = vi.fn()
-  const piMessages = makePiMessages(messageCount)
 
   const db = {
     prepare: (sql: string) => {
-      if (sql.includes('SELECT id FROM messages')) {
+      if (sql.includes('FROM messages') && sql.includes('SELECT id')) {
         return { all: () => remaining }
       }
       if (sql.includes('DELETE FROM messages')) {
@@ -116,14 +122,31 @@ function makeCompactHarness(messageCount: number, summaryText: string | null = '
   }
 
   const repo = {
-    loadMessagesAsPiFormat: vi.fn(() => piMessages),
-    saveMessage: vi.fn((msg: { role: string; contentJson: { text: string } }) => {
-      saved.push(msg)
-    }),
+    loadMessagesAsPiFormat: vi.fn(() => makePiMessages(remaining.length + saved.length)),
+    saveMessage: vi.fn(
+      (msg: {
+        role: string
+        contentJson: { type?: string; text?: string; parts?: Array<{ text?: string }> }
+        timestamp?: string
+      }) => {
+        saved.push(msg)
+      },
+    ),
   }
 
   const innerStream = vi.fn()
   const model = { id: 'm', api: 'openai' }
+  const onSessionContextTokensUpdated = vi.fn()
+  const getSessionContextUsage = vi.fn(() => ({
+    usedTokens: 212_000,
+    contextWindow: 1_000_000,
+    triggerThreshold: 0.8,
+    breakdown: [
+      { category: 'mcp' as const, tokens: 93_300 },
+      { category: 'conversation' as const, tokens: 100_000 },
+      { category: 'tools' as const, tokens: 9_200 },
+    ],
+  }))
   const compactor = new BridgeContextCompactor(
     makeDeps({
       getConversationRepo: () => repo as never,
@@ -134,10 +157,20 @@ function makeCompactHarness(messageCount: number, summaryText: string | null = '
       createSummaryGenerator: () => generator,
       restoreHistoryForInstance,
       ipcChannel: { forwardIpcEvent } as never,
+      getSessionContextUsage,
+      onSessionContextTokensUpdated,
     }),
   )
 
-  return { compactor, generator, deleted, saved, restoreHistoryForInstance, forwardIpcEvent }
+  return {
+    compactor,
+    generator,
+    deleted,
+    saved,
+    restoreHistoryForInstance,
+    forwardIpcEvent,
+    onSessionContextTokensUpdated,
+  }
 }
 
 describe('BridgeContextCompactor.compactContextAsync — 短对话也真正压缩', () => {
@@ -155,10 +188,36 @@ describe('BridgeContextCompactor.compactContextAsync — 短对话也真正压�
     expect(result.previousMessageCount).toBe(4)
     expect(deleted).toEqual(['m1', 'm2'])
     expect(saved).toHaveLength(1)
-    expect(saved[0]?.contentJson.text).toContain('结构化摘要')
+    expect(saved[0]?.contentJson.type).toBe('assistant_parts')
+    expect(saved[0]?.contentJson.parts?.[0]?.text).toContain('结构化摘要')
+    expect(saved[0]?.timestamp).toBeDefined()
+    expect(Date.parse(saved[0]!.timestamp!)).toBeLessThan(Date.parse('2026-08-13T12:00:02.000Z'))
     expect(restoreHistoryForInstance).toHaveBeenCalledOnce()
     expect(forwardIpcEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'agent:context:compacted', messagesRemoved: 2 }),
+    )
+  })
+
+  it('压缩卡片用整窗占用，只扣对话差值，MCP 行不变，并带上摘要正文', async () => {
+    const { compactor, forwardIpcEvent, onSessionContextTokensUpdated } = makeCompactHarness(4)
+
+    await compactor.compactContextAsync('inst-1', 'sess-1', 6)
+
+    const compacted = forwardIpcEvent.mock.calls
+      .map((call) => call[0] as { type?: string; previousTokenCount?: number; newTokenCount?: number; summaryText?: string; breakdown?: Array<{ category: string; tokens: number }> })
+      .find((event) => event.type === 'agent:context:compacted')
+    expect(compacted?.previousTokenCount).toBe(212_000)
+    expect(compacted?.newTokenCount).toBeLessThan(212_000)
+    expect(compacted?.newTokenCount).toBeGreaterThan(100_000)
+    expect(compacted?.summaryText).toBe('结构化摘要')
+    expect(compacted?.breakdown?.find((e) => e.category === 'mcp')?.tokens).toBe(93_300)
+    expect(onSessionContextTokensUpdated).toHaveBeenCalledWith('sess-1', compacted?.newTokenCount)
+
+    expect(forwardIpcEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'agent:context:usage',
+        usedTokens: compacted?.newTokenCount,
+      }),
     )
   })
 

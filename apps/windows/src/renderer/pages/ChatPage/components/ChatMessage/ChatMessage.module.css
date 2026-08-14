@@ -1042,6 +1042,21 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   word-break: break-word;
   max-height: 200px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--mt-border) transparent;
+}
+
+.rt-thinking-pre::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rt-thinking-pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rt-thinking-pre::-webkit-scrollbar-thumb {
+  background: var(--mt-border);
+  border-radius: 3px;
 }
 
 /* 工具列表 */
@@ -1277,6 +1292,21 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   word-break: break-word;
   max-height: 220px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--mt-border) transparent;
+}
+
+.rt-thinking-pre::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rt-thinking-pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rt-thinking-pre::-webkit-scrollbar-thumb {
+  background: var(--mt-border);
+  border-radius: 3px;
 }
 
 /* 锁定高度：流式结束后固定，不再伸缩 */

@@ -27,6 +27,8 @@ describe('MCP 内置清单', () => {
   it('需要密钥的项留空占位并给出申请地址，不写死假值', () => {
     for (const preset of MCP_PRESETS) {
       if (!preset.env) continue
+      const needsKey = Object.values(preset.env).some((value) => value.trim() === '')
+      if (!needsKey) continue
       for (const value of Object.values(preset.env)) expect(value).toBe('')
       expect(preset.todo).toBeTruthy()
       expect(preset.keyUrl).toMatch(/^https:\/\//)
@@ -46,12 +48,29 @@ describe('MCP 内置清单', () => {
     expect(pkgs).not.toContain('chrome-devtools')
   })
 
-  it('播种时至少有一个零配置项默认启用，需配置的都不自动启用', () => {
+  it('播种时至少有一个就绪项默认启用，需配置的都不自动启用', () => {
     const ready = MCP_PRESETS.filter(isReadyToUse)
     expect(ready.length).toBeGreaterThan(0)
     for (const preset of MCP_PRESETS) {
-      if (preset.todo || preset.env) expect(isReadyToUse(preset)).toBe(false)
+      const needsSetup =
+        Boolean(preset.todo) ||
+        Object.values(preset.env ?? {}).some((value) => value.trim() === '')
+      if (needsSetup) expect(isReadyToUse(preset)).toBe(false)
     }
+  })
+
+  it('已下线 memory / chart / context7 / amap，并内置 comfyui-remote', () => {
+    const names = MCP_PRESETS.map((p) => p.name)
+    expect(names).not.toContain('memory')
+    expect(names).not.toContain('chart')
+    expect(names).not.toContain('context7')
+    expect(names).not.toContain('amap')
+
+    const comfy = MCP_PRESETS.find((p) => p.name === 'comfyui-remote')
+    expect(comfy).toBeTruthy()
+    expect(comfy!.args).toEqual(['-y', 'comfyui-mcp'])
+    expect(comfy!.env).toEqual({ COMFYUI_URL: 'https://cfui.cpolar.top' })
+    expect(isReadyToUse(comfy!)).toBe(true)
   })
 
   it('filesystem 不写死盘符路径，用占位符交给主进程解析', () => {
