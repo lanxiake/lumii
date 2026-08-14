@@ -1,7 +1,7 @@
 /**
  * App UI 本机控制 HTTP 服务（127.0.0.1 + Bearer token）
  *
- * 供 lumii-ui CLI 与外部脚本调用 screenshot / goto / click。
+ * 供 lumii-ui CLI 与外部脚本调用 screenshot / goto / click / act。
  */
 
 import { randomUUID } from 'node:crypto'
@@ -11,7 +11,12 @@ import path from 'node:path'
 import type { BrowserWindow } from 'electron'
 import { resizeImageIfNeeded } from '../agent-runtime/image-resizer'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
-import { createAppUiController, type AppUiController, type ResizeImageFn } from './controller'
+import {
+  createAppUiController,
+  type AppUiController,
+  type AppUiScreenshotOptions,
+  type ResizeImageFn,
+} from './controller'
 
 /** 浏览器控制相关端口（对照用，app-ui 控制口需避开） */
 export const DEFAULT_BROWSER_CONTROL_PORT = 18790
@@ -138,6 +143,57 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
   res.end(payload)
 }
 
+/** /act 支持的动作，与 app_act 工具一致 */
+const ACT_ACTIONS = ['click', 'type', 'key', 'scroll'] as const
+type ActRouteAction = (typeof ACT_ACTIONS)[number]
+
+/**
+ * 从 body 读取 screenshot 参数（annotate / target），非法值走默认。
+ */
+export function parseScreenshotBody(body: unknown): AppUiScreenshotOptions {
+  if (body == null || typeof body !== 'object') return {}
+  const record = body as Record<string, unknown>
+  const options: AppUiScreenshotOptions = {}
+  if (record.annotate === true || record.annotate === 'true') {
+    options.annotate = true
+  }
+  if (
+    record.target === 'main' ||
+    record.target === 'pet' ||
+    record.target === 'preview'
+  ) {
+    options.target = record.target
+  }
+  return options
+}
+
+/**
+ * 补齐 body 上缺失的 action 字段，让 /click 这类专用路由也能复用 controller 的入参校验。
+ */
+function withAction(body: unknown, action: ActRouteAction): unknown {
+  if (body == null || typeof body !== 'object') return { action }
+  return { action, ...(body as Record<string, unknown>) }
+}
+
+/**
+ * 按 body.action 分派到 controller 的 click / type / key / scroll。
+ */
+async function runAct(controller: AppUiController, body: unknown): Promise<unknown> {
+  const action = (body as Record<string, unknown> | null)?.action
+  switch (action) {
+    case 'click':
+      return controller.click(body)
+    case 'type':
+      return controller.type(body)
+    case 'key':
+      return controller.key(body)
+    case 'scroll':
+      return controller.scroll(body)
+    default:
+      return { ok: false, error: 'usage' }
+  }
+}
+
 /**
  * 处理已鉴权的路由。
  */
@@ -149,7 +205,7 @@ async function handleRoute(
 ): Promise<void> {
   switch (pathname) {
     case '/screenshot': {
-      const result = await controller.screenshot()
+      const result = await controller.screenshot(parseScreenshotBody(body))
       sendJson(res, 200, result)
       return
     }
@@ -159,11 +215,12 @@ async function handleRoute(
       return
     }
     case '/click': {
-      const clickBody =
-        body != null && typeof body === 'object' && !('action' in (body as Record<string, unknown>))
-          ? { action: 'click', ...(body as Record<string, unknown>) }
-          : body
-      const result = await controller.click(clickBody)
+      const result = await controller.click(withAction(body, 'click'))
+      sendJson(res, 200, result)
+      return
+    }
+    case '/act': {
+      const result = await runAct(controller, body)
       sendJson(res, 200, result)
       return
     }

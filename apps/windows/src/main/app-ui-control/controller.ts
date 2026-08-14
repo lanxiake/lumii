@@ -13,6 +13,7 @@ import {
   type AppUiActError,
   type AppUiClickError,
   type ClickPrepareRect,
+  type ScrollScriptResult,
 } from './act'
 import { annotateSnapshot } from './annotate'
 import { devicePixelsToDip } from './coords'
@@ -172,6 +173,13 @@ export interface AppUiActFailure {
   error: AppUiActError
 }
 
+/** scroll 成功结果：带回滚动容器的位置，便于判断是否已到底 */
+export interface AppUiScrollSuccess extends ScrollScriptResult {
+  ok: true
+}
+
+export type AppUiScrollResult = AppUiScrollSuccess | AppUiActFailure
+
 /** 控制器对外 API */
 export interface AppUiController {
   screenshot(options?: AppUiScreenshotOptions): Promise<AppUiScreenshotResult>
@@ -185,8 +193,8 @@ export interface AppUiController {
   type(input: unknown): Promise<AppUiActResult>
   /** 发送白名单按键到当前聚焦的 webContents */
   key(input: unknown): Promise<AppUiActResult>
-  /** 按 ref 对目标元素 scrollBy */
-  scroll(input: unknown): Promise<AppUiActResult>
+  /** 按 ref 滚动元素所在的最近可滚动容器 */
+  scroll(input: unknown): Promise<AppUiScrollResult>
 }
 
 /** 无法读取渲染层状态时的兜底视图（screenshot 用） */
@@ -346,6 +354,28 @@ function parseActInput(raw: unknown): ActInput | null {
   }
 
   return null
+}
+
+/**
+ * 解析 scroll 注入脚本的回读结果；字段缺失或类型不符时返回 null。
+ */
+function parseScrollScriptResult(raw: unknown): ScrollScriptResult | null {
+  if (raw == null || typeof raw !== 'object') {
+    return null
+  }
+  const record = raw as Record<string, unknown>
+  if (typeof record.scrollTop !== 'number') {
+    return null
+  }
+  return {
+    moved: record.moved === true,
+    container: typeof record.container === 'string' ? record.container : 'unknown',
+    scrollTop: record.scrollTop,
+    scrollHeight: typeof record.scrollHeight === 'number' ? record.scrollHeight : 0,
+    clientHeight: typeof record.clientHeight === 'number' ? record.clientHeight : 0,
+    atTop: record.atTop === true,
+    atBottom: record.atBottom === true,
+  }
 }
 
 type RefActValidationSuccess = {
@@ -730,9 +760,9 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
   }
 
   /**
-   * 按 ref 滚动目标元素：校验快照 → scrollBy 注入。
+   * 按 ref 滚动：校验快照 → 注入脚本滚动最近可滚动祖先，并回读滚动后的位置。
    */
-  async function scroll(input: unknown): Promise<AppUiActResult> {
+  async function scroll(input: unknown): Promise<AppUiScrollResult> {
     const actInput = parseScrollInput(input)
     if (!actInput) {
       return { ok: false, error: 'missing_ref' }
@@ -747,12 +777,13 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
     const dx = actInput.dx ?? 0
     const dy = actInput.dy ?? 0
     const script = buildScrollScript(ref.x, ref.y, ref.w, ref.h, dx, dy)
-    const ok = (await win.webContents.executeJavaScript(script)) as boolean | null
-    if (!ok) {
+    const raw = await win.webContents.executeJavaScript(script)
+    const parsed = parseScrollScriptResult(raw)
+    if (!parsed) {
       return { ok: false, error: 'click_target_lost' }
     }
 
-    return { ok: true }
+    return { ok: true, ...parsed }
   }
 
   return {

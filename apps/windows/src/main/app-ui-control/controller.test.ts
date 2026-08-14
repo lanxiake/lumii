@@ -505,7 +505,7 @@ describe('createAppUiController', () => {
     expect(sendInputEvent).toHaveBeenNthCalledWith(2, { type: 'keyUp', keyCode: 'Enter' })
   })
 
-  it('scroll 成功注入 scrollBy 脚本', async () => {
+  it('scroll 回读注入脚本给出的容器位置', async () => {
     const rawNodes: RawSnapshotNode[] = [
       { role: 'list', name: '列表', x: 0, y: 0, w: 200, h: 300 },
     ]
@@ -517,7 +517,17 @@ describe('createAppUiController', () => {
           hub: { open: false, tab: null, category: null },
         })
       }
-      if (script.includes('scrollBy')) return true
+      if (script.includes('scrollTop')) {
+        return {
+          moved: true,
+          container: 'div.settings-body',
+          scrollTop: 120,
+          scrollHeight: 900,
+          clientHeight: 400,
+          atTop: false,
+          atBottom: false,
+        }
+      }
       return null
     })
     const { controller } = makeController(() => fakeWindow({ executeJavaScript }))
@@ -531,8 +541,44 @@ describe('createAppUiController', () => {
       snapshotId: '1',
     })
 
-    expect(result).toEqual({ ok: true })
-    expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('scrollBy(0, 120)'))
+    expect(result).toEqual({
+      ok: true,
+      moved: true,
+      container: 'div.settings-body',
+      scrollTop: 120,
+      scrollHeight: 900,
+      clientHeight: 400,
+      atTop: false,
+      atBottom: false,
+    })
+    expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('var dy = 120;'))
+  })
+
+  it('scroll 找不到目标元素时返回 click_target_lost', async () => {
+    const rawNodes: RawSnapshotNode[] = [
+      { role: 'list', name: '列表', x: 0, y: 0, w: 200, h: 300 },
+    ]
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script === SNAPSHOT_SCRIPT) return rawNodes
+      if (script.includes('__LUMII_APP_UI_STATE__')) {
+        return JSON.stringify({
+          view: 'chat',
+          hub: { open: false, tab: null, category: null },
+        })
+      }
+      return null
+    })
+    const { controller } = makeController(() => fakeWindow({ executeJavaScript }))
+
+    await controller.screenshot()
+    const result = await controller.scroll({
+      action: 'scroll',
+      ref: 'e1',
+      dy: 120,
+      snapshotId: '1',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'click_target_lost' })
   })
 })
 

@@ -5,6 +5,12 @@ import type { AppUiController } from '../app-ui-control'
 import { registerAppUiTools, resetAppUiToolTurnQuotas } from './bridge-app-ui-tools'
 import { parseJsonToolResultPayload } from './bridge-utils'
 
+/** Hub 未打开时的视图状态，多处 mock 复用 */
+const CLOSED_HUB_VIEW_STATE = {
+  view: 'chat',
+  hub: { open: false, tab: null, category: null },
+}
+
 /** 最小 ToolExecutionContext stub */
 function stubContext(): ToolExecutionContext {
   return {
@@ -133,7 +139,7 @@ describe('registerAppUiTools', () => {
 
   it('app_not_running 时仅返回 text JSON 失败', async () => {
     const execute = registerAndGetExecute('app_screenshot', stubController({
-      screenshot: vi.fn(async () => ({ ok: false as const, error: 'app_not_running' })),
+      screenshot: vi.fn(async () => ({ ok: false as const, error: 'app_not_running' as const })),
     }))
 
     const result = await execute('call-2', {})
@@ -187,7 +193,7 @@ describe('registerAppUiTools', () => {
 
   it('app_goto 失败时透传 controller 错误', async () => {
     const execute = registerAndGetExecute('app_goto', stubController({
-      goto: vi.fn(async () => ({ ok: false as const, error: 'usage' })),
+      goto: vi.fn(async () => ({ ok: false as const, error: 'usage' as const })),
     }))
 
     const result = await execute('call-g2', { view: 'invalid' })
@@ -264,8 +270,18 @@ describe('registerAppUiTools', () => {
     expect(key).toHaveBeenCalledWith({ action: 'key', key: 'Tab' })
   })
 
-  it('app_act scroll 成功时调用 controller.scroll', async () => {
-    const scroll = vi.fn(async () => ({ ok: true as const }))
+  it('app_act scroll 成功时调用 controller.scroll 并回传滚动位置', async () => {
+    const scrollResult = {
+      ok: true as const,
+      moved: true,
+      container: 'div.settings-body',
+      scrollTop: 200,
+      scrollHeight: 900,
+      clientHeight: 400,
+      atTop: false,
+      atBottom: false,
+    }
+    const scroll = vi.fn(async () => scrollResult)
     const execute = registerAndGetExecute('app_act', stubController({ scroll }))
 
     const result = await execute('call-a-scroll', {
@@ -274,7 +290,7 @@ describe('registerAppUiTools', () => {
       dy: 200,
       snapshotId: 'snap-001',
     })
-    expect(parseJsonToolResultPayload(result)).toEqual({ ok: true })
+    expect(parseJsonToolResultPayload(result)).toEqual(scrollResult)
     expect(scroll).toHaveBeenCalledWith({
       action: 'scroll',
       ref: 'e5',
@@ -299,7 +315,7 @@ describe('registerAppUiTools', () => {
 
   it('app_act click 失败时透传 controller 错误', async () => {
     const execute = registerAndGetExecute('app_act', stubController({
-      click: vi.fn(async () => ({ ok: false as const, error: 'stale_snapshot' })),
+      click: vi.fn(async () => ({ ok: false as const, error: 'stale_snapshot' as const })),
     }))
 
     const result = await execute('call-a3', {
@@ -315,8 +331,8 @@ describe('registerAppUiTools', () => {
       readSettingsJson: async () =>
         JSON.stringify({ privacy: { allowAgentAppUiControl: false } }),
     }
-    const screenshot = vi.fn(async () => ({ ok: true as const, snapshotId: 's', imageBase64: 'x', mimeType: 'image/jpeg', width: 1, height: 1, viewState: { view: 'chat', hub: null }, refs: [], truncated: false, previewPath: '', windowVisible: true }))
-    const goto = vi.fn(async () => ({ ok: true as const, view: 'chat', hub: null }))
+    const screenshot = vi.fn(async () => ({ ok: true as const, snapshotId: 's', imageBase64: 'x', mimeType: 'image/jpeg', width: 1, height: 1, viewState: CLOSED_HUB_VIEW_STATE, refs: [], truncated: false, previewPath: '', windowVisible: true }))
+    const goto = vi.fn(async () => ({ ok: true as const, ...CLOSED_HUB_VIEW_STATE }))
     const click = vi.fn(async () => ({ ok: true as const }))
     const ctrl = stubController({ screenshot, goto, click })
 
@@ -339,7 +355,7 @@ describe('registerAppUiTools', () => {
       mimeType: 'image/jpeg',
       width: 100,
       height: 100,
-      viewState: { view: 'chat', hub: null },
+      viewState: CLOSED_HUB_VIEW_STATE,
       refs: [],
       truncated: false,
       previewPath: '/tmp/snap.jpg',
@@ -364,7 +380,7 @@ describe('registerAppUiTools', () => {
       mimeType: 'image/jpeg',
       width: 100,
       height: 100,
-      viewState: { view: 'chat', hub: null },
+      viewState: CLOSED_HUB_VIEW_STATE,
       refs: [],
       truncated: false,
       previewPath: '/tmp/snap.jpg',

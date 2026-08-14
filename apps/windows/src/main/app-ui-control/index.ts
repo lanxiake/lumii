@@ -35,6 +35,7 @@ export type {
   ClickAllowedError,
   ClickPrepareError,
   ClickPrepareRect,
+  ScrollScriptResult,
 } from './act'
 
 export { devicePixelsToDip } from './coords'
@@ -71,6 +72,8 @@ export type {
   AppUiScreenshotResult,
   AppUiScreenshotSuccess,
   AppUiScreenshotTarget,
+  AppUiScrollResult,
+  AppUiScrollSuccess,
   AppUiSnapshotCache,
   AppUiWindowTarget,
   ResizeImageFn,

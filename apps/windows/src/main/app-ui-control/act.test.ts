@@ -10,6 +10,7 @@ import {
   isKeyAllowed,
   KEY_WHITELIST,
 } from './act'
+import type { ScrollScriptResult } from './act'
 import type { AppUiClickContext, AppUiRef } from './types'
 
 const sampleRef: AppUiRef = {
@@ -133,27 +134,81 @@ describe('isKeyAllowed', () => {
   })
 })
 
+/**
+ * jsdom 不做布局，scrollTop/scrollHeight 恒为 0，需要手动模拟成一个可滚动容器。
+ */
+function stubScrollableContainer(
+  el: HTMLElement,
+  scrollHeight: number,
+  clientHeight: number,
+): void {
+  let top = 0
+  const maxTop = scrollHeight - clientHeight
+  Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true })
+  Object.defineProperty(el, 'clientHeight', { value: clientHeight, configurable: true })
+  Object.defineProperty(el, 'scrollTop', {
+    configurable: true,
+    get: () => top,
+    set: (next: number) => {
+      top = Math.max(0, Math.min(next, maxTop))
+    },
+  })
+}
+
 describe('buildScrollScript', () => {
-  it('脚本包含 scrollBy 与 elementFromPoint 定位', () => {
+  it('脚本包含元素定位与滚动偏移', () => {
     const script = buildScrollScript(10, 20, 100, 40, 0, 120)
     expect(script).toContain('elementFromPoint')
-    expect(script).toContain('scrollBy(0, 120)')
-    expect(script).toContain('scrollIntoView')
+    expect(script).toContain('var dy = 120;')
+    expect(script).toContain('parentElement')
   })
 
-  it('在 jsdom 元素上执行 scrollBy', () => {
-    document.body.innerHTML = '<div id="scroll-target" style="overflow:auto;height:100px"></div>'
-    const el = document.getElementById('scroll-target') as HTMLElement
-    const scrollBySpy = vi.fn()
-    el.scrollBy = scrollBySpy
-    el.scrollIntoView = vi.fn()
-    document.elementFromPoint = vi.fn().mockReturnValue(el) as typeof document.elementFromPoint
+  it('从不可滚动的 ref 元素向上找到可滚动容器', () => {
+    document.body.innerHTML =
+      '<div id="panel" class="settings-body" style="overflow-y:auto"><button id="btn">卸载</button></div>'
+    const panel = document.getElementById('panel') as HTMLElement
+    const btn = document.getElementById('btn') as HTMLElement
+    stubScrollableContainer(panel, 800, 400)
+    document.elementFromPoint = vi.fn().mockReturnValue(btn) as typeof document.elementFromPoint
 
-    const script = buildScrollScript(0, 0, 50, 50, 10, 20)
+    const script = buildScrollScript(0, 0, 50, 50, 0, 300)
     // eslint-disable-next-line no-eval
-    const result = eval(script)
+    const result = eval(script) as ScrollScriptResult
 
-    expect(result).toBe(true)
-    expect(scrollBySpy).toHaveBeenCalledWith(10, 20)
+    expect(result.container).toBe('div.settings-body')
+    expect(result.moved).toBe(true)
+    expect(result.scrollTop).toBe(300)
+    expect(result.atTop).toBe(false)
+    expect(result.atBottom).toBe(false)
+  })
+
+  it('容器已到底时回读 moved=false 与 atBottom=true', () => {
+    document.body.innerHTML =
+      '<div id="panel" class="settings-body" style="overflow-y:auto"><button id="btn">卸载</button></div>'
+    const panel = document.getElementById('panel') as HTMLElement
+    const btn = document.getElementById('btn') as HTMLElement
+    stubScrollableContainer(panel, 800, 400)
+    panel.scrollTop = 9999
+    document.elementFromPoint = vi.fn().mockReturnValue(btn) as typeof document.elementFromPoint
+
+    const script = buildScrollScript(0, 0, 50, 50, 0, 300)
+    // eslint-disable-next-line no-eval
+    const result = eval(script) as ScrollScriptResult
+
+    expect(result.moved).toBe(false)
+    expect(result.atBottom).toBe(true)
+    expect(result.scrollTop).toBe(400)
+  })
+
+  it('没有可滚动祖先时退化为滚动页面', () => {
+    document.body.innerHTML = '<button id="btn">卸载</button>'
+    const btn = document.getElementById('btn') as HTMLElement
+    document.elementFromPoint = vi.fn().mockReturnValue(btn) as typeof document.elementFromPoint
+
+    const script = buildScrollScript(0, 0, 50, 50, 0, 300)
+    // eslint-disable-next-line no-eval
+    const result = eval(script) as ScrollScriptResult
+
+    expect(result.container).toBe('document')
   })
 })

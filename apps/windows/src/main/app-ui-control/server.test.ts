@@ -8,6 +8,7 @@ import type { AppUiController } from './controller'
 import {
   APP_UI_CONTROL_PORT_START,
   findAvailablePort,
+  parseScreenshotBody,
   startAppUiControlServer,
   stopAppUiControlServer,
 } from './server'
@@ -17,18 +18,49 @@ vi.mock('../vendor/ports-inspect.js', () => ({
 }))
 
 import { inspectPortUsage } from '../vendor/ports-inspect.js'
+import type { PortUsage } from '../vendor/ports-inspect.js'
 
 const mockedInspectPortUsage = vi.mocked(inspectPortUsage)
 
+/** 构造 inspectPortUsage 的返回值，补齐 PortUsage 必填字段 */
+function portUsage(port: number, status: 'free' | 'busy'): PortUsage {
+  return { port, status, listeners: [], hints: [] }
+}
+
 function mockController(): AppUiController {
   return {
-    screenshot: vi.fn(async () => ({ ok: true, snapshotId: 'snap-1' })),
+    screenshot: vi.fn(async () => ({
+      ok: true as const,
+      snapshotId: 'snap-1',
+      imageBase64: 'abc',
+      mimeType: 'image/jpeg',
+      width: 100,
+      height: 100,
+      viewState: { view: 'chat', hub: { open: false, tab: null, category: null } },
+      refs: [],
+      truncated: false,
+      previewPath: '/tmp/snap-1.jpg',
+      windowVisible: true,
+    })),
     getSnapshotCache: vi.fn(),
-    goto: vi.fn(async () => ({ ok: true, view: 'chat', hub: { open: false, tab: null, category: null } })),
-    click: vi.fn(async () => ({ ok: true })),
-    type: vi.fn(async () => ({ ok: true })),
-    key: vi.fn(async () => ({ ok: true })),
-    scroll: vi.fn(async () => ({ ok: true })),
+    goto: vi.fn(async () => ({
+      ok: true as const,
+      view: 'chat',
+      hub: { open: false, tab: null, category: null },
+    })),
+    click: vi.fn(async () => ({ ok: true as const })),
+    type: vi.fn(async () => ({ ok: true as const })),
+    key: vi.fn(async () => ({ ok: true as const })),
+    scroll: vi.fn(async () => ({
+      ok: true as const,
+      moved: true,
+      container: 'div.settings-body',
+      scrollTop: 300,
+      scrollHeight: 900,
+      clientHeight: 400,
+      atTop: false,
+      atBottom: false,
+    })),
   }
 }
 
@@ -74,7 +106,7 @@ describe('findAvailablePort', () => {
   })
 
   it('返回第一个空闲端口', async () => {
-    mockedInspectPortUsage.mockResolvedValueOnce({ status: 'free', listeners: [] })
+    mockedInspectPortUsage.mockResolvedValueOnce(portUsage(APP_UI_CONTROL_PORT_START, 'free'))
     await expect(findAvailablePort(APP_UI_CONTROL_PORT_START, 'test')).resolves.toBe(
       APP_UI_CONTROL_PORT_START,
     )
@@ -82,14 +114,32 @@ describe('findAvailablePort', () => {
 
   it('被占用时按 +10 步长重试，均占用则落到 startPort+30', async () => {
     mockedInspectPortUsage
-      .mockResolvedValueOnce({ status: 'busy', listeners: [] })
-      .mockResolvedValueOnce({ status: 'busy', listeners: [] })
-      .mockResolvedValueOnce({ status: 'busy', listeners: [] })
+      .mockResolvedValueOnce(portUsage(APP_UI_CONTROL_PORT_START, 'busy'))
+      .mockResolvedValueOnce(portUsage(APP_UI_CONTROL_PORT_START + 10, 'busy'))
+      .mockResolvedValueOnce(portUsage(APP_UI_CONTROL_PORT_START + 20, 'busy'))
 
     await expect(findAvailablePort(APP_UI_CONTROL_PORT_START, 'test')).resolves.toBe(
       APP_UI_CONTROL_PORT_START + 30,
     )
     expect(mockedInspectPortUsage).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('parseScreenshotBody', () => {
+  it('读取 annotate 与合法 target', () => {
+    expect(parseScreenshotBody({ annotate: true, target: 'pet' })).toEqual({
+      annotate: true,
+      target: 'pet',
+    })
+  })
+
+  it('忽略非法 target 与非真值 annotate', () => {
+    expect(parseScreenshotBody({ annotate: 'no', target: 'desktop' })).toEqual({})
+  })
+
+  it('空 body 返回空选项', () => {
+    expect(parseScreenshotBody(undefined)).toEqual({})
+    expect(parseScreenshotBody({})).toEqual({})
   })
 })
 
@@ -163,6 +213,35 @@ describe('startAppUiControlServer', () => {
       ref: '3',
       snapshotId: 'snap-1',
     })
+  })
+
+  it('POST /screenshot 透传 annotate/target 到 controller', async () => {
+    const { token } = await startWithEphemeralPort()
+
+    await postRoute(port, '/screenshot', { annotate: true, target: 'pet' }, token)
+    expect(controller.screenshot).toHaveBeenCalledWith({ annotate: true, target: 'pet' })
+  })
+
+  it('POST /act 按 action 分派到 type/key/scroll', async () => {
+    const { token } = await startWithEphemeralPort()
+
+    await postRoute(port, '/act', { action: 'type', ref: 'e3', text: '你好' }, token)
+    expect(controller.type).toHaveBeenCalledWith({ action: 'type', ref: 'e3', text: '你好' })
+
+    await postRoute(port, '/act', { action: 'key', key: 'Enter' }, token)
+    expect(controller.key).toHaveBeenCalledWith({ action: 'key', key: 'Enter' })
+
+    const scrolled = await postRoute(port, '/act', { action: 'scroll', ref: 'e5', dy: 300 }, token)
+    expect(controller.scroll).toHaveBeenCalledWith({ action: 'scroll', ref: 'e5', dy: 300 })
+    expect(scrolled.json).toMatchObject({ ok: true, moved: true, atBottom: false })
+  })
+
+  it('POST /act 缺少或非法 action 返回 usage', async () => {
+    const { token } = await startWithEphemeralPort()
+
+    const res = await postRoute(port, '/act', { ref: 'e5' }, token)
+    expect(res.json).toEqual({ ok: false, error: 'usage' })
+    expect(controller.click).not.toHaveBeenCalled()
   })
 
   it('启动时写入 runtime/app-ui.json', async () => {
