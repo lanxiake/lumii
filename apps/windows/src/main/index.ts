@@ -531,6 +531,11 @@ function initScreenRecordService(): void {
   registerScreenRecordIpc(screenRecordService, mainWindow)
   log.info('录屏服务已初始化')
 }
+
+/**
+ * 初始化系统托盘
+ */
+function initTray(): void {
   log.info('初始化系统托盘')
 
   trayManager = new TrayManager({
