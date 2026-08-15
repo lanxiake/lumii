@@ -24,6 +24,7 @@ const DEFAULT_SCREEN_RECORD = {
   alwaysAllow: false,
   includeMicDefault: true,
   includeSystemAudioDefault: true,
+  exportMp4Default: false,
   confirmTimeoutSec: 120,
 }
 
@@ -167,6 +168,7 @@ export const ScreenRecordRoot: React.FC = () => {
         elapsedMs={elapsedMs}
         includeMicDefault={screenRecord.includeMicDefault}
         includeSystemAudioDefault={screenRecord.includeSystemAudioDefault !== false}
+        exportMp4Default={screenRecord.exportMp4Default === true}
         alwaysAllow={screenRecord.alwaysAllow}
         enabled={screenRecord.enabled}
         lastRecording={lastRecording}
@@ -174,8 +176,8 @@ export const ScreenRecordRoot: React.FC = () => {
         onStart={async (p) => {
           await start(p)
         }}
-        onStop={async () => {
-          await stop()
+        onStop={async (p) => {
+          await stop(p)
         }}
         onPause={async () => {
           await pause()

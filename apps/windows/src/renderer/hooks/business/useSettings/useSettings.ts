@@ -83,6 +83,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     alwaysAllow: false,
     includeMicDefault: true,
     includeSystemAudioDefault: true,
+    exportMp4Default: false,
     confirmTimeoutSec: 120,
   },
   language: 'zh-CN',

@@ -11,3 +11,4 @@ export { createRealScreenRecordServiceDeps, parseScreenRecordSettings, formatRec
 export { registerScreenRecordIpc } from './screen-record-ipc'
 export { getFreeDiskBytes, extractDriveLetter } from './disk-space'
 export { getScreenRecordService, setScreenRecordService } from './accessor'
+export { runFfmpeg, webmToMp4 } from './ffmpeg-runner'

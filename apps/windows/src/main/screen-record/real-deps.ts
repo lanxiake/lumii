@@ -10,6 +10,7 @@ import type { ScreenRecordConfig, ScreenRecordSource } from '../../shared/screen
 import { SCREEN_RECORD_SETTINGS_DEFAULTS } from '../../shared/screen-record'
 import { resolveRecordingsDir } from '../client-data-root'
 import { getFreeDiskBytes } from './disk-space'
+import { webmToMp4 } from './ffmpeg-runner'
 import type { ScreenRecordServiceDeps, ScreenRecordWriteStream } from './screen-record-service'
 
 /** 生成 recording-yyyyMMdd-HHmmss.webm 文件名（本地时区） */
@@ -65,6 +66,7 @@ export function parseScreenRecordSettings(json: string | null): ScreenRecordConf
       includeMicDefault: s.includeMicDefault ?? SCREEN_RECORD_SETTINGS_DEFAULTS.includeMicDefault,
       includeSystemAudioDefault:
         s.includeSystemAudioDefault ?? SCREEN_RECORD_SETTINGS_DEFAULTS.includeSystemAudioDefault,
+      exportMp4Default: s.exportMp4Default ?? SCREEN_RECORD_SETTINGS_DEFAULTS.exportMp4Default,
       confirmTimeoutSec: s.confirmTimeoutSec ?? SCREEN_RECORD_SETTINGS_DEFAULTS.confirmTimeoutSec,
     }
   } catch {
@@ -207,5 +209,7 @@ export function createRealScreenRecordServiceDeps(
     persistAlwaysAllow: async (value) => {
       opts.requestPersistAlwaysAllow?.(value)
     },
+
+    convertWebmToMp4: (input, output) => webmToMp4(input, output),
   }
 }

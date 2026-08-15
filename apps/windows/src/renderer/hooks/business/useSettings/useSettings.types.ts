@@ -96,6 +96,8 @@ export interface ScreenRecordConfig {
   includeMicDefault: boolean
   /** 默认是否录系统声 */
   includeSystemAudioDefault: boolean
+  /** 停止时默认是否导出 MP4 */
+  exportMp4Default: boolean
   /** AI 触发确认弹窗超时秒数 */
   confirmTimeoutSec: number
 }

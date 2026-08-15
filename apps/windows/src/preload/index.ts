@@ -1031,7 +1031,7 @@ export interface ElectronAPI {
       includeSystemAudio?: boolean
       maxDurationSec?: number
     }) => Promise<unknown>
-    stop: () => Promise<unknown>
+    stop: (params?: { exportMp4?: boolean }) => Promise<unknown>
     pause: () => Promise<unknown>
     resume: () => Promise<unknown>
     status: () => Promise<unknown>
@@ -1798,7 +1798,8 @@ const electronAPI: ElectronAPI = {
       maxDurationSec?: number
     }) =>
       ipcRenderer.invoke('screen-record:start', { params }),
-    stop: () => ipcRenderer.invoke('screen-record:stop'),
+    stop: (params?: { exportMp4?: boolean }) =>
+      ipcRenderer.invoke('screen-record:stop', { params }),
     pause: () => ipcRenderer.invoke('screen-record:pause'),
     resume: () => ipcRenderer.invoke('screen-record:resume'),
     status: () => ipcRenderer.invoke('screen-record:status'),

@@ -93,6 +93,7 @@ function makeFakeDeps(
       alwaysAllow,
       includeMicDefault,
       includeSystemAudioDefault: true,
+      exportMp4Default: false,
       confirmTimeoutSec,
     }),
     resolveRecordingsDir: () => 'E:/tmp/recordings',
@@ -334,5 +335,42 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     const stop = await svc.stop()
     expect(stop.ok).toBe(true)
     expect(statusOf(svc)).toBe('idle')
+  })
+
+  it('exportMp4 成功返回 mp4Path；失败 warning=mp4_failed 仍保留 webm', async () => {
+    const convertOk = vi.fn(async () => ({ ok: true as const }))
+    const depsOk = makeFakeDeps({ convertWebmToMp4: convertOk })
+    const svcOk = createScreenRecordService(depsOk)
+    await svcOk.start({ sourceId: 'lumii-id' })
+    await svcOk.handleChunk({
+      sessionId: sessionIdOf(svcOk),
+      chunkBase64: Buffer.from('webm').toString('base64'),
+      index: 0,
+      isLast: false,
+    })
+    const r1 = await svcOk.stop({ exportMp4: true })
+    expect(r1.ok).toBe(true)
+    if (r1.ok) {
+      expect(r1.mp4Path).toMatch(/\.mp4$/)
+      expect(convertOk).toHaveBeenCalled()
+    }
+
+    const convertFail = vi.fn(async () => ({ ok: false as const, message: 'boom' }))
+    const depsFail = makeFakeDeps({ convertWebmToMp4: convertFail })
+    const svcFail = createScreenRecordService(depsFail)
+    await svcFail.start({ sourceId: 'lumii-id' })
+    await svcFail.handleChunk({
+      sessionId: sessionIdOf(svcFail),
+      chunkBase64: Buffer.from('webm').toString('base64'),
+      index: 0,
+      isLast: false,
+    })
+    const r2 = await svcFail.stop({ exportMp4: true })
+    expect(r2.ok).toBe(true)
+    if (r2.ok) {
+      expect(r2.path).toMatch(/\.webm$/)
+      expect(r2.mp4Path).toBeUndefined()
+      expect(r2.warning).toBe('mp4_failed')
+    }
   })
 })

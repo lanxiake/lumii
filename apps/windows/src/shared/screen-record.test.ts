@@ -24,6 +24,7 @@ describe('screen-record shared 常量', () => {
     expect(SCREEN_RECORD_SETTINGS_DEFAULTS.alwaysAllow).toBe(false)
     expect(SCREEN_RECORD_SETTINGS_DEFAULTS.includeMicDefault).toBe(true)
     expect(SCREEN_RECORD_SETTINGS_DEFAULTS.includeSystemAudioDefault).toBe(true)
+    expect(SCREEN_RECORD_SETTINGS_DEFAULTS.exportMp4Default).toBe(false)
     expect(SCREEN_RECORD_SETTINGS_DEFAULTS.confirmTimeoutSec).toBe(120)
   })
 })

@@ -80,6 +80,12 @@ export type ScreenRecordStartResult =
     }
   | { ok: false; error: ScreenRecordErrorCode; message?: string }
 
+/** screen_record_stop 可选参数 */
+export interface ScreenRecordStopParams {
+  /** 停止后导出 MP4；默认跟随 exportMp4Default */
+  exportMp4?: boolean
+}
+
 /** stop 返回（设计 §3.1 第 3 行） */
 export type ScreenRecordStopResult =
   | {
@@ -87,8 +93,10 @@ export type ScreenRecordStopResult =
       path: string
       durationMs: number
       bytes: number
-      /** 麦/系统声降级无声时带 warning */
-      warning?: 'mic_muted' | 'system_audio_muted' | 'audio_degraded'
+      /** 可选 MP4 路径（exportMp4 成功时） */
+      mp4Path?: string
+      /** 麦/系统声降级或 MP4 失败时带 warning */
+      warning?: 'mic_muted' | 'system_audio_muted' | 'audio_degraded' | 'mp4_failed'
     }
   | { ok: false; error: ScreenRecordErrorCode; message?: string; partialPath?: string }
 
@@ -110,7 +118,7 @@ export type ScreenRecordStatusResult =
     }
   | { ok: false; error: ScreenRecordErrorCode }
 
-/** 录屏设置（设计 §4.5 四个键） */
+/** 录屏设置（设计 §4.5 + 二期 exportMp4） */
 export interface ScreenRecordConfig {
   enabled: boolean
   /** AI 非自身源录屏是否免确认（仍尊重系统麦克风权限） */
@@ -119,6 +127,8 @@ export interface ScreenRecordConfig {
   includeMicDefault: boolean
   /** 默认是否录系统声（Windows 整屏较可靠；单窗口可能无音轨） */
   includeSystemAudioDefault: boolean
+  /** 停止时默认是否导出 MP4（失败保留 WebM，warning=mp4_failed） */
+  exportMp4Default: boolean
   /** AI 触发时确认弹窗超时秒数，超时自动拒绝 */
   confirmTimeoutSec: number
 }
@@ -129,6 +139,7 @@ export const SCREEN_RECORD_SETTINGS_DEFAULTS: ScreenRecordConfig = {
   alwaysAllow: false,
   includeMicDefault: true,
   includeSystemAudioDefault: true,
+  exportMp4Default: false,
   confirmTimeoutSec: 120,
 }
 
@@ -156,7 +167,7 @@ export const CONFIRM_TIMEOUT_TICK_MS = 1000
 export type ScreenRecordCommand =
   | { readonly type: 'screen-record:list-sources'; includeThumbnail?: boolean }
   | { readonly type: 'screen-record:start'; params: ScreenRecordStartParams; sessionId?: string }
-  | { readonly type: 'screen-record:stop' }
+  | { readonly type: 'screen-record:stop'; params?: ScreenRecordStopParams }
   | { readonly type: 'screen-record:pause' }
   | { readonly type: 'screen-record:resume' }
   | { readonly type: 'screen-record:status' }

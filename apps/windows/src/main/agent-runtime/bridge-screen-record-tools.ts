@@ -132,16 +132,22 @@ export function registerScreenRecordTools(
         label: 'Screen Record Stop',
         category: 'channel' as const,
         description:
-          '结束当前录屏会话，返回 { ok, path, durationMs, bytes }。' +
+          '结束当前录屏会话，返回 { ok, path, durationMs, bytes, mp4Path? }。' +
+          'exportMp4=true 时尝试转码 MP4（失败保留 WebM，warning=mp4_failed）。' +
           'idle 时返回 no_active_session（幂等，不视为异常）。',
-        parameters: Type.Object({}),
+        parameters: Type.Object({
+          exportMp4: Type.Optional(
+            Type.Boolean({ description: '停止后是否导出 MP4；默认跟随设置 exportMp4Default' }),
+          ),
+        }),
         isReadOnly: false,
         needsPermission: false,
-        execute: async () => {
+        execute: async (_id, rawParams) => {
           const svc = get()
           if (!svc) return jsonToolResult({ ok: false, error: 'disabled' })
+          const p = (rawParams ?? {}) as { exportMp4?: boolean }
           try {
-            return jsonToolResult(await svc.stop())
+            return jsonToolResult(await svc.stop({ exportMp4: p.exportMp4 }))
           } catch (e) {
             log.error('[screen_record_stop]', e)
             return jsonToolResult({ ok: false, error: 'capture_failed' })

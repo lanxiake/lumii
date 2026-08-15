@@ -778,6 +778,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         alwaysAllow: false,
                         includeMicDefault: true,
                         includeSystemAudioDefault: true,
+                        exportMp4Default: false,
                         confirmTimeoutSec: 120,
                       }),
                       enabled: checked,
@@ -803,6 +804,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         alwaysAllow: false,
                         includeMicDefault: true,
                         includeSystemAudioDefault: true,
+                        exportMp4Default: false,
                         confirmTimeoutSec: 120,
                       }),
                       alwaysAllow: checked,
@@ -826,6 +828,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         alwaysAllow: false,
                         includeMicDefault: true,
                         includeSystemAudioDefault: true,
+                        exportMp4Default: false,
                         confirmTimeoutSec: 120,
                       }),
                       includeMicDefault: checked,
@@ -851,9 +854,36 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         alwaysAllow: false,
                         includeMicDefault: true,
                         includeSystemAudioDefault: true,
+                        exportMp4Default: false,
                         confirmTimeoutSec: 120,
                       }),
                       includeSystemAudioDefault: checked,
+                    },
+                  })
+                }
+              />
+            </div>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>停止时默认导出 MP4</span>
+                <span className={styles['panel-row-hint']}>
+                  失败时保留 WebM，并带 warning=mp4_failed
+                </span>
+              </div>
+              <Checkbox
+                checked={settings.screenRecord?.exportMp4Default === true}
+                onChange={(checked) =>
+                  updateSettings({
+                    screenRecord: {
+                      ...(settings.screenRecord ?? {
+                        enabled: true,
+                        alwaysAllow: false,
+                        includeMicDefault: true,
+                        includeSystemAudioDefault: true,
+                        exportMp4Default: false,
+                        confirmTimeoutSec: 120,
+                      }),
+                      exportMp4Default: checked,
                     },
                   })
                 }
@@ -879,6 +909,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                           alwaysAllow: false,
                           includeMicDefault: true,
                           includeSystemAudioDefault: true,
+                          exportMp4Default: false,
                           confirmTimeoutSec: 120,
                         }),
                         confirmTimeoutSec: Number(e.target.value),

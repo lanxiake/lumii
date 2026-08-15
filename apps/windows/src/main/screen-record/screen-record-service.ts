@@ -14,6 +14,7 @@ import type {
   ScreenRecordStatus,
   ScreenRecordStatusResult,
   ScreenRecordStopResult,
+  ScreenRecordStopParams,
   ScreenRecordPauseResult,
   ScreenRecordResumeResult,
 } from '../../shared/screen-record'
@@ -82,6 +83,13 @@ export interface ScreenRecordServiceDeps {
   advanceMs?: (ms: number) => void
   /** 用户勾选「始终允许」时持久化设置 */
   persistAlwaysAllow?: (value: boolean) => Promise<void>
+  /**
+   * WebM → MP4；未注入时 exportMp4 仅 warning=mp4_failed。
+   */
+  convertWebmToMp4?: (
+    input: string,
+    output: string,
+  ) => Promise<{ ok: true } | { ok: false; message: string }>
 }
 
 /** 运行时内部状态 */
@@ -118,7 +126,7 @@ interface InternalState {
 export interface ScreenRecordService {
   listSources: (includeThumbnail?: boolean) => Promise<ScreenRecordListSourcesResult>
   start: (params: ScreenRecordStartParams) => Promise<ScreenRecordStartResult>
-  stop: () => Promise<ScreenRecordStopResult>
+  stop: (params?: ScreenRecordStopParams) => Promise<ScreenRecordStopResult>
   /** 暂停录制（仅 recording） */
   pause: () => Promise<ScreenRecordPauseResult>
   /** 继续录制（仅 paused） */
@@ -332,6 +340,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
   /** 内部 stop（含 stream_ended / crash / maxDuration） */
   async function stopInternal(
     reason: 'user' | 'max_duration' | 'stream_ended' | 'capture_failed' | 'write_failed' | 'quit',
+    stopParams?: ScreenRecordStopParams,
   ): Promise<ScreenRecordStopResult> {
     if (state.status === 'idle') {
       return { ok: false, error: 'no_active_session' }
@@ -372,7 +381,12 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     if (state.captureFailedReason) errorHint = 'capture_failed'
 
     const finalized = await finalizeWriter(errorHint)
-    const warning =
+    let warning:
+      | 'mic_muted'
+      | 'system_audio_muted'
+      | 'audio_degraded'
+      | 'mp4_failed'
+      | undefined =
       state.micMuted && state.systemAudioMuted
         ? ('audio_degraded' as const)
         : state.micMuted
@@ -404,7 +418,27 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     if (!path) {
       return { ok: false, error: 'capture_failed' }
     }
-    return { ok: true, path, durationMs, bytes, warning }
+
+    let mp4Path: string | undefined
+    const settings = await deps.readSettings()
+    const wantMp4 =
+      stopParams?.exportMp4 !== undefined ? stopParams.exportMp4 : settings.exportMp4Default
+    if (wantMp4) {
+      const out = path.replace(/\.webm$/i, '.mp4')
+      const convert = deps.convertWebmToMp4
+      if (!convert) {
+        if (!warning) warning = 'mp4_failed'
+      } else {
+        const r = await convert(path, out)
+        if (r.ok) {
+          mp4Path = out
+        } else if (!warning) {
+          warning = 'mp4_failed'
+        }
+      }
+    }
+
+    return { ok: true, path, durationMs, bytes, warning, mp4Path }
   }
 
   /** 暂停：recording → paused */
@@ -579,7 +613,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     }
   }
 
-  async function stop(): Promise<ScreenRecordStopResult> {
+  async function stop(params?: ScreenRecordStopParams): Promise<ScreenRecordStopResult> {
     const settings = await deps.readSettings()
     if (!settings.enabled && state.status === 'idle') {
       return { ok: false, error: 'disabled' }
@@ -589,7 +623,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       if (!settings.enabled) return { ok: false, error: 'disabled' }
       return { ok: false, error: 'no_active_session' }
     }
-    return stopInternal('user')
+    return stopInternal('user', params)
   }
 
   function getStatus(): ScreenRecordStatusResult {
@@ -628,10 +662,10 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     return originalStart(params)
   }
 
-  async function stopWrapped(): Promise<ScreenRecordStopResult> {
+  async function stopWrapped(params?: ScreenRecordStopParams): Promise<ScreenRecordStopResult> {
     const settings = await deps.readSettings()
     cachedEnabled = settings.enabled
-    return originalStop()
+    return originalStop(params)
   }
 
   async function respondConfirm(p: {

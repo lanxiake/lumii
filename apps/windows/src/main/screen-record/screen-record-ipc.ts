@@ -3,7 +3,7 @@
  */
 import { ipcMain, type BrowserWindow } from 'electron'
 import type { ScreenRecordService } from './screen-record-service'
-import type { ScreenRecordStartParams } from '../../shared/screen-record'
+import type { ScreenRecordStartParams, ScreenRecordStopParams } from '../../shared/screen-record'
 
 /**
  * 注册录屏相关 ipcMain handle/on，绑定到单一 ScreenRecordService。
@@ -24,7 +24,13 @@ export function registerScreenRecordIpc(
     },
   )
 
-  ipcMain.handle('screen-record:stop', async () => service.stop())
+  ipcMain.handle('screen-record:stop', async (_e, p?: { params?: ScreenRecordStopParams } | ScreenRecordStopParams) => {
+    const params =
+      p && typeof p === 'object' && 'params' in p && p.params
+        ? p.params
+        : (p as ScreenRecordStopParams | undefined)
+    return service.stop(params)
+  })
 
   ipcMain.handle('screen-record:pause', async () => service.pause())
 

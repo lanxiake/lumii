@@ -109,9 +109,9 @@ export function useScreenRecord() {
     return r
   }, [])
 
-  /** 停止录制 */
-  const stop = useCallback(async () => {
-    const r = await screenRecordApi.stop()
+  /** 停止录制（可选导出 MP4） */
+  const stop = useCallback(async (params?: { exportMp4?: boolean }) => {
+    const r = await screenRecordApi.stop(params)
     if (r.ok && r.path) {
       setLastRecording({ path: r.path, durationMs: r.durationMs, bytes: r.bytes })
     }

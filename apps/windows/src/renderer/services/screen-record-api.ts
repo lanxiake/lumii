@@ -66,13 +66,15 @@ export async function start(
   return (await window.electronAPI.screenRecord.start(params)) as ScreenRecordStartResult
 }
 
-/** 停止录制 */
-export async function stop(): Promise<ScreenRecordStopResult> {
+/** 停止录制（可选导出 MP4） */
+export async function stop(params?: {
+  exportMp4?: boolean
+}): Promise<ScreenRecordStopResult> {
   const capture = getScreenRecordCapture()
   if (capture.isActive()) {
     await capture.stop()
   }
-  return (await window.electronAPI.screenRecord.stop()) as ScreenRecordStopResult
+  return (await window.electronAPI.screenRecord.stop(params)) as ScreenRecordStopResult
 }
 
 /** 暂停录制 */

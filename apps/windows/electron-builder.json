@@ -36,17 +36,25 @@
     "!node_modules/clsx/**",
     "!node_modules/computer-modern/**"
   ],
-  "electronLanguages": ["zh-CN", "en-US"],
+  "electronLanguages": [
+    "zh-CN",
+    "en-US"
+  ],
   "extraResources": [
     {
       "from": "assets",
       "to": "assets",
-      "filter": ["**/*"]
+      "filter": [
+        "**/*"
+      ]
     },
     {
       "from": "config",
       "to": "config",
-      "filter": ["server-config.json", "draw-config.json"]
+      "filter": [
+        "server-config.json",
+        "draw-config.json"
+      ]
     },
     {
       "from": "bundled-skills",
@@ -64,17 +72,23 @@
     {
       "from": "resources/pet-models",
       "to": "pet-models",
-      "filter": ["**/*"]
+      "filter": [
+        "**/*"
+      ]
     },
     {
       "from": "resources/live2d",
       "to": "live2d",
-      "filter": ["**/*"]
+      "filter": [
+        "**/*"
+      ]
     },
     {
       "from": "resources/app-ui-cli",
       "to": "app-ui-cli",
-      "filter": ["**/*"]
+      "filter": [
+        "**/*"
+      ]
     }
   ],
   "asar": true,
@@ -84,21 +98,29 @@
     "node_modules/sherpa-onnx-node/**/*",
     "node_modules/sherpa-onnx-win-x64/**/*",
     "node_modules/sherpa-onnx-win-ia32/**/*",
-    "node_modules/@img/sharp-win32-x64/**/*"
+    "node_modules/@img/sharp-win32-x64/**/*",
+    "node_modules/@ffmpeg-installer/**/*"
   ],
   "win": {
     "target": [
       {
         "target": "nsis",
-        "arch": ["x64", "ia32"]
+        "arch": [
+          "x64",
+          "ia32"
+        ]
       },
       {
         "target": "portable",
-        "arch": ["x64"]
+        "arch": [
+          "x64"
+        ]
       },
       {
         "target": "zip",
-        "arch": ["x64"]
+        "arch": [
+          "x64"
+        ]
       }
     ],
     "icon": "assets/icon.ico",
@@ -124,7 +146,10 @@
     "perMachine": false,
     "language": "2052",
     "license": "build-resources/license.txt",
-    "installerLanguages": ["zh_CN", "en_US"],
+    "installerLanguages": [
+      "zh_CN",
+      "en_US"
+    ],
     "multiLanguageInstaller": true,
     "deleteAppDataOnUninstall": false,
     "displayLanguageSelector": true,

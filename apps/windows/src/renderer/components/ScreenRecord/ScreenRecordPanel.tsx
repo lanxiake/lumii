@@ -14,6 +14,7 @@ export interface ScreenRecordPanelProps {
   elapsedMs: number
   includeMicDefault: boolean
   includeSystemAudioDefault: boolean
+  exportMp4Default: boolean
   alwaysAllow: boolean
   enabled: boolean
   lastRecording: { path: string; durationMs: number; bytes: number } | null
@@ -23,7 +24,7 @@ export interface ScreenRecordPanelProps {
     includeMic: boolean
     includeSystemAudio: boolean
   }) => Promise<unknown>
-  onStop: () => Promise<unknown>
+  onStop: (p?: { exportMp4?: boolean }) => Promise<unknown>
   onPause: () => Promise<unknown>
   onResume: () => Promise<unknown>
   onAlwaysAllowChange: (v: boolean) => void
@@ -59,6 +60,7 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
   elapsedMs,
   includeMicDefault,
   includeSystemAudioDefault,
+  exportMp4Default,
   alwaysAllow,
   enabled,
   lastRecording,
@@ -73,6 +75,7 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
   const [selectedId, setSelectedId] = useState<string>('')
   const [includeMic, setIncludeMic] = useState(includeMicDefault)
   const [includeSystemAudio, setIncludeSystemAudio] = useState(includeSystemAudioDefault)
+  const [exportMp4, setExportMp4] = useState(exportMp4Default)
   const recording = status === 'recording'
   const paused = status === 'paused'
   const active = recording || paused
@@ -84,6 +87,10 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
   useEffect(() => {
     setIncludeSystemAudio(includeSystemAudioDefault)
   }, [includeSystemAudioDefault])
+
+  useEffect(() => {
+    setExportMp4(exportMp4Default)
+  }, [exportMp4Default])
 
   useEffect(() => {
     if (open) void onRefreshSources()
@@ -190,6 +197,12 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
             <p className={styles.switchHint}>
               系统声在整屏录制时较可靠；单窗口可能无音轨（会自动降级）
             </p>
+            <div className={styles.switchRow}>
+              <Checkbox checked={exportMp4} onChange={setExportMp4}>
+                停止时导出 MP4
+              </Checkbox>
+            </div>
+            <p className={styles.switchHint}>失败时保留 WebM；转码可能需要数秒</p>
             <div>
               <div className={styles.switchRow}>
                 <Checkbox checked={alwaysAllow} onChange={onAlwaysAllowChange}>
@@ -249,7 +262,11 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
                   继续
                 </Button>
               )}
-              <Button variant="danger" size="sm" onClick={() => void onStop()}>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => void onStop({ exportMp4 })}
+              >
                 停止 · {formatDuration(elapsedMs)}
               </Button>
             </div>
