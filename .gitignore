@@ -48,3 +48,6 @@ docs/temp/
 .turbo/
 .cache/
 **/node_modules/.cache/
+
+# Git worktrees (local isolated checkouts)
+.worktrees/
