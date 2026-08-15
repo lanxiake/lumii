@@ -152,6 +152,14 @@ describe('createNarrateService', () => {
       expect(fs.existsSync(paths.projectPath)).toBe(true)
       expect(fs.existsSync(paths.srtPath)).toBe(true)
       expect(fs.readdirSync(recordingsDir).filter((n) => n.includes('-narrated'))).toEqual([])
+      expect(r).toMatchObject({
+        dubbed: false,
+        burned: false,
+        bytes: expect.any(Number),
+        projectDir: expect.stringContaining('.lumii-subs'),
+        ttsCount: 0,
+      })
+      expect(r.message).toMatch(/就地|覆盖|成片/)
     }
     expect(run).not.toHaveBeenCalled()
   })
@@ -191,6 +199,10 @@ describe('createNarrateService', () => {
     if (r.ok) {
       expect(r.warning).toBe('subtitle_burn_failed')
       expect(fs.existsSync(r.path)).toBe(true)
+      expect(r.dubbed).toBe(true)
+      expect(r.burned).toBe(false)
+      expect(r.ttsCount).toBe(1)
+      expect(r.originalPath).toEqual(expect.stringContaining('original.'))
     }
   })
 
@@ -227,5 +239,14 @@ describe('createNarrateService', () => {
     expect(r.path).toBe(src)
     expect(fs.readFileSync(src, 'utf8')).toBe('narrated')
     expect(fs.readFileSync(resolveOriginalVideoPath(src)!, 'utf8')).toBe('fake-webm')
+    expect(r).toMatchObject({
+      dubbed: true,
+      burned: true,
+      bytes: expect.any(Number),
+      ttsCount: 1,
+      originalPath: expect.stringContaining('original.'),
+      projectDir: expect.stringContaining('.lumii-subs'),
+    })
+    expect(r.message).toMatch(/就地|覆盖|\*-narrated/)
   })
 })

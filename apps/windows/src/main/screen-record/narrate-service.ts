@@ -14,9 +14,11 @@ import { probeMediaDurationMs } from './audio-duration'
 import { runFfmpeg, webmToMp4, type FfmpegRunResult } from './ffmpeg-runner'
 import { cuesToSrt } from './srt'
 import {
+  buildProjectPaths,
   ensureOriginalBackup,
   migrateLegacySidecar,
   persistResolvedCuesAsProject,
+  resolveOriginalVideoPath,
 } from './subtitle-project'
 import { buildSubtitleForceStyle } from './subtitle-style'
 
@@ -264,6 +266,7 @@ export function createNarrateService(deps: NarrateServiceDeps) {
       )
       let warning: 'subtitle_burn_failed' | 'mp4_failed' | undefined
       let workingVideo = originalVideo
+      let dubbedOk = false
 
       if (dub) {
         const audioCues = resolvedCues
@@ -278,8 +281,10 @@ export function createNarrateService(deps: NarrateServiceDeps) {
           return { ok: false, error: 'narrate_failed', message: mixResult.message }
         }
         workingVideo = mixedPath
+        dubbedOk = true
       }
 
+      let burnedOk = false
       if (writeSrt && srtPath && subtitleMode === 'burn') {
         const font = resolveBurnFontPath()
         const esc = escapeFfmpegSubtitlesPath(srtPath)
@@ -300,6 +305,7 @@ export function createNarrateService(deps: NarrateServiceDeps) {
         ])
         if (burnResult.ok) {
           workingVideo = burned
+          burnedOk = true
         } else {
           warning = 'subtitle_burn_failed'
         }
@@ -331,22 +337,32 @@ export function createNarrateService(deps: NarrateServiceDeps) {
         // 旁白成片已产出，sidecar 失败不阻断
       }
 
-      // Task 0 类型占位：Task 1 将补齐 originalPath/dubbed/burned/bytes 等真实字段
+      const finalPaths = buildProjectPaths(finalPath)
       let bytes = 0
       try {
         bytes = fs.statSync(finalPath).size
       } catch {
         bytes = 0
       }
+      const durationMs = (await probe(finalPath)) ?? undefined
+      const ttsCount = resolvedCues.filter((c) => !!c.audioPath).length
+      const originalPath = resolveOriginalVideoPath(finalPath) ?? undefined
+
       return {
         ok: true,
         path: finalPath,
+        originalPath,
+        projectDir: finalPaths.assetDir,
         srtPath,
         mp4Path: path.extname(finalPath).toLowerCase() === '.mp4' ? finalPath : undefined,
         warning,
         bytes,
-        dubbed: dub,
-        burned: subtitleMode === 'burn' && warning !== 'subtitle_burn_failed',
+        durationMs,
+        dubbed: dubbedOk,
+        burned: burnedOk,
+        ttsCount,
+        message:
+          '成片已就地更新；原片备份在 *.lumii-subs/original.*；勿再查找 *-narrated / *-burned 文件',
       }
     } catch (e) {
       return {
