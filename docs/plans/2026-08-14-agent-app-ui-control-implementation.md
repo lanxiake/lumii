@@ -351,6 +351,8 @@ npx vitest run apps/windows/src/main/app-ui-control
 | 给 `CapabilityRegistry.isAllowedForOrigin` 加分支 | `getForOrigin` 只在 `agent-instance.ts:555` 的 prompt 路径生效，对 `/command` **运行时空转**，是假护栏 |
 | `/command` 用黑名单 | 默认开放 76 条，含 `mcp:writeConfigFile`（等价 RCE）、`files:*`、`storage:exportJsonl`，必须改白名单 |
 
+其余 6 处修正已直接落入对应任务：命令总线无 `skills:*`（skill list 走 B 层）→ Task 15；B 层 handler 匿名闭包需补 accessor 与 `refresh()` 副作用 → Task 13/15；settings merge 移入注入脚本避免竞态 → Task 15；总开关自举防护 → Task 15 受保护字段；`/command` 串行化 → Task 14 串行队列；速率限制与 `model set` sessionKey、Windows `chmod 600` 无效 → Task 17 与未决问题 1/2。
+
 ---
 
 ### Task 13: 导出调用地基（三期前置）
@@ -398,6 +400,8 @@ npx vitest run apps/windows/src/main
 ---
 
 ### Task 14: 命令白名单 + `/command` 路由（A 层）
+
+**背景（设计 §14.4.1）：** in-client Agent 可通过 `bash lumii-ui …` 调控制口绕过 6 步权限管线——`bash-tool.ts` 对命令字符串无任何检查，`SkillPermissions`（`skill-runtime.ts:121-135`）定义了但 `ShellRunner.execute` 从不校验。因此「禁止 Agent 用 bash」是不可靠假设，防线必须落在控制口自身：白名单（主防线）+ C 层字段保护 + loopback 绑定 + token 四层（设计 §14.4.2）。
 
 **Files:**
 - Create: `apps/windows/src/main/app-ui-control/command-allowlist.ts`
@@ -489,6 +493,18 @@ function enqueueCommand<T>(fn: () => Promise<T>): Promise<T> {
 - Modify: `apps/windows/src/main/app-ui-control/server.ts` — 追加 `/settings/*` 与 `/ipc/*` 路由
 - Modify: `apps/windows/src/main/app-ui-control/server.test.ts`
 
+**B 层路由清单（对齐设计 §14.2.2，共 5 条）：**
+
+| 路由 | 底层业务函数 | 可达性 |
+|------|------------|-------|
+| `POST /ipc/skills/list` | `skillRuntime.listLocalInstalled()` | 经 Task 13 的 `getSkillRuntime()` accessor |
+| `POST /ipc/skills/setEnabled` | `skillRuntime.setLocalEnabled()` | 同上；须复现 handler（`index.ts:2154`）的参数校验 + `skillWatcher.refresh()` 副作用 |
+| `POST /ipc/pet/switchMode` | `switchPetMode()`（`pet-mode-ipc.ts:74`） | 已 export，直接调用 |
+| `POST /ipc/pet/getMode` | `getPetWindowManager()?.getMode()` | handler 是匿名闭包，经 `getPetWindowManager()`（`pet-mode-ipc.ts:57`） |
+| `POST /ipc/pet/listModels` | `getPetWindowManager()` 相关方法 | 同上 |
+
+**B 层原则（设计 §14.2.2）：** 166 个 `ipcMain.handle` 只开上表 5 条，其余默认拒绝。不暴露任何文件系统操作、渠道登录、技能安装/卸载、更新器（`updater-service`）、语音（`voice-ipc`）。CLI 只用其中 4 条（`getMode` 暂不接 CLI 命令，路由先留，见设计 §14.3 命令表）。
+
 **Step 1: 写失败测试**
 
 `settings-channel.test.ts`：
@@ -497,17 +513,38 @@ function enqueueCommand<T>(fn: () => Promise<T>): Promise<T> {
 - 受保护字段 `privacy.allowAgentAppUiControl` → `{ ok: false, error: 'field_protected' }`
 - `patch` 含引号/换行/中文时脚本仍是合法 JS（转义正确）
 - 点号路径 `theme.mode` → `{ theme: { mode: value } }` 的展开正确
+- `buildReadScript(keyPath)` 只读不写（脚本内无 `setItem`），省略 keyPath 时返回整份 JSON
 
 `server.test.ts`：
+- `/settings/read` 透传 `executeJavaScript` 读到的 JSON；主窗不存在 → `app_not_running`
+- `/settings/write` 命中受保护字段 → `field_protected`，**不调用** `executeJavaScript`
+- `/ipc/skills/list` 调用 `getSkillRuntime().listLocalInstalled()`
 - `/ipc/skills/setEnabled` 调用 `getSkillRuntime().setLocalEnabled()` **且**调用 `getSkillWatcher().refresh()`
 - `/ipc/skills/setEnabled` 参数非法（skillId 空、enabled 非布尔）→ 400，不触碰 runtime
 - `/ipc/pet/switchMode` 调用 `switchPetMode()`
+- `/ipc/pet/getMode` / `/ipc/pet/listModels` 经 `getPetWindowManager()`，不直接碰 `switchPetMode`
 - pet 窗口未运行时 → `pet_not_running`
 - 总开关关闭时以上路由全部 `disabled`
 
 **Step 2: 最小实现**
 
 **C 层要点（设计 §14.2.3）：merge 必须在注入脚本内部完成**，不能主进程先读再 merge 再写——`useSettings.saveSettings`（`useSettings.ts:314`）是整对象覆盖式 `setItem`，无 CAS，主进程侧 merge 会与用户在设置页的保存互相覆盖。
+
+**读**（`/settings/read`）无竞态问题，一次 `executeJavaScript` 直读即可：
+
+```ts
+/** 生成读 localStorage 的注入脚本；keyPath 省略时返回整份设置 JSON */
+function buildReadScript(keyPath?: string): string {
+  return `(() => {
+    const current = JSON.parse(localStorage.getItem('mtbot-assistant-settings') || '{}')
+    return JSON.stringify(keyPath ? getByPath(current, ${JSON.stringify(keyPath)}) : current)
+  })()`
+}
+```
+
+主窗不存在或已销毁 → `{ ok: false, error: 'app_not_running' }`（与 screenshot 同错误码）。
+
+**写**（`/settings/write`）：
 
 ```ts
 /** 受保护字段：禁止经 CLI 写入，防止 Agent 自行开启 App UI 控制总开关 */
@@ -553,6 +590,24 @@ pet 侧 `switchPetMode` 在 `pet-mode-ipc.ts:74` 已 export，直接调用；`ge
 `commands.mjs` 导出 `COMMANDS` 数组，每项含 `name` / `group` / `usage` / `summary` / `layer` / `route` / `options` / `build(args)`。`build` 返回 `null` 表示参数不合法（→ exit 2）。
 
 覆盖命令：`screenshot`、`goto`、`click`、`settings get|set`、`cron list|run`、`model set`、`tools list|toggle`、`skill list|enable|disable`、`pet modes|mode`、`command`。
+
+**group 分组（对齐设计 §14.3.1 总览示意，`help` 按此顺序输出）：**
+
+| group | 命令 |
+|-------|------|
+| 看 | `screenshot` |
+| 动 | `goto`、`click` |
+| 设置 | `settings get`、`settings set` |
+| 定时任务 | `cron list`、`cron run` |
+| 技能 | `skill list`、`skill enable`、`skill disable` |
+| 模型与工具 | `model set`、`tools list`、`tools toggle` |
+| 桌宠 | `pet modes`、`pet mode` |
+| 底层 | `command` |
+
+**两条命令的 usage 细节（避免实现时想当然）：**
+
+- `command <type> [--data <json>]`：`--data` 接受 JSON 字符串或 `-`（从 stdin 读），缺省 `{}`；发送体为 `{ type, ...parsed }`。这是泛化入口，映射 A 层 `POST /command`。
+- `model set <modelId> --session <key>`：`--session` **必填**（`SessionPreferredModelSetCommand` 的 `sessionKey` 必填，CLI 无法凭空构造，见 Part D 未决问题 1）。缺 `--session` → usage 错误，exit 2，不做隐式默认。
 
 **Step 2: 实现 help 三种形态**
 
@@ -601,7 +656,15 @@ pnpm --filter @mtbot/windows typecheck
 
 **Step 1: 速率限制**
 
-MVP 的 per-turn 配额（`bridge-app-ui-tools.ts` 的 `turnQuotas`）挂在 `agent:turn:end` 重置，CLI 调用**没有 turn 概念**，该计数器对控制口不适用。控制口自建滑动窗口（如 60 秒 100 次），超限返回 `{ ok: false, error: 'rate_limited' }`。两套配额相互独立。
+MVP 的 per-turn 配额（`bridge-app-ui-tools.ts` 的 `turnQuotas`）挂在 `agent:turn:end` 重置，CLI 调用**没有 turn 概念**，该计数器对控制口不适用。控制口自建滑动窗口（60 秒 100 次），超限返回 `{ ok: false, error: 'rate_limited' }`。两套配额相互独立。
+
+路由拦截顺序（Task 14 已定）：**总开关 → token → 速率限制 → 白名单 → 串行队列 → `handleCommand`**。速率限制放在白名单前，防止无效请求消耗白名单查询与队列。
+
+`server.test.ts` 补（用 fake clock 或注入窗口参数）：
+- 窗口内 100 次请求全部通过，第 101 次 → `rate_limited`
+- 窗口滑动（时间前进 60 秒）后恢复放行
+- 速率限制只统计 `POST` 控制口路由（`/command`、`/settings/*`、`/ipc/*`、`/screenshot`、`/goto`、`/click` 共用同一计数器）
+- `rate_limited` 时**不调用** `handleCommand`（队列前拦截）
 
 **Step 2: 手工验收**
 
@@ -609,16 +672,24 @@ MVP 的 per-turn 配额（`bridge-app-ui-tools.ts` 的 `turnQuotas`）挂在 `ag
 
 | 验收项 | 期望 |
 |--------|------|
-| `lumii-ui help` | 输出分组命令总览 |
-| `lumii-ui help --json` | 输出机器可读注册表 |
+| `lumii-ui help` | 输出分组命令总览（按看/动/设置/定时任务/技能/模型与工具/桌宠/底层顺序） |
+| `lumii-ui help --json` | 输出机器可读注册表（含全部命令，不含 `build` 函数） |
+| `lumii-ui help screenshot` | 输出单条 usage + options + 示例 |
+| `lumii-ui goto`（缺 `--view`） | usage 错误，exit 2 |
 | `lumii-ui cron list` | 返回定时任务列表 JSON |
-| `lumii-ui command cron:list` | 与上一条等价 |
+| `lumii-ui cron run <id>` | 定时任务立即执行一次（在 CronPage 或日志确认） |
+| `lumii-ui command cron:list` | 与 `cron list` 等价 |
 | `lumii-ui settings get privacy.saveChatHistory` | 返回 `true` |
 | `lumii-ui settings set theme.mode light` | ok；界面立即变浅色，**且其它设置字段未丢失** |
 | `lumii-ui settings set privacy.allowAgentAppUiControl false` | `field_protected`，exit 5 |
 | `lumii-ui skill list` | 返回技能列表 |
 | `lumii-ui skill disable <id>` | ok；技能页**列表已刷新**为禁用态 |
+| `lumii-ui tools list` | 返回工具清单 |
+| `lumii-ui tools toggle <name> off` | ok；会话中该工具不再可用 |
+| `lumii-ui model set <modelId> --session <key>` | ok；该会话后续使用新模型 |
+| `lumii-ui model set <modelId>`（缺 `--session`） | usage 错误，exit 2 |
 | `lumii-ui pet modes` | 返回桌宠模型列表 |
+| `lumii-ui pet mode <modeName>` | ok；桌宠切换模式 |
 | `lumii-ui command mcp:writeConfigFile --data '{"content":"{}"}'` | `not_exposed`，exit 5 |
 | `lumii-ui command user:send --data '{...}'` | `not_exposed`，exit 5 |
 | 设置里关闭「允许 Agent 操作本软件界面」后跑任意命令 | `disabled`，exit 5 |
@@ -651,5 +722,5 @@ npx vitest run apps/windows/src/main
 
 Part A（Task 1→4）先跑通并手工验收，可独立演示「看」的闭环。  
 Part B（Task 5→9）在 Part A 基础上叠「动」，全部完成才算 MVP——**已完成**。  
-Part C（Task 10→12）是二期，三个任务相对独立，建议先做 Task 11（后续 CLI 复用它），用 executing-plans 逐任务跑测试。  
-Part D（Task 13→16）是三期，四个任务依序执行：先打 origin 护栏（Task 13），再扩展控制口 A 层（Task 14），再扩展 B/C 层（Task 15），最后扩展 CLI 并整体验收（Task 16）。Task 14 和 Task 15 的 server.ts 修改可合并一次提交，但测试须分步确认。
+Part C（Task 10→12）是二期，三个任务相对独立，建议先做 Task 11（后续 CLI 复用它），用 executing-plans 逐任务跑测试——**已完成**（`3d85b2e` 控制口+CLI、`1b81390` SoM+pet 截图；controller 已含 `type/key/scroll` 方法）。  
+Part D（Task 13→17）是三期，五个任务依序执行：先导出调用地基（Task 13，Task 14/15 的前置）→ 扩展控制口 A 层（Task 14）→ 扩展 B/C 层（Task 15）→ CLI 命令注册表（Task 16）→ 速率限制与整体验收（Task 17）。Task 14 和 Task 15 都改 server.ts，可合并一次提交，但测试须分步确认。全部完成后按 Task 17 的验收表逐条手工跑 CLI。
