@@ -145,6 +145,32 @@ export class ScreenRecordCapture {
   }
 
   /**
+   * 暂停采集（MediaRecorder.pause）；不写新分片。
+   */
+  pause(): void {
+    const s = this.session
+    if (!s || s.stopping) return
+    try {
+      if (s.mediaRecorder.state === 'recording') s.mediaRecorder.pause()
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * 继续采集（MediaRecorder.resume）。
+   */
+  resume(): void {
+    const s = this.session
+    if (!s || s.stopping) return
+    try {
+      if (s.mediaRecorder.state === 'paused') s.mediaRecorder.resume()
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
    * 正常停止采集，返回已录时长。
    */
   async stop(): Promise<{ recordedMs: number }> {

@@ -32,6 +32,10 @@ export interface TrayManagerConfig {
   onStartScreenRecord?: () => void
   /** 停止录屏 */
   onStopScreenRecord?: () => void
+  /** 暂停录屏 */
+  onPauseScreenRecord?: () => void
+  /** 继续录屏 */
+  onResumeScreenRecord?: () => void
 }
 
 /**
@@ -43,6 +47,7 @@ export class TrayManager {
   private petModeActive = false
   private forceIgnoreActive = false
   private screenRecording = false
+  private screenRecordPaused = false
   private screenRecordElapsedMs = 0
 
   constructor(config: TrayManagerConfig) {
@@ -100,9 +105,42 @@ export class TrayManager {
     const elapsedSec = Math.floor(this.screenRecordElapsedMs / 1000)
     const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0')
     const ss = String(elapsedSec % 60).padStart(2, '0')
-    const recordLabel = this.screenRecording
-      ? `停止录屏（${mm}:${ss}）`
-      : '开始录屏'
+    const active = this.screenRecording || this.screenRecordPaused
+    const recordItems =
+      this.config.onStartScreenRecord || this.config.onStopScreenRecord
+        ? [
+            ...(active
+              ? [
+                  ...(this.screenRecording && this.config.onPauseScreenRecord
+                    ? [
+                        {
+                          label: `暂停录屏（${mm}:${ss}）`,
+                          click: () => this.config.onPauseScreenRecord?.(),
+                        },
+                      ]
+                    : []),
+                  ...(this.screenRecordPaused && this.config.onResumeScreenRecord
+                    ? [
+                        {
+                          label: `继续录屏（${mm}:${ss}）`,
+                          click: () => this.config.onResumeScreenRecord?.(),
+                        },
+                      ]
+                    : []),
+                  {
+                    label: `停止录屏（${mm}:${ss}）`,
+                    click: () => this.config.onStopScreenRecord?.(),
+                  },
+                ]
+              : [
+                  {
+                    label: '开始录屏',
+                    click: () => this.config.onStartScreenRecord?.(),
+                  },
+                ]),
+            { type: 'separator' as const },
+          ]
+        : []
 
     const contextMenu = Menu.buildFromTemplate([
       {
@@ -127,21 +165,7 @@ export class TrayManager {
             { type: 'separator' as const },
           ]
         : []),
-      ...(this.config.onStartScreenRecord || this.config.onStopScreenRecord
-        ? [
-            {
-              label: recordLabel,
-              click: () => {
-                if (this.screenRecording) {
-                  this.config.onStopScreenRecord?.()
-                } else {
-                  this.config.onStartScreenRecord?.()
-                }
-              },
-            },
-            { type: 'separator' as const },
-          ]
-        : []),
+      ...recordItems,
       {
         label: '设置',
         click: () => {
@@ -174,10 +198,15 @@ export class TrayManager {
   }
 
   /**
-   * 更新录屏状态（recording 时显示停止+计时）。
+   * 更新录屏状态（recording / paused 时显示停止与暂停/继续）。
    */
-  updateScreenRecordState(isRecording: boolean, elapsedMs = 0): void {
+  updateScreenRecordState(
+    isRecording: boolean,
+    elapsedMs = 0,
+    isPaused = false,
+  ): void {
     this.screenRecording = isRecording
+    this.screenRecordPaused = isPaused
     this.screenRecordElapsedMs = elapsedMs
     this.updateContextMenu()
   }

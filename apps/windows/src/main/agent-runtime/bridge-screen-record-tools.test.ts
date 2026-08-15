@@ -26,6 +26,8 @@ describe('registerScreenRecordTools', () => {
     listSources: ReturnType<typeof vi.fn>
     start: ReturnType<typeof vi.fn>
     stop: ReturnType<typeof vi.fn>
+    pause: ReturnType<typeof vi.fn>
+    resume: ReturnType<typeof vi.fn>
     getStatus: ReturnType<typeof vi.fn>
   }
 
@@ -40,6 +42,8 @@ describe('registerScreenRecordTools', () => {
         startedAt: 1,
       })),
       stop: vi.fn(async () => ({ ok: false, error: 'no_active_session' })),
+      pause: vi.fn(async () => ({ ok: false, error: 'not_recording' })),
+      resume: vi.fn(async () => ({ ok: false, error: 'not_paused' })),
       getStatus: vi.fn(() => ({ ok: true, status: 'idle' })),
     }
     registerScreenRecordTools(registry, stubContext(), {
@@ -47,7 +51,7 @@ describe('registerScreenRecordTools', () => {
     })
   })
 
-  it('注册四工具名', () => {
+  it('注册六工具名（含 pause/resume）', () => {
     const names = registry.getAll().map((t) => t.name)
     expect(names).toEqual(
       expect.arrayContaining([
@@ -55,8 +59,24 @@ describe('registerScreenRecordTools', () => {
         'screen_record_start',
         'screen_record_stop',
         'screen_record_status',
+        'screen_record_pause',
+        'screen_record_resume',
       ]),
     )
+  })
+
+  it('pause 透传 not_recording', async () => {
+    const tool = registry.get('screen_record_pause')!
+    const r = await tool.execute('1', {})
+    const payload = parseJsonToolResultPayload(r)
+    expect(payload).toMatchObject({ ok: false, error: 'not_recording' })
+  })
+
+  it('resume 透传 not_paused', async () => {
+    const tool = registry.get('screen_record_resume')!
+    const r = await tool.execute('1', {})
+    const payload = parseJsonToolResultPayload(r)
+    expect(payload).toMatchObject({ ok: false, error: 'not_paused' })
   })
 
   it('list_sources includeThumbnail 默认 false', async () => {

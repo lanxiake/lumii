@@ -119,6 +119,26 @@ export function useScreenRecord() {
     return r
   }, [])
 
+  /** 暂停录制 */
+  const pause = useCallback(async () => {
+    const r = await screenRecordApi.pause()
+    if (r.ok) {
+      setStatus('paused')
+      setElapsedMs(r.elapsedMs)
+    }
+    return r
+  }, [])
+
+  /** 继续录制 */
+  const resume = useCallback(async () => {
+    const r = await screenRecordApi.resume()
+    if (r.ok) {
+      setStatus('recording')
+      setElapsedMs(r.elapsedMs)
+    }
+    return r
+  }, [])
+
   /** 回应用户确认 */
   const respondConfirm = useCallback(
     (allow: boolean, rememberAlwaysAllow?: boolean) => {
@@ -142,6 +162,8 @@ export function useScreenRecord() {
     refreshSources,
     start,
     stop,
+    pause,
+    resume,
     respondConfirm,
   }
 }

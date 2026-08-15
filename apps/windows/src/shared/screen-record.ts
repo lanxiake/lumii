@@ -17,15 +17,16 @@ export interface ScreenRecordSource {
   displayId?: string
 }
 
-/** 录屏状态机五态（设计 §2.1） */
+/** 录屏状态机六态（MVP 五态 + 二期 paused） */
 export type ScreenRecordStatus =
   | 'idle'
   | 'pending_confirm'
   | 'recording'
+  | 'paused'
   | 'stopping'
   | 'error'
 
-/** 设计 §6 错误码全集（含 usage） */
+/** 设计 §6 错误码 + 二期 pause/resume */
 export type ScreenRecordErrorCode =
   | 'disabled'
   | 'already_recording'
@@ -39,6 +40,10 @@ export type ScreenRecordErrorCode =
   | 'capture_failed'
   | 'write_failed'
   | 'usage'
+  /** pause 时非 recording */
+  | 'not_recording'
+  /** resume 时非 paused */
+  | 'not_paused'
 
 /** list_sources 工具参数 */
 export interface ScreenRecordListSourcesParams {
@@ -146,6 +151,8 @@ export type ScreenRecordCommand =
   | { readonly type: 'screen-record:list-sources'; includeThumbnail?: boolean }
   | { readonly type: 'screen-record:start'; params: ScreenRecordStartParams; sessionId?: string }
   | { readonly type: 'screen-record:stop' }
+  | { readonly type: 'screen-record:pause' }
+  | { readonly type: 'screen-record:resume' }
   | { readonly type: 'screen-record:status' }
   | {
       readonly type: 'screen-record:confirm-respond'
@@ -191,6 +198,8 @@ export type ScreenRecordEvent =
       maxDurationSec: number
     }
   | { readonly type: 'screen-record:event:stop-capture'; sessionId: string }
+  | { readonly type: 'screen-record:event:pause-capture'; sessionId: string }
+  | { readonly type: 'screen-record:event:resume-capture'; sessionId: string }
   | {
       readonly type: 'screen-record:event:cancelled'
       sessionId: string
@@ -200,3 +209,12 @@ export type ScreenRecordEvent =
   | { readonly type: 'screen-record:open-panel' }
   /** 确认弹窗勾选「始终允许」后，请求渲染层把设置落盘 */
   | { readonly type: 'screen-record:persist-always-allow'; value: boolean }
+
+/** pause / resume 工具返回 */
+export type ScreenRecordPauseResult =
+  | { ok: true; status: 'paused'; elapsedMs: number }
+  | { ok: false; error: ScreenRecordErrorCode; message?: string }
+
+export type ScreenRecordResumeResult =
+  | { ok: true; status: 'recording'; elapsedMs: number }
+  | { ok: false; error: ScreenRecordErrorCode; message?: string }

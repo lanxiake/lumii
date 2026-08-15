@@ -19,6 +19,8 @@ export interface ScreenRecordPanelProps {
   onRefreshSources: () => Promise<unknown>
   onStart: (p: { sourceId: string; includeMic: boolean }) => Promise<unknown>
   onStop: () => Promise<unknown>
+  onPause: () => Promise<unknown>
+  onResume: () => Promise<unknown>
   onAlwaysAllowChange: (v: boolean) => void
   onIncludeMicDefaultChange?: (v: boolean) => void
 }
@@ -57,12 +59,16 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
   onRefreshSources,
   onStart,
   onStop,
+  onPause,
+  onResume,
   onAlwaysAllowChange,
 }) => {
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string>('')
   const [includeMic, setIncludeMic] = useState(includeMicDefault)
   const recording = status === 'recording'
+  const paused = status === 'paused'
+  const active = recording || paused
 
   useEffect(() => {
     setIncludeMic(includeMicDefault)
@@ -103,12 +109,14 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
         <header className={styles.panelHeader}>
           <div className={styles.panelTitleWrap}>
             <h3 className={styles.panelTitle}>录屏</h3>
-            {recording && (
+            {recording ? (
               <span className={styles.recBadge}>
                 <span className={styles.recDot} />
                 {formatDuration(elapsedMs)}
               </span>
-            )}
+            ) : paused ? (
+              <span className={styles.recBadge}>暂停 {formatDuration(elapsedMs)}</span>
+            ) : null}
           </div>
           <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="关闭">
             ×
@@ -126,7 +134,7 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜索显示器或窗口名称"
-              disabled={recording}
+              disabled={active}
               aria-label="搜索录制源"
             />
           </div>
@@ -139,7 +147,7 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
                   className={`${styles.sourceItem} ${
                     selectedId === s.sourceId ? styles.sourceItemActive : ''
                   }`}
-                  disabled={recording}
+                  disabled={active}
                   onClick={() => setSelectedId(s.sourceId)}
                 >
                   <span className={styles.sourceType}>{s.type === 'screen' ? '屏' : '窗'}</span>
@@ -155,7 +163,7 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
 
           <div className={styles.switchRows}>
             <div className={styles.switchRow}>
-              <Checkbox checked={includeMic} disabled={recording} onChange={setIncludeMic}>
+              <Checkbox checked={includeMic} disabled={active} onChange={setIncludeMic}>
                 包含麦克风
               </Checkbox>
             </div>
@@ -192,7 +200,7 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
             <span className={styles.footerSpacer} />
           )}
 
-          {!recording ? (
+          {!active ? (
             <Button
               variant="primary"
               size="sm"
@@ -202,9 +210,20 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
               开始录制
             </Button>
           ) : (
-            <Button variant="danger" size="sm" onClick={() => void onStop()}>
-              停止 · {formatDuration(elapsedMs)}
-            </Button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {recording ? (
+                <Button variant="secondary" size="sm" onClick={() => void onPause()}>
+                  暂停
+                </Button>
+              ) : (
+                <Button variant="secondary" size="sm" onClick={() => void onResume()}>
+                  继续
+                </Button>
+              )}
+              <Button variant="danger" size="sm" onClick={() => void onStop()}>
+                停止 · {formatDuration(elapsedMs)}
+              </Button>
+            </div>
           )}
         </footer>
       </section>

@@ -36,13 +36,13 @@ describe('screen-record 类型形状', () => {
     expectTypeOf<ScreenRecordSource>().toHaveProperty('thumbnailDataUrl')
   })
 
-  it('Status union 为五态', () => {
+  it('Status union 含 paused（二期六态）', () => {
     expectTypeOf<ScreenRecordStatus>().toMatchTypeOf<
-      'idle' | 'pending_confirm' | 'recording' | 'stopping' | 'error'
+      'idle' | 'pending_confirm' | 'recording' | 'paused' | 'stopping' | 'error'
     >()
   })
 
-  it('Error union 覆盖设计 §6 全部 12 条', () => {
+  it('Error union 覆盖设计 §6 + pause/resume', () => {
     const codes: ScreenRecordErrorCode[] = [
       'disabled',
       'already_recording',
@@ -55,8 +55,10 @@ describe('screen-record 类型形状', () => {
       'stream_ended',
       'capture_failed',
       'write_failed',
+      'not_recording',
+      'not_paused',
     ]
-    expect(codes.length).toBeGreaterThanOrEqual(11)
+    expect(codes.length).toBeGreaterThanOrEqual(13)
   })
 
   it('StartParams / StopResult / Command / Event 类型可引用', () => {

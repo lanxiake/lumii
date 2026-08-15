@@ -60,6 +60,8 @@ const SCREEN_RECORD_EVENT_CHANNELS = [
   'screen-record:event:confirm-requested',
   'screen-record:event:start-capture',
   'screen-record:event:stop-capture',
+  'screen-record:event:pause-capture',
+  'screen-record:event:resume-capture',
   'screen-record:event:cancelled',
   'screen-record:open-panel',
   'screen-record:persist-always-allow',
@@ -1029,6 +1031,8 @@ export interface ElectronAPI {
       maxDurationSec?: number
     }) => Promise<unknown>
     stop: () => Promise<unknown>
+    pause: () => Promise<unknown>
+    resume: () => Promise<unknown>
     status: () => Promise<unknown>
     respondConfirm: (p: {
       sessionId: string
@@ -1789,6 +1793,8 @@ const electronAPI: ElectronAPI = {
     start: (params: { sourceId: string; includeMic?: boolean; maxDurationSec?: number }) =>
       ipcRenderer.invoke('screen-record:start', { params }),
     stop: () => ipcRenderer.invoke('screen-record:stop'),
+    pause: () => ipcRenderer.invoke('screen-record:pause'),
+    resume: () => ipcRenderer.invoke('screen-record:resume'),
     status: () => ipcRenderer.invoke('screen-record:status'),
     respondConfirm: (p: {
       sessionId: string

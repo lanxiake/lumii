@@ -521,9 +521,10 @@ function initScreenRecordService(): void {
       trayManager?.updateScreenRecordState(
         detail.status === 'recording',
         detail.elapsedMs ?? 0,
+        detail.status === 'paused',
       )
     } else {
-      trayManager?.updateScreenRecordState(false, 0)
+      trayManager?.updateScreenRecordState(false, 0, false)
     }
   }
   screenRecordService = createScreenRecordService(deps)
@@ -571,6 +572,12 @@ function initTray(): void {
     },
     onStopScreenRecord: () => {
       void screenRecordService?.stop()
+    },
+    onPauseScreenRecord: () => {
+      void screenRecordService?.pause()
+    },
+    onResumeScreenRecord: () => {
+      void screenRecordService?.resume()
     },
   })
 }

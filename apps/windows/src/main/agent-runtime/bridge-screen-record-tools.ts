@@ -154,7 +154,8 @@ export function registerScreenRecordTools(
         label: 'Screen Record Status',
         category: 'channel' as const,
         description:
-          '查询当前录屏状态。pending_confirm 时 confirmTimeoutSec 告知剩余确认秒数。',
+          '查询当前录屏状态（含 paused）。pending_confirm 时 confirmTimeoutSec 告知剩余确认秒数；' +
+          'elapsedMs 为活跃录制时长（不含暂停）。',
         parameters: Type.Object({}),
         isReadOnly: true,
         needsPermission: false,
@@ -165,6 +166,59 @@ export function registerScreenRecordTools(
             return jsonToolResult(svc.getStatus())
           } catch (e) {
             log.error('[screen_record_status]', e)
+            return jsonToolResult({ ok: false, error: 'capture_failed' })
+          }
+        },
+      },
+      ctx,
+    ),
+  )
+
+  reg(
+    createMtBotTool(
+      {
+        name: 'screen_record_pause',
+        label: 'Screen Record Pause',
+        category: 'channel' as const,
+        description:
+          '暂停当前录制（仅 recording 态）。暂停期间不成片静默段，活跃计时停止。' +
+          '非 recording 返回 not_recording。',
+        parameters: Type.Object({}),
+        isReadOnly: false,
+        needsPermission: false,
+        execute: async () => {
+          const svc = get()
+          if (!svc) return jsonToolResult({ ok: false, error: 'disabled' })
+          try {
+            return jsonToolResult(await svc.pause())
+          } catch (e) {
+            log.error('[screen_record_pause]', e)
+            return jsonToolResult({ ok: false, error: 'capture_failed' })
+          }
+        },
+      },
+      ctx,
+    ),
+  )
+
+  reg(
+    createMtBotTool(
+      {
+        name: 'screen_record_resume',
+        label: 'Screen Record Resume',
+        category: 'channel' as const,
+        description:
+          '继续已暂停的录制（仅 paused 态）。非 paused 返回 not_paused。',
+        parameters: Type.Object({}),
+        isReadOnly: false,
+        needsPermission: false,
+        execute: async () => {
+          const svc = get()
+          if (!svc) return jsonToolResult({ ok: false, error: 'disabled' })
+          try {
+            return jsonToolResult(await svc.resume())
+          } catch (e) {
+            log.error('[screen_record_resume]', e)
             return jsonToolResult({ ok: false, error: 'capture_failed' })
           }
         },

@@ -98,6 +98,8 @@ function makeFakeDeps(
     getFreeDiskBytes: async () => MIN_FREE_DISK_BYTES + 1024,
     notifyRendererStartCapture: vi.fn(),
     notifyRendererStopCapture: vi.fn(),
+    notifyRendererPauseCapture: vi.fn(),
+    notifyRendererResumeCapture: vi.fn(),
     notifyRendererCancelled: vi.fn(),
     notifyRendererConfirmRequested: vi.fn(),
     emitStatusChanged: vi.fn(),
@@ -282,5 +284,54 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     expect(seen).toBe(false)
     await svc.listSources(true)
     expect(seen).toBe(true)
+  })
+
+  it('recording → paused → resume → recording；暂停墙钟不计 elapsed', async () => {
+    await svc.start({ sourceId: 'lumii-id' })
+    deps.advanceMs?.(3_000)
+    const p1 = await svc.pause()
+    expect(p1.ok && p1.status).toBe('paused')
+    expect(statusOf(svc)).toBe('paused')
+    expect(p1.ok && p1.elapsedMs).toBe(3_000)
+    expect(deps.notifyRendererPauseCapture).toHaveBeenCalled()
+
+    deps.advanceMs?.(5_000)
+    const st = svc.getStatus()
+    expect(st.ok && st.elapsedMs).toBe(3_000)
+
+    const r = await svc.resume()
+    expect(r.ok && r.status).toBe('recording')
+    expect(deps.notifyRendererResumeCapture).toHaveBeenCalled()
+    deps.advanceMs?.(2_000)
+    await svc.handleChunk({
+      sessionId: sessionIdOf(svc),
+      chunkBase64: Buffer.from('x').toString('base64'),
+      index: 0,
+      isLast: false,
+    })
+    const stop = await svc.stop()
+    expect(stop.ok && stop.durationMs).toBe(5_000)
+  })
+
+  it('pause 在 idle → not_recording；resume 在 recording → not_paused', async () => {
+    const p = await svc.pause()
+    expect(!p.ok && p.error).toBe('not_recording')
+    await svc.start({ sourceId: 'lumii-id' })
+    const r = await svc.resume()
+    expect(!r.ok && r.error).toBe('not_paused')
+  })
+
+  it('stop from paused 可 finalize', async () => {
+    await svc.start({ sourceId: 'lumii-id' })
+    await svc.handleChunk({
+      sessionId: sessionIdOf(svc),
+      chunkBase64: Buffer.from('webm').toString('base64'),
+      index: 0,
+      isLast: false,
+    })
+    await svc.pause()
+    const stop = await svc.stop()
+    expect(stop.ok).toBe(true)
+    expect(statusOf(svc)).toBe('idle')
   })
 })

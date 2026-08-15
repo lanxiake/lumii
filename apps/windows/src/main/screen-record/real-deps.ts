@@ -131,6 +131,20 @@ export function createRealScreenRecordServiceDeps(
       })
     },
 
+    notifyRendererPauseCapture: (sessionId) => {
+      opts.sendToRenderer('screen-record:event:pause-capture', {
+        type: 'screen-record:event:pause-capture',
+        sessionId,
+      })
+    },
+
+    notifyRendererResumeCapture: (sessionId) => {
+      opts.sendToRenderer('screen-record:event:resume-capture', {
+        type: 'screen-record:event:resume-capture',
+        sessionId,
+      })
+    },
+
     notifyRendererCancelled: (sessionId, reason) => {
       opts.sendToRenderer('screen-record:event:cancelled', {
         type: 'screen-record:event:cancelled',

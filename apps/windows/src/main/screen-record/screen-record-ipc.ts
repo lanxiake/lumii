@@ -26,6 +26,10 @@ export function registerScreenRecordIpc(
 
   ipcMain.handle('screen-record:stop', async () => service.stop())
 
+  ipcMain.handle('screen-record:pause', async () => service.pause())
+
+  ipcMain.handle('screen-record:resume', async () => service.resume())
+
   ipcMain.handle('screen-record:status', async () => service.getStatus())
 
   ipcMain.on(

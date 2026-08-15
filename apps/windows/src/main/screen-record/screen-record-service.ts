@@ -14,6 +14,8 @@ import type {
   ScreenRecordStatus,
   ScreenRecordStatusResult,
   ScreenRecordStopResult,
+  ScreenRecordPauseResult,
+  ScreenRecordResumeResult,
 } from '../../shared/screen-record'
 import {
   MAX_DURATION_SEC_CAP,
@@ -53,6 +55,10 @@ export interface ScreenRecordServiceDeps {
   ) => void
   /** 通知渲染停止采集 */
   notifyRendererStopCapture: (sessionId: string) => void
+  /** 通知渲染暂停采集（MediaRecorder.pause） */
+  notifyRendererPauseCapture: (sessionId: string) => void
+  /** 通知渲染继续采集（MediaRecorder.resume） */
+  notifyRendererResumeCapture: (sessionId: string) => void
   /** 通知取消 pending */
   notifyRendererCancelled: (sessionId: string, reason: ScreenRecordErrorCode) => void
   /** 弹 AI 确认弹窗 */
@@ -86,6 +92,10 @@ interface InternalState {
   sourceType: 'screen' | 'window' | null
   isLumii: boolean
   startedAt: number | null
+  /** 已累计的活跃录制毫秒（不含当前 segment；暂停时并入） */
+  activeElapsedMs: number
+  /** 当前 recording segment 起始墙钟；paused/idle 时为 null */
+  segmentStartedAt: number | null
   includeMic: boolean
   maxDurationSec: number
   writer: ScreenRecordWriteStream | null
@@ -106,6 +116,10 @@ export interface ScreenRecordService {
   listSources: (includeThumbnail?: boolean) => Promise<ScreenRecordListSourcesResult>
   start: (params: ScreenRecordStartParams) => Promise<ScreenRecordStartResult>
   stop: () => Promise<ScreenRecordStopResult>
+  /** 暂停录制（仅 recording） */
+  pause: () => Promise<ScreenRecordPauseResult>
+  /** 继续录制（仅 paused） */
+  resume: () => Promise<ScreenRecordResumeResult>
   getStatus: () => ScreenRecordStatusResult
   respondConfirm: (p: {
     sessionId: string
@@ -134,6 +148,8 @@ function createIdleState(): InternalState {
     sourceType: null,
     isLumii: false,
     startedAt: null,
+    activeElapsedMs: 0,
+    segmentStartedAt: null,
     includeMic: true,
     maxDurationSec: 1800,
     writer: null,
@@ -171,6 +187,28 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     }
   }
 
+  /** 当前活跃录制毫秒（不含暂停墙钟） */
+  function computeActiveElapsedMs(): number {
+    let ms = state.activeElapsedMs
+    if (state.status === 'recording' && state.segmentStartedAt != null) {
+      ms += Math.max(0, deps.nowMs() - state.segmentStartedAt)
+    }
+    return Math.max(0, ms)
+  }
+
+  /** 按剩余活跃时长调度 maxDuration 自动 stop */
+  function scheduleMaxDurationTimer(): void {
+    clearMaxDurationTimer()
+    const remaining = state.maxDurationSec * 1000 - computeActiveElapsedMs()
+    if (remaining <= 0) {
+      void stopInternal('max_duration')
+      return
+    }
+    state.maxDurationTimer = setTimeout(() => {
+      void stopInternal('max_duration')
+    }, remaining)
+  }
+
   /** 重置为 idle（不关写流；调用方需先 finalize） */
   function resetToIdle(): void {
     clearConfirmTimer()
@@ -185,7 +223,11 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     }
     const now = deps.nowMs()
     const elapsedMs =
-      state.startedAt != null ? Math.max(0, now - state.startedAt) : undefined
+      state.status === 'recording' || state.status === 'paused' || state.status === 'stopping'
+        ? computeActiveElapsedMs()
+        : state.startedAt != null
+          ? Math.max(0, now - state.startedAt)
+          : undefined
     let confirmTimeoutSec: number | undefined
     if (state.status === 'pending_confirm' && state.confirmStartedAt != null) {
       const elapsed = Math.floor((now - state.confirmStartedAt) / 1000)
@@ -254,6 +296,8 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       sourceType: opts.source.type,
       isLumii: opts.source.isLumii,
       startedAt,
+      activeElapsedMs: 0,
+      segmentStartedAt: startedAt,
       includeMic: opts.includeMic,
       maxDurationSec: opts.maxDurationSec,
       writer,
@@ -270,10 +314,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       opts.includeMic,
       opts.maxDurationSec,
     )
-    clearMaxDurationTimer()
-    state.maxDurationTimer = setTimeout(() => {
-      void stopInternal('max_duration')
-    }, opts.maxDurationSec * 1000)
+    scheduleMaxDurationTimer()
     emitStatus()
     return { ok: true, status: 'recording', sessionId: opts.sessionId, startedAt }
   }
@@ -296,12 +337,17 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       return { ok: true, path: '', durationMs: 0, bytes: 0 }
     }
 
-    if (state.status !== 'recording' && state.status !== 'stopping' && state.status !== 'error') {
+    if (state.status !== 'recording' && state.status !== 'paused' && state.status !== 'stopping' && state.status !== 'error') {
       return { ok: false, error: 'usage' }
     }
 
     const sessionId = state.sessionId
-    const startedAt = state.startedAt ?? deps.nowMs()
+    // 若仍在 recording，先把当前 segment 并入活跃时长
+    if (state.status === 'recording' && state.segmentStartedAt != null) {
+      state.activeElapsedMs += Math.max(0, deps.nowMs() - state.segmentStartedAt)
+      state.segmentStartedAt = null
+    }
+    const durationMs = state.activeElapsedMs
     state.status = 'stopping'
     emitStatus()
     if (sessionId) {
@@ -316,7 +362,6 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     if (state.captureFailedReason) errorHint = 'capture_failed'
 
     const finalized = await finalizeWriter(errorHint)
-    const durationMs = Math.max(0, deps.nowMs() - startedAt)
     const warning = state.micMuted ? ('mic_muted' as const) : undefined
     const path = finalized.path
     const bytes = finalized.bytes
@@ -345,6 +390,52 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     return { ok: true, path, durationMs, bytes, warning }
   }
 
+  /** 暂停：recording → paused */
+  async function pause(): Promise<ScreenRecordPauseResult> {
+    const settings = await deps.readSettings()
+    cachedEnabled = settings.enabled
+    if (!settings.enabled && state.status === 'idle') {
+      return { ok: false, error: 'disabled' }
+    }
+    if (state.status !== 'recording') {
+      return { ok: false, error: 'not_recording' }
+    }
+    const now = deps.nowMs()
+    if (state.segmentStartedAt != null) {
+      state.activeElapsedMs += Math.max(0, now - state.segmentStartedAt)
+      state.segmentStartedAt = null
+    }
+    state.status = 'paused'
+    clearMaxDurationTimer()
+    if (state.sessionId) {
+      deps.notifyRendererPauseCapture(state.sessionId)
+    }
+    const elapsedMs = state.activeElapsedMs
+    emitStatus()
+    return { ok: true, status: 'paused', elapsedMs }
+  }
+
+  /** 继续：paused → recording */
+  async function resume(): Promise<ScreenRecordResumeResult> {
+    const settings = await deps.readSettings()
+    cachedEnabled = settings.enabled
+    if (!settings.enabled && state.status === 'idle') {
+      return { ok: false, error: 'disabled' }
+    }
+    if (state.status !== 'paused') {
+      return { ok: false, error: 'not_paused' }
+    }
+    state.segmentStartedAt = deps.nowMs()
+    state.status = 'recording'
+    if (state.sessionId) {
+      deps.notifyRendererResumeCapture(state.sessionId)
+    }
+    scheduleMaxDurationTimer()
+    const elapsedMs = computeActiveElapsedMs()
+    emitStatus()
+    return { ok: true, status: 'recording', elapsedMs }
+  }
+
   async function listSources(
     includeThumbnail = false,
   ): Promise<ScreenRecordListSourcesResult> {
@@ -370,7 +461,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       return { ok: false, error: 'disabled' }
     }
 
-    if (state.startLock || state.status === 'recording' || state.status === 'pending_confirm' || state.status === 'stopping') {
+    if (state.startLock || state.status === 'recording' || state.status === 'paused' || state.status === 'pending_confirm' || state.status === 'stopping') {
       return { ok: false, error: 'already_recording' }
     }
 
@@ -578,7 +669,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
 
   async function handleStreamEnded(p: { sessionId: string }): Promise<void> {
     if (state.sessionId !== p.sessionId) return
-    if (state.status !== 'recording') return
+    if (state.status !== 'recording' && state.status !== 'paused') return
     await stopInternal('stream_ended')
   }
 
@@ -593,13 +684,13 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       return
     }
     state.captureFailedReason = p.reason
-    if (state.status === 'recording') {
+    if (state.status === 'recording' || state.status === 'paused') {
       await stopInternal('capture_failed')
     }
   }
 
   async function handleRendererGone(): Promise<void> {
-    if (state.status === 'recording' || state.status === 'stopping') {
+    if (state.status === 'recording' || state.status === 'paused' || state.status === 'stopping') {
       state.captureFailedReason = 'renderer_gone'
       await stopInternal('capture_failed')
       return
@@ -624,7 +715,12 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       emitStatus()
       return
     }
-    if (state.status === 'recording' || state.status === 'stopping' || state.status === 'error') {
+    if (
+      state.status === 'recording' ||
+      state.status === 'paused' ||
+      state.status === 'stopping' ||
+      state.status === 'error'
+    ) {
       await stopInternal('quit')
     }
   }
@@ -633,6 +729,8 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     listSources: listSourcesWrapped,
     start: startWrapped,
     stop: stopWrapped,
+    pause,
+    resume,
     getStatus,
     respondConfirm,
     handleChunk,

@@ -6,6 +6,8 @@ import type {
   ScreenRecordStartParams,
   ScreenRecordStartResult,
   ScreenRecordStopResult,
+  ScreenRecordPauseResult,
+  ScreenRecordResumeResult,
   ScreenRecordStatusResult,
   ScreenRecordListSourcesResult,
 } from '../../shared/screen-record'
@@ -73,6 +75,16 @@ export async function stop(): Promise<ScreenRecordStopResult> {
   return (await window.electronAPI.screenRecord.stop()) as ScreenRecordStopResult
 }
 
+/** 暂停录制 */
+export async function pause(): Promise<ScreenRecordPauseResult> {
+  return (await window.electronAPI.screenRecord.pause()) as ScreenRecordPauseResult
+}
+
+/** 继续录制 */
+export async function resume(): Promise<ScreenRecordResumeResult> {
+  return (await window.electronAPI.screenRecord.resume()) as ScreenRecordResumeResult
+}
+
 /** 查询状态 */
 export async function status(): Promise<ScreenRecordStatusResult> {
   return (await window.electronAPI.screenRecord.status()) as ScreenRecordStatusResult
@@ -92,7 +104,7 @@ export function respondConfirm(
 }
 
 /**
- * 订阅录屏事件；自动响应 start-capture / stop-capture 驱动采集层。
+ * 订阅录屏事件；自动响应 start/stop/pause/resume-capture 驱动采集层。
  */
 export function onEvent(cb: (event: ScreenRecordEvent) => void): () => void {
   const capture = getScreenRecordCapture()
@@ -114,6 +126,10 @@ export function onEvent(cb: (event: ScreenRecordEvent) => void): () => void {
         })
     } else if (event.type === 'screen-record:event:stop-capture') {
       void capture.stop()
+    } else if (event.type === 'screen-record:event:pause-capture') {
+      capture.pause()
+    } else if (event.type === 'screen-record:event:resume-capture') {
+      capture.resume()
     }
     cb(event)
   })

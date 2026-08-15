@@ -37,11 +37,14 @@ export const ScreenRecordTitleControl: React.FC<ScreenRecordTitleControlProps> =
   const { settings } = useSettings()
   const enabled = settings.screenRecord?.enabled !== false
   const recording = status === 'recording'
+  const paused = status === 'paused'
+  const active = recording || paused
 
   const classNames = [
     styles.titleBtn,
     recording ? styles.titleBtnRec : '',
-    panelOpen && !recording ? styles.titleBtnActive : '',
+    paused ? styles.titleBtnActive : '',
+    panelOpen && !active ? styles.titleBtnActive : '',
     className,
   ]
     .filter(Boolean)
@@ -55,11 +58,13 @@ export const ScreenRecordTitleControl: React.FC<ScreenRecordTitleControlProps> =
         !enabled
           ? '录屏功能已关闭，请到「设置 → 隐私与数据 → 录屏」启用'
           : recording
-            ? `录制中 ${formatDuration(elapsedMs)}，点击打开面板停止`
-            : '录屏'
+            ? `录制中 ${formatDuration(elapsedMs)}，点击打开面板`
+            : paused
+              ? `已暂停 ${formatDuration(elapsedMs)}，点击打开面板`
+              : '录屏'
       }
-      aria-label={recording ? '录制中，打开录屏面板' : '打开录屏面板'}
-      disabled={!enabled && !recording}
+      aria-label={active ? '打开录屏面板' : '打开录屏面板'}
+      disabled={!enabled && !active}
       onClick={() => setPanelOpen(!panelOpen)}
     >
       {recording ? (
@@ -67,6 +72,8 @@ export const ScreenRecordTitleControl: React.FC<ScreenRecordTitleControlProps> =
           <span className={styles.recDot} />
           <span className={styles.recTimer}>REC {formatDuration(elapsedMs)}</span>
         </>
+      ) : paused ? (
+        <span className={styles.recTimer}>暂停 {formatDuration(elapsedMs)}</span>
       ) : (
         <svg
           width="14"
@@ -101,6 +108,8 @@ export const ScreenRecordRoot: React.FC = () => {
     refreshSources,
     start,
     stop,
+    pause,
+    resume,
     respondConfirm,
   } = useScreenRecordContext()
   const { settings, updateSettings } = useSettings()
@@ -165,6 +174,12 @@ export const ScreenRecordRoot: React.FC = () => {
         }}
         onStop={async () => {
           await stop()
+        }}
+        onPause={async () => {
+          await pause()
+        }}
+        onResume={async () => {
+          await resume()
         }}
         onAlwaysAllowChange={persistAlwaysAllow}
       />
