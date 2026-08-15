@@ -28,6 +28,7 @@ describe('registerScreenRecordTools', () => {
     stop: ReturnType<typeof vi.fn>
     pause: ReturnType<typeof vi.fn>
     resume: ReturnType<typeof vi.fn>
+    mark: ReturnType<typeof vi.fn>
     getStatus: ReturnType<typeof vi.fn>
   }
 
@@ -44,6 +45,7 @@ describe('registerScreenRecordTools', () => {
       stop: vi.fn(async () => ({ ok: false, error: 'no_active_session' })),
       pause: vi.fn(async () => ({ ok: false, error: 'not_recording' })),
       resume: vi.fn(async () => ({ ok: false, error: 'not_paused' })),
+      mark: vi.fn(() => ({ ok: false, error: 'not_recording' })),
       getStatus: vi.fn(() => ({ ok: true, status: 'idle' })),
     }
     registerScreenRecordTools(registry, stubContext(), {
@@ -51,7 +53,7 @@ describe('registerScreenRecordTools', () => {
     })
   })
 
-  it('注册七工具名（含 pause/resume/narrate）', () => {
+  it('注册九工具名（含 mark/inspect/narrate）', () => {
     const names = registry.getAll().map((t) => t.name)
     expect(names).toEqual(
       expect.arrayContaining([
@@ -61,9 +63,12 @@ describe('registerScreenRecordTools', () => {
         'screen_record_status',
         'screen_record_pause',
         'screen_record_resume',
+        'screen_record_mark',
+        'screen_record_inspect',
         'screen_record_narrate',
       ]),
     )
+    expect(names).toHaveLength(9)
   })
 
   it('pause 透传 not_recording', async () => {
@@ -78,6 +83,27 @@ describe('registerScreenRecordTools', () => {
     const r = await tool.execute('1', {})
     const payload = parseJsonToolResultPayload(r)
     expect(payload).toMatchObject({ ok: false, error: 'not_paused' })
+  })
+
+  it('mark 透传 not_recording', async () => {
+    const tool = registry.get('screen_record_mark')!
+    const r = await tool.execute('1', { label: '开场' })
+    const payload = parseJsonToolResultPayload(r)
+    expect(payload).toMatchObject({ ok: false, error: 'not_recording' })
+    expect(svc.mark).toHaveBeenCalledWith({ label: '开场', kind: undefined })
+  })
+
+  it('inspect 路径不在 recordings → source_not_in_recordings', async () => {
+    const tool = registry.get('screen_record_inspect')!
+    const r = await tool.execute('1', { path: 'C:/Windows/Temp/not-in-recordings.webm' })
+    const payload = parseJsonToolResultPayload(r)
+    expect(payload).toMatchObject({ ok: false, error: 'source_not_in_recordings' })
+  })
+
+  it('narrate 描述不再承诺 *-narrated.webm，并说明就地覆盖', () => {
+    const tool = registry.get('screen_record_narrate')!
+    expect(tool.description).toContain('就地')
+    expect(tool.description).not.toContain('*-narrated.webm')
   })
 
   it('list_sources includeThumbnail 默认 false', async () => {
