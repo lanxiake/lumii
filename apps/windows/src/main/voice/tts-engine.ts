@@ -1,10 +1,11 @@
 /**
  * TTS (Text-To-Speech) Provider 抽象层
- * 支持本地 VITS/Matcha 和 Edge TTS
+ * 支持本地 VITS、Edge TTS、Qwen3-TTS（sidecar）
  */
 import path from 'node:path'
 import fs from 'node:fs'
-import { app } from 'electron'
+import { getSharedQwen3TtsClient, borrowQwen3TtsClient, releaseQwen3TtsClient } from './qwen3-tts-client.js'
+import { resolveQwen3TtsLanguage, sanitizeTtsPlainText } from './tts-text-utils.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[TtsEngine]', ...args),
@@ -37,8 +38,15 @@ export interface TtsProvider {
   setSpeed?(speed: number): void
   /** 热更新说话人 ID（不重建引擎） */
   setSpeakerId?(id: number): void
+  /** 热更新 CustomVoice 说话人名（Qwen3 专用） */
+  setSpeakerName?(speaker: string): void
   /** 热更新音色（Edge TTS 专用，需重建 WebSocket） */
   setVoice?(voice: string): Promise<void>
+  /**
+   * 锁定本次合成语种（Qwen3）：避免按句 Auto 判定导致中英音色交替
+   * 传 null 清除锁定
+   */
+  setLanguageOverride?(language: string | null): void
   destroy(): void
 }
 
@@ -77,12 +85,17 @@ export class LocalVitsTts implements TtsProvider {
       .map((f) => path.join(this.modelDir, f))
       .filter((p) => fs.existsSync(p))
 
+    // MeloTTS 需 jieba 分词目录 dict/（中文分词/韵律）；Aishell3 无此目录时省略
+    const dictDir = path.join(this.modelDir, 'dict')
+    const hasDict = fs.existsSync(dictDir)
+
     this.tts = new SherpaOnnx.OfflineTts({
       model: {
         vits: {
           model: path.join(this.modelDir, 'model.onnx'),
           lexicon: path.join(this.modelDir, 'lexicon.txt'),
           tokens: path.join(this.modelDir, 'tokens.txt'),
+          ...(hasDict ? { dictDir } : {}),
         },
         numThreads: 2,
         provider: 'cpu',
@@ -112,14 +125,16 @@ export class LocalVitsTts implements TtsProvider {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const SherpaOnnx = require('sherpa-onnx-node') as any
 
+    // silenceScale 放大句内标点(，、；)停顿时长，让朗读更从容（0.2 过于急促）
     const generationConfig = new SherpaOnnx.GenerationConfig({
       sid: this.speakerId,
       speed: this.speed,
-      silenceScale: 0.2,
+      silenceScale: 0.8,
     })
 
-    // 跟踪 onProgress 是否产出了音频（短句可能 0 次回调）
-    let progressHadSamples = false
+    // 整句先缓冲再归一化：MeloTTS 逐句响度有波动，统一峰值后听感一致
+    // （单句约 120 字、RTF≈0.43，缓冲一整句的额外延迟可接受）
+    const collected: number[] = []
 
     const result = await this.tts.generateAsync({
       text,
@@ -129,12 +144,7 @@ export class LocalVitsTts implements TtsProvider {
       onProgress: ({ samples }: { samples: Float32Array; progress: number }) => {
         if (signal?.aborted) return 0 // 返回 0 中止生成
         try {
-          if (samples.length > 0) progressHadSamples = true
-          onChunk({
-            samples: Array.from(samples),
-            sampleRate: this.sampleRate,
-            isFinal: false,
-          })
+          for (let i = 0; i < samples.length; i++) collected.push(samples[i]!)
         } catch (e) {
           // 绝不允许 JS 异常逃逸进 native generateAsync，否则进程崩溃
           log.error(`[synthesize] onProgress 回调错误: ${(e as Error).message}`)
@@ -144,13 +154,32 @@ export class LocalVitsTts implements TtsProvider {
     })
 
     // 短句场景：onProgress 未产出音频，从 generateAsync 返回值取完整音频
-    if (!progressHadSamples && result?.samples?.length > 0 && !signal?.aborted) {
-      log.debug(`[synthesize] onProgress 无音频，使用 generateAsync 返回值 (${result.samples.length} samples)`)
-      onChunk({
-        samples: Array.from(result.samples as Float32Array),
-        sampleRate: this.sampleRate,
-        isFinal: false,
-      })
+    if (collected.length === 0 && result?.samples?.length > 0) {
+      const ret = result.samples as Float32Array
+      for (let i = 0; i < ret.length; i++) collected.push(ret[i]!)
+    }
+
+    if (signal?.aborted) return
+
+    // 峰值归一化到 ~0.95：消除逐句忽大忽小；静音/极小段不放大避免噪声抬升
+    if (collected.length > 0) {
+      let peak = 0
+      for (let i = 0; i < collected.length; i++) {
+        const a = Math.abs(collected[i]!)
+        if (a > peak) peak = a
+      }
+      if (peak > 0.02) {
+        const gain = Math.min(4, 0.95 / peak)
+        for (let i = 0; i < collected.length; i++) collected[i] = collected[i]! * gain
+      }
+      // 句尾补静音：让句间/分段有呼吸停顿（播放引擎无缝拼接会吃掉句间空隙）。
+      // 句末硬标点或换行 → 长停顿；软标点/无标点 → 短停顿。
+      const tail = text.trimEnd().slice(-1)
+      const isHardEnd = /[。！？…\n.!?]/.test(tail)
+      const pauseMs = isHardEnd ? 320 : 160
+      const silenceLen = Math.round((this.sampleRate * pauseMs) / 1000)
+      for (let i = 0; i < silenceLen; i++) collected.push(0)
+      onChunk({ samples: collected, sampleRate: this.sampleRate, isFinal: false })
     }
 
     // 发送 isFinal 标记帧
@@ -301,21 +330,176 @@ export class EdgeTtsFallback implements TtsProvider {
   }
 }
 
+// ─── Qwen3-TTS（Python sidecar）──────────────────────────────────────────
+
+export class Qwen3Tts implements TtsProvider {
+  readonly name = 'qwen3-tts'
+  readonly isLocal = true
+  sampleRate = 24000
+
+  private client = getSharedQwen3TtsClient()
+  private initialized = false
+  /** 整段/会话级语种锁定，优先于逐句 Auto */
+  private languageOverride: string | null = null
+
+  constructor(
+    private modelDir: string,
+    private tokenizerDir: string,
+    private opts: {
+      speed?: number
+      language?: string
+      /** custom=内置音色；clone=声音克隆 */
+      mode?: 'custom' | 'clone'
+      speaker?: string
+      instruct?: string
+      refAudio?: string
+      refText?: string
+      xVectorOnly?: boolean
+      /** sidecar load device：auto / cpu / cuda:0 */
+      device?: string
+    } = {},
+  ) {}
+
+  /**
+   * 热更新语速（sidecar 侧一期忽略，保留接口兼容）
+   */
+  setSpeed(speed: number): void {
+    this.opts.speed = speed
+  }
+
+  /**
+   * 热更新 CustomVoice 说话人
+   */
+  setSpeakerName(speaker: string): void {
+    this.opts.speaker = speaker
+  }
+
+  /**
+   * 锁定语种，消除按句 Auto 漂音色
+   */
+  setLanguageOverride(language: string | null): void {
+    this.languageOverride = language && language.trim() ? language.trim() : null
+  }
+
+  /**
+   * 更新克隆参考（切换音色档案时）
+   */
+  setCloneRef(ref: { refAudio: string; refText: string; language?: string; xVectorOnly?: boolean }): void {
+    this.opts.mode = 'clone'
+    this.opts.refAudio = ref.refAudio
+    this.opts.refText = ref.refText
+    if (ref.language) this.opts.language = ref.language
+    if (ref.xVectorOnly !== undefined) this.opts.xVectorOnly = ref.xVectorOnly
+  }
+
+  async initialize(): Promise<void> {
+    const device = this.opts.device ?? 'auto'
+    log.info(`[Qwen3Tts.initialize] mode=${this.opts.mode ?? 'custom'} model=${this.modelDir} device=${device}`)
+    await this.client.load(this.modelDir, this.tokenizerDir, device)
+    this.initialized = true
+    log.info('[Qwen3Tts.initialize] 就绪')
+  }
+
+  async synthesize(
+    text: string,
+    onChunk: (chunk: TtsChunk) => void,
+    signal?: AbortSignal,
+    onAudioFile?: (audioPath: string, isFinal: boolean) => void,
+  ): Promise<void> {
+    if (!this.initialized) throw new Error('Qwen3 TTS 未初始化')
+    if (signal?.aborted) return
+    if (!text.trim()) return
+
+    const mode = this.opts.mode ?? 'custom'
+    if (mode === 'clone' && !this.opts.refAudio) {
+      throw new Error('未配置克隆音色：请在设置中创建并选择「我的音色」，或改用 CustomVoice 内置音色')
+    }
+
+    // 清洗 Markdown；语种优先用整段锁定，避免短句 Auto 漂到外语音色
+    const plain = sanitizeTtsPlainText(text)
+    if (!plain) return
+    const language =
+      this.languageOverride
+      ?? resolveQwen3TtsLanguage(this.opts.language || 'Auto', plain)
+    if (language !== (this.opts.language || 'Auto')) {
+      log.info(`[Qwen3Tts.synthesize] language ${this.opts.language || 'Auto'} → ${language}`)
+    }
+
+    const client = await borrowQwen3TtsClient()
+    try {
+      await client.load(this.modelDir, this.tokenizerDir, this.opts.device ?? 'auto')
+      const { sampleRate } = await client.synthesizeStream(
+        {
+          text: plain,
+          language,
+          mode,
+          speaker: this.opts.speaker || 'Vivian',
+          instruct: this.opts.instruct,
+          refAudio: this.opts.refAudio,
+          refText: this.opts.refText || '',
+          xVectorOnly: this.opts.xVectorOnly === true,
+        },
+        (part) => {
+          if (signal?.aborted) return
+          this.sampleRate = part.sampleRate
+          onChunk({ samples: part.samples, sampleRate: part.sampleRate, isFinal: false })
+        },
+      )
+
+      if (signal?.aborted) return
+      this.sampleRate = sampleRate
+      void onAudioFile // 流式路径不写整段 wav，保留参数以兼容 TtsProvider 接口
+      onChunk({ samples: [], sampleRate, isFinal: true })
+    } finally {
+      releaseQwen3TtsClient(client)
+    }
+  }
+
+  destroy(): void {
+    // 共享 sidecar 不在单次 destroy 时杀掉，避免频繁冷启动
+    this.initialized = false
+    log.info('[Qwen3Tts.destroy] 已释放实例引用（sidecar 保持共享）')
+  }
+}
+
 // ─── 工厂函数 ─────────────────────────────────────────────────────────────
 
 export function createTtsProvider(config: {
   provider: string
   modelDir?: string
+  tokenizerDir?: string
   vocoderPath?: string
   speed?: number
   voice?: string
+  language?: string
+  mode?: 'custom' | 'clone'
+  speaker?: string
+  instruct?: string
+  refAudio?: string
+  refText?: string
+  xVectorOnly?: boolean
+  device?: string
 }): TtsProvider {
   switch (config.provider) {
     case 'local-vits':
       if (!config.modelDir) throw new Error('local-vits 需要 modelDir')
-      return new LocalVitsTts(config.modelDir, 0, config.speed ?? 1.2)
+      return new LocalVitsTts(config.modelDir, 0, config.speed ?? 1.0)
     case 'edge':
       return new EdgeTtsFallback(config.voice ?? 'zh-CN-XiaoxiaoNeural', config.speed ?? 1.2)
+    case 'qwen3':
+      if (!config.modelDir) throw new Error('qwen3 需要 modelDir')
+      if (!config.tokenizerDir) throw new Error('qwen3 需要 tokenizerDir')
+      return new Qwen3Tts(config.modelDir, config.tokenizerDir, {
+        speed: config.speed,
+        language: config.language,
+        mode: config.mode ?? 'custom',
+        speaker: config.speaker,
+        instruct: config.instruct,
+        refAudio: config.refAudio,
+        refText: config.refText,
+        xVectorOnly: config.xVectorOnly,
+        device: config.device,
+      })
     default:
       if (config.modelDir) {
         log.warn(`[createTtsProvider] 未知 provider "${config.provider}"，回退到 local-vits`)

@@ -23,6 +23,7 @@ import {
   type MemoryManager,
   ModelRouter,
   createGatewayStreamFn,
+  createDirectStreamFn,
   DEFAULT_GATEWAY_STREAM_PATH,
   ProactivityScheduler,
   BUILT_IN_AGENTS,
@@ -49,9 +50,8 @@ import type { StreamFn } from '@mariozechner/pi-agent-core'
 
 import { createRunContext } from './event-converter'
 import { riskLevelForTool, createLargeToolResultHook } from './permission-tool-wrap'
-import { createAnalyticsToolHook } from './hooks/analytics-tool-hook'
 import { createSkillHitRateHook } from './hooks/skill-hit-rate-hook'
-import { analyticsReporter } from './analytics-reporter'
+import { createToolUsageHook } from './hooks/tool-usage-hook'
 import type { McpStdioClient } from '@mtbot/agent-runtime'
 import type { PermissionController } from './permission-controller'
 import type { AgentRuntimeBridgeConfig } from './bridge'
@@ -93,7 +93,6 @@ export interface BridgeInstanceFactoryDeps {
   instanceToRootSessionKey: Map<string, string>
   nodeStreamCallbacks: Map<string, (event: AgentRuntimeEvent) => void>
   toolCallInstanceMap: Map<string, string>
-  toolTextPositionMap: Map<string, number>
   toolStartTimeMap: Map<string, number>
   /** 可变引用：当前正在执行工具的实例 ID */
   currentToolExecutorInstanceId: MutableRef<string | undefined>
@@ -133,6 +132,7 @@ export interface BridgeInstanceFactoryDeps {
     usedTokens: number
     contextWindow: number
     triggerThreshold: number
+    breakdown?: readonly import('../../shared/agent-runtime-events').ContextUsageBreakdownEntry[]
   }
   /** 记录提供商返回的 inputTokens */
   setSessionProviderInputTokens: (sessionKey: string, inputTokens: number) => void
@@ -176,9 +176,6 @@ export class BridgeInstanceFactory {
 
     // 创建运行上下文（在 streamFn 之前，因为 getMetadata 需要引用 ctx）
     const ctx = createRunContext(effectiveSessionKey, instanceId, rootSessionKey)
-    if (parentCtx) {
-      ctx.parentAnalyticsRunId = parentCtx.runId
-    }
     ctx.agentName = def.name
     // 初始化 InstanceState（ctx 已就绪，metrics 在 agent 创建后赋值）
     const metrics: InstanceRuntimeMetrics = {
@@ -193,21 +190,91 @@ export class BridgeInstanceFactory {
     const purpose = def.defaultPurpose ?? 'chat'
 
     const streamPathOverride = process.env.MTBOT_GATEWAY_STREAM_PATH?.trim()
-    // 灵栖/Lumii 独立版：读取本地 provider 配置，enabled 时 Agent 走 direct 直连。
-    const providerCfg = this.deps.config.getProviderConfig?.()
-    const useDirect = providerCfg?.enabled === true
-    const resolveDirectBaseUrl = () =>
-      providerCfg
-        ? ensureProviderBaseUrl(providerCfg.baseUrl, providerCfg.type)
-        : undefined
-    // host-kit streamFn 工厂：gateway 分支（云端代理）+ direct 分支（本地直连）。
-    // 动态 metadata（runId/thinking）经 getMetadataExtras 注入，诊断经 onDiagnostic 转 IPC。
+    /**
+     * 每次调用时读取最新 chat 槽配置（避免 createInstance 闭包快照过期）。
+     */
+    const readLiveProviderCfg = () => this.deps.config.getProviderConfig?.()
+    /**
+     * 解析直连 baseUrl；无配置时返回 undefined。
+     */
+    const resolveDirectBaseUrl = (cfg = readLiveProviderCfg()) =>
+      cfg ? ensureProviderBaseUrl(cfg.baseUrl, cfg.type) : undefined
+    /**
+     * 独立版始终走本地 direct：每轮用最新 apiKey/baseUrl 建流，禁止空 token Gateway 回退。
+     */
+    const buildLiveDirectStream = (): StreamFn => {
+      return (model, context, options) => {
+        const cfg = readLiveProviderCfg()
+        if (!cfg?.enabled) {
+          throw new Error('请先在设置中启用并配置文本对话模型（chat 能力槽）')
+        }
+        const isLocal = cfg.type === 'ollama' || cfg.type === 'lmstudio'
+        if (!isLocal && !cfg.apiKey?.trim()) {
+          throw new Error('请先在设置中填写文本对话模型的 API Key')
+        }
+        if (!cfg.modelId?.trim() && !model?.id) {
+          throw new Error('请先在设置中填写或选择文本对话模型 ID')
+        }
+        const direct = createDirectStreamFn({
+          credentials: {
+            baseUrl: resolveDirectBaseUrl(cfg),
+            apiKey: cfg.apiKey,
+          },
+          log: (msg) => log.info(msg),
+        })
+        const startedAt = Date.now()
+        const modelLabel = `llm:${cfg.type}:${model?.id ?? cfg.modelId ?? '(unknown)'}`
+        try {
+          const streamOrPromise = direct(model, context, options)
+          // 记录每次模型请求到审计日志（复用现有「安全日志」面板）：
+          // StreamFn 可能同步返回事件流也可能返回 Promise，成败都要等 result() resolve
+          // 才知道（错误通过 stopReason==="error" 承载，而非 reject），故异步记录、不阻塞流本身。
+          void Promise.resolve(streamOrPromise)
+            .then((s) => s.result())
+            .then((finalMessage: { stopReason?: string; errorMessage?: string }) => {
+              const isError = finalMessage?.stopReason === 'error'
+              this.deps.getAuditRepo()?.log({
+                agentId: instanceId,
+                toolName: modelLabel,
+                resultSummary: isError
+                  ? finalMessage.errorMessage ?? '请求失败'
+                  : `baseUrl=${resolveDirectBaseUrl(cfg) ?? '(none)'}`,
+                isError,
+                durationMs: Date.now() - startedAt,
+              })
+            })
+            .catch((err: unknown) => {
+              this.deps.getAuditRepo()?.log({
+                agentId: instanceId,
+                toolName: modelLabel,
+                resultSummary: err instanceof Error ? err.message : String(err),
+                isError: true,
+                durationMs: Date.now() - startedAt,
+              })
+            })
+          return streamOrPromise
+        } catch (err) {
+          this.deps.getAuditRepo()?.log({
+            agentId: instanceId,
+            toolName: modelLabel,
+            resultSummary: err instanceof Error ? err.message : String(err),
+            isError: true,
+            durationMs: Date.now() - startedAt,
+          })
+          throw err
+        }
+      }
+    }
+    // host-kit 仍装配 gateway 配置（兼容类型），但 resolveModel 固定 direct，实际调用走 liveDirect。
     const streamFnFactory = createStreamFnFactory({
       direct: {
-        resolveCredentials: () => ({
-          baseUrl: resolveDirectBaseUrl(),
-          apiKey: providerCfg?.apiKey,
-        }),
+        resolveCredentials: () => {
+          const cfg = readLiveProviderCfg()
+          return {
+            baseUrl: resolveDirectBaseUrl(cfg),
+            apiKey: cfg?.apiKey,
+          }
+        },
         log: (msg) => log.info(msg),
       },
       gateway: {
@@ -254,25 +321,34 @@ export class BridgeInstanceFactory {
       },
     })
 
-    // wrapStreamFn 捕获工厂产出的 innerStream（供 compaction / summary 复用），
-    // 并保留「按会话覆盖模型」语义：优先根会话键的用户选模，否则回退默认。
-    let capturedInnerStream: ReturnType<typeof createGatewayStreamFn> | null = null
-    const wrapStreamFn = (inner: StreamFn, resolved: ResolvedModel): StreamFn => {
-      capturedInnerStream = inner as ReturnType<typeof createGatewayStreamFn>
+    // wrapStreamFn：每轮 live direct + 按会话覆盖模型；压缩/摘要复用同一 live 流。
+    let capturedInnerStream: StreamFn | null = null
+    const wrapStreamFn = (_inner: StreamFn, resolved: ResolvedModel): StreamFn => {
+      const liveDirect = buildLiveDirectStream()
+      capturedInnerStream = liveDirect
       return (model, context, options) => {
         const pref = this.deps.sessionModelCatalog.getPreferredModelRawForStream(rootSessionKey, effectiveSessionKey)
         const thinking = this.deps.sessionThinkingPrefs.getThinkingPrefs(rootSessionKey)
         log.info(
           `[streamFn] rootKey=${rootSessionKey} effKey=${effectiveSessionKey} pref=${pref ?? '(none)'} defaultModel=${model.id} thinking=${thinking.thinkingEnabled} effort=${thinking.reasoningEffort}`,
         )
+        // 思考开关必须传到 direct 请求上。pi-ai 的 streamSimple 把 options.reasoning 映射成
+        // reasoningEffort，再据此决定是否发 reasoning_effort（OpenAI 系）或 thinking:disabled
+        // （z.ai 系）。此前 direct 路径只读了偏好却没往下传，所以关掉思考后 DeepSeek 照旧推理。
+        // 注意不要顺手把 model.reasoning 改成 false：z.ai 的「显式关闭」分支依赖它为真，
+        // 置 false 会导致该分支被跳过，反而回到服务端默认开启思考。
+        const streamOptions = thinking.thinkingEnabled
+          ? { ...options, reasoning: options?.reasoning ?? thinking.reasoningEffort }
+          : { ...options, reasoning: undefined, reasoningEffort: undefined }
+
         if (pref) {
           const explicit = this.deps.modelRouter.resolveExplicitModelId(pref)
           ctx.resolvedModelId = explicit.id
-          log.info(`[streamFn] 使用用户选择模型: ${explicit.id} (api=${explicit.api})`)
-          return inner(explicit, context, options)
+          log.info(`[streamFn] 使用用户选择模型(direct): ${explicit.id} (api=${explicit.api})`)
+          return liveDirect(explicit, context, streamOptions)
         }
-        log.info(`[streamFn] 无用户选择，回退默认模型: ${resolved.model.id}`)
-        return inner(model, context, options)
+        log.info(`[streamFn] 无用户选择，回退默认模型(direct): ${resolved.model.id}`)
+        return liveDirect(model, context, streamOptions)
       }
     }
 
@@ -299,7 +375,7 @@ export class BridgeInstanceFactory {
     // 用户确认交互（IPC 弹窗 → 失败回退 native dialog → 等待响应），封装成注入式 PermissionProvider
     const permission: PermissionProvider = {
       requestPermission: async (input) => {
-        const timeoutMs = 30_000
+        const timeoutMs = 5 * 60 * 1000
         const ipcSent = this.deps.ipcChannel.forwardIpcEvent({
           type: 'agent:permission:request',
           requestId: input.requestId,
@@ -330,35 +406,35 @@ export class BridgeInstanceFactory {
       if (s) s.skillHitRateTracker = skillHitRateTracker
     }
     const optionalHooks = [
-      createAnalyticsToolHook(analyticsReporter, {
-        // getter：每次工具调用动态读取当前 run 的 runId（ctx.runId 会在每轮 agent:start 更新）
-        getRunId: () => ctx.runId,
-        agentId: def.name,
-        sessionKey: ctx.sessionKey,
-      }),
       createLargeToolResultHook({ getCwd, getConversationId }),
       skillHitRateTracker.hook,
+      createToolUsageHook(),
     ]
 
     // ── 注入接口：ConfigProvider（模型解析 + feature flags） ──
-    // 灵栖/Lumii：本地 provider enabled 时走 direct（显式 modelId 直连），否则回退 gateway（purpose 图槽）。
+    // 灵栖/Lumii 独立版：始终声明 direct；未启用时由 liveDirect 在真正请求时抛出可读错误。
     const config: ConfigProvider = {
-      getProviderCredentials: () =>
-        useDirect
-          ? { apiKey: providerCfg?.apiKey, baseUrl: resolveDirectBaseUrl() }
-          : {},
-      resolveModel: (p: string, _override?: ModelOverride): ResolvedModel =>
-        useDirect
-          ? {
-              model: this.deps.modelRouter.resolveExplicitModelId(providerCfg!.modelId),
-              providerSource: 'local',
-              streamFnKind: 'direct',
-            }
-          : {
-              model: this.deps.modelRouter.resolve(p),
-              providerSource: 'cloud',
-              streamFnKind: 'gateway',
-            },
+      getProviderCredentials: () => {
+        const cfg = readLiveProviderCfg()
+        return cfg?.enabled
+          ? { apiKey: cfg.apiKey, baseUrl: resolveDirectBaseUrl(cfg) }
+          : {}
+      },
+      resolveModel: (p: string, _override?: ModelOverride): ResolvedModel => {
+        const cfg = readLiveProviderCfg()
+        if (cfg?.enabled && cfg.modelId?.trim()) {
+          return {
+            model: this.deps.modelRouter.resolveExplicitModelId(cfg.modelId),
+            providerSource: 'local',
+            streamFnKind: 'direct',
+          }
+        }
+        return {
+          model: this.deps.modelRouter.resolve(p),
+          providerSource: 'local',
+          streamFnKind: 'direct',
+        }
+      },
       getFeatureFlags: () => this.deps.featureFlags,
     }
 
@@ -416,8 +492,8 @@ export class BridgeInstanceFactory {
             const tools = this.deps.toolRegistry
               .getEnabledTools()
               .filter((t) => t.name.startsWith(`mcp__${name}__`))
-              .map((t) => t.name)
-            hints.push({ name, toolNames: tools, instructions: client.getInstructions() })
+              .map((t) => ({ name: t.name, description: t.description }))
+            hints.push({ name, tools, instructions: client.getInstructions() })
           }
         }
         return hints
@@ -437,7 +513,6 @@ export class BridgeInstanceFactory {
       agentName: def.name,
       isSubAgent: Boolean(options?.parentInstanceId),
       toolCallInstanceMap: this.deps.toolCallInstanceMap,
-      toolTextPositionMap: this.deps.toolTextPositionMap,
       toolStartTimeMap: this.deps.toolStartTimeMap,
       nodeStreamCallbacks: this.deps.nodeStreamCallbacks,
       getCompactionForRootSession: (k) => this.deps.sessionModelCatalog.getCompactionForRootSession(k),
@@ -447,6 +522,7 @@ export class BridgeInstanceFactory {
       setCurrentToolExecutorInstanceId: (id) => {
         this.deps.currentToolExecutorInstanceId.value = id
       },
+      getCwd: this.deps.config.getCwd,
       onConversationEnd: this.deps.config.onConversationEnd,
       onAssistantMessagePersisted: ({ conversationId, runId }) => {
         const cwd = this.deps.config.getCwd()
@@ -636,13 +712,18 @@ export class BridgeInstanceFactory {
 
     // 缓存主 Agent 的 innerStream 和 model，供 compactContextAsync 生成 LLM 摘要
     if (def.id === 'main') {
-      this.deps.mainInnerStreamRef.value = capturedInnerStream
+      this.deps.mainInnerStreamRef.value = capturedInnerStream as ReturnType<typeof createGatewayStreamFn> | null
       this.deps.mainModelRef.value = model
     }
     // 所有实例均缓存 stream，供 compactContextAsync 按 instanceId 查找
     {
       const s = this.deps.instanceStates.get(instanceId)
-      if (s && capturedInnerStream) s.stream = { innerStream: capturedInnerStream, model }
+      if (s && capturedInnerStream) {
+        s.stream = {
+          innerStream: capturedInnerStream as ReturnType<typeof createGatewayStreamFn>,
+          model,
+        }
+      }
     }
 
     log.info(`Created agent instance: ${instanceId} (${def.name})`)

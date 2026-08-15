@@ -20,6 +20,11 @@ import { AcpBackendManager } from '../acp-backend-manager'
 import { clearCommand } from '../slash-commands/clear'
 import { createHelpCommand } from '../slash-commands/help'
 import { compactCommand } from '../slash-commands/compact'
+import { backendCommand } from '../slash-commands/backend'
+import { createSwitchBackendCommand, lumiiCommand } from '../slash-commands/switch-backend'
+import { getAcpRunController } from '../../coding-dev-acp-run.js'
+import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
+import { pushAgentRuntimeEvent } from '../../ipc/agent-runtime-ipc.js'
 
 /**
  * 飞书专用 /new。
@@ -46,6 +51,14 @@ const log = {
   info: (...args: unknown[]) => console.log('[FeishuChannelAdapter]', ...args),
   warn: (...args: unknown[]) => console.warn('[FeishuChannelAdapter]', ...args),
   error: (...args: unknown[]) => console.error('[FeishuChannelAdapter]', ...args),
+}
+
+/** 取消息内容块里的纯文本（忽略图片等非文本块） */
+function textOfContent(content: ReadonlyArray<{ type: string; text?: string }>): string {
+  return content
+    .map((c) => (c.type === 'text' ? (c.text ?? '') : ''))
+    .join('')
+    .trim()
 }
 
 /**
@@ -162,6 +175,13 @@ export class FeishuChannelAdapter implements IChannelAdapter {
       this.bridge.notifyIncomingMessage(session.sessionKey, prompt)
       this.bridge.notifyNavigateToSession(session.sessionKey)
 
+      // 非主代理后端：走本机 ACP 子进程路径
+      const currentBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
+      if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
+        await this.handleAcpPrompt(session, prompt, currentBackend)
+        return
+      }
+
       const instanceId = await this.getOrCreateInstance(session.sessionKey)
       const activeSession = { ...session, instanceId }
 
@@ -205,6 +225,72 @@ export class FeishuChannelAdapter implements IChannelAdapter {
     }
   }
 
+  /**
+   * ACP 子进程路径：走 AcpRunController，与客户端自发消息共用同一套运行时。
+   *
+   * 这样渠道会话的工具调用/流式回复会同步渲染到客户端对话页，并持久化到 DB；
+   * 飞书侧仍按渠道习惯只推「执行中」短消息 + 最终结果，避免刷屏。
+   */
+  private async handleAcpPrompt(
+    session: ChannelSession,
+    prompt: string,
+    backendId: string,
+  ): Promise<void> {
+    log.info(`[handleAcpPrompt] 走 ACP 路径: backendId=${backendId} sessionKey=${session.sessionKey}`)
+
+    const runId = `feishu-acp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    const sentToolIds = new Set<string>()
+    const ACP_STATUS_THROTTLE_MS = 3000
+    let lastStatusSentAt = 0
+    let finalText = ''
+    let errorText = ''
+
+    await getAcpRunController().startRun({
+      runId,
+      sessionKey: session.sessionKey,
+      backendId,
+      text: prompt,
+      instanceId: session.instanceId ?? session.sessionKey,
+      bridge: this.bridge,
+      accountId: session.channelUserId,
+      senderId: session.channelUserId,
+      pushEvent: (event) => {
+        // 先转发给渲染进程，客户端对话页由此渲染工具卡片与流式文本
+        pushAgentRuntimeEvent(event)
+
+        // 再按渠道习惯挑重点回飞书
+        if (event.type === 'agent:tool:start' && !sentToolIds.has(event.toolCallId)) {
+          sentToolIds.add(event.toolCallId)
+          void this.sendTextReply(session, `🔧 执行中：${event.toolName || '工具'}`)
+          return
+        }
+        if (event.type === 'agent:thinking:delta') {
+          const now = Date.now()
+          if (now - lastStatusSentAt > ACP_STATUS_THROTTLE_MS) {
+            lastStatusSentAt = now
+            void this.sendTextReply(session, '💭 思考中…')
+          }
+          return
+        }
+        if (event.type === 'agent:message:end') {
+          finalText = textOfContent(event.content)
+          return
+        }
+        // controller 中止/失败时会推一条带用户可读文案的助手消息，直接复用
+        if (event.type === 'conversation:message:new' && event.message.role === 'assistant') {
+          errorText = textOfContent(event.message.content)
+        }
+      },
+    })
+
+    if (errorText) {
+      await this.sendTextReply(session, errorText)
+      return
+    }
+    log.info(`[handleAcpPrompt] ACP 完成，回复长度=${finalText.length}`)
+    await this.sendTextReply(session, finalText || '✅ ACP 任务完成（无文本输出）。')
+  }
+
   private buildSession(msg: FeishuNormalizedMessage): ChannelSession {
     const sessionKey = this.getActiveSessionKey(msg.channelUserId)
     return {
@@ -238,6 +324,16 @@ export class FeishuChannelAdapter implements IChannelAdapter {
     registry.register('new', feishuNewCommand)
     registry.register('clear', clearCommand)
     registry.register('compact', compactCommand)
+    // ACP 后端查看/切回主代理
+    registry.register('backend', backendCommand)
+    registry.register('lumii', lumiiCommand)
+    // ACP 后端切换（含别名）
+    const claudeCmd = createSwitchBackendCommand('claude')
+    registry.register('claude', claudeCmd)
+    registry.register('claude-code', claudeCmd)       // 别名
+    registry.register('codex', createSwitchBackendCommand('codex'))
+    registry.register('opencode', createSwitchBackendCommand('opencode'))
+    registry.register('cursor', createSwitchBackendCommand('cursor'))
     return registry
   }
 }

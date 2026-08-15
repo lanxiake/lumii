@@ -1,7 +1,7 @@
 /**
  * 飞书应用注册客户端（OAuth device-code）。
  *
- * 对齐 OpenClaw `extensions/feishu/src/app-registration.ts`：
+ * 流程对齐上游飞书 CLI 参考实现 `extensions/feishu/src/app-registration.ts`：
  * init → begin（拿 QR）→ poll（拿 appId/appSecret）。
  */
 
@@ -108,7 +108,7 @@ export async function beginAppRegistration(domain: FeishuDomain = 'feishu'): Pro
 
   const qrUrl = new URL(res.verification_uri_complete)
   qrUrl.searchParams.set('from', 'mtbot_onboard')
-  // ob_cli_app：官方 OpenClaw CLI 新建机器人；ob_app 为控制台创建
+  // ob_cli_app：上游飞书 CLI 新建机器人类型标识；ob_app 为控制台创建
   qrUrl.searchParams.set('tp', 'ob_cli_app')
 
   return {

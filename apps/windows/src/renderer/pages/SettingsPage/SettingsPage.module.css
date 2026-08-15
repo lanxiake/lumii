@@ -47,6 +47,17 @@
   font-weight: 500;
 }
 
+/* 分组标签：分隔「设置分类」与「功能页跳转」 */
+.settings-nav-divider {
+  margin: var(--mt-space-3) var(--mt-space-4) var(--mt-space-1);
+  padding-top: var(--mt-space-3);
+  border-top: 1px solid var(--mt-border-hairline);
+  font-size: var(--mt-fs-xs);
+  font-weight: var(--mt-fw-semibold);
+  letter-spacing: var(--mt-tracking-caps);
+  color: var(--mt-fg-4);
+}
+
 .nav-icon {
   display: flex;
   align-items: center;
@@ -67,6 +78,118 @@
 
 .settings-section {
   max-width: 600px;
+}
+
+/* 渠道设置改为整宽卡片列表，容器比其他分区宽一档 */
+.settings-section--channels {
+  max-width: 880px;
+}
+
+.settings-merged-block {
+  margin-top: var(--spacing-8, 32px);
+  padding-top: var(--spacing-6, 24px);
+  border-top: 1px solid var(--mt-border-hairline, var(--color-border));
+}
+
+/* 语音设置三大区块 */
+.voice-block {
+  margin: 20px 0 28px;
+  padding: 16px 16px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 12px);
+  background: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);
+}
+
+.voice-block-title {
+  margin: 0 0 6px !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: var(--color-text-primary) !important;
+}
+
+.voice-block-desc {
+  margin: 0 0 14px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+}
+
+.voice-block-subtitle {
+  margin: 12px 0 8px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--color-text-secondary);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* 统一音色列表：内置音色 radio 项 */
+.voice-speaker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-bg-secondary, transparent);
+}
+
+.voice-speaker-item {
+  padding: 4px 6px;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.voice-speaker-item:hover {
+  background: color-mix(in srgb, var(--color-primary, #0ea5e9) 8%, transparent);
+}
+
+/* 语音运行时状态条（安装依赖 / 加载模型 / 预览失败等） */
+.voice-runtime-status {
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid var(--color-border);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-text-primary);
+}
+
+.voice-runtime-status-busy {
+  border-color: color-mix(in srgb, #0ea5e9 45%, var(--color-border));
+  background: color-mix(in srgb, #0ea5e9 12%, transparent);
+}
+
+.voice-runtime-status-error {
+  border-color: color-mix(in srgb, var(--color-danger, #ef4444) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, transparent);
+  color: var(--color-danger, #b91c1c);
+}
+
+.voice-runtime-status-ready {
+  border-color: color-mix(in srgb, var(--color-success, #16a34a) 40%, var(--color-border));
+  background: color-mix(in srgb, var(--color-success, #16a34a) 10%, transparent);
+}
+
+.voice-runtime-phase {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.voice-runtime-detail {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.85;
+  word-break: break-all;
 }
 
 .settings-section h3 {
@@ -371,6 +494,33 @@
   gap: var(--spacing-2);
 }
 
+/* 语音合成测试文案：单层输入，避免 Input 组件套娃边框 */
+.voice-preview-input {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.voice-preview-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.voice-preview-input:focus {
+  border-color: var(--mt-accent-500, var(--color-primary-500));
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
 .setting-unit {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
@@ -590,4 +740,147 @@
   50% {
     opacity: 0.5;
   }
+}
+
+/* ���� ͳһ������壨��˽ / ���ڵȣ� ���� */
+.settings-panel {
+  max-width: 640px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panel-header {
+  margin-bottom: 2px;
+}
+
+.panel-title {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--mt-fg-1, var(--color-text-primary));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--mt-fg-3, var(--color-text-secondary));
+}
+
+.panel-card {
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--mt-border-hairline, var(--color-border));
+  background: color-mix(in srgb, var(--mt-bg-primary, #0a101c) 22%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent);
+}
+
+.panel-card--danger {
+  border-color: color-mix(in srgb, var(--mt-error, #ef4444) 28%, transparent);
+  background: color-mix(in srgb, var(--mt-error, #ef4444) 6%, transparent);
+}
+
+.panel-card--about {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel-card-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.panel-card-desc {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--mt-fg-3, var(--color-text-secondary));
+}
+
+.panel-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--mt-border-hairline, transparent);
+}
+
+.panel-row:last-child {
+  border-bottom: none;
+}
+
+.panel-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.panel-row-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.panel-row-hint {
+  font-size: 12px;
+  color: var(--mt-fg-3, var(--color-text-secondary));
+  line-height: 1.4;
+}
+
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.panel-storage {
+  margin-top: 12px;
+}
+
+.panel-footer-note {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--mt-fg-4, var(--color-text-tertiary));
+  text-align: center;
+}
+
+.about-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.about-name {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.about-version {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--mt-fg-3, var(--color-text-secondary));
+}
+
+.about-description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--mt-fg-2, var(--color-text-secondary));
 }

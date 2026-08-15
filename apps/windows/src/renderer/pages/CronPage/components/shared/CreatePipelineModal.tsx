@@ -80,7 +80,7 @@ export const CreatePipelineModal: FC<CreatePipelineModalProps> = ({ jobs, onSubm
   const jobName = (id: string) => jobs.find((j) => j.id === id)?.name ?? id.slice(0, 8)
 
   return (
-    <Modal open title="新建流水线" onClose={onClose} width={480}>
+    <Modal open title="新建流水线" onClose={onClose} width={520} layer="aboveHub">
       <div className={styles.formContainer}>
         {/* 引导说明 */}
         <div className={styles.guide}>

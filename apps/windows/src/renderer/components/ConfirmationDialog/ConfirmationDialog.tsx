@@ -1,26 +1,27 @@
 /**
- * Agent Runtime 高危工具确认弹窗（极简：允许 / 取消）
+ * Agent Runtime 高危工具确认卡片（行内）
  *
- * 「允许」对应 24h 内同类工具自动允许（主进程 allow-always + PermissionMemory）
+ * 对齐原型审批卡：左侧警示条、倒计时、允许 / 拒绝 / 总是允许。
  */
 
 import React, { useEffect, useState } from 'react'
-import { Modal } from '../ui/Modal/Modal'
-import { Button } from '../ui/Button/Button'
 import styles from './ConfirmationDialog.module.css'
 
 export interface ConfirmationDialogProps {
   readonly open: boolean
   /** 顶部标题 */
   readonly title?: string
-  /** 主说明（来自权限管线，通常为英文短句；可再展示本地化副标题） */
+  /** 主说明（来自权限管线） */
   readonly description: string
   readonly toolName: string
   /** 毫秒；超时后由 Store 清除，主进程默认拒绝 */
   readonly timeoutMs: number
   /** 权限来自非当前 UI 会话时的提示（如微信后台频道） */
   readonly sessionHint?: string
-  readonly onAllow: () => void | Promise<void>
+  /** 仅本次允许 */
+  readonly onAllowOnce: () => void | Promise<void>
+  /** 总是允许（同类 24h 免询问） */
+  readonly onAllowAlways: () => void | Promise<void>
   readonly onDeny: () => void | Promise<void>
 }
 
@@ -41,17 +42,32 @@ function toolTitle(toolName: string): string {
     spawn_agent: '创建子 Agent',
     send_message: '发送消息',
   }
-  return map[toolName] ?? `执行工具 ${toolName}`
+  if (map[toolName]) return map[toolName]!
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(toolName)
+  if (mcp) return `MCP ${mcp[1]} · ${mcp[2]}`
+  return `执行工具 ${toolName}`
+}
+
+/**
+ * 将剩余秒数格式化为可读倒计时（≥60s 显示 Xm Ys）
+ */
+function formatCountdown(totalSec: number): string {
+  const s = Math.max(0, totalSec)
+  if (s < 60) return `等待 ${s}s`
+  const m = Math.floor(s / 60)
+  const rem = s % 60
+  return rem > 0 ? `等待 ${m}m ${rem}s` : `等待 ${m}m`
 }
 
 export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
   open,
-  title = '确认操作',
+  title = '需要确认',
   description,
   toolName,
   timeoutMs,
   sessionHint,
-  onAllow,
+  onAllowOnce,
+  onAllowAlways,
   onDeny,
 }) => {
   const [busy, setBusy] = useState(false)
@@ -70,54 +86,66 @@ export const ConfirmationDialog: React.FC<ConfirmationDialogProps> = ({
     return () => clearInterval(t)
   }, [open, timeoutMs])
 
-  const footer = (
-    <>
-      <Button variant="secondary" disabled={busy} onClick={() => void handleDeny()}>
-        取消
-      </Button>
-      <Button variant="primary" disabled={busy} onClick={() => void handleAllow()}>
-        允许执行
-      </Button>
-    </>
-  )
+  if (!open) return null
 
-  async function handleAllow(): Promise<void> {
+  /** 包装异步决策，避免连点 */
+  async function run(action: () => void | Promise<void>): Promise<void> {
     if (busy) return
     setBusy(true)
     try {
-      await onAllow()
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleDeny(): Promise<void> {
-    if (busy) return
-    setBusy(true)
-    try {
-      await onDeny()
+      await action()
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <Modal open={open} title={`⚠️ ${title}`} footer={footer} maskClosable={false} width={440}>
-      <div className={styles.body}>
-        <p className={styles.lead}>AI 想要执行：<strong>{toolTitle(toolName)}</strong></p>
-        <div className={styles.detail}>
-          <span className={styles.label}>说明</span>
-          <p className={styles.desc}>{description}</p>
-        </div>
-        <div className={styles.meta}>
-          <span>🛠️ 工具：<code>{toolName}</code></span>
-        </div>
-        {sessionHint ? <p className={styles.hint}>{sessionHint}</p> : null}
-        <p className={styles.hint}>
-          点击「允许执行」后，同类操作在 24 小时内可自动执行，无需再次确认。
-        </p>
-        <p className={styles.countdown}>{leftSec} 秒内未操作将自动取消</p>
+    <div className={styles.card} role="alertdialog" aria-label={title}>
+      <div className={styles.head}>
+        <span className={styles.glyph} aria-hidden>⚠</span>
+        <span className={styles.title}>{title}</span>
+        <span className={styles.countdown}>{formatCountdown(leftSec)}</span>
       </div>
-    </Modal>
+
+      <div className={styles.lead}>{toolTitle(toolName)}</div>
+      <pre className={styles.code}>
+        <code>{description.startsWith('$') ? description : `$ ${description}`}</code>
+      </pre>
+
+      <div className={styles.meta}>
+        <span className={styles.tool}>{toolName}</span>
+        {sessionHint ? <span className={styles.hint}>{sessionHint}</span> : null}
+      </div>
+
+      <div className={styles.actions}>
+        <button
+          type="button"
+          className={`${styles.btn} ${styles['btn--allow']}`}
+          disabled={busy}
+          onClick={() => void run(onAllowOnce)}
+        >
+          <span aria-hidden>✓</span>
+          允许
+        </button>
+        <button
+          type="button"
+          className={`${styles.btn} ${styles['btn--deny']}`}
+          disabled={busy}
+          onClick={() => void run(onDeny)}
+        >
+          <span aria-hidden>×</span>
+          拒绝
+        </button>
+        <button
+          type="button"
+          className={`${styles.btn} ${styles['btn--always']}`}
+          disabled={busy}
+          title="同类操作 24 小时内免询问"
+          onClick={() => void run(onAllowAlways)}
+        >
+          总是允许
+        </button>
+      </div>
+    </div>
   )
 }

@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ToastContext, ToastContextType, ToastItem } from './ToastContext';
 import { Toast } from './Toast';
 import styles from './Toast.module.css';
@@ -52,15 +53,18 @@ export const ToastProvider: React.FC<ToastProviderProps> = ({
   return (
     <ToastContext.Provider value={contextValue}>
       {children}
-      <div className={`${styles['toast-container']} ${styles[`toast-container-${position}`]}`}>
-        {toasts.map((toast) => (
-          <Toast
-            key={toast.id}
-            {...toast}
-            onClose={() => hideToast(toast.id)}
-          />
-        ))}
-      </div>
+      {createPortal(
+        <div className={`${styles['toast-container']} ${styles[`toast-container-${position}`]}`}>
+          {toasts.map((toast) => (
+            <Toast
+              key={toast.id}
+              {...toast}
+              onClose={() => hideToast(toast.id)}
+            />
+          ))}
+        </div>,
+        document.body
+      )}
     </ToastContext.Provider>
   );
 };

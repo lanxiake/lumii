@@ -38,6 +38,13 @@ const CronCreateParams = Type.Object({
   agentId: Type.Optional(
     Type.String({ description: "Agent ID to run the task (defaults to current agent)" }),
   ),
+  notifyTargets: Type.Optional(
+    Type.String({
+      description:
+        "Comma-separated notification targets (system/news/focus/feishu). " +
+        "If omitted, defaults to the channel this conversation is happening in.",
+    }),
+  ),
 });
 
 type CronCreateInput = Static<typeof CronCreateParams>;

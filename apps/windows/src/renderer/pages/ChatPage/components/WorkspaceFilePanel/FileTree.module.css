@@ -9,25 +9,25 @@
   display: flex;
   align-items: center;
   gap: 3px;
-  height: 30px;
-  padding-right: var(--spacing-2);
+  height: 26px;
+  padding-right: var(--mt-space-2);
   cursor: pointer;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
+  border-radius: 6px;
+  color: var(--mt-fg-1);
+  font-size: var(--mt-fs-xs);
   position: relative;
   user-select: none;
-  transition: background var(--transition-fast);
-  margin: 1px var(--spacing-1);
+  transition: background var(--mt-dur-fast) var(--mt-ease-standard);
+  margin: 0 var(--mt-space-1);
 }
 
 .node:hover {
-  background: var(--color-bg-tertiary);
+  background: var(--mt-surface-3);
 }
 
 .node--selected {
-  background: var(--color-primary-500-10, rgba(59, 130, 246, 0.1));
-  color: var(--color-primary);
+  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
+  color: var(--mt-accent-500);
 }
 
 .node--selected .fileIcon {
@@ -88,6 +88,13 @@
   font-size: var(--font-size-sm);
   line-height: 1;
 }
+
+/* Git 状态着色：冲突红、新增绿、修改橙、未跟踪绿、忽略灰 */
+.name--git-conflict   { color: var(--color-error); }
+.name--git-added      { color: var(--color-success); }
+.name--git-modified   { color: var(--color-warning); }
+.name--git-untracked  { color: var(--color-success); }
+.name--git-ignored    { color: var(--color-text-tertiary); opacity: 0.5; }
 
 /* 悬停操作按钮（默认隐藏） */
 .actions {

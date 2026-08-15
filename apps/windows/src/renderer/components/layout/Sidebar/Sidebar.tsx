@@ -1,22 +1,16 @@
 /**
  * Sidebar Component - 侧边栏导航组件
  *
- * 显示导航菜单项、用户信息和设置入口
+ * 只留高频入口（概览），其余功能页（含插件中心）移入设置。
+ * 之下常驻会话列表（默认/渠道 tab，由 ChatPage portal 填充）。
  */
 
 import React, { useState, useCallback } from 'react';
 
 import {
   LayoutDashboard,
-  MessageSquare,
-  Users,
-  Clock,
-  Wrench,
-  Brain,
   Settings,
-  LogOut,
   ChevronLeft,
-  Plug,
 } from '../../ui/Icon';
 import { LumiiLogo } from '../../brand/LumiiLogo';
 import styles from './Sidebar.module.css';
@@ -27,13 +21,13 @@ import styles from './Sidebar.module.css';
 export type ViewType =
   | 'dashboard'
   | 'chat'
-  | 'files'
   | 'skills'
   | 'settings'
   | 'memories'
   | 'agents'
   | 'cron'
-  | 'plugins';
+  | 'plugins'
+  | 'mcp';
 
 /**
  * 导航菜单项
@@ -45,32 +39,19 @@ export interface NavItem {
   disabled?: boolean;
 }
 
-/**
- * 用户信息
- */
-export interface User {
-  id: string;
-  displayName?: string;
-  email?: string;
-  phone?: string;
-  avatarUrl?: string;
-}
-
 export interface SidebarProps {
   /** 当前激活的视图 */
   activeView?: ViewType;
   /** 视图切换回调 */
   onViewChange?: (view: ViewType) => void;
+  /** Settings Hub 打开时高亮设置按钮 */
+  settingsHubOpen?: boolean;
   /** 是否已连接 */
   isConnected?: boolean;
   /** 是否折叠 */
   collapsed?: boolean;
   /** 折叠状态切换回调 */
   onCollapseChange?: (collapsed: boolean) => void;
-  /** 当前用户信息 */
-  user?: User | null;
-  /** 登出回调 */
-  onLogout?: () => void;
   /** 应用版本 */
   version?: string;
   /** 自定义类名 */
@@ -83,17 +64,17 @@ export interface SidebarProps {
 const ICON_SIZE = 18;
 
 /**
- * 默认导航菜单配置
+ * 默认导航菜单配置（插件中心等低频入口改由设置页「功能」区进入）
  */
 const defaultNavItems: NavItem[] = [
   { id: 'dashboard', label: '概览', icon: <LayoutDashboard size={ICON_SIZE} /> },
-  { id: 'chat', label: '对话', icon: <MessageSquare size={ICON_SIZE} /> },
-  { id: 'agents', label: 'AI 团队', icon: <Users size={ICON_SIZE} /> },
-  { id: 'cron', label: '定时任务', icon: <Clock size={ICON_SIZE} /> },
-  { id: 'skills', label: '技能管理', icon: <Wrench size={ICON_SIZE} />, disabled: true },
-  { id: 'memories', label: '记忆管理', icon: <Brain size={ICON_SIZE} /> },
-  { id: 'plugins', label: '插件中心', icon: <Plug size={ICON_SIZE} /> },
 ];
+
+/** 会话列表挂载点 id：ChatPage 通过 portal 把 ChatSidebar 渲染进来 */
+export const SIDEBAR_SESSION_SLOT_ID = 'lumii-sidebar-session-slot';
+
+/** 折叠侧栏事件：页面内的折叠按钮/快捷键都发这个，由 MainLayout 统一处理 */
+export const SIDEBAR_TOGGLE_EVENT = 'lumii:toggle-sidebar';
 
 /**
  * 侧边栏组件
@@ -101,12 +82,11 @@ const defaultNavItems: NavItem[] = [
 export const Sidebar: React.FC<SidebarProps> = ({
   activeView = 'dashboard',
   onViewChange,
+  settingsHubOpen = false,
   isConnected = false,
   collapsed = false,
   onCollapseChange,
-  user,
-  onLogout,
-  version = 'v0.3.2',
+  version = 'v0.1.0',
   className = '',
 }) => {
   const [internalCollapsed, setInternalCollapsed] = useState(collapsed);
@@ -126,12 +106,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onViewChange?.(view);
   }, [onViewChange]);
 
-  const getInitials = (name: string) => {
-    return name.charAt(0).toUpperCase();
-  };
-
-  const displayName = user?.displayName || user?.phone || user?.email || '用户';
-  const displayId = user?.phone || user?.email;
+  // 会话列表常驻（不再有「对话」菜单），只有折叠态 64px 放不下时收掉
+  const showSessionSlot = !isCollapsed;
 
   return (
     <aside className={`${styles.sidebar} ${isCollapsed ? styles['sidebar-collapsed'] : ''} ${className}`}>
@@ -156,7 +132,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* 导航菜单 */}
-      <nav className={styles['sidebar-nav']}>
+      <nav className={`${styles['sidebar-nav']} ${showSessionSlot ? styles['sidebar-nav--compact'] : ''}`}>
         {defaultNavItems.map((item) => (
           <button
             key={item.id}
@@ -171,54 +147,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ))}
       </nav>
 
+      {/* 会话列表挂载点：默认/渠道 tab + 列表，由 ChatPage portal 填充。
+          始终留在 DOM 里（只切 display），否则 portal 目标节点会失效 */}
+      <div
+        id={SIDEBAR_SESSION_SLOT_ID}
+        className={`${styles['session-slot']} ${showSessionSlot ? '' : styles['session-slot--hidden']}`}
+      />
+
       {/* 底部区域 */}
       <div className={styles['sidebar-footer']}>
         {/* 设置按钮 */}
         <button
-          className={`${styles['settings-button']} ${activeView === 'settings' ? styles.active : ''}`}
+          className={`${styles['settings-button']} ${settingsHubOpen || activeView === 'settings' ? styles.active : ''}`}
           onClick={() => handleViewChange('settings')}
           title="设置"
+          data-app-ui="nav-settings"
         >
           <Settings size={16} />
           {!isCollapsed && <span>设置</span>}
         </button>
-
-        {/* 用户信息 */}
-        {user && !isCollapsed && (
-          <div className={styles['user-info']}>
-            <div className={styles['user-avatar']}>
-              {user.avatarUrl ? (
-                <img src={user.avatarUrl} alt={displayName} />
-              ) : (
-                <span className={styles['avatar-placeholder']}>{getInitials(displayName)}</span>
-              )}
-            </div>
-            <div className={styles['user-details']}>
-              <span className={styles['user-name']}>{displayName}</span>
-              {displayId && <span className={styles['user-id']}>{displayId}</span>}
-            </div>
-            {onLogout && (
-              <button
-                className={styles['logout-button']}
-                onClick={onLogout}
-                title="登出"
-              >
-                <LogOut size={16} />
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* 折叠状态下的用户头像 */}
-        {user && isCollapsed && (
-          <div className={styles['user-avatar-collapsed']} title={displayName}>
-            {user.avatarUrl ? (
-              <img src={user.avatarUrl} alt={displayName} />
-            ) : (
-              <span className={styles['avatar-placeholder']}>{getInitials(displayName)}</span>
-            )}
-          </div>
-        )}
 
         {/* 版本号 */}
         {!isCollapsed && <div className={styles['app-version']}>{version}</div>}

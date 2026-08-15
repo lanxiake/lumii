@@ -1,13 +1,13 @@
 /**
  * BundledSkillsSeeder — 内置技能种子机制
  *
- * 在 app 首次安装或版本升级时，将 extraResources/bundled-skills/ 中的技能
- * 复制到 workspace/skills/，支持嵌套文件夹结构。
+ * 将 extraResources/bundled-skills/ 中的技能复制到 workspace/skills/，
+ * 支持嵌套文件夹结构。
  *
  * 策略：
- * - 只在 app 版本变化时执行（避免每次启动都扫描）
  * - 已存在的同名技能目录不覆盖（尊重用户修改）
- * - 新增技能才写入
+ * - 源目录里新增的技能每次启动都会补上
+ * - 已从 bundled-skills 下线的技能从 workspace 删掉
  * - 支持多层嵌套：分类目录/技能目录/SKILL.md
  */
 
@@ -20,6 +20,51 @@ const log = createLogger('BundledSkillsSeeder')
 
 export const SEED_VERSION_FILENAME = '.bundled-skills-seeded'
 const BUNDLED_SKILLS_DIR_NAME = 'bundled-skills'
+
+/**
+ * 已从 bundled-skills 下线的技能（相对根目录路径，启动时从 workspace 清掉）。
+ *
+ * 2026-08-15 激进内置集：通用生产力 + H3 视频 + 小红书流水线；其余垂直/同质包全部下线。
+ */
+export const RETIRED_BUNDLED_SKILLS: readonly string[] = [
+  // —— 历史下线 ——
+  '产品与项目管理/product-manager-toolkit',
+  '电商与营销/ecommerce-copywriter',
+  '电商与营销/ecommerce-video-marketing',
+  '电商与营销/pet-commerce-creator',
+  '电商与营销/product-marketing-copywriter',
+  '设计与可视化/pop-up-book-illustration',
+  '设计与可视化/web-design-analyzer',
+  '设计与可视化/web-to-app',
+  '语音与音频/qwen3-asr-assistant',
+  '语音与音频/sherpa-onnx-tts',
+  '语音与音频/tts-voice-synthesis',
+  // —— 2026-08-15 激进瘦身 ——
+  '技能管理/skillnet',
+  '内容创作与发布/douyin-content-pipeline',
+  '内容创作与发布/wechat-content-pipeline',
+  '内容创作与发布/hotspot-publisher',
+  '文档与分析/paper-analysis-assistant',
+  '文档与分析/stock-analysis',
+  '文档与分析/tencent-docs',
+  '文化创作/poetry-music-visual',
+  '智能体协作/multi-agent-meeting',
+  '电商与营销/product-video-creator',
+  '视频创作/historical-interview-scripts',
+  '视频创作/historical-science-video-prod',
+  '视频创作/three-body-video-creator',
+  '视频创作/video-creation-collaborator',
+  '视频创作/video-creation-pro',
+  '视频创作/video-creation-suite',
+  '视频创作/video-frame-extractor',
+  '视频创作/video-recreation',
+  '视频创作/viral-video-copywriting',
+  '数字人与视频配音/agentkit-multimedia-shopping',
+  '数字人与视频配音/digital-avatar-shopping-video',
+  '数字人与视频配音/dream-video-prompt-generator',
+  '数字人与视频配音/infinitetalk',
+  '数字人与视频配音/infinitetalk-shopping-avatar',
+]
 
 /** 读取上次种子时的 app 版本 */
 function readLastSeededVersion(mtbotDataDir: string): string | null {
@@ -85,11 +130,6 @@ export async function seedBundledSkills(
   const currentVersion = app.getVersion()
   const lastSeededVersion = readLastSeededVersion(mtbotDataDir)
 
-  if (lastSeededVersion === currentVersion) {
-    log.info(`版本未变化 (${currentVersion})，跳过种子`)
-    return
-  }
-
   log.info(`开始种子内置技能 (${lastSeededVersion ?? 'fresh'} → ${currentVersion})`)
   console.log('[Seeder] step1: resolveBundledSkillsSourceDir')
 
@@ -104,21 +144,56 @@ export async function seedBundledSkills(
   console.log('[Seeder] step3: mkdirSync', targetSkillsDir)
   fs.mkdirSync(targetSkillsDir, { recursive: true })
 
-  const stats = { seeded: 0, skipped: 0, failed: 0 }
+  const stats = { seeded: 0, skipped: 0, failed: 0, pruned: 0 }
 
-  console.log('[Seeder] step4: seedDirectory start')
-  // 递归扫描源目录，找到所有包含 SKILL.md 的技能目录
+  console.log('[Seeder] step4: pruneRetired start')
+  pruneRetiredBundledSkills(targetSkillsDir, stats)
+  console.log('[Seeder] step5: seedDirectory start')
   await seedDirectory(sourceDir, targetSkillsDir, '', stats)
-  console.log('[Seeder] step5: seedDirectory done', stats)
+  console.log('[Seeder] step6: seedDirectory done', stats)
 
   if (stats.failed > 0) {
     log.warn(`${stats.failed} 个技能种子失败，下次启动将重试`)
   } else {
-    log.info(`种子完成：新增 ${stats.seeded} 个，跳过 ${stats.skipped} 个（已存在）`)
-    console.log('[Seeder] step6: writeSeededVersion')
+    log.info(
+      `种子完成：新增 ${stats.seeded} 个，跳过 ${stats.skipped} 个（已存在），下线 ${stats.pruned} 个`,
+    )
+    console.log('[Seeder] step7: writeSeededVersion')
     writeSeededVersion(mtbotDataDir, currentVersion)
   }
   console.log('[Seeder] done')
+}
+
+/**
+ * 从 workspace/skills 删除已下线的内置技能；分类目录空了也一并去掉
+ */
+export function pruneRetiredBundledSkills(
+  targetSkillsDir: string,
+  stats: { pruned: number },
+): void {
+  for (const relPath of RETIRED_BUNDLED_SKILLS) {
+    const dest = path.join(targetSkillsDir, ...relPath.split('/'))
+    if (!fs.existsSync(dest)) continue
+    try {
+      fs.rmSync(dest, { recursive: true, force: true })
+      stats.pruned++
+      log.info(`已下线技能: ${relPath}`)
+      removeEmptyParentDir(dest, targetSkillsDir)
+    } catch (err) {
+      log.warn(`下线技能失败: ${relPath}`, err)
+    }
+  }
+}
+
+/** 技能删完后，空的分类目录也清掉 */
+function removeEmptyParentDir(removedDir: string, skillsRoot: string): void {
+  const parent = path.dirname(removedDir)
+  if (parent === skillsRoot) return
+  try {
+    if (fs.readdirSync(parent).length === 0) fs.rmdirSync(parent)
+  } catch {
+    // 目录非空或已不存在
+  }
 }
 
 /**

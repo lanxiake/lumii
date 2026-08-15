@@ -17,7 +17,7 @@ const WORKSPACE_LOCATIONS: WorkspaceLocation[] = [
   // 配置文件组（与 Gateway 工作空间一致）
   { id: 'soul', label: 'SOUL.md', icon: '📝', relativePath: 'SOUL.md', group: 'config' },
   { id: 'identity', label: 'IDENTITY.md', icon: '🪪', relativePath: 'IDENTITY.md', group: 'config' },
-  { id: 'agents', label: 'AGENTS.md', icon: '🤖', relativePath: 'AGENTS.md', group: 'config' },
+  { id: 'agents', label: 'AGENTS.md', icon: '', relativePath: 'AGENTS.md', group: 'config' },
   { id: 'tools', label: 'TOOLS.md', icon: '🔧', relativePath: 'TOOLS.md', group: 'config' },
   { id: 'heartbeat', label: 'HEARTBEAT.md', icon: '💓', relativePath: 'HEARTBEAT.md', group: 'config' },
   { id: 'bootstrap', label: 'BOOTSTRAP.md', icon: '🚀', relativePath: 'BOOTSTRAP.md', group: 'config' },
@@ -92,14 +92,15 @@ export function useWorkspace(): UseWorkspaceReturn {
   )
 
   /**
-   * 相对路径 -> 绝对路径
+   * 相对路径 -> 绝对路径（统一正斜杠，与 FileTree 路径规范化一致）
    */
   const toAbsolutePath = useCallback(
     (relativePath: string): string => {
       if (!workspaceDir) return relativePath
-      if (!relativePath || relativePath === '/') return workspaceDir
-      const root = workspaceDir.replace(/\\/g, '/')
-      return root + '/' + relativePath
+      if (!relativePath || relativePath === '/') return workspaceDir.replace(/\\/g, '/')
+      const root = workspaceDir.replace(/\\/g, '/').replace(/\/+$/, '')
+      const rel = relativePath.replace(/^[\\/]+/, '').replace(/\\/g, '/')
+      return `${root}/${rel}`
     },
     [workspaceDir]
   )

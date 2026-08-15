@@ -514,9 +514,7 @@ python scripts/rice_prioritizer.py features.csv --output json
 **输出格式**：参考 multi-agent-meeting 的会议记录格式
 
 **相关资源**：
-- RICE方法：product-manager-toolkit/SKILL.md
 - 会议流程：multi-agent-meeting/SKILL.md
-- 脚本工具：product-manager-toolkit/scripts/rice_prioritizer.py
 - 会议模板：multi-agent-meeting/assets/meeting-templates/product-feature-review.md
 
 **示例对话**：
@@ -606,8 +604,6 @@ python scripts/customer_interview_analyzer.py interview.txt json
 ```
 
 **相关资源**：
-- 访谈分析：product-manager-toolkit/scripts/customer_interview_analyzer.py
-- PRD模板：product-manager-toolkit/references/prd_templates.md
 - 会议模板：multi-agent-meeting/assets/meeting-templates/customer-insight-analysis.md
 
 **示例对话**：
@@ -689,7 +685,6 @@ python scripts/rice_prioritizer.py features.csv --capacity 15
 ```
 
 **相关资源**：
-- RICE方法：product-manager-toolkit/SKILL.md
 - 战略分析：agent-team/references/opc-agents.md
 - 项目管理：agent-team/references/meeting-agents.md
 
@@ -768,7 +763,6 @@ Step 5: 决策输出
 ```
 
 **相关资源**：
-- 定价框架：product-manager-toolkit/SKILL.md
 - 市场分析：agent-team/references/meeting-agents.md
 - 会议模板：multi-agent-meeting/assets/meeting-templates/product-pricing-strategy.md
 

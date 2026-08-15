@@ -9,7 +9,6 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import styles from './HistoryTab.module.css'
 import type { CronJob, CronRun } from '../../../../hooks/business/useCron/types'
 import { formatDuration } from '../../utils/cron-utils'
-import { TokenTrendChart } from './TokenTrendChart'
 
 interface HistoryTabProps {
   jobs: CronJob[]
@@ -69,11 +68,6 @@ export const HistoryTab: FC<HistoryTabProps> = ({ jobs }) => {
                   durationMs: typeof r.durationMs === 'number' ? r.durationMs : undefined,
                   summary: typeof r.summary === 'string' ? r.summary : undefined,
                   error: typeof r.error === 'string' ? r.error : undefined,
-                  model: typeof r.model === 'string' ? r.model : undefined,
-                  provider: typeof r.provider === 'string' ? r.provider : undefined,
-                  inputTokens: typeof r.inputTokens === 'number' ? r.inputTokens : undefined,
-                  outputTokens: typeof r.outputTokens === 'number' ? r.outputTokens : undefined,
-                  totalTokens: typeof r.totalTokens === 'number' ? r.totalTokens : undefined,
                 }
               })
             })
@@ -127,8 +121,7 @@ export const HistoryTab: FC<HistoryTabProps> = ({ jobs }) => {
     const total = filteredRuns.length
     const ok = filteredRuns.filter((r) => r.status === 'ok').length
     const error = filteredRuns.filter((r) => r.status === 'error').length
-    const totalTokens = filteredRuns.reduce((sum, r) => sum + (r.totalTokens ?? 0), 0)
-    return { total, ok, error, totalTokens }
+    return { total, ok, error }
   }, [filteredRuns])
 
   if (loading) {
@@ -182,9 +175,8 @@ export const HistoryTab: FC<HistoryTabProps> = ({ jobs }) => {
               <th>时间</th>
               <th>任务</th>
               <th>状态</th>
-              <th>模型</th>
               <th>耗时</th>
-              <th>Token 消耗</th>
+              <th>结果</th>
             </tr>
           </thead>
           <tbody>
@@ -214,15 +206,14 @@ export const HistoryTab: FC<HistoryTabProps> = ({ jobs }) => {
                         </span>
                       )}
                     </td>
-                    <td className={styles.modelCell}>
-                      {run.model ? `${run.provider ?? ''}/${run.model}`.replace(/^\//, '') : '-'}
-                    </td>
                     <td>{run.durationMs != null ? formatDuration(run.durationMs) : '-'}</td>
-                    <td>{run.totalTokens != null ? run.totalTokens.toLocaleString() : '-'}</td>
+                    <td className={styles.summaryCell} title={run.summary ?? undefined}>
+                      {run.summary || '-'}
+                    </td>
                   </tr>
                   {isExpanded && hasError && (
                     <tr className={styles.errorDetailRow}>
-                      <td colSpan={6}>
+                      <td colSpan={5}>
                         <div className={styles.errorDetail}>
                           <span className={styles.errorDetailLabel}>错误详情：</span>
                           {run.error}
@@ -237,11 +228,6 @@ export const HistoryTab: FC<HistoryTabProps> = ({ jobs }) => {
         </table>
       )}
 
-      {/* Token 趋势图 */}
-      {filteredRuns.length > 0 && (
-        <TokenTrendChart runs={filteredRuns} />
-      )}
-
       {/* 汇总统计 */}
       <div className={styles.summary}>
         <div className={styles.summaryItem}>
@@ -252,9 +238,6 @@ export const HistoryTab: FC<HistoryTabProps> = ({ jobs }) => {
         </div>
         <div className={styles.summaryItem}>
           失败 <span className={styles.summaryValue}>{stats.error}</span>
-        </div>
-        <div className={styles.summaryItem}>
-          Token 消耗: <span className={styles.summaryValue}>{stats.totalTokens.toLocaleString()}</span>
         </div>
       </div>
     </div>

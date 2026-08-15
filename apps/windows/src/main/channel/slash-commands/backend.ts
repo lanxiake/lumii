@@ -16,7 +16,7 @@ export const backendCommand: CommandHandler = {
 
     await adapter.sendTextReply(
       session,
-      `当前后端：${CODING_DEV_BACKEND_LABELS[current] ?? current}\n\n可用后端：\n${lines.join('\n')}\n\n使用 /claude、/codex、/mtbot 等命令切换。`,
+      `当前后端：${CODING_DEV_BACKEND_LABELS[current] ?? current}\n\n可用后端：\n${lines.join('\n')}\n\n使用 /claude、/codex、/lumii 等命令切换。`,
     )
   },
 }

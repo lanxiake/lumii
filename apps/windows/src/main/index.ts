@@ -28,12 +28,22 @@ process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
   process.exit(1)
 })
 
-import { execSync } from 'child_process'
+import { execSync, spawn } from 'child_process'
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, shell, clipboard, screen, Notification } from 'electron'
 import { join, extname, basename, dirname } from 'path'
 import { promises as fs, existsSync, readdirSync } from 'fs'
 import { TrayManager } from './tray-manager'
+import { getAppIconPath } from './asset-paths'
 import { SystemService } from './system-service'
+import { queryUsage, type UsageQuery } from './usage-store'
+import { flushToolUsage } from './tool-usage-store'
+import { readNewsSnapshot } from './news-store'
+import { NEWS_PIPELINE_TASK_TEXT, NEWS_PIPELINE_SYSTEM_PROMPT } from './seed-cron-jobs'
+import {
+  readActiveDashboardFeedSnapshot,
+  setActiveDashboardFeedId,
+} from './dashboard-feed-store'
+import { getLatency } from './provider-latency'
 import { UpdaterService, setupUpdaterIpcHandlers } from './updater-service'
 import { ClientSkillRuntime } from './skill-runtime'
 import { wrapSingleFile } from './skill-wrapper'
@@ -67,13 +77,12 @@ import {
 import { fileLogger } from './file-logger'
 import { createWindowsLogShipper, type RemoteLogShipper } from './remote-log-shipper'
 import { SkillWatcher } from './skill-watcher'
-import { seedBundledSkills, SEED_VERSION_FILENAME } from './bundled-skills-seeder'
+import { seedBundledSkills } from './bundled-skills-seeder'
 import { startBrowserService, stopBrowserService, getBrowserContext } from './browser-service'
 import os from 'os'
-import { loadServerConfig, resolveGatewaySecretFromEnv, type ServerConfig } from './server-config'
+import { loadServerConfig, type ServerConfig } from './server-config'
 import { directoryManager } from './directory-manager'
 import { ConfigManager } from './config-manager'
-import { AuthManager } from './auth-manager'
 
 import { WeixinLoginService } from './weixin-login-service'
 import { WeixinChannelAdapter } from './channel/adapters/weixin-channel-adapter'
@@ -83,6 +92,16 @@ import { FeishuLoginService } from './feishu-login-service'
 import { FeishuChannelAdapter } from './channel/adapters/feishu-channel-adapter'
 import { AcpBackendManager } from './channel/acp-backend-manager'
 import {
+  createChannelHub,
+  createWeixinReplyContextStore,
+  type ChannelHub,
+} from './channel/channel-hub-bootstrap'
+import { handleChannelList, handleChannelSend } from './channel/channel-service-ipc'
+import { resolveWindowsClientDataRoot } from './client-data-root'
+import { clearScreenshotTempDir } from './app-ui-control/screenshot-cleanup'
+import { startAppUiControlServer, stopAppUiControlServer } from './app-ui-control/server'
+import { resizeImageIfNeeded } from './agent-runtime/image-resizer'
+import {
   AgentRuntimeBridge,
   installAgentRuntimeCommandIpc,
   setAgentRuntimeBridgeForIpc,
@@ -91,14 +110,15 @@ import {
   setIpcMainWindow,
   getAcpBackendManager,
   getSessionKeyForInstance,
+  invalidateAgentInstancesForProviderChange,
 } from './agent-runtime'
 import { submitVoiceTranscript } from './ipc/agent-runtime-ipc.js'
 import { VoiceModelManager } from './voice/model-manager.js'
 import { VoiceCallService } from './voice/voice-service.js'
 import { registerVoiceIpc } from './voice/voice-ipc.js'
 import { loadVoiceEngineConfig } from './voice/voice-config-store.js'
-import { analyticsReporter } from './agent-runtime/analytics-reporter'
 import { getWorkspaceVcs, resetWorkspaceVcs } from './workspace-vcs/vcs-snapshot'
+import { getProjectGitStatus } from './project-git/project-git-status'
 import { findBuiltInAgent, mapApiRecordToAgentDefinition } from '@mtbot/agent-runtime'
 import {
   applyCodingDevAcpEnvToProcess,
@@ -106,12 +126,22 @@ import {
   defaultWorkspaceFallback,
   resolveCodingDevAcpWorkspacePath,
 } from './coding-dev-env.js'
-import { detectAllLocalAcpTools } from './coding-dev-cli-detect.js'
-import { installLocalAcpTool } from './coding-dev-cli-install.js'
+import {
+  detectLocalAcpTool,
+  isPrimaryLocalAcpToolId,
+  listLocalAcpToolsMetadata,
+  needsWindowsShell,
+} from './coding-dev-cli-detect.js'
+import {
+  installLocalAcpTool,
+  previewUninstallLocalAcpTool,
+  uninstallLocalAcpTool,
+} from './coding-dev-cli-install.js'
 import {
   createProject,
   openExistingProject,
   removeProject,
+  reconcileProjectsWithDisk,
 } from './coding-dev-projects.js'
 import { resolveClientStateDir, resolvePluginRuntimeDir } from './paths'
 import { registerSkillnetStoreHandlers } from './skillnet-store'
@@ -124,6 +154,7 @@ import {
   disablePetForceIgnore,
   disposePetModeIpc,
 } from './pet/pet-mode-ipc'
+import { registerFilePreviewWindowIpc } from './file-preview/preview-window-ipc'
 
 if (process.platform === 'win32') {
   try {
@@ -211,11 +242,11 @@ let updaterService: UpdaterService | null = null
 let skillRuntime: ClientSkillRuntime | null = null
 let skillWatcher: SkillWatcher | null = null
 let configManager: ConfigManager | null = null
-let authManager: AuthManager | null = null
 
 let weixinLoginService: WeixinLoginService | null = null  // 微信(iLink)登录服务
 let wecomLoginService: WecomLoginService | null = null  // 企业微信 AI Bot 扫码服务
 let feishuLoginService: FeishuLoginService | null = null  // 飞书扫码服务
+let channelHub: ChannelHub | null = null  // 渠道出站 Hub（list/send）
 let agentRuntimeBridge: AgentRuntimeBridge | null = null  // 客户端 Agent Runtime
 let voiceCallService: VoiceCallService | null = null  // 语音通话服务
 let isQuitting = false
@@ -277,11 +308,17 @@ async function setupContentSecurityPolicy(window: BrowserWindow): Promise<void> 
   })
 }
 
-function createWindow(isTestMode: boolean = false, startHidden: boolean = false): void {
+function createWindow(isTestMode: boolean = false, startHidden: boolean = false): Promise<void> {
   log.info('创建主窗口', { isTestMode, startHidden })
 
   // 动态计算窗口大小
   const { width, height } = calculateWindowSize()
+
+  const extraArgs = [
+    ...(isTestMode ? ['--test-mode'] : []),
+    // 托盘静默启动时跳过主窗口内开机画面
+    ...(startHidden ? ['--skip-splash'] : []),
+  ]
 
   mainWindow = new BrowserWindow({
     width,
@@ -291,28 +328,26 @@ function createWindow(isTestMode: boolean = false, startHidden: boolean = false)
     frame: false, // 无边框窗口
     transparent: false,
     resizable: true,
-    show: false, // 初始不显示，等待 ready-to-show
-    icon: join(__dirname, '../../assets/icon.ico'), // 设置窗口图标
+    show: false, // 初始不显示，等待 ready-to-show（此时 early-splash 已在绘海报/视频）
+    backgroundColor: '#e8f2fa', // 与开机画面柔和冰蓝白底色一致，避免出窗瞬间闪深色
+    icon: getAppIconPath(), // 窗口 / 任务栏圆形图标（与产品 Logo 一致）
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false, // 需要关闭 sandbox 以支持 node 模块
       webviewTag: true, // 允许 <webview> 用于 HTML 文件沙箱预览
-      additionalArguments: isTestMode ? ['--test-mode'] : [], // 传递测试模式参数到渲染进程
+      // 开机动画带声自动播放
+      autoplayPolicy: 'no-user-gesture-required',
+      additionalArguments: extraArgs,
     },
   })
 
-  // 窗口准备好后显示并获取焦点（开机启动时直接隐藏到托盘）
-  mainWindow.once('ready-to-show', () => {
-    if (startHidden) {
-      log.info('开机启动模式：窗口已就绪，隐藏到托盘（不显示）')
-      // 不调用 show()，窗口保持隐藏状态，用户可通过托盘图标打开
-    } else {
-      log.info('窗口准备就绪，显示并聚焦')
-      mainWindow?.show()
-      mainWindow?.focus()
-    }
+  const readyToShow = new Promise<void>((resolve) => {
+    mainWindow!.once('ready-to-show', () => {
+      log.info('主窗口 ready-to-show')
+      resolve()
+    })
   })
 
   // 窗口显示时确保 webContents 获得焦点（修复无边框窗口输入问题）
@@ -356,8 +391,8 @@ function createWindow(isTestMode: boolean = false, startHidden: boolean = false)
   mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
     log.error(`[Renderer] preload 脚本错误 path=${preloadPath} error=${error?.message}`)
   })
-  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDesc, validatedURL) => {
-    log.error(`[Renderer] 页面加载失败 code=${errorCode} desc=${errorDesc} url=${validatedURL}`)
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    log.error(`[Renderer] 页面加载失败 code=${errorCode} desc=${errorDescription} url=${validatedURL}`)
   })
 
   /**
@@ -387,7 +422,7 @@ function createWindow(isTestMode: boolean = false, startHidden: boolean = false)
     Menu.buildFromTemplate(template).popup({ window: mainWindow! })
   })
 
-  // 加载渲染进程页面
+  // 加载渲染进程页面（与开机画面并行）
   if (process.env.ELECTRON_RENDERER_URL) {
     const rendererUrl = process.env.ELECTRON_RENDERER_URL
 
@@ -414,6 +449,21 @@ function createWindow(isTestMode: boolean = false, startHidden: boolean = false)
       mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
     }
   }
+
+  return (async () => {
+    if (startHidden) {
+      await readyToShow
+      log.info('开机启动模式：窗口已就绪，隐藏到托盘（不显示）')
+      return
+    }
+
+    await readyToShow
+    log.info('窗口准备就绪，显示并聚焦（开机画面在主窗口内全屏播放）')
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })()
 }
 
 /**
@@ -430,9 +480,6 @@ function initTray(): void {
     onQuit: () => {
       isQuitting = true
       app.quit()
-    },
-    onToggleConnection: async () => {
-      // 灵栖/Lumii 独立版：无网关连接，托盘连接开关为 no-op
     },
     onOpenSettings: () => {
       // 显示并聚焦主窗口
@@ -582,15 +629,6 @@ async function initAgentRuntime(): Promise<void> {
   const rawGatewayUrl = config.gatewayUrl ?? 'http://127.0.0.1:18789'
   const gatewayUrl = rawGatewayUrl.replace(/^ws(s?):\/\//, 'http$1://')
   log.info(`[AgentRuntime] 独立版本地模式（不连接云端 Gateway）`)
-
-  // 独立版不启用云端 analytics（无需 gateway secret）
-  const analyticsApiUrl = config.apiUrl ?? 'http://127.0.0.1:3000'
-  const analyticsGatewaySecret = resolveGatewaySecretFromEnv()
-  if (analyticsGatewaySecret) {
-    analyticsReporter.configure(analyticsApiUrl, analyticsGatewaySecret)
-  } else {
-    log.info('[AgentRuntime] 独立版：跳过云端 analytics 上报')
-  }
 
   agentRuntimeBridge = new AgentRuntimeBridge({
     gatewayUrl,
@@ -842,46 +880,20 @@ async function initAgentRuntime(): Promise<void> {
       log.info(`[AgentRuntime:CronNotify] title="${title}" body="${body.slice(0, 60)}"`)
       showDesktopTaskNotification(title, body)
     },
-    sendWeixinMessage: async ({ text, filePath }) => {
-      try {
-        if (!weixinLoginService) {
-          return { ok: false, error: '微信服务未初始化' }
-        }
-        // bridge 内部已检查 currentWeixinCtx 非空才会调用此回调，直接从 bridge 获取
-        const weixinCtx = agentRuntimeBridge?.getCurrentWeixinCtx()
-        if (!weixinCtx) {
-          return { ok: false, error: '没有活跃的微信会话上下文，请先在微信发送一条消息' }
-        }
-        const { channelUserId, contextToken, botToken, ilinkBaseUrl } = weixinCtx
-        log.info(`[sendWeixinMessage] ctx: channelUserId=${channelUserId} contextToken=${contextToken ? '有' : '无'} botToken=${botToken ? '有' : '无'} ilinkBaseUrl=${ilinkBaseUrl ?? '默认'}`)
-        if (filePath) {
-          const fileName = filePath.split(/[\\/]/).pop() ?? filePath
-          // 先发文字说明（如果有），再发文件
-          if (text) {
-            await weixinLoginService.sendTextReply(channelUserId, text, contextToken, botToken, ilinkBaseUrl)
-          }
-          const ok = await weixinLoginService.sendMediaReply(channelUserId, filePath, fileName, contextToken, botToken, ilinkBaseUrl)
-          log.info(`[sendWeixinMessage] 文件发送 ok=${ok} channelUserId=${channelUserId} file=${fileName}`)
-          return { ok, error: ok ? undefined : '文件发送失败，请查看主进程日志' }
-        }
-        if (text) {
-          const ok = await weixinLoginService.sendTextReply(channelUserId, text, contextToken, botToken, ilinkBaseUrl)
-          log.info(`[sendWeixinMessage] 文本发送 ok=${ok} channelUserId=${channelUserId}`)
-          return { ok }
-        }
-        return { ok: false, error: '未提供 text 或 mediaUrl 参数' }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
-        log.error(`[sendWeixinMessage] 异常: ${msg}`)
-        return { ok: false, error: `发送异常: ${msg}` }
-      }
+    sendFeishuMessage: async (text: string) => {
+      if (!feishuLoginService) return { ok: false, error: '飞书服务未初始化' }
+      return feishuLoginService.pushText(text)
     },
-    generateVoiceFile: async (text: string) => {
+    getChannelRouter: () => channelHub?.router ?? null,
+    generateVoiceFile: async (
+      text: string,
+      opts?: { speaker?: string; speed?: number },
+    ) => {
       if (!voiceCallService) throw new Error('语音通话服务未初始化')
       const workspaceDir = getWorkspaceDir()
       const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
       const destDir = join(workspaceDir, 'uploads', dateStr)
-      return voiceCallService.generateAudioFile(text, destDir)
+      return voiceCallService.generateAudioFile(text, destDir, opts)
     },
     /** 执行本地 executable 技能（由 execute_skill 工具调用） */
     executeSkill: async (skillId: string, params: Record<string, unknown>) => {
@@ -983,7 +995,8 @@ async function initAgentRuntime(): Promise<void> {
 
   // 启动后 5s 异步预热语音引擎（不阻塞启动，模型就绪时静默完成）
   setTimeout(() => {
-    if (voiceModelManager.areRequiredModelsReady()) {
+    const ttsProvider = voiceCallService!.getConfig().tts.provider
+    if (voiceModelManager.areRequiredModelsReady(ttsProvider)) {
       voiceCallService!.ensureInitialized().catch((e) => {
         log.warn(`语音引擎预热失败（非致命）: ${e.message}`)
       })
@@ -991,29 +1004,22 @@ async function initAgentRuntime(): Promise<void> {
   }, 5000)
 
 
-  // 初始化技能自进化引擎（LLM 调用复用 bridge.callLLM，继承用户配置的模型和认证）
+  // ── 技能自进化引擎（已关闭）──
+  // 代码保留，但暂不启用，效果不太好。移除了以下内容：
+  // - 初始化 SkillEvolutionEngine 实例
+  // - bridge.setSkillEvolutionEngine(engine) 注册
+  // - 事件监听（improvement_ready, inject_message）
+  // 如需恢复，取消下方注释并确保 user-dialog.ts / conversation-observer.ts 依赖完整。
+  /*
   const skillEvolutionEngine = new SkillEvolutionEngine((prompt, instanceId) => agentRuntimeBridge!.callLLM(prompt, instanceId))
   agentRuntimeBridge.setSkillEvolutionEngine(skillEvolutionEngine)
-
-  // 将技能自进化事件桥接到渲染进程
-  // 注意：skill_draft_ready 和 deprecation_suggested 已改为通过对话 inject_message 通知用户
-  // improvement_ready 仍保留事件（供未来扩展使用）
   skillEvolutionEngine.on('improvement_ready', (evt: { type: string; skillName: string; naturalLanguageDiff: string }) => {
     log.info(`[SkillEvolution] 改进方案已生成: skillName=${evt.skillName}`)
   })
-
-  // inject_message：将进化引擎生成的消息作为 assistant 消息推送到渲染层，并持久化到 DB
   skillEvolutionEngine.on('inject_message', (evt: { instanceId: string; text: string }) => {
     const sessionKey = getSessionKeyForInstance(evt.instanceId)
-    if (!sessionKey) {
-      log.warn(`[SkillEvolution] inject_message: 无法找到 instanceId=${evt.instanceId} 对应的 sessionKey，消息丢弃`)
-      return
-    }
-
+    if (!sessionKey) return
     const msgId = `skill-evo-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-    log.info(`[SkillEvolution] 注入消息: sessionKey=${sessionKey}, msgId=${msgId}, text="${evt.text.slice(0, 50)}"`)
-
-    // 持久化到 DB，避免重启后消息丢失
     try {
       agentRuntimeBridge?.conversationRepo?.saveMessage?.({
         id: msgId,
@@ -1024,7 +1030,6 @@ async function initAgentRuntime(): Promise<void> {
     } catch (err) {
       log.warn(`[SkillEvolution] inject_message 持久化失败: ${err instanceof Error ? err.message : String(err)}`)
     }
-
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('agent-runtime:event', {
         type: 'conversation:message:new',
@@ -1039,6 +1044,7 @@ async function initAgentRuntime(): Promise<void> {
     }
   })
   log.info('[SkillEvolution] 技能自进化引擎已启动')
+  */
 }
 
 /**
@@ -1129,11 +1135,22 @@ function setupIpcHandlers(): void {
   )
 
   // === 工作空间 ===
-  ipcMain.handle('workspace:getDir', async () => {
+
+  /**
+   * 解析当前生效的工作空间根目录：优先用户在设置页配置的 workspaceDirectory，
+   * 否则回退到数据根目录下的默认 workspace/。
+   * 所有依赖“工作空间根”的子路径（projects、skills 等）必须经此函数派生，
+   * 不能直接读 directoryManager 的固定路径，否则用户切换数据/工作空间目录后会失联。
+   */
+  function resolveActiveWorkspaceDir(): string {
     const mtbotDataDir = resolveClientStateDir()
     const defaultWorkspace = join(mtbotDataDir, 'workspace')
     const configured = configManager?.getAppConfig().workspaceDirectory
-    return (configured || defaultWorkspace).replace(/\\/g, '/')
+    return configured || defaultWorkspace
+  }
+
+  ipcMain.handle('workspace:getDir', async () => {
+    return resolveActiveWorkspaceDir().replace(/\\/g, '/')
   })
 
   ipcMain.handle('workspace:setDir', async (_event, dirPath: string) => {
@@ -1155,7 +1172,18 @@ function setupIpcHandlers(): void {
         throw err
       }
     }
-    return dirPath
+
+    const mtbotDataDir = resolveClientStateDir()
+    const defaultWorkspace = join(mtbotDataDir, 'workspace')
+    const resolved = dirPath !== '' ? dirPath : defaultWorkspace
+    // 与 notifyChanged 对齐：校验通过后立即写入主进程权威配置
+    if (configManager) {
+      await configManager.updateAppConfig({
+        workspaceDirectory: resolved !== defaultWorkspace ? resolved : undefined,
+      })
+    }
+    reapplyCodingDevAcpEnvFromConfig()
+    return (resolved).replace(/\\/g, '/')
   })
 
   /**
@@ -1290,6 +1318,20 @@ function setupIpcHandlers(): void {
     }
   })
 
+  ipcMain.handle(
+    'vcs:diffFile',
+    async (_event, opts: { fromOid: string; toOid: string; filepath: string }) => {
+      try {
+        const repo = getWorkspaceVcs(getWorkspaceDir())
+        const entry = await repo.diffFile(opts.fromOid, opts.toOid, opts.filepath)
+        return { success: true, data: entry }
+      } catch (err) {
+        vcsWarn(`diffFile 失败: ${err instanceof Error ? err.message : String(err)}`)
+        return { success: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    },
+  )
+
   ipcMain.handle('vcs:readFileAt', async (_event, opts: { oid: string; filepath: string }) => {
     try {
       const repo = getWorkspaceVcs(getWorkspaceDir())
@@ -1392,7 +1434,11 @@ function setupIpcHandlers(): void {
   ipcMain.handle('feishu:getSession', () => {
     return feishuLoginService?.getSessionPublic() ?? null
   })
-  
+
+  // === 渠道出站 Hub（与 Agent channel_list/channel_send 同源，仅供 Settings 面板只读展示/调试） ===
+  ipcMain.handle('channel:list', async () => handleChannelList(channelHub))
+  ipcMain.handle('channel:send', async (_event, params: unknown) => handleChannelSend(channelHub, params))
+
   // === 窗口控制 ===
   ipcMain.on('window:minimize', () => mainWindow?.minimize())
   ipcMain.on('window:maximize', () => {
@@ -1404,6 +1450,28 @@ function setupIpcHandlers(): void {
   })
   ipcMain.on('window:close', () => mainWindow?.hide())
   ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false)
+
+  /**
+   * 光标相对内容区坐标（供边缘光效使用）。
+   * 标题栏 `-webkit-app-region: drag` 会吞掉 DOM mousemove，必须走主进程 screen API。
+   */
+  ipcMain.handle('window:getCursorClientPos', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender) ?? mainWindow
+    if (!win || win.isDestroyed()) return null
+    const point = screen.getCursorScreenPoint()
+    const bounds = win.getContentBounds()
+    const x = point.x - bounds.x
+    const y = point.y - bounds.y
+    return {
+      x,
+      y,
+      inside:
+        point.x >= bounds.x
+        && point.y >= bounds.y
+        && point.x < bounds.x + bounds.width
+        && point.y < bounds.y + bounds.height,
+    }
+  })
 
   /** 渲染进程请求桌面通知（如 Agent 回合结束且窗口在后台） */
   ipcMain.handle('notify:desktop', async (_event, payload: { title?: string; body?: string }) => {
@@ -1560,10 +1628,20 @@ function setupIpcHandlers(): void {
     if (typeof dirPath !== 'string') {
       throw new Error('路径必须是字符串')
     }
-    if (typeof pattern !== 'string' || pattern.length > 100) {
+    // 类型筛选可传空 pattern（由 extensions 驱动）；关键词 pattern 放宽上限
+    if (typeof pattern !== 'string' || pattern.length > 500) {
       throw new Error('搜索模式无效')
     }
-    return systemService?.searchFiles(dirPath, pattern, options as { recursive?: boolean; maxResults?: number })
+    return systemService?.searchFiles(
+      dirPath,
+      pattern,
+      options as {
+        recursive?: boolean
+        maxResults?: number
+        extensions?: readonly string[]
+        skipDirs?: readonly string[]
+      },
+    )
   })
 
   // === 系统信息 ===
@@ -1638,12 +1716,81 @@ function setupIpcHandlers(): void {
     })
   })
 
-  ipcMain.handle('app:detectCodingDevTools', async () => {
-    return detectAllLocalAcpTools()
+  /** 获取本机 ACP 工具元数据（名称、链接、安装命令）— 同步读取，无版本探测 */
+  ipcMain.handle('app:listCodingDevToolsMetadata', () => {
+    return listLocalAcpToolsMetadata()
+  })
+
+  /** 探测单个本机 ACP 工具是否已安装，并返回版本信息 */
+  ipcMain.handle('app:detectCodingDevTool', async (_event, toolId: string) => {
+    if (!isPrimaryLocalAcpToolId(toolId)) {
+      throw new Error(`未知工具 ID: ${toolId}`)
+    }
+    return detectLocalAcpTool(toolId)
   })
 
   ipcMain.handle('app:installCodingDevTool', async (_event, toolId: string) => {
     return installLocalAcpTool(toolId)
+  })
+
+  /** 卸载本机 ACP CLI（执行官方白名单卸载命令或手动移除文档化路径） */
+  ipcMain.handle('app:uninstallCodingDevTool', async (_event, toolId: string) => {
+    return uninstallLocalAcpTool(toolId)
+  })
+
+  /** 卸载前预览：将要执行的命令与风险提示（不执行） */
+  ipcMain.handle('app:previewUninstallCodingDevTool', async (_event, toolId: string) => {
+    return previewUninstallLocalAcpTool(toolId)
+  })
+
+  /** 触发 CLI 登录流程（如 cursor 的 agent login，打开浏览器 OAuth） */
+  ipcMain.handle('app:loginCodingDevTool', async (_event, toolId: string) => {
+    if (!isPrimaryLocalAcpToolId(toolId)) {
+      throw new Error(`未知工具 ID: ${toolId}`)
+    }
+    const status = await detectLocalAcpTool(toolId)
+    if (!status.installed || !status.resolvedPath) {
+      throw new Error(`${status.label} 未安装`)
+    }
+    // cursor: agent login 打开浏览器，等待用户完成授权
+    // 其他 CLI 同样逻辑，按需扩展
+    const loginArgs: Record<string, string[]> = {
+      cursor: ['login'],
+      claude: ['login'],
+      codex: ['auth', 'login'],
+      opencode: ['login'],
+    }
+    const args = loginArgs[toolId]
+    if (!args) {
+      throw new Error(`${status.label} 暂不支持客户端一键登录，请在命令行手动执行`)
+    }
+    return new Promise<{ success: boolean; message: string }>((resolve, reject) => {
+      const useShell = needsWindowsShell(status.resolvedPath!)
+      const child = spawn(status.resolvedPath!, args, {
+        windowsHide: false, // 显示窗口，让用户看到登录进度
+        shell: useShell,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      let stdout = ''
+      let stderr = ''
+      child.stdout?.on('data', (buf: Buffer) => {
+        stdout += buf.toString('utf8')
+      })
+      child.stderr?.on('data', (buf: Buffer) => {
+        stderr += buf.toString('utf8')
+      })
+      child.on('error', (err) => {
+        reject(err)
+      })
+      child.on('close', (code) => {
+        if (code === 0) {
+          resolve({ success: true, message: '登录成功' })
+        } else {
+          const err = stderr || stdout || `退出码 ${code}`
+          resolve({ success: false, message: `登录失败：${err.slice(0, 300)}` })
+        }
+      })
+    })
   })
 
   ipcMain.handle('app:setCodingDevAcpWorkspace', async (_event, dirPath: string | undefined) => {
@@ -1672,17 +1819,30 @@ function setupIpcHandlers(): void {
 
   // === ACP 项目管理 ===
   ipcMain.handle('app:listCodingDevProjects', async () => {
-    if (!configManager) throw new Error('ConfigManager 未初始化')
+    if (!configManager || !directoryManager) throw new Error('未初始化')
     const cfg = configManager.getAppConfig()
-    return {
-      projects: cfg.codingDevProjects ?? [],
+    const projectsDir = join(resolveActiveWorkspaceDir(), 'projects')
+    const reconciled = await reconcileProjectsWithDisk({
+      projectsDir,
+      existing: cfg.codingDevProjects ?? [],
       activeProject: cfg.codingDevActiveProject,
+    })
+    if (reconciled.changed) {
+      await configManager.updateAppConfig({
+        codingDevProjects: reconciled.projects,
+        codingDevActiveProject: reconciled.activeProject,
+      })
+      reapplyCodingDevAcpEnvFromConfig()
+    }
+    return {
+      projects: reconciled.projects,
+      activeProject: reconciled.activeProject,
     }
   })
 
   ipcMain.handle('app:createCodingDevProject', async (_event, name: string) => {
     if (!configManager || !directoryManager) throw new Error('未初始化')
-    const projectsDir = directoryManager.getDirectory('projects')
+    const projectsDir = join(resolveActiveWorkspaceDir(), 'projects')
     const existing = configManager.getAppConfig().codingDevProjects ?? []
     const projects = await createProject({ projectsDir, name: String(name ?? ''), existing })
     const activeProject = projects[projects.length - 1]?.name
@@ -1693,7 +1853,7 @@ function setupIpcHandlers(): void {
 
   ipcMain.handle('app:openCodingDevProject', async (_event, name: string, targetPath: string) => {
     if (!configManager || !directoryManager) throw new Error('未初始化')
-    const projectsDir = directoryManager.getDirectory('projects')
+    const projectsDir = join(resolveActiveWorkspaceDir(), 'projects')
     const existing = configManager.getAppConfig().codingDevProjects ?? []
     const projects = await openExistingProject({
       projectsDir,
@@ -1709,7 +1869,7 @@ function setupIpcHandlers(): void {
 
   ipcMain.handle('app:removeCodingDevProject', async (_event, name: string) => {
     if (!configManager || !directoryManager) throw new Error('未初始化')
-    const projectsDir = directoryManager.getDirectory('projects')
+    const projectsDir = join(resolveActiveWorkspaceDir(), 'projects')
     const cfg = configManager.getAppConfig()
     const existing = cfg.codingDevProjects ?? []
     const projects = await removeProject({ projectsDir, name: String(name ?? ''), existing })
@@ -1735,6 +1895,14 @@ function setupIpcHandlers(): void {
     return { projects, activeProject: trimmed || undefined }
   })
 
+  ipcMain.handle('app:getProjectGitStatus', async (_event, projectName: string) => {
+    if (!configManager) throw new Error('ConfigManager 未初始化')
+    const projects = configManager.getAppConfig().codingDevProjects ?? []
+    const project = projects.find((p) => p.name === projectName)
+    if (!project) return { available: false, isRepo: false, files: [] }
+    return getProjectGitStatus(project.realPath)
+  })
+
   // === 应用操作 ===
   ipcMain.handle('app:getVersion', () => app.getVersion())
   ipcMain.on('app:quit', () => {
@@ -1752,6 +1920,23 @@ function setupIpcHandlers(): void {
       throw new Error('文件路径无效')
     }
     shell.showItemInFolder(filePath)
+  })
+
+  /**
+   * 在资源管理器中打开当前应用日志文件（便于用户排查问题）
+   */
+  ipcMain.handle('app:openLogFile', async () => {
+    const logFile = fileLogger.getCurrentLogFilePath()
+    if (logFile && existsSync(logFile)) {
+      shell.showItemInFolder(logFile)
+      return { success: true, path: logFile }
+    }
+    const logDir = fileLogger.getLogDir()
+    if (logDir && existsSync(logDir)) {
+      await shell.openPath(logDir)
+      return { success: true, path: logDir }
+    }
+    return { success: false, error: '未找到日志文件' }
   })
 
   // === 对话框 ===
@@ -2046,29 +2231,12 @@ function setupIpcHandlers(): void {
 }
 
 /**
- * 将 resources / 环境变量中的服务器地址同步到用户配置。
- * 打包后以 server-config.json 为准，避免用户 app.json 中残留 localhost 导致混用环境。
+ * 将 resources / 环境变量中的本地占位配置同步到运行时。
+ * 独立版不依赖云端 Gateway / api-server；仅保留本地配置加载。
  */
 async function syncRuntimeServerConfig(): Promise<void> {
   const resourcesConfig = await loadServerConfig()
   serverConfig = resourcesConfig
-
-  if (configManager) {
-    const current = configManager.getServerConfig()
-    const isLocalDefault =
-      current.apiUrl.includes('127.0.0.1') || current.apiUrl.includes('localhost')
-    const resourcesIsProd =
-      !resourcesConfig.apiUrl.includes('127.0.0.1') &&
-      !resourcesConfig.apiUrl.includes('localhost')
-
-    if (isLocalDefault && resourcesIsProd) {
-      await configManager.updateServerConfig({
-        apiUrl: resourcesConfig.apiUrl,
-        gatewayUrl: resourcesConfig.gatewayUrl,
-      })
-      log.info('[Config] 已将用户配置中的本地地址升级为打包资源地址', resourcesConfig)
-    }
-  }
 }
 
 /**
@@ -2131,74 +2299,89 @@ function setupApiIpcHandlers(): void {
     } else {
       saveProviderConfig(cfg as LocalProviderConfigView)
     }
+    // 配置变更后销毁旧实例，避免继续走创建时快照的 Gateway/旧凭据
+    invalidateAgentInstancesForProviderChange()
     return loadProviderSlotsConfig()
   })
 
-  ipcMain.handle('provider:listModels', async (_event, slot: CapabilitySlot) => {
+  ipcMain.handle('provider:listModels', async (_event, slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => {
     if (!isCapabilitySlot(slot)) throw new Error(`无效能力槽: ${slot}`)
-    const cfg = loadSlotConfig(slot)
+    const cfg = draftCfg ?? loadSlotConfig(slot)
     const models = await listProviderModels(cfg)
     return { success: true, data: models }
   })
 
-  ipcMain.handle('provider:testConnection', async (_event, slot: CapabilitySlot) => {
+  ipcMain.handle('provider:testConnection', async (_event, slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => {
     if (!isCapabilitySlot(slot)) throw new Error(`无效能力槽: ${slot}`)
-    const cfg = loadSlotConfig(slot)
+    const cfg = draftCfg ?? loadSlotConfig(slot)
     return testProviderConnection(slot, cfg)
   })
 
-  // === 订阅相关 stub（独立版无云订阅，避免 No handler registered） ===
-  const freeSubscriptionStub = {
-    success: true,
-    data: {
-      subscription: {
-        planId: 'free',
-        planName: '免费版',
-        status: 'active',
-        billingPeriod: 'monthly' as const,
-        currentPeriodEnd: undefined as string | undefined,
-      },
-      plan: {
-        id: 'free',
-        displayName: '免费版',
-        name: 'free',
-      },
-      plans: [],
-    },
-  }
-  ipcMain.handle('api:getSubscription', async () => freeSubscriptionStub)
-  ipcMain.handle('api:getSubscriptionOverview', async () => freeSubscriptionStub)
-  ipcMain.handle('api:getPlans', async () => ({ success: true, data: { plans: [] } }))
-  ipcMain.handle('api:getAvailablePlans', async () => ({ success: true, data: { plans: [] } }))
-  ipcMain.handle('api:createSubscription', async () => ({
-    success: false,
-    error: '独立版不支持云订阅',
-  }))
-  ipcMain.handle('api:cancelSubscription', async () => ({
-    success: false,
-    error: '独立版不支持云订阅',
-  }))
-  ipcMain.handle('api:getCreditBalance', async () => ({
-    success: true,
-    data: { balance: 0, unlimited: true },
-  }))
-  ipcMain.handle('api:getUsage', async () => ({
-    success: true,
-    data: {
-      daily: {
-        conversations: 0,
-        aiCalls: 0,
-        skillExecutions: 0,
-        fileOperations: 0,
-        storageUsedMb: 0,
-      },
-      monthly: {
-        conversations: 0,
-        aiCalls: 0,
-        storageUsedMb: 0,
-      },
-    },
-  }))
+  // === 本地用量查询（Task 4.3）===
+  ipcMain.handle('usage:query', async (_e, query: UsageQuery) => {
+    try {
+      return { success: true, data: await queryUsage(query) }
+    } catch (error) {
+      console.error('[IPC] usage:query 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  // === 服务商首字节延迟（Task 4.4）===
+  ipcMain.handle('usage:latency', () => ({ success: true, data: getLatency() }))
+
+  // === 概览页资讯（数据由「资讯抓取与综述」定时任务写入 ~/.lumii/news/latest.json）===
+  ipcMain.handle('news:latest', async () => {
+    try {
+      return { success: true, data: await readNewsSnapshot() }
+    } catch (error) {
+      console.error('[IPC] news:latest 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+
+  // === Dashboard 通用 feed（资讯只是默认 feed，后续工作流可替换其内容）===
+  ipcMain.handle('dashboard-feed:latest', async () => {
+    try {
+      return { success: true, data: await readActiveDashboardFeedSnapshot() }
+    } catch (error) {
+      console.error('[IPC] dashboard-feed:latest 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  /**
+   * 手动「立即抓取」：与定时任务走同一条 Agent 驱动路径，复用相同的固定 sessionKey，
+   * 两者在会话列表里是同一个会话，用户能看到 Agent 具体搜索/调用工具的完整过程。
+   */
+  ipcMain.handle('dashboard-feed:refresh', async () => {
+    try {
+      if (!agentRuntimeBridge) throw new Error('Agent Runtime 未就绪')
+      const convId = 'cron:news-pipeline'
+      agentRuntimeBridge.ensureConversationExists(convId, '定时任务 · 资讯抓取与综述')
+      const instanceId = await agentRuntimeBridge.createInstanceById('assistant', convId, convId)
+      try {
+        await agentRuntimeBridge.prompt(instanceId, `${NEWS_PIPELINE_SYSTEM_PROMPT}\n\n---\n\n${NEWS_PIPELINE_TASK_TEXT}`)
+      } finally {
+        agentRuntimeBridge.destroy(instanceId)
+      }
+      return { success: true, data: { snapshot: await readActiveDashboardFeedSnapshot() } }
+    } catch (error) {
+      console.error('[IPC] dashboard-feed:refresh 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  ipcMain.handle('dashboard-feed:set-active', async (_event, feedId: string) => {
+    try {
+      await setActiveDashboardFeedId(feedId)
+      return { success: true, data: await readActiveDashboardFeedSnapshot() }
+    } catch (error) {
+      console.error('[IPC] dashboard-feed:set-active 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
 
   // === 开机启动 ===
   ipcMain.handle('app:getOpenAtLogin', async () => {
@@ -2220,59 +2403,6 @@ function setupApiIpcHandlers(): void {
     return app.getLoginItemSettings().openAtLogin
   })
 
-  /**
-   * 重置所有数据 - 清除配置文件并重启应用
-   *
-   * 清除范围：
-   * - 客户端数据根下 config/（如 app.json, pairing.json, auth.json 等）
-   * - safeStorage 加密存储的 token（通过 configManager 清除）
-   * 保留范围：
-   * - workspace/ 用户工作区数据
-   * - logs/ 日志文件
-   */
-  ipcMain.handle('app:resetAllData', async () => {
-    log.info('开始重置所有数据')
-    try {
-      const dirs = directoryManager.getDirectories()
-      const configDir = dirs.config
-
-      // 删除 config 目录下所有文件
-      try {
-        const files = await fs.readdir(configDir)
-        for (const file of files) {
-          await fs.rm(join(configDir, file), { recursive: true, force: true })
-          log.info(`已删除配置文件: ${file}`)
-        }
-      } catch (err) {
-        log.warn('清除配置目录失败（可能不存在）:', err)
-      }
-
-      // 清除 cache 目录
-      try {
-        await fs.rm(dirs.cache, { recursive: true, force: true })
-        log.info('已清除缓存目录')
-      } catch (err) {
-        log.warn('清除缓存目录失败:', err)
-      }
-
-      // 清除内置技能种子版本标记，确保重启后重新初始化内置技能
-      try {
-        await fs.rm(join(dirs.root, SEED_VERSION_FILENAME), { force: true })
-        log.info('已清除技能种子版本标记')
-      } catch (err) {
-        log.warn('清除技能种子版本标记失败:', err)
-      }
-
-      log.info('数据重置完成，准备重启应用')
-
-      // 重启应用
-      app.relaunch()
-      app.exit(0)
-    } catch (error) {
-      log.error('重置数据失败:', error)
-      throw new Error(`重置失败: ${error instanceof Error ? error.message : String(error)}`)
-    }
-  })
 
   // === 灵栖/Lumii 独立版：无后端，云端配置/技能/节点接口降级为本地空返回 ===
 
@@ -2381,23 +2511,28 @@ function setupApiIpcHandlers(): void {
 import { execFile as _execFile } from 'child_process'
 import { promisify as _promisify } from 'util'
 import { MemPalaceMcpBridge } from './mempalace-mcp-client'
+import {
+  PYPI_MIRROR,
+  ensureBundledPython,
+  getBundledPythonExe,
+  getBundledSitePackages,
+  getPythonRuntimeDir,
+  hasPackage as hasPythonPackage,
+} from './python-env'
+import { initScriptRuntimes } from './runtime-env'
 
 const _execFileAsync = _promisify(_execFile)
 
-const MEMPALACE_RUNTIME_NAME = 'python-embed'
-const PYPI_MIRROR = 'https://pypi.tuna.tsinghua.edu.cn/simple'
-const PYTHON_EMBED_URLS = [
-  'https://npmmirror.com/mirrors/python/3.11.9/python-3.11.9-embed-amd64.zip',
-  'https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip',
-]
-
-/** MemPalace Python 运行时目录（与客户端数据根目录一致） */
+/**
+ * MemPalace 复用公共内置 Python 运行时（见 python-env.ts）。
+ * 运行时目录与旧版一致（~/.lumii/runtimes/python-embed），已装用户不必重下。
+ */
 function getMemPalaceRuntimeDir(): string {
-  return resolvePluginRuntimeDir(MEMPALACE_RUNTIME_NAME)
+  return getPythonRuntimeDir()
 }
 
 function getMemPalacePythonExe(): string {
-  return join(getMemPalaceRuntimeDir(), 'python.exe')
+  return getBundledPythonExe()
 }
 
 function getMemPalacePalaceDir(): string {
@@ -2405,14 +2540,8 @@ function getMemPalacePalaceDir(): string {
 }
 
 /** 检测 site-packages 中是否已有 mempalace 包（快速路径） */
-function hasMemPalacePackage(runtimeDir: string): boolean {
-  const sitePackages = join(runtimeDir, 'Lib', 'site-packages')
-  if (!existsSync(sitePackages)) return false
-  try {
-    return readdirSync(sitePackages).some((name) => name === 'mempalace' || name.startsWith('mempalace-'))
-  } catch {
-    return false
-  }
+function hasMemPalacePackage(): boolean {
+  return hasPythonPackage('mempalace')
 }
 
 function getSoulFilePath(): string {
@@ -2458,7 +2587,7 @@ async function checkMemPalaceInstalled(): Promise<boolean> {
   const runtimeDir = getMemPalaceRuntimeDir()
   const pythonExe = getMemPalacePythonExe()
   if (!existsSync(pythonExe)) return false
-  if (!hasMemPalacePackage(runtimeDir)) return false
+  if (!hasMemPalacePackage()) return false
   try {
     await _execFileAsync(pythonExe, ['-c', 'import mempalace'], {
       timeout: 30000,
@@ -2489,100 +2618,33 @@ function setupMemPalaceIpcHandlers(): void {
   })
 
   ipcMain.handle('plugin:mempalace:install', async (_event) => {
-    const runtimeDir = getMemPalaceRuntimeDir()
-    const tmpDir = `${runtimeDir}.tmp`
-
     const sendProgress = (msg: string) => {
       _event.sender.send('plugin:mempalace:install:progress', msg)
     }
 
     try {
-      // 清理残留 tmp
-      if (existsSync(tmpDir)) {
-        await fs.rm(tmpDir, { recursive: true, force: true })
-      }
-      await fs.mkdir(tmpDir, { recursive: true })
-
-      sendProgress('正在下载 Python Embeddable...')
-      const zipPath = join(tmpDir, 'python-embed.zip')
-      let pythonDownloaded = false
-      for (const embedUrl of PYTHON_EMBED_URLS) {
-        try {
-          sendProgress(`正在下载 Python Embeddable (${new URL(embedUrl).hostname})...`)
-          await downloadFileMain(embedUrl, zipPath, (pct) => sendProgress(`正在下载 Python Embeddable... ${pct}%`))
-          pythonDownloaded = true
-          break
-        } catch (err) {
-          log.warn(`[MemPalace] Python 下载失败 ${embedUrl}:`, err instanceof Error ? err.message : err)
-          try { await fs.unlink(zipPath) } catch { /* ignore */ }
-        }
-      }
-      if (!pythonDownloaded) {
-        throw new Error('Python 运行时下载失败，请检查网络后重试')
-      }
-
-      sendProgress('正在解压...')
-      if (!existsSync(zipPath)) {
-        throw new Error(`Python 运行时下载失败：未找到 ${zipPath}，请检查网络后重试`)
-      }
-      await _execFileAsync('powershell', [
-        '-NoProfile', '-Command',
-        `Expand-Archive -Path '${zipPath}' -DestinationPath '${tmpDir}' -Force`,
-      ], { timeout: 60000 })
-      await fs.unlink(zipPath)
-
-      sendProgress('正在配置 sys.path...')
-      const pthFiles = (await fs.readdir(tmpDir)).filter((f) => f.endsWith('._pth'))
-      if (pthFiles.length === 0) throw new Error('未找到 ._pth 文件')
-      const pthPath = join(tmpDir, pthFiles[0])
-      const sitePackagesDir = join(tmpDir, 'Lib', 'site-packages')
-      await fs.mkdir(sitePackagesDir, { recursive: true })
-      // embeddable 包默认禁用 site，需取消注释 import site 并添加 site-packages 路径
-      let pthContent = await fs.readFile(pthPath, 'utf-8')
-      // 取消注释 #import site（如果存在）
-      pthContent = pthContent.replace(/^#import site/m, 'import site')
-      if (!pthContent.includes('import site')) {
-        pthContent += '\nimport site\n'
-      }
-      if (!pthContent.includes('Lib/site-packages')) {
-        pthContent += './Lib/site-packages\n'
-      }
-      await fs.writeFile(pthPath, pthContent, 'utf-8')
-
-      sendProgress('正在安装 pip...')
-      const getPipPath = join(tmpDir, 'get-pip.py')
-      await downloadFileMain('https://bootstrap.pypa.io/get-pip.py', getPipPath)
-      const tmpPython = join(tmpDir, 'python.exe')
-      await _execFileAsync(tmpPython, [getPipPath, '--no-warn-script-location', '--target', sitePackagesDir], { timeout: 120000 })
-      await fs.unlink(getPipPath)
+      // Python 运行时由公共模块保证（已装则秒过），这里只负责装 mempalace 包
+      const pythonExe = await ensureBundledPython(sendProgress)
+      const sitePackagesDir = getBundledSitePackages()
 
       sendProgress('正在安装 mempalace...')
-      await _execFileAsync(tmpPython, [
+      await _execFileAsync(pythonExe, [
         '-m', 'pip', 'install', 'mempalace',
         '--no-warn-script-location',
         '--target', sitePackagesDir,
         '-i', PYPI_MIRROR,
-      ], {
-        timeout: 300000,
-      })
+      ], { timeout: 300000, windowsHide: true })
 
       sendProgress('正在验证安装...')
-      await _execFileAsync(tmpPython, ['-c', 'import mempalace; print("ok")'], {
+      await _execFileAsync(pythonExe, ['-c', 'import mempalace; print("ok")'], {
         timeout: 30000,
-        cwd: tmpDir,
-        env: { ...process.env, PYTHONHOME: tmpDir },
+        cwd: getPythonRuntimeDir(),
+        env: { ...process.env, PYTHONHOME: getPythonRuntimeDir() },
       })
-
-      sendProgress('正在完成安装...')
-      if (existsSync(runtimeDir)) {
-        await fs.rm(runtimeDir, { recursive: true, force: true })
-      }
-      await fs.rename(tmpDir, runtimeDir)
 
       log.info('[MemPalace] 安装完成')
       return { success: true }
     } catch (err) {
-      try { await fs.rm(tmpDir, { recursive: true, force: true }) } catch { /* ignore */ }
       const message = err instanceof Error ? err.message : String(err)
       log.error('[MemPalace] 安装失败:', message)
       return { success: false, error: message }
@@ -2750,87 +2812,6 @@ function setupCloakBrowserIpcHandlers(): void {
   })
 }
 
-async function downloadFileMain(
-  url: string,
-  dest: string,
-  onProgress?: (pct: number) => void,
-): Promise<void> {
-  const https = await import('https')
-  const http = await import('http')
-  const { createWriteStream } = await import('fs')
-
-  // 写入流延迟到拿到最终 200 响应（重定向解析完）后再创建，
-  // 避免重定向时关闭旧流却仍向其 pipe，导致目标文件为空。
-  await new Promise<void>((resolve, reject) => {
-    let settled = false
-    const MAX_REDIRECTS = 5
-
-    const fail = (err: Error) => {
-      if (settled) return
-      settled = true
-      reject(err)
-    }
-
-    const request = (targetUrl: string, redirectsLeft: number) => {
-      const client = targetUrl.startsWith('https') ? https : http
-      client
-        .get(targetUrl, (res) => {
-          const status = res.statusCode ?? 0
-          if (status >= 300 && status < 400 && res.headers.location) {
-            res.resume() // 丢弃重定向响应体，释放 socket
-            if (redirectsLeft <= 0) {
-              fail(new Error(`重定向次数过多: ${targetUrl}`))
-              return
-            }
-            const next = new URL(res.headers.location, targetUrl).toString()
-            request(next, redirectsLeft - 1)
-            return
-          }
-          if (status !== 200) {
-            res.resume()
-            fail(new Error(`HTTP ${status}: ${targetUrl}`))
-            return
-          }
-
-          const total = parseInt(res.headers['content-length'] ?? '0', 10)
-          let received = 0
-          const file = createWriteStream(dest)
-          file.on('error', fail)
-          res.on('error', fail)
-          res.on('data', (chunk: Buffer) => {
-            received += chunk.length
-            if (total > 0 && onProgress) {
-              onProgress(Math.round((received / total) * 100))
-            }
-          })
-          res.pipe(file)
-          file.on('finish', () => {
-            file.close(() => {
-              if (settled) return
-              settled = true
-              resolve()
-            })
-          })
-        })
-        .on('error', fail)
-    }
-
-    request(url, MAX_REDIRECTS)
-  })
-
-  // 下载成功校验：文件必须存在且非空，否则后续解压会报"找不到文件"
-  const { promises: fsp } = await import('fs')
-  let size = 0
-  try {
-    size = (await fsp.stat(dest)).size
-  } catch {
-    throw new Error(`下载失败：文件未生成（${dest}）`)
-  }
-  if (size === 0) {
-    await fsp.rm(dest, { force: true }).catch(() => {})
-    throw new Error(`下载失败：文件为空（${dest}）`)
-  }
-}
 
 /**
  * 应用初始化
@@ -2872,6 +2853,7 @@ async function initialize(): Promise<void> {
 
   // 初始化文件日志系统（必须在 app.whenReady() 之后）
   fileLogger.initialize()
+  clearScreenshotTempDir()
   // 服务启动时在控制台打印日志文件路径
   log.info('日志文件:', fileLogger.getCurrentLogFilePath())
 
@@ -2899,7 +2881,18 @@ async function initialize(): Promise<void> {
   installAgentRuntimeCommandIpc()
 
   // 初始化各模块（开机启动时隐藏窗口，只显示托盘图标）
-  createWindow(isTestMode, isStartupLaunch)
+  // 等待开机画面完整播放后再显示主窗口
+  await createWindow(isTestMode, isStartupLaunch)
+
+  // App UI 本机控制口（lumii-ui CLI）
+  try {
+    await startAppUiControlServer({
+      getWindow: (target) => (target === 'main' ? mainWindow : null),
+      resizeImageIfNeeded,
+    })
+  } catch (err) {
+    log.warn('App UI 本机控制口启动失败:', err instanceof Error ? err.message : err)
+  }
 
   // 注册宠物模式 IPC（独立透明窗口，与 mainWindow 解耦）
   registerPetModeIpc({
@@ -2920,6 +2913,14 @@ async function initialize(): Promise<void> {
     },
   })
 
+  // 文件预览独立窗口（可拖出主窗口外）
+  registerFilePreviewWindowIpc({
+    getMainWindow: () => mainWindow,
+    preloadPath: join(__dirname, '../preload/index.js'),
+    rendererUrl: process.env.ELECTRON_RENDERER_URL,
+    indexHtmlPath: join(__dirname, '../renderer/index.html'),
+  })
+
   initTray()
   initSystemService()
   setupIpcHandlers()
@@ -2937,7 +2938,7 @@ async function initialize(): Promise<void> {
   log.info('目录和配置管理器初始化完成')
 
   // 灵栖/Lumii 独立版：无后端、无登录。
-  // 不构造 authManager / apiClient / gatewayClient / nodeModeCoordinator / devicePairingService，
+  // 不构造 apiClient / gatewayClient / nodeModeCoordinator / devicePairingService，
   // 这些实例保持 null，相关能力（provider 配置、agents 存储）由本地能力层（阶段 4/5）接管。
   // setupApiIpcHandlers 仍注册（内部 handler 已对 !apiClient 做本地兜底/降级）。
   setupApiIpcHandlers()
@@ -2945,6 +2946,9 @@ async function initialize(): Promise<void> {
   setupCloakBrowserIpcHandlers()
 
   await initSkillRuntime()  // 初始化技能运行时
+
+  // 脚本运行环境：写 node/python shim，缺 Python 时后台下载内置运行时
+  await initScriptRuntimes()
 
   // 种子内置技能（必须在 initSkillWatcher 之前，确保文件就绪后再启动监控）
   const mtbotDataDirForSeed = resolveClientStateDir()
@@ -2980,7 +2984,13 @@ async function initialize(): Promise<void> {
 
   // 微信消息：通过 WeixinChannelAdapter 处理，支持完整斜杠命令集和 ACP 后端路由
   const weixinAcpBackendManager = new AcpBackendManager()
-  const weixinChannelAdapter = new WeixinChannelAdapter(weixinLoginService, agentRuntimeBridge!, weixinAcpBackendManager)
+  const weixinReplyContextStore = createWeixinReplyContextStore(resolveWindowsClientDataRoot())
+  const weixinChannelAdapter = new WeixinChannelAdapter(
+    weixinLoginService,
+    agentRuntimeBridge!,
+    weixinAcpBackendManager,
+    weixinReplyContextStore,
+  )
   weixinChannelAdapter.startListening()
   setWeixinBindingManagerForIpc(weixinChannelAdapter.bindingManager)
 
@@ -3027,12 +3037,23 @@ async function initialize(): Promise<void> {
     mainWindow?.webContents.send('feishu:error', message)
   })
   log.info('飞书服务已初始化')
+
+  // 装配渠道出站 Hub（Agent channel_list/send + cron 同源）
+  channelHub = createChannelHub({
+    feishu: feishuLoginService,
+    weixin: weixinLoginService,
+    wecom: wecomLoginService,
+    dataRoot: resolveWindowsClientDataRoot(),
+    weixinStore: weixinReplyContextStore,
+  })
+  weixinChannelAdapter.setReplyContextStore(channelHub.weixinStore)
+  log.info('渠道出站 Hub 已装配')
 }
 
 // macOS 特殊处理
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow()
+    void createWindow()
   } else {
     mainWindow?.show()
   }
@@ -3058,6 +3079,7 @@ async function performCleanup(): Promise<void> {
     disposePetModeIpc()
 
     await skillWatcher?.stop()
+    await stopAppUiControlServer()
     await stopBrowserService()
 
     // 微信登出清理
@@ -3068,9 +3090,13 @@ async function performCleanup(): Promise<void> {
     // 销毁所有 Agent 实例并关闭本地数据库
     // 触发 abort → agent:error 事件 → bridge 删除流式占位行，确保 is_streaming 不残留
     if (agentRuntimeBridge) {
+      log.info('[performCleanup] 开始销毁 Agent Runtime Bridge')
       agentRuntimeBridge.destroyAll()
-      log.info('Agent Runtime Bridge 已销毁')
+      log.info('[performCleanup] Agent Runtime Bridge 已销毁')
     }
+
+    // 工具调用计数是 debounce 落盘的，退出前补一次，避免丢掉最后几次调用
+    await flushToolUsage()
 
     updaterService?.destroy()
     trayManager?.destroy()

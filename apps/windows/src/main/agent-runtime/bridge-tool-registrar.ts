@@ -19,7 +19,7 @@ import {
   ConversationRepo,
   LocalDatabase,
   createMtBotTool,
-  DEFAULT_IMAGE_MODEL_ID,
+  isKnownImageGenerationModel,
   normalizeImageModelId,
   type ToolExecutionContext,
   type MtBotToolConfig,
@@ -32,13 +32,16 @@ import {
   cronCreateToolConfig,
   cronListToolConfig,
   cronDeleteToolConfig,
+  dashboardFeedWriteToolConfig,
   messageToolConfig,
+  channelListToolConfig,
+  channelSendToolConfig,
   nodesToolConfig,
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,
   systemPromptToolConfig,
-  ttsGenerateToolConfig,
+  speechGenerateToolConfig,
   imageGenerateToolConfig,
   skillListToolConfig,
   skillSearchToolConfig,
@@ -63,6 +66,13 @@ import type { InstanceStateStore } from './bridge-instance-state'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import type { CronScheduler } from './cron-scheduler'
 import { registerBrowserTools as registerBrowserToolsFn } from './bridge-browser-tools'
+import { registerAppUiTools as registerAppUiToolsFn } from './bridge-app-ui-tools'
+import { resizeImageIfNeeded } from './image-resizer'
+import {
+  writeDashboardFeedSnapshot,
+  DEFAULT_DASHBOARD_FEED_ID,
+  uniqueDashboardFeedItemId,
+} from '../dashboard-feed-store'
 import {
   agentRuntimeLog as log,
   jsonToolResult,
@@ -80,6 +90,15 @@ export interface WeixinCtxAccessor {
   getCurrent: () => { channelUserId: string; contextToken: string; botToken?: string; ilinkBaseUrl?: string } | null
   /** 标记本轮已通过 message 工具发送微信消息 */
   markSentViaTool: () => void
+}
+
+/**
+ * 从 sessionKey 前缀解析出创建定时任务时所在的渠道，用作 notify_targets 默认值。
+ * 微信/企微是被动回复模式，没有主动推送渠道，回落系统通知；只有飞书有主动推送能力。
+ */
+export function resolveChannelFromSessionKey(sessionKey: string | undefined): string {
+  if (sessionKey?.startsWith('feishu:')) return 'feishu'
+  return 'system'
 }
 
 /**
@@ -110,6 +129,8 @@ export interface BridgeToolRegistrarDeps {
   ensureOrchestrator: () => AgentOrchestrator
   /** 微信会话上下文访问器（message 工具用） */
   weixinCtx: WeixinCtxAccessor
+  /** 惰性获取渠道出站 Router（channel_list / channel_send） */
+  getChannelRouter: () => import('../channel/channel-outbound-router').ChannelOutboundRouter | null
   /** 图片生成（image_generate 工具用） */
   generateImage: (params: {
     prompt: string
@@ -117,6 +138,7 @@ export interface BridgeToolRegistrarDeps {
     width?: number
     height?: number
     filename?: string
+    referenceImagePaths?: string[]
     signal?: AbortSignal
   }) => Promise<{ filePath: string; width: number; height: number; model: string; revisedPrompt: string }>
 }
@@ -134,6 +156,12 @@ export class BridgeToolRegistrar {
     this.registerSendMessageOverride()
     // 本地 cron 工具无需 Gateway，始终注册
     this.registerLocalCronTools()
+    // 资讯卡片写入，供 Agent 驱动的资讯抓取任务落盘结构化结果
+    this.registerDashboardFeedTool()
+    // 渠道出站：不依赖 Gateway，始终注册
+    this.registerChannelTools()
+    // Agent 操作本客户端界面（Part A：app_screenshot），始终注册
+    this.registerAppUiTools()
     // 渐进式加载指南工具（a2ui_guide / cron_guide）
     this.registerGuideTools()
     if (this.deps.config.callGateway) {
@@ -570,6 +598,7 @@ export class BridgeToolRegistrar {
           scheduleType: 'at' | 'every' | 'cron'
           scheduleExpr: string
           agentId?: string
+          notifyTargets?: string
         }
         const scheduleExpr = p.scheduleExpr?.trim() ?? ''
         if (!p.name?.trim()) {
@@ -628,24 +657,40 @@ export class BridgeToolRegistrar {
           return jsonToolResult({ status: 'ok', job: gatewayResult })
         }
 
+        // 未显式指定推送渠道时，默认使用当前对话所在渠道（sessionKey 前缀解析）—
+        // 微信/企微是被动回复模式没有主动推送能力，回落系统通知
+        const currentInstanceId = this.deps.getCurrentToolExecutorInstanceId()
+        const sessionKey = currentInstanceId
+          ? this.deps.instanceToConversation.get(currentInstanceId)
+          : undefined
+        const notifyTargets = p.notifyTargets?.trim() || resolveChannelFromSessionKey(sessionKey)
+
+        // 未指定执行 Agent 时回落到当前 Agent：任务文本本就是写给 Agent 的指令，
+        // agent_id 为空会让调度器把指令原文当通知正文推送，任务实际从未执行
+        const fallbackAgentId = currentInstanceId
+          ? this.deps.getDefinitionIdByInstanceId(currentInstanceId)
+          : undefined
+        const agentId = p.agentId?.trim() || fallbackAgentId || null
+
         const jobId = `local-cron-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
         const row = {
           id: jobId,
           name: p.name.trim(),
           task_text: p.taskText,
-          agent_id: p.agentId?.trim() || null,
+          agent_id: agentId,
           schedule_type: p.scheduleType,
           schedule_expr: scheduleExpr,
           next_run_at: nextRunAt,
           interval_ms: intervalMs,
           enabled: 1,
           created_at: now,
+          notify_targets: notifyTargets,
         } as const
 
         this.deps.localDb.db.prepare(
           `INSERT INTO local_cron_jobs
-           (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, notify_targets)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           row.id,
           row.name,
@@ -657,6 +702,7 @@ export class BridgeToolRegistrar {
           row.interval_ms,
           row.enabled,
           row.created_at,
+          row.notify_targets,
         )
 
         this.deps.getCronScheduler().scheduleJob(row)
@@ -745,6 +791,129 @@ export class BridgeToolRegistrar {
   }
 
   /**
+   * 注册 dashboard_feed_write：Agent 抓取资讯后落盘结构化结果到概览页资讯卡片。
+   * feedId 固定用 DEFAULT_DASHBOARD_FEED_ID（'news'）—— 当前仅有这一个 feed 在用。
+   */
+  private registerDashboardFeedTool(): void {
+    const ctx = this.deps.toolContext
+    if (!ctx) return
+
+    const dashboardFeedWrite: MtBotToolConfig = {
+      ...dashboardFeedWriteToolConfig,
+      execute: async (_id, rawParams) => {
+        const p = rawParams as {
+          title: string
+          summary?: string
+          items: Array<{ title: string; summary?: string; href?: string; source?: string }>
+        }
+        if (!p.title?.trim()) {
+          return jsonToolResult({ status: 'error', message: 'title is required' })
+        }
+        if (!Array.isArray(p.items) || p.items.length === 0) {
+          return jsonToolResult({ status: 'error', message: 'items must be a non-empty array' })
+        }
+        try {
+          await writeDashboardFeedSnapshot({
+            feedId: DEFAULT_DASHBOARD_FEED_ID,
+            title: p.title.trim(),
+            updatedAt: Date.now(),
+            ...(p.summary?.trim() ? { summary: p.summary.trim() } : {}),
+            items: (() => {
+              const seenIds = new Map<string, number>()
+              return p.items.map((item, index) => ({
+                id: uniqueDashboardFeedItemId(
+                  { href: item.href?.trim(), title: item.title },
+                  index,
+                  seenIds,
+                ),
+                title: item.title,
+                ...(item.summary ? { summary: item.summary } : {}),
+                ...(item.href ? { href: item.href } : {}),
+                ...(item.source ? { source: item.source } : {}),
+                timestamp: Date.now(),
+                kind: 'news',
+              }))
+            })(),
+          })
+          return jsonToolResult({ status: 'ok', itemCount: p.items.length })
+        } catch (err) {
+          return jsonToolResult({
+            status: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          })
+        }
+      },
+    }
+    this.deps.toolRegistry.register(createMtBotTool(dashboardFeedWrite, ctx))
+    log.info('[registerDashboardFeedTool] dashboard_feed_write registered')
+  }
+
+  /**
+   * 注册渠道出站工具 channel_list / channel_send（走 ChannelOutboundRouter）。
+   */
+  private registerChannelTools(): void {
+    const ctx = this.deps.toolContext
+    if (!ctx) return
+
+    const channelList: MtBotToolConfig = {
+      ...channelListToolConfig,
+      execute: async () => {
+        const router = this.deps.getChannelRouter()
+        if (!router) {
+          return jsonToolResult({
+            ok: false,
+            errorCode: 'HUB_NOT_READY',
+            message: '渠道出站 Hub 尚未就绪，请稍后再试（非未登录）',
+            channels: [],
+          })
+        }
+        const channels = await router.list()
+        return jsonToolResult({ channels })
+      },
+    }
+    this.deps.toolRegistry.register(createMtBotTool(channelList, ctx))
+
+    const channelSend: MtBotToolConfig = {
+      ...channelSendToolConfig,
+      execute: async (_id, rawParams) => {
+        const router = this.deps.getChannelRouter()
+        if (!router) {
+          return jsonToolResult({
+            ok: false,
+            errorCode: 'HUB_NOT_READY',
+            message: '渠道出站 Hub 尚未就绪，请稍后再试（非未登录）',
+          })
+        }
+        const p = rawParams as {
+          channel?: string
+          to?: string
+          text?: string
+          mediaPath?: string
+          fileName?: string
+        }
+        const channel = String(p.channel ?? '').trim() as 'feishu' | 'weixin' | 'wecom'
+        if (channel !== 'feishu' && channel !== 'weixin' && channel !== 'wecom') {
+          return jsonToolResult({
+            ok: false,
+            errorCode: 'PEER_NOT_FOUND',
+            message: "channel 必须是 'feishu' | 'weixin' | 'wecom'",
+          })
+        }
+        const result = await router.send({
+          channel,
+          to: String(p.to ?? ''),
+          text: String(p.text ?? ''),
+          ...(p.mediaPath ? { mediaPath: String(p.mediaPath) } : {}),
+          ...(p.fileName ? { fileName: String(p.fileName) } : {}),
+        })
+        return jsonToolResult(result)
+      },
+    }
+    this.deps.toolRegistry.register(createMtBotTool(channelSend, ctx))
+    log.info('[registerChannelTools] channel_list/channel_send registered')
+  }
+
+  /**
    * 注册客户端集成工具（message / nodes / memory_search / profile_memory / system_prompt）
    */
   private registerIntegrationTools(): void {
@@ -764,57 +933,42 @@ export class BridgeToolRegistrar {
         // 后者让 agent 无需显式设 channel/to 即可回当前微信用户，避免被 'to' 必填误导。
         const isImplicitWeixin =
           channel === '' || channel === 'windows-agent-runtime'
-        const weixinCtx =
-          this.deps.config.sendWeixinMessage ? this.deps.weixinCtx.getCurrent() : null
-        if (this.deps.config.sendWeixinMessage && (channel === 'weixin' || (isImplicitWeixin && weixinCtx))) {
+        const weixinCtx = this.deps.weixinCtx.getCurrent()
+        if (channel === 'weixin' || (isImplicitWeixin && weixinCtx)) {
           if (!weixinCtx) {
             log.warn('[message tool] channel=weixin 但无活跃微信会话上下文，无法发送')
             return jsonToolResult({ status: 'error', message: '当前没有活跃的微信会话，无法发送消息。请先在微信发送消息建立会话后再试。' })
           }
-          const text = p.text ? String(p.text) : undefined
+          const router = this.deps.getChannelRouter()
+          if (!router) {
+            return jsonToolResult({ status: 'error', message: '渠道出站 Hub 尚未就绪，请稍后再试' })
+          }
+          const text = p.text ? String(p.text) : ''
           const filePath = p.mediaUrl ? String(p.mediaUrl) : undefined
-          log.info(`[message tool] 微信本地发送 channelUserId=${weixinCtx.channelUserId} text=${text?.slice(0, 50)} filePath=${filePath}`)
-          const res = await this.deps.config.sendWeixinMessage({ text, filePath })
-          if (res.ok) {
+          log.info(`[message tool] 微信本地发送（经 ChannelOutboundRouter）channelUserId=${weixinCtx.channelUserId} text=${text.slice(0, 50)} filePath=${filePath}`)
+          const result = await router.send({
+            channel: 'weixin',
+            to: weixinCtx.channelUserId,
+            text,
+            ...(filePath ? { mediaPath: filePath } : {}),
+          })
+          if (result.ok) {
             this.deps.weixinCtx.markSentViaTool()
           }
-          return jsonToolResult(res.ok
+          return jsonToolResult(result.ok
             ? {
                 status: 'ok',
                 message: '消息已发送',
                 note: '消息已通过微信投递给用户。本轮请回复 NO_REPLY，避免对话流再次重复发送相同内容。',
               }
-            : { status: 'error', message: res.error ?? '发送失败' })
+            : { status: 'error', message: result.message ?? '发送失败' })
         }
 
-        // 其他通道：走 Gateway WebSocket RPC
-        // 网关 SendParamsSchema 不接受 action 字段，且 idempotencyKey 为必填
-        const rp = p as Record<string, unknown>
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { action: _action, ...rest } = rp
-
-        // 防御性检查：to 参数必填
-        if (!rest.to || (typeof rest.to === 'string' && !rest.to.trim())) {
-          return jsonToolResult({ status: 'error', message: "'to' parameter is required for message send" })
-        }
-
-        // 清理不支持的 channel 值（windows-agent-runtime 不是真实通道，移除后走默认）
-        if (typeof rest.channel === 'string') {
-          const ch = rest.channel.trim().toLowerCase()
-          if (ch === 'windows-agent-runtime' || ch === '') {
-            delete rest.channel
-          }
-        }
-
-        const sendPayload: Record<string, unknown> = {
-          ...rest,
-          idempotencyKey: typeof rest.idempotencyKey === 'string' && rest.idempotencyKey
-            ? rest.idempotencyKey
-            : `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        }
-        log.info(`[message tool] 发送 Gateway send: to=${String(sendPayload['to'] ?? '')} channel=${String(sendPayload['channel'] ?? '')} idempotencyKey=${String(sendPayload['idempotencyKey'])}`)
-        const result = await callGateway('send', sendPayload)
-        return jsonToolResult(result)
+        // 非微信通道：message 工具不再支持主动出站（原 Gateway send RPC 为迁移遗留代码，已移除）
+        return jsonToolResult({
+          status: 'error',
+          message: '该场景请改用 channel_list 查询可发送的 peer，再调用 channel_send 发送；message 工具仅用于回复当前会话（含隐式回微信）。',
+        })
       },
     }
     this.deps.toolRegistry.register(createMtBotTool(messageTool, ctx))
@@ -1090,11 +1244,11 @@ export class BridgeToolRegistrar {
     }
     this.deps.toolRegistry.register(createMtBotTool(systemPromptTool, ctx))
 
-    const ttsGenerateTool: MtBotToolConfig = {
-      ...ttsGenerateToolConfig,
+    const speechGenerateTool: MtBotToolConfig = {
+      ...speechGenerateToolConfig,
       execute: async (_id, rawParams) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const text = String((rawParams as any).text ?? '').trim()
+        const p = rawParams as { text?: string; speaker?: string; speed?: number }
+        const text = String(p.text ?? '').trim()
         if (!text) {
           return jsonToolResult({ status: 'error', message: 'text 参数不能为空' })
         }
@@ -1102,7 +1256,12 @@ export class BridgeToolRegistrar {
           return jsonToolResult({ status: 'error', message: 'TTS 功能未初始化，请确保语音模型已就绪' })
         }
         try {
-          const filePath = await this.deps.config.generateVoiceFile(text)
+          const speed =
+            typeof p.speed === 'number' ? Math.max(0.8, Math.min(1.3, p.speed)) : undefined
+          const filePath = await this.deps.config.generateVoiceFile(text, {
+            speaker: p.speaker?.trim() || undefined,
+            speed,
+          })
           // 与 image_generate 同风格：防止路径编造
           const result = {
             status: 'ok' as const,
@@ -1121,25 +1280,40 @@ export class BridgeToolRegistrar {
         }
       },
     }
-    this.deps.toolRegistry.register(createMtBotTool(ttsGenerateTool, ctx))
+    this.deps.toolRegistry.register(createMtBotTool(speechGenerateTool, ctx))
 
     const imageGenerateTool: MtBotToolConfig = {
       ...imageGenerateToolConfig,
       execute: async (_id, rawParams, _ctx, signal) => {
-        const params = rawParams as { prompt?: string; modelId?: string; width?: number; height?: number; filename?: string }
+        const params = rawParams as {
+          prompt?: string
+          modelId?: string
+          width?: number
+          height?: number
+          filename?: string
+          referenceImagePaths?: string[]
+        }
         if (!params.prompt || typeof params.prompt !== 'string') {
           return jsonToolResult({ status: 'error', message: 'prompt 参数不能为空' })
         }
         try {
-          const resolvedModelId = params.modelId?.trim()
-            ? normalizeImageModelId(params.modelId)
-            : DEFAULT_IMAGE_MODEL_ID
+          // 未显式指定模型时交给 bridge 按 image 槽配置决定（槽内可能是 rightapi 等自有命名空间的模型）；
+          // 显式指定但不在已知白名单内的，同样原样透传，避免把自定义模型强行改写成 gpt-image-2。
+          const requestedModelId = params.modelId?.trim()
+          const resolvedModelId = requestedModelId
+            ? isKnownImageGenerationModel(requestedModelId)
+              ? normalizeImageModelId(requestedModelId)
+              : requestedModelId
+            : undefined
           const result = await this.deps.generateImage({
             prompt: params.prompt,
             modelId: resolvedModelId,
             width: params.width,
             height: params.height,
             filename: params.filename,
+            referenceImagePaths: Array.isArray(params.referenceImagePaths)
+              ? params.referenceImagePaths
+              : undefined,
             signal,
           })
           // 在返回给模型的文本里强制回显真实路径并禁止编造文件名——
@@ -1428,5 +1602,26 @@ export class BridgeToolRegistrar {
     const getBrowserContext = this.deps.config.getBrowserContext
     if (!this.deps.toolContext || !getBrowserContext) return
     registerBrowserToolsFn(this.deps.toolRegistry, this.deps.toolContext, getBrowserContext)
+  }
+
+  /** 注册 Agent App UI 控制工具（app_screenshot 等） */
+  private registerAppUiTools(): void {
+    const getMainWindow = this.deps.config.getWindow
+    if (!this.deps.toolContext || !getMainWindow) return
+    registerAppUiToolsFn(this.deps.toolRegistry, this.deps.toolContext, {
+      getWindow: (target) => (target === 'main' ? getMainWindow() : null),
+      resizeImageIfNeeded,
+      readSettingsJson: async () => {
+        const win = getMainWindow()
+        if (!win || win.isDestroyed()) return null
+        try {
+          return await win.webContents.executeJavaScript(
+            `localStorage.getItem('mtbot-assistant-settings')`,
+          )
+        } catch {
+          return null
+        }
+      },
+    })
   }
 }

@@ -33,19 +33,19 @@ const CHANNEL_DEFS: Array<Omit<ChannelRow, 'status' | 'detail'>> = [
   {
     id: 'wechat',
     name: '个人微信',
-    icon: '💬',
+    icon: '微信',
     description: '扫码登录 iLink Bot，收发个人微信消息',
   },
   {
     id: 'wecom',
     name: '企业微信',
-    icon: '🏢',
+    icon: '企微',
     description: '扫码接入 AI 智能机器人（长连接）',
   },
   {
     id: 'feishu',
     name: '飞书',
-    icon: '🐦',
+    icon: '飞书',
     description: '扫码一键创建飞书机器人应用',
   },
 ]
@@ -284,7 +284,7 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClos
         open={open}
         title="绑定渠道"
         onClose={onClose}
-        width={440}
+        width={480}
         footer={
           <Button variant="ghost" onClick={onClose}>
             关闭
@@ -302,14 +302,16 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClos
             const isBusy = busyId === row.id || row.status === 'waiting'
             return (
               <div key={row.id} className={styles.row}>
-                <div className={styles.rowMain}>
-                  <span className={styles.rowIcon}>{row.icon}</span>
-                  <div className={styles.rowText}>
-                    <div className={styles.rowTitle}>
-                      <span>{row.name}</span>
-                      <Tag color={STATUS_COLOR[row.status]}>{STATUS_LABEL[row.status]}</Tag>
+                <div className={styles.rowHeader}>
+                  <div className={styles.rowMain}>
+                    <span className={styles.rowIcon}>{row.icon}</span>
+                    <div className={styles.rowText}>
+                      <div className={styles.rowTitle}>{row.name}</div>
+                      <div className={styles.rowDesc}>{row.detail ?? row.description}</div>
                     </div>
-                    <div className={styles.rowDesc}>{row.detail ?? row.description}</div>
+                  </div>
+                  <div className={styles.rowStatus}>
+                    <Tag color={STATUS_COLOR[row.status]}>{STATUS_LABEL[row.status]}</Tag>
                   </div>
                 </div>
                 <div className={styles.rowActions}>
@@ -350,7 +352,8 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClos
         open={qrOpen}
         title={qrTitle}
         onClose={() => setQrOpen(false)}
-        width={320}
+        width={400}
+        layer="elevated"
         footer={
           <Button variant="ghost" onClick={() => setQrOpen(false)}>
             取消

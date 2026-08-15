@@ -1,10 +1,13 @@
 /**
  * TitleBar Component - 自定义窗口标题栏
  *
- * 无边框窗口的自定义标题栏，包含拖拽区域和窗口控制按钮
+ * 无边框窗口的自定义标题栏，包含拖拽区域和窗口控制按钮。
+ * 主题切换与全局字号（小/中/大/超大）放在品牌区右侧，任意页面均可调节。
  */
 
 import React, { useCallback, useState, useEffect } from 'react';
+import { Type } from 'lucide-react';
+import { useAppFontScale } from '../../../contexts/AppFontScaleContext/AppFontScaleContext';
 import styles from './TitleBar.module.css';
 
 export interface TitleBarProps {
@@ -49,13 +52,14 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   electronAPI,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
+  const { level, label, cycle } = useAppFontScale();
 
   // 监听窗口最大化状态变化
   useEffect(() => {
     const handleResize = () => {
       // 检查窗口是否最大化（通过窗口尺寸与屏幕尺寸比较）
       if (typeof window !== 'undefined') {
-        const isMax = window.innerWidth === window.screen.availWidth && 
+        const isMax = window.innerWidth === window.screen.availWidth &&
                       window.innerHeight === window.screen.availHeight;
         setIsMaximized(isMax);
       }
@@ -133,6 +137,17 @@ export const TitleBar: React.FC<TitleBarProps> = ({
               {themeToggle}
             </div>
           )}
+          {/* 与原对话页工具栏一致：Type 图标循环切换 小/中/大/超大 */}
+          <button
+            type="button"
+            className={styles['title-bar-font-btn']}
+            onClick={cycle}
+            title={`字号：${label}（点击切换 小/中/大/超大）`}
+            aria-label={`切换字号，当前${label}`}
+            data-font-level={level}
+          >
+            <Type size={14} strokeWidth={1.8} />
+          </button>
         </div>
       </div>
 

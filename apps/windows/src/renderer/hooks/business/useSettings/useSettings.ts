@@ -51,6 +51,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     sendUsageStats: false,
     saveChatHistory: true,
     historyRetentionDays: 30,
+    allowAgentAppUiControl: true,
   },
   shortcuts: {
     sendMessage: 'Enter',
@@ -71,6 +72,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   system: {
     autoStart: false,
     minimizeToTray: true,
+    showSplashOnStartup: true,
   },
   memory: {
     injectPersonalMemory: true,

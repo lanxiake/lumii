@@ -5,7 +5,6 @@
  */
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react'
-import { useAuth } from '../AuthContext/AuthContext'
 
 /**
  * 技能信息
@@ -124,7 +123,6 @@ interface SkillsProviderProps {
  * SkillsProvider - 技能状态提供者
  */
 export const SkillsProvider: React.FC<SkillsProviderProps> = ({ children, autoLoad = true }) => {
-  const { isAuthenticated, isTokenSynced } = useAuth()
   const cachedSkills = loadCachedSkills()
   const [state, setState] = useState<SkillsState>({
     skills: cachedSkills,
@@ -427,16 +425,13 @@ export const SkillsProvider: React.FC<SkillsProviderProps> = ({ children, autoLo
     setState(prev => ({ ...prev, error: null }))
   }, [])
 
-  /**
-   * 自动加载技能列表（仅在已认证且 token 已同步时）
-   */
+  /** 挂载后自动加载技能列表 */
   useEffect(() => {
-    if (autoLoad && isAuthenticated && isTokenSynced && !hasLoadedRef.current) {
-      console.log('[SkillsContext] 用户已认证且 token 已同步，自动加载技能列表')
+    if (autoLoad && !hasLoadedRef.current) {
       hasLoadedRef.current = true
       refreshSkills()
     }
-  }, [autoLoad, isAuthenticated, isTokenSynced, refreshSkills])
+  }, [autoLoad, refreshSkills])
 
   const value: SkillsContextType = {
     ...state,

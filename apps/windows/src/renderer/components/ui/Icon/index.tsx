@@ -61,8 +61,14 @@ export { Copy } from 'lucide-react'
 // 插件图标
 export { Plug } from 'lucide-react'
 
+// MCP 服务图标
+export { Boxes } from 'lucide-react'
+
 // 语音图标
 export { Mic } from 'lucide-react'
+
+// 会话列表 / 工具栏
+export { Pin, PinOff, Trash2, Type, FolderTree, GitBranch } from 'lucide-react'
 
 // 重导出类型
 export type { LucideIcon, LucideProps } from 'lucide-react'

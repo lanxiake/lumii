@@ -12,6 +12,7 @@ import React, { useState, useCallback, useMemo, useEffect, createContext, useCon
 import clsx from 'clsx'
 import type { AgentWorkflowItem, ChildToolItem } from '../../../../hooks/business/useChat'
 import { ImageLightbox } from '../../../../components/ImageLightbox/ImageLightbox'
+import { classifyToolFamily } from './toolTaxonomy'
 import styles from './ToolCallCard.module.css'
 
 // ─── 文件预览上下文 ─────────────────────────────────────
@@ -169,10 +170,17 @@ interface ToolCallCardProps {
 }
 
 /**
- * 统一渲染工具名称标签，保证卡片上始终可见原始工具名。
+ * 统一渲染工具名称标签。
+ *
+ * MCP 工具名形如 mcp__<server>__<tool>，展示为「server · tool」。
  */
 function getToolDisplayName(name: string): string {
-  return name || 'unknown_tool'
+  if (!name) return 'unknown_tool'
+  const mcpMatch = /^mcp__(.+?)__(.+)$/.exec(name)
+  if (mcpMatch) {
+    return `${mcpMatch[1]} · ${mcpMatch[2]}`
+  }
+  return name
 }
 
 /**
@@ -204,20 +212,22 @@ function truncate(text: string, maxLength: number = 80): string {
   return text.slice(0, maxLength) + '…'
 }
 
+/** 工具家族 → 单行图标符号 */
+const FAMILY_ICON: Record<ReturnType<typeof classifyToolFamily>, string> = {
+  todo: '◉',
+  read: '◎',
+  search: '›',
+  write: '◈',
+  exec: '⟩',
+  agent: '◌',
+  image: '◈',
+  other: '›',
+}
+
 function getToolIcon(name: string, type: AgentWorkflowItem['type'], status: AgentWorkflowItem['status']): string {
   if (status === 'failed') return '✕'
   if (type === 'subagent') return status === 'running' ? '◌' : '◎'
-
-  const lname = name.toLowerCase()
-  /** todo_write 含子串 "write"，必须先于 write 分支判断 */
-  if (lname.includes('todo')) return '◉'
-  if (lname.includes('read') || lname.includes('view')) return '◎'
-  if (lname.includes('search') || lname.includes('grep') || lname.includes('glob')) return '›'
-  if (lname.includes('write') || lname.includes('edit') || lname.includes('create')) return '◈'
-  if (lname.includes('bash') || lname.includes('exec') || lname.includes('run')) return '⟩'
-  if (lname.includes('agent') || lname.includes('spawn')) return '◌'
-  if (lname === 'image_generate') return '◈'
-  return '›'
+  return FAMILY_ICON[classifyToolFamily(name)]
 }
 
 /** 从 input 中提取有意义的目标名称（文件名/搜索词/命令等） */
@@ -278,7 +288,8 @@ function extractTargetName(input: Record<string, unknown> | undefined, toolName:
   return ''
 }
 
-function getStatusLabel(item: AgentWorkflowItem): string {
+/** 生成工具的中文动作短句（如「已查看 xxx」「正在执行 xxx」），供单行卡片与批次分组复用 */
+export function getStatusLabel(item: AgentWorkflowItem): string {
   const name = item.name || ''
   const lname = name.toLowerCase()
   const target = extractTargetName(item.input, name)
@@ -339,6 +350,9 @@ function getStatusLabel(item: AgentWorkflowItem): string {
     const prompt = item.input?.prompt as string | undefined
     return prompt ? `${prefix}生成图片：${truncate(prompt, 40)}` : `${prefix}生成图片`
   }
+  if (lname === 'app_screenshot') {
+    return `${prefix}截取界面`
+  }
 
   // 通用技能/工具
   return target ? `${prefix}调用 ${name}: ${target}` : `${prefix}调用 ${name}`
@@ -351,7 +365,7 @@ function formatMs(ms: number): string {
   return `${Math.floor(ms / 60000)}m${Math.floor((ms % 60000) / 1000)}s`
 }
 
-/** 计算耗时字符串 */
+/** 计算耗时字符串（优先用后端 durationMs，running 时用实时 Date.now() 而非 liveNow 避免 1 秒跳变） */
 function formatDuration(startTime: Date, endTime?: Date, durationMs?: number): string {
   // 优先使用后端计算的 durationMs（精确且不受前端时间重置影响）
   if (durationMs !== undefined && durationMs >= 0) return formatMs(durationMs)
@@ -431,21 +445,73 @@ function formatInputSummary(input: Record<string, unknown> | undefined, toolName
   return formatParams(input)
 }
 
-// ─── image_generate 内联图片预览 ──────────────────────────
+// ─── 工具内联图片预览（image_generate / app_screenshot）──────────────────────────
 
-/** 从工具 output 提取 image_generate 的 details */
-function extractImageGenerateDetails(output: unknown): { filePath: string; width: number; height: number; model: string; revisedPrompt: string } | null {
+/** app_screenshot text 块 JSON 的最小字段（供路径回退与尺寸展示） */
+interface AppScreenshotPayload {
+  ok?: boolean
+  snapshotId?: string
+  width?: number
+  height?: number
+}
+
+/**
+ * 从 app_screenshot 工具 output 的 text 块解析 payload。
+ * previewPath 缺失时用于构造 ~/.lumii/temp/screenshots/{snapshotId}.jpg。
+ */
+function parseAppScreenshotPayload(output: Record<string, unknown>): AppScreenshotPayload | null {
+  const content = output.content
+  if (!Array.isArray(content)) return null
+  for (const block of content) {
+    if (!block || typeof block !== 'object' || (block as { type?: string }).type !== 'text') continue
+    const text = (block as { text?: string }).text
+    if (typeof text !== 'string') continue
+    try {
+      const parsed = JSON.parse(text) as AppScreenshotPayload
+      if (parsed && typeof parsed === 'object' && parsed.ok) return parsed
+    } catch {
+      // 非 JSON 文本块，跳过
+    }
+  }
+  return null
+}
+
+/**
+ * 从工具 output 提取可预览图片路径与元数据。
+ * image_generate 使用 details.filePath；app_screenshot 优先 details.previewPath。
+ */
+function extractToolImagePreviewDetails(output: unknown): {
+  filePath: string
+  width: number
+  height: number
+  model: string
+  revisedPrompt: string
+} | null {
   if (!output || typeof output !== 'object') return null
   const o = output as Record<string, unknown>
   const details = (o.details && typeof o.details === 'object') ? o.details as Record<string, unknown> : null
-  if (!details) return null
-  if (typeof details.filePath !== 'string' || !details.filePath) return null
+
+  let filePath: string | null = null
+  if (details) {
+    if (typeof details.previewPath === 'string' && details.previewPath) {
+      filePath = details.previewPath
+    } else if (typeof details.filePath === 'string' && details.filePath) {
+      filePath = details.filePath
+    }
+  }
+
+  const screenshotPayload = parseAppScreenshotPayload(o)
+  if (!filePath && screenshotPayload?.snapshotId) {
+    filePath = `~/.lumii/temp/screenshots/${screenshotPayload.snapshotId}.jpg`
+  }
+  if (!filePath) return null
+
   return {
-    filePath: details.filePath as string,
-    width: (details.width as number) ?? 0,
-    height: (details.height as number) ?? 0,
-    model: (details.model as string) ?? '',
-    revisedPrompt: (details.revisedPrompt as string) ?? '',
+    filePath,
+    width: (details?.width as number) ?? screenshotPayload?.width ?? 0,
+    height: (details?.height as number) ?? screenshotPayload?.height ?? 0,
+    model: (details?.model as string) ?? '',
+    revisedPrompt: (details?.revisedPrompt as string) ?? '',
   }
 }
 
@@ -454,7 +520,7 @@ const ImageGeneratePreview: React.FC<{ output: unknown; fullSize?: boolean }> = 
   const [loading, setLoading] = useState(true)
   const [zoomed, setZoomed] = useState(false)
 
-  const imgDetails = useMemo(() => extractImageGenerateDetails(output), [output])
+  const imgDetails = useMemo(() => extractToolImagePreviewDetails(output), [output])
 
   useEffect(() => {
     if (!imgDetails?.filePath) {
@@ -501,7 +567,9 @@ const ImageGeneratePreview: React.FC<{ output: unknown; fullSize?: boolean }> = 
           />
           {fullSize && imgDetails.width > 0 && (
             <div className={styles.imageMeta}>
-              {imgDetails.width}×{imgDetails.height} · {imgDetails.model} · {fileName}
+              {imgDetails.model
+                ? `${imgDetails.width}×${imgDetails.height} · ${imgDetails.model} · ${fileName}`
+                : `${imgDetails.width}×${imgDetails.height} · ${fileName}`}
             </div>
           )}
           {zoomed && (
@@ -733,7 +801,7 @@ const ChildToolRow: React.FC<{ child: ChildToolItem }> = ({ child }) => {
         )}
         {(child.endTime || child.status === 'running') && (
           <span className={styles.childToolDuration}>
-            {formatDuration(child.startTime, child.endTime ?? liveNow)}
+            {formatDuration(child.startTime, child.endTime)}
           </span>
         )}
         <span className={styles.childToolToggle}>{isExpanded ? '∧' : '∨'}</span>
@@ -783,7 +851,7 @@ const SubagentCard: React.FC<{ item: AgentWorkflowItem }> = ({ item }) => {
   const shortKey = extractShortKey(item.childSessionKey)
   // 优先用 agentLabel（子 Agent 名称/标识），其次 agentId，最后用 shortKey
   const agentLabel = item.agentLabel || item.agentId || shortKey
-  const duration = formatDuration(item.startTime, item.endTime ?? liveNow, item.status !== 'running' ? item.durationMs : undefined)
+  const duration = formatDuration(item.startTime, item.endTime, item.status !== 'running' ? item.durationMs : undefined)
   const outputObj = item.output as Record<string, unknown> | undefined
   const summary = outputObj?.summary as string | undefined
   // 提取完整输出文本：优先 result/text/content，其次整个 output
@@ -953,8 +1021,10 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
   const isTodoWrite = (item.name || '').toLowerCase() === 'todo_write'
   const showTodoPreview =
     isTodoWrite && !isRunning && (item.status === 'completed' || item.status === 'failed')
-  const isImageGenerate = (item.name || '').toLowerCase() === 'image_generate'
-  const showImagePreview = isImageGenerate && item.status === 'completed' && !!extractImageGenerateDetails(item.output)
+  const toolNameLower = (item.name || '').toLowerCase()
+  const isImagePreviewTool = toolNameLower === 'image_generate' || toolNameLower === 'app_screenshot'
+  const showImagePreview =
+    isImagePreviewTool && item.status === 'completed' && !!extractToolImagePreviewDetails(item.output)
 
   // 提取文件读写元数据：存在时在头部显示"可点击文件名 + 行号范围"
   const fileInfo = useMemo(

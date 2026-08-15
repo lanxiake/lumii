@@ -1,33 +1,70 @@
+/* 会话项：对齐原型 .si —— 无边框、9px 圆角、选中态左侧发光竖条 */
 .session-item {
+  position: relative;
   display: flex;
-  align-items: flex-start;
-  gap: var(--spacing-2);
-  padding: var(--spacing-3);
-  margin: var(--spacing-1) var(--spacing-2);
-  border-radius: var(--radius-lg);
-  background: transparent;
+  align-items: center;
+  gap: var(--mt-space-2);
+  width: 100%;
+  padding: 8px 9px;
   border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--mt-fg-2);
   text-align: left;
   cursor: pointer;
-  transition: all 0.2s;
-  position: relative;
-  width: calc(100% - var(--spacing-4));
+  transition:
+    background var(--mt-dur-normal) var(--mt-ease-standard),
+    color var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
 .session-item:hover {
-  background: var(--color-bg-tertiary);
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-1);
 }
 
 .session-item.active {
-  background: var(--color-primary-20);
+  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
+  color: var(--mt-fg-1);
 }
 
-.session-item.pinned {
-  border-left: 3px solid var(--color-primary);
+/* 选中标识用发光竖条，不再靠 border-left 挤压内容 */
+.session-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--mt-accent-500);
+  box-shadow: 0 0 8px var(--mt-accent-500);
 }
 
 .session-item.editing {
-  padding: var(--spacing-2) var(--spacing-3);
+  padding: 6px 9px;
+}
+
+/* 流式中：竖条改用强调色呼吸，不占布局 */
+.session-item.streaming::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--mt-accent-500);
+  animation: mt-session-bar 1.4s var(--mt-ease-standard) infinite;
+}
+
+@keyframes mt-session-bar {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .session-content {
@@ -37,30 +74,32 @@
 
 .session-title-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: var(--spacing-2);
+  gap: 6px;
 }
 
 .session-pin-icon {
-  font-size: 12px;
   flex-shrink: 0;
+  color: var(--mt-accent-500);
 }
 
 .session-title {
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--color-text-primary);
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+  /* 基准 12px +10%，并跟随全局字号档位 */
+  font-size: calc(13.2px * var(--app-font-scale, 1));
+  color: inherit;
 }
 
+/* 时间用等宽小字（原型 .si-m） */
 .session-time {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
   flex-shrink: 0;
+  font-family: var(--mt-font-mono);
+  font-size: calc(10.45px * var(--app-font-scale, 1));
+  color: var(--mt-fg-4);
 }
 
 .status-badges {
@@ -71,96 +110,117 @@
 }
 
 .session-preview {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-tertiary);
+  margin-top: 1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-top: var(--spacing-1);
+  font-size: calc(11px * var(--app-font-scale, 1));
+  color: var(--mt-fg-4);
 }
 
+/* Agent 徽标（原型 .si-u） */
 .agent-badge {
   display: inline-block;
-  font-size: 10px;
-  color: var(--color-text-tertiary);
-  background: var(--color-bg-secondary);
-  border-radius: 4px;
-  padding: 1px 5px;
-  margin-top: 2px;
   max-width: 120px;
+  margin-top: 2px;
+  padding: 1px 5px;
+  border-radius: var(--mt-radius-full);
+  background: color-mix(in srgb, var(--mt-accent-500) 22%, transparent);
+  color: var(--mt-accent-500);
+  font-family: var(--mt-font-mono);
+  font-size: calc(10.45px * var(--app-font-scale, 1));
+  font-weight: var(--mt-fw-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* Hover actions */
+/* hover 操作：图标按钮，正式化，不用 emoji */
 .session-hover-actions {
   display: flex;
-  gap: var(--spacing-1);
+  gap: 2px;
+  flex-shrink: 0;
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
-.session-item:hover .session-hover-actions {
+.session-item:hover .session-hover-actions,
+.session-item:focus-within .session-hover-actions {
   opacity: 1;
 }
 
 .session-action-btn {
-  padding: var(--spacing-1);
-  background: transparent;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--mt-fg-4);
   cursor: pointer;
-  font-size: 12px;
-  opacity: 0.6;
-  transition: all 0.2s;
+  transition:
+    background var(--mt-dur-normal) var(--mt-ease-standard),
+    color var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
 .session-action-btn:hover {
-  opacity: 1;
-  background: var(--color-bg-secondary);
+  background: var(--mt-surface-3);
+  color: var(--mt-accent-500);
 }
 
 .session-action-btn.delete:hover {
-  color: var(--color-error);
+  background: color-mix(in srgb, var(--mt-error) 12%, transparent);
+  color: var(--mt-error);
 }
 
-/* Edit input */
+/* 重命名输入 */
 .session-edit-input {
   width: 100%;
-  padding: var(--spacing-1) var(--spacing-2);
-  border: 1px solid var(--color-primary);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  font-size: var(--font-size-sm);
+  padding: 3px 6px;
+  border: 1px solid var(--mt-accent-500);
+  border-radius: 7px;
+  background: var(--mt-bg-elevated);
+  color: var(--mt-fg-1);
+  font-size: calc(13.2px * var(--app-font-scale, 1));
   outline: none;
 }
 
-/* Streaming / active state */
-.session-item.streaming {
-  border-left: 3px solid var(--color-primary);
+.streaming-dot,
+.active-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--mt-radius-full);
+  flex-shrink: 0;
 }
 
 .streaming-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--color-primary, #6366f1);
-  flex-shrink: 0;
-  animation: pulse-dot 1.2s ease-in-out infinite;
+  background: var(--mt-accent-500);
+  animation: mt-session-dot 1.2s var(--mt-ease-standard) infinite;
 }
 
 .active-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--color-success, #22c55e);
-  flex-shrink: 0;
-  animation: pulse-dot 1.4s ease-in-out infinite;
+  background: var(--mt-success);
+  animation: mt-session-dot 1.4s var(--mt-ease-standard) infinite;
 }
 
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%       { opacity: 0.4; transform: scale(0.7); }
+@keyframes mt-session-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.7);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-item.streaming::before,
+  .streaming-dot,
+  .active-dot {
+    animation: none;
+  }
 }

@@ -1,19 +1,27 @@
-import React, { useRef, useCallback, useState, useEffect } from 'react'
+import React, { useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
 import clsx from 'clsx'
 import styles from './ChatInput.module.css'
 import type { Agent } from '../../../../services/agent-service'
 import type { ContextUsage } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import { searchCommands, CATEGORY_LABELS } from '../../commands/slash-commands'
 import type { SlashCommand } from '../../commands/slash-commands'
-import { getSelectedAcpBackendId, BACKEND_INFO } from '../../commands/slash-command-executor'
-import { getSupportedDocumentAccept, getSupportedImageAccept } from '../../utils/file-attachment-strategy'
+import { getSelectedAcpBackendId, BACKEND_INFO, MAIN_BACKEND_ID } from '../../commands/slash-command-executor'
+import { getSupportedAttachmentAccept } from '../../utils/file-attachment-strategy'
 import Switch from '../../../../components/ui/Switch/Switch'
 import { formatContextUsageCompact, formatTokenCount } from '../../../../utils/format-token-count'
+import ContextUsageCard from './ContextUsageCard'
 import { useRotatingTip } from '../TipsBanner/useRotatingTip'
+import { ComposerPlusMenu } from './ComposerPlusMenu'
+import { useComposerDraft } from './useComposerDraft'
+import type { ViewType } from '../../../../components/Router'
 
 interface ChatInputProps {
   value: string
   onChange: (value: string) => void
+  /** 当前会话 key；切换时把未 flush 的本地草稿写回旧会话 */
+  sessionKey?: string | null
+  /** 按指定 sessionKey 持久化草稿，避免切会话后写到新会话 */
+  onPersistDraft?: (sessionKey: string | null, value: string) => void
   onSend: () => void
   onAbort?: () => void | Promise<void>
   disabled?: boolean
@@ -52,14 +60,16 @@ interface ChatInputProps {
   onReasoningEffortChange?: (effort: 'high' | 'max') => void
   /** 当前模型上下文窗口（用于展示兜底，当 runtime 尚未推送用量时） */
   modelContextWindow?: number
-  /** 文件上传回调 */
+  /** 统一附件上传回调（图片 + 文件） */
   onFileUpload?: (files: FileList) => void | Promise<void>
-  /** 图片上传回调 */
+  /** @deprecated 已与 onFileUpload 合并，保留兼容 */
   onImageUpload?: (files: FileList) => void | Promise<void>
   /** 待发附件列表（由父组件管理） */
   pendingAttachments?: Array<{ fileName: string; filePath: string }>
   /** 移除待发附件回调 */
   onRemoveAttachment?: (filePath: string) => void
+  /** 主导航跳转（管理技能 / MCP / Agent） */
+  onViewChange?: (view: ViewType) => void
   /** 中途插话回调（AI 正在回复时可用） */
   onSteer?: (steerText: string) => void
   /** 上下文使用量（来自 agent:context:usage 事件） */
@@ -90,9 +100,9 @@ export interface FileReference {
 }
 
 /**
- * 构造上下文状态提示文案，用于悬浮 title。
+ * 构造上下文状态无障碍标签（视觉信息由悬浮卡片承载）。
  */
-function formatContextUsageTitle(contextUsage: ContextUsage): string {
+function formatContextUsageLabel(contextUsage: ContextUsage): string {
   const used = contextUsage.usedTokens
   const total = contextUsage.contextWindow
   const ratio = total > 0 ? used / total : 0
@@ -105,16 +115,21 @@ function formatContextUsageTitle(contextUsage: ContextUsage): string {
       : '状态健康'
 
   return [
-    `上下文使用: ${formatTokenCount(used)} / ${formatTokenCount(total)} tokens (${percent}%)`,
-    `压缩阈值: ${threshold}%`,
-    `状态: ${level}`,
+    `上下文使用 ${formatTokenCount(used)} / ${formatTokenCount(total)} tokens，${percent}%`,
+    `压缩阈值 ${threshold}%`,
+    `状态 ${level}`,
     '点击可主动压缩上下文',
-  ].join('\n')
+  ].join('，')
 }
 
+/**
+ * 对话输入卡：本地草稿 + IME 延迟同步，避免每个按键重绘整个 ChatPage。
+ */
 const ChatInput: React.FC<ChatInputProps> = ({
   value,
   onChange,
+  sessionKey = null,
+  onPersistDraft,
   onSend,
   onAbort,
   disabled,
@@ -139,6 +154,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   onImageUpload,
   pendingAttachments = [],
   onRemoveAttachment,
+  onViewChange,
   onSteer,
   contextUsage,
   isCompacting = false,
@@ -152,10 +168,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
   showTips = false,
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const imageInputRef = useRef<HTMLInputElement>(null)
+  const attachmentInputRef = useRef<HTMLInputElement>(null)
   const steerInputRef = useRef<HTMLInputElement>(null)
-  const commandPanelRef = useRef<HTMLDivElement>(null)
   const modelPanelRef = useRef<HTMLDivElement>(null)
   const helpPanelRef = useRef<HTMLDivElement>(null)
   const slashPanelRef = useRef<HTMLDivElement>(null)
@@ -165,12 +179,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const [steerSent, setSteerSent] = useState(false)
   // AI 回复中的等待队列：有内容时回车入队，输入框为空时回车则打断当前回复并合并发送队列
   const [queuedMessages, setQueuedMessages] = useState<string[]>([])
-  // /命令面板状态
-  const [commandPanelOpen, setCommandPanelOpen] = useState(false)
   // 模型切换面板状态
   const [modelPanelOpen, setModelPanelOpen] = useState(false)
   // 帮助面板状态
   const [helpPanelOpen, setHelpPanelOpen] = useState(false)
+  // 上下文占用卡片悬浮态
+  const [contextCardOpen, setContextCardOpen] = useState(false)
   const [currentBackend, setCurrentBackend] = useState(() => getSelectedAcpBackendId())
   // 启动时从主进程同步后端选择（主进程持久化到 config 目录，比 localStorage 更可靠）
   useEffect(() => {
@@ -201,26 +215,54 @@ const ChatInput: React.FC<ChatInputProps> = ({
   // 拖入的工作空间文件 @引用（textarea 为纯文本，引用以独立 chip 展示，可点击定位）
   const [isDragOver, setIsDragOver] = useState(false)
 
-  // 中文输入法（IME）组合态标记：组合期间不触发斜杠补全/回车发送，避免逐字上屏卡顿与误发
-  const isComposingRef = useRef(false)
+  const {
+    innerValue,
+    isComposingRef,
+    setDraft,
+    flushDraft,
+    handleDraftChange,
+    handleCompositionStart,
+    handleCompositionEnd: commitComposition,
+    handleBlur: flushDraftOnBlur,
+  } = useComposerDraft({
+    value,
+    sessionKey,
+    onChange,
+    onPersistDraft,
+  })
+
+  /**
+   * 按当前草稿更新斜杠补全；非 / 开头且已空时跳过 setState，避免每个按键多一次渲染。
+   */
+  const applySlashSuggestions = useCallback((nextValue: string) => {
+    if (nextValue.startsWith('/') && !nextValue.includes('\n')) {
+      setSlashSuggestions(searchCommands(nextValue))
+      setSlashSuggestionIndex(0)
+      return
+    }
+    setSlashSuggestions((prev) => (prev.length === 0 ? prev : []))
+  }, [])
 
   // 在光标处插入 @引用文本
   const insertAtCursor = useCallback((text: string) => {
     const el = textareaRef.current
     if (!el) {
-      onChange(value + text)
+      const next = innerValue + text
+      setDraft(next)
+      flushDraft(next)
       return
     }
-    const start = el.selectionStart ?? value.length
-    const end = el.selectionEnd ?? value.length
-    const next = value.slice(0, start) + text + value.slice(end)
-    onChange(next)
+    const start = el.selectionStart ?? innerValue.length
+    const end = el.selectionEnd ?? innerValue.length
+    const next = innerValue.slice(0, start) + text + innerValue.slice(end)
+    setDraft(next)
+    flushDraft(next)
     requestAnimationFrame(() => {
       const pos = start + text.length
       el.selectionStart = el.selectionEnd = pos
       el.focus()
     })
-  }, [value, onChange])
+  }, [innerValue, setDraft, flushDraft])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     const raw = e.dataTransfer.getData('application/x-mtbot-file')
@@ -230,13 +272,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
     try {
       const ref = JSON.parse(raw) as FileReference
       // 在文本中插入 @相对路径（保证带空格分隔，便于 Agent 解析）
-      const needsSpace = value.length > 0 && !/\s$/.test(value)
+      const needsSpace = innerValue.length > 0 && !/\s$/.test(innerValue)
       insertAtCursor(`${needsSpace ? ' ' : ''}@${ref.relativePath} `)
       onFileReferenceAdd?.(ref)
     } catch (err) {
       console.error('[ChatInput] 解析拖入文件失败:', err)
     }
-  }, [value, insertAtCursor, onFileReferenceAdd])
+  }, [innerValue, insertAtCursor, onFileReferenceAdd])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     if (e.dataTransfer.types.includes('application/x-mtbot-file')) {
@@ -266,45 +308,43 @@ const ChatInput: React.FC<ChatInputProps> = ({
     el.style.height = Math.min(el.scrollHeight, 200) + 'px'
   }, [])
 
-  // 外部设置 value（如点击快捷指令）时同步调整高度
-  useEffect(() => {
+  // 本地草稿或外部写入变化时同步高度（不再在 onChange 里重复读 layout）
+  useLayoutEffect(() => {
     adjustHeight()
-  }, [value, adjustHeight])
+  }, [innerValue, adjustHeight])
 
+  /**
+   * 输入变化：只更新本地草稿；IME 组合期间跳过斜杠匹配。
+   */
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value
-    onChange(newValue)
-    adjustHeight()
-
-    // IME 组合期间跳过斜杠补全计算，减少逐字上屏时的同步开销
+    handleDraftChange(newValue)
     if (isComposingRef.current) return
-
-    // 斜杠命令补全：单行且以 / 开头时触发
-    if (newValue.startsWith('/') && !newValue.includes('\n')) {
-      const suggestions = searchCommands(newValue)
-      setSlashSuggestions(suggestions)
-      setSlashSuggestionIndex(0)
-    } else {
-      setSlashSuggestions([])
-    }
+    applySlashSuggestions(newValue)
   }
 
-  const handleCompositionStart = () => {
-    isComposingRef.current = true
-  }
-
-  // 组合结束（如中文选词完成）后补算一次斜杠补全，并允许后续回车发送
+  /**
+   * 组合结束：一次性 flush 最终文案，并补算斜杠补全。
+   */
   const handleCompositionEnd = (e: React.CompositionEvent<HTMLTextAreaElement>) => {
-    isComposingRef.current = false
-    const newValue = e.currentTarget.value
-    if (newValue.startsWith('/') && !newValue.includes('\n')) {
-      const suggestions = searchCommands(newValue)
-      setSlashSuggestions(suggestions)
-      setSlashSuggestionIndex(0)
-    } else {
-      setSlashSuggestions([])
-    }
+    const newValue = (e.target as HTMLTextAreaElement).value
+    commitComposition(newValue)
+    applySlashSuggestions(newValue)
   }
+
+  // 剪贴板粘贴处理：提取文件/图片并上传
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const { clipboardData } = e
+    if (!clipboardData || !clipboardData.files || clipboardData.files.length === 0) {
+      return // 无文件，继续默认粘贴（文本）
+    }
+    // 有文件：阻止默认行为（避免粘贴 [object File] 等无效文本），调用上传处理器
+    e.preventDefault()
+    const handler = onFileUpload ?? onImageUpload
+    if (handler) {
+      handler(clipboardData.files)
+    }
+  }, [onFileUpload, onImageUpload])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // IME 组合期间（中文选词等）的回车/方向键属输入法操作，不触发补全导航或发送
@@ -330,7 +370,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
           setSlashSuggestions([])
           // 命令无参数：直接发送，绕过 React 状态批处理
           if (!selected.usage || selected.usage === selected.name) {
-            onChange(selected.name)
+            setDraft(selected.name)
+            flushDraft(selected.name)
             if (onSendWithValue) {
               onSendWithValue(selected.name)
             } else {
@@ -339,7 +380,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
           } else {
             // 有参数：填充命令名 + 空格，等待用户继续输入
             const fill = `${selected.name} `
-            onChange(fill)
+            setDraft(fill)
+            flushDraft(fill)
             textareaRef.current?.focus()
           }
           return
@@ -356,11 +398,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
       if (disabled) return
       // AI 正在回复时：回车不直接发送
       if (isStreaming) {
-        const text = value.trim()
+        const text = innerValue.trim()
         if (text) {
           // 有内容 → 追加到等待队列，清空输入框，可继续输入下一条
           setQueuedMessages((prev) => [...prev, text])
-          onChange('')
+          setDraft('')
+          flushDraft('')
           if (textareaRef.current) textareaRef.current.style.height = 'auto'
         } else if (queuedMessages.length > 0) {
           // 输入框为空且队列非空 → 打断当前回复，合并发送队列
@@ -369,7 +412,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
         return
       }
       // 非流式状态：空输入框 + 队列非空 → 直接发送队列（修复队列被孤立无法发出）
-      if (!value.trim()) {
+      if (!innerValue.trim()) {
         if (queuedMessages.length > 0) void flushQueuedMessages()
         return
       }
@@ -411,8 +454,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setQueuedMessages((prev) => prev.filter((_, i) => i !== index))
   }
 
+  /**
+   * 用本地草稿发送。先 flush 再发，避免发送失败时父组件空草稿把输入框冲掉。
+   */
   const handleSend = () => {
-    onSend()
+    flushDraft(innerValue)
+    if (onSendWithValue) {
+      onSendWithValue(innerValue)
+    } else {
+      onSend()
+    }
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
@@ -429,24 +480,65 @@ const ChatInput: React.FC<ChatInputProps> = ({
     } else if (queuedMessages.length > 0) {
       // 非流式但队列有数据：直接发送队列
       void flushQueuedMessages()
-    } else if (value.trim()) {
+    } else if (innerValue.trim()) {
       handleSend()
     }
   }
 
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  /** 统一附件选择变更：优先 onFileUpload，兼容旧 onImageUpload */
+  const handleAttachmentInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      onFileUpload?.(e.target.files)
+      const handler = onFileUpload ?? onImageUpload
+      handler?.(e.target.files)
       e.target.value = ''
     }
   }
 
-  const handleImageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      onImageUpload?.(e.target.files)
-      e.target.value = ''
+  /** 打开统一附件选择器 */
+  const openAttachmentPicker = useCallback(() => {
+    attachmentInputRef.current?.click()
+  }, [])
+
+  /** Ctrl+U 打开统一附件选择器 */
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'u') return
+      if (disabled || !isConnected) return
+      e.preventDefault()
+      openAttachmentPicker()
     }
-  }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [disabled, isConnected, openAttachmentPicker])
+
+  /** 跳转技能中心 / MCP（由 Settings Hub 浮层承接） */
+  const navigateSkillsTab = useCallback((tab?: 'my-skills' | 'mcp') => {
+    if (tab === 'mcp') {
+      onViewChange?.('mcp')
+      return
+    }
+    if (tab) {
+      try {
+        sessionStorage.setItem('mtbot_skills_init_tab', tab)
+      } catch {
+        /* ignore */
+      }
+      window.dispatchEvent(new CustomEvent('mtbot:open-skills-tab', { detail: { tab } }))
+    }
+    onViewChange?.('skills')
+  }, [onViewChange])
+
+  const handleManageSkills = useCallback(() => {
+    navigateSkillsTab('my-skills')
+  }, [navigateSkillsTab])
+
+  const handleManageMcp = useCallback(() => {
+    navigateSkillsTab('mcp')
+  }, [navigateSkillsTab])
+
+  const handleManageAgents = useCallback(() => {
+    onViewChange?.('agents')
+  }, [onViewChange])
 
   const handleSteerSend = useCallback(() => {
     if (!steerValue.trim() || !onSteer) return
@@ -470,18 +562,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     setSteerExpanded(true)
     setTimeout(() => steerInputRef.current?.focus(), 0)
   }
-
-  // 点击面板外部关闭
-  useEffect(() => {
-    if (!commandPanelOpen) return
-    const handleClickOutside = (e: MouseEvent) => {
-      if (commandPanelRef.current && !commandPanelRef.current.contains(e.target as Node)) {
-        setCommandPanelOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [commandPanelOpen])
 
   // 点击模型面板外部关闭
   useEffect(() => {
@@ -521,12 +601,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [slashSuggestions.length])
 
-  const tipsEnabled = Boolean(showTips && isConnected && !isStreaming && !value.trim())
+  const tipsEnabled = Boolean(showTips && isConnected && !isStreaming && !innerValue.trim())
   const rotatingTip = useRotatingTip(tipsEnabled)
 
   /** 有输入内容或附件时，输入卡片改为不透明，避免与透出的消息文字重叠 */
   const hasInputContent =
-    value.trim().length > 0 ||
+    innerValue.trim().length > 0 ||
     pendingAttachments.length > 0 ||
     fileReferences.length > 0
 
@@ -541,30 +621,27 @@ const ChatInput: React.FC<ChatInputProps> = ({
         ? rotatingTip
         : (placeholder || '咱们今天干点啥！')
 
-  const agentChoices = agents
-
-  const currentAgentLabel = selectedAgent ? selectedAgent.name : '系统默认'
   const currentModelLabel =
     modelChoices.find((m) => m.id === selectedModelId)?.name ?? selectedModelId ?? '默认模型'
   const effectiveContextWindow =
     (contextUsage?.contextWindow && contextUsage.contextWindow > 0
       ? contextUsage.contextWindow
       : modelContextWindow) ?? 0
-  const contextUsageTitle = contextUsage || effectiveContextWindow > 0
-    ? formatContextUsageTitle({
+  const contextUsageLabel = contextUsage || effectiveContextWindow > 0
+    ? formatContextUsageLabel({
         usedTokens: contextUsage?.usedTokens ?? 0,
         contextWindow: effectiveContextWindow,
         triggerThreshold: contextUsage?.triggerThreshold ?? 0.8,
         isNearThreshold: contextUsage?.isNearThreshold ?? false,
       })
-    : ''
+    : '点击可主动压缩上下文'
   const contextWindowText =
     effectiveContextWindow > 0
       ? formatContextUsageCompact(contextUsage?.usedTokens ?? 0, effectiveContextWindow)
       : '--'
 
   return (
-    <div className={styles['chat-input-wrapper']}>
+    <div className={styles['chat-input-wrapper']} data-app-ui-block="composer">
       {!isConnected && (
         <div className={styles['connection-warning']}>未连接到服务器，无法发送消息</div>
       )}
@@ -600,14 +677,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
                       onClick={() => {
                         setSlashSuggestions([])
                         if (!cmd.usage || cmd.usage === cmd.name) {
-                          onChange(cmd.name)
+                          setDraft(cmd.name)
+                          flushDraft(cmd.name)
                           if (onSendWithValue) {
                             onSendWithValue(cmd.name)
                           } else {
                             setTimeout(() => handleSend(), 0)
                           }
                         } else {
-                          onChange(`${cmd.name} `)
+                          setDraft(`${cmd.name} `)
+                          flushDraft(`${cmd.name} `)
                           textareaRef.current?.focus()
                         }
                       }}
@@ -765,88 +844,39 @@ const ChatInput: React.FC<ChatInputProps> = ({
         {/* 文本域 */}
         <textarea
           ref={textareaRef}
-          value={value}
+          value={innerValue}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}
+          onBlur={flushDraftOnBlur}
+          onPaste={handlePaste}
           disabled={isDisabled}
           placeholder={effectivePlaceholder}
           rows={1}
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="off"
           className={styles['chat-textarea']}
         />
 
         {/* 底部工具栏 */}
         <div className={styles['input-toolbar']}>
-          {/* 左侧：Agent 切换 + 模型切换 */}
+          {/* 左侧：「+」菜单 + 模型切换 + 思考 */}
           <div className={styles['toolbar-left']}>
-            {/* Agent 切换：视觉与模型选择器一致（圆角边框 + 覆盖层触发） */}
-            <div
-              className={styles['toolbar-select-wrapper']}
-              ref={commandPanelRef}
-            >
-              <button
-                type="button"
-                className={styles['toolbar-select-overlay']}
-                onClick={() => setCommandPanelOpen((v) => !v)}
-                disabled={isDisabled}
-                aria-label="切换 Agent"
-                title="切换 Agent"
-              />
-              <span className={styles['toolbar-agent-glyph']} aria-hidden>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 8c-2.5 0-4.5 2-4.5 4.5V18h9v-5.5C16.5 10 14.5 8 12 8z" />
-                  <path d="M9 18v2h6v-2" />
-                  <circle cx="12" cy="5" r="2" />
-                </svg>
-              </span>
-              <span className={styles['toolbar-select-label']}>{currentAgentLabel}</span>
-              <span className={styles['toolbar-select-chevron']}>∨</span>
-              {commandPanelOpen && (
-                <div className={styles['command-dropdown']}>
-                  <div className={styles['command-dropdown-title']}>切换 Agent</div>
-                  {agentsLoading ? (
-                    <div className={styles['command-loading']}>加载中...</div>
-                  ) : (
-                    <>
-                      {/* 固定的"系统默认"选项，不依赖 agents 数组 */}
-                      <button
-                        type="button"
-                        className={`${styles['command-item']} ${!selectedAgent ? styles['command-item--active'] : ''}`}
-                        onClick={() => {
-                          onAgentChange?.(null)
-                          setCommandPanelOpen(false)
-                        }}
-                      >
-                        <span className={styles['command-item-icon']} aria-hidden>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" /></svg>
-                        </span>
-                        <span>系统默认</span>
-                      </button>
-                      {/* 仅展示用户 Agent */}
-                      {agentChoices.map((agent) => (
-                        <button
-                          type="button"
-                          key={agent.id}
-                          className={`${styles['command-item']} ${selectedAgent?.id === agent.id ? styles['command-item--active'] : ''}`}
-                          onClick={() => {
-                            onAgentChange?.(agent)
-                            setCommandPanelOpen(false)
-                          }}
-                        >
-                          <span className={styles['command-item-icon']} aria-hidden>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>
-                          </span>
-                          <span>{agent.name}</span>
-                        </button>
-                      ))}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
+            <ComposerPlusMenu
+              disabled={isDisabled}
+              onAttachFiles={openAttachmentPicker}
+              agents={agents}
+              selectedAgent={selectedAgent}
+              agentsLoading={agentsLoading}
+              onAgentChange={onAgentChange}
+              onManageSkills={handleManageSkills}
+              onManageMcp={handleManageMcp}
+              onManageAgents={handleManageAgents}
+            />
 
-            {/* 模型切换：紧邻 Agent 切换，视觉一致 */}
+            {/* 模型切换 */}
             <div
               className={styles['toolbar-select-wrapper']}
               ref={modelPanelRef}
@@ -897,7 +927,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             </div>
 
             {/* 思考模式 + 推理强度（紧邻模型选择） */}
-            <div className={styles['thinking-controls']}>
+            <div className={clsx(styles['thinking-controls'], thinkingEnabled && styles['thinking-controls-on'])}>
               <label className={styles['thinking-toggle']} title="控制是否开启模型思考模式">
                 <span className={styles['thinking-toggle-label']}>思考</span>
                 <Switch
@@ -924,7 +954,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
           {/* 右侧：工具按钮 + 发送 */}
           <div className={styles['toolbar-right']}>
             {/* 当前后端标识（非默认时显示） */}
-            {currentBackend !== 'openclaw' && (
+            {currentBackend !== MAIN_BACKEND_ID && (
               <span className={styles['backend-badge']} title={`当前后端: ${currentBackend}`}>
                 {Object.values(BACKEND_INFO).find(b => b.acpBackendId === currentBackend)?.label ?? currentBackend}
               </span>
@@ -950,70 +980,56 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 中途插话
               </button>
             )}
-            {/* 上下文压缩图标：支持悬浮信息和主动触发，始终显示（有 onCompactContext 时） */}
+            {/* 上下文压缩图标：悬浮展开占用明细卡片，点击主动压缩 */}
             {(isCompacting || onCompactContext) && (
-              <button
-                type="button"
-                className={clsx(
-                  styles['context-compact'],
-                  isCompacting
-                    ? styles['context-compact-compacting']
-                    : contextUsage && effectiveContextWindow > 0
-                      ? (
-                          contextUsage.usedTokens / effectiveContextWindow > (contextUsage.triggerThreshold ?? 0.8)
-                            ? styles['context-compact-danger']
-                            : contextUsage.isNearThreshold
-                              ? styles['context-compact-warn']
-                              : styles['context-compact-safe']
-                        )
-                      : styles['context-compact-safe'],
-                )}
-                title={isCompacting ? '正在自动压缩上下文...' : (contextUsage ? contextUsageTitle : '点击可主动压缩上下文')}
-                onClick={() => !isCompacting && onCompactContext?.()}
-                disabled={isCompacting || !onCompactContext || isDisabled}
+              <div
+                className={styles['context-usage-wrapper']}
+                onMouseEnter={() => setContextCardOpen(true)}
+                onMouseLeave={() => setContextCardOpen(false)}
               >
-                <span className={clsx(styles['context-compact-icon'], isCompacting && styles['context-compact-icon--spinning'])} aria-hidden>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M8 4v4H4" />
-                    <path d="M20 10A8 8 0 0 0 6.6 5.3L4 8" />
-                    <path d="M16 20v-4h4" />
-                    <path d="M4 14a8 8 0 0 0 13.4 4.7L20 16" />
-                  </svg>
-                </span>
-                <span className={styles['context-compact-text']}>
-                  <span className={styles['context-compact-line']}>
-                    {isCompacting ? '压缩中...' : ''}
+                <button
+                  type="button"
+                  className={clsx(
+                    styles['context-compact'],
+                    isCompacting
+                      ? styles['context-compact-compacting']
+                      : contextUsage && effectiveContextWindow > 0
+                        ? (
+                            contextUsage.usedTokens / effectiveContextWindow > (contextUsage.triggerThreshold ?? 0.8)
+                              ? styles['context-compact-danger']
+                              : contextUsage.isNearThreshold
+                                ? styles['context-compact-warn']
+                                : styles['context-compact-safe']
+                          )
+                        : styles['context-compact-safe'],
+                  )}
+                  aria-label={isCompacting ? '正在自动压缩上下文' : contextUsageLabel}
+                  onClick={() => !isCompacting && onCompactContext?.()}
+                  disabled={isCompacting || !onCompactContext || isDisabled}
+                >
+                  <span className={clsx(styles['context-compact-icon'], isCompacting && styles['context-compact-icon--spinning'])} aria-hidden>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M8 4v4H4" />
+                      <path d="M20 10A8 8 0 0 0 6.6 5.3L4 8" />
+                      <path d="M16 20v-4h4" />
+                      <path d="M4 14a8 8 0 0 0 13.4 4.7L20 16" />
+                    </svg>
                   </span>
-                  <span className={styles['context-compact-line']}>{contextWindowText}</span>
-                </span>
-              </button>
+                  <span className={styles['context-compact-text']}>
+                    <span className={styles['context-compact-line']}>
+                      {isCompacting ? '压缩中...' : ''}
+                    </span>
+                    <span className={styles['context-compact-line']}>{contextWindowText}</span>
+                  </span>
+                </button>
+                {contextCardOpen && !isCompacting && (
+                  <ContextUsageCard
+                    contextUsage={contextUsage}
+                    contextWindow={effectiveContextWindow}
+                  />
+                )}
+              </div>
             )}
-            {/* 文件上传按钮 */}
-            <button
-              type="button"
-              className={styles['toolbar-icon-btn']}
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isDisabled}
-              title="上传文件"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-              </svg>
-            </button>
-            {/* 图片上传按钮 */}
-            <button
-              type="button"
-              className={styles['toolbar-icon-btn']}
-              onClick={() => imageInputRef.current?.click()}
-              disabled={isDisabled}
-              title="上传图片"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <polyline points="21 15 16 10 5 21" />
-              </svg>
-            </button>
             {/* 帮助/功能提示按钮 */}
             <div className={styles['help-panel-wrapper']} ref={helpPanelRef}>
               <button
@@ -1050,6 +1066,14 @@ const ChatInput: React.FC<ChatInputProps> = ({
                       <span>换行</span>
                     </div>
                     <div className={styles['help-item']}>
+                      <kbd className={styles['help-kbd']}>Ctrl+U</kbd>
+                      <span>添加文件或图片</span>
+                    </div>
+                    <div className={styles['help-item']}>
+                      <kbd className={styles['help-kbd']}>Ctrl+V</kbd>
+                      <span>粘贴文件或图片</span>
+                    </div>
+                    <div className={styles['help-item']}>
                       <kbd className={styles['help-kbd']}>Ctrl+N</kbd>
                       <span>新建对话</span>
                     </div>
@@ -1069,7 +1093,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
                             const fill = cmd.usage && cmd.usage !== cmd.name
                               ? `${cmd.name} `
                               : cmd.name
-                            onChange(fill)
+                            setDraft(fill)
+                            flushDraft(fill)
                             setHelpPanelOpen(false)
                             textareaRef.current?.focus()
                           }}
@@ -1088,7 +1113,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                       后端切换
                       <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--color-text-tertiary)', fontWeight: 400 }}>
                         当前：<strong style={{ color: 'var(--color-accent, #4f8ef7)' }}>
-                          {currentBackend === 'openclaw' ? 'MtBot' : currentBackend}
+                          {currentBackend === MAIN_BACKEND_ID ? '灵栖' : currentBackend}
                         </strong>
                       </span>
                     </div>
@@ -1103,14 +1128,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
                       { cmd: '/copilot', label: 'Copilot' },
                       { cmd: '/auggie', label: 'Augment' },
                       { cmd: '/cursor', label: 'Cursor' },
-                      { cmd: '/mtbot', label: 'MtBot（默认）' },
+                      { cmd: '/lumii', label: '灵栖（默认）' },
                     ].map(({ cmd, label }) => (
                       <div key={cmd} className={styles['help-item']}>
                         <code
                           className={styles['help-code']}
                           style={{ cursor: 'pointer' }}
                           onClick={() => {
-                            onChange(cmd)
+                            setDraft(cmd)
+                            flushDraft(cmd)
                             setHelpPanelOpen(false)
                             textareaRef.current?.focus()
                           }}
@@ -1151,16 +1177,17 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 className={styles['voice-btn']}
                 title="语音通话"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                   <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
                   <path d="M19 10v2a7 7 0 0 1-14 0v-2H3v2a9 9 0 0 0 8 8.94V23h2v-2.06A9 9 0 0 0 21 12v-2h-2z" />
                 </svg>
+                通话
               </button>
             )}
             <button
               type="button"
               onClick={handleButtonClick}
-              disabled={isStreaming ? false : (isDisabled || (!value.trim() && queuedMessages.length === 0))}
+              disabled={isStreaming ? false : (isDisabled || (!innerValue.trim() && queuedMessages.length === 0))}
               className={clsx(styles['send-btn'], isStreaming && styles['stop-btn'])}
               title={
                 isStreaming
@@ -1182,26 +1209,32 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       </div>
 
-      {/* 隐藏的文件/图片 input：accept 列表来自 file-attachment-strategy，支持所有已注册策略的扩展名 */}
+      {/* 输入卡下方单行提示：只在有输入时出现，补上 placeholder 消失后丢掉的快捷键说明。
+          空闲态的 tips 仍走 placeholder，不在这里重复一遍 */}
+      {innerValue.trim().length > 0 && (
+        <div className={styles['composer-hint']}>
+          <span><kbd className={styles['hint-kbd']}>Enter</kbd> 发送</span>
+          <span><kbd className={styles['hint-kbd']}>Shift+Enter</kbd> 换行</span>
+          <span><kbd className={styles['hint-kbd']}>Ctrl+U</kbd> 附件</span>
+          <span className={styles['hint-count']}>{innerValue.length} 字</span>
+        </div>
+      )}
+
+      {/* 统一附件 input：图片 + 文档 */}
       <input
-        ref={fileInputRef}
+        ref={attachmentInputRef}
         type="file"
         className={styles['hidden-input']}
-        accept={getSupportedDocumentAccept()}
+        accept={getSupportedAttachmentAccept()}
         multiple
-        onChange={handleFileInputChange}
-      />
-      <input
-        ref={imageInputRef}
-        type="file"
-        className={styles['hidden-input']}
-        accept={getSupportedImageAccept()}
-        multiple
-        onChange={handleImageInputChange}
+        onChange={handleAttachmentInputChange}
       />
     </div>
   )
 }
 
-export default ChatInput
-export { ChatInput }
+const ChatInputMemo = React.memo(ChatInput)
+ChatInputMemo.displayName = 'ChatInput'
+
+export default ChatInputMemo
+export { ChatInputMemo as ChatInput }

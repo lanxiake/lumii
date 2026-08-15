@@ -5,14 +5,6 @@
  * 使用通用 Hooks（useAsync、useQuery、useMutation）
  */
 
-// 认证管理
-export { useAuth } from './useAuth'
-export type { UseAuthReturn, User, AuthState, RegisterParams, LoginParams } from './useAuth'
-
-// 积分管理
-export { useCredits } from './useCredits'
-export type { UseCreditsReturn, CreditBalance, CreditTransaction, CreditBatch, InviteStats } from './useCredits'
-
 // 技能管理
 export { useSkills } from './useSkills'
 export type { UseSkillsReturn, InstalledSkillInfo, SkillStats as InstalledSkillStats, SkillExecutionResult } from './useSkills'
@@ -34,7 +26,7 @@ export type { UseSystemReturn, SystemInfo, DiskInfo, ProcessInfo, ProcessSortBy 
 
 // 仪表盘数据
 export { useDashboard } from './useDashboard'
-export type { UseDashboardReturn, Subscription, SubscriptionPlan, UsageStats, SkillStats } from './useDashboard'
+export type { UseDashboardReturn, RuntimeGauges, SkillStats, UsageRange, UsageView } from './useDashboard'
 
 // 设置管理
 export { useSettings } from './useSettings'
@@ -43,10 +35,6 @@ export type { UseSettingsReturn, AppSettings, GatewayConfig, ThemeConfig, Notifi
 // 用户记忆管理（新）
 export { useUserMemory } from './useUserMemory'
 export type { UseUserMemoryReturn } from './useUserMemory'
-
-// 订阅管理
-export { useSubscription } from './useSubscription'
-export type { UseSubscriptionReturn, UserSubscription, BillingPeriod, SubscriptionStatus } from './useSubscription'
 
 // 审计日志
 export { useAuditLog } from './useAuditLog'

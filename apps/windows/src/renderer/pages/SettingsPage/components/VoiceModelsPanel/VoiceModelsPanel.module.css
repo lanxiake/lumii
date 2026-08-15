@@ -1,0 +1,287 @@
+/**
+ * 语音模型下载面板样式
+ */
+
+.panel {
+  margin-bottom: 20px;
+}
+
+.title {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.hint {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card {
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-bg-secondary);
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.name {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--color-text-primary);
+}
+
+.meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.readyBadge {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--color-success, #16a34a);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-success, #16a34a) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-success, #16a34a) 35%, transparent);
+}
+
+.stateBadge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.2;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.stateIdle {
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-border) 55%, transparent);
+  border: 1px solid var(--color-border);
+}
+
+.stateDownloading,
+.stateExtracting {
+  color: #0369a1;
+  background: color-mix(in srgb, #0ea5e9 16%, transparent);
+  border: 1px solid color-mix(in srgb, #0ea5e9 40%, transparent);
+}
+
+.statePaused {
+  color: #a16207;
+  background: color-mix(in srgb, #eab308 18%, transparent);
+  border: 1px solid color-mix(in srgb, #eab308 45%, transparent);
+}
+
+.stateError {
+  color: var(--color-danger, #dc2626);
+  background: color-mix(in srgb, var(--color-danger, #ef4444) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 40%, transparent);
+}
+
+.stateReady {
+  color: var(--color-success, #16a34a);
+  background: color-mix(in srgb, var(--color-success, #16a34a) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-success, #16a34a) 35%, transparent);
+}
+
+.cardActive {
+  border-color: color-mix(in srgb, #0ea5e9 55%, var(--color-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, #0ea5e9 20%, transparent);
+}
+
+.cardError {
+  border-color: color-mix(in srgb, var(--color-danger, #ef4444) 50%, var(--color-border));
+}
+
+.cardReady {
+  border-color: color-mix(in srgb, var(--color-success, #16a34a) 35%, var(--color-border));
+}
+
+.statusLine {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--color-text-primary);
+}
+
+.statusLineMuted {
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+.progressWrap {
+  margin-top: 10px;
+}
+
+.progressBar {
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-border) 70%, transparent);
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--color-accent, #38bdf8);
+  transition: width 0.2s ease;
+}
+
+.progressText {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--color-danger, #ef4444);
+}
+
+.guide {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--color-bg-secondary) 80%, transparent);
+}
+
+.guideToggle {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-accent, #38bdf8);
+  cursor: pointer;
+}
+
+.guideList {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+}
+
+.guideList li {
+  margin-bottom: 8px;
+}
+
+.guideList ul {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+
+.guideList em {
+  font-style: normal;
+  color: var(--color-text-primary);
+  font-weight: 550;
+}
+
+.group {
+  margin-top: 16px;
+}
+
+.groupTitle {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--color-text-primary);
+}
+
+.groupHint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+
+.promptCard {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--color-bg-secondary) 80%, transparent);
+}
+
+.promptLabel {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.promptText {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+}
+
+.recordRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.volumeRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.volumeLabel {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.volumeBarTrack {
+  flex: 1;
+  max-width: 280px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-bg-tertiary, var(--color-bg-secondary));
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.volumeBarFill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--color-accent, #38bdf8);
+  transition: width 60ms linear;
+}

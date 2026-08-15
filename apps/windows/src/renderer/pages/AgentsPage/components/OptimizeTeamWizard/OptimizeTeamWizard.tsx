@@ -232,7 +232,7 @@ export const OptimizeTeamWizard: React.FC<OptimizeTeamWizardProps> = ({
                       className={`${styles.agentItem} ${selectedIds.has(agent.id) ? styles.agentItemSelected : ''}`}
                       onClick={() => toggleSelect(agent.id)}
                     >
-                      <span className={styles.agentItemEmoji}>{agent.emoji ?? '🤖'}</span>
+                      <span className={styles.agentItemEmoji}>{agent.emoji ?? ''}</span>
                       <span className={styles.agentItemName}>{agent.name}</span>
                       {selectedIds.has(agent.id) && <Check size={12} className={styles.checkIcon} />}
                     </div>
@@ -299,7 +299,7 @@ export const OptimizeTeamWizard: React.FC<OptimizeTeamWizardProps> = ({
                     return (
                       <div key={item.id} className={`${styles.diffCard} ${styles[`diffCard--${status}`]}`}>
                         <div className={styles.diffHeader} onClick={() => setExpandedId(isExpanded ? null : item.id)}>
-                          <span className={styles.diffEmoji}>{original?.emoji ?? '🤖'}</span>
+                          <span className={styles.diffEmoji}>{original?.emoji ?? ''}</span>
                           <span className={styles.diffName}>{item.name ?? original?.name}</span>
                           <span className={`${styles.diffStatus} ${styles[`diffStatus--${status}`]}`}>
                             {status === 'pending' && '待应用'}

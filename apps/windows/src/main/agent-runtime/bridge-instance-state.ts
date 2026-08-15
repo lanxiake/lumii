@@ -5,7 +5,7 @@
  * 用于简化 createInstance / destroy / destroyAll 等生命周期逻辑。
  *
  * 注意：以下字段仍保持为独立 Map（不放入 InstanceState）：
- * - toolTextPositionMap / toolStartTimeMap：复合键 `${instanceId}:${toolCallId}`
+ * - toolStartTimeMap：复合键 `${instanceId}:${toolCallId}`
  * - toolCallInstanceMap：键为 toolCallId 而非 instanceId
  * - instanceToConversation：promptComposer 等外部组件直接依赖
  * - nodeStreamCallbacks：节点流式回调，跨生命周期使用
@@ -13,6 +13,7 @@
 
 import type { createGatewayStreamFn } from '@mtbot/agent-runtime'
 import type {
+  AssistantPart,
   SystemPromptResult,
   SkillInfo,
   SkillActivationHint,
@@ -21,7 +22,7 @@ import type {
 } from '@mtbot/agent-runtime'
 import type { RunContext } from './event-converter'
 import type { SkillHitRateTracker } from './hooks/skill-hit-rate-hook'
-import type { AssistantTurnToolRecord, InstanceRuntimeMetrics } from './bridge-agent-instance-events'
+import type { InstanceRuntimeMetrics } from './bridge-agent-instance-events'
 
 /** 单个 Agent 实例的全部 per-instance 运行时数据 */
 export interface InstanceState {
@@ -31,12 +32,10 @@ export interface InstanceState {
   skipTaskInjection: boolean
   /** toolCallId → 工具入参（tool:end 时合并写入 messages） */
   toolCallArgs: Map<string, Record<string, unknown>>
-  /** 当前助手轮次内已完成的工具记录（agent:end 时落库并清空） */
-  pendingTools: AssistantTurnToolRecord[]
-  /** 当前轮次累积的助手文本（跨多次 LLM 调用拼接，agent:end 落库） */
-  accumulatedText: string
-  /** 当前轮次累积的 thinking 内容（DeepSeek reasoning_content 等） */
-  accumulatedThinking: string
+  /** 当前助手轮次的结构化时间线，是正文、思考与工具状态的唯一真相 */
+  pendingParts: AssistantPart[]
+  /** 本轮开始时的工作区文件快照，由后续文件变更任务填充 */
+  turnSnapshotStart?: Map<string, string>
   /** 不含用户记忆的结构化基础提示词（用于每轮刷新记忆和活跃任务注入） */
   basePrompt?: SystemPromptResult
   /** 每轮重建系统提示词的闭包（v12 Skill Activation + Router 注入） */
@@ -87,9 +86,7 @@ export function createInstanceState(
     ctx,
     skipTaskInjection: false,
     toolCallArgs: new Map(),
-    pendingTools: [],
-    accumulatedText: '',
-    accumulatedThinking: '',
+    pendingParts: [],
     skillsSnapshot: [],
     memoryGuideInjected: false,
     metrics,

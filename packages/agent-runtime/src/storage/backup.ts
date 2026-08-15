@@ -1,7 +1,7 @@
 /**
  * SQLite 自动备份与损坏恢复
  *
- * 默认每日本地时间凌晨 3 点备份，保留最近 7 天；主库损坏时尝试从最新备份恢复。
+ * 默认每日本地时间凌晨 3 点备份，最多保留最近 10 次；主库损坏时尝试从最新备份恢复。
  */
 
 import fs from "node:fs";
@@ -23,8 +23,8 @@ export interface ScheduledBackupOptions {
   readonly dbPath: string;
   /** 备份目录（默认为数据库同级 backups/） */
   readonly backupDir: string;
-  /** 保留备份天数 */
-  readonly retentionDays: number;
+  /** 最多保留的备份数量（按修改时间保留最近 N 个） */
+  readonly maxBackupCount: number;
   /** 本地时间几点执行（0–23），默认 3 */
   readonly hourLocal?: number;
   /** 打开后立即执行一次备份（可选） */
@@ -33,7 +33,7 @@ export interface ScheduledBackupOptions {
   readonly db?: DatabaseAdapter;
 }
 
-const DEFAULT_RETENTION_DAYS = 7;
+const DEFAULT_MAX_BACKUP_COUNT = 10;
 const DEFAULT_HOUR = 3;
 
 let scheduledTimer: ReturnType<typeof setTimeout> | undefined;
@@ -58,7 +58,7 @@ export function verifyDatabaseIntegrity(db: DatabaseAdapter): boolean {
 export function runBackupNow(
   dbPath: string,
   backupDir: string,
-  retentionDays: number = DEFAULT_RETENTION_DAYS,
+  maxBackupCount: number = DEFAULT_MAX_BACKUP_COUNT,
   db?: DatabaseAdapter,
 ): string | null {
   try {
@@ -79,7 +79,7 @@ export function runBackupNow(
     const name = `agent-runtime_${stamp}.db.bak`;
     const dest = path.join(backupDir, name);
     fs.copyFileSync(dbPath, dest);
-    pruneOldBackups(backupDir, retentionDays);
+    pruneOldBackups(backupDir, maxBackupCount);
     return dest;
   } catch {
     return null;
@@ -87,19 +87,27 @@ export function runBackupNow(
 }
 
 /**
- * 删除备份目录中超过保留天数的 .bak 文件。
+ * 仅保留备份目录中最近 maxBackupCount 个 .bak 文件，其余按修改时间从旧到新删除。
  */
-export function pruneOldBackups(backupDir: string, retentionDays: number): void {
+export function pruneOldBackups(backupDir: string, maxBackupCount: number): void {
   if (!fs.existsSync(backupDir)) return;
-  const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
+  const keep = Math.max(1, maxBackupCount);
+  const files: { readonly full: string; readonly mtimeMs: number }[] = [];
   for (const name of fs.readdirSync(backupDir)) {
     if (!name.endsWith(".bak")) continue;
     const full = path.join(backupDir, name);
     try {
-      const st = fs.statSync(full);
-      if (st.mtimeMs < cutoff) {
-        fs.unlinkSync(full);
-      }
+      files.push({ full, mtimeMs: fs.statSync(full).mtimeMs });
+    } catch {
+      /* ignore single file stat failure */
+    }
+  }
+  if (files.length <= keep) return;
+  // 按修改时间降序：保留前 keep 个，删除其余较旧的备份
+  files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  for (const { full } of files.slice(keep)) {
+    try {
+      fs.unlinkSync(full);
     } catch {
       /* ignore */
     }
@@ -238,12 +246,12 @@ export function startScheduledDatabaseBackup(opts: ScheduledBackupOptions): () =
   stopScheduledDatabaseBackup();
 
   const backupDir = opts.backupDir;
-  const retention = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
+  const maxCount = opts.maxBackupCount ?? DEFAULT_MAX_BACKUP_COUNT;
   const hour = opts.hourLocal ?? DEFAULT_HOUR;
 
   const run = () => {
-    runBackupNow(opts.dbPath, backupDir, retention, opts.db);
-    pruneOldBackups(backupDir, retention);
+    runBackupNow(opts.dbPath, backupDir, maxCount, opts.db);
+    pruneOldBackups(backupDir, maxCount);
   };
 
   if (opts.backupOnOpen) {

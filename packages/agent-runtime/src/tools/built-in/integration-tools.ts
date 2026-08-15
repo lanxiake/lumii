@@ -26,7 +26,7 @@ type MessageInput = Static<typeof MessageParams>;
 export const messageToolConfig: MtBotToolConfig<typeof MessageParams> = {
   name: "message",
   label: "Message",
-  description: "Send a message back to the user in the current conversation, or to another channel/recipient. To reply to the user you are currently talking to (including WeChat), just provide text (and/or mediaUrl for files/images) — 'to' and 'channel' are optional and the active session's recipient is used automatically.",
+  description: "Send a message back to the user in the current conversation (in-turn reply). To reply to the user you are currently talking to (including WeChat), just provide text (and/or mediaUrl for files/images) — 'to' and 'channel' are optional and the active session's recipient is used automatically. DEPRECATED for proactive/other-peer outbound: use channel_list + channel_send instead — this tool now hard-fails for any non-active-session target.",
   parameters: MessageParams,
   category: "channel",
   isReadOnly: false,
@@ -192,21 +192,42 @@ export const systemPromptToolConfig: MtBotToolConfig<typeof SystemPromptParams> 
   },
 };
 
-const TtsGenerateParams = Type.Object({
-  text: Type.String({ description: "要合成为语音的文本内容" }),
+const SpeechGenerateParams = Type.Object({
+  text: Type.String({ description: "要合成为语音的文本内容（支持长文，如文章、有声书章节）" }),
+  speaker: Type.Optional(
+    Type.String({
+      description:
+        "音色（仅当用户当前语音引擎为 Qwen3 CustomVoice 时生效；其他引擎忽略此参数）。可选值与特点：\n" +
+        "Vivian(女·明亮略带锋芒·中文)、Serena(女·温暖柔和·中文)、Uncle_Fu(男·沉稳低沉·中文)、" +
+        "Dylan(男·清朗自然·北京话)、Eric(男·略沙哑明亮·四川话)、" +
+        "Ryan(男·节奏感强·English)、Aiden(男·阳光清晰·English)、" +
+        "Ono_Anna(女·轻快灵动·日本語)、Sohee(女·情感丰富·한국어)。" +
+        "按内容选择：旁白/温暖内容用 Serena，悬疑/沉稳用 Uncle_Fu，方言用 Dylan/Eric。",
+    }),
+  ),
+  speed: Type.Optional(
+    Type.Number({
+      description: "语速倍率，范围 0.8~1.3，默认 1.0。朗读/有声书建议 0.9~1.0，播报可 1.1。",
+      minimum: 0.8,
+      maximum: 1.3,
+    }),
+  ),
 });
-type TtsGenerateInput = Static<typeof TtsGenerateParams>;
+type SpeechGenerateInput = Static<typeof SpeechGenerateParams>;
 
-export const ttsGenerateToolConfig: MtBotToolConfig<typeof TtsGenerateParams> = {
-  name: "tts_generate",
+export const speechGenerateToolConfig: MtBotToolConfig<typeof SpeechGenerateParams> = {
+  name: "speech_generate",
   label: "生成语音",
   description:
-    "将文本合成为语音音频文件。合成完成后返回文件路径（filePath），可通过 message 工具的 mediaUrl 参数将语音文件发送给用户。",
-  parameters: TtsGenerateParams,
+    "将文本合成为语音音频文件（本地 TTS，适合配音、朗读文章、生成有声书）。" +
+    "可选 speaker 指定音色、speed 调语速。合成完成后返回文件路径（filePath），" +
+    "可通过 message 工具的 mediaUrl 参数将语音文件发送给用户。" +
+    "注意：speaker 仅在用户语音引擎为 Qwen3 CustomVoice 时生效。",
+  parameters: SpeechGenerateParams,
   category: "channel",
   isReadOnly: false,
   needsPermission: false,
-  async execute(_toolCallId: string, _params: TtsGenerateInput): Promise<AgentToolResult<unknown>> {
+  async execute(_toolCallId: string, _params: SpeechGenerateInput): Promise<AgentToolResult<unknown>> {
     return {
       content: [{ type: "text", text: JSON.stringify({ status: "not_implemented" }) }],
       details: undefined,

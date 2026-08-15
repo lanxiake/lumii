@@ -8,6 +8,11 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { petApi } from './pet-api'
 import type { PetElectronAPI } from '../shared/pet-mode'
+// 仅类型引用，编译期擦除，不会把主进程代码打进 preload
+import type { UsageSummary } from '../main/usage-store'
+import type { NewsSnapshot } from '../main/news-store'
+import type { DashboardFeedSnapshot } from '../main/dashboard-feed-store'
+import type { LatencyView } from '../main/provider-latency'
 
 // 日志输出
 const log = {
@@ -16,6 +21,36 @@ const log = {
 }
 
 log.info('预加载脚本开始执行')
+
+/**
+ * voice:event 单路复用：设置页有多个面板各自 onEvent，若每个都 ipcRenderer.on 会触发 MaxListenersExceeded。
+ */
+const voiceEventSubscribers = new Set<(event: unknown) => void>()
+let voiceEventIpcBound = false
+
+/**
+ * 订阅语音事件（内部只挂一条 ipcRenderer 监听）
+ */
+function subscribeVoiceEvent(callback: (event: unknown) => void): () => void {
+  voiceEventSubscribers.add(callback)
+  if (!voiceEventIpcBound) {
+    voiceEventIpcBound = true
+    ipcRenderer.on('voice:event', (_evt, data: unknown) => {
+      for (const cb of voiceEventSubscribers) {
+        try {
+          cb(data)
+        } catch (e) {
+          log.error('voice:event 订阅回调异常:', e)
+        }
+      }
+    })
+  }
+  return () => {
+    voiceEventSubscribers.delete(callback)
+  }
+}
+
+import type { ProjectGitStatus } from '../main/project-git/types'
 
 /**
  * ACP 项目条目（与 main/config/types.ts 的 CodingDevProject 对齐）
@@ -31,10 +66,12 @@ export interface CodingDevProject {
  */
 export interface LocalProviderConfigView {
   enabled: boolean
-  type: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio'
+  type: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi'
   baseUrl: string
   modelId: string
   apiKey: string
+  /** chat/vision：对话框可选模型列表 */
+  allowedModelIds?: string[]
 }
 
 /** 模型能力槽 */
@@ -160,12 +197,54 @@ export interface ElectronAPI {
     }>
   }
 
+  /** 本地用量与花费统计（Task 4.3，数据来自 ~/.lumii/usage/*.jsonl） */
+  usage: {
+    query: (query: {
+      from: number
+      to: number
+      groupBy: 'hour' | 'day'
+    }) => Promise<{ success: boolean; data?: UsageSummary; error?: string }>
+    /** 到当前模型 provider 的首字节延迟（最近 N 次中位数） */
+    latency: () => Promise<{ success: boolean; data?: LatencyView }>
+  }
+
+  /** 概览页资讯（由「资讯抓取与综述」定时任务写入 ~/.lumii/news/latest.json） */
+  news: {
+    /** 读最新一批资讯；从未抓过时 data 为 null */
+    latest: () => Promise<{ success: boolean; data?: NewsSnapshot | null; error?: string }>
+    /** 立即跑一次抓取+综述流水线，返回新快照 */
+    refresh: () => Promise<{
+      success: boolean
+      data?: { summary: string; snapshot: NewsSnapshot | null }
+      error?: string
+    }>
+  }
+
+  /** Dashboard 当前激活的通用 feed；默认是资讯，也可由工作流替换。 */
+  dashboardFeed: {
+    latest: () => Promise<{ success: boolean; data?: DashboardFeedSnapshot | null; error?: string }>
+    refresh: () => Promise<{
+      success: boolean
+      data?: { summary: string; snapshot: DashboardFeedSnapshot | null }
+      error?: string
+    }>
+    setActive: (feedId: string) => Promise<{
+      success: boolean
+      data?: DashboardFeedSnapshot | null
+      error?: string
+    }>
+  }
+
   // 窗口操作
   window: {
     minimize: () => void
     maximize: () => void
     close: () => void
     isMaximized: () => Promise<boolean>
+    /**
+     * 光标相对窗口内容区坐标（穿透标题栏 drag 区域；边缘光效用）
+     */
+    getCursorClientPos: () => Promise<{ x: number; y: number; inside: boolean } | null>
   }
 
   /**
@@ -178,8 +257,13 @@ export interface ElectronAPI {
   provider: {
     getConfig: () => Promise<ProviderSlotsConfigView>
     setConfig: (cfg: ProviderSlotsConfigView | LocalProviderConfigView) => Promise<ProviderSlotsConfigView>
-    listModels: (slot: CapabilitySlot) => Promise<{ success: boolean; data?: ListedModel[]; error?: string }>
-    testConnection: (slot: CapabilitySlot) => Promise<ProviderTestResult>
+    listModels: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => Promise<{ success: boolean; data?: ListedModel[]; error?: string }>
+    testConnection: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => Promise<ProviderTestResult>
+  }
+  /** 开机画面（主窗口内全屏） */
+  splash: {
+    /** 是否应跳过开机画面（托盘静默启动 / 测试模式 / 环境变量） */
+    shouldSkip: () => boolean
   }
   app: {
     getVersion: () => Promise<string>
@@ -188,12 +272,12 @@ export interface ElectronAPI {
     quit: () => void
     openExternal: (url: string) => Promise<void>
     showItemInFolder: (filePath: string) => Promise<void>
+    /** 在资源管理器中打开当前应用日志文件 */
+    openLogFile: () => Promise<{ success: boolean; path?: string; error?: string }>
     /** 获取开机自启状态 */
     getOpenAtLogin: () => Promise<boolean>
     /** 设置开机自启 */
     setOpenAtLogin: (enable: boolean) => Promise<boolean>
-    /** 重置所有数据并重启应用 */
-    resetAllData: () => Promise<void>
     /** 开发类 AI 工具（ACP）环境说明与当前解析的工作区 */
     getCodingDevEnvInfo: () => Promise<{
       resolvedWorkspace: string
@@ -201,8 +285,21 @@ export interface ElectronAPI {
       powershellGatewayEnvBlock: string
       weixinSlashHint: string
     }>
-    /** 探测本机 Cursor/Claude/Codex/Copilot 是否已安装 */
-    detectCodingDevTools: () => Promise<Array<{
+    /** 获取本机 ACP 工具元数据（无版本/状态探测，快速返回） */
+    listCodingDevToolsMetadata: () => Promise<Array<{
+      id: string
+      label: string
+      description: string
+      commands: string[]
+      homepageUrl: string
+      installUrl: string
+      installCommand: string
+      installHint: string
+      npmPackageName?: string
+      pypiPackageName?: string
+    }>>
+    /** 探测单个本机 ACP 工具是否已安装（并补充版本信息） */
+    detectCodingDevTool: (toolId: string) => Promise<{
       id: string
       label: string
       description: string
@@ -210,11 +307,14 @@ export interface ElectronAPI {
       resolvedPath?: string
       resolvedCommand?: string
       homepageUrl: string
-      githubUrl?: string
       installUrl: string
       installCommand: string
       installHint: string
-    }>>
+      currentVersion?: string
+      latestVersion?: string
+      selfUpdateCommand?: string
+      authStatus?: 'ok' | 'required' | 'unknown'
+    }>
     /** 一键安装本机 ACP CLI（执行官方白名单安装命令） */
     installCodingDevTool: (toolId: string) => Promise<{
       ok: boolean
@@ -230,9 +330,45 @@ export interface ElectronAPI {
         installCommand: string
         installHint: string
         installUrl: string
+        currentVersion?: string
+        latestVersion?: string
       }
       message: string
     }>
+    /** 卸载本机 ACP CLI（执行官方白名单卸载命令） */
+    uninstallCodingDevTool: (toolId: string) => Promise<{
+      ok: boolean
+      toolId: string
+      exitCode: number | null
+      stdout: string
+      stderr: string
+      status: {
+        id: string
+        label: string
+        installed: boolean
+        resolvedPath?: string
+        installCommand: string
+        installHint: string
+        installUrl: string
+        currentVersion?: string
+        latestVersion?: string
+      }
+      message: string
+      command?: string
+      documented?: boolean
+    }>
+    /** 卸载前预览：将要执行的命令与风险提示（不执行任何命令） */
+    previewUninstallCodingDevTool: (toolId: string) => Promise<{
+      toolId: string
+      label: string
+      installed: boolean
+      displayCommand: string
+      automatic: boolean
+      documented: boolean
+      hint: string
+    }>
+    /** 触发 CLI 登录（如 cursor agent login 打开浏览器 OAuth） */
+    loginCodingDevTool: (toolId: string) => Promise<{ success: boolean; message: string }>
     /** 设置 ACP 专用工作目录；传 undefined 或空则与主工作区一致 */
     setCodingDevAcpWorkspace: (dirPath: string | undefined) => Promise<void>
     /** 列出 ACP 项目及当前活动项目 */
@@ -245,6 +381,8 @@ export interface ElectronAPI {
     removeCodingDevProject: (name: string) => Promise<{ projects: CodingDevProject[]; activeProject?: string }>
     /** 设置活动项目（其 realPath 作为 ACP cwd） */
     setCodingDevActiveProject: (name: string) => Promise<{ projects: CodingDevProject[]; activeProject?: string }>
+    /** 只读获取项目的 Git 状态（分支/ahead-behind/远程/文件状态） */
+    getProjectGitStatus: (projectName: string) => Promise<ProjectGitStatus>
     /** 获取拖拽 File 对象的本地文件系统路径（Electron webUtils.getPathForFile） */
     getPathForFile: (file: File) => string
   }
@@ -396,89 +534,6 @@ export interface ElectronAPI {
     ) => Promise<unknown>
     deleteMemory: (id: string) => Promise<unknown>
 
-    // --- 订阅接口 ---
-    /** 获取订阅计划列表 */
-    getPlans: () => Promise<unknown>
-    /** 获取可用计划列表（别名，兼容旧代码） */
-    getAvailablePlans: () => Promise<unknown>
-    /** 获取指定计划详情 */
-    getPlan: (planId: string) => Promise<unknown>
-    /** 获取当前用户订阅信息 */
-    getSubscription: () => Promise<unknown>
-    /** 获取当前用户使用量 */
-    getUsage: () => Promise<unknown>
-    /** 获取订阅概览（订阅+计划+使用量） */
-    getSubscriptionOverview: () => Promise<unknown>
-    /** 创建订阅 */
-    createSubscription: (params: {
-      planId: string
-      billingPeriod: 'monthly' | 'yearly'
-      paymentMethodId?: string
-      startTrial?: boolean
-    }) => Promise<unknown>
-    /** 取消订阅 */
-    cancelSubscription: (subscriptionId: string, params?: {
-      immediately?: boolean
-      reason?: string
-      feedback?: string
-    }) => Promise<unknown>
-    /** 更新订阅 */
-    updateSubscription: (subscriptionId: string, params: {
-      planId?: string
-      billingPeriod?: 'monthly' | 'yearly'
-      cancelAtPeriodEnd?: boolean
-    }) => Promise<unknown>
-    /** 检查配额 */
-    checkQuota: (quotaType: string) => Promise<unknown>
-
-    // --- 支付接口 ---
-    /** 获取可用支付方式 */
-    getPaymentProviders: () => Promise<unknown>
-    /** 获取用户订单列表 */
-    getUserOrders: (options?: {
-      status?: string | string[]
-      page?: number
-      limit?: number
-    }) => Promise<unknown>
-    /** 获取订单详情 */
-    getOrder: (orderId: string) => Promise<unknown>
-    /** 计算价格 */
-    calculatePrice: (params: {
-      type: string
-      itemId: string
-      billingPeriod?: string
-      couponCode?: string
-    }) => Promise<unknown>
-    /** 创建订单并发起支付（购买订阅） */
-    purchaseSubscription: (params: {
-      type: string
-      planId: string
-      billingPeriod?: string
-      provider: string
-      couponCode?: string
-    }) => Promise<unknown>
-    /** 取消订单 */
-    cancelOrder: (orderId: string) => Promise<unknown>
-    /** 发起支付（对已有订单） */
-    initiatePayment: (orderId: string, params: {
-      provider: string
-      returnUrl?: string
-    }) => Promise<unknown>
-    /** 查询支付状态 */
-    queryPaymentStatus: (orderId: string) => Promise<unknown>
-    /** 模拟支付完成（仅测试） */
-    mockPaymentComplete: (params: {
-      orderId: string
-      success?: boolean
-    }) => Promise<unknown>
-    /** 创建退款 */
-    createRefund: (params: {
-      orderId: string
-      amount?: number
-      reason: string
-      description?: string
-    }) => Promise<unknown>
-
     // --- 技能商店接口 ---
     /** 获取商店技能列表 */
     getStoreSkills: (filters?: {
@@ -569,18 +624,6 @@ export interface ElectronAPI {
     getSoulContent: () => Promise<unknown>
     /** 更新 AI 灵魂内容（本地文件） */
     updateSoulContent: (content: string) => Promise<unknown>
-
-    // --- 积分接口 ---
-    /** 获取用户积分余额 */
-    getCreditBalance: () => Promise<unknown>
-    /** 获取用户积分流水 */
-    getCreditHistory: (options?: { limit?: number; offset?: number }) => Promise<unknown>
-    /** 获取积分批次列表（含过期时间） */
-    getCreditBatches: () => Promise<unknown>
-    /** 获取邀请统计 */
-    getInviteStats: () => Promise<unknown>
-    /** 获取邀请记录列表 */
-    getInviteList: () => Promise<unknown>
 
     // --- 技能运行时 + 节点列表 + 文件上传 ---
     /** 获取所有已加载技能列表（通过 Gateway WS） */
@@ -936,6 +979,42 @@ export interface ElectronAPI {
   }
   /** 宠物模式 API */
   pet: PetElectronAPI
+  /** 文件预览独立窗口（可拖出主窗口） */
+  filePreview: {
+    open: (payload: {
+      fileName: string
+      fileId?: string
+      filePath?: string
+      userId?: string
+      startLine?: number
+      endLine?: number
+      mdBasePath?: string
+      editablePath?: string
+    }) => Promise<{ ok: boolean }>
+    close: () => Promise<{ ok: boolean }>
+    getPayload: () => Promise<{
+      fileName: string
+      fileId?: string
+      filePath?: string
+      userId?: string
+      startLine?: number
+      endLine?: number
+      mdBasePath?: string
+      editablePath?: string
+    } | null>
+    onPayloadUpdated: (
+      callback: (payload: {
+        fileName: string
+        fileId?: string
+        filePath?: string
+        userId?: string
+        startLine?: number
+        endLine?: number
+        mdBasePath?: string
+        editablePath?: string
+      }) => void,
+    ) => () => void
+  }
   /** 插件中心 API */
   plugins: {
     cloak_browser: {
@@ -962,6 +1041,7 @@ export interface ElectronAPI {
     log: (opts?: { limit?: number; offset?: number }) => Promise<{ success: boolean; data?: unknown }>
     statusDiff: (opts?: { baseOid?: string }) => Promise<{ success: boolean; data?: unknown }>
     diff: (opts: { fromOid: string; toOid: string; withHunks?: boolean }) => Promise<{ success: boolean; data?: unknown }>
+    diffFile: (opts: { fromOid: string; toOid: string; filepath: string }) => Promise<{ success: boolean; data?: unknown }>
     readFileAt: (opts: { oid: string; filepath: string }) => Promise<{ success: boolean; data?: unknown }>
     rollback: (opts: { oid: string }) => Promise<{ success: boolean; data?: unknown }>
     revertFile: (opts: { oid: string; filepath: string }) => Promise<{ success: boolean; data?: unknown }>
@@ -1025,12 +1105,35 @@ const electronAPI: ElectronAPI = {
     getUserPaths: () => ipcRenderer.invoke('system:getUserPaths'),
   },
 
+  usage: {
+    query: (query: { from: number; to: number; groupBy: 'hour' | 'day' }) =>
+      ipcRenderer.invoke('usage:query', query),
+    latency: () => ipcRenderer.invoke('usage:latency'),
+  },
+
+  news: {
+    latest: () => ipcRenderer.invoke('news:latest'),
+    refresh: () => ipcRenderer.invoke('news:refresh'),
+  },
+
+  dashboardFeed: {
+    latest: () => ipcRenderer.invoke('dashboard-feed:latest'),
+    refresh: () => ipcRenderer.invoke('dashboard-feed:refresh'),
+    setActive: (feedId: string) => ipcRenderer.invoke('dashboard-feed:set-active', feedId),
+  },
+
   // 窗口操作 API
   window: {
     minimize: () => ipcRenderer.send('window:minimize'),
     maximize: () => ipcRenderer.send('window:maximize'),
     close: () => ipcRenderer.send('window:close'),
     isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+    getCursorClientPos: () =>
+      ipcRenderer.invoke('window:getCursorClientPos') as Promise<{
+        x: number
+        y: number
+        inside: boolean
+      } | null>,
   },
 
   notifyDesktop: (title: string, body: string) =>
@@ -1041,14 +1144,22 @@ const electronAPI: ElectronAPI = {
     getConfig: () => ipcRenderer.invoke('provider:getConfig') as Promise<ProviderSlotsConfigView>,
     setConfig: (cfg: ProviderSlotsConfigView | LocalProviderConfigView) =>
       ipcRenderer.invoke('provider:setConfig', cfg) as Promise<ProviderSlotsConfigView>,
-    listModels: (slot: CapabilitySlot) =>
-      ipcRenderer.invoke('provider:listModels', slot) as Promise<{
+    listModels: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) =>
+      ipcRenderer.invoke('provider:listModels', slot, draftCfg) as Promise<{
         success: boolean
         data?: ListedModel[]
         error?: string
       }>,
-    testConnection: (slot: CapabilitySlot) =>
-      ipcRenderer.invoke('provider:testConnection', slot) as Promise<ProviderTestResult>,
+    testConnection: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) =>
+      ipcRenderer.invoke('provider:testConnection', slot, draftCfg) as Promise<ProviderTestResult>,
+  },
+
+  splash: {
+    shouldSkip: () =>
+      process.argv.includes('--skip-splash')
+      || process.argv.includes('--test-mode')
+      || process.argv.includes('--startup-launched')
+      || process.env.LUMII_SKIP_SPLASH === '1',
   },
 
   // 应用操作 API
@@ -1059,13 +1170,19 @@ const electronAPI: ElectronAPI = {
     quit: () => ipcRenderer.send('app:quit'),
     openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
     showItemInFolder: (filePath: string) => ipcRenderer.invoke('app:showItemInFolder', filePath),
+    openLogFile: () =>
+      ipcRenderer.invoke('app:openLogFile') as Promise<{ success: boolean; path?: string; error?: string }>,
     getPathForFile: (file: File) => webUtils.getPathForFile(file),
     getOpenAtLogin: () => ipcRenderer.invoke('app:getOpenAtLogin'),
     setOpenAtLogin: (enable: boolean) => ipcRenderer.invoke('app:setOpenAtLogin', enable),
-    resetAllData: () => ipcRenderer.invoke('app:resetAllData'),
     getCodingDevEnvInfo: () => ipcRenderer.invoke('app:getCodingDevEnvInfo'),
-    detectCodingDevTools: () => ipcRenderer.invoke('app:detectCodingDevTools'),
+    listCodingDevToolsMetadata: () => ipcRenderer.invoke('app:listCodingDevToolsMetadata'),
+    detectCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:detectCodingDevTool', toolId),
     installCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:installCodingDevTool', toolId),
+    uninstallCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:uninstallCodingDevTool', toolId),
+    previewUninstallCodingDevTool: (toolId: string) =>
+      ipcRenderer.invoke('app:previewUninstallCodingDevTool', toolId),
+    loginCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:loginCodingDevTool', toolId),
     setCodingDevAcpWorkspace: (dirPath: string | undefined) =>
       ipcRenderer.invoke('app:setCodingDevAcpWorkspace', dirPath),
     listCodingDevProjects: () => ipcRenderer.invoke('app:listCodingDevProjects'),
@@ -1077,6 +1194,8 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke('app:removeCodingDevProject', name),
     setCodingDevActiveProject: (name: string) =>
       ipcRenderer.invoke('app:setCodingDevActiveProject', name),
+    getProjectGitStatus: (projectName: string) =>
+      ipcRenderer.invoke('app:getProjectGitStatus', projectName),
   },
 
   // 对话框 API
@@ -1208,70 +1327,6 @@ const electronAPI: ElectronAPI = {
     ) => ipcRenderer.invoke('api:updateMemory', id, data),
     deleteMemory: (id: string) => ipcRenderer.invoke('api:deleteMemory', id),
 
-    // --- 订阅接口 ---
-    getPlans: () => ipcRenderer.invoke('api:getPlans'),
-    getAvailablePlans: () => ipcRenderer.invoke('api:getPlans'),
-    getPlan: (planId: string) => ipcRenderer.invoke('api:getPlan', planId),
-    getSubscription: () => ipcRenderer.invoke('api:getSubscription'),
-    getUsage: () => ipcRenderer.invoke('api:getUsage'),
-    getSubscriptionOverview: () => ipcRenderer.invoke('api:getSubscriptionOverview'),
-    createSubscription: (params: {
-      planId: string
-      billingPeriod: 'monthly' | 'yearly'
-      paymentMethodId?: string
-      startTrial?: boolean
-    }) => ipcRenderer.invoke('api:createSubscription', params),
-    cancelSubscription: (subscriptionId: string, params?: {
-      immediately?: boolean
-      reason?: string
-      feedback?: string
-    }) => ipcRenderer.invoke('api:cancelSubscription', subscriptionId, params),
-    updateSubscription: (subscriptionId: string, params: {
-      planId?: string
-      billingPeriod?: 'monthly' | 'yearly'
-      cancelAtPeriodEnd?: boolean
-    }) => ipcRenderer.invoke('api:updateSubscription', subscriptionId, params),
-    checkQuota: (quotaType: string) => ipcRenderer.invoke('api:checkQuota', quotaType),
-
-    // --- 支付接口 ---
-    getPaymentProviders: () => ipcRenderer.invoke('api:getPaymentProviders'),
-    getUserOrders: (options?: {
-      status?: string | string[]
-      page?: number
-      limit?: number
-    }) => ipcRenderer.invoke('api:getUserOrders', options),
-    getOrder: (orderId: string) => ipcRenderer.invoke('api:getOrder', orderId),
-    calculatePrice: (params: {
-      type: string
-      itemId: string
-      billingPeriod?: string
-      couponCode?: string
-    }) => ipcRenderer.invoke('api:calculatePrice', params),
-    purchaseSubscription: (params: {
-      type: string
-      planId: string
-      billingPeriod?: string
-      provider: string
-      couponCode?: string
-    }) => ipcRenderer.invoke('api:purchaseSubscription', params),
-    cancelOrder: (orderId: string) => ipcRenderer.invoke('api:cancelOrder', orderId),
-    initiatePayment: (orderId: string, params: {
-      provider: string
-      returnUrl?: string
-    }) => ipcRenderer.invoke('api:initiatePayment', orderId, params),
-    queryPaymentStatus: (orderId: string) =>
-      ipcRenderer.invoke('api:queryPaymentStatus', orderId),
-    mockPaymentComplete: (params: {
-      orderId: string
-      success?: boolean
-    }) => ipcRenderer.invoke('api:mockPaymentComplete', params),
-    createRefund: (params: {
-      orderId: string
-      amount?: number
-      reason: string
-      description?: string
-    }) => ipcRenderer.invoke('api:createRefund', params),
-
     // --- 技能商店接口 ---
     getStoreSkills: (filters?: {
       category?: string
@@ -1352,18 +1407,6 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke('api:getSoulContent'),
     updateSoulContent: (content: string) =>
       ipcRenderer.invoke('api:updateSoulContent', content),
-
-    // --- 积分接口 ---
-    getCreditBalance: () =>
-      ipcRenderer.invoke('api:getCreditBalance'),
-    getCreditHistory: (options?: { limit?: number; offset?: number }) =>
-      ipcRenderer.invoke('api:getCreditHistory', options),
-    getCreditBatches: () =>
-      ipcRenderer.invoke('api:getCreditBatches'),
-    getInviteStats: () =>
-      ipcRenderer.invoke('api:getInviteStats'),
-    getInviteList: () =>
-      ipcRenderer.invoke('api:getInviteList'),
 
     // --- 技能运行时 + 节点列表 + 文件上传 ---
     listAllSkills: () =>
@@ -1605,7 +1648,7 @@ const electronAPI: ElectronAPI = {
     }): Promise<void> => ipcRenderer.invoke('settings:updateMemoryInjection', config),
   },
 
-  // 语音通话 API
+  // 语音通话 API（voice:event 经单路复用，避免设置页多面板叠加触发 MaxListenersExceeded）
   voice: {
     /** 发送语音命令（invoke 模式，有响应） */
     sendCommand: (command: unknown): Promise<unknown> =>
@@ -1615,16 +1658,30 @@ const electronAPI: ElectronAPI = {
       const buf = Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength)
       ipcRenderer.send('voice:audio:chunk', callId, buf)
     },
-    /** 订阅语音事件，返回取消订阅函数 */
+    /** 订阅语音事件，返回取消订阅函数（单路 IPC，避免 MaxListenersExceeded） */
     onEvent: (callback: (event: unknown) => void): () => void => {
-      const listener = (_evt: Electron.IpcRendererEvent, data: unknown) => callback(data)
-      ipcRenderer.on('voice:event', listener)
-      return () => ipcRenderer.removeListener('voice:event', listener)
+      return subscribeVoiceEvent(callback)
     },
   },
 
   // 宠物模式 API
   pet: petApi,
+  filePreview: {
+    open: (payload) => ipcRenderer.invoke('file-preview:open', payload),
+    close: () => ipcRenderer.invoke('file-preview:close'),
+    getPayload: () => ipcRenderer.invoke('file-preview:get-payload'),
+    onPayloadUpdated: (callback) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: Parameters<typeof callback>[0],
+      ) => callback(payload)
+      ipcRenderer.on('file-preview:payload-updated', listener)
+      return () => {
+        ipcRenderer.removeListener('file-preview:payload-updated', listener)
+      }
+    },
+  },
+  /** 插件中心 API */
 
   // 插件中心 API
   plugins: {
@@ -1649,6 +1706,8 @@ const electronAPI: ElectronAPI = {
     log: (opts?: { limit?: number; offset?: number }) => ipcRenderer.invoke('vcs:log', opts),
     statusDiff: (opts?: { baseOid?: string }) => ipcRenderer.invoke('vcs:statusDiff', opts),
     diff: (opts: { fromOid: string; toOid: string; withHunks?: boolean }) => ipcRenderer.invoke('vcs:diff', opts),
+    diffFile: (opts: { fromOid: string; toOid: string; filepath: string }) =>
+      ipcRenderer.invoke('vcs:diffFile', opts),
     readFileAt: (opts: { oid: string; filepath: string }) => ipcRenderer.invoke('vcs:readFileAt', opts),
     rollback: (opts: { oid: string }) => ipcRenderer.invoke('vcs:rollback', opts),
     revertFile: (opts: { oid: string; filepath: string }) => ipcRenderer.invoke('vcs:revertFile', opts),
@@ -1748,6 +1807,20 @@ contextBridge.exposeInMainWorld('feishuService', {
   },
 })
 
+// === 渠道出站 Hub（与 Agent channel_list/channel_send 同源，仅供 Settings 面板只读展示/调试） ===
+contextBridge.exposeInMainWorld('channelService', {
+  /** 列出已注册渠道快照（含未连接渠道） */
+  list: (): Promise<{ channels: unknown[] }> => ipcRenderer.invoke('channel:list'),
+  /** 向指定 channel + to 发送文本/富媒体；仅供调试，非 Agent 主路径 */
+  send: (params: {
+    channel: 'feishu' | 'weixin' | 'wecom'
+    to: string
+    text: string
+    mediaPath?: string
+    fileName?: string
+  }): Promise<unknown> => ipcRenderer.invoke('channel:send', params),
+})
+
 log.info('预加载脚本执行完成，API 已暴露')
 
 // 为 TypeScript 类型声明
@@ -1781,6 +1854,16 @@ declare global {
       onStatusChange: (callback: (status: string, session?: unknown) => void) => (() => void)
       onQrcode: (callback: (dataUrl: string) => void) => (() => void)
       onError: (callback: (message: string) => void) => (() => void)
+    }
+    channelService: {
+      list: () => Promise<{ channels: unknown[] }>
+      send: (params: {
+        channel: 'feishu' | 'weixin' | 'wecom'
+        to: string
+        text: string
+        mediaPath?: string
+        fileName?: string
+      }) => Promise<unknown>
     }
   }
 }

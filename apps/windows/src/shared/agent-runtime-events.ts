@@ -6,6 +6,7 @@
  *
  * 设计依据: .qoder/design/client-agent-runtime/08-前端渲染与IPC通讯.md §2.1
  */
+import type { FileChangeEntry } from '@mtbot/agent-runtime/browser'
 
 // ============================================================
 // 共享数据结构
@@ -174,6 +175,15 @@ export interface AgentTurnEndEvent {
   readonly loopInterrupted?: true
 }
 
+/** 一轮 Agent 执行完成后检测到的工作区净文件变更。 */
+export interface AgentTurnFileChangesEvent {
+  readonly type: 'agent:turn:file-changes'
+  readonly runId: string
+  readonly sessionKey: string
+  readonly messageId: string
+  readonly fileChanges: readonly FileChangeEntry[]
+}
+
 // ============================================================
 // 状态事件
 // ============================================================
@@ -331,6 +341,22 @@ export interface AgentActivitySnapshotEvent {
  *
  * 用于 ChatInput 工具栏显示上下文指示器（绿/黄/红）。
  */
+/** 上下文占用分类（与 UI 卡片行一一对应） */
+export type ContextUsageCategory =
+  | 'systemPrompt'
+  | 'tools'
+  | 'skills'
+  | 'mcp'
+  | 'subagents'
+  | 'memory'
+  | 'conversation'
+
+/** 单个分类的 token 占用 */
+export interface ContextUsageBreakdownEntry {
+  readonly category: ContextUsageCategory
+  readonly tokens: number
+}
+
 export interface AgentContextUsageEvent {
   readonly type: 'agent:context:usage'
   readonly sessionKey: string
@@ -340,6 +366,8 @@ export interface AgentContextUsageEvent {
   readonly contextWindow: number
   /** 触发自动压缩的阈值比例（0-1，默认 0.8） */
   readonly triggerThreshold: number
+  /** 分类明细（估算后按 usedTokens 等比缩放，之和≈usedTokens），无活跃实例时为空 */
+  readonly breakdown?: readonly ContextUsageBreakdownEntry[]
 }
 
 /**
@@ -348,7 +376,9 @@ export interface AgentContextUsageEvent {
 export interface AgentContextCompactedEvent {
   readonly type: 'agent:context:compacted'
   readonly sessionKey: string
+  /** 压缩前整窗占用（含系统提示/工具/MCP，与占用卡片同一口径） */
   readonly previousTokenCount: number
+  /** 压缩后整窗占用（只扣对话历史，MCP 定义不变） */
   readonly newTokenCount: number
   readonly messagesRemoved: number
   readonly timestamp: number
@@ -356,6 +386,14 @@ export interface AgentContextCompactedEvent {
   readonly messagesBefore?: number
   /** 压缩后消息条数（精确值，非估算） */
   readonly messagesAfter?: number
+  /** LLM 摘要正文，供压缩卡片展开查看 */
+  readonly summaryText?: string
+  /** 压缩后的分类明细（对话已缩小，其余分类保持） */
+  readonly breakdown?: readonly ContextUsageBreakdownEntry[]
+  /** 压缩前对话历史估算（不含 MCP/工具定义） */
+  readonly conversationTokensBefore?: number
+  /** 压缩后对话历史估算 */
+  readonly conversationTokensAfter?: number
 }
 
 // ============================================================
@@ -461,6 +499,7 @@ export type AgentRuntimeEvent =
   | (AgentToolEndEvent & AgentEventInstanceMeta)
   | (AgentTurnStartEvent & AgentEventInstanceMeta)
   | (AgentTurnEndEvent & AgentEventInstanceMeta)
+  | (AgentTurnFileChangesEvent & AgentEventInstanceMeta)
   | (AgentIdleEvent & AgentEventInstanceMeta)
   | (AgentErrorEvent & AgentEventInstanceMeta)
   | (AgentAbortEvent & AgentEventInstanceMeta)

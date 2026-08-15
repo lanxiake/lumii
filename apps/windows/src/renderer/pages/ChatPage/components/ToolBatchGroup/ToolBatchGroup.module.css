@@ -1,0 +1,207 @@
+/* 工具批次分组：与 ToolCallCard 同族的紧凑内嵌卡 */
+
+.group {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--mt-border);
+  border-radius: 11px;
+  background: var(--mt-surface-2);
+  overflow: hidden;
+}
+
+.group--hasFailed {
+  border-color: color-mix(in srgb, var(--mt-error, #dc2626) 45%, var(--mt-border));
+}
+
+/* 内嵌「执行过程」：扁平行，去掉外层描边/背景/圆角，避免与 ActivityFold 边框二重嵌套 */
+.group--compact {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.group--compact .header {
+  padding: 5px 6px;
+  min-height: 30px;
+  gap: 8px;
+}
+
+.group--compact .header:hover {
+  background: color-mix(in srgb, var(--color-primary-400, #818cf8) 10%, transparent);
+  border-radius: 8px;
+}
+
+/* 摘要文案提高对比度、放大字号 */
+.group--compact .summary {
+  color: var(--mt-fg-2, rgba(255, 255, 255, 0.85));
+  font-size: 12px;
+}
+
+.group--compact .body {
+  padding-left: 20px;
+  border-top: none;
+}
+
+/* 扁平行不需要外框呼吸发光（无边框），关掉避免残留 box-shadow */
+.group--compact.group--running {
+  animation: none;
+}
+
+/* 执行中：边框呼吸发光，表达「工具正在跑」 */
+.group--running {
+  border-color: color-mix(in srgb, var(--color-primary-400, #818cf8) 45%, var(--mt-border));
+  animation: toolGroupBreath 1.6s var(--mt-ease-standard) infinite;
+}
+
+@keyframes toolGroupBreath {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary-400, #818cf8) 22%, transparent); }
+  50%      { box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary-400, #818cf8) 12%, transparent); }
+}
+
+/* 左侧 chevron：随展开旋转 */
+.chevron {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--color-primary-400, #818cf8);
+  transition: transform var(--mt-dur-normal, 220ms) var(--mt-ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+}
+
+.chevron--open {
+  transform: rotate(90deg);
+}
+
+/* 「工具」标签：蓝色笔记标签风胶囊，与「思考」（紫）区分 */
+.label {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--color-primary-400, #818cf8);
+  background: color-mix(in srgb, var(--color-primary-400, #818cf8) 16%, transparent);
+}
+
+/* 右侧展开/收起提示 */
+.hint {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.5));
+  background: var(--mt-surface-3, rgba(255, 255, 255, 0.06));
+  transition: color var(--mt-dur-fast, 120ms) var(--mt-ease-standard),
+              background var(--mt-dur-fast, 120ms) var(--mt-ease-standard);
+}
+
+.header:hover .hint {
+  color: var(--color-primary-400, #818cf8);
+  background: color-mix(in srgb, var(--color-primary-400, #818cf8) 16%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .group--running { animation: none; }
+  .chevron { transition: none; }
+}
+
+/* 摘要行头部 */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  min-height: 28px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--mt-font-mono);
+  color: var(--mt-fg-1);
+  text-align: left;
+  transition: background var(--mt-dur-normal) var(--mt-ease-standard);
+  user-select: none;
+}
+
+.header:hover {
+  background: var(--mt-surface-3);
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.4));
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+/* 批次摘要文案（读取 N 个文件 · 搜索 N 次） */
+.summary {
+  font-size: 12px;
+  color: var(--mt-fg-2, rgba(255, 255, 255, 0.75));
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 当前正在执行的动作（流式时） */
+.current {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--color-primary-400, #60a5fa);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.failedBadge {
+  flex-shrink: 0;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--mt-error, #dc2626) 18%, transparent);
+  color: var(--mt-error, #f87171);
+}
+
+/* margin-left:auto 把计数/箭头推到最右；有 .current 时它 flex:1 占位，此处不起作用 */
+.count {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--mt-surface-3, rgba(255, 255, 255, 0.06));
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.5));
+  font-family: var(--mt-font-mono, monospace);
+}
+
+/* 展开体：逐个 ToolCallCard；几十个工具时限高滚动，避免撑爆页面 */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px 6px;
+  border-top: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.06));
+  max-height: 420px;
+  overflow-y: auto;
+  /* 解决 Windows Electron 滚动闪烁问题：工具多时多个嵌套滚动区同时用 WebKit
+     自定义滚动条会与 GPU 合成层冲突，导致卡片重叠变形，重启才恢复 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--mt-border) transparent;
+}
+
+.body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.body::-webkit-scrollbar-thumb {
+  background: var(--mt-border);
+  border-radius: 3px;
+}

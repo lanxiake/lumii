@@ -194,9 +194,11 @@ const CapabilityToggle: React.FC<{
 // ── 主页面 ───────────────────────────────────────────────────────────────
 interface AgentsPageProps {
   onViewChange?: (view: ViewType) => void
+  /** Hub 嵌入时收紧布局，弱化页头标题区 */
+  embedded?: boolean
 }
 
-const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange }) => {
+const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false }) => {
   const {
     agents,
     systemAgents,
@@ -656,14 +658,18 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange }) => {
   )
 
   return (
-    <div className={styles['agents-page']}>
+    <div className={clsx(styles['agents-page'], embedded && styles['agents-page--embedded'])}>
       {/* Header */}
       <div className={styles['agents-header']}>
         <div className={styles['agents-title-section']}>
-          <h1 className={styles['agents-title']}>AI 团队</h1>
-          <p className={styles['agents-subtitle']}>
-            可视化管理你的 AI 助手团队，协调者将自动调用它们完成复杂任务
-          </p>
+          {!embedded && (
+            <>
+              <h1 className={styles['agents-title']}>AI 团队</h1>
+              <p className={styles['agents-subtitle']}>
+                可视化管理你的 AI 助手团队，协调者将自动调用它们完成复杂任务
+              </p>
+            </>
+          )}
         </div>
         <div className={styles['agents-action-buttons']}>
           <button

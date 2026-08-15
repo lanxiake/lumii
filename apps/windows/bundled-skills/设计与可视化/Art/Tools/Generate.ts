@@ -503,7 +503,7 @@ async function generateWithGPTImage(prompt: string, size: OpenAISize, output: st
 
   const openai = new OpenAI({ apiKey });
 
-  console.log("🤖 Generating with GPT-image-1...");
+  console.log(" Generating with GPT-image-1...");
 
   const response = await openai.images.generate({
     model: "gpt-image-1",

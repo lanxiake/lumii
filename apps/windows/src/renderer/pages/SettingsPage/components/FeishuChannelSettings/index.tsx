@@ -1,13 +1,14 @@
 /**
- * 飞书渠道设置：扫码新建机器人（对齐 OpenClaw / Nemo 官方插件式接入）。
+ * 飞书渠道设置：扫码新建机器人（流程对齐上游飞书 CLI 参考实现 / Nemo 的官方插件式接入）。
  */
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { Button } from '../../../../components/ui/Button/Button'
-import { Tag } from '../../../../components/ui/Tag/Tag'
-import { ChannelCard } from '../ChannelCard'
+import { ChannelCard, type ChannelMetaItem } from '../ChannelCard'
+import type { ChannelConnectionState } from '../ChannelStatusPill'
 import { ChannelBrandIcon } from '../../../../components/brand/ChannelBrandIcon'
 import { Modal } from '../../../../components/ui/Modal/Modal'
+import type { ChannelSnapshot } from '../ChannelsSection/useChannelSnapshots'
 
 type FeishuStatus = 'idle' | 'waiting_qrcode' | 'scanned' | 'connected' | 'error'
 
@@ -27,18 +28,27 @@ const STATUS_LABELS: Record<FeishuStatus, string> = {
   error: '异常',
 }
 
-const STATUS_COLORS: Record<FeishuStatus, 'default' | 'success' | 'warning' | 'error'> = {
-  idle: 'default',
-  waiting_qrcode: 'warning',
-  scanned: 'warning',
-  connected: 'success',
+const STATUS_STATES: Record<FeishuStatus, ChannelConnectionState> = {
+  idle: 'idle',
+  waiting_qrcode: 'pending',
+  scanned: 'pending',
+  connected: 'connected',
   error: 'error',
+}
+
+interface FeishuChannelSettingsProps {
+  /** 渠道出站快照（由分区统一拉取） */
+  snapshot?: ChannelSnapshot
+  snapshotLoading?: boolean
 }
 
 /**
  * 飞书渠道设置卡片（扫码新建机器人）。
  */
-export const FeishuChannelSettings: React.FC = () => {
+export const FeishuChannelSettings: React.FC<FeishuChannelSettingsProps> = ({
+  snapshot,
+  snapshotLoading = false,
+}) => {
   const [status, setStatus] = useState<FeishuStatus>('idle')
   const [session, setSession] = useState<FeishuSessionPublic | null>(null)
   const [qrcodeDataUrl, setQrcodeDataUrl] = useState<string | null>(null)
@@ -125,36 +135,45 @@ export const FeishuChannelSettings: React.FC = () => {
 
   const actions = (
     <>
+      {isPending && !qrModalOpen && qrcodeDataUrl && (
+        <Button size="sm" variant="secondary" onClick={() => setQrModalOpen(true)}>
+          查看二维码
+        </Button>
+      )}
       {!isConnected ? (
         <Button
+          size="sm"
           variant="primary"
           onClick={() => void handleConnect()}
           loading={loading || isPending}
           disabled={loading || isPending}
         >
-          {isPending ? '扫码中...' : '扫码新建机器人'}
+          {isPending ? '扫码中' : '扫码新建机器人'}
         </Button>
       ) : (
         <Button
+          size="sm"
           variant="danger"
           onClick={() => void handleDisconnect()}
           loading={loading}
           disabled={loading}
         >
-          断开连接
-        </Button>
-      )}
-      {isPending && !qrModalOpen && qrcodeDataUrl && (
-        <Button variant="secondary" onClick={() => setQrModalOpen(true)}>
-          查看二维码
+          断开
         </Button>
       )}
     </>
   )
 
-  const extra =
+  const meta: ChannelMetaItem[] | undefined =
     isConnected && session
-      ? `App ${session.appIdMasked}  ·  接入于 ${new Date(session.loginAt).toLocaleString()}`
+      ? [
+          { label: '推送能力', value: '原生推送（无时间限制）' },
+          { label: '接入时间', value: new Date(session.loginAt).toLocaleString() },
+          { label: '应用', value: session.appIdMasked, mono: true },
+          ...(session.openId
+            ? [{ label: '登录账号', value: session.openId, mono: true } as ChannelMetaItem]
+            : []),
+        ]
       : undefined
 
   return (
@@ -162,11 +181,14 @@ export const FeishuChannelSettings: React.FC = () => {
       <ChannelCard
         icon={<ChannelBrandIcon kind="feishu" />}
         name="飞书"
-        description="扫码一键创建飞书机器人（WebSocket 长连接），无需手动填写 App Secret"
-        statusSlot={<Tag color={STATUS_COLORS[status]}>{STATUS_LABELS[status]}</Tag>}
-        actionsSlot={actions}
+        description="扫码一键创建飞书机器人，无需手动填写 App Secret"
+        state={STATUS_STATES[status] ?? 'idle'}
+        statusLabel={STATUS_LABELS[status] ?? status}
+        actions={actions}
         errorMessage={errorMsg}
-        extraSlot={extra}
+        meta={meta}
+        peers={isConnected ? (snapshot?.peers ?? []) : undefined}
+        peersLoading={snapshotLoading}
       />
 
       <Modal
@@ -174,6 +196,7 @@ export const FeishuChannelSettings: React.FC = () => {
         title="扫码新建飞书机器人"
         onClose={() => setQrModalOpen(false)}
         width={320}
+        layer="aboveHub"
         footer={
           <Button variant="ghost" onClick={() => setQrModalOpen(false)}>
             取消
@@ -196,14 +219,14 @@ export const FeishuChannelSettings: React.FC = () => {
                 alignItems: 'center',
                 justifyContent: 'center',
                 margin: '0 auto',
-                background: '#f5f5f5',
+                background: 'var(--mt-bg-overlay)',
                 borderRadius: 8,
               }}
             >
-              <span style={{ color: '#999', fontSize: 14 }}>正在获取二维码...</span>
+              <span style={{ color: 'var(--mt-fg-3)', fontSize: 14 }}>正在获取二维码...</span>
             </div>
           )}
-          <p style={{ marginTop: 12, color: '#666', fontSize: 13 }}>
+          <p style={{ marginTop: 12, color: 'var(--mt-fg-3)', fontSize: 13 }}>
             请使用飞书 App 扫描二维码，授权创建机器人应用
           </p>
         </div>

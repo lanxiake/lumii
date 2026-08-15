@@ -23,6 +23,51 @@ function tryDeleteWalFiles(dbPath: string): boolean {
   return deleteSqliteSidecarFiles(dbPath);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 记录「当前实际使用的数据库路径」的指针文件路径
+ *
+ * 当主库路径被其他进程长期锁定（如残留的僵尸进程）时，每次启动都会轮转到新的
+ * `.new-<ts>` 路径。若不记录上次轮转的目标，下次启动主库仍被锁定时会再轮转出
+ * 一个新路径，永久遗弃上一次轮转路径中已经写入的会话数据。
+ */
+export function activePathPointerFile(dbPath: string): string {
+  return `${dbPath}.active-path`;
+}
+
+/**
+ * 读取指针文件，返回上次轮转的目标路径（文件必须仍存在才有效）
+ */
+export function readActivePathPointer(dbPath: string): string | null {
+  try {
+    const pointerFile = activePathPointerFile(dbPath);
+    if (!fs.existsSync(pointerFile)) return null;
+    const target = fs.readFileSync(pointerFile, "utf-8").trim();
+    return target && fs.existsSync(target) ? target : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 更新指针文件：实际路径 = 原路径时删除指针（恢复正常）；否则记录轮转目标
+ */
+export function writeActivePathPointer(dbPath: string, actualDbPath: string): void {
+  try {
+    const pointerFile = activePathPointerFile(dbPath);
+    if (actualDbPath === dbPath) {
+      if (fs.existsSync(pointerFile)) fs.unlinkSync(pointerFile);
+    } else {
+      fs.writeFileSync(pointerFile, actualDbPath, "utf-8");
+    }
+  } catch {
+    // 指针文件写入失败不影响本次启动，只是下次可能多轮转一次
+  }
+}
+
 /**
  * 将损坏的数据库文件重命名为备份
  *
@@ -133,6 +178,8 @@ async function createNodeSqliteAdapter(dbPath: string): Promise<DatabaseAdapter>
   db.exec("PRAGMA journal_mode=WAL");
   db.exec("PRAGMA synchronous=NORMAL");
   db.exec("PRAGMA foreign_keys=ON");
+  // 默认 1000 页（4MB）才 checkpoint，实测 WAL 会长到主库的 10 倍。降到 256 页（1MB）。
+  db.exec("PRAGMA wal_autocheckpoint=256");
 
   return {
     exec: (sql: string) => db.exec(sql),
@@ -195,6 +242,7 @@ async function createBetterSqliteAdapter(dbPath: string): Promise<DatabaseAdapte
   db.pragma("journal_mode = WAL");
   db.pragma("synchronous = NORMAL");
   db.pragma("foreign_keys = ON");
+  db.pragma("wal_autocheckpoint = 256");
 
   return {
     exec: (sql: string) => db.exec(sql),
@@ -248,8 +296,8 @@ export interface LocalDatabaseOptions {
   readonly enableScheduledBackup?: boolean;
   /** 备份目录，默认与数据库同级的 `backups/` */
   readonly backupDirectory?: string;
-  /** 保留备份天数，默认 7 */
-  readonly backupRetentionDays?: number;
+  /** 最多保留的备份数量，默认 10 */
+  readonly backupMaxCount?: number;
   /** 本地时间每日备份小时（0–23），默认 3 */
   readonly backupHourLocal?: number;
   /** 打开成功后立即执行一次备份 */
@@ -377,6 +425,11 @@ export class LocalDatabase {
     // 实际打开的数据库路径（正常情况 = dbPath；Windows EBUSY 时 = 带时间戳的新路径）
     let actualDbPath = dbPath;
 
+    // Windows 下文件锁冲突（残留进程未完全退出、杀软/云同步短暂占用）与真正的磁盘损坏
+    // 都会抛出同样的 SQLITE_IOERR，仅凭一次失败无法区分。短暂重试给锁一个自然清除的窗口，
+    // 避免把「文件暂时被占用」误判为「损坏」而触发下面的轮转 + 备份恢复（会丢失最近数据）。
+    const LOCK_RETRY_DELAYS_MS = [200, 500, 1000, 2000];
+
     // 第 1 次尝试：直接打开（SQLite 会自动重放有效的 WAL 文件，保留已提交的变更）
     // ⚠️ 不在此处预先删除 WAL/SHM：若进程上次异常退出，WAL 中可能保存着已提交但
     //    尚未 checkpoint 的操作（如用户删除会话的 DELETE）。预先删 WAL 会丢失这些变更。
@@ -386,56 +439,91 @@ export class LocalDatabase {
       logSqliteErr("第1次打开失败", err);
       if (!isIoErr(err)) throw err;
 
-      // 第 2 次尝试：IOERR → WAL/SHM 可能处于不一致状态，清理后重试
-      // 仅在打开失败后才删 WAL，此时 WAL 已损坏，删除不会造成数据丢失
-      tryDeleteWalFiles(dbPath);
-      try {
-        this._db = await tryOpen();
-      } catch (err2) {
-        logSqliteErr("第2次打开失败（清理WAL后）", err2);
-        if (!isIoErr(err2)) throw err2;
+      let recoveredFromLock = false;
+      for (const delay of LOCK_RETRY_DELAYS_MS) {
+        await sleep(delay);
+        try {
+          this._db = await tryOpen();
+          recoveredFromLock = true;
+          console.info(`[local-database] 等待 ${delay}ms 后重试打开成功，判定为瞬时文件锁而非损坏`);
+          break;
+        } catch (retryErr) {
+          logSqliteErr(`等待 ${delay}ms 后重试打开仍失败`, retryErr);
+          if (!isIoErr(retryErr)) throw retryErr;
+        }
+      }
 
-        // 第 3 次尝试：WAL 清理后仍失败，主 db 文件本身损坏
-        // 先轮转/绕开被锁文件，再优先从 backups/ 恢复，避免以空库启动丢失历史
-        actualDbPath = rotateCorruptedDb(dbPath);
-        let openedFromBackup = false;
-        if (recoveryDepth < maxRecovery && findLatestBackupPath(backupDir)) {
-          if (tryRestoreFromLatestBackup(actualDbPath, backupDir)) {
+      if (!recoveredFromLock) {
+        // 第 2 次尝试：IOERR → WAL/SHM 可能处于不一致状态，清理后重试
+        // 仅在打开失败后才删 WAL，此时 WAL 已损坏，删除不会造成数据丢失
+        tryDeleteWalFiles(dbPath);
+        try {
+          this._db = await tryOpen();
+        } catch (err2) {
+          logSqliteErr("第2次打开失败（清理WAL后）", err2);
+          if (!isIoErr(err2)) throw err2;
+
+          // 若此前已轮转到某个 .new-<ts> 路径且该文件仍存在，说明主库路径持续被锁定
+          // （如残留僵尸进程）。继续使用上次轮转的路径，而不是再轮转出一个新空库——
+          // 否则每次启动都会遗弃上一次轮转路径里已经写入的会话数据。
+          const priorRotatedPath = readActivePathPointer(dbPath);
+          if (priorRotatedPath) {
             try {
-              this._db = await tryOpen(actualDbPath);
-              openedFromBackup = true;
-              console.info(
-                `[local-database] 已从备份恢复数据库: target=${actualDbPath} backupDir=${backupDir}`,
+              this._db = await tryOpen(priorRotatedPath);
+              actualDbPath = priorRotatedPath;
+              console.warn(
+                `[local-database] 主库路径持续被锁定，继续使用此前轮转路径: ${priorRotatedPath}`,
               );
-            } catch (restoreErr) {
-              logSqliteErr("从备份恢复后打开仍失败", restoreErr);
-              tryDeleteWalFiles(actualDbPath);
+            } catch (resumeErr) {
+              logSqliteErr("继续使用此前轮转路径失败", resumeErr);
             }
           }
-        }
-        if (!openedFromBackup) {
-          try {
-            this._db = await tryOpen(actualDbPath);
-          } catch (err3) {
-            logSqliteErr("第3次打开失败（轮转损坏库后）", err3);
-            // 连空库都打不开（极端情况：磁盘满/权限拒绝/文件被锁定）
-            const dbDir = path.dirname(dbPath);
-            let dirExists = false;
-            try {
-              dirExists = fs.existsSync(dbDir);
-            } catch {
-              /* ignore */
+
+          if (!this._db) {
+            // 第 3 次尝试：WAL 清理后仍失败，主 db 文件本身损坏（或仍被锁定且无可复用的轮转路径）
+            // 先轮转/绕开被锁文件，再优先从 backups/ 恢复，避免以空库启动丢失历史
+            actualDbPath = rotateCorruptedDb(dbPath);
+            let openedFromBackup = false;
+            if (recoveryDepth < maxRecovery && findLatestBackupPath(backupDir)) {
+              if (tryRestoreFromLatestBackup(actualDbPath, backupDir)) {
+                try {
+                  this._db = await tryOpen(actualDbPath);
+                  openedFromBackup = true;
+                  console.info(
+                    `[local-database] 已从备份恢复数据库: target=${actualDbPath} backupDir=${backupDir}`,
+                  );
+                } catch (restoreErr) {
+                  logSqliteErr("从备份恢复后打开仍失败", restoreErr);
+                  tryDeleteWalFiles(actualDbPath);
+                }
+              }
             }
-            throw new Error(
-              `SQLite 无法打开数据库（${(err3 as Error).message ?? err3}）。` +
-                `数据目录: ${dbDir}（${dirExists ? "存在" : "不存在"}）。` +
-                "请检查磁盘空间、文件权限，以及是否有其他进程锁定了数据库文件。",
-            );
+            if (!openedFromBackup) {
+              try {
+                this._db = await tryOpen(actualDbPath);
+              } catch (err3) {
+                logSqliteErr("第3次打开失败（轮转损坏库后）", err3);
+                // 连空库都打不开（极端情况：磁盘满/权限拒绝/文件被锁定）
+                const dbDir = path.dirname(dbPath);
+                let dirExists = false;
+                try {
+                  dirExists = fs.existsSync(dbDir);
+                } catch {
+                  /* ignore */
+                }
+                throw new Error(
+                  `SQLite 无法打开数据库（${(err3 as Error).message ?? err3}）。` +
+                    `数据目录: ${dbDir}（${dirExists ? "存在" : "不存在"}）。` +
+                    "请检查磁盘空间、文件权限，以及是否有其他进程锁定了数据库文件。",
+                );
+              }
+            }
           }
         }
       }
     }
 
+    writeActivePathPointer(dbPath, actualDbPath);
     this._dbPath = actualDbPath;
     this.migrate();
 
@@ -496,7 +584,7 @@ export class LocalDatabase {
       this._stopBackup = startScheduledDatabaseBackup({
         dbPath: actualDbPath,
         backupDir,
-        retentionDays: options.backupRetentionDays ?? 7,
+        maxBackupCount: options.backupMaxCount ?? 10,
         hourLocal: options.backupHourLocal ?? 3,
         // 启动时立即备份一次：保住启动前的干净状态，恢复时可回退到本次启动前
         backupOnOpen: options.backupOnOpen ?? true,

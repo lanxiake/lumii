@@ -11,9 +11,21 @@ export default defineConfig({
       "@main/": path.resolve(__dirname, "./src/main/"),
       "@renderer/": path.resolve(__dirname, "./src/renderer/"),
       "@shared/": path.resolve(__dirname, "./src/shared/"),
+      // 注意不要带末尾斜杠：path.resolve 会剥掉它，前缀替换后会拼成 assetslogo.png
+      "@app-assets": path.resolve(__dirname, "assets"),
+      "@mtbot/agent-runtime/browser": path.resolve(
+        __dirname,
+        "../../packages/agent-runtime/src/browser.ts",
+      ),
+      "@mtbot/agent-runtime": path.resolve(
+        __dirname,
+        "../../packages/agent-runtime/src/index.ts",
+      ),
     },
   },
   test: {
+    // 处理 CSS Modules 才会应用上面的 classNameStrategy；默认 false 时样式整体被 stub 掉
+    css: { modules: { classNameStrategy: "non-scoped" } },
     testTimeout: 30_000,
     hookTimeout: 30_000,
     pool: "forks",

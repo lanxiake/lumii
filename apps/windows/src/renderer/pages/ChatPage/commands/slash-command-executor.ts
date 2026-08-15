@@ -220,14 +220,21 @@ async function handleCompact(args: string, ctx: CommandContext): Promise<void> {
       type: 'user:compact-context',
       sessionKey: ctx.sessionKey,
       keepRecentTurns: 6,
-    }) as { success: boolean; messagesRemoved: number }
+    }) as { success: boolean; messagesRemoved: number; previousMessageCount?: number; hadSummary?: boolean }
 
     if (result.success) {
-      ctx.showToast?.(`上下文已压缩，删除 ${result.messagesRemoved} 条旧消息`, 'success')
+      if ((result.previousMessageCount ?? 0) === 0) {
+        ctx.addSystemMessage('ℹ️ 当前没有消息可压缩')
+      } else if (result.messagesRemoved === 0 && !result.hadSummary) {
+        ctx.addSystemMessage('⚠️ 压缩未完成，会话未修改')
+      } else {
+        const summaryNote = result.hadSummary ? '，已生成摘要' : ''
+        ctx.showToast?.(`上下文已压缩，删除 ${result.messagesRemoved} 条旧消息${summaryNote}`, 'success')
+      }
       // 重新加载当前会话消息
       await api.sendCommand({ type: 'conversation:switch', sessionKey: ctx.sessionKey })
     } else {
-      ctx.addSystemMessage('压缩完成，无需删除消息')
+      ctx.addSystemMessage('压缩失败')
     }
   } catch (err) {
     logger.error('[handleCompact] 压缩失败:', err)
@@ -298,30 +305,40 @@ export const BACKEND_INFO: Record<string, { label: string; desc: string; acpBack
   gemini:   { label: 'Gemini CLI',       acpBackendId: 'gemini',   desc: 'Google Gemini CLI，多模态编程助手' },
   qoder:    { label: 'Qoder',            acpBackendId: 'qoder',    desc: 'Qoder 编程助手' },
   qwen:     { label: 'Qwen Code',        acpBackendId: 'qwen',     desc: '通义千问代码模型' },
-  kimi:     { label: 'Kimi K1.5',        acpBackendId: 'kimi',     desc: 'Moonshot Kimi 长上下文编程助手' },
+  kimi:     { label: 'Kimi CLI',         acpBackendId: 'kimi',     desc: 'Moonshot Kimi CLI，长上下文编程助手' },
   copilot:  { label: 'GitHub Copilot',   acpBackendId: 'copilot',  desc: 'GitHub Copilot，代码补全与对话' },
   auggie:   { label: 'Augment Code',     acpBackendId: 'auggie',   desc: 'Augment Code，企业级编程助手' },
-  cursor:   { label: 'Cursor',           acpBackendId: 'cursor',   desc: 'Cursor AI 编辑器后端' },
-  mtbot:    { label: 'MtBot 主 Agent',   acpBackendId: 'openclaw', desc: '默认 MtBot Agent（OpenClaw），支持全功能对话' },
-  openclaw: { label: 'MtBot 主 Agent',   acpBackendId: 'openclaw', desc: '默认 MtBot Agent（OpenClaw），支持全功能对话' },
+  cursor:   { label: 'Cursor Agent CLI', acpBackendId: 'cursor',   desc: 'Cursor Agent CLI（独立安装，非编辑器）' },
+  hermes:   { label: 'Hermes Agent',     acpBackendId: 'hermes',   desc: 'Nous Research Hermes Agent' },
+  lumii:    { label: '灵栖主 Agent',      acpBackendId: 'lumii',    desc: '默认灵栖 Agent，支持全功能对话' },
 }
+
+/**
+ * 内置主代理后端 ID，与 main 侧 `DEFAULT_CODING_DEV_BACKEND_ID` 保持一致。
+ * renderer 不能 import main，故在此单独声明。
+ */
+export const MAIN_BACKEND_ID = 'lumii'
 
 /** localStorage key，与 node 端 `CODING_DEV_USER_GLOBAL_ACCOUNT` 选择策略对应 */
 const ACP_BACKEND_STORAGE_KEY = 'mtbot:acp-backend'
 
-/** 读取当前已选 ACP 后端 ID（默认 openclaw） */
+/** 读取当前已选 ACP 后端 ID（默认主代理） */
 export function getSelectedAcpBackendId(): string {
   try {
-    return localStorage.getItem(ACP_BACKEND_STORAGE_KEY) ?? 'openclaw'
+    return localStorage.getItem(ACP_BACKEND_STORAGE_KEY) ?? MAIN_BACKEND_ID
   } catch {
-    return 'openclaw'
+    return MAIN_BACKEND_ID
   }
 }
 
 function handleBackend(backend: string, ctx: CommandContext): void {
   const info = BACKEND_INFO[backend]
   if (!info) {
-    ctx.addSystemMessage(`❌ 未知后端: \`${backend}\`\n\n可用: /claude /codex /opencode /gemini /qoder /qwen /kimi /copilot /auggie /cursor /mtbot`)
+    const available = Object.keys(BACKEND_INFO)
+      .filter((k) => k !== 'claude-code')
+      .map((k) => `/${k}`)
+      .join(' ')
+    ctx.addSystemMessage(`❌ 未知后端: \`${backend}\`\n\n可用: ${available}`)
     return
   }
 
@@ -346,9 +363,6 @@ function handleBackend(backend: string, ctx: CommandContext): void {
     })
   }
 
-  ctx.addSystemMessage(
-    `**已切换后端：${info.label}**\n\n${info.desc}\n\n后端偏好已保存，下次使用 ACP 工具（如 \`/claude\` 对话）时生效。`,
-  )
   ctx.showToast?.(`已切换到 ${info.label}`, 'success')
 }
 
@@ -459,8 +473,11 @@ export async function executeSlashCommand(
       case '/cursor':
         handleBackend('cursor', ctx)
         break
-      case '/mtbot':
-        handleBackend('mtbot', ctx)
+      case '/hermes':
+        handleBackend('hermes', ctx)
+        break
+      case '/lumii':
+        handleBackend('lumii', ctx)
         break
       case '/think':
         await handleThink(args, ctx)

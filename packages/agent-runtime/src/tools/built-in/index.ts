@@ -14,6 +14,7 @@ export { spawnAgentToolConfig } from "./spawn-agent-tool.js";
 export { sendMessageToolConfig } from "./send-message-tool.js";
 export { todoWriteToolConfig } from "./task-tools.js";
 export { cronCreateToolConfig, cronListToolConfig, cronDeleteToolConfig } from "./cron-tools.js";
+export { dashboardFeedWriteToolConfig } from "./dashboard-feed-tool.js";
 export {
   messageToolConfig,
   nodesToolConfig,
@@ -21,8 +22,14 @@ export {
   memoryReadToolConfig,
   profileMemoryToolConfig,
   systemPromptToolConfig,
-  ttsGenerateToolConfig,
+  speechGenerateToolConfig,
 } from "./integration-tools.js";
+export {
+  channelListToolConfig,
+  channelSendToolConfig,
+  CHANNEL_LIST_TOOL_NAME,
+  CHANNEL_SEND_TOOL_NAME,
+} from "./channel-tools.js";
 export {
   askUserQuestionToolConfig,
   formatAskUserQuestionResult,
@@ -77,6 +84,7 @@ import { spawnAgentToolConfig } from "./spawn-agent-tool.js";
 import { sendMessageToolConfig } from "./send-message-tool.js";
 import { todoWriteToolConfig } from "./task-tools.js";
 import { cronCreateToolConfig, cronListToolConfig, cronDeleteToolConfig } from "./cron-tools.js";
+import { dashboardFeedWriteToolConfig } from "./dashboard-feed-tool.js";
 import {
   messageToolConfig,
   nodesToolConfig,
@@ -84,8 +92,12 @@ import {
   memoryReadToolConfig,
   profileMemoryToolConfig,
   systemPromptToolConfig,
-  ttsGenerateToolConfig,
+  speechGenerateToolConfig,
 } from "./integration-tools.js";
+import {
+  channelListToolConfig,
+  channelSendToolConfig,
+} from "./channel-tools.js";
 import { askUserQuestionToolConfig } from "./ask-user-question-tool.js";
 import {
   skillListToolConfig,
@@ -127,13 +139,16 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   cronCreateToolConfig,
   cronListToolConfig,
   cronDeleteToolConfig,
+  dashboardFeedWriteToolConfig,
   messageToolConfig,
+  channelListToolConfig,
+  channelSendToolConfig,
   nodesToolConfig,
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,
   systemPromptToolConfig,
-  ttsGenerateToolConfig,
+  speechGenerateToolConfig,
   askUserQuestionToolConfig,
   skillListToolConfig,
   skillSearchToolConfig,

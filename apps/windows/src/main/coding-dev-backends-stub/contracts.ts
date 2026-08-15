@@ -1,47 +1,35 @@
 /**
  * 多开发类 AI 工具后端标识与类型（对齐 weixin-agent-gateway 多后端模型）。
- * 默认 `openclaw` 走 MtBot 内置 Pi 代理；其余后端通过本地 ACP 子进程对接各 CLI。
+ * 默认 `lumii` 走内置 Pi 代理；其余后端通过本地 ACP 子进程对接各 CLI。
  */
 
-export const DEFAULT_CODING_DEV_BACKEND_ID = "openclaw" as const;
+export const DEFAULT_CODING_DEV_BACKEND_ID = "lumii" as const;
 
 export const CODING_DEV_BACKEND_IDS = [
   DEFAULT_CODING_DEV_BACKEND_ID,
-  "codex",
-  "claude",
-  "qoder",
-  "qwen",
-  "kimi",
-  "opencode",
-  "copilot",
-  "auggie",
   "cursor",
-  "gemini",
+  "claude",
+  "codex",
+  "opencode",
 ] as const;
 
-/** gemini 为预留后端，尚未实现，不在 IMPLEMENTED 列表中 */
-export const IMPLEMENTED_CODING_DEV_BACKEND_IDS = CODING_DEV_BACKEND_IDS.filter(
-  (id) => id !== "gemini",
-) as unknown as readonly Exclude<(typeof CODING_DEV_BACKEND_IDS)[number], "gemini">[];
+export const IMPLEMENTED_CODING_DEV_BACKEND_IDS = CODING_DEV_BACKEND_IDS;
 
 export type CodingDevBackendId = (typeof CODING_DEV_BACKEND_IDS)[number];
 export type ImplementedCodingDevBackendId = (typeof IMPLEMENTED_CODING_DEV_BACKEND_IDS)[number];
 
 /** 非内置主代理、需 ACP 子进程的后端 ID */
-export type LightweightCodingDevBackendId = Exclude<ImplementedCodingDevBackendId, "openclaw">;
+export type LightweightCodingDevBackendId = Exclude<
+  ImplementedCodingDevBackendId,
+  typeof DEFAULT_CODING_DEV_BACKEND_ID
+>;
 
 export const CODING_DEV_BACKEND_LABELS: Record<CodingDevBackendId, string> = {
-  openclaw: "OpenClaw / MtBot 主代理",
-  codex: "Codex",
-  claude: "Claude Code",
-  qoder: "Qoder CLI",
-  qwen: "Qwen Code",
-  kimi: "Kimi CLI",
-  opencode: "OpenCode",
-  copilot: "GitHub Copilot",
-  auggie: "Auggie",
+  lumii: "灵栖主 Agent",
   cursor: "Cursor CLI",
-  gemini: "Gemini CLI (预留)",
+  claude: "Claude Code",
+  codex: "Codex",
+  opencode: "OpenCode",
 };
 
 export type BackendSelectionSource = "default" | "stored" | "fallback";
@@ -114,7 +102,7 @@ export function isImplementedCodingDevBackendId(
 export function isLightweightCodingDevBackendId(
   value: ImplementedCodingDevBackendId,
 ): value is LightweightCodingDevBackendId {
-  return value !== "openclaw";
+  return value !== DEFAULT_CODING_DEV_BACKEND_ID;
 }
 
 /**
@@ -124,13 +112,8 @@ export function normalizeCodingDevBackendId(raw: string): CodingDevBackendId | u
   const trimmed = raw.trim().toLowerCase();
   if (!trimmed) return undefined;
   if (trimmed === "claude-code") return "claude";
-  if (trimmed === "qoder-cli") return "qoder";
-  if (trimmed === "qwen-code") return "qwen";
-  if (trimmed === "kimi-code" || trimmed === "kimi-cli") return "kimi";
   if (trimmed === "open-code" || trimmed === "opencode-ai") return "opencode";
-  if (trimmed === "augment") return "auggie";
-  if (trimmed === "github-copilot" || trimmed === "copilot-cli") return "copilot";
   if (trimmed === "cursor-cli" || trimmed === "cursor-agent") return "cursor";
-  if (trimmed === "mtbot" || trimmed === "main") return "openclaw";
+  if (trimmed === "mtbot" || trimmed === "main") return DEFAULT_CODING_DEV_BACKEND_ID;
   return isCodingDevBackendId(trimmed) ? trimmed : undefined;
 }

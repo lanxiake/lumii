@@ -187,6 +187,13 @@ export interface CronCreateCommand {
   readonly scheduleType: 'at' | 'every' | 'cron'
   readonly scheduleExpr: string
   readonly agentId?: string
+  /** 生效星期 "0,1,..,6"（0=周日）；省略表示每天 */
+  readonly activeDays?: string
+  /** 生效时段 [start, end) 的起止小时；省略表示全天 */
+  readonly activeHourStart?: number
+  readonly activeHourEnd?: number
+  /** 逗号分隔的推送目标：system/news/focus/feishu */
+  readonly notifyTargets?: string
 }
 
 export interface CronListCommand {
@@ -206,6 +213,13 @@ export interface CronUpdateCommand {
     readonly enabled?: boolean
     readonly name?: string
     readonly taskText?: string
+    readonly agentId?: string | null
+    readonly scheduleType?: 'at' | 'every' | 'cron'
+    readonly scheduleExpr?: string
+    readonly activeDays?: string
+    readonly activeHourStart?: number | null
+    readonly activeHourEnd?: number | null
+    readonly notifyTargets?: string
   }
 }
 
@@ -281,6 +295,69 @@ export interface ToolsToggleCommand {
 
 export interface McpStatusCommand {
   readonly type: 'mcp:status'
+}
+
+/** MCP Server 配置（与主进程 McpServerEntry 一致） */
+export interface McpServerConfigInput {
+  readonly name: string
+  readonly command: string
+  readonly args?: readonly string[]
+  readonly env?: Record<string, string>
+  readonly cwd?: string
+  readonly enabled?: boolean
+}
+
+export interface McpUpsertCommand {
+  readonly type: 'mcp:upsert'
+  readonly entry: McpServerConfigInput
+  /** 编辑已有条目时传入原名称，用于支持改名 */
+  readonly originalName?: string
+}
+
+export interface McpImportCommand {
+  readonly type: 'mcp:import'
+  readonly entries: readonly McpServerConfigInput[]
+}
+
+export interface McpRemoveCommand {
+  readonly type: 'mcp:remove'
+  readonly name: string
+}
+
+export interface McpSetEnabledCommand {
+  readonly type: 'mcp:setEnabled'
+  readonly name: string
+  readonly enabled: boolean
+}
+
+export interface McpReconnectCommand {
+  readonly type: 'mcp:reconnect'
+  readonly name: string
+}
+
+/** 读取 mcp-servers.json 原文 */
+export interface McpReadConfigFileCommand {
+  readonly type: 'mcp:readConfigFile'
+}
+
+/** 写入 mcp-servers.json 原文并重载全部连接 */
+export interface McpWriteConfigFileCommand {
+  readonly type: 'mcp:writeConfigFile'
+  readonly content: string
+}
+
+/** mcp:status 返回的单条运行时状态 */
+export interface McpServerStatusResult extends McpServerConfigInput {
+  readonly connected: boolean
+  readonly connecting: boolean
+  readonly tools: readonly string[]
+  readonly lastError?: string
+}
+
+/** mcp:status 的完整返回（含配置文件级错误） */
+export interface McpStatusPayload {
+  readonly servers: readonly McpServerStatusResult[]
+  readonly configError?: string
 }
 
 // ============================================================
@@ -468,6 +545,13 @@ export interface MessageEditAndResendCommand {
 /** 查询客户端可用的基础斜杠命令列表 */
 export interface CommandsListCommand {
   readonly type: 'commands:list'
+}
+
+/** 按会话列出 TaskRepo 中的任务（重启后恢复 TodoPanel） */
+export interface TasksListCommand {
+  readonly type: 'tasks:list'
+  /** 会话 key / conversationId */
+  readonly conversationId: string
 }
 
 /** 命令列表条目（通用跨渠道格式） */
@@ -727,6 +811,13 @@ export type AgentRuntimeCommand =
   | ToolsListCommand
   | ToolsToggleCommand
   | McpStatusCommand
+  | McpUpsertCommand
+  | McpImportCommand
+  | McpRemoveCommand
+  | McpSetEnabledCommand
+  | McpReconnectCommand
+  | McpReadConfigFileCommand
+  | McpWriteConfigFileCommand
   | RuntimePingCommand
   | RuntimeFeatureFlagsGetCommand
   | RuntimeFeatureFlagsSetCommand
@@ -768,6 +859,7 @@ export type AgentRuntimeCommand =
   | FilesReadPreviewByPathCommand
   | FilesImportCommand
   | CommandsListCommand
+  | TasksListCommand
   | CodingDevSetBackendCommand
   | CodingDevGetBackendCommand
   | CodingDevListBackendsCommand
@@ -848,6 +940,12 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
         intervalMs?: number
         enabled: boolean
         createdAt: number
+        lastRunAt?: number
+        lastStatus?: 'ok' | 'error' | 'running'
+        activeDays?: string
+        activeHourStart?: number
+        activeHourEnd?: number
+        notifyTargets?: string
       }[]
       total: number
     }
@@ -909,14 +1007,21 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       isReadOnly: boolean
       needsPermission: boolean
       enabled: boolean
+      /** 累计调用次数，从未调用过为 0 */
+      usageCount: number
+      /** 最后一次调用时刻（epoch ms），从未调用过时缺省 */
+      lastUsedAt?: number
     }[]
   : T extends 'tools:toggle' ? { success: boolean }
-  : T extends 'mcp:status' ? readonly { name: string; connected: boolean }[]
+  : T extends 'mcp:status' ? McpStatusPayload
+  : T extends 'mcp:readConfigFile' ? { path: string; content: string }
+  : T extends 'mcp:writeConfigFile' ? { success: boolean; error?: string }
+  : T extends 'mcp:upsert' | 'mcp:import' | 'mcp:remove' | 'mcp:setEnabled' | 'mcp:reconnect'
+    ? { success: boolean; error?: string }
   : T extends 'storage:auditRecent' ? readonly {
       id: number
       agent_id: string
       tool_name: string
-      args_hash: string | null
       result_summary: string | null
       is_error: number
       duration_ms: number | null
@@ -988,6 +1093,15 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       encoding?: 'utf-8' | 'base64'
     }
   : T extends 'commands:list' ? readonly CommandListEntry[]
+  : T extends 'tasks:list' ? {
+      tasks: readonly {
+        id: string
+        subject: string
+        description: string | null
+        status: string
+        owner: string | null
+      }[]
+    }
   : T extends 'files:import' ? {
       fileId: string
       /** workspace 内的相对路径 */

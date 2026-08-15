@@ -7,13 +7,32 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { DatabaseAdapter } from "./local-database.js";
 import { withTransaction } from "./local-database.js";
+import { providerPromptTokens } from "../compact/token-estimate.js";
+import type {
+  AssistantPart,
+  AssistantPartsContent,
+  ToolAssistantPart,
+} from "./assistant-parts.js";
+import {
+  parseMessageContentJson,
+  type ToolCallRecord,
+  type TextMessageContent,
+  type ToolResultContent,
+  type MessageContentJson,
+} from "./message-content-json.js";
+export {
+  parseMessageContentJson,
+  type ToolCallRecord,
+  type TextMessageContent,
+  type ToolResultContent,
+  type MessageContentJson,
+};
 
 // ─── 类型定义 ───
 
 export interface ConversationRow {
   readonly id: string;
   readonly user_id: string;
-  readonly type: string;
   readonly title: string | null;
   readonly is_active: number;
   readonly is_pinned: number;
@@ -27,7 +46,6 @@ export interface MessageRow {
   readonly agent_id: string | null;
   readonly role: string;
   readonly content_json: string;
-  readonly is_proactive: number;
   readonly timestamp: string;
   /** 1 表示流式未完成行，UI 与 pi 历史加载应忽略 */
   readonly is_streaming: number;
@@ -40,108 +58,8 @@ export interface PiMessage {
 }
 
 export interface PiContentBlock {
-  readonly type: "text" | "tool_use" | "tool_result" | "thinking";
+  readonly type: "text" | "tool_use" | "tool_result" | "toolCall" | "thinking";
   readonly [key: string]: unknown;
-}
-
-// ─── content_json 类型定义 ───
-
-/** 工具调用记录（嵌入 assistant 消息） */
-export interface ToolCallRecord {
-  readonly id: string;
-  readonly name: string;
-  readonly args: Record<string, unknown>;
-  readonly result?: unknown;
-  readonly isError?: boolean;
-  /** 工具调用开始时，消息文本的字符长度。用于渲染时将工具卡片插入文字正确位置。 */
-  readonly textPositionAtStart?: number;
-}
-
-/** assistant 文本消息 */
-export interface TextMessageContent {
-  readonly type: "text";
-  readonly text: string;
-  /** 推理内容（DeepSeek / extended thinking 模型的思考过程，已从正文剥离） */
-  readonly thinkingText?: string;
-  readonly toolCalls?: readonly ToolCallRecord[];
-  /** 最后一轮 message:end 的 token 用量（可选，落库于整轮结束） */
-  readonly usage?: {
-    readonly inputTokens: number;
-    readonly outputTokens: number;
-    readonly cacheRead?: number;
-    readonly cacheWrite?: number;
-  };
-  /** 子 Agent 来源信息（仅子 Agent 消息有此字段，用于重启后恢复 label） */
-  readonly sourceAgent?: {
-    readonly instanceId: string;
-    readonly label: string;
-  };
-  /** 用户语音消息：标识 + 原始录音 WAV base64（仅本地 UI 回放，不送 LLM） */
-  readonly isVoice?: boolean;
-  readonly audioWavBase64?: string;
-}
-
-/** tool_result 消息（工具执行结果） */
-export interface ToolResultContent {
-  readonly type: "tool_result";
-  readonly tool_use_id: string;
-  readonly tool_name: string;
-  readonly result: unknown;
-  readonly is_error: boolean;
-}
-
-/** content_json 联合类型 — 覆盖 messages 表中所有合法 JSON 结构 */
-export type MessageContentJson = TextMessageContent | ToolResultContent;
-
-/**
- * 将数据库存储的 content_json 字符串解析为强类型结构。
- * 解析失败或未知结构时返回 undefined。
- */
-export function parseMessageContentJson(raw: string): MessageContentJson | undefined {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return undefined;
-    const o = parsed as Record<string, unknown>;
-    if (o.type === "text") {
-      const text = typeof o.text === "string" ? o.text : "";
-      const thinkingText = typeof o.thinkingText === "string" ? o.thinkingText : undefined;
-      const toolCalls = o.toolCalls;
-      const usage = o.usage;
-      const sa = o.sourceAgent;
-      const sourceAgent =
-        sa &&
-        typeof sa === "object" &&
-        typeof (sa as Record<string, unknown>).instanceId === "string"
-          ? {
-              instanceId: (sa as Record<string, unknown>).instanceId as string,
-              label: String((sa as Record<string, unknown>).label ?? ""),
-            }
-          : undefined;
-      const isVoice = o.isVoice === true ? true : undefined;
-      const audioWavBase64 =
-        typeof o.audioWavBase64 === "string" && o.audioWavBase64.length > 0
-          ? o.audioWavBase64
-          : undefined;
-      return {
-        type: "text",
-        text,
-        ...(thinkingText ? { thinkingText } : {}),
-        ...(Array.isArray(toolCalls) ? { toolCalls } : {}),
-        ...(usage && typeof usage === "object"
-          ? { usage: usage as TextMessageContent["usage"] }
-          : {}),
-        ...(sourceAgent ? { sourceAgent } : {}),
-        ...(isVoice ? { isVoice: true } : {}),
-        ...(audioWavBase64 ? { audioWavBase64 } : {}),
-      } as TextMessageContent;
-    }
-    if (o.type === "tool_result") {
-      return parsed as ToolResultContent;
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
 }
 
 /** 近期会话与消息列表的 LRU 缓存（提升重复读性能） */
@@ -202,17 +120,15 @@ export class ConversationRepo {
 
   createConversation(params: {
     readonly userId: string;
-    readonly type?: "direct" | "group" | "broadcast";
     readonly title?: string;
     readonly participants: ReadonlyArray<{ readonly type: "user" | "agent"; readonly id: string }>;
   }): ConversationRow {
     const id = generateId();
     const now = new Date().toISOString();
-    const convType = params.type ?? "direct";
 
     const insertConv = this.db.prepare(
-      `INSERT INTO conversations (id, user_id, type, title, is_active, created_at)
-       VALUES (?, ?, ?, ?, 1, ?)`,
+      `INSERT INTO conversations (id, user_id, title, is_active, created_at)
+       VALUES (?, ?, ?, 1, ?)`,
     );
     const insertParticipant = this.db.prepare(
       `INSERT INTO conversation_participants (conversation_id, participant_type, participant_id, joined_at)
@@ -220,7 +136,7 @@ export class ConversationRepo {
     );
 
     withTransaction(this.db, () => {
-      insertConv.run(id, params.userId, convType, params.title ?? null, now);
+      insertConv.run(id, params.userId, params.title ?? null, now);
       for (const p of params.participants) {
         insertParticipant.run(id, p.type, p.id, now);
       }
@@ -229,7 +145,6 @@ export class ConversationRepo {
     const row: ConversationRow = {
       id,
       user_id: params.userId,
-      type: convType,
       title: params.title ?? null,
       is_active: 1,
       is_pinned: 0,
@@ -315,8 +230,11 @@ export class ConversationRepo {
   }
 
   /**
-   * 获取最近一条带 usage 的助手消息的 inputTokens（提供商真实 prompt tokens）。
+   * 获取最近一条带 usage 的助手消息的 prompt tokens（提供商真实读数）。
    * 用于重启或切换会话后恢复上下文用量展示。
+   *
+   * 必须把 cacheRead/cacheWrite 一起算：开了 prompt cache 后系统提示词等稳定前缀
+   * 记在缓存字段里，inputTokens 只剩本轮增量，单取它会让上下文读数虚低一个量级。
    */
   getLastAssistantProviderInputTokens(conversationId: string): number | undefined {
     const rows = this.db
@@ -330,9 +248,11 @@ export class ConversationRepo {
 
     for (const row of rows) {
       const parsed = parseMessageContentJson(row.content_json);
-      const inputTokens = parsed?.type === "text" ? parsed.usage?.inputTokens : undefined;
-      if (typeof inputTokens === "number" && inputTokens > 0) {
-        return inputTokens;
+      const usage = parsed?.type === "text" ? parsed.usage : undefined;
+      if (!usage) continue;
+      const promptTokens = providerPromptTokens(usage);
+      if (promptTokens > 0) {
+        return promptTokens;
       }
     }
     return undefined;
@@ -391,6 +311,18 @@ export class ConversationRepo {
     const rows = this.db
       .prepare<MessageRow>("SELECT * FROM messages WHERE is_streaming = 1")
       .all() as MessageRow[];
+
+    console.log(`[finalizeAllStreamingMessages] 查询到 ${rows.length} 条流式残留消息`)
+    if (rows.length > 0) {
+      console.log('[finalizeAllStreamingMessages] 残留消息明细:', rows.map(r => ({
+        id: r.id,
+        conversation_id: r.conversation_id,
+        role: r.role,
+        timestamp: r.timestamp,
+        content_json_length: r.content_json?.length ?? 0
+      })))
+    }
+
     if (rows.length === 0) return 0;
 
     const now = new Date().toISOString();
@@ -410,6 +342,7 @@ export class ConversationRepo {
       this.conversationCache.delete(row.conversation_id);
       this.messageCache.deleteWhere((k) => k.startsWith(`${row.conversation_id}|`));
     }
+    console.log(`[finalizeAllStreamingMessages] 已将 ${rows.length} 条消息标记为已完成`)
     return rows.length;
   }
 
@@ -535,20 +468,21 @@ export class ConversationRepo {
     readonly agentId?: string;
     readonly role: "user" | "assistant" | "system";
     readonly contentJson: MessageContentJson;
-    readonly isProactive?: boolean;
     /** 为 true 时表示流式中的助手行，重启后应忽略 */
     readonly isStreaming?: boolean;
+    /** 可选落库时间；压缩摘要需插在保留段之前时传入更早的 timestamp */
+    readonly timestamp?: string;
   }): MessageRow {
     const id = params.id ?? generateId();
-    const now = new Date().toISOString();
+    const now = params.timestamp ?? new Date().toISOString();
     const contentStr = JSON.stringify(params.contentJson);
     const streamFlag = params.isStreaming ? 1 : 0;
 
     withTransaction(this.db, () => {
       this.db
         .prepare(
-          `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, is_proactive, timestamp, is_streaming)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp, is_streaming)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -556,7 +490,6 @@ export class ConversationRepo {
           params.agentId ?? null,
           params.role,
           contentStr,
-          params.isProactive ? 1 : 0,
           now,
           streamFlag,
         );
@@ -575,7 +508,6 @@ export class ConversationRepo {
       agent_id: params.agentId ?? null,
       role: params.role,
       content_json: contentStr,
-      is_proactive: params.isProactive ? 1 : 0,
       timestamp: now,
       is_streaming: streamFlag,
     };
@@ -675,8 +607,8 @@ export class ConversationRepo {
 
     const now = new Date().toISOString();
     const insertMsg = this.db.prepare(
-      `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, is_proactive, timestamp, is_streaming)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp, is_streaming)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
 
     withTransaction(this.db, () => {
@@ -688,7 +620,6 @@ export class ConversationRepo {
           row.agent_id,
           row.role,
           row.content_json,
-          row.is_proactive,
           row.timestamp,
           0,
         );
@@ -700,7 +631,6 @@ export class ConversationRepo {
         null,
         "user",
         JSON.stringify({ type: "text", text: newUserContent }),
-        0,
         now,
         0,
       );
@@ -827,60 +757,85 @@ export class ConversationRepo {
 
 /**
  * 将 DB 消息行转换为 pi-agent AgentMessage 序列。
- * assistant 消息中的 toolCalls 会展开为 toolCall block + 对应的 toolResult 消息，
+ * assistant_parts 按时间线顺序转换为内容块，并展开已完成工具的 toolResult 消息，
  * 确保 restoreHistoryForInstance 能恢复完整的工具执行上下文。
  */
 export function messageRowToAgentMessages(row: MessageRow): readonly AgentMessage[] {
   const parsed = parseMessageContentJson(row.content_json);
-  if (!parsed || parsed.type !== "text") {
+  if (!parsed) {
     return [];
   }
 
-  const blocks: PiContentBlock[] = [];
-
-  if (parsed.thinkingText && parsed.thinkingText.trim().length > 0) {
-    blocks.push({
-      type: "thinking",
-      thinking: parsed.thinkingText,
-      thinkingSignature: "reasoning_content",
-    });
+  if (parsed.type === "text") {
+    if (row.role !== "user") {
+      return [];
+    }
+    return [{ role: "user", content: [{ type: "text", text: parsed.text }] } as AgentMessage];
   }
 
-  blocks.push({ type: "text", text: parsed.text ?? "" });
-
-  if (row.role === "user") {
-    return [{ role: "user", content: blocks } as AgentMessage];
+  if (parsed.type !== "assistant_parts" || row.role !== "assistant") {
+    return [];
   }
 
-  const toolCalls = parsed.toolCalls ?? [];
-  const assistantBlocks: PiContentBlock[] = [...blocks];
-  for (const tc of toolCalls) {
-    assistantBlocks.push({
-      type: "toolCall",
-      id: tc.id,
-      name: tc.name,
-      arguments: tc.args ?? {},
-    });
-  }
+  const assistantBlocks = parsed.parts.map((part) => assistantPartToPiBlock(part));
+  const result: AgentMessage[] = [
+    { role: "assistant", content: assistantBlocks } as unknown as AgentMessage,
+  ];
 
-  const result: AgentMessage[] = [{ role: "assistant", content: assistantBlocks } as AgentMessage];
-
-  for (const tc of toolCalls) {
-    if (tc.result === undefined) continue;
+  for (const part of parsed.parts) {
+    if (
+      part.type !== "tool" ||
+      part.status === "running" ||
+      part.result === undefined
+    ) {
+      continue;
+    }
     const resultText =
-      typeof tc.result === "string" ? tc.result : JSON.stringify(tc.result);
+      typeof part.result === "string" ? part.result : JSON.stringify(part.result);
     result.push({
       role: "toolResult",
-      toolCallId: tc.id,
-      toolName: tc.name,
+      toolCallId: part.id,
+      toolName: part.name,
       content: [{ type: "text", text: resultText }],
-      ...(tc.isError ? { isError: true } : {}),
+      ...(part.isError ? { isError: true } : {}),
     } as AgentMessage);
   }
 
   return result;
 }
 
+/**
+ * 将单个助手时间线 part 转换为 pi-agent 内容块。
+ */
+function assistantPartToPiBlock(part: AssistantPart): PiContentBlock {
+  if (part.type === "thinking") {
+    return {
+      type: "thinking",
+      thinking: part.text,
+      thinkingSignature: "reasoning_content",
+    };
+  }
+  if (part.type === "text") {
+    return { type: "text", text: part.text };
+  }
+  return toolAssistantPartToPiBlock(part);
+}
+
+/**
+ * 将工具 part 转换为 pi-agent toolCall 内容块。
+ */
+function toolAssistantPartToPiBlock(part: ToolAssistantPart): PiContentBlock {
+  return {
+    type: "toolCall",
+    id: part.id,
+    name: part.name,
+    arguments: part.args,
+  };
+}
+
+/**
+ * 生成消息、会话使用的随机十六进制 ID。
+ */
 function generateId(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);

@@ -22,6 +22,13 @@ function expandUserPath(input: string): string {
 let _cachedRoot: string | undefined;
 
 /**
+ * 测试用：重置数据根缓存（修改 LUMII_CLIENT_DATA_DIR 后调用）。
+ */
+export function _resetWindowsClientDataRootCacheForTest(): void {
+  _cachedRoot = undefined;
+}
+
+/**
  * 解析 Windows 桌面客户端数据根目录（用户文件、配置、日志、RFS 设备根等）。
  * 与网关安装目录（见 `src/config/gateway-install-paths.ts`）完全分离。
  *

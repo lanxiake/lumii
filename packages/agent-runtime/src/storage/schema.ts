@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 11;
 
 /**
  * V1 DDL — 初始 schema
@@ -37,9 +37,6 @@ CREATE TABLE IF NOT EXISTS conversations (
 CREATE INDEX IF NOT EXISTS idx_conversations_user_active
   ON conversations (user_id, is_active, last_msg_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_conversations_last_msg
-  ON conversations (last_msg_at DESC);
-
 -- conversation_participants — 对话参与者
 CREATE TABLE IF NOT EXISTS conversation_participants (
   conversation_id  TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -48,10 +45,6 @@ CREATE TABLE IF NOT EXISTS conversation_participants (
   joined_at        TEXT NOT NULL,
   PRIMARY KEY (conversation_id, participant_type, participant_id)
 );
-
-CREATE INDEX IF NOT EXISTS idx_participants_agent
-  ON conversation_participants (participant_id, participant_type)
-  WHERE participant_type = 'agent';
 
 -- messages — 完整聊天记录
 CREATE TABLE IF NOT EXISTS messages (
@@ -66,10 +59,6 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_ts
   ON messages (conversation_id, timestamp ASC);
-
-CREATE INDEX IF NOT EXISTS idx_messages_agent
-  ON messages (agent_id, timestamp DESC)
-  WHERE agent_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_messages_role
   ON messages (conversation_id, role)
@@ -103,10 +92,6 @@ CREATE INDEX IF NOT EXISTS idx_memories_last_used
   ON agent_memories (agent_id, user_id, last_used ASC)
   WHERE is_archived = 0;
 
-CREATE INDEX IF NOT EXISTS idx_memories_importance_desc
-  ON agent_memories (agent_id, user_id, importance DESC)
-  WHERE is_archived = 0;
-
 -- agent_definition_cache — Agent 定义缓存
 CREATE TABLE IF NOT EXISTS agent_definition_cache (
   agent_id    TEXT PRIMARY KEY,
@@ -135,10 +120,6 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_conversation
   ON tasks (conversation_id, status);
 
-CREATE INDEX IF NOT EXISTS idx_tasks_owner_status
-  ON tasks (owner, status)
-  WHERE status NOT IN ('done', 'cancelled');
-
 -- tool_audit_log — 工具审计日志
 CREATE TABLE IF NOT EXISTS tool_audit_log (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,15 +132,8 @@ CREATE TABLE IF NOT EXISTS tool_audit_log (
   timestamp       TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_audit_agent_ts
-  ON tool_audit_log (agent_id, timestamp DESC);
-
-CREATE INDEX IF NOT EXISTS idx_audit_tool
-  ON tool_audit_log (tool_name, timestamp DESC);
-
-CREATE INDEX IF NOT EXISTS idx_audit_errors
-  ON tool_audit_log (agent_id, is_error)
-  WHERE is_error = 1;
+CREATE INDEX IF NOT EXISTS idx_audit_ts
+  ON tool_audit_log (timestamp DESC);
 
 -- runtime_state — 运行时 KV 状态
 CREATE TABLE IF NOT EXISTS runtime_state (
@@ -258,9 +232,6 @@ CREATE INDEX IF NOT EXISTS idx_client_files_user_agent
 CREATE INDEX IF NOT EXISTS idx_client_files_conversation
   ON client_files (conversation_id, deleted_at);
 
-CREATE INDEX IF NOT EXISTS idx_client_files_channel
-  ON client_files (channel);
-
 CREATE INDEX IF NOT EXISTS idx_client_files_search
   ON client_files (user_id, created_at DESC);
 `,
@@ -306,9 +277,6 @@ CREATE INDEX IF NOT EXISTS idx_segments_closed
   ON memory_segments (status, created_at ASC)
   WHERE status = 'closed';
 
--- 多用户隔离查询
-CREATE INDEX IF NOT EXISTS idx_segments_user_agent
-  ON memory_segments (user_id, agent_id);
 `,
   ],
   // V9: 记忆来源关联（原文回溯 + 宫殿互引，记忆系统升级阶段一 · 诉求 A）
@@ -326,6 +294,56 @@ CREATE INDEX IF NOT EXISTS idx_memories_source_segment
   WHERE source_segment_id IS NOT NULL;
 
 ALTER TABLE memory_segments ADD COLUMN palace_drawer_id TEXT;
+`,
+  ],
+  // V10: 清理无查询命中的索引
+  //
+  // 这些索引的列组合没有任何 SQL 会用到（已逐条 grep 全仓确认），
+  // 只增加写入成本。表结构与数据不变。
+  // - idx_messages_agent：无按 messages.agent_id 过滤的查询
+  // - idx_participants_agent：参与者查询一律按 conversation_id 过滤
+  // - idx_segments_user_agent：无按 user_id/agent_id 查段的语句
+  // - idx_conversations_last_msg：无全局按 last_msg_at 排序的查询
+  // - idx_tasks_owner_status / idx_audit_tool / idx_audit_errors：对应 repo 方法已删除
+  // - idx_memories_importance_desc：与 idx_memories_agent_user_active 前缀重复
+  // - idx_client_files_channel：channel 只作为 user_id 之后的可选过滤，单列索引选不中
+  //
+  // idx_audit_ts 替代 idx_audit_agent_ts：审计只有 listRecentGlobally 一个读取入口，
+  // 按 timestamp DESC 排序，agent_id 前缀反而让索引失效。
+  [
+    10,
+    `
+DROP INDEX IF EXISTS idx_messages_agent;
+DROP INDEX IF EXISTS idx_participants_agent;
+DROP INDEX IF EXISTS idx_segments_user_agent;
+DROP INDEX IF EXISTS idx_conversations_last_msg;
+DROP INDEX IF EXISTS idx_tasks_owner_status;
+DROP INDEX IF EXISTS idx_audit_tool;
+DROP INDEX IF EXISTS idx_audit_errors;
+DROP INDEX IF EXISTS idx_audit_agent_ts;
+DROP INDEX IF EXISTS idx_memories_importance_desc;
+DROP INDEX IF EXISTS idx_client_files_channel;
+
+CREATE INDEX IF NOT EXISTS idx_audit_ts
+  ON tool_audit_log (timestamp DESC);
+`,
+  ],
+  // V11: 定时任务的生效窗口、系统提示词与通知渠道
+  //
+  // - active_days：生效星期，"0,1,...,6"（0=周日，与 Date#getDay 对齐）；NULL 表示每天
+  // - active_hour_start / active_hour_end：生效时段的起止小时 [start, end)，NULL 表示全天
+  //   「按间隔」类型靠 setInterval 触发，无法用 cron 表达式限定星期与时段，
+  //   故存成独立列，在 runLocalCronJob 入口做运行时过滤。
+  // - system_prompt：预置任务的完整系统提示词；用户自建任务留空
+  // - notify_targets：执行结果的推送目标，逗号分隔（system/news/focus/feishu）
+  [
+    11,
+    `
+ALTER TABLE local_cron_jobs ADD COLUMN active_days TEXT;
+ALTER TABLE local_cron_jobs ADD COLUMN active_hour_start INTEGER;
+ALTER TABLE local_cron_jobs ADD COLUMN active_hour_end INTEGER;
+ALTER TABLE local_cron_jobs ADD COLUMN system_prompt TEXT;
+ALTER TABLE local_cron_jobs ADD COLUMN notify_targets TEXT;
 `,
   ],
 ] as const;

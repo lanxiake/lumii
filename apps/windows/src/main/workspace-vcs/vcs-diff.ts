@@ -8,6 +8,9 @@
 import { structuredPatch } from 'diff'
 import type { VcsDiffHunk } from './types'
 
+/** 单文件参与行级 diff 的最大字节数（任一侧） */
+export const MAX_DIFF_BYTES = 512_000
+
 /** 单文件 diff 结果 */
 export interface FileDiffResult {
   readonly insertions: number

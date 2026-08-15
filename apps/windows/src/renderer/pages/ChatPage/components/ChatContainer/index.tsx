@@ -7,10 +7,14 @@ import { PlanApprovalCard } from '../PlanApprovalCard'
 import { TypingIndicator } from '../TypingIndicator'
 import { EmptyState } from '../EmptyState'
 import { CompactionCard } from '../CompactionCard'
+import { TodoPanel } from '../TodoPanel'
 import type { ChatSession, ChatMessage as ChatMessageType, AgentWorkflowItem, ToolCall } from '../../../../hooks/business/useChat'
+import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
+import { mergeAssistantParts, mergeFileChanges } from './mergeAssistantParts'
 import type { ExecApprovalRequest, ExecApprovalDecision } from '../../../../types/exec-approvals'
 import type { PlanApprovalRequest } from '../../../../types/plan-approval'
 import type { RuntimeFileEvent, RuntimeCompactionEvent } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
+import { isCompactSummaryText, unwrapCompactSummaryText } from '../../../../../shared/compact-summary-text'
 import styles from './ChatContainer.module.css'
 
 interface ApprovalItem {
@@ -57,10 +61,16 @@ interface MessageItem {
   injectedMemories?: readonly { id: string; content: string; category: string }[]
   /** 本地 Runtime：子 Agent 嵌套气泡 */
   sourceAgent?: { instanceId: string; label: string }
+  /** ACP 后端标识（Cursor / Claude Code 等） */
+  acpBackendLabel?: string
   /** 是否为语音识别消息 */
   isVoice?: boolean
   /** 原始录音 WAV base64，用于气泡点击回放 */
   audioWavBase64?: string
+  /** 助手消息结构化时间线 */
+  parts?: readonly AssistantPart[]
+  /** 本轮助手回复关联的文件变更 */
+  fileChanges?: readonly FileChangeEntry[]
 }
 
 interface CompactionItem {
@@ -72,6 +82,7 @@ interface CompactionItem {
   messagesRemoved: number
   messagesBefore?: number
   messagesAfter?: number
+  summaryText?: string
 }
 
 type ChatItem = MessageItem | ApprovalItem | PlanApprovalItem | CompactionItem
@@ -109,6 +120,31 @@ interface ChatContainerProps {
   onReplayFromMessage?: (messageId: string) => void
   /** 当前正在回放的消息 ID（用于高亮显示） */
   replayMessageId?: string | null
+  /** 当前会话 todo 工具调用（渲染为对话流内轻量任务卡） */
+  todoCalls?: readonly {
+    id: string
+    name: string
+    status: 'running' | 'completed' | 'failed' | 'error'
+    result?: unknown
+    output?: unknown
+  }[]
+  /** 点击回合文件变更卡「查看」：透传文件相对路径与状态，交由上层打开 Workbench 并定位 */
+  onReviewFileChanges?: (path: string, status: 'added' | 'modified' | 'deleted') => void
+}
+
+/**
+ * 从对话消息抽出压缩摘要正文；命中则这条消息应折叠进压缩卡片，不再当普通气泡。
+ */
+function extractCompactSummaryFromMessage(item: MessageItem): string | null {
+  const texts: string[] = []
+  if (item.content) texts.push(item.content)
+  for (const part of item.parts ?? []) {
+    if (part.type === 'text' && typeof part.text === 'string') texts.push(part.text)
+  }
+  for (const text of texts) {
+    if (isCompactSummaryText(text)) return unwrapCompactSummaryText(text)
+  }
+  return null
 }
 
 const ChatContainer: React.FC<ChatContainerProps> = ({
@@ -136,6 +172,8 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   userId,
   onReplayFromMessage,
   replayMessageId,
+  todoCalls = [],
+  onReviewFileChanges,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -246,15 +284,18 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         llmError: (msg as { llmError?: { code: string; message: string; retryable: boolean } }).llmError,
         injectedMemories: (msg as { injectedMemories?: MessageItem['injectedMemories'] }).injectedMemories,
         sourceAgent: (msg as { sourceAgent?: MessageItem['sourceAgent'] }).sourceAgent,
+        acpBackendLabel: (msg as { acpBackendLabel?: string }).acpBackendLabel,
         isVoice: (msg as { isVoice?: boolean }).isVoice,
         audioWavBase64: (msg as { audioWavBase64?: string }).audioWavBase64,
+        parts: (msg as { parts?: readonly AssistantPart[] }).parts,
+        fileChanges: (msg as { fileChanges?: readonly FileChangeEntry[] }).fileChanges,
       }))
   }, [session?.messages])
 
   // Find the latest assistant message for regenerate functionality
   const latestAssistantMessageId = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === 'assistant') {
+      if (messages[i].role === 'assistant' && !extractCompactSummaryFromMessage(messages[i])) {
         return messages[i].id
       }
     }
@@ -262,20 +303,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   }, [messages])
 
   /**
-   * 合并消息和审批项，按时间排序。
-   *
-   * 关键设计：子 Agent 消息（有 sourceAgent）不单独渲染气泡，而是将其 toolCalls
-   * （带 agentLabel 标注）合并到前一条主 Agent 消息的 toolCalls 中。
-   * 为了让主/子 Agent 的工具卡片与主 Agent 文本按真实时间顺序交错渲染，
-   * 这里按「子 Agent 工具的 startTime」继承「主 Agent 在该时刻的文本位置」作为
-   * textPositionAtStart —— 即：找到主 Agent 工具列表中 startTime ≤ 当前子 Agent
-   * 工具的最近一条，沿用其 textPositionAtStart；若更早于所有主 Agent 工具，
-   * 则取 0（插入到文字最开头）。这样 buildSegments 就能把子 Agent 卡片按时间
-   * 插入到主 Agent 文本的对应位置，而不是全部扎堆在末尾。
+   * 压缩事件 → 卡片；落库的摘要气泡折叠进卡片（刷新后无事件时用摘要消息合成卡片）。
    */
-  // 压缩事件 → CompactionItem，按 timestamp 与消息交错插入对话流
   const compactionItems: CompactionItem[] = useMemo(() => {
-    return (compactionEvents ?? []).map((e) => ({
+    const cards: CompactionItem[] = (compactionEvents ?? []).map((e) => ({
       itemType: 'compaction' as const,
       id: e.id,
       timestamp: new Date(e.timestamp),
@@ -284,8 +315,43 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       messagesRemoved: e.messagesRemoved,
       messagesBefore: e.messagesBefore,
       messagesAfter: e.messagesAfter,
+      ...(e.summaryText ? { summaryText: e.summaryText } : {}),
     }))
-  }, [compactionEvents])
+
+    const leftovers: Array<{ timestamp: Date; text: string }> = []
+    for (const msg of messages) {
+      const text = extractCompactSummaryFromMessage(msg)
+      if (text) leftovers.push({ timestamp: msg.timestamp, text })
+    }
+
+    for (const leftover of leftovers) {
+      let best: CompactionItem | undefined
+      let bestDist = Number.POSITIVE_INFINITY
+      for (const card of cards) {
+        if (card.summaryText) continue
+        const dist = Math.abs(card.timestamp.getTime() - leftover.timestamp.getTime())
+        if (dist < bestDist) {
+          best = card
+          bestDist = dist
+        }
+      }
+      if (best && bestDist <= 60_000) {
+        best.summaryText = leftover.text
+      } else if (!cards.some((c) => c.summaryText === leftover.text)) {
+        cards.push({
+          itemType: 'compaction',
+          id: `summary-${leftover.timestamp.getTime()}`,
+          timestamp: leftover.timestamp,
+          tokensBefore: 0,
+          tokensAfter: 0,
+          messagesRemoved: 0,
+          summaryText: leftover.text,
+        })
+      }
+    }
+
+    return cards
+  }, [compactionEvents, messages])
 
   const chatItems: ChatItem[] = useMemo(() => {
     const sorted: ChatItem[] = [...messages, ...approvalItems, ...planApprovalItems, ...compactionItems]
@@ -293,6 +359,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
 
     const result: ChatItem[] = []
     for (const item of sorted) {
+      if ((item as MessageItem).itemType === 'message' && extractCompactSummaryFromMessage(item as MessageItem)) {
+        continue
+      }
       const msgItem = item as MessageItem
       const srcAgent = msgItem.sourceAgent
 
@@ -308,60 +377,10 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         }
         if (parentIdx >= 0) {
           const parent = result[parentIdx] as MessageItem
-          const parentToolCalls = parent.toolCalls ?? []
-
-          /**
-           * 主 Agent 工具按 startTime 升序收集 [startMs, textPositionAtStart] 对，
-           * 便于按时间二分查找子 Agent 工具的插入位置。
-           */
-          const mainTools = parentToolCalls
-            .filter((tc) => !tc.agentLabel) // 排除已合并的其他子 Agent 工具
-            .map((tc) => ({
-              startMs: tc.startTime ? tc.startTime.getTime() : 0,
-              pos: tc.textPositionAtStart ?? 0,
-            }))
-            .sort((a, b) => a.startMs - b.startMs)
-
-          /**
-           * 主 Agent 文本总长度（作为子 Agent 工具的最晚插入位置上限）。
-           * 若子 Agent 晚于所有主 Agent 工具，则插到文本末尾（而不是 MAX_SAFE_INTEGER）。
-           */
-          const parentTextLen = parent.content?.length ?? 0
-
-          /**
-           * 根据子 Agent 工具 startTime，推断其在主 Agent 文本中的插入位置：
-           * 取 startMs ≤ 当前时间 的最近一条主 Agent 工具的 textPositionAtStart；
-           * 若没有这样的主 Agent 工具（发生在所有主 Agent 工具之前），返回 0；
-           * 若晚于所有主 Agent 工具，返回主 Agent 当前文本总长度。
-           */
-          const inferTextPosition = (subStartMs: number): number => {
-            if (mainTools.length === 0) return parentTextLen
-            let candidatePos = 0
-            let found = false
-            for (const t of mainTools) {
-              if (t.startMs <= subStartMs) {
-                candidatePos = t.pos
-                found = true
-              } else {
-                break
-              }
-            }
-            return found ? candidatePos : parentTextLen
-          }
-
-          const labeledToolCalls = (msgItem.toolCalls ?? []).map((tc) => {
-            const subStartMs = tc.startTime ? tc.startTime.getTime() : msgItem.timestamp.getTime()
-            const inferredPos = inferTextPosition(subStartMs)
-            return {
-              ...tc,
-              agentLabel: srcAgent.label ?? '子 Agent',
-              textPositionAtStart: inferredPos,
-            }
-          })
-
           result[parentIdx] = {
             ...parent,
-            toolCalls: [...parentToolCalls, ...labeledToolCalls],
+            parts: mergeAssistantParts(parent.parts, msgItem.parts),
+            fileChanges: mergeFileChanges(parent.fileChanges, msgItem.fileChanges),
             isStreaming: msgItem.isStreaming ? true : parent.isStreaming,
           }
         }
@@ -437,6 +456,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
                 messagesRemoved={item.messagesRemoved}
                 messagesBefore={item.messagesBefore}
                 messagesAfter={item.messagesAfter}
+                summaryText={item.summaryText}
               />
             )
           }
@@ -456,20 +476,23 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             llmError: item.llmError,
             injectedMemories: item.injectedMemories,
             sourceAgent: item.sourceAgent,
+            acpBackendLabel: item.acpBackendLabel,
             isVoice: item.isVoice,
+            parts: item.parts,
+            fileChanges: item.fileChanges,
           }
 
           const isLatestAssistant = item.id === latestAssistantMessageId
+          const hasPartsTimeline = (item.parts?.length ?? 0) > 0
 
-          // 查找该 assistant 消息关联的工具调用（嵌入消息内部显示）
-          // 优先从 workflowByRunId（Gateway 模式），降级到消息内嵌 toolCalls（本地 Runtime 模式）
-          const workflowToolItems = item.role === 'assistant' && item.runId
+          // Gateway 模式仍走 workflowItems；本地 Runtime 有 parts 时由时间线渲染工具
+          const workflowToolItems = !hasPartsTimeline && item.role === 'assistant' && item.runId
             ? (workflowByRunId.get(item.runId) || [])
             : []
 
           const toolItems: AgentWorkflowItem[] = workflowToolItems.length > 0
             ? workflowToolItems
-            : (item.toolCalls && item.toolCalls.length > 0
+            : (!hasPartsTimeline && item.toolCalls && item.toolCalls.length > 0
               ? item.toolCalls.map((tc): AgentWorkflowItem => ({
                   id: tc.id,
                   type: 'tool' as const,
@@ -516,16 +539,25 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               userId={userId}
               onReplay={onReplayFromMessage}
               replayMessageId={replayMessageId}
+              onReviewFileChanges={onReviewFileChanges}
             />
           )
         })}
 
-        {showTypingIndicator && (
-          <div className={clsx(styles.message, styles.assistant)}>
-            <div className={styles['message-avatar']}>🤖</div>
-            <div className={styles['message-content-wrapper']}>
-              <TypingIndicator label="正在思考…" />
-            </div>
+        {/* 等待首个 token 的占位。原先带  头像，且那两个 class 在本模块 CSS 里没定义，
+            表现为一闪而过的裸 emoji，直接去掉容器只留指示器 */}
+        {showTypingIndicator && <TypingIndicator label="正在思考…" />}
+
+        {/* 会话元信息：轻量居中卡片，随消息流滚动，不固定遮挡输入区。
+            文件变更改由每条助手气泡底部的 TurnFileChangesCard 呈现本轮净变更，
+            对话流不再用 fileEvents 驱动 SessionFileList（上传/产出语义留给 rail/composer）。 */}
+        {todoCalls.length > 0 && (
+          <div className={styles['session-meta-inline']}>
+            <TodoPanel
+              toolCalls={todoCalls}
+              variant="inline"
+              defaultExpanded
+            />
           </div>
         )}
 

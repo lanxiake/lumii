@@ -3,10 +3,11 @@
  *
  * - 支持按文件名模糊搜索（正则/通配符，由主进程 file:search 处理）
  * - 支持按文件类型过滤（all / doc / image / code / video / audio / archive）
+ * - 类型筛选走 extensions 快路径 + 跳过 node_modules 等重目录，避免全库正则慢扫
  * - 搜索结果以扁平列表形式展示，点击结果触发 onSelectResult
  *
  * 搜索路径锚定在 rootPath（workspace 根目录），递归子目录。
- * 防抖 250ms 避免输入抖动造成过多 IPC 请求。
+ * 防抖 200ms 避免输入抖动造成过多 IPC 请求。
  */
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
@@ -40,6 +41,10 @@ const TYPE_LABELS: Record<FileTypeFilter, string> = {
   audio: '音频',
   archive: '压缩包',
 }
+
+/** 类型浏览结果上限（大项目只展示前 N 条，避免扫完全库） */
+const TYPE_FILTER_MAX_RESULTS = 200
+const NAME_SEARCH_MAX_RESULTS = 300
 
 // ── SVG 图标 ──
 const IconSearch: React.FC<{ size?: number }> = ({ size = 14 }) => (
@@ -95,23 +100,20 @@ function toRelative(rootPath: string, absPath: string): string {
 /**
  * 将用户输入转为主进程 file:search 可识别的正则模式：
  * - 空白串：返回 null（不搜索）
- * - 已包含正则特殊字符：原样当成正则
- * - 以 `.` 开头（如 `.md` / `.tsx`）：作为文件后缀，锚定结尾精确匹配
- * - 普通文本：对特殊字符转义后作 case-insensitive 子串模糊匹配（支持文件全名）
+ * - 通配符 `*` / `?`：转为正则
+ * - 以 `.` 开头的纯扩展名：锚定结尾
+ * - 普通文本：转义后子串模糊匹配
  */
 function buildSearchPattern(query: string): string | null {
   const trimmed = query.trim()
   if (!trimmed) return null
-  // 若用户明确输入通配符 `*` 或 `?`，转为正则
   if (/[*?]/.test(trimmed)) {
     return trimmed.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')
   }
-  // 后缀搜索：以 . 开头且只含一个 . 的纯扩展名（.md / .tsx）→ 锚定结尾
   if (trimmed.startsWith('.') && trimmed.length > 1 && !trimmed.slice(1).includes('.')) {
     const ext = trimmed.slice(1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     return `\\.${ext}$`
   }
-  // 否则作为 case-insensitive 子串模糊匹配（覆盖文件全名）
   const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return escaped
 }
@@ -123,7 +125,7 @@ export interface FileSearchBarProps {
   onSelectResult: (item: FileItem) => void
   /** 搜索状态变化（用于父组件切换显示树 / 搜索结果） */
   onSearchStateChange?: (isSearching: boolean) => void
-  /** 右键搜索结果：复用与树节点一致的上下文菜单（复制路径/重命名/打开所在位置等） */
+  /** 右键搜索结果：复用与树节点一致的上下文菜单 */
   onContextMenu?: (e: React.MouseEvent, item: FileItem) => void
 }
 
@@ -135,68 +137,67 @@ export const FileSearchBar: React.FC<FileSearchBarProps> = ({
   const [results, setResults] = useState<FileItem[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [truncated, setTruncated] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const requestIdRef = useRef(0)
 
   const isSearching = query.trim().length > 0 || typeFilter !== 'all'
 
-  // 通知父组件搜索态变化
   useEffect(() => {
     onSearchStateChange?.(isSearching)
   }, [isSearching, onSearchStateChange])
 
-  // 防抖搜索
+  // 防抖搜索：类型筛选走 extensions 快路径；关键词走正则；跳过重目录
   useEffect(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current)
     const userPattern = buildSearchPattern(query)
-    // 仅选了分类（无文字）时用 match-all 模式枚举全部文件，再按扩展名客户端过滤
-    const pattern = userPattern ?? (typeFilter !== 'all' ? '.' : null)
-    if (!pattern || !rootPath) {
+    const typeExts = typeFilter !== 'all' ? TYPE_EXT_GROUPS[typeFilter] : null
+
+    if ((!typeExts || typeExts.length === 0) && !userPattern) {
       setResults([])
       setLoading(false)
       setError(null)
+      setTruncated(false)
       return
     }
+    if (!rootPath) {
+      setResults([])
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     debounceTimer.current = setTimeout(async () => {
       const myRequestId = ++requestIdRef.current
+      const maxResults = typeExts ? TYPE_FILTER_MAX_RESULTS : NAME_SEARCH_MAX_RESULTS
       try {
+        const pattern = userPattern ?? ''
         const raw = await window.electronAPI.file.search(rootPath, pattern, {
           recursive: true,
-          maxResults: 200,
+          maxResults,
+          ...(typeExts ? { extensions: [...typeExts] } : {}),
         }) as Array<{
           name: string; path: string; isDirectory: boolean
           size: number; modifiedAt: string | Date; createdAt: string | Date
           extension?: string
         }>
-        // 过期请求直接丢弃
         if (myRequestId !== requestIdRef.current) return
-        const parsed = raw.map(parseRawItem)
-        // 按类型过滤（仅对文件）
-        const filtered = typeFilter === 'all'
-          ? parsed
-          : parsed.filter((f) => {
-              if (f.isDirectory) return false
-              const allowed = TYPE_EXT_GROUPS[typeFilter]
-              return allowed.includes((f.extension ?? '').toLowerCase())
-            })
-        // 文件夹在前，再按名称排序
-        filtered.sort((a, b) => {
-          if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
-          return a.name.localeCompare(b.name, 'zh-CN', { numeric: true })
-        })
-        setResults(filtered)
+        const parsed = raw.map(parseRawItem).filter((f) => !f.isDirectory)
+        parsed.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN', { numeric: true }))
+        setResults(parsed)
+        setTruncated(parsed.length >= maxResults)
         setError(null)
       } catch (err) {
         if (myRequestId !== requestIdRef.current) return
         console.error('[FileSearchBar] 搜索失败:', err)
         setError(err instanceof Error ? err.message : '搜索失败')
         setResults([])
+        setTruncated(false)
       } finally {
         if (myRequestId === requestIdRef.current) setLoading(false)
       }
-    }, 250)
+    }, 200)
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current)
     }
@@ -205,6 +206,7 @@ export const FileSearchBar: React.FC<FileSearchBarProps> = ({
   const handleClear = useCallback(() => {
     setQuery('')
     setResults([])
+    setTruncated(false)
     inputRef.current?.focus()
   }, [])
 
@@ -218,6 +220,11 @@ export const FileSearchBar: React.FC<FileSearchBarProps> = ({
       )}
       {!loading && !error && isSearching && results.length === 0 && (
         <div className={styles.statusRow}>未找到匹配项</div>
+      )}
+      {!loading && !error && truncated && results.length > 0 && (
+        <div className={styles.statusRow}>
+          已显示前 {results.length} 条，输入关键词可进一步缩小范围
+        </div>
       )}
       {!loading && !error && results.map((item) => (
         <button
@@ -249,11 +256,10 @@ export const FileSearchBar: React.FC<FileSearchBarProps> = ({
         </button>
       ))}
     </div>
-  ), [loading, error, results, isSearching, onSelectResult, onContextMenu, rootPath])
+  ), [loading, error, results, isSearching, truncated, onSelectResult, onContextMenu, rootPath])
 
   return (
     <div className={clsx(styles.container, isSearching && styles['container--searching'])}>
-      {/* 搜索输入栏 */}
       <div className={styles.inputRow}>
         <span className={styles.searchIcon}><IconSearch size={13} /></span>
         <input
@@ -279,7 +285,6 @@ export const FileSearchBar: React.FC<FileSearchBarProps> = ({
         )}
       </div>
 
-      {/* 类型过滤标签 */}
       <div className={styles.filterRow}>
         <span className={styles.filterIcon}><IconFilter /></span>
         {(Object.keys(TYPE_LABELS) as FileTypeFilter[]).map((t) => (
@@ -294,7 +299,6 @@ export const FileSearchBar: React.FC<FileSearchBarProps> = ({
         ))}
       </div>
 
-      {/* 搜索结果（仅搜索时显示） */}
       {isSearching && resultList}
     </div>
   )

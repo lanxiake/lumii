@@ -1,5 +1,5 @@
 /**
- * TodoPanel — 在对话输入框上方展示当前 Todo 任务列表
+ * TodoPanel — 在对话流中展示当前 Todo 任务列表
  *
  * 从工作流工具调用中提取最新 TodoWrite 结果，
  * 支持点击展开/收起，让用户实时了解 Agent 的任务进度。
@@ -27,6 +27,14 @@ interface TodoPanelProps {
   }[]
   /** 紧凑模式：仅显示小图标，悬停时弹出完整列表 */
   compact?: boolean
+  /**
+   * inline：对话流内轻量卡片（默认）
+   * rail：遗留左侧轨道样式
+   * default：旧版面板样式
+   */
+  variant?: 'default' | 'rail' | 'inline'
+  /** 默认是否展开（inline / default） */
+  defaultExpanded?: boolean
 }
 
 function extractText(output: unknown): string | null {
@@ -196,8 +204,15 @@ function isActive(status?: string): boolean {
   return status === 'in_progress' || status === 'in-progress'
 }
 
-export const TodoPanel: React.FC<TodoPanelProps> = ({ toolCalls, compact = false }) => {
-  const [expanded, setExpanded] = useState(false)
+export const TodoPanel: React.FC<TodoPanelProps> = ({
+  toolCalls,
+  compact = false,
+  variant = 'default',
+  defaultExpanded,
+}) => {
+  const initialExpanded =
+    defaultExpanded ?? (variant === 'inline' || variant === 'rail')
+  const [expanded, setExpanded] = useState(initialExpanded)
 
   const tasks = useMemo(() => aggregateTasks(toolCalls), [toolCalls])
 
@@ -214,19 +229,55 @@ export const TodoPanel: React.FC<TodoPanelProps> = ({ toolCalls, compact = false
           className={`${styles.taskItem} ${statusClass(task.status)}`}
         >
           <span className={styles.taskIcon}>{statusIcon(task.status)}</span>
-          {task.id !== undefined && (
-            <span className={styles.taskId}>#{String(task.id)}</span>
-          )}
           <span className={styles.taskSubject}>{task.subject ?? '（无标题）'}</span>
-          {task.description && (
-            <span className={styles.taskDesc}>{task.description}</span>
-          )}
         </li>
       ))}
     </ul>
   )
 
+  /** 对话流内：轻量可折叠任务卡 */
+  if (variant === 'inline') {
+    return (
+      <div className={styles.inlineCard}>
+        <button
+          type="button"
+          className={styles.inlineHeader}
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          title={expanded ? '收起任务列表' : '展开任务列表'}
+        >
+          <span className={clsx(styles.inlineChevron, expanded && styles.inlineChevronOpen)}>
+            ▾
+          </span>
+          <span className={styles.inlineTitle}>任务进度</span>
+          <span className={styles.inlineStats}>
+            {activeCount > 0 && (
+              <span className={styles.inlineStatActive}>{activeCount} 进行中</span>
+            )}
+            <span className={styles.inlineCount}>{doneCount}/{tasks.length}</span>
+          </span>
+        </button>
+        {expanded && taskList}
+      </div>
+    )
+  }
+
+  /** 左侧轨道：常驻展开的任务进度卡 */
+  if (variant === 'rail') {
+    return (
+      <div className={styles.railCard}>
+        <div className={styles.railHeader}>
+          <span className={styles.railHeaderIcon} aria-hidden>◈</span>
+          <span className={styles.railTitle}>任务进度</span>
+          <span className={styles.railCount}>{doneCount}/{tasks.length}</span>
+        </div>
+        {taskList}
+      </div>
+    )
+  }
+
   /** 紧凑模式：小图标触发器 + 悬停弹出层 */
+
   if (compact) {
     return (
       <div className={styles.compactWrap}>

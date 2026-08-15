@@ -11,21 +11,27 @@ import {
   type DatabaseAdapter,
   estimateTokenCount,
   createGatewayStreamFn,
+  resolveManualCompactKeepCount,
+  buildCompactSummaryPrompt,
+  formatCompactSummary,
+  NO_TOOLS_PREAMBLE,
+  NO_TOOLS_TRAILER,
 } from '@mtbot/agent-runtime'
+import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
+import {
+  applyConversationCompactToUsage,
+  patchBreakdownAfterConversationCompact,
+} from './context-usage-breakdown'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
-import { analyticsReporter } from './analytics-reporter'
 import { agentRuntimeLog as log } from './bridge-utils'
+import {
+  buildPersistedCompactSummary,
+  resolveCompactSummaryTimestamp,
+} from './compact-persist'
 
 type ModelRef = import('@mariozechner/pi-ai').Model<any>
 type InnerStreamRef = ReturnType<typeof createGatewayStreamFn>
-
-/** 压缩埋点所需的运行上下文（用于把压缩事件关联到 run_id / agent / model） */
-export interface CompactionRunContext {
-  runId: string
-  agentId?: string
-  modelName?: string
-}
 
 export interface BridgeContextCompactorDeps {
   getConversationRepo: () => ConversationRepo | null
@@ -39,6 +45,11 @@ export interface BridgeContextCompactorDeps {
   getMainModel: () => ModelRef | null
   /** 任一可用实例的 (innerStream, model)（二次降级用，供后台总结等无指定实例的调用） */
   getAnyInstanceStream?: () => { innerStream: InnerStreamRef; model: ModelRef } | undefined
+  /**
+   * 无任何 Agent 实例时的兜底 stream（三次降级）。
+   * 供 cron / companion workflow 等不创建实例的后台 LLM 调用（如资讯综述）。
+   */
+  getFallbackStream?: () => { innerStream: InnerStreamRef; model: ModelRef } | undefined
   /** 数据库连接（用于直接 prepare DELETE 等操作） */
   getDb: () => DatabaseAdapter
   ipcChannel: BridgeRendererIpcChannel
@@ -50,13 +61,17 @@ export interface BridgeContextCompactorDeps {
    * 构造 LLM 摘要生成器：把 AgentMessage[] 拼接 prompt 后流式收集摘要文本。
    */
   createSummaryGenerator: (innerStream: InnerStreamRef, model: ModelRef) => SummaryGeneratorFn
-  /**
-   * 按 instanceId 解析压缩埋点所需的运行上下文（run_id / agent / model）。
-   * 找不到（如未知实例）返回 undefined，此时跳过分析埋点但不影响压缩本身。
-   */
-  getCompactionRunContext?: (instanceId: string) => CompactionRunContext | undefined
   /** 压缩/清空后使提供商 token 缓存失效 */
   onSessionContextInvalidated?: (sessionKey: string) => void
+  /** 压缩后写入整窗占用（只扣对话差值），避免下一次读数把 MCP 一并缩放 */
+  onSessionContextTokensUpdated?: (sessionKey: string, usedTokens: number) => void
+  /** 读取压缩前的整窗占用（与占用卡片同一口径） */
+  getSessionContextUsage?: (sessionKey: string) => {
+    usedTokens: number
+    contextWindow: number
+    triggerThreshold: number
+    breakdown?: readonly ContextUsageBreakdownEntry[]
+  }
 }
 
 export class BridgeContextCompactor {
@@ -81,6 +96,15 @@ export class BridgeContextCompactor {
       }
     }
 
+    // 三次降级：cron / companion 故意不建实例，用独立 direct stream（不依赖会话是否打开）。
+    if (!innerStream || !model) {
+      const fallback = this.deps.getFallbackStream?.()
+      if (fallback) {
+        innerStream = fallback.innerStream
+        model = fallback.model
+      }
+    }
+
     if (!innerStream || !model) {
       throw new Error(
         'callLLM: 没有可用的 Agent 实例 stream，请确保至少有一个 Agent 实例已初始化',
@@ -100,7 +124,8 @@ export class BridgeContextCompactor {
   }
 
   /**
-   * 手动压缩指定会话的上下文（删除旧消息，仅保留最近 N 轮）
+   * 同步裁剪指定会话上下文（无 LLM 摘要，至少保留 1 条）。
+   * 短对话也会按一半历史删除，不再因「不足 12 条」直接跳过。
    */
   compactContext(
     sessionKey: string,
@@ -116,10 +141,11 @@ export class BridgeContextCompactor {
     ).all(sessionKey) as { id: string }[]
 
     const previousMessageCount = allMessages.length
-    const keepCount = keepRecentTurns * 2
-    if (allMessages.length <= keepCount) {
+    // 同步路径无 LLM 摘要，至少保留 1 条，避免把会话清空
+    const keepCount = Math.max(1, resolveManualCompactKeepCount(allMessages.length, keepRecentTurns))
+    if (allMessages.length === 0 || keepCount >= allMessages.length) {
       log.info(
-        `[compactContext] sessionKey=${sessionKey} 消息数(${allMessages.length}) <= keepCount(${keepCount})，无需压缩`,
+        `[compactContext] sessionKey=${sessionKey} 消息数(${allMessages.length}) 无法在无摘要时压缩，跳过`,
       )
       return { success: true, previousMessageCount, newMessageCount: allMessages.length, messagesRemoved: 0 }
     }
@@ -127,11 +153,11 @@ export class BridgeContextCompactor {
     const toDelete = allMessages.slice(0, allMessages.length - keepCount)
     const ids = toDelete.map((m) => m.id)
 
-    // 在删除前先计算压缩前的 token 数，避免删除后无法获取原始数据
+    // 删除前快照整窗占用与对话估算，压缩只扣对话差值
+    const usageBefore = this.deps.getSessionContextUsage?.(sessionKey)
     const allPiMessages = repo.loadMessagesAsPiFormat(sessionKey, { limit: allMessages.length }) as AgentMessage[]
-    const prevTokenCount = estimateTokenCount(allPiMessages)
-    const newPiMessages = allPiMessages.slice(ids.length)
-    const newTokenCount = estimateTokenCount(newPiMessages)
+    const conversationBefore = estimateTokenCount(allPiMessages)
+    const conversationAfter = estimateTokenCount(allPiMessages.slice(ids.length))
 
     const placeholders = ids.map(() => '?').join(', ')
     db.prepare(`DELETE FROM messages WHERE id IN (${placeholders})`).run(...ids)
@@ -139,17 +165,14 @@ export class BridgeContextCompactor {
     const newMessageCount = allMessages.length - ids.length
     log.info(`[compactContext] sessionKey=${sessionKey} 压缩完成: 删除${ids.length}条, 保留${newMessageCount}条`)
 
-    this.deps.onSessionContextInvalidated?.(sessionKey)
-
-    this.deps.ipcChannel.forwardIpcEvent({
-      type: 'agent:context:compacted',
+    this.emitCompacted({
       sessionKey,
-      previousTokenCount: prevTokenCount,
-      newTokenCount,
+      conversationBefore,
+      conversationAfter,
       messagesRemoved: ids.length,
       messagesBefore: allMessages.length,
       messagesAfter: newMessageCount,
-      timestamp: Date.now(),
+      usageBefore,
     })
 
     return {
@@ -163,10 +186,11 @@ export class BridgeContextCompactor {
   /**
    * 异步压缩上下文（含 LLM 摘要生成）。
    *
+   * 手动压缩不看 token 阈值、也不因「不足 12 条」跳过：只要有消息就发出摘要请求。
    * 流程：
    * 1. 从 DB 加载待压缩消息
-   * 2. 调用 LLM 生成摘要（失败时降级为纯删除）
-   * 3. 删除旧消息（复用同步逻辑）
+   * 2. 调用 LLM 生成结构化摘要（失败时降级为纯删除，且绝不清空会话）
+   * 3. 删除旧段，保留最近一半或请求轮数
    * 4. 将摘要写入 DB（作为 assistant 消息）
    * 5. 同步 Agent 内存（restoreHistoryForInstance）
    * 6. 推送 agent:context:compacted 事件
@@ -187,45 +211,51 @@ export class BridgeContextCompactor {
     if (!repo) throw new Error('ConversationRepo not initialized')
 
     const db = this.deps.getDb()
-    const allMessages = db.prepare<{ id: string }>(
-      `SELECT id FROM messages WHERE conversation_id = ? AND is_streaming = 0 ORDER BY timestamp ASC`,
-    ).all(sessionKey) as { id: string }[]
+    const allMessages = db.prepare<{ id: string; timestamp: string }>(
+      `SELECT id, timestamp FROM messages WHERE conversation_id = ? AND is_streaming = 0 ORDER BY timestamp ASC`,
+    ).all(sessionKey) as { id: string; timestamp: string }[]
 
     const previousMessageCount = allMessages.length
-    const keepCount = keepRecentTurns * 2
-
-    if (allMessages.length <= keepCount) {
-      log.info(
-        `[compactContextAsync] 消息数(${allMessages.length}) <= keepCount(${keepCount})，无需压缩: sessionKey=${sessionKey}`,
-      )
+    if (previousMessageCount === 0) {
+      log.info(`[compactContextAsync] 无消息可压缩: sessionKey=${sessionKey}`)
       return {
         success: true,
-        previousMessageCount,
-        newMessageCount: allMessages.length,
+        previousMessageCount: 0,
+        newMessageCount: 0,
         messagesRemoved: 0,
         hadSummary: false,
       }
     }
 
-    const toDelete = allMessages.slice(0, allMessages.length - keepCount)
-    const ids = toDelete.map((m) => m.id)
+    let keepCount = resolveManualCompactKeepCount(previousMessageCount, keepRecentTurns)
 
-    // 尝试 LLM 摘要
+    // 删除前快照整窗占用（含 MCP/工具定义），避免事后清缓存把定义一并缩放
+    const usageBefore = this.deps.getSessionContextUsage?.(sessionKey)
+
+    // 尝试 LLM 摘要：手动压缩无论消息多少都发出摘要请求
     let summaryText: string | null = null
     const piMessages = repo.loadMessagesAsPiFormat(sessionKey, { limit: allMessages.length }) as AgentMessage[]
-    const previousTokenCount = estimateTokenCount(piMessages)
+    const conversationBefore = estimateTokenCount(piMessages)
     // 优先用当前实例的 stream，降级到主 Agent stream
     const instanceStreamEntry = this.deps.getInstanceStream(instanceId)
     const activeInnerStream = instanceStreamEntry?.innerStream ?? this.deps.getMainInnerStream()
     const activeModel = instanceStreamEntry?.model ?? this.deps.getMainModel()
     if (activeInnerStream && activeModel) {
       try {
-        const toSummarize = piMessages.slice(0, toDelete.length)
         const summaryPrompt =
-          '请用简洁的中文总结以上对话的关键信息、决策和结论，以便后续对话可以继续。'
+          NO_TOOLS_PREAMBLE +
+          buildCompactSummaryPrompt({ domainHint: 'general' }) +
+          NO_TOOLS_TRAILER
         const generator = this.deps.createSummaryGenerator(activeInnerStream, activeModel)
-        summaryText = await generator(toSummarize, summaryPrompt, signal)
-        log.info(`[compactContextAsync] LLM 摘要生成成功: ${summaryText?.length ?? 0} 字符`)
+        const rawSummary = await generator(piMessages, summaryPrompt, signal)
+        summaryText = rawSummary ? formatCompactSummary(rawSummary) : null
+        if (summaryText) {
+          log.info(
+            `[compactContextAsync] LLM 摘要生成成功（已看完整 ${piMessages.length} 条消息）: ${summaryText.length} 字符`,
+          )
+        } else {
+          log.warn(`[compactContextAsync] LLM 摘要返回空文本，降级为纯删除`)
+        }
       } catch (err) {
         log.warn(
           `[compactContextAsync] LLM 摘要生成失败，降级为纯删除: ${err instanceof Error ? err.message : String(err)}`,
@@ -235,21 +265,40 @@ export class BridgeContextCompactor {
       log.warn(`[compactContextAsync] mainInnerStream/mainModel 未初始化，跳过 LLM 摘要`)
     }
 
+    // 无摘要时绝不清空会话：至少保留 1 条
+    if (!summaryText) {
+      keepCount = Math.max(keepCount, 1)
+    }
+    if (keepCount >= previousMessageCount) {
+      log.info(
+        `[compactContextAsync] 无法压缩（无摘要且仅 ${previousMessageCount} 条）: sessionKey=${sessionKey}`,
+      )
+      return {
+        success: true,
+        previousMessageCount,
+        newMessageCount: previousMessageCount,
+        messagesRemoved: 0,
+        hadSummary: false,
+      }
+    }
+
+    const toDelete = allMessages.slice(0, allMessages.length - keepCount)
+    const ids = toDelete.map((m) => m.id)
+
     // 删除旧消息
     const placeholders = ids.map(() => '?').join(', ')
     db.prepare(`DELETE FROM messages WHERE id IN (${placeholders})`).run(...ids)
     log.info(`[compactContextAsync] 已删除 ${ids.length} 条旧消息: sessionKey=${sessionKey}`)
 
-    // 写入摘要消息
+    // 写入摘要：必须用 assistant_parts，且时间戳插在保留段之前，否则后续 prompt 读不到
     if (summaryText) {
       try {
+        const firstKept = allMessages[allMessages.length - keepCount]
         repo.saveMessage({
           conversationId: sessionKey,
           role: 'assistant',
-          contentJson: {
-            type: 'text' as const,
-            text: `[对话摘要]\n${summaryText}`,
-          },
+          contentJson: buildPersistedCompactSummary(summaryText),
+          timestamp: resolveCompactSummaryTimestamp(firstKept?.timestamp),
         })
         log.info(`[compactContextAsync] 摘要已写入 DB: sessionKey=${sessionKey}`)
       } catch (err) {
@@ -271,31 +320,20 @@ export class BridgeContextCompactor {
       )
     }
 
-    // 计算压缩后 token 数
     const newPiMessages = repo.loadMessagesAsPiFormat(sessionKey, {
       limit: newMessageCount + 10,
     }) as AgentMessage[]
-    const newTokenCount = estimateTokenCount(newPiMessages)
+    const conversationAfter = estimateTokenCount(newPiMessages)
 
-    this.deps.onSessionContextInvalidated?.(sessionKey)
-
-    this.deps.ipcChannel.forwardIpcEvent({
-      type: 'agent:context:compacted',
+    this.emitCompacted({
       sessionKey,
-      previousTokenCount,
-      newTokenCount,
+      conversationBefore,
+      conversationAfter,
       messagesRemoved: ids.length,
       messagesBefore: previousMessageCount,
       messagesAfter: newMessageCount,
-      timestamp: Date.now(),
-    })
-
-    // 分析埋点：自动/异步压缩（与 agent-instance onCompaction 路径互补，确保桥接侧压缩也入库）
-    this.reportCompaction(instanceId, {
-      sessionKey,
-      beforeTokens: previousTokenCount,
-      afterTokens: newTokenCount,
-      strategy: summaryText ? 'summary' : 'hard-trim',
+      summaryText,
+      usageBefore,
     })
 
     return {
@@ -308,37 +346,69 @@ export class BridgeContextCompactor {
   }
 
   /**
-   * 上报压缩分析埋点（fire-and-forget）。解析不到运行上下文时静默跳过。
-   * 抽出独立方法，供 compactContext（同步，无 instanceId）与 compactContextAsync 复用。
+   * 推送压缩完成事件：token 用整窗口径，只扣对话差值；MCP/工具定义保持压缩前的展示值。
    */
-  private reportCompaction(
-    instanceId: string | undefined,
-    info: {
-      sessionKey: string
-      beforeTokens?: number
-      afterTokens?: number
-      strategy: 'micro' | 'summary' | 'hard-trim'
-    },
-  ): void {
-    const runCtx = instanceId ? this.deps.getCompactionRunContext?.(instanceId) : undefined
-    if (!runCtx) {
-      return
+  private emitCompacted(params: {
+    sessionKey: string
+    conversationBefore: number
+    conversationAfter: number
+    messagesRemoved: number
+    messagesBefore: number
+    messagesAfter: number
+    summaryText?: string | null
+    usageBefore?: {
+      usedTokens: number
+      contextWindow: number
+      triggerThreshold: number
+      breakdown?: readonly ContextUsageBreakdownEntry[]
     }
-    try {
-      analyticsReporter.reportContextCompaction({
-        runId: runCtx.runId,
-        agentId: runCtx.agentId,
-        sessionKey: info.sessionKey,
-        modelName: runCtx.modelName,
-        beforeTokens: info.beforeTokens,
-        afterTokens: info.afterTokens,
-        success: true,
-        strategy: info.strategy,
+  }): void {
+    const { sessionKey, conversationBefore, conversationAfter, usageBefore } = params
+    const previousTokenCount =
+      usageBefore && usageBefore.usedTokens > 0 ? usageBefore.usedTokens : conversationBefore
+    const newTokenCount = applyConversationCompactToUsage(
+      previousTokenCount,
+      conversationBefore,
+      conversationAfter,
+    )
+    const breakdown = usageBefore?.breakdown
+      ? patchBreakdownAfterConversationCompact(
+          usageBefore.breakdown,
+          conversationBefore,
+          conversationAfter,
+        )
+      : undefined
+
+    if (this.deps.onSessionContextTokensUpdated) {
+      this.deps.onSessionContextTokensUpdated(sessionKey, newTokenCount)
+    } else {
+      this.deps.onSessionContextInvalidated?.(sessionKey)
+    }
+
+    this.deps.ipcChannel.forwardIpcEvent({
+      type: 'agent:context:compacted',
+      sessionKey,
+      previousTokenCount,
+      newTokenCount,
+      messagesRemoved: params.messagesRemoved,
+      messagesBefore: params.messagesBefore,
+      messagesAfter: params.messagesAfter,
+      timestamp: Date.now(),
+      conversationTokensBefore: conversationBefore,
+      conversationTokensAfter: conversationAfter,
+      ...(params.summaryText ? { summaryText: params.summaryText } : {}),
+      ...(breakdown ? { breakdown } : {}),
+    })
+
+    if (usageBefore) {
+      this.deps.ipcChannel.forwardIpcEvent({
+        type: 'agent:context:usage',
+        sessionKey,
+        usedTokens: newTokenCount,
+        contextWindow: usageBefore.contextWindow,
+        triggerThreshold: usageBefore.triggerThreshold,
+        ...(breakdown ? { breakdown } : {}),
       })
-    } catch (err) {
-      log.warn(
-        `[reportCompaction] 压缩埋点上报失败（非致命）: ${err instanceof Error ? err.message : String(err)}`,
-      )
     }
   }
 }

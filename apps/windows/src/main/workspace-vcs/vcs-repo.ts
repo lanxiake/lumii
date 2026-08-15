@@ -18,8 +18,8 @@ import type {
   VcsFileStatus,
   VcsRollbackResult,
 } from './types'
-import { buildDefaultGitignore, VCS_SKIP_DIRS } from './vcs-ignore'
-import { computeFileDiff, computeDiffStats } from './vcs-diff'
+import { buildDefaultGitignore, VCS_SKIP_DIRS, stripOutputsIgnoreRules, isVcsBinaryPath } from './vcs-ignore'
+import { computeFileDiff, computeDiffStats, MAX_DIFF_BYTES } from './vcs-diff'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WorkspaceVcs]', ...args),
@@ -56,29 +56,50 @@ export class WorkspaceVcs {
 
   /**
    * 确保仓库存在：首次 init → 写 .gitignore → 首个 commit。
-   * 幂等，可重复调用。
+   * 幂等，可重复调用。已初始化时也会校正 .gitignore，确保 outputs/ 不被误忽略。
    */
   async ensureInitialized(): Promise<void> {
-    if (this.isInitialized()) return
-
-    log.info(`[ensureInitialized] 初始化工作空间仓库: ${this.workspaceDir}`)
-    fs.mkdirSync(this.workspaceDir, { recursive: true })
-    await git.init({ ...this.base, defaultBranch: 'main' })
-
-    // 写默认 .gitignore（若用户已有则不覆盖）
     const gitignorePath = path.join(this.workspaceDir, '.gitignore')
-    if (!fs.existsSync(gitignorePath)) {
-      fs.writeFileSync(gitignorePath, buildDefaultGitignore(), 'utf-8')
+
+    if (!this.isInitialized()) {
+      log.info(`[ensureInitialized] 初始化工作空间仓库: ${this.workspaceDir}`)
+      fs.mkdirSync(this.workspaceDir, { recursive: true })
+      await git.init({ ...this.base, defaultBranch: 'main' })
+
+      // 写默认 .gitignore（若用户已有则不覆盖）
+      if (!fs.existsSync(gitignorePath)) {
+        fs.writeFileSync(gitignorePath, buildDefaultGitignore(), 'utf-8')
+      }
+
+      // 首个 commit（即使工作区为空也建立 root commit，便于后续 diff/rollback）
+      await this.stageAll()
+      await git.commit({
+        ...this.base,
+        message: this.buildMessage('初始化工作空间版本管理', 'user'),
+        author: GIT_AUTHOR,
+      })
+      log.info('[ensureInitialized] 完成，已建立初始提交')
     }
 
-    // 首个 commit（即使工作区为空也建立 root commit，便于后续 diff/rollback）
-    await this.stageAll()
-    await git.commit({
-      ...this.base,
-      message: this.buildMessage('初始化工作空间版本管理', 'user'),
-      author: GIT_AUTHOR,
-    })
-    log.info('[ensureInitialized] 完成，已建立初始提交')
+    // 校正：去掉误忽略整个 outputs/ 的规则（Agent 产出需纳入版本管理）
+    this.ensureOutputsTracked(gitignorePath)
+  }
+
+  /**
+   * 若 .gitignore 中存在 `outputs/` 等目录级忽略，移除之并写回磁盘
+   */
+  private ensureOutputsTracked(gitignorePath: string): void {
+    try {
+      if (!fs.existsSync(gitignorePath)) return
+      const raw = fs.readFileSync(gitignorePath, 'utf-8')
+      const next = stripOutputsIgnoreRules(raw)
+      if (next !== raw) {
+        fs.writeFileSync(gitignorePath, next.endsWith('\n') ? next : `${next}\n`, 'utf-8')
+        log.info('[ensureOutputsTracked] 已移除 .gitignore 中对 outputs/ 的目录级忽略')
+      }
+    } catch (err) {
+      log.warn('[ensureOutputsTracked] 校正 .gitignore 失败:', err)
+    }
   }
 
   /**
@@ -120,6 +141,8 @@ export class WorkspaceVcs {
       }
       for (const entry of entries) {
         if (entry.name === '.mtbot-vcs' || entry.name === '.git') continue
+        // 根层跳过挂载项目目录，不依赖 junction Dirent 类型的隐式行为
+        if (relDir === '' && entry.name === 'projects') continue
         if (VCS_SKIP_DIRS.has(entry.name)) continue
         const abs = path.join(absDir, entry.name)
         const rel = relDir ? `${relDir}/${entry.name}` : entry.name
@@ -207,6 +230,7 @@ export class WorkspaceVcs {
 
   /**
    * 工作区相对某 commit（默认 HEAD）的文件级变更列表（不含 hunks）。
+   * 二进制（如 outputs/*.pdf）跳过文本 diff，仅报告状态，避免把 PDF 当 UTF-8 解析拖垮面板。
    */
   async statusDiff(baseOid?: string): Promise<VcsDiffEntry[]> {
     if (!this.isInitialized()) return []
@@ -217,6 +241,19 @@ export class WorkspaceVcs {
     for (const [filepath, head, workdir] of matrix) {
       if (head === workdir) continue
       const status: VcsFileStatus = head === 0 ? 'added' : workdir === 0 ? 'deleted' : 'modified'
+
+      if (isVcsBinaryPath(filepath)) {
+        entries.push({
+          filepath,
+          status,
+          insertions: status === 'deleted' ? 0 : 1,
+          deletions: status === 'added' ? 0 : 1,
+          truncated: true,
+          skipReason: '二进制文件（已纳入版本管理，跳过文本 diff）',
+        })
+        continue
+      }
+
       const oldContent = head === 0 ? '' : (await this.readFileAt(ref, filepath)) ?? ''
       const newContent = workdir === 0 ? '' : this.readWorktreeFile(filepath)
       const stats = computeDiffStats(oldContent, newContent)
@@ -227,40 +264,104 @@ export class WorkspaceVcs {
 
   /**
    * 两个 commit 之间的文件级差异；withHunks=true 时附带逐行 hunks。
+   * 通过 git.walk 对比 tree OID，跳过未变更子树，避免全量 readBlob。
    */
   async diffCommits(
     fromOid: string,
     toOid: string,
     opts?: { withHunks?: boolean },
   ): Promise<VcsDiffEntry[]> {
-    const fromFiles = await this.listFilesAt(fromOid)
-    const toFiles = await this.listFilesAt(toOid)
-    const allPaths = new Set<string>([...fromFiles, ...toFiles])
+    const withHunks = opts?.withHunks === true
     const entries: VcsDiffEntry[] = []
 
-    for (const filepath of allPaths) {
-      const inFrom = fromFiles.has(filepath)
-      const inTo = toFiles.has(filepath)
-      const oldContent = inFrom ? (await this.readFileAt(fromOid, filepath)) ?? '' : ''
-      const newContent = inTo ? (await this.readFileAt(toOid, filepath)) ?? '' : ''
-      if (oldContent === newContent) continue
+    await git.walk({
+      ...this.base,
+      trees: [git.TREE({ ref: fromOid }), git.TREE({ ref: toOid })],
+      map: async (filepath, [a, b]) => {
+        if (filepath === '.') return
+        const aType = a ? await a.type() : null
+        const bType = b ? await b.type() : null
+        // 两侧都是 tree 且 OID 相同 → 剪枝整棵子树
+        if (aType === 'tree' || bType === 'tree') {
+          if (a && b && (await a.oid()) === (await b.oid())) return null
+          return undefined // 继续往下走
+        }
+        // blob（或一侧缺失）
+        const aOid = a ? await a.oid() : null
+        const bOid = b ? await b.oid() : null
+        if (aOid === bOid) return undefined
 
-      const status: VcsFileStatus = !inFrom ? 'added' : !inTo ? 'deleted' : 'modified'
-      if (opts?.withHunks) {
-        const d = computeFileDiff(filepath, oldContent, newContent)
-        entries.push({
-          filepath,
-          status,
-          insertions: d.insertions,
-          deletions: d.deletions,
-          hunks: d.hunks,
-        })
-      } else {
-        const stats = computeDiffStats(oldContent, newContent)
-        entries.push({ filepath, status, ...stats })
+        const status: VcsFileStatus = !a ? 'added' : !b ? 'deleted' : 'modified'
+        const oldContent = a
+          ? new TextDecoder().decode((await a.content()) ?? new Uint8Array())
+          : ''
+        const newContent = b
+          ? new TextDecoder().decode((await b.content()) ?? new Uint8Array())
+          : ''
+
+        if (withHunks) {
+          const d = computeFileDiff(filepath, oldContent, newContent)
+          entries.push({
+            filepath,
+            status,
+            insertions: d.insertions,
+            deletions: d.deletions,
+            hunks: d.hunks,
+          })
+        } else {
+          const stats = computeDiffStats(oldContent, newContent)
+          entries.push({ filepath, status, ...stats })
+        }
+        return undefined
+      },
+    })
+
+    return entries
+  }
+
+  /**
+   * 单文件逐行 diff。任一侧超过 MAX_DIFF_BYTES 则返回 truncated，不跑 Myers。
+   * fromOid/toOid 可为 commit oid；toOid 也可为 'WORKTREE' 读工作区当前内容。
+   */
+  async diffFile(fromOid: string, toOid: string, filepath: string): Promise<VcsDiffEntry> {
+    const oldContent =
+      fromOid === 'WORKTREE'
+        ? this.readWorktreeFile(filepath)
+        : (await this.readFileAt(fromOid, filepath)) ?? ''
+    const newContent =
+      toOid === 'WORKTREE'
+        ? this.readWorktreeFile(filepath)
+        : (await this.readFileAt(toOid, filepath)) ?? ''
+    const status: VcsFileStatus =
+      oldContent === '' && newContent !== ''
+        ? 'added'
+        : newContent === '' && oldContent !== ''
+          ? 'deleted'
+          : 'modified'
+
+    if (
+      Buffer.byteLength(oldContent, 'utf8') > MAX_DIFF_BYTES ||
+      Buffer.byteLength(newContent, 'utf8') > MAX_DIFF_BYTES
+    ) {
+      return {
+        filepath,
+        status,
+        insertions: 0,
+        deletions: 0,
+        hunks: [],
+        truncated: true,
+        skipReason: '文件过大，已跳过逐行差异',
       }
     }
-    return entries
+
+    const d = computeFileDiff(filepath, oldContent, newContent)
+    return {
+      filepath,
+      status,
+      insertions: d.insertions,
+      deletions: d.deletions,
+      hunks: d.hunks,
+    }
   }
 
   /**

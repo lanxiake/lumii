@@ -8,6 +8,36 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import ChatInput from '../../renderer/pages/ChatPage/components/ChatInput'
 
+vi.mock('../../renderer/pages/ChatPage/components/ChatInput/ComposerPlusMenu', () => ({
+  ComposerPlusMenu: () => null,
+}))
+
+vi.mock('../../renderer/pages/ChatPage/commands/slash-command-executor', () => ({
+  getSelectedAcpBackendId: () => 'lumii',
+  BACKEND_INFO: {},
+  MAIN_BACKEND_ID: 'lumii',
+}))
+
+vi.mock('../../renderer/hooks/business/useSkills', () => ({
+  useSkills: () => ({
+    installedSkills: [],
+    isLoading: false,
+    enableSkill: vi.fn(async () => true),
+    disableSkill: vi.fn(async () => true),
+  }),
+}))
+
+vi.mock('../../renderer/hooks/business/useToolSearch', () => ({
+  useToolSearch: () => ({
+    tools: [],
+    mcpStatus: [],
+    isLoading: false,
+    togglingTool: null,
+    toggleTool: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}))
+
 describe('Phase 3: 消息功能 - ChatInput组件', () => {
   const mockProps = {
     value: '',
@@ -30,12 +60,16 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
       expect(container.querySelector('.chat-textarea')).toBeInTheDocument()
     })
 
-    it('TC-3.2.2: 输入文本触发onChange回调', () => {
+    it('TC-3.2.2: 输入文本立即显示在输入框，失焦后才通知父组件', () => {
       render(<ChatInput {...mockProps} />)
 
       const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
       fireEvent.change(textarea, { target: { value: 'Test message' } })
 
+      expect(textarea.value).toBe('Test message')
+      expect(mockProps.onChange).not.toHaveBeenCalled()
+
+      fireEvent.blur(textarea)
       expect(mockProps.onChange).toHaveBeenCalledWith('Test message')
     })
 
@@ -69,7 +103,8 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
     it('TC-3.2.6: 点击发送按钮触发发送', () => {
       render(<ChatInput {...mockProps} value="Test message" />)
 
-      const sendBtn = screen.getByRole('button')
+      // 输入区有模型/推理/帮助等多个按钮，按 title 精确定位发送键
+      const sendBtn = screen.getByTitle('发送消息')
       fireEvent.click(sendBtn)
 
       expect(mockProps.onSend).toHaveBeenCalled()
@@ -82,25 +117,25 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
       expect(textarea).toBeDisabled()
     })
 
-    it('TC-3.2.8: 流式生成时发送按钮显示停止图标', () => {
+    // 图标从 emoji 换成了内联 SVG，textContent 已取不到字形，改判按钮语义
+    it('TC-3.2.8: 流式生成时发送按钮切换为停止', () => {
       render(<ChatInput {...mockProps} isStreaming={true} />)
 
-      const sendBtn = screen.getByRole('button')
-      expect(sendBtn.textContent).toContain('⏹️')
+      expect(screen.getByTitle('停止生成')).toBeInTheDocument()
+      expect(screen.queryByTitle('发送消息')).not.toBeInTheDocument()
     })
 
-    it('TC-3.2.9: 非流式时发送按钮显示发送图标', () => {
+    it('TC-3.2.9: 非流式时发送按钮显示发送', () => {
       render(<ChatInput {...mockProps} isStreaming={false} />)
 
-      const sendBtn = screen.getByRole('button')
-      expect(sendBtn.textContent).toContain('➤')
+      expect(screen.getByTitle('发送消息')).toBeInTheDocument()
+      expect(screen.queryByTitle('停止生成')).not.toBeInTheDocument()
     })
 
     it('TC-3.2.10: 禁用时发送按钮不可点击', () => {
       render(<ChatInput {...mockProps} disabled={true} />)
 
-      const sendBtn = screen.getByRole('button')
-      expect(sendBtn).toBeDisabled()
+      expect(screen.getByTitle('发送消息')).toBeDisabled()
     })
 
     it('TC-3.2.11: 未连接时显示警告提示', () => {
@@ -109,23 +144,97 @@ describe('Phase 3: 消息功能 - ChatInput组件', () => {
       expect(screen.getByText(/未连接到服务器/)).toBeInTheDocument()
     })
 
+    // 生成中提示改由 placeholder 承载（见 index.tsx 的 effectivePlaceholder）
     it('TC-3.2.12: 流式生成时显示生成中提示', () => {
       render(<ChatInput {...mockProps} isStreaming={true} />)
 
-      expect(screen.getByText(/生成中.../)).toBeInTheDocument()
+      expect(screen.getByPlaceholderText(/AI 回复中/)).toBeInTheDocument()
     })
 
-    it('TC-3.2.13: 正常状态显示快捷键提示', () => {
-      render(<ChatInput {...mockProps} />)
+    // 快捷键提示挪到输入卡下方 composer-hint，只在有输入时出现，按键各自是 <kbd>
+    it('TC-3.2.13: 有输入时显示快捷键提示', () => {
+      render(<ChatInput {...mockProps} value="hi" />)
 
-      expect(screen.getByText(/Enter 发送，Shift\+Enter 换行/)).toBeInTheDocument()
+      expect(screen.getByText('Enter')).toBeInTheDocument()
+      expect(screen.getByText('Shift+Enter')).toBeInTheDocument()
     })
 
     it('TC-3.2.14: 空白内容发送按钮禁用', () => {
       render(<ChatInput {...mockProps} value="" />)
 
-      const sendBtn = screen.getByRole('button')
-      expect(sendBtn).toBeDisabled()
+      expect(screen.getByTitle('发送消息')).toBeDisabled()
+    })
+  })
+
+  describe('输入性能：本地草稿与 IME', () => {
+    it('IME 组合期间不把中间拼音同步给父组件', () => {
+      render(<ChatInput {...mockProps} />)
+
+      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
+      fireEvent.compositionStart(textarea)
+      fireEvent.change(textarea, { target: { value: 'ni' } })
+      fireEvent.change(textarea, { target: { value: 'nihao' } })
+
+      expect(textarea.value).toBe('nihao')
+      expect(mockProps.onChange).not.toHaveBeenCalled()
+    })
+
+    it('IME 组合结束后把最终文案一次性同步给父组件', () => {
+      render(<ChatInput {...mockProps} />)
+
+      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
+      fireEvent.compositionStart(textarea)
+      fireEvent.change(textarea, { target: { value: 'nihao' } })
+      fireEvent.compositionEnd(textarea, { target: { value: '你好' } })
+
+      expect(textarea.value).toBe('你好')
+      expect(mockProps.onChange).toHaveBeenCalledTimes(1)
+      expect(mockProps.onChange).toHaveBeenCalledWith('你好')
+    })
+
+    it('未失焦直接回车时用本地草稿发送', () => {
+      const onSendWithValue = vi.fn()
+      render(<ChatInput {...mockProps} onSendWithValue={onSendWithValue} />)
+
+      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
+      fireEvent.change(textarea, { target: { value: 'hello' } })
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false })
+
+      expect(onSendWithValue).toHaveBeenCalledWith('hello')
+      expect(mockProps.onSend).not.toHaveBeenCalled()
+    })
+
+    it('切换会话时把未同步的旧草稿写回对应 session', () => {
+      const onPersistDraft = vi.fn()
+      const { rerender } = render(
+        <ChatInput
+          {...mockProps}
+          sessionKey="session-a"
+          value=""
+          onPersistDraft={onPersistDraft}
+        />,
+      )
+
+      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
+      fireEvent.change(textarea, { target: { value: 'draft-a' } })
+
+      rerender(
+        <ChatInput
+          {...mockProps}
+          sessionKey="session-b"
+          value=""
+          onPersistDraft={onPersistDraft}
+        />,
+      )
+
+      expect(onPersistDraft).toHaveBeenCalledWith('session-a', 'draft-a')
+    })
+
+    it('关闭浏览器拼写检查以免中英混输卡顿', () => {
+      render(<ChatInput {...mockProps} />)
+
+      const textarea = screen.getByPlaceholderText('输入消息...') as HTMLTextAreaElement
+      expect(textarea).toHaveAttribute('spellcheck', 'false')
     })
   })
 })

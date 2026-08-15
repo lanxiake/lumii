@@ -1,9 +1,50 @@
+/* 原型 .card：斜向高光 + 顶部发丝线 + hover 中上柔光。
+   --mx/--my 保持默认（50% 0%），不接指针跟随也能有一层呼吸感，省掉一个 JS hook。 */
 .card {
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
+  --mx: 50%;
+  --my: 0%;
+  position: relative;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-xl);
+  background:
+    radial-gradient(420px circle at var(--mx) var(--my),
+      color-mix(in srgb, var(--mt-accent-500) calc(var(--spot) * 11%), transparent),
+      transparent 62%),
+    var(--mt-shine),
+    var(--mt-bg-elevated);
   overflow: hidden;
-  transition: all var(--transition-fast);
+  transition: --spot var(--mt-dur-slower) var(--mt-ease-standard),
+    border-color var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+/* 允许子元素悬停提示等溢出卡片边界（如运行时条形图 tip） */
+.card-overflow-visible {
+  overflow: visible;
+}
+
+.card:hover {
+  --spot: 1;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 10%;
+  left: 10%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--mt-accent-500) 55%, transparent),
+    transparent
+  );
+}
+
+/* flush：让内容成为 .card 的直接子元素。
+   否则 .card-body 这层包裹会吃掉外层给的 padding，并让外层的 flex/grid 只作用在一个盒子上。 */
+.card-flush > .card-body {
+  display: contents;
 }
 
 .card-hover {

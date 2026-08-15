@@ -16,6 +16,7 @@ import {
   DEFAULT_DRAW_API_BASE_URL,
   DEFAULT_IMAGE_UPSTREAM_BASE_URL,
 } from '../draw-config.js'
+import { pollRightApiTaskById, downloadRightApiImage } from './rightapi-image-client'
 import { agentRuntimeLog as log } from './bridge-utils'
 
 /** @deprecated 使用 DEFAULT_DRAW_API_BASE_URL（来自 draw-config 模块） */
@@ -388,6 +389,31 @@ async function generateWithChatCompletionsStream(
 }
 
 /**
+ * 同步路径兜底：上游其实是异步站点（返回了 task_id）时，复用 RightAPI 轮询逻辑取结果。
+ */
+async function pollAsyncTaskAsFallback(
+  taskId: string,
+  baseUrl: string,
+  apiKey: string,
+  req: DrawImageRequest,
+  size: string,
+): Promise<DrawImageResult> {
+  const payload = await pollRightApiTaskById(taskId, { baseUrl, apiKey, signal: req.signal })
+  const { imageBase64, mimeType } = payload.imageBase64
+    ? { imageBase64: payload.imageBase64, mimeType: payload.mimeType ?? ('image/png' as const) }
+    : await downloadRightApiImage(payload.imageUrl!, req.signal)
+  const [w, h] = size.split('x').map(Number) as [number, number]
+  return {
+    imageBase64,
+    mimeType,
+    width: w,
+    height: h,
+    revisedPrompt: payload.revisedPrompt?.trim() || req.prompt,
+    effectiveModelId: req.modelId,
+  }
+}
+
+/**
  * 通过 OpenAI Images API（POST /v1/images/generations）生成图片。
  * gpt-image-2 系列上游不支持流式 chat（只回 "Progressing... %" 进度文本），必须走此接口。
  */
@@ -439,7 +465,19 @@ async function generateWithOpenAiImages(
 
   const data = (await resp.json().catch(() => ({}))) as {
     data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>
+    task_id?: string
   }
+
+  // 上游返回 task_id 说明它是异步生图站点（如 RightAPI），同步等待必然超时。
+  // 这里兜底转入轮询，并提示用户去设置里选对 Provider 类型。
+  if (data.task_id?.trim() && !data.data?.[0]) {
+    log.warn(
+      `[rightCodesDraw] 上游返回 task_id=${data.task_id}，判定为异步生图站点，转入轮询。` +
+        `建议在「设置 → 模型配置 → 图片生成」把 Provider 类型改为「RightAPI 异步生图」`,
+    )
+    return pollAsyncTaskAsFallback(data.task_id, baseUrl, apiKey, req, size)
+  }
+
   const item = data.data?.[0]
   if (!item) {
     throw Object.assign(new Error('上游返回的图片数据为空'), { code: 'PROVIDER_ERROR' })

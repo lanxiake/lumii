@@ -2,11 +2,12 @@
  * local-companion-handler 单元测试
  *
  * 聚焦 handleTick 的门闩决策顺序：
- *   1. 非宠物模式 → skip
+ *   1. 非宠物模式 → skip（自动调度）
  *   2. 主动联系已关闭 → skip
- *   3. 免打扰时段 → skip
- *   4. gentle 模式非工作日 → skip
+ *   3. 免打扰时段 → skip（自动调度）
+ *   4. gentle 模式非工作日 → skip（自动调度）
  *   5. 正常场景 → 发送并携带称呼
+ *   6. 手动「立即执行」→ 绕过宠物模式等软门闩
  *
  * mock electron，因为 local-companion-handler 依赖的 pet-mode-store 顶层 import 了
  * electron 的 app（虽然本文件用例不会真正触发文件 IO）。
@@ -118,11 +119,124 @@ describe('local-companion-handler / handleTick 门闩', () => {
     expect(result.startsWith('executed:')).toBe(true)
   })
 
-  it('memory_fast / memory_deep 指令直接跳过（本地未实现）', async () => {
+  it('手动立即执行 → 非宠物模式也能发送', async () => {
+    const deps = createDeps({
+      isPetMode: () => false,
+      getProactiveCare: () => ({ enabled: true, mode: 'gentle', nickname: '小明' }),
+    })
+    const result = await handleLocalCompanionInstruction('__companion_tick__', deps, {
+      manual: true,
+    })
+    expect(result.startsWith('executed:')).toBe(true)
+    expect(deps.showNotification).toHaveBeenCalledTimes(1)
+  })
+
+  it('手动立即执行 → 仍受主动联系总开关约束', async () => {
+    const deps = createDeps({
+      isPetMode: () => false,
+      getProactiveCare: () => ({ enabled: false, mode: 'gentle', nickname: '' }),
+    })
+    const result = await handleLocalCompanionInstruction('__companion_tick__', deps, {
+      manual: true,
+    })
+    expect(result).toBe('skipped: disabled')
+    expect(deps.showNotification).not.toHaveBeenCalled()
+  })
+
+  it('手动立即执行 → 绕过免打扰与工作日门闩', async () => {
+    vi.setSystemTime(new Date(2026, 6, 25, 23, 0, 0)) // 周六 23:00
+    const deps = createDeps({
+      isPetMode: () => false,
+      getProactiveCare: () => ({ enabled: true, mode: 'gentle', nickname: '' }),
+    })
+    const result = await handleLocalCompanionInstruction('__companion_tick__', deps, {
+      manual: true,
+    })
+    expect(result.startsWith('executed:')).toBe(true)
+    expect(deps.showNotification).toHaveBeenCalledTimes(1)
+  })
+
+  it('记忆读写未注入 → 跳过', async () => {
     const deps = createDeps()
     const fast = await handleLocalCompanionInstruction('__companion_memory_fast__', deps)
-    const deep = await handleLocalCompanionInstruction('__companion_memory_deep__', deps)
-    expect(fast).toBe('skipped: memory consolidation not implemented locally')
-    expect(deep).toBe('skipped: memory consolidation not implemented locally')
+    expect(fast).toBe('skipped: 记忆读写未注入')
+  })
+})
+
+describe('local-companion-handler / 记忆整理', () => {
+  /** 含工具/方法冲突的记忆全文，会被 needsPersonalMemoryConsolidation 判为需要整理 */
+  const CONFLICTING = [
+    '## 用户偏好',
+    '- 规则：生成图片时调用 generate_image.py 脚本。原因：用户指定。',
+    '- 规则：生成图片时使用 image_generate 工具。原因：用户指定。',
+  ].join('\n')
+
+  function memDeps(
+    content: string,
+    llm: (prompt: string) => Promise<string>,
+  ): { deps: LocalCompanionDeps; written: string[] } {
+    const written: string[] = []
+    const deps = {
+      getDb: () => createFakeDb(),
+      isPetMode: () => true,
+      getProactiveCare: () => ({ enabled: true, mode: 'gentle' as const, nickname: '' }),
+      getUserMemory: async () => ({ content }),
+      updateUserMemory: async (next: string) => {
+        written.push(next)
+        return undefined
+      },
+      callLLM: llm,
+    } as LocalCompanionDeps
+    return { deps, written }
+  }
+
+  it('记忆为空 → 不叫 LLM', async () => {
+    const llm = vi.fn(async () => 'never')
+    const { deps, written } = memDeps('   ', llm)
+    const result = await handleLocalCompanionInstruction('__companion_memory_fast__', deps)
+    expect(result).toBe('skipped: 个人记忆为空，无需整理')
+    expect(llm).not.toHaveBeenCalled()
+    expect(written).toEqual([])
+  })
+
+  it('fast：记忆干净时不叫 LLM', async () => {
+    const llm = vi.fn(async () => 'never')
+    const { deps, written } = memDeps('## 用户偏好\n- 规则：回复保持简洁。原因：用户明确要求。', llm)
+    const result = await handleLocalCompanionInstruction('__companion_memory_fast__', deps)
+    expect(result).toBe('skipped: 记忆无重复或冲突，跳过整理')
+    expect(llm).not.toHaveBeenCalled()
+    expect(written).toEqual([])
+  })
+
+  it('deep：即使记忆干净也会整理', async () => {
+    const llm = vi.fn(async () => '## 用户偏好\n- 规则：回复简洁。原因：用户要求。')
+    const { deps, written } = memDeps(
+      '## 用户偏好\n- 规则：回复保持简洁明了不要啰嗦。原因：用户明确要求。',
+      llm,
+    )
+    const result = await handleLocalCompanionInstruction('__companion_memory_deep__', deps)
+    expect(llm).toHaveBeenCalled()
+    expect(result.startsWith('executed:')).toBe(true)
+    expect(written).toHaveLength(1)
+  })
+
+  it('fast：查出冲突时整理并写回', async () => {
+    const merged = '## 用户偏好\n- 规则：生成图片时使用 image_generate 工具。原因：用户指定。'
+    const llm = vi.fn(async () => merged)
+    const { deps, written } = memDeps(CONFLICTING, llm)
+    const result = await handleLocalCompanionInstruction('__companion_memory_fast__', deps)
+    expect(llm).toHaveBeenCalled()
+    expect(written).toEqual([merged])
+    expect(result).toContain('精简')
+  })
+
+  it('LLM 抛错 → 返回 error，不写回', async () => {
+    const llm = vi.fn(async () => {
+      throw new Error('模型不可用')
+    })
+    const { deps, written } = memDeps(CONFLICTING, llm)
+    const result = await handleLocalCompanionInstruction('__companion_memory_deep__', deps)
+    expect(result).toBe('error: 模型不可用')
+    expect(written).toEqual([])
   })
 })

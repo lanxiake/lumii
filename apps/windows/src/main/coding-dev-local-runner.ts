@@ -1,5 +1,5 @@
 /**
- * 本机 ACP / CLI 运行器：在活动工作目录 spawn Cursor / Claude / Codex / Copilot
+ * 本机 ACP / CLI 运行器：在活动工作目录 spawn 各开发类 AI CLI
  *
  * 不经 Gateway，仅连接本机已安装的 CLI（print / exec 非交互模式）。
  */
@@ -10,12 +10,14 @@ import {
   detectLocalAcpTool,
   isPrimaryLocalAcpToolId,
   needsWindowsShell,
+  PRIMARY_LOCAL_ACP_TOOLS,
   type PrimaryLocalAcpToolId,
 } from './coding-dev-cli-detect.js'
 import type {
   CodingDevLightweightBackendOutput,
   CodingDevLightweightBackendProgress,
 } from './coding-dev-backends-stub/contracts.js'
+import { AcpToolStreamParser } from './coding-dev-jsonl-parsers.js'
 
 export type LocalAcpRunParams = {
   backendId: string
@@ -23,6 +25,17 @@ export type LocalAcpRunParams = {
   cwd: string
   emitProgress?: (progress: CodingDevLightweightBackendProgress) => Promise<void> | void
   abortSignal?: AbortSignal
+}
+
+/**
+ * 把单个参数包成 cmd.exe 能还原的引号形式。
+ *
+ * ponytail: cmd 的命令行放不下字面换行符，多行 prompt 在此仍会被截到第一行。
+ * 影响面仅限 .cmd/.bat shim（如 cursor 的 agent.cmd）；claude/codex 这类
+ * 解析到 .exe 的走非 shell 分支不受影响。要彻底解决得按 CLI 逐个改走 stdin。
+ */
+export function quoteForCmd(arg: string): string {
+  return `"${arg.replace(/"/g, '""')}"`
 }
 
 /**
@@ -37,35 +50,23 @@ function buildLocalCliArgs(
     case 'claude':
       return {
         command: resolvedCommand,
-        args: ['-p', prompt, '--output-format', 'text'],
+        args: ['-p', prompt, '--output-format', 'stream-json', '--verbose'],
       }
     case 'codex':
       return {
         command: resolvedCommand,
-        args: ['exec', '--skip-git-repo-check', prompt],
+        args: ['exec', '--skip-git-repo-check', '--json', prompt],
       }
     case 'cursor':
-      // Cursor Agent CLI：非交互 print 模式
       return {
         command: resolvedCommand,
-        args: ['-p', prompt],
+        args: ['-p', prompt, '--output-format', 'stream-json', '--trust'],
       }
-    case 'copilot': {
-      const base = path.basename(resolvedCommand).toLowerCase()
-      // 独立 @github/copilot：非交互 print；旧版 gh copilot suggest
-      if (base.startsWith('gh')) {
-        return {
-          command: resolvedCommand,
-          args: ['copilot', 'suggest', '-t', 'shell', '-s', prompt],
-        }
-      }
+    case 'opencode':
       return {
         command: resolvedCommand,
-        args: ['-p', prompt],
+        args: ['run', prompt],
       }
-    }
-    default:
-      return { command: resolvedCommand, args: [prompt] }
   }
 }
 
@@ -78,7 +79,7 @@ export async function runLocalAcpCli(
   const id = params.backendId.trim().toLowerCase()
   if (!isPrimaryLocalAcpToolId(id)) {
     throw new Error(
-      `当前仅支持本机 Cursor / Claude Code / Codex / GitHub Copilot。请改用 /cursor、/claude、/codex、/copilot，或 /mtbot 切回主代理。`,
+      `未知的本机工具「${id}」。可用命令：${PRIMARY_LOCAL_ACP_TOOLS.map((t) => `/${t}`).join('、')}，或 /lumii 切回主代理。`,
     )
   }
 
@@ -104,16 +105,33 @@ export async function runLocalAcpCli(
   return new Promise((resolve, reject) => {
     // Windows 上 .cmd/.bat 必须经 shell，否则 spawn 报 ENOENT
     const useShell = needsWindowsShell(command)
-    const child = spawn(command, args, {
+    // shell:true 时 Node 直接把 args 空格拼进命令行，不做引号化：
+    // 带空格的 prompt 会被 cmd 切成多个 argv（CLI 只收到第一个词），
+    // 而 & | > 等元字符会被 cmd 当命令分隔符执行 —— 既是功能 bug 也是注入面。
+    // 自己引号化后整行交给 shell（args 置空），由 cmd 还原成单个参数。
+    const spawnCmd = useShell ? [command, ...args].map(quoteForCmd).join(' ') : command
+    const spawnArgs = useShell ? [] : args
+    // ponytail: stdin:'ignore' 防挂住 — codex/cursor 之类即使传了位置参数 prompt
+    // 也会检测 stdin 可读性，有就阻塞等更多输入。关掉 stdin 让 CLI 知道这是单发。
+    const child = spawn(spawnCmd, spawnArgs, {
       cwd: params.cwd,
       windowsHide: true,
       env: { ...process.env },
       shell: useShell,
+      stdio: ['ignore', 'pipe', 'pipe'],
     })
 
     let stdout = ''
     let stderr = ''
     let settled = false
+    const parser = new AcpToolStreamParser(id)
+    let stdoutBuffer = ''
+    let finalResult: string | null = null
+    /**
+     * 解析出的助手文本。有解析器的后端 stdout 是 JSONL，不能直接回给用户，
+     * 缺 final_result 时用这些文本兜底而非原始流。
+     */
+    const messageTexts: string[] = []
 
     const onAbort = () => {
       try {
@@ -129,7 +147,19 @@ export async function runLocalAcpCli(
     child.stdout?.on('data', (buf: Buffer) => {
       const chunk = buf.toString('utf8')
       stdout += chunk
-      void params.emitProgress?.({ kind: 'message', text: chunk })
+      stdoutBuffer += chunk
+      // 逐行解析（JSONL 是行分隔 JSON）
+      const lines = stdoutBuffer.split('\n')
+      stdoutBuffer = lines.pop() ?? ''
+      for (const line of lines) {
+        const progress = parser.parseLine(line)
+        if (progress?.kind === 'final_result') {
+          finalResult = progress.text
+        } else if (progress) {
+          if (progress.kind === 'message' && progress.text) messageTexts.push(progress.text)
+          void params.emitProgress?.(progress)
+        }
+      }
     })
     child.stderr?.on('data', (buf: Buffer) => {
       const chunk = buf.toString('utf8')
@@ -148,7 +178,22 @@ export async function runLocalAcpCli(
       params.abortSignal?.removeEventListener('abort', onAbort)
       if (settled) return
       settled = true
-      const text = stdout.trim() || stderr.trim()
+      // 处理末尾未闭合行（如果有）
+      if (stdoutBuffer.trim()) {
+        const progress = parser.parseLine(stdoutBuffer)
+        if (progress?.kind === 'final_result') {
+          finalResult = progress.text
+        } else if (progress) {
+          if (progress.kind === 'message' && progress.text) messageTexts.push(progress.text)
+          void params.emitProgress?.(progress)
+        }
+      }
+      // 有解析器的后端 stdout 是 JSONL，绝不能直接回给用户：
+      // final_result → 解析出的助手文本 → stderr。无解析器的后端才用原始 stdout。
+      const parsedText = finalResult ?? (messageTexts.length > 0 ? messageTexts.join('\n') : '')
+      const text = parser.hasParser
+        ? parsedText || stderr.trim()
+        : parsedText || stdout.trim() || stderr.trim()
       if (code !== 0 && !text) {
         reject(new Error(`${status.label} 退出码 ${code}${stderr ? `：${stderr.slice(0, 300)}` : ''}`))
         return

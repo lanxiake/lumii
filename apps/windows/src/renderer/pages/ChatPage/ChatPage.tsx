@@ -1,17 +1,19 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Button } from '../../components/ui/Button/Button'
+import React, { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { ChatSidebar } from './components/ChatSidebar'
 import { ChatContainer } from './components/ChatContainer'
 import { ChatInput } from './components/ChatInput'
 import type { FileReference } from './components/ChatInput'
+import type { Agent } from '../../services/agent-service'
 import type { ModelOption } from '../../services/model-config-service'
 import { fetchModelCatalog, fetchChatModelChoices, saveChatModel } from '../../services/model-config-service'
-import { TodoPanel } from './components/TodoPanel'
-import { SessionFileList } from './components/SessionFileList'
 import { Toast } from './components/Toast'
 import { ConfirmModal } from '../../components/ui/Modal/ConfirmModal'
 import { WorkspaceFilePanel } from './components/WorkspaceFilePanel'
 import { WorkspaceVersionPanel } from './components/WorkspaceVersionPanel/WorkspaceVersionPanel'
+import { WorkspaceWorkbench, type WorkbenchTab, type WorkbenchLayoutMode } from './components/WorkspaceWorkbench'
+import { useWorkspaceVcs } from '../../hooks/business/useWorkspaceVcs'
+import { useWorkspace } from '../../hooks/business/useWorkspace'
 import { useAgents } from '../../hooks/business/useAgents'
 import {
   useAgentRuntimeActions,
@@ -23,6 +25,7 @@ import {
 import { ConfirmationDialog } from '../../components/ConfirmationDialog'
 import { AskUserModal } from '../../components/AskUserModal'
 import type { ViewType } from '../../components/Router'
+import { SIDEBAR_SESSION_SLOT_ID, SIDEBAR_TOGGLE_EVENT } from '../../components/layout/Sidebar'
 import { executeSlashCommand } from './commands/slash-command-executor'
 import { loadSlashCommandsFromIpc } from './commands/slash-commands'
 import { updateSessionState } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
@@ -38,7 +41,6 @@ import { processFilesWithStrategies, appendAttachmentsToMessage } from './utils/
 import { useVoiceCall } from '../../hooks/business/useVoiceCall'
 import { useConversationReplay } from '../../hooks/business/useConversationReplay'
 import { VoiceCallPanel } from './components/VoiceCallPanel'
-import { VoiceModelDownloadDialog } from './components/VoiceModelDownloadDialog'
 import type { AttachmentCategory } from './utils/file-attachment-strategy'
 import {
   getDefaultStrategies,
@@ -47,7 +49,7 @@ import {
   type ImageProcessingResult,
 } from './utils/image-processing-strategy'
 import { InterruptBanner } from './components/InterruptBanner'
-import { PanelLeft, Sparkles } from 'lucide-react'
+import { PanelLeft, Sparkles, FolderOpen, Volume2, VolumeX } from 'lucide-react'
 
 /** 将 File 读取为 base64 字符串（当 file.path 不可用时使用） */
 function readFileAsBase64(file: File): Promise<string> {
@@ -68,6 +70,8 @@ export interface ChatPageProps {
    * 当前主导航视图；切换到「对话」时会再次拉取会话列表，避免启动竞态下侧栏长期为空。
    */
   activeView?: ViewType
+  /** 侧栏里点会话 / 新建会话时切到对话视图（会话列表常驻侧栏，不再有「对话」菜单） */
+  onViewChange?: (view: ViewType) => void
 }
 
 const logger = {
@@ -78,7 +82,6 @@ const logger = {
 }
 
 const AUTO_APPROVE_KEY = 'mtbot-auto-approve'
-const FONT_SCALE_KEY = 'mtbot:chat-font-scale'
 const PAGE_ZOOM_KEY = 'mtbot:chat-page-zoom'
 const ZOOM_MIN = 0.6
 
@@ -91,19 +94,7 @@ const EMPTY_RESOLVING_IDS: Set<string> = new Set<string>()
 const ZOOM_MAX = 2.0
 const ZOOM_STEP = 0.1
 
-/** 字号档位 → 消息区根字号（px），通过 CSS 变量 --chat-font-size 注入 */
-const FONT_SCALE_PX: Record<'small' | 'medium' | 'large', string> = {
-  small: '13px',
-  medium: '15px',
-  large: '17px',
-}
-const FONT_SCALE_LABEL: Record<'small' | 'medium' | 'large', string> = {
-  small: '小',
-  medium: '中',
-  large: '大',
-}
-
-const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
+const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewChange }) => {
   // Hooks
   const { agents, userAgents, selectedAgent, isLoading: agentsLoading, selectAgent, selectAgentById, mainAgentId, agentsMap, refreshAgents } = useAgents()
 
@@ -146,19 +137,17 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
   }, [listSessions, activeView])
 
   /**
-   * 会话列表加载：不能仅依赖 `useAgentRuntimeGlobalState(s => s.isReady)` + useEffect。
-   * 认证后 ChatPage 才挂载时，`runtime:ready` 往往已把 `store.isReady` 设为 true，
-   * 此时 React 可能从未以 `isReady===false` 渲染过本组件，导致「就绪后拉列表」的 effect 不执行。
-   * 这里直接订阅 runtimeStore：挂载时若已就绪则立即拉取；否则在 isReady 从 false→true 时再拉取。
+   * 会话列表加载：挂载即拉一次 + 订阅 isReady 兜底。
+   * 只等 `runtime:ready` 不可靠——它是一次性推送，主进程先就绪、渲染侧后订阅时事件已错过，
+   * store.isReady 会一直是 false，「就绪后拉列表」的分支永不执行（表现为启动后列表空白）。
    */
   useEffect(() => {
     let prevReady = runtimeStore.getState().isReady
-    if (prevReady) {
-      logger.info('[ChatPage] 挂载时 runtime 已就绪，立即 refreshLocalSessions')
-      void refreshLocalSessions()
-      // 从主进程 IPC 加载基础命令列表（统一命令元数据）
-      void loadSlashCommandsFromIpc()
-    }
+    // 无条件拉一次：`runtime:ready` 是一次性推送，渲染侧订阅晚于它就永远收不到，
+    // 只等事件会导致启动后列表空白。listSessions 内部已对 NOT_READY 重试，早拉无害。
+    logger.info('[ChatPage] 挂载即 refreshLocalSessions', { prevReady })
+    void refreshLocalSessions()
+    void loadSlashCommandsFromIpc()
     const unsub = runtimeStore.subscribe(() => {
       const ready = runtimeStore.getState().isReady
       if (ready && !prevReady) {
@@ -244,7 +233,13 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
       messages: runtimeMessages.map((msg) => ({
         id: msg.id,
         role: msg.role as 'user' | 'assistant' | 'system',
-        content: msg.content.map((c) => c.text).join(''),
+        content: msg.parts
+          .filter((part): part is Extract<typeof msg.parts[number], { type: 'text' }> => part.type === 'text')
+          .map((part) => part.text)
+          .join('\n\n')
+          || msg.content.map((c) => c.text).join(''),
+        parts: msg.parts,
+        fileChanges: msg.fileChanges,
         timestamp: new Date(msg.timestamp),
         isStreaming: msg.isStreaming,
         toolCalls: msg.toolCalls.map((tc) => ({
@@ -272,6 +267,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
         llmError: msg.llmError,
         injectedMemories: msg.injectedMemories,
         sourceAgent: msg.sourceAgent,
+        acpBackendLabel: msg.acpBackendLabel,
         isVoice: msg.isVoice,
         audioWavBase64: msg.audioWavBase64,
       })),
@@ -361,14 +357,22 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
   const fileReferenceKey = runtimeCurrentSessionKey ?? '__global__'
   const inputValue = runtimeCurrentSessionKey ? (draftsBySession[runtimeCurrentSessionKey] ?? '') : globalDraft
   const activeFileReferences = fileReferencesBySession[fileReferenceKey] ?? []
-  const setInputValue = useCallback((nextValue: string) => {
-    const sessionKey = runtimeCurrentSessionKey
+  /**
+   * 把草稿写入指定会话（切会话时对准旧 key，避免写到新会话）。
+   */
+  const persistDraftForSession = useCallback((sessionKey: string | null, nextValue: string) => {
     if (!sessionKey) {
-      setGlobalDraft(nextValue)
+      setGlobalDraft((prev) => (prev === nextValue ? prev : nextValue))
       return
     }
-    setDraftsBySession((prev) => ({ ...prev, [sessionKey]: nextValue }))
-  }, [runtimeCurrentSessionKey])
+    setDraftsBySession((prev) => {
+      if (prev[sessionKey] === nextValue) return prev
+      return { ...prev, [sessionKey]: nextValue }
+    })
+  }, [])
+  const setInputValue = useCallback((nextValue: string) => {
+    persistDraftForSession(runtimeCurrentSessionKey, nextValue)
+  }, [persistDraftForSession, runtimeCurrentSessionKey])
   const clearCurrentInputState = useCallback((targetSessionKey: string | null = runtimeCurrentSessionKey) => {
     const refKey = targetSessionKey ?? '__global__'
     if (!targetSessionKey) {
@@ -410,18 +414,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
     recognitionResults?: ImageProcessingResult[]
   }>>([])
 
-  /** 输入框空白且无附件时展示 Tips 轮播 */
+  /** 允许展示 Tips 轮播（是否空白由 ChatInput 用本地草稿自行判断，避免每个按键抬升到本页） */
   const showInputTips = useMemo(() => {
     if (voiceCallState.state !== 'idle') return false
     if (currentSessionInterrupted) return false
-    if (inputValue.trim()) return false
     if (pendingAttachments.length > 0) return false
     if (activeFileReferences.length > 0) return false
     return true
   }, [
     voiceCallState.state,
     currentSessionInterrupted,
-    inputValue,
     pendingAttachments.length,
     activeFileReferences.length,
   ])
@@ -511,7 +513,19 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
       })()
     }
   }, [])
-  const [showSidebar, setShowSidebar] = useState(false)
+  /**
+   * 外层侧栏的会话列表挂载点。首帧 DOM 未提交必然取不到，用一次 layout effect 触发重渲染后
+   * 每帧重新解析：节点被替换也能自愈，不会像「只取一次」那样永久落空。
+   */
+  const [slotReady, setSlotReady] = useState(false)
+  useLayoutEffect(() => {
+    setSlotReady(true)
+  }, [])
+  const sessionSlot = slotReady ? document.getElementById(SIDEBAR_SESSION_SLOT_ID) : null
+  // 会话列表已挪进最外层侧栏，折叠由 MainLayout 统一管，这里只发事件
+  const toggleOuterSidebar = useCallback(() => {
+    window.dispatchEvent(new Event(SIDEBAR_TOGGLE_EVENT))
+  }, [])
   // 改为 per-session 跟踪，避免会话A发消息时阻塞会话B的输入
   const [sendingSessionIds, setSendingSessionIds] = useState<Set<string>>(new Set())
   const isSending = sendingSessionIds.has(runtimeCurrentSessionKey ?? '')
@@ -674,6 +688,12 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
     return undefined
   }, [selectedModelId, availableModels, chatModelChoices])
 
+  /** 稳定化模型下拉选项，避免每个按键 map 出新数组破坏 ChatInput memo */
+  const chatModelChoiceItems = useMemo(
+    () => chatModelChoices.map((m) => ({ id: m.id, name: m.name })),
+    [chatModelChoices],
+  )
+
   /**
    * 思考模式开关变更：持久化并同步到当前会话主进程
    */
@@ -712,12 +732,69 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
   const planApprovalItems = EMPTY_PLAN_APPROVAL_ITEMS
   const planResolvingIds = EMPTY_RESOLVING_IDS
   const workflowItems = EMPTY_WORKFLOW_ITEMS
-  const [showFilePanel, setShowFilePanel] = useState(false)
-  const [showVersionPanel, setShowVersionPanel] = useState(false)
-  /** 点击输入框 @引用 chip 时要在工作空间面板定位的绝对路径（含一次性 token 触发重复定位） */
-  const [locateFileTarget, setLocateFileTarget] = useState<{ path: string; token: number } | null>(null)
+  const [workbench, setWorkbench] = useState<{ open: boolean; tab: WorkbenchTab }>({
+    open: false,
+    tab: 'files',
+  })
+  /** 工作台当前宽度（px），用于对话区 padding 自适应 */
+  const [workbenchWidth, setWorkbenchWidth] = useState(0)
+  const [workbenchResizing, setWorkbenchResizing] = useState(false)
+  const [workbenchLayout, setWorkbenchLayout] = useState<WorkbenchLayoutMode>('default')
+  /** 点击输入框 @引用 / 会话文件列表时要在工作空间面板定位的绝对路径 */
+  const [locateFileTarget, setLocateFileTarget] = useState<{
+    path: string
+    token: number
+    preview?: boolean
+    fileName?: string
+  } | null>(null)
+  const { uncommittedDiff, refresh: refreshVcs } = useWorkspaceVcs()
+  const { workspaceDir, toAbsolutePath } = useWorkspace()
   /** 单调递增定位 token，避免 Date.now() 在快速点击时碰撞 */
   const locateTokenRef = useRef(0)
+
+  const toggleFilesWorkbench = useCallback(() => {
+    setWorkbenchLayout('default')
+    setWorkbench((w) =>
+      w.open && w.tab === 'files' ? { ...w, open: false } : { open: true, tab: 'files' },
+    )
+  }, [])
+
+  /**
+   * 回合文件变更卡「查看」：相对路径转绝对路径后打开工作空间，定位到该文件并打开预览
+   */
+  const handleReviewTurnFileChange = useCallback(
+    (relPath: string, status: 'added' | 'modified' | 'deleted') => {
+      const abs = toAbsolutePath(relPath)
+      const fileName = relPath.split('/').pop() ?? relPath
+      setWorkbenchLayout('default')
+      setWorkbench({ open: true, tab: 'files' })
+      locateTokenRef.current += 1
+      setLocateFileTarget({
+        path: abs,
+        token: locateTokenRef.current,
+        // 已删除的文件不存在，只定位不预览；新增/修改的打开预览
+        preview: status !== 'deleted',
+        fileName,
+      })
+    },
+    [toAbsolutePath],
+  )
+
+  /** 离开对话视图时关闭工作台（设置/概览等） */
+  useEffect(() => {
+    if (activeView && activeView !== 'chat') {
+      setWorkbench((w) => (w.open ? { ...w, open: false } : w))
+    }
+  }, [activeView])
+
+  /** 工作台宽度变化；拖拽中关闭 padding transition */
+  const handleWorkbenchWidthChange = useCallback((w: number) => {
+    setWorkbenchWidth(w)
+  }, [])
+
+  const handleWorkbenchLayoutChange = useCallback((mode: WorkbenchLayoutMode) => {
+    setWorkbenchLayout(mode)
+  }, [])
 
   const [autoApprove, setAutoApprove] = useState<boolean>(() => {
     try {
@@ -727,22 +804,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
     }
   })
 
-  /** 消息字号档位：small | medium | large，存 localStorage，作用于消息区 CSS 变量 */
-  const [fontScale, setFontScale] = useState<'small' | 'medium' | 'large'>(() => {
-    try {
-      const v = localStorage.getItem(FONT_SCALE_KEY)
-      return v === 'small' || v === 'large' ? v : 'medium'
-    } catch {
-      return 'medium'
-    }
-  })
-  const cycleFontScale = useCallback(() => {
-    setFontScale((prev) => {
-      const next = prev === 'small' ? 'medium' : prev === 'medium' ? 'large' : 'small'
-      try { localStorage.setItem(FONT_SCALE_KEY, next) } catch { /* ignore */ }
-      return next
-    })
-  }, [])
+  /** 消息字号改由 TitleBar 全局 A−/A+ 控制（--chat-font-size） */
 
   /**
    * 对话页整体缩放比例（Ctrl + 滚轮调节），仅作用于 ChatPage 根容器，
@@ -904,8 +966,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
         keepRecentTurns: 6,
       }) as { success: boolean; previousMessageCount: number; newMessageCount: number; messagesRemoved: number; hadSummary?: boolean }
       if (result.success) {
-        if (result.messagesRemoved === 0) {
-          setToast({ message: '上下文消息较少，无需压缩', type: 'info' })
+        if (result.previousMessageCount === 0) {
+          setToast({ message: '当前没有消息可压缩', type: 'info' })
+        } else if (result.messagesRemoved === 0 && !result.hadSummary) {
+          setToast({ message: '压缩未完成，会话未修改', type: 'info' })
         } else {
           const summaryNote = result.hadSummary ? '，已生成摘要保留关键信息' : ''
           setToast({ message: `上下文已压缩${summaryNote}`, type: 'success' })
@@ -934,6 +998,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
           id: msgId,
           role: 'system' as const,
           content: [{ type: 'text' as const, text }],
+          parts: [],
           timestamp: Date.now(),
           isStreaming: false,
           toolCalls: [],
@@ -1188,7 +1253,12 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
   }, [])
 
   const formatTime = useCallback((date: Date): string => {
-    return new Date(date).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+    const now = new Date()
+    const target = new Date(date)
+    const isToday = now.toDateString() === target.toDateString()
+    return isToday
+      ? target.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      : target.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
   }, [])
 
   // Message action handlers
@@ -1282,6 +1352,67 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
     })
   }, [runtimeActions, refreshLocalSessions])
 
+  /**
+   * 侧栏点选会话：切到对话视图并切换 runtime 会话。
+   */
+  const handleSelectSidebarSession = useCallback((sessionKey: string) => {
+    onViewChange?.('chat')
+    void runtimeActions.switchSession(sessionKey, selectedModelId || undefined)
+  }, [onViewChange, runtimeActions, selectedModelId])
+
+  /**
+   * 侧栏新建对话。
+   */
+  const handleCreateSidebarSession = useCallback(() => {
+    onViewChange?.('chat')
+    void (async () => {
+      await runtimeActions.createSession('新对话', selectedAgent?.id, selectedModelId || undefined)
+      void refreshLocalSessions()
+    })()
+  }, [onViewChange, runtimeActions, selectedAgent?.id, selectedModelId, refreshLocalSessions])
+
+  /**
+   * 输入框切换 Agent：选中后开一个新会话。
+   */
+  const handleComposerAgentChange = useCallback((agent: Agent | null) => {
+    selectAgent(agent)
+    if (!agent) return
+    void runtimeActions.createSession('新对话', agent.id, selectedModelId || undefined).then(() => {
+      void refreshLocalSessions()
+    })
+  }, [selectAgent, runtimeActions, selectedModelId, refreshLocalSessions])
+
+  /**
+   * 输入框切换模型。
+   */
+  const handleComposerModelChange = useCallback((modelId: string) => {
+    void handleSelectChatModel(modelId)
+  }, [handleSelectChatModel])
+
+  /**
+   * 移除待发附件 chip。
+   */
+  const handleRemoveAttachment = useCallback((filePath: string) => {
+    setPendingAttachments((prev) => prev.filter((a) => a.filePath !== filePath))
+  }, [])
+
+  /**
+   * 点击 @引用 chip：打开工作台并定位文件。
+   */
+  const handleLocateFile = useCallback((absolutePath: string) => {
+    setWorkbench({ open: true, tab: 'files' })
+    locateTokenRef.current += 1
+    setLocateFileTarget({ path: absolutePath, token: locateTokenRef.current })
+  }, [])
+
+  /**
+   * 从输入框发起语音通话。
+   */
+  const handleVoiceCallStart = useCallback(() => {
+    if (!runtimeCurrentSessionKey) return
+    void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id)
+  }, [runtimeCurrentSessionKey, voiceCallActions, selectedAgent?.id])
+
   // Handle suggestion click from empty state
   const handleSuggestionClick = useCallback((suggestion: string) => {
     setInputValue(suggestion)
@@ -1295,6 +1426,30 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
       conversationReplay.startReplay(messageId, localRuntimeSession?.messages ?? [])
     }
   }, [conversationReplay, localRuntimeSession])
+
+  // 实时朗读模式开关：开启=启动静默持续 micless 播报（右上角按钮，波纹见 readAloudSpeaking）
+  const readAloudActive = voiceCallState.readAloudActive
+  const handleToggleReadAloud = useCallback(() => {
+    if (readAloudActive) {
+      void voiceCallActions.stopCall()
+      return
+    }
+    if (!runtimeCurrentSessionKey) {
+      setToast({ message: '请先开始一个对话再开启实时朗读', type: 'info' })
+      return
+    }
+    void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id, {
+      micless: true,
+      persistent: true,
+      silent: true,
+    })
+  }, [readAloudActive, voiceCallActions, runtimeCurrentSessionKey, selectedAgent])
+
+  // 切换会话时停止实时朗读（避免朗读上一会话）
+  useEffect(() => {
+    if (readAloudActive) void voiceCallActions.stopCall()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runtimeCurrentSessionKey])
 
   // 处理手动中断 Agent
   const handleAbort = useCallback(async () => {
@@ -1310,23 +1465,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
         e.preventDefault()
         handleNewConversation()
       }
-      // Ctrl/Cmd + B: Toggle sidebar
+      // Ctrl/Cmd + B: 折叠/展开最外层侧栏（会话列表在里面）
       if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
         e.preventDefault()
-        setShowSidebar((prev) => !prev)
-      }
-      // Escape: Close sidebar on mobile
-      if (e.key === 'Escape' && showSidebar) {
-        const isMobile = window.innerWidth <= 768
-        if (isMobile) {
-          setShowSidebar(false)
-        }
+        toggleOuterSidebar()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleNewConversation, showSidebar])
+  }, [handleNewConversation, toggleOuterSidebar])
 
   // 客户端命令工具事件监听（Agent 主动调用工具时触发）
   useEffect(() => {
@@ -1335,13 +1483,35 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
       const { sessionKey } = (e as CustomEvent<{ sessionKey: string }>).detail ?? {}
       if (sessionKey) void runtimeActions.switchSession(sessionKey)
     }
+    // 概览页点资讯卡片 → 预填输入框但不自动发送，用户还能改。
+    // newSession=true 时先开一个干净会话：解读某条资讯和用户当前对话无关，
+    // 塞进正在进行的会话里会污染上下文。
+    // 必须用 createSession 返回的 sessionKey 写草稿——setInputValue 闭包里的
+    // runtimeCurrentSessionKey 仍是旧值，会把内容写到旧会话或 globalDraft。
+    const onDraftRequest = (e: Event) => {
+      const { text, newSession } = (e as CustomEvent<{ text: string; newSession?: boolean }>).detail ?? {}
+      if (!text) return
+      if (newSession) {
+        void handleNewConversation().then((sessionKey) => {
+          if (sessionKey) {
+            setDraftsBySession((prev) => ({ ...prev, [sessionKey]: text }))
+          } else {
+            setGlobalDraft(text)
+          }
+        })
+        return
+      }
+      setInputValue(text)
+    }
     window.addEventListener('mtbot:session-create-request', onCreateRequest)
     window.addEventListener('mtbot:session-switch-request', onSwitchRequest)
+    window.addEventListener('mtbot:chat-draft-request', onDraftRequest)
     return () => {
       window.removeEventListener('mtbot:session-create-request', onCreateRequest)
       window.removeEventListener('mtbot:session-switch-request', onSwitchRequest)
+      window.removeEventListener('mtbot:chat-draft-request', onDraftRequest)
     }
-  }, [handleNewConversation, runtimeActions])
+  }, [handleNewConversation, runtimeActions, setInputValue])
 
   return (
     <div
@@ -1349,29 +1519,36 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
       ref={chatPageRef}
       style={pageZoom !== 1 ? ({ zoom: pageZoom } as React.CSSProperties) : undefined}
     >
-      {showSidebar && (
-        <ChatSidebar
-          sessions={localRuntimeSessionsAsChatSessions}
-          activeSessionId={runtimeCurrentSessionKey ?? null}
-          onSelectSession={(sessionKey) => { void runtimeActions.switchSession(sessionKey, selectedModelId || undefined) }}
-          onCreateSession={() => {
-            void (async () => {
-              await runtimeActions.createSession('新对话', selectedAgent?.id, selectedModelId || undefined)
-              void refreshLocalSessions()
-            })()
-          }}
-          onPinSession={handlePinSession}
-          onDeleteSession={handleDeleteSession}
-          onRenameSession={handleRenameSession}
-        />
-      )}
+      {/* 会话列表 portal 进最外层侧栏。不做「原地渲染」兜底：ChatPage 在非对话视图下被
+          display:none 包着，退回原地等于把列表藏起来，比直接不渲染更难发现 */}
+      {sessionSlot &&
+        createPortal(
+          <ChatSidebar
+            sessions={localRuntimeSessionsAsChatSessions}
+            activeSessionId={runtimeCurrentSessionKey ?? null}
+            onSelectSession={handleSelectSidebarSession}
+            onCreateSession={handleCreateSidebarSession}
+            onPinSession={handlePinSession}
+            onDeleteSession={handleDeleteSession}
+            onRenameSession={handleRenameSession}
+          />,
+          sessionSlot,
+        )}
 
-      <div className={styles['chat-main']}>
-        {/* 消息层：全屏滚动，顶部/底部浮层可透视 */}
-        <div
-          className={styles['chat-main-body']}
-          style={{ ['--chat-font-size' as string]: FONT_SCALE_PX[fontScale] }}
-        >
+      <div
+        className={clsx(styles['chat-main'], workbenchResizing && styles.chatMainResizing)}
+        data-chat-dialog
+        style={{
+          ...(workbench.open && workbenchWidth > 0
+            ? {
+                paddingRight: workbenchWidth,
+                ['--workbench-inset' as string]: `${workbenchWidth}px`,
+              }
+            : {}),
+        }}
+      >
+        {/* 消息层：全屏滚动，顶部/底部浮层可透视；字号跟全局 --chat-font-size */}
+        <div className={styles['chat-main-body']}>
           <ChatContainer
             session={localRuntimeSession}
             approvalItems={approvalItems}
@@ -1396,6 +1573,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
             compactionEvents={runtimeCompactionEvents}
             onReplayFromMessage={handleReplayFromMessage}
             replayMessageId={conversationReplay.replayMessageId}
+            todoCalls={sessionTodoCalls}
+            onReviewFileChanges={handleReviewTurnFileChange}
           />
         </div>
 
@@ -1404,11 +1583,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
           <div className={styles['chat-toolbar']}>
             <button
               type="button"
-              className={clsx(styles['icon-btn'], showSidebar && styles['icon-btn--active'])}
-              onClick={() => setShowSidebar(!showSidebar)}
-              title={showSidebar ? '收起会话列表 (Ctrl+B)' : '展开会话列表 (Ctrl+B)'}
-              aria-label="切换会话列表"
-              aria-pressed={showSidebar}
+              className={styles['icon-btn']}
+              onClick={toggleOuterSidebar}
+              title="折叠/展开侧栏 (Ctrl+B)"
+              aria-label="折叠/展开侧栏"
             >
               <PanelLeft size={16} strokeWidth={1.8} />
             </button>
@@ -1430,23 +1608,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
             )}
             <button
               type="button"
-              className={styles['icon-btn']}
-              onClick={cycleFontScale}
-              title={`消息字号：${FONT_SCALE_LABEL[fontScale]}（点击切换 小/中/大）`}
-              aria-label="切换消息字号"
-              style={{ display: 'inline-flex', alignItems: 'flex-end', gap: 1 }}
-            >
-              <span style={{ fontSize: 11, fontWeight: 700, lineHeight: 1 }}>A</span>
-              <span style={{ fontSize: 15, fontWeight: 700, lineHeight: 1 }}>A</span>
-            </button>
-            <button
-              type="button"
-              className={styles['auto-approve-toggle']}
-              style={autoApprove ? {
-                background: 'var(--color-success-10, rgba(34, 197, 94, 0.12))',
-                borderColor: 'var(--mt-success, #22c55e)',
-                color: 'var(--mt-success, #22c55e)',
-              } : undefined}
+              className={clsx(styles['auto-approve-toggle'], autoApprove && styles['auto-approve-toggle--on'])}
               onClick={handleToggleAutoApprove}
               title={autoApprove ? '自动审批已开启，点击关闭' : '自动审批已关闭，点击开启'}
             >
@@ -1454,26 +1616,27 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
             </button>
             <button
               type="button"
-              className={clsx(styles['icon-btn'], showFilePanel && styles['icon-btn--active'])}
-              onClick={() => setShowFilePanel((v) => !v)}
-              title="工作空间文件"
-              aria-pressed={showFilePanel}
+              className={clsx(
+                styles['icon-btn'],
+                readAloudActive && styles['icon-btn--active'],
+                voiceCallState.readAloudSpeaking && styles['read-aloud-speaking'],
+              )}
+              onClick={handleToggleReadAloud}
+              title={readAloudActive ? '实时朗读已开启，点击关闭' : '开启实时朗读（AI 回复边生成边朗读）'}
+              aria-label="实时朗读"
+              aria-pressed={readAloudActive}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-              </svg>
+              {readAloudActive ? <Volume2 size={16} strokeWidth={1.8} /> : <VolumeX size={16} strokeWidth={1.8} />}
             </button>
             <button
               type="button"
-              className={clsx(styles['icon-btn'], showVersionPanel && styles['icon-btn--active'])}
-              onClick={() => setShowVersionPanel((v) => !v)}
-              title="工作空间版本"
-              aria-pressed={showVersionPanel}
+              className={clsx(styles['icon-btn'], workbench.open && styles['icon-btn--active'])}
+              onClick={toggleFilesWorkbench}
+              title="工作空间文件"
+              aria-label="打开工作空间文件"
+              aria-pressed={workbench.open}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="1 4 1 10 7 10" />
-                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-              </svg>
+              <FolderOpen size={16} strokeWidth={1.8} />
             </button>
             <button
               type="button"
@@ -1493,30 +1656,29 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
             >
               <Sparkles size={16} strokeWidth={1.8} />
             </button>
-            <Button variant="ghost" size="sm" onClick={() => handleNewConversation()}>
-              新建
-            </Button>
             </div>
           </div>
         </div>
 
-        {/* 底部毛玻璃浮层：文件/任务、Tips、输入框 */}
+        {/* 底部毛玻璃浮层：Tips、审批、输入框 */}
         <div className={styles['chat-overlay-bottom']}>
-          {(runtimeFileEvents.length > 0 || sessionTodoCalls.length > 0) && (
-            <div className={styles['chat-meta-bar']}>
-              <SessionFileList
-                files={runtimeFileEvents}
-                userId="local-user"
-                sessionKey={runtimeCurrentSessionKey}
-                compact
+          {/* 权限审批：行内卡片贴在输入框上方 */}
+          {runtimePendingPermission && !autoApprove && (
+            <div className={styles['chat-inline-approval']}>
+              <ConfirmationDialog
+                open
+                description={runtimePendingPermission.description}
+                toolName={runtimePendingPermission.toolName}
+                timeoutMs={runtimePendingPermission.timeoutMs}
+                sessionHint={
+                  permissionSessionKey && permissionSessionKey !== runtimeCurrentSessionKey
+                    ? `来自后台会话：${permissionSessionKey}`
+                    : undefined
+                }
+                onAllowOnce={() => runtimeActions.respondPermission('allow-once')}
+                onAllowAlways={() => runtimeActions.respondPermission('allow-always')}
+                onDeny={() => runtimeActions.respondPermission('deny')}
               />
-              {sessionTodoCalls.length > 0 && (
-                <TodoPanel
-                  key={runtimeCurrentSessionKey ?? ''}
-                  toolCalls={sessionTodoCalls}
-                  compact
-                />
-              )}
             </div>
           )}
 
@@ -1541,6 +1703,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
           <ChatInput
             value={inputValue}
             onChange={setInputValue}
+            sessionKey={runtimeCurrentSessionKey}
+            onPersistDraft={persistDraftForSession}
             onSend={handleSend}
             onSendWithValue={handleSend}
             onAbort={handleAbort}
@@ -1551,17 +1715,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
             agents={userAgents}
             selectedAgent={selectedAgent}
             agentsLoading={agentsLoading}
-            onAgentChange={(agent) => {
-              selectAgent(agent)
-              if (!agent) return
-              void runtimeActions.createSession('新对话', agent.id, selectedModelId || undefined).then(() => {
-                void refreshLocalSessions()
-              })
-            }}
-            modelChoices={chatModelChoices.map((m) => ({ id: m.id, name: m.name }))}
+            onAgentChange={handleComposerAgentChange}
+            modelChoices={chatModelChoiceItems}
             selectedModelId={selectedModelId}
             modelsLoading={modelsLoading}
-            onModelChange={(modelId) => { void handleSelectChatModel(modelId) }}
+            onModelChange={handleComposerModelChange}
             thinkingEnabled={thinkingEnabled}
             reasoningEffort={reasoningEffort}
             onThinkingEnabledChange={handleThinkingEnabledChange}
@@ -1573,38 +1731,18 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
             onCompactContext={handleCompactContext}
             pendingAttachments={pendingAttachments}
             onFileUpload={handleFilesImport}
-            onImageUpload={handleFilesImport}
-            onRemoveAttachment={(filePath) => {
-              setPendingAttachments((prev) => prev.filter((a) => a.filePath !== filePath))
-            }}
+            onRemoveAttachment={handleRemoveAttachment}
+            onViewChange={onViewChange}
             fileReferences={activeFileReferences}
             onFileReferenceAdd={handleFileReferenceAdd}
             onFileReferenceRemove={handleFileReferenceRemove}
-            onVoiceCallStart={runtimeCurrentSessionKey ? () => void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id) : undefined}
-            onLocateFile={(absolutePath) => {
-              setShowFilePanel(true)
-              locateTokenRef.current += 1
-              setLocateFileTarget({ path: absolutePath, token: locateTokenRef.current })
-            }}
+            onVoiceCallStart={runtimeCurrentSessionKey ? handleVoiceCallStart : undefined}
+            onLocateFile={handleLocateFile}
             showTips={showInputTips}
           />
           )}
         </div>
       </div>
-
-      {/* 语音模型下载对话框 */}
-      {voiceCallState.modelsNotReady && (
-        <VoiceModelDownloadDialog
-          models={voiceCallState.modelsNotReady}
-          onClose={() => voiceCallActions.dismissModelDownload()}
-          onAllReady={() => {
-            voiceCallActions.dismissModelDownload()
-            if (runtimeCurrentSessionKey) {
-              void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id)
-            }
-          }}
-        />
-      )}
 
       {/* Toast notification */}
       {toast && (
@@ -1627,22 +1765,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
         onCancel={handleCancelDeleteSession}
       />
 
-      {runtimePendingPermission && !autoApprove ? (
-        <ConfirmationDialog
-          open
-          description={runtimePendingPermission.description}
-          toolName={runtimePendingPermission.toolName}
-          timeoutMs={runtimePendingPermission.timeoutMs}
-          sessionHint={
-            permissionSessionKey && permissionSessionKey !== runtimeCurrentSessionKey
-              ? `来自后台会话：${permissionSessionKey}`
-              : undefined
-          }
-          onAllow={() => runtimeActions.respondPermission('allow-always')}
-          onDeny={() => runtimeActions.respondPermission('deny')}
-        />
-      ) : null}
-
       {runtimePendingAskUser ? (
         <AskUserModal
           open
@@ -1653,17 +1775,48 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard' }) => {
         />
       ) : null}
 
-      {/* 工作空间文件抽屉面板 */}
-      <WorkspaceFilePanel
-        open={showFilePanel}
-        onClose={() => setShowFilePanel(false)}
-        locateTarget={locateFileTarget}
-      />
-
-      {/* 工作空间版本管理面板 */}
-      <WorkspaceVersionPanel
-        open={showVersionPanel}
-        onClose={() => setShowVersionPanel(false)}
+      {/* 工作空间共享壳：文件 + 版本（可拖拽改宽，对话区自适应） */}
+      <WorkspaceWorkbench
+        open={workbench.open}
+        tab={workbench.tab}
+        onTabChange={(tab) => {
+          setWorkbenchLayout('default')
+          setWorkbench((w) => ({ ...w, tab, open: true }))
+        }}
+        onClose={() => setWorkbench((w) => ({ ...w, open: false }))}
+        uncommittedCount={uncommittedDiff.length}
+        onRefresh={() => { void refreshVcs() }}
+        onWidthChange={handleWorkbenchWidthChange}
+        onResizingChange={setWorkbenchResizing}
+        layoutMode={workbenchLayout}
+        onLayoutModeChange={handleWorkbenchLayoutChange}
+        childrenFiles={
+          <WorkspaceFilePanel
+            open={workbench.open}
+            onClose={() => setWorkbench((w) => ({ ...w, open: false }))}
+            locateTarget={locateFileTarget}
+            embedded
+          />
+        }
+        childrenVcs={
+          <WorkspaceVersionPanel
+            open={workbench.open}
+            onClose={() => setWorkbench((w) => ({ ...w, open: false }))}
+            embedded
+            layoutMode={workbenchLayout}
+            onLayoutModeChange={handleWorkbenchLayoutChange}
+            onRevealInFiles={(relPath) => {
+              const root = (workspaceDir ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
+              const abs = root
+                ? `${root}/${relPath.replace(/^\/+/, '')}`
+                : relPath
+              setWorkbenchLayout('default')
+              setWorkbench({ open: true, tab: 'files' })
+              locateTokenRef.current += 1
+              setLocateFileTarget({ path: abs, token: locateTokenRef.current })
+            }}
+          />
+        }
       />
     </div>
   )

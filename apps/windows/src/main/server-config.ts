@@ -12,28 +12,6 @@ export type { ServerConfig } from './config/types'
 import type { ServerConfig } from './config/types'
 import { DEFAULT_CONFIG } from './config/types'
 
-/** 开发环境 gateway secret 期望最小长度（过短通常表示 .env 中 # 被当作注释截断） */
-const GATEWAY_SECRET_MIN_LENGTH = 32
-
-/**
- * 解析 Gateway 内部调用密钥（与 api-server / Gateway 环境变量名对齐）
- */
-export function resolveGatewaySecretFromEnv(): string | null {
-  const secret =
-    process.env.API_SERVER_GATEWAY_SECRET?.trim() ||
-    process.env.MTBOT_GATEWAY_SECRET?.trim() ||
-    process.env.GATEWAY_SECRET?.trim() ||
-    null
-
-  if (secret && secret.length < GATEWAY_SECRET_MIN_LENGTH) {
-    console.warn(
-      `[Config] API_SERVER_GATEWAY_SECRET 长度=${secret.length}，疑似被 .env 中未加引号的 # 截断；请用双引号包裹完整密钥`,
-    )
-  }
-
-  return secret
-}
-
 /**
  * 规范化 SearXNG 基址（裸域名 mtbot.top 无法访问搜索，须用 www）
  */

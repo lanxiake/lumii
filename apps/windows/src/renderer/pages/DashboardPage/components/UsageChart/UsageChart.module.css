@@ -1,0 +1,94 @@
+/**
+ * UsageChart Styles - 多色组合图 + 悬停卡片
+ */
+
+.wrap {
+  width: 100%;
+  min-height: 220px;
+}
+
+.empty {
+  display: grid;
+  place-items: center;
+  height: 220px;
+  color: var(--mt-fg-4);
+  font-size: var(--mt-fs-xs);
+}
+
+.tip {
+  min-width: 168px;
+  padding: 10px 12px;
+  border: 1px solid var(--mt-border);
+  border-radius: 10px;
+  background: var(--mt-bg-elevated);
+  box-shadow: var(--mt-shadow-sm);
+  color: var(--mt-fg-2);
+  font-size: 11px;
+}
+
+.tip-title {
+  margin-bottom: 8px;
+  color: var(--mt-fg-1);
+  font-weight: var(--mt-fw-semibold);
+}
+
+.tip-row {
+  display: grid;
+  grid-template-columns: 8px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.tip-row > i {
+  width: 8px;
+  height: 8px;
+  border-radius: 99px;
+}
+
+.tip-row > span {
+  color: var(--mt-fg-3);
+}
+
+.tip-row > b {
+  color: var(--mt-fg-1);
+  font-family: var(--mt-font-mono);
+  font-weight: var(--mt-fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.tip-note {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--mt-border-hairline);
+  color: var(--mt-fg-4);
+  font-size: 10px;
+}
+
+/* 图例：一项一模型，长模型名省略 */
+.model-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+  padding-top: 4px;
+  font-size: 11px;
+  color: var(--mt-fg-3);
+}
+
+.model-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-legend-item > i {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}

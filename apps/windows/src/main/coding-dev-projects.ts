@@ -56,6 +56,8 @@ export async function createProject(params: {
   if (params.existing.some((p) => p.name === name)) {
     throw new Error(`项目「${name}」已存在`)
   }
+  // 确保 projectsDir 父目录存在
+  await fs.mkdir(params.projectsDir, { recursive: true })
   const realPath = join(params.projectsDir, name)
   await fs.mkdir(realPath, { recursive: true })
   return [...params.existing, { name, realPath, isExternal: false }]
@@ -89,8 +91,65 @@ export async function openExistingProject(params: {
 }
 
 /**
+ * 将配置中的项目列表与磁盘 projects/ 目录对齐：
+ * - 磁盘上有、配置中无的内部目录 → 补进列表
+ * - 配置中指向已消失路径的条目保留（由用户手动移除）
+ * - 若活动项目名不在列表中 → 清空或回退到首项
+ */
+export async function reconcileProjectsWithDisk(params: {
+  projectsDir: string
+  existing: CodingDevProject[]
+  activeProject?: string
+}): Promise<{ projects: CodingDevProject[]; activeProject: string | undefined; changed: boolean }> {
+  await fs.mkdir(params.projectsDir, { recursive: true })
+  const byName = new Map(params.existing.map((p) => [p.name, p]))
+
+  let entries: string[] = []
+  try {
+    entries = await fs.readdir(params.projectsDir)
+  } catch {
+    entries = []
+  }
+
+  let changed = false
+  for (const name of entries) {
+    if (name.startsWith('.')) continue
+    if (byName.has(name)) continue
+    const abs = join(params.projectsDir, name)
+    const st = await fs.lstat(abs).catch(() => null)
+    if (!st) continue
+    // 内部目录或 junction 均视为可登记项目
+    if (st.isDirectory() || st.isSymbolicLink()) {
+      let realPath = abs
+      let isExternal = false
+      if (st.isSymbolicLink()) {
+        isExternal = true
+        realPath = await fs.realpath(abs).catch(() => abs)
+      }
+      byName.set(name, { name, realPath, isExternal })
+      changed = true
+    }
+  }
+
+  const projects = Array.from(byName.values()).sort((a, b) =>
+    a.name.localeCompare(b.name, 'zh-CN', { numeric: true }),
+  )
+  if (projects.length !== params.existing.length) changed = true
+
+  let activeProject = params.activeProject?.trim() || undefined
+  if (activeProject && !projects.some((p) => p.name === activeProject)) {
+    activeProject = projects[0]?.name
+    changed = true
+  }
+
+  return { projects, activeProject, changed }
+}
+
+/**
  * 移除项目。外部项目仅删除 junction 链接（保留真实目标）；
- * 内部项目仅从列表移除，保留磁盘目录（避免破坏性删除用户数据）。
+ * 内部项目保留磁盘数据，但重命名为 `.removed-<name>-<ts>` 前缀
+ * （避免破坏性删除用户数据，同时让 reconcileProjectsWithDisk 的
+ * `name.startsWith('.')` 跳过逻辑不再把它当"新项目"扫描回列表）。
  * 返回移除后的新项目列表。
  */
 export async function removeProject(params: {
@@ -109,6 +168,12 @@ export async function removeProject(params: {
         await fs.rmdir(linkPath).catch(() => {})
         return
       }
+      if (err.code !== 'ENOENT') throw err
+    })
+  } else {
+    const oldPath = join(params.projectsDir, target.name)
+    const removedPath = join(params.projectsDir, `.removed-${target.name}-${Date.now()}`)
+    await fs.rename(oldPath, removedPath).catch((err: NodeJS.ErrnoException) => {
       if (err.code !== 'ENOENT') throw err
     })
   }

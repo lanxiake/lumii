@@ -1,0 +1,166 @@
+/* ChangedFilesRail — 目录树 + 显隐 */
+
+.rail {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--mt-surface-2);
+  border-left: 1px solid var(--mt-border-hairline);
+  overflow: hidden;
+}
+
+.showBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: 6px;
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-3);
+  cursor: pointer;
+}
+
+.showBtn:hover {
+  color: var(--mt-fg-1);
+  background: var(--mt-surface-3);
+}
+
+.header {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: var(--mt-space-2);
+  padding: 0 var(--mt-space-2) 0 var(--mt-space-3);
+  border-bottom: 1px solid var(--mt-border-hairline);
+  flex-shrink: 0;
+}
+
+.headerLabel {
+  flex: 1;
+  font-size: var(--mt-fs-xs);
+  font-weight: 600;
+  color: var(--mt-fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+}
+
+.iconBtn:hover {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
+}
+
+.list {
+  margin: 0;
+  padding: var(--mt-space-1) 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.dirBlock {
+  display: flex;
+  flex-direction: column;
+}
+
+.dirItem {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--mt-fg-3);
+  cursor: pointer;
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dirItem:hover {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-2);
+}
+
+.dirName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: var(--mt-space-2);
+  width: 100%;
+  height: 28px;
+  padding-right: var(--mt-space-3);
+  border: none;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--mt-fg-2);
+  cursor: pointer;
+  text-align: left;
+  font-size: var(--mt-fs-xs);
+}
+
+.fileItem:hover {
+  background: var(--mt-surface-3);
+}
+
+.fileItemActive {
+  border-left-color: var(--mt-accent-500);
+  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
+  color: var(--mt-fg-1);
+}
+
+.status {
+  flex-shrink: 0;
+  width: 14px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+}
+
+.status_added { color: var(--mt-success); }
+.status_deleted { color: var(--mt-error); }
+.status_modified { color: var(--mt-accent-500); }
+
+.name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats {
+  flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+}
+
+.ins { color: var(--mt-success); }
+.del { color: var(--mt-error); }

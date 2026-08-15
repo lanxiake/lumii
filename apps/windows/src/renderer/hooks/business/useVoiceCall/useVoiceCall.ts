@@ -9,14 +9,19 @@ import { loadAudioWorkletModule } from './load-audio-worklet.js'
 import pcmProcessorSource from './worklets/pcm-processor.js?raw'
 import type { VoiceCallState } from '../../../../shared/voice-events.js'
 
+/**
+ * 通知渲染层：语音模型未就绪，应引导用户前往设置下载
+ */
+function notifyModelsNeedDownload(): void {
+  window.dispatchEvent(new CustomEvent('voice:models:need-download'))
+}
+
 export interface VoiceCallHookState {
   state: VoiceCallState | 'idle'
   callId: string | null
   partialTranscript: string
   finalTranscript: string
   isModelReady: boolean
-  /** 模型未就绪时，返回待下载的模型列表，用于触发下载对话框 */
-  modelsNotReady: Array<{ id: string; name: string; sizeBytes: number; downloaded: boolean }> | null
   error: string | null
   /** 实时波形分析节点（可选，供 WaveformVisualizer 使用） */
   analyserNode: AnalyserNode | null
@@ -42,12 +47,18 @@ export interface VoiceCallHookState {
   ttsProvider: 'local-vits' | 'edge'
   /** Edge TTS 音色 ID */
   edgeVoice: string
+  /**
+   * 静默实时朗读是否激活（silent micless 通话进行中）。不驱动 VoiceCallPanel，
+   * 仅供右上角「实时朗读」开关判断按钮态。
+   */
+  readAloudActive: boolean
+  /** 静默实时朗读当前是否正在出声（speaking），供按钮波纹动画 */
+  readAloudSpeaking: boolean
 }
 
 export interface VoiceCallActions {
-  startCall: (sessionKey: string, agentId?: string, opts?: { micless?: boolean }) => Promise<void>
+  startCall: (sessionKey: string, agentId?: string, opts?: { micless?: boolean; persistent?: boolean; silent?: boolean }) => Promise<void>
   stopCall: () => Promise<void>
-  dismissModelDownload: () => void
   getModelsStatus: () => Promise<unknown>
   downloadModel: (modelId: string) => Promise<void>
   /** 实时调整播放音量（0.0 ~ 1.0，仅渲染侧，不持久化） */
@@ -67,26 +78,29 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     partialTranscript: '',
     finalTranscript: '',
     isModelReady: false,
-    modelsNotReady: null,
     error: null,
     analyserNode: null,
     playbackAnalyserNode: null,
     charPulsePoll: null,
     isAudioPlaying: null,
-    volume: 0.8,
+    volume: 1.0,
     speed: 1.2,
     speakerId: 0,
     ttsProvider: 'edge',
     edgeVoice: 'zh-CN-XiaoxiaoNeural',
+    readAloudActive: false,
+    readAloudSpeaking: false,
   })
 
+  // 静默实时朗读标志：事件处理器据此把状态写入 readAloud* 而非驱动 VoiceCallPanel 的 state
+  const silentRef = useRef(false)
   const audioCtxRef = useRef<AudioContext | null>(null)
   const workletNodeRef = useRef<AudioWorkletNode | null>(null)
   const playbackRef = useRef<AudioPlaybackEngine | null>(null)
   const callIdRef = useRef<string | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
-  const volumeRef = useRef<number>(0.8)
+  const volumeRef = useRef<number>(1.0)
 
   // ── 加载初始配置（语速、音量、音色） ─────────────────────────────────────
 
@@ -120,6 +134,11 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     const unsubscribe = electronAPI.voice.onEvent((event: any) => {
       switch (event.type) {
         case 'voice:call:state':
+          // 静默实时朗读：不驱动 VoiceCallPanel 的 state，只映射到 readAloudSpeaking 供按钮波纹
+          if (silentRef.current) {
+            setState((s) => ({ ...s, readAloudSpeaking: event.state === 'speaking' }))
+            break
+          }
           if (event.state === 'listening' && event.interrupted) {
             // 用户打断：立即清空播放缓冲并切换状态
             setState((s) => ({ ...s, state: event.state }))
@@ -210,15 +229,13 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
           break
 
         case 'voice:call:ended':
-          setState((s) => ({ ...s, state: 'idle', callId: null }))
-          callIdRef.current = null
-          break
-
-        case 'voice:models:status':
-          // 模型下载完成后，如果全部就绪，清除 modelsNotReady 标志
-          if (event.models && event.models.every((m: any) => m.downloaded)) {
-            setState((s) => ({ ...s, modelsNotReady: null }))
+          if (silentRef.current) {
+            silentRef.current = false
+            setState((s) => ({ ...s, readAloudActive: false, readAloudSpeaking: false, callId: null }))
+          } else {
+            setState((s) => ({ ...s, state: 'idle', callId: null }))
           }
+          callIdRef.current = null
           break
 
         case 'voice:error':
@@ -252,29 +269,32 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     return unsubscribe
   }, [])
 
-  // 消息朗读等场景：TTS 模型未就绪时弹出下载对话框
+  // 消息朗读等场景：TTS 模型未就绪 → 引导去设置页下载
   useEffect(() => {
-    const handler = (e: Event) => {
-      const models = (e as CustomEvent<Array<{ id: string; name: string; sizeBytes: number; downloaded: boolean }>>).detail
-      if (models?.length) {
-        setState((s) => ({ ...s, modelsNotReady: models }))
-      }
-    }
+    const handler = () => notifyModelsNeedDownload()
     window.addEventListener('voice:tts:models-not-ready', handler)
     return () => window.removeEventListener('voice:tts:models-not-ready', handler)
   }, [])
 
   // ── 开始通话 ──────────────────────────────────────────────────────────
 
-  const startCall = useCallback(async (sessionKey: string, agentId?: string, opts?: { micless?: boolean }) => {
+  const startCall = useCallback(async (sessionKey: string, agentId?: string, opts?: { micless?: boolean; persistent?: boolean; silent?: boolean }) => {
     const micless = opts?.micless === true
+    const persistent = opts?.persistent === true
+    const silent = opts?.silent === true
+    silentRef.current = silent
     const electronAPI = (window as any).electronAPI
     if (!electronAPI?.voice) {
       setState((s) => ({ ...s, error: '语音 API 不可用' }))
       return
     }
 
-    setState((s) => ({ ...s, state: 'initializing' as VoiceCallState, error: null }))
+    // 静默实时朗读不占用 VoiceCallPanel：不写 state，改标记 readAloudActive
+    if (silent) {
+      setState((s) => ({ ...s, readAloudActive: true, readAloudSpeaking: false, error: null }))
+    } else {
+      setState((s) => ({ ...s, state: 'initializing' as VoiceCallState, error: null }))
+    }
 
     try {
       let source: MediaStreamAudioSourceNode | null = null
@@ -337,14 +357,18 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
         sessionKey,
         agentId,
         micless,
+        persistent,
       })
 
       if (result?.error === 'models_not_ready') {
+        silentRef.current = false
         setState((s) => ({
           ...s,
-          state: 'idle',
-          modelsNotReady: result.models ?? [],
+          state: silent ? s.state : 'idle',
+          readAloudActive: false,
+          readAloudSpeaking: false,
         }))
+        notifyModelsNeedDownload()
         // 清理已创建的音频资源
         streamRef.current?.getTracks().forEach((t) => t.stop())
         streamRef.current = null
@@ -376,6 +400,8 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
     } catch (e) {
       const errorMessage = (e as Error).message
       console.error('[useVoiceCall] startCall 失败:', e)
+      const wasSilent = silentRef.current
+      silentRef.current = false
 
       // 清理资源
       streamRef.current?.getTracks().forEach((t) => t.stop())
@@ -383,13 +409,18 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
       await audioCtxRef.current?.close().catch(() => {})
       audioCtxRef.current = null
 
-      setState((s) => ({
-        ...s,
-        state: 'error',
-        error: errorMessage.includes('Permission')
-          ? '麦克风权限被拒绝，请在系统设置中允许访问麦克风'
-          : `启动语音通话失败: ${errorMessage}`,
-      }))
+      // 静默朗读失败不弹通话错误面板，只复位开关态
+      if (wasSilent) {
+        setState((s) => ({ ...s, readAloudActive: false, readAloudSpeaking: false }))
+      } else {
+        setState((s) => ({
+          ...s,
+          state: 'error',
+          error: errorMessage.includes('Permission')
+            ? '麦克风权限被拒绝，请在系统设置中允许访问麦克风'
+            : `启动语音通话失败: ${errorMessage}`,
+        }))
+      }
     }
   }, [])
 
@@ -397,6 +428,7 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
 
   const stopCall = useCallback(async () => {
     const electronAPI = (window as any).electronAPI
+    silentRef.current = false
 
     if (callIdRef.current && electronAPI?.voice) {
       await electronAPI.voice
@@ -427,13 +459,14 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
       playbackAnalyserNode: null,
       charPulsePoll: null,
       isAudioPlaying: null,
+      readAloudActive: false,
+      readAloudSpeaking: false,
     }))
   }, [])
 
   const actions: VoiceCallActions = {
     startCall,
     stopCall,
-    dismissModelDownload: () => setState((s) => ({ ...s, modelsNotReady: null })),
     getModelsStatus: () => {
       const electronAPI = (window as any).electronAPI
       return electronAPI?.voice?.sendCommand({ type: 'voice:models:get' }) ?? Promise.resolve([])
@@ -446,7 +479,7 @@ export function useVoiceCall(): [VoiceCallHookState, VoiceCallActions] {
       )
     },
     setVolume: (value: number) => {
-      const clamped = Math.max(0, Math.min(1, value))
+      const clamped = Math.max(0, Math.min(2, value))
       volumeRef.current = clamped
       playbackRef.current?.setVolume(clamped)
       setState((s) => ({ ...s, volume: clamped }))

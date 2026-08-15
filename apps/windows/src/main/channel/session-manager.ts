@@ -87,8 +87,10 @@ export class SessionManager {
     const { previousMessageCount, newMessageCount, messagesRemoved, hadSummary } = result
 
     if (messagesRemoved === 0) {
-      log.info(`[compactContext] 消息数不足，无需压缩: sessionKey=${sessionKey} count=${previousMessageCount}`)
-      return { summarizedCount: 0, keptCount: newMessageCount, hadSummary: false }
+      log.info(
+        `[compactContext] 未删除消息: sessionKey=${sessionKey} count=${previousMessageCount} hadSummary=${hadSummary}`,
+      )
+      return { summarizedCount: 0, keptCount: newMessageCount, hadSummary }
     }
 
     log.info(`[compactContext] 压缩完成: 删除 ${messagesRemoved} 条，保留 ${newMessageCount} 条，hadSummary=${hadSummary}`)

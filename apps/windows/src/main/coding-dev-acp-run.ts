@@ -11,7 +11,7 @@
  */
 
 import type { AgentRuntimeBridge } from './agent-runtime/bridge'
-import type { AgentRuntimeEvent } from '../../shared/agent-runtime-events'
+import type { AgentRuntimeEvent } from '../shared/agent-runtime-events'
 import { runCodingDevAcpPrompt } from './coding-dev-backends-stub/run-coding-dev-acp-prompt.js'
 import { resolveAcpTimeoutMs } from './coding-dev-backends-stub/acp-config.js'
 import type {
@@ -39,6 +39,8 @@ export type AcpRunHandle = {
   toolStartTextPositions: Map<string, number>
   settled: boolean
   abortReason?: 'user_cancel' | 'timeout'
+  userInputText: string
+  echoStripped: boolean
 }
 
 export type AcpRunStartOptions = {
@@ -54,6 +56,20 @@ export type AcpRunStartOptions = {
 }
 
 const DEFAULT_DELTA_FLUSH_MS = 16
+
+/**
+ * 移除 CLI 输出开头对用户输入的回显。
+ *
+ * Cursor 等 CLI 会把用户 prompt 原样放进第一条 assistant text 里，
+ * 这段回显在 JSON 事件内部，行级解析器（seenJson）拦不住。
+ */
+export function stripUserEcho(text: string, userInput: string): string {
+  const prompt = userInput.trim()
+  if (!prompt) return text
+  const head = text.trimStart()
+  if (!head.startsWith(prompt)) return text
+  return head.slice(prompt.length).trimStart()
+}
 
 export class AcpRunController {
   private readonly runs = new Map<string, AcpRunHandle>()
@@ -82,6 +98,8 @@ export class AcpRunController {
       thinkingEmitted: false,
       toolStartTextPositions: new Map(),
       settled: false,
+      userInputText: text,
+      echoStripped: false,
     }
     this.runs.set(runId, handle)
 
@@ -123,8 +141,24 @@ export class AcpRunController {
       this.clearTimeout(handle)
       this.flushMessageDelta(sessionKey, pushEvent)
 
-      const finalText = output?.text ?? this.pendingMessageDelta.get(sessionKey)?.text ?? ''
+      const rawFinalText = output?.text ?? this.pendingMessageDelta.get(sessionKey)?.text ?? ''
+      // output.text 是整段聚合输出，没走过 handleProgress 的逐条剥离，这里再兜一次
+      const finalText = stripUserEcho(rawFinalText, text)
       const content = [{ type: 'text' as const, text: finalText }]
+
+      // 渲染进程的 message:end 用流式累积的文本、不用 event.content（见 event-handler
+      // 的 finalContent = last.content）。所以从未推过 delta 的 run 必须先补一条，
+      // 否则气泡是空的 —— 比如 cursor 未登录时只往 stderr 写错误、stdout 全空。
+      if (finalText && handle.totalLength === 0) {
+        pushEvent({
+          type: 'agent:message:delta',
+          runId,
+          sessionKey,
+          messageId,
+          delta: finalText,
+          totalLength: finalText.length,
+        })
+      }
 
       if (finalText) {
         this.persistAssistantMessage(bridge, sessionKey, messageId, finalText)
@@ -258,7 +292,15 @@ export class AcpRunController {
 
     switch (progress.kind) {
       case 'message': {
-        const delta = progress.text
+        let delta = progress.text
+        if (delta.length === 0) return
+
+        // Cursor 等 CLI 会在输出开头回显用户输入，首次收到消息时检测并移除
+        if (!handle.echoStripped) {
+          handle.echoStripped = true
+          delta = stripUserEcho(delta, handle.userInputText)
+        }
+
         if (delta.length === 0) return
 
         const pending = this.pendingMessageDelta.get(sessionKey)
@@ -312,7 +354,8 @@ export class AcpRunController {
       pushEvent({
         type: 'agent:tool:start',
         runId,
-        sessionKey,
+        // 工具事件类型里没有 sessionKey，渲染进程按 rootSessionKey / runId 映射路由
+        rootSessionKey: sessionKey,
         toolCallId,
         toolName,
         args: args ?? {},
@@ -326,7 +369,7 @@ export class AcpRunController {
       pushEvent({
         type: 'agent:tool:progress',
         runId,
-        sessionKey,
+        rootSessionKey: sessionKey,
         toolCallId,
         toolName,
         progressText: typeof result === 'string' ? result : undefined,
@@ -341,7 +384,7 @@ export class AcpRunController {
       pushEvent({
         type: 'agent:tool:end',
         runId,
-        sessionKey,
+        rootSessionKey: sessionKey,
         toolCallId,
         toolName,
         result,

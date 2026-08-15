@@ -1,11 +1,10 @@
 /**
  * WorkspaceFilePanel — 对话页面右侧工作空间文件抽屉
  *
- * - 右侧滑入 overlay 抽屉，不压缩聊天区域
- * - 树形目录（FileTree），懒加载，展示全部文件
- * - 点击文件 → 复用 FilePreviewModal 居中浮层预览
- * - 右键菜单 / 悬停按钮：预览、重命名、删除
- * - 所有颜色使用 CSS 变量，自动跟随深色/浅色主题
+ * - 右侧滑入 overlay 抽屉 / 或嵌入 WorkspaceWorkbench
+ * - 树形目录（FileTree），懒加载
+ * - 点击文件 → FilePreviewModal 弹窗预览（可全屏盖对话区、可弹出独立窗）
+ * - 右键菜单：预览、重命名、删除等
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react'
@@ -14,6 +13,7 @@ import clsx from 'clsx'
 import { useWorkspace } from '../../../../hooks/business/useWorkspace'
 import { useFiles } from '../../../../hooks/business/useFiles'
 import { useCodingDevProjects } from '../../../../hooks/business/useCodingDevProjects'
+import { useWorkspaceVcs } from '../../../../hooks/business/useWorkspaceVcs'
 import type { FileItem } from '../../../../hooks/business/useFiles/useFiles.types'
 import { FilePreviewModal } from '../../../../components/FilePreviewModal'
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
@@ -82,14 +82,32 @@ const IconCopy: React.FC<{ size?: number }> = ({ size = 14 }) => (
   </svg>
 )
 
+const IconFilePlus: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="12" y1="18" x2="12" y2="12" />
+    <line x1="9" y1="15" x2="15" y2="15" />
+  </svg>
+)
+
+const IconFolderPlus: React.FC<{ size?: number }> = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+    <line x1="12" y1="11" x2="12" y2="17" />
+    <line x1="9" y1="14" x2="15" y2="14" />
+  </svg>
+)
+
 // ── 重命名对话框（内联，避免额外文件） ───────────────────────────────────
 
 const RenameDialog: React.FC<{
   open: boolean
+  title?: string
   currentName: string
   onConfirm: (newName: string) => void
   onCancel: () => void
-}> = ({ open, currentName, onConfirm, onCancel }) => {
+}> = ({ open, title = '重命名', currentName, onConfirm, onCancel }) => {
   const [value, setValue] = useState(currentName)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -133,7 +151,7 @@ const RenameDialog: React.FC<{
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ fontWeight: 600, fontSize: 'var(--font-size-base)', color: 'var(--color-text-primary)' }}>
-          重命名
+          {title}
         </div>
         <input
           ref={inputRef}
@@ -201,7 +219,9 @@ const ContextMenu: React.FC<{
   onDelete: (item: FileItem) => void
   onOpenExternal: (item: FileItem) => void
   onCopy: (item: FileItem, kind: 'name' | 'relative' | 'absolute') => void
-}> = ({ state, onClose, onPreview, onRename, onDelete, onOpenExternal, onCopy }) => {
+  onCreateFile: (parentItem: FileItem) => void
+  onCreateFolder: (parentItem: FileItem) => void
+}> = ({ state, onClose, onPreview, onRename, onDelete, onOpenExternal, onCopy, onCreateFile, onCreateFolder }) => {
   const menuRef = useRef<HTMLDivElement>(null)
 
   // 点击外部关闭
@@ -218,10 +238,13 @@ const ContextMenu: React.FC<{
   if (state.x + 180 > window.innerWidth) style.left = state.x - 180
   if (state.y + 280 > window.innerHeight) style.top = Math.max(8, state.y - 240)
 
+  // 根目录空白区域触发的虚拟节点：name 为空，仅支持新建文件/文件夹
+  const isRoot = state.item.name === ''
   const isFile = !state.item.isDirectory
   const previewable = isFile && [
     // 文档
-    'md', 'txt', 'log', 'csv', 'xml', 'pdf', 'docx',
+    'md', 'txt', 'log', 'csv', 'xml', 'pdf', 'docx', 'doc',
+    'xls', 'xlsx', 'ppt', 'pptx',
     // 代码
     'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'json', 'json5',
     'py', 'sh', 'bash', 'java', 'kt', 'go', 'rs', 'cpp', 'c', 'h', 'cs', 'rb', 'php',
@@ -243,32 +266,50 @@ const ContextMenu: React.FC<{
           预览
         </button>
       )}
-      <button className={styles.contextMenuItem} onClick={() => { onRename(state.item); onClose() }}>
-        <span className={styles.contextMenuIcon}><IconEdit size={13} /></span>
-        重命名
-      </button>
-      <button className={styles.contextMenuItem} onClick={() => { onOpenExternal(state.item); onClose() }}>
-        <span className={styles.contextMenuIcon}><IconExternalLink size={13} /></span>
-        在资源管理器中显示
-      </button>
-      <div className={styles.contextMenuDivider} />
-      <button className={styles.contextMenuItem} onClick={() => { onCopy(state.item, 'name'); onClose() }}>
-        <span className={styles.contextMenuIcon}><IconCopy size={13} /></span>
-        复制文件名
-      </button>
-      <button className={styles.contextMenuItem} onClick={() => { onCopy(state.item, 'relative'); onClose() }}>
-        <span className={styles.contextMenuIcon}><IconCopy size={13} /></span>
-        复制相对路径
-      </button>
-      <button className={styles.contextMenuItem} onClick={() => { onCopy(state.item, 'absolute'); onClose() }}>
-        <span className={styles.contextMenuIcon}><IconCopy size={13} /></span>
-        复制绝对路径
-      </button>
-      <div className={styles.contextMenuDivider} />
-      <button className={clsx(styles.contextMenuItem, styles['contextMenuItem--danger'])} onClick={() => { onDelete(state.item); onClose() }}>
-        <span className={styles.contextMenuIcon}><IconTrash size={13} /></span>
-        删除
-      </button>
+      {state.item.isDirectory && (
+        <>
+          <button className={styles.contextMenuItem} onClick={() => { onCreateFile(state.item); onClose() }}>
+            <span className={styles.contextMenuIcon}><IconFilePlus size={13} /></span>
+            新建文件
+          </button>
+          <button className={styles.contextMenuItem} onClick={() => { onCreateFolder(state.item); onClose() }}>
+            <span className={styles.contextMenuIcon}><IconFolderPlus size={13} /></span>
+            新建文件夹
+          </button>
+          {!isRoot && <div className={styles.contextMenuDivider} />}
+        </>
+      )}
+      {/* 根目录空白区域菜单：只支持新建，其余操作（重命名/删除等）对根目录本身无意义 */}
+      {!isRoot && (
+        <>
+          <button className={styles.contextMenuItem} onClick={() => { onRename(state.item); onClose() }}>
+            <span className={styles.contextMenuIcon}><IconEdit size={13} /></span>
+            重命名
+          </button>
+          <button className={styles.contextMenuItem} onClick={() => { onOpenExternal(state.item); onClose() }}>
+            <span className={styles.contextMenuIcon}><IconExternalLink size={13} /></span>
+            在资源管理器中显示
+          </button>
+          <div className={styles.contextMenuDivider} />
+          <button className={styles.contextMenuItem} onClick={() => { onCopy(state.item, 'name'); onClose() }}>
+            <span className={styles.contextMenuIcon}><IconCopy size={13} /></span>
+            复制文件名
+          </button>
+          <button className={styles.contextMenuItem} onClick={() => { onCopy(state.item, 'relative'); onClose() }}>
+            <span className={styles.contextMenuIcon}><IconCopy size={13} /></span>
+            复制相对路径
+          </button>
+          <button className={styles.contextMenuItem} onClick={() => { onCopy(state.item, 'absolute'); onClose() }}>
+            <span className={styles.contextMenuIcon}><IconCopy size={13} /></span>
+            复制绝对路径
+          </button>
+          <div className={styles.contextMenuDivider} />
+          <button className={clsx(styles.contextMenuItem, styles['contextMenuItem--danger'])} onClick={() => { onDelete(state.item); onClose() }}>
+            <span className={styles.contextMenuIcon}><IconTrash size={13} /></span>
+            删除
+          </button>
+        </>
+      )}
     </div>,
     document.body,
   )
@@ -279,16 +320,30 @@ const ContextMenu: React.FC<{
 export interface WorkspaceFilePanelProps {
   open: boolean
   onClose: () => void
-  /** 外部请求定位到指定绝对路径的文件（点击输入框 @引用 chip 触发） */
-  locateTarget?: { path: string; token: number } | null
+  /** 外部请求定位到指定绝对路径的文件（@引用 / 会话文件列表触发） */
+  locateTarget?: {
+    path: string
+    token: number
+    /** 为 true 时同时打开预览窗口 */
+    preview?: boolean
+    fileName?: string
+  } | null
+  /** 嵌入 WorkspaceWorkbench 时去掉独立抽屉壳与关闭钮 */
+  embedded?: boolean
 }
 
-export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, onClose, locateTarget }) => {
+export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
+  open,
+  onClose,
+  locateTarget,
+  embedded = false,
+}) => {
   const { workspaceDir, isInitializing } = useWorkspace()
   const { renameFile } = useFiles(
     workspaceDir ? { initialPath: workspaceDir, rootPath: workspaceDir, watchIntervalMs: 0 } : undefined
   )
   const projectsApi = useCodingDevProjects()
+  const { uncommittedDiff } = useWorkspaceVcs()
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   /** 外部定位请求的目标路径（驱动 FileTree 展开并滚动到该节点） */
@@ -299,8 +354,12 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, on
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [renameTarget, setRenameTarget] = useState<FileItem | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null)
+  const [createFileParent, setCreateFileParent] = useState<FileItem | null>(null)
+  const [createFolderParent, setCreateFolderParent] = useState<FileItem | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  /** 检测到 git 状态变化但未手动刷新时，在刷新按钮上提示 */
+  const [hasPendingUpdate, setHasPendingUpdate] = useState(false)
   /** 搜索模式下隐藏树形视图，只显示搜索结果（由 FileSearchBar 内部渲染） */
   const [isSearching, setIsSearching] = useState(false)
 
@@ -310,17 +369,17 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, on
     if (!item.isDirectory) setPreviewFile(item)
   }, [])
 
-  // Escape 关闭抽屉（预览 Modal 自己处理 Escape，不冲突）
+  // Escape 关闭抽屉（嵌入壳时由 WorkspaceWorkbench 统一处理 Esc）
   useEffect(() => {
-    if (!open) return
+    if (!open || embedded) return
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !previewFile && !renameTarget && !deleteTarget && !contextMenu) {
+      if (e.key === 'Escape' && !previewFile && !renameTarget && !deleteTarget && !contextMenu && !createFileParent && !createFolderParent) {
         onClose()
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose, previewFile, renameTarget, deleteTarget, contextMenu])
+  }, [open, embedded, onClose, previewFile, renameTarget, deleteTarget, contextMenu, createFileParent, createFolderParent])
 
   // 面板每次重新打开时刷新文件列表与项目列表
   useEffect(() => {
@@ -330,18 +389,59 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, on
     }
   }, [open, workspaceDir]) // eslint-disable-line react-hooks/exhaustive-deps -- 仅在打开/工作区变更时刷新
 
+  // 面板关闭时清空临时 UI 状态：embedded 模式下组件不会真正卸载（父级只是不渲染），
+  // previewFile 等状态若不清空，下次重新打开时会残留并"自动"弹出之前预览过的文件
+  useEffect(() => {
+    if (open) return
+    setPreviewFile(null)
+    setContextMenu(null)
+    setRenameTarget(null)
+    setDeleteTarget(null)
+    setCreateFileParent(null)
+    setCreateFolderParent(null)
+  }, [open])
+
+  // 工作区 VCS 未提交变更变化时，不自动刷新（避免频繁重渲染影响性能），
+  // 仅在刷新按钮上提示用户有新变更，手动点击刷新
+  const lastSeenDiffRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!open || !workspaceDir) return
+    const signature = uncommittedDiff.map((d) => `${d.filepath}:${d.status}`).join('|')
+    if (lastSeenDiffRef.current !== null && lastSeenDiffRef.current !== signature) {
+      setHasPendingUpdate(true)
+    }
+    lastSeenDiffRef.current = signature
+  }, [open, workspaceDir, uncommittedDiff])
+
   const handleSelect = useCallback((item: FileItem) => {
     setSelectedPath(item.path)
     if (!item.isDirectory) setPreviewFile(item)
   }, [])
 
-  // 外部定位请求：选中并触发树形展开/滚动（token 变化即重复定位）
+  // 外部定位请求：选中并触发树形展开/滚动；可选同时打开预览
   useEffect(() => {
     if (!locateTarget?.path) return
-    setSelectedPath(locateTarget.path)
-    setRevealPath(locateTarget.path)
+    // 与 FileTree 统一为正斜杠，确保展开祖先 / 选中高亮 / 滚动命中
+    const normalized = locateTarget.path.replace(/\\/g, '/')
+    setSelectedPath(normalized)
+    setRevealPath(normalized)
     setRevealToken(locateTarget.token)
-  }, [locateTarget?.token, locateTarget?.path])
+    if (locateTarget.preview) {
+      const name =
+        locateTarget.fileName
+        || normalized.split('/').pop()
+        || normalized
+      const now = new Date()
+      setPreviewFile({
+        name,
+        path: normalized,
+        isDirectory: false,
+        size: 0,
+        modifiedAt: now,
+        createdAt: now,
+      })
+    }
+  }, [locateTarget?.token, locateTarget?.path, locateTarget?.preview, locateTarget?.fileName])
 
   /**
    * 构造 workspace/projects/<name> 绝对路径并定位文件树。
@@ -375,6 +475,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, on
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true)
+    setHasPendingUpdate(false)
     setRefreshToken((t) => t + 1)
     setTimeout(() => setIsRefreshing(false), 600)
   }, [])
@@ -396,13 +497,14 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, on
     try {
       await window.electronAPI.file.delete(deleteTarget.path)
       if (selectedPath === deleteTarget.path) setSelectedPath(null)
+      if (previewFile?.path === deleteTarget.path) setPreviewFile(null)
       setRefreshToken((t) => t + 1)
     } catch (err) {
       console.error('[WorkspaceFilePanel] 删除失败:', err)
     } finally {
       setDeleteTarget(null)
     }
-  }, [deleteTarget, selectedPath])
+  }, [deleteTarget, selectedPath, previewFile])
 
   const handleOpenExternal = useCallback((item: FileItem) => {
     window.electronAPI.app.showItemInFolder(item.path)
@@ -424,30 +526,89 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, on
     })
   }, [workspaceDir])
 
-  if (!open && !workspaceDir) return null
+  const handleCreateFile = useCallback(async (newName: string) => {
+    const trimmed = newName.trim()
+    if (!createFileParent || !trimmed || /[\\/]/.test(trimmed)) return
+    try {
+      const parentPath = createFileParent.path.replace(/\\/g, '/').replace(/\/+$/, '')
+      const filePath = `${parentPath}/${trimmed}`
+      await window.electronAPI.file.write(filePath, '')
+      setRefreshToken((t) => t + 1)
+      // 展开父目录并选中新文件
+      setRevealPath(filePath)
+      setRevealToken((t) => t + 1)
+    } catch (err) {
+      console.error('[WorkspaceFilePanel] 创建文件失败:', err)
+    } finally {
+      setCreateFileParent(null)
+    }
+  }, [createFileParent])
+
+  const handleCreateFolder = useCallback(async (newName: string) => {
+    const trimmed = newName.trim()
+    if (!createFolderParent || !trimmed || /[\\/]/.test(trimmed)) return
+    try {
+      const parentPath = createFolderParent.path.replace(/\\/g, '/').replace(/\/+$/, '')
+      const folderPath = `${parentPath}/${trimmed}`
+      await window.electronAPI.file.createDir(folderPath)
+      setRefreshToken((t) => t + 1)
+      // 展开父目录
+      setRevealPath(folderPath)
+      setRevealToken((t) => t + 1)
+    } catch (err) {
+      console.error('[WorkspaceFilePanel] 创建文件夹失败:', err)
+    } finally {
+      setCreateFolderParent(null)
+    }
+  }, [createFolderParent])
+
+  if (!embedded && !open && !workspaceDir) return null
+  if (embedded && !open) return null
 
   return (
     <>
-      {/* 抽屉主体 */}
-      <div className={clsx(styles.drawer, open && styles['drawer--open'])} aria-label="工作空间文件">
+      {/* 抽屉主体（embedded 时填满 Workbench body） */}
+      <div
+        className={clsx(
+          styles.drawer,
+          open && styles['drawer--open'],
+          embedded && styles.drawerEmbedded,
+        )}
+        aria-label="工作空间文件"
+      >
+        {/* 独立模式才显示标题栏；嵌入时由壳层提供 tabs */}
+        {!embedded && (
+          <div className={styles.header}>
+            <span className={styles.title}>工作空间文件</span>
+            <button
+              className={clsx(styles.headerBtn, isRefreshing && styles['headerBtn--spinning'])}
+              onClick={handleRefresh}
+              disabled={isRefreshing || isInitializing}
+              title={hasPendingUpdate ? '检测到文件变更，点击刷新' : '刷新'}
+            >
+              <IconRefresh size={14} />
+              {hasPendingUpdate && <span className={styles.pendingDot} aria-hidden />}
+            </button>
+            <button className={styles.headerBtn} onClick={onClose} title="关闭">
+              <IconX size={14} />
+            </button>
+          </div>
+        )}
+        {embedded && (
+          <div className={styles.embeddedToolbar}>
+            <button
+              className={clsx(styles.headerBtn, isRefreshing && styles['headerBtn--spinning'])}
+              onClick={handleRefresh}
+              disabled={isRefreshing || isInitializing}
+              title={hasPendingUpdate ? '检测到文件变更，点击刷新' : '刷新'}
+            >
+              <IconRefresh size={14} />
+              {hasPendingUpdate && <span className={styles.pendingDot} aria-hidden />}
+            </button>
+          </div>
+        )}
 
-        {/* 标题栏 */}
-        <div className={styles.header}>
-          <span className={styles.title}>工作空间文件</span>
-          <button
-            className={clsx(styles.headerBtn, isRefreshing && styles['headerBtn--spinning'])}
-            onClick={handleRefresh}
-            disabled={isRefreshing || isInitializing}
-            title="刷新"
-          >
-            <IconRefresh size={14} />
-          </button>
-          <button className={styles.headerBtn} onClick={onClose} title="关闭">
-            <IconX size={14} />
-          </button>
-        </div>
-
-        {/* ACP 项目列表（根仍为 workspaceDir，projects/ 在树中自动出现） */}
+        {/* ACP 项目列表 */}
         {!isInitializing && workspaceDir && (
           <ProjectsSection
             api={projectsApi}
@@ -456,7 +617,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, on
           />
         )}
 
-        {/* 搜索栏（workspaceDir 就绪后显示） */}
+        {/* 搜索栏 */}
         {!isInitializing && workspaceDir && (
           <FileSearchBar
             rootPath={workspaceDir}
@@ -466,7 +627,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, on
           />
         )}
 
-        {/* 树形目录区域（搜索态隐藏，避免与搜索结果争抢高度导致结果只展示一半） */}
+        {/* 树形目录 */}
         {!isSearching && (
           <div className={styles.treeArea}>
             {isInitializing && (
@@ -502,15 +663,20 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, on
         <ContextMenu
           state={contextMenu}
           onClose={() => setContextMenu(null)}
-          onPreview={(item) => { setPreviewFile(item); setSelectedPath(item.path) }}
+          onPreview={(item) => {
+            setPreviewFile(item)
+            setSelectedPath(item.path)
+          }}
           onRename={(item) => setRenameTarget(item)}
           onDelete={(item) => setDeleteTarget(item)}
           onOpenExternal={handleOpenExternal}
           onCopy={handleCopy}
+          onCreateFile={(item) => setCreateFileParent(item)}
+          onCreateFolder={(item) => setCreateFolderParent(item)}
         />
       )}
 
-      {/* 文件预览 Modal（复用现有组件，createPortal 挂到 body） */}
+      {/* 文件预览弹窗（可全屏盖对话区、可弹出独立窗） */}
       {previewFile && (
         <FilePreviewModal
           filePath={previewFile.path}
@@ -537,6 +703,24 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({ open, on
         confirmVariant="danger"
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      {/* 新建文件对话框 */}
+      <RenameDialog
+        open={!!createFileParent}
+        title="新建文件"
+        currentName=""
+        onConfirm={handleCreateFile}
+        onCancel={() => setCreateFileParent(null)}
+      />
+
+      {/* 新建文件夹对话框 */}
+      <RenameDialog
+        open={!!createFolderParent}
+        title="新建文件夹"
+        currentName=""
+        onConfirm={handleCreateFolder}
+        onCancel={() => setCreateFolderParent(null)}
       />
     </>
   )

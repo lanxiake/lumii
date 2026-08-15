@@ -17,9 +17,10 @@
       "@/*": ["src/*"],
       "@main/*": ["src/main/*"],
       "@renderer/*": ["src/renderer/*"],
-      "@shared/*": ["src/shared/*"]
+      "@shared/*": ["src/shared/*"],
+      "@app-assets/*": ["assets/*"]
     }
   },
-  "include": ["src/**/*", "../../src/coding-dev-backends/**/*.ts"],
+  "include": ["src/**/*", "assets/**/*.d.ts", "../../src/coding-dev-backends/**/*.ts"],
   "exclude": ["node_modules", "dist", "release"]
 }

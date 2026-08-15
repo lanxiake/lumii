@@ -5,7 +5,8 @@ import styles from './ContextMenu.module.css'
 export interface ContextMenuItem {
   id: string
   label: string
-  icon?: string
+  /** 传 lucide 图标节点；不再用 emoji */
+  icon?: React.ReactNode
   danger?: boolean
   disabled?: boolean
   onClick: () => void

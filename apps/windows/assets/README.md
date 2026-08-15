@@ -4,18 +4,20 @@
 
 打包前请确保以下文件存在：
 
-### icon.ico
-- 应用图标，用于：
-  - 安装程序图标
-  - 任务栏图标
-  - 桌面快捷方式图标
-- 推荐尺寸：256x256 或更大
-- 支持的尺寸层级：16x16, 32x32, 48x48, 64x64, 128x128, 256x256
+### icon.png
+- **应用图标源图**（桌面快捷方式 / 任务栏 / 安装程序 / 窗口）
+- `pnpm generate:icon` 不会覆盖此文件
 
-### icon.png (可选)
-- PNG 格式图标
-- 用于系统托盘
-- 推荐尺寸：256x256
+### icon.ico
+- 由 `icon.png` 生成的多尺寸 ICO，electron-builder 写入 `Lumii.exe`
+- 生成：`pnpm generate:icon`
+- 尺寸：16, 24, 32, 48, 64, 128, 256
+
+### logo.png
+- 产品主 Logo（侧栏 / 关于页 / 标题栏 UI）
+
+### tray-icon.png
+- 系统托盘专用 32×32 PNG（由 icon.png 生成）
 
 ### installer-header.bmp (可选)
 - 安装程序标题区域图片
@@ -112,7 +114,8 @@ magick icon.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
 - 主色：#2563EB (Blue)
 - 次色：#38BDF8 (Sky)
 - 强调：#7DD3FC (Sky lift)
-- Logo：光栖渐变圆 + 抽象 L（见 `scripts/generate-icon.cjs`）
+- Logo：`assets/logo.png`（侧栏 / 关于 / 标题栏 UI）
+- 系统图标由 `icon.png` 生成：`pnpm generate:icon` → `icon.ico` / `tray-icon.png`
 
 ### 背景色
 - 深色背景：#0F172A
@@ -123,8 +126,6 @@ magick icon.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
 - 次文字：#A0AEC0
 - 禁用：#4A5568
 
-生成图标：`pnpm generate:icon`（在 apps/windows 下）
-
 
 ## 文件清单
 
@@ -132,8 +133,8 @@ magick icon.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
 
 | 文件名 | 必需 | 说明 |
 |--------|------|------|
-| icon.ico | ✅ | 应用图标 |
-| icon.png | 可选 | PNG 格式图标 |
+| icon.png | ✅ | 应用图标源图 |
+| icon.ico | ✅ | 由 icon.png 生成，写入 exe |
 | installer-header.bmp | 可选 | 安装程序标题图 |
 | installer-sidebar.bmp | 可选 | 安装程序侧边栏图 |
 | uninstaller-sidebar.bmp | 可选 | 卸载程序侧边栏图 |

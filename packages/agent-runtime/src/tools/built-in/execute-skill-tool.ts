@@ -13,7 +13,7 @@ import { EXECUTE_SKILL_TOOL_NAME } from "./tool-names.js";
 const ExecuteSkillParams = Type.Object({
   id: Type.String({
     description:
-      "Skill ID to execute (e.g. 'sherpa-onnx-tts'). Must match the skill's directory name.",
+      "Skill ID to execute (e.g. 'qwen3-tts-local'). Must match the skill's directory name.",
   }),
   params: Type.Optional(
     Type.Record(Type.String(), Type.Unknown(), {

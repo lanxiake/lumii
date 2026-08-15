@@ -13,8 +13,10 @@
 import type {
   AgentRuntimeEvent,
   ContentBlock,
+  ContextUsageBreakdownEntry,
   TokenUsage,
 } from '../../../../shared/agent-runtime-events'
+import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 
 // ============================================================
 // 状态类型定义
@@ -34,6 +36,10 @@ export interface RuntimeMessage {
   /** system 仅用于客户端本地注入的命令反馈消息，不发给 LLM、不持久化 */
   readonly role: 'user' | 'assistant' | 'system'
   readonly content: readonly ContentBlock[]
+  /** 助手消息的结构化时间线；用户和 system 消息使用空数组 */
+  readonly parts: readonly AssistantPart[]
+  /** 本轮助手回复关联的工作区净文件变更 */
+  readonly fileChanges?: readonly FileChangeEntry[]
   readonly timestamp: number
   readonly isStreaming: boolean
   /** 是否为语音识别消息（用户通过语音通话输入的消息） */
@@ -53,6 +59,8 @@ export interface RuntimeMessage {
   }
   /** 子 Agent 块是否折叠（仅 sourceAgent 存在时有效） */
   readonly subAgentCollapsed?: boolean
+  /** ACP 后端标识（如 Cursor / Claude Code），仅本机 CLI 后端回复时存在 */
+  readonly acpBackendLabel?: string
   readonly thinkingText?: string
   readonly usage?: TokenUsage
   /** 流式可视化指标（message:end 时写入） */
@@ -131,6 +139,8 @@ export interface ContextUsage {
   readonly triggerThreshold: number
   /** 是否已接近阈值（usedTokens / contextWindow > 0.6） */
   readonly isNearThreshold: boolean
+  /** 分类明细（主进程估算后按 usedTokens 缩放），无活跃实例时缺省 */
+  readonly breakdown?: readonly ContextUsageBreakdownEntry[]
 }
 
 /** 错误状态 */
@@ -166,6 +176,8 @@ export interface RuntimeCompactionEvent {
   readonly messagesBefore: number
   /** 压缩后消息条数（精确值，非估算） */
   readonly messagesAfter: number
+  /** LLM 摘要正文，供压缩卡片展开查看 */
+  readonly summaryText?: string
 }
 
 /** Agent 生成文件事件（文件附件卡片数据） */

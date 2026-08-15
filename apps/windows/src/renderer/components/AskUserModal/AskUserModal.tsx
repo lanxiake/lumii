@@ -195,7 +195,7 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
   return (
     <Modal
       open={open}
-      title="🤖 AI 请您回答以下问题"
+      title=" AI 请您回答以下问题"
       footer={footer}
       maskClosable={false}
       width={560}

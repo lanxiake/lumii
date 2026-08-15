@@ -22,7 +22,9 @@ describe('WorkspaceVcs', () => {
   })
 
   const writeFile = (name: string, content: string) => {
-    fs.writeFileSync(path.join(workspaceDir, name), content, 'utf-8')
+    const abs = path.join(workspaceDir, name)
+    fs.mkdirSync(path.dirname(abs), { recursive: true })
+    fs.writeFileSync(abs, content, 'utf-8')
   }
   const readFile = (name: string) => fs.readFileSync(path.join(workspaceDir, name), 'utf-8')
 
@@ -51,6 +53,35 @@ describe('WorkspaceVcs', () => {
     // 无新变更
     const c2 = await vcs.commit({ author: 'agent', message: '空提交尝试' })
     expect(c2).toBeNull()
+  })
+
+  it('statusDiff: outputs 下 PDF 纳入变更列表且跳过文本 diff', async () => {
+    await vcs.ensureInitialized()
+    // 写入伪 PDF 二进制内容
+    const pdfRel = path.join('outputs', '合并_同意函.pdf')
+    writeFile(pdfRel, '%PDF-1.4 binary\x00\x01\x02 content')
+
+    const diff = await vcs.statusDiff()
+    const entry = diff.find((d) => d.filepath.replace(/\\/g, '/') === 'outputs/合并_同意函.pdf')
+    expect(entry).toBeDefined()
+    expect(entry?.status).toBe('added')
+    expect(entry?.truncated).toBe(true)
+    expect(entry?.skipReason).toMatch(/二进制/)
+
+    const committed = await vcs.commit({ author: 'agent', message: '产出 PDF' })
+    expect(committed).not.toBeNull()
+  })
+
+  it('ensureInitialized: 移除误忽略 outputs/ 的 gitignore 规则', async () => {
+    fs.writeFileSync(
+      path.join(workspaceDir, '.gitignore'),
+      'node_modules/\noutputs/\nuploads/**/*.pdf\n',
+      'utf-8',
+    )
+    await vcs.ensureInitialized()
+    const gi = fs.readFileSync(path.join(workspaceDir, '.gitignore'), 'utf-8')
+    expect(gi).not.toMatch(/^outputs\/?$/m)
+    expect(gi).toContain('node_modules/')
   })
 
   it('log: 记录 author / conversationId / runId 元信息', async () => {
@@ -137,5 +168,64 @@ describe('WorkspaceVcs', () => {
     expect(await vcs.hasUncommittedChanges()).toBe(false)
     writeFile('z.md', 'change')
     expect(await vcs.hasUncommittedChanges()).toBe(true)
+  })
+
+  it('diffCommits: OID 相同的未改文件不进入结果；默认无 hunks', async () => {
+    await vcs.ensureInitialized()
+    // 建 80 个稳定文件
+    for (let i = 0; i < 80; i++) writeFile(`bulk/f-${i}.txt`, `stable-${i}\n`)
+    await vcs.commit({ author: 'user', message: 'bulk' })
+
+    writeFile('only-change.md', 'v1\n')
+    const c2 = await vcs.commit({ author: 'user', message: 'one file' })
+    writeFile('only-change.md', 'v2\n')
+    const c3 = await vcs.commit({ author: 'user', message: 'edit one' })
+
+    const t0 = Date.now()
+    const list = await vcs.diffCommits(c2!.oid, c3!.oid, { withHunks: false })
+    const ms = Date.now() - t0
+
+    expect(list).toHaveLength(1)
+    expect(list[0].filepath).toBe('only-change.md')
+    expect(list[0].hunks).toBeUndefined()
+    expect(ms).toBeLessThan(2000) // 本地 CI 宽松上限；改造前会远超
+  })
+
+  it('diffFile: 返回单文件 hunks', async () => {
+    await vcs.ensureInitialized()
+    writeFile('x.md', 'a\n')
+    const c1 = await vcs.commit({ author: 'user', message: '1' })
+    writeFile('x.md', 'a\nb\n')
+    const c2 = await vcs.commit({ author: 'user', message: '2' })
+    const one = await vcs.diffFile(c1!.oid, c2!.oid, 'x.md')
+    expect(one.filepath).toBe('x.md')
+    expect(one.hunks!.length).toBeGreaterThan(0)
+  })
+
+  it('diffFile: 超大文件标记 truncated 且不抛错', async () => {
+    await vcs.ensureInitialized()
+    const big = 'x'.repeat(600_000) + '\n'
+    writeFile('big.txt', big)
+    const c1 = await vcs.commit({ author: 'user', message: 'big1' })
+    writeFile('big.txt', big + 'y\n')
+    const c2 = await vcs.commit({ author: 'user', message: 'big2' })
+    const one = await vcs.diffFile(c1!.oid, c2!.oid, 'big.txt')
+    expect(one.truncated).toBe(true)
+    expect(one.hunks ?? []).toEqual([])
+  })
+
+  it('diffCommits: withHunks true 时仅变更文件带 hunks', async () => {
+    await vcs.ensureInitialized()
+    writeFile('a.md', '1\n')
+    const c1 = await vcs.commit({ author: 'user', message: 'a' })
+    writeFile('a.md', '1\n2\n')
+    writeFile('b.md', 'new\n')
+    const c2 = await vcs.commit({ author: 'user', message: 'ab' })
+
+    const diff = await vcs.diffCommits(c1!.oid, c2!.oid, { withHunks: true })
+    expect(diff.length).toBe(2)
+    for (const e of diff) {
+      expect(e.hunks?.length).toBeGreaterThan(0)
+    }
   })
 })

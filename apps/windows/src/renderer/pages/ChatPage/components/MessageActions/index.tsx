@@ -118,12 +118,17 @@ const MessageActions: React.FC<MessageActionsProps> = ({
 
     setIsSpeaking(true)
     try {
-      const result = await electronAPI.voice.sendCommand({ type: 'voice:tts:preview', text: content })
+      const result = await electronAPI.voice.sendCommand({
+        type: 'voice:tts:preview',
+        text: content,
+        // 消息朗读：不要用设置页的 100 字上限，否则后半段会被静默截断并被误当成「缓存命中」
+        maxChars: 8000,
+      })
       if (result?.error === 'models_not_ready') {
         acceptTtsChunksRef.current = false
         clearPlaybackEndTimer()
         setIsSpeaking(false)
-        window.dispatchEvent(new CustomEvent('voice:tts:models-not-ready', { detail: result.models }))
+        window.dispatchEvent(new CustomEvent('voice:models:need-download'))
       }
     } catch {
       acceptTtsChunksRef.current = false

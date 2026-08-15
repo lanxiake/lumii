@@ -35,9 +35,11 @@ type MemoryTab = 'soul' | 'ai' | 'user-memory' | 'plugin'
 
 interface MemoriesPageProps {
   onViewChange?: (view: ViewType) => void
+  /** Hub 嵌入时隐藏 PageHeader 标题区 */
+  embedded?: boolean
 }
 
-export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange }) => {
+export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedded = false }) => {
   const [activeTab, setActiveTab] = useState<MemoryTab>('soul')
   const [isEditMode, setIsEditMode] = useState(false)
   const [content, setContent] = useState('')
@@ -209,7 +211,8 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange }) => {
   const activeTemplateId = SOUL_TEMPLATES.find(t => t.content.trim() === content.trim())?.id
 
   return (
-    <div className="page-container memories-page">
+    <div className={`page-container memories-page${embedded ? ' memories-page--embedded' : ''}`}>
+      {!embedded ? (
       <PageHeader
         title="记忆管理"
         subtitle={activeTab === 'soul' ? '定义 AI 助手的性格、风格与行为方式' : '管理 AI 助手的长期记忆，让 AI 更了解您'}
@@ -232,6 +235,22 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange }) => {
           ) : null
         }
       />
+      ) : activeTab === 'soul' ? (
+        <div className="header-actions memories-embedded-actions">
+          {isEditMode && (
+            <Button variant="primary" onClick={handleSave} disabled={isSaving}>
+              {isSaving ? '保存中...' : '保存'}
+            </Button>
+          )}
+          <Button variant="ghost" onClick={handleResetSoul} title="重置为默认模板">
+            <RotateCcw size={16} style={{ marginRight: 4 }} />
+            重置
+          </Button>
+          <Button variant={isEditMode ? 'secondary' : 'ghost'} onClick={handleToggleEdit}>
+            {isEditMode ? '取消' : '编辑'}
+          </Button>
+        </div>
+      ) : null}
 
       {/* Tab 导航 */}
       <div className="memories-tabs">

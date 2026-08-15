@@ -5,7 +5,6 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react'
-import { useAuth } from '../contexts/AuthContext/AuthContext'
 import { useSettings } from '../hooks/business/useSettings/useSettings'
 import styles from './WorkspaceWizard.module.css'
 
@@ -48,8 +47,7 @@ async function migrateWorkspaceData(oldDir: string, newDir: string): Promise<voi
  * 工作空间向导弹窗组件
  */
 export const WorkspaceWizard: React.FC = () => {
-  const { isAuthenticated } = useAuth()
-  const { updateWorkspace, saveSettings } = useSettings()
+  const { settings, updateWorkspace, saveSettings } = useSettings()
   
   // 向导状态
   const [wizardState, setWizardState] = useState<WizardState>('hidden')
@@ -60,19 +58,16 @@ export const WorkspaceWizard: React.FC = () => {
   // 工作空间检查是否已完成
   const workspaceCheckDoneRef = useRef(false)
 
-  /**
-   * 首次登录检测
-   */
+  /** 首次启动检测 */
   useEffect(() => {
-    if (!isAuthenticated || workspaceCheckDoneRef.current) return
+    if (workspaceCheckDoneRef.current) return
     workspaceCheckDoneRef.current = true
 
-    const firstLoginDone = localStorage.getItem(FIRST_LOGIN_KEY)
-    if (firstLoginDone) return // 非首次登录，跳过
+    if (localStorage.getItem(FIRST_LOGIN_KEY)) return // 非首次启动，跳过
 
-    console.log('[WorkspaceWizard] 首次登录，弹出工作空间向导')
+    console.log('[WorkspaceWizard] 首次启动，弹出工作空间向导')
     setWizardState('selecting')
-  }, [isAuthenticated])
+  }, [])
 
   /**
    * 选择目录
@@ -85,7 +80,7 @@ export const WorkspaceWizard: React.FC = () => {
   }, [])
 
   /**
-   * 确认并迁移
+   * 确认并迁移：先落盘主进程权威路径，再同步渲染侧设置（避免 saveSettings 闭包陈旧）
    */
   const handleConfirm = useCallback(async () => {
     if (!selectedDir) return
@@ -102,9 +97,21 @@ export const WorkspaceWizard: React.FC = () => {
         await migrateWorkspaceData(oldDir, selectedDir)
       }
 
-      updateWorkspace({ directory: selectedDir })
-      await saveSettings()
+      // 主进程权威源：setDir 与 notifyChanged 双写，确保重启后仍生效
       await window.electronAPI.workspace.setDir(selectedDir)
+      await window.electronAPI.workspace.notifyChanged(selectedDir)
+
+      updateWorkspace({ directory: selectedDir })
+      // 直接写入 localStorage，避免 updateWorkspace 后立刻 saveSettings 读到旧闭包
+      try {
+        const next = {
+          ...settings,
+          workspace: { ...settings.workspace, directory: selectedDir },
+        }
+        localStorage.setItem('mtbot-assistant-settings', JSON.stringify(next))
+      } catch {
+        await saveSettings()
+      }
 
       localStorage.setItem(FIRST_LOGIN_KEY, '1')
       setWizardState('hidden')
@@ -115,7 +122,7 @@ export const WorkspaceWizard: React.FC = () => {
     } finally {
       setIsMigrating(false)
     }
-  }, [selectedDir, updateWorkspace, saveSettings])
+  }, [selectedDir, settings, updateWorkspace, saveSettings])
 
   /**
    * 跳过（使用默认）

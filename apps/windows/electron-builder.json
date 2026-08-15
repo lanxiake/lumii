@@ -3,10 +3,10 @@
   "appId": "com.lumii.app",
   "productName": "Lumii",
   "copyright": "Copyright © 2026 Lumii",
-  "afterPack": "build/after-pack.js",
+  "afterPack": "build-resources/after-pack.js",
   "directories": {
     "output": "release",
-    "buildResources": "build"
+    "buildResources": "build-resources"
   },
   "files": [
     "out/**/*",
@@ -49,10 +49,6 @@
       "filter": ["server-config.json", "draw-config.json"]
     },
     {
-      "from": "config/.env.pack",
-      "to": ".env"
-    },
-    {
       "from": "bundled-skills",
       "to": "bundled-skills",
       "filter": [
@@ -73,6 +69,11 @@
     {
       "from": "resources/live2d",
       "to": "live2d",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "resources/app-ui-cli",
+      "to": "app-ui-cli",
       "filter": ["**/*"]
     }
   ],
@@ -102,7 +103,7 @@
     ],
     "icon": "assets/icon.ico",
     "executableName": "Lumii",
-    "signAndEditExecutable": false,
+    "signExecutable": false,
     "artifactName": "${productName}-${version}-${arch}.${ext}",
     "requestedExecutionLevel": "asInvoker",
     "verifyUpdateCodeSignature": false,
@@ -122,12 +123,12 @@
     "allowElevation": true,
     "perMachine": false,
     "language": "2052",
-    "license": "build/license.txt",
+    "license": "build-resources/license.txt",
     "installerLanguages": ["zh_CN", "en_US"],
     "multiLanguageInstaller": true,
     "deleteAppDataOnUninstall": false,
     "displayLanguageSelector": true,
-    "include": "build/installer.nsh",
+    "include": "build-resources/installer.nsh",
     "warningsAsErrors": false,
     "packElevateHelper": true,
     "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"

@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import { ConversationRepo } from "../storage/conversation-repo.js";
 import { createMigratedTestDb } from "./helpers/sqlite-test-db.js";
 
+/** 按角色写入当前消息存储格式的测试数据。 */
 function insertMessage(
   db: ReturnType<typeof createMigratedTestDb>,
   id: string,
@@ -16,10 +17,17 @@ function insertMessage(
   text: string,
   timestamp: string,
 ): void {
+  const content =
+    role === "assistant"
+      ? {
+          type: "assistant_parts",
+          parts: [{ type: "text", id: `${id}-text`, text, status: "done" }],
+        }
+      : { type: "text", text };
   db.prepare(
     `INSERT INTO messages (id, conversation_id, role, content_json, timestamp, is_streaming)
      VALUES (?, ?, ?, ?, ?, 0)`,
-  ).run(id, conversationId, role, JSON.stringify({ type: "text", text }), timestamp);
+  ).run(id, conversationId, role, JSON.stringify(content), timestamp);
 }
 
 describe("loadMessagesAsPiFormat 最近消息限制", () => {

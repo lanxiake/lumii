@@ -8,11 +8,13 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { app } from 'electron'
+import { resolveClientStateDir } from '../paths.js'
 import {
   AgentRegistry,
   ToolRegistry,
   createMtBotTool,
   createGatewayStreamFn,
+  createDirectStreamFn,
   DEFAULT_GATEWAY_STREAM_PATH,
   ModelRouter,
   resolveAgentFilePath,
@@ -47,6 +49,8 @@ import {
 } from '@mtbot/agent-runtime'
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import { buildContextUsageBreakdown } from './context-usage-breakdown.js'
+import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
 
 import {
   executeLocalCommand,
@@ -56,9 +60,9 @@ import {
   grepLocal,
   fetchLocal,
 } from './tool-providers'
-import { analyticsReporter } from './analytics-reporter'
 import { McpStdioClient } from '@mtbot/agent-runtime'
-import { McpManager } from './mcp-manager'
+import { McpManager, type McpServerRuntimeStatus } from './mcp-manager'
+import type { McpServerEntry } from '../config/mcp-config'
 import { PermissionController } from './permission-controller'
 import { AskUserQuestionController } from './ask-user-question-controller'
 import { FileMemoryHandler } from './file-memory-handler'
@@ -71,6 +75,7 @@ import {
   syncCompanionTickJobEnabled,
   migrateLocalCompanionPrefsToVhSettings,
 } from './local-companion-handler'
+import { ensureSeedCronJobsSeeded } from '../seed-cron-jobs'
 import { isPetMode, onVirtualHumanSettingsChanged } from '../pet/pet-mode-ipc'
 import { getVirtualHumanSettings } from '../pet/pet-mode-store'
 import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
@@ -80,7 +85,6 @@ import { BridgePromptComposer } from './bridge-prompt-composer'
 import { resizeImageIfNeeded } from './image-resizer'
 import {
   createAgentInstanceRuntimeEventHandler,
-  type AssistantTurnToolRecord,
   type InstanceRuntimeMetrics,
 } from './bridge-agent-instance-events'
 import {
@@ -105,6 +109,7 @@ import { RouterService } from './router/router-service'
 import { GatewayRouterLlmCaller } from './router/llm-caller'
 import { RouterHitRateTracker } from './router/router-hit-rate-tracker'
 import type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot } from './bridge-types'
+import { ensureProviderBaseUrl } from '../provider-config'
 
 export type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot }
 
@@ -129,7 +134,6 @@ export class AgentRuntimeBridge {
   private get lastActiveConvId(): string | null { return this.lastActiveConvIdRef.value }
   private set lastActiveConvId(v: string | null) { this.lastActiveConvIdRef.value = v }
   /** `${instanceId}:${toolCallId}` 复合键 Map（独立维护） */
-  private readonly toolTextPositionMap = new Map<string, number>()
   private readonly toolStartTimeMap = new Map<string, number>()
 
   // 存储层 Repos — 初始化后可用
@@ -186,6 +190,11 @@ export class AgentRuntimeBridge {
   /** 主 Agent 实例的 innerStream / model（仅 def.id === 'main' 时设置） */
   private readonly mainInnerStreamRef: { value: ReturnType<typeof createGatewayStreamFn> | null } = { value: null }
   private readonly mainModelRef: { value: import('@mariozechner/pi-ai').Model<any> | null } = { value: null }
+  /**
+   * callLLM 兜底用的独立 direct stream（懒创建）。
+   * 不依赖任何 Agent 实例，供 cron / companion workflow 在无人会话时调用 LLM。
+   */
+  private callLlmFallbackStream: ReturnType<typeof createDirectStreamFn> | null = null
 
   private readonly imageServices: BridgeImageServices
   private readonly compactor: BridgeContextCompactor
@@ -200,10 +209,6 @@ export class AgentRuntimeBridge {
 
   setWeixinMessageContext(ctx: { channelUserId: string; contextToken: string; botToken?: string; ilinkBaseUrl?: string } | null): void {
     this.promptDispatcher.setWeixinMessageContext(ctx)
-  }
-
-  getCurrentWeixinCtx(): { channelUserId: string; contextToken: string; botToken?: string; ilinkBaseUrl?: string } | null {
-    return this.promptDispatcher.getCurrentWeixinCtx()
   }
 
   getWeixinMessageSentViaTool(): boolean {
@@ -231,21 +236,16 @@ export class AgentRuntimeBridge {
         }
         return undefined
       },
+      getFallbackStream: () => this.getCallLlmFallbackStream(),
       getDb: () => this.localDb.db,
       ipcChannel: this.ipcChannel,
       restoreHistoryForInstance: (instanceId, conversationId, limit) =>
         this.restoreHistoryForInstance(instanceId, conversationId, limit),
       createSummaryGenerator: (innerStream, model) => createLlmSummaryGenerator(innerStream, model),
-      getCompactionRunContext: (instanceId) => {
-        const st = this.instanceStates.get(instanceId)
-        if (!st) return undefined
-        return {
-          runId: st.ctx.runId,
-          agentId: st.ctx.agentName,
-          modelName: st.ctx.resolvedModelId,
-        }
-      },
       onSessionContextInvalidated: (sessionKey) => this.clearSessionProviderInputTokens(sessionKey),
+      onSessionContextTokensUpdated: (sessionKey, usedTokens) =>
+        this.setSessionProviderInputTokens(sessionKey, usedTokens),
+      getSessionContextUsage: (sessionKey) => this.getSessionContextUsage(sessionKey),
     })
     this.conversationManager = new BridgeConversationManager({
       localDb: this.localDb,
@@ -267,7 +267,6 @@ export class AgentRuntimeBridge {
       ipcChannel: this.ipcChannel,
       getCronScheduler: () => this.cronScheduler,
       getDefinitionStore: () => this.definitionStore,
-      toolTextPositionMap: this.toolTextPositionMap,
       toolStartTimeMap: this.toolStartTimeMap,
       toolCallInstanceMap: this.toolCallInstanceMap,
       nodeStreamCallbacks: this.nodeStreamCallbacks,
@@ -316,6 +315,52 @@ export class AgentRuntimeBridge {
 
   callLLM(prompt: string, instanceId?: string, purpose?: string): Promise<string> {
     return this.compactor.callLLM(prompt, instanceId, purpose)
+  }
+
+  /**
+   * 无 Agent 实例时为 callLLM 构造独立 direct stream + chat 模型。
+   * 读取最新 chat 槽配置；未启用或缺少 modelId 时返回 undefined（由 callLLM 抛明确错误）。
+   */
+  private getCallLlmFallbackStream():
+    | { innerStream: ReturnType<typeof createDirectStreamFn>; model: import('@mariozechner/pi-ai').Model<any> }
+    | undefined {
+    const cfg = this.config.getProviderConfig?.()
+    if (!cfg?.enabled) {
+      log.warn('[callLLM fallback] chat 能力槽未启用，无法创建兜底 stream')
+      return undefined
+    }
+    const modelId = cfg.modelId?.trim()
+    if (!modelId) {
+      log.warn('[callLLM fallback] chat 模型 ID 为空，无法创建兜底 stream')
+      return undefined
+    }
+    const isLocal = cfg.type === 'ollama' || cfg.type === 'lmstudio'
+    if (!isLocal && !cfg.apiKey?.trim()) {
+      log.warn('[callLLM fallback] 缺少 API Key，无法创建兜底 stream')
+      return undefined
+    }
+
+    if (!this.callLlmFallbackStream) {
+      log.info('[callLLM fallback] 创建后台 LLM 专用 direct stream')
+      // 每轮读取最新凭据，避免设置变更后仍用旧 Key
+      this.callLlmFallbackStream = ((model, context, options) => {
+        const live = this.config.getProviderConfig?.()
+        if (!live?.enabled) {
+          throw new Error('请先在设置中启用并配置文本对话模型（chat 能力槽）')
+        }
+        const direct = createDirectStreamFn({
+          credentials: {
+            baseUrl: ensureProviderBaseUrl(live.baseUrl, live.type),
+            apiKey: live.apiKey,
+          },
+          log: (msg) => log.info(`[callLlmFallback] ${msg}`),
+        })
+        return direct(model, context, options)
+      }) as ReturnType<typeof createDirectStreamFn>
+    }
+
+    const model = this.modelRouter.resolveExplicitModelId(modelId)
+    return { innerStream: this.callLlmFallbackStream, model }
   }
 
   /** 初始化（打开数据库 + 注册内建工具） */
@@ -483,6 +528,7 @@ export class AgentRuntimeBridge {
         getCurrent: () => this.promptDispatcher.getCurrentWeixinCtxRaw(),
         markSentViaTool: () => { this.promptDispatcher.markWeixinMessageSentViaTool() },
       },
+      getChannelRouter: () => this.config.getChannelRouter?.() ?? null,
       generateImage: (params) => this.generateImage(params),
     })
     this.toolRegistrar.registerAll()
@@ -494,30 +540,54 @@ export class AgentRuntimeBridge {
         this.createInstanceById(agentId, sessionKey, conversationId),
       prompt: (instanceId, message) => this.prompt(instanceId, message),
       destroy: (instanceId) => this.destroy(instanceId),
+      ensureConversationExists: (conversationId, title) => this.ensureConversationExists(conversationId, title),
+      notifyIncomingMessage: (sessionKey, text) => this.notifyIncomingMessage(sessionKey, text),
       getFileRepo: () => this._fileRepo,
       getCwd: () => this.config.getCwd(),
-      handleCompanionInstruction: async (instruction: string) => {
-        if (!isLocalCompanionInstruction(instruction)) return null
-        return handleLocalCompanionInstruction(instruction, {
-          getDb: () => this.localDb.db,
-          showNotification: this.config.showCronNotification
-            ? (title, body) => this.config.showCronNotification!(title, body)
-            : undefined,
-          isPetMode: () => isPetMode(),
-          getProactiveCare: () => {
-            const s = getVirtualHumanSettings()
-            return {
-              enabled: s.proactiveCareEnabled,
-              mode: s.proactiveCareMode,
-              nickname: s.proactiveCareNickname,
-            }
-          },
+      ...(this.config.sendFeishuMessage ? { sendFeishuMessage: this.config.sendFeishuMessage } : {}),
+      ...(this.config.getChannelRouter
+        ? { getChannelRouter: this.config.getChannelRouter }
+        : {}),
+      addMemory: (content: string) => {
+        // category 用 project：概览页「近期关注」的默认分段就是它
+        this._memoryManager?.addMemory({
+          agentId: 'assistant',
+          userId: 'local-user',
+          category: 'project',
+          content,
         })
+      },
+      handleCompanionInstruction: async (instruction: string, options) => {
+        if (!isLocalCompanionInstruction(instruction)) return null
+        return handleLocalCompanionInstruction(
+          instruction,
+          {
+            getDb: () => this.localDb.db,
+            showNotification: this.config.showCronNotification
+              ? (title, body) => this.config.showCronNotification!(title, body)
+              : undefined,
+            isPetMode: () => isPetMode(),
+            getProactiveCare: () => {
+              const s = getVirtualHumanSettings()
+              return {
+                enabled: s.proactiveCareEnabled,
+                mode: s.proactiveCareMode,
+                nickname: s.proactiveCareNickname,
+              }
+            },
+            getUserMemory: this.config.getUserMemory,
+            updateUserMemory: this.config.updateUserMemory,
+            callLLM: (prompt) => this.callLLM(prompt, undefined, 'memory_consolidation'),
+          },
+          options,
+        )
       },
     })
     // 旧版 local_companion_prefs 一次性迁移到 vhSettings（幂等，需先于 seed 执行）
     migrateLocalCompanionPrefsToVhSettings(this.localDb.db)
     ensureCompanionCronJobsSeeded(this.localDb.db)
+    // 资讯任务已并入 ensureSeedCronJobsSeeded，不再单独播种
+    ensureSeedCronJobsSeeded(this.localDb.db)
     // 设置页修改主动联系开关时，同步 tick job 的 enabled 状态并重载本地 cron 调度
     this.unsubscribeVhSettings?.()
     this.unsubscribeVhSettings = onVirtualHumanSettingsChanged((_settings, patch) => {
@@ -539,6 +609,11 @@ export class AgentRuntimeBridge {
       .catch((err) => log.error('[initialize] 同步用户 Agent 失败:', err))
 
     this.mcpManager = new McpManager(this.toolRegistry, this.mcpClients)
+    // 注入工具变更监听器: MCP 重连后刷新运行中实例的工具
+    this.mcpManager.setToolsChangedListener(() => {
+      log.info('[McpManager] 工具列表变更,刷新所有实例工具')
+      this.refreshAllInstanceTools()
+    })
     void this.mcpManager.load()
 
     this.instanceFactory = new BridgeInstanceFactory({
@@ -551,7 +626,6 @@ export class AgentRuntimeBridge {
       instanceToRootSessionKey: this.instanceToRootSessionKey,
       nodeStreamCallbacks: this.nodeStreamCallbacks,
       toolCallInstanceMap: this.toolCallInstanceMap,
-      toolTextPositionMap: this.toolTextPositionMap,
       toolStartTimeMap: this.toolStartTimeMap,
       currentToolExecutorInstanceId: this.currentToolExecutorInstanceIdRef,
       mainInnerStreamRef: this.mainInnerStreamRef,
@@ -640,7 +714,7 @@ export class AgentRuntimeBridge {
     const backupPath = runBackupNow(
       dbPath,
       backupDir,
-      7,
+      10,
       this.localDb.isOpen ? this.localDb.db : undefined,
     )
     if (!backupPath) {
@@ -693,8 +767,8 @@ export class AgentRuntimeBridge {
 
     log.warn(`[restoreDatabaseFromBackupFile] 开始从备份恢复: ${backupFileName}`)
     this.lifecycle.destroyAll()
+    // 停掉旧调度器即可；下面 initialize() 会重新 new 一个覆盖上去
     this.cronScheduler?.stop()
-    this.cronScheduler = undefined
 
     const ok = restoreDatabaseFromBackup(dbPath, backupPath)
     if (!ok) {
@@ -768,29 +842,26 @@ export class AgentRuntimeBridge {
   }
 
   /**
-   * 解析会话上下文已用 token：优先提供商 inputTokens，其次本地消息估算。
+   * 解析会话上下文已用 token：优先内存缓存（含压缩后的整窗种子），再 DB，再本地估算。
    */
   private resolveSessionUsedTokens(sessionKey: string): number {
     const k = sessionKey.trim()
+    const cached = this.sessionProviderInputTokens.get(k)
+    if (cached != null && cached > 0) {
+      return cached
+    }
+
     const fromDb = this._conversationRepo?.getLastAssistantProviderInputTokens(k)
     if (fromDb != null && fromDb > 0) {
       this.sessionProviderInputTokens.set(k, fromDb)
       return fromDb
     }
 
-    const cached = this.sessionProviderInputTokens.get(k)
-    if (cached != null && cached > 0) {
-      // 无 DB 记录时，仅在有活跃实例时信任内存缓存（当前轮次尚未落库）
-      if (this.resolveMainInstanceForSession(k)) {
-        return cached
-      }
-      this.sessionProviderInputTokens.delete(k)
-    }
-
     const liveInstance = this.resolveMainInstanceForSession(k)
     const messages = liveInstance
       ? (liveInstance.getAgentMessages() as AgentMessage[])
-      : (this.conversationRepo.loadMessagesAsPiFormat(k, { limit: 4000 }) as AgentMessage[])
+      : // ✅ 修复：无活跃实例时，只加载最近 120 条消息（而非 4000），避免 UI 显示虚高
+        (this.conversationRepo.loadMessagesAsPiFormat(k, { limit: 120 }) as AgentMessage[])
 
     let usedTokens = estimateTokenCount(messages)
 
@@ -802,11 +873,39 @@ export class AgentRuntimeBridge {
     return usedTokens
   }
 
-  getSessionContextUsage(sessionKey: string): { usedTokens: number; contextWindow: number; triggerThreshold: number } {
+  getSessionContextUsage(sessionKey: string): {
+    usedTokens: number
+    contextWindow: number
+    triggerThreshold: number
+    breakdown?: readonly ContextUsageBreakdownEntry[]
+  } {
     const k = sessionKey.trim()
     const usedTokens = this.resolveSessionUsedTokens(k)
     const comp = this.sessionModelCatalog.getCompactionForRootSession(k)
-    return { usedTokens, contextWindow: comp.contextWindow, triggerThreshold: DEFAULT_COMPACTION_TRIGGER_RATIO }
+    return {
+      usedTokens,
+      contextWindow: comp.contextWindow,
+      triggerThreshold: DEFAULT_COMPACTION_TRIGGER_RATIO,
+      breakdown: this.resolveSessionUsageBreakdown(k, usedTokens),
+    }
+  }
+
+  /**
+   * 分类明细：只有活跃实例能拿到系统提示词与工具定义，无实例时返回 undefined
+   * （UI 退化为只显示总量）。
+   */
+  private resolveSessionUsageBreakdown(
+    sessionKey: string,
+    usedTokens: number,
+  ): readonly ContextUsageBreakdownEntry[] | undefined {
+    const instance = this.resolveMainInstanceForSession(sessionKey)
+    if (!instance) return undefined
+    return buildContextUsageBreakdown({
+      systemPrompt: instance.getSystemPrompt(),
+      toolDefinitions: instance.getTools(),
+      messages: instance.getAgentMessages() as AgentMessage[],
+      usedTokens,
+    })
   }
 
   /**
@@ -888,7 +987,7 @@ export class AgentRuntimeBridge {
     return this.imageServices.recognizeImage(options)
   }
 
-  generateImage(params: { prompt: string; modelId?: string; width?: number; height?: number; filename?: string; signal?: AbortSignal }): Promise<{ filePath: string; width: number; height: number; model: string; revisedPrompt: string }> {
+  generateImage(params: { prompt: string; modelId?: string; width?: number; height?: number; filename?: string; referenceImagePaths?: string[]; signal?: AbortSignal }): Promise<{ filePath: string; width: number; height: number; model: string; revisedPrompt: string }> {
     return this.imageServices.generateImage(params)
   }
 
@@ -927,12 +1026,43 @@ export class AgentRuntimeBridge {
   steer(instanceId: string, message: string): void { this.promptDispatcher.steer(instanceId, message) }
   abort(instanceId: string): void { this.promptDispatcher.abort(instanceId) }
   abortWithChildren(instanceId: string): void { this.promptDispatcher.abortWithChildren(instanceId) }
-  abortSession(rootSessionKey: string): number { return this.promptDispatcher.abortSession(rootSessionKey) }
+
+  /**
+   * 中止会话：清掉挂起的权限/提问，再级联 abort，避免 tool 等待挂死导致会话锁不释放
+   */
+  abortSession(rootSessionKey: string): number {
+    this.permissionController.rejectAllPending()
+    this.askUserQuestionController.clearAll()
+    return this.promptDispatcher.abortSession(rootSessionKey)
+  }
+
+  /**
+   * 中止指定实例（含子 Agent），同时释放挂起的人机交互等待
+   */
+  abortWithChildrenAndPending(instanceId: string): void {
+    this.permissionController.rejectAllPending()
+    this.askUserQuestionController.clearAll()
+    this.promptDispatcher.abortWithChildren(instanceId)
+  }
   destroy(instanceId: string): void { this.lifecycle.destroy(instanceId) }
   destroyAll(): void { this.lifecycle.destroyAll() }
 
   getInstances(): Array<{ id: string; definitionId: string; state: string }> {
     return this.agentRegistry.getAll().map((i) => ({ id: i.id, definitionId: i.definitionId, state: i.state }))
+  }
+
+  /**
+   * MCP 工具变更后使现有实例失效，下次发消息按最新 toolRegistry 快照重建。
+   * 与 Provider 配置变更（invalidateAgentInstancesForProviderChange）同一套路：
+   * 逐个 destroy（而非 destroyAll，后者会关库/停 cron），
+   * getInstanceForSession 检测到实例已消失会自动重建。
+   */
+  private refreshAllInstanceTools(): void {
+    const instances = this.agentRegistry.getAll()
+    for (const inst of instances) {
+      this.destroy(inst.id)
+    }
+    log.info(`[refreshAllInstanceTools] 已销毁 ${instances.length} 个实例，等待下次消息按新工具列表重建`)
   }
 
   /** 确保对话记录存在（idempotent） */
@@ -1019,7 +1149,23 @@ export class AgentRuntimeBridge {
     return this.toolRegistry.getToolStatus()
   }
 
-  getMcpStatus(): Array<{ name: string; connected: boolean }> { return this.mcpManager.getStatus() }
+  getMcpStatus(): McpServerRuntimeStatus[] { return this.mcpManager.getStatus() }
+
+  getMcpConfigError(): string | null { return this.mcpManager.getConfigError() }
+
+  readMcpConfigFile(): { path: string; content: string } { return this.mcpManager.readConfigFile() }
+
+  writeMcpConfigFile(content: string): Promise<void> { return this.mcpManager.writeConfigFile(content) }
+
+  upsertMcpServer(entry: McpServerEntry, originalName?: string): Promise<void> { return this.mcpManager.upsert(entry, originalName) }
+
+  importMcpServers(entries: readonly McpServerEntry[]): Promise<void> { return this.mcpManager.importEntries(entries) }
+
+  removeMcpServer(name: string): Promise<void> { return this.mcpManager.remove(name) }
+
+  setMcpServerEnabled(name: string, enabled: boolean): Promise<void> { return this.mcpManager.setEnabled(name, enabled) }
+
+  reconnectMcpServer(name: string): Promise<void> { return this.mcpManager.reconnect(name) }
 
   compactContext(sessionKey: string, keepRecentTurns = 6): { success: boolean; previousMessageCount: number; newMessageCount: number; messagesRemoved: number } {
     return this.compactor.compactContext(sessionKey, keepRecentTurns)
@@ -1112,7 +1258,7 @@ export class AgentRuntimeBridge {
   // ── Cron 公共接口 ──
   reloadLocalCronScheduler(): void { this.cronScheduler.reloadLocalCronScheduler() }
 
-  createLocalCronJobRecord(params: { id: string; name: string; taskText: string; agentId?: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number; enabled?: boolean; createdAt: number }): void {
+  createLocalCronJobRecord(params: Parameters<CronScheduler['createLocalCronJobRecord']>[0]): void {
     this.cronScheduler.createLocalCronJobRecord(params)
   }
 
@@ -1126,7 +1272,7 @@ export class AgentRuntimeBridge {
 
   deleteLocalCronJobRecord(id: string): number { return this.cronScheduler.deleteLocalCronJobRecord(id) }
 
-  updateLocalCronJobRecord(params: { id: string; name: string; taskText: string; enabled: boolean }): number {
+  updateLocalCronJobRecord(params: Parameters<CronScheduler['updateLocalCronJobRecord']>[0]): number {
     return this.cronScheduler.updateLocalCronJobRecord(params)
   }
 
@@ -1139,7 +1285,7 @@ export class AgentRuntimeBridge {
   }
 
   private getDefaultDbPath(): string {
-    return path.join(app.getPath('home'), '.lumii', 'data', 'agent-runtime.db')
+    return path.join(resolveClientStateDir(), 'data', 'agent-runtime.db')
   }
 
   private ensureDirectory(dir: string): void {

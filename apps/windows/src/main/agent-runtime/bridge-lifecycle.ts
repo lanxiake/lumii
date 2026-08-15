@@ -41,7 +41,6 @@ export interface BridgeLifecycleDeps {
   ipcChannel: BridgeRendererIpcChannel
   getCronScheduler: () => CronScheduler | undefined
   getDefinitionStore: () => AgentDefinitionStore | null
-  toolTextPositionMap: Map<string, number>
   toolStartTimeMap: Map<string, number>
   toolCallInstanceMap: Map<string, string>
   nodeStreamCallbacks: Map<string, (event: AgentRuntimeEvent) => void>
@@ -100,7 +99,6 @@ export class BridgeLifecycle {
     this.deps.instanceToConversation.delete(instanceId)
     this.deps.agentRegistry.destroy(instanceId)
     this.deps.instanceStates.delete(instanceId)
-    this.clearPrefixedMapEntries(this.deps.toolTextPositionMap as Map<string, unknown>, instanceId)
     this.clearPrefixedMapEntries(this.deps.toolStartTimeMap as Map<string, unknown>, instanceId)
     for (const [key, val] of this.deps.toolCallInstanceMap) {
       if (val === instanceId) this.deps.toolCallInstanceMap.delete(key)
@@ -116,6 +114,13 @@ export class BridgeLifecycle {
   destroyAll(): void {
     this.deps.permissionController.clearAll()
     this.deps.askUserQuestionController.clearAll()
+
+    log.info('[destroyAll] 开始销毁所有实例前，先最终确认所有流式消息')
+    const conversationRepo = this.deps.getConversationRepo()
+    if (conversationRepo) {
+      const finalizedCount = conversationRepo.finalizeAllStreamingMessages()
+      log.info(`[destroyAll] 已最终确认 ${finalizedCount} 条流式消息`)
+    }
 
     try {
       for (const s of this.deps.instanceStates.values()) {

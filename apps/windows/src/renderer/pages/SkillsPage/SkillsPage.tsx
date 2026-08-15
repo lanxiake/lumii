@@ -58,7 +58,7 @@ const MySkillDetailModal: React.FC<{
   )
 
   return (
-    <Modal open={isOpen} onClose={onClose} width={460} footer={footer}>
+    <Modal open={isOpen} onClose={onClose} width={460} footer={footer} layer="aboveHub">
       <div style={{ padding: '4px 0' }}>
         {/* 头部 */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -163,6 +163,17 @@ type TabType = 'my-skills' | 'store' | 'tools' | 'mcp'
  */
 type FilterStatus = 'all' | 'enabled' | 'disabled'
 
+interface SkillsPageProps {
+  /** Hub 嵌入时收紧 padding */
+  embedded?: boolean
+  /** 初始 Tab（Hub MCP Tab 用 mcp） */
+  initialTab?: TabType
+  /** Hub 已把 MCP 提到顶栏时隐藏页内 MCP Tab */
+  hideMcpTab?: boolean
+  /** 仅展示 MCP Tab 内容（隐藏其它 Tab 导航） */
+  mcpOnly?: boolean
+}
+
 /**
  * SkillsPage - 技能管理页面
  *
@@ -171,12 +182,34 @@ type FilterStatus = 'all' | 'enabled' | 'disabled'
  * 支持启用/禁用/卸载技能
  * 包含技能商店入口
  */
-const SkillsPage: React.FC = () => {
+const SkillsPage: React.FC<SkillsPageProps> = ({
+  embedded = false,
+  initialTab,
+  hideMcpTab = false,
+  mcpOnly = false,
+}) => {
   const { installedSkills, stats: skillStats, isLoading, error, loadInstalledSkills, enableSkill, disableSkill, uninstallSkill } = useSkills()
   const { filtered: filteredTools, grouped: groupedTools, stats: toolStats, query: toolQuery, setQuery: setToolQuery, isLoading: isToolsLoading, togglingTool, toggleTool, mcpStatus } = useToolSearch()
 
-  // 标签页状态
-  const [activeTab, setActiveTab] = useState<TabType>('my-skills')
+  // 标签页状态（Composer「管理」可经 sessionStorage 指定初始 Tab）
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (initialTab) return initialTab
+    try {
+      const init = sessionStorage.getItem('mtbot_skills_init_tab') as TabType | null
+      if (init === 'my-skills' || init === 'store' || init === 'tools' || init === 'mcp') {
+        sessionStorage.removeItem('mtbot_skills_init_tab')
+        return init
+      }
+    } catch {
+      /* ignore */
+    }
+    return mcpOnly ? 'mcp' : 'my-skills'
+  })
+
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab)
+    else if (mcpOnly) setActiveTab('mcp')
+  }, [initialTab, mcpOnly])
 
   // 搜索和筛选状态
   const [searchQuery, setSearchQuery] = useState('')
@@ -459,12 +492,25 @@ const SkillsPage: React.FC = () => {
     return () => window.removeEventListener('mtbot:open-skill-store', handler)
   }, [])
 
+  // 监听 Composer「+」菜单「管理技能 / 管理 MCP」：打开对应 Tab
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab?: TabType }>).detail?.tab
+      if (tab === 'my-skills' || tab === 'store' || tab === 'tools' || tab === 'mcp') {
+        setActiveTab(tab)
+      }
+    }
+    window.addEventListener('mtbot:open-skills-tab', handler)
+    return () => window.removeEventListener('mtbot:open-skills-tab', handler)
+  }, [])
+
   // 独立版：技能全部走本地 IPC（workspace/skills），无需网关连接
   const isConnected = true
 
   return (
-    <div className={styles['skills-page']}>
+    <div className={clsx(styles['skills-page'], embedded && styles['skills-page--embedded'])}>
       {/* 标签页导航：我的技能 → 技能商店 → 工具 → MCP工具 */}
+      {!mcpOnly && (
       <div className={styles['skills-tabs']}>
         <button
           className={clsx(styles['skills-tab'], activeTab === 'my-skills' && styles['active'])}
@@ -489,6 +535,7 @@ const SkillsPage: React.FC = () => {
           <span className={styles['tab-label']}>工具</span>
           <span className={styles['tab-badge']}>{toolStats.total - (groupedTools.get('channel')?.length ?? 0)}</span>
         </button>
+        {!hideMcpTab && (
         <button
           className={clsx(styles['skills-tab'], activeTab === 'mcp' && styles['active'])}
           onClick={() => setActiveTab('mcp')}
@@ -506,7 +553,9 @@ const SkillsPage: React.FC = () => {
             ) : null
           })()}
         </button>
+        )}
       </div>
+      )}
 
       {/* 我的技能标签页 */}
       {activeTab === 'my-skills' && (
@@ -735,6 +784,8 @@ const SkillsPage: React.FC = () => {
                           category={tool.category}
                           isReadOnly={tool.isReadOnly}
                           enabled={tool.enabled}
+                          usageCount={tool.usageCount}
+                          lastUsedAt={tool.lastUsedAt}
                           isToggling={togglingTool === tool.name}
                           onToggle={(enabled) => toggleTool(tool.name, enabled)}
                         />
@@ -750,13 +801,10 @@ const SkillsPage: React.FC = () => {
       {/* MCP 工具标签页 */}
       {activeTab === 'mcp' && (
         <>
+          {/* 连接数由上方 McpServersPanel 展示，这里只讲工具 */}
           <PageHeader
             title="MCP 工具"
-            subtitle={
-              mcpStatus.length > 0
-                ? `已连接 ${mcpStatus.filter(s => s.connected).length}/${mcpStatus.length} 个 Server，共 ${groupedTools.get('channel')?.length ?? 0} 个工具`
-                : '暂无 MCP Server'
-            }
+            subtitle={`已加载 ${groupedTools.get('channel')?.length ?? 0} 个工具，可单独开关`}
           />
           <div className={styles['skills-toolbar']}>
             <div className={styles['skills-filters']}>
@@ -771,7 +819,7 @@ const SkillsPage: React.FC = () => {
           <Card className={styles['skills-list-card']}>
             {mcpStatus.length === 0 ? (
               <div style={{ padding: '16px', color: 'var(--mt-fg-3, var(--color-text-secondary))', fontSize: 13 }}>
-                暂无 MCP Server。在 <code>~/.lumii/config/mcp-servers.json</code> 中配置后重启生效。
+                暂无 MCP Server。在上方「添加」里配置后立即生效。
               </div>
             ) : (() => {
               const mcpTools = filteredTools.filter(t => t.category === 'channel')
@@ -789,7 +837,16 @@ const SkillsPage: React.FC = () => {
                           {server.connected
                             ? <Circle size={8} className={styles['status-dot-online']} />
                             : <Circle size={8} className={styles['status-dot-offline']} />
-                          } {server.name}（{serverTools.length} 个工具）
+                          }{' '}
+                          {server.name}（{serverTools.length} 个工具）
+                          {server.lastError && !server.connected ? (
+                            <span
+                              style={{ marginLeft: 8, color: 'var(--mt-error)', fontWeight: 400, fontSize: 12 }}
+                              title={server.lastError}
+                            >
+                              {server.lastError}
+                            </span>
+                          ) : null}
                         </h3>
                         {serverTools.map((tool) => (
                           <ToolCard
@@ -800,6 +857,8 @@ const SkillsPage: React.FC = () => {
                             category={tool.category}
                             isReadOnly={tool.isReadOnly}
                             enabled={tool.enabled}
+                            usageCount={tool.usageCount}
+                            lastUsedAt={tool.lastUsedAt}
                             isToggling={togglingTool === tool.name}
                             onToggle={(enabled) => toggleTool(tool.name, enabled)}
                           />
@@ -877,6 +936,7 @@ interface SkillRowProps {
   skillInfo: {
     skillItemId: string
     isEnabled: boolean
+    executionCount?: number
     skill: { name: string; description?: string; version: string; tags?: string[] }
   }
   isOperating: boolean
@@ -905,6 +965,14 @@ const SkillRow: React.FC<SkillRowProps> = ({ skillInfo, isOperating, onDetail, o
           {skillInfo.skill.description}
         </span>
       )}
+
+      {/* 调用次数 */}
+      <span
+        className={styles['skill-row-usage']}
+        title={skillInfo.executionCount ? `累计调用 ${skillInfo.executionCount} 次` : '从未调用过'}
+      >
+        {skillInfo.executionCount ? `${skillInfo.executionCount} 次` : '未用过'}
+      </span>
 
       {/* 操作区（hover 显示） */}
       <div className={styles['skill-row-actions']}>

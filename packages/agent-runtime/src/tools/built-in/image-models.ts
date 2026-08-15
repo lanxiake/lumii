@@ -60,7 +60,8 @@ export function buildImageModelSelectionGuideForAgent(): string {
     (m) => `- ${m.id}：${m.whenToUse}`,
   )
   return [
-    "【modelId 选型】默认 gpt-image-2（可不传 modelId）；复杂场景或高分辨率时再按需选择：",
+    "【modelId 选型】优先不传 modelId，让平台使用用户已配置的生图模型；" +
+      "仅在用户明确指定模型或需要更高分辨率时才显式传入：",
     ...lines,
     "- 仅 1024×1024 或 1536×1024/1024×1536 时可用 gpt-image-2 / nano-banana；更高分辨率请选 gpt-image-2-vip / nano-banana-2 / nano-banana-pro",
     "- 失败后勿换模型重试（每次调用均计费）；将错误告知用户，除非用户明确要求换模型再试",

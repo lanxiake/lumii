@@ -472,6 +472,23 @@ pnpm build
 
 ---
 
+## 附录：2026-08-15 激进内置集
+
+产品定位（本地优先桌面 AI 伙伴）下，bundled-skills 只保留通用能力 + H3 视频 + 小红书：
+
+| 类别 | 保留 |
+|------|------|
+| 通用 | `weather`、`coding-agent`、`cli-hub`、`skill-creator` |
+| 文档 | `docx`、`pdf`、`pptx`、`xlsx`、`summarize` |
+| 设计 | `Art`、`canvas-design`、`frontend-design` |
+| 语音 / 协作 | `qwen3-tts-local`、`agent-team` |
+| H3 视频 | `h3-prompt-writing`、`h3-t2va-local` |
+| 小红书 | `xiaohongshu-content-pipeline`（含子技能） |
+
+已下线包写入 `RETIRED_BUNDLED_SKILLS`（`bundled-skills-seeder.ts`），启动时从 workspace 删除；源码目录同步移除。SkillNet 商店 IPC（`skillnet-store.ts`）仍保留，仅去掉 bundled 指令技能。
+
+---
+
 **相关文档**：
 - [技能目录介绍](../../../skills/README.md)
 - [多用户架构部署指南](../../../skills/ARCHITECTURE_GUIDE.md)

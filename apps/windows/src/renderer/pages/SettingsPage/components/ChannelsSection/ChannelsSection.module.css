@@ -1,0 +1,85 @@
+/* ChannelsSection — 渠道设置分区：页头汇总 + 整宽卡片列表 */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 880px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--mt-fs-xl);
+  font-weight: var(--mt-fw-semibold);
+  line-height: 28px;
+  color: var(--mt-fg-1);
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--mt-fg-3);
+}
+
+.summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 7px 12px;
+  border-radius: var(--mt-radius-full);
+  background: var(--mt-surface-2);
+  font-size: 12px;
+  font-weight: var(--mt-fw-medium);
+  line-height: 16px;
+  color: var(--mt-fg-2);
+  white-space: nowrap;
+}
+
+.summaryDot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--mt-radius-full);
+  background: var(--mt-success);
+  flex-shrink: 0;
+}
+
+.summaryDotIdle {
+  background: var(--mt-fg-4);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.footnote {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--mt-fg-4);
+}
+
+@media (max-width: 720px) {
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

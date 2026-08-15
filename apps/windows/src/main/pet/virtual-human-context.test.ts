@@ -31,7 +31,7 @@ describe('renderVirtualHumanPromptSection', () => {
     expect(out).toContain('你是虚拟人猫猫。')
     expect(out).toContain('## 表情控制')
     expect(out).toContain('[joy]')
-    expect(out).toContain('何时使用')
+    expect(out).toContain('用法与规则')
     expect(out).not.toContain('## 动作与神态')
   })
 

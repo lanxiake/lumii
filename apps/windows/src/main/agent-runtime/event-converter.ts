@@ -52,11 +52,6 @@ export interface RunContext {
   toolStartTimes: Map<string, number>
   /** Agent 显示名称（= AgentDefinition.name，用于分析埋点 agentId，与工具埋点口径一致） */
   agentName?: string
-  /**
-   * 子 Agent 专用：创建时刻父实例的 runId。
-   * subagent_complete 须与 subagent_spawn 使用同一父 runId，才能在时间线/聚合中关联。
-   */
-  parentAnalyticsRunId?: string
 }
 
 /**
@@ -356,17 +351,6 @@ export function convertOldEventToIpcEvents(
       // 如果找不到开始时间，使用工具执行的实际开始时间（从事件中获取）或回退到当前时间
       const effectiveStartMs = startMs ?? (oldEvent as { startTime?: number }).startTime ?? now
       const durationMs = Math.max(0, now - effectiveStartMs)
-      // 如果 durationMs 为 0 且是错误情况，记录警告日志以便调试
-      if (durationMs === 0 && oldEvent.isError) {
-        console.warn(`[event-converter] tool:end durationMs=0 for ${oldEvent.toolName}, startMs=${startMs}, effectiveStartMs=${effectiveStartMs}`)
-      }
-      // 调试：记录工具结果摘要
-      const resultSummary = oldEvent.result == null
-        ? 'null'
-        : typeof oldEvent.result === 'object'
-          ? JSON.stringify(oldEvent.result).slice(0, 200)
-          : String(oldEvent.result).slice(0, 200)
-      console.log(`[event-converter] tool:end toolName=${oldEvent.toolName} isError=${oldEvent.isError} durationMs=${durationMs} resultPreview=${resultSummary}`)
       return [{
         type: 'agent:tool:end',
         runId: ctx.runId,

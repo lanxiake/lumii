@@ -7,8 +7,10 @@
     <meta http-equiv="Content-Security-Policy" content="default-src *; script-src * 'unsafe-inline' 'unsafe-eval' blob:; style-src * 'unsafe-inline'; img-src * data: blob:; font-src * data:; media-src * data: blob:; frame-src *; worker-src * blob:; connect-src * ws: wss:;" />
     <title>灵栖 Lumii</title>
   </head>
-  <body>
+  <body style="margin:0;background:#e8f2fa">
     <div id="root"></div>
+    <!-- 先于 React 启动开机视频，缩短黑屏体感 -->
+    <script type="module" src="./early-splash.ts"></script>
     <script type="module" src="./main.tsx"></script>
   </body>
 </html>

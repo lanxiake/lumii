@@ -27,13 +27,22 @@ export {
   createTransformContext,
   estimateTokenCount,
   microcompactToolResults,
+  resolveManualCompactKeepCount,
+  buildCompactSummaryPrompt,
+  formatCompactSummary,
+  NO_TOOLS_PREAMBLE,
+  NO_TOOLS_TRAILER,
   DEFAULT_COMPACTION_TRIGGER_RATIO,
   DEFAULT_KEEP_RECENT_TURNS,
   type CompactConfig,
   type CompactionInfo,
   type SummaryGeneratorFn,
 } from "../compact/index.js";
-export { estimateTextTokenCount, ceilTokenEstimate } from "../compact/index.js";
+export {
+  estimateTextTokenCount,
+  ceilTokenEstimate,
+  providerPromptTokens,
+} from "../compact/index.js";
 export {
   AgentOrchestrator,
   type AgentOrchestratorDeps,

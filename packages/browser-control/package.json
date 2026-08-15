@@ -1,6 +1,6 @@
 {
   "name": "@mtbot/browser-control",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Browser automation and control module for MtBot",
   "type": "module",
   "main": "./src/index.ts",

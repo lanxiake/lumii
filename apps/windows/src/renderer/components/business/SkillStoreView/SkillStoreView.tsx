@@ -114,7 +114,7 @@ const SkillDetailDialog: React.FC<{
   )
 
   return (
-    <Modal open={isOpen} onClose={onClose} width={500} footer={footer}>
+    <Modal open={isOpen} onClose={onClose} width={500} footer={footer} layer="aboveHub">
       <div className={styles['skill-detail-content']}>
         <div className={styles['skill-detail-header']}>
           <span className={styles['skill-detail-icon']}>{skill.icon || <Wrench size={24} />}</span>

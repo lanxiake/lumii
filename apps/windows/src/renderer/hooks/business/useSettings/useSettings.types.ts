@@ -17,7 +17,7 @@ export interface ThemeConfig {
   /** light/dark/system 为标准模式；ragdoll 为奶油布偶猫治愈浅色主题（原型 UI 方案一） */
   mode: 'light' | 'dark' | 'system' | 'ragdoll'
   primaryColor: string
-  fontSize: 'small' | 'medium' | 'large'
+  fontSize: 'small' | 'medium' | 'large' | 'xlarge'
   enableAnimations: boolean
 }
 
@@ -34,6 +34,8 @@ export interface PrivacyConfig {
   sendUsageStats: boolean
   saveChatHistory: boolean
   historyRetentionDays: number
+  /** 是否允许 Agent 操作本软件界面（app_screenshot / app_goto / app_act），默认开启 */
+  allowAgentAppUiControl: boolean
 }
 
 /** 快捷键配置 */
@@ -69,6 +71,11 @@ export interface SystemConfig {
   autoStart: boolean
   /** 最小化到托盘 */
   minimizeToTray: boolean
+  /**
+   * 启动时播放开机动画（默认 true）。
+   * 关闭后主窗口直接进入界面；独立预览窗等本就不播放。
+   */
+  showSplashOnStartup: boolean
 }
 
 /** 记忆注入配置（Windows 客户端） */

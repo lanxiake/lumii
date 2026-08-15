@@ -12,7 +12,7 @@ import { safeStorage } from 'electron'
 import { resolveWindowsClientDataRoot } from './client-data-root.js'
 
 /** provider 类型（决定默认 baseUrl 与 api 归一化） */
-export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio'
+export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi'
 
 /** 模型能力槽（本阶段不含 ASR/TTS） */
 export type CapabilitySlot = 'chat' | 'vision' | 'image'
@@ -24,8 +24,13 @@ export interface LocalProviderConfig {
   type: ProviderType
   /** OpenAI 兼容端点；本地 provider 有默认值 */
   baseUrl: string
-  /** 模型 id */
+  /** 模型 id（默认/当前选用） */
   modelId: string
+  /**
+   * 允许在对话中切换的模型 ID 列表（chat / vision）。
+   * 缺省或空时视为 `[modelId]`，兼容旧配置。
+   */
+  allowedModelIds?: string[]
 }
 
 /** 渲染进程可见的单槽配置（含 apiKey 明文，仅本机用户可见） */
@@ -47,6 +52,7 @@ export const PROVIDER_DEFAULT_BASE_URL: Record<ProviderType, string> = {
   gemini: 'https://generativelanguage.googleapis.com',
   ollama: 'http://localhost:11434',
   lmstudio: 'http://localhost:1234',
+  rightapi: 'https://www.rightapi.ai/draw/v1',
 }
 
 /** 能力槽展示名 */
@@ -71,6 +77,7 @@ const DEFAULT_CHAT: LocalProviderConfigView = {
   baseUrl: PROVIDER_DEFAULT_BASE_URL.openai,
   modelId: '',
   apiKey: '',
+  allowedModelIds: [],
 }
 
 const DEFAULT_VISION: LocalProviderConfigView = {
@@ -79,6 +86,7 @@ const DEFAULT_VISION: LocalProviderConfigView = {
   baseUrl: PROVIDER_DEFAULT_BASE_URL.openai,
   modelId: '',
   apiKey: '',
+  allowedModelIds: [],
 }
 
 const DEFAULT_IMAGE: LocalProviderConfigView = {
@@ -119,6 +127,7 @@ interface LegacyPersistedShape extends LocalProviderConfig {
 /**
  * 规范化 OpenAI 兼容 Base URL：去尾斜杠，缺 /v1 时自动补全
  * anthropic / gemini 不强制追加 /v1
+ * rightapi 保持原样（已含 /draw/v1）
  */
 export function ensureProviderBaseUrl(baseUrl: string, type: ProviderType): string {
   let u = (baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type]).replace(/\/+$/, '')
@@ -161,7 +170,25 @@ function decryptApiKey(enc?: string): string {
 }
 
 /**
- * 规范化单槽视图（补默认值、修剪空白）
+ * 规范化允许模型列表：去重、去空；若为空则回退到 modelId。
+ */
+export function normalizeAllowedModelIds(
+  allowed: string[] | undefined,
+  modelId: string,
+): string[] {
+  const ids = (allowed ?? [])
+    .map((id) => (typeof id === 'string' ? id.trim() : ''))
+    .filter(Boolean)
+  const unique = [...new Set(ids)]
+  const fallback = modelId.trim()
+  if (unique.length === 0) {
+    return fallback ? [fallback] : []
+  }
+  return unique
+}
+
+/**
+ * 规范化单槽视图（补默认值、修剪空白、对齐 allowedModelIds 与 modelId）
  */
 function normalizeSlotView(
   raw: Partial<LocalProviderConfigView> | PersistedSlot | undefined,
@@ -172,12 +199,28 @@ function normalizeSlotView(
     raw && 'apiKey' in raw && typeof (raw as LocalProviderConfigView).apiKey === 'string'
       ? (raw as LocalProviderConfigView).apiKey
       : decryptApiKey((raw as PersistedSlot | undefined)?.apiKeyEnc)
+  const modelId = raw?.modelId?.trim() || fallback.modelId
+  const rawAllowed =
+    raw && Array.isArray((raw as LocalProviderConfigView).allowedModelIds)
+      ? (raw as LocalProviderConfigView).allowedModelIds
+      : undefined
+  let allowedModelIds = normalizeAllowedModelIds(rawAllowed, modelId)
+  // modelId 必须落在 allowlist；否则取第一项
+  let nextModelId = modelId
+  if (allowedModelIds.length > 0 && nextModelId && !allowedModelIds.includes(nextModelId)) {
+    nextModelId = allowedModelIds[0]!
+  } else if (allowedModelIds.length > 0 && !nextModelId) {
+    nextModelId = allowedModelIds[0]!
+  } else if (nextModelId && allowedModelIds.length === 0) {
+    allowedModelIds = [nextModelId]
+  }
   return {
     enabled: raw?.enabled === true,
     type,
     baseUrl: (raw?.baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type] || fallback.baseUrl).replace(/\/+$/, ''),
-    modelId: raw?.modelId?.trim() || fallback.modelId,
+    modelId: nextModelId,
     apiKey: apiKey ?? '',
+    allowedModelIds,
   }
 }
 
@@ -186,12 +229,15 @@ function normalizeSlotView(
  */
 function toPersistedSlot(view: LocalProviderConfigView): PersistedSlot {
   const type = view.type
+  const modelId = view.modelId?.trim() || ''
+  const allowedModelIds = normalizeAllowedModelIds(view.allowedModelIds, modelId)
   return {
     enabled: view.enabled === true,
     type,
     // 落盘保留用户填写的地址（可不含 /v1）；调用时再 ensureProviderBaseUrl
     baseUrl: (view.baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type]).replace(/\/+$/, ''),
-    modelId: view.modelId?.trim() || '',
+    modelId,
+    allowedModelIds,
     apiKeyEnc: encryptApiKey(view.apiKey ?? ''),
   }
 }
@@ -286,17 +332,21 @@ export function saveProviderConfig(view: LocalProviderConfigView): void {
 
 /**
  * 将 image 槽同步到生图环境变量（供 right-codes-draw-client 读取）
+ *
+ * rightapi 走独立的异步客户端（直接读槽配置，不经环境变量），
+ * 这里只设置 DIRECT_ONLY 以关掉 Gateway 路径。
  */
 export function applyImageSlotToDrawEnv(): void {
   const image = loadSlotConfig('image')
   if (!image.enabled || !image.apiKey) return
+  process.env.MTBOT_IMAGE_DIRECT_ONLY = 'true'
+  if (image.type === 'rightapi') return
   const base = ensureProviderBaseUrl(
     image.baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[image.type],
     image.type,
   )
   process.env.MTBOT_IMAGE_UPSTREAM_BASE_URL = base
   process.env.MTBOT_IMAGE_UPSTREAM_API_KEY = image.apiKey
-  process.env.MTBOT_IMAGE_DIRECT_ONLY = 'true'
 }
 
 /**

@@ -87,6 +87,39 @@
   -webkit-app-region: no-drag;
 }
 
+/* 全局字号：与对话页 toolbar .icon-btn 同款扁平样式 */
+.title-bar-font-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 22px;
+  margin-left: var(--spacing-1);
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: var(--mt-radius-lg, 8px);
+  background: transparent;
+  color: var(--mt-fg-3, var(--color-text-secondary));
+  cursor: pointer;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+  transition:
+    transform var(--mt-dur-fast, 120ms) var(--mt-ease-spring, ease),
+    background var(--mt-dur-normal, 220ms) var(--mt-ease-standard, ease),
+    color var(--mt-dur-normal, 220ms) var(--mt-ease-standard, ease),
+    border-color var(--mt-dur-normal, 220ms) var(--mt-ease-standard, ease);
+}
+
+.title-bar-font-btn:hover {
+  border-color: var(--mt-border, var(--color-border));
+  background: var(--mt-surface-2, var(--mt-bg-tertiary));
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.title-bar-font-btn:active {
+  transform: scale(0.94);
+}
+
 .title-bar-status.connected {
   background-color: var(--color-success, #10b981);
   box-shadow: 0 0 6px var(--color-success, #10b981);
@@ -134,12 +167,8 @@
   color: white;
 }
 
-/* 响应式适配 */
+/* 响应式适配：标题栏高度始终跟随 --mt-titlebar-h，避免与固定定位面板错位 */
 @media (max-width: 768px) {
-  .title-bar {
-    height: 48px;
-  }
-
   .title-bar-menu-btn {
     width: 36px;
     height: 32px;

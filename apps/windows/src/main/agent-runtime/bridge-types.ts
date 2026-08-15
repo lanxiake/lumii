@@ -68,14 +68,21 @@ export interface AgentRuntimeBridgeConfig {
    */
   showCronNotification?: (title: string, body: string) => void
   /**
-   * 通过微信通道发送消息给用户（由 index.ts 注入，调用 weixinLoginService）。
-   * channelUserId 和 contextToken 从当前活跃的微信会话上下文中获取。
+   * 主动推送文本到飞书（由 index.ts 注入，调用 feishuLoginService.pushText）。
+   * 收件人是登录时记录的 openId，定时任务结果推送用。
    */
-  sendWeixinMessage?: (params: { text?: string; filePath?: string }) => Promise<{ ok: boolean; error?: string }>
+  sendFeishuMessage?: (text: string) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * 惰性获取渠道出站 Router（Hub 在登录服务初始化后才装配，故用 getter）。
+   */
+  getChannelRouter?: () => import('../channel/channel-outbound-router').ChannelOutboundRouter | null | undefined
   /**
    * 将文本合成为语音文件并返回文件绝对路径（由 index.ts 注入，调用 voiceCallService）。
    */
-  generateVoiceFile?: (text: string) => Promise<string>
+  generateVoiceFile?: (
+    text: string,
+    opts?: { speaker?: string; speed?: number },
+  ) => Promise<string>
   /**
    * 设置 ACP 后端（由 index.ts 注入，调用 AcpBackendManager.setBackend）
    */

@@ -32,6 +32,15 @@
   font-size: 11px;
   color: var(--mt-fg-2);
   max-width: 200px;
+  transition:
+    border-color var(--mt-dur-normal) var(--mt-ease-standard),
+    color var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+/* hover 转 accent，提示 chip 可点击定位 */
+.attachment-chip:hover {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 55%, transparent);
+  color: var(--mt-accent-500);
 }
 
 .attachment-chip-icon {
@@ -66,27 +75,40 @@
 }
 
 
+/* 输入卡 — 页面视觉重心。玻璃态让它浮在消息流之上而不是陷进背景 */
 .input-card {
-  border: 1px solid color-mix(in srgb, var(--color-border) 55%, transparent);
-  border-radius: 12px;
-  background: transparent;
-  transition: border-color 0.2s, background 0.2s;
+  border: 1px solid var(--mt-glass-stroke);
+  border-radius: var(--mt-radius-3xl);
+  background: var(--mt-glass-bg);
+  backdrop-filter: blur(var(--mt-glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--mt-glass-blur)) saturate(160%);
+  box-shadow: var(--mt-shadow-lg), var(--mt-shadow-inner);
+  transition:
+    border-color var(--mt-dur-normal) var(--mt-ease-standard),
+    box-shadow var(--mt-dur-normal) var(--mt-ease-standard);
   /* 允许底部工具栏内下拉向上展开，避免被圆角容器裁切 */
   overflow: visible;
 }
 
 .input-card:focus-within {
-  border-color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--mt-accent-500) 55%, transparent);
+  box-shadow:
+    var(--mt-shadow-lg),
+    0 0 0 3px color-mix(in srgb, var(--mt-accent-500) 15%, transparent);
 }
 
-/* 有输入内容时实心背景，避免与下方消息文字重叠 */
+/* 有输入内容时加深底色，避免与下方消息文字互相干扰。
+   玻璃态已能隔断视线，这里只需再压一层不透明度，不必回到纯实心 */
 .input-card-filled {
-  background: var(--color-bg-primary);
-  border-color: var(--color-border);
+  background:
+    linear-gradient(color-mix(in srgb, var(--mt-bg-primary) 82%, transparent),
+                    color-mix(in srgb, var(--mt-bg-primary) 82%, transparent)),
+    var(--mt-glass-bg);
+  border-color: var(--mt-border);
 }
 
 .input-card-filled .input-toolbar {
-  border-top-color: var(--color-border);
+  border-top-color: var(--mt-border-hairline);
 }
 
 .input-card-disabled {
@@ -94,8 +116,18 @@
 }
 
 .input-card-dragover {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px var(--color-primary-alpha, rgba(99, 102, 241, 0.25));
+  border-color: var(--mt-accent-500);
+  box-shadow:
+    var(--mt-shadow-lg),
+    0 0 0 3px color-mix(in srgb, var(--mt-accent-500) 28%, transparent);
+}
+
+/* 「+」与文本域同一行 — 已迁至底部工具栏，保留兼容 */
+.composer-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
 }
 
 /* 文本域 */
@@ -156,9 +188,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--spacing-2) var(--spacing-3);
-  border-top: 1px solid var(--color-border);
-  gap: var(--spacing-2);
+  padding: var(--mt-space-2) var(--mt-space-3);
+  border-top: 1px solid var(--mt-border-hairline);
+  gap: var(--mt-space-2);
 }
 
 /* 左侧：控件区 */
@@ -177,24 +209,36 @@
   flex-shrink: 0;
 }
 
-/* 下拉框包装器 - 模拟图片中的 "智能体 ∨" 和 "轻量 ∨" 样式 */
+/* 工具栏控件（Agent / 模型 / 思考）统一成扁平样式：
+   默认透明无边框，只在 hover 时浮出底色，让输入框本身保持视觉重心 */
 .toolbar-select-wrapper {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-primary);
+  gap: 5px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: var(--mt-radius-lg);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--mt-fg-3);
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    transform var(--mt-dur-fast) var(--mt-ease-spring),
+    border-color var(--mt-dur-normal) var(--mt-ease-standard),
+    background var(--mt-dur-normal) var(--mt-ease-standard),
+    color var(--mt-dur-normal) var(--mt-ease-standard);
   min-width: 0;
 }
 
 .toolbar-select-wrapper:hover {
-  border-color: var(--color-primary);
-  background: rgba(var(--color-primary-rgb, 59, 130, 246), 0.05);
+  border-color: var(--mt-border);
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-1);
+}
+
+.toolbar-select-wrapper:active {
+  transform: scale(0.96);
 }
 
 /* 透明覆盖层：与原生 select 行为一致，用于自定义 Agent 触发器 */
@@ -278,15 +322,35 @@
 }
 
 /* 思考模式 + 推理强度控件 */
+/* 思考控件：与 Agent/模型 同一档扁平样式；开启时整块转成 accent 激活态 */
 .thinking-controls {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-left: 4px;
-  padding: 2px 6px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-primary);
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--mt-radius-lg);
+  background: transparent;
+  transition:
+    border-color var(--mt-dur-normal) var(--mt-ease-standard),
+    background var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+.thinking-controls:hover {
+  border-color: var(--mt-border);
+  background: var(--mt-surface-2);
+}
+
+/* 思考开启：整块提示为激活，避免用户只能靠 Switch 小圆点判断状态 */
+.thinking-controls-on {
+  border-color: color-mix(in srgb, var(--mt-accent-500) 38%, transparent);
+  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
+}
+
+.thinking-controls-on .thinking-toggle-label {
+  color: var(--mt-accent-500);
+  font-weight: var(--mt-fw-medium);
 }
 
 .thinking-toggle {
@@ -298,20 +362,21 @@
 }
 
 .thinking-toggle-label {
-  font-size: 11px;
-  color: var(--color-text-secondary);
+  font-size: var(--mt-fs-xs);
+  color: var(--mt-fg-3);
   white-space: nowrap;
+  transition: color var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
 .reasoning-effort-select {
-  height: 24px;
+  height: 22px;
   min-width: 64px;
   padding: 0 6px;
-  font-size: 11px;
-  color: var(--color-text-primary);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  font-size: var(--mt-fs-xs);
+  color: var(--mt-fg-1);
+  background: var(--mt-surface-3);
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: var(--mt-radius-md);
   cursor: pointer;
 }
 
@@ -327,18 +392,27 @@
   justify-content: center;
   width: 30px;
   height: 30px;
-  border: none;
-  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  border-radius: var(--mt-radius-lg);
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--mt-fg-3);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    transform var(--mt-dur-fast) var(--mt-ease-spring),
+    border-color var(--mt-dur-normal) var(--mt-ease-standard),
+    background var(--mt-dur-normal) var(--mt-ease-standard),
+    color var(--mt-dur-normal) var(--mt-ease-standard);
   flex-shrink: 0;
 }
 
 .toolbar-icon-btn:hover:not(:disabled) {
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
+  border-color: var(--mt-border);
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-1);
+}
+
+.toolbar-icon-btn:active:not(:disabled) {
+  transform: scale(0.94);
 }
 
 .toolbar-icon-btn:disabled {
@@ -346,7 +420,7 @@
   cursor: not-allowed;
 }
 
-/* 发送/停止按钮 */
+/* 发送/停止按钮 — 圆形主操作，整个输入区唯一的实心主色元素 */
 .send-btn {
   display: flex;
   align-items: center;
@@ -354,21 +428,25 @@
   width: 32px;
   height: 32px;
   border: none;
-  border-radius: 8px;
-  background: var(--color-primary);
-  color: white;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--mt-accent-600), var(--mt-accent-700));
+  color: #fff;
   cursor: pointer;
-  transition: background 0.15s, transform 0.1s, opacity 0.15s;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--mt-accent-600) 32%, transparent);
+  transition:
+    transform var(--mt-dur-fast) var(--mt-ease-spring),
+    box-shadow var(--mt-dur-normal) var(--mt-ease-standard),
+    opacity var(--mt-dur-normal) var(--mt-ease-standard);
   flex-shrink: 0;
 }
 
 .send-btn:hover:not(:disabled) {
-  background: var(--color-primary-dark, var(--mt-accent-600, #4338ca));
-  transform: scale(1.05);
+  transform: scale(1.08);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--mt-accent-600) 45%, transparent);
 }
 
 .send-btn:active:not(:disabled) {
-  transform: scale(0.95);
+  transform: scale(0.94);
 }
 
 .send-btn:disabled {
@@ -377,38 +455,46 @@
   transform: none;
 }
 
+/* 中断态：脉冲是关键反馈，保留 */
 .send-btn.stop-btn {
-  background: var(--color-error);
+  background: var(--mt-error);
+  box-shadow: none;
   animation: pulse-stop 1.5s infinite;
 }
 
 .send-btn.stop-btn:hover:not(:disabled) {
-  background: var(--color-error-dark, var(--mt-error-dark, #dc2626));
+  background: var(--mt-error-dark);
 }
 
+/* 通话键 — 胶囊按钮，用 violet 语义色与发送键区分主次 */
 .voice-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 32px;
+  gap: 5px;
   height: 32px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--color-text-secondary, #6b7280);
+  padding: 0 13px;
+  border: 1px solid color-mix(in srgb, var(--mt-violet) 42%, transparent);
+  border-radius: var(--mt-radius-full);
+  background: color-mix(in srgb, var(--mt-violet) 13%, transparent);
+  color: var(--mt-violet);
+  font-size: var(--mt-fs-xs);
+  font-weight: var(--mt-fw-medium);
+  white-space: nowrap;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, transform 0.1s;
+  transition:
+    transform var(--mt-dur-fast) var(--mt-ease-spring),
+    background var(--mt-dur-normal) var(--mt-ease-standard),
+    border-color var(--mt-dur-normal) var(--mt-ease-standard);
   flex-shrink: 0;
 }
 
 .voice-btn:hover {
-  background: var(--color-bg-hover, rgba(0, 0, 0, 0.06));
-  color: var(--color-primary);
-  transform: scale(1.05);
+  border-color: color-mix(in srgb, var(--mt-violet) 66%, transparent);
+  background: color-mix(in srgb, var(--mt-violet) 22%, transparent);
 }
 
 .voice-btn:active {
-  transform: scale(0.95);
+  transform: scale(0.94);
 }
 
 @keyframes pulse-stop {
@@ -846,10 +932,19 @@
   white-space: nowrap;
 }
 
+/* 上下文指示器容器：为占用明细卡片提供定位锚点 */
+.context-usage-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 /* 工具栏图标按钮激活态 */
 .toolbar-icon-btn--active {
-  background: var(--color-primary-500-10);
-  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--mt-accent-500) 38%, transparent);
+  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
+  color: var(--mt-accent-500);
 }
 
 /* 帮助面板容器 */
@@ -1081,4 +1176,35 @@
   white-space: nowrap;
   flex-shrink: 0;
   opacity: 0.7;
+}
+
+/* 输入卡下方单行提示 —— 极轻量，不与消息争视线 */
+.composer-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--mt-space-3);
+  padding: 5px var(--mt-space-3) 0;
+  font-family: var(--mt-font-mono);
+  font-size: var(--mt-fs-xs);
+  color: var(--mt-fg-4);
+  user-select: none;
+}
+
+/* 行内快捷键胶囊：比 .help-kbd 窄，后者为帮助弹层的对齐留了 min-width */
+.hint-kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  margin-right: 3px;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-sm);
+  background: var(--mt-surface-2);
+  font-family: var(--mt-font-mono);
+  font-size: 10px;
+  color: var(--mt-fg-3);
+  white-space: nowrap;
+}
+
+.hint-count {
+  margin-left: auto;
 }

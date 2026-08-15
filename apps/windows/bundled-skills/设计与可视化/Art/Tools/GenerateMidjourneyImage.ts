@@ -304,7 +304,7 @@ async function main() {
       timeout: args.timeout,
     });
 
-    console.log('🤖 Midjourney Image Generation');
+    console.log(' Midjourney Image Generation');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`Prompt: ${args.prompt}`);
     console.log(`Aspect Ratio: ${args.aspectRatio}`);

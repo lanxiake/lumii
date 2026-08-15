@@ -65,6 +65,150 @@ export function appendAttachmentsToMessage(text: string, files: AttachedFile[]):
   return text ? `${text}\n${attachmentLines}` : attachmentLines
 }
 
+/**
+ * 解析单行 `[media attached: path (fileName)]`。
+ * 从右侧匹配最后一个 ` (…)`，避免文件名含半角括号时把 path 截坏。
+ */
+export function parseMediaAttachedLine(
+  line: string,
+): { filePath: string; fileName: string } | null {
+  const trimmed = line.trim()
+  if (!trimmed.startsWith('[media attached:') || !trimmed.endsWith(']')) {
+    return null
+  }
+  const inner = trimmed.slice('[media attached:'.length, -1).trim()
+  if (!inner) return null
+
+  const lastOpen = inner.lastIndexOf(' (')
+  if (lastOpen === -1) {
+    const fileName = inner.split(/[\\/]/).pop() ?? inner
+    return { filePath: inner, fileName }
+  }
+  const lastClose = inner.lastIndexOf(')')
+  if (lastClose !== inner.length - 1 || lastClose <= lastOpen) {
+    const fileName = inner.split(/[\\/]/).pop() ?? inner
+    return { filePath: inner, fileName }
+  }
+
+  const filePath = inner.slice(0, lastOpen).trim()
+  const fileName = inner.slice(lastOpen + 2, lastClose).trim()
+  if (!filePath) return null
+  return {
+    filePath,
+    fileName: fileName || (filePath.split(/[\\/]/).pop() ?? filePath),
+  }
+}
+
+/**
+ * 判断是否为仅供 Agent 使用、不应展示在用户气泡中的提示行。
+ * 包括文档解析伴生路径、图片识别块标题、视觉降级占位等。
+ */
+export function isHiddenAgentPromptLine(line: string): boolean {
+  const trimmed = line.trim()
+  return (
+    /^\[parsed text:/i.test(trimmed) ||
+    /^\[image recognition:/i.test(trimmed) ||
+    /^\[图片附件:/i.test(trimmed)
+  )
+}
+
+/**
+ * 解析用户消息中的附件标记，剥离 Agent 注入的元数据行，只保留用户可见正文与附件 chips。
+ */
+export function parseMediaAttachments(content: string): {
+  textWithoutMedia: string
+  mediaFiles: Array<{ filePath: string; fileName: string }>
+} {
+  const lines = content.split('\n')
+  const mediaFiles: Array<{ filePath: string; fileName: string }> = []
+  const textLines: string[] = []
+  let skippingRecognitionBlock = false
+
+  for (const line of lines) {
+    const media = parseMediaAttachedLine(line)
+    if (media) {
+      skippingRecognitionBlock = false
+      mediaFiles.push(media)
+      continue
+    }
+
+    const trimmed = line.trim()
+    if (/^\[image recognition:/i.test(trimmed)) {
+      skippingRecognitionBlock = true
+      continue
+    }
+    if (skippingRecognitionBlock) {
+      if (trimmed === '' || /^(描述|OCR)\s*:/i.test(trimmed)) {
+        continue
+      }
+      skippingRecognitionBlock = false
+    }
+
+    if (isHiddenAgentPromptLine(line)) {
+      continue
+    }
+
+    textLines.push(line)
+  }
+
+  return { textWithoutMedia: textLines.join('\n').trim(), mediaFiles }
+}
+
+/** 生成会话列表等处的用户消息预览文案（剥离附件与 Agent 注入标记） */
+export function getDisplayMessagePreview(content: string, maxLen = 30): string {
+  const { textWithoutMedia } = parseMediaAttachments(content)
+  if (!textWithoutMedia) return '暂无消息'
+  if (textWithoutMedia.length <= maxLen) return textWithoutMedia
+  return `${textWithoutMedia.slice(0, maxLen)}...`
+}
+
+/**
+ * 从用户消息中提取应保留给 Agent 的后缀行（附件标记、parsed text、图片识别块等）。
+ * 编辑用户可见正文时，保存时再拼回该后缀，避免丢失附件上下文。
+ */
+export function extractAgentPromptSuffix(content: string): string {
+  const lines = content.split('\n')
+  const suffix: string[] = []
+  let skippingRecognitionBlock = false
+
+  for (const line of lines) {
+    if (parseMediaAttachedLine(line)) {
+      skippingRecognitionBlock = false
+      suffix.push(line)
+      continue
+    }
+
+    const trimmed = line.trim()
+    if (/^\[image recognition:/i.test(trimmed)) {
+      skippingRecognitionBlock = true
+      suffix.push(line)
+      continue
+    }
+    if (skippingRecognitionBlock) {
+      if (trimmed === '' || /^(描述|OCR)\s*:/i.test(trimmed)) {
+        suffix.push(line)
+        continue
+      }
+      skippingRecognitionBlock = false
+    }
+
+    if (isHiddenAgentPromptLine(line)) {
+      suffix.push(line)
+    }
+  }
+
+  return suffix.join('\n').trim()
+}
+
+/** 将用户编辑后的可见正文与原消息中的 Agent/附件后缀重新合并 */
+export function mergeEditedUserMessage(originalContent: string, editedDisplayText: string): string {
+  const suffix = extractAgentPromptSuffix(originalContent)
+  const text = editedDisplayText.trim()
+  if (!suffix) return text
+  if (!text) return suffix
+  return `${text}\n${suffix}`
+}
+
 // ---------------------------------------------------------------
 // 扩展名与 MIME 集合（按类别分组）
 // ---------------------------------------------------------------
@@ -324,4 +468,9 @@ export function getSupportedDocumentAccept(): string {
 /** 汇总所有支持的图片 accept，供 <input accept="..."> 使用 */
 export function getSupportedImageAccept(): string {
   return [...IMAGE_MIME_TYPES, ...IMAGE_EXTENSIONS].join(',')
+}
+
+/** 汇总图片 + 文档统一附件 accept，供 Composer「+」菜单单一文件选择器使用 */
+export function getSupportedAttachmentAccept(): string {
+  return [getSupportedImageAccept(), getSupportedDocumentAccept()].filter(Boolean).join(',')
 }

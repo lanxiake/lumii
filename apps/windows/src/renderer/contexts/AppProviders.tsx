@@ -5,12 +5,13 @@
  */
 
 import React from 'react'
-import { AuthProvider } from './AuthContext/AuthContext'
 import { ThemeProvider } from './ThemeContext/ThemeContext'
 import { SettingsProvider } from './SettingsContext/SettingsContext'
 import { SkillsProvider } from './SkillsContext/SkillsContext'
 import { PluginsProvider } from './PluginsContext/PluginsContext'
+import { AppFontScaleProvider } from './AppFontScaleContext/AppFontScaleContext'
 import { ToastProvider } from '../components/ui/Toast/ToastContainer'
+import { SettingsHubProvider } from '../components/SettingsHub'
 
 interface AppProvidersProps {
   children: React.ReactNode
@@ -18,23 +19,25 @@ interface AppProvidersProps {
 
 /**
  * 应用上下文提供者组合
- * 按照依赖顺序排列：Auth -> Settings -> Theme -> Skills -> Toast
+ * 按照依赖顺序排列：Settings -> Theme -> FontScale -> Skills -> Toast -> SettingsHub
  */
 export const AppProviders: React.FC<AppProvidersProps> = ({ children }) => {
   return (
-    <AuthProvider>
-      <SettingsProvider>
-        <ThemeProvider>
+    <SettingsProvider>
+      <ThemeProvider>
+        <AppFontScaleProvider>
           <SkillsProvider>
             <PluginsProvider>
               <ToastProvider>
-                {children}
+                <SettingsHubProvider>
+                  {children}
+                </SettingsHubProvider>
               </ToastProvider>
             </PluginsProvider>
           </SkillsProvider>
-        </ThemeProvider>
-      </SettingsProvider>
-    </AuthProvider>
+        </AppFontScaleProvider>
+      </ThemeProvider>
+    </SettingsProvider>
   )
 }
 

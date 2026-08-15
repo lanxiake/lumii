@@ -7,6 +7,10 @@
   gap: 20px;
 }
 
+.agents-page--embedded {
+  padding: 12px 16px 16px;
+}
+
 .agents-header {
   display: flex;
   align-items: flex-start;

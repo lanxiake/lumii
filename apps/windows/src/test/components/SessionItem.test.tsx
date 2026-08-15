@@ -51,7 +51,7 @@ describe('Phase 4: 会话管理 - SessionItem组件', () => {
     it('TC-4.3.2: 点击会话项触发选择回调', () => {
       render(<SessionItem {...mockProps} />)
 
-      const sessionItem = screen.getByText('测试会话').closest('button')
+      const sessionItem = screen.getByText('测试会话').closest('[role="button"]')
       fireEvent.click(sessionItem!)
 
       expect(mockProps.onSelect).toHaveBeenCalled()
@@ -157,7 +157,7 @@ describe('Phase 4: 会话管理 - SessionItem组件', () => {
     it('TC-4.4.2: 菜单显示正确的置顶文本', () => {
       render(<SessionItem {...mockProps} />)
 
-      const sessionItem = screen.getByText('测试会话').closest('button')
+      const sessionItem = screen.getByText('测试会话').closest('[role="button"]')
       fireEvent.contextMenu(sessionItem!)
 
       expect(screen.getByText('置顶会话')).toBeInTheDocument()
@@ -167,7 +167,7 @@ describe('Phase 4: 会话管理 - SessionItem组件', () => {
       const session = createMockSession({ isPinned: true })
       render(<SessionItem {...mockProps} session={session} />)
 
-      const sessionItem = screen.getByText('测试会话').closest('button')
+      const sessionItem = screen.getByText('测试会话').closest('[role="button"]')
       fireEvent.contextMenu(sessionItem!)
 
       expect(screen.getByText('取消置顶')).toBeInTheDocument()
@@ -178,7 +178,7 @@ describe('Phase 4: 会话管理 - SessionItem组件', () => {
     it('TC-4.5.1: 点击重命名进入编辑模式', () => {
       render(<SessionItem {...mockProps} />)
 
-      const sessionItem = screen.getByText('测试会话').closest('button')
+      const sessionItem = screen.getByText('测试会话').closest('[role="button"]')
       fireEvent.contextMenu(sessionItem!)
 
       const renameBtn = screen.getByText('重命名')
@@ -203,7 +203,7 @@ describe('Phase 4: 会话管理 - SessionItem组件', () => {
     it('TC-4.5.3: 按Enter保存新标题', () => {
       render(<SessionItem {...mockProps} />)
 
-      const sessionItem = screen.getByText('测试会话').closest('button')
+      const sessionItem = screen.getByText('测试会话').closest('[role="button"]')
       fireEvent.contextMenu(sessionItem!)
       fireEvent.click(screen.getByText('重命名'))
 
@@ -217,7 +217,7 @@ describe('Phase 4: 会话管理 - SessionItem组件', () => {
     it('TC-4.5.4: 按Escape取消编辑', () => {
       render(<SessionItem {...mockProps} />)
 
-      const sessionItem = screen.getByText('测试会话').closest('button')
+      const sessionItem = screen.getByText('测试会话').closest('[role="button"]')
       fireEvent.contextMenu(sessionItem!)
       fireEvent.click(screen.getByText('重命名'))
 
@@ -231,7 +231,7 @@ describe('Phase 4: 会话管理 - SessionItem组件', () => {
     it('TC-4.5.5: 失焦保存标题', () => {
       render(<SessionItem {...mockProps} />)
 
-      const sessionItem = screen.getByText('测试会话').closest('button')
+      const sessionItem = screen.getByText('测试会话').closest('[role="button"]')
       fireEvent.contextMenu(sessionItem!)
       fireEvent.click(screen.getByText('重命名'))
 
@@ -245,7 +245,7 @@ describe('Phase 4: 会话管理 - SessionItem组件', () => {
     it('TC-4.5.6: 空白标题不保存', () => {
       render(<SessionItem {...mockProps} />)
 
-      const sessionItem = screen.getByText('测试会话').closest('button')
+      const sessionItem = screen.getByText('测试会话').closest('[role="button"]')
       fireEvent.contextMenu(sessionItem!)
       fireEvent.click(screen.getByText('重命名'))
 

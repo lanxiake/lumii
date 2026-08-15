@@ -6,6 +6,15 @@
   background-color: var(--color-bg-primary);
 }
 
+.memories-page--embedded {
+  background-color: transparent;
+}
+
+.memories-embedded-actions {
+  padding: 0 16px 8px;
+  justify-content: flex-end;
+}
+
 .header-actions {
   display: flex;
   gap: 8px;

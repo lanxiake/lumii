@@ -1,0 +1,225 @@
+/* ChannelCard — 整宽行式渠道卡片：标题行 / 错误横幅 / meta 条 / peer 区 */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--mt-border-hairline);
+  border-radius: var(--mt-radius-xl);
+  background: var(--mt-bg-elevated);
+  overflow: hidden;
+  transition: border-color var(--mt-dur-normal, 200ms) var(--mt-ease-standard);
+}
+
+.card:hover {
+  border-color: var(--mt-border);
+}
+
+/* ---- 标题行 ---- */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  min-width: 0;
+}
+
+.icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.name {
+  font-size: 14px;
+  font-weight: var(--mt-fw-medium);
+  line-height: 20px;
+  color: var(--mt-fg-1);
+}
+
+.descRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.description {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--mt-fg-3);
+  overflow-wrap: anywhere;
+}
+
+.capability {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: var(--mt-radius-full);
+  background: var(--mt-bg-overlay);
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--mt-fg-4);
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ---- 错误横幅 ---- */
+
+.error {
+  padding: 10px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--mt-error) 30%, transparent);
+  background: color-mix(in srgb, var(--mt-error) 12%, transparent);
+  color: var(--mt-error);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+[data-theme='light'] .error {
+  color: var(--mt-error-dark);
+}
+
+/* ---- meta 条 ---- */
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 32px;
+  margin: 0;
+  padding: 12px 16px;
+  border-top: 1px solid var(--mt-border-hairline);
+  background: var(--mt-surface-2);
+}
+
+.metaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.metaLabel {
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--mt-fg-4);
+}
+
+.metaValue {
+  margin: 0;
+  font-size: 12px;
+  font-weight: var(--mt-fw-medium);
+  line-height: 16px;
+  color: var(--mt-fg-2);
+  overflow-wrap: anywhere;
+}
+
+.mono {
+  font-family: var(--mt-font-mono);
+  font-weight: var(--mt-fw-regular);
+}
+
+/* ---- 可发送对象 ---- */
+
+.peers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--mt-border-hairline);
+}
+
+.peersLabel {
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--mt-fg-4);
+}
+
+.peersEmpty {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--mt-fg-4);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 10px 5px 8px;
+  border-radius: var(--mt-radius-full);
+  background: var(--mt-surface-3);
+  font-size: 12px;
+  line-height: 16px;
+  min-width: 0;
+}
+
+.chipDot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--mt-radius-full);
+  background: var(--mt-success);
+  flex-shrink: 0;
+}
+
+.chipBlocked .chipDot {
+  background: var(--mt-fg-4);
+}
+
+.chipName {
+  font-weight: var(--mt-fw-medium);
+  color: var(--mt-fg-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipId {
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  color: var(--mt-fg-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipReason {
+  color: var(--mt-fg-4);
+  white-space: nowrap;
+}
+
+/* 窄宽度下让状态与操作换行，避免描述被挤成竖排 */
+@media (max-width: 720px) {
+  .row {
+    flex-wrap: wrap;
+  }
+
+  .text {
+    flex-basis: 100%;
+    order: 1;
+  }
+
+  .icon {
+    order: 0;
+  }
+}

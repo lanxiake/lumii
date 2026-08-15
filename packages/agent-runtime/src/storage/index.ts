@@ -76,3 +76,17 @@ export {
   maybeRunAutoVacuumSync,
 } from "./storage-stats.js";
 export type { LocalStorageStats } from "./storage-stats.js";
+
+export {
+  applyAssistantPartEvent,
+  finalizeAssistantParts,
+  diffTurnSnapshots,
+} from "./assistant-parts.js";
+export type {
+  AssistantPart,
+  AssistantPartEvent,
+  AssistantPartsContent,
+  FileChangeEntry,
+  TurnFileSnapshot,
+  ApplyAssistantPartEventOptions,
+} from "./assistant-parts.js";

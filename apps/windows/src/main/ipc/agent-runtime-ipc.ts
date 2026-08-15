@@ -9,7 +9,9 @@
 
 import path from 'node:path'
 import fs from 'node:fs'
+import os from 'node:os'
 import { ipcMain, shell, dialog, type BrowserWindow } from 'electron'
+import { Cron } from 'croner'
 import { BUILT_IN_AGENTS, type AgentDefinition } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../shared/agent-runtime-commands'
 import type { AgentRuntimeEvent } from '../../shared/agent-runtime-events'
@@ -19,11 +21,13 @@ import { deriveConversationTitleFromUserText } from '../../shared/conversation-t
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 import { parseThinkTagsFromRaw } from '../agent-runtime/event-converter'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
+import { getToolUsage } from '../tool-usage-store'
 import { AcpBackendManager } from '../channel/acp-backend-manager'
 import { IpcChannelAdapter } from '../channel/adapters/ipc-channel-adapter'
 import { StatefulContextStrategy } from '../channel/context-strategy/stateful-strategy'
 import type { WeixinSessionBindingManager } from '../channel/weixin-session-binding'
 import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
+import { DEFAULT_CODING_DEV_BACKEND_ID } from '../coding-dev-backends-stub/contracts.js'
 import { extractDocumentText } from '../vendor/document-parser.js'
 import { getAcpRunController } from '../coding-dev-acp-run.js'
 
@@ -177,10 +181,30 @@ function shouldReadPreviewAsUtf8(effectiveMime: string | null, fileName: string)
 }
 
 /**
+ * 展开以 ~ 开头的路径为当前用户主目录下的绝对路径。
+ */
+function expandTildePath(input: string): string {
+  const trimmed = input.trim()
+  if (trimmed.startsWith('~')) {
+    return path.resolve(trimmed.replace(/^~(?=$|[/\\])/, os.homedir()))
+  }
+  return trimmed
+}
+
+/**
  * 解析后的绝对路径须落在 Agent workspace（cwd）内，防止路径穿越
  */
 function isResolvedPathInsideWorkspace(resolvedAbs: string, resolvedCwd: string): boolean {
   return resolvedAbs.startsWith(resolvedCwd + path.sep) || resolvedAbs === resolvedCwd
+}
+
+/**
+ * 判断预览路径是否在允许范围内：Agent 工作区或 Lumii 截图临时目录（app_screenshot 缩略图）。
+ */
+function isAllowedPreviewPath(resolvedAbs: string, resolvedCwd: string): boolean {
+  if (isResolvedPathInsideWorkspace(resolvedAbs, resolvedCwd)) return true
+  const screenshotDir = path.resolve(path.join(resolveWindowsClientDataRoot(), 'temp', 'screenshots'))
+  return resolvedAbs.startsWith(screenshotDir + path.sep)
 }
 
 /**
@@ -271,7 +295,8 @@ const BASE_SLASH_COMMANDS = [
   },
 ] as const
 
-const LOCAL_USER_ID = 'local-user'
+/** 客户端侧固定 accountId：user-global 后端选择写在这个 key 下 */
+export const LOCAL_USER_ID = 'local-user'
 
 /**
  * 当前挂载到 IPC 的 Bridge（在 initAgentRuntime 创建实例后立即赋值，早于 initialize 完成）
@@ -288,6 +313,28 @@ let audioTranscribeCallback: ((base64: string, mimeType: string) => Promise<stri
  */
 export function setAudioTranscribeCallback(cb: ((base64: string, mimeType: string) => Promise<string>) | null): void {
   audioTranscribeCallback = cb
+}
+
+/**
+ * Provider 配置变更后使会话 Agent 实例失效，下次发消息按新配置重建（走 direct）。
+ * 不关闭数据库，仅销毁内存中的实例与 session 映射。
+ */
+export function invalidateAgentInstancesForProviderChange(): void {
+  if (!ipcBridgeRef) {
+    log.warn('[invalidateAgentInstancesForProviderChange] bridge 未就绪，跳过')
+    return
+  }
+  const instances = ipcBridgeRef.getInstances()
+  log.info(`[invalidateAgentInstancesForProviderChange] 销毁 ${instances.length} 个实例`)
+  for (const inst of instances) {
+    try {
+      untrackInstanceRuns(inst.id)
+      ipcBridgeRef.destroy(inst.id)
+    } catch (err) {
+      log.warn(`[invalidateAgentInstancesForProviderChange] destroy ${inst.id} 失败:`, err)
+    }
+  }
+  sessionToInstance.clear()
 }
 
 /**
@@ -345,11 +392,12 @@ export function installAgentRuntimeCommandIpc(): void {
       log.warn(`[command] bridge 未就绪（不应发生）: ${command?.type}`)
       return { ok: false, error: 'NOT_READY' }
     }
-    // 高频命令降级为 debug，避免日志刷屏
+    // 高频/轮询命令降级为静默，避免日志刷屏
     const QUIET_COMMANDS = new Set([
       'agentInstance:lifecycleSnapshot',
       'runtime:modelCatalog:set',
       'conversation:list',
+      'agentDefinition:syncStatus',
     ])
     if (!QUIET_COMMANDS.has(command?.type)) {
       log.info(`[command] received: ${command?.type}`)
@@ -368,6 +416,23 @@ export function installAgentRuntimeCommandIpc(): void {
 /**
  * 解析记忆列表/清空所用的 Agent 定义 ID
  */
+/**
+ * 把 MCP 写操作包成 { success, error }
+ *
+ * 配置无效、名称冲突、命令启动失败都是用户可修的日常错误，
+ * 不该抛到 IPC 边界外变成 renderer 的未捕获 rejection。
+ */
+async function toMcpResult(action: () => Promise<void>): Promise<{ success: boolean; error?: string }> {
+  try {
+    await action()
+    return { success: true }
+  } catch (err) {
+    const error = (err as Error).message
+    log.error('[mcp] 操作失败:', error)
+    return { success: false, error }
+  }
+}
+
 function resolveAgentIdForMemories(
   bridge: AgentRuntimeBridge,
   sessionKey?: string,
@@ -408,6 +473,15 @@ function pushEvent(win: BrowserWindow, event: AgentRuntimeEvent): void {
   } catch (e) {
     log.error(`[pushEvent] voiceEventBus 回调异常 type=${(event as any)?.type}: ${(e as Error).message}`)
   }
+}
+
+/**
+ * 供渠道适配器（飞书/企微/微信）推送 Agent 事件到渲染进程。
+ * 渠道消息与客户端自发消息共用同一套事件通道，客户端才能实时看到渠道会话的运行过程。
+ */
+export function pushAgentRuntimeEvent(event: AgentRuntimeEvent): void {
+  const win = ipcMainWindowRef
+  if (win && !win.isDestroyed()) pushEvent(win, event)
 }
 
 /**
@@ -501,6 +575,27 @@ async function handleCommand(
           `[user:send] sessionKey=${command.sessionKey}, instanceId=${instanceId}, modelId=${command.modelId ?? '(default)'}, content="${command.content.slice(0, 50)}"`,
         )
 
+        // 确保会话存在于数据库（防止前端 createSession IPC 尚未完成时用户就发送了消息）
+        const existingConv = bridge.conversationRepo.getConversation(command.sessionKey)
+        if (!existingConv) {
+          log.warn(`[user:send] 会话 ${command.sessionKey} 不存在，自动创建`)
+          const agentId = command.agentId ?? 'assistant'
+          // 直接插入数据库，使用前端传入的 sessionKey 作为 conversation.id
+          const now = new Date().toISOString()
+          bridge.conversationRepo['db'].prepare(
+            `INSERT INTO conversations (id, user_id, title, is_active, created_at)
+             VALUES (?, ?, ?, 1, ?)`,
+          ).run(command.sessionKey, LOCAL_USER_ID, '新对话', now)
+          // 插入参与者（user + agent）
+          const insertParticipant = bridge.conversationRepo['db'].prepare(
+            `INSERT INTO conversation_participants (conversation_id, participant_type, participant_id, joined_at)
+             VALUES (?, ?, ?, ?)`,
+          )
+          insertParticipant.run(command.sessionKey, 'user', LOCAL_USER_ID, now)
+          insertParticipant.run(command.sessionKey, 'agent', agentId, now)
+          log.info(`[user:send] 自动创建会话 ${command.sessionKey}, agentId=${agentId}`)
+        }
+
         // 持久化用户消息到 DB（sessionKey === conversationId；语音消息含 WAV 供历史回放）
         try {
           const voice = 'isVoice' in command && command.isVoice === true
@@ -566,10 +661,10 @@ async function handleCommand(
         const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
         trackRunInstance(runId, instanceId)
 
-        // 检查 ACP 后端：per-peer 优先，回退到 user-global，再回退到默认 openclaw
+        // 检查 ACP 后端：per-peer 优先，回退到 user-global，再回退到默认主代理
         const acpMgr = getAcpBackendManager()
         const currentBackend = acpMgr.getBackendWithFallback(LOCAL_USER_ID, command.sessionKey)
-        if (currentBackend !== 'openclaw') {
+        if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
           log.info(`[user:send] ACP 路径: backendId=${currentBackend} sessionKey=${command.sessionKey}`)
           // Controller 内部负责：turn:start / message:start / delta / tool:start/progress/end /
           // message:end / idle / timeout / abort / DB 持久化。异步执行，不阻塞 IPC 响应。
@@ -589,7 +684,7 @@ async function handleCommand(
           return { runId }
         }
 
-        // openclaw：通过 IpcChannelAdapter → SessionManager 发送（含并发保护 + 增量同步）
+        // 主代理：通过 IpcChannelAdapter → SessionManager 发送（含并发保护 + 增量同步）
         // 不 await，让它在后台运行
         // 图片附件路径透传给 bridge.prompt，由其读盘转 base64 构造多模态 ImageContent 块
         const imageAttachmentPaths = command.imageAttachmentPaths
@@ -629,9 +724,11 @@ async function handleCommand(
           if (command.runId) untrackRun(command.runId)
           return undefined
         }
-        // 2. 现有 openclaw 中止逻辑
+        // 2. 现有主代理中止逻辑：清挂起等待 + 级联 abort + 释放会话串行锁
         if (command.sessionKey) {
           const abortedRoots = bridge.abortSession(command.sessionKey)
+          // 无论是否找到根实例，都清锁，防止上一轮 prompt Promise 未 settle 卡住后续 send
+          getIpcChannelAdapter(bridge).sessionManager.clearLock(command.sessionKey)
           if (abortedRoots > 0) {
             if (command.runId) untrackRun(command.runId)
             return undefined
@@ -646,7 +743,10 @@ async function handleCommand(
           return undefined
         }
         // 仅中止当前 run 对应实例（及其子 Agent），避免误伤其他会话
-        bridge.abortWithChildren(instanceIdToAbort)
+        bridge.abortWithChildrenAndPending(instanceIdToAbort)
+        if (command.sessionKey) {
+          getIpcChannelAdapter(bridge).sessionManager.clearLock(command.sessionKey)
+        }
         if (command.runId) untrackRun(command.runId)
         return undefined
       }
@@ -848,7 +948,16 @@ async function handleCommand(
 
       // ---- 工具管理 ----
       case 'tools:list': {
-        return bridge.listTools()
+        // 附带累计调用次数，让 UI 能标出高频/从未使用的工具
+        const usage = await getToolUsage()
+        return bridge.listTools().map((tool) => {
+          const stat = usage[tool.name]
+          return {
+            ...tool,
+            usageCount: stat?.count ?? 0,
+            ...(stat?.lastUsedAt ? { lastUsedAt: stat.lastUsedAt } : {}),
+          }
+        })
       }
 
       case 'tools:toggle': {
@@ -858,7 +967,39 @@ async function handleCommand(
       }
 
       case 'mcp:status': {
-        return bridge.getMcpStatus()
+        const configError = bridge.getMcpConfigError()
+        return {
+          servers: bridge.getMcpStatus(),
+          ...(configError ? { configError } : {}),
+        }
+      }
+
+      case 'mcp:upsert': {
+        return toMcpResult(() => bridge.upsertMcpServer(command.entry, command.originalName))
+      }
+
+      case 'mcp:import': {
+        return toMcpResult(() => bridge.importMcpServers(command.entries))
+      }
+
+      case 'mcp:remove': {
+        return toMcpResult(() => bridge.removeMcpServer(command.name))
+      }
+
+      case 'mcp:setEnabled': {
+        return toMcpResult(() => bridge.setMcpServerEnabled(command.name, command.enabled))
+      }
+
+      case 'mcp:reconnect': {
+        return toMcpResult(() => bridge.reconnectMcpServer(command.name))
+      }
+
+      case 'mcp:readConfigFile': {
+        return bridge.readMcpConfigFile()
+      }
+
+      case 'mcp:writeConfigFile': {
+        return toMcpResult(() => bridge.writeMcpConfigFile(command.content))
       }
 
       // ---- 主进程桥接（原 agent-runtime:* 独立通道）----
@@ -1113,6 +1254,12 @@ async function handleCommand(
           const instanceId = await getInstanceForSession(bridge, command.sessionKey)
           if (instanceId) {
             const result = await bridge.compactContextAsync(instanceId, command.sessionKey, keepTurns)
+            // 压缩后 DB 比内存短，必须强制下次 prompt 以 DB（含摘要）为准重注入
+            const adapter = getIpcChannelAdapter(bridge)
+            const strategy = adapter.getContextStrategy()
+            if (strategy instanceof StatefulContextStrategy) {
+              strategy.markForceResync(command.sessionKey)
+            }
             return result
           } else {
             log.warn(`[user:compact-context] 无法恢复 instanceId，降级为同步压缩: sessionKey=${command.sessionKey}`)
@@ -1134,6 +1281,20 @@ async function handleCommand(
           return { files, total: files.length }
         }
         return bridge.fileRepo.listByUser(userId, { agentId, channel, category, limit, offset })
+      }
+
+      case 'tasks:list': {
+        const { conversationId } = command
+        const rows = bridge.taskRepo.list(conversationId)
+        return {
+          tasks: rows.map((t) => ({
+            id: t.id,
+            subject: t.subject,
+            description: t.description,
+            status: t.status,
+            owner: t.owner,
+          })),
+        }
       }
 
       case 'files:search': {
@@ -1261,14 +1422,12 @@ async function handleCommand(
       case 'files:read-preview-by-path': {
         const { filePath, startLine, endLine } = command
         const cwd = bridge.getCwd()
-        // 路径安全：必须位于 workspace 内
-        const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(cwd, filePath)
+        const expandedPath = expandTildePath(filePath)
+        // 路径安全：须位于 workspace 或 Lumii 截图临时目录内
+        const absPath = path.isAbsolute(expandedPath) ? expandedPath : path.resolve(cwd, expandedPath)
         const resolvedAbs = path.resolve(absPath)
         const resolvedCwd = path.resolve(cwd)
-        if (
-          !resolvedAbs.startsWith(resolvedCwd + path.sep) &&
-          resolvedAbs !== resolvedCwd
-        ) {
+        if (!isAllowedPreviewPath(resolvedAbs, resolvedCwd)) {
           throw new Error('该路径不在当前 Agent 工作目录内，无法预览')
         }
         if (!fs.existsSync(resolvedAbs)) {
@@ -1898,7 +2057,7 @@ async function migrateThinkTagsInDb(bridge: AgentRuntimeBridge): Promise<void> {
 function getConversationMessages(
   bridge: AgentRuntimeBridge,
   sessionKey: string,
-): readonly { id: string; role: string; content: readonly { type: 'text'; text: string }[]; timestamp: number; isStreaming?: boolean; thinkingText?: string; toolCalls?: readonly { id: string; name: string; args: Record<string, unknown>; result?: unknown; isError?: boolean; textPositionAtStart?: number }[]; sourceAgent?: { instanceId: string; label: string }; isVoice?: boolean; audioWavBase64?: string }[] {
+): readonly { id: string; role: string; content: readonly { type: 'text'; text: string }[]; contentJson: string; timestamp: number; isStreaming?: boolean; thinkingText?: string; toolCalls?: readonly { id: string; name: string; args: Record<string, unknown>; result?: unknown; isError?: boolean; textPositionAtStart?: number }[]; sourceAgent?: { instanceId: string; label: string }; isVoice?: boolean; audioWavBase64?: string }[] {
   const conversationId = sessionKey
   bridge.setLastActiveConversation(conversationId)
   const messages = bridge.conversationRepo.loadRecentMessages(conversationId, 2000, true)
@@ -1926,8 +2085,12 @@ function getConversationMessages(
         const aw = (parsed as { audioWavBase64?: unknown }).audioWavBase64
         if (typeof aw === 'string' && aw.length > 0) audioWavBase64 = aw
       }
+      // 仅工具调用、无正文的 assistant 回合 text 为空，此时不能兜到 JSON.stringify，
+      // 否则 null 会渲染成字面量 "null"、tool_result 会渲染成整坨 JSON。
       contentText = typeof parsed === 'string' ? parsed
-        : parsed?.text ?? parsed?.content ?? JSON.stringify(parsed)
+        : typeof parsed?.text === 'string' ? parsed.text
+          : typeof parsed?.content === 'string' ? parsed.content
+            : ''
       // 读取存库的 thinkingText（新格式）
       if (parsed && typeof parsed === 'object' && typeof (parsed as { thinkingText?: unknown }).thinkingText === 'string') {
         thinkingText = (parsed as { thinkingText: string }).thinkingText || undefined
@@ -1966,6 +2129,8 @@ function getConversationMessages(
       id: msg.id,
       role: msg.role,
       content: [{ type: 'text' as const, text: contentText }],
+      // renderer 使用共享 parser 恢复 assistant_parts，保留旧 content 字段兼容历史消息。
+      contentJson: msg.content_json,
       timestamp: new Date(msg.timestamp).getTime(),
       ...(msg.is_streaming === 1 ? { isStreaming: true } : {}),
       ...(thinkingText ? { thinkingText } : {}),
@@ -1988,6 +2153,10 @@ function createLocalCronJob(
     scheduleType: 'at' | 'every' | 'cron'
     scheduleExpr: string
     agentId?: string
+    activeDays?: string
+    activeHourStart?: number
+    activeHourEnd?: number
+    notifyTargets?: string
   },
 ): { status: 'ok' | 'error'; job?: { id: string; name: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt?: number; intervalMs?: number; enabled: boolean }; message?: string } {
   const name = command.name.trim()
@@ -1998,24 +2167,8 @@ function createLocalCronJob(
   }
 
   const now = Date.now()
-  let nextRunAt = now
-  let intervalMs: number | undefined
-  if (command.scheduleType === 'every') {
-    const ms = parseStrictMs(scheduleExpr)
-    if (!ms || ms <= 0) {
-      return { status: 'error', message: 'Invalid scheduleExpr for every' }
-    }
-    intervalMs = ms
-    nextRunAt = now + ms
-  } else if (command.scheduleType === 'at') {
-    const atMs = parseAtScheduleExprLite(scheduleExpr)
-    if (atMs === undefined) {
-      return { status: 'error', message: 'Invalid scheduleExpr for at' }
-    }
-    nextRunAt = atMs
-  } else {
-    return { status: 'error', message: 'Local IPC create supports only at/every' }
-  }
+  const schedule = resolveLocalCronSchedule(command.scheduleType, scheduleExpr, now)
+  if (!schedule.ok) return { status: 'error', message: schedule.message }
 
   const id = `local-cron-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   bridge.createLocalCronJobRecord({
@@ -2025,10 +2178,14 @@ function createLocalCronJob(
     agentId: command.agentId,
     scheduleType: command.scheduleType,
     scheduleExpr,
-    nextRunAt,
-    intervalMs,
+    nextRunAt: schedule.nextRunAt,
+    intervalMs: schedule.intervalMs,
     enabled: true,
     createdAt: now,
+    activeDays: command.activeDays ?? null,
+    activeHourStart: command.activeHourStart ?? null,
+    activeHourEnd: command.activeHourEnd ?? null,
+    notifyTargets: command.notifyTargets ?? null,
   })
   bridge.reloadLocalCronScheduler()
 
@@ -2039,8 +2196,8 @@ function createLocalCronJob(
       name,
       scheduleType: command.scheduleType,
       scheduleExpr,
-      nextRunAt,
-      intervalMs,
+      nextRunAt: schedule.nextRunAt,
+      intervalMs: schedule.intervalMs,
       enabled: true,
     },
   }
@@ -2052,7 +2209,7 @@ function createLocalCronJob(
 function listLocalCronJobs(
   bridge: AgentRuntimeBridge,
   includeDisabled: boolean,
-): { status: 'ok'; jobs: Array<{ id: string; name: string; taskText: string; agentId?: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number; enabled: boolean; createdAt: number; lastRunAt?: number; lastStatus?: 'ok' | 'error' | 'running' }>; total: number } {
+): { status: 'ok'; jobs: Array<{ id: string; name: string; taskText: string; agentId?: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number; enabled: boolean; createdAt: number; lastRunAt?: number; lastStatus?: 'ok' | 'error' | 'running'; activeDays?: string; activeHourStart?: number; activeHourEnd?: number; notifyTargets?: string }>; total: number } {
   const rows = bridge.listLocalCronJobRecords(includeDisabled)
   return {
     status: 'ok',
@@ -2069,6 +2226,10 @@ function listLocalCronJobs(
       createdAt: r.created_at,
       ...(r.last_run_at != null ? { lastRunAt: r.last_run_at } : {}),
       ...(r.last_status != null ? { lastStatus: r.last_status } : {}),
+      ...(r.active_days != null ? { activeDays: r.active_days } : {}),
+      ...(r.active_hour_start != null ? { activeHourStart: r.active_hour_start } : {}),
+      ...(r.active_hour_end != null ? { activeHourEnd: r.active_hour_end } : {}),
+      ...(r.notify_targets != null ? { notifyTargets: r.notify_targets } : {}),
     })),
     total: rows.length,
   }
@@ -2096,7 +2257,18 @@ function deleteLocalCronJob(
 function updateLocalCronJob(
   bridge: AgentRuntimeBridge,
   id: string,
-  patch: { enabled?: boolean; name?: string; taskText?: string },
+  patch: {
+    enabled?: boolean
+    name?: string
+    taskText?: string
+    agentId?: string | null
+    scheduleType?: 'at' | 'every' | 'cron'
+    scheduleExpr?: string
+    activeDays?: string
+    activeHourStart?: number | null
+    activeHourEnd?: number | null
+    notifyTargets?: string
+  },
 ): { status: 'ok' | 'not_found' | 'error'; id: string; message?: string } {
   const cleanId = id.trim()
   if (!cleanId) return { status: 'error', id, message: 'id is required' }
@@ -2104,15 +2276,61 @@ function updateLocalCronJob(
   if (!row) return { status: 'not_found', id: cleanId }
   const nextName = patch.name?.trim() || row.name
   const nextTaskText = patch.taskText?.trim() || row.task_text
+  const nextAgentId = patch.agentId === undefined ? row.agent_id : patch.agentId?.trim() || null
   const nextEnabled = typeof patch.enabled === 'boolean' ? (patch.enabled ? 1 : 0) : row.enabled
+  const nextScheduleType = patch.scheduleType ?? row.schedule_type
+  const nextScheduleExpr = patch.scheduleExpr?.trim() || row.schedule_expr
+  const schedule = resolveLocalCronSchedule(nextScheduleType, nextScheduleExpr, Date.now(), false)
+  if (!schedule.ok) return { status: 'error', id: cleanId, message: schedule.message }
   bridge.updateLocalCronJobRecord({
     id: cleanId,
     name: nextName,
     taskText: nextTaskText,
+    agentId: nextAgentId ?? undefined,
     enabled: nextEnabled === 1,
+    scheduleType: nextScheduleType,
+    scheduleExpr: nextScheduleExpr,
+    nextRunAt: schedule.nextRunAt,
+    intervalMs: schedule.intervalMs,
+    // undefined 表示本次 patch 不涉及该字段，沿用旧值
+    activeDays: patch.activeDays === undefined ? row.active_days : patch.activeDays,
+    activeHourStart: patch.activeHourStart === undefined ? row.active_hour_start : patch.activeHourStart,
+    activeHourEnd: patch.activeHourEnd === undefined ? row.active_hour_end : patch.activeHourEnd,
+    notifyTargets: patch.notifyTargets === undefined ? row.notify_targets : patch.notifyTargets,
   })
   bridge.reloadLocalCronScheduler()
   return { status: 'ok', id: cleanId }
+}
+
+function resolveLocalCronSchedule(
+  scheduleType: 'at' | 'every' | 'cron',
+  scheduleExpr: string,
+  now: number,
+  requireFuture = true,
+): { ok: true; nextRunAt: number; intervalMs?: number } | { ok: false; message: string } {
+  if (scheduleType === 'every') {
+    const intervalMs = parseStrictMs(scheduleExpr)
+    if (!intervalMs || intervalMs <= 0) {
+      return { ok: false, message: 'Invalid scheduleExpr for every' }
+    }
+    return { ok: true, nextRunAt: now + intervalMs, intervalMs }
+  }
+
+  if (scheduleType === 'at') {
+    const nextRunAt = parseAtScheduleExprLite(scheduleExpr)
+    if (nextRunAt === undefined || (requireFuture && nextRunAt < now)) {
+      return { ok: false, message: 'Invalid scheduleExpr for at' }
+    }
+    return { ok: true, nextRunAt }
+  }
+
+  try {
+    const next = new Cron(scheduleExpr, { timezone: 'Asia/Shanghai' }).nextRun()
+    if (!next) return { ok: false, message: 'Cron expression has no next run' }
+    return { ok: true, nextRunAt: next.getTime() }
+  } catch {
+    return { ok: false, message: 'Invalid scheduleExpr for cron' }
+  }
 }
 
 /**

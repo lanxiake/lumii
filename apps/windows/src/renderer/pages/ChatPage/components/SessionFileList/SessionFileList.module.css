@@ -284,3 +284,361 @@
   max-height: 280px;
   border-top: none;
 }
+
+/* ── 对话流内轻量 Files Changed 卡片（对齐 Cursor 居中消息组件） ── */
+
+.inlineCard {
+  width: 100%;
+  border: 1px solid var(--mt-border-hairline, rgba(0, 0, 0, 0.08));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mt-bg-primary, #fff) 88%, transparent);
+  overflow: hidden;
+}
+
+.inlineHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  min-height: 32px;
+}
+
+.inlineHeaderToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+
+.inlineChevron {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--mt-fg-4, #9ca3af);
+  transition: transform 0.15s ease;
+  transform: rotate(-90deg);
+}
+
+.inlineChevronOpen {
+  transform: rotate(0deg);
+}
+
+.inlineHeaderTitle {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mt-fg-3, #6b7280);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inlineReview {
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  font-size: 12px;
+  color: var(--mt-fg-3, #6b7280);
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
+.inlineReview:hover {
+  color: var(--mt-fg-1, #111);
+  background: var(--mt-surface-2, rgba(0, 0, 0, 0.04));
+}
+
+.inlineList {
+  display: flex;
+  flex-direction: column;
+  padding: 0 4px 4px;
+}
+
+.inlineRowWrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: 6px;
+}
+
+.inlineRowWrap:hover {
+  background: var(--mt-surface-2, rgba(0, 0, 0, 0.04));
+}
+
+.inlineRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mt-fg-1, #111);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.inlineRow:hover {
+  background: transparent;
+}
+
+.inlineMoreBtn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  margin-right: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--mt-fg-4, #9ca3af);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.inlineRowWrap:hover .inlineMoreBtn,
+.inlineMoreBtn:focus-visible {
+  opacity: 1;
+}
+
+.inlineMoreBtn:hover {
+  background: var(--mt-surface-3, rgba(0, 0, 0, 0.06));
+  color: var(--mt-fg-1, #111);
+}
+
+.inlineMoreMenu {
+  position: fixed;
+  z-index: 600;
+  min-width: 152px;
+  padding: 4px;
+  background: var(--mt-bg-primary, #fff);
+  border: 1px solid var(--mt-border, #e5e7eb);
+  border-radius: 8px;
+  box-shadow: var(--mt-shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.12));
+  display: flex;
+  flex-direction: column;
+}
+
+.inlineMoreItem {
+  text-align: left;
+  padding: 7px 12px;
+  border: none;
+  background: transparent;
+  color: var(--mt-fg-1, #111);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.inlineMoreItem:hover {
+  background: var(--mt-surface-2, #f3f4f6);
+}
+
+.inlineMoreItemDanger {
+  color: var(--mt-error, #dc2626);
+}
+
+.inlineBadge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  line-height: 1;
+  color: #fff;
+  background: #6b7280;
+}
+
+.inlineBadge--ts {
+  background: #3178c6;
+}
+
+.inlineBadge--js {
+  background: #ca8a04;
+  color: #111;
+}
+
+.inlineBadge--css {
+  background: #7c3aed;
+}
+
+.inlineBadge--md {
+  background: #64748b;
+}
+
+.inlineBadge--pdf {
+  background: #dc2626;
+}
+
+.inlineBadge--img {
+  background: #059669;
+}
+
+.inlineBadge--default {
+  background: #6b7280;
+}
+
+.inlineRowName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mt-fg-1, #1f2937);
+}
+
+.inlineRowMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+.inlineSize {
+  color: var(--mt-fg-4, #9ca3af);
+}
+
+.inlineTag {
+  font-weight: 600;
+}
+
+.inlineTagOutput {
+  color: #16a34a;
+}
+
+.inlineTagUpload {
+  color: #2563eb;
+}
+
+.inlineShowMore {
+  display: block;
+  width: 100%;
+  padding: 4px 12px 8px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--mt-fg-4, #9ca3af);
+  text-align: left;
+  cursor: pointer;
+}
+
+.inlineShowMore:hover {
+  color: var(--mt-fg-2, #374151);
+}
+
+/* 左侧轨道：Files Changed 风格（遗留） */
+.railCard {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--mt-border, #e5e7eb);
+  border-radius: 12px;
+  background: var(--mt-bg-primary, #fff);
+  box-shadow: var(--mt-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.04));
+  overflow: hidden;
+}
+
+.railHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--mt-border-hairline, rgba(0, 0, 0, 0.06));
+}
+
+.railHeaderTitle {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--mt-fg-3, #6b7280);
+}
+
+.railReview {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 11px;
+  color: var(--mt-fg-3, #6b7280);
+  cursor: pointer;
+}
+
+.railReview:hover {
+  color: var(--mt-accent-500, #4f8ef7);
+}
+
+.railList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+  overflow-y: auto;
+  max-height: min(40vh, 320px);
+  scrollbar-width: thin;
+}
+
+.railRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mt-fg-1, #111);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.railRow:hover {
+  background: var(--mt-surface-2, #f3f4f6);
+}
+
+.railRowIcon {
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.railRowName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.railRowTag {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-weight: 600;
+}
+
+.railRowTagOutput {
+  color: #16a34a;
+}
+
+.railRowTagUpload {
+  color: #2563eb;
+}

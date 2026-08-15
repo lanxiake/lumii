@@ -33,14 +33,12 @@
   letter-spacing: 0.02em;
 }
 
-.toolList,
 .projectList {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.toolRow,
 .projectRow {
   display: flex;
   align-items: flex-start;
@@ -50,6 +48,105 @@
   border-radius: 10px;
   border: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
   background: var(--color-bg-secondary, rgba(0, 0, 0, 0.02));
+}
+
+/* 本机工具：卡片网格 */
+.toolGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.toolCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--color-border, rgba(0, 0, 0, 0.08));
+  background: var(--color-bg-secondary, rgba(0, 0, 0, 0.02));
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.toolCard:hover {
+  border-color: color-mix(in srgb, var(--mt-accent-600, #2563eb) 35%, transparent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.toolCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolCardHeader .toolName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statusDotOk,
+.statusDotOff {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statusDotOk {
+  background: #22c55e;
+}
+
+.statusDotOff {
+  background: #d1d5db;
+}
+
+/* 卡片已渲染但版本/安装状态仍在探测 */
+.detectingTag {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-text-tertiary, #9ca3af);
+  white-space: nowrap;
+}
+
+.toolCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 48px;
+}
+
+.toolCardBody .path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.versionRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-primary, inherit);
+}
+
+.versionLabel {
+  color: var(--color-text-secondary, #8c8c8c);
+}
+
+.toolCardFooter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border, rgba(0, 0, 0, 0.06));
+  min-height: 32px;
 }
 
 .projectActive {
@@ -165,15 +262,32 @@
   background: transparent;
   cursor: pointer;
   font-size: 12px;
-  padding: 2px 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background 0.12s ease, opacity 0.12s ease;
+  font-weight: 500;
 }
 
 .linkBtn {
   color: var(--mt-accent-600, #2563eb);
 }
 
+.linkBtn:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.08);
+}
+
 .dangerBtn {
   color: #cf1322;
+}
+
+.dangerBtn:hover:not(:disabled) {
+  background: rgba(207, 19, 34, 0.08);
+}
+
+.linkBtn:disabled,
+.dangerBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .cwdBox {

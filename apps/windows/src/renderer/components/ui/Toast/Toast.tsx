@@ -7,11 +7,16 @@ export interface ToastProps extends ToastItem {
   onClose?: (id: string) => void;
 }
 
+/**
+ * 全局 Toast 条目：支持可选操作按钮
+ */
 const Toast: React.FC<ToastProps> = ({
   id,
   type = 'info',
   message,
   duration = 3000,
+  actionLabel,
+  onAction,
   onClose,
 }) => {
   useEffect(() => {
@@ -42,6 +47,18 @@ const Toast: React.FC<ToastProps> = ({
     <div className={clsx(styles.toast, styles[`toast-${type}`])} role="alert">
       <span className={styles['toast-icon']}>{getIcon()}</span>
       <span className={styles['toast-message']}>{message}</span>
+      {actionLabel && onAction && (
+        <button
+          type="button"
+          className={styles['toast-action']}
+          onClick={() => {
+            onAction();
+            onClose?.(id);
+          }}
+        >
+          {actionLabel}
+        </button>
+      )}
       <button
         className={styles['toast-close']}
         onClick={() => onClose?.(id)}

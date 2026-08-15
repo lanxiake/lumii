@@ -1,34 +1,29 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { Button } from '../../../../components/ui/Button/Button'
-import { ChannelCard } from '../ChannelCard'
+import { ChannelCard, type ChannelMetaItem } from '../ChannelCard'
+import type { ChannelConnectionState } from '../ChannelStatusPill'
 import { ChannelBrandIcon } from '../../../../components/brand/ChannelBrandIcon'
-import { LoginStatus } from './LoginStatus'
+import type { ChannelSnapshot } from '../ChannelsSection/useChannelSnapshots'
 import { QrCodeModal } from './QrCodeModal'
 
 type WeixinStatus = 'idle' | 'waiting_qrcode' | 'scanned' | 'confirmed' | 'logged_in' | 'error'
 
-/**
- * 格式化已连接会话的时长与有效期说明。
- */
-function formatSessionInfo(session: WeixinSession): string {
-  const now = Date.now()
-  const elapsedMs = now - session.loginAt
-  const elapsedDays = Math.floor(elapsedMs / (24 * 3600 * 1000))
-  const elapsedHours = Math.floor((elapsedMs % (24 * 3600 * 1000)) / (3600 * 1000))
+const STATUS_STATES: Record<WeixinStatus, ChannelConnectionState> = {
+  idle: 'idle',
+  waiting_qrcode: 'pending',
+  scanned: 'pending',
+  confirmed: 'pending',
+  logged_in: 'connected',
+  error: 'error',
+}
 
-  const elapsedStr =
-    elapsedDays > 0
-      ? `已连接 ${elapsedDays} 天 ${elapsedHours} 小时`
-      : `已连接 ${elapsedHours} 小时`
-
-  if (session.expiresAt) {
-    const remainMs = session.expiresAt - now
-    if (remainMs <= 0) return `${elapsedStr}（会话已过期）`
-    const remainDays = Math.ceil(remainMs / (24 * 3600 * 1000))
-    return `${elapsedStr}  ·  有效期剩余 ${remainDays} 天`
-  }
-
-  return `${elapsedStr}  ·  登录于 ${new Date(session.loginAt).toLocaleDateString()}`
+const STATUS_LABELS: Record<WeixinStatus, string> = {
+  idle: '未连接',
+  waiting_qrcode: '获取二维码中',
+  scanned: '等待扫码',
+  confirmed: '确认登录中',
+  logged_in: '已连接',
+  error: '连接出错',
 }
 
 interface WeixinSession {
@@ -39,10 +34,52 @@ interface WeixinSession {
   expiresAt?: number
 }
 
+const DAY_MS = 24 * 3600 * 1000
+
 /**
- * 个人微信（iLink）渠道设置卡片；开发面板由渠道页统一挂载在卡片下方。
+ * 把会话信息拆成 meta 条目，替代原先挤在一行的灰色长文本。
  */
-export const WeixinChannelSettings: React.FC = () => {
+function buildSessionMeta(session: WeixinSession): ChannelMetaItem[] {
+  const now = Date.now()
+  const elapsedMs = now - session.loginAt
+  const days = Math.floor(elapsedMs / DAY_MS)
+  const hours = Math.floor((elapsedMs % DAY_MS) / (3600 * 1000))
+
+  const items: ChannelMetaItem[] = [
+    { label: '推送能力', value: '主动发送（依赖 24h 内会话）' },
+    { label: '连接时长', value: days > 0 ? `${days} 天 ${hours} 小时` : `${hours} 小时` },
+  ]
+
+  if (session.expiresAt) {
+    const remainMs = session.expiresAt - now
+    items.push({
+      label: '会话有效期',
+      value: remainMs <= 0 ? '已过期' : `剩余 ${Math.ceil(remainMs / DAY_MS)} 天`,
+    })
+  } else {
+    items.push({ label: '登录于', value: new Date(session.loginAt).toLocaleDateString() })
+  }
+
+  if (session.userId) {
+    items.push({ label: '登录账号', value: session.userId, mono: true })
+  }
+
+  return items
+}
+
+interface WeixinChannelSettingsProps {
+  /** 渠道出站快照（由分区统一拉取） */
+  snapshot?: ChannelSnapshot
+  snapshotLoading?: boolean
+}
+
+/**
+ * 个人微信（iLink）渠道设置卡片。
+ */
+export const WeixinChannelSettings: React.FC<WeixinChannelSettingsProps> = ({
+  snapshot,
+  snapshotLoading = false,
+}) => {
   const [status, setStatus] = useState<WeixinStatus>('idle')
   const [session, setSession] = useState<WeixinSession | null>(null)
   const [qrcodeDataUrl, setQrcodeDataUrl] = useState<string | null>(null)
@@ -152,28 +189,30 @@ export const WeixinChannelSettings: React.FC = () => {
 
   const actions = (
     <>
+      {isPending && !qrModalOpen && qrcodeDataUrl && (
+        <Button size="sm" variant="secondary" onClick={() => setQrModalOpen(true)}>
+          查看二维码
+        </Button>
+      )}
       {!isConnected ? (
         <Button
+          size="sm"
           variant="primary"
           onClick={handleConnect}
           loading={loading || isPending}
           disabled={loading || isPending}
         >
-          {isPending ? '登录中...' : sessionExpired ? '重新扫码连接' : '连接微信'}
+          {isPending ? '登录中' : sessionExpired ? '重新扫码' : '连接微信'}
         </Button>
       ) : (
         <Button
+          size="sm"
           variant="danger"
           onClick={handleDisconnect}
           loading={loading}
           disabled={loading}
         >
-          断开连接
-        </Button>
-      )}
-      {isPending && !qrModalOpen && qrcodeDataUrl && (
-        <Button variant="secondary" onClick={() => setQrModalOpen(true)}>
-          查看二维码
+          断开
         </Button>
       )}
     </>
@@ -184,13 +223,15 @@ export const WeixinChannelSettings: React.FC = () => {
       <ChannelCard
         icon={<ChannelBrandIcon kind="weixin" />}
         name="微信（个人）"
-        description="通过 iLink Bot API 接入个人微信，扫码登录后自动收发消息"
-        statusSlot={<LoginStatus status={status} session={session} />}
-        actionsSlot={actions}
+        description="通过 iLink Bot API 接入，扫码登录后自动收发消息"
+        state={STATUS_STATES[status] ?? 'idle'}
+        statusLabel={STATUS_LABELS[status] ?? status}
+        actions={actions}
         errorMessage={errorMsg}
-        extraSlot={isConnected && session ? formatSessionInfo(session) : undefined}
+        meta={isConnected && session ? buildSessionMeta(session) : undefined}
+        peers={isConnected ? (snapshot?.peers ?? []) : undefined}
+        peersLoading={snapshotLoading}
       />
-
       <QrCodeModal
         open={qrModalOpen}
         qrcodeDataUrl={qrcodeDataUrl}

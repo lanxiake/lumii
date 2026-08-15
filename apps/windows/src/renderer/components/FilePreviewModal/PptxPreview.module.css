@@ -4,7 +4,21 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  background: var(--bg-code, #f1f5f9);
+  background: var(--bg-code, #0f172a);
+}
+
+.toolbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px 0;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--text-secondary, #94a3b8);
+  user-select: none;
 }
 
 .slides {
@@ -15,14 +29,16 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 16px;
-  /* pptx-preview 渲染的文字层可选中复制 */
+  cursor: pointer;
+  /* 幻灯片内文字仍可选中；整页点击用于翻页 */
   user-select: text;
   -webkit-user-select: text;
 }
 
 .slides > * {
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
   background: #fff;
   max-width: 100%;
 }
@@ -62,4 +78,20 @@
   margin: 0;
   max-width: 90%;
   text-align: center;
+}
+
+.openBtn {
+  margin-top: 12px;
+  padding: 6px 14px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #cbd5e1);
+  background: var(--color-bg-secondary, #fff);
+  color: var(--color-text-primary, #0f172a);
+  cursor: pointer;
+}
+
+.openBtn:hover {
+  border-color: var(--color-primary, #4299e1);
+  color: var(--color-primary, #4299e1);
 }

@@ -10,9 +10,8 @@ import 'katex/dist/katex.min.css'
 /** 浅色对话气泡上与正文对比协调；避免 one-dark 黑底与主题文字色冲突导致「深底深字」 */
 import 'highlight.js/styles/github.css'
 import { Lightbulb, Inbox, AlertTriangle, Ban, Timer, Zap, AlertCircle } from 'lucide-react'
-import { TypingIndicator } from '../TypingIndicator'
 import { MessageActions } from '../MessageActions'
-import { ToolCallCard, ToolFilePreviewProvider, ToolFilePreviewContext } from '../ToolCallCard'
+import { ToolFilePreviewProvider, ToolFilePreviewContext } from '../ToolCallCard'
 import toolCardStyles from '../ToolCallCard/ToolCallCard.module.css'
 import { A2UIRenderer } from '../../../../components/A2UIRenderer'
 import { ArtifactBlock } from '../../../../components/A2UIRenderer/ArtifactBlock'
@@ -25,7 +24,13 @@ import { FilePreviewModal } from '../../../../components/FilePreviewModal/FilePr
 import { ImageLightbox } from '../../../../components/ImageLightbox'
 import { useWorkspace } from '../../../../hooks/business/useWorkspace'
 import type { ChatMessage as ChatMessageType, AgentWorkflowItem } from '../../../../hooks/business/useChat'
+import type { AssistantPart } from '@mtbot/agent-runtime/browser'
 import type { RuntimeFileEvent } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
+import { parseMediaAttachments, mergeEditedUserMessage } from '../../utils/file-attachment-strategy'
+import { TurnFileChangesCard } from '../TurnFileChangesCard'
+import { ToolBatchGroup, summarizeToolBatch } from '../ToolBatchGroup'
+import { getStatusLabel } from '../ToolCallCard'
+import { ActivityFold } from '../ActivityFold'
 import styles from './ChatMessage.module.css'
 
 interface ChatMessageProps {
@@ -57,6 +62,8 @@ interface ChatMessageProps {
   onReplay?: (messageId: string) => void
   /** 当前正在回放的消息 ID */
   replayMessageId?: string | null
+  /** 点击回合文件变更卡片的「查看」，透传文件相对路径与状态 */
+  onReviewFileChanges?: (path: string, status: 'added' | 'modified' | 'deleted') => void
 }
 
 // ---------------------------------------------------------------
@@ -201,28 +208,6 @@ function buildMarkdownComponents(isStreaming: boolean): Components {
 // 交错渲染逻辑
 // ---------------------------------------------------------------
 
-/** 解析消息文本中的 [media attached: path (fileName)] 行，返回文件列表和剩余文本 */
-function parseMediaAttachments(content: string): {
-  textWithoutMedia: string
-  mediaFiles: Array<{ filePath: string; fileName: string }>
-} {
-  const MEDIA_RE = /^\[media attached:\s*(.+?)(?:\s+\(([^)]+)\))?\]$/
-  const lines = content.split('\n')
-  const mediaFiles: Array<{ filePath: string; fileName: string }> = []
-  const textLines: string[] = []
-  for (const line of lines) {
-    const m = MEDIA_RE.exec(line.trim())
-    if (m) {
-      const rawPath = m[1].trim()
-      const fileName = m[2]?.trim() ?? rawPath.split(/[\\/]/).pop() ?? rawPath
-      mediaFiles.push({ filePath: rawPath, fileName })
-    } else {
-      textLines.push(line)
-    }
-  }
-  return { textWithoutMedia: textLines.join('\n').trim(), mediaFiles }
-}
-
 /** 用户消息中的媒体文件附件列表，复用工具卡片的 fileChip 样式和 ToolFilePreviewContext */
 function MediaFileChips({ mediaFiles }: { mediaFiles: Array<{ filePath: string; fileName: string }> }) {
   const previewCtx = useContext(ToolFilePreviewContext)
@@ -243,10 +228,6 @@ function MediaFileChips({ mediaFiles }: { mediaFiles: Array<{ filePath: string; 
   )
 }
 
-type Segment =
-  | { type: 'text'; content: string }
-  | { type: 'tool'; item: AgentWorkflowItem }
-
 /** 记忆类别 → 简短中文标签（用于展开列表） */
 const MEMORY_CATEGORY_LABEL: Record<string, string> = {
   user: '用户画像',
@@ -254,156 +235,6 @@ const MEMORY_CATEGORY_LABEL: Record<string, string> = {
   project: '进行中的事',
   reference: '外部资源',
   general: '其他',
-}
-
-/**
- * 判断 index 处是否为「文字 / 工具卡片」段落级切段边界。
- *
- * 设计原则：只在**段落边界**（连续两个 \n，即空行）切割，不在单行换行处切割。
- * 这样可保证 Markdown 块结构（表格、列表、代码块等）的完整性，避免工具卡片
- * 被插入到表格的表头行和分隔符行之间，导致 Markdown 渲染错乱。
- *
- * 段落边界规则：当前位置是 
-，且上一个字符也是 
-（即 
-
- 序列的第二个 
-）。
- */
-function isBoundaryPunctuation(text: string, index: number): boolean {
-  const ch = text[index]
-  if (ch === undefined) {
-    return false
-  }
-  // 仅在连续双换行（段落分隔）处切割，单 \n 不切（避免破坏 Markdown 表格、列表等多行结构）
-  if (ch === '\n') {
-    return text[index - 1] === '\n'
-  }
-  if ('。？！；'.includes(ch)) {
-    return true
-  }
-  if (ch === '?' || ch === '!') {
-    return true
-  }
-
-  if (ch === '.') {
-    const prev = text[index - 1]
-    const next = text[index + 1]
-    // Markdown 有序列表加粗：**1.** 正文 — 句点后接闭合 *，不能当句末否则「1.」与后文被卡片拆开
-    if (prev !== undefined && /\d/.test(prev) && next === '*') {
-      return false
-    }
-    // 域名 / TLD：点后紧跟字母数字（wttr.in、example.com）
-    if (next !== undefined && /[a-zA-Z0-9]/.test(next)) {
-      return false
-    }
-    // 小数：数字.数字
-    if (
-      prev !== undefined
-      && next !== undefined
-      && /\d/.test(prev)
-      && /\d/.test(next)
-    ) {
-      return false
-    }
-    return true
-  }
-
-  return false
-}
-
-/**
- * 从 pos 向后查找最近的句子结束位置（含结束符本身）。
- * 用于将工具调用切割点对齐到句子末尾，保证句子完整性。
- *
- * maxLookahead 限制向后扫描的最大字符数，防止在找不到边界时把后续所有文字
- * （包括工具调用之后的总结段落）都归入当前文字段，导致工具卡片后方的总结文字
- * 「跑到」卡片上方的错位问题。超过 maxLookahead 仍无边界时，直接在 pos 处切割。
- */
-function snapToSentenceEnd(text: string, pos: number, maxLookahead = 300): number {
-  if (pos <= 0) {
-    return 0
-  }
-  // 切割点已落在一处「真实边界」之后：无需再向前延伸
-  if (isBoundaryPunctuation(text, pos - 1)) {
-    return pos
-  }
-
-  const limit = Math.min(pos + maxLookahead, text.length)
-  for (let i = pos; i < limit; i++) {
-    if (isBoundaryPunctuation(text, i)) {
-      return i + 1
-    }
-  }
-  // 超出查找范围仍无边界：直接在原始位置切割，避免把后续段落（包括总结文字）
-  // 全部归入当前文字段，导致工具卡片之后的内容「错位」到卡片上方
-  return pos
-}
-
-/**
- * 清理文字段的首尾：
- * - 移除开头的 \n\n 分隔符（由服务端在两轮文字之间插入）
- * - 移除末尾多余空白
- */
-function cleanTextSegment(text: string): string {
-  // 最多移除开头 2 个连续 \n（即服务端插入的 \n\n 轮次分隔符）
-  let start = 0
-  let stripped = 0
-  while (stripped < 2 && start < text.length && text[start] === '\n') {
-    start++
-    stripped++
-  }
-  return text.slice(start).trimEnd()
-}
-
-/**
- * 将消息文字和工具调用按 textPositionAtStart 交错合并成 Segment 序列。
- * 切割点会对齐到句子结束边界，保证每个文字段的句子完整性。
- */
-function buildSegments(text: string, toolItems: AgentWorkflowItem[]): Segment[] {
-  const positioned = toolItems
-    .filter((t) => t.textPositionAtStart !== undefined)
-    .toSorted((a, b) => {
-      const posDiff = (a.textPositionAtStart ?? 0) - (b.textPositionAtStart ?? 0)
-      if (posDiff !== 0) return posDiff
-      // 同一文本位置：按 startTime 升序，保证多个工具（含子 Agent）按真实触发时间先后渲染
-      const aMs = a.startTime ? a.startTime.getTime() : 0
-      const bMs = b.startTime ? b.startTime.getTime() : 0
-      return aMs - bMs
-    })
-
-  // 没有位置信息：回退到全部工具在文字末尾
-  if (positioned.length === 0) {
-    const segs: Segment[] = []
-    if (text) segs.push({ type: 'text', content: text })
-    toolItems.forEach((item) => segs.push({ type: 'tool', item }))
-    return segs
-  }
-
-  const segs: Segment[] = []
-  let lastPos = 0
-
-  for (const item of positioned) {
-    const rawPos = Math.min(item.textPositionAtStart ?? 0, text.length)
-    // 对齐到句子边界，避免切割在句子中间；
-    // 同时确保对齐后的位置不超过文本末尾，防止把全部文字都归入当前段导致后续内容错位
-    const snapped = snapToSentenceEnd(text, rawPos)
-    // 对齐后的位置不能超过下一个工具的原始位置（若有），以免吞掉相邻工具之间的文字段
-    const pos = Math.max(lastPos, snapped)
-
-    const textChunk = cleanTextSegment(text.slice(lastPos, pos))
-    if (textChunk) {
-      segs.push({ type: 'text', content: textChunk })
-    }
-    segs.push({ type: 'tool', item })
-    lastPos = pos
-  }
-
-  // 所有工具之后的剩余文字，清理开头分隔符
-  const tail = cleanTextSegment(text.slice(lastPos))
-  if (tail) segs.push({ type: 'text', content: tail })
-
-  return segs
 }
 
 // ---------------------------------------------------------------
@@ -414,9 +245,11 @@ interface ThinkingBlockProps {
   thinkingText: string
   isStreaming: boolean
   isLive: boolean
+  /** 内嵌于「执行过程」时用扁平行样式（去掉外层卡片描边/背景），减少视觉噪声 */
+  compact?: boolean
 }
 
-const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ thinkingText, isStreaming, isLive }) => {
+const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ thinkingText, isStreaming, isLive, compact = false }) => {
   const [expanded, setExpanded] = useState(false)
   // 内容高度锁定：一旦内容区被渲染过，就固定 max-height 不再变化
   const [heightLocked, setHeightLocked] = useState(false)
@@ -448,21 +281,28 @@ const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ thinkingText, isStreaming
   const preview = thinkingText.slice(0, 60).replace(/\n/g, ' ')
 
   return (
-    <div className={styles['rt-thinking-card']}>
+    <div className={clsx(styles['rt-thinking-card'], compact && styles['rt-thinking-card--compact'])}>
       <button
         type="button"
         className={styles['rt-thinking-card-header']}
         onClick={handleToggle}
+        aria-expanded={expanded}
+        title={expanded ? '收起思考内容' : '展开思考内容'}
       >
-        <span className={styles['rt-thinking-card-icon']}>💭</span>
-        <span className={styles['rt-thinking-card-title']}>思考过程</span>
+        <span className={clsx(styles['rt-unit-chevron'], expanded && styles['rt-unit-chevron--open'])} aria-hidden>›</span>
+        {isStreaming && (
+          <span className={styles['rt-thinking-wave']} aria-hidden>
+            <i /><i /><i /><i /><i />
+          </span>
+        )}
+        <span className={styles['rt-thinking-card-title']}>{isStreaming ? '正在思考' : '思考'}</span>
         {isLive && isStreaming && (
           <span className={styles['rt-live-badge']}>实时</span>
         )}
         {!expanded && (
           <span className={styles['rt-thinking-card-preview']}>{preview}…</span>
         )}
-        <span className={styles['rt-thinking-card-chevron']}>{expanded ? '∧' : '∨'}</span>
+        <span className={styles['rt-unit-hint']}>{expanded ? '收起' : '展开'}</span>
       </button>
       {expanded && (
         <pre
@@ -479,96 +319,114 @@ const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ thinkingText, isStreaming
   )
 }
 
-// ---------------------------------------------------------------
-// ToolsSection — 工具调用折叠列表
-// ---------------------------------------------------------------
-
-interface ToolsSectionProps {
-  tools: AgentWorkflowItem[]
-  runningTools: AgentWorkflowItem[]
-  doneCount: number
-  failCount: number
-  isStreaming: boolean
+/** 将 tool part 映射为 ToolCallCard 所需的 AgentWorkflowItem */
+function toWorkflowItem(
+  part: Extract<AssistantPart, { type: 'tool' }>,
+  message: ChatMessageType,
+): AgentWorkflowItem {
+  return {
+    id: part.id,
+    type: 'tool',
+    name: part.name,
+    status: part.status === 'running'
+      ? 'running'
+      : part.status === 'error'
+        ? 'failed'
+        : 'completed',
+    title: part.name,
+    input: part.args,
+    output: part.result,
+    error: part.isError ? String(part.result ?? '工具执行失败') : undefined,
+    startTime: message.timestamp,
+    runId: message.runId ?? '',
+    toolCallId: part.id,
+    agentLabel: part.meta?.sourceAgent?.label,
+  }
 }
 
-const ToolsSection: React.FC<ToolsSectionProps> = ({
-  tools,
-  runningTools,
-  doneCount,
-  failCount,
-  isStreaming,
-}) => {
-  const [expanded, setExpanded] = useState(false)
+/** 时间线渲染单元：思考 / 文本 / 工具批次组 */
+type RenderUnit =
+  | { kind: 'thinking'; part: Extract<AssistantPart, { type: 'thinking' }> }
+  | { kind: 'text'; part: Extract<AssistantPart, { type: 'text' }> }
+  | { kind: 'toolGroup'; items: AgentWorkflowItem[]; key: string }
 
-  const totalCount = tools.length
-  const hasRunning = runningTools.length > 0
+/**
+ * 把扁平的 parts 折叠成渲染单元序列：
+ * 1. 先过滤 trim 后为空的 text part（根治空气泡）
+ * 2. 连续的 tool part 合并为一个批次组，遇到 thinking/text 即结束当前组
+ */
+function buildRenderUnits(parts: readonly AssistantPart[], message: ChatMessageType): RenderUnit[] {
+  const meaningful = parts.filter((p) => p.type !== 'text' || p.text.trim().length > 0)
 
-  // 折叠时只展示运行中的工具；展开后展示全部
-  const visibleTools = expanded ? tools : runningTools
+  const units: RenderUnit[] = []
+  let pending: Extract<AssistantPart, { type: 'tool' }>[] = []
 
-  const summaryLabel = expanded
-    ? `收起（共 ${totalCount} 步）`
-    : `展开全部 ${totalCount} 步`
+  const flush = () => {
+    if (pending.length === 0) return
+    units.push({
+      kind: 'toolGroup',
+      items: pending.map((t) => toWorkflowItem(t, message)),
+      key: `grp-${pending[0]!.id}`,
+    })
+    pending = []
+  }
 
-  const statusMeta = [
-    doneCount > 0 && `${doneCount} 完成`,
-    failCount > 0 && `${failCount} 失败`,
-    isStreaming && hasRunning && `${runningTools.length} 运行中`,
-  ]
-    .filter(Boolean)
-    .join(' · ')
+  for (const part of meaningful) {
+    if (part.type === 'tool') {
+      pending.push(part)
+      continue
+    }
+    flush()
+    units.push({ kind: part.type, part } as RenderUnit)
+  }
+  flush()
 
-  return (
-    <div className={styles['rt-tools-section']}>
-      {/* 顶部也提供收起按钮，便于在思考卡片下方就地操作 */}
-      {totalCount > 0 && expanded && (
-        <button
-          type="button"
-          className={styles['rt-tools-toggle']}
-          onClick={() => setExpanded(false)}
-        >
-          <span className={styles['rt-tools-toggle-icon']}>▾</span>
-          <span>收起（共 {totalCount} 步）</span>
-          {statusMeta && <span className={styles['rt-tools-toggle-meta']}>{statusMeta}</span>}
-        </button>
-      )}
+  return units
+}
 
-      {/* 运行中的工具（始终可见） */}
-      {visibleTools.length > 0 && (
-        <div className={styles['rt-tools-list']}>
-          {visibleTools.map((item, idx) => {
-            const globalIdx = expanded ? idx : tools.indexOf(item)
-            return (
-              <div key={item.id} className={styles['rt-tool-row']}>
-                <div className={styles['rt-tool-step-line']}>
-                  <span className={styles['rt-step-num']}>{globalIdx + 1}</span>
-                  {idx < visibleTools.length - 1 && (
-                    <span className={styles['rt-step-connector']} />
-                  )}
-                </div>
-                <div className={styles['rt-tool-card']}>
-                  <ToolCallCard item={item} />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
+/**
+ * 把渲染单元切成「过程区 / 答案区」：
+ * - 过程区 = 从头到最后一个 thinking/toolGroup（含）之间的所有单元
+ * - 答案区 = 其后的末尾 text 单元（最终总结性输出，露在折叠块外）
+ * - 无 thinking 也无 tool 的纯问答：过程区为空，全部落入答案区（不折叠）
+ */
+function splitProcessAndAnswer(units: RenderUnit[]): { process: RenderUnit[]; answer: RenderUnit[] } {
+  let lastProcessIdx = -1
+  for (let i = 0; i < units.length; i++) {
+    if (units[i]!.kind === 'thinking' || units[i]!.kind === 'toolGroup') {
+      lastProcessIdx = i
+    }
+  }
+  if (lastProcessIdx === -1) {
+    return { process: [], answer: units }
+  }
+  return {
+    process: units.slice(0, lastProcessIdx + 1),
+    answer: units.slice(lastProcessIdx + 1),
+  }
+}
 
-      {/* 折叠/展开切换按钮（工具数 > 0 时显示） */}
-      {totalCount > 0 && (
-        <button
-          type="button"
-          className={styles['rt-tools-toggle']}
-          onClick={() => setExpanded((v) => !v)}
-        >
-          <span className={styles['rt-tools-toggle-icon']}>{expanded ? '▾' : '▸'}</span>
-          <span>{summaryLabel}</span>
-          {statusMeta && <span className={styles['rt-tools-toggle-meta']}>{statusMeta}</span>}
-        </button>
-      )}
-    </div>
-  )
+/** 过程区摘要：思考 + 全部工具批次合并计数（思考 · 读取 3 个文件 · 搜索 2 次） */
+function buildProcessSummary(process: RenderUnit[]): string {
+  const hasThinking = process.some((u) => u.kind === 'thinking')
+  const allTools = process.flatMap((u) => (u.kind === 'toolGroup' ? u.items : []))
+  const parts: string[] = []
+  if (hasThinking) parts.push('思考')
+  if (allTools.length > 0) parts.push(summarizeToolBatch(allTools))
+  return parts.join(' · ') || '工作过程'
+}
+
+/** 流式实时状态：末个过程单元决定当前动作（正在思考 / 正在执行 grep…） */
+function buildCurrentStatus(process: RenderUnit[]): string {
+  const last = process[process.length - 1]
+  if (!last) return '正在处理…'
+  if (last.kind === 'thinking') return '正在思考…'
+  if (last.kind === 'toolGroup') {
+    const running = last.items.find((i) => i.status === 'running')
+    if (running) return getStatusLabel(running)
+    return summarizeToolBatch(last.items)
+  }
+  return '正在处理…'
 }
 
 // ---------------------------------------------------------------
@@ -590,6 +448,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   userId = 'local-user',
   onReplay,
   replayMessageId,
+  onReviewFileChanges,
 }) => {
   const [isEditing, setIsEditing] = useState(false)
   const [memoryExpanded, setMemoryExpanded] = useState(false)
@@ -633,14 +492,19 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   const handleEditStart = () => { setIsEditing(true) }
   const handleEditCancel = () => { setIsEditing(false) }
   const handleEditSave = (newContent: string) => {
+    // 用户消息：编辑器只含可见正文，保存时拼回附件 / parsed text 等 Agent 后缀
+    const toSave =
+      message.role === 'user'
+        ? mergeEditedUserMessage(message.content, newContent)
+        : newContent
     // 内容有实质变化才触发「删后续重答」，未变则视为取消编辑
-    if (newContent.trim() !== message.content.trim()) {
-      onEdit(message.id, newContent)
+    if (toSave.trim() !== message.content.trim()) {
+      onEdit(message.id, toSave)
     }
     setIsEditing(false)
   }
 
-  /** 构建包含文字 + 工具调用详情的完整复制文本 */
+  /** 构建包含文字 + 工具调用详情的完整复制文本（用户消息剥离 Agent 注入标记） */
   const buildCopyContent = useCallback((): string => {
     const parts: string[] = []
     const thinking =
@@ -649,8 +513,34 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     if (thinking) {
       parts.push(`[思考过程]\n${thinking}`)
     }
-    if (message.content) parts.push(message.content)
-    if (toolItems && toolItems.length > 0) {
+    if (message.content) {
+      if (message.role === 'user') {
+        const { textWithoutMedia } = parseMediaAttachments(message.content)
+        if (textWithoutMedia) parts.push(textWithoutMedia)
+      } else {
+        parts.push(message.content)
+      }
+    }
+    if (message.parts && message.parts.length > 0) {
+      for (const part of message.parts) {
+        if (part.type === 'thinking' && part.text.trim()) {
+          parts.push(`[思考过程]\n${part.text}`)
+        }
+        if (part.type === 'tool') {
+          const lines: string[] = [`[工具调用: ${part.name}]`]
+          if (part.args && Object.keys(part.args).length > 0) {
+            lines.push(`输入:\n${JSON.stringify(part.args, null, 2)}`)
+          }
+          if (part.result !== undefined) {
+            lines.push(`输出:\n${typeof part.result === 'string' ? part.result : JSON.stringify(part.result, null, 2)}`)
+          }
+          if (part.isError) {
+            lines.push(`错误: ${String(part.result ?? '工具执行失败')}`)
+          }
+          parts.push(lines.join('\n'))
+        }
+      }
+    } else if (toolItems && toolItems.length > 0) {
       for (const item of toolItems) {
         const lines: string[] = [`[工具调用: ${item.name}]`]
         if (item.input && Object.keys(item.input).length > 0) {
@@ -666,7 +556,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       }
     }
     return parts.join('\n\n')
-  }, [message.content, message.thinkingText, streamingThinkingText, toolItems])
+  }, [message.content, message.role, message.thinkingText, message.parts, streamingThinkingText, toolItems])
 
   const handleCopy = useCallback(() => {
     onCopy(buildCopyContent())
@@ -737,7 +627,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
    */
   const wrapSubAgent = (node: React.ReactNode) => {
     if (!message.sourceAgent) return node
-    const toolCount = toolItems?.length ?? 0
+    const toolCount = message.parts
+      ? message.parts.filter((part) => part.type === 'tool').length
+      : (toolItems?.length ?? 0)
     const label = message.sourceAgent.label ?? '子 Agent'
     const summaryText = message.isStreaming
       ? `${label} · 执行中${toolCount > 0 ? `（${toolCount} 工具）` : '...'}`
@@ -750,59 +642,77 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     )
   }
 
+  /** 流式首 token 未到达时的占位 */
+  const renderThinkingPlaceholder = () => (
+    <div className={styles['rt-placeholder']}>
+      <span className={styles['rt-spinner']} />
+      <span>正在思考...</span>
+    </div>
+  )
+
   /**
-   * 渲染 LLM 思考过程 + 工具调用列表。
-   *
-   * 设计：
-   * - 不再用卡片包裹，直接展开显示在消息气泡上方
-   * - 思考内容框默认滚动展示（max-height + overflow-y: auto）
-   * - 工具列表默认折叠，只展示「运行中」的工具卡片；展开后按顺序显示全部
+   * 渲染单个时间线单元（思考 / 文本 / 工具组）。
+   * inFold=true 时为「执行过程」内的中间单元，文本用低调的说明样式，
+   * 与折叠块外的最终答案（玻璃气泡）区分开。
    */
-  const renderReasoningTimeline = () => {
-    const live = streamingThinkingText?.trim()
-    const persisted = message.thinkingText?.trim()
-    const thinkingText = live || persisted
-    const hasThinking = !!thinkingText
-    const tools = toolItems ?? []
-    const hasTools = tools.length > 0
-    const isStreaming = message.isStreaming
-
-    // 无思考也无工具
-    if (!hasThinking && !hasTools) {
-      if (isStreaming && !message.content) {
-        return (
-          <div className={styles['rt-placeholder']}>
-            <span className={styles['rt-spinner']} />
-            <span>正在思考...</span>
-          </div>
-        )
-      }
-      return null
+  const renderUnit = (unit: RenderUnit, inFold: boolean) => {
+    if (unit.kind === 'thinking') {
+      return (
+        <ThinkingBlock
+          key={unit.part.id}
+          thinkingText={unit.part.text}
+          isStreaming={unit.part.status === 'streaming' && !!message.isStreaming}
+          isLive={!!message.isStreaming}
+          compact={inFold}
+        />
+      )
     }
-
-    const runningTools = tools.filter((t) => t.status === 'running')
-    const doneCount = tools.filter((t) => t.status === 'completed').length
-    const failCount = tools.filter((t) => t.status === 'failed').length
-
+    if (unit.kind === 'text') {
+      return (
+        <div
+          key={unit.part.id}
+          className={clsx(inFold ? styles['fold-note'] : styles['message-text'], styles['part-block'])}
+        >
+          {renderTextContent(unit.part.text)}
+          {unit.part.status === 'streaming' && message.isStreaming && (
+            <span className={styles['streaming-cursor']} />
+          )}
+        </div>
+      )
+    }
     return (
-      <div className={styles['rt-inline']}>
-        {/* 思考过程：可折叠卡片，默认折叠，固定高度防抖动 */}
-        {hasThinking && (
-          <ThinkingBlock
-            thinkingText={thinkingText}
-            isStreaming={!!isStreaming}
-            isLive={!!live}
-          />
-        )}
+      <div key={unit.key} className={styles['part-block']}>
+        <ToolBatchGroup items={unit.items} compact={inFold} />
+      </div>
+    )
+  }
 
-        {/* 工具调用列表：默认折叠，只展示运行中；展开后显示全部 */}
-        {hasTools && (
-          <ToolsSection
-            tools={tools}
-            runningTools={runningTools}
-            doneCount={doneCount}
-            failCount={failCount}
-            isStreaming={!!isStreaming}
+  /**
+   * 按 parts 时间线渲染助手气泡（Cursor 式）：
+   * 中间过程（思考 + 工具 + 中间文本）折叠进 ActivityFold，最终答案露在外面。
+   */
+  const renderPartsTimeline = () => {
+    const units = buildRenderUnits(message.parts ?? [], message)
+    const { process, answer } = splitProcessAndAnswer(units)
+    const isStreaming = !!message.isStreaming
+    return (
+      <div className={styles['parts-timeline']}>
+        {process.length > 0 && (
+          <ActivityFold
+            summary={buildProcessSummary(process)}
+            currentStatus={isStreaming ? buildCurrentStatus(process) : undefined}
+            isStreaming={isStreaming}
+            durationMs={message.streamMetrics?.durationMs}
+            startTime={message.timestamp}
+          >
+            {process.map((u) => renderUnit(u, true))}
+          </ActivityFold>
+        )}
+        {answer.map((u) => renderUnit(u, false))}
+        {message.fileChanges && message.fileChanges.length > 0 && (
+          <TurnFileChangesCard
+            changes={message.fileChanges}
+            onReview={onReviewFileChanges}
           />
         )}
       </div>
@@ -810,46 +720,72 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   }
 
   /**
-   * 渲染 assistant 消息正文 + 交错的工具调用行。
-   * 整体包在一个 message-text div 里，工具行用轻微色差区分。
+   * 无 parts 时的旧消息回退：正文 + 末尾工具卡片（Gateway 或未迁移历史）
    */
-  const renderAssistantBody = () => {
+  const renderLegacyAssistantBody = () => {
     const hasTools = toolItems && toolItems.length > 0
     const hasContent = !!message.content
+    const liveThinking = streamingThinkingText?.trim()
+    const persistedThinking = message.thinkingText?.trim()
 
     if (!hasContent && !hasTools) {
       if (message.isStreaming) {
-        return wrapSubAgent(
-          <>
-            {renderReasoningTimeline()}
-            {!message.thinkingText && !streamingThinkingText && <TypingIndicator />}
-          </>,
-        )
+        return renderThinkingPlaceholder()
       }
-      if (message.thinkingText?.trim()) {
-        return wrapSubAgent(renderReasoningTimeline())
+      if (liveThinking || persistedThinking) {
+        return (
+          <ThinkingBlock
+            thinkingText={liveThinking || persistedThinking || ''}
+            isStreaming={!!message.isStreaming}
+            isLive={!!liveThinking}
+          />
+        )
       }
       return null
     }
 
-    if (!hasContent && hasTools) {
-      return wrapSubAgent(
-        <>
-          {renderReasoningTimeline()}
-          {message.isStreaming && <TypingIndicator />}
-        </>,
-      )
+    return (
+      <>
+        {(liveThinking || persistedThinking) && (
+          <ThinkingBlock
+            thinkingText={liveThinking || persistedThinking || ''}
+            isStreaming={!!message.isStreaming}
+            isLive={!!liveThinking}
+          />
+        )}
+        {hasContent && (
+          <div className={styles['message-text']}>
+            {renderTextContent(message.content)}
+            {message.isStreaming && <span className={styles['streaming-cursor']} />}
+          </div>
+        )}
+        {hasTools && (
+          <div className={styles['part-block']}>
+            <ToolBatchGroup items={toolItems!} />
+          </div>
+        )}
+        {message.fileChanges && message.fileChanges.length > 0 && (
+          <TurnFileChangesCard
+            changes={message.fileChanges}
+            onReview={onReviewFileChanges}
+          />
+        )}
+      </>
+    )
+  }
+
+  /** 渲染 assistant 消息正文（parts 时间线优先） */
+  const renderAssistantBody = () => {
+    const parts = message.parts ?? []
+
+    if (parts.length === 0) {
+      if (message.isStreaming && !message.content && !(toolItems && toolItems.length > 0)) {
+        return wrapSubAgent(renderThinkingPlaceholder())
+      }
+      return wrapSubAgent(renderLegacyAssistantBody())
     }
 
-    return wrapSubAgent(
-      <>
-        {renderReasoningTimeline()}
-        <div className={styles['message-text']}>
-          {renderTextContent(message.content)}
-          {message.isStreaming && <span className={styles['streaming-cursor']}></span>}
-        </div>
-      </>,
-    )
+    return wrapSubAgent(renderPartsTimeline())
   }
 
   /**
@@ -973,19 +909,21 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
 
     if (message.role === 'assistant') {
       if (message.isAborted) {
+        const hasParts = (message.parts?.length ?? 0) > 0
         return (
           <>
-            {renderReasoningTimeline()}
-            <div className={styles['message-text']}>
-              {message.content && (
-                <div className={styles['message-content-partial']}>
-                  {renderTextContent(message.content)}
+            {hasParts ? wrapSubAgent(renderPartsTimeline()) : (
+              message.content && (
+                <div className={styles['message-text']}>
+                  <div className={styles['message-content-partial']}>
+                    {renderTextContent(message.content)}
+                  </div>
                 </div>
-              )}
-              <div className={styles['message-aborted-badge']}>
-                <span className={styles['aborted-icon']}><Ban size={12} /></span>
-                <span className={styles['aborted-text']}>回复已中断</span>
-              </div>
+              )
+            )}
+            <div className={styles['message-aborted-badge']}>
+              <span className={styles['aborted-icon']}><Ban size={12} /></span>
+              <span className={styles['aborted-text']}>回复已中断</span>
             </div>
           </>
         )
@@ -1061,47 +999,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     )
   }
 
-  /**
-   * 渲染会话头像：用户 / 助手 / 告警 使用简洁 SVG，避免 emoji，风格与 MtBot 助手产品一致。
-   */
-  const renderAvatar = () => {
-    if (message.role === 'user') {
-      return (
-        <svg className={styles['avatar-svg']} viewBox="0 0 24 24" fill="none" aria-hidden>
-          <circle cx="12" cy="8" r="3.5" stroke="currentColor" strokeWidth="1.75" />
-          <path
-            d="M5 20c.8-3.2 3.6-5 7-5s6.2 1.8 7 5"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-          />
-        </svg>
-      )
-    }
-    if (message.error || message.role === 'system') {
-      return (
-        <svg className={styles['avatar-svg']} viewBox="0 0 24 24" fill="none" aria-hidden>
-          <path
-            d="M12 3L3 19h18L12 3z"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinejoin="round"
-          />
-          <path d="M12 9v4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-          <circle cx="12" cy="17" r="1" fill="currentColor" />
-        </svg>
-      )
-    }
-    return (
-      <svg className={styles['avatar-svg']} viewBox="0 0 24 24" fill="none" aria-hidden>
-        <rect x="5" y="10" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="1.75" />
-        <path d="M9 10V8a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-        <circle cx="9" cy="15" r="1" fill="currentColor" />
-        <circle cx="15" cy="15" r="1" fill="currentColor" />
-        <path d="M9 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.35" />
-      </svg>
-    )
-  }
+  /** 角色标识：用文字代替头像图形 */
+  const roleLabel =
+    message.role === 'user'
+      ? '你'
+      : message.error || message.role === 'system'
+        ? '系统'
+        : 'lumii'
 
   const content = renderContent()
 
@@ -1111,6 +1015,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     message.role === 'assistant'
     && !message.isStreaming
     && content === null
+    && !(message.parts && message.parts.length > 0)
     && !message.thinkingText
     && !streamingThinkingText?.trim()
     && !message.llmError
@@ -1151,14 +1056,14 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
           onClose={() => setPreviewByPath(null)}
         />
       )}
-      <div className={styles['message-avatar']}>{renderAvatar()}</div>
+      <div className={styles['message-avatar']}>{roleLabel}</div>
       <div className={styles['message-content-wrapper']}>
         {content}
         {message.role === 'assistant' && renderTokenUsage()}
         {message.role === 'assistant' && renderMemoryHint()}
         {/*
           注意：消息气泡底部不再重复渲染 fileAttachments。
-          Agent 生成/上传的文件由会话底部统一的 SessionFileList 展示，
+          Agent 生成/上传的文件由对话流内的 SessionFileList 轻量卡片展示，
           避免「消息气泡底部附件列表 + 会话文件列表」双重冗余。
           fileAttachments prop 仍保留，供工具卡片按 fileName 匹配 fileId 做内联预览。
         */}
@@ -1168,7 +1073,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
           <MessageActions
             messageId={message.id}
             role={message.role}
-            content={message.content}
+            content={
+              message.role === 'user'
+                ? parseMediaAttachments(message.content).textWithoutMedia
+                : message.content
+            }
             isEditing={isEditing}
             onCopy={handleCopy}
             onEditStart={handleEditStart}
@@ -1184,7 +1093,12 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
           </div>
         )}
 
-        <div className={styles['message-meta']}>{formatTime(message.timestamp)}</div>
+        <div className={styles['message-meta']}>
+          {message.acpBackendLabel && (
+            <span className={styles['acp-backend-badge']}>{message.acpBackendLabel}</span>
+          )}
+          {formatTime(message.timestamp)}
+        </div>
       </div>
     </div>
     </ToolFilePreviewProvider>

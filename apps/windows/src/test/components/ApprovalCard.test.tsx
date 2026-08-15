@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import ApprovalCard from '../../renderer/pages/ChatPage/components/ApprovalCard'
 import type { ExecApprovalRequest } from '../../renderer/types/exec-approvals'
@@ -124,14 +124,14 @@ describe('Phase 5: 审批卡片 - ApprovalCard组件', () => {
       expect(screen.getByText(/30秒后过期/)).toBeInTheDocument()
     })
 
-    it('TC-5.1.5: 倒计时每秒更新', async () => {
+    // 假定时器下不能用 waitFor：它按真实时钟轮询，会一直等到超时
+    it('TC-5.1.5: 倒计时每秒更新', () => {
       render(<ApprovalCard {...mockProps} approval={createMockApproval(30)} />)
 
-      // 前进1秒
-      vi.advanceTimersByTime(1000)
-      await waitFor(() => {
-        expect(screen.getByText(/29秒后过期/)).toBeInTheDocument()
+      act(() => {
+        vi.advanceTimersByTime(1000)
       })
+      expect(screen.getByText(/29秒后过期/)).toBeInTheDocument()
     })
 
     it('TC-5.1.6: 倒计时<=10秒显示紧急状态', async () => {
@@ -143,14 +143,13 @@ describe('Phase 5: 审批卡片 - ApprovalCard组件', () => {
       expect(countdown).toHaveClass('urgent')
     })
 
-    it('TC-5.1.7: 倒计时归零显示已过期', async () => {
+    it('TC-5.1.7: 倒计时归零显示已过期', () => {
       render(<ApprovalCard {...mockProps} approval={createMockApproval(1)} />)
 
-      // 前进2秒
-      vi.advanceTimersByTime(2000)
-      await waitFor(() => {
-        expect(screen.getByText(/已过期/)).toBeInTheDocument()
+      act(() => {
+        vi.advanceTimersByTime(2000)
       })
+      expect(screen.getByText(/已过期/)).toBeInTheDocument()
     })
   })
 

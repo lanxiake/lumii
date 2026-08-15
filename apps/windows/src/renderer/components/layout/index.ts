@@ -5,10 +5,16 @@
  */
 
 // Sidebar
-export { Sidebar, type ViewType, type NavItem, type User, type SidebarProps } from './Sidebar';
+export { Sidebar, SIDEBAR_SESSION_SLOT_ID, SIDEBAR_TOGGLE_EVENT, type ViewType, type NavItem, type SidebarProps } from './Sidebar';
 
 // TitleBar
 export { TitleBar, type TitleBarProps } from './TitleBar';
 
 // MainLayout
 export { MainLayout, type MainLayoutProps } from './MainLayout';
+
+// WindowEdgeGlow
+export { WindowEdgeGlow } from './WindowEdgeGlow';
+
+// StatusBar
+export { StatusBar } from './StatusBar';

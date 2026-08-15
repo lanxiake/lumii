@@ -6,7 +6,6 @@
  */
 
 import React, { useState, useEffect } from 'react'
-import { useAuth } from '../../../../hooks/business'
 import { Step1Requirement } from './Step1Requirement'
 import { Step2Planning } from './Step2Planning'
 import { Step3Review } from './Step3Review'
@@ -60,8 +59,8 @@ export const GenerateTeamWizard: React.FC<WizardProps> = ({
   onClose,
   onComplete,
 }) => {
-  const { user } = useAuth()
-  const userId = user?.id ?? 'default'
+  // 独立版无账号体系，草稿键固定归属本地用户
+  const userId = 'local-user'
 
   // 挂载时从 localStorage 恢复草稿
   const draft = loadDraft(userId)

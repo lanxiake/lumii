@@ -1,57 +1,47 @@
 /**
- * WorkspaceVersionPanel — 工作空间版本管理面板（文件对比视图）
+ * WorkspaceVersionPanel — 工作空间版本（更改 / 历史）
  *
- * 参考代码编辑器：
- * - 左栏：未提交变更文件列表 + 版本历史列表（点击版本展开其变更文件）
- * - 右栏：点击某文件渲染该文件逐行 diff，并可对单个文件撤销
- * - 仍保留整版回滚（回滚到某历史版本）入口
- * 颜色使用 CSS 变量，自动跟随深色/浅色主题。
+ * 对齐 Cursor Changes：堆叠多文件 Diff + 右栏文件导航；列表秒开，hunks 按文件懒加载。
+ * 嵌入 WorkspaceWorkbench 时无全屏遮罩。
  */
 
-import React, { useState, useCallback } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
-import { useWorkspaceVcs, type VcsDiffItem } from '../../../../hooks/business/useWorkspaceVcs'
+import { Save, RotateCcw, X, Maximize2, Minimize2, Expand } from 'lucide-react'
+import {
+  useWorkspaceVcs,
+  type VcsDiffItem,
+  type VcsLogEntry,
+} from '../../../../hooks/business/useWorkspaceVcs'
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
+import { DiffFileCard } from './DiffFileCard'
+import { ChangedFilesRail } from './ChangedFilesRail'
+import { ProjectGitSection } from './ProjectGitSection'
+import type { WorkbenchLayoutMode } from '../WorkspaceWorkbench'
 import styles from './WorkspaceVersionPanel.module.css'
 
-// ── SVG 图标 ──────────────────────────────────────────────────
+type Subnav = 'changes' | 'history'
 
-const IconClose: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-  </svg>
-)
+interface WorkspaceVersionPanelProps {
+  open: boolean
+  onClose: () => void
+  embedded?: boolean
+  /** 版本卡片「在文件中显示」→ 切到 files tab 并定位 */
+  onRevealInFiles?: (filepath: string) => void
+  /** 向共享工作台同步未提交文件数量 */
+  onUncommittedCountChange?: (count: number) => void
+  /** 向共享工作台注册当前 VCS 实例的刷新函数 */
+  refreshRef?: React.MutableRefObject<(() => Promise<void>) | null>
+  /** 工作台宽度布局（默认 / 加宽 / 全屏盖满对话区） */
+  layoutMode?: WorkbenchLayoutMode
+  onLayoutModeChange?: (mode: WorkbenchLayoutMode) => void
+}
 
-const IconSave: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-    <polyline points="17 21 17 13 7 13 7 21" /><polyline points="7 3 7 8 15 8" />
-  </svg>
-)
-
-const IconRollback: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="1 4 1 10 7 10" />
-    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-  </svg>
-)
-
-const IconChevron: React.FC<{ expanded: boolean; size?: number }> = ({ expanded, size = 12 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-    style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
-    <polyline points="9 18 15 12 9 6" />
-  </svg>
-)
-
-const IconUndo: React.FC<{ size?: number }> = ({ size = 13 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3 7v6h6" />
-    <path d="M3 13a9 9 0 1 0 3-7.7L3 8" />
-  </svg>
-)
-
-// ── 格式化 ────────────────────────────────────────────────────
+interface HunkCacheEntry {
+  item: VcsDiffItem
+  loading: boolean
+}
 
 function formatTime(ms: number): string {
   const d = new Date(ms)
@@ -59,77 +49,266 @@ function formatTime(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** 列表用相对时间，降低技术感 */
+function formatRelativeTime(ms: number): string {
+  const now = Date.now()
+  const diff = Math.max(0, now - ms)
+  const min = Math.floor(diff / 60_000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return `${min} 分钟前`
+  const hour = Math.floor(min / 60)
+  if (hour < 24) return `${hour} 小时前`
+  const day = Math.floor(hour / 24)
+  if (day === 1) return '昨天'
+  if (day < 7) return `${day} 天前`
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** 作者面向用户文案 */
+function authorLabel(author: VcsLogEntry['author']): string {
+  return author === 'agent' ? '灵栖' : '你'
+}
+
+/** 历史条目标题：空 message 时给可读兜底；隐藏「auto: 对话 xxx」中的 ID */
+function historyTitle(
+  message: string,
+  oid: string,
+  conversationTitle?: string,
+): string {
+  const t = message.trim()
+  if (/^auto:\s*对话\s+/i.test(t) && conversationTitle) {
+    return `对话快照 · ${conversationTitle}`
+  }
+  if (t) return t
+  if (conversationTitle) return `对话快照 · ${conversationTitle}`
+  return `版本 ${oid.slice(0, 7)}`
+}
+
 function shortOid(oid: string): string {
   return oid.slice(0, 8)
 }
 
-function statusGlyph(status: string): string {
-  return status === 'added' ? '+' : status === 'deleted' ? '-' : '~'
+/** 解析会话标题映射（sessionKey / conversationId → title） */
+async function loadConversationTitleMap(): Promise<Record<string, string>> {
+  const api = window.electronAPI?.agentRuntime
+  if (!api?.sendCommand) return {}
+  try {
+    const result = await api.sendCommand({ type: 'conversation:list' })
+    if (!Array.isArray(result)) return {}
+    const map: Record<string, string> = {}
+    for (const row of result as Array<{ id?: string; sessionKey?: string; title?: string }>) {
+      const title = (row.title ?? '').trim()
+      if (!title) continue
+      if (row.sessionKey) map[row.sessionKey] = title
+      if (row.id) map[row.id] = title
+    }
+    return map
+  } catch {
+    return {}
+  }
 }
 
-// ── 差异行颜色 ────────────────────────────────────────────────
-
-function hunkLineClass(line: string): string {
-  if (line.startsWith('+')) return styles['diff-add']
-  if (line.startsWith('-')) return styles['diff-del']
-  return styles['diff-context']
-}
-
-// ── Props ─────────────────────────────────────────────────────
-
-interface WorkspaceVersionPanelProps {
-  open: boolean
-  onClose: () => void
+function cardId(filepath: string): string {
+  return `vcs-card-${encodeURIComponent(filepath)}`
 }
 
 /**
- * 选中文件的来源上下文：
- * - uncommitted：未提交变更，撤销即恢复到 HEAD
- * - commit：某历史版本的变更，撤销即把该文件恢复到该版本（fromOid）内容
+ * 有限并发执行异步任务
  */
-interface SelectedFile {
-  filepath: string
-  status: string
-  /** 撤销时把文件恢复到的版本 oid；未提交变更用 'HEAD' */
-  revertOid: string
-  source: 'uncommitted' | 'commit'
-  /** diff 的两端，用于右栏渲染 */
-  diff: VcsDiffItem | null
+async function mapPool<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let next = 0
+  const runners = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++
+      results[i] = await worker(items[i])
+    }
+  })
+  await Promise.all(runners)
+  return results
 }
 
-// ── 组件 ─────────────────────────────────────────────────────
+export const WorkspaceVersionPanel: React.FC<WorkspaceVersionPanelProps> = ({
+  open,
+  onClose,
+  embedded = false,
+  onRevealInFiles,
+  onUncommittedCountChange,
+  refreshRef,
+  layoutMode = 'default',
+  onLayoutModeChange,
+}) => {
+  const {
+    history,
+    uncommittedDiff,
+    loading,
+    commit,
+    rollback,
+    revertFile,
+    diffList,
+    diffFile,
+    refresh,
+  } = useWorkspaceVcs()
 
-export const WorkspaceVersionPanel: React.FC<WorkspaceVersionPanelProps> = ({ open, onClose }) => {
-  const { history, uncommittedDiff, loading, commit, rollback, revertFile, diffWithHunks, refresh } = useWorkspaceVcs()
+  /** 将版本面板持有的未提交数量同步给工作台徽标 */
+  useEffect(() => {
+    onUncommittedCountChange?.(uncommittedDiff.length)
+  }, [onUncommittedCountChange, uncommittedDiff.length])
+
+  /** 将同一 VCS hook 实例的刷新函数提供给工作台标题栏 */
+  useEffect(() => {
+    if (!refreshRef) return
+    refreshRef.current = refresh
+    return () => {
+      if (refreshRef.current === refresh) refreshRef.current = null
+    }
+  }, [refresh, refreshRef])
+
+  const [subnav, setSubnav] = useState<Subnav>('changes')
   const [saving, setSaving] = useState(false)
+  const [saveOk, setSaveOk] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+  const [activePath, setActivePath] = useState<string | undefined>()
+  const [railVisible, setRailVisible] = useState(true)
+  /** conversationId → 会话标题，供历史列表展示 */
+  const [conversationTitles, setConversationTitles] = useState<Record<string, string>>({})
+  const [historyFiles, setHistoryFiles] = useState<VcsDiffItem[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [selectedHistory, setSelectedHistory] = useState<{
+    entry: VcsLogEntry
+    parentOid: string
+  } | null>(null)
+
+  const [hunkCache, setHunkCache] = useState<Record<string, HunkCacheEntry>>({})
+  const cacheKeyRef = useRef('')
+
   const [rollbackTarget, setRollbackTarget] = useState<{ oid: string; label: string } | null>(null)
   const [rollbackConfirming, setRollbackConfirming] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
-
-  // 左栏：展开的历史版本 oid → 其文件 diff 列表
-  const [expandedOid, setExpandedOid] = useState<string | null>(null)
-  const [expandedDiff, setExpandedDiff] = useState<VcsDiffItem[]>([])
-  const [diffLoading, setDiffLoading] = useState(false)
-
-  // 右栏：当前选中的文件
-  const [selected, setSelected] = useState<SelectedFile | null>(null)
-
-  // 单文件撤销二次确认
+  const [revertTarget, setRevertTarget] = useState<{
+    filepath: string
+    revertOid: string
+    source: 'uncommitted' | 'commit'
+  } | null>(null)
   const [revertConfirming, setRevertConfirming] = useState(false)
+
+  /** 打开历史子页时拉取会话标题，把 ID 换成可读名称 */
+  useEffect(() => {
+    if (!open || subnav !== 'history') return
+    let cancelled = false
+    void loadConversationTitleMap().then((map) => {
+      if (!cancelled) setConversationTitles(map)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [open, subnav])
 
   const showToast = (msg: string) => {
     setToast(msg)
     setTimeout(() => setToast(null), 3000)
   }
 
+  const listFiles: VcsDiffItem[] =
+    subnav === 'changes' ? uncommittedDiff : historyFiles
+
+  const totalIns = useMemo(
+    () => listFiles.reduce((s, f) => s + f.insertions, 0),
+    [listFiles],
+  )
+  const totalDel = useMemo(
+    () => listFiles.reduce((s, f) => s + f.deletions, 0),
+    [listFiles],
+  )
+
+  /** 当前列表对应的 diff 端点 */
+  const endpoints = useMemo(() => {
+    if (subnav === 'changes') return { from: 'HEAD', to: 'WORKTREE' as const }
+    if (selectedHistory) return { from: selectedHistory.parentOid, to: selectedHistory.entry.oid }
+    return null
+  }, [subnav, selectedHistory])
+
+  const cachePrefix = endpoints ? `${endpoints.from}:${endpoints.to}` : ''
+
+  // 列表切换时清空 hunk 缓存前缀
+  useEffect(() => {
+    if (cacheKeyRef.current !== cachePrefix) {
+      cacheKeyRef.current = cachePrefix
+      setHunkCache({})
+    }
+  }, [cachePrefix])
+
+  /** 懒加载单个文件 hunks */
+  const ensureHunks = useCallback(
+    async (filepath: string) => {
+      if (!endpoints) return
+      const key = `${cachePrefix}:${filepath}`
+      setHunkCache((prev) => {
+        if (prev[key]?.item.hunks || prev[key]?.loading) return prev
+        return { ...prev, [key]: { item: { filepath, status: 'modified', insertions: 0, deletions: 0 }, loading: true } }
+      })
+      const detailed = await diffFile(endpoints.from, endpoints.to, filepath)
+      setHunkCache((prev) => ({
+        ...prev,
+        [key]: {
+          loading: false,
+          item: detailed ?? {
+            filepath,
+            status: 'modified',
+            insertions: 0,
+            deletions: 0,
+            skipReason: '无法加载差异',
+            truncated: true,
+          },
+        },
+      }))
+    },
+    [cachePrefix, diffFile, endpoints],
+  )
+
+  // 列表出现后优先加载前 5 个文件 hunks
+  useEffect(() => {
+    if (!open || !endpoints || listFiles.length === 0) return
+    const first = listFiles.slice(0, 5).map((f) => f.filepath)
+    void mapPool(first, 4, async (fp) => {
+      await ensureHunks(fp)
+    })
+  }, [open, endpoints, listFiles, ensureHunks])
+
+  /** 选中历史版本 → 仅拉文件列表（无 hunks） */
+  const selectHistory = useCallback(
+    async (entry: VcsLogEntry, index: number) => {
+      const parentOid = index + 1 < history.length ? history[index + 1].oid : entry.oid
+      setSelectedHistory({ entry, parentOid })
+      setHistoryLoading(true)
+      setActivePath(undefined)
+      try {
+        const list = await diffList(parentOid, entry.oid)
+        setHistoryFiles(list)
+      } catch {
+        setHistoryFiles([])
+        showToast('加载版本文件列表失败')
+      } finally {
+        setHistoryLoading(false)
+      }
+    },
+    [diffList, history],
+  )
+
   const handleSave = async () => {
     setSaving(true)
     try {
       const result = await commit()
       if (result) {
+        setSaveOk(true)
+        setTimeout(() => setSaveOk(false), 1200)
         showToast('版本已保存')
         await refresh()
-        setSelected(null)
       } else {
         showToast('工作区无变更，跳过保存')
       }
@@ -140,9 +319,25 @@ export const WorkspaceVersionPanel: React.FC<WorkspaceVersionPanelProps> = ({ op
     }
   }
 
-  const handleRollbackClick = (oid: string, message: string) => {
-    setRollbackTarget({ oid, label: message || shortOid(oid) })
-    setRollbackConfirming(true)
+  // Ctrl+S 保存（仅更改子页）
+  useEffect(() => {
+    if (!open || subnav !== 'changes') return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        void handleSave()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const handleSelectFile = (filepath: string) => {
+    setActivePath(filepath)
+    void ensureHunks(filepath)
+    requestAnimationFrame(() => {
+      document.getElementById(cardId(filepath))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   }
 
   const handleRollbackConfirm = async () => {
@@ -152,74 +347,26 @@ export const WorkspaceVersionPanel: React.FC<WorkspaceVersionPanelProps> = ({ op
       const result = await rollback(rollbackTarget.oid)
       showToast(`已回滚至 ${shortOid(result.restoredOid)}（当前状态已自动备份）`)
       setRollbackTarget(null)
-      setSelected(null)
+      setSelectedHistory(null)
+      setHistoryFiles([])
       await refresh()
     } catch (err) {
       showToast(`回滚失败: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
-  /** 展开/折叠历史版本：加载该版本相对父版本的文件 diff */
-  const handleToggleExpand = async (index: number) => {
-    const entry = history[index]
-    if (!entry) return
-    if (expandedOid === entry.oid) {
-      setExpandedOid(null)
-      setExpandedDiff([])
-      return
-    }
-    setExpandedOid(entry.oid)
-    setDiffLoading(true)
-    try {
-      const parentIndex = index + 1
-      const parentOid = parentIndex < history.length ? history[parentIndex].oid : null
-      // 首个提交无父版本：与自身 diff（展示为全新增）
-      const diff = await diffWithHunks(parentOid ?? entry.oid, entry.oid)
-      setExpandedDiff(diff)
-    } catch {
-      setExpandedDiff([])
-    } finally {
-      setDiffLoading(false)
-    }
-  }
-
-  /** 选中未提交变更中的文件 → 右栏渲染 diff（含 hunks） */
-  const handleSelectUncommitted = useCallback(async (item: VcsDiffItem) => {
-    setSelected({
-      filepath: item.filepath,
-      status: item.status,
-      revertOid: 'HEAD',
-      source: 'uncommitted',
-      diff: item.hunks ? item : null,
-    })
-    if (!item.hunks) {
-      // statusDiff 不带 hunks，需补取逐行 diff（HEAD vs 工作区）。
-      // diffWithHunks 比对两个 commit，工作区未提交内容无 oid，
-      // 这里退化为提示用户先在版本历史查看；仍展示文件级状态。
-      setSelectedHunksLoading(false)
-    }
-  }, [])
-
-  /** 选中历史版本中的文件 → 右栏渲染该文件 diff */
-  const handleSelectCommitFile = useCallback((item: VcsDiffItem, parentOid: string) => {
-    setSelected({
-      filepath: item.filepath,
-      status: item.status,
-      revertOid: parentOid,
-      source: 'commit',
-      diff: item,
-    })
-    setSelectedHunksLoading(false)
-  }, [])
-
   const handleRevertConfirm = async () => {
-    if (!selected) return
+    if (!revertTarget) return
     setRevertConfirming(false)
     try {
-      await revertFile(selected.revertOid, selected.filepath)
-      showToast(`已撤销 ${selected.filepath}`)
-      setSelected(null)
+      await revertFile(revertTarget.revertOid, revertTarget.filepath)
+      showToast(`已撤销 ${revertTarget.filepath}`)
+      setRevertTarget(null)
       await refresh()
+      if (subnav === 'history' && selectedHistory) {
+        const list = await diffList(selectedHistory.parentOid, selectedHistory.entry.oid)
+        setHistoryFiles(list)
+      }
     } catch (err) {
       showToast(`撤销失败: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -227,235 +374,336 @@ export const WorkspaceVersionPanel: React.FC<WorkspaceVersionPanelProps> = ({ op
 
   if (!open) return null
 
-  const renderDiffHunks = (diff: VcsDiffItem | null) => {
-    if (!diff) {
-      return <p className={styles['vcs-empty']}>该文件为未提交变更，逐行差异请在保存版本后查看；可直接撤销恢复到上一版本。</p>
-    }
-    if (!diff.hunks || diff.hunks.length === 0) {
-      return <p className={styles['vcs-empty']}>无逐行差异（可能为二进制文件或仅元数据变更）</p>
-    }
-    return (
-      <div className={styles['vcs-diff-hunks']}>
-        {diff.hunks.map((h, hi) => (
-          <div key={hi} className={styles['vcs-diff-hunk']}>
-            <div className={styles['vcs-diff-hunk-header']}>
-              @@ -{h.oldStart},{h.oldLines} +{h.newStart},{h.newLines} @@
-            </div>
-            {h.lines.map((line, li) => (
-              <pre key={li} className={hunkLineClass(line)}>{line}</pre>
-            ))}
-          </div>
-        ))}
-      </div>
-    )
-  }
-
-  return createPortal(
-    <div className={styles['vcs-overlay']} onClick={onClose}>
-      <div className={styles['vcs-panel']} onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
+  const panel = (
+    <div
+      className={clsx(
+        styles['vcs-panel'],
+        embedded && styles['vcs-panel--embedded'],
+        layoutMode === 'fullscreen' && styles['vcs-panel--fullscreen'],
+        layoutMode === 'wide' && styles['vcs-panel--wide'],
+      )}
+    >
+      {!embedded && (
         <div className={styles['vcs-header']}>
           <h3 className={styles['vcs-title']}>工作空间版本</h3>
-          <button className={styles['vcs-close']} onClick={onClose}><IconClose /></button>
+          <button type="button" className={styles['vcs-close']} onClick={onClose}>
+            <X size={14} />
+          </button>
         </div>
+      )}
 
-        {/* 两栏主体 */}
-        <div className={styles['vcs-body']}>
-          {/* 左栏：文件 / 版本列表 */}
-          <div className={styles['vcs-left']}>
-            {/* 未提交变更 */}
-            <div className={styles['vcs-section']}>
-              <div className={styles['vcs-section-header']}>
-                <span className={styles['vcs-section-title']}>
-                  未提交变更
-                  {uncommittedDiff.length > 0 && (
-                    <span className={styles['vcs-badge']}>{uncommittedDiff.length}</span>
-                  )}
-                </span>
-                <button
-                  className={styles['vcs-btn-save']}
-                  onClick={handleSave}
-                  disabled={saving}
-                >
-                  <IconSave size={13} />
-                  {saving ? '保存中...' : '保存版本'}
-                </button>
-              </div>
-              {uncommittedDiff.length > 0 ? (
-                <ul className={styles['vcs-file-list']}>
-                  {uncommittedDiff.map((f) => (
-                    <li
-                      key={f.filepath}
-                      className={clsx(
-                        styles['vcs-file-item'],
-                        styles['vcs-file-item--clickable'],
-                        selected?.source === 'uncommitted' && selected.filepath === f.filepath && styles['vcs-file-item--active'],
-                      )}
-                      onClick={() => handleSelectUncommitted(f)}
-                      title={`点击查看 ${f.filepath}`}
-                    >
-                      <span className={clsx(styles['vcs-file-status'], styles[`status-${f.status}`])}>
-                        {statusGlyph(f.status)}
-                      </span>
-                      <span className={styles['vcs-file-path']}>{f.filepath}</span>
-                      <span className={styles['vcs-file-stats']}>+{f.insertions} -{f.deletions}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className={styles['vcs-empty']}>工作区无变更</p>
-              )}
-            </div>
-
-            {/* 版本历史 */}
-            <div className={styles['vcs-section']}>
-              <span className={styles['vcs-section-title']}>版本历史</span>
-              {loading ? (
-                <p className={styles['vcs-empty']}>加载中...</p>
-              ) : history.length === 0 ? (
-                <p className={styles['vcs-empty']}>暂无版本记录</p>
-              ) : (
-                <ul className={styles['vcs-history-list']}>
-                  {history.map((entry, idx) => {
-                    const parentOid = idx + 1 < history.length ? history[idx + 1].oid : entry.oid
-                    return (
-                      <li key={entry.oid}>
-                        <div className={styles['vcs-history-item']}>
-                          <button
-                            className={styles['vcs-history-expand']}
-                            onClick={() => handleToggleExpand(idx)}
-                            title="展开查看变更文件"
-                          >
-                            <IconChevron expanded={expandedOid === entry.oid} />
-                          </button>
-                          <div className={styles['vcs-history-meta']}>
-                            <span className={styles['vcs-history-author']}>
-                              {entry.author === 'agent' ? '🤖' : '👤'}
-                            </span>
-                            <span className={styles['vcs-history-msg']}>{entry.message || shortOid(entry.oid)}</span>
-                            <span className={styles['vcs-history-time']}>{formatTime(entry.timestamp)}</span>
-                            <span className={styles['vcs-history-oid']}>{shortOid(entry.oid)}</span>
-                          </div>
-                          <button
-                            className={styles['vcs-btn-rollback']}
-                            onClick={() => handleRollbackClick(entry.oid, entry.message)}
-                            title="回滚整个工作区到此版本"
-                          >
-                            <IconRollback size={13} />
-                            回滚
-                          </button>
-                        </div>
-                        {/* 该版本的变更文件列表（点击在右栏看 diff） */}
-                        {expandedOid === entry.oid && (
-                          <div className={styles['vcs-commit-files']}>
-                            {diffLoading ? (
-                              <p className={styles['vcs-empty']}>加载差异中...</p>
-                            ) : expandedDiff.length === 0 ? (
-                              <p className={styles['vcs-empty']}>无文件变更</p>
-                            ) : (
-                              <ul className={styles['vcs-file-list']}>
-                                {expandedDiff.map((f) => (
-                                  <li
-                                    key={f.filepath}
-                                    className={clsx(
-                                      styles['vcs-file-item'],
-                                      styles['vcs-file-item--clickable'],
-                                      selected?.source === 'commit' && selected.filepath === f.filepath && selected.revertOid === parentOid && styles['vcs-file-item--active'],
-                                    )}
-                                    onClick={() => handleSelectCommitFile(f, parentOid)}
-                                    title={`点击查看 ${f.filepath}`}
-                                  >
-                                    <span className={clsx(styles['vcs-file-status'], styles[`status-${f.status}`])}>
-                                      {statusGlyph(f.status)}
-                                    </span>
-                                    <span className={styles['vcs-file-path']}>{f.filepath}</span>
-                                    <span className={styles['vcs-file-stats']}>+{f.insertions} -{f.deletions}</span>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </div>
-          </div>
-
-          {/* 右栏：选中文件的 diff */}
-          <div className={styles['vcs-right']}>
-            {!selected ? (
-              <div className={styles['vcs-right-empty']}>
-                <p>从左侧点击一个文件查看差异</p>
-                <p className={styles['vcs-right-empty-sub']}>可对单个文件单独撤销，无需回滚整个工作区</p>
-              </div>
-            ) : (
-              <>
-                <div className={styles['vcs-right-header']}>
-                  <span className={clsx(styles['vcs-file-status'], styles[`status-${selected.status}`])}>
-                    {statusGlyph(selected.status)}
-                  </span>
-                  <span className={styles['vcs-right-filepath']} title={selected.filepath}>{selected.filepath}</span>
-                  <button
-                    className={styles['vcs-btn-revert']}
-                    onClick={() => setRevertConfirming(true)}
-                    title={selected.source === 'uncommitted' ? '丢弃该文件的未提交改动，恢复到上一版本' : '把该文件恢复到此版本之前的内容'}
-                  >
-                    <IconUndo size={13} />
-                    撤销此文件
-                  </button>
-                </div>
-                <div className={styles['vcs-right-diff']}>
-                  {selectedHunksLoading ? (
-                    <p className={styles['vcs-empty']}>加载差异中...</p>
-                  ) : (
-                    renderDiffHunks(selected.diff)
-                  )}
-                </div>
-              </>
-            )}
+      <div className={styles.subnav}>
+        <div className={styles.subnavTabs}>
+          <button
+            type="button"
+            className={clsx(styles.subTab, subnav === 'changes' && styles.subTabActive)}
+            onClick={() => {
+              setSubnav('changes')
+              setActivePath(undefined)
+            }}
+          >
+            更改
+          </button>
+          <button
+            type="button"
+            className={clsx(styles.subTab, subnav === 'history' && styles.subTabActive)}
+            onClick={() => setSubnav('history')}
+          >
+            历史
+          </button>
+        </div>
+        <div className={styles.subnavMeta}>
+          {subnav === 'changes' ? (
+            <>
+              <span className={styles.metaLabel}>未提交</span>
+              <span className={styles.ins}>+{totalIns}</span>
+              <span className={styles.del}>−{totalDel}</span>
+              <button
+                type="button"
+                className={clsx(styles.saveBtn, 'mt-press')}
+                onClick={() => void handleSave()}
+                disabled={saving}
+              >
+                <Save size={13} strokeWidth={2} />
+                {saving ? '保存中…' : saveOk ? '已保存 ✓' : '保存版本'}
+              </button>
+            </>
+          ) : selectedHistory ? (
+            <>
+              <span className={styles.metaLabel}>
+                {listFiles.length} 个文件
+              </span>
+              <span className={styles.ins}>+{totalIns}</span>
+              <span className={styles.del}>−{totalDel}</span>
+            </>
+          ) : (
+            <span className={styles.metaLabel}>选择一个版本查看变更</span>
+          )}
+          <div className={styles.layoutBtns}>
+            <button
+              type="button"
+              className={clsx(styles.layoutBtn, layoutMode === 'default' && styles.layoutBtnActive)}
+              title="默认比例"
+              onClick={() => onLayoutModeChange?.('default')}
+            >
+              <Minimize2 size={13} />
+            </button>
+            <button
+              type="button"
+              className={clsx(styles.layoutBtn, layoutMode === 'wide' && styles.layoutBtnActive)}
+              title="加宽预览"
+              onClick={() => onLayoutModeChange?.('wide')}
+            >
+              <Expand size={13} />
+            </button>
+            <button
+              type="button"
+              className={clsx(styles.layoutBtn, layoutMode === 'fullscreen' && styles.layoutBtnActive)}
+              title="全屏（铺满对话区，可再拖拽调整）"
+              onClick={() =>
+                onLayoutModeChange?.(layoutMode === 'fullscreen' ? 'default' : 'fullscreen')
+              }
+            >
+              <Maximize2 size={13} />
+            </button>
           </div>
         </div>
-
-        {/* Toast */}
-        {toast && <div className={styles['vcs-toast']}>{toast}</div>}
       </div>
 
-      {/* 整版回滚确认 */}
+      <div className={styles.main}>
+        {subnav === 'history' && (
+          <aside className={styles.historyRail} aria-label="版本历史">
+            {loading ? (
+              <p className={styles.empty}>加载中…</p>
+            ) : history.length === 0 ? (
+              <p className={styles.empty}>暂无版本记录</p>
+            ) : (
+              <ul className={styles.historyList}>
+                {history.map((entry, idx) => {
+                  const active = selectedHistory?.entry.oid === entry.oid
+                  const convTitle = entry.conversationId
+                    ? conversationTitles[entry.conversationId]
+                    : undefined
+                  const title = historyTitle(entry.message, entry.oid, convTitle)
+                  return (
+                    <li key={entry.oid}>
+                      <button
+                        type="button"
+                        className={clsx(styles.historyItem, active && styles.historyItemActive)}
+                        onClick={() => void selectHistory(entry, idx)}
+                        title={title}
+                      >
+                        <span className={styles.historyTitle}>{title}</span>
+                        <span className={styles.historyMeta}>
+                          {formatRelativeTime(entry.timestamp)} · {authorLabel(entry.author)}
+                          {convTitle && !title.includes(convTitle)
+                            ? ` · ${convTitle}`
+                            : ''}
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </aside>
+        )}
+
+        <div className={clsx(styles.diffArea, !railVisible && styles.diffAreaSolo)}>
+          {subnav === 'history' && selectedHistory && (
+            <div className={styles.historyDetail}>
+              <div className={styles.historyDetailText}>
+                <div className={styles.historyDetailTitle}>
+                  {historyTitle(
+                    selectedHistory.entry.message,
+                    selectedHistory.entry.oid,
+                    selectedHistory.entry.conversationId
+                      ? conversationTitles[selectedHistory.entry.conversationId]
+                      : undefined,
+                  )}
+                </div>
+                <div className={styles.historyDetailMeta}>
+                  <span>{authorLabel(selectedHistory.entry.author)}</span>
+                  <span aria-hidden>·</span>
+                  <span title={formatTime(selectedHistory.entry.timestamp)}>
+                    {formatTime(selectedHistory.entry.timestamp)}
+                  </span>
+                  {selectedHistory.entry.conversationId &&
+                    conversationTitles[selectedHistory.entry.conversationId] && (
+                      <>
+                        <span aria-hidden>·</span>
+                        <span
+                          className={styles.historyConv}
+                          title={conversationTitles[selectedHistory.entry.conversationId]}
+                        >
+                          对话：{conversationTitles[selectedHistory.entry.conversationId]}
+                        </span>
+                      </>
+                    )}
+                  {!historyLoading && (
+                    <>
+                      <span aria-hidden>·</span>
+                      <span>{listFiles.length} 个文件</span>
+                      <span className={styles.ins}>+{totalIns}</span>
+                      <span className={styles.del}>−{totalDel}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                className={styles.historyRollback}
+                title="将整个工作区回滚到此版本"
+                onClick={() => {
+                  setRollbackTarget({
+                    oid: selectedHistory.entry.oid,
+                    label: historyTitle(
+                      selectedHistory.entry.message,
+                      selectedHistory.entry.oid,
+                      selectedHistory.entry.conversationId
+                        ? conversationTitles[selectedHistory.entry.conversationId]
+                        : undefined,
+                    ),
+                  })
+                  setRollbackConfirming(true)
+                }}
+              >
+                <RotateCcw size={13} strokeWidth={2} />
+                回滚到此版本
+              </button>
+            </div>
+          )}
+
+          {(subnav === 'changes' || selectedHistory) && (
+            <div className={styles.diffBody}>
+              <div className={styles.stack}>
+                {historyLoading && <p className={styles.empty}>加载文件列表…</p>}
+                {!historyLoading && listFiles.length === 0 && (
+                  <p className={styles.empty}>
+                    {subnav === 'changes'
+                      ? '工作区无变更 — 可切换到「历史」查看过往版本'
+                      : '该版本无文件变更'}
+                  </p>
+                )}
+                {!historyLoading &&
+                  listFiles.map((f, i) => {
+                    const key = `${cachePrefix}:${f.filepath}`
+                    const cached = hunkCache[key]
+                    return (
+                      <div
+                        key={f.filepath}
+                        className={styles.stackItem}
+                        style={i < 4 ? { animationDelay: `${i * 40}ms` } : undefined}
+                        onMouseEnter={() => {
+                          if (!hunkCache[key]) void ensureHunks(f.filepath)
+                        }}
+                      >
+                        <DiffFileCard
+                          id={cardId(f.filepath)}
+                          entry={cached?.item.hunks ? cached.item : f}
+                          hunks={cached?.item.hunks}
+                          loading={!cached || cached.loading}
+                          truncated={cached?.item.truncated}
+                          skipReason={cached?.item.skipReason}
+                          onRevert={() => {
+                            setRevertTarget({
+                              filepath: f.filepath,
+                              revertOid: subnav === 'changes' ? 'HEAD' : (selectedHistory?.parentOid ?? 'HEAD'),
+                              source: subnav === 'changes' ? 'uncommitted' : 'commit',
+                            })
+                            setRevertConfirming(true)
+                          }}
+                          onRevealInFiles={
+                            onRevealInFiles
+                              ? () => onRevealInFiles(f.filepath)
+                              : undefined
+                          }
+                        />
+                      </div>
+                    )
+                  })}
+                {/* 项目汇总区：仅在 Changes 子页显示 */}
+                {subnav === 'changes' && !historyLoading && (
+                  <ProjectGitSection
+                    hunkCache={hunkCache}
+                    onEnsureHunks={(projectName, filepath) => {
+                      const key = `project:${projectName}:${filepath}`
+                      void ensureHunks(key)
+                    }}
+                    onRevert={(projectName, filepath) => {
+                      setRevertTarget({
+                        filepath: `projects/${projectName}/${filepath}`,
+                        revertOid: 'HEAD',
+                        source: 'uncommitted',
+                      })
+                      setRevertConfirming(true)
+                    }}
+                    onRevealInFiles={
+                      onRevealInFiles
+                        ? (projectName, filepath) => onRevealInFiles(`projects/${projectName}/${filepath}`)
+                        : undefined
+                    }
+                  />
+                )}
+              </div>
+              {layoutMode !== 'fullscreen' && (
+                <ChangedFilesRail
+                  files={listFiles}
+                  activePath={activePath}
+                  onSelect={handleSelectFile}
+                  visible={railVisible}
+                  onVisibleChange={setRailVisible}
+                />
+              )}
+            </div>
+          )}
+          {subnav === 'history' && !selectedHistory && !historyLoading && (
+            <p className={styles.emptyHint}>从左侧选择一个版本查看变更</p>
+          )}
+        </div>
+      </div>
+
+      {toast && <div className={styles['vcs-toast']}>{toast}</div>}
+
       <ConfirmModal
         open={rollbackConfirming}
         title="确认回滚"
         content={
           rollbackTarget
-            ? `回滚整个工作区到「${rollbackTarget.label}」？\n\n当前工作区会自动备份，回滚后可恢复。`
+            ? `回滚整个工作区到「${rollbackTarget.label}」（${shortOid(rollbackTarget.oid)}）？\n\n当前工作区会自动备份，回滚后可恢复。`
             : ''
         }
         confirmText="确认回滚"
         cancelText="取消"
         confirmVariant="danger"
-        onConfirm={handleRollbackConfirm}
+        onConfirm={() => void handleRollbackConfirm()}
         onCancel={() => setRollbackConfirming(false)}
       />
 
-      {/* 单文件撤销确认 */}
       <ConfirmModal
         open={revertConfirming}
         title="撤销此文件"
         content={
-          selected
-            ? selected.source === 'uncommitted'
-              ? `丢弃「${selected.filepath}」的未提交改动，恢复到最近一次保存的版本？此操作不可撤销。`
-              : `把「${selected.filepath}」恢复到该版本之前的内容？仅影响此文件，不影响其他文件。`
+          revertTarget
+            ? revertTarget.source === 'uncommitted'
+              ? `丢弃「${revertTarget.filepath}」的未提交改动，恢复到最近一次保存的版本？此操作不可撤销。`
+              : `把「${revertTarget.filepath}」恢复到该版本之前的内容？仅影响此文件。`
             : ''
         }
         confirmText="确认撤销"
         cancelText="取消"
         confirmVariant="danger"
-        onConfirm={handleRevertConfirm}
+        onConfirm={() => void handleRevertConfirm()}
         onCancel={() => setRevertConfirming(false)}
       />
+    </div>
+  )
+
+  if (embedded) return panel
+
+  return createPortal(
+    <div className={styles['vcs-overlay']} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()}>{panel}</div>
     </div>,
     document.body,
   )

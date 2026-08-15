@@ -83,13 +83,18 @@ export {
   cronCreateToolConfig,
   cronListToolConfig,
   cronDeleteToolConfig,
+  dashboardFeedWriteToolConfig,
   messageToolConfig,
+  channelListToolConfig,
+  channelSendToolConfig,
+  CHANNEL_LIST_TOOL_NAME,
+  CHANNEL_SEND_TOOL_NAME,
   nodesToolConfig,
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,
   systemPromptToolConfig,
-  ttsGenerateToolConfig,
+  speechGenerateToolConfig,
   imageGenerateToolConfig,
   DEFAULT_IMAGE_MODEL_ID,
   IMAGE_GENERATION_MODEL_OPTIONS,
@@ -156,13 +161,22 @@ export {
   createTransformContext,
   estimateTokenCount,
   microcompactToolResults,
+  resolveManualCompactKeepCount,
+  buildCompactSummaryPrompt,
+  formatCompactSummary,
+  NO_TOOLS_PREAMBLE,
+  NO_TOOLS_TRAILER,
   DEFAULT_COMPACTION_TRIGGER_RATIO,
   DEFAULT_KEEP_RECENT_TURNS,
   type CompactConfig,
   type CompactionInfo,
   type SummaryGeneratorFn,
 } from "./agent/index.js";
-export { estimateTextTokenCount, ceilTokenEstimate } from "./agent/index.js";
+export {
+  estimateTextTokenCount,
+  ceilTokenEstimate,
+  providerPromptTokens,
+} from "./agent/index.js";
 export {
   AgentOrchestrator,
   type AgentOrchestratorDeps,
@@ -200,7 +214,11 @@ export {
   exportLocalDataAsJSONL,
   maybeRunAutoVacuumSync,
   parseMessageContentJson,
+  messageRowToAgentMessages,
   FileRepo,
+  applyAssistantPartEvent,
+  finalizeAssistantParts,
+  diffTurnSnapshots,
 } from "./storage/index.js";
 export type {
   DatabaseAdapter,
@@ -222,6 +240,12 @@ export type {
   RegisterFileParams,
   ListFilesOpts,
   SearchFilesOpts,
+  AssistantPart,
+  AssistantPartEvent,
+  AssistantPartsContent,
+  FileChangeEntry,
+  TurnFileSnapshot,
+  ApplyAssistantPartEventOptions,
 } from "./storage/index.js";
 
 // === 记忆系统导出 ===

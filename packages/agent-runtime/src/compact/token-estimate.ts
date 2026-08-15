@@ -37,6 +37,21 @@ export function ceilTokenEstimate(tokens: number): number {
 }
 
 /**
+ * 服务商 usage 回执 → 本轮实际 prompt token 数。
+ *
+ * 必须把缓存命中算进来：开启 prompt cache 后，系统提示词等稳定前缀会被计入
+ * cacheRead/cacheWrite，inputTokens 只剩本轮增量。只取 inputTokens 会让
+ * 上下文占用读数虚低一个量级（10K+ 掉到几百）。
+ */
+export function providerPromptTokens(usage: {
+  readonly inputTokens?: number;
+  readonly cacheRead?: number;
+  readonly cacheWrite?: number;
+}): number {
+  return (usage.inputTokens ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+}
+
+/**
  * 将消息体字符量转为 token 估算（覆盖各块类型）
  */
 function estimateMessageBodyTokens(msg: { role?: string; content?: unknown }): number {

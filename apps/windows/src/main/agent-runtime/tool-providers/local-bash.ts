@@ -7,9 +7,35 @@
  * 主题4 P1：shell 选择委托给 @mtbot/agent-runtime 的 resolveShell（bash everywhere + cmd 降级）。
  */
 
-import { spawn } from 'child_process'
+import { spawn, spawnSync, type ChildProcess } from 'child_process'
 import * as iconv from 'iconv-lite'
 import { resolveShell } from '@mtbot/agent-runtime'
+import { buildScriptEnv } from '../../runtime-env'
+
+/**
+ * 强制终止子进程（含进程树）。
+ * Windows 上 SIGTERM/SIGKILL 只杀 shell 本身，孙进程（如 bash -c 里再起的 python）
+ * 不会被终止，其占用的 stdio 管道 handle 会导致 'close' 事件永远不触发、Promise 永久挂起。
+ */
+function forceKillProcess(child: ChildProcess): void {
+  const pid = child.pid
+  if (!pid) {
+    child.kill('SIGKILL')
+    return
+  }
+  if (process.platform === 'win32') {
+    try {
+      spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', timeout: 5000, windowsHide: true })
+    } catch {
+      child.kill('SIGKILL')
+    }
+  } else {
+    child.kill('SIGTERM')
+    setTimeout(() => {
+      if (!child.killed) child.kill('SIGKILL')
+    }, 2000)
+  }
+}
 
 // 主题3 P1-1：输出上限提升到 1MB（配合 tool-result-persist hook 落盘）。
 // 超出时截断并追加告警，避免单条命令输出撑爆上下文。
@@ -44,7 +70,8 @@ export async function executeLocalCommand(
     const child = spawn(shellPath, shellArgs, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env },
+      // 追加内置 node / python shim 到 PATH，用户没装环境也能跑 `node x.js` / `python3 x.py`
+      env: buildScriptEnv(),
       windowsHide: true,
     })
 
@@ -73,11 +100,8 @@ export async function executeLocalCommand(
       }
     })
 
-    // SIGTERM 优雅终止，2s 后强制 SIGKILL（超时与用户中断共用）
-    const killChild = (): void => {
-      child.kill('SIGTERM')
-      setTimeout(() => child.kill('SIGKILL'), 2000)
-    }
+    // Windows 用 taskkill /T /F 杀整棵进程树，避免孙进程存活导致 close 事件不触发
+    const killChild = (): void => forceKillProcess(child)
 
     const timer = setTimeout(() => {
       killedByTimeout = true

@@ -8,6 +8,7 @@
 import type { WeixinLoginService, WeixinNormalizedMessage } from '../../weixin-login-service'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import type { IChannelAdapter, ChannelSession, ContextStrategy } from '../types'
+import type { WeixinReplyContextStore } from '../weixin-reply-context-store'
 import { StatelessContextStrategy } from '../context-strategy/stateless-strategy'
 import { SlashCommandRegistry } from '../slash-command-registry'
 import { AcpBackendManager } from '../acp-backend-manager'
@@ -19,10 +20,11 @@ import { resumeCommand } from '../slash-commands/resume'
 import { createHelpCommand } from '../slash-commands/help'
 import { compactCommand } from '../slash-commands/compact'
 import { backendCommand } from '../slash-commands/backend'
-import { createSwitchBackendCommand, mtbotCommand } from '../slash-commands/switch-backend'
+import { createSwitchBackendCommand, lumiiCommand } from '../slash-commands/switch-backend'
 import { linkCommand, unlinkCommand } from '../slash-commands/link'
 import { runCodingDevAcpPrompt } from '../../coding-dev-backends-stub/run-coding-dev-acp-prompt.js'
 import { resolveAcpTimeoutMs } from '../../coding-dev-backends-stub/acp-config.js'
+import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WeixinChannelAdapter]', ...args),
@@ -48,16 +50,42 @@ export class WeixinChannelAdapter implements IChannelAdapter {
   private readonly sessionManager: SessionManager
   readonly bindingManager: WeixinSessionBindingManager
 
+  /** 入站时 upsert context_token，供 channel_send 伪 Push */
+  private replyContextStore: WeixinReplyContextStore | null = null
+
   constructor(
     private readonly weixinLoginService: WeixinLoginService,
     private readonly bridge: AgentRuntimeBridge,
     private readonly acpBackendManager: AcpBackendManager,
+    replyContextStore?: WeixinReplyContextStore | null,
   ) {
+    this.replyContextStore = replyContextStore ?? null
     this.contextStrategy = new StatelessContextStrategy(bridge)
     this.sessionManager = new SessionManager(bridge)
     this.bindingManager = new WeixinSessionBindingManager(bridge.runtimeStateRepo)
     this.bindingManager.initialize()
     this.registry = this.buildRegistry()
+  }
+
+  /**
+   * 绑定/替换微信 reply context 持久化 store（Hub 晚于 adapter 装配时用）。
+   */
+  setReplyContextStore(store: WeixinReplyContextStore | null): void {
+    this.replyContextStore = store
+  }
+
+  /**
+   * 将入站 context_token 写入 store（不落凭证到 info 日志）。
+   */
+  private persistReplyContext(msg: WeixinNormalizedMessage): void {
+    if (!this.replyContextStore || !msg.contextToken) return
+    this.replyContextStore.upsert({
+      channelUserId: msg.channelUserId,
+      contextToken: msg.contextToken,
+      updatedAt: Date.now(),
+      ...(msg.botToken ? { botToken: msg.botToken } : {}),
+      ...(msg.ilinkBaseUrl ? { ilinkBaseUrl: msg.ilinkBaseUrl } : {}),
+    })
   }
 
   // ── IChannelAdapter 接口实现 ──────────────────────────────────────────────
@@ -141,7 +169,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       this.bridge.notifyNavigateToSession(session.sessionKey)
 
       const currentBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
-      if (currentBackend !== 'openclaw') {
+      if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
         await this.handleAcpPrompt(msg, session, voiceTranscript, currentBackend)
         return
       }
@@ -168,6 +196,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       })
 
       if (msg.contextToken) {
+        this.persistReplyContext(msg)
         this.bridge.setWeixinMessageContext({
           channelUserId: msg.channelUserId,
           contextToken: msg.contextToken,
@@ -257,14 +286,14 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       this.bridge.notifyIncomingMessage(session.sessionKey, prompt)
       this.bridge.notifyNavigateToSession(session.sessionKey)
 
-      // 检查当前后端：非 openclaw 走 ACP 子进程路径
+      // 检查当前后端：非主代理走 ACP 子进程路径
       const currentBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
-      if (currentBackend !== 'openclaw') {
+      if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
         await this.handleAcpPrompt(msg, session, prompt, currentBackend)
         return
       }
 
-      // openclaw：走原有 bridge.prompt() 路径
+      // 主代理：走原有 bridge.prompt() 路径
       const instanceId = await this.getOrCreateInstance(session.sessionKey)
       const activeSession = { ...session, instanceId }
 
@@ -290,6 +319,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
 
       // 注入微信会话上下文
       if (msg.contextToken) {
+        this.persistReplyContext(msg)
         this.bridge.setWeixinMessageContext({
           channelUserId: msg.channelUserId,
           contextToken: msg.contextToken,
@@ -506,19 +536,13 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     registry.register('compact', compactCommand)
     registry.register('backend', backendCommand)
     // 切回主代理
-    registry.register('mtbot', mtbotCommand)
+    registry.register('lumii', lumiiCommand)
     // ACP 后端切换（含别名）
     const claudeCmd = createSwitchBackendCommand('claude')
     registry.register('claude', claudeCmd)
     registry.register('claude-code', claudeCmd)       // 别名
     registry.register('codex', createSwitchBackendCommand('codex'))
     registry.register('opencode', createSwitchBackendCommand('opencode'))
-    registry.register('gemini', createSwitchBackendCommand('gemini'))
-    registry.register('qoder', createSwitchBackendCommand('qoder'))
-    registry.register('qwen', createSwitchBackendCommand('qwen'))
-    registry.register('kimi', createSwitchBackendCommand('kimi'))
-    registry.register('copilot', createSwitchBackendCommand('copilot'))
-    registry.register('auggie', createSwitchBackendCommand('auggie'))
     registry.register('cursor', createSwitchBackendCommand('cursor'))
     // 跨通道绑定
     registry.register('link', linkCommand)

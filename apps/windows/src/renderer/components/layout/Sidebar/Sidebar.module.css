@@ -7,7 +7,9 @@
   flex-direction: column;
   width: var(--mt-sidebar-w);
   height: 100%;
-  background-color: var(--color-bg-secondary);
+  /* 毛玻璃，透出 MainLayout 的 mesh + 网格（对齐原型 .sb） */
+  background: var(--mt-glass-bg);
+  backdrop-filter: blur(22px) saturate(1.4);
   border-right: 1px solid var(--color-border);
   transition: width var(--mt-dur-slow) var(--mt-ease-standard);
   overflow: hidden;
@@ -91,6 +93,28 @@
   flex-direction: column;
   gap: var(--spacing-1);
   overflow-y: auto;
+}
+
+/* 会话列表挂载时，导航只占内容高度，剩余空间让给会话列表 */
+.sidebar-nav--compact {
+  flex: 0 0 auto;
+  padding-bottom: var(--spacing-1);
+  overflow: visible;
+}
+
+/* 会话列表挂载点：占满导航之下的剩余高度。
+   :empty 兜住「已展开但 ChatPage 收起了列表」的情况，避免留空白撑开 */
+.session-slot {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.session-slot:empty,
+.session-slot--hidden {
+  display: none;
 }
 
 .nav-item {
@@ -177,105 +201,6 @@
   background-color: var(--mt-bg-tertiary);
   border-left: 2px solid var(--mt-accent-500);
   padding-left: calc(var(--spacing-3) - 2px);
-}
-
-/* 用户信息 */
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-2-5);
-  padding: var(--spacing-2-5);
-  background: var(--color-bg-tertiary);
-  border-radius: var(--radius-lg);
-  margin-top: var(--spacing-2);
-}
-
-.user-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  overflow: hidden;
-  flex-shrink: 0;
-  background: var(--color-primary-500);
-}
-
-.user-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.avatar-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.user-details {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.user-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.user-id {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.logout-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-}
-
-.logout-button:hover {
-  color: var(--color-error);
-  background: rgba(239, 68, 68, 0.1);
-}
-
-/* 折叠状态下的用户头像 */
-.user-avatar-collapsed {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  overflow: hidden;
-  margin: 0 auto;
-  background: var(--color-primary-500);
-  cursor: pointer;
-}
-
-.user-avatar-collapsed img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 /* 版本号 */

@@ -14,6 +14,34 @@ export type VoiceCallState =
   | 'ending'        // 通话结束中
   | 'error'         // 错误状态
 
+// ─── 模型状态 ────────────────────────────────────────────────────────────────
+
+/** 单项下载任务状态 */
+export type VoiceModelDownloadState =
+  | 'idle'
+  | 'downloading'
+  | 'paused'
+  | 'extracting'
+  | 'ready'
+  | 'error'
+
+export type VoiceModelStatus = {
+  id: string
+  name: string
+  description?: string
+  /** 设置页分组：asr-core / tts-synth / tts-clone */
+  group?: string
+  sizeBytes: number
+  downloaded: boolean
+  required?: boolean
+  downloadState?: VoiceModelDownloadState
+  downloadedBytes?: number
+  /** 瞬时下载速度（字节/秒） */
+  bytesPerSecond?: number
+  errorMessage?: string
+  path?: string
+}
+
 // ─── 事件类型 ────────────────────────────────────────────────────────────────
 
 export type VoiceCallStateEvent = {
@@ -62,6 +90,62 @@ export type VoiceModelsProgressEvent = {
   progress: number    // 0.0 ~ 1.0
   bytesDownloaded: number
   totalBytes: number
+  /** 下载任务状态 */
+  state?: VoiceModelDownloadState
+  /** 瞬时下载速度（字节/秒） */
+  bytesPerSecond?: number
+}
+
+/** 模型下载失败事件 */
+export type VoiceModelsErrorEvent = {
+  readonly type: 'voice:models:error'
+  modelId: string
+  message: string
+}
+
+/**
+ * 语音引擎运行时阶段（依赖安装、模型加载、合成等，与下载状态独立）
+ */
+export type VoiceRuntimePhase =
+  | 'idle'
+  | 'checking_python'
+  | 'installing_deps'
+  | 'starting_engine'
+  | 'loading_model'
+  | 'synthesizing'
+  | 'playing'
+  | 'ready'
+  | 'error'
+
+/** 主进程 → 渲染：TTS/依赖安装等长耗时步骤的可读状态 */
+export type VoiceRuntimeStatusEvent = {
+  readonly type: 'voice:runtime:status'
+  phase: VoiceRuntimePhase
+  /** 面向用户的短说明 */
+  message: string
+  /** 可选补充（如 pip 输出摘要） */
+  detail?: string
+}
+
+/** TTS 预览音频块（主进程 → 渲染，流式推送） */
+export type VoiceTtsPreviewChunkEvent = {
+  readonly type: 'voice:tts:preview:chunk'
+  /** PCM Float32 采样（sampleRate=-1 时为 Edge MP3 字节） */
+  samples: Float32Array | number[]
+  sampleRate: number
+  chunkIndex: number
+  isFinal: boolean
+  /** 发起该次预览时传入的会话标识，消费端据此过滤（省略=旧行为） */
+  previewId?: string
+}
+
+/** TTS 预览结束（成功或失败），便于 UI 结束「播放中」并展示错误 */
+export type VoiceTtsPreviewEndedEvent = {
+  readonly type: 'voice:tts:preview:ended'
+  ok: boolean
+  message?: string
+  /** 发起该次预览时传入的会话标识 */
+  previewId?: string
 }
 
 export type VoiceErrorEvent = {
@@ -85,6 +169,9 @@ export type VoiceEvent =
   | VoiceCallEndedEvent
   | VoiceModelsStatusEvent
   | VoiceModelsProgressEvent
+  | VoiceModelsErrorEvent
+  | VoiceRuntimeStatusEvent
+  | VoiceTtsPreviewEndedEvent
   | VoiceErrorEvent
   | VoiceConfigUpdatedEvent
 
@@ -100,17 +187,6 @@ export type VoiceErrorCode =
   | 'no_active_call'          // 无活跃通话
   | 'unknown'                 // 未知错误
 
-// ─── 模型状态 ────────────────────────────────────────────────────────────────
-
-export type VoiceModelStatus = {
-  id: string
-  name: string
-  description: string
-  sizeBytes: number
-  downloaded: boolean
-  required: boolean
-}
-
 // ─── 引擎配置 ────────────────────────────────────────────────────────────────
 
 export type VoiceAsrConfig = {
@@ -120,17 +196,105 @@ export type VoiceAsrConfig = {
   apiKey?: string
 }
 
+/** Qwen3-TTS 模型变体：CustomVoice=内置音色；Base=声音克隆 */
+export type Qwen3TtsVariant =
+  | '0.6b-custom'
+  | '1.7b-custom'
+  | '0.6b-base'
+  | '1.7b-base'
+
+/**
+ * 是否为声音克隆（Base）变体
+ */
+export function isQwen3CloneVariant(variant?: string): boolean {
+  return variant === '0.6b-base' || variant === '1.7b-base'
+}
+
+/**
+ * 是否为内置音色（CustomVoice）变体
+ */
+export function isQwen3CustomVariant(variant?: string): boolean {
+  return variant === '0.6b-custom' || variant === '1.7b-custom' || !variant
+}
+
 export type VoiceTtsConfig = {
-  /** TTS 提供者：local-vits = 本地 sherpa-onnx，edge = Edge TTS */
-  provider: 'local-vits' | 'edge'
+  /** TTS 提供者：local-vits（本地 MeloTTS 中英双语，sherpa-onnx）/ edge / qwen3（本地 Qwen3-TTS） */
+  provider: 'local-vits' | 'edge' | 'qwen3'
   /** 语速（0.8 ~ 1.5） */
   speed: number
-  /** 播放音量（0.0 ~ 1.0） */
+  /** 播放音量（0.0 ~ 2.0，>1 为增益增强，适配偏安静的本地模型） */
   volume: number
   /** VITS 说话人 ID */
   speakerId?: number
   /** Edge TTS 音色名称 */
   voice?: string
+  /** Qwen3 模型挡位（默认 0.6b-custom，无需克隆即可用） */
+  qwen3Variant?: Qwen3TtsVariant
+  /** CustomVoice 内置说话人（如 Vivian / Dylan） */
+  qwen3Speaker?: string
+  /** 1.7B CustomVoice 可选风格指令 */
+  qwen3Instruct?: string
+  /**
+   * 是否启用声音克隆出声（默认 false）。
+   * 仅当为 true 且已选择 qwen3ProfileId 时，才使用 Base 克隆音色。
+   */
+  qwen3CloneEnabled?: boolean
+  /** 克隆所用 Base 规格（与 CustomVoice 的 qwen3Variant 分开） */
+  qwen3CloneVariant?: '0.6b-base' | '1.7b-base'
+  /** 当前使用的克隆音色档案 ID（启用克隆时需要） */
+  qwen3ProfileId?: string
+  /**
+   * Qwen3 推理设备：auto=有 NVIDIA 则优先 GPU；cpu/cuda 为强制指定
+   */
+  qwen3Device?: 'auto' | 'cpu' | 'cuda'
+  /**
+   * 合成语言（Qwen3）：`Auto` 或官方支持语言名，如 Chinese / English
+   */
+  language?: string
+}
+
+/** Qwen3 CustomVoice 内置音色（含方言） */
+export const QWEN3_CUSTOM_SPEAKERS = [
+  { id: 'Vivian', name: 'Vivian', gender: '女', style: '明亮略带锋芒', native: '中文' },
+  { id: 'Serena', name: 'Serena', gender: '女', style: '温暖柔和', native: '中文' },
+  { id: 'Uncle_Fu', name: 'Uncle Fu', gender: '男', style: '沉稳低沉', native: '中文' },
+  { id: 'Dylan', name: 'Dylan', gender: '男', style: '清朗自然', native: '中文·北京话' },
+  { id: 'Eric', name: 'Eric', gender: '男', style: '略带沙哑明亮', native: '中文·四川话' },
+  { id: 'Ryan', name: 'Ryan', gender: '男', style: '节奏感强', native: 'English' },
+  { id: 'Aiden', name: 'Aiden', gender: '男', style: '阳光清晰', native: 'English' },
+  { id: 'Ono_Anna', name: 'Ono Anna', gender: '女', style: '轻快灵动', native: '日本語' },
+  { id: 'Sohee', name: 'Sohee', gender: '女', style: '情感丰富', native: '한국어' },
+] as const
+
+/** Qwen3 官方语言列表（与模型能力对齐，供设置页选用） */
+export const QWEN3_TTS_LANGUAGES = [
+  { id: 'Auto', name: '自动检测' },
+  { id: 'Chinese', name: '中文' },
+  { id: 'English', name: 'English' },
+  { id: 'Japanese', name: '日本語' },
+  { id: 'Korean', name: '한국어' },
+  { id: 'German', name: 'Deutsch' },
+  { id: 'French', name: 'Français' },
+  { id: 'Russian', name: 'Русский' },
+  { id: 'Portuguese', name: 'Português' },
+  { id: 'Spanish', name: 'Español' },
+  { id: 'Italian', name: 'Italiano' },
+] as const
+
+/** 克隆音色档案元数据（存于 clientDataRoot/voice/profiles） */
+export type VoiceCloneProfile = {
+  id: string
+  name: string
+  /** 参考音频相对 profiles/<id>/ 的文件名 */
+  refAudioFile: string
+  refText: string
+  language: string
+  /** 创建时使用的模型变体 */
+  qwen3Variant: Qwen3TtsVariant
+  /** false = ICL（需 refText）；true = 仅 x-vector */
+  xVectorOnly: boolean
+  createdAt: number
+  updatedAt: number
 }
 
 /** Edge TTS 可用中文音色 */
@@ -178,10 +342,16 @@ export const DEFAULT_VOICE_ENGINE_CONFIG: VoiceEngineConfig = {
   },
   tts: {
     provider: 'edge',
-    speed: 1.2,
-    volume: 0.8,
+    speed: 1.0,
+    volume: 1.0,
     speakerId: 0,
     voice: 'zh-CN-XiaoxiaoNeural',
+    qwen3Variant: '0.6b-custom',
+    qwen3Speaker: 'Vivian',
+    qwen3CloneEnabled: false,
+    qwen3CloneVariant: '0.6b-base',
+    qwen3Device: 'auto',
+    language: 'Auto',
   },
   vad: {
     threshold: 0.5,

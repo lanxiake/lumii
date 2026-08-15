@@ -10,11 +10,13 @@
  * - AbortSignal 外部取消
  */
 
-import { spawn, execSync, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import type { RunnerOptions, RunnerResult } from './ts-runner'
 import { extractResult } from './ts-runner'
+import { detectSystemPython, ensureBundledPython } from './python-env'
+import { buildScriptEnv } from './runtime-env'
 
 /** 日志 */
 const log = {
@@ -23,9 +25,6 @@ const log = {
   warn: (...args: unknown[]) => console.warn('[PythonRunner]', ...args),
   debug: (...args: unknown[]) => console.log('[PythonRunner:Debug]', ...args),
 }
-
-/** Python 检测结果缓存 */
-let cachedPythonPath: string | null = null
 
 /**
  * Python 技能脚本运行器
@@ -36,22 +35,14 @@ export class PythonRunner {
    *
    * 优先级：
    * 1. skillDir 下的 .venv/Scripts/python.exe (Win) 或 .venv/bin/python (Unix)
-   * 2. python3 命令
-   * 3. python 命令（验证版本 ≥3）
-   * 4. py -3 命令 (Windows)
+   * 2. 系统 Python 3（python3 → python → py -3，见 python-env.ts）
+   * 3. 内置 embeddable 运行时（缺失时自动下载，用户无需自行安装）
    *
    * @param skillDir - 可选的技能目录，用于检测虚拟环境
-   * @returns Python 可执行文件路径，未找到返回 null
+   * @returns Python 可执行文件路径，彻底不可用时返回 null
    */
   async detectPython(skillDir?: string): Promise<string | null> {
-    // 如果有缓存且不指定 skillDir，直接返回
-    if (cachedPythonPath && !skillDir) {
-      return cachedPythonPath
-    }
-
-    log.info('开始检测 Python 解释器', { skillDir })
-
-    // 1. 检查 skillDir 下的虚拟环境
+    // 1. 技能自带虚拟环境优先
     if (skillDir) {
       const venvPython = this.detectVenvPython(skillDir)
       if (venvPython) {
@@ -60,31 +51,21 @@ export class PythonRunner {
       }
     }
 
-    // 2. 尝试 python3
-    if (this.verifyPython('python3')) {
-      cachedPythonPath = 'python3'
-      log.info('检测到 python3')
-      return 'python3'
+    // 2. 系统 Python（探测结果在 python-env 内部缓存）
+    const system = detectSystemPython()
+    if (system) {
+      log.info('使用系统 Python', { command: system })
+      return system
     }
 
-    // 3. 尝试 python（验证版本 ≥3）
-    if (this.verifyPython('python')) {
-      cachedPythonPath = 'python'
-      log.info('检测到 python (版本 ≥3)')
-      return 'python'
+    // 3. 内置运行时；未就绪则现场装（并发调用共用同一次安装）
+    try {
+      log.info('系统无 Python，回退内置运行时')
+      return await ensureBundledPython((msg) => log.info(msg))
+    } catch (err) {
+      log.error('内置 Python 准备失败', { error: err instanceof Error ? err.message : err })
+      return null
     }
-
-    // 4. Windows 上尝试 py -3
-    if (process.platform === 'win32') {
-      if (this.verifyPyLauncher()) {
-        cachedPythonPath = 'py'
-        log.info('检测到 py launcher')
-        return 'py'
-      }
-    }
-
-    log.warn('未检测到可用的 Python 3 解释器')
-    return null
   }
 
   /**
@@ -109,7 +90,7 @@ export class PythonRunner {
       log.error('未找到 Python 解释器')
       return {
         success: false,
-        error: '未找到可用的 Python 3 解释器。请安装 Python 3 或创建虚拟环境。',
+        error: '未找到可用的 Python 3 解释器，且内置运行时下载失败。请检查网络后重试，或自行安装 Python 3。',
         exitCode: null,
         executionTimeMs: Date.now() - startTime,
         stdout: '',
@@ -130,13 +111,12 @@ export class PythonRunner {
       try {
         child = spawn(args.command, args.args, {
           cwd: skillDir,
-          env: {
-            ...process.env,
+          env: buildScriptEnv({
             ...(extraEnv ?? {}),
             SKILL_PARAMS: JSON.stringify(params),
             PYTHONIOENCODING: 'utf-8',
             PYTHONUNBUFFERED: '1',
-          },
+          }),
           stdio: ['ignore', 'pipe', 'pipe'],
           windowsHide: true,
         })
@@ -163,17 +143,12 @@ export class PythonRunner {
         stderr += chunk.toString()
       })
 
-      // 超时处理：SIGTERM → 2s → SIGKILL
+      // 超时处理：Windows 用 taskkill /T /F 杀整棵进程树（否则孙进程存活会导致 close 事件永不触发）
       timeoutId = setTimeout(() => {
         if (!killed) {
           killed = true
           log.warn('Python 脚本执行超时，终止子进程', { entryPath, timeoutMs })
-          child.kill('SIGTERM')
-          setTimeout(() => {
-            if (!child.killed) {
-              child.kill('SIGKILL')
-            }
-          }, 2000)
+          forceKillProcess(child)
         }
       }, timeoutMs)
 
@@ -183,7 +158,7 @@ export class PythonRunner {
           if (!killed) {
             killed = true
             log.info('Python 脚本被外部取消', { entryPath })
-            child.kill('SIGTERM')
+            forceKillProcess(child)
           }
         }
         abortSignal.addEventListener('abort', onAbort, { once: true })
@@ -276,40 +251,6 @@ export class PythonRunner {
   }
 
   /**
-   * 验证 Python 命令是否可用且版本 ≥ 3
-   */
-  private verifyPython(command: string): boolean {
-    try {
-      const output = execSync(`${command} --version 2>&1`, {
-        encoding: 'utf-8',
-        timeout: 5000,
-        windowsHide: true,
-      }).trim()
-      log.debug('Python 版本检测', { command, output })
-      return output.startsWith('Python 3')
-    } catch {
-      return false
-    }
-  }
-
-  /**
-   * 验证 Windows py launcher 是否可用
-   */
-  private verifyPyLauncher(): boolean {
-    try {
-      const output = execSync('py -3 --version 2>&1', {
-        encoding: 'utf-8',
-        timeout: 5000,
-        windowsHide: true,
-      }).trim()
-      log.debug('py launcher 版本检测', { output })
-      return output.startsWith('Python 3')
-    } catch {
-      return false
-    }
-  }
-
-  /**
    * 构建 spawn 参数
    */
   private buildArgs(pythonPath: string, entryPath: string): { command: string; args: string[] } {
@@ -317,5 +258,30 @@ export class PythonRunner {
       return { command: 'py', args: ['-3', entryPath] }
     }
     return { command: pythonPath, args: [entryPath] }
+  }
+}
+
+/**
+ * 强制终止子进程（含进程树）。
+ * Windows 上 kill('SIGTERM'/'SIGKILL') 只杀 python.exe 本身，若脚本又 fork 了子进程，
+ * 其占用的 stdio 管道 handle 会导致 'close' 事件永远不触发、Promise 永久挂起。
+ */
+function forceKillProcess(child: ChildProcess): void {
+  const pid = child.pid
+  if (!pid) {
+    child.kill('SIGKILL')
+    return
+  }
+  if (process.platform === 'win32') {
+    try {
+      spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', timeout: 5000, windowsHide: true })
+    } catch {
+      child.kill('SIGKILL')
+    }
+  } else {
+    child.kill('SIGTERM')
+    setTimeout(() => {
+      if (!child.killed) child.kill('SIGKILL')
+    }, 2000)
   }
 }

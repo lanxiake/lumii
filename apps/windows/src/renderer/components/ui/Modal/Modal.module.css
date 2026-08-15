@@ -16,6 +16,29 @@
   animation: modal-fade-in var(--mt-dur-normal) var(--mt-ease-decel);
 }
 
+/**
+ * 嵌套弹窗（扫码二维码、MCP 编辑等）叠在其他 Modal 之上
+ *
+ * 必须高于 --z-settings-hub：这类弹窗多半是从设置中心内部唤起的，
+ * 按 --z-modal 算会被 Hub 盖住，弹窗看得见摸不着。
+ */
+.modal-overlay--elevated {
+  z-index: calc(var(--z-settings-hub, 12000) + 20);
+}
+
+/* 设置中心：高于对话工作台 / 版本面板等局部高 z-index 浮层 */
+.modal-overlay--hub {
+  z-index: var(--z-settings-hub, 12000);
+  background: color-mix(in srgb, var(--mt-bg-primary, #0a101c) 55%, rgba(0, 0, 0, 0.45));
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+}
+
+/* 设置中心内再开子弹窗（新建任务 / 流水线等） */
+.modal-overlay--aboveHub {
+  z-index: calc(var(--z-settings-hub, 12000) + 40);
+}
+
 @keyframes modal-fade-in {
   from {
     opacity: 0;
@@ -35,8 +58,51 @@
   border-radius: var(--mt-radius-2xl);
   width: 100%;
   max-height: 90vh;
-  overflow: auto;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   animation: modal-slide-in var(--mt-dur-normal) var(--mt-ease-spring);
+}
+
+/* Settings Hub 大尺寸：与聊天同款 mesh + 网格底，玻璃描边 */
+.modal--hub {
+  width: min(1100px, 92vw);
+  height: min(800px, 86vh);
+  max-height: min(800px, 86vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  isolation: isolate;
+  background:
+    var(--mt-shine, linear-gradient(145deg, rgba(56, 189, 248, 0.08), transparent 48%)),
+    var(--mt-mesh),
+    var(--mt-bg-primary, var(--color-bg-primary));
+  border: 1px solid color-mix(in srgb, var(--mt-accent-500, #3b82f6) 22%, var(--mt-glass-stroke, rgba(255, 255, 255, 0.08)));
+  box-shadow:
+    var(--mt-shadow-xl),
+    0 0 0 1px color-mix(in srgb, var(--mt-accent-400, #60a5fa) 12%, transparent),
+    0 24px 64px color-mix(in srgb, var(--mt-accent-600, #2563eb) 16%, transparent);
+}
+
+.modal--hub::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background-image:
+    linear-gradient(var(--mt-border-hairline) 1px, transparent 1px),
+    linear-gradient(90deg, var(--mt-border-hairline) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 78% 58% at 50% 0%, #000, transparent 78%);
+  opacity: 0.9;
+}
+
+.modal--hub > * {
+  position: relative;
+  z-index: 1;
 }
 
 @keyframes modal-slide-in {
@@ -55,6 +121,16 @@
   justify-content: space-between;
   align-items: center;
   padding: var(--spacing-5) var(--spacing-5) 0;
+  flex-shrink: 0;
+}
+
+.modal-header--hub {
+  flex-shrink: 0;
+  gap: var(--spacing-3);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--mt-border-hairline, var(--color-border));
+  background: color-mix(in srgb, var(--mt-bg-primary, #0a101c) 22%, transparent);
+  backdrop-filter: blur(10px);
 }
 
 .modal-title {
@@ -90,6 +166,19 @@
   color: var(--color-text-secondary);
   font-size: var(--font-size-sm);
   line-height: var(--line-height-normal);
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.modal-body--hub {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--color-text-primary);
 }
 
 .modal-footer {
@@ -97,6 +186,7 @@
   justify-content: flex-end;
   gap: var(--spacing-3);
   padding: 0 var(--spacing-5) var(--spacing-5);
+  flex-shrink: 0;
 }
 
 /* Confirm Modal Styles */

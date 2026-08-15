@@ -1,47 +1,40 @@
 /**
- * 生成 Lumii 应用图标（icon.png / icon.ico）
+ * 从 assets/icon.png 生成 Windows 应用图标。
+ * 产出：icon.ico（多尺寸，写入 exe / 桌面 / 任务栏）、tray-icon.png
+ * 运行: pnpm generate:icon（在 apps/windows 下）
+ *
+ * 注意：不覆盖 icon.png，它是产品指定的应用图标源图。
  */
 const fs = require('node:fs')
 const path = require('node:path')
 const sharp = require('sharp')
 
 const OUT_DIR = path.resolve(__dirname, '../assets')
+const ICON_PNG = path.join(OUT_DIR, 'icon.png')
+const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
+/** 小尺寸用 BMP，Windows 资源管理器 / 任务栏更稳 */
+const BMP_SIZES = new Set([16, 24, 32, 48])
 
-function buildSvg() {
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 64 64">
-  <defs>
-    <linearGradient id="g" x1="12" y1="8" x2="52" y2="56" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#7DD3FC"/>
-      <stop offset="0.45" stop-color="#38BDF8"/>
-      <stop offset="1" stop-color="#2563EB"/>
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" rx="14" fill="#0F172A"/>
-  <circle cx="32" cy="32" r="22" fill="url(#g)"/>
-  <path d="M22 38.5C22 30.5 27.2 24 34.5 24C40.2 24 44.5 27.8 45.5 33" stroke="white" stroke-width="3.2" stroke-linecap="round" fill="none" opacity="0.92"/>
-  <path d="M26 20.5V43.5H40" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>
-</svg>`
-}
-
-function pngsToIco(pngBuffers) {
-  const count = pngBuffers.length
+/**
+ * 把多帧图像打包成 ICO（PNG 或 32-bit BMP）。
+ * @param {Array<{ width: number, height: number, data: Buffer }>} frames
+ * @returns {Buffer}
+ */
+function imagesToIco(frames) {
+  const count = frames.length
   const headerSize = 6 + count * 16
   let offset = headerSize
-  const entries = []
-
-  for (const data of pngBuffers) {
-    const width = data.readUInt32BE(16)
-    const height = data.readUInt32BE(20)
-    entries.push({
-      width: width >= 256 ? 0 : width,
-      height: height >= 256 ? 0 : height,
-      size: data.length,
+  const entries = frames.map((frame) => {
+    const entry = {
+      width: frame.width >= 256 ? 0 : frame.width,
+      height: frame.height >= 256 ? 0 : frame.height,
+      size: frame.data.length,
       offset,
-      data,
-    })
-    offset += data.length
-  }
+      data: frame.data,
+    }
+    offset += frame.data.length
+    return entry
+  })
 
   const buf = Buffer.alloc(offset)
   buf.writeUInt16LE(0, 0)
@@ -67,16 +60,102 @@ function pngsToIco(pngBuffers) {
   return buf
 }
 
-async function main() {
-  fs.mkdirSync(OUT_DIR, { recursive: true })
-  const svg = Buffer.from(buildSvg())
-  const png256 = await sharp(svg).png().toBuffer()
-  fs.writeFileSync(path.join(OUT_DIR, 'icon.png'), png256)
+/**
+ * 将 RGBA raw 像素转为 ICO 内嵌的 32-bit BMP（无 BITMAPFILEHEADER）。
+ * @param {Buffer} rgba 自上而下 RGBA
+ * @param {number} size
+ * @returns {Buffer}
+ */
+function rgbaToBmp32Icon(rgba, size) {
+  const headerSize = 40
+  const xorSize = size * size * 4
+  const andRowBytes = Math.ceil(size / 32) * 4
+  const andSize = andRowBytes * size
+  const buf = Buffer.alloc(headerSize + xorSize + andSize)
 
-  const sizes = [16, 32, 48, 64, 128, 256]
-  const pngs = await Promise.all(sizes.map((s) => sharp(svg).resize(s, s).png().toBuffer()))
-  fs.writeFileSync(path.join(OUT_DIR, 'icon.ico'), pngsToIco(pngs))
-  console.log('[generate-icon] wrote icon.png and icon.ico')
+  buf.writeUInt32LE(40, 0)
+  buf.writeInt32LE(size, 4)
+  buf.writeInt32LE(size * 2, 8)
+  buf.writeUInt16LE(1, 12)
+  buf.writeUInt16LE(32, 14)
+  buf.writeUInt32LE(0, 16)
+  buf.writeUInt32LE(xorSize, 20)
+
+  let dest = headerSize
+  for (let y = size - 1; y >= 0; y--) {
+    for (let x = 0; x < size; x++) {
+      const src = (y * size + x) * 4
+      buf[dest] = rgba[src + 2]
+      buf[dest + 1] = rgba[src + 1]
+      buf[dest + 2] = rgba[src]
+      buf[dest + 3] = rgba[src + 3]
+      dest += 4
+    }
+  }
+  return buf
+}
+
+/**
+ * 把 icon.png 缩放到指定边长。
+ * @param {number} size
+ */
+async function resizeIcon(size) {
+  return sharp(ICON_PNG)
+    .resize(size, size, { fit: 'cover', position: 'centre' })
+    .ensureAlpha()
+    .png()
+    .toBuffer()
+}
+
+/**
+ * 生成一帧 ICO 图像（小尺寸 BMP，大尺寸 PNG）。
+ * @param {number} size
+ */
+async function buildIconFrame(size) {
+  if (BMP_SIZES.has(size)) {
+    const { data } = await sharp(ICON_PNG)
+      .resize(size, size, { fit: 'cover', position: 'centre' })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    return { width: size, height: size, data: rgbaToBmp32Icon(data, size) }
+  }
+
+  const png = await resizeIcon(size)
+  return { width: size, height: size, data: png }
+}
+
+/**
+ * 原子写入文件，避免被运行中的 Electron 锁住目标路径。
+ * @param {string} dest
+ * @param {Buffer} data
+ */
+function writeAtomic(dest, data) {
+  const tmp = `${dest}.tmp`
+  fs.writeFileSync(tmp, data)
+  try {
+    fs.renameSync(tmp, dest)
+  } catch {
+    fs.copyFileSync(tmp, dest)
+    fs.unlinkSync(tmp)
+  }
+}
+
+/**
+ * 主入口：icon.png → icon.ico + tray-icon.png
+ */
+async function main() {
+  if (!fs.existsSync(ICON_PNG)) {
+    throw new Error(`缺少应用图标：${ICON_PNG}`)
+  }
+
+  fs.mkdirSync(OUT_DIR, { recursive: true })
+
+  const frames = await Promise.all(ICO_SIZES.map((size) => buildIconFrame(size)))
+  writeAtomic(path.join(OUT_DIR, 'icon.ico'), imagesToIco(frames))
+  writeAtomic(path.join(OUT_DIR, 'tray-icon.png'), await resizeIcon(32))
+
+  console.log('[generate-icon] wrote icon.ico, tray-icon.png from assets/icon.png')
 }
 
 main().catch((err) => {

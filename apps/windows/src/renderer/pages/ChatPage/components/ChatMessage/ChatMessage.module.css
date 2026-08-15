@@ -141,7 +141,7 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   flex-direction: row-reverse;
   margin-left: auto;
   /* 用户消息限制宽度，避免气泡过宽 */
-  max-width: 75%;
+  max-width: min(560px, 78%);
   width: auto;
 }
 
@@ -152,38 +152,39 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   width: 100%;
 }
 
+/* 角色标识：文字胶囊代替头像图形（lumii / 你 / 系统） */
 .message-avatar {
-  width: var(--size-avatar);
-  height: var(--size-avatar);
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  align-self: flex-start;
   flex-shrink: 0;
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
+  padding: 2px 7px;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-full);
+  background: var(--mt-surface-2);
+  color: var(--mt-fg-3);
+  font-family: var(--mt-font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  letter-spacing: var(--mt-tracking-wide);
+  white-space: nowrap;
+  user-select: none;
 }
 
 .message.user .message-avatar {
-  background: linear-gradient(145deg, rgba(var(--color-primary-rgb, 59, 130, 246), 0.2), var(--color-bg-secondary));
-  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--mt-accent-500) 34%, transparent);
+  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
+  color: var(--mt-accent-500);
 }
 
 .message.assistant .message-avatar {
-  background: linear-gradient(145deg, rgba(var(--color-primary-rgb, 59, 130, 246), 0.10), var(--color-bg-secondary));
-  color: var(--mt-accent-500, var(--color-primary, #3b82f6));
-}
-
-.avatar-svg {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
+  border-color: color-mix(in srgb, var(--mt-accent-500) 22%, var(--mt-border));
+  color: var(--mt-fg-2);
 }
 
 .message.system .message-avatar,
 .message.has-error .message-avatar {
-  background-color: var(--color-error-15);
-  color: var(--color-error);
+  border-color: color-mix(in srgb, var(--mt-error) 34%, transparent);
+  background: color-mix(in srgb, var(--mt-error) 10%, transparent);
+  color: var(--mt-error);
 }
 
 .message-content-wrapper {
@@ -203,36 +204,54 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   word-break: break-word;
 }
 
+/* 用户气泡：主色渐变 + 右上切角，指向发送者 */
 .message.user .message-text {
-  background-color: var(--mt-user-bubble-bg, rgba(59, 130, 246, 0.25));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--mt-accent-600) 26%, transparent),
+    color-mix(in srgb, var(--mt-accent-700) 34%, transparent)
+  );
   color: var(--mt-fg-1);
-  border-bottom-right-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--mt-accent-500) 26%, transparent);
+  border-top-right-radius: 5px;
 }
 
-[data-theme="light"] .message.user .message-text {
-  --mt-user-bubble-bg: rgba(59, 130, 246, 0.12);
-}
-
-[data-theme="dark"] .message.user .message-text {
-  --mt-user-bubble-bg: rgba(59, 130, 246, 0.22);
-}
-
+/* 助手气泡：玻璃态 + 左上切角，与用户侧形成非对称 */
 .message.assistant .message-text {
-  background-color: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  border-bottom-left-radius: var(--radius-md);
+  background: var(--mt-glass-bg);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  border: 1px solid var(--mt-glass-stroke);
+  color: var(--mt-fg-1);
+  border-top-left-radius: 5px;
   overflow: hidden; /* 让工具区块负边距不溢出气泡 */
   width: 100%;
   min-width: 0;
 }
 
+/* 元信息行：等宽小字，用 order 提到气泡上方而不动 JSX 结构 */
 .message-meta {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
+  order: -1;
+  font-family: var(--mt-font-mono);
+  font-size: 11px;
+  letter-spacing: var(--mt-tracking-wide);
+  color: var(--mt-fg-4);
 }
 
 .message.user .message-meta {
   text-align: right;
+}
+
+/* ACP 后端标识（Cursor / Claude Code 等本机 CLI 回复） */
+.acp-backend-badge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--mt-border);
+  border-radius: 4px;
+  color: var(--mt-fg-3);
+  font-size: 10px;
+  letter-spacing: var(--mt-tracking-wide);
 }
 
 /* Error message */
@@ -844,18 +863,18 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
    推理时间线 v2（Reasoning Timeline）
    --------------------------------------------------------------- */
 
-/* 占位行：流式刚开始无任何内容时 */
+/* 占位行：流式刚开始无任何内容时（轻量，避免实心底块白条） */
 .rt-placeholder {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  margin-bottom: 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary, #f1f5f9);
+  padding: 4px 0;
+  margin-bottom: 4px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   font-size: 13px;
-  color: var(--color-text-secondary);
+  color: var(--mt-fg-3, var(--color-text-secondary));
   animation: thinking-fade-in 0.25s ease;
 }
 
@@ -1023,6 +1042,21 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   word-break: break-word;
   max-height: 200px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--mt-border) transparent;
+}
+
+.rt-thinking-pre::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rt-thinking-pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rt-thinking-pre::-webkit-scrollbar-thumb {
+  background: var(--mt-border);
+  border-radius: 3px;
 }
 
 /* 工具列表 */
@@ -1092,44 +1126,146 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   width: 100%;
 }
 
-/* 思考过程折叠卡片 */
+/* 思考过程折叠卡片 — 虚线紫框，与工具卡的实线内嵌卡区分开：
+   思考是「过程」不是「结果」，虚线暗示未定稿 */
+/* 时间线内单元卡片通用：左侧 chevron + 右侧展开/收起提示 */
+.rt-unit-chevron {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+  transition: transform var(--mt-dur-normal) var(--mt-ease-spring);
+}
+
+.rt-unit-chevron--open {
+  transform: rotate(90deg);
+}
+
+.rt-unit-hint {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--mt-fg-3);
+  background: color-mix(in srgb, var(--mt-violet) 12%, transparent);
+  transition: color var(--mt-dur-fast) var(--mt-ease-standard),
+              background var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.rt-thinking-card-header:hover .rt-unit-hint {
+  color: var(--mt-violet);
+  background: color-mix(in srgb, var(--mt-violet) 20%, transparent);
+}
+
+/* 思考卡片：紫色系描边卡，与工具卡（蓝/灰）明显区分 */
 .rt-thinking-card {
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--color-border, rgba(255,255,255,0.1));
-  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--mt-violet) 28%, transparent);
+  border-radius: var(--mt-radius-lg, 8px);
+  background: color-mix(in srgb, var(--mt-violet) 7%, transparent);
   overflow: hidden;
+}
+
+/* 内嵌「执行过程」：扁平行，去掉紫色描边/背景，避免与 ActivityFold 边框二重嵌套 */
+.rt-thinking-card--compact {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.rt-thinking-card--compact .rt-thinking-card-header {
+  padding: 5px 6px;
+  min-height: 30px;
+  gap: 8px;
+}
+
+.rt-thinking-card--compact .rt-thinking-card-header:hover {
+  background: color-mix(in srgb, var(--mt-violet) 10%, transparent);
+  border-radius: 8px;
+}
+
+/* 折叠态预览文字：提高对比度、放大字号，避免「看不清」 */
+.rt-thinking-card--compact .rt-thinking-card-preview {
+  color: var(--mt-fg-3);
+  font-size: 12px;
+  font-style: normal;
+  opacity: 1;
 }
 
 .rt-thinking-card-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
-  background: var(--color-bg-secondary, rgba(255,255,255,0.04));
+  padding: 6px 9px;
+  min-height: 28px;
+  background: transparent;
   cursor: pointer;
   user-select: none;
   border: none;
   width: 100%;
   text-align: left;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  font-weight: 500;
+  color: var(--mt-fg-3);
+  font-family: var(--mt-font-mono);
+  font-size: var(--mt-fs-xs);
+  transition: background var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
 .rt-thinking-card-header:hover {
-  background: var(--color-bg-tertiary, rgba(255,255,255,0.07));
+  background: color-mix(in srgb, var(--mt-violet) 10%, transparent);
+}
+
+.rt-thinking-card .rt-unit-chevron {
+  color: var(--mt-violet);
 }
 
 .rt-thinking-card-icon {
   flex-shrink: 0;
   font-size: 13px;
+  color: var(--mt-violet);
 }
 
+/* 「思考」标签：紫色笔记标签风胶囊，一眼区分类型 */
 .rt-thinking-card-title {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--mt-violet);
+  background: color-mix(in srgb, var(--mt-violet) 16%, transparent);
+}
+
+/* 流式思考时的跳动竖条：比脉冲整行更能表达「正在进行」 */
+.rt-thinking-wave {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 13px;
   flex-shrink: 0;
 }
 
+.rt-thinking-wave i {
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--mt-violet);
+  transform-origin: bottom;
+  animation: mt-wave 1s ease-in-out infinite;
+}
+
+.rt-thinking-wave i:nth-child(2) { animation-delay: 0.12s; }
+.rt-thinking-wave i:nth-child(3) { animation-delay: 0.24s; }
+.rt-thinking-wave i:nth-child(4) { animation-delay: 0.36s; }
+.rt-thinking-wave i:nth-child(5) { animation-delay: 0.48s; }
+
+@keyframes mt-wave {
+  0%, 100% { transform: scaleY(0.35); opacity: 0.55; }
+  50%      { transform: scaleY(1);    opacity: 1; }
+}
+
+/* 折叠态摘要：严格单行，避免思考文字把消息流撑开 */
 .rt-thinking-card-preview {
   flex: 1;
   min-width: 0;
@@ -1137,30 +1273,40 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-style: italic;
-  opacity: 0.55;
+  opacity: 0.85;
+  color: var(--mt-fg-4);
   font-size: 11px;
   margin-left: 4px;
-}
-
-.rt-thinking-card-chevron {
-  flex-shrink: 0;
-  font-size: 10px;
-  margin-left: auto;
-  opacity: 0.6;
 }
 
 /* 思考内容 pre：固定最大高度，流式时可滚动 */
 .rt-thinking-pre {
   margin: 0;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: var(--mt-fs-xs);
   line-height: 1.6;
-  color: var(--color-text-secondary);
-  background: var(--color-bg-primary);
+  color: var(--mt-fg-2);
+  border-top: 1px solid var(--mt-border-hairline);
+  background: var(--mt-code-bg);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 220px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--mt-border) transparent;
+}
+
+.rt-thinking-pre::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rt-thinking-pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rt-thinking-pre::-webkit-scrollbar-thumb {
+  background: var(--mt-border);
+  border-radius: 3px;
 }
 
 /* 锁定高度：流式结束后固定，不再伸缩 */
@@ -1177,7 +1323,73 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
 .rt-tools-section {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
+}
+
+/* 折叠态：当前正在执行的工具条（完成后自动卸载） */
+.rt-current-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--mt-accent-500, #3b82f6) 28%, var(--mt-border, var(--color-border)));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--mt-accent-500, #3b82f6) 8%, var(--mt-surface-2, var(--color-bg-secondary)));
+  color: var(--mt-fg-2, var(--color-text-primary));
+  font-size: 12px;
+  line-height: 1.3;
+  animation: rt-current-in 0.18s ease-out;
+}
+
+@keyframes rt-current-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rt-current-tool-spin {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  border: 1.5px solid color-mix(in srgb, var(--mt-accent-500, #3b82f6) 35%, transparent);
+  border-top-color: var(--mt-accent-500, #3b82f6);
+  border-radius: 50%;
+  animation: rt-spin 0.7s linear infinite;
+}
+
+@keyframes rt-spin {
+  to { transform: rotate(360deg); }
+}
+
+.rt-current-tool-label {
+  flex-shrink: 0;
+  color: var(--mt-fg-3, var(--color-text-secondary));
+  font-size: 11px;
+}
+
+.rt-current-tool-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mt-font-mono, ui-monospace, monospace);
+  font-weight: 600;
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.rt-current-tool-more {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mt-accent-500, #3b82f6) 14%, transparent);
+  color: var(--mt-fg-3, var(--color-text-secondary));
+  font-size: 10px;
 }
 
 /* 折叠/展开切换按钮 */
@@ -1186,7 +1398,7 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  margin-top: 2px;
+  margin-top: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-bg-primary);
@@ -1340,4 +1552,32 @@ details.sub-agent-wrap[open] > .sub-agent-label::before {
   /* 深色主题：强调底 + 白字 */
   background-color: var(--mt-accent-500);
   color: #fff;
+}
+
+/* parts 时间线：thinking / text / tool 交错块间距 */
+.parts-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1, 4px);
+}
+
+.part-block {
+  width: 100%;
+}
+
+/* 执行过程内的中间说明文本：左侧留白与思考/工具行的文字对齐（chevron 6px padding + 14px 宽 + 8px gap ≈ 28px） */
+.fold-note {
+  width: 100%;
+  padding: 2px 6px 2px 28px;
+  color: var(--mt-fg-2, #cbd5e1);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.fold-note :global(p) {
+  margin: 0.2em 0;
+}
+
+.parts-timeline .message-text {
+  margin-bottom: 0;
 }

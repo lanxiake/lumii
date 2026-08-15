@@ -64,15 +64,24 @@ export class PermissionController {
   }
 
   /**
-   * 以 deny 拒绝所有挂起的权限请求，并清空记忆（destroyAll 时调用）
+   * 以 deny 拒绝所有挂起的权限请求（不清除 allow-always 记忆）
+   *
+   * 用户点停止时调用：让卡在权限确认上的 tool.execute 立刻返回，从而结束 Agent 循环并释放会话锁。
    */
-  clearAll(): void {
+  rejectAllPending(): void {
     for (const [requestId, pending] of this.pendingPermissions) {
       clearTimeout(pending.timeoutHandle)
       pending.resolve('deny')
-      log.info(`[clearAll] rejected pending permission: ${requestId}`)
+      log.info(`[rejectAllPending] rejected pending permission: ${requestId}`)
     }
     this.pendingPermissions.clear()
+  }
+
+  /**
+   * 以 deny 拒绝所有挂起的权限请求，并清空记忆（destroyAll 时调用）
+   */
+  clearAll(): void {
+    this.rejectAllPending()
     this.memory.clear()
   }
 }

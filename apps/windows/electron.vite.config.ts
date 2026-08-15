@@ -102,6 +102,75 @@ function petResourcesDevPlugin(): Plugin {
   }
 }
 
+/**
+ * 修补 pptx-preview：
+ * 1) slideLayout / slideMaster 缺失时访问 .background 会抛
+ * 2) 库用 `import { get, omit } from "lodash"`，CJS lodash 在 Vite 直链 ESM 下无具名导出
+ * 库为压缩单行包，不适合用 pnpm patch，改在 Vite 转换阶段替换。
+ */
+function patchPptxPreviewPlugin(): Plugin {
+  const OLD =
+    'var n=t.background;if("none"===n.type&&(n=t.slideLayout.background),"none"===n.type&&(n=t.slideMaster.background)'
+  const NEW =
+    'var n=t.background||{type:"none"};if((!n||"none"===n.type)&&(n=(null==t.slideLayout?void 0:t.slideLayout.background)||{type:"none"}),"none"===n.type&&(n=(null==t.slideMaster?void 0:t.slideMaster.background)||{type:"none"})'
+  // UMD 构建使用变量名 i
+  const OLD_UMD =
+    'var i=t.background;if("none"===i.type&&(i=t.slideLayout.background),"none"===i.type&&(i=t.slideMaster.background)'
+  const NEW_UMD =
+    'var i=t.background||{type:"none"};if((!i||"none"===i.type)&&(i=(null==t.slideLayout?void 0:t.slideLayout.background)||{type:"none"}),"none"===i.type&&(i=(null==t.slideMaster?void 0:t.slideMaster.background)||{type:"none"})'
+
+  /** 将 lodash CJS 具名导入改为 lodash-es（真 ESM），避免 Vite /@fs 直链无 export */
+  const LODASH_NAMED =
+    /import\s*\{\s*get\s+as\s+(\w+)\s*,\s*omit\s+as\s+(\w+)\s*\}\s*from\s*["']lodash["']\s*;/
+  const LODASH_NAMED_ALT =
+    /import\s*\{\s*omit\s+as\s+(\w+)\s*,\s*get\s+as\s+(\w+)\s*\}\s*from\s*["']lodash["']\s*;/
+  /** 兼容上一版误改成的 default import */
+  const LODASH_DEFAULT =
+    /import\s+lodash\s+from\s*["']lodash["']\s*;\s*var\s+(\w+)\s*=\s*lodash\.get\s*,\s*(\w+)\s*=\s*lodash\.omit\s*;/
+
+  return {
+    name: 'patch-pptx-preview-background',
+    enforce: 'pre',
+    transform(code, id) {
+      const norm = id.replace(/\\/g, '/')
+      if (!norm.includes('pptx-preview')) return null
+      let next = code
+      if (next.includes('slideLayout.background')) {
+        if (next.includes(OLD)) next = next.replace(OLD, NEW)
+        if (next.includes(OLD_UMD)) next = next.replace(OLD_UMD, NEW_UMD)
+      }
+      let patchedLodash = false
+      const afterDefault = next.replace(
+        LODASH_DEFAULT,
+        'import{get as $1,omit as $2}from"lodash-es";',
+      )
+      if (afterDefault !== next) {
+        next = afterDefault
+        patchedLodash = true
+      }
+      if (!patchedLodash) {
+        const afterNamed = next.replace(
+          LODASH_NAMED,
+          'import{get as $1,omit as $2}from"lodash-es";',
+        )
+        if (afterNamed !== next) {
+          next = afterNamed
+          patchedLodash = true
+        }
+      }
+      if (!patchedLodash) {
+        const afterAlt = next.replace(
+          LODASH_NAMED_ALT,
+          'import{get as $2,omit as $1}from"lodash-es";',
+        )
+        if (afterAlt !== next) next = afterAlt
+      }
+      if (next === code) return null
+      return { code: next, map: null }
+    },
+  }
+}
+
 export default defineConfig({
   main: {
     plugins: [
@@ -154,6 +223,7 @@ export default defineConfig({
         '@main': resolve(__dirname, 'src/main'),
         '@shared': resolve(__dirname, 'src/shared'),
         // monorepo workspace 包 - 指向源码确保 Vite 能正确解析
+        '@mtbot/agent-runtime/browser': resolve(ROOT, 'packages/agent-runtime/src/browser.ts'),
         '@mtbot/agent-runtime': resolve(ROOT, 'packages/agent-runtime/src/index.ts'),
         '@mtbot/browser-control': resolve(ROOT, 'packages/browser-control/src/index.ts'),
         '@mtbot/protocol': resolve(ROOT, 'packages/protocol/src/index.ts'),
@@ -187,7 +257,11 @@ export default defineConfig({
     assetsInclude: ['**/*.moc3', '**/*.model3.json', '**/*.motion3.json', '**/*.physics3.json', '**/*.cdi3.json', '**/*.exp3.json'],
     server: {
       port: 5174,
-      host: '127.0.0.1' // 确保监听 IPv4，避免 Electron 在 Windows 上无法连接 IPv6-only 的 Vite
+      host: '127.0.0.1', // 确保监听 IPv4，避免 Electron 在 Windows 上无法连接 IPv6-only 的 Vite
+      fs: {
+        // 允许从 apps/windows/assets 导入产品 logo 等静态资源
+        allow: [resolve(__dirname)],
+      },
     },
     build: {
       outDir: resolve(__dirname, 'out/renderer'),
@@ -202,22 +276,28 @@ export default defineConfig({
         '@': resolve(__dirname, 'src/renderer'),
         '@renderer': resolve(__dirname, 'src/renderer'),
         '@shared': resolve(__dirname, 'src/shared'),
+        '@app-assets': resolve(__dirname, 'assets'),
         // Node built-in stub: renderer 无 nodeIntegration，object-inspect 等库顶层访问
         // util.inspect.custom 会导致模块初始化崩溃（白屏）。提供最小 stub 解决。
         'util': resolve(__dirname, 'src/renderer/stubs/util.ts'),
+        // 仅允许 browser 子路径进入 renderer；主入口含 tools/sqlite 等 Node 代码
+        '@mtbot/agent-runtime/browser': resolve(ROOT, 'packages/agent-runtime/src/browser.ts'),
       },
       // 明确指定模块查找路径
       mainFields: ['module', 'jsnext:main', 'jsnext', 'main']
     },
-    plugins: [react(), petResourcesDevPlugin()],
+    plugins: [react(), petResourcesDevPlugin(), patchPptxPreviewPlugin()],
     // 解决 @uiw/react-md-editor 依赖解析失败
     // 将 renderer 依赖包含在预构建中，确保 Vite 能正确解析 pnpm 符号链接
     optimizeDeps: {
+      // 必须走 transform 补丁，不能进 esbuild 预构建缓存
+      exclude: ['pptx-preview'],
       include: [
         '@uiw/react-md-editor', 'react-markdown', 'remark-gfm', 'rehype-highlight',
         'remark-math', 'rehype-katex', 'katex',
         'pdfjs-dist',
         'pixi.js', 'pixi-live2d-display/cubism4',
+        'lodash-es',
       ]
     }
   }

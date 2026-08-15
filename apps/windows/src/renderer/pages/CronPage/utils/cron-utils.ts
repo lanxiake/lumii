@@ -22,14 +22,43 @@ export function describeCron(job: CronJob): string {
 
   if (job.scheduleType === 'every') {
     const ms = parseInt(expr, 10)
-    if (!isNaN(ms)) {
-      return `每 ${formatInterval(ms)}`
-    }
-    return `固定间隔`
+    const base = !isNaN(ms) ? `每 ${formatInterval(ms)}` : `固定间隔`
+    // 生效窗口附加描述
+    const window = formatActiveWindow(job.activeDays, job.activeHourStart, job.activeHourEnd)
+    return window ? `${base}（${window}）` : base
   }
 
-  // cron 表达式
-  return describeCronExpr(expr)
+  // cron 表达式 + 窗口
+  const base = describeCronExpr(expr)
+  const window = formatActiveWindow(job.activeDays, job.activeHourStart, job.activeHourEnd)
+  return window ? `${base}（${window}）` : base
+}
+
+/**
+ * 格式化生效窗口为附加文本（周选择 + 时段）。
+ * 返回空字符串表示未配置窗口（全时段有效）。
+ */
+function formatActiveWindow(
+  activeDays?: string | null,
+  activeHourStart?: number | null,
+  activeHourEnd?: number | null,
+): string {
+  const parts: string[] = []
+
+  const days = activeDays?.trim()
+  if (days) {
+    const label = formatDayList(days.split(',').map(Number))
+    // 「每天」不必赘述，窗口未收窄等于没配
+    if (label !== '每天') parts.push(label)
+  }
+
+  if (activeHourStart != null && activeHourEnd != null && activeHourStart !== activeHourEnd) {
+    const start = String(activeHourStart).padStart(2, '0')
+    const end = String(activeHourEnd).padStart(2, '0')
+    parts.push(`${start}:00-${end}:00`)
+  }
+
+  return parts.join(' ')
 }
 
 /**
@@ -37,7 +66,8 @@ export function describeCron(job: CronJob): string {
  */
 function describeCronExpr(expr: string): string {
   const parts = expr.trim().split(/\s+/)
-  if (parts.length < 5) return expr
+  // 表达式非法时也别把 cron 原文抖到界面上，用户看不懂
+  if (parts.length < 5) return '自定义计划'
 
   const [min, hour, dom, , dow] = parts
 
@@ -47,52 +77,38 @@ function describeCronExpr(expr: string): string {
   // 每小时
   if (hour === '*' && min !== '*') return `每小时第 ${min} 分钟`
 
+  const time = formatTime(hour, min)
+
   // 每 N 天
-  if (dom && dom.startsWith('*/')) {
-    const n = dom.slice(2)
-    return `每 ${n} 天 ${formatTime(hour, min)}`
-  }
+  if (dom && dom.startsWith('*/')) return `每 ${dom.slice(2)} 天 ${time}`
 
-  // 每月
-  if (dom && dom !== '*' && dow === '*') {
-    return `每月第 ${dom} 日 ${formatTime(hour, min)}`
-  }
+  // 每月某日
+  if (dom && dom !== '*' && (!dow || dow === '*')) return `每月 ${dom} 日 ${time}`
 
-  // 工作日
-  if (dow === '1-5') return `工作日 ${formatTime(hour, min)}`
-
-  // 指定星期
+  // 指定星期：1-5 / 1,2,3,4,5 / 5 / 0,6 统一走列表格式化
   if (dow && dow !== '*') {
-    const dayName = getDayName(dow)
-    if (dayName) return `${dayName} ${formatTime(hour, min)}`
+    const days = formatDayList(parseDow(dow))
+    if (days) return `${days} ${time}`
   }
 
-  // 每天
-  if (dom === '*' && dow === '*' && hour !== '*') {
-    return `每天 ${formatTime(hour, min)}`
-  }
+  return `每天 ${time}`
+}
 
-  return expr
+/** 星期数字集合 → 中文描述，工作日/周末/每天做简写 */
+function formatDayList(days: readonly number[]): string {
+  const unique = [...new Set(days)].filter((d) => d >= 0 && d <= 6).sort()
+  if (unique.length === 0 || unique.length === 7) return '每天'
+  const key = unique.join(',')
+  if (key === '1,2,3,4,5') return '工作日'
+  if (key === '0,6') return '周末'
+  const names = ['日', '一', '二', '三', '四', '五', '六']
+  return unique.map((d) => `周${names[d]}`).join('、')
 }
 
 function formatTime(hour: string, min: string): string {
   const h = hour.padStart(2, '0')
   const m = min.padStart(2, '0')
   return `${h}:${m}`
-}
-
-function getDayName(dow: string): string | null {
-  const dayNames: Record<string, string> = {
-    '0': '周日',
-    '1': '周一',
-    '2': '周二',
-    '3': '周三',
-    '4': '周四',
-    '5': '周五',
-    '6': '周六',
-    '7': '周日',
-  }
-  return dayNames[dow] ?? null
 }
 
 function formatInterval(ms: number): string {

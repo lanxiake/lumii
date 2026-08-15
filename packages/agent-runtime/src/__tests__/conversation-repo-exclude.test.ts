@@ -31,14 +31,21 @@ function createRowsMockDb(rows: readonly MessageRow[]): DatabaseAdapter {
   };
 }
 
+/** 按角色构造当前消息存储格式的测试行。 */
 function row(id: string, role: "user" | "assistant", text: string): MessageRow {
+  const content =
+    role === "assistant"
+      ? {
+          type: "assistant_parts",
+          parts: [{ type: "text", id: `${id}-text`, text, status: "done" }],
+        }
+      : { type: "text", text };
   return {
     id,
     conversation_id: "conv-1",
     agent_id: null,
     role,
-    content_json: JSON.stringify({ type: "text", text }),
-    is_proactive: 0,
+    content_json: JSON.stringify(content),
     timestamp: new Date().toISOString(),
     is_streaming: 0,
   };
