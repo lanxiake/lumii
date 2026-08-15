@@ -229,7 +229,7 @@ async function handleCompact(args: string, ctx: CommandContext): Promise<void> {
         ctx.addSystemMessage('⚠️ 压缩未完成，会话未修改')
       } else {
         const summaryNote = result.hadSummary ? '，已生成摘要' : ''
-        ctx.showToast?.(`上下文已压缩，删除 ${result.messagesRemoved} 条旧消息${summaryNote}`, 'success')
+        ctx.showToast?.(`上下文已压缩，移出 ${result.messagesRemoved} 条旧消息（历史仍可回看）${summaryNote}`, 'success')
       }
       // 重新加载当前会话消息
       await api.sendCommand({ type: 'conversation:switch', sessionKey: ctx.sessionKey })

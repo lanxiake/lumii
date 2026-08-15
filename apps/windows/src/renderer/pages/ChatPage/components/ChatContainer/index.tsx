@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useMemo, useState } from 'react'
+import React, { useRef, useEffect, useLayoutEffect, useCallback, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { Loading } from '../../../../components/ui/Loading/Loading'
 import { ChatMessage } from '../ChatMessage'
@@ -130,7 +130,16 @@ interface ChatContainerProps {
   }[]
   /** 点击回合文件变更卡「查看」：透传文件相对路径与状态，交由上层打开 Workbench 并定位 */
   onReviewFileChanges?: (path: string, status: 'added' | 'modified' | 'deleted') => void
+  /** 是否还有更早的历史消息可懒加载 */
+  hasMoreHistory?: boolean
+  /** 更早历史正在加载中 */
+  isLoadingHistory?: boolean
+  /** 请求加载更早的一页历史消息 */
+  onLoadOlderMessages?: () => void
 }
+
+/** 距顶部小于该像素时触发历史懒加载，留出提前量避免用户滚到边界才开始请求 */
+const LOAD_OLDER_SCROLL_THRESHOLD = 240
 
 /**
  * 从对话消息抽出压缩摘要正文；命中则这条消息应折叠进压缩卡片，不再当普通气泡。
@@ -174,6 +183,9 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   replayMessageId,
   todoCalls = [],
   onReviewFileChanges,
+  hasMoreHistory = false,
+  isLoadingHistory = false,
+  onLoadOlderMessages,
 }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -214,12 +226,49 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     return distanceFromBottom < 40
   }, [])
 
-  /** 用户滚动时更新 stick 状态：一旦离开底部就暂停自动跟随 */
+  // 前插历史前的滚动快照，用于插入后把视口锚回用户原本看的那条消息
+  const prependAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
+
+  /**
+   * 请求更早的一页历史，并记录当前滚动锚点。
+   * 上层负责并发与「已到顶」的短路，这里只做 UI 侧的重复触发保护。
+   */
+  const requestOlderMessages = useCallback(() => {
+    if (!onLoadOlderMessages || !hasMoreHistory || isLoadingHistory) return
+    const el = scrollContainerRef.current
+    if (el) {
+      prependAnchorRef.current = { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
+    }
+    onLoadOlderMessages()
+  }, [onLoadOlderMessages, hasMoreHistory, isLoadingHistory])
+
+  /** 用户滚动时更新 stick 状态：一旦离开底部就暂停自动跟随；接近顶部时懒加载更早历史 */
   const handleScroll = useCallback(() => {
     const near = isNearBottom()
     stickToBottomRef.current = near
     setShowScrollToLatest(!near)
-  }, [isNearBottom])
+    const el = scrollContainerRef.current
+    if (el && el.scrollTop <= LOAD_OLDER_SCROLL_THRESHOLD) {
+      requestOlderMessages()
+    }
+  }, [isNearBottom, requestOlderMessages])
+
+  // 历史前插后 scrollHeight 变大，若不补偿 scrollTop 视口会突然跳到更早的消息。
+  // 必须在 useLayoutEffect 中改，避免用户看到一帧跳动。
+  useLayoutEffect(() => {
+    const anchor = prependAnchorRef.current
+    if (!anchor) return
+    const el = scrollContainerRef.current
+    if (!el) return
+    const delta = el.scrollHeight - anchor.scrollHeight
+    if (delta > 0) {
+      el.scrollTop = anchor.scrollTop + delta
+    }
+    // 高度没变（本页无新消息或请求失败）时，等加载结束再丢弃锚点，避免锚点残留误用
+    if (delta > 0 || !isLoadingHistory) {
+      prependAnchorRef.current = null
+    }
+  }, [session?.messages, isLoadingHistory])
 
   // 切换会话或首次挂载时，若已有消息则静默滚动到底部（并重置 stick 为 true）
   useEffect(() => {
@@ -418,6 +467,22 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       className={styles['chat-container']}
     >
       <div className={clsx(styles['messages-list'], noEnterMessages && styles['messages-list--switching'])}>
+        {hasMoreHistory && (
+          <div className={styles['history-loader']}>
+            {isLoadingHistory ? (
+              <span className={styles['history-loader__hint']}>正在加载更早的消息…</span>
+            ) : (
+              <button
+                type="button"
+                className={styles['history-loader__button']}
+                onClick={requestOlderMessages}
+              >
+                加载更早的消息
+              </button>
+            )}
+          </div>
+        )}
+
         {chatItems.map((item, index) => {
           if (item.itemType === 'approval') {
             const isResolving = resolvingIds.has(item.id)

@@ -49,6 +49,11 @@ export interface MessageRow {
   readonly timestamp: string;
   /** 1 表示流式未完成行，UI 与 pi 历史加载应忽略 */
   readonly is_streaming: number;
+  /**
+   * 非空表示该消息已被上下文压缩排除出 LLM 请求（ISO 时间串）。
+   * 消息本身仍保留在历史记录中，UI 照常可回看。
+   */
+  readonly compacted_at?: string | null;
 }
 
 /** pi-agent Message 格式（用于构造 Agent 调用的 messages 参数） */
@@ -105,6 +110,18 @@ class LruCache<K, V> {
 export interface PaginatedResult<T> {
   readonly items: readonly T[];
   readonly total: number;
+  readonly hasMore: boolean;
+}
+
+/** UI 懒加载游标：指向上一页最早的一条消息 */
+export interface MessagePageCursor {
+  readonly timestamp: string;
+  readonly id: string;
+}
+
+/** UI 懒加载分页结果（items 按时间升序） */
+export interface MessagePage {
+  readonly items: readonly MessageRow[];
   readonly hasMore: boolean;
 }
 
@@ -263,6 +280,9 @@ export class ConversationRepo {
   /**
    * 加载消息并转换为 pi-agent 的 Message 格式。
    * 仅返回 role = 'user' | 'assistant' 的消息。
+   *
+   * 这是「喂给模型」的读取路径，因此排除已被上下文压缩标记（compacted_at 非空）的消息：
+   * 它们仍在库里供用户回看，只是不再进入 LLM 请求。
    */
   loadMessagesAsPiFormat(
     conversationId: string,
@@ -277,7 +297,7 @@ export class ConversationRepo {
           .prepare<MessageRow>(
             `SELECT * FROM messages
            WHERE conversation_id = ? AND role IN ('user', 'assistant') AND timestamp < ?
-             AND is_streaming = 0
+             AND is_streaming = 0 AND compacted_at IS NULL
            ORDER BY timestamp ASC
            LIMIT ?`,
           )
@@ -287,7 +307,7 @@ export class ConversationRepo {
             `SELECT * FROM (
                SELECT * FROM messages
                WHERE conversation_id = ? AND role IN ('user', 'assistant')
-                 AND is_streaming = 0
+                 AND is_streaming = 0 AND compacted_at IS NULL
                ORDER BY timestamp DESC
                LIMIT ?
              ) ORDER BY timestamp ASC`,
@@ -428,6 +448,84 @@ export class ConversationRepo {
       total,
       hasMore: offset + pageSize < total,
     };
+  }
+
+  /**
+   * 倒序分页加载消息用于 UI 懒加载（含流式行与已压缩消息，按时间升序返回）。
+   *
+   * 游标用 (timestamp, id) 组合而非单一 timestamp：同毫秒写入的多条消息（如 fork
+   * 复制的历史）只比时间戳会在翻页边界互相吞掉。
+   *
+   * @param cursor 上一页最早一条消息，返回严格早于它的记录；不传则从最新一条开始
+   */
+  loadMessagesPage(
+    conversationId: string,
+    options?: { readonly limit?: number; readonly before?: MessagePageCursor },
+  ): MessagePage {
+    const limit = Math.max(1, options?.limit ?? 60);
+    const before = options?.before;
+    // 多取一条用于判断是否还有更早的历史，避免额外的 COUNT 查询
+    const probeLimit = limit + 1;
+
+    const rows = before
+      ? this.db
+          .prepare<MessageRow>(
+            `SELECT * FROM messages
+           WHERE conversation_id = ?
+             AND (timestamp < ? OR (timestamp = ? AND id < ?))
+           ORDER BY timestamp DESC, id DESC
+           LIMIT ?`,
+          )
+          .all(conversationId, before.timestamp, before.timestamp, before.id, probeLimit)
+      : this.db
+          .prepare<MessageRow>(
+            `SELECT * FROM messages
+           WHERE conversation_id = ?
+           ORDER BY timestamp DESC, id DESC
+           LIMIT ?`,
+          )
+          .all(conversationId, probeLimit);
+
+    const hasMore = rows.length > limit;
+    const page = hasMore ? rows.slice(0, limit) : rows;
+    return { items: [...page].reverse(), hasMore };
+  }
+
+  /**
+   * 将指定消息标记为「已压缩」：不再进入 LLM 请求，但保留在历史记录中。
+   *
+   * 取代旧的 DELETE 语义——压缩只应释放上下文窗口，不应销毁用户的聊天记录。
+   *
+   * @returns 实际被标记的条数（已标记过的行不会重复计入）
+   */
+  markMessagesCompacted(
+    conversationId: string,
+    messageIds: readonly string[],
+    compactedAt = new Date().toISOString(),
+  ): number {
+    if (messageIds.length === 0) return 0;
+    const placeholders = messageIds.map(() => "?").join(", ");
+    const result = this.db
+      .prepare(
+        `UPDATE messages SET compacted_at = ?
+       WHERE conversation_id = ? AND compacted_at IS NULL AND id IN (${placeholders})`,
+      )
+      .run(compactedAt, conversationId, ...messageIds);
+    this.messageCache.deleteWhere((k) => k.startsWith(`${conversationId}|`));
+    return (result as { changes: number }).changes ?? 0;
+  }
+
+  /**
+   * 统计仍参与 LLM 上下文的消息数（排除流式行与已压缩消息）。
+   */
+  countActiveMessages(conversationId: string): number {
+    const row = this.db
+      .prepare<{ count: number }>(
+        `SELECT COUNT(*) as count FROM messages
+       WHERE conversation_id = ? AND is_streaming = 0 AND compacted_at IS NULL`,
+      )
+      .get(conversationId);
+    return row?.count ?? 0;
   }
 
   /**
@@ -607,12 +705,12 @@ export class ConversationRepo {
 
     const now = new Date().toISOString();
     const insertMsg = this.db.prepare(
-      `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp, is_streaming)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (id, conversation_id, agent_id, role, content_json, timestamp, is_streaming, compacted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     withTransaction(this.db, () => {
-      // 复制历史消息，保留相对时间顺序（timestamp 不变，仅 conversation_id 替换）
+      // 复制历史消息，保留相对时间顺序与压缩标记（timestamp 不变，仅 conversation_id 替换）
       for (const row of rows) {
         insertMsg.run(
           generateId(),
@@ -622,6 +720,7 @@ export class ConversationRepo {
           row.content_json,
           row.timestamp,
           0,
+          row.compacted_at ?? null,
         );
       }
       // 追加新 user 消息
@@ -633,6 +732,7 @@ export class ConversationRepo {
         JSON.stringify({ type: "text", text: newUserContent }),
         now,
         0,
+        null,
       );
       this.db
         .prepare("UPDATE conversations SET last_msg_at = ? WHERE id = ?")

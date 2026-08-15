@@ -42,6 +42,10 @@ export interface RuntimeMessage {
   readonly fileChanges?: readonly FileChangeEntry[]
   readonly timestamp: number
   readonly isStreaming: boolean
+  /**
+   * 已被上下文压缩移出 LLM 请求，但仍保留在历史记录中（用户可回看）。
+   */
+  readonly contextExcluded?: boolean
   /** 是否为语音识别消息（用户通过语音通话输入的消息） */
   readonly isVoice?: boolean
   /** 原始录音 WAV base64，用于气泡点击回放 */
@@ -202,8 +206,23 @@ export interface RuntimeFileEvent {
  * 单个会话的完整状态
  * 每个 sessionKey 对应独立的 PerSessionState，会话间完全隔离
  */
+/**
+ * 历史懒加载状态：会话历史按页从 DB 取，用户上滑时再取更早的一页。
+ * 压缩不再删除消息，历史可能很长，一次性全量加载会拖垮首屏。
+ */
+export interface HistoryPaging {
+  /** 是否还有更早的历史可加载 */
+  readonly hasMore: boolean
+  /** 正在加载更早的一页 */
+  readonly isLoading: boolean
+  /** 已加载的最早一条消息，作为下一页的游标；无历史时为 null */
+  readonly cursor: { readonly timestamp: string; readonly id: string } | null
+}
+
 export interface PerSessionState {
   readonly messages: readonly RuntimeMessage[]
+  /** 历史消息懒加载分页状态 */
+  readonly historyPaging: HistoryPaging
   readonly isStreaming: boolean
   readonly activeRunId: string | null
   readonly currentTool: RuntimeToolCall | null
@@ -271,12 +290,20 @@ const EMPTY_ACTIVE_AGENTS: readonly ActiveAgent[] = []
 const EMPTY_FILE_EVENTS: readonly RuntimeFileEvent[] = []
 const EMPTY_COMPACTION_EVENTS: readonly RuntimeCompactionEvent[] = []
 
+/** 默认分页状态：尚未从 DB 加载过，视为「无更早历史」直到首页返回 hasMore */
+const DEFAULT_HISTORY_PAGING: HistoryPaging = {
+  hasMore: false,
+  isLoading: false,
+  cursor: null,
+}
+
 /**
  * 共享默认会话状态（只读）。用于“无当前会话”或新会话初始化的基准快照，
  * 避免每次读取都返回新对象导致订阅器误判为状态变化。
  */
 const DEFAULT_PER_SESSION_STATE: PerSessionState = {
   messages: EMPTY_MESSAGES,
+  historyPaging: DEFAULT_HISTORY_PAGING,
   isThinking: false,
   currentThinkingText: '',
   currentTool: null,

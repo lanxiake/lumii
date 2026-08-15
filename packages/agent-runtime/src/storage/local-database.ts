@@ -674,6 +674,8 @@ export class LocalDatabase {
           );
         case 7:
           return hasColumn("conversations", "is_pinned");
+        case 12:
+          return hasColumn("messages", "compacted_at");
         default:
           return false;
       }

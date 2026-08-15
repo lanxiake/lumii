@@ -36,6 +36,83 @@ const debugLog = process.env.NODE_ENV === 'development'
   ? (...args: unknown[]) => console.log(...args)
   : () => undefined
 
+/** 首屏与每次上滑加载的历史条数（与主进程 CONVERSATION_PAGE_SIZE 一致） */
+const HISTORY_PAGE_SIZE = 60
+
+/** 主进程 conversation:messages 返回的单条历史消息 */
+interface DbMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: readonly { type: 'text'; text: string }[]
+  timestamp: number
+  isStreaming?: boolean
+  /** 已被上下文压缩移出 LLM 请求，仍保留在历史中 */
+  contextExcluded?: boolean
+  isVoice?: boolean
+  audioWavBase64?: string
+  contentJson?: string
+  toolCalls?: readonly {
+    id: string
+    name: string
+    args: Record<string, unknown>
+    result?: unknown
+    isError?: boolean
+    textPositionAtStart?: number
+  }[]
+  sourceAgent?: { instanceId: string; label: string }
+}
+
+/** conversation:messages 的分页响应 */
+interface DbMessagePage {
+  items: readonly DbMessage[]
+  hasMore: boolean
+  /** 本页最早一条消息的原始游标，直接回传即可取更早的一页 */
+  nextCursor?: { timestamp: string; id: string }
+}
+
+/**
+ * 将主进程返回的 DB 消息映射为 renderer 消息，并恢复 assistant_parts 时间线。
+ */
+function toRuntimeMsg(msg: DbMessage): RuntimeMessage {
+  const parsed = msg.contentJson ? parseMessageContentJson(msg.contentJson) : undefined
+  const assistantContent = parsed?.type === 'assistant_parts' ? parsed : undefined
+  const parts: readonly AssistantPart[] = assistantContent?.parts ?? []
+  const fileChanges: readonly FileChangeEntry[] | undefined = assistantContent?.fileChanges
+  const content = assistantContent
+    ? [{
+        type: 'text' as const,
+        text: parts
+          .filter((part): part is Extract<AssistantPart, { type: 'text' }> => part.type === 'text')
+          .map((part) => part.text)
+          .join(''),
+      }]
+    : msg.content
+
+  return {
+    id: msg.id,
+    role: msg.role,
+    content,
+    parts,
+    timestamp: msg.timestamp,
+    isStreaming: msg.isStreaming ?? false,
+    toolCalls: (msg.toolCalls ?? []).map((tc) => ({
+      ...tc,
+      status: (tc.isError ? 'error' : 'completed') as 'error' | 'completed',
+      isError: tc.isError ?? false,
+      textPositionAtStart: tc.textPositionAtStart,
+    })),
+    ...(msg.contextExcluded ? { contextExcluded: true } : {}),
+    ...(assistantContent?.sourceAgent
+      ? { sourceAgent: assistantContent.sourceAgent }
+      : msg.sourceAgent
+        ? { sourceAgent: msg.sourceAgent }
+        : {}),
+    ...(fileChanges ? { fileChanges } : {}),
+    ...(msg.isVoice ? { isVoice: true } : {}),
+    ...(msg.audioWavBase64 ? { audioWavBase64: msg.audioWavBase64 } : {}),
+  }
+}
+
 // ============================================================
 // 模块级 IPC 事件订阅（独立于 React 组件生命周期）
 //
@@ -693,32 +770,13 @@ export function useAgentRuntimeActions() {
       return
     }
 
-    // 从 DB 加载目标会话历史
-    type DbMessage = {
-      id: string
-      role: 'user' | 'assistant'
-      content: readonly { type: 'text'; text: string }[]
-      timestamp: number
-      isStreaming?: boolean
-      isVoice?: boolean
-      audioWavBase64?: string
-      contentJson?: string
-      toolCalls?: readonly {
-        id: string
-        name: string
-        args: Record<string, unknown>
-        result?: unknown
-        isError?: boolean
-        textPositionAtStart?: number
-      }[]
-      sourceAgent?: { instanceId: string; label: string }
-    }
-
-    const [dbMessages, meta, dbContextUsage] = await Promise.all([
+    // 从 DB 加载目标会话历史（只取最新一页，更早的由上滑懒加载补齐）
+    const [dbPage, meta, dbContextUsage] = await Promise.all([
       api.sendCommand({
         type: 'conversation:messages',
         sessionKey,
-      }) as Promise<readonly DbMessage[]>,
+        limit: HISTORY_PAGE_SIZE,
+      }) as Promise<DbMessagePage>,
       fetchSessionMeta(),
       api.sendCommand({
         type: 'conversation:context-usage',
@@ -734,49 +792,7 @@ export function useAgentRuntimeActions() {
     const dbFileEvents = meta.fileEvents
     debugLog('[switchSession] 加载历史文件/任务 sessionKey=' + sessionKey + ' files=' + dbFileEvents.length + ' tasks=' + meta.tasks.length)
 
-    /**
-     * 将主进程返回的 DB 消息映射为 renderer 消息，并恢复 assistant_parts。
-     */
-    const toRuntimeMsg = (msg: DbMessage): RuntimeMessage => {
-      const parsed = msg.contentJson ? parseMessageContentJson(msg.contentJson) : undefined
-      const assistantContent = parsed?.type === 'assistant_parts' ? parsed : undefined
-      const parts: readonly AssistantPart[] = assistantContent?.parts ?? []
-      const fileChanges: readonly FileChangeEntry[] | undefined = assistantContent?.fileChanges
-      const content = assistantContent
-        ? [{
-            type: 'text' as const,
-            text: parts
-              .filter((part): part is Extract<AssistantPart, { type: 'text' }> => part.type === 'text')
-              .map((part) => part.text)
-              .join(''),
-          }]
-        : msg.content
-
-      return {
-        id: msg.id,
-        role: msg.role,
-        content,
-        parts,
-        timestamp: msg.timestamp,
-        isStreaming: msg.isStreaming ?? false,
-        toolCalls: (msg.toolCalls ?? []).map((tc) => ({
-          ...tc,
-          status: (tc.isError ? 'error' : 'completed') as 'error' | 'completed',
-          isError: tc.isError ?? false,
-          textPositionAtStart: tc.textPositionAtStart,
-        })),
-        ...(assistantContent?.sourceAgent
-          ? { sourceAgent: assistantContent.sourceAgent }
-          : msg.sourceAgent
-            ? { sourceAgent: msg.sourceAgent }
-            : {}),
-        ...(fileChanges ? { fileChanges } : {}),
-        ...(msg.isVoice ? { isVoice: true } : {}),
-        ...(msg.audioWavBase64 ? { audioWavBase64: msg.audioWavBase64 } : {}),
-      }
-    }
-
-    const dbMsgList: RuntimeMessage[] = injectRestoredTasks(dbMessages.map(toRuntimeMsg), meta.tasks)
+    const dbMsgList: RuntimeMessage[] = injectRestoredTasks(dbPage.items.map(toRuntimeMsg), meta.tasks)
     const hasDbStreamingMsg = dbMsgList.some((m) => m.isStreaming)
     debugLog('[switchSession] 加载会话 sessionKey=' + sessionKey + ' dbMsgs=' + dbMsgList.length + ' hasDbStreamingMsg=' + hasDbStreamingMsg)
 
@@ -832,6 +848,11 @@ export function useAgentRuntimeActions() {
       newSessions.set(sessionKey, {
         ...baseState,
         messages: effectiveMessages,
+        historyPaging: {
+          hasMore: dbPage.hasMore,
+          isLoading: false,
+          cursor: dbPage.nextCursor ?? null,
+        },
         fileEvents: (() => {
           const memFileEvents = latestMemSession?.fileEvents ?? []
           const dbFileIds = new Set(dbFileEvents.map((f) => f.fileId))
@@ -864,6 +885,61 @@ export function useAgentRuntimeActions() {
       })
       return { ...prev, sessions: newSessions, currentSessionKey: sessionKey }
     })
+  }, [])
+
+  /**
+   * 上滑懒加载更早的历史消息，把结果前插到会话消息列表。
+   *
+   * 上下文压缩不再删除消息，历史可以很长；首屏只加载最新一页，
+   * 用户往上翻时按游标继续取。并发调用与「已到顶」都会被短路。
+   */
+  const loadOlderMessages = useCallback(async (sessionKey: string): Promise<void> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return
+
+    const paging = runtimeStore.getState().sessions.get(sessionKey)?.historyPaging
+    if (!paging || !paging.hasMore || paging.isLoading || !paging.cursor) return
+
+    const cursor = paging.cursor
+    updateSessionState(sessionKey, (prev) => ({
+      ...prev,
+      historyPaging: { ...prev.historyPaging, isLoading: true },
+    }))
+
+    try {
+      const page = (await api.sendCommand({
+        type: 'conversation:messages',
+        sessionKey,
+        limit: HISTORY_PAGE_SIZE,
+        before: cursor,
+      })) as DbMessagePage
+
+      updateSessionState(sessionKey, (prev) => {
+        const knownIds = new Set(prev.messages.map((m) => m.id))
+        // 并发写入（流式新消息、事件回填）可能已插入同 id 消息，前插时去重
+        const older = page.items
+          .filter((msg) => !knownIds.has(msg.id))
+          .map(toRuntimeMsg)
+        return {
+          ...prev,
+          messages: older.length > 0 ? [...older, ...prev.messages] : prev.messages,
+          historyPaging: {
+            hasMore: page.hasMore,
+            isLoading: false,
+            cursor: page.nextCursor ?? prev.historyPaging.cursor,
+          },
+        }
+      })
+      debugLog(
+        '[loadOlderMessages] sessionKey=' + sessionKey + ' loaded=' + page.items.length + ' hasMore=' + page.hasMore,
+      )
+    } catch (err) {
+      debugLog('[loadOlderMessages] 加载更早历史失败 sessionKey=' + sessionKey, err)
+      updateSessionState(sessionKey, (prev) => ({
+        ...prev,
+        historyPaging: { ...prev.historyPaging, isLoading: false },
+      }))
+    }
   }, [])
 
   /**
@@ -1121,6 +1197,7 @@ export function useAgentRuntimeActions() {
       setSessionThinkingPrefs,
       refreshContextUsage,
       switchSession,
+      loadOlderMessages,
       listSessions,
       deleteMessage,
       editMessage,
@@ -1142,6 +1219,7 @@ export function useAgentRuntimeActions() {
       setSessionThinkingPrefs,
       refreshContextUsage,
       switchSession,
+      loadOlderMessages,
       listSessions,
       deleteMessage,
       editMessage,

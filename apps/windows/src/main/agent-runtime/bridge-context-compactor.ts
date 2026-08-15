@@ -125,7 +125,9 @@ export class BridgeContextCompactor {
 
   /**
    * 同步裁剪指定会话上下文（无 LLM 摘要，至少保留 1 条）。
-   * 短对话也会按一半历史删除，不再因「不足 12 条」直接跳过。
+   * 短对话也会按一半历史压缩，不再因「不足 12 条」直接跳过。
+   *
+   * 旧段只做标记（compacted_at），消息仍留在 DB 供用户回看，仅不再进入 LLM 请求。
    */
   compactContext(
     sessionKey: string,
@@ -135,13 +137,10 @@ export class BridgeContextCompactor {
     if (!repo) {
       throw new Error('ConversationRepo not initialized')
     }
-    const db = this.deps.getDb()
-    const allMessages = db.prepare<{ id: string }>(
-      `SELECT id FROM messages WHERE conversation_id = ? AND is_streaming = 0 ORDER BY timestamp ASC`,
-    ).all(sessionKey) as { id: string }[]
+    const allMessages = this.loadActiveMessages(sessionKey)
 
     const previousMessageCount = allMessages.length
-    // 同步路径无 LLM 摘要，至少保留 1 条，避免把会话清空
+    // 同步路径无 LLM 摘要，至少保留 1 条，避免把上下文清空
     const keepCount = Math.max(1, resolveManualCompactKeepCount(allMessages.length, keepRecentTurns))
     if (allMessages.length === 0 || keepCount >= allMessages.length) {
       log.info(
@@ -150,20 +149,20 @@ export class BridgeContextCompactor {
       return { success: true, previousMessageCount, newMessageCount: allMessages.length, messagesRemoved: 0 }
     }
 
-    const toDelete = allMessages.slice(0, allMessages.length - keepCount)
-    const ids = toDelete.map((m) => m.id)
+    const ids = allMessages.slice(0, allMessages.length - keepCount).map((m) => m.id)
 
-    // 删除前快照整窗占用与对话估算，压缩只扣对话差值
+    // 标记前快照整窗占用与对话估算，压缩只扣对话差值
     const usageBefore = this.deps.getSessionContextUsage?.(sessionKey)
     const allPiMessages = repo.loadMessagesAsPiFormat(sessionKey, { limit: allMessages.length }) as AgentMessage[]
     const conversationBefore = estimateTokenCount(allPiMessages)
     const conversationAfter = estimateTokenCount(allPiMessages.slice(ids.length))
 
-    const placeholders = ids.map(() => '?').join(', ')
-    db.prepare(`DELETE FROM messages WHERE id IN (${placeholders})`).run(...ids)
+    repo.markMessagesCompacted(sessionKey, ids)
 
     const newMessageCount = allMessages.length - ids.length
-    log.info(`[compactContext] sessionKey=${sessionKey} 压缩完成: 删除${ids.length}条, 保留${newMessageCount}条`)
+    log.info(
+      `[compactContext] sessionKey=${sessionKey} 压缩完成: 移出上下文${ids.length}条(仍保留在历史), 保留${newMessageCount}条`,
+    )
 
     this.emitCompacted({
       sessionKey,
@@ -184,13 +183,27 @@ export class BridgeContextCompactor {
   }
 
   /**
+   * 读取仍参与上下文的消息（排除流式行与此前已压缩标记的行）。
+   */
+  private loadActiveMessages(sessionKey: string): { id: string; timestamp: string }[] {
+    const db = this.deps.getDb()
+    return db
+      .prepare<{ id: string; timestamp: string }>(
+        `SELECT id, timestamp FROM messages
+         WHERE conversation_id = ? AND is_streaming = 0 AND compacted_at IS NULL
+         ORDER BY timestamp ASC`,
+      )
+      .all(sessionKey) as { id: string; timestamp: string }[]
+  }
+
+  /**
    * 异步压缩上下文（含 LLM 摘要生成）。
    *
    * 手动压缩不看 token 阈值、也不因「不足 12 条」跳过：只要有消息就发出摘要请求。
    * 流程：
-   * 1. 从 DB 加载待压缩消息
-   * 2. 调用 LLM 生成结构化摘要（失败时降级为纯删除，且绝不清空会话）
-   * 3. 删除旧段，保留最近一半或请求轮数
+   * 1. 从 DB 加载仍在上下文中的消息
+   * 2. 调用 LLM 生成结构化摘要（失败时降级为纯标记，且绝不清空上下文）
+   * 3. 标记旧段为已压缩（不删除，用户仍可回看），保留最近一半或请求轮数
    * 4. 将摘要写入 DB（作为 assistant 消息）
    * 5. 同步 Agent 内存（restoreHistoryForInstance）
    * 6. 推送 agent:context:compacted 事件
@@ -210,10 +223,7 @@ export class BridgeContextCompactor {
     const repo = this.deps.getConversationRepo()
     if (!repo) throw new Error('ConversationRepo not initialized')
 
-    const db = this.deps.getDb()
-    const allMessages = db.prepare<{ id: string; timestamp: string }>(
-      `SELECT id, timestamp FROM messages WHERE conversation_id = ? AND is_streaming = 0 ORDER BY timestamp ASC`,
-    ).all(sessionKey) as { id: string; timestamp: string }[]
+    const allMessages = this.loadActiveMessages(sessionKey)
 
     const previousMessageCount = allMessages.length
     if (previousMessageCount === 0) {
@@ -254,18 +264,18 @@ export class BridgeContextCompactor {
             `[compactContextAsync] LLM 摘要生成成功（已看完整 ${piMessages.length} 条消息）: ${summaryText.length} 字符`,
           )
         } else {
-          log.warn(`[compactContextAsync] LLM 摘要返回空文本，降级为纯删除`)
+          log.warn(`[compactContextAsync] LLM 摘要返回空文本，降级为纯标记`)
         }
       } catch (err) {
         log.warn(
-          `[compactContextAsync] LLM 摘要生成失败，降级为纯删除: ${err instanceof Error ? err.message : String(err)}`,
+          `[compactContextAsync] LLM 摘要生成失败，降级为纯标记: ${err instanceof Error ? err.message : String(err)}`,
         )
       }
     } else {
       log.warn(`[compactContextAsync] mainInnerStream/mainModel 未初始化，跳过 LLM 摘要`)
     }
 
-    // 无摘要时绝不清空会话：至少保留 1 条
+    // 无摘要时绝不清空上下文：至少保留 1 条
     if (!summaryText) {
       keepCount = Math.max(keepCount, 1)
     }
@@ -282,13 +292,13 @@ export class BridgeContextCompactor {
       }
     }
 
-    const toDelete = allMessages.slice(0, allMessages.length - keepCount)
-    const ids = toDelete.map((m) => m.id)
+    const ids = allMessages.slice(0, allMessages.length - keepCount).map((m) => m.id)
 
-    // 删除旧消息
-    const placeholders = ids.map(() => '?').join(', ')
-    db.prepare(`DELETE FROM messages WHERE id IN (${placeholders})`).run(...ids)
-    log.info(`[compactContextAsync] 已删除 ${ids.length} 条旧消息: sessionKey=${sessionKey}`)
+    // 旧消息只移出上下文，不从历史记录中删除
+    repo.markMessagesCompacted(sessionKey, ids)
+    log.info(
+      `[compactContextAsync] 已将 ${ids.length} 条旧消息移出上下文(仍保留在历史): sessionKey=${sessionKey}`,
+    )
 
     // 写入摘要：必须用 assistant_parts，且时间戳插在保留段之前，否则后续 prompt 读不到
     if (summaryText) {

@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 /**
  * V1 DDL — 初始 schema
@@ -344,6 +344,23 @@ ALTER TABLE local_cron_jobs ADD COLUMN active_hour_start INTEGER;
 ALTER TABLE local_cron_jobs ADD COLUMN active_hour_end INTEGER;
 ALTER TABLE local_cron_jobs ADD COLUMN system_prompt TEXT;
 ALTER TABLE local_cron_jobs ADD COLUMN notify_targets TEXT;
+`,
+  ],
+  // V12: 上下文压缩由「物理删除」改为「标记排除」
+  //
+  // compacted_at 非空表示该消息已被上下文压缩排除出 LLM 请求，但仍是用户可回看的历史记录。
+  // 读取分两条路径：
+  // - 喂给模型（loadMessagesAsPiFormat）过滤 compacted_at IS NULL
+  // - 展示给用户（loadMessagesPage）不过滤，靠 UI 懒加载分页控制量级
+  // 配套的部分索引让「只取未压缩消息」这条热路径仍能走索引扫描。
+  [
+    12,
+    `
+ALTER TABLE messages ADD COLUMN compacted_at TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_messages_conv_active_ts
+  ON messages (conversation_id, timestamp ASC)
+  WHERE compacted_at IS NULL;
 `,
   ],
 ] as const;

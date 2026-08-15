@@ -54,6 +54,35 @@
   animation: session-fade-in 0.18s ease-out;
 }
 
+/* 历史懒加载提示：置于消息列顶部，上滑接近顶部时自动触发，也可手动点击 */
+.history-loader {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 2px;
+  user-select: none;
+}
+
+.history-loader__hint {
+  font-size: 11px;
+  color: var(--color-text-tertiary, rgba(255, 255, 255, 0.35));
+}
+
+.history-loader__button {
+  padding: 3px 12px;
+  font-size: 11px;
+  color: var(--color-text-secondary, rgba(255, 255, 255, 0.6));
+  background: var(--color-bg-secondary, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.history-loader__button:hover {
+  color: var(--color-text-primary, rgba(255, 255, 255, 0.9));
+  background: var(--color-bg-hover, rgba(255, 255, 255, 0.08));
+}
+
 /* 对话流内 Todo / 会话文件：居中轻量栈，宽度随消息列 */
 .session-meta-inline {
   display: flex;

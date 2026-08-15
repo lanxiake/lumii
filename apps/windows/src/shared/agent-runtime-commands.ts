@@ -137,11 +137,22 @@ export interface ConversationListCommand {
   readonly type: 'conversation:list'
 }
 
+/** UI 历史懒加载游标：指向已加载的最早一条消息，请求严格早于它的记录 */
+export interface ConversationMessagesCursor {
+  /** ISO 时间串（与 DB 中的 messages.timestamp 一致） */
+  readonly timestamp: string
+  readonly id: string
+}
+
+/**
+ * 分页读取会话历史（含已被上下文压缩标记的消息，用户仍需回看）。
+ * 不传 before 时返回最新一页。
+ */
 export interface ConversationMessagesCommand {
   readonly type: 'conversation:messages'
   readonly sessionKey: string
   readonly limit?: number
-  readonly offset?: number
+  readonly before?: ConversationMessagesCursor
 }
 
 /**
@@ -903,7 +914,14 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       isPinned?: boolean
       wasInterrupted?: boolean
     }[]
-  : T extends 'conversation:messages' ? readonly ConversationMessageNewEvent['message'][]
+  : T extends 'conversation:messages' ? {
+      /** 按时间升序的一页消息 */
+      items: readonly ConversationMessageNewEvent['message'][]
+      /** 是否还有更早的历史可继续上滑加载 */
+      hasMore: boolean
+      /** 本页最早一条消息的游标，回传给 before 即可取更早的一页 */
+      nextCursor?: ConversationMessagesCursor
+    }
   : T extends 'conversation:context-usage' ? {
       usedTokens: number
       contextWindow: number

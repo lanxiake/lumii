@@ -86,14 +86,20 @@ function makePiMessages(n: number): AgentMessage[] {
 
 /**
  * 构造 compactContext / compactContextAsync 所需的最小 DB + repo + stream。
+ *
+ * `compacted` 记录被移出上下文的消息 id：压缩只做标记，行本身不应从 DB 消失。
  */
-function makeCompactHarness(messageCount: number, summaryText: string | null = '结构化摘要') {
+function makeCompactHarness(
+  messageCount: number,
+  summaryText: string | null = '结构化摘要',
+  preparedSqlSink?: string[],
+) {
   const rows = Array.from({ length: messageCount }, (_, i) => ({
     id: `m${i + 1}`,
     timestamp: `2026-08-13T12:00:0${i}.000Z`,
   }))
   let remaining = [...rows]
-  const deleted: string[] = []
+  const compacted: string[] = []
   const saved: Array<{
     role: string
     contentJson: { type?: string; text?: string; parts?: Array<{ text?: string }> }
@@ -105,17 +111,11 @@ function makeCompactHarness(messageCount: number, summaryText: string | null = '
 
   const db = {
     prepare: (sql: string) => {
+      preparedSqlSink?.push(sql)
+      // 只应查询未压缩的活跃消息
       if (sql.includes('FROM messages') && sql.includes('SELECT id')) {
+        expect(sql).toContain('compacted_at IS NULL')
         return { all: () => remaining }
-      }
-      if (sql.includes('DELETE FROM messages')) {
-        return {
-          run: (...ids: string[]) => {
-            const drop = new Set(ids)
-            remaining = remaining.filter((row) => !drop.has(row.id))
-            deleted.push(...ids)
-          },
-        }
       }
       return { all: () => [], run: () => undefined }
     },
@@ -123,6 +123,12 @@ function makeCompactHarness(messageCount: number, summaryText: string | null = '
 
   const repo = {
     loadMessagesAsPiFormat: vi.fn(() => makePiMessages(remaining.length + saved.length)),
+    markMessagesCompacted: vi.fn((_conversationId: string, ids: readonly string[]) => {
+      const marked = new Set(ids)
+      remaining = remaining.filter((row) => !marked.has(row.id))
+      compacted.push(...ids)
+      return ids.length
+    }),
     saveMessage: vi.fn(
       (msg: {
         role: string
@@ -165,7 +171,7 @@ function makeCompactHarness(messageCount: number, summaryText: string | null = '
   return {
     compactor,
     generator,
-    deleted,
+    compacted,
     saved,
     restoreHistoryForInstance,
     forwardIpcEvent,
@@ -174,8 +180,8 @@ function makeCompactHarness(messageCount: number, summaryText: string | null = '
 }
 
 describe('BridgeContextCompactor.compactContextAsync — 短对话也真正压缩', () => {
-  it('4 条消息（少于默认 12 条）仍调用 LLM 并删除旧段、写入摘要', async () => {
-    const { compactor, generator, deleted, saved, restoreHistoryForInstance, forwardIpcEvent } =
+  it('4 条消息（少于默认 12 条）仍调用 LLM 并标记旧段、写入摘要', async () => {
+    const { compactor, generator, compacted, saved, restoreHistoryForInstance, forwardIpcEvent } =
       makeCompactHarness(4)
 
     const result = await compactor.compactContextAsync('inst-1', 'sess-1', 6)
@@ -186,7 +192,7 @@ describe('BridgeContextCompactor.compactContextAsync — 短对话也真正压�
     expect(result.hadSummary).toBe(true)
     expect(result.messagesRemoved).toBe(2)
     expect(result.previousMessageCount).toBe(4)
-    expect(deleted).toEqual(['m1', 'm2'])
+    expect(compacted).toEqual(['m1', 'm2'])
     expect(saved).toHaveLength(1)
     expect(saved[0]?.contentJson.type).toBe('assistant_parts')
     expect(saved[0]?.contentJson.parts?.[0]?.text).toContain('结构化摘要')
@@ -221,15 +227,15 @@ describe('BridgeContextCompactor.compactContextAsync — 短对话也真正压�
     )
   })
 
-  it('1 条消息也会发出摘要请求，并用摘要替换原文', async () => {
-    const { compactor, generator, deleted, saved } = makeCompactHarness(1)
+  it('1 条消息也会发出摘要请求，并用摘要替换上下文中的原文', async () => {
+    const { compactor, generator, compacted, saved } = makeCompactHarness(1)
 
     const result = await compactor.compactContextAsync('inst-1', 'sess-1', 6)
 
     expect(generator).toHaveBeenCalledOnce()
     expect(result.hadSummary).toBe(true)
     expect(result.messagesRemoved).toBe(1)
-    expect(deleted).toEqual(['m1'])
+    expect(compacted).toEqual(['m1'])
     expect(saved).toHaveLength(1)
   })
 
@@ -243,23 +249,32 @@ describe('BridgeContextCompactor.compactContextAsync — 短对话也真正压�
     expect(result.hadSummary).toBe(false)
   })
 
-  it('摘要失败且仅 1 条消息时不清空会话', async () => {
-    const { compactor, deleted, saved } = makeCompactHarness(1, null)
+  it('摘要失败且仅 1 条消息时不清空上下文', async () => {
+    const { compactor, compacted, saved } = makeCompactHarness(1, null)
 
     const result = await compactor.compactContextAsync('inst-1', 'sess-1', 6)
 
     expect(result.messagesRemoved).toBe(0)
     expect(result.hadSummary).toBe(false)
-    expect(deleted).toEqual([])
+    expect(compacted).toEqual([])
     expect(saved).toHaveLength(0)
+  })
+
+  it('压缩只标记不删除：不应发出任何 DELETE 语句', async () => {
+    const prepared: string[] = []
+    const { compactor } = makeCompactHarness(4, '结构化摘要', prepared)
+
+    await compactor.compactContextAsync('inst-1', 'sess-1', 6)
+
+    expect(prepared.some((sql) => sql.includes('DELETE'))).toBe(false)
   })
 })
 
 describe('BridgeContextCompactor.compactContext — 同步短对话仍可裁剪', () => {
-  it('4 条消息时删除一半，不再因不足 12 条而跳过', () => {
-    const { compactor, deleted } = makeCompactHarness(4)
+  it('4 条消息时把一半移出上下文，不再因不足 12 条而跳过', () => {
+    const { compactor, compacted } = makeCompactHarness(4)
     const result = compactor.compactContext('sess-1', 6)
     expect(result.messagesRemoved).toBe(2)
-    expect(deleted).toEqual(['m1', 'm2'])
+    expect(compacted).toEqual(['m1', 'm2'])
   })
 })

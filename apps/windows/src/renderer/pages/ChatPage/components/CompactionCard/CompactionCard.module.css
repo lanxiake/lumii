@@ -104,3 +104,10 @@
   font-size: 11px;
   color: var(--mt-fg-4);
 }
+
+.keepHistoryNote {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--mt-fg-3);
+}

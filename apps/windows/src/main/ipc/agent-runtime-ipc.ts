@@ -816,7 +816,10 @@ async function handleCommand(
       }
 
       case 'conversation:messages': {
-        return getConversationMessages(bridge, command.sessionKey)
+        return getConversationMessages(bridge, command.sessionKey, {
+          limit: command.limit,
+          before: command.before,
+        })
       }
 
       case 'conversation:context-usage': {
@@ -2054,15 +2057,48 @@ async function migrateThinkTagsInDb(bridge: AgentRuntimeBridge): Promise<void> {
   log.info(`[migrate] think-tag 迁移完成，共修复 ${fixed} 条消息`)
 }
 
+/** UI 单页历史消息条数：兼顾首屏渲染成本与上滑加载频率 */
+const CONVERSATION_PAGE_SIZE = 60
+
+interface ConversationHistoryMessage {
+  id: string
+  role: string
+  content: readonly { type: 'text'; text: string }[]
+  contentJson: string
+  timestamp: number
+  isStreaming?: boolean
+  /** 已被上下文压缩移出 LLM 请求，但仍保留在历史中 */
+  contextExcluded?: boolean
+  thinkingText?: string
+  toolCalls?: readonly { id: string; name: string; args: Record<string, unknown>; result?: unknown; isError?: boolean; textPositionAtStart?: number }[]
+  sourceAgent?: { instanceId: string; label: string }
+  isVoice?: boolean
+  audioWavBase64?: string
+}
+
+/**
+ * 分页读取会话历史供 UI 展示。
+ *
+ * 与「喂给模型」的读取路径不同，这里**不过滤**已压缩消息：压缩只是把消息移出上下文，
+ * 用户仍需要能回看。历史可能很长，因此按游标倒序分页，由 UI 上滑懒加载。
+ */
 function getConversationMessages(
   bridge: AgentRuntimeBridge,
   sessionKey: string,
-): readonly { id: string; role: string; content: readonly { type: 'text'; text: string }[]; contentJson: string; timestamp: number; isStreaming?: boolean; thinkingText?: string; toolCalls?: readonly { id: string; name: string; args: Record<string, unknown>; result?: unknown; isError?: boolean; textPositionAtStart?: number }[]; sourceAgent?: { instanceId: string; label: string }; isVoice?: boolean; audioWavBase64?: string }[] {
+  options?: { limit?: number; before?: { timestamp: string; id: string } },
+): {
+  items: readonly ConversationHistoryMessage[]
+  hasMore: boolean
+  nextCursor?: { timestamp: string; id: string }
+} {
   const conversationId = sessionKey
   bridge.setLastActiveConversation(conversationId)
-  const messages = bridge.conversationRepo.loadRecentMessages(conversationId, 2000, true)
+  const page = bridge.conversationRepo.loadMessagesPage(conversationId, {
+    limit: options?.limit ?? CONVERSATION_PAGE_SIZE,
+    ...(options?.before ? { before: options.before } : {}),
+  })
 
-  return messages.map((msg) => {
+  const items = page.items.map((msg): ConversationHistoryMessage => {
     let contentText = ''
     let thinkingText: string | undefined
     let toolCalls: Array<{
@@ -2133,6 +2169,7 @@ function getConversationMessages(
       contentJson: msg.content_json,
       timestamp: new Date(msg.timestamp).getTime(),
       ...(msg.is_streaming === 1 ? { isStreaming: true } : {}),
+      ...(msg.compacted_at ? { contextExcluded: true } : {}),
       ...(thinkingText ? { thinkingText } : {}),
       ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
       ...(sourceAgent ? { sourceAgent } : {}),
@@ -2140,6 +2177,14 @@ function getConversationMessages(
       ...(audioWavBase64 ? { audioWavBase64 } : {}),
     }
   })
+
+  // 游标用 DB 原始 timestamp 字符串，避免 renderer 用毫秒时间戳回推 ISO 时产生偏差
+  const oldest = page.items[0]
+  return {
+    items,
+    hasMore: page.hasMore,
+    ...(oldest ? { nextCursor: { timestamp: oldest.timestamp, id: oldest.id } } : {}),
+  }
 }
 
 /**

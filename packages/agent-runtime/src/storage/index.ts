@@ -17,6 +17,8 @@ export type {
   PiMessage,
   PiContentBlock,
   PaginatedResult,
+  MessagePageCursor,
+  MessagePage,
   MessageContentJson,
   TextMessageContent,
   ToolResultContent,

@@ -113,6 +113,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const runtimeIsAutoCompacting = useAgentRuntimeState((s) => s.isAutoCompacting)
   const runtimeFileEvents = useAgentRuntimeState((s) => s.fileEvents)
   const runtimeCompactionEvents = useAgentRuntimeState((s) => s.compactionEvents)
+  const runtimeHistoryPaging = useAgentRuntimeState((s) => s.historyPaging)
   const runtimeLastTaskCompletion = useAgentRuntimeState((s) => s.lastTaskCompletion)
   // 本轮 Agent 正常结束时间戳（供 ChatInput 自动发送等待队列）
   const runtimeLastTurnEndAt = useAgentRuntimeState((s) => s.lastTurnEndAt)
@@ -1418,6 +1419,14 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     setInputValue(suggestion)
   }, [setInputValue])
 
+  /**
+   * 上滑到顶部附近时加载更早的历史消息（压缩过的消息也在其中，只是不再进入 LLM 上下文）。
+   */
+  const handleLoadOlderMessages = useCallback(() => {
+    if (!runtimeCurrentSessionKey) return
+    void runtimeActions.loadOlderMessages(runtimeCurrentSessionKey)
+  }, [runtimeCurrentSessionKey, runtimeActions])
+
   // 稳定化传给 ChatContainer 的回调，避免每次 render 新建函数破坏 memo
   const handleReplayFromMessage = useCallback((messageId: string) => {
     if (conversationReplay.isReplaying) {
@@ -1575,6 +1584,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             replayMessageId={conversationReplay.replayMessageId}
             todoCalls={sessionTodoCalls}
             onReviewFileChanges={handleReviewTurnFileChange}
+            hasMoreHistory={runtimeHistoryPaging?.hasMore ?? false}
+            isLoadingHistory={runtimeHistoryPaging?.isLoading ?? false}
+            onLoadOlderMessages={handleLoadOlderMessages}
           />
         </div>
 

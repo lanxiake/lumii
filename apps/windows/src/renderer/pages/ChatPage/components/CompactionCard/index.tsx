@@ -29,7 +29,7 @@ const CompactionCard: React.FC<CompactionCardProps> = ({
   const hasTokenDelta = tokensBefore > 0
   const savedK = hasTokenDelta ? Math.max(0, Math.round((tokensBefore - tokensAfter) / 1000)) : 0
   const headerHint = hasTokenDelta
-    ? `释放约 ${savedK}K tokens · 删除 ${messagesRemoved} 条消息`
+    ? `释放约 ${savedK}K tokens · 移出上下文 ${messagesRemoved} 条`
     : summaryText
       ? '点击查看压缩摘要'
       : '已压缩对话历史'
@@ -68,12 +68,15 @@ const CompactionCard: React.FC<CompactionCardProps> = ({
           )}
           {typeof messagesBefore === 'number' && typeof messagesAfter === 'number' && (
             <div className={styles.detailRow}>
-              <span>消息数</span>
+              <span>上下文消息</span>
               <span>
                 {messagesBefore} → {messagesAfter}
               </span>
             </div>
           )}
+          <p className={styles.keepHistoryNote}>
+            历史聊天记录仍保留，上滑可继续查看；仅请求模型时不再带入已压缩段落。
+          </p>
           {summaryText ? (
             <pre className={styles.summaryBody}>{summaryText}</pre>
           ) : (

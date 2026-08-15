@@ -229,6 +229,8 @@ export type {
   MessageRow,
   PiMessage,
   PaginatedResult,
+  MessagePageCursor,
+  MessagePage,
   TaskRow,
   TaskStatus,
   AuditLogRow,
