@@ -4,7 +4,10 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { ScreenRecordSubtitleStyle } from '../../shared/screen-record'
+import type {
+  ScreenRecordInspectResult,
+  ScreenRecordSubtitleStyle,
+} from '../../shared/screen-record'
 import { cuesToSrt, parseSrt, type SrtCue } from './srt'
 import { normalizeSubtitleStyle } from './subtitle-style'
 
@@ -154,6 +157,64 @@ export function resolveOriginalVideoPath(videoPath: string): string | null {
     }
   }
   return null
+}
+
+/**
+ * 检查成片与 `*.lumii-subs` 附属状态（不读帧）。
+ * 纯磁盘探测；路径是否在 recordings/ 由调用方做 ACL。
+ */
+export function inspectRecording(
+  videoPath: string,
+): Extract<ScreenRecordInspectResult, { ok: true }> {
+  const abs = path.resolve(videoPath)
+  const paths = buildProjectPaths(abs)
+  const exists = fs.existsSync(abs)
+  let bytes: number | undefined
+  let mtimeMs: number | undefined
+  if (exists) {
+    try {
+      const st = fs.statSync(abs)
+      bytes = st.size
+      mtimeMs = st.mtimeMs
+    } catch {
+      // ignore
+    }
+  }
+
+  const originalPath = resolveOriginalVideoPath(abs) ?? undefined
+  const hasSrt = fs.existsSync(paths.srtPath) || fs.existsSync(paths.legacy.srtPath)
+  const hasProject =
+    fs.existsSync(paths.projectPath) || fs.existsSync(paths.legacy.projectPath)
+  let ttsCount = 0
+  for (const dir of [paths.cacheDir, paths.legacy.cacheDir]) {
+    if (!fs.existsSync(dir)) continue
+    try {
+      ttsCount += fs
+        .readdirSync(dir)
+        .filter((n) => /\.(wav|mp3|ogg|m4a)$/i.test(n)).length
+    } catch {
+      // ignore
+    }
+  }
+
+  return {
+    ok: true,
+    path: abs,
+    exists,
+    bytes,
+    mtimeMs,
+    hasOriginal: !!originalPath,
+    hasSrt,
+    hasProject,
+    ttsCount,
+    originalPath,
+    projectDir: fs.existsSync(paths.assetDir) ? paths.assetDir : undefined,
+    srtPath: hasSrt
+      ? fs.existsSync(paths.srtPath)
+        ? paths.srtPath
+        : paths.legacy.srtPath
+      : undefined,
+  }
 }
 
 /**

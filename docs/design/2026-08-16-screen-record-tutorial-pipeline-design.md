@@ -1,7 +1,8 @@
 # 录屏教程流水线（Agent 效率优化）
 
 > 日期：2026-08-16  
-> 状态：设计已确认，待实施  
+> 状态：**已实施**（P0–P2；Skill 仍延后）  
+> 实施计划：`docs/plans/2026-08-16-screen-record-tutorial-pipeline-implementation.md`  
 > 基线：字幕附属目录 / 就地烧录已交付，见 `docs/design/2026-08-15-screen-record-subtitle-editor-design.md`  
 > 动机：运行日志（「模型配置视频教程」）显示 Agent 因契约过期、无时间轴、结果不可观测而长时间手搓 ffmpeg  
 > Skill：调试通过后再写入 `apps/windows/bundled-skills/视频创作/` 下独立 skill（勿塞进 H3 管线）

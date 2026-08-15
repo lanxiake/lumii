@@ -200,3 +200,12 @@ MVP 五态扩展为六态：
 | MVP | 已交付 |
 | **二期** | 本文档 |
 | 三期 | 原生后端；观察流；自动 ASR 字幕等 |
+
+---
+
+## 13. 后续：教程流水线
+
+Agent 教程录制效率优化（mark / timeline / narrate 富返回 / inspect）见：
+
+- 设计：`docs/design/2026-08-16-screen-record-tutorial-pipeline-design.md`
+- 计划：`docs/plans/2026-08-16-screen-record-tutorial-pipeline-implementation.md`

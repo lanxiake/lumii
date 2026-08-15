@@ -402,6 +402,21 @@ EOF
 
 ---
 
+## 手工验收清单（Task 5）
+
+开发环境重启后（或热重载工具注册）：
+
+1. `screen_record_start` → `mark(label=A)` → `pause` → 等待 → `resume` → `mark(label=B)` → `stop`  
+2. 断言 `timeline[0].atMs < timeline[1].atMs`，且 pause 间隙未拉大 B 的 atMs  
+3. `screen_record_narrate(cues from timeline, exportMp4=true)`  
+4. 返回 `dubbed: true`；优先 `burned: true`；有 `mp4Path` 或 `path` 为 `.mp4`；`message` 可读  
+5. `screen_record_inspect(path)` 显示 `hasOriginal` / `ttsCount`  
+6. **不要**再搜 `*-narrated` / 手写 ffmpeg  
+
+成功标准：同类「录本机教程+字幕配音」任务不再出现「等 burned / 写 mix.sh」。
+
+---
+
 ## 执行交接
 
 Plan complete and saved to `docs/plans/2026-08-16-screen-record-tutorial-pipeline-implementation.md`.

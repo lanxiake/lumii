@@ -9,6 +9,7 @@ import {
   buildProjectPaths,
   ensureOriginalBackup,
   hashCueText,
+  inspectRecording,
   listRecordings,
   loadSubtitleProject,
   migrateLegacySidecar,
@@ -240,5 +241,47 @@ describe('persistResolvedCuesAsProject', () => {
     expect(loaded.cues[0]?.audioFile).toBeTruthy()
     const cacheFile = path.join(buildProjectPaths(video).cacheDir, loaded.cues[0]!.audioFile!)
     expect(fs.existsSync(cacheFile)).toBe(true)
+  })
+})
+
+describe('inspectRecording', () => {
+  it('汇总 sidecar 元数据', () => {
+    const rec = makeTmp()
+    const video = path.join(rec, 'clip.webm')
+    fs.writeFileSync(video, 'video-bytes')
+    const paths = buildProjectPaths(video)
+    fs.mkdirSync(paths.cacheDir, { recursive: true })
+    fs.writeFileSync(paths.projectPath, '{"version":1,"cues":[]}')
+    fs.writeFileSync(paths.srtPath, '1\n00:00:00,000 --> 00:00:01,000\nhi\n')
+    fs.writeFileSync(path.join(paths.assetDir, 'original.webm'), 'orig')
+    fs.writeFileSync(path.join(paths.cacheDir, 'cue_1.wav'), 'a')
+    fs.writeFileSync(path.join(paths.cacheDir, 'cue_2.wav'), 'b')
+
+    const r = inspectRecording(video)
+    expect(r).toMatchObject({
+      ok: true,
+      exists: true,
+      hasOriginal: true,
+      hasSrt: true,
+      hasProject: true,
+      ttsCount: 2,
+      bytes: expect.any(Number),
+    })
+    expect(r.projectDir).toContain('.lumii-subs')
+    expect(r.originalPath).toContain('original.')
+  })
+
+  it('成片不存在时 exists:false 仍 ok:true', () => {
+    const rec = makeTmp()
+    const missing = path.join(rec, 'gone.webm')
+    const r = inspectRecording(missing)
+    expect(r).toMatchObject({
+      ok: true,
+      exists: false,
+      hasOriginal: false,
+      hasSrt: false,
+      hasProject: false,
+      ttsCount: 0,
+    })
   })
 })
