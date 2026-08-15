@@ -58,30 +58,70 @@ describe('filterSnapshotNodes', () => {
     expect(result.refs[0]?.role).toBe('link')
   })
 
-  it('保留 button 节点', () => {
+  it('保留 button 节点，表单控件排在普通按钮之前', () => {
     const result = filterSnapshotNodes([
       node({ name: '发送', role: 'button' }),
       node({ name: '输入框', role: 'textbox' }),
     ])
-    expect(result.refs.map((r) => r.name)).toEqual(['发送', '输入框'])
+    expect(result.refs.map((r) => r.name)).toEqual(['输入框', '发送'])
   })
 
-  it('按面积降序排列并分配递增 ref', () => {
+  it('过滤被弹层遮挡的节点', () => {
     const result = filterSnapshotNodes([
-      node({ name: '小', w: 10, h: 10 }),
-      node({ name: '大', w: 200, h: 100 }),
-      node({ name: '中', w: 50, h: 50 }),
+      node({ name: '弹窗按钮', inDialog: true }),
+      node({ name: '被遮挡的侧栏项', occluded: true }),
     ])
-    expect(result.refs.map((r) => r.name)).toEqual(['大', '中', '小'])
+    expect(result.refs.map((r) => r.name)).toEqual(['弹窗按钮'])
+  })
+
+  it('同层内按阅读顺序（先上后下、先左后右）排列并分配递增 ref', () => {
+    const result = filterSnapshotNodes([
+      node({ name: '第二行', x: 10, y: 200 }),
+      node({ name: '第一行右', x: 300, y: 100 }),
+      node({ name: '第一行左', x: 10, y: 100 }),
+    ])
+    expect(result.refs.map((r) => r.name)).toEqual(['第一行左', '第一行右', '第二行'])
     expect(result.refs.map((r) => r.ref)).toEqual(['e1', 'e2', 'e3'])
   })
 
-  it('超过上限 80 时截断并标记 truncated', () => {
-    const raw = Array.from({ length: 85 }, (_, i) =>
-      node({ name: `节点${i}`, w: 10 + i, h: 10 }),
+  it('弹层内表单控件优先于背景元素，避免被截断丢掉', () => {
+    const result = filterSnapshotNodes([
+      node({ name: '背景会话', y: 100 }),
+      node({ name: '弹层普通按钮', y: 500, inDialog: true }),
+      node({ name: '弹层输入框', role: 'textbox', y: 900, inDialog: true }),
+      node({ name: '带标记入口', y: 50, appUi: 'nav-settings' }),
+    ])
+    expect(result.refs.map((r) => r.name)).toEqual([
+      '弹层输入框',
+      '弹层普通按钮',
+      '带标记入口',
+      '背景会话',
+    ])
+  })
+
+  it('回传输入框当前值、placeholder 与下拉框选项', () => {
+    const result = filterSnapshotNodes([
+      node({ name: 'API Key', role: 'textbox', value: '', placeholder: 'sk-...' }),
+      node({
+        name: 'OpenAI 兼容',
+        role: 'combobox',
+        value: 'openai',
+        options: [
+          { value: 'openai', label: 'OpenAI 兼容' },
+          { value: 'anthropic', label: 'Anthropic' },
+        ],
+      }),
+    ])
+    expect(result.refs[0]).toMatchObject({ value: '', placeholder: 'sk-...' })
+    expect(result.refs[1]?.options).toHaveLength(2)
+  })
+
+  it(`超过上限 ${DEFAULT_SNAPSHOT_NODE_LIMIT} 时截断并标记 truncated`, () => {
+    const raw = Array.from({ length: DEFAULT_SNAPSHOT_NODE_LIMIT + 5 }, (_, i) =>
+      node({ name: `节点${i}`, y: i * 20 }),
     )
     const result = filterSnapshotNodes(raw, { limit: DEFAULT_SNAPSHOT_NODE_LIMIT })
-    expect(result.refs).toHaveLength(80)
+    expect(result.refs).toHaveLength(DEFAULT_SNAPSHOT_NODE_LIMIT)
     expect(result.truncated).toBe(true)
   })
 
@@ -108,5 +148,12 @@ describe('SNAPSHOT_SCRIPT', () => {
     expect(typeof SNAPSHOT_SCRIPT).toBe('string')
     expect(SNAPSHOT_SCRIPT.length).toBeGreaterThan(0)
     expect(SNAPSHOT_SCRIPT).toContain('data-app-ui-ignore')
+  })
+
+  it('采集遮挡状态、输入值与下拉选项', () => {
+    expect(SNAPSHOT_SCRIPT).toContain('isOccluded')
+    expect(SNAPSHOT_SCRIPT).toContain('getSelectOptions')
+    expect(SNAPSHOT_SCRIPT).toContain('aria-modal')
+    expect(SNAPSHOT_SCRIPT).toContain("type === 'password'")
   })
 })

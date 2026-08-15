@@ -453,6 +453,196 @@ describe('createAppUiController', () => {
     expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('你好🎉'))
   })
 
+  it('click 目标被遮挡时返回 click_blocked，不再盲点', async () => {
+    const rawNodes: RawSnapshotNode[] = [
+      { role: 'button', name: '设置', x: 10, y: 20, w: 100, h: 40 },
+    ]
+    const sendInputEvent = vi.fn()
+    const win = fakeWindow({
+      sendInputEvent,
+      executeJavaScript: async (script: string) => {
+        if (script === SNAPSHOT_SCRIPT) return rawNodes
+        if (script.includes('__LUMII_APP_UI_STATE__')) {
+          return JSON.stringify({ view: 'chat', hub: { open: false, tab: null, category: null } })
+        }
+        if (script.includes('elementFromPoint')) {
+          return { x: 10, y: 20, w: 100, h: 40, hit: false, tag: 'button' }
+        }
+        return null
+      },
+    })
+    const { controller } = makeController(() => win)
+
+    await controller.screenshot()
+    const result = await controller.click({ action: 'click', ref: 'e1', snapshotId: '1' })
+
+    expect(result).toMatchObject({ ok: false, error: 'click_blocked' })
+    expect(sendInputEvent).not.toHaveBeenCalled()
+  })
+
+  it('click 目标是原生下拉框时提示改用 select', async () => {
+    const rawNodes: RawSnapshotNode[] = [
+      { role: 'combobox', name: 'OpenAI 兼容', x: 10, y: 20, w: 100, h: 40 },
+    ]
+    const sendInputEvent = vi.fn()
+    const win = fakeWindow({
+      sendInputEvent,
+      executeJavaScript: async (script: string) => {
+        if (script === SNAPSHOT_SCRIPT) return rawNodes
+        if (script.includes('__LUMII_APP_UI_STATE__')) {
+          return JSON.stringify({ view: 'chat', hub: { open: false, tab: null, category: null } })
+        }
+        if (script.includes('elementFromPoint')) {
+          return { x: 10, y: 20, w: 100, h: 40, hit: true, tag: 'select' }
+        }
+        return null
+      },
+    })
+    const { controller } = makeController(() => win)
+
+    await controller.screenshot()
+    const result = await controller.click({ action: 'click', ref: 'e1', snapshotId: '1' })
+
+    expect(result).toMatchObject({ ok: false, error: 'use_select_action' })
+    expect(sendInputEvent).not.toHaveBeenCalled()
+  })
+
+  it('type 回传写入后的实际值', async () => {
+    const rawNodes: RawSnapshotNode[] = [
+      { role: 'textbox', name: '接口地址', x: 10, y: 20, w: 100, h: 40 },
+    ]
+    const { controller } = makeController(() =>
+      fakeWindow({
+        executeJavaScript: async (script: string) => {
+          if (script === SNAPSHOT_SCRIPT) return rawNodes
+          if (script.includes('__LUMII_APP_UI_STATE__')) {
+            return JSON.stringify({ view: 'chat', hub: { open: false, tab: null, category: null } })
+          }
+          if (script.includes('setNativeValue')) {
+            return { ok: true, tag: 'input', masked: false, length: 25, value: 'https://api.openai.com/v1' }
+          }
+          return null
+        },
+      }),
+    )
+
+    await controller.screenshot()
+    const result = await controller.type({
+      action: 'type',
+      ref: 'e1',
+      text: 'https://api.openai.com/v1',
+      snapshotId: '1',
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      value: 'https://api.openai.com/v1',
+      masked: false,
+      length: 25,
+    })
+  })
+
+  it('type 命中非输入框时返回 not_editable 与提示', async () => {
+    const rawNodes: RawSnapshotNode[] = [
+      { role: 'button', name: '保存', x: 10, y: 20, w: 100, h: 40 },
+    ]
+    const { controller } = makeController(() =>
+      fakeWindow({
+        executeJavaScript: async (script: string) => {
+          if (script === SNAPSHOT_SCRIPT) return rawNodes
+          if (script.includes('__LUMII_APP_UI_STATE__')) {
+            return JSON.stringify({ view: 'chat', hub: { open: false, tab: null, category: null } })
+          }
+          if (script.includes('setNativeValue')) {
+            return { ok: false, error: 'not_editable', tag: 'button' }
+          }
+          return null
+        },
+      }),
+    )
+
+    await controller.screenshot()
+    const result = await controller.type({
+      action: 'type',
+      ref: 'e1',
+      text: 'x',
+      snapshotId: '1',
+    })
+
+    expect(result).toMatchObject({ ok: false, error: 'not_editable' })
+  })
+
+  it('select 成功回传选中项与全部选项', async () => {
+    const rawNodes: RawSnapshotNode[] = [
+      { role: 'combobox', name: 'OpenAI 兼容', x: 10, y: 20, w: 100, h: 40 },
+    ]
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script === SNAPSHOT_SCRIPT) return rawNodes
+      if (script.includes('__LUMII_APP_UI_STATE__')) {
+        return JSON.stringify({ view: 'chat', hub: { open: false, tab: null, category: null } })
+      }
+      if (script.includes('HTMLSelectElement')) {
+        return {
+          ok: true,
+          value: 'anthropic',
+          label: 'Anthropic',
+          options: [
+            { value: 'openai', label: 'OpenAI 兼容' },
+            { value: 'anthropic', label: 'Anthropic', selected: true },
+          ],
+        }
+      }
+      return null
+    })
+    const { controller } = makeController(() => fakeWindow({ executeJavaScript }))
+
+    await controller.screenshot()
+    const result = await controller.select({
+      action: 'select',
+      ref: 'e1',
+      value: 'anthropic',
+      snapshotId: '1',
+    })
+
+    expect(result).toMatchObject({ ok: true, value: 'anthropic', label: 'Anthropic' })
+    expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('"anthropic"'))
+  })
+
+  it('select 选项不存在时返回 option_not_found 并带回可选项', async () => {
+    const rawNodes: RawSnapshotNode[] = [
+      { role: 'combobox', name: 'OpenAI 兼容', x: 10, y: 20, w: 100, h: 40 },
+    ]
+    const { controller } = makeController(() =>
+      fakeWindow({
+        executeJavaScript: async (script: string) => {
+          if (script === SNAPSHOT_SCRIPT) return rawNodes
+          if (script.includes('__LUMII_APP_UI_STATE__')) {
+            return JSON.stringify({ view: 'chat', hub: { open: false, tab: null, category: null } })
+          }
+          if (script.includes('HTMLSelectElement')) {
+            return {
+              ok: false,
+              error: 'option_not_found',
+              options: [{ value: 'openai', label: 'OpenAI 兼容' }],
+            }
+          }
+          return null
+        },
+      }),
+    )
+
+    await controller.screenshot()
+    const result = await controller.select({
+      action: 'select',
+      ref: 'e1',
+      value: 'gemini',
+      snapshotId: '1',
+    })
+
+    expect(result).toMatchObject({ ok: false, error: 'option_not_found' })
+    expect((result as { options?: unknown[] }).options).toHaveLength(1)
+  })
+
   it('type 目标丢失返回 click_target_lost', async () => {
     const rawNodes: RawSnapshotNode[] = [
       { role: 'input', name: '搜索', x: 10, y: 20, w: 100, h: 40 },

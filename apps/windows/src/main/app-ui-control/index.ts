@@ -3,10 +3,12 @@ export type {
   ActInput,
   ActKeyInput,
   ActScrollInput,
+  ActSelectInput,
   ActTypeInput,
   AppUiClickContext,
   AppUiHubState,
   AppUiRef,
+  AppUiRefOption,
   AppUiSettingsCategory,
   AppUiViewState,
   AppUiViewType,
@@ -20,12 +22,14 @@ export {
   assertClickAllowed,
   buildClickPrepareScript,
   buildScrollScript,
+  buildSelectScript,
   buildTypeScript,
   CLICK_BLOCK_ROLES,
   isKeyAllowed,
   KEY_WHITELIST,
 } from './act'
 export type {
+  ActInjectError,
   ActUsageError,
   AllowedKey,
   AssertClickAllowedParams,
@@ -36,6 +40,9 @@ export type {
   ClickPrepareError,
   ClickPrepareRect,
   ScrollScriptResult,
+  SelectOptionInfo,
+  SelectScriptResult,
+  TypeScriptResult,
 } from './act'
 
 export { devicePixelsToDip } from './coords'
@@ -74,7 +81,11 @@ export type {
   AppUiScreenshotTarget,
   AppUiScrollResult,
   AppUiScrollSuccess,
+  AppUiSelectResult,
+  AppUiSelectSuccess,
   AppUiSnapshotCache,
+  AppUiTypeResult,
+  AppUiTypeSuccess,
   AppUiWindowTarget,
   ResizeImageFn,
 } from './controller'

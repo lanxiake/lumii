@@ -48,6 +48,12 @@ function mockController(): AppUiController {
     })),
     click: vi.fn(async () => ({ ok: true as const })),
     type: vi.fn(async () => ({ ok: true as const })),
+    select: vi.fn(async () => ({
+      ok: true as const,
+      value: 'openai',
+      label: 'OpenAI 兼容',
+      options: [{ value: 'openai', label: 'OpenAI 兼容' }],
+    })),
     key: vi.fn(async () => ({ ok: true as const })),
     scroll: vi.fn(async () => ({
       ok: true as const,
@@ -220,11 +226,24 @@ describe('startAppUiControlServer', () => {
     expect(controller.screenshot).toHaveBeenCalledWith({ annotate: true, target: 'pet' })
   })
 
-  it('POST /act 按 action 分派到 type/key/scroll', async () => {
+  it('POST /act 按 action 分派到 type/select/key/scroll', async () => {
     const { token } = await startWithEphemeralPort()
 
     await postRoute(port, '/act', { action: 'type', ref: 'e3', text: '你好' }, token)
     expect(controller.type).toHaveBeenCalledWith({ action: 'type', ref: 'e3', text: '你好' })
+
+    const selected = await postRoute(
+      port,
+      '/act',
+      { action: 'select', ref: 'e4', value: 'openai' },
+      token,
+    )
+    expect(controller.select).toHaveBeenCalledWith({
+      action: 'select',
+      ref: 'e4',
+      value: 'openai',
+    })
+    expect(selected.json).toMatchObject({ ok: true, value: 'openai' })
 
     await postRoute(port, '/act', { action: 'key', key: 'Enter' }, token)
     expect(controller.key).toHaveBeenCalledWith({ action: 'key', key: 'Enter' })

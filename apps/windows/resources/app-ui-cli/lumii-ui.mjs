@@ -13,7 +13,7 @@ import path from 'node:path'
 const EXIT_APP_NOT_RUNNING = 3
 
 /** act 支持的动作，与主进程 app_act 工具一致 */
-const ACT_ACTIONS = ['click', 'type', 'key', 'scroll']
+const ACT_ACTIONS = ['click', 'type', 'select', 'key', 'scroll']
 
 /**
  * 解析客户端数据根目录。
@@ -143,6 +143,9 @@ function buildActBody(action, flags) {
   if (typeof flags.ref === 'string') body.ref = flags.ref
   if (typeof flags['snapshot-id'] === 'string') body.snapshotId = flags['snapshot-id']
   if (typeof flags.text === 'string') body.text = flags.text
+  if (flags.append === true || flags.append === 'true') body.append = true
+  if (typeof flags.value === 'string') body.value = flags.value
+  if (typeof flags.label === 'string') body.label = flags.label
   if (typeof flags.key === 'string') body.key = flags.key
   const dx = parseNumberFlag(flags.dx)
   const dy = parseNumberFlag(flags.dy)
@@ -170,7 +173,8 @@ async function main() {
         '  lumii-ui screenshot [--annotate] [--target main|pet|preview] [--out <file.jpg>]',
         '  lumii-ui goto --view <view> [--category <category>]',
         '  lumii-ui click --ref <ref> [--snapshot-id <id>]',
-        '  lumii-ui act --action click|type|key|scroll [--ref <ref>] [--text <t>] [--key <k>] [--dx <n>] [--dy <n>] [--snapshot-id <id>]',
+        '  lumii-ui act --action click|type|select|key|scroll [--ref <ref>] [--text <t>] [--append]',
+        '                [--value <v>] [--label <l>] [--key <k>] [--dx <n>] [--dy <n>] [--snapshot-id <id>]',
       ].join('\n'),
     )
     process.exit(1)

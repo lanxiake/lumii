@@ -7,6 +7,7 @@ import {
   assertClickAllowed,
   buildClickPrepareScript,
   buildScrollScript,
+  buildSelectScript,
   buildTypeScript,
   CLICK_BLOCK_ROLES,
   isKeyAllowed,
@@ -14,6 +15,9 @@ import {
   type AppUiClickError,
   type ClickPrepareRect,
   type ScrollScriptResult,
+  type SelectOptionInfo,
+  type SelectScriptResult,
+  type TypeScriptResult,
 } from './act'
 import { annotateSnapshot } from './annotate'
 import { devicePixelsToDip } from './coords'
@@ -26,6 +30,7 @@ import type {
   ActInput,
   ActKeyInput,
   ActScrollInput,
+  ActSelectInput,
   ActTypeInput,
   AppUiHubState,
   AppUiRef,
@@ -169,7 +174,34 @@ export type AppUiActResult = AppUiClickResult | AppUiActFailure
 export interface AppUiActFailure {
   ok: false
   error: AppUiActError
+  /** 补充说明：如 select 未命中时的可选项列表 */
+  options?: SelectOptionInfo[]
+  /** 人类可读提示，指导下一步怎么做 */
+  hint?: string
 }
+
+/** type 成功结果：回传写入后的实际内容，省掉一次确认截图 */
+export interface AppUiTypeSuccess {
+  ok: true
+  /** 写入后的值；password 字段不回传明文 */
+  value?: string
+  /** 值是否脱敏 */
+  masked?: boolean
+  /** 写入后的字符数 */
+  length?: number
+}
+
+export type AppUiTypeResult = AppUiTypeSuccess | AppUiActFailure
+
+/** select 成功结果 */
+export interface AppUiSelectSuccess {
+  ok: true
+  value: string
+  label: string
+  options: SelectOptionInfo[]
+}
+
+export type AppUiSelectResult = AppUiSelectSuccess | AppUiActFailure
 
 /** scroll 成功结果：带回滚动容器的位置，便于判断是否已到底 */
 export interface AppUiScrollSuccess extends ScrollScriptResult {
@@ -188,7 +220,9 @@ export interface AppUiController {
   /** 按 ref 在快照坐标处模拟单击 */
   click(input: unknown): Promise<AppUiActResult>
   /** 按 ref 在输入框写入文本（native value setter） */
-  type(input: unknown): Promise<AppUiActResult>
+  type(input: unknown): Promise<AppUiTypeResult>
+  /** 按 ref 直接选中原生下拉框选项（不弹系统菜单） */
+  select(input: unknown): Promise<AppUiSelectResult>
   /** 发送白名单按键到当前聚焦的 webContents */
   key(input: unknown): Promise<AppUiActResult>
   /** 按 ref 滚动元素所在的最近可滚动容器 */
@@ -277,6 +311,17 @@ function parseTypeInput(raw: unknown): ActTypeInput | null {
 }
 
 /**
+ * 解析 app_act select 入参。
+ */
+function parseSelectInput(raw: unknown): ActSelectInput | null {
+  const parsed = parseActInput(raw)
+  if (!parsed || parsed.action !== 'select') {
+    return null
+  }
+  return parsed
+}
+
+/**
  * 解析 app_act key 入参。
  */
 function parseKeyInput(raw: unknown): ActKeyInput | null {
@@ -326,7 +371,19 @@ function parseActInput(raw: unknown): ActInput | null {
       ref: params.ref,
       text: params.text,
     }
+    if (params.append === true) input.append = true
     if (params.clear === true) input.clear = true
+    if (snapshotId) input.snapshotId = snapshotId
+    return input
+  }
+
+  if (params.action === 'select') {
+    if (typeof params.ref !== 'string') {
+      return null
+    }
+    const input: ActSelectInput = { action: 'select', ref: params.ref }
+    if (typeof params.value === 'string') input.value = params.value
+    if (typeof params.label === 'string') input.label = params.label
     if (snapshotId) input.snapshotId = snapshotId
     return input
   }
@@ -352,6 +409,33 @@ function parseActInput(raw: unknown): ActInput | null {
   }
 
   return null
+}
+
+/** 注入脚本可回传的失败码，映射为对外稳定错误码 */
+const INJECT_ERROR_CODES = new Set<AppUiActError>([
+  'not_editable',
+  'not_select',
+  'option_not_found',
+  'inject_failed',
+])
+
+/**
+ * 把 type / select 注入脚本的失败回读映射为稳定错误码。
+ * 脚本返回 null 表示快照坐标处已找不到元素；其余情况按脚本给出的 error 归类。
+ */
+function mapInjectFailure(
+  raw: { error?: string } | boolean | null,
+  fallback: AppUiActError,
+  hint: string,
+): AppUiActFailure {
+  if (!raw || typeof raw !== 'object') {
+    return { ok: false, error: 'click_target_lost' }
+  }
+  const code = raw.error as AppUiActError | undefined
+  if (code && INJECT_ERROR_CODES.has(code)) {
+    return code === 'inject_failed' ? { ok: false, error: code } : { ok: false, error: code, hint }
+  }
+  return { ok: false, error: fallback, hint }
 }
 
 /**
@@ -685,6 +769,24 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
       return { ok: false, error: 'click_target_lost' }
     }
 
+    // 原生 select 点开的是系统菜单，截图与 a11y 都看不到，只会让后续步骤空转
+    if (newRect.tag === 'select') {
+      return {
+        ok: false,
+        error: 'use_select_action',
+        hint: '这是原生下拉框，请改用 app_act select（value 或 label），点击无法展开可见选项',
+      }
+    }
+
+    // 元素还在但被弹层挡住时硬点会打到遮罩上（典型后果：把设置面板点关了）
+    if (newRect.hit === false) {
+      return {
+        ok: false,
+        error: 'click_blocked',
+        hint: '目标被弹层或遮罩挡住，请先关闭上层弹窗，或重新截图取最新 ref',
+      }
+    }
+
     const scaleFactor = getScaleFactor(win)
     const cx = devicePixelsToDip(newRect.x + newRect.w / 2, scaleFactor)
     const cy = devicePixelsToDip(newRect.y + newRect.h / 2, scaleFactor)
@@ -708,9 +810,9 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
   }
 
   /**
-   * 按 ref 写入文本：校验快照 → native value setter 注入。
+   * 按 ref 写入文本：校验快照 → native value setter 注入 → 回读写入后的实际值。
    */
-  async function type(input: unknown): Promise<AppUiActResult> {
+  async function type(input: unknown): Promise<AppUiTypeResult> {
     const actInput = parseTypeInput(input)
     if (!actInput) {
       return { ok: false, error: 'missing_ref' }
@@ -722,13 +824,73 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
     }
 
     const { win, ref } = validated
-    const script = buildTypeScript(ref.x, ref.y, ref.w, ref.h, actInput.text, actInput.clear)
-    const ok = (await win.webContents.executeJavaScript(script)) as boolean | null
-    if (!ok) {
-      return { ok: false, error: 'click_target_lost' }
+    const script = buildTypeScript(ref.x, ref.y, ref.w, ref.h, actInput.text, actInput.append)
+    const raw = (await win.webContents.executeJavaScript(script)) as
+      | TypeScriptResult
+      | boolean
+      | null
+
+    // 旧脚本返回布尔值，保留兼容分支
+    if (raw === true) {
+      return { ok: true }
+    }
+    if (!raw || typeof raw !== 'object' || raw.ok !== true) {
+      return mapInjectFailure(raw, 'not_editable', '目标不是输入框，请确认 ref 指向文本框或文本域')
     }
 
-    return { ok: true }
+    const result: AppUiTypeSuccess = { ok: true }
+    if (raw.value !== undefined) result.value = raw.value
+    if (raw.masked !== undefined) result.masked = raw.masked
+    if (raw.length !== undefined) result.length = raw.length
+    return result
+  }
+
+  /**
+   * 按 ref 选中原生下拉框选项：校验快照 → 注入设置 value 并派发 change。
+   */
+  async function select(input: unknown): Promise<AppUiSelectResult> {
+    const actInput = parseSelectInput(input)
+    if (!actInput) {
+      return { ok: false, error: 'missing_ref' }
+    }
+
+    const validated = validateRefAct(actInput, cacheById, deps.getWindow)
+    if (!validated.ok) {
+      return validated
+    }
+
+    const { win, ref } = validated
+    const script = buildSelectScript(
+      ref.x,
+      ref.y,
+      ref.w,
+      ref.h,
+      actInput.value,
+      actInput.label,
+    )
+    const raw = (await win.webContents.executeJavaScript(script)) as SelectScriptResult | null
+
+    if (!raw || typeof raw !== 'object' || raw.ok !== true) {
+      const failure = mapInjectFailure(
+        raw,
+        'not_select',
+        '目标不是原生下拉框，普通按钮请用 app_act click',
+      )
+      if (raw && typeof raw === 'object' && Array.isArray(raw.options)) {
+        failure.options = raw.options
+      }
+      if (failure.error === 'option_not_found') {
+        failure.hint = '给定的 value/label 不在选项里，请从返回的 options 中挑一个再试'
+      }
+      return failure
+    }
+
+    return {
+      ok: true,
+      value: raw.value ?? '',
+      label: raw.label ?? '',
+      options: raw.options ?? [],
+    }
   }
 
   /**
@@ -788,6 +950,7 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
     goto,
     click,
     type,
+    select,
     key,
     scroll,
   }

@@ -144,7 +144,7 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
 }
 
 /** /act 支持的动作，与 app_act 工具一致 */
-const ACT_ACTIONS = ['click', 'type', 'key', 'scroll'] as const
+const ACT_ACTIONS = ['click', 'type', 'select', 'key', 'scroll'] as const
 type ActRouteAction = (typeof ACT_ACTIONS)[number]
 
 /**
@@ -176,7 +176,7 @@ function withAction(body: unknown, action: ActRouteAction): unknown {
 }
 
 /**
- * 按 body.action 分派到 controller 的 click / type / key / scroll。
+ * 按 body.action 分派到 controller 的 click / type / select / key / scroll。
  */
 async function runAct(controller: AppUiController, body: unknown): Promise<unknown> {
   const action = (body as Record<string, unknown> | null)?.action
@@ -185,6 +185,8 @@ async function runAct(controller: AppUiController, body: unknown): Promise<unkno
       return controller.click(body)
     case 'type':
       return controller.type(body)
+    case 'select':
+      return controller.select(body)
     case 'key':
       return controller.key(body)
     case 'scroll':

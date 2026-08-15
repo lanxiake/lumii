@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ToolRegistry } from '@mtbot/agent-runtime'
 import type { ToolExecutionContext } from '@mtbot/agent-runtime'
 import type { AppUiController } from '../app-ui-control'
-import { registerAppUiTools, resetAppUiToolTurnQuotas } from './bridge-app-ui-tools'
+import { APP_UI_QUOTA, registerAppUiTools, resetAppUiToolTurnQuotas } from './bridge-app-ui-tools'
 import { parseJsonToolResultPayload } from './bridge-utils'
 
 /** Hub 未打开时的视图状态，多处 mock 复用 */
@@ -24,7 +24,7 @@ function stubContext(): ToolExecutionContext {
   }
 }
 
-/** 最小 AppUiController stub（含 goto/click/type/key/scroll） */
+/** 最小 AppUiController stub（含 goto/click/type/select/key/scroll） */
 function stubController(overrides: Partial<AppUiController> = {}): AppUiController {
   return {
     screenshot: vi.fn(),
@@ -32,6 +32,7 @@ function stubController(overrides: Partial<AppUiController> = {}): AppUiControll
     goto: vi.fn(),
     click: vi.fn(),
     type: vi.fn(),
+    select: vi.fn(),
     key: vi.fn(),
     scroll: vi.fn(),
     ...overrides,
@@ -345,7 +346,44 @@ describe('registerAppUiTools', () => {
     expect(click).not.toHaveBeenCalled()
   })
 
-  it('screenshot 超出单轮配额 8 次后返回 quota_exceeded', async () => {
+  it('app_act select 成功时调用 controller.select', async () => {
+    const select = vi.fn(async () => ({
+      ok: true as const,
+      value: 'anthropic',
+      label: 'Anthropic',
+      options: [{ value: 'anthropic', label: 'Anthropic' }],
+    }))
+    const execute = registerAndGetExecute('app_act', stubController({ select }))
+
+    const result = await execute('call-a-select', {
+      action: 'select',
+      ref: 'e3',
+      value: 'anthropic',
+      snapshotId: 'snap-001',
+    })
+    expect(parseJsonToolResultPayload(result)).toMatchObject({ ok: true, value: 'anthropic' })
+    expect(select).toHaveBeenCalledWith({
+      action: 'select',
+      ref: 'e3',
+      value: 'anthropic',
+      snapshotId: 'snap-001',
+    })
+  })
+
+  it('app_act 描述提示原生下拉框必须用 select', () => {
+    const registry = new ToolRegistry()
+    registerAppUiTools(registry, stubContext(), {
+      getWindow: () => null,
+      resizeImageIfNeeded: vi.fn(),
+      controller: stubController(),
+    })
+
+    const tool = registry.get('app_act')
+    expect(tool?.description).toContain('app_act select')
+    expect(tool?.description).toContain('系统菜单')
+  })
+
+  it(`screenshot 超出单轮基础配额 ${APP_UI_QUOTA.screenshot.base} 次后返回 quota_exceeded 与等待秒数`, async () => {
     const screenshot = vi.fn(async () => ({
       ok: true as const,
       snapshotId: 'snap',
@@ -359,13 +397,55 @@ describe('registerAppUiTools', () => {
     }))
     const execute = registerAndGetExecute('app_screenshot', stubController({ screenshot }))
 
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < APP_UI_QUOTA.screenshot.base; i++) {
       const result = await execute(`call-q${i}`, {})
       expect(parseJsonToolResultPayload(result)).toMatchObject({ ok: true })
     }
-    const over = await execute('call-q9', {})
-    expect(parseJsonToolResultPayload(over)).toEqual({ ok: false, error: 'quota_exceeded' })
-    expect(screenshot).toHaveBeenCalledTimes(8)
+    const over = await execute('call-q-over', {})
+    const payload = parseJsonToolResultPayload(over) as Record<string, unknown>
+    expect(payload).toMatchObject({
+      ok: false,
+      error: 'quota_exceeded',
+      tool: 'screenshot',
+      limit: APP_UI_QUOTA.screenshot.base,
+      used: APP_UI_QUOTA.screenshot.base,
+    })
+    expect(typeof payload.retryAfterSec).toBe('number')
+    expect(screenshot).toHaveBeenCalledTimes(APP_UI_QUOTA.screenshot.base)
+  })
+
+  it('长轮次每满一分钟自动续杯，录屏这类长任务不会卡死', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-15T12:00:00Z'))
+    try {
+      const screenshot = vi.fn(async () => ({
+        ok: true as const,
+        snapshotId: 'snap',
+        width: 100,
+        height: 100,
+        viewState: CLOSED_HUB_VIEW_STATE,
+        refs: [],
+        truncated: false,
+        previewPath: '/tmp/snap.jpg',
+        windowVisible: true,
+      }))
+      const execute = registerAndGetExecute('app_screenshot', stubController({ screenshot }))
+
+      for (let i = 0; i < APP_UI_QUOTA.screenshot.base; i++) {
+        await execute(`call-t${i}`, {})
+      }
+      expect(parseJsonToolResultPayload(await execute('call-t-over', {}))).toMatchObject({
+        ok: false,
+        error: 'quota_exceeded',
+      })
+
+      vi.setSystemTime(new Date('2026-08-15T12:01:00Z'))
+      expect(parseJsonToolResultPayload(await execute('call-t-refill', {}))).toMatchObject({
+        ok: true,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('resetAppUiToolTurnQuotas 后配额计数清零', async () => {
@@ -381,17 +461,18 @@ describe('registerAppUiTools', () => {
       windowVisible: true,
     }))
     const execute = registerAndGetExecute('app_screenshot', stubController({ screenshot }))
+    const limit = APP_UI_QUOTA.screenshot.base
 
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < limit; i++) {
       await execute(`call-r${i}`, {})
     }
-    expect(parseJsonToolResultPayload(await execute('call-r-over', {}))).toEqual({
+    expect(parseJsonToolResultPayload(await execute('call-r-over', {}))).toMatchObject({
       ok: false,
       error: 'quota_exceeded',
     })
 
     resetAppUiToolTurnQuotas()
     expect(parseJsonToolResultPayload(await execute('call-r-after', {}))).toMatchObject({ ok: true })
-    expect(screenshot).toHaveBeenCalledTimes(9)
+    expect(screenshot).toHaveBeenCalledTimes(limit + 1)
   })
 })

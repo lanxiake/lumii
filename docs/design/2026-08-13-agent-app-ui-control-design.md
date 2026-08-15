@@ -316,21 +316,23 @@
 
 ```js
 // 在 mainWindow.webContents.executeJavaScript 中运行
-// 收集可见可交互节点，上限 80
+// 收集可见可交互节点，上限 120（v0.8 由 80 提高）
 const SELECTORS = [
   'button', 'a[href]', 'input', 'textarea', 'select',
   '[role=button]', '[role=tab]', '[role=menuitem]', '[role=switch]',
   '[contenteditable=true]', '[data-app-ui]', '[tabindex]:not([tabindex="-1"])'
 ].join(',')
 
-// 跳过：disabled / aria-hidden / 零尺寸 / 视口外 / [data-app-ui-ignore]
-// 按面积降序排列，取前 80
-// 返回 Array<{ ref, role, name, x, y, w, h }>
+// 跳过：disabled / aria-hidden / 零尺寸 / 视口外 / [data-app-ui-ignore] / 被弹层遮挡
+// 排序：弹层内表单控件 > 弹层其它 > data-app-ui > 表单控件 > 其它；层内按阅读顺序
+// 返回 Array<{ ref, role, name, x, y, w, h, value?, placeholder?, options? }>
 ```
 
 - `ref` 格式：`e{index}`（如 `e1`、`e2`），每次截图重新生成，与 `snapshotId` 绑定。
 - 主入口补 `data-app-ui="nav-settings|hub-tab|hub-category"`，保证 goto 之外仍能被点到。
 - 快照 id 用全局递增计数器，与截图一一对应。
+- **遮挡过滤（v0.8）**：对每个节点做中心点 + 左上角内缩点的 `elementFromPoint` 命中测试，两点都打不到自身即判定被遮挡并剔除。弹窗打开时背景里的会话列表因此不再挤占上限，也避免模型点到遮罩把面板关掉。
+- **值与选项回读（v0.8）**：输入框回传 `value`（password 脱敏为 `***(n 字符)`）与 `placeholder`，两者分开，避免把占位符误当成已填内容；原生 `<select>` 回传全部 `options` 且 `name` 取当前选中项文案，配合 `app_act select` 使用。
 
 ### 7.7 文件落点
 
@@ -400,6 +402,21 @@ bridgeRendererIpcChannel.on('turn:end', () => {
 
 注意：turn 边界由 `agent:turn:start/end` 事件标记，`bridge-agent-instance-events.ts` 已有事件转发，可挂 listener。
 
+**v0.8 修订：固定额度改为「基础额度 + 按轮次时长续杯」**
+
+固定 8/20/20 在长任务里会把整轮卡死：实测录制模型配置教学视频时，8 张截图刚够打开设置页，之后 `app_screenshot` 与 `app_act` 全部返回 `quota_exceeded`，模型只能反复 sleep 等待，而 per-turn 计数器要等这一轮结束才重置，等多久都不会恢复。
+
+```ts
+const APP_UI_QUOTA = {
+  screenshot: { base: 40, refillPerMinute: 20, max: 300 },
+  act: { base: 120, refillPerMinute: 60, max: 900 },
+  goto: { base: 60, refillPerMinute: 20, max: 300 },
+}
+// 有效上限 = min(max, base + floor(本轮已耗时 / 60s) * refillPerMinute)
+```
+
+超限返回体带上 `tool / used / limit / retryAfterSec / hint`，模型据此知道该等几秒还是该收尾，不再盲目 sleep 60 秒。硬上限 `max` 仍然兜住失控循环。
+
 ---
 
 ## 8. 完整规格（二期及以后）
@@ -408,7 +425,7 @@ bridgeRendererIpcChannel.on('turn:end', () => {
 
 ### 8.1 `app_act` 完整 action
 
-`click | type | key | scroll`
+`click | type | select | key | scroll`
 
 中文 type 必须用 native value setter：
 
@@ -423,7 +440,17 @@ el.dispatchEvent(new Event('input', { bubbles: true }))
 
 `scroll` 复用 `buildClickPrepareScript`（`act.ts:62`）里已有的 `elementFromPoint` 定位逻辑，改成 `el.scrollBy(dx, dy)`，不需要新的坐标换算。
 
-`key` 白名单只收 `Enter | Escape | Tab | Backspace | Delete | ArrowUp/Down/Left/Right`，用 `sendInputEvent({ type: 'keyDown'|'keyUp', keyCode })`，禁止任意 keyCode（防止拼音注入绕过 `type` 的 native setter 路径）。
+`key` 白名单只收 `Enter | Escape | Tab | Backspace | Delete | Home | End | PageUp | PageDown | Space | ArrowUp/Down/Left/Right`（v0.8 补齐翻页与空格），用 `sendInputEvent({ type: 'keyDown'|'keyUp', keyCode })`，禁止任意 keyCode（防止拼音注入绕过 `type` 的 native setter 路径）。
+
+**`select`（v0.8 新增）**：Electron 里点击原生 `<select>` 弹出的是系统级菜单，`capturePage` 截不到、a11y 树也读不到，模型点了没有任何可见反馈，只会反复重试甚至误关面板（实测日志里在服务商下拉框上空转了近 2 分钟）。因此下拉框不走点击，改为直接注入：
+
+```ts
+{ action: 'select', ref: string, value?: string, label?: string, snapshotId?: string }
+```
+
+按 `value` 精确匹配，其次按选项文案精确/模糊匹配，命中后用 `HTMLSelectElement.prototype.value` 的 native setter 赋值并派发 `input` + `change`，返回选中项与全部 `options`；未命中返回 `option_not_found` 并附上可选项。同时 `click` 在识别到目标是 `<select>` 时直接返回 `use_select_action` 引导改用本动作。
+
+**`type` 健壮化（v0.8）**：注入脚本先从 ref 命中的节点向上 `closest` / 向下 `querySelector` 找到真正的 `input/textarea/contenteditable`——此前直接把 `HTMLInputElement.prototype.value` 的 setter 用在包裹层（如带眼睛图标 suffix 的 Input 容器）上会抛 `Illegal invocation`，对外表现为莫名其妙的 `act_failed`。语义也明确为默认整体替换、`append=true` 才追加，并回传写入后的实际值（password 只回长度不回明文），模型无需再截一张图确认。
 
 ### 8.2 CLI（二期）
 
@@ -580,6 +607,7 @@ app_act click "始终允许"仅本次运行有效，重启后重置
 | v0.4 | 2026-08-14 | 代码事实核查后修正：补回读通道（executeJavaScript）、修正 pet 误伤、补配额落点、补截图清理、修正 browser_* 复用边界 |
 | v0.5 | 2026-08-14 | MVP（Part A/B）验收通过并已合并至 `feat/agent-app-ui-control`；补全二期设计代码事实核查：CLI 运行时复用 `runtime-env.ts` 的 `resolveNodeExec()`/`writeShimPair()`（不需要 extraFiles 带 node）、控制口端口探测复用 `browser-control` 的 `findAvailablePort()`、token 用 `randomUUID()` 落 `resolveWindowsClientDataRoot()`；pet/preview 截图窗口改经 `getPetWindowManager().getPetBrowserWindow()`，非 `getMainWindow()`；type 补 native value setter 与 browser_type 不可复用的核查结论；修正正文中残留的 v0.3 期 `ipcRenderer.invoke('app-ui:query-state')` 措辞，统一为已实现的 `executeJavaScript` 回读 |
 | v0.6 | 2026-08-15 | 三期目标改为「CLI 作为统一对外控制面」（尽量把能封装的都封装成 CLI）。新增 §14：核查出 `agent-runtime-commands.ts` 是 **92** 命令 + `AgentRuntimeCommandResult` 返回类型映射的完整类型化总线，CLI 主体可做**泛化转发**而非逐个手写；原三期 4 个"待建声明式 API"全部已存在（`cron:run`、`skills:setEnabled`、`session:preferredModel:set`、`PET_IPC.switchMode`），三期性质从"造 API"变为"暴露既有 API"；唯一真实缺口是设置**只能读不能写** |
+| v0.8 | 2026-08-15 | 依据实测运行日志修复四类可用性问题：① per-turn 固定配额（8/20/20）在录制教学视频这类长任务里把整轮卡死，改为「基础额度 + 每分钟续杯 + 硬上限」并回传 `retryAfterSec`；② 新增 `app_act select`，原生下拉框不再靠点击（系统菜单截图不可见）；③ `type` 先定位真实可编辑元素，修掉包裹层导致的 `Illegal invocation → act_failed`，明确替换/追加语义并回传写入结果；④ 快照加遮挡命中测试与 `value`/`placeholder`/`options` 回读，排序改为「弹层表单优先 + 阅读顺序」，上限 80 → 120，`click` 增加 `click_blocked` / `use_select_action` 保护 |
 | v0.7 | 2026-08-15 | §14 二次核查修正（v0.6 有 9 处不闭环）：① `handleCommand`/`ipcBridgeRef` 是模块私有，A 层"直接复用"不成立，补 §14.2.0 导出地基；② 命令联合类型 92 个成员**无 origin 字段**，origin 是对话轮次维度不是命令维度，注入方案否决；③ `getForOrigin` 只在 `agent-instance.ts:555` 的 prompt 路径生效，给 `CapabilityRegistry` 加 `external_cli` 是**运行时空转的假护栏**，整条否决；④ 黑名单改**白名单**——原方案默认开放 76 条，其中 `mcp:writeConfigFile` 等价 RCE、`files:*` 与"不暴露文件操作"自相矛盾、`storage:exportJsonl` 可导出全部会话；⑤ 命令总线**无 `skills:*`**，`skill list` 从 A 层改 B 层；⑥ B 层 handler 是匿名闭包捕获模块私有变量，需补 accessor，且 `setEnabled` 必须复现 `skillWatcher.refresh()` 副作用；⑦ settings merge 移入注入脚本内避免 read-modify-write 竞态，删除死代码与双重转义不一致；⑧ 补总开关自举防护（`allowAgentAppUiControl` 不可经 CLI 写）；⑨ 补 `/command` 串行化（HTTP 并发打破 `agent-runtime-ipc.ts:2447` 声明的串行不变量）、CLI 速率限制（per-turn 配额对 CLI 不适用）、Windows 下 `chmod 600` 无效的诚实说明、`model set` 的 `sessionKey` 必填未决问题 |
 
 ---
