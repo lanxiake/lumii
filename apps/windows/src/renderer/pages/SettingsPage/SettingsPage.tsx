@@ -759,6 +759,111 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </section>
 
         <section className={styles['panel-card']}>
+          <h4 className={styles['panel-card-title']}>录屏</h4>
+          <div className={styles['panel-rows']}>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>启用录屏功能</span>
+                <span className={styles['panel-row-hint']}>
+                  关闭后 AI 录屏工具与顶栏入口均不可用
+                </span>
+              </div>
+              <Checkbox
+                checked={settings.screenRecord?.enabled !== false}
+                onChange={(checked) =>
+                  updateSettings({
+                    screenRecord: {
+                      ...(settings.screenRecord ?? {
+                        enabled: true,
+                        alwaysAllow: false,
+                        includeMicDefault: true,
+                        confirmTimeoutSec: 120,
+                      }),
+                      enabled: checked,
+                    },
+                  })
+                }
+              />
+            </div>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>始终允许录屏</span>
+                <span className={styles['panel-row-hint']} style={{ color: 'var(--color-warning, #f59e0b)' }}>
+                  开启后 Agent 可不经确认录制除本软件外的任意屏幕与窗口，请谨慎
+                </span>
+              </div>
+              <Checkbox
+                checked={settings.screenRecord?.alwaysAllow === true}
+                onChange={(checked) =>
+                  updateSettings({
+                    screenRecord: {
+                      ...(settings.screenRecord ?? {
+                        enabled: true,
+                        alwaysAllow: false,
+                        includeMicDefault: true,
+                        confirmTimeoutSec: 120,
+                      }),
+                      alwaysAllow: checked,
+                    },
+                  })
+                }
+              />
+            </div>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>默认包含麦克风</span>
+                <span className={styles['panel-row-hint']}>新录制时「包含麦克风」开关的默认值</span>
+              </div>
+              <Checkbox
+                checked={settings.screenRecord?.includeMicDefault !== false}
+                onChange={(checked) =>
+                  updateSettings({
+                    screenRecord: {
+                      ...(settings.screenRecord ?? {
+                        enabled: true,
+                        alwaysAllow: false,
+                        includeMicDefault: true,
+                        confirmTimeoutSec: 120,
+                      }),
+                      includeMicDefault: checked,
+                    },
+                  })
+                }
+              />
+            </div>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>AI 确认超时（秒）</span>
+                <span className={styles['panel-row-hint']}>超时未操作将自动拒绝</span>
+              </div>
+              <div className={styles['setting-input-with-unit']}>
+                <Input
+                  type="number"
+                  min={10}
+                  max={600}
+                  step={5}
+                  value={settings.screenRecord?.confirmTimeoutSec ?? 120}
+                  onChange={(e) =>
+                    updateSettings({
+                      screenRecord: {
+                        ...(settings.screenRecord ?? {
+                          enabled: true,
+                          alwaysAllow: false,
+                          includeMicDefault: true,
+                          confirmTimeoutSec: 120,
+                        }),
+                        confirmTimeoutSec: Number(e.target.value),
+                      },
+                    })
+                  }
+                />
+                <span className={styles['setting-unit']}>秒</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className={styles['panel-card']}>
           <h4 className={styles['panel-card-title']}>本地留存</h4>
           <div className={styles['panel-rows']}>
             <div className={styles['panel-row']}>

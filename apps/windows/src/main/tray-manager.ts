@@ -28,6 +28,10 @@ export interface TrayManagerConfig {
   onTogglePetMode?: () => void
   /** 关闭强制穿透（仅宠物模式 + 穿透开启时可用） */
   onDisableForceIgnore?: () => void
+  /** 开始录屏（无预选源时应打开面板） */
+  onStartScreenRecord?: () => void
+  /** 停止录屏 */
+  onStopScreenRecord?: () => void
 }
 
 /**
@@ -38,6 +42,8 @@ export class TrayManager {
   private config: TrayManagerConfig
   private petModeActive = false
   private forceIgnoreActive = false
+  private screenRecording = false
+  private screenRecordElapsedMs = 0
 
   constructor(config: TrayManagerConfig) {
     this.config = config
@@ -91,6 +97,13 @@ export class TrayManager {
    * 更新右键菜单
    */
   private updateContextMenu(): void {
+    const elapsedSec = Math.floor(this.screenRecordElapsedMs / 1000)
+    const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0')
+    const ss = String(elapsedSec % 60).padStart(2, '0')
+    const recordLabel = this.screenRecording
+      ? `停止录屏 (⏱ ${mm}:${ss})`
+      : '开始录屏…'
+
     const contextMenu = Menu.buildFromTemplate([
       {
         label: '显示窗口',
@@ -111,6 +124,21 @@ export class TrayManager {
                   },
                 ]
               : []),
+            { type: 'separator' as const },
+          ]
+        : []),
+      ...(this.config.onStartScreenRecord || this.config.onStopScreenRecord
+        ? [
+            {
+              label: recordLabel,
+              click: () => {
+                if (this.screenRecording) {
+                  this.config.onStopScreenRecord?.()
+                } else {
+                  this.config.onStartScreenRecord?.()
+                }
+              },
+            },
             { type: 'separator' as const },
           ]
         : []),
@@ -142,6 +170,15 @@ export class TrayManager {
   /** 更新强制穿透状态（托盘显示「退出穿透」入口） */
   updateForceIgnore(active: boolean): void {
     this.forceIgnoreActive = active
+    this.updateContextMenu()
+  }
+
+  /**
+   * 更新录屏状态（recording 时显示停止+计时）。
+   */
+  updateScreenRecordState(isRecording: boolean, elapsedMs = 0): void {
+    this.screenRecording = isRecording
+    this.screenRecordElapsedMs = elapsedMs
     this.updateContextMenu()
   }
 

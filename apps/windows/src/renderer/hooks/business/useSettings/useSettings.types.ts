@@ -86,6 +86,18 @@ export interface MemoryConfig {
   injectWorkMemory: boolean
 }
 
+/** 录屏设置（设计 §4.5） */
+export interface ScreenRecordConfig {
+  /** 总开关；关闭后四工具一律 disabled */
+  enabled: boolean
+  /** AI 非自身源录屏是否免确认 */
+  alwaysAllow: boolean
+  /** 默认是否混入麦克风 */
+  includeMicDefault: boolean
+  /** AI 触发确认弹窗超时秒数 */
+  confirmTimeoutSec: number
+}
+
 /** 应用设置 */
 export interface AppSettings {
   gateway: GatewayConfig
@@ -97,6 +109,8 @@ export interface AppSettings {
   window: WindowConfig
   system: SystemConfig
   memory: MemoryConfig
+  /** 录屏（AI 可控 + 简易 UI） */
+  screenRecord: ScreenRecordConfig
   language: 'zh-CN' | 'zh-TW' | 'en-US' | 'ja-JP' | 'ko-KR'
   checkUpdateOnStartup: boolean
 }

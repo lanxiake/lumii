@@ -50,6 +50,8 @@ export interface MainLayoutProps {
   customSidebar?: React.ReactNode;
   /** 注入到标题栏连接状态右边的主题切换按钮 */
   themeToggle?: React.ReactNode;
+  /** 标题栏额外操作（录屏等） */
+  extraActions?: React.ReactNode;
 }
 
 /**
@@ -71,6 +73,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   customTitleBar,
   customSidebar,
   themeToggle,
+  extraActions,
 }) => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultSidebarCollapsed);
   const [isMobile, setIsMobile] = useState(false);
@@ -171,6 +174,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           showMenuButton={!disableSidebar}
           electronAPI={electronAPI}
           themeToggle={themeToggle}
+          extraActions={extraActions}
         />
       )}
 

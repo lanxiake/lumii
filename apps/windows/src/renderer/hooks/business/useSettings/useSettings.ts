@@ -78,6 +78,12 @@ const DEFAULT_SETTINGS: AppSettings = {
     injectPersonalMemory: true,
     injectWorkMemory: true,
   },
+  screenRecord: {
+    enabled: true,
+    alwaysAllow: false,
+    includeMicDefault: true,
+    confirmTimeoutSec: 120,
+  },
   language: 'zh-CN',
   checkUpdateOnStartup: true,
 }

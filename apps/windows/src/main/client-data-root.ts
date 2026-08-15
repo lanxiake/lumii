@@ -1,5 +1,7 @@
 import os from "node:os";
 import path from "node:path";
+import { accessSync, mkdirSync } from "node:fs";
+import { RECORDINGS_DIRNAME } from "../shared/screen-record";
 
 /** 设计约定：Lumii 独立版客户端数据根目录名（与原 MtBot 产品彻底隔离，避免冲突） */
 export const WINDOWS_CLIENT_DATA_DIRNAME = ".lumii";
@@ -49,4 +51,18 @@ export function resolveWindowsClientDataRoot(): string {
 
   _cachedRoot = path.join(os.homedir(), WINDOWS_CLIENT_DATA_DIRNAME);
   return _cachedRoot;
+}
+
+/**
+ * 解析录屏落盘目录（`{dataRoot}/recordings/`），不存在则递归创建。
+ */
+export function resolveRecordingsDir(): string {
+  const root = resolveWindowsClientDataRoot();
+  const dir = path.join(root, RECORDINGS_DIRNAME);
+  try {
+    accessSync(dir);
+  } catch {
+    mkdirSync(dir, { recursive: true });
+  }
+  return dir;
 }

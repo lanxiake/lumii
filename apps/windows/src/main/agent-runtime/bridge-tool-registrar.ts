@@ -67,6 +67,8 @@ import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import type { CronScheduler } from './cron-scheduler'
 import { registerBrowserTools as registerBrowserToolsFn } from './bridge-browser-tools'
 import { registerAppUiTools as registerAppUiToolsFn } from './bridge-app-ui-tools'
+import { registerScreenRecordTools as registerScreenRecordToolsFn } from './bridge-screen-record-tools'
+import { getScreenRecordService } from '../screen-record/accessor'
 import { resizeImageIfNeeded } from './image-resizer'
 import {
   writeDashboardFeedSnapshot,
@@ -162,6 +164,8 @@ export class BridgeToolRegistrar {
     this.registerChannelTools()
     // Agent 操作本客户端界面（Part A：app_screenshot），始终注册
     this.registerAppUiTools()
+    // 录屏四工具（内部总开关由 screenRecord.enabled 决定）
+    this.registerScreenRecordTools()
     // 渐进式加载指南工具（a2ui_guide / cron_guide）
     this.registerGuideTools()
     if (this.deps.config.callGateway) {
@@ -1622,6 +1626,14 @@ export class BridgeToolRegistrar {
           return null
         }
       },
+    })
+  }
+
+  /** 注册录屏四工具 */
+  private registerScreenRecordTools(): void {
+    if (!this.deps.toolContext) return
+    registerScreenRecordToolsFn(this.deps.toolRegistry, this.deps.toolContext, {
+      getService: () => getScreenRecordService(),
     })
   }
 }

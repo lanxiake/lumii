@@ -13,6 +13,11 @@ import { WorkspaceWizard } from './components/WorkspaceWizard'
 import { GlobalModals } from './components/GlobalModals'
 import { MainLayout } from './components/layout/MainLayout/MainLayout'
 import { SettingsHubModal, useSettingsHub, isHubView } from './components/SettingsHub'
+import {
+  ScreenRecordProvider,
+  ScreenRecordRoot,
+  ScreenRecordTitleControl,
+} from './components/ScreenRecord'
 import type { GotoInput } from '@main/app-ui-control/types'
 import { SplashOverlay } from './components/SplashOverlay/SplashOverlay'
 import { useTheme } from './contexts/ThemeContext/ThemeContext'
@@ -230,18 +235,22 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
   )
 
   return (
-    <MainLayout
-      activeView={activeView}
-      onViewChange={handleViewChange}
-      settingsHubOpen={hubOpen}
-      isConnected={isConnected}
-      themeToggle={themeToggleBtn}
-      defaultSidebarCollapsed={false}
-    >
-      <PetSessionSync />
-      <Router activeView={activeView} onViewChange={handleViewChange} />
-      <SettingsHubModal onViewChange={handleViewChange} />
-    </MainLayout>
+    <ScreenRecordProvider>
+      <MainLayout
+        activeView={activeView}
+        onViewChange={handleViewChange}
+        settingsHubOpen={hubOpen}
+        isConnected={isConnected}
+        themeToggle={themeToggleBtn}
+        extraActions={<ScreenRecordTitleControl />}
+        defaultSidebarCollapsed={false}
+      >
+        <PetSessionSync />
+        <Router activeView={activeView} onViewChange={handleViewChange} />
+        <SettingsHubModal onViewChange={handleViewChange} />
+        <ScreenRecordRoot />
+      </MainLayout>
+    </ScreenRecordProvider>
   )
 }
 

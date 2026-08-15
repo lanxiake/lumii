@@ -27,6 +27,8 @@ export interface TitleBarProps {
   className?: string;
   /** 主题切换按钮（由外部注入，放在连接状态右边） */
   themeToggle?: React.ReactNode;
+  /** 额外操作区（录屏等，放在字号按钮旁） */
+  extraActions?: React.ReactNode;
   /** Electron API 对象（用于窗口控制） */
   electronAPI?: {
     window: {
@@ -49,6 +51,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   showMenuButton = true,
   className = '',
   themeToggle,
+  extraActions,
   electronAPI,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
@@ -148,6 +151,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           >
             <Type size={14} strokeWidth={1.8} />
           </button>
+          {extraActions}
         </div>
       </div>
 
