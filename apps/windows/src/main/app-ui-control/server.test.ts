@@ -279,3 +279,111 @@ describe('startAppUiControlServer', () => {
     expect(fs.existsSync(runtimePath)).toBe(false)
   })
 })
+
+describe('POST /command', () => {
+  let tmpRoot: string
+  let controller: AppUiController
+  let port: number
+
+  beforeEach(async () => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-app-ui-server-'))
+    _resetWindowsClientDataRootCacheForTest()
+    process.env.LUMII_CLIENT_DATA_DIR = tmpRoot
+    controller = mockController()
+    port = 0
+    mockedInspectPortUsage.mockReset()
+  })
+
+  afterEach(async () => {
+    await stopAppUiControlServer()
+    delete process.env.LUMII_CLIENT_DATA_DIR
+    _resetWindowsClientDataRootCacheForTest()
+    fs.rmSync(tmpRoot, { recursive: true, force: true })
+  })
+
+  /** 用给定 deps 覆盖启动一个控制口，返回 token/port */
+  async function startWith(
+    extraDeps: Partial<Parameters<typeof startAppUiControlServer>[0]>,
+  ): Promise<{ token: string; port: number }> {
+    const server = http.createServer()
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', () => resolve())
+    })
+    const addr = server.address()
+    if (!addr || typeof addr === 'string') throw new Error('no port')
+    port = addr.port
+    server.close()
+
+    const config = await startAppUiControlServer({
+      getWindow: () => null,
+      controller,
+      port,
+      token: 'test-token-123',
+      ...extraDeps,
+    })
+    return { token: config.token, port: config.port }
+  }
+
+  it('白名单外返回 not_exposed 且不调用 dispatchCommand', async () => {
+    const dispatchCommand = vi.fn(async () => ({ ok: true }))
+    const { token } = await startWith({ dispatchCommand })
+
+    const res = await postRoute(port, '/command', { type: 'mcp:writeConfigFile', content: '{}' }, token)
+    expect(res.json).toEqual({ ok: false, error: 'not_exposed' })
+    expect(dispatchCommand).not.toHaveBeenCalled()
+  })
+
+  it('白名单内透传 dispatchCommand 返回值', async () => {
+    const dispatchCommand = vi.fn(async () => ({ status: 'ok', jobs: [] }))
+    const { token } = await startWith({ dispatchCommand })
+
+    const res = await postRoute(port, '/command', { type: 'cron:list' }, token)
+    expect(res.json).toEqual({ status: 'ok', jobs: [] })
+    expect(dispatchCommand).toHaveBeenCalledWith({ type: 'cron:list' })
+  })
+
+  it('并发两个 /command 串行执行', async () => {
+    const order: string[] = []
+    let callCount = 0
+    const dispatchCommand = vi.fn(async () => {
+      const id = ++callCount
+      order.push(`start:${id}`)
+      await new Promise((r) => setTimeout(r, 30))
+      order.push(`end:${id}`)
+      return { ok: true }
+    })
+    const { token } = await startWith({ dispatchCommand })
+
+    await Promise.all([
+      postRoute(port, '/command', { type: 'cron:list' }, token),
+      postRoute(port, '/command', { type: 'cron:list' }, token),
+    ])
+
+    expect(order).toEqual(['start:1', 'end:1', 'start:2', 'end:2'])
+  })
+
+  it('总开关关闭时任意路由返回 disabled', async () => {
+    const { token } = await startWith({
+      readSettingsJson: async () =>
+        JSON.stringify({ privacy: { allowAgentAppUiControl: false } }),
+    })
+
+    const res = await postRoute(port, '/screenshot', {}, token)
+    expect(res.json).toEqual({ ok: false, error: 'disabled' })
+    expect(controller.screenshot).not.toHaveBeenCalled()
+  })
+
+  it('超速率限制返回 rate_limited', async () => {
+    let allowed = true
+    const { token } = await startWith({
+      rateLimiter: { tryConsume: () => allowed },
+    })
+
+    const first = await postRoute(port, '/screenshot', {}, token)
+    expect(first.json).toMatchObject({ ok: true })
+
+    allowed = false
+    const second = await postRoute(port, '/screenshot', {}, token)
+    expect(second.json).toEqual({ ok: false, error: 'rate_limited' })
+  })
+})

@@ -9,14 +9,18 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import type { BrowserWindow } from 'electron'
+import { getAgentRuntimeBridge, handleCommand } from '../ipc/agent-runtime-ipc'
 import { resizeImageIfNeeded } from '../agent-runtime/image-resizer'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
+import { isCommandExposed } from './command-allowlist'
 import {
   createAppUiController,
   type AppUiController,
   type AppUiScreenshotOptions,
   type ResizeImageFn,
 } from './controller'
+import { isAppUiControlEnabled } from './enabled'
+import { createSlidingWindowRateLimiter } from './rate-limit'
 
 /** 浏览器控制相关端口（对照用，app-ui 控制口需避开） */
 export const DEFAULT_BROWSER_CONTROL_PORT = 18790
@@ -74,6 +78,21 @@ let activeToken: string | null = null
 let activeController: AppUiController | null = null
 /** 当前启动时传入的 deps，供 /command /settings/* /ipc/* 路由读取 */
 let activeDeps: AppUiControlServerDeps | null = null
+/** 控制口默认速率限制：60 秒内 100 次请求，CLI 无 turn 概念，与 per-turn 配额独立 */
+let activeRateLimiter: { tryConsume: () => boolean } | null = null
+
+/** /command 串行队列：保持 agent-runtime-ipc.ts:2447 声明的 handleCommand 串行不变量 */
+let commandQueue: Promise<unknown> = Promise.resolve()
+
+/** 把命令排进串行队列；前一个失败也继续排队，不阻塞后续请求 */
+function enqueueCommand<T>(fn: () => Promise<T>): Promise<T> {
+  const next = commandQueue.then(fn, fn)
+  commandQueue = next.then(
+    () => undefined,
+    () => undefined,
+  )
+  return next
+}
 
 /**
  * 从 startPort 起按 +10 步长探测空闲端口，最多 3 次；均占用则落到 startPort + 30。
@@ -243,8 +262,42 @@ async function handleRoute(
       sendJson(res, 200, result)
       return
     }
+    case '/command': {
+      await handleCommandRoute(body, res)
+      return
+    }
     default:
       sendJson(res, 404, { ok: false, error: 'not_found' })
+  }
+}
+
+/**
+ * A 层：命令总线转发。白名单外一律 not_exposed；白名单内的命令排入串行队列再转发。
+ */
+async function handleCommandRoute(body: unknown, res: http.ServerResponse): Promise<void> {
+  const type = (body as { type?: unknown } | null)?.type
+  if (!isCommandExposed(type)) {
+    sendJson(res, 200, { ok: false, error: 'not_exposed' })
+    return
+  }
+
+  const dispatch =
+    activeDeps?.dispatchCommand ??
+    (async (cmd: unknown) => {
+      const bridge = getAgentRuntimeBridge()
+      if (!bridge) return { ok: false, error: 'not_ready' }
+      return handleCommand(bridge, cmd as Parameters<typeof handleCommand>[1])
+    })
+
+  try {
+    const result = await enqueueCommand(() => dispatch(body))
+    sendJson(res, 200, result)
+  } catch (err) {
+    sendJson(res, 200, {
+      ok: false,
+      error: 'command_failed',
+      message: err instanceof Error ? err.message : String(err),
+    })
   }
 }
 
@@ -261,6 +314,20 @@ function createRequestHandler(controller: AppUiController, token: string): http.
     const bearer = extractBearerToken(req.headers.authorization)
     if (!bearer || bearer !== token) {
       sendJson(res, 401, { ok: false, error: 'unauthorized' })
+      return
+    }
+
+    const enabled = await isAppUiControlEnabled(
+      activeDeps?.readSettingsJson ?? (async () => null),
+    )
+    if (!enabled) {
+      sendJson(res, 200, { ok: false, error: 'disabled' })
+      return
+    }
+
+    const limiter = activeDeps?.rateLimiter ?? activeRateLimiter
+    if (limiter && !limiter.tryConsume()) {
+      sendJson(res, 200, { ok: false, error: 'rate_limited' })
       return
     }
 
@@ -289,6 +356,8 @@ export async function startAppUiControlServer(
   }
 
   activeDeps = deps
+  activeRateLimiter =
+    deps.rateLimiter ?? createSlidingWindowRateLimiter({ limit: 100, windowMs: 60_000 })
   const token = deps.token ?? randomUUID()
   const port = deps.port ?? (await findAvailablePort(APP_UI_CONTROL_PORT_START, 'app-ui'))
   const controller =
@@ -333,6 +402,7 @@ export async function stopAppUiControlServer(): Promise<void> {
   activeToken = null
   activeController = null
   activeDeps = null
+  activeRateLimiter = null
 
   await new Promise<void>((resolve) => {
     server.close(() => resolve())
