@@ -8,6 +8,9 @@ import type {
   ScreenRecordConfig,
   ScreenRecordErrorCode,
   ScreenRecordListSourcesResult,
+  ScreenRecordMarker,
+  ScreenRecordMarkParams,
+  ScreenRecordMarkResult,
   ScreenRecordSource,
   ScreenRecordStartParams,
   ScreenRecordStartResult,
@@ -133,6 +136,8 @@ interface InternalState {
   lastFinalizeError: ScreenRecordErrorCode | null
   /** start 互斥锁，防止并发叠态 */
   startLock: boolean
+  /** 本会话活跃时钟打点（教程 timeline） */
+  timeline: ScreenRecordMarker[]
 }
 
 /** 对外服务接口 */
@@ -144,6 +149,11 @@ export interface ScreenRecordService {
   pause: () => Promise<ScreenRecordPauseResult>
   /** 继续录制（仅 paused） */
   resume: () => Promise<ScreenRecordResumeResult>
+  /**
+   * 活跃时钟打点（仅 recording）。
+   * 教程：resume 后先 mark 再操作；stop 返回 timeline 供 narrate cues。
+   */
+  mark: (params: ScreenRecordMarkParams) => ScreenRecordMarkResult
   getStatus: () => ScreenRecordStatusResult
   respondConfirm: (p: {
     sessionId: string
@@ -189,6 +199,7 @@ function createIdleState(): InternalState {
     systemAudioMuted: false,
     lastFinalizeError: null,
     startLock: false,
+    timeline: [],
   }
 }
 
@@ -340,6 +351,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       micMuted: false,
       systemAudioMuted: false,
       startLock: false,
+      timeline: [],
     }
     deps.notifyRendererStartCapture(
       opts.sessionId,
@@ -412,6 +424,8 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
             : undefined
     const path = finalized.path
     const bytes = finalized.bytes
+    // 须在 resetToIdle 前取出 timeline（idle 会清空会话态）
+    const timeline = [...state.timeline].sort((a, b) => a.atMs - b.atMs)
 
     resetToIdle()
     emitStatus()
@@ -479,8 +493,36 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       mp4Path,
     })
 
-    // timeline 占位：Task 2 接入会话打点；此处先返回空数组满足类型
-    return { ok: true, path: resultPath, durationMs, bytes, warning, mp4Path, timeline: [] }
+    return { ok: true, path: resultPath, durationMs, bytes, warning, mp4Path, timeline }
+  }
+
+  /**
+   * 活跃时钟打点：仅 recording；paused 提示先 resume。
+   */
+  function mark(params: ScreenRecordMarkParams): ScreenRecordMarkResult {
+    const label = typeof params?.label === 'string' ? params.label.trim() : ''
+    if (!label) {
+      return { ok: false, error: 'usage', message: 'label required' }
+    }
+    if (state.status !== 'recording') {
+      return {
+        ok: false,
+        error: 'not_recording',
+        message:
+          state.status === 'paused'
+            ? '当前已暂停：请先 screen_record_resume，再 mark'
+            : '仅 recording 态可打点',
+      }
+    }
+    const atMs = computeActiveElapsedMs()
+    const marker: ScreenRecordMarker = {
+      id: `m_${atMs}_${state.timeline.length}`,
+      atMs,
+      label,
+      kind: params.kind ?? 'beat',
+    }
+    state.timeline.push(marker)
+    return { ok: true, marker, elapsedMs: atMs }
   }
 
   /** 暂停：recording → paused */
@@ -856,6 +898,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     stop: stopWrapped,
     pause,
     resume,
+    mark,
     getStatus,
     respondConfirm,
     handleChunk,

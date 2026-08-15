@@ -420,4 +420,59 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     expect(notify).toHaveBeenCalledTimes(1)
     expect(notify.mock.calls[0]![0]).toMatchObject({ path: expect.stringMatching(/\.webm$/) })
   })
+
+  it('mark：recording 打点；paused 拒绝；stop 带回 timeline；暂停不计 atMs', async () => {
+    type DepsWithClock = ScreenRecordServiceDeps & { advanceMs?: (ms: number) => void }
+    const d = makeFakeDeps() as DepsWithClock
+    const s = createScreenRecordService(d)
+
+    expect(s.mark({ label: '早了' })).toMatchObject({ ok: false, error: 'not_recording' })
+    expect(s.mark({ label: '  ' })).toMatchObject({ ok: false, error: 'usage' })
+
+    await s.start({ sourceId: 'lumii-id' })
+    d.advanceMs?.(1_000)
+    const m1 = s.mark({ label: '获取模型列表' })
+    expect(m1.ok).toBe(true)
+    if (m1.ok) {
+      expect(m1.marker.atMs).toBe(1_000)
+      expect(m1.marker.label).toBe('获取模型列表')
+      expect(m1.marker.kind).toBe('beat')
+      expect(m1.elapsedMs).toBe(1_000)
+    }
+
+    await s.pause()
+    const pausedMark = s.mark({ label: '不该成功' })
+    expect(pausedMark).toMatchObject({ ok: false, error: 'not_recording' })
+    expect(!pausedMark.ok && pausedMark.message).toMatch(/resume/i)
+
+    d.advanceMs?.(5_000)
+    await s.resume()
+    d.advanceMs?.(500)
+    const m2 = s.mark({ label: '测试连接', kind: 'action' })
+    expect(m2.ok && m2.marker.atMs).toBe(1_500)
+
+    await s.handleChunk({
+      sessionId: sessionIdOf(s),
+      chunkBase64: Buffer.from('x').toString('base64'),
+      index: 0,
+      isLast: false,
+    })
+    const stop = await s.stop()
+    expect(stop.ok).toBe(true)
+    if (!stop.ok) return
+    expect(stop.timeline).toHaveLength(2)
+    expect(stop.timeline[0]).toMatchObject({ label: '获取模型列表', atMs: 1_000 })
+    expect(stop.timeline[1]).toMatchObject({ label: '测试连接', atMs: 1_500, kind: 'action' })
+
+    // 新会话清空 timeline
+    await s.start({ sourceId: 'lumii-id' })
+    await s.handleChunk({
+      sessionId: sessionIdOf(s),
+      chunkBase64: Buffer.from('y').toString('base64'),
+      index: 0,
+      isLast: false,
+    })
+    const stop2 = await s.stop()
+    expect(stop2.ok && stop2.timeline).toEqual([])
+  })
 })
