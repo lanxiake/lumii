@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "comfyui-remote": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "comfyui-mcp"
+      ],
+      "env": {
+        "COMFYUI_URL": "https://cfui.cpolar.top"
+      }
+    }
+  }
+}

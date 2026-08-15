@@ -11,24 +11,30 @@ description: MiniMax H3 本地视频创作全流程编排技能。当用户要�
 |------|--------|---------|
 | 提示词编写与优化 | `h3-prompt-master` | 编写/改写/诊断 H3 三段式提示词 |
 | 工作流设计与生成 | `h3-workflow-designer` | 配置工作流参数、三模式生成 |
+| 短剧多镜头编导 | `h3-drama-director` | 剧本分镜、FL2VA/Ref2VA 角色一致性、批量镜头管理 |
 | 生成结果迭代优化 | `h3-quality-optimizer` | 结果不满意时诊断问题并改进 |
 | 视频剪辑合成 | `h3-video-editor` | 剪切/拼接/加音/叠图/格式转换 |
 
-## 前置环境（必须满足）
+## 前置环境（MCP 连接）
 
-1. **ComfyUI 已本地启动**：`http://127.0.0.1:8188`，comfyui-mcp 已连接
-2. **模型文件已就位**（二选一模型 + 公共组件）：
+本技能通过 **comfyui-mcp** 与 ComfyUI 实例通信。支持三种连接方式：
 
-| 文件 | 大小 | 路径 |
-|------|------|------|
-| `minimax_h3_fl2va_pruned_int8_convrot.safetensors`（v1 剪枝版） | 19.5G | `models/diffusion_models/` |
-| `minimax_h3_fl2va_int8_convrot.safetensors`（v2 完整版） | 34G | `models/diffusion_models/` |
-| `qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors` | 14.6G | `models/text_encoders/` |
-| `minimax_h3_video_vae_fp16.safetensors` | 4.85G | `models/vae/` |
-| `minimax_h3_audio_vae_fp32.safetensors` | 0.56G | `models/vae/` |
+| 方式 | 说明 | 适用场景 |
+|------|------|---------|
+| 本地 | `COMFYUI_HOST=127.0.0.1 COMFYUI_PORT=8188` | 本机部署 ComfyUI |
+| 内网穿透 | `COMFYUI_URL=https://cfui.cpolar.top` | 远程访问本地 ComfyUI |
+| 官方/云端 | ComfyUI 官方 API 端点 | 云端 ComfyUI 实例 |
 
-3. **SageAttention 已安装**：KJNodes `PatchSageAttentionKJ` 节点（勿与 `--use-sage-attention` 同时使用）
-4. **硬件要求**：显存 ≥16GB，内存 ≥32GB（推荐 64GB）
+**启动 MCP 服务器（任选一种）：**
+```bash
+# 本地连接
+COMFYUI_HOST=127.0.0.1 COMFYUI_PORT=8188 npx -y comfyui-mcp
+
+# 远程连接（cpolar 内网穿透）
+COMFYUI_URL=https://cfui.cpolar.top npx -y comfyui-mcp
+```
+
+> MCP 连接成功后即可使用本技能的所有工具。模型下载、SageAttention 安装等硬件配置详见 ComfyUI 部署文档。
 
 ## 模型版本决策
 
@@ -89,6 +95,7 @@ description: MiniMax H3 本地视频创作全流程编排技能。当用户要�
 | "剪切视频" / "拼接" / "加背景音乐" | h3-video-editor |
 | "快速出一个看看" | 快速验证模式，h3-workflow-designer |
 | "批量出几个版本" | 批量生成引导（见下） |
+| "短剧" / "多镜头" / "保持角色一致" / "FL2VA" / "Ref2VA" | h3-drama-director |
 
 ## 批量生成引导
 
