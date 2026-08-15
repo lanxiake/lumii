@@ -13,6 +13,16 @@ import {
   stopAppUiControlServer,
 } from './server'
 
+vi.mock('../pet/pet-mode-ipc', () => ({
+  switchPetMode: vi.fn(async (mode: string) => ({ success: true, mode, durationMs: 0 })),
+  getPetWindowManager: vi.fn(() => null),
+}))
+
+import { getPetWindowManager, switchPetMode } from '../pet/pet-mode-ipc'
+
+const mockedSwitchPetMode = vi.mocked(switchPetMode)
+const mockedGetPetWindowManager = vi.mocked(getPetWindowManager)
+
 vi.mock('../vendor/ports-inspect.js', () => ({
   inspectPortUsage: vi.fn(),
 }))
@@ -517,5 +527,126 @@ describe('POST /settings/*', () => {
 
     const write = await postRoute(port, '/settings/write', { keyPath: 'theme.mode', value: 'dark' }, token)
     expect(write.json).toEqual({ ok: false, error: 'app_not_running' })
+  })
+})
+
+describe('POST /ipc/skills/* 与 /ipc/pet/*', () => {
+  let tmpRoot: string
+  let controller: AppUiController
+  let port: number
+
+  beforeEach(async () => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-app-ui-server-'))
+    _resetWindowsClientDataRootCacheForTest()
+    process.env.LUMII_CLIENT_DATA_DIR = tmpRoot
+    controller = mockController()
+    port = 0
+    mockedInspectPortUsage.mockReset()
+    mockedSwitchPetMode.mockClear()
+    mockedGetPetWindowManager.mockReset()
+    mockedGetPetWindowManager.mockReturnValue(null)
+  })
+
+  afterEach(async () => {
+    await stopAppUiControlServer()
+    delete process.env.LUMII_CLIENT_DATA_DIR
+    _resetWindowsClientDataRootCacheForTest()
+    fs.rmSync(tmpRoot, { recursive: true, force: true })
+  })
+
+  /** 用给定 deps 覆盖启动一个控制口，返回 token/port */
+  async function startWith(
+    extraDeps: Partial<Parameters<typeof startAppUiControlServer>[0]>,
+  ): Promise<{ token: string; port: number }> {
+    const server = http.createServer()
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', () => resolve())
+    })
+    const addr = server.address()
+    if (!addr || typeof addr === 'string') throw new Error('no port')
+    port = addr.port
+    server.close()
+
+    const config = await startAppUiControlServer({
+      getWindow: () => null,
+      controller,
+      port,
+      token: 'test-token-123',
+      ...extraDeps,
+    })
+    return { token: config.token, port: config.port }
+  }
+
+  it('/ipc/skills/list 调用 getSkillRuntime().listLocalInstalled', async () => {
+    const listLocalInstalled = vi.fn(async () => [{ id: 'skill-a' }])
+    const { token } = await startWith({
+      getSkillRuntime: () => ({ listLocalInstalled, setLocalEnabled: vi.fn() }),
+    })
+
+    const res = await postRoute(port, '/ipc/skills/list', {}, token)
+    expect(res.json).toEqual({ ok: true, skills: [{ id: 'skill-a' }] })
+    expect(listLocalInstalled).toHaveBeenCalledOnce()
+  })
+
+  it('/ipc/skills/list runtime 未注入时返回 not_ready', async () => {
+    const { token } = await startWith({})
+    const res = await postRoute(port, '/ipc/skills/list', {}, token)
+    expect(res.json).toEqual({ ok: false, error: 'not_ready' })
+  })
+
+  it('/ipc/skills/setEnabled 调用 setLocalEnabled 且触发 watcher.refresh', async () => {
+    const setLocalEnabled = vi.fn(async () => true)
+    const refresh = vi.fn(async () => [])
+    const { token } = await startWith({
+      getSkillRuntime: () => ({ listLocalInstalled: vi.fn(), setLocalEnabled }),
+      getSkillWatcher: () => ({ refresh }),
+    })
+
+    const res = await postRoute(port, '/ipc/skills/setEnabled', { skillId: 'skill-a', enabled: false }, token)
+    expect(res.json).toEqual({ ok: true, result: true })
+    expect(setLocalEnabled).toHaveBeenCalledWith('skill-a', false)
+    expect(refresh).toHaveBeenCalledOnce()
+  })
+
+  it('/ipc/skills/setEnabled 非法参数返回 usage 且不触碰 runtime', async () => {
+    const setLocalEnabled = vi.fn()
+    const { token } = await startWith({
+      getSkillRuntime: () => ({ listLocalInstalled: vi.fn(), setLocalEnabled }),
+    })
+
+    const res = await postRoute(port, '/ipc/skills/setEnabled', { skillId: '', enabled: 'no' }, token)
+    expect(res.json).toEqual({ ok: false, error: 'usage' })
+    expect(setLocalEnabled).not.toHaveBeenCalled()
+  })
+
+  it('/ipc/pet/switchMode 调用 switchPetMode', async () => {
+    mockedGetPetWindowManager.mockReturnValue({ getMode: () => 'pet' } as never)
+    const { token } = await startWith({})
+
+    const res = await postRoute(port, '/ipc/pet/switchMode', { mode: 'pet' }, token)
+    expect(mockedSwitchPetMode).toHaveBeenCalledWith('pet', undefined)
+    expect(res.json).toMatchObject({ ok: true, mode: 'pet' })
+  })
+
+  it('/ipc/pet/switchMode 非法 mode 返回 usage', async () => {
+    const { token } = await startWith({})
+    const res = await postRoute(port, '/ipc/pet/switchMode', { mode: 'desktop2' }, token)
+    expect(res.json).toEqual({ ok: false, error: 'usage' })
+    expect(mockedSwitchPetMode).not.toHaveBeenCalled()
+  })
+
+  it('/ipc/pet/getMode 无窗口管理器时返回 desktop', async () => {
+    const { token } = await startWith({})
+    const res = await postRoute(port, '/ipc/pet/getMode', {}, token)
+    expect(res.json).toEqual({ ok: true, mode: 'desktop' })
+  })
+
+  it('/ipc/pet/listModels 走注入的 listPetModels', async () => {
+    const listPetModels = vi.fn(async () => [{ id: 'default-pet' }])
+    const { token } = await startWith({ listPetModels })
+
+    const res = await postRoute(port, '/ipc/pet/listModels', {}, token)
+    expect(res.json).toEqual({ ok: true, models: [{ id: 'default-pet' }] })
+    expect(listPetModels).toHaveBeenCalledOnce()
   })
 })

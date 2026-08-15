@@ -280,9 +280,105 @@ async function handleRoute(
       await handleSettingsWriteRoute(body, res)
       return
     }
+    case '/ipc/skills/list': {
+      await handleSkillsListRoute(res)
+      return
+    }
+    case '/ipc/skills/setEnabled': {
+      await handleSkillsSetEnabledRoute(body, res)
+      return
+    }
+    case '/ipc/pet/switchMode': {
+      await handlePetSwitchModeRoute(body, res)
+      return
+    }
+    case '/ipc/pet/getMode': {
+      await handlePetGetModeRoute(res)
+      return
+    }
+    case '/ipc/pet/listModels': {
+      await handlePetListModelsRoute(res)
+      return
+    }
     default:
       sendJson(res, 404, { ok: false, error: 'not_found' })
   }
+}
+
+/**
+ * B 层：列出已安装技能。runtime 未注入（应用尚未初始化）时返回 not_ready。
+ */
+async function handleSkillsListRoute(res: http.ServerResponse): Promise<void> {
+  const rt = activeDeps?.getSkillRuntime?.()
+  if (!rt) {
+    sendJson(res, 200, { ok: false, error: 'not_ready' })
+    return
+  }
+  const skills = await rt.listLocalInstalled()
+  sendJson(res, 200, { ok: true, skills })
+}
+
+/**
+ * B 层：启用/禁用技能。必须复现 index.ts:2154 的参数校验与 skillWatcher.refresh 副作用，
+ * 否则技能列表不会刷新。
+ */
+async function handleSkillsSetEnabledRoute(body: unknown, res: http.ServerResponse): Promise<void> {
+  const skillId = (body as { skillId?: unknown } | null)?.skillId
+  const enabled = (body as { enabled?: unknown } | null)?.enabled
+  if (typeof skillId !== 'string' || skillId.length === 0 || typeof enabled !== 'boolean') {
+    sendJson(res, 200, { ok: false, error: 'usage' })
+    return
+  }
+
+  const rt = activeDeps?.getSkillRuntime?.()
+  if (!rt) {
+    sendJson(res, 200, { ok: false, error: 'not_ready' })
+    return
+  }
+
+  const result = await rt.setLocalEnabled(skillId, enabled)
+  const watcher = activeDeps?.getSkillWatcher?.()
+  if (watcher) {
+    await watcher.refresh().catch(() => {})
+  }
+  sendJson(res, 200, { ok: true, result })
+}
+
+/**
+ * B 层：切换桌宠模式。
+ */
+async function handlePetSwitchModeRoute(body: unknown, res: http.ServerResponse): Promise<void> {
+  const mode = (body as { mode?: unknown } | null)?.mode
+  const modelId = (body as { modelId?: unknown } | null)?.modelId
+  if (mode !== 'pet' && mode !== 'desktop') {
+    sendJson(res, 200, { ok: false, error: 'usage' })
+    return
+  }
+  const { switchPetMode, getPetWindowManager } = await import('../pet/pet-mode-ipc')
+  const result = await switchPetMode(mode, typeof modelId === 'string' ? modelId : undefined)
+  sendJson(res, 200, { ok: true, result, mode: getPetWindowManager()?.getMode() ?? mode })
+}
+
+/**
+ * B 层：查询当前桌宠模式。
+ */
+async function handlePetGetModeRoute(res: http.ServerResponse): Promise<void> {
+  const { getPetWindowManager } = await import('../pet/pet-mode-ipc')
+  sendJson(res, 200, { ok: true, mode: getPetWindowManager()?.getMode() ?? 'desktop' })
+}
+
+/**
+ * B 层：列出桌宠模型注册表。
+ */
+async function handlePetListModelsRoute(res: http.ServerResponse): Promise<void> {
+  if (activeDeps?.listPetModels) {
+    const models = await activeDeps.listPetModels()
+    sendJson(res, 200, { ok: true, models })
+    return
+  }
+  const { loadPetModelRegistry } = await import('../pet/pet-model-resolver')
+  const { models } = await loadPetModelRegistry()
+  sendJson(res, 200, { ok: true, models })
 }
 
 /**
