@@ -392,13 +392,17 @@ EOF
 
 ---
 
-## 明确延后（勿在本计划实施）
+## 后续增量（第二次日志复盘后追加，已实施）
 
-- `apps/windows/bundled-skills/视频创作/screen-tutorial-pipeline/SKILL.md`  
+第二次分析「模型配置视频教程」日志发现：P0–P2 已消除「等 burned / 手搓 ffmpeg」弯路，但调用仍偏多，根因是**演示中切换服务商把用户草稿重置、随后花大量操作修复**，且**全程未用 pause**。据此追加：
+
+- ✅ **修复模型配置草稿丢失（app bug）**：`SettingsPage.tsx` 的 `patchSlot` 增加「按 `槽:服务商类型` 记忆草稿」缓存，切走再切回原样恢复 baseUrl/modelId/allowedModelIds/输入缓冲，`getProviderConfig` 重载时清空缓存。真人用户与 Agent 均受益。
+- ✅ **落地 bundled Skill** `apps/windows/bundled-skills/视频创作/screen-tutorial-pipeline/SKILL.md`：固化「探路彩排 → pause 纪律 → timeline 生成 cues → narrate 一次成片 → 读字段/inspect 验收」，并写入「只读演示」安全原则与硬性禁令。
+
+## 明确延后
+
 - UI / preload 暴露 mark  
 - `app_act` autoMark  
-
-调通并完成 Task 5 手工验收后，另开设计/计划写 Skill。
 
 ---
 

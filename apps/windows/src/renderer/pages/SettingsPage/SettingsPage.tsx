@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, ReactNode } from 'react'
+import React, { useState, useEffect, useCallback, useRef, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
   User,
@@ -130,6 +130,21 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   })
   /** API Key 明文可见性（按槽） */
   const [showApiKeyBySlot, setShowApiKeyBySlot] = useState<Partial<Record<CapabilitySlot, boolean>>>({})
+  /**
+   * 按「槽:服务商类型」记忆草稿字段（baseUrl/modelId/allowedModelIds/输入框缓冲文本）。
+   * 切换服务商类型时先缓存旧类型草稿，切回同一类型时原样恢复，避免演示/试错性切换丢失用户未保存配置。
+   */
+  const providerDraftCacheRef = useRef<
+    Partial<
+      Record<
+        string,
+        { baseUrl: string; modelId: string; allowedModelIds: string[]; modelIdsText?: string }
+      >
+    >
+  >({})
+  /** slotModelIdsText 的 ref 镜像：供 patchSlot 在无依赖回调中读取最新的输入框缓冲文本 */
+  const slotModelIdsTextRef = useRef<Partial<Record<CapabilitySlot, string>>>({})
+  slotModelIdsTextRef.current = slotModelIdsText
   /** 语音 ASR API Key 可见性 */
   const [showVoiceApiKey, setShowVoiceApiKey] = useState(false)
 
@@ -360,6 +375,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   useEffect(() => {
     if (activeCategory !== 'modelConfig') return
     setProviderLoading(true)
+    // 重新加载即重置草稿缓存，避免恢复上一次会话遗留的类型草稿
+    providerDraftCacheRef.current = {}
     getProviderConfig()
       .then((cfg) => {
         setProviderSlots(cfg)
@@ -1069,18 +1086,40 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     )
   }
 
-  /** 更新指定能力槽字段（切换类型时同步默认 baseUrl 并清空已选模型，避免残留旧 Provider 的模型） */
+  /**
+   * 更新指定能力槽字段。
+   * 切换服务商类型时：先把旧类型的草稿（地址/模型/输入缓冲）缓存进 providerDraftCacheRef，
+   * 若目标类型此前有缓存则原样恢复，否则回退默认 baseUrl 并清空模型，避免残留旧 Provider 的模型。
+   * 这样反复切换（含演示/试错）不会丢失用户尚未保存的配置。
+   */
   const patchSlot = useCallback((slot: CapabilitySlot, patch: Partial<LocalProviderConfigView>) => {
     setProviderSlots((prev) => {
       if (!prev) return prev
       const current = prev[slot]
       const nextSlot = { ...current, ...patch }
       if (patch.type && patch.type !== current.type) {
-        nextSlot.baseUrl = PROVIDER_DEFAULT_BASE_URL[patch.type]
-        nextSlot.modelId = ''
-        nextSlot.allowedModelIds = []
+        const cache = providerDraftCacheRef.current
+        // 缓存旧类型草稿，供后续切回时恢复
+        cache[`${slot}:${current.type}`] = {
+          baseUrl: current.baseUrl,
+          modelId: current.modelId,
+          allowedModelIds: [...(current.allowedModelIds ?? [])],
+          modelIdsText: slotModelIdsTextRef.current[slot],
+        }
+        const restored = cache[`${slot}:${patch.type}`]
+        if (restored) {
+          nextSlot.baseUrl = restored.baseUrl
+          nextSlot.modelId = restored.modelId
+          nextSlot.allowedModelIds = [...restored.allowedModelIds]
+          setSlotModelIdsText((t) => ({ ...t, [slot]: restored.modelIdsText }))
+        } else {
+          nextSlot.baseUrl = PROVIDER_DEFAULT_BASE_URL[patch.type]
+          nextSlot.modelId = ''
+          nextSlot.allowedModelIds = []
+          setSlotModelIdsText((t) => ({ ...t, [slot]: undefined }))
+        }
+        // 探测得到的模型列表与新类型无关，清空避免串台
         setSlotModels((m) => ({ ...m, [slot]: [] }))
-        setSlotModelIdsText((t) => ({ ...t, [slot]: undefined }))
       }
       if (patch.enabled === true) {
         setExpandedSlots((e) => ({ ...e, [slot]: true }))
