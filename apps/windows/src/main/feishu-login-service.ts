@@ -50,8 +50,11 @@ export interface FeishuNormalizedMessage {
 /** 走 im.image 上传并以 msg_type=image 发送的扩展名 */
 const FEISHU_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'])
 
+/** 飞书 im.file 支持的素材类型 */
+type FeishuFileType = 'opus' | 'mp4' | 'pdf' | 'doc' | 'xls' | 'ppt' | 'stream'
+
 /** 扩展名 → 飞书 im.file file_type；未命中回落 stream */
-const FEISHU_FILE_TYPES: Record<string, 'opus' | 'mp4' | 'pdf' | 'doc' | 'xls' | 'ppt' | 'stream'> = {
+const FEISHU_FILE_TYPES: Record<string, FeishuFileType> = {
   '.opus': 'opus',
   '.mp4': 'mp4',
   '.pdf': 'pdf',
@@ -61,6 +64,22 @@ const FEISHU_FILE_TYPES: Record<string, 'opus' | 'mp4' | 'pdf' | 'doc' | 'xls' |
   '.xlsx': 'xls',
   '.ppt': 'ppt',
   '.pptx': 'ppt',
+}
+
+/**
+ * 上传 file_type → 发送 msg_type。
+ *
+ * 飞书要求两者严格匹配：mp4 素材只能作为视频（media）发送、opus 只能作为语音（audio）
+ * 发送，混用会返回 HTTP 400 / code 230055「文件上传时选择的类型与发送的消息类型不匹配」。
+ */
+const FEISHU_MSG_TYPE_BY_FILE_TYPE: Record<FeishuFileType, 'media' | 'audio' | 'file'> = {
+  mp4: 'media',
+  opus: 'audio',
+  pdf: 'file',
+  doc: 'file',
+  xls: 'file',
+  ppt: 'file',
+  stream: 'file',
 }
 
 const log = {
@@ -225,7 +244,8 @@ export class FeishuLoginService extends EventEmitter {
   }
 
   /**
-   * 主动推送本地文件：图片走 im.image + msg_type=image，其余走 im.file + msg_type=file。
+   * 主动推送本地文件：图片走 im.image + msg_type=image；其余走 im.file，
+   * 并按上传的 file_type 选择匹配的 msg_type（mp4→media、opus→audio、其余→file）。
    *
    * @param filePath 本地绝对路径
    * @param to 可选收件人 open_id；缺省为登录会话的 openId
@@ -243,17 +263,18 @@ export class FeishuLoginService extends EventEmitter {
     const name = fileName?.trim() || path.basename(filePath)
     const ext = path.extname(name).toLowerCase()
     const isImage = FEISHU_IMAGE_EXTS.has(ext)
+    const fileType = FEISHU_FILE_TYPES[ext] ?? 'stream'
     try {
       const uploaded = isImage
         ? await this.uploadImage(filePath)
-        : await this.uploadFile(filePath, name, ext)
+        : await this.uploadFile(filePath, name, fileType)
       if (!uploaded.ok) return uploaded
 
       const res = await this.httpClient.im.message.create({
         params: { receive_id_type: 'open_id' },
         data: {
           receive_id: receiveId,
-          msg_type: isImage ? 'image' : 'file',
+          msg_type: isImage ? 'image' : FEISHU_MSG_TYPE_BY_FILE_TYPE[fileType],
           content: JSON.stringify(
             isImage ? { image_key: uploaded.key } : { file_key: uploaded.key },
           ),
@@ -295,11 +316,11 @@ export class FeishuLoginService extends EventEmitter {
   private async uploadFile(
     filePath: string,
     fileName: string,
-    ext: string,
+    fileType: FeishuFileType,
   ): Promise<{ ok: true; key: string } | { ok: false; error: string }> {
     const res = (await this.httpClient!.im.file.create({
       data: {
-        file_type: FEISHU_FILE_TYPES[ext] ?? 'stream',
+        file_type: fileType,
         file_name: fileName,
         file: fs.createReadStream(filePath),
       },
