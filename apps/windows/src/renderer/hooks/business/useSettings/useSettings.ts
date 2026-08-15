@@ -84,6 +84,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     includeMicDefault: true,
     includeSystemAudioDefault: true,
     exportMp4Default: false,
+    narrateOriginalAudioGain: 0.35,
     confirmTimeoutSec: 120,
   },
   language: 'zh-CN',

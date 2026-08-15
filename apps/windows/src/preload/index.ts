@@ -1032,6 +1032,15 @@ export interface ElectronAPI {
       maxDurationSec?: number
     }) => Promise<unknown>
     stop: (params?: { exportMp4?: boolean }) => Promise<unknown>
+    narrate: (params: {
+      path: string
+      cues: Array<{ startMs: number; text: string; endMs?: number }>
+      writeSrt?: boolean
+      dub?: boolean
+      subtitleMode?: 'soft' | 'burn'
+      originalAudioGain?: number
+      exportMp4?: boolean
+    }) => Promise<unknown>
     pause: () => Promise<unknown>
     resume: () => Promise<unknown>
     status: () => Promise<unknown>
@@ -1800,6 +1809,7 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke('screen-record:start', { params }),
     stop: (params?: { exportMp4?: boolean }) =>
       ipcRenderer.invoke('screen-record:stop', { params }),
+    narrate: (params) => ipcRenderer.invoke('screen-record:narrate', { params }),
     pause: () => ipcRenderer.invoke('screen-record:pause'),
     resume: () => ipcRenderer.invoke('screen-record:resume'),
     status: () => ipcRenderer.invoke('screen-record:status'),

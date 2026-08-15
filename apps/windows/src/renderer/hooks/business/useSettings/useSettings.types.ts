@@ -98,6 +98,8 @@ export interface ScreenRecordConfig {
   includeSystemAudioDefault: boolean
   /** 停止时默认是否导出 MP4 */
   exportMp4Default: boolean
+  /** 旁白混流原声增益 0–1 */
+  narrateOriginalAudioGain: number
   /** AI 触发确认弹窗超时秒数 */
   confirmTimeoutSec: number
 }

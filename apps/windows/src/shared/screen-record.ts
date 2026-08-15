@@ -45,6 +45,14 @@ export type ScreenRecordErrorCode =
   | 'not_recording'
   /** resume 时非 paused */
   | 'not_paused'
+  /** 旁白：TTS 不可用 */
+  | 'tts_unavailable'
+  /** 旁白：编排/混流失败 */
+  | 'narrate_failed'
+  /** 旁白：cues 非法 */
+  | 'invalid_cues'
+  /** 旁白：源文件不在 recordings/ */
+  | 'source_not_in_recordings'
 
 /** list_sources 工具参数 */
 export interface ScreenRecordListSourcesParams {
@@ -129,6 +137,8 @@ export interface ScreenRecordConfig {
   includeSystemAudioDefault: boolean
   /** 停止时默认是否导出 MP4（失败保留 WebM，warning=mp4_failed） */
   exportMp4Default: boolean
+  /** 旁白混流时原声音量增益（0–1，默认 0.35） */
+  narrateOriginalAudioGain: number
   /** AI 触发时确认弹窗超时秒数，超时自动拒绝 */
   confirmTimeoutSec: number
 }
@@ -140,6 +150,7 @@ export const SCREEN_RECORD_SETTINGS_DEFAULTS: ScreenRecordConfig = {
   includeMicDefault: true,
   includeSystemAudioDefault: true,
   exportMp4Default: false,
+  narrateOriginalAudioGain: 0.35,
   confirmTimeoutSec: 120,
 }
 
@@ -171,6 +182,7 @@ export type ScreenRecordCommand =
   | { readonly type: 'screen-record:pause' }
   | { readonly type: 'screen-record:resume' }
   | { readonly type: 'screen-record:status' }
+  | { readonly type: 'screen-record:narrate'; params: ScreenRecordNarrateParams }
   | {
       readonly type: 'screen-record:confirm-respond'
       sessionId: string
@@ -235,4 +247,43 @@ export type ScreenRecordPauseResult =
 
 export type ScreenRecordResumeResult =
   | { ok: true; status: 'recording'; elapsedMs: number }
+  | { ok: false; error: ScreenRecordErrorCode; message?: string }
+
+/** 旁白单条字幕/口播 cue（缺 endMs 时由 TTS 时长填补） */
+export interface ScreenRecordNarrateCue {
+  startMs: number
+  text: string
+  endMs?: number
+}
+
+/**
+ * screen_record_narrate 参数。
+ * subtitleMode 默认 **burn**（烧进画面）；同时仍写出旁路 .srt（writeSrt 默认 true）。
+ */
+export interface ScreenRecordNarrateParams {
+  /** 源成片绝对路径，须落在 recordings/ */
+  path: string
+  cues: ScreenRecordNarrateCue[]
+  /** 默认 true：写出 UTF-8 .srt */
+  writeSrt?: boolean
+  /** 默认 true：TTS 配音混入 */
+  dub?: boolean
+  /** 默认 burn；burn 失败可降级 soft */
+  subtitleMode?: 'soft' | 'burn'
+  /** 原声增益，默认跟随设置 narrateOriginalAudioGain（0.35） */
+  originalAudioGain?: number
+  /** 成片后再导出 MP4 */
+  exportMp4?: boolean
+}
+
+/** narrate 成功/失败结果 */
+export type ScreenRecordNarrateResult =
+  | {
+      ok: true
+      /** 旁白后新文件路径（原片保留） */
+      path: string
+      srtPath?: string
+      mp4Path?: string
+      warning?: 'subtitle_burn_failed' | 'mp4_failed'
+    }
   | { ok: false; error: ScreenRecordErrorCode; message?: string }

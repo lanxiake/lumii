@@ -67,6 +67,8 @@ export function parseScreenRecordSettings(json: string | null): ScreenRecordConf
       includeSystemAudioDefault:
         s.includeSystemAudioDefault ?? SCREEN_RECORD_SETTINGS_DEFAULTS.includeSystemAudioDefault,
       exportMp4Default: s.exportMp4Default ?? SCREEN_RECORD_SETTINGS_DEFAULTS.exportMp4Default,
+      narrateOriginalAudioGain:
+        s.narrateOriginalAudioGain ?? SCREEN_RECORD_SETTINGS_DEFAULTS.narrateOriginalAudioGain,
       confirmTimeoutSec: s.confirmTimeoutSec ?? SCREEN_RECORD_SETTINGS_DEFAULTS.confirmTimeoutSec,
     }
   } catch {

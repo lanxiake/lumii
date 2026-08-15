@@ -51,7 +51,7 @@ describe('registerScreenRecordTools', () => {
     })
   })
 
-  it('注册六工具名（含 pause/resume）', () => {
+  it('注册七工具名（含 pause/resume/narrate）', () => {
     const names = registry.getAll().map((t) => t.name)
     expect(names).toEqual(
       expect.arrayContaining([
@@ -61,6 +61,7 @@ describe('registerScreenRecordTools', () => {
         'screen_record_status',
         'screen_record_pause',
         'screen_record_resume',
+        'screen_record_narrate',
       ]),
     )
   })

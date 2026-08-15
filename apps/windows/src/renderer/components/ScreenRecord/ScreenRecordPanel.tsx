@@ -29,6 +29,11 @@ export interface ScreenRecordPanelProps {
   onResume: () => Promise<unknown>
   onAlwaysAllowChange: (v: boolean) => void
   onIncludeMicDefaultChange?: (v: boolean) => void
+  /** 对最近成片做旁白（可选；未传则仅提示走 AI） */
+  onNarrate?: (params: {
+    path: string
+    cues: Array<{ startMs: number; text: string }>
+  }) => Promise<unknown>
 }
 
 /** 格式化时长 MM:SS 或 H:MM:SS */
@@ -70,12 +75,17 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
   onPause,
   onResume,
   onAlwaysAllowChange,
+  onNarrate,
 }) => {
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string>('')
   const [includeMic, setIncludeMic] = useState(includeMicDefault)
   const [includeSystemAudio, setIncludeSystemAudio] = useState(includeSystemAudioDefault)
   const [exportMp4, setExportMp4] = useState(exportMp4Default)
+  const [narrateOpen, setNarrateOpen] = useState(false)
+  const [narrateDraft, setNarrateDraft] = useState('0|开场介绍')
+  const [narrateBusy, setNarrateBusy] = useState(false)
+  const [narrateMsg, setNarrateMsg] = useState('')
   const recording = status === 'recording'
   const paused = status === 'paused'
   const active = recording || paused
@@ -216,6 +226,66 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
           <p className={`${styles.hint} ${styles.hintWarn}`}>
             录制单窗口时请保持目标窗口可见且不要最小化；最小化或关闭目标窗口可能导致黑屏或中断（已录片段仍会保存）。
           </p>
+
+          {narrateOpen && lastRecording && onNarrate && (
+            <div className={styles.narrateBox}>
+              <p className={styles.switchHint}>
+                每行：`开始秒|旁白文本`（音色用语音设置；默认烧字幕）。复杂旁白请用 AI 工具
+                screen_record_narrate。
+              </p>
+              <textarea
+                className={styles.narrateTextarea}
+                rows={4}
+                value={narrateDraft}
+                onChange={(e) => setNarrateDraft(e.target.value)}
+                disabled={narrateBusy}
+              />
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={narrateBusy}
+                  onClick={() => {
+                    const cues = narrateDraft
+                      .split('\n')
+                      .map((line) => line.trim())
+                      .filter(Boolean)
+                      .map((line) => {
+                        const pipe = line.indexOf('|')
+                        if (pipe < 0) return null
+                        const sec = Number(line.slice(0, pipe).trim())
+                        const text = line.slice(pipe + 1).trim()
+                        if (!Number.isFinite(sec) || sec < 0 || !text) return null
+                        return { startMs: Math.round(sec * 1000), text }
+                      })
+                      .filter((c): c is { startMs: number; text: string } => !!c)
+                    if (cues.length === 0) {
+                      setNarrateMsg('请按「秒|文本」填写至少一行')
+                      return
+                    }
+                    setNarrateBusy(true)
+                    setNarrateMsg('处理中…')
+                    void onNarrate({ path: lastRecording.path, cues })
+                      .then((raw) => {
+                        const r = raw as { ok?: boolean; path?: string; error?: string; message?: string }
+                        if (r?.ok && r.path) {
+                          setNarrateMsg(`完成：${r.path}`)
+                        } else {
+                          setNarrateMsg(`失败：${r?.error ?? r?.message ?? 'unknown'}`)
+                        }
+                      })
+                      .catch((e: unknown) => {
+                        setNarrateMsg(e instanceof Error ? e.message : String(e))
+                      })
+                      .finally(() => setNarrateBusy(false))
+                  }}
+                >
+                  {narrateBusy ? '处理中…' : '生成旁白成片'}
+                </Button>
+                {narrateMsg && <span className={styles.switchHint}>{narrateMsg}</span>}
+              </div>
+            </div>
+          )}
         </div>
 
         <footer className={styles.panelFooter}>
@@ -233,6 +303,16 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
               >
                 打开文件夹
               </Button>
+              {onNarrate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={active || narrateBusy}
+                  onClick={() => setNarrateOpen((v) => !v)}
+                >
+                  旁白/字幕
+                </Button>
+              )}
             </div>
           ) : (
             <span className={styles.footerSpacer} />

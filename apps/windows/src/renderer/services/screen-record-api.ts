@@ -10,6 +10,8 @@ import type {
   ScreenRecordResumeResult,
   ScreenRecordStatusResult,
   ScreenRecordListSourcesResult,
+  ScreenRecordNarrateParams,
+  ScreenRecordNarrateResult,
 } from '../../shared/screen-record'
 import { ScreenRecordCapture } from '../screen-record'
 
@@ -75,6 +77,13 @@ export async function stop(params?: {
     await capture.stop()
   }
   return (await window.electronAPI.screenRecord.stop(params)) as ScreenRecordStopResult
+}
+
+/** 成片旁白（SRT + TTS，默认烧字幕） */
+export async function narrate(
+  params: ScreenRecordNarrateParams,
+): Promise<ScreenRecordNarrateResult> {
+  return (await window.electronAPI.screenRecord.narrate(params)) as ScreenRecordNarrateResult
 }
 
 /** 暂停录制 */

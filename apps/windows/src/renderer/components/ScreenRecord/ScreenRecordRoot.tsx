@@ -12,6 +12,7 @@ import type { ScreenRecordEvent } from '../../../shared/screen-record'
 import { useScreenRecordContext } from './ScreenRecordContext'
 import { ScreenRecordPanel, formatDuration } from './ScreenRecordPanel'
 import { ScreenRecordConfirmDialog } from './ScreenRecordConfirmDialog'
+import * as screenRecordApi from '../../services/screen-record-api'
 import styles from './ScreenRecord.module.css'
 
 export interface ScreenRecordTitleControlProps {
@@ -25,6 +26,7 @@ const DEFAULT_SCREEN_RECORD = {
   includeMicDefault: true,
   includeSystemAudioDefault: true,
   exportMp4Default: false,
+  narrateOriginalAudioGain: 0.35,
   confirmTimeoutSec: 120,
 }
 
@@ -186,6 +188,15 @@ export const ScreenRecordRoot: React.FC = () => {
           await resume()
         }}
         onAlwaysAllowChange={persistAlwaysAllow}
+        onNarrate={async (p) => {
+          return screenRecordApi.narrate({
+            path: p.path,
+            cues: p.cues,
+            writeSrt: true,
+            dub: true,
+            subtitleMode: 'burn',
+          })
+        }}
       />
       <ScreenRecordConfirmDialog payload={pendingConfirm} onRespond={respondConfirm} />
     </>

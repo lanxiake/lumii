@@ -3,7 +3,8 @@
  */
 import { ipcMain, type BrowserWindow } from 'electron'
 import type { ScreenRecordService } from './screen-record-service'
-import type { ScreenRecordStartParams, ScreenRecordStopParams } from '../../shared/screen-record'
+import type { ScreenRecordStartParams, ScreenRecordStopParams, ScreenRecordNarrateParams } from '../../shared/screen-record'
+import { getNarrateService } from './narrate-accessor'
 
 /**
  * 注册录屏相关 ipcMain handle/on，绑定到单一 ScreenRecordService。
@@ -30,6 +31,12 @@ export function registerScreenRecordIpc(
         ? p.params
         : (p as ScreenRecordStopParams | undefined)
     return service.stop(params)
+  })
+
+  ipcMain.handle('screen-record:narrate', async (_e, p: { params: ScreenRecordNarrateParams }) => {
+    const narrate = getNarrateService()
+    if (!narrate) return { ok: false, error: 'disabled' }
+    return narrate.narrate(p.params)
   })
 
   ipcMain.handle('screen-record:pause', async () => service.pause())

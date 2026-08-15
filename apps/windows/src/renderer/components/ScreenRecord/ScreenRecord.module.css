@@ -144,6 +144,31 @@
   color: var(--mt-warning-light);
 }
 
+.narrateBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mt-space-2, 8px);
+  margin-top: var(--mt-space-3, 12px);
+  padding: var(--mt-space-3, 12px);
+  border: 1px solid var(--mt-border-1);
+  border-radius: var(--mt-radius-lg, 8px);
+  background: var(--mt-bg-secondary);
+}
+
+.narrateTextarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 72px;
+  padding: var(--mt-space-2, 8px);
+  border: 1px solid var(--mt-border-1);
+  border-radius: var(--mt-radius-md, 6px);
+  background: var(--mt-bg-primary);
+  color: var(--mt-fg-1);
+  font-family: var(--mt-font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .empty {
   margin: 0;
   padding: var(--mt-space-4, 16px) 0;

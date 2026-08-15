@@ -94,6 +94,7 @@ function makeFakeDeps(
       includeMicDefault,
       includeSystemAudioDefault: true,
       exportMp4Default: false,
+      narrateOriginalAudioGain: 0.35,
       confirmTimeoutSec,
     }),
     resolveRecordingsDir: () => 'E:/tmp/recordings',

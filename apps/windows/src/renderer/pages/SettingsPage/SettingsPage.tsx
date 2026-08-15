@@ -779,6 +779,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         includeMicDefault: true,
                         includeSystemAudioDefault: true,
                         exportMp4Default: false,
+                        narrateOriginalAudioGain: 0.35,
                         confirmTimeoutSec: 120,
                       }),
                       enabled: checked,
@@ -805,6 +806,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         includeMicDefault: true,
                         includeSystemAudioDefault: true,
                         exportMp4Default: false,
+                        narrateOriginalAudioGain: 0.35,
                         confirmTimeoutSec: 120,
                       }),
                       alwaysAllow: checked,
@@ -829,6 +831,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         includeMicDefault: true,
                         includeSystemAudioDefault: true,
                         exportMp4Default: false,
+                        narrateOriginalAudioGain: 0.35,
                         confirmTimeoutSec: 120,
                       }),
                       includeMicDefault: checked,
@@ -855,6 +858,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         includeMicDefault: true,
                         includeSystemAudioDefault: true,
                         exportMp4Default: false,
+                        narrateOriginalAudioGain: 0.35,
                         confirmTimeoutSec: 120,
                       }),
                       includeSystemAudioDefault: checked,
@@ -881,6 +885,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         includeMicDefault: true,
                         includeSystemAudioDefault: true,
                         exportMp4Default: false,
+                        narrateOriginalAudioGain: 0.35,
                         confirmTimeoutSec: 120,
                       }),
                       exportMp4Default: checked,
@@ -888,6 +893,40 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   })
                 }
               />
+            </div>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>旁白原声增益</span>
+                <span className={styles['panel-row-hint']}>配音混流时原片音量（0–1，默认 0.35）</span>
+              </div>
+              <div className={styles['setting-input-with-unit']}>
+                <Input
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={settings.screenRecord?.narrateOriginalAudioGain ?? 0.35}
+                  onChange={(e) =>
+                    updateSettings({
+                      screenRecord: {
+                        ...(settings.screenRecord ?? {
+                          enabled: true,
+                          alwaysAllow: false,
+                          includeMicDefault: true,
+                          includeSystemAudioDefault: true,
+                          exportMp4Default: false,
+                          narrateOriginalAudioGain: 0.35,
+                          confirmTimeoutSec: 120,
+                        }),
+                        narrateOriginalAudioGain: Math.min(
+                          1,
+                          Math.max(0, Number(e.target.value)),
+                        ),
+                      },
+                    })
+                  }
+                />
+              </div>
             </div>
             <div className={styles['panel-row']}>
               <div className={styles['panel-row-text']}>
@@ -910,6 +949,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                           includeMicDefault: true,
                           includeSystemAudioDefault: true,
                           exportMp4Default: false,
+                          narrateOriginalAudioGain: 0.35,
                           confirmTimeoutSec: 120,
                         }),
                         confirmTimeoutSec: Number(e.target.value),

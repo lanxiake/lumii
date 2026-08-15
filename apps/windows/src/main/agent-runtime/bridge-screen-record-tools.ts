@@ -12,11 +12,13 @@ import {
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log, jsonToolResult } from './bridge-utils'
 import type { ScreenRecordService } from '../screen-record'
+import type { NarrateService } from '../screen-record/narrate-service'
 import { MAX_DURATION_SEC_CAP } from '../../shared/screen-record'
 
 /** registerScreenRecordTools 依赖 */
 export interface RegisterScreenRecordToolsDeps {
   getService: () => ScreenRecordService | null
+  getNarrateService?: () => NarrateService | null
 }
 
 /**
@@ -231,6 +233,73 @@ export function registerScreenRecordTools(
           } catch (e) {
             log.error('[screen_record_resume]', e)
             return jsonToolResult({ ok: false, error: 'capture_failed' })
+          }
+        },
+      },
+      ctx,
+    ),
+  )
+
+  reg(
+    createMtBotTool(
+      {
+        name: 'screen_record_narrate',
+        label: 'Screen Record Narrate',
+        category: 'channel' as const,
+        description:
+          '对 recordings/ 内成片做字幕+TTS 配音。cues 提供 startMs+text（可选 endMs）；' +
+          '默认 writeSrt=true、dub=true、subtitleMode=burn（烧进画面，失败降级 soft 并写 .srt）。' +
+          '原片保留，返回新 path（*-narrated.webm）。音色复用客户端语音设置。' +
+          '长文本耗时，请控制 cues 数量。',
+        parameters: Type.Object({
+          path: Type.String({ description: '源成片绝对路径（须在 recordings/）' }),
+          cues: Type.Array(
+            Type.Object({
+              startMs: Type.Number(),
+              text: Type.String(),
+              endMs: Type.Optional(Type.Number()),
+            }),
+            { minItems: 1 },
+          ),
+          writeSrt: Type.Optional(Type.Boolean()),
+          dub: Type.Optional(Type.Boolean()),
+          subtitleMode: Type.Optional(
+            Type.Union([Type.Literal('burn'), Type.Literal('soft')], {
+              description: '默认 burn',
+            }),
+          ),
+          originalAudioGain: Type.Optional(Type.Number()),
+          exportMp4: Type.Optional(Type.Boolean()),
+        }),
+        isReadOnly: false,
+        needsPermission: false,
+        execute: async (_id, rawParams) => {
+          const narrateSvc = deps.getNarrateService?.() ?? null
+          if (!narrateSvc) return jsonToolResult({ ok: false, error: 'disabled' })
+          const p = rawParams as {
+            path?: string
+            cues?: Array<{ startMs: number; text: string; endMs?: number }>
+            writeSrt?: boolean
+            dub?: boolean
+            subtitleMode?: 'burn' | 'soft'
+            originalAudioGain?: number
+            exportMp4?: boolean
+          }
+          try {
+            return jsonToolResult(
+              await narrateSvc.narrate({
+                path: p.path ?? '',
+                cues: p.cues ?? [],
+                writeSrt: p.writeSrt,
+                dub: p.dub,
+                subtitleMode: p.subtitleMode,
+                originalAudioGain: p.originalAudioGain,
+                exportMp4: p.exportMp4,
+              }),
+            )
+          } catch (e) {
+            log.error('[screen_record_narrate]', e)
+            return jsonToolResult({ ok: false, error: 'narrate_failed' })
           }
         },
       },

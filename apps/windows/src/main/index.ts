@@ -102,14 +102,17 @@ import {
   type ChannelHub,
 } from './channel/channel-hub-bootstrap'
 import { handleChannelList, handleChannelSend } from './channel/channel-service-ipc'
-import { resolveWindowsClientDataRoot } from './client-data-root'
+import { resolveWindowsClientDataRoot, resolveRecordingsDir } from './client-data-root'
 import {
   createScreenRecordService,
   createRealScreenRecordServiceDeps,
+  parseScreenRecordSettings,
   registerScreenRecordIpc,
   type ScreenRecordService,
 } from './screen-record'
 import { setScreenRecordService, getScreenRecordService as getScreenRecordServiceFromAccessor } from './screen-record/accessor'
+import { createNarrateService } from './screen-record/narrate-service'
+import { setNarrateService } from './screen-record/narrate-accessor'
 import { clearScreenshotTempDir } from './app-ui-control/screenshot-cleanup'
 import { startAppUiControlServer, stopAppUiControlServer } from './app-ui-control/server'
 import { resizeImageIfNeeded } from './agent-runtime/image-resizer'
@@ -1080,6 +1083,31 @@ async function initAgentRuntime(): Promise<void> {
   // 注入音频 ASR 转录能力到文件导入 IPC
   setAudioTranscribeCallback((base64, mimeType) => voiceCallService!.transcribeAudioBuffer(base64, mimeType))
   log.info('语音通话服务已注册')
+
+  // 录屏旁白：依赖 TTS，须在 voiceCallService 就绪后挂接
+  setNarrateService(
+    createNarrateService({
+      resolveRecordingsDir,
+      readSettings: async () => {
+        let json: string | null = null
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          try {
+            json = await mainWindow.webContents.executeJavaScript(
+              `localStorage.getItem('mtbot-assistant-settings')`,
+            )
+          } catch {
+            json = null
+          }
+        }
+        return parseScreenRecordSettings(json)
+      },
+      generateAudioFile: async (text, destDir) => {
+        if (!voiceCallService) throw new Error('语音服务未初始化')
+        return voiceCallService.generateAudioFile(text, destDir)
+      },
+    }),
+  )
+  log.info('录屏旁白服务已挂接')
 
   // 启动后 5s 异步预热语音引擎（不阻塞启动，模型就绪时静默完成）
   setTimeout(() => {

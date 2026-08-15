@@ -69,6 +69,7 @@ import { registerBrowserTools as registerBrowserToolsFn } from './bridge-browser
 import { registerAppUiTools as registerAppUiToolsFn } from './bridge-app-ui-tools'
 import { registerScreenRecordTools as registerScreenRecordToolsFn } from './bridge-screen-record-tools'
 import { getScreenRecordService } from '../screen-record/accessor'
+import { getNarrateService } from '../screen-record/narrate-accessor'
 import { resizeImageIfNeeded } from './image-resizer'
 import {
   writeDashboardFeedSnapshot,
@@ -1629,11 +1630,12 @@ export class BridgeToolRegistrar {
     })
   }
 
-  /** 注册录屏四工具 */
+  /** 注册录屏工具（含 pause/resume/narrate） */
   private registerScreenRecordTools(): void {
     if (!this.deps.toolContext) return
     registerScreenRecordToolsFn(this.deps.toolRegistry, this.deps.toolContext, {
       getService: () => getScreenRecordService(),
+      getNarrateService: () => getNarrateService(),
     })
   }
 }
