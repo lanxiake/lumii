@@ -102,7 +102,12 @@ import {
   type ChannelHub,
 } from './channel/channel-hub-bootstrap'
 import { handleChannelList, handleChannelSend } from './channel/channel-service-ipc'
-import { resolveWindowsClientDataRoot, resolveRecordingsDir } from './client-data-root'
+import { resolveWindowsClientDataRoot } from './client-data-root'
+import {
+  setActiveWorkspaceDirGetter,
+  ensureWorkspaceTempLayout,
+  resolveRecordingsDir,
+} from './workspace-paths'
 import {
   createScreenRecordService,
   createRealScreenRecordServiceDeps,
@@ -1299,6 +1304,7 @@ function setupIpcHandlers(): void {
       })
     }
     reapplyCodingDevAcpEnvFromConfig()
+    ensureWorkspaceTempLayout(resolved)
     return (resolved).replace(/\\/g, '/')
   })
 
@@ -1319,6 +1325,7 @@ function setupIpcHandlers(): void {
       await configManager.updateAppConfig({ workspaceDirectory: resolved !== defaultWorkspace ? resolved : undefined })
     }
     reapplyCodingDevAcpEnvFromConfig()
+    ensureWorkspaceTempLayout(resolved)
     // 灵栖/Lumii 独立版：无网关/节点连接，工作空间变更仅更新本地配置，Agent 运行时通过 getCwd 读取新路径
   })
 
@@ -1342,6 +1349,7 @@ function setupIpcHandlers(): void {
     // 确保工作空间根目录及标准子目录结构存在
     await fs.mkdir(dirPath, { recursive: true })
     await directoryManager.ensureWorkspaceSubDirs(dirPath)
+    ensureWorkspaceTempLayout(dirPath)
     // 将工作空间路径加入安全白名单，允许文件操作访问
     securityUtils.addAllowedBasePath(dirPath)
     return dirPath
@@ -2972,7 +2980,6 @@ async function initialize(): Promise<void> {
 
   // 初始化文件日志系统（必须在 app.whenReady() 之后）
   fileLogger.initialize()
-  clearScreenshotTempDir()
   registerLocalMediaProtocolHandler()
   // 服务启动时在控制台打印日志文件路径
   log.info('日志文件:', fileLogger.getCurrentLogFilePath())
@@ -3057,6 +3064,17 @@ async function initialize(): Promise<void> {
     setBackendSelectionBaseDir(directoryManager.getDirectory('config'))
   }
   log.info('目录和配置管理器初始化完成')
+
+  // 录屏/截图临时目录跟随「工作空间目录」设置
+  setActiveWorkspaceDirGetter(() => {
+    const dataDir = resolveClientStateDir()
+    const defaultWorkspace = join(dataDir, 'workspace')
+    return configManager?.getAppConfig().workspaceDirectory || defaultWorkspace
+  })
+  ensureWorkspaceTempLayout()
+  // 须在工作空间 getter 挂接后清空，避免清到默认路径而非用户配置的工作空间
+  clearScreenshotTempDir()
+  log.info('工作空间 temp 布局已确保（temp/recordings、temp/screenshots）')
 
   // 灵栖/Lumii 独立版：无后端、无登录。
   // 不构造 apiClient / gatewayClient / nodeModeCoordinator / devicePairingService，

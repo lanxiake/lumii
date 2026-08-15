@@ -154,7 +154,7 @@ export const SCREEN_RECORD_SETTINGS_DEFAULTS: ScreenRecordConfig = {
   confirmTimeoutSec: 120,
 }
 
-/** 录屏落盘子目录名（相对 client data root） */
+/** 录屏落盘子目录名（相对 `{workspace}/temp/`） */
 export const RECORDINGS_DIRNAME = 'recordings'
 
 /** maxDurationSec 上限；超出截断不报错 */

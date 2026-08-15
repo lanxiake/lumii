@@ -17,8 +17,8 @@ describe('isPathUnderDir', () => {
 describe('isAllowedPreviewPath', () => {
   const dirs = {
     workspaceCwd: path.resolve('E:/ws'),
-    recordingsDir: path.resolve('E:/home/.lumii/recordings'),
-    screenshotDir: path.resolve('E:/home/.lumii/temp/screenshots'),
+    recordingsDir: path.resolve('E:/ws/temp/recordings'),
+    screenshotDir: path.resolve('E:/ws/temp/screenshots'),
   }
 
   it('放行工作区、recordings、screenshots', () => {

@@ -20,7 +20,7 @@ import { getPetWindowManager } from '../pet/pet-mode-ipc.js'
 import { deriveConversationTitleFromUserText } from '../../shared/conversation-title'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 import { parseThinkTagsFromRaw } from '../agent-runtime/event-converter'
-import { resolveRecordingsDir, resolveWindowsClientDataRoot } from '../client-data-root'
+import { resolveRecordingsDir, resolveScreenshotTempDir } from '../workspace-paths'
 import { isAllowedPreviewPath as checkAllowedPreviewPath } from '../preview-path-acl'
 import { buildLocalMediaUrl } from '../local-media-protocol'
 import { getToolUsage } from '../tool-usage-store'
@@ -204,7 +204,7 @@ function isResolvedPathInsideWorkspace(resolvedAbs: string, resolvedCwd: string)
  * 判断预览路径是否在允许范围内：工作区 / recordings / 截图临时目录。
  */
 function isAllowedPreviewPath(resolvedAbs: string, resolvedCwd: string): boolean {
-  const screenshotDir = path.resolve(path.join(resolveWindowsClientDataRoot(), 'temp', 'screenshots'))
+  const screenshotDir = path.resolve(resolveScreenshotTempDir())
   const recordingsDir = path.resolve(resolveRecordingsDir())
   return checkAllowedPreviewPath(resolvedAbs, {
     workspaceCwd: resolvedCwd,

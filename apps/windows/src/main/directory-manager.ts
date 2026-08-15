@@ -127,6 +127,10 @@ export class DirectoryManager {
       this.dirs.logs,
       this.dirs.temp,
       join(this.dirs.temp, 'downloads'),
+      // 默认工作空间下的临时布局（录屏/截图）；自定义工作空间由 ensureWorkspaceSubDirs 覆盖
+      join(this.dirs.workspace, 'temp'),
+      join(this.dirs.workspace, 'temp', 'recordings'),
+      join(this.dirs.workspace, 'temp', 'screenshots'),
     ]
 
     for (const dir of dirsToCreate) {
@@ -305,6 +309,9 @@ export class DirectoryManager {
       'outputs',
       'files',
       'projects',
+      'temp',
+      'temp/recordings',
+      'temp/screenshots',
       '.system/threads',
     ]
     for (const sub of subDirs) {

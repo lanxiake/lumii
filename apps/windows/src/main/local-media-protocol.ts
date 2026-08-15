@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { net, protocol } from 'electron'
-import { resolveRecordingsDir, resolveWindowsClientDataRoot } from './client-data-root'
+import { resolveRecordingsDir, resolveScreenshotTempDir } from './workspace-paths'
 import { isAllowedPreviewPath } from './preview-path-acl'
 
 export const LOCAL_MEDIA_SCHEME = 'lumii-local'
@@ -38,9 +38,7 @@ function resolveAclDirs(): {
 } {
   const workspaceCwd = path.resolve(workspaceCwdGetter?.() ?? process.cwd())
   const recordingsDir = path.resolve(resolveRecordingsDir())
-  const screenshotDir = path.resolve(
-    path.join(resolveWindowsClientDataRoot(), 'temp', 'screenshots'),
-  )
+  const screenshotDir = path.resolve(resolveScreenshotTempDir())
   return { workspaceCwd, recordingsDir, screenshotDir }
 }
 

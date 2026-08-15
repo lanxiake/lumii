@@ -16,9 +16,9 @@ export function isPathUnderDir(resolvedAbs: string, resolvedDir: string): boolea
 export interface PreviewPathAclDirs {
   /** Agent 当前工作区绝对路径 */
   workspaceCwd: string
-  /** `{dataRoot}/recordings` */
+  /** `{workspace}/temp/recordings` */
   recordingsDir: string
-  /** `{dataRoot}/temp/screenshots` */
+  /** `{workspace}/temp/screenshots` */
   screenshotDir: string
 }
 

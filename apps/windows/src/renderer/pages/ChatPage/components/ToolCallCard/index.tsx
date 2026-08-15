@@ -457,7 +457,7 @@ interface AppScreenshotPayload {
 
 /**
  * 从 app_screenshot 工具 output 的 text 块解析 payload。
- * previewPath 缺失时用于构造 ~/.lumii/temp/screenshots/{snapshotId}.jpg。
+ * previewPath 缺失时用于构造 temp/screenshots/{snapshotId}.jpg（相对工作空间，主进程应尽量返回绝对 previewPath）。
  */
 function parseAppScreenshotPayload(output: Record<string, unknown>): AppScreenshotPayload | null {
   const content = output.content
@@ -501,9 +501,7 @@ function extractToolImagePreviewDetails(output: unknown): {
   }
 
   const screenshotPayload = parseAppScreenshotPayload(o)
-  if (!filePath && screenshotPayload?.snapshotId) {
-    filePath = `~/.lumii/temp/screenshots/${screenshotPayload.snapshotId}.jpg`
-  }
+  // 无绝对 previewPath 时不猜测工作空间路径（用户可自定义工作空间目录）
   if (!filePath) return null
 
   return {

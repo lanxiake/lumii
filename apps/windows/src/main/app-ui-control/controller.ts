@@ -2,7 +2,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { BrowserWindow } from 'electron'
 import { MAX_IMAGE_BYTES, type ResizeResult } from '../agent-runtime/image-resizer'
-import { resolveWindowsClientDataRoot } from '../client-data-root'
 import {
   assertClickAllowed,
   buildClickPrepareScript,
@@ -160,7 +159,7 @@ export type AppUiWindowTarget = 'main' | 'pet' | 'preview'
 export interface AppUiControllerDeps {
   getWindow: (target: AppUiWindowTarget) => BrowserWindow | null
   resizeImageIfNeeded: ResizeImageFn
-  /** 测试注入数据根；默认 resolveWindowsClientDataRoot */
+  /** 测试注入截图根目录（其下使用 temp/screenshots）；默认当前工作空间 temp */
   resolveDataRoot?: () => string
   /** goto 后等待 React 状态落定的毫秒数；默认 GOTO_SETTLE_MS */
   gotoSettleMs?: number
@@ -587,14 +586,14 @@ async function readRawSnapshotNodes(win: BrowserWindow): Promise<RawSnapshotNode
 }
 
 /**
- * 将 JPEG Buffer 写入截图临时目录。
+ * 将 JPEG Buffer 写入截图临时目录（`{workspace}/temp/screenshots`）。
  */
 function writeScreenshotTempFile(
-  dataRoot: string,
   snapshotId: string,
   buffer: Buffer,
+  testRoot?: string,
 ): string {
-  const dir = getScreenshotTempDir(dataRoot)
+  const dir = getScreenshotTempDir(testRoot)
   fs.mkdirSync(dir, { recursive: true })
   const filePath = path.join(dir, `${snapshotId}.jpg`)
   fs.writeFileSync(filePath, buffer)
@@ -666,7 +665,7 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
     }
 
     const windowVisible = win.isVisible()
-    const dataRoot = deps.resolveDataRoot?.() ?? resolveWindowsClientDataRoot()
+    const screenshotRoot = deps.resolveDataRoot?.()
 
     const image = await win.webContents.capturePage()
     const { width: origWidth, height: origHeight } = image.getSize()
@@ -695,7 +694,7 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
       outputBuffer = await annotateSnapshot(outputBuffer, scaledRefs)
     }
 
-    const previewPath = writeScreenshotTempFile(dataRoot, snapshotId, outputBuffer)
+    const previewPath = writeScreenshotTempFile(snapshotId, outputBuffer, screenshotRoot)
 
     const cacheEntry: AppUiSnapshotCache = {
       snapshotId,
