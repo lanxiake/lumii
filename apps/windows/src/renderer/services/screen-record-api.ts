@@ -13,11 +13,14 @@ import type {
   ScreenRecordNarrateParams,
   ScreenRecordNarrateResult,
   ScreenRecordListRecordingsResult,
+  ScreenRecordDeleteRecordingResult,
+  ScreenRecordRestoreOriginalResult,
   ScreenRecordLoadSubtitleProjectResult,
   ScreenRecordSaveSubtitleProjectResult,
   ScreenRecordBurnSubtitlesParams,
   ScreenRecordBurnSubtitlesResult,
   ScreenRecordSubtitleCue,
+  ScreenRecordSubtitleStyle,
 } from '../../shared/screen-record'
 import { ScreenRecordCapture } from '../screen-record'
 
@@ -97,6 +100,24 @@ export async function listRecordings(): Promise<ScreenRecordListRecordingsResult
   return (await window.electronAPI.screenRecord.listRecordings()) as ScreenRecordListRecordingsResult
 }
 
+/** 删除成片及其字幕工程附属文件 */
+export async function deleteRecording(
+  filePath: string,
+): Promise<ScreenRecordDeleteRecordingResult> {
+  return (await window.electronAPI.screenRecord.deleteRecording(
+    filePath,
+  )) as ScreenRecordDeleteRecordingResult
+}
+
+/** 用附属目录里的无字幕原片覆盖当前成片（撤销烧录） */
+export async function restoreOriginal(
+  filePath: string,
+): Promise<ScreenRecordRestoreOriginalResult> {
+  return (await window.electronAPI.screenRecord.restoreOriginal(
+    filePath,
+  )) as ScreenRecordRestoreOriginalResult
+}
+
 /** 加载字幕 sidecar 项目 */
 export async function loadSubtitleProject(
   filePath: string,
@@ -110,10 +131,12 @@ export async function loadSubtitleProject(
 export async function saveSubtitleProject(
   filePath: string,
   cues: ScreenRecordSubtitleCue[],
+  style?: Partial<ScreenRecordSubtitleStyle>,
 ): Promise<ScreenRecordSaveSubtitleProjectResult> {
   return (await window.electronAPI.screenRecord.saveSubtitleProject(
     filePath,
     cues,
+    style,
   )) as ScreenRecordSaveSubtitleProjectResult
 }
 
@@ -128,9 +151,12 @@ export async function burnSubtitles(
 
 /**
  * 构造 lumii-local 媒体 URL（与主进程 buildLocalMediaUrl 一致）。
+ *
+ * 烧录会就地覆盖同名文件，传入 version 可打破 <video> 的缓存强制重新拉流。
  */
-export function buildRecordingMediaUrl(absPath: string): string {
-  return `lumii-local://media/?path=${encodeURIComponent(absPath)}`
+export function buildRecordingMediaUrl(absPath: string, version?: number): string {
+  const base = `lumii-local://media/?path=${encodeURIComponent(absPath)}`
+  return version ? `${base}&v=${version}` : base
 }
 
 /** 暂停录制 */

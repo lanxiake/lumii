@@ -123,6 +123,8 @@ export type ScreenRecordStatusResult =
       confirmTimeoutSec?: number
       confirmStartedAt?: number
       includeMic?: boolean
+      /** 目标窗口被最小化/遮挡导致画面丢失，成片已冻结最后一帧 */
+      targetHidden?: boolean
     }
   | { ok: false; error: ScreenRecordErrorCode }
 
@@ -184,6 +186,8 @@ export type ScreenRecordCommand =
   | { readonly type: 'screen-record:status' }
   | { readonly type: 'screen-record:narrate'; params: ScreenRecordNarrateParams }
   | { readonly type: 'screen-record:list-recordings' }
+  | { readonly type: 'screen-record:delete-recording'; path: string }
+  | { readonly type: 'screen-record:restore-original'; path: string }
   | { readonly type: 'screen-record:load-subtitle-project'; path: string }
   | {
       readonly type: 'screen-record:save-subtitle-project'
@@ -242,6 +246,14 @@ export type ScreenRecordEvent =
       readonly type: 'screen-record:event:cancelled'
       sessionId: string
       reason: ScreenRecordErrorCode
+    }
+  /** 成片写盘完成：渲染层据此打开面板并定位到新成片 */
+  | {
+      readonly type: 'screen-record:event:recording-saved'
+      path: string
+      durationMs: number
+      bytes: number
+      mp4Path?: string
     }
   /** 托盘「开始录屏」但无预选源时，请求渲染层打开面板 */
   | { readonly type: 'screen-record:open-panel' }
@@ -310,6 +322,38 @@ export type ScreenRecordListRecordingsResult =
   | { ok: true; items: ScreenRecordRecordingItem[] }
   | { ok: false; error: ScreenRecordErrorCode; message?: string }
 
+/** 删除成片及字幕工程附属文件的结果 */
+export type ScreenRecordDeleteRecordingResult =
+  | { ok: true; deletedPaths: string[] }
+  | { ok: false; error: ScreenRecordErrorCode; message?: string }
+
+/** 用附属目录内的无字幕原片覆盖当前成片（撤销烧录）的结果 */
+export type ScreenRecordRestoreOriginalResult =
+  | { ok: true; path: string }
+  | { ok: false; error: ScreenRecordErrorCode; message?: string }
+
+/**
+ * 字幕外观样式。
+ * fontSize 沿用 ASS 语义：以 PlayResY=288 为基准，实际像素高度会按视频高等比放大，
+ * 因此预览换算必须用同一基准，见 SUBTITLE_ASS_PLAY_RES_Y。
+ */
+export interface ScreenRecordSubtitleStyle {
+  fontSize: number
+  /** #RRGGBB 字体颜色 */
+  primaryColor: string
+  /** 描边宽度（0 表示无描边） */
+  outline: number
+}
+
+/** libass 渲染 SRT 时的默认 PlayResY */
+export const SUBTITLE_ASS_PLAY_RES_Y = 288
+
+export const SCREEN_RECORD_SUBTITLE_STYLE_DEFAULTS: ScreenRecordSubtitleStyle = {
+  fontSize: 28,
+  primaryColor: '#FFFFFF',
+  outline: 2,
+}
+
 /** 字幕项目 cue（编辑器 / burn） */
 export interface ScreenRecordSubtitleCue {
   id?: string
@@ -326,7 +370,10 @@ export type ScreenRecordLoadSubtitleProjectResult =
       cues: Array<Required<Pick<ScreenRecordSubtitleCue, 'id' | 'startMs' | 'endMs' | 'text' | 'textHash'>> & {
         audioFile?: string
       }>
+      style: ScreenRecordSubtitleStyle
       source: 'project' | 'srt' | 'narrated_srt' | 'empty'
+      /** 附属目录内的无字幕原片；编辑器用它预览以免与已烧录字幕重影 */
+      originalPath?: string
     }
   | { ok: false; error: ScreenRecordErrorCode; message?: string }
 
@@ -344,6 +391,8 @@ export interface ScreenRecordBurnSubtitlesParams {
   subtitleMode?: 'soft' | 'burn'
   originalAudioGain?: number
   exportMp4?: boolean
+  /** 字幕外观；省略则沿用项目文件中已保存的样式 */
+  style?: Partial<ScreenRecordSubtitleStyle>
 }
 
 export type ScreenRecordBurnSubtitlesResult =

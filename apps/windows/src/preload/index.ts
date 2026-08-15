@@ -63,6 +63,7 @@ const SCREEN_RECORD_EVENT_CHANNELS = [
   'screen-record:event:pause-capture',
   'screen-record:event:resume-capture',
   'screen-record:event:cancelled',
+  'screen-record:event:recording-saved',
   'screen-record:open-panel',
   'screen-record:persist-always-allow',
 ] as const
@@ -1042,10 +1043,13 @@ export interface ElectronAPI {
       exportMp4?: boolean
     }) => Promise<unknown>
     listRecordings: () => Promise<unknown>
+    deleteRecording: (path: string) => Promise<unknown>
+    restoreOriginal: (path: string) => Promise<unknown>
     loadSubtitleProject: (path: string) => Promise<unknown>
     saveSubtitleProject: (
       path: string,
       cues: Array<{ id?: string; startMs: number; endMs?: number; text: string; audioFile?: string }>,
+      style?: { fontSize?: number; primaryColor?: string; outline?: number },
     ) => Promise<unknown>
     burnSubtitles: (params: {
       path: string
@@ -1054,6 +1058,7 @@ export interface ElectronAPI {
       subtitleMode?: 'soft' | 'burn'
       originalAudioGain?: number
       exportMp4?: boolean
+      style?: { fontSize?: number; primaryColor?: string; outline?: number }
     }) => Promise<unknown>
     pause: () => Promise<unknown>
     resume: () => Promise<unknown>
@@ -1825,10 +1830,14 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke('screen-record:stop', { params }),
     narrate: (params) => ipcRenderer.invoke('screen-record:narrate', { params }),
     listRecordings: () => ipcRenderer.invoke('screen-record:list-recordings'),
+    deleteRecording: (filePath: string) =>
+      ipcRenderer.invoke('screen-record:delete-recording', { path: filePath }),
+    restoreOriginal: (filePath: string) =>
+      ipcRenderer.invoke('screen-record:restore-original', { path: filePath }),
     loadSubtitleProject: (filePath: string) =>
       ipcRenderer.invoke('screen-record:load-subtitle-project', { path: filePath }),
-    saveSubtitleProject: (filePath, cues) =>
-      ipcRenderer.invoke('screen-record:save-subtitle-project', { path: filePath, cues }),
+    saveSubtitleProject: (filePath, cues, style) =>
+      ipcRenderer.invoke('screen-record:save-subtitle-project', { path: filePath, cues, style }),
     burnSubtitles: (params) => ipcRenderer.invoke('screen-record:burn-subtitles', { params }),
     pause: () => ipcRenderer.invoke('screen-record:pause'),
     resume: () => ipcRenderer.invoke('screen-record:resume'),

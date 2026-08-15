@@ -33,6 +33,10 @@ export function useScreenRecord() {
   const [pendingConfirm, setPendingConfirm] = useState<ScreenRecordConfirmPayload | null>(null)
   const [sessionId, setSessionId] = useState<string | undefined>()
   const [sourceName, setSourceName] = useState<string | undefined>()
+  /** 目标窗口被最小化/遮挡时画面已冻结 */
+  const [targetHidden, setTargetHidden] = useState(false)
+  /** 需要在成片库中定位高亮的路径（录制完成后自动跳转） */
+  const [focusRecordingPath, setFocusRecordingPath] = useState<string | null>(null)
 
   useEffect(() => {
     const unsub = screenRecordApi.onEvent((event) => {
@@ -43,10 +47,20 @@ export function useScreenRecord() {
           setElapsedMs(detail.elapsedMs ?? 0)
           setSessionId(detail.sessionId)
           setSourceName(detail.sourceName)
+          setTargetHidden(detail.targetHidden === true)
           if (detail.status === 'idle') {
             setPendingConfirm(null)
           }
         }
+      } else if (event.type === 'screen-record:event:recording-saved') {
+        // 录制完成：回填最近成片并自动打开面板定位到成片库
+        setLastRecording({
+          path: event.path,
+          durationMs: event.durationMs,
+          bytes: event.bytes,
+        })
+        setFocusRecordingPath(event.path)
+        setPanelOpen(true)
       } else if (event.type === 'screen-record:event:confirm-requested') {
         setPendingConfirm({
           sessionId: event.sessionId,
@@ -114,8 +128,11 @@ export function useScreenRecord() {
     const r = await screenRecordApi.stop(params)
     if (r.ok && r.path) {
       setLastRecording({ path: r.path, durationMs: r.durationMs, bytes: r.bytes })
+      setFocusRecordingPath(r.path)
+      setPanelOpen(true)
     }
     setStatus('idle')
+    setTargetHidden(false)
     return r
   }, [])
 
@@ -159,6 +176,9 @@ export function useScreenRecord() {
     pendingConfirm,
     sessionId,
     sourceName,
+    targetHidden,
+    focusRecordingPath,
+    clearFocusRecording: useCallback(() => setFocusRecordingPath(null), []),
     refreshSources,
     start,
     stop,

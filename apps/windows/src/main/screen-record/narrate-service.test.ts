@@ -7,18 +7,14 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   buildDubFilterArgs,
-  buildNarratedOutputPath,
   createNarrateService,
   escapeFfmpegSubtitlesPath,
 } from './narrate-service'
+import { buildProjectPaths, resolveOriginalVideoPath } from './subtitle-project'
 
-describe('escapeFfmpegSubtitlesPath / buildNarratedOutputPath', () => {
+describe('escapeFfmpegSubtitlesPath', () => {
   it('转义盘符冒号', () => {
     expect(escapeFfmpegSubtitlesPath('E:\\rec\\a.srt')).toBe('E\\:/rec/a.srt')
-  })
-
-  it('生成 -narrated 文件名', () => {
-    expect(buildNarratedOutputPath('E:/r/foo.webm').replace(/\\/g, '/')).toBe('E:/r/foo-narrated.webm')
   })
 })
 
@@ -34,6 +30,25 @@ describe('buildDubFilterArgs', () => {
     expect(fc).toContain('volume=0.35')
     expect(fc).toContain('adelay=1000|1000')
     expect(fc).toContain('amix=')
+  })
+
+  it('按输出容器选音频编码：webm→libopus，mp4→aac', () => {
+    const webm = buildDubFilterArgs(
+      'E:/r/a.webm',
+      [{ startMs: 0, audioPath: 'E:/t/1.wav' }],
+      0.35,
+      'E:/r/out.webm',
+    )
+    expect(webm[webm.indexOf('-c:a') + 1]).toBe('libopus')
+
+    // MP4 容器不接受 opus 之外还要求视频可 copy，音频须用 aac
+    const mp4 = buildDubFilterArgs(
+      'E:/r/a.mp4',
+      [{ startMs: 0, audioPath: 'E:/t/1.wav' }],
+      0.35,
+      'E:/r/out.mp4',
+    )
+    expect(mp4[mp4.indexOf('-c:a') + 1]).toBe('aac')
   })
 })
 
@@ -106,7 +121,7 @@ describe('createNarrateService', () => {
     expect(r).toMatchObject({ ok: false, error: 'tts_unavailable' })
   })
 
-  it('soft + 无配音：写出 srt 与 narrated 副本', async () => {
+  it('soft + 无配音：就地覆盖成片并写出附属目录内的 srt/project', async () => {
     const run = vi.fn(async () => ({ ok: true as const }))
     const svc = createNarrateService({
       resolveRecordingsDir: () => recordingsDir,
@@ -128,12 +143,15 @@ describe('createNarrateService', () => {
     })
     expect(r.ok).toBe(true)
     if (r.ok) {
+      expect(r.path).toBe(src)
       expect(fs.existsSync(r.path)).toBe(true)
       expect(r.srtPath && fs.existsSync(r.srtPath)).toBe(true)
       expect(fs.readFileSync(r.srtPath!, 'utf8')).toContain('你好')
-      // sidecar 项目供编辑器续改
-      expect(fs.existsSync(path.join(recordingsDir, 'clip.lumii-subs.json'))).toBe(true)
-      expect(fs.existsSync(path.join(recordingsDir, 'clip.srt'))).toBe(true)
+      // sidecar 项目供编辑器续改，且全部收在附属目录内
+      const paths = buildProjectPaths(src)
+      expect(fs.existsSync(paths.projectPath)).toBe(true)
+      expect(fs.existsSync(paths.srtPath)).toBe(true)
+      expect(fs.readdirSync(recordingsDir).filter((n) => n.includes('-narrated'))).toEqual([])
     }
     expect(run).not.toHaveBeenCalled()
   })
@@ -174,5 +192,40 @@ describe('createNarrateService', () => {
       expect(r.warning).toBe('subtitle_burn_failed')
       expect(fs.existsSync(r.path)).toBe(true)
     }
+  })
+
+  it('配音就地覆盖成片，并备份无字幕原片', async () => {
+    const audio = path.join(tempDir, 'a.wav')
+    fs.writeFileSync(audio, Buffer.from('x'))
+    const src = path.join(recordingsDir, 'clip.webm')
+    const svc = createNarrateService({
+      resolveRecordingsDir: () => recordingsDir,
+      readSettings: async () => ({
+        enabled: true,
+        narrateOriginalAudioGain: 0.35,
+        exportMp4Default: false,
+      }),
+      resolveTempDir: () => tempDir,
+      generateAudioFile: async () => audio,
+      probeDurationMs: async () => 500,
+      runFfmpeg: async (args) => {
+        fs.writeFileSync(args[args.length - 1]!, Buffer.from('narrated'))
+        return { ok: true as const }
+      },
+    })
+
+    const r = await svc.narrate({
+      path: src,
+      cues: [{ startMs: 0, text: '旁白' }],
+      dub: true,
+      writeSrt: true,
+      subtitleMode: 'burn',
+    })
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.path).toBe(src)
+    expect(fs.readFileSync(src, 'utf8')).toBe('narrated')
+    expect(fs.readFileSync(resolveOriginalVideoPath(src)!, 'utf8')).toBe('fake-webm')
   })
 })

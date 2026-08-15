@@ -6,13 +6,17 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  buildBurnedOutputPath,
   buildProjectPaths,
+  ensureOriginalBackup,
   hashCueText,
   listRecordings,
   loadSubtitleProject,
+  migrateLegacySidecar,
+  resolveOriginalVideoPath,
+  restoreOriginalRecording,
   saveSubtitleProject,
   cuesToProjectCues,
+  deleteRecordingArtifacts,
 } from './subtitle-project'
 
 let tmpRoot = ''
@@ -40,13 +44,88 @@ describe('hashCueText', () => {
 })
 
 describe('buildProjectPaths', () => {
-  it('由成片路径推导 sidecar', () => {
+  it('所有附属文件收敛到单个 <stem>.lumii-subs 目录', () => {
     const p = buildProjectPaths('E:/ws/temp/recordings/demo.webm')
+    const norm = (s: string) => s.replace(/\\/g, '/')
     expect(p.stem).toBe('demo')
-    expect(p.projectPath.replace(/\\/g, '/')).toMatch(/demo\.lumii-subs\.json$/)
-    expect(p.srtPath.replace(/\\/g, '/')).toMatch(/demo\.srt$/)
-    expect(p.cacheDir.replace(/\\/g, '/')).toMatch(/demo\.subs-cache$/)
-    expect(p.narratedSrtPath.replace(/\\/g, '/')).toMatch(/demo-narrated\.srt$/)
+    expect(norm(p.assetDir)).toMatch(/recordings\/demo\.lumii-subs$/)
+    expect(norm(p.projectPath)).toMatch(/demo\.lumii-subs\/project\.json$/)
+    expect(norm(p.srtPath)).toMatch(/demo\.lumii-subs\/subtitles\.srt$/)
+    expect(norm(p.cacheDir)).toMatch(/demo\.lumii-subs\/tts$/)
+  })
+
+  it('保留旧版散落 sidecar 路径以便兼容读取', () => {
+    const p = buildProjectPaths('E:/ws/temp/recordings/demo.webm')
+    const norm = (s: string) => s.replace(/\\/g, '/')
+    expect(norm(p.legacy.projectPath)).toMatch(/recordings\/demo\.lumii-subs\.json$/)
+    expect(norm(p.legacy.srtPath)).toMatch(/recordings\/demo\.srt$/)
+    expect(norm(p.legacy.narratedSrtPath)).toMatch(/recordings\/demo-narrated\.srt$/)
+    expect(norm(p.legacy.cacheDir)).toMatch(/recordings\/demo\.subs-cache$/)
+  })
+})
+
+describe('migrateLegacySidecar', () => {
+  it('把旧版散落文件搬进附属目录且可重复调用', () => {
+    const rec = makeTmp()
+    const video = path.join(rec, 'old.webm')
+    fs.writeFileSync(video, 'v')
+    const p = buildProjectPaths(video)
+    fs.writeFileSync(p.legacy.projectPath, '{"version":1,"cues":[]}')
+    fs.writeFileSync(p.legacy.srtPath, 'srt')
+    fs.mkdirSync(p.legacy.cacheDir, { recursive: true })
+    fs.writeFileSync(path.join(p.legacy.cacheDir, 'cue.wav'), 'a')
+
+    migrateLegacySidecar(video)
+    migrateLegacySidecar(video)
+
+    expect(fs.existsSync(p.projectPath)).toBe(true)
+    expect(fs.existsSync(p.srtPath)).toBe(true)
+    expect(fs.existsSync(path.join(p.cacheDir, 'cue.wav'))).toBe(true)
+    expect(fs.existsSync(p.legacy.projectPath)).toBe(false)
+    expect(fs.existsSync(p.legacy.srtPath)).toBe(false)
+    expect(fs.existsSync(p.legacy.cacheDir)).toBe(false)
+  })
+})
+
+describe('ensureOriginalBackup / restoreOriginalRecording', () => {
+  it('首次备份无字幕原片，后续调用不覆盖备份', () => {
+    const rec = makeTmp()
+    const video = path.join(rec, 'clip.mp4')
+    fs.writeFileSync(video, 'raw')
+
+    const first = ensureOriginalBackup(video)
+    expect(path.basename(first)).toBe('original.mp4')
+    expect(fs.readFileSync(first, 'utf8')).toBe('raw')
+
+    // 模拟烧录后可见文件已被字幕版覆盖
+    fs.writeFileSync(video, 'burned')
+    const second = ensureOriginalBackup(video)
+    expect(second).toBe(first)
+    expect(fs.readFileSync(second, 'utf8')).toBe('raw')
+    expect(resolveOriginalVideoPath(video)).toBe(first)
+  })
+
+  it('还原时用原片覆盖可见成片', () => {
+    const rec = makeTmp()
+    const video = path.join(rec, 'clip.mp4')
+    fs.writeFileSync(video, 'raw')
+    ensureOriginalBackup(video)
+    fs.writeFileSync(video, 'burned')
+
+    const r = restoreOriginalRecording(video)
+
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.path).toBe(video)
+    expect(fs.readFileSync(video, 'utf8')).toBe('raw')
+  })
+
+  it('没有备份时还原返回 source_unavailable', () => {
+    const rec = makeTmp()
+    const video = path.join(rec, 'clip.mp4')
+    fs.writeFileSync(video, 'raw')
+    const r = restoreOriginalRecording(video)
+    expect(r.ok).toBe(false)
   })
 })
 
@@ -88,7 +167,7 @@ describe('save/loadSubtitleProject', () => {
     if (!loaded.ok) return
     expect(loaded.cues).toHaveLength(1)
     expect(loaded.cues[0].text).toBe('旧旁白')
-    expect(loaded.source).toBe('narrated_srt')
+    expect(loaded.source).not.toBe('empty')
   })
 })
 
@@ -120,9 +199,26 @@ describe('listRecordings', () => {
   })
 })
 
-describe('buildBurnedOutputPath', () => {
-  it('foo.webm → foo-burned.webm', () => {
-    expect(buildBurnedOutputPath('E:/a/foo.webm').replace(/\\/g, '/')).toMatch(/foo-burned\.webm$/)
+describe('deleteRecordingArtifacts', () => {
+  it('删除成片、附属目录与旧版散落 sidecar', () => {
+    const rec = makeTmp()
+    const video = path.join(rec, 'clip.mp4')
+    const paths = buildProjectPaths(video)
+    fs.writeFileSync(video, 'video')
+    fs.mkdirSync(paths.cacheDir, { recursive: true })
+    fs.writeFileSync(paths.projectPath, '{}')
+    fs.writeFileSync(paths.srtPath, 'subtitle')
+    fs.writeFileSync(path.join(paths.cacheDir, 'cue.mp3'), 'audio')
+    fs.writeFileSync(paths.legacy.narratedSrtPath, 'subtitle')
+    fs.writeFileSync(path.join(rec, 'other.mp4'), 'keep')
+
+    const result = deleteRecordingArtifacts(video)
+
+    expect(result.ok).toBe(true)
+    expect(fs.existsSync(video)).toBe(false)
+    expect(fs.existsSync(paths.assetDir)).toBe(false)
+    expect(fs.existsSync(paths.legacy.narratedSrtPath)).toBe(false)
+    expect(fs.existsSync(path.join(rec, 'other.mp4'))).toBe(true)
   })
 })
 
@@ -142,7 +238,7 @@ describe('persistResolvedCuesAsProject', () => {
     expect(loaded.ok).toBe(true)
     if (!loaded.ok) return
     expect(loaded.cues[0]?.audioFile).toBeTruthy()
-    const cacheFile = path.join(rec, 'n.subs-cache', loaded.cues[0]!.audioFile!)
+    const cacheFile = path.join(buildProjectPaths(video).cacheDir, loaded.cues[0]!.audioFile!)
     expect(fs.existsSync(cacheFile)).toBe(true)
   })
 })

@@ -167,6 +167,13 @@ export function createRealScreenRecordServiceDeps(
       })
     },
 
+    notifyRendererRecordingSaved: (p) => {
+      opts.sendToRenderer('screen-record:event:recording-saved', {
+        type: 'screen-record:event:recording-saved',
+        ...p,
+      })
+    },
+
     emitStatusChanged: (detail) => {
       opts.sendToRenderer('screen-record:event:status-changed', {
         type: 'screen-record:event:status-changed',
@@ -213,5 +220,9 @@ export function createRealScreenRecordServiceDeps(
     },
 
     convertWebmToMp4: (input, output) => webmToMp4(input, output),
+
+    removeFile: async (filePath) => {
+      await unlink(filePath)
+    },
   }
 }

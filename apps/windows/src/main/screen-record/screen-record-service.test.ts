@@ -338,9 +338,10 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     expect(statusOf(svc)).toBe('idle')
   })
 
-  it('exportMp4 成功返回 mp4Path；失败 warning=mp4_failed 仍保留 webm', async () => {
+  it('exportMp4 成功：path 指向 mp4 并删除源 webm；失败仍保留 webm', async () => {
     const convertOk = vi.fn(async () => ({ ok: true as const }))
-    const depsOk = makeFakeDeps({ convertWebmToMp4: convertOk })
+    const removeOk = vi.fn(async () => undefined)
+    const depsOk = makeFakeDeps({ convertWebmToMp4: convertOk, removeFile: removeOk })
     const svcOk = createScreenRecordService(depsOk)
     await svcOk.start({ sourceId: 'lumii-id' })
     await svcOk.handleChunk({
@@ -352,12 +353,15 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     const r1 = await svcOk.stop({ exportMp4: true })
     expect(r1.ok).toBe(true)
     if (r1.ok) {
-      expect(r1.mp4Path).toMatch(/\.mp4$/)
+      expect(r1.path).toMatch(/\.mp4$/)
+      expect(r1.mp4Path).toBe(r1.path)
       expect(convertOk).toHaveBeenCalled()
+      expect(removeOk).toHaveBeenCalledWith(expect.stringMatching(/\.webm$/i))
     }
 
     const convertFail = vi.fn(async () => ({ ok: false as const, message: 'boom' }))
-    const depsFail = makeFakeDeps({ convertWebmToMp4: convertFail })
+    const removeFail = vi.fn(async () => undefined)
+    const depsFail = makeFakeDeps({ convertWebmToMp4: convertFail, removeFile: removeFail })
     const svcFail = createScreenRecordService(depsFail)
     await svcFail.start({ sourceId: 'lumii-id' })
     await svcFail.handleChunk({
@@ -372,6 +376,48 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
       expect(r2.path).toMatch(/\.webm$/)
       expect(r2.mp4Path).toBeUndefined()
       expect(r2.warning).toBe('mp4_failed')
+      expect(removeFail).not.toHaveBeenCalled()
     }
+  })
+
+  it('目标窗口最小化（target_window_hidden）不中断录制，仅标记 targetHidden', async () => {
+    const d = makeFakeDeps()
+    const s = createScreenRecordService(d)
+    await s.start({ sourceId: 'lumii-id' })
+    await s.handleCaptureError({
+      sessionId: sessionIdOf(s),
+      reason: 'target_window_hidden',
+    })
+    expect(statusOf(s)).toBe('recording')
+    const detail = s.getStatus()
+    expect(detail.ok && detail.targetHidden).toBe(true)
+  })
+
+  it('画面恢复（target_window_visible）清除 targetHidden 标记', async () => {
+    const d = makeFakeDeps()
+    const s = createScreenRecordService(d)
+    await s.start({ sourceId: 'lumii-id' })
+    await s.handleCaptureError({ sessionId: sessionIdOf(s), reason: 'target_window_hidden' })
+    await s.handleCaptureError({ sessionId: sessionIdOf(s), reason: 'target_window_visible' })
+    expect(statusOf(s)).toBe('recording')
+    const detail = s.getStatus()
+    expect(detail.ok && Boolean(detail.targetHidden)).toBe(false)
+  })
+
+  it('成片写盘完成后通知渲染层（自动打开面板定位）', async () => {
+    const notify = vi.fn()
+    const d = makeFakeDeps({ notifyRendererRecordingSaved: notify })
+    const s = createScreenRecordService(d)
+    await s.start({ sourceId: 'lumii-id' })
+    await s.handleChunk({
+      sessionId: sessionIdOf(s),
+      chunkBase64: Buffer.from('webm').toString('base64'),
+      index: 0,
+      isLast: false,
+    })
+    const r = await s.stop()
+    expect(r.ok).toBe(true)
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify.mock.calls[0]![0]).toMatchObject({ path: expect.stringMatching(/\.webm$/) })
   })
 })

@@ -13,6 +13,13 @@ import {
   pickSupportedMime,
   splitBlobToChunks,
 } from './mix-audio-tracks'
+import { BLANK_HOLD_MS, computeCaptureSize, isBlankFrame } from './frame-guard'
+
+/** 合成帧率（与桌面捕获 maxFrameRate 保持一致） */
+const COMPOSITE_FPS = 30
+/** 空帧采样分辨率 */
+const SAMPLE_W = 32
+const SAMPLE_H = 18
 
 /** 采集层 IPC 依赖 */
 export interface ScreenRecordCaptureIpc {
@@ -37,6 +44,14 @@ type ActiveSession = {
   nextChunkIndex: number
   startTime: number
   stopping: boolean
+  /** 画布合成资源（目标窗口最小化时冻结最后有效帧） */
+  composite: CompositeHandle | null
+}
+
+/** 画布合成句柄 */
+interface CompositeHandle {
+  stream: MediaStream
+  stop: () => void
 }
 
 /**
@@ -76,7 +91,7 @@ export class ScreenRecordCapture {
       desktopStream = await navigator.mediaDevices.getUserMedia({
         audio: wantSystemAudio
           ? ({
-              // @ts-expect-error Electron chromeMediaSource 扩展
+              // Electron chromeMediaSource 扩展，标准 MediaTrackConstraints 未声明
               mandatory: {
                 chromeMediaSource: 'desktop',
                 chromeMediaSourceId: params.sourceId,
@@ -127,7 +142,22 @@ export class ScreenRecordCapture {
       }
     }
 
-    const outTracks: MediaStreamTrack[] = [...desktopStream.getVideoTracks()]
+    // 画面经画布合成：输出分辨率固定，窗口缩放/最小化不再产生黑白屏或尺寸突变
+    let composite: CompositeHandle | null = null
+    try {
+      composite = await this.createComposite(desktopStream, params.sessionId)
+    } catch (e) {
+      // 合成失败会退回原始桌面流（最小化时可能出现黑/白屏），需要能在日志中看到
+      console.error('[ScreenRecordCapture] 画布合成初始化失败，回退原始桌面流', e)
+      composite = null
+    }
+    if (!composite) {
+      console.warn('[ScreenRecordCapture] 未启用画布合成，黑/白屏保护不可用')
+    }
+
+    const outTracks: MediaStreamTrack[] = composite
+      ? [...composite.stream.getVideoTracks()]
+      : [...desktopStream.getVideoTracks()]
     let audioCtx: AudioContext | null = null
     const hasDesktopAudio = desktopStream.getAudioTracks().length > 0
     if (hasDesktopAudio || micStream) {
@@ -150,6 +180,7 @@ export class ScreenRecordCapture {
       'video/webm',
     ])
     if (!mimeType) {
+      composite?.stop()
       this.cleanupStreams(desktopStream, micStream, audioCtx)
       this.deps.ipc.notifyCaptureError(params.sessionId, 'capture_failed')
       throw new Error('capture_failed: no webm encoder')
@@ -166,6 +197,7 @@ export class ScreenRecordCapture {
       nextChunkIndex: 0,
       startTime: this.deps.nowMs(),
       stopping: false,
+      composite,
     }
 
     mr.ondataavailable = (e) => {
@@ -244,10 +276,147 @@ export class ScreenRecordCapture {
     // 最后一包 isLast（空包也可标记结束序号）
     this.deps.ipc.sendChunk(s.sessionId, '', s.nextChunkIndex, true)
 
+    s.composite?.stop()
     this.cleanupStreams(s.desktopStream, s.micStream, s.audioCtx)
     this.session = null
     void fromEnded
     return { recordedMs }
+  }
+
+  /**
+   * 把桌面流经 <video> → <canvas> 定尺寸合成为新视频流。
+   *
+   * 目标窗口最小化/隐藏时桌面捕获会输出纯黑或纯白帧，此处逐帧采样，
+   * 一旦判定为空帧立即停止绘制（画布保留最后一张有内容的帧），
+   * 持续超过 BLANK_HOLD_MS 再上报 target_window_hidden 供主进程提示；
+   * 画面恢复后自动继续绘制。窗口缩放时输出分辨率保持不变，避免编码异常。
+   */
+  private async createComposite(
+    desktopStream: MediaStream,
+    sessionId: string,
+  ): Promise<CompositeHandle | null> {
+    const videoEl = document.createElement('video')
+    videoEl.muted = true
+    videoEl.playsInline = true
+    videoEl.autoplay = true
+    // 脱离文档的 <video> 在部分环境下不解码帧，挂到屏幕外保证持续出帧
+    videoEl.setAttribute(
+      'style',
+      'position:fixed;left:-10000px;top:0;width:2px;height:2px;opacity:0;pointer-events:none',
+    )
+    document.body.appendChild(videoEl)
+    videoEl.srcObject = desktopStream
+
+    await new Promise<void>((resolve) => {
+      let settled = false
+      const done = () => {
+        if (settled) return
+        settled = true
+        resolve()
+      }
+      videoEl.onloadedmetadata = done
+      // 元数据迟迟不到时不阻塞录制启动
+      setTimeout(done, 1500)
+    })
+    try {
+      await videoEl.play()
+    } catch {
+      // 自动播放失败时仍可能有帧，继续尝试合成
+    }
+
+    const { width, height } = computeCaptureSize(videoEl.videoWidth, videoEl.videoHeight)
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d', { alpha: false })
+    if (!ctx) {
+      videoEl.srcObject = null
+      videoEl.remove()
+      return null
+    }
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, width, height)
+
+    const sampleCanvas = document.createElement('canvas')
+    sampleCanvas.width = SAMPLE_W
+    sampleCanvas.height = SAMPLE_H
+    const sampleCtx = sampleCanvas.getContext('2d', { willReadFrequently: true })
+
+    let blankSince: number | null = null
+    let hasGoodFrame = false
+    let hiddenReported = false
+
+    /** 单帧合成：等比居中绘制；判定为空帧时直接跳过绘制以冻结最后有效帧 */
+    const drawFrame = () => {
+      const now = this.deps.nowMs()
+      const vw = videoEl.videoWidth
+      const vh = videoEl.videoHeight
+      if (vw < 2 || vh < 2) return
+
+      let blankNow = false
+      if (sampleCtx) {
+        try {
+          sampleCtx.drawImage(videoEl, 0, 0, SAMPLE_W, SAMPLE_H)
+          blankNow = isBlankFrame(sampleCtx.getImageData(0, 0, SAMPLE_W, SAMPLE_H).data)
+        } catch {
+          blankNow = false
+        }
+      }
+
+      if (blankNow) {
+        if (blankSince == null) blankSince = now
+        // 已有有效画面时立刻停更画布，白/黑帧不会被写入成片
+        if (hasGoodFrame) {
+          if (!hiddenReported && now - blankSince >= BLANK_HOLD_MS) {
+            hiddenReported = true
+            this.deps.ipc.notifyCaptureError(sessionId, 'target_window_hidden')
+          }
+          return
+        }
+      } else {
+        blankSince = null
+        if (hiddenReported) {
+          hiddenReported = false
+          this.deps.ipc.notifyCaptureError(sessionId, 'target_window_visible')
+        }
+      }
+
+      const scale = Math.min(width / vw, height / vh)
+      const dw = Math.max(2, Math.round(vw * scale))
+      const dh = Math.max(2, Math.round(vh * scale))
+      const dx = Math.round((width - dw) / 2)
+      const dy = Math.round((height - dh) / 2)
+      if (dw !== width || dh !== height) {
+        ctx.fillStyle = '#000'
+        ctx.fillRect(0, 0, width, height)
+      }
+      try {
+        ctx.drawImage(videoEl, dx, dy, dw, dh)
+        if (!blankNow) hasGoodFrame = true
+      } catch {
+        // 单帧绘制失败忽略，下一帧继续
+      }
+    }
+
+    // 用 setInterval 而非 rAF：窗口最小化时 rAF 会被暂停，导致录制卡死
+    const timer = setInterval(drawFrame, Math.round(1000 / COMPOSITE_FPS))
+    drawFrame()
+
+    const stream = canvas.captureStream(COMPOSITE_FPS)
+    return {
+      stream,
+      stop: () => {
+        clearInterval(timer)
+        for (const t of stream.getTracks()) t.stop()
+        try {
+          videoEl.pause()
+        } catch {
+          // ignore
+        }
+        videoEl.srcObject = null
+        videoEl.remove()
+      },
+    }
   }
 
   /** 分片编码并发送（超 2MB 拆分） */

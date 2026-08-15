@@ -11,17 +11,42 @@ import type {
   ScreenRecordNarrateParams,
   ScreenRecordBurnSubtitlesParams,
   ScreenRecordSubtitleCue,
+  ScreenRecordSubtitleStyle,
 } from '../../shared/screen-record'
 import { getNarrateService } from './narrate-accessor'
 import { getBurnSubtitlesService } from './burn-accessor'
 import {
   listRecordings,
   loadSubtitleProject,
+  restoreOriginalRecording,
   saveSubtitleProject,
   cuesToProjectCues,
+  deleteRecordingArtifacts,
 } from './subtitle-project'
 import { resolveRecordingsDir } from '../workspace-paths'
 import { isPathUnderDir } from '../preview-path-acl'
+
+/**
+ * 校验渲染层传来的成片路径：必须是 recordings 根目录下的 webm/mp4。
+ */
+function guardRecordingPath(
+  videoPath: string | undefined,
+): { ok: true; abs: string } | { ok: false; error: { ok: false; error: string; message?: string } } {
+  if (!videoPath) {
+    return { ok: false, error: { ok: false, error: 'source_unavailable', message: 'path required' } }
+  }
+  const abs = path.resolve(videoPath)
+  const root = path.resolve(resolveRecordingsDir())
+  const ext = path.extname(abs).toLowerCase()
+  if (
+    !isPathUnderDir(abs, root) ||
+    path.dirname(abs) !== root ||
+    (ext !== '.webm' && ext !== '.mp4')
+  ) {
+    return { ok: false, error: { ok: false, error: 'source_not_in_recordings' } }
+  }
+  return { ok: true, abs }
+}
 
 /**
  * 注册录屏相关 ipcMain handle/on，绑定到单一 ScreenRecordService。
@@ -69,6 +94,18 @@ export function registerScreenRecordIpc(
     }
   })
 
+  ipcMain.handle('screen-record:delete-recording', async (_e, p: { path: string }) => {
+    const guarded = guardRecordingPath(p?.path)
+    if (!guarded.ok) return guarded.error
+    return deleteRecordingArtifacts(guarded.abs)
+  })
+
+  ipcMain.handle('screen-record:restore-original', async (_e, p: { path: string }) => {
+    const guarded = guardRecordingPath(p?.path)
+    if (!guarded.ok) return guarded.error
+    return restoreOriginalRecording(guarded.abs)
+  })
+
   ipcMain.handle('screen-record:load-subtitle-project', async (_e, p: { path: string }) => {
     const videoPath = p?.path
     if (!videoPath) return { ok: false, error: 'invalid_cues', message: 'path required' }
@@ -81,12 +118,25 @@ export function registerScreenRecordIpc(
     if (!loaded.ok) {
       return { ok: false, error: loaded.error, message: loaded.message }
     }
-    return { ok: true, cues: loaded.cues, source: loaded.source }
+    return {
+      ok: true,
+      cues: loaded.cues,
+      style: loaded.style,
+      source: loaded.source,
+      originalPath: loaded.originalPath,
+    }
   })
 
   ipcMain.handle(
     'screen-record:save-subtitle-project',
-    async (_e, p: { path: string; cues: ScreenRecordSubtitleCue[] }) => {
+    async (
+      _e,
+      p: {
+        path: string
+        cues: ScreenRecordSubtitleCue[]
+        style?: Partial<ScreenRecordSubtitleStyle>
+      },
+    ) => {
       const videoPath = p?.path
       if (!videoPath) return { ok: false, error: 'invalid_cues', message: 'path required' }
       const abs = path.resolve(videoPath)
@@ -106,7 +156,7 @@ export function registerScreenRecordIpc(
           audioFile: c.audioFile,
         })),
       )
-      const saved = saveSubtitleProject(abs, cues)
+      const saved = saveSubtitleProject(abs, cues, p.style)
       if (!saved.ok) {
         return { ok: false, error: saved.error, message: saved.message }
       }
@@ -118,7 +168,13 @@ export function registerScreenRecordIpc(
     'screen-record:burn-subtitles',
     async (_e, p: { params: ScreenRecordBurnSubtitlesParams }) => {
       const burn = getBurnSubtitlesService()
-      if (!burn) return { ok: false, error: 'disabled' }
+      if (!burn) {
+        return {
+          ok: false,
+          error: 'disabled',
+          message: '烧录服务尚未就绪，请稍后再试',
+        }
+      }
       return burn.burn(p.params)
     },
   )

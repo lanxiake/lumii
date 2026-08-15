@@ -17,14 +17,15 @@ import {
   escapeFfmpegSubtitlesPath,
   resolveBurnFontPath,
 } from './narrate-service'
+import { buildSubtitleForceStyle, normalizeSubtitleStyle } from './subtitle-style'
 import { runFfmpeg, webmToMp4, type FfmpegRunResult } from './ffmpeg-runner'
 import { cuesToSrt } from './srt'
 import {
-  buildBurnedOutputPath,
-  buildProjectPaths,
   cuesToProjectCues,
+  ensureOriginalBackup,
   hashCueText,
   loadSubtitleProject,
+  migrateLegacySidecar,
   saveSubtitleProject,
   type SubtitleProjectCue,
 } from './subtitle-project'
@@ -113,7 +114,7 @@ export function createBurnSubtitlesService(deps: BurnSubtitlesServiceDeps) {
         : (settings.narrateOriginalAudioGain ??
           SCREEN_RECORD_SETTINGS_DEFAULTS.narrateOriginalAudioGain)
 
-    const paths = buildProjectPaths(sourceAbs)
+    const paths = migrateLegacySidecar(sourceAbs)
     fs.mkdirSync(paths.cacheDir, { recursive: true })
 
     // 合并已有 project 中的 audio 元数据（同 id）
@@ -122,6 +123,8 @@ export function createBurnSubtitlesService(deps: BurnSubtitlesServiceDeps) {
     if (prev.ok) {
       for (const c of prev.cues) prevById.set(c.id, c)
     }
+    // 未显式传样式时沿用项目里已存的，避免二次烧录丢失用户调好的字号/颜色
+    const style = normalizeSubtitleStyle(params.style ?? (prev.ok ? prev.style : undefined))
 
     const tempDir =
       deps.resolveTempDir?.() ?? path.join(recordingsDir, '_narrate_tmp', `burn-${Date.now()}`)
@@ -159,7 +162,9 @@ export function createBurnSubtitlesService(deps: BurnSubtitlesServiceDeps) {
             }
             try {
               const generated = await deps.generateAudioFile(text, tempDir)
-              const destName = `${cue.id}.wav`
+              const generatedExt = path.extname(generated).toLowerCase()
+              const safeExt = generatedExt === '.mp3' || generatedExt === '.wav' ? generatedExt : '.wav'
+              const destName = `${cue.id}${safeExt}`
               const dest = path.join(paths.cacheDir, destName)
               fs.copyFileSync(generated, dest)
               audioFile = destName
@@ -191,14 +196,20 @@ export function createBurnSubtitlesService(deps: BurnSubtitlesServiceDeps) {
         })
       }
 
-      const saved = saveSubtitleProject(sourceAbs, resolved)
+      const saved = saveSubtitleProject(sourceAbs, resolved, style)
       if (!saved.ok) {
         return { ok: false, error: 'write_failed', message: saved.message }
       }
 
-      const outPath = buildBurnedOutputPath(sourceAbs)
+      // 始终以无字幕原片为输入：成片会被就地覆盖，否则重复烧录会字幕叠字幕
+      const originalVideo = ensureOriginalBackup(sourceAbs)
+      // 中间产物沿用源容器：视频走 copy，容器换成 .webm 会让 H.264 写头失败
+      const containerExt = path.extname(originalVideo).toLowerCase() || '.webm'
+      const wantMp4 = params.exportMp4 === true
+      const outExt = wantMp4 ? '.mp4' : containerExt
+      const outPath = path.join(paths.dir, `${paths.stem}${outExt}`)
       let warning: 'subtitle_burn_failed' | 'mp4_failed' | undefined
-      let workingVideo = sourceAbs
+      let workingVideo = originalVideo
 
       if (dub) {
         const audioCues = resolved
@@ -212,10 +223,10 @@ export function createBurnSubtitlesService(deps: BurnSubtitlesServiceDeps) {
         if (audioCues.length === 0) {
           return { ok: false, error: 'tts_unavailable', message: 'no cue audio' }
         }
-        const mixedPath = path.join(tempDir, 'mixed.webm')
-        let mixResult = await ffmpeg(buildDubFilterArgs(sourceAbs, audioCues, gain, mixedPath))
+        const mixedPath = path.join(tempDir, `mixed${containerExt}`)
+        let mixResult = await ffmpeg(buildDubFilterArgs(originalVideo, audioCues, gain, mixedPath))
         if (!mixResult.ok) {
-          mixResult = await ffmpeg(buildDubOnlyFilterArgs(sourceAbs, audioCues, mixedPath))
+          mixResult = await ffmpeg(buildDubOnlyFilterArgs(originalVideo, audioCues, mixedPath))
         }
         if (!mixResult.ok) {
           return { ok: false, error: 'narrate_failed', message: mixResult.message }
@@ -229,10 +240,11 @@ export function createBurnSubtitlesService(deps: BurnSubtitlesServiceDeps) {
         fs.writeFileSync(srtPath, cuesToSrt(resolved), 'utf8')
         const font = resolveBurnFontPath()
         const esc = escapeFfmpegSubtitlesPath(srtPath)
+        const forceStyle = buildSubtitleForceStyle(style)
         const fontOpt = font
-          ? `:fontsdir='${escapeFfmpegSubtitlesPath(path.dirname(font))}':force_style='FontName=Microsoft YaHei'`
-          : `:force_style='FontName=Microsoft YaHei'`
-        const burned = path.join(tempDir, 'burned.webm')
+          ? `:fontsdir='${escapeFfmpegSubtitlesPath(path.dirname(font))}':force_style='${forceStyle}'`
+          : `:force_style='${forceStyle}'`
+        const burned = path.join(tempDir, `burned${containerExt}`)
         const burnResult = await ffmpeg([
           '-y',
           '-i',
@@ -244,29 +256,37 @@ export function createBurnSubtitlesService(deps: BurnSubtitlesServiceDeps) {
           burned,
         ])
         if (burnResult.ok) {
-          fs.copyFileSync(burned, outPath)
+          workingVideo = burned
         } else {
           warning = 'subtitle_burn_failed'
-          fs.copyFileSync(workingVideo, outPath)
         }
-      } else {
-        fs.copyFileSync(workingVideo, outPath)
       }
 
-      let mp4Path: string | undefined
-      if (params.exportMp4 === true) {
-        const mp4Out = outPath.replace(/\.webm$/i, '.mp4')
-        const r = await toMp4(outPath, mp4Out)
-        if (r.ok) mp4Path = mp4Out
-        else if (!warning) warning = 'mp4_failed'
+      // 覆盖前先把中间产物转成目标容器，失败则退回源容器，避免留下半成品
+      let finalPath = outPath
+      if (wantMp4 && containerExt !== '.mp4') {
+        const mp4Temp = path.join(tempDir, 'final.mp4')
+        const r = await toMp4(workingVideo, mp4Temp)
+        if (r.ok) {
+          workingVideo = mp4Temp
+        } else {
+          if (!warning) warning = 'mp4_failed'
+          finalPath = path.join(paths.dir, `${paths.stem}${containerExt}`)
+        }
+      }
+
+      fs.copyFileSync(workingVideo, finalPath)
+      // 容器变化时旧成片改名了，清掉它，列表里始终只留一个视频
+      if (path.resolve(finalPath) !== sourceAbs && fs.existsSync(sourceAbs)) {
+        fs.rmSync(sourceAbs, { force: true })
       }
 
       return {
         ok: true,
-        path: outPath,
+        path: finalPath,
         srtPath: saved.srtPath,
         projectPath: saved.projectPath,
-        mp4Path,
+        mp4Path: path.extname(finalPath).toLowerCase() === '.mp4' ? finalPath : undefined,
         warning,
         ttsRegenerated,
         ttsReused,

@@ -75,6 +75,13 @@ export interface ScreenRecordServiceDeps {
   }) => void
   /** 广播状态变化 */
   emitStatusChanged: (detail: ScreenRecordStatusResult) => void
+  /** 可选：成片写盘完成通知（UI 自动打开面板定位新成片） */
+  notifyRendererRecordingSaved?: (p: {
+    path: string
+    durationMs: number
+    bytes: number
+    mp4Path?: string
+  }) => void
   /** 开文件写流 */
   createWriteStream: () => Promise<ScreenRecordWriteStream>
   /** 当前时间 ms */
@@ -90,6 +97,10 @@ export interface ScreenRecordServiceDeps {
     input: string,
     output: string,
   ) => Promise<{ ok: true } | { ok: false; message: string }>
+  /**
+   * 删除文件（MP4 转码成功后清理源 WebM）；失败仅记日志，不阻断 stop。
+   */
+  removeFile?: (filePath: string) => Promise<void>
 }
 
 /** 运行时内部状态 */
@@ -115,6 +126,8 @@ interface InternalState {
   maxDurationTimer: ReturnType<typeof setTimeout> | null
   nextChunkIndex: number
   captureFailedReason: string | null
+  /** 目标窗口最小化/隐藏导致画面冻结 */
+  targetHidden: boolean
   micMuted: boolean
   systemAudioMuted: boolean
   lastFinalizeError: ScreenRecordErrorCode | null
@@ -171,6 +184,7 @@ function createIdleState(): InternalState {
     maxDurationTimer: null,
     nextChunkIndex: 0,
     captureFailedReason: null,
+    targetHidden: false,
     micMuted: false,
     systemAudioMuted: false,
     lastFinalizeError: null,
@@ -258,6 +272,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       confirmTimeoutSec,
       confirmStartedAt: state.confirmStartedAt ?? undefined,
       includeMic: state.includeMic,
+      targetHidden: state.targetHidden || undefined,
     }
   }
 
@@ -320,6 +335,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       confirmTimer: null,
       nextChunkIndex: 0,
       captureFailedReason: null,
+      targetHidden: false,
       lastFinalizeError: null,
       micMuted: false,
       systemAudioMuted: false,
@@ -425,6 +441,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       return { ok: false, error: 'capture_failed' }
     }
 
+    let resultPath = path
     let mp4Path: string | undefined
     const settings = await deps.readSettings()
     const wantMp4 =
@@ -438,13 +455,31 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
         const r = await convert(path, out)
         if (r.ok) {
           mp4Path = out
+          // 勾选导出 MP4 且转码成功：删掉源 WebM，成片以 MP4 为准
+          if (deps.removeFile && /\.webm$/i.test(path)) {
+            try {
+              await deps.removeFile(path)
+              resultPath = out
+            } catch {
+              // 删除失败仍返回双路径，UI 至少能用到 mp4
+            }
+          } else {
+            resultPath = out
+          }
         } else if (!warning) {
           warning = 'mp4_failed'
         }
       }
     }
 
-    return { ok: true, path, durationMs, bytes, warning, mp4Path }
+    deps.notifyRendererRecordingSaved?.({
+      path: resultPath,
+      durationMs,
+      bytes,
+      mp4Path,
+    })
+
+    return { ok: true, path: resultPath, durationMs, bytes, warning, mp4Path }
   }
 
   /** 暂停：recording → paused */
@@ -754,6 +789,22 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     }
     if (p.reason === 'system_audio_unavailable') {
       state.systemAudioMuted = true
+      return
+    }
+    // 目标窗口最小化/隐藏：采集层已冻结画面，录制继续，仅提示
+    if (p.reason === 'target_window_hidden') {
+      if (!state.targetHidden) {
+        state.targetHidden = true
+        emitStatus()
+      }
+      return
+    }
+    // 画面恢复：清除提示
+    if (p.reason === 'target_window_visible') {
+      if (state.targetHidden) {
+        state.targetHidden = false
+        emitStatus()
+      }
       return
     }
     state.captureFailedReason = p.reason

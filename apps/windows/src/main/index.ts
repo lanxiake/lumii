@@ -368,6 +368,8 @@ function createWindow(isTestMode: boolean = false, startHidden: boolean = false)
       contextIsolation: true,
       sandbox: false, // 需要关闭 sandbox 以支持 node 模块
       webviewTag: true, // 允许 <webview> 用于 HTML 文件沙箱预览
+      // 录屏合成依赖定时器持续绘帧，窗口最小化时不能被节流
+      backgroundThrottling: false,
       // 开机动画带声自动播放
       autoplayPolicy: 'no-user-gesture-required',
       additionalArguments: extraArgs,
@@ -545,7 +547,39 @@ function initScreenRecordService(): void {
   screenRecordService = createScreenRecordService(deps)
   setScreenRecordService(screenRecordService)
   registerScreenRecordIpc(screenRecordService, mainWindow)
+  // 旁白/烧录与录屏 IPC 同步挂接，避免启动窗口期 invoke 得到 disabled。
+  // TTS 通过闭包惰性读取 voiceCallService，语音服务尚未就绪时会返回明确的 tts_unavailable。
+  mountScreenRecordMediaServices()
   log.info('录屏服务已初始化')
+}
+
+/**
+ * 挂接录屏旁白与字幕烧录服务（可重复调用；TTS 依赖模块级 voiceCallService）。
+ */
+function mountScreenRecordMediaServices(): void {
+  const screenRecordMediaDeps = {
+    resolveRecordingsDir,
+    readSettings: async () => {
+      let json: string | null = null
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        try {
+          json = await mainWindow.webContents.executeJavaScript(
+            `localStorage.getItem('mtbot-assistant-settings')`,
+          )
+        } catch {
+          json = null
+        }
+      }
+      return parseScreenRecordSettings(json)
+    },
+    generateAudioFile: async (text: string, destDir: string) => {
+      if (!voiceCallService) throw new Error('语音服务未初始化，请稍后再试')
+      return voiceCallService.generateAudioFile(text, destDir)
+    },
+  }
+  setNarrateService(createNarrateService(screenRecordMediaDeps))
+  setBurnSubtitlesService(createBurnSubtitlesService(screenRecordMediaDeps))
+  log.info('录屏旁白/烧录服务已挂接')
 }
 
 /**
@@ -1091,30 +1125,8 @@ async function initAgentRuntime(): Promise<void> {
   setAudioTranscribeCallback((base64, mimeType) => voiceCallService!.transcribeAudioBuffer(base64, mimeType))
   log.info('语音通话服务已注册')
 
-  // 录屏旁白：依赖 TTS，须在 voiceCallService 就绪后挂接
-  const screenRecordMediaDeps = {
-    resolveRecordingsDir,
-    readSettings: async () => {
-      let json: string | null = null
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        try {
-          json = await mainWindow.webContents.executeJavaScript(
-            `localStorage.getItem('mtbot-assistant-settings')`,
-          )
-        } catch {
-          json = null
-        }
-      }
-      return parseScreenRecordSettings(json)
-    },
-    generateAudioFile: async (text: string, destDir: string) => {
-      if (!voiceCallService) throw new Error('语音服务未初始化')
-      return voiceCallService.generateAudioFile(text, destDir)
-    },
-  }
-  setNarrateService(createNarrateService(screenRecordMediaDeps))
-  setBurnSubtitlesService(createBurnSubtitlesService(screenRecordMediaDeps))
-  log.info('录屏旁白/烧录服务已挂接')
+  // 语音就绪后重挂一次，确保 generateAudioFile 闭包拿到最新实例（幂等）
+  mountScreenRecordMediaServices()
 
   // 启动后 5s 异步预热语音引擎（不阻塞启动，模型就绪时静默完成）
   setTimeout(() => {
@@ -2971,6 +2983,14 @@ async function initialize(): Promise<void> {
 
   // lumii-local 须在 ready 前注册 privileged scheme
   registerLocalMediaSchemePrivileged()
+
+  // 窗口录制：改用 Windows Graphics Capture，支持被遮挡窗口，减少黑屏
+  if (process.platform === 'win32') {
+    app.commandLine.appendSwitch(
+      'enable-features',
+      'AllowWgcDesktopCapturer,AllowWgcScreenCapturer,AllowWgcWindowCapturer',
+    )
+  }
 
   // 等待 app ready
   await app.whenReady()

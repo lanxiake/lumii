@@ -13,7 +13,12 @@ import { isPathUnderDir } from '../preview-path-acl'
 import { probeMediaDurationMs } from './audio-duration'
 import { runFfmpeg, webmToMp4, type FfmpegRunResult } from './ffmpeg-runner'
 import { cuesToSrt } from './srt'
-import { persistResolvedCuesAsProject } from './subtitle-project'
+import {
+  ensureOriginalBackup,
+  migrateLegacySidecar,
+  persistResolvedCuesAsProject,
+} from './subtitle-project'
+import { buildSubtitleForceStyle } from './subtitle-style'
 
 /** narrate 依赖注入 */
 export interface NarrateServiceDeps {
@@ -53,13 +58,13 @@ export function resolveBurnFontPath(): string | null {
 }
 
 /**
- * 生成旁白输出文件名：foo.webm → foo-narrated.webm
+ * 按输出容器选择音频编码器。
+ *
+ * 混音时视频走 `-c:v copy`，所以中间文件必须保持与源相同的容器：
+ * WebM 只接受 Vorbis/Opus，MP4 中 H.264 需配 AAC，选错会在写头时直接失败。
  */
-export function buildNarratedOutputPath(sourcePath: string): string {
-  const dir = path.dirname(sourcePath)
-  const ext = path.extname(sourcePath) || '.webm'
-  const base = path.basename(sourcePath, ext)
-  return path.join(dir, `${base}-narrated${ext}`)
+export function resolveAudioCodecForContainer(outputPath: string): string {
+  return path.extname(outputPath).toLowerCase() === '.webm' ? 'libopus' : 'aac'
 }
 
 /**
@@ -97,7 +102,7 @@ export function buildDubFilterArgs(
     '-c:v',
     'copy',
     '-c:a',
-    'libopus',
+    resolveAudioCodecForContainer(outputPath),
     outputPath,
   )
   return args
@@ -136,7 +141,7 @@ export function buildDubOnlyFilterArgs(
     '-c:v',
     'copy',
     '-c:a',
-    'libopus',
+    resolveAudioCodecForContainer(outputPath),
     '-shortest',
     outputPath,
   )
@@ -240,24 +245,34 @@ export function createNarrateService(deps: NarrateServiceDeps) {
         resolvedCues.push({ startMs: cue.startMs, endMs: endMs!, text, audioPath })
       }
 
+      const projectPaths = migrateLegacySidecar(sourceAbs)
       let srtPath: string | undefined
       if (writeSrt) {
-        srtPath = sourceAbs.replace(/\.[^.]+$/i, '') + '-narrated.srt'
+        fs.mkdirSync(projectPaths.assetDir, { recursive: true })
+        srtPath = projectPaths.srtPath
         fs.writeFileSync(srtPath, cuesToSrt(resolvedCues), 'utf8')
       }
 
-      const outPath = buildNarratedOutputPath(sourceAbs)
+      // 始终以无字幕原片为输入：成片会被就地覆盖，否则重复配音会字幕叠字幕
+      const originalVideo = ensureOriginalBackup(sourceAbs)
+      // 中间产物沿用源容器：视频走 copy，容器换成 .webm 会让 H.264 写头失败
+      const containerExt = path.extname(originalVideo).toLowerCase() || '.webm'
+      const wantMp4 = params.exportMp4 === true
+      const outPath = path.join(
+        projectPaths.dir,
+        `${projectPaths.stem}${wantMp4 ? '.mp4' : containerExt}`,
+      )
       let warning: 'subtitle_burn_failed' | 'mp4_failed' | undefined
-      let workingVideo = sourceAbs
+      let workingVideo = originalVideo
 
       if (dub) {
         const audioCues = resolvedCues
           .filter((c): c is typeof c & { audioPath: string } => !!c.audioPath)
           .map((c) => ({ startMs: c.startMs, audioPath: c.audioPath }))
-        const mixedPath = path.join(tempDir, 'mixed.webm')
-        let mixResult = await ffmpeg(buildDubFilterArgs(sourceAbs, audioCues, gain, mixedPath))
+        const mixedPath = path.join(tempDir, `mixed${containerExt}`)
+        let mixResult = await ffmpeg(buildDubFilterArgs(originalVideo, audioCues, gain, mixedPath))
         if (!mixResult.ok) {
-          mixResult = await ffmpeg(buildDubOnlyFilterArgs(sourceAbs, audioCues, mixedPath))
+          mixResult = await ffmpeg(buildDubOnlyFilterArgs(originalVideo, audioCues, mixedPath))
         }
         if (!mixResult.ok) {
           return { ok: false, error: 'narrate_failed', message: mixResult.message }
@@ -268,10 +283,11 @@ export function createNarrateService(deps: NarrateServiceDeps) {
       if (writeSrt && srtPath && subtitleMode === 'burn') {
         const font = resolveBurnFontPath()
         const esc = escapeFfmpegSubtitlesPath(srtPath)
+        const forceStyle = buildSubtitleForceStyle(undefined)
         const fontOpt = font
-          ? `:fontsdir='${escapeFfmpegSubtitlesPath(path.dirname(font))}':force_style='FontName=Microsoft YaHei'`
-          : `:force_style='FontName=Microsoft YaHei'`
-        const burned = path.join(tempDir, 'burned.webm')
+          ? `:fontsdir='${escapeFfmpegSubtitlesPath(path.dirname(font))}':force_style='${forceStyle}'`
+          : `:force_style='${forceStyle}'`
+        const burned = path.join(tempDir, `burned${containerExt}`)
         const burnResult = await ffmpeg([
           '-y',
           '-i',
@@ -283,34 +299,45 @@ export function createNarrateService(deps: NarrateServiceDeps) {
           burned,
         ])
         if (burnResult.ok) {
-          fs.copyFileSync(burned, outPath)
+          workingVideo = burned
         } else {
           warning = 'subtitle_burn_failed'
-          fs.copyFileSync(workingVideo, outPath)
         }
-      } else {
-        fs.copyFileSync(workingVideo, outPath)
       }
 
-      let mp4Path: string | undefined
-      if (params.exportMp4 === true) {
-        const mp4Out = outPath.replace(/\.webm$/i, '.mp4')
-        const r = await toMp4(outPath, mp4Out)
-        if (r.ok) mp4Path = mp4Out
-        else if (!warning) warning = 'mp4_failed'
+      // 覆盖前先转成目标容器，失败则退回源容器，避免留下半成品
+      let finalPath = outPath
+      if (wantMp4 && containerExt !== '.mp4') {
+        const mp4Temp = path.join(tempDir, 'final.mp4')
+        const r = await toMp4(workingVideo, mp4Temp)
+        if (r.ok) {
+          workingVideo = mp4Temp
+        } else {
+          if (!warning) warning = 'mp4_failed'
+          finalPath = path.join(projectPaths.dir, `${projectPaths.stem}${containerExt}`)
+        }
       }
 
-      // 写入可编辑 sidecar（原片 + 旁白成片），便于 UI 续改
+      fs.copyFileSync(workingVideo, finalPath)
+      // 容器变化时旧成片改名了，清掉它，列表里始终只留一个视频
+      if (path.resolve(finalPath) !== sourceAbs && fs.existsSync(sourceAbs)) {
+        fs.rmSync(sourceAbs, { force: true })
+      }
+
+      // 写入可编辑 sidecar，便于 UI 续改
       try {
-        persistResolvedCuesAsProject(sourceAbs, resolvedCues)
-        if (path.resolve(outPath) !== sourceAbs && fs.existsSync(outPath)) {
-          persistResolvedCuesAsProject(outPath, resolvedCues)
-        }
+        persistResolvedCuesAsProject(finalPath, resolvedCues)
       } catch {
         // 旁白成片已产出，sidecar 失败不阻断
       }
 
-      return { ok: true, path: outPath, srtPath, mp4Path, warning }
+      return {
+        ok: true,
+        path: finalPath,
+        srtPath,
+        mp4Path: path.extname(finalPath).toLowerCase() === '.mp4' ? finalPath : undefined,
+        warning,
+      }
     } catch (e) {
       return {
         ok: false,

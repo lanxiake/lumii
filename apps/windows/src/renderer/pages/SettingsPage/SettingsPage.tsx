@@ -871,7 +871,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className={styles['panel-row-text']}>
                 <span className={styles['panel-row-label']}>停止时默认导出 MP4</span>
                 <span className={styles['panel-row-hint']}>
-                  失败时保留 WebM，并带 warning=mp4_failed
+                  转码成功后删除源 WebM；失败则保留 WebM
                 </span>
               </div>
               <Checkbox
