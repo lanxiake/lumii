@@ -339,6 +339,10 @@ npx vitest run apps/windows/src/main/app-ui-control
 
 ## Part D：三期（Task 13–17，CLI 统一控制面）
 
+> **已拆出独立计划：** 请改读并执行  
+> [`docs/plans/2026-08-15-cli-unified-control-plane-implementation.md`](./2026-08-15-cli-unified-control-plane-implementation.md)  
+> （Task 1–8，含循环依赖规避、速率限制模块、完整验收表）。以下 Part D 正文保留作历史对照，**不要再按本节实现**。
+
 > **规格：** 设计 v0.7 §14（`docs/design/2026-08-13-agent-app-ui-control-design.md`）。  
 > **前提：** Part C（Task 10–12）全部验收通过，`server.ts` 控制口已运行，`lumii-ui.mjs` 含 screenshot/goto/click 三条命令。  
 > **核心认知：** 原三期计划的 4 个声明式 API 全部已存在，任务本质是「暴露」而非「创建」。但 v0.6 草案有 9 处不闭环，v0.7 已修正，本 Part 按 v0.7 执行。
