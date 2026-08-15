@@ -139,3 +139,10 @@
 - [ ] 停止录制后面板自动弹出并选中新成片
 - [ ] 录制中最小化目标窗口：成片为冻结画面而非黑屏/白屏，面板给出提示，恢复后继续正常录制
 - [ ] 录制中缩放目标窗口：成片分辨率不变、无花屏
+
+---
+
+## 8. 相关：教程流水线
+
+Agent 侧 mark/timeline、narrate 可观测返回、inspect 见  
+`docs/design/2026-08-16-screen-record-tutorial-pipeline-design.md`。
