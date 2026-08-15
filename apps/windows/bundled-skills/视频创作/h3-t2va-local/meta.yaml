@@ -1,5 +1,0 @@
-name: h3-t2va-local
-description: |
-  MiniMax H3 本地文生视频技能。当用户需要用文字描述生成视频时触发。使用 ComfyUI 本地 H3 模型（非在线 API），完整覆盖：查找并基于现成模板修改工作流 → 提示词按 H3 T2VA 规范优化 → 先保存工作流到 UI 用户库（界面可见）→ 再提交生成任务 → 等待完成并交付视频。适用场景：文字转视频、T2V、文生视频、prompt-to-video、local video generation。不要用于在线 API 节点的调用。
-compatibility: 需要 ComfyUI + comfyui-minimax-h3-audio-T8 自定义节点 + H3 本地模型权重。工作流库应存在 H3 现成模板（文生视频-女-跳舞-v1-En.json 或 video_minimax_h3_i2v.json）。
-trigger-words: [文生视频, T2VA, text-to-video, H3视频, minimax视频, 本地视频生成, prompt生成视频, 文字转视频]
