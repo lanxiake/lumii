@@ -101,8 +101,8 @@ export class TrayManager {
     const mm = String(Math.floor(elapsedSec / 60)).padStart(2, '0')
     const ss = String(elapsedSec % 60).padStart(2, '0')
     const recordLabel = this.screenRecording
-      ? `停止录屏 (⏱ ${mm}:${ss})`
-      : '开始录屏…'
+      ? `停止录屏（${mm}:${ss}）`
+      : '开始录屏'
 
     const contextMenu = Menu.buildFromTemplate([
       {

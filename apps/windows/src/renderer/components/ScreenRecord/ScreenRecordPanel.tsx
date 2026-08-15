@@ -2,6 +2,7 @@
  * ScreenRecordPanel — 轻量录屏面板（源选择 / 开停 / 成片）
  */
 import React, { useEffect, useMemo, useState } from 'react'
+import { Button, Checkbox, Input } from '../ui'
 import type { ScreenRecordSource } from '../../../shared/screen-record'
 import styles from './ScreenRecord.module.css'
 
@@ -71,6 +72,16 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
     if (open) void onRefreshSources()
   }, [open, onRefreshSources])
 
+  // Esc 关闭：与 Modal 行为保持一致
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, onClose])
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     let list = sources.slice()
@@ -82,112 +93,121 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
   if (!open) return null
 
   return (
-    <div className={styles.panelOverlay} role="dialog" aria-label="录屏面板">
-      <div className={styles.panel}>
+    <div
+      className={styles.panelOverlay}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <section className={styles.panel} role="dialog" aria-label="录屏">
         <header className={styles.panelHeader}>
-          <h3>录屏</h3>
-          <button type="button" className={styles.iconBtn} onClick={onClose} aria-label="关闭">
+          <div className={styles.panelTitleWrap}>
+            <h3 className={styles.panelTitle}>录屏</h3>
+            {recording && (
+              <span className={styles.recBadge}>
+                <span className={styles.recDot} />
+                {formatDuration(elapsedMs)}
+              </span>
+            )}
+          </div>
+          <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="关闭">
             ×
           </button>
         </header>
 
-        {!enabled && (
-          <p className={styles.hintWarn}>录屏功能已关闭，请到设置启用。</p>
-        )}
+        <div className={styles.panelBody}>
+          {!enabled && (
+            <p className={styles.hintWarn}>录屏功能已关闭，请到「设置 → 隐私与数据 → 录屏」启用。</p>
+          )}
 
-        <p className={styles.hint}>
-          提示：录制单窗口时，请保持目标窗口可见，最小化可能导致黑屏
-        </p>
+          <div>
+            <span className={styles.sectionLabel}>录制源</span>
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="搜索显示器或窗口名称"
+              disabled={recording}
+              aria-label="搜索录制源"
+            />
+          </div>
 
-        <label className={styles.field}>
-          <span>搜索源</span>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="显示器或窗口名称"
-            disabled={recording}
-          />
-        </label>
+          <ul className={styles.sourceList}>
+            {filtered.map((s) => (
+              <li key={s.sourceId}>
+                <button
+                  type="button"
+                  className={`${styles.sourceItem} ${
+                    selectedId === s.sourceId ? styles.sourceItemActive : ''
+                  }`}
+                  disabled={recording}
+                  onClick={() => setSelectedId(s.sourceId)}
+                >
+                  <span className={styles.sourceType}>{s.type === 'screen' ? '屏' : '窗'}</span>
+                  <span className={styles.sourceName}>{s.name}</span>
+                  {s.isLumii && <span className={styles.badge}>本窗 · 免确认</span>}
+                </button>
+              </li>
+            ))}
+            {filtered.length === 0 && (
+              <li className={styles.empty}>{query ? '无匹配的源' : '暂无可录制的源'}</li>
+            )}
+          </ul>
 
-        <ul className={styles.sourceList}>
-          {filtered.map((s) => (
-            <li key={s.sourceId}>
-              <button
-                type="button"
-                className={
-                  selectedId === s.sourceId ? styles.sourceItemActive : styles.sourceItem
-                }
-                disabled={recording}
-                onClick={() => setSelectedId(s.sourceId)}
+          <div className={styles.switchRows}>
+            <div className={styles.switchRow}>
+              <Checkbox checked={includeMic} disabled={recording} onChange={setIncludeMic}>
+                包含麦克风
+              </Checkbox>
+            </div>
+            <div>
+              <div className={styles.switchRow}>
+                <Checkbox checked={alwaysAllow} onChange={onAlwaysAllowChange}>
+                  始终允许录屏
+                </Checkbox>
+              </div>
+              <p className={styles.switchHint}>开启后 AI 录制非本软件窗口时不再逐次确认</p>
+            </div>
+          </div>
+
+          <p className={styles.hint}>录制单窗口时请保持目标窗口可见，最小化可能导致黑屏。</p>
+        </div>
+
+        <footer className={styles.panelFooter}>
+          {lastRecording ? (
+            <div className={styles.lastRec}>
+              <span className={styles.lastRecPath} title={lastRecording.path}>
+                {ellipsizePath(lastRecording.path, 28)}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  void window.electronAPI?.app?.showItemInFolder(lastRecording.path)
+                }}
               >
-                <span className={styles.sourceType}>{s.type === 'screen' ? '屏' : '窗'}</span>
-                <span className={styles.sourceName}>{s.name}</span>
-                {s.isLumii && <span className={styles.badge}>本窗（免确认）</span>}
-              </button>
-            </li>
-          ))}
-          {filtered.length === 0 && <li className={styles.empty}>无匹配源</li>}
-        </ul>
+                打开文件夹
+              </Button>
+            </div>
+          ) : (
+            <span className={styles.footerSpacer} />
+          )}
 
-        <label className={styles.switchRow}>
-          <input
-            type="checkbox"
-            checked={includeMic}
-            disabled={recording}
-            onChange={(e) => setIncludeMic(e.target.checked)}
-          />
-          <span>包含麦克风</span>
-        </label>
-
-        <label className={styles.switchRow}>
-          <input
-            type="checkbox"
-            checked={alwaysAllow}
-            onChange={(e) => onAlwaysAllowChange(e.target.checked)}
-          />
-          <span>始终允许录屏（AI 非自身源免确认）</span>
-        </label>
-
-        <div className={styles.actions}>
           {!recording ? (
-            <button
-              type="button"
-              className={styles.primaryBtn}
+            <Button
+              variant="primary"
+              size="sm"
               disabled={!enabled || !selectedId}
               onClick={() => void onStart({ sourceId: selectedId, includeMic })}
             >
               开始录制
-            </button>
+            </Button>
           ) : (
-            <button
-              type="button"
-              className={styles.dangerBtn}
-              onClick={() => void onStop()}
-            >
+            <Button variant="danger" size="sm" onClick={() => void onStop()}>
               停止 · {formatDuration(elapsedMs)}
-            </button>
+            </Button>
           )}
-        </div>
-
-        {lastRecording ? (
-          <div className={styles.lastRec}>
-            <div className={styles.lastRecPath} title={lastRecording.path}>
-              {ellipsizePath(lastRecording.path)}
-            </div>
-            <button
-              type="button"
-              className={styles.linkBtn}
-              onClick={() => {
-                void window.electronAPI?.app?.showItemInFolder(lastRecording.path)
-              }}
-            >
-              打开文件夹
-            </button>
-          </div>
-        ) : (
-          !recording && <p className={styles.empty}>尚未录制</p>
-        )}
-      </div>
+        </footer>
+      </section>
     </div>
   )
 }

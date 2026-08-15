@@ -2,6 +2,7 @@
  * ScreenRecordConfirmDialog — AI 触发录屏确认弹窗
  */
 import React, { useEffect, useState } from 'react'
+import { Button, Checkbox, Modal } from '../ui'
 import type { ScreenRecordConfirmPayload } from '../../hooks/useScreenRecord'
 import styles from './ScreenRecord.module.css'
 
@@ -36,48 +37,43 @@ export const ScreenRecordConfirmDialog: React.FC<ScreenRecordConfirmDialogProps>
   if (!payload) return null
 
   return (
-    <div className={styles.confirmOverlay} role="alertdialog" aria-label="录屏确认">
-      <div className={styles.confirmCard}>
-        <h3>AI 请求录制「{payload.sourceName}」</h3>
-        <p className={styles.confirmMeta}>
-          {payload.sourceType === 'screen' ? '整屏' : '窗口'} · 剩余 {remain}s
-        </p>
-        {payload.thumbnailDataUrl ? (
-          <img
-            className={styles.thumb}
-            src={payload.thumbnailDataUrl}
-            alt="源预览"
-            width={320}
-            height={180}
-          />
-        ) : (
-          <div className={styles.thumbPlaceholder} />
-        )}
-        <label className={styles.switchRow}>
-          <input
-            type="checkbox"
-            checked={remember}
-            onChange={(e) => setRemember(e.target.checked)}
-          />
-          <span>始终允许 Lumii Agent 录屏（本次开始生效）</span>
-        </label>
-        <div className={styles.actions}>
-          <button
-            type="button"
-            className={styles.dangerBtn}
-            onClick={() => onRespond(false)}
-          >
+    <Modal
+      open
+      layer="elevated"
+      width={400}
+      maskClosable={false}
+      showClose={false}
+      title={`AI 请求录制「${payload.sourceName}」`}
+      footer={
+        <>
+          <Button variant="secondary" size="sm" onClick={() => onRespond(false)}>
             拒绝
-          </button>
-          <button
-            type="button"
-            className={styles.primaryBtn}
-            onClick={() => onRespond(true, remember)}
-          >
-            允许
-          </button>
+          </Button>
+          <Button variant="primary" size="sm" onClick={() => onRespond(true, remember)}>
+            允许录制
+          </Button>
+        </>
+      }
+    >
+      <div className={styles.confirmBody}>
+        <div className={styles.confirmMeta}>
+          <span>{payload.sourceType === 'screen' ? '整屏' : '窗口'}</span>
+          <span>·</span>
+          <span className={styles.confirmCountdown}>{remain}s 后自动拒绝</span>
+        </div>
+
+        {payload.thumbnailDataUrl ? (
+          <img className={styles.thumb} src={payload.thumbnailDataUrl} alt="源预览" />
+        ) : (
+          <div className={styles.thumbPlaceholder}>无预览图</div>
+        )}
+
+        <div className={styles.switchRow}>
+          <Checkbox checked={remember} onChange={setRemember}>
+            始终允许 Lumii Agent 录屏
+          </Checkbox>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

@@ -94,10 +94,10 @@ export function respondConfirm(
 /**
  * 订阅录屏事件；自动响应 start-capture / stop-capture 驱动采集层。
  */
-export function onEvent(cb: (event: ScreenRecordEvent | { type: string; [k: string]: unknown }) => void): () => void {
+export function onEvent(cb: (event: ScreenRecordEvent) => void): () => void {
   const capture = getScreenRecordCapture()
   return window.electronAPI.screenRecord.onEvent((raw) => {
-    const event = raw as ScreenRecordEvent & { type: string }
+    const event = raw as ScreenRecordEvent
     if (event.type === 'screen-record:event:start-capture') {
       const e = event as Extract<ScreenRecordEvent, { type: 'screen-record:event:start-capture' }>
       void capture

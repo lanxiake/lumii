@@ -842,6 +842,15 @@
   line-height: 1.4;
 }
 
+/* 高风险开关的说明文案（如「始终允许录屏」） */
+.panel-row-hint-warn {
+  color: var(--mt-warning-dark, var(--color-warning));
+}
+
+[data-theme='dark'] .panel-row-hint-warn {
+  color: var(--mt-warning, #f59e0b);
+}
+
 .panel-actions {
   display: flex;
   flex-wrap: wrap;

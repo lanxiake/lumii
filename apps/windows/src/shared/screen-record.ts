@@ -196,3 +196,7 @@ export type ScreenRecordEvent =
       sessionId: string
       reason: ScreenRecordErrorCode
     }
+  /** 托盘「开始录屏」但无预选源时，请求渲染层打开面板 */
+  | { readonly type: 'screen-record:open-panel' }
+  /** 确认弹窗勾选「始终允许」后，请求渲染层把设置落盘 */
+  | { readonly type: 'screen-record:persist-always-allow'; value: boolean }

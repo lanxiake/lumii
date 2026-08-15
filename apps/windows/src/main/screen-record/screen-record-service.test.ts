@@ -8,8 +8,20 @@ import {
   type ScreenRecordServiceDeps,
   type ScreenRecordWriteStream,
 } from './screen-record-service'
-import type { ScreenRecordSource } from '../../shared/screen-record'
+import type { ScreenRecordSource, ScreenRecordStatus } from '../../shared/screen-record'
 import { MIN_FREE_DISK_BYTES } from '../../shared/screen-record'
+
+/** 取当前状态；查询失败返回 undefined（避免联合类型多次调用无法收窄） */
+function statusOf(svc: ScreenRecordService): ScreenRecordStatus | undefined {
+  const r = svc.getStatus()
+  return r.ok ? r.status : undefined
+}
+
+/** 取当前会话 id；无会话返回空串 */
+function sessionIdOf(svc: ScreenRecordService): string {
+  const r = svc.getStatus()
+  return r.ok ? (r.sessionId ?? '') : ''
+}
 
 /** 假源：第 0 个是 Lumii 自身（isLumii=true） */
 const FAKE_SOURCES: ScreenRecordSource[] = [
@@ -114,13 +126,13 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
   })
 
   it('初始 idle', () => {
-    expect(svc.getStatus().ok && svc.getStatus().status).toBe('idle')
+    expect(statusOf(svc)).toBe('idle')
   })
 
   it('idle → recording（Lumii 自身源免确认）', async () => {
     const r = await svc.start({ sourceId: 'lumii-id' })
     expect(r.ok && r.status).toBe('recording')
-    expect(svc.getStatus().ok && svc.getStatus().status).toBe('recording')
+    expect(statusOf(svc)).toBe('recording')
   })
 
   it('重复 start 返回 already_recording（幂等不叠态）', async () => {
@@ -137,10 +149,10 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
   it('pending_confirm → stop 取消确认回 idle', async () => {
     const r1 = await svc.start({ sourceId: 'screen-1' })
     expect(r1.ok && r1.status).toBe('needs_confirmation')
-    expect(svc.getStatus().ok && svc.getStatus().status).toBe('pending_confirm')
+    expect(statusOf(svc)).toBe('pending_confirm')
     const r2 = await svc.stop()
     expect(r2.ok).toBe(true)
-    expect(svc.getStatus().ok && svc.getStatus().status).toBe('idle')
+    expect(statusOf(svc)).toBe('idle')
   })
 
   it('非自身源 + alwaysAllow=true → 直接 recording，跳过 pending_confirm', async () => {
@@ -170,9 +182,12 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     const d = makeFakeDeps({ enabled: false })
     svc = createScreenRecordService(d)
     expect((await svc.listSources()).ok).toBe(false)
-    expect((await svc.start({ sourceId: 'lumii-id' })).error).toBe('disabled')
-    expect((await svc.stop()).error).toBe('disabled')
-    expect(svc.getStatus().error).toBe('disabled')
+    const startResult = await svc.start({ sourceId: 'lumii-id' })
+    expect(!startResult.ok && startResult.error).toBe('disabled')
+    const stopResult = await svc.stop()
+    expect(!stopResult.ok && stopResult.error).toBe('disabled')
+    const statusResult = svc.getStatus()
+    expect(!statusResult.ok && statusResult.error).toBe('disabled')
   })
 
   it('maxDurationSec > 7200 截断为 7200（不报错）', async () => {
@@ -203,7 +218,7 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     const r = await svc.start({ sourceId: 'screen-1' })
     expect(r.ok && r.status).toBe('needs_confirmation')
     await vi.advanceTimersByTimeAsync(2100)
-    expect(svc.getStatus().ok && svc.getStatus().status).toBe('idle')
+    expect(statusOf(svc)).toBe('idle')
     expect(d.notifyRendererCancelled).toHaveBeenCalledWith(
       expect.any(String),
       'confirmation_timeout',
@@ -215,25 +230,25 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     expect(r1.ok && r1.status).toBe('needs_confirmation')
     const sessionId = r1.ok && r1.status === 'needs_confirmation' ? r1.sessionId : ''
     await svc.respondConfirm({ sessionId, allow: false })
-    expect(svc.getStatus().ok && svc.getStatus().status).toBe('idle')
+    expect(statusOf(svc)).toBe('idle')
     expect(deps.notifyRendererCancelled).toHaveBeenCalledWith(sessionId, 'permission_denied')
   })
 
   it('before-quit flush：recording 态 finalize 后 idle', async () => {
     await svc.start({ sourceId: 'lumii-id' })
     await svc.handleChunk({
-      sessionId: (svc.getStatus().ok && svc.getStatus().sessionId) || '',
+      sessionId: sessionIdOf(svc),
       chunkBase64: Buffer.from('webm').toString('base64'),
       index: 0,
       isLast: false,
     })
     await svc.flushBeforeQuit()
-    expect(svc.getStatus().ok && svc.getStatus().status).toBe('idle')
+    expect(statusOf(svc)).toBe('idle')
   })
 
   it('handleRendererGone：recording 态标 capture_failed 并 finalize', async () => {
     await svc.start({ sourceId: 'lumii-id' })
-    const sessionId = (svc.getStatus().ok && svc.getStatus().sessionId) || ''
+    const sessionId = sessionIdOf(svc)
     await svc.handleChunk({
       sessionId,
       chunkBase64: Buffer.from('abcd').toString('base64'),
@@ -244,7 +259,7 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     const stop = await svc.stop()
     // 已 idle，再次 stop 为 no_active_session；崩溃路径在 handleRendererGone 内 finalize
     expect(!stop.ok && stop.error).toBe('no_active_session')
-    expect(svc.getStatus().ok && svc.getStatus().status).toBe('idle')
+    expect(statusOf(svc)).toBe('idle')
   })
 
   it('用户允许确认后进入 recording', async () => {
@@ -252,7 +267,7 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     expect(r1.ok && r1.status).toBe('needs_confirmation')
     const sessionId = r1.ok && r1.status === 'needs_confirmation' ? r1.sessionId : ''
     await svc.respondConfirm({ sessionId, allow: true })
-    expect(svc.getStatus().ok && svc.getStatus().status).toBe('recording')
+    expect(statusOf(svc)).toBe('recording')
   })
 
   it('listSources 透传 includeThumbnail', async () => {
