@@ -94,13 +94,41 @@ export interface ScreenRecordStopParams {
   exportMp4?: boolean
 }
 
-/** stop 返回（设计 §3.1 第 3 行） */
+/**
+ * 录制会话内打点（活跃时钟 atMs，与 elapsedMs 同基准）。
+ * 教程流水线：stop 后用 timeline 生成 narrate cues。
+ */
+export interface ScreenRecordMarker {
+  id: string
+  atMs: number
+  label: string
+  kind?: 'beat' | 'action' | 'note'
+}
+
+/** screen_record_mark 参数 */
+export type ScreenRecordMarkParams = {
+  label: string
+  kind?: 'beat' | 'action' | 'note'
+}
+
+/** screen_record_mark 返回 */
+export type ScreenRecordMarkResult =
+  | {
+      ok: true
+      marker: ScreenRecordMarker
+      elapsedMs: number
+    }
+  | { ok: false; error: ScreenRecordErrorCode; message?: string }
+
+/** stop 返回（设计 §3.1 第 3 行 + 教程 timeline） */
 export type ScreenRecordStopResult =
   | {
       ok: true
       path: string
       durationMs: number
       bytes: number
+      /** 本会话打点（按 atMs 升序；无打点时为空数组） */
+      timeline: ScreenRecordMarker[]
       /** 可选 MP4 路径（exportMp4 成功时） */
       mp4Path?: string
       /** 麦/系统声降级或 MP4 失败时带 warning */
@@ -185,6 +213,8 @@ export type ScreenRecordCommand =
   | { readonly type: 'screen-record:resume' }
   | { readonly type: 'screen-record:status' }
   | { readonly type: 'screen-record:narrate'; params: ScreenRecordNarrateParams }
+  | { readonly type: 'screen-record:mark'; params: ScreenRecordMarkParams }
+  | { readonly type: 'screen-record:inspect'; path: string }
   | { readonly type: 'screen-record:list-recordings' }
   | { readonly type: 'screen-record:delete-recording'; path: string }
   | { readonly type: 'screen-record:restore-original'; path: string }
@@ -296,15 +326,49 @@ export interface ScreenRecordNarrateParams {
   exportMp4?: boolean
 }
 
-/** narrate 成功/失败结果 */
+/**
+ * narrate 成功/失败结果。
+ * 成片就地覆盖；原片备份在 `{stem}.lumii-subs/original.*`（见 originalPath）。
+ */
 export type ScreenRecordNarrateResult =
   | {
       ok: true
-      /** 旁白后新文件路径（原片保留） */
+      /** 当前可见成片路径（就地更新后，可能已是 mp4） */
       path: string
+      /** 无字幕原片备份 */
+      originalPath?: string
+      /** `*.lumii-subs` 附属目录 */
+      projectDir?: string
       srtPath?: string
       mp4Path?: string
+      bytes: number
+      durationMs?: number
+      dubbed: boolean
+      /** burn 成功为 true；soft 或烧录降级为 false */
+      burned: boolean
+      ttsCount?: number
       warning?: 'subtitle_burn_failed' | 'mp4_failed'
+      /** 一句人话说明（如就地覆盖、勿查找 *-narrated） */
+      message?: string
+    }
+  | { ok: false; error: ScreenRecordErrorCode; message?: string }
+
+/** screen_record_inspect：成片与字幕附属元数据（不读帧） */
+export type ScreenRecordInspectResult =
+  | {
+      ok: true
+      path: string
+      exists: boolean
+      bytes?: number
+      mtimeMs?: number
+      durationMs?: number
+      hasOriginal: boolean
+      hasSrt: boolean
+      hasProject: boolean
+      ttsCount: number
+      originalPath?: string
+      projectDir?: string
+      srtPath?: string
     }
   | { ok: false; error: ScreenRecordErrorCode; message?: string }
 

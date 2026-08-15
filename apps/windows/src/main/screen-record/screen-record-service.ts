@@ -369,7 +369,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       deps.notifyRendererCancelled(sessionId, 'permission_denied')
       resetToIdle()
       emitStatus()
-      return { ok: true, path: '', durationMs: 0, bytes: 0 }
+      return { ok: true, path: '', durationMs: 0, bytes: 0, timeline: [] }
     }
 
     if (state.status !== 'recording' && state.status !== 'paused' && state.status !== 'stopping' && state.status !== 'error') {
@@ -479,7 +479,8 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       mp4Path,
     })
 
-    return { ok: true, path: resultPath, durationMs, bytes, warning, mp4Path }
+    // timeline 占位：Task 2 接入会话打点；此处先返回空数组满足类型
+    return { ok: true, path: resultPath, durationMs, bytes, warning, mp4Path, timeline: [] }
   }
 
   /** 暂停：recording → paused */

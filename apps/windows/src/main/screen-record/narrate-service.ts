@@ -331,12 +331,22 @@ export function createNarrateService(deps: NarrateServiceDeps) {
         // 旁白成片已产出，sidecar 失败不阻断
       }
 
+      // Task 0 类型占位：Task 1 将补齐 originalPath/dubbed/burned/bytes 等真实字段
+      let bytes = 0
+      try {
+        bytes = fs.statSync(finalPath).size
+      } catch {
+        bytes = 0
+      }
       return {
         ok: true,
         path: finalPath,
         srtPath,
         mp4Path: path.extname(finalPath).toLowerCase() === '.mp4' ? finalPath : undefined,
         warning,
+        bytes,
+        dubbed: dub,
+        burned: subtitleMode === 'burn' && warning !== 'subtitle_burn_failed',
       }
     } catch (e) {
       return {
