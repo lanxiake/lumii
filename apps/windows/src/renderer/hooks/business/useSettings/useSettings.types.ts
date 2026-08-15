@@ -94,6 +94,8 @@ export interface ScreenRecordConfig {
   alwaysAllow: boolean
   /** 默认是否混入麦克风 */
   includeMicDefault: boolean
+  /** 默认是否录系统声 */
+  includeSystemAudioDefault: boolean
   /** AI 触发确认弹窗超时秒数 */
   confirmTimeoutSec: number
 }

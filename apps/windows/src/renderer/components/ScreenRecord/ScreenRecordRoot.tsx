@@ -23,6 +23,7 @@ const DEFAULT_SCREEN_RECORD = {
   enabled: true,
   alwaysAllow: false,
   includeMicDefault: true,
+  includeSystemAudioDefault: true,
   confirmTimeoutSec: 120,
 }
 
@@ -165,6 +166,7 @@ export const ScreenRecordRoot: React.FC = () => {
         status={status}
         elapsedMs={elapsedMs}
         includeMicDefault={screenRecord.includeMicDefault}
+        includeSystemAudioDefault={screenRecord.includeSystemAudioDefault !== false}
         alwaysAllow={screenRecord.alwaysAllow}
         enabled={screenRecord.enabled}
         lastRecording={lastRecording}

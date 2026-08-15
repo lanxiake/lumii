@@ -777,6 +777,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         enabled: true,
                         alwaysAllow: false,
                         includeMicDefault: true,
+                        includeSystemAudioDefault: true,
                         confirmTimeoutSec: 120,
                       }),
                       enabled: checked,
@@ -801,6 +802,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         enabled: true,
                         alwaysAllow: false,
                         includeMicDefault: true,
+                        includeSystemAudioDefault: true,
                         confirmTimeoutSec: 120,
                       }),
                       alwaysAllow: checked,
@@ -823,9 +825,35 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         enabled: true,
                         alwaysAllow: false,
                         includeMicDefault: true,
+                        includeSystemAudioDefault: true,
                         confirmTimeoutSec: 120,
                       }),
                       includeMicDefault: checked,
+                    },
+                  })
+                }
+              />
+            </div>
+            <div className={styles['panel-row']}>
+              <div className={styles['panel-row-text']}>
+                <span className={styles['panel-row-label']}>默认包含系统声音</span>
+                <span className={styles['panel-row-hint']}>
+                  整屏录制时较可靠；单窗口可能无系统声（会自动降级）
+                </span>
+              </div>
+              <Checkbox
+                checked={settings.screenRecord?.includeSystemAudioDefault !== false}
+                onChange={(checked) =>
+                  updateSettings({
+                    screenRecord: {
+                      ...(settings.screenRecord ?? {
+                        enabled: true,
+                        alwaysAllow: false,
+                        includeMicDefault: true,
+                        includeSystemAudioDefault: true,
+                        confirmTimeoutSec: 120,
+                      }),
+                      includeSystemAudioDefault: checked,
                     },
                   })
                 }
@@ -850,6 +878,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                           enabled: true,
                           alwaysAllow: false,
                           includeMicDefault: true,
+                          includeSystemAudioDefault: true,
                           confirmTimeoutSec: 120,
                         }),
                         confirmTimeoutSec: Number(e.target.value),

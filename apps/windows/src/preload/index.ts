@@ -1028,6 +1028,7 @@ export interface ElectronAPI {
     start: (params: {
       sourceId: string
       includeMic?: boolean
+      includeSystemAudio?: boolean
       maxDurationSec?: number
     }) => Promise<unknown>
     stop: () => Promise<unknown>
@@ -1790,7 +1791,12 @@ const electronAPI: ElectronAPI = {
   screenRecord: {
     listSources: (includeThumbnail?: boolean) =>
       ipcRenderer.invoke('screen-record:list-sources', { includeThumbnail }),
-    start: (params: { sourceId: string; includeMic?: boolean; maxDurationSec?: number }) =>
+    start: (params: {
+      sourceId: string
+      includeMic?: boolean
+      includeSystemAudio?: boolean
+      maxDurationSec?: number
+    }) =>
       ipcRenderer.invoke('screen-record:start', { params }),
     stop: () => ipcRenderer.invoke('screen-record:stop'),
     pause: () => ipcRenderer.invoke('screen-record:pause'),

@@ -34,6 +34,7 @@ export type ScreenRecordErrorCode =
   | 'source_unavailable'
   | 'insufficient_disk_space'
   | 'mic_unavailable'
+  | 'system_audio_unavailable'
   | 'permission_denied'
   | 'confirmation_timeout'
   | 'stream_ended'
@@ -60,6 +61,8 @@ export interface ScreenRecordStartParams {
   sourceId: string
   /** 默认 true，跟随设置 includeMicDefault；显式传值覆盖默认 */
   includeMic?: boolean
+  /** 默认跟随 includeSystemAudioDefault；显式传值覆盖 */
+  includeSystemAudio?: boolean
   /** 默认 1800；>7200 截断 7200；<0 报 usage */
   maxDurationSec?: number
 }
@@ -84,8 +87,8 @@ export type ScreenRecordStopResult =
       path: string
       durationMs: number
       bytes: number
-      /** 若麦轨降级无声（mic_unavailable 继续录时），带 warning */
-      warning?: 'mic_muted'
+      /** 麦/系统声降级无声时带 warning */
+      warning?: 'mic_muted' | 'system_audio_muted' | 'audio_degraded'
     }
   | { ok: false; error: ScreenRecordErrorCode; message?: string; partialPath?: string }
 
@@ -114,6 +117,8 @@ export interface ScreenRecordConfig {
   alwaysAllow: boolean
   /** 默认是否混入麦克风 */
   includeMicDefault: boolean
+  /** 默认是否录系统声（Windows 整屏较可靠；单窗口可能无音轨） */
+  includeSystemAudioDefault: boolean
   /** AI 触发时确认弹窗超时秒数，超时自动拒绝 */
   confirmTimeoutSec: number
 }
@@ -123,6 +128,7 @@ export const SCREEN_RECORD_SETTINGS_DEFAULTS: ScreenRecordConfig = {
   enabled: true,
   alwaysAllow: false,
   includeMicDefault: true,
+  includeSystemAudioDefault: true,
   confirmTimeoutSec: 120,
 }
 
@@ -195,6 +201,7 @@ export type ScreenRecordEvent =
       sessionId: string
       sourceId: string
       includeMic: boolean
+      includeSystemAudio: boolean
       maxDurationSec: number
     }
   | { readonly type: 'screen-record:event:stop-capture'; sessionId: string }

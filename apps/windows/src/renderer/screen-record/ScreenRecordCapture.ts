@@ -9,7 +9,7 @@ import {
 } from '../../shared/screen-record'
 import {
   arrayBufferToBase64,
-  mixMicIntoDestination,
+  mixDesktopAndMic,
   pickSupportedMime,
   splitBlobToChunks,
 } from './mix-audio-tracks'
@@ -63,23 +63,59 @@ export class ScreenRecordCapture {
     sessionId: string
     sourceId: string
     includeMic: boolean
+    includeSystemAudio?: boolean
   }): Promise<void> {
     if (this.session) {
       await this.stop()
     }
 
-    // Electron 桌面捕获约束
-    const desktopStream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        // @ts-expect-error Electron chromeMediaSource 扩展
-        mandatory: {
-          chromeMediaSource: 'desktop',
-          chromeMediaSourceId: params.sourceId,
-          maxFrameRate: 30,
+    const wantSystemAudio = params.includeSystemAudio !== false
+    // Electron 桌面捕获：系统声走 desktop 流 audio 轨（整屏较可靠）
+    let desktopStream: MediaStream
+    try {
+      desktopStream = await navigator.mediaDevices.getUserMedia({
+        audio: wantSystemAudio
+          ? ({
+              // @ts-expect-error Electron chromeMediaSource 扩展
+              mandatory: {
+                chromeMediaSource: 'desktop',
+                chromeMediaSourceId: params.sourceId,
+              },
+            } as MediaTrackConstraints)
+          : false,
+        video: {
+          // @ts-expect-error Electron chromeMediaSource 扩展
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: params.sourceId,
+            maxFrameRate: 30,
+          },
         },
-      },
-    })
+      })
+    } catch (e) {
+      if (wantSystemAudio) {
+        // 系统声失败：降级为无系统声再开一次
+        this.deps.ipc.notifyCaptureError(params.sessionId, 'system_audio_unavailable')
+        desktopStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            // @ts-expect-error Electron chromeMediaSource 扩展
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: params.sourceId,
+              maxFrameRate: 30,
+            },
+          },
+        })
+      } else {
+        throw e
+      }
+    }
+
+    // 若要求系统声但最终无音轨，也标降级
+    if (wantSystemAudio && desktopStream.getAudioTracks().length === 0) {
+      this.deps.ipc.notifyCaptureError(params.sessionId, 'system_audio_unavailable')
+    }
 
     let micStream: MediaStream | null = null
     if (params.includeMic) {
@@ -93,13 +129,18 @@ export class ScreenRecordCapture {
 
     const outTracks: MediaStreamTrack[] = [...desktopStream.getVideoTracks()]
     let audioCtx: AudioContext | null = null
-    if (micStream) {
+    const hasDesktopAudio = desktopStream.getAudioTracks().length > 0
+    if (hasDesktopAudio || micStream) {
       const Ctx =
         window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
       audioCtx = new Ctx()
-      const mixed = mixMicIntoDestination(audioCtx, micStream)
-      outTracks.push(...mixed.getAudioTracks())
+      const mixed = mixDesktopAndMic(
+        audioCtx,
+        hasDesktopAudio ? desktopStream : null,
+        micStream,
+      )
+      if (mixed) outTracks.push(...mixed.getAudioTracks())
     }
     const combined = new MediaStream(outTracks)
 

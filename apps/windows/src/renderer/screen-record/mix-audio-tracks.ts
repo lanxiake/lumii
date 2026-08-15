@@ -1,6 +1,7 @@
 /**
  * 桌面轨与麦克风轨混音（AudioContext）
  * MVP 已知限制：两路混轨可能有 <500ms 偏移（设计 §6），不做 delay 补偿。
+ * 二期：可同时混系统声（desktop audio tracks）与麦克风。
  */
 
 /**
@@ -15,6 +16,28 @@ export function mixMicIntoDestination(
   const dest = audioCtx.createMediaStreamDestination()
   micSrc.connect(dest)
   return dest.stream
+}
+
+/**
+ * 混入桌面系统声与可选麦克风，输出单一音频 MediaStream。
+ * 两路皆无时返回 null。
+ */
+export function mixDesktopAndMic(
+  audioCtx: AudioContext,
+  desktopStream: MediaStream | null,
+  micStream: MediaStream | null,
+): MediaStream | null {
+  const dest = audioCtx.createMediaStreamDestination()
+  let connected = false
+  if (desktopStream && desktopStream.getAudioTracks().length > 0) {
+    audioCtx.createMediaStreamSource(desktopStream).connect(dest)
+    connected = true
+  }
+  if (micStream && micStream.getAudioTracks().length > 0) {
+    audioCtx.createMediaStreamSource(micStream).connect(dest)
+    connected = true
+  }
+  return connected ? dest.stream : null
 }
 
 /**

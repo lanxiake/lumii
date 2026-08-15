@@ -63,6 +63,8 @@ export function parseScreenRecordSettings(json: string | null): ScreenRecordConf
       enabled: s.enabled ?? SCREEN_RECORD_SETTINGS_DEFAULTS.enabled,
       alwaysAllow: s.alwaysAllow ?? SCREEN_RECORD_SETTINGS_DEFAULTS.alwaysAllow,
       includeMicDefault: s.includeMicDefault ?? SCREEN_RECORD_SETTINGS_DEFAULTS.includeMicDefault,
+      includeSystemAudioDefault:
+        s.includeSystemAudioDefault ?? SCREEN_RECORD_SETTINGS_DEFAULTS.includeSystemAudioDefault,
       confirmTimeoutSec: s.confirmTimeoutSec ?? SCREEN_RECORD_SETTINGS_DEFAULTS.confirmTimeoutSec,
     }
   } catch {
@@ -114,12 +116,13 @@ export function createRealScreenRecordServiceDeps(
 
     getFreeDiskBytes: async (dirPath) => getFreeDiskBytes(dirPath),
 
-    notifyRendererStartCapture: (sessionId, sourceId, includeMic, maxDurationSec) => {
+    notifyRendererStartCapture: (sessionId, sourceId, includeMic, maxDurationSec, includeSystemAudio) => {
       opts.sendToRenderer('screen-record:event:start-capture', {
         type: 'screen-record:event:start-capture',
         sessionId,
         sourceId,
         includeMic,
+        includeSystemAudio,
         maxDurationSec,
       })
     },

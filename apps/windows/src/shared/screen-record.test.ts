@@ -23,6 +23,7 @@ describe('screen-record shared 常量', () => {
     expect(SCREEN_RECORD_SETTINGS_DEFAULTS.enabled).toBe(true)
     expect(SCREEN_RECORD_SETTINGS_DEFAULTS.alwaysAllow).toBe(false)
     expect(SCREEN_RECORD_SETTINGS_DEFAULTS.includeMicDefault).toBe(true)
+    expect(SCREEN_RECORD_SETTINGS_DEFAULTS.includeSystemAudioDefault).toBe(true)
     expect(SCREEN_RECORD_SETTINGS_DEFAULTS.confirmTimeoutSec).toBe(120)
   })
 })
@@ -57,8 +58,9 @@ describe('screen-record 类型形状', () => {
       'write_failed',
       'not_recording',
       'not_paused',
+      'system_audio_unavailable',
     ]
-    expect(codes.length).toBeGreaterThanOrEqual(13)
+    expect(codes.length).toBeGreaterThanOrEqual(14)
   })
 
   it('StartParams / StopResult / Command / Event 类型可引用', () => {

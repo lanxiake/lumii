@@ -117,6 +117,7 @@ export function onEvent(cb: (event: ScreenRecordEvent) => void): () => void {
           sessionId: e.sessionId,
           sourceId: e.sourceId,
           includeMic: e.includeMic,
+          includeSystemAudio: e.includeSystemAudio,
         })
         .catch((err) => {
           window.electronAPI.screenRecord.notifyCaptureError({

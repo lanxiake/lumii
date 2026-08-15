@@ -81,6 +81,9 @@ export function registerScreenRecordTools(
         parameters: Type.Object({
           sourceId: Type.String({ description: 'list_sources 返回的 sourceId' }),
           includeMic: Type.Optional(Type.Boolean({ description: '是否混入麦克风，默认 true' })),
+          includeSystemAudio: Type.Optional(
+            Type.Boolean({ description: '是否录系统声，默认跟随设置（整屏较可靠）' }),
+          ),
           maxDurationSec: Type.Optional(
             Type.Number({ description: '最长录制秒数，默认 1800，上限 7200' }),
           ),
@@ -93,6 +96,7 @@ export function registerScreenRecordTools(
           const p = rawParams as {
             sourceId?: string
             includeMic?: boolean
+            includeSystemAudio?: boolean
             maxDurationSec?: number
           }
           if (!p?.sourceId) {
@@ -107,6 +111,7 @@ export function registerScreenRecordTools(
               await svc.start({
                 sourceId: p.sourceId,
                 includeMic: p.includeMic,
+                includeSystemAudio: p.includeSystemAudio,
                 maxDurationSec,
               }),
             )

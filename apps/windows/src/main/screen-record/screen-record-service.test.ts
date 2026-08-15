@@ -92,6 +92,7 @@ function makeFakeDeps(
       enabled,
       alwaysAllow,
       includeMicDefault,
+      includeSystemAudioDefault: true,
       confirmTimeoutSec,
     }),
     resolveRecordingsDir: () => 'E:/tmp/recordings',

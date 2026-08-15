@@ -52,6 +52,7 @@ export interface ScreenRecordServiceDeps {
     sourceId: string,
     includeMic: boolean,
     maxDurationSec: number,
+    includeSystemAudio: boolean,
   ) => void
   /** 通知渲染停止采集 */
   notifyRendererStopCapture: (sessionId: string) => void
@@ -97,6 +98,7 @@ interface InternalState {
   /** 当前 recording segment 起始墙钟；paused/idle 时为 null */
   segmentStartedAt: number | null
   includeMic: boolean
+  includeSystemAudio: boolean
   maxDurationSec: number
   writer: ScreenRecordWriteStream | null
   confirmStartedAt: number | null
@@ -106,6 +108,7 @@ interface InternalState {
   nextChunkIndex: number
   captureFailedReason: string | null
   micMuted: boolean
+  systemAudioMuted: boolean
   lastFinalizeError: ScreenRecordErrorCode | null
   /** start 互斥锁，防止并发叠态 */
   startLock: boolean
@@ -151,6 +154,7 @@ function createIdleState(): InternalState {
     activeElapsedMs: 0,
     segmentStartedAt: null,
     includeMic: true,
+    includeSystemAudio: true,
     maxDurationSec: 1800,
     writer: null,
     confirmStartedAt: null,
@@ -160,6 +164,7 @@ function createIdleState(): InternalState {
     nextChunkIndex: 0,
     captureFailedReason: null,
     micMuted: false,
+    systemAudioMuted: false,
     lastFinalizeError: null,
     startLock: false,
   }
@@ -283,6 +288,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     sessionId: string
     source: ScreenRecordSource
     includeMic: boolean
+    includeSystemAudio: boolean
     maxDurationSec: number
   }): Promise<ScreenRecordStartResult> {
     const writer = await deps.createWriteStream()
@@ -299,6 +305,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       activeElapsedMs: 0,
       segmentStartedAt: startedAt,
       includeMic: opts.includeMic,
+      includeSystemAudio: opts.includeSystemAudio,
       maxDurationSec: opts.maxDurationSec,
       writer,
       confirmStartedAt: null,
@@ -306,6 +313,8 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       nextChunkIndex: 0,
       captureFailedReason: null,
       lastFinalizeError: null,
+      micMuted: false,
+      systemAudioMuted: false,
       startLock: false,
     }
     deps.notifyRendererStartCapture(
@@ -313,6 +322,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       opts.source.sourceId,
       opts.includeMic,
       opts.maxDurationSec,
+      opts.includeSystemAudio,
     )
     scheduleMaxDurationTimer()
     emitStatus()
@@ -362,7 +372,14 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     if (state.captureFailedReason) errorHint = 'capture_failed'
 
     const finalized = await finalizeWriter(errorHint)
-    const warning = state.micMuted ? ('mic_muted' as const) : undefined
+    const warning =
+      state.micMuted && state.systemAudioMuted
+        ? ('audio_degraded' as const)
+        : state.micMuted
+          ? ('mic_muted' as const)
+          : state.systemAudioMuted
+            ? ('system_audio_muted' as const)
+            : undefined
     const path = finalized.path
     const bytes = finalized.bytes
 
@@ -488,6 +505,10 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
 
       const includeMic =
         params.includeMic !== undefined ? params.includeMic : settings.includeMicDefault
+      const includeSystemAudio =
+        params.includeSystemAudio !== undefined
+          ? params.includeSystemAudio
+          : settings.includeSystemAudioDefault
       let maxDurationSec = params.maxDurationSec ?? 1800
       if (maxDurationSec > MAX_DURATION_SEC_CAP) {
         maxDurationSec = MAX_DURATION_SEC_CAP
@@ -507,6 +528,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
           sourceType: source.type,
           isLumii: source.isLumii,
           includeMic,
+          includeSystemAudio,
           maxDurationSec,
           confirmStartedAt: startedAt,
           confirmTimeoutSec: settings.confirmTimeoutSec,
@@ -540,7 +562,13 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
         }
       }
 
-      return await enterRecording({ sessionId, source, includeMic, maxDurationSec })
+      return await enterRecording({
+        sessionId,
+        source,
+        includeMic,
+        includeSystemAudio,
+        maxDurationSec,
+      })
     } catch (e) {
       state.startLock = false
       return {
@@ -642,9 +670,10 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       return
     }
     const includeMic = state.includeMic
+    const includeSystemAudio = state.includeSystemAudio
     const maxDurationSec = state.maxDurationSec
     const sessionId = p.sessionId
-    await enterRecording({ sessionId, source, includeMic, maxDurationSec })
+    await enterRecording({ sessionId, source, includeMic, includeSystemAudio, maxDurationSec })
   }
 
   async function handleChunk(p: {
@@ -678,9 +707,13 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     reason: string
   }): Promise<void> {
     if (state.sessionId !== p.sessionId) return
-    // 麦不可用：降级无声，不整体失败
+    // 麦/系统声不可用：降级无声，不整体失败
     if (p.reason === 'mic_unavailable') {
       state.micMuted = true
+      return
+    }
+    if (p.reason === 'system_audio_unavailable') {
+      state.systemAudioMuted = true
       return
     }
     state.captureFailedReason = p.reason

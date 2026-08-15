@@ -13,11 +13,16 @@ export interface ScreenRecordPanelProps {
   status: string
   elapsedMs: number
   includeMicDefault: boolean
+  includeSystemAudioDefault: boolean
   alwaysAllow: boolean
   enabled: boolean
   lastRecording: { path: string; durationMs: number; bytes: number } | null
   onRefreshSources: () => Promise<unknown>
-  onStart: (p: { sourceId: string; includeMic: boolean }) => Promise<unknown>
+  onStart: (p: {
+    sourceId: string
+    includeMic: boolean
+    includeSystemAudio: boolean
+  }) => Promise<unknown>
   onStop: () => Promise<unknown>
   onPause: () => Promise<unknown>
   onResume: () => Promise<unknown>
@@ -53,6 +58,7 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
   status,
   elapsedMs,
   includeMicDefault,
+  includeSystemAudioDefault,
   alwaysAllow,
   enabled,
   lastRecording,
@@ -66,6 +72,7 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string>('')
   const [includeMic, setIncludeMic] = useState(includeMicDefault)
+  const [includeSystemAudio, setIncludeSystemAudio] = useState(includeSystemAudioDefault)
   const recording = status === 'recording'
   const paused = status === 'paused'
   const active = recording || paused
@@ -73,6 +80,10 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
   useEffect(() => {
     setIncludeMic(includeMicDefault)
   }, [includeMicDefault])
+
+  useEffect(() => {
+    setIncludeSystemAudio(includeSystemAudioDefault)
+  }, [includeSystemAudioDefault])
 
   useEffect(() => {
     if (open) void onRefreshSources()
@@ -167,6 +178,18 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
                 包含麦克风
               </Checkbox>
             </div>
+            <div className={styles.switchRow}>
+              <Checkbox
+                checked={includeSystemAudio}
+                disabled={active}
+                onChange={setIncludeSystemAudio}
+              >
+                包含系统声音
+              </Checkbox>
+            </div>
+            <p className={styles.switchHint}>
+              系统声在整屏录制时较可靠；单窗口可能无音轨（会自动降级）
+            </p>
             <div>
               <div className={styles.switchRow}>
                 <Checkbox checked={alwaysAllow} onChange={onAlwaysAllowChange}>
@@ -205,7 +228,13 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
               variant="primary"
               size="sm"
               disabled={!enabled || !selectedId}
-              onClick={() => void onStart({ sourceId: selectedId, includeMic })}
+              onClick={() =>
+                void onStart({
+                  sourceId: selectedId,
+                  includeMic,
+                  includeSystemAudio,
+                })
+              }
             >
               开始录制
             </Button>
