@@ -21,6 +21,12 @@ import {
 } from './controller'
 import { isAppUiControlEnabled } from './enabled'
 import { createSlidingWindowRateLimiter } from './rate-limit'
+import {
+  assertWritablePatch,
+  buildPatchScript,
+  buildReadScript,
+  expandPathValue,
+} from './settings-channel'
 
 /** 浏览器控制相关端口（对照用，app-ui 控制口需避开） */
 export const DEFAULT_BROWSER_CONTROL_PORT = 18790
@@ -266,9 +272,67 @@ async function handleRoute(
       await handleCommandRoute(body, res)
       return
     }
+    case '/settings/read': {
+      await handleSettingsReadRoute(body, res)
+      return
+    }
+    case '/settings/write': {
+      await handleSettingsWriteRoute(body, res)
+      return
+    }
     default:
       sendJson(res, 404, { ok: false, error: 'not_found' })
   }
+}
+
+/**
+ * C 层：读取设置。keyPath 省略时返回整份设置。
+ */
+async function handleSettingsReadRoute(body: unknown, res: http.ServerResponse): Promise<void> {
+  const win = activeDeps?.getWindow('main')
+  if (!win || win.isDestroyed()) {
+    sendJson(res, 200, { ok: false, error: 'app_not_running' })
+    return
+  }
+  const keyPath = (body as { keyPath?: unknown } | null)?.keyPath
+  const raw = await win.webContents.executeJavaScript(
+    buildReadScript(typeof keyPath === 'string' ? keyPath : undefined),
+  )
+  sendJson(res, 200, { ok: true, value: JSON.parse(raw as string) })
+}
+
+/**
+ * C 层：写入设置。body 可传 { keyPath, value } 或 { patch }。
+ * 受保护字段拒绝；merge 在渲染进程注入脚本内一次性完成，避免主进程 RMW 竞态。
+ */
+async function handleSettingsWriteRoute(body: unknown, res: http.ServerResponse): Promise<void> {
+  const record = (body ?? {}) as {
+    keyPath?: unknown
+    value?: unknown
+    patch?: Record<string, unknown>
+  }
+  const patch =
+    record.patch ??
+    (typeof record.keyPath === 'string' ? expandPathValue(record.keyPath, record.value) : null)
+  if (!patch || typeof patch !== 'object') {
+    sendJson(res, 200, { ok: false, error: 'usage' })
+    return
+  }
+
+  const gate = assertWritablePatch(patch)
+  if (!gate.ok) {
+    sendJson(res, 200, gate)
+    return
+  }
+
+  const win = activeDeps?.getWindow('main')
+  if (!win || win.isDestroyed()) {
+    sendJson(res, 200, { ok: false, error: 'app_not_running' })
+    return
+  }
+
+  const raw = await win.webContents.executeJavaScript(buildPatchScript(patch))
+  sendJson(res, 200, { ok: true, settings: JSON.parse(raw as string) })
 }
 
 /**

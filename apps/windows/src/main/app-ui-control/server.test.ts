@@ -387,3 +387,135 @@ describe('POST /command', () => {
     expect(second.json).toEqual({ ok: false, error: 'rate_limited' })
   })
 })
+
+describe('POST /settings/*', () => {
+  let tmpRoot: string
+  let controller: AppUiController
+  let port: number
+
+  beforeEach(async () => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-app-ui-server-'))
+    _resetWindowsClientDataRootCacheForTest()
+    process.env.LUMII_CLIENT_DATA_DIR = tmpRoot
+    controller = mockController()
+    port = 0
+    mockedInspectPortUsage.mockReset()
+  })
+
+  afterEach(async () => {
+    await stopAppUiControlServer()
+    delete process.env.LUMII_CLIENT_DATA_DIR
+    _resetWindowsClientDataRootCacheForTest()
+    fs.rmSync(tmpRoot, { recursive: true, force: true })
+  })
+
+  /** 构造一个假 BrowserWindow：executeJavaScript 直接在内存里对 fakeStorage 做同样的 merge 语义 */
+  function fakeMainWindow(initial: Record<string, unknown>): {
+    win: { isDestroyed: () => boolean; webContents: { executeJavaScript: (script: string) => Promise<unknown> } }
+    storage: { current: Record<string, unknown> }
+  } {
+    const storage = { current: initial }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      // 测试沙箱内没有真实 localStorage/window，直接注入 mock 后 eval。
+      const localStorage = {
+        getItem: (key: string) => (key === 'mtbot-assistant-settings' ? JSON.stringify(storage.current) : null),
+        setItem: (key: string, value: string) => {
+          if (key === 'mtbot-assistant-settings') storage.current = JSON.parse(value)
+        },
+      }
+      const events: unknown[] = []
+      const windowMock = { dispatchEvent: (e: unknown) => events.push(e) }
+      // biome-ignore lint: 测试专用受控 eval，脚本内容由本文件生成
+      const fn = new Function('localStorage', 'window', 'CustomEvent', `return ${script}`)
+      return fn(localStorage, windowMock, class CustomEvent {
+        detail: unknown
+        constructor(_type: string, init?: { detail?: unknown }) {
+          this.detail = init?.detail
+        }
+      })
+    })
+    return {
+      win: { isDestroyed: () => false, webContents: { executeJavaScript } },
+      storage,
+    }
+  }
+
+  /** 用给定 deps 覆盖启动一个控制口，返回 token/port */
+  async function startWith(
+    extraDeps: Partial<Parameters<typeof startAppUiControlServer>[0]>,
+  ): Promise<{ token: string; port: number }> {
+    const server = http.createServer()
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', () => resolve())
+    })
+    const addr = server.address()
+    if (!addr || typeof addr === 'string') throw new Error('no port')
+    port = addr.port
+    server.close()
+
+    const config = await startAppUiControlServer({
+      getWindow: () => null,
+      controller,
+      port,
+      token: 'test-token-123',
+      ...extraDeps,
+    })
+    return { token: config.token, port: config.port }
+  }
+
+  it('settings/read 返回整份设置；带 keyPath 返回对应字段', async () => {
+    const { win } = fakeMainWindow({ theme: { mode: 'light' }, privacy: { saveChatHistory: true } })
+    const { token } = await startWith({
+      // biome-ignore lint: 测试注入的 mock window 结构与生产 BrowserWindow 不同，仅覆盖用到的字段
+      getWindow: () => win as never,
+    })
+
+    const all = await postRoute(port, '/settings/read', {}, token)
+    expect(all.json).toEqual({ ok: true, value: { theme: { mode: 'light' }, privacy: { saveChatHistory: true } } })
+
+    const scoped = await postRoute(port, '/settings/read', { keyPath: 'privacy.saveChatHistory' }, token)
+    expect(scoped.json).toEqual({ ok: true, value: true })
+  })
+
+  it('settings/write 合并写入且保留未涉及字段', async () => {
+    const { win, storage } = fakeMainWindow({ theme: { mode: 'light' }, privacy: { saveChatHistory: true } })
+    const { token } = await startWith({
+      // biome-ignore lint: 见上
+      getWindow: () => win as never,
+    })
+
+    const res = await postRoute(port, '/settings/write', { keyPath: 'theme.mode', value: 'dark' }, token)
+    expect(res.json).toMatchObject({
+      ok: true,
+      settings: { theme: { mode: 'dark' }, privacy: { saveChatHistory: true } },
+    })
+    expect(storage.current).toEqual({ theme: { mode: 'dark' }, privacy: { saveChatHistory: true } })
+  })
+
+  it('settings/write 受保护字段拒绝且不调用 executeJavaScript', async () => {
+    const { win } = fakeMainWindow({})
+    const { token } = await startWith({
+      // biome-ignore lint: 见上
+      getWindow: () => win as never,
+    })
+
+    const res = await postRoute(
+      port,
+      '/settings/write',
+      { keyPath: 'privacy.allowAgentAppUiControl', value: false },
+      token,
+    )
+    expect(res.json).toEqual({ ok: false, error: 'field_protected' })
+    expect(win.webContents.executeJavaScript).not.toHaveBeenCalled()
+  })
+
+  it('主窗口不存在时 settings/read 与 settings/write 都返回 app_not_running', async () => {
+    const { token } = await startWith({ getWindow: () => null })
+
+    const read = await postRoute(port, '/settings/read', {}, token)
+    expect(read.json).toEqual({ ok: false, error: 'app_not_running' })
+
+    const write = await postRoute(port, '/settings/write', { keyPath: 'theme.mode', value: 'dark' }, token)
+    expect(write.json).toEqual({ ok: false, error: 'app_not_running' })
+  })
+})
