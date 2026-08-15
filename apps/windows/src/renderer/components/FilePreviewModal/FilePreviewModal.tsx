@@ -196,6 +196,8 @@ interface PreviewResult {
   ranged?: boolean
   startLine?: number
   endLine?: number
+  /** 大音视频按 path 预览（lumii-local），优先于 base64 content */
+  fileUrl?: string
 }
 
 /**
@@ -585,10 +587,19 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     return buildImageDataUrl(result)
   }, [result, route])
 
-  /** 音频/视频 Blob URL（需在卸载时 revoke） */
+  /** 音频/视频 Blob URL（需在卸载时 revoke）；有 fileUrl 时直接用协议 URL */
   const [mediaBlobUrl, setMediaBlobUrl] = useState<string>('')
   useEffect(() => {
-    if (!result || (route !== 'audio' && route !== 'video') || result.truncated) {
+    if (!result || (route !== 'audio' && route !== 'video')) {
+      setMediaBlobUrl('')
+      return
+    }
+    // 成片大文件：主进程返回 lumii-local fileUrl，不经 base64
+    if (result.fileUrl) {
+      setMediaBlobUrl(result.fileUrl)
+      return
+    }
+    if (result.truncated) {
       setMediaBlobUrl('')
       return
     }
@@ -828,7 +839,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             </div>
           )}
 
-          {!loading && !error && result && result.truncated && (
+          {!loading && !error && result && result.truncated && !result.fileUrl && (
             <div className={styles.center}>
               <p>文件过大（{formatSize(result.size)}），无法预览</p>
               <button type="button" className={styles.actionBtn} onClick={handleOpen}>
@@ -855,7 +866,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             </div>
           )}
 
-          {!loading && !error && result && !result.truncated && route === 'audio' && mediaBlobUrl && (
+          {!loading && !error && result && (!result.truncated || !!result.fileUrl) && route === 'audio' && mediaBlobUrl && (
             <div className={styles.mediaWrap}>
               <audio controls src={mediaBlobUrl} className={styles.audioPlayer}>
                 您的浏览器不支持音频播放
@@ -863,7 +874,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
             </div>
           )}
 
-          {!loading && !error && result && !result.truncated && route === 'video' && mediaBlobUrl && (
+          {!loading && !error && result && (!result.truncated || !!result.fileUrl) && route === 'video' && mediaBlobUrl && (
             <div className={styles.mediaWrap}>
               <video controls src={mediaBlobUrl} className={styles.videoPlayer}>
                 您的浏览器不支持视频播放

@@ -30,6 +30,11 @@ process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
 
 import { execSync, spawn } from 'child_process'
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, shell, clipboard, screen, Notification } from 'electron'
+import {
+  registerLocalMediaSchemePrivileged,
+  registerLocalMediaProtocolHandler,
+  setLocalMediaWorkspaceCwdGetter,
+} from './local-media-protocol'
 import { join, extname, basename, dirname } from 'path'
 import { promises as fs, existsSync, readdirSync } from 'fs'
 import { TrayManager } from './tray-manager'
@@ -1056,6 +1061,7 @@ async function initAgentRuntime(): Promise<void> {
 
   // 先挂接 Bridge，再注册 IPC handler，确保 handler 注册时 bridge 已就绪
   setAgentRuntimeBridgeForIpc(agentRuntimeBridge)
+  setLocalMediaWorkspaceCwdGetter(() => agentRuntimeBridge!.getCwd())
   // 注册 agent-runtime:command IPC handler（必须在 setAgentRuntimeBridgeForIpc 之后）
   installAgentRuntimeCommandIpc()
   await agentRuntimeBridge.initialize()
@@ -2925,6 +2931,9 @@ async function initialize(): Promise<void> {
     log.info('测试模式已启用，跳过单实例锁定')
   }
 
+  // lumii-local 须在 ready 前注册 privileged scheme
+  registerLocalMediaSchemePrivileged()
+
   // 等待 app ready
   await app.whenReady()
 
@@ -2936,6 +2945,7 @@ async function initialize(): Promise<void> {
   // 初始化文件日志系统（必须在 app.whenReady() 之后）
   fileLogger.initialize()
   clearScreenshotTempDir()
+  registerLocalMediaProtocolHandler()
   // 服务启动时在控制台打印日志文件路径
   log.info('日志文件:', fileLogger.getCurrentLogFilePath())
 

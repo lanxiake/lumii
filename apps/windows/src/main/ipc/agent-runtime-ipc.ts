@@ -20,7 +20,9 @@ import { getPetWindowManager } from '../pet/pet-mode-ipc.js'
 import { deriveConversationTitleFromUserText } from '../../shared/conversation-title'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 import { parseThinkTagsFromRaw } from '../agent-runtime/event-converter'
-import { resolveWindowsClientDataRoot } from '../client-data-root'
+import { resolveRecordingsDir, resolveWindowsClientDataRoot } from '../client-data-root'
+import { isAllowedPreviewPath as checkAllowedPreviewPath } from '../preview-path-acl'
+import { buildLocalMediaUrl } from '../local-media-protocol'
 import { getToolUsage } from '../tool-usage-store'
 import { AcpBackendManager } from '../channel/acp-backend-manager'
 import { IpcChannelAdapter } from '../channel/adapters/ipc-channel-adapter'
@@ -199,12 +201,16 @@ function isResolvedPathInsideWorkspace(resolvedAbs: string, resolvedCwd: string)
 }
 
 /**
- * 判断预览路径是否在允许范围内：Agent 工作区或 Lumii 截图临时目录（app_screenshot 缩略图）。
+ * 判断预览路径是否在允许范围内：工作区 / recordings / 截图临时目录。
  */
 function isAllowedPreviewPath(resolvedAbs: string, resolvedCwd: string): boolean {
-  if (isResolvedPathInsideWorkspace(resolvedAbs, resolvedCwd)) return true
   const screenshotDir = path.resolve(path.join(resolveWindowsClientDataRoot(), 'temp', 'screenshots'))
-  return resolvedAbs.startsWith(screenshotDir + path.sep)
+  const recordingsDir = path.resolve(resolveRecordingsDir())
+  return checkAllowedPreviewPath(resolvedAbs, {
+    workspaceCwd: resolvedCwd,
+    recordingsDir,
+    screenshotDir,
+  })
 }
 
 /**
@@ -1426,12 +1432,12 @@ async function handleCommand(
         const { filePath, startLine, endLine } = command
         const cwd = bridge.getCwd()
         const expandedPath = expandTildePath(filePath)
-        // 路径安全：须位于 workspace 或 Lumii 截图临时目录内
+        // 路径安全：须位于 workspace / recordings / 截图临时目录内
         const absPath = path.isAbsolute(expandedPath) ? expandedPath : path.resolve(cwd, expandedPath)
         const resolvedAbs = path.resolve(absPath)
         const resolvedCwd = path.resolve(cwd)
         if (!isAllowedPreviewPath(resolvedAbs, resolvedCwd)) {
-          throw new Error('该路径不在当前 Agent 工作目录内，无法预览')
+          throw new Error('该路径不在允许的预览目录内（工作区 / recordings / 截图），无法预览')
         }
         if (!fs.existsSync(resolvedAbs)) {
           throw new Error('文件不存在或已被删除')
@@ -1445,6 +1451,28 @@ async function handleCommand(
         if (stat.isDirectory()) {
           throw new Error('无法预览目录，请在文件树中展开查看')
         }
+
+        /**
+         * 音视频大文件（或 recordings 目录内）按 path 走 lumii-local，避免 10MB base64 整包。
+         * 小体积 workspace 媒体仍可走 base64，兼容旧预览路径。
+         */
+        const isAv =
+          effectiveMime.startsWith('video/') || effectiveMime.startsWith('audio/')
+        const inRecordings = resolvedAbs.startsWith(
+          path.resolve(resolveRecordingsDir()) + path.sep,
+        )
+        if (isAv && (stat.size > MAX_BYTES || inRecordings)) {
+          return {
+            truncated: false,
+            content: null,
+            fileUrl: buildLocalMediaUrl(resolvedAbs),
+            size: stat.size,
+            mimeType: effectiveMime,
+            fileName,
+            ranged: false,
+          }
+        }
+
         if (stat.size > MAX_BYTES) {
           return {
             truncated: true,

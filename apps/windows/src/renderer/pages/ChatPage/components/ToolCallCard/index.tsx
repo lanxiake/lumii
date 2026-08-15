@@ -515,6 +515,53 @@ function extractToolImagePreviewDetails(output: unknown): {
   }
 }
 
+/**
+ * 从 jsonToolResult 的 content text 块解析 JSON 对象。
+ */
+function parseJsonPayloadFromToolOutput(output: unknown): Record<string, unknown> | null {
+  if (!output || typeof output !== 'object') return null
+  const o = output as Record<string, unknown>
+  if (typeof o.ok === 'boolean') return o
+  const content = o.content
+  if (!Array.isArray(content)) return null
+  for (const block of content) {
+    if (!block || typeof block !== 'object' || (block as { type?: string }).type !== 'text') continue
+    const text = (block as { text?: string }).text
+    if (typeof text !== 'string') continue
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>
+      if (parsed && typeof parsed === 'object') return parsed
+    } catch {
+      // 非 JSON，跳过
+    }
+  }
+  return null
+}
+
+/**
+ * 从 screen_record_stop / screen_record_narrate 结果提取可预览成片路径。
+ */
+function extractScreenRecordOutputPaths(
+  toolName: string,
+  output: unknown,
+): Array<{ filePath: string; fileName: string; label: string }> {
+  const lname = (toolName || '').toLowerCase()
+  if (lname !== 'screen_record_stop' && lname !== 'screen_record_narrate') return []
+  const payload = parseJsonPayloadFromToolOutput(output)
+  if (!payload || payload.ok === false) return []
+  const chips: Array<{ filePath: string; fileName: string; label: string }> = []
+  const pushPath = (raw: unknown, label: string) => {
+    if (typeof raw !== 'string' || !raw.trim()) return
+    const filePath = raw.trim()
+    const fileName = filePath.replace(/\\/g, '/').split('/').pop() || filePath
+    chips.push({ filePath, fileName, label })
+  }
+  pushPath(payload.path, 'WebM')
+  pushPath(payload.mp4Path, 'MP4')
+  pushPath(payload.outputPath, '成片')
+  return chips
+}
+
 const ImageGeneratePreview: React.FC<{ output: unknown; fullSize?: boolean }> = ({ output, fullSize = false }) => {
   const [dataUrl, setDataUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1034,6 +1081,13 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
   const lineRangeText = fileInfo ? formatLineRange(fileInfo.startLine, fileInfo.endLine) : ''
   const canPreviewFile = !!(fileInfo && previewCtx && !isRunning)
 
+  /** 录屏成片 chip（stop / narrate 结果 path） */
+  const recordingChips = useMemo(
+    () =>
+      item.status === 'completed' ? extractScreenRecordOutputPaths(item.name, item.output) : [],
+    [item.name, item.output, item.status],
+  )
+
   const handlePreviewFile = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation()
@@ -1046,6 +1100,18 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
       })
     },
     [fileInfo, previewCtx],
+  )
+
+  /**
+   * 打开录屏成片预览（FilePreviewModal）。
+   */
+  const handlePreviewRecording = useCallback(
+    (e: React.MouseEvent, filePath: string, fileName: string) => {
+      e.stopPropagation()
+      if (!previewCtx) return
+      previewCtx.onPreview({ filePath, fileName })
+    },
+    [previewCtx],
   )
 
   return (
@@ -1072,6 +1138,21 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
             )}
           </span>
         )}
+        {recordingChips.map((chip) => (
+          <span
+            key={`${chip.label}:${chip.filePath}`}
+            className={clsx(styles.fileChip, previewCtx && styles.fileChipClickable)}
+            title={previewCtx ? `点击预览 ${chip.filePath}` : chip.filePath}
+            onClick={
+              previewCtx
+                ? (e) => handlePreviewRecording(e, chip.filePath, chip.fileName)
+                : undefined
+            }
+          >
+            <span className={styles.fileChipName}>{chip.fileName}</span>
+            <span className={styles.fileChipRange}>{chip.label}</span>
+          </span>
+        ))}
         {(item.status === 'completed' || item.status === 'failed' || item.status === 'running') && (
           <span className={styles.duration}>
             {formatDuration(item.startTime, item.endTime ?? liveNow, item.status !== 'running' ? item.durationMs : undefined)}

@@ -1109,6 +1109,11 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       endLine?: number
       /** 与 files:read-preview-content 一致；二进制为 base64 */
       encoding?: 'utf-8' | 'base64'
+      /**
+       * 大音视频按 path 预览：lumii-local 协议 URL（不读满 base64）。
+       * 有 fileUrl 时 content 可为 null。
+       */
+      fileUrl?: string
     }
   : T extends 'commands:list' ? readonly CommandListEntry[]
   : T extends 'tasks:list' ? {
