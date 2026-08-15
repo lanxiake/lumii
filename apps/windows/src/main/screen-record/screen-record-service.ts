@@ -401,10 +401,16 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     emitStatus()
 
     if (finalized.error && reason !== 'user' && reason !== 'max_duration' && reason !== 'quit') {
+      const message =
+        reason === 'stream_ended'
+          ? path
+            ? '目标窗口已关闭，已保存已录片段'
+            : '目标窗口已关闭，未能保存有效片段'
+          : reason
       return {
         ok: false,
         error: finalized.error,
-        message: reason,
+        message,
         partialPath: path || undefined,
       }
     }

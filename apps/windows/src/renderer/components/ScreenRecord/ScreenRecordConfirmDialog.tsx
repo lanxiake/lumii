@@ -68,6 +68,12 @@ export const ScreenRecordConfirmDialog: React.FC<ScreenRecordConfirmDialogProps>
           <div className={styles.thumbPlaceholder}>无预览图</div>
         )}
 
+        {payload.sourceType === 'window' && (
+          <p className={`${styles.hint} ${styles.hintWarn}`}>
+            请保持目标窗口可见，不要最小化；关闭目标窗口将结束录制并保存已录片段。
+          </p>
+        )}
+
         <div className={styles.switchRow}>
           <Checkbox checked={remember} onChange={setRemember}>
             始终允许 Lumii Agent 录屏

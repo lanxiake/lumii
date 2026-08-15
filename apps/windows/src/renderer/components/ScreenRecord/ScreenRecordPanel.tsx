@@ -213,7 +213,9 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
             </div>
           </div>
 
-          <p className={styles.hint}>录制单窗口时请保持目标窗口可见，最小化可能导致黑屏。</p>
+          <p className={`${styles.hint} ${styles.hintWarn}`}>
+            录制单窗口时请保持目标窗口可见且不要最小化；最小化或关闭目标窗口可能导致黑屏或中断（已录片段仍会保存）。
+          </p>
         </div>
 
         <footer className={styles.panelFooter}>
