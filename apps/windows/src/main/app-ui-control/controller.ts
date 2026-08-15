@@ -117,18 +117,16 @@ export interface AppUiSnapshotCache {
   bounds: AppUiScreenshotBounds
 }
 
-/** 截图成功结果（含内部 previewPath，不暴露给模型） */
+/** 截图成功结果（含内部 previewPath；图片以文件路径交付，不内联 base64） */
 export interface AppUiScreenshotSuccess {
   ok: true
   snapshotId: string
-  imageBase64: string
-  mimeType: string
   width: number
   height: number
   viewState: AppUiViewState
   refs: AppUiRef[]
   truncated: boolean
-  /** 临时 JPEG 路径，供 ToolCallCard 预览；不进入模型可见 payload */
+  /** 临时 JPEG 路径：供 ToolCallCard 预览，并向模型回传 imagePath */
   previewPath: string
   /** 截图时主窗口是否可见（托盘隐藏时为 false） */
   windowVisible: boolean
@@ -626,8 +624,6 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
     return {
       ok: true,
       snapshotId,
-      imageBase64: outputBuffer.toString('base64'),
-      mimeType: resized.mimeType,
       width: bounds.width,
       height: bounds.height,
       viewState,

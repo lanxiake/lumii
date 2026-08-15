@@ -77,13 +77,11 @@ describe('registerAppUiTools', () => {
     expect(tool?.description).toContain('只截图，不操作')
   })
 
-  it('成功时返回 text JSON（含 view/hub）+ image 块，previewPath 在 details', async () => {
+  it('成功时只返回 text JSON（含 view/hub 与 imagePath），不内联 image 块，previewPath 在 details', async () => {
     const execute = registerAndGetExecute('app_screenshot', stubController({
       screenshot: vi.fn(async () => ({
         ok: true as const,
         snapshotId: 'snap-001',
-        imageBase64: 'abc123',
-        mimeType: 'image/jpeg',
         width: 800,
         height: 600,
         viewState: {
@@ -109,11 +107,13 @@ describe('registerAppUiTools', () => {
       height: 600,
       refs: [{ ref: 'e1', role: 'button', name: '发送', x: 1, y: 2, w: 3, h: 4 }],
       truncated: false,
+      imagePath: '/tmp/snap-001.jpg',
     })
     expect(payload).not.toHaveProperty('previewPath')
+    expect((payload as { imageBase64?: unknown }).imageBase64).toBeUndefined()
 
-    const imageBlock = result.content?.find((c) => c.type === 'image')
-    expect(imageBlock).toMatchObject({ type: 'image', data: 'abc123', mimeType: 'image/jpeg' })
+    // 不再把 JPEG base64 内联进上下文
+    expect(result.content?.some((c) => c.type === 'image')).toBe(false)
     expect(result.details).toEqual({ previewPath: '/tmp/snap-001.jpg' })
   })
 
@@ -121,8 +121,6 @@ describe('registerAppUiTools', () => {
     const screenshot = vi.fn(async () => ({
       ok: true as const,
       snapshotId: 'snap',
-      imageBase64: 'abc',
-      mimeType: 'image/jpeg',
       width: 100,
       height: 100,
       viewState: { view: 'chat', hub: { open: false, tab: null, category: null } },
@@ -331,7 +329,7 @@ describe('registerAppUiTools', () => {
       readSettingsJson: async () =>
         JSON.stringify({ privacy: { allowAgentAppUiControl: false } }),
     }
-    const screenshot = vi.fn(async () => ({ ok: true as const, snapshotId: 's', imageBase64: 'x', mimeType: 'image/jpeg', width: 1, height: 1, viewState: CLOSED_HUB_VIEW_STATE, refs: [], truncated: false, previewPath: '', windowVisible: true }))
+    const screenshot = vi.fn(async () => ({ ok: true as const, snapshotId: 's', width: 1, height: 1, viewState: CLOSED_HUB_VIEW_STATE, refs: [], truncated: false, previewPath: '', windowVisible: true }))
     const goto = vi.fn(async () => ({ ok: true as const, ...CLOSED_HUB_VIEW_STATE }))
     const click = vi.fn(async () => ({ ok: true as const }))
     const ctrl = stubController({ screenshot, goto, click })
@@ -351,8 +349,6 @@ describe('registerAppUiTools', () => {
     const screenshot = vi.fn(async () => ({
       ok: true as const,
       snapshotId: 'snap',
-      imageBase64: 'abc',
-      mimeType: 'image/jpeg',
       width: 100,
       height: 100,
       viewState: CLOSED_HUB_VIEW_STATE,
@@ -376,8 +372,6 @@ describe('registerAppUiTools', () => {
     const screenshot = vi.fn(async () => ({
       ok: true as const,
       snapshotId: 'snap',
-      imageBase64: 'abc',
-      mimeType: 'image/jpeg',
       width: 100,
       height: 100,
       viewState: CLOSED_HUB_VIEW_STATE,

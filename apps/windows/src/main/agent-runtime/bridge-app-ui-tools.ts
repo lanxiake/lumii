@@ -113,7 +113,8 @@ export function registerAppUiTools(
         label: 'App Screenshot',
         category: 'channel' as const,
         description:
-          '截取 Lumii 主窗口或桌宠窗口当前界面，返回 JPEG 图片与可交互元素 refs。只截图，不操作界面。',
+          '截取 Lumii 主窗口或桌宠窗口当前界面，返回可交互元素 refs（role/name/坐标）与截图文件路径。' +
+          '不会把图片内容内联进上下文；如需查看图片请用返回的路径读取。只截图，不操作界面。',
         parameters: Type.Object({
           annotate: Type.Optional(
             Type.Boolean({ description: '是否在截图上标注元素编号（SoM）' }),
@@ -144,6 +145,8 @@ export function registerAppUiTools(
               return jsonToolResult({ ok: false, error: result.error })
             }
 
+            // 不把 JPEG base64 内联进上下文（避免大量无法阅读的数据污染 LLM）；
+            // 只回文件路径 + refs，与 image_generate / browser_screenshot 同约定。
             const payload = {
               ok: true as const,
               snapshotId: result.snapshotId,
@@ -153,13 +156,15 @@ export function registerAppUiTools(
               height: result.height,
               refs: result.refs,
               truncated: result.truncated,
+              imagePath: result.previewPath,
+              note:
+                `截图已保存，文件的唯一有效路径是 "${result.previewPath}"。` +
+                `界面可交互元素见 refs（role/name/坐标），据此调用 app_act 操作即可；` +
+                `如需查看图片内容请用该路径读取，严禁根据语义自行编造文件名。`,
             }
 
             return {
-              content: [
-                { type: 'text', text: JSON.stringify(payload) },
-                { type: 'image', data: result.imageBase64, mimeType: 'image/jpeg' },
-              ],
+              content: [{ type: 'text', text: JSON.stringify(payload) }],
               details: { previewPath: result.previewPath },
             }
           } catch {

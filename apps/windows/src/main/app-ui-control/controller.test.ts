@@ -174,9 +174,6 @@ describe('createAppUiController', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(mockedAnnotateSnapshot).toHaveBeenCalledTimes(1)
-    expect(result.imageBase64).toBe(
-      Buffer.from('fake-jpeg-1920x1080-annotated').toString('base64'),
-    )
     const written = fs.readFileSync(result.previewPath)
     expect(written.equals(Buffer.from('fake-jpeg-1920x1080-annotated'))).toBe(true)
   })
@@ -187,7 +184,7 @@ describe('createAppUiController', () => {
     expect(result).toEqual({ ok: false, error: 'app_not_running' })
   })
 
-  it('成功截图返回 base64、refs、viewState 与尺寸', async () => {
+  it('成功截图返回 previewPath、refs、viewState 与尺寸（不内联 base64）', async () => {
     const rawNodes: RawSnapshotNode[] = [
       { role: 'button', name: '发送', x: 10, y: 20, w: 80, h: 32 },
     ]
@@ -212,8 +209,6 @@ describe('createAppUiController', () => {
     if (!result.ok) return
 
     expect(result.snapshotId).toBe('1')
-    expect(result.imageBase64).toBe(Buffer.from('fake-jpeg-1920x1080').toString('base64'))
-    expect(result.mimeType).toBe('image/jpeg')
     expect(result.width).toBe(1280)
     expect(result.height).toBe(720)
     expect(result.viewState).toEqual({

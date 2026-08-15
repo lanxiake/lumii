@@ -32,8 +32,6 @@ function mockController(): AppUiController {
     screenshot: vi.fn(async () => ({
       ok: true as const,
       snapshotId: 'snap-1',
-      imageBase64: 'abc',
-      mimeType: 'image/jpeg',
       width: 100,
       height: 100,
       viewState: { view: 'chat', hub: { open: false, tab: null, category: null } },
