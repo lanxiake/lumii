@@ -183,6 +183,14 @@ export type ScreenRecordCommand =
   | { readonly type: 'screen-record:resume' }
   | { readonly type: 'screen-record:status' }
   | { readonly type: 'screen-record:narrate'; params: ScreenRecordNarrateParams }
+  | { readonly type: 'screen-record:list-recordings' }
+  | { readonly type: 'screen-record:load-subtitle-project'; path: string }
+  | {
+      readonly type: 'screen-record:save-subtitle-project'
+      path: string
+      cues: ScreenRecordSubtitleCue[]
+    }
+  | { readonly type: 'screen-record:burn-subtitles'; params: ScreenRecordBurnSubtitlesParams }
   | {
       readonly type: 'screen-record:confirm-respond'
       sessionId: string
@@ -285,5 +293,68 @@ export type ScreenRecordNarrateResult =
       srtPath?: string
       mp4Path?: string
       warning?: 'subtitle_burn_failed' | 'mp4_failed'
+    }
+  | { ok: false; error: ScreenRecordErrorCode; message?: string }
+
+/** 成片库列表项 */
+export interface ScreenRecordRecordingItem {
+  path: string
+  name: string
+  bytes: number
+  mtimeMs: number
+  hasSrt: boolean
+  hasProject: boolean
+}
+
+export type ScreenRecordListRecordingsResult =
+  | { ok: true; items: ScreenRecordRecordingItem[] }
+  | { ok: false; error: ScreenRecordErrorCode; message?: string }
+
+/** 字幕项目 cue（编辑器 / burn） */
+export interface ScreenRecordSubtitleCue {
+  id?: string
+  startMs: number
+  endMs?: number
+  text: string
+  textHash?: string
+  audioFile?: string
+}
+
+export type ScreenRecordLoadSubtitleProjectResult =
+  | {
+      ok: true
+      cues: Array<Required<Pick<ScreenRecordSubtitleCue, 'id' | 'startMs' | 'endMs' | 'text' | 'textHash'>> & {
+        audioFile?: string
+      }>
+      source: 'project' | 'srt' | 'narrated_srt' | 'empty'
+    }
+  | { ok: false; error: ScreenRecordErrorCode; message?: string }
+
+export type ScreenRecordSaveSubtitleProjectResult =
+  | { ok: true; projectPath: string; srtPath: string }
+  | { ok: false; error: ScreenRecordErrorCode; message?: string }
+
+/** 烧录参数：可传 cues；省略则读 sidecar project */
+export interface ScreenRecordBurnSubtitlesParams {
+  path: string
+  cues?: ScreenRecordSubtitleCue[]
+  /** 默认 true：增量 TTS 配音 */
+  dub?: boolean
+  /** 默认 burn */
+  subtitleMode?: 'soft' | 'burn'
+  originalAudioGain?: number
+  exportMp4?: boolean
+}
+
+export type ScreenRecordBurnSubtitlesResult =
+  | {
+      ok: true
+      path: string
+      srtPath?: string
+      projectPath?: string
+      mp4Path?: string
+      warning?: 'subtitle_burn_failed' | 'mp4_failed'
+      ttsRegenerated?: number
+      ttsReused?: number
     }
   | { ok: false; error: ScreenRecordErrorCode; message?: string }

@@ -131,6 +131,9 @@ describe('createNarrateService', () => {
       expect(fs.existsSync(r.path)).toBe(true)
       expect(r.srtPath && fs.existsSync(r.srtPath)).toBe(true)
       expect(fs.readFileSync(r.srtPath!, 'utf8')).toContain('你好')
+      // sidecar 项目供编辑器续改
+      expect(fs.existsSync(path.join(recordingsDir, 'clip.lumii-subs.json'))).toBe(true)
+      expect(fs.existsSync(path.join(recordingsDir, 'clip.srt'))).toBe(true)
     }
     expect(run).not.toHaveBeenCalled()
   })

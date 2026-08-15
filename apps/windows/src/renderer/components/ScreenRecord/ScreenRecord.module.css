@@ -479,3 +479,231 @@
     opacity: 0.35;
   }
 }
+
+/* ---------- Tabs / 成片库 ---------- */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--mt-border-hairline, var(--mt-border));
+}
+
+.tab {
+  flex: 1;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--mt-radius-md, 6px) var(--mt-radius-md, 6px) 0 0;
+  background: transparent;
+  color: var(--mt-fg-3);
+  font-size: var(--mt-fs-sm, 13px);
+  cursor: pointer;
+}
+
+.tabActive {
+  color: var(--mt-fg-1);
+  background: color-mix(in srgb, var(--mt-accent, #3b82f6) 12%, transparent);
+  font-weight: var(--mt-fw-semibold, 600);
+}
+
+.libraryToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.libraryList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.libraryItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--mt-border-hairline, var(--mt-border));
+  border-radius: var(--mt-radius-md, 6px);
+  background: var(--mt-surface-1, transparent);
+  color: var(--mt-fg-1);
+  text-align: left;
+  cursor: pointer;
+}
+
+.libraryItem:hover {
+  background: var(--mt-surface-2, var(--mt-bg-tertiary));
+}
+
+.libraryName {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.libraryMeta {
+  font-size: 11px;
+  color: var(--mt-fg-3);
+}
+
+/* ---------- 字幕编辑器 ---------- */
+
+.editorOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-settings-hub, 12000) + 40);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, #000 45%, transparent);
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, 100%);
+  height: min(720px, 100%);
+  overflow: hidden;
+  border: 1px solid var(--mt-glass-stroke, var(--mt-border));
+  border-radius: var(--mt-radius-2xl, 16px);
+  background: var(--mt-bg-elevated, var(--mt-bg-secondary));
+  color: var(--mt-fg-1);
+  box-shadow: var(--mt-shadow-lg);
+}
+
+.editorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--mt-border-hairline, var(--mt-border));
+}
+
+.dirtyBadge {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--mt-warning, #f59e0b) 18%, transparent);
+  color: var(--mt-fg-2);
+}
+
+.editorBody {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  padding: 12px 16px;
+}
+
+.editorVideoCol,
+.editorCueCol {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editorVideo {
+  width: 100%;
+  max-height: 100%;
+  background: #000;
+  border-radius: var(--mt-radius-md, 6px);
+}
+
+.cueList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cueItem {
+  border: 1px solid var(--mt-border-hairline, var(--mt-border));
+  border-radius: var(--mt-radius-md, 6px);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cueItemActive {
+  border-color: var(--mt-accent, #3b82f6);
+  background: color-mix(in srgb, var(--mt-accent, #3b82f6) 8%, transparent);
+}
+
+.cueMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cueJump {
+  border: none;
+  background: transparent;
+  color: var(--mt-accent, #3b82f6);
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.cueTime {
+  width: 72px !important;
+}
+
+.cueDash {
+  color: var(--mt-fg-3);
+}
+
+.cueText {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-md, 6px);
+  background: var(--mt-bg-primary, transparent);
+  color: var(--mt-fg-1);
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.editorFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--mt-border-hairline, var(--mt-border));
+  flex-wrap: wrap;
+}
+
+.editorFooterLeft,
+.editorFooterRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 860px) {
+  .editorBody {
+    grid-template-columns: 1fr;
+  }
+}

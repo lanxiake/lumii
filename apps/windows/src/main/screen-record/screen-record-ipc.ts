@@ -1,10 +1,27 @@
 /**
  * 录屏 IPC 注册（主进程侧）
  */
+import fs from 'node:fs'
+import path from 'node:path'
 import { ipcMain, type BrowserWindow } from 'electron'
 import type { ScreenRecordService } from './screen-record-service'
-import type { ScreenRecordStartParams, ScreenRecordStopParams, ScreenRecordNarrateParams } from '../../shared/screen-record'
+import type {
+  ScreenRecordStartParams,
+  ScreenRecordStopParams,
+  ScreenRecordNarrateParams,
+  ScreenRecordBurnSubtitlesParams,
+  ScreenRecordSubtitleCue,
+} from '../../shared/screen-record'
 import { getNarrateService } from './narrate-accessor'
+import { getBurnSubtitlesService } from './burn-accessor'
+import {
+  listRecordings,
+  loadSubtitleProject,
+  saveSubtitleProject,
+  cuesToProjectCues,
+} from './subtitle-project'
+import { resolveRecordingsDir } from '../workspace-paths'
+import { isPathUnderDir } from '../preview-path-acl'
 
 /**
  * 注册录屏相关 ipcMain handle/on，绑定到单一 ScreenRecordService。
@@ -38,6 +55,73 @@ export function registerScreenRecordIpc(
     if (!narrate) return { ok: false, error: 'disabled' }
     return narrate.narrate(p.params)
   })
+
+  ipcMain.handle('screen-record:list-recordings', async () => {
+    try {
+      const items = listRecordings(resolveRecordingsDir())
+      return { ok: true, items }
+    } catch (e) {
+      return {
+        ok: false,
+        error: 'write_failed',
+        message: e instanceof Error ? e.message : String(e),
+      }
+    }
+  })
+
+  ipcMain.handle('screen-record:load-subtitle-project', async (_e, p: { path: string }) => {
+    const videoPath = p?.path
+    if (!videoPath) return { ok: false, error: 'invalid_cues', message: 'path required' }
+    const abs = path.resolve(videoPath)
+    const root = path.resolve(resolveRecordingsDir())
+    if (!isPathUnderDir(abs, root)) {
+      return { ok: false, error: 'source_not_in_recordings' }
+    }
+    const loaded = loadSubtitleProject(abs)
+    if (!loaded.ok) {
+      return { ok: false, error: loaded.error, message: loaded.message }
+    }
+    return { ok: true, cues: loaded.cues, source: loaded.source }
+  })
+
+  ipcMain.handle(
+    'screen-record:save-subtitle-project',
+    async (_e, p: { path: string; cues: ScreenRecordSubtitleCue[] }) => {
+      const videoPath = p?.path
+      if (!videoPath) return { ok: false, error: 'invalid_cues', message: 'path required' }
+      const abs = path.resolve(videoPath)
+      const root = path.resolve(resolveRecordingsDir())
+      if (!isPathUnderDir(abs, root)) {
+        return { ok: false, error: 'source_not_in_recordings' }
+      }
+      if (!fs.existsSync(abs)) {
+        return { ok: false, error: 'source_unavailable' }
+      }
+      const cues = cuesToProjectCues(
+        (p.cues ?? []).map((c) => ({
+          id: c.id,
+          startMs: c.startMs,
+          endMs: c.endMs ?? c.startMs + 1,
+          text: c.text,
+          audioFile: c.audioFile,
+        })),
+      )
+      const saved = saveSubtitleProject(abs, cues)
+      if (!saved.ok) {
+        return { ok: false, error: saved.error, message: saved.message }
+      }
+      return saved
+    },
+  )
+
+  ipcMain.handle(
+    'screen-record:burn-subtitles',
+    async (_e, p: { params: ScreenRecordBurnSubtitlesParams }) => {
+      const burn = getBurnSubtitlesService()
+      if (!burn) return { ok: false, error: 'disabled' }
+      return burn.burn(p.params)
+    },
+  )
 
   ipcMain.handle('screen-record:pause', async () => service.pause())
 

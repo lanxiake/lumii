@@ -38,3 +38,58 @@ export function cuesToSrt(cues: SrtCue[]): string {
   }
   return blocks.length > 0 ? `${blocks.join('\n\n')}\n` : ''
 }
+
+/** 解析 SRT 时间码为毫秒；非法返回 null */
+function parseSrtTimestamp(raw: string): number | null {
+  const m = raw.trim().match(/^(\d{2}):(\d{2}):(\d{2})[,.](\d{1,3})$/)
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  const s = Number(m[3])
+  const ms = Number(m[4].padEnd(3, '0'))
+  if (![h, min, s, ms].every((n) => Number.isFinite(n))) return null
+  return h * 3_600_000 + min * 60_000 + s * 1000 + ms
+}
+
+/**
+ * 解析 SRT 文本为 cues（跳过非法块；多行文本用 \\n 连接）。
+ */
+export function parseSrt(content: string): SrtCue[] {
+  if (!content || !content.trim()) return []
+  const normalized = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const blocks = normalized.split(/\n\s*\n/)
+  const cues: SrtCue[] = []
+
+  for (const block of blocks) {
+    const lines = block
+      .split('\n')
+      .map((l) => l.trimEnd())
+      .filter((l, idx, arr) => !(idx === 0 && l.trim() === '') && !(idx === arr.length - 1 && l.trim() === ''))
+    if (lines.length < 2) continue
+
+    let arrowLineIdx = 0
+    if (/^\d+$/.test(lines[0].trim())) {
+      arrowLineIdx = 1
+    }
+    const arrowLine = lines[arrowLineIdx]
+    if (!arrowLine) continue
+    const arrow = arrowLine.match(
+      /^(\d{2}:\d{2}:\d{2}[,.]\d{1,3})\s*-->\s*(\d{2}:\d{2}:\d{2}[,.]\d{1,3})/,
+    )
+    if (!arrow) continue
+    const startMs = parseSrtTimestamp(arrow[1])
+    const endMs = parseSrtTimestamp(arrow[2])
+    if (startMs == null || endMs == null) continue
+    const text = lines
+      .slice(arrowLineIdx + 1)
+      .join('\n')
+      .trim()
+    if (!text) continue
+    cues.push({
+      startMs,
+      endMs: endMs > startMs ? endMs : startMs + 1,
+      text,
+    })
+  }
+  return cues
+}

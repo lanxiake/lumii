@@ -13,6 +13,7 @@ import { isPathUnderDir } from '../preview-path-acl'
 import { probeMediaDurationMs } from './audio-duration'
 import { runFfmpeg, webmToMp4, type FfmpegRunResult } from './ffmpeg-runner'
 import { cuesToSrt } from './srt'
+import { persistResolvedCuesAsProject } from './subtitle-project'
 
 /** narrate 依赖注入 */
 export interface NarrateServiceDeps {
@@ -297,6 +298,16 @@ export function createNarrateService(deps: NarrateServiceDeps) {
         const r = await toMp4(outPath, mp4Out)
         if (r.ok) mp4Path = mp4Out
         else if (!warning) warning = 'mp4_failed'
+      }
+
+      // 写入可编辑 sidecar（原片 + 旁白成片），便于 UI 续改
+      try {
+        persistResolvedCuesAsProject(sourceAbs, resolvedCues)
+        if (path.resolve(outPath) !== sourceAbs && fs.existsSync(outPath)) {
+          persistResolvedCuesAsProject(outPath, resolvedCues)
+        }
+      } catch {
+        // 旁白成片已产出，sidecar 失败不阻断
       }
 
       return { ok: true, path: outPath, srtPath, mp4Path, warning }

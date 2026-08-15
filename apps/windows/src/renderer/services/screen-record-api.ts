@@ -12,6 +12,12 @@ import type {
   ScreenRecordListSourcesResult,
   ScreenRecordNarrateParams,
   ScreenRecordNarrateResult,
+  ScreenRecordListRecordingsResult,
+  ScreenRecordLoadSubtitleProjectResult,
+  ScreenRecordSaveSubtitleProjectResult,
+  ScreenRecordBurnSubtitlesParams,
+  ScreenRecordBurnSubtitlesResult,
+  ScreenRecordSubtitleCue,
 } from '../../shared/screen-record'
 import { ScreenRecordCapture } from '../screen-record'
 
@@ -84,6 +90,47 @@ export async function narrate(
   params: ScreenRecordNarrateParams,
 ): Promise<ScreenRecordNarrateResult> {
   return (await window.electronAPI.screenRecord.narrate(params)) as ScreenRecordNarrateResult
+}
+
+/** 列出 recordings 成片（mtime 降序） */
+export async function listRecordings(): Promise<ScreenRecordListRecordingsResult> {
+  return (await window.electronAPI.screenRecord.listRecordings()) as ScreenRecordListRecordingsResult
+}
+
+/** 加载字幕 sidecar 项目 */
+export async function loadSubtitleProject(
+  filePath: string,
+): Promise<ScreenRecordLoadSubtitleProjectResult> {
+  return (await window.electronAPI.screenRecord.loadSubtitleProject(
+    filePath,
+  )) as ScreenRecordLoadSubtitleProjectResult
+}
+
+/** 保存字幕项目（仅 srt + json） */
+export async function saveSubtitleProject(
+  filePath: string,
+  cues: ScreenRecordSubtitleCue[],
+): Promise<ScreenRecordSaveSubtitleProjectResult> {
+  return (await window.electronAPI.screenRecord.saveSubtitleProject(
+    filePath,
+    cues,
+  )) as ScreenRecordSaveSubtitleProjectResult
+}
+
+/** 增量配音并烧录成片 */
+export async function burnSubtitles(
+  params: ScreenRecordBurnSubtitlesParams,
+): Promise<ScreenRecordBurnSubtitlesResult> {
+  return (await window.electronAPI.screenRecord.burnSubtitles(
+    params,
+  )) as ScreenRecordBurnSubtitlesResult
+}
+
+/**
+ * 构造 lumii-local 媒体 URL（与主进程 buildLocalMediaUrl 一致）。
+ */
+export function buildRecordingMediaUrl(absPath: string): string {
+  return `lumii-local://media/?path=${encodeURIComponent(absPath)}`
 }
 
 /** 暂停录制 */

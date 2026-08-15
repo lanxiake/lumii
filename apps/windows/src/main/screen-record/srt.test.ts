@@ -1,8 +1,8 @@
 /**
- * SRT 生成单测
+ * SRT 生成/解析单测
  */
 import { describe, expect, it } from 'vitest'
-import { cuesToSrt, formatSrtTimestamp } from './srt'
+import { cuesToSrt, formatSrtTimestamp, parseSrt } from './srt'
 
 describe('formatSrtTimestamp', () => {
   it('格式化为 HH:MM:SS,mmm', () => {
@@ -29,5 +29,42 @@ describe('cuesToSrt', () => {
     ])
     expect(srt).toContain('00:00:00,100 --> 00:00:00,101\n短')
     expect(srt).not.toContain('2\n')
+  })
+})
+
+describe('parseSrt', () => {
+  it('与 cuesToSrt round-trip', () => {
+    const cues = [
+      { startMs: 0, endMs: 1000, text: '你好' },
+      { startMs: 1500, endMs: 2500, text: '世界\n第二行' },
+    ]
+    const parsed = parseSrt(cuesToSrt(cues))
+    expect(parsed).toEqual(cues)
+  })
+
+  it('跳过非法块；兼容 CRLF', () => {
+    const raw = [
+      '1',
+      '00:00:01,000 --> 00:00:02,000',
+      'ok',
+      '',
+      '2',
+      'bad arrow',
+      'skip',
+      '',
+      '3',
+      '00:00:03,500 --> 00:00:04,000',
+      'end',
+      '',
+    ].join('\r\n')
+    expect(parseSrt(raw)).toEqual([
+      { startMs: 1000, endMs: 2000, text: 'ok' },
+      { startMs: 3500, endMs: 4000, text: 'end' },
+    ])
+  })
+
+  it('空输入返回 []', () => {
+    expect(parseSrt('')).toEqual([])
+    expect(parseSrt('   \n\n')).toEqual([])
   })
 })

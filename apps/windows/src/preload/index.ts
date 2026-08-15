@@ -1041,6 +1041,20 @@ export interface ElectronAPI {
       originalAudioGain?: number
       exportMp4?: boolean
     }) => Promise<unknown>
+    listRecordings: () => Promise<unknown>
+    loadSubtitleProject: (path: string) => Promise<unknown>
+    saveSubtitleProject: (
+      path: string,
+      cues: Array<{ id?: string; startMs: number; endMs?: number; text: string; audioFile?: string }>,
+    ) => Promise<unknown>
+    burnSubtitles: (params: {
+      path: string
+      cues?: Array<{ id?: string; startMs: number; endMs?: number; text: string; audioFile?: string }>
+      dub?: boolean
+      subtitleMode?: 'soft' | 'burn'
+      originalAudioGain?: number
+      exportMp4?: boolean
+    }) => Promise<unknown>
     pause: () => Promise<unknown>
     resume: () => Promise<unknown>
     status: () => Promise<unknown>
@@ -1810,6 +1824,12 @@ const electronAPI: ElectronAPI = {
     stop: (params?: { exportMp4?: boolean }) =>
       ipcRenderer.invoke('screen-record:stop', { params }),
     narrate: (params) => ipcRenderer.invoke('screen-record:narrate', { params }),
+    listRecordings: () => ipcRenderer.invoke('screen-record:list-recordings'),
+    loadSubtitleProject: (filePath: string) =>
+      ipcRenderer.invoke('screen-record:load-subtitle-project', { path: filePath }),
+    saveSubtitleProject: (filePath, cues) =>
+      ipcRenderer.invoke('screen-record:save-subtitle-project', { path: filePath, cues }),
+    burnSubtitles: (params) => ipcRenderer.invoke('screen-record:burn-subtitles', { params }),
     pause: () => ipcRenderer.invoke('screen-record:pause'),
     resume: () => ipcRenderer.invoke('screen-record:resume'),
     status: () => ipcRenderer.invoke('screen-record:status'),
