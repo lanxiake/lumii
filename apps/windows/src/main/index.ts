@@ -98,6 +98,12 @@ import {
 } from './channel/channel-hub-bootstrap'
 import { handleChannelList, handleChannelSend } from './channel/channel-service-ipc'
 import { resolveWindowsClientDataRoot } from './client-data-root'
+import {
+  createScreenRecordService,
+  createRealScreenRecordServiceDeps,
+  registerScreenRecordIpc,
+  type ScreenRecordService,
+} from './screen-record'
 import { clearScreenshotTempDir } from './app-ui-control/screenshot-cleanup'
 import { startAppUiControlServer, stopAppUiControlServer } from './app-ui-control/server'
 import { resizeImageIfNeeded } from './agent-runtime/image-resizer'
@@ -196,6 +202,15 @@ async function getServerConfig(): Promise<ServerConfig> {
 let mainWindow: BrowserWindow | null = null
 let trayManager: TrayManager | null = null
 let remoteLogShipper: RemoteLogShipper | null = null
+/** 录屏服务单例（主窗创建后初始化） */
+let screenRecordService: ScreenRecordService | null = null
+
+/**
+ * 获取录屏服务单例（供 bridge / 托盘读取）。
+ */
+export function getScreenRecordService(): ScreenRecordService | null {
+  return screenRecordService
+}
 
 /**
  * 桌面任务通知：优先使用 Electron 系统通知；仅在不可用或失败时回退到托盘气球，避免同一事件出现两个弹窗。
@@ -387,6 +402,10 @@ function createWindow(isTestMode: boolean = false, startHidden: boolean = false)
   })
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     log.error(`[Renderer] 渲染进程崩溃 reason=${details.reason} exitCode=${details.exitCode}`)
+    void screenRecordService?.handleRendererGone()
+  })
+  mainWindow.webContents.on('destroyed', () => {
+    void screenRecordService?.handleRendererGone()
   })
   mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
     log.error(`[Renderer] preload 脚本错误 path=${preloadPath} error=${error?.message}`)
@@ -467,9 +486,37 @@ function createWindow(isTestMode: boolean = false, startHidden: boolean = false)
 }
 
 /**
- * 初始化系统托盘
+ * 初始化录屏服务（主窗就绪后：desktopCapturer + 写盘 + IPC）。
  */
-function initTray(): void {
+function initScreenRecordService(): void {
+  if (screenRecordService) return
+  const deps = createRealScreenRecordServiceDeps({
+    getMainWindow: () => mainWindow,
+    sendToRenderer: (channel, payload) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(channel, payload)
+      }
+    },
+    readSettingsJson: async () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return null
+      try {
+        return await mainWindow.webContents.executeJavaScript(
+          `localStorage.getItem('mtbot-assistant-settings')`,
+        )
+      } catch {
+        return null
+      }
+    },
+    requestPersistAlwaysAllow: (value) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('screen-record:persist-always-allow', value)
+      }
+    },
+  })
+  screenRecordService = createScreenRecordService(deps)
+  registerScreenRecordIpc(screenRecordService, mainWindow)
+  log.info('录屏服务已初始化')
+}
   log.info('初始化系统托盘')
 
   trayManager = new TrayManager({
@@ -2923,6 +2970,7 @@ async function initialize(): Promise<void> {
 
   initTray()
   initSystemService()
+  initScreenRecordService()
   setupIpcHandlers()
 
   // 初始化目录管理器和配置管理器（必须在其他模块之前）
@@ -3075,6 +3123,11 @@ async function performCleanup(): Promise<void> {
   log.info('开始清理资源...')
 
   try {
+    // 录屏进行中：flush finalize，避免坏文件
+    if (screenRecordService) {
+      await screenRecordService.flushBeforeQuit()
+    }
+
     // 销毁宠物模式窗口（透明置顶窗口，需在主窗口关闭前释放 GPU 资源）
     disposePetModeIpc()
 
