@@ -1,0 +1,255 @@
+/**
+ * 录屏 UI 样式
+ */
+
+.panelOverlay,
+.confirmOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 48px 16px 16px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.confirmOverlay {
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.panel,
+.confirmCard {
+  width: min(380px, 100%);
+  max-height: calc(100vh - 80px);
+  overflow: auto;
+  background: var(--mt-bg-primary, #1e1e24);
+  color: var(--mt-text-primary, #f5f5f7);
+  border: 1px solid var(--mt-border, #333);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  padding: 16px;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.panelHeader h3,
+.confirmCard h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.iconBtn {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.hint,
+.hintWarn,
+.confirmMeta,
+.empty {
+  font-size: 12px;
+  opacity: 0.8;
+  margin: 4px 0 10px;
+}
+
+.hintWarn {
+  color: #f59e0b;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.field input {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--mt-border, #444);
+  background: var(--mt-bg-secondary, #2a2a32);
+  color: inherit;
+}
+
+.sourceList {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.sourceItem,
+.sourceItemActive {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  padding: 8px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.sourceItemActive {
+  border-color: var(--mt-accent, #6366f1);
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.sourceType {
+  font-size: 11px;
+  opacity: 0.7;
+  width: 1.5em;
+}
+
+.sourceName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+}
+
+.switchRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin: 8px 0;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.primaryBtn,
+.dangerBtn,
+.linkBtn {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.primaryBtn {
+  background: var(--mt-accent, #6366f1);
+  color: #fff;
+}
+
+.primaryBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dangerBtn {
+  background: #dc2626;
+  color: #fff;
+}
+
+.linkBtn {
+  background: transparent;
+  color: var(--mt-accent, #818cf8);
+  padding: 4px 0;
+}
+
+.lastRec {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--mt-border, #333);
+}
+
+.lastRecPath {
+  font-size: 12px;
+  word-break: break-all;
+  opacity: 0.85;
+}
+
+.thumb {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  border-radius: 8px;
+  margin: 8px 0;
+  background: #111;
+}
+
+.thumbPlaceholder {
+  width: 100%;
+  height: 160px;
+  border-radius: 8px;
+  background: #2a2a32;
+  margin: 8px 0;
+}
+
+.titleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  margin-left: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary, #aaa);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.titleBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.titleBtnRec {
+  color: #f87171;
+}
+
+.recDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.recTimer {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}

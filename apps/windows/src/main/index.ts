@@ -104,6 +104,7 @@ import {
   registerScreenRecordIpc,
   type ScreenRecordService,
 } from './screen-record'
+import { setScreenRecordService, getScreenRecordService as getScreenRecordServiceFromAccessor } from './screen-record/accessor'
 import { clearScreenshotTempDir } from './app-ui-control/screenshot-cleanup'
 import { startAppUiControlServer, stopAppUiControlServer } from './app-ui-control/server'
 import { resizeImageIfNeeded } from './agent-runtime/image-resizer'
@@ -209,7 +210,7 @@ let screenRecordService: ScreenRecordService | null = null
  * 获取录屏服务单例（供 bridge / 托盘读取）。
  */
 export function getScreenRecordService(): ScreenRecordService | null {
-  return screenRecordService
+  return getScreenRecordServiceFromAccessor()
 }
 
 /**
@@ -513,7 +514,20 @@ function initScreenRecordService(): void {
       }
     },
   })
+  const origEmit = deps.emitStatusChanged
+  deps.emitStatusChanged = (detail) => {
+    origEmit(detail)
+    if (detail.ok) {
+      trayManager?.updateScreenRecordState(
+        detail.status === 'recording',
+        detail.elapsedMs ?? 0,
+      )
+    } else {
+      trayManager?.updateScreenRecordState(false, 0)
+    }
+  }
   screenRecordService = createScreenRecordService(deps)
+  setScreenRecordService(screenRecordService)
   registerScreenRecordIpc(screenRecordService, mainWindow)
   log.info('录屏服务已初始化')
 }
@@ -543,6 +557,15 @@ function initScreenRecordService(): void {
     onDisableForceIgnore: () => {
       disablePetForceIgnore()
       trayManager?.updateForceIgnore(isPetForceIgnore())
+    },
+    onStartScreenRecord: () => {
+      mainWindow?.show()
+      mainWindow?.focus()
+      // 无预选源：打开轻量面板，不静默 start（设计 §4.1）
+      mainWindow?.webContents.send('screen-record:open-panel')
+    },
+    onStopScreenRecord: () => {
+      void screenRecordService?.stop()
     },
   })
 }

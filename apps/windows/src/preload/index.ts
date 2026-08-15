@@ -50,6 +50,49 @@ function subscribeVoiceEvent(callback: (event: unknown) => void): () => void {
   }
 }
 
+/**
+ * screen-record 事件单路复用（多通道 main→renderer 事件汇聚到一处订阅）
+ */
+const screenRecordEventSubscribers = new Set<(event: unknown) => void>()
+let screenRecordEventIpcBound = false
+const SCREEN_RECORD_EVENT_CHANNELS = [
+  'screen-record:event:status-changed',
+  'screen-record:event:confirm-requested',
+  'screen-record:event:start-capture',
+  'screen-record:event:stop-capture',
+  'screen-record:event:cancelled',
+  'screen-record:open-panel',
+  'screen-record:persist-always-allow',
+] as const
+
+/**
+ * 订阅录屏事件（内部只挂一组 ipcRenderer 监听）
+ */
+function subscribeScreenRecordEvent(callback: (event: unknown) => void): () => void {
+  screenRecordEventSubscribers.add(callback)
+  if (!screenRecordEventIpcBound) {
+    screenRecordEventIpcBound = true
+    for (const ch of SCREEN_RECORD_EVENT_CHANNELS) {
+      ipcRenderer.on(ch, (_evt, data: unknown) => {
+        const payload =
+          data && typeof data === 'object' && 'type' in (data as object)
+            ? data
+            : { type: ch, ...(typeof data === 'object' && data ? data : { value: data }) }
+        for (const cb of screenRecordEventSubscribers) {
+          try {
+            cb(payload)
+          } catch (e) {
+            log.error('screen-record event 订阅回调异常:', e)
+          }
+        }
+      })
+    }
+  }
+  return () => {
+    screenRecordEventSubscribers.delete(callback)
+  }
+}
+
 import type { ProjectGitStatus } from '../main/project-git/types'
 
 /**
@@ -977,6 +1020,31 @@ export interface ElectronAPI {
     sendAudioChunk: (callId: string, samples: Float32Array) => void
     onEvent: (callback: (event: unknown) => void) => () => void
   }
+  /** 录屏 API（主进程 ScreenRecordService + 渲染采集） */
+  screenRecord: {
+    listSources: (includeThumbnail?: boolean) => Promise<unknown>
+    start: (params: {
+      sourceId: string
+      includeMic?: boolean
+      maxDurationSec?: number
+    }) => Promise<unknown>
+    stop: () => Promise<unknown>
+    status: () => Promise<unknown>
+    respondConfirm: (p: {
+      sessionId: string
+      allow: boolean
+      rememberAlwaysAllow?: boolean
+    }) => void
+    sendChunk: (p: {
+      sessionId: string
+      chunkBase64: string
+      index: number
+      isLast: boolean
+    }) => void
+    notifyStreamEnded: (p: { sessionId: string }) => void
+    notifyCaptureError: (p: { sessionId: string; reason: string }) => void
+    onEvent: (callback: (event: unknown) => void) => () => void
+  }
   /** 宠物模式 API */
   pet: PetElectronAPI
   /** 文件预览独立窗口（可拖出主窗口） */
@@ -1712,6 +1780,38 @@ const electronAPI: ElectronAPI = {
     rollback: (opts: { oid: string }) => ipcRenderer.invoke('vcs:rollback', opts),
     revertFile: (opts: { oid: string; filepath: string }) => ipcRenderer.invoke('vcs:revertFile', opts),
     findCommitByConversation: (opts: { conversationId: string }) => ipcRenderer.invoke('vcs:findCommitByConversation', opts),
+  },
+
+  /** 录屏 API */
+  screenRecord: {
+    listSources: (includeThumbnail?: boolean) =>
+      ipcRenderer.invoke('screen-record:list-sources', { includeThumbnail }),
+    start: (params: { sourceId: string; includeMic?: boolean; maxDurationSec?: number }) =>
+      ipcRenderer.invoke('screen-record:start', { params }),
+    stop: () => ipcRenderer.invoke('screen-record:stop'),
+    status: () => ipcRenderer.invoke('screen-record:status'),
+    respondConfirm: (p: {
+      sessionId: string
+      allow: boolean
+      rememberAlwaysAllow?: boolean
+    }) => {
+      ipcRenderer.send('screen-record:confirm-respond', p)
+    },
+    sendChunk: (p: {
+      sessionId: string
+      chunkBase64: string
+      index: number
+      isLast: boolean
+    }) => {
+      ipcRenderer.send('screen-record:chunk', p)
+    },
+    notifyStreamEnded: (p: { sessionId: string }) => {
+      ipcRenderer.send('screen-record:stream-ended', p)
+    },
+    notifyCaptureError: (p: { sessionId: string; reason: string }) => {
+      ipcRenderer.send('screen-record:capture-error', p)
+    },
+    onEvent: (callback: (event: unknown) => void) => subscribeScreenRecordEvent(callback),
   },
 }
 

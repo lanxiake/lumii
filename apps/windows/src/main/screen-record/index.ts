@@ -10,3 +10,4 @@ export {
 export { createRealScreenRecordServiceDeps, parseScreenRecordSettings, formatRecordingFilename, markIsLumii } from './real-deps'
 export { registerScreenRecordIpc } from './screen-record-ipc'
 export { getFreeDiskBytes, extractDriveLetter } from './disk-space'
+export { getScreenRecordService, setScreenRecordService } from './accessor'
