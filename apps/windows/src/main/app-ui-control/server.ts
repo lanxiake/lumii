@@ -52,11 +52,28 @@ export interface AppUiControlServerDeps {
   token?: string
   /** 测试注入：固定端口 */
   port?: number
+  /** B 层 skills：由 index 注入，避免 server↔index 循环依赖 */
+  getSkillRuntime?: () => {
+    listLocalInstalled: () => Promise<unknown>
+    setLocalEnabled: (skillId: string, enabled: boolean) => Promise<unknown>
+  } | null
+  /** B 层 skills：技能变更后刷新（与 index.ts:2154 的 skills:setEnabled handler 行为一致） */
+  getSkillWatcher?: () => { refresh: () => Promise<unknown> } | null
+  /** 总开关：读取渲染进程 localStorage 设置 JSON；缺省视为开启 */
+  readSettingsJson?: () => Promise<string | null>
+  /** 测试注入：覆盖默认滑动窗口速率限制器 */
+  rateLimiter?: { tryConsume: () => boolean }
+  /** 测试注入：覆盖默认 handleCommand 派发 */
+  dispatchCommand?: (command: unknown) => Promise<unknown>
+  /** 测试注入：覆盖默认 pet:list-models 实现 */
+  listPetModels?: () => Promise<unknown>
 }
 
 let httpServer: http.Server | null = null
 let activeToken: string | null = null
 let activeController: AppUiController | null = null
+/** 当前启动时传入的 deps，供 /command /settings/* /ipc/* 路由读取 */
+let activeDeps: AppUiControlServerDeps | null = null
 
 /**
  * 从 startPort 起按 +10 步长探测空闲端口，最多 3 次；均占用则落到 startPort + 30。
@@ -271,6 +288,7 @@ export async function startAppUiControlServer(
     throw new Error('App UI control server already running')
   }
 
+  activeDeps = deps
   const token = deps.token ?? randomUUID()
   const port = deps.port ?? (await findAvailablePort(APP_UI_CONTROL_PORT_START, 'app-ui'))
   const controller =
@@ -314,6 +332,7 @@ export async function stopAppUiControlServer(): Promise<void> {
   httpServer = null
   activeToken = null
   activeController = null
+  activeDeps = null
 
   await new Promise<void>((resolve) => {
     server.close(() => resolve())
