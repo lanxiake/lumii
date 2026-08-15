@@ -36,3 +36,5 @@ Thumbs.db
 .turbo/
 .cache/
 **/node_modules/.cache/
+.tts-probe/
+docs/temp/
