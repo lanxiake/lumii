@@ -1,19 +1,18 @@
 #!/usr/bin/env node
 /**
- * lumii-ui — 零依赖 CLI，通过本机 HTTP 控制 Lumii 主窗口 UI。
+ * lumii-ui — 零依赖 CLI，通过本机 HTTP 控制 Lumii 客户端 UI 与设置/命令总线/技能/桌宠。
  *
  * 读取 ~/.lumii/runtime/app-ui.json（或 LUMII_CLIENT_DATA_DIR）获取 port/token。
- * 应用未运行或连不上控制口时 exit 3。
+ * 分发逻辑完全由 commands.mjs 的声明式注册表驱动：新增命令只改那个文件。
  */
 
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { COMMANDS } from './commands.mjs'
 
-const EXIT_APP_NOT_RUNNING = 3
-
-/** act 支持的动作，与主进程 app_act 工具一致 */
-const ACT_ACTIONS = ['click', 'type', 'select', 'key', 'scroll']
+/** 统一退出码：0 成功 | 1 其它错误 | 2 参数错误 | 3 应用未运行 | 4 认证失败 | 5 被拒绝 */
+const EXIT = { ok: 0, other: 1, usage: 2, appDown: 3, auth: 4, denied: 5 }
 
 /**
  * 解析客户端数据根目录。
@@ -96,11 +95,16 @@ async function postJson(config, route, body) {
 }
 
 /**
- * 打印 JSON 并退出；连接失败 exit 3。
+ * 把 HTTP status + 响应体映射为统一退出码。
  */
-function failConnection() {
-  console.log(JSON.stringify({ ok: false, error: 'connection_failed' }))
-  process.exit(EXIT_APP_NOT_RUNNING)
+function exitFromResponse(status, data) {
+  if (status === 401) return EXIT.auth
+  const err = data?.error
+  if (err === 'not_exposed' || err === 'disabled' || err === 'field_protected' || err === 'rate_limited') {
+    return EXIT.denied
+  }
+  if (data?.ok === false) return EXIT.other
+  return status >= 400 ? EXIT.other : EXIT.ok
 }
 
 /**
@@ -127,108 +131,143 @@ function formatScreenshot(data, flags) {
 }
 
 /**
- * 解析 act 的数字参数（dx/dy），非法值返回 undefined。
+ * 按命令名分组，转成 [{ group, commands }]，保持注册表出现顺序。
  */
-function parseNumberFlag(value) {
-  if (typeof value !== 'string') return undefined
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : undefined
+function groupCommands() {
+  const order = []
+  const byGroup = new Map()
+  for (const cmd of COMMANDS) {
+    if (!byGroup.has(cmd.group)) {
+      byGroup.set(cmd.group, [])
+      order.push(cmd.group)
+    }
+    byGroup.get(cmd.group).push(cmd)
+  }
+  return order.map((group) => ({ group, commands: byGroup.get(group) }))
 }
 
 /**
- * 由 flags 组装 /act 请求体。
+ * 打印总览或单条命令帮助。
  */
-function buildActBody(action, flags) {
-  const body = { action }
-  if (typeof flags.ref === 'string') body.ref = flags.ref
-  if (typeof flags['snapshot-id'] === 'string') body.snapshotId = flags['snapshot-id']
-  if (typeof flags.text === 'string') body.text = flags.text
-  if (flags.append === true || flags.append === 'true') body.append = true
-  if (typeof flags.value === 'string') body.value = flags.value
-  if (typeof flags.label === 'string') body.label = flags.label
-  if (typeof flags.key === 'string') body.key = flags.key
-  const dx = parseNumberFlag(flags.dx)
-  const dy = parseNumberFlag(flags.dy)
-  if (dx != null) body.dx = dx
-  if (dy != null) body.dy = dy
-  return body
+function printHelp(commandName) {
+  if (commandName) {
+    const cmd = COMMANDS.find((c) => c.name === commandName)
+    if (!cmd) {
+      console.error(`未知命令: ${commandName}`)
+      return false
+    }
+    console.log(`用法: lumii-ui ${cmd.usage}\n`)
+    console.log(cmd.summary)
+    if (cmd.options.length > 0) {
+      console.log('\n选项:')
+      for (const opt of cmd.options) {
+        console.log(`  ${opt.flag.padEnd(24)} ${opt.desc}`)
+      }
+    }
+    return true
+  }
+
+  console.log('lumii-ui — Lumii 客户端控制 CLI\n')
+  console.log('用法: lumii-ui <command> [options]\n')
+  for (const { group, commands } of groupCommands()) {
+    console.log(group)
+    for (const cmd of commands) {
+      console.log(`  ${cmd.usage.padEnd(46)} ${cmd.summary}`)
+    }
+    console.log('')
+  }
+  console.log('help [<command>] [--json]                       查看帮助；--json 输出机器可读清单')
+  console.log('\n退出码: 0 成功 | 2 参数错误 | 3 应用未运行 | 4 认证失败 | 5 被拒绝(not_exposed/disabled/field_protected/rate_limited)')
+  return true
+}
+
+/**
+ * 输出机器可读命令清单，供 Agent 做能力发现（不含 build 函数）。
+ */
+function printHelpJson() {
+  const serializable = COMMANDS.map(({ build, ...rest }) => rest)
+  console.log(JSON.stringify({ commands: serializable }, null, 2))
+}
+
+/**
+ * 按 positional 前缀匹配命令名（支持多词命令，如 "settings get"）。
+ * 匹配到后返回 { command, rest }，rest 是命令名之后剩余的 positional。
+ */
+function matchCommand(positional) {
+  const sorted = [...COMMANDS].sort(
+    (a, b) => b.name.split(' ').length - a.name.split(' ').length,
+  )
+  for (const cmd of sorted) {
+    const parts = cmd.name.split(' ')
+    if (parts.length > positional.length) continue
+    if (parts.every((p, i) => positional[i] === p)) {
+      return { command: cmd, rest: positional.slice(parts.length) }
+    }
+  }
+  return null
+}
+
+/**
+ * 从 stdin 读取全部内容（--data - 时用）。
+ */
+async function readStdin() {
+  if (process.stdin.isTTY) return ''
+  const chunks = []
+  for await (const chunk of process.stdin) chunks.push(chunk)
+  return Buffer.concat(chunks).toString('utf-8').trim()
 }
 
 /**
  * CLI 入口。
  */
 async function main() {
-  const config = loadRuntimeConfig()
-  if (!config) {
-    process.exit(EXIT_APP_NOT_RUNNING)
+  const argv = process.argv.slice(2)
+  const { positional, flags } = parseArgs(argv)
+
+  if (positional.length === 0 || positional[0] === 'help' || flags.help === true) {
+    const jsonMode = flags.json === true
+    if (jsonMode) {
+      printHelpJson()
+      process.exit(EXIT.ok)
+    }
+    const target = positional[0] === 'help' ? positional[1] : undefined
+    const ok = printHelp(target)
+    process.exit(ok ? EXIT.ok : EXIT.usage)
   }
 
-  const { positional, flags } = parseArgs(process.argv.slice(2))
-  const command = positional[0]
+  const matched = matchCommand(positional)
+  if (!matched) {
+    console.error(`未知命令: ${positional.join(' ')}，跑 lumii-ui help 查看可用命令`)
+    process.exit(EXIT.usage)
+  }
 
-  if (!command) {
-    console.error(
-      [
-        '用法:',
-        '  lumii-ui screenshot [--annotate] [--target main|pet|preview] [--out <file.jpg>]',
-        '  lumii-ui goto --view <view> [--category <category>]',
-        '  lumii-ui click --ref <ref> [--snapshot-id <id>]',
-        '  lumii-ui act --action click|type|select|key|scroll [--ref <ref>] [--text <t>] [--append]',
-        '                [--value <v>] [--label <l>] [--key <k>] [--dx <n>] [--dy <n>] [--snapshot-id <id>]',
-      ].join('\n'),
-    )
-    process.exit(1)
+  const { command, rest } = matched
+  const buildArgs = { positional: rest, flags }
+  let extra
+  if (flags.data === '-') {
+    extra = { stdin: await readStdin() }
+  }
+
+  const body = command.build(buildArgs, extra)
+  if (body === null) {
+    console.error(`参数不合法：lumii-ui ${command.usage}`)
+    process.exit(EXIT.usage)
+  }
+
+  const config = loadRuntimeConfig()
+  if (!config) {
+    console.log(JSON.stringify({ ok: false, error: 'app_not_running' }))
+    process.exit(EXIT.appDown)
   }
 
   try {
-    if (command === 'screenshot') {
-      const body = {}
-      if (flags.annotate) body.annotate = true
-      if (typeof flags.target === 'string') body.target = flags.target
-      const { status, data } = await postJson(config, '/screenshot', body)
-      console.log(JSON.stringify(formatScreenshot(data, flags)))
-      process.exit(status >= 400 ? 1 : 0)
-    }
-
-    if (command === 'goto') {
-      if (!flags.view) {
-        console.error('goto 需要 --view <view>')
-        process.exit(1)
-      }
-      const body = { view: flags.view }
-      if (flags.category) body.category = flags.category
-      const { status, data } = await postJson(config, '/goto', body)
-      console.log(JSON.stringify(data))
-      process.exit(status >= 400 ? 1 : 0)
-    }
-
-    if (command === 'click') {
-      if (!flags.ref) {
-        console.error('click 需要 --ref <ref>')
-        process.exit(1)
-      }
-      const body = { ref: flags.ref }
-      if (flags['snapshot-id']) body.snapshotId = flags['snapshot-id']
-      const { status, data } = await postJson(config, '/click', body)
-      console.log(JSON.stringify(data))
-      process.exit(status >= 400 ? 1 : 0)
-    }
-
-    if (command === 'act') {
-      const action = typeof flags.action === 'string' ? flags.action : positional[1]
-      if (!ACT_ACTIONS.includes(action)) {
-        console.error(`act 需要 --action ${ACT_ACTIONS.join('|')}`)
-        process.exit(1)
-      }
-      const { status, data } = await postJson(config, '/act', buildActBody(action, flags))
-      console.log(JSON.stringify(data))
-      process.exit(status >= 400 ? 1 : 0)
-    }
-
-    console.error(`未知命令: ${command}`)
-    process.exit(1)
+    const { status, data } = await postJson(config, command.route.path, body)
+    const output = command.name === 'screenshot' ? formatScreenshot(data, flags) : data
+    console.log(JSON.stringify(output))
+    process.exit(exitFromResponse(status, data))
   } catch {
-    failConnection()
+    console.log(JSON.stringify({ ok: false, error: 'connection_failed' }))
+    process.exit(EXIT.appDown)
   }
 }
 

@@ -309,6 +309,12 @@ export const LOCAL_USER_ID = 'local-user'
  * 解决渲染进程在应用初始化完成前就调用 agent-runtime:command 导致的「No handler registered」竞态。
  */
 let ipcBridgeRef: AgentRuntimeBridge | null = null
+
+/** 供控制口读取 bridge；ipcBridgeRef 保持私有，不允许外部改写 */
+export function getAgentRuntimeBridge(): AgentRuntimeBridge | null {
+  return ipcBridgeRef
+}
+
 let weixinBindingManagerRef: WeixinSessionBindingManager | null = null
 let ipcMainWindowRef: BrowserWindow | null = null
 /** 音频文件 ASR 转录回调（由 voice-ipc 注入） */
@@ -572,9 +578,9 @@ export function registerAgentRuntimeIPC(
 }
 
 /**
- * 处理单个命令
+ * 处理单个命令（IPC 与本机控制口共用）
  */
-async function handleCommand(
+export async function handleCommand(
   bridge: AgentRuntimeBridge,
   command: AgentRuntimeCommand,
 ): Promise<unknown> {

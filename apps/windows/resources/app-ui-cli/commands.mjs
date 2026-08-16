@@ -1,0 +1,326 @@
+/**
+ * lumii-ui 命令注册表（单一事实来源）
+ *
+ * 每一项同时驱动三件事：参数分发、help 文本、Agent 能力发现（help --json）。
+ * 新增/修改命令只改这个文件，不需要同步改 lumii-ui.mjs 的分发逻辑或工具 description。
+ *
+ * 每个命令：
+ * - name: 子命令名（如 'screenshot'、'cron list'）
+ * - group: help 总览里的分组标题
+ * - usage: 单行用法
+ * - summary: 一句话说明
+ * - layer: 'ui' | 'A' | 'B' | 'C'，仅用于文档标注，不参与分发
+ * - route: { method, path } 控制口路由
+ * - options: help <command> 展示的参数说明
+ * - build(args): 把 { positional, flags } 转成请求体；返回 null 表示参数不合法（exit 2）
+ */
+
+/** 解析数字 flag，非法值返回 undefined */
+function num(value) {
+  if (typeof value !== 'string') return undefined
+  const n = Number(value)
+  return Number.isFinite(n) ? n : undefined
+}
+
+export const COMMANDS = [
+  {
+    name: 'screenshot',
+    group: '看',
+    usage: 'screenshot [--annotate] [--target main|pet] [--out <file.jpg>]',
+    summary: '截取当前界面，返回 JPEG 与可交互元素 refs',
+    layer: 'ui',
+    route: { method: 'POST', path: '/screenshot' },
+    options: [
+      { flag: '--annotate', desc: '在截图上标注元素编号（SoM）' },
+      { flag: '--target <t>', desc: 'main（默认）| pet' },
+      { flag: '--out <file>', desc: '另存 JPEG 到指定路径' },
+    ],
+    build(args) {
+      const body = {}
+      if (args.flags.annotate === true || args.flags.annotate === 'true') body.annotate = true
+      if (typeof args.flags.target === 'string') body.target = args.flags.target
+      return body
+    },
+  },
+  {
+    name: 'goto',
+    group: '动',
+    usage: 'goto --view <v> [--category <c>]',
+    summary: '打开指定页面（设置/技能/定时等，不要点侧栏）',
+    layer: 'ui',
+    route: { method: 'POST', path: '/goto' },
+    options: [
+      { flag: '--view <v>', desc: 'dashboard | chat | settings | skills | mcp | cron | memories | agents | plugins' },
+      { flag: '--category <c>', desc: 'settings 分类（可选）' },
+    ],
+    build(args) {
+      if (typeof args.flags.view !== 'string') return null
+      const body = { view: args.flags.view }
+      if (typeof args.flags.category === 'string') body.category = args.flags.category
+      return body
+    },
+  },
+  {
+    name: 'click',
+    group: '动',
+    usage: 'click --ref <r> [--snapshot-id <id>]',
+    summary: '点击 ref 对应控件',
+    layer: 'ui',
+    route: { method: 'POST', path: '/click' },
+    options: [
+      { flag: '--ref <r>', desc: '来自 screenshot 的元素 ref' },
+      { flag: '--snapshot-id <id>', desc: '截图返回的 snapshotId，用于校验 ref 未过期' },
+    ],
+    build(args) {
+      if (typeof args.flags.ref !== 'string') return null
+      const body = { ref: args.flags.ref }
+      if (typeof args.flags['snapshot-id'] === 'string') body.snapshotId = args.flags['snapshot-id']
+      return body
+    },
+  },
+  {
+    name: 'act',
+    group: '动',
+    usage: 'act --action click|type|select|key|scroll [--ref <r>] [--text <t>] [--append] [--value <v>] [--label <l>] [--key <k>] [--dx <n>] [--dy <n>] [--snapshot-id <id>]',
+    summary: '通用交互动作（二期遗留，保留兼容）',
+    layer: 'ui',
+    route: { method: 'POST', path: '/act' },
+    options: [
+      { flag: '--action <a>', desc: 'click | type | select | key | scroll' },
+      { flag: '--ref <r>', desc: '元素 ref（click/type/select/scroll 必填）' },
+      { flag: '--text <t>', desc: 'type 要写入的文本' },
+      { flag: '--append', desc: 'type 追加而非整体替换' },
+      { flag: '--value <v>', desc: 'select 要选中的选项 value' },
+      { flag: '--label <l>', desc: 'select 要选中的选项文案' },
+      { flag: '--key <k>', desc: 'key 操作的白名单按键' },
+      { flag: '--dx <n>', desc: 'scroll 水平偏移' },
+      { flag: '--dy <n>', desc: 'scroll 垂直偏移' },
+    ],
+    build(args) {
+      const action = args.flags.action ?? args.positional[0]
+      if (!['click', 'type', 'select', 'key', 'scroll'].includes(action)) return null
+      const body = { action }
+      if (typeof args.flags.ref === 'string') body.ref = args.flags.ref
+      if (typeof args.flags['snapshot-id'] === 'string') body.snapshotId = args.flags['snapshot-id']
+      if (typeof args.flags.text === 'string') body.text = args.flags.text
+      if (args.flags.append === true || args.flags.append === 'true') body.append = true
+      if (typeof args.flags.value === 'string') body.value = args.flags.value
+      if (typeof args.flags.label === 'string') body.label = args.flags.label
+      if (typeof args.flags.key === 'string') body.key = args.flags.key
+      const dx = num(args.flags.dx)
+      const dy = num(args.flags.dy)
+      if (dx !== undefined) body.dx = dx
+      if (dy !== undefined) body.dy = dy
+      return body
+    },
+  },
+  {
+    name: 'settings get',
+    group: '设置',
+    usage: 'settings get [<key.path>]',
+    summary: '读取设置（省略则返回全部）',
+    layer: 'C',
+    route: { method: 'POST', path: '/settings/read' },
+    options: [{ flag: '<key.path>', desc: '如 privacy.saveChatHistory，省略返回整份设置' }],
+    build(args) {
+      const body = {}
+      if (typeof args.positional[0] === 'string') body.keyPath = args.positional[0]
+      return body
+    },
+  },
+  {
+    name: 'settings set',
+    group: '设置',
+    usage: 'settings set <key.path> <value>',
+    summary: '写入设置并立即生效',
+    layer: 'C',
+    route: { method: 'POST', path: '/settings/write' },
+    options: [
+      { flag: '<key.path>', desc: '如 theme.mode' },
+      { flag: '<value>', desc: '先尝试 JSON.parse，失败则当字符串' },
+    ],
+    build(args) {
+      const keyPath = args.positional[0]
+      const rawValue = args.positional[1]
+      if (typeof keyPath !== 'string' || rawValue === undefined) return null
+      let value = rawValue
+      try {
+        value = JSON.parse(rawValue)
+      } catch {
+        // 非 JSON，按字符串处理
+      }
+      return { keyPath, value }
+    },
+  },
+  {
+    name: 'cron list',
+    group: '定时任务',
+    usage: 'cron list',
+    summary: '列出定时任务',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [],
+    build() {
+      return { type: 'cron:list' }
+    },
+  },
+  {
+    name: 'cron run',
+    group: '定时任务',
+    usage: 'cron run <id>',
+    summary: '立即执行一次',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<id>', desc: '定时任务 ID' }],
+    build(args) {
+      const id = args.positional[0]
+      if (typeof id !== 'string' || id.length === 0) return null
+      return { type: 'cron:run', id }
+    },
+  },
+  {
+    name: 'skill list',
+    group: '技能',
+    usage: 'skill list',
+    summary: '列出已安装技能',
+    layer: 'B',
+    route: { method: 'POST', path: '/ipc/skills/list' },
+    options: [],
+    build() {
+      return {}
+    },
+  },
+  {
+    name: 'skill enable',
+    group: '技能',
+    usage: 'skill enable <id>',
+    summary: '启用技能',
+    layer: 'B',
+    route: { method: 'POST', path: '/ipc/skills/setEnabled' },
+    options: [{ flag: '<id>', desc: '技能 ID' }],
+    build(args) {
+      const skillId = args.positional[0]
+      if (typeof skillId !== 'string' || skillId.length === 0) return null
+      return { skillId, enabled: true }
+    },
+  },
+  {
+    name: 'skill disable',
+    group: '技能',
+    usage: 'skill disable <id>',
+    summary: '禁用技能',
+    layer: 'B',
+    route: { method: 'POST', path: '/ipc/skills/setEnabled' },
+    options: [{ flag: '<id>', desc: '技能 ID' }],
+    build(args) {
+      const skillId = args.positional[0]
+      if (typeof skillId !== 'string' || skillId.length === 0) return null
+      return { skillId, enabled: false }
+    },
+  },
+  {
+    name: 'model set',
+    group: '模型与工具',
+    usage: 'model set <modelId> --session <key>',
+    summary: '设置会话首选模型（--session 必填）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '<modelId>', desc: '目标模型 ID' },
+      { flag: '--session <key>', desc: '会话 key，三期必填，不做隐式默认' },
+    ],
+    build(args) {
+      const modelId = args.positional[0]
+      const sessionKey = args.flags.session
+      if (typeof modelId !== 'string' || typeof sessionKey !== 'string' || sessionKey.length === 0) {
+        return null
+      }
+      return { type: 'session:preferredModel:set', sessionKey, modelId }
+    },
+  },
+  {
+    name: 'tools list',
+    group: '模型与工具',
+    usage: 'tools list',
+    summary: '列出工具',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [],
+    build() {
+      return { type: 'tools:list' }
+    },
+  },
+  {
+    name: 'tools toggle',
+    group: '模型与工具',
+    usage: 'tools toggle <name> on|off',
+    summary: '启用/禁用工具',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '<name>', desc: '工具名' },
+      { flag: 'on|off', desc: '启用或禁用' },
+    ],
+    build(args) {
+      const toolName = args.positional[0]
+      const state = args.positional[1]
+      if (typeof toolName !== 'string' || (state !== 'on' && state !== 'off')) return null
+      return { type: 'tools:toggle', toolName, enabled: state === 'on' }
+    },
+  },
+  {
+    name: 'pet mode',
+    group: '桌宠',
+    usage: 'pet mode <modeName>',
+    summary: '切换桌宠模式',
+    layer: 'B',
+    route: { method: 'POST', path: '/ipc/pet/switchMode' },
+    options: [{ flag: '<modeName>', desc: 'pet | desktop' }],
+    build(args) {
+      const mode = args.positional[0]
+      if (mode !== 'pet' && mode !== 'desktop') return null
+      return { mode }
+    },
+  },
+  {
+    name: 'pet modes',
+    group: '桌宠',
+    usage: 'pet modes',
+    summary: '列出桌宠模型',
+    layer: 'B',
+    route: { method: 'POST', path: '/ipc/pet/listModels' },
+    options: [],
+    build() {
+      return {}
+    },
+  },
+  {
+    name: 'command',
+    group: '底层',
+    usage: 'command <type> [--data <json>|-]',
+    summary: '直接投递命令总线（受白名单约束）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '<type>', desc: '命令类型，如 cron:list' },
+      { flag: '--data <json>', desc: '附加参数 JSON 字符串，或 "-" 从 stdin 读' },
+    ],
+    build(args, extra) {
+      const type = args.positional[0]
+      if (typeof type !== 'string' || type.length === 0) return null
+      const raw = args.flags.data
+      if (raw === undefined) return { type }
+      const text = raw === '-' ? extra?.stdin ?? '' : raw
+      if (typeof text !== 'string' || text.length === 0) return { type }
+      try {
+        const parsed = JSON.parse(text)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return { type, ...parsed }
+        }
+        return null
+      } catch {
+        return null
+      }
+    },
+  },
+]

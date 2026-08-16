@@ -3038,6 +3038,18 @@ async function initialize(): Promise<void> {
     await startAppUiControlServer({
       getWindow: (target) => (target === 'main' ? mainWindow : null),
       resizeImageIfNeeded,
+      getSkillRuntime: () => skillRuntime,
+      getSkillWatcher: () => skillWatcher,
+      readSettingsJson: async () => {
+        if (!mainWindow || mainWindow.isDestroyed()) return null
+        try {
+          return await mainWindow.webContents.executeJavaScript(
+            `localStorage.getItem('mtbot-assistant-settings')`,
+          )
+        } catch {
+          return null
+        }
+      },
     })
   } catch (err) {
     log.warn('App UI 本机控制口启动失败:', err instanceof Error ? err.message : err)

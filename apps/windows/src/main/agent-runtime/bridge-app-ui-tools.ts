@@ -123,11 +123,21 @@ export interface RegisterAppUiToolsDeps {
   controller?: AppUiController
 }
 
+/**
+ * 三期新增：客户端设置与批量控制走本机 CLI lumii-ui，命令清单不在此罗列（跑
+ * lumii-ui help / help --json 查看，避免这里与 commands.mjs 注册表漂移）。
+ */
+const CLI_HINT =
+  '客户端设置与批量控制也可走本机 CLI：lumii-ui（跑 lumii-ui help 查看命令；Agent 发现用 lumii-ui help --json）。' +
+  '禁止用 bash lumii-ui 代替进程内 app_screenshot/app_goto/app_act。' +
+  '外部桌面软件用技能 cli-hub，不要用 app_* / lumii-ui。'
+
 /** app_goto 工具 description（设计 §13.2 分工原文，goto 相关行） */
 const APP_GOTO_DESCRIPTION = `打开页面：app_goto（设置/技能/定时等用这个，不要点侧栏）
 改思考级别/会话/技能执行/定时：用已有 settings_think、session_*、skill_*、cron_*
 外部网页：browser_*
-做完写操作后必须再截图或查询确认`
+做完写操作后必须再截图或查询确认
+${CLI_HINT}`
 
 /** app_act 工具 description（设计 §13.2 分工原文 + type/select/key/scroll） */
 const APP_ACT_DESCRIPTION = `点控件：app_act click（先截图拿 ref，ref 不跨 snapshotId 复用）
