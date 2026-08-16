@@ -74,6 +74,16 @@ export interface FilterSnapshotResult {
 export interface FilterSnapshotOptions {
   /** 最大保留节点数，默认 DEFAULT_SNAPSHOT_NODE_LIMIT */
   limit?: number
+  /** 只保留指定 role（如 heading/button） */
+  roles?: string[]
+  /** 与节点垂直区间有交集的最小 y（节点底边 >= y_min） */
+  y_min?: number
+  /** 与节点垂直区间有交集的最大 y（节点顶边 <= y_max） */
+  y_max?: number
+  /** name 子串匹配，大小写不敏感 */
+  name_contains?: string
+  /** 语义角色（heading/section_title/label）配额；默认约 limit/3 */
+  semantic_limit?: number
 }
 
 /** 主窗口路由视图（对齐 Router.tsx ViewType） */

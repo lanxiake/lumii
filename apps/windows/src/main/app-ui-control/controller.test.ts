@@ -765,6 +765,55 @@ describe('createAppUiController', () => {
 
     expect(result).toEqual({ ok: false, error: 'click_target_lost' })
   })
+
+  it('click 在 cache 被淘汰后仍可用 refHistory 做 stale 自动重试', async () => {
+    const nodesV1: RawSnapshotNode[] = [
+      { role: 'button', name: '保存全部', x: 100, y: 200, w: 80, h: 32 },
+    ]
+    const nodesV2: RawSnapshotNode[] = [
+      { role: 'button', name: '保存全部', x: 110, y: 210, w: 80, h: 32 },
+    ]
+    let shot = 0
+    const sendInputEvent = vi.fn()
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script === SNAPSHOT_SCRIPT) {
+        shot += 1
+        return shot <= 1 ? nodesV1 : nodesV2
+      }
+      if (script.includes('__LUMII_APP_UI_STATE__')) {
+        return JSON.stringify({
+          view: 'settings',
+          hub: { open: true, tab: 'settings', category: 'modelConfig' },
+        })
+      }
+      if (script.includes('elementFromPoint')) {
+        return { x: 110, y: 210, w: 80, h: 32, hit: true, tag: 'button' }
+      }
+      return []
+    })
+
+    const { controller } = makeController(() =>
+      fakeWindow({ executeJavaScript, sendInputEvent }),
+    )
+
+    const ss1 = await controller.screenshot()
+    expect(ss1.ok).toBe(true)
+    if (!ss1.ok) return
+
+    controller.deleteSnapshotCacheForTest?.(ss1.snapshotId)
+    expect(controller.getSnapshotCache(ss1.snapshotId)).toBeUndefined()
+
+    const result = await controller.click({
+      action: 'click',
+      ref: 'e1',
+      snapshotId: ss1.snapshotId,
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.note).toMatch(/stale_snapshot 自动重试成功/)
+    }
+    expect(sendInputEvent).toHaveBeenCalled()
+  })
 })
 
 describe('clearScreenshotTempDir', () => {

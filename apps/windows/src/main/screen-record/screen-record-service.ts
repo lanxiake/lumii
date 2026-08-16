@@ -5,6 +5,9 @@
 
 import { randomUUID } from 'node:crypto'
 import type {
+  ScreenRecordAnnotateParams,
+  ScreenRecordAnnotateResult,
+  ScreenRecordAnnotation,
   ScreenRecordConfig,
   ScreenRecordErrorCode,
   ScreenRecordListSourcesResult,
@@ -20,8 +23,10 @@ import type {
   ScreenRecordStopParams,
   ScreenRecordPauseResult,
   ScreenRecordResumeResult,
+  ScreenRecordTimelineEntry,
 } from '../../shared/screen-record'
 import {
+  isScreenRecordAnnotation,
   MAX_DURATION_SEC_CAP,
   MIN_FREE_DISK_BYTES,
   SCREEN_RECORD_SETTINGS_DEFAULTS,
@@ -136,8 +141,8 @@ interface InternalState {
   lastFinalizeError: ScreenRecordErrorCode | null
   /** start 互斥锁，防止并发叠态 */
   startLock: boolean
-  /** 本会话活跃时钟打点（教程 timeline） */
-  timeline: ScreenRecordMarker[]
+  /** 本会话活跃时钟打点与标注（教程 timeline） */
+  timeline: ScreenRecordTimelineEntry[]
 }
 
 /** 对外服务接口 */
@@ -154,6 +159,11 @@ export interface ScreenRecordService {
    * 教程：resume 后先 mark 再操作；stop 返回 timeline 供 narrate cues。
    */
   mark: (params: ScreenRecordMarkParams) => ScreenRecordMarkResult
+  /**
+   * 画面标注入 timeline（recording 或 paused 均可）。
+   * 后期由 narrate ffmpeg 烧录，录制期不叠加。
+   */
+  annotate: (params: ScreenRecordAnnotateParams) => ScreenRecordAnnotateResult
   getStatus: () => ScreenRecordStatusResult
   respondConfirm: (p: {
     sessionId: string
@@ -498,6 +508,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
 
   /**
    * 活跃时钟打点：仅 recording；paused 提示先 resume。
+   * 若有 pendingFromNextMark 的 annotation，将其 atMs 对齐到本次 mark。
    */
   function mark(params: ScreenRecordMarkParams): ScreenRecordMarkResult {
     const label = typeof params?.label === 'string' ? params.label.trim() : ''
@@ -515,14 +526,77 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       }
     }
     const atMs = computeActiveElapsedMs()
+    for (const entry of state.timeline) {
+      if (isScreenRecordAnnotation(entry) && entry.pendingFromNextMark) {
+        entry.atMs = atMs
+        if (entry.endMs <= atMs) {
+          entry.endMs = atMs + 3000
+        }
+        entry.pendingFromNextMark = false
+      }
+    }
     const marker: ScreenRecordMarker = {
       id: `m_${atMs}_${state.timeline.length}`,
       atMs,
       label,
       kind: params.kind ?? 'beat',
+      entryType: 'marker',
     }
     state.timeline.push(marker)
     return { ok: true, marker, elapsedMs: atMs }
+  }
+
+  /**
+   * 画面标注：recording/paused 均可；坐标须已归一化或由 bridge 预计算。
+   */
+  function annotate(params: ScreenRecordAnnotateParams): ScreenRecordAnnotateResult {
+    const kind = params?.kind
+    if (kind !== 'circle' && kind !== 'rect' && kind !== 'arrow' && kind !== 'text') {
+      return { ok: false, error: 'usage', message: 'kind required: circle|rect|arrow|text' }
+    }
+    if (state.status !== 'recording' && state.status !== 'paused') {
+      return {
+        ok: false,
+        error: 'not_recording',
+        message: '仅 recording/paused 态可标注',
+      }
+    }
+    const rect = params.normalizedRect
+    if (
+      !rect ||
+      typeof rect.x !== 'number' ||
+      typeof rect.y !== 'number' ||
+      typeof rect.w !== 'number' ||
+      typeof rect.h !== 'number'
+    ) {
+      return {
+        ok: false,
+        error: 'usage',
+        message: 'normalizedRect {x,y,w,h} required（或由 bridge 从 targetElement 换算）',
+      }
+    }
+    const durationMs =
+      typeof params.durationMs === 'number' && params.durationMs > 0 ? params.durationMs : 3000
+    const atMs = params.fromNextMark === true ? 0 : computeActiveElapsedMs()
+    const annotation: ScreenRecordAnnotation = {
+      id: `a_${atMs}_${state.timeline.length}`,
+      atMs,
+      endMs: atMs + durationMs,
+      kind,
+      label: typeof params.label === 'string' ? params.label : undefined,
+      text: typeof params.text === 'string' ? params.text : undefined,
+      geometry: {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        w: Math.round(rect.w),
+        h: Math.round(rect.h),
+      },
+      style: params.style,
+      entryType: 'annotation',
+      pendingFromNextMark: params.fromNextMark === true,
+    }
+    state.timeline.push(annotation)
+    return { ok: true, annotation, elapsedMs: computeActiveElapsedMs() }
   }
 
   /** 暂停：recording → paused */
@@ -899,6 +973,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     pause,
     resume,
     mark,
+    annotate,
     getStatus,
     respondConfirm,
     handleChunk,

@@ -31,9 +31,11 @@ metadata:
 | `screen_record_start` | 开始录制；教程建议 `includeMic=false`（事后 TTS 配音） |
 | `screen_record_pause` / `resume` | 思考/截图/规划时 **pause**，恢复后 **resume** |
 | `screen_record_mark` | 关键步骤打点，供后续生成字幕时间轴 |
+| `screen_record_annotate` | （可选）笔记画圈/框选标注，写入 timeline，narrate 时烧录 |
 | `screen_record_stop` | 停录，返回 `timeline`、`durationMs`、`mp4Path` |
-| `screen_record_narrate` | 一次性写字幕 + TTS 配音 + 烧录 + 导出 MP4 |
+| `screen_record_narrate` | 一次性写字幕 + TTS 配音 + 烧录 + 导出 MP4；可传 `annotations` |
 | `screen_record_inspect` | 只读验收成片与字幕产物，替代目录扫盲 |
+| `app_goto_and_screenshot` / `app_scroll_to_text` / `app_scroll_to_bottom` / `app_fill_form` / `app_settings_model_config_save` | 高层 UI 工具，优先于原子 `app_act` 组合 |
 
 ## 标准工作流
 
@@ -50,19 +52,109 @@ metadata:
 
 ### 1. 探路彩排（关键，别跳过）
 
-**开始录制前，先不录屏走一遍**：用 `app_goto` / `app_screenshot` / `app_act` 确认入口、每步 UI 反应、以及每步操作的恢复方式。目的：
+**开始录制前，先不录屏走一遍**：用 `app_goto` / `app_goto_and_screenshot` / `app_screenshot` / `app_act` / 高层工具确认入口、每步 UI 反应、以及每步操作的恢复方式。目的：
 
 - 摸清界面结构，避免正式录制时边录边试错（试错过程会全录进成片）
 - 提前发现「会改动用户数据」的操作并规避（见下方安全原则）
+- 产出下方 **TutorialNavSpec v1**，正式录制只按手册跑，不再重复观察
+
+### 1.b 探路输出：TutorialNavSpec v1（MUST 输出代码块，不做就不算完成探路）
+
+探路结束后、执行 `screen_record_start` 之前，**必须**在回复里输出一段 **单独的 json 代码块**，info string 为 `tutorial-nav-spec`。后续正式录制阶段**必须**用这段代码块的 `steps[i]` 作为唯一操作输入，不要回到「观察界面→猜测→再确认」的老路（若后续发现步骤错了，先 `pause` 再改 JSON，不要硬录）。
+
+#### TutorialNavSpec v1 Schema（示例：模型配置教程）
+
+探路结束时输出的代码块 **info string 必须是 `tutorial-nav-spec`**（不是 `json`）。内容示例：
+
+```json
+{
+  "specVersion": "1.0",
+  "task": "录制模型配置教程",
+  "replayFromView": "dashboard",
+  "preconditions": [
+    "设置面板未打开",
+    "模型配置页当前无未保存修改（或已知恢复方式）"
+  ],
+  "steps": [
+    {
+      "id": "step-1",
+      "label": "开场：概览页展示",
+      "narrationZh": "打开灵栖，首先看到的是概览页面。",
+      "action": { "kind": "goto", "view": "dashboard" },
+      "verify": { "view": "dashboard" },
+      "pauseAfterMs": 1500
+    },
+    {
+      "id": "step-2",
+      "label": "打开设置-模型配置",
+      "narrationZh": "点击左下角设置，选择模型配置。",
+      "action": { "kind": "goto", "view": "settings", "category": "modelConfig" },
+      "verify": { "hub.open": true, "hub.tab": "settings", "hub.category": "modelConfig" },
+      "pauseAfterMs": 1000
+    },
+    {
+      "id": "step-3",
+      "label": "展示文本对话槽配置",
+      "narrationZh": "第一个卡片是文本对话，包含服务商类型、接口地址、API Key 和模型 ID。",
+      "action": { "kind": "scroll_to_heading", "targetName": "文本对话" },
+      "verify": { "headingVisible": "文本对话" },
+      "pauseAfterMs": 2500
+    },
+    {
+      "id": "step-4",
+      "label": "（可选）模拟填写模型 ID",
+      "narrationZh": "在模型 ID 里填入要使用的模型，多个用逗号分隔。",
+      "action": {
+        "kind": "act_type_by_field_label",
+        "slotHeading": "文本对话",
+        "fieldLabel": "模型 ID",
+        "demoValue": "deepseek-v4-pro, deepseek-v4-flash",
+        "restoreValue": "deepseek-v4-flash, deepseek-v4-pro"
+      },
+      "verify": { "inputValueByFieldLabel模型ID": "deepseek-v4-pro, deepseek-v4-flash" },
+      "pauseAfterMs": 1500
+    },
+    {
+      "id": "step-5",
+      "label": "保存",
+      "narrationZh": "滑到底部，点击保存全部。",
+      "action": { "kind": "click_by_button_text", "targetText": "保存全部" },
+      "verify": { "toast": "保存成功" },
+      "pauseAfterMs": 1200
+    }
+  ],
+  "postCleanup": [
+    { "action": "restore_field_by_label", "slotHeading": "文本对话", "fieldLabel": "模型 ID", "value": "deepseek-v4-flash, deepseek-v4-pro" }
+  ]
+}
+```
+#### action.kind 白名单（v1，只准用这些）
+
+| kind | 说明 |
+|------|------|
+| `goto` | 等价 `app_goto` / `app_goto_and_screenshot` |
+| `scroll_to_heading` | 等价 `app_scroll_to_text({kind:'heading', text:targetName})` |
+| `scroll_to_bottom` | 等价 `app_scroll_to_bottom` |
+| `act_type_by_field_label` | 等价 `app_fill_form({fields:[{slotHeading,label,text,...}]})` |
+| `click_by_button_text` | 等价 `app_scroll_to_text({kind:'button', text})` 再 click |
+| `click_by_ref` | 兜底；仅在高层工具命中不准时用 |
+| `compose_new_chat` | 新建对话 + goto chat（组合操作） |
+
+#### 探路/录制禁令（NavSpec）
+
+- **禁止** `steps[i].action` 里写 `scroll dy=... ref=eN` 这种耦合 snapshotId 的原子指令（正式录制时 snapshotId 编号必然不同）
+- **禁止** `targetName` / `slotHeading` 里写「文本对话 Agent」——必须**原样复制**探路阶段截图 refs 里 `role=heading` 的 name（通常是 `文本对话`，不带 Agent 后缀）
+- **禁止** `fieldLabel` 凭记忆写——与 refs 里 `role=label` 的 name 严格一致
+- 正式录制阶段若某一步 verify 失败：**先 `screen_record_pause`**，修复后再 resume + mark + 重试；录制阶段的新观察信息**不回写**到 tutorial-nav-spec（除非重新探路）
 
 ### 2. 正式录制：pause 纪律
 
+- 正式录制阶段 **MUST** 以最后一段 `tutorial-nav-spec` JSON 的 `steps[i]` 为唯一决策输入；**禁止**再做「确认标题、确认按钮位置、来回滚动观察」——这些属于探路阶段。
 - 每完成一步操作，**立刻 `pause`**，想清楚下一步再 `resume`。
-- `resume` 后**先 `mark`（写这一步的 label），再执行 `app_act`**。
-- 需要截图看界面时，先 `pause` 再截图 —— 思考和空镜不进成片。
+- `resume` 后**先 `mark`（写这一步的 label），再按当前步骤 action 执行高层工具**（优先 `app_goto_and_screenshot` / `app_scroll_to_text` / `app_fill_form` / `app_settings_model_config_save`，少用原子 `app_act`）。
+- 需要截图看界面时，先 `pause` 再截图 —— 思考和空镜不进成片；已知区域可用 `refs_filter` 精简 refs。
 - `mark` 只能在 `recording` 态用；`paused` 态会返回 `not_recording`，这是提醒你先 `resume`。
 - `atMs` 用活跃录制时钟：pause 期间不计时，所以停顿再久也不会把后续字幕往后推。
-
 ### 3. 由 timeline 生成 cues
 
 `stop` 返回的 `timeline`（按 `atMs` 升序）是字幕的时间锚点，**不要凭感觉估时间**：
@@ -94,6 +186,7 @@ metadata:
 
 - **以 `narrate` 返回字段为准**：`dubbed`（是否配音）、`burned`（字幕是否烧录成功）、`bytes`、`mp4Path`、`message`。
 - 需要独立复核时用 `screen_record_inspect`，读 `exists / bytes / hasSrt / hasOriginal / ttsCount / durationMs`。
+- 交付前附上探路产出的 `tutorial-nav-spec` JSON（便于用户复用同系列流程）。
 
 ## 硬性禁令
 
@@ -101,6 +194,7 @@ metadata:
 - **禁止** 手写 ffmpeg / mix 脚本做混音、烧字幕、转封装 —— `narrate` 已一体化完成。
 - **禁止** 用 `sleep` + 反复截图去等文件生成 —— narrate 返回即完成。
 - **禁止** 在录制中做会**改动/重置用户配置**的操作（见安全原则）。
+- **禁止** 正式录制阶段再做探路式观察（反复截图确认标题/按钮）；MUST 按 `tutorial-nav-spec` 的 steps 执行。
 
 ## 安全原则（只读演示）
 

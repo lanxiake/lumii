@@ -552,7 +552,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
    */
   const renderAccountSettings = () => (
     <div className={styles['settings-section']}>
-      <h3>通用</h3>
+      <h3 data-app-ui-section-title>通用</h3>
 
       <h4 className={styles['settings-subsection-title']}>系统偏好</h4>
 
@@ -588,14 +588,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const renderWorkspaceSettings = () => {
     return (
       <div className={styles['settings-section']}>
-        <h3>
+        <h3 data-app-ui-section-title>
           工作空间
           {workspaceSave.hasChanges && <Badge dot />}
         </h3>
 
         <div className={styles['setting-group']}>
           <div className={styles['setting-item']}>
-            <label className={styles['setting-label']}>工作空间目录</label>
+            <label className={styles['setting-label']} data-app-ui-label>工作空间目录</label>
             <div className={styles['setting-hint']}>
               技能、命令、文件等默认存放在工作空间目录中。
               {!settings.workspace.directory && ' 当前使用默认路径。'}
@@ -662,7 +662,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
    */
   const renderCodingDevSettings = () => (
     <div className={styles['settings-section']}>
-      <h3>ACP 设置</h3>
+      <h3 data-app-ui-section-title>ACP 设置</h3>
       <p style={{ fontSize: 13, color: 'var(--mt-fg-3)', margin: '0 0 16px' }}>
         管理本机开发类 AI 工具（ACP）的安装状态与工作目录。
       </p>
@@ -676,7 +676,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const renderNotificationSettings = () => {
     return (
       <div className={styles['settings-section']}>
-        <h3>
+        <h3 data-app-ui-section-title>
           通知设置
           {notificationSave.hasChanges && <Badge dot />}
         </h3>
@@ -748,7 +748,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     return (
       <div className={styles['settings-panel']}>
         <header className={styles['panel-header']}>
-          <h3 className={styles['panel-title']}>
+          <h3 data-app-ui-section-title className={styles['panel-title']}>
             隐私与数据
             {privacySave.hasChanges && <Badge dot />}
           </h3>
@@ -758,7 +758,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </header>
 
         <section className={styles['panel-card']}>
-          <h4 className={styles['panel-card-title']}>Agent 界面控制</h4>
+          <h4 className={styles['panel-card-title']} data-app-ui-heading>Agent 界面控制</h4>
           <div className={styles['panel-rows']}>
             <div className={styles['panel-row']}>
               <div className={styles['panel-row-text']}>
@@ -776,7 +776,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </section>
 
         <section className={styles['panel-card']}>
-          <h4 className={styles['panel-card-title']}>录屏</h4>
+          <h4 className={styles['panel-card-title']} data-app-ui-heading>录屏</h4>
           <div className={styles['panel-rows']}>
             <div className={styles['panel-row']}>
               <div className={styles['panel-row-text']}>
@@ -981,7 +981,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </section>
 
         <section className={styles['panel-card']}>
-          <h4 className={styles['panel-card-title']}>本地留存</h4>
+          <h4 className={styles['panel-card-title']} data-app-ui-heading>本地留存</h4>
           <div className={styles['panel-rows']}>
             <div className={styles['panel-row']}>
               <div className={styles['panel-row-text']}>
@@ -1027,7 +1027,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </section>
 
         <section className={styles['panel-card']}>
-          <h4 className={styles['panel-card-title']}>安全日志</h4>
+          <h4 className={styles['panel-card-title']} data-app-ui-heading>安全日志</h4>
           <p className={styles['panel-card-desc']}>
             查看本机 AI 工具与权限相关操作摘要（最近 20 条）
           </p>
@@ -1035,7 +1035,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </section>
 
         <section className={styles['panel-card']}>
-          <h4 className={styles['panel-card-title']}>系统日志</h4>
+          <h4 className={styles['panel-card-title']} data-app-ui-heading>系统日志</h4>
           <p className={styles['panel-card-desc']}>
             打开应用运行日志文件，便于排查连接、对话与启动问题
           </p>
@@ -1060,7 +1060,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </section>
 
         <section className={styles['panel-card']}>
-          <h4 className={styles['panel-card-title']}>备份与恢复</h4>
+          <h4 className={styles['panel-card-title']} data-app-ui-heading>备份与恢复</h4>
           <p className={styles['panel-card-desc']}>查看本地存储占用，管理数据库备份并按需恢复</p>
           <div className={styles['panel-storage']}>
             <StorageInfo toast={toast} />
@@ -1254,7 +1254,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       <Card key={slot}>
         <div className={styles['setting-item']}>
           <div className={styles['setting-label']}>
-            <span>{CAPABILITY_SLOT_LABEL[slot]}</span>
+            <span data-app-ui-heading>{CAPABILITY_SLOT_LABEL[slot]}</span>
             <span className={styles['setting-desc']}>{CAPABILITY_SLOT_DESC[slot]}</span>
           </div>
           <div className={styles['setting-control']} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1296,7 +1296,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           <>
             <div className={styles['setting-item']}>
               <div className={styles['setting-label']}>
-                <span>Provider 类型</span>
+                <span data-app-ui-label>Provider 类型</span>
               </div>
               <div className={styles['setting-control']}>
                 <Select
@@ -1323,7 +1323,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
             <div className={styles['setting-item']}>
               <div className={styles['setting-label']}>
-                <span>接口地址（Base URL）</span>
+                <span data-app-ui-label>接口地址（Base URL）</span>
                 <span className={styles['setting-desc']}>
                   {cfg.type === 'rightapi'
                     ? '填到绘图根地址（含 /draw/v1）；任务查询地址会自动推导为站点级 /v1/tasks'
@@ -1342,7 +1342,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
             <div className={styles['setting-item']}>
               <div className={styles['setting-label']}>
-                <span>API Key</span>
+                <span data-app-ui-label>API Key</span>
                 {isLocalProvider && (
                   <span className={styles['setting-desc']}>本地 Provider 通常无需填写</span>
                 )}
@@ -1372,7 +1372,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
             <div className={styles['setting-item']}>
               <div className={styles['setting-label']}>
-                <span>模型 ID</span>
+                <span data-app-ui-label>模型 ID</span>
                 <span className={styles['setting-desc']}>
                   {slot === 'image'
                     ? cfg.type === 'rightapi'
@@ -1500,7 +1500,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     }
     return (
       <div className={styles['settings-section']}>
-        <h3>模型能力槽</h3>
+        <h3 data-app-ui-section-title>模型能力槽</h3>
         <p className={styles['setting-desc']} style={{ marginBottom: 16 }}>
           每个能力可使用不同提供商（例如对话用 DeepSeek，生图用 OpenAI）。
           「已启用 / 未启用」控制该能力是否真正生效：未启用时即使填了 Key 也不会调用，便于临时关闭而不丢配置。
@@ -1534,7 +1534,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     }
     return (
     <div className={styles['settings-section']}>
-      <h3>宠物模式</h3>
+      <h3 data-app-ui-section-title>宠物模式</h3>
       <Card>
         <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <p style={{ color: 'var(--color-text-secondary)', fontSize: 13, lineHeight: 1.6, margin: 0 }}>
@@ -1549,7 +1549,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
           {/* 模型选择器 + 缩略图 */}
           <div className={styles['setting-item']}>
-            <label className={styles['setting-label']}>虚拟人模型</label>
+            <label className={styles['setting-label']} data-app-ui-label>虚拟人模型</label>
             <span className={styles['setting-hint']}>切换后立即生效（已在宠物模式时热重载）</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               {currentModel?.thumbnailUrl && (
@@ -1585,7 +1585,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
           {/* 对话 Agent（全局覆盖） */}
           <div className={styles['setting-item']}>
-            <label className={styles['setting-label']}>对话 Agent</label>
+            <label className={styles['setting-label']} data-app-ui-label>对话 Agent</label>
             <span className={styles['setting-hint']}>
               {vhSettings.followModelAgent ? '已跟随模型默认 Agent，此项被忽略' : '全局覆盖：虚拟人对话使用的 Agent'}
             </span>
@@ -1684,7 +1684,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           {vhSettings.proactiveCareEnabled && (
             <>
               <div className={styles['setting-item']}>
-                <label className={styles['setting-label']}>联系频率</label>
+                <label className={styles['setting-label']} data-app-ui-label>联系频率</label>
                 <Select
                   value={vhSettings.proactiveCareMode}
                   options={[
@@ -1700,7 +1700,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               </div>
 
               <div className={styles['setting-item']}>
-                <label className={styles['setting-label']}>怎么称呼你</label>
+                <label className={styles['setting-label']} data-app-ui-label>怎么称呼你</label>
                 <span className={styles['setting-hint']}>虚拟人在主动联系消息里会用这个称呼（可不填）</span>
                 <Input
                   value={vhSettings.proactiveCareNickname}
@@ -1738,7 +1738,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const renderAboutAndUpdateSettings = () => (
     <div className={styles['settings-panel']}>
       <header className={styles['panel-header']}>
-        <h3 className={styles['panel-title']}>关于与更新</h3>
+        <h3 data-app-ui-section-title className={styles['panel-title']}>关于与更新</h3>
         <p className={styles['panel-desc']}>查看版本信息，并管理软件更新偏好</p>
       </header>
 
@@ -1770,7 +1770,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       </section>
 
       <section className={styles['panel-card']}>
-        <h4 className={styles['panel-card-title']}>软件更新</h4>
+        <h4 className={styles['panel-card-title']} data-app-ui-heading>软件更新</h4>
         <p className={styles['panel-card-desc']}>检查并安装新版本</p>
         <UpdaterView standalone />
         <div className={styles['panel-rows']} style={{ marginTop: 12 }}>
@@ -1799,7 +1799,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
    */
   const renderShortcutsSettings = () => (
     <div className={styles['settings-section']}>
-      <h3>快捷键</h3>
+      <h3 data-app-ui-section-title>快捷键</h3>
 
       <div className={styles['setting-group']}>
         <div className={styles['shortcut-item']}>
@@ -2031,7 +2031,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
     return (
       <div className={styles['settings-section']}>
-        <h3>语音设置</h3>
+        <h3 data-app-ui-section-title>语音设置</h3>
         <p className={styles['settings-note']}>
           分为三块独立能力：语音识别、语音合成、声音克隆。各自下载与测试，互不强制。
         </p>
@@ -2056,7 +2056,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className={styles['setting-group']}>
                 <h5 className={styles['voice-block-subtitle']}>设置</h5>
                 <div className={styles['setting-item']}>
-                  <label className={styles['setting-label']}>识别引擎</label>
+                  <label className={styles['setting-label']} data-app-ui-label>识别引擎</label>
                   <Select
                     value={voiceConfig.asr.provider}
                     options={[
@@ -2068,7 +2068,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
                 {voiceConfig.asr.provider === 'openai-whisper' && (
                   <div className={styles['setting-item']}>
-                    <label className={styles['setting-label']}>OpenAI API Key</label>
+                    <label className={styles['setting-label']} data-app-ui-label>OpenAI API Key</label>
                     <Input
                       type={showVoiceApiKey ? 'text' : 'password'}
                       placeholder="sk-..."
@@ -2097,7 +2097,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   </Checkbox>
                 </div>
                 <div className={styles['setting-item']}>
-                  <label className={styles['setting-label']}>
+                  <label className={styles['setting-label']} data-app-ui-label>
                     语音识别阈值：{(voiceConfig.vad?.threshold ?? 0.5).toFixed(2)}
                   </label>
                   <input
@@ -2111,7 +2111,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   />
                 </div>
                 <div className={styles['setting-item']}>
-                  <label className={styles['setting-label']}>
+                  <label className={styles['setting-label']} data-app-ui-label>
                     负面语音阈值：{(voiceConfig.vad?.energyGateMultiplier ?? 1.5).toFixed(1)}x
                   </label>
                   <input
@@ -2151,7 +2151,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className={styles['setting-group']}>
                 <h5 className={styles['voice-block-subtitle']}>设置</h5>
                 <div className={styles['setting-item']}>
-                  <label className={styles['setting-label']}>合成引擎</label>
+                  <label className={styles['setting-label']} data-app-ui-label>合成引擎</label>
                   <Select
                     value={voiceConfig.tts.provider}
                     options={[
@@ -2188,7 +2188,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
                 {voiceConfig.tts.provider === 'qwen3' && (
                   <div className={styles['setting-item']}>
-                    <label className={styles['setting-label']}>推理设备</label>
+                    <label className={styles['setting-label']} data-app-ui-label>推理设备</label>
                     <Select
                       value={voiceConfig.tts.qwen3Device ?? 'auto'}
                       options={[
@@ -2217,7 +2217,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   </div>
                 )}
                 <div className={styles['setting-item']}>
-                  <label className={styles['setting-label']}>
+                  <label className={styles['setting-label']} data-app-ui-label>
                     语速：{voiceConfig.tts.speed.toFixed(1)}x
                   </label>
                   <input
@@ -2231,7 +2231,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   />
                 </div>
                 <div className={styles['setting-item']}>
-                  <label className={styles['setting-label']}>
+                  <label className={styles['setting-label']} data-app-ui-label>
                     音量：{Math.round((voiceConfig.tts.volume ?? 1.0) * 100)}%
                     {(voiceConfig.tts.volume ?? 1.0) > 1 ? '（增强）' : ''}
                   </label>
@@ -2254,7 +2254,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
                 {voiceConfig.tts.provider === 'edge' && (
                   <div className={styles['setting-item']}>
-                    <label className={styles['setting-label']}>Edge 音色</label>
+                    <label className={styles['setting-label']} data-app-ui-label>Edge 音色</label>
                     <Select
                       value={voiceConfig.tts.voice ?? 'zh-CN-XiaoxiaoNeural'}
                       options={[
@@ -2274,7 +2274,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 {voiceConfig.tts.provider === 'qwen3' && (
                   <>
                     <div className={styles['setting-item']}>
-                      <label className={styles['setting-label']}>合成语言</label>
+                      <label className={styles['setting-label']} data-app-ui-label>合成语言</label>
                       <Select
                         value={voiceConfig.tts.language ?? 'Auto'}
                         options={[
@@ -2296,7 +2296,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
                     {/* 统一音色列表：内置音色 + 我的音色（克隆） */}
                     <div className={styles['setting-item']} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-                      <label className={styles['setting-label']}>音色（选中即生效）</label>
+                      <label className={styles['setting-label']} data-app-ui-label>音色（选中即生效）</label>
                       <div className={styles['voice-speaker-list']}>
                         {[
                           { id: 'Vivian', desc: '女 · 明亮 · 中文' },
@@ -2336,7 +2336,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
                     {qwenVariant === '1.7b-custom' && !cloneEnabled && (
                       <div className={styles['setting-item']}>
-                        <label className={styles['setting-label']}>风格指令（可选）</label>
+                        <label className={styles['setting-label']} data-app-ui-label>风格指令（可选）</label>
                         <Input
                           placeholder="例如：用特别开心的语气说"
                           value={voiceConfig.tts.qwen3Instruct ?? ''}
@@ -2357,7 +2357,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
                     {qwen3CloneReady && (
                       <div className={styles['setting-item']} style={{ marginTop: 12 }}>
-                        <label className={styles['setting-label']}>克隆模型规格</label>
+                        <label className={styles['setting-label']} data-app-ui-label>克隆模型规格</label>
                         <Select
                           value={cloneVariant}
                           options={[
@@ -2390,7 +2390,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 <h5 className={styles['voice-block-subtitle']}>测试</h5>
                 {renderRuntimeStatus()}
                 <div className={styles['setting-item']}>
-                  <label className={styles['setting-label']}>
+                  <label className={styles['setting-label']} data-app-ui-label>
                     测试文案（最多 100 字）剩余 {100 - voicePreviewText.length}
                   </label>
                   <input

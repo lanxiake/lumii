@@ -3,6 +3,9 @@ import type { AppUiClickContext, AppUiRef } from './types'
 /** click 时禁止点击的角色（composer / runtime 容器及其子节点） */
 export const CLICK_BLOCK_ROLES = ['composer', 'runtime'] as const
 
+/** 纯语义角色：标题/字段名，不可点击/输入，返回 not_interactive */
+export const NON_INTERACTIVE_ROLES = ['heading', 'section_title', 'label'] as const
+
 /** key 白名单：仅允许导航/编辑类按键，禁止任意 keyCode 打拼音 */
 export const KEY_WHITELIST = [
   'Enter',
@@ -23,7 +26,11 @@ export const KEY_WHITELIST = [
 
 export type AllowedKey = (typeof KEY_WHITELIST)[number]
 
-export type ClickAllowedError = 'missing_ref' | 'stale_snapshot' | 'blocked_composer'
+export type ClickAllowedError =
+  | 'missing_ref'
+  | 'stale_snapshot'
+  | 'blocked_composer'
+  | 'not_interactive'
 
 /**
  * click 准备阶段错误：
@@ -71,6 +78,10 @@ export function assertClickAllowed(params: AssertClickAllowedParams): AssertClic
   const matched = current.refs.find((r) => r.ref === ref)
   if (!matched) {
     return { ok: false, error: 'stale_snapshot' }
+  }
+
+  if ((NON_INTERACTIVE_ROLES as readonly string[]).includes(matched.role)) {
+    return { ok: false, error: 'not_interactive' }
   }
 
   if (blockRoles.includes(matched.role)) {

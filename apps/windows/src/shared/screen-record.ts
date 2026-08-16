@@ -103,7 +103,75 @@ export interface ScreenRecordMarker {
   atMs: number
   label: string
   kind?: 'beat' | 'action' | 'note'
+  entryType?: 'marker'
 }
+
+/**
+ * 画面标注（后期 ffmpeg 烧录；录制期只记 timeline，不实时叠加）。
+ * 坐标为录制源归一化 0..10000。
+ */
+export interface ScreenRecordAnnotation {
+  id: string
+  atMs: number
+  endMs: number
+  kind: 'circle' | 'rect' | 'arrow' | 'text'
+  label?: string
+  geometry: {
+    x: number
+    y: number
+    w?: number
+    h?: number
+    tx?: number
+    ty?: number
+  }
+  style?: {
+    color?: string
+    thickness?: number
+    fontSize?: number
+  }
+  entryType: 'annotation'
+  /** true：下次 mark 时把 atMs 对齐到该 mark */
+  pendingFromNextMark?: boolean
+  text?: string
+}
+
+/** stop 返回的 timeline 条目：打点或画面标注 */
+export type ScreenRecordTimelineEntry = ScreenRecordMarker | ScreenRecordAnnotation
+
+/** 判断 timeline 条目是否为 annotation */
+export function isScreenRecordAnnotation(
+  entry: ScreenRecordTimelineEntry,
+): entry is ScreenRecordAnnotation {
+  return (entry as ScreenRecordAnnotation).entryType === 'annotation'
+}
+
+/** screen_record_annotate 参数 */
+export type ScreenRecordAnnotateParams = {
+  kind: 'circle' | 'rect' | 'arrow' | 'text'
+  label?: string
+  targetElement?: {
+    snapshotId: string
+    ref: string
+    paddingPx?: number
+  }
+  normalizedRect?: { x: number; y: number; w: number; h: number }
+  text?: string
+  durationMs?: number
+  fromNextMark?: boolean
+  style?: { color?: string; thickness?: number; fontSize?: number }
+  /** 源画面宽高，用于把 DIP 坐标归一化；缺省按 1280x720 */
+  sourceWidth?: number
+  sourceHeight?: number
+}
+
+/** screen_record_annotate 返回 */
+export type ScreenRecordAnnotateResult =
+  | {
+      ok: true
+      annotation: ScreenRecordAnnotation
+      elapsedMs: number
+    }
+  | { ok: false; error: ScreenRecordErrorCode; message?: string }
 
 /** screen_record_mark 参数 */
 export type ScreenRecordMarkParams = {
@@ -127,8 +195,8 @@ export type ScreenRecordStopResult =
       path: string
       durationMs: number
       bytes: number
-      /** 本会话打点（按 atMs 升序；无打点时为空数组） */
-      timeline: ScreenRecordMarker[]
+      /** 本会话打点与标注（按 atMs 升序；无条目时为空数组） */
+      timeline: ScreenRecordTimelineEntry[]
       /** 可选 MP4 路径（exportMp4 成功时） */
       mp4Path?: string
       /** 麦/系统声降级或 MP4 失败时带 warning */
@@ -324,6 +392,8 @@ export interface ScreenRecordNarrateParams {
   originalAudioGain?: number
   /** 成片后再导出 MP4 */
   exportMp4?: boolean
+  /** 可选：画面标注（通常来自 stop.timeline 中的 annotation），先于字幕烧录 */
+  annotations?: ScreenRecordAnnotation[]
 }
 
 /**
@@ -347,7 +417,11 @@ export type ScreenRecordNarrateResult =
       /** burn 成功为 true；soft 或烧录降级为 false */
       burned: boolean
       ttsCount?: number
-      warning?: 'subtitle_burn_failed' | 'mp4_failed'
+      warning?:
+        | 'subtitle_burn_failed'
+        | 'mp4_failed'
+        | 'annotation_burn_failed'
+        | 'annotation_font_missing_text_skipped'
       /** 一句人话说明（如就地覆盖、勿查找 *-narrated） */
       message?: string
     }
@@ -466,7 +540,11 @@ export type ScreenRecordBurnSubtitlesResult =
       srtPath?: string
       projectPath?: string
       mp4Path?: string
-      warning?: 'subtitle_burn_failed' | 'mp4_failed'
+      warning?:
+        | 'subtitle_burn_failed'
+        | 'mp4_failed'
+        | 'annotation_burn_failed'
+        | 'annotation_font_missing_text_skipped'
       ttsRegenerated?: number
       ttsReused?: number
     }

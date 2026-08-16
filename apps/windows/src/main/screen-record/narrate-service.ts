@@ -4,6 +4,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type {
+  ScreenRecordAnnotation,
   ScreenRecordConfig,
   ScreenRecordNarrateParams,
   ScreenRecordNarrateResult,
@@ -52,11 +53,94 @@ export function resolveBurnFontPath(): string | null {
     'C:\\Windows\\Fonts\\msyh.ttf',
     'C:\\Windows\\Fonts\\simhei.ttf',
     'C:\\Windows\\Fonts\\simsun.ttc',
+    'C:\\Windows\\Fonts\\arial.ttf',
   ]
   for (const p of candidates) {
     if (fs.existsSync(p)) return p
   }
   return null
+}
+
+/**
+ * 转义 drawtext 文本中的特殊字符。
+ */
+export function escapeFfmpegDrawtext(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\')
+    .replace(/:/g, '\\:')
+    .replace(/'/g, "\\'")
+    .replace(/%/g, '\\%')
+}
+
+/**
+ * 将 timeline annotation 烧录为中间视频（drawbox/drawtext）。
+ * 失败时回退到源路径并带 warning，不阻塞后续字幕配音。
+ */
+export async function preBurnAnnotations(
+  srcPath: string,
+  annotations: ScreenRecordAnnotation[],
+  opts: {
+    tempDir: string
+    runFfmpeg: (args: string[]) => Promise<FfmpegRunResult>
+  },
+): Promise<{ outputPath: string; warnings: string[] }> {
+  if (!annotations.length) return { outputPath: srcPath, warnings: [] }
+
+  const warnings: string[] = []
+  const font = resolveBurnFontPath()
+  const filters: string[] = []
+  const vw = 10000
+  const vh = 10000
+
+  for (const a of annotations) {
+    const start = Math.max(0, a.atMs) / 1000
+    const end = Math.max(a.atMs + 1, a.endMs || a.atMs + 3000) / 1000
+    const enable = `enable='between(t,${start},${end})'`
+    const xExpr = `(w*${a.geometry.x})/${vw}`
+    const yExpr = `(h*${a.geometry.y})/${vh}`
+    const wExpr = a.geometry.w != null ? `(w*${a.geometry.w})/${vw}` : `(w*800)/${vw}`
+    const hExpr = a.geometry.h != null ? `(h*${a.geometry.h})/${vh}` : `(h*800)/${vh}`
+    const color = (a.style?.color ?? '0xff3b30').replace('#', '0x')
+    const thick = Math.max(1, Math.round(((a.style?.thickness ?? 60) * 480) / 10000))
+
+    if (a.kind === 'rect' || a.kind === 'circle') {
+      filters.push(
+        `drawbox=x=${xExpr}:y=${yExpr}:w=${wExpr}:h=${hExpr}:color=${color}:t=${thick}:${enable}`,
+      )
+    }
+
+    const text = a.kind === 'text' ? a.text || a.label : a.label
+    if (text) {
+      if (!font) {
+        warnings.push('annotation_font_missing_text_skipped')
+      } else {
+        const fontSize = Math.max(12, Math.round(((a.style?.fontSize ?? 320) * 480) / 10000))
+        filters.push(
+          `drawtext=fontfile='${escapeFfmpegSubtitlesPath(font)}':fontcolor=${color}:fontsize=${fontSize}:x=${xExpr}:y=${yExpr}:text='${escapeFfmpegDrawtext(text)}':${enable}`,
+        )
+      }
+    }
+  }
+
+  if (filters.length === 0) return { outputPath: srcPath, warnings }
+
+  const ext = path.extname(srcPath) || '.webm'
+  const outputPath = path.join(opts.tempDir, `annotated${ext}`)
+  const result = await opts.runFfmpeg([
+    '-y',
+    '-i',
+    srcPath,
+    '-vf',
+    filters.join(','),
+    '-c:a',
+    'copy',
+    outputPath,
+  ])
+  if (!result.ok) {
+    warnings.push('annotation_burn_failed')
+    return { outputPath: srcPath, warnings }
+  }
+  return { outputPath, warnings }
 }
 
 /**
@@ -264,9 +348,28 @@ export function createNarrateService(deps: NarrateServiceDeps) {
         projectPaths.dir,
         `${projectPaths.stem}${wantMp4 ? '.mp4' : containerExt}`,
       )
-      let warning: 'subtitle_burn_failed' | 'mp4_failed' | undefined
+      let warning:
+        | 'subtitle_burn_failed'
+        | 'mp4_failed'
+        | 'annotation_burn_failed'
+        | 'annotation_font_missing_text_skipped'
+        | undefined
       let workingVideo = originalVideo
       let dubbedOk = false
+
+      // 先烧 annotation（若有），再配音/字幕
+      if (Array.isArray(params.annotations) && params.annotations.length > 0) {
+        const burnedAnno = await preBurnAnnotations(workingVideo, params.annotations, {
+          tempDir,
+          runFfmpeg: ffmpeg,
+        })
+        workingVideo = burnedAnno.outputPath
+        if (burnedAnno.warnings.includes('annotation_burn_failed')) {
+          warning = 'annotation_burn_failed'
+        } else if (burnedAnno.warnings.includes('annotation_font_missing_text_skipped')) {
+          warning = 'annotation_font_missing_text_skipped'
+        }
+      }
 
       if (dub) {
         const audioCues = resolvedCues

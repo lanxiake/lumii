@@ -8,9 +8,12 @@ import type {
 /** 快照节点数量默认上限 */
 export const DEFAULT_SNAPSHOT_NODE_LIMIT = 120
 
+/** 语义角色：不可交互，但含关键标题/字段名信息 */
+export const SEMANTIC_ROLES = new Set(['heading', 'section_title', 'label'])
+
 /**
  * 注入主窗口 webContents 的快照采集脚本。
- * 在页面内遍历可交互节点，返回原始节点数组供 filterSnapshotNodes 过滤。
+ * 在页面内遍历可交互节点与语义标题节点，返回原始节点数组供 filterSnapshotNodes 过滤。
  *
  * 除位置与名称外还会回读：
  * - 输入框的当前值与 placeholder（分开回传，避免把占位符误当成已填内容）
@@ -30,10 +33,15 @@ export const SNAPSHOT_SCRIPT = `(function () {
     '[role=switch]',
     '[contenteditable=true]',
     '[data-app-ui]',
-    '[tabindex]:not([tabindex="-1"])'
+    '[tabindex]:not([tabindex="-1"])',
+    '[data-app-ui-heading]',
+    '[data-app-ui-section-title]',
+    '[data-app-ui-label]',
+    'h1, h2, h3, h4, h5, h6'
   ].join(',');
 
   var NAME_MAX = 80;
+  var LABEL_NAME_MAX = 60;
 
   function normalize(text) {
     return String(text == null ? '' : text).replace(/\\s+/g, ' ').trim();
@@ -69,7 +77,8 @@ export const SNAPSHOT_SCRIPT = `(function () {
       if (placeholder) return normalize(placeholder).slice(0, NAME_MAX);
       return '';
     }
-    return normalize(el.textContent).slice(0, NAME_MAX);
+    var maxLen = el.hasAttribute('data-app-ui-label') ? LABEL_NAME_MAX : NAME_MAX;
+    return normalize(el.textContent).slice(0, maxLen);
   }
 
   function getRole(el) {
@@ -78,9 +87,16 @@ export const SNAPSHOT_SCRIPT = `(function () {
       var blockRole = blockHost.getAttribute('data-app-ui-block');
       if (blockRole === 'composer' || blockRole === 'runtime') return blockRole;
     }
+    // 语义标记优先于显式 ARIA role / 标签推断
+    if (el.hasAttribute('data-app-ui-heading')) return 'heading';
+    if (el.hasAttribute('data-app-ui-section-title')) return 'section_title';
+    if (el.hasAttribute('data-app-ui-label')) return 'label';
     var explicit = el.getAttribute('role');
     if (explicit) return explicit;
     var tag = el.tagName.toLowerCase();
+    if (tag === 'h1' || tag === 'h2' || tag === 'h3' || tag === 'h4' || tag === 'h5' || tag === 'h6') {
+      return 'heading';
+    }
     if (tag === 'button') return 'button';
     if (tag === 'a') return 'link';
     if (tag === 'input') {
@@ -181,6 +197,13 @@ function shouldExcludeNode(node: RawSnapshotNode): boolean {
 const FORM_ROLES = new Set(['textbox', 'combobox', 'checkbox', 'radio', 'switch'])
 
 /**
+ * 语义层=0、交互层=1，供两阶段配额截断分层。
+ */
+function semanticTier(node: RawSnapshotNode): number {
+  return SEMANTIC_ROLES.has(node.role) ? 0 : 1
+}
+
+/**
  * 计算节点优先级：数值越小越靠前。
  *
  * 截断上限有限，弹层内的表单控件比背景里的长列表有用得多，
@@ -205,22 +228,64 @@ function compareReadingOrder(a: RawSnapshotNode, b: RawSnapshotNode): number {
 
 /**
  * 将原始节点列表过滤、排序、截断并分配 ref（e1、e2…）。
+ * 支持 refs_filter（roles / y 区间 / name_contains）与语义/交互两阶段配额。
  * 纯函数，不依赖 DOM，供单测与截图控制器共用。
  */
 export function filterSnapshotNodes(
   raw: RawSnapshotNode[],
   options: FilterSnapshotOptions = {},
 ): FilterSnapshotResult {
-  const limit = options.limit ?? DEFAULT_SNAPSHOT_NODE_LIMIT
-  const eligible = raw.filter((n) => !shouldExcludeNode(n))
-  const sorted = [...eligible].sort((a, b) => {
-    const priorityDelta = nodePriority(a) - nodePriority(b)
-    if (priorityDelta !== 0) return priorityDelta
-    return compareReadingOrder(a, b)
-  })
-  const truncated = sorted.length > limit
-  const kept = sorted.slice(0, limit)
+  let eligible = raw.filter((n) => !shouldExcludeNode(n))
 
+  // refs_filter：在截断前应用，避免浪费配额
+  if (options.roles) {
+    const set = new Set(options.roles)
+    eligible = eligible.filter((n) => set.has(n.role))
+  }
+  if (typeof options.y_min === 'number') {
+    const yMin = options.y_min
+    eligible = eligible.filter((n) => n.y + n.h >= yMin)
+  }
+  if (typeof options.y_max === 'number') {
+    const yMax = options.y_max
+    eligible = eligible.filter((n) => n.y <= yMax)
+  }
+  if (options.name_contains) {
+    const q = options.name_contains.toLowerCase()
+    eligible = eligible.filter((n) => n.name.toLowerCase().includes(q))
+  }
+
+  const totalLimit = options.limit ?? DEFAULT_SNAPSHOT_NODE_LIMIT
+  // 约 1/3 给语义；limit 很小时至少留 1 个语义名额（limit>=2），保证标题不被挤掉
+  const defaultSemantic = Math.max(totalLimit >= 2 ? 1 : 0, Math.floor(totalLimit / 3))
+  const semLimit = Math.min(options.semantic_limit ?? defaultSemantic, totalLimit)
+  const intLimit = totalLimit - semLimit
+
+  const semSorted = eligible
+    .filter((n) => semanticTier(n) === 0)
+    .sort((a, b) => compareReadingOrder(a, b))
+  const intSorted = eligible
+    .filter((n) => semanticTier(n) === 1)
+    .sort((a, b) => {
+      const priorityDelta = nodePriority(a) - nodePriority(b)
+      return priorityDelta !== 0 ? priorityDelta : compareReadingOrder(a, b)
+    })
+
+  // 未用满的一侧配额让给另一侧，避免「无标题页」白白浪费语义名额
+  let keptSem = semSorted.slice(0, semLimit)
+  let keptInt = intSorted.slice(0, intLimit)
+  const unusedSem = semLimit - keptSem.length
+  if (unusedSem > 0) {
+    keptInt = intSorted.slice(0, intLimit + unusedSem)
+  }
+  const unusedInt = intLimit + unusedSem - keptInt.length
+  if (unusedInt > 0) {
+    keptSem = semSorted.slice(0, semLimit + unusedInt)
+  }
+  const kept = [...keptSem, ...keptInt]
+  const truncated = eligible.length > kept.length
+
+  // 语义在前、交互在后，便于 LLM 一眼看到标题
   const refs: AppUiRef[] = kept.map((node, index) => {
     const ref: AppUiRef = {
       ref: `e${index + 1}`,

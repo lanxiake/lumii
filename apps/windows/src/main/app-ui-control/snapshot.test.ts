@@ -129,6 +129,57 @@ describe('filterSnapshotNodes', () => {
     const result = filterSnapshotNodes([node({ name: '唯一' })])
     expect(result.truncated).toBe(false)
   })
+
+  it('data-app-ui-heading 属性节点 role=heading', () => {
+    const raw: RawSnapshotNode[] = [
+      { role: 'button', name: '点我', x: 0, y: 0, w: 10, h: 10 },
+      { role: 'heading', name: '文本对话', x: 0, y: 20, w: 10, h: 10, appUi: 'slot-title' },
+    ]
+    const { refs } = filterSnapshotNodes(raw)
+    expect(refs.find((r) => r.role === 'heading')?.name).toBe('文本对话')
+  })
+
+  it('two-phase truncation: reserves semantic and interactive slots', () => {
+    const raw: RawSnapshotNode[] = [
+      { role: 'heading', name: '标题A', x: 0, y: 0, w: 10, h: 10, appUi: 'heading' },
+      { role: 'label', name: '字段A', x: 0, y: 20, w: 10, h: 10 },
+      { role: 'button', name: '按钮A', x: 0, y: 40, w: 10, h: 10 },
+      { role: 'textbox', name: '输入A', x: 0, y: 60, w: 10, h: 10, value: '' },
+    ]
+    const { refs, truncated } = filterSnapshotNodes(raw, { limit: 2 })
+    expect(truncated).toBe(true)
+    expect(refs.some((r) => r.role === 'heading' || r.role === 'label')).toBe(true)
+    expect(refs.some((r) => ['button', 'textbox'].includes(r.role))).toBe(true)
+  })
+
+  it('refs_filter.roles only includes heading', () => {
+    const raw: RawSnapshotNode[] = [
+      { role: 'heading', name: '文本对话', x: 0, y: 0, w: 10, h: 10 },
+      { role: 'button', name: '保存', x: 0, y: 20, w: 10, h: 10 },
+    ]
+    const { refs } = filterSnapshotNodes(raw, { roles: ['heading'] })
+    expect(refs.length).toBe(1)
+    expect(refs[0]?.role).toBe('heading')
+  })
+
+  it('refs_filter y_min/y_max window', () => {
+    const raw: RawSnapshotNode[] = [
+      { role: 'heading', name: '顶', x: 0, y: 10, w: 10, h: 10 },
+      { role: 'button', name: '中', x: 0, y: 110, w: 10, h: 10 },
+      { role: 'button', name: '底', x: 0, y: 210, w: 10, h: 10 },
+    ]
+    const { refs } = filterSnapshotNodes(raw, { y_min: 100, y_max: 120 })
+    expect(refs.map((r) => r.name)).toEqual(['中'])
+  })
+
+  it('refs_filter name_contains 大小写不敏感', () => {
+    const raw: RawSnapshotNode[] = [
+      { role: 'heading', name: '文本对话', x: 0, y: 0, w: 10, h: 10 },
+      { role: 'button', name: '保存全部', x: 0, y: 20, w: 10, h: 10 },
+    ]
+    const { refs } = filterSnapshotNodes(raw, { name_contains: '保存' })
+    expect(refs.map((r) => r.name)).toEqual(['保存全部'])
+  })
 })
 
 describe('nextSnapshotId', () => {
@@ -155,5 +206,12 @@ describe('SNAPSHOT_SCRIPT', () => {
     expect(SNAPSHOT_SCRIPT).toContain('getSelectOptions')
     expect(SNAPSHOT_SCRIPT).toContain('aria-modal')
     expect(SNAPSHOT_SCRIPT).toContain("type === 'password'")
+  })
+
+  it('SELECTORS 含语义标记与 h1-h6 兜底', () => {
+    expect(SNAPSHOT_SCRIPT).toContain('data-app-ui-heading')
+    expect(SNAPSHOT_SCRIPT).toContain('data-app-ui-section-title')
+    expect(SNAPSHOT_SCRIPT).toContain('data-app-ui-label')
+    expect(SNAPSHOT_SCRIPT).toContain('h1, h2, h3, h4, h5, h6')
   })
 })

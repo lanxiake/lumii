@@ -53,7 +53,7 @@ describe('registerScreenRecordTools', () => {
     })
   })
 
-  it('注册九工具名（含 mark/inspect/narrate）', () => {
+  it('注册十工具名（含 mark/annotate/inspect/narrate）', () => {
     const names = registry.getAll().map((t) => t.name)
     expect(names).toEqual(
       expect.arrayContaining([
@@ -64,11 +64,12 @@ describe('registerScreenRecordTools', () => {
         'screen_record_pause',
         'screen_record_resume',
         'screen_record_mark',
+        'screen_record_annotate',
         'screen_record_inspect',
         'screen_record_narrate',
       ]),
     )
-    expect(names).toHaveLength(9)
+    expect(names).toHaveLength(10)
   })
 
   it('pause 透传 not_recording', async () => {
