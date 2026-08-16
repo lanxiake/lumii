@@ -58,6 +58,21 @@ metadata:
 - 提前发现「会改动用户数据」的操作并规避（见下方安全原则）
 - 产出下方 **TutorialNavSpec v1**，正式录制只按手册跑，不再重复观察
 
+**工具使用优先级（探路阶段必须遵守）**：
+
+1. **app_goto_and_screenshot** - 跳转+截图一步完成（替代 goto → sleep → screenshot）
+2. **app_scroll_to_text** - 自动查找目标并滚动到位（替代反复 scroll + screenshot 观察）
+3. **app_scroll_to_bottom** - 一次滚到底部（禁止多次调用同一容器）
+4. **app_fill_form** - 多字段一次填完（替代逐个 type）
+5. **app_settings_model_config_save** - 模型配置页保存（业务特化，优先用）
+6. **app_act** - 仅在上述工具无法覆盖时兜底
+
+**❌ 禁止低效模式**：
+- `app_screenshot` → `app_act scroll` → `app_screenshot` 反复观察 ❌ 改用 `app_scroll_to_text`
+- `app_goto` → `app_screenshot` 分两步 ❌ 改用 `app_goto_and_screenshot`
+- 逐字段 `app_act type` ❌ 改用 `app_fill_form` 一次完成
+- 多次 `app_scroll_to_bottom` 在同一页 ❌ 一次即可到底
+
 ### 1.b 探路输出：TutorialNavSpec v1（MUST 输出代码块，不做就不算完成探路）
 
 探路结束后、执行 `screen_record_start` 之前，**必须**在回复里输出一段 **单独的 json 代码块**，info string 为 `tutorial-nav-spec`。后续正式录制阶段**必须**用这段代码块的 `steps[i]` 作为唯一操作输入，不要回到「观察界面→猜测→再确认」的老路（若后续发现步骤错了，先 `pause` 再改 JSON，不要硬录）。

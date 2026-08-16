@@ -94,14 +94,14 @@ export async function preBurnAnnotations(
 
   for (const a of annotations) {
     const start = Math.max(0, a.atMs) / 1000
-    const end = Math.max(a.atMs + 1, a.endMs || a.atMs + 3000) / 1000
+    const end = Math.max(a.atMs + 1, a.endMs || a.atMs + 5000) / 1000
     const enable = `enable='between(t,${start},${end})'`
     const xExpr = `(w*${a.geometry.x})/${vw}`
     const yExpr = `(h*${a.geometry.y})/${vh}`
     const wExpr = a.geometry.w != null ? `(w*${a.geometry.w})/${vw}` : `(w*800)/${vw}`
     const hExpr = a.geometry.h != null ? `(h*${a.geometry.h})/${vh}` : `(h*800)/${vh}`
-    const color = (a.style?.color ?? '0xff3b30').replace('#', '0x')
-    const thick = Math.max(1, Math.round(((a.style?.thickness ?? 60) * 480) / 10000))
+    const color = (a.style?.color ?? '0xFFFF00').replace('#', '0x')
+    const thick = Math.max(2, Math.round(((a.style?.thickness ?? 120) * 480) / 10000))
 
     if (a.kind === 'rect' || a.kind === 'circle') {
       filters.push(
@@ -302,7 +302,8 @@ export function createNarrateService(deps: NarrateServiceDeps) {
     }> = []
 
     try {
-      for (const cue of params.cues) {
+      for (let i = 0; i < params.cues.length; i++) {
+        const cue = params.cues[i]!
         const text = cue.text.trim()
         let endMs = cue.endMs
         let audioPath: string | undefined
@@ -326,6 +327,16 @@ export function createNarrateService(deps: NarrateServiceDeps) {
           }
         } else if (endMs == null || endMs <= cue.startMs) {
           endMs = cue.startMs + Math.max(800, Math.round((text.length / 4) * 1000))
+        }
+
+        // 检测与下一段冲突，自动调整避免TTS重叠
+        const nextCue = params.cues[i + 1]
+        if (nextCue && endMs > nextCue.startMs) {
+          // 压缩当前段到下一段前留200ms缓冲
+          const adjusted = nextCue.startMs - 200
+          if (adjusted > cue.startMs) {
+            endMs = adjusted
+          }
         }
 
         resolvedCues.push({ startMs: cue.startMs, endMs: endMs!, text, audioPath })

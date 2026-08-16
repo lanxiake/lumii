@@ -298,7 +298,8 @@ export function registerScreenRecordTools(
         description:
           '给教程成片加画面标注（圈框/矩形/文字），写入 timeline，后期 narrate 用 ffmpeg 烧录。' +
           'recording 与 paused 均可调用。推荐 targetElement（snapshotId+ref）；或传 normalizedRect（0..10000）。' +
-          '用户要求「笔记画圈/标记步骤」时才用；narrate 时把 stop.timeline 里的 annotation 传入 annotations。',
+          '用户要求「笔记画圈/标记步骤」时才用；narrate 时把 stop.timeline 里的 annotation 传入 annotations。' +
+          '建议使用明显样式以确保可见性：style: {color:"#FFFF00"(亮黄), thickness:120, fontSize:400}，durationMs建议≥5000。',
         parameters: Type.Object({
           kind: Type.String({ description: 'circle|rect|arrow|text' }),
           label: Type.Optional(Type.String()),
