@@ -155,28 +155,47 @@ export function resolveAudioCodecForContainer(outputPath: string): string {
 
 /**
  * 构造旁白混音 ffmpeg 参数（含原声压低）。
+ *
+ * 新策略：使用 overlay audio 方式逐段叠加，确保 TTS 不重叠。
+ * 每段 TTS 只在指定时间窗口内播放，超出部分自动截断。
  */
 export function buildDubFilterArgs(
   sourcePath: string,
-  cues: Array<{ startMs: number; audioPath: string }>,
+  cues: Array<{ startMs: number; endMs: number; audioPath: string }>,
   gain: number,
   outputPath: string,
 ): string[] {
   const args: string[] = ['-y', '-i', sourcePath]
   for (const c of cues) args.push('-i', c.audioPath)
 
-  const filters: string[] = [`[0:a]volume=${gain}[a0]`]
-  const mixLabels = ['[a0]']
+  const filters: string[] = []
+
+  // 压低原声
+  let prevLabel = '[0:a]'
+  if (gain < 1.0) {
+    filters.push(`[0:a]volume=${gain}[a0]`)
+    prevLabel = '[a0]'
+  }
+
+  // 逐段叠加 TTS，每段限制播放时长避免重叠
   cues.forEach((c, idx) => {
     const inIdx = idx + 1
-    const label = `d${idx}`
-    const delay = Math.max(0, Math.round(c.startMs))
-    filters.push(`[${inIdx}:a]adelay=${delay}|${delay}[${label}]`)
-    mixLabels.push(`[${label}]`)
+    const durationSec = (c.endMs - c.startMs) / 1000
+    const delaySec = c.startMs / 1000
+
+    // 截断音频到指定时长，避免超出时间窗口
+    const trimmed = `trim${idx}`
+    filters.push(`[${inIdx}:a]atrim=0:${durationSec},asetpts=PTS-STARTPTS[${trimmed}]`)
+
+    // 延迟后叠加到主轨道
+    const delayed = `d${idx}`
+    filters.push(`[${trimmed}]adelay=${Math.round(delaySec * 1000)}|${Math.round(delaySec * 1000)}[${delayed}]`)
+
+    // 与前一轨道混合
+    const outLabel = idx === cues.length - 1 ? '[aout]' : `[mix${idx}]`
+    filters.push(`${prevLabel}[${delayed}]amix=inputs=2:duration=first[${outLabel.slice(1, -1)}]`)
+    prevLabel = outLabel
   })
-  filters.push(
-    `${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0[aout]`,
-  )
 
   args.push(
     '-filter_complex',
@@ -196,34 +215,58 @@ export function buildDubFilterArgs(
 
 /**
  * 无原声时：仅旁白轨混入（duration=longest）。
+ *
+ * 新策略：同样使用 overlay 逐段叠加，确保不重叠。
  */
 export function buildDubOnlyFilterArgs(
   sourcePath: string,
-  cues: Array<{ startMs: number; audioPath: string }>,
+  cues: Array<{ startMs: number; endMs: number; audioPath: string }>,
   outputPath: string,
 ): string[] {
   const args: string[] = ['-y', '-i', sourcePath]
   for (const c of cues) args.push('-i', c.audioPath)
 
-  const mixFilters = cues.map((c, idx) => {
-    const inIdx = idx + 1
-    const label = `d${idx}`
-    const delay = Math.max(0, Math.round(c.startMs))
-    return `[${inIdx}:a]adelay=${delay}|${delay}[${label}]`
-  })
-  const mixLabels = cues.map((_, idx) => `[d${idx}]`)
-  const fc =
-    mixFilters.join(';') +
-    ';' +
-    `${mixLabels.join('')}amix=inputs=${mixLabels.length}:duration=longest:dropout_transition=0[aout]`
+  if (cues.length === 0) {
+    // 无旁白，直接复制
+    args.push('-c:v', 'copy', '-c:a', 'copy', outputPath)
+    return args
+  }
+
+  const filters: string[] = []
+  let prevLabel: string | null = null
+
+  // 第一段：作为基础轨道
+  const firstCue = cues[0]!
+  const dur0 = (firstCue.endMs - firstCue.startMs) / 1000
+  const delay0 = firstCue.startMs / 1000
+  filters.push(`[1:a]atrim=0:${dur0},asetpts=PTS-STARTPTS,adelay=${Math.round(delay0 * 1000)}|${Math.round(delay0 * 1000)}[base]`)
+  prevLabel = '[base]'
+
+  // 后续段：逐个叠加
+  for (let i = 1; i < cues.length; i++) {
+    const c = cues[i]!
+    const inIdx = i + 1
+    const durationSec = (c.endMs - c.startMs) / 1000
+    const delaySec = c.startMs / 1000
+
+    const trimmed = `trim${i}`
+    filters.push(`[${inIdx}:a]atrim=0:${durationSec},asetpts=PTS-STARTPTS[${trimmed}]`)
+
+    const delayed = `d${i}`
+    filters.push(`[${trimmed}]adelay=${Math.round(delaySec * 1000)}|${Math.round(delaySec * 1000)}[${delayed}]`)
+
+    const outLabel = i === cues.length - 1 ? '[aout]' : `[mix${i}]`
+    filters.push(`${prevLabel}[${delayed}]amix=inputs=2:duration=first[${outLabel.slice(1, -1)}]`)
+    prevLabel = outLabel
+  }
 
   args.push(
     '-filter_complex',
-    fc,
+    filters.join(';'),
     '-map',
     '0:v',
     '-map',
-    '[aout]',
+    prevLabel,
     '-c:v',
     'copy',
     '-c:a',
@@ -301,6 +344,8 @@ export function createNarrateService(deps: NarrateServiceDeps) {
       audioPath?: string
     }> = []
 
+    const actualDurations = new Map<string, number>() // audioPath -> durationMs
+
     try {
       for (let i = 0; i < params.cues.length; i++) {
         const cue = params.cues[i]!
@@ -321,9 +366,12 @@ export function createNarrateService(deps: NarrateServiceDeps) {
               message: e instanceof Error ? e.message : String(e),
             }
           }
+          // 探测 TTS 实际时长
+          const actualDur = (await probe(audioPath)) ?? 1500
+          actualDurations.set(audioPath, actualDur)
+
           if (endMs == null || endMs <= cue.startMs) {
-            const dur = (await probe(audioPath)) ?? 1500
-            endMs = cue.startMs + Math.max(200, dur)
+            endMs = cue.startMs + Math.max(200, actualDur)
           }
         } else if (endMs == null || endMs <= cue.startMs) {
           endMs = cue.startMs + Math.max(800, Math.round((text.length / 4) * 1000))
@@ -385,7 +433,7 @@ export function createNarrateService(deps: NarrateServiceDeps) {
       if (dub) {
         const audioCues = resolvedCues
           .filter((c): c is typeof c & { audioPath: string } => !!c.audioPath)
-          .map((c) => ({ startMs: c.startMs, audioPath: c.audioPath }))
+          .map((c) => ({ startMs: c.startMs, endMs: c.endMs, audioPath: c.audioPath }))
         const mixedPath = path.join(tempDir, `mixed${containerExt}`)
         let mixResult = await ffmpeg(buildDubFilterArgs(originalVideo, audioCues, gain, mixedPath))
         if (!mixResult.ok) {

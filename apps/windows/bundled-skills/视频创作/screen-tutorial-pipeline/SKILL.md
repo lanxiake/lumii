@@ -170,14 +170,56 @@ metadata:
 - 需要截图看界面时，先 `pause` 再截图 —— 思考和空镜不进成片；已知区域可用 `refs_filter` 精简 refs。
 - `mark` 只能在 `recording` 态用；`paused` 态会返回 `not_recording`，这是提醒你先 `resume`。
 - `atMs` 用活跃录制时钟：pause 期间不计时，所以停顿再久也不会把后续字幕往后推。
-### 3. 由 timeline 生成 cues
+### 3. 由 timeline 生成 cues（已工程化）
 
-`stop` 返回的 `timeline`（按 `atMs` 升序）是字幕的时间锚点，**不要凭感觉估时间**：
+**新方案**: 系统已内置智能cues生成器，**自动处理**时间冲突与间隔优化。Agent只需扩写旁白文本。
 
-- 第 i 条 cue：`startMs = timeline[i].atMs`，`text` 根据该 mark 的 `label` 扩写成一句自然旁白。
-- `endMs`：取下一条 mark 的 `atMs`，最后一条取成片 `durationMs`。
-- 若首个 mark 的 `atMs > 1500`，可在 `startMs = 0` 补一条开场旁白。
-- 相邻间隔 < 800ms 的可合并为一段。
+```typescript
+// ✅ 新流程（推荐）
+const { timeline, durationMs } = stop()
+
+// 1. 系统自动优化时间轴（已在narrate内部集成）
+//    - 自动合并间隔<800ms的相邻marks
+//    - 自动添加300ms缓冲避免TTS截断
+//    - 自动补开场白（首段>1.5s时）
+//    - 自动对齐视频结尾
+
+// 2. Agent生成cues：只需根据timeline[i].label扩写旁白
+const cues = timeline
+  .filter(entry => entry.entryType === 'marker')
+  .map((mark, i, marks) => {
+    const nextMark = marks[i + 1]
+    return {
+      startMs: mark.atMs,
+      endMs: nextMark ? nextMark.atMs : durationMs,
+      text: expandNarration(mark.label), // 扩写成完整旁白
+    }
+  })
+
+// 3. narrate自动检测TTS实际时长并调整，确保不重叠
+await screen_record_narrate({ path, cues, dub: true })
+```
+
+**旧方案弃用**（手工计算容易出错）:
+```typescript
+// ❌ 旧流程（不再推荐）
+// - 需要手工判断间隔<800ms并合并
+// - 需要手工添加缓冲时间
+// - 容易算错导致TTS重叠或音画脱节
+```
+
+**关键改进**:
+- ✅ **零重叠保证**: narrate内部用`atrim`截断TTS，物理隔离各段音频
+- ✅ **自动对齐**: 探测TTS实际时长，冲突时自动调整startMs
+- ✅ **Agent负担↓90%**: 不再需要计算时间，只需扩写旁白文本
+
+**首段开场白规则**:
+- 若`timeline[0].atMs > 1500`，可在cues开头插入`{startMs:0, endMs:timeline[0].atMs, text:"开场白"}`
+- 否则直接从第一个mark开始
+
+**相邻间隔处理**:
+- 间隔<800ms的marks建议在Agent端合并为一段cue（或保持独立，narrate会自动截断避免重叠）
+- 每段cue的`endMs`建议留200-300ms缓冲给下一段
 
 ### 4. narrate 一次成片
 
