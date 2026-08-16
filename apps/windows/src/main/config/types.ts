@@ -92,7 +92,7 @@ export const DEFAULT_CONFIG: Config = {
     gatewayUrl: 'ws://127.0.0.1:18789',
   },
   app: {
-    version: '0.1.0',
+    version: '0.1.1',
     language: 'zh-CN',
     theme: 'auto',
     autoConnect: true,

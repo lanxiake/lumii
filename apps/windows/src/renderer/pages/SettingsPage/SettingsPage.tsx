@@ -114,7 +114,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [internalCategory, setInternalCategory] = useState<MergedSettingsCategory>('general')
   const activeCategory = controlledCategory ?? internalCategory
   const setActiveCategory = setInternalCategory
-  const [appVersion, setAppVersion] = useState<string>('0.1.0')
+  const [appVersion, setAppVersion] = useState<string>('0.1.1')
 
   // 本地 LLM Provider 配置（按能力槽）
   const [providerSlots, setProviderSlots] = useState<ProviderSlotsConfigView | null>(null)
@@ -269,7 +269,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
    */
   useEffect(() => {
     // TODO: 从 electronAPI 获取版本
-    setAppVersion('0.1.0')
+    setAppVersion('0.1.1')
   }, [])
 
   /**
