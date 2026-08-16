@@ -1020,7 +1020,12 @@ export class AgentRuntimeBridge {
   }
 
   async prompt(instanceId: string, message: string, imageAttachmentPaths?: readonly string[]): Promise<void> {
-    return this.promptDispatcher.prompt(instanceId, message, imageAttachmentPaths)
+    try {
+      return await this.promptDispatcher.prompt(instanceId, message, imageAttachmentPaths)
+    } finally {
+      // 本轮期间若发生配置/工具变更，销毁被推迟到此刻，下次使用时按新配置重建
+      this.lifecycle.consumePendingInvalidation(instanceId)
+    }
   }
 
   steer(instanceId: string, message: string): void { this.promptDispatcher.steer(instanceId, message) }
@@ -1052,17 +1057,32 @@ export class AgentRuntimeBridge {
   }
 
   /**
+   * 让实例失效：空闲的立即销毁，运行中的推迟到本轮结束（详见 BridgeLifecycle.invalidate）。
+   * getInstanceForSession 检测到实例已消失会自动按新配置重建。
+   */
+  invalidateInstance(instanceId: string): 'destroyed' | 'deferred' {
+    return this.lifecycle.invalidate(instanceId)
+  }
+
+  /** 消费待失效标记（已标记则销毁），供调用方在复用实例前调用 */
+  consumePendingInvalidation(instanceId: string): boolean {
+    return this.lifecycle.consumePendingInvalidation(instanceId)
+  }
+
+  /**
    * MCP 工具变更后使现有实例失效，下次发消息按最新 toolRegistry 快照重建。
    * 与 Provider 配置变更（invalidateAgentInstancesForProviderChange）同一套路：
-   * 逐个 destroy（而非 destroyAll，后者会关库/停 cron），
-   * getInstanceForSession 检测到实例已消失会自动重建。
+   * 逐个失效（而非 destroyAll，后者会关库/停 cron）。
    */
   private refreshAllInstanceTools(): void {
+    let deferred = 0
     const instances = this.agentRegistry.getAll()
     for (const inst of instances) {
-      this.destroy(inst.id)
+      if (this.invalidateInstance(inst.id) === 'deferred') deferred++
     }
-    log.info(`[refreshAllInstanceTools] 已销毁 ${instances.length} 个实例，等待下次消息按新工具列表重建`)
+    log.info(
+      `[refreshAllInstanceTools] 已失效 ${instances.length} 个实例（其中 ${deferred} 个运行中，推迟到本轮结束），等待下次消息按新工具列表重建`,
+    )
   }
 
   /** 确保对话记录存在（idempotent） */

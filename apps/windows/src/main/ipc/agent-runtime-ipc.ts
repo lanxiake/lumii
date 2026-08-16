@@ -331,16 +331,27 @@ export function invalidateAgentInstancesForProviderChange(): void {
     return
   }
   const instances = ipcBridgeRef.getInstances()
-  log.info(`[invalidateAgentInstancesForProviderChange] 销毁 ${instances.length} 个实例`)
+  const deferredIds = new Set<string>()
   for (const inst of instances) {
     try {
+      // 运行中的实例只做标记：立即销毁会掐断正在执行的 Agent 回路，
+      // 工具结果回不到模型且不报错，表现为对话永久卡死。
+      if (ipcBridgeRef.invalidateInstance(inst.id) === 'deferred') {
+        deferredIds.add(inst.id)
+        continue
+      }
       untrackInstanceRuns(inst.id)
-      ipcBridgeRef.destroy(inst.id)
     } catch (err) {
-      log.warn(`[invalidateAgentInstancesForProviderChange] destroy ${inst.id} 失败:`, err)
+      log.warn(`[invalidateAgentInstancesForProviderChange] 失效 ${inst.id} 失败:`, err)
     }
   }
-  sessionToInstance.clear()
+  // 推迟销毁的实例仍在跑，保留其 session 映射，等本轮结束后由 bridge.prompt 收尾销毁
+  for (const [sessionKey, instanceId] of sessionToInstance) {
+    if (!deferredIds.has(instanceId)) sessionToInstance.delete(sessionKey)
+  }
+  log.info(
+    `[invalidateAgentInstancesForProviderChange] 失效 ${instances.length} 个实例，其中 ${deferredIds.size} 个运行中已推迟销毁`,
+  )
 }
 
 /**
@@ -2536,6 +2547,9 @@ async function getInstanceForSession(
       return undefined
     }
   }
+
+  // 上轮运行期间发生过配置/工具变更的实例，在复用前先销毁，走下方重建分支
+  bridge.consumePendingInvalidation(instanceId)
 
   // 验证实例还存在
   const instances = bridge.getInstances()

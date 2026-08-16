@@ -199,10 +199,10 @@ describe('handleRuntimeEvent assistant parts', () => {
     })
 
     const message = runtimeStore.getState().sessions.get('session-1')?.messages[0]
-    expect(message?.content[0]?.text).toBe('[insufficient_balance] 余额不足')
+    expect(message?.content[0]?.text).toBe('模型调用失败：余额不足')
     expect(message?.parts).toContainEqual(expect.objectContaining({
       type: 'text',
-      text: '[insufficient_balance] 余额不足',
+      text: '模型调用失败：余额不足',
       status: 'done',
     }))
   })
@@ -237,12 +237,66 @@ describe('handleRuntimeEvent assistant parts', () => {
     })
 
     const message = runtimeStore.getState().sessions.get('session-1')?.messages[0]
-    expect(message?.content[0]?.text).toBe('[provider_error] 服务暂不可用')
+    expect(message?.content[0]?.text).toBe('模型调用失败：服务暂不可用')
     expect(message?.parts).toContainEqual(expect.objectContaining({
       type: 'text',
-      text: '[provider_error] 服务暂不可用',
+      text: '模型调用失败：服务暂不可用',
       status: 'done',
     }))
+  })
+
+  it('API Key 无效时给出可执行指引，并派发全局错误 toast', () => {
+    startAssistantMessage()
+    const toasts: string[] = []
+    const onAgentError = (evt: Event) => {
+      toasts.push((evt as CustomEvent<{ message: string }>).detail.message)
+    }
+    window.addEventListener('mtbot:agent-error', onAgentError)
+
+    try {
+      handleRuntimeEvent({
+        type: 'agent:message:end',
+        runId: 'run-1',
+        sessionKey: 'session-1',
+        messageId: 'message-1',
+        content: [{ type: 'text', text: '' }],
+        usage: { inputTokens: 0, outputTokens: 0 },
+        stopReason: 'error',
+        llmError: {
+          code: 'unauthorized',
+          message: '401 无效的令牌',
+          retryable: false,
+          httpStatus: 401,
+        },
+      })
+    } finally {
+      window.removeEventListener('mtbot:agent-error', onAgentError)
+    }
+
+    const message = runtimeStore.getState().sessions.get('session-1')?.messages[0]
+    expect(message?.content[0]?.text).toContain('API Key')
+    expect(message?.content[0]?.text).toContain('401 无效的令牌')
+    expect(message?.llmError?.code).toBe('unauthorized')
+    expect(toasts).toHaveLength(1)
+    expect(toasts[0]).toContain('API Key')
+  })
+
+  it('0 token 的错误消息不再被当作空回复丢弃', () => {
+    startAssistantMessage()
+
+    handleRuntimeEvent({
+      type: 'agent:message:end',
+      runId: 'run-1',
+      sessionKey: 'session-1',
+      messageId: 'message-1',
+      content: [{ type: 'text', text: '' }],
+      usage: { inputTokens: 0, outputTokens: 0 },
+      stopReason: 'error',
+    })
+
+    const session = runtimeStore.getState().sessions.get('session-1')
+    expect(session?.isStreaming).toBe(false)
+    expect(session?.llmRouteStatus).toBe('error')
   })
 
   it('将回合文件变更写入事件指定的 assistant 消息', () => {

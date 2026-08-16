@@ -13,6 +13,7 @@ import type {
 } from '@mtbot/agent-runtime'
 import {
   applyAssistantPartEvent,
+  describeLlmError,
   diffTurnSnapshots,
   finalizeAssistantParts,
   providerPromptTokens,
@@ -528,6 +529,14 @@ export function createAgentInstanceRuntimeEventHandler(
       }
       if (state) {
         state.pendingParts = applyAssistantPartEvent(state.pendingParts, { kind: 'thinking_end' })
+        // LLM 失败（如 401 无效令牌）时本轮没有任何正文，若不写入错误文本，
+        // agent:end 会把空占位行删掉，用户刷新后只看到「什么都没发生」
+        if (event.llmError && !assistantTextFromParts(state.pendingParts).trim()) {
+          state.pendingParts = applyAssistantPartEvent(state.pendingParts, {
+            kind: 'text_delta',
+            delta: describeLlmError(event.llmError),
+          })
+        }
         state.pendingParts = createAssistantPartsContent(state.pendingParts).parts
       }
       if (event.usage && ctx.sessionKey === ctx.rootSessionKey) {

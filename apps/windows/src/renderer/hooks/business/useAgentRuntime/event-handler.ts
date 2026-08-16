@@ -14,9 +14,11 @@ import type { RuntimeToolCall, RuntimeMessage, StreamMetrics, ContextUsage, PerS
 import { runtimeStore, updateSessionState, getDefaultPerSessionState } from './agent-runtime-store'
 import {
   applyAssistantPartEvent,
+  describeLlmError,
   finalizeAssistantParts,
   type AssistantPart,
   type AssistantPartEvent,
+  type LlmErrorDetail,
 } from '@mtbot/agent-runtime/browser'
 
 /** 仅在开发环境输出详细日志，避免生产环境噪音 */
@@ -256,14 +258,47 @@ function flushPendingDeltas(): void {
  */
 function partsWithLlmErrorIfNeeded(
   parts: readonly AssistantPart[],
-  err: { code: string; message: string } | undefined,
+  err: LlmErrorDetail | undefined,
   contentText: string | undefined,
 ): AssistantPart[] {
   if (!err || contentText?.trim()) return [...parts]
   return applyRuntimeAssistantPartEvent(parts, {
     kind: 'text_delta',
-    delta: `[${err.code}] ${err.message}`,
+    delta: describeLlmError(err),
   })
+}
+
+/** 同一条错误在此窗口内只弹一次 toast，避免 message:end 与 agent:error 重复提示 */
+const AGENT_ERROR_TOAST_DEDUPE_MS = 3000
+
+let lastAgentErrorToast: { message: string; at: number } | null = null
+
+/**
+ * 通过全局事件把 Agent 错误抛给 GlobalModals 的 toast。
+ *
+ * 事件处理器是模块级单例（ChatPage 卸载后仍在跑），不能持有 React 上下文，
+ * 因此走 window 事件而不是直接调用 useToast。
+ */
+function notifyAgentError(message: string): void {
+  if (typeof window === 'undefined' || !message.trim()) return
+  const now = Date.now()
+  if (
+    lastAgentErrorToast
+    && lastAgentErrorToast.message === message
+    && now - lastAgentErrorToast.at < AGENT_ERROR_TOAST_DEDUPE_MS
+  ) {
+    return
+  }
+  lastAgentErrorToast = { message, at: now }
+  window.dispatchEvent(new CustomEvent('mtbot:agent-error', { detail: { message } }))
+}
+
+/**
+ * LLM 错误 toast：用户主动中止不算故障，不打扰。
+ */
+function notifyLlmError(err: LlmErrorDetail): void {
+  if (err.code === 'aborted') return
+  notifyAgentError(describeLlmError(err))
 }
 
 /**
@@ -276,6 +311,7 @@ const MAX_MESSAGES_PER_SESSION = 1000
  * 需与 `resetRuntimeStore()` 一起调用。
  */
 export function resetAgentRuntimeEventHandlerForTests(): void {
+  lastAgentErrorToast = null
   streamLlmStartByRunId.clear()
   subAgentStreamingMessageId.clear()
   runIdToSessionKey.clear()
@@ -614,10 +650,17 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
 
     case 'agent:message:end': {
       flushPendingDeltas()
-      // 0-token 空消息：仅在”无结构化错误”时跳过，避免吞掉余额不足等可见错误提示
-      if (!event.llmError && !event.usage?.outputTokens && event.content?.[0]?.text === '') {
+      // 0-token 空消息：仅在"确实没出错"时跳过，避免吞掉密钥无效、余额不足等错误提示
+      if (
+        !event.llmError
+        && event.stopReason !== 'error'
+        && !event.usage?.outputTokens
+        && event.content?.[0]?.text === ''
+      ) {
         break
       }
+
+      if (event.llmError) notifyLlmError(event.llmError)
 
       if (isSubAgentStreamEvent(event) && event.instanceId) {
         const instanceId = event.instanceId
@@ -664,7 +707,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
             : undefined
           const mergedContent =
             err && (!finalContent[0]?.text?.trim())
-              ? ([{ type: 'text' as const, text: `[${err.code}] ${err.message}` }] as const)
+              ? ([{ type: 'text' as const, text: describeLlmError(err) }] as const)
               : finalContent
           msgs[idx] = {
             ...last,
@@ -752,7 +795,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
 
         const mergedContent =
           err && (!finalContent[0]?.text?.trim())
-            ? ([{ type: 'text' as const, text: `[${err.code}] ${err.message}` }] as const)
+            ? ([{ type: 'text' as const, text: describeLlmError(err) }] as const)
             : finalContent
 
         const injected =
@@ -1147,6 +1190,11 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       flushPendingDeltas()
       // 错误路径：turn:end 不会到来，需在此清理映射
       unregisterRunSession(event.runId)
+      notifyLlmError({
+        code: event.errorCode,
+        message: event.errorMessage,
+        retryable: event.isRetryable,
+      })
       updateSessionState(sessionKey, (prev) => ({
         ...prev,
         messages: finalizeStreamingAssistantMessages(prev.messages, true),

@@ -197,13 +197,21 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
    * 来自 DB，不会自动更新。这里监听 currentSessionKey 变化，刷新侧边栏列表，
    * 确保新建/切换的会话出现在侧边栏中。
    */
+  const missingSessionRefreshedRef = useRef<string | null>(null)
   useEffect(() => {
     if (!runtimeCurrentSessionKey) return
     // 检查当前 sessionKey 是否已在侧边栏列表中，不在则刷新
     const alreadyInList = localRuntimeSessions.some((s) => s.sessionKey === runtimeCurrentSessionKey)
-    if (!alreadyInList) {
-      void refreshLocalSessions()
+    if (alreadyInList) {
+      missingSessionRefreshedRef.current = null
+      return
     }
+    // 每次刷新都会写入新的数组引用并重跑本 effect，若该会话始终不在列表中
+    // （如会话已在别处删除、或被列表条数上限截断）会陷入无限刷新，
+    // 因此同一个 sessionKey 只补拉一次。
+    if (missingSessionRefreshedRef.current === runtimeCurrentSessionKey) return
+    missingSessionRefreshedRef.current = runtimeCurrentSessionKey
+    void refreshLocalSessions()
   }, [runtimeCurrentSessionKey, localRuntimeSessions, refreshLocalSessions])
 
   // 将 title 查找独立为 useMemo，避免 localRuntimeSessions 列表刷新时

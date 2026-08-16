@@ -124,11 +124,16 @@ export {
   createGatewayStreamFn,
   DEFAULT_GATEWAY_STREAM_PATH,
   gatewayErrorFromHttpResponse,
-  type AssistantMessageWithLlmError,
-  type GatewayLlmErrorDetail,
   type GatewayStreamConfig,
   type GatewayStreamDiagnostic,
   type StreamMetadata,
+} from "./llm/index.js";
+export {
+  describeLlmError,
+  normalizeLlmError,
+  type AssistantMessageWithLlmError,
+  type GatewayLlmErrorDetail,
+  type LlmErrorDetail,
 } from "./llm/index.js";
 export { ModelRouter } from "./llm/index.js";
 export {

@@ -8,7 +8,7 @@
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 
-import type { GatewayLlmErrorDetail } from "../llm/gateway-stream.js";
+import { normalizeLlmError, type GatewayLlmErrorDetail } from "../llm/llm-error.js";
 
 /** Agent 实例状态 */
 export type AgentInstanceState = "idle" | "running" | "paused" | "error" | "aborted" | "destroyed";
@@ -117,6 +117,23 @@ export type AgentRuntimeEvent =
     };
 
 /**
+ * 从 AssistantMessage 上取出错误文本。
+ *
+ * pi-ai 的 errorMessage 多数是字符串，少数 provider 会塞对象，统一转成可读文本。
+ */
+function extractErrorMessage(message: AssistantMessage | undefined): string | undefined {
+  const raw = (message as { errorMessage?: unknown } | undefined)?.errorMessage;
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw === "string") return raw;
+  if (raw instanceof Error) return raw.message;
+  try {
+    return JSON.stringify(raw);
+  } catch {
+    return String(raw);
+  }
+}
+
+/**
  * 将 pi-agent-core AgentEvent 转换为 AgentRuntimeEvent
  */
 export function mapAgentEvent(
@@ -160,8 +177,6 @@ export function mapAgentEvent(
       const assistantMsg = event.message as AssistantMessage | undefined;
       const usage = assistantMsg?.usage;
       const sr = assistantMsg?.stopReason;
-      const llmErr = (assistantMsg as AssistantMessage & { __llmError?: GatewayLlmErrorDetail })
-        ?.__llmError;
       /** pi-ai StopReason → 客户端统一 stopReason */
       let stopReason: "end_turn" | "tool_use" | "max_tokens" | "error" | "aborted" | undefined;
       if (sr === "toolUse") stopReason = "tool_use";
@@ -169,6 +184,14 @@ export function mapAgentEvent(
       else if (sr === "error") stopReason = "error";
       else if (sr === "aborted") stopReason = "aborted";
       else stopReason = "end_turn";
+
+      // 网关路径会挂 __llmError；direct 直连时 pi-ai 只留一句 errorMessage 自由文本，
+      // 这里统一归一化，避免直连出错时事件不带 llmError 被 UI 当作空回复直接丢弃。
+      const llmErr =
+        (assistantMsg as AssistantMessage & { __llmError?: GatewayLlmErrorDetail })?.__llmError ??
+        (stopReason === "error"
+          ? normalizeLlmError(extractErrorMessage(assistantMsg))
+          : undefined);
 
       return {
         type: "message:end",

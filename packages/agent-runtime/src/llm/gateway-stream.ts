@@ -17,6 +17,21 @@ import {
 } from "@mariozechner/pi-ai";
 import type { StreamFn } from "@mariozechner/pi-agent-core";
 
+import {
+  isRetryableHttpStatus,
+  llmErrorCodeFromHttpStatus,
+  normalizeLlmError,
+  type GatewayLlmErrorDetail,
+} from "./llm-error.js";
+
+// 归一化后的错误类型已迁移到 llm-error.ts（direct/gateway 共用），此处再导出保持既有导入路径可用
+export type { GatewayLlmErrorDetail, LlmErrorDetail } from "./llm-error.js";
+
+/** partial 上挂载的结构化错误（mapAgentEvent 读取） */
+export type AssistantMessageWithLlmError = AssistantMessage & {
+  __llmError?: GatewayLlmErrorDetail;
+};
+
 /** 与 M11 `http-llm-proxy` 挂载路径一致 */
 export const DEFAULT_GATEWAY_STREAM_PATH = "/v1/llm/stream";
 
@@ -37,14 +52,6 @@ export interface StreamMetadata {
   agentId?: string;
   /** Agent 显示名称（可选，便于观测面板展示） */
   agentName?: string;
-}
-
-/** 结构化 LLM 网关错误，映射到 AgentRuntimeEvent / UI */
-export interface GatewayLlmErrorDetail {
-  readonly code: string;
-  readonly message: string;
-  readonly retryable: boolean;
-  readonly httpStatus?: number;
 }
 
 /** 重试/降级遥测（供桥接层转发到开发者工具或 UI） */
@@ -81,18 +88,6 @@ export interface GatewayStreamConfig {
   onLlmFirstToken?: () => void;
 }
 
-/** partial 上挂载的结构化错误（mapAgentEvent 读取） */
-export type AssistantMessageWithLlmError = AssistantMessage & {
-  __llmError?: GatewayLlmErrorDetail;
-};
-
-/**
- * 根据 HTTP 状态推断是否适合自动重试/换模
- */
-function isRetryableHttpStatus(status: number): boolean {
-  return status === 408 || status === 429 || status === 502 || status === 503;
-}
-
 /**
  * 从网关 JSON 错误体解析可读消息（格式对齐 sendJson: `{ error: string | { message, type } }`）
  */
@@ -126,23 +121,12 @@ export function gatewayErrorFromHttpResponse(
 ): GatewayLlmErrorDetail {
   const parsed = parseGatewayErrorJson(bodyText);
   const message = parsed?.message ?? (bodyText.trim().slice(0, 500) || `HTTP ${status}`);
-  const code =
-    parsed?.type ??
-    (status === 401
-      ? "unauthorized"
-      : status === 402
-        ? "insufficient_credits"
-        : status === 429
-          ? "rate_limited"
-          : status === 502 || status === 503
-            ? "bad_gateway"
-            : `http_${status}`);
-  return {
-    code,
-    message,
-    retryable: isRetryableHttpStatus(status),
+  return normalizeLlmError(message, {
     httpStatus: status,
-  };
+    // 网关明确给出的 error.type 比状态码推断更准确
+    ...(parsed?.type ? { code: parsed.type } : { code: llmErrorCodeFromHttpStatus(status) }),
+    retryable: isRetryableHttpStatus(status),
+  });
 }
 
 /**
@@ -153,17 +137,7 @@ function gatewayErrorFromThrowable(err: unknown, aborted: boolean): GatewayLlmEr
     return { code: "aborted", message: "Request aborted by user", retryable: false };
   }
   const message = err instanceof Error ? err.message : String(err);
-  const lower = message.toLowerCase();
-  const retryable =
-    lower.includes("fetch") ||
-    lower.includes("network") ||
-    lower.includes("econnreset") ||
-    lower.includes("timeout");
-  return {
-    code: "stream_error",
-    message,
-    retryable,
-  };
+  return normalizeLlmError(message, { code: "stream_error" });
 }
 
 /**
@@ -353,26 +327,9 @@ function processProxyEvent(
       partial.usage = proxyEvent.usage;
       // 挂载结构化错误，确保 mapAgentEvent → message:end 携带 llmError，UI 可展示错误提示
       if (proxyEvent.errorMessage) {
-        const errMsg = proxyEvent.errorMessage;
-        const statusMatch = errMsg.match(/\b(\d{3})\b/);
-        const httpStatus = statusMatch ? parseInt(statusMatch[1]) : undefined;
-        (partial as AssistantMessageWithLlmError).__llmError = {
-          code:
-            httpStatus === 400
-              ? "bad_request"
-              : httpStatus === 401
-                ? "unauthorized"
-                : httpStatus === 402
-                  ? "insufficient_credits"
-                  : httpStatus === 429
-                    ? "rate_limited"
-                    : httpStatus === 502 || httpStatus === 503
-                      ? "bad_gateway"
-                      : "llm_error",
-          message: errMsg,
-          retryable: httpStatus === 429 || httpStatus === 502 || httpStatus === 503,
-          httpStatus,
-        };
+        (partial as AssistantMessageWithLlmError).__llmError = normalizeLlmError(
+          proxyEvent.errorMessage,
+        );
       }
       return { type: "error", reason: proxyEvent.reason, error: partial } as AssistantMessageEvent;
 

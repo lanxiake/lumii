@@ -21,7 +21,7 @@ import {
   BUILT_IN_AGENTS,
   findBuiltInAgent,
 } from '@mtbot/agent-runtime'
-import type { InstanceStateStore } from './bridge-instance-state'
+import type { InstanceState, InstanceStateStore } from './bridge-instance-state'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import type { PermissionController } from './permission-controller'
 import type { AskUserQuestionController } from './ask-user-question-controller'
@@ -65,8 +65,69 @@ export interface BridgeLifecycleDeps {
 
 export class BridgeLifecycle {
   private orchestrator: AgentOrchestrator | null = null
+  /** 运行中被请求失效、已推迟到本轮结束再销毁的实例 */
+  private readonly pendingInvalidation = new Set<string>()
 
   constructor(private readonly deps: BridgeLifecycleDeps) {}
+
+  /**
+   * 请求让实例失效（Provider 配置变更、MCP 工具列表变更等场景）。
+   *
+   * 运行中的实例**不能**立即销毁：destroy 会解绑事件订阅并把实例置为 destroyed，
+   * pi-agent-core 的循环检测到后直接退出且不抛异常，工具结果再也回不到模型，
+   * 表现为对话永久卡死。因此这里改为记账，等本轮跑完再销毁。
+   *
+   * @returns 'destroyed' 已立即销毁；'deferred' 实例运行中，已推迟
+   */
+  invalidate(instanceId: string): 'destroyed' | 'deferred' {
+    if (this.deps.agentRegistry.get(instanceId)?.state === 'running') {
+      this.pendingInvalidation.add(instanceId)
+      log.info(`[invalidate] 实例 ${instanceId} 运行中，推迟到本轮结束后销毁`)
+      return 'deferred'
+    }
+    this.destroy(instanceId)
+    return 'destroyed'
+  }
+
+  /** 实例是否已被标记为待失效（尚未销毁） */
+  isPendingInvalidation(instanceId: string): boolean {
+    return this.pendingInvalidation.has(instanceId)
+  }
+
+  /**
+   * 消费待失效标记：已标记则立即销毁，调用方随后按新配置重建实例。
+   *
+   * @returns 是否确实销毁了实例
+   */
+  consumePendingInvalidation(instanceId: string): boolean {
+    if (!this.pendingInvalidation.has(instanceId)) return false
+    log.info(`[consumePendingInvalidation] 销毁待失效实例 ${instanceId}，下次使用时按新配置重建`)
+    this.destroy(instanceId)
+    return true
+  }
+
+  /**
+   * 运行中的实例被强制销毁时补发一条终止事件。
+   *
+   * 销毁会切断该实例的事件订阅，渲染侧再也收不到 turn:end / idle，
+   * isStreaming 将永远停在 true（界面一直转圈）。这里显式推 agent:error 收尾。
+   */
+  private notifyRunTerminatedByDestroy(instanceId: string, state: InstanceState | undefined): void {
+    const ctx = state?.ctx
+    if (!ctx) return
+    this.deps.ipcChannel.forwardIpcEvent({
+      type: 'agent:error',
+      runId: ctx.runId,
+      sessionKey: ctx.rootSessionKey,
+      errorCode: 'INSTANCE_DESTROYED',
+      errorMessage:
+        '本轮执行已被中止：运行期间 Agent 实例被重建（通常由模型配置或工具列表变更触发）。请重新发送消息。',
+      isRetryable: true,
+    })
+    log.warn(
+      `[destroy] 实例 ${instanceId} 在运行中被销毁，已补发 agent:error 收尾 runId=${ctx.runId}`,
+    )
+  }
 
   /** 删除所有以 `${instanceId}:` 开头的复合键条目 */
   private clearPrefixedMapEntries(map: Map<string, unknown>, instanceId: string): void {
@@ -78,8 +139,11 @@ export class BridgeLifecycle {
 
   /** 销毁实例 */
   destroy(instanceId: string): void {
+    this.pendingInvalidation.delete(instanceId)
     const rootKey = this.deps.instanceToRootSessionKey.get(instanceId)
     const state = this.deps.instanceStates.get(instanceId)
+    // 需在 agentRegistry.destroy 之前取，销毁后状态即变为 destroyed
+    const wasRunning = this.deps.agentRegistry.get(instanceId)?.state === 'running'
     if (state?.proactivityScheduler) {
       state.proactivityScheduler.stop()
     }
@@ -105,6 +169,9 @@ export class BridgeLifecycle {
     }
     this.deps.nodeStreamCallbacks.delete(instanceId)
     log.info(`Destroyed agent: ${instanceId}`)
+    if (wasRunning) {
+      this.notifyRunTerminatedByDestroy(instanceId, state)
+    }
     if (rootKey) {
       this.pushActivitySnapshot(rootKey)
     }

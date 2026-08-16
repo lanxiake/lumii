@@ -29,3 +29,9 @@ export type {
   ToolResultContent,
   ToolCallRecord,
 } from "./storage/message-content-json.js";
+
+export {
+  describeLlmError,
+  normalizeLlmError,
+} from "./llm/llm-error.js";
+export type { LlmErrorDetail } from "./llm/llm-error.js";

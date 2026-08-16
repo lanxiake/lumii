@@ -202,12 +202,18 @@ export class ConversationRepo {
     this.messageCache.deleteWhere((k) => k.startsWith(`${conversationId}|`));
   }
 
+  /**
+   * 列出活跃会话（侧栏列表数据源）。
+   *
+   * 新建会话的 last_msg_at 为 NULL，必须回退到 created_at 参与排序，
+   * 否则它会沉到列表末尾并在会话数超过 limit 时被直接截断。
+   */
   listActiveConversations(userId: string, limit = 50): readonly ConversationRow[] {
     return this.db
       .prepare<ConversationRow>(
         `SELECT * FROM conversations
        WHERE user_id = ? AND is_active = 1
-       ORDER BY is_pinned DESC, last_msg_at DESC NULLS LAST
+       ORDER BY is_pinned DESC, COALESCE(last_msg_at, created_at) DESC
        LIMIT ?`,
       )
       .all(userId, limit);
