@@ -23,6 +23,10 @@ import { MAX_DURATION_SEC_CAP } from '../../shared/screen-record'
 export interface RegisterScreenRecordToolsDeps {
   getService: () => ScreenRecordService | null
   getNarrateService?: () => NarrateService | null
+  /** 可选：从 app-ui snapshot 缓存把 ref 换成归一化坐标 */
+  getSnapshotCache?: (snapshotId: string) =>
+    | { refs: Array<{ ref: string; x: number; y: number; w: number; h: number }>; bounds?: { width: number; height: number } }
+    | undefined
 }
 
 /**
@@ -277,6 +281,118 @@ export function registerScreenRecordTools(
             return jsonToolResult(svc.mark({ label: p.label ?? '', kind: p.kind }))
           } catch (e) {
             log.error('[screen_record_mark]', e)
+            return jsonToolResult({ ok: false, error: 'capture_failed' })
+          }
+        },
+      },
+      ctx,
+    ),
+  )
+
+  reg(
+    createMtBotTool(
+      {
+        name: 'screen_record_annotate',
+        label: 'Screen Record Annotate',
+        category: 'channel' as const,
+        description:
+          '给教程成片加画面标注（圈框/矩形/文字），写入 timeline，后期 narrate 用 ffmpeg 烧录。' +
+          'recording 与 paused 均可调用。推荐 targetElement（snapshotId+ref）；或传 normalizedRect（0..10000）。' +
+          '用户要求「笔记画圈/标记步骤」时才用；narrate 时把 stop.timeline 里的 annotation 传入 annotations。',
+        parameters: Type.Object({
+          kind: Type.String({ description: 'circle|rect|arrow|text' }),
+          label: Type.Optional(Type.String()),
+          text: Type.Optional(Type.String()),
+          durationMs: Type.Optional(Type.Number({ description: '默认 3000' })),
+          fromNextMark: Type.Optional(
+            Type.Boolean({ description: 'true 时 atMs 对齐到下一次 mark' }),
+          ),
+          targetElement: Type.Optional(
+            Type.Object({
+              snapshotId: Type.String(),
+              ref: Type.String(),
+              paddingPx: Type.Optional(Type.Number()),
+            }),
+          ),
+          normalizedRect: Type.Optional(
+            Type.Object({
+              x: Type.Number(),
+              y: Type.Number(),
+              w: Type.Number(),
+              h: Type.Number(),
+            }),
+          ),
+          style: Type.Optional(
+            Type.Object({
+              color: Type.Optional(Type.String()),
+              thickness: Type.Optional(Type.Number()),
+              fontSize: Type.Optional(Type.Number()),
+            }),
+          ),
+        }),
+        isReadOnly: false,
+        needsPermission: false,
+        execute: async (_id, rawParams) => {
+          const svc = get()
+          if (!svc) return jsonToolResult({ ok: false, error: 'disabled' })
+          const p = (rawParams ?? {}) as Record<string, unknown>
+          try {
+            let normalizedRect = p.normalizedRect as
+              | { x: number; y: number; w: number; h: number }
+              | undefined
+            const target = p.targetElement as
+              | { snapshotId?: string; ref?: string; paddingPx?: number }
+              | undefined
+            if (!normalizedRect && target?.snapshotId && target.ref) {
+              const cache = deps.getSnapshotCache?.(target.snapshotId)
+              const hit = cache?.refs.find((r) => r.ref === target.ref)
+              if (!hit) {
+                return jsonToolResult({
+                  ok: false,
+                  error: 'usage',
+                  message: 'targetElement 未命中：请先 app_screenshot 再标注',
+                })
+              }
+              const sw = cache?.bounds?.width || 1280
+              const sh = cache?.bounds?.height || 720
+              const pad = typeof target.paddingPx === 'number' ? target.paddingPx : 10
+              const x = Math.max(0, hit.x - pad)
+              const y = Math.max(0, hit.y - pad)
+              const w = hit.w + pad * 2
+              const h = hit.h + pad * 2
+              normalizedRect = {
+                x: Math.round((x / sw) * 10000),
+                y: Math.round((y / sh) * 10000),
+                w: Math.round((w / sw) * 10000),
+                h: Math.round((h / sh) * 10000),
+              }
+            }
+            const kindRaw = String(p.kind ?? '')
+            const kind =
+              kindRaw === 'circle' ||
+              kindRaw === 'rect' ||
+              kindRaw === 'arrow' ||
+              kindRaw === 'text'
+                ? kindRaw
+                : null
+            if (!kind) {
+              return jsonToolResult({ ok: false, error: 'usage', message: 'kind invalid' })
+            }
+            return jsonToolResult(
+              svc.annotate({
+                kind,
+                label: typeof p.label === 'string' ? p.label : undefined,
+                text: typeof p.text === 'string' ? p.text : undefined,
+                durationMs: typeof p.durationMs === 'number' ? p.durationMs : undefined,
+                fromNextMark: p.fromNextMark === true,
+                normalizedRect,
+                style: p.style as
+                  | { color?: string; thickness?: number; fontSize?: number }
+                  | undefined,
+              }),
+            )
+          } catch (e) {
+            log.error('[screen_record_annotate]', e)
             return jsonToolResult({ ok: false, error: 'capture_failed' })
           }
         },

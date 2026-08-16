@@ -25,6 +25,7 @@ export {
   buildSelectScript,
   buildTypeScript,
   CLICK_BLOCK_ROLES,
+  NON_INTERACTIVE_ROLES,
   isKeyAllowed,
   KEY_WHITELIST,
 } from './act'

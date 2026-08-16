@@ -10,6 +10,7 @@ import { ToolRegistry, createMtBotTool, type ToolExecutionContext, type MtBotToo
 import {
   createAppUiController,
   type AppUiController,
+  type FilterSnapshotOptions,
   type ResizeImageFn,
 } from '../app-ui-control'
 import { isAppUiControlEnabled } from '../app-ui-control/enabled'
@@ -27,6 +28,8 @@ export const APP_UI_QUOTA = {
   screenshot: { base: 40, refillPerMinute: 20, max: 300 },
   act: { base: 120, refillPerMinute: 60, max: 900 },
   goto: { base: 60, refillPerMinute: 20, max: 300 },
+  /** 高层工具独立 bucket，不挤占 screenshot/act/goto */
+  high: { base: 30, refillPerMinute: 20, max: 300 },
 } as const
 
 type AppUiToolKind = keyof typeof APP_UI_QUOTA
@@ -39,6 +42,7 @@ const turnQuotas: Record<AppUiToolKind, number> = {
   screenshot: 0,
   act: 0,
   goto: 0,
+  high: 0,
 }
 
 /** 本轮首次调用时间，用于计算续杯次数；未调用过时为 null */
@@ -49,6 +53,7 @@ export function resetAppUiToolTurnQuotas(): void {
   turnQuotas.screenshot = 0
   turnQuotas.act = 0
   turnQuotas.goto = 0
+  turnQuotas.high = 0
   turnStartedAt = null
 }
 
@@ -130,7 +135,7 @@ const APP_ACT_DESCRIPTION = `点控件：app_act click（先截图拿 ref，ref 
 下拉框：app_act select（ref + value 或 label）。原生下拉点击弹的是系统菜单，截图看不到，必须用 select
 按键：app_act key（白名单 Enter/Escape/Tab/Backspace/Delete/Home/End/PageUp/PageDown/Space/方向键，无需 ref）
 滚动：app_act scroll（ref + dx/dy，自动滚 ref 所在的可滚动容器；回读 moved/atBottom 判断是否到底）
-失败码含义：click_blocked=被弹层挡住先关弹窗；use_select_action=改用 select；not_editable=ref 不是输入框；stale_snapshot=重新截图
+失败码含义：click_blocked=被弹层挡住先关弹窗；use_select_action=改用 select；not_editable=ref 不是输入框；stale_snapshot=重新截图；not_interactive=该 ref 是标题/字段名等纯文本，请换交互 ref
 做完写操作后必须再截图或查询确认
 禁止点聊天输入框和发送键
 app_act "始终允许"仅本次运行有效，重启后重置`
@@ -176,8 +181,10 @@ export function registerAppUiTools(
         category: 'channel' as const,
         description:
           '截取 Lumii 主窗口或桌宠窗口当前界面，返回可交互元素 refs 与截图文件路径。' +
+          'refs 含 heading/section_title/label 语义节点（标题与字段名），不必反复截图观察标题文字；' +
           'refs 已剔除被弹层遮挡的元素，并带上输入框当前值 value、占位符 placeholder、下拉框选项 options，' +
-          '据此判断字段是否已填、下拉框有哪些可选值，通常不必再读图片。只截图，不操作界面。',
+          '据此判断字段是否已填、下拉框有哪些可选值，通常不必再读图片。只截图，不操作界面。' +
+          '可用 refs_filter（roles/y_min/y_max/name_contains/limit）精简返回，降低上下文 token。',
         parameters: Type.Object({
           annotate: Type.Optional(
             Type.Boolean({ description: '是否在截图上标注元素编号（SoM）' }),
@@ -186,6 +193,27 @@ export function registerAppUiTools(
             Type.String({
               description: '截图目标：main（默认）| pet | preview（preview 暂未支持）',
             }),
+          ),
+          refs_filter: Type.Optional(
+            Type.Object(
+              {
+                roles: Type.Optional(
+                  Type.Array(Type.String(), {
+                    description:
+                      '只保留这些 role，如 heading/button/textbox/section_title/label',
+                  }),
+                ),
+                y_min: Type.Optional(Type.Number({ description: '节点底边 >= y_min' })),
+                y_max: Type.Optional(Type.Number({ description: '节点顶边 <= y_max' })),
+                name_contains: Type.Optional(
+                  Type.String({ description: 'name 子串匹配，大小写不敏感' }),
+                ),
+                limit: Type.Optional(
+                  Type.Number({ description: '最多返回条数，1~120，默认 120' }),
+                ),
+              },
+              { description: '精简 refs；进入已知页面后首次可不传，后续定位区域时推荐传' },
+            ),
           ),
         }),
         isReadOnly: true,
@@ -201,9 +229,18 @@ export function registerAppUiTools(
             targetRaw === 'pet' || targetRaw === 'preview' || targetRaw === 'main'
               ? targetRaw
               : undefined
+          const refsFilterRaw = params.refs_filter
+          const refs_filter =
+            refsFilterRaw && typeof refsFilterRaw === 'object' && !Array.isArray(refsFilterRaw)
+              ? (refsFilterRaw as Record<string, unknown>)
+              : undefined
 
           try {
-            const result = await controller.screenshot({ annotate, target })
+            const result = await controller.screenshot({
+              annotate,
+              target,
+              refs_filter: refs_filter as FilterSnapshotOptions | undefined,
+            })
             if (!result.ok) {
               return jsonToolResult({ ok: false, error: result.error })
             }
@@ -357,5 +394,263 @@ export function registerAppUiTools(
     ),
   )
 
+  /** 高层工具只扣 high 配额，内部 screenshot/act 不另扣 */
+  async function guardHighLevelAppUiTool() {
+    if (!(await isAppUiControlEnabled(readSettingsJson))) {
+      return { ok: false as const, error: 'disabled' }
+    }
+    return consumeAppUiQuota('high')
+  }
+
+  const refsFilterSchema = Type.Optional(
+    Type.Object(
+      {
+        roles: Type.Optional(Type.Array(Type.String())),
+        y_min: Type.Optional(Type.Number()),
+        y_max: Type.Optional(Type.Number()),
+        name_contains: Type.Optional(Type.String()),
+        limit: Type.Optional(Type.Number()),
+      },
+      { description: '精简 refs，砍上下文 token' },
+    ),
+  )
+
+  reg(
+    createMtBotTool(
+      {
+        name: 'app_goto_and_screenshot',
+        label: 'App Goto and Screenshot (High-Level)',
+        category: 'channel' as const,
+        description:
+          '声明式进入指定视图并立即截图，合并 app_goto + settle + app_screenshot。' +
+          '教程/导航后需要看一眼界面时直接用。返回形态与 app_screenshot 相同。',
+        parameters: Type.Object({
+          view: Type.String({
+            description:
+              '目标视图：dashboard|chat|skills|settings|memories|agents|cron|plugins|mcp',
+          }),
+          category: Type.Optional(
+            Type.String({
+              description:
+                'Settings Hub 分类：general|workspace|modelConfig|voice|channels|codingDev|pet|usage|privacy|aboutAndUpdate',
+            }),
+          ),
+          refs_filter: refsFilterSchema,
+          annotate: Type.Optional(Type.Boolean()),
+        }),
+        isReadOnly: false,
+        needsPermission: false,
+        execute: async (_id, rawParams) => {
+          const blocked = await guardHighLevelAppUiTool()
+          if (blocked) return jsonToolResult(blocked)
+          try {
+            const p = rawParams as Record<string, unknown>
+            const result = await controller.gotoAndScreenshot({
+              view: String(p.view ?? ''),
+              category: typeof p.category === 'string' ? p.category : undefined,
+              refs_filter: p.refs_filter as FilterSnapshotOptions | undefined,
+              annotate: p.annotate === true,
+            })
+            if (!result.ok) return jsonToolResult(result)
+            if (!('snapshotId' in result)) return jsonToolResult(result)
+            const payload = {
+              ok: true as const,
+              snapshotId: result.snapshotId,
+              view: result.viewState.view,
+              hub: result.viewState.hub,
+              width: result.width,
+              height: result.height,
+              truncated: result.truncated,
+              refs: result.refs,
+              imagePath: result.previewPath,
+              note: `高层工具：goto(${String(p.view)}) + 截图合并完成，imagePath="${result.previewPath}"`,
+            }
+            return {
+              content: [{ type: 'text' as const, text: JSON.stringify(payload) }],
+              details: { previewPath: result.previewPath },
+            }
+          } catch {
+            return jsonToolResult({ ok: false, error: 'goto_and_screenshot_failed' })
+          }
+        },
+      },
+      ctx,
+    ),
+  )
+
+  reg(
+    createMtBotTool(
+      {
+        name: 'app_scroll_to_text',
+        label: 'App Scroll To Text (High-Level)',
+        category: 'channel' as const,
+        description:
+          '按子串文字滚动：逐屏滚动直到找到含指定文字的 heading/button/textbox/any。' +
+          '默认 direction=auto（先下后上）。命中后返回 matched + 最新 snapshot（同 screenshot 形态）。',
+        parameters: Type.Object({
+          text: Type.String({ description: '要匹配的文字子串（大小写不敏感）' }),
+          kind: Type.Optional(
+            Type.String({ description: 'heading|button|textbox|any，默认 any' }),
+          ),
+          direction: Type.Optional(
+            Type.String({ description: 'down|up|auto，默认 auto' }),
+          ),
+          maxAttempts: Type.Optional(Type.Number({ description: '默认 10' })),
+        }),
+        isReadOnly: false,
+        needsPermission: true,
+        execute: async (_id, rawParams) => {
+          const blocked = await guardHighLevelAppUiTool()
+          if (blocked) return jsonToolResult(blocked)
+          try {
+            const p = rawParams as Record<string, unknown>
+            const kindRaw = typeof p.kind === 'string' ? p.kind : 'any'
+            const kind =
+              kindRaw === 'heading' ||
+              kindRaw === 'button' ||
+              kindRaw === 'textbox' ||
+              kindRaw === 'any'
+                ? kindRaw
+                : 'any'
+            const dirRaw = typeof p.direction === 'string' ? p.direction : 'auto'
+            const direction =
+              dirRaw === 'down' || dirRaw === 'up' || dirRaw === 'auto' ? dirRaw : 'auto'
+            const result = await controller.scrollToText({
+              text: String(p.text ?? ''),
+              kind,
+              direction,
+              maxAttempts: typeof p.maxAttempts === 'number' ? p.maxAttempts : undefined,
+            })
+            return jsonToolResult(result)
+          } catch {
+            return jsonToolResult({ ok: false, error: 'scroll_to_text_failed' })
+          }
+        },
+      },
+      ctx,
+    ),
+  )
+
+  reg(
+    createMtBotTool(
+      {
+        name: 'app_scroll_to_bottom',
+        label: 'App Scroll To Bottom (High-Level)',
+        category: 'channel' as const,
+        description: '滚到当前页面主内容底部；返回 atBottom/scrollTop + 最新截图 refs。',
+        parameters: Type.Object({
+          maxAttempts: Type.Optional(Type.Number({ description: '默认 6' })),
+        }),
+        isReadOnly: false,
+        needsPermission: false,
+        execute: async (_id, rawParams) => {
+          const blocked = await guardHighLevelAppUiTool()
+          if (blocked) return jsonToolResult(blocked)
+          try {
+            const p = rawParams as Record<string, unknown>
+            const result = await controller.scrollToBottom({
+              maxAttempts: typeof p.maxAttempts === 'number' ? p.maxAttempts : undefined,
+            })
+            return jsonToolResult(result)
+          } catch {
+            return jsonToolResult({ ok: false, error: 'scroll_to_bottom_failed' })
+          }
+        },
+      },
+      ctx,
+    ),
+  )
+
+  reg(
+    createMtBotTool(
+      {
+        name: 'app_fill_form',
+        label: 'App Fill Form (High-Level)',
+        category: 'channel' as const,
+        description:
+          '一次填多个输入框：按字段 label（及可选 slotHeading）定位；单字段失败立即中止并返回候选列表。',
+        parameters: Type.Object({
+          fields: Type.Array(
+            Type.Object({
+              label: Type.Optional(Type.String()),
+              slotHeading: Type.Optional(Type.String()),
+              ref: Type.Optional(Type.String()),
+              snapshotId: Type.Optional(Type.String()),
+              text: Type.String(),
+              append: Type.Optional(Type.Boolean()),
+            }),
+          ),
+        }),
+        isReadOnly: false,
+        needsPermission: true,
+        execute: async (_id, rawParams) => {
+          const blocked = await guardHighLevelAppUiTool()
+          if (blocked) return jsonToolResult(blocked)
+          try {
+            const p = rawParams as { fields?: unknown }
+            const fields = Array.isArray(p.fields) ? (p.fields as Array<Record<string, unknown>>) : []
+            const result = await controller.fillForm({
+              fields: fields.map((f) => ({
+                label: typeof f.label === 'string' ? f.label : undefined,
+                slotHeading: typeof f.slotHeading === 'string' ? f.slotHeading : undefined,
+                ref: typeof f.ref === 'string' ? f.ref : undefined,
+                snapshotId: typeof f.snapshotId === 'string' ? f.snapshotId : undefined,
+                text: String(f.text ?? ''),
+                append: f.append === true,
+              })),
+            })
+            return jsonToolResult(result)
+          } catch {
+            return jsonToolResult({ ok: false, error: 'fill_form_failed' })
+          }
+        },
+      },
+      ctx,
+    ),
+  )
+
+  reg(
+    createMtBotTool(
+      {
+        name: 'app_settings_model_config_save',
+        label: 'App Settings Model Config Save (High-Level)',
+        category: 'channel' as const,
+        description:
+          '模型配置页专用：可选 goto settings.modelConfig → 滚到底 → 点「保存全部」→ 可选校验 toast。',
+        parameters: Type.Object({
+          gotoFirst: Type.Optional(
+            Type.Boolean({ description: '默认 true；false 时假定已在模型配置页' }),
+          ),
+          saveButtonText: Type.Optional(Type.String({ description: '默认「保存全部」' })),
+          expectToast: Type.Optional(
+            Type.String({ description: '默认「保存成功」；空串表示不检测' }),
+          ),
+        }),
+        isReadOnly: false,
+        needsPermission: true,
+        execute: async (_id, rawParams) => {
+          const blocked = await guardHighLevelAppUiTool()
+          if (blocked) return jsonToolResult(blocked)
+          try {
+            const p = rawParams as Record<string, unknown>
+            const result = await controller.settingsModelConfigSave({
+              gotoFirst: p.gotoFirst === false ? false : undefined,
+              saveButtonText:
+                typeof p.saveButtonText === 'string' ? p.saveButtonText : undefined,
+              expectToast: typeof p.expectToast === 'string' ? p.expectToast : undefined,
+            })
+            return jsonToolResult(result)
+          } catch {
+            return jsonToolResult({ ok: false, error: 'settings_model_config_save_failed' })
+          }
+        },
+      },
+      ctx,
+    ),
+  )
+
   log.info('[registerAppUiTools] app_screenshot, app_goto, app_act registered')
+  log.info(
+    '[registerAppUiTools] high-level: goto_and_screenshot, scroll_to_text, scroll_to_bottom, fill_form, settings_model_config_save registered',
+  )
 }

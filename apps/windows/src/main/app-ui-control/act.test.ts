@@ -9,6 +9,7 @@ import {
   buildScrollScript,
   buildSelectScript,
   buildTypeScript,
+  CLICK_BLOCK_ROLES,
   isKeyAllowed,
   KEY_WHITELIST,
 } from './act'
@@ -78,6 +79,22 @@ describe('assertClickAllowed', () => {
     expect(
       assertClickAllowed({ ref: 'e1', snapshotId: undefined, current, blockRoles: [] }),
     ).toEqual({ ok: true, ref: sampleRef })
+  })
+
+  it('assertClickAllowed 拒绝 heading/label 角色，返回 not_interactive', () => {
+    const result = assertClickAllowed({
+      ref: 'e1',
+      snapshotId: '7',
+      current: {
+        snapshotId: '7',
+        refs: [{ ref: 'e1', role: 'heading', name: '文本对话', x: 0, y: 0, w: 10, h: 10 }],
+      },
+      blockRoles: CLICK_BLOCK_ROLES,
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toBe('not_interactive')
+    }
   })
 })
 
