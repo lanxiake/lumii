@@ -51,3 +51,4 @@ docs/temp/
 
 # Git worktrees (local isolated checkouts)
 .worktrees/
+.claude/worktrees/cli-unified-control-plane

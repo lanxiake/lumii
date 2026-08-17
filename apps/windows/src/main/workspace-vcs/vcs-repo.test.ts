@@ -214,6 +214,43 @@ describe('WorkspaceVcs', () => {
     expect(one.hunks ?? []).toEqual([])
   })
 
+  it('index 被写坏（零填充）时自动重建并正常提交', async () => {
+    await vcs.ensureInitialized()
+    writeFile('a.md', 'v1')
+    await vcs.commit({ author: 'user', message: 'v1' })
+
+    // 模拟进程被强杀留下的零填充 index
+    const indexPath = path.join(workspaceDir, '.mtbot-vcs', 'index')
+    const size = fs.statSync(indexPath).size
+    expect(size).toBeGreaterThan(0)
+    fs.writeFileSync(indexPath, Buffer.alloc(size))
+
+    writeFile('a.md', 'v2')
+    const commit = await vcs.commit({ author: 'agent', message: 'v2' })
+    expect(commit).not.toBeNull()
+    expect(await vcs.readFileAt(commit!.oid, 'a.md')).toBe('v2')
+
+    // 历史完整保留，且未残留原子写入的临时文件
+    const entries = await vcs.log()
+    expect(entries.length).toBe(3)
+    const leftovers = fs
+      .readdirSync(path.join(workspaceDir, '.mtbot-vcs'))
+      .filter((name) => name.endsWith('.tmp'))
+    expect(leftovers).toEqual([])
+  })
+
+  it('index 被清空时 statusDiff 仍可返回未提交变更', async () => {
+    await vcs.ensureInitialized()
+    writeFile('s.md', 'base')
+    await vcs.commit({ author: 'user', message: 'base' })
+
+    fs.writeFileSync(path.join(workspaceDir, '.mtbot-vcs', 'index'), Buffer.alloc(0))
+    writeFile('s.md', 'base-modified')
+
+    const diff = await vcs.statusDiff()
+    expect(diff.find((d) => d.filepath === 's.md')?.status).toBe('modified')
+  })
+
   it('diffCommits: withHunks true 时仅变更文件带 hunks', async () => {
     await vcs.ensureInitialized()
     writeFile('a.md', '1\n')

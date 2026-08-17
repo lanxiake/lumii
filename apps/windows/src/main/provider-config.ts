@@ -12,7 +12,7 @@ import { safeStorage } from 'electron'
 import { resolveWindowsClientDataRoot } from './client-data-root.js'
 
 /** provider 类型（决定默认 baseUrl 与 api 归一化） */
-export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi'
+export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi' | 'deepseek'
 
 /** 模型能力槽（本阶段不含 ASR/TTS） */
 export type CapabilitySlot = 'chat' | 'vision' | 'image'
@@ -31,6 +31,11 @@ export interface LocalProviderConfig {
    * 缺省或空时视为 `[modelId]`，兼容旧配置。
    */
   allowedModelIds?: string[]
+  /**
+   * API 格式（仅 openai/deepseek 类型）：completions 或 responses。
+   * 默认 responses（支持 prompt caching）。
+   */
+  apiFormat?: 'completions' | 'responses'
 }
 
 /** 渲染进程可见的单槽配置（含 apiKey 明文，仅本机用户可见） */
@@ -53,6 +58,7 @@ export const PROVIDER_DEFAULT_BASE_URL: Record<ProviderType, string> = {
   ollama: 'http://localhost:11434',
   lmstudio: 'http://localhost:1234',
   rightapi: 'https://www.rightapi.ai/draw/v1',
+  deepseek: 'https://api.deepseek.com',
 }
 
 /** 能力槽展示名 */
@@ -78,6 +84,7 @@ const DEFAULT_CHAT: LocalProviderConfigView = {
   modelId: '',
   apiKey: '',
   allowedModelIds: [],
+  apiFormat: 'completions', // 通用中转通常不支持 responses
 }
 
 const DEFAULT_VISION: LocalProviderConfigView = {
@@ -87,6 +94,7 @@ const DEFAULT_VISION: LocalProviderConfigView = {
   modelId: '',
   apiKey: '',
   allowedModelIds: [],
+  apiFormat: 'completions',
 }
 
 const DEFAULT_IMAGE: LocalProviderConfigView = {
@@ -131,7 +139,7 @@ interface LegacyPersistedShape extends LocalProviderConfig {
  */
 export function ensureProviderBaseUrl(baseUrl: string, type: ProviderType): string {
   let u = (baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type]).replace(/\/+$/, '')
-  const needsV1 = type === 'openai' || type === 'ollama' || type === 'lmstudio'
+  const needsV1 = type === 'openai' || type === 'ollama' || type === 'lmstudio' || type === 'deepseek'
   if (needsV1 && !/\/v1$/i.test(u)) {
     u = `${u}/v1`
   }
@@ -221,6 +229,7 @@ function normalizeSlotView(
     modelId: nextModelId,
     apiKey: apiKey ?? '',
     allowedModelIds,
+    apiFormat: raw?.apiFormat ?? fallback.apiFormat,
   }
 }
 
@@ -238,6 +247,7 @@ function toPersistedSlot(view: LocalProviderConfigView): PersistedSlot {
     baseUrl: (view.baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[type]).replace(/\/+$/, ''),
     modelId,
     allowedModelIds,
+    apiFormat: view.apiFormat,
     apiKeyEnc: encryptApiKey(view.apiKey ?? ''),
   }
 }

@@ -28,9 +28,11 @@ const PRICES: Readonly<Record<string, ModelPrice>> = {
   'gpt-4.1-mini': { inputCentsPerMTok: 40, outputCentsPerMTok: 160 },
   'gpt-4.1': { inputCentsPerMTok: 200, outputCentsPerMTok: 800 },
   o3: { inputCentsPerMTok: 200, outputCentsPerMTok: 800 },
-  // DeepSeek（官方价：$/1M → 美分/1M；cache miss 口径，本地估算不含 cache）
-  'deepseek-v4-pro': { inputCentsPerMTok: 43.5, outputCentsPerMTok: 87 },
-  'deepseek-v4-flash': { inputCentsPerMTok: 14, outputCentsPerMTok: 28 },
+  // DeepSeek（官方价格以人民币计，换算为美分/1M；空闲时段 + cache miss 口径）
+  // v4-pro: 输入 4.5 元/1M = 4.5/7.2 ≈ 0.625 USD = 62.5 美分；输出 13.5 元/1M ≈ 187.5 美分
+  // v4-flash: 输入 1.5 元/1M ≈ 20.83 美分；输出 4.5 元/1M ≈ 62.5 美分
+  'deepseek-v4-pro': { inputCentsPerMTok: 62.5, outputCentsPerMTok: 187.5 },
+  'deepseek-v4-flash': { inputCentsPerMTok: 20.83, outputCentsPerMTok: 62.5 },
   'deepseek-chat': { inputCentsPerMTok: 27, outputCentsPerMTok: 110 },
   'deepseek-reasoner': { inputCentsPerMTok: 55, outputCentsPerMTok: 219 },
   // 阿里通义 / 智谱 / 月之暗面（按公开人民币价折算，约 7.2 汇率）

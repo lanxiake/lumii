@@ -848,7 +848,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
               <span>↓</span>
               <span>{usage!.outputTokens.toLocaleString()}</span>
             </span>
-            {usage!.cacheRead ? (
+            {(usage!.cacheRead !== undefined && usage!.cacheRead > 0) ? (
               <>
                 <span className={styles['token-usage-sep']}>|</span>
                 <span className={styles['token-usage-item']}>

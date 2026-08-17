@@ -2160,7 +2160,7 @@ function setupIpcHandlers(): void {
     }
     log.info('[Skills IPC] 列出本地已安装技能')
     const result = await skillRuntime.listLocalInstalled()
-    log.info('[Skills IPC] 返回本地技能列表', { count: result.length, skills: result })
+    // log.info('[Skills IPC] 返回本地技能列表', { count: result.length, skills: result })
     return { success: true, data: result }
   })
 

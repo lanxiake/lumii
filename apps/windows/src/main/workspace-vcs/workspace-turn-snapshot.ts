@@ -59,7 +59,7 @@ function assertWorkspaceDir(workspaceDir: string): void {
 function hashFile(absPath: string): string {
   const stat = fs.statSync(absPath);
   if (stat.size > MAX_HASH_BYTES) {
-    log.debug(`跳过大文件全量 hash (${stat.size} bytes): ${absPath}`);
+    // log.debug(`跳过大文件全量 hash (${stat.size} bytes): ${absPath}`);
     return createHash("sha256")
       .update(`size:${stat.size}:mtime:${stat.mtimeMs}`)
       .digest("hex");

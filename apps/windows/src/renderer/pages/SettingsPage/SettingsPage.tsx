@@ -1312,9 +1312,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     const isUntouched =
                       !cfg.baseUrl?.trim() ||
                       Object.values(PROVIDER_DEFAULT_BASE_URL).includes(cfg.baseUrl.trim())
+                    // DeepSeek 官方支持 responses，openai 通用中转默认 completions
+                    const defaultApiFormat = nextType === 'deepseek' ? 'responses' : 'completions'
                     patchSlot(slot, {
                       type: nextType,
                       ...(isUntouched ? { baseUrl: PROVIDER_DEFAULT_BASE_URL[nextType] } : {}),
+                      apiFormat: defaultApiFormat,
                     })
                   }}
                 />
@@ -1325,9 +1328,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className={styles['setting-label']}>
                 <span data-app-ui-label>接口地址（Base URL）</span>
                 <span className={styles['setting-desc']}>
-                  {cfg.type === 'rightapi'
-                    ? '填到绘图根地址（含 /draw/v1）；任务查询地址会自动推导为站点级 /v1/tasks'
-                    : '无需手写 /v1，保存与调用时会自动补全（OpenAI 兼容 / Ollama / LM Studio）'}
+                  {cfg.type === 'deepseek'
+                    ? 'DeepSeek 使用固定端点，无需修改'
+                    : cfg.type === 'rightapi'
+                      ? '填到绘图根地址（含 /draw/v1）；任务查询地址会自动推导为站点级 /v1/tasks'
+                      : '无需手写 /v1，保存与调用时会自动补全（OpenAI 兼容 / Ollama / LM Studio）'}
                 </span>
               </div>
               <div className={styles['setting-control']}>
@@ -1336,6 +1341,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   value={cfg.baseUrl}
                   placeholder={PROVIDER_DEFAULT_BASE_URL[cfg.type]}
                   onChange={(e) => patchSlot(slot, { baseUrl: e.target.value })}
+                  disabled={cfg.type === 'deepseek'}
                 />
               </div>
             </div>
@@ -1369,6 +1375,27 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 />
               </div>
             </div>
+
+            {(cfg.type === 'openai' || cfg.type === 'deepseek') && (
+              <div className={styles['setting-item']}>
+                <div className={styles['setting-label']}>
+                  <span data-app-ui-label>API 格式</span>
+                  <span className={styles['setting-desc']}>
+                    responses 接口支持 prompt caching（推荐）；completions 为传统接口
+                  </span>
+                </div>
+                <div className={styles['setting-control']}>
+                  <Select
+                    value={cfg.apiFormat ?? 'responses'}
+                    options={[
+                      { value: 'responses', label: 'Responses（推荐，支持缓存）' },
+                      { value: 'completions', label: 'Completions（传统）' },
+                    ]}
+                    onChange={(e) => patchSlot(slot, { apiFormat: e.target.value as 'completions' | 'responses' })}
+                  />
+                </div>
+              </div>
+            )}
 
             <div className={styles['setting-item']}>
               <div className={styles['setting-label']}>

@@ -224,18 +224,18 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
 
   // 本地 Runtime 模式下，构造虚拟 session 给 ChatContainer
   const localRuntimeSession = useMemo(() => {
-    logger.debug('[localRuntimeSession] 重新计算, 消息数:', runtimeMessages.length)
-    if (runtimeMessages.length > 0) {
-      const lastMsg = runtimeMessages[runtimeMessages.length - 1]
-      const rawPreview = lastMsg.content[0]?.text ?? ''
-      // 使用 Array.from 按码点截断，避免切断 emoji surrogate pair 导致乱码
-      const safePreview = Array.from(rawPreview).slice(0, 50).join('')
-      logger.debug('[localRuntimeSession] 最后一条消息:', {
-        id: lastMsg.id,
-        role: lastMsg.role,
-        contentPreview: safePreview,
-      })
-    }
+    // logger.debug('[localRuntimeSession] 重新计算, 消息数:', runtimeMessages.length)
+    // if (runtimeMessages.length > 0) {
+    //   const lastMsg = runtimeMessages[runtimeMessages.length - 1]
+    //   const rawPreview = lastMsg.content[0]?.text ?? ''
+    //   // 使用 Array.from 按码点截断，避免切断 emoji surrogate pair 导致乱码
+    //   const safePreview = Array.from(rawPreview).slice(0, 50).join('')
+    //   logger.debug('[localRuntimeSession] 最后一条消息:', {
+    //     id: lastMsg.id,
+    //     role: lastMsg.role,
+    //     contentPreview: safePreview,
+    //   })
+    // }
     return {
       id: runtimeCurrentSessionKey ?? 'local-runtime',
       title: activeSessionTitle,

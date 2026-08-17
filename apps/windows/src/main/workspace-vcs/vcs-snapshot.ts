@@ -70,7 +70,9 @@ export async function maybeSnapshot(params: {
       }
       return commit
     } catch (err) {
-      log.error(`[maybeSnapshot] 自动快照失败（已忽略，不影响对话）:`, err)
+      // 快照失败不影响对话，只记一行摘要，避免整段 isomorphic-git 堆栈刷屏
+      const reason = err instanceof Error ? err.message : String(err)
+      log.warn(`[maybeSnapshot] 自动快照失败（已忽略，不影响对话）: ${reason}`)
       return null
     }
   })

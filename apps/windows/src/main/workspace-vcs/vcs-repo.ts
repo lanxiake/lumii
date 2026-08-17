@@ -11,6 +11,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import git from 'isomorphic-git'
+import type { PromiseFsClient } from 'isomorphic-git'
 import type {
   VcsCommit,
   VcsCommitOptions,
@@ -20,6 +21,7 @@ import type {
 } from './types'
 import { buildDefaultGitignore, VCS_SKIP_DIRS, stripOutputsIgnoreRules, isVcsBinaryPath } from './vcs-ignore'
 import { computeFileDiff, computeDiffStats, MAX_DIFF_BYTES } from './vcs-diff'
+import { createVcsFs, VCS_TMP_SUFFIX } from './vcs-fs'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WorkspaceVcs]', ...args),
@@ -35,18 +37,71 @@ const TRAILER_AUTHOR = 'Mtbot-Author:'
 /** 提交身份（isomorphic-git 要求 author/committer） */
 const GIT_AUTHOR = { name: 'Mtbot', email: 'vcs@mtbot.local' } as const
 
+/** isomorphic-git 解析 index 文件失败时的错误特征（文件被截断、零填充或校验和不符） */
+const INDEX_CORRUPTION_HINTS = ['dircache', 'Index file is empty', 'Invalid checksum in GitIndex']
+
+/**
+ * 判断错误是否由损坏的 git index 文件引起。
+ * isomorphic-git 会把细节放在 err.data.message，故两处都做匹配。
+ */
+function isIndexCorruptionError(err: unknown): boolean {
+  const segments: string[] = []
+  if (err instanceof Error) segments.push(err.message)
+  const data = (err as { data?: { message?: unknown } } | null)?.data
+  if (typeof data?.message === 'string') segments.push(data.message)
+  const text = segments.join(' ')
+  return INDEX_CORRUPTION_HINTS.some((hint) => text.includes(hint))
+}
+
 export class WorkspaceVcs {
   private readonly workspaceDir: string
   private readonly gitdir: string
+  private readonly indexPath: string
+  private readonly gitfs: PromiseFsClient
 
   constructor(opts: { workspaceDir: string }) {
     this.workspaceDir = opts.workspaceDir
     this.gitdir = path.join(opts.workspaceDir, '.mtbot-vcs')
+    this.indexPath = path.join(this.gitdir, 'index')
+    this.gitfs = createVcsFs(this.indexPath)
   }
 
   /** isomorphic-git 通用参数 */
   private get base() {
-    return { fs, dir: this.workspaceDir, gitdir: this.gitdir }
+    return { fs: this.gitfs, dir: this.workspaceDir, gitdir: this.gitdir }
+  }
+
+  /**
+   * 执行会读写 index 的 git 操作；若 index 已损坏，则删除后重试一次。
+   *
+   * index 只是可由工作树与 HEAD 完全重建的暂存缓存，删除它不会丢失任何提交，
+   * 因此自愈远优于让后续每一次快照都失败刷屏。
+   */
+  private async withIndexRepair<T>(label: string, op: () => Promise<T>): Promise<T> {
+    try {
+      return await op()
+    } catch (err) {
+      if (!isIndexCorruptionError(err)) throw err
+      const reason = err instanceof Error ? err.message : String(err)
+      log.warn(`[${label}] index 文件已损坏，删除后重建：${reason}`)
+      this.discardIndex()
+      return op()
+    }
+  }
+
+  /** 删除损坏的 index 及其原子写入残留的临时文件 */
+  private discardIndex(): void {
+    try {
+      fs.rmSync(this.indexPath, { force: true })
+      const indexName = path.basename(this.indexPath)
+      for (const name of fs.readdirSync(this.gitdir)) {
+        if (name.startsWith(`${indexName}.`) && name.endsWith(VCS_TMP_SUFFIX)) {
+          fs.rmSync(path.join(this.gitdir, name), { force: true })
+        }
+      }
+    } catch (err) {
+      log.warn('[discardIndex] 清理损坏的 index 失败:', err)
+    }
   }
 
   /** 仓库是否已初始化 */
@@ -110,6 +165,11 @@ export class WorkspaceVcs {
    *       ② 对 HEAD/index 中存在但工作树已不存在的文件执行 git.remove。
    */
   private async stageAll(): Promise<void> {
+    await this.withIndexRepair('stageAll', () => this.stageAllOnce())
+  }
+
+  /** stageAll 的实际执行体（不含 index 损坏自愈，由 stageAll 统一包裹） */
+  private async stageAllOnce(): Promise<void> {
     // ① 收集工作树实际文件（相对路径，POSIX 分隔），并 add
     const worktreeFiles = await this.walkWorktreeFiles()
     for (const filepath of worktreeFiles) {
@@ -200,7 +260,7 @@ export class WorkspaceVcs {
 
   /** 比对 index(stage) 与 HEAD tree：stage 列与 head 列不同即有待提交变更 */
   private async hasStagedChanges(): Promise<boolean> {
-    const matrix = await git.statusMatrix(this.base)
+    const matrix = await this.withIndexRepair('hasStagedChanges', () => git.statusMatrix(this.base))
     // 行格式 [filepath, head, workdir, stage]；head!==stage 表示已暂存的变更
     return matrix.some(([, head, , stage]) => head !== stage)
   }
@@ -235,7 +295,9 @@ export class WorkspaceVcs {
   async statusDiff(baseOid?: string): Promise<VcsDiffEntry[]> {
     if (!this.isInitialized()) return []
     const ref = baseOid ?? 'HEAD'
-    const matrix = await git.statusMatrix({ ...this.base, ref })
+    const matrix = await this.withIndexRepair('statusDiff', () =>
+      git.statusMatrix({ ...this.base, ref }),
+    )
     const entries: VcsDiffEntry[] = []
 
     for (const [filepath, head, workdir] of matrix) {

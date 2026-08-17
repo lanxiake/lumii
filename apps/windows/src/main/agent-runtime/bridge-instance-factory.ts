@@ -219,13 +219,19 @@ export class BridgeInstanceFactory {
           credentials: {
             baseUrl: resolveDirectBaseUrl(cfg),
             apiKey: cfg.apiKey,
+            apiFormat: cfg.apiFormat ?? 'responses',
           },
           log: (msg) => log.info(msg),
         })
         const startedAt = Date.now()
         const modelLabel = `llm:${cfg.type}:${model?.id ?? cfg.modelId ?? '(unknown)'}`
         try {
-          const streamOrPromise = direct(model, context, options)
+          // 注入 sessionId 到 options，用于 prompt caching
+          const optionsWithSession = {
+            ...options,
+            sessionId: (options as Record<string, unknown>)?.sessionId ?? ctx.sessionKey,
+          }
+          const streamOrPromise = direct(model, context, optionsWithSession)
           // 记录每次模型请求到审计日志（复用现有「安全日志」面板）：
           // StreamFn 可能同步返回事件流也可能返回 Promise，成败都要等 result() resolve
           // 才知道（错误通过 stopReason==="error" 承载，而非 reject），故异步记录、不阻塞流本身。

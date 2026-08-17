@@ -14,6 +14,8 @@ const FALLBACK_PURPOSE = "chat";
 const MODEL_API_MAP: Record<string, string> = {
   "deepseek-v4-flash": "openai",
   "deepseek-v4-pro": "openai",
+  "deepseek-chat": "openai",
+  "deepseek-reasoner": "openai",
   "gpt-4o": "openai",
   "gpt-4o-mini": "openai",
   "claude-sonnet-4-5": "anthropic-messages",
@@ -25,6 +27,7 @@ const MODEL_API_MAP: Record<string, string> = {
 /** 根据模型 ID 推断 API 类型 */
 function inferApi(modelId: string): string {
   if (MODEL_API_MAP[modelId]) return MODEL_API_MAP[modelId]!;
+  if (modelId.includes("deepseek")) return "openai";
   if (modelId.includes("claude")) return "anthropic-messages";
   if (modelId.includes("gemini")) return "google-genai";
   return "openai"; // 默认 openai 兼容 API

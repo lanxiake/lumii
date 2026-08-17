@@ -23,6 +23,8 @@ export interface DirectStreamCredentials {
   readonly apiKey?: string;
   /** 附加请求头 */
   readonly headers?: Record<string, string>;
+  /** API 格式（openai/deepseek 用）：completions 或 responses，默认 responses */
+  readonly apiFormat?: 'completions' | 'responses';
 }
 
 export interface CreateDirectStreamFnOptions {
@@ -45,20 +47,21 @@ export interface CreateDirectStreamFnOptions {
  */
 export function createDirectStreamFn(opts: CreateDirectStreamFnOptions): StreamFn {
   const impl = opts.streamImpl ?? streamSimple;
-  const { baseUrl, apiKey, headers } = opts.credentials;
+  const { baseUrl, apiKey, headers, apiFormat } = opts.credentials;
 
   return (model, context, options) => {
     // model.baseUrl 优先（允许按模型指定端点）；否则用 host 本地默认 baseUrl。
     // api 规范化：pi-ai 只注册 openai-completions/openai-responses 等具体 provider，
     // 没有裸 "openai"。ModelRouter.inferApi 默认给 "openai"，直连本地 OpenAI 兼容
-    // 端点（Ollama/LM Studio）须映射到 "openai-completions"，否则报 "No API provider"。
-    const normalizedApi = normalizeApi(model.api);
+    // 端点（Ollama/LM Studio）须映射到对应 API（根据 apiFormat 选择）。
+    const normalizedApi = normalizeApi(model.api, apiFormat);
     // pi-ai 的 provider 会读 model.input / cost / contextWindow 等字段
     // （如 openai-completions 里 model.input.includes("image")）。
     // ModelRouter.resolveExplicitModelId 只产出 {id, api} 最小模型——直连场景必须
     // 补全这些字段，否则 pi-ai 内部 undefined.includes 崩溃。
     const m = model as Partial<Model<string>> & { id: string };
     const effectiveModel = {
+      ...model,
       provider: m.provider ?? "openai",
       reasoning: m.reasoning ?? false,
       input: m.input ?? ["text"],
@@ -66,7 +69,6 @@ export function createDirectStreamFn(opts: CreateDirectStreamFnOptions): StreamF
       contextWindow: m.contextWindow ?? 1_000_000,
       maxTokens: m.maxTokens ?? 8_192,
       name: m.name ?? m.id,
-      ...model,
       api: normalizedApi,
       baseUrl: model.baseUrl && model.baseUrl.length > 0 ? model.baseUrl : baseUrl ?? "",
     } as Model<typeof model.api>;
@@ -81,15 +83,35 @@ export function createDirectStreamFn(opts: CreateDirectStreamFnOptions): StreamF
       // provider 强制校验 apiKey 存在性。无 key 时填占位符让校验通过（端点会忽略它）。
       apiKey: apiKey || options?.apiKey || "local-no-key",
       ...(headers ? { headers: { ...headers, ...(options?.headers ?? {}) } } : {}),
+      // 调试：拦截原始响应 payload（仅 responses API）
+      onPayload: normalizedApi === "openai-responses" ? (payload: unknown) => {
+        const p = payload as Record<string, unknown>;
+        opts.log?.(`[direct-stream] 🔍 Request payload - model: ${p.model}, prompt_cache_key: ${p.prompt_cache_key}, messages: ${(p.input as unknown[])?.length} items`);
+        options?.onPayload?.(payload);
+      } : options?.onPayload,
     };
 
-    return impl(effectiveModel, context, mergedOptions);
+    const stream = impl(effectiveModel, context, mergedOptions);
+
+    // 调试：拦截事件流，记录 usage 信息
+    // if (normalizedApi === "openai-responses") {
+    //   const originalResult = stream.result.bind(stream);
+    //   stream.result = async () => {
+    //     const message = await originalResult();
+    //     opts.log?.(`[direct-stream] 🔍 Final message usage: ${JSON.stringify(message.usage, null, 2)}`);
+    //     return message;
+    //   };
+    // }
+
+    return stream;
   };
 }
 
 /** 把宽泛的 api 名规范化为 pi-ai 注册的具体 provider 名 */
-function normalizeApi(api: string): string {
-  // 裸 "openai" → OpenAI 兼容 completions（本地端点 Ollama/LM Studio 走此）
-  if (api === "openai") return "openai-completions";
+function normalizeApi(api: string, apiFormat?: 'completions' | 'responses'): string {
+  // 裸 "openai" → 根据 apiFormat 选择（默认 responses）
+  if (api === "openai") {
+    return apiFormat === "completions" ? "openai-completions" : "openai-responses";
+  }
   return api;
 }

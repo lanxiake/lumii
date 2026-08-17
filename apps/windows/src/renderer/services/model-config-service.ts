@@ -6,7 +6,7 @@
  */
 
 /** provider 类型 */
-export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi'
+export type ProviderType = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi' | 'deepseek'
 
 /** 模型能力槽 */
 export type CapabilitySlot = 'chat' | 'vision' | 'image'
@@ -20,6 +20,8 @@ export interface LocalProviderConfigView {
   apiKey: string
   /** chat/vision：对话框可选模型；缺省时回退 [modelId] */
   allowedModelIds?: string[]
+  /** API 格式（openai/deepseek 用）：completions 或 responses，默认 responses */
+  apiFormat?: 'completions' | 'responses'
 }
 
 /** 全部能力槽 */
@@ -50,6 +52,7 @@ export const PROVIDER_DEFAULT_BASE_URL: Record<ProviderType, string> = {
   ollama: 'http://localhost:11434',
   lmstudio: 'http://localhost:1234',
   rightapi: 'https://www.rightapi.ai/draw/v1',
+  deepseek: 'https://api.deepseek.com',
 }
 
 /** provider 类型展示名 */
@@ -60,6 +63,7 @@ export const PROVIDER_TYPE_LABEL: Record<ProviderType, string> = {
   ollama: 'Ollama（本地）',
   lmstudio: 'LM Studio（本地）',
   rightapi: 'RightAPI 异步生图',
+  deepseek: 'DeepSeek',
 }
 
 /** 仅在特定能力槽可选的 provider 类型 */
