@@ -14,6 +14,7 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { readMessageRole } from "../api-invariants.js";
 import { COMPACTABLE_TOOLS, DEFAULT_KEEP_RECENT_TOOL_RESULTS } from "../types.js";
+import { createHash } from "node:crypto";
 
 export const MICROCOMPACT_PLACEHOLDER =
   "[旧工具结果已清理以节省上下文空间。如需原始内容，请重新调用工具。]";
@@ -134,5 +135,145 @@ export function microcompactToolResults(
     });
     if (!changed) return msg;
     return { ...(msg as object), content: newContent } as AgentMessage;
+  });
+}
+
+/**
+ * Phase 1: Dedup 去重相同 tool 结果（无损，全范围可做含 tail）
+ *
+ * 对齐 Hermes _prune_old_tool_results Pass 1 dedup (L3491-L3515)。
+ * 从后向前遍历，最新的保留原文，老的改为去重引用。
+ *
+ * @param messages 输入消息列表
+ * @param dedupMinChars 最小字符阈值（默认 200），< 此值跳过（MD5 头可能比原文长）
+ * @returns 新数组（不改 input）
+ */
+export function dedupIdenticalToolResults(
+  messages: AgentMessage[],
+  dedupMinChars = 200,
+): AgentMessage[] {
+  const seen = new Map<string, number>(); // hash -> 最新的 index
+  const result: AgentMessage[] = [];
+
+  // 从后向前遍历，建 seen map（保证最新的那条保留原文）
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    const role = readMessageRole(msg);
+    if (role !== "toolResult") {
+      continue;
+    }
+    const content =
+      typeof msg.content === "string"
+        ? msg.content
+        : Array.isArray(msg.content)
+          ? msg.content.map((b) => (typeof b === "string" ? b : b.text ?? "")).join("")
+          : "";
+    if (content.length < dedupMinChars) continue;
+    if (content.startsWith("[工具结果") || content.startsWith("[Duplicate")) continue;
+    const hash = createHash("md5").update(content, "utf8").digest("hex").slice(0, 12);
+    if (!seen.has(hash)) {
+      seen.set(hash, i); // 最新的 index
+    }
+  }
+
+  // 正向遍历，构造结果
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    const role = readMessageRole(msg);
+    if (role !== "toolResult") {
+      result.push(msg);
+      continue;
+    }
+    const content =
+      typeof msg.content === "string"
+        ? msg.content
+        : Array.isArray(msg.content)
+          ? msg.content.map((b) => (typeof b === "string" ? b : b.text ?? "")).join("")
+          : "";
+    if (content.length < dedupMinChars) {
+      result.push(msg);
+      continue;
+    }
+    if (content.startsWith("[工具结果") || content.startsWith("[Duplicate")) {
+      result.push(msg);
+      continue;
+    }
+    const hash = createHash("md5").update(content, "utf8").digest("hex").slice(0, 12);
+    const newestIndex = seen.get(hash);
+    if (newestIndex === i) {
+      // 最新的，保留原文
+      result.push(msg);
+    } else {
+      // 老的，改为去重引用
+      result.push({
+        ...msg,
+        content: "[工具结果与更近期调用完全一致，已去重以节省空间]",
+      });
+    }
+  }
+  return result;
+}
+
+/**
+ * Phase 1: Truncate 截断 assistant tool_call arguments 内的长字符串
+ *
+ * 对齐 Hermes _truncate_tool_call_args_json (L3578-L3596)。
+ * 递归遍历 JSON，对长字符串值截断为「前 N + ... + 后 N」，结果仍是合法 JSON。
+ *
+ * @param messages 输入消息列表
+ * @param protectTailCount 保护尾部 N 条 assistant（默认 20）
+ * @param maxCharsPerArg 单个字符串值最大长度（默认 1500）
+ * @returns 新数组（不改 input）
+ */
+export function truncateHeavyToolCallArguments(
+  messages: AgentMessage[],
+  protectTailCount = 20,
+  maxCharsPerArg = 1500,
+): AgentMessage[] {
+  const pruneBoundary = Math.max(0, messages.length - protectTailCount);
+
+  function truncateValue(val: unknown): unknown {
+    if (typeof val === "string" && val.length > maxCharsPerArg) {
+      const halfChars = Math.floor(maxCharsPerArg / 2) - 50;
+      const head = val.slice(0, halfChars);
+      const tail = val.slice(-halfChars);
+      const omitted = val.length - maxCharsPerArg;
+      return `${head}...(已截断 ${omitted} 字符)...${tail}`;
+    }
+    if (Array.isArray(val)) {
+      return val.map(truncateValue);
+    }
+    if (val && typeof val === "object") {
+      const obj = val as Record<string, unknown>;
+      const result: Record<string, unknown> = {};
+      for (const key of Object.keys(obj)) {
+        result[key] = truncateValue(obj[key]);
+      }
+      return result;
+    }
+    return val;
+  }
+
+  return messages.map((msg, i) => {
+    const role = readMessageRole(msg);
+    if (role !== "assistant" || !msg.toolCalls || i >= pruneBoundary) {
+      return msg;
+    }
+    const newToolCalls = msg.toolCalls.map((tc) => {
+      try {
+        const parsed = JSON.parse(tc.function.arguments);
+        const truncated = truncateValue(parsed);
+        return {
+          ...tc,
+          function: {
+            ...tc.function,
+            arguments: JSON.stringify(truncated),
+          },
+        };
+      } catch {
+        return tc; // 解析失败，不动
+      }
+    });
+    return { ...msg, toolCalls: newToolCalls };
   });
 }
