@@ -303,6 +303,18 @@ export interface CompactConfig {
    * 用于 resolveModelThreshold 查表。未注入时回退全局 triggerRatio。
    */
   currentModelName?: string;
+  /**
+   * Idle Compaction：挂钟空闲 N 秒后触发后台压缩，默认 300s（5 分钟）
+   * 设为 0 / undefined = 关闭。对齐 Hermes idle_compact_after_seconds。
+   * 过小（<60s）会导致"倒杯水回来就触发"的过度压缩。
+   */
+  idleCompactAfterSeconds?: number;
+  /**
+   * Idle Compaction：压缩目标地板 tokens（比这个还小就不压，免得空跑花时间）
+   * 默认 = threshold × summaryTargetRatio（≈ threshold × 0.20）。
+   * 对齐 Hermes _idle_floor 计算（turn_context.py:L794-L796）。
+   */
+  idleCompactFloorTokens?: number;
 }
 
 /** token 估算与阈值判断结果 */
