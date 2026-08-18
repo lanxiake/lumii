@@ -2,7 +2,7 @@
 
 > 日期：2026-08-18  
 > 状态：v2.0，逐行代码对比，分 Phase 1/2/3 三次落地  
-> 参考架构文档：[01_压缩引擎多层化_架构深度剖析.md](file:///D:/open-source/hermes-agent/docs/mydocs/architecture-layer/compression/01_压缩引擎多层化_架构深度剖析.md)  
+> 参考架构文档：[01_压缩引擎多层化_架构深度剖析.md](file:///E:/open-source-project/hermes-agent/docs/mydocs/architecture-layer/compression/01_压缩引擎多层化_架构深度剖析.md)  
 > **Lumii 代码证据**：
 > - 主编排：[transform-context.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/transform-context.ts#L1-L243)
 > - 类型/配置：[types.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/types.ts#L1-L276)
@@ -13,10 +13,10 @@
 > - 落库形态：[compact-persist.ts](file:///d:/my-project/open-source/lumii/apps/windows/src/main/agent-runtime/compact-persist.ts#L1-L36)
 >
 > **Hermes 参考实现（精确引用）**：
-> - Proactive Prune + Dedup/Summarize/Truncate + Reclaim Gate + Rearm：[context_compressor.py:L3398-L3801](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3398-L3801)
-> - Per-Model 阈值匹配：[context_compressor.py:L1820-L1843](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L1820-L1843)
-> - Progress-Aware 双预算 + Commit Fence：[conversation_compression.py:L450-L1050](file:///D:/open-source/hermes-agent/agent/conversation_compression.py#L450-L1050)
-> - Idle Compaction 触发判断：[turn_context.py:L368-L400](file:///D:/open-source/hermes-agent/agent/turn_context.py#L368-L400) + [turn_context.py:L773-L851](file:///D:/open-source/hermes-agent/agent/turn_context.py#L773-L851)
+> - Proactive Prune + Dedup/Summarize/Truncate + Reclaim Gate + Rearm：[context_compressor.py:L3398-L3801](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3398-L3801)
+> - Per-Model 阈值匹配：[context_compressor.py:L1820-L1843](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L1820-L1843)
+> - Progress-Aware 双预算 + Commit Fence：[conversation_compression.py:L450-L1050](file:///E:/open-source-project/hermes-agent/agent/conversation_compression.py#L450-L1050)
+> - Idle Compaction 触发判断：[turn_context.py:L368-L400](file:///E:/open-source-project/hermes-agent/agent/turn_context.py#L368-L400) + [turn_context.py:L773-L851](file:///E:/open-source-project/hermes-agent/agent/turn_context.py#L773-L851)
 
 ---
 
@@ -77,7 +77,7 @@
 
 ### 1.2 Hermes 对应实现的关键差异（Proactive Prune 对比）
 
-**Hermes 的 prune_tool_results_only 完整流程**：[context_compressor.py:L3690-L3801](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3690-L3801)
+**Hermes 的 prune_tool_results_only 完整流程**：[context_compressor.py:L3690-L3801](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3690-L3801)
 
 ```python
 # 精确代码摘录（核心判断逻辑）
@@ -116,18 +116,18 @@ def prune_tool_results_only(self, messages, current_tokens=None):
     return pruned_msgs, pruned_count
 ```
 
-**Hermes 的 _prune_old_tool_results 三阶段具体实现**：[context_compressor.py:L3398-L3688](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3398-L3688)
+**Hermes 的 _prune_old_tool_results 三阶段具体实现**：[context_compressor.py:L3398-L3688](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3398-L3688)
 
 | 阶段 | Hermes 精确代码位置 | Lumii 现状 | 差距 |
 |------|-------------------|-----------|------|
-| **① Dedup**（无损去重） | [L3491-L3515](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3491-L3515)：MD5 哈希 content，重复 → 改为 `[Duplicate tool output — same content as a more recent call]`；**全范围可做（含 tail，因为无损）** | ❌ **完全没有**。相同 `file_read("config.json")` 读 5 次各占一份，白白浪费 | **Phase 1 新增** |
-| **② Summarize**（非 tail 大 tool 结果→摘要行） | [L3598-L3601](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3598-L3601)：对 `i < prune_boundary` 调用 `_demote_tool_result_at` → `_summarize_tool_result`（1 行：退出码+行数+字符数） | ✅ `microcompactToolResults` + `buildDeterministicToolSummary` 已实现且**更优**（含首尾行线索） | **直接复用 Lumii 现有函数** |
-| **③ Truncate**（非 tail assistant 超大 arguments→截断） | [L3602-L3611](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3602-L3611)：对 `i < prune_boundary` 调用 `_truncate_tool_call_args_at` → `_truncate_tool_call_args_json`（在 JSON 结构内截断仍合法） | ❌ **完全没有**。`write_file` 50KB 内容写进 tool_call.arguments 永远占着，从不修剪 | **Phase 1 新增**（参考 [message-ops.ts:L75-L100](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/message-ops.ts#L75-L100) 已有截断思路，扩展到 tool_call arguments） |
-| **④ Pass 4 尾部压力降级** | [L3613-L3686](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3613-L3686)：保护区仍超 1.5×软预算时，内部继续降级，直到最后 1 个最新 tool 都不放过 | ⚠️ Hard-Trim 兜底有微压缩（仅保留 4 个），但 Proactive 阶段不做 | **Phase 3 可选优化**（低优先级） |
+| **① Dedup**（无损去重） | [L3491-L3515](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3491-L3515)：MD5 哈希 content，重复 → 改为 `[Duplicate tool output — same content as a more recent call]`；**全范围可做（含 tail，因为无损）** | ❌ **完全没有**。相同 `file_read("config.json")` 读 5 次各占一份，白白浪费 | **Phase 1 新增** |
+| **② Summarize**（非 tail 大 tool 结果→摘要行） | [L3598-L3601](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3598-L3601)：对 `i < prune_boundary` 调用 `_demote_tool_result_at` → `_summarize_tool_result`（1 行：退出码+行数+字符数） | ✅ `microcompactToolResults` + `buildDeterministicToolSummary` 已实现且**更优**（含首尾行线索） | **直接复用 Lumii 现有函数** |
+| **③ Truncate**（非 tail assistant 超大 arguments→截断） | [L3602-L3611](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3602-L3611)：对 `i < prune_boundary` 调用 `_truncate_tool_call_args_at` → `_truncate_tool_call_args_json`（在 JSON 结构内截断仍合法） | ❌ **完全没有**。`write_file` 50KB 内容写进 tool_call.arguments 永远占着，从不修剪 | **Phase 1 新增**（参考 [message-ops.ts:L75-L100](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/message-ops.ts#L75-L100) 已有截断思路，扩展到 tool_call arguments） |
+| **④ Pass 4 尾部压力降级** | [L3613-L3686](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3613-L3686)：保护区仍超 1.5×软预算时，内部继续降级，直到最后 1 个最新 tool 都不放过 | ⚠️ Hard-Trim 兜底有微压缩（仅保留 4 个），但 Proactive 阶段不做 | **Phase 3 可选优化**（低优先级） |
 
 ### 1.3 Per-Model 阈值匹配（Hermes vs Lumii）
 
-**Hermes 精确代码**：[resolve_model_threshold](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L1820-L1843)
+**Hermes 精确代码**：[resolve_model_threshold](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L1820-L1843)
 ```python
 # 最长子串匹配：更长的匹配 = 更具体，优先
 def resolve_model_threshold(model, model_thresholds, default):
@@ -153,7 +153,7 @@ export function checkCompactionNeeded(messages, config): TokenEstimation {
 
 ### 1.4 Idle Compaction（Hermes vs Lumii）
 
-**Hermes 触发判断（纯谓词，可单测）**：[_should_idle_compact](file:///D:/open-source/hermes-agent/agent/turn_context.py#L368-L400)
+**Hermes 触发判断（纯谓词，可单测）**：[_should_idle_compact](file:///E:/open-source-project/hermes-agent/agent/turn_context.py#L368-L400)
 ```python
 def _should_idle_compact(*, enabled, idle_after_seconds, idle_gap_seconds,
                           tokens, floor_tokens, cooldown_active):
@@ -167,14 +167,14 @@ def _should_idle_compact(*, enabled, idle_after_seconds, idle_gap_seconds,
     return tokens > floor_tokens
 ```
 
-**Hermes 实际触发位置（用户回来发第一条消息时）**：[turn_context.py:L782-L851](file:///D:/open-source/hermes-agent/agent/turn_context.py#L782-L851)
+**Hermes 实际触发位置（用户回来发第一条消息时）**：[turn_context.py:L782-L851](file:///E:/open-source-project/hermes-agent/agent/turn_context.py#L782-L851)
 - 读取 `agent.compression_idle_compact_after_seconds`（默认 0，配置开才启用）
 - 计算挂钟间隙：`time.time() - agent._last_activity_ts`
 - 间隙 ≥ 配置秒 → 先压缩再跑用户消息（**把延迟从用户回来后的第一条消息，搬到用户还没回来的时间缝里的下一条**）
 
 ### 1.5 Progress-Aware 双预算 + Commit Fence（Hermes 核心）
 
-**CompressionCommitFence 核心字段**：[conversation_compression.py:L457-L505](file:///D:/open-source/hermes-agent/agent/conversation_compression.py#L457-L505)
+**CompressionCommitFence 核心字段**：[conversation_compression.py:L457-L505](file:///E:/open-source-project/hermes-agent/agent/conversation_compression.py#L457-L505)
 ```python
 class CompressionCommitFence:
     # _commit_phase：begin_commit() 后 set，finish_commit() 后 clear
@@ -202,7 +202,7 @@ class CompressionCommitFence:
         self._lock.release()
 ```
 
-**等待循环（Progress-Aware 核心）**：[run_compress_context_with_progress_timeout](file:///D:/open-source/hermes-agent/agent/conversation_compression.py#L822-L1050)
+**等待循环（Progress-Aware 核心）**：[run_compress_context_with_progress_timeout](file:///E:/open-source-project/hermes-agent/agent/conversation_compression.py#L822-L1050)
 ```python
 # while True 循环（L943-L973）：
 waited = time.monotonic() - wait_started
@@ -223,7 +223,7 @@ except TimeoutError:
     break  # 真的挂了 → 跳出循环
 ```
 
-**Commit-Phase 永不中断**：[conversation_compression.py:L1008-L1050](file:///D:/open-source/hermes-agent/agent/conversation_compression.py#L1008-L1050)
+**Commit-Phase 永不中断**：[conversation_compression.py:L1008-L1050](file:///E:/open-source-project/hermes-agent/agent/conversation_compression.py#L1008-L1050)
 ```python
 # 跳出等待后，如果 fence.commit_in_flight（即已经 begin_commit 了）：
 if fence.commit_in_flight:
@@ -265,9 +265,9 @@ if fence.commit_in_flight:
 **触发阈值**：`config.contextWindow × 0.48`（低于 MicroCompact 的 0.60，更早动手零成本清垃圾）  
 **插入位置**：[transform-context.ts:L114-L117](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/transform-context.ts#L114-L117) 之间，在 MicroCompact 判断**之前**
 **关键默认值来源（Hermes）**：
-- `proactive_prune_min_result_chars=8000` → [context_compressor.py:L2827](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L2827) + [L2874-L2875](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L2874-L2875)（同时保证 ≥ _PRUNE_MIN_CHARS=200，见 [L537](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L537)）
-- `proactive_prune_min_reclaim_tokens=4096` → [context_compressor.py:L2828](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L2828)（Prompt Cache Miss 代价论证：2~3×价差）
-- Dedup 最小字符 ≥ 200 → [context_compressor.py:L3507-L3508](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3507-L3508)（`len(content) < _PRUNE_MIN_CHARS` 跳过）
+- `proactive_prune_min_result_chars=8000` → [context_compressor.py:L2827](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L2827) + [L2874-L2875](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L2874-L2875)（同时保证 ≥ _PRUNE_MIN_CHARS=200，见 [L537](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L537)）
+- `proactive_prune_min_reclaim_tokens=4096` → [context_compressor.py:L2828](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L2828)（Prompt Cache Miss 代价论证：2~3×价差）
+- Dedup 最小字符 ≥ 200 → [context_compressor.py:L3507-L3508](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3507-L3508)（`len(content) < _PRUNE_MIN_CHARS` 跳过）
 
 #### 改动清单
 
@@ -276,18 +276,18 @@ if fence.commit_in_flight:
 | ① 新增配置字段 | [types.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/types.ts#L149-L261) CompactConfig interface | `proactivePruneRatio?: number // 默认 0.48`；`proactivePruneMinResultChars?: number // 默认 8000`；`proactivePruneMinReclaimTokens?: number // 默认 4096` | +6 行 |
 | ② Dedup（无损去重，全局范围不保护 tail） | [micro-compact.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/strategies/micro-compact.ts#L60-L138) | `export function dedupIdenticalToolResults(messages): AgentMessage[]`（使用 `crypto.createHash('md5')` 或简单哈希；`content >= 200 字符` 才参与；相同 → 改为 `[工具结果与更近期调用完全一致，已去重以节省空间]`） | +35 行 |
 | ③ Truncate tool_call arguments（非 tail 截断） | [micro-compact.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/strategies/micro-compact.ts) | `export function truncateHeavyToolCallArguments(messages, protectTailCount, maxCharsPerArg=1500): AgentMessage[]`（截断 JSON 长字符串值，保留前后缀 `...`；结果仍须为合法 JSON） | +45 行 |
-| ④ 三阶段流水线包装 + Reclaim Gate + Rearm | [micro-compact.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/strategies/micro-compact.ts) | `export function proactivePrune(messages, config, rearmState): { messages, changed, nextRearmTokens }`：先 Dedup（全范围）→ 取 protectTailCount=20 边界（**来源 Hermes protect_last_n 默认=20，见 [context_compressor.py:L2813](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L2813)**）→ Summarize（复用已有 microcompactToolResults 的 buildDeterministicToolSummary，但 protect=20 而非原 MicroCompact 的 8）→ Truncate → 计算 reclaim < 4096 就返回原数组 | +70 行 |
+| ④ 三阶段流水线包装 + Reclaim Gate + Rearm | [micro-compact.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/strategies/micro-compact.ts) | `export function proactivePrune(messages, config, rearmState): { messages, changed, nextRearmTokens }`：先 Dedup（全范围）→ 取 protectTailCount=20 边界（**来源 Hermes protect_last_n 默认=20，见 [context_compressor.py:L2813](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L2813)**）→ Summarize（复用已有 microcompactToolResults 的 buildDeterministicToolSummary，但 protect=20 而非原 MicroCompact 的 8）→ Truncate → 计算 reclaim < 4096 就返回原数组 | +70 行 |
 | ⑤ transform-context 插入调用 + 维护 Rearm 状态 | [transform-context.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/transform-context.ts#L85-L100) createTransformContext 闭包 | 新增 `let proactiveRearmTokens: number \| null = null` 状态；在 checkCompactionNeeded 返回 false 之后、MicroCompact 之前，插入 proactivePrune 判断与调用；回收不够 → 返回原数组不触发 onCompaction | +30 行 |
 
 **Hermes 可直接复用的精确逻辑**：
-- 三阶段调用顺序：[context_compressor.py:L3491-L3611](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3491-L3611)
-- Reclaim Gate 4096 判断：[context_compressor.py:L3763-L3769](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3763-L3769)
-- Rearm 跑道计算（三者取 max）：[context_compressor.py:L3774-L3779](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3774-L3779)
+- 三阶段调用顺序：[context_compressor.py:L3491-L3611](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3491-L3611)
+- Reclaim Gate 4096 判断：[context_compressor.py:L3763-L3769](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3763-L3769)
+- Rearm 跑道计算（三者取 max）：[context_compressor.py:L3774-L3779](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3774-L3779)
 
 ### 2.2 P1-2：绝对阈值天花板（防配置错最后一把闸）
 
-**堆叠顺序（来源 Hermes，见 [context_compressor.py:L2736-L2748](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L2736-L2748) `_apply_threshold_tokens_cap`）**：Per-Model % → 全局默认 0.78 → 小窗口地板（`< 512K 强制 ≥ 75%`，**Lumii 新增**）→ **min(thresholdTokensCap)** 最后一把闸  
-**默认值**：`200_000`（200K tokens，足够 1M 窗口的大模型在 ~20% 就被拦下）（Hermes cap 参数定义见 [L2825](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L2825) / [L2859-L2861](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L2859-L2861)）
+**堆叠顺序（来源 Hermes，见 [context_compressor.py:L2736-L2748](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L2736-L2748) `_apply_threshold_tokens_cap`）**：Per-Model % → 全局默认 0.78 → 小窗口地板（`< 512K 强制 ≥ 75%`，**Lumii 新增**）→ **min(thresholdTokensCap)** 最后一把闸  
+**默认值**：`200_000`（200K tokens，足够 1M 窗口的大模型在 ~20% 就被拦下）（Hermes cap 参数定义见 [L2825](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L2825) / [L2859-L2861](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L2859-L2861)）
 
 #### 改动清单
 
@@ -321,7 +321,7 @@ if fence.commit_in_flight:
 | 改动 | 文件 | 精确位置 | 代码量 |
 |------|------|---------|--------|
 | ① 新增配置字段 | [types.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/types.ts#L149-L261) | `modelThresholds?: Record<string, number> // 例 { "claude-sonnet": 0.35, "gpt-5.6-1M": 0.60 }`；`currentModelName?: string // 每轮 prompt 前由宿主注入` | +4 行 |
-| ② 实现 resolveModelThreshold（最长子串匹配） | [policy.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/policy.ts#L63-L75) 前新增 | 直接移植 Hermes [L1820-L1843](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L1820-L1843) 的 Python → TypeScript：for-in 遍历 keys，`modelName.includes(key)` 且更长则覆盖 | +15 行 |
+| ② 实现 resolveModelThreshold（最长子串匹配） | [policy.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/policy.ts#L63-L75) 前新增 | 直接移植 Hermes [L1820-L1843](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L1820-L1843) 的 Python → TypeScript：for-in 遍历 keys，`modelName.includes(key)` 且更长则覆盖 | +15 行 |
 | ③ checkCompactionNeeded 接入 | [policy.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/policy.ts#L63-L75) | `percentThreshold = resolveModelThreshold(config.currentModelName, config.modelThresholds, config.triggerRatio);` | +2 行 |
 | ④ AgentInstance 每轮注入 currentModelName | [agent-instance.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/agent/agent-instance.ts#L63-L150) | prompt 前将 `config.model.name` 写入 compactConfig.currentModelName | +3 行 |
 
@@ -346,8 +346,8 @@ if fence.commit_in_flight:
 | ⑤ UI：主窗底部 Toast 「后台压缩完成：释放 N tokens」（可选，仅在用户回来时显示） | `apps/windows/src/renderer/hooks/useChat/index.ts` 监听 onCompaction 事件 + idle 标记 | +15 行 |
 
 **Hermes 参考实现**：
-- 纯谓词 _should_idle_compact：[turn_context.py:L368-L400](file:///D:/open-source/hermes-agent/agent/turn_context.py#L368-L400)
-- 触发位置（用户回来时先压再跑）：[turn_context.py:L782-L851](file:///D:/open-source/hermes-agent/agent/turn_context.py#L782-L851)
+- 纯谓词 _should_idle_compact：[turn_context.py:L368-L400](file:///E:/open-source-project/hermes-agent/agent/turn_context.py#L368-L400)
+- 触发位置（用户回来时先压再跑）：[turn_context.py:L782-L851](file:///E:/open-source-project/hermes-agent/agent/turn_context.py#L782-L851)
 
 ### 3.3 P2-3：Progress-Aware 双预算超时
 
@@ -359,7 +359,7 @@ if fence.commit_in_flight:
 | ② SummaryGeneratorFn 协议扩展：支持 onProgress 回调（touch_progress 钩子） | [types.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/types.ts#L65-L69) SummaryGeneratorFn 新增可选第 4 个参数 options `{ onProgress?: () => void }` | +4 行 |
 | ③ runSummaryStage 接入：while 循环 + wait_slice 而非简单 setTimeout | [summary-compact.ts](file:///d:/my-project/open-source/lumii/packages/agent-runtime/src/compact/strategies/summary-compact.ts#L70-L149) | +60 行 |
 
-**ProgressFence 类 TypeScript 实现骨架（移植 Hermes [L450-L505](file:///D:/open-source/hermes-agent/agent/conversation_compression.py#L450-L505) + 等待循环 [L943-L1050](file:///D:/open-source/hermes-agent/agent/conversation_compression.py#L943-L1050)）**：
+**ProgressFence 类 TypeScript 实现骨架（移植 Hermes [L450-L505](file:///E:/open-source-project/hermes-agent/agent/conversation_compression.py#L450-L505) + 等待循环 [L943-L1050](file:///E:/open-source-project/hermes-agent/agent/conversation_compression.py#L943-L1050)）**：
 
 ```typescript
 // progress-fence.ts（新建）
@@ -442,7 +442,7 @@ export async function withProgressTimeout<T>(
 
 ### 4.1 P3-1：Commit Fence + 落库原子化
 
-**对应 Hermes 机制**：`CompressionCommitFence.begin_commit()` 后永不中断（[conversation_compression.py:L539-L565](file:///D:/open-source/hermes-agent/agent/conversation_compression.py#L539-L565)），配合 SessionDB 事务
+**对应 Hermes 机制**：`CompressionCommitFence.begin_commit()` 后永不中断（[conversation_compression.py:L539-L565](file:///E:/open-source-project/hermes-agent/agent/conversation_compression.py#L539-L565)），配合 SessionDB 事务
 
 #### 改动清单
 
@@ -462,7 +462,7 @@ export async function withProgressTimeout<T>(
 
 ### 4.3 P3-3（可选低优先级）：Hermes Pass 4 尾部压力降级逻辑移植
 
-对应 Hermes [context_compressor.py:L3613-L3686](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3613-L3686) 的压力降级 pass。在 Lumii 的 hard-trim 已经兜底的前提下，此优化 P3 再做。代码量 +60 行。
+对应 Hermes [context_compressor.py:L3613-L3686](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3613-L3686) 的压力降级 pass。在 Lumii 的 hard-trim 已经兜底的前提下，此优化 P3 再做。代码量 +60 行。
 
 ---
 
@@ -470,14 +470,14 @@ export async function withProgressTimeout<T>(
 
 | 决策点 | 选项 A | 选项 B | 选择 | 依据（附精确代码引用） |
 |--------|--------|--------|------|----------------------|
-| Dedup 保护范围 | 保护 tail 20 条 | **全范围可做** | **B** | Hermes [L3491-L3515](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3491-L3515) 从末尾到开头遍历 Dedup，无 prune_boundary 判断；注释明确：「dedup 100% 无损，不需要保护范围」 |
-| Proactive 触发 | 到线就做 | **到线 + 跑道复位** | **B** | Hermes [L3738-L3740](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3738-L3740) 硬检查 `before < _proactive_prune_rearm_tokens → return`；Hermes 还做了 DB 持久化 rearm（L3780-L3789），Lumii Phase1 可进程内先只内存存 |
-| Reclaim Gate 阈值 | 1024 | **4096** | **4096** | Hermes 默认 4096（[L2828](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L2828)），其设计文档论证：「2~3 倍 Cache Miss 差价 × 后续 1M tokens ≈ 省下 $2，1024 抵不上」 |
-| 超时模式 | 简单墙钟 120s | **双预算 + progress-aware** | **B** | Hermes 等待循环 [L943-L1050](file:///D:/open-source/hermes-agent/agent/conversation_compression.py#L943-L1050)，wait_slice 每次动态 `max(idle - since_progress, ceiling - waited)` 的 min；而非固定 |
-| commit-phase 可中断？ | 到点就杀 | **永不中断** | **永不中断** | Hermes [L1008-L1050](file:///D:/open-source/hermes-agent/agent/conversation_compression.py#L1008-L1050) 分段继续等 + WARNING→ERROR 升级，绝不杀 |
+| Dedup 保护范围 | 保护 tail 20 条 | **全范围可做** | **B** | Hermes [L3491-L3515](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3491-L3515) 从末尾到开头遍历 Dedup，无 prune_boundary 判断；注释明确：「dedup 100% 无损，不需要保护范围」 |
+| Proactive 触发 | 到线就做 | **到线 + 跑道复位** | **B** | Hermes [L3738-L3740](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3738-L3740) 硬检查 `before < _proactive_prune_rearm_tokens → return`；Hermes 还做了 DB 持久化 rearm（L3780-L3789），Lumii Phase1 可进程内先只内存存 |
+| Reclaim Gate 阈值 | 1024 | **4096** | **4096** | Hermes 默认 4096（[L2828](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L2828)），其设计文档论证：「2~3 倍 Cache Miss 差价 × 后续 1M tokens ≈ 省下 $2，1024 抵不上」 |
+| 超时模式 | 简单墙钟 120s | **双预算 + progress-aware** | **B** | Hermes 等待循环 [L943-L1050](file:///E:/open-source-project/hermes-agent/agent/conversation_compression.py#L943-L1050)，wait_slice 每次动态 `max(idle - since_progress, ceiling - waited)` 的 min；而非固定 |
+| commit-phase 可中断？ | 到点就杀 | **永不中断** | **永不中断** | Hermes [L1008-L1050](file:///E:/open-source-project/hermes-agent/agent/conversation_compression.py#L1008-L1050) 分段继续等 + WARNING→ERROR 升级，绝不杀 |
 | idle 触发窗口 | 30s | **300s 默认 + 可配** | **300s** | Hermes 由配置 `idle_compact_after_seconds` 控制，文档明确 300s 防止「每 30s 倒杯水就触发一次」 |
-| threshold 匹配 | 精确全名匹配 | **最长子串匹配** | **B** | Hermes [resolve_model_threshold](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L1820-L1843) 用 `if key in model and len(key) > len(best_key)` 兼容日期后缀 |
-| absolute threshold_tokens 位置 | 最外层包裹 | **最末 min 限制** | **最末** | Hermes `_apply_threshold_tokens_cap` 在 ratio 计算完后再 `min(cap, window)` 覆盖（[L2736-L2748](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L2736-L2748)），保证「无论配置什么，绝不超过 200K」 |
+| threshold 匹配 | 精确全名匹配 | **最长子串匹配** | **B** | Hermes [resolve_model_threshold](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L1820-L1843) 用 `if key in model and len(key) > len(best_key)` 兼容日期后缀 |
+| absolute threshold_tokens 位置 | 最外层包裹 | **最末 min 限制** | **最末** | Hermes `_apply_threshold_tokens_cap` 在 ratio 计算完后再 `min(cap, window)` 覆盖（[L2736-L2748](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L2736-L2748)），保证「无论配置什么，绝不超过 200K」 |
 
 ---
 

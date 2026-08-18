@@ -19,7 +19,7 @@ import {
   Legend,
 } from 'recharts'
 import type { UsageBucketView } from '../../../../hooks/business/useDashboard'
-import { centsToCny, formatCostCny } from '../../../../../shared/model-pricing'
+import { formatCostYuan } from '../../../../../shared/model-pricing'
 import styles from './UsageChart.module.css'
 
 export interface UsageChartProps {
@@ -67,12 +67,12 @@ interface ChartRow {
   请求: number
   /** 人民币元，供折线 */
   花费: number
-  costCents: number
+  costYuan: number
   unpricedCalls: number
   /** 全部模型的花费明细（含本桶无调用的模型，花费记 0），供 Tooltip 展示 */
-  byModel: Array<{ model: string; costCents: number }>
+  byModel: Array<{ model: string; costYuan: number }>
   /** 动态键：`${model}::in` / `${model}::out` */
-  [modelKey: string]: number | string | Array<{ model: string; costCents: number }>
+  [modelKey: string]: number | string | Array<{ model: string; costYuan: number }>
 }
 
 interface TipPayloadItem {
@@ -106,13 +106,13 @@ function UsageTooltip({
       <div className={styles['tip-row']}>
         <i style={{ background: COLOR.cost }} />
         <span>总计</span>
-        <b>{formatCostCny(row.costCents)}</b>
+        <b>{formatCostYuan(row.costYuan)}</b>
       </div>
       {row.byModel.map((m) => (
         <div className={styles['tip-row']} key={m.model}>
           <i style={{ background: colorForModel.get(m.model) ?? '#888' }} />
           <span>{m.model}</span>
-          <b>{formatCostCny(m.costCents)}</b>
+          <b>{formatCostYuan(m.costYuan)}</b>
         </div>
       ))}
       {row.unpricedCalls > 0 ? (
@@ -157,7 +157,7 @@ export const UsageChart: React.FC<UsageChartProps> = ({ buckets, groupBy }) => {
     const cost = new Map<string, number>()
     for (const b of buckets) {
       for (const m of b.byModel) {
-        cost.set(m.model, (cost.get(m.model) ?? 0) + m.costCents)
+        cost.set(m.model, (cost.get(m.model) ?? 0) + m.costYuan)
       }
     }
     return [...cost.entries()].sort((a, b) => b[1] - a[1]).map(([m]) => m)
@@ -169,12 +169,12 @@ export const UsageChart: React.FC<UsageChartProps> = ({ buckets, groupBy }) => {
         const row: ChartRow = {
           label: labelOf(b.ts, groupBy),
           请求: b.calls,
-          花费: Math.round(centsToCny(b.costCents) * 10_000) / 10_000,
-          costCents: b.costCents,
+          花费: Math.round(b.costYuan * 10_000) / 10_000,
+          costYuan: b.costYuan,
           unpricedCalls: b.unpricedCalls,
           byModel: models
-            .map((m) => ({ model: m, costCents: b.byModel.find((x) => x.model === m)?.costCents ?? 0 }))
-            .sort((a, b2) => b2.costCents - a.costCents),
+            .map((m) => ({ model: m, costYuan: b.byModel.find((x) => x.model === m)?.costYuan ?? 0 }))
+            .sort((a, b2) => b2.costYuan - a.costYuan),
         }
         for (const m of models) {
           const s = b.byModel.find((x) => x.model === m)

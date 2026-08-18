@@ -15,9 +15,9 @@ TypeScript（strict）、Vitest、Node.js `crypto.createHash('md5')`、现有 `e
 **规格:**
 - 设计文档：`docs/design/2026-08-18-context-compression-multi-layer-engine.md`（v2.0）
 - Hermes 参考实现（精确行号，移植时须对照）：
-  - 三阶段剪枝：[context_compressor.py:L3491-L3611](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3491-L3611)
-  - Reclaim Gate + Rearm：[context_compressor.py:L3690-L3801](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3690-L3801)
-  - Cap 应用逻辑：[context_compressor.py:L2736-L2748](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L2736-L2748)
+  - 三阶段剪枝：[context_compressor.py:L3491-L3611](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3491-L3611)
+  - Reclaim Gate + Rearm：[context_compressor.py:L3690-L3801](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3690-L3801)
+  - Cap 应用逻辑：[context_compressor.py:L2736-L2748](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L2736-L2748)
 
 **范围锁：**
 本 Phase 1 仅做以下 Task 1–5。

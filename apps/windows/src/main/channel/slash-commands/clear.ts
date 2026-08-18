@@ -3,8 +3,8 @@ import type { CommandHandler, CommandContext } from '../types'
 export const clearCommand: CommandHandler = {
   description: '清空当前会话消息，保留 sessionKey',
   async execute(ctx: CommandContext): Promise<void> {
-    const { session, adapter, bridge } = ctx
-    const { sessionKey, channelUserId } = session
+    const { session, adapter, bridge, sessionManager } = ctx
+    const { sessionKey } = session
 
     // 销毁现有实例
     if (session.instanceId) {
@@ -13,6 +13,9 @@ export const clearCommand: CommandHandler = {
 
     // 清空 DB 消息
     bridge.clearConversationMessages(sessionKey)
+
+    // 清除 sessionManager 的 prompt 锁（允许新的 prompt 立即执行）
+    sessionManager?.clearLock(sessionKey)
 
     // 通知渲染进程
     bridge.notifyIncomingMessage(sessionKey, '/clear')

@@ -86,6 +86,22 @@ function categorizeTools(
 }
 
 /**
+ * 对话历史 token：只计入 user / assistant 消息，工具调用相关消息不计入。
+ */
+function categorizeMessages(
+  messages: readonly AgentMessage[],
+  acc: Map<ContextUsageCategory, number>,
+): void {
+  for (const msg of messages) {
+    // 只统计用户和助手的文本消息为对话历史
+    if (msg.role === 'user' || msg.role === 'assistant') {
+      acc.set('conversation', (acc.get('conversation') ?? 0) + estimateTokenCount([msg]))
+    }
+    // 工具调用和工具结果消息不计入对话历史（已在工具定义中统计）
+  }
+}
+
+/**
  * 构造上下文占用分类明细。返回值按 CATEGORY_ORDER 排序并过滤掉零值分类。
  */
 export function buildContextUsageBreakdown(
@@ -95,7 +111,7 @@ export function buildContextUsageBreakdown(
 
   categorizeSystemPrompt(input.systemPrompt, acc)
   categorizeTools(input.toolDefinitions, acc)
-  acc.set('conversation', estimateTokenCount(input.messages as AgentMessage[]))
+  categorizeMessages(input.messages, acc)
 
   const rawTotal = [...acc.values()].reduce((sum, n) => sum + n, 0)
   if (rawTotal <= 0) return []

@@ -45,7 +45,10 @@ export interface UsageBucketView {
   calls: number
   promptTokens: number
   completionTokens: number
-  costCents: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  /** 人民币元 */
+  costYuan: number
   unpricedCalls: number
   /** 桶内按模型细分（花费降序），堆叠图按它分色 */
   byModel: UsageModelStatView[]
@@ -57,7 +60,10 @@ export interface UsageModelStatView {
   calls: number
   promptTokens: number
   completionTokens: number
-  costCents: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  /** 人民币元 */
+  costYuan: number
   unpricedCalls: number
 }
 
@@ -66,8 +72,10 @@ export interface UsageView {
   totalCalls: number
   totalPromptTokens: number
   totalCompletionTokens: number
-  /** 已知价格部分的花费合计（美分） */
-  totalCostCents: number
+  totalCacheReadTokens: number
+  totalCacheWriteTokens: number
+  /** 已知价格部分的花费合计（人民币元） */
+  totalCostYuan: number
   /** 价格未知的调用次数，>0 时 UI 需标注「部分未计价」 */
   unpricedCalls: number
   buckets: UsageBucketView[]

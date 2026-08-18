@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import { useDashboard, type UsageRange } from '../../../../hooks/business/useDashboard'
 import { UsageChart } from '../../../DashboardPage/components/UsageChart'
-import { formatCostCny as formatCost } from '../../../../../shared/model-pricing'
+import { formatCostYuan as formatCost } from '../../../../../shared/model-pricing'
 
 /** 模型 id 去掉 provider 前缀，展示更短 */
 function shortModel(id: string): string {
@@ -61,16 +61,16 @@ export const UsagePanel: React.FC = () => {
   // 有计价样本才展示花费；全未计价时显示「—」，避免把缺价误当成 0 元
   const hasPricedSample =
     !!usage && usage.totalCalls > 0 && usage.unpricedCalls < usage.totalCalls
-  const displayCost = hasPricedSample ? usage!.totalCostCents : undefined
-  const avgCost = hasPricedSample ? usage!.totalCostCents / usage!.totalCalls : undefined
-  const peakBucket = usage?.buckets.reduce<{ costCents: number } | undefined>(
-    (max, b) => (max === undefined || b.costCents > max.costCents ? b : max),
+  const displayCost = hasPricedSample ? usage!.totalCostYuan : undefined
+  const avgCost = hasPricedSample ? usage!.totalCostYuan / usage!.totalCalls : undefined
+  const peakBucket = usage?.buckets.reduce<{ costYuan: number } | undefined>(
+    (max, b) => (max === undefined || b.costYuan > max.costYuan ? b : max),
     undefined,
   )
-  const displayPeak = hasPricedSample ? peakBucket?.costCents : undefined
+  const displayPeak = hasPricedSample ? peakBucket?.costYuan : undefined
   const displayAvgBucket =
     hasPricedSample && usage!.buckets.length > 0
-      ? usage!.totalCostCents / usage!.buckets.length
+      ? usage!.totalCostYuan / usage!.buckets.length
       : undefined
   // 已计价占比：未计价的调用没有花费数据，轨道满格才代表花费统计是完整的
   const pricedRatio =
@@ -83,7 +83,7 @@ export const UsagePanel: React.FC = () => {
   const models = usage?.byModel ?? []
   const topModels = models.slice(0, 5)
   const topCostModel = hasPricedSample
-    ? models.find((m) => m.costCents > 0)
+    ? models.find((m) => m.costYuan > 0)
     : undefined
   const topCallsModel = models.reduce<(typeof models)[number] | undefined>(
     (max, m) => (max === undefined || m.calls > max.calls ? m : max),
@@ -224,7 +224,7 @@ export const UsagePanel: React.FC = () => {
                 <>
                   {' '}
                   花费最多的是 <b>{shortModel(topCostModel.model)}</b>，约{' '}
-                  <span className={styles.cost}>{formatCost(topCostModel.costCents)}</span>。
+                  <span className={styles.cost}>{formatCost(topCostModel.costYuan)}</span>。
                 </>
               ) : null}
             </div>
@@ -246,9 +246,9 @@ export const UsagePanel: React.FC = () => {
                   </span>
                   <span className={clsx(styles.mmetric, styles['mmetric--cost'])}>
                     <b>
-                      {m.unpricedCalls === m.calls && m.costCents === 0
+                      {m.unpricedCalls === m.calls && m.costYuan === 0
                         ? '—'
-                        : formatCost(m.costCents)}
+                        : formatCost(m.costYuan)}
                     </b>
                   </span>
                 </div>

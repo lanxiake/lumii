@@ -271,6 +271,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
           bridge: this.bridge,
           acpBackendManager: this.acpBackendManager,
           bindingManager: this.bindingManager,
+          sessionManager: this.sessionManager,
           args,
         }
         const handled = await this.registry.execute(cmdCtx, prompt)

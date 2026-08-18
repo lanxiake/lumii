@@ -40,7 +40,7 @@ export const RETIRED_BUNDLED_SKILLS: readonly string[] = [
   '语音与音频/sherpa-onnx-tts',
   '语音与音频/tts-voice-synthesis',
   // —— 2026-08-15 激进瘦身 ——
-  '技能管理/skillnet',
+  // '技能管理/skillnet', // 2026-08-18 恢复：需要作为技能搜索入口
   '内容创作与发布/douyin-content-pipeline',
   '内容创作与发布/wechat-content-pipeline',
   '内容创作与发布/hotspot-publisher',

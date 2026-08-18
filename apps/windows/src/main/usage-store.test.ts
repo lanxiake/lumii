@@ -1,7 +1,8 @@
 /**
- * 本地用量存储（Task 4.3）
+ * 本地用量存储测试
  *
  * 覆盖：写入-查询闭环、时间范围过滤、分桶、以及「价格未知不计 0」这条底线。
+ * 花费口径已统一为人民币（元），字段 costYuan。
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -32,9 +33,10 @@ async function store() {
 const DAY = 86_400_000
 
 describe('usage-store', () => {
-  it('写入后能查回，token 与花费都累加', async () => {
+  it('写入后能查回，token 与花费都累加（人民币口径）', async () => {
     const { recordUsage, queryUsage } = await store()
     const now = Date.now()
+    // gpt-4o-mini：文档中 input $0.15/M、output $0.6/M，折算汇率 7.2 → ¥1.08/M 入、¥4.32/M 出
     await recordUsage({ model: 'gpt-4o-mini', promptTokens: 1000, completionTokens: 500, ts: now })
     await recordUsage({ model: 'gpt-4o-mini', promptTokens: 2000, completionTokens: 1000, ts: now })
 
@@ -42,8 +44,8 @@ describe('usage-store', () => {
     expect(r.totalCalls).toBe(2)
     expect(r.totalPromptTokens).toBe(3000)
     expect(r.totalCompletionTokens).toBe(1500)
-    // 3000/1M*15 + 1500/1M*60 = 0.045 + 0.09
-    expect(r.totalCostCents).toBeCloseTo(0.135, 4)
+    // 3000/1M * 1.08 + 1500/1M * 4.32 = 0.00324 + 0.00648 = 0.00972 元
+    expect(r.totalCostYuan).toBeCloseTo(0.00972, 6)
     expect(r.unpricedCalls).toBe(0)
   })
 
@@ -63,7 +65,7 @@ describe('usage-store', () => {
     const r = await queryUsage({ from: now - DAY, to: now + DAY, groupBy: 'day' })
     expect(r.totalPromptTokens).toBe(900)
     expect(r.unpricedCalls).toBe(1)
-    expect(r.totalCostCents).toBe(0)
+    expect(r.totalCostYuan).toBe(0)
   })
 
   it('本地模型计 0 花费，且不算「未计价」', async () => {
@@ -71,7 +73,7 @@ describe('usage-store', () => {
     const now = Date.now()
     await recordUsage({ model: 'ollama/qwen3:8b', promptTokens: 500, completionTokens: 500, ts: now })
     const r = await queryUsage({ from: now - DAY, to: now + DAY, groupBy: 'day' })
-    expect(r.totalCostCents).toBe(0)
+    expect(r.totalCostYuan).toBe(0)
     expect(r.unpricedCalls).toBe(0)
   })
 
@@ -117,6 +119,7 @@ describe('usage-store', () => {
     expect(r.buckets).toHaveLength(1)
     const byModel = r.buckets[0].byModel
     expect(byModel).toHaveLength(2)
+    // gpt-4o-mini 调用更多 token → 花费更高 → 降序排首位
     expect(byModel[0].model).toBe('gpt-4o-mini')
     expect(byModel[0].calls).toBe(2)
     expect(byModel[0].promptTokens).toBe(3000)
@@ -129,7 +132,27 @@ describe('usage-store', () => {
     const { queryUsage } = await store()
     const now = Date.now()
     const r = await queryUsage({ from: now - DAY, to: now, groupBy: 'day' })
-    expect(r).toMatchObject({ totalCalls: 0, totalCostCents: 0, unpricedCalls: 0 })
+    expect(r).toMatchObject({ totalCalls: 0, totalCostYuan: 0, unpricedCalls: 0 })
     expect(r.buckets).toEqual([])
+  })
+
+  it('cacheRead / cacheWrite token 也会参与计费（以 claude-opus-4 为例）', async () => {
+    const { recordUsage, queryUsage } = await store()
+    const now = Date.now()
+    // claude-opus-4: 入 $5 出 $25 cr $0.5 cw $6.25 → 汇率 7.2
+    // 入 ¥36/M 出 ¥180/M cr(读) ¥3.6/M cw(写) ¥45/M
+    await recordUsage({
+      model: 'claude-opus-4-8',
+      promptTokens: 1_000_000, // input 未命中 = ¥36
+      completionTokens: 500_000, // 输出 = ¥90
+      cacheReadTokens: 2_000_000, // cache 读 = 2 * ¥3.6 = ¥7.2
+      cacheWriteTokens: 0,
+      ts: now,
+    })
+    const r = await queryUsage({ from: now - DAY, to: now + DAY, groupBy: 'day' })
+    // 合计：36 + 90 + 7.2 = 133.2 元
+    expect(r.totalCostYuan).toBeCloseTo(133.2, 4)
+    expect(r.totalCacheReadTokens).toBe(2_000_000)
+    expect(r.unpricedCalls).toBe(0)
   })
 })

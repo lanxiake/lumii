@@ -19,11 +19,11 @@ TypeScript strict、Vitest、现有 `cron-scheduler.ts`（主进程已有基础�
 **规格:**
 - 设计文档：`docs/design/2026-08-18-context-compression-multi-layer-engine.md`（v2.0，§3）
 - Hermes 参考实现（精确行号，移植时须对照）：
-  - Per-Model 最长子串匹配：[context_compressor.py:L1820-L1843](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L1820-L1843)
-  - Idle 纯谓词 4 条件 AND：[turn_context.py:L368-L400](file:///D:/open-source/hermes-agent/agent/turn_context.py#L368-L400)
-  - Idle 实际触发：[turn_context.py:L782-L851](file:///D:/open-source/hermes-agent/agent/turn_context.py#L782-L851)
-  - ProgressFence 核心字段 / 方法：[conversation_compression.py:L457-L505](file:///D:/open-source/hermes-agent/agent/conversation_compression.py#L457-L505)
-  - 等待循环 + 动态 wait_slice + 续命：[conversation_compression.py:L943-L973](file:///D:/open-source/hermes-agent/agent/conversation_compression.py#L943-L973)
+  - Per-Model 最长子串匹配：[context_compressor.py:L1820-L1843](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L1820-L1843)
+  - Idle 纯谓词 4 条件 AND：[turn_context.py:L368-L400](file:///E:/open-source-project/hermes-agent/agent/turn_context.py#L368-L400)
+  - Idle 实际触发：[turn_context.py:L782-L851](file:///E:/open-source-project/hermes-agent/agent/turn_context.py#L782-L851)
+  - ProgressFence 核心字段 / 方法：[conversation_compression.py:L457-L505](file:///E:/open-source-project/hermes-agent/agent/conversation_compression.py#L457-L505)
+  - 等待循环 + 动态 wait_slice + 续命：[conversation_compression.py:L943-L973](file:///E:/open-source-project/hermes-agent/agent/conversation_compression.py#L943-L973)
 
 **范围锁：**
 本 Phase 2 仅做以下 Task 1–5。

@@ -22,10 +22,10 @@ TypeScript strict、better-sqlite3 / 现有 SQLite wrapper（项目当前 DB 方
 **规格:**
 - 设计文档：`docs/design/2026-08-18-context-compression-multi-layer-engine.md`（v2.0，§4）
 - Hermes 参考实现（精确行号）：
-  - CompressionCommitFence 完整实现（begin_commit/finish_commit/commit_in_flight/revoke_commit_admission）：[conversation_compression.py:L457-L632](file:///D:/open-source/hermes-agent/agent/conversation_compression.py#L457-L632)
-  - commit-in-flight 永不中断循环 + WARNING→ERROR 升级：[conversation_compression.py:L1008-L1054](file:///D:/open-source/hermes-agent/agent/conversation_compression.py#L1008-L1054)
-  - 失败冷却 + anti-thrash 失效保护（见 turn_context.py:L368 cooldown_active 参数）：[turn_context.py:L397-L399](file:///D:/open-source/hermes-agent/agent/turn_context.py#L397-L399)
-  - 尾部压力降级 Pass 4：[context_compressor.py:L3613-L3688](file:///D:/open-source/hermes-agent/agent/context_compressor.py#L3613-L3688)
+  - CompressionCommitFence 完整实现（begin_commit/finish_commit/commit_in_flight/revoke_commit_admission）：[conversation_compression.py:L457-L632](file:///E:/open-source-project/hermes-agent/agent/conversation_compression.py#L457-L632)
+  - commit-in-flight 永不中断循环 + WARNING→ERROR 升级：[conversation_compression.py:L1008-L1054](file:///E:/open-source-project/hermes-agent/agent/conversation_compression.py#L1008-L1054)
+  - 失败冷却 + anti-thrash 失效保护（见 turn_context.py:L368 cooldown_active 参数）：[turn_context.py:L397-L399](file:///E:/open-source-project/hermes-agent/agent/turn_context.py#L397-L399)
+  - 尾部压力降级 Pass 4：[context_compressor.py:L3613-L3688](file:///E:/open-source-project/hermes-agent/agent/context_compressor.py#L3613-L3688)
 
 **范围锁：**
 本 Phase 3 任务 1–4 为一致性兜底 MVP；Task 5（Pass 4 尾部压力降级）标「可选低优先级」，出问题时才做。

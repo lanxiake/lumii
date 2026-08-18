@@ -7,7 +7,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { useAgentRuntimeState } from '../../../hooks/business/useAgentRuntime'
-import { formatCostCny } from '../../../../shared/model-pricing'
+import { formatCostYuan } from '../../../../shared/model-pricing'
 import { sessionMetrics } from './session-metrics'
 import styles from './StatusBar.module.css'
 
@@ -49,7 +49,7 @@ export const StatusBar: React.FC = () => {
     }
   }, [])
 
-  const { upTokens, downTokens, costCents, hasPrice } = sessionMetrics(messages, modelId)
+  const { upTokens, downTokens, costYuan, hasPrice } = sessionMetrics(messages, modelId)
   const lastMetrics = [...messages].reverse().find((m) => m.streamMetrics)?.streamMetrics
 
   return (
@@ -81,7 +81,7 @@ export const StatusBar: React.FC = () => {
         <span className={styles.sep} />
         {/* 无价目表的模型只记 token 不记花费，显示「—」而不是 0 */}
         <i className={styles.item} title="按各模型公开单价本地估算">
-          <Tick>{formatCostCny(hasPrice ? costCents : undefined)}</Tick>
+          <Tick>{formatCostYuan(hasPrice ? costYuan : undefined)}</Tick>
         </i>
       </div>
     </footer>

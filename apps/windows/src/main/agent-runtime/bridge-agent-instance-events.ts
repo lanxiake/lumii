@@ -546,11 +546,14 @@ export function createAgentInstanceRuntimeEventHandler(
         }
       }
       // 落盘用量：只在服务商真给了 usage 时记，估算值不入库（否则花费统计会失真）
+      // cacheRead / cacheWrite 也一并落盘，用于计费重算（Claude、GPT 新系列 cache 独立定价）
       if (event.usage && ctx.resolvedModelId) {
         void recordUsage({
           model: ctx.resolvedModelId,
           promptTokens: event.usage.inputTokens ?? 0,
           completionTokens: event.usage.outputTokens ?? 0,
+          cacheReadTokens: event.usage.cacheRead,
+          cacheWriteTokens: event.usage.cacheWrite,
           sessionKey: ctx.rootSessionKey,
         })
       }

@@ -56,6 +56,8 @@ export interface CommandContext {
   args: string
   /** 微信会话绑定管理器（仅微信通道注入，IPC 通道为 undefined） */
   bindingManager?: WeixinSessionBindingManager
+  /** 会话管理器（用于清除 prompt 锁） */
+  sessionManager?: { clearLock: (sessionKey: string) => void }
 }
 
 /**

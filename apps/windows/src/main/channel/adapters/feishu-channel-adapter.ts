@@ -159,6 +159,7 @@ export class FeishuChannelAdapter implements IChannelAdapter {
           adapter: this,
           bridge: this.bridge,
           acpBackendManager: this.acpBackendManager,
+          sessionManager: this.sessionManager,
           args,
         }
         const handled = await this.registry.execute(cmdCtx, prompt)

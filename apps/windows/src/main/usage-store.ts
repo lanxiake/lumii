@@ -1,33 +1,38 @@
 /**
- * 本地用量与花费存储（Task 4.3）
+ * 本地用量与花费存储
  *
  * 追加写 `~/.lumii/usage/YYYY-MM.jsonl`，一行一次 LLM 调用。
  * 用 JSONL 而不是 SQLite：只有「追加 + 按时间范围全表扫」两种访问，
  * 按月分片后单文件量级很小，省掉一张表和一套迁移。
  *
- * ponytail: 查询是整月文件全读全解析，月内几十万行以内够用；
- * 真要更快再上 SQLite 或按天分片。
+ * 花费统一用人民币（元，字段 costYuan）。历史 JSONL 可能存着旧版
+ * `costCents`（美分），重算时会忽略，用当前价目表按人民币重新估算。
  */
 
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { resolveWindowsClientDataRoot } from './client-data-root'
-import { estimateCostCents } from '../shared/model-pricing'
+import { estimateCostYuan } from '../shared/model-pricing'
 
 const log = {
   warn: (...a: unknown[]) => console.warn('[UsageStore]', ...a),
   error: (...a: unknown[]) => console.error('[UsageStore]', ...a),
 }
 
-/** 一次 LLM 调用的用量记录 */
+/** 一次 LLM 调用的用量记录（落盘 JSONL 字段） */
 export interface UsageRecord {
   /** 调用完成时刻（epoch ms） */
   ts: number
   /** 模型 id，原样记录，便于事后改价重算 */
   model: string
+  /** 服务商返回的 inputTokens（不含 cacheRead/cacheWrite 的部分） */
   promptTokens: number
   completionTokens: number
-  /** 估算花费（美分）。价格未知时缺省，UI 显示「—」而不是 0 */
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
+  /** 估算花费（人民币元）。价格未知时缺省，UI 显示「—」而不是 0 */
+  costYuan?: number
+  /** 兼容旧版 JSONL 的字段（不再写入，读取时忽略） */
   costCents?: number
   sessionKey?: string
 }
@@ -47,8 +52,10 @@ export interface UsageBucket {
   calls: number
   promptTokens: number
   completionTokens: number
-  /** 桶内已知价格部分的花费合计（美分） */
-  costCents: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  /** 桶内已知价格部分的花费合计（人民币元） */
+  costYuan: number
   /** 桶内有多少次调用价格未知——有则 UI 需标注「部分未计价」 */
   unpricedCalls: number
   /** 桶内按模型细分（花费降序），堆叠图按它分色 */
@@ -61,8 +68,10 @@ export interface UsageModelStat {
   calls: number
   promptTokens: number
   completionTokens: number
-  /** 已知价格部分的花费合计（美分） */
-  costCents: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  /** 已知价格部分的花费合计（人民币元） */
+  costYuan: number
   /** 价格未知的调用次数 */
   unpricedCalls: number
 }
@@ -71,7 +80,9 @@ export interface UsageSummary {
   totalCalls: number
   totalPromptTokens: number
   totalCompletionTokens: number
-  totalCostCents: number
+  totalCacheReadTokens: number
+  totalCacheWriteTokens: number
+  totalCostYuan: number
   unpricedCalls: number
   buckets: UsageBucket[]
   /** 按模型聚合，花费降序。总结卡片用它算「花费最多的模型」等 */
@@ -110,7 +121,7 @@ function bucketStart(ts: number, groupBy: 'hour' | 'day'): number {
 }
 
 /**
- * 记录一次 LLM 调用。costCents 由模型 id 现场估算。
+ * 记录一次 LLM 调用。costYuan 由模型 id + 时间戳 + token 明细现场估算。
  *
  * 用量统计失败绝不能影响对话，因此内部吞掉所有异常只打日志。
  */
@@ -118,17 +129,30 @@ export async function recordUsage(input: {
   model: string
   promptTokens: number
   completionTokens: number
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
   sessionKey?: string
   ts?: number
 }): Promise<void> {
   const ts = input.ts ?? Date.now()
-  const costCents = estimateCostCents(input.model, input.promptTokens, input.completionTokens)
+  const costYuan = estimateCostYuan(
+    input.model,
+    {
+      inputTokens: input.promptTokens,
+      outputTokens: input.completionTokens,
+      cacheReadTokens: input.cacheReadTokens,
+      cacheWriteTokens: input.cacheWriteTokens,
+    },
+    ts,
+  )
   const record: UsageRecord = {
     ts,
     model: input.model,
     promptTokens: input.promptTokens,
     completionTokens: input.completionTokens,
-    ...(costCents !== undefined ? { costCents } : {}),
+    ...(input.cacheReadTokens ? { cacheReadTokens: input.cacheReadTokens } : {}),
+    ...(input.cacheWriteTokens ? { cacheWriteTokens: input.cacheWriteTokens } : {}),
+    ...(costYuan !== undefined ? { costYuan } : {}),
     ...(input.sessionKey ? { sessionKey: input.sessionKey } : {}),
   }
   try {
@@ -140,7 +164,7 @@ export async function recordUsage(input: {
   }
 }
 
-/** 读一个月分片；文件不存在返回空数组 */
+/** 读一个月分片；文件不存在返回空数组。兼容旧版字段（缺省值置 0） */
 async function readShard(name: string): Promise<UsageRecord[]> {
   let raw: string
   try {
@@ -153,7 +177,12 @@ async function readShard(name: string): Promise<UsageRecord[]> {
     if (!line.trim()) continue
     try {
       const rec = JSON.parse(line) as UsageRecord
-      if (typeof rec.ts === 'number' && typeof rec.model === 'string') out.push(rec)
+      if (typeof rec.ts === 'number' && typeof rec.model === 'string') {
+        // 历史记录缺省时补 0，后续重算不依赖这些字段也能跑通
+        if (typeof rec.promptTokens !== 'number') rec.promptTokens = 0
+        if (typeof rec.completionTokens !== 'number') rec.completionTokens = 0
+        out.push(rec)
+      }
     } catch {
       // 单行损坏（例如上次写入被强杀截断）跳过即可，不让整月查询失败
       log.warn(`跳过损坏的用量记录行: ${line.slice(0, 80)}`)
@@ -174,7 +203,9 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
     totalCalls: 0,
     totalPromptTokens: 0,
     totalCompletionTokens: 0,
-    totalCostCents: 0,
+    totalCacheReadTokens: 0,
+    totalCacheWriteTokens: 0,
+    totalCostYuan: 0,
     unpricedCalls: 0,
     buckets: [],
     byModel: [],
@@ -182,23 +213,38 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
 
   for (const rec of shards.flat()) {
     if (rec.ts < from || rec.ts >= to) continue
-    // 查询时按当前价目表重算：历史记录可能缺 costCents，或价目表已更新
-    const costCents = estimateCostCents(rec.model, rec.promptTokens, rec.completionTokens)
+    // 查询时按当前价目表 + 真实调用时间戳 重算：
+    // 历史记录可能缺 costYuan（或为旧版 costCents），或价目表已更新
+    const costYuan = estimateCostYuan(
+      rec.model,
+      {
+        inputTokens: rec.promptTokens,
+        outputTokens: rec.completionTokens,
+        cacheReadTokens: rec.cacheReadTokens,
+        cacheWriteTokens: rec.cacheWriteTokens,
+      },
+      rec.ts,
+    )
+
     const key = bucketStart(rec.ts, groupBy)
     const bucket = buckets.get(key) ?? {
       ts: key,
       calls: 0,
       promptTokens: 0,
       completionTokens: 0,
-      costCents: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      costYuan: 0,
       unpricedCalls: 0,
       byModel: [],
     }
     bucket.calls += 1
     bucket.promptTokens += rec.promptTokens
     bucket.completionTokens += rec.completionTokens
-    if (costCents === undefined) bucket.unpricedCalls += 1
-    else bucket.costCents += costCents
+    bucket.cacheReadTokens += rec.cacheReadTokens ?? 0
+    bucket.cacheWriteTokens += rec.cacheWriteTokens ?? 0
+    if (costYuan === undefined) bucket.unpricedCalls += 1
+    else bucket.costYuan += costYuan
     buckets.set(key, bucket)
 
     const bm = bucketModels.get(key) ?? new Map<string, UsageModelStat>()
@@ -207,14 +253,18 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
       calls: 0,
       promptTokens: 0,
       completionTokens: 0,
-      costCents: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      costYuan: 0,
       unpricedCalls: 0,
     }
     bstat.calls += 1
     bstat.promptTokens += rec.promptTokens
     bstat.completionTokens += rec.completionTokens
-    if (costCents === undefined) bstat.unpricedCalls += 1
-    else bstat.costCents += costCents
+    bstat.cacheReadTokens += rec.cacheReadTokens ?? 0
+    bstat.cacheWriteTokens += rec.cacheWriteTokens ?? 0
+    if (costYuan === undefined) bstat.unpricedCalls += 1
+    else bstat.costYuan += costYuan
     bm.set(rec.model, bstat)
     bucketModels.set(key, bm)
 
@@ -223,35 +273,41 @@ export async function queryUsage(query: UsageQuery): Promise<UsageSummary> {
       calls: 0,
       promptTokens: 0,
       completionTokens: 0,
-      costCents: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      costYuan: 0,
       unpricedCalls: 0,
     }
     stat.calls += 1
     stat.promptTokens += rec.promptTokens
     stat.completionTokens += rec.completionTokens
-    if (costCents === undefined) stat.unpricedCalls += 1
-    else stat.costCents += costCents
+    stat.cacheReadTokens += rec.cacheReadTokens ?? 0
+    stat.cacheWriteTokens += rec.cacheWriteTokens ?? 0
+    if (costYuan === undefined) stat.unpricedCalls += 1
+    else stat.costYuan += costYuan
     models.set(rec.model, stat)
 
     summary.totalCalls += 1
     summary.totalPromptTokens += rec.promptTokens
     summary.totalCompletionTokens += rec.completionTokens
-    if (costCents === undefined) summary.unpricedCalls += 1
-    else summary.totalCostCents += costCents
+    summary.totalCacheReadTokens += rec.cacheReadTokens ?? 0
+    summary.totalCacheWriteTokens += rec.cacheWriteTokens ?? 0
+    if (costYuan === undefined) summary.unpricedCalls += 1
+    else summary.totalCostYuan += costYuan
   }
 
-  const round = (c: number) => Math.round(c * 10_000) / 10_000
+  const round = (c: number) => Math.round(c * 1_000_000) / 1_000_000
   const byCostDesc = (a: UsageModelStat, b: UsageModelStat) =>
-    b.costCents - a.costCents || b.calls - a.calls
-  summary.totalCostCents = round(summary.totalCostCents)
+    b.costYuan - a.costYuan || b.calls - a.calls
+  summary.totalCostYuan = round(summary.totalCostYuan)
   summary.buckets = [...buckets.values()].sort((a, b) => a.ts - b.ts).map((b) => ({
     ...b,
     byModel: [...(bucketModels.get(b.ts)?.values() ?? [])]
-      .map((m) => ({ ...m, costCents: round(m.costCents) }))
+      .map((m) => ({ ...m, costYuan: round(m.costYuan) }))
       .sort(byCostDesc),
   }))
   summary.byModel = [...models.values()]
-    .map((m) => ({ ...m, costCents: round(m.costCents) }))
+    .map((m) => ({ ...m, costYuan: round(m.costYuan) }))
     .sort(byCostDesc)
   return summary
 }
