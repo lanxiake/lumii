@@ -14,6 +14,8 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { readMessageRole } from "../api-invariants.js";
 import { COMPACTABLE_TOOLS, DEFAULT_KEEP_RECENT_TOOL_RESULTS } from "../types.js";
+import { createHash } from "node:crypto";
+import { estimateTokenCount } from "../token-estimate.js";
 
 export const MICROCOMPACT_PLACEHOLDER =
   "[旧工具结果已清理以节省上下文空间。如需原始内容，请重新调用工具。]";
@@ -135,4 +137,323 @@ export function microcompactToolResults(
     if (!changed) return msg;
     return { ...(msg as object), content: newContent } as AgentMessage;
   });
+}
+
+/**
+ * Phase 1: Dedup 去重相同 tool 结果（无损，全范围可做含 tail）
+ *
+ * 对齐 Hermes _prune_old_tool_results Pass 1 dedup (L3491-L3515)。
+ * 从后向前遍历，最新的保留原文，老的改为去重引用。
+ *
+ * @param messages 输入消息列表
+ * @param dedupMinChars 最小字符阈值（默认 200），< 此值跳过（MD5 头可能比原文长）
+ * @returns 新数组（不改 input）
+ */
+export function dedupIdenticalToolResults(
+  messages: AgentMessage[],
+  dedupMinChars = 200,
+): AgentMessage[] {
+  const seen = new Map<string, number>(); // hash -> 最新的 index
+  const result: AgentMessage[] = [];
+
+  // 从后向前遍历，建 seen map（保证最新的那条保留原文）
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    const role = readMessageRole(msg);
+    if (role !== "toolResult") {
+      continue;
+    }
+    // 提取 content 文本（兼容新类型系统：content 是数组）
+    const content =
+      typeof msg.content === "string"
+        ? msg.content
+        : Array.isArray(msg.content)
+          ? msg.content
+              .map((b) => {
+                if (typeof b === "string") return b;
+                if (typeof b === "object" && b && "text" in b) return String(b.text ?? "");
+                return "";
+              })
+              .join("")
+          : "";
+    if (content.length < dedupMinChars) continue;
+    if (content.startsWith("[工具结果") || content.startsWith("[Duplicate")) continue;
+    const hash = createHash("md5").update(content, "utf8").digest("hex").slice(0, 12);
+    if (!seen.has(hash)) {
+      seen.set(hash, i); // 最新的 index
+    }
+  }
+
+  // 正向遍历，构造结果
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    const role = readMessageRole(msg);
+    if (role !== "toolResult") {
+      result.push(msg);
+      continue;
+    }
+    // 提取 content 文本（兼容新类型系统：content 是数组）
+    const content =
+      typeof msg.content === "string"
+        ? msg.content
+        : Array.isArray(msg.content)
+          ? msg.content
+              .map((b) => {
+                if (typeof b === "string") return b;
+                if (typeof b === "object" && b && "text" in b) return String(b.text ?? "");
+                return "";
+              })
+              .join("")
+          : "";
+    if (content.length < dedupMinChars) {
+      result.push(msg);
+      continue;
+    }
+    if (content.startsWith("[工具结果") || content.startsWith("[Duplicate")) {
+      result.push(msg);
+      continue;
+    }
+    const hash = createHash("md5").update(content, "utf8").digest("hex").slice(0, 12);
+    const newestIndex = seen.get(hash);
+    if (newestIndex === i) {
+      // 最新的，保留原文
+      result.push(msg);
+    } else {
+      // 老的，改为去重引用
+      result.push({
+        ...msg,
+        content: "[工具结果与更近期调用完全一致，已去重以节省空间]",
+      });
+    }
+  }
+  return result;
+}
+
+/**
+ * Phase 1: Truncate 截断 assistant tool_call arguments 内的长字符串
+ *
+ * 对齐 Hermes _truncate_tool_call_args_json (L3578-L3596)。
+ * 递归遍历 JSON，对长字符串值截断为「前 N + ... + 后 N」，结果仍是合法 JSON。
+ *
+ * @param messages 输入消息列表
+ * @param protectTailCount 保护尾部 N 条 assistant（默认 20）
+ * @param maxCharsPerArg 单个字符串值最大长度（默认 1500）
+ * @returns 新数组（不改 input）
+ */
+export function truncateHeavyToolCallArguments(
+  messages: AgentMessage[],
+  protectTailCount = 20,
+  maxCharsPerArg = 1500,
+): AgentMessage[] {
+  const pruneBoundary = Math.max(0, messages.length - protectTailCount);
+
+  function truncateValue(val: unknown): unknown {
+    if (typeof val === "string" && val.length > maxCharsPerArg) {
+      const halfChars = Math.floor(maxCharsPerArg / 2) - 50;
+      const head = val.slice(0, halfChars);
+      const tail = val.slice(-halfChars);
+      const omitted = val.length - maxCharsPerArg;
+      return `${head}...(已截断 ${omitted} 字符)...${tail}`;
+    }
+    if (Array.isArray(val)) {
+      return val.map(truncateValue);
+    }
+    if (val && typeof val === "object") {
+      const obj = val as Record<string, unknown>;
+      const result: Record<string, unknown> = {};
+      for (const key of Object.keys(obj)) {
+        result[key] = truncateValue(obj[key]);
+      }
+      return result;
+    }
+    return val;
+  }
+
+  return messages.map((msg, i) => {
+    const role = readMessageRole(msg);
+    if (role !== "assistant" || i >= pruneBoundary) {
+      return msg;
+    }
+    // 新类型系统：toolCall 在 content 数组中（类型为 ToolCall 的 block）
+    const content = (msg as { content?: Array<{ type?: string; [key: string]: unknown }> })
+      .content;
+    if (!Array.isArray(content)) return msg;
+
+    let changed = false;
+    const newContent = content.map((block) => {
+      if (typeof block !== "object" || !block || block.type !== "toolCall") {
+        return block;
+      }
+      const tc = block as {
+        type: "toolCall";
+        id?: string;
+        name?: string;
+        arguments?: string;
+        [key: string]: unknown;
+      };
+      if (!tc.arguments) return block;
+
+      try {
+        const parsed = JSON.parse(tc.arguments);
+        const truncated = truncateValue(parsed);
+        const newArgs = JSON.stringify(truncated);
+        if (newArgs !== tc.arguments) {
+          changed = true;
+          return { ...tc, arguments: newArgs };
+        }
+        return block;
+      } catch {
+        return block; // 解析失败，不动
+      }
+    });
+
+    if (!changed) return msg;
+    return { ...(msg as object), content: newContent } as AgentMessage;
+  });
+}
+
+/**
+ * Phase 1: Proactive Prune 总包装（三阶段剪枝 + Reclaim Gate + Rearm 跑道）
+ *
+ * 对齐 Hermes prune_tool_results_only (L3690-L3801) 完整语义。
+ * 7 道 Gate 防护：ratio/tokens/length/rearm/execute/zero-change/reclaim。
+ *
+ * @returns { messages, changed, reclaimedTokens, nextRearmTokens, passStats }
+ */
+export function proactivePrune(
+  messages: AgentMessage[],
+  opts: {
+    contextWindow: number;
+    proactivePruneRatio?: number;
+    proactivePruneMinResultChars?: number;
+    proactivePruneMinReclaimTokens?: number;
+    proactivePruneDedupMinChars?: number;
+    protectLastN?: number;
+    keepRecentToolResults?: number;
+    currentRearmTokens?: number | null;
+  },
+): {
+  messages: AgentMessage[];
+  changed: boolean;
+  reclaimedTokens: number;
+  nextRearmTokens: number | null;
+  passStats: { dedupedCount: number; summarizedCount: number; truncatedArgsCount: number };
+} {
+  const ratio = opts.proactivePruneRatio ?? 0.48;
+  const minResultChars = Math.max(200, opts.proactivePruneMinResultChars ?? 8000);
+  const minReclaimTokens = Math.max(0, opts.proactivePruneMinReclaimTokens ?? 4096);
+  const dedupMinChars = opts.proactivePruneDedupMinChars ?? 200;
+  const protectLastN = opts.protectLastN ?? 20;
+  const keepRecent = opts.keepRecentToolResults ?? 20;
+
+  // Gate 1: ratio 计算后 trigger ≤ 0 → 跳过
+  const triggerTokens = Math.floor(opts.contextWindow * ratio);
+  if (triggerTokens <= 0) {
+    return {
+      messages,
+      changed: false,
+      reclaimedTokens: 0,
+      nextRearmTokens: null,
+      passStats: { dedupedCount: 0, summarizedCount: 0, truncatedArgsCount: 0 },
+    };
+  }
+
+  // Gate 2: 当前 tokens < trigger → 跳过
+  const before = estimateTokenCount(messages);
+  if (before < triggerTokens) {
+    return {
+      messages,
+      changed: false,
+      reclaimedTokens: 0,
+      nextRearmTokens: null,
+      passStats: { dedupedCount: 0, summarizedCount: 0, truncatedArgsCount: 0 },
+    };
+  }
+
+  // Gate 3: 消息数太少（还没超出 head+tail）→ 跳过
+  if (messages.length <= protectLastN + 3) {
+    return {
+      messages,
+      changed: false,
+      reclaimedTokens: 0,
+      nextRearmTokens: null,
+      passStats: { dedupedCount: 0, summarizedCount: 0, truncatedArgsCount: 0 },
+    };
+  }
+
+  // Gate 4: ⭐ Rearm 跑道未到（连扫描都不做）
+  if (opts.currentRearmTokens != null && before < opts.currentRearmTokens) {
+    return {
+      messages,
+      changed: false,
+      reclaimedTokens: 0,
+      nextRearmTokens: null,
+      passStats: { dedupedCount: 0, summarizedCount: 0, truncatedArgsCount: 0 },
+    };
+  }
+
+  // 执行三阶段
+  // Pass 1: Dedup（全范围，无损）
+  let result = dedupIdenticalToolResults(messages, dedupMinChars);
+  const dedupedCount = result.filter(
+    (m, i) => m.content !== messages[i].content && String(m.content).includes("已去重"),
+  ).length;
+
+  // Pass 2: Summarize（仅作用于 prune_boundary 之前，复用现有 microcompactToolResults）
+  const beforeSummarize = result;
+  result = microcompactToolResults(result, {
+    keepRecentToolResults: keepRecent,
+    useSummary: true,
+  });
+  const summarizedCount = result.filter((m, i) =>
+    String(m.content).startsWith("[工具结果已归档"),
+  ).length;
+
+  // Pass 3: Truncate Arguments（仅作用于 prune_boundary 之前）
+  const beforeTruncate = result;
+  result = truncateHeavyToolCallArguments(result, protectLastN);
+  const truncatedArgsCount = result.filter(
+    (m, i) =>
+      m.toolCalls &&
+      beforeTruncate[i].toolCalls &&
+      JSON.stringify(m.toolCalls) !== JSON.stringify(beforeTruncate[i].toolCalls),
+  ).length;
+
+  // Gate 5: 三阶段 0 改动 → 跳过
+  if (dedupedCount === 0 && summarizedCount === 0 && truncatedArgsCount === 0) {
+    return {
+      messages,
+      changed: false,
+      reclaimedTokens: 0,
+      nextRearmTokens: null,
+      passStats: { dedupedCount: 0, summarizedCount: 0, truncatedArgsCount: 0 },
+    };
+  }
+
+  // 计算回收
+  const after = estimateTokenCount(result);
+  const reclaimed = Math.max(0, before - after);
+
+  // Gate 6: ⭐ Reclaim Gate 回收不足 → 返回原 input 引用
+  if (reclaimed < minReclaimTokens) {
+    return {
+      messages, // ⭐ 必须是原引用
+      changed: false,
+      reclaimedTokens: reclaimed,
+      nextRearmTokens: null,
+      passStats: { dedupedCount, summarizedCount, truncatedArgsCount },
+    };
+  }
+
+  // ⭐ 计算 Rearm 跑道（三者取 max）
+  const runway = Math.max(reclaimed, triggerTokens, minReclaimTokens);
+  const nextRearmTokens = after + runway;
+
+  return {
+    messages: result,
+    changed: true,
+    reclaimedTokens: reclaimed,
+    nextRearmTokens,
+    passStats: { dedupedCount, summarizedCount, truncatedArgsCount },
+  };
 }

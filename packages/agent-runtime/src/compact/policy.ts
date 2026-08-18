@@ -65,7 +65,22 @@ export function checkCompactionNeeded(
   config: CompactConfig,
 ): TokenEstimation {
   const totalTokens = estimateTokenCount(messages);
-  const threshold = Math.floor(config.contextWindow * config.triggerRatio);
+
+  // Phase 1: 阈值堆叠顺序（对齐 Hermes）
+  // ① percentThreshold: 原始用户配置 triggerRatio
+  let percentThreshold = config.triggerRatio;
+
+  // ② 小窗口地板：<512K 强制 ≥75%（防止小窗口过早触发）
+  if (config.contextWindow < 512_000) {
+    percentThreshold = Math.max(percentThreshold, 0.75);
+  }
+
+  // ③ 算基于比例的阈值
+  const byPercent = Math.floor(config.contextWindow * percentThreshold);
+
+  // ④ 绝对天花板：min(byPercent, cap)，最后一把闸拦下配错
+  const cap = config.thresholdTokensCap;
+  const threshold = (cap != null && cap > 0) ? Math.min(byPercent, cap) : byPercent;
 
   return {
     totalTokens,
