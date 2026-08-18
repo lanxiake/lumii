@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useContext, useEffect } from 'react'
+import React, { useState, useCallback, useContext, useEffect, useRef } from 'react'
 import clsx from 'clsx'
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
@@ -464,6 +464,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     startLine?: number
     endLine?: number
   } | null>(null)
+  const messageBubbleRef = useRef<HTMLDivElement>(null)
 
   /**
    * 为工具卡片的文件名点击提供预览回调：
@@ -1027,6 +1028,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   return (
     <ToolFilePreviewProvider value={{ onPreview: handleToolFilePreview }}>
     <div
+      ref={messageBubbleRef}
       className={clsx(
         styles.message,
         styles[message.role],
@@ -1089,6 +1091,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             isVoice={message.isVoice}
             isReplaying={replayMessageId === message.id}
             onReplay={onReplay ? () => onReplay(message.id) : undefined}
+            bubbleRef={messageBubbleRef}
           />
           </div>
         )}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import clsx from 'clsx'
+import { toPng } from 'html-to-image'
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
 import styles from './MessageActions.module.css'
 
@@ -14,14 +15,11 @@ interface MessageActionsProps {
   onEditSave: (newContent: string) => void
   onDelete: (messageId: string) => void
   onRegenerate: (messageId: string) => void
-  /** 会话流式中：禁用「重新生成」按钮 */
   sessionBusy?: boolean
-  /** 是否语音消息（显示回放按钮） */
   isVoice?: boolean
-  /** 当前消息是否正在回放 */
   isReplaying?: boolean
-  /** 触发从此消息开始的对话回放 */
   onReplay?: () => void
+  bubbleRef?: React.RefObject<HTMLDivElement>
 }
 
 const MessageActions: React.FC<MessageActionsProps> = ({
@@ -39,12 +37,13 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   isVoice,
   isReplaying,
   onReplay,
+  bubbleRef,
 }) => {
   const [editValue, setEditValue] = useState(content)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
-  /** UI：朗读进行中（显示暂停图标，点击停止）— 与合成完毕区分，直到 Web Audio 实际播完 */
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [feedback, setFeedback] = useState<'like' | 'dislike' | null>(null)
+  const [copyingImage, setCopyingImage] = useState(false)
 
   // 用于播放 TTS preview:chunk 的 AudioContext
   const audioCtxRef = useRef<AudioContext | null>(null)
@@ -79,6 +78,21 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   }
 
   const handleCopy = () => onCopy(content)
+
+  const handleCopyAsImage = async () => {
+    if (!bubbleRef?.current || copyingImage) return
+    setCopyingImage(true)
+    try {
+      const dataUrl = await toPng(bubbleRef.current, { cacheBust: true, pixelRatio: 2 })
+      const blob = await fetch(dataUrl).then((r) => r.blob())
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+    } catch (err) {
+      console.error('[MessageActions] 复制为图片失败:', err)
+    } finally {
+      setCopyingImage(false)
+    }
+  }
+
   const handleDelete = () => setIsDeleteModalOpen(true)
   const handleConfirmDelete = () => { onDelete(messageId); setIsDeleteModalOpen(false) }
   const handleCancelDelete = () => setIsDeleteModalOpen(false)
@@ -237,6 +251,20 @@ const MessageActions: React.FC<MessageActionsProps> = ({
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+      </button>
+
+      {/* 复制为图片 */}
+      <button
+        className={styles['action-btn']}
+        onClick={handleCopyAsImage}
+        disabled={copyingImage}
+        title={copyingImage ? '正在截图...' : '复制为图片'}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          <circle cx="8.5" cy="8.5" r="1.5" />
+          <polyline points="21 15 16 10 5 21" />
         </svg>
       </button>
 
