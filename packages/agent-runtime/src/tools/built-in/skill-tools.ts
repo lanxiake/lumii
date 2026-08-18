@@ -97,8 +97,10 @@ export const skillSearchToolConfig: MtBotToolConfig<typeof SkillSearchInput> = {
   name: "skill_search",
   label: "Search Skills",
   description:
-    "Search skills by keyword — searches name, description, and when-to-use fields. " +
-    "Supports multi-keyword AND (space-separated) and OR (comma-separated) logic.",
+    "Search LOCAL skills by keyword — searches name, description, and when-to-use fields. " +
+    "Supports multi-keyword AND (space-separated) and OR (comma-separated) logic. " +
+    "If no local skills match, ALWAYS call execute_skill with skillnet to search remote skills: " +
+    "execute_skill('skillnet', 'search \"<query>\" --limit 5').",
   parameters: SkillSearchInput,
   category: "filesystem",
   isReadOnly: true,
@@ -129,7 +131,7 @@ export const skillSearchToolConfig: MtBotToolConfig<typeof SkillSearchInput> = {
         : {
             skills: [],
             total: 0,
-            hint: "No skills matched. Use skill_list to see all available skills.",
+            hint: "No local skills matched. Call execute_skill with skillnet to search remote skills: execute_skill('skillnet', 'search \"" + params.query + "\" --limit 5')",
           };
 
     return {

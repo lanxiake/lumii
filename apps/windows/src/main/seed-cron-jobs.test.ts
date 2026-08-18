@@ -114,11 +114,13 @@ describe('ensureSeedCronJobsSeeded', () => {
     expect(row[COL.agentId]).toBe('assistant')
   })
 
-  it('全部预置任务默认开启', () => {
+  it('除专注提醒外，其余预置任务默认开启', () => {
     const db = createFakeDb()
     ensureSeedCronJobsSeeded(db.adapter)
     for (const [id, row] of db.jobs) {
-      expect(row[COL.enabled], `${id} 应默认开启`).toBe(1)
+      // seed-focus-check 默认关闭：每 2 小时弹一次容易刷屏，由用户按需在定时任务页打开
+      const expected = id === 'seed-focus-check' ? 0 : 1
+      expect(row[COL.enabled], `${id} 应${expected ? '默认开启' : '默认关闭'}`).toBe(expected)
     }
   })
 })
