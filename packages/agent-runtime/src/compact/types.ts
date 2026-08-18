@@ -258,6 +258,39 @@ export interface CompactConfig {
    * 未注入时压缩行为与现状一致（零回归）。
    */
   postCompactRebuild?: PostCompactRebuild;
+  /**
+   * Proactive Prune 触发比例阈值（0-1），默认 0.48
+   * 在 [proactivePruneRatio, microCompactRatio) 区间仅执行纯确定性剪枝（Dedup+Summarize+Truncate），
+   * 不调用任何 LLM，早于 MicroCompact 动手。
+   */
+  proactivePruneRatio?: number;
+  /**
+   * Proactive Summarize 阶段仅处理「单条 tool 结果字符数 >= 此值」的大消息，默认 8000
+   * 来源 Hermes proactive_prune_min_result_chars=8000，保证摘要比原文短不震荡。
+   * 下界强制 200（对齐 _PRUNE_MIN_CHARS），负数/0 用默认。
+   */
+  proactivePruneMinResultChars?: number;
+  /**
+   * Reclaim Gate：Proactive Prune 实际回收 tokens 数 < 此值则不提交，原样返回 input，
+   * 默认 4096。来源 Hermes proactive_prune_min_reclaim_tokens=4096。
+   * 防止小打小闹破坏 Prompt Cache（Cache Miss 约 2~3× 成本差价）。
+   * 0 关闭 gate（不推荐）；负数按 0。
+   */
+  proactivePruneMinReclaimTokens?: number;
+  /**
+   * Proactive Dedup 阶段最小字符阈值，默认 200
+   * 单条 tool 结果 < 200 字符不参与 MD5 去重（MD5 元数据可能比原文还长）。
+   * 来源 Hermes _PRUNE_MIN_CHARS=200（context_compressor.py:L537）。
+   */
+  proactivePruneDedupMinChars?: number;
+  /**
+   * 压缩触发阈值绝对天花板（tokens），默认 200_000
+   * 最终 threshold = min(percentBasedThreshold, thresholdTokensCap)。
+   * 无论 triggerRatio 配多大（例如 1M 窗口 0.95），最后一把闸拦下。
+   * 来源 Hermes threshold_tokens_cap（context_compressor.py:L2736-L2748）。
+   * 0/null 表示关闭（仅 ratio）。
+   */
+  thresholdTokensCap?: number;
 }
 
 /** token 估算与阈值判断结果 */
