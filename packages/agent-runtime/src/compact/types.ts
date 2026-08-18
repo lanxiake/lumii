@@ -291,6 +291,18 @@ export interface CompactConfig {
    * 0/null 表示关闭（仅 ratio）。
    */
   thresholdTokensCap?: number;
+  /**
+   * 模型名→压缩触发比例的映射（最长子串匹配，更长的 key 优先）
+   * 例：{ "claude-sonnet": 0.35, "gpt-5.6-1M": 0.60, "qwen2.5-7b": 0.70 }
+   * 小模型（<32K）建议配高比例（70%），超大模型建议配低比例（35~50%）。
+   * 对齐 Hermes resolve_model_threshold（context_compressor.py:L1820-L1843）。
+   */
+  modelThresholds?: Record<string, number>;
+  /**
+   * 当前轮次使用的模型名（每轮 prompt 前由 AgentInstance 注入）
+   * 用于 resolveModelThreshold 查表。未注入时回退全局 triggerRatio。
+   */
+  currentModelName?: string;
 }
 
 /** token 估算与阈值判断结果 */
