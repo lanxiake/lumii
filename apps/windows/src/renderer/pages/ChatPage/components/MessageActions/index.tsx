@@ -84,7 +84,13 @@ const MessageActions: React.FC<MessageActionsProps> = ({
     setCopyingImage(true)
     try {
       const dataUrl = await toPng(bubbleRef.current, { cacheBust: true, pixelRatio: 2 })
-      const blob = await fetch(dataUrl).then((r) => r.blob())
+      const blob = await (async () => {
+        const base64 = dataUrl.split(',')[1]
+        const bytes = atob(base64)
+        const arr = new Uint8Array(bytes.length)
+        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+        return new Blob([arr], { type: 'image/png' })
+      })()
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
     } catch (err) {
       console.error('[MessageActions] 复制为图片失败:', err)
