@@ -66,6 +66,10 @@ export type SummaryGeneratorFn = (
   messages: AgentMessage[],
   prompt: string,
   signal?: AbortSignal,
+  /** Phase 2 新增：流式摘要时，每收到 N 个 token 调用一次 options.onProgress() → ProgressFence.touchProgress 续命 */
+  options?: {
+    onProgress?: () => void;
+  },
 ) => Promise<string | null>;
 
 // ==================== 压缩事件信息 ====================
