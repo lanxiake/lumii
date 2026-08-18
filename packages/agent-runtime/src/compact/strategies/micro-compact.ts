@@ -135,7 +135,8 @@ export function microcompactToolResults(
       return block;
     });
     if (!changed) return msg;
-    return { ...(msg as object), content: newContent } as AgentMessage;
+    // TypeScript 类型系统过于严格，使用 any 绕过（运行时类型正确）
+    return { ...msg, content: newContent as any } as AgentMessage;
   });
 }
 
@@ -219,11 +220,13 @@ export function dedupIdenticalToolResults(
       // 最新的，保留原文
       result.push(msg);
     } else {
-      // 老的，改为去重引用
+      // 老的，改为去重引用（content 必须是数组格式）
       result.push({
         ...msg,
-        content: "[工具结果与更近期调用完全一致，已去重以节省空间]",
-      });
+        content: [
+          { type: "text" as const, text: "[工具结果与更近期调用完全一致，已去重以节省空间]" },
+        ],
+      } as AgentMessage);
     }
   }
   return result;
@@ -275,7 +278,7 @@ export function truncateHeavyToolCallArguments(
       return msg;
     }
     // 新类型系统：toolCall 在 content 数组中（类型为 ToolCall 的 block）
-    const content = (msg as { content?: Array<{ type?: string; [key: string]: unknown }> })
+    const content = (msg as unknown as { content?: Array<{ type?: string; [key: string]: unknown }> })
       .content;
     if (!Array.isArray(content)) return msg;
 
@@ -308,7 +311,8 @@ export function truncateHeavyToolCallArguments(
     });
 
     if (!changed) return msg;
-    return { ...(msg as object), content: newContent } as AgentMessage;
+    // TypeScript 类型系统过于严格，使用 any 绕过（运行时类型正确）
+    return { ...msg, content: newContent as any } as AgentMessage;
   });
 }
 
@@ -401,8 +405,7 @@ export function proactivePrune(
 
   // Pass 2: Summarize（仅作用于 prune_boundary 之前，复用现有 microcompactToolResults）
   const beforeSummarize = result;
-  result = microcompactToolResults(result, {
-    keepRecentToolResults: keepRecent,
+  result = microcompactToolResults(result, keepRecent, {
     useSummary: true,
   });
   const summarizedCount = result.filter((m, i) =>
@@ -412,11 +415,9 @@ export function proactivePrune(
   // Pass 3: Truncate Arguments（仅作用于 prune_boundary 之前）
   const beforeTruncate = result;
   result = truncateHeavyToolCallArguments(result, protectLastN);
+  // 统计变化数（通过比较 content 序列化）
   const truncatedArgsCount = result.filter(
-    (m, i) =>
-      m.toolCalls &&
-      beforeTruncate[i].toolCalls &&
-      JSON.stringify(m.toolCalls) !== JSON.stringify(beforeTruncate[i].toolCalls),
+    (m, i) => JSON.stringify(m.content) !== JSON.stringify(beforeTruncate[i].content),
   ).length;
 
   // Gate 5: 三阶段 0 改动 → 跳过
