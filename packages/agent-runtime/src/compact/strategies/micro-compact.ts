@@ -163,11 +163,18 @@ export function dedupIdenticalToolResults(
     if (role !== "toolResult") {
       continue;
     }
+    // 提取 content 文本（兼容新类型系统：content 是数组）
     const content =
       typeof msg.content === "string"
         ? msg.content
         : Array.isArray(msg.content)
-          ? msg.content.map((b) => (typeof b === "string" ? b : b.text ?? "")).join("")
+          ? msg.content
+              .map((b) => {
+                if (typeof b === "string") return b;
+                if (typeof b === "object" && b && "text" in b) return String(b.text ?? "");
+                return "";
+              })
+              .join("")
           : "";
     if (content.length < dedupMinChars) continue;
     if (content.startsWith("[工具结果") || content.startsWith("[Duplicate")) continue;
@@ -185,11 +192,18 @@ export function dedupIdenticalToolResults(
       result.push(msg);
       continue;
     }
+    // 提取 content 文本（兼容新类型系统：content 是数组）
     const content =
       typeof msg.content === "string"
         ? msg.content
         : Array.isArray(msg.content)
-          ? msg.content.map((b) => (typeof b === "string" ? b : b.text ?? "")).join("")
+          ? msg.content
+              .map((b) => {
+                if (typeof b === "string") return b;
+                if (typeof b === "object" && b && "text" in b) return String(b.text ?? "");
+                return "";
+              })
+              .join("")
           : "";
     if (content.length < dedupMinChars) {
       result.push(msg);
@@ -257,25 +271,44 @@ export function truncateHeavyToolCallArguments(
 
   return messages.map((msg, i) => {
     const role = readMessageRole(msg);
-    if (role !== "assistant" || !msg.toolCalls || i >= pruneBoundary) {
+    if (role !== "assistant" || i >= pruneBoundary) {
       return msg;
     }
-    const newToolCalls = msg.toolCalls.map((tc) => {
+    // 新类型系统：toolCall 在 content 数组中（类型为 ToolCall 的 block）
+    const content = (msg as { content?: Array<{ type?: string; [key: string]: unknown }> })
+      .content;
+    if (!Array.isArray(content)) return msg;
+
+    let changed = false;
+    const newContent = content.map((block) => {
+      if (typeof block !== "object" || !block || block.type !== "toolCall") {
+        return block;
+      }
+      const tc = block as {
+        type: "toolCall";
+        id?: string;
+        name?: string;
+        arguments?: string;
+        [key: string]: unknown;
+      };
+      if (!tc.arguments) return block;
+
       try {
-        const parsed = JSON.parse(tc.function.arguments);
+        const parsed = JSON.parse(tc.arguments);
         const truncated = truncateValue(parsed);
-        return {
-          ...tc,
-          function: {
-            ...tc.function,
-            arguments: JSON.stringify(truncated),
-          },
-        };
+        const newArgs = JSON.stringify(truncated);
+        if (newArgs !== tc.arguments) {
+          changed = true;
+          return { ...tc, arguments: newArgs };
+        }
+        return block;
       } catch {
-        return tc; // 解析失败，不动
+        return block; // 解析失败，不动
       }
     });
-    return { ...msg, toolCalls: newToolCalls };
+
+    if (!changed) return msg;
+    return { ...(msg as object), content: newContent } as AgentMessage;
   });
 }
 
