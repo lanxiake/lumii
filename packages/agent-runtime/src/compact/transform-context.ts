@@ -21,7 +21,7 @@ import { partitionMessages } from "./partition.js";
 import { checkCompactionNeeded, computeMaxEstimatedHistoryTokens, CircuitBreaker } from "./policy.js";
 import { estimateTokenCount } from "./token-estimate.js";
 import { createFallbackPlaceholder } from "./summary-message.js";
-import { microcompactToolResults } from "./strategies/micro-compact.js";
+import { microcompactToolResults, proactivePrune } from "./strategies/micro-compact.js";
 import { runSummaryStage } from "./strategies/summary-compact.js";
 import {
   iterativeDropUntilUnder,
@@ -92,6 +92,8 @@ export function createTransformContext(
   const recompactionTracker = new RecompactionTracker();
   /** 处理轮次计数（每次 transform 调用 +1，供再压缩诊断） */
   let turnCounter = 0;
+  /** Phase 1 新增：Proactive Prune Rearm 跑道状态（进程内） */
+  let proactiveRearmTokens: number | null = null;
 
   const enableMicroCompact = config.enableMicroCompact ?? true;
   const microCompactRatio = config.microCompactRatio ?? DEFAULT_MICRO_COMPACT_RATIO;
@@ -112,6 +114,29 @@ export function createTransformContext(
     const estimation = checkCompactionNeeded(working, config);
 
     if (!estimation.needsCompaction) {
+      // 【Phase 1 新增】Proactive Prune：在 [proactivePruneRatio, microCompactRatio) 区间
+      // 先动手三阶段纯确定性剪枝（Dedup + Summarize + Truncate），
+      // 不调用 LLM，早于 MicroCompact，通过 Reclaim Gate 才提交，Rearm 防抖动。
+      const proactivePruneRatio = config.proactivePruneRatio ?? 0.48;
+      const proactiveThreshold = Math.floor(config.contextWindow * proactivePruneRatio);
+      if (estimation.totalTokens >= proactiveThreshold) {
+        const pr = proactivePrune(working, {
+          contextWindow: config.contextWindow,
+          proactivePruneRatio: config.proactivePruneRatio,
+          proactivePruneMinResultChars: config.proactivePruneMinResultChars,
+          proactivePruneMinReclaimTokens: config.proactivePruneMinReclaimTokens,
+          proactivePruneDedupMinChars: config.proactivePruneDedupMinChars,
+          protectLastN: 20,
+          keepRecentToolResults: 20,
+          currentRearmTokens: proactiveRearmTokens,
+        });
+        if (pr.changed) {
+          proactiveRearmTokens = pr.nextRearmTokens!;
+          // 不调用 onCompaction（Proactive 是后台静默清理，不暴露 UI 事件）
+          return finalizeHistoryMessages(pr.messages, config, "ProactivePrune-三阶段剪枝");
+        }
+      }
+
       // 第一级 MicroCompact：在 [microCompactRatio, triggerRatio) 区间，
       // 仅清"可压缩工具"的旧结果、保留全部对话（不丢消息、不动 user/assistant/system）。
       if (enableMicroCompact) {
