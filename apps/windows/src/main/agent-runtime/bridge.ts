@@ -1334,6 +1334,34 @@ export class AgentRuntimeBridge {
     log.info('[startIdleCompactionPolling] Idle Compaction 轮询已启动（60s 间隔）')
   }
 
+  /** runtime_state 里 idle 压缩冷却时间戳的键前缀 */
+  private static readonly IDLE_COOLDOWN_KEY_PREFIX = 'compact:idle_cooldown_until:'
+
+  /** 读该会话的冷却截止时间戳（ms）；无记录返回 0 */
+  private getIdleCooldownUntil(sessionKey: string): number {
+    const raw = this._runtimeStateRepo?.get(
+      AgentRuntimeBridge.IDLE_COOLDOWN_KEY_PREFIX + sessionKey,
+    )
+    const ts = raw ? Number(raw) : 0
+    return Number.isFinite(ts) ? ts : 0
+  }
+
+  /**
+   * 写该会话的冷却截止时间戳。落 DB 而非内存，重启后冷却仍生效
+   * （否则重启会对所有历史会话立刻重试压缩）。
+   */
+  private setIdleCooldown(sessionKey: string, cooldownMs: number, reason: string): void {
+    if (cooldownMs <= 0) return
+    const until = Date.now() + cooldownMs
+    this._runtimeStateRepo?.set(
+      AgentRuntimeBridge.IDLE_COOLDOWN_KEY_PREFIX + sessionKey,
+      String(until),
+    )
+    log.info(
+      `[setIdleCooldown] 会话 ${sessionKey} 冷却 ${Math.round(cooldownMs / 60_000)}min（${reason}）`,
+    )
+  }
+
   /**
    * 扫描所有实例，对满足 idle 条件的会话发起压缩
    */
@@ -1357,7 +1385,7 @@ export class AgentRuntimeBridge {
         idleGapSeconds: idleSeconds,
         tokens: usage.usedTokens,
         floorTokens,
-        cooldownActive: false,
+        cooldownActive: now < this.getIdleCooldownUntil(sessionKey),
       })) {
         log.info(
           `[scanIdleInstances] 实例 ${instanceId} 满足 idle 条件（idle=${idleSeconds}s, used=${usage.usedTokens}, floor=${floorTokens}/${usage.contextWindow}），开始压缩`
@@ -1368,7 +1396,7 @@ export class AgentRuntimeBridge {
   }
 
   /**
-   * 对单个实例发起 idle 压缩（带碰撞检测）
+   * 对单个实例发起 idle 压缩（带碰撞检测 + 收益冷却）
    */
   private async tryIdleCompact(instanceId: string, sessionKey: string): Promise<void> {
     const instance = this.agentRegistry.get(instanceId)
@@ -1387,30 +1415,37 @@ export class AgentRuntimeBridge {
 
     try {
       const r = await this.compactor.compactContextAsync(instanceId, sessionKey, 6)
+      const reclaimed = r.conversationTokensBefore - r.conversationTokensAfter
+      const reclaimRatio =
+        r.conversationTokensBefore > 0 ? reclaimed / r.conversationTokensBefore : 0
       log.info(
-        `[tryIdleCompact] 实例 ${instanceId} idle 压缩完成（移出 ${r.messagesRemoved} 条，摘要=${r.hadSummary}）`,
+        `[tryIdleCompact] 实例 ${instanceId} idle 压缩完成（移出 ${r.messagesRemoved} 条，` +
+          `回收 ${reclaimed} tokens / ${(reclaimRatio * 100).toFixed(1)}%，摘要=${r.hadSummary}）`,
       )
-      // 压缩几乎无效时（移出 < 3 条）加长冷却，避免每 60s 白烧一次 LLM 摘要
-      const cooldownMs = r.messagesRemoved < 3 ? 30 * 60_000 : 0
-      const nextActivity = Date.now() + cooldownMs
-      // 关键：压缩后重置活动时间，否则 idle 时间持续增长导致每 60s 反复压同一会话
+      // 收益判断看 token 而非消息条数：移出很多条小消息可能仍不省 token，
+      // 移出少数几条巨型工具结果反而收益巨大。
+      if (reclaimed < 4096 || reclaimRatio < 0.1) {
+        this.setIdleCooldown(
+          sessionKey,
+          30 * 60_000,
+          `收益过低：回收 ${reclaimed} tokens / ${(reclaimRatio * 100).toFixed(1)}%`,
+        )
+      }
+      // 压缩后重置活动时间，否则 idle 时间持续增长导致每 60s 反复压同一会话
+      const now = Date.now()
       for (const [id, st] of this.instanceStates.entries()) {
         if (this.instanceToConversation.get(id) === sessionKey) {
-          st.lastActivityAt = nextActivity
+          st.lastActivityAt = now
         }
-      }
-      if (cooldownMs > 0) {
-        log.info(
-          `[tryIdleCompact] 会话 ${sessionKey} 压缩收益过低（仅移出 ${r.messagesRemoved} 条），冷却 30min`,
-        )
       }
     } catch (err) {
       log.warn(`[tryIdleCompact] 实例 ${instanceId} idle 压缩失败: ${err instanceof Error ? err.message : String(err)}`)
-      // 失败也冷却 10min，避免网络抖动时每分钟重试
-      const failCooldown = Date.now() + 10 * 60_000
+      // 失败冷却 10min，避免网络抖动时每分钟重试烧 API
+      this.setIdleCooldown(sessionKey, 10 * 60_000, '压缩失败')
+      const now = Date.now()
       for (const [id, st] of this.instanceStates.entries()) {
         if (this.instanceToConversation.get(id) === sessionKey) {
-          st.lastActivityAt = failCooldown
+          st.lastActivityAt = now
         }
       }
     } finally {

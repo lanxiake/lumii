@@ -220,6 +220,10 @@ export class BridgeContextCompactor {
     newMessageCount: number
     messagesRemoved: number
     hadSummary: boolean
+    /** 压缩前对话 token 估算（不含 MCP/工具定义） */
+    conversationTokensBefore: number
+    /** 压缩后对话 token 估算；未压缩时与 before 相同 */
+    conversationTokensAfter: number
   }> {
     const repo = this.deps.getConversationRepo()
     if (!repo) throw new Error('ConversationRepo not initialized')
@@ -235,6 +239,8 @@ export class BridgeContextCompactor {
         newMessageCount: 0,
         messagesRemoved: 0,
         hadSummary: false,
+        conversationTokensBefore: 0,
+        conversationTokensAfter: 0,
       }
     }
 
@@ -290,6 +296,8 @@ export class BridgeContextCompactor {
         newMessageCount: previousMessageCount,
         messagesRemoved: 0,
         hadSummary: false,
+        conversationTokensBefore: conversationBefore,
+        conversationTokensAfter: conversationBefore,
       }
     }
 
@@ -303,6 +311,8 @@ export class BridgeContextCompactor {
       newMessageCount: previousMessageCount,
       messagesRemoved: 0,
       hadSummary: false,
+      conversationTokensBefore: conversationBefore,
+      conversationTokensAfter: conversationBefore,
     }
     const fence = new ProgressFence()
     if (!fence.beginCommit()) {
@@ -375,6 +385,8 @@ export class BridgeContextCompactor {
       newMessageCount,
       messagesRemoved: ids.length,
       hadSummary: !!summaryText,
+      conversationTokensBefore: conversationBefore,
+      conversationTokensAfter: conversationAfter,
     }
   }
 
