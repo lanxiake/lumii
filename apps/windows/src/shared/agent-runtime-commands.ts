@@ -89,6 +89,18 @@ export interface UserAskUserRespondCommand {
   readonly declined?: boolean
 }
 
+/**
+ * 同步「自动审批」开关到主进程。
+ *
+ * 该开关原本只是渲染进程 localStorage + useEffect 自动放行，主进程无从知晓。
+ * 渠道（飞书/企微/微信）需要它来判断是否值得把审批请求文字化推给用户：
+ * 开着时审批会被立刻自动放行，推过去纯属噪音。
+ */
+export interface UserAutoApproveSetCommand {
+  readonly type: 'user:auto-approve:set'
+  readonly enabled: boolean
+}
+
 // ============================================================
 // 会话管理命令
 // ============================================================
@@ -799,6 +811,7 @@ export type AgentRuntimeCommand =
   | UserAbortCommand
   | UserPermissionRespondCommand
   | UserAskUserRespondCommand
+  | UserAutoApproveSetCommand
   | RuntimeModelCatalogSetCommand
   | SessionPreferredModelSetCommand
   | SessionThinkingPrefsSetCommand

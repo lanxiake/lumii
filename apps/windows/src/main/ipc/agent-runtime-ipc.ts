@@ -794,6 +794,13 @@ export async function handleCommand(
         return undefined
       }
 
+      // ---- 自动审批开关同步（渠道据此判断是否值得推审批消息）----
+      case 'user:auto-approve:set': {
+        log.info(`[user:auto-approve:set] enabled=${command.enabled}`)
+        bridge.setAutoApprove(command.enabled)
+        return undefined
+      }
+
       case 'runtime:modelCatalog:set': {
         bridge.setModelCatalogFromApi(command.entries)
         return { ok: true }

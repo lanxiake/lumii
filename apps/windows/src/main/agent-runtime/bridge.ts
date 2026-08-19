@@ -1297,8 +1297,27 @@ export class AgentRuntimeBridge {
     this.channelInteractionNotifier = notifier
   }
 
+  /**
+   * 渲染进程「自动审批」开关的镜像。
+   * 开启时审批请求会被渲染进程立刻放行，渠道无需再推文字审批消息（纯噪音）。
+   */
+  private autoApprove = false
+
+  setAutoApprove(enabled: boolean): void {
+    this.autoApprove = enabled
+  }
+
+  get isAutoApproveEnabled(): boolean {
+    return this.autoApprove
+  }
+
   /** 供 instance-factory / toolContext 调用：把请求转交渠道层文字化 */
   notifyChannelInteraction(interaction: ChannelInteractionRequest): boolean {
+    // 自动审批开着时审批会被立刻放行，推给渠道用户只是噪音；提问仍需真人回答
+    if (interaction.kind === 'permission' && this.autoApprove) {
+      log.info('[notifyChannelInteraction] 自动审批已开启，跳过渠道审批推送')
+      return false
+    }
     try {
       return this.channelInteractionNotifier?.(interaction) ?? false
     } catch (err) {

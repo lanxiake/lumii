@@ -894,6 +894,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     } catch {
       // ignore
     }
+    // 同步给主进程：渠道据此判断是否需要把审批文字化推给渠道用户
+    void window.electronAPI?.agentRuntime
+      ?.sendCommand?.({ type: 'user:auto-approve:set', enabled: autoApprove })
+      .catch(() => undefined)
   }, [autoApprove])
 
   useEffect(() => {

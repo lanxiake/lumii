@@ -19,6 +19,11 @@ import { newCommand } from '../slash-commands/new'
 import { resumeCommand } from '../slash-commands/resume'
 import { createHelpCommand } from '../slash-commands/help'
 import { compactCommand } from '../slash-commands/compact'
+import { stopCommand } from '../slash-commands/stop'
+import {
+  getChannelInteractionHub,
+  tryHandleChannelOutOfBand,
+} from '../channel-interaction-hub'
 import { backendCommand } from '../slash-commands/backend'
 import { createSwitchBackendCommand, lumiiCommand } from '../slash-commands/switch-backend'
 import { linkCommand, unlinkCommand } from '../slash-commands/link'
@@ -57,6 +62,8 @@ export class WeixinChannelAdapter implements IChannelAdapter {
   /** 入站时 upsert context_token，供 channel_send 伪 Push */
   private replyContextStore: WeixinReplyContextStore | null = null
 
+  private readonly interactionHub: ReturnType<typeof getChannelInteractionHub>
+
   constructor(
     private readonly weixinLoginService: WeixinLoginService,
     private readonly bridge: AgentRuntimeBridge,
@@ -66,6 +73,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     this.replyContextStore = replyContextStore ?? null
     this.contextStrategy = new StatelessContextStrategy(bridge)
     this.sessionManager = new SessionManager(bridge)
+    this.interactionHub = getChannelInteractionHub(bridge)
     this.bindingManager = new WeixinSessionBindingManager(bridge.runtimeStateRepo)
     this.bindingManager.initialize()
     this.registry = this.buildRegistry()
@@ -130,6 +138,9 @@ export class WeixinChannelAdapter implements IChannelAdapter {
   startListening(): void {
     this.weixinLoginService.on('message', (msg: WeixinNormalizedMessage) => {
       const userId = msg.channelUserId
+      // 插队路径：答复挂起的提问/审批、以及 /stop 打断，都必须绕过 userQueues。
+      // 正在运行的那一轮还占着队列，排队等于永远等不到。
+      if (this.tryHandleOutOfBand(msg)) return
       const prev = this.userQueues.get(userId) ?? Promise.resolve()
       const next = prev.then(() => this.handleMessage(msg)).catch((err) => {
         log.error(`[startListening] 消息处理失败: ${err instanceof Error ? err.message : String(err)}`)
@@ -137,6 +148,20 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       this.userQueues.set(userId, next)
     })
     log.info('[startListening] 微信消息监听已启动')
+  }
+
+  /** 插队处理提问/审批答复与 /stop（详见 tryHandleChannelOutOfBand） */
+  private tryHandleOutOfBand(msg: WeixinNormalizedMessage): boolean {
+    return tryHandleChannelOutOfBand({
+      hub: this.interactionHub,
+      bridge: this.bridge,
+      adapter: this,
+      session: this.buildSession(msg),
+      text: msg.text?.trim() ?? '',
+      sessionManager: this.sessionManager,
+      onError: (err) =>
+        log.error(`[tryHandleOutOfBand] 失败: ${err instanceof Error ? err.message : String(err)}`),
+    })
   }
 
   // ── 内部消息处理 ──────────────────────────────────────────────────────────
@@ -591,6 +616,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     registry.register('resume', resumeCommand)
     registry.register('help', createHelpCommand(registry))
     registry.register('compact', compactCommand)
+    registry.register('stop', stopCommand, ['abort'])
     registry.register('backend', backendCommand)
     // 切回主代理
     registry.register('lumii', lumiiCommand)
