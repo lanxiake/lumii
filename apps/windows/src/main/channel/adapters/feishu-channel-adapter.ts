@@ -16,10 +16,12 @@ import type {
 import { StatelessContextStrategy } from '../context-strategy/stateless-strategy'
 import { SlashCommandRegistry } from '../slash-command-registry'
 import { SessionManager } from '../session-manager'
+import { getChannelInteractionHub } from '../channel-interaction-hub'
 import { AcpBackendManager } from '../acp-backend-manager'
 import { clearCommand } from '../slash-commands/clear'
 import { createHelpCommand } from '../slash-commands/help'
 import { compactCommand } from '../slash-commands/compact'
+import { stopCommand } from '../slash-commands/stop'
 import { backendCommand } from '../slash-commands/backend'
 import { createSwitchBackendCommand, lumiiCommand } from '../slash-commands/switch-backend'
 import { getAcpRunController } from '../../coding-dev-acp-run.js'
@@ -78,6 +80,7 @@ export class FeishuChannelAdapter implements IChannelAdapter {
   private readonly registry: SlashCommandRegistry
   private readonly sessionManager: SessionManager
   private readonly acpBackendManager: AcpBackendManager
+  private readonly interactionHub: ReturnType<typeof getChannelInteractionHub>
 
   constructor(
     private readonly feishuLoginService: FeishuLoginService,
@@ -85,6 +88,7 @@ export class FeishuChannelAdapter implements IChannelAdapter {
   ) {
     this.contextStrategy = new StatelessContextStrategy(bridge)
     this.sessionManager = new SessionManager(bridge)
+    this.interactionHub = getChannelInteractionHub(bridge)
     this.acpBackendManager = new AcpBackendManager()
     this.registry = this.buildRegistry()
   }
@@ -124,6 +128,9 @@ export class FeishuChannelAdapter implements IChannelAdapter {
   startListening(): void {
     this.feishuLoginService.on('message', (msg: FeishuNormalizedMessage) => {
       const userId = msg.channelUserId
+      // 插队路径：答复挂起的提问/审批、以及 /stop 打断，都必须绕过 userQueues。
+      // 正在运行的那一轮还占着队列，排队等于永远等不到（提问在等答复，答复在等提问结束）。
+      if (this.tryHandleOutOfBand(msg)) return
       const prev = this.userQueues.get(userId) ?? Promise.resolve()
       const next = prev
         .then(() => this.handleMessage(msg))
@@ -133,6 +140,50 @@ export class FeishuChannelAdapter implements IChannelAdapter {
       this.userQueues.set(userId, next)
     })
     log.info('[startListening] 飞书消息监听已启动')
+  }
+
+  /**
+   * 插队处理：绕过 userQueues 的两类消息。
+   *
+   * 1. 挂起的提问/审批答复 —— 正在跑的那一轮正等着它，排队会死锁
+   * 2. /stop 打断 —— 目的就是终止正在跑的那一轮
+   *
+   * @returns true 表示已插队消费，调用方不要再入队
+   */
+  private tryHandleOutOfBand(msg: FeishuNormalizedMessage): boolean {
+    const text = msg.text?.trim() ?? ''
+    if (!text) return false
+    const session = this.buildSession(msg)
+    const { sessionKey } = session
+    this.interactionHub.trackSession(this, session)
+
+    if (this.interactionHub.hasPending(sessionKey)) {
+      void this.interactionHub.tryConsumeReply(sessionKey, text).catch((err) => {
+        log.error(`[tryHandleOutOfBand] 答复回填失败: ${err instanceof Error ? err.message : String(err)}`)
+      })
+      return true
+    }
+
+    if (text === '/stop' || text === '/abort') {
+      void this.handleStop(session).catch((err) => {
+        log.error(`[tryHandleOutOfBand] 打断失败: ${err instanceof Error ? err.message : String(err)}`)
+      })
+      return true
+    }
+
+    return false
+  }
+
+  /** 中断该会话正在运行的 Agent，并清掉挂起交互与 prompt 锁 */
+  private async handleStop(session: ChannelSession): Promise<void> {
+    const { sessionKey } = session
+    const aborted = this.bridge.abortSession(sessionKey)
+    this.interactionHub.clear(sessionKey)
+    this.sessionManager.clearLock(sessionKey)
+    await this.sendTextReply(
+      session,
+      aborted > 0 ? '⏹ 已打断当前任务，可以直接发新消息。' : '当前没有正在运行的任务。',
+    )
   }
 
   getActiveSessionKey(channelUserId: string): string {
@@ -176,6 +227,9 @@ export class FeishuChannelAdapter implements IChannelAdapter {
         }
         return
       }
+
+      // 刷新交互回复上下文：replyContext 里的 msgId 是一次性的，必须每轮更新
+      this.interactionHub.trackSession(this, session)
 
       // 斜杠命令之外：先回复即时回执，避免用户发完无响应产生重复发送
       await this.sendTextReply(session, CHANNEL_ACK_TEXT).catch((err) => {
@@ -339,6 +393,7 @@ export class FeishuChannelAdapter implements IChannelAdapter {
     registry.register('new', feishuNewCommand)
     registry.register('clear', clearCommand)
     registry.register('compact', compactCommand)
+    registry.register('stop', stopCommand, ['abort'])
     // ACP 后端查看/切回主代理
     registry.register('backend', backendCommand)
     registry.register('lumii', lumiiCommand)

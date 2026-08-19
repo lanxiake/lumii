@@ -28,7 +28,7 @@ export type ChannelInteraction =
       toolName: string
     }
 
-interface PendingEntry {
+export interface PendingEntry {
   interaction: ChannelInteraction
   adapter: IChannelAdapter
   session: ChannelSession

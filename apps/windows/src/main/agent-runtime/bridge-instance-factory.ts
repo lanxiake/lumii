@@ -54,6 +54,7 @@ import { createSkillHitRateHook } from './hooks/skill-hit-rate-hook'
 import { createToolUsageHook } from './hooks/tool-usage-hook'
 import type { McpStdioClient } from '@mtbot/agent-runtime'
 import type { PermissionController } from './permission-controller'
+import type { ChannelInteractionRequest } from '../channel/types'
 import type { AgentRuntimeBridgeConfig } from './bridge'
 import type { InstanceStateStore } from './bridge-instance-state'
 import { createInstanceState, type InstanceState } from './bridge-instance-state'
@@ -109,6 +110,8 @@ export interface BridgeInstanceFactoryDeps {
   sessionModelCatalog: BridgeSessionModelCatalog
   sessionThinkingPrefs: BridgeSessionThinkingPrefs
   permissionController: PermissionController
+  /** 把提问/审批文字化推给渠道用户；返回 true 表示该会话由渠道承接 */
+  notifyChannelInteraction: (interaction: ChannelInteractionRequest) => boolean
   fileMemoryHandler: FileMemoryHandler
   mcpClients: Map<string, McpStdioClient>
   getDefinitionStore: () => AgentDefinitionStore | null
@@ -394,7 +397,20 @@ export class BridgeInstanceFactory {
           instanceId: input.instanceId,
           rootSessionKey: input.rootSessionKey,
         })
-        if (!ipcSent) {
+        // 渠道会话没有弹窗，把审批文字化推给渠道用户
+        const sessionKey =
+          input.rootSessionKey ?? this.deps.instanceToConversation.get(input.instanceId)
+        const viaChannel = sessionKey
+          ? this.deps.notifyChannelInteraction({
+              kind: 'permission',
+              requestId: input.requestId,
+              sessionKey,
+              toolName: input.toolName,
+              description: input.description,
+            })
+          : false
+        // 渠道已承接时不再弹 native dialog（用户在 IM 里回复即可）
+        if (!ipcSent && !viaChannel) {
           return showNativeToolPermissionDialog({
             parent: this.deps.config.getWindow(),
             toolName: input.toolName,

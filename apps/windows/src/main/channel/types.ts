@@ -68,6 +68,33 @@ export interface CommandHandler {
   execute(ctx: CommandContext): Promise<void>
 }
 
+// ── 渠道交互（提问 / 审批文字化） ──────────────────────────────────────────────
+
+/**
+ * Agent 需要用户介入时（结构化提问 / 工具审批）向渠道层发出的请求。
+ *
+ * 桌面端走 IPC 弹窗；渠道无弹窗，由渠道层文字化推送并接收文字回复。
+ */
+export type ChannelInteractionRequest =
+  | {
+      kind: 'ask'
+      requestId: string
+      sessionKey: string
+      questions: readonly {
+        readonly question: string
+        readonly header: string
+        readonly multiSelect?: boolean
+        readonly options: readonly { readonly label: string; readonly description: string }[]
+      }[]
+    }
+  | {
+      kind: 'permission'
+      requestId: string
+      sessionKey: string
+      toolName: string
+      description?: string
+    }
+
 // ── 通道适配器 ────────────────────────────────────────────────────────────────
 
 /**

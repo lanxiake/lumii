@@ -100,6 +100,7 @@ import {
   parseTaskStatus,
 } from './bridge-utils'
 import { InstanceStateStore, createInstanceState, type InstanceState } from './bridge-instance-state'
+import type { ChannelInteractionRequest } from '../channel/types'
 import { BridgeImageServices } from './bridge-image-services'
 import { BridgeContextCompactor, createLlmSummaryGenerator } from './bridge-context-compactor'
 import { BridgeConversationManager } from './bridge-conversation-manager'
@@ -529,6 +530,18 @@ export class AgentRuntimeBridge {
           questions: input.questions,
           timeoutMs,
         })
+        // 渠道会话没有弹窗，同步把问题文字化推给渠道用户
+        const sessionKey = input.instanceId
+          ? this.instanceToConversation.get(input.instanceId)
+          : undefined
+        if (sessionKey) {
+          this.notifyChannelInteraction({
+            kind: 'ask',
+            requestId: input.requestId,
+            sessionKey,
+            questions: input.questions,
+          })
+        }
         return this.askUserQuestionController.waitForAnswer(input.requestId, timeoutMs)
       },
       executeSkill: this.config.executeSkill,
@@ -655,6 +668,7 @@ export class AgentRuntimeBridge {
     void this.mcpManager.load()
 
     this.instanceFactory = new BridgeInstanceFactory({
+      notifyChannelInteraction: (interaction) => this.notifyChannelInteraction(interaction),
       config: this.config,
       agentRegistry: this.agentRegistry,
       toolRegistry: this.toolRegistry,
@@ -1267,6 +1281,32 @@ export class AgentRuntimeBridge {
 
   waitForPermission(requestId: string, timeoutMs: number): Promise<'allow-once' | 'allow-always' | 'deny'> {
     return this.permissionController.waitForPermission(requestId, timeoutMs)
+  }
+
+  /**
+   * 渠道交互通知器：渠道层注册后，提问/审批除推 IPC 弹窗外还会文字化推给渠道用户。
+   * 返回 true 表示该会话确实由某个渠道承接（用于判断是否需要延长等待超时）。
+   */
+  private channelInteractionNotifier:
+    | ((interaction: ChannelInteractionRequest) => boolean)
+    | null = null
+
+  setChannelInteractionNotifier(
+    notifier: ((interaction: ChannelInteractionRequest) => boolean) | null,
+  ): void {
+    this.channelInteractionNotifier = notifier
+  }
+
+  /** 供 instance-factory / toolContext 调用：把请求转交渠道层文字化 */
+  notifyChannelInteraction(interaction: ChannelInteractionRequest): boolean {
+    try {
+      return this.channelInteractionNotifier?.(interaction) ?? false
+    } catch (err) {
+      log.warn(
+        `[notifyChannelInteraction] 渠道通知失败（不影响桌面弹窗）: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      return false
+    }
   }
 
   resolvePermission(requestId: string, decision: 'allow-once' | 'allow-always' | 'deny'): void {
