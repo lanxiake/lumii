@@ -11,13 +11,20 @@
  */
 
 /**
- * Progress-Aware 双预算 Fence
+ * Progress-Aware 双预算 Fence + 原子提交期（Commit Fence）
  */
 export class ProgressFence {
   private lastProgressAt = Date.now();
   private readonly startedAt = Date.now();
-  /** Phase 3 用：beginCommit() 后置 true，永不中断外层循环；Phase 2 恒 false */
-  private commitPhase = false;
+
+  /** Phase 3：私有化 commitPhase，只能通过 begin/finish 改 */
+  private _commitPhase = false;
+
+  /** Phase 3：revokeCommitAdmission 后设为 true，禁止后续 beginCommit 通过 */
+  private _admissionRevoked = false;
+
+  /** Phase 3：cancel_before_commit 赢 race 后置 true */
+  private _cancelledBeforeCommit = false;
 
   constructor(
     readonly idleTimeoutMs: number = 120_000, // 120s 无进度判死
@@ -53,6 +60,46 @@ export class ProgressFence {
     const sinceProgressMs = Date.now() - this.lastProgressAt;
     return sinceProgressMs < this.idleTimeoutMs && waitedMs < this.totalCeilingMs;
   }
+
+  /** Lock-free 读：是否有提交正在执行中 */
+  get commitInFlight(): boolean {
+    return this._commitPhase;
+  }
+
+  /**
+   * 开始原子提交期：调 DB 写入之前必须先调这个。
+   * 返回 true = 拿到入场权，可以写 DB；返回 false = 已被 cancel/revoke，不能写。
+   */
+  beginCommit(): boolean {
+    if (this._cancelledBeforeCommit || this._admissionRevoked) {
+      return false;
+    }
+    this._commitPhase = true;
+    return true;
+  }
+
+  /**
+   * 结束原子提交期：DB 写入无论成功/失败（catch 内也必须调）都必须配对调用。
+   */
+  finishCommit(): void {
+    this._commitPhase = false;
+  }
+
+  /**
+   * 撤销「未来的」提交入场权（当前正在飞的提交不受影响）。
+   * Phase2 withProgressTimeout 的任何异常 unwind 路径（finally）必须调这个，
+   * 防止 detached worker 之后再偷偷写 DB 分叉会话。
+   */
+  revokeCommitAdmission(): void {
+    this._admissionRevoked = true;
+  }
+
+  /** 取消提交（只能在 beginCommit 之前赢 race） */
+  cancelBeforeCommit(): boolean {
+    if (this._commitPhase) return false;
+    this._cancelledBeforeCommit = true;
+    return true;
+  }
 }
 
 /**
@@ -73,7 +120,7 @@ export async function withProgressTimeout<T>(
     const slice = fence.nextWaitSliceMs();
     if (slice <= 0) {
       // 到 ceiling：commitPhase=false → 超时放弃；commitPhase=true → 永不中断（Phase3 处理）
-      if (!fence["commitPhase"]) return null;
+      if (!fence.commitInFlight) return null;
       // commit phase：分段继续等（每 30s 一段，打 WARNING→ERROR 日志；Phase 3 实现升级日志）
       continue;
     }
@@ -83,7 +130,7 @@ export async function withProgressTimeout<T>(
     }
     // 时间片用完了 → 检查是否能续命
     const alive = fence.shouldKeepAlive();
-    if (!alive && !fence["commitPhase"]) {
+    if (!alive && !fence.commitInFlight) {
       return null; // 真挂了
     }
     // alive=true → 继续循环（Hermes L962-L972：打印 still streaming 日志后 continue）
