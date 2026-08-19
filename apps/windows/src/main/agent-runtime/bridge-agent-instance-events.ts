@@ -338,6 +338,9 @@ export function createAgentInstanceRuntimeEventHandler(
       cancelPendingStreamingPersist()
       markRunStart(instanceId)
       const state = instanceStates.get(instanceId)
+      if (state) {
+        state.lastActivityAt = Date.now()
+      }
       // 自愈重试时，删除上一轮的空占位行；有内容的行应 finalize 保留，供「继续」恢复历史
       const prevMsgId = state?.streamingAssistantMsgId
       const prevParts = state?.pendingParts ?? []
@@ -434,6 +437,7 @@ export function createAgentInstanceRuntimeEventHandler(
       toolCallInstanceMap.set(event.toolCallId, instanceId)
       const state = instanceStates.get(instanceId)
       if (state) {
+        state.lastActivityAt = Date.now()
         const args = (event.args ?? {}) as Record<string, unknown>
         state.toolCallArgs.set(event.toolCallId, args)
         state.pendingParts = applyAssistantPartEvent(state.pendingParts, {

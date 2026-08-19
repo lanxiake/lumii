@@ -70,6 +70,8 @@ export interface InstanceState {
   metrics: InstanceRuntimeMetrics
   /** 实例级主动调度（cron/event → prompt） */
   proactivityScheduler?: ProactivityScheduler
+  /** 最后一次活动时间戳（agent:start / tool:start / user prompt），用于 idle compaction 判断 */
+  lastActivityAt: number
 }
 
 /**
@@ -90,6 +92,7 @@ export function createInstanceState(
     skillsSnapshot: [],
     memoryGuideInjected: false,
     metrics,
+    lastActivityAt: Date.now(),
   }
 }
 

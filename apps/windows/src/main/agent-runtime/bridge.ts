@@ -46,6 +46,7 @@ import {
   estimateTextTokenCount,
   ceilTokenEstimate,
   DEFAULT_COMPACTION_TRIGGER_RATIO,
+  shouldIdleCompact,
 } from '@mtbot/agent-runtime'
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
@@ -206,6 +207,8 @@ export class AgentRuntimeBridge {
   private routerHitRateTracker: RouterHitRateTracker = new RouterHitRateTracker()
   /** onVirtualHumanSettingsChanged 取消订阅（shutdown/re-init 时防重复注册） */
   private unsubscribeVhSettings?: () => void
+  /** Idle Compaction 轮询定时器（60s 间隔） */
+  private idleCompactionTimer?: NodeJS.Timeout
 
   setWeixinMessageContext(ctx: { channelUserId: string; contextToken: string; botToken?: string; ilinkBaseUrl?: string } | null): void {
     this.promptDispatcher.setWeixinMessageContext(ctx)
@@ -272,6 +275,10 @@ export class AgentRuntimeBridge {
       nodeStreamCallbacks: this.nodeStreamCallbacks,
       setLastActiveConvId: (key) => { this.lastActiveConvId = key },
       finalizeShutdown: () => {
+        if (this.idleCompactionTimer) {
+          clearInterval(this.idleCompactionTimer)
+          this.idleCompactionTimer = undefined
+        }
         this.unsubscribeVhSettings?.()
         this.unsubscribeVhSettings = undefined
         this.localDb.close()
@@ -689,6 +696,9 @@ export class AgentRuntimeBridge {
     this.initialized = true
     log.info(`Initialized with ${this.toolRegistry.size} built-in tools (stub overrides applied)`)
     this.ipcChannel.forwardToRenderer({ type: 'runtime:ready', timestamp: Date.now() })
+
+    // 启动 Idle Compaction 轮询（60s 间隔扫描所有实例）
+    this.startIdleCompactionPolling()
   }
 
   // ── 存储统计 ──
@@ -1310,5 +1320,65 @@ export class AgentRuntimeBridge {
 
   private ensureDirectory(dir: string): void {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  }
+
+  /**
+   * 启动 Idle Compaction 轮询（60s 间隔扫描所有实例）
+   */
+  private startIdleCompactionPolling(): void {
+    this.idleCompactionTimer = setInterval(() => {
+      this.scanIdleInstances()
+    }, 60_000)
+    log.info('[startIdleCompactionPolling] Idle Compaction 轮询已启动（60s 间隔）')
+  }
+
+  /**
+   * 扫描所有实例，对满足 idle 条件的会话发起压缩
+   */
+  private scanIdleInstances(): void {
+    const now = Date.now()
+    for (const [instanceId, state] of this.instanceStates.entries()) {
+      const sessionKey = this.instanceToConversation.get(instanceId)
+      if (!sessionKey) continue
+
+      const usage = this.getSessionContextUsage(sessionKey)
+      if (!usage) continue
+
+      const idleSeconds = Math.floor((now - state.lastActivityAt) / 1000)
+
+      if (shouldIdleCompact({
+        enabled: true,
+        idleAfterSeconds: 300,
+        idleGapSeconds: idleSeconds,
+        tokens: usage.usedTokens,
+        floorTokens: usage.triggerThreshold,
+        cooldownActive: false,
+      })) {
+        log.info(
+          `[scanIdleInstances] 实例 ${instanceId} 满足 idle 条件（idle=${idleSeconds}s, used=${usage.usedTokens}, threshold=${usage.triggerThreshold}），开始压缩`
+        )
+        void this.tryIdleCompact(instanceId, sessionKey)
+      }
+    }
+  }
+
+  /**
+   * 对单个实例发起 idle 压缩（带碰撞检测）
+   */
+  private async tryIdleCompact(instanceId: string, sessionKey: string): Promise<void> {
+    const instance = this.agentRegistry.get(instanceId)
+    if (!instance) return
+
+    // 碰撞检测：正在运行或已在压缩中
+    if (instance.state === 'running' || instance.state === 'aborted') {
+      return
+    }
+
+    try {
+      await this.compactor.compactContextAsync(instanceId, sessionKey, 6)
+      log.info(`[tryIdleCompact] 实例 ${instanceId} idle 压缩完成`)
+    } catch (err) {
+      log.warn(`[tryIdleCompact] 实例 ${instanceId} idle 压缩失败: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 }

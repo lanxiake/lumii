@@ -198,6 +198,11 @@ export class BridgePromptDispatcher {
       throw new Error(`Agent instance not found: ${instanceId}`)
     }
 
+    const state = this.deps.instanceStates.get(instanceId)
+    if (state) {
+      state.lastActivityAt = Date.now()
+    }
+
     // 上一轮 abort 后 pi 循环可能尚未退出；短等空闲，避免 "already processing"
     if (instance.state === 'running' || instance.state === 'aborted') {
       try {
@@ -210,15 +215,15 @@ export class BridgePromptDispatcher {
       }
     }
     // 每轮发消息前刷新动态部分（用户记忆 + 活跃任务），确保 AI 拿到最新内容
-    const state = this.deps.instanceStates.get(instanceId)
-    let baseResult = state?.basePrompt
+    const stateForRebuild = this.deps.instanceStates.get(instanceId)
+    let baseResult = stateForRebuild?.basePrompt
 
     // 获取用户当前选择的模型 ID（用于 Runtime section 实时更新）
-    const ctx = state?.ctx
+    const ctx = stateForRebuild?.ctx
     const currentModelId = ctx ? this.resolveCurrentModelId(ctx) : undefined
 
     // 每轮都通过 rebuilder 重建基础提示词，确保 Runtime section 中的 model= 实时反映用户选择
-    const rebuilder = state?.promptRebuilder
+    const rebuilder = stateForRebuild?.promptRebuilder
     if (rebuilder) {
       try {
         // ─── Pre-LLM Router 调用（每轮） ──────────────────────────
@@ -227,7 +232,7 @@ export class BridgePromptDispatcher {
         if (this.deps.routerService) {
           try {
             const [allSkills, allAgents] = await Promise.all([
-              this.deps.getSkillsSnapshot?.() ?? Promise.resolve(state?.skillsSnapshot ?? []),
+              this.deps.getSkillsSnapshot?.() ?? Promise.resolve(stateForRebuild?.skillsSnapshot ?? []),
               this.deps.getCustomAgentsSnapshot?.() ?? Promise.resolve([] as readonly CustomAgentInfo[]),
             ])
             const conversationIdForRouter = this.deps.instanceToConversation.get(instanceId)

@@ -45,6 +45,12 @@ export {
 export { microcompactToolResults } from "./strategies/micro-compact.js";
 export { resolveManualCompactKeepCount } from "./policy.js";
 
+// === Idle Compaction（Phase 2）===
+export { shouldIdleCompact } from "./idle-trigger.js";
+
+// === Progress Fence（Phase 2）===
+export { ProgressFence, withProgressTimeout } from "./progress-fence.js";
+
 // === 提示词（供宿主自定义摘要时复用） ===
 export {
   buildCompactSummaryPrompt,
