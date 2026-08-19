@@ -209,6 +209,8 @@ export class AgentRuntimeBridge {
   private unsubscribeVhSettings?: () => void
   /** Idle Compaction 轮询定时器（60s 间隔） */
   private idleCompactionTimer?: NodeJS.Timeout
+  /** 正在 idle 压缩中的 sessionKey（同会话可能有多个实例，需按会话去重） */
+  private readonly idleCompactingSessions = new Set<string>()
 
   setWeixinMessageContext(ctx: { channelUserId: string; contextToken: string; botToken?: string; ilinkBaseUrl?: string } | null): void {
     this.promptDispatcher.setWeixinMessageContext(ctx)
@@ -1346,16 +1348,19 @@ export class AgentRuntimeBridge {
 
       const idleSeconds = Math.floor((now - state.lastActivityAt) / 1000)
 
+      // usage.triggerThreshold 是比率（如 0.78），需换算成绝对 token 数
+      const floorTokens = Math.floor(usage.contextWindow * usage.triggerThreshold)
+
       if (shouldIdleCompact({
         enabled: true,
         idleAfterSeconds: 300,
         idleGapSeconds: idleSeconds,
         tokens: usage.usedTokens,
-        floorTokens: usage.triggerThreshold,
+        floorTokens,
         cooldownActive: false,
       })) {
         log.info(
-          `[scanIdleInstances] 实例 ${instanceId} 满足 idle 条件（idle=${idleSeconds}s, used=${usage.usedTokens}, threshold=${usage.triggerThreshold}），开始压缩`
+          `[scanIdleInstances] 实例 ${instanceId} 满足 idle 条件（idle=${idleSeconds}s, used=${usage.usedTokens}, floor=${floorTokens}/${usage.contextWindow}），开始压缩`
         )
         void this.tryIdleCompact(instanceId, sessionKey)
       }
@@ -1374,11 +1379,42 @@ export class AgentRuntimeBridge {
       return
     }
 
+    // 同会话去重：一个会话可能挂多个实例（主 + 子 Agent），只允许一个在压
+    if (this.idleCompactingSessions.has(sessionKey)) {
+      return
+    }
+    this.idleCompactingSessions.add(sessionKey)
+
     try {
-      await this.compactor.compactContextAsync(instanceId, sessionKey, 6)
-      log.info(`[tryIdleCompact] 实例 ${instanceId} idle 压缩完成`)
+      const r = await this.compactor.compactContextAsync(instanceId, sessionKey, 6)
+      log.info(
+        `[tryIdleCompact] 实例 ${instanceId} idle 压缩完成（移出 ${r.messagesRemoved} 条，摘要=${r.hadSummary}）`,
+      )
+      // 压缩几乎无效时（移出 < 3 条）加长冷却，避免每 60s 白烧一次 LLM 摘要
+      const cooldownMs = r.messagesRemoved < 3 ? 30 * 60_000 : 0
+      const nextActivity = Date.now() + cooldownMs
+      // 关键：压缩后重置活动时间，否则 idle 时间持续增长导致每 60s 反复压同一会话
+      for (const [id, st] of this.instanceStates.entries()) {
+        if (this.instanceToConversation.get(id) === sessionKey) {
+          st.lastActivityAt = nextActivity
+        }
+      }
+      if (cooldownMs > 0) {
+        log.info(
+          `[tryIdleCompact] 会话 ${sessionKey} 压缩收益过低（仅移出 ${r.messagesRemoved} 条），冷却 30min`,
+        )
+      }
     } catch (err) {
       log.warn(`[tryIdleCompact] 实例 ${instanceId} idle 压缩失败: ${err instanceof Error ? err.message : String(err)}`)
+      // 失败也冷却 10min，避免网络抖动时每分钟重试
+      const failCooldown = Date.now() + 10 * 60_000
+      for (const [id, st] of this.instanceStates.entries()) {
+        if (this.instanceToConversation.get(id) === sessionKey) {
+          st.lastActivityAt = failCooldown
+        }
+      }
+    } finally {
+      this.idleCompactingSessions.delete(sessionKey)
     }
   }
 }

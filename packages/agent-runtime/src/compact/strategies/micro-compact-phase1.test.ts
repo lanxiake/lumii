@@ -14,9 +14,18 @@ describe("dedupIdenticalToolResults - Phase 1", () => {
     ];
     const result = dedupIdenticalToolResults(messages, 200);
     // 预期：id=3, id=4 中最新的 id=4 保留原文，id=1/id=3 改为去重引用
-    expect(result[0].content).toMatch(/工具结果与更近期调用完全一致/);
-    expect(result[2].content).toMatch(/工具结果与更近期调用完全一致/);
-    expect(result[3].content).toBe(content); // 最新保留
+    // 去重消息的 content 是数组格式：[{ type: "text", text: "..." }]
+    const content0 = Array.isArray(result[0].content)
+      ? result[0].content[0]?.text ?? ""
+      : String(result[0].content);
+    expect(content0).toMatch(/工具结果与更近期调用完全一致/);
+
+    const content2 = Array.isArray(result[2].content)
+      ? result[2].content[0]?.text ?? ""
+      : String(result[2].content);
+    expect(content2).toMatch(/工具结果与更近期调用完全一致/);
+
+    expect(result[3].content).toBe(content); // 最新保留（字符串）
     expect(result[4].content).toBe("different"); // 不同的不动
   });
 

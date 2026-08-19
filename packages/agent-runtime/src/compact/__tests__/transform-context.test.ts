@@ -308,6 +308,9 @@ describe("createTransformContext — MicroCompact 第一级触发", () => {
       contextWindow: 20_000,
       triggerRatio: 0.9, // 全摘要阈值 18000
       microCompactRatio: 0.7, // micro 阈值 14000
+      // Phase 1 起 Proactive Prune 默认 0.48（阈值 9600）会抢在 MicroCompact 前面回收，
+      // 本用例只验证 MicroCompact 分支，故把 Proactive 阈值顶到 micro 之上使其不参与。
+      proactivePruneRatio: 0.95,
       keepRecentTurns: 4,
       keepRecentToolResults: 8,
       outputReserveTokens: 500,

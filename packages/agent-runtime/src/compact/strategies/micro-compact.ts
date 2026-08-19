@@ -277,6 +277,36 @@ export function truncateHeavyToolCallArguments(
     if (role !== "assistant" || i >= pruneBoundary) {
       return msg;
     }
+
+    // 兼容新旧类型系统：
+    // 新版：toolCall 在 content 数组中（类型为 ToolCall 的 block）
+    // 旧版：toolCalls 独立字段
+    const legacyToolCalls = (msg as any).toolCalls as
+      | Array<{ id: string; function: { name: string; arguments: string } }>
+      | undefined;
+
+    if (legacyToolCalls && legacyToolCalls.length > 0) {
+      // 旧类型系统路径
+      let changed = false;
+      const newToolCalls = legacyToolCalls.map((tc) => {
+        if (!tc.function?.arguments) return tc;
+        try {
+          const parsed = JSON.parse(tc.function.arguments);
+          const truncated = truncateValue(parsed);
+          const newArgs = JSON.stringify(truncated);
+          if (newArgs !== tc.function.arguments) {
+            changed = true;
+            return { ...tc, function: { ...tc.function, arguments: newArgs } };
+          }
+          return tc;
+        } catch {
+          return tc;
+        }
+      });
+      if (!changed) return msg;
+      return { ...msg, toolCalls: newToolCalls } as AgentMessage;
+    }
+
     // 新类型系统：toolCall 在 content 数组中（类型为 ToolCall 的 block）
     const content = (msg as unknown as { content?: Array<{ type?: string; [key: string]: unknown }> })
       .content;
@@ -399,8 +429,17 @@ export function proactivePrune(
   // 执行三阶段
   // Pass 1: Dedup（全范围，无损）
   let result = dedupIdenticalToolResults(messages, dedupMinChars);
+  const extractText = (c: unknown): string => {
+    if (typeof c === "string") return c;
+    if (Array.isArray(c)) {
+      return c
+        .map((b) => (typeof b === "object" && b && "text" in b ? String((b as any).text ?? "") : ""))
+        .join("");
+    }
+    return "";
+  };
   const dedupedCount = result.filter(
-    (m, i) => m.content !== messages[i].content && String(m.content).includes("已去重"),
+    (m, i) => m.content !== messages[i].content && extractText(m.content).includes("已去重"),
   ).length;
 
   // Pass 2: Summarize（仅作用于 prune_boundary 之前，复用现有 microcompactToolResults）
@@ -408,8 +447,8 @@ export function proactivePrune(
   result = microcompactToolResults(result, keepRecent, {
     useSummary: true,
   });
-  const summarizedCount = result.filter((m, i) =>
-    String(m.content).startsWith("[工具结果已归档"),
+  const summarizedCount = result.filter((m) =>
+    extractText(m.content).startsWith("[工具结果已归档"),
   ).length;
 
   // Pass 3: Truncate Arguments（仅作用于 prune_boundary 之前）

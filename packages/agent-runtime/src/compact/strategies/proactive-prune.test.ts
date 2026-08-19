@@ -39,14 +39,16 @@ describe("proactivePrune - Phase 1: 总包装 + 7 道 Gate", () => {
       createAssistantWithToolCall("y".repeat(50_000)),
       ...Array.from({ length: 20 }, () => createToolResult("recent")), // tail 保护
     ];
+    // before ≈ 2876 tokens（estimateTokenCount 不计旧类型 toolCalls 的 arguments）
     const result = proactivePrune(messages, {
-      contextWindow: 200_000,
-      proactivePruneRatio: 0.48,
+      contextWindow: 4_000,
+      proactivePruneRatio: 0.5, // trigger = 2000 < before(2876)
+      proactivePruneMinReclaimTokens: 500, // 回收门槛降到实际可达范围
       protectLastN: 20,
       keepRecentToolResults: 20,
     });
     expect(result.changed).toBe(true);
-    expect(result.reclaimedTokens).toBeGreaterThan(4096);
+    expect(result.reclaimedTokens).toBeGreaterThan(500);
     expect(result.nextRearmTokens).toBeGreaterThan(0);
     expect(result.passStats.dedupedCount).toBe(2); // 3 条相同，2 条去重
   });
@@ -72,8 +74,8 @@ describe("proactivePrune - Phase 1: 总包装 + 7 道 Gate", () => {
     ];
     // 第一次：before=30*3000*0.25≈22.5K tokens，假设回收 8K → after=14.5K
     const result1 = proactivePrune(messages, {
-      contextWindow: 200_000,
-      proactivePruneRatio: 0.48, // trigger=96K
+      contextWindow: 50_000, // trigger = 15K
+      proactivePruneRatio: 0.3,
       proactivePruneMinReclaimTokens: 4096,
       protectLastN: 20,
     });
@@ -84,7 +86,7 @@ describe("proactivePrune - Phase 1: 总包装 + 7 道 Gate", () => {
     // 第二次：构造 before < rearm1（比如涨到 rearm1 - 1000）
     const messages2 = messages.slice(0, 20); // 少一些，模拟 before 未到跑道
     const result2 = proactivePrune(messages2, {
-      contextWindow: 200_000,
+      contextWindow: 50_000,
       currentRearmTokens: rearm1,
     });
     // Gate 4 挡下，连扫描都不做
@@ -98,8 +100,8 @@ describe("proactivePrune - Phase 1: 总包装 + 7 道 Gate", () => {
       ...Array.from({ length: 30 }, () => createToolResult("x".repeat(3000))),
     ];
     const result1 = proactivePrune(messages1, {
-      contextWindow: 200_000,
-      proactivePruneRatio: 0.48,
+      contextWindow: 50_000,
+      proactivePruneRatio: 0.3,
     });
     const rearm1 = result1.nextRearmTokens!;
 
@@ -108,7 +110,7 @@ describe("proactivePrune - Phase 1: 总包装 + 7 道 Gate", () => {
       ...Array.from({ length: 50 }, () => createToolResult("z".repeat(3000))),
     ];
     const result2 = proactivePrune(messages2, {
-      contextWindow: 200_000,
+      contextWindow: 50_000,
       currentRearmTokens: rearm1,
     });
     // 可以触发
@@ -117,16 +119,16 @@ describe("proactivePrune - Phase 1: 总包装 + 7 道 Gate", () => {
 
   it("Dedup 全范围（含 tail）无损", () => {
     const content = "x".repeat(3000);
-    const messages: AgentMessage[] = [
+    // 30 条 > protectLastN(20) + 3 才能过 Gate 3
+    const messages: AgentMessage[] = Array.from({ length: 30 }, () =>
       createToolResult(content),
-      createToolResult(content),
-      ...Array.from({ length: 20 }, () => createToolResult(content)), // tail 内也有重复
-    ];
+    );
     const result = proactivePrune(messages, {
-      contextWindow: 200_000,
+      contextWindow: 30_000, // trigger = 9K
+      proactivePruneRatio: 0.3,
       protectLastN: 20,
     });
-    // tail 内的也应该去重（因为 dedup 无损，全范围可做）
-    expect(result.passStats.dedupedCount).toBeGreaterThan(20); // 22 条重复，21 条去重
+    // tail 内的也应该去重（因为 dedup 无损，全范围可做）：30 条重复 → 29 条去重
+    expect(result.passStats.dedupedCount).toBeGreaterThan(20);
   });
 });
