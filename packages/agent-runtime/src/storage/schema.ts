@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 /**
  * V1 DDL — 初始 schema
@@ -361,6 +361,21 @@ ALTER TABLE messages ADD COLUMN compacted_at TEXT;
 CREATE INDEX IF NOT EXISTS idx_messages_conv_active_ts
   ON messages (conversation_id, timestamp ASC)
   WHERE compacted_at IS NULL;
+`,
+  ],
+  // V13: 工具累计使用统计（替代原 JSON 文件 tool-usage.json，避免升级/重启/迁移丢失）
+  //
+  // 工具名做主键，含累计调用次数、失败次数、最后使用时间戳（epoch ms）。
+  // 启动时读入内存 Map，debounce 2s UPSERT，退出前强制 flush。
+  [
+    13,
+    `
+CREATE TABLE IF NOT EXISTS tool_usage_stats (
+  tool_name    TEXT PRIMARY KEY,
+  count        INTEGER NOT NULL DEFAULT 0,
+  error_count  INTEGER NOT NULL DEFAULT 0,
+  last_used_at INTEGER   -- epoch ms，NULL 表示未用过
+);
 `,
   ],
 ] as const;

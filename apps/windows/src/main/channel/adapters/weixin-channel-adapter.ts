@@ -25,6 +25,10 @@ import { linkCommand, unlinkCommand } from '../slash-commands/link'
 import { runCodingDevAcpPrompt } from '../../coding-dev-backends-stub/run-coding-dev-acp-prompt.js'
 import { resolveAcpTimeoutMs } from '../../coding-dev-backends-stub/acp-config.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
+import {
+  CHANNEL_ACK_TEXT,
+  buildChannelErrorMessage,
+} from '../channel-error-helper'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WeixinChannelAdapter]', ...args),
@@ -165,12 +169,27 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       // 先清除可能存在的历史缓存（避免旧媒体附件混入语音消息）
       const session = this.buildSession(msg)
       this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`)
+
+      // 语音转录：先回复即时回执（有转录内容说明，与其他路径一致）
+      await this.sendTextReply(session, CHANNEL_ACK_TEXT).catch((err) => {
+        log.warn(`[handleMessage] 发送语音回执失败: ${err instanceof Error ? err.message : String(err)}`)
+      })
+
       this.bridge.notifyIncomingMessage(session.sessionKey, voiceTranscript)
       this.bridge.notifyNavigateToSession(session.sessionKey)
 
       const currentBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
       if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
-        await this.handleAcpPrompt(msg, session, voiceTranscript, currentBackend)
+        try {
+          await this.handleAcpPrompt(msg, session, voiceTranscript, currentBackend)
+        } catch (err) {
+          log.error(`[handleMessage] 语音转录 ACP 异常: ${err instanceof Error ? err.message : String(err)}`)
+          try {
+            await this.sendTextReply(session, buildChannelErrorMessage(err))
+          } catch (replyErr) {
+            log.warn(`[handleMessage] 发送语音转录错误回传失败: ${replyErr instanceof Error ? replyErr.message : String(replyErr)}`)
+          }
+        }
         return
       }
 
@@ -206,28 +225,37 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       }
 
       try {
-        await this.sessionManager.prompt({
-          instanceId,
-          sessionKey: session.sessionKey,
-          message: voiceTranscript,
-          strategy: this.contextStrategy,
-          adapter: this,
-          session: activeSession,
-        })
-      } finally {
-        this.bridge.unregisterNodeStreamCallback(instanceId)
-        this.bridge.setWeixinMessageContext(null)
-      }
-
-      const replyText = finalTexts.join('\n').trim()
-      log.info(`[handleMessage] 语音转录 Agent 处理完成，回复长度=${replyText.length}`)
-      const sentViaTool = this.bridge.getWeixinMessageSentViaTool()
-      if (!replyText || replyText === 'NO_REPLY') {
-        if (sentViaTool) {
-          log.info(`[handleMessage] 本轮已通过 message 工具发送，跳过空/NO_REPLY 文本回复`)
+        try {
+          await this.sessionManager.prompt({
+            instanceId,
+            sessionKey: session.sessionKey,
+            message: voiceTranscript,
+            strategy: this.contextStrategy,
+            adapter: this,
+            session: activeSession,
+          })
+        } finally {
+          this.bridge.unregisterNodeStreamCallback(instanceId)
+          this.bridge.setWeixinMessageContext(null)
         }
-      } else {
-        await this.sendTextReply(activeSession, replyText)
+
+        const replyText = finalTexts.join('\n').trim()
+        log.info(`[handleMessage] 语音转录 Agent 处理完成，回复长度=${replyText.length}`)
+        const sentViaTool = this.bridge.getWeixinMessageSentViaTool()
+        if (!replyText || replyText === 'NO_REPLY') {
+          if (sentViaTool) {
+            log.info(`[handleMessage] 本轮已通过 message 工具发送，跳过空/NO_REPLY 文本回复`)
+          }
+        } else {
+          await this.sendTextReply(activeSession, replyText)
+        }
+      } catch (err) {
+        log.error(`[handleMessage] 语音转录 Agent 异常: ${err instanceof Error ? err.message : String(err)}`)
+        try {
+          await this.sendTextReply(session, buildChannelErrorMessage(err))
+        } catch (replyErr) {
+          log.warn(`[handleMessage] 发送语音转录错误回传失败: ${replyErr instanceof Error ? replyErr.message : String(replyErr)}`)
+        }
       }
       return
     }
@@ -283,6 +311,11 @@ export class WeixinChannelAdapter implements IChannelAdapter {
         return
       }
 
+      // 非斜杠命令：先回复即时回执，避免用户发完无响应产生重复发送
+      await this.sendTextReply(session, CHANNEL_ACK_TEXT).catch((err) => {
+        log.warn(`[handleMessage] 发送即时回执失败: ${err instanceof Error ? err.message : String(err)}`)
+      })
+
       // 普通消息：推送到渲染进程
       this.bridge.notifyIncomingMessage(session.sessionKey, prompt)
       this.bridge.notifyNavigateToSession(session.sessionKey)
@@ -290,7 +323,16 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       // 检查当前后端：非主代理走 ACP 子进程路径
       const currentBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
       if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
-        await this.handleAcpPrompt(msg, session, prompt, currentBackend)
+        try {
+          await this.handleAcpPrompt(msg, session, prompt, currentBackend)
+        } catch (err) {
+          log.error(`[handleMessage] ACP 处理异常: ${err instanceof Error ? err.message : String(err)}`)
+          try {
+            await this.sendTextReply(session, buildChannelErrorMessage(err))
+          } catch (replyErr) {
+            log.warn(`[handleMessage] 发送 ACP 错误回传失败: ${replyErr instanceof Error ? replyErr.message : String(replyErr)}`)
+          }
+        }
         return
       }
 
@@ -358,6 +400,20 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       }
     } catch (err) {
       log.error(`[handleMessage] Agent 处理异常: ${err instanceof Error ? err.message : String(err)}`)
+      try {
+        const session = (() => {
+          try {
+            return this.buildSession(msg)
+          } catch {
+            return null
+          }
+        })()
+        if (session) {
+          await this.sendTextReply(session, buildChannelErrorMessage(err))
+        }
+      } catch (replyErr) {
+        log.warn(`[handleMessage] 发送错误回传失败: ${replyErr instanceof Error ? replyErr.message : String(replyErr)}`)
+      }
     }
   }
 

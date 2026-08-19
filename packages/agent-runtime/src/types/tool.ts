@@ -123,6 +123,13 @@ export interface ToolExecutionContext {
     error?: string;
     executionTimeMs: number;
   }>;
+
+  /**
+   * 可选能力：skill_invoke 工具加载某技能成功（读出 SKILL.md）后触发，
+   * 用于宿主层累计技能执行次数（写入 skillStore 的 executionCount / lastExecutedAt）。
+   * 平台层未注入时 skill_invoke 静默跳过，不影响正常运行。
+   */
+  recordSkillExecution?: (skillIdOrName: string) => Promise<void> | void;
 }
 
 /**

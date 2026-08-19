@@ -487,6 +487,22 @@ export class LocalSkillStore {
   }
 
   /**
+   * 兼容查找：先按 id 精确匹配，找不到再按 name（不区分大小写）匹配，
+   * 返回找到的 skillId；都找不到返回 null。
+   *
+   * 用于 skill_invoke 工具只传了 name 场景（通用层 fallback），
+   * 避免只传 name 时统计永远落不到正确条目上。
+   */
+  resolveSkillId(skillIdOrName: string): string | null {
+    if (!this.index?.skills) return null
+    const byId = this.index.skills.find((s) => s.id === skillIdOrName)
+    if (byId) return byId.id
+    const lower = skillIdOrName.toLowerCase()
+    const byName = this.index.skills.find((s) => s.name.toLowerCase() === lower)
+    return byName ? byName.id : null
+  }
+
+  /**
    * 批量更新技能激活范围（系统自动调用，用户无感知）。
    * 接收本轮所有技能的 delta Map，一次性更新并写磁盘一次（修复 #4 多次写磁盘）。
    *

@@ -1047,6 +1047,19 @@ async function initAgentRuntime(): Promise<void> {
         executionTimeMs: result.executionTimeMs,
       }
     },
+    /** skill_invoke 成功加载 SKILL.md 后回调：累计技能使用次数 */
+    recordSkillExecution: async (skillIdOrName: string) => {
+      if (!skillRuntime) return
+      const store = skillRuntime.getSkillStore()
+      if (!store) return
+      const skillId = store.resolveSkillId(skillIdOrName)
+      if (!skillId) return
+      try {
+        await store.recordExecution(skillId)
+      } catch (err) {
+        log.warn(`[recordSkillExecution] 更新技能统计失败: skill=${skillIdOrName} err=${err instanceof Error ? err.message : String(err)}`)
+      }
+    },
     onConversationEnd: (convId: string, assistantText: string) => {
       void (async () => {
         try {

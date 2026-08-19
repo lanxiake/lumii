@@ -15,6 +15,10 @@ import { AcpBackendManager } from '../acp-backend-manager'
 import { clearCommand } from '../slash-commands/clear'
 import { createHelpCommand } from '../slash-commands/help'
 import { compactCommand } from '../slash-commands/compact'
+import {
+  CHANNEL_ACK_TEXT,
+  buildChannelErrorMessage,
+} from '../channel-error-helper'
 
 /**
  * 企微专用 /new：新建 wecom: 前缀会话。
@@ -171,6 +175,11 @@ export class WecomChannelAdapter implements IChannelAdapter {
         return
       }
 
+      // 斜杠命令之外：先回复即时回执，避免用户发完无响应产生重复发送
+      await this.sendTextReply(session, CHANNEL_ACK_TEXT).catch((err) => {
+        log.warn(`[handleMessage] 发送即时回执失败: ${err instanceof Error ? err.message : String(err)}`)
+      })
+
       this.bridge.notifyIncomingMessage(session.sessionKey, prompt)
       this.bridge.notifyNavigateToSession(session.sessionKey)
 
@@ -214,6 +223,11 @@ export class WecomChannelAdapter implements IChannelAdapter {
       }
     } catch (err) {
       log.error(`[handleMessage] 异常: ${err instanceof Error ? err.message : String(err)}`)
+      try {
+        await this.sendTextReply(session, buildChannelErrorMessage(err))
+      } catch (replyErr) {
+        log.warn(`[handleMessage] 发送错误回传失败: ${replyErr instanceof Error ? replyErr.message : String(replyErr)}`)
+      }
     }
   }
 

@@ -82,6 +82,7 @@ import { getVirtualHumanSettings } from '../pet/pet-mode-store'
 import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
 import { BridgeSessionThinkingPrefs } from './bridge-session-thinking-prefs'
 import { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
+import { initToolUsageStore } from '../tool-usage-store'
 import { BridgePromptComposer } from './bridge-prompt-composer'
 import { resizeImageIfNeeded } from './image-resizer'
 import {
@@ -385,6 +386,13 @@ export class AgentRuntimeBridge {
     const db = this.localDb.db
     void maybeRunAutoVacuumSync(db, dbPath)
 
+    // 工具使用统计：注入 SQLite 适配器，并迁移旧 JSON（如存在）
+    try {
+      initToolUsageStore(db)
+    } catch (err) {
+      log.warn('[initialize] initToolUsageStore 失败（工具统计将降级为内存态）:', err)
+    }
+
     // 创建 Repos
     this._memoryRepo = new AgentMemoryRepo(db)
     this._conversationRepo = new ConversationRepo(db)
@@ -412,12 +420,25 @@ export class AgentRuntimeBridge {
     this._runtimeStateRepo = new RuntimeStateRepo(db)
     this._fileRepo = new FileRepo(db)
 
+    // 恢复用户手动禁用的工具集合（重启后不丢失），并注册变更回调持久化
+    const disabledToolsRaw = this._runtimeStateRepo.getJson<string[]>(AgentRuntimeBridge.DISABLED_TOOLS_KEY)
+    if (disabledToolsRaw?.length) {
+      this.toolRegistry.restoreUserDisabled(disabledToolsRaw)
+      log.info(`[initialize] 恢复用户禁用工具集合: ${disabledToolsRaw.join(', ')}`)
+    }
+    this.toolRegistry.setOnUserDisabledChanged((disabled) => {
+      this._runtimeStateRepo?.setJson(AgentRuntimeBridge.DISABLED_TOOLS_KEY, disabled)
+    })
+
     // 段落总结记忆服务（灰度：MTBOT_SEGMENT_MEMORY=1 开启；关闭时所有调用 no-op）
     this._segmentMemoryService = new SegmentMemoryService({
       segmentRepo,
       conversationRepo: this._conversationRepo,
       memoryManager: this._memoryManager,
-      callLLM: (prompt, ctx) => this.callLLM(prompt, undefined, ctx?.purpose ?? 'memory_extract'),
+      // 注意：SegmentMemoryServiceDeps.callLLM 只接受 (prompt) 单参数，
+      // 与宿主 this.callLLM(prompt, systemPromptOverride?, purpose?) 第三个参数对齐：
+      // 段落总结目的固定为 'memory_extract'，此处用只接收 prompt 的闭包匹配接口签名。
+      callLLM: (prompt: string) => this.callLLM(prompt, undefined, 'memory_extract'),
       // 宫殿互引（诉求 A · P2）：段原文归档进 MemPalace，drawer_id 由内容寻址确定性生成。
       // runtime 只认接口，此处由宿主注入 mempalace MCP 实现。
       archivePalace: (text, meta) => this.archiveSegmentToPalace(text, meta),
@@ -441,7 +462,9 @@ export class AgentRuntimeBridge {
       forwardIpcEvent: this.ipcChannel.forwardIpcEvent.bind(this.ipcChannel),
       getUserMemory: this.config.getUserMemory,
       updateUserMemory: this.config.updateUserMemory,
-      callLLM: (prompt, ctx) => this.callLLM(prompt, undefined, ctx?.purpose ?? 'memory_extract'),
+      // 注意：FileMemoryHandler.callLLM 只接受 (prompt) 单参数，
+      // 固定 purpose='memory_extract'，与 file-memory 场景对齐。
+      callLLM: (prompt: string) => this.callLLM(prompt, undefined, 'memory_extract'),
     })
 
     // 中断感知：清理流式残留前记录哪些对话被中断
@@ -508,6 +531,12 @@ export class AgentRuntimeBridge {
         })
         return this.askUserQuestionController.waitForAnswer(input.requestId, timeoutMs)
       },
+      executeSkill: this.config.executeSkill,
+      recordSkillExecution: (skillIdOrName) => this.config.recordSkillExecution?.(skillIdOrName),
+      // 注意：ToolExecutionContext.getSkills 是同步签名（供 tool 内部即时列表查询）。
+      // 宿主 getSkills 是异步的（从磁盘/IPC 读取），此处以空兜底：同步路径直接返回 []，
+      // skill_* 工具列表信息由 skillStore 独立注入，不依赖 toolContext.getSkills 字段。
+      getSkills: () => [],
     }
     this.toolContext = toolContext
 
@@ -1203,8 +1232,31 @@ export class AgentRuntimeBridge {
     return this.compactor.compactContext(sessionKey, keepRecentTurns)
   }
 
-  compactContextAsync(instanceId: string, sessionKey: string, keepRecentTurns = 6, signal?: AbortSignal): Promise<{ success: boolean; previousMessageCount: number; newMessageCount: number; messagesRemoved: number; hadSummary: boolean }> {
-    return this.compactor.compactContextAsync(instanceId, sessionKey, keepRecentTurns, signal)
+  /** sessionKey → 正在进行的手动压缩的 AbortController，供 abortCompactContext 中止 */
+  private readonly compactAbortControllers = new Map<string, AbortController>()
+
+  async compactContextAsync(instanceId: string, sessionKey: string, keepRecentTurns = 6, signal?: AbortSignal): Promise<{ success: boolean; previousMessageCount: number; newMessageCount: number; messagesRemoved: number; hadSummary: boolean }> {
+    const controller = new AbortController()
+    this.compactAbortControllers.set(sessionKey, controller)
+    if (signal) {
+      signal.addEventListener('abort', () => controller.abort())
+    }
+    try {
+      return await this.compactor.compactContextAsync(instanceId, sessionKey, keepRecentTurns, controller.signal)
+    } finally {
+      if (this.compactAbortControllers.get(sessionKey) === controller) {
+        this.compactAbortControllers.delete(sessionKey)
+      }
+    }
+  }
+
+  /** 用户手动停止指定会话正在进行的压缩；无进行中压缩返回 false */
+  abortCompactContext(sessionKey: string): boolean {
+    const controller = this.compactAbortControllers.get(sessionKey)
+    if (!controller) return false
+    controller.abort()
+    this.compactAbortControllers.delete(sessionKey)
+    return true
   }
 
   getDbMessageCount(sessionKey: string): number { return this.conversationManager.getDbMessageCount(sessionKey) }
@@ -1336,6 +1388,9 @@ export class AgentRuntimeBridge {
 
   /** runtime_state 里 idle 压缩冷却时间戳的键前缀 */
   private static readonly IDLE_COOLDOWN_KEY_PREFIX = 'compact:idle_cooldown_until:'
+
+  /** runtime_state 里用户手动禁用工具集合的键 */
+  private static readonly DISABLED_TOOLS_KEY = 'tools:user_disabled'
 
   /** 读该会话的冷却截止时间戳（ms）；无记录返回 0 */
   private getIdleCooldownUntil(sessionKey: string): number {

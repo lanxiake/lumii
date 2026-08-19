@@ -25,6 +25,10 @@ import { createSwitchBackendCommand, lumiiCommand } from '../slash-commands/swit
 import { getAcpRunController } from '../../coding-dev-acp-run.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
 import { pushAgentRuntimeEvent } from '../../ipc/agent-runtime-ipc.js'
+import {
+  CHANNEL_ACK_TEXT,
+  buildChannelErrorMessage,
+} from '../channel-error-helper'
 
 /**
  * 飞书专用 /new。
@@ -173,6 +177,11 @@ export class FeishuChannelAdapter implements IChannelAdapter {
         return
       }
 
+      // 斜杠命令之外：先回复即时回执，避免用户发完无响应产生重复发送
+      await this.sendTextReply(session, CHANNEL_ACK_TEXT).catch((err) => {
+        log.warn(`[handleMessage] 发送即时回执失败: ${err instanceof Error ? err.message : String(err)}`)
+      })
+
       this.bridge.notifyIncomingMessage(session.sessionKey, prompt)
       this.bridge.notifyNavigateToSession(session.sessionKey)
 
@@ -223,6 +232,11 @@ export class FeishuChannelAdapter implements IChannelAdapter {
       }
     } catch (err) {
       log.error(`[handleMessage] 异常: ${err instanceof Error ? err.message : String(err)}`)
+      try {
+        await this.sendTextReply(session, buildChannelErrorMessage(err))
+      } catch (replyErr) {
+        log.warn(`[handleMessage] 发送错误回传失败: ${replyErr instanceof Error ? replyErr.message : String(replyErr)}`)
+      }
     }
   }
 

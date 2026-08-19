@@ -92,6 +92,12 @@ export interface AgentRuntimeBridgeConfig {
    */
   executeSkill?: (skillId: string, params: Record<string, unknown>) => Promise<{ success: boolean; error?: string; executionTimeMs: number; [key: string]: unknown }>
   /**
+   * skill_invoke 工具加载技能（SKILL.md 读取成功）后回调，
+   * 用于宿主层累计技能使用次数（写入 skillStore 的 executionCount / lastExecutedAt）。
+   * 未注入时 skill_invoke 静默跳过，不影响对话。
+   */
+  recordSkillExecution?: (skillIdOrName: string) => Promise<void> | void
+  /**
    * 对话结束后回调（用于客户端侧记忆记录，如 MemPalace）。
    * fire-and-forget，不阻塞事件处理。
    */

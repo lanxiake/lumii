@@ -214,6 +214,13 @@ export const skillInvokeToolConfig: MtBotToolConfig<typeof SkillInvokeInput> = {
       // glob 失败不影响主流程
     }
 
+    // 通知宿主层：技能已被加载（用于累计 executionCount）
+    try {
+      await context.recordSkillExecution?.(skill.id ?? skill.name);
+    } catch {
+      // 宿主回调失败绝不影响工具结果返回
+    }
+
     return {
       content: [
         {
