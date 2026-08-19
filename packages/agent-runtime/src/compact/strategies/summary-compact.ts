@@ -23,6 +23,8 @@ import type { CompactConfig } from "../types.js";
 
 const logger = {
   info: (msg: string) => console.log(`[compact/summary-compact] ${msg}`),
+  warn: (msg: string) => console.warn(`[compact/summary-compact] ${msg}`),
+  error: (msg: string) => console.error(`[compact/summary-compact] ${msg}`),
 };
 
 /** 摘要阶段结果 */
@@ -105,11 +107,15 @@ export async function runSummaryStage(
 
       // Phase 2: 使用 withProgressTimeout 替换原简单 timeout
       const fence = new ProgressFence(120_000, 600_000); // idle 120s, ceiling 600s
-      const rawSummary = await withProgressTimeout(fence, async (f) => {
-        return config.generateSummary!(messagesForSummary, prompt, signal, {
-          onProgress: () => f.touchProgress(),
-        });
-      });
+      const rawSummary = await withProgressTimeout(
+        fence,
+        async (f) => {
+          return config.generateSummary!(messagesForSummary, prompt, signal, {
+            onProgress: () => f.touchProgress(),
+          });
+        },
+        logger,
+      );
 
       // rawSummary === null → 超时放弃（等价于原超时逻辑）
       if (rawSummary === null) {

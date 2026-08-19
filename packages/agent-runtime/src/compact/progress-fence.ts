@@ -100,39 +100,68 @@ export class ProgressFence {
     this._cancelledBeforeCommit = true;
     return true;
   }
+
+  /** 获取开始时间（供 withProgressTimeout overrun 日志计算） */
+  get startTime(): number {
+    return this.startedAt;
+  }
 }
 
 /**
  * 包装 Promise + ProgressFence 的等待循环（对应 Hermes while True L943-L973）。
- * 使用方：runSummaryStage 把原来的 Promise.race(timeout) 替换成这个。
+ * Phase 3: commit-in-flight 时永不中断，30s 分段续等 + WARNING→ERROR 升级日志。
  *
  * @returns 成功时 T；超时放弃返回 null（由上层降级占位）
  */
 export async function withProgressTimeout<T>(
   fence: ProgressFence,
   promiseFactory: (fence: ProgressFence) => Promise<T>,
+  logger?: { warn: (msg: string) => void; error: (msg: string) => void },
 ): Promise<T | null> {
   const raceTimeout = (ms: number) =>
     new Promise<"TIMEOUT">((r) => setTimeout(() => r("TIMEOUT"), ms));
   const workerPromise = promiseFactory(fence);
 
-  while (true) {
-    const slice = fence.nextWaitSliceMs();
-    if (slice <= 0) {
-      // 到 ceiling：commitPhase=false → 超时放弃；commitPhase=true → 永不中断（Phase3 处理）
-      if (!fence.commitInFlight) return null;
-      // commit phase：分段继续等（每 30s 一段，打 WARNING→ERROR 日志；Phase 3 实现升级日志）
-      continue;
+  try {
+    while (true) {
+      const slice = fence.nextWaitSliceMs();
+      if (slice <= 0) {
+        // 到 ceiling
+        if (!fence.commitInFlight) return null;
+
+        // commit-in-flight：永不中断，分段继续等（30s 一段，WARNING→ERROR 升级）
+        let overrunReports = 0;
+        const OVERRUN_SLICE_MS = 30_000;
+        while (true) {
+          const waited = Date.now() - fence.startTime;
+          const remaining = fence.totalCeilingMs - waited;
+          let waitMs: number;
+          if (remaining <= 0) {
+            waitMs = OVERRUN_SLICE_MS;
+            overrunReports += 1;
+            const past = waited - fence.totalCeilingMs;
+            const msg = `[CommitFence] SessionDB 提交仍在进行中，已越界 ${(past / 1000).toFixed(1)}s（总等 ${(waited / 1000).toFixed(1)}s，ceiling ${(fence.totalCeilingMs / 1000).toFixed(0)}s）；**永不中断**，继续等下一段 ${(waitMs / 1000).toFixed(0)}s`;
+            if (logger) {
+              if (overrunReports <= 2) logger.warn(msg);
+              else logger.error(msg);
+            }
+          } else {
+            waitMs = Math.min(OVERRUN_SLICE_MS, remaining);
+          }
+          const r = await Promise.race([workerPromise, raceTimeout(waitMs)]);
+          if (r !== "TIMEOUT") return r as T;
+        }
+      }
+      const result = await Promise.race([workerPromise, raceTimeout(slice)]);
+      if (result !== "TIMEOUT") {
+        return result as T;
+      }
+      const alive = fence.shouldKeepAlive();
+      if (!alive && !fence.commitInFlight) {
+        return null;
+      }
     }
-    const result = await Promise.race([workerPromise, raceTimeout(slice)]);
-    if (result !== "TIMEOUT") {
-      return result as T; // 真拿到了
-    }
-    // 时间片用完了 → 检查是否能续命
-    const alive = fence.shouldKeepAlive();
-    if (!alive && !fence.commitInFlight) {
-      return null; // 真挂了
-    }
-    // alive=true → 继续循环（Hermes L962-L972：打印 still streaming 日志后 continue）
+  } finally {
+    fence.revokeCommitAdmission();
   }
 }
