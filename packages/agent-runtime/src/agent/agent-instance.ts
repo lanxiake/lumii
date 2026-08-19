@@ -277,6 +277,10 @@ export class AgentInstance {
         domainHint: config.domainHint ?? "general",
         historyRecallHint: config.historyRecallHint ?? false,
         sessionKey: config.sessionKey,
+        // Phase 2: Per-Model 阈值动态注入
+        get currentModelName() {
+          return config.model?.name;
+        },
         get activeTasks() {
           // 动态读取：每次压缩时取最新任务列表（由宿主通过 updateActiveTasks 更新）
           return self._activeTasks;

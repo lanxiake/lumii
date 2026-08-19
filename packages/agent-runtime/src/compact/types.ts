@@ -66,6 +66,10 @@ export type SummaryGeneratorFn = (
   messages: AgentMessage[],
   prompt: string,
   signal?: AbortSignal,
+  /** Phase 2 新增：流式摘要时，每收到 N 个 token 调用一次 options.onProgress() → ProgressFence.touchProgress 续命 */
+  options?: {
+    onProgress?: () => void;
+  },
 ) => Promise<string | null>;
 
 // ==================== 压缩事件信息 ====================
@@ -291,6 +295,30 @@ export interface CompactConfig {
    * 0/null 表示关闭（仅 ratio）。
    */
   thresholdTokensCap?: number;
+  /**
+   * 模型名→压缩触发比例的映射（最长子串匹配，更长的 key 优先）
+   * 例：{ "claude-sonnet": 0.35, "gpt-5.6-1M": 0.60, "qwen2.5-7b": 0.70 }
+   * 小模型（<32K）建议配高比例（70%），超大模型建议配低比例（35~50%）。
+   * 对齐 Hermes resolve_model_threshold（context_compressor.py:L1820-L1843）。
+   */
+  modelThresholds?: Record<string, number>;
+  /**
+   * 当前轮次使用的模型名（每轮 prompt 前由 AgentInstance 注入）
+   * 用于 resolveModelThreshold 查表。未注入时回退全局 triggerRatio。
+   */
+  currentModelName?: string;
+  /**
+   * Idle Compaction：挂钟空闲 N 秒后触发后台压缩，默认 300s（5 分钟）
+   * 设为 0 / undefined = 关闭。对齐 Hermes idle_compact_after_seconds。
+   * 过小（<60s）会导致"倒杯水回来就触发"的过度压缩。
+   */
+  idleCompactAfterSeconds?: number;
+  /**
+   * Idle Compaction：压缩目标地板 tokens（比这个还小就不压，免得空跑花时间）
+   * 默认 = threshold × summaryTargetRatio（≈ threshold × 0.20）。
+   * 对齐 Hermes _idle_floor 计算（turn_context.py:L794-L796）。
+   */
+  idleCompactFloorTokens?: number;
 }
 
 /** token 估算与阈值判断结果 */

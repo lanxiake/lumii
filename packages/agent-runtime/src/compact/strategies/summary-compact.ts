@@ -18,6 +18,7 @@ import {
   NO_TOOLS_TRAILER,
 } from "../summary-prompt.js";
 import { buildLlmSummaryMessage } from "../summary-message.js";
+import { ProgressFence, withProgressTimeout } from "../progress-fence.js";
 import type { CompactConfig } from "../types.js";
 
 const logger = {
@@ -101,7 +102,22 @@ export async function runSummaryStage(
         `调用 LLM 摘要生成，待摘要消息数=${messagesForSummary.length}` +
           (attempt > 0 ? `（PTL 重试 ${attempt}/${maxPtlRetries}）` : ""),
       );
-      const rawSummary = await config.generateSummary(messagesForSummary, prompt, signal);
+
+      // Phase 2: 使用 withProgressTimeout 替换原简单 timeout
+      const fence = new ProgressFence(120_000, 600_000); // idle 120s, ceiling 600s
+      const rawSummary = await withProgressTimeout(fence, async (f) => {
+        return config.generateSummary!(messagesForSummary, prompt, signal, {
+          onProgress: () => f.touchProgress(),
+        });
+      });
+
+      // rawSummary === null → 超时放弃（等价于原超时逻辑）
+      if (rawSummary === null) {
+        logger.warn(
+          `摘要生成 ProgressFence 超时：距上次进度 ${fence.secondsSinceProgress().toFixed(1)}s，放弃`,
+        );
+        return { summaryMessage: null, ptlRetries, failed: true };
+      }
 
       if (rawSummary && rawSummary.trim().length > 0) {
         const formatted = formatCompactSummary(rawSummary);

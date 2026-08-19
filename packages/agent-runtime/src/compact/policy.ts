@@ -51,6 +51,33 @@ export function resolveManualCompactKeepCount(
 }
 
 /**
+ * Phase 2: 模型阈值匹配（最长子串匹配算法）
+ *
+ * 更长的匹配 = 更具体 = 优先。移植 Hermes resolve_model_threshold（L1820-L1843）。
+ *
+ * @param modelName 当前模型全名（如 "claude-sonnet-4-20250514"）
+ * @param modelThresholds 配置映射（如 { "claude-sonnet": 0.35 }）
+ * @param defaultRatio 未命中时回退值（CompactConfig.triggerRatio）
+ */
+export function resolveModelThreshold(
+  modelName: string | undefined,
+  modelThresholds: Record<string, number> | undefined,
+  defaultRatio: number,
+): number {
+  if (!modelThresholds || !modelName) return defaultRatio;
+  let bestKey = "";
+  for (const key of Object.keys(modelThresholds)) {
+    if (modelName.includes(key) && key.length > bestKey.length) {
+      bestKey = key;
+    }
+  }
+  if (bestKey) {
+    return Number(modelThresholds[bestKey]);
+  }
+  return defaultRatio;
+}
+
+/**
  * 检查是否需要压缩
  *
  * 触发判断只看「真实上下文窗口 × triggerRatio」（如 1M × 0.78 = 780k），
@@ -66,9 +93,13 @@ export function checkCompactionNeeded(
 ): TokenEstimation {
   const totalTokens = estimateTokenCount(messages);
 
-  // Phase 1: 阈值堆叠顺序（对齐 Hermes）
-  // ① percentThreshold: 原始用户配置 triggerRatio
-  let percentThreshold = config.triggerRatio;
+  // Phase 1/2: 阈值堆叠顺序（对齐 Hermes）
+  // ① Per-Model: 模型名匹配（Phase 2 新增）
+  let percentThreshold = resolveModelThreshold(
+    config.currentModelName,
+    config.modelThresholds,
+    config.triggerRatio,
+  );
 
   // ② 小窗口地板：<512K 强制 ≥75%（防止小窗口过早触发）
   if (config.contextWindow < 512_000) {
