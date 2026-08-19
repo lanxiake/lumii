@@ -2663,12 +2663,12 @@ import { execFile as _execFile } from 'child_process'
 import { promisify as _promisify } from 'util'
 import { MemPalaceMcpBridge } from './mempalace-mcp-client'
 import {
-  PYPI_MIRROR,
   ensureBundledPython,
   getBundledPythonExe,
-  getBundledSitePackages,
   getPythonRuntimeDir,
   hasPackage as hasPythonPackage,
+  buildBundledPipInstallArgs,
+  repairGoogleRpcNamespaceIfNeeded,
 } from './python-env'
 import { initScriptRuntimes } from './runtime-env'
 
@@ -2740,7 +2740,8 @@ async function checkMemPalaceInstalled(): Promise<boolean> {
   if (!existsSync(pythonExe)) return false
   if (!hasMemPalacePackage()) return false
   try {
-    await _execFileAsync(pythonExe, ['-c', 'import mempalace'], {
+    await repairGoogleRpcNamespaceIfNeeded()
+    await _execFileAsync(pythonExe, ['-c', 'import mempalace, chromadb'], {
       timeout: 30000,
       cwd: runtimeDir,
       env: { ...process.env, PYTHONHOME: runtimeDir },
@@ -2776,21 +2777,28 @@ function setupMemPalaceIpcHandlers(): void {
     try {
       // Python 运行时由公共模块保证（已装则秒过），这里只负责装 mempalace 包
       const pythonExe = await ensureBundledPython(sendProgress)
-      const sitePackagesDir = getBundledSitePackages()
 
       sendProgress('正在安装 mempalace...')
-      await _execFileAsync(pythonExe, [
-        '-m', 'pip', 'install', 'mempalace',
-        '--no-warn-script-location',
-        '--target', sitePackagesDir,
-        '-i', PYPI_MIRROR,
-      ], { timeout: 300000, windowsHide: true })
+      await _execFileAsync(pythonExe, buildBundledPipInstallArgs(['mempalace']), {
+        timeout: 300000,
+        windowsHide: true,
+        cwd: getPythonRuntimeDir(),
+        env: {
+          ...process.env,
+          PYTHONHOME: getPythonRuntimeDir(),
+          PYTHONNOUSERSITE: '1',
+        },
+      })
+      await repairGoogleRpcNamespaceIfNeeded()
 
       sendProgress('正在验证安装...')
-      await _execFileAsync(pythonExe, ['-c', 'import mempalace; print("ok")'], {
+      await _execFileAsync(pythonExe, [
+        '-c',
+        'from google.rpc.error_details_pb2 import RetryInfo; import mempalace, chromadb; print("ok")',
+      ], {
         timeout: 30000,
         cwd: getPythonRuntimeDir(),
-        env: { ...process.env, PYTHONHOME: getPythonRuntimeDir() },
+        env: { ...process.env, PYTHONHOME: getPythonRuntimeDir(), PYTHONNOUSERSITE: '1' },
       })
 
       log.info('[MemPalace] 安装完成')

@@ -69,6 +69,71 @@ export function hasPackage(name: string): boolean {
   }
 }
 
+/**
+ * 构造内置 Python 的 pip install 参数。
+ *
+ * 禁止 `--target`：embed 的 site-packages 里 protobuf 与 googleapis-common-protos
+ * 共用 `google/` 命名空间，`--target` 会整目录覆盖，留下 dist-info 但删掉 `google.rpc`。
+ */
+export function buildBundledPipInstallArgs(
+  packages: string[],
+  extra: string[] = [],
+): string[] {
+  return [
+    '-m', 'pip', 'install',
+    ...packages,
+    ...extra,
+    '--no-warn-script-location',
+    '-i', PYPI_MIRROR,
+  ]
+}
+
+/**
+ * 判断是否需要修复 google.rpc：chroma/OTLP 依赖它，但 pip --target 可能只留下元数据。
+ */
+export function needsGoogleRpcRepair(opts: {
+  googleRpcExists: boolean
+  hasChromadb: boolean
+  hasGoogleapisCommonProtos: boolean
+}): boolean {
+  if (opts.googleRpcExists) return false
+  return opts.hasChromadb || opts.hasGoogleapisCommonProtos
+}
+
+/**
+ * 若 `google.rpc` 文件缺失则强制重装 googleapis-common-protos（不用 --target）。
+ *
+ * @returns 是否执行了修复（未缺失则 false）
+ */
+export async function repairGoogleRpcNamespaceIfNeeded(): Promise<boolean> {
+  const sitePackages = getBundledSitePackages()
+  const pythonExe = getBundledPythonExe()
+  if (!existsSync(pythonExe) || !existsSync(sitePackages)) return false
+
+  const shouldRepair = needsGoogleRpcRepair({
+    googleRpcExists: existsSync(join(sitePackages, 'google', 'rpc')),
+    hasChromadb: hasPackage('chromadb'),
+    hasGoogleapisCommonProtos: hasPackage('googleapis_common_protos'),
+  })
+  if (!shouldRepair) return false
+
+  log.warn('检测到 google.rpc 缺失，正在重装 googleapis-common-protos...')
+  await execFileAsync(pythonExe, [
+    ...buildBundledPipInstallArgs(['googleapis-common-protos'], ['--force-reinstall', '--no-deps']),
+  ], {
+    timeout: 120000,
+    windowsHide: true,
+    cwd: getPythonRuntimeDir(),
+    env: {
+      ...process.env,
+      PYTHONHOME: getPythonRuntimeDir(),
+      PYTHONNOUSERSITE: '1',
+    },
+  })
+  log.info('google.rpc 命名空间已修复')
+  return true
+}
+
 /** 系统 Python 探测结果缓存（undefined = 未探测） */
 let cachedSystemPython: string | null | undefined
 
