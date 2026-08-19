@@ -16,6 +16,7 @@ import {
   formatCompactSummary,
   NO_TOOLS_PREAMBLE,
   NO_TOOLS_TRAILER,
+  ProgressFence,
 } from '@mtbot/agent-runtime'
 import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
 import {
@@ -294,28 +295,50 @@ export class BridgeContextCompactor {
 
     const ids = allMessages.slice(0, allMessages.length - keepCount).map((m) => m.id)
 
-    // 旧消息只移出上下文，不从历史记录中删除
-    repo.markMessagesCompacted(sessionKey, ids)
-    log.info(
-      `[compactContextAsync] 已将 ${ids.length} 条旧消息移出上下文(仍保留在历史): sessionKey=${sessionKey}`,
-    )
-
-    // 写入摘要：必须用 assistant_parts，且时间戳插在保留段之前，否则后续 prompt 读不到
-    if (summaryText) {
+    // ⭐ 原子提交期：移出旧消息与写入摘要必须同生共死。
+    // 两次独立写入之间崩溃会留下「旧消息已移出但摘要未写」→ 上下文凭空丢失。
+    const failedResult = {
+      success: false as const,
+      previousMessageCount,
+      newMessageCount: previousMessageCount,
+      messagesRemoved: 0,
+      hadSummary: false,
+    }
+    const fence = new ProgressFence()
+    if (!fence.beginCommit()) {
+      log.warn(`[compactContextAsync] 提交入场权已被撤销，跳过写入: sessionKey=${sessionKey}`)
+      return failedResult
+    }
+    const db = this.deps.getDb()
+    try {
+      // BEGIN IMMEDIATE 立刻拿写锁，避免读-写竞争下的 SQLITE_BUSY
+      db.exec('BEGIN IMMEDIATE')
       try {
-        const firstKept = allMessages[allMessages.length - keepCount]
-        repo.saveMessage({
-          conversationId: sessionKey,
-          role: 'assistant',
-          contentJson: buildPersistedCompactSummary(summaryText),
-          timestamp: resolveCompactSummaryTimestamp(firstKept?.timestamp),
-        })
-        log.info(`[compactContextAsync] 摘要已写入 DB: sessionKey=${sessionKey}`)
+        repo.markMessagesCompacted(sessionKey, ids)
+        if (summaryText) {
+          const firstKept = allMessages[allMessages.length - keepCount]
+          repo.saveMessage({
+            conversationId: sessionKey,
+            role: 'assistant',
+            contentJson: buildPersistedCompactSummary(summaryText),
+            timestamp: resolveCompactSummaryTimestamp(firstKept?.timestamp),
+          })
+        }
+        db.exec('COMMIT')
       } catch (err) {
-        log.warn(
-          `[compactContextAsync] 摘要写入 DB 失败: ${err instanceof Error ? err.message : String(err)}`,
-        )
+        db.exec('ROLLBACK')
+        throw err
       }
+      log.info(
+        `[compactContextAsync] 压缩事务提交成功: 移出 ${ids.length} 条(仍保留在历史), 摘要=${!!summaryText}, sessionKey=${sessionKey}`,
+      )
+    } catch (err) {
+      log.error(
+        `[compactContextAsync] 压缩事务失败已回滚，上下文保持原状: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      return failedResult
+    } finally {
+      fence.finishCommit()
     }
 
     const newMessageCount = allMessages.length - ids.length + (summaryText ? 1 : 0)

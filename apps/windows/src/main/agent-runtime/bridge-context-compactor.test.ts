@@ -15,7 +15,11 @@ function makeDeps(overrides: Partial<ConstructorParameters<typeof BridgeContextC
     getInstanceStream: () => undefined,
     getMainInnerStream: () => null,
     getMainModel: () => null,
-    getDb: () => ({ prepare: () => ({ all: () => [], run: () => undefined }) }) as never,
+    getDb: () =>
+      ({
+        prepare: () => ({ all: () => [], run: () => undefined }),
+        exec: () => undefined,
+      }) as never,
     ipcChannel: { forwardIpcEvent: vi.fn() } as never,
     restoreHistoryForInstance: vi.fn(),
     createSummaryGenerator: vi.fn(),
@@ -109,6 +113,7 @@ function makeCompactHarness(
   const restoreHistoryForInstance = vi.fn()
   const forwardIpcEvent = vi.fn()
 
+  const execSink: string[] = []
   const db = {
     prepare: (sql: string) => {
       preparedSqlSink?.push(sql)
@@ -118,6 +123,9 @@ function makeCompactHarness(
         return { all: () => remaining }
       }
       return { all: () => [], run: () => undefined }
+    },
+    exec: (sql: string) => {
+      execSink.push(sql)
     },
   }
 
@@ -176,6 +184,8 @@ function makeCompactHarness(
     restoreHistoryForInstance,
     forwardIpcEvent,
     onSessionContextTokensUpdated,
+    execSink,
+    repo,
   }
 }
 
@@ -237,6 +247,29 @@ describe('BridgeContextCompactor.compactContextAsync — 短对话也真正压�
     expect(result.messagesRemoved).toBe(1)
     expect(compacted).toEqual(['m1'])
     expect(saved).toHaveLength(1)
+  })
+
+  it('写入用 BEGIN IMMEDIATE 事务包裹，成功时 COMMIT', async () => {
+    const { compactor, execSink } = makeCompactHarness(4)
+
+    await compactor.compactContextAsync('inst-1', 'sess-1', 6)
+
+    expect(execSink).toEqual(['BEGIN IMMEDIATE', 'COMMIT'])
+  })
+
+  it('摘要写入失败时 ROLLBACK，不留下「已移出但无摘要」的半写状态', async () => {
+    const { compactor, execSink, repo, saved } = makeCompactHarness(4)
+    repo.saveMessage.mockImplementation(() => {
+      throw new Error('disk full')
+    })
+
+    const result = await compactor.compactContextAsync('inst-1', 'sess-1', 6)
+
+    expect(execSink).toEqual(['BEGIN IMMEDIATE', 'ROLLBACK'])
+    expect(result.success).toBe(false)
+    expect(result.messagesRemoved).toBe(0)
+    expect(result.newMessageCount).toBe(result.previousMessageCount)
+    expect(saved).toHaveLength(0)
   })
 
   it('空会话不调用 LLM', async () => {
