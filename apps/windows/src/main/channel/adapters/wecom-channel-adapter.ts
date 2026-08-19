@@ -15,6 +15,11 @@ import { AcpBackendManager } from '../acp-backend-manager'
 import { clearCommand } from '../slash-commands/clear'
 import { createHelpCommand } from '../slash-commands/help'
 import { compactCommand } from '../slash-commands/compact'
+import { stopCommand } from '../slash-commands/stop'
+import {
+  getChannelInteractionHub,
+  tryHandleChannelOutOfBand,
+} from '../channel-interaction-hub'
 import {
   CHANNEL_ACK_TEXT,
   buildChannelErrorMessage,
@@ -60,6 +65,7 @@ export class WecomChannelAdapter implements IChannelAdapter {
   private readonly registry: SlashCommandRegistry
   private readonly sessionManager: SessionManager
   private readonly acpBackendManager: AcpBackendManager
+  private readonly interactionHub: ReturnType<typeof getChannelInteractionHub>
 
   constructor(
     private readonly wecomLoginService: WecomLoginService,
@@ -67,6 +73,7 @@ export class WecomChannelAdapter implements IChannelAdapter {
   ) {
     this.contextStrategy = new StatelessContextStrategy(bridge)
     this.sessionManager = new SessionManager(bridge)
+    this.interactionHub = getChannelInteractionHub(bridge)
     this.acpBackendManager = new AcpBackendManager()
     this.registry = this.buildRegistry()
   }
@@ -113,6 +120,9 @@ export class WecomChannelAdapter implements IChannelAdapter {
   startListening(): void {
     this.wecomLoginService.on('message', (msg: WecomNormalizedMessage) => {
       const userId = msg.channelUserId
+      // 插队路径：答复挂起的提问/审批、以及 /stop 打断，都必须绕过 userQueues。
+      // 正在运行的那一轮还占着队列，排队等于永远等不到。
+      if (this.tryHandleOutOfBand(msg)) return
       const prev = this.userQueues.get(userId) ?? Promise.resolve()
       const next = prev
         .then(() => this.handleMessage(msg))
@@ -122,6 +132,20 @@ export class WecomChannelAdapter implements IChannelAdapter {
       this.userQueues.set(userId, next)
     })
     log.info('[startListening] 企业微信消息监听已启动')
+  }
+
+  /** 插队处理提问/审批答复与 /stop（详见 tryHandleChannelOutOfBand） */
+  private tryHandleOutOfBand(msg: WecomNormalizedMessage): boolean {
+    return tryHandleChannelOutOfBand({
+      hub: this.interactionHub,
+      bridge: this.bridge,
+      adapter: this,
+      session: this.buildSession(msg),
+      text: msg.text?.trim() ?? '',
+      sessionManager: this.sessionManager,
+      onError: (err) =>
+        log.error(`[tryHandleOutOfBand] 失败: ${err instanceof Error ? err.message : String(err)}`),
+    })
   }
 
   /**
@@ -174,6 +198,9 @@ export class WecomChannelAdapter implements IChannelAdapter {
         }
         return
       }
+
+      // 刷新交互回复上下文：replyContext 是一次性的，必须每轮更新
+      this.interactionHub.trackSession(this, session)
 
       // 斜杠命令之外：先回复即时回执，避免用户发完无响应产生重复发送
       await this.sendTextReply(session, CHANNEL_ACK_TEXT).catch((err) => {
@@ -271,6 +298,7 @@ export class WecomChannelAdapter implements IChannelAdapter {
     registry.register('new', wecomNewCommand)
     registry.register('clear', clearCommand)
     registry.register('compact', compactCommand)
+    registry.register('stop', stopCommand, ['abort'])
     return registry
   }
 }

@@ -16,7 +16,10 @@ import type {
 import { StatelessContextStrategy } from '../context-strategy/stateless-strategy'
 import { SlashCommandRegistry } from '../slash-command-registry'
 import { SessionManager } from '../session-manager'
-import { getChannelInteractionHub } from '../channel-interaction-hub'
+import {
+  getChannelInteractionHub,
+  tryHandleChannelOutOfBand,
+} from '../channel-interaction-hub'
 import { AcpBackendManager } from '../acp-backend-manager'
 import { clearCommand } from '../slash-commands/clear'
 import { createHelpCommand } from '../slash-commands/help'
@@ -142,48 +145,18 @@ export class FeishuChannelAdapter implements IChannelAdapter {
     log.info('[startListening] 飞书消息监听已启动')
   }
 
-  /**
-   * 插队处理：绕过 userQueues 的两类消息。
-   *
-   * 1. 挂起的提问/审批答复 —— 正在跑的那一轮正等着它，排队会死锁
-   * 2. /stop 打断 —— 目的就是终止正在跑的那一轮
-   *
-   * @returns true 表示已插队消费，调用方不要再入队
-   */
+  /** 插队处理提问/审批答复与 /stop（详见 tryHandleChannelOutOfBand） */
   private tryHandleOutOfBand(msg: FeishuNormalizedMessage): boolean {
-    const text = msg.text?.trim() ?? ''
-    if (!text) return false
-    const session = this.buildSession(msg)
-    const { sessionKey } = session
-    this.interactionHub.trackSession(this, session)
-
-    if (this.interactionHub.hasPending(sessionKey)) {
-      void this.interactionHub.tryConsumeReply(sessionKey, text).catch((err) => {
-        log.error(`[tryHandleOutOfBand] 答复回填失败: ${err instanceof Error ? err.message : String(err)}`)
-      })
-      return true
-    }
-
-    if (text === '/stop' || text === '/abort') {
-      void this.handleStop(session).catch((err) => {
-        log.error(`[tryHandleOutOfBand] 打断失败: ${err instanceof Error ? err.message : String(err)}`)
-      })
-      return true
-    }
-
-    return false
-  }
-
-  /** 中断该会话正在运行的 Agent，并清掉挂起交互与 prompt 锁 */
-  private async handleStop(session: ChannelSession): Promise<void> {
-    const { sessionKey } = session
-    const aborted = this.bridge.abortSession(sessionKey)
-    this.interactionHub.clear(sessionKey)
-    this.sessionManager.clearLock(sessionKey)
-    await this.sendTextReply(
-      session,
-      aborted > 0 ? '⏹ 已打断当前任务，可以直接发新消息。' : '当前没有正在运行的任务。',
-    )
+    return tryHandleChannelOutOfBand({
+      hub: this.interactionHub,
+      bridge: this.bridge,
+      adapter: this,
+      session: this.buildSession(msg),
+      text: msg.text?.trim() ?? '',
+      sessionManager: this.sessionManager,
+      onError: (err) =>
+        log.error(`[tryHandleOutOfBand] 失败: ${err instanceof Error ? err.message : String(err)}`),
+    })
   }
 
   getActiveSessionKey(channelUserId: string): string {
