@@ -78,6 +78,8 @@ interface ChatInputProps {
   isCompacting?: boolean
   /** 手动压缩上下文回调 */
   onCompactContext?: () => void
+  /** 停止正在进行的压缩回调（仅手动压缩可停止） */
+  onStopCompactContext?: () => void
   /** 直接以指定值发送（用于命令自动填充后立即发送，绕过 React 状态批处理） */
   onSendWithValue?: (value: string) => void
   /** 开始语音通话回调 */
@@ -159,6 +161,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   contextUsage,
   isCompacting = false,
   onCompactContext,
+  onStopCompactContext,
   onSendWithValue,
   onVoiceCallStart,
   fileReferences = [],
@@ -1003,9 +1006,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
                           )
                         : styles['context-compact-safe'],
                   )}
-                  aria-label={isCompacting ? '正在自动压缩上下文' : contextUsageLabel}
-                  onClick={() => !isCompacting && onCompactContext?.()}
-                  disabled={isCompacting || !onCompactContext || isDisabled}
+                  aria-label={isCompacting ? '正在压缩，点击可停止' : contextUsageLabel}
+                  onClick={() => (isCompacting ? onStopCompactContext?.() : onCompactContext?.())}
+                  disabled={(isCompacting ? !onStopCompactContext : !onCompactContext) || isDisabled}
                 >
                   <span className={clsx(styles['context-compact-icon'], isCompacting && styles['context-compact-icon--spinning'])} aria-hidden>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

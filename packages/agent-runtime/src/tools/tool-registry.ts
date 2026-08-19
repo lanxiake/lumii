@@ -14,6 +14,19 @@ export class ToolRegistry {
   private readonly tools: Map<string, MtBotTool> = new Map();
   /** 用户手动禁用的工具名称集合（优先于工具自身 isEnabled） */
   private readonly userDisabled: Set<string> = new Set();
+  /** userDisabled 变更后的回调（供宿主持久化，如落 SQLite） */
+  private onUserDisabledChanged?: (disabled: readonly string[]) => void;
+
+  /** 恢复持久化的用户禁用集合（初始化时调用一次，不触发 onUserDisabledChanged） */
+  restoreUserDisabled(names: readonly string[]): void {
+    this.userDisabled.clear();
+    for (const name of names) this.userDisabled.add(name);
+  }
+
+  /** 注册用户禁用集合变更回调，供宿主持久化 */
+  setOnUserDisabledChanged(cb: (disabled: readonly string[]) => void): void {
+    this.onUserDisabledChanged = cb;
+  }
 
   /** 注册单个工具（重复 name 会覆盖） */
   register(tool: MtBotTool): void {
@@ -80,6 +93,7 @@ export class ToolRegistry {
   enableTool(name: string): boolean {
     if (!this.tools.has(name)) return false;
     this.userDisabled.delete(name);
+    this.onUserDisabledChanged?.([...this.userDisabled]);
     return true;
   }
 
@@ -91,6 +105,7 @@ export class ToolRegistry {
   disableTool(name: string): boolean {
     if (!this.tools.has(name)) return false;
     this.userDisabled.add(name);
+    this.onUserDisabledChanged?.([...this.userDisabled]);
     return true;
   }
 

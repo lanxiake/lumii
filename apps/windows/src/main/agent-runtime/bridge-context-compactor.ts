@@ -282,6 +282,20 @@ export class BridgeContextCompactor {
       log.warn(`[compactContextAsync] mainInnerStream/mainModel 未初始化，跳过 LLM 摘要`)
     }
 
+    // 用户主动停止：不做无摘要裁剪，原样返回，避免留下"已裁剪但无摘要"的半成品
+    if (signal?.aborted) {
+      log.info(`[compactContextAsync] 用户已停止压缩，保持会话不变: sessionKey=${sessionKey}`)
+      return {
+        success: true,
+        previousMessageCount,
+        newMessageCount: previousMessageCount,
+        messagesRemoved: 0,
+        hadSummary: false,
+        conversationTokensBefore: conversationBefore,
+        conversationTokensAfter: conversationBefore,
+      }
+    }
+
     // 无摘要时绝不清空上下文：至少保留 1 条
     if (!summaryText) {
       keepCount = Math.max(keepCount, 1)

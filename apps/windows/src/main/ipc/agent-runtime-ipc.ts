@@ -1298,6 +1298,12 @@ export async function handleCommand(
         }
       }
 
+      case 'user:abort-compact-context': {
+        const aborted = bridge.abortCompactContext(command.sessionKey)
+        log.info(`[user:abort-compact-context] sessionKey=${command.sessionKey}, aborted=${aborted}`)
+        return { aborted }
+      }
+
       // ---- 文件管理 ----
       case 'files:list': {
         const { userId, agentId, conversationId, channel, category, limit, offset } = command

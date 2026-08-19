@@ -994,6 +994,21 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     }
   }, [runtimeCurrentSessionKey, runtimeActions])
 
+  /** 停止正在进行的手动压缩 */
+  const handleStopCompactContext = useCallback(async () => {
+    const sessionKey = runtimeCurrentSessionKey
+    if (!sessionKey) return
+    try {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return
+      await api.sendCommand({ type: 'user:abort-compact-context', sessionKey })
+      updateSessionState(sessionKey, (prev) => ({ ...prev, isAutoCompacting: false }))
+      setToast({ message: '已停止压缩', type: 'info' })
+    } catch (err) {
+      logger.error('[handleStopCompactContext] 停止压缩失败:', err)
+    }
+  }, [runtimeCurrentSessionKey])
+
   /** 向当前会话注入一条虚拟 system 消息（不持久化、不发给 LLM） */
   const addSystemMessage = useCallback((text: string) => {
     const sessionKey = runtimeCurrentSessionKey
@@ -1749,6 +1764,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             contextUsage={runtimeContextUsage}
             isCompacting={runtimeIsAutoCompacting}
             onCompactContext={handleCompactContext}
+            onStopCompactContext={handleStopCompactContext}
             pendingAttachments={pendingAttachments}
             onFileUpload={handleFilesImport}
             onRemoveAttachment={handleRemoveAttachment}

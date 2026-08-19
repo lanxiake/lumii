@@ -86,18 +86,20 @@ function categorizeTools(
 }
 
 /**
- * 对话历史 token：只计入 user / assistant 消息，工具调用相关消息不计入。
+ * 对话历史 token：user / assistant / toolResult 消息全部计入。
+ *
+ * 此前只统计 user/assistant，遗漏了 toolResult 内容（文件读取结果、命令输出等，
+ * 往往是单条消息里最大的部分），导致 rawTotal 被严重低估。等比缩放时
+ * scale = usedTokens / rawTotal 被拉得过大，各分类展示值随对话增长而失真变大。
  */
 function categorizeMessages(
   messages: readonly AgentMessage[],
   acc: Map<ContextUsageCategory, number>,
 ): void {
   for (const msg of messages) {
-    // 只统计用户和助手的文本消息为对话历史
-    if (msg.role === 'user' || msg.role === 'assistant') {
+    if (msg.role === 'user' || msg.role === 'assistant' || msg.role === 'toolResult') {
       acc.set('conversation', (acc.get('conversation') ?? 0) + estimateTokenCount([msg]))
     }
-    // 工具调用和工具结果消息不计入对话历史（已在工具定义中统计）
   }
 }
 

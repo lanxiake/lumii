@@ -161,6 +161,7 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
         return {
           name,
           connected: status?.connected ?? false,
+          serverEnabled: status?.enabled ?? true,
           lastError: status?.lastError,
           tools: serverTools,
           enabled: serverTools.length > 0 && enabledCount === serverTools.length,
@@ -336,7 +337,7 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
                 mcpServers.map((server) => {
                   const toolNames = server.tools.map((t) => t.name)
                   const busy = toolNames.some((n) => togglingTool === n)
-                  const errorHint = !server.connected ? server.lastError : undefined
+                  const errorHint = server.serverEnabled && !server.connected ? server.lastError : undefined
                   return (
                     <div key={server.name} className={styles.listRow}>
                       <div className={styles.listMain}>
@@ -350,25 +351,27 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
                         </span>
                         <span className={clsx(
                           styles.listDesc,
-                          !server.connected && styles.listDescError,
+                          !server.serverEnabled ? undefined : !server.connected && styles.listDescError,
                         )}>
-                          {server.connected
-                            ? `${server.tools.length} 个工具 · 调用 ${server.usageCount} 次${server.partial ? ' · 部分启用' : ''}`
-                            : errorHint
-                              ? '连接失败'
-                              : '未连接'}
+                          {!server.serverEnabled
+                            ? '已停用'
+                            : server.connected
+                              ? `${server.tools.length} 个工具 · 调用 ${server.usageCount} 次${server.partial ? ' · 部分启用' : ''}`
+                              : errorHint
+                                ? '连接失败'
+                                : '未连接'}
                         </span>
                       </div>
                       {server.tools.length > 0 ? (
                         <Switch
                           size="sm"
                           checked={server.enabled}
-                          disabled={busy || !server.connected}
+                          disabled={busy || !server.serverEnabled || !server.connected}
                           onChange={(checked) => void handleToggleMcpServer(server.name, checked, toolNames)}
                         />
                       ) : (
                         <span className={styles.listStatus} title={errorHint}>
-                          {server.connected ? '无工具' : '连接失败'}
+                          {!server.serverEnabled ? '已停用' : server.connected ? '无工具' : '连接失败'}
                         </span>
                       )}
                     </div>

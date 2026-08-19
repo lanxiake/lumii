@@ -587,6 +587,12 @@ export interface UserCompactContextCommand {
   readonly keepRecentTurns?: number
 }
 
+/** 用户手动停止正在进行的上下文压缩 */
+export interface UserAbortCompactContextCommand {
+  readonly type: 'user:abort-compact-context'
+  readonly sessionKey: string
+}
+
 // ============================================================
 // 文件管理命令
 // ============================================================
@@ -861,6 +867,7 @@ export type AgentRuntimeCommand =
   | ConversationForkCommand
   | MessageEditAndResendCommand
   | UserCompactContextCommand
+  | UserAbortCompactContextCommand
   | FilesListCommand
   | FilesSearchCommand
   | FilesDeleteCommand
