@@ -17,6 +17,7 @@ import {
   NO_TOOLS_PREAMBLE,
   NO_TOOLS_TRAILER,
   ProgressFence,
+  withTransaction,
 } from '@mtbot/agent-runtime'
 import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
 import {
@@ -335,24 +336,24 @@ export class BridgeContextCompactor {
     }
     const db = this.deps.getDb()
     try {
-      // BEGIN IMMEDIATE 立刻拿写锁，避免读-写竞争下的 SQLITE_BUSY
-      db.exec('BEGIN IMMEDIATE')
-      try {
-        repo.markMessagesCompacted(sessionKey, ids)
-        if (summaryText) {
-          const firstKept = allMessages[allMessages.length - keepCount]
-          repo.saveMessage({
-            conversationId: sessionKey,
-            role: 'assistant',
-            contentJson: buildPersistedCompactSummary(summaryText),
-            timestamp: resolveCompactSummaryTimestamp(firstKept?.timestamp),
-          })
-        }
-        db.exec('COMMIT')
-      } catch (err) {
-        db.exec('ROLLBACK')
-        throw err
-      }
+      // BEGIN IMMEDIATE 立刻拿写锁，避免读-写竞争下的 SQLITE_BUSY；
+      // 走 withTransaction 才能让内层 repo.saveMessage 的事务重入而非报错
+      withTransaction(
+        db,
+        () => {
+          repo.markMessagesCompacted(sessionKey, ids)
+          if (summaryText) {
+            const firstKept = allMessages[allMessages.length - keepCount]
+            repo.saveMessage({
+              conversationId: sessionKey,
+              role: 'assistant',
+              contentJson: buildPersistedCompactSummary(summaryText),
+              timestamp: resolveCompactSummaryTimestamp(firstKept?.timestamp),
+            })
+          }
+        },
+        'BEGIN IMMEDIATE',
+      )
       log.info(
         `[compactContextAsync] 压缩事务提交成功: 移出 ${ids.length} 条(仍保留在历史), 摘要=${!!summaryText}, sessionKey=${sessionKey}`,
       )

@@ -989,7 +989,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     } catch (err) {
       logger.error('[handleCompactContext] 压缩失败:', err)
       setToast({ message: '压缩失败', type: 'error' })
-      // 出错时也要清除压缩中状态
+    } finally {
+      // compacted 事件只在成功时推送，失败/未压缩时必须自己收尾，否则 spinner 永久转
       updateSessionState(sessionKey, (prev) => ({ ...prev, isAutoCompacting: false }))
     }
   }, [runtimeCurrentSessionKey, runtimeActions])

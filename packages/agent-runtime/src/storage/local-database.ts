@@ -141,8 +141,26 @@ export interface StatementResult {
  * node:sqlite 没有 db.transaction() 语法糖，
  * 需要手动 BEGIN/COMMIT/ROLLBACK。
  */
-export function withTransaction<R>(db: DatabaseAdapter, fn: () => R): R {
-  db.exec("BEGIN");
+const txnDepth = new WeakMap<DatabaseAdapter, number>();
+
+export function withTransaction<R>(
+  db: DatabaseAdapter,
+  fn: () => R,
+  begin = "BEGIN",
+): R {
+  // 可重入：SQLite 不支持嵌套事务，内层直接借用外层事务（外层回滚会一并撤销）
+  const depth = txnDepth.get(db) ?? 0;
+  if (depth > 0) {
+    txnDepth.set(db, depth + 1);
+    try {
+      return fn();
+    } finally {
+      txnDepth.set(db, depth);
+    }
+  }
+
+  db.exec(begin);
+  txnDepth.set(db, 1);
   try {
     const result = fn();
     db.exec("COMMIT");
@@ -150,6 +168,8 @@ export function withTransaction<R>(db: DatabaseAdapter, fn: () => R): R {
   } catch (err) {
     db.exec("ROLLBACK");
     throw err;
+  } finally {
+    txnDepth.set(db, 0);
   }
 }
 

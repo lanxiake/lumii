@@ -1434,17 +1434,25 @@ export class AgentRuntimeBridge {
       // usage.triggerThreshold 是比率（如 0.78），需换算成绝对 token 数
       const floorTokens = Math.floor(usage.contextWindow * usage.triggerThreshold)
 
-      if (shouldIdleCompact({
+      const cooldownUntil = this.getIdleCooldownUntil(sessionKey)
+      const cooldownActive = now < cooldownUntil
+      const should = shouldIdleCompact({
         enabled: true,
         idleAfterSeconds: 300,
         idleGapSeconds: idleSeconds,
         tokens: usage.usedTokens,
         floorTokens,
-        cooldownActive: now < this.getIdleCooldownUntil(sessionKey),
-      })) {
-        log.info(
-          `[scanIdleInstances] 实例 ${instanceId} 满足 idle 条件（idle=${idleSeconds}s, used=${usage.usedTokens}, floor=${floorTokens}/${usage.contextWindow}），开始压缩`
-        )
+        cooldownActive,
+      })
+
+      // 每轮都打决策，否则「自动压缩没生效」无从判断卡在哪个条件
+      log.info(
+        `[scanIdleInstances] ${instanceId} 决策=${should ? '压缩' : '跳过'} ` +
+          `idle=${idleSeconds}s/300s used=${usage.usedTokens} floor=${floorTokens}(${usage.contextWindow}×${usage.triggerThreshold}) ` +
+          `冷却=${cooldownActive ? new Date(cooldownUntil).toLocaleTimeString() : '无'}`,
+      )
+
+      if (should) {
         void this.tryIdleCompact(instanceId, sessionKey)
       }
     }
