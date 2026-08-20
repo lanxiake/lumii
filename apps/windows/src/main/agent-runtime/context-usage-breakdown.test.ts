@@ -144,7 +144,10 @@ describe('标定口径：固定部分不随对话增长', () => {
     expect(many.get('conversation')!).toBeGreaterThan(few.get('conversation')!)
   })
 
-  it('明细之和严格等于提供商总量', () => {
+  it('明细之和是各分类独立估算之和，不强行拉齐到 usedTokens', () => {
+    // 旧口径曾把总量强行拉齐到 usedTokens（残差/整体缩放），这正是本文件要修的 bug 的根源：
+    // 本地估算天然小于 provider 回执（provider 还计入图片/envelope/thinking 等），
+    // 强行拉齐会把这个差值错误地摊派到固定部分或对话历史头上。
     const entries = buildContextUsageBreakdown({
       systemPrompt: SYSTEM_PROMPT,
       toolDefinitions: TOOLS,
@@ -152,7 +155,10 @@ describe('标定口径：固定部分不随对话增长', () => {
       usedTokens: 12_345,
       charsPerToken: 2.5,
     })
-    expect(entries.reduce((n, e) => n + e.tokens, 0)).toBe(12_345)
+    const sum = entries.reduce((n, e) => n + e.tokens, 0)
+    // 未触发 90% 封顶（sum 远小于 usedTokens），明细之和应等于各分类独立估算之和本身
+    expect(sum).toBeLessThan(12_345)
+    expect(sum).toBeGreaterThan(0)
   })
 
   it('固定部分超过总量时压回 90%，对话行仍可见', () => {
@@ -166,7 +172,10 @@ describe('标定口径：固定部分不随对话增长', () => {
     })
     const byCategory = new Map(entries.map((e) => [e.category, e.tokens]))
     expect(byCategory.get('conversation')).toBeGreaterThan(0)
-    expect(entries.reduce((n, e) => n + e.tokens, 0)).toBe(100)
+    // 封顶生效时，明细之和压回 usedTokens 的 90% 附近（取整误差内），不超过 usedTokens 本身
+    const sum = entries.reduce((n, e) => n + e.tokens, 0)
+    expect(sum).toBeLessThanOrEqual(100)
+    expect(sum).toBeGreaterThan(0)
   })
 
   it('标定值越界时退回旧估算口径', () => {
@@ -184,6 +193,41 @@ describe('标定口径：固定部分不随对话增长', () => {
       usedTokens: 10_000,
     })
     expect(insane).toEqual(legacy)
+  })
+
+  it('固定部分体量远超单轮对话时，对话历史不吸收标定误差（回归：一句"你是谁"显示成 2K+）', () => {
+    // 复现真实场景：系统提示词+工具+技能+MCP+记忆+动态上下文加起来上万字符，
+    // 单轮对话只有"你是谁"+ 一句回复。usedTokens 比本地估算略高（provider tokenizer
+    // 与本地 charsPerToken 存在正常偏差），此偏差绝对值可能就有几千 token。
+    // 旧残差公式会把这个偏差全部算成对话历史；新口径下对话历史应保持与消息文本量级相符。
+    const tinyExchange: AgentMessage[] = [
+      { role: 'user', content: '你是谁' },
+      { role: 'assistant', content: '我是你的 AI 助手，有什么可以帮你的？' },
+    ] as unknown as AgentMessage[]
+
+    const fixedOnly = buildContextUsageBreakdown({
+      systemPrompt: SYSTEM_PROMPT,
+      toolDefinitions: TOOLS,
+      messages: [],
+      usedTokens: 1,
+      charsPerToken: 2.5,
+    })
+    const fixedTotal = fixedOnly.reduce((n, e) => n + e.tokens, 0)
+
+    // usedTokens 比本地固定部分估算高 20%（provider 偏差），对话历史极短
+    const usedTokensWithBias = Math.round(fixedTotal * 1.2)
+    const entries = buildContextUsageBreakdown({
+      systemPrompt: SYSTEM_PROMPT,
+      toolDefinitions: TOOLS,
+      messages: tinyExchange,
+      usedTokens: usedTokensWithBias,
+      charsPerToken: 2.5,
+    })
+    const byCategory = new Map(entries.map((e) => [e.category, e.tokens]))
+
+    // 对话历史应该是"你是谁"+回复这几十个字对应的量级（几十到一百多 token），
+    // 不应该是 fixedTotal * 0.2（provider 偏差的量级，数千 token）
+    expect(byCategory.get('conversation')!).toBeLessThan(200)
   })
 })
 

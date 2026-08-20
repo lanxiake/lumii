@@ -2,15 +2,19 @@
  * 上下文占用分类估算
  *
  * 口径：固定部分（系统提示词各章节 / 工具定义）按**标定的字符-token 比**直接换算，
- * 对话历史 = 提供商回执总量 − 固定部分之和。
+ * 对话历史按消息内容独立估算（`estimateTokenCount`，与文本本身的字符类型加权，
+ * 不依赖 charsPerToken）。
  *
  * 为什么不再整体等比缩放：旧实现把各分类的字符级估算之和缩放到 usedTokens
  * （scale = usedTokens / rawTotal）。估算缺口主要出在对话侧（图片、消息 envelope、
  * thinking 块口径差异），对话越长缺口越大、scale 越大，于是连一个字都没变的
  * 系统提示词、工具定义也跟着一起虚涨——正是"各部分随聊天持续增长"的根因。
  *
- * 现在固定部分只依赖自身字符数与标定比，同一实例内保持稳定；所有误差都落在
- * 对话历史这一唯一真正在变化的分类上。
+ * 为什么对话历史不能是"usedTokens − 固定部分之和"的残差：固定部分体量通常远超
+ * 单轮对话（如 13K vs 100 token），charsPerToken 只是全局单一比值，对固定部分
+ * 哪怕有 10-20% 的估算偏差，换算成绝对 token 数也会数千起跳——这个偏差如果全部
+ * 甩给残差公式，会让一句"你是谁"的对话历史显示成 2K+，构成本模块修复的下一个bug。
+ * 因此对话历史必须独立估算，固定部分之和只用于校验"总量是否超标"，不用于反推对话量。
  */
 
 import { estimateTextTokenCount, estimateTokenCount } from '@mtbot/agent-runtime'
@@ -222,26 +226,30 @@ export function buildContextUsageBreakdown(
 
   const fixedChars = collectFixedChars(input.systemPrompt, input.toolDefinitions)
   // 固定部分包括静态提示词章节、工具定义；动态上下文单独统计，不归对话历史。
+  // 直接按标定比换算，不做整体缩放——缩放会让一个字没变的固定部分随对话变长而虚涨。
   const fixed = new Map<ContextUsageCategory, number>()
   for (const category of FIXED_CATEGORIES) {
     const chars = fixedChars.get(category) ?? 0
     if (chars > 0) fixed.set(category, Math.round(chars / charsPerToken))
   }
-
   let fixedTotal = [...fixed.values()].reduce((sum, n) => sum + n, 0)
 
-  // 标定偏大或提供商读数偏小时，固定部分可能吃满甚至超过总量。
-  // 整体压回 MAX_FIXED_RATIO，保证对话行仍有可见数值。
-  const fixedCap = Math.floor(usedTokens * MAX_FIXED_RATIO)
-  if (fixedTotal > fixedCap && fixedTotal > 0) {
-    const shrink = fixedCap / fixedTotal
+  // 对话历史独立估算（同 estimateTokenCount 的文本口径），不做 usedTokens 反推残差——
+  // 固定部分的标定偏差量级远超单轮对话真实 token 数，残差公式会把这偏差全部错记成对话历史。
+  let conversation = estimateTokenCount([...input.messages])
+
+  // 标定偏大或提供商读数偏小时，固定部分 + 对话历史可能吃满甚至超过总量。
+  // 整体压回 MAX_FIXED_RATIO 的等比缩放，两侧一起收缩，不让某一侧独自承担误差。
+  const total = fixedTotal + conversation
+  const cap = Math.floor(usedTokens * MAX_FIXED_RATIO)
+  if (total > cap && total > 0) {
+    const shrink = cap / total
     for (const [category, tokens] of fixed) {
       fixed.set(category, Math.round(tokens * shrink))
     }
     fixedTotal = [...fixed.values()].reduce((sum, n) => sum + n, 0)
+    conversation = Math.round(conversation * shrink)
   }
-
-  const conversation = Math.max(0, usedTokens - fixedTotal)
 
   return CATEGORY_ORDER.map((category) => ({
     category,
