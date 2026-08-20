@@ -21,59 +21,72 @@ const BASE_DEF: AgentDefinition = {
   isActive: true,
 };
 
-describe("buildClientSystemPromptStructured — 能力驱动条件注入", () => {
-  it("无代码工具时 full 模式不注入代码细则", () => {
+describe("buildClientSystemPromptStructured — capability-driven sections", () => {
+  it("omits coding rules in full mode when coding tools are unavailable", () => {
     const { fullPrompt } = buildClientSystemPromptStructured({
       agentDefinition: BASE_DEF,
       toolNames: ["memory_search", "message"],
       cwd: "/workspace",
       promptDetail: "full",
     });
-    expect(fullPrompt).toContain("## 工作原则");
-    expect(fullPrompt).not.toContain("涉及写代码时额外遵守");
-    expect(fullPrompt).not.toContain("默认不写注释");
+    expect(fullPrompt).toContain("## Operating Principles");
+    expect(fullPrompt).not.toContain("When writing code:");
+    expect(fullPrompt).not.toContain("Write no comments by default");
   });
 
-  it("含代码工具时 full 模式仍注入代码细则", () => {
+  it("includes coding rules in full mode when coding tools are available", () => {
     const { fullPrompt } = buildClientSystemPromptStructured({
       agentDefinition: BASE_DEF,
       toolNames: ["file_edit", "file_write", "bash", "memory_search"],
       cwd: "/workspace",
       promptDetail: "full",
     });
-    expect(fullPrompt).toContain("涉及写代码时额外遵守");
-    expect(fullPrompt).toContain("默认不写注释");
+    expect(fullPrompt).toContain("When writing code:");
+    expect(fullPrompt).toContain("Write no comments by default");
   });
 
-  it("standard 模式注入上下文自动压缩 section", () => {
+  it("includes context compaction guidance in standard mode", () => {
     const { dynamicPrompt } = buildClientSystemPromptStructured({
       agentDefinition: BASE_DEF,
       toolNames: ["memory_search", "memory_read"],
       cwd: "/workspace",
       promptDetail: "standard",
     });
-    expect(dynamicPrompt).toContain("## 上下文自动压缩");
+    expect(dynamicPrompt).toContain("## Context Compaction");
     expect(dynamicPrompt).toContain("memory_read");
   });
 
-  it("compact 模式不注入上下文自动压缩 section", () => {
+  it("omits context compaction guidance in compact mode", () => {
     const { dynamicPrompt } = buildClientSystemPromptStructured({
       agentDefinition: BASE_DEF,
       toolNames: ["memory_search", "memory_read"],
       cwd: "/workspace",
       promptDetail: "compact",
     });
-    expect(dynamicPrompt).not.toContain("## 上下文自动压缩");
+    expect(dynamicPrompt).not.toContain("## Context Compaction");
   });
 
-  it("memory_read 可用时记忆召回段包含回查原文指引", () => {
+  it("keeps recall guidance inside the memory tag", () => {
     const { dynamicPrompt } = buildClientSystemPromptStructured({
       agentDefinition: BASE_DEF,
       toolNames: ["memory_search", "memory_read", "profile_memory"],
       cwd: "/workspace",
       promptDetail: "standard",
     });
-    expect(dynamicPrompt).toContain("## 记忆召回");
+    expect(dynamicPrompt).toContain("<memory>");
+    expect(dynamicPrompt).toContain("## Memory");
     expect(dynamicPrompt).toContain("memory_read");
+    expect(dynamicPrompt).toContain("</memory>");
+  });
+
+  it("does not enumerate low-frequency grouped tools without a guide", () => {
+    const { staticPrompt } = buildClientSystemPromptStructured({
+      agentDefinition: BASE_DEF,
+      toolNames: ["file_read", "app_screenshot", "app_goto", "screen_record_start", "screen_record_stop"],
+      promptDetail: "standard",
+    });
+    expect(staticPrompt).toContain("`file_read`");
+    expect(staticPrompt).not.toContain("`app_screenshot`");
+    expect(staticPrompt).not.toContain("`screen_record_start`");
   });
 });

@@ -117,7 +117,8 @@ export interface LocalProviderConfigView {
   modelId: string
   apiKey: string
   /** chat/vision：对话框可选模型列表 */
-  allowedModelIds?: string[]
+    allowedModelIds?: string[]
+    contextWindowK?: Record<string, number>
 }
 
 /** 模型能力槽 */

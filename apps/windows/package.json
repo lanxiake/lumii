@@ -40,6 +40,7 @@
     "postinstall": "node node_modules/@electron/rebuild/lib/cli.js --only better-sqlite3,sharp"
   },
   "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@img/sharp-win32-x64": "^0.34.5",
     "@larksuiteoapi/node-sdk": "^1.71.1",
     "@mtbot/agent-runtime": "workspace:*",
@@ -57,6 +58,7 @@
     "electron-updater": "^6.1.7",
     "epub2": "^3.0.2",
     "esbuild": "^0.28.0",
+    "html-to-image": "^1.11.13",
     "iconv-lite": "^0.7.2",
     "isomorphic-git": "^1.38.5",
     "jszip": "^3.10.1",
@@ -74,8 +76,7 @@
     "silk-sdk": "^0.2.2",
     "utf-8-validate": "^6.0.6",
     "ws": "^8.16.0",
-    "xlsx": "^0.18.5",
-    "@ffmpeg-installer/ffmpeg": "^1.1.0"
+    "xlsx": "^0.18.5"
   },
   "optionalDependencies": {
     "sherpa-onnx-win-ia32": "^1.13.0",

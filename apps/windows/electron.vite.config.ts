@@ -182,14 +182,17 @@ export default defineConfig({
         // iconv-lite 用于 Windows 命令行输出编码转换，必须外部化
         // @mtbot/* workspace 包入口为 .ts 源码，若外部化进 node_modules，
         // Electron 运行时 Node 无法对 node_modules 内文件做 TS type stripping（ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING）
+        // —— 注意：上面这一条只适用于 TS 源码包。@mariozechner/pi-ai / pi-agent-core / typebox
+        // 是已编译的纯 JS 包（dist/），外部化后 Electron 可正常从 node_modules（pnpm 符号链接）加载，
+        // 并由 pnpm 正确传递它们的 provider SDK（@anthropic-ai/sdk、@google/genai、@aws-sdk/*）依赖。
+        // 若把 pi-ai 排除（即打进 bundle），Rollup 会递归解析 pi-ai 顶层 re-export 的所有 provider，
+        // 在构建期触发缺失 SDK 的 import 解析失败（如 @anthropic-ai/sdk），得不偿失。
         // playwright-core 及其依赖（chromium-bidi）是 CommonJS 库，需要外部化避免警告
         // 不把 playwright-core / chromium-bidi 打进 bundle：Vite 会留下深层 require，
         // 运行时从 apps/windows/node_modules 解析（与 playwright 官方建议一致）。
         exclude: [
           'electron-updater', 'ws', 'bufferutil', 'utf-8-validate', 'iconv-lite',
           '@mtbot/agent-runtime', '@mtbot/browser-control', '@mtbot/protocol', '@mtbot/client-sdk',
-          '@mariozechner/pi-agent-core', '@mariozechner/pi-ai',
-          '@sinclair/typebox',
         ]
       }),
     ],
@@ -208,15 +211,20 @@ export default defineConfig({
         },
         // node:sqlite 保持 external，运行时由 Electron 36（Node.js 22.19）内置提供
         // better-sqlite3 保持 external 作为备选，但 Electron 环境优先使用 node:sqlite
-        // pi-ai 顶层 re-export 了 anthropic / google / amazon-bedrock 等 provider，
-        // 它们的 SDK（@anthropic-ai/sdk、@google/genai、@aws-sdk/*）未安装且在本客户端中永不调用
-        // （只使用 openai-completions / openai-responses 走 OpenAI 兼容端点），因此标记为
-        // external 让 Rollup 跳过解析，避免构建期 import 解析失败。
+        //
+        // pi-ai / pi-agent-core 已通过 externalizeDepsPlugin（默认规则）外部化，
+        // 但它们的传递依赖（@anthropic-ai/sdk、@google/genai、@aws-sdk/*、@mistralai/*）
+        // 不在 apps/windows/package.json 顶层 dependencies 中，externalizeDepsPlugin 无法
+        // 识别它们，因此 Rollup 仍会尝试打包并解析 import。本客户端只使用 OpenAI 兼容端点，
+        // 不直接调用这些 provider SDK，故用正则全部 external，构建期跳过解析，
+        // 运行时若某路径真的被触发，会由 pnpm 符号链接正确解析（pi-ai/package.json
+        // 已声明这些 SDK 为 dependencies，pnpm 已在 store 中建立完整依赖树）。
         external: [
           'bufferutil', 'utf-8-validate', 'iconv-lite', 'better-sqlite3', 'node:sqlite', 'isolated-vm',
-          '@anthropic-ai/sdk',
-          '@google/genai',
-          '@aws-sdk/client-bedrock-runtime',
+          /^@anthropic-ai\/.*$/,
+          /^@google\/.*$/,
+          /^@aws-sdk\/.*$/,
+          /^@mistralai\/.*$/,
         ]
       }
     },
@@ -224,7 +232,6 @@ export default defineConfig({
     optimizeDeps: {
       exclude: [
         '@mtbot/agent-runtime', '@mtbot/browser-control', '@mtbot/protocol', '@mtbot/client-sdk',
-        '@mariozechner/pi-agent-core', '@mariozechner/pi-ai',
       ]
     },
     resolve: {

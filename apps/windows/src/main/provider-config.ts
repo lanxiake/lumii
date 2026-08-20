@@ -36,6 +36,8 @@ export interface LocalProviderConfig {
    * 默认 responses（支持 prompt caching）。
    */
   apiFormat?: 'completions' | 'responses'
+  /** 按模型覆盖上下文窗口，单位 K（持久化字段） */
+  contextWindowK?: Record<string, number>
 }
 
 /** 渲染进程可见的单槽配置（含 apiKey 明文，仅本机用户可见） */
@@ -230,7 +232,18 @@ function normalizeSlotView(
     apiKey: apiKey ?? '',
     allowedModelIds,
     apiFormat: raw?.apiFormat ?? fallback.apiFormat,
+    contextWindowK: normalizeContextWindowK(raw?.contextWindowK),
   }
+}
+
+function normalizeContextWindowK(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== 'object') return {}
+  const out: Record<string, number> = {}
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    const k = Number(value)
+    if (id.trim() && Number.isFinite(k) && k > 0) out[id.trim()] = Math.round(k * 100) / 100
+  }
+  return out
 }
 
 /**
@@ -248,6 +261,7 @@ function toPersistedSlot(view: LocalProviderConfigView): PersistedSlot {
     modelId,
     allowedModelIds,
     apiFormat: view.apiFormat,
+    contextWindowK: normalizeContextWindowK(view.contextWindowK),
     apiKeyEnc: encryptApiKey(view.apiKey ?? ''),
   }
 }

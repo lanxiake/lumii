@@ -22,6 +22,7 @@ export interface LocalProviderConfigView {
   allowedModelIds?: string[]
   /** API 格式（openai/deepseek 用）：completions 或 responses，默认 responses */
   apiFormat?: 'completions' | 'responses'
+  contextWindowK?: Record<string, number>
 }
 
 /** 全部能力槽 */
