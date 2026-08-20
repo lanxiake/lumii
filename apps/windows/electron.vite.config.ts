@@ -208,7 +208,16 @@ export default defineConfig({
         },
         // node:sqlite 保持 external，运行时由 Electron 36（Node.js 22.19）内置提供
         // better-sqlite3 保持 external 作为备选，但 Electron 环境优先使用 node:sqlite
-        external: ['bufferutil', 'utf-8-validate', 'iconv-lite', 'better-sqlite3', 'node:sqlite', 'isolated-vm']
+        // pi-ai 顶层 re-export 了 anthropic / google / amazon-bedrock 等 provider，
+        // 它们的 SDK（@anthropic-ai/sdk、@google/genai、@aws-sdk/*）未安装且在本客户端中永不调用
+        // （只使用 openai-completions / openai-responses 走 OpenAI 兼容端点），因此标记为
+        // external 让 Rollup 跳过解析，避免构建期 import 解析失败。
+        external: [
+          'bufferutil', 'utf-8-validate', 'iconv-lite', 'better-sqlite3', 'node:sqlite', 'isolated-vm',
+          '@anthropic-ai/sdk',
+          '@google/genai',
+          '@aws-sdk/client-bedrock-runtime',
+        ]
       }
     },
     // 排除 workspace 包，避免 Vite 预构建时无法解析

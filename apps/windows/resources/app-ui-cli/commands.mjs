@@ -375,6 +375,57 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'conversation create',
+    group: '上下文压缩',
+    usage: 'conversation create [--title <t>]',
+    summary: '新建会话，返回 sessionKey',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '--title <t>', desc: '会话标题（可选）' }],
+    build(args) {
+      const body = { type: 'conversation:create' }
+      if (typeof args.flags.title === 'string') body.title = args.flags.title
+      return body
+    },
+  },
+  {
+    name: 'send',
+    group: '上下文压缩',
+    usage: 'send --session <key> [--text <t>|--data -] [--model <id>] [--wait]',
+    summary: '向会话发送一条消息（仅纯文本，附件类字段被控制口拒绝）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--session <key>', desc: '会话 key' },
+      { flag: '--text <t>', desc: '消息正文；长文本用 --data - 从 stdin 读' },
+      { flag: '--data -', desc: '从 stdin 读取正文，便于灌入大段文本撑高 token' },
+      { flag: '--model <id>', desc: '本次发送覆盖的模型 ID（可选）' },
+    ],
+    build(args, extra) {
+      const sessionKey = args.flags.session
+      if (typeof sessionKey !== 'string' || sessionKey.length === 0) return null
+      const content = args.flags.data === '-' ? extra?.stdin ?? '' : args.flags.text
+      if (typeof content !== 'string' || content.length === 0) return null
+      const body = { type: 'user:send', sessionKey, content }
+      if (typeof args.flags.model === 'string') body.modelId = args.flags.model
+      return body
+    },
+  },
+  {
+    name: 'send abort',
+    group: '上下文压缩',
+    usage: 'send abort --session <key>',
+    summary: '中止会话正在进行的回复',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '--session <key>', desc: '会话 key' }],
+    build(args) {
+      const sessionKey = args.flags.session
+      if (typeof sessionKey !== 'string' || sessionKey.length === 0) return null
+      return { type: 'user:abort', sessionKey }
+    },
+  },
+  {
     name: 'command',
     group: '底层',
     usage: 'command <type> [--data <json>|-]',

@@ -55,13 +55,43 @@ const MAX_FIXED_RATIO = 0.9
 /** 滑动更新权重：保留旧值 80%，吸收新值 20%，抑制单轮抖动 */
 const CALIBRATION_SMOOTHING = 0.8
 
-/** `## 章节标题` → 归属分类；未命中的章节算入系统提示词 */
-const SECTION_CATEGORY: ReadonlyArray<readonly [RegExp, ContextUsageCategory]> = [
-  [/^(Skills|Skill Activation|Your bundled capabilities|自我学习与进化)/i, 'skills'],
-  [/^MCP Servers/i, 'mcp'],
-  [/^Multi-Agent Collaboration/i, 'subagents'],
-  [/^(Memory|About the User|记忆)/i, 'memory'],
-]
+/** 无标定值时的粗略字符→token 权重（中英文混排的折中值） */
+const LEGACY_TOKENS_PER_CHAR = 0.45
+
+/** 标签名 → 展示分类 */
+const TAG_CATEGORY: Readonly<Record<string, ContextUsageCategory>> = {
+  tooling: 'tools',
+  skills: 'skills',
+  mcp_servers: 'mcp',
+  subagents: 'subagents',
+  memory: 'memory',
+}
+
+/**
+ * 按 `<tag>…</tag>` 精确切分系统提示词，返回各分类的字符数。
+ *
+ * 标签外的内容一律归 systemPrompt。相比早前用 `## 标题` 正则匹配，这里是确定性
+ * 切分：标题文案怎么改都不影响归类，不会出现某分类静默归零。
+ */
+function splitTaggedChars(prompt: string): Map<ContextUsageCategory, number> {
+  const chars = new Map<ContextUsageCategory, number>()
+  const add = (category: ContextUsageCategory, n: number): void => {
+    if (n > 0) chars.set(category, (chars.get(category) ?? 0) + n)
+  }
+
+  const tagNames = Object.keys(TAG_CATEGORY).join('|')
+  const re = new RegExp(`<(${tagNames})>([\\s\\S]*?)</\\1>`, 'g')
+
+  let cursor = 0
+  for (let m = re.exec(prompt); m !== null; m = re.exec(prompt)) {
+    add('systemPrompt', m.index - cursor)
+    add(TAG_CATEGORY[m[1]], m[2].length)
+    cursor = m.index + m[0].length
+  }
+  add('systemPrompt', prompt.length - cursor)
+
+  return chars
+}
 
 /** 展示顺序：与卡片行顺序一致 */
 const CATEGORY_ORDER: readonly ContextUsageCategory[] = [
@@ -79,42 +109,24 @@ const FIXED_CATEGORIES: readonly ContextUsageCategory[] = CATEGORY_ORDER.filter(
   (c) => c !== 'conversation',
 )
 
-function matchSectionCategory(heading: string): ContextUsageCategory {
-  for (const [re, category] of SECTION_CATEGORY) {
-    if (re.test(heading.trim())) return category
-  }
-  return 'systemPrompt'
-}
-
 /** 工具定义的计费文本：名称 + 描述 + 参数 schema */
 function toolText(tool: ToolDefinitionLite): string {
   return `${tool.name}${tool.description}${JSON.stringify(tool.parameters ?? {})}`
 }
 
 /**
- * 按 `## ` 章节边界统计系统提示词各分类的字符数，并把工具定义计入
+ * 统计固定部分各分类的字符数：系统提示词按标签切分，工具定义计入
  * tools / mcp（`mcp__` 前缀的工具归 MCP）。
  */
 function collectFixedChars(
   systemPrompt: string,
   toolDefinitions: readonly ToolDefinitionLite[],
 ): Map<ContextUsageCategory, number> {
-  const chars = new Map<ContextUsageCategory, number>()
-  const add = (category: ContextUsageCategory, n: number): void => {
-    chars.set(category, (chars.get(category) ?? 0) + n)
-  }
-
-  let current: ContextUsageCategory = 'systemPrompt'
-  for (const line of systemPrompt.split('\n')) {
-    const heading = /^##\s+(.+)$/.exec(line)
-    if (heading) current = matchSectionCategory(heading[1])
-    add(current, line.length + 1)
-  }
-
+  const chars = splitTaggedChars(systemPrompt)
   for (const tool of toolDefinitions) {
-    add(tool.name.startsWith('mcp__') ? 'mcp' : 'tools', toolText(tool).length)
+    const category: ContextUsageCategory = tool.name.startsWith('mcp__') ? 'mcp' : 'tools'
+    chars.set(category, (chars.get(category) ?? 0) + toolText(tool).length)
   }
-
   return chars
 }
 
@@ -164,11 +176,9 @@ function buildLegacyBreakdown(
     acc.set(category, (acc.get(category) ?? 0) + n)
   }
 
-  let current: ContextUsageCategory = 'systemPrompt'
-  for (const line of input.systemPrompt.split('\n')) {
-    const heading = /^##\s+(.+)$/.exec(line)
-    if (heading) current = matchSectionCategory(heading[1])
-    add(current, estimateTextTokenCount(line))
+  // 同样按标签切分，但用 0.3/0.6 字符权重换算（无标定值时的近似口径）
+  for (const [category, chars] of splitTaggedChars(input.systemPrompt)) {
+    add(category, chars * LEGACY_TOKENS_PER_CHAR)
   }
   for (const tool of input.toolDefinitions) {
     add(tool.name.startsWith('mcp__') ? 'mcp' : 'tools', estimateTextTokenCount(toolText(tool)))

@@ -343,6 +343,8 @@ export {
   buildClientSystemPromptStructured,
   filterAgentsForCollaborationPrompt,
   CACHE_BOUNDARY_MARKER,
+  PROMPT_SECTION_TAGS,
+  type PromptSectionTag,
   MEMORY_GUIDE_CONTENT,
   TASK_GUIDE_CONTENT,
   A2UI_GUIDE_CONTENT,

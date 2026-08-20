@@ -10,12 +10,18 @@ import {
 
 const SYSTEM_PROMPT = [
   '你是灵栖。',
+  '<skills>',
   '## Skills',
   '技能列表很长'.repeat(40),
+  '</skills>',
+  '<mcp_servers>',
   '## MCP Servers',
   'mcp 说明',
+  '</mcp_servers>',
+  '<memory>',
   '## Memory',
   '记忆说明',
+  '</memory>',
   '## Language',
   '始终用中文回复',
 ].join('\n')
@@ -60,7 +66,7 @@ describe('buildContextUsageBreakdown', () => {
 
   it('usedTokens 为 0 时退回原始估算，不缩放', () => {
     const result = buildContextUsageBreakdown({
-      systemPrompt: '## Skills\n技能',
+      systemPrompt: '<skills>\n技能\n</skills>',
       toolDefinitions: [],
       messages: [],
       usedTokens: 0,
@@ -174,6 +180,40 @@ describe('标定口径：固定部分不随对话增长', () => {
       usedTokens: 10_000,
     })
     expect(insane).toEqual(legacy)
+  })
+})
+
+describe('标签切分：归类不依赖标题文案', () => {
+  const build = (systemPrompt: string) =>
+    new Map(
+      buildContextUsageBreakdown({
+        systemPrompt,
+        toolDefinitions: [],
+        messages: [],
+        usedTokens: 10_000,
+        charsPerToken: 2.5,
+      }).map((e) => [e.category, e.tokens]),
+    )
+
+  it('章节标题改成英文/改名后归类不变', () => {
+    // 这是旧口径的静默失效点：靠 /^(Skills|技能)/ 匹配标题，标题一改归类就归零。
+    const zh = build('<skills>\n## 技能列表\nAAAA\n</skills>')
+    const en = build('<skills>\n## Available Capabilities\nAAAA\n</skills>')
+    expect(en.get('skills')).toBe(zh.get('skills'))
+    expect(en.get('skills')!).toBeGreaterThan(0)
+  })
+
+  it('标签外内容归 systemPrompt，标签内不串味', () => {
+    const byCategory = build('HEAD\n<memory>\nMMMM\n</memory>\nTAIL')
+    expect(byCategory.get('memory')!).toBeGreaterThan(0)
+    expect(byCategory.get('systemPrompt')!).toBeGreaterThan(0)
+    expect(byCategory.get('skills')).toBeUndefined()
+  })
+
+  it('同名标签出现多次时累加（技能段 + 自我学习段）', () => {
+    const once = build('<skills>\nAAAA\n</skills>')
+    const twice = build('<skills>\nAAAA\n</skills>\n<skills>\nAAAA\n</skills>')
+    expect(twice.get('skills')!).toBeGreaterThan(once.get('skills')!)
   })
 })
 

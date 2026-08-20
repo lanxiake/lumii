@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { COMMAND_ALLOWLIST, isCommandExposed } from './command-allowlist'
+import { COMMAND_ALLOWLIST, findDeniedField, isCommandExposed } from './command-allowlist'
 
 describe('COMMAND_ALLOWLIST', () => {
   it('允许 cron:list / tools:toggle / session:preferredModel:set', () => {
@@ -12,7 +12,6 @@ describe('COMMAND_ALLOWLIST', () => {
     for (const t of [
       'mcp:writeConfigFile',
       'mcp:upsert',
-      'user:send',
       'user:permission:respond',
       'files:delete',
       'files:list',
@@ -36,5 +35,48 @@ describe('COMMAND_ALLOWLIST', () => {
     expect(COMMAND_ALLOWLIST.has('codingDev:setBackend')).toBe(true)
     expect(COMMAND_ALLOWLIST.has('agent:memories:list')).toBe(true)
     expect(COMMAND_ALLOWLIST.has('mcp:status')).toBe(true)
+  })
+
+  it('放行压缩自动化所需命令', () => {
+    for (const t of [
+      'conversation:create',
+      'conversation:messages',
+      'conversation:context-usage',
+      'user:send',
+      'user:abort',
+      'user:compact-context',
+      'user:abort-compact-context',
+    ]) {
+      expect(isCommandExposed(t)).toBe(true)
+    }
+  })
+})
+
+describe('findDeniedField', () => {
+  it('user:send 纯文本放行', () => {
+    expect(findDeniedField({ type: 'user:send', sessionKey: 's', content: 'hi' })).toBe(null)
+  })
+
+  it('user:send 携带附件路径被拒（否则等于开了 files 读能力的侧门）', () => {
+    expect(
+      findDeniedField({
+        type: 'user:send',
+        sessionKey: 's',
+        content: 'hi',
+        imageAttachmentPaths: ['C:/secrets/id_rsa'],
+      }),
+    ).toBe('imageAttachmentPaths')
+    expect(
+      findDeniedField({ type: 'user:send', sessionKey: 's', content: 'hi', attachments: ['x'] }),
+    ).toBe('attachments')
+    expect(
+      findDeniedField({ type: 'user:send', sessionKey: 's', content: 'hi', agentId: 'a' }),
+    ).toBe('agentId')
+  })
+
+  it('无字段限制的命令一律放行；非法 body 不抛异常', () => {
+    expect(findDeniedField({ type: 'cron:list' })).toBe(null)
+    expect(findDeniedField(null)).toBe(null)
+    expect(findDeniedField({ type: 123 })).toBe(null)
   })
 })

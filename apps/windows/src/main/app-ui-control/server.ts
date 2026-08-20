@@ -12,7 +12,7 @@ import type { BrowserWindow } from 'electron'
 import { getAgentRuntimeBridge, handleCommand } from '../ipc/agent-runtime-ipc'
 import { resizeImageIfNeeded } from '../agent-runtime/image-resizer'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
-import { isCommandExposed } from './command-allowlist'
+import { findDeniedField, isCommandExposed } from './command-allowlist'
 import {
   createAppUiController,
   type AppUiController,
@@ -438,6 +438,13 @@ async function handleCommandRoute(body: unknown, res: http.ServerResponse): Prom
   const type = (body as { type?: unknown } | null)?.type
   if (!isCommandExposed(type)) {
     sendJson(res, 200, { ok: false, error: 'not_exposed' })
+    return
+  }
+
+  // 第二道闸：命令在白名单内，但个别字段（如 user:send 的附件路径）仍须拒绝
+  const denied = findDeniedField(body)
+  if (denied) {
+    sendJson(res, 200, { ok: false, error: 'field_protected', field: denied })
     return
   }
 

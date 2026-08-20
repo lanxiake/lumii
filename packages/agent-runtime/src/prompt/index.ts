@@ -3,6 +3,8 @@ export {
   buildClientSystemPromptStructured,
   filterAgentsForCollaborationPrompt,
   CACHE_BOUNDARY_MARKER,
+  PROMPT_SECTION_TAGS,
+  type PromptSectionTag,
   type ClientSystemPromptParams,
   type SystemPromptResult,
   type ActiveTaskInfo,

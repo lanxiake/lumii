@@ -186,6 +186,34 @@ export interface SystemPromptResult {
 /** 缓存断点标记（分隔静态/动态部分） */
 export const CACHE_BOUNDARY_MARKER = "\n<!-- CACHE_BOUNDARY -->\n"
 
+/**
+ * 上下文计量用的分区标签名。
+ *
+ * 宿主按这些标签精确切分系统提示词、统计各分类 token 占用。此前靠 `## 标题`
+ * 文本做正则匹配，标题一改（如英文化）归类就静默失效，某个分类直接归零。
+ * 标签把「归类」与「标题文案」解耦：标题随便改，归类只认标签。
+ *
+ * 未被标签包裹的内容一律归入 systemPrompt，因此只需包裹需要单独计量的分区。
+ */
+export const PROMPT_SECTION_TAGS = [
+  "tooling",
+  "skills",
+  "mcp_servers",
+  "subagents",
+  "memory",
+] as const
+
+export type PromptSectionTag = (typeof PROMPT_SECTION_TAGS)[number]
+
+/**
+ * 用成对标签包裹一个分区的内容行；内容为空时返回空数组（不产生空标签）。
+ */
+function tagged(tag: PromptSectionTag, lines: readonly string[]): string[] {
+  const body = lines.filter((l) => l != null)
+  if (body.length === 0 || body.every((l) => !l.trim())) return []
+  return [`<${tag}>`, ...body, `</${tag}>`, ""]
+}
+
 /** 提示词详度控制（根据模型能力自动选择） */
 export type PromptDetail = "compact" | "standard" | "full"
 
@@ -1836,11 +1864,13 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   // === 2. Tooling ===
   staticLines.push(
     "",
-    "## Tooling",
-    "",
-    "Tool names are case-sensitive. Call tools exactly as listed.",
-    "",
-    ...toolLines,
+    ...tagged("tooling", [
+      "## Tooling",
+      "",
+      "Tool names are case-sensitive. Call tools exactly as listed.",
+      "",
+      ...toolLines,
+    ]),
   )
 
   // === 2.05. 系统运行规则（对齐 Claude Code # System：工具被拒不重试 / 标签语义 / 防臆造 URL / 防注入） ===
@@ -1935,7 +1965,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
   // === 3. MCP Server Instructions ===
   if (params.mcpServerHints && params.mcpServerHints.length > 0) {
-    staticLines.push(...buildMcpSection(params.mcpServerHints))
+    staticLines.push(...tagged("mcp_servers", buildMcpSection(params.mcpServerHints)))
   }
 
   // === 4. Skills（按白名单过滤，支持 promptDetail 详度控制）===
@@ -1953,13 +1983,15 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
     if (filteredSkills.length > 0) {
       const hasSkillTools = effectiveToolNames.includes("skill_list")
-      staticLines.push(...buildSkillsSection(filteredSkills, readToolName, detail, hasSkillTools))
+      staticLines.push(
+        ...tagged("skills", buildSkillsSection(filteredSkills, readToolName, detail, hasSkillTools)),
+      )
     }
   }
 
   // === 4.5. 自我学习与进化（仅主 Agent；compact 模式跳过以省 token） ===
   if (!params.isSubAgent && detail !== "compact") {
-    staticLines.push(...buildSelfLearningSection(effectiveToolNames))
+    staticLines.push(...tagged("skills", buildSelfLearningSection(effectiveToolNames)))
   }
 
   // === 5. Task Orchestration（按能力条件化）===
@@ -1992,7 +2024,9 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     )
 
     if (filteredAgents.length > 0) {
-      staticLines.push(...buildAgentCollaborationSection(filteredAgents, effectiveToolNames))
+      staticLines.push(
+        ...tagged("subagents", buildAgentCollaborationSection(filteredAgents, effectiveToolNames)),
+      )
     }
   }
 
@@ -2058,7 +2092,12 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
   // === D1. Memory（摘要版或完整版，由 includeFullMemoryGuide 控制）===
   if (agentDefinition.memory?.scope !== "none") {
-    dynamicLines.push(...buildMemorySection(effectiveToolNames, userMemoryContent, params.includeFullMemoryGuide))
+    dynamicLines.push(
+      ...tagged(
+        "memory",
+        buildMemorySection(effectiveToolNames, userMemoryContent, params.includeFullMemoryGuide),
+      ),
+    )
   }
 
   // === D2. Workspace ===
