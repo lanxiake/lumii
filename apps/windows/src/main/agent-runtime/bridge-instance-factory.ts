@@ -139,6 +139,8 @@ export interface BridgeInstanceFactoryDeps {
   }
   /** 记录提供商返回的 inputTokens */
   setSessionProviderInputTokens: (sessionKey: string, inputTokens: number) => void
+  /** 用真实回执标定该模型的字符/token 比 */
+  calibrateSessionCharsPerToken: (sessionKey: string, modelId: string, promptTokens: number) => void
   clearSessionProviderInputTokens: (sessionKey: string) => void
 }
 
@@ -540,6 +542,8 @@ export class BridgeInstanceFactory {
       getCompactionForRootSession: (k) => this.deps.sessionModelCatalog.getCompactionForRootSession(k),
       getSessionContextUsage: (k) => this.deps.getSessionContextUsage(k),
       setSessionProviderInputTokens: (k, tokens) => this.deps.setSessionProviderInputTokens(k, tokens),
+      calibrateSessionCharsPerToken: (k, modelId, tokens) =>
+        this.deps.calibrateSessionCharsPerToken(k, modelId, tokens),
       clearSessionProviderInputTokens: (k) => this.deps.clearSessionProviderInputTokens(k),
       setCurrentToolExecutorInstanceId: (id) => {
         this.deps.currentToolExecutorInstanceId.value = id

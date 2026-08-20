@@ -3,6 +3,8 @@ import type { AgentMessage } from '@mariozechner/pi-agent-core'
 import {
   applyConversationCompactToUsage,
   buildContextUsageBreakdown,
+  calibrateCharsPerToken,
+  countPromptChars,
   patchBreakdownAfterConversationCompact,
 } from './context-usage-breakdown'
 
@@ -29,7 +31,7 @@ const MESSAGES: AgentMessage[] = [
 ] as unknown as AgentMessage[]
 
 describe('buildContextUsageBreakdown', () => {
-  it('按章节归类并缩放到提供商总量', () => {
+  it('无标定值时按章节归类并缩放到提供商总量', () => {
     const result = buildContextUsageBreakdown({
       systemPrompt: SYSTEM_PROMPT,
       toolDefinitions: TOOLS,
@@ -97,5 +99,114 @@ describe('buildContextUsageBreakdown', () => {
         usedTokens: 5000,
       }),
     ).toEqual([])
+  })
+})
+
+describe('标定口径：固定部分不随对话增长', () => {
+  /** 构造 n 轮对话 */
+  const conversation = (n: number): AgentMessage[] =>
+    Array.from({ length: n }, (_, i) =>
+      i % 2 === 0
+        ? { role: 'user', content: `第 ${i} 个问题，内容有一定长度用于放大差异。` }
+        : { role: 'assistant', content: `第 ${i} 个回答，同样有一定长度用于放大差异。` },
+    ) as unknown as AgentMessage[]
+
+  const build = (messages: AgentMessage[], usedTokens: number) =>
+    new Map(
+      buildContextUsageBreakdown({
+        systemPrompt: SYSTEM_PROMPT,
+        toolDefinitions: TOOLS,
+        messages,
+        usedTokens,
+        charsPerToken: 2.5,
+      }).map((e) => [e.category, e.tokens]),
+    )
+
+  it('对话从 2 条涨到 50 条，固定分类 token 数完全不变', () => {
+    // 这是用户报告的现象：系统提示词/工具/技能一个字没变，显示值却随聊天持续增长。
+    const few = build(conversation(2), 8_000)
+    const many = build(conversation(50), 40_000)
+
+    for (const category of ['systemPrompt', 'tools', 'skills', 'mcp', 'memory'] as const) {
+      expect(many.get(category)).toBe(few.get(category))
+    }
+    // 只有对话行增长
+    expect(many.get('conversation')!).toBeGreaterThan(few.get('conversation')!)
+  })
+
+  it('明细之和严格等于提供商总量', () => {
+    const entries = buildContextUsageBreakdown({
+      systemPrompt: SYSTEM_PROMPT,
+      toolDefinitions: TOOLS,
+      messages: conversation(10),
+      usedTokens: 12_345,
+      charsPerToken: 2.5,
+    })
+    expect(entries.reduce((n, e) => n + e.tokens, 0)).toBe(12_345)
+  })
+
+  it('固定部分超过总量时压回 90%，对话行仍可见', () => {
+    // usedTokens 很小（如提供商开缓存导致读数偏低），固定部分本会吃满
+    const entries = buildContextUsageBreakdown({
+      systemPrompt: SYSTEM_PROMPT,
+      toolDefinitions: TOOLS,
+      messages: conversation(2),
+      usedTokens: 100,
+      charsPerToken: 2.5,
+    })
+    const byCategory = new Map(entries.map((e) => [e.category, e.tokens]))
+    expect(byCategory.get('conversation')).toBeGreaterThan(0)
+    expect(entries.reduce((n, e) => n + e.tokens, 0)).toBe(100)
+  })
+
+  it('标定值越界时退回旧估算口径', () => {
+    const insane = buildContextUsageBreakdown({
+      systemPrompt: SYSTEM_PROMPT,
+      toolDefinitions: TOOLS,
+      messages: conversation(2),
+      usedTokens: 10_000,
+      charsPerToken: 9999,
+    })
+    const legacy = buildContextUsageBreakdown({
+      systemPrompt: SYSTEM_PROMPT,
+      toolDefinitions: TOOLS,
+      messages: conversation(2),
+      usedTokens: 10_000,
+    })
+    expect(insane).toEqual(legacy)
+  })
+})
+
+describe('calibrateCharsPerToken', () => {
+  it('首次标定直接取观测值', () => {
+    expect(calibrateCharsPerToken(2_500, 1_000)).toBe(2.5)
+  })
+
+  it('有旧值时滑动更新，抑制单轮抖动', () => {
+    // 旧值 2.0，观测 3.0 → 2.0*0.8 + 3.0*0.2 = 2.2
+    expect(calibrateCharsPerToken(3_000, 1_000, 2.0)).toBeCloseTo(2.2, 6)
+  })
+
+  it('观测值越界时返回 undefined，不污染已有标定', () => {
+    expect(calibrateCharsPerToken(1_000_000, 1, 2.5)).toBeUndefined()
+    expect(calibrateCharsPerToken(1, 1_000_000, 2.5)).toBeUndefined()
+  })
+
+  it('非法输入返回 undefined', () => {
+    expect(calibrateCharsPerToken(0, 100)).toBeUndefined()
+    expect(calibrateCharsPerToken(100, 0)).toBeUndefined()
+    expect(calibrateCharsPerToken(Number.NaN, 100)).toBeUndefined()
+  })
+})
+
+describe('countPromptChars', () => {
+  it('累加系统提示词、工具定义与消息字符数', () => {
+    const chars = countPromptChars({
+      systemPrompt: 'abc',
+      toolDefinitions: [{ name: 'f', description: 'd', parameters: {} }],
+      messages: [{ role: 'user', content: 'hi' }] as unknown as AgentMessage[],
+    })
+    // 'abc'(3) + 'f'+'d'+'{}'(4) + JSON 消息(>0)
+    expect(chars).toBeGreaterThan(7)
   })
 })

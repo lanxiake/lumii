@@ -205,6 +205,7 @@ describe("assistant parts bridge persistence", () => {
           triggerThreshold: 102_400,
         }),
         setSessionProviderInputTokens: vi.fn(),
+        calibrateSessionCharsPerToken: vi.fn(),
         clearSessionProviderInputTokens: vi.fn(),
         setCurrentToolExecutorInstanceId: vi.fn(),
         getCwd: () => activeWorkspaceDir,

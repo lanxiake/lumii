@@ -52,7 +52,7 @@ import {
 } from '@mtbot/agent-runtime'
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
-import { buildContextUsageBreakdown } from './context-usage-breakdown.js'
+import { buildContextUsageBreakdown, calibrateCharsPerToken, countPromptChars } from './context-usage-breakdown.js'
 import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
 
 import {
@@ -191,6 +191,10 @@ export class AgentRuntimeBridge {
   private readonly nodeStreamCallbacks = new Map<string, (event: AgentRuntimeEvent) => void>()
   /** sessionKey → 最近一次 LLM 调用返回的 inputTokens（提供商真实 prompt tokens） */
   private readonly sessionProviderInputTokens = new Map<string, number>()
+  /** modelId → 标定的字符/token 比，由真实回执反推，供上下文明细直算固定部分 */
+  private readonly modelCharsPerToken = new Map<string, number>()
+  /** sessionKey → 最近一次回执对应的 modelId，用于取回该会话适用的标定比 */
+  private readonly sessionLastModelId = new Map<string, string>()
 
   /** 主 Agent 实例的 innerStream / model（仅 def.id === 'main' 时设置） */
   private readonly mainInnerStreamRef: { value: ReturnType<typeof createGatewayStreamFn> | null } = { value: null }
@@ -706,6 +710,8 @@ export class AgentRuntimeBridge {
       createSummaryGenerator: (innerStream, model) => createLlmSummaryGenerator(innerStream, model),
       getSessionContextUsage: (sk) => this.getSessionContextUsage(sk),
       setSessionProviderInputTokens: (sk, tokens) => this.setSessionProviderInputTokens(sk, tokens),
+      calibrateSessionCharsPerToken: (sk, modelId, tokens) =>
+        this.calibrateSessionCharsPerToken(sk, modelId, tokens),
       clearSessionProviderInputTokens: (sk) => this.clearSessionProviderInputTokens(sk),
     })
 
@@ -899,6 +905,47 @@ export class AgentRuntimeBridge {
   }
 
   /**
+   * 用一轮真实回执标定该模型的字符/token 比。
+   *
+   * 固定部分（系统提示词、工具定义）据此直算，不再随对话增长虚涨。
+   * 首轮标定最准（对话占比小），后续轮次滑动更新。
+   */
+  calibrateSessionCharsPerToken(sessionKey: string, modelId: string, promptTokens: number): void {
+    const model = modelId.trim()
+    if (!model || promptTokens <= 0) return
+    const instance = this.resolveMainInstanceForSession(sessionKey)
+    if (!instance) return
+
+    this.sessionLastModelId.set(sessionKey.trim(), model)
+
+    const totalChars = countPromptChars({
+      systemPrompt: instance.getSystemPrompt(),
+      toolDefinitions: instance.getTools(),
+      messages: instance.getAgentMessages() as AgentMessage[],
+    })
+    const next = calibrateCharsPerToken(totalChars, promptTokens, this.modelCharsPerToken.get(model))
+    if (next == null) return
+
+    this.modelCharsPerToken.set(model, next)
+    this._runtimeStateRepo?.set(`${AgentRuntimeBridge.CHARS_PER_TOKEN_KEY_PREFIX}${model}`, String(next))
+  }
+
+  /** 读取该模型已标定的字符/token 比（内存优先，回落 runtime_state） */
+  private resolveCharsPerToken(modelId: string | undefined): number | undefined {
+    const model = modelId?.trim()
+    if (!model) return undefined
+    const cached = this.modelCharsPerToken.get(model)
+    if (cached != null) return cached
+
+    const raw = this._runtimeStateRepo?.get(`${AgentRuntimeBridge.CHARS_PER_TOKEN_KEY_PREFIX}${model}`)
+    if (!raw) return undefined
+    const parsed = Number(raw)
+    if (!Number.isFinite(parsed) || parsed <= 0) return undefined
+    this.modelCharsPerToken.set(model, parsed)
+    return parsed
+  }
+
+  /**
    * 解析会话上下文已用 token：优先内存缓存（含压缩后的整窗种子），再 DB，再本地估算。
    */
   private resolveSessionUsedTokens(sessionKey: string): number {
@@ -962,6 +1009,7 @@ export class AgentRuntimeBridge {
       toolDefinitions: instance.getTools(),
       messages: instance.getAgentMessages() as AgentMessage[],
       usedTokens,
+      charsPerToken: this.resolveCharsPerToken(this.sessionLastModelId.get(sessionKey.trim())),
     })
   }
 
@@ -1452,6 +1500,9 @@ export class AgentRuntimeBridge {
 
   /** runtime_state 里用户手动禁用工具集合的键 */
   private static readonly DISABLED_TOOLS_KEY = 'tools:user_disabled'
+
+  /** runtime_state 里各模型标定的字符/token 比的键前缀 */
+  private static readonly CHARS_PER_TOKEN_KEY_PREFIX = 'tokens:chars_per_token:'
 
   /** 读该会话的冷却截止时间戳（ms）；无记录返回 0 */
   private getIdleCooldownUntil(sessionKey: string): number {

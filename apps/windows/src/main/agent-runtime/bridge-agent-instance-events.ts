@@ -184,6 +184,8 @@ export interface BridgeAgentInstanceEventDeps {
   }
   /** 记录提供商返回的 inputTokens，供上下文用量条使用 */
   setSessionProviderInputTokens: (sessionKey: string, inputTokens: number) => void
+  /** 用真实回执标定该模型的字符/token 比，供上下文明细直算固定部分 */
+  calibrateSessionCharsPerToken: (sessionKey: string, modelId: string, promptTokens: number) => void
   /** 压缩后清除提供商 token 缓存 */
   clearSessionProviderInputTokens: (sessionKey: string) => void
   /** 与 bridge.currentToolExecutorInstanceId 同步（tool:start / tool:end） */
@@ -225,6 +227,7 @@ export function createAgentInstanceRuntimeEventHandler(
     getCompactionForRootSession,
     getSessionContextUsage,
     setSessionProviderInputTokens,
+    calibrateSessionCharsPerToken,
     setCurrentToolExecutorInstanceId,
     agentName,
     isSubAgent,
@@ -547,6 +550,9 @@ export function createAgentInstanceRuntimeEventHandler(
         const promptTokens = providerPromptTokens(event.usage)
         if (promptTokens > 0) {
           setSessionProviderInputTokens(ctx.rootSessionKey, promptTokens)
+          if (ctx.resolvedModelId) {
+            calibrateSessionCharsPerToken(ctx.rootSessionKey, ctx.resolvedModelId, promptTokens)
+          }
         }
       }
       // 落盘用量：只在服务商真给了 usage 时记，估算值不入库（否则花费统计会失真）
