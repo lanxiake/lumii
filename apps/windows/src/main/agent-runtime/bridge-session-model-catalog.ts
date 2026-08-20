@@ -1,3 +1,5 @@
+import { loadProviderConfig } from '../provider-config.js'
+
 /**
  * 会话级模型偏好与上下文压缩参数（与 GET /api/config/models 目录联动）
  */
@@ -6,9 +8,9 @@
  * 管理 UI 同步的模型目录与会话级 ContextCompactor 参数
  */
 export class BridgeSessionModelCatalog {
-  /** 无目录命中时的默认（与 AgentInstance 历史默认对齐） */
+  /** 无目录或内置模型命中时的默认上下文窗口 */
   static readonly DEFAULT_SESSION_COMPACTION = {
-    contextWindow: 1_000_000,
+    contextWindow: 200_000,
     outputReserveTokens: 16_384,
     summaryReserveTokens: 8_192,
   } as const
@@ -18,10 +20,66 @@ export class BridgeSessionModelCatalog {
    * key 为 normalizeModelKey 后的短 id
    */
   private static readonly KNOWN_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
-    'deepseek-v4': 1_000_000,
-    'deepseek-v4-pro': 1_000_000,
-    'deepseek-v4-flash': 1_000_000,
-  }
+ 'gpt-4o': 128,
+  'gpt-4o-mini': 128,
+  'gpt-4.1': 1_048_576,
+  'gpt-4.1-mini': 1_048_576,
+  'o3': 200,
+  'o3-mini': 200,
+  'o4-mini': 200,
+  'gpt-5.6-sol': 1_048_576,
+  'gpt-5.6-terra': 1_048_576,
+  'gpt-5.6-luna': 1_048_576,
+  'gpt-5.5': 1_048_576,
+  'gpt-5.4': 1_048_576,
+  'gpt-5-mini': 400,
+  'claude-3-5-sonnet': 200,
+  'claude-3-7-sonnet': 200,
+  'claude-sonnet-4': 200,
+  'claude-sonnet-4.6': 1_048_576,
+  'claude-sonnet-4.7': 1_048_576,
+  'claude-sonnet-5': 1_048_576,
+  'claude-opus-4.6': 1_048_576,
+  'claude-opus-4.7': 1_048_576,
+  'claude-opus-4.8': 1_048_576,
+  'claude-opus-5': 1_048_576,
+  'claude-haiku-4': 200,
+  'gemini-1.5-pro': 2_000_000,
+  'gemini-2.0-flash': 1_000_000,
+  'gemini-2.5-pro': 1_048_576,
+  'gemini-3-flash': 1_048_576,
+  'gemini-3.5-flash': 1_048_576,
+  'gemini-3.5-pro': 2_000_000,
+  'gemini-3-pro': 10_000_000,
+  'gemma-4-26b-it': 256_000,
+  'gemma-4-31b-it': 256_000,
+  'deepseek-chat': 128_000,
+  'deepseek-reasoner': 128_000,
+  'deepseek‑r1': 128_000,
+  'deepseek‑v4‑flash': 1_048_576,
+  'deepseek‑v4‑pro': 1_048_576,
+  'qwen3': 128_000,
+  'qwen3‑thinking': 128_000,
+  'qwen3.6‑27b‑instruct': 256_000,
+  'qwen3.6‑max‑preview': 256_000,
+  'qwen3.7‑max': 1_048_576,
+  'qwen3.8‑27b‑instruct': 256_000,
+  'glm‑5': 200_000,
+  'glm‑5.2': 256_000,
+  'glm‑5.3': 1_048_576,
+  'kimi‑k2': 256_000,
+  'kimi‑k2.6': 256_000,
+  'minimax‑01': 4_096_000,
+  'minimax‑m3': 1_048_576,
+  'grok‑4': 256_000,
+  'grok‑4.20': 256_000,
+  'grok‑4.3': 1_048_576,
+  'llama‑4‑scout': 10_000_000,
+  'llama‑4‑400b‑instruct': 128_000,
+  'mistral‑large‑3': 256_000,
+  'step‑3.7‑flash': 256_000,
+  'nemotron‑3‑ultra': 1_048_576
+};
 
   private readonly modelCatalogByFullId = new Map<
     string,
@@ -93,6 +151,9 @@ export class BridgeSessionModelCatalog {
     }
     const known = BridgeSessionModelCatalog.KNOWN_CONTEXT_WINDOWS[short]
     if (known) return { contextWindow: known }
+    const builtin = Object.entries(BridgeSessionModelCatalog.KNOWN_CONTEXT_WINDOWS)
+      .find(([key]) => short.toLowerCase().includes(key))?.[1]
+    if (builtin) return { contextWindow: builtin }
     return undefined
   }
 
@@ -112,8 +173,11 @@ export class BridgeSessionModelCatalog {
         summaryReserveTokens: d.summaryReserveTokens,
       }
     }
-    const hit = this.lookupCatalogEntry(modelRef.trim())
-    const cw = Math.max(4096, hit?.contextWindow ?? d.contextWindow)
+    const rawId = modelRef.trim()
+    const hit = this.lookupCatalogEntry(rawId)
+    const configuredK = loadProviderConfig().contextWindowK ?? {}
+    const configured = configuredK[rawId] ?? configuredK[this.normalizeModelKey(rawId)]
+    const cw = Math.max(4096, configured && configured > 0 ? Math.floor(configured * 1000) : (hit?.contextWindow ?? d.contextWindow))
     // output/summary 预留只用于「压缩到多少」（computeMaxEstimatedHistoryTokens），
     // 不再参与触发判断。因此改用与窗口无关的固定上限：避免大窗口（如 1M）下
     // 旧的 cw×0.25 预留出 250k 的巨量空间、把压缩目标压得过狠。

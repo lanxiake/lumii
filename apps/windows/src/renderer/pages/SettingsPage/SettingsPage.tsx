@@ -1502,6 +1502,21 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         }
                       }}
                     />
+                    {models.length === 0 && (cfg.allowedModelIds ?? []).map((id) => (
+                      <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span className={styles['setting-desc']}>{id}</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          step={1}
+                          value={String(contextWindowK[id] ?? defaultContextWindowK(id))}
+                          onChange={(e) => setContextWindowK(id, e.target.value)}
+                          style={{ width: 90 }}
+                          aria-label={`${id} 上下文长度（K）`}
+                        />
+                        <span className={styles['setting-desc']}>K</span>
+                      </div>
+                    ))}
                     {slotModelIdsText[slot] && slotModelIdsText[slot]!.split(',').map((id) => id.trim()).filter(Boolean).length === 1 && (() => {
                       const id = slotModelIdsText[slot]!.split(',')[0]!.trim()
                       return <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
