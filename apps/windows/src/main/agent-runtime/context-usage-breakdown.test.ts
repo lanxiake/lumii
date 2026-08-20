@@ -199,11 +199,12 @@ describe('标签切分：归类不依赖标题文案', () => {
       }).map((e) => [e.category, e.tokens]),
     )
 
-  it('章节标题改成英文/改名后归类不变', () => {
+  it('章节标题改成英文/改名后仍归入 skills，不会归零', () => {
     // 这是旧口径的静默失效点：靠 /^(Skills|技能)/ 匹配标题，标题一改归类就归零。
+    // 标签切分保证的是「归到同一分类」，字符数会因标题长度不同而变化，不要求相等。
     const zh = build('<skills>\n## 技能列表\nAAAA\n</skills>')
     const en = build('<skills>\n## Available Capabilities\nAAAA\n</skills>')
-    expect(en.get('skills')).toBe(zh.get('skills'))
+    expect(zh.get('skills')!).toBeGreaterThan(0)
     expect(en.get('skills')!).toBeGreaterThan(0)
   })
 
@@ -214,11 +215,16 @@ describe('标签切分：归类不依赖标题文案', () => {
     expect(byCategory.get('skills')).toBeUndefined()
   })
 
-  it('缓存边界后的未标记内容归动态上下文，不归对话历史', () => {
+  it('缓存边界后的未标记内容归动态上下文，不再混进系统提示词或其他固定分类', () => {
+    // usedTokens 远大于固定部分之和，残差仍会体现在 conversation（对话本轮为空时代表估算误差），
+    // 这里验证的是「动态段被独立计数」，而不是「conversation 归零」。
     const byCategory = build('STATIC\n<!-- CACHE_BOUNDARY -->\n## Runtime\nDYNAMIC')
     expect(byCategory.get('systemPrompt')).toBeGreaterThan(0)
     expect(byCategory.get('dynamicContext')).toBeGreaterThan(0)
-    expect(byCategory.get('conversation')).toBeUndefined()
+    // 动态段字符数应等于边界标记之后的原文长度，不多不少（没有被 systemPrompt 吞掉一部分）
+    const dynamicRaw = '\n## Runtime\nDYNAMIC'.length
+    const charsPerToken = 2.5
+    expect(byCategory.get('dynamicContext')).toBe(Math.round(dynamicRaw / charsPerToken))
   })
 
   it('同名标签出现多次时累加（技能段 + 自我学习段）', () => {
