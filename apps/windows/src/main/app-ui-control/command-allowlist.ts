@@ -16,8 +16,12 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'tools:list', 'tools:toggle',
   // 会话偏好
   'session:preferredModel:set', 'session:thinkingPrefs:set',
-  // 会话只读
+  // 会话读写：create/send 仅用于自动化测试构造对话，字段被 COMMAND_FIELD_DENYLIST 收窄
   'conversation:list', 'conversation:messages', 'conversation:context-usage',
+  'conversation:create', 'user:send', 'user:abort',
+  // 上下文压缩：只重排既有会话内容，不接受外部注入的正文，
+  // 与被拒的 agentInstance:prompt 不同（那个可投喂任意 prompt）
+  'user:compact-context', 'user:abort-compact-context',
   // 运行时只读
   'runtime:ping', 'runtime:enabled', 'runtime:featureFlags:get',
   'agent:definitions:list', 'agentInstance:list', 'commands:list', 'tasks:list',
@@ -34,4 +38,33 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
 /** 判断命令 type 是否在白名单内 */
 export function isCommandExposed(type: unknown): type is string {
   return typeof type === 'string' && COMMAND_ALLOWLIST.has(type)
+}
+
+/**
+ * 逐命令的字段拒绝清单（默认拒绝语义的第二道闸）。
+ *
+ * user:send 的 attachments / imageAttachmentPaths 接受绝对路径，主进程会读取文件
+ * 转 base64 投喂模型——放开等于把被拒的 files:* 读能力从侧门放进来。
+ * 故 user:send 只允许 sessionKey + content + msgId，其余一律拒。
+ */
+export const COMMAND_FIELD_DENYLIST: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  [
+    'user:send',
+    new Set(['attachments', 'imageAttachmentPaths', 'audioWavBase64', 'agentId']),
+  ],
+])
+
+/**
+ * 检查请求体是否携带该命令的禁用字段。
+ * @returns 命中的字段名；无命中返回 null
+ */
+export function findDeniedField(body: unknown): string | null {
+  const type = (body as { type?: unknown } | null)?.type
+  if (typeof type !== 'string') return null
+  const denied = COMMAND_FIELD_DENYLIST.get(type)
+  if (!denied) return null
+  for (const key of Object.keys(body as Record<string, unknown>)) {
+    if (denied.has(key)) return key
+  }
+  return null
 }

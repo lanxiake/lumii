@@ -295,6 +295,86 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'context usage',
+    group: '上下文压缩',
+    usage: 'context usage --session <key>',
+    summary: '查看会话上下文占用（usedTokens / contextWindow / 触发阈值）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '--session <key>', desc: '会话 key' }],
+    build(args) {
+      const sessionKey = args.flags.session
+      if (typeof sessionKey !== 'string' || sessionKey.length === 0) return null
+      return { type: 'conversation:context-usage', sessionKey }
+    },
+  },
+  {
+    name: 'context compact',
+    group: '上下文压缩',
+    usage: 'context compact --session <key> [--keep <n>]',
+    summary: '手动触发一次上下文压缩，返回压缩前后消息数',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--session <key>', desc: '会话 key' },
+      { flag: '--keep <n>', desc: '保留最近 N 轮对话，默认 6' },
+    ],
+    build(args) {
+      const sessionKey = args.flags.session
+      if (typeof sessionKey !== 'string' || sessionKey.length === 0) return null
+      const body = { type: 'user:compact-context', sessionKey }
+      const keep = num(args.flags.keep)
+      if (keep !== undefined) body.keepRecentTurns = keep
+      return body
+    },
+  },
+  {
+    name: 'context abort',
+    group: '上下文压缩',
+    usage: 'context abort --session <key>',
+    summary: '中止正在进行的上下文压缩',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '--session <key>', desc: '会话 key' }],
+    build(args) {
+      const sessionKey = args.flags.session
+      if (typeof sessionKey !== 'string' || sessionKey.length === 0) return null
+      return { type: 'user:abort-compact-context', sessionKey }
+    },
+  },
+  {
+    name: 'context messages',
+    group: '上下文压缩',
+    usage: 'context messages --session <key> [--limit <n>]',
+    summary: '读取会话消息，用于校验压缩后摘要就位、原文未丢',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--session <key>', desc: '会话 key' },
+      { flag: '--limit <n>', desc: '返回条数上限' },
+    ],
+    build(args) {
+      const sessionKey = args.flags.session
+      if (typeof sessionKey !== 'string' || sessionKey.length === 0) return null
+      const body = { type: 'conversation:messages', conversationId: sessionKey }
+      const limit = num(args.flags.limit)
+      if (limit !== undefined) body.limit = limit
+      return body
+    },
+  },
+  {
+    name: 'conversation list',
+    group: '上下文压缩',
+    usage: 'conversation list',
+    summary: '列出会话，取 sessionKey 供上述 context 命令使用',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [],
+    build() {
+      return { type: 'conversation:list' }
+    },
+  },
+  {
     name: 'command',
     group: '底层',
     usage: 'command <type> [--data <json>|-]',
