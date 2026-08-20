@@ -77,3 +77,124 @@ describe("withProgressTimeout - Phase 2", () => {
     vi.useRealTimers();
   });
 });
+
+describe("ProgressFence - Phase 3: 原子提交期（Commit Fence）", () => {
+  it("beginCommit → commitInFlight=true；finishCommit → 变 false", () => {
+    const fence = new ProgressFence();
+    expect(fence.commitInFlight).toBe(false);
+    expect(fence.beginCommit()).toBe(true);
+    expect(fence.commitInFlight).toBe(true);
+    fence.finishCommit();
+    expect(fence.commitInFlight).toBe(false);
+  });
+
+  it("revoke 赢了 race：先 revoke 再 begin → begin 返回 false，DB 写入不执行", () => {
+    const fence = new ProgressFence();
+    fence.revokeCommitAdmission();
+    expect(fence.beginCommit()).toBe(false);
+    expect(fence.commitInFlight).toBe(false);
+  });
+
+  it("cancelBeforeCommit 赢了 race → begin 拿不到入场权", () => {
+    const fence = new ProgressFence();
+    expect(fence.cancelBeforeCommit()).toBe(true);
+    expect(fence.beginCommit()).toBe(false);
+  });
+
+  it("begin 已在飞 → cancel 输 race；revoke 不打断当前提交但禁止后续", () => {
+    const fence = new ProgressFence();
+    expect(fence.beginCommit()).toBe(true);
+    // 已经开始写 DB → cancel 输了
+    expect(fence.cancelBeforeCommit()).toBe(false);
+    fence.revokeCommitAdmission();
+    // 当前提交不受影响
+    expect(fence.commitInFlight).toBe(true);
+    fence.finishCommit();
+    // 后续新提交被禁止
+    expect(fence.beginCommit()).toBe(false);
+  });
+
+  it("begin/finish 配对 10 次不泄漏：最终 commitInFlight=false", () => {
+    const fence = new ProgressFence();
+    for (let i = 0; i < 10; i++) {
+      expect(fence.beginCommit()).toBe(true);
+      fence.finishCommit();
+    }
+    expect(fence.commitInFlight).toBe(false);
+  });
+});
+
+describe("withProgressTimeout - Phase 3: commit-in-flight 永不中断", () => {
+  it("ceiling 到了但 commitInFlight=true → 不返回 null，分段续等直到提交完成", async () => {
+    vi.useFakeTimers();
+    const fence = new ProgressFence(120_000, 600_000);
+    const logger = { warn: vi.fn(), error: vi.fn() };
+
+    let release!: (v: string) => void;
+    const pending = new Promise<string>((r) => {
+      release = r;
+    });
+
+    const task = withProgressTimeout(
+      fence,
+      async (f) => {
+        f.beginCommit();
+        return pending;
+      },
+      logger,
+    );
+
+    // 推进到远超 ceiling（1000s），期间不允许返回 null
+    await vi.advanceTimersByTimeAsync(1_000_000);
+    expect(logger.warn.mock.calls.length + logger.error.mock.calls.length).toBeGreaterThan(0);
+
+    // DB 终于回来 → 正常拿到结果，而不是被杀
+    release("committed");
+    await vi.advanceTimersByTimeAsync(30_000);
+    await expect(task).resolves.toBe("committed");
+    vi.useRealTimers();
+  });
+
+  it("commit overrun 日志升级：前 2 次 WARNING，第 3 次起 ERROR", async () => {
+    vi.useFakeTimers();
+    const fence = new ProgressFence(1_000, 2_000);
+    const logger = { warn: vi.fn(), error: vi.fn() };
+
+    let release!: (v: string) => void;
+    const pending = new Promise<string>((r) => {
+      release = r;
+    });
+
+    const task = withProgressTimeout(
+      fence,
+      async (f) => {
+        f.beginCommit();
+        return pending;
+      },
+      logger,
+    );
+
+    // ceiling 2s 后进入 overrun，每 30s 一段报一次
+    await vi.advanceTimersByTimeAsync(2_000 + 30_000 * 3);
+    expect(logger.warn).toHaveBeenCalledTimes(2);
+    expect(logger.error.mock.calls.length).toBeGreaterThanOrEqual(1);
+
+    release("done");
+    await vi.advanceTimersByTimeAsync(30_000);
+    await task;
+    vi.useRealTimers();
+  });
+
+  it("finally 撤销未来入场权：超时返回后 worker 再调 beginCommit 拿不到权限", async () => {
+    vi.useFakeTimers();
+    const fence = new ProgressFence(120_000, 600_000);
+    const result = await withProgressTimeout(fence, async () => {
+      await vi.advanceTimersByTimeAsync(121_000);
+      return new Promise<string>(() => {});
+    });
+    expect(result).toBe(null);
+    // detached worker 事后想偷偷写 DB → 被拒
+    expect(fence.beginCommit()).toBe(false);
+    vi.useRealTimers();
+  });
+});

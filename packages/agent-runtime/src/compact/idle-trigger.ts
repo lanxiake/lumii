@@ -28,3 +28,37 @@ export function shouldIdleCompact(params: {
   // ④ 上下文比地板还小 → 不压
   return tokens > floorTokens;
 }
+
+/** 一次 idle 压缩之后应施加的冷却时长（ms）；0 = 不冷却 */
+export const IDLE_COOLDOWN_FAILURE_MS = 10 * 60_000;
+export const IDLE_COOLDOWN_LOW_YIELD_MS = 30 * 60_000;
+
+/**
+ * 一次 idle 压缩结束后该冷却多久：纯函数，便于单测。
+ *
+ * 事务 ROLLBACK 只返回 success=false 而不抛异常，若按收益分支处理会被误判成
+ * 「收益过低」冷却 30min，掩盖 DB 故障。故失败优先判定。
+ */
+export function decideIdleCooldownMs(result: {
+  success: boolean;
+  tokensBefore: number;
+  tokensAfter: number;
+  minReclaimTokens?: number;
+  minReclaimRatio?: number;
+}): { cooldownMs: number; reason: string } {
+  const { success, tokensBefore, tokensAfter } = result;
+  if (!success) {
+    return { cooldownMs: IDLE_COOLDOWN_FAILURE_MS, reason: '压缩未成功（事务回滚或无可压缩内容）' };
+  }
+  const reclaimed = tokensBefore - tokensAfter;
+  const ratio = tokensBefore > 0 ? reclaimed / tokensBefore : 0;
+  const minTokens = result.minReclaimTokens ?? 4096;
+  const minRatio = result.minReclaimRatio ?? 0.1;
+  if (reclaimed < minTokens || ratio < minRatio) {
+    return {
+      cooldownMs: IDLE_COOLDOWN_LOW_YIELD_MS,
+      reason: `收益过低：回收 ${reclaimed} tokens / ${(ratio * 100).toFixed(1)}%`,
+    };
+  }
+  return { cooldownMs: 0, reason: '' };
+}

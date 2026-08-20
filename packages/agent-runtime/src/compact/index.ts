@@ -46,7 +46,12 @@ export { microcompactToolResults } from "./strategies/micro-compact.js";
 export { resolveManualCompactKeepCount } from "./policy.js";
 
 // === Idle Compaction（Phase 2）===
-export { shouldIdleCompact } from "./idle-trigger.js";
+export {
+  shouldIdleCompact,
+  decideIdleCooldownMs,
+  IDLE_COOLDOWN_FAILURE_MS,
+  IDLE_COOLDOWN_LOW_YIELD_MS,
+} from "./idle-trigger.js";
 
 // === Progress Fence（Phase 2）===
 export { ProgressFence, withProgressTimeout } from "./progress-fence.js";

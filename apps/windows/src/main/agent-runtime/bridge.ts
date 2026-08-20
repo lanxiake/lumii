@@ -47,6 +47,8 @@ import {
   ceilTokenEstimate,
   DEFAULT_COMPACTION_TRIGGER_RATIO,
   shouldIdleCompact,
+  decideIdleCooldownMs,
+  IDLE_COOLDOWN_FAILURE_MS,
 } from '@mtbot/agent-runtime'
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
@@ -1545,14 +1547,14 @@ export class AgentRuntimeBridge {
           `回收 ${reclaimed} tokens / ${(reclaimRatio * 100).toFixed(1)}%，摘要=${r.hadSummary}）`,
       )
       // 收益判断看 token 而非消息条数：移出很多条小消息可能仍不省 token，
-      // 移出少数几条巨型工具结果反而收益巨大。
-      if (reclaimed < 4096 || reclaimRatio < 0.1) {
-        this.setIdleCooldown(
-          sessionKey,
-          30 * 60_000,
-          `收益过低：回收 ${reclaimed} tokens / ${(reclaimRatio * 100).toFixed(1)}%`,
-        )
-      }
+      // 移出少数几条巨型工具结果反而收益巨大。失败优先于收益判定，
+      // 否则事务 ROLLBACK（不抛异常、只返回 success=false）会被误判成「收益过低」冷却 30min。
+      const { cooldownMs, reason } = decideIdleCooldownMs({
+        success: r.success,
+        tokensBefore: r.conversationTokensBefore,
+        tokensAfter: r.conversationTokensAfter,
+      })
+      this.setIdleCooldown(sessionKey, cooldownMs, reason)
       // 压缩后重置活动时间，否则 idle 时间持续增长导致每 60s 反复压同一会话
       const now = Date.now()
       for (const [id, st] of this.instanceStates.entries()) {
@@ -1563,7 +1565,7 @@ export class AgentRuntimeBridge {
     } catch (err) {
       log.warn(`[tryIdleCompact] 实例 ${instanceId} idle 压缩失败: ${err instanceof Error ? err.message : String(err)}`)
       // 失败冷却 10min，避免网络抖动时每分钟重试烧 API
-      this.setIdleCooldown(sessionKey, 10 * 60_000, '压缩失败')
+      this.setIdleCooldown(sessionKey, IDLE_COOLDOWN_FAILURE_MS, '压缩失败')
       const now = Date.now()
       for (const [id, st] of this.instanceStates.entries()) {
         if (this.instanceToConversation.get(id) === sessionKey) {
