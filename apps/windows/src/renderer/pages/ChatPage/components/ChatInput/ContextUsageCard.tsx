@@ -20,6 +20,7 @@ const CATEGORY_META: Record<ContextUsageCategory, { label: string; color: string
   },
   subagents: { label: '子 Agent 定义', color: '#0ea5e9', hint: '多 Agent 协作相关定义' },
   memory: { label: '记忆与规则', color: '#22c55e', hint: '长期记忆与用户规则' },
+  dynamicContext: { label: '动态上下文', color: '#14b8a6', hint: '每轮变化的记忆、工作区、运行时和任务信息；压缩对话不会删除' },
   conversation: { label: '对话历史', color: '#f97316', hint: '当前会话消息；压缩只裁剪这一项' },
 }
 

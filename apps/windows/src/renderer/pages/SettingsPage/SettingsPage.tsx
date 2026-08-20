@@ -50,6 +50,7 @@ import {
   type ProviderType,
   type CapabilitySlot,
   type ListedModel,
+  defaultContextWindowK,
 } from '../../services/model-config-service'
 import { getAgents, type Agent } from '../../services/agent-service'
 import type { PetModelConfigDTO } from '../../../shared/pet-mode'
@@ -1249,6 +1250,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     const isLocalProvider = cfg.type === 'ollama' || cfg.type === 'lmstudio'
     const expanded = expandedSlots[slot] === true
     const models = slotModels[slot] ?? []
+    const contextWindowK = cfg.contextWindowK ?? {}
+    const setContextWindowK = (modelId: string, value: string) => {
+      const n = Number(value)
+      const next = { ...contextWindowK }
+      if (value.trim() === '') delete next[modelId]
+      else if (Number.isFinite(n) && n > 0) next[modelId] = n
+      patchSlot(slot, { contextWindowK: next })
+    }
 
     return (
       <Card key={slot}>
@@ -1442,10 +1451,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                             : (cfg.modelId ? [cfg.modelId] : [])
                           const checked = allowed.includes(m.id)
                           return (
-                            <Checkbox
-                              key={m.id}
-                              checked={checked}
-                              onChange={(next) => {
+                            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <Checkbox
+                                checked={checked}
+                                onChange={(next) => {
                                 const prev = cfg.allowedModelIds?.length
                                   ? [...cfg.allowedModelIds]
                                   : (cfg.modelId ? [cfg.modelId] : [])
@@ -1459,8 +1468,19 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                                 setSlotModelIdsText((t) => ({ ...t, [slot]: undefined }))
                               }}
                             >
-                              {m.name || m.id}
-                            </Checkbox>
+                                {m.name || m.id}
+                              </Checkbox>
+                              <Input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={String(contextWindowK[m.id] ?? defaultContextWindowK(m.id))}
+                                onChange={(e) => setContextWindowK(m.id, e.target.value)}
+                                style={{ width: 90 }}
+                                aria-label={`${m.id} 上下文长度（K）`}
+                              />
+                              <span className={styles['setting-desc']}>K</span>
+                            </div>
                           )
                         })}
                       </div>
@@ -1482,6 +1502,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         }
                       }}
                     />
+                    {slotModelIdsText[slot] && slotModelIdsText[slot]!.split(',').map((id) => id.trim()).filter(Boolean).length === 1 && (() => {
+                      const id = slotModelIdsText[slot]!.split(',')[0]!.trim()
+                      return <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span className={styles['setting-desc']}>上下文长度</span>
+                        <Input type="number" min={1} step={1} value={String(contextWindowK[id] ?? defaultContextWindowK(id))} onChange={(e) => setContextWindowK(id, e.target.value)} style={{ width: 90 }} />
+                        <span className={styles['setting-desc']}>K</span>
+                      </div>
+                    })()}
                     {(cfg.allowedModelIds?.length ?? 0) > 0 && (
                       <span className={styles['setting-desc']}>
                         已选 {cfg.allowedModelIds!.length} 个；默认使用：{cfg.modelId || '（未设）'}

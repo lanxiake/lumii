@@ -67,6 +67,8 @@ const TAG_CATEGORY: Readonly<Record<string, ContextUsageCategory>> = {
   memory: 'memory',
 }
 
+const CACHE_BOUNDARY_MARKER = '<!-- CACHE_BOUNDARY -->'
+
 /**
  * 按 `<tag>…</tag>` 精确切分系统提示词，返回各分类的字符数。
  *
@@ -79,16 +81,22 @@ function splitTaggedChars(prompt: string): Map<ContextUsageCategory, number> {
     if (n > 0) chars.set(category, (chars.get(category) ?? 0) + n)
   }
 
+  const boundary = prompt.indexOf(CACHE_BOUNDARY_MARKER)
+  const staticPrompt = boundary >= 0 ? prompt.slice(0, boundary) : prompt
+  if (boundary >= 0) {
+    add('dynamicContext', prompt.length - boundary - CACHE_BOUNDARY_MARKER.length)
+  }
+
   const tagNames = Object.keys(TAG_CATEGORY).join('|')
   const re = new RegExp(`<(${tagNames})>([\\s\\S]*?)</\\1>`, 'g')
 
   let cursor = 0
-  for (let m = re.exec(prompt); m !== null; m = re.exec(prompt)) {
+  for (let m = re.exec(staticPrompt); m !== null; m = re.exec(staticPrompt)) {
     add('systemPrompt', m.index - cursor)
     add(TAG_CATEGORY[m[1]], m[2].length)
     cursor = m.index + m[0].length
   }
-  add('systemPrompt', prompt.length - cursor)
+  add('systemPrompt', staticPrompt.length - cursor)
 
   return chars
 }
@@ -101,6 +109,7 @@ const CATEGORY_ORDER: readonly ContextUsageCategory[] = [
   'mcp',
   'subagents',
   'memory',
+  'dynamicContext',
   'conversation',
 ]
 
@@ -212,6 +221,7 @@ export function buildContextUsageBreakdown(
   if (!calibrated || usedTokens <= 0) return buildLegacyBreakdown(input)
 
   const fixedChars = collectFixedChars(input.systemPrompt, input.toolDefinitions)
+  // 固定部分包括静态提示词章节、工具定义；动态上下文单独统计，不归对话历史。
   const fixed = new Map<ContextUsageCategory, number>()
   for (const category of FIXED_CATEGORIES) {
     const chars = fixedChars.get(category) ?? 0

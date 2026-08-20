@@ -24,6 +24,9 @@ const SYSTEM_PROMPT = [
   '</memory>',
   '## Language',
   '始终用中文回复',
+  '<!-- CACHE_BOUNDARY -->',
+  '## Workspace',
+  '动态工作区信息'.repeat(20),
 ].join('\n')
 
 const TOOLS = [
@@ -50,7 +53,8 @@ describe('buildContextUsageBreakdown', () => {
     expect(byCategory.get('skills')).toBeGreaterThan(0)
     expect(byCategory.get('mcp')).toBeGreaterThan(0)
     expect(byCategory.get('memory')).toBeGreaterThan(0)
-    // 未命中的章节（Language / 首行身份）落到系统提示词
+    expect(byCategory.get('dynamicContext')).toBeGreaterThan(0)
+    // 未命中的静态章节（Language / 首行身份）落到系统提示词
     expect(byCategory.get('systemPrompt')).toBeGreaterThan(0)
     expect(byCategory.get('tools')).toBeGreaterThan(0)
     expect(byCategory.get('conversation')).toBeGreaterThan(0)
@@ -133,7 +137,7 @@ describe('标定口径：固定部分不随对话增长', () => {
     const few = build(conversation(2), 8_000)
     const many = build(conversation(50), 40_000)
 
-    for (const category of ['systemPrompt', 'tools', 'skills', 'mcp', 'memory'] as const) {
+    for (const category of ['systemPrompt', 'tools', 'skills', 'mcp', 'memory', 'dynamicContext'] as const) {
       expect(many.get(category)).toBe(few.get(category))
     }
     // 只有对话行增长
@@ -208,6 +212,13 @@ describe('标签切分：归类不依赖标题文案', () => {
     expect(byCategory.get('memory')!).toBeGreaterThan(0)
     expect(byCategory.get('systemPrompt')!).toBeGreaterThan(0)
     expect(byCategory.get('skills')).toBeUndefined()
+  })
+
+  it('缓存边界后的未标记内容归动态上下文，不归对话历史', () => {
+    const byCategory = build('STATIC\n<!-- CACHE_BOUNDARY -->\n## Runtime\nDYNAMIC')
+    expect(byCategory.get('systemPrompt')).toBeGreaterThan(0)
+    expect(byCategory.get('dynamicContext')).toBeGreaterThan(0)
+    expect(byCategory.get('conversation')).toBeUndefined()
   })
 
   it('同名标签出现多次时累加（技能段 + 自我学习段）', () => {

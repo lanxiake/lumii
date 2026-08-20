@@ -1,8 +1,8 @@
 /**
- * Preload Script - 预加载脚本
+ * Preload Script - 预加载脚�?
  *
  * 在渲染进程加载前执行，提供安全的 IPC 桥接
- * 使用 contextBridge 暴露 API 给渲染进程
+ * 使用 contextBridge 暴露 API 给渲染进�?
  */
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
@@ -20,16 +20,16 @@ const log = {
   error: (...args: unknown[]) => console.error('[Preload]', ...args),
 }
 
-log.info('预加载脚本开始执行')
+log.info('预加载脚本开始执�?)
 
 /**
- * voice:event 单路复用：设置页有多个面板各自 onEvent，若每个都 ipcRenderer.on 会触发 MaxListenersExceeded。
+ * voice:event 单路复用：设置页有多个面板各�?onEvent，若每个�?ipcRenderer.on 会触�?MaxListenersExceeded�?
  */
 const voiceEventSubscribers = new Set<(event: unknown) => void>()
 let voiceEventIpcBound = false
 
 /**
- * 订阅语音事件（内部只挂一条 ipcRenderer 监听）
+ * 订阅语音事件（内部只挂一�?ipcRenderer 监听�?
  */
 function subscribeVoiceEvent(callback: (event: unknown) => void): () => void {
   voiceEventSubscribers.add(callback)
@@ -69,7 +69,7 @@ const SCREEN_RECORD_EVENT_CHANNELS = [
 ] as const
 
 /**
- * 订阅录屏事件（内部只挂一组 ipcRenderer 监听）
+ * 订阅录屏事件（内部只挂一�?ipcRenderer 监听�?
  */
 function subscribeScreenRecordEvent(callback: (event: unknown) => void): () => void {
   screenRecordEventSubscribers.add(callback)
@@ -99,7 +99,7 @@ function subscribeScreenRecordEvent(callback: (event: unknown) => void): () => v
 import type { ProjectGitStatus } from '../main/project-git/types'
 
 /**
- * ACP 项目条目（与 main/config/types.ts 的 CodingDevProject 对齐）
+ * ACP 项目条目（与 main/config/types.ts �?CodingDevProject 对齐�?
  */
 export interface CodingDevProject {
   name: string
@@ -108,36 +108,36 @@ export interface CodingDevProject {
 }
 
 /**
- * 本地 LLM Provider 配置视图（与 main/provider-config.ts 对齐）
+ * 本地 LLM Provider 配置视图（与 main/provider-config.ts 对齐�?
  */
 export interface LocalProviderConfigView {
   enabled: boolean
-  type: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi'
+  type: 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'lmstudio' | 'rightapi' | 'deepseek'
   baseUrl: string
   modelId: string
   apiKey: string
-  /** chat/vision：对话框可选模型列表 */
+  /** chat/vision：对话框可选模型列�?*/
     allowedModelIds?: string[]
     contextWindowK?: Record<string, number>
 }
 
-/** 模型能力槽 */
+/** 模型能力�?*/
 export type CapabilitySlot = 'chat' | 'vision' | 'image'
 
-/** 全部能力槽配置 */
+/** 全部能力槽配�?*/
 export interface ProviderSlotsConfigView {
   chat: LocalProviderConfigView
   vision: LocalProviderConfigView
   image: LocalProviderConfigView
 }
 
-/** 模型列表项 */
+/** 模型列表�?*/
 export interface ListedModel {
   id: string
   name: string
 }
 
-/** 连通性测试结果 */
+/** 连通性测试结�?*/
 export interface ProviderTestResult {
   ok: boolean
   message: string
@@ -145,7 +145,7 @@ export interface ProviderTestResult {
 }
 
 /**
- * 更新状态类型
+ * 更新状态类�?
  */
 export type UpdateStatus =
   | 'idle'
@@ -157,10 +157,10 @@ export type UpdateStatus =
   | 'error'
 
 /**
- * 更新状态
+ * 更新状�?
  */
 export interface UpdateState {
-  /** 当前状态 */
+  /** 当前状�?*/
   status: UpdateStatus
   /** 当前版本 */
   currentVersion: string
@@ -174,13 +174,13 @@ export interface UpdateState {
   downloadProgress?: number
   /** 下载速度 (bytes/s) */
   downloadSpeed?: number
-  /** 已下载大小 */
+  /** 已下载大�?*/
   downloadedBytes?: number
-  /** 总大小 */
+  /** 总大�?*/
   totalBytes?: number
   /** 错误信息 */
   error?: string
-  /** 最后检查时间 */
+  /** 最后检查时�?*/
   lastCheckTime?: number
 }
 
@@ -188,15 +188,15 @@ export interface UpdateState {
  * 更新配置
  */
 export interface UpdaterConfig {
-  /** 是否自动检查更新 */
+  /** 是否自动检查更�?*/
   autoCheck: boolean
-  /** 自动检查间隔 (毫秒) */
+  /** 自动检查间�?(毫秒) */
   checkInterval: number
   /** 是否自动下载 */
   autoDownload: boolean
   /** 是否自动安装 */
   autoInstall: boolean
-  /** 是否允许预发布版本 */
+  /** 是否允许预发布版�?*/
   allowPrerelease: boolean
 }
 
@@ -244,22 +244,22 @@ export interface ElectronAPI {
     }>
   }
 
-  /** 本地用量与花费统计（Task 4.3，数据来自 ~/.lumii/usage/*.jsonl） */
+  /** 本地用量与花费统计（Task 4.3，数据来�?~/.lumii/usage/*.jsonl�?*/
   usage: {
     query: (query: {
       from: number
       to: number
       groupBy: 'hour' | 'day'
     }) => Promise<{ success: boolean; data?: UsageSummary; error?: string }>
-    /** 到当前模型 provider 的首字节延迟（最近 N 次中位数） */
+    /** 到当前模�?provider 的首字节延迟（最�?N 次中位数�?*/
     latency: () => Promise<{ success: boolean; data?: LatencyView }>
   }
 
-  /** 概览页资讯（由「资讯抓取与综述」定时任务写入 ~/.lumii/news/latest.json） */
+  /** 概览页资讯（由「资讯抓取与综述」定时任务写�?~/.lumii/news/latest.json�?*/
   news: {
-    /** 读最新一批资讯；从未抓过时 data 为 null */
+    /** 读最新一批资讯；从未抓过�?data �?null */
     latest: () => Promise<{ success: boolean; data?: NewsSnapshot | null; error?: string }>
-    /** 立即跑一次抓取+综述流水线，返回新快照 */
+    /** 立即跑一次抓�?综述流水线，返回新快�?*/
     refresh: () => Promise<{
       success: boolean
       data?: { summary: string; snapshot: NewsSnapshot | null }
@@ -267,7 +267,7 @@ export interface ElectronAPI {
     }>
   }
 
-  /** Dashboard 当前激活的通用 feed；默认是资讯，也可由工作流替换。 */
+  /** Dashboard 当前激活的通用 feed；默认是资讯，也可由工作流替换�?*/
   dashboardFeed: {
     latest: () => Promise<{ success: boolean; data?: DashboardFeedSnapshot | null; error?: string }>
     refresh: () => Promise<{
@@ -289,27 +289,27 @@ export interface ElectronAPI {
     close: () => void
     isMaximized: () => Promise<boolean>
     /**
-     * 光标相对窗口内容区坐标（穿透标题栏 drag 区域；边缘光效用）
+     * 光标相对窗口内容区坐标（穿透标题栏 drag 区域；边缘光效用�?
      */
     getCursorClientPos: () => Promise<{ x: number; y: number; inside: boolean } | null>
   }
 
   /**
-   * 与定时任务相同的桌面通知（主进程 Notification + 托盘 + 失焦时任务栏闪烁）
+   * 与定时任务相同的桌面通知（主进程 Notification + 托盘 + 失焦时任务栏闪烁�?
    */
   notifyDesktop: (title: string, body: string) => Promise<void>
 
   // 应用操作
-  /** 本地 LLM Provider 配置（按能力槽 chat/vision/image） */
+  /** 本地 LLM Provider 配置（按能力�?chat/vision/image�?*/
   provider: {
     getConfig: () => Promise<ProviderSlotsConfigView>
     setConfig: (cfg: ProviderSlotsConfigView | LocalProviderConfigView) => Promise<ProviderSlotsConfigView>
     listModels: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => Promise<{ success: boolean; data?: ListedModel[]; error?: string }>
     testConnection: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => Promise<ProviderTestResult>
   }
-  /** 开机画面（主窗口内全屏） */
+  /** 开机画面（主窗口内全屏�?*/
   splash: {
-    /** 是否应跳过开机画面（托盘静默启动 / 测试模式 / 环境变量） */
+    /** 是否应跳过开机画面（托盘静默启动 / 测试模式 / 环境变量�?*/
     shouldSkip: () => boolean
   }
   app: {
@@ -321,9 +321,9 @@ export interface ElectronAPI {
     showItemInFolder: (filePath: string) => Promise<void>
     /** 在资源管理器中打开当前应用日志文件 */
     openLogFile: () => Promise<{ success: boolean; path?: string; error?: string }>
-    /** 获取开机自启状态 */
+    /** 获取开机自启状�?*/
     getOpenAtLogin: () => Promise<boolean>
-    /** 设置开机自启 */
+    /** 设置开机自�?*/
     setOpenAtLogin: (enable: boolean) => Promise<boolean>
     /** 开发类 AI 工具（ACP）环境说明与当前解析的工作区 */
     getCodingDevEnvInfo: () => Promise<{
@@ -332,7 +332,7 @@ export interface ElectronAPI {
       powershellGatewayEnvBlock: string
       weixinSlashHint: string
     }>
-    /** 获取本机 ACP 工具元数据（无版本/状态探测，快速返回） */
+    /** 获取本机 ACP 工具元数据（无版�?状态探测，快速返回） */
     listCodingDevToolsMetadata: () => Promise<Array<{
       id: string
       label: string
@@ -362,7 +362,7 @@ export interface ElectronAPI {
       selfUpdateCommand?: string
       authStatus?: 'ok' | 'required' | 'unknown'
     }>
-    /** 一键安装本机 ACP CLI（执行官方白名单安装命令） */
+    /** 一键安装本�?ACP CLI（执行官方白名单安装命令�?*/
     installCodingDevTool: (toolId: string) => Promise<{
       ok: boolean
       toolId: string
@@ -382,7 +382,7 @@ export interface ElectronAPI {
       }
       message: string
     }>
-    /** 卸载本机 ACP CLI（执行官方白名单卸载命令） */
+    /** 卸载本机 ACP CLI（执行官方白名单卸载命令�?*/
     uninstallCodingDevTool: (toolId: string) => Promise<{
       ok: boolean
       toolId: string
@@ -404,7 +404,7 @@ export interface ElectronAPI {
       command?: string
       documented?: boolean
     }>
-    /** 卸载前预览：将要执行的命令与风险提示（不执行任何命令） */
+    /** 卸载前预览：将要执行的命令与风险提示（不执行任何命令�?*/
     previewUninstallCodingDevTool: (toolId: string) => Promise<{
       toolId: string
       label: string
@@ -414,34 +414,34 @@ export interface ElectronAPI {
       documented: boolean
       hint: string
     }>
-    /** 触发 CLI 登录（如 cursor agent login 打开浏览器 OAuth） */
+    /** 触发 CLI 登录（如 cursor agent login 打开浏览�?OAuth�?*/
     loginCodingDevTool: (toolId: string) => Promise<{ success: boolean; message: string }>
-    /** 设置 ACP 专用工作目录；传 undefined 或空则与主工作区一致 */
+    /** 设置 ACP 专用工作目录；传 undefined 或空则与主工作区一�?*/
     setCodingDevAcpWorkspace: (dirPath: string | undefined) => Promise<void>
-    /** 列出 ACP 项目及当前活动项目 */
+    /** 列出 ACP 项目及当前活动项�?*/
     listCodingDevProjects: () => Promise<{ projects: CodingDevProject[]; activeProject?: string }>
     /** 新建项目（在 projects 目录下创建），成功后设为活动项目 */
     createCodingDevProject: (name: string) => Promise<{ projects: CodingDevProject[]; activeProject?: string }>
-    /** 打开已有项目（软链接挂载到 projects 目录），成功后设为活动项目 */
+    /** 打开已有项目（软链接挂载�?projects 目录），成功后设为活动项�?*/
     openCodingDevProject: (name: string, targetPath: string) => Promise<{ projects: CodingDevProject[]; activeProject?: string }>
-    /** 移除项目（外部项目仅删链接，保留真实目录） */
+    /** 移除项目（外部项目仅删链接，保留真实目录�?*/
     removeCodingDevProject: (name: string) => Promise<{ projects: CodingDevProject[]; activeProject?: string }>
-    /** 设置活动项目（其 realPath 作为 ACP cwd） */
+    /** 设置活动项目（其 realPath 作为 ACP cwd�?*/
     setCodingDevActiveProject: (name: string) => Promise<{ projects: CodingDevProject[]; activeProject?: string }>
-    /** 只读获取项目的 Git 状态（分支/ahead-behind/远程/文件状态） */
+    /** 只读获取项目�?Git 状态（分支/ahead-behind/远程/文件状态） */
     getProjectGitStatus: (projectName: string) => Promise<ProjectGitStatus>
-    /** 获取拖拽 File 对象的本地文件系统路径（Electron webUtils.getPathForFile） */
+    /** 获取拖拽 File 对象的本地文件系统路径（Electron webUtils.getPathForFile�?*/
     getPathForFile: (file: File) => string
   }
 
-  // 对话框
+  // 对话�?
   dialog: {
     showOpenDialog: (options: Electron.OpenDialogOptions) => Promise<Electron.OpenDialogReturnValue>
     showSaveDialog: (options: Electron.SaveDialogOptions) => Promise<Electron.SaveDialogReturnValue>
     showMessageBox: (options: Electron.MessageBoxOptions) => Promise<Electron.MessageBoxReturnValue>
   }
 
-  // 剪贴板
+  // 剪贴�?
   clipboard: {
     readText: () => Promise<string>
     writeText: (text: string) => Promise<void>
@@ -451,23 +451,23 @@ export interface ElectronAPI {
 
   // 自动更新
   updater: {
-    /** 获取更新状态 */
+    /** 获取更新状�?*/
     getState: () => Promise<UpdateState>
     /** 获取更新配置 */
     getConfig: () => Promise<UpdaterConfig>
     /** 更新配置 */
     updateConfig: (config: Partial<UpdaterConfig>) => Promise<UpdaterConfig>
-    /** 检查更新 */
+    /** 检查更�?*/
     checkForUpdates: () => Promise<UpdateState>
     /** 下载更新 */
     downloadUpdate: () => Promise<UpdateState>
     /** 安装更新 */
     installUpdate: () => void
-    /** 启动自动检查 */
+    /** 启动自动检�?*/
     startAutoCheck: () => void
-    /** 停止自动检查 */
+    /** 停止自动检�?*/
     stopAutoCheck: () => void
-    /** 监听状态变化 */
+    /** 监听状态变�?*/
     onStateChange: (callback: (state: UpdateState) => void) => () => void
   }
 
@@ -499,9 +499,9 @@ export interface ElectronAPI {
       role?: string
       silent?: boolean
     }) => Promise<unknown>
-    /** 查询配对请求状态 */
+    /** 查询配对请求状�?*/
     checkPairingStatus: (requestId: string) => Promise<unknown>
-    /** 生成配对码（用于设备配对） */
+    /** 生成配对码（用于设备配对�?*/
     generatePairingCode: () => Promise<unknown>
     /** 获取当前用户信息 */
     getCurrentUser: () => Promise<unknown>
@@ -519,9 +519,9 @@ export interface ElectronAPI {
     setBaseUrl: (url: string) => Promise<void>
     /** 获取 API Server URL */
     getBaseUrl: () => Promise<string>
-    /** 设置访问令牌（登录成功后同步到主进程） */
+    /** 设置访问令牌（登录成功后同步到主进程�?*/
     setAccessToken: (token: string | null) => Promise<void>
-    /** 检查认证状态 */
+    /** 检查认证状�?*/
     checkAuth: () => Promise<unknown>
     /** 请求密码重置 */
     requestPasswordReset: (email: string) => Promise<unknown>
@@ -529,7 +529,7 @@ export interface ElectronAPI {
     // --- 聊天接口 ---
     /** 获取会话列表 */
     getConversations: () => Promise<unknown>
-    /** 创建新会话 */
+    /** 创建新会�?*/
     createConversation: (params: { title?: string }) => Promise<unknown>
     /** 获取会话详情 */
     getConversationDetail: (conversationId: string) => Promise<unknown>
@@ -537,9 +537,9 @@ export interface ElectronAPI {
     deleteConversation: (conversationId: string) => Promise<unknown>
     /** 获取消息列表 */
     getMessages: (conversationId: string, params?: { limit?: number; offset?: number }) => Promise<unknown>
-    /** 发送消息 */
+    /** 发送消�?*/
     sendMessage: (params: { conversationId: string; content: string; attachments?: string[] }) => Promise<unknown>
-    /** 流式发送消息 */
+    /** 流式发送消�?*/
     sendMessageStream: (params: { conversationId: string; content: string }, callbacks: unknown) => Promise<unknown>
     /** 重试消息 */
     retryMessage: (messageId: string) => Promise<unknown>
@@ -553,14 +553,14 @@ export interface ElectronAPI {
     rateMessage: (messageId: string, params: { rating: 'like' | 'dislike'; feedback?: string }) => Promise<unknown>
 
     // --- 验证码与安全接口 ---
-    /** 获取滑动验证码 */
+    /** 获取滑动验证�?*/
     getCaptchaChallenge: () => Promise<unknown>
-    /** 验证滑动验证码 */
+    /** 验证滑动验证�?*/
     verifyCaptcha: (captchaId: string, sliderX: number) => Promise<unknown>
     /** 获取 RSA 公钥 */
     getPublicKey: () => Promise<unknown>
 
-    // --- 记忆接口（API Server /api/memories） ---
+    // --- 记忆接口（API Server /api/memories�?---
     getMemories: (options?: {
       type?: string
       category?: string
@@ -581,8 +581,8 @@ export interface ElectronAPI {
     ) => Promise<unknown>
     deleteMemory: (id: string) => Promise<unknown>
 
-    // --- 技能商店接口 ---
-    /** 获取商店技能列表 */
+    // --- 技能商店接�?---
+    /** 获取商店技能列�?*/
     getStoreSkills: (filters?: {
       category?: string
       tags?: string[]
@@ -592,19 +592,19 @@ export interface ElectronAPI {
       offset?: number
       limit?: number
     }) => Promise<unknown>
-    /** 获取推荐技能 */
+    /** 获取推荐技�?*/
     getStoreFeatured: (limit?: number) => Promise<unknown>
-    /** 获取热门技能 */
+    /** 获取热门技�?*/
     getStorePopular: (limit?: number) => Promise<unknown>
-    /** 获取最新技能 */
+    /** 获取最新技�?*/
     getStoreRecent: (limit?: number) => Promise<unknown>
     /** 获取商店统计 */
     getStoreStats: () => Promise<unknown>
     /** 获取商店分类列表 */
     getStoreCategories: () => Promise<unknown>
-    /** 获取商店技能详情 */
+    /** 获取商店技能详�?*/
     getStoreSkillDetail: (skillId: string) => Promise<unknown>
-    /** 安装商店技能（下载并解压到本地） */
+    /** 安装商店技能（下载并解压到本地�?*/
     installStoreSkill: (skillId: string) => Promise<unknown>
     /** 提交技能到商店 */
     submitSkillToStore: (data: {
@@ -616,7 +616,7 @@ export interface ElectronAPI {
       tags?: string[]
       config?: Record<string, unknown>
     }) => Promise<unknown>
-    /** 创建用户自建技能 */
+    /** 创建用户自建技�?*/
     createUserSkill: (data: {
       name: string
       description?: string
@@ -644,7 +644,7 @@ export interface ElectronAPI {
       limit?: number
       sortOrder?: string
     }) => Promise<unknown>
-    /** 获取最近审计日志 */
+    /** 获取最近审计日�?*/
     getRecentAuditLogs: (limit?: number) => Promise<unknown>
     /** 获取审计日志统计 */
     getAuditStats: () => Promise<unknown>
@@ -660,7 +660,7 @@ export interface ElectronAPI {
     /** 清除审计日志 */
     clearAuditLogs: (beforeDate?: string) => Promise<unknown>
 
-    // --- 用户记忆接口（新）---
+    // --- 用户记忆接口（新�?--
     /** 获取用户记忆 */
     getUserMemory: () => Promise<unknown>
     /** 更新用户记忆 */
@@ -673,11 +673,11 @@ export interface ElectronAPI {
     updateSoulContent: (content: string) => Promise<unknown>
 
     // --- 技能运行时 + 节点列表 + 文件上传 ---
-    /** 获取所有已加载技能列表（通过 Gateway WS） */
+    /** 获取所有已加载技能列表（通过 Gateway WS�?*/
     listAllSkills: () => Promise<unknown>
-    /** 获取 Gateway 节点列表（通过 Gateway WS） */
+    /** 获取 Gateway 节点列表（通过 Gateway WS�?*/
     listNodes: () => Promise<unknown>
-    /** 上传技能文件（Base64，通过 API Server） */
+    /** 上传技能文件（Base64，通过 API Server�?*/
     uploadSkillFile: (params: {
       skillId: string
       fileType: string
@@ -699,31 +699,31 @@ export interface ElectronAPI {
     getFileDetail: (fileId: string) => Promise<unknown>
     /** 搜索文件 */
     searchFiles: (query: string) => Promise<unknown>
-    /** 创建文件夹 */
+    /** 创建文件�?*/
     createFolder: (name: string, parentId?: string) => Promise<unknown>
     /** 移动文件 */
     moveFile: (fileId: string, targetId: string) => Promise<unknown>
     /** 复制文件 */
     copyFile: (fileId: string, targetId: string) => Promise<unknown>
 
-    // --- 技能管理接口（API Server） ---
-    /** 获取技能列表 */
+    // --- 技能管理接口（API Server�?---
+    /** 获取技能列�?*/
     getSkillList: (params?: unknown) => Promise<unknown>
-    /** 获取技能详情 */
+    /** 获取技能详�?*/
     getSkill: (skillId: string) => Promise<unknown>
-    /** 创建技能 */
+    /** 创建技�?*/
     createSkill: (data: unknown) => Promise<unknown>
-    /** 更新技能 */
+    /** 更新技�?*/
     updateSkill: (skillId: string, data: unknown) => Promise<unknown>
-    /** 删除技能 */
+    /** 删除技�?*/
     deleteSkill: (skillId: string) => Promise<unknown>
-    /** 执行技能 */
+    /** 执行技�?*/
     executeSkill: (skillId: string, params: unknown) => Promise<unknown>
-    /** 获取技能执行历史 */
+    /** 获取技能执行历�?*/
     getSkillExecutionHistory: (skillId: string) => Promise<unknown>
-    /** 获取技能统计 */
+    /** 获取技能统�?*/
     getSkillStats: (skillId: string) => Promise<unknown>
-    /** 导出技能 */
+    /** 导出技�?*/
     exportSkill: (skillId: string) => Promise<unknown>
 
     // --- 系统管理接口 ---
@@ -733,7 +733,7 @@ export interface ElectronAPI {
     getDiskUsage: () => Promise<unknown>
     /** 重启应用 */
     restartApp: () => Promise<unknown>
-    /** 检查更新 */
+    /** 检查更�?*/
     checkForUpdates: () => Promise<unknown>
     /** 获取环境变量 */
     getEnvVars: () => Promise<unknown>
@@ -741,11 +741,11 @@ export interface ElectronAPI {
     getAppLogs: (params?: unknown) => Promise<unknown>
     /** 清空应用日志 */
     clearAppLogs: () => Promise<unknown>
-    /** 获取模型 catalog（全部模型 + 元数据，来源 LiteLLM） */
+    /** 获取模型 catalog（全部模�?+ 元数据，来源 LiteLLM�?*/
     getConfigModels: () => Promise<unknown>
     /** 获取 chat 槽候选模型与用户当前选择 */
     getChatModels: () => Promise<unknown>
-    /** 保存用户选择的 chat 模型 */
+    /** 保存用户选择�?chat 模型 */
     setChatModel: (modelId: string) => Promise<unknown>
     /** 获取 Agent 列表 */
     getAgents: () => Promise<unknown>
@@ -757,15 +757,15 @@ export interface ElectronAPI {
     updateAgent: (agentId: string, data: Record<string, unknown>) => Promise<unknown>
     /** 删除 Agent */
     deleteAgent: (agentId: string) => Promise<unknown>
-    /** 获取用户技能列表 */
+    /** 获取用户技能列�?*/
     getUserSkills: () => Promise<unknown>
   }
 
   // MemPalace 插件
   mempalace: {
-    /** 检查安装状态 */
+    /** 检查安装状�?*/
     getStatus: () => Promise<{ installed: boolean; runtimeDir: string }>
-    /** 安装 MemPalace（异步，通过 on('install:progress') 接收进度） */
+    /** 安装 MemPalace（异步，通过 on('install:progress') 接收进度�?*/
     install: () => Promise<{ success: boolean; error?: string }>
     /** 监听安装进度 */
     onInstallProgress: (cb: (msg: string) => void) => () => void
@@ -785,7 +785,7 @@ export interface ElectronAPI {
     clear: () => Promise<{ success: boolean; deleted: number; error?: string }>
     /** 监听清空进度 */
     onClearProgress: (cb: (p: { deleted: number }) => void) => () => void
-    /** 卸载 MemPalace（删除 Python 运行时，不删除记忆数据） */
+    /** 卸载 MemPalace（删�?Python 运行时，不删除记忆数据） */
     uninstall: () => Promise<{ success: boolean; error?: string }>
   }
 
@@ -793,15 +793,15 @@ export interface ElectronAPI {
   workspace: {
     /** 获取当前工作空间目录 */
     getDir: () => Promise<string>
-    /** 验证并设置工作空间目录 */
+    /** 验证并设置工作空间目�?*/
     setDir: (dirPath: string) => Promise<string>
-    /** 打开目录选择对话框，返回选中的目录路径，取消则返回 null */
+    /** 打开目录选择对话框，返回选中的目录路径，取消则返�?null */
     selectDir: (currentPath?: string) => Promise<string | null>
     /** 用户保存工作空间路径后调用，使节点重连并上报新路径，无需重启应用 */
     notifyChanged: (newDirPath?: string) => Promise<void>
     /** 确保工作空间目录及基本子结构存在 */
     ensureDir: (dirPath: string) => Promise<string>
-    /** 确保 thread 目录结构存在（workspace/uploads/outputs） */
+    /** 确保 thread 目录结构存在（workspace/uploads/outputs�?*/
     ensureThreadDir: (threadId: string) => Promise<{
       root: string
       workspace: string
@@ -812,13 +812,13 @@ export interface ElectronAPI {
     sessionRenamed: (threadId: string, newTitle: string) => Promise<boolean>
   }
 
-  // 本地技能管理
+  // 本地技能管�?
   skills: {
-    /** 列出本地已安装技能 */
+    /** 列出本地已安装技�?*/
     listLocalInstalled: () => Promise<unknown[]>
-    /** 获取已安装技能列表（别名，兼容旧代码） */
+    /** 获取已安装技能列表（别名，兼容旧代码�?*/
     getInstalledSkills: () => Promise<unknown>
-    /** 从目录安装技能（需含 skill.json） */
+    /** 从目录安装技能（需�?skill.json�?*/
     installFromDirectory: (sourceDir: string) => Promise<{
       success: boolean
       skillId?: string
@@ -829,42 +829,42 @@ export interface ElectronAPI {
       success: boolean
       skillId?: string
     }>
-    /** 安装技能（别名，兼容旧代码） */
+    /** 安装技能（别名，兼容旧代码�?*/
     installSkill: (params: unknown) => Promise<{
       success: boolean
       data?: unknown
       error?: string
     }>
-    /** 卸载本地技能 */
+    /** 卸载本地技�?*/
     uninstallLocal: (skillId: string) => Promise<{
       success: boolean
       error?: string
     }>
-    /** 卸载技能（别名，兼容旧代码） */
+    /** 卸载技能（别名，兼容旧代码�?*/
     uninstallSkill: (skillId: string) => Promise<{
       success: boolean
       error?: string
     }>
-    /** 本地执行技能 */
+    /** 本地执行技�?*/
     executeLocal: (params: {
       skillId: string
       params: Record<string, unknown>
       timeoutMs?: number
     }) => Promise<unknown>
-    /** 启用/禁用技能 */
+    /** 启用/禁用技�?*/
     setEnabled: (skillId: string, enabled: boolean) => Promise<boolean>
-    /** 启用技能（别名，兼容旧代码） */
+    /** 启用技能（别名，兼容旧代码�?*/
     enableSkill: (skillId: string) => Promise<boolean>
-    /** 禁用技能（别名，兼容旧代码） */
+    /** 禁用技能（别名，兼容旧代码�?*/
     disableSkill: (skillId: string) => Promise<boolean>
-    /** 更新技能配置 */
+    /** 更新技能配�?*/
     updateSkillConfig: (skillId: string, config: unknown) => Promise<unknown>
-    /** 获取技能详情 */
+    /** 获取技能详�?*/
     getSkillDetail: (skillId: string) => Promise<{
       manifest: unknown
       indexEntry: unknown
     }>
-    /** 从单文件脚本安装技能 */
+    /** 从单文件脚本安装技�?*/
     installFromScript: (filePath: string, meta?: {
       name?: string
       description?: string
@@ -873,7 +873,7 @@ export interface ElectronAPI {
       skillId?: string
       error?: string
     }>
-    /** 手动刷新：重新扫描本地技能目录并上报到 Gateway */
+    /** 手动刷新：重新扫描本地技能目录并上报�?Gateway */
     refresh: () => Promise<{ success: boolean; count: number }>
     /** 获取技能所在目录的绝对路径 */
     getSkillDir: (skillId: string) => Promise<string>
@@ -881,30 +881,30 @@ export interface ElectronAPI {
 
   // 设置管理
   settings: {
-    /** 同步记忆注入开关到主进程缓存 */
+    /** 同步记忆注入开关到主进程缓�?*/
     updateMemoryInjection: (config: {
       injectPersonalMemory?: boolean
       injectWorkMemory?: boolean
     }) => Promise<void>
   }
 
-  // 认证 Token 安全存储（主进程 DPAPI 加密）
+  // 认证 Token 安全存储（主进程 DPAPI 加密�?
   auth: {
     /** 保存 refreshToken 到主进程加密存储 */
     saveRefreshToken: (token: string) => Promise<void>
     /** 从主进程获取 refreshToken */
     getRefreshToken: () => Promise<string | null>
-    /** 清除主进程中的 refreshToken */
+    /** 清除主进程中�?refreshToken */
     clearRefreshToken: () => Promise<void>
-    /** 通过主进程刷新 accessToken */
+    /** 通过主进程刷�?accessToken */
     refreshAccessToken: () => Promise<{ accessToken: string; refreshToken?: string }>
-    /** 主进程自动刷新 token 成功后通知渲染进程同步内存状态 */
+    /** 主进程自动刷�?token 成功后通知渲染进程同步内存状�?*/
     onTokenRefreshed: (callback: (accessToken: string) => void) => () => void
     /** 主进程检测到 token 失效且刷新失败时通知渲染进程 */
     onTokenExpired: (callback: () => void) => () => void
   }
 
-  // 客户端 Agent Runtime
+  // 客户�?Agent Runtime
   agentRuntime: {
     /** 获取 Feature Flags */
     getFeatureFlags: () => Promise<unknown>
@@ -914,9 +914,9 @@ export interface ElectronAPI {
     isEnabled: () => Promise<boolean>
     /** 创建 Agent 实例 */
     createInstance: (agentDef?: unknown) => Promise<{ ok: boolean; instanceId?: string; error?: string }>
-    /** 通过 agentId 创建实例（DefinitionStore） */
+    /** 通过 agentId 创建实例（DefinitionStore�?*/
     createInstanceById: (agentId: string) => Promise<{ ok: boolean; instanceId?: string; error?: string }>
-    /** DefinitionStore 同步状态 */
+    /** DefinitionStore 同步状�?*/
     getDefinitionSyncStatus: () => Promise<{
       lastSyncAt: string | null
       isSyncing: boolean
@@ -938,15 +938,15 @@ export interface ElectronAPI {
     clearCachedAgentsOlderThan: (cutoffIso: string) => Promise<number>
     clearAllCachedAgentDefinitions: () => Promise<{ ok: boolean }>
     refreshCachedAgentDefinition: (agentId: string) => Promise<{ ok: boolean; error?: string }>
-    /** 发送消息 */
+    /** 发送消�?*/
     prompt: (instanceId: string, message: string) => Promise<{ ok: boolean; error?: string }>
     /** 中止 Agent */
     abort: (instanceId: string) => Promise<{ ok: boolean }>
-    /** 销毁实例 */
+    /** 销毁实�?*/
     destroy: (instanceId: string) => Promise<{ ok: boolean }>
-    /** 获取所有实例 */
+    /** 获取所有实�?*/
     getInstances: () => Promise<Array<{ id: string; definitionId: string; state: string }>>
-    /** 按定义 ID 聚合运行时快照（DetailPanel 运行状态） */
+    /** 按定�?ID 聚合运行时快照（DetailPanel 运行状态） */
     getLifecycleSnapshot: (definitionId: string) => Promise<{
       definitionId: string
       instanceCount: number
@@ -960,9 +960,9 @@ export interface ElectronAPI {
     }>
     /** 监听 Agent Runtime 事件 */
     onEvent: (callback: (event: unknown) => void) => () => void
-    /** [P3] 发送命令到主进程 Agent Runtime（新协议） */
+    /** [P3] 发送命令到主进�?Agent Runtime（新协议�?*/
     sendCommand: (command: unknown) => Promise<unknown>
-    /** [P3] 监听特定类型的 Agent Runtime 事件 */
+    /** [P3] 监听特定类型�?Agent Runtime 事件 */
     onEventType: (eventType: string, handler: (event: unknown) => void) => () => void
     /** [P3] 检查新协议是否可用 */
     isAvailable: () => Promise<boolean>
@@ -981,7 +981,7 @@ export interface ElectronAPI {
     exportLocalDataJSONL: () => Promise<string>
     /** 删除 content_json 无法解析的消息行 */
     clearMalformedMessages: () => Promise<number>
-    /** 列出本地 SQLite 自动备份（按时间降序） */
+    /** 列出本地 SQLite 自动备份（按时间降序�?*/
     listDatabaseBackups: () => Promise<Array<{
       fileName: string
       filePath: string
@@ -997,14 +997,14 @@ export interface ElectronAPI {
       modifiedAt?: string
       error?: string
     }>
-    /** 从指定备份恢复聊天记录（会重建 Agent Runtime） */
+    /** 从指定备份恢复聊天记录（会重�?Agent Runtime�?*/
     restoreDatabaseFromBackup: (backupFileName: string) => Promise<{
       ok: boolean
       conversationCount?: number
       messageCount?: number
       error?: string
     }>
-    /** 从最新备份恢复聊天记录 */
+    /** 从最新备份恢复聊天记�?*/
     restoreDatabaseFromLatestBackup: () => Promise<{
       ok: boolean
       conversationCount?: number
@@ -1024,7 +1024,7 @@ export interface ElectronAPI {
     sendAudioChunk: (callId: string, samples: Float32Array) => void
     onEvent: (callback: (event: unknown) => void) => () => void
   }
-  /** 录屏 API（主进程 ScreenRecordService + 渲染采集） */
+  /** 录屏 API（主进程 ScreenRecordService + 渲染采集�?*/
   screenRecord: {
     listSources: (includeThumbnail?: boolean) => Promise<unknown>
     start: (params: {
@@ -1152,7 +1152,7 @@ export interface ElectronAPI {
 }
 
 /**
- * 创建事件监听器移除函数
+ * 创建事件监听器移除函�?
  */
 function createEventListener(channel: string, callback: (...args: unknown[]) => void): () => void {
   const listener = (_event: Electron.IpcRendererEvent, ...args: unknown[]) => {
@@ -1300,7 +1300,7 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke('app:getProjectGitStatus', projectName),
   },
 
-  // 对话框 API
+  // 对话�?API
   dialog: {
     showOpenDialog: (options: Electron.OpenDialogOptions) =>
       ipcRenderer.invoke('dialog:showOpenDialog', options) as Promise<Electron.OpenDialogReturnValue>,
@@ -1310,7 +1310,7 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke('dialog:showMessageBox', options) as Promise<Electron.MessageBoxReturnValue>,
   },
 
-  // 剪贴板 API
+  // 剪贴�?API
   clipboard: {
     readText: () => ipcRenderer.invoke('clipboard:readText'),
     writeText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
@@ -1429,7 +1429,7 @@ const electronAPI: ElectronAPI = {
     ) => ipcRenderer.invoke('api:updateMemory', id, data),
     deleteMemory: (id: string) => ipcRenderer.invoke('api:deleteMemory', id),
 
-    // --- 技能商店接口 ---
+    // --- 技能商店接�?---
     getStoreSkills: (filters?: {
       category?: string
       tags?: string[]
@@ -1537,7 +1537,7 @@ const electronAPI: ElectronAPI = {
     copyFile: (fileId: string, targetId: string) =>
       ipcRenderer.invoke('api:copyFile', fileId, targetId),
 
-    // --- 技能管理接口（API Server） ---
+    // --- 技能管理接口（API Server�?---
     getSkillList: (params?: unknown) => ipcRenderer.invoke('api:getSkillList', params),
     getSkill: (skillId: string) => ipcRenderer.invoke('api:getSkill', skillId),
     createSkill: (data: unknown) => ipcRenderer.invoke('api:createSkill', data),
@@ -1608,7 +1608,7 @@ const electronAPI: ElectronAPI = {
       ipcRenderer.invoke('workspace:sessionRenamed', threadId, newTitle),
   },
 
-  // 本地技能管理 API
+  // 本地技能管�?API
   skills: {
     listLocalInstalled: () =>
       ipcRenderer.invoke('skills:listLocalInstalled'),
@@ -1663,7 +1663,7 @@ const electronAPI: ElectronAPI = {
       createEventListener('auth:token-expired', callback as (...args: unknown[]) => void),
   },
 
-  // 客户端 Agent Runtime API（全部经 agent-runtime:command，与 M08 Preload 审计一致）
+  // 客户�?Agent Runtime API（全部经 agent-runtime:command，与 M08 Preload 审计一致）
   agentRuntime: (() => {
     const send = (command: unknown) => ipcRenderer.invoke('agent-runtime:command', command)
     return {
@@ -1702,7 +1702,7 @@ const electronAPI: ElectronAPI = {
           const listenerCount = ipcRenderer.listenerCount('agent-runtime:event')
           const evtType = evt && typeof evt === 'object' && 'type' in evt ? (evt as { type: string }).type : 'unknown'
           if (evtType === 'conversation:message:new' || evtType === 'agent:idle' || evtType === 'agent:turn:start') {
-            console.log(`[Preload] onEvent 分发 type=${evtType} 当前监听器数量=${listenerCount}`)
+            console.log(`[Preload] onEvent 分发 type=${evtType} 当前监听器数�?${listenerCount}`)
           }
           callback(evt)
         })
@@ -1743,24 +1743,24 @@ const electronAPI: ElectronAPI = {
 
   // 设置管理（记忆注入等需主进程感知的项）
   settings: {
-    /** 同步记忆注入开关到主进程缓存 */
+    /** 同步记忆注入开关到主进程缓�?*/
     updateMemoryInjection: (config: {
       injectPersonalMemory?: boolean
       injectWorkMemory?: boolean
     }): Promise<void> => ipcRenderer.invoke('settings:updateMemoryInjection', config),
   },
 
-  // 语音通话 API（voice:event 经单路复用，避免设置页多面板叠加触发 MaxListenersExceeded）
+  // 语音通话 API（voice:event 经单路复用，避免设置页多面板叠加触发 MaxListenersExceeded�?
   voice: {
-    /** 发送语音命令（invoke 模式，有响应） */
+    /** 发送语音命令（invoke 模式，有响应�?*/
     sendCommand: (command: unknown): Promise<unknown> =>
       ipcRenderer.invoke('voice:command', command),
-    /** 发送 PCM 音频帧（单向高频，无响应） */
+    /** 发�?PCM 音频帧（单向高频，无响应�?*/
     sendAudioChunk: (callId: string, samples: Float32Array): void => {
       const buf = Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength)
       ipcRenderer.send('voice:audio:chunk', callId, buf)
     },
-    /** 订阅语音事件，返回取消订阅函数（单路 IPC，避免 MaxListenersExceeded） */
+    /** 订阅语音事件，返回取消订阅函数（单路 IPC，避�?MaxListenersExceeded�?*/
     onEvent: (callback: (event: unknown) => void): () => void => {
       return subscribeVoiceEvent(callback)
     },
@@ -1868,16 +1868,16 @@ const electronAPI: ElectronAPI = {
   },
 }
 
-// 通过 contextBridge 安全地暴露 API
+// 通过 contextBridge 安全地暴�?API
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)
 
 // === 微信(iLink)渠道 API ===
 contextBridge.exposeInMainWorld('weixinService', {
-  /** 初始化微信登录流程，返回二维码 data URL */
+  /** 初始化微信登录流程，返回二维�?data URL */
   startLogin: (): Promise<string> => ipcRenderer.invoke('weixin:startLogin'),
   /** 登出微信 */
   logout: (): Promise<void> => ipcRenderer.invoke('weixin:logout'),
-  /** 获取当前登录状态 */
+  /** 获取当前登录状�?*/
   getStatus: (): Promise<string> => ipcRenderer.invoke('weixin:getStatus'),
   /** 获取当前会话信息 */
   getSession: (): Promise<unknown> => ipcRenderer.invoke('weixin:getSession'),
@@ -1894,7 +1894,7 @@ contextBridge.exposeInMainWorld('weixinService', {
     ipcRenderer.on('weixin:qrcode', handler)
     return () => ipcRenderer.removeListener('weixin:qrcode', handler)
   },
-  /** 监听错误事件，返回取消监听函数 */
+  /** 监听错误事件，返回取消监听函�?*/
   onError: (callback: (message: string) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, message: string) => callback(message)
     ipcRenderer.on('weixin:error', handler)
@@ -1910,11 +1910,11 @@ contextBridge.exposeInMainWorld('weixinService', {
 contextBridge.exposeInMainWorld('wecomService', {
   /** 发起扫码接入 */
   startLogin: (): Promise<void> => ipcRenderer.invoke('wecom:startLogin'),
-  /** 断开并清除本地凭证 */
+  /** 断开并清除本地凭�?*/
   logout: (): Promise<void> => ipcRenderer.invoke('wecom:logout'),
-  /** 获取当前连接状态 */
+  /** 获取当前连接状�?*/
   getStatus: (): Promise<string> => ipcRenderer.invoke('wecom:getStatus'),
-  /** 获取会话摘要（不含 secret） */
+  /** 获取会话摘要（不�?secret�?*/
   getSession: (): Promise<unknown> => ipcRenderer.invoke('wecom:getSession'),
 
   onStatusChange: (callback: (status: string, session?: unknown) => void): (() => void) => {
@@ -1960,11 +1960,11 @@ contextBridge.exposeInMainWorld('feishuService', {
   },
 })
 
-// === 渠道出站 Hub（与 Agent channel_list/channel_send 同源，仅供 Settings 面板只读展示/调试） ===
+// === 渠道出站 Hub（与 Agent channel_list/channel_send 同源，仅�?Settings 面板只读展示/调试�?===
 contextBridge.exposeInMainWorld('channelService', {
-  /** 列出已注册渠道快照（含未连接渠道） */
+  /** 列出已注册渠道快照（含未连接渠道�?*/
   list: (): Promise<{ channels: unknown[] }> => ipcRenderer.invoke('channel:list'),
-  /** 向指定 channel + to 发送文本/富媒体；仅供调试，非 Agent 主路径 */
+  /** 向指�?channel + to 发送文�?富媒体；仅供调试，非 Agent 主路�?*/
   send: (params: {
     channel: 'feishu' | 'weixin' | 'wecom'
     to: string
@@ -1974,9 +1974,9 @@ contextBridge.exposeInMainWorld('channelService', {
   }): Promise<unknown> => ipcRenderer.invoke('channel:send', params),
 })
 
-log.info('预加载脚本执行完成，API 已暴露')
+log.info('预加载脚本执行完成，API 已暴�?)
 
-// 为 TypeScript 类型声明
+// �?TypeScript 类型声明
 declare global {
   interface Window {
     electronAPI: ElectronAPI
@@ -2020,3 +2020,4 @@ declare global {
     }
   }
 }
+

@@ -38,6 +38,105 @@ export interface ListedModel {
   name: string
 }
 
+/**
+ * 2026‑08 主流Agent模型上下文窗口，单位：千tokens(k)
+ * 数值为官方标称最大上下文，用于Agent框架路由/限流
+ */
+export const BUILTIN_CONTEXT_WINDOWS_K: Record<string, number> = {
+  // OpenAI
+  'gpt-4o': 128,
+  'gpt-4o-mini': 128,
+  'gpt-4.1': 1048,
+  'gpt-4.1-mini': 1048,
+  'o3': 200,
+  'o3-mini': 200,
+  'o4-mini': 200,
+  'gpt-5.6-sol': 1048,
+  'gpt-5.6-terra': 1048,
+  'gpt-5.6-luna': 1048,
+  'gpt-5.5': 1048,
+  'gpt-5.4': 1048,
+  'gpt-5-mini': 400,
+
+  // Anthropic Claude
+  'claude-3-5-sonnet': 200,
+  'claude-3-7-sonnet': 200,
+  'claude-sonnet-4': 200,
+  'claude-sonnet-4.6': 1048,
+  'claude-sonnet-4.7': 1048,
+  'claude-sonnet-5': 1048,
+  'claude-opus-4.6': 1048,
+  'claude-opus-4.7': 1048,
+  'claude-opus-4.8': 1048,
+  'claude-opus-5': 1048,
+  'claude-haiku-4': 200,
+
+  // Google Gemini
+  'gemini-1.5-pro': 2000,
+  'gemini-2.0-flash': 1000,
+  'gemini-2.5-pro': 1048,
+  'gemini-3-flash': 1048,
+  'gemini-3.5-flash': 1048,
+  'gemini-3.5-pro': 2000,
+  'gemini-3-pro': 10000,
+  'gemma-4-26b-it': 256,
+  'gemma-4-31b-it': 256,
+
+  // DeepSeek
+  'deepseek-chat': 128,
+  'deepseek-reasoner': 128,
+  'deepseek‑r1': 128,
+  'deepseek‑v4‑flash': 1048,
+  'deepseek‑v4‑pro': 1048,
+
+  // Qwen 通义千问
+  'qwen3': 128,
+  'qwen3‑thinking': 128,
+  'qwen3.6‑27b‑instruct': 256,
+  'qwen3.6‑max‑preview': 256,
+  'qwen3.7‑max': 1048,
+  'qwen3.8‑27b‑instruct': 256,
+
+  // GLM 智谱
+  'glm‑5': 200,
+  'glm‑5.2': 256,
+  'glm‑5.3': 1048,
+
+  // Kimi Moonshot
+  'kimi‑k2': 256,
+  'kimi‑k2.6': 256,
+
+  // MiniMax
+  'minimax‑01': 4096,
+  'minimax‑m3': 1048,
+
+  // xAI Grok
+  'grok‑4': 256,
+  'grok‑4.20': 256,
+  'grok‑4.3': 1048,
+
+  // Meta Llama
+  'llama‑4‑scout': 10000,
+  'llama‑4‑400b‑instruct': 128,
+
+  // Mistral
+  'mistral‑large‑3': 256,
+
+  // StepFun 阶跃星辰
+  'step‑3.7‑flash': 256,
+
+  // Nvidia Nemotron
+  'nemotron‑3‑ultra': 1048,
+};
+
+export function defaultContextWindowK(modelId: string): number {
+  const id = modelId.trim().toLowerCase()
+  const exact = BUILTIN_CONTEXT_WINDOWS_K[id]
+  if (exact) return exact
+  const hit = Object.entries(BUILTIN_CONTEXT_WINDOWS_K).find(([key]) => id.includes(key))
+  return hit?.[1] ?? 200
+}
+
 /** 连通性测试结果 */
 export interface ProviderTestResult {
   ok: boolean

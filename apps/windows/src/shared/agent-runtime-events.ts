@@ -349,6 +349,7 @@ export type ContextUsageCategory =
   | 'mcp'
   | 'subagents'
   | 'memory'
+  | 'dynamicContext'
   | 'conversation'
 
 /** 单个分类的 token 占用 */
@@ -366,7 +367,7 @@ export interface AgentContextUsageEvent {
   readonly contextWindow: number
   /** 触发自动压缩的阈值比例（0-1，默认 0.8） */
   readonly triggerThreshold: number
-  /** 分类明细（估算后按 usedTokens 等比缩放，之和≈usedTokens），无活跃实例时为空 */
+  /** 分类明细（固定提示词、动态上下文和对话历史分别估算） */
   readonly breakdown?: readonly ContextUsageBreakdownEntry[]
 }
 
