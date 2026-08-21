@@ -70,6 +70,17 @@ import {
   handleConversationFork,
   setConversationDependencies,
 } from './agent-runtime/conversation-commands'
+import {
+  handleStorageStats,
+  handleStorageExportJsonl,
+  handleStorageClearMalformed,
+  handleStorageListBackups,
+  handleStorageCreateBackup,
+  handleStorageRestoreBackup,
+  handleStorageRestoreLatestBackup,
+  handleStorageDeleteBackup,
+  handleStorageAuditRecent,
+} from './agent-runtime/storage-commands'
 import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../coding-dev-backends-stub/contracts.js'
 import { extractDocumentText } from '../vendor/document-parser.js'
@@ -1189,57 +1200,31 @@ export async function handleCommand(
         return bridge.getLifecycleSnapshot(String(command.definitionId ?? ''))
 
       case 'storage:stats':
-        return bridge.getLocalStorageStats()
+        return handleStorageStats(bridge)
 
       case 'storage:exportJsonl':
-        return bridge.exportLocalDataJSONL()
+        return handleStorageExportJsonl(bridge)
 
       case 'storage:clearMalformed':
-        return bridge.clearMalformedMessages()
+        return handleStorageClearMalformed(bridge)
 
       case 'storage:listBackups':
-        return bridge.listDatabaseBackups()
+        return handleStorageListBackups(bridge)
 
-      case 'storage:createBackup': {
-        try {
-          const backup = bridge.createDatabaseBackupNow()
-          return { ok: true, ...backup }
-        } catch (err) {
-          log.error('[storage:createBackup] failed:', err)
-          return { ok: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'storage:createBackup':
+        return handleStorageCreateBackup(bridge)
 
-      case 'storage:restoreBackup': {
-        try {
-          return await bridge.restoreDatabaseFromBackupFile(String(command.backupFileName ?? ''))
-        } catch (err) {
-          log.error('[storage:restoreBackup] failed:', err)
-          return { ok: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'storage:restoreBackup':
+        return handleStorageRestoreBackup(bridge, command)
 
-      case 'storage:restoreLatestBackup': {
-        try {
-          return { ok: true, ...(await bridge.restoreDatabaseFromLatestBackup()) }
-        } catch (err) {
-          log.error('[storage:restoreLatestBackup] failed:', err)
-          return { ok: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'storage:restoreLatestBackup':
+        return handleStorageRestoreLatestBackup(bridge)
 
-      case 'storage:deleteBackup': {
-        try {
-          bridge.deleteDatabaseBackupFile(String(command.backupFileName ?? ''))
-          return { ok: true }
-        } catch (err) {
-          log.error('[storage:deleteBackup] failed:', err)
-          return { ok: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'storage:deleteBackup':
+        return handleStorageDeleteBackup(bridge, command)
 
       case 'storage:auditRecent':
-        return bridge.auditRepo.listRecentGlobally(command.limit ?? 20)
+        return handleStorageAuditRecent(bridge, command)
 
       case 'message:delete':
         return handleMessageDelete(bridge, command)
