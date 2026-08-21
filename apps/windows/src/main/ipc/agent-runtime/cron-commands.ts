@@ -159,7 +159,7 @@ export function handleCronDelete(
   bridge: AgentRuntimeBridge,
   id: string,
 ): { status: 'ok' | 'error'; id: string; message?: string } {
-  const row = bridge.getLocalCronJobRecord(id)
+  const row = bridge.getLocalCronJobRecordById(id)
   if (!row) {
     return { status: 'error', id, message: `定时任务不存在: ${id}` }
   }
@@ -173,7 +173,7 @@ export function handleCronUpdate(
   id: string,
   patch: { name?: string; taskText?: string; agentId?: string | null; scheduleType?: 'at' | 'every' | 'cron'; scheduleExpr?: string; enabled?: boolean; activeDays?: string | null; activeHourStart?: number | null; activeHourEnd?: number | null; notifyTargets?: string | null },
 ): { status: 'ok' | 'error'; id: string; message?: string } {
-  const row = bridge.getLocalCronJobRecord(id)
+  const row = bridge.getLocalCronJobRecordById(id)
   if (!row) {
     return { status: 'error', id, message: `定时任务不存在: ${id}` }
   }
@@ -215,7 +215,7 @@ export async function handleCronRun(
   bridge: AgentRuntimeBridge,
   id: string,
 ): Promise<{ status: 'ok' | 'error'; id: string; runId?: string; message?: string }> {
-  const row = bridge.getLocalCronJobRecord(id)
+  const row = bridge.getLocalCronJobRecordById(id)
   if (!row) {
     return { status: 'error', id, message: `定时任务不存在: ${id}` }
   }

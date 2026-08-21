@@ -6,7 +6,7 @@
 
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { CodingDevBackendId } from '../../coding-dev-backends-stub/contracts.js'
-import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
+import { CODING_DEV_BACKEND_LABELS, DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
 
 // 从主文件导入单例访问器（避免循环依赖）
 let _getAcpBackendManager: (() => import('../../channel/acp-backend-manager').AcpBackendManager) | null = null
@@ -46,5 +46,5 @@ export function handleCodingDevGetBackend(): { backendId: CodingDevBackendId } {
 
 export function handleCodingDevListBackends(): { backends: Array<{ id: CodingDevBackendId; label: string }> } {
   const mgr = getAcpBackendManager()
-  return { backends: mgr.listBackends() }
+  return { backends: mgr.listBackends().map((id) => ({ id, label: CODING_DEV_BACKEND_LABELS[id] })) }
 }

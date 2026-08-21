@@ -56,6 +56,20 @@ import {
   handleRuntimeEnabled,
   handleRuntimeModelCatalogSet,
 } from './agent-runtime/runtime-commands'
+import {
+  handleConversationCreate,
+  handleConversationClose,
+  handleConversationList,
+  handleConversationDelete,
+  handleConversationRename,
+  handleConversationPinToggle,
+  handleConversationMessages,
+  handleConversationContextUsage,
+  handleConversationDismissInterrupt,
+  handleConversationContinueInterrupted,
+  handleConversationFork,
+  setConversationDependencies,
+} from './agent-runtime/conversation-commands'
 import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../coding-dev-backends-stub/contracts.js'
 import { extractDocumentText } from '../vendor/document-parser.js'
@@ -437,6 +451,18 @@ export function installAgentRuntimeCommandIpc(): void {
 
   // 初始化 coding-dev-commands 的 AcpBackendManager getter
   setAcpBackendManagerGetter(getAcpBackendManager)
+
+  // 初始化 conversation-commands 的依赖
+  setConversationDependencies({
+    sessionToInstance,
+    runIdToInstance,
+    instanceToRunIds,
+    weixinBindingManagerRef,
+    trackRunInstance,
+    untrackInstanceRuns,
+    getIpcChannelAdapter,
+    getInstanceForSession,
+  })
 
   const commandHandler = async (
     _event: Electron.IpcMainInvokeEvent,
@@ -868,52 +894,35 @@ export async function handleCommand(
       }
 
       // ---- 会话管理 ----
-      case 'conversation:create': {
-        return createConversation(bridge, command.title, command.agentId, command.selectedModelId)
-      }
+      case 'conversation:create':
+        return handleConversationCreate(bridge, command)
 
-      case 'conversation:close': {
-        return closeConversation(bridge, command.sessionKey)
-      }
+      case 'conversation:close':
+        return handleConversationClose(bridge, command)
 
-      case 'conversation:list': {
-        return listConversations(bridge)
-      }
+      case 'conversation:list':
+        return handleConversationList(bridge)
 
-      case 'conversation:delete': {
-        return deleteConversation(bridge, command.sessionKey)
-      }
+      case 'conversation:delete':
+        return handleConversationDelete(bridge, command)
 
-      case 'conversation:rename': {
-        bridge.conversationRepo.updateTitle(command.sessionKey, command.newTitle)
-        return { success: true }
-      }
+      case 'conversation:rename':
+        return handleConversationRename(bridge, command)
 
-      case 'conversation:pin-toggle': {
-        const isPinned = bridge.conversationRepo.togglePinned(command.sessionKey)
-        return { isPinned }
-      }
+      case 'conversation:pin-toggle':
+        return handleConversationPinToggle(bridge, command)
 
-      case 'conversation:messages': {
-        return getConversationMessages(bridge, command.sessionKey, {
-          limit: command.limit,
-          before: command.before,
-        })
-      }
+      case 'conversation:messages':
+        return handleConversationMessages(bridge, command)
 
-      case 'conversation:context-usage': {
-        return bridge.getSessionContextUsage(command.sessionKey)
-      }
+      case 'conversation:context-usage':
+        return handleConversationContextUsage(bridge, command)
 
-      case 'conversation:dismiss-interrupt': {
-        bridge.clearInterruptMarker(command.sessionKey)
-        return { ok: true }
-      }
+      case 'conversation:dismiss-interrupt':
+        return handleConversationDismissInterrupt(bridge, command)
 
-      case 'conversation:continue-interrupted': {
-        bridge.clearInterruptMarker(command.sessionKey)
-        return continueInterruptedConversation(bridge, command.sessionKey)
-      }
+      case 'conversation:continue-interrupted':
+        return handleConversationContinueInterrupted(bridge, command)
 
       case 'cron:create':
         return handleCronCreate(bridge, command)
@@ -1238,24 +1247,8 @@ export async function handleCommand(
       case 'message:edit':
         return handleMessageEdit(bridge, command)
 
-      case 'conversation:fork': {
-        const { sourceSessionKey, uptoMessageId, newContent } = command
-        try {
-          const agentId = bridge.conversationRepo.getAgentParticipantId(sourceSessionKey)
-          const newSessionKey = bridge.conversationRepo.forkConversation({
-            sourceConversationId: sourceSessionKey,
-            uptoMessageId,
-            newUserContent: newContent,
-            userId: LOCAL_USER_ID,
-            agentId,
-          })
-          log.info(`[conversation:fork] ${sourceSessionKey} → ${newSessionKey}`)
-          return { success: true, sessionKey: newSessionKey }
-        } catch (err) {
-          log.error(`[conversation:fork] failed:`, err)
-          return { success: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'conversation:fork':
+        return handleConversationFork(bridge, command)
 
       case 'message:edit-and-resend': {
         const { sessionKey: convId, messageId, newContent } = command
@@ -1800,403 +1793,12 @@ function untrackInstanceRuns(instanceId: string): void {
   instanceToRunIds.delete(instanceId)
 }
 
-/**
- * 创建新对话
- *
- * 1. 在 ConversationRepo 中创建持久化对话记录
- * 2. 使用 conversationId 作为 sessionKey（重启后不变，历史对话可恢复）
- * 3. 创建 Agent 实例并绑定到 sessionKey
- */
-async function createConversation(
-  bridge: AgentRuntimeBridge,
-  title?: string,
-  agentId?: string,
-  selectedModelId?: string,
-): Promise<{ sessionKey: string; conversationId: string }> {
-  // 1. 持久化到 DB
-  const conversation = bridge.conversationRepo.createConversation({
-    userId: 'local-user',
-    title: title ?? '新对话',
-    participants: [
-      { type: 'user', id: 'local-user' },
-      { type: 'agent', id: agentId ?? 'default' },
-    ],
-  })
-
-  // 2. 使用 conversationId 作为 sessionKey（确定性值，重启后仍有效）
-  const sessionKey = conversation.id
-
-  // 2b. 根据 UI 选中模型写入会话级压缩参数（在 createInstance 之前）
-  bridge.primeSessionModelCompaction(sessionKey, selectedModelId)
-
-  // 3. 创建 Agent 实例，绑定到 sessionKey 和 conversationId
-  const instanceId = agentId
-    ? await bridge.createInstanceById(agentId, sessionKey, conversation.id)
-    : await bridge.createInstance(undefined, sessionKey, conversation.id)
-  sessionToInstance.set(sessionKey, instanceId)
-
-  log.info(`[conversation:create] sessionKey=${sessionKey}, conversationId=${conversation.id}, instanceId=${instanceId}, title="${title ?? '新对话'}"`)
-
-  return { sessionKey, conversationId: conversation.id }
-}
-
-/**
- * 关闭对话
- *
- * 清理 Agent 实例和 sessionKey 映射
- * sessionKey === conversationId，直接用于 DB 操作
- */
-function closeConversation(
-  bridge: AgentRuntimeBridge,
-  sessionKey: string,
-): void {
-  const instanceId = sessionToInstance.get(sessionKey)
-  if (instanceId) {
-    try {
-      bridge.destroy(instanceId)
-    } catch (err) {
-      log.error(`[conversation:close] failed to destroy instance ${instanceId}:`, err)
-    }
-    untrackInstanceRuns(instanceId)
-    sessionToInstance.delete(sessionKey)
-  }
-
-  bridge.clearSessionPreferredModel(sessionKey)
-
-  // sessionKey === conversationId，直接关闭对话
-  try {
-    bridge.conversationRepo.closeConversation(sessionKey)
-  } catch (err) {
-    log.error(`[conversation:close] failed to close conversation ${sessionKey}:`, err)
-  }
-
-  log.info(`[conversation:close] sessionKey=${sessionKey}`)
-}
-
-/**
- * 根据会话 ID / 微信绑定推断渠道标记。
- * - wechat：微信绑定会话，或 id 以 weixin: 开头
- * - wecom / feishu：id 前缀
- * - default：其余（含客户端本地新建）
- */
-function resolveConversationChannel(
-  conversationId: string,
-  weixinConvIds: Set<string>,
-): 'default' | 'wechat' | 'wecom' | 'feishu' {
-  if (weixinConvIds.has(conversationId) || conversationId.startsWith('weixin:')) {
-    return 'wechat'
-  }
-  if (conversationId.startsWith('wecom:')) return 'wecom'
-  if (conversationId.startsWith('feishu:')) return 'feishu'
-  return 'default'
-}
-
-/**
- * 列出活跃对话
- * sessionKey === conversationId，重启后仍有效
- * agentId 从 conversation_participants 表关联查出，用于侧边栏按 Agent 分组
- */
-function listConversations(
-  bridge: AgentRuntimeBridge,
-): readonly { id: string; sessionKey: string; title: string; updatedAt: string; agentId?: string; lastMessagePreview?: string; hasRunning?: boolean; isPinned?: boolean; wasInterrupted?: boolean; channel?: string }[] {
-  const conversations = bridge.conversationRepo.listActiveConversations('local-user', 50)
-
-  // 构建微信绑定的 conversationId 集合（用于渠道标记）
-  const weixinConvIds = new Set<string>()
-  if (weixinBindingManagerRef) {
-    for (const binding of weixinBindingManagerRef.listBindings()) {
-      weixinConvIds.add(binding.conversationId)
-    }
-  }
-
-  return conversations.map((c) => ({
-    ...(() => {
-      const lastMsg = bridge.conversationRepo.loadRecentMessages(c.id, 1)[0]
-      if (!lastMsg) return {}
-      try {
-        const parsed = JSON.parse(lastMsg.content_json) as { text?: string; content?: string }
-        const text = typeof parsed?.text === 'string'
-          ? parsed.text
-          : typeof parsed?.content === 'string'
-            ? parsed.content
-            : ''
-        return { lastMessagePreview: text.slice(0, 80) }
-      } catch {
-        return {}
-      }
-    })(),
-    id: c.id,
-    sessionKey: c.id,  // sessionKey 直接使用 conversationId，重启后不失效
-    title: c.title ?? '新对话',
-    updatedAt: c.last_msg_at ?? c.created_at,
-    agentId: bridge.conversationRepo.getAgentParticipantId(c.id),
-    hasRunning: bridge.hasStreamingMessages(c.id),
-    isPinned: c.is_pinned === 1,
-    wasInterrupted: bridge.isConversationInterrupted(c.id),
-    channel: resolveConversationChannel(c.id, weixinConvIds),
-  }))
-}
-
-/**
- * 继续被中断的对话：获取或创建实例，发送 continuation prompt（设计文档 §3.2.4）
- */
-async function continueInterruptedConversation(
-  bridge: AgentRuntimeBridge,
-  sessionKey: string,
-): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const instanceId = await getInstanceForSession(bridge, sessionKey)
-    if (!instanceId) {
-      return { ok: false, error: 'Failed to get or create agent instance for interrupted session' }
-    }
-
-    const CONTINUATION_PROMPT =
-      "你的上一次执行被中断了（客户端重启）。" +
-      "请查看上面的对话历史，了解你已经完成了什么，然后继续完成剩余的任务。" +
-      "注意：已经执行过的操作不要重复执行。"
-
-    // 持久化 continuation prompt 到 DB
-    const msgId = `cont-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-    try {
-      bridge.conversationRepo.saveMessage({
-        id: msgId,
-        conversationId: sessionKey,
-        role: 'user',
-        contentJson: { type: 'text', text: CONTINUATION_PROMPT },
-      })
-    } catch (err) {
-      log.error(`[continue-interrupted] failed to save continuation message:`, err)
-    }
-
-    const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-    trackRunInstance(runId, instanceId)
-
-    // 必须走 SessionManager.sendPrompt（含 beforePrompt 历史恢复），不可直接 bridge.prompt
-    getIpcChannelAdapter(bridge)
-      .sendPrompt(instanceId, sessionKey, CONTINUATION_PROMPT, undefined, msgId)
-      .catch((err) => {
-        log.error(`[continue-interrupted] prompt failed:`, err)
-      })
-
-    return { ok: true }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    log.error(`[continue-interrupted] error:`, err)
-    return { ok: false, error: msg }
-  }
-}
-
-/**
- * 删除对话（从数据库中彻底删除）
- * sessionKey === conversationId
- */
-function deleteConversation(
-  bridge: AgentRuntimeBridge,
-  sessionKey: string,
-): void {
-  const instanceId = sessionToInstance.get(sessionKey)
-  if (instanceId) {
-    try {
-      bridge.destroy(instanceId)
-    } catch (err) {
-      log.error(`[conversation:delete] failed to destroy instance ${instanceId}:`, err)
-    }
-    untrackInstanceRuns(instanceId)
-    sessionToInstance.delete(sessionKey)
-  }
-
-  bridge.clearSessionPreferredModel(sessionKey)
-
-  // 软删除该对话关联的所有文件
-  try {
-    const now = new Date()
-    const conversationFiles = bridge.fileRepo.listByConversation(sessionKey)
-    for (const f of conversationFiles) {
-      bridge.fileRepo.softDelete(f.id, now)
-    }
-    if (conversationFiles.length > 0) {
-      log.info(`[conversation:delete] soft-deleted ${conversationFiles.length} files for conversation ${sessionKey}`)
-    }
-  } catch (err) {
-    log.warn('[conversation:delete] failed to soft-delete files:', err)
-  }
-
-  // sessionKey === conversationId，直接从数据库删除对话
-  // 不捕获异常 —— 让错误向上传播至 handleCommand / IPC handler，
-  // 使渲染层能感知删除失败，避免假性成功导致重启后数据复现。
-  bridge.conversationRepo.deleteConversation(sessionKey)
-
-  log.info(`[conversation:delete] sessionKey=${sessionKey}`)
-}
-
-/**
- * 获取对话消息
- * sessionKey === conversationId，直接用于 DB 查询
- */
-/**
- * 一次性 DB 迁移：将旧消息 content_json.text 中的内联 </think> 标签剥离，
- * 把推理内容写入 thinkingText 字段，正文存干净文本。
- * 幂等：已有 thinkingText 字段的行跳过。
- */
-async function migrateThinkTagsInDb(bridge: AgentRuntimeBridge): Promise<void> {
-  const repo = bridge.conversationRepo
-  // 只扫描 assistant 行且 content_json 含 </think> 的消息，避免全表扫描
-  const rows = repo.loadMessagesContaining('</think>', 'assistant')
-  if (rows.length === 0) return
-  log.info(`[migrate] 发现 ${rows.length} 条旧消息含 </think>，开始迁移...`)
-  let fixed = 0
-  for (const row of rows) {
-    try {
-      const parsed = typeof row.content_json === 'string' ? JSON.parse(row.content_json) : row.content_json
-      if (!parsed || typeof parsed !== 'object') continue
-      const p = parsed as Record<string, unknown>
-      // 已有 thinkingText 说明是新格式，跳过
-      if (typeof p.thinkingText === 'string') continue
-      const rawText = typeof p.text === 'string' ? p.text : ''
-      if (!rawText.includes('</think>')) continue
-      const { thinkingText, finalText } = parseThinkTagsFromRaw(rawText)
-      const newJson = JSON.stringify({ ...p, text: finalText, ...(thinkingText ? { thinkingText } : {}) })
-      repo.updateMessageContentRaw(row.id, newJson)
-      fixed++
-    } catch (e) {
-      log.warn(`[migrate] 跳过消息 ${row.id}:`, e)
-    }
-  }
-  log.info(`[migrate] think-tag 迁移完成，共修复 ${fixed} 条消息`)
-}
-
-/** UI 单页历史消息条数：兼顾首屏渲染成本与上滑加载频率 */
-const CONVERSATION_PAGE_SIZE = 60
-
-interface ConversationHistoryMessage {
-  id: string
-  role: string
-  content: readonly { type: 'text'; text: string }[]
-  contentJson: string
-  timestamp: number
-  isStreaming?: boolean
-  /** 已被上下文压缩移出 LLM 请求，但仍保留在历史中 */
-  contextExcluded?: boolean
-  thinkingText?: string
-  toolCalls?: readonly { id: string; name: string; args: Record<string, unknown>; result?: unknown; isError?: boolean; textPositionAtStart?: number }[]
-  sourceAgent?: { instanceId: string; label: string }
-  isVoice?: boolean
-  audioWavBase64?: string
-}
-
-/**
- * 分页读取会话历史供 UI 展示。
- *
- * 与「喂给模型」的读取路径不同，这里**不过滤**已压缩消息：压缩只是把消息移出上下文，
- * 用户仍需要能回看。历史可能很长，因此按游标倒序分页，由 UI 上滑懒加载。
- */
-function getConversationMessages(
-  bridge: AgentRuntimeBridge,
-  sessionKey: string,
-  options?: { limit?: number; before?: { timestamp: string; id: string } },
-): {
-  items: readonly ConversationHistoryMessage[]
-  hasMore: boolean
-  nextCursor?: { timestamp: string; id: string }
-} {
-  const conversationId = sessionKey
-  bridge.setLastActiveConversation(conversationId)
-  const page = bridge.conversationRepo.loadMessagesPage(conversationId, {
-    limit: options?.limit ?? CONVERSATION_PAGE_SIZE,
-    ...(options?.before ? { before: options.before } : {}),
-  })
-
-  const items = page.items.map((msg): ConversationHistoryMessage => {
-    let contentText = ''
-    let thinkingText: string | undefined
-    let toolCalls: Array<{
-      id: string
-      name: string
-      args: Record<string, unknown>
-      result?: unknown
-      isError?: boolean
-      textPositionAtStart?: number
-    }> | undefined
-    let sourceAgent: { instanceId: string; label: string } | undefined
-    let isVoice: boolean | undefined
-    let audioWavBase64: string | undefined
-    try {
-      const parsed = typeof msg.content_json === 'string'
-        ? JSON.parse(msg.content_json)
-        : msg.content_json
-      if (parsed && typeof parsed === 'object') {
-        if ((parsed as { isVoice?: unknown }).isVoice === true) isVoice = true
-        const aw = (parsed as { audioWavBase64?: unknown }).audioWavBase64
-        if (typeof aw === 'string' && aw.length > 0) audioWavBase64 = aw
-      }
-      // 仅工具调用、无正文的 assistant 回合 text 为空，此时不能兜到 JSON.stringify，
-      // 否则 null 会渲染成字面量 "null"、tool_result 会渲染成整坨 JSON。
-      contentText = typeof parsed === 'string' ? parsed
-        : typeof parsed?.text === 'string' ? parsed.text
-          : typeof parsed?.content === 'string' ? parsed.content
-            : ''
-      // 读取存库的 thinkingText（新格式）
-      if (parsed && typeof parsed === 'object' && typeof (parsed as { thinkingText?: unknown }).thinkingText === 'string') {
-        thinkingText = (parsed as { thinkingText: string }).thinkingText || undefined
-      }
-      // 旧消息兜底：content_json 里没有 thinkingText 但 text 含 </think> 标签时实时解析
-      if (!thinkingText && msg.role === 'assistant' && contentText.includes('</think>')) {
-        const parsed2 = parseThinkTagsFromRaw(contentText)
-        thinkingText = parsed2.thinkingText || undefined
-        contentText = parsed2.finalText
-      }
-      const rawTools = parsed && typeof parsed === 'object' && Array.isArray((parsed as { toolCalls?: unknown }).toolCalls)
-        ? (parsed as { toolCalls: Array<Record<string, unknown>> }).toolCalls
-        : undefined
-      if (rawTools && rawTools.length > 0) {
-        toolCalls = rawTools.map((t) => ({
-          id: String(t.id ?? ''),
-          name: String(t.name ?? ''),
-          args: (t.args && typeof t.args === 'object' ? t.args : {}) as Record<string, unknown>,
-          result: t.result,
-          isError: Boolean(t.isError),
-          textPositionAtStart: typeof t.textPositionAtStart === 'number' ? t.textPositionAtStart : undefined,
-        }))
-      }
-      const rawSa = parsed && typeof parsed === 'object' ? (parsed as { sourceAgent?: unknown }).sourceAgent : undefined
-      if (rawSa && typeof rawSa === 'object') {
-        const sa = rawSa as Record<string, unknown>
-        if (typeof sa.instanceId === 'string' && sa.instanceId) {
-          sourceAgent = { instanceId: sa.instanceId, label: String(sa.label ?? sa.instanceId) }
-        }
-      }
-    } catch {
-      contentText = String(msg.content_json)
-    }
-
-    return {
-      id: msg.id,
-      role: msg.role,
-      content: [{ type: 'text' as const, text: contentText }],
-      // renderer 使用共享 parser 恢复 assistant_parts，保留旧 content 字段兼容历史消息。
-      contentJson: msg.content_json,
-      timestamp: new Date(msg.timestamp).getTime(),
-      ...(msg.is_streaming === 1 ? { isStreaming: true } : {}),
-      ...(msg.compacted_at ? { contextExcluded: true } : {}),
-      ...(thinkingText ? { thinkingText } : {}),
-      ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
-      ...(sourceAgent ? { sourceAgent } : {}),
-      ...(isVoice ? { isVoice: true } : {}),
-      ...(audioWavBase64 ? { audioWavBase64 } : {}),
-    }
-  })
-
-  // 游标用 DB 原始 timestamp 字符串，避免 renderer 用毫秒时间戳回推 ISO 时产生偏差
-  const oldest = page.items[0]
-  return {
-    items,
-    hasMore: page.hasMore,
-    ...(oldest ? { nextCursor: { timestamp: oldest.timestamp, id: oldest.id } } : {}),
-  }
-}
-
 // ============================================================
 // Cron 函数已移至 agent-runtime/cron-commands.ts
+// ============================================================
+
+// ============================================================
+// Conversation 函数已移至 agent-runtime/conversation-commands.ts
 // ============================================================
 
 // ============================================================
