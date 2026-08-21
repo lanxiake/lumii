@@ -49,6 +49,13 @@ import {
   handleCodingDevListBackends,
   setAcpBackendManagerGetter,
 } from './agent-runtime/coding-dev-commands'
+import {
+  handleRuntimePing,
+  handleRuntimeFeatureFlagsGet,
+  handleRuntimeFeatureFlagsSet,
+  handleRuntimeEnabled,
+  handleRuntimeModelCatalogSet,
+} from './agent-runtime/runtime-commands'
 import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../coding-dev-backends-stub/contracts.js'
 import { extractDocumentText } from '../vendor/document-parser.js'
@@ -845,10 +852,8 @@ export async function handleCommand(
         return undefined
       }
 
-      case 'runtime:modelCatalog:set': {
-        bridge.setModelCatalogFromApi(command.entries)
-        return { ok: true }
-      }
+      case 'runtime:modelCatalog:set':
+        return handleRuntimeModelCatalogSet(bridge, command)
 
       case 'session:preferredModel:set': {
         bridge.primeSessionModelCompaction(command.sessionKey, command.modelId)
@@ -1075,18 +1080,16 @@ export async function handleCommand(
 
       // ---- 主进程桥接（原 agent-runtime:* 独立通道）----
       case 'runtime:ping':
-        return { ok: true }
+        return handleRuntimePing()
 
       case 'runtime:featureFlags:get':
-        return bridge.getFeatureFlags()
+        return handleRuntimeFeatureFlagsGet(bridge)
 
-      case 'runtime:featureFlags:set': {
-        bridge.setFeatureFlags(command.flags)
-        return bridge.getFeatureFlags()
-      }
+      case 'runtime:featureFlags:set':
+        return handleRuntimeFeatureFlagsSet(bridge, command)
 
       case 'runtime:enabled':
-        return bridge.isEnabled
+        return handleRuntimeEnabled(bridge)
 
       case 'agentInstance:create': {
         try {
