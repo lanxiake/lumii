@@ -1,19 +1,10 @@
 import React, { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react'
-import { createPortal } from 'react-dom'
-import { ChatSidebar } from './components/ChatSidebar'
 import { ChatContainer } from './components/ChatContainer'
 import { ChatInput } from './components/ChatInput'
-import type { FileReference } from './components/ChatInput'
 import type { Agent } from '../../services/agent-service'
 import type { ModelOption } from '../../services/model-config-service'
 import { fetchModelCatalog, fetchChatModelChoices, saveChatModel } from '../../services/model-config-service'
-import { Toast } from './components/Toast'
 import { ConfirmModal } from '../../components/ui/Modal/ConfirmModal'
-import { WorkspaceFilePanel } from './components/WorkspaceFilePanel'
-import { WorkspaceVersionPanel } from './components/WorkspaceVersionPanel/WorkspaceVersionPanel'
-import { WorkspaceWorkbench, type WorkbenchTab, type WorkbenchLayoutMode } from './components/WorkspaceWorkbench'
-import { useWorkspaceVcs } from '../../hooks/business/useWorkspaceVcs'
-import { useWorkspace } from '../../hooks/business/useWorkspace'
 import { useAgents } from '../../hooks/business/useAgents'
 import {
   useAgentRuntimeActions,
@@ -22,7 +13,6 @@ import {
   useAnyPendingPermission,
   runtimeStore,
 } from '../../hooks/business/useAgentRuntime'
-import { ConfirmationDialog } from '../../components/ConfirmationDialog'
 import { AskUserModal } from '../../components/AskUserModal'
 import type { ViewType } from '../../components/Router'
 import { SIDEBAR_SESSION_SLOT_ID, SIDEBAR_TOGGLE_EVENT } from '../../components/layout/Sidebar'
@@ -40,7 +30,6 @@ import './ChatPage.global.css'
 import { processFilesWithStrategies, appendAttachmentsToMessage } from './utils/file-attachment-strategy'
 import { useVoiceCall } from '../../hooks/business/useVoiceCall'
 import { useConversationReplay } from '../../hooks/business/useConversationReplay'
-import { VoiceCallPanel } from './components/VoiceCallPanel'
 import type { AttachmentCategory } from './utils/file-attachment-strategy'
 import {
   getDefaultStrategies,
@@ -48,8 +37,14 @@ import {
   serializeRecognitionResults,
   type ImageProcessingResult,
 } from './utils/image-processing-strategy'
-import { InterruptBanner } from './components/InterruptBanner'
-import { PanelLeft, Sparkles, FolderOpen, Volume2, VolumeX } from 'lucide-react'
+import { FloatingOverlays } from './layout/FloatingOverlays'
+import { WorkspaceWorkbenchArea } from './layout/WorkspaceWorkbenchArea'
+import { ChatSidebarArea } from './layout/ChatSidebarArea'
+import { useSessionDrafts } from './hooks/useSessionDrafts'
+import { useWorkspacePanels } from './hooks/useWorkspacePanels'
+import { useChatPageZoom } from './hooks/useChatPageZoom'
+import { ChatToolbar } from './layout/ChatToolbar'
+import { ChatBottomOverlay } from './layout/ChatBottomOverlay'
 
 /** 将 File 读取为 base64 字符串（当 file.path 不可用时使用） */
 function readFileAsBase64(file: File): Promise<string> {
@@ -82,8 +77,6 @@ const logger = {
 }
 
 const AUTO_APPROVE_KEY = 'mtbot-auto-approve'
-const PAGE_ZOOM_KEY = 'mtbot:chat-page-zoom'
-const ZOOM_MIN = 0.6
 
 // 本地 Runtime 不走 Gateway 审批/workflow，这些占位恒为空。
 // 提到模块级常量（而非每次 render 新建数组/Set），避免破坏 ChatContainer 的 React.memo 浅比较。
@@ -91,8 +84,6 @@ const EMPTY_APPROVAL_ITEMS: never[] = []
 const EMPTY_PLAN_APPROVAL_ITEMS: never[] = []
 const EMPTY_WORKFLOW_ITEMS: never[] = []
 const EMPTY_RESOLVING_IDS: Set<string> = new Set<string>()
-const ZOOM_MAX = 2.0
-const ZOOM_STEP = 0.1
 
 const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewChange }) => {
   // Hooks
@@ -360,53 +351,19 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [refreshLocalSessions])
 
   // Local state
-  const [draftsBySession, setDraftsBySession] = useState<Record<string, string>>({})
-  const [globalDraft, setGlobalDraft] = useState('')
-  const [fileReferencesBySession, setFileReferencesBySession] = useState<Record<string, FileReference[]>>({})
-  const fileReferenceKey = runtimeCurrentSessionKey ?? '__global__'
-  const inputValue = runtimeCurrentSessionKey ? (draftsBySession[runtimeCurrentSessionKey] ?? '') : globalDraft
-  const activeFileReferences = fileReferencesBySession[fileReferenceKey] ?? []
+  const {
+    inputValue,
+    activeFileReferences,
+    setDraftsBySession,
+    persistDraftForSession,
+    setInputValue,
+    clearCurrentInputState,
+    addFileReference: handleFileReferenceAdd,
+    removeFileReference: handleFileReferenceRemove,
+  } = useSessionDrafts(runtimeCurrentSessionKey)
   /**
    * 把草稿写入指定会话（切会话时对准旧 key，避免写到新会话）。
    */
-  const persistDraftForSession = useCallback((sessionKey: string | null, nextValue: string) => {
-    if (!sessionKey) {
-      setGlobalDraft((prev) => (prev === nextValue ? prev : nextValue))
-      return
-    }
-    setDraftsBySession((prev) => {
-      if (prev[sessionKey] === nextValue) return prev
-      return { ...prev, [sessionKey]: nextValue }
-    })
-  }, [])
-  const setInputValue = useCallback((nextValue: string) => {
-    persistDraftForSession(runtimeCurrentSessionKey, nextValue)
-  }, [persistDraftForSession, runtimeCurrentSessionKey])
-  const clearCurrentInputState = useCallback((targetSessionKey: string | null = runtimeCurrentSessionKey) => {
-    const refKey = targetSessionKey ?? '__global__'
-    if (!targetSessionKey) {
-      setGlobalDraft('')
-      setFileReferencesBySession((prev) => ({ ...prev, [refKey]: [] }))
-      return
-    }
-    setDraftsBySession((prev) => ({ ...prev, [targetSessionKey]: '' }))
-    setFileReferencesBySession((prev) => ({ ...prev, [refKey]: [] }))
-  }, [runtimeCurrentSessionKey])
-  const handleFileReferenceAdd = useCallback((ref: FileReference) => {
-    const refKey = runtimeCurrentSessionKey ?? '__global__'
-    setFileReferencesBySession((prev) => {
-      const refs = prev[refKey] ?? []
-      if (refs.some((item) => item.absolutePath === ref.absolutePath)) return prev
-      return { ...prev, [refKey]: [...refs, ref] }
-    })
-  }, [runtimeCurrentSessionKey])
-  const handleFileReferenceRemove = useCallback((absolutePath: string) => {
-    const refKey = runtimeCurrentSessionKey ?? '__global__'
-    setFileReferencesBySession((prev) => ({
-      ...prev,
-      [refKey]: (prev[refKey] ?? []).filter((ref) => ref.absolutePath !== absolutePath),
-    }))
-  }, [runtimeCurrentSessionKey])
   const [voiceCallState, voiceCallActions] = useVoiceCall()
   const conversationReplay = useConversationReplay()
   /**
@@ -741,70 +698,24 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const planApprovalItems = EMPTY_PLAN_APPROVAL_ITEMS
   const planResolvingIds = EMPTY_RESOLVING_IDS
   const workflowItems = EMPTY_WORKFLOW_ITEMS
-  const [workbench, setWorkbench] = useState<{ open: boolean; tab: WorkbenchTab }>({
-    open: false,
-    tab: 'files',
-  })
-  /** 工作台当前宽度（px），用于对话区 padding 自适应 */
-  const [workbenchWidth, setWorkbenchWidth] = useState(0)
-  const [workbenchResizing, setWorkbenchResizing] = useState(false)
-  const [workbenchLayout, setWorkbenchLayout] = useState<WorkbenchLayoutMode>('default')
-  /** 点击输入框 @引用 / 会话文件列表时要在工作空间面板定位的绝对路径 */
-  const [locateFileTarget, setLocateFileTarget] = useState<{
-    path: string
-    token: number
-    preview?: boolean
-    fileName?: string
-  } | null>(null)
-  const { uncommittedDiff, refresh: refreshVcs } = useWorkspaceVcs()
-  const { workspaceDir, toAbsolutePath } = useWorkspace()
-  /** 单调递增定位 token，避免 Date.now() 在快速点击时碰撞 */
-  const locateTokenRef = useRef(0)
-
-  const toggleFilesWorkbench = useCallback(() => {
-    setWorkbenchLayout('default')
-    setWorkbench((w) =>
-      w.open && w.tab === 'files' ? { ...w, open: false } : { open: true, tab: 'files' },
-    )
-  }, [])
-
-  /**
-   * 回合文件变更卡「查看」：相对路径转绝对路径后打开工作空间，定位到该文件并打开预览
-   */
-  const handleReviewTurnFileChange = useCallback(
-    (relPath: string, status: 'added' | 'modified' | 'deleted') => {
-      const abs = toAbsolutePath(relPath)
-      const fileName = relPath.split('/').pop() ?? relPath
-      setWorkbenchLayout('default')
-      setWorkbench({ open: true, tab: 'files' })
-      locateTokenRef.current += 1
-      setLocateFileTarget({
-        path: abs,
-        token: locateTokenRef.current,
-        // 已删除的文件不存在，只定位不预览；新增/修改的打开预览
-        preview: status !== 'deleted',
-        fileName,
-      })
-    },
-    [toAbsolutePath],
-  )
-
-  /** 离开对话视图时关闭工作台（设置/概览等） */
-  useEffect(() => {
-    if (activeView && activeView !== 'chat') {
-      setWorkbench((w) => (w.open ? { ...w, open: false } : w))
-    }
-  }, [activeView])
-
-  /** 工作台宽度变化；拖拽中关闭 padding transition */
-  const handleWorkbenchWidthChange = useCallback((w: number) => {
-    setWorkbenchWidth(w)
-  }, [])
-
-  const handleWorkbenchLayoutChange = useCallback((mode: WorkbenchLayoutMode) => {
-    setWorkbenchLayout(mode)
-  }, [])
-
+  const {
+    workbench,
+    workbenchWidth,
+    workbenchResizing,
+    workbenchLayout,
+    locateFileTarget,
+    uncommittedDiff,
+    refreshVcs,
+    toggleFilesWorkbench,
+    handleReviewTurnFileChange,
+    closeWorkbench,
+    selectWorkbenchTab,
+    setWorkbenchWidth: handleWorkbenchWidthChange,
+    setWorkbenchResizing,
+    setWorkbenchLayout: handleWorkbenchLayoutChange,
+    revealInFiles,
+    locateAbsoluteFile,
+  } = useWorkspacePanels(activeView)
   const [autoApprove, setAutoApprove] = useState<boolean>(() => {
     try {
       return localStorage.getItem(AUTO_APPROVE_KEY) === 'true'
@@ -819,45 +730,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
    * 对话页整体缩放比例（Ctrl + 滚轮调节），仅作用于 ChatPage 根容器，
    * 通过 CSS zoom 同时放大/缩小布局与字体。范围 0.6 ~ 2.0，存 localStorage。
    */
-  const [pageZoom, setPageZoom] = useState<number>(() => {
-    try {
-      const v = parseFloat(localStorage.getItem(PAGE_ZOOM_KEY) ?? '')
-      return Number.isFinite(v) && v >= ZOOM_MIN && v <= ZOOM_MAX ? v : 1
-    } catch {
-      return 1
-    }
-  })
-  const chatPageRef = useRef<HTMLDivElement>(null)
-  // 用原生事件监听 wheel（passive:false 才能 preventDefault 阻止浏览器默认缩放）
-  useEffect(() => {
-    const el = chatPageRef.current
-    if (!el) return
-    const handleWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return
-      e.preventDefault()
-      setPageZoom((prev) => {
-        const step = e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP
-        const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((prev + step) * 100) / 100))
-        try { localStorage.setItem(PAGE_ZOOM_KEY, String(next)) } catch { /* ignore */ }
-        return next
-      })
-    }
-    el.addEventListener('wheel', handleWheel, { passive: false })
-    return () => el.removeEventListener('wheel', handleWheel)
-  }, [])
-  // Ctrl+0 复位缩放
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === '0')) {
-        e.preventDefault()
-        setPageZoom(1)
-        try { localStorage.setItem(PAGE_ZOOM_KEY, '1') } catch { /* ignore */ }
-      }
-    }
-    window.addEventListener('keydown', handleKey)
-    return () => window.removeEventListener('keydown', handleKey)
-  }, [])
-
+  const { pageZoom, resetPageZoom, chatPageRef } = useChatPageZoom()
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
 
@@ -1428,11 +1301,17 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   /**
    * 点击 @引用 chip：打开工作台并定位文件。
    */
-  const handleLocateFile = useCallback((absolutePath: string) => {
-    setWorkbench({ open: true, tab: 'files' })
-    locateTokenRef.current += 1
-    setLocateFileTarget({ path: absolutePath, token: locateTokenRef.current })
-  }, [])
+  const handleLocateFile = locateAbsoluteFile
+
+  const handleEnterPetMode = useCallback(async () => {
+    if (runtimeCurrentSessionKey) {
+      await window.electronAPI?.pet?.setActiveSessionKey(runtimeCurrentSessionKey).catch(() => {})
+    }
+    const result = await window.electronAPI?.pet?.switchMode('pet')
+    if (result && !result.success) {
+      setToast({ message: `进入宠物模式失败：${result.error ?? '未知错误'}`, type: 'error' })
+    }
+  }, [runtimeCurrentSessionKey])
 
   /**
    * 从输入框发起语音通话。
@@ -1533,7 +1412,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           if (sessionKey) {
             setDraftsBySession((prev) => ({ ...prev, [sessionKey]: text }))
           } else {
-            setGlobalDraft(text)
+            persistDraftForSession(null, text)
           }
         })
         return
@@ -1558,19 +1437,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     >
       {/* 会话列表 portal 进最外层侧栏。不做「原地渲染」兜底：ChatPage 在非对话视图下被
           display:none 包着，退回原地等于把列表藏起来，比直接不渲染更难发现 */}
-      {sessionSlot &&
-        createPortal(
-          <ChatSidebar
-            sessions={localRuntimeSessionsAsChatSessions}
-            activeSessionId={runtimeCurrentSessionKey ?? null}
-            onSelectSession={handleSelectSidebarSession}
-            onCreateSession={handleCreateSidebarSession}
-            onPinSession={handlePinSession}
-            onDeleteSession={handleDeleteSession}
-            onRenameSession={handleRenameSession}
-          />,
-          sessionSlot,
-        )}
+      <ChatSidebarArea
+        slot={sessionSlot}
+        sessions={localRuntimeSessionsAsChatSessions}
+        activeSessionId={runtimeCurrentSessionKey ?? null}
+        onSelectSession={handleSelectSidebarSession}
+        onCreateSession={handleCreateSidebarSession}
+        onPinSession={handlePinSession}
+        onDeleteSession={handleDeleteSession}
+        onRenameSession={handleRenameSession}
+      />
 
       <div
         className={clsx(styles['chat-main'], workbenchResizing && styles.chatMainResizing)}
@@ -1620,126 +1496,41 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
 
         {/* 顶部毛玻璃浮层：会话标题 + 工具栏 */}
         <div className={styles['chat-overlay-top']}>
-          <div className={styles['chat-toolbar']}>
-            <button
-              type="button"
-              className={styles['icon-btn']}
-              onClick={toggleOuterSidebar}
-              title="折叠/展开侧栏 (Ctrl+B)"
-              aria-label="折叠/展开侧栏"
-            >
-              <PanelLeft size={16} strokeWidth={1.8} />
-            </button>
-            <h2 className={styles['chat-title']}>
-              {localRuntimeSession?.title ?? 'AI 助手对话'}
-            </h2>
-            <div className={styles['toolbar-actions']}>
-            {pageZoom !== 1 && (
-              <button
-                type="button"
-                className={styles['icon-btn']}
-                onClick={() => { setPageZoom(1); try { localStorage.setItem(PAGE_ZOOM_KEY, '1') } catch { /* ignore */ } }}
-                title="点击复位缩放（Ctrl+0）"
-                aria-label="复位缩放"
-                style={{ fontSize: 11, fontWeight: 600 }}
-              >
-                {Math.round(pageZoom * 100)}%
-              </button>
-            )}
-            <button
-              type="button"
-              className={clsx(styles['auto-approve-toggle'], autoApprove && styles['auto-approve-toggle--on'])}
-              onClick={handleToggleAutoApprove}
-              title={autoApprove ? '自动审批已开启，点击关闭' : '自动审批已关闭，点击开启'}
-            >
-              {autoApprove ? '自动审批' : '需要审批'}
-            </button>
-            <button
-              type="button"
-              className={clsx(
-                styles['icon-btn'],
-                readAloudActive && styles['icon-btn--active'],
-                voiceCallState.readAloudSpeaking && styles['read-aloud-speaking'],
-              )}
-              onClick={handleToggleReadAloud}
-              title={readAloudActive ? '实时朗读已开启，点击关闭' : '开启实时朗读（AI 回复边生成边朗读）'}
-              aria-label="实时朗读"
-              aria-pressed={readAloudActive}
-            >
-              {readAloudActive ? <Volume2 size={16} strokeWidth={1.8} /> : <VolumeX size={16} strokeWidth={1.8} />}
-            </button>
-            <button
-              type="button"
-              className={clsx(styles['icon-btn'], workbench.open && styles['icon-btn--active'])}
-              onClick={toggleFilesWorkbench}
-              title="工作空间文件"
-              aria-label="打开工作空间文件"
-              aria-pressed={workbench.open}
-            >
-              <FolderOpen size={16} strokeWidth={1.8} />
-            </button>
-            <button
-              type="button"
-              className={styles['icon-btn']}
-              onClick={async () => {
-                // 绑定当前会话：先写入主进程 activeSessionKey，宠物窗口 resolvePetSessionKey 会优先复用
-                if (runtimeCurrentSessionKey) {
-                  await window.electronAPI?.pet?.setActiveSessionKey(runtimeCurrentSessionKey).catch(() => {})
-                }
-                const r = await window.electronAPI?.pet?.switchMode('pet')
-                if (r && !r.success) {
-                  setToast({ message: `进入宠物模式失败：${r.error ?? '未知错误'}`, type: 'error' })
-                }
-              }}
-              title="进入宠物模式"
-              aria-label="进入宠物模式"
-            >
-              <Sparkles size={16} strokeWidth={1.8} />
-            </button>
-            </div>
-          </div>
+          <ChatToolbar
+            title={localRuntimeSession?.title ?? 'AI 助手对话'}
+            pageZoom={pageZoom}
+            autoApprove={autoApprove}
+            readAloudActive={readAloudActive}
+            readAloudSpeaking={voiceCallState.readAloudSpeaking}
+            workbenchOpen={workbench.open}
+            onToggleSidebar={toggleOuterSidebar}
+            onResetZoom={resetPageZoom}
+            onToggleAutoApprove={handleToggleAutoApprove}
+            onToggleReadAloud={handleToggleReadAloud}
+            onToggleWorkbench={toggleFilesWorkbench}
+            onEnterPetMode={handleEnterPetMode}
+          />
         </div>
 
-        {/* 底部毛玻璃浮层：Tips、审批、输入框 */}
-        <div className={styles['chat-overlay-bottom']}>
-          {/* 权限审批：行内卡片贴在输入框上方 */}
-          {runtimePendingPermission && !autoApprove && (
-            <div className={styles['chat-inline-approval']}>
-              <ConfirmationDialog
-                open
-                description={runtimePendingPermission.description}
-                toolName={runtimePendingPermission.toolName}
-                timeoutMs={runtimePendingPermission.timeoutMs}
-                sessionHint={
-                  permissionSessionKey && permissionSessionKey !== runtimeCurrentSessionKey
-                    ? `来自后台会话：${permissionSessionKey}`
-                    : undefined
-                }
-                onAllowOnce={() => runtimeActions.respondPermission('allow-once')}
-                onAllowAlways={() => runtimeActions.respondPermission('allow-always')}
-                onDeny={() => runtimeActions.respondPermission('deny')}
-              />
-            </div>
-          )}
-
-          {currentSessionInterrupted && runtimeCurrentSessionKey && (
-            <InterruptBanner
-              sessionKey={runtimeCurrentSessionKey}
-              onContinue={handleContinueInterrupted}
-              onDismiss={handleDismissInterrupt}
-            />
-          )}
-
-          {voiceCallState.state !== 'idle' ? (
-            <VoiceCallPanel
-              state={voiceCallState.state}
-              partialTranscript={voiceCallState.partialTranscript}
-              finalTranscript={voiceCallState.finalTranscript}
-              error={voiceCallState.error}
-              onHangup={() => void voiceCallActions.stopCall()}
-              analyserNode={voiceCallState.analyserNode}
-            />
-          ) : (
+        <ChatBottomOverlay
+          permission={runtimePendingPermission && !autoApprove ? runtimePendingPermission : undefined}
+          permissionSessionKey={permissionSessionKey}
+          currentSessionKey={runtimeCurrentSessionKey}
+          onAllowOnce={() => runtimeActions.respondPermission('allow-once')}
+          onAllowAlways={() => runtimeActions.respondPermission('allow-always')}
+          onDeny={() => runtimeActions.respondPermission('deny')}
+          interruptedSessionKey={currentSessionInterrupted ? runtimeCurrentSessionKey : null}
+          onContinue={handleContinueInterrupted}
+          onDismiss={handleDismissInterrupt}
+          voice={voiceCallState.state !== 'idle' ? {
+            state: voiceCallState.state,
+            partialTranscript: voiceCallState.partialTranscript,
+            finalTranscript: voiceCallState.finalTranscript,
+            error: voiceCallState.error,
+            onHangup: () => void voiceCallActions.stopCall(),
+            analyserNode: voiceCallState.analyserNode,
+          } : undefined}
+          input={
           <ChatInput
             value={inputValue}
             onChange={setInputValue}
@@ -1781,18 +1572,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onLocateFile={handleLocateFile}
             showTips={showInputTips}
           />
-          )}
-        </div>
+          }
+        />
       </div>
 
       {/* Toast notification */}
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
+      <FloatingOverlays
+        toast={toast ? { message: toast.message, type: toast.type } : null}
+        onCloseToast={() => setToast(null)}
+      />
 
       {/* Delete Session Confirm Modal */}
       <ConfirmModal
@@ -1817,47 +1605,18 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       ) : null}
 
       {/* 工作空间共享壳：文件 + 版本（可拖拽改宽，对话区自适应） */}
-      <WorkspaceWorkbench
-        open={workbench.open}
-        tab={workbench.tab}
-        onTabChange={(tab) => {
-          setWorkbenchLayout('default')
-          setWorkbench((w) => ({ ...w, tab, open: true }))
-        }}
-        onClose={() => setWorkbench((w) => ({ ...w, open: false }))}
+      <WorkspaceWorkbenchArea
+        workbench={workbench}
+        onTabChange={selectWorkbenchTab}
+        onClose={closeWorkbench}
         uncommittedCount={uncommittedDiff.length}
         onRefresh={() => { void refreshVcs() }}
         onWidthChange={handleWorkbenchWidthChange}
         onResizingChange={setWorkbenchResizing}
         layoutMode={workbenchLayout}
         onLayoutModeChange={handleWorkbenchLayoutChange}
-        childrenFiles={
-          <WorkspaceFilePanel
-            open={workbench.open}
-            onClose={() => setWorkbench((w) => ({ ...w, open: false }))}
-            locateTarget={locateFileTarget}
-            embedded
-          />
-        }
-        childrenVcs={
-          <WorkspaceVersionPanel
-            open={workbench.open}
-            onClose={() => setWorkbench((w) => ({ ...w, open: false }))}
-            embedded
-            layoutMode={workbenchLayout}
-            onLayoutModeChange={handleWorkbenchLayoutChange}
-            onRevealInFiles={(relPath) => {
-              const root = (workspaceDir ?? '').replace(/\\/g, '/').replace(/\/+$/, '')
-              const abs = root
-                ? `${root}/${relPath.replace(/^\/+/, '')}`
-                : relPath
-              setWorkbenchLayout('default')
-              setWorkbench({ open: true, tab: 'files' })
-              locateTokenRef.current += 1
-              setLocateFileTarget({ path: abs, token: locateTokenRef.current })
-            }}
-          />
-        }
+        locateFileTarget={locateFileTarget}
+        onRevealInFiles={revealInFiles}
       />
     </div>
   )
