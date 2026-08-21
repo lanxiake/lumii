@@ -30,6 +30,14 @@ import { StatefulContextStrategy } from '../channel/context-strategy/stateful-st
 import type { WeixinSessionBindingManager } from '../channel/weixin-session-binding'
 import { handleImageRecognize, handleImageGenerate, handleImageProcess } from './agent-runtime/image-commands'
 import { handleMessageDelete, handleMessageEdit } from './agent-runtime/message-commands'
+import {
+  handleCronCreate,
+  handleCronList,
+  handleCronDelete,
+  handleCronUpdate,
+  handleCronRun,
+  handleCronRuns,
+} from './agent-runtime/cron-commands'
 import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../coding-dev-backends-stub/contracts.js'
 import { extractDocumentText } from '../vendor/document-parser.js'
@@ -887,29 +895,23 @@ export async function handleCommand(
         return continueInterruptedConversation(bridge, command.sessionKey)
       }
 
-      case 'cron:create': {
-        return createLocalCronJob(bridge, command)
-      }
+      case 'cron:create':
+        return handleCronCreate(bridge, command)
 
-      case 'cron:list': {
-        return listLocalCronJobs(bridge, command.includeDisabled ?? true)
-      }
+      case 'cron:list':
+        return handleCronList(bridge, command.includeDisabled ?? true)
 
-      case 'cron:delete': {
-        return deleteLocalCronJob(bridge, command.id)
-      }
+      case 'cron:delete':
+        return handleCronDelete(bridge, command.id)
 
-      case 'cron:update': {
-        return updateLocalCronJob(bridge, command.id, command.patch)
-      }
+      case 'cron:update':
+        return handleCronUpdate(bridge, command.id, command.patch)
 
-      case 'cron:run': {
-        return runLocalCronJobNow(bridge, command.id)
-      }
+      case 'cron:run':
+        return handleCronRun(bridge, command.id)
 
-      case 'cron:runs': {
-        return listLocalCronRuns(bridge, command.id, command.limit ?? 50)
-      }
+      case 'cron:runs':
+        return handleCronRuns(bridge, command.id, command.limit ?? 50)
 
       // ---- Agent 定义查询 ----
       case 'agent:definitions:list': {
@@ -2218,241 +2220,9 @@ function getConversationMessages(
   }
 }
 
-/**
- * 创建本地 Cron 任务（写入 local_cron_jobs 表，Bridge 启动后会自动恢复调度）。
- */
-function createLocalCronJob(
-  bridge: AgentRuntimeBridge,
-  command: {
-    name: string
-    taskText: string
-    scheduleType: 'at' | 'every' | 'cron'
-    scheduleExpr: string
-    agentId?: string
-    activeDays?: string
-    activeHourStart?: number
-    activeHourEnd?: number
-    notifyTargets?: string
-  },
-): { status: 'ok' | 'error'; job?: { id: string; name: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt?: number; intervalMs?: number; enabled: boolean }; message?: string } {
-  const name = command.name.trim()
-  const taskText = command.taskText.trim()
-  const scheduleExpr = command.scheduleExpr.trim()
-  if (!name || !taskText || !scheduleExpr) {
-    return { status: 'error', message: 'name/taskText/scheduleExpr is required' }
-  }
-
-  const now = Date.now()
-  const schedule = resolveLocalCronSchedule(command.scheduleType, scheduleExpr, now)
-  if (!schedule.ok) return { status: 'error', message: schedule.message }
-
-  const id = `local-cron-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  bridge.createLocalCronJobRecord({
-    id,
-    name,
-    taskText,
-    agentId: command.agentId,
-    scheduleType: command.scheduleType,
-    scheduleExpr,
-    nextRunAt: schedule.nextRunAt,
-    intervalMs: schedule.intervalMs,
-    enabled: true,
-    createdAt: now,
-    activeDays: command.activeDays ?? null,
-    activeHourStart: command.activeHourStart ?? null,
-    activeHourEnd: command.activeHourEnd ?? null,
-    notifyTargets: command.notifyTargets ?? null,
-  })
-  bridge.reloadLocalCronScheduler()
-
-  return {
-    status: 'ok',
-    job: {
-      id,
-      name,
-      scheduleType: command.scheduleType,
-      scheduleExpr,
-      nextRunAt: schedule.nextRunAt,
-      intervalMs: schedule.intervalMs,
-      enabled: true,
-    },
-  }
-}
-
-/**
- * 列出本地 Cron 任务。
- */
-function listLocalCronJobs(
-  bridge: AgentRuntimeBridge,
-  includeDisabled: boolean,
-): { status: 'ok'; jobs: Array<{ id: string; name: string; taskText: string; agentId?: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number; enabled: boolean; createdAt: number; lastRunAt?: number; lastStatus?: 'ok' | 'error' | 'running'; activeDays?: string; activeHourStart?: number; activeHourEnd?: number; notifyTargets?: string }>; total: number } {
-  const rows = bridge.listLocalCronJobRecords(includeDisabled)
-  return {
-    status: 'ok',
-    jobs: rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      taskText: r.task_text,
-      agentId: r.agent_id ?? undefined,
-      scheduleType: r.schedule_type,
-      scheduleExpr: r.schedule_expr,
-      nextRunAt: r.next_run_at,
-      intervalMs: r.interval_ms ?? undefined,
-      enabled: r.enabled === 1,
-      createdAt: r.created_at,
-      ...(r.last_run_at != null ? { lastRunAt: r.last_run_at } : {}),
-      ...(r.last_status != null ? { lastStatus: r.last_status } : {}),
-      ...(r.active_days != null ? { activeDays: r.active_days } : {}),
-      ...(r.active_hour_start != null ? { activeHourStart: r.active_hour_start } : {}),
-      ...(r.active_hour_end != null ? { activeHourEnd: r.active_hour_end } : {}),
-      ...(r.notify_targets != null ? { notifyTargets: r.notify_targets } : {}),
-    })),
-    total: rows.length,
-  }
-}
-
-/**
- * 删除本地 Cron 任务。
- */
-function deleteLocalCronJob(
-  bridge: AgentRuntimeBridge,
-  id: string,
-): { status: 'ok' | 'not_found' | 'error'; id: string; message?: string } {
-  const cleanId = id.trim()
-  if (!cleanId) return { status: 'error', id, message: 'id is required' }
-  const changes = bridge.deleteLocalCronJobRecord(cleanId)
-  if (changes > 0) {
-    bridge.reloadLocalCronScheduler()
-  }
-  return { status: changes > 0 ? 'ok' : 'not_found', id: cleanId }
-}
-
-/**
- * 更新本地 Cron 任务基础字段（用于启用/禁用、重命名、改提醒文本）。
- */
-function updateLocalCronJob(
-  bridge: AgentRuntimeBridge,
-  id: string,
-  patch: {
-    enabled?: boolean
-    name?: string
-    taskText?: string
-    agentId?: string | null
-    scheduleType?: 'at' | 'every' | 'cron'
-    scheduleExpr?: string
-    activeDays?: string
-    activeHourStart?: number | null
-    activeHourEnd?: number | null
-    notifyTargets?: string
-  },
-): { status: 'ok' | 'not_found' | 'error'; id: string; message?: string } {
-  const cleanId = id.trim()
-  if (!cleanId) return { status: 'error', id, message: 'id is required' }
-  const row = bridge.getLocalCronJobRecordById(cleanId)
-  if (!row) return { status: 'not_found', id: cleanId }
-  const nextName = patch.name?.trim() || row.name
-  const nextTaskText = patch.taskText?.trim() || row.task_text
-  const nextAgentId = patch.agentId === undefined ? row.agent_id : patch.agentId?.trim() || null
-  const nextEnabled = typeof patch.enabled === 'boolean' ? (patch.enabled ? 1 : 0) : row.enabled
-  const nextScheduleType = patch.scheduleType ?? row.schedule_type
-  const nextScheduleExpr = patch.scheduleExpr?.trim() || row.schedule_expr
-  const schedule = resolveLocalCronSchedule(nextScheduleType, nextScheduleExpr, Date.now(), false)
-  if (!schedule.ok) return { status: 'error', id: cleanId, message: schedule.message }
-  bridge.updateLocalCronJobRecord({
-    id: cleanId,
-    name: nextName,
-    taskText: nextTaskText,
-    agentId: nextAgentId ?? undefined,
-    enabled: nextEnabled === 1,
-    scheduleType: nextScheduleType,
-    scheduleExpr: nextScheduleExpr,
-    nextRunAt: schedule.nextRunAt,
-    intervalMs: schedule.intervalMs,
-    // undefined 表示本次 patch 不涉及该字段，沿用旧值
-    activeDays: patch.activeDays === undefined ? row.active_days : patch.activeDays,
-    activeHourStart: patch.activeHourStart === undefined ? row.active_hour_start : patch.activeHourStart,
-    activeHourEnd: patch.activeHourEnd === undefined ? row.active_hour_end : patch.activeHourEnd,
-    notifyTargets: patch.notifyTargets === undefined ? row.notify_targets : patch.notifyTargets,
-  })
-  bridge.reloadLocalCronScheduler()
-  return { status: 'ok', id: cleanId }
-}
-
-function resolveLocalCronSchedule(
-  scheduleType: 'at' | 'every' | 'cron',
-  scheduleExpr: string,
-  now: number,
-  requireFuture = true,
-): { ok: true; nextRunAt: number; intervalMs?: number } | { ok: false; message: string } {
-  if (scheduleType === 'every') {
-    const intervalMs = parseStrictMs(scheduleExpr)
-    if (!intervalMs || intervalMs <= 0) {
-      return { ok: false, message: 'Invalid scheduleExpr for every' }
-    }
-    return { ok: true, nextRunAt: now + intervalMs, intervalMs }
-  }
-
-  if (scheduleType === 'at') {
-    const nextRunAt = parseAtScheduleExprLite(scheduleExpr)
-    if (nextRunAt === undefined || (requireFuture && nextRunAt < now)) {
-      return { ok: false, message: 'Invalid scheduleExpr for at' }
-    }
-    return { ok: true, nextRunAt }
-  }
-
-  try {
-    const next = new Cron(scheduleExpr, { timezone: 'Asia/Shanghai' }).nextRun()
-    if (!next) return { ok: false, message: 'Cron expression has no next run' }
-    return { ok: true, nextRunAt: next.getTime() }
-  } catch {
-    return { ok: false, message: 'Invalid scheduleExpr for cron' }
-  }
-}
-
-/**
- * 立即执行一次本地 Cron 任务（手动触发）。
- * 与自动触发走同一路径：更新状态、驱动 Agent（如配置）、发系统通知。
- */
-async function runLocalCronJobNow(
-  bridge: AgentRuntimeBridge,
-  id: string,
-): Promise<{ status: 'ok' | 'not_found' | 'error'; id: string; message?: string }> {
-  const cleanId = id.trim()
-  if (!cleanId) return { status: 'error', id, message: 'id is required' }
-  const row = bridge.getLocalCronJobRecordById(cleanId)
-  if (!row) return { status: 'not_found', id: cleanId }
-  try {
-    await bridge.runCronJobManually(row)
-    return { status: 'ok', id: cleanId }
-  } catch (err) {
-    return { status: 'error', id: cleanId, message: err instanceof Error ? err.message : String(err) }
-  }
-}
-
-/**
- * 查询本地 Cron 运行历史。
- */
-function listLocalCronRuns(
-  bridge: AgentRuntimeBridge,
-  id: string,
-  limit: number,
-): { status: 'ok'; entries: Array<{ id: string; status: 'ok' | 'error'; startedAt: number; finishedAt: number; durationMs: number; summary?: string; error?: string }> } {
-  const cleanId = id.trim()
-  if (!cleanId) return { status: 'ok', entries: [] }
-  const rows = bridge.listLocalCronRuns(cleanId, limit)
-  return {
-    status: 'ok',
-    entries: rows.map((r) => ({
-      id: r.id,
-      status: r.status,
-      startedAt: r.started_at,
-      finishedAt: r.finished_at,
-      durationMs: r.duration_ms,
-      summary: r.summary ?? undefined,
-      error: r.error ?? undefined,
-    })),
-  }
-}
+// ============================================================
+// Cron 函数已移至 agent-runtime/cron-commands.ts
+// ============================================================
 
 // ============================================================
 // ACP 后端管理器单例
