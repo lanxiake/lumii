@@ -69,18 +69,17 @@
 | **完成情况** | 已按 section 边界拆分为多个模块 |
 | **完成提交** | 6397c54（2026-08 之前）|
 
-### P0-05 🔄 部分完成
+### P0-05 ✅ 已完成
 | 项目 | 内容 |
 |---|---|
 | **文件** | [index.ts](../../../apps/windows/src/preload/index.ts) |
-| **有效行数** | 2011 → 1989（准备工作已提取，主文件尚未大幅精简） |
+| **有效行数** | 2011 → 1406（实现对象已全部委托到能力模块，主文件仅保留类型声明 + 聚合 + `exposeInMainWorld`） |
 | **类别** | Preload 桥接脚本 |
-| **警戒阈值** | 450 行（观察信号，不作为硬门禁） |
+| **警戒阈值** | 450 行（观察信号，不作为硬门禁；剩余行数主要是 `ElectronAPI` 类型接口，非实现代码） |
 | **主要问题** | ElectronAPI 类型、实现对象、事件监听和外部服务暴露仍集中在 preload；已有 `pet-api.ts` 等能力模块可复用 |
 | **拆分建议** | 按现有 API 能力提取 `file` / `channel` / `skills` / `app` 等模块；保留 index 聚合和 `exposeInMainWorld`，不预先拆固定数量的 event-mux |
-| **完成情况** | 已提取 10 个 API 模块（file/system/workspace/dialog-clipboard/app/window/skills/vcs/channel/api-server）+ `api/index.ts` 聚合导出；`index.ts` 中 `electronAPI` 已改为引用这些模块，但对象本身尚未拆分、大部分类型声明仍在主文件内 |
-| **完成提交** | 93eb981, 748db8d（2026-08-21）|
-| **待办** | 继续把 `electronAPI` 对象拆分到各能力模块内声明，主文件只保留聚合 + `exposeInMainWorld` |
+| **完成情况** | 已提取 13 个 API 模块（file/system/workspace/dialog-clipboard/app/window/skills/vcs/channel/api-server/api-server-http/agent-runtime/screen-record）+ `api/index.ts` 聚合导出；`index.ts` 中 `electronAPI` 对象已全部改为 `xxx: xxxApi` 形式的委托引用，不再有内联实现；voice 事件单路复用（仅本文件使用）与类型声明保留在主文件 |
+| **完成提交** | 93eb981, 748db8d, be8acbe（2026-08-21）；api/agentRuntime/screenRecord 委托拆分（2026-08-22） |
 
 ### P0-06
 | 项目 | 内容 |

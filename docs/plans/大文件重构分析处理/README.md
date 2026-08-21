@@ -187,9 +187,11 @@ packages/agent-runtime/src/prompt/
 
 ---
 
-### 5. `preload/index.ts` — 1913 有效行（P0）
+### 5. `preload/index.ts` — 1913 有效行（P0）✅ 已完成（1406 行，详见 code-location-index.md P0-05）
 
-**拆分方案：** 按现有 `electronAPI` 对象结构分组，保持暴露对象和多个全局 service 名称不变：
+实际拆分未采用下方嵌套目录方案，改为扁平化放在 `preload/api/*.ts`（13 个模块），类型声明保留在 `index.ts`（无需求不新建 `electron-api.types.ts`）。`electronAPI` 对象已全部改为 `xxx: xxxApi` 委托引用。
+
+**原拆分方案（设计草稿，未采用嵌套目录）：** 按现有 `electronAPI` 对象结构分组，保持暴露对象和多个全局 service 名称不变：
 
 ```
 preload/
