@@ -5,7 +5,7 @@
  * 使用 contextBridge 暴露 API 给渲染进�?
  */
 
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import { petApi } from './pet-api'
 import type { PetElectronAPI } from '../shared/pet-mode'
 // 仅类型引用，编译期擦除，不会把主进程代码打进 preload
@@ -1237,55 +1237,13 @@ const electronAPI: ElectronAPI = {
   splash: splashApi,
 
   // 应用操作 API
-  app: {
-    getVersion: () => ipcRenderer.invoke('app:getVersion'),
-    quit: () => ipcRenderer.send('app:quit'),
-    openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
-    showItemInFolder: (filePath: string) => ipcRenderer.invoke('app:showItemInFolder', filePath),
-    openLogFile: () =>
-      ipcRenderer.invoke('app:openLogFile') as Promise<{ success: boolean; path?: string; error?: string }>,
-    getPathForFile: (file: File) => webUtils.getPathForFile(file),
-    getOpenAtLogin: () => ipcRenderer.invoke('app:getOpenAtLogin'),
-    setOpenAtLogin: (enable: boolean) => ipcRenderer.invoke('app:setOpenAtLogin', enable),
-    getCodingDevEnvInfo: () => ipcRenderer.invoke('app:getCodingDevEnvInfo'),
-    listCodingDevToolsMetadata: () => ipcRenderer.invoke('app:listCodingDevToolsMetadata'),
-    detectCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:detectCodingDevTool', toolId),
-    installCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:installCodingDevTool', toolId),
-    uninstallCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:uninstallCodingDevTool', toolId),
-    previewUninstallCodingDevTool: (toolId: string) =>
-      ipcRenderer.invoke('app:previewUninstallCodingDevTool', toolId),
-    loginCodingDevTool: (toolId: string) => ipcRenderer.invoke('app:loginCodingDevTool', toolId),
-    setCodingDevAcpWorkspace: (dirPath: string | undefined) =>
-      ipcRenderer.invoke('app:setCodingDevAcpWorkspace', dirPath),
-    listCodingDevProjects: () => ipcRenderer.invoke('app:listCodingDevProjects'),
-    createCodingDevProject: (name: string) =>
-      ipcRenderer.invoke('app:createCodingDevProject', name),
-    openCodingDevProject: (name: string, targetPath: string) =>
-      ipcRenderer.invoke('app:openCodingDevProject', name, targetPath),
-    removeCodingDevProject: (name: string) =>
-      ipcRenderer.invoke('app:removeCodingDevProject', name),
-    setCodingDevActiveProject: (name: string) =>
-      ipcRenderer.invoke('app:setCodingDevActiveProject', name),
-    getProjectGitStatus: (projectName: string) =>
-      ipcRenderer.invoke('app:getProjectGitStatus', projectName),
-  },
+  app: appApi,
 
   // 对话�?API
-  dialog: {
-    showOpenDialog: (options: Electron.OpenDialogOptions) =>
-      ipcRenderer.invoke('dialog:showOpenDialog', options) as Promise<Electron.OpenDialogReturnValue>,
-    showSaveDialog: (options: Electron.SaveDialogOptions) =>
-      ipcRenderer.invoke('dialog:showSaveDialog', options) as Promise<Electron.SaveDialogReturnValue>,
-    showMessageBox: (options: Electron.MessageBoxOptions) =>
-      ipcRenderer.invoke('dialog:showMessageBox', options) as Promise<Electron.MessageBoxReturnValue>,
-  },
+  dialog: dialogApi as ElectronAPI['dialog'],
 
   // 剪贴�?API
-  clipboard: {
-    readText: () => ipcRenderer.invoke('clipboard:readText'),
-    writeText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
-    writeFiles: (filePaths: string[]) => ipcRenderer.invoke('clipboard:writeFiles', filePaths),
-  },
+  clipboard: clipboardApi,
 
   // 自动更新 API
   updater: {
@@ -1562,55 +1520,18 @@ const electronAPI: ElectronAPI = {
   },
 
   // 工作空间 API
-  workspace: {
-    getDir: () => ipcRenderer.invoke('workspace:getDir'),
-    setDir: (dirPath: string) => ipcRenderer.invoke('workspace:setDir', dirPath),
-    selectDir: (currentPath?: string) => ipcRenderer.invoke('workspace:selectDir', currentPath),
-    /** 用户保存工作空间路径后调用，使节点重连并上报新路径，无需重启应用 */
-    notifyChanged: (newDirPath?: string) => ipcRenderer.invoke('workspace:notifyChanged', newDirPath),
-    ensureDir: (dirPath: string) => ipcRenderer.invoke('workspace:ensureDir', dirPath),
-    ensureThreadDir: (threadId: string) => ipcRenderer.invoke('workspace:ensureThreadDir', threadId),
-    sessionRenamed: (threadId: string, newTitle: string) =>
-      ipcRenderer.invoke('workspace:sessionRenamed', threadId, newTitle),
-  },
+  workspace: workspaceApi,
 
-  // 本地技能管�?API
+  // 本地技能管理 API（补充别名以兼容旧代码）
   skills: {
-    listLocalInstalled: () =>
-      ipcRenderer.invoke('skills:listLocalInstalled'),
-    getInstalledSkills: () =>
-      ipcRenderer.invoke('skills:listLocalInstalled'),
-    installFromDirectory: (sourceDir: string) =>
-      ipcRenderer.invoke('skills:installFromDirectory', sourceDir),
-    importDirectory: (sourceDir: string) =>
-      ipcRenderer.invoke('skills:importDirectory', sourceDir),
-    installSkill: (params: unknown) =>
-      ipcRenderer.invoke('skills:installFromDirectory', params),
-    uninstallLocal: (skillId: string) =>
-      ipcRenderer.invoke('skills:uninstallLocal', skillId),
-    uninstallSkill: (skillId: string) =>
-      ipcRenderer.invoke('skills:uninstallLocal', skillId),
-    executeLocal: (params: {
-      skillId: string
-      params: Record<string, unknown>
-      timeoutMs?: number
-    }) => ipcRenderer.invoke('skills:executeLocal', params),
-    setEnabled: (skillId: string, enabled: boolean) =>
-      ipcRenderer.invoke('skills:setEnabled', skillId, enabled),
-    enableSkill: (skillId: string) =>
-      ipcRenderer.invoke('skills:setEnabled', skillId, true),
-    disableSkill: (skillId: string) =>
-      ipcRenderer.invoke('skills:setEnabled', skillId, false),
+    ...skillsApi,
+    getInstalledSkills: skillsApi.listLocalInstalled,
+    installSkill: (params: unknown) => skillsApi.installFromDirectory(params as string),
+    uninstallSkill: skillsApi.uninstallLocal,
+    enableSkill: (skillId: string) => skillsApi.setEnabled(skillId, true),
+    disableSkill: (skillId: string) => skillsApi.setEnabled(skillId, false),
     updateSkillConfig: (skillId: string, config: unknown) =>
       ipcRenderer.invoke('skills:updateConfig', skillId, config),
-    getSkillDetail: (skillId: string) =>
-      ipcRenderer.invoke('skills:getSkillDetail', skillId),
-    installFromScript: (filePath: string, meta?: {
-      name?: string
-      description?: string
-    }) => ipcRenderer.invoke('skills:installFromScript', filePath, meta),
-    refresh: () => ipcRenderer.invoke('skills:refresh'),
-    getSkillDir: (skillId: string) => ipcRenderer.invoke('skills:getSkillDir', skillId),
   },
 
   // 认证 Token 安全存储 API
@@ -1768,19 +1689,7 @@ const electronAPI: ElectronAPI = {
   },
 
   // 工作空间 Git 版本管理 (VCS)
-  vcs: {
-    ensureInit: () => ipcRenderer.invoke('vcs:ensureInit'),
-    commit: (opts?: { message?: string }) => ipcRenderer.invoke('vcs:commit', opts),
-    log: (opts?: { limit?: number; offset?: number }) => ipcRenderer.invoke('vcs:log', opts),
-    statusDiff: (opts?: { baseOid?: string }) => ipcRenderer.invoke('vcs:statusDiff', opts),
-    diff: (opts: { fromOid: string; toOid: string; withHunks?: boolean }) => ipcRenderer.invoke('vcs:diff', opts),
-    diffFile: (opts: { fromOid: string; toOid: string; filepath: string }) =>
-      ipcRenderer.invoke('vcs:diffFile', opts),
-    readFileAt: (opts: { oid: string; filepath: string }) => ipcRenderer.invoke('vcs:readFileAt', opts),
-    rollback: (opts: { oid: string }) => ipcRenderer.invoke('vcs:rollback', opts),
-    revertFile: (opts: { oid: string; filepath: string }) => ipcRenderer.invoke('vcs:revertFile', opts),
-    findCommitByConversation: (opts: { conversationId: string }) => ipcRenderer.invoke('vcs:findCommitByConversation', opts),
-  },
+  vcs: vcsApi,
 
   /** 录屏 API */
   screenRecord: {
@@ -1838,107 +1747,16 @@ const electronAPI: ElectronAPI = {
 contextBridge.exposeInMainWorld('electronAPI', electronAPI)
 
 // === 微信(iLink)渠道 API ===
-contextBridge.exposeInMainWorld('weixinService', {
-  /** 初始化微信登录流程，返回二维�?data URL */
-  startLogin: (): Promise<string> => ipcRenderer.invoke('weixin:startLogin'),
-  /** 登出微信 */
-  logout: (): Promise<void> => ipcRenderer.invoke('weixin:logout'),
-  /** 获取当前登录状�?*/
-  getStatus: (): Promise<string> => ipcRenderer.invoke('weixin:getStatus'),
-  /** 获取当前会话信息 */
-  getSession: (): Promise<unknown> => ipcRenderer.invoke('weixin:getSession'),
-
-  /** 监听登录状态变化事件，返回取消监听函数 */
-  onStatusChange: (callback: (status: string, session?: unknown) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, status: string, session: unknown) => callback(status, session)
-    ipcRenderer.on('weixin:statusChange', handler)
-    return () => ipcRenderer.removeListener('weixin:statusChange', handler)
-  },
-  /** 监听二维码事件，返回取消监听函数 */
-  onQrcode: (callback: (dataUrl: string) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, dataUrl: string) => callback(dataUrl)
-    ipcRenderer.on('weixin:qrcode', handler)
-    return () => ipcRenderer.removeListener('weixin:qrcode', handler)
-  },
-  /** 监听错误事件，返回取消监听函�?*/
-  onError: (callback: (message: string) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, message: string) => callback(message)
-    ipcRenderer.on('weixin:error', handler)
-    return () => ipcRenderer.removeListener('weixin:error', handler)
-  },
-  /** 移除指定通道的所有监听器 */
-  removeAllListeners: (channel: string): void => {
-    ipcRenderer.removeAllListeners(`weixin:${channel}`)
-  },
-})
+contextBridge.exposeInMainWorld('weixinService', weixinApi)
 
 // === 企业微信(AI Bot)渠道 API ===
-contextBridge.exposeInMainWorld('wecomService', {
-  /** 发起扫码接入 */
-  startLogin: (): Promise<void> => ipcRenderer.invoke('wecom:startLogin'),
-  /** 断开并清除本地凭�?*/
-  logout: (): Promise<void> => ipcRenderer.invoke('wecom:logout'),
-  /** 获取当前连接状�?*/
-  getStatus: (): Promise<string> => ipcRenderer.invoke('wecom:getStatus'),
-  /** 获取会话摘要（不�?secret�?*/
-  getSession: (): Promise<unknown> => ipcRenderer.invoke('wecom:getSession'),
-
-  onStatusChange: (callback: (status: string, session?: unknown) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, status: string, session: unknown) =>
-      callback(status, session)
-    ipcRenderer.on('wecom:statusChange', handler)
-    return () => ipcRenderer.removeListener('wecom:statusChange', handler)
-  },
-  onQrcode: (callback: (dataUrl: string) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, dataUrl: string) => callback(dataUrl)
-    ipcRenderer.on('wecom:qrcode', handler)
-    return () => ipcRenderer.removeListener('wecom:qrcode', handler)
-  },
-  onError: (callback: (message: string) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, message: string) => callback(message)
-    ipcRenderer.on('wecom:error', handler)
-    return () => ipcRenderer.removeListener('wecom:error', handler)
-  },
-})
+contextBridge.exposeInMainWorld('wecomService', wecomApi)
 
 // === 飞书渠道 API ===
-contextBridge.exposeInMainWorld('feishuService', {
-  startLogin: (): Promise<void> => ipcRenderer.invoke('feishu:startLogin'),
-  logout: (): Promise<void> => ipcRenderer.invoke('feishu:logout'),
-  getStatus: (): Promise<string> => ipcRenderer.invoke('feishu:getStatus'),
-  getSession: (): Promise<unknown> => ipcRenderer.invoke('feishu:getSession'),
+contextBridge.exposeInMainWorld('feishuService', feishuApi)
 
-  onStatusChange: (callback: (status: string, session?: unknown) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, status: string, session: unknown) =>
-      callback(status, session)
-    ipcRenderer.on('feishu:statusChange', handler)
-    return () => ipcRenderer.removeListener('feishu:statusChange', handler)
-  },
-  onQrcode: (callback: (dataUrl: string) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, dataUrl: string) => callback(dataUrl)
-    ipcRenderer.on('feishu:qrcode', handler)
-    return () => ipcRenderer.removeListener('feishu:qrcode', handler)
-  },
-  onError: (callback: (message: string) => void): (() => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, message: string) => callback(message)
-    ipcRenderer.on('feishu:error', handler)
-    return () => ipcRenderer.removeListener('feishu:error', handler)
-  },
-})
-
-// === 渠道出站 Hub（与 Agent channel_list/channel_send 同源，仅�?Settings 面板只读展示/调试�?===
-contextBridge.exposeInMainWorld('channelService', {
-  /** 列出已注册渠道快照（含未连接渠道�?*/
-  list: (): Promise<{ channels: unknown[] }> => ipcRenderer.invoke('channel:list'),
-  /** 向指�?channel + to 发送文�?富媒体；仅供调试，非 Agent 主路�?*/
-  send: (params: {
-    channel: 'feishu' | 'weixin' | 'wecom'
-    to: string
-    text: string
-    mediaPath?: string
-    fileName?: string
-  }): Promise<unknown> => ipcRenderer.invoke('channel:send', params),
-})
+// === 渠道出站 Hub（与 Agent channel_list/channel_send 同源，仅供 Settings 面板只读展示/调试） ===
+contextBridge.exposeInMainWorld('channelService', channelApi)
 
 log.info('预加载脚本执行完成，API 已暴露')
 

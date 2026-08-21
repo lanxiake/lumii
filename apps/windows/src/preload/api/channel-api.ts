@@ -3,46 +3,52 @@
  */
 import { ipcRenderer } from 'electron'
 
+function makeChannelApi(prefix: 'weixin' | 'wecom' | 'feishu') {
+  return {
+    startLogin: (): Promise<string> => ipcRenderer.invoke(`${prefix}:startLogin`),
+    logout: (): Promise<void> => ipcRenderer.invoke(`${prefix}:logout`),
+    getStatus: (): Promise<string> => ipcRenderer.invoke(`${prefix}:getStatus`),
+    getSession: (): Promise<unknown> => ipcRenderer.invoke(`${prefix}:getSession`),
+    onStatusChange: (callback: (status: string, session?: unknown) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, status: string, session: unknown) =>
+        callback(status, session)
+      ipcRenderer.on(`${prefix}:statusChange`, handler)
+      return () => ipcRenderer.removeListener(`${prefix}:statusChange`, handler)
+    },
+    onQrcode: (callback: (dataUrl: string) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, dataUrl: string) => callback(dataUrl)
+      ipcRenderer.on(`${prefix}:qrcode`, handler)
+      return () => ipcRenderer.removeListener(`${prefix}:qrcode`, handler)
+    },
+    onError: (callback: (message: string) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, message: string) => callback(message)
+      ipcRenderer.on(`${prefix}:error`, handler)
+      return () => ipcRenderer.removeListener(`${prefix}:error`, handler)
+    },
+  }
+}
+
 export const weixinApi = {
-  startLogin: () => ipcRenderer.invoke('weixin:startLogin'),
-  logout: () => ipcRenderer.invoke('weixin:logout'),
-  getStatus: () => ipcRenderer.invoke('weixin:getStatus'),
-  getSession: () => ipcRenderer.invoke('weixin:getSession'),
-  onStatusChange: (callback: (status: unknown) => void) => {
-    ipcRenderer.on('weixin:status', (_event, status) => callback(status))
-  },
-  onQrCode: (callback: (qrCode: unknown) => void) => {
-    ipcRenderer.on('weixin:qrcode', (_event, qrCode) => callback(qrCode))
+  ...makeChannelApi('weixin'),
+  /** 移除指定通道的所有监听器 */
+  removeAllListeners: (channel: string): void => {
+    ipcRenderer.removeAllListeners(`weixin:${channel}`)
   },
 }
 
-export const wecomApi = {
-  startLogin: () => ipcRenderer.invoke('wecom:startLogin'),
-  logout: () => ipcRenderer.invoke('wecom:logout'),
-  getStatus: () => ipcRenderer.invoke('wecom:getStatus'),
-  getSession: () => ipcRenderer.invoke('wecom:getSession'),
-  onStatusChange: (callback: (status: unknown) => void) => {
-    ipcRenderer.on('wecom:status', (_event, status) => callback(status))
-  },
-  onQrCode: (callback: (qrCode: unknown) => void) => {
-    ipcRenderer.on('wecom:qrcode', (_event, qrCode) => callback(qrCode))
-  },
-}
+export const wecomApi = makeChannelApi('wecom')
 
-export const feishuApi = {
-  startLogin: () => ipcRenderer.invoke('feishu:startLogin'),
-  logout: () => ipcRenderer.invoke('feishu:logout'),
-  getStatus: () => ipcRenderer.invoke('feishu:getStatus'),
-  getSession: () => ipcRenderer.invoke('feishu:getSession'),
-  onStatusChange: (callback: (status: unknown) => void) => {
-    ipcRenderer.on('feishu:status', (_event, status) => callback(status))
-  },
-  onQrCode: (callback: (qrCode: unknown) => void) => {
-    ipcRenderer.on('feishu:qrcode', (_event, qrCode) => callback(qrCode))
-  },
-}
+export const feishuApi = makeChannelApi('feishu')
 
 export const channelApi = {
-  list: () => ipcRenderer.invoke('channel:list'),
-  send: (params: unknown) => ipcRenderer.invoke('channel:send', params),
+  /** 列出已注册渠道快照（含未连接渠道） */
+  list: (): Promise<{ channels: unknown[] }> => ipcRenderer.invoke('channel:list'),
+  /** 向指定 channel + to 发送文本/富媒体；仅供调试，非 Agent 主路径 */
+  send: (params: {
+    channel: 'feishu' | 'weixin' | 'wecom'
+    to: string
+    text: string
+    mediaPath?: string
+    fileName?: string
+  }): Promise<unknown> => ipcRenderer.invoke('channel:send', params),
 }

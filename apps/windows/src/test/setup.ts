@@ -19,6 +19,17 @@ beforeAll(() => {
     on: vi.fn(),
     off: vi.fn(),
     invoke: vi.fn(),
+    skills: {
+      listLocalInstalled: vi.fn().mockResolvedValue([]),
+    },
+    system: {
+      getUserPaths: vi.fn().mockResolvedValue({
+        home: '',
+        desktop: '',
+        documents: '',
+        downloads: '',
+      }),
+    },
   } as any
 
   // Mock console methods to reduce test noise
