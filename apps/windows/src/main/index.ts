@@ -27,8 +27,9 @@ process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
   process.exit(1)
 })
 
-import { execSync, spawn } from 'child_process'
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, shell, clipboard, screen, Notification } from 'electron'
+import { execSync, spawn, execFile as _execFile } from 'child_process'
+import { promisify as _promisify } from 'util'
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, screen, Notification } from 'electron'
 import {
   registerLocalMediaSchemePrivileged,
   registerLocalMediaProtocolHandler,
@@ -37,7 +38,8 @@ import {
 import { join, extname, basename, dirname } from 'path'
 import { promises as fs, existsSync, readdirSync } from 'fs'
 import { TrayManager } from './tray-manager'
-import { getAppIconPath } from './asset-paths'
+import { initializeTray } from './tray/tray-bootstrap'
+import { createMainWindow } from './window/main-window'
 import { SystemService } from './system-service'
 import { queryUsage, type UsageQuery } from './usage-store'
 import { flushToolUsage } from './tool-usage-store'
@@ -82,7 +84,6 @@ import { fileLogger } from './file-logger'
 import { SkillWatcher } from './skill-watcher'
 import { seedBundledSkills } from './bundled-skills-seeder'
 import { startBrowserService, stopBrowserService, getBrowserContext } from './browser-service'
-import os from 'os'
 import { directoryManager } from './directory-manager'
 import { ConfigManager } from './config-manager'
 
@@ -132,6 +133,18 @@ import {
   invalidateAgentInstancesForProviderChange,
 } from './agent-runtime'
 import { submitVoiceTranscript } from './ipc/agent-runtime-ipc.js'
+import {
+  checkMemPalaceInstalled,
+  ensureMemPalacePalaceDir,
+  getMemPalaceBridge,
+  getSoulFilePath,
+  readUserMemoryFile,
+  setupCloakBrowserIpcHandlers,
+  setupMemPalaceIpcHandlers,
+  writeUserMemoryFile,
+} from './ipc/plugin-ipc'
+import { registerCodingDevIpcHandlers } from './ipc/coding-dev-ipc'
+import { initScriptRuntimes } from './runtime-env'
 import { VoiceModelManager } from './voice/model-manager.js'
 import { VoiceCallService } from './voice/voice-service.js'
 import { registerVoiceIpc } from './voice/voice-ipc.js'
@@ -174,6 +187,16 @@ import {
   disposePetModeIpc,
 } from './pet/pet-mode-ipc'
 import { registerFilePreviewWindowIpc } from './file-preview/preview-window-ipc'
+
+const _execFileAsync = _promisify(_execFile)
+
+function registerCodingDevHandlers(): void {
+  registerCodingDevIpcHandlers({
+    getConfigManager: () => configManager,
+    getActiveWorkspaceDir: getWorkspaceDir,
+    reapplyCodingDevAcpEnv: reapplyCodingDevAcpEnvFromConfig,
+  })
+}
 
 if (process.platform === 'win32') {
   try {
@@ -256,224 +279,13 @@ let voiceCallService: VoiceCallService | null = null  // 语音通话服务
 let isQuitting = false
 let isCleaningUp = false // 防止 before-quit 清理期间重复触发
 
-/**
- * 根据屏幕分辨率动态计算窗口大小
- * 
- * 规则：
- * - 窗口宽度 = 屏幕宽度的 70%（最小 800，最大 1400）
- * - 窗口高度 = 屏幕高度的 80%（最小 600，最大 900）
- * - 使用主显示器的工作区域大小（排除任务栏）
- * 
- * @returns 计算后的窗口宽度和高度
- */
-function calculateWindowSize(): { width: number; height: number } {
-  try {
-    const primaryDisplay = screen.getPrimaryDisplay()
-    const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
-    
-    // 计算窗口宽度：屏幕宽度的 70%，限制在 800-1400 之间
-    const calculatedWidth = Math.floor(screenWidth * 0.7)
-    const width = Math.min(Math.max(calculatedWidth, 800), 1400)
-    
-    // 计算窗口高度：屏幕高度的 80%，限制在 600-900 之间
-    const calculatedHeight = Math.floor(screenHeight * 0.8)
-    const height = Math.min(Math.max(calculatedHeight, 600), 900)
-    
-    log.info(`屏幕分辨率: ${screenWidth}x${screenHeight}, 计算窗口大小: ${width}x${height}`)
-    
-    return { width, height }
-  } catch (error) {
-    // 如果获取屏幕信息失败，使用默认值
-    log.warn('获取屏幕信息失败，使用默认窗口大小', error)
-    return { width: 800, height: 700 }
-  }
-}
-
-/**
- * 创建主窗口
- */
-/**
- * 配置 Content Security Policy
- * 允许连接到配置的 Gateway 地址和 API Server 地址
- */
-async function setupContentSecurityPolicy(window: BrowserWindow): Promise<void> {
-  // 完全禁用 CSP 检查（用于消除 YouTube、gsap 等外部资源的限制）
-  // Electron 应用运行在受信任的环境中，无需 CSP 限制
-  window.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    const responseHeaders = details.responseHeaders || {}
-
-    // 移除所有 CSP 相关头部
-    delete responseHeaders['Content-Security-Policy']
-    delete responseHeaders['content-security-policy']
-    delete responseHeaders['Content-Security-Policy-Report-Only']
-    delete responseHeaders['content-security-policy-report-only']
-
-    callback({ responseHeaders })
-  })
-}
-
 function createWindow(isTestMode: boolean = false, startHidden: boolean = false): Promise<void> {
-  log.info('创建主窗口', { isTestMode, startHidden })
-
-  // 动态计算窗口大小
-  const { width, height } = calculateWindowSize()
-
-  const extraArgs = [
-    ...(isTestMode ? ['--test-mode'] : []),
-    // 托盘静默启动时跳过主窗口内开机画面
-    ...(startHidden ? ['--skip-splash'] : []),
-  ]
-
-  mainWindow = new BrowserWindow({
-    width,
-    height,
-    minWidth: 700,
-    minHeight: 600,
-    frame: false, // 无边框窗口
-    transparent: false,
-    resizable: true,
-    show: false, // 初始不显示，等待 ready-to-show（此时 early-splash 已在绘海报/视频）
-    backgroundColor: '#e8f2fa', // 与开机画面柔和冰蓝白底色一致，避免出窗瞬间闪深色
-    icon: getAppIconPath(), // 窗口 / 任务栏圆形图标（与产品 Logo 一致）
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: false, // 需要关闭 sandbox 以支持 node 模块
-      webviewTag: true, // 允许 <webview> 用于 HTML 文件沙箱预览
-      // 录屏合成依赖定时器持续绘帧，窗口最小化时不能被节流
-      backgroundThrottling: false,
-      // 开机动画带声自动播放
-      autoplayPolicy: 'no-user-gesture-required',
-      additionalArguments: extraArgs,
-    },
-  })
-
-  const readyToShow = new Promise<void>((resolve) => {
-    mainWindow!.once('ready-to-show', () => {
-      log.info('主窗口 ready-to-show')
-      resolve()
-    })
-  })
-
-  // 窗口显示时确保 webContents 获得焦点（修复无边框窗口输入问题）
-  mainWindow.on('show', () => {
-    setTimeout(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.focus()
-        mainWindow.webContents.focus()
-      }
-    }, 100)
-  })
-
-  // 关闭窗口时隐藏而不是退出
-  mainWindow.on('close', (event) => {
-    if (!isQuitting) {
-      event.preventDefault()
-      mainWindow?.hide()
-      log.info('窗口已隐藏到托盘')
-    }
-  })
-  mainWindow.on('closed', () => {
-    setIpcMainWindow(null)
-  })
-
-  // 配置 Content Security Policy，允许连接到 Gateway
-  setupContentSecurityPolicy(mainWindow)
-  // 将主窗口引用注入 ACP 事件推送层
-  setIpcMainWindow(mainWindow)
-
-  // 渲染进程诊断：把渲染层 console / 崩溃 / 加载失败转写到文件日志。
-  // 生产环境默认无 DevTools，渲染层报错原本不可见（表现为黑屏），此处使其可追踪。
-  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    const tag = `[Renderer:console] ${message}`
-    if (level >= 3) log.error(tag, `(${sourceId}:${line})`)
-    else if (level === 2) log.warn(tag)
-    else log.info(tag)
-  })
-  mainWindow.webContents.on('render-process-gone', (_event, details) => {
-    log.error(`[Renderer] 渲染进程崩溃 reason=${details.reason} exitCode=${details.exitCode}`)
-    void screenRecordService?.handleRendererGone()
-  })
-  mainWindow.webContents.on('destroyed', () => {
-    void screenRecordService?.handleRendererGone()
-  })
-  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
-    log.error(`[Renderer] preload 脚本错误 path=${preloadPath} error=${error?.message}`)
-  })
-  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    log.error(`[Renderer] 页面加载失败 code=${errorCode} desc=${errorDescription} url=${validatedURL}`)
-  })
-
-  /**
-   * 原生右键菜单：对选中文本提供"复制"，输入框内额外提供剪切/粘贴/全选。
-   * 覆盖文件预览、聊天记录、输入框等所有可选文本区域，复制走系统级最可靠。
-   */
-  mainWindow.webContents.on('context-menu', (_event, params) => {
-    const hasSelection = params.selectionText.trim().length > 0
-    const isEditable = params.isEditable
-    if (!hasSelection && !isEditable) return
-
-    const template: Electron.MenuItemConstructorOptions[] = []
-    if (isEditable && params.editFlags.canCut) {
-      template.push({ label: '剪切', role: 'cut' })
-    }
-    if (hasSelection && params.editFlags.canCopy) {
-      template.push({ label: '复制', role: 'copy' })
-    }
-    if (isEditable && params.editFlags.canPaste) {
-      template.push({ label: '粘贴', role: 'paste' })
-    }
-    if (isEditable && params.editFlags.canSelectAll) {
-      if (template.length > 0) template.push({ type: 'separator' })
-      template.push({ label: '全选', role: 'selectAll' })
-    }
-    if (template.length === 0) return
-    Menu.buildFromTemplate(template).popup({ window: mainWindow! })
-  })
-
-  // 加载渲染进程页面（与开机画面并行）
-  if (process.env.ELECTRON_RENDERER_URL) {
-    const rendererUrl = process.env.ELECTRON_RENDERER_URL
-
-    // dev 模式：renderer dev server 可能还没完全 ready，加载失败时自动重试
-    let retryCount = 0
-    const maxRetries = 10
-    mainWindow.webContents.on('did-fail-load', (_event, errorCode, _errorDesc) => {
-      if (retryCount < maxRetries && errorCode === -102) { // ERR_CONNECTION_REFUSED
-        retryCount++
-        log.info(`等待 renderer dev server 就绪... (${retryCount}/${maxRetries})`)
-        setTimeout(() => {
-          mainWindow?.loadURL(rendererUrl)
-        }, 1000)
-      }
-    })
-    mainWindow.loadURL(rendererUrl)
-    mainWindow.webContents.openDevTools({ mode: 'detach' })
-  } else {
-    if (isTestMode) {
-      // 测试模式：添加查询参数到URL
-      const htmlPath = join(__dirname, '../renderer/index.html')
-      mainWindow.loadURL(`file://${htmlPath}?test-mode=true`)
-    } else {
-      mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
-    }
-  }
-
-  return (async () => {
-    if (startHidden) {
-      await readyToShow
-      log.info('开机启动模式：窗口已就绪，隐藏到托盘（不显示）')
-      return
-    }
-
-    await readyToShow
-    log.info('窗口准备就绪，显示并聚焦（开机画面在主窗口内全屏播放）')
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.show()
-      mainWindow.focus()
-    }
-  })()
+  return createMainWindow({
+    logger: log,
+    setMainWindow: (window) => { mainWindow = window },
+    isQuitting: () => isQuitting,
+    getScreenRecordService: () => screenRecordService,
+  }, isTestMode, startHidden)
 }
 
 /**
@@ -555,52 +367,13 @@ function mountScreenRecordMediaServices(): void {
   log.info('录屏旁白/烧录服务已挂接')
 }
 
-/**
- * 初始化系统托盘
- */
 function initTray(): void {
-  log.info('初始化系统托盘')
-
-  trayManager = new TrayManager({
-    onShowWindow: () => {
-      mainWindow?.show()
-      mainWindow?.focus()
-    },
-    onQuit: () => {
-      isQuitting = true
-      app.quit()
-    },
-    onOpenSettings: () => {
-      // 显示并聚焦主窗口
-      mainWindow?.show()
-      mainWindow?.focus()
-      // 通过 IPC 通知渲染进程导航到设置页面
-      mainWindow?.webContents.send('navigate-to-settings')
-    },
-    onTogglePetMode: () => {
-      const next = isPetMode() ? 'desktop' : 'pet'
-      // 托盘/设置页状态同步由 onModeChanged 统一处理，无需在此重复
-      void switchPetMode(next)
-    },
-    onDisableForceIgnore: () => {
-      disablePetForceIgnore()
-      trayManager?.updateForceIgnore(isPetForceIgnore())
-    },
-    onStartScreenRecord: () => {
-      mainWindow?.show()
-      mainWindow?.focus()
-      // 无预选源：打开轻量面板，不静默 start（设计 §4.1）
-      mainWindow?.webContents.send('screen-record:open-panel')
-    },
-    onStopScreenRecord: () => {
-      void screenRecordService?.stop()
-    },
-    onPauseScreenRecord: () => {
-      void screenRecordService?.pause()
-    },
-    onResumeScreenRecord: () => {
-      void screenRecordService?.resume()
-    },
+  initializeTray({
+    logger: log,
+    getMainWindow: () => mainWindow,
+    getScreenRecordService: () => screenRecordService,
+    setTrayManager: (manager) => { trayManager = manager },
+    setQuitting: () => { isQuitting = true },
   })
 }
 
@@ -1802,206 +1575,8 @@ function setupIpcHandlers(): void {
     return systemService?.getUserPaths()
   })
 
-  ipcMain.handle('app:getCodingDevEnvInfo', async () => {
-    if (!configManager) {
-      throw new Error('ConfigManager 未初始化')
-    }
-    const mtbotDataDir = resolveClientStateDir()
-    const fb = defaultWorkspaceFallback(mtbotDataDir)
-    return buildCodingDevEnvInfo({
-      appConfig: configManager.getAppConfig(),
-      defaultWorkspaceFallback: fb,
-    })
-  })
+  registerCodingDevHandlers()
 
-  /** 获取本机 ACP 工具元数据（名称、链接、安装命令）— 同步读取，无版本探测 */
-  ipcMain.handle('app:listCodingDevToolsMetadata', () => {
-    return listLocalAcpToolsMetadata()
-  })
-
-  /** 探测单个本机 ACP 工具是否已安装，并返回版本信息 */
-  ipcMain.handle('app:detectCodingDevTool', async (_event, toolId: string) => {
-    if (!isPrimaryLocalAcpToolId(toolId)) {
-      throw new Error(`未知工具 ID: ${toolId}`)
-    }
-    return detectLocalAcpTool(toolId)
-  })
-
-  ipcMain.handle('app:installCodingDevTool', async (_event, toolId: string) => {
-    return installLocalAcpTool(toolId)
-  })
-
-  /** 卸载本机 ACP CLI（执行官方白名单卸载命令或手动移除文档化路径） */
-  ipcMain.handle('app:uninstallCodingDevTool', async (_event, toolId: string) => {
-    return uninstallLocalAcpTool(toolId)
-  })
-
-  /** 卸载前预览：将要执行的命令与风险提示（不执行） */
-  ipcMain.handle('app:previewUninstallCodingDevTool', async (_event, toolId: string) => {
-    return previewUninstallLocalAcpTool(toolId)
-  })
-
-  /** 触发 CLI 登录流程（如 cursor 的 agent login，打开浏览器 OAuth） */
-  ipcMain.handle('app:loginCodingDevTool', async (_event, toolId: string) => {
-    if (!isPrimaryLocalAcpToolId(toolId)) {
-      throw new Error(`未知工具 ID: ${toolId}`)
-    }
-    const status = await detectLocalAcpTool(toolId)
-    if (!status.installed || !status.resolvedPath) {
-      throw new Error(`${status.label} 未安装`)
-    }
-    // cursor: agent login 打开浏览器，等待用户完成授权
-    // 其他 CLI 同样逻辑，按需扩展
-    const loginArgs: Record<string, string[]> = {
-      cursor: ['login'],
-      claude: ['login'],
-      codex: ['auth', 'login'],
-      opencode: ['login'],
-    }
-    const args = loginArgs[toolId]
-    if (!args) {
-      throw new Error(`${status.label} 暂不支持客户端一键登录，请在命令行手动执行`)
-    }
-    return new Promise<{ success: boolean; message: string }>((resolve, reject) => {
-      const useShell = needsWindowsShell(status.resolvedPath!)
-      const child = spawn(status.resolvedPath!, args, {
-        windowsHide: false, // 显示窗口，让用户看到登录进度
-        shell: useShell,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-      let stdout = ''
-      let stderr = ''
-      child.stdout?.on('data', (buf: Buffer) => {
-        stdout += buf.toString('utf8')
-      })
-      child.stderr?.on('data', (buf: Buffer) => {
-        stderr += buf.toString('utf8')
-      })
-      child.on('error', (err) => {
-        reject(err)
-      })
-      child.on('close', (code) => {
-        if (code === 0) {
-          resolve({ success: true, message: '登录成功' })
-        } else {
-          const err = stderr || stdout || `退出码 ${code}`
-          resolve({ success: false, message: `登录失败：${err.slice(0, 300)}` })
-        }
-      })
-    })
-  })
-
-  ipcMain.handle('app:setCodingDevAcpWorkspace', async (_event, dirPath: string | undefined) => {
-    if (!configManager) {
-      throw new Error('ConfigManager 未初始化')
-    }
-    const trimmed = typeof dirPath === 'string' ? dirPath.trim() : ''
-    if (trimmed) {
-      try {
-        const stat = await fs.stat(trimmed)
-        if (!stat.isDirectory()) {
-          throw new Error('指定路径不是目录')
-        }
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-          throw new Error('目录不存在', { cause: err })
-        }
-        throw err
-      }
-    }
-    await configManager.updateAppConfig({
-      codingDevAcpWorkspace: trimmed || undefined,
-    })
-    reapplyCodingDevAcpEnvFromConfig()
-  })
-
-  // === ACP 项目管理 ===
-  ipcMain.handle('app:listCodingDevProjects', async () => {
-    if (!configManager || !directoryManager) throw new Error('未初始化')
-    const cfg = configManager.getAppConfig()
-    const projectsDir = join(resolveActiveWorkspaceDir(), 'projects')
-    const reconciled = await reconcileProjectsWithDisk({
-      projectsDir,
-      existing: cfg.codingDevProjects ?? [],
-      activeProject: cfg.codingDevActiveProject,
-    })
-    if (reconciled.changed) {
-      await configManager.updateAppConfig({
-        codingDevProjects: reconciled.projects,
-        codingDevActiveProject: reconciled.activeProject,
-      })
-      reapplyCodingDevAcpEnvFromConfig()
-    }
-    return {
-      projects: reconciled.projects,
-      activeProject: reconciled.activeProject,
-    }
-  })
-
-  ipcMain.handle('app:createCodingDevProject', async (_event, name: string) => {
-    if (!configManager || !directoryManager) throw new Error('未初始化')
-    const projectsDir = join(resolveActiveWorkspaceDir(), 'projects')
-    const existing = configManager.getAppConfig().codingDevProjects ?? []
-    const projects = await createProject({ projectsDir, name: String(name ?? ''), existing })
-    const activeProject = projects[projects.length - 1]?.name
-    await configManager.updateAppConfig({ codingDevProjects: projects, codingDevActiveProject: activeProject })
-    reapplyCodingDevAcpEnvFromConfig()
-    return { projects, activeProject }
-  })
-
-  ipcMain.handle('app:openCodingDevProject', async (_event, name: string, targetPath: string) => {
-    if (!configManager || !directoryManager) throw new Error('未初始化')
-    const projectsDir = join(resolveActiveWorkspaceDir(), 'projects')
-    const existing = configManager.getAppConfig().codingDevProjects ?? []
-    const projects = await openExistingProject({
-      projectsDir,
-      name: String(name ?? ''),
-      targetPath: String(targetPath ?? ''),
-      existing,
-    })
-    const activeProject = projects[projects.length - 1]?.name
-    await configManager.updateAppConfig({ codingDevProjects: projects, codingDevActiveProject: activeProject })
-    reapplyCodingDevAcpEnvFromConfig()
-    return { projects, activeProject }
-  })
-
-  ipcMain.handle('app:removeCodingDevProject', async (_event, name: string) => {
-    if (!configManager || !directoryManager) throw new Error('未初始化')
-    const projectsDir = join(resolveActiveWorkspaceDir(), 'projects')
-    const cfg = configManager.getAppConfig()
-    const existing = cfg.codingDevProjects ?? []
-    const projects = await removeProject({ projectsDir, name: String(name ?? ''), existing })
-    // 若移除的是活动项目，活动项目回退到列表首个（或清空）
-    const activeProject =
-      cfg.codingDevActiveProject && projects.some((p) => p.name === cfg.codingDevActiveProject)
-        ? cfg.codingDevActiveProject
-        : projects[0]?.name
-    await configManager.updateAppConfig({ codingDevProjects: projects, codingDevActiveProject: activeProject })
-    reapplyCodingDevAcpEnvFromConfig()
-    return { projects, activeProject }
-  })
-
-  ipcMain.handle('app:setCodingDevActiveProject', async (_event, name: string) => {
-    if (!configManager) throw new Error('ConfigManager 未初始化')
-    const trimmed = typeof name === 'string' ? name.trim() : ''
-    const projects = configManager.getAppConfig().codingDevProjects ?? []
-    if (trimmed && !projects.some((p) => p.name === trimmed)) {
-      throw new Error(`项目「${trimmed}」不存在`)
-    }
-    await configManager.updateAppConfig({ codingDevActiveProject: trimmed || undefined })
-    reapplyCodingDevAcpEnvFromConfig()
-    return { projects, activeProject: trimmed || undefined }
-  })
-
-  ipcMain.handle('app:getProjectGitStatus', async (_event, projectName: string) => {
-    if (!configManager) throw new Error('ConfigManager 未初始化')
-    const projects = configManager.getAppConfig().codingDevProjects ?? []
-    const project = projects.find((p) => p.name === projectName)
-    if (!project) return { available: false, isRepo: false, files: [] }
-    return getProjectGitStatus(project.realPath)
-  })
-
-  // === 应用操作 ===
   ipcMain.handle('app:getVersion', () => app.getVersion())
   ipcMain.on('app:quit', () => {
     isQuitting = true
@@ -2585,321 +2160,6 @@ function setupApiIpcHandlers(): void {
   log.info('API Server IPC 处理器设置完成')
 }
 
-// ============================================================================
-// MemPalace 插件 IPC
-// ============================================================================
-
-import { execFile as _execFile } from 'child_process'
-import { promisify as _promisify } from 'util'
-import { MemPalaceMcpBridge } from './mempalace-mcp-client'
-import {
-  ensureBundledPython,
-  getBundledPythonExe,
-  getPythonRuntimeDir,
-  hasPackage as hasPythonPackage,
-  buildBundledPipInstallArgs,
-  repairGoogleRpcNamespaceIfNeeded,
-} from './python-env'
-import { initScriptRuntimes } from './runtime-env'
-
-const _execFileAsync = _promisify(_execFile)
-
-/**
- * MemPalace 复用公共内置 Python 运行时（见 python-env.ts）。
- * 运行时目录与旧版一致（~/.lumii/runtimes/python-embed），已装用户不必重下。
- */
-function getMemPalaceRuntimeDir(): string {
-  return getPythonRuntimeDir()
-}
-
-function getMemPalacePythonExe(): string {
-  return getBundledPythonExe()
-}
-
-function getMemPalacePalaceDir(): string {
-  return join(resolveClientStateDir(), 'memory', 'palace')
-}
-
-/** 检测 site-packages 中是否已有 mempalace 包（快速路径） */
-function hasMemPalacePackage(): boolean {
-  return hasPythonPackage('mempalace')
-}
-
-function getSoulFilePath(): string {
-  return join(resolveClientStateDir(), 'data', 'soul.md')
-}
-
-function getUserMemoryFilePath(): string {
-  return join(resolveClientStateDir(), 'data', 'user-memory.md')
-}
-
-async function readUserMemoryFile(): Promise<{ content: string; updatedAt: string } | undefined> {
-  try {
-    const p = getUserMemoryFilePath()
-    if (!existsSync(p)) return undefined
-    const content = await fs.readFile(p, 'utf-8')
-    const stat = await fs.stat(p)
-    return { content, updatedAt: stat.mtime.toISOString() }
-  } catch {
-    return undefined
-  }
-}
-
-async function writeUserMemoryFile(content: string): Promise<{ updatedAt: string } | undefined> {
-  try {
-    const p = getUserMemoryFilePath()
-    await fs.mkdir(dirname(p), { recursive: true })
-    await fs.writeFile(p, content, 'utf-8')
-    return { updatedAt: new Date().toISOString() }
-  } catch {
-    return undefined
-  }
-}
-
-let _mempalaceBridge: MemPalaceMcpBridge | null = null
-function getMemPalaceBridge(): MemPalaceMcpBridge {
-  if (!_mempalaceBridge) {
-    _mempalaceBridge = new MemPalaceMcpBridge(getMemPalacePythonExe(), getMemPalacePalaceDir())
-  }
-  return _mempalaceBridge
-}
-
-async function checkMemPalaceInstalled(): Promise<boolean> {
-  const runtimeDir = getMemPalaceRuntimeDir()
-  const pythonExe = getMemPalacePythonExe()
-  if (!existsSync(pythonExe)) return false
-  if (!hasMemPalacePackage()) return false
-  try {
-    await repairGoogleRpcNamespaceIfNeeded()
-    await _execFileAsync(pythonExe, ['-c', 'import mempalace, chromadb'], {
-      timeout: 30000,
-      cwd: runtimeDir,
-      env: { ...process.env, PYTHONHOME: runtimeDir },
-    })
-    return true
-  } catch (err) {
-    log.warn('[MemPalace] import 验证失败:', err instanceof Error ? err.message : err)
-    return false
-  }
-}
-
-async function ensureMemPalacePalaceDir(): Promise<void> {
-  const palaceDir = getMemPalacePalaceDir()
-  if (!existsSync(palaceDir)) {
-    await fs.mkdir(palaceDir, { recursive: true })
-    log.info('[MemPalace] 已创建 palace 目录:', palaceDir)
-  }
-}
-
-function setupMemPalaceIpcHandlers(): void {
-  log.info('设置 MemPalace IPC 处理器')
-
-  ipcMain.handle('plugin:mempalace:status', async () => {
-    const installed = await checkMemPalaceInstalled()
-    return { installed, runtimeDir: getMemPalaceRuntimeDir() }
-  })
-
-  ipcMain.handle('plugin:mempalace:install', async (_event) => {
-    const sendProgress = (msg: string) => {
-      _event.sender.send('plugin:mempalace:install:progress', msg)
-    }
-
-    try {
-      // Python 运行时由公共模块保证（已装则秒过），这里只负责装 mempalace 包
-      const pythonExe = await ensureBundledPython(sendProgress)
-
-      sendProgress('正在安装 mempalace...')
-      await _execFileAsync(pythonExe, buildBundledPipInstallArgs(['mempalace']), {
-        timeout: 300000,
-        windowsHide: true,
-        cwd: getPythonRuntimeDir(),
-        env: {
-          ...process.env,
-          PYTHONHOME: getPythonRuntimeDir(),
-          PYTHONNOUSERSITE: '1',
-        },
-      })
-      await repairGoogleRpcNamespaceIfNeeded()
-
-      sendProgress('正在验证安装...')
-      await _execFileAsync(pythonExe, [
-        '-c',
-        'from google.rpc.error_details_pb2 import RetryInfo; import mempalace, chromadb; print("ok")',
-      ], {
-        timeout: 30000,
-        cwd: getPythonRuntimeDir(),
-        env: { ...process.env, PYTHONHOME: getPythonRuntimeDir(), PYTHONNOUSERSITE: '1' },
-      })
-
-      log.info('[MemPalace] 安装完成')
-      return { success: true }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      log.error('[MemPalace] 安装失败:', message)
-      return { success: false, error: message }
-    }
-  })
-
-  // ---- 记忆可视化 IPC ----
-
-  ipcMain.handle('plugin:mempalace:list', async (_event, params?: {
-    wing?: string; room?: string; limit?: number; offset?: number
-  }) => {
-    if (!await checkMemPalaceInstalled()) return { error: 'not_installed' }
-    try {
-      await ensureMemPalacePalaceDir()
-      const bridge = getMemPalaceBridge()
-      return await bridge.listDrawers(params ?? {})
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      log.error('[MemPalace] list 失败:', message)
-      return { error: 'process_failed', message }
-    }
-  })
-
-  ipcMain.handle('plugin:mempalace:search', async (_event, params: {
-    query: string; limit?: number; wing?: string; room?: string
-  }) => {
-    if (!await checkMemPalaceInstalled()) return { error: 'not_installed' }
-    try {
-      const bridge = getMemPalaceBridge()
-      const results = await bridge.searchDrawers(params)
-      return { results }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      log.error('[MemPalace] search 失败:', message)
-      return { error: 'process_failed', message }
-    }
-  })
-
-  ipcMain.handle('plugin:mempalace:delete', async (_event, drawerId: string) => {
-    if (!await checkMemPalaceInstalled()) return { success: false, error: 'not_installed' }
-    try {
-      const bridge = getMemPalaceBridge()
-      await bridge.deleteDrawer(drawerId)
-      return { success: true }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      log.error('[MemPalace] delete 失败:', message)
-      return { success: false, error: message }
-    }
-  })
-
-  ipcMain.handle('plugin:mempalace:clear', async (_event) => {
-    if (!await checkMemPalaceInstalled()) return { success: false, error: 'not_installed' }
-    try {
-      const bridge = getMemPalaceBridge()
-      let deleted = 0
-      while (true) {
-        const page = await bridge.listDrawers({ limit: 100, offset: 0 })
-        if (!page.drawers || page.drawers.length === 0) break
-        for (const drawer of page.drawers) {
-          await bridge.deleteDrawer(drawer.drawer_id)
-          deleted++
-          if (deleted % 10 === 0) {
-            _event.sender.send('plugin:mempalace:clear:progress', { deleted })
-          }
-        }
-      }
-      return { success: true, deleted }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      log.error('[MemPalace] clear 失败:', message)
-      return { success: false, error: message }
-    }
-  })
-
-  ipcMain.handle('plugin:mempalace:uninstall', async () => {
-    try {
-      // 先停止 MCP 进程
-      if (_mempalaceBridge) {
-        _mempalaceBridge.stop()
-        _mempalaceBridge = null
-      }
-      const runtimeDir = getMemPalaceRuntimeDir()
-      if (existsSync(runtimeDir)) {
-        await fs.rm(runtimeDir, { recursive: true, force: true })
-        log.info('[MemPalace] 已删除运行时目录:', runtimeDir)
-      }
-      return { success: true }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      log.error('[MemPalace] 卸载失败:', message)
-      return { success: false, error: message }
-    }
-  })
-}
-
-function setupCloakBrowserIpcHandlers(): void {
-  log.info('设置 CloakBrowser IPC 处理器')
-
-  // 持有当前安装任务的 AbortController，用于取消下载
-  let installAbortController: AbortController | null = null
-
-  ipcMain.handle('plugin:cloak-browser:status', async () => {
-    try {
-      const { exeFilename } = await import('./cloak-browser-downloader.js')
-      const cloakDir = join(os.homedir(), '.cloakbrowser')
-      if (!existsSync(cloakDir)) return { installed: false }
-      const entries = readdirSync(cloakDir).filter((d) => d.startsWith('chromium-'))
-      if (entries.length === 0) return { installed: false }
-      entries.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
-      const latest = entries[0]
-      const exePath = join(cloakDir, latest, exeFilename())
-      if (!existsSync(exePath)) return { installed: false }
-      const version = latest.replace('chromium-', '')
-      return { installed: true, version, exePath }
-    } catch {
-      return { installed: false }
-    }
-  })
-
-  ipcMain.handle('plugin:cloak-browser:install', async (_event) => {
-    try {
-      // 若已有安装任务在进行，先取消
-      installAbortController?.abort()
-      installAbortController = new AbortController()
-      const { signal } = installAbortController
-
-      const { ensureCloakBrowser } = await import('./cloak-browser-downloader.js')
-      const result = await ensureCloakBrowser(
-        (progress) => { _event.sender.send('cloak-browser-progress', progress) },
-        signal,
-      )
-      installAbortController = null
-      return { success: result !== null && result !== undefined && (result as string).length > 0 }
-    } catch (err) {
-      installAbortController = null
-      const message = err instanceof Error ? err.message : String(err)
-      log.error('[CloakBrowser] 安装失败:', message)
-      return { success: false, error: message }
-    }
-  })
-
-  ipcMain.handle('plugin:cloak-browser:cancel', () => {
-    if (installAbortController) {
-      log.info('[CloakBrowser] 收到取消指令')
-      installAbortController.abort()
-      installAbortController = null
-    }
-    return { success: true }
-  })
-
-  ipcMain.handle('plugin:cloak-browser:uninstall', async () => {
-    try {
-      const cloakDir = join(os.homedir(), '.cloakbrowser')
-      if (existsSync(cloakDir)) {
-        await fs.rm(cloakDir, { recursive: true, force: true })
-        log.info('[CloakBrowser] 已删除目录:', cloakDir)
-      }
-      return { success: true }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      log.error('[CloakBrowser] 卸载失败:', message)
-      return { success: false, error: message }
-    }
-  })
-}
 
 
 /**
