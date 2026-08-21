@@ -217,6 +217,8 @@ export async function handleUserSend(
   // 不 await，让它在后台运行
   // 图片附件路径透传给 bridge.prompt，由其读盘转 base64 构造多模态 ImageContent 块
   const imageAttachmentPaths = command.imageAttachmentPaths
+    ? [...command.imageAttachmentPaths]
+    : undefined
   if (imageAttachmentPaths && imageAttachmentPaths.length > 0) {
     log.info(
       `[user:send] 含图片附件 sessionKey=${command.sessionKey} count=${imageAttachmentPaths.length} 首张=${imageAttachmentPaths[0]}`,
