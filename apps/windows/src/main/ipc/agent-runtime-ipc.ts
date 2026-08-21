@@ -81,6 +81,29 @@ import {
   handleStorageDeleteBackup,
   handleStorageAuditRecent,
 } from './agent-runtime/storage-commands'
+import {
+  handleAgentDefinitionsList,
+  handleAgentMemoriesList,
+  handleAgentMemoriesDelete,
+  handleAgentMemoriesUpdate,
+  handleAgentMemoriesClear,
+  handleAgentMemoriesExport,
+  handleAgentMemoriesProvenance,
+  handleAgentInstanceCreate,
+  handleAgentInstanceCreateById,
+  handleAgentDefinitionSyncStatus,
+  handleAgentDefinitionSyncUserAgents,
+  handleAgentDefinitionCacheList,
+  handleAgentDefinitionCacheRemove,
+  handleAgentDefinitionCacheClearOlder,
+  handleAgentDefinitionCacheClearAll,
+  handleAgentDefinitionCacheRefresh,
+  handleAgentInstancePrompt,
+  handleAgentInstanceAbort,
+  handleAgentInstanceDestroy,
+  handleAgentInstanceList,
+  handleAgentInstanceLifecycleSnapshot,
+} from './agent-runtime/agent-commands'
 import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../coding-dev-backends-stub/contracts.js'
 import { extractDocumentText } from '../vendor/document-parser.js'
@@ -525,19 +548,6 @@ async function toMcpResult(action: () => Promise<void>): Promise<{ success: bool
   }
 }
 
-function resolveAgentIdForMemories(
-  bridge: AgentRuntimeBridge,
-  sessionKey?: string,
-  explicitAgentId?: string,
-): string {
-  if (explicitAgentId) return explicitAgentId
-  if (sessionKey) {
-    const fromConv = bridge.conversationRepo.getAgentParticipantId(sessionKey)
-    if (fromConv) return fromConv
-  }
-  return 'assistant'
-}
-
 /**
  * 向渲染进程推送 Agent Runtime 事件
  * 所有事件统一通过 'agent-runtime:event' 通道传输
@@ -954,93 +964,26 @@ export async function handleCommand(
         return handleCronRuns(bridge, command.id, command.limit ?? 50)
 
       // ---- Agent 定义查询 ----
-      case 'agent:definitions:list': {
-        return BUILT_IN_AGENTS.map((a) => ({
-          id: a.id,
-          name: a.name,
-          description: a.description,
-          modelTier: a.modelTier,
-          permissionMode: a.permissionMode,
-          canSpawnSubAgents: a.canSpawnSubAgents,
-          disallowedTools: a.disallowedTools,
-          maxTurns: a.maxTurns,
-        }))
-      }
+      case 'agent:definitions:list':
+        return handleAgentDefinitionsList()
 
-      case 'agent:memories:list': {
-        // 若未指定 sessionKey/agentId，返回该用户所有 Agent 的记忆（记忆管理页全量视图）
-        const entries = (!command.sessionKey && !command.agentId)
-          ? bridge.memoryManager.listActiveAllAgents(LOCAL_USER_ID)
-          : bridge.memoryManager.listActive(
-              resolveAgentIdForMemories(bridge, command.sessionKey, command.agentId),
-              LOCAL_USER_ID,
-            )
-        return entries.map((e) => ({
-          id: e.id,
-          category: e.category,
-          content: e.content,
-          importance: e.importance,
-          createdAt: new Date(e.created_at).getTime(),
-          sourceSegmentId: e.source_segment_id,
-          palaceDrawerId: e.palace_drawer_id,
-        }))
-      }
+      case 'agent:memories:list':
+        return handleAgentMemoriesList(bridge, command)
 
-      case 'agent:memories:delete': {
-        bridge.memoryManager.deleteMemory(command.memoryId)
-        return { success: true }
-      }
+      case 'agent:memories:delete':
+        return handleAgentMemoriesDelete(bridge, command)
 
-      case 'agent:memories:update': {
-        bridge.memoryManager.updateMemory(command.memoryId, command.content)
-        return { success: true }
-      }
+      case 'agent:memories:update':
+        return handleAgentMemoriesUpdate(bridge, command)
 
-      case 'agent:memories:clear': {
-        const agentId = resolveAgentIdForMemories(bridge, command.sessionKey, command.agentId)
-        const deletedCount = bridge.memoryManager.clearAllForAgent(agentId, LOCAL_USER_ID)
-        return { deletedCount }
-      }
+      case 'agent:memories:clear':
+        return handleAgentMemoriesClear(bridge, command)
 
-      case 'agent:memories:export': {
-        const agentId = resolveAgentIdForMemories(bridge, command.sessionKey, command.agentId)
-        const entries = bridge.memoryManager.listActive(agentId, LOCAL_USER_ID)
-        const json = JSON.stringify(
-          entries.map((e) => ({
-            id: e.id,
-            category: e.category,
-            content: e.content,
-            importance: e.importance,
-            createdAt: e.created_at,
-          })),
-          null,
-          2,
-        )
-        return { json }
-      }
+      case 'agent:memories:export':
+        return handleAgentMemoriesExport(bridge, command)
 
-      case 'agent:memories:provenance': {
-        const prov = bridge.memoryManager.getMemoryProvenance(command.memoryId)
-        if (!prov) return null
-        return {
-          memoryId: prov.memoryId,
-          sourceSegmentId: prov.sourceSegmentId,
-          sourceMessageId: prov.sourceMessageId,
-          palaceDrawerId: prov.palaceDrawerId,
-          originalText: prov.originalText,
-          segment: prov.segment
-            ? {
-                id: prov.segment.id,
-                conversationId: prov.segment.conversationId,
-                startMessageId: prov.segment.startMessageId,
-                endMessageId: prov.segment.endMessageId,
-                createdAt: prov.segment.createdAt,
-                turnCount: prov.segment.turnCount,
-                charCount: prov.segment.charCount,
-              }
-            : null,
-        }
-      }
+      case 'agent:memories:provenance':
+        return handleAgentMemoriesProvenance(bridge, command)
 
       // ---- 工具管理 ----
       case 'tools:list': {
@@ -1111,93 +1054,47 @@ export async function handleCommand(
       case 'runtime:enabled':
         return handleRuntimeEnabled(bridge)
 
-      case 'agentInstance:create': {
-        try {
-          const instanceId = await bridge.createInstance(command.agentDef as AgentDefinition | undefined)
-          return { ok: true, instanceId }
-        } catch (err) {
-          log.error('agentInstance:create failed:', err)
-          return { ok: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'agentInstance:create':
+        return handleAgentInstanceCreate(bridge, command)
 
-      case 'agentInstance:createById': {
-        try {
-          const instanceId = await bridge.createInstanceById(command.agentId)
-          return { ok: true, instanceId }
-        } catch (err) {
-          log.error('agentInstance:createById failed:', err)
-          return { ok: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'agentInstance:createById':
+        return handleAgentInstanceCreateById(bridge, command)
 
       case 'agentDefinition:syncStatus':
-        return bridge.getDefinitionSyncStatus()
+        return handleAgentDefinitionSyncStatus(bridge)
 
-      case 'agentDefinition:syncUserAgents': {
-        try {
-          const result = await bridge.syncUserAgentDefinitions()
-          return { ok: true, ...result }
-        } catch (err) {
-          log.error('agentDefinition:syncUserAgents failed:', err)
-          return {
-            ok: false,
-            error: err instanceof Error ? err.message : String(err),
-            synced: 0,
-            failed: 0,
-          }
-        }
-      }
+      case 'agentDefinition:syncUserAgents':
+        return handleAgentDefinitionSyncUserAgents(bridge)
 
       case 'agentDefinition:cacheList':
-        return bridge.listCachedAgentDefinitions()
+        return handleAgentDefinitionCacheList(bridge)
 
       case 'agentDefinition:cacheRemove':
-        return bridge.removeCachedAgentDefinition(command.agentId)
+        return handleAgentDefinitionCacheRemove(bridge, command)
 
       case 'agentDefinition:cacheClearOlder':
-        return bridge.clearCachedAgentsOlderThan(command.cutoffIso)
+        return handleAgentDefinitionCacheClearOlder(bridge, command)
 
-      case 'agentDefinition:cacheClearAll': {
-        bridge.clearAllCachedAgentDefinitions()
-        return { ok: true }
-      }
+      case 'agentDefinition:cacheClearAll':
+        return handleAgentDefinitionCacheClearAll(bridge)
 
-      case 'agentDefinition:cacheRefresh': {
-        try {
-          await bridge.refreshCachedAgentDefinition(command.agentId)
-          return { ok: true }
-        } catch (err) {
-          log.error('agentDefinition:cacheRefresh failed:', err)
-          return { ok: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'agentDefinition:cacheRefresh':
+        return handleAgentDefinitionCacheRefresh(bridge, command)
 
-      case 'agentInstance:prompt': {
-        try {
-          await bridge.prompt(command.instanceId, command.message)
-          return { ok: true }
-        } catch (err) {
-          log.error('agentInstance:prompt failed:', err)
-          return { ok: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'agentInstance:prompt':
+        return handleAgentInstancePrompt(bridge, command)
 
-      case 'agentInstance:abort': {
-        bridge.abort(command.instanceId)
-        return { ok: true }
-      }
+      case 'agentInstance:abort':
+        return handleAgentInstanceAbort(bridge, command)
 
-      case 'agentInstance:destroy': {
-        bridge.destroy(command.instanceId)
-        return { ok: true }
-      }
+      case 'agentInstance:destroy':
+        return handleAgentInstanceDestroy(bridge, command)
 
       case 'agentInstance:list':
-        return bridge.getInstances()
+        return handleAgentInstanceList(bridge)
 
       case 'agentInstance:lifecycleSnapshot':
-        return bridge.getLifecycleSnapshot(String(command.definitionId ?? ''))
+        return handleAgentInstanceLifecycleSnapshot(bridge, command)
 
       case 'storage:stats':
         return handleStorageStats(bridge)
