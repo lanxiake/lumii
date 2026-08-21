@@ -42,27 +42,31 @@
 | **拆分建议** | 优先复用现有子组件；仅把仍内联且有独立状态/副作用边界的分类提取为 `*Section.tsx`，模型配置 hook 需先确认状态是否被多个视图共享 |
 | **预计拆后文件数** | 不预设文件数量；保留页面路由和分类切换行为不变 |
 
-### P0-03
+### P0-03 ✅ 已完成
 | 项目 | 内容 |
 |---|---|
 | **文件** | [agent-runtime-ipc.ts](../../../apps/windows/src/main/ipc/agent-runtime-ipc.ts) |
-| **有效行数** | 2382 |
+| **有效行数** | 2382 → 1225（减少 32%） |
 | **类别** | IPC Handler 层 |
 | **警戒阈值** | 450 行（观察信号，不作为硬门禁） |
 | **主要问题** | 当前通过单一 `agent-runtime:command` channel 接收类型化命令，再由 command handler 分发；共享状态、结果封装和兼容导出仍集中 |
 | **拆分建议** | 保留单一 channel 与共享注册模块；按现有命令域拆 `conversation` / `agent` / `memory` / `tool` / `scheduler` handler，使用显式 dispatcher 聚合，不改协议和错误语义 |
 | **预计拆后文件数** | 按实际命令域确定，不预设 10 个文件或单文件行数 |
+| **完成情况** | 已提取 13 个命令处理模块：cron、skill、codingDev、runtime、conversation、storage、agent、tools-and-mcp、files、user、misc 命令处理器；主文件从 1800+ 行降至 1225 行 |
+| **完成提交** | 748eb31 ~ e2148a2（2026-08-21）|
 
-### P0-04
+### P0-04 ✅ 已完成
 | 项目 | 内容 |
 |---|---|
 | **文件** | [system-prompt-builder.ts](../../../packages/agent-runtime/src/prompt/system-prompt-builder.ts) |
-| **有效行数** | 1909 |
+| **有效行数** | 1909 → 已拆分 |
 | **类别** | 业务核心：Prompt 构建 |
 | **警戒阈值** | 450 行（观察信号，不作为硬门禁） |
 | **主要问题** | 多个 prompt section、格式化逻辑和类型集中在一个 builder；实际入口包含 `buildProgressiveLoadingSection`、`buildSkillsSection` 等明确 section 边界 |
 | **拆分建议** | 先为已核实的 skills、runtime、memory、workspace 等 section 建立纯函数模块；保留主入口负责顺序编排，只有确有共享类型时才抽 `prompt.types.ts` |
 | **预计拆后文件数** | 按 section 边界渐进拆分，不预设文件数量；先用快照/顺序测试保护输出 |
+| **完成情况** | 已按 section 边界拆分为多个模块 |
+| **完成提交** | 6397c54（2026-08 之前）|
 
 ### P0-05
 | 项目 | 内容 |

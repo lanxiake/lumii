@@ -5,6 +5,7 @@
  */
 
 import { Cron } from 'croner'
+import { randomUUID } from 'node:crypto'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 
@@ -61,7 +62,7 @@ function resolveLocalCronSchedule(
   }
   if (scheduleType === 'cron') {
     try {
-      const pattern = Cron(scheduleExpr, { paused: true })
+      const pattern = new Cron(scheduleExpr, { paused: true })
       const next = pattern.nextRun()
       if (!next) {
         return { ok: false, message: `cron 表达式无下次运行: ${scheduleExpr}` }
@@ -95,19 +96,22 @@ export function handleCronCreate(
     return { status: 'error', message: schedule.message }
   }
 
-  const id = bridge.createLocalCronJobRecord({
+  const id = randomUUID()
+  bridge.createLocalCronJobRecord({
+    id,
     name,
     taskText,
-    agentId: command.agentId ?? null,
+    agentId: command.agentId ?? undefined,
     scheduleType: command.scheduleType,
     scheduleExpr,
     nextRunAt: schedule.nextRunAt ?? now,
-    intervalMs: schedule.intervalMs ?? null,
+    intervalMs: schedule.intervalMs ?? undefined,
     enabled: true,
-    activeDays: command.activeDays ?? null,
-    activeHourStart: command.activeHourStart ?? null,
-    activeHourEnd: command.activeHourEnd ?? null,
-    notifyTargets: command.notifyTargets ?? null,
+    createdAt: now,
+    activeDays: command.activeDays ?? undefined,
+    activeHourStart: command.activeHourStart ?? undefined,
+    activeHourEnd: command.activeHourEnd ?? undefined,
+    notifyTargets: command.notifyTargets ?? undefined,
   })
 
   log.info(`[cron:create] 创建定时任务: id=${id} name="${name}" type=${command.scheduleType} expr="${scheduleExpr}"`)
@@ -192,19 +196,20 @@ export function handleCronUpdate(
     intervalMs = schedule.intervalMs ?? null
   }
 
-  bridge.updateLocalCronJobRecord(id, {
+  bridge.updateLocalCronJobRecord({
+    id,
     name: patch.name ?? row.name,
     taskText: patch.taskText ?? row.task_text,
-    agentId: patch.agentId !== undefined ? patch.agentId : row.agent_id,
+    agentId: patch.agentId !== undefined ? patch.agentId ?? undefined : row.agent_id ?? undefined,
     scheduleType: nextScheduleType,
     scheduleExpr: nextScheduleExpr,
     nextRunAt,
-    intervalMs,
-    enabled: patch.enabled !== undefined ? (patch.enabled ? 1 : 0) : row.enabled,
-    activeDays: patch.activeDays !== undefined ? patch.activeDays : row.active_days,
-    activeHourStart: patch.activeHourStart !== undefined ? patch.activeHourStart : row.active_hour_start,
-    activeHourEnd: patch.activeHourEnd !== undefined ? patch.activeHourEnd : row.active_hour_end,
-    notifyTargets: patch.notifyTargets !== undefined ? patch.notifyTargets : row.notify_targets,
+    intervalMs: intervalMs ?? undefined,
+    enabled: patch.enabled !== undefined ? patch.enabled : row.enabled === 1,
+    activeDays: patch.activeDays !== undefined ? patch.activeDays : row.active_days ?? undefined,
+    activeHourStart: patch.activeHourStart !== undefined ? patch.activeHourStart : row.active_hour_start ?? undefined,
+    activeHourEnd: patch.activeHourEnd !== undefined ? patch.activeHourEnd : row.active_hour_end ?? undefined,
+    notifyTargets: patch.notifyTargets !== undefined ? patch.notifyTargets : row.notify_targets ?? undefined,
   })
 
   log.info(`[cron:update] 更新定时任务: id=${id} patch=${JSON.stringify(patch)}`)
@@ -214,34 +219,18 @@ export function handleCronUpdate(
 export async function handleCronRun(
   bridge: AgentRuntimeBridge,
   id: string,
-): Promise<{ status: 'ok' | 'error'; id: string; runId?: string; message?: string }> {
+): Promise<{ status: 'ok' | 'error'; id: string; message?: string }> {
   const row = bridge.getLocalCronJobRecordById(id)
   if (!row) {
     return { status: 'error', id, message: `定时任务不存在: ${id}` }
   }
   log.info(`[cron:run] 立即执行定时任务: id=${id} name="${row.name}"`)
 
-  const runId = `${id}_manual_${Date.now()}`
-  bridge.createLocalCronRunRecord({
-    jobId: id,
-    runId,
-    startAt: Date.now(),
-    status: 'running',
-    output: null,
-  })
-
   try {
-    // 这里需要调用实际的任务执行逻辑
-    // 由于依赖 getInstanceForSession 等外部函数，暂时返回占位
-    // TODO: 将任务执行逻辑也移到这里，或者作为回调传入
-    return { status: 'ok', id, runId, message: '任务执行逻辑待完善' }
+    await bridge.runCronJobManually(row)
+    return { status: 'ok', id }
   } catch (err) {
     log.error(`[cron:run] 执行失败: id=${id}`, err)
-    bridge.updateLocalCronRunRecord(runId, {
-      status: 'error',
-      endAt: Date.now(),
-      output: err instanceof Error ? err.message : String(err),
-    })
     return { status: 'error', id, message: err instanceof Error ? err.message : String(err) }
   }
 }
@@ -250,18 +239,18 @@ export function handleCronRuns(
   bridge: AgentRuntimeBridge,
   id: string,
   limit: number,
-): { status: 'ok'; runs: Array<{ runId: string; jobId: string; startAt: number; endAt?: number; status: 'running' | 'ok' | 'error'; output?: string }>; total: number } {
-  const rows = bridge.listLocalCronRunRecords(id, limit)
+): { status: 'ok'; entries: Array<{ id: string; status: 'ok' | 'error'; startedAt: number; finishedAt: number; durationMs: number; summary?: string; error?: string }> } {
+  const rows = bridge.listLocalCronRuns(id, limit)
   return {
     status: 'ok',
-    runs: rows.map((r) => ({
-      runId: r.run_id,
-      jobId: r.job_id,
-      startAt: r.start_at,
-      endAt: r.end_at ?? undefined,
+    entries: rows.map((r) => ({
+      id: r.id,
+      startedAt: r.started_at,
+      finishedAt: r.finished_at,
+      durationMs: r.duration_ms,
       status: r.status,
-      output: r.output ?? undefined,
+      ...(r.summary != null ? { summary: r.summary } : {}),
+      ...(r.error != null ? { error: r.error } : {}),
     })),
-    total: rows.length,
   }
 }

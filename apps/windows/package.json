@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "node scripts/run-dev.cjs",
     "lab": "vite --config pet-lab/vite.config.ts",
+    "prebuild": "pnpm typecheck",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "clean": "node scripts/clean-build.js",
@@ -30,6 +31,7 @@
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
     "test": "vitest run src/test",
+    "test:all": "vitest run",
     "test:watch": "vitest watch src/test",
     "test:ui": "vitest --ui src/test",
     "test:e2e": "playwright test e2e/memory/memory-management.spec.ts",
