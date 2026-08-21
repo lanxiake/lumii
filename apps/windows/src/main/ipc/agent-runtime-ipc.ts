@@ -138,6 +138,19 @@ import {
   handleUserAbortCompactContext,
   setUserDependencies,
 } from './agent-runtime/user-commands'
+import {
+  handleSessionPreferredModelSet,
+  handleSessionThinkingPrefsSet,
+  handleMessageDelete as handleMiscMessageDelete,
+  handleMessageEdit as handleMiscMessageEdit,
+  handleMessageEditAndResend,
+  handleTasksList,
+  handleCommandsList,
+  handleImageRecognize as handleMiscImageRecognize,
+  handleImageGenerate as handleMiscImageGenerate,
+  handleImageProcess as handleMiscImageProcess,
+  setMiscDependencies,
+} from './agent-runtime/misc-commands'
 import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../coding-dev-backends-stub/contracts.js'
 import { extractDocumentText } from '../vendor/document-parser.js'
@@ -564,6 +577,17 @@ export function installAgentRuntimeCommandIpc(): void {
     },
   })
 
+  // 初始化 misc-commands 的依赖
+  setMiscDependencies({
+    getInstanceForSession,
+    getIpcChannelAdapter,
+    handleMessageDelete,
+    handleMessageEdit,
+    handleImageRecognize,
+    handleImageGenerate,
+    handleImageProcess,
+  })
+
   const commandHandler = async (
     _event: Electron.IpcMainInvokeEvent,
     command: AgentRuntimeCommand,
@@ -759,17 +783,11 @@ export async function handleCommand(
       case 'runtime:modelCatalog:set':
         return handleRuntimeModelCatalogSet(bridge, command)
 
-      case 'session:preferredModel:set': {
-        bridge.primeSessionModelCompaction(command.sessionKey, command.modelId)
-        return bridge.getSessionContextUsage(command.sessionKey)
-      }
+      case 'session:preferredModel:set':
+        return handleSessionPreferredModelSet(bridge, command)
 
-      case 'session:thinkingPrefs:set': {
-        return bridge.setSessionThinkingPrefs(command.sessionKey, {
-          ...(command.thinkingEnabled !== undefined ? { thinkingEnabled: command.thinkingEnabled } : {}),
-          ...(command.reasoningEffort !== undefined ? { reasoningEffort: command.reasoningEffort } : {}),
-        })
-      }
+      case 'session:thinkingPrefs:set':
+        return handleSessionThinkingPrefsSet(bridge, command)
 
       // ---- 会话管理 ----
       case 'conversation:create':
@@ -956,55 +974,16 @@ export async function handleCommand(
         return handleStorageAuditRecent(bridge, command)
 
       case 'message:delete':
-        return handleMessageDelete(bridge, command)
+        return handleMiscMessageDelete(bridge, command)
 
       case 'message:edit':
-        return handleMessageEdit(bridge, command)
+        return handleMiscMessageEdit(bridge, command)
 
       case 'conversation:fork':
         return handleConversationFork(bridge, command)
 
-      case 'message:edit-and-resend': {
-        const { sessionKey: convId, messageId, newContent } = command
-        log.info(`[message:edit-and-resend] convId=${convId} messageId=${messageId}`)
-        try {
-          // 1. 删除该消息之后的所有消息
-          const removed = bridge.conversationRepo.deleteMessagesAfter(messageId, convId)
-          log.info(`[message:edit-and-resend] deleted ${removed} messages after ${messageId}`)
-          // 2. 更新消息内容
-          bridge.conversationRepo.updateMessageContent({
-            messageId,
-            conversationId: convId,
-            contentJson: { type: 'text', text: newContent },
-            isStreaming: false,
-          })
-          // 3. 重新触发 Agent 回复（复用 compact 路径的 getInstanceForSession）
-          const instanceId = await getInstanceForSession(bridge, convId)
-          if (instanceId) {
-            // 截断重放：DB 已删后续消息，但 Agent 内存仍保留完整历史。
-            // 强制下次 beforePrompt 以 DB 为准重注入，否则「内存更完整」启发式会把后续消息一并发给 LLM。
-            const adapter = getIpcChannelAdapter(bridge)
-            const strategy = adapter.getContextStrategy()
-            if (strategy instanceof StatefulContextStrategy) {
-              strategy.markForceResync(convId)
-            }
-            // 排除已更新的用户消息，避免 restore + prompt 重复注入
-            await adapter.sendPrompt(
-              instanceId,
-              convId,
-              newContent,
-              undefined,
-              messageId,
-            )
-          } else {
-            log.warn(`[message:edit-and-resend] 无 instanceId，消息已更新但未自动触发回复`)
-          }
-          return { success: true, messagesRemoved: removed }
-        } catch (err) {
-          log.error(`[message:edit-and-resend] failed:`, err)
-          return { success: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'message:edit-and-resend':
+        return handleMessageEditAndResend(bridge, command)
 
       case 'user:compact-context':
         return handleUserCompactContext(bridge, command)
@@ -1016,19 +995,8 @@ export async function handleCommand(
       case 'files:list':
         return handleFilesList(bridge, command)
 
-      case 'tasks:list': {
-        const { conversationId } = command
-        const rows = bridge.taskRepo.list(conversationId)
-        return {
-          tasks: rows.map((t) => ({
-            id: t.id,
-            subject: t.subject,
-            description: t.description,
-            status: t.status,
-            owner: t.owner,
-          })),
-        }
-      }
+      case 'tasks:list':
+        return handleTasksList(bridge, command)
 
       case 'files:search':
         return handleFilesSearch(bridge, command)
@@ -1046,9 +1014,8 @@ export async function handleCommand(
         return handleFilesReadPreviewContent(bridge, command)
 
       // ---- 命令注册表 ----
-      case 'commands:list': {
-        return BASE_SLASH_COMMANDS
-      }
+      case 'commands:list':
+        return handleCommandsList()
 
       case 'files:read-preview-by-path':
         return handleFilesReadPreviewByPath(bridge, command)
@@ -1068,13 +1035,13 @@ export async function handleCommand(
 
       // ---- 图片处理（识别 / 美化 / 等，按 operation 扩展） ----
       case 'image:recognize':
-        return handleImageRecognize(bridge, command)
+        return handleMiscImageRecognize(bridge, command)
 
       case 'image:generate':
-        return handleImageGenerate(bridge, command)
+        return handleMiscImageGenerate(bridge, command)
 
       case 'image:process':
-        return handleImageProcess(bridge, command)
+        return handleMiscImageProcess(bridge, command)
 
       // ---- 技能自进化 ----
       case 'skill:confirm_draft':
