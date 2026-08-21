@@ -13,15 +13,11 @@ import type {
 } from '@mtbot/agent-runtime'
 
 export interface AgentRuntimeBridgeConfig {
-  gatewayUrl: string
-  getAuthToken: () => Promise<string>
   /**
    * 读取本地 LLM Provider 配置（灵栖/Lumii 独立版：无网关，direct 直连）。
-   * 返回 enabled=true 时 Agent 走 direct 直连（凭据本机注入），否则回退 gateway。
+   * 返回 enabled=true 时 Agent 走 direct 直连（凭据本机注入）。
    */
   getProviderConfig?: () => import('../provider-config.js').LocalProviderConfigView
-  /** 获取设备 ID（用于 LLM 代理设备 token 认证） */
-  getDeviceId?: () => string | undefined
   getWindow: () => BrowserWindow | null
   getCwd: () => string
   /** 自定义数据库路径（默认 ~/.lumii/data/agent-runtime.db） */
@@ -58,10 +54,6 @@ export interface AgentRuntimeBridgeConfig {
    * 列出当前用户可用的全部 Agent 定义（GET /api/agents 映射结果）
    */
   fetchAgentDefinitionsFromApi?: () => Promise<readonly AgentDefinition[]>
-  /**
-   * 通过 Gateway WebSocket 调用指定方法（用于 cron / 集成类工具实现）
-   */
-  callGateway?: (method: string, params?: unknown) => Promise<unknown>
   /**
    * 本地定时任务触发时发送系统通知（由 index.ts 注入，使用 Electron Notification + tray balloon）
    * 不依赖任何会话 ID，纯系统级弹窗。

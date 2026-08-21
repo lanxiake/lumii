@@ -11,7 +11,7 @@
  * - nodeStreamCallbacks：节点流式回调，跨生命周期使用
  */
 
-import type { createGatewayStreamFn } from '@mtbot/agent-runtime'
+import type { StreamFn } from '@mariozechner/pi-agent-core'
 import type {
   AssistantPart,
   SystemPromptResult,
@@ -63,7 +63,7 @@ export interface InstanceState {
   }
   /** 实例对应的 innerStream 与 model，供 compactContextAsync 按 instanceId 查找 */
   stream?: {
-    innerStream: ReturnType<typeof createGatewayStreamFn>
+    innerStream: StreamFn
     model: import('@mariozechner/pi-ai').Model<any>
   }
   /** 实例级运行时指标（生命周期 UI + 统计） */

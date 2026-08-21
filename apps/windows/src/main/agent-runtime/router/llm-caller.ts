@@ -1,7 +1,7 @@
 /**
  * Router LLM 调用封装
  *
- * 复用 createGatewayStreamFn 做单次调用，使用 basic tier 模型（最便宜最快）。
+ * 复用外部传入的 StreamFn 做单次调用（当前用 chat 槎位的 direct stream）。
  * 参考 apps/windows/src/main/agent-runtime/bridge-context-compactor.ts::callLLM 的实现。
  */
 
@@ -21,18 +21,15 @@ export interface RouterLlmCaller {
   call(prompt: string, timeoutMs: number): Promise<string>
 }
 
-export interface GatewayRouterLlmCallerDeps {
-  /** 复用 bridge 中已构造的 StreamFn（含网关 URL、认证、设备 ID 等） */
+export interface RouterLlmCallerDeps {
+  /** 复用 bridge 中已构造的 StreamFn（chat 槎位 direct stream） */
   streamFn: StreamFn
-  /** 模型路由器，用于解析 basic tier */
+  /** 模型路由器，用于解析 chat tier */
   modelRouter: ModelRouter
 }
 
-/**
- * 通过 gateway-stream 的实现。
- */
-export class GatewayRouterLlmCaller implements RouterLlmCaller {
-  constructor(private readonly deps: GatewayRouterLlmCallerDeps) {}
+export class RouterLlmCallerImpl implements RouterLlmCaller {
+  constructor(private readonly deps: RouterLlmCallerDeps) {}
 
   async call(prompt: string, timeoutMs: number): Promise<string> {
     const model: Model<string> = this.deps.modelRouter.resolve("chat")

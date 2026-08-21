@@ -2,32 +2,23 @@
  * AgentRuntimeBridge 图片识别与生成服务
  *
  * 拆自 bridge.ts，封装 recognizeImage / generateImage 两个面向 UI 的能力。
- * 不持有自身状态，仅通过 deps 注入 Gateway 配置、ModelRouter 与 stream 引用。
+ * 不持有自身状态，仅通过 deps 注入 ModelRouter 与工作目录。
  */
 
 import path from 'node:path'
 import fs from 'node:fs'
 import {
-  createGatewayStreamFn,
   createDirectStreamFn,
-  DEFAULT_GATEWAY_STREAM_PATH,
   ModelRouter,
   resolveAgentFilePath,
 } from '@mtbot/agent-runtime'
 import { resizeImageIfNeeded } from './image-resizer'
 import { generateImageViaRightCodesDraw } from './right-codes-draw-client'
 import { generateImageViaRightApi, DEFAULT_RIGHTAPI_BASE_URL } from './rightapi-image-client'
-import { generateImageViaGateway } from './gateway-image-client'
 import { agentRuntimeLog as log } from './bridge-utils'
 import { loadSlotConfig, applyImageSlotToDrawEnv, ensureProviderBaseUrl } from '../provider-config'
 
 export interface BridgeImageServicesDeps {
-  /** Gateway 基础 URL（不含 stream 路径） */
-  getGatewayUrl: () => string
-  /** 获取最新 Auth Token */
-  getAuthToken: () => Promise<string>
-  /** 获取设备 ID（可选） */
-  getDeviceId?: () => string | undefined
   /** 模型路由器，用于按 tier / 显式 ID 解析模型 */
   getModelRouter: () => ModelRouter
   /** 当前工作目录（图片路径相对解析） */
@@ -35,41 +26,10 @@ export interface BridgeImageServicesDeps {
 }
 
 export class BridgeImageServices {
-  /**
-   * 图片识别专用的独立 stream（懒创建，缓存）。
-   *
-   * 不依赖任何 Agent 实例，仅在 recognizeImage 调用时按需创建。
-   * 解决：新建会话首条消息就上传图片时，主 Agent 尚未初始化导致识别失败的问题。
-   */
-  private recognitionStream: ReturnType<typeof createGatewayStreamFn> | null = null
-
   constructor(private readonly deps: BridgeImageServicesDeps) {}
 
   /**
-   * 懒创建图片识别专用 GatewayStream（不依赖任何 Agent 实例）。
-   */
-  private getOrCreateRecognitionStream(): ReturnType<typeof createGatewayStreamFn> {
-    if (this.recognitionStream) return this.recognitionStream
-    const streamPathOverride = process.env.MTBOT_GATEWAY_STREAM_PATH?.trim()
-    log.info(`[getOrCreateRecognitionStream] 创建图片识别专用 stream`)
-    this.recognitionStream = createGatewayStreamFn({
-      gatewayUrl: this.deps.getGatewayUrl(),
-      streamPath: streamPathOverride || DEFAULT_GATEWAY_STREAM_PATH,
-      getAuthToken: this.deps.getAuthToken,
-      getDeviceId: this.deps.getDeviceId,
-      log: (msg) => log.info(`[recognitionStream] ${msg}`),
-      getMetadata: () => ({
-        channel: 'windows-agent-runtime-image-recognition',
-      }),
-    })
-    return this.recognitionStream
-  }
-
-  /**
    * 图片识别：调用多模态模型对图片内容进行理解，返回描述 + OCR。
-   *
-   * 使用独立的 recognitionStream（不依赖主 Agent 是否已初始化），
-   * 即便用户在新会话首条消息就上传图片也能正常识别。
    *
    * 若 `modelId` 省略则使用 `balanced` tier 的默认模型（一般是国内小模型）。
    */
@@ -83,36 +43,31 @@ export class BridgeImageServices {
     const useDirectVision = visionSlot.enabled && !!visionSlot.modelId
     const router = this.deps.getModelRouter()
 
-    // 解析实际使用的 Model：优先 explicit → vision 槽 → balanced
-    const resolvedModelId = options.modelId || (useDirectVision ? visionSlot.modelId : undefined)
+    if (!useDirectVision) {
+      throw Object.assign(
+        new Error('请先在设置中配置视觉理解模型（模型配置 → 视觉理解）'),
+        { code: 'MODEL_NO_VISION' as const },
+      )
+    }
+
+    // 解析实际使用的 Model：优先 explicit → vision 槽
+    const resolvedModelId = options.modelId || visionSlot.modelId
     const model = resolvedModelId
       ? router.resolveExplicitModelId(resolvedModelId)
       : router.resolve('balanced')
 
     // 直连时补全 image input，避免 pi-ai 拒绝
-    if (useDirectVision && !model.input?.includes('image')) {
+    if (!model.input?.includes('image')) {
       ;(model as { input?: string[] }).input = ['text', 'image']
     }
 
-    // 验证模型是否支持视觉输入（网关路径）
-    if (!useDirectVision && !model.input?.includes('image')) {
-      throw Object.assign(
-        new Error(
-          `模型 ${model.id} 不支持图像输入（input=${JSON.stringify(model.input)}），请在「模型配置 → 视觉理解」中配置支持 vision 的模型`,
-        ),
-        { code: 'MODEL_NO_VISION' as const },
-      )
-    }
-
-    const stream = useDirectVision
-      ? createDirectStreamFn({
-          credentials: {
-            baseUrl: ensureProviderBaseUrl(visionSlot.baseUrl, visionSlot.type),
-            apiKey: visionSlot.apiKey,
-          },
-          log: (msg) => log.info(`[visionDirect] ${msg}`),
-        })
-      : this.getOrCreateRecognitionStream()
+    const stream = createDirectStreamFn({
+      credentials: {
+        baseUrl: ensureProviderBaseUrl(visionSlot.baseUrl, visionSlot.type),
+        apiKey: visionSlot.apiKey,
+      },
+      log: (msg) => log.info(`[visionDirect] ${msg}`),
+    })
 
     // 读取图片 + 格式嗅探 + 自动压缩
     const cwd = this.deps.getCwd()
@@ -169,7 +124,7 @@ export class BridgeImageServices {
       description = text.trim()
     }
 
-    const provider = useDirectVision ? visionSlot.type : ((model.api as string) ?? 'unknown')
+    const provider = visionSlot.type
     return { description, ocrText, modelId: model.id, provider }
   }
 
@@ -219,10 +174,9 @@ export class BridgeImageServices {
   /**
    * 根据文字描述生成图片，保存到 workspace/outputs/YYYYMMDD/ 目录。
    *
-   * 三条上游路径：
+   * 两条上游路径：
    * - image 槽 type=rightapi：RightAPI 异步任务（提交 → 轮询 → 下载），支持参考图
-   * - 无 token 或 MTBOT_IMAGE_DIRECT_ONLY=true：直连 OpenAI 兼容上游（原有同步/流式逻辑）
-   * - 其余：经 Gateway POST /v1/image/generate
+   * - 其余：直连 OpenAI 兼容上游（RightCodesDraw）
    */
   async generateImage(params: {
     prompt: string
@@ -260,7 +214,6 @@ export class BridgeImageServices {
       )
     }
 
-    const directOnly = process.env.MTBOT_IMAGE_DIRECT_ONLY === 'true'
     let data: {
       imageBase64: string
       mimeType: 'image/png' | 'image/jpeg' | 'image/webp'
@@ -282,36 +235,6 @@ export class BridgeImageServices {
           refPaths.length > 0 ? await this.loadReferenceImages(refPaths) : undefined,
         signal: params.signal,
       })
-    } else if (!directOnly) {
-      try {
-        data = await generateImageViaGateway({
-          gatewayUrl: this.deps.getGatewayUrl(),
-          getAuthToken: this.deps.getAuthToken,
-          getDeviceId: this.deps.getDeviceId,
-          prompt: params.prompt,
-          modelId,
-          width: params.width ?? 1024,
-          height: params.height ?? 1024,
-          signal: params.signal,
-        })
-        log.info(`[generateImage] Gateway 生图成功 model=${data.effectiveModelId}`)
-      } catch (err) {
-        const code = (err as { code?: string }).code
-        if (code === 'AUTH_REQUIRED' || code === 'GATEWAY_NETWORK_ERROR') {
-          log.warn(
-            `[generateImage] Gateway 不可用 (${code})，回退直连上游: ${err instanceof Error ? err.message : String(err)}`,
-          )
-          data = await generateImageViaRightCodesDraw({
-            prompt: params.prompt,
-            modelId,
-            width: params.width ?? 1024,
-            height: params.height ?? 1024,
-            signal: params.signal,
-          })
-        } else {
-          throw err
-        }
-      }
     } else {
       data = await generateImageViaRightCodesDraw({
         prompt: params.prompt,

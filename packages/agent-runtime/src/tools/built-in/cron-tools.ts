@@ -3,7 +3,7 @@
  *
  * cron_create / cron_list / cron_delete
  *
- * stub 实现，由平台集成层（bridge.ts）注入 gateway callGateway 后覆盖 execute。
+ * stub 实现，由平台集成层（bridge.ts）注入本地 cron 调度后覆盖 execute。
  */
 
 import { Type, type Static } from "@sinclair/typebox";

@@ -52,7 +52,6 @@
       "from": "config",
       "to": "config",
       "filter": [
-        "server-config.json",
         "draw-config.json"
       ]
     },

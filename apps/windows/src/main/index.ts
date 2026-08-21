@@ -22,7 +22,6 @@ process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EPIPE' || err.code === 'ERR_STREAM_DESTROYED') {
     return
   }
-  remoteLogShipper?.ship({ level: 'error', event: 'uncaught_exception', message: err.stack ?? err.message })
   // eslint-disable-next-line no-console
   process.stderr?.write?.(`Uncaught exception: ${err.stack ?? err.message}\n`)
   process.exit(1)
@@ -80,12 +79,10 @@ import {
   SecurityError,
 } from './security-utils'
 import { fileLogger } from './file-logger'
-import { createWindowsLogShipper, type RemoteLogShipper } from './remote-log-shipper'
 import { SkillWatcher } from './skill-watcher'
 import { seedBundledSkills } from './bundled-skills-seeder'
 import { startBrowserService, stopBrowserService, getBrowserContext } from './browser-service'
 import os from 'os'
-import { loadServerConfig, type ServerConfig } from './server-config'
 import { directoryManager } from './directory-manager'
 import { ConfigManager } from './config-manager'
 
@@ -187,37 +184,13 @@ if (process.platform === 'win32') {
 
 const log = {
   info: (...args: unknown[]) => console.log('[Main]', ...args),
-  error: (...args: unknown[]) => {
-    console.error('[Main]', ...args)
-    remoteLogShipper?.ship({ level: 'error', event: 'main_error', message: args.map(String).join(' ') })
-  },
-  warn: (...args: unknown[]) => {
-    console.warn('[Main]', ...args)
-    remoteLogShipper?.ship({ level: 'warn', event: 'main_warn', message: args.map(String).join(' ') })
-  },
-}
-
-/**
- * 服务器配置
- * 优先级：环境变量 > 配置文件 > 默认值
- */
-let serverConfig: ServerConfig | null = null
-
-async function getServerConfig(): Promise<ServerConfig> {
-  if (!serverConfig) {
-    serverConfig = await loadServerConfig()
-    const { loadDrawConfig } = await import('./draw-config.js')
-    await loadDrawConfig()
-    // 用户在设置里配置的 image 槽优先生效
-    applyImageSlotToDrawEnv()
-  }
-  return serverConfig
+  error: (...args: unknown[]) => console.error('[Main]', ...args),
+  warn: (...args: unknown[]) => console.warn('[Main]', ...args),
 }
 
 // 全局变量
 let mainWindow: BrowserWindow | null = null
 let trayManager: TrayManager | null = null
-let remoteLogShipper: RemoteLogShipper | null = null
 /** 录屏服务单例（主窗创建后初始化） */
 let screenRecordService: ScreenRecordService | null = null
 
@@ -754,24 +727,15 @@ function initUpdaterService(): void {
  */
 async function initAgentRuntime(): Promise<void> {
   log.info('初始化客户端 Agent Runtime')
-
-  const config = await getServerConfig()
-  // 独立版无云端 Gateway；保留本地占位 URL 供遗留接口兼容，不打印网关地址
-  const rawGatewayUrl = config.gatewayUrl ?? 'http://127.0.0.1:18789'
-  const gatewayUrl = rawGatewayUrl.replace(/^ws(s?):\/\//, 'http$1://')
   log.info(`[AgentRuntime] 独立版本地模式（不连接云端 Gateway）`)
 
   agentRuntimeBridge = new AgentRuntimeBridge({
-    gatewayUrl,
     // 关闭 Pre-LLM Router：它每轮在主回复前串行做一次独立 LLM 调用（实测 2.5-4.3s），
     // 是首响应慢的主因。技能发现已工具化（skill_list/search/invoke 按需调用），
     // 主 prompt 不再依赖 Router 预筛选，关闭后主 LLM 立即开跑、按需自助路由。
     routerEnabled: false,
     // 灵栖/Lumii 独立版：本地 provider 配置（enabled 时 Agent 走 direct 直连）
     getProviderConfig: () => loadProviderConfig(),
-    // 灵栖/Lumii 独立版：无网关、无设备配对，LLM 走本地 provider direct 直连，无需认证 token
-    getAuthToken: async () => '',
-    getDeviceId: () => undefined,
     getWindow: () => mainWindow,
     getCwd: () => {
       const appConfig = configManager?.getAppConfig()
@@ -1002,10 +966,6 @@ async function initAgentRuntime(): Promise<void> {
     fetchAgentDefinitionsFromApi: async () => {
       // 灵栖/Lumii：从本地 agents 仓库返回全部 Agent 定义
       return listAgents().agents.map((a) => mapApiRecordToAgentDefinition(a as unknown as Record<string, unknown>))
-    },
-    callGateway: async (_method: string, _params?: unknown) => {
-      // 灵栖/Lumii 独立版：无网关，Agent 运行时不应发起网关调用
-      throw new Error('独立版不支持网关连接')
     },
     showCronNotification: (title: string, body: string) => {
       log.info(`[AgentRuntime:CronNotify] title="${title}" body="${body.slice(0, 60)}"`)
@@ -1842,19 +1802,6 @@ function setupIpcHandlers(): void {
     return systemService?.getUserPaths()
   })
 
-  // === 服务器配置 ===
-  ipcMain.handle('app:getServerConfig', async () => {
-    const config = await getServerConfig()
-    return config
-  })
-
-  ipcMain.handle('app:updateServerConfig', async (_event, config: Partial<{ gatewayUrl: string; apiUrl: string }>) => {
-    if (!configManager) {
-      throw new Error('ConfigManager 未初始化')
-    }
-    await configManager.updateServerConfig(config)
-  })
-
   ipcMain.handle('app:getCodingDevEnvInfo', async () => {
     if (!configManager) {
       throw new Error('ConfigManager 未初始化')
@@ -2382,15 +2329,6 @@ function setupIpcHandlers(): void {
 }
 
 /**
- * 将 resources / 环境变量中的本地占位配置同步到运行时。
- * 独立版不依赖云端 Gateway / api-server；仅保留本地配置加载。
- */
-async function syncRuntimeServerConfig(): Promise<void> {
-  const resourcesConfig = await loadServerConfig()
-  serverConfig = resourcesConfig
-}
-
-/**
  * 设置 API Server IPC 处理器
  *
  * 提供认证、设备配对、用户自服务等 HTTP API 调用
@@ -2555,15 +2493,7 @@ function setupApiIpcHandlers(): void {
   })
 
 
-  // === 灵栖/Lumii 独立版：无后端，云端配置/技能/节点接口降级为本地空返回 ===
-
-  ipcMain.handle('api:listAllSkills', async () => {
-    return { success: true, data: { skills: [], total: 0 } }
-  })
-
-  ipcMain.handle('api:listNodes', async () => {
-    return { success: true, data: { nodes: [] } }
-  })
+  // === 灵栖/Lumii 独立版：无后端，云端技能文件上传接口降级为本地报错 ===
 
   ipcMain.handle('api:uploadSkillFile', async () => {
     return { success: false, error: '独立版不支持技能文件上传' }
@@ -3027,16 +2957,6 @@ async function initialize(): Promise<void> {
   // 服务启动时在控制台打印日志文件路径
   log.info('日志文件:', fileLogger.getCurrentLogFilePath())
 
-  // 初始化远程日志上报（error + 关键事件 → 网关 → system_logs）
-  remoteLogShipper = createWindowsLogShipper({
-    getGatewayUrl: () => {
-      if (!serverConfig?.gatewayUrl) return null
-      return serverConfig.gatewayUrl.replace(/^ws(s?):\/\//, 'http$1://')
-    },
-    getAuthToken: () => null,
-    getDeviceId: () => undefined,
-  })
-
   log.info('应用已就绪')
 
   // 检测是否由开机启动触发（--startup-launched 参数由 setLoginItemSettings 注入）
@@ -3299,10 +3219,6 @@ async function performCleanup(): Promise<void> {
 
     updaterService?.destroy()
     trayManager?.destroy()
-    if (remoteLogShipper) {
-      await remoteLogShipper.flush()
-      remoteLogShipper.destroy()
-    }
     fileLogger.destroy()
 
     log.info('资源清理完成')

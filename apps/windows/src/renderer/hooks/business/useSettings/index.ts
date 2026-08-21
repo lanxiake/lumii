@@ -7,7 +7,6 @@ export { useCategorySettings } from './useCategorySettings'
 export type { UseSettingsReturn } from './useSettings'
 export type {
   AppSettings,
-  GatewayConfig,
   ThemeConfig,
   NotificationConfig,
   PrivacyConfig,

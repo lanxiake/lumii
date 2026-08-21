@@ -17,7 +17,6 @@ export { cronCreateToolConfig, cronListToolConfig, cronDeleteToolConfig } from "
 export { dashboardFeedWriteToolConfig } from "./dashboard-feed-tool.js";
 export {
   messageToolConfig,
-  nodesToolConfig,
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,
@@ -87,7 +86,6 @@ import { cronCreateToolConfig, cronListToolConfig, cronDeleteToolConfig } from "
 import { dashboardFeedWriteToolConfig } from "./dashboard-feed-tool.js";
 import {
   messageToolConfig,
-  nodesToolConfig,
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,
@@ -143,7 +141,6 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   messageToolConfig,
   channelListToolConfig,
   channelSendToolConfig,
-  nodesToolConfig,
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,

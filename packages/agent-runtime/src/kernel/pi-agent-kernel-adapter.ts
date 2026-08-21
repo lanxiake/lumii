@@ -13,7 +13,7 @@ import type {
   AgentTurnEvent,
   AgentTurnResult,
   AgentKernelModelInfo,
-} from "@mtbot/protocol";
+} from "./agent-turn-types.js";
 import type { AgentKernel, UnsubscribeFn } from "./types.js";
 
 export class PiAgentKernelAdapter implements AgentKernel {

@@ -3,16 +3,6 @@
  */
 
 /**
- * 服务器配置
- */
-export interface ServerConfig {
-  /** API 服务器地址 */
-  apiUrl: string
-  /** Gateway WebSocket 地址 */
-  gatewayUrl: string
-}
-
-/**
  * 开发类 AI 工具（ACP）项目条目。
  * - isExternal=false：在 workspace/projects/<name> 下新建，realPath 即该目录
  * - isExternal=true：workspace/projects/<name> 是指向 realPath 的 junction 软链接
@@ -71,7 +61,6 @@ export interface LogConfig {
  * 完整配置
  */
 export interface Config {
-  server: ServerConfig
   app: AppConfig
   log: LogConfig
 }
@@ -87,10 +76,6 @@ export type PartialConfig = {
  * 默认配置
  */
 export const DEFAULT_CONFIG: Config = {
-  server: {
-    apiUrl: 'http://127.0.0.1:3000',
-    gatewayUrl: 'ws://127.0.0.1:18789',
-  },
   app: {
     version: '0.1.1',
     language: 'zh-CN',

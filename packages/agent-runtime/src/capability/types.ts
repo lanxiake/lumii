@@ -5,7 +5,7 @@
  * 执行逻辑继续委托现有 tool-runner / skill / MCP 代码，不在此层实现。
  */
 
-import type { AgentTurnOrigin } from "@mtbot/protocol";
+import type { AgentTurnOrigin } from "../kernel/agent-turn-types.js";
 
 /** 能力来源类型 */
 export type CapabilitySource = "tool" | "skill" | "mcp" | "channel";

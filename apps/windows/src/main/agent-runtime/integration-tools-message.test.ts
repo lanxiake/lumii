@@ -32,12 +32,7 @@ function makeRegistrar(opts: {
   const deps = {
     toolRegistry,
     toolContext: {},
-    config: {
-      // callGateway 必须存在才会注册 integration tools（真实值已不再被 message 分支调用）
-      callGateway: vi.fn(async () => {
-        throw new Error('独立版不支持网关连接')
-      }),
-    },
+    config: {},
     weixinCtx: {
       getCurrent: () => opts.weixinCtx,
       markSentViaTool: markSentViaToolMock,

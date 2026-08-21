@@ -273,7 +273,6 @@ function stepVerify() {
   log('步骤 3/5: 验证必要文件')
 
   const requiredFiles = [
-    { path: 'config/server-config.json', desc: '本地占位配置（离线独立版）' },
     { path: 'assets/icon.ico', desc: '应用图标' },
     { path: 'electron-builder.json', desc: 'electron-builder 配置' },
     { path: 'build-resources/license.txt', desc: '许可证文件' },
@@ -288,17 +287,6 @@ function stepVerify() {
     } else {
       warn(`缺少 ${file.desc}: ${file.path}`)
       allGood = false
-    }
-  }
-
-  const configPath = path.resolve(WINDOWS_ROOT, 'config/server-config.json')
-  if (fs.existsSync(configPath)) {
-    try {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
-      console.log(`  apiUrl:     ${config.apiUrl} (本地占位，离线不连接)`)
-      console.log(`  gatewayUrl: ${config.gatewayUrl} (本地占位，离线不连接)`)
-    } catch {
-      warn('server-config.json 格式错误')
     }
   }
 

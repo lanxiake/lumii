@@ -8,7 +8,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import type {
   AppSettings,
-  GatewayConfig,
   ThemeConfig,
   NotificationConfig,
   PrivacyConfig,
@@ -29,12 +28,6 @@ export const SETTINGS_UPDATE_EVENT = 'mtbot-settings-update'
 const STORAGE_KEY = SETTINGS_STORAGE_KEY
 
 const DEFAULT_SETTINGS: AppSettings = {
-  gateway: {
-    url: 'ws://127.0.0.1:18789',
-    autoConnect: false,
-    reconnectInterval: 5000,
-    maxReconnectAttempts: 9999,
-  },
   theme: {
     mode: 'dark',
     primaryColor: '#6366f1',
@@ -129,14 +122,8 @@ export function useSettings() {
   useEffect(() => {
     async function loadSettings() {
       try {
-        // 独立版：不从 server-config / 云端网关拉配置，仅用本地默认值
-        const effectiveDefaults: AppSettings = {
-          ...DEFAULT_SETTINGS,
-          gateway: {
-            ...DEFAULT_SETTINGS.gateway,
-            autoConnect: false,
-          },
-        }
+        // 独立版：不拉取远程配置，仅用本地默认值
+        const effectiveDefaults: AppSettings = { ...DEFAULT_SETTINGS }
 
         const stored = localStorage.getItem(STORAGE_KEY)
         let base: Partial<AppSettings> = {}
@@ -178,24 +165,9 @@ export function useSettings() {
           }
         } else {
           base = JSON.parse(stored) as Partial<AppSettings>
-          // 独立版：强制关闭自动连网关，并清除云端网关残留地址
-          if (base.gateway) {
-            const url = base.gateway.url ?? ''
-            const isCloudGateway = /mtbot\.top/i.test(url)
-            base = {
-              ...base,
-              gateway: {
-                ...base.gateway,
-                autoConnect: false,
-                ...(isCloudGateway ? { url: DEFAULT_SETTINGS.gateway.url } : {}),
-              },
-            }
-          }
         }
 
         const merged = deepMerge(effectiveDefaults, base)
-        // 再次确保独立版不自动连 Gateway
-        merged.gateway = { ...merged.gateway, autoConnect: false }
         setSettings(merged)
         setSavedSettings(merged)
         void window.electronAPI?.settings?.updateMemoryInjection?.({
@@ -243,14 +215,6 @@ export function useSettings() {
   /** 更新设置 */
   const updateSettings = useCallback((partial: Partial<AppSettings>) => {
     setSettings((prev) => ({ ...prev, ...partial }))
-  }, [])
-
-  /** 更新 Gateway 配置 */
-  const updateGateway = useCallback((config: Partial<GatewayConfig>) => {
-    setSettings((prev) => ({
-      ...prev,
-      gateway: { ...prev.gateway, ...config },
-    }))
   }, [])
 
   /** 更新主题配置 */
@@ -359,7 +323,6 @@ export function useSettings() {
     isLoading,
     hasChanges,
     updateSettings,
-    updateGateway,
     updateTheme,
     updateNotification,
     updatePrivacy,

@@ -15,7 +15,7 @@ import type {
 import { RULE_SOURCE_PRIORITY } from "./permission-types";
 import type { ParameterizedToolPermission } from "./param-permission-parser";
 import { parseToolPermissionSpec, extractToolName } from "./param-permission-parser";
-import type { AgentTurnOrigin } from "@mtbot/protocol";
+import type { AgentTurnOrigin } from "../kernel/agent-turn-types.js";
 
 /** 按来源分组的规则集合 */
 export type RulesBySource = {

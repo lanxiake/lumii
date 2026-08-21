@@ -357,13 +357,11 @@ export function saveProviderConfig(view: LocalProviderConfigView): void {
 /**
  * 将 image 槽同步到生图环境变量（供 right-codes-draw-client 读取）
  *
- * rightapi 走独立的异步客户端（直接读槽配置，不经环境变量），
- * 这里只设置 DIRECT_ONLY 以关掉 Gateway 路径。
+ * rightapi 走独立的异步客户端（直接读槽配置，不经环境变量）。
  */
 export function applyImageSlotToDrawEnv(): void {
   const image = loadSlotConfig('image')
   if (!image.enabled || !image.apiKey) return
-  process.env.MTBOT_IMAGE_DIRECT_ONLY = 'true'
   if (image.type === 'rightapi') return
   const base = ensureProviderBaseUrl(
     image.baseUrl?.trim() || PROVIDER_DEFAULT_BASE_URL[image.type],

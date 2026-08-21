@@ -8,7 +8,6 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { AppProviders } from './contexts/AppProviders'
 import { Router, ViewType } from './components/Router'
-import { DeviceBindWizard } from './components/DeviceBindWizard'
 import { WorkspaceWizard } from './components/WorkspaceWizard'
 import { GlobalModals } from './components/GlobalModals'
 import { MainLayout } from './components/layout/MainLayout/MainLayout'
@@ -285,7 +284,6 @@ const AppContent: React.FC = () => {
         />
       )}
       <AuthenticatedApp onShellReady={shellReadyGate.resolve} />
-      <DeviceBindWizard />
       <WorkspaceWizard />
       <GlobalModals />
     </>

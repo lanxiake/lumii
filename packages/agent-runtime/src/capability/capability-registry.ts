@@ -10,7 +10,7 @@
  * 执行后端（tool-runner / skill / MCP）保持现状，不在此层修改。
  */
 
-import type { AgentTurnOrigin } from "@mtbot/protocol";
+import type { AgentTurnOrigin } from "../kernel/agent-turn-types.js";
 import type { CapabilityDescriptor, CapabilityPermission, CapabilitySource } from "./types.js";
 
 /** cloud_channel 默认被拒绝的高风险权限 */

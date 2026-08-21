@@ -9,11 +9,6 @@ export interface AgentRuntimeFeatureFlags {
   readonly LOCAL_TOOL_EXECUTION: boolean;
   /** 启用网络工具（web-fetch, web-search） */
   readonly WEB_TOOLS: boolean;
-  /**
-   * LLM 网关可重试错误（429/502 等）时自动降级到备用 tier 模型再试一次
-   * （需 createGatewayStreamFn 配置 getFallbackModel）
-   */
-  readonly LLM_RETRY_WITH_FALLBACK: boolean;
 
   // --- v12 扩展：对齐 .qoder/design/client-agent-runtime/12-*.md ---
 
@@ -71,7 +66,6 @@ export const DEFAULT_FEATURE_FLAGS: AgentRuntimeFeatureFlags = {
   CLIENT_AGENT_RUNTIME: true,
   LOCAL_TOOL_EXECUTION: true,
   WEB_TOOLS: true,
-  LLM_RETRY_WITH_FALLBACK: false,
   // v12 扩展默认关闭，保持现网行为不变
   ENABLE_SKILL_ACTIVATION: false,
   ENABLE_ASK_USER_QUESTION: false,

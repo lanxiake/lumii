@@ -18,7 +18,6 @@
   "dependencies": {
     "@mariozechner/pi-agent-core": "^0.50.7",
     "@mariozechner/pi-ai": "^0.50.7",
-    "@mtbot/protocol": "workspace:*",
     "@sinclair/typebox": "^0.34.33"
   },
   "devDependencies": {

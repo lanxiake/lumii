@@ -13,9 +13,7 @@ import {
   AgentRegistry,
   ToolRegistry,
   createMtBotTool,
-  createGatewayStreamFn,
   createDirectStreamFn,
-  DEFAULT_GATEWAY_STREAM_PATH,
   ModelRouter,
   resolveAgentFilePath,
   ALL_BUILT_IN_TOOL_CONFIGS,
@@ -51,7 +49,7 @@ import {
   IDLE_COOLDOWN_FAILURE_MS,
 } from '@mtbot/agent-runtime'
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
-import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import type { AgentMessage, StreamFn } from '@mariozechner/pi-agent-core'
 import { buildContextUsageBreakdown, calibrateCharsPerToken, countPromptChars } from './context-usage-breakdown.js'
 import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
 
@@ -111,7 +109,7 @@ import { BridgeInstanceFactory } from './bridge-instance-factory'
 import { BridgeToolRegistrar } from './bridge-tool-registrar'
 import { BridgePromptDispatcher } from './bridge-prompt-dispatcher'
 import { RouterService } from './router/router-service'
-import { GatewayRouterLlmCaller } from './router/llm-caller'
+import { RouterLlmCallerImpl } from './router/llm-caller'
 import { RouterHitRateTracker } from './router/router-hit-rate-tracker'
 import type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot } from './bridge-types'
 import { ensureProviderBaseUrl } from '../provider-config'
@@ -197,7 +195,7 @@ export class AgentRuntimeBridge {
   private readonly sessionLastModelId = new Map<string, string>()
 
   /** 主 Agent 实例的 innerStream / model（仅 def.id === 'main' 时设置） */
-  private readonly mainInnerStreamRef: { value: ReturnType<typeof createGatewayStreamFn> | null } = { value: null }
+  private readonly mainInnerStreamRef: { value: ReturnType<typeof createDirectStreamFn> | null } = { value: null }
   private readonly mainModelRef: { value: import('@mariozechner/pi-ai').Model<any> | null } = { value: null }
   /**
    * callLLM 兜底用的独立 direct stream（懒创建）。
@@ -232,9 +230,6 @@ export class AgentRuntimeBridge {
     this.config = config
     this.featureFlags = createFeatureFlags()
     this.imageServices = new BridgeImageServices({
-      getGatewayUrl: () => this.config.gatewayUrl,
-      getAuthToken: () => this.config.getAuthToken(),
-      getDeviceId: this.config.getDeviceId,
       getModelRouter: () => this.modelRouter,
       getCwd: () => this.config.getCwd(),
     })
@@ -1399,24 +1394,50 @@ export class AgentRuntimeBridge {
   }
 
   /**
+   * 为 Router / 生图意图分类构造复用 chat 槎位配置的轻量 direct stream。
+   * chat 槎位未启用或未配置完整时返回 undefined（调用方各自决定降级方式）。
+   */
+  private buildAuxiliaryChatStream(logTag: string): StreamFn | undefined {
+    const cfg = this.config.getProviderConfig?.()
+    if (!cfg?.enabled) {
+      log.warn(`[${logTag}] chat 能力槎位未启用，跳过`)
+      return undefined
+    }
+    const isLocal = cfg.type === 'ollama' || cfg.type === 'lmstudio'
+    if (!isLocal && !cfg.apiKey?.trim()) {
+      log.warn(`[${logTag}] chat 能力槎位缺少 API Key，跳过`)
+      return undefined
+    }
+    if (!cfg.modelId?.trim()) {
+      log.warn(`[${logTag}] chat 能力槎位缺少模型 ID，跳过`)
+      return undefined
+    }
+    return createDirectStreamFn({
+      credentials: {
+        baseUrl: ensureProviderBaseUrl(cfg.baseUrl, cfg.type),
+        apiKey: cfg.apiKey,
+        apiFormat: cfg.apiFormat ?? 'responses',
+      },
+      log: (msg) => log.info(`[${logTag}] ${msg}`),
+    })
+  }
+
+  /**
    * 创建 Pre-LLM Router 服务。
    * - config.routerEnabled === false → 返回 undefined（dispatcher 走旧路径）
-   * - 默认启用，使用 basic tier 模型，独立 streamFn（不依赖任何已存在的 Agent 实例）
+   * - chat 槎位未启用/未配置 → 返回 undefined（router 只是优化项，主对话配置缺失时直接跳过，不阻断主流程）
    */
   private createRouterService(): RouterService | undefined {
     if (this.config.routerEnabled === false) {
       log.info('[router] disabled by config')
       return undefined
     }
-    const routerStream = createGatewayStreamFn({
-      gatewayUrl: this.config.gatewayUrl,
-      streamPath: DEFAULT_GATEWAY_STREAM_PATH,
-      getAuthToken: this.config.getAuthToken,
-      getDeviceId: this.config.getDeviceId,
-      log: (msg) => log.info(`[router-stream] ${msg}`),
-      getMetadata: () => ({ channel: 'windows-router' }),
-    })
-    const caller = new GatewayRouterLlmCaller({
+    const routerStream = this.buildAuxiliaryChatStream('router-stream')
+    if (!routerStream) {
+      log.info('[router] chat 槎位未配置，router 已禁用')
+      return undefined
+    }
+    const caller = new RouterLlmCallerImpl({
       streamFn: routerStream,
       modelRouter: this.modelRouter,
     })
@@ -1432,18 +1453,16 @@ export class AgentRuntimeBridge {
   /**
    * 创建生图意图分类用的轻量 LLM 调用器。
    * 独立于 Router 开关：即便 router 被关闭，生图自动分级仍可用。
-   * 复用 chat tier 模型（经 LiteLLM），用于判断简单图 / 复杂专业图。
+   * 复用 chat 槎位配置；未配置时返回 undefined —— 调用方（bridge-prompt-dispatcher）
+   * 已按可选依赖处理，缺失时直接跳过分级，使用用户选择的默认生图模型。
    */
-  private createImageIntentLlmCaller(): GatewayRouterLlmCaller {
-    const stream = createGatewayStreamFn({
-      gatewayUrl: this.config.gatewayUrl,
-      streamPath: DEFAULT_GATEWAY_STREAM_PATH,
-      getAuthToken: this.config.getAuthToken,
-      getDeviceId: this.config.getDeviceId,
-      log: (msg) => log.info(`[image-intent-stream] ${msg}`),
-      getMetadata: () => ({ channel: 'windows-image-intent' }),
-    })
-    return new GatewayRouterLlmCaller({
+  private createImageIntentLlmCaller(): RouterLlmCallerImpl | undefined {
+    const stream = this.buildAuxiliaryChatStream('image-intent-stream')
+    if (!stream) {
+      log.info('[image-intent] chat 槎位未配置，生图意图分级已禁用')
+      return undefined
+    }
+    return new RouterLlmCallerImpl({
       streamFn: stream,
       modelRouter: this.modelRouter,
     })

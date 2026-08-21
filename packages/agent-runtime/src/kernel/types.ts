@@ -7,7 +7,7 @@
  * 故意只暴露当前业务实际使用的最小接口，避免为未来假设扩展。
  */
 
-import type { AgentTurnRequest, AgentTurnEvent, AgentTurnResult, AgentKernelModelInfo } from "@mtbot/protocol";
+import type { AgentTurnRequest, AgentTurnEvent, AgentTurnResult, AgentKernelModelInfo } from "./agent-turn-types.js";
 
 /** 事件订阅取消函数 */
 export type UnsubscribeFn = () => void;

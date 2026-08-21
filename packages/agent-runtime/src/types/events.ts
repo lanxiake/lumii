@@ -8,7 +8,7 @@
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 
-import { normalizeLlmError, type GatewayLlmErrorDetail } from "../llm/llm-error.js";
+import { normalizeLlmError, type LlmErrorDetail } from "../llm/llm-error.js";
 
 /** Agent 实例状态 */
 export type AgentInstanceState = "idle" | "running" | "paused" | "error" | "aborted" | "destroyed";
@@ -63,8 +63,8 @@ export type AgentRuntimeEvent =
        * 前端应保留同一条 assistant 气泡并维持 isStreaming，避免重复占位与「思考」条。
        */
       stopReason?: "end_turn" | "tool_use" | "max_tokens" | "error" | "aborted";
-      /** 网关 HTTP / SSE 结构化错误（createGatewayStreamFn 挂载） */
-      llmError?: GatewayLlmErrorDetail;
+      /** 结构化 LLM 错误（direct 流式层挂载） */
+      llmError?: LlmErrorDetail;
       /**
        * 本轮 Agent 运行注入到 system prompt 的热记忆（供 UI「基于您的偏好」提示）
        */
@@ -185,10 +185,10 @@ export function mapAgentEvent(
       else if (sr === "aborted") stopReason = "aborted";
       else stopReason = "end_turn";
 
-      // 网关路径会挂 __llmError；direct 直连时 pi-ai 只留一句 errorMessage 自由文本，
-      // 这里统一归一化，避免直连出错时事件不带 llmError 被 UI 当作空回复直接丢弃。
+      // direct 直连时 pi-ai 只留一句 errorMessage 自由文本，这里统一归一化，
+      // 避免出错时事件不带 llmError 被 UI 当作空回复直接丢弃。
       const llmErr =
-        (assistantMsg as AssistantMessage & { __llmError?: GatewayLlmErrorDetail })?.__llmError ??
+        (assistantMsg as AssistantMessage & { __llmError?: LlmErrorDetail })?.__llmError ??
         (stopReason === "error"
           ? normalizeLlmError(extractErrorMessage(assistantMsg))
           : undefined);

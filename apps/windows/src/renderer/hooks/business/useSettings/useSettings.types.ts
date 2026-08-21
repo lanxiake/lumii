@@ -2,16 +2,6 @@
  * useSettings.types.ts - 设置管理类型定义
  */
 
-/** Gateway 配置 */
-export interface GatewayConfig {
-  url: string
-  token?: string
-  deviceId?: string
-  autoConnect: boolean
-  reconnectInterval: number
-  maxReconnectAttempts: number
-}
-
 /** 主题配置 */
 export interface ThemeConfig {
   /** light/dark/system 为标准模式；ragdoll 为奶油布偶猫治愈浅色主题（原型 UI 方案一） */
@@ -106,7 +96,6 @@ export interface ScreenRecordConfig {
 
 /** 应用设置 */
 export interface AppSettings {
-  gateway: GatewayConfig
   theme: ThemeConfig
   notification: NotificationConfig
   privacy: PrivacyConfig
