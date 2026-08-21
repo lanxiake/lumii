@@ -1,8 +1,11 @@
 # 灵栖 Lumii 大文件重构分析报告
 
-> 生成时间：2026-08-20
+> 核对时间：2026-08-21
+> 核对分支：`main`
+> 核对提交：`222fbf554faa7ec8c132366548f6eee2cbca3a2c`
 > 统计范围：`apps/windows` + `packages/*` 下所有 `.ts` / `.tsx`（排除 `.d.ts`、`node_modules`、构建产物）
 > 行数统计口径：**排除纯空行**，保留注释与代码
+> 说明：本报告按当前分支重新核对；Gateway 遗留代码已在当前提交删除。
 
 ---
 
@@ -10,22 +13,12 @@
 
 | 指标 | 数值 |
 |---|---|
-| 扫描文件总数 | 1131 |
-| >400 行文件数（建议考虑拆分） | 107 |
-| >500 行文件数（警戒阈值，必须拆分） | 66 |
-| 最大文件行数 | 3055（`src/main/index.ts`） |
+| 扫描文件总数 | 1088 |
+| >400 行文件数（建议考虑拆分） | 104 |
+| >500 行文件数（观察指标） | 65 |
+| 最大有效行数 | 2980（`apps/windows/src/main/index.ts`） |
 
-### 按文件类别分布（>500 行警戒阈值）
-
-| 类别 | 文件数 | 典型文件 |
-|---|---|---|
-| 业务组件 `.tsx` | 25 | `SettingsPage.tsx`、`ChatPage.tsx`、`AgentsPage.tsx` |
-| 主进程服务 `.ts` | 18 | `index.ts`、`voice-service.ts`、`skill-runtime.ts` |
-| Agent Runtime 桥接/核心 | 10 | `bridge-tool-registrar.ts`、`bridge.ts`、`system-prompt-builder.ts` |
-| Hooks / Store / Context | 6 | `useAgentRuntime.ts`、`useSkillStore.ts`、`agent-runtime-store.ts` |
-| 共享常量 / 类型 / 协议 | 4 | `agent-runtime-commands.ts`、`agent-runtime-events.ts` |
-| 浏览器自动化 / 工具库 | 3 | `extension-relay.ts`、`pw-session.ts` |
-| 测试文件 `.test.ts(x)` | 6 | （测试文件建议优先抽取 fixture，不强制业务线拆分） |
+> 文件数量只用于定位风险，不作为“必须拆分”的充分条件。测试、协议类型、纯算法、vendor 和调试沙盒按职责单独判断。
 
 ---
 
@@ -37,11 +30,11 @@
 
 | 优先级 | 文件 | 行数 | 类别 | 主要问题 |
 |---|---|---|---|---|
-| P0 | `apps/windows/src/main/index.ts` | 3055 | 主进程入口 | 窗口/托盘/IPC注册/渠道登录/语音/录屏/网关 全部塞入口 |
-| P0 | `apps/windows/src/renderer/pages/SettingsPage/SettingsPage.tsx` | 2404 | 页面组件 | 10 个分类面板 + 模型配置/语音/渠道/宠物/隐私 全部在一个文件 |
-| P0 | `apps/windows/src/main/ipc/agent-runtime-ipc.ts` | 2382 | IPC 层 | 50+ 条 IPC handler 混装，未按能力域分组 |
-| P0 | `packages/agent-runtime/src/prompt/system-prompt-builder.ts` | 2005 | Prompt 构建 | 类型定义 + 10+ section 构建器 + 格式化工具 混杂 |
-| P0 | `apps/windows/src/preload/index.ts` | 1924 | Preload 桥 | 70+ 条 ElectronAPI 方法 + 事件多路复用 + 类型引用混杂 |
+| P0 | `apps/windows/src/main/index.ts` | 2980 | 主进程入口 | 生命周期、窗口、服务初始化、渠道装配和多组 IPC 注册集中在入口 |
+| P0 | `apps/windows/src/renderer/pages/SettingsPage/SettingsPage.tsx` | 2447 | 页面组件 | 10 个分类面板、模型配置和多组本地状态集中在一个组件 |
+| P0 | `apps/windows/src/main/ipc/agent-runtime-ipc.ts` | 2382 | IPC 层 | 单一 `agent-runtime:command` 通道承载大量 typed command 分支，公共状态和事件转发混杂 |
+| P0 | `packages/agent-runtime/src/prompt/system-prompt-builder.ts` | 1909 | Prompt 构建 | 类型定义、多个纯 section 构建函数和最终编排集中在一个文件 |
+| P0 | `apps/windows/src/preload/index.ts` | 1913 | Preload 桥 | ElectronAPI 类型、多个 capability API、事件监听和多个全局暴露对象集中在一个文件 |
 | P0 | `apps/windows/src/renderer/pages/ChatPage/ChatPage.tsx` | 1755 | 页面组件 | 会话列表 + 消息渲染 + 输入框 + 工作空间面板 + 语音通话 + 版本控制 全部在一个组件 |
 
 ### P1 — 计划内重构（800–1500 行，单文件已承担 3+ 职责）
@@ -50,8 +43,8 @@
 
 | 文件 | 行数 | 类别 | 建议拆分方向 |
 |---|---|---|---|
-| `bridge-tool-registrar.ts` | 1563 | Agent Bridge | 按工具域抽：`tools-core.ts` / `tools-browser.ts` / `tools-channel.ts` / `tools-voice.ts` |
-| `bridge.ts` | 1465 | Agent Bridge | 拆生命周期、事件、配置三部分，保留主类聚合 |
+| `bridge-tool-registrar.ts` | 1488 | Agent Bridge | 已有 browser/app-ui/screen-record 等注册模块；只抽仍混在 registrar 中的 integration/client command 逻辑 |
+| `bridge.ts` | 1483 | Agent Bridge | 已有 lifecycle/instance factory/registrar 等协作者；保留 facade，暂不重复拆已有职责 |
 | `event-handler.ts` (useAgentRuntime) | 1409 | Hooks 业务 | 按事件类型抽：`handle-tool.ts` / `handle-message.ts` / `handle-compact.ts` |
 | `model-manager.ts` (voice) | 1370 | 语音服务 | 拆下载器、模型索引、设备检测、模型加载状态 |
 | `voice-service.ts` | 1345 | 语音服务 | 拆 VAD 对接、ASR 对接、TTS 队列、通话状态机 |
@@ -61,33 +54,33 @@
 | `ChatInput/index.tsx` | 1187 | 业务组件 | 拆附件处理、ComposerPlusMenu、工具栏、输入框核心 |
 | `useAgentRuntime.ts` | 1156 | Hooks 业务 | 拆 actions / selectors / init / lifecycle，store 已单独文件 |
 | `skill-runtime.ts` | 1151 | 技能运行时 | 拆执行器调度、权限确认、超时控制、导入导出、日志 |
-| `ToolCallCard/index.tsx` | 1101 | 业务组件 | 拆 10+ 种工具卡片子组件（bash / file / web / skill / image…） |
-| `agent-runtime-commands.ts` | 1087 | 共享常量 | 纯协议/常量可放宽，但可按 domain 分文件聚合导出 |
-| `ChatMessage/index.tsx` | 1045 | 业务组件 | 拆渲染策略（用户/助手/系统/tool）、富文本渲染、引用块 |
-| `FilePreviewModal.tsx` | 980 | 业务组件 | 拆 8+ 种预览器（image/pdf/video/audio/code/text/3d/markdown） |
+| `ToolCallCard/index.tsx` | 1101 | 业务组件 | 已有 `toolTaxonomy` 和多个内部展示组件；按真实职责抽取，不预设 12 个策略组件 |
+| `agent-runtime-commands.ts` | 1087 | 共享协议类型 | 属于 command 协议契约，默认保留；只有类型依赖明显形成边界时才按 domain 拆分并保留统一导出 |
+| `ChatMessage/index.tsx` | 1045 | 业务组件 | 按 `buildRenderUnits`、Markdown、思考区等实际边界拆分，不引入未经验证的 renderer 策略层 |
+| `FilePreviewModal.tsx` | 980 | 业务组件 | 已有 `getPreviewRoute` 与 PDF/Excel/PPTX 组件；只抽独立预览实现，不新增 registry 抽象 |
 | `qwen3-tts-client.ts` | 944 | 语音服务 | 拆模型加载、合成管线、CUDA graph 管理、缓存 |
 | `SkillsPage.tsx` | 942 | 页面组件 | 抽技能卡片、编辑器、搜索筛选、分类视图 |
 
 ### P2 — 观察清单（500–800 行，单职责或纯算法可暂缓）
 
-共 **43 个**文件，详见 [code-location-index.md](#)。其中重点关注：
+共 **42 个**文件，详见 [code-location-index.md](#)。其中重点关注：
 
-- **职责可拆分的**：`screen-record-service.ts`(929)、`bridge-agent-instance-events.ts`(849)、`bridge-instance-factory.ts`(790)、`cron-scheduler.ts`(775)、`skill-store.ts`(708)
+- **职责可拆分的**：`screen-record-service.ts`(929)、`bridge-agent-instance-events.ts`(849)、`cron-scheduler.ts`(775)、`skill-store.ts`(708)
 - **纯算法/纯状态可放宽的**：`conversation-repo.ts`(858)、`local-database.ts`(681)、`PetOrchestrator.ts`(873) — 可暂不拆但需控制增量
 
 ---
 
 ## 三、TOP 10 超标文件深度分析与拆分方案
 
-### 1. `apps/windows/src/main/index.ts` — 3055 行（P0）
+### 1. `apps/windows/src/main/index.ts` — 2980 有效行（P0）
 
 **当前职责混杂（一个文件做了 12+ 件事）：**
 1. 全局异常保护 / EPIPE 处理
 2. 应用生命周期（ready / window-all-closed / before-quit / will-quit / quit）
 3. 主窗口创建（3 种窗口：主窗口 / 宠物窗口 / 调试面板）
 4. 系统托盘管理（菜单 + 事件）
-5. Gateway WebSocket 连接管理
-6. IPC Handler 注册（20+ 条 inline 写在 index）
+5. 本地 Agent Runtime、浏览器和 ACP 等服务装配
+6. 多组普通 IPC handler 注册（Agent Runtime IPC 已有独立模块）
 7. 渠道登录服务（微信/企微/飞书）初始化
 8. 语音模块初始化（VoiceModelManager / VoiceCallService）
 9. 录屏模块初始化 + IPC 注册
@@ -95,50 +88,46 @@
 11. ACP 后端 / Coding Dev 环境检测
 12. 启动时种子任务（bundled-skills-seeder / cron-seed）
 
-**拆分方案（目录内新建子模块，index.ts 仅保留装配）：**
+**拆分方案（复用已有模块，逐个迁移注册函数）：**
 
 ```
 src/main/
-├─ index.ts                          # 精简至 <200 行，纯装配
+├─ index.ts                          # 保留 composition root 和严格初始化顺序
 ├─ app-lifecycle.ts                  # app.on('ready'/'quit' 等)
 ├─ windows/
-│   ├─ main-window-factory.ts        # 主窗口创建
-│   ├─ pet-window-factory.ts         # 宠物窗口
-│   └─ window-lifecycle-hooks.ts     # 窗口关闭/聚焦/最小化事件
+│   ├─ main-window-factory.ts        # 仅在现有 createWindow 边界稳定后再抽
+│   └─ window-lifecycle-hooks.ts     # 仅抽与主窗口无共享状态的回调
 ├─ tray/
 │   ├─ tray-factory.ts               # 托盘创建
 │   └─ tray-menu.ts                  # 托盘菜单模板 + handler
 ├─ ipc/
-│   ├─ system-ipc.ts                 # 通用 IPC（剪贴板/路径/文件选择器…）
+│   ├─ system-ipc.ts                 # 仅迁移普通系统/文件 IPC
 │   ├─ provider-ipc.ts               # provider 配置相关
-│   ├─ agents-ipc.ts                 # agents repo 相关
-│   ├─ channel-ipc.ts                # 渠道相关（已部分抽出）
-│   └─ voice-ipc.ts                  # 语音（已抽出）
+│   └─ coding-dev-ipc.ts             # Coding Dev 相关
 └─ bootstrap/
-    ├─ bootstrap-services.ts         # 初始化顺序编排
-    ├─ seed-on-startup.ts            # bundled-skills / cron 种子
-    └─ error-protection.ts           # EPIPE / uncaughtException
+    ├─ seed-on-startup.ts            # 仅抽无状态种子任务
+    └─ error-protection.ts           # 仅抽独立的错误保护
 ```
 
-**验收标准：** index.ts ≤ 300 行，无 inline IPC handler，所有服务初始化走 `bootstrap-services.ts` 编排。
+**验收标准：** 保持 `installAgentRuntimeCommandIpc()` 早于窗口加载、配置初始化早于依赖配置的服务、种子任务早于 watcher；每次只迁移一个注册域。行数是软指标，不为达到阈值引入全局 service locator 或重复 facade。
 
 ---
 
-### 2. `SettingsPage.tsx` — 2404 行（P0）
+### 2. `SettingsPage.tsx` — 2447 有效行（P0）
 
 **当前结构：** 一个 `SettingsPage` 组件内用 `switch(activeCategory)` 渲染 10 个分类，每个分类 150–400 行 JSX + 本地状态 + 保存逻辑。
 
-**拆分方案（目录内已存在部分 components，只需继续抽）：**
+**拆分方案（优先复用目录内已有 components）：**
 
 ```
 SettingsPage/
-├─ SettingsPage.tsx                   # ≤200 行：分类导航 + 路由分发
+├─ SettingsPage.tsx                   # 分类导航 + 路由分发
 ├─ SettingsPage.types.ts              # 所有 Settings 相关类型
 ├─ SettingsPage.const.ts              # CATEGORIES / 默认值
 ├─ hooks/
 │   ├─ useProviderSlots.ts            # 模型配置本地状态 + 保存
 │   ├─ useVoiceSettings.ts            # 语音配置本地状态 + 保存
-│   └─ useSettingsForm.ts             # 通用表单校验/草稿
+│   └─ （只有出现重复状态逻辑时再增加共享 hook）
 └─ components/
     ├─ GeneralSection.tsx             # 通用设置（通知/启动/字体…）
     ├─ WorkspaceSection.tsx           # 工作空间设置
@@ -152,86 +141,76 @@ SettingsPage/
     └─ AboutSection.tsx               # 关于+更新（已抽 UpdaterView）
 ```
 
-**验收标准：** SettingsPage.tsx ≤ 300 行，所有分类面板 ≤ 400 行；模型配置相关状态 hook 独立。
+**验收标准：** 分类渲染和保存逻辑边界清晰；先抽 `renderXXXSettings` 和已有面板，保持 `activeCategory`、保存状态和 IPC 调用时机不变。行数仅作观察指标。
 
 ---
 
-### 3. `agent-runtime-ipc.ts` — 2382 行（P0）
+### 3. `agent-runtime-ipc.ts` — 2382 有效行（P0）
 
-**当前问题：** 50+ 条 IPC handler 按「写的顺序」堆砌，无分组命名约定。
+**当前问题：** 只有一个 `agent-runtime:command` IPC 通道，但 command handler、共享 bridge 引用、事件推送和多个领域分支集中在同一文件。
 
-**拆分方案：** 按能力域分文件，`agent-runtime-ipc/index.ts` 统一 `registerAllIpc()` 聚合：
+**拆分方案：** 保留一个 IPC 注册入口，按 command domain 拆分 `handleCommand` 的实现：
 
 ```
-ipc/agent-runtime-ipc/
-├─ index.ts                          # ≤100 行：聚合注册
-├─ session-ipc.ts                    # 会话 CRUD（create/list/delete/clear）
-├─ message-ipc.ts                    # 消息发送/重发/停止/撤销
-├─ tool-permission-ipc.ts            # 工具权限审批（allow/deny/auto-approve）
-├─ context-compact-ipc.ts            # 上下文压缩相关
-├─ agent-ipc.ts                      # Agent 定义管理（fork/update/delete）
-├─ skill-ipc.ts                      # 技能（invoke/list/search/reload）
-├─ memory-ipc.ts                     # 记忆（search/read/write/manage）
-├─ router-ipc.ts                     # Pre-LLM Router 相关
-└─ cron-ipc.ts                       # Cron 任务（已部分在 cron-scheduler）
+ipc/
+├─ agent-runtime-ipc.ts              # 保留通道注册、共享状态和兼容导出
+└─ agent-runtime-commands/
+    ├─ conversation-commands.ts      # conversation/message/session command
+    ├─ agent-commands.ts              # agent instance/definition command
+    ├─ memory-commands.ts             # memory/storage command
+    ├─ tool-commands.ts               # tool/permission/MCP command
+    └─ scheduler-commands.ts          # cron/compact command
 ```
 
-**验收标准：** 原文件删除；每个子文件 ≤ 400 行；类型定义抽到 `types.ts`。
+**验收标准：** `agent-runtime:command` 名称、command 类型、返回值、NOT_READY 行为和错误传播不变；保留 `handleCommand`、`pushAgentRuntimeEvent` 等现有调用方契约。不要把一个 IPC 通道改成多个通道。
 
 ---
 
-### 4. `system-prompt-builder.ts` — 2005 行（P0）
+### 4. `system-prompt-builder.ts` — 1909 有效行（P0）
 
-**拆分方案：**
+**拆分方案（先建立输出快照，再抽纯函数）：**
 
 ```
 packages/agent-runtime/src/prompt/
-├─ system-prompt-builder.ts           # ≤300 行：buildSystemPrompt 主入口 + 编排
+├─ system-prompt-builder.ts           # buildSystemPrompt 主入口 + 编排
 ├─ system-prompt.types.ts             # SkillInfo / CustomAgentInfo / ActivationHint 等接口
 ├─ sections/
-│   ├─ role-section.ts                # 身份/人格/灵魂设定
-│   ├─ tool-section.ts                # 工具说明 + 安全约束
-│   ├─ skill-section.ts               # 技能描述 + 激活提示
-│   ├─ agent-team-section.ts          # 多 Agent 协作
-│   ├─ memory-section.ts              # 记忆上下文 + 指引
-│   ├─ conversation-section.ts        # 历史消息注入
-│   ├─ workspace-section.ts           # 工作空间状态 + Git
-│   ├─ diagnostic-section.ts          # 日志路径 + CLI + 系统状态（5s 缓存）
-│   └─ format-rules-section.ts        # 响应格式规则（JSON/thinking/tool-call）
-└─ formatters/
-    ├─ skill-list-formatter.ts
-    ├─ activation-hint-formatter.ts
-    └─ tool-schema-formatter.ts
+│   ├─ skills-section.ts              # 对应现有 buildSkillsSection
+│   ├─ runtime-section.ts              # 对应现有 buildRuntimeSection
+│   ├─ memory-section.ts              # 对应现有 buildMemorySection
+│   ├─ workspace-section.ts           # 对应现有 buildWorkspaceSection
+│   └─ remaining-sections.ts           # 仅在边界清晰时继续拆分
+└─ prompt.types.ts                     # 只有类型依赖形成清晰边界时才抽
 ```
 
-**验收标准：** 主入口 ≤ 300 行，每个 section ≤ 250 行；类型与实现分离。
+**验收标准：** 保持 static/dynamic prompt 分层、section 顺序、标签、缓存边界和空 section 行为；用 golden/snapshot 测试比较拆分前后结果。行数不是强制目标。
 
 ---
 
-### 5. `preload/index.ts` — 1924 行（P0）
+### 5. `preload/index.ts` — 1913 有效行（P0）
 
-**拆分方案：** 按能力域分组 API：
+**拆分方案：** 按现有 `electronAPI` 对象结构分组，保持暴露对象和多个全局 service 名称不变：
 
 ```
 preload/
-├─ index.ts                           # ≤200 行：contextBridge.exposeInMainWorld 聚合
-├─ ElectronAPI.d.ts                   # 抽出 ElectronAPI 接口汇总（800 行上限）
+├─ index.ts                           # contextBridge.exposeInMainWorld 聚合
+├─ electron-api.types.ts              # ElectronAPI 及其 capability 类型
 ├─ bridge/
 │   ├─ runtime-api.ts                 # Agent Runtime 方法 (~30 项)
 │   ├─ window-api.ts                  # 窗口/托盘/主进程控制
-│   ├─ media-api.ts                   # 本地媒体协议/文件
-│   ├─ channel-api.ts                 # 渠道（微信/企微/飞书）
+│   ├─ file-api.ts                    # 文件/工作空间/对话框
+│   ├─ channel-api.ts                 # channelService 相关能力
 │   ├─ voice-api.ts                   # 语音 TTS/ASR/VAD
 │   ├─ screen-record-api.ts           # 录屏
 │   ├─ pet-api.ts                     # 宠物（已抽）
-│   └─ system-api.ts                  # 系统信息/通知/剪贴板
+│   ├─ system-api.ts                  # 系统信息/通知/剪贴板
+│   ├─ skills-api.ts                  # 技能/商店能力
+│   └─ app-api.ts                     # app/updater/vcs 等能力
 └─ event-mux/
-    ├─ voice-event-mux.ts             # voice:event 多路复用（现有 voiceEventSubscribers）
-    ├─ screen-record-event-mux.ts     # screen-record 事件多路复用
-    └─ runtime-event-mux.ts           # AgentRuntime 事件统一订阅
+    └─ listeners.ts                   # 仅在共享监听逻辑确实重复时抽取
 ```
 
-**验收标准：** preload/index.ts ≤ 200 行，`ElectronAPI` 接口独立 `.d.ts`（≤800 行）。
+**验收标准：** 保持 `electronAPI` 属性结构、IPC channel、事件取消函数行为以及 `weixinService`/`wecomService`/`feishuService`/`channelService` 的全局暴露。类型文件移动后同步 `renderer/global.d.ts` 和测试 mock。
 
 ---
 
@@ -241,7 +220,7 @@ preload/
 
 ```
 ChatPage/
-├─ ChatPage.tsx                       # ≤300 行：布局 + 状态编排
+├─ ChatPage.tsx                       # 布局 + 状态编排
 ├─ ChatPage.types.ts
 ├─ hooks/
 │   ├─ useChatPageState.ts            # 本地状态聚合（zoom、auto-approve、toast…）
@@ -256,31 +235,28 @@ ChatPage/
     └─ FloatingOverlays.tsx           # Toast / Modal / AskUser / ConfirmDialog / InterruptBanner
 ```
 
-**验收标准：** ChatPage.tsx ≤ 300 行；组件内无 50 行以上的内联回调，均抽为 hook 或子组件。
+**验收标准：** ChatPage 只保留页面编排和必要共享状态；复用现有 ChatSidebar、ChatContainer、ChatInput、workspace 组件。拆分前后保持发送、会话切换、面板显隐、语音通话和版本控制行为不变，行数只作观察指标。
 
 ---
 
 ## 四、重构通用约束（防止 AI 生成代码再次膨胀）
 
 ### 4.1 MR 门禁规则
-- **任何新增 / 修改的 `.ts/.tsx` 文件超过 500 行，一律打回**，要求拆分后再合入。
-- **例外审批需附理由**：纯常量映射表（如 `agent-runtime-commands.ts`）、自动生成代码、第三方绑定。
-- 推荐 ESLint 插件：`eslint-plugin-max-lines`，规则设置：
-  ```json
-  "max-lines/max-lines": ["warn", { "max": 400, "skipBlankLines": true, "skipComments": false }]
-  "max-lines/max-lines": ["error", { "max": 500, "skipBlankLines": true }]
-  ```
+- 大文件行数只作为 review 信号，不作为所有文件的硬错误。
+- 必须说明拆分后的职责边界、公共 API 和初始化/状态顺序是否保持不变。
+- 协议类型、纯算法、测试、vendor、生成代码和调试沙盒按职责评估，不为降低行数制造空壳文件。
+- 如需启用 `max-lines`，只配置一条实际规则，并通过路径覆盖为协议类型、测试和 vendor 设置例外；当前仓库尚未安装 `eslint-plugin-max-lines`。
 
 ### 4.2 函数粒度约束
-- 单函数 > 120 行打回，必须拆子函数。
-- 复杂 `if-else` / `switch` 超过 5 个分支：用策略模式 / 对象映射。
+- 单函数 > 120 行作为 review 信号；只有职责混杂、难以测试或存在稳定子边界时才拆分，不为达到数字机械切函数。
+- 复杂分支只有在分支行为可独立、且确实存在扩展点时才使用策略/映射；类型穷举 switch、状态转换和共享上下文逻辑不要机械改写。
 - React 组件渲染函数 JSX 嵌套 > 3 层：抽子组件。
 
 ### 4.3 导入导出规范
 - **禁止默认导出业务组件/服务**（React.lazy 等场景例外），一律命名导出。
 - 类型抽到 `*.types.ts`，禁止在业务文件里放 20+ 行 `interface/type`。
 - 常量抽到 `*.const.ts`，禁止散落组件内。
-- **禁止循环 import**：拆分后跑 `pnpm typecheck` + `madge --circular apps/windows/src` 校验。
+- **禁止循环 import**：拆分后跑 `pnpm typecheck`；如引入循环依赖检查工具，必须先加入仓库 devDependency 和 CI 固定版本。
 
 ### 4.4 反模式识别（AI 生成代码高频踩坑）
 1. **"堆肉式"组件**：一个组件文件 1000 行，全是 `useState` + `handleXXX` + JSX，没有子组件拆分。
@@ -292,42 +268,45 @@ ChatPage/
 
 ## 五、重构执行路线图
 
-### 阶段 1：P0 清欠（预计 5–7 个工作日，可并行 2 人）
+### 阶段 1：P0 清欠（按小提交推进，不预设工期）
 
-| 周 | 任务 | 负责人（示例） | 产出 |
+| 顺序 | 任务 | 协作范围（示例） | 产出 |
 |---|---|---|---|
-| W1-D1 | `preload/index.ts` 拆分 | 主进程 | `preload/bridge/*` + `preload/event-mux/*` + `ElectronAPI.d.ts` |
-| W1-D2 | `src/main/index.ts` 拆分 | 主进程 | `windows/*` + `tray/*` + `ipc/*` + `bootstrap/*` |
-| W1-D3 | `agent-runtime-ipc.ts` 拆分 | 主进程 + Agent Runtime | `ipc/agent-runtime-ipc/*` 9 个能力域文件 |
-| W2-D1 | `SettingsPage.tsx` 拆分 | 前端 | 10 个 Section + 3 个 hooks |
-| W2-D2 | `ChatPage.tsx` 拆分 | 前端 | layout/* + hooks/*，主组件精简到 300 行 |
-| W2-D3 | `system-prompt-builder.ts` 拆分 | Agent Runtime | 10 个 section 文件 |
-| W2-D4 | 全部回归 `pnpm typecheck` + `pnpm test` | 全体 | 无编译错误；关键路径测试通过 |
+| 1 | 建立基线 | 全体 | 运行实际 workspace typecheck/test，记录 IPC、Preload、Prompt 和初始化契约 |
+| 2 | 纯函数和低风险 UI 抽取 | Agent Runtime / 前端 | 先抽 Prompt section、Settings/ChatPage 的真实职责边界 |
+| 3 | `agent-runtime-ipc.ts` | 主进程 + Agent Runtime | 保留单通道，按 command domain 拆 dispatcher |
+| 4 | `preload/index.ts` | 主进程 / 前端 | 保持 electronAPI 和全局 service 兼容 |
+| 5 | `src/main/index.ts` | 主进程 | 最后迁移初始化和 IPC 注册，逐域验证顺序 |
+| 6 | 回归 | 全体 | typecheck、workspace test、契约测试和关键路径手动回归 |
 
 ### 阶段 2：P1 推进（按需，穿插在日常迭代）
 - 每个 feature 分支顺手拆分 1–2 个 P1 文件，不做集中大改。
 - 原则：**改到哪个大文件，就把那个文件顺手拆了**，不要积累。
 
-### 阶段 3：ESLint 门禁
-- 阶段 1 完成后，立即引入 `eslint-plugin-max-lines`，设置 400 行 warn、500 行 error。
-- CI 中加入 `tsc --noEmit` + madge 循环依赖检查。
+### 阶段 3：按实际需要增加门禁
+- 先稳定职责边界和测试，再决定是否引入 max-lines。
+- CI 至少运行现有 workspace typecheck 和各 package 已有 test script。
+- 循环依赖检查工具只有在固定依赖版本后才加入 CI。
 
 ---
 
 ## 六、重构校验清单（每项必过）
 
 - [ ] `pnpm typecheck` 全 workspace 零报错
-- [ ] `npx madge --circular apps/windows/src` 无循环依赖
-- [ ] 单文件行数：业务组件≤400 行；服务/Hooks≤300 行；工具≤500 行；纯常量≤1000 行
-- [ ] 无内联默认导出（除 `React.lazy` 等特殊场景）
+- [ ] `pnpm --filter lumii-windows typecheck`
+- [ ] `pnpm --filter lumii-windows test`
+- [ ] `pnpm --filter @mtbot/agent-runtime typecheck`
+- [ ] `pnpm --filter @mtbot/agent-runtime test`
+- [ ] 行数变化已解释，没有为了降低行数制造空壳文件
+- [ ] IPC、Preload API、Prompt 输出和初始化顺序契约保持不变
 - [ ] 类型集中在 `*.types.ts`，无跨文件重复 interface
-- [ ] 拆分前后关键行为一致：跑 `pnpm test` + 手动回归主路径（发消息、调工具、语音通话、录屏、渠道发信）
+- [ ] 拆分前后关键行为一致：发消息、调工具、语音通话、录屏、渠道发信、文件预览和设置保存均完成回归
 - [ ] 文件命名：从文件名即可判断职责（如 `bridge-tool-registrar.ts` ✅，`utils.ts` ❌ 聚合太泛）
 
 ---
 
 ## 七、详细文件索引
 
-所有 107 个 >400 行文件的分级、问题诊断、具体拆分建议见：
+所有当前 104 个 >400 行文件的分级、问题诊断、具体拆分建议见：
 
 👉 **[code-location-index.md](./code-location-index.md)**
