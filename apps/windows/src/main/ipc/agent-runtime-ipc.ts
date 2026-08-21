@@ -104,6 +104,18 @@ import {
   handleAgentInstanceList,
   handleAgentInstanceLifecycleSnapshot,
 } from './agent-runtime/agent-commands'
+import {
+  handleToolsList,
+  handleToolsToggle,
+  handleMcpStatus,
+  handleMcpUpsert,
+  handleMcpImport,
+  handleMcpRemove,
+  handleMcpSetEnabled,
+  handleMcpReconnect,
+  handleMcpReadConfigFile,
+  handleMcpWriteConfigFile,
+} from './agent-runtime/tools-and-mcp-commands'
 import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../coding-dev-backends-stub/contracts.js'
 import { extractDocumentText } from '../vendor/document-parser.js'
@@ -526,26 +538,6 @@ export function installAgentRuntimeCommandIpc(): void {
   }
   ipcMain.handle('agent-runtime:command', commandHandler)
   log.info('agent-runtime:command 已提前注册（installAgentRuntimeCommandIpc）')
-}
-
-/**
- * 解析记忆列表/清空所用的 Agent 定义 ID
- */
-/**
- * 把 MCP 写操作包成 { success, error }
- *
- * 配置无效、名称冲突、命令启动失败都是用户可修的日常错误，
- * 不该抛到 IPC 边界外变成 renderer 的未捕获 rejection。
- */
-async function toMcpResult(action: () => Promise<void>): Promise<{ success: boolean; error?: string }> {
-  try {
-    await action()
-    return { success: true }
-  } catch (err) {
-    const error = (err as Error).message
-    log.error('[mcp] 操作失败:', error)
-    return { success: false, error }
-  }
 }
 
 /**
@@ -986,60 +978,35 @@ export async function handleCommand(
         return handleAgentMemoriesProvenance(bridge, command)
 
       // ---- 工具管理 ----
-      case 'tools:list': {
-        // 附带累计调用次数，让 UI 能标出高频/从未使用的工具
-        const usage = await getToolUsage()
-        return bridge.listTools().map((tool) => {
-          const stat = usage[tool.name]
-          return {
-            ...tool,
-            usageCount: stat?.count ?? 0,
-            ...(stat?.lastUsedAt ? { lastUsedAt: stat.lastUsedAt } : {}),
-          }
-        })
-      }
+      case 'tools:list':
+        return handleToolsList(bridge)
 
-      case 'tools:toggle': {
-        const success = bridge.toggleTool(command.toolName, command.enabled)
-        log.info(`[tools:toggle] toolName=${command.toolName} enabled=${command.enabled} success=${success}`)
-        return { success }
-      }
+      case 'tools:toggle':
+        return handleToolsToggle(bridge, command)
 
-      case 'mcp:status': {
-        const configError = bridge.getMcpConfigError()
-        return {
-          servers: bridge.getMcpStatus(),
-          ...(configError ? { configError } : {}),
-        }
-      }
+      case 'mcp:status':
+        return handleMcpStatus(bridge)
 
-      case 'mcp:upsert': {
-        return toMcpResult(() => bridge.upsertMcpServer(command.entry, command.originalName))
-      }
+      case 'mcp:upsert':
+        return handleMcpUpsert(bridge, command)
 
-      case 'mcp:import': {
-        return toMcpResult(() => bridge.importMcpServers(command.entries))
-      }
+      case 'mcp:import':
+        return handleMcpImport(bridge, command)
 
-      case 'mcp:remove': {
-        return toMcpResult(() => bridge.removeMcpServer(command.name))
-      }
+      case 'mcp:remove':
+        return handleMcpRemove(bridge, command)
 
-      case 'mcp:setEnabled': {
-        return toMcpResult(() => bridge.setMcpServerEnabled(command.name, command.enabled))
-      }
+      case 'mcp:setEnabled':
+        return handleMcpSetEnabled(bridge, command)
 
-      case 'mcp:reconnect': {
-        return toMcpResult(() => bridge.reconnectMcpServer(command.name))
-      }
+      case 'mcp:reconnect':
+        return handleMcpReconnect(bridge, command)
 
-      case 'mcp:readConfigFile': {
-        return bridge.readMcpConfigFile()
-      }
+      case 'mcp:readConfigFile':
+        return handleMcpReadConfigFile(bridge)
 
-      case 'mcp:writeConfigFile': {
-        return toMcpResult(() => bridge.writeMcpConfigFile(command.content))
-      }
+      case 'mcp:writeConfigFile':
+        return handleMcpWriteConfigFile(bridge, command)
 
       // ---- 主进程桥接（原 agent-runtime:* 独立通道）----
       case 'runtime:ping':
