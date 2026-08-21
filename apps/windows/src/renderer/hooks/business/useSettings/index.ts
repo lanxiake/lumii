@@ -5,6 +5,7 @@
 export { useSettings, SETTINGS_STORAGE_KEY, SETTINGS_UPDATE_EVENT } from './useSettings'
 export { useCategorySettings } from './useCategorySettings'
 export type { UseSettingsReturn } from './useSettings'
+export type { UseCategorySettingsReturn } from './useCategorySettings'
 export type {
   AppSettings,
   ThemeConfig,

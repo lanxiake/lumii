@@ -16,7 +16,7 @@ interface UseCategorySettingsOptions<T> {
   onSave: (value: T) => Promise<void>
 }
 
-interface UseCategorySettingsReturn {
+export interface UseCategorySettingsReturn {
   /** Has unsaved changes */
   hasChanges: boolean
   /** Is saving */

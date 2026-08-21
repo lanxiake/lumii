@@ -143,6 +143,7 @@ import {
   setupMemPalaceIpcHandlers,
   writeUserMemoryFile,
 } from './ipc/plugin-ipc'
+import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
 import { registerCodingDevIpcHandlers } from './ipc/coding-dev-ipc'
 import { initScriptRuntimes } from './runtime-env'
 import { VoiceModelManager } from './voice/model-manager.js'
@@ -1009,8 +1010,6 @@ function reapplyCodingDevAcpEnvFromConfig(): void {
 function setupIpcHandlers(): void {
   log.info('设置 IPC 处理器')
 
-  // 使用提取的 IPC handlers 模块
-  const { registerAllIpcHandlers } = require('./ipc/ipc-handlers-registry')
   registerAllIpcHandlers({
     getMainWindow: () => mainWindow,
     getConfigManager: () => configManager,
