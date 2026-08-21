@@ -74,7 +74,12 @@ export function useComposerDraft({
    */
   const markFlushed = useCallback((next: string) => {
     lastFlushedRef.current = next
-  }, [])
+    if (value !== next && !isComposingRef.current) {
+      innerValueRef.current = value
+      setInnerValue(value)
+      lastFlushedRef.current = value
+    }
+  }, [value])
 
   useLayoutEffect(() => {
     const prevKey = prevSessionKeyRef.current

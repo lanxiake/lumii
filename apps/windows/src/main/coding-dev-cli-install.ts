@@ -161,6 +161,14 @@ function resolveUninstallRecipe(status: LocalAcpToolStatus): UninstallRecipe {
         hint: 'Codex 官方未提供卸载命令，此路径取自官方安装脚本的默认安装目录；~/.codex 配置保留。PATH 中的残留条目需手动清理。',
       }
     case 'cursor':
+      if (status.resolvedPath && /qoder/i.test(status.resolvedPath)) {
+        return {
+          displayCommand: `(手动) 删除 ${status.resolvedPath} 并清理 PATH`,
+          powershellCommand: '',
+          documented: false,
+          hint: '检测到非 Cursor 官方安装路径，无法安全自动卸载，请按原安装方式手动移除。',
+        }
+      }
       // 官方装到 ~/.local/bin（旧版在 %LOCALAPPDATA%\cursor-agent），两处都清
       return {
         displayCommand:

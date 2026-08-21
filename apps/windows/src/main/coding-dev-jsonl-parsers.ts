@@ -271,6 +271,7 @@ export type AcpParsedProgress =
  */
 export class AcpToolStreamParser {
   private parser: ((line: string) => ParsedLine) | null
+  private readonly backendId: LightweightCodingDevBackendId
 
   /** 该后端是否有 JSONL 解析器。有解析器意味着 stdout 是 JSONL，不可直接展示给用户 */
   get hasParser(): boolean {
@@ -286,6 +287,7 @@ export class AcpToolStreamParser {
   private seenJson = false
 
   constructor(backendId: LightweightCodingDevBackendId) {
+    this.backendId = backendId
     this.parser = PARSERS[backendId] ?? null
   }
 
@@ -298,7 +300,7 @@ export class AcpToolStreamParser {
     if (!this.parser) return { kind: 'message', text: line }
 
     // Cursor 等 CLI 在首行 JSON 前会 echo 用户输入和时间戳，跳过
-    if (!this.seenJson && !trimmed.startsWith('{')) return null
+    if (!this.seenJson && !trimmed.startsWith('{') && this.backendId !== 'codex') return null
     if (trimmed.startsWith('{')) this.seenJson = true
 
     const parsed = this.parser(trimmed)

@@ -148,7 +148,7 @@ const SEED_JOBS: readonly SeedJob[] = [
     notifyTargets: 'system',
     // 默认关闭：与其它预置任务不同，这条每 2 小时就触发一次，
     // 容易让用户觉得「这应用怎么老弹东西」，装好后由用户自己按需打开。
-    enabled: false,
+    enabled: true,
   },
   {
     id: 'seed-workspace-tidy',
