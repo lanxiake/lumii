@@ -49,6 +49,10 @@ import {
   setApiIpcDeps,
   registerApiIpcHandlers
 } from './api-ipc'
+import {
+  setSettingsIpcDeps,
+  registerSettingsIpcHandlers
+} from './settings-ipc'
 
 export interface IpcHandlersDeps {
   getMainWindow: () => BrowserWindow | null
@@ -65,6 +69,10 @@ export interface IpcHandlersDeps {
   getAgentRuntimeBridge: () => AgentRuntimeBridge | null
   getWorkspaceDir: () => string
   reapplyCodingDevAcpEnv: () => void
+  setMemoryInjectionSettings: (settings: {
+    injectPersonalMemory?: boolean
+    injectWorkMemory?: boolean
+  }) => void
   isQuittingGetter: () => boolean
   setIsQuitting: (value: boolean) => void
   log: {
@@ -122,6 +130,10 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
     log: deps.log,
   })
 
+  setSettingsIpcDeps({
+    setMemoryInjectionSettings: deps.setMemoryInjectionSettings,
+  })
+
   // 注册所有 IPC handlers
   registerWorkspaceIpcHandlers()
   registerVcsIpcHandlers()
@@ -131,5 +143,6 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
   registerDialogClipboardIpcHandlers()
   registerSkillsIpcHandlers()
   registerApiIpcHandlers()
+  registerSettingsIpcHandlers()
   registerAppQuitHandler(deps.isQuittingGetter, deps.setIsQuitting)
 }
