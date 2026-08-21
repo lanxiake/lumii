@@ -38,6 +38,11 @@ import {
   handleCronRun,
   handleCronRuns,
 } from './agent-runtime/cron-commands'
+import {
+  handleSkillConfirmDraft,
+  handleSkillRejectDraft,
+  handleSkillDeprecate,
+} from './agent-runtime/skill-commands'
 import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../coding-dev-backends-stub/contracts.js'
 import { extractDocumentText } from '../vendor/document-parser.js'
@@ -1730,44 +1735,14 @@ export async function handleCommand(
         return handleImageProcess(bridge, command)
 
       // ---- 技能自进化 ----
-      case 'skill:confirm_draft': {
-        try {
-          const engine = bridge.getSkillEvolutionEngine()
-          if (!engine) throw new Error('SkillEvolutionEngine 未初始化')
-          await engine.confirmDraft(command.draft.id, command.draft as import('../skill-evolution/types').SkillDraft)
-          log.info(`[skill:confirm_draft] 草稿已确认: draftId=${command.draft.id}`)
-          return { ok: true }
-        } catch (err) {
-          log.error('[skill:confirm_draft] 失败:', err)
-          return { ok: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'skill:confirm_draft':
+        return handleSkillConfirmDraft(bridge, command)
 
-      case 'skill:reject_draft': {
-        try {
-          const engine = bridge.getSkillEvolutionEngine()
-          if (!engine) throw new Error('SkillEvolutionEngine 未初始化')
-          await engine.rejectDraft(command.draftId)
-          log.info(`[skill:reject_draft] 草稿已拒绝: draftId=${command.draftId}`)
-          return { ok: true }
-        } catch (err) {
-          log.error('[skill:reject_draft] 失败:', err)
-          return { ok: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'skill:reject_draft':
+        return handleSkillRejectDraft(bridge, command)
 
-      case 'skill:deprecate': {
-        try {
-          const engine = bridge.getSkillEvolutionEngine()
-          if (!engine) throw new Error('SkillEvolutionEngine 未初始化')
-          await engine.deprecateSkill(command.skillName)
-          log.info(`[skill:deprecate] 技能已废弃: skillName=${command.skillName}`)
-          return { ok: true }
-        } catch (err) {
-          log.error('[skill:deprecate] 失败:', err)
-          return { ok: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'skill:deprecate':
+        return handleSkillDeprecate(bridge, command)
 
       default: {
         const _exhaustive: never = command
