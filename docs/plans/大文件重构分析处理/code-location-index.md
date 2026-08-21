@@ -20,16 +20,17 @@
 
 ## P0 级 — >1500 行（6 个）
 
-### P0-01
+### P0-01 ✅ 已完成
 | 项目 | 内容 |
 |---|---|
 | **文件** | [index.ts](../../../apps/windows/src/main/index.ts) |
-| **有效行数** | 2980 |
+| **有效行数** | 2980 → 1454（减少 51%） |
 | **类别** | 主进程入口（服务装配） |
 | **警戒阈值** | 300 行（观察信号，不作为硬门禁） |
 | **主要问题** | 窗口、托盘、普通 IPC、渠道、语音、录屏及服务初始化仍集中在入口；Agent Runtime command IPC 已有独立模块；初始化顺序是功能契约 |
 | **拆分建议** | 先按现有目录边界提取 `window` / `tray` / `ipc` / `coding-dev` 等模块，入口保留 composition root；仅在真实重复或依赖边界清晰时增加 bootstrap 文件 |
-| **预计拆后文件数** | 不预设文件数量；以初始化顺序、依赖方向和行为测试为准 |
+| **完成情况** | 已提取 8 个 IPC handlers 模块（workspace/vcs/window/channel/file-system/dialog-clipboard/skills/api-ipc）+ settings-ipc，经 `ipc-handlers-registry.ts` 统一注册；`setupApiIpcHandlers` 重复代码已清空 |
+| **完成提交** | 6fda408 ~ 423f3bc（2026-08-21）|
 
 ### P0-02
 | 项目 | 内容 |
@@ -68,16 +69,18 @@
 | **完成情况** | 已按 section 边界拆分为多个模块 |
 | **完成提交** | 6397c54（2026-08 之前）|
 
-### P0-05
+### P0-05 🔄 部分完成
 | 项目 | 内容 |
 |---|---|
 | **文件** | [index.ts](../../../apps/windows/src/preload/index.ts) |
-| **有效行数** | 1913 |
+| **有效行数** | 2011 → 1989（准备工作已提取，主文件尚未大幅精简） |
 | **类别** | Preload 桥接脚本 |
 | **警戒阈值** | 450 行（观察信号，不作为硬门禁） |
 | **主要问题** | ElectronAPI 类型、实现对象、事件监听和外部服务暴露仍集中在 preload；已有 `pet-api.ts` 等能力模块可复用 |
 | **拆分建议** | 按现有 API 能力提取 `file` / `channel` / `skills` / `app` 等模块；保留 index 聚合和 `exposeInMainWorld`，不预先拆固定数量的 event-mux |
-| **预计拆后文件数** | 按重复度和 API 边界确定；必须保持 `electronAPI`、全局服务和 `global.d.ts` 类型契约 |
+| **完成情况** | 已提取 10 个 API 模块（file/system/workspace/dialog-clipboard/app/window/skills/vcs/channel/api-server）+ `api/index.ts` 聚合导出；`index.ts` 中 `electronAPI` 已改为引用这些模块，但对象本身尚未拆分、大部分类型声明仍在主文件内 |
+| **完成提交** | 93eb981, 748db8d（2026-08-21）|
+| **待办** | 继续把 `electronAPI` 对象拆分到各能力模块内声明，主文件只保留聚合 + `exposeInMainWorld` |
 
 ### P0-06
 | 项目 | 内容 |
@@ -89,6 +92,21 @@
 | **主要问题** | 会话列表 + 消息渲染 + 输入框 + 工作空间面板 + 语音通话 + 版本控制 全部一个组件；30+ hooks |
 | **拆分建议** | 复用现有 ChatSidebar、ChatContainer、ChatInput、WorkspaceFilePanel、WorkspaceVersionPanel 等组件；优先提取真实的 hook/副作用边界，主组件保留页面编排 |
 | **预计拆后文件数** | 不预设文件数量；以发送、会话、面板、语音和版本控制行为测试为准 |
+
+---
+
+## 门禁状态（非文件拆分，但阻塞后续重构提交）
+
+### ✅ typecheck：83 → 0，全工作区通过
+拆分 P0-01/P0-03 过程中暴露和引入的类型错误已全部清零（`pnpm typecheck` exit 0），未使用 `any`、未抑制任何错误、未绕过 pre-commit。过程中顺带修复了几处真实缺陷（`storage-commands.ts` 的 `restoreBackup` 漏返回 `ok` 字段、`burn-subtitles-service.ts` 配音时长漏算 `endMs`、`AppUiController.scrollToText`/`fillForm` 接口缺失的错误分支声明等），并清理了 `browser-control` 包内引用已删除 Gateway 配置符号的死代码（`bridge-server.ts`/`server.ts` 已删除，`profiles-service.ts` 的 `createProfile`/`deleteProfile` 因依赖的 5 个符号在全仓库已无定义而移除，仅保留只读 `listProfiles`）。
+详细清单见提交信息（`git log` 搜索 "清零全工作区 typecheck 错误"）。
+
+### 🔴 lint：未安装，未配置，阻塞中
+`apps/windows/package.json` 声明了 `"lint": "eslint . --ext .ts,.tsx"`，但 `eslint` 从未被列为依赖，本机 `node_modules/.pnpm` 中也无缓存记录——即这个脚本从项目创建以来就没有真正跑过。执行 `pnpm typecheck && ... lint && ... test:all` 门禁时会在 lint 步骤报 "eslint 不是内部或外部命令"。
+**这不是代码回归，是环境缺口**，且需要决策后才能动手（规则基线、是否清理存量问题），已与用户对齐方向：
+- 规则基线：宽松起步（`eslint:recommended` + `@typescript-eslint/recommended`，不含 `react-hooks` 严格规则）
+- 存量代码：暂不处理，只保证新改动的文件通过
+**待办**：安装 `eslint` + `@typescript-eslint/*`（`--ext` 是旧版 CLI 参数，若装的是 ESLint 9.x 需用 flat config `eslint.config.js` 并同步改写 `lint` 脚本，不能直接照搬 `--ext` 写法）；建好配置后跑一遍确认新改动文件（本次改的 30 个文件）干净，存量报错留档不阻塞。
 
 ---
 
