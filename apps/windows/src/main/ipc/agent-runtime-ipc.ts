@@ -43,6 +43,12 @@ import {
   handleSkillRejectDraft,
   handleSkillDeprecate,
 } from './agent-runtime/skill-commands'
+import {
+  handleCodingDevSetBackend,
+  handleCodingDevGetBackend,
+  handleCodingDevListBackends,
+  setAcpBackendManagerGetter,
+} from './agent-runtime/coding-dev-commands'
 import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../coding-dev-backends-stub/contracts.js'
 import { extractDocumentText } from '../vendor/document-parser.js'
@@ -421,6 +427,10 @@ export function installAgentRuntimeCommandIpc(): void {
     return
   }
   agentRuntimeCommandIpcInstalled = true
+
+  // 初始化 coding-dev-commands 的 AcpBackendManager getter
+  setAcpBackendManagerGetter(getAcpBackendManager)
+
   const commandHandler = async (
     _event: Electron.IpcMainInvokeEvent,
     command: AgentRuntimeCommand,
@@ -1702,27 +1712,14 @@ export async function handleCommand(
       }
 
       // ---- ACP 多后端管理 ----
-      case 'codingDev:setBackend': {
-        const mgr = getAcpBackendManager()
-        // Windows 客户端统一用 user-global 范围，accountId 固定为 LOCAL_USER_ID
-        await mgr.setBackend(
-          command.backendId as CodingDevBackendId,
-          'user-global',
-          LOCAL_USER_ID,
-        )
-        return { ok: true }
-      }
+      case 'codingDev:setBackend':
+        return handleCodingDevSetBackend(command)
 
-      case 'codingDev:getBackend': {
-        const mgr = getAcpBackendManager()
-        const backendId = mgr.getBackend(LOCAL_USER_ID)
-        return { backendId }
-      }
+      case 'codingDev:getBackend':
+        return handleCodingDevGetBackend()
 
-      case 'codingDev:listBackends': {
-        const mgr = getAcpBackendManager()
-        return { backends: mgr.listBackends() }
-      }
+      case 'codingDev:listBackends':
+        return handleCodingDevListBackends()
 
       // ---- 图片处理（识别 / 美化 / 等，按 operation 扩展） ----
       case 'image:recognize':
