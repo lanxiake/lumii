@@ -13,6 +13,25 @@ import type { UsageSummary } from '../main/usage-store'
 import type { NewsSnapshot } from '../main/news-store'
 import type { DashboardFeedSnapshot } from '../main/dashboard-feed-store'
 import type { LatencyView } from '../main/provider-latency'
+// 导入提取的 API 模块
+import {
+  fileApi,
+  systemApi,
+  workspaceApi,
+  dialogApi,
+  clipboardApi,
+  appApi,
+  splashApi,
+  windowApi,
+  notifyApi,
+  skillsApi,
+  vcsApi,
+  weixinApi,
+  wecomApi,
+  feishuApi,
+  channelApi,
+  apiServerApi,
+} from './api'
 
 // 日志输出
 const log = {
@@ -1172,91 +1191,50 @@ const electronAPI: ElectronAPI = {
   },
 
   // 文件操作 API
-  file: {
-    list: (dirPath: string) => ipcRenderer.invoke('file:list', dirPath),
-    read: (filePath: string) => ipcRenderer.invoke('file:read', filePath),
-    readAsBase64: (filePath: string) => ipcRenderer.invoke('file:readAsBase64', filePath),
-    write: (filePath: string, content: string) => ipcRenderer.invoke('file:write', filePath, content),
-    move: (sourcePath: string, destPath: string) =>
-      ipcRenderer.invoke('file:move', sourcePath, destPath),
-    copy: (sourcePath: string, destPath: string) =>
-      ipcRenderer.invoke('file:copy', sourcePath, destPath),
-    delete: (filePath: string) => ipcRenderer.invoke('file:delete', filePath),
-    createDir: (dirPath: string) => ipcRenderer.invoke('file:createDir', dirPath),
-    exists: (filePath: string) => ipcRenderer.invoke('file:exists', filePath),
-    getInfo: (filePath: string) => ipcRenderer.invoke('file:getInfo', filePath),
-    search: (dirPath: string, pattern: string, options?: unknown) =>
-      ipcRenderer.invoke('file:search', dirPath, pattern, options),
-  },
+  file: fileApi,
 
   // 系统信息 API
-  system: {
-    getInfo: () => ipcRenderer.invoke('system:getInfo'),
-    getDiskInfo: () => ipcRenderer.invoke('system:getDiskInfo'),
-    getProcessList: () => ipcRenderer.invoke('system:getProcessList'),
-    killProcess: (pid: number) => ipcRenderer.invoke('system:killProcess', pid),
-    launchApp: (appPath: string, args?: string[]) =>
-      ipcRenderer.invoke('system:launchApp', appPath, args),
-    executeCommand: (command: string) => ipcRenderer.invoke('system:executeCommand', command),
-    getUserPaths: () => ipcRenderer.invoke('system:getUserPaths'),
-  },
+  system: systemApi,
 
   usage: {
     query: (query: { from: number; to: number; groupBy: 'hour' | 'day' }) =>
-      ipcRenderer.invoke('usage:query', query),
-    latency: () => ipcRenderer.invoke('usage:latency'),
+      apiServerApi.queryUsage(query),
+    latency: () => apiServerApi.getLatency(),
   },
 
   news: {
-    latest: () => ipcRenderer.invoke('news:latest'),
+    latest: () => apiServerApi.getLatestNews(),
     refresh: () => ipcRenderer.invoke('news:refresh'),
   },
 
   dashboardFeed: {
-    latest: () => ipcRenderer.invoke('dashboard-feed:latest'),
-    refresh: () => ipcRenderer.invoke('dashboard-feed:refresh'),
-    setActive: (feedId: string) => ipcRenderer.invoke('dashboard-feed:set-active', feedId),
+    latest: () => apiServerApi.getLatestDashboardFeed(),
+    refresh: () => apiServerApi.refreshDashboardFeed(),
+    setActive: (feedId: string) => apiServerApi.setActiveDashboardFeed(feedId),
   },
 
   // 窗口操作 API
-  window: {
-    minimize: () => ipcRenderer.send('window:minimize'),
-    maximize: () => ipcRenderer.send('window:maximize'),
-    close: () => ipcRenderer.send('window:close'),
-    isMaximized: () => ipcRenderer.invoke('window:isMaximized'),
-    getCursorClientPos: () =>
-      ipcRenderer.invoke('window:getCursorClientPos') as Promise<{
-        x: number
-        y: number
-        inside: boolean
-      } | null>,
-  },
+  window: windowApi,
 
   notifyDesktop: (title: string, body: string) =>
-    ipcRenderer.invoke('notify:desktop', { title, body }) as Promise<void>,
+    notifyApi.desktop({ title, body }) as Promise<void>,
 
   // 本地 LLM Provider 配置（按能力槽）
   provider: {
-    getConfig: () => ipcRenderer.invoke('provider:getConfig') as Promise<ProviderSlotsConfigView>,
+    getConfig: () => apiServerApi.getProviderConfig() as Promise<ProviderSlotsConfigView>,
     setConfig: (cfg: ProviderSlotsConfigView | LocalProviderConfigView) =>
-      ipcRenderer.invoke('provider:setConfig', cfg) as Promise<ProviderSlotsConfigView>,
+      apiServerApi.setProviderConfig(cfg) as Promise<ProviderSlotsConfigView>,
     listModels: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) =>
-      ipcRenderer.invoke('provider:listModels', slot, draftCfg) as Promise<{
+      apiServerApi.listModels(slot, draftCfg) as Promise<{
         success: boolean
         data?: ListedModel[]
         error?: string
       }>,
     testConnection: (slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) =>
-      ipcRenderer.invoke('provider:testConnection', slot, draftCfg) as Promise<ProviderTestResult>,
+      apiServerApi.testConnection(slot, draftCfg) as Promise<ProviderTestResult>,
   },
 
-  splash: {
-    shouldSkip: () =>
-      process.argv.includes('--skip-splash')
-      || process.argv.includes('--test-mode')
-      || process.argv.includes('--startup-launched')
-      || process.env.LUMII_SKIP_SPLASH === '1',
-  },
+  splash: splashApi,
 
   // 应用操作 API
   app: {
