@@ -41,8 +41,8 @@ interface UserDependencies {
       instanceId: string,
       sessionKey: string,
       prompt: string,
-      imageAttachmentPaths: string[] | undefined,
-      msgId: string,
+      imageAttachmentPaths?: readonly string[],
+      msgId?: string,
     ) => Promise<void>
     sessionManager: { clearLock: (sessionKey: string) => void }
     getContextStrategy: () => unknown
@@ -60,8 +60,8 @@ interface UserDependencies {
       bridge: AgentRuntimeBridge
       pushEvent: (event: AgentRuntimeEvent) => void
     }) => Promise<void>
-    abortRun: (runId: string, reason: string) => boolean
-    abortSession: (sessionKey: string, reason: string) => number
+    abortRun: (runId: string, reason: 'user_cancel' | 'timeout') => boolean
+    abortSession: (sessionKey: string, reason: 'user_cancel' | 'timeout') => number
   }
   pushEvent: (win: BrowserWindow, event: AgentRuntimeEvent) => void
   resolveAgentIdForMemories: (
@@ -363,4 +363,3 @@ export function handleUserAbortCompactContext(
   log.info(`[user:abort-compact-context] sessionKey=${command.sessionKey}, aborted=${aborted}`)
   return { aborted }
 }
-

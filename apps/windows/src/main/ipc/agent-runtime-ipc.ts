@@ -713,9 +713,6 @@ export function registerAgentRuntimeIPC(
   ipcMainWindowRef = _mainWindow
   log.info('Agent Runtime Bridge 已挂接到 IPC（agent-runtime:command）')
 
-  // 异步一次性迁移：修复 DB 中旧消息 content_json.text 含 </think> 但无 thinkingText 的行
-  setImmediate(() => { migrateThinkTagsInDb(bridge).catch((e) => log.warn('[migrate] think-tag 迁移失败:', e)) })
-
   return () => {
     setAgentRuntimeBridgeForIpc(null)
     sessionToInstance.clear()

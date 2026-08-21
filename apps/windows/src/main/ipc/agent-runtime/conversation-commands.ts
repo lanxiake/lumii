@@ -61,8 +61,8 @@ interface ConversationDependencies {
       instanceId: string,
       sessionKey: string,
       prompt: string,
-      attachments: unknown,
-      msgId: string,
+      attachments?: readonly string[],
+      msgId?: string,
     ) => Promise<void>
   }
   getInstanceForSession: (
