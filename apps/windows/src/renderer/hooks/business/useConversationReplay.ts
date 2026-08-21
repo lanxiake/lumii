@@ -71,9 +71,10 @@ export function useConversationReplay(): ConversationReplayState & ConversationR
         } else {
           // VITS PCM
           try {
-            const samples: Float32Array = event.samples instanceof Float32Array
-              ? event.samples
-              : new Float32Array(event.samples)
+            // event.samples 的类型宽于 Float32Array<ArrayBuffer>（IPC 反序列化后可能是
+            // Float32Array<ArrayBufferLike> 视图或 number[]），copyToChannel 要求具体
+            // ArrayBuffer 支撑，两种输入都统一走 new Float32Array(...) 以获得新的具体缓冲区
+            const samples = new Float32Array(event.samples)
             const sampleRate: number = event.sampleRate > 0 ? event.sampleRate : 22050
             if (ctx.state === 'running' && samples.length > 0) {
               const buffer = ctx.createBuffer(1, samples.length, sampleRate)

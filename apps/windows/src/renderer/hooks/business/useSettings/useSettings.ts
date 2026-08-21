@@ -147,6 +147,7 @@ export function useSettings() {
                 system: {
                   autoStart: typeof legacyParsed.autoStart === 'boolean' ? legacyParsed.autoStart : effectiveDefaults.system.autoStart,
                   minimizeToTray: typeof legacyParsed.minimizeToTray === 'boolean' ? legacyParsed.minimizeToTray : effectiveDefaults.system.minimizeToTray,
+                  showSplashOnStartup: effectiveDefaults.system.showSplashOnStartup,
                 },
                 notification: {
                   ...effectiveDefaults.notification,

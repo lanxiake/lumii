@@ -978,7 +978,7 @@ export class BridgeToolRegistrar {
          * 取某会话已归档段的 palace drawer_id 集合，用于 memory_search 会话级过滤。
          */
         const drawerIdsForSession = (conversationId: string): Set<string> => {
-          const rows = this.deps.localDb
+          const rows = this.deps.localDb.db
             .prepare(
               `SELECT palace_drawer_id FROM memory_segments
                WHERE conversation_id = ? AND palace_drawer_id IS NOT NULL`,

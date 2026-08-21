@@ -229,9 +229,13 @@ export class BridgeInstanceFactory {
         const modelLabel = `llm:${cfg.type}:${model?.id ?? cfg.modelId ?? '(unknown)'}`
         try {
           // 注入 sessionId 到 options，用于 prompt caching
+          const existingSessionId = (options as { sessionId?: unknown })?.sessionId
           const optionsWithSession = {
             ...options,
-            sessionId: (options as Record<string, unknown>)?.sessionId ?? ctx.sessionKey,
+            sessionId:
+              typeof existingSessionId === 'string' && existingSessionId
+                ? existingSessionId
+                : ctx.sessionKey,
           }
           const streamOrPromise = direct(model, context, optionsWithSession)
           // 记录每次模型请求到审计日志（复用现有「安全日志」面板）：
@@ -301,7 +305,14 @@ export class BridgeInstanceFactory {
         // 注意不要顺手把 model.reasoning 改成 false：z.ai 的「显式关闭」分支依赖它为真，
         // 置 false 会导致该分支被跳过，反而回到服务端默认开启思考。
         const streamOptions = thinking.thinkingEnabled
-          ? { ...options, reasoning: options?.reasoning ?? thinking.reasoningEffort }
+          ? {
+              ...options,
+              // 应用档位只有 high|max，而 pi-ai 的 ThinkingLevel 无 max，
+              // 映射到其最高档 xhigh 以保住「最大思考强度」语义
+              reasoning:
+                options?.reasoning ??
+                (thinking.reasoningEffort === 'max' ? 'xhigh' : thinking.reasoningEffort),
+            }
           : { ...options, reasoning: undefined, reasoningEffort: undefined }
 
         if (pref) {

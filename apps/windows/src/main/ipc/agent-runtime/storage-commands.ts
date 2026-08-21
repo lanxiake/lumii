@@ -48,7 +48,10 @@ export async function handleStorageRestoreBackup(
   command: Extract<AgentRuntimeCommand, { type: 'storage:restoreBackup' }>,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    return await bridge.restoreDatabaseFromBackupFile(String(command.backupFileName ?? ''))
+    return {
+      ok: true,
+      ...(await bridge.restoreDatabaseFromBackupFile(String(command.backupFileName ?? ''))),
+    }
   } catch (err) {
     log.error('[storage:restoreBackup] failed:', err)
     return { ok: false, error: err instanceof Error ? err.message : String(err) }

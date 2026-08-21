@@ -186,6 +186,9 @@ export interface AppUiActFailure {
   /** 人类可读提示，指导下一步怎么做 */
   hint?: string
   note?: string
+  /** scrollToText 命中 not_found 时，携带最后一次截图的快照信息以便排障 */
+  snapshotId?: string
+  refs?: AppUiRef[]
 }
 
 /** type 成功结果：回传写入后的实际内容，省掉一次确认截图 */
@@ -284,6 +287,7 @@ export interface AppUiController {
         snapshotId: string
       }
     | AppUiActFailure
+    | AppUiScreenshotFailure
     | { ok: false; error: 'field_not_found'; hint: string; field?: string }
   >
   /** 高层：模型配置页保存全部 */
@@ -1074,7 +1078,14 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
     kind?: 'heading' | 'button' | 'textbox' | 'any'
     direction?: 'down' | 'up' | 'auto'
     maxAttempts?: number
-  }) {
+  }): Promise<
+    | (AppUiScreenshotSuccess & {
+        matched?: { ref: string; role: string; name: string }
+        scrollTop?: number
+      })
+    | AppUiActFailure
+    | AppUiScreenshotFailure
+  > {
     const needle = String(input.text || '').trim().toLowerCase()
     if (!needle) return { ok: false as const, error: 'usage' as const, hint: 'text 不能为空' }
     const kind = input.kind ?? 'any'
@@ -1174,7 +1185,16 @@ export function createAppUiController(deps: AppUiControllerDeps): AppUiControlle
       text: string
       append?: boolean
     }>
-  }) {
+  }): Promise<
+    | {
+        ok: true
+        results: Array<{ label?: string; ref: string; value?: string; masked?: boolean }>
+        snapshotId: string
+      }
+    | AppUiActFailure
+    | AppUiScreenshotFailure
+    | { ok: false; error: 'field_not_found'; hint: string; field?: string }
+  > {
     const fields = input.fields ?? []
     if (fields.length === 0) {
       return { ok: false as const, error: 'usage' as const, hint: 'fields 不能为空' }

@@ -141,8 +141,10 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
    * Agent app-ui:goto — 声明式导航（精确发主窗，不走 pet 镜像）
    */
   useEffect(() => {
-    const handleAppUiGoto = (input: GotoInput) => {
-      const { view, category } = input
+    // electronAPI.on 是通用事件总线，回调签名固定为 (...args: unknown[]) => void，
+    // 不针对具体 channel 收窄；此处按 app-ui:goto 的约定形状断言首个参数
+    const handleAppUiGoto = (...args: unknown[]) => {
+      const { view, category } = args[0] as GotoInput
       if (isHubView(view)) {
         if (view === 'settings' && category) {
           openHub('settings', category)

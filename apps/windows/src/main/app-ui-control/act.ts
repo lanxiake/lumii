@@ -43,12 +43,15 @@ export type ClickPrepareError = 'click_target_lost' | 'click_blocked' | 'use_sel
 /** act 通用错误（含 usage，供 key 白名单拒绝等） */
 export type ActUsageError = 'usage'
 
+/** scrollToText 专用：已按方向滚动查找完毕仍未命中匹配文字 */
+export type ScrollSearchError = 'not_found'
+
 /** type/select 注入阶段错误 */
 export type ActInjectError = 'not_editable' | 'not_select' | 'option_not_found' | 'inject_failed'
 
 export type AppUiClickError = ClickAllowedError | ClickPrepareError | 'app_not_running'
 
-export type AppUiActError = AppUiClickError | ActUsageError | ActInjectError
+export type AppUiActError = AppUiClickError | ActUsageError | ActInjectError | ScrollSearchError
 
 export type AssertClickAllowedParams = {
   ref: string | undefined

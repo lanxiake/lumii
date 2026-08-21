@@ -41,7 +41,9 @@ export function jsonToolResult(data: unknown): AgentToolResult<unknown> {
 export function parseJsonToolResultPayload(result: unknown): Record<string, unknown> | null {
   if (!result || typeof result !== 'object') return null
   const r = result as { content?: Array<{ type?: string; text?: unknown }>; details?: unknown }
-  const textBlock = r.content?.find((c) => c?.type === 'text' && typeof c.text === 'string')
+  const textBlock = r.content?.find(
+    (c): c is { type?: string; text: string } => c?.type === 'text' && typeof c.text === 'string',
+  )
   if (textBlock?.text) {
     try {
       const parsed = JSON.parse(textBlock.text) as unknown

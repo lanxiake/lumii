@@ -22,7 +22,7 @@ describe('buildDubFilterArgs', () => {
   it('含 volume + adelay + amix', () => {
     const args = buildDubFilterArgs(
       'E:/r/a.webm',
-      [{ startMs: 1000, audioPath: 'E:/t/1.wav' }],
+      [{ startMs: 1000, endMs: 3000, audioPath: 'E:/t/1.wav' }],
       0.35,
       'E:/r/out.webm',
     )
@@ -35,7 +35,7 @@ describe('buildDubFilterArgs', () => {
   it('按输出容器选音频编码：webm→libopus，mp4→aac', () => {
     const webm = buildDubFilterArgs(
       'E:/r/a.webm',
-      [{ startMs: 0, audioPath: 'E:/t/1.wav' }],
+      [{ startMs: 0, endMs: 2000, audioPath: 'E:/t/1.wav' }],
       0.35,
       'E:/r/out.webm',
     )
@@ -44,7 +44,7 @@ describe('buildDubFilterArgs', () => {
     // MP4 容器不接受 opus 之外还要求视频可 copy，音频须用 aac
     const mp4 = buildDubFilterArgs(
       'E:/r/a.mp4',
-      [{ startMs: 0, audioPath: 'E:/t/1.wav' }],
+      [{ startMs: 0, endMs: 2000, audioPath: 'E:/t/1.wav' }],
       0.35,
       'E:/r/out.mp4',
     )

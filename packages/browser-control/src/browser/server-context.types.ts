@@ -61,7 +61,8 @@ export type ProfileContext = {
 
 export type ProfileStatus = {
   name: string;
-  cdpPort: number;
+  /** 远程 profile（isRemote）无本地 CDP 端口，故为可选 */
+  cdpPort?: number;
   cdpUrl: string;
   color: string;
   running: boolean;

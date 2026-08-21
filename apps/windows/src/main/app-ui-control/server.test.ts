@@ -75,6 +75,27 @@ function mockController(): AppUiController {
       atTop: false,
       atBottom: false,
     })),
+    // 以下为高层组合方法，本测试文件未覆盖其行为，仅提供满足接口的最小 mock
+    gotoAndScreenshot: vi.fn(async () => ({
+      ok: true as const,
+      view: 'chat',
+      hub: { open: false, tab: null, category: null },
+    })),
+    scrollToText: vi.fn(async () => ({ ok: false as const, error: 'not_found' as const, hint: '' })),
+    scrollToBottom: vi.fn(async () => ({
+      ok: true as const,
+      snapshotId: 'snap-1',
+      width: 100,
+      height: 100,
+      viewState: { view: 'chat', hub: { open: false, tab: null, category: null } },
+      refs: [],
+      truncated: false,
+      previewPath: '/tmp/snap-1.jpg',
+      windowVisible: true,
+      atBottom: true,
+    })),
+    fillForm: vi.fn(async () => ({ ok: false as const, error: 'usage' as const, hint: '' })),
+    settingsModelConfigSave: vi.fn(async () => ({ ok: true as const, saved: true as const })),
   }
 }
 

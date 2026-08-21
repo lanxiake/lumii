@@ -112,9 +112,19 @@ function fakeMediaPath(fileName: string): string {
 
 /** 构造带 im.file / im.image / im.message mock 的实例，用于 pushMedia 分支测试 */
 function makeMediaService() {
-  const fileCreate = vi.fn(async () => ({ code: 0, msg: 'success', data: { file_key: 'file_v3_abc' } }))
-  const imageCreate = vi.fn(async () => ({ code: 0, msg: 'success', data: { image_key: 'img_v2_abc' } }))
-  const messageCreate = vi.fn(async () => ({ code: 0, msg: 'success' }))
+  // 标注入参类型：否则 vi.fn 推出的 mock.calls 元素为空元组 []，
+  // 断言 calls[0]?.[0] 会因索引越界而报 TS2493
+  const fileCreate = vi.fn(async (_req?: unknown) => ({
+    code: 0,
+    msg: 'success',
+    data: { file_key: 'file_v3_abc' },
+  }))
+  const imageCreate = vi.fn(async (_req?: unknown) => ({
+    code: 0,
+    msg: 'success',
+    data: { image_key: 'img_v2_abc' },
+  }))
+  const messageCreate = vi.fn(async (_req?: unknown) => ({ code: 0, msg: 'success' }))
   const service = new FeishuLoginService()
   const instance = service as unknown as {
     httpClient: unknown

@@ -1,11 +1,28 @@
+import type { ResolvedBrowserConfig } from "./config.js";
+import {
+  createBrowserControlContext,
+  startBrowserControlServer,
+} from "./control-service.js";
+import { createBrowserRouteDispatcher } from "./dispatcher.js";
+
 function formatCliCommand(command: string): string {
   return command;
 }
-import {
-  createBrowserControlContext,
-  startBrowserControlServiceFromConfig,
-} from "./control-service.js";
-import { createBrowserRouteDispatcher } from "./routes/dispatcher.js";
+
+/**
+ * 进程内回退分支所需的配置提供者。
+ *
+ * 移除 Gateway 后本包不再自行读取配置文件（原 loadConfig 已删除），
+ * 配置一律由宿主构造并注入 —— 与 startBrowserControlServer(resolved) 的契约一致。
+ * 未注册时相对路径请求无法自举服务，会给出明确错误而非静默失败。
+ */
+let resolvedConfigProvider: (() => ResolvedBrowserConfig | null) | null = null;
+
+export function setBrowserControlConfigProvider(
+  provider: (() => ResolvedBrowserConfig | null) | null,
+): void {
+  resolvedConfigProvider = provider;
+}
 
 function isAbsoluteHttp(url: string): boolean {
   return /^https?:\/\//i.test(url.trim());
@@ -59,7 +76,14 @@ export async function fetchBrowserJson<T>(
     if (isAbsoluteHttp(url)) {
       return await fetchHttpJson<T>(url, { ...init, timeoutMs });
     }
-    const started = await startBrowserControlServiceFromConfig();
+    const resolved = resolvedConfigProvider?.() ?? null;
+    if (!resolved) {
+      throw new Error(
+        "browser control config provider not registered; " +
+          "call setBrowserControlConfigProvider() or use an absolute http(s) URL",
+      );
+    }
+    const started = await startBrowserControlServer(resolved);
     if (!started) {
       throw new Error("browser control disabled");
     }

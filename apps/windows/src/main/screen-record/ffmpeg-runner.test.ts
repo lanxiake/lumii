@@ -75,7 +75,10 @@ describe('webmToMp4', () => {
   })
 
   it('成功时传入 H.264/AAC 参数', async () => {
-    const spawn = vi.fn(() => makeFakeChild({ code: 0 }))
+    // 标注入参：否则 mock.calls 元素为空元组 []，断言 calls[0]![1] 会报 TS2493
+    const spawn = vi.fn((_cmd?: unknown, _args?: unknown, _opts?: unknown) =>
+      makeFakeChild({ code: 0 }),
+    )
     setFfmpegRunnerDepsForTest({
       resolveFfmpegPath: () => 'C:/fake/ffmpeg.exe',
       spawn: spawn as never,

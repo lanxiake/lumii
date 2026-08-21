@@ -24,7 +24,7 @@ function stubContext(): ToolExecutionContext {
   }
 }
 
-/** 最小 AppUiController stub（含 goto/click/type/select/key/scroll） */
+/** 最小 AppUiController stub（含 goto/click/type/select/key/scroll 及高层组合方法） */
 function stubController(overrides: Partial<AppUiController> = {}): AppUiController {
   return {
     screenshot: vi.fn(),
@@ -35,6 +35,11 @@ function stubController(overrides: Partial<AppUiController> = {}): AppUiControll
     select: vi.fn(),
     key: vi.fn(),
     scroll: vi.fn(),
+    gotoAndScreenshot: vi.fn(),
+    scrollToText: vi.fn(),
+    scrollToBottom: vi.fn(),
+    fillForm: vi.fn(),
+    settingsModelConfigSave: vi.fn(),
     ...overrides,
   }
 }

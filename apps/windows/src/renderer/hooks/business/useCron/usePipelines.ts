@@ -23,10 +23,16 @@ export interface UpdatePipelineParams {
 
 export function usePipelines() {
   const noopFetch = useCallback(async () => {}, [])
-  const getPipeline = useCallback(async (): Promise<Pipeline | null> => null, [])
-  const createPipeline = useCallback(async (): Promise<Pipeline | null> => null, [])
-  const updatePipeline = useCallback(async (): Promise<boolean> => false, [])
-  const removePipeline = useCallback(async (): Promise<boolean> => false, [])
+  const getPipeline = useCallback(async (_id: string): Promise<Pipeline | null> => null, [])
+  const createPipeline = useCallback(
+    async (_params: CreatePipelineParams): Promise<Pipeline | null> => null,
+    [],
+  )
+  const updatePipeline = useCallback(
+    async (_id: string, _params: UpdatePipelineParams): Promise<boolean> => false,
+    [],
+  )
+  const removePipeline = useCallback(async (_id: string): Promise<boolean> => false, [])
 
   return {
     pipelines: [] as Pipeline[],

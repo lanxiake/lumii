@@ -217,9 +217,9 @@ export function createBurnSubtitlesService(deps: BurnSubtitlesServiceDeps) {
             if (!c.audioFile) return null
             const p = path.join(paths.cacheDir, c.audioFile)
             if (!fs.existsSync(p)) return null
-            return { startMs: c.startMs, audioPath: p }
+            return { startMs: c.startMs, endMs: c.endMs, audioPath: p }
           })
-          .filter((x): x is { startMs: number; audioPath: string } => !!x)
+          .filter((x): x is { startMs: number; endMs: number; audioPath: string } => !!x)
         if (audioCues.length === 0) {
           return { ok: false, error: 'tts_unavailable', message: 'no cue audio' }
         }

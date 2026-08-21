@@ -165,7 +165,13 @@ export async function launchMtBotChrome(
   if (!profile.cdpIsLoopback) {
     throw new Error(`Profile "${profile.name}" is remote; cannot launch local Chrome.`);
   }
-  await ensurePortAvailable(profile.cdpPort);
+  // 远程 profile 才允许缺省 cdpPort；本地启动必须有确定端口，
+  // 不能回退到 0（无效端口会把配置缺失伪装成可启动）
+  const cdpPort = profile.cdpPort;
+  if (typeof cdpPort !== "number") {
+    throw new Error(`Profile "${profile.name}" has no local CDP port; cannot launch Chrome.`);
+  }
+  await ensurePortAvailable(cdpPort);
 
   const exe = resolveBrowserExecutable(resolved);
   if (!exe) {
@@ -329,7 +335,7 @@ export async function launchMtBotChrome(
     pid,
     exe,
     userDataDir,
-    cdpPort: profile.cdpPort,
+    cdpPort,
     startedAt,
     proc,
   };

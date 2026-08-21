@@ -304,7 +304,9 @@ export function truncateHeavyToolCallArguments(
         }
       });
       if (!changed) return msg;
-      return { ...msg, toolCalls: newToolCalls } as AgentMessage;
+      // 旧类型系统的 toolCalls 不在新 AgentMessage 结构中，与本文件其他
+      // 跨类型系统访问保持一致，经 unknown 中转
+      return { ...msg, toolCalls: newToolCalls } as unknown as AgentMessage;
     }
 
     // 新类型系统：toolCall 在 content 数组中（类型为 ToolCall 的 block）

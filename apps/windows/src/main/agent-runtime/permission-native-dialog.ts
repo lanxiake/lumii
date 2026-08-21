@@ -20,7 +20,7 @@ export async function showNativeToolPermissionDialog(options: {
     parent.focus()
   }
 
-  const result = await dialog.showMessageBox(parent ?? undefined, {
+  const messageBoxOptions: Electron.MessageBoxOptions = {
     type: 'question',
     title: '工具执行确认',
     message: `Agent 请求执行：${options.toolName}`,
@@ -28,7 +28,12 @@ export async function showNativeToolPermissionDialog(options: {
     buttons: ['拒绝', '仅本次允许', '始终允许'],
     defaultId: 1,
     cancelId: 0,
-  })
+  }
+
+  // showMessageBox 的两个重载不接受 parent 为 undefined，按分支调用
+  const result = parent && !parent.isDestroyed()
+    ? await dialog.showMessageBox(parent, messageBoxOptions)
+    : await dialog.showMessageBox(messageBoxOptions)
 
   if (result.response === 0) return 'deny'
   if (result.response === 2) return 'allow-always'

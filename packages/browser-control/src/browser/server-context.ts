@@ -515,7 +515,7 @@ function createProfileContext(
     const profileState = getProfileState();
 
     const httpReachable = await isHttpReachable(300);
-    if (httpReachable && !profileState.running) {
+    if (httpReachable && !profileState.running && typeof profile.cdpPort === "number") {
       // Port in use by an external process — find its PID via ports-inspect and kill it
       try {
         const { inspectPortUsage } = await import("../lib/ports-inspect.js");

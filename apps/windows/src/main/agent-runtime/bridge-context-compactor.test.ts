@@ -36,7 +36,8 @@ describe('BridgeContextCompactor.callLLM', () => {
   })
 
   it('无实例时走 getFallbackStream，仍可完成单次 LLM 调用', async () => {
-    const fallbackStream = vi.fn(async () => {
+    // 标注入参：否则 mock.calls 元素为空元组 []，断言 calls[0]?.[2] 会报 TS2493
+    const fallbackStream = vi.fn(async (_model?: unknown, _ctx?: unknown, _opts?: unknown) => {
       return (async function* () {
         yield { type: 'text_delta' as const, delta: '趋势是本地优先。' }
       })()
@@ -109,7 +110,8 @@ function makeCompactHarness(
     contentJson: { type?: string; text?: string; parts?: Array<{ text?: string }> }
     timestamp?: string
   }> = []
-  const generator = vi.fn(async () => summaryText)
+  // 标注入参：否则 mock.calls 元素为空元组 []，断言 calls[0]?.[1] 会报 TS2493
+  const generator = vi.fn(async (_a?: unknown, _b?: unknown) => summaryText)
   const restoreHistoryForInstance = vi.fn()
   const forwardIpcEvent = vi.fn()
 

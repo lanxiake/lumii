@@ -121,70 +121,7 @@ export function registerBrowserBasicRoutes(app: BrowserRouteRegistrar, ctx: Brow
     }
   });
 
-  // Create a new profile
-  app.post("/profiles/create", async (req, res) => {
-    const name = toStringOrEmpty((req.body as { name?: unknown })?.name);
-    const color = toStringOrEmpty((req.body as { color?: unknown })?.color);
-    const cdpUrl = toStringOrEmpty((req.body as { cdpUrl?: unknown })?.cdpUrl);
-    const driver = toStringOrEmpty((req.body as { driver?: unknown })?.driver) as
-      | "mtbot"
-      | "extension"
-      | "";
-
-    if (!name) {
-      return jsonError(res, 400, "name is required");
-    }
-
-    try {
-      const service = createBrowserProfilesService(ctx);
-      const result = await service.createProfile({
-        name,
-        color: color || undefined,
-        cdpUrl: cdpUrl || undefined,
-        driver: driver === "extension" ? "extension" : undefined,
-      });
-      res.json(result);
-    } catch (err) {
-      const msg = String(err);
-      if (msg.includes("already exists")) {
-        return jsonError(res, 409, msg);
-      }
-      if (msg.includes("invalid profile name")) {
-        return jsonError(res, 400, msg);
-      }
-      if (msg.includes("no available CDP ports")) {
-        return jsonError(res, 507, msg);
-      }
-      if (msg.includes("cdpUrl")) {
-        return jsonError(res, 400, msg);
-      }
-      jsonError(res, 500, msg);
-    }
-  });
-
-  // Delete a profile
-  app.delete("/profiles/:name", async (req, res) => {
-    const name = toStringOrEmpty(req.params.name);
-    if (!name) {
-      return jsonError(res, 400, "profile name is required");
-    }
-
-    try {
-      const service = createBrowserProfilesService(ctx);
-      const result = await service.deleteProfile(name);
-      res.json(result);
-    } catch (err) {
-      const msg = String(err);
-      if (msg.includes("invalid profile name")) {
-        return jsonError(res, 400, msg);
-      }
-      if (msg.includes("default profile")) {
-        return jsonError(res, 400, msg);
-      }
-      if (msg.includes("not found")) {
-        return jsonError(res, 404, msg);
-      }
-      jsonError(res, 500, msg);
-    }
-  });
+  // POST /profiles/create 与 DELETE /profiles/:name 已移除：
+  // 二者依赖随 Gateway 一并删除的配置持久化层，无法工作。
+  // profile 现由宿主构造并注入 ResolvedBrowserConfig。
 }
