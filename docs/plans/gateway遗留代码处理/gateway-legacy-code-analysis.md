@@ -10,9 +10,9 @@
 
 项目原为"客户端 + 云端 Gateway + Agent Host"三段式架构（MtBot 时代），现转型为**本地优先、Direct-Stream 直连模型**的独立版（Lumii）。核心能力已全部本地化运行：
 
-- LLM 请求：`createDirectStreamFn` 直连用户自行配置的 OpenAI 兼容端点（见 [direct-stream.ts](file:///e:/my-project/open-source/lumii/packages/agent-runtime/src/llm/direct-stream.ts)）
-- 生图：`RightAPIClient` + `RightCodesDrawClient` 直连上游（见 [rightapi-image-client.ts](file:///e:/my-project/open-source/lumii/apps/windows/src/main/agent-runtime/rightapi-image-client.ts)、[right-codes-draw-client.ts](file:///e:/my-project/open-source/lumii/apps/windows/src/main/agent-runtime/right-codes-draw-client.ts)）
-- Gateway 客户端、Node Mode Coordinator、设备配对服务等实际**从未在独立版启动**（见 [main/index.ts#L3135](file:///e:/my-project/open-source/lumii/apps/windows/src/main/index.ts#L3135) 的注释 `// 不构造 apiClient / gatewayClient / nodeModeCoordinator / devicePairingService`）
+- LLM 请求：`createDirectStreamFn` 直连用户自行配置的 OpenAI 兼容端点（见 [direct-stream.ts](file:///C:/myself/projects/my/open-source/lumii/packages/agent-runtime/src/llm/direct-stream.ts)）
+- 生图：`RightAPIClient` + `RightCodesDrawClient` 直连上游（见 [rightapi-image-client.ts](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/main/agent-runtime/rightapi-image-client.ts)、[right-codes-draw-client.ts](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/main/agent-runtime/right-codes-draw-client.ts)）
+- Gateway 客户端、Node Mode Coordinator、设备配对服务等实际**从未在独立版启动**（见 [main/index.ts#L3135](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/main/index.ts#L3135) 的注释 `// 不构造 apiClient / gatewayClient / nodeModeCoordinator / devicePairingService`）
 
 但代码中仍残留大量 Gateway 相关的**类型、包、导入、死代码分支、配置、文档**。本报告按"可直接删除 → 需要清理死分支 → 仅文档/注释"三层分类。
 
@@ -27,7 +27,7 @@
 | 维度 | 详情 |
 |------|------|
 | 包名 | `@mtbot/protocol` |
-| 位置 | [packages/protocol/](file:///e:/my-project/open-source/lumii/packages/protocol) |
+| 位置 | [packages/protocol/](file:///C:/myself/projects/my/open-source/lumii/packages/protocol) |
 | package.json 描述 | "Stable facade for MtBot gateway protocol types" |
 | 源码文件数 | ~40 个 TS 文件（26 个 schema 子文件 + agent-host + envelope 等） |
 | 对外导出 | 全部是 `gateway-protocol/*` 协议类型 + `agent/kernel.ts` |
@@ -73,12 +73,12 @@ packages/protocol/
 ```
 
 **连带清理：**
-- [packages/agent-runtime/package.json#L21](file:///e:/my-project/open-source/lumii/packages/agent-runtime/package.json#L21) — 移除 `"@mtbot/protocol": "workspace:*"` 依赖
-- [apps/windows/package.json#L50](file:///e:/my-project/open-source/lumii/apps/windows/package.json#L50) — 移除 `"@mtbot/protocol": "workspace:*"` 依赖
-- [apps/windows/electron.vite.config.ts#L190](file:///e:/my-project/open-source/lumii/apps/windows/electron.vite.config.ts#L190) — externalize 列表移除 `'@mtbot/protocol'`
-- [apps/windows/electron.vite.config.ts#L226](file:///e:/my-project/open-source/lumii/apps/windows/electron.vite.config.ts#L226) — optimizeDeps.exclude 移除 `'@mtbot/protocol'`
-- [apps/windows/electron.vite.config.ts#L238](file:///e:/my-project/open-source/lumii/apps/windows/electron.vite.config.ts#L238) — resolve.alias 移除 `'@mtbot/protocol'` 映射
-- [pnpm-workspace.yaml](file:///e:/my-project/open-source/lumii) — 如有 packages 枚举需同步移除
+- [packages/agent-runtime/package.json#L21](file:///C:/myself/projects/my/open-source/lumii/packages/agent-runtime/package.json#L21) — 移除 `"@mtbot/protocol": "workspace:*"` 依赖
+- [apps/windows/package.json#L50](file:///C:/myself/projects/my/open-source/lumii/apps/windows/package.json#L50) — 移除 `"@mtbot/protocol": "workspace:*"` 依赖
+- [apps/windows/electron.vite.config.ts#L190](file:///C:/myself/projects/my/open-source/lumii/apps/windows/electron.vite.config.ts#L190) — externalize 列表移除 `'@mtbot/protocol'`
+- [apps/windows/electron.vite.config.ts#L226](file:///C:/myself/projects/my/open-source/lumii/apps/windows/electron.vite.config.ts#L226) — optimizeDeps.exclude 移除 `'@mtbot/protocol'`
+- [apps/windows/electron.vite.config.ts#L238](file:///C:/myself/projects/my/open-source/lumii/apps/windows/electron.vite.config.ts#L238) — resolve.alias 移除 `'@mtbot/protocol'` 映射
+- [pnpm-workspace.yaml](file:///C:/myself/projects/my/open-source/lumii) — 如有 packages 枚举需同步移除
 
 ---
 
@@ -89,7 +89,7 @@ packages/protocol/
 | 维度 | 详情 |
 |------|------|
 | 包名 | `@mtbot/client-sdk` |
-| 位置 | [packages/client-sdk/](file:///e:/my-project/open-source/lumii/packages/client-sdk) |
+| 位置 | [packages/client-sdk/](file:///C:/myself/projects/my/open-source/lumii/packages/client-sdk) |
 | package.json 描述 | "Shared, transport-agnostic client primitives for the MtBot gateway protocol" |
 | 源码文件 | `gateway-client.ts`（WS 握手、重连、心跳）、`request-registry.ts`（请求关联表）、各 1 份测试 |
 
@@ -107,10 +107,10 @@ packages/client-sdk/
 ```
 
 **连带清理：**
-- [apps/windows/package.json#L48](file:///e:/my-project/open-source/lumii/apps/windows/package.json#L48) — 移除 `"@mtbot/client-sdk": "workspace:*"` 依赖
-- [apps/windows/electron.vite.config.ts#L190](file:///e:/my-project/open-source/lumii/apps/windows/electron.vite.config.ts#L190) — externalize 列表移除 `'@mtbot/client-sdk'`
-- [apps/windows/electron.vite.config.ts#L226](file:///e:/my-project/open-source/lumii/apps/windows/electron.vite.config.ts#L226) — optimizeDeps.exclude 移除 `'@mtbot/client-sdk'`
-- [apps/windows/electron.vite.config.ts#L239](file:///e:/my-project/open-source/lumii/apps/windows/electron.vite.config.ts#L239) — resolve.alias 移除 `'@mtbot/client-sdk'` 映射
+- [apps/windows/package.json#L48](file:///C:/myself/projects/my/open-source/lumii/apps/windows/package.json#L48) — 移除 `"@mtbot/client-sdk": "workspace:*"` 依赖
+- [apps/windows/electron.vite.config.ts#L190](file:///C:/myself/projects/my/open-source/lumii/apps/windows/electron.vite.config.ts#L190) — externalize 列表移除 `'@mtbot/client-sdk'`
+- [apps/windows/electron.vite.config.ts#L226](file:///C:/myself/projects/my/open-source/lumii/apps/windows/electron.vite.config.ts#L226) — optimizeDeps.exclude 移除 `'@mtbot/client-sdk'`
+- [apps/windows/electron.vite.config.ts#L239](file:///C:/myself/projects/my/open-source/lumii/apps/windows/electron.vite.config.ts#L239) — resolve.alias 移除 `'@mtbot/client-sdk'` 映射
 
 ---
 
@@ -118,31 +118,31 @@ packages/client-sdk/
 
 ### 3.1 LLM 层：Gateway Stream（目前仍被类型导入，实际运行走 Direct）
 
-#### 3.1.1 [llm/gateway-stream.ts](file:///e:/my-project/open-source/lumii/packages/agent-runtime/src/llm/gateway-stream.ts) — **文件级可删除**
+#### 3.1.1 [llm/gateway-stream.ts](file:///C:/myself/projects/my/open-source/lumii/packages/agent-runtime/src/llm/gateway-stream.ts) — **文件级可删除**
 
 - 632 行，实现 `createGatewayStreamFn`（通过 `POST /v1/llm/stream` 走网关 SSE 代理）
-- **运行时**：`bridge-instance-factory.ts` 中 `streamFnFactory` 虽仍传入 gateway 配置，但 `resolveModel` 固定返回 `streamFnKind: 'direct'`（见 [bridge-instance-factory.ts#L447-L460](file:///e:/my-project/open-source/lumii/apps/windows/src/main/agent-runtime/bridge-instance-factory.ts#L447-L460)），且 `wrapStreamFn` 外层统一用 `buildLiveDirectStream()` 覆盖（见 [#L337-L364](file:///e:/my-project/open-source/lumii/apps/windows/src/main/agent-runtime/bridge-instance-factory.ts#L337-L364)）。故**该函数在独立版从未被真正调用**。
+- **运行时**：`bridge-instance-factory.ts` 中 `streamFnFactory` 虽仍传入 gateway 配置，但 `resolveModel` 固定返回 `streamFnKind: 'direct'`（见 [bridge-instance-factory.ts#L447-L460](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/main/agent-runtime/bridge-instance-factory.ts#L447-L460)），且 `wrapStreamFn` 外层统一用 `buildLiveDirectStream()` 覆盖（见 [#L337-L364](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/main/agent-runtime/bridge-instance-factory.ts#L337-L364)）。故**该函数在独立版从未被真正调用**。
 - 但 `bridge-instance-factory`、`bridge-image-services` 中有**类型引用** `ReturnType<typeof createGatewayStreamFn>`，清理时需替换为 `StreamFn` 或 `ReturnType<typeof createDirectStreamFn>`。
 
-#### 3.1.2 [llm/llm-error.ts](file:///e:/my-project/open-source/lumii/packages/agent-runtime/src/llm/llm-error.ts) — **可移除 Gateway 专属错误码**
+#### 3.1.2 [llm/llm-error.ts](file:///C:/myself/projects/my/open-source/lumii/packages/agent-runtime/src/llm/llm-error.ts) — **可移除 Gateway 专属错误码**
 
 包含 `GatewayLlmErrorDetail`、`llmErrorCodeFromHttpStatus`（按 HTTP 状态 401/403/429 推断 gateway 侧错误）、`inferHttpStatusFromMessage`（反向从消息推断 gateway 状态码）。这些仅 gateway-stream 使用，direct 走原生 fetch 错误。**需审查 direct-stream 是否复用了 normalizeLlmError 核心函数，如是则保留核心，删除 Gateway 专属类型。**
 
-#### 3.1.3 [llm/model-router.ts](file:///e:/my-project/open-source/lumii/packages/agent-runtime/src/llm/model-router.ts) — **注释与 `resolve()` 分支需清理**
+#### 3.1.3 [llm/model-router.ts](file:///C:/myself/projects/my/open-source/lumii/packages/agent-runtime/src/llm/model-router.ts) — **注释与 `resolve()` 分支需清理**
 
 - 文件头注释写的是"客户端不再决定模型，由 gateway CapabilityResolver 解析"，与实际 direct 模式相悖。
 - `resolve(purpose)` 返回 `{ id: purpose, api: 'openai' }` 占位 Model —— 在独立版中**此路径实际从未命中**（`resolveModel` 当 provider 启用时走 `resolveExplicitModelId`，禁用时抛错）。但为兼容性保留占位逻辑也可，**至少更新注释**。
 - `MODEL_API_MAP` 是有用的（用户显式选模型时用），保留。
 
-#### 3.1.4 [llm/index.ts](file:///e:/my-project/open-source/lumii/packages/agent-runtime/src/llm/index.ts) — 移除 gateway-stream 全部导出
+#### 3.1.4 [llm/index.ts](file:///C:/myself/projects/my/open-source/lumii/packages/agent-runtime/src/llm/index.ts) — 移除 gateway-stream 全部导出
 
-#### 3.1.5 [`__tests__/gateway-error.test.ts`](file:///e:/my-project/open-source/lumii/packages/agent-runtime/src/__tests__/gateway-error.test.ts) — 整个删除
+#### 3.1.5 [`__tests__/gateway-error.test.ts`](file:///C:/myself/projects/my/open-source/lumii/packages/agent-runtime/src/__tests__/gateway-error.test.ts) — 整个删除
 
 ---
 
 ### 3.2 host-kit 装配层：Gateway 工厂分支
 
-文件：[host-kit/stream-fn-factory.ts](file:///e:/my-project/open-source/lumii/packages/agent-runtime/src/host-kit/stream-fn-factory.ts)
+文件：[host-kit/stream-fn-factory.ts](file:///C:/myself/projects/my/open-source/lumii/packages/agent-runtime/src/host-kit/stream-fn-factory.ts)
 
 - 暴露 `createGatewayStreamFnFactory` + `GatewayStreamFnFactoryConfig` 接口 + `StreamFnKind = 'gateway' | 'direct'`
 - `createStreamFnFactory({ gateway, direct })` 顶层分派
@@ -152,15 +152,15 @@ packages/client-sdk/
 
 ### 3.3 `packages/agent-runtime/src/index.ts` 顶层导出
 
-当前从 `llm/index.ts` re-export 了 `createGatewayStreamFn`、`DEFAULT_GATEWAY_STREAM_PATH`、`gatewayErrorFromHttpResponse`、`GatewayStreamConfig`、`GatewayStreamDiagnostic`、`StreamMetadata`、`GatewayLlmErrorDetail`、`AssistantMessageWithLlmError`。**删除上述全部 Gateway 专属导出**（见 [index.ts#L123-L137](file:///e:/my-project/open-source/lumii/packages/agent-runtime/src/index.ts#L123-L137)）。
+当前从 `llm/index.ts` re-export 了 `createGatewayStreamFn`、`DEFAULT_GATEWAY_STREAM_PATH`、`gatewayErrorFromHttpResponse`、`GatewayStreamConfig`、`GatewayStreamDiagnostic`、`StreamMetadata`、`GatewayLlmErrorDetail`、`AssistantMessageWithLlmError`。**删除上述全部 Gateway 专属导出**（见 [index.ts#L123-L137](file:///C:/myself/projects/my/open-source/lumii/packages/agent-runtime/src/index.ts#L123-L137)）。
 
-同文件 host-kit 部分：删除 `createGatewayStreamFnFactory` + `GatewayStreamFnFactoryConfig` 导出（见 [#L462-L469](file:///e:/my-project/open-source/lumii/packages/agent-runtime/src/index.ts#L462-L469)）。
+同文件 host-kit 部分：删除 `createGatewayStreamFnFactory` + `GatewayStreamFnFactoryConfig` 导出（见 [#L462-L469](file:///C:/myself/projects/my/open-source/lumii/packages/agent-runtime/src/index.ts#L462-L469)）。
 
 ---
 
 ### 3.4 `packages/agent-runtime/dist/` — 旧编译产物
 
-[packages/agent-runtime/dist/llm/](file:///e:/my-project/open-source/lumii/packages/agent-runtime/dist/llm) 下的 `gateway-stream.d.ts / .js / .map` — **直接删除整个 dist/ 目录**（该包源码直出，不需要 dist；如仍保留则是历史遗留）。
+[packages/agent-runtime/dist/llm/](file:///C:/myself/projects/my/open-source/lumii/packages/agent-runtime/dist/llm) 下的 `gateway-stream.d.ts / .js / .map` — **直接删除整个 dist/ 目录**（该包源码直出，不需要 dist；如仍保留则是历史遗留）。
 
 ---
 
@@ -168,7 +168,7 @@ packages/client-sdk/
 
 ### 4.1 配置类型与默认值
 
-#### 4.1.1 [src/main/config/types.ts](file:///e:/my-project/open-source/lumii/apps/windows/src/main/config/types.ts)
+#### 4.1.1 [src/main/config/types.ts](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/main/config/types.ts)
 
 | 条目 | 位置 | 处理建议 |
 |------|------|---------|
@@ -177,11 +177,11 @@ packages/client-sdk/
 | `DEFAULT_CONFIG.server.gatewayUrl` | L92 | 删除 `ws://127.0.0.1:18789` 占位 |
 | `DEFAULT_CONFIG.server.apiUrl` | L91 | 一并评估是否删除 |
 
-#### 4.1.2 [config/server-config.json](file:///e:/my-project/open-source/lumii/apps/windows/config/server-config.json)
+#### 4.1.2 [config/server-config.json](file:///C:/myself/projects/my/open-source/lumii/apps/windows/config/server-config.json)
 
 **整个文件可删除**（或移除 `gatewayUrl` 字段；但从注释 `"Offline placeholders only"` 可看整个文件是无意义占位）。
 
-#### 4.1.3 [.env.example](file:///e:/my-project/open-source/lumii/apps/windows/.env.example)
+#### 4.1.3 [.env.example](file:///C:/myself/projects/my/open-source/lumii/apps/windows/.env.example)
 
 开头 L2 已写 "Lumii is offline-first: no gateway / api-server required." — 状态正确，但 `MTBOT_GATEWAY_URL` / `MTBOT_API_URL` 环境变量在 `server-config.ts` 仍读取，**清理 server-config.ts 后文档即自动对齐**。
 
@@ -198,14 +198,14 @@ packages/client-sdk/
 
 ### 4.3 `src/main/agent-runtime/bridge-types.ts`
 
-[AgentRuntimeBridgeConfig](file:///e:/my-project/open-source/lumii/apps/windows/src/main/agent-runtime/bridge-types.ts#L15-L64)：
+[AgentRuntimeBridgeConfig](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/main/agent-runtime/bridge-types.ts#L15-L64)：
 
 | 字段 | 行 | 处理 |
 |------|----|------|
 | `gatewayUrl: string` | L16 | **删除**（改为 optional？或整个删除——实际 direct 路径不需要它，但被 `bridge-image-services` 仍当参数传，需跟下方一并清理） |
 | `getAuthToken: () => Promise<string>` | L17 | **删除**（direct 直连不使用；image-service 的 gateway 分支也删） |
 | `getDeviceId?: () => string` | L24 | **删除**（仅 gateway token 认证用） |
-| `callGateway?: (method, params)` | L62-L64 | **删除**（现已注入为 `async (_method, _params?) => {}` 空实现，见 [main/index.ts#L1006](file:///e:/my-project/open-source/lumii/apps/windows/src/main/index.ts#L1006)） |
+| `callGateway?: (method, params)` | L62-L64 | **删除**（现已注入为 `async (_method, _params?) => {}` 空实现，见 [main/index.ts#L1006](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/main/index.ts#L1006)） |
 | `fetchAgentDefinitionById?` L54-L56 | | 原设计从 gateway API 拉 Agent 定义 → 现走本地 DefinitionStore → **删除** |
 | `fetchAgentDefinitionsFromApi?` L58-L60 | | 同上 → **删除** |
 
@@ -233,11 +233,11 @@ packages/client-sdk/
 
 ### 4.5 `src/main/agent-runtime/bridge-image-services.ts` + `gateway-image-client.ts`
 
-#### 4.5.1 [gateway-image-client.ts](file:///e:/my-project/open-source/lumii/apps/windows/src/main/agent-runtime/gateway-image-client.ts) — **整个删除**
+#### 4.5.1 [gateway-image-client.ts](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/main/agent-runtime/gateway-image-client.ts) — **整个删除**
 
 129 行，`generateImageViaGateway()` 向 `/v1/image/generate` POST。
 
-#### 4.5.2 [bridge-image-services.ts](file:///e:/my-project/open-source/lumii/apps/windows/src/main/agent-runtime/bridge-image-services.ts)
+#### 4.5.2 [bridge-image-services.ts](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/main/agent-runtime/bridge-image-services.ts)
 
 清理清单：
 - L11-L15 `import` 删除 `createGatewayStreamFn`、`DEFAULT_GATEWAY_STREAM_PATH`、`generateImageViaGateway`
@@ -294,11 +294,11 @@ ElectronAPI 中暴露了 Gateway 相关 RPC：
 
 #### 4.9.1 `useSettings` hook 与类型
 
-- [useSettings.types.ts#L5-L109](file:///e:/my-project/open-source/lumii/apps/windows/src/renderer/hooks/business/useSettings/useSettings.types.ts) — 定义了 `GatewayConfig { url, autoConnect, wsUrl? ... }` 接口与 `AllSettings.gateway: GatewayConfig` 字段
-- [useSettings.ts#L32](file:///e:/my-project/open-source/lumii/apps/windows/src/renderer/hooks/business/useSettings/useSettings.ts#L32) — `DEFAULT_SETTINGS.gateway` 默认值
-- [useSettings.ts#L132-L198](file:///e:/my-project/open-source/lumii/apps/windows/src/renderer/hooks/business/useSettings/useSettings.ts#L132-L198) — `load()` 中对 `base.gateway` 做云端 URL → 本地占位的替换 + 强制 `autoConnect:false`
-- [useSettings.ts#L248-L252](file:///e:/my-project/open-source/lumii/apps/windows/src/renderer/hooks/business/useSettings/useSettings.ts#L248-L252) — `updateGateway()` 方法
-- [useSettings.ts#L362](file:///e:/my-project/open-source/lumii/apps/windows/src/renderer/hooks/business/useSettings/useSettings.ts#L362) — 导出 `updateGateway`
+- [useSettings.types.ts#L5-L109](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/renderer/hooks/business/useSettings/useSettings.types.ts) — 定义了 `GatewayConfig { url, autoConnect, wsUrl? ... }` 接口与 `AllSettings.gateway: GatewayConfig` 字段
+- [useSettings.ts#L32](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/renderer/hooks/business/useSettings/useSettings.ts#L32) — `DEFAULT_SETTINGS.gateway` 默认值
+- [useSettings.ts#L132-L198](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/renderer/hooks/business/useSettings/useSettings.ts#L132-L198) — `load()` 中对 `base.gateway` 做云端 URL → 本地占位的替换 + 强制 `autoConnect:false`
+- [useSettings.ts#L248-L252](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/renderer/hooks/business/useSettings/useSettings.ts#L248-L252) — `updateGateway()` 方法
+- [useSettings.ts#L362](file:///C:/myself/projects/my/open-source/lumii/apps/windows/src/renderer/hooks/business/useSettings/useSettings.ts#L362) — 导出 `updateGateway`
 
 **处理：** 整个删除 `GatewayConfig` 接口、`AllSettings.gateway` 字段、`DEFAULT_SETTINGS.gateway`、`updateGateway` 方法、load() 中的 gateway 合并逻辑。相应 SettingsPage UI 若有网关连接面板也删（本次分析未查 UI 组件，需后续扫 SettingsPage 子组件）。
 
@@ -331,13 +331,13 @@ grep 找到 20 个 renderer 文件命中"gateway"关键词：
 
 ## 六、第五级：文档与注释（不影响编译，最后清理）
 
-### 6.1 顶层 [README.md](file:///e:/my-project/open-source/lumii/README.md)
+### 6.1 顶层 [README.md](file:///C:/myself/projects/my/open-source/lumii/README.md)
 
 - L17："Gateway 是可选的远程扩展通道，非核心路径" → **改文案**，体现"Gateway 时代已结束，当前完全本地运行"
 - L101-L102：共享包表格中 `@mtbot/protocol`、`@mtbot/client-sdk` 两行 → **删除**
 - L150 后目录树：`protocol/ # Gateway 协议类型门面`、`client-sdk/ # ...客户端原语` 两行 → **删除**
 
-### 6.2 [CLAUDE.md](file:///e:/my-project/open-source/lumii/CLAUDE.md)
+### 6.2 [CLAUDE.md](file:///C:/myself/projects/my/open-source/lumii/CLAUDE.md)
 
 已准确写了"gateway 是可选的远程通道，本地模式不需要"。但 §架构 中：
 - 对 `packages/protocol`、`packages/client-sdk` 的描述 → 删除（两包删后）
@@ -347,18 +347,18 @@ grep 找到 20 个 renderer 文件命中"gateway"关键词：
 
 | 文件 | 命中内容 | 建议 |
 |------|---------|------|
-| [dual-connection-architecture.md](file:///e:/my-project/open-source/lumii/docs/standards/dual-connection-architecture.md) | **整个文件讲 Gateway 双连接（UI Token + Node Token）**，所有架构图、代码清单、验证清单都指向旧时代 | **整个删除或重命名为 `.md.deprecated`** |
-| [project-structure.md](file:///e:/my-project/open-source/lumii/docs/standards/project-structure.md) | 列出 `gateway-client.ts`、`node-connection.ts`、`useGateway/`、`gateway-service.ts`、架构图 `A→C[网关客户端 Gateway Client]` | 更新：删除 Gateway 相关条目，重新映射主进程模块表 |
-| [feature-development-standards.md](file:///e:/my-project/open-source/lumii/docs/standards/feature-development-standards.md) | L47、L143、L178 等同上 | 同步更新 |
-| [improvements-summary.md](file:///e:/my-project/open-source/lumii/docs/standards/improvements-summary.md) | L19 "hooks 列表新增 useGateway" | 更新 hooks 列表 |
+| [dual-connection-architecture.md](file:///C:/myself/projects/my/open-source/lumii/docs/standards/dual-connection-architecture.md) | **整个文件讲 Gateway 双连接（UI Token + Node Token）**，所有架构图、代码清单、验证清单都指向旧时代 | **整个删除或重命名为 `.md.deprecated`** |
+| [project-structure.md](file:///C:/myself/projects/my/open-source/lumii/docs/standards/project-structure.md) | 列出 `gateway-client.ts`、`node-connection.ts`、`useGateway/`、`gateway-service.ts`、架构图 `A→C[网关客户端 Gateway Client]` | 更新：删除 Gateway 相关条目，重新映射主进程模块表 |
+| [feature-development-standards.md](file:///C:/myself/projects/my/open-source/lumii/docs/standards/feature-development-standards.md) | L47、L143、L178 等同上 | 同步更新 |
+| [improvements-summary.md](file:///C:/myself/projects/my/open-source/lumii/docs/standards/improvements-summary.md) | L19 "hooks 列表新增 useGateway" | 更新 hooks 列表 |
 
 ### 6.4 `docs/plans/` 与 `docs/design/` 历史计划
 
 | 文件 | 处理 |
 |------|------|
-| [大文件重构分析处理/code-location-index.md](file:///e:/my-project/open-source/lumii/docs/plans/%E5%A4%A7%E6%96%87%E4%BB%B6%E9%87%8D%E6%9E%84%E5%88%86%E6%9E%90%E5%A4%84%E7%90%86/code-location-index.md) | 引用 gateway 位置 → 更新或保持（历史文件） |
-| [2026-08-05-ui-tech-refresh-client-implementation.md](file:///e:/my-project/open-source/lumii/docs/plans/2026-08-05-ui-tech-refresh-client-implementation.md) | 历史计划，保留但不强制更新 |
-| [2026-08-14-channel-outbound-hub-design.md](file:///e:/my-project/open-source/lumii/docs/design/2026-08-14-channel-outbound-hub-design.md) | P5 "message 工具与 Gateway 耦合" L90、L236、L417、L454 — 多处注明 Gateway 遗留分支**已移除**（✅ 标注）。该文件本身是设计文档，保持为历史记录即可。 |
+| [大文件重构分析处理/code-location-index.md](file:///C:/myself/projects/my/open-source/lumii/docs/plans/%E5%A4%A7%E6%96%87%E4%BB%B6%E9%87%8D%E6%9E%84%E5%88%86%E6%9E%90%E5%A4%84%E7%90%86/code-location-index.md) | 引用 gateway 位置 → 更新或保持（历史文件） |
+| [2026-08-05-ui-tech-refresh-client-implementation.md](file:///C:/myself/projects/my/open-source/lumii/docs/plans/2026-08-05-ui-tech-refresh-client-implementation.md) | 历史计划，保留但不强制更新 |
+| [2026-08-14-channel-outbound-hub-design.md](file:///C:/myself/projects/my/open-source/lumii/docs/design/2026-08-14-channel-outbound-hub-design.md) | P5 "message 工具与 Gateway 耦合" L90、L236、L417、L454 — 多处注明 Gateway 遗留分支**已移除**（✅ 标注）。该文件本身是设计文档，保持为历史记录即可。 |
 
 **原则：** `docs/plans/` / `docs/design/` 是**历史记录**，非必须同步修改；但 `docs/standards/` 是当前开发标准，必须更新。
 
@@ -366,7 +366,7 @@ grep 找到 20 个 renderer 文件命中"gateway"关键词：
 
 ## 七、第六级：dist/ 与编译产物
 
-- [packages/agent-runtime/dist/llm/gateway-stream.*](file:///e:/my-project/open-source/lumii/packages/agent-runtime/dist/llm) — 直接删除（源码直出项目不应保留 dist，如有 .gitignore 已忽略则可能无需手动删）
+- [packages/agent-runtime/dist/llm/gateway-stream.*](file:///C:/myself/projects/my/open-source/lumii/packages/agent-runtime/dist/llm) — 直接删除（源码直出项目不应保留 dist，如有 .gitignore 已忽略则可能无需手动删）
 - 同样检查 `packages/protocol/dist`、`packages/client-sdk/dist` 是否存在（若存在随包一起删）
 
 ---
