@@ -28,6 +28,8 @@ import { AcpBackendManager } from '../channel/acp-backend-manager'
 import { IpcChannelAdapter } from '../channel/adapters/ipc-channel-adapter'
 import { StatefulContextStrategy } from '../channel/context-strategy/stateful-strategy'
 import type { WeixinSessionBindingManager } from '../channel/weixin-session-binding'
+import { handleImageRecognize, handleImageGenerate, handleImageProcess } from './agent-runtime/image-commands'
+import { handleMessageDelete, handleMessageEdit } from './agent-runtime/message-commands'
 import type { CodingDevBackendId } from '../coding-dev-backends-stub/contracts.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../coding-dev-backends-stub/contracts.js'
 import { extractDocumentText } from '../vendor/document-parser.js'
@@ -579,6 +581,25 @@ export function registerAgentRuntimeIPC(
 
 /**
  * 处理单个命令（IPC 与本机控制口共用）
+ *
+ * TODO: 继续按命令前缀拆分到 agent-runtime/ 子目录（参考 docs/plans/大文件重构分析处理/README.md P0-05）
+ * 已完成：
+ *   - image:* (3) → image-commands.ts
+ *   - message:delete/edit (2) → message-commands.ts
+ * 待拆分：
+ *   - conversation:* (11) → session-commands.ts
+ *   - storage:* (9) → memory-commands.ts
+ *   - user:* (8) → user-commands.ts
+ *   - mcp:* (8) → mcp-commands.ts
+ *   - files:* (8) → files-commands.ts
+ *   - agentDefinition:* (7) → agent-commands.ts
+ *   - agentInstance:* (7) → agent-commands.ts
+ *   - agent:* (7) → agent-commands.ts
+ *   - cron:* (6) → cron-commands.ts
+ *   - skill:* (3) → skill-commands.ts
+ *   - codingDev:* (3) → skill-commands.ts
+ *   - runtime:* (5) → system-commands.ts
+ *   - tools:* (2), commands:* (1), tasks:* (1) → system-commands.ts
  */
 export async function handleCommand(
   bridge: AgentRuntimeBridge,
@@ -1191,32 +1212,11 @@ export async function handleCommand(
       case 'storage:auditRecent':
         return bridge.auditRepo.listRecentGlobally(command.limit ?? 20)
 
-      case 'message:delete': {
-        const { messageId, sessionKey: convId } = command
-        try {
-          bridge.conversationRepo.deleteMessage(messageId, convId)
-          return { success: true }
-        } catch (err) {
-          log.error(`[message:delete] failed to delete message ${messageId}:`, err)
-          return { success: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'message:delete':
+        return handleMessageDelete(bridge, command)
 
-      case 'message:edit': {
-        const { messageId, sessionKey: convId, newContent } = command
-        try {
-          bridge.conversationRepo.updateMessageContent({
-            messageId,
-            conversationId: convId,
-            contentJson: { type: 'text', text: newContent },
-            isStreaming: false,
-          })
-          return { success: true }
-        } catch (err) {
-          log.error(`[message:edit] failed to edit message ${messageId}:`, err)
-          return { success: false, error: err instanceof Error ? err.message : String(err) }
-        }
-      }
+      case 'message:edit':
+        return handleMessageEdit(bridge, command)
 
       case 'conversation:fork': {
         const { sourceSessionKey, uptoMessageId, newContent } = command
@@ -1718,41 +1718,14 @@ export async function handleCommand(
       }
 
       // ---- 图片处理（识别 / 美化 / 等，按 operation 扩展） ----
-      case 'image:recognize': {
-        const { imagePath, modelId, prompt, includeOcr } = command
-        try {
-          const result = await bridge.recognizeImage({
-            imagePath,
-            modelId,
-            prompt,
-            includeOcr,
-          })
-          log.info(`[image:recognize] 识别完成 model=${result.modelId} descLen=${result.description.length} ocrLen=${result.ocrText.length}`)
-          return result
-        } catch (err) {
-          log.error(`[image:recognize] 失败:`, err)
-          throw err
-        }
-      }
+      case 'image:recognize':
+        return handleImageRecognize(bridge, command)
 
-      case 'image:generate': {
-        const { prompt, modelId, width, height } = command
-        try {
-          const result = await bridge.generateImage({ prompt, modelId, width, height })
-          log.info(`[image:generate] 生成完成: ${result.filePath} (${result.width}x${result.height})`)
-          return result
-        } catch (err) {
-          log.error(`[image:generate] 失败:`, err)
-          throw err
-        }
-      }
+      case 'image:generate':
+        return handleImageGenerate(bridge, command)
 
-      case 'image:process': {
-        const { operation } = command
-        // 预留接口：当前仅支持未来注册的策略，目前统一抛错
-        // 注册方式（后续实现）：const strategy = imageStrategies[operation]; if (strategy) return strategy.run(...)
-        throw new Error(`图片处理操作 '${operation}' 尚未实现，功能开发中`)
-      }
+      case 'image:process':
+        return handleImageProcess(bridge, command)
 
       // ---- 技能自进化 ----
       case 'skill:confirm_draft': {
