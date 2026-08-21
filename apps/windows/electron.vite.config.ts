@@ -192,7 +192,7 @@ export default defineConfig({
         // 运行时从 apps/windows/node_modules 解析（与 playwright 官方建议一致）。
         exclude: [
           'electron-updater', 'ws', 'bufferutil', 'utf-8-validate', 'iconv-lite',
-          '@mtbot/agent-runtime', '@mtbot/browser-control', '@mtbot/protocol', '@mtbot/client-sdk',
+          '@mtbot/agent-runtime', '@mtbot/browser-control',
         ]
       }),
     ],
@@ -231,7 +231,7 @@ export default defineConfig({
     // 排除 workspace 包，避免 Vite 预构建时无法解析
     optimizeDeps: {
       exclude: [
-        '@mtbot/agent-runtime', '@mtbot/browser-control', '@mtbot/protocol', '@mtbot/client-sdk',
+        '@mtbot/agent-runtime', '@mtbot/browser-control',
       ]
     },
     resolve: {
@@ -242,8 +242,6 @@ export default defineConfig({
         '@mtbot/agent-runtime/browser': resolve(ROOT, 'packages/agent-runtime/src/browser.ts'),
         '@mtbot/agent-runtime': resolve(ROOT, 'packages/agent-runtime/src/index.ts'),
         '@mtbot/browser-control': resolve(ROOT, 'packages/browser-control/src/index.ts'),
-        '@mtbot/protocol': resolve(ROOT, 'packages/protocol/src/index.ts'),
-        '@mtbot/client-sdk': resolve(ROOT, 'packages/client-sdk/src/index.ts'),
         // src/browser/ 依赖的网关内部模块 → Windows 客户端 stubs
         // 使用绝对路径 alias 确保 Vite 能正确解析跨包引用
         [resolve(ROOT, 'src/logging/subsystem.js')]: resolve(__dirname, 'src/main/stubs/logging-subsystem.ts'),

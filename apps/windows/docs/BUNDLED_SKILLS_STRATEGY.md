@@ -135,7 +135,7 @@ apps/windows/
     {
       "from": "config",
       "to": "config",
-      "filter": ["server-config.json"]
+      "filter": ["draw-config.json"]
     },
     {
       "from": "bundled-skills",

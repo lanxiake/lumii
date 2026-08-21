@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { FakeAgentKernel } from "../fake-agent-kernel.js";
-import type { AgentTurnEvent } from "@mtbot/protocol";
+import type { AgentTurnEvent } from "../agent-turn-types.js";
 
 describe("FakeAgentKernel", () => {
   it("成功 turn 返回 fullText 并发出正确事件流", async () => {

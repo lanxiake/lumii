@@ -89,7 +89,6 @@ export {
   channelSendToolConfig,
   CHANNEL_LIST_TOOL_NAME,
   CHANNEL_SEND_TOOL_NAME,
-  nodesToolConfig,
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,
@@ -121,18 +120,8 @@ export { normalizeCacheKey, DEFAULT_CACHE_TTL_MINUTES } from "./tools/built-in/w
 
 // === LLM 代理层导出 ===
 export {
-  createGatewayStreamFn,
-  DEFAULT_GATEWAY_STREAM_PATH,
-  gatewayErrorFromHttpResponse,
-  type GatewayStreamConfig,
-  type GatewayStreamDiagnostic,
-  type StreamMetadata,
-} from "./llm/index.js";
-export {
   describeLlmError,
   normalizeLlmError,
-  type AssistantMessageWithLlmError,
-  type GatewayLlmErrorDetail,
   type LlmErrorDetail,
 } from "./llm/index.js";
 export { ModelRouter } from "./llm/index.js";
@@ -451,7 +440,6 @@ export type {
   ProviderCredentials,
   ModelOverride,
   ResolvedModel,
-  StreamFnKind,
   StreamFnContext,
   StreamFnFactory,
   PromptContextProvider,
@@ -460,11 +448,9 @@ export type {
 } from "./host-kit/index.js";
 export {
   createStreamFnFactory,
-  createGatewayStreamFnFactory,
   createDirectStreamFnFactory,
 } from "./host-kit/index.js";
 export type {
-  GatewayStreamFnFactoryConfig,
   DirectStreamFnFactoryConfig,
 } from "./host-kit/index.js";
 export { assembleTools, filterToolsByDefinition, createPermissionGateHook } from "./host-kit/index.js";

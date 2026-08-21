@@ -2,10 +2,8 @@
  * Agent Kernel 协议 DTO
  *
  * 定义 AgentTurnOrigin、AgentTurnRequest、AgentTurnEvent、AgentTurnResult
- * 以及 AgentKernelModelInfo，供 @mtbot/protocol 外部导出。
- *
- * 这些类型是 AgentKernel 接口（agent-runtime 内部）与 protocol 层的共享边界。
- * 不依赖 pi-agent-core，业务层可直接从 @mtbot/protocol 导入。
+ * 以及 AgentKernelModelInfo，是 AgentKernel 接口（agent-runtime 内部）的核心类型。
+ * 不依赖 pi-agent-core。
  */
 
 /**

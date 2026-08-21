@@ -5,7 +5,7 @@
  * - createInstanceById（通过 agentId 查表 → createInstance）
  * - createInstance（最核心的实例化流程：创建 runContext / streamFn / toolRunner / 注册订阅 / 缓存基础提示词 / 启动 Proactivity）
  * - buildImageContents（多模态图片块构造，被 prompt 复用 → 通过 factory 公开）
- * - registerNodeStreamCallback / unregisterNodeStreamCallback（Gateway 委派流式回调）
+ * - registerNodeStreamCallback / unregisterNodeStreamCallback（跨实例流式回调）
  */
 
 import path from 'node:path'
@@ -22,9 +22,7 @@ import {
   type FileRepo,
   type MemoryManager,
   ModelRouter,
-  createGatewayStreamFn,
   createDirectStreamFn,
-  DEFAULT_GATEWAY_STREAM_PATH,
   ProactivityScheduler,
   BUILT_IN_AGENTS,
   createStreamFnFactory,
@@ -75,9 +73,9 @@ import { maybeSnapshot } from '../workspace-vcs/vcs-snapshot'
 
 /** LLM 摘要生成器构造函数签名（由 bridge.ts 注入，避免循环依赖） */
 export type CreateSummaryGeneratorFn = (
-  innerStream: ReturnType<typeof createGatewayStreamFn>,
+  innerStream: StreamFn,
   model: import('@mariozechner/pi-ai').Model<any>,
-) => ReturnType<typeof createGatewayStreamFn> extends infer _T ? any : any
+) => any
 
 /** 引用盒子（mutable reference）— 允许多处共享同一个可变插槽 */
 export interface MutableRef<T> {
@@ -98,7 +96,7 @@ export interface BridgeInstanceFactoryDeps {
   /** 可变引用：当前正在执行工具的实例 ID */
   currentToolExecutorInstanceId: MutableRef<string | undefined>
   /** 可变引用：主 Agent 的 innerStream（compactContextAsync 使用） */
-  mainInnerStreamRef: MutableRef<ReturnType<typeof createGatewayStreamFn> | null>
+  mainInnerStreamRef: MutableRef<StreamFn | null>
   /** 可变引用：主 Agent 的 model（compactContextAsync 使用） */
   mainModelRef: MutableRef<import('@mariozechner/pi-ai').Model<any> | null>
   /** 可变引用：最近活跃 conversationId */
@@ -127,7 +125,7 @@ export interface BridgeInstanceFactoryDeps {
   prompt: (instanceId: string, message: string) => Promise<void>
   /** LLM 摘要生成器工厂（来自 bridge-context-compactor 的 createLlmSummaryGenerator） */
   createSummaryGenerator: (
-    innerStream: ReturnType<typeof createGatewayStreamFn>,
+    innerStream: StreamFn,
     model: import('@mariozechner/pi-ai').Model<any>,
   ) => any
   /** 会话上下文用量（优先提供商 inputTokens，回退消息估算） */
@@ -194,7 +192,6 @@ export class BridgeInstanceFactory {
 
     const purpose = def.defaultPurpose ?? 'chat'
 
-    const streamPathOverride = process.env.MTBOT_GATEWAY_STREAM_PATH?.trim()
     /**
      * 每次调用时读取最新 chat 槽配置（避免 createInstance 闭包快照过期）。
      */
@@ -205,7 +202,7 @@ export class BridgeInstanceFactory {
     const resolveDirectBaseUrl = (cfg = readLiveProviderCfg()) =>
       cfg ? ensureProviderBaseUrl(cfg.baseUrl, cfg.type) : undefined
     /**
-     * 独立版始终走本地 direct：每轮用最新 apiKey/baseUrl 建流，禁止空 token Gateway 回退。
+     * 独立版始终走本地 direct：每轮用最新 apiKey/baseUrl 建流。
      */
     const buildLiveDirectStream = (): StreamFn => {
       return (model, context, options) => {
@@ -276,60 +273,15 @@ export class BridgeInstanceFactory {
         }
       }
     }
-    // host-kit 仍装配 gateway 配置（兼容类型），但 resolveModel 固定 direct，实际调用走 liveDirect。
     const streamFnFactory = createStreamFnFactory({
-      direct: {
-        resolveCredentials: () => {
-          const cfg = readLiveProviderCfg()
-          return {
-            baseUrl: resolveDirectBaseUrl(cfg),
-            apiKey: cfg?.apiKey,
-          }
-        },
-        log: (msg) => log.info(msg),
+      resolveCredentials: () => {
+        const cfg = readLiveProviderCfg()
+        return {
+          baseUrl: resolveDirectBaseUrl(cfg),
+          apiKey: cfg?.apiKey,
+        }
       },
-      gateway: {
-        gatewayUrl: this.deps.config.gatewayUrl,
-        streamPath: streamPathOverride || DEFAULT_GATEWAY_STREAM_PATH,
-        getAuthToken: this.deps.config.getAuthToken,
-        getDeviceId: this.deps.config.getDeviceId,
-        log: (msg) => log.info(msg),
-        getMetadataExtras: () => {
-          const thinking = this.deps.sessionThinkingPrefs.getThinkingPrefs(rootSessionKey)
-          return {
-            // ctx.runId 每轮变化，经 extras 覆盖工厂捕获的静态值，保持现网行为
-            sessionId: ctx.sessionKey,
-            runId: ctx.runId,
-            channel: 'windows-agent-runtime',
-            thinkingEnabled: thinking.thinkingEnabled,
-            reasoningEffort: thinking.reasoningEffort,
-            thinkLevel: thinking.reasoningEffort,
-          }
-        },
-        onDiagnostic: (_streamCtx, info) => {
-          if (info.kind === 'fallback') {
-            this.deps.ipcChannel.forwardIpcEvent({
-              type: 'agent:llm:diagnostic',
-              runId: ctx.runId,
-              sessionKey: ctx.sessionKey,
-              kind: 'fallback',
-              fromModelId: info.fromModelId,
-              toModelId: info.toModelId,
-              reason: info.reason,
-            })
-          } else {
-            this.deps.ipcChannel.forwardIpcEvent({
-              type: 'agent:llm:diagnostic',
-              runId: ctx.runId,
-              sessionKey: ctx.sessionKey,
-              kind: 'http_error',
-              status: info.status,
-              code: info.code,
-              retryable: info.retryable,
-            })
-          }
-        },
-      },
+      log: (msg) => log.info(msg),
     })
 
     // wrapStreamFn：每轮 live direct + 按会话覆盖模型；压缩/摘要复用同一 live 流。
@@ -450,13 +402,11 @@ export class BridgeInstanceFactory {
           return {
             model: this.deps.modelRouter.resolveExplicitModelId(cfg.modelId),
             providerSource: 'local',
-            streamFnKind: 'direct',
           }
         }
         return {
           model: this.deps.modelRouter.resolve(p),
           providerSource: 'local',
-          streamFnKind: 'direct',
         }
       },
       getFeatureFlags: () => this.deps.featureFlags,
@@ -670,7 +620,7 @@ export class BridgeInstanceFactory {
 
     log.info(
       `[createInstance] model.id=${model.id}, model.api=${(model as any).api}, purpose=${purpose}, ` +
-        `contextWindow=${comp.contextWindow}, tools=${effectiveToolCount}/${allTools.length}, gatewayUrl=${this.deps.config.gatewayUrl}, sessionKey=${effectiveSessionKey}`,
+        `contextWindow=${comp.contextWindow}, tools=${effectiveToolCount}/${allTools.length}, sessionKey=${effectiveSessionKey}`,
     )
 
     this.deps.messageBus.register(instanceId)
@@ -738,7 +688,7 @@ export class BridgeInstanceFactory {
 
     // 缓存主 Agent 的 innerStream 和 model，供 compactContextAsync 生成 LLM 摘要
     if (def.id === 'main') {
-      this.deps.mainInnerStreamRef.value = capturedInnerStream as ReturnType<typeof createGatewayStreamFn> | null
+      this.deps.mainInnerStreamRef.value = capturedInnerStream
       this.deps.mainModelRef.value = model
     }
     // 所有实例均缓存 stream，供 compactContextAsync 按 instanceId 查找
@@ -746,7 +696,7 @@ export class BridgeInstanceFactory {
       const s = this.deps.instanceStates.get(instanceId)
       if (s && capturedInnerStream) {
         s.stream = {
-          innerStream: capturedInnerStream as ReturnType<typeof createGatewayStreamFn>,
+          innerStream: capturedInnerStream,
           model,
         }
       }

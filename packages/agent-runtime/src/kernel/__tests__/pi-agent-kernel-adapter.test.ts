@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PiAgentKernelAdapter } from "../pi-agent-kernel-adapter.js";
-import type { AgentTurnEvent } from "@mtbot/protocol";
+import type { AgentTurnEvent } from "../agent-turn-types.js";
 
 // ---- mock pi-agent-core Agent ----
 

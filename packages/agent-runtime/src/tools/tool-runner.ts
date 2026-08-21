@@ -14,7 +14,7 @@ import type {
 } from "./tool-hooks.js";
 import { reportToolMetrics, type ToolTelemetryCollector } from "./telemetry.js";
 import type { CapabilityRegistry } from "../capability/capability-registry.js";
-import type { AgentTurnOrigin } from "@mtbot/protocol";
+import type { AgentTurnOrigin } from "../kernel/agent-turn-types.js";
 
 /**
  * 协调 hooks 与 MtBotTool 原始 execute 的执行器

@@ -314,8 +314,6 @@ export interface ElectronAPI {
   }
   app: {
     getVersion: () => Promise<string>
-    getServerConfig: () => Promise<{ apiUrl: string; gatewayUrl: string }>
-    updateServerConfig: (config: Partial<{ gatewayUrl: string; apiUrl: string }>) => Promise<void>
     quit: () => void
     openExternal: (url: string) => Promise<void>
     showItemInFolder: (filePath: string) => Promise<void>
@@ -672,12 +670,8 @@ export interface ElectronAPI {
     /** 更新 AI 灵魂内容（本地文件） */
     updateSoulContent: (content: string) => Promise<unknown>
 
-    // --- 技能运行时 + 节点列表 + 文件上传 ---
-    /** 获取所有已加载技能列表（通过 Gateway WS�?*/
-    listAllSkills: () => Promise<unknown>
-    /** 获取 Gateway 节点列表（通过 Gateway WS�?*/
-    listNodes: () => Promise<unknown>
-    /** 上传技能文件（Base64，通过 API Server�?*/
+    // --- 文件上传 ---
+    /** 上传技能文件（Base64，通过 API Server）*/
     uploadSkillFile: (params: {
       skillId: string
       fileType: string
@@ -1267,8 +1261,6 @@ const electronAPI: ElectronAPI = {
   // 应用操作 API
   app: {
     getVersion: () => ipcRenderer.invoke('app:getVersion'),
-    getServerConfig: () => ipcRenderer.invoke('app:getServerConfig') as Promise<{ apiUrl: string; gatewayUrl: string }>,
-    updateServerConfig: (config: Partial<{ gatewayUrl: string; apiUrl: string }>) => ipcRenderer.invoke('app:updateServerConfig', config) as Promise<void>,
     quit: () => ipcRenderer.send('app:quit'),
     openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
     showItemInFolder: (filePath: string) => ipcRenderer.invoke('app:showItemInFolder', filePath),
@@ -1510,11 +1502,7 @@ const electronAPI: ElectronAPI = {
     updateSoulContent: (content: string) =>
       ipcRenderer.invoke('api:updateSoulContent', content),
 
-    // --- 技能运行时 + 节点列表 + 文件上传 ---
-    listAllSkills: () =>
-      ipcRenderer.invoke('api:listAllSkills'),
-    listNodes: () =>
-      ipcRenderer.invoke('api:listNodes'),
+    // --- 文件上传 ---
     uploadSkillFile: (params: {
       skillId: string
       fileType: string

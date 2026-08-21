@@ -44,7 +44,7 @@ function def(over: Partial<AgentDefinition> = {}): AgentDefinition {
 
 const config: ConfigProvider = {
   getProviderCredentials: () => ({ apiKey: "secret" }),
-  resolveModel: (): ResolvedModel => ({ model: MODEL, providerSource: "cloud", streamFnKind: "gateway" }),
+  resolveModel: (): ResolvedModel => ({ model: MODEL, providerSource: "cloud" }),
   getFeatureFlags: (over) => createFeatureFlags(over),
 };
 

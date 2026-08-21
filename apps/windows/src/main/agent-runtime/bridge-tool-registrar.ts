@@ -36,7 +36,6 @@ import {
   messageToolConfig,
   channelListToolConfig,
   channelSendToolConfig,
-  nodesToolConfig,
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,
@@ -169,9 +168,8 @@ export class BridgeToolRegistrar {
     this.registerScreenRecordTools()
     // 渐进式加载指南工具（a2ui_guide / cron_guide）
     this.registerGuideTools()
-    if (this.deps.config.callGateway) {
-      this.registerIntegrationTools()
-    }
+    // 客户端集成工具（message/memory/profile/system_prompt/tts/image），不依赖 Gateway，始终注册
+    this.registerIntegrationTools()
     // 浏览器控制工具（getBrowserContext 配置存在时注册）
     if (this.deps.config.getBrowserContext) {
       this.registerBrowserTools()
@@ -643,23 +641,11 @@ export class BridgeToolRegistrar {
           }
           nextRunAt = atMs
         } else {
-          // cron 表达式：若有 Gateway，走原有 Gateway 能力；无 Gateway 时明确报错
-          const callGateway = this.deps.config.callGateway
-          if (!callGateway) {
-            return jsonToolResult({
-              status: 'error',
-              message: 'Local mode without Gateway currently supports only "at" and "every".',
-            })
-          }
-          const gatewayResult = await callGateway('cron.add', {
-            name: p.name.trim(),
-            agentId: p.agentId?.trim() || undefined,
-            schedule: { kind: 'cron', expr: scheduleExpr },
-            sessionTarget: 'main',
-            wakeMode: 'now',
-            payload: { kind: 'systemEvent', text: p.taskText },
+          // 独立版无 Gateway，cron 表达式调度目前无本地实现，明确报错
+          return jsonToolResult({
+            status: 'error',
+            message: 'Local mode currently supports only "at" and "every" schedule types, not "cron".',
           })
-          return jsonToolResult({ status: 'ok', job: gatewayResult })
         }
 
         // 未显式指定推送渠道时，默认使用当前对话所在渠道（sessionKey 前缀解析）—
@@ -919,12 +905,11 @@ export class BridgeToolRegistrar {
   }
 
   /**
-   * 注册客户端集成工具（message / nodes / memory_search / profile_memory / system_prompt）
+   * 注册客户端集成工具（message / memory_search / profile_memory / system_prompt）
    */
   private registerIntegrationTools(): void {
     const ctx = this.deps.toolContext
-    const callGateway = this.deps.config.callGateway
-    if (!ctx || !callGateway) return
+    if (!ctx) return
 
     const messageTool: MtBotToolConfig = {
       ...messageToolConfig,
@@ -977,67 +962,6 @@ export class BridgeToolRegistrar {
       },
     }
     this.deps.toolRegistry.register(createMtBotTool(messageTool, ctx))
-
-    const nodesTool: MtBotToolConfig = {
-      ...nodesToolConfig,
-      execute: async (_id, rawParams) => {
-        const p = rawParams as Record<string, unknown>
-        const action = String(p.action ?? '').trim()
-        if (!action) {
-          return jsonToolResult({ status: 'error', message: 'action is required' })
-        }
-        if (action === 'status') {
-          return jsonToolResult(await callGateway('node.list', {}))
-        }
-        if (action === 'describe') {
-          return jsonToolResult(await callGateway('node.describe', { nodeId: p.node }))
-        }
-        if (action === 'run') {
-          const nodeId = typeof p.node === 'string' ? p.node.trim() : ''
-          if (!nodeId) {
-            return jsonToolResult({ status: 'error', message: 'node (nodeId) is required for run action' })
-          }
-          return jsonToolResult(
-            await callGateway('node.invoke', {
-              nodeId,
-              command: 'system.run',
-              params: {
-                command: p.command,
-                cwd: p.cwd,
-                env: p.env,
-                timeoutMs: p.commandTimeoutMs,
-              },
-              idempotencyKey: `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            }),
-          )
-        }
-        if (action === 'notify') {
-          const nodeId = typeof p.node === 'string' ? p.node.trim() : ''
-          if (!nodeId) {
-            return jsonToolResult({ status: 'error', message: 'node (nodeId) is required for notify action' })
-          }
-          return jsonToolResult(
-            await callGateway('node.invoke', {
-              nodeId,
-              command: 'system.notify',
-              params: {
-                title: p.title,
-                body: p.body,
-                sound: p.sound,
-                priority: p.priority,
-                delivery: p.delivery,
-              },
-              idempotencyKey: `node-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            }),
-          )
-        }
-        return jsonToolResult({
-          status: 'error',
-          message: `unsupported nodes action in client runtime: ${action}`,
-        })
-      },
-    }
-    this.deps.toolRegistry.register(createMtBotTool(nodesTool, ctx))
 
     const memorySearchTool: MtBotToolConfig = {
       ...memorySearchToolConfig,
@@ -1353,7 +1277,7 @@ export class BridgeToolRegistrar {
     }
     this.deps.toolRegistry.register(createMtBotTool(imageGenerateTool, ctx))
 
-    log.info('[registerToolOverrides] integration tools registered: message/nodes/memory/profile/system_prompt/tts_generate/image_generate')
+    log.info('[registerToolOverrides] integration tools registered: message/memory/profile/system_prompt/tts_generate/image_generate')
 
     this.registerClientCommandTools(ctx)
   }

@@ -98,12 +98,11 @@ export interface ModelOverride {
   readonly providerSource?: ProviderSource;
 }
 
-/** purpose 图槽解析结果：模型 + provider 来源 + streamFn 选择 */
+/** purpose 图槽解析结果：模型 + provider 来源 */
 export interface ResolvedModel {
   readonly model: Model<string>;
   /** 默认 "cloud" */
   readonly providerSource: ProviderSource;
-  readonly streamFnKind: StreamFnKind;
 }
 
 /**
@@ -116,7 +115,7 @@ export interface ConfigProvider {
   /** 敏感配置：API key / baseURL，仅 host 持有 */
   getProviderCredentials(source: ProviderSource): ProviderCredentials;
   /**
-   * purpose 图槽解析：一次给出 模型 + provider 来源 + streamFn 选择。
+   * purpose 图槽解析：一次给出 模型 + provider 来源。
    * 云端来源为默认；本地 / 自定义来源预留，第一期不实现。
    */
   resolveModel(purpose: string, sessionOverride?: ModelOverride): ResolvedModel;
@@ -125,11 +124,8 @@ export interface ConfigProvider {
 }
 
 // ============================================================
-// StreamFnFactory — streamFn 选择（gateway / direct）
+// StreamFnFactory — streamFn 产出（本地直连）
 // ============================================================
-
-/** streamFn 形态：网关代理 或 本地直连 */
-export type StreamFnKind = "gateway" | "direct";
 
 /** streamFn 工厂的运行时上下文（metadata 回调等由宿主提供） */
 export interface StreamFnContext {
@@ -142,10 +138,7 @@ export interface StreamFnContext {
 }
 
 /**
- * streamFn 工厂：按 ResolvedModel.streamFnKind 产出对应 streamFn。
- *
- * 阶段 A 只实现 gateway 分支（包装 createGatewayStreamFn）；
- * direct 分支阶段 B 接入（pi-ai streamProxy 直连本地/自定义 provider）。
+ * streamFn 工厂：产出本地直连 streamFn（pi-ai streamSimple 直连 provider）。
  */
 export interface StreamFnFactory {
   create(resolved: ResolvedModel, ctx: StreamFnContext): StreamFn;

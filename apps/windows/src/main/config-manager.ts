@@ -8,7 +8,7 @@
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import type { DirectoryManager } from './directory-manager'
-import type { Config, ServerConfig, AppConfig, LogConfig, PartialConfig } from './config/types'
+import type { Config, AppConfig, LogConfig, PartialConfig } from './config/types'
 import { DEFAULT_CONFIG } from './config/types'
 
 const log = {
@@ -76,7 +76,6 @@ export class ConfigManager {
    */
   private mergeConfig(base: Config, override: PartialConfig): Config {
     return {
-      server: this.mergeSection(base.server, override.server),
       app: this.mergeSection(base.app, override.app),
       log: this.mergeSection(base.log, override.log),
     }
@@ -101,16 +100,6 @@ export class ConfigManager {
    */
   private applyEnvironmentOverrides(config: Config): Config {
     const result = { ...config }
-
-    // 服务器配置
-    if (process.env.MTBOT_API_URL) {
-      result.server.apiUrl = process.env.MTBOT_API_URL
-      log.info(`环境变量覆盖 API URL: ${result.server.apiUrl}`)
-    }
-    if (process.env.MTBOT_GATEWAY_URL) {
-      result.server.gatewayUrl = process.env.MTBOT_GATEWAY_URL
-      log.info(`环境变量覆盖 Gateway URL: ${result.server.gatewayUrl}`)
-    }
 
     // 应用配置
     if (process.env.MTBOT_LANGUAGE) {
@@ -170,13 +159,6 @@ export class ConfigManager {
   }
 
   /**
-   * 获取服务器配置
-   */
-  getServerConfig(): ServerConfig {
-    return this.getConfig().server
-  }
-
-  /**
    * 获取应用配置
    */
   getAppConfig(): AppConfig {
@@ -188,13 +170,6 @@ export class ConfigManager {
    */
   getLogConfig(): LogConfig {
     return this.getConfig().log
-  }
-
-  /**
-   * 更新服务器配置
-   */
-  async updateServerConfig(config: Partial<ServerConfig>): Promise<void> {
-    await this.saveConfig({ server: config })
   }
 
   /**

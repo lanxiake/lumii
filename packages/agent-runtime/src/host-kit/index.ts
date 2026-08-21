@@ -18,7 +18,6 @@ export type {
   ProviderCredentials,
   ModelOverride,
   ResolvedModel,
-  StreamFnKind,
   StreamFnContext,
   StreamFnFactory,
   PromptContextProvider,
@@ -26,14 +25,12 @@ export type {
   AssembledAgent,
 } from "./types.js";
 
-// streamFn 工厂（阶段 A-2，direct 分支阶段 B）
+// streamFn 工厂（本地直连）
 export {
   createStreamFnFactory,
-  createGatewayStreamFnFactory,
   createDirectStreamFnFactory,
 } from "./stream-fn-factory.js";
 export type {
-  GatewayStreamFnFactoryConfig,
   DirectStreamFnFactoryConfig,
 } from "./stream-fn-factory.js";
 

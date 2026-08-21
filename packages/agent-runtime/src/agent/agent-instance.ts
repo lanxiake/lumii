@@ -35,7 +35,7 @@ import {
 } from "./token-budget.js";
 import type { AgentKernel } from "../kernel/types.js";
 import { PiAgentKernelAdapter } from "../kernel/pi-agent-kernel-adapter.js";
-import type { AgentTurnOrigin } from "@mtbot/protocol";
+import type { AgentTurnOrigin } from "../kernel/agent-turn-types.js";
 import type { CapabilityRegistry } from "../capability/capability-registry.js";
 import {
   defaultConvertToLlm,

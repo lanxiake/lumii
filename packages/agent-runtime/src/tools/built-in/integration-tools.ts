@@ -1,7 +1,7 @@
 /**
  * integration_tools — client runtime integration capability tools
  *
- * message / nodes / memory_search / memory_read / profile_memory / system_prompt / tts_generate
+ * message / memory_search / memory_read / profile_memory / system_prompt / tts_generate
  *
  * These are stub configs. Platform integration (Electron bridge) overrides execute.
  */
@@ -32,31 +32,6 @@ export const messageToolConfig: MtBotToolConfig<typeof MessageParams> = {
   isReadOnly: false,
   needsPermission: false,
   async execute(_toolCallId: string, _params: MessageInput): Promise<AgentToolResult<unknown>> {
-    return {
-      content: [{ type: "text", text: JSON.stringify({ status: "not_implemented" }) }],
-      details: undefined,
-    };
-  },
-};
-
-const NodesParams = Type.Object(
-  {
-    action: Type.String({ description: "Nodes action: status/describe/run/notify/..." }),
-    node: Type.Optional(Type.String()),
-  },
-  { additionalProperties: true },
-);
-type NodesInput = Static<typeof NodesParams>;
-
-export const nodesToolConfig: MtBotToolConfig<typeof NodesParams> = {
-  name: "nodes",
-  label: "Nodes",
-  description: "List and control bound user devices.",
-  parameters: NodesParams,
-  category: "channel",
-  isReadOnly: false,
-  needsPermission: false,
-  async execute(_toolCallId: string, _params: NodesInput): Promise<AgentToolResult<unknown>> {
     return {
       content: [{ type: "text", text: JSON.stringify({ status: "not_implemented" }) }],
       details: undefined,

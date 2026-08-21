@@ -18,11 +18,6 @@ export interface LlmErrorDetail {
   readonly httpStatus?: number;
 }
 
-/**
- * 兼容别名：历史代码从 gateway-stream 导入此名，语义已扩展为「所有来源的 LLM 错误」。
- */
-export type GatewayLlmErrorDetail = LlmErrorDetail;
-
 /** HTTP 状态 → 稳定错误码（UI 据此给出中文指引） */
 const HTTP_STATUS_TO_CODE: Readonly<Record<number, string>> = {
   400: "bad_request",

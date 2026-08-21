@@ -10,7 +10,6 @@ import {
   type SummaryGeneratorFn,
   type DatabaseAdapter,
   estimateTokenCount,
-  createGatewayStreamFn,
   resolveManualCompactKeepCount,
   buildCompactSummaryPrompt,
   formatCompactSummary,
@@ -24,7 +23,7 @@ import {
   applyConversationCompactToUsage,
   patchBreakdownAfterConversationCompact,
 } from './context-usage-breakdown'
-import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import type { AgentMessage, StreamFn } from '@mariozechner/pi-agent-core'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import { agentRuntimeLog as log } from './bridge-utils'
 import {
@@ -33,7 +32,7 @@ import {
 } from './compact-persist'
 
 type ModelRef = import('@mariozechner/pi-ai').Model<any>
-type InnerStreamRef = ReturnType<typeof createGatewayStreamFn>
+type InnerStreamRef = StreamFn
 
 export interface BridgeContextCompactorDeps {
   getConversationRepo: () => ConversationRepo | null
@@ -481,7 +480,7 @@ export class BridgeContextCompactor {
  * 然后流式收集文本输出。
  */
 export function createLlmSummaryGenerator(
-  innerStream: ReturnType<typeof createGatewayStreamFn>,
+  innerStream: StreamFn,
   model: import('@mariozechner/pi-ai').Model<any>,
 ): SummaryGeneratorFn {
   return async (

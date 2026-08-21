@@ -114,7 +114,7 @@ export async function assembleAgent(
   const purpose = def.defaultPurpose ?? "chat";
   const resolved: ResolvedModel = opts.config.resolveModel(purpose, opts.modelOverride);
 
-  // 2) streamFn 工厂产出（按 resolved.streamFnKind 分派），可选宿主包装
+  // 2) streamFn 工厂产出（本地直连），可选宿主包装
   const factoryStreamFn = opts.streamFnFactory.create(resolved, {
     sessionKey: opts.sessionKey,
     rootSessionKey,

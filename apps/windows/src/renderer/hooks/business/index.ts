@@ -30,7 +30,7 @@ export type { UseDashboardReturn, RuntimeGauges, SkillStats, UsageRange, UsageVi
 
 // 设置管理
 export { useSettings } from './useSettings'
-export type { UseSettingsReturn, AppSettings, GatewayConfig, ThemeConfig, NotificationConfig, PrivacyConfig, WorkspaceConfig } from './useSettings'
+export type { UseSettingsReturn, AppSettings, ThemeConfig, NotificationConfig, PrivacyConfig, WorkspaceConfig } from './useSettings'
 
 // 用户记忆管理（新）
 export { useUserMemory } from './useUserMemory'
