@@ -104,7 +104,7 @@ export function registerVoiceIpc(
 
   // ── 命令通道（invoke 模式，有响应）─────────────────────────────────────
   ipcMain.handle('voice:command', async (_event, command: VoiceCommand) => {
-    log.debug(`[voice:command] type=${command.type}`)
+    // log.debug(`[voice:command] type=${command.type}`)
 
     try {
       switch (command.type) {
