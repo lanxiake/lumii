@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Search, Globe, FileText, FilePen, Terminal, CheckSquare, GitBranch, Clock, Zap, Scale, Rocket, Sparkles, Network, LayoutGrid, List, RefreshCw, Check, X, Loader2 } from 'lucide-react'
+import { Zap, Rocket, Network, LayoutGrid, List, RefreshCw, Check, X, Loader2, Sparkles } from 'lucide-react'
 import clsx from 'clsx'
 import { useAgents } from '../../hooks/business/useAgents/useAgents'
 import { updateAgent, deleteAgent, type ModelTier } from '../../services/agent-service'
@@ -14,189 +14,26 @@ import { MapView } from './views/MapView'
 import { GridView } from './views/GridView'
 import { FeedView } from './views/FeedView'
 import { getStoredView, VIEW_STORAGE_KEY, type AgentView, type Agent as ViewAgent } from './views/types'
-import type { ViewType } from '../../components/layout/Sidebar/Sidebar'
 import { GenerateTeamWizard } from './components/GenerateTeamWizard/GenerateTeamWizard'
 import { OptimizeTeamWizard } from './components/OptimizeTeamWizard/OptimizeTeamWizard'
 import { EmptyStateGuide } from './components/EmptyStateGuide/EmptyStateGuide'
+import { AgentBasicFields } from './components/AgentFormModal/AgentBasicFields'
+import { AgentRoutingFields } from './components/AgentFormModal/AgentRoutingFields'
+import { AgentCategoryModelFields } from './components/AgentFormModal/AgentCategoryModelFields'
+import { AgentSkillsField } from './components/AgentFormModal/AgentSkillsField'
+import { AgentCapabilitiesField } from './components/AgentFormModal/AgentCapabilitiesField'
+import {
+  CAPABILITY_OPTIONS,
+  capabilitiesToSkillBlacklist,
+  skillBlacklistToCapabilityIds,
+  defaultCapabilities,
+  DEFAULT_MODEL_TIER,
+} from './AgentsPage.const'
+import type { AgentFormData, UserSkill, AgentsPageProps } from './AgentsPage.types'
 import styles from './AgentsPage.module.css'
 import type { AgentRuntimeState } from './views/types'
 
-// ── 工具能力配置（白话描述，非技术用户可理解）──────────────────────────
-// 工具名称与 bridge.ts 内 ALL_BUILT_IN_TOOL_CONFIGS 保持一致
-interface CapabilityOption {
-  id: string
-  label: string
-  description: string
-  toolNames: string[]
-  icon?: React.ReactNode
-}
-
-const CAPABILITY_OPTIONS: CapabilityOption[] = [
-  {
-    id: 'web_search',
-    label: '联网搜索',
-    description: '可以搜索互联网获取最新信息',
-    toolNames: ['web_search'],
-    icon: <Search size={14} />,
-  },
-  {
-    id: 'web_fetch',
-    label: '访问网页',
-    description: '可以打开和阅读网页内容',
-    toolNames: ['web_fetch'],
-    icon: <Globe size={14} />,
-  },
-  {
-    id: 'file_read',
-    label: '读取文件',
-    description: '可以读取设备上的文件和目录',
-    toolNames: ['file_read', 'glob', 'grep'],
-    icon: <FileText size={14} />,
-  },
-  {
-    id: 'file_write',
-    label: '修改文件',
-    description: '可以创建和编辑设备上的文件',
-    toolNames: ['file_write', 'file_edit'],
-    icon: <FilePen size={14} />,
-  },
-  {
-    id: 'exec',
-    label: '执行命令',
-    description: '可以在设备上运行程序或命令',
-    toolNames: ['bash'],
-    icon: <Terminal size={14} />,
-  },
-  {
-    id: 'task_tracking',
-    label: '任务追踪',
-    description: '会话内临时任务清单，追踪多步骤进度；会话结束后自动清空',
-    toolNames: ['todo_write'],
-    icon: <CheckSquare size={14} />,
-  },
-  {
-    id: 'agent_delegation',
-    label: '协调子 Agent',
-    description: '可以委派其他 Agent 并行处理子任务',
-    toolNames: ['spawn_agent', 'send_message'],
-    icon: <GitBranch size={14} />,
-  },
-  {
-    id: 'scheduling',
-    label: '定时任务',
-    description: '可以创建定时提醒和计划任务',
-    toolNames: ['cron_create', 'cron_list', 'cron_delete'],
-    icon: <Clock size={14} />,
-  },
-]
-
-function capabilitiesToSkillBlacklist(enabledIds: Set<string>): string[] {
-  const blacklist: string[] = []
-  for (const cap of CAPABILITY_OPTIONS) {
-    if (!enabledIds.has(cap.id)) {
-      blacklist.push(...cap.toolNames)
-    }
-  }
-  return blacklist
-}
-
-function skillBlacklistToCapabilityIds(blacklist: string[] | undefined): Set<string> {
-  if (!blacklist || blacklist.length === 0) {
-    return new Set(CAPABILITY_OPTIONS.map((c) => c.id))
-  }
-  const blackSet = new Set(blacklist)
-  const enabled = new Set<string>()
-  for (const cap of CAPABILITY_OPTIONS) {
-    // 只要黑名单中不包含该能力的任意工具，则视为已启用
-    if (!cap.toolNames.every((t) => blackSet.has(t))) {
-      enabled.add(cap.id)
-    }
-  }
-  return enabled
-}
-
-// ── 模型级别配置 ──────────────────────────────────────────────────────────
-interface ModelTierOption {
-  value: ModelTier
-  label: string
-  description: string
-}
-
-const MODEL_TIER_OPTIONS: ModelTierOption[] = [
-  {
-    value: 'basic',
-    label: '基础',
-    description: '速度快、成本低，适合简单任务',
-  },
-  {
-    value: 'balanced',
-    label: '均衡',
-    description: '速度与能力兼顾，适合大多数任务',
-  },
-  {
-    value: 'performance',
-    label: '性能',
-    description: '最强推理能力，适合复杂任务',
-  },
-]
-
-// ── 用户技能类型 ────────────────────────────────────────────────────────
-interface UserSkill {
-  id: string
-  name: string
-  description?: string
-  status?: string
-}
-
-// ── 表单数据类型 ─────────────────────────────────────────────────────────
-interface AgentFormData {
-  name: string
-  description: string
-  systemPrompt: string
-  enabledCapabilities: Set<string>
-  modelTier: ModelTier
-  selectedSkills: string[]
-  // Pre-LLM Router 路由信号（v2）
-  whenToUse: string
-  triggerExamples: string  // 换行分隔
-  bundledSkills: string    // 换行分隔
-  category: string
-}
-
-function defaultCapabilities(): Set<string> {
-  return new Set(CAPABILITY_OPTIONS.map((c) => c.id))
-}
-
-const DEFAULT_MODEL_TIER: ModelTier = 'basic'
-
-// ── 能力开关组件 ─────────────────────────────────────────────────────────
-const CapabilityToggle: React.FC<{
-  option: CapabilityOption
-  enabled: boolean
-  onChange: (id: string, enabled: boolean) => void
-}> = ({ option, enabled, onChange }) => (
-  <div
-    className={clsx(styles['capability-item'], enabled && styles['capability-item--on'])}
-    onClick={() => onChange(option.id, !enabled)}
-    role="checkbox"
-    aria-checked={enabled}
-    tabIndex={0}
-    onKeyDown={(e) => e.key === ' ' && onChange(option.id, !enabled)}
-  >
-    <div className={styles['capability-info']}>
-      <span className={styles['capability-label']}>{option.icon && <span style={{ marginRight: 4, display: 'inline-flex', verticalAlign: 'middle' }}>{option.icon}</span>}{option.label}</span>
-      <span className={styles['capability-desc']}>{option.description}</span>
-    </div>
-    <div className={clsx(styles['capability-switch'], enabled && styles['capability-switch--on'])} />
-  </div>
-)
-
 // ── 主页面 ───────────────────────────────────────────────────────────────
-interface AgentsPageProps {
-  onViewChange?: (view: ViewType) => void
-  /** Hub 嵌入时收紧布局，弱化页头标题区 */
-  embedded?: boolean
-}
 
 const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false }) => {
   const {
@@ -839,236 +676,40 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
               <button className={styles['modal-close']} onClick={() => setEditingAgent(null)}>✕</button>
             </div>
             <div className={styles['modal-body']}>
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>名称 *</label>
-                <input
-                  type="text"
-                  className={styles['form-input']}
-                  value={editingAgent.data.name}
-                  onChange={(e) =>
-                    setEditingAgent((prev) =>
-                      prev ? { ...prev, data: { ...prev.data, name: e.target.value } } : null,
-                    )
-                  }
-                  placeholder="Agent 名称"
-                />
-              </div>
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>描述（可选）</label>
-                <input
-                  type="text"
-                  className={styles['form-input']}
-                  value={editingAgent.data.description}
-                  onChange={(e) =>
-                    setEditingAgent((prev) =>
-                      prev ? { ...prev, data: { ...prev.data, description: e.target.value } } : null,
-                    )
-                  }
-                  placeholder="描述这个 Agent 的专长"
-                />
-              </div>
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>系统提示词</label>
-                <textarea
-                  className={styles['form-textarea']}
-                  value={editingAgent.data.systemPrompt}
-                  onChange={(e) =>
-                    setEditingAgent((prev) =>
-                      prev ? { ...prev, data: { ...prev.data, systemPrompt: e.target.value } } : null,
-                    )
-                  }
-                  placeholder="描述这个 Agent 的角色、能力和行为方式..."
-                  rows={5}
-                />
-                <div className={styles['form-hint']}>
-                  系统提示词定义了 Agent 的专业角色。协调者在分配任务时会根据名称、描述和提示词做决策。
-                </div>
-              </div>
-
-              {/* ─── Pre-LLM Router 路由信号（v2） ─── */}
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>
-                  🔀 何时使用 (whenToUse)
-                  <span className={styles['form-hint-inline']}>填写后可显著提升路由准确率</span>
-                </label>
-                <textarea
-                  className={styles['form-textarea']}
-                  value={editingAgent.data.whenToUse}
-                  onChange={(e) =>
-                    setEditingAgent((prev) =>
-                      prev ? { ...prev, data: { ...prev.data, whenToUse: e.target.value } } : null,
-                    )
-                  }
-                  placeholder='用户视角描述。例："用户想要写代码、调试或重构时"'
-                  rows={2}
-                />
-              </div>
-
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>触发例子 (triggerExamples)</label>
-                <textarea
-                  className={styles['form-textarea']}
-                  value={editingAgent.data.triggerExamples}
-                  onChange={(e) =>
-                    setEditingAgent((prev) =>
-                      prev ? { ...prev, data: { ...prev.data, triggerExamples: e.target.value } } : null,
-                    )
-                  }
-                  placeholder={'用户可能说的原话，每行一句。例如：\n帮我写个函数\n这段代码有 bug'}
-                  rows={3}
-                />
-                <div className={styles['form-hint']}>每行一个例子，建议 3-10 条。</div>
-              </div>
-
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>绑定技能 (bundledSkills)</label>
-                <textarea
-                  className={styles['form-textarea']}
-                  value={editingAgent.data.bundledSkills}
-                  onChange={(e) =>
-                    setEditingAgent((prev) =>
-                      prev ? { ...prev, data: { ...prev.data, bundledSkills: e.target.value } } : null,
-                    )
-                  }
-                  placeholder={'技能 ID 列表，每行一个。例如：\ncode-review\ntranslate'}
-                  rows={3}
-                />
-                <div className={styles['form-hint']}>
-                  Agent 启动时自动激活这些技能，无需再 skill_search。
-                </div>
-              </div>
-
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>分类 (category)</label>
-                <input
-                  type="text"
-                  className={styles['form-input']}
-                  value={editingAgent.data.category}
-                  onChange={(e) =>
-                    setEditingAgent((prev) =>
-                      prev ? { ...prev, data: { ...prev.data, category: e.target.value } } : null,
-                    )
-                  }
-                  placeholder="例：coding / writing / learning / life / general"
-                />
-              </div>
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>
-                  模型级别
-                  <span className={styles['form-hint-inline']}>决定子任务使用的 AI 模型能力</span>
-                </label>
-                <select
-                  className={styles['form-select']}
-                  value={editingAgent.data.modelTier}
-                  onChange={(e) =>
-                    setEditingAgent((prev) =>
-                      prev ? { ...prev, data: { ...prev.data, modelTier: e.target.value as ModelTier } } : null,
-                    )
-                  }
-                >
-                  {MODEL_TIER_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label} — {opt.description}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>
-                  专属技能
-                  <span className={styles['form-hint-inline']}>为 Agent 配备自定义技能</span>
-                </label>
-                {/* 检测此客户端本地缺少的技能并提示 */}
-                {(() => {
-                  const localSkillNames = new Set(userSkills.map((s) => s.name))
-                  const missing = editingAgent.data.selectedSkills.filter((name) => !localSkillNames.has(name))
-                  if (missing.length === 0) return null
-                  return (
-                    <div className={styles['skill-missing-warning']}>
-                      <span className={styles['skill-missing-title']}>
-                        ⚠ 本机缺少以下技能，Agent 在此设备上将无法使用它们
-                      </span>
-                      <div className={styles['skill-missing-list']}>
-                        {missing.map((name) => (
-                          <span key={name} className={styles['skill-missing-item']}>· {name}</span>
-                        ))}
-                      </div>
-                      <div className={styles['skill-missing-actions']}>
-                        <span className={styles['skill-missing-hint']}>
-                          前往技能商店搜索并安装，或从原始设备导出后导入。
-                        </span>
-                        <button
-                          type="button"
-                          className={styles['skill-missing-btn']}
-                          onClick={() => {
-                            setEditingAgent(null)
-                            window.dispatchEvent(
-                              new CustomEvent('mtbot:open-skill-store', {
-                                detail: { query: missing[0] },
-                              }),
-                            )
-                            onViewChange?.('skills')
-                          }}
-                        >
-                          🏪 去商店下载
-                        </button>
-                      </div>
-                    </div>
+              <AgentBasicFields
+                value={editingAgent.data}
+                onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)}
+                mode="edit"
+              />
+              <AgentRoutingFields
+                value={editingAgent.data}
+                onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)}
+                mode="edit"
+              />
+              <AgentCategoryModelFields
+                value={editingAgent.data}
+                onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)}
+              />
+              <AgentSkillsField
+                value={editingAgent.data}
+                onChange={(patch) => setEditingAgent((prev) => prev ? { ...prev, data: { ...prev.data, ...patch } } : null)}
+                userSkills={userSkills}
+                mode="edit"
+                onNavigateToStoreAndClose={(skillName) => {
+                  setEditingAgent(null)
+                  window.dispatchEvent(
+                    new CustomEvent('mtbot:open-skill-store', {
+                      detail: { query: skillName },
+                    }),
                   )
-                })()}
-                {userSkills.length === 0 ? (
-                  <div className={styles['skill-empty-hint']}>暂无自定义技能，可在技能页面创建</div>
-                ) : (
-                  <div className={styles['skill-list']}>
-                    {userSkills.map((skill) => {
-                      const checked = editingAgent.data.selectedSkills.includes(skill.name)
-                      return (
-                        <label
-                          key={skill.id}
-                          className={clsx(styles['skill-item'], checked && styles['skill-item--checked'])}
-                        >
-                          <input
-                            type="checkbox"
-                            className={styles['skill-checkbox']}
-                            checked={checked}
-                            onChange={() =>
-                              setEditingAgent((prev) => {
-                                if (!prev) return prev
-                                const next = checked
-                                  ? prev.data.selectedSkills.filter((s) => s !== skill.name)
-                                  : [...prev.data.selectedSkills, skill.name]
-                                return { ...prev, data: { ...prev.data, selectedSkills: next } }
-                              })
-                            }
-                          />
-                          <div className={styles['skill-info']}>
-                            <span className={styles['skill-name']}>{skill.name}</span>
-                            {skill.description && (
-                              <span className={styles['skill-desc']}>{skill.description}</span>
-                            )}
-                          </div>
-                        </label>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>
-                  可用能力
-                  <span className={styles['form-hint-inline']}>开启后 Agent 才能使用该能力</span>
-                </label>
-                <div className={styles['capability-list']}>
-                  {CAPABILITY_OPTIONS.map((cap) => (
-                    <CapabilityToggle
-                      key={cap.id}
-                      option={cap}
-                      enabled={editingAgent.data.enabledCapabilities.has(cap.id)}
-                      onChange={handleEditCapabilityChange}
-                    />
-                  ))}
-                </div>
-              </div>
+                  onViewChange?.('skills')
+                }}
+              />
+              <AgentCapabilitiesField
+                enabledCapabilities={editingAgent.data.enabledCapabilities}
+                onToggle={handleEditCapabilityChange}
+                mode="edit"
+              />
             </div>
             <div className={styles['modal-footer']}>
               <button
@@ -1099,169 +740,31 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
               <button className={styles['modal-close']} onClick={() => setShowCreateModal(false)}>✕</button>
             </div>
             <div className={styles['modal-body']}>
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>名称 *</label>
-                <input
-                  type="text"
-                  className={styles['form-input']}
-                  value={createForm.name}
-                  onChange={(e) => setCreateForm((prev) => ({ ...prev, name: e.target.value }))}
-                  placeholder="例如：代码审查专家"
-                  autoFocus
-                />
-              </div>
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>
-                  描述 <span className={styles['form-required']}>*</span>
-                </label>
-                <input
-                  type="text"
-                  className={styles['form-input']}
-                  value={createForm.description}
-                  onChange={(e) => setCreateForm((prev) => ({ ...prev, description: e.target.value }))}
-                  placeholder="描述这个 Agent 的专长，协调者会据此选择 Agent"
-                />
-                <div className={styles['form-hint']}>
-                  协调者 Agent 会根据名称和描述来决定何时调用此 Agent
-                </div>
-              </div>
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>
-                  系统提示词 <span className={styles['form-required']}>*</span>
-                </label>
-                <textarea
-                  className={styles['form-textarea']}
-                  value={createForm.systemPrompt}
-                  onChange={(e) => setCreateForm((prev) => ({ ...prev, systemPrompt: e.target.value }))}
-                  placeholder="例如：你是一个严格的代码审查专家，专注于代码质量、安全漏洞和性能问题，提供清晰的改进建议..."
-                  rows={4}
-                />
-              </div>
-
-              {/* ─── Pre-LLM Router 路由信号（v2） ─── */}
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>
-                  🔀 何时使用 (whenToUse)
-                  <span className={styles['form-hint-inline']}>填写后可显著提升路由准确率</span>
-                </label>
-                <textarea
-                  className={styles['form-textarea']}
-                  value={createForm.whenToUse}
-                  onChange={(e) => setCreateForm((prev) => ({ ...prev, whenToUse: e.target.value }))}
-                  placeholder='例："用户想要写代码、调试或重构时"'
-                  rows={2}
-                />
-              </div>
-
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>触发例子 (triggerExamples)</label>
-                <textarea
-                  className={styles['form-textarea']}
-                  value={createForm.triggerExamples}
-                  onChange={(e) => setCreateForm((prev) => ({ ...prev, triggerExamples: e.target.value }))}
-                  placeholder={'每行一个用户可能说的原话，例如：\n帮我写个函数\n这段代码有 bug'}
-                  rows={3}
-                />
-              </div>
-
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>绑定技能 (bundledSkills)</label>
-                <textarea
-                  className={styles['form-textarea']}
-                  value={createForm.bundledSkills}
-                  onChange={(e) => setCreateForm((prev) => ({ ...prev, bundledSkills: e.target.value }))}
-                  placeholder={'技能 ID 列表，每行一个。例如：\ncode-review\ntranslate'}
-                  rows={3}
-                />
-                <div className={styles['form-hint']}>
-                  Agent 启动时自动激活这些技能（"Agent = 能力包"模式）
-                </div>
-              </div>
-
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>分类 (category)</label>
-                <input
-                  type="text"
-                  className={styles['form-input']}
-                  value={createForm.category}
-                  onChange={(e) => setCreateForm((prev) => ({ ...prev, category: e.target.value }))}
-                  placeholder="例：coding / writing / learning / life / general"
-                />
-              </div>
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>
-                  模型级别
-                  <span className={styles['form-hint-inline']}>决定子任务使用的 AI 模型能力</span>
-                </label>
-                <select
-                  className={styles['form-select']}
-                  value={createForm.modelTier}
-                  onChange={(e) => setCreateForm((prev) => ({ ...prev, modelTier: e.target.value as ModelTier }))}
-                >
-                  {MODEL_TIER_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label} — {opt.description}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>
-                  专属技能
-                  <span className={styles['form-hint-inline']}>为 Agent 配备自定义技能</span>
-                </label>
-                {userSkills.length === 0 ? (
-                  <div className={styles['skill-empty-hint']}>暂无自定义技能，可在技能页面创建</div>
-                ) : (
-                  <div className={styles['skill-list']}>
-                    {userSkills.map((skill) => {
-                      const checked = createForm.selectedSkills.includes(skill.name)
-                      return (
-                        <label
-                          key={skill.id}
-                          className={clsx(styles['skill-item'], checked && styles['skill-item--checked'])}
-                        >
-                          <input
-                            type="checkbox"
-                            className={styles['skill-checkbox']}
-                            checked={checked}
-                            onChange={() =>
-                              setCreateForm((prev) => {
-                                const next = checked
-                                  ? prev.selectedSkills.filter((s) => s !== skill.name)
-                                  : [...prev.selectedSkills, skill.name]
-                                return { ...prev, selectedSkills: next }
-                              })
-                            }
-                          />
-                          <div className={styles['skill-info']}>
-                            <span className={styles['skill-name']}>{skill.name}</span>
-                            {skill.description && (
-                              <span className={styles['skill-desc']}>{skill.description}</span>
-                            )}
-                          </div>
-                        </label>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-              <div className={styles['form-field']}>
-                <label className={styles['form-label']}>
-                  可用能力
-                  <span className={styles['form-hint-inline']}>选择这个 Agent 可以使用哪些功能</span>
-                </label>
-                <div className={styles['capability-list']}>
-                  {CAPABILITY_OPTIONS.map((cap) => (
-                    <CapabilityToggle
-                      key={cap.id}
-                      option={cap}
-                      enabled={createForm.enabledCapabilities.has(cap.id)}
-                      onChange={handleCreateCapabilityChange}
-                    />
-                  ))}
-                </div>
-              </div>
+              <AgentBasicFields
+                value={createForm}
+                onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))}
+                mode="create"
+              />
+              <AgentRoutingFields
+                value={createForm}
+                onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))}
+                mode="create"
+              />
+              <AgentCategoryModelFields
+                value={createForm}
+                onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))}
+              />
+              <AgentSkillsField
+                value={createForm}
+                onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))}
+                userSkills={userSkills}
+                mode="create"
+              />
+              <AgentCapabilitiesField
+                enabledCapabilities={createForm.enabledCapabilities}
+                onToggle={handleCreateCapabilityChange}
+                mode="create"
+              />
             </div>
             <div className={styles['modal-footer']}>
               <button
