@@ -222,6 +222,7 @@ export class PerformanceAggregator {
     }
   }
 
+  /** 返回的数组只会随调用累积增长，从不清空或整体替换——PerformanceMonitor 的游标截取逻辑依赖此契约 */
   getAggregateEvents(): IpcAggregateEvent[] {
     return [...this.windowAggregates]
   }
