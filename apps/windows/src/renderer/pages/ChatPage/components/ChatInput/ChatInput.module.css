@@ -133,6 +133,9 @@
 /* 文本域 */
 .chat-textarea {
   width: 100%;
+  /* 原生自适应高度：替代 JS 侧读 scrollHeight 再写 height 的强制同步布局，
+     配合下面的 min/max-height 约束，交给浏览器在布局阶段一次算完 */
+  field-sizing: content;
   min-height: 52px;
   max-height: 200px;
   padding: var(--spacing-3) var(--spacing-4);

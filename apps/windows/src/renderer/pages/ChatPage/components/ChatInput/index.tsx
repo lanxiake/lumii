@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useState, useEffect, useLayoutEffect } from 'react'
+import React, { useRef, useCallback, useState, useEffect } from 'react'
 import clsx from 'clsx'
 import styles from './ChatInput.module.css'
 import type { Agent } from '../../../../services/agent-service'
@@ -308,52 +308,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
   }, [isStreaming])
 
-  const adjustHeight = useCallback(() => {
-    const el = textareaRef.current
-    if (!el) return
-    const perfStart = performance.now()
-    el.style.height = 'auto'
-    const nextHeight = Math.min(el.scrollHeight, 200)
-    if (el.offsetHeight !== nextHeight) el.style.height = `${nextHeight}px`
-    const cost = performance.now() - perfStart
-    if (cost > 4) {
-      console.warn(`[ChatInput.adjustHeight] 耗时 ${cost.toFixed(2)}ms（DOM 读写触发同步布局）`)
-    }
-  }, [])
-
-  // 本地草稿或外部写入变化时同步高度（不再在 onChange 里重复读 layout）
-  const heightFrameRef = useRef<number | null>(null)
-  useLayoutEffect(() => {
-    if (heightFrameRef.current != null) cancelAnimationFrame(heightFrameRef.current)
-    heightFrameRef.current = requestAnimationFrame(() => {
-      heightFrameRef.current = null
-      adjustHeight()
-    })
-    return () => {
-      if (heightFrameRef.current != null) cancelAnimationFrame(heightFrameRef.current)
-      heightFrameRef.current = null
-    }
-  }, [innerValue, adjustHeight])
-
   /**
    * 输入变化：只更新本地草稿；IME 组合期间跳过斜杠匹配。
+   * 高度自适应交给 CSS field-sizing: content，不再在 JS 里读写 layout。
    */
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const perfStart = performance.now()
     const newValue = e.target.value
     handleDraftChange(newValue)
-    if (!isComposingRef.current) {
-      applySlashSuggestions(newValue)
-    }
-    // 用双重 rAF 等本次 setState 触发的渲染真正提交完成，量化用户实际感知到的按键延迟
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const cost = performance.now() - perfStart
-        if (cost > 16) {
-          console.warn(`[ChatInput.handleChange] 端到端耗时 ${cost.toFixed(2)}ms（keydown → 渲染提交），isStreaming=${isStreaming}`)
-        }
-      })
-    })
+    if (isComposingRef.current) return
+    applySlashSuggestions(newValue)
   }
 
   /**
@@ -437,7 +400,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
           setQueuedMessages((prev) => [...prev, text])
           setDraft('')
           flushDraft('')
-          if (textareaRef.current) textareaRef.current.style.height = 'auto'
         } else if (queuedMessages.length > 0) {
           // 输入框为空且队列非空 → 打断当前回复，合并发送队列
           flushQueuedMessages()
@@ -464,7 +426,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
       await Promise.resolve(onAbort?.())
     }
     onSendWithValue?.(merged)
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
 
   // 用 ref 持有最新 flush，供 turnEndAt 边沿 effect 调用，避免闭包陈旧 & 频繁重订阅
@@ -496,9 +457,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
       onSendWithValue(innerValue)
     } else {
       onSend()
-    }
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
     }
   }
 

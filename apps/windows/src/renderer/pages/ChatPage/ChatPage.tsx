@@ -1342,13 +1342,18 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [runtimeCurrentSessionKey, runtimeActions])
 
   // 稳定化传给 ChatContainer 的回调，避免每次 render 新建函数破坏 memo
+  // 用 ref 持有最新值：回调本身保持稳定引用，避免每次渲染都换新函数，
+  // 否则会击穿所有消息行的 React.memo，导致历史消息全量重渲染（打字卡顿主因）。
+  const replayDepsRef = useRef({ conversationReplay, messages: localRuntimeSession?.messages })
+  replayDepsRef.current = { conversationReplay, messages: localRuntimeSession?.messages }
   const handleReplayFromMessage = useCallback((messageId: string) => {
-    if (conversationReplay.isReplaying) {
-      conversationReplay.stopReplay()
+    const { conversationReplay: replay, messages } = replayDepsRef.current
+    if (replay.isReplaying) {
+      replay.stopReplay()
     } else {
-      conversationReplay.startReplay(messageId, localRuntimeSession?.messages ?? [])
+      replay.startReplay(messageId, messages ?? [])
     }
-  }, [conversationReplay, localRuntimeSession])
+  }, [])
 
   // 实时朗读模式开关：开启=启动静默持续 micless 播报（右上角按钮，波纹见 readAloudSpeaking）
   const readAloudActive = voiceCallState.readAloudActive

@@ -430,29 +430,6 @@ function buildCurrentStatus(process: RenderUnit[]): string {
 }
 
 // ---------------------------------------------------------------
-// 渲染性能埋点：按帧统计触发了多少条 ChatMessage 重渲染，验证流式期间
-// 是否因未加 memo 导致历史消息被无谓重绘（临时排查用，定位后可移除）。
-// ---------------------------------------------------------------
-
-let chatMessageRenderFrameIds: string[] = []
-let chatMessageRenderFrameScheduled = false
-
-function reportChatMessageRender(messageId: string, startedAt: number): void {
-  chatMessageRenderFrameIds.push(messageId)
-  if (chatMessageRenderFrameScheduled) return
-  chatMessageRenderFrameScheduled = true
-  requestAnimationFrame(() => {
-    chatMessageRenderFrameScheduled = false
-    const ids = chatMessageRenderFrameIds
-    chatMessageRenderFrameIds = []
-    const cost = performance.now() - startedAt
-    if (ids.length > 1 || cost > 8) {
-      console.warn(`[ChatMessage.render] 本帧重渲染 ${ids.length} 条消息，累计耗时约 ${cost.toFixed(2)}ms`)
-    }
-  })
-}
-
-// ---------------------------------------------------------------
 // 组件
 // ---------------------------------------------------------------
 
@@ -473,8 +450,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   replayMessageId,
   onReviewFileChanges,
 }) => {
-  const renderPerfStart = performance.now()
-  reportChatMessageRender(message.id, renderPerfStart)
   const [isEditing, setIsEditing] = useState(false)
   const [memoryExpanded, setMemoryExpanded] = useState(false)
   const [previewFileId, setPreviewFileId] = useState<string | null>(null)
@@ -1133,5 +1108,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   )
 }
 
-export default React.memo(ChatMessage)
-export { ChatMessage }
+const ChatMessageMemo = React.memo(ChatMessage)
+ChatMessageMemo.displayName = 'ChatMessage'
+
+export default ChatMessageMemo
+export { ChatMessageMemo as ChatMessage }
