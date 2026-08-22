@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
-import { Package, ShoppingBag, Wrench, Radio, Loader2, FolderOpen, Download, Circle, ChevronDown, ChevronRight, ToggleLeft, ToggleRight, Folder, Trash2, Tag } from 'lucide-react'
+import { Package, ShoppingBag, Wrench, Radio, Loader2, FolderOpen, Download, Circle, ChevronDown, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
 import { Card } from '../../components/ui/Card/Card'
 import { Button } from '../../components/ui/Button/Button'
@@ -12,167 +12,13 @@ import { ErrorBanner } from '../../components/ui/ErrorBanner/ErrorBanner'
 import { Select } from '../../components/ui/Select/Select'
 import { SkillStoreView } from '../../components/business/SkillStoreView'
 import { ToolCard } from './components/ToolCard'
+import { MySkillDetailModal } from './components/MySkillDetailModal'
+import { SkillRow } from './components/SkillRow'
 import { useSkills } from '../../hooks/business/useSkills'
 import { useToolSearch } from '../../hooks/business/useToolSearch'
+import { CATEGORY_LABELS, CATEGORY_ORDER } from './SkillsPage.const'
+import type { MySkillDetailInfo, TabType, FilterStatus, SkillsPageProps } from './SkillsPage.types'
 import styles from './SkillsPage.module.css'
-
-interface MySkillDetailInfo {
-  skillItemId: string
-  isEnabled: boolean
-  category: string
-  skill: {
-    name: string
-    description?: string
-    version: string
-    tags?: string[]
-  }
-}
-
-const MySkillDetailModal: React.FC<{
-  skillInfo: MySkillDetailInfo | null
-  isOpen: boolean
-  isOperating: boolean
-  onClose: () => void
-  onToggle: () => void
-  onUninstall: () => void
-  onOpenDir?: () => void
-}> = ({ skillInfo, isOpen, isOperating, onClose, onToggle, onUninstall, onOpenDir }) => {
-  if (!skillInfo) return null
-  const { skill, isEnabled, category } = skillInfo
-
-  const footer = (
-    <>
-      <Button variant="ghost" onClick={onClose}>关闭</Button>
-      {onOpenDir && (
-        <Button variant="ghost" onClick={onOpenDir}>打开目录</Button>
-      )}
-      <Button
-        variant={isEnabled ? 'secondary' : 'primary'}
-        onClick={onToggle}
-        loading={isOperating}
-      >
-        {isEnabled ? '禁用' : '启用'}
-      </Button>
-      <Button variant="danger" onClick={onUninstall} disabled={isOperating}>卸载</Button>
-    </>
-  )
-
-  return (
-    <Modal open={isOpen} onClose={onClose} width={460} footer={footer} layer="aboveHub">
-      <div style={{ padding: '4px 0' }}>
-        {/* 头部 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-          <span style={{
-            width: 44, height: 44, borderRadius: 8, background: 'var(--color-bg-tertiary, var(--bg-tertiary))',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
-          }}>
-            <Wrench size={22} />
-          </span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>{skill.name}</h3>
-              <span style={{
-                fontSize: 11, padding: '2px 8px', borderRadius: 10, fontWeight: 500,
-                background: isEnabled ? 'rgba(34,197,94,0.12)' : 'rgba(107,114,128,0.12)',
-                color: isEnabled ? 'var(--color-success)' : 'var(--color-text-tertiary)',
-              }}>
-                {isEnabled ? '已启用' : '已禁用'}
-              </span>
-            </div>
-            <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)' }}>v{skill.version}</span>
-          </div>
-        </div>
-
-        {/* 统计栏 */}
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8,
-          padding: 12, background: 'var(--color-bg-secondary)', borderRadius: 8, marginBottom: 14
-        }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 2 }}>版本</div>
-            <div style={{ fontSize: 13 }}>v{skill.version}</div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginBottom: 2 }}>分类</div>
-            <div style={{ fontSize: 13 }}>{category || '未分类'}</div>
-          </div>
-        </div>
-
-        {/* 描述 */}
-        {skill.description && (
-          <div style={{ marginBottom: 14 }}>
-            <h4 style={{ fontSize: 12, fontWeight: 600, margin: '0 0 6px 0', color: 'var(--color-text-secondary)' }}>描述</h4>
-            <p style={{ fontSize: 13, lineHeight: 1.6, margin: 0, color: 'var(--color-text-secondary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-              {skill.description}
-            </p>
-          </div>
-        )}
-
-        {/* 标签 */}
-        {skill.tags && skill.tags.length > 0 && (
-          <div>
-            <h4 style={{ fontSize: 12, fontWeight: 600, margin: '0 0 6px 0', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Tag size={12} /> 标签
-            </h4>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {skill.tags.map(tag => (
-                <span key={tag} style={{
-                  fontSize: 11, padding: '2px 8px', borderRadius: 10,
-                  background: 'var(--color-bg-tertiary, var(--bg-tertiary))',
-                  color: 'var(--color-text-secondary)',
-                  border: '1px solid var(--color-border)'
-                }}>
-                  {tag}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </Modal>
-  )
-}
-
-/** 工具分类中文标签 */
-const CATEGORY_LABELS: Record<string, string> = {
-  filesystem: '文件工具',
-  shell: 'Shell 工具',
-  web: '网络工具',
-  memory: '记忆工具',
-  agent: 'Agent 工具',
-  channel: 'MCP 工具',
-}
-
-/** 工具分类排序权重（数字越小越靠前） */
-const CATEGORY_ORDER: Record<string, number> = {
-  filesystem: 1,
-  shell: 2,
-  web: 3,
-  agent: 4,
-  memory: 5,
-  channel: 6,
-}
-
-/**
- * 标签页类型
- */
-type TabType = 'my-skills' | 'store' | 'tools' | 'mcp'
-
-/**
- * 筛选状态类型
- */
-type FilterStatus = 'all' | 'enabled' | 'disabled'
-
-interface SkillsPageProps {
-  /** Hub 嵌入时收紧 padding */
-  embedded?: boolean
-  /** 初始 Tab（Hub MCP Tab 用 mcp） */
-  initialTab?: TabType
-  /** Hub 已把 MCP 提到顶栏时隐藏页内 MCP Tab */
-  hideMcpTab?: boolean
-  /** 仅展示 MCP Tab 内容（隐藏其它 Tab 导航） */
-  mcpOnly?: boolean
-}
 
 /**
  * SkillsPage - 技能管理页面
@@ -924,84 +770,6 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
       >
         <p>确定要卸载此技能吗？此操作不可恢复。</p>
       </Modal>
-    </div>
-  )
-}
-
-/**
- * SkillRow - 紧凑技能行（替代大卡片）
- * 高度约 36px，hover 时显示操作按钮
- */
-interface SkillRowProps {
-  skillInfo: {
-    skillItemId: string
-    isEnabled: boolean
-    executionCount?: number
-    skill: { name: string; description?: string; version: string; tags?: string[] }
-  }
-  isOperating: boolean
-  onDetail: () => void
-  onToggle: () => void
-  onUninstall: () => void
-  onOpenDir?: () => void
-}
-
-const SkillRow: React.FC<SkillRowProps> = ({ skillInfo, isOperating, onDetail, onToggle, onUninstall, onOpenDir }) => {
-  return (
-    <div
-      className={clsx(styles['skill-row'], !skillInfo.isEnabled && styles['skill-row--disabled'])}
-      onClick={onDetail}
-      style={{ cursor: 'pointer' }}
-    >
-      {/* 状态指示点 */}
-      <span className={clsx(styles['skill-row-dot'], skillInfo.isEnabled ? styles['dot-enabled'] : styles['dot-disabled'])} />
-
-      {/* 名称 + 描述 */}
-      <span className={styles['skill-row-name']} title={skillInfo.skill.name}>
-        {skillInfo.skill.name}
-      </span>
-      {skillInfo.skill.description && (
-        <span className={styles['skill-row-desc']} title={skillInfo.skill.description}>
-          {skillInfo.skill.description}
-        </span>
-      )}
-
-      {/* 调用次数 */}
-      <span
-        className={styles['skill-row-usage']}
-        title={skillInfo.executionCount ? `累计调用 ${skillInfo.executionCount} 次` : '从未调用过'}
-      >
-        {skillInfo.executionCount ? `${skillInfo.executionCount} 次` : '未用过'}
-      </span>
-
-      {/* 操作区（hover 显示） */}
-      <div className={styles['skill-row-actions']}>
-        <button
-          className={clsx(styles['skill-row-btn'], skillInfo.isEnabled ? styles['btn-disable'] : styles['btn-enable'])}
-          onClick={(e) => { e.stopPropagation(); onToggle() }}
-          disabled={isOperating}
-          title={skillInfo.isEnabled ? '禁用' : '启用'}
-        >
-          {isOperating ? <Loader2 size={13} className="animate-spin" /> : skillInfo.isEnabled ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
-        </button>
-        {onOpenDir && (
-          <button
-            className={styles['skill-row-btn']}
-            onClick={(e) => { e.stopPropagation(); onOpenDir() }}
-            title="打开目录"
-          >
-            <Folder size={13} />
-          </button>
-        )}
-        <button
-          className={clsx(styles['skill-row-btn'], styles['btn-danger'])}
-          onClick={(e) => { e.stopPropagation(); onUninstall() }}
-          disabled={isOperating}
-          title="卸载"
-        >
-          <Trash2 size={13} />
-        </button>
-      </div>
     </div>
   )
 }
