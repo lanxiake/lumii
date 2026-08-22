@@ -235,6 +235,8 @@ function applySubAgentTextDeltaBatch(
  */
 function flushPendingDeltas(): void {
   deltaFlushScheduled = false
+  const perfStart = performance.now()
+  const batchCount = pendingDeltaQueue.length
 
   for (const { target, text } of pendingDeltaQueue) {
     if (!text) continue
@@ -251,6 +253,11 @@ function flushPendingDeltas(): void {
     }
   }
   pendingDeltaQueue.length = 0
+
+  const cost = performance.now() - perfStart
+  if (cost > 8) {
+    console.warn(`[event-handler.flushPendingDeltas] 本帧合并 ${batchCount} 个批次，处理耗时 ${cost.toFixed(2)}ms`)
+  }
 }
 
 /**

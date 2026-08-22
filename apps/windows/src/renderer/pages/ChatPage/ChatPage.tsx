@@ -45,6 +45,8 @@ import { useWorkspacePanels } from './hooks/useWorkspacePanels'
 import { useChatPageZoom } from './hooks/useChatPageZoom'
 import { ChatToolbar } from './layout/ChatToolbar'
 import { ChatBottomOverlay } from './layout/ChatBottomOverlay'
+import { useStableMapById } from '../../utils/useStableMapById'
+import type { RuntimeMessage } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
 
 /** 将 File 读取为 base64 字符串（当 file.path 不可用时使用） */
 function readFileAsBase64(file: File): Promise<string> {
@@ -57,6 +59,56 @@ function readFileAsBase64(file: File): Promise<string> {
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
+}
+
+/**
+ * RuntimeMessage → ChatContainer 所需的消息形状。
+ * 提到组件外定义，配合 useStableMapById：只要某条 RuntimeMessage 对象引用未变
+ * （store 侧未变化的历史消息保持引用稳定），这里就不会重新创建输出对象，
+ * 从而让 ChatMessage 的 React.memo 浅比较能命中、跳过未变化消息的重渲染。
+ */
+function mapRuntimeMessageToChatMessage(msg: RuntimeMessage) {
+  return {
+    id: msg.id,
+    role: msg.role as 'user' | 'assistant' | 'system',
+    content: msg.parts
+      .filter((part): part is Extract<typeof msg.parts[number], { type: 'text' }> => part.type === 'text')
+      .map((part) => part.text)
+      .join('\n\n')
+      || msg.content.map((c) => c.text).join(''),
+    parts: msg.parts,
+    fileChanges: msg.fileChanges,
+    timestamp: new Date(msg.timestamp),
+    isStreaming: msg.isStreaming,
+    toolCalls: msg.toolCalls.map((tc) => ({
+      id: tc.id,
+      name: tc.name,
+      arguments: tc.args,
+      status: tc.status === 'running' ? 'running' as const
+        : tc.status === 'error' ? 'failed' as const
+        : 'completed' as const,
+      result: tc.result,
+      error: tc.error,
+      startTime: tc.startMs ? new Date(tc.startMs) : new Date(),
+      endTime: tc.endMs ? new Date(tc.endMs) : undefined,
+      durationMs: tc.durationMs,
+      textPositionAtStart: tc.textPositionAtStart,
+    })),
+    usage: msg.usage ? {
+      inputTokens: msg.usage.inputTokens,
+      outputTokens: msg.usage.outputTokens,
+      cacheRead: msg.usage.cacheReadTokens,
+      cacheWrite: msg.usage.cacheWriteTokens,
+    } : undefined,
+    thinkingText: msg.thinkingText,
+    streamMetrics: msg.streamMetrics,
+    llmError: msg.llmError,
+    injectedMemories: msg.injectedMemories,
+    sourceAgent: msg.sourceAgent,
+    acpBackendLabel: msg.acpBackendLabel,
+    isVoice: msg.isVoice,
+    audioWavBase64: msg.audioWavBase64,
+  }
 }
 
 /** ChatPage 可选 props（由 Router 传入主导航视图） */
@@ -214,68 +266,23 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [localRuntimeSessions, runtimeCurrentSessionKey])
 
   // 本地 Runtime 模式下，构造虚拟 session 给 ChatContainer
+  // 用 useStableMapById 而非内联 .map()：未变化的 RuntimeMessage 复用同一个输出对象引用，
+  // 避免每次流式 delta 更新都让全部历史消息对象换新，进而拖累 ChatMessage 的 memo 判定。
+  const stableChatMessages = useStableMapById(
+    runtimeMessages,
+    (msg) => msg.id,
+    mapRuntimeMessageToChatMessage,
+  )
   const localRuntimeSession = useMemo(() => {
-    // logger.debug('[localRuntimeSession] 重新计算, 消息数:', runtimeMessages.length)
-    // if (runtimeMessages.length > 0) {
-    //   const lastMsg = runtimeMessages[runtimeMessages.length - 1]
-    //   const rawPreview = lastMsg.content[0]?.text ?? ''
-    //   // 使用 Array.from 按码点截断，避免切断 emoji surrogate pair 导致乱码
-    //   const safePreview = Array.from(rawPreview).slice(0, 50).join('')
-    //   logger.debug('[localRuntimeSession] 最后一条消息:', {
-    //     id: lastMsg.id,
-    //     role: lastMsg.role,
-    //     contentPreview: safePreview,
-    //   })
-    // }
     return {
       id: runtimeCurrentSessionKey ?? 'local-runtime',
       title: activeSessionTitle,
-      messages: runtimeMessages.map((msg) => ({
-        id: msg.id,
-        role: msg.role as 'user' | 'assistant' | 'system',
-        content: msg.parts
-          .filter((part): part is Extract<typeof msg.parts[number], { type: 'text' }> => part.type === 'text')
-          .map((part) => part.text)
-          .join('\n\n')
-          || msg.content.map((c) => c.text).join(''),
-        parts: msg.parts,
-        fileChanges: msg.fileChanges,
-        timestamp: new Date(msg.timestamp),
-        isStreaming: msg.isStreaming,
-        toolCalls: msg.toolCalls.map((tc) => ({
-          id: tc.id,
-          name: tc.name,
-          arguments: tc.args,
-          status: tc.status === 'running' ? 'running' as const
-            : tc.status === 'error' ? 'failed' as const
-            : 'completed' as const,
-          result: tc.result,
-          error: tc.error,
-          startTime: tc.startMs ? new Date(tc.startMs) : new Date(),
-          endTime: tc.endMs ? new Date(tc.endMs) : undefined,
-          durationMs: tc.durationMs,
-          textPositionAtStart: tc.textPositionAtStart,
-        })),
-        usage: msg.usage ? {
-          inputTokens: msg.usage.inputTokens,
-          outputTokens: msg.usage.outputTokens,
-          cacheRead: msg.usage.cacheReadTokens,
-          cacheWrite: msg.usage.cacheWriteTokens,
-        } : undefined,
-        thinkingText: msg.thinkingText,
-        streamMetrics: msg.streamMetrics,
-        llmError: msg.llmError,
-        injectedMemories: msg.injectedMemories,
-        sourceAgent: msg.sourceAgent,
-        acpBackendLabel: msg.acpBackendLabel,
-        isVoice: msg.isVoice,
-        audioWavBase64: msg.audioWavBase64,
-      })),
+      messages: stableChatMessages,
       createdAt: new Date(),
       updatedAt: new Date(),
       source: 'local' as const,
     }
-  }, [runtimeMessages, runtimeCurrentSessionKey, activeSessionTitle])
+  }, [stableChatMessages, runtimeCurrentSessionKey, activeSessionTitle])
 
   // 本地 Runtime 会话列表 → ChatSession 格式（供侧边栏使用）
   const localRuntimeSessionsAsChatSessions = useMemo(() => {

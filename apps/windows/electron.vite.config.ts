@@ -35,21 +35,82 @@ function electronCompatPlugin(): Plugin {
     '})()',
   ].join(' ')
 
+  // ws 的原生可选依赖被 Rollup 「提升」为 chunk 顶层静态 require，破坏了 ws 原本的 try-catch 容错。
+  // 提供与 ws/lib/buffer-util.js 和 ws/lib/validation.js 语义等价的纯 JS fallback，
+  // 在原生模块缺失（pnpm Junction 断裂、electron-builder 遗漏、原生编译失败等场景）时兜底。
+  const BUFFERUTIL_FALLBACK = [
+    '{',
+    'mask:(s,m,o,off,l)=>{for(let i=0;i<l;i++)o[off+i]=s[i]^m[i&3]},',
+    'unmask:(b,m)=>{for(let i=0;i<b.length;i++)b[i]^=m[i&3]}',
+    '}',
+  ].join('')
+  const UTF8_VALIDATE_FALLBACK =
+    '(b)=>{const n=b.length;let i=0;while(i<n){const c=b[i++];if(c<128)continue;let k;if(c<194)return false;else if(c<224)k=1;else if(c<240)k=2;else if(c<248)k=3;else return false;if(i+k>n)return false;for(let j=0;j<k;j++){const d=b[i+j];if(d<128||d>191)return false}i+=k}return true}'
+
+  // 带变量赋值的顶层 const X = require("bufferutil"); → IIFE + fallback
+  // Rollup 生成的变量名可能包含 $（如 require$$1），因此字符集需要包含 $
+  const RE_BUFFERUTIL_ASSIGN = /const\s+([\w$]+)\s*=\s*require\(\s*["']bufferutil["']\s*\)\s*;/g
+  const RE_UTF8_ASSIGN = /const\s+([\w$]+)\s*=\s*require\(\s*["']utf-8-validate["']\s*\)\s*;/g
+  // 裸顶层 require("bufferutil"); → 吞掉异常的 IIFE
+  // 只匹配「行首」或「非赋值符号前」的 require(...)，避免与 ASSIGN 模式冲突
+  const RE_BUFFERUTIL_BARE_START = /^(\s*)require\(\s*["']bufferutil["']\s*\)\s*;/gm
+  const RE_UTF8_BARE_START = /^(\s*)require\(\s*["']utf-8-validate["']\s*\)\s*;/gm
+  const RE_BUFFERUTIL_BARE_MID = /([;{}])\s*require\(\s*["']bufferutil["']\s*\)\s*;/g
+  const RE_UTF8_BARE_MID = /([;{}])\s*require\(\s*["']utf-8-validate["']\s*\)\s*;/g
+
   return {
     name: 'electron-compat',
     enforce: 'pre',
-    // CJS require("node:sqlite") 替换（仅针对 undici 打包产物中的顶层静态 require）
-    // 不拦截 ESM import，让 node:sqlite 保持 external 由 Electron 运行时提供
     renderChunk(code, chunk) {
-      if (!code.includes('node:sqlite')) return null
-      // 只替换 undici 相关 chunk 中的 require("node:sqlite")
-      // 其他 chunk（如包含 local-database 的）保持不变，运行时使用 Electron 内置 node:sqlite
-      const isUndiciChunk = chunk.moduleIds?.some((id: string) => id.includes('undici'))
-      if (!isUndiciChunk) return null
-      return code.replace(
-        /require\(\s*["']node:sqlite["']\s*\)/g,
-        SQLITE_STUB,
-      )
+      let next = code
+      let changed = false
+
+      // 1) undici → node:sqlite stub（仅 undici chunk，与原逻辑一致）
+      if (next.includes('node:sqlite')) {
+        const isUndiciChunk = chunk.moduleIds?.some((id: string) => id.includes('undici'))
+        if (isUndiciChunk) {
+          next = next.replace(/require\(\s*["']node:sqlite["']\s*\)/g, SQLITE_STUB)
+          changed = true
+        }
+      }
+
+      // 2) ws 可选原生依赖容错：把 Rollup 提升出来的顶层静态 require 还原为可选加载
+      //    只要 chunk 代码中出现关键字就处理（不依赖 moduleIds 猜测，避免 playwright-core
+      //    / chromium-bidi 等间接依赖因符号链接/扁平化导致的匹配失败）
+      if (next.includes('bufferutil') || next.includes('utf-8-validate')) {
+        const before = next
+        // 先替换带变量赋值的模式（const X = require(...)），确保 return + fallback 正确
+        next = next.replace(
+          RE_BUFFERUTIL_ASSIGN,
+          `const $1 = (()=>{try{return require("bufferutil")}catch(e){return ${BUFFERUTIL_FALLBACK}}})();`,
+        )
+        next = next.replace(
+          RE_UTF8_ASSIGN,
+          `const $1 = (()=>{try{return require("utf-8-validate")}catch(e){return ${UTF8_VALIDATE_FALLBACK}}})();`,
+        )
+        // 再替换剩余的裸 require：
+        //   - 行首开头的（如 pw-ai chunk 中的多行顶层 require 列表）
+        //   - 接在 ; {} 之后的（语句分隔符后的裸副作用 require）
+        next = next.replace(
+          RE_BUFFERUTIL_BARE_START,
+          (_m, indent) => `${indent}(()=>{try{require("bufferutil")}catch(e){}})();`,
+        )
+        next = next.replace(
+          RE_UTF8_BARE_START,
+          (_m, indent) => `${indent}(()=>{try{require("utf-8-validate")}catch(e){}})();`,
+        )
+        next = next.replace(
+          RE_BUFFERUTIL_BARE_MID,
+          (_m, sep) => `${sep}(()=>{try{require("bufferutil")}catch(e){}})();`,
+        )
+        next = next.replace(
+          RE_UTF8_BARE_MID,
+          (_m, sep) => `${sep}(()=>{try{require("utf-8-validate")}catch(e){}})();`,
+        )
+        if (next !== before) changed = true
+      }
+
+      return changed ? next : null
     },
   }
 }

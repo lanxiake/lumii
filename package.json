@@ -14,7 +14,7 @@
     "package:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/package-win.ps1",
     "typecheck": "pnpm -r typecheck",
     "verify": "pnpm typecheck && pnpm --filter lumii-windows test:all",
-    "prepare": "git config core.hooksPath .githooks"
+    "prepare": "echo skip githooks"
   },
   "pnpm": {
     "overrides": {

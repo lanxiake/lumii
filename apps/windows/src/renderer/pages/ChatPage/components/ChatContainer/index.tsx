@@ -8,6 +8,7 @@ import { TypingIndicator } from '../TypingIndicator'
 import { EmptyState } from '../EmptyState'
 import { CompactionCard } from '../CompactionCard'
 import { TodoPanel } from '../TodoPanel'
+import { useStableMapById } from '../../../../utils/useStableMapById'
 import type { ChatSession, ChatMessage as ChatMessageType, AgentWorkflowItem, ToolCall } from '../../../../hooks/business/useChat'
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import { mergeAssistantParts, mergeFileChanges } from './mergeAssistantParts'
@@ -87,6 +88,11 @@ interface CompactionItem {
 
 type ChatItem = MessageItem | ApprovalItem | PlanApprovalItem | CompactionItem
 
+/** 稳定的空回调兜底，避免 `prop || (() => {})` 每次渲染生成新函数引用击穿子组件 memo */
+const NOOP_STRING = (_: string) => {}
+const NOOP_STRING_STRING = (_a: string, _b: string) => {}
+const EMPTY_TOOL_ITEMS: readonly AgentWorkflowItem[] = []
+
 interface ChatContainerProps {
   session: ChatSession | null
   approvalItems: ApprovalItem[]
@@ -155,6 +161,126 @@ function extractCompactSummaryFromMessage(item: MessageItem): string | null {
   }
   return null
 }
+
+/** 单条消息行的渲染 props：从 ChatItem 中收窄为消息专属字段，便于稳定引用 */
+interface ChatMessageRowProps {
+  item: MessageItem
+  index: number
+  formatTime: (date: Date) => string
+  onCopyMessage?: (content: string) => void
+  onEditMessage?: (messageId: string, newContent: string) => void
+  onDeleteMessage?: (messageId: string) => void
+  onRegenerateMessage?: (messageId: string) => void
+  isStreaming: boolean
+  isLatestAssistant: boolean
+  streamingThinkingText?: string
+  noEnterMessages: boolean
+  fileAttachments?: readonly RuntimeFileEvent[]
+  userId?: string
+  onReplayFromMessage?: (messageId: string) => void
+  replayMessageId?: string | null
+  onReviewFileChanges?: (path: string, status: 'added' | 'modified' | 'deleted') => void
+  workflowToolItems: readonly AgentWorkflowItem[]
+}
+
+/**
+ * 单条消息行，套 React.memo：只要 `item`（MessageItem）引用不变，且其余行级 props
+ * （回调、streamingThinkingText 等）也不变，就跳过重渲染 —— 避免流式更新时
+ * 未变化的历史消息陪跑 markdown/代码高亮解析。
+ * `item` 引用稳定性由上游 useStableMapById 保证（仅内容真正变化的消息才换新对象）。
+ */
+const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
+  item,
+  index,
+  formatTime,
+  onCopyMessage,
+  onEditMessage,
+  onDeleteMessage,
+  onRegenerateMessage,
+  isStreaming,
+  isLatestAssistant,
+  streamingThinkingText,
+  noEnterMessages,
+  fileAttachments,
+  userId,
+  onReplayFromMessage,
+  replayMessageId,
+  onReviewFileChanges,
+  workflowToolItems,
+}) => {
+  const message: ChatMessageType = useMemo(() => ({
+    id: item.id,
+    role: item.role,
+    content: item.content,
+    timestamp: item.timestamp,
+    isStreaming: item.isStreaming,
+    isAborted: item.isAborted,
+    error: item.error,
+    toolCalls: item.toolCalls as ChatMessageType['toolCalls'],
+    usage: item.usage,
+    thinkingText: item.thinkingText,
+    streamMetrics: item.streamMetrics,
+    llmError: item.llmError,
+    injectedMemories: item.injectedMemories,
+    sourceAgent: item.sourceAgent,
+    acpBackendLabel: item.acpBackendLabel,
+    isVoice: item.isVoice,
+    parts: item.parts,
+    fileChanges: item.fileChanges,
+  }), [item])
+
+  const hasPartsTimeline = (item.parts?.length ?? 0) > 0
+
+  const toolItems: AgentWorkflowItem[] | undefined = useMemo(() => {
+    if (workflowToolItems.length > 0) return workflowToolItems as AgentWorkflowItem[]
+    if (hasPartsTimeline || !item.toolCalls || item.toolCalls.length === 0) return undefined
+    return item.toolCalls.map((tc): AgentWorkflowItem => ({
+      id: tc.id,
+      type: 'tool' as const,
+      name: tc.name,
+      status: tc.status === 'running' ? 'running' as const
+        : tc.status === 'failed' ? 'failed' as const
+        : 'completed' as const,
+      title: tc.name,
+      input: tc.arguments,
+      output: tc.result,
+      error: tc.error,
+      startTime: tc.startTime ?? new Date(item.timestamp ?? Date.now()),
+      endTime: tc.endTime,
+      durationMs: (tc as unknown as Record<string, unknown>).durationMs as number | undefined,
+      runId: item.runId ?? '',
+      toolCallId: tc.id,
+      textPositionAtStart: tc.textPositionAtStart,
+      agentLabel: tc.agentLabel,
+    }))
+  }, [workflowToolItems, hasPartsTimeline, item.toolCalls, item.timestamp, item.runId])
+
+  return (
+    <ChatMessage
+      key={`${item.id}-${index}`}
+      message={message}
+      formatTime={formatTime}
+      onCopy={onCopyMessage ?? NOOP_STRING}
+      onEdit={onEditMessage ?? NOOP_STRING_STRING}
+      onDelete={onDeleteMessage ?? NOOP_STRING}
+      onRegenerate={onRegenerateMessage ?? NOOP_STRING}
+      sessionBusy={isStreaming}
+      toolItems={toolItems}
+      streamingThinkingText={
+        isStreaming && item.role === 'assistant' && isLatestAssistant
+          ? streamingThinkingText
+          : undefined
+      }
+      noEnter={noEnterMessages}
+      fileAttachments={fileAttachments}
+      userId={userId}
+      onReplay={onReplayFromMessage}
+      replayMessageId={replayMessageId}
+      onReviewFileChanges={onReviewFileChanges}
+    />
+  )
+}
+const ChatMessageRowMemo = React.memo(ChatMessageRow)
 
 const ChatContainer: React.FC<ChatContainerProps> = ({
   session,
@@ -312,34 +438,37 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     return map
   }, [workflowItems])
 
-  // Convert session messages to ChatItem format
-  const messages: MessageItem[] = useMemo(() => {
-    return (session?.messages || [])
-      .filter((msg) => !(msg as { hidden?: boolean }).hidden)
-      .map((msg) => ({
-        itemType: 'message' as const,
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        timestamp: new Date(msg.timestamp),
-        isStreaming: msg.isStreaming,
-        isAborted: msg.isAborted,
-        error: msg.error,
-        runId: msg.runId,
-        toolCalls: msg.toolCalls,
-        usage: (msg as { usage?: { inputTokens: number; outputTokens: number; cacheRead?: number; cacheWrite?: number } }).usage,
-        thinkingText: (msg as { thinkingText?: string }).thinkingText,
-        streamMetrics: (msg as { streamMetrics?: { durationMs: number; tokensPerSecond: number } }).streamMetrics,
-        llmError: (msg as { llmError?: { code: string; message: string; retryable: boolean } }).llmError,
-        injectedMemories: (msg as { injectedMemories?: MessageItem['injectedMemories'] }).injectedMemories,
-        sourceAgent: (msg as { sourceAgent?: MessageItem['sourceAgent'] }).sourceAgent,
-        acpBackendLabel: (msg as { acpBackendLabel?: string }).acpBackendLabel,
-        isVoice: (msg as { isVoice?: boolean }).isVoice,
-        audioWavBase64: (msg as { audioWavBase64?: string }).audioWavBase64,
-        parts: (msg as { parts?: readonly AssistantPart[] }).parts,
-        fileChanges: (msg as { fileChanges?: readonly FileChangeEntry[] }).fileChanges,
-      }))
-  }, [session?.messages])
+  // Convert session messages to ChatItem format.
+  // 用 useStableMapById 而非内联 .map()：未变化的源消息对象复用同一个 MessageItem 引用，
+  // 避免流式更新时因换新引用击穿 ChatMessage 的 React.memo 浅比较。
+  const sessionMessages = session?.messages
+  const messages: MessageItem[] = useStableMapById(
+    useMemo(() => (sessionMessages ?? []).filter((msg) => !(msg as { hidden?: boolean }).hidden), [sessionMessages]),
+    (msg) => msg.id,
+    (msg): MessageItem => ({
+      itemType: 'message' as const,
+      id: msg.id,
+      role: msg.role,
+      content: msg.content,
+      timestamp: new Date(msg.timestamp),
+      isStreaming: msg.isStreaming,
+      isAborted: msg.isAborted,
+      error: msg.error,
+      runId: msg.runId,
+      toolCalls: msg.toolCalls,
+      usage: (msg as { usage?: { inputTokens: number; outputTokens: number; cacheRead?: number; cacheWrite?: number } }).usage,
+      thinkingText: (msg as { thinkingText?: string }).thinkingText,
+      streamMetrics: (msg as { streamMetrics?: { durationMs: number; tokensPerSecond: number } }).streamMetrics,
+      llmError: (msg as { llmError?: { code: string; message: string; retryable: boolean } }).llmError,
+      injectedMemories: (msg as { injectedMemories?: MessageItem['injectedMemories'] }).injectedMemories,
+      sourceAgent: (msg as { sourceAgent?: MessageItem['sourceAgent'] }).sourceAgent,
+      acpBackendLabel: (msg as { acpBackendLabel?: string }).acpBackendLabel,
+      isVoice: (msg as { isVoice?: boolean }).isVoice,
+      audioWavBase64: (msg as { audioWavBase64?: string }).audioWavBase64,
+      parts: (msg as { parts?: readonly AssistantPart[] }).parts,
+      fileChanges: (msg as { fileChanges?: readonly FileChangeEntry[] }).fileChanges,
+    }),
+  )
 
   // Find the latest assistant message for regenerate functionality
   const latestAssistantMessageId = useMemo(() => {
@@ -526,85 +655,38 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
             )
           }
 
-          const message: ChatMessageType = {
-            id: item.id,
-            role: item.role,
-            content: item.content,
-            timestamp: item.timestamp,
-            isStreaming: item.isStreaming,
-            isAborted: item.isAborted,
-            error: item.error,
-            toolCalls: item.toolCalls as ChatMessageType['toolCalls'],
-            usage: item.usage,
-            thinkingText: item.thinkingText,
-            streamMetrics: item.streamMetrics,
-            llmError: item.llmError,
-            injectedMemories: item.injectedMemories,
-            sourceAgent: item.sourceAgent,
-            acpBackendLabel: item.acpBackendLabel,
-            isVoice: item.isVoice,
-            parts: item.parts,
-            fileChanges: item.fileChanges,
-          }
-
           const isLatestAssistant = item.id === latestAssistantMessageId
           const hasPartsTimeline = (item.parts?.length ?? 0) > 0
 
           // Gateway 模式仍走 workflowItems；本地 Runtime 有 parts 时由时间线渲染工具
           const workflowToolItems = !hasPartsTimeline && item.role === 'assistant' && item.runId
             ? (workflowByRunId.get(item.runId) || [])
-            : []
-
-          const toolItems: AgentWorkflowItem[] = workflowToolItems.length > 0
-            ? workflowToolItems
-            : (!hasPartsTimeline && item.toolCalls && item.toolCalls.length > 0
-              ? item.toolCalls.map((tc): AgentWorkflowItem => ({
-                  id: tc.id,
-                  type: 'tool' as const,
-                  name: tc.name,
-                  status: tc.status === 'running' ? 'running' as const
-                    : tc.status === 'failed' ? 'failed' as const
-                    : 'completed' as const,
-                  title: tc.name,
-                  input: tc.arguments,
-                  output: tc.result,
-                  error: tc.error,
-                  startTime: tc.startTime ?? new Date(item.timestamp ?? Date.now()),
-                  endTime: tc.endTime,
-                  durationMs: (tc as unknown as Record<string, unknown>).durationMs as number | undefined,
-                  runId: item.runId ?? '',
-                  toolCallId: tc.id,
-                  textPositionAtStart: tc.textPositionAtStart,
-                  agentLabel: tc.agentLabel,
-                }))
-              : [])
+            : EMPTY_TOOL_ITEMS
 
           const fileAttachments = item.role === 'assistant'
             ? (filesByMessageId.get(item.id) ?? undefined)
             : undefined
 
           return (
-            <ChatMessage
+            <ChatMessageRowMemo
               key={`${item.id}-${index}`}
-              message={message}
+              item={item}
+              index={index}
               formatTime={formatTime}
-              onCopy={onCopyMessage || (() => {})}
-              onEdit={onEditMessage || (() => {})}
-              onDelete={onDeleteMessage || (() => {})}
-              onRegenerate={onRegenerateMessage || (() => {})}
-              sessionBusy={isStreaming}
-              toolItems={toolItems.length > 0 ? toolItems : undefined}
-              streamingThinkingText={
-                isStreaming && item.role === 'assistant' && isLatestAssistant
-                  ? streamingThinkingText
-                  : undefined
-              }
-              noEnter={noEnterMessages}
+              onCopyMessage={onCopyMessage}
+              onEditMessage={onEditMessage}
+              onDeleteMessage={onDeleteMessage}
+              onRegenerateMessage={onRegenerateMessage}
+              isStreaming={isStreaming}
+              isLatestAssistant={isLatestAssistant}
+              streamingThinkingText={streamingThinkingText}
+              noEnterMessages={noEnterMessages}
               fileAttachments={fileAttachments}
               userId={userId}
-              onReplay={onReplayFromMessage}
+              onReplayFromMessage={onReplayFromMessage}
               replayMessageId={replayMessageId}
               onReviewFileChanges={onReviewFileChanges}
+              workflowToolItems={workflowToolItems}
             />
           )
         })}

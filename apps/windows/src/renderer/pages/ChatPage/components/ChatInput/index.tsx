@@ -311,9 +311,14 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current
     if (!el) return
+    const perfStart = performance.now()
     el.style.height = 'auto'
     const nextHeight = Math.min(el.scrollHeight, 200)
     if (el.offsetHeight !== nextHeight) el.style.height = `${nextHeight}px`
+    const cost = performance.now() - perfStart
+    if (cost > 4) {
+      console.warn(`[ChatInput.adjustHeight] 耗时 ${cost.toFixed(2)}ms（DOM 读写触发同步布局）`)
+    }
   }, [])
 
   // 本地草稿或外部写入变化时同步高度（不再在 onChange 里重复读 layout）
@@ -334,10 +339,21 @@ const ChatInput: React.FC<ChatInputProps> = ({
    * 输入变化：只更新本地草稿；IME 组合期间跳过斜杠匹配。
    */
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const perfStart = performance.now()
     const newValue = e.target.value
     handleDraftChange(newValue)
-    if (isComposingRef.current) return
-    applySlashSuggestions(newValue)
+    if (!isComposingRef.current) {
+      applySlashSuggestions(newValue)
+    }
+    // 用双重 rAF 等本次 setState 触发的渲染真正提交完成，量化用户实际感知到的按键延迟
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const cost = performance.now() - perfStart
+        if (cost > 16) {
+          console.warn(`[ChatInput.handleChange] 端到端耗时 ${cost.toFixed(2)}ms（keydown → 渲染提交），isStreaming=${isStreaming}`)
+        }
+      })
+    })
   }
 
   /**

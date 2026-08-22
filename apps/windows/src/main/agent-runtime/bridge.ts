@@ -84,22 +84,10 @@ import { BridgeSessionThinkingPrefs } from './bridge-session-thinking-prefs'
 import { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import { initToolUsageStore } from '../tool-usage-store'
 import { BridgePromptComposer } from './bridge-prompt-composer'
-import { resizeImageIfNeeded } from './image-resizer'
-import {
-  createAgentInstanceRuntimeEventHandler,
-  type InstanceRuntimeMetrics,
-} from './bridge-agent-instance-events'
 import {
   agentRuntimeLog as log,
-  CHILD_AGENT_DISALLOWED_TOOLS,
-  filterToolsByDefinition,
-  findAgentInstanceByRecipient,
-  jsonToolResult,
-  parseAtScheduleExpr,
-  parseStrictMs,
-  parseTaskStatus,
 } from './bridge-utils'
-import { InstanceStateStore, createInstanceState, type InstanceState } from './bridge-instance-state'
+import { InstanceStateStore } from './bridge-instance-state'
 import type { ChannelInteractionRequest } from '../channel/types'
 import { BridgeImageServices } from './bridge-image-services'
 import { BridgeContextCompactor, createLlmSummaryGenerator } from './bridge-context-compactor'
