@@ -5,7 +5,6 @@
 import { type BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { VadEngine } from './vad-engine.js'
 import { createAsrProvider, type AsrProvider, type AsrStream } from './asr-engine.js'
@@ -34,6 +33,7 @@ import {
   prepareQwen3TtsRuntime,
   getQwen3SynthConcurrency,
 } from './qwen3-tts-client.js'
+import { transcribePcm, transcribeAudioBuffer } from './voice-transcription.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceService]', ...args),
@@ -1325,33 +1325,7 @@ export class VoiceCallService {
    */
   async transcribePcm(samples: Float32Array, sampleRate: number): Promise<string> {
     await this.ensureInitialized()
-    try {
-      log.info(`[transcribePcm] 开始转录 PCM, sampleRate=${sampleRate}, samples=${samples.length}`)
-      // 如果 sampleRate 不是 16000，做简单降采样（线性插值）
-      let pcm = samples
-      if (sampleRate !== 16000 && sampleRate > 0) {
-        const ratio = sampleRate / 16000
-        const outLen = Math.floor(samples.length / ratio)
-        pcm = new Float32Array(outLen)
-        for (let i = 0; i < outLen; i++) {
-          const srcIdx = i * ratio
-          const lo = Math.floor(srcIdx)
-          const hi = Math.min(lo + 1, samples.length - 1)
-          const frac = srcIdx - lo
-          pcm[i] = samples[lo] * (1 - frac) + samples[hi] * frac
-        }
-        log.info(`[transcribePcm] 重采样 ${sampleRate}Hz → 16000Hz, outLen=${outLen}`)
-      }
-      const stream = this.asrProvider!.createStream()
-      stream.feed(pcm)
-      const text = stream.resetAndGetResult().trim()
-      stream.destroy()
-      log.info(`[transcribePcm] 转录结果: "${text}"`)
-      return text
-    } catch (e) {
-      log.error(`[transcribePcm] 转录失败: ${(e as Error).message}`)
-      return ''
-    }
+    return transcribePcm(this.asrProvider!, samples, sampleRate)
   }
 
   /**
@@ -1361,40 +1335,8 @@ export class VoiceCallService {
    * @param mimeType 文件 MIME 类型
    */
   async transcribeAudioBuffer(base64Data: string, mimeType: string): Promise<string> {
-    const isWav = mimeType === 'audio/wav' || mimeType === 'audio/x-wav' || mimeType === 'audio/wave'
-    if (!isWav) {
-      log.warn(`[transcribeAudioBuffer] 当前仅支持 WAV 格式，跳过 mimeType=${mimeType}`)
-      return ''
-    }
-
     await this.ensureInitialized()
-
-    // 写临时 WAV 文件
-    const tmpFile = path.join(os.tmpdir(), `mtbot-asr-${randomUUID()}.wav`)
-    try {
-      const buf = Buffer.from(base64Data, 'base64')
-      fs.writeFileSync(tmpFile, buf)
-      log.info(`[transcribeAudioBuffer] 临时文件写入: ${tmpFile} (${buf.length} bytes)`)
-
-      // 使用 sherpa-onnx readWave 解码
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const SherpaOnnx = require('sherpa-onnx-node') as any
-      const wave = SherpaOnnx.readWave(tmpFile) as { sampleRate: number; samples: Float32Array }
-      log.info(`[transcribeAudioBuffer] WAV 解码完成, sampleRate=${wave.sampleRate}, samples=${wave.samples.length}`)
-
-      // 送入 ASR 流识别
-      const stream = this.asrProvider!.createStream()
-      stream.feed(wave.samples)
-      const text = stream.resetAndGetResult().trim()
-      stream.destroy()
-      log.info(`[transcribeAudioBuffer] 转录结果: "${text}"`)
-      return text
-    } catch (e) {
-      log.error(`[transcribeAudioBuffer] 转录失败: ${(e as Error).message}`)
-      return ''
-    } finally {
-      try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
-    }
+    return transcribeAudioBuffer(this.asrProvider!, base64Data, mimeType)
   }
 
   async setConfig(partial: Partial<VoiceEngineConfig>): Promise<void> {
