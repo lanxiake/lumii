@@ -176,9 +176,10 @@ import {
   removeProject,
   reconcileProjectsWithDisk,
 } from './coding-dev-projects.js'
-import { resolveClientStateDir, resolvePluginRuntimeDir } from './paths'
+import { resolveClientStateDir, resolvePluginRuntimeDir, resolveSharedLogsDir } from './paths'
 import { PerformanceMonitor } from './perf/performance-monitor'
 import { createMeasuredHandler } from './perf/performance-ipc'
+import { setupPerformanceIpcHandlers } from './ipc/performance-ipc'
 import { registerSkillnetStoreHandlers } from './skillnet-store'
 import { SkillEvolutionEngine } from './skill-evolution/index'
 import {
@@ -1127,7 +1128,7 @@ async function initialize(): Promise<void> {
     ipcSlowThresholdMs: 200,
     memorySnapshotIntervalMs: perfMemorySnapshotIntervalMs,
     maxQueueSize: 200,
-    logDir: join(resolveClientStateDir(), 'logs', 'perf'),
+    logDir: join(resolveSharedLogsDir(), 'perf'),
   })
   log.info('性能监控系统已初始化')
 
@@ -1226,6 +1227,10 @@ async function initialize(): Promise<void> {
   initSystemService()
   initScreenRecordService()
   setupIpcHandlers()
+  if (performanceMonitor) {
+    setupPerformanceIpcHandlers(performanceMonitor)
+    log.info('性能监控 IPC handlers 已注册')
+  }
 
   // 初始化目录管理器和配置管理器（必须在其他模块之前）
   await directoryManager.initialize()
