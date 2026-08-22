@@ -1,5 +1,5 @@
 import React from 'react'
-import styles from '../AgentsPage.module.css'
+import styles from '../../AgentsPage.module.css'
 import { MODEL_TIER_OPTIONS } from '../../AgentsPage.const'
 import type { AgentFormData } from '../../AgentsPage.types'
 import type { ModelTier } from '../../../../services/agent-service'

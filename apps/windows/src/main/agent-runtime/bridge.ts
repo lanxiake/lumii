@@ -379,6 +379,17 @@ export class AgentRuntimeBridge {
   async initialize(): Promise<void> {
     if (this.initialized) return
 
+    await this.initializeDatabaseAndRepos()
+    this.initializeToolContextAndRegistry()
+    this.initializeCronScheduler()
+    this.initializeDefinitionStoreAndMcp()
+    this.initializeInstanceFactory()
+    this.initializePromptDispatcher()
+    this.finalizeInitialize()
+  }
+
+  /** initialize() 子块 1/7：开库、创建 Repos、恢复禁用工具集合、段落记忆服务、中断检测、finalize 残留流式消息 */
+  private async initializeDatabaseAndRepos(): Promise<void> {
     const dbPath = this.config.dbPath ?? this.getDefaultDbPath()
     log.info(`[initialize] 准备打开数据库: ${dbPath}`)
     this.ensureDirectory(path.dirname(dbPath))
@@ -499,7 +510,10 @@ export class AgentRuntimeBridge {
     }
 
     log.info(`Database opened: ${dbPath}`)
+  }
 
+  /** initialize() 子块 2/7：构造 toolContext、注册内建工具、构造并调用 BridgeToolRegistrar。必须晚于 initializeDatabaseAndRepos（依赖 Repos 已创建） */
+  private initializeToolContextAndRegistry(): void {
     const toolContext: ToolExecutionContext = {
       executeCommand: executeLocalCommand,
       readFile: (filePath, opts) =>
@@ -584,7 +598,10 @@ export class AgentRuntimeBridge {
       generateImage: (params) => this.generateImage(params),
     })
     this.toolRegistrar.registerAll()
+  }
 
+  /** initialize() 子块 3/7：构造 CronScheduler、迁移/播种 companion cron、订阅 vhSettings 变更、start() */
+  private initializeCronScheduler(): void {
     this.cronScheduler = new CronScheduler(this.localDb, {
       showCronNotification: this.config.showCronNotification,
       getLastActiveConvId: () => this.lastActiveConvId,
@@ -648,7 +665,10 @@ export class AgentRuntimeBridge {
       this.cronScheduler?.reloadLocalCronScheduler()
     })
     this.cronScheduler.start()
+  }
 
+  /** initialize() 子块 4/7：AgentDefinitionStore、同步用户 Agent、McpManager */
+  private initializeDefinitionStoreAndMcp(): void {
     this.definitionStore = new AgentDefinitionStore({
       db: this.localDb.db,
       fetchById: this.config.fetchAgentDefinitionById,
@@ -667,7 +687,10 @@ export class AgentRuntimeBridge {
       this.refreshAllInstanceTools()
     })
     void this.mcpManager.load()
+  }
 
+  /** initialize() 子块 5/7：构造 BridgeInstanceFactory。必须早于 initializePromptDispatcher（后者直接引用 this.instanceFactory） */
+  private initializeInstanceFactory(): void {
     this.instanceFactory = new BridgeInstanceFactory({
       notifyChannelInteraction: (interaction) => this.notifyChannelInteraction(interaction),
       config: this.config,
@@ -709,7 +732,10 @@ export class AgentRuntimeBridge {
         this.calibrateSessionCharsPerToken(sk, modelId, tokens),
       clearSessionProviderInputTokens: (sk) => this.clearSessionProviderInputTokens(sk),
     })
+  }
 
+  /** initialize() 子块 6/7：构造 BridgePromptDispatcher。必须晚于 initializeInstanceFactory（直接引用 this.instanceFactory，非惰性） */
+  private initializePromptDispatcher(): void {
     this.promptDispatcher = new BridgePromptDispatcher({
       agentRegistry: this.agentRegistry,
       instanceStates: this.instanceStates,
@@ -732,9 +758,12 @@ export class AgentRuntimeBridge {
       getCustomAgentsSnapshot: this.config.getCustomAgents,
       imageIntentLlmCaller: this.createImageIntentLlmCaller(),
     })
+  }
 
+  /** initialize() 子块 7/7：记忆整理 kickoff、置 initialized=true、ready 事件、启动 idle 轮询 */
+  private finalizeInitialize(): void {
     // 启动时检查个人记忆是否需要主动整理（去重/冲突消解）
-    void this._memoryManager
+    void this._memoryManager!
       .maybeConsolidateExistingPersonalMemory()
       .then((done) => {
         if (done) log.info('[initialize] 启动时已整理个人记忆')

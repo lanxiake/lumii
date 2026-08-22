@@ -1,5 +1,5 @@
 import React from 'react'
-import styles from '../AgentsPage.module.css'
+import styles from '../../AgentsPage.module.css'
 import type { AgentFormData } from '../../AgentsPage.types'
 
 export interface AgentBasicFieldsProps {

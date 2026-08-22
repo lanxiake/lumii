@@ -1,6 +1,6 @@
 import React from 'react'
 import clsx from 'clsx'
-import styles from '../AgentsPage.module.css'
+import styles from '../../AgentsPage.module.css'
 import type { AgentFormData, UserSkill } from '../../AgentsPage.types'
 
 export interface AgentSkillsFieldProps {
