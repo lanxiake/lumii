@@ -20,6 +20,16 @@ export class PerformanceMonitor {
   private currentFileSize = 0
   /** 追踪尚未完成的写入，flush() 需等待它们全部落盘后才能返回 */
   private pendingWrites: Promise<void>[] = []
+  /**
+   * 已写入日志的聚合事件数量。
+   *
+   * aggregator.getAggregateEvents() 是非破坏性只读方法（返回全部累积事件的
+   * 防御性拷贝，Task 2 的测试已固定这一契约），每次调用都会返回从一开始
+   * 累积至今的完整数组，而不会「消费」掉已经取走的部分。若每次 flush() 都
+   * 把它整体重新写入日志，历史聚合事件会被反复重复写入。这里用一个游标
+   * 记录已经写过多少条，每次 flush 只取新增的尾部部分写入。
+   */
+  private lastFlushedAggregateCount = 0
 
   constructor(config: PerformanceMonitorConfig) {
     this.config = config
@@ -179,10 +189,14 @@ export class PerformanceMonitor {
     }
     this.eventQueue = []
 
-    // 写入聚合事件
-    for (const event of this.aggregator.getAggregateEvents()) {
+    // 写入聚合事件：getAggregateEvents() 每次都返回全量累积数组，
+    // 只截取自上次 flush 以来新增的部分，避免重复写入历史记录
+    const allAggregateEvents = this.aggregator.getAggregateEvents()
+    const newAggregateEvents = allAggregateEvents.slice(this.lastFlushedAggregateCount)
+    for (const event of newAggregateEvents) {
       this.writeEvent(event)
     }
+    this.lastFlushedAggregateCount = allAggregateEvents.length
 
     // 等待本次 flush 触发的所有写入真正落盘，避免调用方在数据写入完成前读取文件
     const writes = this.pendingWrites
