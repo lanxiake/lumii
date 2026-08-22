@@ -32,7 +32,7 @@
 | **完成情况** | 已提取 8 个 IPC handlers 模块（workspace/vcs/window/channel/file-system/dialog-clipboard/skills/api-ipc）+ settings-ipc，经 `ipc-handlers-registry.ts` 统一注册；`setupApiIpcHandlers` 重复代码已清空 |
 | **完成提交** | 6fda408 ~ 423f3bc（2026-08-21）|
 
-### P0-02
+### P0-02 ✅ 已完成
 | 项目 | 内容 |
 |---|---|
 | **文件** | [SettingsPage.tsx](../../../apps/windows/src/renderer/pages/SettingsPage/SettingsPage.tsx) |
@@ -93,22 +93,6 @@
 | **预计拆后文件数** | 不预设文件数量；以发送、会话、面板、语音和版本控制行为测试为准 |
 
 ---
-
-## 门禁状态（非文件拆分，但阻塞后续重构提交）
-
-### ✅ typecheck：83 → 0，全工作区通过
-拆分 P0-01/P0-03 过程中暴露和引入的类型错误已全部清零（`pnpm typecheck` exit 0），未使用 `any`、未抑制任何错误、未绕过 pre-commit。过程中顺带修复了几处真实缺陷（`storage-commands.ts` 的 `restoreBackup` 漏返回 `ok` 字段、`burn-subtitles-service.ts` 配音时长漏算 `endMs`、`AppUiController.scrollToText`/`fillForm` 接口缺失的错误分支声明等），并清理了 `browser-control` 包内引用已删除 Gateway 配置符号的死代码（`bridge-server.ts`/`server.ts` 已删除，`profiles-service.ts` 的 `createProfile`/`deleteProfile` 因依赖的 5 个符号在全仓库已无定义而移除，仅保留只读 `listProfiles`）。
-详细清单见提交信息（`git log` 搜索 "清零全工作区 typecheck 错误"）。
-
-### 🔴 lint：未安装，未配置，阻塞中
-`apps/windows/package.json` 声明了 `"lint": "eslint . --ext .ts,.tsx"`，但 `eslint` 从未被列为依赖，本机 `node_modules/.pnpm` 中也无缓存记录——即这个脚本从项目创建以来就没有真正跑过。执行 `pnpm typecheck && ... lint && ... test:all` 门禁时会在 lint 步骤报 "eslint 不是内部或外部命令"。
-**这不是代码回归，是环境缺口**，且需要决策后才能动手（规则基线、是否清理存量问题），已与用户对齐方向：
-- 规则基线：宽松起步（`eslint:recommended` + `@typescript-eslint/recommended`，不含 `react-hooks` 严格规则）
-- 存量代码：暂不处理，只保证新改动的文件通过
-**待办**：安装 `eslint` + `@typescript-eslint/*`（`--ext` 是旧版 CLI 参数，若装的是 ESLint 9.x 需用 flat config `eslint.config.js` 并同步改写 `lint` 脚本，不能直接照搬 `--ext` 写法）；建好配置后跑一遍确认新改动文件（本次改的 30 个文件）干净，存量报错留档不阻塞。
-
----
-
 ## P1 级 — 800–1500 行（17 个）
 
 ### P1-01
