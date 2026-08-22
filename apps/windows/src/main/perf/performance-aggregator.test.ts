@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { PerformanceAggregator } from './performance-aggregator'
-import type { IpcSlowEvent, MemorySnapshotEvent } from './performance-types'
+import type { MemorySnapshotEvent } from './performance-types'
 
 describe('PerformanceAggregator', () => {
   let aggregator: PerformanceAggregator
@@ -58,9 +58,51 @@ describe('PerformanceAggregator', () => {
     aggregator.recordIpcCall('agent-runtime:command', 100, false, nextWindow)
 
     const events = aggregator.getAggregateEvents()
-    // Should have at least one aggregate event from the previous window
-    expect(events.length).toBeGreaterThan(0)
-    expect(events[0].kind).toBe('ipc.aggregate')
+    expect(events.length).toBe(1)
+
+    const [flushed] = events
+    expect(flushed.kind).toBe('ipc.aggregate')
+    expect(flushed.channel).toBe('agent-runtime:command')
+    // The flushed window should reflect only the first call
+    expect(flushed.totalCalls).toBe(1)
+    expect(flushed.totalDuration).toBe(150)
+    expect(flushed.minDuration).toBe(150)
+    expect(flushed.maxDuration).toBe(150)
+    expect(flushed.errors).toBe(0)
+    // Window boundaries should sit between the two recorded timestamps
+    expect(flushed.windowStart).toBeLessThanOrEqual(now)
+    expect(flushed.windowEnd).toBe(flushed.windowStart + 60000)
+    expect(flushed.windowEnd).toBeLessThan(nextWindow)
+
+    // The second call (65s later) must start counting into a fresh window
+    // instead of being folded into the window that was just flushed
+    const stats = aggregator.getIpcStats()
+    expect(stats.totalCalls).toBe(1)
+    expect(stats.channelBreakdown['agent-runtime:command'].totalCalls).toBe(1)
+    expect(stats.channelBreakdown['agent-runtime:command'].totalDuration).toBe(100)
+  })
+
+  it('should return a defensive copy from getAggregateEvents', () => {
+    const now = Date.now()
+    aggregator.recordIpcCall('agent-runtime:command', 150, false)
+    aggregator.recordIpcCall('agent-runtime:command', 100, false, now + 65000)
+
+    const events = aggregator.getAggregateEvents()
+    events.push({
+      timestamp: 0,
+      kind: 'ipc.aggregate',
+      windowStart: 0,
+      windowEnd: 0,
+      channel: 'fake',
+      totalCalls: 0,
+      totalDuration: 0,
+      errors: 0,
+      minDuration: 0,
+      maxDuration: 0,
+    })
+
+    // Mutating the returned array must not affect internal state
+    expect(aggregator.getAggregateEvents().length).toBe(1)
   })
 
   it('should record startup phases', () => {

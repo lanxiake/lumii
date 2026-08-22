@@ -1,3 +1,18 @@
+/**
+ * IPC 性能聚合器
+ *
+ * 60 秒滚动窗口而非逐条上报：IPC 调用频率可达每秒数十次，逐条落盘/上报
+ * 会让性能监控本身变成性能负担。窗口关闭时才产出一条 ipc.aggregate 事件，
+ * 把统计成本摊薄到可忽略的水平。
+ *
+ * 200ms 慢调用阈值：低于此值的抖动多是渲染进程繁忙或系统调度，
+ * 不代表 IPC 通道本身有问题；超过则大概率是主进程侧阻塞或跨进程序列化过大。
+ *
+ * minDuration/maxDuration 用 Infinity/-Infinity 起始，是为了让 Math.min/Math.max
+ * 在首次调用时也能正确取到实际值（避免用 0 起始导致 min 永远是 0）。
+ * 对外读取（rotateWindow 产出事件、getIpcStats 汇总）时才把哨兵值折算成 0，
+ * 因为「本窗口无调用」对外应表现为 0，而不是暴露内部实现用的哨兵。
+ */
 import type {
   IpcCallStats,
   IpcStats,
@@ -19,9 +34,12 @@ interface IpcChannelData {
   durations: number[]
 }
 
-interface WindowAggregate {
-  startTime: number
-  channels: Map<string, Omit<IpcChannelData, 'durations'>>
+/** 把 min/max 哨兵值（Infinity/-Infinity，代表本窗口无调用）折算成对外可见的 0 */
+function resolveMinMax(minDuration: number, maxDuration: number): { min: number; max: number } {
+  return {
+    min: minDuration === Infinity ? 0 : minDuration,
+    max: maxDuration === -Infinity ? 0 : maxDuration,
+  }
 }
 
 export class PerformanceAggregator {
@@ -74,6 +92,7 @@ export class PerformanceAggregator {
   private rotateWindow(timestamp: number) {
     // 生成前一个窗口的聚合事件
     for (const [channel, data] of this.ipcByChannel) {
+      const { min, max } = resolveMinMax(data.minDuration, data.maxDuration)
       this.windowAggregates.push({
         timestamp: this.currentWindowStart + this.WINDOW_DURATION_MS,
         kind: 'ipc.aggregate',
@@ -83,8 +102,8 @@ export class PerformanceAggregator {
         totalCalls: data.totalCalls,
         totalDuration: data.totalDuration,
         errors: data.errorCalls,
-        minDuration: data.minDuration === Infinity ? 0 : data.minDuration,
-        maxDuration: data.maxDuration === -Infinity ? 0 : data.maxDuration,
+        minDuration: min,
+        maxDuration: max,
       })
     }
 
@@ -127,6 +146,7 @@ export class PerformanceAggregator {
       const slowCallsInChannel = data.durations.filter(
         d => d > this.IPC_SLOW_THRESHOLD_MS,
       ).length
+      const { min, max } = resolveMinMax(data.minDuration, data.maxDuration)
 
       channelBreakdown[channel] = {
         channel,
@@ -134,8 +154,8 @@ export class PerformanceAggregator {
         successCalls: data.successCalls,
         errorCalls: data.errorCalls,
         totalDuration: data.totalDuration,
-        minDuration: data.minDuration === Infinity ? 0 : data.minDuration,
-        maxDuration: data.maxDuration === -Infinity ? 0 : data.maxDuration,
+        minDuration: min,
+        maxDuration: max,
         averageDuration: avgDuration,
       }
 
