@@ -25,6 +25,8 @@ import {
 } from './subtitle-project'
 import { resolveRecordingsDir } from '../workspace-paths'
 import { isPathUnderDir } from '../preview-path-acl'
+import { createMeasuredHandler } from '../perf/performance-ipc'
+import type { PerformanceMonitor } from '../perf/performance-monitor'
 
 /**
  * 校验渲染层传来的成片路径：必须是 recordings 根目录下的 webm/mp4。
@@ -54,17 +56,24 @@ function guardRecordingPath(
 export function registerScreenRecordIpc(
   service: ScreenRecordService,
   _mainWindow: BrowserWindow | null,
+  performanceMonitor?: PerformanceMonitor,
 ): void {
   ipcMain.handle('screen-record:list-sources', async (_e, p?: { includeThumbnail?: boolean }) => {
     return service.listSources(p?.includeThumbnail)
   })
 
+  const startHandler = async (
+    _e: Electron.IpcMainInvokeEvent,
+    p: { params: ScreenRecordStartParams } | ScreenRecordStartParams,
+  ) => {
+    const params = 'params' in p && p.params ? p.params : (p as ScreenRecordStartParams)
+    return service.start(params)
+  }
   ipcMain.handle(
     'screen-record:start',
-    async (_e, p: { params: ScreenRecordStartParams } | ScreenRecordStartParams) => {
-      const params = 'params' in p && p.params ? p.params : (p as ScreenRecordStartParams)
-      return service.start(params)
-    },
+    performanceMonitor
+      ? createMeasuredHandler('screen-record:start', startHandler, performanceMonitor)
+      : startHandler,
   )
 
   ipcMain.handle('screen-record:stop', async (_e, p?: { params?: ScreenRecordStopParams } | ScreenRecordStopParams) => {

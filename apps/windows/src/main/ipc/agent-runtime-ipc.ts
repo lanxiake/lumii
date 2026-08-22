@@ -30,6 +30,8 @@ import { StatefulContextStrategy } from '../channel/context-strategy/stateful-st
 import type { WeixinSessionBindingManager } from '../channel/weixin-session-binding'
 import { handleImageRecognize, handleImageGenerate, handleImageProcess } from './agent-runtime/image-commands'
 import { handleMessageDelete, handleMessageEdit } from './agent-runtime/message-commands'
+import { createMeasuredHandler } from '../perf/performance-ipc'
+import type { PerformanceMonitor } from '../perf/performance-monitor'
 import {
   handleCronCreate,
   handleCronList,
@@ -523,7 +525,7 @@ export function setIpcMainWindow(win: BrowserWindow | null): void {
  */
 let agentRuntimeCommandIpcInstalled = false
 
-export function installAgentRuntimeCommandIpc(): void {
+export function installAgentRuntimeCommandIpc(performanceMonitor?: PerformanceMonitor): void {
   if (agentRuntimeCommandIpcInstalled) {
     log.info('agent-runtime:command 已注册，跳过重复 install')
     return
@@ -614,7 +616,12 @@ export function installAgentRuntimeCommandIpc(): void {
       throw err
     }
   }
-  ipcMain.handle('agent-runtime:command', commandHandler)
+  ipcMain.handle(
+    'agent-runtime:command',
+    performanceMonitor
+      ? createMeasuredHandler('agent-runtime:command', commandHandler, performanceMonitor)
+      : commandHandler,
+  )
   log.info('agent-runtime:command 已提前注册（installAgentRuntimeCommandIpc）')
 }
 

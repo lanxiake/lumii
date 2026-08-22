@@ -22,7 +22,7 @@ describe('performance-ipc', () => {
   })
 
   it('should wrap handler and measure execution time', async () => {
-    const originalHandler = vi.fn(async () => 'success')
+    const originalHandler = vi.fn(async (_event: IpcMainInvokeEvent, ..._rest: unknown[]) => 'success')
     const wrappedHandler = createMeasuredHandler('test-channel', originalHandler, mockMonitor)
 
     const result = await wrappedHandler(mockEvent, 'arg1', 'arg2')
@@ -38,7 +38,7 @@ describe('performance-ipc', () => {
 
   it('should record error when handler throws', async () => {
     const error = new Error('Test error')
-    const originalHandler = vi.fn(async () => {
+    const originalHandler = vi.fn(async (_event: IpcMainInvokeEvent, ..._rest: unknown[]) => {
       throw error
     })
     const wrappedHandler = createMeasuredHandler('test-channel', originalHandler, mockMonitor)
@@ -53,7 +53,7 @@ describe('performance-ipc', () => {
   })
 
   it('should measure slow IPC calls correctly', async () => {
-    const slowHandler = vi.fn(async () => {
+    const slowHandler = vi.fn(async (_event: IpcMainInvokeEvent) => {
       await new Promise(resolve => setTimeout(resolve, 100))
       return 'result'
     })
@@ -71,9 +71,11 @@ describe('performance-ipc', () => {
   })
 
   it('should pass through all arguments correctly', async () => {
-    const originalHandler = vi.fn(async (_event, arg1, arg2, arg3) => {
-      return { arg1, arg2, arg3 }
-    })
+    const originalHandler = vi.fn(
+      async (_event: IpcMainInvokeEvent, arg1: unknown, arg2: unknown, arg3: unknown) => {
+        return { arg1, arg2, arg3 }
+      },
+    )
     const wrappedHandler = createMeasuredHandler('test-channel', originalHandler, mockMonitor)
 
     const result = await wrappedHandler(mockEvent, 'hello', 42, { key: 'value' })
@@ -86,7 +88,7 @@ describe('performance-ipc', () => {
   })
 
   it('should handle synchronous handlers', async () => {
-    const originalHandler = vi.fn(() => 'sync-result')
+    const originalHandler = vi.fn((_event: IpcMainInvokeEvent, ..._rest: unknown[]) => 'sync-result')
     const wrappedHandler = createMeasuredHandler('test-channel', originalHandler, mockMonitor)
 
     const result = await wrappedHandler(mockEvent, 'arg')

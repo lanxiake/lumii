@@ -14,6 +14,8 @@ import {
   resetSharedQwen3TtsClient,
 } from './qwen3-tts-client.js'
 import { saveTempCloneRefAudio } from './voice-temp-ref.js'
+import { createMeasuredHandler } from '../perf/performance-ipc'
+import type { PerformanceMonitor } from '../perf/performance-monitor'
 
 const log = {
   info: (...args: unknown[]) => console.log('[VoiceIPC]', ...args),
@@ -52,6 +54,7 @@ export function registerVoiceIpc(
   win: BrowserWindow,
   voiceService: VoiceCallService,
   modelManager: VoiceModelManager,
+  performanceMonitor?: PerformanceMonitor,
 ): void {
   if (voiceIpcInstalled) {
     log.info('voice IPC 已注册，跳过重复 install')
@@ -103,7 +106,7 @@ export function registerVoiceIpc(
   }
 
   // ── 命令通道（invoke 模式，有响应）─────────────────────────────────────
-  ipcMain.handle('voice:command', async (_event, command: VoiceCommand) => {
+  const voiceCommandHandler = async (_event: Electron.IpcMainInvokeEvent, command: VoiceCommand) => {
     log.debug(`[voice:command] type=${command.type}`)
 
     try {
@@ -378,7 +381,14 @@ export function registerVoiceIpc(
       log.error(`[voice:command] 处理失败: ${(e as Error).message}`)
       return { error: (e as Error).message }
     }
-  })
+  }
+
+  ipcMain.handle(
+    'voice:command',
+    performanceMonitor
+      ? createMeasuredHandler('voice:command', voiceCommandHandler, performanceMonitor)
+      : voiceCommandHandler,
+  )
 
   // ── 音频帧通道（send 模式，单向高频，不需要响应）──────────────────────
   let lastAudioErrorMsg = ''
