@@ -414,9 +414,10 @@ export class AgentInstance {
         }
         this.startTimeoutTimer();
         // 加载热记忆并注入系统提示词（自愈重试时跳过，已注入过）
-        if (!this.selfHeal.isHealing) {
-          this.memoryIntegration.loadAndInjectMemories();
-        }
+        // 停用：自动记忆注入方案待重新设计，暂不按对话轮次自动注入（记忆查询功能保留）
+        // if (!this.selfHeal.isHealing) {
+        //   this.memoryIntegration.loadAndInjectMemories();
+        // }
       }
       if (event.type === "agent_end") {
         // 自愈层：检测可恢复的 LLM 错误并重试
@@ -428,7 +429,8 @@ export class AgentInstance {
         this.clearTimeoutTimer();
         // LLM 异步记忆提取（fire-and-forget，不阻塞主流程）
         // 参考 Claude Code extractMemories：在 agent 完成后后台提取
-        this.memoryIntegration.extractMemoriesByLLMIfNeeded();
+        // 停用：自动记忆提取方案待重新设计，暂不按对话轮次自动调用 LLM 提取（记忆查询功能保留）
+        // this.memoryIntegration.extractMemoriesByLLMIfNeeded();
         if (this.endingPause) {
           this.endingPause = false;
           this.setState("paused");
@@ -452,7 +454,8 @@ export class AgentInstance {
           this.stuckGuard.checkAndHandle();
         }
         // 定期执行规则提取记忆
-        this.memoryIntegration.extractMemoriesIfNeeded();
+        // 停用：自动记忆提取方案待重新设计，暂不按对话轮次自动提取（记忆查询功能保留）
+        // this.memoryIntegration.extractMemoriesIfNeeded();
 
         // 主题2 P0-2：token 预算检查与 nudge 注入
         if (this.budgetTracker && this.tokenBudget !== null) {
