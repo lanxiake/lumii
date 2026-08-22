@@ -185,23 +185,8 @@
   gap: 2px;
   padding: 4px 6px 6px;
   border-top: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.06));
-  max-height: 420px;
-  overflow-y: auto;
-  /* 解决 Windows Electron 滚动闪烁问题：工具多时多个嵌套滚动区同时用 WebKit
-     自定义滚动条会与 GPU 合成层冲突，导致卡片重叠变形，重启才恢复 */
-  scrollbar-width: thin;
-  scrollbar-color: var(--mt-border) transparent;
-}
-
-.body::-webkit-scrollbar {
-  width: 6px;
-}
-
-.body::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.body::-webkit-scrollbar-thumb {
-  background: var(--mt-border);
-  border-radius: 3px;
+  /* Keep the message scroller as the single vertical scroll owner. A nested
+     fixed-height scroller clips expanded tool cards and their details. */
+  max-height: none;
+  overflow-y: visible;
 }

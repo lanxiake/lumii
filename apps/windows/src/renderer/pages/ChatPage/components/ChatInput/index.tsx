@@ -239,8 +239,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
    */
   const applySlashSuggestions = useCallback((nextValue: string) => {
     if (nextValue.startsWith('/') && !nextValue.includes('\n')) {
-      setSlashSuggestions(searchCommands(nextValue))
-      setSlashSuggestionIndex(0)
+      const next = searchCommands(nextValue)
+      setSlashSuggestions((prev) => {
+        if (prev.length === next.length && prev.every((item, i) => item.name === next[i]?.name)) return prev
+        return next
+      })
+      setSlashSuggestionIndex((prev) => (next.length === 0 ? 0 : Math.min(prev, next.length - 1)))
       return
     }
     setSlashSuggestions((prev) => (prev.length === 0 ? prev : []))
@@ -308,12 +312,22 @@ const ChatInput: React.FC<ChatInputProps> = ({
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+    const nextHeight = Math.min(el.scrollHeight, 200)
+    if (el.offsetHeight !== nextHeight) el.style.height = `${nextHeight}px`
   }, [])
 
   // 本地草稿或外部写入变化时同步高度（不再在 onChange 里重复读 layout）
+  const heightFrameRef = useRef<number | null>(null)
   useLayoutEffect(() => {
-    adjustHeight()
+    if (heightFrameRef.current != null) cancelAnimationFrame(heightFrameRef.current)
+    heightFrameRef.current = requestAnimationFrame(() => {
+      heightFrameRef.current = null
+      adjustHeight()
+    })
+    return () => {
+      if (heightFrameRef.current != null) cancelAnimationFrame(heightFrameRef.current)
+      heightFrameRef.current = null
+    }
   }, [innerValue, adjustHeight])
 
   /**
