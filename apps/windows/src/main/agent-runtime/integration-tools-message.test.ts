@@ -6,7 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 
-const { BridgeToolRegistrar } = await import('./bridge-tool-registrar')
+const { registerIntegrationTools } = await import('./bridge-tool-registrar-integration')
 
 interface WeixinCtxValue {
   channelUserId: string
@@ -41,9 +41,8 @@ function makeRegistrar(opts: {
     ipcChannel: { forwardIpcEvent: vi.fn() },
     getConversationRepo: () => null,
     getMemoryManager: () => null,
-  } as unknown as ConstructorParameters<typeof BridgeToolRegistrar>[0]
-  const registrar = new BridgeToolRegistrar(deps)
-  ;(registrar as unknown as { registerIntegrationTools: () => void }).registerIntegrationTools()
+  } as unknown as Parameters<typeof registerIntegrationTools>[0]
+  registerIntegrationTools(deps)
   return { tool: registered.get('message')!, routerSendMock, markSentViaToolMock }
 }
 
