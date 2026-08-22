@@ -176,7 +176,7 @@ import {
   removeProject,
   reconcileProjectsWithDisk,
 } from './coding-dev-projects.js'
-import { resolveClientStateDir, resolvePluginRuntimeDir, resolveSharedLogsDir } from './paths'
+import { resolveClientStateDir, resolvePluginRuntimeDir, resolvePerfLogsDir } from './paths'
 import { PerformanceMonitor } from './perf/performance-monitor'
 import { createMeasuredHandler } from './perf/performance-ipc'
 import { setupPerformanceIpcHandlers } from './ipc/performance-ipc'
@@ -864,6 +864,7 @@ async function initAgentRuntime(): Promise<void> {
   log.info('客户端 Agent Runtime 初始化完成（新协议 agent-runtime:command）')
 
   // 初始化语音通话服务
+  const voiceServiceStartTime = performance.now()
   const voiceModelManager = new VoiceModelManager()
   const savedVoiceConfig = await loadVoiceEngineConfig()
   voiceCallService = new VoiceCallService(
@@ -873,6 +874,7 @@ async function initAgentRuntime(): Promise<void> {
     savedVoiceConfig,
   )
   registerVoiceIpc(mainWindow!, voiceCallService, voiceModelManager, performanceMonitor ?? undefined)
+  performanceMonitor?.recordStartupPhase('voice-service', performance.now() - voiceServiceStartTime)
   // 注入音频 ASR 转录能力到文件导入 IPC
   setAudioTranscribeCallback((base64, mimeType) => voiceCallService!.transcribeAudioBuffer(base64, mimeType))
   log.info('语音通话服务已注册')
@@ -1128,7 +1130,7 @@ async function initialize(): Promise<void> {
     ipcSlowThresholdMs: 200,
     memorySnapshotIntervalMs: perfMemorySnapshotIntervalMs,
     maxQueueSize: 200,
-    logDir: join(resolveSharedLogsDir(), 'perf'),
+    logDir: resolvePerfLogsDir(),
   })
   log.info('性能监控系统已初始化')
 
@@ -1172,7 +1174,9 @@ async function initialize(): Promise<void> {
 
   // 初始化各模块（开机启动时隐藏窗口，只显示托盘图标）
   // 等待开机画面完整播放后再显示主窗口
+  const windowStartTime = performance.now()
   await createWindow(isTestMode, isStartupLaunch)
+  performanceMonitor?.recordStartupPhase('window', performance.now() - windowStartTime)
 
   // App UI 本机控制口（lumii-ui CLI）
   try {
@@ -1225,7 +1229,9 @@ async function initialize(): Promise<void> {
 
   initTray()
   initSystemService()
+  const screenRecordStartTime = performance.now()
   initScreenRecordService()
+  performanceMonitor?.recordStartupPhase('screen-record', performance.now() - screenRecordStartTime)
   setupIpcHandlers()
   if (performanceMonitor) {
     setupPerformanceIpcHandlers(performanceMonitor)
@@ -1281,7 +1287,9 @@ async function initialize(): Promise<void> {
   log.info('[Main] initUpdaterService 完成，开始 initAgentRuntime')
 
   // 初始化客户端 Agent Runtime（Feature Flag 默认关闭，需手动启用）
+  const agentRuntimeStartTime = performance.now()
   await initAgentRuntime()
+  performanceMonitor?.recordStartupPhase('agent-runtime', performance.now() - agentRuntimeStartTime)
   log.info('[Main] initAgentRuntime 完成')
 
   // 启动浏览器控制服务（控制用户本机浏览器）

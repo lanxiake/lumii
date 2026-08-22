@@ -1,18 +1,9 @@
 import { ipcMain, shell } from 'electron'
-import { join } from 'path'
 import type { PerformanceMonitor } from '../perf/performance-monitor'
-import { resolveSharedLogsDir } from '../paths'
+import { resolvePerfLogsDir } from '../paths'
 import { createLogger } from '../logger'
 
 const log = createLogger('ipc/performance')
-
-/**
- * 性能诊断日志目录：与 PerformanceMonitor 构造时使用的 logDir 保持同一路径，
- * openLogFolder 才能打开的是真正写日志的那个文件夹。
- */
-function resolvePerfLogDir(): string {
-  return join(resolveSharedLogsDir(), 'perf')
-}
 
 export function setupPerformanceIpcHandlers(performanceMonitor: PerformanceMonitor): void {
   // 获取性能诊断报告
@@ -52,7 +43,7 @@ export function setupPerformanceIpcHandlers(performanceMonitor: PerformanceMonit
   // 打开性能日志文件夹
   ipcMain.handle('performance:openLogFolder', async () => {
     try {
-      const logPath = resolvePerfLogDir()
+      const logPath = resolvePerfLogsDir()
       const openError = await shell.openPath(logPath)
       if (openError) {
         // shell.openPath 失败时返回错误描述字符串而非抛异常

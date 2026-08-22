@@ -20,7 +20,6 @@ import type {
   MemoryStats,
   StartupStats,
   PerformanceReport,
-  MainProcessMemory,
   IpcAggregateEvent,
 } from './performance-types'
 
