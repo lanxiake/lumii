@@ -94,7 +94,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [internalCategory, setInternalCategory] = useState<MergedSettingsCategory>('general')
   const activeCategory = controlledCategory ?? internalCategory
   const setActiveCategory = setInternalCategory
-  const [appVersion, setAppVersion] = useState<string>('0.1.1')
+  const [appVersion, setAppVersion] = useState<string>('0.1.2')
 
   // 账户设置状态
 
@@ -161,7 +161,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
    */
   useEffect(() => {
     // TODO: 从 electronAPI 获取版本
-    setAppVersion('0.1.1')
+    setAppVersion('0.1.2')
   }, [])
 
   /**

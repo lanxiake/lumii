@@ -65,7 +65,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   title,
   appName = '灵栖 Lumii',
   isConnected = false,
-  version = 'v0.1.1',
+  version = 'v0.1.2',
   defaultSidebarCollapsed = false,
   electronAPI,
   className = '',
