@@ -44,7 +44,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         </button>
       )}
       <button type="button" className={clsx(styles['auto-approve-toggle'], autoApprove && styles['auto-approve-toggle--on'])} onClick={onToggleAutoApprove}>
-        {autoApprove ? 'Auto approve' : 'Ask before tools'}
+        {autoApprove ? '自动审批' : '人工审批'}
       </button>
       <button type="button" className={clsx(styles['icon-btn'], readAloudActive && styles['icon-btn--active'], readAloudSpeaking && styles['read-aloud-speaking'])} onClick={onToggleReadAloud} title="Toggle read aloud" aria-label="Toggle read aloud" aria-pressed={readAloudActive}>
         {readAloudActive ? <Volume2 size={16} strokeWidth={1.8} /> : <VolumeX size={16} strokeWidth={1.8} />}
