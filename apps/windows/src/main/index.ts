@@ -176,7 +176,10 @@ import {
   removeProject,
   reconcileProjectsWithDisk,
 } from './coding-dev-projects.js'
-import { resolveClientStateDir, resolvePluginRuntimeDir } from './paths'
+import { resolveClientStateDir, resolvePluginRuntimeDir, resolvePerfLogsDir } from './paths'
+import { PerformanceMonitor } from './perf/performance-monitor'
+import { createMeasuredHandler } from './perf/performance-ipc'
+import { setupPerformanceIpcHandlers } from './ipc/performance-ipc'
 import { registerSkillnetStoreHandlers } from './skillnet-store'
 import { SkillEvolutionEngine } from './skill-evolution/index'
 import {
@@ -277,6 +280,8 @@ let feishuLoginService: FeishuLoginService | null = null  // 飞书扫码服务
 let channelHub: ChannelHub | null = null  // 渠道出站 Hub（list/send）
 let agentRuntimeBridge: AgentRuntimeBridge | null = null  // 客户端 Agent Runtime
 let voiceCallService: VoiceCallService | null = null  // 语音通话服务
+let performanceMonitor: PerformanceMonitor | null = null  // 性能监控（IPC 耗时/内存/启动阶段）
+let performanceMonitorTimer: NodeJS.Timeout | null = null  // 周期性内存快照定时器
 let isQuitting = false
 let isCleaningUp = false // 防止 before-quit 清理期间重复触发
 
@@ -332,7 +337,7 @@ function initScreenRecordService(): void {
   }
   screenRecordService = createScreenRecordService(deps)
   setScreenRecordService(screenRecordService)
-  registerScreenRecordIpc(screenRecordService, mainWindow)
+  registerScreenRecordIpc(screenRecordService, mainWindow, performanceMonitor ?? undefined)
   // 旁白/烧录与录屏 IPC 同步挂接，避免启动窗口期 invoke 得到 disabled。
   // TTS 通过闭包惰性读取 voiceCallService，语音服务尚未就绪时会返回明确的 tts_unavailable。
   mountScreenRecordMediaServices()
@@ -854,11 +859,12 @@ async function initAgentRuntime(): Promise<void> {
   setAgentRuntimeBridgeForIpc(agentRuntimeBridge)
   setLocalMediaWorkspaceCwdGetter(() => agentRuntimeBridge!.getCwd())
   // 注册 agent-runtime:command IPC handler（必须在 setAgentRuntimeBridgeForIpc 之后）
-  installAgentRuntimeCommandIpc()
+  installAgentRuntimeCommandIpc(performanceMonitor ?? undefined)
   await agentRuntimeBridge.initialize()
   log.info('客户端 Agent Runtime 初始化完成（新协议 agent-runtime:command）')
 
   // 初始化语音通话服务
+  const voiceServiceStartTime = performance.now()
   const voiceModelManager = new VoiceModelManager()
   const savedVoiceConfig = await loadVoiceEngineConfig()
   voiceCallService = new VoiceCallService(
@@ -867,7 +873,8 @@ async function initAgentRuntime(): Promise<void> {
     voiceModelManager,
     savedVoiceConfig,
   )
-  registerVoiceIpc(mainWindow!, voiceCallService, voiceModelManager)
+  registerVoiceIpc(mainWindow!, voiceCallService, voiceModelManager, performanceMonitor ?? undefined)
+  performanceMonitor?.recordStartupPhase('voice-service', performance.now() - voiceServiceStartTime)
   // 注入音频 ASR 转录能力到文件导入 IPC
   setAudioTranscribeCallback((base64, mimeType) => voiceCallService!.transcribeAudioBuffer(base64, mimeType))
   log.info('语音通话服务已注册')
@@ -1116,6 +1123,42 @@ async function initialize(): Promise<void> {
   // 服务启动时在控制台打印日志文件路径
   log.info('日志文件:', fileLogger.getCurrentLogFilePath())
 
+  // 初始化性能监控（IPC 耗时/慢调用/内存快照），日志与主日志目录同层级下的 perf 子目录
+  const perfMemorySnapshotIntervalMs = 60000
+  performanceMonitor = new PerformanceMonitor({
+    enabled: true,
+    ipcSlowThresholdMs: 200,
+    memorySnapshotIntervalMs: perfMemorySnapshotIntervalMs,
+    maxQueueSize: 200,
+    logDir: resolvePerfLogsDir(),
+  })
+  log.info('性能监控系统已初始化')
+
+  // 周期性捕获内存快照并落盘：flush() 内部有游标保护，重复调用不会重写历史聚合事件；
+  // 定时器与 performanceMonitor 生命周期一致，在 performCleanup() 中一并清理
+  performanceMonitorTimer = setInterval(() => {
+    if (!performanceMonitor) return
+    const memoryUsage = process.memoryUsage()
+    performanceMonitor.recordMemorySnapshot({
+      timestamp: Date.now(),
+      kind: 'memory.snapshot',
+      mainProcess: {
+        heapUsed: memoryUsage.heapUsed,
+        external: memoryUsage.external,
+        rss: memoryUsage.rss,
+      },
+      childProcesses: app.getAppMetrics().map(metric => ({
+        pid: metric.pid,
+        type: metric.type,
+        workingSetSize: metric.memory.workingSetSize,
+        privateBytes: metric.memory.privateBytes ?? 0,
+      })),
+    })
+    void performanceMonitor.flush().catch(err => {
+      log.error('[perfMonitorTimer] 性能日志落盘失败', err)
+    })
+  }, perfMemorySnapshotIntervalMs)
+
   log.info('应用已就绪')
 
   // 检测是否由开机启动触发（--startup-launched 参数由 setLoginItemSettings 注入）
@@ -1127,11 +1170,13 @@ async function initialize(): Promise<void> {
   // 先注册 Agent Runtime IPC handler，再加载渲染进程。
   // dev 模式下 renderer 可能在 initAgentRuntime 完成前调用 agent-runtime:command；
   // 提前注册可让调用得到 NOT_READY 并走前端重试，避免 Electron 抛 No handler registered。
-  installAgentRuntimeCommandIpc()
+  installAgentRuntimeCommandIpc(performanceMonitor ?? undefined)
 
   // 初始化各模块（开机启动时隐藏窗口，只显示托盘图标）
   // 等待开机画面完整播放后再显示主窗口
+  const windowStartTime = performance.now()
   await createWindow(isTestMode, isStartupLaunch)
+  performanceMonitor?.recordStartupPhase('window', performance.now() - windowStartTime)
 
   // App UI 本机控制口（lumii-ui CLI）
   try {
@@ -1184,8 +1229,14 @@ async function initialize(): Promise<void> {
 
   initTray()
   initSystemService()
+  const screenRecordStartTime = performance.now()
   initScreenRecordService()
+  performanceMonitor?.recordStartupPhase('screen-record', performance.now() - screenRecordStartTime)
   setupIpcHandlers()
+  if (performanceMonitor) {
+    setupPerformanceIpcHandlers(performanceMonitor)
+    log.info('性能监控 IPC handlers 已注册')
+  }
 
   // 初始化目录管理器和配置管理器（必须在其他模块之前）
   await directoryManager.initialize()
@@ -1236,7 +1287,9 @@ async function initialize(): Promise<void> {
   log.info('[Main] initUpdaterService 完成，开始 initAgentRuntime')
 
   // 初始化客户端 Agent Runtime（Feature Flag 默认关闭，需手动启用）
+  const agentRuntimeStartTime = performance.now()
   await initAgentRuntime()
+  performanceMonitor?.recordStartupPhase('agent-runtime', performance.now() - agentRuntimeStartTime)
   log.info('[Main] initAgentRuntime 完成')
 
   // 启动浏览器控制服务（控制用户本机浏览器）
@@ -1375,6 +1428,17 @@ async function performCleanup(): Promise<void> {
 
     // 工具调用计数是 debounce 落盘的，退出前补一次，避免丢掉最后几次调用
     await flushToolUsage()
+
+    // 性能监控：停止周期快照定时器，把内存里尚未落盘的事件写完后再销毁流
+    if (performanceMonitorTimer) {
+      clearInterval(performanceMonitorTimer)
+      performanceMonitorTimer = null
+    }
+    if (performanceMonitor) {
+      await performanceMonitor.flush()
+      performanceMonitor.cleanOldLogs()
+      performanceMonitor.destroy()
+    }
 
     updaterService?.destroy()
     trayManager?.destroy()

@@ -13,6 +13,7 @@ import type { UsageSummary } from '../main/usage-store'
 import type { NewsSnapshot } from '../main/news-store'
 import type { DashboardFeedSnapshot } from '../main/dashboard-feed-store'
 import type { LatencyView } from '../main/provider-latency'
+import type { PerformanceReport } from '../main/perf/performance-types'
 // 导入提取的 API 模块
 import {
   fileApi,
@@ -1119,6 +1120,16 @@ export interface ElectronAPI {
     revertFile: (opts: { oid: string; filepath: string }) => Promise<{ success: boolean; data?: unknown }>
     findCommitByConversation: (opts: { conversationId: string }) => Promise<{ success: boolean; data?: unknown }>
   }
+
+  // 性能诊断
+  performance: {
+    /** 获取性能诊断报告（IPC 耗时、启动阶段、内存占用、健康状态） */
+    getReport: () => Promise<PerformanceReport>
+    /** 手动捕获一次内存快照 */
+    capture: () => Promise<{ success: boolean; error?: string }>
+    /** 打开性能日志文件夹 */
+    openLogFolder: () => Promise<{ success: boolean; error?: string }>
+  }
 }
 
 /**
@@ -1340,6 +1351,13 @@ const electronAPI: ElectronAPI = {
 
   /** 录屏 API */
   screenRecord: screenRecordApi,
+
+  // 性能诊断
+  performance: {
+    getReport: () => ipcRenderer.invoke('performance:getReport'),
+    capture: () => ipcRenderer.invoke('performance:capture'),
+    openLogFolder: () => ipcRenderer.invoke('performance:openLogFolder'),
+  },
 }
 
 // 通过 contextBridge 安全地暴�?API

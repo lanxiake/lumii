@@ -40,6 +40,7 @@ import type {
 import styles from './SettingsPage.module.css'
 import { StorageInfo } from './components/StorageInfo'
 import { SecurityLogViewer } from './components/SecurityLogViewer/SecurityLogViewer'
+import { PerformanceDiagnostics } from './components/PerformanceDiagnostics/PerformanceDiagnostics'
 
 /**
  * 设置分类图标尺寸
@@ -670,6 +671,16 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               <FileText size={16} style={{ marginRight: 6 }} />
               打开系统日志
             </Button>
+          </div>
+        </section>
+
+        <section className={styles['panel-card']}>
+          <h4 className={styles['panel-card-title']} data-app-ui-heading>性能诊断</h4>
+          <p className={styles['panel-card-desc']}>
+            监控应用性能指标、IPC 调用延迟、内存占用，便于诊断性能问题
+          </p>
+          <div className={styles['panel-storage']}>
+            <PerformanceDiagnostics />
           </div>
         </section>
 

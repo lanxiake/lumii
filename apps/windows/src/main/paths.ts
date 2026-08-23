@@ -93,6 +93,14 @@ export function resolveSharedLogsDir(): string {
 }
 
 /**
+ * 获取性能诊断日志目录
+ * @returns %USERPROFILE%/.lumii/logs/perf/ 的完整路径
+ */
+export function resolvePerfLogsDir(): string {
+  return path.join(resolveSharedLogsDir(), 'perf')
+}
+
+/**
  * 获取应用级临时目录（根级别）
  * @returns %USERPROFILE%/.lumii/temp/ 的完整路径
  */
