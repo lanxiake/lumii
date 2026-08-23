@@ -2,7 +2,8 @@
  * ComposerPlusMenu — 输入框左侧「+」统一入口
  *
  * 主菜单：添加附件 / 技能 / MCP / 切换 Agent
- * 子面板：搜索 + 启用禁用（全局）或选择 Agent，底部「管理」跳转对应页面
+ * 子面板：搜索 + 启用禁用或选择 Agent，底部「管理」跳转对应页面。
+ * MCP 开关是**会话级**的（设置页里的是全局总开关），同一批 server 可在不同会话按需带。
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -11,6 +12,8 @@ import styles from './ComposerPlusMenu.module.css'
 import type { Agent } from '../../../../services/agent-service'
 import { useSkills } from '../../../../hooks/business/useSkills'
 import { useToolSearch } from '../../../../hooks/business/useToolSearch'
+import { useAgentRuntimeGlobalState } from '../../../../hooks/business/useAgentRuntime'
+import { formatTokenCount } from '../../../../utils/format-token-count'
 import Switch from '../../../../components/ui/Switch/Switch'
 
 export type ComposerPlusPanel = 'main' | 'skills' | 'mcp' | 'agents'
@@ -59,14 +62,33 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
   const [panel, setPanel] = useState<ComposerPlusPanel>('main')
   const [query, setQuery] = useState('')
   const [togglingSkillId, setTogglingSkillId] = useState<string | null>(null)
+  /** 本会话禁用的 MCP server（设置页开关是全局默认，这里是会话覆盖） */
+  const [sessionDisabledMcp, setSessionDisabledMcp] = useState<readonly string[]>([])
+  /** 本会话禁用的技能 id（技能中心的启用状态是全局默认） */
+  const [sessionDisabledSkills, setSessionDisabledSkills] = useState<readonly string[]>([])
+  const [togglingMcpServer, setTogglingMcpServer] = useState<string | null>(null)
+  const sessionKey = useAgentRuntimeGlobalState((s) => s.currentSessionKey)
 
-  const { installedSkills, isLoading: skillsLoading, enableSkill, disableSkill } = useSkills()
+  // 打开菜单时拉一次会话禁用集：会话可能在别处被改过
+  useEffect(() => {
+    if (!open || !sessionKey) return
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return
+    void (async () => {
+      const [mcp, skills] = await Promise.all([
+        api.sendCommand({ type: 'mcp:sessionDisabled', sessionKey }).catch(() => null),
+        api.sendCommand({ type: 'skill:sessionDisabled', sessionKey }).catch(() => null),
+      ])
+      setSessionDisabledMcp((mcp as { disabledServers?: readonly string[] })?.disabledServers ?? [])
+      setSessionDisabledSkills((skills as { disabledSkills?: readonly string[] })?.disabledSkills ?? [])
+    })()
+  }, [open, sessionKey])
+
+  const { installedSkills, isLoading: skillsLoading } = useSkills()
   const {
     tools,
     mcpStatus,
     isLoading: toolsLoading,
-    togglingTool,
-    toggleTool,
     refresh: refreshTools,
   } = useToolSearch()
 
@@ -157,15 +179,16 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
     return Array.from(byServer.entries())
       .map(([name, serverTools]) => {
         const status = mcpStatus.find((s) => s.name === name)
-        const enabledCount = serverTools.filter((t) => t.enabled).length
+        const disabledInSession = sessionDisabledMcp.includes(name)
         return {
           name,
           connected: status?.connected ?? false,
           serverEnabled: status?.enabled ?? true,
           lastError: status?.lastError,
           tools: serverTools,
-          enabled: serverTools.length > 0 && enabledCount === serverTools.length,
-          partial: enabledCount > 0 && enabledCount < serverTools.length,
+          // 会话级开关：全局启用且本会话未禁用才算开
+          enabled: !disabledInSession,
+          estimatedTokens: status?.estimatedTokens ?? 0,
           usageCount: serverTools.reduce((sum, t) => sum + (t.usageCount ?? 0), 0),
         }
       })
@@ -185,25 +208,53 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
     return agents.filter((a) => a.name.toLowerCase().includes(q))
   }, [agents, query])
 
-  /** 切换技能启用状态 */
+  /**
+   * 会话级启停技能。
+   *
+   * 只改本会话，不动技能中心的全局启用状态——同一批技能可在不同会话按需带。
+   * 主进程会让该会话实例失效，下轮消息按新技能清单重建提示词。
+   */
   const handleToggleSkill = useCallback(async (skillItemId: string, enabled: boolean) => {
+    if (!sessionKey) return
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return
     setTogglingSkillId(skillItemId)
     try {
-      if (enabled) {
-        await enableSkill(skillItemId)
-      } else {
-        await disableSkill(skillItemId)
-      }
+      const res = (await api.sendCommand({
+        type: 'skill:setSessionEnabled',
+        sessionKey,
+        skillId: skillItemId,
+        enabled,
+      })) as { disabledSkills: readonly string[] }
+      setSessionDisabledSkills(res.disabledSkills ?? [])
     } finally {
       setTogglingSkillId(null)
     }
-  }, [enableSkill, disableSkill])
+  }, [sessionKey])
 
-  /** 切换某 MCP Server 下全部工具 */
-  const handleToggleMcpServer = useCallback(async (serverName: string, enabled: boolean, toolNames: string[]) => {
-    if (toolNames.length === 0) return
-    await Promise.all(toolNames.map((name) => toggleTool(name, enabled)))
-  }, [toggleTool])
+  /**
+   * 会话级启停某个 MCP Server。
+   *
+   * 只改本会话，不动设置页的全局开关——同一批 MCP 在不同会话里按需带。
+   * 主进程会让该会话实例失效，下轮消息按新工具列表重建。
+   */
+  const handleToggleMcpServer = useCallback(async (serverName: string, enabled: boolean) => {
+    if (!sessionKey) return
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return
+    setTogglingMcpServer(serverName)
+    try {
+      const res = (await api.sendCommand({
+        type: 'mcp:setSessionEnabled',
+        sessionKey,
+        name: serverName,
+        enabled,
+      })) as { disabledServers: readonly string[] }
+      setSessionDisabledMcp(res.disabledServers ?? [])
+    } finally {
+      setTogglingMcpServer(null)
+    }
+  }, [sessionKey])
 
   /** 选择 Agent 后关闭菜单 */
   const handleSelectAgent = useCallback((agent: Agent | null) => {
@@ -301,14 +352,16 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
                     <div key={skill.id} className={styles.listRow}>
                       <div className={styles.listMain}>
                         <span className={styles.listName} title={skill.skill?.description}>{name}</span>
-                        {skill.skill?.description ? (
+                        {!skill.isEnabled ? (
+                          <span className={styles.listDesc}>已在技能中心全局停用</span>
+                        ) : skill.skill?.description ? (
                           <span className={styles.listDesc}>{skill.skill.description}</span>
                         ) : null}
                       </div>
                       <Switch
                         size="sm"
-                        checked={skill.isEnabled}
-                        disabled={busy}
+                        checked={skill.isEnabled && !sessionDisabledSkills.includes(skill.skillItemId)}
+                        disabled={busy || !skill.isEnabled}
                         onChange={(checked) => void handleToggleSkill(skill.skillItemId, checked)}
                       />
                     </div>
@@ -335,8 +388,7 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
                 <div className={styles.empty}>{query ? '没有匹配的 MCP' : '暂无 MCP 服务'}</div>
               ) : (
                 mcpServers.map((server) => {
-                  const toolNames = server.tools.map((t) => t.name)
-                  const busy = toolNames.some((n) => togglingTool === n)
+                  const busy = togglingMcpServer === server.name
                   const errorHint = server.serverEnabled && !server.connected ? server.lastError : undefined
                   return (
                     <div key={server.name} className={styles.listRow}>
@@ -354,9 +406,9 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
                           !server.serverEnabled ? undefined : !server.connected && styles.listDescError,
                         )}>
                           {!server.serverEnabled
-                            ? '已停用'
+                            ? '已在设置中全局停用'
                             : server.connected
-                              ? `${server.tools.length} 个工具 · 调用 ${server.usageCount} 次${server.partial ? ' · 部分启用' : ''}`
+                              ? `${server.tools.length} 个工具${server.estimatedTokens > 0 ? ` · 占用 ${formatTokenCount(server.estimatedTokens)}` : ''} · 调用 ${server.usageCount} 次`
                               : errorHint
                                 ? '连接失败'
                                 : '未连接'}
@@ -367,7 +419,7 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
                           size="sm"
                           checked={server.enabled}
                           disabled={busy || !server.serverEnabled || !server.connected}
-                          onChange={(checked) => void handleToggleMcpServer(server.name, checked, toolNames)}
+                          onChange={(checked) => void handleToggleMcpServer(server.name, checked)}
                         />
                       ) : (
                         <span className={styles.listStatus} title={errorHint}>

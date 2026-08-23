@@ -26,6 +26,8 @@ export interface McpServerStatus {
   connecting?: boolean
   enabled?: boolean
   lastError?: string
+  /** 该 server 工具定义的估算 token（与上下文用量条同一口径） */
+  estimatedTokens?: number
 }
 
 const BUILTIN_TOOL_I18N: Record<string, { label: string; description: string }> = {

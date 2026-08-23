@@ -552,7 +552,6 @@ export function useAgentRuntimeActions() {
           isNearThreshold: ratio > 0.6,
           ...(raw.breakdown ? { breakdown: raw.breakdown } : {}),
         },
-        isAutoCompacting: ratio >= raw.triggerThreshold,
       }))
     },
     [],

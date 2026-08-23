@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
 import {
+  aggregateMcpTokensByServer,
   applyConversationCompactToUsage,
   buildContextUsageBreakdown,
   calibrateCharsPerToken,
@@ -309,5 +310,40 @@ describe('countPromptChars', () => {
     })
     // 'abc'(3) + 'f'+'d'+'{}'(4) + JSON 消息(>0)
     expect(chars).toBeGreaterThan(7)
+  })
+})
+
+describe('aggregateMcpTokensByServer', () => {
+  const tools = [
+    { name: 'mcp__ynote__createNote', description: '创建笔记', parameters: { type: 'object' } },
+    { name: 'mcp__ynote__listNotes', description: '列出笔记', parameters: { type: 'object' } },
+    { name: 'mcp__fs__read', description: '读文件', parameters: { type: 'object' } },
+    { name: 'file_read', description: '内置读文件', parameters: { type: 'object' } },
+  ]
+
+  it('按 server 分组并排除内置工具', () => {
+    const out = aggregateMcpTokensByServer(tools)
+    expect(out.map((e) => e.name).sort()).toEqual(['fs', 'ynote'])
+    expect(out.find((e) => e.name === 'ynote')?.toolCount).toBe(2)
+    expect(out.find((e) => e.name === 'fs')?.toolCount).toBe(1)
+  })
+
+  it('按 token 降序，便于用户先关最贵的 server', () => {
+    const out = aggregateMcpTokensByServer(tools)
+    expect(out[0]!.name).toBe('ynote')
+    for (let i = 1; i < out.length; i++) {
+      expect(out[i - 1]!.tokens).toBeGreaterThanOrEqual(out[i]!.tokens)
+    }
+  })
+
+  it('server 名含下划线时按首个分隔符切分', () => {
+    const out = aggregateMcpTokensByServer([
+      { name: 'mcp__plugin_figma_figma__authenticate', description: 'auth', parameters: {} },
+    ])
+    expect(out[0]!.name).toBe('plugin_figma_figma')
+  })
+
+  it('畸形工具名不计入', () => {
+    expect(aggregateMcpTokensByServer([{ name: 'mcp__noserver', description: 'x', parameters: {} }])).toEqual([])
   })
 })

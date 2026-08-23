@@ -1409,10 +1409,10 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
 
     case 'agent:context:usage': {
       const ratio = event.contextWindow > 0 ? event.usedTokens / event.contextWindow : 0
-      const isAutoCompacting = ratio >= event.triggerThreshold
+      // 占用率只影响 contextUsage 派生字段；isAutoCompacting 由压缩生命周期事件驱动，
+      // 否则占用停在高位时每次 usage 推送都会把它重置为 true，spinner 永久转
       updateSessionState(sessionKey, (prev) => ({
         ...prev,
-        isAutoCompacting,
         contextUsage: {
           usedTokens: event.usedTokens,
           contextWindow: event.contextWindow,

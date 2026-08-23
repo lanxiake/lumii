@@ -353,6 +353,40 @@ export interface McpSetEnabledCommand {
   readonly enabled: boolean
 }
 
+/**
+ * 会话级启停 MCP server（设置页的 mcp:setEnabled 是全局总开关）。
+ * 全局关闭的 server 无法在会话里单独开启。
+ */
+export interface McpSetSessionEnabledCommand {
+  readonly type: 'mcp:setSessionEnabled'
+  readonly sessionKey: string
+  readonly name: string
+  readonly enabled: boolean
+}
+
+/** 读取会话级 MCP 禁用集 */
+export interface McpSessionDisabledCommand {
+  readonly type: 'mcp:sessionDisabled'
+  readonly sessionKey: string
+}
+
+/**
+ * 会话级启停技能（技能中心的启用/禁用是全局总开关）。
+ * 全局未启用的技能无法在会话里单独开启。
+ */
+export interface SkillSetSessionEnabledCommand {
+  readonly type: 'skill:setSessionEnabled'
+  readonly sessionKey: string
+  readonly skillId: string
+  readonly enabled: boolean
+}
+
+/** 读取会话级技能禁用集 */
+export interface SkillSessionDisabledCommand {
+  readonly type: 'skill:sessionDisabled'
+  readonly sessionKey: string
+}
+
 export interface McpReconnectCommand {
   readonly type: 'mcp:reconnect'
   readonly name: string
@@ -375,6 +409,8 @@ export interface McpServerStatusResult extends McpServerConfigInput {
   readonly connecting: boolean
   readonly tools: readonly string[]
   readonly lastError?: string
+  /** 该 server 工具定义的估算 token（与上下文用量条同一口径） */
+  readonly estimatedTokens?: number
 }
 
 /** mcp:status 的完整返回（含配置文件级错误） */
@@ -845,6 +881,10 @@ export type AgentRuntimeCommand =
   | McpImportCommand
   | McpRemoveCommand
   | McpSetEnabledCommand
+  | McpSetSessionEnabledCommand
+  | McpSessionDisabledCommand
+  | SkillSetSessionEnabledCommand
+  | SkillSessionDisabledCommand
   | McpReconnectCommand
   | McpReadConfigFileCommand
   | McpWriteConfigFileCommand
@@ -1056,6 +1096,10 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'mcp:writeConfigFile' ? { success: boolean; error?: string }
   : T extends 'mcp:upsert' | 'mcp:import' | 'mcp:remove' | 'mcp:setEnabled' | 'mcp:reconnect'
     ? { success: boolean; error?: string }
+  : T extends 'mcp:setSessionEnabled' | 'mcp:sessionDisabled'
+    ? { disabledServers: readonly string[] }
+  : T extends 'skill:setSessionEnabled' | 'skill:sessionDisabled'
+    ? { disabledSkills: readonly string[] }
   : T extends 'storage:auditRecent' ? readonly {
       id: number
       agent_id: string

@@ -116,6 +116,13 @@ export interface BridgeInstanceFactoryDeps {
   getOrchestrator: () => AgentOrchestrator | null
   getAuditRepo: () => AuditRepo | null
   getConversationRepo: () => ConversationRepo | null
+  /**
+   * 该会话禁用的 MCP server 名（设置页是全局总开关，这里是会话覆盖）。
+   * 注入侧两处必须同源：tools 参数与 systemPrompt 的 MCP hints。
+   */
+  getSessionDisabledMcpServers?: (rootSessionKey: string) => readonly string[]
+  /** 该会话禁用的技能 id（设置页控制全局启用，这里是会话覆盖） */
+  getSessionDisabledSkills?: (rootSessionKey: string) => readonly string[]
   getFileRepo: () => FileRepo | null
   getMemoryManager: () => MemoryManager | null
   getToolContext: () => ToolExecutionContext | null
@@ -326,7 +333,15 @@ export class BridgeInstanceFactory {
       }
     }
 
-    const allTools = this.deps.toolRegistry.getEnabledTools()
+    // 会话级 MCP 过滤：与下方 getMcpServerHints 必须同源，否则 systemPrompt 宣告的
+    // server 与实际 tools 参数不一致，模型会调用不存在的工具。
+    const disabledMcpServers = this.deps.getSessionDisabledMcpServers?.(rootSessionKey) ?? []
+    const isDisabledMcpTool = (name: string): boolean =>
+      disabledMcpServers.some((server) => name.startsWith(`mcp__${server}__`))
+
+    const allTools = disabledMcpServers.length
+      ? this.deps.toolRegistry.getEnabledTools().filter((t) => !isDisabledMcpTool(t.name))
+      : this.deps.toolRegistry.getEnabledTools()
 
     const tc = this.deps.getToolContext()
     if (!tc) {
@@ -429,8 +444,20 @@ export class BridgeInstanceFactory {
         if (!this.deps.config.getSkills) return [] as readonly SkillInfo[]
         try {
           const r = await this.deps.config.getSkills()
-          log.info(`[createInstance] Loaded ${r.length} skills for system prompt`)
-          return r
+          // 会话级技能过滤：设置页控制全局安装/启用，这里剔除本会话单独关掉的
+          const disabled = this.deps.getSessionDisabledSkills?.(rootSessionKey) ?? []
+          if (disabled.length === 0) {
+            log.info(`[createInstance] Loaded ${r.length} skills for system prompt`)
+            return r
+          }
+          const kept = r.filter((s) => {
+            const id = (s as { id?: string }).id
+            return !(id && disabled.includes(id)) && !disabled.includes(s.name)
+          })
+          log.info(
+            `[createInstance] Loaded ${kept.length}/${r.length} skills for system prompt（会话禁用 ${r.length - kept.length} 个）`,
+          )
+          return kept
         } catch (err) {
           log.error(`[createInstance] Failed to load skills:`, err)
           return [] as readonly SkillInfo[]
@@ -473,13 +500,14 @@ export class BridgeInstanceFactory {
       getMcpServerHints: (): readonly McpServerHint[] => {
         const hints: McpServerHint[] = []
         for (const [name, client] of this.deps.mcpClients) {
-          if (client.initialized) {
-            const tools = this.deps.toolRegistry
-              .getEnabledTools()
-              .filter((t) => t.name.startsWith(`mcp__${name}__`))
-              .map((t) => ({ name: t.name, description: t.description }))
-            hints.push({ name, tools, instructions: client.getInstructions() })
-          }
+          if (!client.initialized) continue
+          // 与 allTools 同源：会话禁用的 server 不出现在提示词里
+          if (disabledMcpServers.includes(name)) continue
+          const tools = this.deps.toolRegistry
+            .getEnabledTools()
+            .filter((t) => t.name.startsWith(`mcp__${name}__`))
+            .map((t) => ({ name: t.name, description: t.description }))
+          hints.push({ name, tools, instructions: client.getInstructions() })
         }
         return hints
       },

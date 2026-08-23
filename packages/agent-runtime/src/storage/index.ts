@@ -45,6 +45,15 @@ export type {
 
 export { SCHEMA_VERSION, MIGRATIONS } from "./schema.js";
 
+export {
+  isEnabledForSession,
+  filterEnabledForSession,
+  readSessionConfig,
+  patchSessionConfig,
+  toggleSessionDisabled,
+} from "./session-config.js";
+export type { SessionConfig } from "./session-config.js";
+
 export { FileRepo } from "./file-repo.js";
 export type {
   ClientFile,

@@ -29,7 +29,9 @@ import {
   AuditRepo,
   RuntimeStateRepo,
   FileRepo,
-  maybeRunAutoVacuumSync,
+  patchSessionConfig,
+  readSessionConfig,
+  toggleSessionDisabled,  maybeRunAutoVacuumSync,
   runBackupNow,
   listDatabaseBackups,
   deleteDatabaseBackup,
@@ -50,8 +52,9 @@ import {
 } from '@mtbot/agent-runtime'
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
 import type { AgentMessage, StreamFn } from '@mariozechner/pi-agent-core'
-import { buildContextUsageBreakdown, calibrateCharsPerToken, countPromptChars } from './context-usage-breakdown.js'
+import { buildContextUsageBreakdown, calibrateCharsPerToken, countPromptChars, aggregateMcpTokensByServer } from './context-usage-breakdown.js'
 import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
+import { computeContextBudget, shouldCompactByBudget } from '../../shared/context-budget'
 
 import {
   executeLocalCommand,
@@ -709,6 +712,8 @@ export class AgentRuntimeBridge {
       getAuditRepo: () => this._auditRepo,
       getConversationRepo: () => this._conversationRepo,
       getFileRepo: () => this._fileRepo,
+      getSessionDisabledMcpServers: (sk) => this.getSessionDisabledMcpServers(sk),
+      getSessionDisabledSkills: (sk) => this.getSessionDisabledSkills(sk),
       getMemoryManager: () => this._memoryManager,
       getToolContext: () => this.toolContext,
       pushActivitySnapshot: (k) => this.lifecycle.pushActivitySnapshot(k),
@@ -740,6 +745,7 @@ export class AgentRuntimeBridge {
       config: this.config,
       getSkillEvolutionEngine: () => this.config.skillEvolutionEngine,
       getConversationRepo: () => this._conversationRepo,
+      getSessionContextUsage: (k) => this.getSessionContextUsage(k),
       routerService: this.createRouterService(),
       routerHitRateTracker: this.routerHitRateTracker,
       getSkillsSnapshot: this.config.getSkills,
@@ -893,7 +899,18 @@ export class AgentRuntimeBridge {
   }
 
   primeSessionModelCompaction(sessionKey: string, modelRef: string | undefined): void {
-    this.sessionModelCatalog.primeSessionModelCompaction(sessionKey, modelRef)
+    // 会话已有持久化模型偏好时以它为准：切换会话时 UI 传来的是全局下拉框选中值，
+    // 直接采用会让"会话级模型"被最后一次全局选择覆盖。
+    let effective = modelRef
+    if (this.localDb.isOpen) {
+      try {
+        const saved = readSessionConfig(this.localDb.db, sessionKey).preferredModel?.trim()
+        if (saved) effective = saved
+      } catch (err) {
+        log.error(`[primeSessionModelCompaction] 读取会话模型偏好失败 sessionKey=${sessionKey}:`, err)
+      }
+    }
+    this.sessionModelCatalog.primeSessionModelCompaction(sessionKey, effective)
   }
 
   getCompactionForRootSession(rootSessionKey: string): { contextWindow: number; outputReserveTokens: number; summaryReserveTokens: number } {
@@ -1042,6 +1059,13 @@ export class AgentRuntimeBridge {
 
   setSessionPreferredModel(sessionKey: string, raw: string | undefined): void {
     this.sessionModelCatalog.setSessionPreferredModel(sessionKey, raw)
+    // 落库：内存 Map 重启即失，会话恢复时需读回原模型，否则回落 128K 默认窗口
+    if (!this.localDb.isOpen) return
+    try {
+      patchSessionConfig(this.localDb.db, sessionKey, { preferredModel: raw?.trim() || undefined })
+    } catch (err) {
+      log.error(`[setSessionPreferredModel] 持久化会话模型偏好失败 sessionKey=${sessionKey}:`, err)
+    }
   }
 
   clearSessionPreferredModel(sessionKey: string): void {
@@ -1205,6 +1229,70 @@ export class AgentRuntimeBridge {
   /** 确保对话记录存在（idempotent） */
   ensureConversationExists(conversationId: string, title?: string): boolean {
     return this.conversationManager.ensureConversationExists(conversationId, title)
+  }
+
+  /** 读某个会话级禁用集 */
+  private readSessionDisabled(
+    sessionKey: string,
+    field: 'disabledMcpServers' | 'disabledSkills',
+  ): readonly string[] {
+    if (!this.localDb.isOpen) return []
+    try {
+      return readSessionConfig(this.localDb.db, sessionKey)[field] ?? []
+    } catch (err) {
+      log.error(`[readSessionDisabled] 读取失败 field=${field} sessionKey=${sessionKey}:`, err)
+      return []
+    }
+  }
+
+  /**
+   * 写某个会话级禁用集。
+   *
+   * 工具集与技能清单都在实例创建时定死，改完必须让该会话实例失效，
+   * 下轮消息才会按新列表重建。
+   */
+  private setSessionDisabled(
+    sessionKey: string,
+    field: 'disabledMcpServers' | 'disabledSkills',
+    name: string,
+    enabled: boolean,
+  ): readonly string[] {
+    if (!this.localDb.isOpen) return []
+    const next = toggleSessionDisabled(this.localDb.db, sessionKey, field, name, !enabled)
+    for (const inst of this.agentRegistry.getAll()) {
+      if (this.instanceToRootSessionKey.get(inst.id) === sessionKey) this.invalidateInstance(inst.id)
+    }
+    log.info(
+      `[setSessionDisabled] sessionKey=${sessionKey} ${field}: ${name} enabled=${enabled} 禁用集=[${next.join(', ')}]`,
+    )
+    return next
+  }
+
+  /** 该会话禁用的 MCP server 名 */
+  getSessionDisabledMcpServers(sessionKey: string): readonly string[] {
+    return this.readSessionDisabled(sessionKey, 'disabledMcpServers')
+  }
+
+  /** 会话级启停某个 MCP server */
+  setSessionMcpServerEnabled(sessionKey: string, serverName: string, enabled: boolean): readonly string[] {
+    return this.setSessionDisabled(sessionKey, 'disabledMcpServers', serverName, enabled)
+  }
+
+  /** 该会话禁用的技能 id */
+  getSessionDisabledSkills(sessionKey: string): readonly string[] {
+    return this.readSessionDisabled(sessionKey, 'disabledSkills')
+  }
+
+  /** 会话级启停某个技能 */
+  setSessionSkillEnabled(sessionKey: string, skillId: string, enabled: boolean): readonly string[] {
+    return this.setSessionDisabled(sessionKey, 'disabledSkills', skillId, enabled)
+  }
+
+  /**
+   * 各 MCP server 的工具数与估算 token（供设置页展示「这个 server 值多少上下文」）。
+   */
+  getMcpServerTokenCosts(): readonly { name: string; toolCount: number; tokens: number }[] {
+    return aggregateMcpTokensByServer(this.toolRegistry.getEnabledTools())
   }
 
   /** 从 DB 加载历史消息注入到 Agent 实例 */
@@ -1579,24 +1667,35 @@ export class AgentRuntimeBridge {
 
       const idleSeconds = Math.floor((now - state.lastActivityAt) / 1000)
 
-      // usage.triggerThreshold 是比率（如 0.78），需换算成绝对 token 数
-      const floorTokens = Math.floor(usage.contextWindow * usage.triggerThreshold)
+      // 压缩只动对话历史，触发判断也必须只看对话池：
+      // 按整窗算时，固定开销（系统提示+工具+MCP）大的会话压完仍高于 floor，反复重试无收敛目标。
+      const comp = this.sessionModelCatalog.getCompactionForRootSession(sessionKey)
+      const budget = computeContextBudget(
+        usage.usedTokens,
+        usage.contextWindow,
+        usage.breakdown,
+        comp.outputReserveTokens,
+      )
 
       const cooldownUntil = this.getIdleCooldownUntil(sessionKey)
       const cooldownActive = now < cooldownUntil
-      const should = shouldIdleCompact({
-        enabled: true,
-        idleAfterSeconds: 300,
-        idleGapSeconds: idleSeconds,
-        tokens: usage.usedTokens,
-        floorTokens,
-        cooldownActive,
-      })
+      const should =
+        shouldCompactByBudget(budget, usage.triggerThreshold) &&
+        shouldIdleCompact({
+          enabled: true,
+          idleAfterSeconds: 300,
+          idleGapSeconds: idleSeconds,
+          tokens: budget.compressible,
+          floorTokens: Math.floor(budget.budget * usage.triggerThreshold),
+          cooldownActive,
+        })
 
       // 每轮都打决策，否则「自动压缩没生效」无从判断卡在哪个条件
       log.info(
         `[scanIdleInstances] ${instanceId} 决策=${should ? '压缩' : '跳过'} ` +
-          `idle=${idleSeconds}s/300s used=${usage.usedTokens} floor=${floorTokens}(${usage.contextWindow}×${usage.triggerThreshold}) ` +
+          `idle=${idleSeconds}s/300s used=${usage.usedTokens} 固定开销=${budget.fixedOverhead} ` +
+          `可压缩=${budget.compressible}/${budget.budget}(×${usage.triggerThreshold}) ` +
+          `${budget.exhausted ? '固定开销已挤满窗口(压缩无效,需禁用 MCP) ' : ''}` +
           `冷却=${cooldownActive ? new Date(cooldownUntil).toLocaleTimeString() : '无'}`,
       )
 

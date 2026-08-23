@@ -114,6 +114,10 @@ import {
   handleMcpImport,
   handleMcpRemove,
   handleMcpSetEnabled,
+  handleMcpSetSessionEnabled,
+  handleMcpSessionDisabled,
+  handleSkillSetSessionEnabled,
+  handleSkillSessionDisabled,
   handleMcpReconnect,
   handleMcpReadConfigFile,
   handleMcpWriteConfigFile,
@@ -886,6 +890,12 @@ export async function handleCommand(
       case 'mcp:setEnabled':
         return handleMcpSetEnabled(bridge, command)
 
+      case 'mcp:setSessionEnabled':
+        return handleMcpSetSessionEnabled(bridge, command)
+
+      case 'mcp:sessionDisabled':
+        return handleMcpSessionDisabled(bridge, command)
+
       case 'mcp:reconnect':
         return handleMcpReconnect(bridge, command)
 
@@ -1056,6 +1066,13 @@ export async function handleCommand(
 
       case 'skill:deprecate':
         return handleSkillDeprecate(bridge, command)
+
+      // ---- 会话级技能开关（技能中心的启用/禁用是全局总开关） ----
+      case 'skill:setSessionEnabled':
+        return handleSkillSetSessionEnabled(bridge, command)
+
+      case 'skill:sessionDisabled':
+        return handleSkillSessionDisabled(bridge, command)
 
       default: {
         const _exhaustive: never = command

@@ -47,8 +47,14 @@ export function handleToolsToggle(
 
 export function handleMcpStatus(bridge: AgentRuntimeBridge): unknown {
   const configError = bridge.getMcpConfigError()
+  // 每个 server 的估算 token：让用户看见「这个 server 值多少上下文」，
+  // 这是判断该关谁的唯一依据（实测有 server 单独占掉 150K/200K 窗口）。
+  const costByServer = new Map(bridge.getMcpServerTokenCosts().map((c) => [c.name, c]))
   return {
-    servers: bridge.getMcpStatus(),
+    servers: bridge.getMcpStatus().map((s) => ({
+      ...s,
+      estimatedTokens: costByServer.get(s.name)?.tokens ?? 0,
+    })),
     ...(configError ? { configError } : {}),
   }
 }
@@ -79,6 +85,46 @@ export async function handleMcpSetEnabled(
   command: Extract<AgentRuntimeCommand, { type: 'mcp:setEnabled' }>,
 ): Promise<{ success: boolean; error?: string }> {
   return toMcpResult(() => bridge.setMcpServerEnabled(command.name, command.enabled))
+}
+
+export function handleMcpSetSessionEnabled(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'mcp:setSessionEnabled' }>,
+): { disabledServers: readonly string[] } {
+  return {
+    disabledServers: bridge.setSessionMcpServerEnabled(
+      command.sessionKey,
+      command.name,
+      command.enabled,
+    ),
+  }
+}
+
+export function handleMcpSessionDisabled(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'mcp:sessionDisabled' }>,
+): { disabledServers: readonly string[] } {
+  return { disabledServers: bridge.getSessionDisabledMcpServers(command.sessionKey) }
+}
+
+export function handleSkillSetSessionEnabled(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'skill:setSessionEnabled' }>,
+): { disabledSkills: readonly string[] } {
+  return {
+    disabledSkills: bridge.setSessionSkillEnabled(
+      command.sessionKey,
+      command.skillId,
+      command.enabled,
+    ),
+  }
+}
+
+export function handleSkillSessionDisabled(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'skill:sessionDisabled' }>,
+): { disabledSkills: readonly string[] } {
+  return { disabledSkills: bridge.getSessionDisabledSkills(command.sessionKey) }
 }
 
 export async function handleMcpReconnect(

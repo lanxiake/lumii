@@ -219,8 +219,14 @@ export {
   applyAssistantPartEvent,
   finalizeAssistantParts,
   diffTurnSnapshots,
+  isEnabledForSession,
+  filterEnabledForSession,
+  readSessionConfig,
+  patchSessionConfig,
+  toggleSessionDisabled,
 } from "./storage/index.js";
 export type {
+  SessionConfig,
   DatabaseAdapter,
   PreparedStatement,
   StatementResult,

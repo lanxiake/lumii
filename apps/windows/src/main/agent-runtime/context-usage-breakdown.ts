@@ -143,6 +143,32 @@ function collectFixedChars(
   return chars
 }
 
+/**
+ * 按 MCP server 聚合工具定义的 token 占用。
+ *
+ * 与用量条同源（都用 toolText + estimateTextTokenCount），
+ * 供设置页展示「这个 server 值多少上下文」。
+ */
+export function aggregateMcpTokensByServer(
+  toolDefinitions: readonly ToolDefinitionLite[],
+): readonly { name: string; toolCount: number; tokens: number }[] {
+  const byServer = new Map<string, { toolCount: number; tokens: number }>()
+  for (const tool of toolDefinitions) {
+    if (!tool.name.startsWith('mcp__')) continue
+    const sepIdx = tool.name.indexOf('__', 5)
+    if (sepIdx < 0) continue
+    const server = tool.name.slice(5, sepIdx)
+    if (!server) continue
+    const entry = byServer.get(server) ?? { toolCount: 0, tokens: 0 }
+    entry.toolCount += 1
+    entry.tokens += estimateTextTokenCount(toolText(tool))
+    byServer.set(server, entry)
+  }
+  return [...byServer.entries()]
+    .map(([name, v]) => ({ name, ...v }))
+    .sort((a, b) => b.tokens - a.tokens)
+}
+
 /** 本轮实际发往模型的字符总量（系统提示词 + 工具定义 + 消息序列化） */
 export function countPromptChars(input: {
   readonly systemPrompt: string

@@ -10,6 +10,7 @@ import { AlertCircle, ChevronDown, ChevronRight, Copy, Ellipsis, FileJson, Loade
 import { Button, Empty, Input, Loading, Switch } from '../ui'
 import { useToast } from '../ui/Toast/useToast'
 import { formatToolUsageCount, formatToolUsageTitle, useToolSearch } from '../../hooks/business/useToolSearch'
+import { formatTokenCount } from '../../utils/format-token-count'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import type { McpServerConfigInput } from '@shared/agent-runtime-commands'
 import { McpConfigFileModal } from './McpConfigFileModal'
@@ -83,6 +84,8 @@ export const McpServersPanel: React.FC = () => {
 
   const connectedCount = servers.filter((s) => s.connected).length
   const toolCount = servers.reduce((sum, s) => sum + s.tools.length, 0)
+  /** 已启用 server 的工具定义总占用：判断「该关谁」需要一个全局参照 */
+  const totalMcpTokens = servers.reduce((sum, s) => sum + (s.estimatedTokens ?? 0), 0)
 
   /** 工具名 → 工具详情，用于展开区渲染 label/description/开关 */
   const toolByName = useMemo(() => new Map(tools.map((t) => [t.name, t])), [tools])
@@ -182,7 +185,7 @@ export const McpServersPanel: React.FC = () => {
           <p className={styles['panel-sub']}>
             {servers.length === 0
               ? '通过 Model Context Protocol 接入外部工具'
-              : `已连接 ${connectedCount}/${servers.length} 个 Server，提供 ${toolCount} 个工具`}
+              : `已连接 ${connectedCount}/${servers.length} 个 Server，提供 ${toolCount} 个工具${totalMcpTokens > 0 ? `，共占用 ${formatTokenCount(totalMcpTokens)} 上下文` : ''}`}
           </p>
         </div>
         <div className={styles['panel-actions']}>
@@ -305,6 +308,14 @@ export const McpServersPanel: React.FC = () => {
                       title="该 Server 下所有工具的累计调用次数，长期为 0 可考虑停用以节省上下文"
                     >
                       共调用 {serverUsageCount(server)} 次
+                    </span>
+                  )}
+                  {!busy && (server.estimatedTokens ?? 0) > 0 && (
+                    <span
+                      className={styles['server-usage']}
+                      title="该 Server 工具定义每轮都会占用的上下文（与用量卡片同一口径）。占比过高会挤压对话历史空间，导致压缩失效。"
+                    >
+                      占用 {formatTokenCount(server.estimatedTokens!)} 上下文
                     </span>
                   )}
                 </div>

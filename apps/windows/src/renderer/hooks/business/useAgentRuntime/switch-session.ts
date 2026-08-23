@@ -167,7 +167,6 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
             isNearThreshold: ratio > 0.6,
             ...(contextUsage.breakdown ? { breakdown: contextUsage.breakdown } : {}),
           },
-          isAutoCompacting: ratio >= contextUsage.triggerThreshold,
         }
       })
     } catch (err) {
@@ -285,9 +284,6 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
             : false,
           ...(dbContextUsage.breakdown ? { breakdown: dbContextUsage.breakdown } : {}),
         },
-        isAutoCompacting: dbContextUsage.contextWindow > 0
-          ? dbContextUsage.usedTokens / dbContextUsage.contextWindow >= dbContextUsage.triggerThreshold
-          : false,
       } : {}),
     })
     return { ...prev, sessions: newSessions, currentSessionKey: sessionKey }

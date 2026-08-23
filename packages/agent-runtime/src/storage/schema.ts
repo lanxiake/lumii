@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 /**
  * V1 DDL — 初始 schema
@@ -376,6 +376,17 @@ CREATE TABLE IF NOT EXISTS tool_usage_stats (
   error_count  INTEGER NOT NULL DEFAULT 0,
   last_used_at INTEGER   -- epoch ms，NULL 表示未用过
 );
+`,
+  ],
+  // V14: 会话级配置载体
+  //
+  // 单一 JSON 列承载全部会话级设置：模型偏好、思考模式、MCP/技能/工具禁用集、压缩参数。
+  // 设置页的配置是全局默认值，这里存的是该会话的覆盖值（详见 session-config.ts 的合并规则）。
+  // 用 JSON 而非独立列：字段会持续增加，避免每加一项就一次迁移。
+  [
+    14,
+    `
+ALTER TABLE conversations ADD COLUMN session_config TEXT;
 `,
   ],
 ] as const;

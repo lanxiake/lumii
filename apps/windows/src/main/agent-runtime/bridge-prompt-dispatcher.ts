@@ -24,6 +24,8 @@ import {
   diffTurnSnapshots,
 } from '@mtbot/agent-runtime'
 import type { AgentMessage } from '@mariozechner/pi-agent-core'
+import type { ContextUsageBreakdownEntry } from '../../shared/agent-runtime-events'
+import { computeContextBudget } from '../../shared/context-budget'
 import type { AgentRuntimeBridgeConfig } from './bridge'
 import type { InstanceState, InstanceStateStore } from './bridge-instance-state'
 import type { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
@@ -66,6 +68,16 @@ export interface BridgePromptDispatcherDeps {
   config: AgentRuntimeBridgeConfig
   getSkillEvolutionEngine: () => import('../skill-evolution/index').SkillEvolutionEngine | undefined
   getConversationRepo: () => ConversationRepo | null
+  /**
+   * 会话整窗用量与分类明细（用于把自动压缩阈值扣掉固定开销后再算）。
+   * 无活跃实例时返回的 breakdown 为 undefined，预算计算会退化为整窗口径。
+   */
+  getSessionContextUsage?: (sessionKey: string) => {
+    usedTokens: number
+    contextWindow: number
+    triggerThreshold: number
+    breakdown?: readonly ContextUsageBreakdownEntry[]
+  }
   /**
    * Pre-LLM Router 服务（可选）。
    * - 提供时：每轮 prompt 会先调用 Router 筛选 top Agent/Skill，注入主 prompt
@@ -316,12 +328,27 @@ export class BridgePromptDispatcher {
           log.info(`[prompt] 历史消息含 thinking block: count=${thinkingMsgCount}, sessionKey=${sessionKey}`)
         }
         const estimatedTokens = estimateTokenCount(historyMessages)
-        // 与 agent-instance createTransformContext 使用同一常量，避免两套逻辑在不同阈值重复触发
-        const autoCompactThreshold = Math.floor(comp.contextWindow * DEFAULT_COMPACTION_TRIGGER_RATIO)
+        // estimatedTokens 只含对话历史，阈值必须扣掉固定开销（系统提示+工具+MCP）后再算：
+        // 按整窗 ×ratio 当阈值时，对话要涨到 156K 才触发，而 MCP 占 150K 的会话在 25K 就爆窗。
+        const usage = this.deps.getSessionContextUsage?.(rootSessionKey)
+        const budget = computeContextBudget(
+          usage?.usedTokens ?? estimatedTokens,
+          comp.contextWindow,
+          usage?.breakdown,
+          comp.outputReserveTokens,
+        )
+        const autoCompactThreshold = Math.floor(budget.budget * DEFAULT_COMPACTION_TRIGGER_RATIO)
         if (estimatedTokens > autoCompactThreshold && historyMessages.length > 4) {
           log.info(
-            `[prompt] 自动压缩触发: estimatedTokens=${estimatedTokens} > threshold=${autoCompactThreshold} (80% of ${comp.contextWindow}), sessionKey=${sessionKey}`,
+            `[prompt] 自动压缩触发: estimatedTokens=${estimatedTokens} > threshold=${autoCompactThreshold} ` +
+              `(可压缩预算 ${budget.budget} × ${DEFAULT_COMPACTION_TRIGGER_RATIO}, 固定开销=${budget.fixedOverhead}/${comp.contextWindow}), sessionKey=${sessionKey}`,
           )
+          if (budget.exhausted) {
+            log.warn(
+              `[prompt] 固定开销 ${budget.fixedOverhead} 已挤满 ${comp.contextWindow} 窗口，压缩无法回收空间；` +
+                `请在设置中禁用部分 MCP server 或改用更大窗口的模型。sessionKey=${sessionKey}`,
+            )
+          }
 
           // 先尝试 microcompact（清理旧轮次工具结果），成本极低
           const microcompacted = microcompactToolResults(historyMessages, 4)
