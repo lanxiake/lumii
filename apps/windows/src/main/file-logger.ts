@@ -12,6 +12,7 @@ import { join } from 'path'
 import { resolveClientStateDir } from './paths'
 import { createWriteStream, mkdirSync, existsSync, readdirSync, unlinkSync, statSync } from 'fs'
 import type { WriteStream } from 'fs'
+import { getLocalDateString, getLocalTimeString } from './local-time'
 
 /** 最大保留日志文件数量 */
 const MAX_LOG_FILES = 7
@@ -37,28 +38,11 @@ function getLogDir(): string {
   return join(mtbotDataDir, 'logs', 'app')
 }
 
-/**
- * 获取当前日期字符串 (YYYY-MM-DD)
- */
-function getDateString(): string {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
+/** 获取当前日期字符串 (YYYY-MM-DD)，本地时区 */
+const getDateString = getLocalDateString
 
-/**
- * 获取时间戳字符串 (HH:mm:ss.SSS)
- */
-function getTimeString(): string {
-  const now = new Date()
-  const hours = String(now.getHours()).padStart(2, '0')
-  const minutes = String(now.getMinutes()).padStart(2, '0')
-  const seconds = String(now.getSeconds()).padStart(2, '0')
-  const ms = String(now.getMilliseconds()).padStart(3, '0')
-  return `${hours}:${minutes}:${seconds}.${ms}`
-}
+/** 获取时间戳字符串 (HH:mm:ss.SSS)，本地时区 */
+const getTimeString = getLocalTimeString
 
 /**
  * 格式化日志参数为字符串

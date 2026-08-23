@@ -67,16 +67,38 @@ describe("captureWorkspaceTurnSnapshot", () => {
     fs.writeFileSync(path.join(dir, "subdir", "b.ts"), "v2");
 
     const subdir = path.join(dir, "subdir");
-    const originalReaddir = fs.readdirSync.bind(fs);
-    vi.spyOn(fs, "readdirSync").mockImplementation((target, options) => {
+    const originalReaddir = fs.promises.readdir.bind(fs.promises);
+    vi.spyOn(fs.promises, "readdir").mockImplementation(((
+      target: fs.PathLike,
+      options: { withFileTypes: true },
+    ) => {
       if (String(target) === subdir) {
-        throw new Error("EACCES: permission denied");
+        return Promise.reject(new Error("EACCES: permission denied"));
       }
-      return originalReaddir(target, options);
-    });
+      return originalReaddir(target as string, options);
+    }) as typeof fs.promises.readdir);
 
     await expect(captureWorkspaceTurnSnapshot(dir)).rejects.toThrow(
       /读取工作区目录失败/,
     );
+  });
+
+  it("大量文件时异步遍历不长时间阻塞事件循环", async () => {
+    for (let i = 0; i < 120; i++) {
+      fs.writeFileSync(path.join(dir, `file-${i}.txt`), `content-${i}`);
+    }
+
+    let tickFired = false;
+    const timer = setImmediate(() => {
+      tickFired = true;
+    });
+
+    const snap = await captureWorkspaceTurnSnapshot(dir);
+
+    expect(snap.size).toBe(120);
+    // 遍历内部本身通过 setImmediate 让出事件循环，
+    // 一个并发调度的 setImmediate 回调应有机会在快照完成前触发。
+    expect(tickFired).toBe(true);
+    clearImmediate(timer);
   });
 });

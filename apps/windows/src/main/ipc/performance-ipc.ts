@@ -18,6 +18,21 @@ export function setupPerformanceIpcHandlers(performanceMonitor: PerformanceMonit
     }
   })
 
+  // 获取历史时间序列（IPC 60秒窗口聚合 + 内存快照序列），供设置页画趋势图
+  ipcMain.handle('performance:getHistory', async () => {
+    try {
+      const ipcAggregates = performanceMonitor.getIpcAggregateHistory()
+      const memorySnapshots = performanceMonitor.getMemorySnapshotHistory()
+      log.info(
+        `[getHistory] 历史序列查询完成, ipc聚合窗口数=${ipcAggregates.length}, 内存快照数=${memorySnapshots.length}`,
+      )
+      return { ipcAggregates, memorySnapshots }
+    } catch (err) {
+      log.error('[getHistory] 获取历史序列失败', err)
+      throw new Error('Failed to get performance history')
+    }
+  })
+
   // 手动捕获一次内存快照
   ipcMain.handle('performance:capture', async () => {
     try {

@@ -4,6 +4,14 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { ToastProvider } from '../../../../components/ui/Toast/ToastContainer'
 import { PerformanceDiagnostics } from './PerformanceDiagnostics'
 
+// jsdom 没有实现 ResizeObserver，recharts 的 ResponsiveContainer 依赖它测量容器尺寸
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+;(globalThis as unknown as { ResizeObserver: typeof ResizeObserverStub }).ResizeObserver = ResizeObserverStub
+
 function buildReport(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     generatedAt: Date.now(),
@@ -35,6 +43,14 @@ function buildReport(overrides: Partial<Record<string, unknown>> = {}) {
   }
 }
 
+function buildHistory(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    ipcAggregates: [],
+    memorySnapshots: [],
+    ...overrides,
+  }
+}
+
 function renderWithToast() {
   return render(
     <ToastProvider>
@@ -51,6 +67,7 @@ describe('PerformanceDiagnostics', () => {
         getReport: vi.fn(async () => buildReport()),
         capture: vi.fn(async () => ({ success: true })),
         openLogFolder: vi.fn(async () => ({ success: true })),
+        getHistory: vi.fn(async () => buildHistory()),
       },
     } as typeof window.electronAPI
   })
@@ -82,6 +99,7 @@ describe('PerformanceDiagnostics', () => {
         }),
         capture: vi.fn(),
         openLogFolder: vi.fn(),
+        getHistory: vi.fn(async () => buildHistory()),
       },
     } as typeof window.electronAPI
 
@@ -89,6 +107,57 @@ describe('PerformanceDiagnostics', () => {
 
     await waitFor(() => {
       expect(screen.getByText('IPC unavailable')).toBeInTheDocument()
+    })
+  })
+
+  it('should show empty placeholders when history has no data points', async () => {
+    renderWithToast()
+
+    await waitFor(() => {
+      expect(screen.getAllByText('暂无历史数据')).toHaveLength(2)
+    })
+  })
+
+  it('should render memory and ipc trend charts when history has data', async () => {
+    window.electronAPI = {
+      ...window.electronAPI,
+      performance: {
+        getReport: vi.fn(async () => buildReport()),
+        capture: vi.fn(async () => ({ success: true })),
+        openLogFolder: vi.fn(async () => ({ success: true })),
+        getHistory: vi.fn(async () =>
+          buildHistory({
+            memorySnapshots: [
+              {
+                timestamp: Date.now(),
+                kind: 'memory.snapshot',
+                mainProcess: { heapUsed: 100 * 1024 * 1024, external: 10, rss: 300 * 1024 * 1024 },
+                childProcesses: [],
+              },
+            ],
+            ipcAggregates: [
+              {
+                timestamp: Date.now(),
+                kind: 'ipc.aggregate',
+                windowStart: Date.now() - 60000,
+                windowEnd: Date.now(),
+                channel: 'agent-runtime:command',
+                totalCalls: 10,
+                totalDuration: 500,
+                errors: 0,
+                minDuration: 10,
+                maxDuration: 100,
+              },
+            ],
+          }),
+        ),
+      },
+    } as typeof window.electronAPI
+
+    renderWithToast()
+
+    await waitFor(() => {
+      expect(screen.queryByText('暂无历史数据')).not.toBeInTheDocument()
     })
   })
 

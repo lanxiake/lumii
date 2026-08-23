@@ -226,6 +226,11 @@ export class PerformanceAggregator {
     return [...this.windowAggregates]
   }
 
+  /** 返回最近的内存快照序列（最多 MAX_MEMORY_SNAPSHOTS 条），供性能诊断页面画趋势图 */
+  getMemorySnapshots(): MemorySnapshotEvent[] {
+    return [...this.memorySnapshots]
+  }
+
   generateReport(): PerformanceReport {
     const ipcStats = this.getIpcStats()
     const startupStats = this.getStartupStats()

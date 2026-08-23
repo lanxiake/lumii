@@ -3,6 +3,8 @@
  * 为 Windows 客户端提供统一的日志接口
  */
 
+import { getLocalDateTimeString } from './local-time'
+
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 interface Logger {
@@ -24,7 +26,8 @@ const MIN_LEVEL: number = LOG_LEVELS[(process.env.LOG_LEVEL as LogLevel) ?? 'inf
  */
 export function createLogger(namespace: string): Logger {
   const formatMessage = (level: LogLevel, args: unknown[]): string => {
-    const timestamp = new Date().toISOString()
+    // 本地时区而非 toISOString()（UTC），避免和 file-logger.ts 落盘的行前缀时区不一致
+    const timestamp = getLocalDateTimeString()
     const prefix = `[${timestamp}] [${level.toUpperCase()}] [${namespace}]`
     return `${prefix} ${args.map(arg =>
       typeof arg === 'object' ? JSON.stringify(arg) : String(arg)

@@ -32,6 +32,8 @@ describe('Performance IPC Handlers', () => {
         health: 'good',
       })),
       recordMemorySnapshot: vi.fn(),
+      getIpcAggregateHistory: vi.fn(() => []),
+      getMemorySnapshotHistory: vi.fn(() => []),
       cleanOldLogs: vi.fn(),
       destroy: vi.fn(),
     } as unknown as PerformanceMonitor
@@ -79,5 +81,19 @@ describe('Performance IPC Handlers', () => {
 
     const result = await handler({})
     expect(result.success).toBeDefined()
+  })
+
+  it('should return ipc aggregate and memory snapshot history', async () => {
+    setupPerformanceIpcHandlers(mockMonitor)
+
+    const calls = (ipcMain.handle as ReturnType<typeof vi.fn>).mock.calls
+    const historyCall = calls.find(c => c[0] === 'performance:getHistory')
+    const handler = historyCall![1]
+
+    const result = await handler({})
+    expect(result.ipcAggregates).toEqual([])
+    expect(result.memorySnapshots).toEqual([])
+    expect(mockMonitor.getIpcAggregateHistory).toHaveBeenCalledTimes(1)
+    expect(mockMonitor.getMemorySnapshotHistory).toHaveBeenCalledTimes(1)
   })
 })

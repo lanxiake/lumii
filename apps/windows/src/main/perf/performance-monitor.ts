@@ -7,6 +7,7 @@ import type {
   PerformanceMonitorConfig,
   MemorySnapshotEvent,
   StartupPhaseEvent,
+  IpcAggregateEvent,
 } from './performance-types'
 
 export class PerformanceMonitor {
@@ -283,6 +284,16 @@ export class PerformanceMonitor {
 
   getReport() {
     return this.aggregator.generateReport()
+  }
+
+  /** IPC 60 秒窗口聚合历史序列，供性能诊断页面画趋势图 */
+  getIpcAggregateHistory(): IpcAggregateEvent[] {
+    return this.aggregator.getAggregateEvents()
+  }
+
+  /** 最近内存快照历史序列，供性能诊断页面画趋势图 */
+  getMemorySnapshotHistory(): MemorySnapshotEvent[] {
+    return this.aggregator.getMemorySnapshots()
   }
 
   cleanOldLogs() {

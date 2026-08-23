@@ -3,13 +3,31 @@
  *
  * 展示 PerformanceMonitor 生成的诊断报告：IPC 调用耗时、启动阶段、内存占用、
  * 综合健康状态；支持手动触发一次内存快照与打开性能日志文件夹。
+ * 同时展示内存与 IPC 调用的运行时历史趋势图（recharts），
+ * 数据来自 performance:getHistory（60秒窗口 IPC 聚合序列 + 内存快照序列）。
  */
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { Activity, Folder } from 'lucide-react'
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  LineChart,
+  Line,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+} from 'recharts'
 import { Button } from '../../../../components/ui/Button/Button'
 import { useToast } from '../../../../components/ui/Toast/useToast'
-import type { PerformanceReport } from '../../../../../main/perf/performance-types'
+import type {
+  PerformanceReport,
+  IpcAggregateEvent,
+  MemorySnapshotEvent,
+} from '../../../../../main/perf/performance-types'
 import styles from './PerformanceDiagnostics.module.css'
 
 const HEALTH_LABEL: Record<PerformanceReport['health'], string> = {
@@ -24,9 +42,78 @@ const HEALTH_COLOR: Record<PerformanceReport['health'], string> = {
   critical: '#ef4444',
 }
 
+const MEMORY_COLOR = { rss: '#3b82f6', heapUsed: '#8b5cf6' } as const
+const IPC_COLOR = { avgLatency: '#22c55e' } as const
+/** IPC 通道分色调色板，多通道时循环取色 */
+const CHANNEL_PALETTE = ['#06b6d4', '#f59e0b', '#ef4444', '#8b5cf6', '#3b82f6', '#ec4899'] as const
+
+/** 本地时区 HH:mm:ss，与 file-logger.ts / logger.ts 的本地时区展示口径保持一致 */
+function formatLocalTime(ts: number): string {
+  const d = new Date(ts)
+  const h = String(d.getHours()).padStart(2, '0')
+  const m = String(d.getMinutes()).padStart(2, '0')
+  const s = String(d.getSeconds()).padStart(2, '0')
+  return `${h}:${m}:${s}`
+}
+
+function bytesToMb(bytes: number): number {
+  return Math.round((bytes / 1024 / 1024) * 10) / 10
+}
+
+interface MemoryChartRow {
+  label: string
+  rss: number
+  heapUsed: number
+}
+
+function buildMemoryChartData(snapshots: readonly MemorySnapshotEvent[]): MemoryChartRow[] {
+  return snapshots.map((s) => ({
+    label: formatLocalTime(s.timestamp),
+    rss: bytesToMb(s.mainProcess.rss),
+    heapUsed: bytesToMb(s.mainProcess.heapUsed),
+  }))
+}
+
+interface IpcChartRow {
+  label: string
+  avgLatency: number
+  [channelKey: string]: number | string
+}
+
+/** 按窗口起始时间分组聚合事件，每个通道展开为动态键，并计算该窗口的整体平均延迟 */
+function buildIpcChartData(events: readonly IpcAggregateEvent[]): { rows: IpcChartRow[]; channels: string[] } {
+  const byWindow = new Map<number, IpcAggregateEvent[]>()
+  const channels = new Set<string>()
+  for (const e of events) {
+    channels.add(e.channel)
+    const list = byWindow.get(e.windowStart) ?? []
+    list.push(e)
+    byWindow.set(e.windowStart, list)
+  }
+
+  const rows = [...byWindow.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([windowStart, entries]) => {
+      let totalCalls = 0
+      let totalDuration = 0
+      const row: IpcChartRow = { label: formatLocalTime(windowStart), avgLatency: 0 }
+      for (const e of entries) {
+        row[e.channel] = e.totalCalls
+        totalCalls += e.totalCalls
+        totalDuration += e.totalDuration
+      }
+      row.avgLatency = totalCalls > 0 ? Math.round((totalDuration / totalCalls) * 10) / 10 : 0
+      return row
+    })
+
+  return { rows, channels: [...channels] }
+}
+
 export const PerformanceDiagnostics: React.FC = () => {
   const toast = useToast()
   const [report, setReport] = useState<PerformanceReport | null>(null)
+  const [ipcAggregates, setIpcAggregates] = useState<IpcAggregateEvent[]>([])
+  const [memorySnapshots, setMemorySnapshots] = useState<MemorySnapshotEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -34,8 +121,13 @@ export const PerformanceDiagnostics: React.FC = () => {
     try {
       setLoading(true)
       setError(null)
-      const data = await window.electronAPI.performance.getReport()
-      setReport(data)
+      const [reportData, historyData] = await Promise.all([
+        window.electronAPI.performance.getReport(),
+        window.electronAPI.performance.getHistory(),
+      ])
+      setReport(reportData)
+      setIpcAggregates(historyData.ipcAggregates)
+      setMemorySnapshots(historyData.memorySnapshots)
     } catch (err) {
       const message = err instanceof Error ? err.message : '加载性能报告失败'
       setError(message)
@@ -72,6 +164,9 @@ export const PerformanceDiagnostics: React.FC = () => {
       toast.error(err instanceof Error ? err.message : '打开日志失败')
     }
   }, [toast])
+
+  const memoryChartData = useMemo(() => buildMemoryChartData(memorySnapshots), [memorySnapshots])
+  const ipcChart = useMemo(() => buildIpcChartData(ipcAggregates), [ipcAggregates])
 
   if (loading) {
     return <div className={styles['perf-loading']}>加载中...</div>
@@ -114,6 +209,111 @@ export const PerformanceDiagnostics: React.FC = () => {
             <span className={styles['perf-metric-label']}>慢调用</span>
             <span className={styles['perf-metric-value']}>{report.ipcStats.slowCalls}</span>
           </div>
+        </div>
+      </div>
+
+      <div className={styles['perf-charts']}>
+        <div className={styles['perf-chart-section']}>
+          <h5 className={styles['perf-section-title']}>内存趋势</h5>
+          {memoryChartData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={memoryChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
+                  axisLine={{ stroke: 'var(--color-border)' }}
+                  tickLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={44}
+                  tickFormatter={(v: number) => `${v}MB`}
+                />
+                <Tooltip formatter={(v: number) => `${v}MB`} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Line
+                  type="monotone"
+                  dataKey="rss"
+                  name="RSS"
+                  stroke={MEMORY_COLOR.rss}
+                  strokeWidth={2}
+                  dot={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="heapUsed"
+                  name="堆内存"
+                  stroke={MEMORY_COLOR.heapUsed}
+                  strokeWidth={2}
+                  dot={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className={styles['perf-chart-empty']}>暂无历史数据</div>
+          )}
+        </div>
+
+        <div className={styles['perf-chart-section']}>
+          <h5 className={styles['perf-section-title']}>IPC 调用趋势</h5>
+          {ipcChart.rows.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <ComposedChart data={ipcChart.rows} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
+                  axisLine={{ stroke: 'var(--color-border)' }}
+                  tickLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  yAxisId="calls"
+                  tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={36}
+                />
+                <YAxis
+                  yAxisId="latency"
+                  orientation="right"
+                  tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={44}
+                  tickFormatter={(v: number) => `${v}ms`}
+                />
+                <Tooltip />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                {ipcChart.channels.map((channel, i) => (
+                  <Bar
+                    key={channel}
+                    yAxisId="calls"
+                    dataKey={channel}
+                    name={channel}
+                    stackId="calls"
+                    fill={CHANNEL_PALETTE[i % CHANNEL_PALETTE.length]}
+                  />
+                ))}
+                <Line
+                  yAxisId="latency"
+                  type="monotone"
+                  dataKey="avgLatency"
+                  name="平均延迟"
+                  stroke={IPC_COLOR.avgLatency}
+                  strokeWidth={2}
+                  strokeDasharray="5 4"
+                  dot={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className={styles['perf-chart-empty']}>暂无历史数据</div>
+          )}
         </div>
       </div>
 

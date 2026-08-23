@@ -13,7 +13,7 @@ import type { UsageSummary } from '../main/usage-store'
 import type { NewsSnapshot } from '../main/news-store'
 import type { DashboardFeedSnapshot } from '../main/dashboard-feed-store'
 import type { LatencyView } from '../main/provider-latency'
-import type { PerformanceReport } from '../main/perf/performance-types'
+import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent } from '../main/perf/performance-types'
 // 导入提取的 API 模块
 import {
   fileApi,
@@ -1129,6 +1129,8 @@ export interface ElectronAPI {
     capture: () => Promise<{ success: boolean; error?: string }>
     /** 打开性能日志文件夹 */
     openLogFolder: () => Promise<{ success: boolean; error?: string }>
+    /** 获取历史时间序列（IPC 60秒窗口聚合 + 内存快照序列），用于运行时趋势图 */
+    getHistory: () => Promise<{ ipcAggregates: IpcAggregateEvent[]; memorySnapshots: MemorySnapshotEvent[] }>
   }
 }
 
@@ -1357,6 +1359,7 @@ const electronAPI: ElectronAPI = {
     getReport: () => ipcRenderer.invoke('performance:getReport'),
     capture: () => ipcRenderer.invoke('performance:capture'),
     openLogFolder: () => ipcRenderer.invoke('performance:openLogFolder'),
+    getHistory: () => ipcRenderer.invoke('performance:getHistory'),
   },
 }
 
