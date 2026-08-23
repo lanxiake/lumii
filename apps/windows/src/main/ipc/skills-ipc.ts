@@ -2,7 +2,7 @@
  * 本地技能管理相关 IPC handlers
  */
 import { ipcMain } from 'electron'
-import { join, basename } from 'path'
+import { join, basename, resolve, sep } from 'path'
 import { promises as fs } from 'fs'
 import type { ClientSkillRuntime } from '../skill-runtime'
 import type { SkillWatcher } from '../skill-watcher'
@@ -203,7 +203,15 @@ export function registerSkillsIpcHandlers(): void {
       throw new Error('无效的技能 ID')
     }
     const skillsDir = join(deps!.getWorkspaceDir(), 'skills')
-    return join(skillsDir, skillId)
+    // 索引里已记录 category（可能是多级分类），优先用它解析真实安装目录
+    const fromStore = deps!.getSkillRuntime()?.getSkillStore()?.getSkillDirectory(skillId)
+    if (fromStore) return fromStore
+
+    const resolved = resolve(skillsDir, skillId)
+    if (resolved !== skillsDir && !resolved.startsWith(skillsDir + sep)) {
+      throw new Error('技能 ID 越出技能目录')
+    }
+    return resolved
   })
 
   /**

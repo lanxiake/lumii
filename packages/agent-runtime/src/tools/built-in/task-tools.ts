@@ -139,7 +139,12 @@ export const todoWriteToolConfig: MtBotToolConfig<typeof TodoWriteParams> = {
   description:
     "Manage shared task list: create, update, list, or delete tasks. " +
     "For complex multi-step tasks, prefer batch_create with parallel/dependsOnIndex fields " +
-    "to express the full task graph in a single call.",
+    "to express the full task graph in a single call. " +
+    "Hygiene (the list is visible to the user, keep it small and current): mark a task done " +
+    "as soon as it finishes rather than batching status updates at the end; keep at most one " +
+    "task in_progress; delete obsolete or superseded tasks instead of leaving them pending. " +
+    "Track only the current objective — before starting unrelated work, close or delete the " +
+    "previous objective's leftover tasks.",
   parameters: TodoWriteParams,
   category: "agent",
   isReadOnly: false,

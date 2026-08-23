@@ -32,6 +32,11 @@ import { agentRuntimeLog as log, parseJsonToolResultPayload } from './bridge-uti
 import { recordUsage } from '../usage-store'
 import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
 import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
+import {
+  recordTurnTouchedPath,
+  clearTurnTouchedPaths,
+  filterOwnFileChanges,
+} from './turn-touched-paths'
 import { applyConversationCompactToUsage } from '../../shared/context-usage-compact'
 
 /** 单实例运行时累计指标（主进程内部，与 DetailPanel「运行状态」对应） */
@@ -492,6 +497,9 @@ export function createAgentInstanceRuntimeEventHandler(
         event.toolName === 'file_write' ||
         event.toolName === 'file_edit' ||
         event.toolName === 'writeLocalFile'
+      if (isWriteTool && !event.isError) {
+        recordTurnTouchedPath(instanceId, args, getCwd())
+      }
       if (isWriteTool && !event.isError && fileRepo) {
         void fileMemoryHandler.handleFileWritten(instanceId, args).catch((err: unknown) => {
           log.error(`[file:created] 注册文件元数据失败 instanceId=${instanceId}:`, err)
@@ -671,11 +679,16 @@ export function createAgentInstanceRuntimeEventHandler(
       if (turnSnapshotStart) {
         try {
           const turnSnapshotEnd = await captureWorkspaceTurnSnapshot(getCwd())
-          fileChanges = diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd)
+          // 各会话共用同一 workspace，diff 会含并发会话的写入，按归属过滤
+          fileChanges = filterOwnFileChanges(
+            instanceId,
+            diffTurnSnapshots(turnSnapshotStart, turnSnapshotEnd),
+          )
         } catch (err) {
           log.warn(`[turn-snapshot] end failed: ${err instanceof Error ? err.message : String(err)}`)
         }
       }
+      clearTurnTouchedPaths(instanceId)
       const contentJson = createAssistantPartsContent(state?.pendingParts ?? [], {
         usage,
         sourceAgent: sourceAgentInfo,

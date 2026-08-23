@@ -329,8 +329,12 @@ export class LocalSkillStore {
       }
 
       // 目标目录：与 SKILL.md / 清单中的展示名称一致（非法字符已清理）
+      // category 可为多级分类路径，必须与索引记录一致，否则卸载/定位会找错目录
       const targetDirName = sanitizeDirName(manifest.name || manifest.id)
-      const targetDir = path.join(this.skillsDir, targetDirName)
+      const targetCategory = sanitizeCategoryPath(manifest.category || '')
+      const targetDir = targetCategory
+        ? path.join(this.skillsDir, targetCategory, targetDirName)
+        : path.join(this.skillsDir, targetDirName)
 
       // 如果已存在，先删除旧版本
       if (await fileExists(targetDir)) {
@@ -347,7 +351,7 @@ export class LocalSkillStore {
       const entry: SkillIndexEntry = {
         id: manifest.id,
         dirName: targetDirName,
-        category: manifest.category || '',
+        category: targetCategory,
         name: manifest.name,
         description: manifest.description || '',
         version: manifest.version,
@@ -388,8 +392,10 @@ export class LocalSkillStore {
     }
 
     try {
-      // 删除技能目录
-      const skillDir = path.join(this.skillsDir, entry.dirName)
+      // 删除技能目录（category 可能是多级分类路径，必须一并拼接）
+      const skillDir = entry.category
+        ? path.join(this.skillsDir, entry.category, entry.dirName)
+        : path.join(this.skillsDir, entry.dirName)
       if (await fileExists(skillDir)) {
         await fs.promises.rm(skillDir, { recursive: true, force: true })
       }
@@ -695,10 +701,23 @@ export function validateManifest(manifest: SkillManifest): {
 }
 
 /**
- * 清理目录名（移除特殊字符）
+ * 清理目录名：仅替换文件系统非法字符，保留中文等非 ASCII 名称
+ * （旧实现把中文整段替成下划线，中文技能名会装成 '____'）
  */
 function sanitizeDirName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._-]/g, '_')
+  const cleaned = name.replace(/[<>:\"/|?*\\]/g, '_').trim()
+  // '.' 与 '..' 会指向上级目录，必须消除
+  return cleaned.length === 0 || /^\.+$/.test(cleaned) ? '_' : cleaned
+}
+
+/** 逐段清理分类路径（category 可为 'a/b' 多级形式），空段与 '..' 一并剔除 */
+function sanitizeCategoryPath(category: string): string {
+  return category
+    .split(/[/\\]/)
+    .map((seg) => seg.trim())
+    .filter((seg) => seg.length > 0 && !/^\.+$/.test(seg))
+    .map(sanitizeDirName)
+    .join('/')
 }
 
 /**
@@ -714,12 +733,13 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 /**
- * 收集 skillsDir 下所有技能目录（固定两层结构）
+ * 收集 skillsDir 下所有技能目录（分类层级不限深度）
  *
- *   skills/skill-name/skill.md          → id: 'skill-name',  category: ''
- *   skills/分类名/skill-name/skill.md   → id: '分类名/skill-name', category: '分类名'
+ *   skills/skill-name/skill.md                → id: 'skill-name',            category: ''
+ *   skills/分类/skill-name/skill.md            → id: '分类/skill-name',        category: '分类'
+ *   skills/分类/子分类/skill-name/skill.md     → id: '分类/子分类/skill-name', category: '分类/子分类'
  *
- * 判断标准：目录内存在文件名 toLowerCase() === 'skill.md'
+ * 判断标准：目录内存在文件名 toLowerCase() === 'skill.md'，该目录即技能本体，不再往下扫。
  */
 async function collectSkillDirs(skillsDir: string): Promise<Array<{
   id: string
@@ -728,45 +748,45 @@ async function collectSkillDirs(skillsDir: string): Promise<Array<{
   skillMdPath: string
 }>> {
   const result: Array<{ id: string; dirName: string; category: string; skillMdPath: string }> = []
+  await walkSkillDirs(skillsDir, '', result, 0)
+  return result
+}
 
-  let layer1: fs.Dirent[]
+/** 技能扫描最大分类嵌套深度（防御符号链接成环） */
+const MAX_SKILL_SCAN_DEPTH = 6
+
+/** 递归下探分类目录，命中 skill.md 的目录记为技能本体 */
+async function walkSkillDirs(
+  absDir: string,
+  category: string,
+  out: Array<{ id: string; dirName: string; category: string; skillMdPath: string }>,
+  depth: number,
+): Promise<void> {
+  if (depth > MAX_SKILL_SCAN_DEPTH) return
+
+  let entries: fs.Dirent[]
   try {
-    layer1 = await fs.promises.readdir(skillsDir, { withFileTypes: true })
+    entries = await fs.promises.readdir(absDir, { withFileTypes: true })
   } catch {
-    return result
+    return
   }
 
-  for (const entry of layer1) {
+  for (const entry of entries) {
     if (!entry.isDirectory()) continue
-    const dir1 = path.join(skillsDir, entry.name)
-    const skillMd = await findSkillMdFile(dir1)
+    const childAbs = path.join(absDir, entry.name)
+    const childPath = category ? `${category}/${entry.name}` : entry.name
+    const skillMd = await findSkillMdFile(childAbs)
     if (skillMd) {
-      result.push({ id: entry.name, dirName: entry.name, category: '', skillMdPath: path.join(dir1, skillMd) })
+      out.push({
+        id: childPath,
+        dirName: entry.name,
+        category,
+        skillMdPath: path.join(childAbs, skillMd),
+      })
     } else {
-      // 分类目录，扫第二层
-      let layer2: fs.Dirent[]
-      try {
-        layer2 = await fs.promises.readdir(dir1, { withFileTypes: true })
-      } catch {
-        continue
-      }
-      for (const sub of layer2) {
-        if (!sub.isDirectory()) continue
-        const dir2 = path.join(dir1, sub.name)
-        const subSkillMd = await findSkillMdFile(dir2)
-        if (subSkillMd) {
-          result.push({
-            id: `${entry.name}/${sub.name}`,
-            dirName: sub.name,
-            category: entry.name,
-            skillMdPath: path.join(dir2, subSkillMd),
-          })
-        }
-      }
+      await walkSkillDirs(childAbs, childPath, out, depth + 1)
     }
   }
-
-  return result
 }
 
 /** 在目录中查找 skill.md（大小写不敏感），返回实际文件名或 null */

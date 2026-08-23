@@ -378,7 +378,7 @@ export function buildFileOutputSection(toolNames: readonly string[]): string[] {
 
   return [
     "## File Output Standards",
-    "- When generating complete content (articles/reports/code/documents) → MUST use `file_write` to write to `outputs/` directory",
+    "- When generating complete content (articles/reports/code/documents) → MUST use `file_write` to write into the current task's directory under `outputs/` (see Output Organization in the Workspace section) — never dump files flat into `outputs/` or into the workspace root, and reuse the existing task directory when continuing earlier work",
     // A2UI FilePreview 组件提示暂时屏蔽（效果不好，待优化后重新启用）
     // "- After writing → output a FilePreview A2UI component in the conversation for inline preview:",
     // "  ```a2ui",
@@ -386,7 +386,7 @@ export function buildFileOutputSection(toolNames: readonly string[]): string[] {
     // "  ```",
     // "- `src` must be a relative path starting with `outputs/` — NEVER use absolute paths (e.g. C:\\\\...)",
     "- **Path discipline**: When a tool returns a file path (e.g. `image_generate`, `tts_generate`, `file_write`), use that EXACT path verbatim everywhere — references, previews, sending, and document links. NEVER invent or guess a filename based on its semantic meaning. If you are unsure whether a path exists, verify it with `file_read`/`glob` before writing it into a document.",
-    "- After task completion → clean up unnecessary draft files to keep workspace tidy",
+    "- After task completion → delete intermediate and draft files (especially anything under the task's `temp/` directory) to keep the workspace tidy",
     "",
   ]
 }

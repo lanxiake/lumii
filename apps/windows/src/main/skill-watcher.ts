@@ -24,6 +24,9 @@ const log = createLogger('SkillWatcher')
 /** 防抖延迟（ms）：等待文件系统操作完全稳定后再扫描 */
 const DEBOUNCE_MS = 1500
 
+/** 技能扫描最大分类嵌套深度（防御符号链接成环） */
+const MAX_SKILL_SCAN_DEPTH = 6
+
 export class SkillWatcher {
   private watcher: fs.FSWatcher | null = null
   private skillsDir: string
@@ -156,39 +159,42 @@ export class SkillWatcher {
   }
 
   /**
-   * 扫描技能目录，固定两层结构：
+   * 递归扫描技能目录，分类层级不限深度：
    *
-   *   skills/skill-name/skill.md          → category: ''
-   *   skills/分类名/skill-name/skill.md   → category: '分类名'
+   *   skills/skill-name/skill.md                → category: ''
+   *   skills/分类/skill-name/skill.md            → category: '分类'
+   *   skills/分类/子分类/skill-name/skill.md     → category: '分类/子分类'
    *
-   * 判断标准：目录内存在文件名 toLowerCase() === 'skill.md'
+   * 判断标准：目录内存在文件名 toLowerCase() === 'skill.md'，该目录即技能本体，不再往下扫。
    */
   private async scanSkillsDirectory(): Promise<SkillMetadata[]> {
     const skills: SkillMetadata[] = []
+    await this.scanCategoryDir(this.skillsDir, '', skills, 0)
+    return skills
+  }
 
-    const layer1 = await readDirs(this.skillsDir)
-    for (const entry of layer1) {
-      const dir1 = path.join(this.skillsDir, entry)
-      const skillFile = await findSkillMd(dir1)
+  /** 递归扫描单个分类目录；depth 上限防御符号链接成环 */
+  private async scanCategoryDir(
+    absDir: string,
+    category: string,
+    out: SkillMetadata[],
+    depth: number,
+  ): Promise<void> {
+    if (depth > MAX_SKILL_SCAN_DEPTH) {
+      log.warn(`[scanSkillsDirectory] 超出最大扫描深度，停止下探: ${absDir}`)
+      return
+    }
+    for (const entry of await readDirs(absDir)) {
+      const childAbs = path.join(absDir, entry)
+      const skillFile = await findSkillMd(childAbs)
       if (skillFile) {
-        // 第1层直接是技能目录
-        const meta = await readSkillMeta(dir1, skillFile, entry, '')
-        if (meta) skills.push(meta)
+        const meta = await readSkillMeta(childAbs, skillFile, entry, category)
+        if (meta) out.push(meta)
       } else {
-        // 第1层是分类目录，扫描第2层
-        const layer2 = await readDirs(dir1)
-        for (const sub of layer2) {
-          const dir2 = path.join(dir1, sub)
-          const subSkillFile = await findSkillMd(dir2)
-          if (subSkillFile) {
-            const meta = await readSkillMeta(dir2, subSkillFile, sub, entry)
-            if (meta) skills.push(meta)
-          }
-        }
+        const childCategory = category ? `${category}/${entry}` : entry
+        await this.scanCategoryDir(childAbs, childCategory, out, depth + 1)
       }
     }
-
-    return skills
   }
 
   /** 监控器出错后重启 */

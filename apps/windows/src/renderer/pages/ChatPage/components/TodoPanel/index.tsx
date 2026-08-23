@@ -204,6 +204,17 @@ function isActive(status?: string): boolean {
   return status === 'in_progress' || status === 'in-progress'
 }
 
+/** 排序权重：进行中 → 待办/受阻 → 已完成 → 已取消/失败 */
+function statusRank(status?: string): number {
+  if (isActive(status)) return 0
+  if (isDone(status)) return 2
+  if (status === 'cancelled' || status === 'failed') return 3
+  return 1
+}
+
+/** 长列表里默认只展开前 N 条，其余折叠，避免长会话把界面刷满 */
+const COLLAPSED_LIMIT = 8
+
 export const TodoPanel: React.FC<TodoPanelProps> = ({
   toolCalls,
   compact = false,
@@ -213,26 +224,49 @@ export const TodoPanel: React.FC<TodoPanelProps> = ({
   const initialExpanded =
     defaultExpanded ?? (variant === 'inline' || variant === 'rail')
   const [expanded, setExpanded] = useState(initialExpanded)
+  const [showAll, setShowAll] = useState(false)
 
-  const tasks = useMemo(() => aggregateTasks(toolCalls), [toolCalls])
+  const tasks = useMemo(() => {
+    const aggregated = aggregateTasks(toolCalls)
+    if (!aggregated) return null
+    // 稳定排序：同状态保持原插入顺序，进行中的任务始终置顶
+    return aggregated
+      .map((task, idx) => ({ task, idx }))
+      .sort((a, b) => statusRank(a.task.status) - statusRank(b.task.status) || a.idx - b.idx)
+      .map((x) => x.task)
+  }, [toolCalls])
 
   if (!tasks || tasks.length === 0) return null
 
   const doneCount = tasks.filter((t) => isDone(t.status)).length
   const activeCount = tasks.filter((t) => isActive(t.status)).length
 
+  const hiddenCount = showAll ? 0 : Math.max(0, tasks.length - COLLAPSED_LIMIT)
+  const visibleTasks = hiddenCount > 0 ? tasks.slice(0, COLLAPSED_LIMIT) : tasks
+
   const taskList = (
-    <ul className={styles.taskList}>
-      {tasks.map((task, idx) => (
-        <li
-          key={String(task.id ?? idx)}
-          className={`${styles.taskItem} ${statusClass(task.status)}`}
+    <>
+      <ul className={styles.taskList}>
+        {visibleTasks.map((task, idx) => (
+          <li
+            key={String(task.id ?? idx)}
+            className={`${styles.taskItem} ${statusClass(task.status)}`}
+          >
+            <span className={styles.taskIcon}>{statusIcon(task.status)}</span>
+            <span className={styles.taskSubject}>{task.subject ?? '（无标题）'}</span>
+          </li>
+        ))}
+      </ul>
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          className={styles.showMore}
+          onClick={() => setShowAll(true)}
         >
-          <span className={styles.taskIcon}>{statusIcon(task.status)}</span>
-          <span className={styles.taskSubject}>{task.subject ?? '（无标题）'}</span>
-        </li>
-      ))}
-    </ul>
+          还有 {hiddenCount} 项，展开全部
+        </button>
+      )}
+    </>
   )
 
   /** 对话流内：轻量可折叠任务卡 */

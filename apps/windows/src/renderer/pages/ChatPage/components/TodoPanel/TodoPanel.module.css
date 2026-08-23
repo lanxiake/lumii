@@ -90,6 +90,23 @@
   scrollbar-color: var(--color-gray-600) transparent;
 }
 
+.showMore {
+  display: block;
+  margin: 0 var(--spacing-3) var(--spacing-2);
+  padding: 3px 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+  font-size: var(--font-size-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.showMore:hover {
+  opacity: 1;
+}
+
 .taskItem {
   display: flex;
   align-items: baseline;

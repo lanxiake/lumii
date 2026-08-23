@@ -41,6 +41,7 @@ import { summarizeRecentTurns } from './router/recent-turns-summarizer'
 import { classifyImageModel, IMAGE_MODEL_SIMPLE } from './image-intent-classifier'
 import type { RouterLlmCaller } from './router/llm-caller'
 import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
+import { clearTurnTouchedPaths } from './turn-touched-paths'
 
 export type WeixinCtxValue = {
   channelUserId: string
@@ -550,6 +551,7 @@ export class BridgePromptDispatcher {
       const imageContents = await this.deps.instanceFactory.buildImageContents(imageAttachmentPaths)
       // 在 Agent 真正处理提示词前记录工作区起点；失败时不生成伪造的文件变更。
       if (state) {
+        clearTurnTouchedPaths(instanceId)
         try {
           state.turnSnapshotStart = await captureWorkspaceTurnSnapshot(this.deps.config.getCwd())
         } catch (err) {
