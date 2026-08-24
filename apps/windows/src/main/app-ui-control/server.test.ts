@@ -393,6 +393,38 @@ describe('POST /command', () => {
     expect(order).toEqual(['start:1', 'end:1', 'start:2', 'end:2'])
   })
 
+  it('abort-compact-context 免排队：长压缩占着队列时仍能立刻执行', async () => {
+    const order: string[] = []
+    let releaseCompact!: () => void
+    const compactDone = new Promise<void>((r) => {
+      releaseCompact = r
+    })
+    const dispatchCommand = vi.fn(async (cmd: unknown) => {
+      const type = (cmd as { type: string }).type
+      if (type === 'user:compact-context') {
+        order.push('compact:start')
+        await compactDone
+        order.push('compact:end')
+        return { success: true }
+      }
+      order.push('abort')
+      return { aborted: true }
+    })
+    const { token } = await startWith({ dispatchCommand })
+
+    const compacting = postRoute(port, '/command', { type: 'user:compact-context', sessionKey: 's1' }, token)
+    await new Promise((r) => setTimeout(r, 10))
+    const aborted = await postRoute(port, '/command', { type: 'user:abort-compact-context', sessionKey: 's1' }, token)
+
+    // abort 在压缩仍在跑时就已返回 —— 排队的话这里会死等到 releaseCompact
+    expect(aborted.json).toEqual({ aborted: true })
+    expect(order).toEqual(['compact:start', 'abort'])
+
+    releaseCompact()
+    await compacting
+    expect(order).toEqual(['compact:start', 'abort', 'compact:end'])
+  })
+
   it('总开关关闭时任意路由返回 disabled', async () => {
     const { token } = await startWith({
       readSettingsJson: async () =>

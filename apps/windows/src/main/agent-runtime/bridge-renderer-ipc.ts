@@ -3,7 +3,6 @@
  */
 
 import type { BrowserWindow } from 'electron'
-import type { AgentRuntimeEvent } from '@mtbot/agent-runtime'
 import type { AgentRuntimeEvent as IpcEvent } from '../../shared/agent-runtime-events'
 import { getPetWindowManager } from '../pet/pet-mode-ipc.js'
 import { agentRuntimeLog as log } from './bridge-utils'
@@ -33,7 +32,7 @@ export class BridgeRendererIpcChannel {
    * 向宠物模式独立窗口镜像 Agent Runtime 事件。
    * 宠物窗口与主窗口分离，主进程 Bridge 默认只推主窗口；虚拟人 UI 依赖此镜像收流式 delta。
    */
-  private mirrorToPetWindow(event: AgentRuntimeEvent | IpcEvent): void {
+  private mirrorToPetWindow(event: IpcEvent): void {
     const petWin = getPetWindowManager()?.getPetBrowserWindow()
     const mainWin = this.getWindow()
     if (!petWin || petWin.isDestroyed()) return
@@ -52,7 +51,7 @@ export class BridgeRendererIpcChannel {
   /**
    * 尝试向渲染进程发送事件；失败时返回 false（不抛错、不刷 Electron 内部错误日志）。
    */
-  private trySendToRenderer(event: AgentRuntimeEvent | IpcEvent): boolean {
+  private trySendToRenderer(event: IpcEvent): boolean {
     if (!this.canReachRenderer()) return false
     const win = this.getWindow()!
     try {
@@ -70,14 +69,12 @@ export class BridgeRendererIpcChannel {
   }
 
   /**
-   * 发送旧格式 Agent 运行时事件（不经队列包装）
-   * 注意：语音通话服务通过 forwardIpcEvent（新格式）订阅事件，此处不重复通知
+   * 直发渲染进程，不经离线队列（当前仅 runtime:ready 用）。
+   * 与 forwardIpcEvent 的区别：不入队、不通知 voiceEventBus。
+   * 送不到就丢——runtime:ready 是一次性通知，渲染侧另有挂载即拉的兜底。
    */
-  forwardToRenderer(event: AgentRuntimeEvent | IpcEvent): void {
+  forwardToRenderer(event: IpcEvent): void {
     const evtType = (event as { type?: string }).type
-    if (evtType === 'agent:end' || evtType === 'agent:start') {
-      log.info(`[forwardToRenderer] 发送旧格式事件 type=${evtType}`)
-    }
     if (!this.trySendToRenderer(event)) {
       log.warn(`[forwardToRenderer] 渲染进程不可达，已跳过 type=${evtType}`)
       // 主窗口不可达时仍尝试推送给宠物窗口（桌面隐藏、仅虚拟人可见时）
@@ -93,7 +90,7 @@ export class BridgeRendererIpcChannel {
    */
   forwardIpcEvent(event: IpcEvent): boolean {
     const evtType = (event as { type?: string }).type
-    if (evtType === 'conversation:message:new' || evtType === 'agent:idle' || evtType === 'agent:turn:start' || evtType === 'agent:turn:end') {
+    if (evtType === 'conversation:created' || evtType === 'conversation:message:new' || evtType === 'agent:idle' || evtType === 'agent:turn:start' || evtType === 'agent:turn:end') {
       log.info(`[forwardIpcEvent] type=${evtType}`)
     }
     const sent = this.trySendToRenderer(event)

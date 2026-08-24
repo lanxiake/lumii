@@ -838,7 +838,11 @@ export function createAgentInstanceRuntimeEventHandler(
       }
     }
 
-    ipcChannel.forwardToRenderer(event)
+    // 旧格式事件不再转发渲染进程：渲染侧只有新格式的 case（agent:message:* / agent:turn:* 等），
+    // agent:start / message:delta / tool:* 等旧类型没有任何消费者，白占一次 IPC 序列化。
+    // 唯一同名的 agent:error 两版字段还不同（旧 instanceId/error vs 新 runId/errorCode），
+    // 旧版落到渲染侧那个 case 会把 error 写成 undefined: undefined。
+    // 下面的 convertOldEventToIpcEvents 才是渲染侧真正的事件来源。
 
     const nodeStreamCb = nodeStreamCallbacks.get(instanceId)
     if (nodeStreamCb) {

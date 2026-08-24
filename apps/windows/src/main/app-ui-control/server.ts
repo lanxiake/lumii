@@ -90,6 +90,13 @@ let activeRateLimiter: { tryConsume: () => boolean } | null = null
 /** /command 串行队列：保持 agent-runtime-ipc.ts:2447 声明的 handleCommand 串行不变量 */
 let commandQueue: Promise<unknown> = Promise.resolve()
 
+/**
+ * 免排队命令：中止类命令只向 AbortController 发信号，不读写上下文，无需串行保护。
+ * 必须绕过队列 —— 它们要中止的正是占着队列的那个长任务（压缩的 LLM 摘要可跑几十秒），
+ * 排队等于等到目标跑完才执行，abort 恒返回 false。
+ */
+const QUEUE_BYPASS_COMMANDS = new Set(['user:abort-compact-context'])
+
 /** 把命令排进串行队列；前一个失败也继续排队，不阻塞后续请求 */
 function enqueueCommand<T>(fn: () => Promise<T>): Promise<T> {
   const next = commandQueue.then(fn, fn)
@@ -432,7 +439,8 @@ async function handleSettingsWriteRoute(body: unknown, res: http.ServerResponse)
 }
 
 /**
- * A 层：命令总线转发。白名单外一律 not_exposed；白名单内的命令排入串行队列再转发。
+ * A 层：命令总线转发。白名单外一律 not_exposed；白名单内的命令排入串行队列再转发，
+ * 中止类命令（QUEUE_BYPASS_COMMANDS）免排队直发。
  */
 async function handleCommandRoute(body: unknown, res: http.ServerResponse): Promise<void> {
   const type = (body as { type?: unknown } | null)?.type
@@ -457,7 +465,9 @@ async function handleCommandRoute(body: unknown, res: http.ServerResponse): Prom
     })
 
   try {
-    const result = await enqueueCommand(() => dispatch(body))
+    const result = QUEUE_BYPASS_COMMANDS.has(type as string)
+      ? await dispatch(body)
+      : await enqueueCommand(() => dispatch(body))
     sendJson(res, 200, result)
   } catch (err) {
     sendJson(res, 200, {

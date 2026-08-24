@@ -143,21 +143,18 @@ export async function handleUserSend(
     // 广播用户消息：主窗口与宠物窗口是独立渲染进程，宠物侧 sendMessage 无法更新主窗口 store。
     // 用落库返回的 id 而非 command.msgId：CLI / 控制口不传 msgId，
     // 原先以它为广播前提会导致 CLI 发的消息前端只看到 Agent 回复、看不到用户提问。
-    const win = deps!.ipcMainWindowRef
-    if (win && !win.isDestroyed()) {
-      deps!.pushEvent(win, {
-        type: 'conversation:message:new',
-        sessionKey: command.sessionKey,
-        message: {
-          id: savedUserMessageId,
-          role: 'user',
-          content: [{ type: 'text', text: command.content }],
-          timestamp: Date.now(),
-          ...(voice ? { isVoice: true as const } : {}),
-          ...(wav ? { audioWavBase64: wav } : {}),
-        },
-      })
-    }
+    bridge.forwardIpcEvent({
+      type: 'conversation:message:new',
+      sessionKey: command.sessionKey,
+      message: {
+        id: savedUserMessageId,
+        role: 'user',
+        content: [{ type: 'text', text: command.content }],
+        timestamp: Date.now(),
+        ...(voice ? { isVoice: true as const } : {}),
+        ...(wav ? { audioWavBase64: wav } : {}),
+      },
+    })
     // 首条用户消息时，将默认标题「新对话」更新为与 useChat 一致的智能标题
     const userCount = bridge.conversationRepo.countUserMessages(command.sessionKey)
     if (userCount === 1) {

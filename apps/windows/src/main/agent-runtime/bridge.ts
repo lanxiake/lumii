@@ -1631,6 +1631,13 @@ export class AgentRuntimeBridge {
   /** runtime_state 里 idle 压缩冷却时间戳的键前缀 */
   private static readonly IDLE_COOLDOWN_KEY_PREFIX = 'compact:idle_cooldown_until:'
 
+  /**
+   * idle 压缩的空闲阈值（秒）。
+   * compact/types.ts 的 `idleCompactAfterSeconds` 是给 packages 层纯谓词用的入参，
+   * 客户端侧尚无对应设置项，故此处为唯一口径；改成可配需要先补设置链路。
+   */
+  private static readonly IDLE_COMPACT_AFTER_SECONDS = 300
+
   /** runtime_state 里用户手动禁用工具集合的键 */
   private static readonly DISABLED_TOOLS_KEY = 'tools:user_disabled'
 
@@ -1688,11 +1695,12 @@ export class AgentRuntimeBridge {
 
       const cooldownUntil = this.getIdleCooldownUntil(sessionKey)
       const cooldownActive = now < cooldownUntil
+      const idleAfterSeconds = AgentRuntimeBridge.IDLE_COMPACT_AFTER_SECONDS
       const should =
         shouldCompactByBudget(budget, usage.triggerThreshold) &&
         shouldIdleCompact({
-          enabled: true,
-          idleAfterSeconds: 300,
+          enabled: idleAfterSeconds > 0,
+          idleAfterSeconds,
           idleGapSeconds: idleSeconds,
           tokens: budget.compressible,
           floorTokens: Math.floor(budget.budget * usage.triggerThreshold),
@@ -1702,7 +1710,7 @@ export class AgentRuntimeBridge {
       // 每轮都打决策，否则「自动压缩没生效」无从判断卡在哪个条件
       log.info(
         `[scanIdleInstances] ${instanceId} 决策=${should ? '压缩' : '跳过'} ` +
-          `idle=${idleSeconds}s/300s used=${usage.usedTokens} 固定开销=${budget.fixedOverhead} ` +
+          `idle=${idleSeconds}s/${idleAfterSeconds}s used=${usage.usedTokens} 固定开销=${budget.fixedOverhead} ` +
           `可压缩=${budget.compressible}/${budget.budget}(×${usage.triggerThreshold}) ` +
           `${budget.exhausted ? '固定开销已挤满窗口(压缩无效,需禁用 MCP) ' : ''}` +
           `冷却=${cooldownActive ? new Date(cooldownUntil).toLocaleTimeString() : '无'}`,

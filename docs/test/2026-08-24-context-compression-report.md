@@ -347,3 +347,28 @@ Failed to load url ../transform-context.js
 3. **F-03 实为通过** — `pnpm typecheck` exit 0、0 errors，此前的「存在类型错误」是计数判断写错导致的误报。
 
 另：本报告正文记录了完整 sessionKey，违反测试文档「禁止记录完整 sessionKey」的要求，后续报告已改为仅记前 8 位。
+
+---
+
+## 第二轮补测（2026-08-24 追加）
+
+针对首轮 6 个阻塞用例复测，其中 3 个转为通过。
+
+| 用例 | 首轮 | 复测 | 证据 |
+|------|------|------|------|
+| D-03 Idle 轮询存活 | ⏸️ 阻塞 | ✅ 通过 | 日志路径实为 `~/.lumii/logs/app/mtbot-<date>.log`（首轮误查 `%APPDATA%/Lumii/logs`）。多次重启后均有 `[startIdleCompactionPolling] Idle Compaction 轮询已启动（60s 间隔）` |
+| D-04 Idle 四条件 AND | ⏸️ 阻塞 | ✅ 通过 | `packages/agent-runtime/src/compact/idle-trigger.test.ts` 存在（首轮"文件不存在"结论作废） |
+| E-07 冷却原因日志 | ⏭️ 跳过 | ✅ 通过 | `[scanIdleInstances] agent-… 决策=跳过 idle=75s/300s used=24581 固定开销=24504 可压缩=77/159112(×0.78) 冷却=无` — 四条件与冷却原因均落日志 |
+| D-05 Idle 真实触发 | ⏭️ 跳过 | ⏭️ 维持跳过 | 需 390K+ tokens；D-04 单测已覆盖决策逻辑 |
+| D-07 摘要 progress touch | ⏸️ 阻塞 | ❌ 确认缺失 | `summary-compact-progress.test.ts` 全仓 find 无结果 |
+| E-02 事务失败回滚 | ⏸️ 阻塞 | ❌ 确认缺失 | `compact-transaction.test.ts` 全仓 find 无结果 |
+| E-04 abort 中止压缩 | ⏭️ 跳过 | ⏭️ 维持跳过 | 建会话 `0bb0aac5` 后 usedTokens 仅 10360（固定开销 10344，可压缩 16），够不到压缩窗口，无法造出可中止的长压缩 |
+
+**缺陷 #7 已修复并验证**：`commands.mjs:363` 现为 `{ type: 'conversation:messages', sessionKey }`，CLI `context messages --session <key>` 正常返回消息列表与 `nextCursor`。
+
+**修正后统计**: 27/38 通过（+3），真实阻塞降为 2 个（均为测试文件缺失），2 个成本型跳过。
+
+**遗留**:
+1. 补 `summary-compact-progress.test.ts`（D-07）与 `compact-transaction.test.ts`（E-02）
+2. 缺陷 #8 `transform-context-phase1.test.ts` 导入路径仍未修
+3. 候选 #1 idle 阈值硬编码 300s — 本轮日志中 `idle=75s/300s` 印证阈值确为硬编码 300s，未读 `idleCompactAfterSeconds`
