@@ -5,7 +5,7 @@
  * 技能安装状态完全由本地 workspace/skills/ 目录管理
  */
 
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useQuery } from '../../common/useQuery'
 import { useMutation } from '../../common/useMutation'
 import type {
@@ -64,6 +64,17 @@ export function useSkills() {
       return converted
     },
   })
+
+  // 内置技能播种在主进程启动后期完成，可能晚于本 Hook 的首次查询；
+  // 订阅主进程推送，避免用户必须手动点「刷新」才能看到默认技能。
+  useEffect(() => {
+    const subscribe = window.electronAPI?.skills?.onSkillsUpdated
+    if (!subscribe) return
+    return subscribe(() => {
+      console.log('[useSkills] 收到 skills:updated，重新获取技能列表')
+      void refetch()
+    })
+  }, [refetch])
 
   const installedSkills = data || []
   const stats = computeStats(installedSkills)

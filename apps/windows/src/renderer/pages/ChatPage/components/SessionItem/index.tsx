@@ -92,9 +92,10 @@ const SessionItem: React.FC<SessionItemProps> = ({
   ]
 
   // Get last message preview（剥离附件与 Agent 注入的 parsed text 等标记）
-  const lastMessage = session.messages[session.messages.length - 1]
-  const preview = lastMessage?.content
-    ? getDisplayMessagePreview(lastMessage.content)
+  // 末条消息可能是纯工具调用/附件，没有正文，因此回溯到最近一条有文字的消息
+  const lastTextMessage = [...session.messages].reverse().find((m) => m.content?.trim())
+  const preview = lastTextMessage
+    ? getDisplayMessagePreview(lastTextMessage.content)
     : '暂无消息'
 
   if (isEditing) {
@@ -141,7 +142,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
             {session.isPinned && (
               <Pin className={styles['session-pin-icon']} size={11} strokeWidth={2} />
             )}
-            <span className={styles['session-title']}>{session.title || '新对话'}</span>
+            <span className={styles['session-title']} title={session.title || '新对话'}>{session.title || '新对话'}</span>
             <div className={styles['status-badges']}>
               {isActive && <span className={styles['active-dot']} title="当前查看会话" />}
               {session.isStreaming && <span className={styles['streaming-dot']} title="AI 正在回复" />}

@@ -7,6 +7,7 @@
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { parseThinkTagsFromRaw } from '../../agent-runtime/event-converter'
+import { isCompactSummaryText } from '../../../shared/compact-summary-text'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -16,6 +17,10 @@ const log = {
 
 const LOCAL_USER_ID = 'local-user'
 const CONVERSATION_PAGE_SIZE = 50
+/** 会话列表预览：最多回溯多少条消息去找 Agent 的最后一句文本回复 */
+const PREVIEW_SCAN_LIMIT = 20
+/** 会话列表预览的最大字符数 */
+const PREVIEW_MAX_LENGTH = 80
 
 // ============================================================
 // 类型定义
@@ -164,6 +169,68 @@ export function handleConversationClose(
   log.info(`[conversation:close] sessionKey=${sessionKey}`)
 }
 
+/**
+ * 从单条消息的 content_json 中取出可展示的正文文本。
+ *
+ * assistant 消息以 `{type:'assistant_parts', parts:[...]}` 落库，正文散落在
+ * `type:'text'` 的 part 里；旧数据/用户消息则是扁平的 `{type:'text', text}`。
+ * 思考内容（thinking）与工具卡片（tool）不参与预览。
+ */
+export function extractPreviewText(contentJson: string): string {
+  try {
+    const parsed: unknown = JSON.parse(contentJson)
+    if (!parsed || typeof parsed !== 'object') return ''
+    const o = parsed as Record<string, unknown>
+
+    if (Array.isArray(o.parts)) {
+      return (o.parts as readonly unknown[])
+        .filter((p): p is { type: string; text: string } => {
+          const part = p as Record<string, unknown> | null
+          return part?.type === 'text' && typeof part.text === 'string'
+        })
+        .map((p) => p.text.trim())
+        .filter(Boolean)
+        .join(' ')
+        .trim()
+    }
+
+    if (typeof o.text === 'string') return o.text.trim()
+    if (typeof o.content === 'string') return o.content.trim()
+    return ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * 取会话中「Agent 最后一条有文字的回复」作为列表预览。
+ *
+ * 末条消息常常是 tool_result 或纯工具调用的 assistant 消息（无正文），
+ * 因此从后往前回溯，跳过无正文的消息；找不到 assistant 正文时回退到最后一条
+ * 用户消息，避免整条会话显示「暂无消息」。
+ */
+function resolveLastMessagePreview(
+  bridge: AgentRuntimeBridge,
+  conversationId: string,
+): string | undefined {
+  const messages = bridge.conversationRepo.loadRecentMessages(conversationId, PREVIEW_SCAN_LIMIT)
+  let userFallback = ''
+
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i]
+    if (!msg) continue
+    const text = extractPreviewText(msg.content_json)
+    if (!text) continue
+    // 压缩摘要（手动 `[对话摘要]` / 自动 `<conversation_summary>`）在 UI 里折叠成压缩卡片，
+    // 不是真实对话内容，不能当预览
+    if (isCompactSummaryText(text)) continue
+    if (msg.role === 'assistant') return text.slice(0, PREVIEW_MAX_LENGTH)
+    if (msg.role === 'user' && !userFallback) userFallback = text
+  }
+
+  return userFallback ? userFallback.slice(0, PREVIEW_MAX_LENGTH) : undefined
+}
+
 export function handleConversationList(
   bridge: AgentRuntimeBridge,
 ): readonly {
@@ -188,33 +255,21 @@ export function handleConversationList(
     }
   }
 
-  return conversations.map((c) => ({
-    ...(() => {
-      const lastMsg = bridge.conversationRepo.loadRecentMessages(c.id, 1)[0]
-      if (!lastMsg) return {}
-      try {
-        const parsed = JSON.parse(lastMsg.content_json) as { text?: string; content?: string }
-        const text =
-          typeof parsed?.text === 'string'
-            ? parsed.text
-            : typeof parsed?.content === 'string'
-              ? parsed.content
-              : ''
-        return { lastMessagePreview: text.slice(0, 80) }
-      } catch {
-        return {}
-      }
-    })(),
-    id: c.id,
-    sessionKey: c.id, // sessionKey 直接使用 conversationId，重启后不失效
-    title: c.title ?? '新对话',
-    updatedAt: c.last_msg_at ?? c.created_at,
-    agentId: bridge.conversationRepo.getAgentParticipantId(c.id),
-    hasRunning: bridge.hasStreamingMessages(c.id),
-    isPinned: c.is_pinned === 1,
-    wasInterrupted: bridge.isConversationInterrupted(c.id),
-    channel: resolveConversationChannel(c.id, weixinConvIds),
-  }))
+  return conversations.map((c) => {
+    const lastMessagePreview = resolveLastMessagePreview(bridge, c.id)
+    return {
+      ...(lastMessagePreview ? { lastMessagePreview } : {}),
+      id: c.id,
+      sessionKey: c.id, // sessionKey 直接使用 conversationId，重启后不失效
+      title: c.title ?? '新对话',
+      updatedAt: c.last_msg_at ?? c.created_at,
+      agentId: bridge.conversationRepo.getAgentParticipantId(c.id),
+      hasRunning: bridge.hasStreamingMessages(c.id),
+      isPinned: c.is_pinned === 1,
+      wasInterrupted: bridge.isConversationInterrupted(c.id),
+      channel: resolveConversationChannel(c.id, weixinConvIds),
+    }
+  })
 }
 
 export function handleConversationDelete(

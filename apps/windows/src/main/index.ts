@@ -458,10 +458,18 @@ async function initSkillWatcher(): Promise<void> {
   // 设置本地技能变更回调（Agent 在客户端执行，无需上报网关）
   skillWatcher.setOnSkillsChanged((skills) => {
     log.info(`[SkillWatcher] 技能列表已更新: ${skills.length} 个技能`)
-    // 通知渲染进程技能列表已变更
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('skills:updated', skills)
-    }
+    // watcher 扫的是磁盘，而 skills:listLocalInstalled 读的是 SkillRuntime 的内存索引；
+    // 先让运行时重读磁盘，再通知渲染进程，避免前端刷新后仍拿到旧索引。
+    void (async () => {
+      try {
+        await skillRuntime?.reloadExternalSkills()
+      } catch (err) {
+        log.error('[SkillWatcher] 同步 SkillRuntime 索引失败:', err)
+      }
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('skills:updated', skills)
+      }
+    })()
   })
 
   // 启动监控器（start 内部会执行初始扫描，初始化技能索引）
@@ -1269,17 +1277,21 @@ async function initialize(): Promise<void> {
   setupMemPalaceIpcHandlers()
   setupCloakBrowserIpcHandlers()
 
-  await initSkillRuntime()  // 初始化技能运行时
-
-  // 脚本运行环境：写 node/python shim，缺 Python 时后台下载内置运行时
-  await initScriptRuntimes()
-
-  // 种子内置技能（必须在 initSkillWatcher 之前，确保文件就绪后再启动监控）
+  // 种子内置技能：必须在 initSkillRuntime 之前。
+  // SkillRuntime 初始化时会扫描 workspace/skills 并把结果缓存进 LocalSkillStore.index，
+  // 若此时目录还是空的，首次 skills:listLocalInstalled 会返回空列表，
+  // 用户就只能手动点「刷新」才看得到默认技能。
   const mtbotDataDirForSeed = resolveClientStateDir()
   const seedWorkspaceDir = configManager?.getAppConfig().workspaceDirectory
     || join(mtbotDataDirForSeed, 'workspace')
   await seedBundledSkills(seedWorkspaceDir, mtbotDataDirForSeed)
-  log.info('[Main] seedBundledSkills 完成，开始 initSkillWatcher')
+  log.info('[Main] seedBundledSkills 完成，开始 initSkillRuntime')
+
+  await initSkillRuntime()  // 初始化技能运行时（此时种子文件已就绪）
+
+  // 脚本运行环境：写 node/python shim，缺 Python 时后台下载内置运行时
+  await initScriptRuntimes()
+  log.info('[Main] initScriptRuntimes 完成，开始 initSkillWatcher')
 
   await initSkillWatcher()  // 初始化技能监控器（此时种子文件已就绪）
   log.info('[Main] initSkillWatcher 完成，开始 initUpdaterService')

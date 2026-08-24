@@ -848,6 +848,8 @@ export interface ElectronAPI {
     refresh: () => Promise<{ success: boolean; count: number }>
     /** 获取技能所在目录的绝对路径 */
     getSkillDir: (skillId: string) => Promise<string>
+    /** 订阅技能列表变更（内置技能播种/目录扫描完成后推送），返回取消订阅函数 */
+    onSkillsUpdated: (callback: (skills: unknown[]) => void) => () => void
   }
 
   // 设置管理

@@ -21,4 +21,13 @@ export const skillsApi = {
   getSkillDir: (skillId: string) => ipcRenderer.invoke('skills:getSkillDir', skillId),
   installFromScript: (filePath: string, meta?: { name?: string; description?: string }) =>
     ipcRenderer.invoke('skills:installFromScript', filePath, meta),
+  /**
+   * 订阅技能列表变更（内置技能播种、目录监控扫描完成后由主进程推送）。
+   * 返回取消订阅函数。
+   */
+  onSkillsUpdated: (callback: (skills: unknown[]) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, skills: unknown[]) => callback(skills)
+    ipcRenderer.on('skills:updated', handler)
+    return () => ipcRenderer.removeListener('skills:updated', handler)
+  },
 }
