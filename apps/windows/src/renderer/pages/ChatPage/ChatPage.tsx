@@ -211,6 +211,16 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [activeView, refreshLocalSessions])
 
   /**
+   * CLI / 控制口 / 外部通道建会话或改标题时，主进程推 conversation:created|updated，
+   * event-handler 递增 sessionListRevision。侧栏列表来自 DB，只能靠这个信号重拉。
+   */
+  const sessionListRevision = useAgentRuntimeGlobalState((s) => s.sessionListRevision)
+  useEffect(() => {
+    if (sessionListRevision === 0) return
+    void refreshLocalSessions()
+  }, [sessionListRevision, refreshLocalSessions])
+
+  /**
    * 自动恢复上次会话：会话列表首次加载完成且无活跃会话时，切换到最近更新的一条。
    * 修复：初次进入时 runtimeCurrentSessionKey 为 null → 语音按钮不渲染、对话框空白。
    */

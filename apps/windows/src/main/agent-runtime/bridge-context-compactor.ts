@@ -10,6 +10,7 @@ import {
   type SummaryGeneratorFn,
   type DatabaseAdapter,
   estimateTokenCount,
+  estimateTextTokenCount,
   resolveManualCompactKeepCount,
   buildCompactSummaryPrompt,
   formatCompactSummary,
@@ -224,6 +225,8 @@ export class BridgeContextCompactor {
     conversationTokensBefore: number
     /** 压缩后对话 token 估算；未压缩时与 before 相同 */
     conversationTokensAfter: number
+    /** 未真正压缩时的原因；'low_yield' 表示摘要开销 ≥ 回收量，已丢弃摘要 */
+    reason?: 'low_yield'
   }> {
     const repo = this.deps.getConversationRepo()
     if (!repo) throw new Error('ConversationRepo not initialized')
@@ -316,6 +319,29 @@ export class BridgeContextCompactor {
     }
 
     const ids = allMessages.slice(0, allMessages.length - keepCount).map((m) => m.id)
+
+    // 最小收益闸：摘要本身有固定开销（约 1K tokens），对话本来就短时「压缩」反而变大。
+    // 自动路径有 Reclaim Gate，手动路径此前无条件落库，导致连点压缩每次都膨胀上下文
+    // 且每次真实烧一次 LLM 调用。收益 ≤ 0 就丢弃摘要、保持原状。
+    if (summaryText) {
+      const keptTokens = keepCount > 0 ? estimateTokenCount(piMessages.slice(-keepCount)) : 0
+      const projectedAfter = keptTokens + estimateTextTokenCount(summaryText)
+      if (projectedAfter >= conversationBefore) {
+        log.info(
+          `[compactContextAsync] 收益过低已放弃（摘要后 ${projectedAfter} ≥ 原文 ${conversationBefore} tokens）: sessionKey=${sessionKey}`,
+        )
+        return {
+          success: true,
+          previousMessageCount,
+          newMessageCount: previousMessageCount,
+          messagesRemoved: 0,
+          hadSummary: false,
+          conversationTokensBefore: conversationBefore,
+          conversationTokensAfter: conversationBefore,
+          reason: 'low_yield',
+        }
+      }
+    }
 
     // ⭐ 原子提交期：移出旧消息与写入摘要必须同生共死。
     // 两次独立写入之间崩溃会留下「旧消息已移出但摘要未写」→ 上下文凭空丢失。

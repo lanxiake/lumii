@@ -262,6 +262,11 @@ export interface MultiSessionRuntimeState {
   readonly currentSessionKey: string | null
   /** bridge.initialize() 完成后由 runtime:ready 事件设为 true，触发历史会话加载 */
   readonly isReady: boolean
+  /**
+   * 会话列表版本号：conversation:created / conversation:updated 到达时递增。
+   * 侧栏列表来自 DB 而非 store，CLI/外部通道建的会话只能靠这个信号触发重拉。
+   */
+  readonly sessionListRevision: number
 }
 
 /**
@@ -340,6 +345,7 @@ function getDefaultRuntimeState(): MultiSessionRuntimeState {
     sessions: new Map<string, PerSessionState>(),
     currentSessionKey: null,
     isReady: false,
+    sessionListRevision: 0,
   }
 }
 

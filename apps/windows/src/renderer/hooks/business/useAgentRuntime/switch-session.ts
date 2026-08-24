@@ -176,6 +176,12 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
     return
   }
 
+  // 先切当前会话，再去 DB 拉历史：useAgentRuntimeState 按 currentSessionKey 选消息，
+  // 若等三个 IPC 都回来才切（原实现在末尾 setState），这段窗口里 UI 仍显示旧会话，
+  // 期间发出的消息与回流的事件会落到「正在显示的会话」之外，表现为回复不渲染。
+  // 与上面已缓存分支的顺序保持一致；末尾 setState 仍会再写一次，幂等。
+  runtimeStore.setState((prev) => ({ ...prev, currentSessionKey: sessionKey }))
+
   // 从 DB 加载目标会话历史（只取最新一页，更早的由上滑懒加载补齐）
   const [dbPage, meta, dbContextUsage] = await Promise.all([
     api.sendCommand({

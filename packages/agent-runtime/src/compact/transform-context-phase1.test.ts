@@ -1,85 +1,120 @@
 import { describe, it, expect, vi } from "vitest";
 import { createTransformContext } from "./transform-context.js";
+import { estimateTokenCount } from "./token-estimate.js";
 import type { CompactConfig } from "./types.js";
 import type { AgentMessage } from "../types.js";
 
+/**
+ * Phase 1 分档触发的集成断言。
+ *
+ * 两个易踩的前提，写死在这里避免后人再改错：
+ * - transform 返回值恒为新数组（finalizeHistoryMessages 内部 copy），
+ *   因此「未触发」只能断言 token 不变，不能断言引用相等。
+ * - 序列必须以非 toolResult 开头，否则 stripLeadingOrphanToolResults 会把整串削空。
+ * - token 估算约 0.30/字符：20 条≈43K、25 条≈54K、30 条≈65K。
+ */
 describe("transform-context Phase 1 集成：Proactive Prune 接入", () => {
-  const createToolResult = (content: string): AgentMessage => ({
-    id: Math.random().toString(),
-    role: "toolResult",
-    toolName: "bash",
-    content,
-    createdAt: Date.now(),
-  });
+  let seq = 0;
+  const toolResult = (content: string): AgentMessage =>
+    ({
+      id: `t${(seq += 1)}`,
+      role: "toolResult",
+      toolName: "bash",
+      content,
+      createdAt: 0,
+    }) as unknown as AgentMessage;
 
-  it("0.48≤tokens<0.60 区间触发 Proactive，不触发 Micro", () => {
-    const config: CompactConfig = {
-      contextWindow: 100_000,
-      triggerRatio: 0.78, // 78K 才触发 Summary
-      microCompactRatio: 0.60, // 60K 才触发 Micro
-      proactivePruneRatio: 0.48, // 48K 触发 Proactive
-    };
-    // 构造 tokens ≈ 54K（在 [48K, 60K) 区间）
-    const messages: AgentMessage[] = Array.from({ length: 30 }, () =>
-      createToolResult("x".repeat(7200)), // 30*7200*0.25≈54K
-    );
+  const assistant = (): AgentMessage =>
+    ({
+      id: `a${(seq += 1)}`,
+      role: "assistant",
+      content: "hi",
+      createdAt: 0,
+    }) as unknown as AgentMessage;
+
+  /** 首条 assistant 打底，其后 count 条各 7200 字符的 toolResult */
+  const makeMessages = (count: number): AgentMessage[] => [
+    assistant(),
+    ...Array.from({ length: count }, () => toolResult("x".repeat(7200))),
+  ];
+
+  const baseConfig = {
+    contextWindow: 100_000,
+    triggerRatio: 0.78, // 78K 才触发 Summary
+    microCompactRatio: 0.6, // 60K 才触发 Micro
+    proactivePruneRatio: 0.48, // 48K 触发 Proactive
+    outputReserveTokens: 1_000,
+    summaryReserveTokens: 500,
+  } satisfies Partial<CompactConfig>;
+
+  it("0.48≤tokens<0.60 区间触发 Proactive，静默不发 onCompaction", async () => {
     const onCompaction = vi.fn();
-    const transform = createTransformContext(config, { onCompaction });
-    const result = transform(messages);
-    // 预期：触发了 Proactive（静默，不调 onCompaction）
-    expect(result.length).toBeLessThan(messages.length); // 某些消息被去重/摘要
-    expect(onCompaction).not.toHaveBeenCalled(); // Proactive 不触发回调
+    const transform = createTransformContext({
+      ...baseConfig,
+      onCompaction,
+    } as CompactConfig);
+
+    const messages = makeMessages(25); // ≈54K，落在 [48K, 60K)
+    const before = estimateTokenCount(messages);
+    expect(before).toBeGreaterThanOrEqual(48_000);
+    expect(before).toBeLessThan(60_000);
+
+    const result = await transform(messages);
+
+    // 三阶段确定性剪枝真的回收了 token
+    expect(estimateTokenCount(result)).toBeLessThan(before);
+    // Proactive 是后台静默清理，不暴露 UI 事件
+    expect(onCompaction).not.toHaveBeenCalled();
   });
 
-  it("tokens<0.48 什么都不做", () => {
-    const config: CompactConfig = {
-      contextWindow: 100_000,
-      proactivePruneRatio: 0.48,
-    };
-    const messages: AgentMessage[] = [createToolResult("x".repeat(10_000))]; // ~2.5K tokens
-    const transform = createTransformContext(config, {});
-    const result = transform(messages);
-    // 预期：原样返回
-    expect(result).toBe(messages); // 引用相等
+  it("tokens<0.48 什么都不做", async () => {
+    const transform = createTransformContext({
+      ...baseConfig,
+      onCompaction: undefined,
+    } as CompactConfig);
+
+    const messages = [assistant(), toolResult("x".repeat(10_000))]; // ≈3K
+    const before = estimateTokenCount(messages);
+    const result = await transform(messages);
+
+    // 未触发任何策略：条数与 token 均不变
+    expect(result).toHaveLength(messages.length);
+    expect(estimateTokenCount(result)).toBe(before);
   });
 
-  it("连转两轮 48K→40K→42K：第二轮 Rearm 挡下不触发", () => {
-    const config: CompactConfig = {
-      contextWindow: 100_000,
-      proactivePruneRatio: 0.48,
-    };
-    const transform = createTransformContext(config, {});
-    // 第一轮：48K+，触发
-    const messages1 = Array.from({ length: 30 }, () =>
-      createToolResult("x".repeat(7200)),
-    );
-    const result1 = transform(messages1);
-    expect(result1.length).toBeLessThan(messages1.length);
+  it("连转两轮 54K→43K：第二轮 Rearm 挡下不再剪枝", async () => {
+    const transform = createTransformContext({
+      ...baseConfig,
+    } as CompactConfig);
 
-    // 第二轮：42K（<48K rearm 跑道）
-    const messages2 = Array.from({ length: 25 }, () =>
-      createToolResult("y".repeat(7200)),
-    );
-    const result2 = transform(messages2);
-    // 预期：被 Rearm Gate 挡下，原样返回
-    expect(result2).toBe(messages2);
+    await transform(makeMessages(25)); // 第一轮 ≈54K，触发并武装 rearm 跑道
+
+    const second = makeMessages(20); // 第二轮 ≈43K，低于 48K 跑道
+    const before = estimateTokenCount(second);
+    const result = await transform(second);
+
+    // 被 Rearm Gate 挡下：token 原样返回
+    expect(estimateTokenCount(result)).toBe(before);
+    expect(result).toHaveLength(second.length);
   });
 
-  it("0.60≤tokens<0.78：Proactive（先跑）→ MicroCompact（再跑）级联", () => {
-    const config: CompactConfig = {
-      contextWindow: 100_000,
-      triggerRatio: 0.78,
-      microCompactRatio: 0.60,
-      proactivePruneRatio: 0.48,
-    };
+  it("Proactive 未通过 Reclaim Gate 时，MicroCompact 接手并发 strategy='micro'", async () => {
     const onCompaction = vi.fn();
-    const transform = createTransformContext(config, { onCompaction });
-    // 构造 tokens ≈ 70K（在 [60K, 78K) 区间）
-    const messages = Array.from({ length: 40 }, () =>
-      createToolResult("z".repeat(7200)),
-    );
-    const result = transform(messages);
-    // 预期：先 Proactive（静默），再 MicroCompact（触发回调 strategy='micro'）
+    const transform = createTransformContext({
+      ...baseConfig,
+      // 把回收门槛拉到不可达，让 Proactive 必定被 Reclaim Gate 拒绝，
+      // 才能观察到下一级 MicroCompact——Proactive 一旦提交就 return，两级不会同轮级联。
+      proactivePruneMinReclaimTokens: 10_000_000,
+      onCompaction,
+    } as CompactConfig);
+
+    const messages = makeMessages(30); // ≈65K，落在 [60K, 78K)
+    const before = estimateTokenCount(messages);
+    expect(before).toBeGreaterThanOrEqual(60_000);
+    expect(before).toBeLessThan(78_000);
+
+    await transform(messages);
+
     expect(onCompaction).toHaveBeenCalledWith(
       expect.objectContaining({ strategy: "micro" }),
     );

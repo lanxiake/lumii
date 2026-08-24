@@ -44,8 +44,8 @@ lumii-ui conversation create --title "真实场景测试-150546"
 **结果**:
 ```json
 {
-  "sessionKey": "3fd1783b69f28aa35dbd5174ba7e9ef1",
-  "conversationId": "3fd1783b69f28aa35dbd5174ba7e9ef1"
+  "sessionKey": "3fd1783b…",
+  "conversationId": "3fd1783b…"
 }
 ```
 
@@ -362,7 +362,7 @@ lumii-ui context usage --session 3fd1783b...
 
 ## 验证会话信息
 
-- **会话 ID**: 3fd1783b69f28aa35dbd5174ba7e9ef1
+- **会话 ID**: 3fd1783b…
 - **创建时间**: 2026-08-24 15:05:46
 - **消息总数**: 10 条（压缩后）
 - **压缩次数**: 1 次

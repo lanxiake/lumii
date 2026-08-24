@@ -129,7 +129,7 @@ export async function handleUserSend(
       typeof (command as { audioWavBase64?: string }).audioWavBase64 === 'string'
         ? (command as { audioWavBase64: string }).audioWavBase64
         : undefined
-    bridge.conversationRepo.saveMessage({
+    const savedUserMessageId = bridge.conversationRepo.saveMessage({
       id: command.msgId,
       conversationId: command.sessionKey,
       role: 'user',
@@ -139,15 +139,17 @@ export async function handleUserSend(
         ...(voice ? { isVoice: true as const } : {}),
         ...(wav ? { audioWavBase64: wav } : {}),
       },
-    })
-    // 广播用户消息：主窗口与宠物窗口是独立渲染进程，宠物侧 sendMessage 无法更新主窗口 store
+    }).id
+    // 广播用户消息：主窗口与宠物窗口是独立渲染进程，宠物侧 sendMessage 无法更新主窗口 store。
+    // 用落库返回的 id 而非 command.msgId：CLI / 控制口不传 msgId，
+    // 原先以它为广播前提会导致 CLI 发的消息前端只看到 Agent 回复、看不到用户提问。
     const win = deps!.ipcMainWindowRef
-    if (win && !win.isDestroyed() && command.msgId) {
+    if (win && !win.isDestroyed()) {
       deps!.pushEvent(win, {
         type: 'conversation:message:new',
         sessionKey: command.sessionKey,
         message: {
-          id: command.msgId,
+          id: savedUserMessageId,
           role: 'user',
           content: [{ type: 'text', text: command.content }],
           timestamp: Date.now(),
@@ -330,6 +332,9 @@ export async function handleUserCompactContext(
 ): Promise<unknown> {
   const keepTurns = command.keepRecentTurns ?? 6
   log.info(`[user:compact-context] sessionKey=${command.sessionKey}, keepRecentTurns=${keepTurns}`)
+  if (!bridge.conversationRepo.getConversation(command.sessionKey)) {
+    throw new Error(`not_found: conversation ${command.sessionKey} does not exist`)
+  }
   try {
     // 重启后 sessionToInstance 可能为空，通过 getInstanceForSession 恢复实例（含 LLM stream）
     const instanceId = await deps!.getInstanceForSession(bridge, command.sessionKey)

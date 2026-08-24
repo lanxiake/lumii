@@ -323,8 +323,12 @@ export const COMMANDS = [
       const sessionKey = args.flags.session
       if (typeof sessionKey !== 'string' || sessionKey.length === 0) return null
       const body = { type: 'user:compact-context', sessionKey }
-      const keep = num(args.flags.keep)
-      if (keep !== undefined) body.keepRecentTurns = keep
+      // --keep 传了就必须是非负整数：非法值静默回落默认 6 会让调用方以为参数生效了
+      if (args.flags.keep !== undefined) {
+        const keep = num(args.flags.keep)
+        if (keep === undefined || keep < 0 || !Number.isInteger(keep)) return null
+        body.keepRecentTurns = keep
+      }
       return body
     },
   },

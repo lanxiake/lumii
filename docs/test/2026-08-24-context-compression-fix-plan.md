@@ -23,7 +23,7 @@
 
 **验证结果**:
 ```bash
-$ lumii-ui context messages --session ada2720c50e4f9ee1f291e2494f0e8d7 --limit 5
+$ lumii-ui context messages --session ada2720c… --limit 5
 # 成功返回消息列表，包含 user/assistant 角色、压缩摘要等
 ```
 
@@ -181,3 +181,35 @@ const idleThreshold = this.compactConfig?.idleCompactAfterSeconds ?? 300;
 - 📋 3 个低优先级改进项待评估
 
 **可交付**: 当前代码基线可用于生产环境，CLI 和压缩引擎功能完整。
+
+---
+
+## 追加缺陷（2026-08-24 边界测试新发现）
+
+详见 `docs/test/2026-08-24-context-compression-edge-cases.md`。
+
+| 优先级 | 缺陷 | 位置 | 修复要点 |
+|--------|------|------|----------|
+| 🟠 中高 | #9 重复压缩不收敛（token 每次反增，且每次真实烧一次 LLM 调用） | `bridge-context-compactor.ts:252` | 手动路径复用自动路径的最小收益闸：摘要生成后与 `:250` 已取到的 `usageBefore` 比对，收益 ≤ 0 则丢弃摘要并返回 `low_yield` |
+| 🟡 中 | #10 不存在的 sessionKey 在 usage/messages/compact 三条命令上全部静默返回成功 | 三个 conversation handler 入口 | 加会话存在性校验，返回 `not_found` |
+| 🟡 中 | CLI 建的会话前端不自动出现（需求 ①） | `conversation-commands.ts:117` + `event-handler.ts:1343` | 建会话后 `bridge.forwardIpcEvent` 发 `conversation:created`；填上渲染端那个空 case，递增 `sessionListRevision` 供 `ChatPage` 订阅 |
+| 🟢 低 | #11 `--keep abc` 静默回落默认值 6，`-1`/`9999` 无提示 | `commands.mjs` compact 的 `build` | `--keep` 存在但解析失败或为负则 `return null`（exit 2） |
+
+---
+
+## 全部修复已实施（2026-08-24，用户授权改业务代码）
+
+| 缺陷 | 状态 | 改动 |
+|------|------|------|
+| #9 重复压缩不收敛 | ✅ | `bridge-context-compactor.ts` 加最小收益闸，返回 `reason: 'low_yield'` |
+| #10 不存在会话静默成功 | ✅ | `conversation-commands.ts` 加 `assertConversationExists`；`user-commands.ts` compact 入口同样校验 |
+| 需求① CLI 会话前端不可见 | ✅ | `bridge.ts` 开放 `forwardIpcEvent` → 建会话广播 `conversation:created` → store 加 `sessionListRevision` → `event-handler.ts` 填上空 case → `ChatPage.tsx` 订阅重拉 |
+| 需求④ CLI 消息只见回复不见提问 | ✅ | 根因是广播条件含 `command.msgId`，CLI 不传该字段；改用 `saveMessage()` 返回的落库 id |
+| #11 `--keep` 无校验 | ✅ | `commands.mjs` 非负整数校验，非法值 exit 2 |
+| #8 遗留 4 个过时用例 | ✅ | `transform-context-phase1.test.ts` 4/4 通过；除 async 外还修正了引用相等、纯 toolResult 被削空、Proactive/Micro 非同轮级联、token 口径 0.30 四处错误前提 |
+
+**回归**: compact 全量 149 tests ✅（原 145 + 新增）／main 进程 261 ✅／renderer 171 ✅／typecheck 4 项 0 error ✅／build ✅
+
+**D-03 解除阻塞**: 日志在 `~/.lumii/logs/app/mtbot-2026-08-24.log`，`scanIdleInstances` 736 条决策、60s 稳定间隔、四条件 AND 可见 → 由「阻塞」改判「通过」。
+
+详见 `docs/test/2026-08-24-context-compression-edge-cases.md` §七、§八。

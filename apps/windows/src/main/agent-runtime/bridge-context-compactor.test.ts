@@ -80,11 +80,16 @@ describe('BridgeContextCompactor.callLLM', () => {
   })
 })
 
-/** 构造 n 条 user/assistant 交替的 Pi 消息 */
-function makePiMessages(n: number): AgentMessage[] {
+/**
+ * 构造 n 条 user/assistant 交替的 Pi 消息。
+ *
+ * 正文取 600 字符：手动压缩有最小收益闸（摘要 token ≥ 原文时放弃），
+ * 正文太短会让每个用例都撞上「收益过低」而不再落库。
+ */
+function makePiMessages(n: number, chars = 600): AgentMessage[] {
   return Array.from({ length: n }, (_, i) => ({
     role: i % 2 === 0 ? 'user' : 'assistant',
-    content: `msg-${i}`,
+    content: `msg-${i}-${'x'.repeat(chars)}`,
     timestamp: Date.now(),
   })) as AgentMessage[]
 }
@@ -98,6 +103,7 @@ function makeCompactHarness(
   messageCount: number,
   summaryText: string | null = '结构化摘要',
   preparedSqlSink?: string[],
+  opts: { messageChars?: number } = {},
 ) {
   const rows = Array.from({ length: messageCount }, (_, i) => ({
     id: `m${i + 1}`,
@@ -132,7 +138,9 @@ function makeCompactHarness(
   }
 
   const repo = {
-    loadMessagesAsPiFormat: vi.fn(() => makePiMessages(remaining.length + saved.length)),
+    loadMessagesAsPiFormat: vi.fn(() =>
+      makePiMessages(remaining.length + saved.length, opts.messageChars),
+    ),
     markMessagesCompacted: vi.fn((_conversationId: string, ids: readonly string[]) => {
       const marked = new Set(ids)
       remaining = remaining.filter((row) => !marked.has(row.id))
@@ -293,6 +301,29 @@ describe('BridgeContextCompactor.compactContextAsync — 短对话也真正压�
     expect(result.hadSummary).toBe(false)
     expect(compacted).toEqual([])
     expect(saved).toHaveLength(0)
+  })
+
+  it('摘要开销 ≥ 原文时放弃压缩，不落库、不移出消息（reason=low_yield）', async () => {
+    // 短对话 + 长摘要：连点手动压缩曾每次都膨胀上下文且真实烧一次 LLM 调用
+    const longSummary = '摘'.repeat(2000)
+    const { compactor, compacted, saved, execSink, generator } = makeCompactHarness(
+      4,
+      longSummary,
+      undefined,
+      { messageChars: 5 },
+    )
+
+    const result = await compactor.compactContextAsync('inst-1', 'sess-1', 6)
+
+    expect(generator).toHaveBeenCalledOnce() // 摘要仍生成，闸门在落库前
+    expect(result.reason).toBe('low_yield')
+    expect(result.messagesRemoved).toBe(0)
+    expect(result.hadSummary).toBe(false)
+    expect(result.newMessageCount).toBe(result.previousMessageCount)
+    expect(result.conversationTokensAfter).toBe(result.conversationTokensBefore)
+    expect(compacted).toEqual([]) // 没有消息被移出上下文
+    expect(saved).toHaveLength(0) // 摘要没落库
+    expect(execSink).toEqual([]) // 事务根本没开
   })
 
   it('压缩只标记不删除：不应发出任何 DELETE 语句', async () => {

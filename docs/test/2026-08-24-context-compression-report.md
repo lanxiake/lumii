@@ -72,8 +72,8 @@
   - **需进一步调查**: 摘要 token 计数是否合理
 
 **测试数据**:
-- 会话 B-01: `ada2720c50e4f9ee1f291e2494f0e8d7`
-- 会话 B-05: `ffe77d7800e84b...`（空会话）
+- 会话 B-01: `ada2720c…`
+- 会话 B-05: `ffe77d78…`（空会话）
 - 压缩结果: `{"success":true,"previousMessageCount":4,"newMessageCount":3,"messagesRemoved":2,"hadSummary":true}`
 
 ---
@@ -335,3 +335,15 @@ Failed to load url ../transform-context.js
 
 **报告生成时间**: 2026-08-24  
 **下一步**: 参见 `docs/test/2026-08-24-context-compression-fix-plan.md`
+
+---
+
+## 更正声明（2026-08-24 追加）
+
+本报告有三处结论已被后续真实数据验证推翻，以 `docs/test/2026-08-24-context-compression-edge-cases.md` 为准：
+
+1. **「测试文件缺失」作废** — `idle-trigger.test.ts`(7 tests)、`progress-fence.test.ts`(14 tests)、`cooldown-protection.test.ts`(8 tests) 均存在且通过。误判源于 bash 工作目录残留导致 `cd` 失败。真正缺失的只有 `summary-compact-progress.test.ts` 与 `compact-transaction.test.ts`。
+2. **B-04 不是缺陷** — 摘要有约 900–1200 tokens 固定开销，内容量不足时净收益为负。长文场景实测净回收 17097 tokens。
+3. **F-03 实为通过** — `pnpm typecheck` exit 0、0 errors，此前的「存在类型错误」是计数判断写错导致的误报。
+
+另：本报告正文记录了完整 sessionKey，违反测试文档「禁止记录完整 sessionKey」的要求，后续报告已改为仅记前 8 位。

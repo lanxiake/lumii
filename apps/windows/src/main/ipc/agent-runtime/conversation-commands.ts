@@ -114,7 +114,26 @@ export async function handleConversationCreate(
     `[conversation:create] sessionKey=${sessionKey}, conversationId=${conversation.id}, instanceId=${instanceId}, title="${title ?? '新对话'}"`,
   )
 
+  // 广播给渲染端：CLI / 控制口建的会话不经过前端 createSession，
+  // 不发这条事件侧栏就不会出现新会话，得手动刷新或切页面。
+  bridge.forwardIpcEvent({
+    type: 'conversation:created',
+    sessionKey,
+    title: title ?? '新对话',
+    createdAt: Date.now(),
+  })
+
   return { sessionKey, conversationId: conversation.id }
+}
+
+/**
+ * 会话存在性校验：不存在时抛错，避免拼错 sessionKey 静默返回「成功但空」，
+ * 让调用方无法区分「打错字」和「空会话」。
+ */
+function assertConversationExists(bridge: AgentRuntimeBridge, sessionKey: string): void {
+  if (!bridge.conversationRepo.getConversation(sessionKey)) {
+    throw new Error(`not_found: conversation ${sessionKey} does not exist`)
+  }
 }
 
 export function handleConversationClose(
@@ -266,6 +285,7 @@ export function handleConversationMessages(
 } {
   const { sessionKey, limit, before } = command
   const conversationId = sessionKey
+  assertConversationExists(bridge, conversationId)
   bridge.setLastActiveConversation(conversationId)
   const page = bridge.conversationRepo.loadMessagesPage(conversationId, {
     limit: limit ?? CONVERSATION_PAGE_SIZE,
@@ -381,6 +401,7 @@ export function handleConversationContextUsage(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'conversation:context-usage' }>,
 ): unknown {
+  assertConversationExists(bridge, command.sessionKey)
   return bridge.getSessionContextUsage(command.sessionKey)
 }
 

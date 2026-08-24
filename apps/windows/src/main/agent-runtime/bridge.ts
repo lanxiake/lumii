@@ -1392,6 +1392,15 @@ export class AgentRuntimeBridge {
 
   reconnectMcpServer(name: string): Promise<void> { return this.mcpManager.reconnect(name) }
 
+  /**
+   * 向渲染进程广播事件（窗口不可用时入队）。
+   * 供 IPC handler 推 conversation:created 等列表类事件——CLI / 控制口建的会话
+   * 不经过前端 createSession，不广播侧栏就不会出现新会话。
+   */
+  forwardIpcEvent(event: Parameters<BridgeRendererIpcChannel['forwardIpcEvent']>[0]): boolean {
+    return this.ipcChannel.forwardIpcEvent(event)
+  }
+
   compactContext(sessionKey: string, keepRecentTurns = 6): { success: boolean; previousMessageCount: number; newMessageCount: number; messagesRemoved: number } {
     return this.compactor.compactContext(sessionKey, keepRecentTurns)
   }

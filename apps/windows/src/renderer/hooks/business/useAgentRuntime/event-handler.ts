@@ -1342,7 +1342,11 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
 
     case 'conversation:created':
     case 'conversation:updated':
-      // 这些事件由会话列表管理，不影响消息状态
+      // 不影响消息状态，只递增列表版本号，让 ChatPage 重拉侧栏
+      runtimeStore.setState((prev) => ({
+        ...prev,
+        sessionListRevision: prev.sessionListRevision + 1,
+      }))
       break
 
     case 'conversation:navigate': {
