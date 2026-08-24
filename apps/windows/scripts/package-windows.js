@@ -58,7 +58,7 @@ function error(msg) {
 
 /**
  * 在指定目录执行命令（注入国内镜像环境变量）。
- * @returns {boolean} 成功时 true；allowFail 时失败返回 false
+ * @returns {boolean} 成功时 true；allowFail 时失败返回 false；returnError 时返回 {error, cmd}
  */
 function run(cmd, options = {}) {
   const cwd = options.cwd || WINDOWS_ROOT
@@ -66,7 +66,7 @@ function run(cmd, options = {}) {
   try {
     execSync(cmd, {
       cwd,
-      stdio: 'inherit',
+      stdio: options.returnError ? 'pipe' : 'inherit',
       env: { ...process.env, ...MIRRORS },
       ...options,
     })
@@ -75,6 +75,9 @@ function run(cmd, options = {}) {
     if (options.allowFail) {
       warn(`命令失败（已忽略）: ${cmd}`)
       return false
+    }
+    if (options.returnError) {
+      return { error: e, cmd }
     }
     throw e
   }
@@ -410,9 +413,57 @@ function stepPackage(config) {
 
   for (const arch of archList) {
     log(`打包 ${config.target} (${arch}) → ${outputDir}/...`)
-    run(
-      `npx electron-builder --win ${config.target} --${arch} --config electron-builder.json --config.directories.output=${outputDir}`,
-    )
+
+    let retries = 5
+    let success = false
+
+    while (retries > 0 && !success) {
+      const result = run(
+        `npx electron-builder --win ${config.target} --${arch} --config electron-builder.json --config.directories.output=${outputDir}`,
+        { returnError: true }
+      )
+
+      if (result === true) {
+        success = true
+        break
+      }
+
+      const err = result.error
+      const stderr = err.stderr?.toString() || ''
+      const stdout = err.stdout?.toString() || ''
+      const message = err.message || ''
+      const fullOutput = stderr + stdout + message
+
+      // 检查是否是 rename 权限错误
+      if (fullOutput.includes('EPERM') && fullOutput.includes('rename') && fullOutput.includes('win-unpacked')) {
+        retries--
+        if (retries > 0) {
+          warn(`rename 被阻止（可能是 QQ 电脑管家正在扫描），等待 10 秒后重试... (剩余 ${retries} 次)`)
+          sleep(10000)
+
+          // 清理失败的 tmp 目录
+          const tmpPath = path.join(outputPath, 'win-unpacked.tmp')
+          if (fs.existsSync(tmpPath)) {
+            try {
+              fs.rmSync(tmpPath, { recursive: true, force: true })
+            } catch (e) {
+              warn(`清理 tmp 目录失败: ${e.message}`)
+            }
+          }
+        } else {
+          error('重试次数用尽，打包失败')
+          console.log('\n建议解决方案:')
+          console.log('  1. 【推荐】将项目目录添加到 QQ 电脑管家的信任区')
+          console.log('     打开 QQ 电脑管家 → 病毒查杀 → 信任区 → 添加目录')
+          console.log('     添加: C:\\myself\\projects\\my\\open-source\\lumii')
+          console.log('  2. 临时退出 QQ 电脑管家，打包完成后再启动')
+          console.log('  3. 使用 --output-dir 指定其他输出目录\n')
+          throw err
+        }
+      } else {
+        throw err
+      }
+    }
   }
 
   log('打包产物:')

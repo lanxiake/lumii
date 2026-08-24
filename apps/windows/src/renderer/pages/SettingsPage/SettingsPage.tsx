@@ -119,6 +119,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     },
     onSave: async (value) => {
       await saveSettings()
+      // 确保新工作空间目录及其子目录结构存在
+      const targetDir = value.directory || defaultWorkspaceDir
+      await window.electronAPI.workspace.ensureDir(targetDir)
       // 通知主进程工作空间目录已更改
       await window.electronAPI.workspace.notifyChanged(value.directory || '')
     }
@@ -200,8 +203,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       setOpenAtLogin(actual)
       console.log('[SettingsPage] 开机启动设置完成:', actual)
       if (enable && !actual) {
-        // 开发模式下 Electron 不支持 setLoginItemSettings，给出明确提示
-        toast.error('开发模式下无法设置开机启动，打包后生效')
+        // 开发模式下 Electron 不支持 setLoginItemSettings；打包后失败可能是系统安全策略拦截
+        const isDev = (await window.electronAPI.app.getVersion()).includes('dev')
+        if (isDev) {
+          toast.error('开发模式下无法设置开机启动，打包后生效')
+        } else {
+          toast.warning('开机启动设置可能被系统安全策略拦截，请检查系统设置')
+        }
       } else {
         toast.success(enable ? '已开启开机自动启动' : '已关闭开机自动启动')
       }

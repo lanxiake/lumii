@@ -356,7 +356,7 @@ export const COMMANDS = [
     build(args) {
       const sessionKey = args.flags.session
       if (typeof sessionKey !== 'string' || sessionKey.length === 0) return null
-      const body = { type: 'conversation:messages', conversationId: sessionKey }
+      const body = { type: 'conversation:messages', sessionKey: sessionKey }
       const limit = num(args.flags.limit)
       if (limit !== undefined) body.limit = limit
       return body

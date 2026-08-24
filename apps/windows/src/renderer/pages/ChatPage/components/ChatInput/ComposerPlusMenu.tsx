@@ -15,6 +15,7 @@ import { useToolSearch } from '../../../../hooks/business/useToolSearch'
 import { useAgentRuntimeGlobalState } from '../../../../hooks/business/useAgentRuntime'
 import { formatTokenCount } from '../../../../utils/format-token-count'
 import Switch from '../../../../components/ui/Switch/Switch'
+import { isMcpEnabledForSession } from './mcp-session-state'
 
 export type ComposerPlusPanel = 'main' | 'skills' | 'mcp' | 'agents'
 
@@ -187,7 +188,7 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
           lastError: status?.lastError,
           tools: serverTools,
           // 会话级开关：全局启用且本会话未禁用才算开
-          enabled: !disabledInSession,
+          enabled: isMcpEnabledForSession(name, sessionDisabledMcp),
           estimatedTokens: status?.estimatedTokens ?? 0,
           usageCount: serverTools.reduce((sum, t) => sum + (t.usageCount ?? 0), 0),
         }
@@ -200,7 +201,7 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
         )
       })
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [tools, mcpStatus, query])
+  }, [tools, mcpStatus, query, sessionDisabledMcp])
 
   const filteredAgents = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -414,11 +415,11 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
                                 : '未连接'}
                         </span>
                       </div>
-                      {server.tools.length > 0 ? (
+                      {server.tools.length > 0 || server.serverEnabled ? (
                         <Switch
                           size="sm"
                           checked={server.enabled}
-                          disabled={busy || !server.serverEnabled || !server.connected}
+                          disabled={busy || !server.serverEnabled || !sessionKey}
                           onChange={(checked) => void handleToggleMcpServer(server.name, checked)}
                         />
                       ) : (

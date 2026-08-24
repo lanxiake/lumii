@@ -93,7 +93,12 @@ export const WorkspaceWizard: React.FC = () => {
       const oldDir = await window.electronAPI.workspace.getDir()
       await window.electronAPI.workspace.ensureDir(selectedDir)
 
-      if (oldDir && oldDir !== selectedDir) {
+      // 规范化路径以便比较（统一分隔符和大小写）
+      const normalizeDir = (dir: string) => dir.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '')
+      const normalizedOld = normalizeDir(oldDir)
+      const normalizedNew = normalizeDir(selectedDir)
+
+      if (oldDir && normalizedOld !== normalizedNew) {
         await migrateWorkspaceData(oldDir, selectedDir)
       }
 

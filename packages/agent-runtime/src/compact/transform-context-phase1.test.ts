@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { createTransformContext } from "../transform-context.js";
-import type { CompactConfig } from "../types.js";
-import type { AgentMessage } from "../../types.js";
+import { createTransformContext } from "./transform-context.js";
+import type { CompactConfig } from "./types.js";
+import type { AgentMessage } from "../types.js";
 
 describe("transform-context Phase 1 集成：Proactive Prune 接入", () => {
   const createToolResult = (content: string): AgentMessage => ({
