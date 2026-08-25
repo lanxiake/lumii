@@ -272,7 +272,7 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
       <div className="memory-injection-settings">
         <h3 className="memory-injection-title">记忆注入</h3>
         <p className="memory-injection-desc">
-          控制是否将记忆内容自动写入每次对话的系统提示词。关闭后 Agent 仍可通过工具按需读取，但不会预注入。
+          控制是否将记忆预注入系统提示词。关闭后 AI 不会自动看到相应记忆，但仍可通过工具按需搜索读取。
         </p>
         <div className="memory-injection-options">
           <label className="memory-injection-option" htmlFor="memory-inject-personal">
@@ -281,7 +281,10 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
               checked={settings.memory?.injectPersonalMemory !== false}
               onChange={(checked) => void handleMemoryInjectionChange('injectPersonalMemory', checked)}
             />
-            <span>注入个人记忆（用户画像与偏好）</span>
+            <span>
+              注入个人记忆
+              <em className="memory-injection-hint">你是谁、你的偏好 —— 跨会话稳定，全局生效</em>
+            </span>
           </label>
           <label className="memory-injection-option" htmlFor="memory-inject-work">
             <Checkbox
@@ -289,7 +292,10 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
               checked={settings.memory?.injectWorkMemory !== false}
               onChange={(checked) => void handleMemoryInjectionChange('injectWorkMemory', checked)}
             />
-            <span>注入工作记忆（当前任务与资源）</span>
+            <span>
+              注入工作记忆
+              <em className="memory-injection-hint">当前在做什么、用什么资源 —— 按 Agent 隔离，会随任务结束归档</em>
+            </span>
           </label>
         </div>
       </div>
@@ -367,7 +373,8 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
       {activeTab === 'ai' && (
         <div className="memories-ai-panel">
           <p className="memories-ai-intro">
-            AI 自动从对话中提取动态信息：<strong>进行中的事</strong>（计划、项目、日程）、<strong>外部资源</strong>（常用工具、网址、联系人）和其他有跨会话价值的知识。
+            <strong>工作记忆</strong>存储当前进行中的任务、项目、资源引用等动态信息。AI 会自动从对话中提取，按 Agent 隔离管理。
+            内容变化快，会随任务结束被归档。数据仅存本地 SQLite，不上传云端。
           </p>
           <MemoryViewer />
         </div>
@@ -377,7 +384,8 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
       {activeTab === 'user-memory' && (
         <div className="memories-ai-panel">
           <p className="memories-ai-intro">
-            AI 从对话中自动提取的关于你的静态信息：身份、偏好、规则等。这些内容会直接注入到每次对话的系统提示词中。
+            <strong>个人记忆</strong>存储你的身份、偏好、长期习惯等跨会话稳定的信息。AI 会自动提取并全局生效（不区分 Agent）。
+            内容变化慢，不会自动归档，需手动编辑或清空。
           </p>
           {userMemoryError && (
             <ErrorBanner message={userMemoryError.message} onRetry={fetchUserMemory} />

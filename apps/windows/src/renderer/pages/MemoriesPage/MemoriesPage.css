@@ -88,11 +88,24 @@
 
 .memory-injection-option {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   font-size: 13px;
   color: var(--color-text-primary);
   cursor: pointer;
+}
+
+.memory-injection-option > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.memory-injection-hint {
+  font-size: 12px;
+  font-style: normal;
+  color: var(--color-text-tertiary);
+  font-weight: normal;
 }
 
 /* AI 记忆面板 */
