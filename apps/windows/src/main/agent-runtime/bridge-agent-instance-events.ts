@@ -23,6 +23,7 @@ import { resetAppUiToolTurnQuotas } from './bridge-app-ui-tools'
 import { forwardPermissionRuntimeToIpc } from './bridge-permission-ipc-forward'
 import type { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import type { FileMemoryHandler } from './file-memory-handler'
+import type { WikiIngestHook } from '@mtbot/agent-runtime'
 import type {
   AgentRuntimeEvent as RendererIpcEvent,
   ContextUsageBreakdownEntry,
@@ -169,6 +170,7 @@ export interface BridgeAgentInstanceEventDeps {
   conversationRepo: ConversationRepo | null
   fileRepo: FileRepo | null
   fileMemoryHandler: FileMemoryHandler
+  getWikiIngestHook: () => WikiIngestHook | null
   /** Per-instance 聚合状态存储（替代分散 Map） */
   instanceStates: InstanceStateStore
   instanceToConversation: Map<string, string>
@@ -224,6 +226,7 @@ export function createAgentInstanceRuntimeEventHandler(
     conversationRepo,
     fileRepo,
     fileMemoryHandler,
+    getWikiIngestHook,
     instanceStates,
     instanceToConversation,
     toolCallInstanceMap,
@@ -505,12 +508,40 @@ export function createAgentInstanceRuntimeEventHandler(
           log.error(`[file:created] 注册文件元数据失败 instanceId=${instanceId}:`, err)
         })
       }
+      // Wiki 摄入（P0）：上传/产物文件写入后同步插入收件箱，钩子内部已吞异常，此处不额外 try-catch
+      if (isWriteTool && !event.isError) {
+        const filePath = typeof args['filePath'] === 'string' ? args['filePath'] : null
+        if (filePath) {
+          const hook = getWikiIngestHook()
+          const normalized = filePath.replace(/\\/g, '/').toLowerCase()
+          const isUpload = normalized.startsWith('uploads/') || normalized.includes('/uploads/')
+          hook?.[isUpload ? 'ingestUpload' : 'ingestOutput'](
+            ctx.sessionKey ?? 'default',
+            'local-user',
+            filePath,
+            filePath.split(/[/\\]/).pop() ?? filePath,
+          )
+        }
+      }
 
       // bash/exec 工具：脚本写出的文件（Python/shell）不走 file_write，扫描 outputs/ 补齐注册
       if (event.toolName === 'bash' && !event.isError && fileRepo) {
         void fileMemoryHandler.scanAndRegisterOutputs(instanceId, toolStartMs).catch((err: unknown) => {
           log.error(`[file:created] 扫描 outputs 注册失败 instanceId=${instanceId}:`, err)
         })
+      }
+
+      // Wiki 摄入（P0）：网页搜索结果逐条摄入收件箱
+      if (event.toolName === 'web_search' && !event.isError) {
+        const hook = getWikiIngestHook()
+        const details = (event.result as { details?: { items?: Array<{ title?: string; url?: string; summary?: string }> } } | undefined)
+          ?.details
+        if (hook && details?.items) {
+          for (const item of details.items) {
+            if (!item.url) continue
+            hook.ingestWebSearch(ctx.sessionKey ?? 'default', 'local-user', item.url, item.title ?? item.url, item.summary)
+          }
+        }
       }
     }
     if (event.type === 'message:delta') {

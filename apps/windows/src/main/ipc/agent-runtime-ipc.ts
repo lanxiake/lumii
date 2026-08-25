@@ -112,6 +112,20 @@ import {
   handleAgentInstanceLifecycleSnapshot,
 } from './agent-runtime/agent-commands'
 import {
+  handleWikiInboxList,
+  handleWikiInboxRetry,
+  handleWikiInboxDiscard,
+  handleWikiInboxOrganize,
+  handleWikiPageList,
+  handleWikiPageGet,
+  handleWikiPageUpdate,
+  handleWikiPageDelete,
+  handleWikiSearch,
+  handleWikiSourceGet,
+  handleWikiRunsList,
+  handleWikiIndexRebuild,
+} from './agent-runtime/wiki-commands'
+import {
   handleToolsList,
   handleToolsToggle,
   handleMcpStatus,
@@ -887,6 +901,43 @@ export async function handleCommand(
 
       case 'agent:memories:stats':
         return handleAgentMemoriesStats(bridge, command)
+
+      // ---- Wiki 知识库（P0） ----
+      case 'wiki:inbox:list':
+        return handleWikiInboxList(bridge, command)
+
+      case 'wiki:inbox:retry':
+        return handleWikiInboxRetry(bridge, command)
+
+      case 'wiki:inbox:discard':
+        return handleWikiInboxDiscard(bridge, command)
+
+      case 'wiki:inbox:organize':
+        return handleWikiInboxOrganize(bridge, command)
+
+      case 'wiki:page:list':
+        return handleWikiPageList(bridge, command)
+
+      case 'wiki:page:get':
+        return handleWikiPageGet(bridge, command)
+
+      case 'wiki:page:update':
+        return handleWikiPageUpdate(bridge, command)
+
+      case 'wiki:page:delete':
+        return handleWikiPageDelete(bridge, command)
+
+      case 'wiki:search':
+        return handleWikiSearch(bridge, command)
+
+      case 'wiki:source:get':
+        return handleWikiSourceGet(bridge, command)
+
+      case 'wiki:runs:list':
+        return handleWikiRunsList(bridge, command)
+
+      case 'wiki:index:rebuild':
+        return handleWikiIndexRebuild(bridge)
 
       // ---- 工具管理 ----
       case 'tools:list':

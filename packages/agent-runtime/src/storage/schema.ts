@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 /**
  * V1 DDL — 初始 schema
@@ -408,6 +408,128 @@ CREATE VIRTUAL TABLE IF NOT EXISTS agent_memories_fts USING fts5(
   content,
   tags,
   tokenize='unicode61 remove_diacritics 2'
+);
+`,
+  ],
+  // V16: Wiki 知识库 P0 —— 收件箱 / 资料层 / 知识层 / 修订层 / 运行日志 / 派生索引
+  //
+  // 设计：`docs/design/记忆设计/2026-08-25-wiki-design-p0p1p2.md` §3.2
+  // 中文检索沿用 V15 agent_memories_fts 已验证的 bigram 预分词方案（unicode61 对中文
+  // 2 字词零命中，已实测确认），FTS5 表存预分词结果，索引维护在 wiki-index.ts 手动做。
+  [
+    16,
+    `
+-- wiki_inbox：自动摄入的待整理条目，整理后转入 wiki_sources/wiki_pages
+CREATE TABLE IF NOT EXISTS wiki_inbox (
+  id                  TEXT PRIMARY KEY,
+  agent_id            TEXT NOT NULL,
+  user_id             TEXT NOT NULL,
+  item_type           TEXT NOT NULL CHECK (item_type IN ('upload', 'output', 'search', 'chat')),
+  source_path         TEXT,
+  source_url          TEXT,
+  title               TEXT NOT NULL,
+  content_preview     TEXT,
+  media_type          TEXT NOT NULL DEFAULT 'document'
+    CHECK (media_type IN ('document', 'image', 'audio', 'video')),
+  status              TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'organized', 'discarded')),
+  attempt_count       INTEGER NOT NULL DEFAULT 0,
+  last_error          TEXT,
+  organized_source_id TEXT,
+  content_hash        TEXT,
+  created_at          TEXT NOT NULL,
+  organized_at        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_wiki_inbox_status
+  ON wiki_inbox (agent_id, user_id, status, created_at DESC);
+
+-- wiki_sources：资料层，事实不可变；extracted_text 是多媒体可被检索的唯一途径
+CREATE TABLE IF NOT EXISTS wiki_sources (
+  id              TEXT PRIMARY KEY,
+  agent_id        TEXT NOT NULL,
+  user_id         TEXT NOT NULL,
+  title           TEXT NOT NULL,
+  source_path     TEXT,
+  content_md      TEXT,
+  content_hash    TEXT,
+  mime_type       TEXT,
+  media_type      TEXT NOT NULL DEFAULT 'document'
+    CHECK (media_type IN ('document', 'image', 'audio', 'video')),
+  extracted_text  TEXT,
+  media_meta      TEXT,
+  preview_path    TEXT,
+  origin_context  TEXT,
+  archived_at     TEXT,
+  created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_wiki_sources_agent_user
+  ON wiki_sources (agent_id, user_id, created_at DESC);
+
+-- wiki_pages：知识层，AI 与用户共写；不设权限字段，修订历史即保护
+CREATE TABLE IF NOT EXISTS wiki_pages (
+  id          TEXT PRIMARY KEY,
+  agent_id    TEXT NOT NULL,
+  user_id     TEXT NOT NULL,
+  path        TEXT NOT NULL,
+  category    TEXT NOT NULL,
+  title       TEXT NOT NULL,
+  content_md  TEXT NOT NULL DEFAULT '',
+  version     INTEGER NOT NULL DEFAULT 1,
+  last_used   TEXT,
+  use_count   INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  UNIQUE (agent_id, user_id, path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wiki_pages_category
+  ON wiki_pages (agent_id, user_id, category);
+
+-- wiki_page_revisions：每次写入的不可变快照，回滚即新增一版
+CREATE TABLE IF NOT EXISTS wiki_page_revisions (
+  id          TEXT PRIMARY KEY,
+  page_id     TEXT NOT NULL REFERENCES wiki_pages(id) ON DELETE CASCADE,
+  version     INTEGER NOT NULL,
+  title       TEXT NOT NULL,
+  path        TEXT NOT NULL,
+  content_md  TEXT NOT NULL DEFAULT '',
+  editor      TEXT NOT NULL CHECK (editor IN ('user', 'ai')),
+  source_ref  TEXT,
+  created_at  TEXT NOT NULL,
+  UNIQUE (page_id, version)
+);
+
+-- wiki_organize_runs：全自动分类归档的可审计日志
+CREATE TABLE IF NOT EXISTS wiki_organize_runs (
+  id             TEXT PRIMARY KEY,
+  agent_id       TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
+  inbox_ids      TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'running'
+    CHECK (status IN ('running', 'succeeded', 'partial', 'failed')),
+  result_summary TEXT,
+  error          TEXT,
+  created_at     TEXT NOT NULL,
+  finished_at    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_wiki_runs_agent_user
+  ON wiki_organize_runs (agent_id, user_id, created_at DESC);
+
+-- wiki_pages_fts：预分词后的标题/正文检索列，独立虚表（非 external content）
+-- 分词逻辑变更时只需重建索引，不迁移 wiki_pages 主表
+CREATE VIRTUAL TABLE IF NOT EXISTS wiki_pages_fts USING fts5(
+  title_tokens,
+  content_tokens
+);
+
+-- wiki_index_meta：索引健康状态、分词器实际生效类型，供 UI 诊断
+CREATE TABLE IF NOT EXISTS wiki_index_meta (
+  key         TEXT PRIMARY KEY,
+  value       TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
 );
 `,
   ],

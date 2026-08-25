@@ -65,7 +65,14 @@ import {
   grepLocal,
   fetchLocal,
 } from './tool-providers'
-import { McpStdioClient } from '@mtbot/agent-runtime'
+import {
+  McpStdioClient,
+  WikiRepo,
+  WikiIngestHook,
+  WikiOrganizeQueue,
+  WikiOrganizer,
+  WikiContentExtractor,
+} from '@mtbot/agent-runtime'
 import { McpManager, type McpServerRuntimeStatus } from './mcp-manager'
 import type { McpServerEntry } from '../config/mcp-config'
 import { PermissionController } from './permission-controller'
@@ -138,6 +145,10 @@ export class AgentRuntimeBridge {
   /** 段落总结记忆服务（灰度，默认关闭） */
   private _segmentMemoryService: SegmentMemoryService | null = null
   private fileMemoryHandler!: FileMemoryHandler
+  private _wikiRepo: WikiRepo | null = null
+  private _wikiIngestHook: WikiIngestHook | null = null
+  private _wikiOrganizeQueue: WikiOrganizeQueue | null = null
+  private _wikiOrganizer: WikiOrganizer | null = null
   private _conversationRepo: ConversationRepo | null = null
   private _taskRepo: TaskRepo | null = null
   private _auditRepo: AuditRepo | null = null
@@ -207,6 +218,7 @@ export class AgentRuntimeBridge {
   private unsubscribeVhSettings?: () => void
   /** Idle Compaction 轮询定时器（60s 间隔） */
   private idleCompactionTimer?: NodeJS.Timeout
+  private wikiOrganizeTimer?: NodeJS.Timeout
   /** 正在 idle 压缩中的 sessionKey（同会话可能有多个实例，需按会话去重） */
   private readonly idleCompactingSessions = new Set<string>()
 
@@ -276,6 +288,10 @@ export class AgentRuntimeBridge {
           clearInterval(this.idleCompactionTimer)
           this.idleCompactionTimer = undefined
         }
+        if (this.wikiOrganizeTimer) {
+          clearInterval(this.wikiOrganizeTimer)
+          this.wikiOrganizeTimer = undefined
+        }
         this.unsubscribeVhSettings?.()
         this.unsubscribeVhSettings = undefined
         this.localDb.close()
@@ -308,6 +324,9 @@ export class AgentRuntimeBridge {
   get taskRepo(): TaskRepo { return this.requireInitialized(this._taskRepo, 'taskRepo') }
   get auditRepo(): AuditRepo { return this.requireInitialized(this._auditRepo, 'auditRepo') }
   get runtimeStateRepo(): RuntimeStateRepo { return this.requireInitialized(this._runtimeStateRepo, 'runtimeStateRepo') }
+  get wikiRepo(): WikiRepo { return this.requireInitialized(this._wikiRepo, 'wikiRepo') }
+  get wikiOrganizer(): WikiOrganizer { return this.requireInitialized(this._wikiOrganizer, 'wikiOrganizer') }
+  get wikiOrganizeQueue(): WikiOrganizeQueue { return this.requireInitialized(this._wikiOrganizeQueue, 'wikiOrganizeQueue') }
 
   setSkillEvolutionEngine(engine: import('../skill-evolution/index').SkillEvolutionEngine): void {
     this.config.skillEvolutionEngine = engine
@@ -486,6 +505,21 @@ export class AgentRuntimeBridge {
       // 固定 purpose='memory_extract'，与 file-memory 场景对齐。
       callLLM: (prompt: string) => this.callLLM(prompt, undefined, 'memory_extract'),
     })
+
+    // Wiki 知识库：收件箱/资料/页面读写 + 摄入钩子 + 整理队列（P0）
+    this._wikiRepo = new WikiRepo(db)
+    this._wikiIngestHook = new WikiIngestHook(this._wikiRepo)
+    this._wikiOrganizer = new WikiOrganizer(
+      this._wikiRepo,
+      (prompt: string) => this.callLLM(prompt, undefined, 'memory_extract'),
+      new WikiContentExtractor({
+        recognizeImage: async (imagePath: string) => {
+          const result = await this.imageServices.recognizeImage({ imagePath })
+          return result.description
+        },
+      }),
+    )
+    this._wikiOrganizeQueue = new WikiOrganizeQueue()
 
     // 中断感知：清理流式残留前记录哪些对话被中断
     try {
@@ -722,6 +756,7 @@ export class AgentRuntimeBridge {
       sessionThinkingPrefs: this.sessionThinkingPrefs,
       permissionController: this.permissionController,
       fileMemoryHandler: this.fileMemoryHandler,
+      getWikiIngestHook: () => this._wikiIngestHook,
       mcpClients: this.mcpClients,
       getDefinitionStore: () => this.definitionStore,
       getOrchestrator: () => this.lifecycle.ensureOrchestrator(),
@@ -786,6 +821,8 @@ export class AgentRuntimeBridge {
 
     // 启动 Idle Compaction 轮询（60s 间隔扫描所有实例）
     this.startIdleCompactionPolling()
+    // 启动 Wiki 整理轮询（P0：每 30s 对 upload/output/search 三类待整理条目跑一次批量归档）
+    this.startWikiOrganizePolling()
   }
 
   // ── 存储统计 ──
@@ -1624,6 +1661,30 @@ export class AgentRuntimeBridge {
 
   async runCronJobManually(job: { id: string; task_text: string; agent_id: string | null }): Promise<void> {
     return this.cronScheduler.runCronJobManually(job)
+  }
+
+  /**
+   * 启动 Wiki 整理轮询（P0：30s 间隔，对所有有 pending 条目的归属逐一跑批量归档）。
+   * 串行队列（WikiOrganizeQueue）保证同一时刻只有一个整理任务在跑，避免写冲突。
+   */
+  private startWikiOrganizePolling(): void {
+    const ITEM_TYPES = ['upload', 'output', 'search', 'chat'] as const
+    const runOnce = () => {
+      const repo = this._wikiRepo
+      const organizer = this._wikiOrganizer
+      const queue = this._wikiOrganizeQueue
+      if (!repo || !organizer || !queue) return
+      for (const { agentId, userId } of repo.listPendingAgentUserPairs()) {
+        for (const itemType of ITEM_TYPES) {
+          queue.enqueue(async () => {
+            await organizer.organizeBatch(agentId, userId, itemType)
+          })
+        }
+      }
+    }
+    runOnce()
+    this.wikiOrganizeTimer = setInterval(runOnce, 30_000)
+    log.info('[startWikiOrganizePolling] Wiki 整理轮询已启动（30s 间隔）')
   }
 
   private getDefaultDbPath(): string {

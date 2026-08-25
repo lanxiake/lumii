@@ -10,6 +10,116 @@ import {
   createAssistantPartsContent,
 } from "./bridge-agent-instance-events";
 
+describe("Wiki 摄入钩子接线", () => {
+  function buildHandler(getWikiIngestHook: () => never) {
+    const ctx = createRunContext("session-wiki", "instance", "session-wiki");
+    const instanceStates = new InstanceStateStore();
+    instanceStates.set(
+      "instance",
+      createInstanceState(ctx, {
+        definitionId: "agent",
+        runningStartedAt: null,
+        completedTurns: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      }),
+    );
+    const handler = createAgentInstanceRuntimeEventHandler({
+      instanceId: "instance",
+      ctx,
+      ipcChannel: { forwardIpcEvent: vi.fn(), forwardToRenderer: vi.fn() } as never,
+      conversationRepo: null,
+      fileRepo: null,
+      fileMemoryHandler: {} as never,
+      getWikiIngestHook,
+      instanceStates,
+      instanceToConversation: new Map(),
+      toolCallInstanceMap: new Map(),
+      toolStartTimeMap: new Map(),
+      nodeStreamCallbacks: new Map(),
+      getCompactionForRootSession: () => ({
+        contextWindow: 128_000,
+        outputReserveTokens: 8_000,
+        summaryReserveTokens: 4_000,
+      }),
+      getSessionContextUsage: () => ({
+        usedTokens: 0,
+        contextWindow: 128_000,
+        triggerThreshold: 102_400,
+      }),
+      setSessionProviderInputTokens: vi.fn(),
+      calibrateSessionCharsPerToken: vi.fn(),
+      clearSessionProviderInputTokens: vi.fn(),
+      setCurrentToolExecutorInstanceId: vi.fn(),
+      getCwd: () => os.tmpdir(),
+    });
+    return { handler, ctx };
+  }
+
+  it("file_write 成功后调用 ingestOutput（非 uploads/ 路径）", () => {
+    const ingestOutput = vi.fn();
+    const { handler } = buildHandler(() => ({ ingestUpload: vi.fn(), ingestOutput } as never));
+
+    handler({ type: "tool:start", toolCallId: "t1", toolName: "file_write", args: { filePath: "outputs/report.md" } } as never);
+    handler({ type: "tool:end", toolCallId: "t1", toolName: "file_write", isError: false, result: {} } as never);
+
+    expect(ingestOutput).toHaveBeenCalledWith("session-wiki", "local-user", "outputs/report.md", "report.md");
+  });
+
+  it("file_write 成功后 uploads/ 路径调用 ingestUpload", () => {
+    const ingestUpload = vi.fn();
+    const { handler } = buildHandler(() => ({ ingestUpload, ingestOutput: vi.fn() } as never));
+
+    handler({ type: "tool:start", toolCallId: "t1", toolName: "file_write", args: { filePath: "uploads/photo.png" } } as never);
+    handler({ type: "tool:end", toolCallId: "t1", toolName: "file_write", isError: false, result: {} } as never);
+
+    expect(ingestUpload).toHaveBeenCalledWith("session-wiki", "local-user", "uploads/photo.png", "photo.png");
+  });
+
+  it("工具失败时不摄入", () => {
+    const ingestOutput = vi.fn();
+    const { handler } = buildHandler(() => ({ ingestUpload: vi.fn(), ingestOutput } as never));
+
+    handler({ type: "tool:start", toolCallId: "t1", toolName: "file_write", args: { filePath: "outputs/a.md" } } as never);
+    handler({ type: "tool:end", toolCallId: "t1", toolName: "file_write", isError: true, result: {} } as never);
+
+    expect(ingestOutput).not.toHaveBeenCalled();
+  });
+
+  it("web_search 成功后按结果条目逐条调用 ingestWebSearch", () => {
+    const ingestWebSearch = vi.fn();
+    const { handler } = buildHandler(() => ({ ingestWebSearch } as never));
+
+    handler({ type: "tool:start", toolCallId: "t1", toolName: "web_search", args: {} } as never);
+    handler({
+      type: "tool:end",
+      toolCallId: "t1",
+      toolName: "web_search",
+      isError: false,
+      result: {
+        details: {
+          items: [
+            { title: "标题A", url: "https://a.example.com", summary: "摘要A" },
+            { title: "标题B", url: "https://b.example.com", summary: "摘要B" },
+          ],
+        },
+      },
+    } as never);
+
+    expect(ingestWebSearch).toHaveBeenCalledTimes(2);
+    expect(ingestWebSearch).toHaveBeenCalledWith("session-wiki", "local-user", "https://a.example.com", "标题A", "摘要A");
+    expect(ingestWebSearch).toHaveBeenCalledWith("session-wiki", "local-user", "https://b.example.com", "标题B", "摘要B");
+  });
+
+  it("getWikiIngestHook 返回 null 时安静跳过（不抛错）", () => {
+    const { handler } = buildHandler(() => null as never);
+    expect(() => {
+      handler({ type: "tool:start", toolCallId: "t1", toolName: "file_write", args: { filePath: "outputs/a.md" } } as never);
+      handler({ type: "tool:end", toolCallId: "t1", toolName: "file_write", isError: false, result: {} } as never);
+    }).not.toThrow();
+  });
+});
+
 describe("assistant parts bridge persistence", () => {
   it("实例状态只以 pendingParts 保存助手轮次内容", () => {
     const state = createInstanceState(
@@ -189,6 +299,7 @@ describe("assistant parts bridge persistence", () => {
         } as never,
         fileRepo: null,
         fileMemoryHandler: {} as never,
+        getWikiIngestHook: () => null,
         instanceStates,
         instanceToConversation: new Map([["instance", "conversation-1"]]),
         toolCallInstanceMap: new Map(),

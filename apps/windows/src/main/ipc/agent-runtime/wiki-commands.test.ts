@@ -1,0 +1,166 @@
+/**
+ * Wiki 命令处理器契约测试：真实内存 WikiRepo + mock bridge，验证字段映射与状态流转。
+ *
+ * node:sqlite 内存库 + 全量 MIGRATIONS（同 cron-e2e.test.ts 手法，用 createRequire
+ * 绕过 vite-node 对 "node:sqlite" 的静态解析；better-sqlite3 原生绑定在本环境编译
+ * 版本不匹配，不可用作回退）。
+ */
+import { describe, expect, it } from 'vitest'
+import { createRequire } from 'node:module'
+import { WikiRepo, type DatabaseAdapter, type PreparedStatement, type StatementResult } from '@mtbot/agent-runtime'
+import { MIGRATIONS } from '../../../../../../packages/agent-runtime/src/storage/schema'
+import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
+import {
+  handleWikiInboxList,
+  handleWikiInboxRetry,
+  handleWikiInboxDiscard,
+  handleWikiInboxOrganize,
+  handleWikiPageList,
+  handleWikiPageGet,
+  handleWikiPageUpdate,
+  handleWikiPageDelete,
+  handleWikiSearch,
+  handleWikiSourceGet,
+  handleWikiRunsList,
+  handleWikiIndexRebuild,
+} from './wiki-commands'
+
+const nodeRequire = createRequire(import.meta.url)
+
+interface DatabaseSyncLike {
+  exec(sql: string): void
+  prepare(sql: string): {
+    run(...p: unknown[]): { changes: number; lastInsertRowid: number | bigint }
+    get(...p: unknown[]): unknown
+    all(...p: unknown[]): unknown[]
+  }
+  close(): void
+}
+
+/** 内存库 + 全量迁移，等价于用户首启后的真实 schema */
+function createMigratedDb(): DatabaseAdapter {
+  const { DatabaseSync } = nodeRequire('node:sqlite') as {
+    DatabaseSync: new (path: string) => DatabaseSyncLike
+  }
+  const sq = new DatabaseSync(':memory:')
+  const db: DatabaseAdapter = {
+    exec: (sql) => sq.exec(sql),
+    prepare: <T = Record<string, unknown>>(sql: string): PreparedStatement<T> => {
+      const stmt = sq.prepare(sql)
+      return {
+        run: (...p: unknown[]) => stmt.run(...p) as unknown as StatementResult,
+        get: (...p: unknown[]) => stmt.get(...p) as T | undefined,
+        all: (...p: unknown[]) => stmt.all(...p) as T[],
+      }
+    },
+    close: () => sq.close(),
+  }
+  for (const [, sql] of MIGRATIONS) db.exec(sql)
+  return db
+}
+
+function buildBridge(repo: WikiRepo): AgentRuntimeBridge {
+  return {
+    wikiRepo: repo,
+    conversationRepo: { getAgentParticipantId: () => null },
+  } as unknown as AgentRuntimeBridge
+}
+
+function createWikiRepo(): WikiRepo {
+  return new WikiRepo(createMigratedDb())
+}
+
+describe('wiki commands', () => {
+  it('inbox list/retry/discard/organize 全流程', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const item = repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'a', contentPreview: '内容' })
+
+    const listed = handleWikiInboxList(bridge, { type: 'wiki:inbox:list', agentId: 'assistant' }) as { id: string }[]
+    expect(listed).toHaveLength(1)
+    expect(listed[0]!.id).toBe(item.id)
+
+    const organized = handleWikiInboxOrganize(bridge, {
+      type: 'wiki:inbox:organize',
+      inboxId: item.id,
+      path: 'sources/a',
+      title: '标题A',
+    })
+    expect(organized.path).toBe('sources/a')
+    expect(repo.findInboxById(item.id)!.status).toBe('organized')
+
+    const item2 = repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'b' })
+    expect(handleWikiInboxDiscard(bridge, { type: 'wiki:inbox:discard', inboxId: item2.id })).toEqual({ success: true })
+    expect(repo.findInboxById(item2.id)!.status).toBe('discarded')
+
+    const item3 = repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'c' })
+    repo.markInboxAttemptFailed(item3.id, 'boom')
+    expect(handleWikiInboxRetry(bridge, { type: 'wiki:inbox:retry', inboxId: item3.id })).toEqual({ success: true })
+    expect(repo.findInboxById(item3.id)!.attempt_count).toBe(0)
+  })
+
+  it('越权分类路径在 organize 时抛错（savePage 最后防线）', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const item = repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'a' })
+    expect(() =>
+      handleWikiInboxOrganize(bridge, { type: 'wiki:inbox:organize', inboxId: item.id, path: 'notallowed/x' }),
+    ).toThrow()
+  })
+
+  it('page list/get/update/delete 全流程', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+
+    const updated = handleWikiPageUpdate(bridge, {
+      type: 'wiki:page:update',
+      agentId: 'assistant',
+      path: 'sources/doc',
+      title: '文档',
+      contentMd: '正文',
+    })
+    expect(updated.version).toBe(1)
+
+    const list = handleWikiPageList(bridge, { type: 'wiki:page:list', agentId: 'assistant' }) as { id: string }[]
+    expect(list).toHaveLength(1)
+
+    const got = handleWikiPageGet(bridge, { type: 'wiki:page:get', pageId: updated.pageId }) as { contentMd: string }
+    expect(got.contentMd).toBe('正文')
+
+    expect(handleWikiPageDelete(bridge, { type: 'wiki:page:delete', pageId: updated.pageId })).toEqual({ success: true })
+    expect(handleWikiPageGet(bridge, { type: 'wiki:page:get', pageId: updated.pageId })).toBeNull()
+  })
+
+  it('search 返回命中片段', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    repo.savePage({ agentId: 'assistant', userId: 'local-user', path: 'sources/x', title: '架构设计文档', contentMd: '正文', editor: 'ai' })
+
+    const hits = handleWikiSearch(bridge, { type: 'wiki:search', agentId: 'assistant', keyword: '架构设计' }) as { title: string }[]
+    expect(hits).toHaveLength(1)
+    expect(hits[0]!.title).toBe('架构设计文档')
+  })
+
+  it('source:get 存在与不存在两种情况', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '资料A' })
+
+    const got = handleWikiSourceGet(bridge, { type: 'wiki:source:get', sourceId: source.id }) as { title: string }
+    expect(got.title).toBe('资料A')
+    expect(handleWikiSourceGet(bridge, { type: 'wiki:source:get', sourceId: 'missing' })).toBeNull()
+  })
+
+  it('runs:list 与 index:rebuild', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const run = repo.createRun('assistant', 'local-user', ['i1'])
+    repo.finishRun(run.id, 'succeeded', '1 项已归档')
+
+    const runs = handleWikiRunsList(bridge, { type: 'wiki:runs:list', agentId: 'assistant' }) as { status: string }[]
+    expect(runs[0]!.status).toBe('succeeded')
+
+    repo.savePage({ agentId: 'assistant', userId: 'local-user', path: 'sources/y', title: 'y', contentMd: 'c', editor: 'ai' })
+    expect(handleWikiIndexRebuild(bridge)).toEqual({ rebuiltCount: 1 })
+  })
+})

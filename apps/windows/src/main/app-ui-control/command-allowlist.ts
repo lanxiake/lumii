@@ -30,6 +30,12 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'agent:memories:search', 'agent:memories:stats',
   // 记忆写操作（归档/恢复/重建索引）：不涉及任意内容写入与文件系统，可放行
   'agent:memories:archiveCold', 'agent:memories:unarchive', 'agent:memories:rebuildIndex',
+  // Wiki 知识库（P0）：只读浏览、检索与状态流转（重试/丢弃/重建索引），可放行。
+  // wiki:inbox:organize / wiki:page:update 接受任意 contentMd 字符串，与被拒的
+  // agent:memories:update 同理排除在外——本控制口不接受任意内容写入。
+  'wiki:inbox:list', 'wiki:inbox:retry', 'wiki:inbox:discard',
+  'wiki:page:list', 'wiki:page:get', 'wiki:page:delete',
+  'wiki:search', 'wiki:source:get', 'wiki:runs:list', 'wiki:index:rebuild',
   // MCP 只读
   'mcp:status',
   // 存储只读

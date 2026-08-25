@@ -24,6 +24,12 @@ export {
   speechGenerateToolConfig,
 } from "./integration-tools.js";
 export {
+  wikiOverviewToolConfig,
+  wikiSearchToolConfig,
+  wikiReadToolConfig,
+  wikiCaptureToolConfig,
+} from "./wiki-tools.js";
+export {
   channelListToolConfig,
   channelSendToolConfig,
   CHANNEL_LIST_TOOL_NAME,
@@ -93,6 +99,12 @@ import {
   speechGenerateToolConfig,
 } from "./integration-tools.js";
 import {
+  wikiOverviewToolConfig,
+  wikiSearchToolConfig,
+  wikiReadToolConfig,
+  wikiCaptureToolConfig,
+} from "./wiki-tools.js";
+import {
   channelListToolConfig,
   channelSendToolConfig,
 } from "./channel-tools.js";
@@ -146,6 +158,10 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   profileMemoryToolConfig,
   systemPromptToolConfig,
   speechGenerateToolConfig,
+  wikiOverviewToolConfig,
+  wikiSearchToolConfig,
+  wikiReadToolConfig,
+  wikiCaptureToolConfig,
   askUserQuestionToolConfig,
   skillListToolConfig,
   skillSearchToolConfig,

@@ -69,6 +69,7 @@ import { agentRuntimeLog as log, filterToolsByDefinition } from './bridge-utils'
 import { ensureProviderBaseUrl } from '../provider-config'
 import { resizeImageIfNeeded } from './image-resizer'
 import type { FileMemoryHandler } from './file-memory-handler'
+import type { WikiIngestHook } from '@mtbot/agent-runtime'
 import { maybeSnapshot } from '../workspace-vcs/vcs-snapshot'
 
 /** LLM 摘要生成器构造函数签名（由 bridge.ts 注入，避免循环依赖） */
@@ -111,6 +112,7 @@ export interface BridgeInstanceFactoryDeps {
   /** 把提问/审批文字化推给渠道用户；返回 true 表示该会话由渠道承接 */
   notifyChannelInteraction: (interaction: ChannelInteractionRequest) => boolean
   fileMemoryHandler: FileMemoryHandler
+  getWikiIngestHook: () => WikiIngestHook | null
   mcpClients: Map<string, McpStdioClient>
   getDefinitionStore: () => AgentDefinitionStore | null
   getOrchestrator: () => AgentOrchestrator | null
@@ -521,6 +523,7 @@ export class BridgeInstanceFactory {
       conversationRepo: this.deps.getConversationRepo(),
       fileRepo: this.deps.getFileRepo(),
       fileMemoryHandler: this.deps.fileMemoryHandler,
+      getWikiIngestHook: this.deps.getWikiIngestHook,
       instanceStates: this.deps.instanceStates,
       instanceToConversation: this.deps.instanceToConversation,
       agentName: def.name,

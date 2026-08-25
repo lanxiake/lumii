@@ -337,6 +337,86 @@ export interface AgentMemoriesStatsCommand {
 }
 
 // ============================================================
+// Wiki 知识库命令（P0）
+// ============================================================
+
+export interface WikiInboxListCommand {
+  readonly type: 'wiki:inbox:list'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly status?: 'pending' | 'organized' | 'discarded'
+}
+
+export interface WikiInboxRetryCommand {
+  readonly type: 'wiki:inbox:retry'
+  readonly inboxId: string
+}
+
+export interface WikiInboxDiscardCommand {
+  readonly type: 'wiki:inbox:discard'
+  readonly inboxId: string
+}
+
+/** 手动指定分类立即归档：绕开 AI 分类，直接把一条收件箱条目写为页面 */
+export interface WikiInboxOrganizeCommand {
+  readonly type: 'wiki:inbox:organize'
+  readonly inboxId: string
+  readonly path: string
+  readonly title?: string
+  readonly contentMd?: string
+}
+
+export interface WikiPageListCommand {
+  readonly type: 'wiki:page:list'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly category?: string
+}
+
+export interface WikiPageGetCommand {
+  readonly type: 'wiki:page:get'
+  readonly pageId: string
+}
+
+export interface WikiPageUpdateCommand {
+  readonly type: 'wiki:page:update'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly path: string
+  readonly title: string
+  readonly contentMd: string
+}
+
+export interface WikiPageDeleteCommand {
+  readonly type: 'wiki:page:delete'
+  readonly pageId: string
+}
+
+export interface WikiSearchCommand {
+  readonly type: 'wiki:search'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly keyword: string
+  readonly limit?: number
+}
+
+export interface WikiSourceGetCommand {
+  readonly type: 'wiki:source:get'
+  readonly sourceId: string
+}
+
+export interface WikiRunsListCommand {
+  readonly type: 'wiki:runs:list'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly limit?: number
+}
+
+export interface WikiIndexRebuildCommand {
+  readonly type: 'wiki:index:rebuild'
+}
+
+// ============================================================
 // 工具管理命令
 // ============================================================
 
@@ -913,6 +993,18 @@ export type AgentRuntimeCommand =
   | AgentMemoriesUnarchiveCommand
   | AgentMemoriesRebuildIndexCommand
   | AgentMemoriesStatsCommand
+  | WikiInboxListCommand
+  | WikiInboxRetryCommand
+  | WikiInboxDiscardCommand
+  | WikiInboxOrganizeCommand
+  | WikiPageListCommand
+  | WikiPageGetCommand
+  | WikiPageUpdateCommand
+  | WikiPageDeleteCommand
+  | WikiSearchCommand
+  | WikiSourceGetCommand
+  | WikiRunsListCommand
+  | WikiIndexRebuildCommand
   | ToolsListCommand
   | ToolsToggleCommand
   | McpStatusCommand
@@ -1132,6 +1224,66 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       cold: number
       total: number
     }
+  : T extends 'wiki:inbox:list' ? readonly {
+      id: string
+      itemType: string
+      title: string
+      contentPreview: string | null
+      mediaType: string
+      status: string
+      attemptCount: number
+      lastError: string | null
+      createdAt: number
+    }[]
+  : T extends 'wiki:inbox:retry' ? { success: boolean }
+  : T extends 'wiki:inbox:discard' ? { success: boolean }
+  : T extends 'wiki:inbox:organize' ? { pageId: string; path: string }
+  : T extends 'wiki:page:list' ? readonly {
+      id: string
+      path: string
+      category: string
+      title: string
+      version: number
+      updatedAt: number
+    }[]
+  : T extends 'wiki:page:get' ? {
+      id: string
+      path: string
+      category: string
+      title: string
+      contentMd: string
+      version: number
+      updatedAt: number
+    } | null
+  : T extends 'wiki:page:update' ? { pageId: string; version: number }
+  : T extends 'wiki:page:delete' ? { success: boolean }
+  : T extends 'wiki:search' ? readonly {
+      pageId: string
+      path: string
+      category: string
+      title: string
+      snippet: string
+      updatedAt: number
+    }[]
+  : T extends 'wiki:source:get' ? {
+      id: string
+      title: string
+      sourcePath: string | null
+      mediaType: string
+      extractedText: string | null
+      originContext: string | null
+      createdAt: number
+    } | null
+  : T extends 'wiki:runs:list' ? readonly {
+      id: string
+      inboxIds: readonly string[]
+      status: string
+      resultSummary: string | null
+      error: string | null
+      createdAt: number
+      finishedAt: number | null
+    }[]
+  : T extends 'wiki:index:rebuild' ? { rebuiltCount: number }
   : T extends 'tools:list' ? readonly {
       name: string
       label: string

@@ -94,6 +94,10 @@ export {
   profileMemoryToolConfig,
   systemPromptToolConfig,
   speechGenerateToolConfig,
+  wikiOverviewToolConfig,
+  wikiSearchToolConfig,
+  wikiReadToolConfig,
+  wikiCaptureToolConfig,
   imageGenerateToolConfig,
   DEFAULT_IMAGE_MODEL_ID,
   IMAGE_GENERATION_MODEL_OPTIONS,
@@ -318,6 +322,43 @@ export type {
   ExtractionOrchestratorConfig,
   MemoryManagerOptions,
 } from "./memory/index.js";
+
+// === Wiki 知识库导出 ===
+export {
+  WikiRepo,
+  WikiIndexRepo,
+  wikiBigramJoin,
+  WikiIngestHook,
+  WikiOrganizer,
+  WikiOrganizeQueue,
+  computeBackoffDelayMs,
+  MAX_ORGANIZE_ATTEMPTS,
+  WikiContentExtractor,
+  buildClassifyPrompt,
+  parseClassifyResponse,
+  classifyBatch,
+  generateWikiId,
+  validateWikiPath,
+  AI_WRITABLE_CATEGORIES,
+} from "./wiki/index.js";
+export type {
+  WikiSearchHit,
+  WikiFtsHealth,
+  WikiContentExtractorDeps,
+  ExtractInput,
+  ClassifiedItem,
+  WikiCategory,
+  WikiMediaType,
+  WikiInboxItemType,
+  WikiInboxStatus,
+  WikiInboxItem,
+  WikiSource,
+  WikiPage,
+  WikiPageRevision,
+  WikiRevisionEditor,
+  WikiOrganizeRun,
+  WikiOrganizeRunStatus,
+} from "./wiki/index.js";
 
 // === 消息系统导出 ===
 export {

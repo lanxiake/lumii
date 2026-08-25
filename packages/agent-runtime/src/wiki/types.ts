@@ -1,0 +1,131 @@
+/**
+ * Wiki 知识库类型定义
+ *
+ * 设计：`docs/design/记忆设计/2026-08-25-wiki-design-p0p1p2.md`
+ */
+
+/** 固定顶层分类，AI 落点被约束在此集合内（P0 仅 sources/media/inbox 可自动写） */
+export type WikiCategory = "sources" | "media" | "inbox" | "concepts" | "entities" | "syntheses";
+
+/** P0 允许 AI 自动写入的顶层分类 */
+export const AI_WRITABLE_CATEGORIES: ReadonlySet<WikiCategory> = new Set(["sources", "media", "inbox"]);
+
+export type WikiMediaType = "document" | "image" | "audio" | "video";
+
+export type WikiInboxItemType = "upload" | "output" | "search" | "chat";
+
+export type WikiInboxStatus = "pending" | "organized" | "discarded";
+
+export interface WikiInboxItem {
+  readonly id: string;
+  readonly agent_id: string;
+  readonly user_id: string;
+  readonly item_type: WikiInboxItemType;
+  readonly source_path: string | null;
+  readonly source_url: string | null;
+  readonly title: string;
+  readonly content_preview: string | null;
+  readonly media_type: WikiMediaType;
+  readonly status: WikiInboxStatus;
+  readonly attempt_count: number;
+  readonly last_error: string | null;
+  readonly organized_source_id: string | null;
+  readonly content_hash: string | null;
+  readonly created_at: string;
+  readonly organized_at: string | null;
+}
+
+export interface WikiSource {
+  readonly id: string;
+  readonly agent_id: string;
+  readonly user_id: string;
+  readonly title: string;
+  readonly source_path: string | null;
+  readonly content_md: string | null;
+  readonly content_hash: string | null;
+  readonly mime_type: string | null;
+  readonly media_type: WikiMediaType;
+  readonly extracted_text: string | null;
+  readonly media_meta: string | null;
+  readonly preview_path: string | null;
+  readonly origin_context: string | null;
+  readonly archived_at: string | null;
+  readonly created_at: string;
+}
+
+export interface WikiPage {
+  readonly id: string;
+  readonly agent_id: string;
+  readonly user_id: string;
+  readonly path: string;
+  readonly category: WikiCategory;
+  readonly title: string;
+  readonly content_md: string;
+  readonly version: number;
+  readonly last_used: string | null;
+  readonly use_count: number;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
+export type WikiRevisionEditor = "user" | "ai";
+
+export interface WikiPageRevision {
+  readonly id: string;
+  readonly page_id: string;
+  readonly version: number;
+  readonly title: string;
+  readonly path: string;
+  readonly content_md: string;
+  readonly editor: WikiRevisionEditor;
+  readonly source_ref: string | null;
+  readonly created_at: string;
+}
+
+export type WikiOrganizeRunStatus = "running" | "succeeded" | "partial" | "failed";
+
+export interface WikiOrganizeRun {
+  readonly id: string;
+  readonly agent_id: string;
+  readonly user_id: string;
+  readonly inbox_ids: readonly string[];
+  readonly status: WikiOrganizeRunStatus;
+  readonly result_summary: string | null;
+  readonly error: string | null;
+  readonly created_at: string;
+  readonly finished_at: string | null;
+}
+
+/** 生成短随机 ID（同 memory 模块范式） */
+export function generateWikiId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * 校验路径是否落在允许的顶层分类内，且不含空段、`..`、绝对路径、分隔符逃逸。
+ * 校验失败时调用方应降级到 inbox/。
+ */
+export function validateWikiPath(pathStr: string): { readonly valid: boolean; readonly category: WikiCategory | null } {
+  if (!pathStr || pathStr.startsWith("/") || pathStr.includes("\\")) {
+    return { valid: false, category: null };
+  }
+  const segments = pathStr.split("/");
+  if (segments.some((s) => s.length === 0 || s === "." || s === "..")) {
+    return { valid: false, category: null };
+  }
+  const top = segments[0];
+  const categories: readonly WikiCategory[] = [
+    "sources",
+    "media",
+    "inbox",
+    "concepts",
+    "entities",
+    "syntheses",
+  ];
+  if (!categories.includes(top as WikiCategory)) {
+    return { valid: false, category: null };
+  }
+  return { valid: true, category: top as WikiCategory };
+}
