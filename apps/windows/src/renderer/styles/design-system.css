@@ -72,11 +72,14 @@
                          radial-gradient(at 80% 0%, rgba(37,99,235,0.30) 0%, transparent 50%),
                          radial-gradient(at 60% 90%, rgba(14,165,233,0.22) 0%, transparent 50%);
 
-  /* 字体族 */
-  --mt-font-sans:    'Inter', 'Segoe UI', 'Microsoft YaHei', system-ui, -apple-system, 'Noto Sans SC', sans-serif;
-  --mt-font-zh:      'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  /* 字体族
+   * 'Inter Variable' 由 @fontsource-variable/inter 自托管加载(见 global.css)，
+   * 只覆盖西文/数字；中文由系统的雅黑 UI 承接（雅黑 UI 字形比 Microsoft YaHei
+   * 更适合界面，Win10/11 自带）。 */
+  --mt-font-sans:    'Inter Variable', 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, -apple-system, sans-serif;
+  --mt-font-zh:      'Microsoft YaHei UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
   --mt-font-mono:    'JetBrains Mono', 'Fira Code', Consolas, Monaco, monospace;
-  --mt-font-display: 'Inter', system-ui, sans-serif;
+  --mt-font-display: 'Inter Variable', 'Segoe UI Variable Display', system-ui, sans-serif;
 
   /* 字体大小阶梯 (px) */
   --mt-fs-xs:   12px;

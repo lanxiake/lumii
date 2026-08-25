@@ -172,7 +172,7 @@ export class SkillWatcher {
     this.isRebuilding = true
     try {
       this.skillList = await this.scanSkillsDirectory()
-      log.info(`[rebuildSkillList] 扫描完成，找到 ${this.skillList.length} 个技能`)
+      log.debug(`[rebuildSkillList] 扫描完成，找到 ${this.skillList.length} 个技能`)
       this.onSkillsChanged?.(this.skillList)
     } catch (error) {
       log.error('[rebuildSkillList] 扫描失败:', error)

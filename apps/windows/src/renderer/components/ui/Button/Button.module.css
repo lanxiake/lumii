@@ -19,6 +19,17 @@
   cursor: not-allowed;
 }
 
+/* 按压回弹 + 键盘焦点环 — 所有 variant 共享 */
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--mt-bg-primary),
+              0 0 0 4px var(--mt-accent-500);
+}
+
 /* Sizes */
 .btn-sm {
   padding: var(--spacing-1-5) var(--spacing-3);
@@ -42,10 +53,16 @@
 .btn-primary {
   background: var(--mt-accent-500);
   color: white;
+  box-shadow: var(--mt-shadow-xs), var(--mt-shadow-inner);
 }
 
 .btn-primary:hover:not(:disabled) {
   background: var(--mt-accent-600);
+  box-shadow: var(--mt-shadow-sm), var(--mt-shadow-inner);
+}
+
+.btn-primary:active:not(:disabled) {
+  box-shadow: var(--mt-shadow-xs);
 }
 
 .btn-secondary {
@@ -55,7 +72,10 @@
 }
 
 .btn-secondary:hover:not(:disabled) {
-  background: var(--color-gray-600);
+  /* 用主题令牌而非固定的 --color-gray-600：后者在浅色主题下会把
+   * 按钮刷成深灰底 + 深色字，对比度不足 */
+  background: var(--mt-bg-secondary);
+  border-color: var(--mt-border-light);
 }
 
 .btn-danger {
@@ -86,7 +106,8 @@
 .btn-spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  /* 跟随按钮文字色，避免固定白色在浅底 ghost/secondary 按钮上不可见 */
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
   border-top-color: currentColor;
   border-radius: 50%;
   animation: btn-spin 0.8s linear infinite;

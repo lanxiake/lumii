@@ -55,6 +55,18 @@ describe("captureWorkspaceTurnSnapshot", () => {
     expect(snap.has("uploads/big.pdf")).toBe(false);
   });
 
+  it("跳过 skills/index.json，但保留技能本体文件", async () => {
+    fs.mkdirSync(path.join(dir, "skills", "my-skill"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "skills", "index.json"), '{"v":1}');
+    fs.writeFileSync(path.join(dir, "skills", "my-skill", "SKILL.md"), "# s");
+
+    const snap = await captureWorkspaceTurnSnapshot(dir);
+    // 主进程自动维护的索引不属于会话产出，不应进入回合 diff
+    expect(snap.has("skills/index.json")).toBe(false);
+    // 技能本体仍需跟踪
+    expect(snap.has("skills/my-skill/SKILL.md")).toBe(true);
+  });
+
   it("workspaceDir 不存在时抛错", async () => {
     await expect(
       captureWorkspaceTurnSnapshot(path.join(dir, "missing")),

@@ -2,9 +2,16 @@
  * Global Styles - 全局样式
  *
  * 导入顺序:
+ * 0. @fontsource-variable/inter — 自托管 Inter 可变字体
  * 1. design-system.css — 定义 --mt-* 变量和主题选择器
  * 2. tokens.css — 旧 --color-* 变量 + 兼容映射层
  */
+
+/* 0. 自托管西文字体 (离线可用，无外部请求)
+ * 用 wght.css 而非 index.css：只含可变字重轴分片(224KB)，
+ * index.css 会额外拉入 opsz/standard 重复变体(~1.2MB)。
+ * 中文字形不由此包覆盖，交给系统字体(见 --mt-font-sans)。 */
+@import '@fontsource-variable/inter/wght.css';
 
 /* 1. 先导入设计系统 (定义 --mt-* 变量和主题选择器) */
 @import './design-system.css';

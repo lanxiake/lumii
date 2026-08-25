@@ -26,15 +26,18 @@ function captureWatchListener(): (eventType: string, filename: string | null) =>
   };
 }
 
+/** 等待超过 SkillWatcher 的 1500ms 防抖窗口，并留出真实 fs 扫描的时间 */
+function waitPastDebounce(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 2200));
+}
+
 describe("SkillWatcher 自写文件过滤", () => {
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-watcher-"));
     fs.mkdirSync(path.join(root, "skills"), { recursive: true });
-    vi.useFakeTimers();
   });
 
   afterEach(async () => {
-    vi.useRealTimers();
     vi.restoreAllMocks();
     await watcher?.stop();
     watcher = null;
@@ -52,13 +55,15 @@ describe("SkillWatcher 自写文件过滤", () => {
     // start() 内的初始扫描会回调一次，先归零只观察事件驱动的重扫
     onChanged.mockClear();
 
+    // 本进程自写的索引文件：根层与分类层都应被过滤
     emit("change", "index.json");
     emit("change", "分类A/index.json");
-    await vi.advanceTimersByTimeAsync(3000);
+    await waitPastDebounce();
     expect(onChanged).not.toHaveBeenCalled();
 
+    // 真实技能变更仍必须触发重扫
     emit("rename", "my-skill/skill.md");
-    await vi.advanceTimersByTimeAsync(3000);
+    await waitPastDebounce();
     expect(onChanged).toHaveBeenCalledTimes(1);
-  });
+  }, 15000);
 });

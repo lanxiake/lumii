@@ -130,8 +130,15 @@
   border-radius: var(--radius-lg);
   text-align: left;
   cursor: pointer;
-  transition: all 0.2s ease;
+  /* 只过渡实际会变的属性，并使用设计系统曲线(原为 transition: all 0.2s ease) */
+  transition: color var(--mt-dur-fast) var(--mt-ease-standard),
+              background-color var(--mt-dur-fast) var(--mt-ease-standard);
   white-space: nowrap;
+}
+
+.nav-item:focus-visible {
+  outline: 2px solid var(--mt-accent-500);
+  outline-offset: -2px;
 }
 
 .nav-item:hover:not(:disabled) {
@@ -140,10 +147,22 @@
 }
 
 .nav-item.active {
+  position: relative;
   color: var(--mt-accent-500);
   background-color: var(--mt-bg-tertiary);
-  border-left: 2px solid var(--mt-accent-500);
-  padding-left: calc(var(--spacing-3) - 2px);
+}
+
+/* active 指示条：圆头短条，不占布局(原为 border-left 硬线 + padding 补偿) */
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  translate: 0 -50%;
+  width: 3px;
+  height: 16px;
+  border-radius: var(--mt-radius-full);
+  background: var(--mt-accent-500);
 }
 
 .nav-item:disabled {

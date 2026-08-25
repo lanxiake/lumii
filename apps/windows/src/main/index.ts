@@ -209,7 +209,13 @@ if (process.platform === 'win32') {
   }
 }
 
+/** debug 与 createLogger 保持同一开关：仅在 LOG_LEVEL=debug 时输出 */
+const isDebugLogEnabled = process.env.LOG_LEVEL === 'debug'
+
 const log = {
+  debug: (...args: unknown[]) => {
+    if (isDebugLogEnabled) console.log('[Main]', ...args)
+  },
   info: (...args: unknown[]) => console.log('[Main]', ...args),
   error: (...args: unknown[]) => console.error('[Main]', ...args),
   warn: (...args: unknown[]) => console.warn('[Main]', ...args),
@@ -457,7 +463,7 @@ async function initSkillWatcher(): Promise<void> {
 
   // 设置本地技能变更回调（Agent 在客户端执行，无需上报网关）
   skillWatcher.setOnSkillsChanged((skills) => {
-    log.info(`[SkillWatcher] 技能列表已更新: ${skills.length} 个技能`)
+    log.debug(`[SkillWatcher] 技能列表已更新: ${skills.length} 个技能`)
     // watcher 扫的是磁盘，而 skills:listLocalInstalled 读的是 SkillRuntime 的内存索引；
     // 先让运行时重读磁盘，再通知渲染进程，避免前端刷新后仍拿到旧索引。
     void (async () => {

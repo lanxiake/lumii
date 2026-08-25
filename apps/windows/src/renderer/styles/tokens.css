@@ -303,9 +303,14 @@
   --border-color: var(--color-border);
   --border-radius: var(--radius-lg);
   --font-family: var(--font-family-sans);
-  --font-size-sm: var(--font-size-xs);
-  --font-size-md: var(--font-size-sm);
-  --font-size-lg: var(--font-size-base);
+  /* --font-size-md 是补给旧代码的中间档别名。
+   * 注意: 不要在这里写 var(--font-size-*) 形式的重映射——本块与上面第 128 行起的
+   * 阶梯定义属于同一个 :root，后者会覆盖前者。曾经的
+   *   --font-size-sm: var(--font-size-xs);
+   *   --font-size-lg: var(--font-size-base);
+   * 把 sm(14px) 压成 12px、lg(18px) 压成 16px，使 xs/sm/md 三档全挤在 12px，
+   * 14px 与 18px 在全应用消失(sm 是引用最多的字号，102 处)。 */
+  --font-size-md: 14px;
   --spacing-xs: var(--spacing-1);
   --spacing-sm: var(--spacing-2);
   --spacing-md: var(--spacing-4);
@@ -347,6 +352,15 @@
   --color-primary-900: var(--mt-accent-900);
   --color-primary:     var(--mt-accent-500);
   --color-primary-hover: var(--mt-accent-600);
+
+  /* --color-accent 系列 — 补齐从未定义的变量。
+   * 这三个变量在 25 处组件样式里被引用，但从未在任何地方定义过，
+   * 因此全部落到各自的 fallback 上，且 fallback 用了 6 种不同的蓝
+   * (#4a90e2 / #89b4ff / #4f8ef7 / #38bdf8 / #3b82f6 / #6366f1)——
+   * 品牌色在界面上不统一，且不随主题切换。此处统一指向品牌色。 */
+  --color-accent:      var(--mt-accent-500);
+  --color-accent-soft: rgba(var(--mt-accent-rgb), 0.12);
+  --color-accent-15:   rgba(var(--mt-accent-rgb), 0.15);
 
   /* Alpha 主色 — 使用新蓝色 */
   --color-primary-500-5:  rgba(59, 130, 246, 0.05);
