@@ -9,11 +9,12 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import MDEditor from '@uiw/react-md-editor'
-import { Brain, Check, RotateCcw } from 'lucide-react'
+import { Brain, Check, RotateCcw, HelpCircle } from 'lucide-react'
 import { Button } from '../../components/ui/Button/Button'
 import { Loading } from '../../components/ui/Loading/Loading'
 import { ErrorBanner } from '../../components/ui/ErrorBanner/ErrorBanner'
 import { PageHeader } from '../../components/ui/PageHeader/PageHeader'
+import { Tooltip } from '../../components/ui/Tooltip/Tooltip'
 import { MemoryViewer } from '../SettingsPage/components/MemoryViewer/MemoryViewer'
 import { useMemPalace } from '../../hooks/business/useMemPalace/useMemPalace'
 import { usePluginsContext } from '../../contexts/PluginsContext/PluginsContext'
@@ -254,49 +255,57 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
 
       {/* Tab 导航 */}
       <div className="memories-tabs">
-        <button type="button" className={`memories-tab ${activeTab === 'soul' ? 'memories-tab--active' : ''}`} onClick={() => setActiveTab('soul')}>
-          AI 灵魂
-        </button>
-        <button type="button" className={`memories-tab ${activeTab === 'ai' ? 'memories-tab--active' : ''}`} onClick={() => setActiveTab('ai')}>
-          工作记忆
-        </button>
-        <button type="button" className={`memories-tab ${activeTab === 'user-memory' ? 'memories-tab--active' : ''}`} onClick={() => setActiveTab('user-memory')}>
-          个人记忆
-        </button>
-        <button type="button" className={`memories-tab ${activeTab === 'plugin' ? 'memories-tab--active' : ''}`} onClick={() => setActiveTab('plugin')}>
-          记忆插件
-        </button>
+        <Tooltip content="定义 AI 助手的性格与风格，支持模板一键切换" placement="bottom">
+          <button type="button" className={`memories-tab ${activeTab === 'soul' ? 'memories-tab--active' : ''}`} onClick={() => setActiveTab('soul')}>
+            AI 灵魂
+          </button>
+        </Tooltip>
+        <Tooltip content="当前进行中的任务、项目、资源引用。按 Agent 隔离，随任务结束归档，仅存本地" placement="bottom">
+          <button type="button" className={`memories-tab ${activeTab === 'ai' ? 'memories-tab--active' : ''}`} onClick={() => setActiveTab('ai')}>
+            工作记忆
+          </button>
+        </Tooltip>
+        <Tooltip content="你的身份、偏好等跨会话稳定信息。全局生效，不区分 Agent，需手动管理" placement="bottom">
+          <button type="button" className={`memories-tab ${activeTab === 'user-memory' ? 'memories-tab--active' : ''}`} onClick={() => setActiveTab('user-memory')}>
+            个人记忆
+          </button>
+        </Tooltip>
+        <Tooltip content="基于向量数据库的语义长期记忆，自动召回相关历史对话" placement="bottom">
+          <button type="button" className={`memories-tab ${activeTab === 'plugin' ? 'memories-tab--active' : ''}`} onClick={() => setActiveTab('plugin')}>
+            记忆插件
+          </button>
+        </Tooltip>
       </div>
 
       {/* 记忆注入开关 */}
       <div className="memory-injection-settings">
-        <h3 className="memory-injection-title">记忆注入</h3>
-        <p className="memory-injection-desc">
-          控制是否将记忆预注入系统提示词。关闭后 AI 不会自动看到相应记忆，但仍可通过工具按需搜索读取。
-        </p>
+        <div className="memory-injection-header">
+          <h3 className="memory-injection-title">记忆注入</h3>
+          <Tooltip content="控制是否将记忆预注入系统提示词。关闭后 AI 不会自动看到相应记忆，但仍可通过工具按需搜索读取。" placement="bottom">
+            <HelpCircle size={16} className="memory-injection-help-icon" />
+          </Tooltip>
+        </div>
         <div className="memory-injection-options">
-          <label className="memory-injection-option" htmlFor="memory-inject-personal">
-            <Checkbox
-              id="memory-inject-personal"
-              checked={settings.memory?.injectPersonalMemory !== false}
-              onChange={(checked) => void handleMemoryInjectionChange('injectPersonalMemory', checked)}
-            />
-            <span>
-              注入个人记忆
-              <em className="memory-injection-hint">你是谁、你的偏好 —— 跨会话稳定，全局生效</em>
-            </span>
-          </label>
-          <label className="memory-injection-option" htmlFor="memory-inject-work">
-            <Checkbox
-              id="memory-inject-work"
-              checked={settings.memory?.injectWorkMemory !== false}
-              onChange={(checked) => void handleMemoryInjectionChange('injectWorkMemory', checked)}
-            />
-            <span>
-              注入工作记忆
-              <em className="memory-injection-hint">当前在做什么、用什么资源 —— 按 Agent 隔离，会随任务结束归档</em>
-            </span>
-          </label>
+          <Tooltip content="你是谁、你的偏好 — 跨会话稳定，全局生效" placement="bottom">
+            <label className="memory-injection-option" htmlFor="memory-inject-personal">
+              <Checkbox
+                id="memory-inject-personal"
+                checked={settings.memory?.injectPersonalMemory !== false}
+                onChange={(checked) => void handleMemoryInjectionChange('injectPersonalMemory', checked)}
+              />
+              <span>注入个人记忆</span>
+            </label>
+          </Tooltip>
+          <Tooltip content="当前在做什么、用什么资源 — 按 Agent 隔离，会随任务结束归档" placement="bottom">
+            <label className="memory-injection-option" htmlFor="memory-inject-work">
+              <Checkbox
+                id="memory-inject-work"
+                checked={settings.memory?.injectWorkMemory !== false}
+                onChange={(checked) => void handleMemoryInjectionChange('injectWorkMemory', checked)}
+              />
+              <span>注入工作记忆</span>
+            </label>
+          </Tooltip>
         </div>
       </div>
 
@@ -369,13 +378,9 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
         </>
       )}
 
-      {/* AI 记忆 Tab */}
+      {/* 工作记忆 Tab */}
       {activeTab === 'ai' && (
         <div className="memories-ai-panel">
-          <p className="memories-ai-intro">
-            <strong>工作记忆</strong>存储当前进行中的任务、项目、资源引用等动态信息。AI 会自动从对话中提取，按 Agent 隔离管理。
-            内容变化快，会随任务结束被归档。数据仅存本地 SQLite，不上传云端。
-          </p>
           <MemoryViewer />
         </div>
       )}
@@ -383,10 +388,6 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
       {/* 个人记忆 Tab */}
       {activeTab === 'user-memory' && (
         <div className="memories-ai-panel">
-          <p className="memories-ai-intro">
-            <strong>个人记忆</strong>存储你的身份、偏好、长期习惯等跨会话稳定的信息。AI 会自动提取并全局生效（不区分 Agent）。
-            内容变化慢，不会自动归档，需手动编辑或清空。
-          </p>
           {userMemoryError && (
             <ErrorBanner message={userMemoryError.message} onRetry={fetchUserMemory} />
           )}

@@ -183,8 +183,7 @@ const MemoryViewer: React.FC = () => {
   return (
     <div className={styles.wrap}>
       <p className={styles.lead}>
-        以下是「工作记忆」：AI 从对话中自动提取的动态信息（进行中的事、外部资源等），按 Agent 隔离，长期未用会被归档。
-        身份、偏好等长期稳定信息请到「个人记忆」标签查看和管理。
+        工作记忆：AI 从对话中自动提取的动态信息（进行中的事、外部资源等），按 Agent 隔离，长期未用会被归档。
         <strong className={styles.privacy}>
           所有记忆仅存储在本地设备，不会上传到云端。
         </strong>

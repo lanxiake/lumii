@@ -66,11 +66,28 @@
   flex-shrink: 0;
 }
 
+.memory-injection-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
 .memory-injection-title {
-  margin: 0 0 6px;
+  margin: 0;
   font-size: 14px;
   font-weight: 600;
   color: var(--color-text-primary);
+}
+
+.memory-injection-help-icon {
+  color: var(--color-text-tertiary);
+  cursor: help;
+  flex-shrink: 0;
+}
+
+.memory-injection-help-icon:hover {
+  color: var(--color-text-secondary);
 }
 
 .memory-injection-desc {
@@ -88,7 +105,7 @@
 
 .memory-injection-option {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   font-size: 13px;
   color: var(--color-text-primary);
@@ -97,15 +114,7 @@
 
 .memory-injection-option > span {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.memory-injection-hint {
-  font-size: 12px;
-  font-style: normal;
-  color: var(--color-text-tertiary);
-  font-weight: normal;
+  align-items: center;
 }
 
 /* AI 记忆面板 */
