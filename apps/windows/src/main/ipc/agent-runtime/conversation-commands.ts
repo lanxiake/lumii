@@ -203,17 +203,17 @@ export function extractPreviewText(contentJson: string): string {
 }
 
 /**
- * 取会话中「Agent 最后一条有文字的回复」作为列表预览。
+ * 从一个会话的最近消息中挑出「Agent 最后一条有文字的回复」作为列表预览。
  *
  * 末条消息常常是 tool_result 或纯工具调用的 assistant 消息（无正文），
  * 因此从后往前回溯，跳过无正文的消息；找不到 assistant 正文时回退到最后一条
  * 用户消息，避免整条会话显示「暂无消息」。
+ *
+ * @param messages - 该会话的最近消息，按时间正序
  */
-function resolveLastMessagePreview(
-  bridge: AgentRuntimeBridge,
-  conversationId: string,
+export function resolveLastMessagePreview(
+  messages: readonly { readonly role: string; readonly content_json: string }[],
 ): string | undefined {
-  const messages = bridge.conversationRepo.loadRecentMessages(conversationId, PREVIEW_SCAN_LIMIT)
   let userFallback = ''
 
   for (let i = messages.length - 1; i >= 0; i -= 1) {
@@ -255,8 +255,16 @@ export function handleConversationList(
     }
   }
 
+  // 批量查询所有会话的最近消息，避免 N+1 查询（50 会话 → 1 次 SQL）
+  const conversationIds = conversations.map((c) => c.id)
+  const lastMessagesMap = bridge.conversationRepo.loadLastMessagesForConversations(
+    conversationIds,
+    PREVIEW_SCAN_LIMIT,
+  )
+
   return conversations.map((c) => {
-    const lastMessagePreview = resolveLastMessagePreview(bridge, c.id)
+    const messages = lastMessagesMap.get(c.id) ?? []
+    const lastMessagePreview = resolveLastMessagePreview(messages)
     return {
       ...(lastMessagePreview ? { lastMessagePreview } : {}),
       id: c.id,

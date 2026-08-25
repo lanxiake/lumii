@@ -563,6 +563,81 @@ export class ConversationRepo {
     return [...rows].reverse();
   }
 
+  /**
+   * 批量取多个会话的最近消息（用于会话列表预览）。
+   *
+   * 返回 Map<conversationId, { conversation_id, role, content_json, timestamp }>。
+   * 每个会话返回最近 `limit` 条消息（时间倒序），调用方可从后往前扫描筛选预览文本。
+   * `limit` 越大越能跳过末尾的 tool_result / 无文本助手消息，但查询成本也越高 —— 默认 20。
+   * 比 50 次 `loadRecentMessages(id, 1)` 省约 49 次 SQL 往返。
+   *
+   * @param conversationIds - 会话 ID 列表
+   * @param limit - 每会话最多返回多少条消息（默认 20）
+   * @returns Map，键是 conversationId，值是该会话的最近消息数组（按时间正序）
+   */
+  loadLastMessagesForConversations(
+    conversationIds: readonly string[],
+    limit = 20,
+  ): ReadonlyMap<
+    string,
+    ReadonlyArray<{
+      readonly conversation_id: string;
+      readonly role: string;
+      readonly content_json: string;
+      readonly timestamp: string;
+    }>
+  > {
+    if (conversationIds.length === 0) return new Map();
+
+    // 使用 ROW_NUMBER() 对每个会话分区，只取最近 limit 条（is_streaming=0）。
+    // SQLite 3.25+ 支持窗口函数；node:sqlite 捆绑的是现代版 SQLite，可用。
+    // 构造 IN (?,?,...) 子句，每个 conversation_id 一个占位符
+    const placeholders = conversationIds.map(() => "?").join(",");
+    const sql = `
+      WITH ranked AS (
+        SELECT conversation_id, role, content_json, timestamp,
+               ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY timestamp DESC) AS rn
+        FROM messages
+        WHERE conversation_id IN (${placeholders})
+          AND is_streaming = 0
+      )
+      SELECT conversation_id, role, content_json, timestamp
+      FROM ranked
+      WHERE rn <= ?
+      ORDER BY conversation_id, timestamp ASC
+    `;
+
+    const rows = this.db
+      .prepare<{
+        conversation_id: string;
+        role: string;
+        content_json: string;
+        timestamp: string;
+      }>(sql)
+      .all(...conversationIds, limit);
+
+    // 按 conversation_id 分组
+    const map = new Map<
+      string,
+      Array<{
+        conversation_id: string;
+        role: string;
+        content_json: string;
+        timestamp: string;
+      }>
+    >();
+    for (const row of rows) {
+      let group = map.get(row.conversation_id);
+      if (!group) {
+        group = [];
+        map.set(row.conversation_id, group);
+      }
+      group.push(row);
+    }
+
+    return map;
+  }
+
   // ── 消息写入 ──
 
   saveMessage(params: {
