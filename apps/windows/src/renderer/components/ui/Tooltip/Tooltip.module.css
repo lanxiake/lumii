@@ -7,7 +7,8 @@
   position: absolute;
   z-index: var(--z-tooltip);
   padding: var(--spacing-2) var(--spacing-3);
-  background-color: var(--color-gray-900);
+  background-color: rgba(30, 33, 42, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   pointer-events: none;
@@ -27,7 +28,7 @@
 
 .tooltip-content {
   font-size: var(--font-size-xs);
-  color: var(--color-text-primary);
+  color: #ffffff;
   white-space: nowrap;
   line-height: var(--line-height-normal);
 }
@@ -36,7 +37,7 @@
   position: absolute;
   width: 8px;
   height: 8px;
-  background-color: var(--color-gray-900);
+  background-color: rgba(30, 33, 42, 0.95);
   transform: rotate(45deg);
 }
 
