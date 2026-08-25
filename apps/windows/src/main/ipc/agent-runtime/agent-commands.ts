@@ -126,6 +126,58 @@ export function handleAgentMemoriesProvenance(
   }
 }
 
+export function handleAgentMemoriesSearch(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'agent:memories:search' }>,
+): unknown {
+  const agentId = resolveAgentIdForMemories(bridge, command.sessionKey, command.agentId)
+  const entries = bridge.memoryManager.searchMemories(
+    agentId,
+    LOCAL_USER_ID,
+    command.keyword,
+    command.limit,
+  )
+  return entries.map((e) => ({
+    id: e.id,
+    category: e.category,
+    content: e.content,
+    importance: e.importance,
+    createdAt: new Date(e.created_at).getTime(),
+  }))
+}
+
+export function handleAgentMemoriesArchiveCold(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'agent:memories:archiveCold' }>,
+): { archivedCount: number } {
+  const agentId = resolveAgentIdForMemories(bridge, command.sessionKey, command.agentId)
+  const archivedCount = bridge.memoryManager.archiveColdMemories(agentId, LOCAL_USER_ID)
+  return { archivedCount }
+}
+
+export function handleAgentMemoriesUnarchive(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'agent:memories:unarchive' }>,
+): { success: boolean } {
+  bridge.memoryManager.unarchiveMemory(command.memoryId)
+  return { success: true }
+}
+
+export function handleAgentMemoriesRebuildIndex(bridge: AgentRuntimeBridge): { rebuiltCount: number } {
+  const rebuiltCount = bridge.memoryManager.rebuildMemoryIndex()
+  return { rebuiltCount }
+}
+
+export function handleAgentMemoriesStats(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'agent:memories:stats' }>,
+): { hot: number; warm: number; cold: number; total: number } {
+  const agentId = resolveAgentIdForMemories(bridge, command.sessionKey, command.agentId)
+  const dist = bridge.memoryManager.getTemperatureStats(agentId, LOCAL_USER_ID)
+  const total = dist.hot + dist.warm + dist.cold
+  return { hot: dist.hot, warm: dist.warm, cold: dist.cold, total }
+}
+
 export async function handleAgentInstanceCreate(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'agentInstance:create' }>,

@@ -12,6 +12,7 @@ import type {
   PromptDetail,
 } from "./system-prompt.types.js"
 import { CACHE_BOUNDARY_MARKER, PROMPT_SECTION_TAGS } from "./system-prompt.types.js"
+import { MEMORY_PLACEHOLDER } from "../memory/memory-injector.js"
 import { DEFAULT_SOUL_CONTENT } from "./default-soul.js"
 import { extractToolName } from "../security/param-permission-parser.js"
 import {
@@ -406,6 +407,10 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
         buildMemorySection(effectiveToolNames, userMemoryContent, params.includeFullMemoryGuide),
       ),
     )
+    // 工作记忆注入锚点（Task 3 P0）：injectMemories() 按占位符查找替换，
+    // 必须落在 cache boundary 之后的 dynamic 段——工作记忆每轮变化，
+    // 放进 static 段会让 prompt cache 每轮失效。
+    dynamicLines.push(MEMORY_PLACEHOLDER)
   }
 
   // === D2. Workspace ===

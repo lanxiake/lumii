@@ -3,6 +3,8 @@
  */
 
 export { AgentMemoryRepo } from "./memory-repo.js";
+export { MemoryIndexRepo } from "./memory-index.js";
+export type { FtsHealth } from "./memory-index.js";
 
 export { MemoryManager } from "./manager.js";
 export type {
@@ -28,6 +30,7 @@ export {
   formatUserMemoryForPrompt,
   formatUnifiedMemoryBlock,
   injectMemories,
+  MEMORY_PLACEHOLDER,
 } from "./memory-injector.js";
 export type { UnifiedMemoryLimits } from "./memory-injector.js";
 
@@ -58,3 +61,16 @@ export type {
   ExtractionOrchestratorConfig,
 } from "./types.js";
 export { DEFAULT_HOT_MEMORY_CONFIG, isPersonalCategory } from "./types.js";
+
+export { scoreMemory } from "./scorer.js";
+export type { MemoryScoreInput } from "./scorer.js";
+
+export {
+  computeTemperature,
+  DEFAULT_TEMPERATURE_THRESHOLDS,
+} from "./temperature.js";
+export type {
+  MemoryTemperature,
+  TemperatureInput,
+  TemperatureThresholds,
+} from "./temperature.js";

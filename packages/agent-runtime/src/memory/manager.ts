@@ -256,6 +256,39 @@ export class MemoryManager {
     this.repo.archive(memoryId);
   }
 
+  /** 恢复归档记忆 */
+  unarchiveMemory(memoryId: string): void {
+    this.repo.unarchiveById(memoryId);
+  }
+
+  /** 归档某 Agent 下当前用户的全部冷记忆（> 30 天未用且非 personal 类），返回归档条数 */
+  archiveColdMemories(agentId: string, userId: string): number {
+    return this.repo.archiveCold(agentId, userId, Date.now());
+  }
+
+  /** 按关键词搜索记忆（FTS5 + BM25） */
+  searchMemories(
+    agentId: string,
+    userId: string,
+    keyword: string,
+    limit?: number,
+  ): readonly MemoryEntry[] {
+    return this.repo.search(agentId, userId, keyword, limit);
+  }
+
+  /** 重建 FTS5 派生索引，返回重建后的行数 */
+  rebuildMemoryIndex(): number {
+    return this.repo.rebuildIndex();
+  }
+
+  /** 某 Agent 下当前用户活跃记忆的温度分布（hot/warm/cold） */
+  getTemperatureStats(
+    agentId: string,
+    userId: string,
+  ): { readonly hot: number; readonly warm: number; readonly cold: number } {
+    return this.repo.countByTemperature(agentId, userId, Date.now());
+  }
+
   /** 回填某来源段产出的所有记忆的宫殿 drawer_id（段原文归档后） */
   setPalaceDrawerIdBySegment(segmentId: string, drawerId: string): void {
     this.repo.setPalaceDrawerIdBySegment(segmentId, drawerId);

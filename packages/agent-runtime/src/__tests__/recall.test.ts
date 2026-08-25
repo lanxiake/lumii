@@ -6,16 +6,25 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { AgentMemoryRepo } from "../memory/memory-repo.js";
 import { DEFAULT_HOT_MEMORY_CONFIG } from "../memory/types.js";
 import { createMigratedTestDb } from "./helpers/sqlite-test-db.js";
+import type { DatabaseAdapter } from "../storage/local-database.js";
 
 describe("loadTopMemories 相关性召回", () => {
   let repo: AgentMemoryRepo;
+  let db: DatabaseAdapter;
 
   beforeEach(() => {
-    repo = new AgentMemoryRepo(createMigratedTestDb());
+    db = createMigratedTestDb();
+    repo = new AgentMemoryRepo(db);
     // 三条同重要度、同类别的记忆，仅内容主题不同
     repo.saveCandidate({ agentId: "a1", userId: "u1", category: "project", content: "用户计划七月去日本旅行预算两万", importance: 0.5, tags: [] });
     repo.saveCandidate({ agentId: "a1", userId: "u1", category: "project", content: "用户在准备 CPA 注册会计师考试", importance: 0.5, tags: [] });
     repo.saveCandidate({ agentId: "a1", userId: "u1", category: "project", content: "用户在学习吉他每周练习两次", importance: 0.5, tags: [] });
+    // 门控测试依赖 warm 温度（7~30 天未用）——刚创建的记忆 last_used=now 恒为 hot，会跳过门控，
+    // 故统一把 last_used 拨回 15 天前，让 importance=0.5 的记忆落在 warm 档以触发相关性门控。
+    const fifteenDaysAgo = new Date(Date.now() - 15 * 86_400_000).toISOString();
+    db.prepare("UPDATE agent_memories SET last_used = ? WHERE agent_id = 'a1' AND user_id = 'u1'").run(
+      fifteenDaysAgo,
+    );
   });
 
   it("含 query 时相关记忆排序靠前", () => {
@@ -73,7 +82,7 @@ describe("MemoryManager.injectIntoSystemPrompt query 透传（S9）", () => {
     repo.saveCandidate({ agentId: "a1", userId: "u1", category: "project", content: "用户在准备注册会计师考试", importance: 0.5, tags: [] });
     const mgr = new MemoryManager(repo);
     const { updatedPrompt, injected } = mgr.injectIntoSystemPrompt(
-      "SYS",
+      "SYS\n{{LUMII_MEMORY_BLOCK}}",
       "a1",
       "u1",
       DEFAULT_HOT_MEMORY_CONFIG,

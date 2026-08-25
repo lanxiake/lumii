@@ -61,6 +61,10 @@ export interface HotMemoryConfig {
   readonly categoryWeights: Readonly<Record<MemoryCategory, number>>;
   /** 相关性加分权重（query 与记忆内容 overlap 的系数），默认 1.0 */
   readonly relevanceBonus?: number;
+  /** recency 加分权重，默认 0.1（P0 新增，原硬编码于 loadTopMemories） */
+  readonly recencyWeight?: number;
+  /** recency 加分衰减到 0 所需天数，默认 30（P0 新增，原硬编码于 loadTopMemories） */
+  readonly recencyHalfLifeDays?: number;
   /** query 有效 token 下限：低于此值跳过相关性、退化为标量评分，默认 2 */
   readonly minQueryTokens?: number;
   /**
@@ -83,6 +87,8 @@ export const DEFAULT_HOT_MEMORY_CONFIG: HotMemoryConfig = {
     general: 0.6,
   },
   relevanceBonus: 1.0,
+  recencyWeight: 0.1,
+  recencyHalfLifeDays: 30,
   minQueryTokens: 2,
   gateContextualByRelevance: true,
 } as const;

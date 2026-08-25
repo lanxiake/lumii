@@ -265,13 +265,8 @@ describe("formatMemoriesForPrompt", () => {
 });
 
 describe("injectMemories", () => {
-  it("无记忆时返回原始 prompt", () => {
-    const prompt = "You are a helpful assistant.";
-    expect(injectMemories(prompt, [])).toBe(prompt);
-  });
-
-  it("追加记忆到 prompt 末尾", () => {
-    const prompt = "You are a helpful assistant.";
+  it("占位符存在时替换且位置正确", () => {
+    const prompt = `Base prompt.\n\n{{LUMII_MEMORY_BLOCK}}\n\nMore context.`;
     const memories: MemoryEntry[] = [
       {
         id: "1",
@@ -282,6 +277,8 @@ describe("injectMemories", () => {
         importance: 0.7,
         tags: [],
         source_message_id: null,
+        source_segment_id: null,
+        palace_drawer_id: null,
         created_at: "2024-01-01",
         last_used: "2024-01-01",
         use_count: 0,
@@ -289,9 +286,70 @@ describe("injectMemories", () => {
       },
     ];
     const result = injectMemories(prompt, memories);
-    expect(result).toContain("You are a helpful assistant.");
+    expect(result).toContain("Base prompt");
     expect(result).toContain("工作记忆");
     expect(result).toContain("用户偏好简洁回复");
+    expect(result).toContain("More context");
+    expect(result).not.toContain("{{LUMII_MEMORY_BLOCK}}");
+  });
+
+  it("占位符缺失时生产期告警降级（NODE_ENV=production）", () => {
+    const oldEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const prompt = "No placeholder here.";
+    const mem: MemoryEntry = {
+      id: "1",
+      agent_id: "main",
+      user_id: "user1",
+      category: "feedback",
+      content: "test",
+      importance: 0.5,
+      tags: [],
+      source_message_id: null,
+      source_segment_id: null,
+      palace_drawer_id: null,
+      created_at: "2024-01-01",
+      last_used: "2024-01-01",
+      use_count: 0,
+      is_archived: false,
+    };
+    const result = injectMemories(prompt, [mem]);
+    expect(result).toBe(prompt);
+    expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining("缺少占位符"));
+    consoleWarnSpy.mockRestore();
+    process.env.NODE_ENV = oldEnv;
+  });
+
+  it("占位符缺失时开发期抛错（NODE_ENV=test）", () => {
+    const oldEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "test";
+    const prompt = "No placeholder here.";
+    const mem: MemoryEntry = {
+      id: "1",
+      agent_id: "main",
+      user_id: "user1",
+      category: "general",
+      content: "x",
+      importance: 0.5,
+      tags: [],
+      source_message_id: null,
+      source_segment_id: null,
+      palace_drawer_id: null,
+      created_at: "2024-01-01",
+      last_used: "2024-01-01",
+      use_count: 0,
+      is_archived: false,
+    };
+    expect(() => injectMemories(prompt, [mem])).toThrow(/缺少.*LUMII_MEMORY_BLOCK/);
+    process.env.NODE_ENV = oldEnv;
+  });
+
+  it("空记忆列表时占位符替换为空串", () => {
+    const prompt = `Start.\n{{LUMII_MEMORY_BLOCK}}\nEnd.`;
+    const result = injectMemories(prompt, []);
+    expect(result).toBe(`Start.\n\nEnd.`);
+    expect(result).not.toContain("{{LUMII_MEMORY_BLOCK}}");
   });
 });
 

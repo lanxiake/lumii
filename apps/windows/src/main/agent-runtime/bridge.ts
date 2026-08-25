@@ -22,6 +22,7 @@ import {
   AgentDefinitionStore,
   LocalDatabase,
   AgentMemoryRepo,
+  MemoryIndexRepo,
   MemoryManager,
   ConversationRepo,
   SegmentRepo,
@@ -399,6 +400,21 @@ export class AgentRuntimeBridge {
 
     // 创建 Repos
     this._memoryRepo = new AgentMemoryRepo(db)
+    // FTS5 历史数据补齐：migration v15 只建空表（bigram 分词要 JS 做，SQL migration 做不到），
+    // 老用户升级后 agent_memories 有数据但 agent_memories_fts 为空，search 会零命中。
+    // 启动时检测不健康就 rebuild（单次开销，下次启动就跳过）。
+    try {
+      const indexRepo = new MemoryIndexRepo(db)
+      const health = indexRepo.checkFtsHealth()
+      if (!health.isHealthy) {
+        log.info(`[initialize] FTS 索引不健康: ${health.reason}，自动重建...`)
+        indexRepo.rebuildFts()
+        log.info('[initialize] FTS 索引重建完成')
+      }
+    } catch (err) {
+      log.warn('[initialize] FTS 索引健康检查/重建失败，记忆搜索将降级到 LIKE:', err)
+    }
+
     this._conversationRepo = new ConversationRepo(db)
     const segmentRepo = new SegmentRepo(db)
     this._memoryManager = new MemoryManager(this._memoryRepo, {

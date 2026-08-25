@@ -278,6 +278,9 @@ async function handleMemoryConsolidation(
     if (llmError) {
       throw llmError
     }
+    if (result.rejectionReason === 'shrinkage') {
+      return 'skipped: 整理结果缩水过半，已拒绝写入'
+    }
     if (!result.merged || result.content.trim() === existing.trim()) {
       return 'skipped: 整理后无变化'
     }

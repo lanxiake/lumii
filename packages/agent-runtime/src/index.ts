@@ -259,6 +259,7 @@ export type {
 // === 记忆系统导出 ===
 export {
   AgentMemoryRepo,
+  MemoryIndexRepo,
   MemoryManager,
   extractByRules,
   extractByLLM,
@@ -282,6 +283,10 @@ export {
   contentAddressId,
   deterministicDrawerId,
   DRAWER_ID_HEX_LEN,
+  scoreMemory,
+  computeTemperature,
+  DEFAULT_TEMPERATURE_THRESHOLDS,
+  MEMORY_PLACEHOLDER,
 } from "./memory/index.js";
 export type {
   ExistingMemoryContext,
@@ -289,6 +294,11 @@ export type {
   ConsolidationTrigger,
   MemoryProvenance,
   SummarizedSource,
+  FtsHealth,
+  MemoryScoreInput,
+  MemoryTemperature,
+  TemperatureInput,
+  TemperatureThresholds,
 } from "./memory/index.js";
 export { SegmentMemoryPipeline } from "./memory/segment-memory-pipeline.js";
 export type {

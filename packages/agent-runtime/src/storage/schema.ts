@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 /**
  * V1 DDL — 初始 schema
@@ -387,6 +387,28 @@ CREATE TABLE IF NOT EXISTS tool_usage_stats (
     14,
     `
 ALTER TABLE conversations ADD COLUMN session_config TEXT;
+`,
+  ],
+  // V15: agent_memories 的 FTS5 派生全文索引（P0 记忆重构）
+  //
+  // 实测（node:sqlite 3.53.3）证明 FTS5 内置分词器都不支持中文 2 字关键词搜索：
+  // unicode61 把连续中文整段当一个 token（"用户喜欢爬山"查"爬山"零命中）；
+  // trigram 要求查询词 >=3 字符，"爬山"这类 2 字词同样零命中。
+  // 故不用 external content + SQL 触发器（分词只能在 JS 侧做，SQL 触发器做不到），
+  // 改为独立虚表存"应用层预分词"结果：写入前用 tokenizeBigram 把中文按 bigram、
+  // 英文/数字按整词切分、空格拼接后存入，FTS5 侧仍用默认 unicode61 按空格切分。
+  // 索引维护搬到 memory-index.ts 的 upsertRow/deleteRow，由 memory-repo.ts 写入点调用。
+  //
+  // 历史数据补齐（rebuild）需要 JS 分词，SQL migration 做不到，改为应用启动时
+  // 检测 checkFtsHealth() 不健康（老库升级后 FTS 表为空）就调用一次 rebuildFts()。
+  [
+    15,
+    `
+CREATE VIRTUAL TABLE IF NOT EXISTS agent_memories_fts USING fts5(
+  content,
+  tags,
+  tokenize='unicode61 remove_diacritics 2'
+);
 `,
   ],
 ] as const;

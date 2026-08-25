@@ -13,6 +13,8 @@ import { buildMemoryArchitectureSection } from "./memory-architecture.js";
 export interface ConsolidationResult {
   readonly content: string;
   readonly merged: boolean;
+  /** 拒绝原因：'shrinkage' = 缩水过半拒绝 */
+  readonly rejectionReason?: string;
 }
 
 /** 整理触发原因（日志/调试） */
@@ -207,6 +209,11 @@ export async function consolidateUserMemory(params: {
     if (cleaned.length > maxLength) {
       if (newCandidates.length === 0) return { content: existingContent, merged: false };
       return fallbackAppend(existingContent, newCandidates, maxLength);
+    }
+
+    // 缩水过半拒绝（防护：LLM 错误精简导致信息丢失，Task 5 P0）
+    if (existingContent.trim().length > 200 && cleaned.length < existingContent.trim().length * 0.5) {
+      return { content: existingContent, merged: false, rejectionReason: "shrinkage" };
     }
 
     // 整理后应有实质变化

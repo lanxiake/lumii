@@ -302,6 +302,40 @@ export interface AgentMemoriesProvenanceCommand {
   readonly memoryId: string
 }
 
+/** 搜索记忆（FTS5 + BM25） */
+export interface AgentMemoriesSearchCommand {
+  readonly type: 'agent:memories:search'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly keyword: string
+  readonly limit?: number
+}
+
+/** 归档冷记忆（> 30 天未用且非 personal 类） */
+export interface AgentMemoriesArchiveColdCommand {
+  readonly type: 'agent:memories:archiveCold'
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
+/** 恢复归档记忆 */
+export interface AgentMemoriesUnarchiveCommand {
+  readonly type: 'agent:memories:unarchive'
+  readonly memoryId: string
+}
+
+/** 重建 FTS5 索引 */
+export interface AgentMemoriesRebuildIndexCommand {
+  readonly type: 'agent:memories:rebuildIndex'
+}
+
+/** 温度分布统计 */
+export interface AgentMemoriesStatsCommand {
+  readonly type: 'agent:memories:stats'
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
 // ============================================================
 // 工具管理命令
 // ============================================================
@@ -874,6 +908,11 @@ export type AgentRuntimeCommand =
   | AgentMemoriesClearCommand
   | AgentMemoriesExportCommand
   | AgentMemoriesProvenanceCommand
+  | AgentMemoriesSearchCommand
+  | AgentMemoriesArchiveColdCommand
+  | AgentMemoriesUnarchiveCommand
+  | AgentMemoriesRebuildIndexCommand
+  | AgentMemoriesStatsCommand
   | ToolsListCommand
   | ToolsToggleCommand
   | McpStatusCommand
@@ -1077,6 +1116,22 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
         charCount: number
       } | null
     } | null
+  : T extends 'agent:memories:search' ? readonly {
+      id: string
+      category: string
+      content: string
+      importance: number
+      createdAt: number
+    }[]
+  : T extends 'agent:memories:archiveCold' ? { archivedCount: number }
+  : T extends 'agent:memories:unarchive' ? { success: boolean }
+  : T extends 'agent:memories:rebuildIndex' ? { rebuiltCount: number }
+  : T extends 'agent:memories:stats' ? {
+      hot: number
+      warm: number
+      cold: number
+      total: number
+    }
   : T extends 'tools:list' ? readonly {
       name: string
       label: string

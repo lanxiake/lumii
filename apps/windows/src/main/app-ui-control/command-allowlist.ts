@@ -25,8 +25,11 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   // 运行时只读
   'runtime:ping', 'runtime:enabled', 'runtime:featureFlags:get',
   'agent:definitions:list', 'agentInstance:list', 'commands:list', 'tasks:list',
-  // 记忆只读
+  // 记忆只读 + 搜索（FTS5）+ 统计
   'agent:memories:list', 'agent:memories:export', 'agent:memories:provenance',
+  'agent:memories:search', 'agent:memories:stats',
+  // 记忆写操作（归档/恢复/重建索引）：不涉及任意内容写入与文件系统，可放行
+  'agent:memories:archiveCold', 'agent:memories:unarchive', 'agent:memories:rebuildIndex',
   // MCP 只读
   'mcp:status',
   // 存储只读

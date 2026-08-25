@@ -91,6 +91,11 @@ import {
   handleAgentMemoriesClear,
   handleAgentMemoriesExport,
   handleAgentMemoriesProvenance,
+  handleAgentMemoriesSearch,
+  handleAgentMemoriesArchiveCold,
+  handleAgentMemoriesUnarchive,
+  handleAgentMemoriesRebuildIndex,
+  handleAgentMemoriesStats,
   handleAgentInstanceCreate,
   handleAgentInstanceCreateById,
   handleAgentDefinitionSyncStatus,
@@ -867,6 +872,21 @@ export async function handleCommand(
 
       case 'agent:memories:provenance':
         return handleAgentMemoriesProvenance(bridge, command)
+
+      case 'agent:memories:search':
+        return handleAgentMemoriesSearch(bridge, command)
+
+      case 'agent:memories:archiveCold':
+        return handleAgentMemoriesArchiveCold(bridge, command)
+
+      case 'agent:memories:unarchive':
+        return handleAgentMemoriesUnarchive(bridge, command)
+
+      case 'agent:memories:rebuildIndex':
+        return handleAgentMemoriesRebuildIndex(bridge)
+
+      case 'agent:memories:stats':
+        return handleAgentMemoriesStats(bridge, command)
 
       // ---- 工具管理 ----
       case 'tools:list':

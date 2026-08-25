@@ -269,6 +269,116 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'memory list',
+    group: '记忆',
+    usage: 'memory list [--session <key>]',
+    summary: '列出记忆（默认当前用户所有 Agent 的活跃记忆）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--session <key>', desc: '指定会话（可选），不传则显示该用户全部 Agent 的记忆' },
+    ],
+    build(args) {
+      const body = { type: 'agent:memories:list' }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      return body
+    },
+  },
+  {
+    name: 'memory search',
+    group: '记忆',
+    usage: 'memory search <关键词> [--limit <n>] [--session <key>]',
+    summary: 'FTS5 全文搜索记忆（验证中文召回）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '<关键词>', desc: '搜索关键词（中文 bigram 切分，支持 2 字词）' },
+      { flag: '--limit <n>', desc: '返回条数上限，默认 10' },
+      { flag: '--session <key>', desc: '指定会话，不传则搜索该用户全部记忆' },
+    ],
+    build(args) {
+      const keyword = args.positional[0]
+      if (typeof keyword !== 'string' || keyword.trim().length === 0) return null
+      const body = { type: 'agent:memories:search', keyword }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      const limit = num(args.flags.limit)
+      if (limit !== undefined && limit > 0) body.limit = limit
+      return body
+    },
+  },
+  {
+    name: 'memory stats',
+    group: '记忆',
+    usage: 'memory stats [--session <key>]',
+    summary: '温度分布统计（hot/warm/cold + 总数）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '--session <key>', desc: '指定会话，不传则统计该用户 assistant Agent 记忆' }],
+    build(args) {
+      const body = { type: 'agent:memories:stats' }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      return body
+    },
+  },
+  {
+    name: 'memory provenance',
+    group: '记忆',
+    usage: 'memory provenance <id>',
+    summary: '溯源到来源 segment + 原文区间 + 宫殿片段',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<id>', desc: '记忆 ID' }],
+    build(args) {
+      const memoryId = args.positional[0]
+      if (typeof memoryId !== 'string' || memoryId.length === 0) return null
+      return { type: 'agent:memories:provenance', memoryId }
+    },
+  },
+  {
+    name: 'memory archive-cold',
+    group: '记忆',
+    usage: 'memory archive-cold --yes [--session <key>]',
+    summary: '归档冷记忆（> 30 天未用且非 personal 类），--yes 必填确认',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--yes', desc: '确认批量归档（必填）' },
+      { flag: '--session <key>', desc: '指定会话，不传则归档该用户 assistant Agent 记忆' },
+    ],
+    build(args) {
+      if (args.flags.yes !== true && args.flags.yes !== 'true') return null
+      const body = { type: 'agent:memories:archiveCold' }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      return body
+    },
+  },
+  {
+    name: 'memory unarchive',
+    group: '记忆',
+    usage: 'memory unarchive <id>',
+    summary: '恢复归档记忆',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<id>', desc: '记忆 ID' }],
+    build(args) {
+      const memoryId = args.positional[0]
+      if (typeof memoryId !== 'string' || memoryId.length === 0) return null
+      return { type: 'agent:memories:unarchive', memoryId }
+    },
+  },
+  {
+    name: 'memory rebuild-index',
+    group: '记忆',
+    usage: 'memory rebuild-index',
+    summary: '重建 FTS5 派生索引（修复索引不一致时使用）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [],
+    build() {
+      return { type: 'agent:memories:rebuildIndex' }
+    },
+  },
+  {
     name: 'pet mode',
     group: '桌宠',
     usage: 'pet mode <modeName>',

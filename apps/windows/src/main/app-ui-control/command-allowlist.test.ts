@@ -37,6 +37,18 @@ describe('COMMAND_ALLOWLIST', () => {
     expect(COMMAND_ALLOWLIST.has('mcp:status')).toBe(true)
   })
 
+  it('放行 Task 6 新增记忆命令（search/stats/archiveCold/unarchive/rebuildIndex）', () => {
+    for (const t of [
+      'agent:memories:search',
+      'agent:memories:stats',
+      'agent:memories:archiveCold',
+      'agent:memories:unarchive',
+      'agent:memories:rebuildIndex',
+    ]) {
+      expect(isCommandExposed(t)).toBe(true)
+    }
+  })
+
   it('放行压缩自动化所需命令', () => {
     for (const t of [
       'conversation:create',

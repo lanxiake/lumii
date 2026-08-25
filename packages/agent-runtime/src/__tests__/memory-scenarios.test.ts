@@ -10,23 +10,35 @@ import { AgentMemoryRepo } from "../memory/memory-repo.js";
 import { DEFAULT_HOT_MEMORY_CONFIG } from "../memory/types.js";
 import type { MemoryCategory } from "../memory/types.js";
 import { createMigratedTestDb } from "./helpers/sqlite-test-db.js";
+import type { DatabaseAdapter } from "../storage/local-database.js";
 
 const A = "assistant";
 const U = "local-user";
 
+/** 门控测试依赖 warm 温度——刚写入的记忆 last_used=now 恒为 hot，会跳过相关性门控 */
+function ageToWarm(db: DatabaseAdapter, agentId: string, userId: string): void {
+  const fifteenDaysAgo = new Date(Date.now() - 15 * 86_400_000).toISOString();
+  db.prepare(
+    "UPDATE agent_memories SET last_used = ? WHERE agent_id = ? AND user_id = ? AND category NOT IN ('user','feedback')",
+  ).run(fifteenDaysAgo, agentId, userId);
+}
+
 describe("记忆场景：召回相关性门控（用户反馈的核心问题）", () => {
   let repo: AgentMemoryRepo;
+  let db: DatabaseAdapter;
 
   function save(category: MemoryCategory, content: string, importance = 0.6): void {
     repo.saveCandidate({ agentId: A, userId: U, category, content, importance, tags: [] });
   }
 
   beforeEach(() => {
-    repo = new AgentMemoryRepo(createMigratedTestDb());
+    db = createMigratedTestDb();
+    repo = new AgentMemoryRepo(db);
     // 模拟截图里的记忆集：旅行项目 + Notion 资源 + 骑车爱好（画像）
     save("project", "项目：七月日本关西自由行，规划中，预算2万，成都直飞关西");
     save("reference", "用户平时用 Notion 记笔记和管理任务");
     save("user", "用户喜欢骑车去爬山，特别是去龙泉山骑车加徒步");
+    ageToWarm(db, A, U);
   });
 
   it("问骑车路线 → 不注入无关的旅行/Notion 项目记忆", () => {
@@ -66,16 +78,19 @@ describe("记忆场景：召回相关性门控（用户反馈的核心问题）"
 
 describe("记忆场景：取消/过期项目（已知局限说明）", () => {
   let repo: AgentMemoryRepo;
+  let db: DatabaseAdapter;
   function save(category: MemoryCategory, content: string, importance = 0.6): void {
     repo.saveCandidate({ agentId: A, userId: U, category, content, importance, tags: [] });
   }
   beforeEach(() => {
-    repo = new AgentMemoryRepo(createMigratedTestDb());
+    db = createMigratedTestDb();
+    repo = new AgentMemoryRepo(db);
   });
 
   it("取消的旅行：问无关话题时不会被注入（门控已缓解污染）", () => {
     save("project", "项目：七月日本关西自由行，规划中");
     save("project", "项目：七月日本关西自由行，已取消");
+    ageToWarm(db, A, U);
     const r = repo.loadTopMemories(A, U, DEFAULT_HOT_MEMORY_CONFIG, "帮我看看这段代码报错");
     expect(r.some((m) => m.content.includes("日本关西"))).toBe(false);
   });
@@ -83,6 +98,7 @@ describe("记忆场景：取消/过期项目（已知局限说明）", () => {
   it("问旅行时，规划中与已取消两条都会注入（语义去重/取代需阶段③向量，当前为已知局限）", () => {
     save("project", "项目：七月日本关西自由行，规划中");
     save("project", "项目：七月日本关西自由行，已取消");
+    ageToWarm(db, A, U);
     const r = repo.loadTopMemories(A, U, DEFAULT_HOT_MEMORY_CONFIG, "我的日本关西旅行计划");
     // 当前：两条都注入（AI 能看到"已取消"信息）；自动取代旧条目是后续语义合并的事
     expect(r.filter((m) => m.content.includes("日本关西")).length).toBeGreaterThanOrEqual(2);

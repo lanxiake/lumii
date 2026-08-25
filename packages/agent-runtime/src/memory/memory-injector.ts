@@ -12,6 +12,9 @@
 import type { MemoryEntry, MemoryCategory } from "./types.js";
 import { MEMORY_LAYER_RULES } from "./memory-architecture.js";
 
+/** 工作记忆注入占位符（Task 3 P0：取代 indexOf 字符串手术） */
+export const MEMORY_PLACEHOLDER = "{{LUMII_MEMORY_BLOCK}}";
+
 /** 类别显示名称映射 */
 const CATEGORY_LABELS: Readonly<Record<MemoryCategory, string>> = {
   user: "用户画像",
@@ -165,27 +168,21 @@ export function formatMemoriesForPrompt(memories: readonly MemoryEntry[]): strin
 }
 
 /**
- * 将热记忆注入到 system prompt 末尾
+ * 将热记忆注入到 system prompt 的 {@link MEMORY_PLACEHOLDER} 占位符处。
+ *
+ * 占位符缺失时：开发期抛错（暴露模板缺失问题），生产期告警降级并返回原串
+ * （模板问题不能让用户完全用不了）。空记忆列表时占位符替换为空串，
+ * 不能把 `{{...}}` 字面量泄漏到模型输入。
  */
 export function injectMemories(systemPrompt: string, memories: readonly MemoryEntry[]): string {
-  if (memories.length === 0) return systemPrompt;
+  const block = memories.length > 0 ? formatMemoriesForPrompt(memories) : "";
 
-  const memoriesSection = formatMemoriesForPrompt(memories);
-
-  // 兼容旧标题 "## 你的记忆" 和新标题 "## 工作记忆"
-  const sectionStart = systemPrompt.indexOf("## 工作记忆");
-  const legacyStart = systemPrompt.indexOf("## 你的记忆");
-  const start = sectionStart !== -1 ? sectionStart : legacyStart;
-
-  if (start !== -1) {
-    const nextSection = systemPrompt.indexOf("\n## ", start + 1);
-    const sectionEnd = nextSection !== -1 ? nextSection : systemPrompt.length;
-    return (
-      systemPrompt.slice(0, start).trimEnd() +
-      memoriesSection +
-      systemPrompt.slice(sectionEnd)
-    );
+  if (systemPrompt.includes(MEMORY_PLACEHOLDER)) {
+    return systemPrompt.replace(MEMORY_PLACEHOLDER, block);
   }
-
-  return systemPrompt.trimEnd() + "\n" + memoriesSection;
+  if (process.env.NODE_ENV !== "production") {
+    throw new Error(`system prompt 缺少 ${MEMORY_PLACEHOLDER}`);
+  }
+  console.warn(`[injectMemories] 缺少占位符，记忆未注入`);
+  return systemPrompt;
 }

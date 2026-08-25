@@ -74,6 +74,10 @@ export async function writeUserMemoryFile(content: string): Promise<{ updatedAt:
   try {
     const p = getUserMemoryFilePath()
     await fs.mkdir(dirname(p), { recursive: true })
+    // 备份旧内容到 .bak（Task 5 P0：整理失败时可回滚）
+    if (existsSync(p)) {
+      await fs.copyFile(p, `${p}.bak`)
+    }
     await fs.writeFile(p, content, 'utf-8')
     return { updatedAt: new Date().toISOString() }
   } catch {
