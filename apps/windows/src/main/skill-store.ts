@@ -197,7 +197,7 @@ export class LocalSkillStore {
   private async scanAndRegisterSkills(): Promise<void> {
     try {
       await this.ensureIndex()
-      log.info('[scanAndRegisterSkills] 开始扫描技能目录', { skillsDir: this.skillsDir })
+      log.debug('[scanAndRegisterSkills] 开始扫描技能目录', { skillsDir: this.skillsDir })
 
       // 收集所有技能目录（两层结构）
       const skillDirs = await collectSkillDirs(this.skillsDir)
@@ -208,7 +208,7 @@ export class LocalSkillStore {
       this.index!.skills = this.index!.skills.filter((s) => skillIdSet.has(s.id))
       let indexDirty = beforeLen !== this.index!.skills.length
 
-      log.info('[scanAndRegisterSkills] 找到技能目录', { count: skillDirs.length })
+      log.debug('[scanAndRegisterSkills] 找到技能目录', { count: skillDirs.length })
 
       let registeredCount = 0
 
@@ -260,11 +260,14 @@ export class LocalSkillStore {
         }
       }
 
-      if (indexDirty || registeredCount > 0) {
+      // 只有索引内容真的变了才写盘。registeredCount 仅是本次扫到的技能数，
+      // 恒大于 0，若参与判定会导致每次扫描都重写 index.json；而 index.json 位于
+      // 被 SkillWatcher 监控的目录内，写入又会触发下一轮扫描，形成无限循环。
+      if (indexDirty) {
         await this.saveIndex()
-        log.info('索引同步完成', { registeredCount, indexDirty })
+        log.debug('索引同步完成', { registeredCount, indexDirty })
       } else {
-        log.info('[scanAndRegisterSkills] 索引与目录一致，跳过写入')
+        log.debug('[scanAndRegisterSkills] 索引与目录一致，跳过写入')
       }
     } catch (error) {
       log.error('扫描技能目录失败', { error: error instanceof Error ? error.message : String(error) })
@@ -602,7 +605,7 @@ export class LocalSkillStore {
     this.index = await this.loadIndex()
     // 重新加载后执行一次目录扫描，确保手动复制/解压进来的技能也会回填到 index.json。
     await this.scanAndRegisterSkills()
-    log.info('索引已重新加载', { skillCount: this.index.skills.length })
+    log.debug('索引已重新加载', { skillCount: this.index.skills.length })
   }
 
   /**

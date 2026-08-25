@@ -278,7 +278,7 @@ export async function loadExternalSkills(
   const loaded = new Map<string, SkillDefinition>()
 
   const installed = await skillStore.listInstalled()
-  log.info('加载外部技能', { count: installed.length })
+  log.debug('加载外部技能', { count: installed.length })
 
   for (const entry of installed) {
     if (!entry.enabled) {

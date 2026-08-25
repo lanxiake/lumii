@@ -36,6 +36,10 @@ function shouldIgnoreSnapshotFile(relPosix: string): boolean {
   if (base === ".DS_Store" || base === "Thumbs.db") return true;
   if (base.endsWith(".log")) return true;
 
+  // 技能索引由主进程自动维护（注册/卸载/打分都会重写），不是用户或 Agent 的
+  // 会话产出。若纳入快照，任何回合的 diff 都会莫名出现这个文件的"修改"。
+  if (relPosix === "skills/index.json") return true;
+
   // uploads/ 下的大媒体与二进制（与 vcs-ignore DEFAULT_VCS_IGNORE 一致）
   if (
     /^uploads\/.+\.(zip|mp4|mov|png|jpg|jpeg|gif|pdf)$/i.test(relPosix)

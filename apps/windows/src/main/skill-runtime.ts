@@ -698,7 +698,7 @@ export class ClientSkillRuntime extends EventEmitter {
     // 重新加载
     await this.loadExternalSkills()
 
-    log.info('外部技能重新加载完成', { totalSkills: this.skills.size })
+    log.debug('外部技能重新加载完成', { totalSkills: this.skills.size })
   }
 
   /**

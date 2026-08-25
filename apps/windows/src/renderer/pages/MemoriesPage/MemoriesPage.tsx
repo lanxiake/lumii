@@ -218,40 +218,7 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
       <PageHeader
         title="记忆管理"
         subtitle={activeTab === 'soul' ? '定义 AI 助手的性格、风格与行为方式' : '管理 AI 助手的长期记忆，让 AI 更了解您'}
-        actions={
-          activeTab === 'soul' ? (
-            <div className="header-actions">
-              {isEditMode && (
-                <Button variant="primary" onClick={handleSave} disabled={isSaving}>
-                  {isSaving ? '保存中...' : '保存'}
-                </Button>
-              )}
-              <Button variant="ghost" onClick={handleResetSoul} title="重置为默认模板">
-                <RotateCcw size={16} style={{ marginRight: 4 }} />
-                重置
-              </Button>
-              <Button variant={isEditMode ? 'secondary' : 'ghost'} onClick={handleToggleEdit}>
-                {isEditMode ? '取消' : '编辑'}
-              </Button>
-            </div>
-          ) : null
-        }
       />
-      ) : activeTab === 'soul' ? (
-        <div className="header-actions memories-embedded-actions">
-          {isEditMode && (
-            <Button variant="primary" onClick={handleSave} disabled={isSaving}>
-              {isSaving ? '保存中...' : '保存'}
-            </Button>
-          )}
-          <Button variant="ghost" onClick={handleResetSoul} title="重置为默认模板">
-            <RotateCcw size={16} style={{ marginRight: 4 }} />
-            重置
-          </Button>
-          <Button variant={isEditMode ? 'secondary' : 'ghost'} onClick={handleToggleEdit}>
-            {isEditMode ? '取消' : '编辑'}
-          </Button>
-        </div>
       ) : null}
 
       {/* Tab 导航 + 记忆注入开关 */}
@@ -328,6 +295,23 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
                 </button>
               )
             })}
+
+            {/* 灵魂编辑操作：紧贴最后一张模板卡右侧。放在模板条内而非 tab 行上方，
+                切换 tab 时 tab 行上方不再有条件渲染元素，窗口不会抖动。 */}
+            <div className="soul-actions">
+              {isEditMode && (
+                <Button variant="primary" size="sm" onClick={handleSave} disabled={isSaving}>
+                  {isSaving ? '保存中...' : '保存'}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={handleResetSoul} title="重置为默认模板">
+                <RotateCcw size={14} style={{ marginRight: 4 }} />
+                重置
+              </Button>
+              <Button variant={isEditMode ? 'secondary' : 'ghost'} size="sm" onClick={handleToggleEdit}>
+                {isEditMode ? '取消' : '编辑'}
+              </Button>
+            </div>
           </div>
 
           {error && (

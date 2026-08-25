@@ -76,6 +76,7 @@ export interface IpcHandlersDeps {
   isQuittingGetter: () => boolean
   setIsQuitting: (value: boolean) => void
   log: {
+    debug: (...args: unknown[]) => void
     info: (...args: unknown[]) => void
     warn: (...args: unknown[]) => void
     error: (...args: unknown[]) => void

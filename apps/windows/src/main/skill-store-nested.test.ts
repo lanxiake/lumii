@@ -72,3 +72,52 @@ describe("LocalSkillStore 嵌套分类扫描", () => {
     expect(await store.listInstalled()).toHaveLength(0);
   });
 });
+
+describe("LocalSkillStore 索引写盘幂等", () => {
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-skills-"));
+  });
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  /**
+   * 回归：目录未变时重复扫描不得重写 index.json。
+   *
+   * index.json 位于 SkillWatcher 监控的 skills/ 目录内，每次重写都会触发一轮
+   * watch 事件 → 重扫 → 再重写的自激循环（表现为日志每 1.5s 刷屏，且回合快照
+   * diff 里永远多出一条 skills/index.json 修改）。
+   */
+  it("目录未变化时重复 reload 不重写 index.json", async () => {
+    writeSkill("flat-skill", "flat");
+
+    const store = new LocalSkillStore(root);
+    await store.initialize();
+
+    const indexPath = path.join(root, "index.json");
+    expect(fs.existsSync(indexPath)).toBe(true);
+    const firstContent = fs.readFileSync(indexPath, "utf-8");
+
+    await store.reload();
+    await store.reload();
+
+    // updatedAt 也在内容里：内容全等即证明没有发生写盘
+    expect(fs.readFileSync(indexPath, "utf-8")).toBe(firstContent);
+  });
+
+  it("目录新增技能时仍会写盘", async () => {
+    writeSkill("flat-skill", "flat");
+
+    const store = new LocalSkillStore(root);
+    await store.initialize();
+    const indexPath = path.join(root, "index.json");
+    const before = fs.readFileSync(indexPath, "utf-8");
+
+    writeSkill("second-skill", "second");
+    await store.reload();
+
+    const after = fs.readFileSync(indexPath, "utf-8");
+    expect(after).not.toBe(before);
+    expect(await store.listInstalled()).toHaveLength(2);
+  });
+});

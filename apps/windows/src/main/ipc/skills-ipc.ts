@@ -13,6 +13,7 @@ interface SkillsIpcDeps {
   getSkillWatcher: () => SkillWatcher | null
   getWorkspaceDir: () => string
   log: {
+    debug: (...args: unknown[]) => void
     info: (...args: unknown[]) => void
     warn: (...args: unknown[]) => void
   }
@@ -36,7 +37,7 @@ export function registerSkillsIpcHandlers(): void {
       deps!.log.warn('[Skills IPC] 技能运行时未初始化，返回空列表')
       return { success: true, data: [] }
     }
-    deps!.log.info('[Skills IPC] 列出本地已安装技能')
+    deps!.log.debug('[Skills IPC] 列出本地已安装技能')
     const result = await skillRuntime.listLocalInstalled()
     return { success: true, data: result }
   })

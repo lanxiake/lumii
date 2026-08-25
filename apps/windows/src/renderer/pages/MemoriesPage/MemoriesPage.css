@@ -10,11 +10,6 @@
   background-color: transparent;
 }
 
-.memories-embedded-actions {
-  padding: 0 16px 8px;
-  justify-content: flex-end;
-}
-
 .header-actions {
   display: flex;
   gap: 8px;
@@ -587,6 +582,16 @@
 
 .soul-templates::-webkit-scrollbar {
   display: none;
+}
+
+/* 灵魂编辑操作组：margin-left auto 贴到模板条最右侧（最后一张模板卡之后） */
+.soul-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding-left: 16px;
+  flex-shrink: 0;
 }
 
 .soul-template-card {

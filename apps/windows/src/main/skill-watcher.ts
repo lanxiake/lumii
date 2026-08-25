@@ -27,6 +27,25 @@ const DEBOUNCE_MS = 1500
 /** 技能扫描最大分类嵌套深度（防御符号链接成环） */
 const MAX_SKILL_SCAN_DEPTH = 6
 
+/**
+ * 本进程自己生成、不应触发重扫的文件名。
+ *
+ * index.json 由 LocalSkillStore 写在被监控的 skills/ 目录内：扫描 → 写索引 →
+ * watch 事件 → 再扫描，会形成自激循环。技能的增删改本身一定伴随 skill.md /
+ * 目录变动，仍会正常触发重扫，因此过滤掉索引文件不会漏掉真实变更。
+ */
+const SELF_WRITTEN_FILES: ReadonlySet<string> = new Set(['index.json'])
+
+/** 判断 fs.watch 回调传来的路径是否为本进程自写文件（filename 为相对 skillsDir 的路径） */
+function isSelfWrittenFile(filename: string | null): boolean {
+  if (!filename) return false
+  const normalized = filename.replace(/\\/g, '/')
+  const base = normalized.includes('/')
+    ? normalized.slice(normalized.lastIndexOf('/') + 1)
+    : normalized
+  return SELF_WRITTEN_FILES.has(base)
+}
+
 export class SkillWatcher {
   private watcher: fs.FSWatcher | null = null
   private skillsDir: string
@@ -68,6 +87,10 @@ export class SkillWatcher {
         this.skillsDir,
         { recursive: true, persistent: true },
         (_eventType, filename) => {
+          if (isSelfWrittenFile(filename)) {
+            log.debug(`[watch] 跳过本进程自写文件: ${filename}`)
+            return
+          }
           log.debug(`[watch] 事件: ${_eventType} filename=${filename ?? '(unknown)'}`)
           this.scheduleRebuild()
         }
