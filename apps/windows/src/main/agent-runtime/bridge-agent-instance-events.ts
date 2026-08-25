@@ -171,6 +171,14 @@ export interface BridgeAgentInstanceEventDeps {
   fileRepo: FileRepo | null
   fileMemoryHandler: FileMemoryHandler
   getWikiIngestHook: () => WikiIngestHook | null
+  /**
+   * 解析 Wiki 摄入归属的 agentId（Agent 定义 id，如 'assistant'）。
+   *
+   * 必须与 bridge-wiki-tools.ts 的 resolveAgentId 和 wiki-commands.ts 的
+   * resolveAgentIdForWiki 同口径：此前这里错传 ctx.sessionKey（会话 id），
+   * 导致产物/上传/搜索摄入落在别的 agent_id 命名空间，UI 与 CLI 默认视图都查不到。
+   */
+  resolveWikiAgentId: () => string
   /** Per-instance 聚合状态存储（替代分散 Map） */
   instanceStates: InstanceStateStore
   instanceToConversation: Map<string, string>
@@ -227,6 +235,7 @@ export function createAgentInstanceRuntimeEventHandler(
     fileRepo,
     fileMemoryHandler,
     getWikiIngestHook,
+    resolveWikiAgentId,
     instanceStates,
     instanceToConversation,
     toolCallInstanceMap,
@@ -516,7 +525,7 @@ export function createAgentInstanceRuntimeEventHandler(
           const normalized = filePath.replace(/\\/g, '/').toLowerCase()
           const isUpload = normalized.startsWith('uploads/') || normalized.includes('/uploads/')
           hook?.[isUpload ? 'ingestUpload' : 'ingestOutput'](
-            ctx.sessionKey ?? 'default',
+            resolveWikiAgentId(),
             'local-user',
             filePath,
             filePath.split(/[/\\]/).pop() ?? filePath,
@@ -539,7 +548,7 @@ export function createAgentInstanceRuntimeEventHandler(
         if (hook && details?.items) {
           for (const item of details.items) {
             if (!item.url) continue
-            hook.ingestWebSearch(ctx.sessionKey ?? 'default', 'local-user', item.url, item.title ?? item.url, item.summary)
+            hook.ingestWebSearch(resolveWikiAgentId(), 'local-user', item.url, item.title ?? item.url, item.summary)
           }
         }
       }

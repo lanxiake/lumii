@@ -99,6 +99,29 @@ describe('wiki commands', () => {
     expect(repo.findInboxById(item3.id)!.attempt_count).toBe(0)
   })
 
+  it('retry / discard 对不存在的 id 抛错，不静默返回 success', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    expect(() => handleWikiInboxRetry(bridge, { type: 'wiki:inbox:retry', inboxId: 'ghost' })).toThrow(
+      /不存在/,
+    )
+    expect(() => handleWikiInboxDiscard(bridge, { type: 'wiki:inbox:discard', inboxId: 'ghost' })).toThrow(
+      /不存在/,
+    )
+  })
+
+  it('retry 已丢弃条目时抛错说明状态，不复活也不谎报成功', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const item = repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'a' })
+    handleWikiInboxDiscard(bridge, { type: 'wiki:inbox:discard', inboxId: item.id })
+
+    expect(() => handleWikiInboxRetry(bridge, { type: 'wiki:inbox:retry', inboxId: item.id })).toThrow(
+      /discarded/,
+    )
+    expect(repo.findInboxById(item.id)!.status).toBe('discarded')
+  })
+
   it('越权分类路径在 organize 时抛错（savePage 最后防线）', () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
@@ -128,7 +151,10 @@ describe('wiki commands', () => {
     expect(got.contentMd).toBe('正文')
 
     expect(handleWikiPageDelete(bridge, { type: 'wiki:page:delete', pageId: updated.pageId })).toEqual({ success: true })
-    expect(handleWikiPageGet(bridge, { type: 'wiki:page:get', pageId: updated.pageId })).toBeNull()
+    // 删除后读取要报错而非返回 null——null 在 CLI 里是 exit 0，分不清不存在与空页
+    expect(() => handleWikiPageGet(bridge, { type: 'wiki:page:get', pageId: updated.pageId })).toThrow(
+      /页面不存在/,
+    )
   })
 
   it('search 返回命中片段', () => {

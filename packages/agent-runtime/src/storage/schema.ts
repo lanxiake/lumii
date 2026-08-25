@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 /**
  * V1 DDL — 初始 schema
@@ -508,7 +508,7 @@ CREATE TABLE IF NOT EXISTS wiki_organize_runs (
   user_id        TEXT NOT NULL,
   inbox_ids      TEXT NOT NULL,
   status         TEXT NOT NULL DEFAULT 'running'
-    CHECK (status IN ('running', 'succeeded', 'partial', 'failed')),
+    CHECK (status IN ('running', 'succeeded', 'degraded', 'partial', 'failed')),
   result_summary TEXT,
   error          TEXT,
   created_at     TEXT NOT NULL,
@@ -531,6 +531,36 @@ CREATE TABLE IF NOT EXISTS wiki_index_meta (
   value       TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
+`,
+  ],
+  // V17: wiki_organize_runs 增加 'degraded' 终态。
+  // 分类降级（落点兜底到 inbox/）此前被记为 succeeded，用户无从发现归档没真正分类。
+  // SQLite 不支持改 CHECK 约束，按官方推荐的重建表流程搬迁数据。
+  [
+    17,
+    `
+CREATE TABLE wiki_organize_runs_new (
+  id             TEXT PRIMARY KEY,
+  agent_id       TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
+  inbox_ids      TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'running'
+    CHECK (status IN ('running', 'succeeded', 'degraded', 'partial', 'failed')),
+  result_summary TEXT,
+  error          TEXT,
+  created_at     TEXT NOT NULL,
+  finished_at    TEXT
+);
+
+INSERT INTO wiki_organize_runs_new
+  SELECT id, agent_id, user_id, inbox_ids, status, result_summary, error, created_at, finished_at
+  FROM wiki_organize_runs;
+
+DROP TABLE wiki_organize_runs;
+ALTER TABLE wiki_organize_runs_new RENAME TO wiki_organize_runs;
+
+CREATE INDEX IF NOT EXISTS idx_wiki_runs_agent_user
+  ON wiki_organize_runs (agent_id, user_id, created_at DESC);
 `,
   ],
 ] as const;

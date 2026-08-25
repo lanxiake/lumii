@@ -85,7 +85,7 @@ describe("WikiOrganizer 端到端", () => {
     expect(repo.listRuns("ag", "u")[0]!.status).toBe("failed");
   });
 
-  it("越权分类被分类器降级到 inbox/，条目仍成功归档", async () => {
+  it("越权分类降级到 inbox/：条目仍归档，但 run 记 degraded 且写明原因", async () => {
     const { repo, hook } = setup();
     hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "内容 A");
 
@@ -96,10 +96,58 @@ describe("WikiOrganizer 端到端", () => {
     );
     const run = await organizer.organizeBatch("ag", "u", "upload");
 
-    expect(run!.status).toBe("succeeded");
+    // 资料没丢（已归档），但落点是兜底的——不能报成 succeeded，否则用户无从发现
+    expect(run!.status).toBe("degraded");
+    expect(run!.result_summary).toContain("1 项分类降级");
+    expect(run!.error).toContain("syntheses/越权");
     const pages = repo.listPages("ag", "u");
     expect(pages).toHaveLength(1);
     expect(pages[0]!.category).toBe("inbox");
+    // 降级仍要落库成 organized，不能卡在 pending
+    expect(repo.listInbox("ag", "u", "organized")).toHaveLength(1);
+  });
+
+  it("单条批次返回裸对象（非数组）时正常分类，不再整批降级", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "内容 A");
+
+    // 单条时模型常直接返回对象而非数组——这是线上单条归档 100% 降级的根因
+    const organizer = new WikiOrganizer(
+      repo,
+      async (prompt) => {
+        const id = /\[id=([0-9a-f]+)\]/.exec(prompt)![1]!;
+        return `{"id":"${id}","path":"sources/solo","title":"单条","summaryMd":"真摘要"}`;
+      },
+      new WikiContentExtractor(),
+    );
+    const run = await organizer.organizeBatch("ag", "u", "upload");
+
+    expect(run!.status).toBe("succeeded");
+    const pages = repo.listPages("ag", "u");
+    expect(pages[0]!.path).toBe("sources/solo");
+    expect(pages[0]!.content_md).toBe("真摘要");
+  });
+
+  it("思考块与散文里的方括号不再带偏 JSON 边界", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "内容 A");
+
+    const organizer = new WikiOrganizer(
+      repo,
+      async (prompt) => {
+        const id = /\[id=([0-9a-f]+)\]/.exec(prompt)![1]!;
+        return `<think>先看 items[0] 的类型，再决定落点 [重要]</think>
+好的，结果如下：
+\`\`\`json
+[{"id":"${id}","path":"sources/from-think","title":"T","summaryMd":"S"}]
+\`\`\``;
+      },
+      new WikiContentExtractor(),
+    );
+    const run = await organizer.organizeBatch("ag", "u", "upload");
+
+    expect(run!.status).toBe("succeeded");
+    expect(repo.listPages("ag", "u")[0]!.path).toBe("sources/from-think");
   });
 
   it("重复整理已归档条目不会再次取件", async () => {

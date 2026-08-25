@@ -41,11 +41,19 @@ export function handleWikiInboxList(
   }))
 }
 
+/**
+ * 重试收件箱条目。只对 pending 生效——不存在的 id 或已归档/已丢弃的条目
+ * 直接抛错，避免返回 success:true 让调用方以为改动生效了。
+ */
 export function handleWikiInboxRetry(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:inbox:retry' }>,
 ): { success: boolean } {
-  bridge.wikiRepo.retryInbox(command.inboxId)
+  const item = bridge.wikiRepo.findInboxById(command.inboxId)
+  if (!item) throw new Error(`收件箱条目不存在: ${command.inboxId}`)
+  if (!bridge.wikiRepo.retryInbox(command.inboxId)) {
+    throw new Error(`条目状态为 ${item.status}，只有 pending 条目可重试: ${command.inboxId}`)
+  }
   return { success: true }
 }
 
@@ -53,7 +61,9 @@ export function handleWikiInboxDiscard(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:inbox:discard' }>,
 ): { success: boolean } {
-  bridge.wikiRepo.discardInbox(command.inboxId)
+  if (!bridge.wikiRepo.discardInbox(command.inboxId)) {
+    throw new Error(`收件箱条目不存在: ${command.inboxId}`)
+  }
   return { success: true }
 }
 
@@ -110,7 +120,8 @@ export function handleWikiPageGet(
   command: Extract<AgentRuntimeCommand, { type: 'wiki:page:get' }>,
 ): unknown {
   const page = bridge.wikiRepo.findPageById(command.pageId)
-  if (!page) return null
+  // 抛错而非返回 null：null 在 CLI 里是 exit 0，调用方分不清「页面不存在」和「读到空页」
+  if (!page) throw new Error(`页面不存在: ${command.pageId}`)
   return {
     id: page.id,
     path: page.path,

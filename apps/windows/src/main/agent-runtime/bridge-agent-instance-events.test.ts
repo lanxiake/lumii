@@ -32,6 +32,8 @@ describe("Wiki 摄入钩子接线", () => {
       fileRepo: null,
       fileMemoryHandler: {} as never,
       getWikiIngestHook,
+      // Agent 定义 id，与 wiki 工具 / wiki 命令同口径（不是会话 id）
+      resolveWikiAgentId: () => "assistant",
       instanceStates,
       instanceToConversation: new Map(),
       toolCallInstanceMap: new Map(),
@@ -63,7 +65,8 @@ describe("Wiki 摄入钩子接线", () => {
     handler({ type: "tool:start", toolCallId: "t1", toolName: "file_write", args: { filePath: "outputs/report.md" } } as never);
     handler({ type: "tool:end", toolCallId: "t1", toolName: "file_write", isError: false, result: {} } as never);
 
-    expect(ingestOutput).toHaveBeenCalledWith("session-wiki", "local-user", "outputs/report.md", "report.md");
+    // 首参必须是 Agent 定义 id：传会话 id 会让摄入落进查不到的命名空间
+    expect(ingestOutput).toHaveBeenCalledWith("assistant", "local-user", "outputs/report.md", "report.md");
   });
 
   it("file_write 成功后 uploads/ 路径调用 ingestUpload", () => {
@@ -73,7 +76,7 @@ describe("Wiki 摄入钩子接线", () => {
     handler({ type: "tool:start", toolCallId: "t1", toolName: "file_write", args: { filePath: "uploads/photo.png" } } as never);
     handler({ type: "tool:end", toolCallId: "t1", toolName: "file_write", isError: false, result: {} } as never);
 
-    expect(ingestUpload).toHaveBeenCalledWith("session-wiki", "local-user", "uploads/photo.png", "photo.png");
+    expect(ingestUpload).toHaveBeenCalledWith("assistant", "local-user", "uploads/photo.png", "photo.png");
   });
 
   it("工具失败时不摄入", () => {
@@ -107,8 +110,8 @@ describe("Wiki 摄入钩子接线", () => {
     } as never);
 
     expect(ingestWebSearch).toHaveBeenCalledTimes(2);
-    expect(ingestWebSearch).toHaveBeenCalledWith("session-wiki", "local-user", "https://a.example.com", "标题A", "摘要A");
-    expect(ingestWebSearch).toHaveBeenCalledWith("session-wiki", "local-user", "https://b.example.com", "标题B", "摘要B");
+    expect(ingestWebSearch).toHaveBeenCalledWith("assistant", "local-user", "https://a.example.com", "标题A", "摘要A");
+    expect(ingestWebSearch).toHaveBeenCalledWith("assistant", "local-user", "https://b.example.com", "标题B", "摘要B");
   });
 
   it("getWikiIngestHook 返回 null 时安静跳过（不抛错）", () => {
@@ -300,6 +303,7 @@ describe("assistant parts bridge persistence", () => {
         fileRepo: null,
         fileMemoryHandler: {} as never,
         getWikiIngestHook: () => null,
+        resolveWikiAgentId: () => "assistant",
         instanceStates,
         instanceToConversation: new Map([["instance", "conversation-1"]]),
         toolCallInstanceMap: new Map(),

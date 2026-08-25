@@ -63,6 +63,8 @@ export class WikiOrganizer {
 
     const byId = new Map(enriched.map((i) => [i.id, i]));
     let failed = 0;
+    let degraded = 0;
+    const degradeReasons = new Set<string>();
     for (const result of classified) {
       const item = byId.get(result.inboxId);
       if (!item) continue;
@@ -79,16 +81,36 @@ export class WikiOrganizer {
         });
         this.savePageWithFallback(agentId, userId, result, source.id);
         this.repo.markInboxOrganized(item.id, source.id);
+        if (result.degraded) {
+          degraded += 1;
+          if (result.degradeReason) degradeReasons.add(result.degradeReason);
+        }
       } catch (err) {
         failed += 1;
         this.repo.markInboxAttemptFailed(item.id, (err as Error).message);
       }
     }
 
-    const status = failed === 0 ? "succeeded" : "partial";
-    const summary = `${classified.length - failed} 项已归档${failed > 0 ? `，${failed} 项待重试` : ""}`;
-    this.repo.finishRun(run.id, status, summary);
-    return { ...run, status, result_summary: summary, finished_at: new Date().toISOString() };
+    // 分类降级不是「成功」：资料没丢，但落点是兜底的 inbox/，用户需要知道并可手动归档。
+    // failed（落库异常，条目仍 pending 待重试）优先级高于 degraded（已归档但落点兜底）。
+    const status = failed > 0 ? "partial" : degraded > 0 ? "degraded" : "succeeded";
+    const organized = classified.length - failed;
+    const summary = [
+      `${organized} 项已归档`,
+      degraded > 0 ? `其中 ${degraded} 项分类降级到 inbox/` : "",
+      failed > 0 ? `${failed} 项待重试` : "",
+    ]
+      .filter(Boolean)
+      .join("，");
+    const error = degradeReasons.size > 0 ? [...degradeReasons].join("; ") : undefined;
+    this.repo.finishRun(run.id, status, summary, error);
+    return {
+      ...run,
+      status,
+      result_summary: summary,
+      ...(error ? { error } : {}),
+      finished_at: new Date().toISOString(),
+    };
   }
 
   /** 路径非法（分类器已校验，但 savePage 是最后防线）时降级到 inbox/<收件箱id> */

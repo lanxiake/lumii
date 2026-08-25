@@ -334,6 +334,8 @@ export {
   computeBackoffDelayMs,
   MAX_ORGANIZE_ATTEMPTS,
   WikiContentExtractor,
+  isTextReadablePath,
+  MAX_EXTRACT_BYTES,
   buildClassifyPrompt,
   parseClassifyResponse,
   classifyBatch,

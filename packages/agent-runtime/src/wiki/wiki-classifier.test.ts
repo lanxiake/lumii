@@ -129,7 +129,95 @@ describe("parseClassifyResponse", () => {
       const res = parseClassifyResponse(bad, items);
       expect(res).toHaveLength(2);
       expect(res.map((r) => r.path)).toEqual(["inbox/i1", "inbox/i2"]);
+      // 降级必须自报，否则调用方会把兜底落点当成分类成功
+      expect(res.every((r) => r.degraded === true)).toBe(true);
+      expect(res[0]!.degradeReason).toBeTruthy();
     }
+  });
+
+  it("单条批次的裸对象响应被正常解析（不再整批降级）", () => {
+    const items = [makeItem("i1")];
+    const res = parseClassifyResponse(
+      '{"id":"i1","path":"sources/solo","title":"单条","summaryMd":"摘要"}',
+      items,
+    );
+    expect(res).toHaveLength(1);
+    expect(res[0]!.path).toBe("sources/solo");
+    expect(res[0]!.degraded).toBeUndefined();
+  });
+
+  it("围栏包裹的裸对象同样被解析", () => {
+    const items = [makeItem("i1")];
+    const res = parseClassifyResponse(
+      '```json\n{"id":"i1","path":"media/pic","title":"图","summaryMd":"s"}\n```',
+      items,
+    );
+    expect(res[0]!.path).toBe("media/pic");
+  });
+
+  it("思考块内的方括号不影响 JSON 边界识别", () => {
+    const items = [makeItem("i1")];
+    const res = parseClassifyResponse(
+      '<think>先看 items[0] 再定 [落点]</think>\n[{"id":"i1","path":"sources/ok","title":"t","summaryMd":"s"}]',
+      items,
+    );
+    expect(res[0]!.path).toBe("sources/ok");
+  });
+
+  it("只有闭合 think 标签（流式截断）时仍能解析", () => {
+    const items = [makeItem("i1")];
+    const res = parseClassifyResponse(
+      '判断依据见 [上文]\n</think>\n[{"id":"i1","path":"sources/ok","title":"t","summaryMd":"s"}]',
+      items,
+    );
+    expect(res[0]!.path).toBe("sources/ok");
+  });
+
+  it("前置散文含方括号时不再把切片带偏", () => {
+    const items = [makeItem("i1")];
+    const res = parseClassifyResponse(
+      '好的 [见下]：\n[{"id":"i1","path":"sources/ok","title":"t","summaryMd":"s"}]',
+      items,
+    );
+    expect(res[0]!.path).toBe("sources/ok");
+  });
+
+  it("正文字符串内含括号与转义引号时边界仍正确", () => {
+    const items = [makeItem("i1")];
+    const res = parseClassifyResponse(
+      '[{"id":"i1","path":"sources/ok","title":"含 ] 和 [ 的标题","summaryMd":"带\\"引号\\"与 } 符号"}]',
+      items,
+    );
+    expect(res[0]!.path).toBe("sources/ok");
+    expect(res[0]!.title).toBe("含 ] 和 [ 的标题");
+    expect(res[0]!.summaryMd).toBe('带"引号"与 } 符号');
+  });
+
+  it("降级条目标记 degraded，正常条目不带该字段", () => {
+    const items = [makeItem("i1"), makeItem("i2")];
+    const res = parseClassifyResponse(
+      JSON.stringify([
+        { id: "i1", path: "sources/ok", title: "t1", summaryMd: "s1" },
+        { id: "i2", path: "syntheses/越权", title: "t2", summaryMd: "s2" },
+      ]),
+      items,
+    );
+    const ok = res.find((r) => r.inboxId === "i1")!;
+    const bad = res.find((r) => r.inboxId === "i2")!;
+    expect(ok.degraded).toBeUndefined();
+    expect(bad.degraded).toBe(true);
+    expect(bad.degradeReason).toContain("syntheses/越权");
+  });
+
+  it("模型漏答的条目标记为降级并说明原因", () => {
+    const items = [makeItem("i1"), makeItem("i2")];
+    const res = parseClassifyResponse(
+      JSON.stringify([{ id: "i1", path: "sources/ok", title: "t", summaryMd: "s" }]),
+      items,
+    );
+    const missing = res.find((r) => r.inboxId === "i2")!;
+    expect(missing.degraded).toBe(true);
+    expect(missing.degradeReason).toContain("未返回");
   });
 
   it("字段类型错误时用原条目兜底而非丢弃", () => {

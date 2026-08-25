@@ -76,6 +76,7 @@ import {
 import { McpManager, type McpServerRuntimeStatus } from './mcp-manager'
 import type { McpServerEntry } from '../config/mcp-config'
 import { PermissionController } from './permission-controller'
+import { readWorkspaceTextForWiki } from './wiki-text-reader'
 import { AskUserQuestionController } from './ask-user-question-controller'
 import { FileMemoryHandler } from './file-memory-handler'
 import { SegmentMemoryService } from './segment-memory-service'
@@ -517,6 +518,9 @@ export class AgentRuntimeBridge {
           const result = await this.imageServices.recognizeImage({ imagePath })
           return result.description
         },
+        // 产物/上传摄入只有路径没有正文，不读文件会归档出空页（限工作空间内的纯文本）
+        readTextFile: (filePath: string, maxBytes: number) =>
+          readWorkspaceTextForWiki(filePath, maxBytes),
       }),
     )
     this._wikiOrganizeQueue = new WikiOrganizeQueue()

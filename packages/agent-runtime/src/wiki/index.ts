@@ -14,7 +14,11 @@ export { WikiOrganizer } from "./wiki-organizer.js";
 
 export { WikiOrganizeQueue, computeBackoffDelayMs, MAX_ORGANIZE_ATTEMPTS } from "./wiki-organize-queue.js";
 
-export { WikiContentExtractor } from "./wiki-content-extractor.js";
+export {
+  WikiContentExtractor,
+  isTextReadablePath,
+  MAX_EXTRACT_BYTES,
+} from "./wiki-content-extractor.js";
 export type { WikiContentExtractorDeps, ExtractInput } from "./wiki-content-extractor.js";
 
 export {

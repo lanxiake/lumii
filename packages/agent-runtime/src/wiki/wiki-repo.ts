@@ -231,15 +231,25 @@ export class WikiRepo {
       .run(organizedSourceId, new Date().toISOString(), id);
   }
 
-  discardInbox(id: string): void {
-    this.db.prepare("UPDATE wiki_inbox SET status = 'discarded' WHERE id = ?").run(id);
+/**
+   * 丢弃条目。
+   * @returns 是否真的改了一行；false 表示 id 不存在（调用方据此报错而非静默成功）
+   */
+  discardInbox(id: string): boolean {
+    const info = this.db.prepare("UPDATE wiki_inbox SET status = 'discarded' WHERE id = ?").run(id);
+    return info.changes > 0;
   }
 
-  /** 重试：清零尝试计数与错误，回到可被再次取件的状态 */
-  retryInbox(id: string): void {
-    this.db
+  /**
+   * 重试：清零尝试计数与错误，回到可被再次取件的状态。
+   * 只对 pending 生效——已归档/已丢弃的条目不应被"复活"。
+   * @returns 是否真的改了一行；false 表示 id 不存在或状态不是 pending
+   */
+  retryInbox(id: string): boolean {
+    const info = this.db
       .prepare("UPDATE wiki_inbox SET attempt_count = 0, last_error = NULL WHERE id = ? AND status = 'pending'")
       .run(id);
+    return info.changes > 0;
   }
 
   /**

@@ -82,7 +82,14 @@ export interface WikiPageRevision {
   readonly created_at: string;
 }
 
-export type WikiOrganizeRunStatus = "running" | "succeeded" | "partial" | "failed";
+/**
+ * 归档运行终态：
+ * - succeeded：全部按模型分类落到目标分类
+ * - degraded：全部已归档但部分/全部落点降级为兜底 inbox/（资料没丢，需用户手动归档）
+ * - partial：部分条目落库失败，仍 pending 等退避重试
+ * - failed：整批分类失败，条目全部保持 pending
+ */
+export type WikiOrganizeRunStatus = "running" | "succeeded" | "degraded" | "partial" | "failed";
 
 export interface WikiOrganizeRun {
   readonly id: string;

@@ -524,6 +524,9 @@ export class BridgeInstanceFactory {
       fileRepo: this.deps.getFileRepo(),
       fileMemoryHandler: this.deps.fileMemoryHandler,
       getWikiIngestHook: this.deps.getWikiIngestHook,
+      // 与 bridge-wiki-tools 的 resolveAgentId 同口径（Agent 定义 id），
+      // 否则摄入落在会话 id 命名空间，UI / CLI 默认视图查不到
+      resolveWikiAgentId: () => this.deps.agentRegistry.get(instanceId)?.definitionId ?? 'default',
       instanceStates: this.deps.instanceStates,
       instanceToConversation: this.deps.instanceToConversation,
       agentName: def.name,

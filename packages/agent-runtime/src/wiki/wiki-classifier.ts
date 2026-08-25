@@ -13,6 +13,14 @@ export interface ClassifiedItem {
   readonly path: string;
   readonly title: string;
   readonly summaryMd: string;
+  /**
+   * 该条是否走了降级落点（inbox/<id>）而非模型给出的分类。
+   * 仅降级时出现，正常结果不带此字段——调用方据此把「分类失败但没丢数据」
+   * 与「真正分类成功」区分开，写进运行日志供用户看见。
+   */
+  readonly degraded?: true;
+  /** 降级原因（仅 degraded 时出现），用于运行日志与排查 */
+  readonly degradeReason?: string;
 }
 
 /**
@@ -50,25 +58,113 @@ export function buildClassifyPrompt(items: readonly WikiInboxItem[]): string {
 }
 
 /**
+ * 从模型回复中抽出 JSON 载荷（数组或单个对象）。
+ *
+ * 不能简单用 indexOf("[") / lastIndexOf("]") 切片：推理模型的思考块或前置散文里
+ * 只要出现一个方括号（如「先看 items[0]」），切片就被带偏成非法 JSON，整批静默降级。
+ * 逐层收窄：剥思考块 → 优先取代码围栏内容 → 扫描括号平衡的完整 JSON 片段。
+ * @returns 解析后的值；抽不出返回 null
+ */
+function extractJsonPayload(response: string): unknown {
+  // 1. 剥掉推理模型的思考块（含只有闭合标签的半截形态）
+  let text = response.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  const orphanClose = text.lastIndexOf("</think>");
+  if (orphanClose !== -1) text = text.slice(orphanClose + "</think>".length);
+
+  // 2. 代码围栏内的内容最可信，优先逐个尝试
+  const candidates: string[] = [];
+  for (const m of text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+    if (m[1]) candidates.push(m[1]);
+  }
+  candidates.push(text);
+
+  for (const candidate of candidates) {
+    // 3. 先按整体解析（最常见的干净输出）
+    const trimmed = candidate.trim();
+    if (trimmed) {
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        // 落到括号扫描
+      }
+    }
+    const scanned = scanBalancedJson(candidate);
+    if (scanned !== null) return scanned;
+  }
+  return null;
+}
+
+/**
+ * 扫描出第一个括号平衡且能解析的 JSON 片段（数组优先于对象）。
+ * 逐字符跟踪深度并跳过字符串字面量，因此散文或字符串内的括号不会干扰边界判定。
+ */
+function scanBalancedJson(text: string): unknown {
+  for (const open of ["[", "{"] as const) {
+    const close = open === "[" ? "]" : "}";
+    let start = text.indexOf(open);
+    while (start !== -1) {
+      let depth = 0;
+      let inString = false;
+      let escaped = false;
+      for (let i = start; i < text.length; i++) {
+        const ch = text[i]!;
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (ch === "\\") {
+          if (inString) escaped = true;
+          continue;
+        }
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+        if (inString) continue;
+        if (ch === open) depth++;
+        else if (ch === close) {
+          depth--;
+          if (depth === 0) {
+            try {
+              return JSON.parse(text.slice(start, i + 1));
+            } catch {
+              // 这个起点不成立，从下一个同类括号重试
+            }
+            break;
+          }
+        }
+      }
+      start = text.indexOf(open, start + 1);
+    }
+  }
+  return null;
+}
+
+/**
  * 解析并校验 LLM 返回的分类结果。
  * 越权顶层分类、非法路径（空段/../绝对路径/分隔符逃逸）的条目降级为 `inbox/<原id>`，
  * 而非丢弃——校验失败不等于资料丢失。
+ *
+ * 单条批次时模型常返回裸对象 `{...}` 而非数组 `[{...}]`，这里统一裹成数组处理，
+ * 否则单条归档会 100% 降级（实测 3/3）。
  */
 export function parseClassifyResponse(
   response: string,
   items: readonly WikiInboxItem[],
 ): readonly ClassifiedItem[] {
   const byId = new Map(items.map((i) => [i.id, i]));
-  let parsed: unknown;
-  try {
-    const start = response.indexOf("[");
-    const end = response.lastIndexOf("]");
-    if (start === -1 || end === -1 || end <= start) return fallbackAll(items);
-    parsed = JSON.parse(response.slice(start, end + 1));
-  } catch {
-    return fallbackAll(items);
+  const payload = extractJsonPayload(response);
+  if (payload === null) return fallbackAll(items, "模型回复中未找到可解析的 JSON");
+
+  // 裸对象裹成单元素数组；带 id 字段才算一条结果，空对象 {} 仍走整批降级
+  let parsed: unknown[];
+  if (Array.isArray(payload)) {
+    parsed = payload;
+  } else if (typeof payload === "object" && "id" in (payload as Record<string, unknown>)) {
+    parsed = [payload];
+  } else {
+    return fallbackAll(items, "模型回复的 JSON 不是分类结果数组");
   }
-  if (!Array.isArray(parsed)) return fallbackAll(items);
 
   const results: ClassifiedItem[] = [];
   const seen = new Set<string>();
@@ -82,31 +178,43 @@ export function parseClassifyResponse(
 
     const rawPath = typeof record.path === "string" ? record.path : "";
     const { valid, category } = validateWikiPath(rawPath);
-    const path = valid && category && AI_WRITABLE_CATEGORIES.has(category) ? rawPath : `inbox/${item.id}`;
+    const allowed = valid && category && AI_WRITABLE_CATEGORIES.has(category);
 
     results.push({
       inboxId: item.id,
-      path,
+      path: allowed ? rawPath : `inbox/${item.id}`,
       title: typeof record.title === "string" && record.title ? record.title : item.title,
       summaryMd: typeof record.summaryMd === "string" ? record.summaryMd : (item.content_preview ?? ""),
+      ...(allowed
+        ? {}
+        : { degraded: true as const, degradeReason: `分类落点不可用: ${rawPath || "(空)"}` }),
     });
   }
 
   // 模型漏答的条目同样不能丢：降级落 inbox/
   for (const item of items) {
     if (!seen.has(item.id)) {
-      results.push({ inboxId: item.id, path: `inbox/${item.id}`, title: item.title, summaryMd: item.content_preview ?? "" });
+      results.push({
+        inboxId: item.id,
+        path: `inbox/${item.id}`,
+        title: item.title,
+        summaryMd: item.content_preview ?? "",
+        degraded: true,
+        degradeReason: "模型未返回该条目的分类结果",
+      });
     }
   }
   return results;
 }
 
-function fallbackAll(items: readonly WikiInboxItem[]): readonly ClassifiedItem[] {
+function fallbackAll(items: readonly WikiInboxItem[], reason: string): readonly ClassifiedItem[] {
   return items.map((item) => ({
     inboxId: item.id,
     path: `inbox/${item.id}`,
     title: item.title,
     summaryMd: item.content_preview ?? "",
+    degraded: true as const,
+    degradeReason: reason,
   }));
 }
 
