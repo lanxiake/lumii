@@ -11,18 +11,17 @@ import {
 } from '../../../../hooks/business/useMemoryUsage'
 import styles from './MemoryViewer.module.css'
 
+/** 工作记忆分类标签（仅 project/reference/general） */
+const WORK_MEMORY_CATEGORIES = ['project', 'reference', 'general'] as const
+
 const CATEGORY_LABEL: Record<string, string> = {
-  user: '用户画像',
-  feedback: '交互偏好',
   project: '进行中的事',
   reference: '外部资源',
-  general: '其他',
+  general: '其他知识',
 }
 
 /** 每类记忆的简短用途说明 */
 const CATEGORY_DESC: Record<string, string> = {
-  user: '身份信息（通常保存在个人记忆中）',
-  feedback: '交互偏好（通常保存在个人记忆中）',
   project: '计划、日程、项目进展、截止日期等动态事项',
   reference: '常用工具、网址、联系人等外部资源',
   general: '对话中有跨会话价值的知识和信息',
@@ -75,6 +74,8 @@ const MemoryViewer: React.FC = () => {
     const map = new Map<string, MemoryListItem[]>()
     for (const row of items) {
       const k = row.category || 'general'
+      // 过滤掉个人记忆类别（user/feedback），工作记忆tab只显示工作记忆
+      if (!WORK_MEMORY_CATEGORIES.includes(k as any)) continue
       const list = map.get(k) ?? []
       list.push(row)
       map.set(k, list)
