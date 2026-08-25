@@ -622,6 +622,8 @@ export class AgentRuntimeBridge {
       getTaskRepo: () => this._taskRepo,
       getMemoryManager: () => this._memoryManager,
       getConversationRepo: () => this._conversationRepo,
+      getWikiRepo: () => this._wikiRepo,
+      getWikiIngestHook: () => this._wikiIngestHook,
       getFeatureFlags: () => this.featureFlags,
       ipcChannel: this.ipcChannel,
       instanceStates: this.instanceStates,

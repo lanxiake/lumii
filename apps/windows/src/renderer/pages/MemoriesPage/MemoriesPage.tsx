@@ -30,9 +30,10 @@ import { Checkbox } from '../../components/ui/Checkbox/Checkbox'
 import { SOUL_TEMPLATES } from './soul-templates'
 import { DEFAULT_SOUL_CONTENT } from '../../../../../../packages/agent-runtime/src/prompt/default-soul'
 import { MemPalaceViewer } from './MemPalaceViewer'
+import { WikiTab } from './components/WikiTab'
 import './MemoriesPage.css'
 
-type MemoryTab = 'soul' | 'ai' | 'user-memory' | 'plugin'
+type MemoryTab = 'soul' | 'ai' | 'user-memory' | 'plugin' | 'wiki'
 
 interface MemoriesPageProps {
   onViewChange?: (view: ViewType) => void
@@ -276,6 +277,11 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
               记忆插件
             </button>
           </Tooltip>
+          <Tooltip content="自动收集上传文件、任务产物与网页搜索结果，AI 分类归档后可检索" placement="bottom">
+            <button type="button" className={`memories-tab ${activeTab === 'wiki' ? 'memories-tab--active' : ''}`} onClick={() => setActiveTab('wiki')}>
+              Wiki
+            </button>
+          </Tooltip>
         </div>
         <div className="memories-tabs-actions">
           <Tooltip content="你是谁、你的偏好 — 跨会话稳定，全局生效。关闭后 AI 不会自动看到相应记忆，但仍可通过工具按需搜索读取。" placement="bottom">
@@ -492,6 +498,9 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
           {mempalaceInstalled && <MemPalaceViewer />}
         </div>
       )}
+
+      {/* Wiki Tab（P0）*/}
+      {activeTab === 'wiki' && <WikiTab />}
     </div>
   )
 }

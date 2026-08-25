@@ -14,6 +14,8 @@ import type {
   LocalDatabase,
   ToolExecutionContext,
   AgentRuntimeFeatureFlags,
+  WikiRepo,
+  WikiIngestHook,
 } from '@mtbot/agent-runtime'
 import type { AgentRuntimeBridgeConfig } from './bridge-types'
 import type { InstanceStateStore } from './bridge-instance-state'
@@ -43,6 +45,8 @@ export interface BridgeToolRegistrarDeps {
   getTaskRepo: () => TaskRepo | null
   getMemoryManager: () => MemoryManager | null
   getConversationRepo: () => ConversationRepo | null
+  getWikiRepo: () => WikiRepo | null
+  getWikiIngestHook: () => WikiIngestHook | null
   /** 读取当前 feature flags（主题5：verification-nudge / task_complete 门禁 killswitch） */
   getFeatureFlags: () => AgentRuntimeFeatureFlags
   ipcChannel: BridgeRendererIpcChannel

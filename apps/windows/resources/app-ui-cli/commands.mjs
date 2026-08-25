@@ -367,6 +367,137 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'wiki inbox list',
+    group: 'Wiki',
+    usage: 'wiki inbox list [--status pending|organized|discarded] [--session <key>]',
+    summary: '列出 Wiki 收件箱条目',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--status <s>', desc: '按状态筛选：pending | organized | discarded' },
+      { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
+    ],
+    build(args) {
+      const body = { type: 'wiki:inbox:list' }
+      if (typeof args.flags.status === 'string') body.status = args.flags.status
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      return body
+    },
+  },
+  {
+    name: 'wiki inbox retry',
+    group: 'Wiki',
+    usage: 'wiki inbox retry <id>',
+    summary: '清零失败计数，让收件箱条目重新可被取件整理',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<id>', desc: '收件箱条目 ID' }],
+    build(args) {
+      const inboxId = args.positional[0]
+      if (typeof inboxId !== 'string' || inboxId.length === 0) return null
+      return { type: 'wiki:inbox:retry', inboxId }
+    },
+  },
+  {
+    name: 'wiki inbox discard',
+    group: 'Wiki',
+    usage: 'wiki inbox discard <id>',
+    summary: '丢弃收件箱条目（不进入知识库）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<id>', desc: '收件箱条目 ID' }],
+    build(args) {
+      const inboxId = args.positional[0]
+      if (typeof inboxId !== 'string' || inboxId.length === 0) return null
+      return { type: 'wiki:inbox:discard', inboxId }
+    },
+  },
+  {
+    name: 'wiki page list',
+    group: 'Wiki',
+    usage: 'wiki page list [--category <c>] [--session <key>]',
+    summary: '按分类列出 Wiki 页面',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--category <c>', desc: '按顶层分类筛选：sources | media | inbox | concepts | entities | syntheses' },
+      { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
+    ],
+    build(args) {
+      const body = { type: 'wiki:page:list' }
+      if (typeof args.flags.category === 'string') body.category = args.flags.category
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      return body
+    },
+  },
+  {
+    name: 'wiki page get',
+    group: 'Wiki',
+    usage: 'wiki page get <pageId>',
+    summary: '读取单个 Wiki 页面全文',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<pageId>', desc: '页面 ID（wiki page list 输出中的 id）' }],
+    build(args) {
+      const pageId = args.positional[0]
+      if (typeof pageId !== 'string' || pageId.length === 0) return null
+      return { type: 'wiki:page:get', pageId }
+    },
+  },
+  {
+    name: 'wiki search',
+    group: 'Wiki',
+    usage: 'wiki search <关键词> [--limit <n>] [--session <key>]',
+    summary: 'FTS5 全文检索 Wiki 页面（验证中文召回）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '<关键词>', desc: '搜索关键词（中文 bigram 切分，支持 2 字词）' },
+      { flag: '--limit <n>', desc: '返回条数上限，默认 10' },
+      { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
+    ],
+    build(args) {
+      const keyword = args.positional[0]
+      if (typeof keyword !== 'string' || keyword.trim().length === 0) return null
+      const body = { type: 'wiki:search', keyword }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      const limit = num(args.flags.limit)
+      if (limit !== undefined && limit > 0) body.limit = limit
+      return body
+    },
+  },
+  {
+    name: 'wiki runs list',
+    group: 'Wiki',
+    usage: 'wiki runs list [--session <key>] [--limit <n>]',
+    summary: '归档运行日志（追溯页面生成依据）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
+      { flag: '--limit <n>', desc: '返回条数上限，默认 50' },
+    ],
+    build(args) {
+      const body = { type: 'wiki:runs:list' }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      const limit = num(args.flags.limit)
+      if (limit !== undefined && limit > 0) body.limit = limit
+      return body
+    },
+  },
+  {
+    name: 'wiki index rebuild',
+    group: 'Wiki',
+    usage: 'wiki index rebuild',
+    summary: '重建 Wiki 全文检索派生索引',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [],
+    build() {
+      return { type: 'wiki:index:rebuild' }
+    },
+  },
+  {
     name: 'memory rebuild-index',
     group: '记忆',
     usage: 'memory rebuild-index',
