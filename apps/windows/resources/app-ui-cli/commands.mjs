@@ -413,6 +413,34 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'wiki inbox organize',
+    group: 'Wiki',
+    usage: 'wiki inbox organize <id> --path <path> [--title <t>] [--content <md>|-]',
+    summary: '手动指定分类路径立即归档（绕开 AI 分类）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '<id>', desc: '收件箱条目 ID' },
+      { flag: '--path <p>', desc: '目标页面路径，如 sources/my-doc（必填，顶层须为 sources/media/inbox 等固定分类）' },
+      { flag: '--title <t>', desc: '页面标题，不传则用原标题' },
+      { flag: '--content <md>', desc: '页面正文 Markdown，或 "-" 从 stdin 读；不传则用条目预览内容' },
+    ],
+    build(args, extra) {
+      const inboxId = args.positional[0]
+      const path = args.flags.path
+      if (typeof inboxId !== 'string' || inboxId.length === 0) return null
+      if (typeof path !== 'string' || path.length === 0) return null
+      const body = { type: 'wiki:inbox:organize', inboxId, path }
+      if (typeof args.flags.title === 'string') body.title = args.flags.title
+      const raw = args.flags.content
+      if (raw !== undefined) {
+        const text = raw === '-' ? extra?.stdin ?? '' : raw
+        if (typeof text === 'string' && text.length > 0) body.contentMd = text
+      }
+      return body
+    },
+  },
+  {
     name: 'wiki page list',
     group: 'Wiki',
     usage: 'wiki page list [--category <c>] [--session <key>]',
@@ -442,6 +470,30 @@ export const COMMANDS = [
       const pageId = args.positional[0]
       if (typeof pageId !== 'string' || pageId.length === 0) return null
       return { type: 'wiki:page:get', pageId }
+    },
+  },
+  {
+    name: 'wiki page update',
+    group: 'Wiki',
+    usage: 'wiki page update --path <path> --title <t> --content <md>|-',
+    summary: '保存 Wiki 页面（不存在则新建，每次保存写新修订）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--path <p>', desc: '页面路径，如 sources/my-doc（必填）' },
+      { flag: '--title <t>', desc: '页面标题（必填）' },
+      { flag: '--content <md>', desc: '页面正文 Markdown，或 "-" 从 stdin 读（必填）' },
+    ],
+    build(args, extra) {
+      const path = args.flags.path
+      const title = args.flags.title
+      const raw = args.flags.content
+      if (typeof path !== 'string' || path.length === 0) return null
+      if (typeof title !== 'string' || title.length === 0) return null
+      if (raw === undefined) return null
+      const contentMd = raw === '-' ? extra?.stdin ?? '' : raw
+      if (typeof contentMd !== 'string') return null
+      return { type: 'wiki:page:update', path, title, contentMd }
     },
   },
   {

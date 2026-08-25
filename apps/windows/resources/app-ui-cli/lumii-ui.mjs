@@ -244,7 +244,8 @@ async function main() {
   const { command, rest } = matched
   const buildArgs = { positional: rest, flags }
   let extra
-  if (flags.data === '-') {
+  // `-` 表示从 stdin 读取：data 用于底层 command，content 用于 wiki 页面正文
+  if (flags.data === '-' || flags.content === '-') {
     extra = { stdin: await readStdin() }
   }
 
