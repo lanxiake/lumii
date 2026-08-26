@@ -1411,6 +1411,11 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       break
     }
 
+    case 'agent:subagent:completed': {
+      // P1：事件先可达；UI 卡片接入非本阶段阻塞项
+      break
+    }
+
     case 'agent:context:usage': {
       const ratio = event.contextWindow > 0 ? event.usedTokens / event.contextWindow : 0
       // 占用率只影响 contextUsage 派生字段；isAutoCompacting 由压缩生命周期事件驱动，

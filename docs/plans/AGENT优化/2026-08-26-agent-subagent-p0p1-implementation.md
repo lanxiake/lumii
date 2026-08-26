@@ -11,6 +11,21 @@
 **设计来源:** `docs/design/AGENT优化/2026-08-26-hermes-moa-vs-lumii-对比与优化.md` 阶段 A/B  
 **原则:** TDD、小步提交、YAGNI（不做 HMAC / worktree / MOA）
 
+**进度（2026-08-26，`feat/agent-subagent-p0p1`）：**
+
+- [x] P0-T0 分支 + 基线
+- [x] P0-T1 SubagentBroker
+- [x] P0-T2 Orchestrator 深度/并发/async 钩子
+- [x] P0-T3 Bridge 投递泵
+- [x] P0-T4 提示词诚实化
+- [x] P0-T5 P0 验收
+- [x] P1-T1 生命周期 API
+- [x] P1-T2 Stale 监控
+- [x] P1-T3 摘要护栏
+- [x] P1-T4 allowedTools 子集校验
+- [x] P1-T5 IPC / activity
+- [x] P1-T6 收尾验收 + 文档
+
 ---
 
 ## 0. 代码实勘结论（实施前必读）

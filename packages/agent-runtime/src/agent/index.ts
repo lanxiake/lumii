@@ -54,7 +54,24 @@ export {
   type AgentOrchestratorDeps,
   type SpawnAgentParams,
   type SpawnAgentResult,
+  type SubagentChildInfo,
+  type SubagentLifecycleResult,
 } from "./orchestrator.js";
+export {
+  SubagentBroker,
+  SUBAGENT_DEFAULTS,
+  clampConcurrentLimit,
+  type SubagentRunStatus,
+  type SubagentRunRecord,
+  type SubagentCompletionPayload,
+  type RegisterSubagentRunInput,
+} from "./subagent-broker.js";
+export {
+  guardSubagentSummary,
+  extractLastVerdictLine,
+  type GuardSubagentSummaryOptions,
+  type GuardSubagentSummaryResult,
+} from "./subagent-summary.js";
 export {
   parseVerdict,
   formatVerdictBanner,

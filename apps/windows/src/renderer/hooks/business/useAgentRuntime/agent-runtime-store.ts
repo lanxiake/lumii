@@ -160,6 +160,10 @@ export interface ActiveAgent {
   readonly name: string
   readonly state: string
   readonly isSubAgent: boolean
+  readonly mode?: 'sync' | 'async'
+  readonly status?: string
+  readonly startedAt?: number
+  readonly lastProgressAt?: number
 }
 
 /** 回合统计 */
