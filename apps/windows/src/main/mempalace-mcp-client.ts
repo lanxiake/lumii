@@ -176,6 +176,28 @@ export class MemPalaceMcpBridge {
 
     this.restartCount = 0
     console.debug('[MemPalace MCP] 握手完成，服务就绪')
+
+    // 空 chroma.sqlite3（有库无 mempalace_drawers）时，list/search 走 create=False 会打 NotFound 堆栈。
+    // mempalace_status 在 db 已存在时用 create=True 引导创建 collection，必须在首次读工具前完成。
+    await this._bootstrapCollectionIfNeeded()
+  }
+
+  /**
+   * 握手后调用 mempalace_status，引导创建缺失的 drawers collection（幂等）。
+   * 失败仅记日志：后续 add_drawer(create=True) 仍可自愈。
+   */
+  private async _bootstrapCollectionIfNeeded(): Promise<void> {
+    try {
+      const result = await this.callTool('mempalace_status', {}) as MemPalaceStatusResult & { error?: string }
+      if (!result?.error) {
+        this.statusCache = { result, ts: Date.now() }
+      }
+    } catch (err) {
+      console.warn(
+        '[MemPalace MCP] 宫殿集合引导失败（可稍后由写入修复）:',
+        err instanceof Error ? err.message : err,
+      )
+    }
   }
 
   private _rpcCall(method: string, params: unknown, timeoutMs = CALL_TIMEOUT_MS): Promise<unknown> {
@@ -229,6 +251,15 @@ export class MemPalaceMcpBridge {
   }
 
   async listDrawers(params: { wing?: string; room?: string; limit?: number; offset?: number }): Promise<MemPalaceListResult> {
+    // 先 status（可 create collection），再 list（create=False），避免空库缺集合时刷 NotFound 堆栈
+    let total = 0
+    try {
+      const status = await this.getStatus()
+      total = status.total_drawers ?? 0
+    } catch {
+      total = 0
+    }
+
     const raw = await this.callTool('mempalace_list_drawers', {
       limit: params.limit ?? 20,
       offset: params.offset ?? 0,
@@ -241,17 +272,9 @@ export class MemPalaceMcpBridge {
       return { drawers: [], total: 0, offset: 0, limit: params.limit ?? 20 }
     }
 
-    let total = 0
-    try {
-      const status = await this.getStatus()
-      total = status.total_drawers ?? 0
-    } catch {
-      total = raw.drawers?.length ?? 0
-    }
-
     return {
       drawers: raw.drawers ?? [],
-      total,
+      total: total || (raw.drawers?.length ?? 0),
       offset: raw.offset ?? 0,
       limit: raw.limit ?? 20,
     }

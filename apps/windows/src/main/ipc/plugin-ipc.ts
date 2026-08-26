@@ -112,6 +112,11 @@ export async function checkMemPalaceInstalled(): Promise<boolean> {
   }
 }
 
+/**
+ * 确保宫殿数据目录存在。
+ * 注意：仅建目录不够——空 chroma.sqlite3 缺 collection 时读路径会报 NotFound；
+ * 集合引导由 MemPalaceMcpBridge 握手后的 mempalace_status 完成。
+ */
 export async function ensureMemPalacePalaceDir(): Promise<void> {
   const palaceDir = getMemPalacePalaceDir()
   if (!existsSync(palaceDir)) {
