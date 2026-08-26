@@ -319,6 +319,7 @@ export class BridgeLifecycle {
         return
       }
       orch.broker.removeCompletion(payload.parentId, payload.childId)
+      this.emitSubagentCompleted(payload)
       this.finishChildAfterDelivery(payload.childId)
       log.info(
         `[subagent] delivered mode=${mode} parent=${payload.parentId} child=${payload.childId} name=${payload.name}`,
@@ -383,6 +384,7 @@ export class BridgeLifecycle {
           log.info(`[subagent] re-deferred during drain child=${payload.childId}`)
           continue
         }
+        this.emitSubagentCompleted(payload)
         this.finishChildAfterDelivery(payload.childId)
         log.info(
           `[subagent] deferred-drain delivered mode=${mode} child=${payload.childId}`,
@@ -475,19 +477,50 @@ export class BridgeLifecycle {
 
   /** 推送当前对话下的活动 Agent 列表（主 + 子） */
   pushActivitySnapshot(rootSessionKey: string): void {
+    const orch = this.orchestrator
     const agents = this.deps.agentRegistry.getAll()
       .filter((inst) => this.deps.instanceToRootSessionKey.get(inst.id) === rootSessionKey)
-      .map((inst) => ({
-        instanceId: inst.id,
-        name: findBuiltInAgent(inst.definitionId)?.name ?? inst.definitionId,
-        state: inst.state,
-        isSubAgent: Boolean(this.deps.agentRegistry.getParentId(inst.id)),
-      }))
+      .map((inst) => {
+        const run = orch?.broker.getRun(inst.id)
+        return {
+          instanceId: inst.id,
+          name: findBuiltInAgent(inst.definitionId)?.name ?? inst.definitionId,
+          state: inst.state,
+          isSubAgent: Boolean(this.deps.agentRegistry.getParentId(inst.id)),
+          ...(run
+            ? {
+                mode: run.mode,
+                status: run.status,
+                startedAt: run.startedAt,
+                lastProgressAt: run.lastProgressAt,
+              }
+            : {}),
+        }
+      })
     this.deps.ipcChannel.forwardIpcEvent({
       type: 'agent:activity:snapshot',
       rootSessionKey,
       agents,
     })
+  }
+
+  /**
+   * 投递前发出 subagent completed IPC（先于 destroy，避免 UI 丢轨迹）
+   */
+  private emitSubagentCompleted(payload: SubagentCompletionPayload): void {
+    const summaryPreview =
+      payload.summary.length > 200 ? `${payload.summary.slice(0, 200)}…` : payload.summary
+    this.deps.ipcChannel.forwardIpcEvent({
+      type: 'agent:subagent:completed',
+      parentInstanceId: payload.parentId,
+      childInstanceId: payload.childId,
+      name: payload.name,
+      status: payload.status,
+      summaryPreview,
+    })
+    log.info(
+      `[Subagent] complete parent=${payload.parentId} child=${payload.childId} name=${payload.name} status=${payload.status} previewLen=${summaryPreview.length}`,
+    )
   }
 
   /** 更新当前活跃会话 ID */

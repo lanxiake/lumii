@@ -329,7 +329,24 @@ export interface AgentActivitySnapshotEvent {
     readonly name: string
     readonly state: string
     readonly isSubAgent: boolean
+    /** 子 Agent 运行模式（可选，向后兼容） */
+    readonly mode?: 'sync' | 'async'
+    /** broker 运行状态（可选） */
+    readonly status?: string
+    readonly startedAt?: number
+    readonly lastProgressAt?: number
   }[]
+}
+
+/** 异步子 Agent 完成通知（投递前推送，供 UI / 监控） */
+export interface AgentSubagentCompletedEvent {
+  readonly type: 'agent:subagent:completed'
+  readonly parentInstanceId: string
+  readonly childInstanceId: string
+  readonly name: string
+  readonly status: 'succeeded' | 'failed' | 'cancelled' | 'stale'
+  /** 截断到约 200 字供 UI 预览 */
+  readonly summaryPreview: string
 }
 
 // ============================================================
@@ -513,6 +530,7 @@ export type AgentRuntimeEvent =
   | ConversationNavigateEvent
   | ConversationMessageNewEvent
   | AgentActivitySnapshotEvent
+  | AgentSubagentCompletedEvent
   | AgentContextUsageEvent
   | AgentContextCompactedEvent
   | AgentFileCreatedEvent
