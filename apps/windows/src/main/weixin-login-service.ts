@@ -23,7 +23,7 @@ import { EventEmitter } from 'events'
 import QRCode from 'qrcode'
 import { WeixinSessionStore } from './weixin-session-store.js'
 import type { WeixinSession } from './weixin-session-store.js'
-import { resolveClientStateDir } from './paths.js'
+import { resolveActiveWorkspaceDir } from './workspace-paths.js'
 import {
   WeixinAuthError,
   normalizeIlinkBaseUrl,
@@ -407,9 +407,7 @@ export class WeixinLoginService extends EventEmitter {
 
               // SILK 语音消息 ASR 转录
               if (this.silkAsrCallback) {
-                const workspaceDir =
-                  process.env['MTBOT_WORKSPACE_DIR']?.trim() ||
-                  path.join(resolveClientStateDir(), 'workspace')
+                const workspaceDir = resolveActiveWorkspaceDir()
                 for (const item of normalized.mediaItems) {
                   if (!item.localPath?.endsWith('.silk')) continue
                   const absPath = path.join(workspaceDir, item.localPath)

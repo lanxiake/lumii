@@ -49,6 +49,37 @@ export type LocalCronJobRow = {
   notify_targets: string | null
 }
 
+/**
+ * 从单条消息的 content_json 中提取正文文本。
+ * 兼容 assistant_parts（当前落库格式）与扁平 text（旧数据）两种结构。
+ * 思考内容（thinking）与工具卡片（tool）不参与文本提取。
+ */
+function extractTextFromContentJson(contentJson: string): string {
+  try {
+    const parsed: unknown = JSON.parse(contentJson)
+    if (!parsed || typeof parsed !== 'object') return ''
+    const o = parsed as Record<string, unknown>
+
+    if (Array.isArray(o.parts)) {
+      return (o.parts as readonly unknown[])
+        .filter((p): p is { type: string; text: string } => {
+          const part = p as Record<string, unknown> | null
+          return part?.type === 'text' && typeof part.text === 'string'
+        })
+        .map((p) => p.text.trim())
+        .filter(Boolean)
+        .join(' ')
+        .trim()
+    }
+
+    if (typeof o.text === 'string') return o.text.trim()
+    if (typeof o.content === 'string') return o.content.trim()
+    return ''
+  } catch {
+    return ''
+  }
+}
+
 /** LocalCronJobRow 的完整列清单，避免多处 SELECT 漂移 */
 const CRON_JOB_COLUMNS = `id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms,
         enabled, created_at, last_run_at, last_status,
@@ -545,10 +576,7 @@ export class CronScheduler {
          ORDER BY timestamp DESC LIMIT 1`
       ).get(conversationId, new Date(since).toISOString())
       if (!row) return null
-      const parsed: unknown = JSON.parse(row.content_json)
-      if (!parsed || typeof parsed !== 'object') return null
-      const content = parsed as { type?: string; text?: string }
-      const text = content.type === 'text' ? (content.text ?? '').trim() : ''
+      const text = extractTextFromContentJson(row.content_json)
       return text || null
     } catch (err) {
       log.warn('[readLatestAssistantText] 回读失败:', err)
@@ -805,8 +833,8 @@ export class CronScheduler {
       ).run(finishedAt, job.id)
       this.localDb.db.prepare(
         `INSERT INTO local_cron_runs (id, job_id, status, started_at, finished_at, duration_ms, summary, error)
-         VALUES (?, ?, 'error', ?, ?, ?, ?, ?)`
-      ).run(runId, job.id, startedAt, finishedAt, finishedAt - startedAt, job.task_text, message)
+         VALUES (?, ?, 'error', ?, ?, ?, NULL, ?)`
+      ).run(runId, job.id, startedAt, finishedAt, finishedAt - startedAt, message)
     } finally {
       this.localCronRunningJobs.delete(job.id)
     }

@@ -38,6 +38,8 @@ interface FocusItem {
   readonly weight: number
   /** 有值则可点开详情 */
   readonly detail?: { readonly title: string; readonly body: string; readonly meta: string }
+  /** wiki 项：点击时才拉取正文，避免列表加载时 N 次请求 */
+  readonly wikiPageId?: string
 }
 
 function formatWhen(ts: number): string {
@@ -60,7 +62,7 @@ export interface RecentFocusProps {
 
 export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
   const { listMemories } = useMemoryUsage()
-  const { listPages } = useWikiPage()
+  const { listPages, getPage } = useWikiPage()
   const [activeTab, setActiveTab] = useState<TabId>('work')
   const [items, setItems] = useState<readonly FocusItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -81,7 +83,7 @@ export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
     return [...rows]
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, MAX_ITEMS)
-      .map((p) => ({ id: p.id, text: p.title, at: p.updatedAt, weight: 0.7 }))
+      .map((p) => ({ id: p.id, text: p.title, at: p.updatedAt, weight: 0.7, wikiPageId: p.id }))
   }, [listPages])
 
   /**
@@ -141,6 +143,19 @@ export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
       .slice(0, MAX_ITEMS)
   }, [])
 
+  const handleWikiClick = useCallback(
+    async (pageId: string, title: string) => {
+      setDetail({ title, body: '正在加载…', meta: '' })
+      const page = await getPage(pageId)
+      setDetail({
+        title: page?.title ?? title,
+        body: page?.contentMd || '未找到该页面内容。',
+        meta: page ? new Date(page.updatedAt).toLocaleString('zh-CN', { hour12: false }) : '',
+      })
+    },
+    [getPage],
+  )
+
   useEffect(() => {
     let alive = true
     setLoading(true)
@@ -187,13 +202,18 @@ export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
       ) : (
         <ul className={styles.list}>
           {items.map((it) => {
-            const clickable = Boolean(it.detail)
+            const clickable = Boolean(it.detail) || Boolean(it.wikiPageId)
+            const handleClick = it.wikiPageId
+              ? () => handleWikiClick(it.wikiPageId as string, it.text)
+              : it.detail
+                ? () => setDetail(it.detail)
+                : undefined
             return (
               <li
                 key={it.id}
                 className={clsx(styles.item, clickable && styles['item--clickable'])}
-                onClick={clickable ? () => setDetail(it.detail) : undefined}
-                title={clickable ? '点击查看执行结果' : undefined}
+                onClick={handleClick}
+                title={clickable ? '点击查看详情' : undefined}
               >
                 <span className={styles.dot} style={{ opacity: 0.35 + it.weight * 0.65 }} />
                 <span className={styles.content}>{it.text}</span>

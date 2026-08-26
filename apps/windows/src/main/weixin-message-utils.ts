@@ -6,7 +6,7 @@
 import fsPromises from 'node:fs/promises'
 import path from 'node:path'
 import { createDecipheriv } from 'node:crypto'
-import { resolveClientStateDir } from './paths.js'
+import { resolveActiveWorkspaceDir } from './workspace-paths.js'
 
 /**
  * iLink 认证失败（401/403），表示 bot_token 已过期或被吊销，需要重新扫码登录。
@@ -288,9 +288,7 @@ export async function downloadAndSaveMediaItems(
   mediaItems: MediaItemShape[],
   baseUrl: string,
 ): Promise<MediaItemShape[]> {
-  const workspaceDir =
-    process.env['MTBOT_WORKSPACE_DIR']?.trim() ||
-    path.join(resolveClientStateDir(), 'workspace')
+  const workspaceDir = resolveActiveWorkspaceDir()
   const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '') // YYYYMMDD
   const uploadDir = path.join(workspaceDir, 'uploads', dateStr)
 
