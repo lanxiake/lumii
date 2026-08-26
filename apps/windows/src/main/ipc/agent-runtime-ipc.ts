@@ -145,6 +145,7 @@ import {
   handleWikiSynthesisGet,
   handleWikiSynthesisAccept,
   handleWikiSynthesisReject,
+  handleWikiSynthesisAutoRun,
   handleWikiGraphData,
   handleWikiStatusScan,
   handleWikiStatusConfirm,
@@ -1031,6 +1032,9 @@ export async function handleCommand(
 
       case 'wiki:synthesis:reject':
         return handleWikiSynthesisReject(bridge, command)
+
+      case 'wiki:synthesis:auto-run':
+        return handleWikiSynthesisAutoRun(bridge, command)
 
       case 'wiki:graph:data':
         return handleWikiGraphData(bridge, command)

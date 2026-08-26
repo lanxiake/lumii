@@ -623,6 +623,27 @@ export function useWikiPage() {
     }
   }, [])
 
+  /**
+   * 一键自动综述：串行生成 sources/media 稳定 overview 页。
+   */
+  const autoRunSynthesis = useCallback(async () => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      return (await api.sendCommand({ type: 'wiki:synthesis:auto-run' })) as {
+        results: readonly {
+          category: string
+          pageId: string
+          path: string
+          skipped?: boolean
+          error?: string
+        }[]
+      }
+    } catch {
+      return null
+    }
+  }, [])
+
   const searchHybrid = useCallback(
     async (
       keyword: string,
@@ -757,6 +778,7 @@ export function useWikiPage() {
     getSynthesis,
     acceptSynthesis,
     rejectSynthesis,
+    autoRunSynthesis,
     getGraphData,
     statusScan,
     confirmStatus,

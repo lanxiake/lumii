@@ -29,7 +29,24 @@ export {
   SYNTHESIS_MAX_OUTPUT_CHARS,
   SYNTHESIS_MAX_CHUNKS,
 } from "./wiki-synthesizer.js";
-export type { WikiSynthesizerFsDeps, WikiSynthesizeOptions } from "./wiki-synthesizer.js";
+export type {
+  WikiSynthesizerFsDeps,
+  WikiSynthesizeOptions,
+  WikiSynthesizeDirectOptions,
+} from "./wiki-synthesizer.js";
+
+export {
+  AUTO_SYNTHESIS_CATEGORIES,
+  WikiAutoSynthesisRunner,
+  autoSynthesisPath,
+  selectPagesForAutoSynthesis,
+} from "./wiki-auto-synthesis.js";
+export type {
+  AutoSynthesisCategory,
+  AutoSynthesizeCategoryResult,
+  AutoSynthesisRunResult,
+  AutoSynthesizeAllResult,
+} from "./wiki-auto-synthesis.js";
 
 export { WikiGraphBuilder } from "./wiki-graph.js";
 export type {

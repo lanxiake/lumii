@@ -240,3 +240,19 @@ describe('local-companion-handler / 记忆整理', () => {
     expect(written).toEqual([])
   })
 })
+
+describe('local-companion-handler / Wiki 自动综述', () => {
+  it('runWikiAutoSynthesis 未注入 → unavailable', async () => {
+    const deps = createDeps()
+    const result = await handleLocalCompanionInstruction('__wiki_auto_synthesis__', deps)
+    expect(result).toBe('wiki auto synthesis unavailable')
+  })
+
+  it('runWikiAutoSynthesis 注入 → 返回摘要字符串', async () => {
+    const runWikiAutoSynthesis = vi.fn(async () => 'sources:ok media:skipped')
+    const deps = createDeps({ runWikiAutoSynthesis })
+    const result = await handleLocalCompanionInstruction('__wiki_auto_synthesis__', deps)
+    expect(result).toBe('sources:ok media:skipped')
+    expect(runWikiAutoSynthesis).toHaveBeenCalledTimes(1)
+  })
+})

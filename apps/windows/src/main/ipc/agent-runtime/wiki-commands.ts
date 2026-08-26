@@ -12,6 +12,7 @@ import {
   bootstrapEroFromWikilinks,
   WikiVectorIndex,
   mergeHybridRanks,
+  WikiAutoSynthesisRunner,
 } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
@@ -509,6 +510,26 @@ export async function handleWikiSynthesisCreate(
     title: command.title,
   })
   return { synthesisId }
+}
+
+/**
+ * 一键自动综述：串行生成各分类的稳定 overview 页（不经 candidate 接受态）。
+ */
+export async function handleWikiSynthesisAutoRun(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:auto-run' }>,
+): Promise<{
+  results: readonly {
+    category: string
+    pageId: string
+    path: string
+    skipped?: boolean
+    error?: string
+  }[]
+}> {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const runner = new WikiAutoSynthesisRunner(bridge.createWikiSynthesizer(), bridge.wikiRepo)
+  return runner.autoSynthesizeAll(agentId, LOCAL_USER_ID)
 }
 
 export function handleWikiSynthesisList(
