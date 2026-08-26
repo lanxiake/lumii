@@ -59,7 +59,7 @@ describe("parseClassifyResponse", () => {
   });
 
   it("容忍代码围栏与前后说明文字", () => {
-    const items = [makeItem("i1")];
+    const items = [makeItem("i1", { media_type: "image" })];
     const res = parseClassifyResponse(
       '好的，结果如下：\n```json\n[{"id":"i1","path":"media/pic","title":"图","summaryMd":"s"}]\n```\n以上。',
       items,
@@ -147,7 +147,7 @@ describe("parseClassifyResponse", () => {
   });
 
   it("围栏包裹的裸对象同样被解析", () => {
-    const items = [makeItem("i1")];
+    const items = [makeItem("i1", { media_type: "image" })];
     const res = parseClassifyResponse(
       '```json\n{"id":"i1","path":"media/pic","title":"图","summaryMd":"s"}\n```',
       items,
@@ -229,6 +229,66 @@ describe("parseClassifyResponse", () => {
     expect(res[0]!.path).toBe("inbox/i1");
     expect(res[0]!.title).toBe("i1 标题");
     expect(res[0]!.summaryMd).toBe("i1 正文预览");
+  });
+
+  it("document 落 media/ 时纠正为 sources/ 并标记 corrected", () => {
+    const items = [
+      {
+        id: "i1",
+        agent_id: "a",
+        user_id: "u",
+        item_type: "upload" as const,
+        source_path: null,
+        source_url: null,
+        title: "规格书",
+        content_preview: "正文",
+        media_type: "document" as const,
+        status: "pending" as const,
+        attempt_count: 0,
+        last_error: null,
+        organized_source_id: null,
+        content_hash: null,
+        created_at: "now",
+        organized_at: null,
+      },
+    ];
+    const res = parseClassifyResponse(
+      JSON.stringify([{ id: "i1", path: "media/spec", title: "规格书", summaryMd: "s" }]),
+      items,
+    );
+    expect(res[0]!.path).toBe("sources/spec");
+    expect(res[0]!.corrected).toBe(true);
+    expect(res[0]!.correctReason).toBe("non_media_forced_to_sources");
+    expect(res[0]!.degraded).toBeUndefined();
+  });
+
+  it("image 落 media/ 保持不变", () => {
+    const items = [
+      {
+        id: "i1",
+        agent_id: "a",
+        user_id: "u",
+        item_type: "upload" as const,
+        source_path: null,
+        source_url: null,
+        title: "截图",
+        content_preview: null,
+        media_type: "image" as const,
+        status: "pending" as const,
+        attempt_count: 0,
+        last_error: null,
+        organized_source_id: null,
+        content_hash: null,
+        created_at: "now",
+        organized_at: null,
+      },
+    ];
+    const res = parseClassifyResponse(
+      JSON.stringify([{ id: "i1", path: "media/shot", title: "截图", summaryMd: "s" }]),
+      items,
+    );
+    expect(res[0]!.path).toBe("media/shot");
+    expect(res[0]!.corrected).toBeUndefined();
   });
 });
 

@@ -21,6 +21,10 @@ export interface ClassifiedItem {
   readonly degraded?: true;
   /** 降级原因（仅 degraded 时出现），用于运行日志与排查 */
   readonly degradeReason?: string;
+  /** 该条是否经硬规则纠正落点（非降级，模型分类仍视为成功） */
+  readonly corrected?: true;
+  /** 纠正原因（仅 corrected 时出现） */
+  readonly correctReason?: string;
 }
 
 /**
@@ -39,8 +43,8 @@ export function buildClassifyPrompt(items: readonly WikiInboxItem[]): string {
     "你是资料归档助手。为下面这批待整理资料各生成一条归档结果：分类落点、标题、摘要正文。",
     "",
     "## 允许的顶层分类（不得使用其他分类）",
-    "- sources/：文档类资料，默认落点",
-    "- media/：图片/音频/视频资料索引",
+    "- sources/：文档类资料，默认落点（所有 document 必须落这里）",
+    "- media/：仅图片/音频/视频索引页；禁止把文档放进 media/",
     "- inbox/：无法判定归属时的兜底落点",
     "",
     "## 输出要求",
@@ -180,15 +184,17 @@ export function parseClassifyResponse(
     const { valid, category } = validateWikiPath(rawPath);
     const allowed = valid && category && AI_WRITABLE_CATEGORIES.has(category);
 
-    results.push({
-      inboxId: item.id,
-      path: allowed ? rawPath : `inbox/${item.id}`,
-      title: typeof record.title === "string" && record.title ? record.title : item.title,
-      summaryMd: typeof record.summaryMd === "string" ? record.summaryMd : (item.content_preview ?? ""),
-      ...(allowed
-        ? {}
-        : { degraded: true as const, degradeReason: `分类落点不可用: ${rawPath || "(空)"}` }),
-    });
+    results.push(
+      applyMediaTypeGuard(item, {
+        inboxId: item.id,
+        path: allowed ? rawPath : `inbox/${item.id}`,
+        title: typeof record.title === "string" && record.title ? record.title : item.title,
+        summaryMd: typeof record.summaryMd === "string" ? record.summaryMd : (item.content_preview ?? ""),
+        ...(allowed
+          ? {}
+          : { degraded: true as const, degradeReason: `分类落点不可用: ${rawPath || "(空)"}` }),
+      }),
+    );
   }
 
   // 模型漏答的条目同样不能丢：降级落 inbox/
@@ -205,6 +211,26 @@ export function parseClassifyResponse(
     }
   }
   return results;
+}
+
+/**
+ * 非多媒体禁止落 media/：保留 slug，顶层改为 sources/。
+ * 仅对合法分类结果生效；inbox/ 兜底路径不做纠正。
+ */
+function applyMediaTypeGuard(item: WikiInboxItem, result: ClassifiedItem): ClassifiedItem {
+  const top = result.path.split("/")[0];
+  const isMultimedia =
+    item.media_type === "image" || item.media_type === "audio" || item.media_type === "video";
+  if (top !== "media" || isMultimedia) return result;
+  const slug = result.path.split("/").slice(1).join("/") || item.id;
+  return {
+    ...result,
+    path: `sources/${slug}`,
+    corrected: true,
+    correctReason: "non_media_forced_to_sources",
+    degraded: undefined,
+    degradeReason: undefined,
+  };
 }
 
 function fallbackAll(items: readonly WikiInboxItem[], reason: string): readonly ClassifiedItem[] {
