@@ -65,7 +65,7 @@ export function buildClassifyPrompt(items: readonly WikiInboxItem[]): string {
  * 逐层收窄：剥思考块 → 优先取代码围栏内容 → 扫描括号平衡的完整 JSON 片段。
  * @returns 解析后的值；抽不出返回 null
  */
-function extractJsonPayload(response: string): unknown {
+export function extractJsonPayload(response: string): unknown {
   // 1. 剥掉推理模型的思考块（含只有闭合标签的半截形态）
   let text = response.replace(/<think>[\s\S]*?<\/think>/gi, "");
   const orphanClose = text.lastIndexOf("</think>");

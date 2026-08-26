@@ -178,6 +178,28 @@ describe("WikiOrganizer 端到端", () => {
     const source = repo.findSourceById(item.organized_source_id!)!;
     expect(source.extracted_text).toBe("一张架构示意图");
   });
+
+  it("图片资料建页时自动登记为该页附件，文档资料不登记", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/pic.png", "pic", "image/png", "描述");
+    hook.ingestUpload("ag", "u", "/tmp/doc.md", "doc", "text/markdown", "文档内容");
+
+    const organizer = new WikiOrganizer(
+      repo,
+      makeLLM((_id, i) => (i === 0 ? "media/pic" : "sources/doc")),
+      new WikiContentExtractor(),
+    );
+    await organizer.organizeBatch("ag", "u", "upload");
+
+    const picPage = repo.findPageByPath("ag", "u", "media/pic")!;
+    const docPage = repo.findPageByPath("ag", "u", "sources/doc")!;
+    expect(repo.listAttachments(picPage.id)).toHaveLength(1);
+    expect(repo.listAttachments(picPage.id)[0]).toMatchObject({
+      file_path: "/tmp/pic.png",
+      media_type: "image",
+    });
+    expect(repo.listAttachments(docPage.id)).toHaveLength(0);
+  });
 });
 
 describe("WikiIngestHook", () => {

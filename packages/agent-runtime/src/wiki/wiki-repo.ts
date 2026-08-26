@@ -8,18 +8,24 @@ import type { DatabaseAdapter } from "../storage/local-database.js";
 import { withTransaction } from "../storage/local-database.js";
 import { tokenizeBigram } from "../memory/segmentation.js";
 import { WikiIndexRepo } from "./wiki-index.js";
+import { parseWikilinks } from "./wiki-link-parser.js";
+import { resolveWikilinkTarget, type WikilinkCandidatePage } from "./wiki-link-resolver.js";
 import {
   generateWikiId,
   validateWikiPath,
+  type WikiAttachment,
+  type WikiBacklink,
   type WikiCategory,
   type WikiInboxItem,
   type WikiInboxItemType,
   type WikiInboxStatus,
+  type WikiLink,
   type WikiMediaType,
   type WikiOrganizeRun,
   type WikiOrganizeRunStatus,
   type WikiPage,
   type WikiPageRevision,
+  type WikiPageStatus,
   type WikiRevisionEditor,
   type WikiSource,
 } from "./types.js";
@@ -65,10 +71,26 @@ interface WikiPageRow {
   use_count: number;
   created_at: string;
   updated_at: string;
+  status: string;
 }
 
 function pageRowToPage(row: WikiPageRow): WikiPage {
-  return { ...row, category: row.category as WikiCategory };
+  return { ...row, category: row.category as WikiCategory, status: row.status as WikiPageStatus };
+}
+
+interface WikiLinkRow {
+  id: string;
+  agent_id: string;
+  user_id: string;
+  source_page_id: string;
+  target_page_id: string | null;
+  anchor_text: string;
+  is_resolved: number;
+  created_at: string;
+}
+
+function linkRowToLink(row: WikiLinkRow): WikiLink {
+  return { ...row, is_resolved: row.is_resolved !== 0 };
 }
 
 interface WikiRunRow {
@@ -330,6 +352,160 @@ export class WikiRepo {
     return row ?? null;
   }
 
+  listSources(agentId: string, userId: string): readonly WikiSource[] {
+    return this.db
+      .prepare<WikiSource>(
+        "SELECT * FROM wiki_sources WHERE agent_id = ? AND user_id = ? ORDER BY created_at DESC",
+      )
+      .all(agentId, userId);
+  }
+
+  /**
+   * 该资料关联的页面（通过 wiki_page_revisions.source_ref = sourceId 找到）是否显示过使用痕迹
+   * （last_used 非空或 use_count > 0）。找不到关联页面视为「未使用」。
+   * 供清理扫描判断「长期未用」规则；P0 摄入时资料与页面一一对应（source_ref = source.id）。
+   */
+  /**
+   * 找到该资料对应的页面（通过 wiki_page_revisions.source_ref = sourceId 的最新修订反查）。
+   * P0 摄入时资料与页面一一对应；找不到返回 null（资料无对应页面是正常情况）。
+   */
+  findPageBySourceRef(agentId: string, userId: string, sourceId: string): WikiPage | null {
+    const row = this.db
+      .prepare<WikiPageRow>(
+        `SELECT p.* FROM wiki_pages p
+         JOIN wiki_page_revisions r ON r.page_id = p.id
+         WHERE p.agent_id = ? AND p.user_id = ? AND r.source_ref = ?
+         ORDER BY r.version DESC LIMIT 1`,
+      )
+      .get(agentId, userId, sourceId);
+    return row ? pageRowToPage(row) : null;
+  }
+
+  sourceHasUsedPage(agentId: string, userId: string, sourceId: string): boolean {
+    const row = this.db
+      .prepare<{ last_used: string | null; use_count: number }>(
+        `SELECT p.last_used, p.use_count FROM wiki_pages p
+         JOIN wiki_page_revisions r ON r.page_id = p.id
+         WHERE p.agent_id = ? AND p.user_id = ? AND r.source_ref = ?
+         LIMIT 1`,
+      )
+      .get(agentId, userId, sourceId);
+    if (!row) return false;
+    return row.last_used !== null || row.use_count > 0;
+  }
+
+  /** 归档资料条目：置 archived_at，返回实际改动行数 */
+  archiveSources(agentId: string, userId: string, sourceIds: readonly string[]): number {
+    if (sourceIds.length === 0) return 0;
+    const placeholders = sourceIds.map(() => "?").join(",");
+    const info = this.db
+      .prepare(
+        `UPDATE wiki_sources SET archived_at = ? WHERE agent_id = ? AND user_id = ? AND id IN (${placeholders}) AND archived_at IS NULL`,
+      )
+      .run(new Date().toISOString(), agentId, userId, ...sourceIds);
+    return info.changes;
+  }
+
+  /** 恢复归档：清空 archived_at，返回实际改动行数 */
+  restoreSources(agentId: string, userId: string, sourceIds: readonly string[]): number {
+    if (sourceIds.length === 0) return 0;
+    const placeholders = sourceIds.map(() => "?").join(",");
+    const info = this.db
+      .prepare(
+        `UPDATE wiki_sources SET archived_at = NULL WHERE agent_id = ? AND user_id = ? AND id IN (${placeholders}) AND archived_at IS NOT NULL`,
+      )
+      .run(agentId, userId, ...sourceIds);
+    return info.changes;
+  }
+
+  /**
+   * 物理删除资料条目。不级联删除引用它的页面——页面仅失去来源标注
+   * （page_revisions.source_ref 保持原值，指向已不存在的资料 id，来源详情入口需自行处理「资料已删除」展示）。
+   */
+  deleteSources(agentId: string, userId: string, sourceIds: readonly string[]): number {
+    if (sourceIds.length === 0) return 0;
+    const placeholders = sourceIds.map(() => "?").join(",");
+    const info = this.db
+      .prepare(`DELETE FROM wiki_sources WHERE agent_id = ? AND user_id = ? AND id IN (${placeholders})`)
+      .run(agentId, userId, ...sourceIds);
+    return info.changes;
+  }
+
+  /**
+   * 批量删除页面，返回删除数与受影响反链数（供 UI 二次确认展示）。
+   * 受影响反链数 = 这些页面作为目标时，其他页面指向它们的链接行数（去重按链接行计）。
+   */
+  deletePages(
+    agentId: string,
+    userId: string,
+    pageIds: readonly string[],
+  ): { readonly deleted: number; readonly affectedBacklinks: number } {
+    if (pageIds.length === 0) return { deleted: 0, affectedBacklinks: 0 };
+    return withTransaction(this.db, () => {
+      const placeholders = pageIds.map(() => "?").join(",");
+      const backlinkCount = this.db
+        .prepare<{ c: number }>(
+          `SELECT COUNT(*) as c FROM wiki_links WHERE agent_id = ? AND user_id = ? AND target_page_id IN (${placeholders})`,
+        )
+        .get(agentId, userId, ...pageIds);
+
+      let deleted = 0;
+      for (const id of pageIds) {
+        const page = this.findPageById(id);
+        if (!page || page.agent_id !== agentId || page.user_id !== userId) continue;
+        this.deletePage(id);
+        deleted += 1;
+      }
+      return { deleted, affectedBacklinks: backlinkCount?.c ?? 0 };
+    });
+  }
+
+  // ── 附件 ────────────────────────────────────────────────
+
+  /**
+   * 登记一个附件到页面。只引用路径不搬移文件（沿用 P0 约定）。
+   * sourceId 非空时表示该文件同时是既有资料条目，不重复存储——附件行仅指向既有资料路径。
+   */
+  attachFile(params: {
+    readonly pageId: string;
+    readonly filePath: string;
+    readonly mediaType: WikiMediaType;
+    readonly displayName: string;
+    readonly sourceId?: string;
+  }): WikiAttachment {
+    const id = generateWikiId();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO wiki_page_attachments (id, page_id, source_id, file_path, media_type, display_name, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(id, params.pageId, params.sourceId ?? null, params.filePath, params.mediaType, params.displayName, now);
+    return {
+      id,
+      page_id: params.pageId,
+      source_id: params.sourceId ?? null,
+      file_path: params.filePath,
+      media_type: params.mediaType,
+      display_name: params.displayName,
+      created_at: now,
+    };
+  }
+
+  listAttachments(pageId: string): readonly WikiAttachment[] {
+    return this.db
+      .prepare<WikiAttachment>(
+        "SELECT * FROM wiki_page_attachments WHERE page_id = ? ORDER BY created_at ASC",
+      )
+      .all(pageId);
+  }
+
+  /** 解绑附件，返回是否真的删了一行 */
+  detachFile(attachmentId: string): boolean {
+    const info = this.db.prepare("DELETE FROM wiki_page_attachments WHERE id = ?").run(attachmentId);
+    return info.changes > 0;
+  }
+
   // ── 知识层（页面）──────────────────────────────────────
 
   /**
@@ -401,14 +577,59 @@ export class WikiRepo {
           use_count: 0,
           created_at: now,
           updated_at: now,
+          status: "active",
         };
         rowid = this.db.prepare<{ rowid: number }>("SELECT rowid FROM wiki_pages WHERE id = ?").get(id)!.rowid;
         this.insertRevision(id, 1, params.title, params.path, params.contentMd, params.editor, params.sourceRef, now);
       }
 
       this.indexRepo.upsertRow(rowid, page.title, page.content_md);
+      this.recomputeLinksForPage(params.agentId, params.userId, page.id, params.path, page.content_md);
       return page;
     });
+  }
+
+  /**
+   * 重算某页的出向链接索引：删除旧行 → 解析 → 插入新行。
+   * 解析失败/歧义的行以 is_resolved=0 落库，anchor_text 保留供 UI 展示候选。
+   * 必须在 savePage 的同一事务内调用，链接解析永不抛异常（resolveWikilinkTarget 已兜底）。
+   */
+  private recomputeLinksForPage(
+    agentId: string,
+    userId: string,
+    pageId: string,
+    pagePath: string,
+    contentMd: string,
+  ): void {
+    this.db.prepare("DELETE FROM wiki_links WHERE source_page_id = ?").run(pageId);
+
+    const candidates = parseWikilinks(contentMd);
+    if (candidates.length === 0) return;
+
+    const allPages: WikilinkCandidatePage[] = this.db
+      .prepare<{ id: string; path: string; title: string }>(
+        "SELECT id, path, title FROM wiki_pages WHERE agent_id = ? AND user_id = ?",
+      )
+      .all(agentId, userId);
+
+    const now = new Date().toISOString();
+    const insert = this.db.prepare(
+      `INSERT INTO wiki_links (id, agent_id, user_id, source_page_id, target_page_id, anchor_text, is_resolved, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const candidate of candidates) {
+      const resolution = resolveWikilinkTarget(candidate.anchorText, pagePath, allPages);
+      insert.run(
+        generateWikiId(),
+        agentId,
+        userId,
+        pageId,
+        resolution.targetPageId,
+        candidate.anchorText,
+        resolution.isResolved ? 1 : 0,
+        now,
+      );
+    }
   }
 
   private insertRevision(
@@ -441,6 +662,45 @@ export class WikiRepo {
     return row ? pageRowToPage(row) : null;
   }
 
+  /** 某页的修订列表，按 version 降序 */
+  listRevisions(pageId: string): readonly WikiPageRevision[] {
+    return this.db
+      .prepare<WikiPageRevision>(
+        "SELECT * FROM wiki_page_revisions WHERE page_id = ? ORDER BY version DESC",
+      )
+      .all(pageId);
+  }
+
+  /**
+   * 回滚：读取目标版本内容作为一次新的编辑写入，走 savePage 同一条路径。
+   * version+1，editor 固定为 'user'（用户主动触发的回滚操作），source_ref 记录来源版本号。
+   * 旧修订永不被物理修改或覆盖。
+   */
+  rollbackPage(agentId: string, userId: string, pageId: string, targetVersion: number): WikiPage {
+    const page = this.findPageById(pageId);
+    if (!page || page.agent_id !== agentId || page.user_id !== userId) {
+      throw new Error(`页面不存在或无权访问: ${pageId}`);
+    }
+    const target = this.db
+      .prepare<WikiPageRevision>(
+        "SELECT * FROM wiki_page_revisions WHERE page_id = ? AND version = ?",
+      )
+      .get(pageId, targetVersion);
+    if (!target) {
+      throw new Error(`目标版本不存在: page=${pageId} version=${targetVersion}`);
+    }
+
+    return this.savePage({
+      agentId,
+      userId,
+      path: page.path,
+      title: target.title,
+      contentMd: target.content_md,
+      editor: "user",
+      sourceRef: `rollback:v${targetVersion}`,
+    });
+  }
+
   listPages(agentId: string, userId: string, category?: WikiCategory): readonly WikiPage[] {
     const rows = category
       ? this.db
@@ -468,10 +728,20 @@ export class WikiRepo {
     return result;
   }
 
+  /**
+   * 删除页面：级联清理以该页为源的链接行；以该页为目标的链接行置未解析
+   * （target_page_id 无外键约束，需在应用层显式维护，见设计 §4.2）。
+   */
   deletePage(id: string): void {
-    const row = this.db.prepare<{ rowid: number }>("SELECT rowid FROM wiki_pages WHERE id = ?").get(id);
-    this.db.prepare("DELETE FROM wiki_pages WHERE id = ?").run(id);
-    if (row) this.indexRepo.deleteRow(row.rowid);
+    withTransaction(this.db, () => {
+      const row = this.db.prepare<{ rowid: number }>("SELECT rowid FROM wiki_pages WHERE id = ?").get(id);
+      this.db.prepare("DELETE FROM wiki_pages WHERE id = ?").run(id);
+      if (row) this.indexRepo.deleteRow(row.rowid);
+      this.db.prepare("DELETE FROM wiki_links WHERE source_page_id = ?").run(id);
+      this.db
+        .prepare("UPDATE wiki_links SET target_page_id = NULL, is_resolved = 0 WHERE target_page_id = ?")
+        .run(id);
+    });
   }
 
   /** 命中即更新 last_used / use_count（检索命中与读取时调用） */
@@ -481,12 +751,87 @@ export class WikiRepo {
       .run(new Date().toISOString(), id);
   }
 
+  // ── 链接与反链 ──────────────────────────────────────────
+
+  /** 指向某页的反链：含源页标题/路径 + 链接原文 + 解析状态 */
+  listBacklinks(agentId: string, userId: string, pageId: string): readonly WikiBacklink[] {
+    const rows = this.db
+      .prepare<{
+        link_id: string;
+        source_page_id: string;
+        source_title: string;
+        source_path: string;
+        anchor_text: string;
+        is_resolved: number;
+      }>(
+        `SELECT l.id as link_id, l.source_page_id, p.title as source_title, p.path as source_path,
+                l.anchor_text, l.is_resolved
+         FROM wiki_links l
+         JOIN wiki_pages p ON p.id = l.source_page_id
+         WHERE l.agent_id = ? AND l.user_id = ? AND l.target_page_id = ?
+         ORDER BY l.created_at DESC`,
+      )
+      .all(agentId, userId, pageId);
+    return rows.map((row) => ({
+      linkId: row.link_id,
+      sourcePageId: row.source_page_id,
+      sourceTitle: row.source_title,
+      sourcePath: row.source_path,
+      anchorText: row.anchor_text,
+      isResolved: row.is_resolved !== 0,
+    }));
+  }
+
+  /** 某页的出向链接（含未解析） */
+  listOutboundLinks(agentId: string, userId: string, pageId: string): readonly WikiLink[] {
+    const rows = this.db
+      .prepare<WikiLinkRow>(
+        `SELECT * FROM wiki_links WHERE agent_id = ? AND user_id = ? AND source_page_id = ?
+         ORDER BY created_at ASC`,
+      )
+      .all(agentId, userId, pageId);
+    return rows.map(linkRowToLink);
+  }
+
+  /** 全库未解析链接列表（供 UI「未解析链接」入口） */
+  listUnresolvedLinks(agentId: string, userId: string): readonly WikiLink[] {
+    const rows = this.db
+      .prepare<WikiLinkRow>(
+        `SELECT * FROM wiki_links WHERE agent_id = ? AND user_id = ? AND is_resolved = 0
+         ORDER BY created_at DESC`,
+      )
+      .all(agentId, userId);
+    return rows.map(linkRowToLink);
+  }
+
+  /**
+   * 全量重扫所有页面正文重建链接索引（供解析规则升级后修复）。
+   * 返回重建后的链接行数。
+   */
+  rebuildLinkIndex(agentId: string, userId: string): number {
+    return withTransaction(this.db, () => {
+      const pages = this.db
+        .prepare<WikiPageRow>("SELECT * FROM wiki_pages WHERE agent_id = ? AND user_id = ?")
+        .all(agentId, userId);
+      for (const page of pages) {
+        this.recomputeLinksForPage(agentId, userId, page.id, page.path, page.content_md);
+      }
+      const count = this.db
+        .prepare<{ c: number }>(
+          "SELECT COUNT(*) as c FROM wiki_links WHERE agent_id = ? AND user_id = ?",
+        )
+        .get(agentId, userId);
+      return count?.c ?? 0;
+    });
+  }
+
   // ── 检索 ────────────────────────────────────────────────
 
   /**
    * FTS5 + BM25 检索——同 memory-repo.search 范式：查询词按 tokenizeBigram 切分，
    * 拼成 OR 短语查询并逐 bigram 转义引号，避免用户输入被解释为 FTS5 查询语法。
-   * 归档资料对应页面（archived_at 非空的来源）P0 不特殊处理，P1 提供 UI 开关。
+   * 归档资料对应的页面（当前版本的 source_ref 指向已归档资料）排除出结果——
+   * 具体实现：反连接页面当前版本的修订记录到 wiki_sources，命中已归档来源即排除。
    * 命中后更新 last_used / use_count。
    */
   search(agentId: string, userId: string, keyword: string, limit = 10): readonly WikiSearchHit[] {
@@ -500,6 +845,11 @@ export class WikiRepo {
            FROM wiki_pages_fts
            JOIN wiki_pages p ON p.rowid = wiki_pages_fts.rowid
            WHERE wiki_pages_fts MATCH ? AND p.agent_id = ? AND p.user_id = ?
+             AND NOT EXISTS (
+               SELECT 1 FROM wiki_page_revisions r
+               JOIN wiki_sources s ON s.id = r.source_ref
+               WHERE r.page_id = p.id AND r.version = p.version AND s.archived_at IS NOT NULL
+             )
            ORDER BY bm25(wiki_pages_fts)
            LIMIT ?`,
         )
@@ -558,6 +908,36 @@ export class WikiRepo {
   /** 重建 FTS5 派生索引，返回重建后的行数 */
   rebuildIndex(): number {
     return this.indexRepo.rebuildFts();
+  }
+
+  // ── 索引元数据 KV ───────────────────────────────────────
+
+  /** 读取一个元数据键值，不存在返回 null（供概念候选存取、索引健康诊断复用） */
+  getIndexMeta(key: string): string | null {
+    const row = this.db.prepare<{ value: string }>("SELECT value FROM wiki_index_meta WHERE key = ?").get(key);
+    return row?.value ?? null;
+  }
+
+  /** 写入/覆盖一个元数据键值 */
+  setIndexMeta(key: string, value: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO wiki_index_meta (key, value, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      )
+      .run(key, value, new Date().toISOString());
+  }
+
+  /** 删除一个元数据键 */
+  deleteIndexMeta(key: string): void {
+    this.db.prepare("DELETE FROM wiki_index_meta WHERE key = ?").run(key);
+  }
+
+  /** 列出所有以指定前缀开头的元数据键（供概念候选批量清点/清除） */
+  listIndexMetaByPrefix(prefix: string): readonly { readonly key: string; readonly value: string }[] {
+    return this.db
+      .prepare<{ key: string; value: string }>("SELECT key, value FROM wiki_index_meta WHERE key LIKE ?")
+      .all(`${prefix}%`);
   }
 }
 

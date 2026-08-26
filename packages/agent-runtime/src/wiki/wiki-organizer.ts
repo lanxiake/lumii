@@ -9,7 +9,7 @@
 import { classifyBatch } from "./wiki-classifier.js";
 import type { WikiContentExtractor } from "./wiki-content-extractor.js";
 import type { WikiRepo } from "./wiki-repo.js";
-import type { WikiInboxItemType, WikiOrganizeRun } from "./types.js";
+import type { WikiInboxItem, WikiInboxItemType, WikiOrganizeRun, WikiPage } from "./types.js";
 
 export class WikiOrganizer {
   constructor(
@@ -79,8 +79,9 @@ export class WikiOrganizer {
           mediaType: item.media_type,
           extractedText: item.content_preview ?? undefined,
         });
-        this.savePageWithFallback(agentId, userId, result, source.id);
+        const savedPage = this.savePageWithFallback(agentId, userId, result, source.id);
         this.repo.markInboxOrganized(item.id, source.id);
+        this.attachMediaIfApplicable(savedPage.id, source.id, item);
         if (result.degraded) {
           degraded += 1;
           if (result.degradeReason) degradeReasons.add(result.degradeReason);
@@ -119,7 +120,7 @@ export class WikiOrganizer {
     userId: string,
     result: { readonly inboxId: string; readonly path: string; readonly title: string; readonly summaryMd: string },
     sourceRef: string,
-  ): void {
+  ): WikiPage {
     const common = {
       agentId,
       userId,
@@ -129,9 +130,25 @@ export class WikiOrganizer {
       sourceRef,
     };
     try {
-      this.repo.savePage({ ...common, path: result.path });
+      return this.repo.savePage({ ...common, path: result.path });
     } catch {
-      this.repo.savePage({ ...common, path: `inbox/${result.inboxId}` });
+      return this.repo.savePage({ ...common, path: `inbox/${result.inboxId}` });
     }
+  }
+
+  /**
+   * 图片/音频/视频资料在建页时顺手登记为该页附件（P1 §7.2），复用既有资料路径
+   * 不重复存储文件。文档类不登记——文档正文已内嵌到页面 content_md，无需附件引用。
+   */
+  private attachMediaIfApplicable(pageId: string, sourceId: string, item: WikiInboxItem): void {
+    if (item.media_type === "document") return;
+    if (!item.source_path) return;
+    this.repo.attachFile({
+      pageId,
+      sourceId,
+      filePath: item.source_path,
+      mediaType: item.media_type,
+      displayName: item.title,
+    });
   }
 }
