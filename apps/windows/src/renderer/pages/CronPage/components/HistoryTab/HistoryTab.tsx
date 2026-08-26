@@ -183,12 +183,13 @@ export const HistoryTab: FC<HistoryTabProps> = ({ jobs }) => {
             {filteredRuns.map((run, idx) => {
               const runKey = run.id ?? `run-${idx}`
               const isExpanded = expandedRunId === runKey
-              const hasError = run.status === 'error' && run.error
+              const detail = run.status === 'error' ? run.error : run.summary
+              const hasDetail = Boolean(detail)
               return (
                 <React.Fragment key={runKey}>
                   <tr
-                    className={hasError ? styles.errorRow : undefined}
-                    onClick={hasError ? () => setExpandedRunId(isExpanded ? null : runKey) : undefined}
+                    className={run.status === 'error' ? styles.errorRow : undefined}
+                    onClick={hasDetail ? () => setExpandedRunId(isExpanded ? null : runKey) : undefined}
                   >
                     <td>{new Date(run.startedAt).toLocaleString()}</td>
                     <td>{jobNameMap.get(run.jobId) ?? run.jobId}</td>
@@ -200,7 +201,7 @@ export const HistoryTab: FC<HistoryTabProps> = ({ jobs }) => {
                       }`}>
                         {run.status === 'ok' ? '成功' : run.status === 'error' ? '失败' : '运行中'}
                       </span>
-                      {hasError && (
+                      {hasDetail && (
                         <span className={styles.expandToggle}>
                           {isExpanded ? '▾' : '▸'}
                         </span>
@@ -211,12 +212,14 @@ export const HistoryTab: FC<HistoryTabProps> = ({ jobs }) => {
                       {run.summary || '-'}
                     </td>
                   </tr>
-                  {isExpanded && hasError && (
+                  {isExpanded && hasDetail && (
                     <tr className={styles.errorDetailRow}>
                       <td colSpan={5}>
                         <div className={styles.errorDetail}>
-                          <span className={styles.errorDetailLabel}>错误详情：</span>
-                          {run.error}
+                          <span className={styles.errorDetailLabel}>
+                            {run.status === 'error' ? '错误详情：' : '执行结果：'}
+                          </span>
+                          <pre className={styles.detailBody}>{detail}</pre>
                         </div>
                       </td>
                     </tr>

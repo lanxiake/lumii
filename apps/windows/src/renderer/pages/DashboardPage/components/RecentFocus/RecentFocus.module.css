@@ -48,7 +48,7 @@
 .seg {
   display: flex;
   gap: 2px;
-  width: 196px;
+  width: 232px;
   margin-left: auto;
   padding: 4px;
   border: 1px solid var(--mt-border);
@@ -100,6 +100,30 @@
 
 .item:hover {
   background: var(--mt-surface-2);
+}
+
+.item--clickable {
+  cursor: pointer;
+}
+
+/* 执行结果详情：产出是 Markdown/纯文本，保留换行但要能自动折行 */
+.detail-meta {
+  margin: 0 0 10px;
+  color: var(--mt-fg-4);
+  font-family: var(--mt-font-mono);
+  font-size: 10.5px;
+}
+
+.detail-body {
+  max-height: 52vh;
+  margin: 0;
+  overflow-y: auto;
+  color: var(--mt-fg-2);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* 重要度映射到圆点不透明度（inline style），比再加一列数字更省地方 */
