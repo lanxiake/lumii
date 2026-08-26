@@ -121,4 +121,14 @@ describe('ensureSeedCronJobsSeeded', () => {
       expect(row[COL.enabled], id).toBe(1)
     }
   })
+
+  it('Wiki 自动综述走 companion 通道、静默、每天 03:00', () => {
+    const db = createFakeDb()
+    ensureSeedCronJobsSeeded(db.adapter)
+    const row = db.jobs.get('wiki-auto-synthesis')!
+    expect(row[COL.taskText]).toBe('__wiki_auto_synthesis__')
+    expect(row[COL.agentId]).toBeNull()
+    expect(row[COL.scheduleExpr]).toBe('0 3 * * *')
+    expect(row[COL.notifyTargets]).toBe('silent')
+  })
 })

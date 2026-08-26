@@ -151,6 +151,15 @@ const SEED_JOBS: readonly SeedJob[] = [
     enabled: true,
   },
   {
+    id: 'wiki-auto-synthesis',
+    name: 'Wiki 分类综述自动刷新',
+    taskText: '__wiki_auto_synthesis__',
+    agentId: null,
+    scheduleType: 'cron',
+    scheduleExpr: '0 3 * * *',
+    notifyTargets: 'silent',
+  },
+  {
     id: 'seed-workspace-tidy',
     name: '工作区文件整理',
     taskText: '检查工作区里新增的文件，按类型归类并指出可以清理的内容。',

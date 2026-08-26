@@ -78,6 +78,8 @@ import {
   type WikiExporterDeps,
   WikiSynthesizer,
   type WikiSynthesizerFsDeps,
+  WikiAutoSynthesisRunner,
+  type AutoSynthesisRunResult,
 } from '@mtbot/agent-runtime'
 import { McpManager, type McpServerRuntimeStatus } from './mcp-manager'
 import type { McpServerEntry } from '../config/mcp-config'
@@ -98,6 +100,22 @@ import { ensureSeedCronJobsSeeded } from '../seed-cron-jobs'
 import { isPetMode, onVirtualHumanSettingsChanged } from '../pet/pet-mode-ipc'
 import { getVirtualHumanSettings } from '../pet/pet-mode-store'
 import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
+
+/** 单机客户端固定 userId，与 wiki-commands 一致 */
+const LOCAL_USER_ID = 'local-user'
+
+/**
+ * 将 Wiki 自动综述各分类结果格式化为 cron 运行摘要（如 sources:ok media:skipped）。
+ */
+function formatWikiAutoSynthesisSummary(results: readonly AutoSynthesisRunResult[]): string {
+  return results
+    .map((r) => {
+      if (r.error) return `${r.category}:error`
+      if (r.skipped) return `${r.category}:skipped`
+      return `${r.category}:ok`
+    })
+    .join(' ')
+}
 import { BridgeSessionThinkingPrefs } from './bridge-session-thinking-prefs'
 import { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import { initToolUsageStore } from '../tool-usage-store'
@@ -777,6 +795,14 @@ export class AgentRuntimeBridge {
             getUserMemory: this.config.getUserMemory,
             updateUserMemory: this.config.updateUserMemory,
             callLLM: (prompt) => this.callLLM(prompt, undefined, 'memory_consolidation'),
+            runWikiAutoSynthesis: async () => {
+              const runner = new WikiAutoSynthesisRunner(
+                this.createWikiSynthesizer(),
+                this.wikiRepo,
+              )
+              const { results } = await runner.autoSynthesizeAll('assistant', LOCAL_USER_ID)
+              return formatWikiAutoSynthesisSummary(results)
+            },
           },
           options,
         )
