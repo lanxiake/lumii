@@ -115,4 +115,29 @@ describe("WikiAutoSynthesisRunner", () => {
     expect(r2.path).toBe(r.path);
     expect(repo.findPageByPath("ag", "u", r.path)!.version).toBeGreaterThan(savedPage!.version);
   });
+
+  it("autoSynthesizeAll：sources 成功且 media 跳过时 results 长度为 2", async () => {
+    const { repo, synth } = createSynthHarness();
+    const runner = new WikiAutoSynthesisRunner(synth, repo);
+
+    repo.savePage({
+      agentId: "ag",
+      userId: "u",
+      path: "sources/doc1",
+      title: "资料一",
+      contentMd: "内容甲",
+      editor: "user",
+    });
+
+    const { results } = await runner.autoSynthesizeAll("ag", "u");
+    expect(results).toHaveLength(2);
+
+    const sources = results.find((r) => r.category === "sources");
+    const media = results.find((r) => r.category === "media");
+    expect(sources?.path).toBe("syntheses/overview-sources");
+    expect(sources?.skipped).toBeUndefined();
+    expect(sources?.pageId).toBeTruthy();
+    expect(media?.skipped).toBe(true);
+    expect(media?.path).toBe("syntheses/overview-media");
+  });
 });

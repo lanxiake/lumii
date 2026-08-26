@@ -44,6 +44,8 @@ export {
 export type {
   AutoSynthesisCategory,
   AutoSynthesizeCategoryResult,
+  AutoSynthesisRunResult,
+  AutoSynthesizeAllResult,
 } from "./wiki-auto-synthesis.js";
 
 export { WikiGraphBuilder } from "./wiki-graph.js";

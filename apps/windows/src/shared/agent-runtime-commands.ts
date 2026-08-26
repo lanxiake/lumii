@@ -566,6 +566,13 @@ export interface WikiSynthesisRejectCommand {
   readonly synthesisId: string
 }
 
+/** 一键自动综述：串行生成 sources/media 稳定 overview 页 */
+export interface WikiSynthesisAutoRunCommand {
+  readonly type: 'wiki:synthesis:auto-run'
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
 export interface WikiGraphDataCommand {
   readonly type: 'wiki:graph:data'
   readonly sessionKey?: string
@@ -1234,6 +1241,7 @@ export type AgentRuntimeCommand =
   | WikiSynthesisGetCommand
   | WikiSynthesisAcceptCommand
   | WikiSynthesisRejectCommand
+  | WikiSynthesisAutoRunCommand
   | WikiGraphDataCommand
   | WikiStatusScanCommand
   | WikiStatusConfirmCommand
@@ -1626,6 +1634,15 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
     }
   : T extends 'wiki:synthesis:accept' ? { pageId: string; path: string }
   : T extends 'wiki:synthesis:reject' ? { success: boolean }
+  : T extends 'wiki:synthesis:auto-run' ? {
+      results: readonly {
+        category: string
+        pageId: string
+        path: string
+        skipped?: boolean
+        error?: string
+      }[]
+    }
   : T extends 'wiki:graph:data' ? {
       nodes: readonly {
         id: string

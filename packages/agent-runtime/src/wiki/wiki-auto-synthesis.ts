@@ -69,6 +69,16 @@ export interface AutoSynthesizeCategoryResult {
   readonly error?: string;
 }
 
+/** 全部分类自动综述的单条结果（含 category） */
+export interface AutoSynthesisRunResult extends AutoSynthesizeCategoryResult {
+  readonly category: string;
+}
+
+/** 全部分类自动综述的汇总结果 */
+export interface AutoSynthesizeAllResult {
+  readonly results: readonly AutoSynthesisRunResult[];
+}
+
 /**
  * 按分类触发自动综述：选页 → 合成 → 直接写入稳定路径（不经用户 accept 手势）。
  */
@@ -103,5 +113,19 @@ export class WikiAutoSynthesisRunner {
       const message = err instanceof Error ? err.message : String(err);
       return { pageId: "", path, error: message };
     }
+  }
+
+  /**
+   * 串行执行所有支持自动综述的分类（sources → media）。
+   */
+  async autoSynthesizeAll(agentId: string, userId: string): Promise<AutoSynthesizeAllResult> {
+    const results: AutoSynthesisRunResult[] = [];
+    for (const category of AUTO_SYNTHESIS_CATEGORIES) {
+      results.push({
+        category,
+        ...(await this.autoSynthesizeCategory(agentId, userId, category)),
+      });
+    }
+    return { results };
   }
 }
