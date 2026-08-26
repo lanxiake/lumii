@@ -1,0 +1,21 @@
+{"ts":"2026-08-26T16:27:28.538Z","id":"A-01","status":"PASS","note":"spawn_agent present"}
+{"ts":"2026-08-26T16:27:29.928Z","id":"A-02","status":"PASS","note":"session=310eb7a5"}
+{"ts":"2026-08-26T16:27:30.379Z","id":"A-03","status":"PASS","note":"messages ok"}
+{"ts":"2026-08-26T16:27:30.787Z","id":"A-04","status":"PASS","note":"unknown rejected ec=2"}
+{"ts":"2026-08-26T16:29:30.285Z","id":"A-01","status":"PASS","note":"spawn_agent present"}
+{"ts":"2026-08-26T16:29:35.883Z","id":"B-01","status":"PASS","note":"指令遵循","session":"c199c2cb"}
+{"ts":"2026-08-26T16:29:46.185Z","id":"B-02","status":"PASS","note":"多轮保持 ALPHA-42","session":"4fd38859"}
+{"ts":"2026-08-26T16:29:55.839Z","id":"C-01","status":"PASS","note":"sync spawn+finalize","session":"5c3013dd"}
+{"ts":"2026-08-26T16:30:10.124Z","id":"C-02","status":"PASS","note":"双 async 投递+汇总","session":"f3818502"}
+{"ts":"2026-08-26T16:30:10.126Z","id":"C-04","status":"PASS","note":"IPC complete x2"}
+{"ts":"2026-08-26T16:30:13.989Z","id":"D-01","status":"PASS","note":"abort 生效","session":"4c4fcaea"}
+{"ts":"2026-08-26T16:31:46.453Z","id":"D-02","status":"FAIL","note":"恢复回复缺失","session":"4c4fcaea"}
+{"ts":"2026-08-26T16:32:00.118Z","id":"D-03","status":"PASS","note":"cascade abort x3","session":"74775fc7"}
+{"ts":"2026-08-26T16:35:05.378Z","id":"E-01","status":"FAIL","note":"skill_search 未确认","session":"5bb39965"}
+{"ts":"2026-08-26T16:35:05.380Z","id":"E-02","status":"FAIL","note":"memory_search 未确认","session":"5bb39965"}
+{"ts":"2026-08-26T16:39:23.276Z","id":"D-02","status":"PASS","note":"abort 后恢复（重试）","session":"1cf7707f"}
+{"ts":"2026-08-26T16:39:36.642Z","id":"E-01","status":"PASS","note":"skill_search（续跑）","session":"a9dd2ba6"}
+{"ts":"2026-08-26T16:39:36.643Z","id":"E-02","status":"PASS","note":"memory_search（续跑）","session":"a9dd2ba6"}
+{"ts":"2026-08-26T16:39:36.643Z","id":"E-03","status":"PASS","note":"wiki 工具（续跑）","session":"a9dd2ba6"}
+{"ts":"2026-08-26T16:39:58.910Z","id":"F-01","status":"PASS","note":"复杂编排","session":"15be0001"}
+{"ts":"2026-08-26T16:40:15.754Z","id":"F-03","status":"PASS","note":"并行综合","session":"d99ecf42"}
