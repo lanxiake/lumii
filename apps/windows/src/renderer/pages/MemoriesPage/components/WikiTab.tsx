@@ -55,6 +55,12 @@ const OUTCOME_LABEL: Record<string, string> = {
   failed: '失败',
 }
 
+const EXTRACT_LABEL: Record<string, string> = {
+  preview: '已有预览',
+  extracted: '本次提取',
+  none: '无正文',
+}
+
 /** 可展开的归档运行日志条目 */
 const RunLogItem: React.FC<{ run: WikiRunItem }> = ({ run }) => {
   const [expanded, setExpanded] = useState(false)
@@ -81,7 +87,7 @@ const RunLogItem: React.FC<{ run: WikiRunItem }> = ({ run }) => {
               {OUTCOME_LABEL[item.outcome] ?? item.outcome}
             </span>
             <span className="wiki-run-detail-title">{item.title}</span>
-            <span className="wiki-run-detail-extract">{item.extract}</span>
+            <span className="wiki-run-detail-extract">{EXTRACT_LABEL[item.extract] ?? item.extract}</span>
           </div>
           <p className="wiki-run-detail-path">{item.title} → {item.path || '（未落库）'}</p>
           {item.reason && <p className="wiki-run-detail-reason">{item.reason}</p>}

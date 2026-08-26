@@ -63,6 +63,41 @@ describe('WikiTab', () => {
     })
   })
 
+  it('运行日志展开明细时 extract 显示中文标签', async () => {
+    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
+      'wiki:runs:list': [
+        {
+          id: 'r1',
+          inboxIds: ['i1'],
+          status: 'succeeded',
+          resultSummary: '1 项已归档',
+          error: null,
+          resultDetail: {
+            items: [
+              {
+                inboxId: 'i1',
+                title: '文档A',
+                path: 'sources/a',
+                mediaType: 'document',
+                outcome: 'archived',
+                extract: 'preview',
+              },
+            ],
+          },
+          createdAt: Date.now(),
+          finishedAt: Date.now(),
+        },
+      ],
+    })
+    render(<WikiTab />)
+    fireEvent.click(screen.getByText('运行日志'))
+    await screen.findByText('展开明细')
+    fireEvent.click(screen.getByText('展开明细'))
+    await waitFor(() => {
+      expect(screen.getByText('已有预览')).toBeInTheDocument()
+    })
+  })
+
   it('待整理条目展示重试/丢弃操作，点击后重新加载', async () => {
     const retry = vi.fn()
     ;(window as any).electronAPI.agentRuntime.sendCommand = vi.fn(async (cmd: { type: string; inboxId?: string }) => {

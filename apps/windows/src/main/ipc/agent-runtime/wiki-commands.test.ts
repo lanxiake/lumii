@@ -208,4 +208,30 @@ describe('wiki commands', () => {
     repo.savePage({ agentId: 'assistant', userId: 'local-user', path: 'sources/y', title: 'y', contentMd: 'c', editor: 'ai' })
     expect(handleWikiIndexRebuild(bridge)).toEqual({ rebuiltCount: 1 })
   })
+
+  it('runs:list 对无效 result_detail 形状返回 resultDetail null', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+
+    const invalidCases = [
+      'not-json',
+      JSON.stringify(null),
+      JSON.stringify({}),
+      JSON.stringify({ items: 'not-array' }),
+      JSON.stringify({ items: null }),
+    ]
+
+    for (const [i, detail] of invalidCases.entries()) {
+      const run = repo.createRun('assistant', 'local-user', [`inv-${i}`])
+      repo.finishRun(run.id, 'succeeded', 'ok', undefined, detail)
+    }
+
+    const runs = handleWikiRunsList(bridge, { type: 'wiki:runs:list', agentId: 'assistant' }) as {
+      resultDetail: unknown
+    }[]
+    expect(runs).toHaveLength(invalidCases.length)
+    for (const run of runs) {
+      expect(run.resultDetail).toBeNull()
+    }
+  })
 })

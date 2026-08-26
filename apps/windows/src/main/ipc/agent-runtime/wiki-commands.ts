@@ -226,11 +226,17 @@ export function handleWikiRunsList(
   }))
 }
 
-/** 解析运行明细 JSON；损坏时返回 null，避免整列表失败 */
+/**
+ * 解析运行明细 JSON；仅当解析结果为对象且 items 为数组时返回，否则 null，避免整列表失败。
+ */
 function parseRunResultDetail(raw: string | null): { items: unknown[] } | null {
   if (!raw) return null
   try {
-    return JSON.parse(raw) as { items: unknown[] }
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) return null
+    const items = (parsed as { items?: unknown }).items
+    if (!Array.isArray(items)) return null
+    return { items }
   } catch {
     return null
   }
