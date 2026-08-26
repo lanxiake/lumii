@@ -325,6 +325,42 @@ export class AgentOrchestrator {
     return clampConcurrentLimit(requested);
   }
 
+  /** 子 Agent 禁止恢复的工具名 */
+  private static readonly FORBIDDEN_CHILD_TOOLS = new Set(["spawn_agent", "send_message"]);
+
+  /**
+   * 校验 allowedTools：禁止 spawn/send；若父有工具集则必须是子集
+   */
+  private validateAllowedTools(
+    allowedTools: readonly string[] | undefined,
+    parentInstanceId: string | undefined,
+  ): Extract<SpawnAgentResult, { status: "error" }> | null {
+    if (!allowedTools?.length) return null;
+
+    const parentTools = new Set(
+      parentInstanceId
+        ? (this.deps.getInstance(parentInstanceId)?.getTools().map((t) => t.name) ?? [])
+        : [],
+    );
+
+    for (const raw of allowedTools) {
+      const name = raw.replace(/\(.*\)$/, "");
+      if (AgentOrchestrator.FORBIDDEN_CHILD_TOOLS.has(name)) {
+        return {
+          status: "error",
+          message: `allowedTools contains unauthorized tool: ${raw}`,
+        };
+      }
+      if (parentTools.size > 0 && !parentTools.has(name)) {
+        return {
+          status: "error",
+          message: `allowedTools contains unauthorized tool: ${raw}`,
+        };
+      }
+    }
+    return null;
+  }
+
   /**
    * 执行 spawn_agent：同步阻塞或异步后台
    *
@@ -361,6 +397,15 @@ export class AgentOrchestrator {
           `spawn_agent concurrency limit reached (max ${limit} running children). ` +
           `Wait for a child to finish or interrupt one before spawning more.`,
       };
+    }
+
+    const allowedCheck = this.validateAllowedTools(params.allowedTools, parentInstanceId);
+    if (allowedCheck) {
+      this.broker.releasePendingSlot(parentKey);
+      console.log(
+        `[AgentOrchestrator] spawn denied allowedTools parent=${parentKey} msg=${allowedCheck.message}`,
+      );
+      return allowedCheck;
     }
 
     const typeKey = params.agentType?.trim() || "assistant";

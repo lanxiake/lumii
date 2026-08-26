@@ -310,4 +310,46 @@ describe("AgentOrchestrator", () => {
     expect(onAsync).toHaveBeenCalledTimes(1);
     expect((onAsync.mock.calls[0]![0] as SubagentCompletionPayload).status).toBe("stale");
   });
+
+  it("allowedTools 含 spawn_agent → error；父工具集外 → error", async () => {
+    const parent = {
+      id: "parent-1",
+      getTools: () => [{ name: "bash" }, { name: "read_file" }],
+    } as unknown as AgentInstance;
+
+    const orch = new AgentOrchestrator(registry, bus, {
+      resolveDefinition: async () => mockDef("assistant"),
+      createChildInstance: async () => "x",
+      prompt: vi.fn(),
+      followUp: vi.fn(),
+      destroy: vi.fn(),
+      getInstance: (id) => (id === "parent-1" ? parent : undefined),
+      findInstanceByRecipient: () => undefined,
+      getDisplayNameForInstance: (id) => id,
+    });
+
+    const forbidden = await orch.spawnAgent(
+      { name: "a", prompt: "x", mode: "async", allowedTools: ["spawn_agent"] },
+      "parent-1",
+    );
+    expect(forbidden.status).toBe("error");
+    if (forbidden.status === "error") {
+      expect(forbidden.message).toContain("spawn_agent");
+    }
+
+    const outside = await orch.spawnAgent(
+      { name: "b", prompt: "x", mode: "async", allowedTools: ["write_file"] },
+      "parent-1",
+    );
+    expect(outside.status).toBe("error");
+    if (outside.status === "error") {
+      expect(outside.message).toContain("write_file");
+    }
+
+    const ok = await orch.spawnAgent(
+      { name: "c", prompt: "x", mode: "async", allowedTools: ["bash(git:*)"] },
+      "parent-1",
+    );
+    expect(ok.status).toBe("ok");
+  });
 });
