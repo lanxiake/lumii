@@ -173,6 +173,12 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphDat
     [graph, layer],
   )
 
+  /** 切换图层并关闭实体侧栏，避免跨图层残留选中状态 */
+  const handleLayerChange = useCallback((next: GraphLayer) => {
+    setLayer(next)
+    setSelectedEntity(null)
+  }, [])
+
   /** 拉取 IPC 图谱数据 */
   const load = useCallback(async () => {
     if (!centerId && !category) return
@@ -313,7 +319,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphDat
               role="tab"
               aria-selected={layer === opt.value}
               className={`wiki-graph-layer-chip${layer === opt.value ? ' wiki-graph-layer-chip--active' : ''}`}
-              onClick={() => setLayer(opt.value)}
+              onClick={() => handleLayerChange(opt.value)}
             >
               {opt.label}
             </button>

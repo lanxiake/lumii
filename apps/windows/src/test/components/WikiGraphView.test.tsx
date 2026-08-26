@@ -203,4 +203,15 @@ describe('WikiGraphView', () => {
     renderWikiGraphView()
     expect(screen.getByRole('button', { name: '从双链生成 ERO' })).toBeInTheDocument()
   })
+
+  it('切换图层时关闭实体侧栏', async () => {
+    renderWikiGraphView()
+    await loadGraphByCategory()
+
+    fireEvent.click(screen.getByTestId('node-entity:e1'))
+    expect(screen.getByLabelText('实体详情')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: '仅页面双链' }))
+    expect(screen.queryByLabelText('实体详情')).not.toBeInTheDocument()
+  })
 })
