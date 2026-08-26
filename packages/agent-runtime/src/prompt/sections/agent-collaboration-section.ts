@@ -130,7 +130,7 @@ export function buildTaskOrchestrationSection(toolNames: readonly string[]): str
 
   if (!hasSpawn && !hasTodo) return []
 
-  return [
+  const lines: string[] = [
     "## Task Orchestration",
     "",
     "### When to Create a Task List",
@@ -146,11 +146,33 @@ export function buildTaskOrchestrationSection(toolNames: readonly string[]): str
     "- `owner` = agent id when delegating to a specialist.",
     "- Do not create tasks one by one with repeated `action=create`.",
     "",
-    "Then execute in dependency order, preferring delegation: start parallel tasks with `spawn_agent mode=async`, and wait for all `dependsOnIndex` tasks before serial ones. The task list belongs to the orchestrator; sub-agents must not call `todo_write`.",
-    "",
+  ]
+
+  if (hasSpawn) {
+    lines.push(
+      "Prefer `spawn_agent mode=sync` when you need the result in the same turn.",
+      "Use `mode=async` only for parallel long work; the system will inject a",
+      "`[SUBAGENT_COMPLETE]` follow-up/new turn when each child finishes.",
+      "Do not invent results before that notification arrives.",
+      "When using todos with async children, mark tasks complete only after the",
+      "corresponding `[SUBAGENT_COMPLETE]` arrives.",
+      "Execute in dependency order: start independent parallel work with `mode=async`, then continue serial steps after their `[SUBAGENT_COMPLETE]` notifications (or use `mode=sync` when you must block).",
+      "The task list belongs to the orchestrator; sub-agents must not call `todo_write`.",
+      "",
+    )
+  } else {
+    lines.push(
+      "Then execute in dependency order. The task list belongs to the orchestrator.",
+      "",
+    )
+  }
+
+  lines.push(
     "Finally, mark everything complete or cancelled with `todo_write action=batch_update`, then call `task_complete`.",
     "",
-  ]
+  )
+
+  return lines
 }
 
 /**
