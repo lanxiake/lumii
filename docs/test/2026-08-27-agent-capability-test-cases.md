@@ -229,12 +229,13 @@
 - 失败：6 次全 ok 或无明确错误
 
 ### G-02 深度/子侧无法再 spawn（行为级）
-- 提示：父 async spawn 子，并指令子再 `spawn_agent`
+- 提示：父**只** async spawn 一次 `depth-child`，并指令子再 `spawn_agent`；父禁止第二次 spawn
 - 预期（满足其一即可）：
-  - 子未出现 `spawn_agent` 成功嵌套；或
-  - 出现 depth deny；或
-  - 子改用其它工具且未产生孙 `registerRun`
-- 失败：出现孙 Agent `registerRun` 且父为子、子为孙的两级成功链
+  - 日志 `spawn denied depth`；或
+  - 无 `registerRun name=grandchild`；或
+  - 子改用其它工具且未产生「parent=depth-child」的孙 `registerRun`
+- 失败：出现 `registerRun name=grandchild` 且 **parent 为 depth-child 的 instanceId**（真嵌套绕过）
+- 注：根 Agent 误把 grandchild 注册为同级（parent=根）属模型误操作，记 WARN 而非深度护栏失败；深度护栏以 registry 父子链为准（`getDepth`）
 
 ### G-03 stale monitor 启动
 - 预期：任意首次 orchestrator 创建后日志含 `startStaleMonitor`

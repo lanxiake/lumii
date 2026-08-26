@@ -128,6 +128,25 @@ export class AgentRegistry {
     return false;
   }
 
+  /**
+   * 计算实例在父子链上的深度：根会话 Agent 为 0，每多一层父链接 +1。
+   * 未知 / 未注册实例视为 0。
+   */
+  getDepth(instanceId: string): number {
+    let depth = 0;
+    let cur: string | undefined = instanceId;
+    const seen = new Set<string>();
+    while (cur) {
+      if (seen.has(cur)) break;
+      seen.add(cur);
+      const parent = this.parentOf.get(cur);
+      if (!parent) break;
+      depth += 1;
+      cur = parent;
+    }
+    return depth;
+  }
+
   /** 已注册实例数量 */
   get size(): number {
     return this.instances.size;

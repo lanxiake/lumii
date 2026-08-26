@@ -1316,7 +1316,7 @@ export type AgentRuntimeCommand =
 export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   T extends 'user:send' ? { runId: string }
   : T extends 'user:steer' ? void
-  : T extends 'user:abort' ? void
+  : T extends 'user:abort' ? { ok: true }
   : T extends 'user:permission:respond' ? void
   : T extends 'user:ask-user:respond' ? void
   : T extends 'runtime:modelCatalog:set' ? { ok: boolean }

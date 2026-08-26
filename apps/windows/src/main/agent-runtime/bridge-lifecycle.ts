@@ -19,7 +19,6 @@ import {
   type AgentRuntimeFeatureFlags,
   type SubagentCompletionPayload,
   AgentOrchestrator,
-  BUILT_IN_AGENTS,
   findBuiltInAgent,
 } from '@mtbot/agent-runtime'
 import type { InstanceState, InstanceStateStore } from './bridge-instance-state'
@@ -223,12 +222,16 @@ export class BridgeLifecycle {
     if (!this.orchestrator) {
       this.orchestrator = new AgentOrchestrator(this.deps.agentRegistry, this.deps.messageBus, {
         resolveDefinition: async (typeKey) => {
+          const key = typeKey.trim() || 'assistant'
           const store = this.deps.getDefinitionStore()
           if (store) {
-            const d = await store.get(typeKey)
+            const d = await store.get(key)
             if (d) return d
           }
-          return findBuiltInAgent(typeKey) ?? BUILT_IN_AGENTS[0]!
+          const builtIn = findBuiltInAgent(key)
+          if (builtIn) return builtIn
+          // 禁止静默回落到默认 Agent：未知类型必须失败，便于父 Agent 做错误恢复
+          throw new Error(`Unknown agent type: ${typeKey}`)
         },
         createChildInstance: async (opts) => {
           const parentDisallowed = opts.definition.disallowedTools ?? []

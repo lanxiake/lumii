@@ -425,6 +425,45 @@ describe('POST /command', () => {
     expect(order).toEqual(['compact:start', 'abort', 'compact:end'])
   })
 
+  it('user:abort 免排队：长 send 占着队列时仍能立刻返回可序列化结果', async () => {
+    const order: string[] = []
+    let releaseSend!: () => void
+    const sendDone = new Promise<void>((r) => {
+      releaseSend = r
+    })
+    const dispatchCommand = vi.fn(async (cmd: unknown) => {
+      const type = (cmd as { type: string }).type
+      if (type === 'user:send') {
+        order.push('send:start')
+        await sendDone
+        order.push('send:end')
+        return { runId: 'r1' }
+      }
+      order.push('abort')
+      return { ok: true }
+    })
+    const { token } = await startWith({ dispatchCommand })
+
+    const sending = postRoute(port, '/command', { type: 'user:send', sessionKey: 's1', content: 'hi' }, token)
+    await new Promise((r) => setTimeout(r, 10))
+    const aborted = await postRoute(port, '/command', { type: 'user:abort', sessionKey: 's1' }, token)
+
+    expect(aborted.json).toEqual({ ok: true })
+    expect(order).toEqual(['send:start', 'abort'])
+
+    releaseSend()
+    await sending
+    expect(order).toEqual(['send:start', 'abort', 'send:end'])
+  })
+
+  it('dispatchCommand 返回 undefined 时仍返回合法 JSON（不抛 command_failed）', async () => {
+    const dispatchCommand = vi.fn(async () => undefined)
+    const { token } = await startWith({ dispatchCommand })
+    const res = await postRoute(port, '/command', { type: 'cron:list' }, token)
+    expect(res.status).toBe(200)
+    expect(res.json).toEqual({ ok: true })
+  })
+
   it('总开关关闭时任意路由返回 disabled', async () => {
     const { token } = await startWith({
       readSettingsJson: async () =>

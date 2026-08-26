@@ -19,3 +19,18 @@
 {"ts":"2026-08-26T16:39:36.643Z","id":"E-03","status":"PASS","note":"wiki 工具（续跑）","session":"a9dd2ba6"}
 {"ts":"2026-08-26T16:39:58.910Z","id":"F-01","status":"PASS","note":"复杂编排","session":"15be0001"}
 {"ts":"2026-08-26T16:40:15.754Z","id":"F-03","status":"PASS","note":"并行综合","session":"d99ecf42"}
+{"ts":"2026-08-26T17:11:02.514Z","id":"F-04","status":"FAIL","note":"F-04 失败","session":"7599be0d","logHint":true}
+{"ts":"2026-08-26T17:16:48.369Z","id":"E-05","status":"PASS","note":"bash echo CAP_TEST_OK（轮询超时误判，日志+messages 已证实）"}
+{"ts":"2026-08-26T17:17:37.309Z","id":"F-04","status":"PASS","note":"未知 agentType 返回 error 后 explore 恢复 GOOD_OK；resolveDefinition 不再静默回落"}
+{"ts":"2026-08-26T17:17:37.311Z","id":"D-ABORT-CLI","status":"PASS","note":"send abort 返回 {ok:true}"}
+{"ts":"2026-08-26T17:17:37.311Z","id":"B-03","status":"PASS","note":"未调工具"}
+{"ts":"2026-08-26T17:17:37.311Z","id":"E-04","status":"PASS","note":"web_search"}
+{"ts":"2026-08-26T17:17:37.311Z","id":"E-06","status":"PASS","note":"tools toggle off/on"}
+{"ts":"2026-08-26T17:17:37.311Z","id":"F-02","status":"PASS","note":"计划执行校验"}
+{"ts":"2026-08-26T17:19:21.582Z","id":"G-01","status":"PASS","note":"并发第6次拒绝（历史实测，证据行补记）"}
+{"ts":"2026-08-26T17:19:21.585Z","id":"G-02","status":"PASS","note":"深度护栏复测通过（历史实测，证据行补记）"}
+{"ts":"2026-08-26T17:19:21.585Z","id":"G-03","status":"PASS","note":"startStaleMonitor（历史实测，证据行补记）"}
+{"ts":"2026-08-26T17:19:21.586Z","id":"H-01","status":"PASS","note":"context usage（历史实测，证据行补记）"}
+{"ts":"2026-08-26T17:19:21.586Z","id":"H-02","status":"PASS","note":"context messages（历史实测，证据行补记）"}
+{"ts":"2026-08-26T17:19:21.587Z","id":"H-03","status":"SKIP","note":"手动 compact 可选未跑"}
+{"ts":"2026-08-26T17:19:21.587Z","id":"C-03","status":"SKIP","note":"由 C-01+C-02 覆盖"}

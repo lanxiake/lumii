@@ -366,13 +366,29 @@ export class AgentOrchestrator {
    *
    * @param parentInstanceId — 父实例 ID（来自工具执行上下文）
    */
+  /**
+   * 解析发起 spawn 的 Agent 当前深度。
+   * 优先显式 `_spawnDepth`（单测/内部）；否则沿 AgentRegistry 父子链计算，
+   * 避免子实例再 spawn 时因未透传深度而绕过 MAX_SPAWN_DEPTH。
+   */
+  private resolveSpawnDepth(
+    parentInstanceId: string | undefined,
+    explicit?: number,
+  ): number {
+    if (typeof explicit === "number" && Number.isFinite(explicit) && explicit >= 0) {
+      return Math.floor(explicit);
+    }
+    if (!parentInstanceId) return 0;
+    return this.registry.getDepth(parentInstanceId);
+  }
+
   async spawnAgent(
     params: SpawnAgentParams,
     parentInstanceId: string | undefined,
   ): Promise<SpawnAgentResult> {
     // 深度限制：产品扁平委派 depth=1；更深委派属 P2，且需 bridge 放开 canSpawnSubAgents
     const MAX_SPAWN_DEPTH = SUBAGENT_DEFAULTS.maxSpawnDepth;
-    const currentDepth = params._spawnDepth ?? 0;
+    const currentDepth = this.resolveSpawnDepth(parentInstanceId, params._spawnDepth);
     if (currentDepth >= MAX_SPAWN_DEPTH) {
       console.log(
         `[AgentOrchestrator] spawn denied depth parent=${parentInstanceId ?? "-"} depth=${currentDepth} max=${MAX_SPAWN_DEPTH}`,

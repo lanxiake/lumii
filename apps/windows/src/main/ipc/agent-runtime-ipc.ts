@@ -818,7 +818,8 @@ export async function handleCommand(
 
       case 'user:abort':
         handleUserAbort(bridge, command)
-        return undefined
+        // 控制口 /command 需可 JSON 序列化的 body；undefined → sendJson 抛错（CLI command_failed）
+        return { ok: true }
 
       // ---- 权限响应 ----
       case 'user:permission:respond':

@@ -95,7 +95,7 @@ let commandQueue: Promise<unknown> = Promise.resolve()
  * 必须绕过队列 —— 它们要中止的正是占着队列的那个长任务（压缩的 LLM 摘要可跑几十秒），
  * 排队等于等到目标跑完才执行，abort 恒返回 false。
  */
-const QUEUE_BYPASS_COMMANDS = new Set(['user:abort-compact-context'])
+const QUEUE_BYPASS_COMMANDS = new Set(['user:abort-compact-context', 'user:abort'])
 
 /** 把命令排进串行队列；前一个失败也继续排队，不阻塞后续请求 */
 function enqueueCommand<T>(fn: () => Promise<T>): Promise<T> {
@@ -181,10 +181,11 @@ async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
 }
 
 /**
- * 发送 JSON 响应。
+ * 发送 JSON 响应（拒绝 undefined body，避免 Buffer.byteLength / res.end 抛 TypeError）。
  */
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
-  const payload = JSON.stringify(body)
+  const safeBody = body === undefined ? { ok: true } : body
+  const payload = JSON.stringify(safeBody)
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
     'Content-Length': Buffer.byteLength(payload),

@@ -169,6 +169,32 @@ describe("AgentOrchestrator", () => {
     }
   });
 
+  it("子实例再 spawn → 按 registry 父子链拒绝（无需显式 _spawnDepth）", async () => {
+    vi.spyOn(registry, "getDepth").mockImplementation((id) => (id === "child-1" ? 1 : 0));
+
+    const createChild = vi.fn(async () => "grandchild-1");
+    const orch = new AgentOrchestrator(registry, bus, {
+      resolveDefinition: async () => mockDef("assistant"),
+      createChildInstance: createChild,
+      prompt: vi.fn(),
+      followUp: vi.fn(),
+      destroy: vi.fn(),
+      getInstance: () => undefined,
+      findInstanceByRecipient: () => undefined,
+      getDisplayNameForInstance: (id) => id,
+    });
+
+    const r = await orch.spawnAgent(
+      { name: "grandchild", prompt: "HI", mode: "async" },
+      "child-1",
+    );
+    expect(r.status).toBe("error");
+    if (r.status === "error") {
+      expect(r.message).toContain("depth limit");
+    }
+    expect(createChild).not.toHaveBeenCalled();
+  });
+
   it("并发：连续 async 超过 limit → 第 N+1 个 error", async () => {
     let n = 0;
     const children = new Map<string, AgentInstance>();
