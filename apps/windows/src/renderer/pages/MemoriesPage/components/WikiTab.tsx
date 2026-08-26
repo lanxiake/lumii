@@ -392,7 +392,7 @@ export const WikiTab: React.FC = () => {
           onClick={() => setRightView('graph')}
         >
           <Network size={14} />
-          <span>图谱</span>
+          <span>知识图谱</span>
         </button>
 
         <div className="wiki-left-footer">

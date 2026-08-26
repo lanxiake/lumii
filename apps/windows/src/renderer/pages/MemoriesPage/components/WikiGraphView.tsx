@@ -1,7 +1,7 @@
 /**
- * WikiGraphView — 双链图谱（xyflow + dagre），数据来自 wiki:graph:data
+ * WikiGraphView — 知识图谱（xyflow + dagre），数据来自 wiki:graph:data
  *
- * 设计：docs/plans/记忆重构/2026-08-26-wiki-p2-implementation.md Task 3
+ * 支持三图层（全部 / 仅实体关系 / 仅页面双链）与实体侧栏。
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
@@ -25,6 +25,15 @@ import type { WikiGraphDataItem, WikiPageListItem } from '../../../hooks/busines
 const NODE_W = 160
 const NODE_H = 56
 
+/** 图谱图层：全部、仅实体关系、仅页面双链 */
+export type GraphLayer = 'all' | 'entities' | 'pages'
+
+const LAYER_OPTIONS: readonly { value: GraphLayer; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'entities', label: '仅实体关系' },
+  { value: 'pages', label: '仅页面双链' },
+]
+
 const CATEGORY_COLOR: Record<string, string> = {
   sources: 'var(--color-primary-500, #3b82f6)',
   media: 'var(--color-success, #22c55e)',
@@ -32,6 +41,15 @@ const CATEGORY_COLOR: Record<string, string> = {
   concepts: '#8b5cf6',
   entities: '#ec4899',
   syntheses: '#06b6d4',
+}
+
+const ENTITY_BORDER_COLOR = '#ec4899'
+
+interface SelectedEntity {
+  readonly id: string
+  readonly title: string
+  readonly entityType?: string
+  readonly pageId?: string | null
 }
 
 interface WikiGraphViewProps {
@@ -45,6 +63,24 @@ interface WikiGraphViewProps {
   readonly bootstrapEro?: () => Promise<{ entities: number; relations: number } | null>
 }
 
+/**
+ * 按图层过滤混合图谱：实体层保留 relation 边，页面层保留 wikilink 边。
+ */
+export function filterGraph(g: WikiGraphDataItem, layer: GraphLayer): WikiGraphDataItem {
+  if (layer === 'all') return g
+  if (layer === 'entities') {
+    const nodes = g.nodes.filter((n) => n.kind === 'entity')
+    const ids = new Set(nodes.map((n) => n.id))
+    const edges = g.edges.filter((e) => e.kind === 'relation' && ids.has(e.source) && ids.has(e.target))
+    return { ...g, nodes, edges }
+  }
+  const nodes = g.nodes.filter((n) => n.kind === 'page')
+  const ids = new Set(nodes.map((n) => n.id))
+  const edges = g.edges.filter((e) => e.kind === 'wikilink' && ids.has(e.source) && ids.has(e.target))
+  return { ...g, nodes, edges }
+}
+
+/** 使用 dagre 对节点进行层次布局 */
 function layoutNodes(rawNodes: Node[], rawEdges: Edge[]) {
   const g = new dagre.graphlib.Graph()
   g.setDefaultEdgeLabel(() => ({}))
@@ -61,6 +97,7 @@ function layoutNodes(rawNodes: Node[], rawEdges: Edge[]) {
   }
 }
 
+/** Wiki 页面节点 */
 function WikiPageNode({ data }: NodeProps) {
   const title = (data.title as string) ?? ''
   const category = (data.category as string) ?? 'sources'
@@ -90,20 +127,57 @@ function WikiPageNode({ data }: NodeProps) {
   )
 }
 
-const nodeTypes: NodeTypes = { wikiPage: WikiPageNode }
+/** ERO 实体节点 */
+function WikiEntityNode({ data }: NodeProps) {
+  const title = (data.title as string) ?? ''
+  const entityType = (data.entityType as string) ?? 'entity'
+  const label = title.length > 16 ? `${title.slice(0, 16)}…` : title
+
+  return (
+    <div
+      style={{
+        padding: '8px 10px',
+        borderRadius: 8,
+        border: '1px solid var(--color-border)',
+        background: 'var(--color-bg-secondary)',
+        borderLeftWidth: 3,
+        borderLeftColor: ENTITY_BORDER_COLOR,
+        width: NODE_W,
+        boxSizing: 'border-box',
+        cursor: 'pointer',
+      }}
+    >
+      <Handle type="target" position={Position.Left} style={{ width: 6, height: 6 }} />
+      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-primary)' }}>{label}</div>
+      <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>{entityType}</div>
+      <Handle type="source" position={Position.Right} style={{ width: 6, height: 6 }} />
+    </div>
+  )
+}
+
+const nodeTypes: NodeTypes = { wikiPage: WikiPageNode, wikiEntity: WikiEntityNode }
 
 export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphData, onOpenPage, bootstrapEro }) => {
   const [centerId, setCenterId] = useState('')
   const [category, setCategory] = useState('')
+  const [layer, setLayer] = useState<GraphLayer>('all')
   const [graph, setGraph] = useState<WikiGraphDataItem | null>(null)
+  const [selectedEntity, setSelectedEntity] = useState<SelectedEntity | null>(null)
   const [loading, setLoading] = useState(false)
   const [eroMsg, setEroMsg] = useState<string | null>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
 
+  const filteredGraph = useMemo(
+    () => (graph ? filterGraph(graph, layer) : null),
+    [graph, layer],
+  )
+
+  /** 拉取 IPC 图谱数据 */
   const load = useCallback(async () => {
     if (!centerId && !category) return
     setLoading(true)
+    setSelectedEntity(null)
     try {
       const data = await getGraphData({
         centerPageId: centerId || undefined,
@@ -115,6 +189,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphDat
     }
   }, [centerId, category, getGraphData])
 
+  /** 从双链冷启动 ERO 实体与关系 */
   const handleBootstrapEro = useCallback(async () => {
     if (!bootstrapEro) return
     setEroMsg('正在从双链引导 ERO…')
@@ -128,29 +203,35 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphDat
   }, [bootstrapEro, load])
 
   useEffect(() => {
-    if (!graph) {
+    if (!filteredGraph) {
       setNodes([])
       setEdges([])
       return
     }
-    const rawNodes: Node[] = graph.nodes.map((n) => ({
+    const rawNodes: Node[] = filteredGraph.nodes.map((n) => ({
       id: n.id,
-      type: 'wikiPage',
+      type: n.kind === 'entity' ? 'wikiEntity' : 'wikiPage',
       position: { x: 0, y: 0 },
-      data: { title: n.title, category: n.category, useCount: n.useCount },
+      data: {
+        title: n.title,
+        category: n.category,
+        useCount: n.useCount,
+        kind: n.kind,
+        entityType: n.entityType,
+        pageId: n.pageId,
+      },
     }))
-    const rawEdges: Edge[] = graph.edges.map((e) => ({
+    const rawEdges: Edge[] = filteredGraph.edges.map((e) => ({
       id: e.id,
       source: e.source,
       target: e.target,
-      label: e.anchorText,
+      label: e.label || e.anchorText || '',
     }))
     if (rawNodes.length === 0) {
       setNodes([])
       setEdges([])
       return
     }
-    // 无边时也展示孤立节点
     if (rawEdges.length === 0) {
       setNodes(rawNodes.map((n, i) => ({ ...n, position: { x: (i % 4) * 180, y: Math.floor(i / 4) * 80 } })))
       setEdges([])
@@ -159,10 +240,21 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphDat
     const laid = layoutNodes(rawNodes, rawEdges)
     setNodes(laid.nodes)
     setEdges(laid.edges)
-  }, [graph, setNodes, setEdges])
+  }, [filteredGraph, setNodes, setEdges])
 
+  /** 节点点击：页面跳转，实体打开侧栏 */
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
+      const kind = node.data?.kind as string | undefined
+      if (kind === 'entity') {
+        setSelectedEntity({
+          id: node.id,
+          title: String(node.data?.title ?? ''),
+          entityType: node.data?.entityType as string | undefined,
+          pageId: node.data?.pageId as string | null | undefined,
+        })
+        return
+      }
       onOpenPage(node.id)
     },
     [onOpenPage],
@@ -171,19 +263,23 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphDat
   const emptyHint = useMemo(() => {
     if (loading) return '加载中…'
     if (!centerId && !category) return '选择中心页或分类后点击「查看图谱」'
-    if (graph && graph.nodes.length === 0) {
-      return '页面之间还没有链接，编辑页时用 [[标题]] 建立双链'
+    if (filteredGraph && filteredGraph.nodes.length === 0) {
+      return layer === 'entities'
+        ? '当前范围内暂无实体关系'
+        : layer === 'pages'
+          ? '页面之间还没有链接，编辑页时用 [[标题]] 建立双链'
+          : '当前范围内暂无节点'
     }
-    if (graph?.edges.length === 0 && (graph?.nodes.length ?? 0) > 0) {
+    if (filteredGraph?.edges.length === 0 && (filteredGraph?.nodes.length ?? 0) > 0) {
       return '当前范围内暂无已解析链接'
     }
     return null
-  }, [loading, centerId, category, graph])
+  }, [loading, centerId, category, filteredGraph, layer])
 
   return (
     <div className="wiki-graph-view">
       <div className="wiki-cleanup-header">
-        <h3>双链图谱</h3>
+        <h3>知识图谱</h3>
         <div className="wiki-cleanup-actions">
           <select value={centerId} onChange={(e) => { setCenterId(e.target.value); setCategory('') }}>
             <option value="">中心页…</option>
@@ -207,24 +303,73 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphDat
           )}
         </div>
       </div>
+
+      {graph && (
+        <div className="wiki-graph-layer-chips" role="tablist" aria-label="图谱图层">
+          {LAYER_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              role="tab"
+              aria-selected={layer === opt.value}
+              className={`wiki-graph-layer-chip${layer === opt.value ? ' wiki-graph-layer-chip--active' : ''}`}
+              onClick={() => setLayer(opt.value)}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {eroMsg && <p className="wiki-empty-hint">{eroMsg}</p>}
       {graph?.truncated && <p className="wiki-empty-hint">节点已截断至上限，请收窄中心页或分类范围</p>}
       {emptyHint && nodes.length === 0 ? (
         <p className="wiki-empty-hint">{emptyHint}</p>
       ) : (
-        <div style={{ height: 420, border: '1px solid var(--color-border)', borderRadius: 8 }}>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            nodeTypes={nodeTypes}
-            onNodeClick={onNodeClick}
-            fitView
-          >
-            <Background />
-            <Controls />
-          </ReactFlow>
+        <div className="wiki-graph-body">
+          <div className="wiki-graph-canvas" style={{ height: 420, border: '1px solid var(--color-border)', borderRadius: 8 }}>
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              nodeTypes={nodeTypes}
+              onNodeClick={onNodeClick}
+              fitView
+            >
+              <Background />
+              <Controls />
+            </ReactFlow>
+          </div>
+          {selectedEntity && (
+            <aside className="wiki-graph-entity-sidebar" aria-label="实体详情">
+              <div className="wiki-graph-entity-sidebar-header">
+                <h4>{selectedEntity.title}</h4>
+                <button
+                  type="button"
+                  className="wiki-graph-entity-sidebar-close"
+                  aria-label="关闭侧栏"
+                  onClick={() => setSelectedEntity(null)}
+                >
+                  ×
+                </button>
+              </div>
+              {selectedEntity.entityType && (
+                <p className="wiki-graph-entity-type">{selectedEntity.entityType}</p>
+              )}
+              {selectedEntity.pageId ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onOpenPage(selectedEntity.pageId!)}
+                >
+                  打开关联页面
+                </Button>
+              ) : (
+                <p className="wiki-empty-hint">暂无关联页面</p>
+              )}
+            </aside>
+          )}
         </div>
       )}
     </div>

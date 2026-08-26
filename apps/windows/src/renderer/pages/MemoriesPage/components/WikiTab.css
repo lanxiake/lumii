@@ -746,3 +746,82 @@
   font-size: 12px;
   color: var(--color-text-tertiary);
 }
+
+.wiki-graph-layer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.wiki-graph-layer-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg-secondary);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.wiki-graph-layer-chip:hover {
+  background: var(--color-bg-hover);
+}
+
+.wiki-graph-layer-chip--active {
+  border-color: var(--color-primary-500, #3b82f6);
+  background: color-mix(in srgb, var(--color-primary-500, #3b82f6) 12%, transparent);
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.wiki-graph-body {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.wiki-graph-canvas {
+  flex: 1;
+  min-width: 0;
+}
+
+.wiki-graph-entity-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+}
+
+.wiki-graph-entity-sidebar-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.wiki-graph-entity-sidebar-header h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.wiki-graph-entity-sidebar-close {
+  border: none;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.wiki-graph-entity-type {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
