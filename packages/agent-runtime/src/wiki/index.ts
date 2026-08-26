@@ -76,6 +76,14 @@ export {
   bootstrapEroFromWikilinks,
   mergeRelationStrength,
 } from "./wiki-ero.js";
+export {
+  WikiEroExtractor,
+  buildEroExtractPrompt,
+  parseEroExtractResponse,
+  DEFAULT_ERO_EXTRACT_MAX_PAGES,
+  DEFAULT_ERO_EXTRACT_MAX_CHARS,
+} from "./wiki-ero-extractor.js";
+export type { WikiEroExtractResult } from "./wiki-ero-extractor.js";
 export type {
   WikiEntityType,
   WikiEntity,

@@ -45,7 +45,7 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'wiki:synthesis:create', 'wiki:synthesis:list', 'wiki:synthesis:get',
   'wiki:synthesis:accept', 'wiki:synthesis:reject', 'wiki:synthesis:auto-run',
   'wiki:graph:data', 'wiki:status:scan', 'wiki:status:confirm',
-  'wiki:ero:bootstrap', 'wiki:ero:list',
+  'wiki:ero:bootstrap', 'wiki:ero:list', 'wiki:ero:extract',
   'wiki:search:hybrid', 'wiki:vector:rebuild',
   // MCP 只读
   'mcp:status',

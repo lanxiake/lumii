@@ -160,6 +160,15 @@ const SEED_JOBS: readonly SeedJob[] = [
     notifyTargets: 'silent',
   },
   {
+    id: 'wiki-ero-extract',
+    name: 'Wiki 实体关系抽取',
+    taskText: '__wiki_ero_extract__',
+    agentId: null,
+    scheduleType: 'cron',
+    scheduleExpr: '0 4 * * 0',
+    notifyTargets: 'silent',
+  },
+  {
     id: 'seed-workspace-tidy',
     name: '工作区文件整理',
     taskText: '检查工作区里新增的文件，按类型归类并指出可以清理的内容。',

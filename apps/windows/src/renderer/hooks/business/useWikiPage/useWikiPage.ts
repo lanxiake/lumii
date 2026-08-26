@@ -694,6 +694,31 @@ export function useWikiPage() {
     }
   }, [])
 
+  /**
+   * AI 抽取最近更新页的实体关系观察。
+   */
+  const extractEro = useCallback(async (): Promise<{
+    pagesProcessed: number
+    entitiesUpserted: number
+    relationsUpserted: number
+    observationsAdded: number
+    errors: readonly string[]
+  } | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      return (await api.sendCommand({ type: 'wiki:ero:extract' })) as {
+        pagesProcessed: number
+        entitiesUpserted: number
+        relationsUpserted: number
+        observationsAdded: number
+        errors: readonly string[]
+      }
+    } catch {
+      return null
+    }
+  }, [])
+
   const getGraphData = useCallback(
     async (params: {
       centerPageId?: string
@@ -790,5 +815,6 @@ export function useWikiPage() {
     confirmStatus,
     searchHybrid,
     bootstrapEro,
+    extractEro,
   }
 }

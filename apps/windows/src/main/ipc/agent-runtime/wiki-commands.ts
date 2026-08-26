@@ -13,6 +13,7 @@ import {
   WikiVectorIndex,
   mergeHybridRanks,
   WikiAutoSynthesisRunner,
+  WikiEroExtractor,
 } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
@@ -625,6 +626,32 @@ export function handleWikiEroList(
     entities: ero.listEntities(agentId, LOCAL_USER_ID),
     relations: ero.listRelations(agentId, LOCAL_USER_ID),
   }
+}
+
+/**
+ * AI 抽取最近更新页的实体关系观察并 upsert 到 ERO 仓储。
+ */
+export async function handleWikiEroExtract(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:ero:extract' }>,
+): Promise<{
+  pagesProcessed: number
+  entitiesUpserted: number
+  relationsUpserted: number
+  observationsAdded: number
+  errors: readonly string[]
+}> {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const ero = new WikiEroRepo(bridge.wikiRepo.database)
+  const extractor = new WikiEroExtractor(
+    bridge.wikiRepo,
+    ero,
+    (prompt) => bridge.callLLM(prompt, undefined, 'wiki_ero_extract'),
+  )
+  return extractor.extractRecent(agentId, LOCAL_USER_ID, {
+    maxPages: command.maxPages,
+    maxCharsPerPage: command.maxCharsPerPage,
+  })
 }
 
 /**

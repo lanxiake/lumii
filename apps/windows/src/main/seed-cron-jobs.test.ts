@@ -131,4 +131,14 @@ describe('ensureSeedCronJobsSeeded', () => {
     expect(row[COL.scheduleExpr]).toBe('0 3 * * *')
     expect(row[COL.notifyTargets]).toBe('silent')
   })
+
+  it('Wiki ERO 抽取走 companion 通道、静默、每周日 04:00', () => {
+    const db = createFakeDb()
+    ensureSeedCronJobsSeeded(db.adapter)
+    const row = db.jobs.get('wiki-ero-extract')!
+    expect(row[COL.taskText]).toBe('__wiki_ero_extract__')
+    expect(row[COL.agentId]).toBeNull()
+    expect(row[COL.scheduleExpr]).toBe('0 4 * * 0')
+    expect(row[COL.notifyTargets]).toBe('silent')
+  })
 })

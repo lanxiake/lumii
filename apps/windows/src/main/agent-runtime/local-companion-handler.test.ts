@@ -256,3 +256,19 @@ describe('local-companion-handler / Wiki 自动综述', () => {
     expect(runWikiAutoSynthesis).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('local-companion-handler / Wiki ERO 抽取', () => {
+  it('runWikiEroExtract 未注入 → unavailable', async () => {
+    const deps = createDeps()
+    const result = await handleLocalCompanionInstruction('__wiki_ero_extract__', deps)
+    expect(result).toBe('wiki ero extract unavailable')
+  })
+
+  it('runWikiEroExtract 注入 → 返回摘要字符串', async () => {
+    const runWikiEroExtract = vi.fn(async () => 'pages:3 entities:5 relations:2 obs:1')
+    const deps = createDeps({ runWikiEroExtract })
+    const result = await handleLocalCompanionInstruction('__wiki_ero_extract__', deps)
+    expect(result).toBe('pages:3 entities:5 relations:2 obs:1')
+    expect(runWikiEroExtract).toHaveBeenCalledTimes(1)
+  })
+})

@@ -133,6 +133,7 @@ export const WikiTab: React.FC = () => {
     confirmStatus,
     searchHybrid,
     bootstrapEro,
+    extractEro,
     loading,
   } = useWikiPage()
 
@@ -498,6 +499,7 @@ export const WikiTab: React.FC = () => {
             getGraphData={getGraphData}
             onOpenPage={(pageId) => void handleOpenPage(pageId)}
             bootstrapEro={bootstrapEro}
+            extractEro={extractEro}
           />
         ) : selectedPage ? (
           <div className="wiki-page-view-layout">

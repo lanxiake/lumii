@@ -80,6 +80,9 @@ import {
   type WikiSynthesizerFsDeps,
   WikiAutoSynthesisRunner,
   type AutoSynthesisRunResult,
+  WikiEroRepo,
+  WikiEroExtractor,
+  type WikiEroExtractResult,
 } from '@mtbot/agent-runtime'
 import { McpManager, type McpServerRuntimeStatus } from './mcp-manager'
 import type { McpServerEntry } from '../config/mcp-config'
@@ -136,6 +139,14 @@ function formatWikiAutoSynthesisSummary(results: readonly AutoSynthesisRunResult
       return `${r.category}:ok`
     })
     .join(' ')
+}
+
+/**
+ * 将 Wiki ERO 抽取结果格式化为 cron 运行摘要。
+ */
+function formatWikiEroExtractSummary(result: WikiEroExtractResult): string {
+  const errPart = result.errors.length > 0 ? ` errors:${result.errors.length}` : ''
+  return `pages:${result.pagesProcessed} entities:${result.entitiesUpserted} relations:${result.relationsUpserted} obs:${result.observationsAdded}${errPart}`
 }
 
 export type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot }
@@ -803,6 +814,21 @@ export class AgentRuntimeBridge {
                 )
                 const { results } = await runner.autoSynthesizeAll('assistant', LOCAL_USER_ID)
                 return formatWikiAutoSynthesisSummary(results)
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err)
+                return `error: ${message}`
+              }
+            },
+            runWikiEroExtract: async () => {
+              try {
+                const ero = new WikiEroRepo(this.wikiRepo.database)
+                const extractor = new WikiEroExtractor(
+                  this.wikiRepo,
+                  ero,
+                  (prompt) => this.callLLM(prompt, undefined, 'wiki_ero_extract'),
+                )
+                const result = await extractor.extractRecent('assistant', LOCAL_USER_ID)
+                return formatWikiEroExtractSummary(result)
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err)
                 return `error: ${message}`

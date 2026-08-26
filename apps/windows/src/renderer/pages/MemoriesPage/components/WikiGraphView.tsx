@@ -61,6 +61,13 @@ interface WikiGraphViewProps {
   }) => Promise<WikiGraphDataItem | null>
   readonly onOpenPage: (pageId: string) => void
   readonly bootstrapEro?: () => Promise<{ entities: number; relations: number } | null>
+  readonly extractEro?: () => Promise<{
+    pagesProcessed: number
+    entitiesUpserted: number
+    relationsUpserted: number
+    observationsAdded: number
+    errors: readonly string[]
+  } | null>
 }
 
 /**
@@ -157,7 +164,7 @@ function WikiEntityNode({ data }: NodeProps) {
 
 const nodeTypes: NodeTypes = { wikiPage: WikiPageNode, wikiEntity: WikiEntityNode }
 
-export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphData, onOpenPage, bootstrapEro }) => {
+export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphData, onOpenPage, bootstrapEro, extractEro }) => {
   const [centerId, setCenterId] = useState('')
   const [category, setCategory] = useState('')
   const [layer, setLayer] = useState<GraphLayer>('all')
@@ -207,6 +214,22 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphDat
       setEroMsg('ERO 引导失败')
     }
   }, [bootstrapEro, load])
+
+  /** AI 抽取最近更新页的实体关系 */
+  const handleExtractEro = useCallback(async () => {
+    if (!extractEro) return
+    setEroMsg('正在 AI 抽取实体关系…')
+    const r = await extractEro()
+    if (r) {
+      const errHint = r.errors.length > 0 ? `，${r.errors.length} 页失败` : ''
+      setEroMsg(
+        `已处理 ${r.pagesProcessed} 页：${r.entitiesUpserted} 实体、${r.relationsUpserted} 关系、${r.observationsAdded} 观察${errHint}，请重新查看图谱`,
+      )
+      void load()
+    } else {
+      setEroMsg('AI 抽取失败')
+    }
+  }, [extractEro, load])
 
   useEffect(() => {
     if (!filteredGraph) {
@@ -305,6 +328,11 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphDat
           {bootstrapEro && (
             <Button variant="secondary" size="sm" onClick={() => void handleBootstrapEro()}>
               从双链生成 ERO
+            </Button>
+          )}
+          {extractEro && (
+            <Button variant="secondary" size="sm" onClick={() => void handleExtractEro()}>
+              抽取实体关系
             </Button>
           )}
         </div>

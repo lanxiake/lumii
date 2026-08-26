@@ -151,6 +151,7 @@ import {
   handleWikiStatusConfirm,
   handleWikiEroBootstrap,
   handleWikiEroList,
+  handleWikiEroExtract,
   handleWikiSearchHybrid,
   handleWikiVectorRebuild,
 } from './agent-runtime/wiki-commands'
@@ -1050,6 +1051,9 @@ export async function handleCommand(
 
       case 'wiki:ero:list':
         return handleWikiEroList(bridge, command)
+
+      case 'wiki:ero:extract':
+        return handleWikiEroExtract(bridge, command)
 
       case 'wiki:search:hybrid':
         return handleWikiSearchHybrid(bridge, command)

@@ -615,6 +615,14 @@ export interface WikiEroListCommand {
   readonly agentId?: string
 }
 
+export interface WikiEroExtractCommand {
+  readonly type: 'wiki:ero:extract'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly maxPages?: number
+  readonly maxCharsPerPage?: number
+}
+
 export interface WikiSearchHybridCommand {
   readonly type: 'wiki:search:hybrid'
   readonly sessionKey?: string
@@ -1247,6 +1255,7 @@ export type AgentRuntimeCommand =
   | WikiStatusConfirmCommand
   | WikiEroBootstrapCommand
   | WikiEroListCommand
+  | WikiEroExtractCommand
   | WikiSearchHybridCommand
   | WikiVectorRebuildCommand
   | ToolsListCommand
@@ -1677,6 +1686,13 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:ero:list' ? {
       entities: readonly unknown[]
       relations: readonly unknown[]
+    }
+  : T extends 'wiki:ero:extract' ? {
+      pagesProcessed: number
+      entitiesUpserted: number
+      relationsUpserted: number
+      observationsAdded: number
+      errors: readonly string[]
     }
   : T extends 'wiki:search:hybrid' ? {
       hits: readonly {
