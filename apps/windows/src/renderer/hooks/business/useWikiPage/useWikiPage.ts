@@ -164,6 +164,15 @@ export interface WikiGraphDataItem {
   readonly truncated: boolean
 }
 
+/** ERO 实体观察摘要（侧栏只读展示） */
+export interface WikiObservationItem {
+  readonly id: string
+  readonly entityId: string
+  readonly content: string
+  readonly sourcePageId: string | null
+  readonly createdAt: string
+}
+
 export interface WikiStatusCandidateItem {
   readonly pageId: string
   readonly title: string
@@ -719,6 +728,42 @@ export function useWikiPage() {
     }
   }, [])
 
+  /**
+   * 加载指定实体的活跃观察摘要（wiki:ero:list + entityId）。
+   */
+  const listEntityObservations = useCallback(
+    async (entityId: string): Promise<readonly WikiObservationItem[]> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand || !entityId) return []
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:ero:list',
+          entityId,
+        })) as {
+          observations?: readonly {
+            id: string
+            entity_id: string
+            content: string
+            source_page_id: string | null
+            created_at: string
+          }[]
+        }
+        const rows = r?.observations
+        if (!Array.isArray(rows)) return []
+        return rows.map((o) => ({
+          id: o.id,
+          entityId: o.entity_id,
+          content: o.content,
+          sourcePageId: o.source_page_id,
+          createdAt: o.created_at,
+        }))
+      } catch {
+        return []
+      }
+    },
+    [],
+  )
+
   const getGraphData = useCallback(
     async (params: {
       centerPageId?: string
@@ -816,5 +861,6 @@ export function useWikiPage() {
     searchHybrid,
     bootstrapEro,
     extractEro,
+    listEntityObservations,
   }
 }

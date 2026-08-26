@@ -95,6 +95,7 @@ function renderWikiGraphView(
   const getGraphData = vi.fn(async () => graphData)
   const onOpenPage = vi.fn()
   const bootstrapEro = vi.fn(async () => ({ entities: 1, relations: 1 }))
+  const listEntityObservations = vi.fn(async () => [])
 
   render(
     <WikiGraphView
@@ -102,11 +103,12 @@ function renderWikiGraphView(
       getGraphData={getGraphData}
       onOpenPage={onOpenPage}
       bootstrapEro={bootstrapEro}
+      listEntityObservations={listEntityObservations}
       {...overrides}
     />,
   )
 
-  return { getGraphData, onOpenPage, bootstrapEro }
+  return { getGraphData, onOpenPage, bootstrapEro, listEntityObservations }
 }
 
 /** 选择分类并加载图谱 */
@@ -202,6 +204,35 @@ describe('WikiGraphView', () => {
   it('保留从双链生成 ERO 按钮', () => {
     renderWikiGraphView()
     expect(screen.getByRole('button', { name: '从双链生成 ERO' })).toBeInTheDocument()
+  })
+
+  it('实体侧栏展示观察摘要；无观察时显示暂无观察', async () => {
+    const listEntityObservations = vi.fn(async () => [
+      { id: 'o1', entityId: 'entity:e1', content: '第一条观察', sourcePageId: 'p1', createdAt: '2026-01-01' },
+      { id: 'o2', entityId: 'entity:e1', content: '第二条观察', sourcePageId: null, createdAt: '2026-01-02' },
+    ])
+    renderWikiGraphView({ listEntityObservations })
+    await loadGraphByCategory()
+
+    fireEvent.click(screen.getByTestId('node-entity:e1'))
+    const sidebar = screen.getByLabelText('实体详情')
+    await waitFor(() => {
+      expect(listEntityObservations).toHaveBeenCalledWith('entity:e1')
+      expect(within(sidebar).getByText('第一条观察')).toBeInTheDocument()
+      expect(within(sidebar).getByText('第二条观察')).toBeInTheDocument()
+    })
+    expect(within(sidebar).getByRole('button', { name: '来源页' })).toBeInTheDocument()
+  })
+
+  it('实体无观察时侧栏显示暂无观察', async () => {
+    const listEntityObservations = vi.fn(async () => [])
+    renderWikiGraphView({ listEntityObservations })
+    await loadGraphByCategory()
+
+    fireEvent.click(screen.getByTestId('node-entity:e1'))
+    await waitFor(() => {
+      expect(within(screen.getByLabelText('实体详情')).getByText('暂无观察')).toBeInTheDocument()
+    })
   })
 
   it('切换图层时关闭实体侧栏', async () => {

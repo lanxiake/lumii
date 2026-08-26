@@ -20,10 +20,13 @@ import {
 import dagre from '@dagrejs/dagre'
 import '@xyflow/react/dist/style.css'
 import { Button } from '../../../components/ui/Button/Button'
-import type { WikiGraphDataItem, WikiPageListItem } from '../../../hooks/business/useWikiPage'
+import type { WikiGraphDataItem, WikiObservationItem, WikiPageListItem } from '../../../hooks/business/useWikiPage'
 
 const NODE_W = 160
 const NODE_H = 56
+
+/** 实体侧栏最多展示的观察条数 */
+const SIDEBAR_OBSERVATION_LIMIT = 5
 
 /** 图谱图层：全部、仅实体关系、仅页面双链 */
 export type GraphLayer = 'all' | 'entities' | 'pages'
@@ -68,6 +71,8 @@ interface WikiGraphViewProps {
     observationsAdded: number
     errors: readonly string[]
   } | null>
+  /** 选中实体时加载观察摘要（wiki:ero:list + entityId） */
+  readonly listEntityObservations?: (entityId: string) => Promise<readonly WikiObservationItem[]>
 }
 
 /**
@@ -164,12 +169,21 @@ function WikiEntityNode({ data }: NodeProps) {
 
 const nodeTypes: NodeTypes = { wikiPage: WikiPageNode, wikiEntity: WikiEntityNode }
 
-export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphData, onOpenPage, bootstrapEro, extractEro }) => {
+export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
+  pages,
+  getGraphData,
+  onOpenPage,
+  bootstrapEro,
+  extractEro,
+  listEntityObservations,
+}) => {
   const [centerId, setCenterId] = useState('')
   const [category, setCategory] = useState('')
   const [layer, setLayer] = useState<GraphLayer>('all')
   const [graph, setGraph] = useState<WikiGraphDataItem | null>(null)
   const [selectedEntity, setSelectedEntity] = useState<SelectedEntity | null>(null)
+  const [entityObservations, setEntityObservations] = useState<readonly WikiObservationItem[]>([])
+  const [observationsLoading, setObservationsLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [eroMsg, setEroMsg] = useState<string | null>(null)
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
@@ -184,13 +198,34 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphDat
   const handleLayerChange = useCallback((next: GraphLayer) => {
     setLayer(next)
     setSelectedEntity(null)
+    setEntityObservations([])
   }, [])
+
+  /** 选中实体后拉取观察摘要 */
+  useEffect(() => {
+    if (!selectedEntity || !listEntityObservations) {
+      setEntityObservations([])
+      return
+    }
+    let cancelled = false
+    setObservationsLoading(true)
+    void listEntityObservations(selectedEntity.id).then((rows) => {
+      if (!cancelled) {
+        setEntityObservations(rows.slice(0, SIDEBAR_OBSERVATION_LIMIT))
+        setObservationsLoading(false)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedEntity, listEntityObservations])
 
   /** 拉取 IPC 图谱数据 */
   const load = useCallback(async () => {
     if (!centerId && !category) return
     setLoading(true)
     setSelectedEntity(null)
+    setEntityObservations([])
     try {
       const data = await getGraphData({
         centerPageId: centerId || undefined,
@@ -402,6 +437,31 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({ pages, getGraphDat
               ) : (
                 <p className="wiki-empty-hint">暂无关联页面</p>
               )}
+              <section className="wiki-graph-entity-observations" aria-label="观察摘要">
+                <h5>观察摘要</h5>
+                {observationsLoading ? (
+                  <p className="wiki-empty-hint">加载观察中…</p>
+                ) : entityObservations.length === 0 ? (
+                  <p className="wiki-empty-hint">暂无观察</p>
+                ) : (
+                  <ul className="wiki-graph-entity-observation-list">
+                    {entityObservations.map((obs) => (
+                      <li key={obs.id} className="wiki-graph-entity-observation-item">
+                        <p>{obs.content}</p>
+                        {obs.sourcePageId && (
+                          <button
+                            type="button"
+                            className="wiki-graph-entity-observation-source"
+                            onClick={() => onOpenPage(obs.sourcePageId!)}
+                          >
+                            来源页
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
             </aside>
           )}
         </div>

@@ -16,4 +16,5 @@ export {
   type WikiSynthesisDetail,
   type WikiGraphDataItem,
   type WikiStatusCandidateItem,
+  type WikiObservationItem,
 } from './useWikiPage'

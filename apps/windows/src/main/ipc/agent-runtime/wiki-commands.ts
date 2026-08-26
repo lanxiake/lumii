@@ -622,9 +622,22 @@ export function handleWikiEroList(
 ): unknown {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
   const ero = new WikiEroRepo(bridge.wikiRepo.database)
-  return {
+  const base = {
     entities: ero.listEntities(agentId, LOCAL_USER_ID),
     relations: ero.listRelations(agentId, LOCAL_USER_ID),
+  }
+  if (!command.entityId) {
+    return base
+  }
+  return {
+    ...base,
+    observations: ero.listActiveObservations(command.entityId).map((o) => ({
+      id: o.id,
+      entity_id: o.entity_id,
+      content: o.content,
+      source_page_id: o.source_page_id,
+      created_at: o.created_at,
+    })),
   }
 }
 

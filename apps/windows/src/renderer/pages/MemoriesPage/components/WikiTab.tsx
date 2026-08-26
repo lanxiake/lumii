@@ -134,6 +134,7 @@ export const WikiTab: React.FC = () => {
     searchHybrid,
     bootstrapEro,
     extractEro,
+    listEntityObservations,
     loading,
   } = useWikiPage()
 
@@ -500,6 +501,7 @@ export const WikiTab: React.FC = () => {
             onOpenPage={(pageId) => void handleOpenPage(pageId)}
             bootstrapEro={bootstrapEro}
             extractEro={extractEro}
+            listEntityObservations={listEntityObservations}
           />
         ) : selectedPage ? (
           <div className="wiki-page-view-layout">

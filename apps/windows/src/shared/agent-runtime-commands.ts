@@ -613,6 +613,8 @@ export interface WikiEroListCommand {
   readonly type: 'wiki:ero:list'
   readonly sessionKey?: string
   readonly agentId?: string
+  /** 指定实体时仅返回该实体的活跃观察摘要 */
+  readonly entityId?: string
 }
 
 export interface WikiEroExtractCommand {
@@ -1686,6 +1688,13 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:ero:list' ? {
       entities: readonly unknown[]
       relations: readonly unknown[]
+      observations?: readonly {
+        id: string
+        entity_id: string
+        content: string
+        source_page_id: string | null
+        created_at: string
+      }[]
     }
   : T extends 'wiki:ero:extract' ? {
       pagesProcessed: number
