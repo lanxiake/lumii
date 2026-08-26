@@ -1517,6 +1517,17 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       status: string
       resultSummary: string | null
       error: string | null
+      resultDetail: {
+        items: readonly {
+          inboxId: string
+          title: string
+          path: string
+          mediaType: string
+          outcome: string
+          reason?: string
+          extract: string
+        }[]
+      } | null
       createdAt: number
       finishedAt: number | null
     }[]

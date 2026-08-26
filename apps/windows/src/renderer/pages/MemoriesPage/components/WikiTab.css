@@ -276,6 +276,97 @@
   gap: 8px;
   color: var(--color-text-tertiary);
   font-size: 12px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: default;
+}
+
+.wiki-run-item-header--expandable {
+  cursor: pointer;
+}
+
+.wiki-run-item-header--expandable:hover {
+  color: var(--color-text-secondary);
+}
+
+.wiki-run-expand-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.wiki-run-detail-item {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background: var(--color-bg-secondary);
+  font-size: 12px;
+}
+
+.wiki-run-detail-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.wiki-run-detail-title {
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.wiki-run-detail-extract {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.wiki-run-detail-path {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+}
+
+.wiki-run-detail-reason {
+  margin: 4px 0 0;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.wiki-run-outcome {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.wiki-run-outcome::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.wiki-run-outcome--archived::before {
+  background: var(--color-success-text, #065f46);
+}
+
+.wiki-run-outcome--corrected::before {
+  background: #ea580c;
+}
+
+.wiki-run-outcome--degraded::before {
+  background: #ca8a04;
+}
+
+.wiki-run-outcome--failed::before {
+  background: var(--color-danger, #dc2626);
 }
 
 .wiki-run-status {

@@ -146,6 +146,23 @@ export interface WikiPageRevision {
  */
 export type WikiOrganizeRunStatus = "running" | "succeeded" | "degraded" | "partial" | "failed";
 
+/** 单条归档运行明细的终态 */
+export type WikiOrganizeRunDetailOutcome = "archived" | "corrected" | "degraded" | "failed";
+
+/** 正文来源：原有预览 / 本次提取 / 无正文 */
+export type WikiOrganizeRunDetailExtract = "preview" | "extracted" | "none";
+
+/** 归档运行逐条明细（序列化进 result_detail JSON） */
+export interface WikiOrganizeRunDetailItem {
+  readonly inboxId: string;
+  readonly title: string;
+  readonly path: string;
+  readonly mediaType: WikiMediaType;
+  readonly outcome: WikiOrganizeRunDetailOutcome;
+  readonly reason?: string;
+  readonly extract: WikiOrganizeRunDetailExtract;
+}
+
 export interface WikiOrganizeRun {
   readonly id: string;
   readonly agent_id: string;
@@ -154,6 +171,7 @@ export interface WikiOrganizeRun {
   readonly status: WikiOrganizeRunStatus;
   readonly result_summary: string | null;
   readonly error: string | null;
+  readonly result_detail: string | null;
   readonly created_at: string;
   readonly finished_at: string | null;
 }

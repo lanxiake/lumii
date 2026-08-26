@@ -478,9 +478,22 @@ describe("WikiRepo 运行日志", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const run = repo.createRun("ag", "u", ["i1", "i2"]);
     expect(run.status).toBe("running");
+    expect(run.result_detail).toBeNull();
     repo.finishRun(run.id, "succeeded", "2 项已归档");
     const runs = repo.listRuns("ag", "u");
     expect(runs[0]!.inbox_ids).toEqual(["i1", "i2"]);
     expect(runs[0]!.status).toBe("succeeded");
+  });
+
+  it("finishRun 写入 result_detail 后 listRuns 能读回", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const run = repo.createRun("ag", "u", ["i1"]);
+    const detail = JSON.stringify({
+      items: [{ inboxId: "i1", title: "T", path: "sources/t", mediaType: "document", outcome: "archived", extract: "preview" }],
+    });
+    repo.finishRun(run.id, "succeeded", "1 项已归档", undefined, detail);
+    const stored = repo.listRuns("ag", "u")[0]!;
+    expect(stored.result_detail).toBe(detail);
+    expect(JSON.parse(stored.result_detail!).items[0].path).toBe("sources/t");
   });
 });

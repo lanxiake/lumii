@@ -6,10 +6,52 @@
  * 而非丢弃，整批不因一条脏数据崩掉。
  */
 
-import { classifyBatch } from "./wiki-classifier.js";
+import { classifyBatch, type ClassifiedItem } from "./wiki-classifier.js";
 import type { WikiContentExtractor } from "./wiki-content-extractor.js";
 import type { WikiRepo } from "./wiki-repo.js";
-import type { WikiInboxItem, WikiInboxItemType, WikiOrganizeRun, WikiPage } from "./types.js";
+import type {
+  WikiInboxItem,
+  WikiInboxItemType,
+  WikiOrganizeRun,
+  WikiOrganizeRunDetailExtract,
+  WikiOrganizeRunDetailItem,
+  WikiPage,
+} from "./types.js";
+
+/**
+ * 根据 enrich 前后正文预览判定 extract 字段：
+ * 原有预览 → preview；本次补齐 → extracted；仍无正文 → none。
+ */
+function resolveExtractState(
+  beforePreview: string | null | undefined,
+  afterPreview: string | null | undefined,
+): WikiOrganizeRunDetailExtract {
+  if (beforePreview) return "preview";
+  if (afterPreview) return "extracted";
+  return "none";
+}
+
+/**
+ * 由分类结果与落库成败组装单条运行明细。
+ */
+function buildDetailItem(
+  item: WikiInboxItem,
+  result: ClassifiedItem,
+  extract: WikiOrganizeRunDetailExtract,
+  savedPath: string,
+  outcome: WikiOrganizeRunDetailItem["outcome"],
+  reason?: string,
+): WikiOrganizeRunDetailItem {
+  return {
+    inboxId: result.inboxId,
+    title: result.title,
+    path: savedPath,
+    mediaType: item.media_type,
+    outcome,
+    ...(reason ? { reason } : {}),
+    extract,
+  };
+}
 
 export class WikiOrganizer {
   constructor(
@@ -44,6 +86,13 @@ export class WikiOrganizer {
       }),
     );
 
+    const extractById = new Map(
+      items.map((item) => {
+        const after = enriched.find((e) => e.id === item.id);
+        return [item.id, resolveExtractState(item.content_preview, after?.content_preview)] as const;
+      }),
+    );
+
     const run = this.repo.createRun(
       agentId,
       userId,
@@ -57,17 +106,36 @@ export class WikiOrganizer {
       // 整批分类失败：条目保持 pending 且记一次尝试，下次退避后重试——数据不丢
       const message = (err as Error).message;
       for (const item of items) this.repo.markInboxAttemptFailed(item.id, message);
-      this.repo.finishRun(run.id, "failed", undefined, message);
-      return { ...run, status: "failed", error: message, finished_at: new Date().toISOString() };
+      const detailItems: WikiOrganizeRunDetailItem[] = items.map((item) => ({
+        inboxId: item.id,
+        title: item.title,
+        path: "",
+        mediaType: item.media_type,
+        outcome: "failed",
+        reason: message,
+        extract: extractById.get(item.id) ?? "none",
+      }));
+      const detailJson = JSON.stringify({ items: detailItems });
+      this.repo.finishRun(run.id, "failed", undefined, message, detailJson);
+      return {
+        ...run,
+        status: "failed",
+        error: message,
+        result_detail: detailJson,
+        finished_at: new Date().toISOString(),
+      };
     }
 
     const byId = new Map(enriched.map((i) => [i.id, i]));
     let failed = 0;
     let degraded = 0;
     const degradeReasons = new Set<string>();
+    const detailItems: WikiOrganizeRunDetailItem[] = [];
+
     for (const result of classified) {
       const item = byId.get(result.inboxId);
       if (!item) continue;
+      const extract = extractById.get(item.id) ?? "none";
       try {
         const source = this.repo.createSource({
           agentId,
@@ -85,10 +153,23 @@ export class WikiOrganizer {
         if (result.degraded) {
           degraded += 1;
           if (result.degradeReason) degradeReasons.add(result.degradeReason);
+          detailItems.push(
+            buildDetailItem(item, result, extract, savedPage.path, "degraded", result.degradeReason),
+          );
+        } else if (result.corrected) {
+          detailItems.push(
+            buildDetailItem(item, result, extract, savedPage.path, "corrected", result.correctReason),
+          );
+        } else {
+          detailItems.push(buildDetailItem(item, result, extract, savedPage.path, "archived"));
         }
       } catch (err) {
         failed += 1;
-        this.repo.markInboxAttemptFailed(item.id, (err as Error).message);
+        const reason = (err as Error).message;
+        detailItems.push(
+          buildDetailItem(item, result, extract, result.path || "", "failed", reason),
+        );
+        this.repo.markInboxAttemptFailed(item.id, reason);
       }
     }
 
@@ -96,19 +177,23 @@ export class WikiOrganizer {
     // failed（落库异常，条目仍 pending 待重试）优先级高于 degraded（已归档但落点兜底）。
     const status = failed > 0 ? "partial" : degraded > 0 ? "degraded" : "succeeded";
     const organized = classified.length - failed;
+    const corrected = detailItems.filter((d) => d.outcome === "corrected").length;
     const summary = [
       `${organized} 项已归档`,
+      corrected > 0 ? `其中 ${corrected} 项纠正到 sources/` : "",
       degraded > 0 ? `其中 ${degraded} 项分类降级到 inbox/` : "",
       failed > 0 ? `${failed} 项待重试` : "",
     ]
       .filter(Boolean)
-      .join("，");
+      .join(" · ");
     const error = degradeReasons.size > 0 ? [...degradeReasons].join("; ") : undefined;
-    this.repo.finishRun(run.id, status, summary, error);
+    const detailJson = JSON.stringify({ items: detailItems });
+    this.repo.finishRun(run.id, status, summary, error, detailJson);
     return {
       ...run,
       status,
       result_summary: summary,
+      result_detail: detailJson,
       ...(error ? { error } : {}),
       finished_at: new Date().toISOString(),
     };

@@ -48,6 +48,49 @@ function formatTime(ts: number | null): string {
   return new Date(ts).toLocaleString('zh-CN', { hour12: false })
 }
 
+const OUTCOME_LABEL: Record<string, string> = {
+  archived: '已归档',
+  corrected: '已纠正',
+  degraded: '已降级',
+  failed: '失败',
+}
+
+/** 可展开的归档运行日志条目 */
+const RunLogItem: React.FC<{ run: WikiRunItem }> = ({ run }) => {
+  const [expanded, setExpanded] = useState(false)
+  const hasDetail = (run.resultDetail?.items.length ?? 0) > 0
+
+  return (
+    <div className="wiki-run-item">
+      <button
+        type="button"
+        className={`wiki-run-item-header${hasDetail ? ' wiki-run-item-header--expandable' : ''}`}
+        onClick={() => hasDetail && setExpanded((v) => !v)}
+        aria-expanded={hasDetail ? expanded : undefined}
+      >
+        <span className={`wiki-run-status wiki-run-status--${run.status}`}>{run.status}</span>
+        <span>{formatTime(run.createdAt)}</span>
+        {hasDetail && <span className="wiki-run-expand-hint">{expanded ? '收起' : '展开明细'}</span>}
+      </button>
+      {run.resultSummary && <p>{run.resultSummary}</p>}
+      {run.error && <p className="wiki-inbox-item-error">{run.error}</p>}
+      {expanded && run.resultDetail?.items.map((item) => (
+        <div key={item.inboxId} className="wiki-run-detail-item">
+          <div className="wiki-run-detail-item-header">
+            <span className={`wiki-run-outcome wiki-run-outcome--${item.outcome}`}>
+              {OUTCOME_LABEL[item.outcome] ?? item.outcome}
+            </span>
+            <span className="wiki-run-detail-title">{item.title}</span>
+            <span className="wiki-run-detail-extract">{item.extract}</span>
+          </div>
+          <p className="wiki-run-detail-path">{item.title} → {item.path || '（未落库）'}</p>
+          {item.reason && <p className="wiki-run-detail-reason">{item.reason}</p>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 /** 在光标处插入文本，替换 [[ 起始位置到当前光标的内容（用于自动补全选择后落子） */
 function insertWikilinkAtCursor(textarea: HTMLTextAreaElement, currentValue: string, title: string): string {
   const cursor = textarea.selectionStart
@@ -427,14 +470,7 @@ export const WikiTab: React.FC = () => {
               <p className="wiki-empty-hint">暂无归档记录</p>
             ) : (
               runs.map((run) => (
-                <div key={run.id} className="wiki-run-item">
-                  <div className="wiki-run-item-header">
-                    <span className={`wiki-run-status wiki-run-status--${run.status}`}>{run.status}</span>
-                    <span>{formatTime(run.createdAt)}</span>
-                  </div>
-                  {run.resultSummary && <p>{run.resultSummary}</p>}
-                  {run.error && <p className="wiki-inbox-item-error">{run.error}</p>}
-                </div>
+                <RunLogItem key={run.id} run={run} />
               ))
             )}
           </div>

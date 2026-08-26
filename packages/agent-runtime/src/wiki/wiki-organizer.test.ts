@@ -40,6 +40,17 @@ describe("WikiOrganizer 端到端", () => {
 
     expect(run).not.toBeNull();
     expect(run!.status).toBe("succeeded");
+    const storedRun = repo.listRuns("ag", "u")[0]!;
+    expect(storedRun.result_detail).toBeTruthy();
+    const detail = JSON.parse(storedRun.result_detail!) as {
+      items: { inboxId: string; path: string; outcome: string; extract: string }[];
+    };
+    expect(detail.items).toHaveLength(3);
+    for (const item of detail.items) {
+      expect(item.outcome).toBe("archived");
+      expect(item.path).toMatch(/^sources\/doc-\d+$/);
+      expect(item.extract).toBe("preview");
+    }
     expect(repo.listPages("ag", "u")).toHaveLength(3);
     expect(repo.listInbox("ag", "u", "organized")).toHaveLength(3);
     expect(repo.listInbox("ag", "u", "pending")).toHaveLength(0);
@@ -83,6 +94,32 @@ describe("WikiOrganizer 端到端", () => {
       expect(item.last_error).toContain("failed");
     }
     expect(repo.listRuns("ag", "u")[0]!.status).toBe("failed");
+    const failedDetail = JSON.parse(repo.listRuns("ag", "u")[0]!.result_detail!) as {
+      items: { outcome: string; reason?: string }[];
+    };
+    expect(failedDetail.items).toHaveLength(2);
+    expect(failedDetail.items.every((d) => d.outcome === "failed")).toBe(true);
+  });
+
+  it("document 被纠正到 sources/ 时 result_detail outcome 为 corrected", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/spec.md", "规格书", "text/markdown", "正文");
+
+    const organizer = new WikiOrganizer(
+      repo,
+      makeLLM(() => "media/spec"),
+      new WikiContentExtractor(),
+    );
+    const run = await organizer.organizeBatch("ag", "u", "upload");
+
+    expect(run!.status).toBe("succeeded");
+    const detail = JSON.parse(repo.listRuns("ag", "u")[0]!.result_detail!) as {
+      items: { outcome: string; path: string; reason?: string }[];
+    };
+    expect(detail.items[0]!.outcome).toBe("corrected");
+    expect(detail.items[0]!.path).toBe("sources/spec");
+    expect(detail.items[0]!.reason).toBe("non_media_forced_to_sources");
+    expect(run!.result_summary).toContain("纠正到 sources/");
   });
 
   it("越权分类降级到 inbox/：条目仍归档，但 run 记 degraded 且写明原因", async () => {

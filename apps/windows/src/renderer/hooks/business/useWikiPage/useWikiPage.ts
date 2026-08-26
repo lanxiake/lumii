@@ -52,6 +52,17 @@ export interface WikiRunItem {
   readonly status: string
   readonly resultSummary: string | null
   readonly error: string | null
+  readonly resultDetail: {
+    readonly items: readonly {
+      readonly inboxId: string
+      readonly title: string
+      readonly path: string
+      readonly mediaType: string
+      readonly outcome: string
+      readonly reason?: string
+      readonly extract: string
+    }[]
+  } | null
   readonly createdAt: number
   readonly finishedAt: number | null
 }

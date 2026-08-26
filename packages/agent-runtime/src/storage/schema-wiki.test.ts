@@ -170,3 +170,16 @@ describe("wiki schema V20", () => {
     db.close();
   });
 });
+
+describe("wiki schema V21", () => {
+  it("V21 wiki_organize_runs 含 result_detail 列", () => {
+    const db = createMigratedTestDb();
+    const cols = db
+      .prepare<{ name: string }>("PRAGMA table_info(wiki_organize_runs)")
+      .all()
+      .map((c) => c.name);
+    expect(cols).toContain("result_detail");
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(21);
+    db.close();
+  });
+});

@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 /**
  * V1 DDL — 初始 schema
@@ -694,5 +694,10 @@ CREATE TABLE IF NOT EXISTS wiki_page_embeddings (
 CREATE INDEX IF NOT EXISTS idx_wiki_page_embeddings_agent
   ON wiki_page_embeddings (agent_id, user_id, model_id);
 `,
+  ],
+  // V21: 归档运行日志逐条明细（JSON {"items":[...]}）
+  [
+    21,
+    `ALTER TABLE wiki_organize_runs ADD COLUMN result_detail TEXT;`,
   ],
 ] as const;

@@ -104,6 +104,7 @@ interface WikiRunRow {
   status: string;
   result_summary: string | null;
   error: string | null;
+  result_detail: string | null;
   created_at: string;
   finished_at: string | null;
 }
@@ -919,17 +920,33 @@ export class WikiRepo {
       status: "running",
       result_summary: null,
       error: null,
+      result_detail: null,
       created_at: now,
       finished_at: null,
     };
   }
 
-  finishRun(id: string, status: WikiOrganizeRunStatus, resultSummary?: string, error?: string): void {
+  finishRun(
+    id: string,
+    status: WikiOrganizeRunStatus,
+    resultSummary?: string,
+    error?: string,
+    resultDetail?: string,
+  ): void {
     this.db
       .prepare(
-        "UPDATE wiki_organize_runs SET status = ?, result_summary = ?, error = ?, finished_at = ? WHERE id = ?",
+        `UPDATE wiki_organize_runs
+         SET status = ?, result_summary = ?, error = ?, result_detail = ?, finished_at = ?
+         WHERE id = ?`,
       )
-      .run(status, resultSummary ?? null, error ?? null, new Date().toISOString(), id);
+      .run(
+        status,
+        resultSummary ?? null,
+        error ?? null,
+        resultDetail ?? null,
+        new Date().toISOString(),
+        id,
+      );
   }
 
   listRuns(agentId: string, userId: string, limit = 50): readonly WikiOrganizeRun[] {

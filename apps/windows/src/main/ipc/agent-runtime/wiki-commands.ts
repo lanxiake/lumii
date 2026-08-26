@@ -220,9 +220,20 @@ export function handleWikiRunsList(
     status: r.status,
     resultSummary: r.result_summary,
     error: r.error,
+    resultDetail: parseRunResultDetail(r.result_detail),
     createdAt: new Date(r.created_at).getTime(),
     finishedAt: r.finished_at ? new Date(r.finished_at).getTime() : null,
   }))
+}
+
+/** 解析运行明细 JSON；损坏时返回 null，避免整列表失败 */
+function parseRunResultDetail(raw: string | null): { items: unknown[] } | null {
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as { items: unknown[] }
+  } catch {
+    return null
+  }
 }
 
 export function handleWikiIndexRebuild(bridge: AgentRuntimeBridge): { rebuiltCount: number } {
