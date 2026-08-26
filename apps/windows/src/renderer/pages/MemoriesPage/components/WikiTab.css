@@ -545,6 +545,41 @@
   margin-bottom: 12px;
 }
 
+.wiki-cleanup-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.wiki-cleanup-filter-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg-secondary);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.wiki-cleanup-filter-chip:hover {
+  background: var(--color-bg-hover);
+}
+
+.wiki-cleanup-filter-chip--active {
+  border-color: var(--color-primary, #3b82f6);
+  background: var(--color-primary-bg, #eff6ff);
+  color: var(--color-primary, #3b82f6);
+}
+
+.wiki-cleanup-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 .wiki-cleanup-actions {
   display: flex;
   gap: 8px;

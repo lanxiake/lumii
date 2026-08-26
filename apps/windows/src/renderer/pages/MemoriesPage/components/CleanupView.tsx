@@ -1,5 +1,5 @@
 /**
- * CleanupView — 清理建议扫描 + 批量归档/恢复/删除 + 页面状态候选
+ * CleanupView — 清理建议扫描 + 筛选/全选/一键归档 + 批量归档/恢复/删除 + 页面状态候选
  *
  * 设计：docs/plans/记忆重构/2026-08-26-wiki-p1-implementation.md Task 8 §10.2
  *       docs/plans/记忆重构/2026-08-26-wiki-p2-implementation.md Task 4/5
@@ -8,13 +8,22 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
+import { ConfirmModal } from '../../../components/ui/Modal'
 import type { WikiCleanupSuggestionItem, WikiStatusCandidateItem } from '../../../hooks/business/useWikiPage'
+import { filterCleanupSuggestions, type CleanupReasonFilter } from './cleanupSelection'
 
 const REASON_LABEL: Record<WikiCleanupSuggestionItem['reason'], string> = {
   stale: '长期未用',
   broken_source: '来源失效',
   duplicate_content: '内容重复',
 }
+
+const FILTER_CHIPS: readonly { key: CleanupReasonFilter; label: string }[] = [
+  { key: 'all', label: '全部' },
+  { key: 'stale', label: '长期未用' },
+  { key: 'broken_source', label: '来源失效' },
+  { key: 'duplicate_content', label: '内容重复' },
+]
 
 const STATUS_REASON_LABEL: Record<string, string> = {
   broken_source: '来源失效 → outdated',
@@ -46,8 +55,15 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
 }) => {
   const [suggestions, setSuggestions] = useState<readonly WikiCleanupSuggestionItem[]>([])
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [reasonFilter, setReasonFilter] = useState<CleanupReasonFilter>('all')
+  const [confirmArchiveAll, setConfirmArchiveAll] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [statusCandidates, setStatusCandidates] = useState<readonly WikiStatusCandidateItem[]>([])
+
+  const visible = filterCleanupSuggestions(suggestions, reasonFilter)
+  const allVisibleSelected =
+    visible.length > 0 && visible.every((s) => selected.has(s.sourceId))
 
   const runScan = useCallback(async () => {
     setScanning(true)
@@ -66,6 +82,11 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
     void runScan()
   }, [runScan])
 
+  /** 筛选变更时清空勾选，避免半选歧义 */
+  useEffect(() => {
+    setSelected(new Set())
+  }, [reasonFilter])
+
   const toggleSelected = (sourceId: string) => {
     setSelected((prev) => {
       const next = new Set(prev)
@@ -73,6 +94,15 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
       else next.add(sourceId)
       return next
     })
+  }
+
+  /** 全选/取消全选当前可见列表 */
+  const handleToggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(visible.map((s) => s.sourceId)))
+    }
   }
 
   const handleBatchArchive = async () => {
@@ -85,7 +115,16 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
     void runScan()
   }
 
-  const handleBatchDelete = async () => {
+  /** 确认一键归档全部建议（不受当前筛选影响） */
+  const handleConfirmArchiveAll = async () => {
+    setConfirmArchiveAll(false)
+    await archiveSources(suggestions.map((s) => s.sourceId))
+    void runScan()
+  }
+
+  /** 确认批量永久删除已选项 */
+  const handleConfirmDelete = async () => {
+    setConfirmDelete(false)
     await deleteSources([...selected])
     void runScan()
   }
@@ -118,6 +157,28 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
         </p>
       ) : (
         <>
+          <div className="wiki-cleanup-filters" role="group" aria-label="按原因筛选">
+            {FILTER_CHIPS.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                className={`wiki-cleanup-filter-chip${reasonFilter === key ? ' wiki-cleanup-filter-chip--active' : ''}`}
+                onClick={() => setReasonFilter(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="wiki-cleanup-toolbar">
+            <Button variant="ghost" size="sm" onClick={handleToggleSelectAllVisible}>
+              {allVisibleSelected ? '取消全选' : '全选当前'}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setConfirmArchiveAll(true)}>
+              一键归档全部建议
+            </Button>
+          </div>
+
           <div className="wiki-cleanup-actions">
             <Button variant="secondary" size="sm" onClick={() => void handleBatchArchive()} disabled={selected.size === 0}>
               批量归档（{selected.size}）
@@ -125,12 +186,12 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
             <Button variant="secondary" size="sm" onClick={() => void handleBatchRestore()} disabled={selected.size === 0}>
               批量恢复
             </Button>
-            <Button variant="danger" size="sm" onClick={() => void handleBatchDelete()} disabled={selected.size === 0}>
+            <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)} disabled={selected.size === 0}>
               批量删除
             </Button>
           </div>
 
-          {suggestions.map((s) => (
+          {visible.map((s) => (
             <label key={s.sourceId} className="wiki-cleanup-item">
               <input
                 type="checkbox"
@@ -166,6 +227,25 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
           )}
         </div>
       )}
+
+      <ConfirmModal
+        open={confirmArchiveAll}
+        title="一键归档全部建议"
+        content={`将归档 ${suggestions.length} 条清理建议，确定？`}
+        confirmText="确认"
+        onConfirm={() => void handleConfirmArchiveAll()}
+        onCancel={() => setConfirmArchiveAll(false)}
+      />
+
+      <ConfirmModal
+        open={confirmDelete}
+        title="批量删除"
+        content={`将永久删除已选 ${selected.size} 条，不可恢复`}
+        confirmText="确认"
+        confirmVariant="danger"
+        onConfirm={() => void handleConfirmDelete()}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   )
 }
