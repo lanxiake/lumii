@@ -113,6 +113,7 @@ import {
 } from './agent-runtime/agent-commands'
 import {
   handleWikiInboxList,
+  handleWikiInboxCount,
   handleWikiInboxRetry,
   handleWikiInboxDiscard,
   handleWikiInboxOrganize,
@@ -932,6 +933,9 @@ export async function handleCommand(
       // ---- Wiki 知识库（P0） ----
       case 'wiki:inbox:list':
         return handleWikiInboxList(bridge, command)
+
+      case 'wiki:inbox:count':
+        return handleWikiInboxCount(bridge, command)
 
       case 'wiki:inbox:retry':
         return handleWikiInboxRetry(bridge, command)

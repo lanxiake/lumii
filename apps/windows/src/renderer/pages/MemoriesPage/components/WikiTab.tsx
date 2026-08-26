@@ -61,6 +61,7 @@ function insertWikilinkAtCursor(textarea: HTMLTextAreaElement, currentValue: str
 export const WikiTab: React.FC = () => {
   const {
     listInbox,
+    countInbox,
     retryInbox,
     discardInbox,
     listPages,
@@ -90,8 +91,8 @@ export const WikiTab: React.FC = () => {
     loading,
   } = useWikiPage()
 
-  const [category, setCategory] = useState<WikiCategory | null>(null)
-  const [rightView, setRightView] = useState<RightView>('inbox')
+  const [category, setCategory] = useState<WikiCategory | null>('sources')
+  const [rightView, setRightView] = useState<RightView>('page')
   const [pages, setPages] = useState<readonly WikiPageListItem[]>([])
   const [pageCounts, setPageCounts] = useState<Record<string, number>>({})
   const [inboxItems, setInboxItems] = useState<readonly WikiInboxItem[]>([])
@@ -119,10 +120,10 @@ export const WikiTab: React.FC = () => {
   }, [listPages])
 
   const refreshInbox = useCallback(async () => {
-    const all = await listInbox()
+    const [all, total] = await Promise.all([listInbox('pending'), countInbox('pending')])
     setInboxItems(all)
-    setPendingCount(all.filter((i) => i.status === 'pending').length)
-  }, [listInbox])
+    setPendingCount(total)
+  }, [listInbox, countInbox])
 
   const refreshRuns = useCallback(async () => {
     setRuns(await listRuns())
@@ -389,7 +390,10 @@ export const WikiTab: React.FC = () => {
           </div>
         ) : rightView === 'inbox' ? (
           <div className="wiki-inbox-view">
-            <h3>待整理（{inboxItems.length}）</h3>
+            <h3>待整理（{pendingCount}）</h3>
+            {inboxItems.length < pendingCount && (
+              <p className="wiki-empty-hint">仅显示最近 {inboxItems.length} 条</p>
+            )}
             {inboxItems.length === 0 ? (
               <p className="wiki-empty-hint">暂无待整理条目。上传文件、任务产物或网页搜索结果会自动出现在这里。</p>
             ) : (

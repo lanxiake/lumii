@@ -221,6 +221,22 @@ export class WikiRepo {
     return rows.map(inboxRowToItem);
   }
 
+  /** 收件箱条数；不传 status 则计全部状态 */
+  countInbox(agentId: string, userId: string, status?: WikiInboxStatus): number {
+    const row = status
+      ? this.db
+          .prepare<{ c: number }>(
+            `SELECT COUNT(*) AS c FROM wiki_inbox WHERE agent_id = ? AND user_id = ? AND status = ?`,
+          )
+          .get(agentId, userId, status)
+      : this.db
+          .prepare<{ c: number }>(
+            `SELECT COUNT(*) AS c FROM wiki_inbox WHERE agent_id = ? AND user_id = ?`,
+          )
+          .get(agentId, userId);
+    return row?.c ?? 0;
+  }
+
   findInboxById(id: string): WikiInboxItem | null {
     const row = this.db.prepare<WikiInboxRow>("SELECT * FROM wiki_inbox WHERE id = ?").get(id);
     return row ? inboxRowToItem(row) : null;

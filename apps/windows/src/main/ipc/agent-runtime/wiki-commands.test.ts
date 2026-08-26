@@ -12,6 +12,7 @@ import { MIGRATIONS } from '../../../../../../packages/agent-runtime/src/storage
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import {
   handleWikiInboxList,
+  handleWikiInboxCount,
   handleWikiInboxRetry,
   handleWikiInboxDiscard,
   handleWikiInboxOrganize,
@@ -97,6 +98,17 @@ describe('wiki commands', () => {
     repo.markInboxAttemptFailed(item3.id, 'boom')
     expect(handleWikiInboxRetry(bridge, { type: 'wiki:inbox:retry', inboxId: item3.id })).toEqual({ success: true })
     expect(repo.findInboxById(item3.id)!.attempt_count).toBe(0)
+  })
+
+  it('inbox count 按 status 计数，pending 不含已归档条目', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'p1' })
+    repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'p2' })
+    const organized = repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'o1' })
+    repo.markInboxOrganized(organized.id, 'src1')
+
+    expect(handleWikiInboxCount(bridge, { type: 'wiki:inbox:count', agentId: 'assistant', status: 'pending' }).total).toBe(2)
   })
 
   it('retry / discard 对不存在的 id 抛错，不静默返回 success', () => {

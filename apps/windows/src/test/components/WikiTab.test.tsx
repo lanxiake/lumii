@@ -14,6 +14,8 @@ function mockSendCommand(overrides: Record<string, unknown> = {}) {
         return []
       case 'wiki:inbox:list':
         return []
+      case 'wiki:inbox:count':
+        return { total: 0 }
       case 'wiki:runs:list':
         return []
       default:
@@ -29,17 +31,17 @@ describe('WikiTab', () => {
     }
   })
 
-  it('空状态显示自动收集说明，不生成示例数据', async () => {
+  it('空状态默认显示资料列表说明，不生成示例数据', async () => {
     render(<WikiTab />)
-    expect(await screen.findByText(/暂无待整理条目/)).toBeInTheDocument()
+    expect(await screen.findByText(/暂无页面/)).toBeInTheDocument()
   })
 
-  it('切换到资料分类显示对应空状态', async () => {
+  it('切换到待整理分类显示对应空状态', async () => {
     render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
-    fireEvent.click(screen.getByText('资料'))
+    await screen.findByText(/暂无页面/)
+    fireEvent.click(screen.getByText('待整理'))
     await waitFor(() => {
-      expect(screen.getByText(/暂无页面/)).toBeInTheDocument()
+      expect(screen.getByText(/暂无待整理条目/)).toBeInTheDocument()
     })
   })
 
@@ -50,7 +52,7 @@ describe('WikiTab', () => {
       ],
     })
     render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
+    await screen.findByText(/暂无页面/)
 
     const input = screen.getByPlaceholderText('搜索 Wiki（支持中文）')
     fireEvent.change(input, { target: { value: '架构设计' } })
@@ -69,6 +71,9 @@ describe('WikiTab', () => {
           { id: 'i1', itemType: 'upload', title: 'a.png', contentPreview: null, mediaType: 'image', status: 'pending', attemptCount: 1, lastError: '网络错误', createdAt: Date.now() },
         ]
       }
+      if (cmd.type === 'wiki:inbox:count') {
+        return { total: 1 }
+      }
       if (cmd.type === 'wiki:inbox:retry') {
         retry(cmd.inboxId)
         return { success: true }
@@ -78,6 +83,7 @@ describe('WikiTab', () => {
     })
     render(<WikiTab />)
 
+    fireEvent.click(screen.getByText('待整理'))
     await screen.findByText('a.png')
     expect(screen.getByText(/失败原因: 网络错误/)).toBeInTheDocument()
 

@@ -86,6 +86,25 @@ describe("WikiRepo 收件箱", () => {
     const pairs = repo.listPendingAgentUserPairs();
     expect(pairs).toEqual([{ agentId: "ag1", userId: "u" }]);
   });
+
+  it("countInbox 按 status 计数且不受 list LIMIT 影响", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    for (let i = 0; i < 5; i++) {
+      repo.ingestToInbox({
+        agentId: "ag",
+        userId: "u",
+        itemType: "upload",
+        title: `t${i}`,
+        mediaType: "document",
+        sourcePath: `/tmp/f${i}`,
+        contentHash: `h${i}`,
+      });
+    }
+    const [first] = repo.listInbox("ag", "u", "pending");
+    repo.markInboxOrganized(first!.id, "src-fake");
+    expect(repo.countInbox("ag", "u", "pending")).toBe(4);
+    expect(repo.countInbox("ag", "u")).toBe(5);
+  });
 });
 
 describe("WikiRepo 页面与修订", () => {

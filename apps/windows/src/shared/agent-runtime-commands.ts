@@ -347,6 +347,13 @@ export interface WikiInboxListCommand {
   readonly status?: 'pending' | 'organized' | 'discarded'
 }
 
+export interface WikiInboxCountCommand {
+  readonly type: 'wiki:inbox:count'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly status?: 'pending' | 'organized' | 'discarded'
+}
+
 export interface WikiInboxRetryCommand {
   readonly type: 'wiki:inbox:retry'
   readonly inboxId: string
@@ -1195,6 +1202,7 @@ export type AgentRuntimeCommand =
   | AgentMemoriesRebuildIndexCommand
   | AgentMemoriesStatsCommand
   | WikiInboxListCommand
+  | WikiInboxCountCommand
   | WikiInboxRetryCommand
   | WikiInboxDiscardCommand
   | WikiInboxOrganizeCommand
@@ -1463,6 +1471,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       lastError: string | null
       createdAt: number
     }[]
+  : T extends 'wiki:inbox:count' ? { total: number }
   : T extends 'wiki:inbox:retry' ? { success: boolean }
   : T extends 'wiki:inbox:discard' ? { success: boolean }
   : T extends 'wiki:inbox:organize' ? { pageId: string; path: string }

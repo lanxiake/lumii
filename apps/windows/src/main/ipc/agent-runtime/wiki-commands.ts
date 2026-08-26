@@ -50,6 +50,15 @@ export function handleWikiInboxList(
   }))
 }
 
+/** 返回收件箱条数（角标用，不受 list LIMIT 影响） */
+export function handleWikiInboxCount(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:inbox:count' }>,
+): { total: number } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  return { total: bridge.wikiRepo.countInbox(agentId, LOCAL_USER_ID, command.status) }
+}
+
 /**
  * 重试收件箱条目。只对 pending 生效——不存在的 id 或已归档/已丢弃的条目
  * 直接抛错，避免返回 success:true 让调用方以为改动生效了。

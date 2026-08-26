@@ -172,6 +172,21 @@ export function useWikiPage() {
     }
   }, [])
 
+  /** 返回收件箱条数（角标用，不受 list LIMIT 影响） */
+  const countInbox = useCallback(async (status?: string): Promise<number> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return 0
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:inbox:count',
+        status: status as 'pending' | 'organized' | 'discarded' | undefined,
+      })) as { total: number }
+      return typeof r?.total === 'number' ? r.total : 0
+    } catch {
+      return 0
+    }
+  }, [])
+
   const retryInbox = useCallback(async (inboxId: string): Promise<boolean> => {
     const api = window.electronAPI?.agentRuntime
     if (!api?.sendCommand) return false
@@ -700,6 +715,7 @@ export function useWikiPage() {
   return {
     loading,
     listInbox,
+    countInbox,
     retryInbox,
     discardInbox,
     organizeInbox,
