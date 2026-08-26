@@ -238,4 +238,76 @@ describe("AgentOrchestrator", () => {
     });
     expect(orch.broker.drainCompletions("parent-1")).toHaveLength(1);
   });
+
+  it("listChildren / interruptChild / steerChild", async () => {
+    const onAsync = vi.fn();
+    const abort = vi.fn();
+    const steer = vi.fn();
+    const child = {
+      id: "c-life",
+      subscribe: () => () => {},
+      waitForIdle: () => new Promise(() => {}),
+      abort,
+      steer,
+    } as unknown as AgentInstance;
+
+    const orch = new AgentOrchestrator(registry, bus, {
+      resolveDefinition: async () => mockDef("assistant"),
+      createChildInstance: async () => "c-life",
+      prompt: vi.fn().mockResolvedValue(undefined),
+      followUp: vi.fn(),
+      destroy: vi.fn(),
+      getInstance: () => child,
+      findInstanceByRecipient: () => undefined,
+      getDisplayNameForInstance: (id) => id,
+      onAsyncSubagentComplete: onAsync,
+    });
+
+    await orch.spawnAgent({ name: "worker", prompt: "go", mode: "async" }, "parent-1");
+    expect(orch.listChildren("parent-1")).toHaveLength(1);
+    expect(orch.listChildren("parent-1")[0]?.status).toBe("running");
+
+    const steered = orch.steerChild("parent-1", "c-life", "nudge");
+    expect(steered).toEqual({ ok: true });
+    expect(steer).toHaveBeenCalledWith("nudge");
+
+    const denied = orch.interruptChild("other-parent", "c-life");
+    expect(denied.ok).toBe(false);
+
+    const interrupted = orch.interruptChild("parent-1", "c-life");
+    expect(interrupted).toEqual({ ok: true });
+    expect(abort).toHaveBeenCalled();
+    await vi.waitFor(() => expect(onAsync).toHaveBeenCalled());
+    const payload = onAsync.mock.calls[0]![0] as SubagentCompletionPayload;
+    expect(payload.status).toBe("cancelled");
+  });
+
+  it("handleStaleChild → stale 完成通知", async () => {
+    const onAsync = vi.fn();
+    const abort = vi.fn();
+    const child = {
+      id: "c-stale",
+      subscribe: () => () => {},
+      waitForIdle: () => new Promise(() => {}),
+      abort,
+    } as unknown as AgentInstance;
+
+    const orch = new AgentOrchestrator(registry, bus, {
+      resolveDefinition: async () => mockDef("assistant"),
+      createChildInstance: async () => "c-stale",
+      prompt: vi.fn().mockResolvedValue(undefined),
+      followUp: vi.fn(),
+      destroy: vi.fn(),
+      getInstance: () => child,
+      findInstanceByRecipient: () => undefined,
+      getDisplayNameForInstance: (id) => id,
+      onAsyncSubagentComplete: onAsync,
+    });
+
+    await orch.spawnAgent({ name: "slow", prompt: "go", mode: "async" }, "parent-1");
+    orch.handleStaleChild("c-stale");
+    expect(abort).toHaveBeenCalled();
+    expect(onAsync).toHaveBeenCalledTimes(1);
+    expect((onAsync.mock.calls[0]![0] as SubagentCompletionPayload).status).toBe("stale");
+  });
 });

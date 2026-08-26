@@ -112,6 +112,22 @@ export class AgentRegistry {
     return children ? [...children] : [];
   }
 
+  /**
+   * 判断 nodeId 是否为 ancestorId 的后代（沿 parentOf 上行）
+   */
+  isDescendant(ancestorId: string, nodeId: string): boolean {
+    let cur: string | undefined = nodeId;
+    const seen = new Set<string>();
+    while (cur) {
+      if (seen.has(cur)) return false;
+      seen.add(cur);
+      const parent = this.parentOf.get(cur);
+      if (parent === ancestorId) return true;
+      cur = parent;
+    }
+    return false;
+  }
+
   /** 已注册实例数量 */
   get size(): number {
     return this.instances.size;

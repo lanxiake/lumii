@@ -19,8 +19,24 @@ import {
   SUBAGENT_DEFAULTS,
   clampConcurrentLimit,
   type SubagentCompletionPayload,
+  type SubagentRunStatus,
 } from "./subagent-broker.js";
+import { guardSubagentSummary } from "./subagent-summary.js";
 
+/** listChildren 返回项 */
+export interface SubagentChildInfo {
+  readonly childId: string;
+  readonly name: string;
+  readonly status: SubagentRunStatus;
+  readonly mode: "sync" | "async";
+  readonly startedAt: number;
+  readonly lastProgressAt: number;
+}
+
+/** 生命周期操作结果 */
+export type SubagentLifecycleResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly message: string };
 /** spawn_agent 工具入参（与 spawn-agent-tool 对齐） */
 export interface SpawnAgentParams {
   readonly name: string;
@@ -102,6 +118,8 @@ export interface AgentOrchestratorDeps {
    * 异步子 Agent 完成（已 enqueue）后的宿主回调；bridge 负责投递泵与 destroy
    */
   readonly onAsyncSubagentComplete?: (payload: SubagentCompletionPayload) => void;
+  /** 摘要落盘工作目录（可选） */
+  readonly getSummaryCwd?: () => string | undefined;
 }
 
 /**
@@ -117,6 +135,169 @@ export class AgentOrchestrator {
     broker?: SubagentBroker,
   ) {
     this.broker = broker ?? new SubagentBroker();
+  }
+
+  /**
+   * 对输出做摘要护栏后写入 finalize
+   */
+  private finalizeWithGuard(
+    childId: string,
+    status: Exclude<SubagentRunStatus, "running">,
+    outputText: string,
+    errorMessage?: string,
+  ) {
+    const guarded = guardSubagentSummary(outputText, {
+      cwd: this.deps.getSummaryCwd?.(),
+    });
+    return this.broker.finalizeRun(
+      childId,
+      status,
+      guarded.summary,
+      errorMessage,
+      guarded.spillPath,
+    );
+  }
+
+  /**
+   * 将完成载荷入队并通知宿主投递泵
+   */
+  private notifyAsyncComplete(childId: string): void {
+    const payload = this.broker.buildCompletion(childId);
+    if (!payload) return;
+    this.broker.enqueueCompletion(payload);
+    console.log(
+      `[AgentOrchestrator] async complete → notify parent=${payload.parentId} child=${payload.childId} status=${payload.status}`,
+    );
+    this.deps.onAsyncSubagentComplete?.(payload);
+  }
+
+  /**
+   * 启动 stale 监控：无进度超时则 abort + finalize(stale) + 投递
+   */
+  startStaleMonitor(opts?: { staleIdleMs?: number; intervalMs?: number }): void {
+    this.broker.startStaleMonitor((childId) => {
+      this.handleStaleChild(childId);
+    }, opts);
+  }
+
+  /** 停止 stale 监控 */
+  stopStaleMonitor(): void {
+    this.broker.stopStaleMonitor();
+  }
+
+  /**
+   * 处理单个 stale 子 Agent
+   */
+  handleStaleChild(childId: string): void {
+    const run = this.broker.getRun(childId);
+    if (!run || run.status !== "running") return;
+    console.log(
+      `[AgentOrchestrator] stale abort child=${childId} parent=${run.parentId} name=${run.name}`,
+    );
+    const child = this.deps.getInstance(childId);
+    try {
+      child?.abort();
+    } catch (err) {
+      console.log(
+        `[AgentOrchestrator] stale abort error child=${childId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    this.finalizeWithGuard(
+      childId,
+      "stale",
+      run.outputText,
+      `Sub-agent stale: no progress for >${SUBAGENT_DEFAULTS.staleIdleMs}ms`,
+    );
+    this.notifyAsyncComplete(childId);
+  }
+
+  /**
+   * 列出某父下 broker 登记的子 Agent（含终态）
+   */
+  listChildren(parentId: string): readonly SubagentChildInfo[] {
+    return this.broker.listRunsForParent(parentId).map((r) => ({
+      childId: r.childId,
+      name: r.name,
+      status: r.status,
+      mode: r.mode,
+      startedAt: r.startedAt,
+      lastProgressAt: r.lastProgressAt,
+    }));
+  }
+
+  /**
+   * 校验 child 是否属于 parent（registry 血缘或 broker 登记）
+   */
+  private assertChildOf(parentId: string, childId: string): SubagentLifecycleResult | null {
+    const run = this.broker.getRun(childId);
+    const linked =
+      this.registry.isDescendant(parentId, childId) || run?.parentId === parentId;
+    if (!linked) {
+      return { ok: false, message: `Child "${childId}" is not a descendant of "${parentId}"` };
+    }
+    return null;
+  }
+
+  /**
+   * 中断后代子 Agent：abort + cancelled 完成通知
+   */
+  interruptChild(parentId: string, childId: string): SubagentLifecycleResult {
+    const denied = this.assertChildOf(parentId, childId);
+    if (denied) {
+      console.log(
+        `[AgentOrchestrator] interrupt denied: not descendant parent=${parentId} child=${childId}`,
+      );
+      return denied;
+    }
+    const run = this.broker.getRun(childId);
+    const child = this.deps.getInstance(childId);
+    if (!child && !run) {
+      return { ok: false, message: `Child "${childId}" not found` };
+    }
+    console.log(`[AgentOrchestrator] interrupt child=${childId} parent=${parentId}`);
+    try {
+      child?.abort();
+    } catch (err) {
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+    if (run?.status === "running") {
+      this.finalizeWithGuard(childId, "cancelled", run.outputText, "interrupted by parent");
+      this.notifyAsyncComplete(childId);
+    }
+    return { ok: true };
+  }
+
+  /**
+   * 向后代子 Agent 注入 steer 文本（不中断当前工具）
+   */
+  steerChild(parentId: string, childId: string, text: string): SubagentLifecycleResult {
+    const denied = this.assertChildOf(parentId, childId);
+    if (denied) {
+      console.log(
+        `[AgentOrchestrator] steer denied: not descendant parent=${parentId} child=${childId}`,
+      );
+      return denied;
+    }
+    const child = this.deps.getInstance(childId);
+    if (!child) {
+      return { ok: false, message: `Child "${childId}" not found` };
+    }
+    console.log(
+      `[AgentOrchestrator] steer child=${childId} parent=${parentId} textLen=${text.length}`,
+    );
+    try {
+      child.steer(text);
+      this.broker.updateProgress(childId);
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   /**
@@ -250,33 +431,36 @@ export class AgentOrchestrator {
       try {
         await this.deps.prompt(childInstanceId, params.prompt);
         await childInstance.waitForIdle();
-        this.broker.finalizeRun(childInstanceId, "succeeded", outputText);
+        this.finalizeWithGuard(childInstanceId, "succeeded", outputText);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        this.broker.finalizeRun(childInstanceId, "failed", outputText, message);
+        this.finalizeWithGuard(childInstanceId, "failed", outputText, message);
         throw err;
       } finally {
         unsub();
         this.deps.destroy(childInstanceId);
       }
 
+      const guardedOutput =
+        this.broker.getRun(childInstanceId)?.outputText ?? outputText;
+
       // 主题5 P0-1：VERDICT 解析消费 —— 当子 Agent 为 builtin:verify 时，
       // 解析输出末尾的 VERDICT 行，前置一行机器可读摘要，使主 Agent 必然看到结论，
       // 并在 FAIL/PARTIAL 时收到行动引导（回头修复后重验）。
       const verdictEnabled = this.deps.isVerdictConsumptionEnabled?.() ?? true;
       if (verdictEnabled && agentDef.id === "builtin:verify") {
-        const { verdict } = parseVerdict(outputText);
+        const { verdict } = parseVerdict(guardedOutput);
         const banner = formatVerdictBanner(verdict);
         return {
           status: "ok",
           mode: "sync",
           instanceId: childInstanceId,
-          output: `${banner}\n\n${outputText}`,
+          output: `${banner}\n\n${guardedOutput}`,
           verdict,
         };
       }
 
-      return { status: "ok", mode: "sync", instanceId: childInstanceId, output: outputText };
+      return { status: "ok", mode: "sync", instanceId: childInstanceId, output: guardedOutput };
     }
 
     // async：后台跑完后入完成队列，由 bridge 投递（destroy 亦由投递成功后执行）
@@ -298,20 +482,18 @@ export class AgentOrchestrator {
       try {
         await this.deps.prompt(childInstanceId, params.prompt);
         await child?.waitForIdle();
-        this.broker.finalizeRun(childInstanceId, "succeeded", outputText);
+        if (this.broker.getRun(childInstanceId)?.status === "running") {
+          this.finalizeWithGuard(childInstanceId, "succeeded", outputText);
+          this.notifyAsyncComplete(childInstanceId);
+        }
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
-        this.broker.finalizeRun(childInstanceId, "failed", outputText, message);
+        if (this.broker.getRun(childInstanceId)?.status === "running") {
+          this.finalizeWithGuard(childInstanceId, "failed", outputText, message);
+          this.notifyAsyncComplete(childInstanceId);
+        }
       } finally {
         unsub?.();
-        const payload = this.broker.buildCompletion(childInstanceId);
-        if (payload) {
-          this.broker.enqueueCompletion(payload);
-          console.log(
-            `[AgentOrchestrator] async complete → notify parent=${payload.parentId} child=${payload.childId} status=${payload.status}`,
-          );
-          this.deps.onAsyncSubagentComplete?.(payload);
-        }
       }
     })();
 
