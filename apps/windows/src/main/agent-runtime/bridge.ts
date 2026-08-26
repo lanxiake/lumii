@@ -72,6 +72,10 @@ import {
   WikiOrganizeQueue,
   WikiOrganizer,
   WikiContentExtractor,
+  WikiCleanupScanner,
+  WikiConceptCandidateScanner,
+  WikiExporter,
+  type WikiExporterDeps,
 } from '@mtbot/agent-runtime'
 import { McpManager, type McpServerRuntimeStatus } from './mcp-manager'
 import type { McpServerEntry } from '../config/mcp-config'
@@ -150,6 +154,8 @@ export class AgentRuntimeBridge {
   private _wikiIngestHook: WikiIngestHook | null = null
   private _wikiOrganizeQueue: WikiOrganizeQueue | null = null
   private _wikiOrganizer: WikiOrganizer | null = null
+  private _wikiCleanupScanner: WikiCleanupScanner | null = null
+  private _wikiConceptCandidateScanner: WikiConceptCandidateScanner | null = null
   private _conversationRepo: ConversationRepo | null = null
   private _taskRepo: TaskRepo | null = null
   private _auditRepo: AuditRepo | null = null
@@ -328,6 +334,36 @@ export class AgentRuntimeBridge {
   get wikiRepo(): WikiRepo { return this.requireInitialized(this._wikiRepo, 'wikiRepo') }
   get wikiOrganizer(): WikiOrganizer { return this.requireInitialized(this._wikiOrganizer, 'wikiOrganizer') }
   get wikiOrganizeQueue(): WikiOrganizeQueue { return this.requireInitialized(this._wikiOrganizeQueue, 'wikiOrganizeQueue') }
+  get wikiCleanupScanner(): WikiCleanupScanner { return this.requireInitialized(this._wikiCleanupScanner, 'wikiCleanupScanner') }
+  get wikiConceptCandidateScanner(): WikiConceptCandidateScanner {
+    return this.requireInitialized(this._wikiConceptCandidateScanner, 'wikiConceptCandidateScanner')
+  }
+
+  /** 清理扫描判断「来源失效」规则用：同步检查文件是否存在 */
+  fileExistsForWiki(filePath: string): boolean {
+    try {
+      return fs.existsSync(filePath)
+    } catch {
+      return false
+    }
+  }
+
+  /** 导出命令按需创建 exporter：注入真实文件系统操作，agent-runtime 侧保持零 node:fs 依赖 */
+  createWikiExporter(): WikiExporter {
+    const deps: WikiExporterDeps = {
+      mkdir: async (dirPath) => {
+        await fs.promises.mkdir(dirPath, { recursive: true })
+      },
+      writeFile: async (filePath, content) => {
+        await fs.promises.writeFile(filePath, content, 'utf-8')
+      },
+      copyFile: async (src, dest) => {
+        await fs.promises.copyFile(src, dest)
+      },
+      joinPath: (...segments) => path.join(...segments),
+    }
+    return new WikiExporter(deps)
+  }
 
   setSkillEvolutionEngine(engine: import('../skill-evolution/index').SkillEvolutionEngine): void {
     this.config.skillEvolutionEngine = engine
@@ -524,6 +560,8 @@ export class AgentRuntimeBridge {
       }),
     )
     this._wikiOrganizeQueue = new WikiOrganizeQueue()
+    this._wikiCleanupScanner = new WikiCleanupScanner(this._wikiRepo)
+    this._wikiConceptCandidateScanner = new WikiConceptCandidateScanner(this._wikiRepo)
 
     // 中断感知：清理流式残留前记录哪些对话被中断
     try {

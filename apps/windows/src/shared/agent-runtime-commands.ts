@@ -417,6 +417,112 @@ export interface WikiIndexRebuildCommand {
 }
 
 // ============================================================
+// Wiki 知识库命令（P1）
+// ============================================================
+
+/** 查某页反链：源页信息由 pageId 反查所属 agent/user，无需额外传归属 */
+export interface WikiLinkBacklinksCommand {
+  readonly type: 'wiki:link:backlinks'
+  readonly pageId: string
+}
+
+export interface WikiLinkUnresolvedCommand {
+  readonly type: 'wiki:link:unresolved'
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
+export interface WikiPageRevisionsCommand {
+  readonly type: 'wiki:page:revisions'
+  readonly pageId: string
+}
+
+export interface WikiPageRollbackCommand {
+  readonly type: 'wiki:page:rollback'
+  readonly pageId: string
+  readonly targetVersion: number
+}
+
+export interface WikiCleanupScanCommand {
+  readonly type: 'wiki:cleanup:scan'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  /** 长期未用判定天数阈值，默认 90 */
+  readonly staleDays?: number
+}
+
+export interface WikiSourceArchiveCommand {
+  readonly type: 'wiki:source:archive'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly sourceIds: readonly string[]
+}
+
+export interface WikiSourceRestoreCommand {
+  readonly type: 'wiki:source:restore'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly sourceIds: readonly string[]
+}
+
+export interface WikiSourceDeleteCommand {
+  readonly type: 'wiki:source:delete'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly sourceIds: readonly string[]
+}
+
+export interface WikiAttachListCommand {
+  readonly type: 'wiki:attach:list'
+  readonly pageId: string
+}
+
+export interface WikiAttachAddCommand {
+  readonly type: 'wiki:attach:add'
+  readonly pageId: string
+  readonly filePath: string
+  readonly mediaType: 'document' | 'image' | 'audio' | 'video'
+  readonly displayName: string
+  readonly sourceId?: string
+}
+
+export interface WikiAttachRemoveCommand {
+  readonly type: 'wiki:attach:remove'
+  readonly attachmentId: string
+}
+
+export interface WikiExportCommand {
+  readonly type: 'wiki:export'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly targetDir: string
+  readonly includeSources?: boolean
+  readonly includeAttachments?: boolean
+}
+
+export interface WikiConceptScanCommand {
+  readonly type: 'wiki:concept:scan'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  /** 参与扫描的最近资料条数上限，默认 30 */
+  readonly limit?: number
+}
+
+export interface WikiConceptConfirmCommand {
+  readonly type: 'wiki:concept:confirm'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly name: string
+  readonly conceptType: 'concept' | 'entity'
+}
+
+export interface WikiConceptRejectCommand {
+  readonly type: 'wiki:concept:reject'
+  readonly name: string
+  readonly conceptType: 'concept' | 'entity'
+}
+
+// ============================================================
 // 工具管理命令
 // ============================================================
 
@@ -1005,6 +1111,21 @@ export type AgentRuntimeCommand =
   | WikiSourceGetCommand
   | WikiRunsListCommand
   | WikiIndexRebuildCommand
+  | WikiLinkBacklinksCommand
+  | WikiLinkUnresolvedCommand
+  | WikiPageRevisionsCommand
+  | WikiPageRollbackCommand
+  | WikiCleanupScanCommand
+  | WikiSourceArchiveCommand
+  | WikiSourceRestoreCommand
+  | WikiSourceDeleteCommand
+  | WikiAttachListCommand
+  | WikiAttachAddCommand
+  | WikiAttachRemoveCommand
+  | WikiExportCommand
+  | WikiConceptScanCommand
+  | WikiConceptConfirmCommand
+  | WikiConceptRejectCommand
   | ToolsListCommand
   | ToolsToggleCommand
   | McpStatusCommand
@@ -1284,6 +1405,70 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       finishedAt: number | null
     }[]
   : T extends 'wiki:index:rebuild' ? { rebuiltCount: number }
+  : T extends 'wiki:link:backlinks' ? readonly {
+      linkId: string
+      sourcePageId: string
+      sourceTitle: string
+      sourcePath: string
+      anchorText: string
+      isResolved: boolean
+    }[]
+  : T extends 'wiki:link:unresolved' ? readonly {
+      id: string
+      sourcePageId: string
+      anchorText: string
+      createdAt: number
+    }[]
+  : T extends 'wiki:page:revisions' ? readonly {
+      id: string
+      version: number
+      title: string
+      editor: string
+      sourceRef: string | null
+      createdAt: number
+      contentMd: string
+    }[]
+  : T extends 'wiki:page:rollback' ? { pageId: string; version: number }
+  : T extends 'wiki:cleanup:scan' ? readonly {
+      sourceId: string
+      title: string
+      reason: 'stale' | 'broken_source' | 'duplicate_content'
+      duplicateOfSourceId?: string
+    }[]
+  : T extends 'wiki:source:archive' ? { archived: number }
+  : T extends 'wiki:source:restore' ? { restored: number }
+  : T extends 'wiki:source:delete' ? { deleted: number }
+  : T extends 'wiki:attach:list' ? readonly {
+      id: string
+      pageId: string
+      sourceId: string | null
+      filePath: string
+      mediaType: string
+      displayName: string
+      createdAt: number
+    }[]
+  : T extends 'wiki:attach:add' ? {
+      id: string
+      pageId: string
+      sourceId: string | null
+      filePath: string
+      mediaType: string
+      displayName: string
+      createdAt: number
+    }
+  : T extends 'wiki:attach:remove' ? { success: boolean }
+  : T extends 'wiki:export' ? {
+      exported: number
+      failed: readonly { path: string; error: string }[]
+    }
+  : T extends 'wiki:concept:scan' ? readonly {
+      name: string
+      type: 'concept' | 'entity'
+      evidenceSourceIds: readonly string[]
+      suggestedContentMd: string
+    }[]
+  : T extends 'wiki:concept:confirm' ? { pageId: string; path: string }
+  : T extends 'wiki:concept:reject' ? { success: boolean }
   : T extends 'tools:list' ? readonly {
       name: string
       label: string

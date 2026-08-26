@@ -211,3 +211,218 @@ export function handleWikiIndexRebuild(bridge: AgentRuntimeBridge): { rebuiltCou
   const rebuiltCount = bridge.wikiRepo.rebuildIndex()
   return { rebuiltCount }
 }
+
+// ============================================================
+// Wiki 知识库命令（P1）
+// ============================================================
+
+/** 反链/修订/回滚都以 pageId 为入口，从页面反查归属，不要求调用方额外传 agentId/userId */
+function requirePage(bridge: AgentRuntimeBridge, pageId: string) {
+  const page = bridge.wikiRepo.findPageById(pageId)
+  if (!page) throw new Error(`页面不存在: ${pageId}`)
+  return page
+}
+
+export function handleWikiLinkBacklinks(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:link:backlinks' }>,
+): unknown {
+  const page = requirePage(bridge, command.pageId)
+  const backlinks = bridge.wikiRepo.listBacklinks(page.agent_id, page.user_id, page.id)
+  return backlinks.map((b) => ({
+    linkId: b.linkId,
+    sourcePageId: b.sourcePageId,
+    sourceTitle: b.sourceTitle,
+    sourcePath: b.sourcePath,
+    anchorText: b.anchorText,
+    isResolved: b.isResolved,
+  }))
+}
+
+export function handleWikiLinkUnresolved(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:link:unresolved' }>,
+): unknown {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const links = bridge.wikiRepo.listUnresolvedLinks(agentId, LOCAL_USER_ID)
+  return links.map((l) => ({
+    id: l.id,
+    sourcePageId: l.source_page_id,
+    anchorText: l.anchor_text,
+    createdAt: new Date(l.created_at).getTime(),
+  }))
+}
+
+export function handleWikiPageRevisions(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:page:revisions' }>,
+): unknown {
+  requirePage(bridge, command.pageId)
+  const revisions = bridge.wikiRepo.listRevisions(command.pageId)
+  return revisions.map((r) => ({
+    id: r.id,
+    version: r.version,
+    title: r.title,
+    editor: r.editor,
+    sourceRef: r.source_ref,
+    createdAt: new Date(r.created_at).getTime(),
+    contentMd: r.content_md,
+  }))
+}
+
+export function handleWikiPageRollback(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:page:rollback' }>,
+): { pageId: string; version: number } {
+  const page = requirePage(bridge, command.pageId)
+  const rolledBack = bridge.wikiRepo.rollbackPage(page.agent_id, page.user_id, page.id, command.targetVersion)
+  return { pageId: rolledBack.id, version: rolledBack.version }
+}
+
+export function handleWikiCleanupScan(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:cleanup:scan' }>,
+): unknown {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const suggestions = bridge.wikiCleanupScanner.scan(agentId, LOCAL_USER_ID, {
+    staleDays: command.staleDays,
+    fileExists: (p) => bridge.fileExistsForWiki(p),
+  })
+  return suggestions.map((s) => ({
+    sourceId: s.source.id,
+    title: s.source.title,
+    reason: s.reason,
+    ...(s.duplicateOfSourceId ? { duplicateOfSourceId: s.duplicateOfSourceId } : {}),
+  }))
+}
+
+export function handleWikiSourceArchive(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:source:archive' }>,
+): { archived: number } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const archived = bridge.wikiRepo.archiveSources(agentId, LOCAL_USER_ID, command.sourceIds)
+  return { archived }
+}
+
+export function handleWikiSourceRestore(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:source:restore' }>,
+): { restored: number } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const restored = bridge.wikiRepo.restoreSources(agentId, LOCAL_USER_ID, command.sourceIds)
+  return { restored }
+}
+
+export function handleWikiSourceDelete(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:source:delete' }>,
+): { deleted: number } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const deleted = bridge.wikiRepo.deleteSources(agentId, LOCAL_USER_ID, command.sourceIds)
+  return { deleted }
+}
+
+export function handleWikiAttachList(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:attach:list' }>,
+): unknown {
+  requirePage(bridge, command.pageId)
+  const attachments = bridge.wikiRepo.listAttachments(command.pageId)
+  return attachments.map((a) => ({
+    id: a.id,
+    pageId: a.page_id,
+    sourceId: a.source_id,
+    filePath: a.file_path,
+    mediaType: a.media_type,
+    displayName: a.display_name,
+    createdAt: new Date(a.created_at).getTime(),
+  }))
+}
+
+export function handleWikiAttachAdd(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:attach:add' }>,
+): unknown {
+  requirePage(bridge, command.pageId)
+  const attachment = bridge.wikiRepo.attachFile({
+    pageId: command.pageId,
+    filePath: command.filePath,
+    mediaType: command.mediaType,
+    displayName: command.displayName,
+    sourceId: command.sourceId,
+  })
+  return {
+    id: attachment.id,
+    pageId: attachment.page_id,
+    sourceId: attachment.source_id,
+    filePath: attachment.file_path,
+    mediaType: attachment.media_type,
+    displayName: attachment.display_name,
+    createdAt: new Date(attachment.created_at).getTime(),
+  }
+}
+
+export function handleWikiAttachRemove(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:attach:remove' }>,
+): { success: boolean } {
+  return { success: bridge.wikiRepo.detachFile(command.attachmentId) }
+}
+
+export async function handleWikiExport(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:export' }>,
+): Promise<{ exported: number; failed: readonly { path: string; error: string }[] }> {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const pages = bridge.wikiRepo.listPages(agentId, LOCAL_USER_ID)
+  const exporter = bridge.createWikiExporter()
+
+  const context: { sources?: readonly ReturnType<typeof bridge.wikiRepo.listSources>[number][] } = {}
+  if (command.includeSources) {
+    context.sources = bridge.wikiRepo.listSources(agentId, LOCAL_USER_ID)
+  }
+
+  const result = await exporter.exportPages(
+    command.targetDir,
+    pages,
+    { includeSources: command.includeSources, includeAttachments: command.includeAttachments },
+    context,
+  )
+  return result
+}
+
+export async function handleWikiConceptScan(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:concept:scan' }>,
+): Promise<unknown> {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const allSources = bridge.wikiRepo.listSources(agentId, LOCAL_USER_ID)
+  const sources = allSources.slice(0, command.limit ?? 30)
+  const candidates = await bridge.wikiConceptCandidateScanner.scan(agentId, LOCAL_USER_ID, sources, (prompt) =>
+    bridge.callLLM(prompt, undefined, 'memory_extract'),
+  )
+  return candidates.map((c) => ({
+    name: c.name,
+    type: c.type,
+    evidenceSourceIds: c.evidenceSourceIds,
+    suggestedContentMd: c.suggestedContentMd,
+  }))
+}
+
+export function handleWikiConceptConfirm(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:concept:confirm' }>,
+): { pageId: string; path: string } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const page = bridge.wikiConceptCandidateScanner.confirm(agentId, LOCAL_USER_ID, command.name, command.conceptType)
+  return { pageId: page.id, path: page.path }
+}
+
+export function handleWikiConceptReject(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:concept:reject' }>,
+): { success: boolean } {
+  bridge.wikiConceptCandidateScanner.reject(command.name, command.conceptType)
+  return { success: true }
+}

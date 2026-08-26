@@ -124,6 +124,21 @@ import {
   handleWikiSourceGet,
   handleWikiRunsList,
   handleWikiIndexRebuild,
+  handleWikiLinkBacklinks,
+  handleWikiLinkUnresolved,
+  handleWikiPageRevisions,
+  handleWikiPageRollback,
+  handleWikiCleanupScan,
+  handleWikiSourceArchive,
+  handleWikiSourceRestore,
+  handleWikiSourceDelete,
+  handleWikiAttachList,
+  handleWikiAttachAdd,
+  handleWikiAttachRemove,
+  handleWikiExport,
+  handleWikiConceptScan,
+  handleWikiConceptConfirm,
+  handleWikiConceptReject,
 } from './agent-runtime/wiki-commands'
 import {
   handleToolsList,
@@ -938,6 +953,52 @@ export async function handleCommand(
 
       case 'wiki:index:rebuild':
         return handleWikiIndexRebuild(bridge)
+
+      // ---- Wiki 知识库（P1） ----
+      case 'wiki:link:backlinks':
+        return handleWikiLinkBacklinks(bridge, command)
+
+      case 'wiki:link:unresolved':
+        return handleWikiLinkUnresolved(bridge, command)
+
+      case 'wiki:page:revisions':
+        return handleWikiPageRevisions(bridge, command)
+
+      case 'wiki:page:rollback':
+        return handleWikiPageRollback(bridge, command)
+
+      case 'wiki:cleanup:scan':
+        return handleWikiCleanupScan(bridge, command)
+
+      case 'wiki:source:archive':
+        return handleWikiSourceArchive(bridge, command)
+
+      case 'wiki:source:restore':
+        return handleWikiSourceRestore(bridge, command)
+
+      case 'wiki:source:delete':
+        return handleWikiSourceDelete(bridge, command)
+
+      case 'wiki:attach:list':
+        return handleWikiAttachList(bridge, command)
+
+      case 'wiki:attach:add':
+        return handleWikiAttachAdd(bridge, command)
+
+      case 'wiki:attach:remove':
+        return handleWikiAttachRemove(bridge, command)
+
+      case 'wiki:export':
+        return handleWikiExport(bridge, command)
+
+      case 'wiki:concept:scan':
+        return handleWikiConceptScan(bridge, command)
+
+      case 'wiki:concept:confirm':
+        return handleWikiConceptConfirm(bridge, command)
+
+      case 'wiki:concept:reject':
+        return handleWikiConceptReject(bridge, command)
 
       // ---- 工具管理 ----
       case 'tools:list':

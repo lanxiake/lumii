@@ -36,6 +36,12 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'wiki:inbox:list', 'wiki:inbox:retry', 'wiki:inbox:discard', 'wiki:inbox:organize',
   'wiki:page:list', 'wiki:page:get', 'wiki:page:update', 'wiki:page:delete',
   'wiki:search', 'wiki:source:get', 'wiki:runs:list', 'wiki:index:rebuild',
+  // Wiki 知识库（P1）：链接/修订/清理/附件/导出/概念候选。export 的 targetDir 来自渲染进程
+  // 弹出的系统原生 dialog:showSaveDialog（用户手选目录），不是任意字符串注入，按需放行。
+  'wiki:link:backlinks', 'wiki:link:unresolved', 'wiki:page:revisions', 'wiki:page:rollback',
+  'wiki:cleanup:scan', 'wiki:source:archive', 'wiki:source:restore', 'wiki:source:delete',
+  'wiki:attach:list', 'wiki:attach:add', 'wiki:attach:remove', 'wiki:export',
+  'wiki:concept:scan', 'wiki:concept:confirm', 'wiki:concept:reject',
   // MCP 只读
   'mcp:status',
   // 存储只读

@@ -550,6 +550,121 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'wiki backlinks',
+    group: 'Wiki',
+    usage: 'wiki backlinks <pageId>',
+    summary: '查某页反链',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<pageId>', desc: '页面 ID（wiki page list 输出中的 id）' }],
+    build(args) {
+      const pageId = args.positional[0]
+      if (typeof pageId !== 'string' || pageId.length === 0) return null
+      return { type: 'wiki:link:backlinks', pageId }
+    },
+  },
+  {
+    name: 'wiki revisions',
+    group: 'Wiki',
+    usage: 'wiki revisions <pageId>',
+    summary: '修订列表（按 version 降序）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<pageId>', desc: '页面 ID（wiki page list 输出中的 id）' }],
+    build(args) {
+      const pageId = args.positional[0]
+      if (typeof pageId !== 'string' || pageId.length === 0) return null
+      return { type: 'wiki:page:revisions', pageId }
+    },
+  },
+  {
+    name: 'wiki rollback',
+    group: 'Wiki',
+    usage: 'wiki rollback <pageId> <version>',
+    summary: '回滚页面到指定版本（回滚即新增一版，旧修订不变）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '<pageId>', desc: '页面 ID' },
+      { flag: '<version>', desc: '目标版本号' },
+    ],
+    build(args) {
+      const pageId = args.positional[0]
+      const targetVersion = num(args.positional[1])
+      if (typeof pageId !== 'string' || pageId.length === 0) return null
+      if (targetVersion === undefined) return null
+      return { type: 'wiki:page:rollback', pageId, targetVersion }
+    },
+  },
+  {
+    name: 'wiki cleanup scan',
+    group: 'Wiki',
+    usage: 'wiki cleanup scan [--stale-days <n>] [--session <key>]',
+    summary: '扫描清理建议：长期未用 / 来源失效 / 内容重复',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--stale-days <n>', desc: '长期未用判定天数阈值，默认 90' },
+      { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
+    ],
+    build(args) {
+      const body = { type: 'wiki:cleanup:scan' }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      const staleDays = num(args.flags['stale-days'])
+      if (staleDays !== undefined && staleDays > 0) body.staleDays = staleDays
+      return body
+    },
+  },
+  {
+    name: 'wiki source archive',
+    group: 'Wiki',
+    usage: 'wiki source archive <id...> [--restore] [--session <key>]',
+    summary: '批量归档资料条目（--restore 改为批量恢复）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '<id...>', desc: '一个或多个资料 ID（空格分隔）' },
+      { flag: '--restore', desc: '改为批量恢复而非归档' },
+      { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
+    ],
+    build(args) {
+      const sourceIds = args.positional
+      if (!Array.isArray(sourceIds) || sourceIds.length === 0) return null
+      const isRestore = args.flags.restore === true || args.flags.restore === 'true'
+      const body = {
+        type: isRestore ? 'wiki:source:restore' : 'wiki:source:archive',
+        sourceIds,
+      }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      return body
+    },
+  },
+  {
+    name: 'wiki export',
+    group: 'Wiki',
+    usage: 'wiki export <dir> [--include-sources] [--include-attachments] [--session <key>]',
+    summary: '按页面路径结构批量导出为 Markdown',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '<dir>', desc: '导出目标目录（绝对路径）' },
+      { flag: '--include-sources', desc: '附带导出资料原文到 _sources/' },
+      { flag: '--include-attachments', desc: '附带导出附件文件到各页 _attachments/' },
+      { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
+    ],
+    build(args) {
+      const targetDir = args.positional[0]
+      if (typeof targetDir !== 'string' || targetDir.length === 0) return null
+      const body = { type: 'wiki:export', targetDir }
+      const includeSources = args.flags['include-sources']
+      if (includeSources === true || includeSources === 'true') body.includeSources = true
+      const includeAttachments = args.flags['include-attachments']
+      if (includeAttachments === true || includeAttachments === 'true') body.includeAttachments = true
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      return body
+    },
+  },
+  {
     name: 'memory rebuild-index',
     group: '记忆',
     usage: 'memory rebuild-index',
