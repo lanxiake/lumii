@@ -50,6 +50,8 @@ export type {
 
 export { WikiGraphBuilder } from "./wiki-graph.js";
 export type {
+  WikiGraphNodeKind,
+  WikiGraphEdgeKind,
   WikiGraphNode,
   WikiGraphEdge,
   WikiGraphData,
