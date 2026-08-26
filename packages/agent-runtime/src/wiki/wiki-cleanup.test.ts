@@ -1,0 +1,149 @@
+import { describe, expect, it } from "vitest";
+import { createMigratedTestDb } from "../__tests__/helpers/sqlite-test-db.js";
+import { WikiRepo } from "./wiki-repo.js";
+import { WikiCleanupScanner } from "./wiki-cleanup.js";
+
+describe("WikiCleanupScanner", () => {
+  it("命中内容重复规则：content_hash 相同的资料，保留最早一条，其余建议清理", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const a = repo.createSource({ agentId: "ag", userId: "u", title: "a", contentHash: "h1" });
+    const b = repo.createSource({ agentId: "ag", userId: "u", title: "b", contentHash: "h1" });
+    const scanner = new WikiCleanupScanner(repo);
+
+    const suggestions = scanner.scan("ag", "u");
+    const dup = suggestions.find((s) => s.reason === "duplicate_content");
+    expect(dup).toBeDefined();
+    expect(dup!.source.id).toBe(b.id);
+    expect(dup!.duplicateOfSourceId).toBe(a.id);
+  });
+
+  it("不命中重复：content_hash 不同或为空不建议", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.createSource({ agentId: "ag", userId: "u", title: "a", contentHash: "h1" });
+    repo.createSource({ agentId: "ag", userId: "u", title: "b", contentHash: "h2" });
+    repo.createSource({ agentId: "ag", userId: "u", title: "c" });
+    const scanner = new WikiCleanupScanner(repo);
+
+    const suggestions = scanner.scan("ag", "u");
+    expect(suggestions.filter((s) => s.reason === "duplicate_content")).toHaveLength(0);
+  });
+
+  it("命中来源失效规则：source_path 非空且文件不存在", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const s = repo.createSource({ agentId: "ag", userId: "u", title: "a", sourcePath: "/tmp/missing.txt" });
+    const scanner = new WikiCleanupScanner(repo);
+
+    const suggestions = scanner.scan("ag", "u", { fileExists: () => false });
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]).toMatchObject({ reason: "broken_source" });
+    expect(suggestions[0]!.source.id).toBe(s.id);
+  });
+
+  it("不命中来源失效：文件存在或未提供 fileExists 时跳过该规则", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.createSource({ agentId: "ag", userId: "u", title: "a", sourcePath: "/tmp/exists.txt" });
+    const scanner = new WikiCleanupScanner(repo);
+
+    expect(scanner.scan("ag", "u", { fileExists: () => true })).toHaveLength(0);
+    expect(scanner.scan("ag", "u")).toHaveLength(0);
+  });
+
+  it("命中长期未用规则：created_at 早于阈值且无对应页面使用痕迹", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const old = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
+    const db = (repo as unknown as { db: { prepare: (sql: string) => { run: (...a: unknown[]) => void } } }).db;
+    const s = repo.createSource({ agentId: "ag", userId: "u", title: "old" });
+    db.prepare("UPDATE wiki_sources SET created_at = ? WHERE id = ?").run(old, s.id);
+
+    const scanner = new WikiCleanupScanner(repo);
+    const suggestions = scanner.scan("ag", "u", { staleDays: 90 });
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]).toMatchObject({ reason: "stale" });
+  });
+
+  it("不命中长期未用：对应页面已被使用过（use_count > 0）", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const old = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
+    const db = (repo as unknown as { db: { prepare: (sql: string) => { run: (...a: unknown[]) => void } } }).db;
+    const s = repo.createSource({ agentId: "ag", userId: "u", title: "old" });
+    db.prepare("UPDATE wiki_sources SET created_at = ? WHERE id = ?").run(old, s.id);
+    const page = repo.savePage({
+      agentId: "ag",
+      userId: "u",
+      path: "sources/old",
+      title: "old",
+      contentMd: "内容",
+      editor: "ai",
+      sourceRef: s.id,
+    });
+    db.prepare("UPDATE wiki_pages SET use_count = 1 WHERE id = ?").run(page.id);
+
+    const scanner = new WikiCleanupScanner(repo);
+    expect(scanner.scan("ag", "u", { staleDays: 90 })).toHaveLength(0);
+  });
+
+  it("归档后检索排除，恢复后检索回来", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const s = repo.createSource({ agentId: "ag", userId: "u", title: "src" });
+    repo.savePage({
+      agentId: "ag",
+      userId: "u",
+      path: "sources/x",
+      title: "唯一关键词页面",
+      contentMd: "内容包含唯一关键词",
+      editor: "ai",
+      sourceRef: s.id,
+    });
+
+    const archived = repo.archiveSources("ag", "u", [s.id]);
+    expect(archived).toBe(1);
+    expect(repo.findSourceById(s.id)!.archived_at).not.toBeNull();
+
+    const restored = repo.restoreSources("ag", "u", [s.id]);
+    expect(restored).toBe(1);
+    expect(repo.findSourceById(s.id)!.archived_at).toBeNull();
+  });
+
+  it("删除资料不级联删除引用它的页面", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const s = repo.createSource({ agentId: "ag", userId: "u", title: "src" });
+    const page = repo.savePage({
+      agentId: "ag",
+      userId: "u",
+      path: "sources/x",
+      title: "x",
+      contentMd: "内容",
+      editor: "ai",
+      sourceRef: s.id,
+    });
+
+    const deleted = repo.deleteSources("ag", "u", [s.id]);
+    expect(deleted).toBe(1);
+    expect(repo.findSourceById(s.id)).toBeNull();
+    expect(repo.findPageById(page.id)).not.toBeNull();
+  });
+
+  it("删除页面返回受影响反链数", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const target = repo.savePage({
+      agentId: "ag",
+      userId: "u",
+      path: "concepts/微信语音",
+      title: "微信语音",
+      contentMd: "内容",
+      editor: "ai",
+    });
+    repo.savePage({
+      agentId: "ag",
+      userId: "u",
+      path: "sources/笔记",
+      title: "笔记",
+      contentMd: "参见 [[微信语音]]",
+      editor: "ai",
+    });
+
+    const result = repo.deletePages("ag", "u", [target.id]);
+    expect(result).toEqual({ deleted: 1, affectedBacklinks: 1 });
+    expect(repo.findPageById(target.id)).toBeNull();
+  });
+});
