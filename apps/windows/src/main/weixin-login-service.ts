@@ -61,6 +61,12 @@ export interface WeixinNormalizedMessage {
   type: 'text' | 'media'
   text?: string
   mediaUrl?: string
+  /**
+   * 用户是否真的发了文字（含 iLink 回传的语音转录 voice_item.text / SILK ASR 结果）。
+   * `text` 在纯媒体消息上会被填入 buildMediaFallbackText 占位描述，无法据此判断，
+   * 下游（如渠道适配器判定"纯媒体缓存"）必须用这个字段。
+   */
+  hasUserText: boolean
   /** Structured media items extracted from item_list (type 2/3/4/5) */
   mediaItems?: Array<{
     type: 2 | 3 | 4 | 5
@@ -421,6 +427,7 @@ export class WeixinLoginService extends EventEmitter {
                       normalized.text = normalized.text
                         ? `${normalized.text}\n[语音转录: ${transcript}]`
                         : `[语音转录: ${transcript}]`
+                      normalized.hasUserText = true
                       console.info(`[WeixinLogin] SILK 转录成功: "${transcript}"`)
                     }
                   } catch (e) {
@@ -508,6 +515,7 @@ export class WeixinLoginService extends EventEmitter {
       channelUserId: raw.from_user_id,
       type: isMedia ? 'media' : 'text',
       text: text || (isMedia ? buildMediaFallbackText(items) : ''),
+      hasUserText: Boolean(text),
       ...(mediaItems.length > 0 ? { mediaItems } : {}),
       raw,
       timestamp: raw.create_time_ms ?? Date.now(),

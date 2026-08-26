@@ -34,6 +34,10 @@ import {
   CHANNEL_ACK_TEXT,
   buildChannelErrorMessage,
 } from '../channel-error-helper'
+import {
+  extractMediaAttachmentLines,
+  isPureMediaMessage,
+} from '../../weixin-message-utils.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WeixinChannelAdapter]', ...args),
@@ -173,121 +177,8 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       return
     }
 
-    // 媒体附件缓存逻辑
-    const extractMediaLines = (text: string): string[] =>
-      text.split('\n').filter((l: string) => /^\[media attached:/.test(l.trim()))
-
-    const extractTranscriptLine = (text: string): string | null => {
-      const line = text.split('\n').find((l: string) => /^\[语音转录:/.test(l.trim()))
-      if (!line) return null
-      // 提取 [语音转录: xxx] 中的内容
-      const m = line.trim().match(/^\[语音转录:\s*(.*)\]$/)
-      return m ? m[1].trim() : null
-    }
-
-    // 语音消息（含 ASR 转录）：直接将转录文字发送给 Agent，跳过媒体缓存
-    const voiceTranscript = extractTranscriptLine(rawText)
-    if (msg.type === 'media' && voiceTranscript) {
-      log.info(`[handleMessage] 语音消息已转录，直接发给 Agent: "${voiceTranscript}" channelUserId=${msg.channelUserId}`)
-      // 用转录文字替代 rawText，让后续正常消息处理流程执行
-      // 注意：此处不修改 msg 对象（immutable），直接 fall through 到下方的合并逻辑
-      // 先清除可能存在的历史缓存（避免旧媒体附件混入语音消息）
-      const session = this.buildSession(msg)
-      this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`)
-
-      // 语音转录：先回复即时回执（有转录内容说明，与其他路径一致）
-      await this.sendTextReply(session, CHANNEL_ACK_TEXT).catch((err) => {
-        log.warn(`[handleMessage] 发送语音回执失败: ${err instanceof Error ? err.message : String(err)}`)
-      })
-
-      this.bridge.notifyIncomingMessage(session.sessionKey, voiceTranscript)
-      this.bridge.notifyNavigateToSession(session.sessionKey)
-
-      const currentBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
-      if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
-        try {
-          await this.handleAcpPrompt(msg, session, voiceTranscript, currentBackend)
-        } catch (err) {
-          log.error(`[handleMessage] 语音转录 ACP 异常: ${err instanceof Error ? err.message : String(err)}`)
-          try {
-            await this.sendTextReply(session, buildChannelErrorMessage(err))
-          } catch (replyErr) {
-            log.warn(`[handleMessage] 发送语音转录错误回传失败: ${replyErr instanceof Error ? replyErr.message : String(replyErr)}`)
-          }
-        }
-        return
-      }
-
-      const instanceId = await this.getOrCreateInstance(session.sessionKey)
-      const activeSession = { ...session, instanceId }
-
-      try {
-        this.bridge.conversationRepo.saveMessage({
-          conversationId: session.sessionKey,
-          role: 'user',
-          contentJson: { type: 'text', text: voiceTranscript },
-        })
-      } catch (err) {
-        log.error(`[handleMessage] 持久化语音转录消息失败: ${err instanceof Error ? err.message : String(err)}`)
-      }
-
-      const finalTexts: string[] = []
-      this.bridge.registerNodeStreamCallback(instanceId, (event) => {
-        const evt = event as Record<string, unknown>
-        if (evt.type === 'message:end' && typeof evt.fullText === 'string') {
-          finalTexts.push(evt.fullText)
-        }
-      })
-
-      if (msg.contextToken) {
-        this.persistReplyContext(msg)
-        this.bridge.setWeixinMessageContext({
-          channelUserId: msg.channelUserId,
-          contextToken: msg.contextToken,
-          ...(msg.botToken ? { botToken: msg.botToken } : {}),
-          ...(msg.ilinkBaseUrl ? { ilinkBaseUrl: msg.ilinkBaseUrl } : {}),
-        })
-      }
-
-      try {
-        try {
-          await this.sessionManager.prompt({
-            instanceId,
-            sessionKey: session.sessionKey,
-            message: voiceTranscript,
-            strategy: this.contextStrategy,
-            adapter: this,
-            session: activeSession,
-          })
-        } finally {
-          this.bridge.unregisterNodeStreamCallback(instanceId)
-          this.bridge.setWeixinMessageContext(null)
-        }
-
-        const replyText = finalTexts.join('\n').trim()
-        log.info(`[handleMessage] 语音转录 Agent 处理完成，回复长度=${replyText.length}`)
-        const sentViaTool = this.bridge.getWeixinMessageSentViaTool()
-        if (!replyText || replyText === 'NO_REPLY') {
-          if (sentViaTool) {
-            log.info(`[handleMessage] 本轮已通过 message 工具发送，跳过空/NO_REPLY 文本回复`)
-          }
-        } else {
-          await this.sendTextReply(activeSession, replyText)
-        }
-      } catch (err) {
-        log.error(`[handleMessage] 语音转录 Agent 异常: ${err instanceof Error ? err.message : String(err)}`)
-        try {
-          await this.sendTextReply(session, buildChannelErrorMessage(err))
-        } catch (replyErr) {
-          log.warn(`[handleMessage] 发送语音转录错误回传失败: ${replyErr instanceof Error ? replyErr.message : String(replyErr)}`)
-        }
-      }
-      return
-    }
-
-    const isPureMedia = msg.type === 'media' && extractMediaLines(rawText).length > 0
-    if (isPureMedia) {
-      const mediaLines = extractMediaLines(rawText)
+    if (isPureMediaMessage(msg)) {
+      const mediaLines = extractMediaAttachmentLines(rawText)
       const existing = this.pendingMediaLines.get(msg.channelUserId) ?? []
       this.pendingMediaLines.set(msg.channelUserId, [...existing, ...mediaLines])
       log.info(`[handleMessage] 纯媒体消息：缓存 ${mediaLines.length} 个附件 channelUserId=${msg.channelUserId}`)
@@ -304,7 +195,10 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     // 合并缓存的媒体附件
     const pending = this.pendingMediaLines.get(msg.channelUserId) ?? []
     this.pendingMediaLines.delete(msg.channelUserId)
-    const currentMediaLines = extractMediaLines(rawText)
+    // 语音文件已转成文字，.silk 路径 Agent 读不了，附上只会当成噪声
+    const currentMediaLines = extractMediaAttachmentLines(rawText).filter(
+      (l) => !/\.silk[)\s]*\]$/.test(l.trim()),
+    )
     const userTextOnly = rawText.split('\n').filter((l) => !/^\[media attached:/.test(l.trim())).join('\n').trim()
     const allMediaLines = [...pending, ...currentMediaLines]
     const prompt = allMediaLines.length > 0 ? `${userTextOnly}\n${allMediaLines.join('\n')}`.trim() : rawText

@@ -6,6 +6,7 @@
  */
 
 import { runtimeStore, updateSessionState } from '../../../hooks/business/useAgentRuntime/agent-runtime-store'
+import { fetchChatModelChoices } from '../../../services/model-config-service'
 import { getSlashCommands, CATEGORY_LABELS, findCommand, type CommandCategory } from './slash-commands'
 
 const logger = {
@@ -31,6 +32,8 @@ export interface CommandContext {
   switchSession?: (sessionKey: string) => Promise<void>
   /** 列出最近会话（含标题、时间） */
   listSessions?: () => Promise<readonly { sessionKey: string; title: string; updatedAt: string; lastMessagePreview?: string }[]>
+  /** 切换当前会话使用的模型（复用输入框模型下拉的同一套逻辑） */
+  selectModel?: (modelId: string) => Promise<void>
 }
 
 // ── 命令处理器 ────────────────────────────────────────────────────
@@ -366,6 +369,41 @@ function handleBackend(backend: string, ctx: CommandContext): void {
   ctx.showToast?.(`已切换到 ${info.label}`, 'success')
 }
 
+async function handleModels(args: string, ctx: CommandContext): Promise<void> {
+  const { candidates, selected } = await fetchChatModelChoices()
+  if (candidates.length === 0) {
+    ctx.addSystemMessage('❌ 还没有可用模型，请先到系统设置里配置模型供应商并勾选模型。')
+    return
+  }
+
+  const target = args.trim()
+  if (!target) {
+    const lines = ['**已配置模型**\n']
+    candidates.forEach((m, i) => {
+      lines.push(`${i + 1}. ${m.id === selected ? `**${m.name}** ← 当前` : m.name}`)
+    })
+    lines.push('\n> 使用 `/models <编号>` 或 `/models <模型 ID>` 切换当前会话模型')
+    ctx.addSystemMessage(lines.join('\n'))
+    return
+  }
+
+  // 支持编号与模型 ID（ID 大小写不敏感）
+  const byIndex = /^\d+$/.test(target) ? candidates[Number(target) - 1] : undefined
+  const model = byIndex ?? candidates.find((m) => m.id.toLowerCase() === target.toLowerCase())
+  if (!model) {
+    ctx.addSystemMessage(`❌ 找不到模型 \`${target}\`，用 \`/models\` 查看可用列表。`)
+    return
+  }
+
+  if (!ctx.selectModel) {
+    ctx.addSystemMessage('❌ 无法切换模型：功能未就绪')
+    return
+  }
+
+  await ctx.selectModel(model.id)
+  ctx.showToast?.(`已切换到 ${model.name}`, 'success')
+}
+
 async function handleThink(args: string, ctx: CommandContext): Promise<void> {
   const level = args.trim().toLowerCase()
   const validLevels = ['off', 'low', 'medium', 'high']
@@ -481,6 +519,9 @@ export async function executeSlashCommand(
         break
       case '/think':
         await handleThink(args, ctx)
+        break
+      case '/models':
+        await handleModels(args, ctx)
         break
       default:
         // 有注册但无 handler 的命令，fallthrough 给 LLM

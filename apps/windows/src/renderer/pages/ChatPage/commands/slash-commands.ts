@@ -71,6 +71,14 @@ const CLIENT_ONLY_COMMANDS: SlashCommand[] = [
     usage: '/lumii',
     category: 'backend',
   },
+  // ── 设置选项 ──────────────────────────────────────────────────
+  {
+    name: '/models',
+    aliases: ['/model'],
+    description: '查看已配置模型，并将当前会话切换到指定模型',
+    usage: '/models [编号或模型 ID]',
+    category: 'settings',
+  },
 ]
 
 /** 将 IPC 返回的基础命令条目转换为本地 SlashCommand 格式 */

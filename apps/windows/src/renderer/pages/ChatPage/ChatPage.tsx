@@ -1092,6 +1092,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             const list = await runtimeActions.listSessions()
             return list
           },
+          selectModel: handleSelectChatModel,
         })
         if (handled) {
           clearCurrentInputState(sessionKey)
@@ -1151,6 +1152,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     addSystemMessage,
     handleCompactContext,
     handleNewConversation,
+    handleSelectChatModel,
     clearCurrentInputState,
   ])
 

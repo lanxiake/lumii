@@ -237,6 +237,30 @@ export function buildCdnCandidates(encryptedQueryParam: string, ilinkBaseUrl: st
   ])
 }
 
+/** 消息文本中由客户端注入的媒体附件行（downloadAndSaveMediaItems 之后追加） */
+export function extractMediaAttachmentLines(text: string): string[] {
+  return text.split('\n').filter((l) => /^\[media attached:/.test(l.trim()))
+}
+
+/**
+ * 判定「纯媒体消息」：用户只发了附件、一个字都没写。
+ *
+ * 仅此情形才该把附件缓存起来、回复"请发送文字说明"。只要用户带了文字
+ * （含 iLink 回传的语音转录 voice_item.text、图片/文件的说明文字），
+ * 就必须直接派发给 Agent，否则消息会被静默吞掉、用户等不到回复。
+ *
+ * 注意不能用 `text` 是否为空判断：纯媒体消息的 text 会被填入
+ * buildMediaFallbackText 的占位描述，永远非空。
+ */
+export function isPureMediaMessage(msg: {
+  type: 'text' | 'media'
+  text?: string
+  hasUserText: boolean
+}): boolean {
+  if (msg.type !== 'media' || msg.hasUserText) return false
+  return extractMediaAttachmentLines(msg.text ?? '').length > 0
+}
+
 /** MessageItemType → 文件扩展名映射（IMAGE=2, VOICE=3, FILE=4, VIDEO=5） */
 export function mapItemTypeToExt(type: 2 | 3 | 4 | 5): string {
   switch (type) {
