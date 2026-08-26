@@ -629,14 +629,18 @@ export function useWikiPage() {
   const autoRunSynthesis = useCallback(async () => {
     const api = window.electronAPI?.agentRuntime
     if (!api?.sendCommand) return null
-    return (await api.sendCommand({ type: 'wiki:synthesis:auto-run' })) as {
-      results: readonly {
-        category: string
-        pageId: string
-        path: string
-        skipped?: boolean
-        error?: string
-      }[]
+    try {
+      return (await api.sendCommand({ type: 'wiki:synthesis:auto-run' })) as {
+        results: readonly {
+          category: string
+          pageId: string
+          path: string
+          skipped?: boolean
+          error?: string
+        }[]
+      }
+    } catch {
+      return null
     }
   }, [])
 
