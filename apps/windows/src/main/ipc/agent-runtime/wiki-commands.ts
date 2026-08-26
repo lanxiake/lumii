@@ -577,20 +577,31 @@ export function handleWikiSynthesisReject(
   return { success: true }
 }
 
+/**
+ * 返回混合知识子图；ERO 为空时先从双链冷启动实体/关系，再构建图谱。
+ */
 export function handleWikiGraphData(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:graph:data' }>,
 ): unknown {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
   const ero = new WikiEroRepo(bridge.wikiRepo.database)
+  let entities = ero.listEntities(agentId, LOCAL_USER_ID)
+  let relations = ero.listRelations(agentId, LOCAL_USER_ID)
+  if (entities.length === 0) {
+    bootstrapEroFromWikilinks(bridge.wikiRepo.database, bridge.wikiRepo, ero, agentId, LOCAL_USER_ID)
+    entities = ero.listEntities(agentId, LOCAL_USER_ID)
+    relations = ero.listRelations(agentId, LOCAL_USER_ID)
+  }
   const builder = new WikiGraphBuilder(bridge.wikiRepo)
   return builder.buildSubgraph(agentId, LOCAL_USER_ID, {
     centerPageId: command.centerPageId,
     category: command.category as never,
     radius: command.radius,
     limit: command.limit,
-    eroEntities: ero.listEntities(agentId, LOCAL_USER_ID),
-    eroRelations: ero.listRelations(agentId, LOCAL_USER_ID),
+    includeEntities: true,
+    eroEntities: entities,
+    eroRelations: relations,
   })
 }
 

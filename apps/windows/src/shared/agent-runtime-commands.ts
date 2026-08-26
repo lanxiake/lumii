@@ -1646,16 +1646,22 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:graph:data' ? {
       nodes: readonly {
         id: string
+        kind: 'page' | 'entity'
         title: string
-        path: string
-        category: string
-        useCount: number
+        path?: string
+        category?: string
+        useCount?: number
+        entityType?: string
+        pageId?: string | null
       }[]
       edges: readonly {
         id: string
+        kind: 'wikilink' | 'relation'
         source: string
         target: string
-        anchorText: string
+        label: string
+        anchorText?: string
+        strength?: number
       }[]
       truncated: boolean
     }

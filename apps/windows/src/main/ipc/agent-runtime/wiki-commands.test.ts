@@ -24,6 +24,7 @@ import {
   handleWikiSourceGet,
   handleWikiRunsList,
   handleWikiIndexRebuild,
+  handleWikiGraphData,
 } from './wiki-commands'
 
 const nodeRequire = createRequire(import.meta.url)
@@ -207,6 +208,43 @@ describe('wiki commands', () => {
 
     repo.savePage({ agentId: 'assistant', userId: 'local-user', path: 'sources/y', title: 'y', contentMd: 'c', editor: 'ai' })
     expect(handleWikiIndexRebuild(bridge)).toEqual({ rebuiltCount: 1 })
+  })
+
+  it('graph:data 在空 ERO 时自动冷启动并返回含 kind 的混合节点', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const b = repo.savePage({
+      agentId: 'assistant',
+      userId: 'local-user',
+      path: 'sources/b',
+      title: 'B页',
+      contentMd: '正文',
+      editor: 'user',
+    })
+    const a = repo.savePage({
+      agentId: 'assistant',
+      userId: 'local-user',
+      path: 'sources/a',
+      title: 'A页',
+      contentMd: '见 [[B页]]',
+      editor: 'user',
+    })
+
+    const graph = handleWikiGraphData(bridge, {
+      type: 'wiki:graph:data',
+      agentId: 'assistant',
+      centerPageId: a.id,
+    }) as {
+      nodes: { id: string; kind: string; title: string }[]
+      edges: { id: string; kind: string; source: string; target: string; label: string }[]
+      truncated: boolean
+    }
+
+    expect(graph.nodes.some((n) => n.kind === 'page' && n.id === a.id)).toBe(true)
+    expect(graph.nodes.some((n) => n.kind === 'entity')).toBe(true)
+    expect(graph.edges.some((e) => e.kind === 'wikilink')).toBe(true)
+    expect(graph.edges.some((e) => e.kind === 'relation')).toBe(true)
+    expect(typeof graph.truncated).toBe('boolean')
   })
 
   it('runs:list 对无效 result_detail 形状返回 resultDetail null', () => {

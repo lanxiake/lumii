@@ -143,17 +143,23 @@ export interface WikiSynthesisDetail extends WikiSynthesisListItem {
 
 export interface WikiGraphDataItem {
   readonly nodes: readonly {
-    id: string
-    title: string
-    path: string
-    category: string
-    useCount: number
+    readonly id: string
+    readonly kind: 'page' | 'entity'
+    readonly title: string
+    readonly path?: string
+    readonly category?: string
+    readonly useCount?: number
+    readonly entityType?: string
+    readonly pageId?: string | null
   }[]
   readonly edges: readonly {
-    id: string
-    source: string
-    target: string
-    anchorText: string
+    readonly id: string
+    readonly kind: 'wikilink' | 'relation'
+    readonly source: string
+    readonly target: string
+    readonly label: string
+    readonly anchorText?: string
+    readonly strength?: number
   }[]
   readonly truncated: boolean
 }

@@ -438,6 +438,8 @@ export type {
   AutoSynthesizeCategoryResult,
   AutoSynthesisRunResult,
   AutoSynthesizeAllResult,
+  WikiGraphNodeKind,
+  WikiGraphEdgeKind,
   WikiGraphNode,
   WikiGraphEdge,
   WikiGraphData,
