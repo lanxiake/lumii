@@ -53,6 +53,19 @@ export interface WikiSource {
   readonly created_at: string;
 }
 
+export interface WikiAttachment {
+  readonly id: string;
+  readonly page_id: string;
+  readonly source_id: string | null;
+  readonly file_path: string;
+  readonly media_type: WikiMediaType;
+  readonly display_name: string;
+  readonly created_at: string;
+}
+
+/** 页面状态：P1 只落 active，outdated/doubtful/archived 由 P2 UI 启用 */
+export type WikiPageStatus = "active" | "outdated" | "doubtful" | "archived";
+
 export interface WikiPage {
   readonly id: string;
   readonly agent_id: string;
@@ -66,6 +79,28 @@ export interface WikiPage {
   readonly use_count: number;
   readonly created_at: string;
   readonly updated_at: string;
+  readonly status: WikiPageStatus;
+}
+
+export interface WikiLink {
+  readonly id: string;
+  readonly agent_id: string;
+  readonly user_id: string;
+  readonly source_page_id: string;
+  readonly target_page_id: string | null;
+  readonly anchor_text: string;
+  readonly is_resolved: boolean;
+  readonly created_at: string;
+}
+
+/** 反链条目：源页标题/路径 + 链接原文 + 解析状态，供 UI 展示 */
+export interface WikiBacklink {
+  readonly linkId: string;
+  readonly sourcePageId: string;
+  readonly sourceTitle: string;
+  readonly sourcePath: string;
+  readonly anchorText: string;
+  readonly isResolved: boolean;
 }
 
 export type WikiRevisionEditor = "user" | "ai";

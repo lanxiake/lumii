@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 /**
  * V1 DDL — 初始 schema
@@ -561,6 +561,43 @@ ALTER TABLE wiki_organize_runs_new RENAME TO wiki_organize_runs;
 
 CREATE INDEX IF NOT EXISTS idx_wiki_runs_agent_user
   ON wiki_organize_runs (agent_id, user_id, created_at DESC);
+`,
+  ],
+  // V18: Wiki 知识库 P1 —— 链接索引 + 附件表 + 页面状态列
+  //
+  // 设计：`docs/plans/记忆重构/2026-08-26-wiki-p1-implementation.md` Task 1
+  // wiki_links：页面间有向链接索引（反链与 P2 图谱的数据源）；target_page_id 不带外键约束，
+  // 删除目标页时链接索引级联清理由 WikiRepo 显式完成，其他页正文中的 [[...]] 文本保留为未解析。
+  [
+    18,
+    `
+CREATE TABLE IF NOT EXISTS wiki_links (
+  id             TEXT PRIMARY KEY,
+  agent_id       TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
+  source_page_id TEXT NOT NULL,
+  target_page_id TEXT,
+  anchor_text    TEXT NOT NULL,
+  is_resolved    INTEGER NOT NULL DEFAULT 0,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wiki_links_target ON wiki_links (agent_id, user_id, target_page_id, is_resolved);
+CREATE INDEX IF NOT EXISTS idx_wiki_links_source ON wiki_links (source_page_id);
+
+CREATE TABLE IF NOT EXISTS wiki_page_attachments (
+  id          TEXT PRIMARY KEY,
+  page_id     TEXT NOT NULL REFERENCES wiki_pages(id) ON DELETE CASCADE,
+  source_id   TEXT,
+  file_path   TEXT NOT NULL,
+  media_type  TEXT NOT NULL DEFAULT 'document'
+    CHECK (media_type IN ('document', 'image', 'audio', 'video')),
+  display_name TEXT NOT NULL,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wiki_attachments_page ON wiki_page_attachments (page_id);
+
+ALTER TABLE wiki_pages ADD COLUMN status TEXT NOT NULL DEFAULT 'active'
+  CHECK (status IN ('active', 'outdated', 'doubtful', 'archived'));
 `,
   ],
 ] as const;

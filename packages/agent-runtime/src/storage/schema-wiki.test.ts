@@ -65,3 +65,53 @@ describe("wiki schema V16", () => {
     db.close();
   });
 });
+
+describe("wiki schema V18", () => {
+  it("建出 wiki_links 与 wiki_page_attachments 两张表", () => {
+    const db = createMigratedTestDb();
+
+    for (const t of ["wiki_links", "wiki_page_attachments"]) {
+      const row = db
+        .prepare<{ name: string }>("SELECT name FROM sqlite_master WHERE name = ?")
+        .get(t);
+      expect(row?.name, `表 ${t} 应存在`).toBe(t);
+    }
+
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(18);
+    db.close();
+  });
+
+  it("wiki_pages 新增 status 列，默认值 active", () => {
+    const db = createMigratedTestDb();
+
+    db.prepare(
+      "INSERT INTO wiki_pages (id, agent_id, user_id, path, category, title, created_at, updated_at) VALUES ('p2', 'a', 'u', 'sources/z', 'sources', 'z', 'now', 'now')",
+    ).run();
+    const row = db
+      .prepare<{ status: string }>("SELECT status FROM wiki_pages WHERE id = 'p2'")
+      .get();
+    expect(row?.status).toBe("active");
+
+    db.close();
+  });
+
+  it("wiki_page_attachments 级联删除随 wiki_pages 一并清除", () => {
+    const db = createMigratedTestDb();
+    db.exec("PRAGMA foreign_keys=ON");
+
+    db.prepare(
+      "INSERT INTO wiki_pages (id, agent_id, user_id, path, category, title, created_at, updated_at) VALUES ('p3', 'a', 'u', 'sources/w', 'sources', 'w', 'now', 'now')",
+    ).run();
+    db.prepare(
+      "INSERT INTO wiki_page_attachments (id, page_id, file_path, display_name, created_at) VALUES ('at1', 'p3', '/tmp/x.png', 'x.png', 'now')",
+    ).run();
+
+    db.prepare("DELETE FROM wiki_pages WHERE id = 'p3'").run();
+    const remaining = db
+      .prepare<{ c: number }>("SELECT COUNT(*) as c FROM wiki_page_attachments WHERE page_id = 'p3'")
+      .get();
+    expect(remaining?.c).toBe(0);
+
+    db.close();
+  });
+});
