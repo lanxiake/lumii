@@ -56,6 +56,15 @@ export {
   type SpawnAgentResult,
 } from "./orchestrator.js";
 export {
+  SubagentBroker,
+  SUBAGENT_DEFAULTS,
+  clampConcurrentLimit,
+  type SubagentRunStatus,
+  type SubagentRunRecord,
+  type SubagentCompletionPayload,
+  type RegisterSubagentRunInput,
+} from "./subagent-broker.js";
+export {
   parseVerdict,
   formatVerdictBanner,
   type Verdict,

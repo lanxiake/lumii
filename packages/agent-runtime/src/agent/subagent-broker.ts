@@ -1,0 +1,228 @@
+/**
+ * SubagentBroker — 子 Agent 并发帽、完成队列与摘要投递辅助
+ *
+ * 纯编排辅助（无 Electron）：由 AgentOrchestrator / bridge 驱动。
+ * 不负责实际 prompt/followUp；投递策略见 bridge 侧 idle→prompt / running→followUp。
+ */
+
+/** 委派默认配置（写严读宽：调用方缺省走这里） */
+export const SUBAGENT_DEFAULTS = {
+  maxSpawnDepth: 1,
+  maxConcurrentChildren: 5,
+  hardMaxConcurrent: 10,
+  maxSummaryChars: 24_000,
+  staleIdleMs: 180_000,
+  staleCheckIntervalMs: 30_000,
+} as const;
+
+/** 子 Agent 运行状态 */
+export type SubagentRunStatus =
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "stale";
+
+/** 一次子 Agent 运行记录（broker 内存态） */
+export interface SubagentRunRecord {
+  readonly childId: string;
+  readonly parentId: string;
+  readonly name: string;
+  readonly mode: "sync" | "async";
+  status: SubagentRunStatus;
+  readonly startedAt: number;
+  lastProgressAt: number;
+  outputText: string;
+  errorMessage?: string;
+}
+
+/** 投递给父 Agent 的完成载荷 */
+export interface SubagentCompletionPayload {
+  readonly childId: string;
+  readonly parentId: string;
+  readonly name: string;
+  readonly status: Exclude<SubagentRunStatus, "running">;
+  readonly summary: string;
+  readonly spillPath?: string;
+}
+
+/** registerRun 入参（时间戳可由 broker 填充） */
+export interface RegisterSubagentRunInput {
+  readonly childId: string;
+  readonly parentId: string;
+  readonly name: string;
+  readonly mode: "sync" | "async";
+  readonly startedAt?: number;
+}
+
+/**
+ * 将并发上限夹到 [1, hardMax]
+ */
+export function clampConcurrentLimit(
+  requested: number | undefined,
+  defaults: typeof SUBAGENT_DEFAULTS = SUBAGENT_DEFAULTS,
+): number {
+  const raw = requested ?? defaults.maxConcurrentChildren;
+  return Math.min(defaults.hardMaxConcurrent, Math.max(1, raw));
+}
+
+/**
+ * 子 Agent 并发与完成队列编排器
+ */
+export class SubagentBroker {
+  private readonly runs = new Map<string, SubagentRunRecord>();
+  private readonly completionQueues = new Map<string, SubagentCompletionPayload[]>();
+  private readonly nowFn: () => number;
+
+  /**
+   * @param nowFn — 可注入时钟，便于 stale/进度单测
+   */
+  constructor(nowFn: () => number = () => Date.now()) {
+    this.nowFn = nowFn;
+  }
+
+  /**
+   * 尝试占用父下的一个并发槽：running 数已达 limit 则返回 false
+   */
+  tryAcquireSlot(parentId: string, limit: number): boolean {
+    return this.countRunning(parentId) < limit;
+  }
+
+  /**
+   * 释放槽位：移除仍为 running 的记录（创建失败等路径）
+   */
+  releaseSlot(childId: string): void {
+    const run = this.runs.get(childId);
+    if (!run || run.status !== "running") return;
+    this.runs.delete(childId);
+  }
+
+  /**
+   * 登记一次子 Agent 运行（计入并发）
+   */
+  registerRun(input: RegisterSubagentRunInput): SubagentRunRecord {
+    const now = input.startedAt ?? this.nowFn();
+    const record: SubagentRunRecord = {
+      childId: input.childId,
+      parentId: input.parentId,
+      name: input.name,
+      mode: input.mode,
+      status: "running",
+      startedAt: now,
+      lastProgressAt: now,
+      outputText: "",
+    };
+    this.runs.set(input.childId, record);
+    return record;
+  }
+
+  /**
+   * 刷新进度时间戳（message:delta / tool:start 等）
+   */
+  updateProgress(childId: string, at?: number): void {
+    const run = this.runs.get(childId);
+    if (!run || run.status !== "running") return;
+    run.lastProgressAt = at ?? this.nowFn();
+  }
+
+  /**
+   * 追加/覆盖输出文本（通常在 message:end 时整段覆盖）
+   */
+  setOutputText(childId: string, text: string, append = false): void {
+    const run = this.runs.get(childId);
+    if (!run) return;
+    run.outputText = append ? run.outputText + text : text;
+  }
+
+  /**
+   * 将运行标记为终态并写入输出；running 槽随即释放
+   */
+  finalizeRun(
+    childId: string,
+    status: Exclude<SubagentRunStatus, "running">,
+    outputText: string,
+    errorMessage?: string,
+  ): SubagentRunRecord | undefined {
+    const run = this.runs.get(childId);
+    if (!run) return undefined;
+    run.status = status;
+    run.outputText = outputText;
+    if (errorMessage !== undefined) {
+      run.errorMessage = errorMessage;
+    }
+    run.lastProgressAt = this.nowFn();
+    return run;
+  }
+
+  /**
+   * 从已 finalize 的 run 构建完成载荷
+   */
+  buildCompletion(childId: string): SubagentCompletionPayload | undefined {
+    const run = this.runs.get(childId);
+    if (!run || run.status === "running") return undefined;
+    return {
+      childId: run.childId,
+      parentId: run.parentId,
+      name: run.name,
+      status: run.status,
+      summary: run.outputText || run.errorMessage || "",
+    };
+  }
+
+  /**
+   * 将完成载荷入队（按 parentId）
+   */
+  enqueueCompletion(payload: SubagentCompletionPayload): void {
+    const queue = this.completionQueues.get(payload.parentId) ?? [];
+    queue.push(payload);
+    this.completionQueues.set(payload.parentId, queue);
+  }
+
+  /**
+   * 取出并清空某父实例的全部待投递完成载荷
+   */
+  drainCompletions(parentId: string): SubagentCompletionPayload[] {
+    const queue = this.completionQueues.get(parentId) ?? [];
+    this.completionQueues.delete(parentId);
+    return queue;
+  }
+
+  /**
+   * 统计某父下仍为 running 的子 Agent 数量
+   */
+  countRunning(parentId: string): number {
+    let n = 0;
+    for (const run of this.runs.values()) {
+      if (run.parentId === parentId && run.status === "running") n++;
+    }
+    return n;
+  }
+
+  /**
+   * 按 childId 查询运行记录
+   */
+  getRun(childId: string): SubagentRunRecord | undefined {
+    return this.runs.get(childId);
+  }
+
+  /**
+   * 列出某父下全部运行记录（含终态）
+   */
+  listRunsForParent(parentId: string): readonly SubagentRunRecord[] {
+    return [...this.runs.values()].filter((r) => r.parentId === parentId);
+  }
+
+  /**
+   * 生成投递给父的固定模板文案（便于单测与提示词对齐）
+   */
+  formatCompletionMessage(payload: SubagentCompletionPayload): string {
+    return [
+      "[SUBAGENT_COMPLETE]",
+      `name: ${payload.name}`,
+      `instanceId: ${payload.childId}`,
+      `status: ${payload.status}`,
+      "summary:",
+      payload.summary,
+    ].join("\n");
+  }
+}
