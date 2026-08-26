@@ -88,8 +88,17 @@ export class SubagentBroker {
    */
   tryAcquireSlot(parentId: string, limit: number): boolean {
     const pending = this.pendingSlots.get(parentId) ?? 0;
-    if (this.countRunning(parentId) + pending >= limit) return false;
+    const running = this.countRunning(parentId);
+    if (running + pending >= limit) {
+      console.log(
+        `[SubagentBroker] acquire denied parent=${parentId} running=${running} pending=${pending} limit=${limit}`,
+      );
+      return false;
+    }
     this.pendingSlots.set(parentId, pending + 1);
+    console.log(
+      `[SubagentBroker] acquire ok parent=${parentId} running=${running} pending=${pending + 1} limit=${limit}`,
+    );
     return true;
   }
 
@@ -129,6 +138,9 @@ export class SubagentBroker {
       outputText: "",
     };
     this.runs.set(input.childId, record);
+    console.log(
+      `[SubagentBroker] registerRun child=${input.childId} parent=${input.parentId} name=${input.name} mode=${input.mode}`,
+    );
     return record;
   }
 
@@ -167,6 +179,9 @@ export class SubagentBroker {
       run.errorMessage = errorMessage;
     }
     run.lastProgressAt = this.nowFn();
+    console.log(
+      `[SubagentBroker] finalizeRun child=${childId} parent=${run.parentId} status=${status} summaryLen=${outputText.length}${errorMessage ? ` err=${errorMessage.slice(0, 120)}` : ""}`,
+    );
     return run;
   }
 
@@ -192,6 +207,9 @@ export class SubagentBroker {
     const queue = this.completionQueues.get(payload.parentId) ?? [];
     queue.push(payload);
     this.completionQueues.set(payload.parentId, queue);
+    console.log(
+      `[SubagentBroker] enqueueCompletion parent=${payload.parentId} child=${payload.childId} status=${payload.status} queueLen=${queue.length}`,
+    );
   }
 
   /**
@@ -200,7 +218,30 @@ export class SubagentBroker {
   drainCompletions(parentId: string): SubagentCompletionPayload[] {
     const queue = this.completionQueues.get(parentId) ?? [];
     this.completionQueues.delete(parentId);
+    if (queue.length > 0) {
+      console.log(
+        `[SubagentBroker] drainCompletions parent=${parentId} count=${queue.length}`,
+      );
+    }
     return queue;
+  }
+
+  /**
+   * 从完成队列移除指定 child（投递成功后避免重复投递）
+   */
+  removeCompletion(parentId: string, childId: string): boolean {
+    const queue = this.completionQueues.get(parentId);
+    if (!queue?.length) return false;
+    const next = queue.filter((p) => p.childId !== childId);
+    const removed = next.length !== queue.length;
+    if (next.length === 0) this.completionQueues.delete(parentId);
+    else this.completionQueues.set(parentId, next);
+    if (removed) {
+      console.log(
+        `[SubagentBroker] removeCompletion parent=${parentId} child=${childId}`,
+      );
+    }
+    return removed;
   }
 
   /**

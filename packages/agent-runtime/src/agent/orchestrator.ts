@@ -157,6 +157,9 @@ export class AgentOrchestrator {
     const MAX_SPAWN_DEPTH = SUBAGENT_DEFAULTS.maxSpawnDepth;
     const currentDepth = params._spawnDepth ?? 0;
     if (currentDepth >= MAX_SPAWN_DEPTH) {
+      console.log(
+        `[AgentOrchestrator] spawn denied depth parent=${parentInstanceId ?? "-"} depth=${currentDepth} max=${MAX_SPAWN_DEPTH}`,
+      );
       return {
         status: "error",
         message:
@@ -168,6 +171,9 @@ export class AgentOrchestrator {
     const parentKey = parentInstanceId ?? "__orphan__";
     const limit = this.resolveConcurrentLimit(parentInstanceId);
     if (!this.broker.tryAcquireSlot(parentKey, limit)) {
+      console.log(
+        `[AgentOrchestrator] spawn denied concurrency parent=${parentKey} limit=${limit}`,
+      );
       return {
         status: "error",
         message:
@@ -301,11 +307,17 @@ export class AgentOrchestrator {
         const payload = this.broker.buildCompletion(childInstanceId);
         if (payload) {
           this.broker.enqueueCompletion(payload);
+          console.log(
+            `[AgentOrchestrator] async complete → notify parent=${payload.parentId} child=${payload.childId} status=${payload.status}`,
+          );
           this.deps.onAsyncSubagentComplete?.(payload);
         }
       }
     })();
 
+    console.log(
+      `[AgentOrchestrator] spawn async started child=${childInstanceId} parent=${parentKey} name=${params.name}`,
+    );
     return {
       status: "ok",
       mode: "async",

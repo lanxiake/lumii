@@ -17,6 +17,7 @@ import {
   type ConversationRepo,
   type AgentDefinition,
   type AgentRuntimeFeatureFlags,
+  type SubagentCompletionPayload,
   AgentOrchestrator,
   BUILT_IN_AGENTS,
   findBuiltInAgent,
@@ -28,6 +29,7 @@ import type { AskUserQuestionController } from './ask-user-question-controller'
 import type { CronScheduler } from './cron-scheduler'
 import { agentRuntimeLog as log, CHILD_AGENT_DISALLOWED_TOOLS, findAgentInstanceByRecipient } from './bridge-utils'
 import type { AgentLifecycleSnapshot } from './bridge-types'
+import { deliverSubagentCompletion } from './subagent-delivery'
 
 export interface BridgeLifecycleDeps {
   agentRegistry: AgentRegistry
@@ -67,6 +69,8 @@ export class BridgeLifecycle {
   private orchestrator: AgentOrchestrator | null = null
   /** 运行中被请求失效、已推迟到本轮结束再销毁的实例 */
   private readonly pendingInvalidation = new Set<string>()
+  /** 父实例 deferred 投递：idle 时 drain 的订阅 */
+  private readonly deferredDrainUnsubs = new Map<string, () => void>()
 
   constructor(private readonly deps: BridgeLifecycleDeps) {}
 
@@ -203,6 +207,9 @@ export class BridgeLifecycle {
       this.deps.instanceToRootSessionKey.clear()
       this.deps.instanceStates.clear()
     } finally {
+      for (const parentId of [...this.deferredDrainUnsubs.keys()]) {
+        this.clearDeferredDrainListener(parentId)
+      }
       this.orchestrator = null
       this.deps.finalizeShutdown()
     }
@@ -258,9 +265,161 @@ export class BridgeLifecycle {
           return findBuiltInAgent(inst.definitionId)?.name ?? inst.definitionId
         },
         isVerdictConsumptionEnabled: () => this.deps.getFeatureFlags().ENABLE_VERDICT_CONSUMPTION,
+        getParentMaxConcurrent: (parentInstanceId) => {
+          const parent = this.deps.agentRegistry.get(parentInstanceId)
+          if (!parent) return undefined
+          return findBuiltInAgent(parent.definitionId)?.subagentMaxConcurrent
+        },
+        onAsyncSubagentComplete: (payload) => {
+          void this.handleAsyncSubagentComplete(payload)
+        },
       })
+      log.info('[BridgeLifecycle] AgentOrchestrator created with subagent delivery pump')
     }
     return this.orchestrator
+  }
+
+  /**
+   * 异步子 Agent 完成后：按父状态投递，成功则 destroy 子实例
+   */
+  private async handleAsyncSubagentComplete(payload: SubagentCompletionPayload): Promise<void> {
+    const orch = this.orchestrator
+    if (!orch) {
+      log.warn(`[subagent] complete ignored: no orchestrator child=${payload.childId}`)
+      return
+    }
+
+    if (payload.parentId === '__orphan__') {
+      log.warn(`[subagent] complete without parent, destroy child=${payload.childId}`)
+      this.finishChildAfterDelivery(payload.childId)
+      orch.broker.removeCompletion(payload.parentId, payload.childId)
+      return
+    }
+
+    const parent = this.deps.agentRegistry.get(payload.parentId)
+    if (!parent) {
+      log.warn(
+        `[subagent] parent missing on complete parent=${payload.parentId} child=${payload.childId}, destroy child`,
+      )
+      this.finishChildAfterDelivery(payload.childId)
+      orch.broker.removeCompletion(payload.parentId, payload.childId)
+      return
+    }
+
+    try {
+      const mode = await deliverSubagentCompletion({
+        parent,
+        payload,
+        format: (p) => orch.broker.formatCompletionMessage(p),
+      })
+      if (mode === 'deferred') {
+        this.ensureDeferredDrainListener(payload.parentId)
+        return
+      }
+      orch.broker.removeCompletion(payload.parentId, payload.childId)
+      this.finishChildAfterDelivery(payload.childId)
+      log.info(
+        `[subagent] delivered mode=${mode} parent=${payload.parentId} child=${payload.childId} name=${payload.name}`,
+      )
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      log.error(
+        `[subagent] deliver failed parent=${payload.parentId} child=${payload.childId}: ${message}`,
+      )
+      // 投递失败时仍保留队列并监听 idle，避免丢完成通知
+      this.ensureDeferredDrainListener(payload.parentId)
+    }
+  }
+
+  /**
+   * 父处于不可投递状态时，等其回到 idle 再 drain 完成队列
+   */
+  private ensureDeferredDrainListener(parentId: string): void {
+    if (this.deferredDrainUnsubs.has(parentId)) return
+    const parent = this.deps.agentRegistry.get(parentId)
+    if (!parent) return
+
+    log.info(`[subagent] watch parent idle for deferred drain parent=${parentId}`)
+    const unsub = parent.subscribe((ev: AgentRuntimeEvent) => {
+      if (ev.type === 'agent:state-change' && ev.state === 'idle') {
+        void this.drainDeferredCompletions(parentId)
+      }
+    })
+    this.deferredDrainUnsubs.set(parentId, unsub)
+
+    // 若订阅时已 idle（竞态），立即尝试 drain
+    if (parent.state === 'idle') {
+      void this.drainDeferredCompletions(parentId)
+    }
+  }
+
+  /**
+   * drain 父下待投递完成载荷并逐条投递
+   */
+  private async drainDeferredCompletions(parentId: string): Promise<void> {
+    const orch = this.orchestrator
+    if (!orch) return
+    const parent = this.deps.agentRegistry.get(parentId)
+    if (!parent || parent.state !== 'idle') return
+
+    const payloads = orch.broker.drainCompletions(parentId)
+    if (payloads.length === 0) {
+      this.clearDeferredDrainListener(parentId)
+      return
+    }
+
+    log.info(`[subagent] draining deferred completions parent=${parentId} count=${payloads.length}`)
+    for (const payload of payloads) {
+      try {
+        const mode = await deliverSubagentCompletion({
+          parent,
+          payload,
+          format: (p) => orch.broker.formatCompletionMessage(p),
+        })
+        if (mode === 'deferred') {
+          orch.broker.enqueueCompletion(payload)
+          log.info(`[subagent] re-deferred during drain child=${payload.childId}`)
+          continue
+        }
+        this.finishChildAfterDelivery(payload.childId)
+        log.info(
+          `[subagent] deferred-drain delivered mode=${mode} child=${payload.childId}`,
+        )
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        log.error(`[subagent] deferred-drain failed child=${payload.childId}: ${message}`)
+        orch.broker.enqueueCompletion(payload)
+      }
+      // drain 过程中父可能又变 running（prompt 开了新回合），后续改走 followUp 或再 defer
+      if (parent.state !== 'idle' && parent.state !== 'running') {
+        break
+      }
+    }
+
+    const stillQueued = orch.broker.drainCompletions(parentId)
+    if (stillQueued.length > 0) {
+      for (const p of stillQueued) orch.broker.enqueueCompletion(p)
+      this.ensureDeferredDrainListener(parentId)
+    } else {
+      this.clearDeferredDrainListener(parentId)
+    }
+  }
+
+  /**
+   * 投递成功后销毁子实例（destroy 内会刷新活动快照）
+   */
+  private finishChildAfterDelivery(childId: string): void {
+    this.destroy(childId)
+    log.info(`[subagent] child destroyed after delivery child=${childId}`)
+  }
+
+  /** 取消 deferred drain 订阅 */
+  private clearDeferredDrainListener(parentId: string): void {
+    const unsub = this.deferredDrainUnsubs.get(parentId)
+    if (!unsub) return
+    unsub()
+    this.deferredDrainUnsubs.delete(parentId)
+    log.info(`[subagent] cleared deferred drain listener parent=${parentId}`)
   }
 
   /** 按 Agent 定义 ID 聚合运行时快照 */
