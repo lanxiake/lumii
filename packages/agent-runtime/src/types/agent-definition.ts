@@ -208,7 +208,10 @@ export interface AgentDefinition {
   readonly memory?: MemoryConfig;
 
   // ==================== 协作 ====================
-  /** 子 Agent 最大并发数 */
+  /**
+   * 子 Agent 最大并发数（该定义作为父时生效）
+   * 缺省由运行时 SUBAGENT_DEFAULTS.maxConcurrentChildren（5）接管，并夹到硬顶 10。
+   */
   readonly subagentMaxConcurrent?: number;
   /** 是否可以生成子 Agent */
   readonly canSpawnSubAgents?: boolean;

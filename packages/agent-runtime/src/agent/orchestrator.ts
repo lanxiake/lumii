@@ -14,6 +14,12 @@ import { AgentRegistry } from "./agent-registry.js";
 import type { AgentInstance } from "./agent-instance.js";
 import type { AgentRuntimeEvent } from "../types/events.js";
 import { parseVerdict, formatVerdictBanner, type Verdict } from "./verdict-parser.js";
+import {
+  SubagentBroker,
+  SUBAGENT_DEFAULTS,
+  clampConcurrentLimit,
+  type SubagentCompletionPayload,
+} from "./subagent-broker.js";
 
 /** spawn_agent 工具入参（与 spawn-agent-tool 对齐） */
 export interface SpawnAgentParams {
@@ -87,17 +93,31 @@ export interface AgentOrchestratorDeps {
    * killswitch：宿主可注入 featureFlags.ENABLE_VERDICT_CONSUMPTION 关闭。
    */
   readonly isVerdictConsumptionEnabled?: () => boolean;
+  /**
+   * 解析父实例的子 Agent 并发上限（来自父 AgentDefinition.subagentMaxConcurrent）
+   * 未提供时使用 SUBAGENT_DEFAULTS.maxConcurrentChildren
+   */
+  readonly getParentMaxConcurrent?: (parentInstanceId: string) => number | undefined;
+  /**
+   * 异步子 Agent 完成（已 enqueue）后的宿主回调；bridge 负责投递泵与 destroy
+   */
+  readonly onAsyncSubagentComplete?: (payload: SubagentCompletionPayload) => void;
 }
 
 /**
  * 多 Agent 编排器：spawn、send、活动列表
  */
 export class AgentOrchestrator {
+  readonly broker: SubagentBroker;
+
   constructor(
     private readonly registry: AgentRegistry,
     private readonly messageBus: MessageBus,
     private readonly deps: AgentOrchestratorDeps,
-  ) {}
+    broker?: SubagentBroker,
+  ) {
+    this.broker = broker ?? new SubagentBroker();
+  }
 
   /**
    * 在 MessageBus 上注册实例邮箱（实例创建后调用）
@@ -114,6 +134,17 @@ export class AgentOrchestrator {
   }
 
   /**
+   * 解析父下子 Agent 并发上限（夹到硬顶）
+   */
+  private resolveConcurrentLimit(parentInstanceId: string | undefined): number {
+    const requested =
+      parentInstanceId && this.deps.getParentMaxConcurrent
+        ? this.deps.getParentMaxConcurrent(parentInstanceId)
+        : undefined;
+    return clampConcurrentLimit(requested);
+  }
+
+  /**
    * 执行 spawn_agent：同步阻塞或异步后台
    *
    * @param parentInstanceId — 父实例 ID（来自工具执行上下文）
@@ -122,8 +153,8 @@ export class AgentOrchestrator {
     params: SpawnAgentParams,
     parentInstanceId: string | undefined,
   ): Promise<SpawnAgentResult> {
-    // 深度限制：防止子 Agent 递归委派（R1）
-    const MAX_SPAWN_DEPTH = 3;
+    // 深度限制：产品扁平委派 depth=1；更深委派属 P2，且需 bridge 放开 canSpawnSubAgents
+    const MAX_SPAWN_DEPTH = SUBAGENT_DEFAULTS.maxSpawnDepth;
     const currentDepth = params._spawnDepth ?? 0;
     if (currentDepth >= MAX_SPAWN_DEPTH) {
       return {
@@ -134,11 +165,23 @@ export class AgentOrchestrator {
       };
     }
 
+    const parentKey = parentInstanceId ?? "__orphan__";
+    const limit = this.resolveConcurrentLimit(parentInstanceId);
+    if (!this.broker.tryAcquireSlot(parentKey, limit)) {
+      return {
+        status: "error",
+        message:
+          `spawn_agent concurrency limit reached (max ${limit} running children). ` +
+          `Wait for a child to finish or interrupt one before spawning more.`,
+      };
+    }
+
     const typeKey = params.agentType?.trim() || "assistant";
     let agentDef: AgentDefinition;
     try {
       agentDef = await this.deps.resolveDefinition(typeKey);
     } catch (err) {
+      this.broker.releasePendingSlot(parentKey);
       const message = err instanceof Error ? err.message : String(err);
       return { status: "error", message: `resolveDefinition failed: ${message}` };
     }
@@ -162,6 +205,7 @@ export class AgentOrchestrator {
         spawnDepth: currentDepth + 1,
       });
     } catch (err) {
+      this.broker.releasePendingSlot(parentKey);
       const message = err instanceof Error ? err.message : String(err);
       return { status: "error", message: `createChildInstance failed: ${message}` };
     }
@@ -170,9 +214,17 @@ export class AgentOrchestrator {
     // 与 spawn_agent 工具 schema 默认值保持一致，避免被透传的 undefined 走回旧行为。
     const mode = params.mode ?? "sync";
 
+    this.broker.registerRun({
+      childId: childInstanceId,
+      parentId: parentKey,
+      name: params.name,
+      mode,
+    });
+
     if (mode === "sync") {
       const childInstance = this.deps.getInstance(childInstanceId);
       if (!childInstance) {
+        this.broker.releaseSlot(childInstanceId);
         return { status: "error", message: "sub-agent instance missing after create" };
       }
 
@@ -180,14 +232,23 @@ export class AgentOrchestrator {
       const unsub = childInstance.subscribe((event: AgentRuntimeEvent) => {
         if (event.type === "message:delta") {
           outputText += event.delta;
+          this.broker.updateProgress(childInstanceId);
         } else if (event.type === "message:end") {
           outputText = event.fullText;
+          this.broker.updateProgress(childInstanceId);
+        } else if (event.type === "tool:start") {
+          this.broker.updateProgress(childInstanceId);
         }
       });
 
       try {
         await this.deps.prompt(childInstanceId, params.prompt);
         await childInstance.waitForIdle();
+        this.broker.finalizeRun(childInstanceId, "succeeded", outputText);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.broker.finalizeRun(childInstanceId, "failed", outputText, message);
+        throw err;
       } finally {
         unsub();
         this.deps.destroy(childInstanceId);
@@ -212,9 +273,38 @@ export class AgentOrchestrator {
       return { status: "ok", mode: "sync", instanceId: childInstanceId, output: outputText };
     }
 
-    void this.deps.prompt(childInstanceId, params.prompt).catch(() => {
-      // 宿主侧可打日志
+    // async：后台跑完后入完成队列，由 bridge 投递（destroy 亦由投递成功后执行）
+    const child = this.deps.getInstance(childInstanceId);
+    let outputText = "";
+    const unsub = child?.subscribe((event: AgentRuntimeEvent) => {
+      if (event.type === "message:delta") {
+        outputText += event.delta;
+        this.broker.updateProgress(childInstanceId);
+      } else if (event.type === "message:end") {
+        outputText = event.fullText;
+        this.broker.updateProgress(childInstanceId);
+      } else if (event.type === "tool:start") {
+        this.broker.updateProgress(childInstanceId);
+      }
     });
+
+    void (async () => {
+      try {
+        await this.deps.prompt(childInstanceId, params.prompt);
+        await child?.waitForIdle();
+        this.broker.finalizeRun(childInstanceId, "succeeded", outputText);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        this.broker.finalizeRun(childInstanceId, "failed", outputText, message);
+      } finally {
+        unsub?.();
+        const payload = this.broker.buildCompletion(childInstanceId);
+        if (payload) {
+          this.broker.enqueueCompletion(payload);
+          this.deps.onAsyncSubagentComplete?.(payload);
+        }
+      }
+    })();
 
     return {
       status: "ok",

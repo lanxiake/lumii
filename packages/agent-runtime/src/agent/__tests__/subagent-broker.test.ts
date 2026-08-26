@@ -40,6 +40,14 @@ describe("SubagentBroker", () => {
     expect(broker.tryAcquireSlot(parentId, limit)).toBe(false);
   });
 
+  it("pending 预订占用槽：未 register 前也不可超额 acquire", () => {
+    const parentId = "parent-1";
+    expect(broker.tryAcquireSlot(parentId, 1)).toBe(true);
+    expect(broker.tryAcquireSlot(parentId, 1)).toBe(false);
+    broker.releasePendingSlot(parentId);
+    expect(broker.tryAcquireSlot(parentId, 1)).toBe(true);
+  });
+
   it("finalizeRun 后释放并发槽，可再次 acquire", () => {
     const parentId = "parent-1";
     expect(broker.tryAcquireSlot(parentId, 1)).toBe(true);

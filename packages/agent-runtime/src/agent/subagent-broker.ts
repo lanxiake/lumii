@@ -72,6 +72,8 @@ export function clampConcurrentLimit(
 export class SubagentBroker {
   private readonly runs = new Map<string, SubagentRunRecord>();
   private readonly completionQueues = new Map<string, SubagentCompletionPayload[]>();
+  /** 已 acquire 尚未 registerRun 的预订槽（避免 await 间隙超并发） */
+  private readonly pendingSlots = new Map<string, number>();
   private readonly nowFn: () => number;
 
   /**
@@ -82,14 +84,27 @@ export class SubagentBroker {
   }
 
   /**
-   * 尝试占用父下的一个并发槽：running 数已达 limit 则返回 false
+   * 尝试预订父下的一个并发槽：running+pending 已达 limit 则返回 false
    */
   tryAcquireSlot(parentId: string, limit: number): boolean {
-    return this.countRunning(parentId) < limit;
+    const pending = this.pendingSlots.get(parentId) ?? 0;
+    if (this.countRunning(parentId) + pending >= limit) return false;
+    this.pendingSlots.set(parentId, pending + 1);
+    return true;
   }
 
   /**
-   * 释放槽位：移除仍为 running 的记录（创建失败等路径）
+   * 释放已预订但尚未 register 的槽（resolve/create 失败路径）
+   */
+  releasePendingSlot(parentId: string): void {
+    const pending = this.pendingSlots.get(parentId) ?? 0;
+    if (pending <= 0) return;
+    if (pending === 1) this.pendingSlots.delete(parentId);
+    else this.pendingSlots.set(parentId, pending - 1);
+  }
+
+  /**
+   * 释放槽位：移除仍为 running 的记录（创建后立刻失败等路径）
    */
   releaseSlot(childId: string): void {
     const run = this.runs.get(childId);
@@ -98,9 +113,10 @@ export class SubagentBroker {
   }
 
   /**
-   * 登记一次子 Agent 运行（计入并发）
+   * 登记一次子 Agent 运行（消耗一次 pending，计入 running）
    */
   registerRun(input: RegisterSubagentRunInput): SubagentRunRecord {
+    this.releasePendingSlot(input.parentId);
     const now = input.startedAt ?? this.nowFn();
     const record: SubagentRunRecord = {
       childId: input.childId,
