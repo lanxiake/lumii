@@ -34,6 +34,12 @@ export interface WikiSynthesizeOptions {
   readonly outputRoot?: string;
 }
 
+/** 直接成页选项：固定 wiki 路径，跳过用户 accept 手势 */
+export interface WikiSynthesizeDirectOptions extends WikiSynthesizeOptions {
+  /** 目标 wiki 页面路径，如 syntheses/overview-sources */
+  readonly path: string;
+}
+
 /**
  * 按段落边界分块：优先在 `\n\n` 处断开；单段超限时再硬切。
  * 空输入返回空数组。
@@ -255,6 +261,76 @@ export class WikiSynthesizer {
       title: row.title,
       contentMd,
     });
+  }
+
+  /**
+   * 自动成页：合成后直接写入指定 path（不经 accept 手势）。
+   * 仍写 wiki_syntheses 记录便于审计，完成后 status=accepted。
+   */
+  async synthesizeDirectToPath(
+    agentId: string,
+    userId: string,
+    pageIds: readonly string[],
+    options: WikiSynthesizeDirectOptions,
+  ): Promise<WikiPage> {
+    if (pageIds.length === 0) {
+      throw new Error("合成至少需要一个页面 id");
+    }
+
+    const pages: WikiPage[] = [];
+    for (const id of pageIds) {
+      const page = this.repo.findPageById(id);
+      if (!page || page.agent_id !== agentId || page.user_id !== userId) {
+        throw new Error(`页面不存在或无权访问: ${id}`);
+      }
+      pages.push(page);
+    }
+
+    const title = options.title?.trim() || `${pages[0]!.title} 综述`;
+    const sourceIds = this.collectSourceIds(agentId, userId, pages);
+    const synthesisId = this.repo.insertSynthesis({
+      agentId,
+      userId,
+      sourcePageIds: pageIds,
+      sourceIds,
+      title,
+      candidateMd: "（生成中…）",
+      error: "progress:0/0",
+    });
+
+    try {
+      await this.runPipeline(synthesisId, pages, title, options.outputRoot ?? "outputs/wiki-syntheses");
+      const row = this.repo.findSynthesisById(synthesisId);
+      if (!row || !row.output_path) {
+        throw new Error("合成未完成，缺少落盘路径");
+      }
+      const sourcePages = row.source_page_ids
+        .map((id) => this.repo.findPageById(id))
+        .filter((p): p is WikiPage => p !== null);
+      const contentMd = buildAcceptedSynthesisPageMd({
+        title: row.title,
+        sourceCount: row.source_page_ids.length,
+        outputRelPath: row.output_path,
+        bodyMd: row.candidate_md,
+        sourcePages,
+      });
+      return this.repo.acceptSynthesis({
+        synthesisId,
+        agentId,
+        userId,
+        path: options.path,
+        title: row.title,
+        contentMd,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.repo.finishSynthesisCandidate(synthesisId, {
+        candidateMd: "",
+        outputPath: null,
+        error: message,
+      });
+      throw err;
+    }
   }
 
   /** 拒绝候选：保留记录，不建页 */
