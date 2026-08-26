@@ -1,37 +1,43 @@
 /**
- * 测试用真实 SQLite 适配器（基于 Node 22 内置 node:sqlite）
+ * 测试用真实 SQLite 适配器
  *
- * 为什么不用 createMemoryDatabase：
- * - better-sqlite3 原生绑定按 Electron ABI 编译，系统 Node 下 vitest 加载失败
- * - node:sqlite 是 Node 内置，跨环境可用，仅需 `--experimental-sqlite` 标志
+ * 优先 better-sqlite3（默认编译含 FTS5）；若不可用再回退 node:sqlite。
+ * 系统 Node 自带的 node:sqlite 常未启用 FTS5（报 no such module: fts5），
+ * 而 Electron 路径与 better-sqlite3 均支持 FTS5。
  *
- * 用法：vitest 需带 NODE_OPTIONS=--experimental-sqlite（见 package.json test 脚本）。
- * 返回已应用全部 MIGRATIONS 的内存库适配器。
+ * 用法：vitest 需能加载 better-sqlite3（宿主 Node ABI）或带 --experimental-sqlite。
  */
 
 import { createRequire } from "node:module";
 import type { DatabaseAdapter, PreparedStatement, StatementResult } from "../../storage/local-database.js";
 import { MIGRATIONS } from "../../storage/schema.js";
 
-// 用 createRequire 在运行时直接加载内置 node:sqlite，绕过 vite 对 "node:sqlite" 的打包解析
 const nodeRequire = createRequire(import.meta.url);
 
-interface DatabaseSyncLike {
-  exec(sql: string): void;
-  prepare(sql: string): {
-    run(...params: unknown[]): { changes: number; lastInsertRowid: number | bigint };
-    get(...params: unknown[]): unknown;
-    all(...params: unknown[]): unknown[];
-  };
-  close(): void;
+/** 探测适配器是否支持 FTS5 */
+function supportsFts5(db: DatabaseAdapter): boolean {
+  try {
+    db.exec("CREATE VIRTUAL TABLE __fts5_probe USING fts5(x)");
+    db.exec("DROP TABLE __fts5_probe");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-export function createTestSqliteAdapter(): DatabaseAdapter {
-  const { DatabaseSync } = nodeRequire("node:sqlite") as {
-    DatabaseSync: new (path: string) => DatabaseSyncLike;
+function wrapBetterSqlite(dbPath: string): DatabaseAdapter {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const BetterSqlite = nodeRequire("better-sqlite3") as new (path: string) => {
+    exec(sql: string): void;
+    prepare(sql: string): {
+      run(...params: unknown[]): { changes: number; lastInsertRowid: number | bigint };
+      get(...params: unknown[]): unknown;
+      all(...params: unknown[]): unknown[];
+    };
+    close(): void;
   };
-  const sq = new DatabaseSync(":memory:");
-  const adapter: DatabaseAdapter = {
+  const sq = new BetterSqlite(dbPath);
+  return {
     exec: (sql: string) => sq.exec(sql),
     prepare: <T = Record<string, unknown>>(sql: string): PreparedStatement<T> => {
       const stmt = sq.prepare(sql);
@@ -44,7 +50,56 @@ export function createTestSqliteAdapter(): DatabaseAdapter {
     },
     close: () => sq.close(),
   };
-  return adapter;
+}
+
+function wrapNodeSqlite(dbPath: string): DatabaseAdapter {
+  const { DatabaseSync } = nodeRequire("node:sqlite") as {
+    DatabaseSync: new (path: string) => {
+      exec(sql: string): void;
+      prepare(sql: string): {
+        run(...params: unknown[]): { changes: number; lastInsertRowid: number | bigint };
+        get(...params: unknown[]): unknown;
+        all(...params: unknown[]): unknown[];
+      };
+      close(): void;
+    };
+  };
+  const sq = new DatabaseSync(dbPath);
+  return {
+    exec: (sql: string) => sq.exec(sql),
+    prepare: <T = Record<string, unknown>>(sql: string): PreparedStatement<T> => {
+      const stmt = sq.prepare(sql);
+      return {
+        run: (...params: unknown[]): StatementResult =>
+          stmt.run(...params) as unknown as StatementResult,
+        get: (...params: unknown[]): T | undefined => stmt.get(...params) as T | undefined,
+        all: (...params: unknown[]): T[] => stmt.all(...params) as T[],
+      };
+    },
+    close: () => sq.close(),
+  };
+}
+
+/**
+ * 创建测试用 SQLite 适配器：优先带 FTS5 的 better-sqlite3，否则 node:sqlite。
+ */
+export function createTestSqliteAdapter(): DatabaseAdapter {
+  try {
+    const db = wrapBetterSqlite(":memory:");
+    if (supportsFts5(db)) return db;
+    db.close();
+  } catch {
+    // fall through
+  }
+
+  const nodeDb = wrapNodeSqlite(":memory:");
+  if (!supportsFts5(nodeDb)) {
+    nodeDb.close();
+    throw new Error(
+      "测试库需要 FTS5：请安装并重建 better-sqlite3（pnpm --filter @mtbot/agent-runtime rebuild better-sqlite3）",
+    );
+  }
+  return nodeDb;
 }
 
 /** 建一个已迁移到最新 schema 的内存库 */

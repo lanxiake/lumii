@@ -17,6 +17,70 @@ export { serializeAttachmentReference, isAttachmentReferenceLine } from "./wiki-
 export { WikiConceptCandidateScanner, buildConceptScanPrompt } from "./wiki-concept-candidate.js";
 export type { WikiConceptType, WikiConceptCandidate } from "./wiki-concept-candidate.js";
 
+export {
+  WikiSynthesizer,
+  chunkByParagraphs,
+  truncateSynthesis,
+  buildSynthesisFilename,
+  resolveUniqueFilename,
+  buildAcceptedSynthesisPageMd,
+  parseSynthesisProgress,
+  SYNTHESIS_CHUNK_SIZE,
+  SYNTHESIS_MAX_OUTPUT_CHARS,
+  SYNTHESIS_MAX_CHUNKS,
+} from "./wiki-synthesizer.js";
+export type { WikiSynthesizerFsDeps, WikiSynthesizeOptions } from "./wiki-synthesizer.js";
+
+export { WikiGraphBuilder } from "./wiki-graph.js";
+export type {
+  WikiGraphNode,
+  WikiGraphEdge,
+  WikiGraphData,
+  WikiGraphBuildOptions,
+} from "./wiki-graph.js";
+
+export { WikiPageStatusScanner } from "./wiki-page-status.js";
+export type {
+  WikiStatusScanReason,
+  WikiPageStatusCandidate,
+  WikiPageStatusScanOptions,
+} from "./wiki-page-status.js";
+
+export {
+  computeForgettingScore,
+  rankByForgettingScore,
+} from "./wiki-forgetting.js";
+export type { ForgettingScoreInput } from "./wiki-forgetting.js";
+
+export {
+  WikiEroRepo,
+  bootstrapEroFromWikilinks,
+  mergeRelationStrength,
+} from "./wiki-ero.js";
+export type {
+  WikiEntityType,
+  WikiEntity,
+  WikiObservation,
+  WikiRelation,
+} from "./wiki-ero.js";
+
+export {
+  WikiVectorIndex,
+  createBigramHashEmbedder,
+  cosineSimilarity,
+  reciprocalRankFusion,
+  mergeHybridRanks,
+  hashContent,
+  DEFAULT_EMBED_MODEL_ID,
+  DEFAULT_EMBED_DIMS,
+  RRF_K,
+} from "./wiki-vector.js";
+export type {
+  WikiEmbedder,
+  WikiHybridSearchHit,
+  WikiHybridSearchResult,
+} from "./wiki-vector.js";
+
 export { WikiExporter, sanitizeFilenameSegment, isPathTraversalSafe } from "./wiki-exporter.js";
 export type {
   WikiExporterDeps,
@@ -69,6 +133,8 @@ export type {
   WikiLink,
   WikiBacklink,
   WikiAttachment,
+  WikiSynthesis,
+  WikiSynthesisStatus,
 } from "./types.js";
 
 export { parseWikilinks } from "./wiki-link-parser.js";

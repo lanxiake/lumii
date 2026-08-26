@@ -42,6 +42,11 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'wiki:cleanup:scan', 'wiki:source:archive', 'wiki:source:restore', 'wiki:source:delete',
   'wiki:attach:list', 'wiki:attach:add', 'wiki:attach:remove', 'wiki:export',
   'wiki:concept:scan', 'wiki:concept:confirm', 'wiki:concept:reject',
+  'wiki:synthesis:create', 'wiki:synthesis:list', 'wiki:synthesis:get',
+  'wiki:synthesis:accept', 'wiki:synthesis:reject',
+  'wiki:graph:data', 'wiki:status:scan', 'wiki:status:confirm',
+  'wiki:ero:bootstrap', 'wiki:ero:list',
+  'wiki:search:hybrid', 'wiki:vector:rebuild',
   // MCP 只读
   'mcp:status',
   // 存储只读

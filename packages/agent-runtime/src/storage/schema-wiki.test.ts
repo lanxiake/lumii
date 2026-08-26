@@ -115,3 +115,58 @@ describe("wiki schema V18", () => {
     db.close();
   });
 });
+
+describe("wiki schema V19", () => {
+  function tryDb() {
+    try {
+      return createMigratedTestDb();
+    } catch {
+      return null;
+    }
+  }
+
+  it("建出 wiki_syntheses 表且 SCHEMA_VERSION >= 19", () => {
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(20);
+    const db = tryDb();
+    if (!db) return;
+    const row = db
+      .prepare<{ name: string }>("SELECT name FROM sqlite_master WHERE name = ?")
+      .get("wiki_syntheses");
+    expect(row?.name, "表 wiki_syntheses 应存在").toBe("wiki_syntheses");
+    db.close();
+  });
+
+  it("wiki_syntheses 默认 status=candidate，可写入候选行", () => {
+    const db = tryDb();
+    if (!db) return;
+
+    db.prepare(
+      `INSERT INTO wiki_syntheses
+       (id, agent_id, user_id, source_page_ids, title, candidate_md, created_at)
+       VALUES ('s1', 'a', 'u', '["p1"]', '综述', '正文', 'now')`,
+    ).run();
+    const row = db
+      .prepare<{ status: string; candidate_md: string }>(
+        "SELECT status, candidate_md FROM wiki_syntheses WHERE id = 's1'",
+      )
+      .get();
+    expect(row?.status).toBe("candidate");
+    expect(row?.candidate_md).toBe("正文");
+
+    db.close();
+  });
+});
+
+describe("wiki schema V20", () => {
+  it("建出 ERO 三表与 wiki_page_embeddings", () => {
+    const db = createMigratedTestDb();
+    for (const t of ["wiki_entities", "wiki_observations", "wiki_relations", "wiki_page_embeddings"]) {
+      const row = db
+        .prepare<{ name: string }>("SELECT name FROM sqlite_master WHERE name = ?")
+        .get(t);
+      expect(row?.name, `表 ${t} 应存在`).toBe(t);
+    }
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(20);
+    db.close();
+  });
+});

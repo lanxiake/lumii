@@ -66,6 +66,26 @@ export interface WikiAttachment {
 /** 页面状态：P1 只落 active，outdated/doubtful/archived 由 P2 UI 启用 */
 export type WikiPageStatus = "active" | "outdated" | "doubtful" | "archived";
 
+/** 综述合成运行状态：候选审阅 → 接受建页 / 拒绝保留 */
+export type WikiSynthesisStatus = "candidate" | "accepted" | "rejected";
+
+/** 综述合成运行记录（wiki_syntheses） */
+export interface WikiSynthesis {
+  readonly id: string;
+  readonly agent_id: string;
+  readonly user_id: string;
+  readonly page_id: string | null;
+  readonly source_page_ids: readonly string[];
+  readonly source_ids: readonly string[] | null;
+  readonly title: string;
+  readonly output_path: string | null;
+  readonly candidate_md: string;
+  readonly status: WikiSynthesisStatus;
+  readonly error: string | null;
+  readonly created_at: string;
+  readonly finished_at: string | null;
+}
+
 export interface WikiPage {
   readonly id: string;
   readonly agent_id: string;

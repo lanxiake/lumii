@@ -8,7 +8,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import MDEditor from '@uiw/react-md-editor'
-import { Search, Inbox, FileText, Image as ImageIcon, RefreshCw, Trash2, History, Sparkles } from 'lucide-react'
+import { Search, Inbox, FileText, Image as ImageIcon, RefreshCw, Trash2, History, Sparkles, Network, BookOpen } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import { Loading } from '../../../components/ui/Loading/Loading'
 import { ConfirmModal } from '../../../components/ui/Modal'
@@ -22,12 +22,14 @@ import {
 } from '../../../hooks/business/useWikiPage'
 import { PageSidebar } from './PageSidebar'
 import { CleanupView } from './CleanupView'
+import { SynthesisView } from './SynthesisView'
+import { WikiGraphView } from './WikiGraphView'
 import { LinkAutocomplete, detectWikilinkTrigger } from './LinkAutocomplete'
 import { uploadFilesForWikiAttachment } from './wikiAttachmentUpload'
 import './WikiTab.css'
 
 type WikiCategory = 'sources' | 'media' | 'inbox'
-type RightView = 'page' | 'inbox' | 'runs' | 'cleanup'
+type RightView = 'page' | 'inbox' | 'runs' | 'cleanup' | 'synthesis' | 'graph'
 
 const CATEGORY_LABEL: Record<WikiCategory, string> = {
   sources: '资料',
@@ -75,6 +77,16 @@ export const WikiTab: React.FC = () => {
     archiveSources,
     restoreSources,
     deleteSources,
+    createSynthesis,
+    listSyntheses,
+    getSynthesis,
+    acceptSynthesis,
+    rejectSynthesis,
+    getGraphData,
+    statusScan,
+    confirmStatus,
+    searchHybrid,
+    bootstrapEro,
     loading,
   } = useWikiPage()
 
@@ -94,6 +106,8 @@ export const WikiTab: React.FC = () => {
   const [deleteConfirm, setDeleteConfirm] = useState<{ backlinks: number } | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const [linkQuery, setLinkQuery] = useState<string | null>(null)
+  const [searchDegradeReason, setSearchDegradeReason] = useState<string | null>(null)
+  const [searchMode, setSearchMode] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   const refreshPages = useCallback(async () => {
@@ -126,6 +140,8 @@ export const WikiTab: React.FC = () => {
   const handleSelectCategory = useCallback((cat: WikiCategory) => {
     setCategory(cat)
     setSearchResults(null)
+    setSearchDegradeReason(null)
+    setSearchMode(null)
     setRightView(cat === 'inbox' ? 'inbox' : 'page')
     setSelectedPage(null)
   }, [])
@@ -193,10 +209,21 @@ export const WikiTab: React.FC = () => {
   const handleSearch = useCallback(async () => {
     if (!query.trim()) {
       setSearchResults(null)
+      setSearchDegradeReason(null)
+      setSearchMode(null)
+      return
+    }
+    const hybrid = await searchHybrid(query)
+    if (hybrid) {
+      setSearchResults(hybrid.hits)
+      setSearchDegradeReason(hybrid.degradeReason)
+      setSearchMode(hybrid.mode)
       return
     }
     setSearchResults(await search(query))
-  }, [query, search])
+    setSearchDegradeReason('混合检索不可用，已回退全文检索')
+    setSearchMode('fts')
+  }, [query, search, searchHybrid])
 
   const handleRebuildIndex = useCallback(async () => {
     await rebuildIndex()
@@ -304,6 +331,24 @@ export const WikiTab: React.FC = () => {
           <span>清理</span>
         </button>
 
+        <button
+          type="button"
+          className={`wiki-runs-entry ${rightView === 'synthesis' ? 'wiki-category-item--active' : ''}`}
+          onClick={() => setRightView('synthesis')}
+        >
+          <BookOpen size={14} />
+          <span>综述合成</span>
+        </button>
+
+        <button
+          type="button"
+          className={`wiki-runs-entry ${rightView === 'graph' ? 'wiki-category-item--active' : ''}`}
+          onClick={() => setRightView('graph')}
+        >
+          <Network size={14} />
+          <span>图谱</span>
+        </button>
+
         <div className="wiki-left-footer">
           <Button variant="ghost" size="sm" onClick={() => void handleRebuildIndex()}>
             <RefreshCw size={12} style={{ marginRight: 4 }} />
@@ -321,7 +366,15 @@ export const WikiTab: React.FC = () => {
 
         {searchResults !== null ? (
           <div className="wiki-search-results">
-            <h3>搜索结果（{searchResults.length}）</h3>
+            <h3>
+              搜索结果（{searchResults.length}）
+              {searchMode ? <span className="wiki-search-mode"> · {searchMode}</span> : null}
+            </h3>
+            {searchDegradeReason && (
+              <p className="wiki-search-degrade" role="status">
+                {searchDegradeReason}
+              </p>
+            )}
             {searchResults.length === 0 ? (
               <p className="wiki-empty-hint">未找到相关页面</p>
             ) : (
@@ -387,6 +440,25 @@ export const WikiTab: React.FC = () => {
             archiveSources={archiveSources}
             restoreSources={restoreSources}
             deleteSources={deleteSources}
+            statusScan={statusScan}
+            confirmStatus={confirmStatus}
+          />
+        ) : rightView === 'synthesis' ? (
+          <SynthesisView
+            pages={pages}
+            createSynthesis={createSynthesis}
+            listSyntheses={listSyntheses}
+            getSynthesis={getSynthesis}
+            acceptSynthesis={acceptSynthesis}
+            rejectSynthesis={rejectSynthesis}
+            onOpenPage={(pageId) => void handleOpenPage(pageId)}
+          />
+        ) : rightView === 'graph' ? (
+          <WikiGraphView
+            pages={pages}
+            getGraphData={getGraphData}
+            onOpenPage={(pageId) => void handleOpenPage(pageId)}
+            bootstrapEro={bootstrapEro}
           />
         ) : selectedPage ? (
           <div className="wiki-page-view-layout">

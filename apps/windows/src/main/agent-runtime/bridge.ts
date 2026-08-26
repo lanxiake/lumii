@@ -76,6 +76,8 @@ import {
   WikiConceptCandidateScanner,
   WikiExporter,
   type WikiExporterDeps,
+  WikiSynthesizer,
+  type WikiSynthesizerFsDeps,
 } from '@mtbot/agent-runtime'
 import { McpManager, type McpServerRuntimeStatus } from './mcp-manager'
 import type { McpServerEntry } from '../config/mcp-config'
@@ -363,6 +365,49 @@ export class AgentRuntimeBridge {
       joinPath: (...segments) => path.join(...segments),
     }
     return new WikiExporter(deps)
+  }
+
+  /**
+   * 按需创建综述合成器：落盘相对 workspace cwd，LLM 走 wiki_synthesis purpose。
+   */
+  createWikiSynthesizer(): WikiSynthesizer {
+    const cwd = this.config.getCwd()
+    const resolve = (p: string) => (path.isAbsolute(p) ? p : path.join(cwd, p))
+    const deps: WikiSynthesizerFsDeps = {
+      mkdir: async (dirPath) => {
+        await fs.promises.mkdir(resolve(dirPath), { recursive: true })
+      },
+      writeFile: async (filePath, content) => {
+        await fs.promises.writeFile(resolve(filePath), content, 'utf-8')
+      },
+      joinPath: (...segments) => path.join(...segments),
+      listDir: async (dirPath) => {
+        try {
+          return await fs.promises.readdir(resolve(dirPath))
+        } catch {
+          return []
+        }
+      },
+    }
+    return new WikiSynthesizer(
+      this.wikiRepo,
+      (prompt) => this.callLLM(prompt, undefined, 'wiki_synthesis'),
+      deps,
+    )
+  }
+
+  private _wikiEmbedderCache: import('./wiki-transformers-embedder').WikiHostEmbedderResult | null = null
+
+  /**
+   * 解析 Wiki 向量后端（懒加载缓存）：优先 multilingual-e5-small，失败回退 bigram。
+   */
+  async resolveWikiEmbedder(forceReload = false): Promise<import('./wiki-transformers-embedder').WikiHostEmbedderResult> {
+    if (this._wikiEmbedderCache && !forceReload) return this._wikiEmbedderCache
+    const { resolveWikiHostEmbedder } = await import('./wiki-transformers-embedder')
+    this._wikiEmbedderCache = await resolveWikiHostEmbedder({
+      enabled: process.env.LUMII_WIKI_VECTOR !== '0',
+    })
+    return this._wikiEmbedderCache
   }
 
   setSkillEvolutionEngine(engine: import('../skill-evolution/index').SkillEvolutionEngine): void {

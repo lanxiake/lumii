@@ -12,4 +12,8 @@ export {
   type WikiAttachmentItem,
   type WikiExportResultItem,
   type WikiConceptCandidateItem,
+  type WikiSynthesisListItem,
+  type WikiSynthesisDetail,
+  type WikiGraphDataItem,
+  type WikiStatusCandidateItem,
 } from './useWikiPage'

@@ -522,6 +522,101 @@ export interface WikiConceptRejectCommand {
   readonly conceptType: 'concept' | 'entity'
 }
 
+export interface WikiSynthesisCreateCommand {
+  readonly type: 'wiki:synthesis:create'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  /** 参与合成的页面 id 列表；与 category 二选一（category 优先展开为该分类下全部页） */
+  readonly pageIds?: readonly string[]
+  /** 按分类全选页面发起合成 */
+  readonly category?: string
+  readonly title?: string
+}
+
+export interface WikiSynthesisListCommand {
+  readonly type: 'wiki:synthesis:list'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly status?: 'candidate' | 'accepted' | 'rejected'
+}
+
+export interface WikiSynthesisGetCommand {
+  readonly type: 'wiki:synthesis:get'
+  readonly synthesisId: string
+}
+
+export interface WikiSynthesisAcceptCommand {
+  readonly type: 'wiki:synthesis:accept'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly synthesisId: string
+}
+
+export interface WikiSynthesisRejectCommand {
+  readonly type: 'wiki:synthesis:reject'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly synthesisId: string
+}
+
+export interface WikiGraphDataCommand {
+  readonly type: 'wiki:graph:data'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  /** 中心页 id；与 category 二选一 */
+  readonly centerPageId?: string
+  readonly category?: string
+  /** 邻域半径，默认 1 */
+  readonly radius?: number
+  /** 节点数上限，默认 50 */
+  readonly limit?: number
+}
+
+export interface WikiStatusScanCommand {
+  readonly type: 'wiki:status:scan'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly staleDays?: number
+}
+
+export interface WikiStatusConfirmCommand {
+  readonly type: 'wiki:status:confirm'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly pageId: string
+  /** 确认采纳建议状态，或 reject 清除候选 */
+  readonly action: 'confirm' | 'reject'
+  readonly status?: 'outdated' | 'doubtful' | 'archived'
+}
+
+export interface WikiEroBootstrapCommand {
+  readonly type: 'wiki:ero:bootstrap'
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
+export interface WikiEroListCommand {
+  readonly type: 'wiki:ero:list'
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
+export interface WikiSearchHybridCommand {
+  readonly type: 'wiki:search:hybrid'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly keyword: string
+  readonly limit?: number
+  /** 默认 true；false 时仅 FTS 并返回 degradeReason */
+  readonly enableVector?: boolean
+}
+
+export interface WikiVectorRebuildCommand {
+  readonly type: 'wiki:vector:rebuild'
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
 // ============================================================
 // 工具管理命令
 // ============================================================
@@ -1126,6 +1221,18 @@ export type AgentRuntimeCommand =
   | WikiConceptScanCommand
   | WikiConceptConfirmCommand
   | WikiConceptRejectCommand
+  | WikiSynthesisCreateCommand
+  | WikiSynthesisListCommand
+  | WikiSynthesisGetCommand
+  | WikiSynthesisAcceptCommand
+  | WikiSynthesisRejectCommand
+  | WikiGraphDataCommand
+  | WikiStatusScanCommand
+  | WikiStatusConfirmCommand
+  | WikiEroBootstrapCommand
+  | WikiEroListCommand
+  | WikiSearchHybridCommand
+  | WikiVectorRebuildCommand
   | ToolsListCommand
   | ToolsToggleCommand
   | McpStatusCommand
@@ -1469,6 +1576,80 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
     }[]
   : T extends 'wiki:concept:confirm' ? { pageId: string; path: string }
   : T extends 'wiki:concept:reject' ? { success: boolean }
+  : T extends 'wiki:synthesis:create' ? { synthesisId: string }
+  : T extends 'wiki:synthesis:list' ? readonly {
+      id: string
+      title: string
+      status: string
+      sourcePageIds: readonly string[]
+      outputPath: string | null
+      error: string | null
+      progress: { chunk: number; total: number } | null
+      pageId: string | null
+      createdAt: number
+      finishedAt: number | null
+    }[]
+  : T extends 'wiki:synthesis:get' ? {
+      id: string
+      title: string
+      status: string
+      candidateMd: string
+      sourcePageIds: readonly string[]
+      sourceIds: readonly string[] | null
+      sourcePages: readonly { id: string; title: string; path: string }[]
+      outputPath: string | null
+      error: string | null
+      progress: { chunk: number; total: number } | null
+      pageId: string | null
+      createdAt: number
+      finishedAt: number | null
+    }
+  : T extends 'wiki:synthesis:accept' ? { pageId: string; path: string }
+  : T extends 'wiki:synthesis:reject' ? { success: boolean }
+  : T extends 'wiki:graph:data' ? {
+      nodes: readonly {
+        id: string
+        title: string
+        path: string
+        category: string
+        useCount: number
+      }[]
+      edges: readonly {
+        id: string
+        source: string
+        target: string
+        anchorText: string
+      }[]
+      truncated: boolean
+    }
+  : T extends 'wiki:status:scan' ? readonly {
+      pageId: string
+      title: string
+      path: string
+      suggestedStatus: string
+      reason: string
+    }[]
+  : T extends 'wiki:status:confirm' ? { success: boolean }
+  : T extends 'wiki:ero:bootstrap' ? { entities: number; relations: number }
+  : T extends 'wiki:ero:list' ? {
+      entities: readonly unknown[]
+      relations: readonly unknown[]
+    }
+  : T extends 'wiki:search:hybrid' ? {
+      hits: readonly {
+        pageId: string
+        path: string
+        category: string
+        title: string
+        snippet: string
+        updatedAt: number
+        mode: string
+      }[]
+      degradeReason: string | null
+      mode: string
+      backend?: string
+    }
+  : T extends 'wiki:vector:rebuild' ? { rebuiltCount: number; backend?: string; notice?: string | null }
   : T extends 'tools:list' ? readonly {
       name: string
       label: string

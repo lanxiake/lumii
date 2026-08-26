@@ -111,6 +111,50 @@ export interface WikiConceptCandidateItem {
   readonly suggestedContentMd: string
 }
 
+export interface WikiSynthesisListItem {
+  readonly id: string
+  readonly title: string
+  readonly status: string
+  readonly sourcePageIds: readonly string[]
+  readonly outputPath: string | null
+  readonly error: string | null
+  readonly progress: { chunk: number; total: number } | null
+  readonly pageId: string | null
+  readonly createdAt: number
+  readonly finishedAt: number | null
+}
+
+export interface WikiSynthesisDetail extends WikiSynthesisListItem {
+  readonly candidateMd: string
+  readonly sourceIds: readonly string[] | null
+  readonly sourcePages: readonly { id: string; title: string; path: string }[]
+}
+
+export interface WikiGraphDataItem {
+  readonly nodes: readonly {
+    id: string
+    title: string
+    path: string
+    category: string
+    useCount: number
+  }[]
+  readonly edges: readonly {
+    id: string
+    source: string
+    target: string
+    anchorText: string
+  }[]
+  readonly truncated: boolean
+}
+
+export interface WikiStatusCandidateItem {
+  readonly pageId: string
+  readonly title: string
+  readonly path: string
+  readonly suggestedStatus: string
+  readonly reason: string
+}
+
 export function useWikiPage() {
   const [loading, setLoading] = useState(false)
 
@@ -481,6 +525,178 @@ export function useWikiPage() {
     }
   }, [])
 
+  const createSynthesis = useCallback(
+    async (params: {
+      pageIds?: readonly string[]
+      category?: string
+      title?: string
+    }): Promise<string | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      setLoading(true)
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:synthesis:create',
+          pageIds: params.pageIds,
+          category: params.category,
+          title: params.title,
+        })) as { synthesisId: string }
+        return r?.synthesisId ?? null
+      } catch {
+        return null
+      } finally {
+        setLoading(false)
+      }
+    },
+    [],
+  )
+
+  const listSyntheses = useCallback(
+    async (status?: 'candidate' | 'accepted' | 'rejected'): Promise<readonly WikiSynthesisListItem[]> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return []
+      try {
+        const rows = (await api.sendCommand({ type: 'wiki:synthesis:list', status })) as WikiSynthesisListItem[]
+        return Array.isArray(rows) ? rows : []
+      } catch {
+        return []
+      }
+    },
+    [],
+  )
+
+  const getSynthesis = useCallback(async (synthesisId: string): Promise<WikiSynthesisDetail | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      return (await api.sendCommand({ type: 'wiki:synthesis:get', synthesisId })) as WikiSynthesisDetail
+    } catch {
+      return null
+    }
+  }, [])
+
+  const acceptSynthesis = useCallback(async (synthesisId: string): Promise<string | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      const r = (await api.sendCommand({ type: 'wiki:synthesis:accept', synthesisId })) as { pageId: string }
+      return r?.pageId ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  const rejectSynthesis = useCallback(async (synthesisId: string): Promise<boolean> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return false
+    try {
+      const r = (await api.sendCommand({ type: 'wiki:synthesis:reject', synthesisId })) as { success: boolean }
+      return !!r?.success
+    } catch {
+      return false
+    }
+  }, [])
+
+  const searchHybrid = useCallback(
+    async (
+      keyword: string,
+      options?: { limit?: number; enableVector?: boolean },
+    ): Promise<{
+      hits: readonly WikiSearchHit[]
+      degradeReason: string | null
+      mode: string
+    } | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:search:hybrid',
+          keyword,
+          limit: options?.limit,
+          enableVector: options?.enableVector,
+        })) as {
+          hits: readonly WikiSearchHit[]
+          degradeReason: string | null
+          mode: string
+          backend?: string
+        }
+        return r
+      } catch {
+        return null
+      }
+    },
+    [],
+  )
+
+  const bootstrapEro = useCallback(async (): Promise<{ entities: number; relations: number } | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      return (await api.sendCommand({ type: 'wiki:ero:bootstrap' })) as {
+        entities: number
+        relations: number
+      }
+    } catch {
+      return null
+    }
+  }, [])
+
+  const getGraphData = useCallback(
+    async (params: {
+      centerPageId?: string
+      category?: string
+      limit?: number
+    }): Promise<WikiGraphDataItem | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        return (await api.sendCommand({
+          type: 'wiki:graph:data',
+          centerPageId: params.centerPageId,
+          category: params.category,
+          limit: params.limit,
+        })) as WikiGraphDataItem
+      } catch {
+        return null
+      }
+    },
+    [],
+  )
+
+  const statusScan = useCallback(async (staleDays?: number): Promise<readonly WikiStatusCandidateItem[]> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return []
+    try {
+      const rows = (await api.sendCommand({ type: 'wiki:status:scan', staleDays })) as WikiStatusCandidateItem[]
+      return Array.isArray(rows) ? rows : []
+    } catch {
+      return []
+    }
+  }, [])
+
+  const confirmStatus = useCallback(
+    async (
+      pageId: string,
+      action: 'confirm' | 'reject',
+      status?: 'outdated' | 'doubtful' | 'archived',
+    ): Promise<boolean> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return false
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:status:confirm',
+          pageId,
+          action,
+          status,
+        })) as { success: boolean }
+        return !!r?.success
+      } catch {
+        return false
+      }
+    },
+    [],
+  )
+
   return {
     loading,
     listInbox,
@@ -509,5 +725,15 @@ export function useWikiPage() {
     conceptScan,
     confirmConcept,
     rejectConcept,
+    createSynthesis,
+    listSyntheses,
+    getSynthesis,
+    acceptSynthesis,
+    rejectSynthesis,
+    getGraphData,
+    statusScan,
+    confirmStatus,
+    searchHybrid,
+    bootstrapEro,
   }
 }

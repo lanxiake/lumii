@@ -555,3 +555,50 @@
   font-size: 11px;
   cursor: pointer;
 }
+
+.wiki-synthesis-view,
+.wiki-graph-view {
+  padding: 16px;
+  overflow: auto;
+  height: 100%;
+}
+
+.wiki-synthesis-create,
+.wiki-synthesis-list,
+.wiki-synthesis-review {
+  margin-bottom: 20px;
+}
+
+.wiki-synthesis-page-pick {
+  max-height: 200px;
+  overflow: auto;
+  margin: 8px 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 4px;
+}
+
+.wiki-synthesis-sources {
+  margin-top: 12px;
+}
+
+.wiki-status-candidates {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.wiki-search-degrade {
+  margin: 8px 0 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-warning, #f59e0b) 12%, transparent);
+  color: var(--color-text-primary);
+  font-size: 12px;
+}
+
+.wiki-search-mode {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}

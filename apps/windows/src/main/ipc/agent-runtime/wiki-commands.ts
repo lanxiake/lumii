@@ -4,6 +4,15 @@
  * 复用 agent-commands.ts 的 sessionKey/agentId 解析惯例：显式 agentId 优先，
  * 否则从会话参与者解析，兜底 'assistant'。userId 固定 LOCAL_USER_ID（单机应用）。
  */
+import {
+  parseSynthesisProgress,
+  WikiGraphBuilder,
+  WikiPageStatusScanner,
+  WikiEroRepo,
+  bootstrapEroFromWikilinks,
+  WikiVectorIndex,
+  mergeHybridRanks,
+} from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 
@@ -424,5 +433,251 @@ export function handleWikiConceptReject(
   command: Extract<AgentRuntimeCommand, { type: 'wiki:concept:reject' }>,
 ): { success: boolean } {
   bridge.wikiConceptCandidateScanner.reject(command.name, command.conceptType)
+  return { success: true }
+}
+
+/** 将合成行映射为 IPC 列表项 */
+function mapSynthesisListItem(row: {
+  id: string
+  title: string
+  status: string
+  source_page_ids: readonly string[]
+  output_path: string | null
+  error: string | null
+  page_id: string | null
+  created_at: string
+  finished_at: string | null
+}) {
+  return {
+    id: row.id,
+    title: row.title,
+    status: row.status,
+    sourcePageIds: row.source_page_ids,
+    outputPath: row.output_path,
+    error: row.error,
+    progress: parseSynthesisProgress(row.error),
+    pageId: row.page_id,
+    createdAt: new Date(row.created_at).getTime(),
+    finishedAt: row.finished_at ? new Date(row.finished_at).getTime() : null,
+  }
+}
+
+/**
+ * 发起综述合成。pageIds 与 category 至少其一；category 展开为该分类全部页面。
+ */
+export async function handleWikiSynthesisCreate(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:create' }>,
+): Promise<{ synthesisId: string }> {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  let pageIds = [...(command.pageIds ?? [])]
+  if (command.category) {
+    const pages = bridge.wikiRepo.listPages(agentId, LOCAL_USER_ID, command.category as never)
+    pageIds = pages.map((p) => p.id)
+  }
+  if (pageIds.length === 0) {
+    throw new Error('合成至少需要一个页面（提供 pageIds 或非空 category）')
+  }
+  const synthesizer = bridge.createWikiSynthesizer()
+  const synthesisId = await synthesizer.synthesize(agentId, LOCAL_USER_ID, pageIds, {
+    title: command.title,
+  })
+  return { synthesisId }
+}
+
+export function handleWikiSynthesisList(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:list' }>,
+): unknown {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const rows = bridge.wikiRepo.listSyntheses(agentId, LOCAL_USER_ID, command.status)
+  return rows.map(mapSynthesisListItem)
+}
+
+export function handleWikiSynthesisGet(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:get' }>,
+): unknown {
+  const row = bridge.wikiRepo.findSynthesisById(command.synthesisId)
+  if (!row) throw new Error(`合成记录不存在: ${command.synthesisId}`)
+  const sourcePages = row.source_page_ids
+    .map((id) => bridge.wikiRepo.findPageById(id))
+    .filter((p): p is NonNullable<typeof p> => p !== null)
+    .map((p) => ({ id: p.id, title: p.title, path: p.path }))
+  return {
+    ...mapSynthesisListItem(row),
+    candidateMd: row.candidate_md,
+    sourceIds: row.source_ids,
+    sourcePages,
+  }
+}
+
+export function handleWikiSynthesisAccept(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:accept' }>,
+): { pageId: string; path: string } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const page = bridge.createWikiSynthesizer().accept(agentId, LOCAL_USER_ID, command.synthesisId)
+  return { pageId: page.id, path: page.path }
+}
+
+export function handleWikiSynthesisReject(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:reject' }>,
+): { success: boolean } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  bridge.createWikiSynthesizer().reject(agentId, LOCAL_USER_ID, command.synthesisId)
+  return { success: true }
+}
+
+export function handleWikiGraphData(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:graph:data' }>,
+): unknown {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const ero = new WikiEroRepo(bridge.wikiRepo.database)
+  const builder = new WikiGraphBuilder(bridge.wikiRepo)
+  return builder.buildSubgraph(agentId, LOCAL_USER_ID, {
+    centerPageId: command.centerPageId,
+    category: command.category as never,
+    radius: command.radius,
+    limit: command.limit,
+    eroEntities: ero.listEntities(agentId, LOCAL_USER_ID),
+    eroRelations: ero.listRelations(agentId, LOCAL_USER_ID),
+  })
+}
+
+/** 从双链引导 ERO 实体与关系 */
+export function handleWikiEroBootstrap(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:ero:bootstrap' }>,
+): { entities: number; relations: number } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const ero = new WikiEroRepo(bridge.wikiRepo.database)
+  return bootstrapEroFromWikilinks(bridge.wikiRepo.database, bridge.wikiRepo, ero, agentId, LOCAL_USER_ID)
+}
+
+export function handleWikiEroList(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:ero:list' }>,
+): unknown {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const ero = new WikiEroRepo(bridge.wikiRepo.database)
+  return {
+    entities: ero.listEntities(agentId, LOCAL_USER_ID),
+    relations: ero.listRelations(agentId, LOCAL_USER_ID),
+  }
+}
+
+/**
+ * 混合检索：FTS + 可选向量 RRF；向量关闭/失败时 degradeReason 显式返回。
+ */
+export async function handleWikiSearchHybrid(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:search:hybrid' }>,
+): Promise<unknown> {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const limit = command.limit ?? 10
+  const ftsHits = bridge.wikiRepo.search(agentId, LOCAL_USER_ID, command.keyword, limit)
+  const ftsIds = ftsHits.map((h) => h.page.id)
+  const pageById = new Map(ftsHits.map((h) => [h.page.id, h.page]))
+
+  let vectorIds: string[] = []
+  let degradeReason: string | null = null
+  let backend = 'none'
+
+  if (command.enableVector === false) {
+    degradeReason = '向量检索已关闭，仅全文检索'
+  } else {
+    try {
+      const host = await bridge.resolveWikiEmbedder()
+      backend = host.backend
+      if (host.notice && host.backend === 'bigram-hash') {
+        degradeReason = host.notice
+      }
+      const index = new WikiVectorIndex(bridge.wikiRepo.database, host.embedder)
+      for (const hit of ftsHits) {
+        await index.upsertPage(hit.page)
+      }
+      if (ftsHits.length === 0) {
+        const pages = bridge.wikiRepo.listPages(agentId, LOCAL_USER_ID).slice(0, 200)
+        for (const p of pages) {
+          await index.upsertPage(p)
+          pageById.set(p.id, p)
+        }
+      }
+      const vecHits = await index.searchSimilar(agentId, LOCAL_USER_ID, command.keyword, limit)
+      vectorIds = vecHits.map((h) => h.pageId)
+      for (const id of vectorIds) {
+        if (!pageById.has(id)) {
+          const p = bridge.wikiRepo.findPageById(id)
+          if (p) pageById.set(id, p)
+        }
+      }
+    } catch (err) {
+      degradeReason = `向量检索失败，已降级全文：${err instanceof Error ? err.message : String(err)}`
+    }
+  }
+
+  const merged = mergeHybridRanks({ ftsIds, vectorIds, pageById })
+  const hits = merged.ids.slice(0, limit).map((id) => {
+    const page = pageById.get(id)!
+    return {
+      pageId: page.id,
+      path: page.path,
+      category: page.category,
+      title: page.title,
+      snippet: page.content_md.slice(0, 200),
+      updatedAt: new Date(page.updated_at).getTime(),
+      mode: merged.mode,
+    }
+  })
+
+  return { hits, degradeReason, mode: merged.mode, backend }
+}
+
+export async function handleWikiVectorRebuild(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:vector:rebuild' }>,
+): Promise<{ rebuiltCount: number; backend: string; notice: string | null }> {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const pages = bridge.wikiRepo.listPages(agentId, LOCAL_USER_ID)
+  const host = await bridge.resolveWikiEmbedder(true)
+  const index = new WikiVectorIndex(bridge.wikiRepo.database, host.embedder)
+  const rebuiltCount = await index.rebuild(pages)
+  return { rebuiltCount, backend: host.backend, notice: host.notice }
+}
+
+export function handleWikiStatusScan(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:status:scan' }>,
+): unknown {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const scanner = new WikiPageStatusScanner(bridge.wikiRepo)
+  const candidates = scanner.scan(agentId, LOCAL_USER_ID, {
+    staleDays: command.staleDays,
+    fileExists: (p) => bridge.fileExistsForWiki(p),
+  })
+  return candidates.map((c) => ({
+    pageId: c.pageId,
+    title: c.title,
+    path: c.path,
+    suggestedStatus: c.suggestedStatus,
+    reason: c.reason,
+  }))
+}
+
+export function handleWikiStatusConfirm(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:status:confirm' }>,
+): { success: boolean } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const scanner = new WikiPageStatusScanner(bridge.wikiRepo)
+  if (command.action === 'reject') {
+    scanner.reject(agentId, LOCAL_USER_ID, command.pageId)
+  } else {
+    if (!command.status) throw new Error('confirm 需要 status')
+    scanner.confirm(agentId, LOCAL_USER_ID, command.pageId, command.status)
+  }
   return { success: true }
 }

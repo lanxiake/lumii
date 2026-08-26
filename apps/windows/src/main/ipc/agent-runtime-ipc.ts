@@ -139,6 +139,18 @@ import {
   handleWikiConceptScan,
   handleWikiConceptConfirm,
   handleWikiConceptReject,
+  handleWikiSynthesisCreate,
+  handleWikiSynthesisList,
+  handleWikiSynthesisGet,
+  handleWikiSynthesisAccept,
+  handleWikiSynthesisReject,
+  handleWikiGraphData,
+  handleWikiStatusScan,
+  handleWikiStatusConfirm,
+  handleWikiEroBootstrap,
+  handleWikiEroList,
+  handleWikiSearchHybrid,
+  handleWikiVectorRebuild,
 } from './agent-runtime/wiki-commands'
 import {
   handleToolsList,
@@ -999,6 +1011,42 @@ export async function handleCommand(
 
       case 'wiki:concept:reject':
         return handleWikiConceptReject(bridge, command)
+
+      case 'wiki:synthesis:create':
+        return handleWikiSynthesisCreate(bridge, command)
+
+      case 'wiki:synthesis:list':
+        return handleWikiSynthesisList(bridge, command)
+
+      case 'wiki:synthesis:get':
+        return handleWikiSynthesisGet(bridge, command)
+
+      case 'wiki:synthesis:accept':
+        return handleWikiSynthesisAccept(bridge, command)
+
+      case 'wiki:synthesis:reject':
+        return handleWikiSynthesisReject(bridge, command)
+
+      case 'wiki:graph:data':
+        return handleWikiGraphData(bridge, command)
+
+      case 'wiki:status:scan':
+        return handleWikiStatusScan(bridge, command)
+
+      case 'wiki:status:confirm':
+        return handleWikiStatusConfirm(bridge, command)
+
+      case 'wiki:ero:bootstrap':
+        return handleWikiEroBootstrap(bridge, command)
+
+      case 'wiki:ero:list':
+        return handleWikiEroList(bridge, command)
+
+      case 'wiki:search:hybrid':
+        return handleWikiSearchHybrid(bridge, command)
+
+      case 'wiki:vector:rebuild':
+        return handleWikiVectorRebuild(bridge, command)
 
       // ---- 工具管理 ----
       case 'tools:list':

@@ -13,7 +13,8 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "rebuild:sqlite": "pnpm rebuild better-sqlite3"
   },
   "dependencies": {
     "@mariozechner/pi-agent-core": "^0.50.7",
@@ -21,6 +22,8 @@
     "@sinclair/typebox": "^0.34.33"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.11.1",
     "typescript": "^5.3.3",
     "vitest": "^2.1.9"
   }

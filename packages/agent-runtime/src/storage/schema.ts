@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 20;
 
 /**
  * V1 DDL — 初始 schema
@@ -598,6 +598,101 @@ CREATE INDEX IF NOT EXISTS idx_wiki_attachments_page ON wiki_page_attachments (p
 
 ALTER TABLE wiki_pages ADD COLUMN status TEXT NOT NULL DEFAULT 'active'
   CHECK (status IN ('active', 'outdated', 'doubtful', 'archived'));
+`,
+  ],
+  // V19: Wiki 知识库 P2 —— 综述合成运行记录
+  //
+  // 设计：`docs/plans/记忆重构/2026-08-26-wiki-p2-implementation.md` Task 0
+  // 候选是正式数据：先落 candidate_md + status='candidate'，用户接受后才建 syntheses/ 页面。
+  // 拒绝的记录保留（可审计），不删除。
+  [
+    19,
+    `
+CREATE TABLE IF NOT EXISTS wiki_syntheses (
+  id             TEXT PRIMARY KEY,
+  agent_id       TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
+  page_id        TEXT,
+  source_page_ids TEXT NOT NULL,
+  source_ids     TEXT,
+  title          TEXT NOT NULL,
+  output_path    TEXT,
+  candidate_md   TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'candidate'
+    CHECK (status IN ('candidate', 'accepted', 'rejected')),
+  error          TEXT,
+  created_at     TEXT NOT NULL,
+  finished_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_wiki_syntheses_agent_user
+  ON wiki_syntheses (agent_id, user_id, status, created_at DESC);
+`,
+  ],
+  // V20: Wiki P2 扩展 —— ERO 最小模型 + 页面向量派生表
+  //
+  // ERO：实体 / 观察 / 关系；关系重复用概率并集强化 strength，不物理删观察（retired_at）。
+  // 向量：wiki_page_embeddings 为可重建派生物；失败/关闭时检索降级 FTS 并显式提示。
+  [
+    20,
+    `
+CREATE TABLE IF NOT EXISTS wiki_entities (
+  id             TEXT PRIMARY KEY,
+  agent_id       TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
+  name           TEXT NOT NULL,
+  entity_type    TEXT NOT NULL DEFAULT 'concept',
+  page_id        TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  UNIQUE (agent_id, user_id, name, entity_type)
+);
+CREATE INDEX IF NOT EXISTS idx_wiki_entities_agent_user
+  ON wiki_entities (agent_id, user_id, name);
+
+CREATE TABLE IF NOT EXISTS wiki_observations (
+  id             TEXT PRIMARY KEY,
+  agent_id       TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
+  entity_id      TEXT NOT NULL REFERENCES wiki_entities(id) ON DELETE CASCADE,
+  content        TEXT NOT NULL,
+  source_page_id TEXT,
+  retired_at     TEXT,
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wiki_observations_entity
+  ON wiki_observations (entity_id, retired_at);
+
+CREATE TABLE IF NOT EXISTS wiki_relations (
+  id             TEXT PRIMARY KEY,
+  agent_id       TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
+  source_entity_id TEXT NOT NULL REFERENCES wiki_entities(id) ON DELETE CASCADE,
+  target_entity_id TEXT NOT NULL REFERENCES wiki_entities(id) ON DELETE CASCADE,
+  relation_type  TEXT NOT NULL,
+  strength       REAL NOT NULL DEFAULT 0.5
+    CHECK (strength >= 0 AND strength <= 1),
+  source_page_id TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  UNIQUE (agent_id, user_id, source_entity_id, target_entity_id, relation_type)
+);
+CREATE INDEX IF NOT EXISTS idx_wiki_relations_source
+  ON wiki_relations (source_entity_id);
+CREATE INDEX IF NOT EXISTS idx_wiki_relations_target
+  ON wiki_relations (target_entity_id);
+
+CREATE TABLE IF NOT EXISTS wiki_page_embeddings (
+  page_id        TEXT PRIMARY KEY REFERENCES wiki_pages(id) ON DELETE CASCADE,
+  agent_id       TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
+  model_id       TEXT NOT NULL,
+  dims           INTEGER NOT NULL,
+  embedding      BLOB NOT NULL,
+  content_hash   TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wiki_page_embeddings_agent
+  ON wiki_page_embeddings (agent_id, user_id, model_id);
 `,
   ],
 ] as const;
