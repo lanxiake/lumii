@@ -210,6 +210,7 @@ export class BridgeLifecycle {
       for (const parentId of [...this.deferredDrainUnsubs.keys()]) {
         this.clearDeferredDrainListener(parentId)
       }
+      this.orchestrator?.stopStaleMonitor()
       this.orchestrator = null
       this.deps.finalizeShutdown()
     }
@@ -274,7 +275,8 @@ export class BridgeLifecycle {
           void this.handleAsyncSubagentComplete(payload)
         },
       })
-      log.info('[BridgeLifecycle] AgentOrchestrator created with subagent delivery pump')
+      this.orchestrator.startStaleMonitor()
+      log.info('[BridgeLifecycle] AgentOrchestrator created with subagent delivery pump + stale monitor')
     }
     return this.orchestrator
   }

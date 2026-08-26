@@ -142,4 +142,17 @@ describe("SubagentBroker", () => {
     expect(SUBAGENT_DEFAULTS.maxConcurrentChildren).toBe(5);
     expect(SUBAGENT_DEFAULTS.hardMaxConcurrent).toBe(10);
   });
+
+  it("findStaleRuns 仅命中超时的 async running", () => {
+    let now = 1_000;
+    const timed = new SubagentBroker(() => now);
+    timed.tryAcquireSlot("p", 2);
+    timed.registerRun({ childId: "c1", parentId: "p", name: "a", mode: "async" });
+    timed.tryAcquireSlot("p", 2);
+    timed.registerRun({ childId: "c2", parentId: "p", name: "b", mode: "sync" });
+
+    now = 1_000 + 200_000;
+    const stale = timed.findStaleRuns(180_000, now);
+    expect(stale.map((r) => r.childId)).toEqual(["c1"]);
+  });
 });

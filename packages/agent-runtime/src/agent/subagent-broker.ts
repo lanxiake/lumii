@@ -34,6 +34,7 @@ export interface SubagentRunRecord {
   lastProgressAt: number;
   outputText: string;
   errorMessage?: string;
+  spillPath?: string;
 }
 
 /** 投递给父 Agent 的完成载荷 */
@@ -163,20 +164,31 @@ export class SubagentBroker {
   }
 
   /**
-   * 将运行标记为终态并写入输出；running 槽随即释放
+   * 将运行标记为终态并写入输出；running 槽随即释放。
+   * 若已是终态则不再覆盖（interrupt/stale 优先）。
    */
   finalizeRun(
     childId: string,
     status: Exclude<SubagentRunStatus, "running">,
     outputText: string,
     errorMessage?: string,
+    spillPath?: string,
   ): SubagentRunRecord | undefined {
     const run = this.runs.get(childId);
     if (!run) return undefined;
+    if (run.status !== "running") {
+      console.log(
+        `[SubagentBroker] finalizeRun ignored (already ${run.status}) child=${childId} attempted=${status}`,
+      );
+      return run;
+    }
     run.status = status;
     run.outputText = outputText;
     if (errorMessage !== undefined) {
       run.errorMessage = errorMessage;
+    }
+    if (spillPath !== undefined) {
+      run.spillPath = spillPath;
     }
     run.lastProgressAt = this.nowFn();
     console.log(
@@ -197,6 +209,7 @@ export class SubagentBroker {
       name: run.name,
       status: run.status,
       summary: run.outputText || run.errorMessage || "",
+      spillPath: run.spillPath,
     };
   }
 
@@ -281,5 +294,60 @@ export class SubagentBroker {
       "summary:",
       payload.summary,
     ].join("\n");
+  }
+
+  /**
+   * 扫描无进度超时的 async running 子 Agent
+   */
+  findStaleRuns(
+    staleIdleMs: number = SUBAGENT_DEFAULTS.staleIdleMs,
+    now: number = this.nowFn(),
+  ): SubagentRunRecord[] {
+    const stale: SubagentRunRecord[] = [];
+    for (const run of this.runs.values()) {
+      if (run.status !== "running" || run.mode !== "async") continue;
+      if (now - run.lastProgressAt > staleIdleMs) {
+        stale.push(run);
+      }
+    }
+    return stale;
+  }
+
+  private staleTimer: ReturnType<typeof setInterval> | null = null;
+
+  /**
+   * 启动 stale 定时扫描；命中时调用 onStale(childId)
+   */
+  startStaleMonitor(
+    onStale: (childId: string) => void,
+    opts?: { staleIdleMs?: number; intervalMs?: number },
+  ): void {
+    this.stopStaleMonitor();
+    const staleIdleMs = opts?.staleIdleMs ?? SUBAGENT_DEFAULTS.staleIdleMs;
+    const intervalMs = opts?.intervalMs ?? SUBAGENT_DEFAULTS.staleCheckIntervalMs;
+    console.log(
+      `[SubagentBroker] startStaleMonitor intervalMs=${intervalMs} staleIdleMs=${staleIdleMs}`,
+    );
+    this.staleTimer = setInterval(() => {
+      const hits = this.findStaleRuns(staleIdleMs);
+      for (const run of hits) {
+        console.log(
+          `[SubagentBroker] stale detected child=${run.childId} parent=${run.parentId} idleMs=${this.nowFn() - run.lastProgressAt}`,
+        );
+        onStale(run.childId);
+      }
+    }, intervalMs);
+    // 避免测试/短进程挂起
+    if (typeof this.staleTimer === "object" && this.staleTimer && "unref" in this.staleTimer) {
+      (this.staleTimer as NodeJS.Timeout).unref?.();
+    }
+  }
+
+  /** 停止 stale 定时器 */
+  stopStaleMonitor(): void {
+    if (!this.staleTimer) return;
+    clearInterval(this.staleTimer);
+    this.staleTimer = null;
+    console.log("[SubagentBroker] stopStaleMonitor");
   }
 }
