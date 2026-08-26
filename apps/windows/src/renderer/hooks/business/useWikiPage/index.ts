@@ -5,4 +5,11 @@ export {
   type WikiPageDetail,
   type WikiSearchHit,
   type WikiRunItem,
+  type WikiBacklinkItem,
+  type WikiUnresolvedLinkItem,
+  type WikiRevisionItem,
+  type WikiCleanupSuggestionItem,
+  type WikiAttachmentItem,
+  type WikiExportResultItem,
+  type WikiConceptCandidateItem,
 } from './useWikiPage'

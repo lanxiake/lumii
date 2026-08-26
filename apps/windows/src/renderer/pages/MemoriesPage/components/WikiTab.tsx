@@ -1,16 +1,17 @@
 /**
- * WikiTab — Wiki 知识库 P0 界面
+ * WikiTab — Wiki 知识库界面（P0 两栏 + P1 第三栏/清理视图/编辑器增强）
  *
- * 两栏布局：左栏搜索 + 固定分类树（sources/media/inbox）+ 待整理入口；
- * 右栏三视图：页面（渲染/编辑）、待整理（收件箱列表）、运行日志。
- * P0 不做真实文件树懒加载——固定 3 个顶层分类，直接按分类过滤页面列表即可。
+ * 左栏：搜索 + 固定分类树（sources/media/inbox）+ 待整理入口 + 清理入口；
+ * 右栏三视图：页面（渲染/编辑，附第三栏反链+修订历史）、待整理、运行日志、清理。
+ * P0 不做真实文件树懒加载——固定顶层分类，直接按分类过滤页面列表即可。
  */
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import MDEditor from '@uiw/react-md-editor'
-import { Search, Inbox, FileText, Image as ImageIcon, RefreshCw, Trash2, History } from 'lucide-react'
+import { Search, Inbox, FileText, Image as ImageIcon, RefreshCw, Trash2, History, Sparkles } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import { Loading } from '../../../components/ui/Loading/Loading'
+import { ConfirmModal } from '../../../components/ui/Modal'
 import {
   useWikiPage,
   type WikiInboxItem,
@@ -19,10 +20,14 @@ import {
   type WikiSearchHit,
   type WikiRunItem,
 } from '../../../hooks/business/useWikiPage'
+import { PageSidebar } from './PageSidebar'
+import { CleanupView } from './CleanupView'
+import { LinkAutocomplete, detectWikilinkTrigger } from './LinkAutocomplete'
+import { uploadFilesForWikiAttachment } from './wikiAttachmentUpload'
 import './WikiTab.css'
 
 type WikiCategory = 'sources' | 'media' | 'inbox'
-type RightView = 'page' | 'inbox' | 'runs'
+type RightView = 'page' | 'inbox' | 'runs' | 'cleanup'
 
 const CATEGORY_LABEL: Record<WikiCategory, string> = {
   sources: '资料',
@@ -41,6 +46,16 @@ function formatTime(ts: number | null): string {
   return new Date(ts).toLocaleString('zh-CN', { hour12: false })
 }
 
+/** 在光标处插入文本，替换 [[ 起始位置到当前光标的内容（用于自动补全选择后落子） */
+function insertWikilinkAtCursor(textarea: HTMLTextAreaElement, currentValue: string, title: string): string {
+  const cursor = textarea.selectionStart
+  const before = currentValue.slice(0, cursor)
+  const after = currentValue.slice(cursor)
+  const lastOpen = before.lastIndexOf('[[')
+  if (lastOpen === -1) return currentValue
+  return `${before.slice(0, lastOpen)}[[${title}]]${after}`
+}
+
 export const WikiTab: React.FC = () => {
   const {
     listInbox,
@@ -53,6 +68,13 @@ export const WikiTab: React.FC = () => {
     search,
     listRuns,
     rebuildIndex,
+    listBacklinks,
+    listRevisions,
+    rollbackPage,
+    cleanupScan,
+    archiveSources,
+    restoreSources,
+    deleteSources,
     loading,
   } = useWikiPage()
 
@@ -69,6 +91,10 @@ export const WikiTab: React.FC = () => {
   const [editTitle, setEditTitle] = useState('')
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<readonly WikiSearchHit[] | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<{ backlinks: number } | null>(null)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const [linkQuery, setLinkQuery] = useState<string | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   const refreshPages = useCallback(async () => {
     const all = await listPages()
@@ -109,6 +135,7 @@ export const WikiTab: React.FC = () => {
       const page = await getPage(pageId)
       setSelectedPage(page)
       setIsEditing(false)
+      setSearchResults(null)
       setRightView('page')
     },
     [getPage],
@@ -131,9 +158,16 @@ export const WikiTab: React.FC = () => {
     }
   }, [selectedPage, editTitle, editDraft, updatePage, refreshPages])
 
-  const handleDeletePage = useCallback(async () => {
+  const requestDeletePage = useCallback(async () => {
+    if (!selectedPage) return
+    const backlinks = await listBacklinks(selectedPage.id)
+    setDeleteConfirm({ backlinks: backlinks.length })
+  }, [selectedPage, listBacklinks])
+
+  const handleConfirmDeletePage = useCallback(async () => {
     if (!selectedPage) return
     const ok = await deletePage(selectedPage.id)
+    setDeleteConfirm(null)
     if (ok) {
       setSelectedPage(null)
       void refreshPages()
@@ -169,6 +203,54 @@ export const WikiTab: React.FC = () => {
     void refreshPages()
   }, [rebuildIndex, refreshPages])
 
+  const handleRolledBack = useCallback(() => {
+    if (!selectedPage) return
+    void handleOpenPage(selectedPage.id)
+  }, [selectedPage, handleOpenPage])
+
+  /** 编辑草稿变化时检测 [[ 触发自动补全，并同步文本框光标位置供插入定位 */
+  const handleEditChange = useCallback(
+    (val: string | undefined, event?: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const next = val ?? ''
+      setEditDraft(next)
+      if (event?.target) textareaRef.current = event.target
+      const cursor = event?.target?.selectionStart ?? next.length
+      setLinkQuery(detectWikilinkTrigger(next.slice(0, cursor)))
+    },
+    [],
+  )
+
+  const handleSelectWikilink = useCallback((page: WikiPageListItem) => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    setEditDraft((prev) => insertWikilinkAtCursor(textarea, prev, page.title))
+    setLinkQuery(null)
+  }, [])
+
+  const handleAttachmentDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault()
+      setIsDragOver(false)
+      if (!isEditing || e.dataTransfer.files.length === 0) return
+      const uploaded = await uploadFilesForWikiAttachment(e.dataTransfer.files)
+      if (uploaded.length === 0) return
+      setEditDraft((prev) => {
+        const lines = uploaded.map((u) => u.referenceLine).join('\n')
+        return prev ? `${prev}\n${lines}` : lines
+      })
+    },
+    [isEditing],
+  )
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!isEditing) return
+      e.preventDefault()
+      setIsDragOver(true)
+    },
+    [isEditing],
+  )
+
   const visiblePages = category ? pages.filter((p) => p.category === category) : pages
 
   return (
@@ -193,7 +275,7 @@ export const WikiTab: React.FC = () => {
               <button
                 key={cat}
                 type="button"
-                className={`wiki-category-item ${category === cat ? 'wiki-category-item--active' : ''}`}
+                className={`wiki-category-item ${category === cat && rightView !== 'cleanup' ? 'wiki-category-item--active' : ''}`}
                 onClick={() => handleSelectCategory(cat)}
               >
                 <Icon size={14} />
@@ -211,6 +293,15 @@ export const WikiTab: React.FC = () => {
         >
           <History size={14} />
           <span>运行日志</span>
+        </button>
+
+        <button
+          type="button"
+          className={`wiki-runs-entry ${rightView === 'cleanup' ? 'wiki-category-item--active' : ''}`}
+          onClick={() => setRightView('cleanup')}
+        >
+          <Sparkles size={14} />
+          <span>清理</span>
         </button>
 
         <div className="wiki-left-footer">
@@ -290,7 +381,15 @@ export const WikiTab: React.FC = () => {
               ))
             )}
           </div>
+        ) : rightView === 'cleanup' ? (
+          <CleanupView
+            cleanupScan={cleanupScan}
+            archiveSources={archiveSources}
+            restoreSources={restoreSources}
+            deleteSources={deleteSources}
+          />
         ) : selectedPage ? (
+          <div className="wiki-page-view-layout">
           <div className="wiki-page-view">
             <div className="wiki-page-view-header">
               {isEditing ? (
@@ -311,7 +410,7 @@ export const WikiTab: React.FC = () => {
                 ) : (
                   <>
                     <Button variant="secondary" size="sm" onClick={handleStartEdit}>编辑</Button>
-                    <Button variant="ghost" size="sm" onClick={() => void handleDeletePage()}>
+                    <Button variant="ghost" size="sm" onClick={() => void requestDeletePage()}>
                       <Trash2 size={12} />
                     </Button>
                   </>
@@ -319,16 +418,39 @@ export const WikiTab: React.FC = () => {
               </div>
             </div>
             <p className="wiki-page-view-meta">{selectedPage.path} · v{selectedPage.version} · {formatTime(selectedPage.updatedAt)}</p>
-            <div className="wiki-page-view-editor">
+            <div
+              className={`wiki-page-view-editor ${isDragOver ? 'wiki-page-view-editor--dragover' : ''}`}
+              onDrop={(e) => void handleAttachmentDrop(e)}
+              onDragOver={handleDragOver}
+              onDragLeave={() => setIsDragOver(false)}
+            >
               <MDEditor
                 value={isEditing ? editDraft : selectedPage.contentMd}
-                onChange={(val) => { if (isEditing) setEditDraft(val ?? '') }}
+                onChange={handleEditChange}
                 preview={isEditing ? 'live' : 'preview'}
                 height="100%"
                 visibleDragbar={false}
                 hideToolbar={!isEditing}
               />
+              {linkQuery !== null && (
+                <LinkAutocomplete
+                  query={linkQuery}
+                  pages={pages}
+                  onSelect={handleSelectWikilink}
+                  onDismiss={() => setLinkQuery(null)}
+                />
+              )}
             </div>
+          </div>
+          <PageSidebar
+            pageId={selectedPage.id}
+            currentContentMd={isEditing ? editDraft : selectedPage.contentMd}
+            listBacklinks={listBacklinks}
+            listRevisions={listRevisions}
+            rollbackPage={rollbackPage}
+            onOpenPage={(id) => void handleOpenPage(id)}
+            onRolledBack={handleRolledBack}
+          />
           </div>
         ) : (
           <div className="wiki-page-list-view">
@@ -348,6 +470,20 @@ export const WikiTab: React.FC = () => {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        open={deleteConfirm !== null}
+        title="删除页面"
+        content={
+          deleteConfirm && deleteConfirm.backlinks > 0
+            ? `删除后，${deleteConfirm.backlinks} 处指向此页的链接将变为未解析。修订历史仍会保留在数据库中。`
+            : '删除后修订历史仍会保留在数据库中，但页面不再可见。'
+        }
+        confirmText="删除"
+        confirmVariant="danger"
+        onConfirm={() => void handleConfirmDeletePage()}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   )
 }

@@ -56,6 +56,61 @@ export interface WikiRunItem {
   readonly finishedAt: number | null
 }
 
+export interface WikiBacklinkItem {
+  readonly linkId: string
+  readonly sourcePageId: string
+  readonly sourceTitle: string
+  readonly sourcePath: string
+  readonly anchorText: string
+  readonly isResolved: boolean
+}
+
+export interface WikiUnresolvedLinkItem {
+  readonly id: string
+  readonly sourcePageId: string
+  readonly anchorText: string
+  readonly createdAt: number
+}
+
+export interface WikiRevisionItem {
+  readonly id: string
+  readonly version: number
+  readonly title: string
+  readonly editor: string
+  readonly sourceRef: string | null
+  readonly createdAt: number
+  readonly contentMd: string
+}
+
+export interface WikiCleanupSuggestionItem {
+  readonly sourceId: string
+  readonly title: string
+  readonly reason: 'stale' | 'broken_source' | 'duplicate_content'
+  readonly duplicateOfSourceId?: string
+}
+
+export interface WikiAttachmentItem {
+  readonly id: string
+  readonly pageId: string
+  readonly sourceId: string | null
+  readonly filePath: string
+  readonly mediaType: string
+  readonly displayName: string
+  readonly createdAt: number
+}
+
+export interface WikiExportResultItem {
+  readonly exported: number
+  readonly failed: readonly { path: string; error: string }[]
+}
+
+export interface WikiConceptCandidateItem {
+  readonly name: string
+  readonly type: 'concept' | 'entity'
+  readonly evidenceSourceIds: readonly string[]
+  readonly suggestedContentMd: string
+}
+
 export function useWikiPage() {
   const [loading, setLoading] = useState(false)
 
@@ -207,6 +262,225 @@ export function useWikiPage() {
     }
   }, [])
 
+  const listBacklinks = useCallback(async (pageId: string): Promise<readonly WikiBacklinkItem[]> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return []
+    try {
+      const rows = (await api.sendCommand({ type: 'wiki:link:backlinks', pageId })) as WikiBacklinkItem[]
+      return Array.isArray(rows) ? rows : []
+    } catch {
+      return []
+    }
+  }, [])
+
+  const listUnresolvedLinks = useCallback(async (): Promise<readonly WikiUnresolvedLinkItem[]> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return []
+    try {
+      const rows = (await api.sendCommand({ type: 'wiki:link:unresolved' })) as WikiUnresolvedLinkItem[]
+      return Array.isArray(rows) ? rows : []
+    } catch {
+      return []
+    }
+  }, [])
+
+  const listRevisions = useCallback(async (pageId: string): Promise<readonly WikiRevisionItem[]> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return []
+    try {
+      const rows = (await api.sendCommand({ type: 'wiki:page:revisions', pageId })) as WikiRevisionItem[]
+      return Array.isArray(rows) ? rows : []
+    } catch {
+      return []
+    }
+  }, [])
+
+  const rollbackPage = useCallback(
+    async (pageId: string, targetVersion: number): Promise<WikiPageDetail | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:page:rollback',
+          pageId,
+          targetVersion,
+        })) as { pageId: string }
+        if (!r?.pageId) return null
+        return getPage(r.pageId)
+      } catch {
+        return null
+      }
+    },
+    [getPage],
+  )
+
+  const cleanupScan = useCallback(async (staleDays?: number): Promise<readonly WikiCleanupSuggestionItem[]> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return []
+    setLoading(true)
+    try {
+      const rows = (await api.sendCommand({
+        type: 'wiki:cleanup:scan',
+        staleDays,
+      })) as WikiCleanupSuggestionItem[]
+      return Array.isArray(rows) ? rows : []
+    } catch {
+      return []
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const archiveSources = useCallback(async (sourceIds: readonly string[]): Promise<number> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return 0
+    try {
+      const r = (await api.sendCommand({ type: 'wiki:source:archive', sourceIds })) as { archived: number }
+      return r?.archived ?? 0
+    } catch {
+      return 0
+    }
+  }, [])
+
+  const restoreSources = useCallback(async (sourceIds: readonly string[]): Promise<number> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return 0
+    try {
+      const r = (await api.sendCommand({ type: 'wiki:source:restore', sourceIds })) as { restored: number }
+      return r?.restored ?? 0
+    } catch {
+      return 0
+    }
+  }, [])
+
+  const deleteSources = useCallback(async (sourceIds: readonly string[]): Promise<number> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return 0
+    try {
+      const r = (await api.sendCommand({ type: 'wiki:source:delete', sourceIds })) as { deleted: number }
+      return r?.deleted ?? 0
+    } catch {
+      return 0
+    }
+  }, [])
+
+  const listAttachments = useCallback(async (pageId: string): Promise<readonly WikiAttachmentItem[]> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return []
+    try {
+      const rows = (await api.sendCommand({ type: 'wiki:attach:list', pageId })) as WikiAttachmentItem[]
+      return Array.isArray(rows) ? rows : []
+    } catch {
+      return []
+    }
+  }, [])
+
+  const addAttachment = useCallback(
+    async (
+      pageId: string,
+      filePath: string,
+      mediaType: 'document' | 'image' | 'audio' | 'video',
+      displayName: string,
+      sourceId?: string,
+    ): Promise<WikiAttachmentItem | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:attach:add',
+          pageId,
+          filePath,
+          mediaType,
+          displayName,
+          sourceId,
+        })) as WikiAttachmentItem
+        return r ?? null
+      } catch {
+        return null
+      }
+    },
+    [],
+  )
+
+  const removeAttachment = useCallback(async (attachmentId: string): Promise<boolean> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return false
+    try {
+      const r = (await api.sendCommand({ type: 'wiki:attach:remove', attachmentId })) as { success: boolean }
+      return !!r?.success
+    } catch {
+      return false
+    }
+  }, [])
+
+  const exportPages = useCallback(
+    async (
+      targetDir: string,
+      options?: { includeSources?: boolean; includeAttachments?: boolean },
+    ): Promise<WikiExportResultItem | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      setLoading(true)
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:export',
+          targetDir,
+          includeSources: options?.includeSources,
+          includeAttachments: options?.includeAttachments,
+        })) as WikiExportResultItem
+        return r ?? null
+      } catch {
+        return null
+      } finally {
+        setLoading(false)
+      }
+    },
+    [],
+  )
+
+  const conceptScan = useCallback(async (limit?: number): Promise<readonly WikiConceptCandidateItem[]> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return []
+    setLoading(true)
+    try {
+      const rows = (await api.sendCommand({ type: 'wiki:concept:scan', limit })) as WikiConceptCandidateItem[]
+      return Array.isArray(rows) ? rows : []
+    } catch {
+      return []
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const confirmConcept = useCallback(
+    async (name: string, conceptType: 'concept' | 'entity'): Promise<string | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:concept:confirm',
+          name,
+          conceptType,
+        })) as { pageId: string }
+        return r?.pageId ?? null
+      } catch {
+        return null
+      }
+    },
+    [],
+  )
+
+  const rejectConcept = useCallback(async (name: string, conceptType: 'concept' | 'entity'): Promise<boolean> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return false
+    try {
+      const r = (await api.sendCommand({ type: 'wiki:concept:reject', name, conceptType })) as { success: boolean }
+      return !!r?.success
+    } catch {
+      return false
+    }
+  }, [])
+
   return {
     loading,
     listInbox,
@@ -220,5 +494,20 @@ export function useWikiPage() {
     search,
     listRuns,
     rebuildIndex,
+    listBacklinks,
+    listUnresolvedLinks,
+    listRevisions,
+    rollbackPage,
+    cleanupScan,
+    archiveSources,
+    restoreSources,
+    deleteSources,
+    listAttachments,
+    addAttachment,
+    removeAttachment,
+    exportPages,
+    conceptScan,
+    confirmConcept,
+    rejectConcept,
   }
 }
