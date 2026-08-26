@@ -15,6 +15,28 @@ export const DEFAULT_ERO_EXTRACT_MAX_PAGES = 20;
 /** 默认每页送入 LLM 的正文字符上限 */
 export const DEFAULT_ERO_EXTRACT_MAX_CHARS = 4000;
 
+/** maxPages 允许上限 */
+export const ERO_EXTRACT_MAX_PAGES_CAP = 100;
+
+/** maxCharsPerPage 允许上限 */
+export const ERO_EXTRACT_MAX_CHARS_CAP = 20000;
+
+/**
+ * 将抽取页数钳制到 [0, ERO_EXTRACT_MAX_PAGES_CAP]。
+ */
+export function clampEroExtractMaxPages(value: number | undefined): number {
+  const n = value ?? DEFAULT_ERO_EXTRACT_MAX_PAGES;
+  return Math.min(ERO_EXTRACT_MAX_PAGES_CAP, Math.max(0, n));
+}
+
+/**
+ * 将每页字符上限钳制到 [0, ERO_EXTRACT_MAX_CHARS_CAP]。
+ */
+export function clampEroExtractMaxChars(value: number | undefined): number {
+  const n = value ?? DEFAULT_ERO_EXTRACT_MAX_CHARS;
+  return Math.min(ERO_EXTRACT_MAX_CHARS_CAP, Math.max(0, n));
+}
+
 /** 关系强度缺省值（与 spec 一致） */
 const DEFAULT_RELATION_STRENGTH = 0.4;
 
@@ -158,12 +180,17 @@ export class WikiEroExtractor {
     userId: string,
     options?: { maxPages?: number; maxCharsPerPage?: number },
   ): Promise<WikiEroExtractResult> {
-    const maxPages = options?.maxPages ?? DEFAULT_ERO_EXTRACT_MAX_PAGES;
-    const maxCharsPerPage = options?.maxCharsPerPage ?? DEFAULT_ERO_EXTRACT_MAX_CHARS;
+    const maxPages = clampEroExtractMaxPages(options?.maxPages);
+    const maxCharsPerPage = clampEroExtractMaxChars(options?.maxCharsPerPage);
 
     const allPages = this.repo.listPages(agentId, userId);
     const pages = allPages.slice(0, maxPages);
     const titleToPageId = new Map(allPages.map((p) => [p.title, p.id]));
+
+    /** 跨页累积：已有 ERO 实体 + 本批已 upsert 实体，供关系/观察解析 */
+    const entityIdByName = new Map<string, string>(
+      this.ero.listEntities(agentId, userId).map((e) => [e.name, e.id]),
+    );
 
     let pagesProcessed = 0;
     let entitiesUpserted = 0;
@@ -180,8 +207,6 @@ export class WikiEroExtractor {
           errors.push(`${page.title}: JSON 解析失败`);
           continue;
         }
-
-        const entityIdByName = new Map<string, string>();
 
         for (const ent of parsed.entities) {
           const pageId = titleToPageId.get(ent.name) ?? null;

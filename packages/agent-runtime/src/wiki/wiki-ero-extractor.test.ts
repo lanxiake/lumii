@@ -93,6 +93,62 @@ describe("WikiEroExtractor", () => {
     repo.database.close();
   });
 
+  it("关系端点引用已有 ERO 实体（本页 LLM 未列出）时仍能 upsert", async () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.savePage({
+      agentId: "ag",
+      userId: "u",
+      path: "sources/x",
+      title: "当前页",
+      contentMd: "正文",
+      editor: "user",
+    });
+    const ero = new WikiEroRepo(repo.database);
+    ero.upsertEntity({
+      agentId: "ag",
+      userId: "u",
+      name: "已有实体",
+      entityType: "concept",
+    });
+    const extractor = new WikiEroExtractor(repo, ero, async () =>
+      JSON.stringify({
+        entities: [{ name: "新实体", type: "project" }],
+        relations: [{ source: "新实体", target: "已有实体", type: "depends_on", strength: 0.6 }],
+        observations: [],
+      }),
+    );
+    const r = await extractor.extractRecent("ag", "u", { maxPages: 1 });
+    expect(r.relationsUpserted).toBe(1);
+    const relations = ero.listRelations("ag", "u");
+    expect(relations.some((rel) => rel.relation_type === "depends_on")).toBe(true);
+    repo.database.close();
+  });
+
+  it("maxPages 与 maxCharsPerPage 钳制到合理范围", async () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    for (let i = 0; i < 105; i += 1) {
+      repo.savePage({
+        agentId: "ag",
+        userId: "u",
+        path: `sources/p-${i}`,
+        title: `页${i}`,
+        contentMd: "y".repeat(25000),
+        editor: "user",
+      });
+    }
+    const ero = new WikiEroRepo(repo.database);
+    const callLLM = vi.fn(async () =>
+      JSON.stringify({ entities: [], relations: [], observations: [] }),
+    );
+    const extractor = new WikiEroExtractor(repo, ero, callLLM);
+    await extractor.extractRecent("ag", "u", { maxPages: 999, maxCharsPerPage: 99999 });
+    expect(callLLM).toHaveBeenCalledTimes(100);
+    const prompt = callLLM.mock.calls[0]![0] as string;
+    expect(prompt.includes("y".repeat(20000))).toBe(true);
+    expect(prompt.includes("y".repeat(20001))).toBe(false);
+    repo.database.close();
+  });
+
   it("默认 maxPages=20、maxCharsPerPage=4000", async () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const ero = new WikiEroRepo(repo.database);
