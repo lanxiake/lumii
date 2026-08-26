@@ -1,184 +1,115 @@
 /**
- * SynthesisView — 综述合成：多选发起 → 审阅候选 → 接受/拒绝
+ * SynthesisView — 综述页列表与一键刷新
  *
- * 设计：docs/plans/记忆重构/2026-08-26-wiki-p2-implementation.md Task 5
- * 引用保真依赖来源清单与人工抽查；接受后建 syntheses/ 页。
+ * 展示 category === 'syntheses' 的 Wiki 页面；「立即刷新全部」触发 autoRunSynthesis
+ * 并刷新页面列表。不再渲染多选发起、候选审阅与接受/拒绝主流程。
  */
-import React, { useCallback, useEffect, useState } from 'react'
-import MDEditor from '@uiw/react-md-editor'
+import React, { useCallback, useMemo, useState } from 'react'
+import { RefreshCw } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
-import type {
-  WikiPageListItem,
-  WikiSynthesisDetail,
-  WikiSynthesisListItem,
-} from '../../../hooks/business/useWikiPage'
+import type { WikiPageListItem } from '../../../hooks/business/useWikiPage'
+
+/** autoRunSynthesis 单条结果 */
+interface AutoRunResultItem {
+  readonly category: string
+  readonly pageId: string
+  readonly path: string
+  readonly skipped?: boolean
+  readonly error?: string
+}
 
 interface SynthesisViewProps {
   readonly pages: readonly WikiPageListItem[]
-  readonly createSynthesis: (params: {
-    pageIds?: readonly string[]
-    category?: string
-    title?: string
-  }) => Promise<string | null>
-  readonly listSyntheses: (status?: 'candidate' | 'accepted' | 'rejected') => Promise<readonly WikiSynthesisListItem[]>
-  readonly getSynthesis: (id: string) => Promise<WikiSynthesisDetail | null>
-  readonly acceptSynthesis: (id: string) => Promise<string | null>
-  readonly rejectSynthesis: (id: string) => Promise<boolean>
+  readonly autoRunSynthesis: () => Promise<{ results: readonly AutoRunResultItem[] } | null>
   readonly onOpenPage: (pageId: string) => void
+  readonly onRefreshPages: () => void | Promise<void>
 }
 
+/** 将 auto-run 结果格式化为简短中文状态行 */
+function formatRunStatusLine(results: readonly AutoRunResultItem[]): string {
+  return results
+    .map((r) => {
+      if (r.error) return `${r.category}：失败（${r.error}）`
+      if (r.skipped) return `${r.category}：跳过`
+      return `${r.category}：成功`
+    })
+    .join(' · ')
+}
+
+/** 综述页列表与一键刷新视图 */
 export const SynthesisView: React.FC<SynthesisViewProps> = ({
   pages,
-  createSynthesis,
-  listSyntheses,
-  getSynthesis,
-  acceptSynthesis,
-  rejectSynthesis,
+  autoRunSynthesis,
   onOpenPage,
+  onRefreshPages,
 }) => {
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
-  const [title, setTitle] = useState('')
-  const [running, setRunning] = useState(false)
-  const [candidates, setCandidates] = useState<readonly WikiSynthesisListItem[]>([])
-  const [active, setActive] = useState<WikiSynthesisDetail | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [lastStatus, setLastStatus] = useState<string | null>(null)
 
-  const refresh = useCallback(async () => {
-    setCandidates(await listSyntheses())
-  }, [listSyntheses])
+  const synthesisPages = useMemo(
+    () => pages.filter((p) => p.category === 'syntheses'),
+    [pages],
+  )
 
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
-
-  const toggle = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  const handleCreate = async () => {
-    if (selected.size === 0) return
-    setRunning(true)
+  /** 触发自动综述并刷新 Wiki 页面列表 */
+  const handleRefreshAll = useCallback(async () => {
+    setRefreshing(true)
+    setLastStatus(null)
     try {
-      const id = await createSynthesis({
-        pageIds: [...selected],
-        title: title.trim() || undefined,
-      })
-      await refresh()
-      if (id) {
-        setActive(await getSynthesis(id))
+      const result = await autoRunSynthesis()
+      if (result?.results?.length) {
+        setLastStatus(formatRunStatusLine(result.results))
+      } else if (result === null) {
+        setLastStatus('刷新失败：无法连接 Agent 运行时')
+      } else {
+        setLastStatus('暂无需要更新的综述')
       }
+      await onRefreshPages()
     } finally {
-      setRunning(false)
+      setRefreshing(false)
     }
-  }
-
-  const handleOpenCandidate = async (id: string) => {
-    setActive(await getSynthesis(id))
-  }
-
-  const handleAccept = async () => {
-    if (!active) return
-    const pageId = await acceptSynthesis(active.id)
-    await refresh()
-    setActive(await getSynthesis(active.id))
-    if (pageId) onOpenPage(pageId)
-  }
-
-  const handleReject = async () => {
-    if (!active) return
-    await rejectSynthesis(active.id)
-    await refresh()
-    setActive(await getSynthesis(active.id))
-  }
-
-  const estimChars = pages
-    .filter((p) => selected.has(p.id))
-    .reduce((sum, p) => sum + (p.title.length + 80), 0)
+  }, [autoRunSynthesis, onRefreshPages])
 
   return (
     <div className="wiki-synthesis-view">
-      <div className="wiki-synthesis-create">
-        <h3>发起综述合成</h3>
-        <p className="wiki-empty-hint">
-          仅用户显式触发。数字/日期需人工对照来源清单抽查（P2 不做自动引用校验）。
-        </p>
-        <input
-          className="wiki-page-title-input"
-          placeholder="综述标题（可选）"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-        <div className="wiki-synthesis-page-pick">
-          {pages.map((p) => (
-            <label key={p.id} className="wiki-cleanup-item">
-              <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggle(p.id)} />
-              <span className="wiki-cleanup-item-title">{p.title}</span>
-              <span className="wiki-category-count">{p.category}</span>
-            </label>
-          ))}
-        </div>
-        <div className="wiki-cleanup-actions">
-          <span className="wiki-empty-hint">已选 {selected.size} 页 · 估算输入约 {estimChars} 字</span>
-          <Button variant="primary" size="sm" disabled={selected.size === 0 || running} onClick={() => void handleCreate()}>
-            {running ? '合成中…' : '开始合成'}
-          </Button>
-        </div>
+      <div className="wiki-synthesis-header">
+        <h3>综述</h3>
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={refreshing}
+          onClick={() => void handleRefreshAll()}
+        >
+          <RefreshCw size={12} style={{ marginRight: 4 }} />
+          {refreshing ? '刷新中…' : '立即刷新全部'}
+        </Button>
       </div>
 
+      {lastStatus && (
+        <p className="wiki-synthesis-status" role="status">
+          {lastStatus}
+        </p>
+      )}
+
       <div className="wiki-synthesis-list">
-        <h3>候选与历史（{candidates.length}）</h3>
-        {candidates.length === 0 ? (
-          <p className="wiki-empty-hint">暂无合成记录</p>
+        {synthesisPages.length === 0 ? (
+          <p className="wiki-empty-hint">
+            定时任务会自动生成分类综述，也可点击立即刷新。
+          </p>
         ) : (
-          candidates.map((c) => (
+          synthesisPages.map((page) => (
             <button
-              key={c.id}
+              key={page.id}
               type="button"
-              className={`wiki-cleanup-item ${active?.id === c.id ? 'wiki-category-item--active' : ''}`}
-              onClick={() => void handleOpenCandidate(c.id)}
+              className="wiki-page-list-item"
+              onClick={() => onOpenPage(page.id)}
             >
-              <span className="wiki-cleanup-item-title">{c.title}</span>
-              <span className="wiki-cleanup-item-reason">{c.status}</span>
-              {c.progress && (
-                <span className="wiki-empty-hint">
-                  {c.progress.chunk}/{c.progress.total}
-                </span>
-              )}
+              <div className="wiki-page-list-title">{page.title}</div>
+              <div className="wiki-page-list-path">{page.path}</div>
             </button>
           ))
         )}
       </div>
-
-      {active && (
-        <div className="wiki-synthesis-review">
-          <h3>审阅：{active.title}</h3>
-          {active.error === 'truncated' && (
-            <p className="wiki-empty-hint">正文已超 5000 字并截断（error=truncated）</p>
-          )}
-          <MDEditor value={active.candidateMd} preview="preview" hideToolbar height={280} />
-          <div className="wiki-synthesis-sources">
-            <h4>来源清单</h4>
-            {active.sourcePages.map((sp) => (
-              <button key={sp.id} type="button" className="wiki-runs-entry" onClick={() => onOpenPage(sp.id)}>
-                {sp.title} · {sp.path}
-              </button>
-            ))}
-            {active.outputPath && (
-              <p className="wiki-empty-hint">完整文档：{active.outputPath}</p>
-            )}
-          </div>
-          {active.status === 'candidate' && (
-            <div className="wiki-cleanup-actions">
-              <Button variant="primary" size="sm" onClick={() => void handleAccept()}>接受并建页</Button>
-              <Button variant="danger" size="sm" onClick={() => void handleReject()}>拒绝</Button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 }

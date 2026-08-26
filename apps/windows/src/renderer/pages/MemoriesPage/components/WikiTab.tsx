@@ -127,11 +127,7 @@ export const WikiTab: React.FC = () => {
     archiveSources,
     restoreSources,
     deleteSources,
-    createSynthesis,
-    listSyntheses,
-    getSynthesis,
-    acceptSynthesis,
-    rejectSynthesis,
+    autoRunSynthesis,
     getGraphData,
     statusScan,
     confirmStatus,
@@ -492,12 +488,9 @@ export const WikiTab: React.FC = () => {
         ) : rightView === 'synthesis' ? (
           <SynthesisView
             pages={pages}
-            createSynthesis={createSynthesis}
-            listSyntheses={listSyntheses}
-            getSynthesis={getSynthesis}
-            acceptSynthesis={acceptSynthesis}
-            rejectSynthesis={rejectSynthesis}
+            autoRunSynthesis={autoRunSynthesis}
             onOpenPage={(pageId) => void handleOpenPage(pageId)}
+            onRefreshPages={refreshPages}
           />
         ) : rightView === 'graph' ? (
           <WikiGraphView
