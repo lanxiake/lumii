@@ -193,10 +193,17 @@ describe('wiki commands', () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
     const run = repo.createRun('assistant', 'local-user', ['i1'])
-    repo.finishRun(run.id, 'succeeded', '1 项已归档')
+    const detail = JSON.stringify({
+      items: [{ inboxId: 'i1', title: 'T', path: 'sources/t', mediaType: 'document', outcome: 'archived', extract: 'preview' }],
+    })
+    repo.finishRun(run.id, 'succeeded', '1 项已归档', undefined, detail)
 
-    const runs = handleWikiRunsList(bridge, { type: 'wiki:runs:list', agentId: 'assistant' }) as { status: string }[]
+    const runs = handleWikiRunsList(bridge, { type: 'wiki:runs:list', agentId: 'assistant' }) as {
+      status: string
+      resultDetail: { items: { path: string }[] } | null
+    }[]
     expect(runs[0]!.status).toBe('succeeded')
+    expect(runs[0]!.resultDetail?.items[0]!.path).toBe('sources/t')
 
     repo.savePage({ agentId: 'assistant', userId: 'local-user', path: 'sources/y', title: 'y', contentMd: 'c', editor: 'ai' })
     expect(handleWikiIndexRebuild(bridge)).toEqual({ rebuiltCount: 1 })
