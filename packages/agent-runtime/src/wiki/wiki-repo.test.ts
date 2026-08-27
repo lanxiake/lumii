@@ -601,3 +601,36 @@ describe("WikiRepo 资料主题读写", () => {
     expect(after.last_used).toBeTruthy();
   });
 });
+
+describe("WikiRepo 资料层检索", () => {
+  it("索引后按中文片段命中 extracted_text，命中即 touchSource", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({
+      agentId: "ag",
+      userId: "u",
+      title: "架构设计文档",
+      extractedText: "这是一份关于系统架构设计的说明",
+    });
+    repo.indexSource(source.id);
+
+    const hits = repo.searchSources("ag", "u", "架构设计");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.source.id).toBe(source.id);
+    expect(hits[0]!.snippet).toContain("架构设计");
+    expect(repo.findSourceById(source.id)!.use_count).toBe(1);
+  });
+
+  it("空关键词返回空数组", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    expect(repo.searchSources("ag", "u", "")).toEqual([]);
+  });
+
+  it("已归档资料不出现在检索结果中", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "旧资料", extractedText: "归档内容示例" });
+    repo.indexSource(source.id);
+    repo.archiveSources("ag", "u", [source.id]);
+
+    expect(repo.searchSources("ag", "u", "归档内容")).toEqual([]);
+  });
+});

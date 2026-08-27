@@ -1033,6 +1033,33 @@ export class WikiRepo {
     }
   }
 
+  /**
+   * FTS5 + BM25 检索资料层（title/extracted_text），构造方式同 search()（页面层）。
+   * 排除已归档资料；命中即 touchSource。
+   */
+  searchSources(agentId: string, userId: string, keyword: string, limit = 10): readonly WikiSourceSearchHit[] {
+    const tokens = [...tokenizeBigram(keyword)];
+    if (tokens.length === 0) return [];
+    const query = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" AND ");
+    try {
+      const rows = this.db
+        .prepare<WikiSource>(
+          `SELECT s.*
+           FROM wiki_sources_fts
+           JOIN wiki_sources s ON s.rowid = wiki_sources_fts.rowid
+           WHERE wiki_sources_fts MATCH ? AND s.agent_id = ? AND s.user_id = ? AND s.archived_at IS NULL
+           ORDER BY bm25(wiki_sources_fts)
+           LIMIT ?`,
+        )
+        .all(query, agentId, userId, limit);
+      for (const row of rows) this.touchSource(row.id);
+      return rows.map((source) => ({ source, snippet: (source.extracted_text ?? "").slice(0, 200) }));
+    } catch (err) {
+      console.warn("[WikiRepo.searchSources] FTS5 查询失败:", err);
+      return [];
+    }
+  }
+
   // ── 运行日志 ────────────────────────────────────────────
 
   createRun(agentId: string, userId: string, inboxIds: readonly string[]): WikiOrganizeRun {
@@ -1283,6 +1310,11 @@ export class WikiRepo {
 
 export interface WikiSearchHit {
   readonly page: WikiPage;
+  readonly snippet: string;
+}
+
+export interface WikiSourceSearchHit {
+  readonly source: WikiSource;
   readonly snippet: string;
 }
 

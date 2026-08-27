@@ -3,7 +3,7 @@
  */
 
 export { WikiRepo } from "./wiki-repo.js";
-export type { WikiSearchHit } from "./wiki-repo.js";
+export type { WikiSearchHit, WikiSourceSearchHit } from "./wiki-repo.js";
 
 export { WikiCleanupScanner } from "./wiki-cleanup.js";
 export type {
