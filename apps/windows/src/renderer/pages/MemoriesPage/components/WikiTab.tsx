@@ -23,7 +23,8 @@ import { WikiLeftNav, type WikiPrimaryNav } from './WikiLeftNav'
 import { WikiTopBar } from './WikiTopBar'
 import { WikiPageList } from './WikiPageList'
 import { WikiInboxPanel } from './WikiInboxPanel'
-import { useWikiTaskCenter } from './useWikiTaskCenter'
+import { WikiTaskCenter } from './WikiTaskCenter'
+import { useWikiTaskCenter, type WikiLocalTask } from './useWikiTaskCenter'
 import './WikiTab.css'
 
 type WikiToolView = 'cleanup' | 'synthesis' | null
@@ -49,6 +50,7 @@ export const WikiTab: React.FC = () => {
     updatePage,
     deletePage,
     search,
+    listRuns,
     listBacklinks,
     listRevisions,
     rollbackPage,
@@ -66,7 +68,7 @@ export const WikiTab: React.FC = () => {
     listEntityObservations,
     loading,
   } = useWikiPage()
-  const { pillText, pillTone } = useWikiTaskCenter()
+  const taskCenter = useWikiTaskCenter()
 
   const [primaryNav, setPrimaryNav] = useState<WikiPrimaryNav>('sources')
   const [toolView, setToolView] = useState<WikiToolView>(null)
@@ -84,6 +86,7 @@ export const WikiTab: React.FC = () => {
   const [deleteConfirm, setDeleteConfirm] = useState<{ backlinks: number } | null>(null)
   const [searchDegradeReason, setSearchDegradeReason] = useState<string | null>(null)
   const [searchMode, setSearchMode] = useState<string | null>(null)
+  const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(false)
 
   const refreshPages = useCallback(async () => {
     const all = await listPages()
@@ -103,6 +106,120 @@ export const WikiTab: React.FC = () => {
     void refreshPages()
     void refreshInbox()
   }, [refreshPages, refreshInbox])
+
+  useEffect(() => {
+    /** 将已有归档运行合并进任务中心历史。 */
+    const loadRunHistory = async (): Promise<void> => {
+      taskCenter.mergeRuns(await listRuns())
+    }
+
+    void loadRunHistory()
+  }, [listRuns, taskCenter.mergeRuns])
+
+  /**
+   * 打开任务中心并清除失败任务的未读提示。
+   */
+  const handleOpenTaskCenter = useCallback(() => {
+    taskCenter.markFailuresSeen()
+    setIsTaskCenterOpen(true)
+  }, [taskCenter.markFailuresSeen])
+
+  /**
+   * 重试任务记录中保留的原操作或归档 inbox 项。
+   */
+  const handleRetryTask = useCallback(
+    async (task: WikiLocalTask): Promise<void> => {
+      try {
+        if (task.retry) {
+          await task.retry()
+          taskCenter.dismissTask(task.id)
+          return
+        }
+        if (task.kind !== 'archive' || !task.inboxIds?.length) return
+        await taskCenter.wrapAsync('archive', task.title, async () => {
+          const results = await Promise.all(task.inboxIds?.map(retryInbox) ?? [])
+          if (results.some((result) => !result)) throw new Error('部分归档任务重试失败')
+          await refreshInbox()
+        })
+        taskCenter.dismissTask(task.id)
+      } catch {
+        // wrapAsync 已将失败原因写入新的任务记录，避免事件处理产生未捕获拒绝。
+      }
+    },
+    [refreshInbox, retryInbox, taskCenter.dismissTask, taskCenter.wrapAsync],
+  )
+
+  /**
+   * 用任务中心追踪清理扫描及其完成状态。
+   */
+  const trackedCleanupScan = useCallback(
+    (staleDays?: number) => taskCenter.wrapAsync(
+      'cleanup',
+      '扫描清理项',
+      () => cleanupScan(staleDays),
+    ),
+    [cleanupScan, taskCenter.wrapAsync],
+  )
+
+  /**
+   * 用任务中心追踪批量归档操作。
+   */
+  const trackedArchiveSources = useCallback(
+    (sourceIds: readonly string[]) => taskCenter.wrapAsync(
+      'cleanup',
+      '归档资料',
+      () => archiveSources(sourceIds),
+    ),
+    [archiveSources, taskCenter.wrapAsync],
+  )
+
+  /**
+   * 用任务中心追踪批量恢复操作。
+   */
+  const trackedRestoreSources = useCallback(
+    (sourceIds: readonly string[]) => taskCenter.wrapAsync(
+      'cleanup',
+      '恢复资料',
+      () => restoreSources(sourceIds),
+    ),
+    [restoreSources, taskCenter.wrapAsync],
+  )
+
+  /**
+   * 用任务中心追踪批量删除操作。
+   */
+  const trackedDeleteSources = useCallback(
+    (sourceIds: readonly string[]) => taskCenter.wrapAsync(
+      'cleanup',
+      '删除资料',
+      () => deleteSources(sourceIds),
+    ),
+    [deleteSources, taskCenter.wrapAsync],
+  )
+
+  /**
+   * 用任务中心追踪自动综述合成。
+   */
+  const trackedAutoRunSynthesis = useCallback(
+    () => taskCenter.wrapAsync('synthesis', '自动综述合成', autoRunSynthesis),
+    [autoRunSynthesis, taskCenter.wrapAsync],
+  )
+
+  /**
+   * 用任务中心追踪图谱初始化。
+   */
+  const trackedBootstrapEro = useCallback(
+    () => taskCenter.wrapAsync('graph', '初始化知识图谱', bootstrapEro),
+    [bootstrapEro, taskCenter.wrapAsync],
+  )
+
+  /**
+   * 用任务中心追踪图谱实体抽取。
+   */
+  const trackedExtractEro = useCallback(
+    () => taskCenter.wrapAsync('graph', '抽取图谱实体', extractEro),
+    [extractEro, taskCenter.wrapAsync],
+  )
 
   const handleSelectPrimaryNav = useCallback((nav: WikiPrimaryNav) => {
     setPrimaryNav(nav)
@@ -240,9 +357,9 @@ export const WikiTab: React.FC = () => {
           onQueryChange={setQuery}
           onSearch={() => void handleSearch()}
           onClearSearch={handleClearSearch}
-          pillText={pillText}
-          pillTone={pillTone}
-          onOpenTasks={() => undefined}
+          pillText={taskCenter.pillText}
+          pillTone={taskCenter.pillTone}
+          onOpenTasks={handleOpenTaskCenter}
         />
 
         <main className="wiki-tab-content">
@@ -286,17 +403,17 @@ export const WikiTab: React.FC = () => {
           </div>
         ) : toolView === 'cleanup' ? (
           <CleanupView
-            cleanupScan={cleanupScan}
-            archiveSources={archiveSources}
-            restoreSources={restoreSources}
-            deleteSources={deleteSources}
+            cleanupScan={trackedCleanupScan}
+            archiveSources={trackedArchiveSources}
+            restoreSources={trackedRestoreSources}
+            deleteSources={trackedDeleteSources}
             statusScan={statusScan}
             confirmStatus={confirmStatus}
           />
         ) : toolView === 'synthesis' ? (
           <SynthesisView
             pages={pages}
-            autoRunSynthesis={autoRunSynthesis}
+            autoRunSynthesis={trackedAutoRunSynthesis}
             onOpenPage={(pageId) => void handleOpenPage(pageId)}
             onRefreshPages={refreshPages}
           />
@@ -305,8 +422,8 @@ export const WikiTab: React.FC = () => {
             pages={pages}
             getGraphData={getGraphData}
             onOpenPage={(pageId) => void handleOpenPage(pageId)}
-            bootstrapEro={bootstrapEro}
-            extractEro={extractEro}
+            bootstrapEro={trackedBootstrapEro}
+            extractEro={trackedExtractEro}
             listEntityObservations={listEntityObservations}
           />
         ) : (
@@ -347,6 +464,13 @@ export const WikiTab: React.FC = () => {
             rollbackPage={rollbackPage}
             onOpenPage={(pageId) => void handleOpenPage(pageId)}
             onRolledBack={handleRolledBack}
+          />
+          <WikiTaskCenter
+            open={isTaskCenterOpen}
+            tasks={taskCenter.tasks}
+            onClose={() => setIsTaskCenterOpen(false)}
+            onRetry={(task) => void handleRetryTask(task)}
+            onDismiss={taskCenter.dismissTask}
           />
         </main>
       </div>

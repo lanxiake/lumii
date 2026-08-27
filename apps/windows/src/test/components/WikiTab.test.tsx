@@ -5,6 +5,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { WikiTab } from '../../renderer/pages/MemoriesPage/components/WikiTab'
+import { WikiTaskCenter } from '../../renderer/pages/MemoriesPage/components/WikiTaskCenter'
+import type { WikiLocalTask } from '../../renderer/pages/MemoriesPage/components/useWikiTaskCenter'
 
 function mockSendCommand(overrides: Record<string, unknown> = {}) {
   return vi.fn(async (cmd: { type: string }) => {
@@ -125,6 +127,72 @@ describe('WikiTab', () => {
     expect(screen.queryByText('清理')).not.toBeInTheDocument()
     expect(screen.queryByText('综述合成')).not.toBeInTheDocument()
     expect(screen.queryByText('重建索引')).not.toBeInTheDocument()
+  })
+
+  it('任务中心将任务按失败、进行中和最近完成分段展示', () => {
+    const tasks: WikiLocalTask[] = [
+      {
+        id: 'running',
+        kind: 'rebuild',
+        title: '重建索引',
+        phase: 'running',
+        createdAt: 30,
+      },
+      {
+        id: 'failed',
+        kind: 'archive',
+        title: '归档资料',
+        phase: 'failed',
+        error: '归档失败',
+        createdAt: 20,
+        finishedAt: 25,
+        retryable: true,
+      },
+      {
+        id: 'succeeded',
+        kind: 'cleanup',
+        title: '清理资料',
+        phase: 'succeeded',
+        createdAt: 10,
+        finishedAt: 15,
+      },
+    ]
+
+    render(
+      <WikiTaskCenter
+        open
+        tasks={tasks}
+        onClose={() => undefined}
+        onRetry={() => undefined}
+        onDismiss={() => undefined}
+      />,
+    )
+
+    const headings = screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)
+    expect(headings).toEqual(['失败', '进行中', '最近完成'])
+    expect(screen.getByText('归档失败')).toBeInTheDocument()
+  })
+
+  it('挂载时合并历史运行，点击失败 pill 打开任务中心', async () => {
+    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
+      'wiki:runs:list': [{
+        id: 'run-failed',
+        inboxIds: ['inbox-1'],
+        status: 'failed',
+        resultSummary: '归档资料',
+        error: '解析失败',
+        resultDetail: null,
+        createdAt: 10,
+        finishedAt: 20,
+      }],
+    })
+
+    render(<WikiTab />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /任务失败/ }))
+    expect(screen.getByRole('dialog', { name: '任务中心' })).toBeInTheDocument()
+    expect(screen.getByText('解析失败')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /任务失败/ })).not.toBeInTheDocument()
   })
 
   it('待整理条目展示重试/丢弃操作，点击后重新加载', async () => {

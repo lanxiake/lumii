@@ -73,7 +73,18 @@ describe('wiki task center store', () => {
     expect(store.getSnapshot().tasks).toEqual([])
   })
 
-  it('merges finished runs once without replacing a local task', () => {
+  it('clears the unseen failure after dismissing the last failed task', () => {
+    const store = createWikiTaskCenterStore()
+    const id = store.startTask({ kind: 'cleanup', title: '清理来源' })
+    store.failTask(id, '无法清理', true)
+
+    store.dismissTask(id)
+
+    expect(store.getSnapshot().hasUnseenFailure).toBe(false)
+    expect(store.getSnapshot().pillText).toBeNull()
+  })
+
+  it('merges run history once without replacing a local task', () => {
     const store = createWikiTaskCenterStore()
     const localId = store.startTask({ kind: 'archive', title: '本地归档' })
     const runs: WikiRunItem[] = [
@@ -112,12 +123,17 @@ describe('wiki task center store', () => {
     store.mergeRuns(runs)
     store.mergeRuns(runs)
 
-    expect(store.getSnapshot().tasks).toHaveLength(2)
+    expect(store.getSnapshot().tasks).toHaveLength(3)
     expect(store.getSnapshot().tasks.find((task) => task.id === localId)?.title).toBe('本地归档')
     expect(store.getSnapshot().tasks.find((task) => task.id === 'run-failed')).toMatchObject({
       kind: 'archive',
       phase: 'failed',
       error: '归档失败',
+      runDetail: null,
+    })
+    expect(store.getSnapshot().tasks.find((task) => task.id === 'run-running')).toMatchObject({
+      phase: 'running',
+      inboxIds: [],
     })
   })
 })

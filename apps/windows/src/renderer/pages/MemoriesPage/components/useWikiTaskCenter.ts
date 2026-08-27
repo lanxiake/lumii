@@ -15,6 +15,9 @@ export interface WikiLocalTask {
   readonly createdAt: number
   readonly finishedAt?: number
   readonly retryable?: boolean
+  readonly inboxIds?: readonly string[]
+  readonly runDetail?: WikiRunItem['resultDetail']
+  readonly retry?: () => Promise<unknown>
 }
 
 export interface WikiTaskCenterApi {
@@ -65,7 +68,7 @@ function createLocalTaskId(): string {
 }
 
 /**
- * 将非运行态的 Wiki run 转换为任务中心历史项。
+ * 将 Wiki run 转换为任务中心可展示的任务项。
  */
 function mapRunToTask(run: WikiRunItem): WikiLocalTask {
   const failed = run.status === 'failed'
@@ -73,12 +76,14 @@ function mapRunToTask(run: WikiRunItem): WikiLocalTask {
     id: run.id,
     kind: 'archive',
     title: run.resultSummary || '归档任务',
-    phase: failed ? 'failed' : 'succeeded',
+    phase: run.status === 'running' ? 'running' : failed ? 'failed' : 'succeeded',
     detail: run.resultSummary ?? undefined,
     error: run.error ?? undefined,
     createdAt: run.createdAt,
     finishedAt: run.finishedAt ?? undefined,
     retryable: failed,
+    inboxIds: run.inboxIds,
+    runDetail: run.resultDetail,
   }
 }
 
@@ -222,6 +227,7 @@ export function createWikiTaskCenterStore(): WikiTaskCenterStore {
     const nextTasks = tasks.filter((task) => task.id !== id)
     if (nextTasks.length === tasks.length) return
     tasks = nextTasks
+    if (!tasks.some((task) => task.phase === 'failed')) hasUnseenFailure = false
     emitChange()
   }
 
@@ -235,12 +241,12 @@ export function createWikiTaskCenterStore(): WikiTaskCenterStore {
   }
 
   /**
-   * 合并已结束的归档 run，同时保留同 ID 的本地任务。
+   * 合并归档 run，同时保留同 ID 的本地任务。
    */
   function mergeRuns(runs: readonly WikiRunItem[]): void {
     const knownIds = new Set(tasks.map((task) => task.id))
     const newTasks = runs
-      .filter((run) => run.status !== 'running' && !knownIds.has(run.id))
+      .filter((run) => !knownIds.has(run.id))
       .map(mapRunToTask)
     if (newTasks.length === 0) return
     tasks = [...tasks, ...newTasks]
@@ -252,7 +258,11 @@ export function createWikiTaskCenterStore(): WikiTaskCenterStore {
    * 执行异步 Wiki 操作，并自动记录其成功或失败结果。
    */
   async function wrapAsync<T>(kind: WikiTaskKind, title: string, fn: () => Promise<T>): Promise<T> {
-    const id = startTask({ kind, title })
+    const id = startTask({
+      kind,
+      title,
+      retry: () => wrapAsync(kind, title, fn),
+    })
     try {
       const result = await fn()
       completeTask(id)
