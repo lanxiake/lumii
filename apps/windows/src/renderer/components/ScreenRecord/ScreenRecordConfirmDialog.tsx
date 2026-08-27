@@ -12,7 +12,7 @@ export interface ScreenRecordConfirmDialogProps {
 }
 
 /**
- * AI 请求录屏确认：缩略图 + 倒计时 + 始终允许勾选。
+ * AI 请求录屏/截图确认：缩略图 + 倒计时 + 始终允许勾选。
  * 超时由主进程 Service 触发 confirmation_timeout，Dialog 仅展示倒计时。
  */
 export const ScreenRecordConfirmDialog: React.FC<ScreenRecordConfirmDialogProps> = ({
@@ -36,6 +36,12 @@ export const ScreenRecordConfirmDialog: React.FC<ScreenRecordConfirmDialogProps>
 
   if (!payload) return null
 
+  const isScreenshot = payload.purpose === 'screenshot'
+  const title = isScreenshot
+    ? `AI 请求截取「${payload.sourceName}」`
+    : `AI 请求录制「${payload.sourceName}」`
+  const allowLabel = isScreenshot ? '允许截图' : '允许录制'
+
   return (
     <Modal
       open
@@ -43,14 +49,14 @@ export const ScreenRecordConfirmDialog: React.FC<ScreenRecordConfirmDialogProps>
       width={400}
       maskClosable={false}
       showClose={false}
-      title={`AI 请求录制「${payload.sourceName}」`}
+      title={title}
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={() => onRespond(false)}>
             拒绝
           </Button>
           <Button variant="primary" size="sm" onClick={() => onRespond(true, remember)}>
-            允许录制
+            {allowLabel}
           </Button>
         </>
       }
@@ -68,7 +74,7 @@ export const ScreenRecordConfirmDialog: React.FC<ScreenRecordConfirmDialogProps>
           <div className={styles.thumbPlaceholder}>无预览图</div>
         )}
 
-        {payload.sourceType === 'window' && (
+        {payload.sourceType === 'window' && !isScreenshot && (
           <p className={`${styles.hint} ${styles.hintWarn}`}>
             请保持目标窗口可见，不要最小化；关闭目标窗口将结束录制并保存已录片段。
           </p>
@@ -76,7 +82,7 @@ export const ScreenRecordConfirmDialog: React.FC<ScreenRecordConfirmDialogProps>
 
         <div className={styles.switchRow}>
           <Checkbox checked={remember} onChange={setRemember}>
-            始终允许 Lumii Agent 录屏
+            始终允许 Lumii Agent 录屏 / 截屏
           </Checkbox>
         </div>
       </div>

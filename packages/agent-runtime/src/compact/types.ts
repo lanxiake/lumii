@@ -52,6 +52,7 @@ export const COMPACTABLE_TOOLS: ReadonlySet<string> = new Set([
   "file_write",
   // UI 自动化：a11y 快照单次可达数 K，重新截图即可复得
   "app_screenshot",
+  "screen_screenshot",
   "app_act",
   "app_goto",
   "screen_record_mark",

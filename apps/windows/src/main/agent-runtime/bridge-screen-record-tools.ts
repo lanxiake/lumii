@@ -49,10 +49,11 @@ export function registerScreenRecordTools(
         label: 'Screen Record List Sources',
         category: 'channel' as const,
         description:
-          '列出可录制的整屏和窗口源（含 Lumii 自身）。' +
+          '列出可录制/截图的整屏和窗口源（含 Lumii 自身）。' +
           '默认 includeThumbnail=false 不返回缩略图，节省 token；需要缩略图区分时显式传 true。' +
-          'isLumii=true 的源是 Lumii 自身窗口，无需用户确认即可录制。' +
-          '演示/存档/教程素材用录屏；看界面细节仍用 app_screenshot / browser_screenshot，禁止用录屏代替截图观察。',
+          'isLumii=true 的源是 Lumii 自身窗口，无需用户确认即可录制或截图。' +
+          '单帧观察其他应用/桌面用 screen_screenshot；看 Lumii 本窗用 app_screenshot；看网页用 browser_screenshot；' +
+          '连续过程用 screen_record_*，禁止用录屏代替截图观察。',
         parameters: Type.Object({
           includeThumbnail: Type.Optional(
             Type.Boolean({
@@ -507,6 +508,58 @@ export function registerScreenRecordTools(
           } catch (e) {
             log.error('[screen_record_narrate]', e)
             return jsonToolResult({ ok: false, error: 'narrate_failed' })
+          }
+        },
+      },
+      ctx,
+    ),
+  )
+
+  reg(
+    createMtBotTool(
+      {
+        name: 'screen_screenshot',
+        label: 'Screen Screenshot',
+        category: 'channel' as const,
+        description:
+          '截取整屏或任意窗口的一帧静图并落盘，返回 imagePath（聊天可预览）。' +
+          '先 screen_record_list_sources 取 sourceId。' +
+          '非 Lumii 源默认需用户确认（工具会等待确认完成再返回）；alwaysAllow 或 isLumii 免确认。' +
+          '看其他应用/桌面状态、做教程静帧素材时用本工具；' +
+          '看 Lumii 本窗用 app_screenshot；看受控网页用 browser_screenshot；连续过程用 screen_record_*。' +
+          '不返回 a11y refs，不能代替 app_act 点选。',
+        parameters: Type.Object({
+          sourceId: Type.String({ description: 'list_sources 返回的 sourceId（整屏或窗口）' }),
+        }),
+        isReadOnly: true,
+        needsPermission: true,
+        execute: async (_id, rawParams) => {
+          const svc = get()
+          if (!svc) return jsonToolResult({ ok: false, error: 'disabled' })
+          const p = (rawParams ?? {}) as { sourceId?: string }
+          if (!p.sourceId) {
+            return jsonToolResult({ ok: false, error: 'usage', message: 'sourceId required' })
+          }
+          try {
+            const result = await svc.screenshot({ sourceId: p.sourceId })
+            if (!result.ok) return jsonToolResult(result)
+            const payload = {
+              ...result,
+              note:
+                `截图已保存，文件路径是 "${result.imagePath}"。` +
+                `可把该图展示给用户查看其他应用/桌面状态；观察细节请读取该路径，勿编造文件名。`,
+            }
+            return {
+              content: [{ type: 'text', text: JSON.stringify(payload) }],
+              details: {
+                previewPath: result.imagePath,
+                width: result.width,
+                height: result.height,
+              },
+            }
+          } catch (e) {
+            log.error('[screen_screenshot]', e)
+            return jsonToolResult({ ok: false, error: 'capture_failed' })
           }
         },
       },

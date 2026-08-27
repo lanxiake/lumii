@@ -2,13 +2,13 @@
  * 生产环境 ScreenRecordServiceDeps 工厂（desktopCapturer / 写盘 / 设置）
  */
 import { createWriteStream as fsCreateWriteStream } from 'node:fs'
-import { unlink } from 'node:fs/promises'
+import { unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { BrowserWindow } from 'electron'
 import { desktopCapturer } from 'electron'
 import type { ScreenRecordConfig, ScreenRecordSource } from '../../shared/screen-record'
 import { SCREEN_RECORD_SETTINGS_DEFAULTS } from '../../shared/screen-record'
-import { resolveRecordingsDir } from '../workspace-paths'
+import { resolveRecordingsDir, resolveScreenshotTempDir } from '../workspace-paths'
 import { getFreeDiskBytes } from './disk-space'
 import { webmToMp4 } from './ffmpeg-runner'
 import type { ScreenRecordServiceDeps, ScreenRecordWriteStream } from './screen-record-service'
@@ -217,6 +217,40 @@ export function createRealScreenRecordServiceDeps(
 
     persistAlwaysAllow: async (value) => {
       opts.requestPersistAlwaysAllow?.(value)
+    },
+
+    /**
+     * 用 desktopCapturer 高分辨率缩略图作为单帧截图。
+     */
+    captureSourceFrame: async (sourceId, maxDimension) => {
+      try {
+        const sources = await desktopCapturer.getSources({
+          types: ['screen', 'window'],
+          thumbnailSize: { width: maxDimension, height: maxDimension },
+          fetchWindowIcons: false,
+        })
+        const hit = sources.find((s) => s.id === sourceId)
+        if (!hit) return { ok: false, error: 'source_unavailable' }
+        if (!hit.thumbnail || hit.thumbnail.isEmpty()) {
+          return { ok: false, error: 'capture_failed', message: 'empty thumbnail' }
+        }
+        const size = hit.thumbnail.getSize()
+        const jpeg = Buffer.from(hit.thumbnail.toJPEG(85))
+        return { ok: true, jpeg, width: size.width, height: size.height }
+      } catch (e) {
+        return {
+          ok: false,
+          error: 'capture_failed',
+          message: e instanceof Error ? e.message : String(e),
+        }
+      }
+    },
+
+    resolveScreenshotTempDir,
+
+    writeScreenshotFile: async (filePath, jpeg) => {
+      await writeFile(filePath, jpeg)
+      return filePath
     },
 
     convertWebmToMp4: (input, output) => webmToMp4(input, output),

@@ -65,8 +65,10 @@ describe('screen-record 类型形状', () => {
       'narrate_failed',
       'invalid_cues',
       'source_not_in_recordings',
+      'busy',
+      'denied',
     ]
-    expect(codes.length).toBeGreaterThanOrEqual(18)
+    expect(codes.length).toBeGreaterThanOrEqual(20)
   })
 
   it('StartParams / StopResult / Command / Event 类型可引用', () => {

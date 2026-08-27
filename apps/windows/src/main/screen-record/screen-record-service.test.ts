@@ -112,6 +112,18 @@ function makeFakeDeps(
       clock += ms
     },
     persistAlwaysAllow: vi.fn(async () => undefined),
+    captureSourceFrame: vi.fn(async (sourceId: string) => {
+      const hit = FAKE_SOURCES.find((s) => s.sourceId === sourceId)
+      if (!hit) return { ok: false as const, error: 'source_unavailable' as const }
+      return {
+        ok: true as const,
+        jpeg: Buffer.from(`jpeg-${sourceId}`),
+        width: 1280,
+        height: 720,
+      }
+    }),
+    resolveScreenshotTempDir: () => 'E:/tmp/screenshots',
+    writeScreenshotFile: vi.fn(async (filePath: string, _jpeg: Buffer) => filePath),
     ...rest,
   }
 }
@@ -474,5 +486,116 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     })
     const stop2 = await s.stop()
     expect(stop2.ok && stop2.timeline).toEqual([])
+  })
+})
+
+describe('ScreenRecordService — screen_screenshot', () => {
+  let svc: ScreenRecordService
+  let deps: ScreenRecordServiceDeps
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    deps = makeFakeDeps()
+    svc = createScreenRecordService(deps)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('Lumii 自身源免确认，直接落盘返回 imagePath', async () => {
+    const r = await svc.screenshot({ sourceId: 'lumii-id' })
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.imagePath).toMatch(/E:[/\\]tmp[/\\]screenshots[/\\]screen-.*\.jpg$/i)
+    expect(r.sourceId).toBe('lumii-id')
+    expect(r.isLumii).toBe(true)
+    expect(r.width).toBe(1280)
+    expect(r.height).toBe(720)
+    expect(deps.notifyRendererConfirmRequested).not.toHaveBeenCalled()
+    expect(deps.captureSourceFrame).toHaveBeenCalled()
+  })
+
+  it('非自身源默认弹确认；允许后截图成功', async () => {
+    const pending = svc.screenshot({ sourceId: 'notepad' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(deps.notifyRendererConfirmRequested).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceId: 'notepad',
+        purpose: 'screenshot',
+      }),
+    )
+    const payload = (deps.notifyRendererConfirmRequested as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as { sessionId: string }
+    await svc.respondConfirm({ sessionId: payload.sessionId, allow: true })
+    const r = await pending
+    expect(r.ok).toBe(true)
+    if (r.ok) expect(r.sourceName).toBe('无标题 - 记事本')
+  })
+
+  it('非自身源 + alwaysAllow → 免确认', async () => {
+    deps = makeFakeDeps({ alwaysAllow: true })
+    svc = createScreenRecordService(deps)
+    const r = await svc.screenshot({ sourceId: 'screen-1' })
+    expect(r.ok).toBe(true)
+    expect(deps.notifyRendererConfirmRequested).not.toHaveBeenCalled()
+  })
+
+  it('用户拒绝 → denied', async () => {
+    const pending = svc.screenshot({ sourceId: 'notepad' })
+    await vi.advanceTimersByTimeAsync(0)
+    const payload = (deps.notifyRendererConfirmRequested as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as { sessionId: string }
+    await svc.respondConfirm({ sessionId: payload.sessionId, allow: false })
+    const r = await pending
+    expect(!r.ok && r.error).toBe('denied')
+  })
+
+  it('确认超时 → confirmation_timeout', async () => {
+    deps = makeFakeDeps({ confirmTimeoutSec: 2 })
+    svc = createScreenRecordService(deps)
+    const pending = svc.screenshot({ sourceId: 'notepad' })
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(2000)
+    const r = await pending
+    expect(!r.ok && r.error).toBe('confirmation_timeout')
+  })
+
+  it('源不存在 → source_unavailable', async () => {
+    const r = await svc.screenshot({ sourceId: 'gone' })
+    expect(!r.ok && r.error).toBe('source_unavailable')
+  })
+
+  it('enabled=false → disabled', async () => {
+    deps = makeFakeDeps({ enabled: false })
+    svc = createScreenRecordService(deps)
+    const r = await svc.screenshot({ sourceId: 'lumii-id' })
+    expect(!r.ok && r.error).toBe('disabled')
+  })
+
+  it('录屏进行中仍可截图（互不抢会话）', async () => {
+    await svc.start({ sourceId: 'lumii-id' })
+    expect(statusOf(svc)).toBe('recording')
+    const r = await svc.screenshot({ sourceId: 'lumii-id' })
+    expect(r.ok).toBe(true)
+    expect(statusOf(svc)).toBe('recording')
+  })
+
+  it('已有截图确认未决时再次 screenshot → busy', async () => {
+    const first = svc.screenshot({ sourceId: 'notepad' })
+    await vi.advanceTimersByTimeAsync(0)
+    const second = await svc.screenshot({ sourceId: 'screen-1' })
+    expect(!second.ok && second.error).toBe('busy')
+    const payload = (deps.notifyRendererConfirmRequested as ReturnType<typeof vi.fn>).mock
+      .calls[0][0] as { sessionId: string }
+    await svc.respondConfirm({ sessionId: payload.sessionId, allow: false })
+    await first
+  })
+
+  it('录屏 pending_confirm 时 screenshot → busy', async () => {
+    const startR = await svc.start({ sourceId: 'screen-1' })
+    expect(startR.ok && startR.status).toBe('needs_confirmation')
+    const r = await svc.screenshot({ sourceId: 'lumii-id' })
+    expect(!r.ok && r.error).toBe('busy')
   })
 })

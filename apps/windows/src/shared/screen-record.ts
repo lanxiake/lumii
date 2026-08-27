@@ -53,6 +53,10 @@ export type ScreenRecordErrorCode =
   | 'invalid_cues'
   /** 旁白：源文件不在 recordings/ */
   | 'source_not_in_recordings'
+  /** 已有截图确认在等待，或与录屏确认冲突 */
+  | 'busy'
+  /** 用户拒绝截图/录屏确认 */
+  | 'denied'
 
 /** list_sources 工具参数 */
 export interface ScreenRecordListSourcesParams {
@@ -258,6 +262,34 @@ export const RECORDINGS_DIRNAME = 'recordings'
 /** maxDurationSec 上限；超出截断不报错 */
 export const MAX_DURATION_SEC_CAP = 7200
 
+/** 桌面/窗口截图最长边（与 app_screenshot SCREENSHOT_MAX_DIMENSION 对齐） */
+export const SCREEN_SCREENSHOT_MAX_DIMENSION = 1280
+
+/** screen_screenshot 参数 */
+export interface ScreenScreenshotParams {
+  sourceId: string
+}
+
+/** screen_screenshot 返回 */
+export type ScreenScreenshotResult =
+  | {
+      ok: true
+      imagePath: string
+      sourceId: string
+      sourceName: string
+      type: 'screen' | 'window'
+      isLumii: boolean
+      width: number
+      height: number
+    }
+  | {
+      ok: false
+      error: ScreenRecordErrorCode
+      message?: string
+      sourceName?: string
+      confirmTimeoutSec?: number
+    }
+
 /** 磁盘可用 < 此值（500 MB）start 直接拒绝 */
 export const MIN_FREE_DISK_BYTES = 500 * 1024 * 1024
 
@@ -328,6 +360,8 @@ export type ScreenRecordEvent =
       thumbnailDataUrl?: string
       timeoutSec: number
       startedAt: number
+      /** 默认为 record；screenshot 为桌面/窗口单帧截图确认 */
+      purpose?: 'record' | 'screenshot'
     }
   | {
       readonly type: 'screen-record:event:start-capture'

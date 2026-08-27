@@ -405,7 +405,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className={styles['panel-row-text']}>
                 <span className={styles['panel-row-label']}>启用录屏功能</span>
                 <span className={styles['panel-row-hint']}>
-                  关闭后 AI 录屏工具与顶栏入口均不可用
+                  关闭后 AI 录屏/截屏工具与顶栏入口均不可用
                 </span>
               </div>
               <Checkbox
@@ -430,9 +430,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
             <div className={styles['panel-row']}>
               <div className={styles['panel-row-text']}>
-                <span className={styles['panel-row-label']}>始终允许录屏</span>
+                <span className={styles['panel-row-label']}>始终允许录屏 / 截屏</span>
                 <span className={`${styles['panel-row-hint']} ${styles['panel-row-hint-warn']}`}>
-                  开启后 Agent 可不经确认录制除本软件外的任意屏幕与窗口，请谨慎
+                  开启后 Agent 可不经确认录制或截取除本软件外的任意屏幕与窗口，请谨慎
                 </span>
               </div>
               <Checkbox

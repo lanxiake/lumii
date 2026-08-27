@@ -166,7 +166,9 @@ export function categorizeTools(toolNames: readonly string[]): string[] {
   for (const s of allSets) {
     s.forEach((t) => knownTools.add(t))
   }
-  const lowFrequency = toolNames.filter((t) => t.startsWith("app_") || t.startsWith("screen_record_"))
+  const lowFrequency = toolNames.filter(
+    (t) => t.startsWith("app_") || t.startsWith("screen_record_") || t === "screen_screenshot",
+  )
   const otherTools = toolNames.filter((t) => !knownTools.has(t) && !t.startsWith("mcp__") && !lowFrequency.includes(t))
   if (otherTools.length > 0) {
     lines.push("### Other Tools")
@@ -179,7 +181,9 @@ export function categorizeTools(toolNames: readonly string[]): string[] {
   if (lowFrequency.length > 0) {
     lines.push("### On-demand tool groups", "Use the relevant guide tool before calling tools in these groups; detailed names and usage are loaded on demand.")
     if (lowFrequency.some((t) => t.startsWith("app_"))) lines.push("- `app_*`: desktop application control")
-    if (lowFrequency.some((t) => t.startsWith("screen_record_"))) lines.push("- `screen_record_*`: screen recording and inspection")
+    if (lowFrequency.some((t) => t.startsWith("screen_record_") || t === "screen_screenshot")) {
+      lines.push("- `screen_record_*` / `screen_screenshot`: screen recording and desktop/window screenshots")
+    }
     lines.push("")
   }
 

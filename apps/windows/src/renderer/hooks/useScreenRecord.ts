@@ -19,6 +19,8 @@ export interface ScreenRecordConfirmPayload {
   thumbnailDataUrl?: string
   timeoutSec: number
   startedAt: number
+  /** 录屏或桌面截图确认 */
+  purpose: 'record' | 'screenshot'
 }
 
 /**
@@ -70,6 +72,7 @@ export function useScreenRecord() {
           thumbnailDataUrl: event.thumbnailDataUrl,
           timeoutSec: event.timeoutSec,
           startedAt: event.startedAt,
+          purpose: event.purpose === 'screenshot' ? 'screenshot' : 'record',
         })
       } else if (event.type === 'screen-record:event:cancelled') {
         setPendingConfirm(null)

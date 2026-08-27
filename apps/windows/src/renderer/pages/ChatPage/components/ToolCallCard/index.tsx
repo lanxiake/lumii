@@ -353,6 +353,9 @@ export function getStatusLabel(item: AgentWorkflowItem): string {
   if (lname === 'app_screenshot') {
     return `${prefix}截取界面`
   }
+  if (lname === 'screen_screenshot') {
+    return `${prefix}截取屏幕`
+  }
 
   // 通用技能/工具
   return target ? `${prefix}调用 ${name}: ${target}` : `${prefix}调用 ${name}`
@@ -447,19 +450,19 @@ function formatInputSummary(input: Record<string, unknown> | undefined, toolName
 
 // ─── 工具内联图片预览（image_generate / app_screenshot）──────────────────────────
 
-/** app_screenshot text 块 JSON 的最小字段（供路径回退与尺寸展示） */
-interface AppScreenshotPayload {
+/** 截图类工具 text 块 JSON 的最小字段（供路径回退与尺寸展示） */
+interface ScreenshotToolPayload {
   ok?: boolean
   snapshotId?: string
+  imagePath?: string
   width?: number
   height?: number
 }
 
 /**
- * 从 app_screenshot 工具 output 的 text 块解析 payload。
- * previewPath 缺失时用于构造 temp/screenshots/{snapshotId}.jpg（相对工作空间，主进程应尽量返回绝对 previewPath）。
+ * 从 app_screenshot / screen_screenshot 工具 output 的 text 块解析 payload。
  */
-function parseAppScreenshotPayload(output: Record<string, unknown>): AppScreenshotPayload | null {
+function parseScreenshotToolPayload(output: Record<string, unknown>): ScreenshotToolPayload | null {
   const content = output.content
   if (!Array.isArray(content)) return null
   for (const block of content) {
@@ -467,7 +470,7 @@ function parseAppScreenshotPayload(output: Record<string, unknown>): AppScreensh
     const text = (block as { text?: string }).text
     if (typeof text !== 'string') continue
     try {
-      const parsed = JSON.parse(text) as AppScreenshotPayload
+      const parsed = JSON.parse(text) as ScreenshotToolPayload
       if (parsed && typeof parsed === 'object' && parsed.ok) return parsed
     } catch {
       // 非 JSON 文本块，跳过
@@ -478,7 +481,7 @@ function parseAppScreenshotPayload(output: Record<string, unknown>): AppScreensh
 
 /**
  * 从工具 output 提取可预览图片路径与元数据。
- * image_generate 使用 details.filePath；app_screenshot 优先 details.previewPath。
+ * image_generate 使用 details.filePath；截图工具优先 details.previewPath / imagePath。
  */
 function extractToolImagePreviewDetails(output: unknown): {
   filePath: string
@@ -495,13 +498,18 @@ function extractToolImagePreviewDetails(output: unknown): {
   if (details) {
     if (typeof details.previewPath === 'string' && details.previewPath) {
       filePath = details.previewPath
+    } else if (typeof details.imagePath === 'string' && details.imagePath) {
+      filePath = details.imagePath
     } else if (typeof details.filePath === 'string' && details.filePath) {
       filePath = details.filePath
     }
   }
 
-  const screenshotPayload = parseAppScreenshotPayload(o)
-  // 无绝对 previewPath 时不猜测工作空间路径（用户可自定义工作空间目录）
+  const screenshotPayload = parseScreenshotToolPayload(o)
+  if (!filePath && typeof screenshotPayload?.imagePath === 'string' && screenshotPayload.imagePath) {
+    filePath = screenshotPayload.imagePath
+  }
+  // 无绝对路径时不猜测工作空间路径（用户可自定义工作空间目录）
   if (!filePath) return null
 
   return {
@@ -1067,7 +1075,10 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
   const showTodoPreview =
     isTodoWrite && !isRunning && (item.status === 'completed' || item.status === 'failed')
   const toolNameLower = (item.name || '').toLowerCase()
-  const isImagePreviewTool = toolNameLower === 'image_generate' || toolNameLower === 'app_screenshot'
+  const isImagePreviewTool =
+    toolNameLower === 'image_generate' ||
+    toolNameLower === 'app_screenshot' ||
+    toolNameLower === 'screen_screenshot'
   const showImagePreview =
     isImagePreviewTool && item.status === 'completed' && !!extractToolImagePreviewDetails(item.output)
 

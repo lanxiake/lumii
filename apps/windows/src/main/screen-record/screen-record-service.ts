@@ -24,13 +24,17 @@ import type {
   ScreenRecordPauseResult,
   ScreenRecordResumeResult,
   ScreenRecordTimelineEntry,
+  ScreenScreenshotParams,
+  ScreenScreenshotResult,
 } from '../../shared/screen-record'
 import {
   isScreenRecordAnnotation,
   MAX_DURATION_SEC_CAP,
   MIN_FREE_DISK_BYTES,
   SCREEN_RECORD_SETTINGS_DEFAULTS,
+  SCREEN_SCREENSHOT_MAX_DIMENSION,
 } from '../../shared/screen-record'
+import path from 'node:path'
 
 /** 写流抽象（测试可注入 mock） */
 export interface ScreenRecordWriteStream {
@@ -71,7 +75,7 @@ export interface ScreenRecordServiceDeps {
   notifyRendererResumeCapture: (sessionId: string) => void
   /** 通知取消 pending */
   notifyRendererCancelled: (sessionId: string, reason: ScreenRecordErrorCode) => void
-  /** 弹 AI 确认弹窗 */
+  /** 弹 AI 确认弹窗（录屏或桌面截图） */
   notifyRendererConfirmRequested: (payload: {
     sessionId: string
     sourceName: string
@@ -80,7 +84,22 @@ export interface ScreenRecordServiceDeps {
     thumbnailDataUrl?: string
     timeoutSec: number
     startedAt: number
+    purpose?: 'record' | 'screenshot'
   }) => void
+  /**
+   * 抓取指定源的一帧 JPEG（desktopCapturer 高分辨率缩略图）。
+   */
+  captureSourceFrame: (
+    sourceId: string,
+    maxDimension: number,
+  ) => Promise<
+    | { ok: true; jpeg: Buffer; width: number; height: number }
+    | { ok: false; error: 'source_unavailable' | 'capture_failed'; message?: string }
+  >
+  /** 截图临时目录（与 app_screenshot 同根） */
+  resolveScreenshotTempDir: () => string
+  /** 写入截图文件并返回最终路径 */
+  writeScreenshotFile: (filePath: string, jpeg: Buffer) => Promise<string>
   /** 广播状态变化 */
   emitStatusChanged: (detail: ScreenRecordStatusResult) => void
   /** 可选：成片写盘完成通知（UI 自动打开面板定位新成片） */
@@ -164,6 +183,8 @@ export interface ScreenRecordService {
    * 后期由 narrate ffmpeg 烧录，录制期不叠加。
    */
   annotate: (params: ScreenRecordAnnotateParams) => ScreenRecordAnnotateResult
+  /** 截取整屏/窗口单帧（可与录屏并行；确认槽独立） */
+  screenshot: (params: ScreenScreenshotParams) => Promise<ScreenScreenshotResult>
   getStatus: () => ScreenRecordStatusResult
   respondConfirm: (p: {
     sessionId: string
@@ -218,6 +239,21 @@ function createIdleState(): InternalState {
  */
 export function createScreenRecordService(deps: ScreenRecordServiceDeps): ScreenRecordService {
   let state = createIdleState()
+
+  /** 截图确认槽（与录屏 pending_confirm 解耦） */
+  let screenshotPending: {
+    sessionId: string
+    resolve: (result: 'allow' | 'deny' | 'timeout') => void
+  } | null = null
+  let screenshotConfirmTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** 清除截图确认超时定时器 */
+  function clearScreenshotConfirmTimer(): void {
+    if (screenshotConfirmTimer) {
+      clearTimeout(screenshotConfirmTimer)
+      screenshotConfirmTimer = null
+    }
+  }
 
   /** 清除确认超时定时器 */
   function clearConfirmTimer(): void {
@@ -670,6 +706,10 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       return { ok: false, error: 'disabled' }
     }
 
+    if (screenshotPending) {
+      return { ok: false, error: 'busy' }
+    }
+
     if (state.startLock || state.status === 'recording' || state.status === 'paused' || state.status === 'pending_confirm' || state.status === 'stopping') {
       return { ok: false, error: 'already_recording' }
     }
@@ -734,6 +774,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
           thumbnailDataUrl: source.thumbnailDataUrl || undefined,
           timeoutSec: settings.confirmTimeoutSec,
           startedAt,
+          purpose: 'record',
         })
         clearConfirmTimer()
         state.confirmTimer = setTimeout(() => {
@@ -831,6 +872,21 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     allow: boolean
     rememberAlwaysAllow?: boolean
   }): Promise<void> {
+    // 截图确认槽优先（与录屏状态机解耦）
+    if (screenshotPending && screenshotPending.sessionId === p.sessionId) {
+      clearScreenshotConfirmTimer()
+      if (p.rememberAlwaysAllow && deps.persistAlwaysAllow) {
+        await deps.persistAlwaysAllow(true)
+      }
+      const resolve = screenshotPending.resolve
+      screenshotPending = null
+      if (!p.allow) {
+        deps.notifyRendererCancelled(p.sessionId, 'permission_denied')
+      }
+      resolve(p.allow ? 'allow' : 'deny')
+      return
+    }
+
     if (state.status !== 'pending_confirm' || state.sessionId !== p.sessionId) {
       return
     }
@@ -931,6 +987,14 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
   }
 
   async function handleRendererGone(): Promise<void> {
+    if (screenshotPending) {
+      clearScreenshotConfirmTimer()
+      const resolve = screenshotPending.resolve
+      const sid = screenshotPending.sessionId
+      screenshotPending = null
+      deps.notifyRendererCancelled(sid, 'capture_failed')
+      resolve('deny')
+    }
     if (state.status === 'recording' || state.status === 'paused' || state.status === 'stopping') {
       state.captureFailedReason = 'renderer_gone'
       await stopInternal('capture_failed')
@@ -946,7 +1010,132 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     }
   }
 
+  /**
+   * 生成 screen-yyyyMMdd-HHmmss-短id.jpg 文件名。
+   */
+  function formatScreenshotFilename(now: Date = new Date()): string {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const y = now.getFullYear()
+    const M = pad(now.getMonth() + 1)
+    const d = pad(now.getDate())
+    const h = pad(now.getHours())
+    const m = pad(now.getMinutes())
+    const s = pad(now.getSeconds())
+    const shortId = randomUUID().slice(0, 8)
+    return `screen-${y}${M}${d}-${h}${m}${s}-${shortId}.jpg`
+  }
+
+  /**
+   * 确认通过后抓帧并落盘。
+   */
+  async function captureAndWrite(
+    source: ScreenRecordSource,
+  ): Promise<ScreenScreenshotResult> {
+    const frame = await deps.captureSourceFrame(source.sourceId, SCREEN_SCREENSHOT_MAX_DIMENSION)
+    if (!frame.ok) {
+      return { ok: false, error: frame.error, message: frame.message, sourceName: source.name }
+    }
+    try {
+      const dir = deps.resolveScreenshotTempDir()
+      const filePath = path.join(dir, formatScreenshotFilename(new Date(deps.nowMs())))
+      const imagePath = await deps.writeScreenshotFile(filePath, frame.jpeg)
+      return {
+        ok: true,
+        imagePath,
+        sourceId: source.sourceId,
+        sourceName: source.name,
+        type: source.type,
+        isLumii: source.isLumii,
+        width: frame.width,
+        height: frame.height,
+      }
+    } catch (e) {
+      return {
+        ok: false,
+        error: 'capture_failed',
+        message: e instanceof Error ? e.message : String(e),
+        sourceName: source.name,
+      }
+    }
+  }
+
+  /**
+   * 截取整屏或窗口单帧；非 Lumii 源需确认（与录屏 alwaysAllow 共用）。
+   */
+  async function screenshot(params: ScreenScreenshotParams): Promise<ScreenScreenshotResult> {
+    const settings = await deps.readSettings()
+    cachedEnabled = settings.enabled
+    if (!settings.enabled) {
+      return { ok: false, error: 'disabled' }
+    }
+    if (screenshotPending || state.status === 'pending_confirm') {
+      return { ok: false, error: 'busy' }
+    }
+
+    const sources = await deps.getSources(true)
+    const source = sources.find((s) => s.sourceId === params.sourceId)
+    if (!source) {
+      return { ok: false, error: 'source_unavailable' }
+    }
+
+    const needConfirm = !source.isLumii && !settings.alwaysAllow
+    if (needConfirm) {
+      const sessionId = randomUUID()
+      const startedAt = deps.nowMs()
+      const decision = await new Promise<'allow' | 'deny' | 'timeout'>((resolve) => {
+        screenshotPending = { sessionId, resolve }
+        deps.notifyRendererConfirmRequested({
+          sessionId,
+          sourceName: source.name,
+          sourceType: source.type,
+          sourceId: source.sourceId,
+          thumbnailDataUrl: source.thumbnailDataUrl || undefined,
+          timeoutSec: settings.confirmTimeoutSec,
+          startedAt,
+          purpose: 'screenshot',
+        })
+        clearScreenshotConfirmTimer()
+        screenshotConfirmTimer = setTimeout(() => {
+          if (screenshotPending?.sessionId === sessionId) {
+            screenshotPending = null
+            deps.notifyRendererCancelled(sessionId, 'confirmation_timeout')
+            resolve('timeout')
+          }
+        }, settings.confirmTimeoutSec * 1000)
+      })
+
+      if (decision === 'deny') {
+        return { ok: false, error: 'denied', sourceName: source.name }
+      }
+      if (decision === 'timeout') {
+        return {
+          ok: false,
+          error: 'confirmation_timeout',
+          sourceName: source.name,
+          confirmTimeoutSec: settings.confirmTimeoutSec,
+        }
+      }
+      // allow：重验证源仍在
+      const again = await deps.getSources(false)
+      const fresh = again.find((s) => s.sourceId === params.sourceId)
+      if (!fresh) {
+        return { ok: false, error: 'source_unavailable', sourceName: source.name }
+      }
+      return captureAndWrite(fresh)
+    }
+
+    return captureAndWrite(source)
+  }
+
   async function flushBeforeQuit(): Promise<void> {
+    if (screenshotPending) {
+      clearScreenshotConfirmTimer()
+      const resolve = screenshotPending.resolve
+      const sid = screenshotPending.sessionId
+      screenshotPending = null
+      deps.notifyRendererCancelled(sid, 'permission_denied')
+      resolve('deny')
+    }
     if (state.status === 'pending_confirm') {
       const sessionId = state.sessionId
       if (sessionId) {
@@ -974,6 +1163,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
     resume,
     mark,
     annotate,
+    screenshot,
     getStatus,
     respondConfirm,
     handleChunk,

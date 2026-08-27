@@ -195,6 +195,7 @@ describe("microcompactToolResults — 白名单 + 计数保留", () => {
     expect(COMPACTABLE_TOOLS.has("bash")).toBe(true);
     expect(COMPACTABLE_TOOLS.has("grep")).toBe(true);
     expect(COMPACTABLE_TOOLS.has("app_screenshot")).toBe(true);
+    expect(COMPACTABLE_TOOLS.has("screen_screenshot")).toBe(true);
     expect(COMPACTABLE_TOOLS.has("app_act")).toBe(true);
     expect(COMPACTABLE_TOOLS.has("spawn_agent")).toBe(false);
     expect(COMPACTABLE_TOOLS.has("todo_write")).toBe(false);

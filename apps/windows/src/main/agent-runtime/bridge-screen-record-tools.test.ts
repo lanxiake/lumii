@@ -30,6 +30,7 @@ describe('registerScreenRecordTools', () => {
     resume: ReturnType<typeof vi.fn>
     mark: ReturnType<typeof vi.fn>
     getStatus: ReturnType<typeof vi.fn>
+    screenshot: ReturnType<typeof vi.fn>
   }
 
   beforeEach(() => {
@@ -47,13 +48,23 @@ describe('registerScreenRecordTools', () => {
       resume: vi.fn(async () => ({ ok: false, error: 'not_paused' })),
       mark: vi.fn(() => ({ ok: false, error: 'not_recording' })),
       getStatus: vi.fn(() => ({ ok: true, status: 'idle' })),
+      screenshot: vi.fn(async () => ({
+        ok: true,
+        imagePath: 'E:/tmp/screenshots/screen-1.jpg',
+        sourceId: 'notepad',
+        sourceName: '记事本',
+        type: 'window',
+        isLumii: false,
+        width: 800,
+        height: 600,
+      })),
     }
     registerScreenRecordTools(registry, stubContext(), {
       getService: () => svc as unknown as ScreenRecordService,
     })
   })
 
-  it('注册十工具名（含 mark/annotate/inspect/narrate）', () => {
+  it('注册十一工具名（含 screen_screenshot）', () => {
     const names = registry.getAll().map((t) => t.name)
     expect(names).toEqual(
       expect.arrayContaining([
@@ -67,9 +78,22 @@ describe('registerScreenRecordTools', () => {
         'screen_record_annotate',
         'screen_record_inspect',
         'screen_record_narrate',
+        'screen_screenshot',
       ]),
     )
-    expect(names).toHaveLength(10)
+    expect(names).toHaveLength(11)
+  })
+
+  it('screen_screenshot 透传 sourceId 并返回 imagePath', async () => {
+    const tool = registry.get('screen_screenshot')!
+    const r = await tool.execute('1', { sourceId: 'notepad' })
+    const payload = parseJsonToolResultPayload(r)
+    expect(svc.screenshot).toHaveBeenCalledWith({ sourceId: 'notepad' })
+    expect(payload).toMatchObject({
+      ok: true,
+      imagePath: 'E:/tmp/screenshots/screen-1.jpg',
+      sourceId: 'notepad',
+    })
   })
 
   it('pause 透传 not_recording', async () => {
