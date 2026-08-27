@@ -853,8 +853,13 @@ export class WikiRepo {
   // ── 检索 ────────────────────────────────────────────────
 
   /**
-   * FTS5 + BM25 检索——同 memory-repo.search 范式：查询词按 tokenizeBigram 切分，
-   * 拼成 OR 短语查询并逐 bigram 转义引号，避免用户输入被解释为 FTS5 查询语法。
+   * FTS5 + BM25 检索：查询词按 tokenizeBigram 切分，拼成 **AND** 短语查询并逐 token 转义引号，
+   * 避免用户输入被解释为 FTS5 查询语法。
+   *
+   * 使用 AND 而非 OR：中文短语会拆成多个 bigram（如「架构设计」→ 架构/构设/设计），
+   * OR 会导致任一常见 bigram 命中即召回（「完全不存在的词xyz…」误命中含「存在」的页）；
+   * AND 要求查询侧全部 token 同页出现，显著降低误配，对连续短语召回仍友好。
+   *
    * 归档资料对应的页面（当前版本的 source_ref 指向已归档资料）排除出结果——
    * 具体实现：反连接页面当前版本的修订记录到 wiki_sources，命中已归档来源即排除。
    * 命中后更新 last_used / use_count。
@@ -862,7 +867,7 @@ export class WikiRepo {
   search(agentId: string, userId: string, keyword: string, limit = 10): readonly WikiSearchHit[] {
     const tokens = [...tokenizeBigram(keyword)];
     if (tokens.length === 0) return [];
-    const query = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" OR ");
+    const query = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" AND ");
     try {
       const rows = this.db
         .prepare<WikiPageRow>(

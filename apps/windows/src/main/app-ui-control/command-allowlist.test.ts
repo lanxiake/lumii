@@ -49,6 +49,10 @@ describe('COMMAND_ALLOWLIST', () => {
     }
   })
 
+  it('放行 Wiki inbox:count（CLI 计数与 UI 徽章同源）', () => {
+    expect(isCommandExposed('wiki:inbox:count')).toBe(true)
+  })
+
   it('放行压缩自动化所需命令', () => {
     for (const t of [
       'conversation:create',

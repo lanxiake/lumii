@@ -2,6 +2,10 @@
 
 本目录存放 **CLI / 真实环境** 测试用例与报告（非单元测试源码）。
 
+## Wiki CLI（P0/P1/P2，2026-08-27）
+
+见子目录 [lumii-cli/](./lumii-cli/README.md)：用例、执行器 `run-wiki-cli-suite.mjs`、报告与 evidence。
+
 ## Agent 能力（2026-08-27）
 
 | 文件 | 说明 |

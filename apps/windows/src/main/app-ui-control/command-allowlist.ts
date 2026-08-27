@@ -33,7 +33,7 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   // Wiki 知识库（P0）：浏览、检索、状态流转与页面编辑。
   // organize / update 接受任意 contentMd，属知识库正文写入而非配置/命令注入，
   // 与被拒的 mcp:writeConfigFile（可注入 stdio 命令，等价 RCE）性质不同，按需放行。
-  'wiki:inbox:list', 'wiki:inbox:retry', 'wiki:inbox:discard', 'wiki:inbox:organize',
+  'wiki:inbox:list', 'wiki:inbox:count', 'wiki:inbox:retry', 'wiki:inbox:discard', 'wiki:inbox:organize',
   'wiki:page:list', 'wiki:page:get', 'wiki:page:update', 'wiki:page:delete',
   'wiki:search', 'wiki:source:get', 'wiki:runs:list', 'wiki:index:rebuild',
   // Wiki 知识库（P1）：链接/修订/清理/附件/导出/概念候选。export 的 targetDir 来自渲染进程

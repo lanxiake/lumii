@@ -9,11 +9,21 @@ import {
   createBigramHashEmbedder,
   type WikiEmbedder,
 } from '@mtbot/agent-runtime'
+import { createRequire } from 'node:module'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import { createLogger } from '../logger'
 
 const log = createLogger('WikiEmbedder')
+
+/**
+ * 从应用根 package.json 解析外部依赖。
+ * 打包后主进程 chunk 位于 out/main/chunks，Node 默认无法从该目录 bare import node_modules。
+ */
+function requireFromAppRoot<T = unknown>(specifier: string): T {
+  const appPackageJson = path.join(__dirname, '../../../package.json')
+  return createRequire(appPackageJson)(specifier) as T
+}
 
 export const TRANSFORMERS_E5_MODEL_ID = 'Xenova/multilingual-e5-small'
 export const TRANSFORMERS_E5_DIMS = 384
@@ -69,7 +79,7 @@ export async function createTransformersE5Embedder(cacheDir?: string): Promise<W
     process.env.TRANSFORMERS_CACHE = cacheDir
   }
 
-  const { pipeline, env } = await import('@xenova/transformers')
+  const { pipeline, env } = requireFromAppRoot<typeof import('@xenova/transformers')>('@xenova/transformers')
   // Electron/Node：允许本地缓存，避免重复下载
   env.allowLocalModels = true
   if (cacheDir) env.cacheDir = cacheDir

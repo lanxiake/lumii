@@ -385,6 +385,24 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'wiki inbox count',
+    group: 'Wiki',
+    usage: 'wiki inbox count [--status pending|organized|discarded] [--session <key>]',
+    summary: '统计 Wiki 收件箱条目数量（与 list 同筛选语义）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--status <s>', desc: '按状态筛选：pending | organized | discarded' },
+      { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
+    ],
+    build(args) {
+      const body = { type: 'wiki:inbox:count' }
+      if (typeof args.flags.status === 'string') body.status = args.flags.status
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      return body
+    },
+  },
+  {
     name: 'wiki inbox retry',
     group: 'Wiki',
     usage: 'wiki inbox retry <id>',
@@ -564,6 +582,20 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'wiki unresolved',
+    group: 'Wiki',
+    usage: 'wiki unresolved [--session <key>]',
+    summary: '列出未解析的 [[双链]]（target 尚未建页）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '--session <key>', desc: '指定会话，不传则使用默认归属' }],
+    build(args) {
+      const body = { type: 'wiki:link:unresolved' }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      return body
+    },
+  },
+  {
     name: 'wiki revisions',
     group: 'Wiki',
     usage: 'wiki revisions <pageId>',
@@ -703,6 +735,20 @@ export const COMMANDS = [
       if (typeof args.flags.status === 'string') body.status = args.flags.status
       if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
       return body
+    },
+  },
+  {
+    name: 'wiki synthesis get',
+    group: 'Wiki',
+    usage: 'wiki synthesis get <id>',
+    summary: '读取综述候选正文与来源清单（审阅用）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<id>', desc: '合成记录 ID' }],
+    build(args) {
+      const synthesisId = args.positional[0]
+      if (typeof synthesisId !== 'string' || synthesisId.length === 0) return null
+      return { type: 'wiki:synthesis:get', synthesisId }
     },
   },
   {

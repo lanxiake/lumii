@@ -173,6 +173,22 @@ describe("WikiRepo 检索", () => {
     expect(() => repo.search("ag", "u", '"引号"*星号')).not.toThrow();
   });
 
+  it("含稀有拉丁串的混合查询不因中文 bigram OR 误召回", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.savePage({
+      agentId: "ag",
+      userId: "u",
+      path: "sources/exists",
+      title: "资料综述",
+      contentMd: "本文讨论存在与不存在的边界，以及架构设计。",
+      editor: "ai",
+    });
+    // 旧 OR 语义会因「存在/不存」等 bigram 命中；AND + 稀有拉丁 token 应为空
+    expect(repo.search("ag", "u", "完全不存在的词xyzzywiki999")).toEqual([]);
+    // 真实短语仍可召回
+    expect(repo.search("ag", "u", "架构设计")).toHaveLength(1);
+  });
+
   it("重建索引后检索结果与重建前一致", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     repo.savePage({ agentId: "ag", userId: "u", path: "sources/x", title: "记忆重构", contentMd: "内容", editor: "ai" });

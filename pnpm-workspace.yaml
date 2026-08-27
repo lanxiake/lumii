@@ -2,10 +2,21 @@ packages:
   - "apps/*"
   - "packages/*"
 
+overrides:
+  "@sinclair/typebox": "0.34.47"
+  tar: "7.5.7"
+  "@mariozechner/pi-ai": "0.50.7"
+  # @xenova/transformers 依赖 sharp ^0.32，与 apps/windows 的 0.34 统一，避免嵌套旧版 native 安装失败
+  sharp: "0.34.5"
+
+patchedDependencies:
+  "@mariozechner/pi-ai@0.50.7": "patches/@mariozechner__pi-ai@0.50.7.patch"
+
 onlyBuiltDependencies:
   - better-sqlite3
   - esbuild
   - electron
   - sharp
+  - onnxruntime-node
   - "@napi-rs/canvas"
   - "@lydell/node-pty"

@@ -15,15 +15,5 @@
     "typecheck": "pnpm -r typecheck",
     "verify": "pnpm typecheck && pnpm --filter lumii-windows test:all",
     "prepare": "echo skip githooks"
-  },
-  "pnpm": {
-    "overrides": {
-      "@sinclair/typebox": "0.34.47",
-      "tar": "7.5.7",
-      "@mariozechner/pi-ai": "0.50.7"
-    },
-    "patchedDependencies": {
-      "@mariozechner/pi-ai@0.50.7": "patches/@mariozechner__pi-ai@0.50.7.patch"
-    }
   }
 }

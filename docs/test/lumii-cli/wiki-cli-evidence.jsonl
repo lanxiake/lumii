@@ -1,0 +1,75 @@
+{"ts":"2026-08-27T02:25:31.504Z","id":"P0-A01","status":"PASS","note":"n=28"}
+{"ts":"2026-08-27T02:25:31.581Z","id":"P0-A02-organized","status":"PASS","note":"n=21"}
+{"ts":"2026-08-27T02:25:31.659Z","id":"P0-A02-pending","status":"PASS","note":"n=0"}
+{"ts":"2026-08-27T02:25:31.751Z","id":"P0-A02-discarded","status":"PASS","note":"n=7"}
+{"ts":"2026-08-27T02:25:31.907Z","id":"P0-A03","status":"PASS","note":"pages=30 sources=22"}
+{"ts":"2026-08-27T02:25:31.981Z","id":"P0-A04","status":"PASS","note":"runs=10 batch=4"}
+{"ts":"2026-08-27T02:25:32.054Z","id":"P0-S01","status":"PASS","note":"top=资料综述|架构设计文档|wiki-cli-p1-wikilink","titles":["资料综述","架构设计文档","wiki-cli-p1-wikilink"]}
+{"ts":"2026-08-27T02:25:32.132Z","id":"P0-S02","status":"PASS","note":"top=资料综述|文件上传功能|Wiki 功能说明","titles":["资料综述","文件上传功能","Wiki 功能说明"]}
+{"ts":"2026-08-27T02:25:32.214Z","id":"P0-S03","status":"PASS","note":"top=资料综述|Wiki 功能说明|wiki-cli-inbox-escape","titles":["资料综述","Wiki 功能说明","wiki-cli-inbox-escape"]}
+{"ts":"2026-08-27T02:25:32.329Z","id":"P0-S04","status":"PASS","note":"特殊字符 ok"}
+{"ts":"2026-08-27T02:25:32.412Z","id":"P0-S05","status":"PASS","note":"无结果空数组(AND)"}
+{"ts":"2026-08-27T02:25:32.460Z","id":"P0-S06","status":"PASS","note":"空查询 usage"}
+{"ts":"2026-08-27T02:25:32.709Z","id":"P0-I01","status":"PASS","note":"pageId=e9d1e3013758f72ab35452fdcafbd206"}
+{"ts":"2026-08-27T02:25:32.958Z","id":"P0-I02","status":"PASS","note":"rejected: 非法 Wiki 路径: ../escape"}
+{"ts":"2026-08-27T02:25:33.124Z","id":"P0-I03","status":"PASS","note":"id=12716353"}
+{"ts":"2026-08-27T02:25:33.205Z","id":"P0-I05","status":"PASS","note":"非 pending 拒绝"}
+{"ts":"2026-08-27T02:25:33.293Z","id":"P0-I04","status":"PASS","note":"attempt/error cleared"}
+{"ts":"2026-08-27T02:25:33.529Z","id":"P0-I06","status":"PASS","note":"ghost rejected"}
+{"ts":"2026-08-27T02:25:33.768Z","id":"P0-P01","status":"PASS","note":"id=ea19ea146215c7668b68b01dc6e98d72"}
+{"ts":"2026-08-27T02:25:33.768Z","id":"P0-P03","status":"PASS","note":"v7->v8"}
+{"ts":"2026-08-27T02:25:34.038Z","id":"P0-P02","status":"PASS","note":"get ok+missing"}
+{"ts":"2026-08-27T02:25:34.233Z","id":"P0-X01","status":"PASS","note":"rebuiltCount=31"}
+{"ts":"2026-08-27T02:25:34.234Z","id":"P0-X02","status":"PASS","note":"idempotent"}
+{"ts":"2026-08-27T02:25:34.313Z","id":"P0-X03","status":"PASS","note":"hits=3"}
+{"ts":"2026-08-27T02:25:34.391Z","id":"P0-R01","status":"PASS","note":"run=d51e979fa6f6c641b4f5607934ec9f09"}
+{"ts":"2026-08-27T02:25:34.548Z","id":"P0-G01","status":"PASS","note":"organized count=22 与 list 一致"}
+{"ts":"2026-08-27T02:25:35.028Z","id":"P0-G02","status":"PASS","note":"deleted sources/wiki-cli-p0-probe-del"}
+{"ts":"2026-08-27T02:25:35.186Z","id":"P0-G03","status":"PASS","note":"title=OAuth2 授权码流程"}
+{"ts":"2026-08-27T02:25:36.841Z","id":"P1-L01","status":"PASS","note":"n=3"}
+{"ts":"2026-08-27T02:25:37.208Z","id":"P1-L02","status":"PASS","note":"wikilink 反链可见"}
+{"ts":"2026-08-27T02:25:37.281Z","id":"P1-L03","status":"PASS","note":"未解析链接保留正文"}
+{"ts":"2026-08-27T02:25:37.424Z","id":"P1-L04","status":"PASS","note":"isolated empty"}
+{"ts":"2026-08-27T02:25:37.495Z","id":"P1-V01","status":"PASS","note":"n=2"}
+{"ts":"2026-08-27T02:25:38.003Z","id":"P1-V02","status":"PASS","note":"->v15"}
+{"ts":"2026-08-27T02:25:38.076Z","id":"P1-V03","status":"PASS","note":"bad version rejected"}
+{"ts":"2026-08-27T02:25:38.148Z","id":"P1-V04","status":"PASS","note":"ghost page rejected"}
+{"ts":"2026-08-27T02:25:38.223Z","id":"P1-C01","status":"PASS","note":"n=14"}
+{"ts":"2026-08-27T02:25:38.294Z","id":"P1-C02","status":"PASS","note":"n=14"}
+{"ts":"2026-08-27T02:25:38.583Z","id":"P1-C03","status":"PASS","note":"archive+restore"}
+{"ts":"2026-08-27T02:25:38.583Z","id":"P1-C04","status":"PASS","note":"search before=2 after-archive=1 (观察)","before":2,"afterArchive":1}
+{"ts":"2026-08-27T02:25:38.684Z","id":"P1-E01","status":"PASS","note":"md=30"}
+{"ts":"2026-08-27T02:25:38.781Z","id":"P1-E02","status":"PASS","note":"include-sources"}
+{"ts":"2026-08-27T02:25:38.872Z","id":"P1-E03","status":"PASS","note":"include-attachments"}
+{"ts":"2026-08-27T02:25:38.873Z","id":"P1-E04","status":"SKIP","note":"危险路径导出未强制实现"}
+{"ts":"2026-08-27T02:25:38.944Z","id":"P1-G01","status":"PASS","note":"unresolved=1 via CLI"}
+{"ts":"2026-08-27T02:26:07.798Z","id":"P1-G02","status":"PASS","note":"[{\"name\":\"wiki-cli-organized\",\"type\":\"concept\",\"evidenceSourceIds\":[\"c307a02e1b8f6418cc0b3bad6e8dcf9"}
+{"ts":"2026-08-27T02:26:07.798Z","id":"P1-G03","status":"SKIP","note":"有候选但不自动 confirm（防污染）"}
+{"ts":"2026-08-27T02:26:07.944Z","id":"P1-G04","status":"PASS","note":"attachments=0"}
+{"ts":"2026-08-27T02:26:07.945Z","id":"P1-G05","status":"SKIP","note":"无稳定附件文件 fixture"}
+{"ts":"2026-08-27T02:26:07.945Z","id":"P1-G06","status":"SKIP","note":"WIKI_CLI_ALLOW_DELETE!=1"}
+{"ts":"2026-08-27T02:26:08.085Z","id":"P1-G07","status":"PASS","note":"page delete probe"}
+{"ts":"2026-08-27T02:26:09.672Z","id":"P2-Y01","status":"PASS","note":"n=8"}
+{"ts":"2026-08-27T02:26:09.912Z","id":"P2-Y01b","status":"PASS","note":"status filters"}
+{"ts":"2026-08-27T02:26:23.530Z","id":"P2-Y02","status":"PASS","note":"id=c05b03c2b6092c980168dbf8158439f0 status=candidate"}
+{"ts":"2026-08-27T02:26:23.602Z","id":"P2-Y03","status":"PASS","note":"get c05b03c2 via CLI"}
+{"ts":"2026-08-27T02:26:23.748Z","id":"P2-Y04","status":"PASS","note":"accepted page=syntheses/wiki-cli-p2-synth"}
+{"ts":"2026-08-27T02:26:23.819Z","id":"P2-Y05","status":"SKIP","note":"本轮走了 accept，reject 另建"}
+{"ts":"2026-08-27T02:26:59.023Z","id":"P2-Y05","status":"PASS","note":"rejected 6383848b"}
+{"ts":"2026-08-27T02:26:59.187Z","id":"P2-Y06","status":"PASS","note":"ghost rejected"}
+{"ts":"2026-08-27T02:26:59.352Z","id":"P2-G01","status":"PASS","note":"nodes=22 edges=20"}
+{"ts":"2026-08-27T02:26:59.434Z","id":"P2-G02","status":"PASS","note":"nodes=20 truncated=true"}
+{"ts":"2026-08-27T02:26:59.479Z","id":"P2-G03","status":"PASS","note":"usage"}
+{"ts":"2026-08-27T02:26:59.639Z","id":"P2-G04","status":"PASS","note":"checked 3"}
+{"ts":"2026-08-27T02:26:59.809Z","id":"P2-G05","status":"PASS","note":"edges=0"}
+{"ts":"2026-08-27T02:26:59.886Z","id":"P2-H01","status":"PASS","note":"mode=fts"}
+{"ts":"2026-08-27T02:27:10.650Z","id":"P2-H02","status":"PASS","note":"hits=5 mode=hybrid"}
+{"ts":"2026-08-27T02:27:10.691Z","id":"P2-H03","status":"PASS","note":"empty usage"}
+{"ts":"2026-08-27T02:27:21.462Z","id":"P2-V01","status":"PASS","note":"{\"rebuiltCount\":30,\"backend\":\"bigram-hash\",\"notice\":\"多语言嵌入模型加载失败，已降级本地哈希向量：fetch failed\"}"}
+{"ts":"2026-08-27T02:27:21.548Z","id":"P2-R01","status":"PASS","note":"bootstrap ok"}
+{"ts":"2026-08-27T02:27:21.627Z","id":"P2-R02","status":"PASS","note":"{\"entities\":[{\"id\":\"aac3f84cd5866b369477af004d5722a0\",\"agent_id\":\"assistant\",\"user_id\":\"local-user\","}
+{"ts":"2026-08-27T02:27:21.722Z","id":"P2-T01","status":"PASS","note":"[{\"pageId\":\"04ce892b4d06d9ebf95370bc0d8ce94c\",\"title\":\"时序数据库选型\",\"path\":\"sources/tsdb-selection\",\"suggestedStatus\":\"outda"}
+{"ts":"2026-08-27T02:27:21.722Z","id":"P2-T02","status":"SKIP","note":"confirm 防污染不自动执行"}
+{"ts":"2026-08-27T02:27:23.311Z","id":"P0-M01","status":"PASS","note":"wiki_* tools present"}
+{"ts":"2026-08-27T02:27:23.311Z","id":"P0-M02","status":"SKIP","note":"WIKI_CLI_SKIP_AGENT=1"}
+{"ts":"2026-08-27T02:27:23.312Z","id":"P0-M03","status":"SKIP","note":"四路摄入手工"}

@@ -19,6 +19,9 @@
     "node_modules/sherpa-onnx-win-ia32/**/*",
     "node_modules/msedge-tts/**/*",
     "node_modules/silk-sdk/**/*",
+    "node_modules/@xenova/transformers/**/*",
+    "node_modules/onnxruntime-node/**/*",
+    "node_modules/onnxruntime-common/**/*",
     "!node_modules/lucide-react/**",
     "!node_modules/recharts/**",
     "!node_modules/@uiw/**",
@@ -98,7 +101,9 @@
     "node_modules/sherpa-onnx-win-x64/**/*",
     "node_modules/sherpa-onnx-win-ia32/**/*",
     "node_modules/@img/sharp-win32-x64/**/*",
-    "node_modules/@ffmpeg-installer/**/*"
+    "node_modules/@ffmpeg-installer/**/*",
+    "node_modules/onnxruntime-node/**/*",
+    "node_modules/@xenova/transformers/**/*"
   ],
   "win": {
     "target": [
