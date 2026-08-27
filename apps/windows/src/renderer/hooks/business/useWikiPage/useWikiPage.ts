@@ -6,6 +6,9 @@
 
 import { useCallback, useState } from 'react'
 
+/** 单机应用固定单一 agent；主进程侧同样兜底 'assistant'（wiki-commands.ts resolveAgentIdForWiki） */
+const DEFAULT_AGENT_ID = 'assistant'
+
 export interface WikiInboxItem {
   readonly id: string
   readonly itemType: string
@@ -181,6 +184,33 @@ export interface WikiStatusCandidateItem {
   readonly reason: string
 }
 
+export interface WikiTopicTree {
+  readonly version: 1
+  readonly categories: ReadonlyArray<{ readonly name: string; readonly subtopics: readonly string[] }>
+}
+
+export interface WikiSourceListItem {
+  readonly id: string
+  readonly title: string
+  readonly sourcePath: string | null
+  readonly mediaType: string
+  readonly topicCategory: string | null
+  readonly topicSubtopic: string | null
+  readonly updatedAt: number
+  readonly useCount: number
+}
+
+export interface WikiSourceSearchHit {
+  readonly sourceId: string
+  readonly title: string
+  readonly category: string | null
+  readonly subtopic: string | null
+  readonly snippet: string
+  readonly mediaType: string
+  readonly sourcePath: string | null
+  readonly updatedAt: number
+}
+
 export function useWikiPage() {
   const [loading, setLoading] = useState(false)
 
@@ -235,19 +265,24 @@ export function useWikiPage() {
     }
   }, [])
 
+  /** 手动指定用途大类/小类立即归档；不允许归到临时存放（那是文件列表里的显式操作）。 */
   const organizeInbox = useCallback(
-    async (inboxId: string, path: string, title?: string, contentMd?: string): Promise<string | null> => {
+    async (
+      inboxId: string,
+      category: string,
+      subtopic: string,
+      title?: string,
+    ): Promise<{ sourceId: string; category: string; subtopic: string } | null> => {
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return null
       try {
-        const r = (await api.sendCommand({
+        return (await api.sendCommand({
           type: 'wiki:inbox:organize',
           inboxId,
-          path,
+          category,
+          subtopic,
           title,
-          contentMd,
-        })) as { pageId: string }
-        return r?.pageId ?? null
+        })) as { sourceId: string; category: string; subtopic: string }
       } catch {
         return null
       }
@@ -820,6 +855,127 @@ export function useWikiPage() {
     [],
   )
 
+  const loadTopicTree = useCallback(async (): Promise<WikiTopicTree | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:topic:tree:get',
+        agentId: DEFAULT_AGENT_ID,
+      })) as { tree: WikiTopicTree }
+      return r?.tree ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  const setTopicTree = useCallback(async (tree: WikiTopicTree): Promise<boolean> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return false
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:topic:tree:set',
+        agentId: DEFAULT_AGENT_ID,
+        tree,
+      })) as { success: boolean }
+      return !!r?.success
+    } catch {
+      return false
+    }
+  }, [])
+
+  const listSources = useCallback(
+    async (filter?: {
+      category?: string
+      subtopic?: string
+      parking?: boolean
+      unfiled?: boolean
+      mediaType?: string
+    }): Promise<readonly WikiSourceListItem[]> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return []
+      setLoading(true)
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:source:list',
+          agentId: DEFAULT_AGENT_ID,
+          category: filter?.category,
+          subtopic: filter?.subtopic,
+          parking: filter?.parking,
+          unfiled: filter?.unfiled,
+          mediaType: filter?.mediaType,
+        })) as { sources: WikiSourceListItem[] }
+        return Array.isArray(r?.sources) ? r.sources : []
+      } catch {
+        return []
+      } finally {
+        setLoading(false)
+      }
+    },
+    [],
+  )
+
+  const updateSourceTopic = useCallback(
+    async (sourceId: string, category: string, subtopic: string | null): Promise<boolean> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return false
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:source:update-topic',
+          agentId: DEFAULT_AGENT_ID,
+          sourceId,
+          category,
+          subtopic,
+        })) as { id: string }
+        return !!r?.id
+      } catch {
+        return false
+      }
+    },
+    [],
+  )
+
+  const moveToParking = useCallback(async (sourceId: string): Promise<boolean> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return false
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:source:move-to-parking',
+        agentId: DEFAULT_AGENT_ID,
+        sourceId,
+      })) as { id: string }
+      return !!r?.id
+    } catch {
+      return false
+    }
+  }, [])
+
+  /** 失败把 error 抛给调用方，让 UI 展示「无法打开原文件」等具体原因 */
+  const openSource = useCallback(async (sourceId: string): Promise<void> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) throw new Error('agentRuntime 不可用')
+    await api.sendCommand({ type: 'wiki:source:open', agentId: DEFAULT_AGENT_ID, sourceId })
+  }, [])
+
+  const searchSources = useCallback(async (keyword: string, limit?: number): Promise<readonly WikiSourceSearchHit[]> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand || !keyword.trim()) return []
+    setLoading(true)
+    try {
+      const rows = (await api.sendCommand({
+        type: 'wiki:search',
+        agentId: DEFAULT_AGENT_ID,
+        keyword,
+        limit,
+      })) as WikiSourceSearchHit[]
+      return Array.isArray(rows) ? rows : []
+    } catch {
+      return []
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   return {
     loading,
     listInbox,
@@ -862,5 +1018,12 @@ export function useWikiPage() {
     bootstrapEro,
     extractEro,
     listEntityObservations,
+    loadTopicTree,
+    setTopicTree,
+    listSources,
+    updateSourceTopic,
+    moveToParking,
+    openSource,
+    searchSources,
   }
 }

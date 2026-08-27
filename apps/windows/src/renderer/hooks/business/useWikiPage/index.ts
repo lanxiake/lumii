@@ -17,4 +17,7 @@ export {
   type WikiGraphDataItem,
   type WikiStatusCandidateItem,
   type WikiObservationItem,
+  type WikiTopicTree,
+  type WikiSourceListItem,
+  type WikiSourceSearchHit,
 } from './useWikiPage'
