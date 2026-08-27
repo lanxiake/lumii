@@ -63,6 +63,27 @@ describe('WikiTab', () => {
     })
   })
 
+  it('资料列表行显示分类、相对时间与路径', async () => {
+    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
+      'wiki:page:list': [
+        {
+          id: 'p1',
+          path: 'sources/architecture.md',
+          category: 'sources',
+          title: '架构设计文档',
+          version: 1,
+          updatedAt: Date.now(),
+        },
+      ],
+    })
+    render(<WikiTab />)
+
+    const title = await screen.findByText('架构设计文档')
+    const row = title.closest('.wiki-page-list-item')
+    expect(row).toHaveTextContent('资料')
+    expect(row).toHaveTextContent('sources/architecture.md · 刚刚')
+  })
+
   it('左栏一级含图谱与更多，不含运维工具独立入口', async () => {
     render(<WikiTab />)
     await screen.findByText(/暂无页面/)
@@ -101,5 +122,28 @@ describe('WikiTab', () => {
 
     fireEvent.click(screen.getByText('重试'))
     await waitFor(() => expect(retry).toHaveBeenCalledWith('i1'))
+  })
+
+  it('待整理失败项显示中文状态与重试', async () => {
+    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
+      'wiki:inbox:list': [{
+        id: 'i1',
+        itemType: 'file',
+        title: '导出报告',
+        contentPreview: 'x',
+        mediaType: 'document',
+        status: 'failed',
+        attemptCount: 2,
+        lastError: '超时',
+        createdAt: Date.now(),
+      }],
+      'wiki:inbox:count': { total: 1 },
+    })
+    render(<WikiTab />)
+
+    fireEvent.click(await screen.findByText('待整理'))
+    expect(await screen.findByText('失败')).toBeInTheDocument()
+    expect(screen.getByText('重试')).toBeInTheDocument()
+    expect(screen.queryByText(/^failed$/)).not.toBeInTheDocument()
   })
 })

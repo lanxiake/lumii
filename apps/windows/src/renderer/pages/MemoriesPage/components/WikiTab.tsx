@@ -26,6 +26,8 @@ import { LinkAutocomplete, detectWikilinkTrigger } from './LinkAutocomplete'
 import { uploadFilesForWikiAttachment } from './wikiAttachmentUpload'
 import { WikiLeftNav, type WikiPrimaryNav } from './WikiLeftNav'
 import { WikiTopBar } from './WikiTopBar'
+import { WikiPageList } from './WikiPageList'
+import { WikiInboxPanel } from './WikiInboxPanel'
 import { useWikiTaskCenter } from './useWikiTaskCenter'
 import './WikiTab.css'
 
@@ -322,13 +324,11 @@ export const WikiTab: React.FC = () => {
             {searchResults.length === 0 ? (
               <p className="wiki-empty-hint">未找到相关页面</p>
             ) : (
-              searchResults.map((hit) => (
-                <div key={hit.pageId} className="wiki-page-list-item" onClick={() => void handleOpenPage(hit.pageId)}>
-                  <div className="wiki-page-list-title">{hit.title}</div>
-                  <div className="wiki-page-list-path">{hit.path}</div>
-                  <div className="wiki-page-list-snippet">{hit.snippet}</div>
-                </div>
-              ))
+              <WikiPageList
+                searchHits={searchResults}
+                selectedPageId={selectedPage?.id ?? null}
+                onOpen={(pageId) => void handleOpenPage(pageId)}
+              />
             )}
           </div>
         ) : primaryNav === 'inbox' ? (
@@ -337,31 +337,11 @@ export const WikiTab: React.FC = () => {
             {inboxItems.length < pendingCount && (
               <p className="wiki-empty-hint">仅显示最近 {inboxItems.length} 条</p>
             )}
-            {inboxItems.length === 0 ? (
-              <p className="wiki-empty-hint">暂无待整理条目。上传文件、任务产物或网页搜索结果会自动出现在这里。</p>
-            ) : (
-              inboxItems.map((item) => (
-                <div key={item.id} className="wiki-inbox-item">
-                  <div className="wiki-inbox-item-header">
-                    <span className="wiki-inbox-item-type">{item.itemType}</span>
-                    <span className="wiki-inbox-item-title">{item.title}</span>
-                    <span className={`wiki-inbox-item-status wiki-inbox-item-status--${item.status}`}>
-                      {item.status}
-                    </span>
-                  </div>
-                  {item.contentPreview && <p className="wiki-inbox-item-preview">{item.contentPreview}</p>}
-                  {item.lastError && (
-                    <p className="wiki-inbox-item-error">失败原因: {item.lastError}（已重试 {item.attemptCount} 次）</p>
-                  )}
-                  {item.status === 'pending' && (
-                    <div className="wiki-inbox-item-actions">
-                      <Button variant="ghost" size="sm" onClick={() => void handleRetry(item.id)}>重试</Button>
-                      <Button variant="ghost" size="sm" onClick={() => void handleDiscard(item.id)}>丢弃</Button>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
+            <WikiInboxPanel
+              items={inboxItems}
+              onRetry={(inboxId) => void handleRetry(inboxId)}
+              onDiscard={(inboxId) => void handleDiscard(inboxId)}
+            />
           </div>
         ) : toolView === 'cleanup' ? (
           <CleanupView
@@ -460,12 +440,11 @@ export const WikiTab: React.FC = () => {
                 暂无页面。Wiki 会自动收集上传文件、任务产物与网页搜索结果并归档整理。
               </p>
             ) : (
-              visiblePages.map((page) => (
-                <div key={page.id} className="wiki-page-list-item" onClick={() => void handleOpenPage(page.id)}>
-                  <div className="wiki-page-list-title">{page.title}</div>
-                  <div className="wiki-page-list-path">{page.path}</div>
-                </div>
-              ))
+              <WikiPageList
+                pages={visiblePages}
+                selectedPageId={null}
+                onOpen={(pageId) => void handleOpenPage(pageId)}
+              />
             )}
           </div>
         )}
