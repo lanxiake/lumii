@@ -1,16 +1,23 @@
 import React, { useEffect, useRef } from 'react'
-import { Layers3, RefreshCw, Sparkles } from 'lucide-react'
+import { History, Layers3, RefreshCw, Sparkles } from 'lucide-react'
 
 interface WikiMoreMenuProps {
   readonly open: boolean
   readonly anchorRef?: React.RefObject<HTMLButtonElement>
   readonly onClose: () => void
+  readonly onHistory: () => void
   readonly onCleanup: () => void
   readonly onSynthesis: () => void
   readonly onRebuild: () => void
 }
 
 const MENU_ITEMS = [
+  {
+    key: 'history',
+    label: '历史页面',
+    description: '查看早期归档生成的摘要页面',
+    icon: History,
+  },
   {
     key: 'cleanup',
     label: '清理',
@@ -38,6 +45,7 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
   open,
   anchorRef,
   onClose,
+  onHistory,
   onCleanup,
   onSynthesis,
   onRebuild,
@@ -61,6 +69,7 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
   if (!open) return null
 
   const actions = {
+    history: onHistory,
     cleanup: onCleanup,
     synthesis: onSynthesis,
     rebuild: onRebuild,

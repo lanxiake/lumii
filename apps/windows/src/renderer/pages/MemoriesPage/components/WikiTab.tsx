@@ -1,11 +1,12 @@
 /**
  * WikiTab — Wiki 知识库工作区
  *
- * 左栏只承载浏览分区、知识图谱与更多入口；顶栏统一承载搜索、
- * 当前分区上下文和任务进度，主内容区继续复用现有业务视图。
+ * 左栏承载用途目录树与固定入口，顶栏统一承载搜索、当前目录上下文与任务进度，
+ * 主内容区按用途目录展示原始文件；历史摘要页面只从「更多 → 历史页面」进入。
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { PARKING_CATEGORY } from '@mtbot/agent-runtime/browser'
 import { Loading } from '../../../components/ui/Loading/Loading'
 import { ConfirmModal } from '../../../components/ui/Modal'
 import {
@@ -13,32 +14,40 @@ import {
   type WikiInboxItem,
   type WikiPageListItem,
   type WikiPageDetail,
-  type WikiSearchHit,
+  type WikiSourceListItem,
+  type WikiTopicTree,
 } from '../../../hooks/business/useWikiPage'
 import { CleanupView } from './CleanupView'
 import { SynthesisView } from './SynthesisView'
 import { WikiGraphView } from './WikiGraphView'
 import { WikiDetailDrawer } from './WikiDetailDrawer'
-import { WikiLeftNav, type WikiPrimaryNav } from './WikiLeftNav'
+import { WikiLeftNav, topicCountKey, type WikiNav } from './WikiLeftNav'
 import { WikiTopBar } from './WikiTopBar'
 import { WikiPageList } from './WikiPageList'
+import { WikiFileList } from './WikiFileList'
+import { WikiTopicPicker } from './WikiTopicPicker'
 import { WikiInboxPanel } from './WikiInboxPanel'
 import { WikiMoreMenu } from './WikiMoreMenu'
 import { WikiTaskCenter } from './WikiTaskCenter'
 import { useWikiTaskCenter, type WikiLocalTask } from './useWikiTaskCenter'
 import './WikiTab.css'
 
-type WikiToolView = 'cleanup' | 'synthesis' | null
+/** 归档选择器的目标：inbox 队列条目，或已进资料层但待补分/需要移动的文件 */
+type PickerTarget =
+  | { mode: 'inbox'; item: WikiInboxItem }
+  | { mode: 'source'; item: WikiSourceListItem }
 
-const NAV_CONTEXT: Record<WikiPrimaryNav, { title: string; subtitle: string }> = {
-  sources: { title: '资料', subtitle: '自动归档的资料与任务产物' },
-  media: { title: '多媒体', subtitle: '图片、音频与其他媒体内容' },
-  inbox: { title: '待整理', subtitle: '等待归档处理的内容' },
+const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
+  inbox: { title: '待整理', subtitle: '系统还在归档或无法自动归类的文件' },
+  parking: { title: '临时存放', subtitle: '你主动搁置、暂不进入正式目录的文件' },
   graph: { title: '知识图谱', subtitle: '浏览页面与实体之间的关系' },
+  history: { title: '历史页面', subtitle: '早期归档生成的摘要页面，只读' },
+  cleanup: { title: '清理', subtitle: '扫描并处理需要维护的资料' },
+  synthesis: { title: '综述合成', subtitle: '从已有页面生成主题综述' },
 }
 
 /**
- * 渲染 Wiki 工作区并协调列表、工具视图与详情抽屉。
+ * 渲染 Wiki 工作区并协调用途目录、文件列表与归档选择器。
  */
 export const WikiTab: React.FC = () => {
   const {
@@ -46,11 +55,11 @@ export const WikiTab: React.FC = () => {
     countInbox,
     retryInbox,
     discardInbox,
+    organizeInbox,
     listPages,
     getPage,
     updatePage,
     deletePage,
-    search,
     listRuns,
     rebuildIndex,
     listBacklinks,
@@ -64,7 +73,12 @@ export const WikiTab: React.FC = () => {
     getGraphData,
     statusScan,
     confirmStatus,
-    searchHybrid,
+    loadTopicTree,
+    listSources,
+    updateSourceTopic,
+    moveToParking,
+    openSource,
+    searchSources,
     bootstrapEro,
     extractEro,
     listEntityObservations,
@@ -72,44 +86,52 @@ export const WikiTab: React.FC = () => {
   } = useWikiPage()
   const taskCenter = useWikiTaskCenter()
 
-  const [primaryNav, setPrimaryNav] = useState<WikiPrimaryNav>('sources')
-  const [toolView, setToolView] = useState<WikiToolView>(null)
+  const [nav, setNav] = useState<WikiNav>({ kind: 'inbox' })
+  const [topicTree, setTopicTree] = useState<WikiTopicTree | null>(null)
+  const [sources, setSources] = useState<readonly WikiSourceListItem[]>([])
   const [pages, setPages] = useState<readonly WikiPageListItem[]>([])
-  const [pageCounts, setPageCounts] = useState<Record<string, number>>({})
   const [inboxItems, setInboxItems] = useState<readonly WikiInboxItem[]>([])
-  const [pendingCount, setPendingCount] = useState(0)
+  const [inboxPending, setInboxPending] = useState(0)
   const [selectedPage, setSelectedPage] = useState<WikiPageDetail | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editDraft, setEditDraft] = useState('')
   const [editTitle, setEditTitle] = useState('')
   const [query, setQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<readonly WikiSearchHit[] | null>(null)
+  const [searchResults, setSearchResults] = useState<readonly WikiSourceListItem[] | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<{ backlinks: number } | null>(null)
-  const [searchDegradeReason, setSearchDegradeReason] = useState<string | null>(null)
-  const [searchMode, setSearchMode] = useState<string | null>(null)
+  const [openError, setOpenError] = useState<string | null>(null)
+  const [picker, setPicker] = useState<PickerTarget | null>(null)
   const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(false)
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
 
+  const refreshSources = useCallback(async () => {
+    setSources(await listSources({}))
+  }, [listSources])
+
   const refreshPages = useCallback(async () => {
-    const all = await listPages()
-    setPages(all)
-    const counts: Record<string, number> = {}
-    for (const p of all) counts[p.category] = (counts[p.category] ?? 0) + 1
-    setPageCounts(counts)
+    setPages(await listPages())
   }, [listPages])
 
   const refreshInbox = useCallback(async () => {
-    const [all, total] = await Promise.all([listInbox('pending'), countInbox('pending')])
+    const [all, count] = await Promise.all([listInbox('pending'), countInbox('pending')])
     setInboxItems(all)
-    setPendingCount(total)
+    setInboxPending(count)
   }, [listInbox, countInbox])
 
   useEffect(() => {
-    void refreshPages()
+    void loadTopicTree().then(setTopicTree)
+    void refreshSources()
     void refreshInbox()
-  }, [refreshPages, refreshInbox])
+  }, [loadTopicTree, refreshSources, refreshInbox])
+
+  // 历史页面与综述、图谱仍以 wiki_pages 为数据源，进入这些视图时才加载
+  useEffect(() => {
+    if (nav.kind === 'history' || nav.kind === 'synthesis' || nav.kind === 'graph') {
+      void refreshPages()
+    }
+  }, [nav.kind, refreshPages])
 
   useEffect(() => {
     /** 将已有归档运行合并进任务中心历史。 */
@@ -119,6 +141,44 @@ export const WikiTab: React.FC = () => {
 
     void loadRunHistory()
   }, [listRuns, taskCenter.mergeRuns])
+
+  // 一期计数在渲染进程按两列分组，不做 topic_path 拼接
+  const { topicCounts, parkingSources, unfiledSources } = useMemo(() => {
+    const counts: Record<string, number> = {}
+    const parking: WikiSourceListItem[] = []
+    const unfiled: WikiSourceListItem[] = []
+    for (const item of sources) {
+      if (item.topicCategory === PARKING_CATEGORY) {
+        parking.push(item)
+        continue
+      }
+      if (!item.topicCategory) {
+        unfiled.push(item)
+        continue
+      }
+      counts[topicCountKey(item.topicCategory)] = (counts[topicCountKey(item.topicCategory)] ?? 0) + 1
+      if (item.topicSubtopic) {
+        const key = topicCountKey(item.topicCategory, item.topicSubtopic)
+        counts[key] = (counts[key] ?? 0) + 1
+      }
+    }
+    return { topicCounts: counts, parkingSources: parking, unfiledSources: unfiled }
+  }, [sources])
+
+  // 角标 = 队列条数 + 待补分条数
+  const pendingCount = inboxPending + unfiledSources.length
+
+  const visibleSources = useMemo(() => {
+    if (nav.kind === 'category') {
+      return sources.filter((item) => item.topicCategory === nav.name)
+    }
+    if (nav.kind === 'subtopic') {
+      return sources.filter(
+        (item) => item.topicCategory === nav.category && item.topicSubtopic === nav.subtopic,
+      )
+    }
+    return []
+  }, [nav, sources])
 
   /**
    * 打开任务中心并清除失败任务的未读提示。
@@ -156,72 +216,81 @@ export const WikiTab: React.FC = () => {
     [refreshInbox, retryInbox, taskCenter.dismissTask, taskCenter.wrapAsync],
   )
 
-  /**
-   * 用任务中心追踪清理扫描及其完成状态。
-   */
   const trackedCleanupScan = useCallback(
-    (staleDays?: number) => taskCenter.wrapAsync(
-      'cleanup',
-      '扫描清理项',
-      () => cleanupScan(staleDays),
-    ),
+    (staleDays?: number) => taskCenter.wrapAsync('cleanup', '扫描清理项', () => cleanupScan(staleDays)),
     [cleanupScan, taskCenter.wrapAsync],
   )
 
-  /**
-   * 用任务中心追踪批量归档操作。
-   */
   const trackedArchiveSources = useCallback(
-    (sourceIds: readonly string[]) => taskCenter.wrapAsync(
-      'cleanup',
-      '归档资料',
-      () => archiveSources(sourceIds),
-    ),
+    (sourceIds: readonly string[]) => taskCenter.wrapAsync('cleanup', '归档资料', () => archiveSources(sourceIds)),
     [archiveSources, taskCenter.wrapAsync],
   )
 
-  /**
-   * 用任务中心追踪批量恢复操作。
-   */
   const trackedRestoreSources = useCallback(
-    (sourceIds: readonly string[]) => taskCenter.wrapAsync(
-      'cleanup',
-      '恢复资料',
-      () => restoreSources(sourceIds),
-    ),
+    (sourceIds: readonly string[]) => taskCenter.wrapAsync('cleanup', '恢复资料', () => restoreSources(sourceIds)),
     [restoreSources, taskCenter.wrapAsync],
   )
 
-  /**
-   * 用任务中心追踪批量删除操作。
-   */
   const trackedDeleteSources = useCallback(
-    (sourceIds: readonly string[]) => taskCenter.wrapAsync(
-      'cleanup',
-      '删除资料',
-      () => deleteSources(sourceIds),
-    ),
+    (sourceIds: readonly string[]) => taskCenter.wrapAsync('cleanup', '删除资料', () => deleteSources(sourceIds)),
     [deleteSources, taskCenter.wrapAsync],
   )
 
-  /**
-   * 用任务中心追踪自动综述合成。
-   */
   const trackedAutoRunSynthesis = useCallback(
     () => taskCenter.wrapAsync('synthesis', '自动综述合成', autoRunSynthesis),
     [autoRunSynthesis, taskCenter.wrapAsync],
   )
 
-  const handleSelectPrimaryNav = useCallback((nav: WikiPrimaryNav) => {
-    setPrimaryNav(nav)
-    setToolView(null)
+  const handleSelectNav = useCallback((next: WikiNav) => {
+    setNav(next)
     setIsMoreMenuOpen(false)
     setSearchResults(null)
-    setSearchDegradeReason(null)
-    setSearchMode(null)
+    setOpenError(null)
     setSelectedPage(null)
     setIsDetailOpen(false)
   }, [])
+
+  /**
+   * 打开原始文件；失败时在主区展示具体原因，不静默丢弃。
+   */
+  const handleOpenSource = useCallback(
+    async (item: WikiSourceListItem) => {
+      setOpenError(null)
+      try {
+        await openSource(item.id)
+      } catch (error) {
+        setOpenError(error instanceof Error ? error.message : '无法打开原文件')
+      }
+    },
+    [openSource],
+  )
+
+  /**
+   * 确认归档目标后按来源分流：队列条目走 organizeInbox，资料层条目走 updateSourceTopic。
+   */
+  const handleConfirmPicker = useCallback(
+    async (category: string, subtopic: string) => {
+      const target = picker
+      setPicker(null)
+      if (!target) return
+      if (target.mode === 'inbox') {
+        await organizeInbox(target.item.id, category, subtopic)
+        await refreshInbox()
+      } else {
+        await updateSourceTopic(target.item.id, category, subtopic)
+      }
+      await refreshSources()
+    },
+    [picker, organizeInbox, updateSourceTopic, refreshInbox, refreshSources],
+  )
+
+  const handlePark = useCallback(
+    async (item: WikiSourceListItem) => {
+      await moveToParking(item.id)
+      await refreshSources()
+    },
+    [moveToParking, refreshSources],
+  )
 
   const handleOpenPage = useCallback(
     async (pageId: string) => {
@@ -229,14 +298,8 @@ export const WikiTab: React.FC = () => {
       setSelectedPage(page)
       setIsDetailOpen(page !== null)
       setIsEditing(false)
-      if (
-        primaryNav !== 'graph'
-        && (page?.category === 'sources' || page?.category === 'media')
-      ) {
-        setPrimaryNav(page.category)
-      }
     },
-    [getPage, primaryNav],
+    [getPage],
   )
 
   const handleStartEdit = useCallback(() => {
@@ -289,45 +352,32 @@ export const WikiTab: React.FC = () => {
     [discardInbox, refreshInbox],
   )
 
+  /**
+   * 主搜索框只检索资料层正文，历史页面检索留在「历史页面」视图内。
+   */
   const handleSearch = useCallback(async () => {
     if (!query.trim()) {
       setSearchResults(null)
-      setSearchDegradeReason(null)
-      setSearchMode(null)
       return
     }
-    const hybrid = await searchHybrid(query)
-    if (hybrid) {
-      setSearchResults(hybrid.hits)
-      setSearchDegradeReason(hybrid.degradeReason)
-      setSearchMode(hybrid.mode)
-      return
-    }
-    setSearchResults(await search(query))
-    setSearchDegradeReason('混合检索不可用，已回退全文检索')
-    setSearchMode('fts')
-  }, [query, search, searchHybrid])
+    const hits = await searchSources(query)
+    setSearchResults(
+      hits.map((hit) => ({
+        id: hit.sourceId,
+        title: hit.title,
+        sourcePath: hit.sourcePath,
+        mediaType: hit.mediaType,
+        topicCategory: hit.category,
+        topicSubtopic: hit.subtopic,
+        updatedAt: hit.updatedAt,
+        useCount: 0,
+      })),
+    )
+  }, [query, searchSources])
 
-  /**
-   * 清空当前检索词与结果，恢复当前一级分区内容。
-   */
   const handleClearSearch = useCallback(() => {
     setQuery('')
     setSearchResults(null)
-    setSearchDegradeReason(null)
-    setSearchMode(null)
-  }, [])
-
-  /**
-   * 打开工具全页，并清理会覆盖该页面的搜索与详情状态。
-   */
-  const handleOpenToolView = useCallback((view: Exclude<WikiToolView, null>) => {
-    setToolView(view)
-    setSearchResults(null)
-    setSearchDegradeReason(null)
-    setSearchMode(null)
-    setSelectedPage(null)
-    setIsDetailOpen(false)
   }, [])
 
   /**
@@ -342,31 +392,36 @@ export const WikiTab: React.FC = () => {
     void handleOpenPage(selectedPage.id)
   }, [selectedPage, handleOpenPage])
 
-  const visiblePages = pages.filter((page) => page.category === primaryNav)
+  const breadcrumb = nav.kind === 'category'
+    ? nav.name
+    : nav.kind === 'subtopic'
+      ? `${nav.category} / ${nav.subtopic}`
+      : null
   const currentContext = searchResults !== null
-    ? { title: '搜索结果', subtitle: `共找到 ${searchResults.length} 项内容` }
-    : toolView === 'cleanup'
-      ? { title: '清理', subtitle: '扫描并处理需要维护的资料' }
-      : toolView === 'synthesis'
-        ? { title: '综述合成', subtitle: '从已有页面生成主题综述' }
-        : NAV_CONTEXT[primaryNav]
+    ? { title: '搜索结果', subtitle: `共找到 ${searchResults.length} 个文件` }
+    : breadcrumb
+      ? { title: breadcrumb, subtitle: '该目录下的原始文件' }
+      : FIXED_NAV_CONTEXT[nav.kind]
 
   return (
     <div className="wiki-tab">
       <WikiLeftNav
-        active={toolView || isMoreMenuOpen ? 'more' : primaryNav}
+        active={isMoreMenuOpen ? { kind: 'more' } : nav}
+        tree={topicTree}
         pendingCount={pendingCount}
-        pageCounts={pageCounts}
+        parkingCount={parkingSources.length}
+        topicCounts={topicCounts}
         moreButtonRef={moreButtonRef}
-        onSelect={handleSelectPrimaryNav}
+        onSelect={handleSelectNav}
         onOpenMore={() => setIsMoreMenuOpen((open) => !open)}
       />
       <WikiMoreMenu
         open={isMoreMenuOpen}
         anchorRef={moreButtonRef}
         onClose={() => setIsMoreMenuOpen(false)}
-        onCleanup={() => handleOpenToolView('cleanup')}
-        onSynthesis={() => handleOpenToolView('synthesis')}
+        onHistory={() => handleSelectNav({ kind: 'history' })}
+        onCleanup={() => handleSelectNav({ kind: 'cleanup' })}
+        onSynthesis={() => handleSelectNav({ kind: 'synthesis' })}
         onRebuild={handleRebuildIndex}
       />
 
@@ -389,40 +444,52 @@ export const WikiTab: React.FC = () => {
               <Loading text="加载中..." />
             </div>
           )}
+          {openError && (
+            <p className="wiki-open-error" role="alert">
+              {openError}
+            </p>
+          )}
         {searchResults !== null ? (
           <div className="wiki-search-results">
-            <h3>
-              搜索结果（{searchResults.length}）
-              {searchMode ? <span className="wiki-search-mode"> · {searchMode}</span> : null}
-            </h3>
-            {searchDegradeReason && (
-              <p className="wiki-search-degrade" role="status">
-                {searchDegradeReason}
-              </p>
-            )}
-            {searchResults.length === 0 ? (
-              <p className="wiki-empty-hint">未找到相关页面</p>
-            ) : (
-              <WikiPageList
-                searchHits={searchResults}
-                selectedPageId={selectedPage?.id ?? null}
-                onOpen={(pageId) => void handleOpenPage(pageId)}
-              />
-            )}
+            <h3>搜索结果（{searchResults.length}）</h3>
+            <WikiFileList
+              items={searchResults}
+              emptyHint="未找到相关文件"
+              showTopic
+              showMediaChips={false}
+              onOpen={(item) => void handleOpenSource(item)}
+              onMove={(item) => setPicker({ mode: 'source', item })}
+              onPark={(item) => void handlePark(item)}
+            />
           </div>
-        ) : primaryNav === 'inbox' ? (
+        ) : nav.kind === 'inbox' ? (
           <div className="wiki-inbox-view">
             <h3>待整理（{pendingCount}）</h3>
-            {inboxItems.length < pendingCount && (
+            {inboxItems.length < inboxPending && (
               <p className="wiki-empty-hint">仅显示最近 {inboxItems.length} 条</p>
             )}
             <WikiInboxPanel
               items={inboxItems}
+              unfiled={unfiledSources}
               onRetry={(inboxId) => void handleRetry(inboxId)}
               onDiscard={(inboxId) => void handleDiscard(inboxId)}
+              onOrganize={(item) => setPicker({ mode: 'inbox', item })}
+              onFileUnfiled={(item) => setPicker({ mode: 'source', item })}
             />
           </div>
-        ) : toolView === 'cleanup' ? (
+        ) : nav.kind === 'parking' ? (
+          <div className="wiki-parking-view">
+            <h3>临时存放（{parkingSources.length}）</h3>
+            <WikiFileList
+              items={parkingSources}
+              emptyHint="临时存放里还没有文件。"
+              moveLabel="移出"
+              showParkAction={false}
+              onOpen={(item) => void handleOpenSource(item)}
+              onMove={(item) => setPicker({ mode: 'source', item })}
+            />
+          </div>
+        ) : nav.kind === 'cleanup' ? (
           <CleanupView
             cleanupScan={trackedCleanupScan}
             archiveSources={trackedArchiveSources}
@@ -431,14 +498,27 @@ export const WikiTab: React.FC = () => {
             statusScan={statusScan}
             confirmStatus={confirmStatus}
           />
-        ) : toolView === 'synthesis' ? (
+        ) : nav.kind === 'synthesis' ? (
           <SynthesisView
             pages={pages}
             autoRunSynthesis={trackedAutoRunSynthesis}
             onOpenPage={(pageId) => void handleOpenPage(pageId)}
             onRefreshPages={refreshPages}
           />
-        ) : primaryNav === 'graph' ? (
+        ) : nav.kind === 'history' ? (
+          <div className="wiki-page-list-view">
+            <h3>历史页面（{pages.length}）</h3>
+            {pages.length === 0 ? (
+              <p className="wiki-empty-hint">没有历史摘要页面。新归档的文件请用左侧目录浏览。</p>
+            ) : (
+              <WikiPageList
+                pages={pages}
+                selectedPageId={selectedPage?.id ?? null}
+                onOpen={(pageId) => void handleOpenPage(pageId)}
+              />
+            )}
+          </div>
+        ) : nav.kind === 'graph' ? (
           <WikiGraphView
             pages={pages}
             getGraphData={getGraphData}
@@ -449,19 +529,16 @@ export const WikiTab: React.FC = () => {
             listEntityObservations={listEntityObservations}
           />
         ) : (
-          <div className="wiki-page-list-view">
-            <h3>{NAV_CONTEXT[primaryNav].title}（{visiblePages.length}）</h3>
-            {visiblePages.length === 0 ? (
-              <p className="wiki-empty-hint">
-                暂无页面。Wiki 会自动收集上传文件、任务产物与网页搜索结果并归档整理。
-              </p>
-            ) : (
-              <WikiPageList
-                pages={visiblePages}
-                selectedPageId={selectedPage?.id ?? null}
-                onOpen={(pageId) => void handleOpenPage(pageId)}
-              />
-            )}
+          <div className="wiki-file-list-view">
+            <h3>{breadcrumb}（{visibleSources.length}）</h3>
+            <WikiFileList
+              items={visibleSources}
+              emptyHint={nav.kind === 'subtopic' ? '这个小类下还没有文件' : '这个大类下还没有文件'}
+              showTopic={nav.kind === 'category'}
+              onOpen={(item) => void handleOpenSource(item)}
+              onMove={(item) => setPicker({ mode: 'source', item })}
+              onPark={(item) => void handlePark(item)}
+            />
           </div>
         )}
           <WikiDetailDrawer
@@ -496,6 +573,14 @@ export const WikiTab: React.FC = () => {
           />
         </main>
       </div>
+
+      <WikiTopicPicker
+        open={picker !== null}
+        tree={topicTree}
+        itemTitle={picker?.item.title}
+        onCancel={() => setPicker(null)}
+        onConfirm={(category, subtopic) => void handleConfirmPicker(category, subtopic)}
+      />
 
       <ConfirmModal
         open={deleteConfirm !== null}

@@ -89,6 +89,61 @@
   border-top: 1px solid var(--color-border);
 }
 
+/* 用途目录树 */
+.wiki-left-nav-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+.wiki-left-nav-group-header {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.wiki-left-nav-chevron {
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+.wiki-left-nav-chevron:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+
+.wiki-left-nav-item--group {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.wiki-left-nav-subtopics {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 18px;
+}
+
+.wiki-left-nav-item--sub {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.wiki-left-nav-count--warn {
+  background: var(--color-error);
+  color: #fff;
+}
+
 .wiki-more-menu {
   position: absolute;
   bottom: 52px;
@@ -284,6 +339,162 @@
   color: var(--color-text-tertiary);
   font-size: 13px;
   line-height: 1.6;
+}
+
+.wiki-section-subtitle {
+  margin: -4px 0 10px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+
+.wiki-section-heading {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.wiki-open-error {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+  color: var(--color-error);
+  font-size: 12px;
+}
+
+/* 用途目录文件列表 */
+.wiki-file-list-chips {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.wiki-file-list-chip {
+  padding: 3px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wiki-file-list-chip:hover {
+  background: var(--color-bg-hover);
+}
+
+.wiki-file-list-chip--active {
+  border-color: var(--color-primary);
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+.wiki-file-list-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wiki-file-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+
+.wiki-file-list-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.wiki-file-list-icon {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+.wiki-file-list-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wiki-file-list-title {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiki-file-list-meta {
+  display: flex;
+  gap: 8px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.wiki-file-list-topic {
+  color: var(--color-text-secondary);
+}
+
+.wiki-file-list-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+}
+
+/* 归档选择器 */
+.wiki-topic-picker-item {
+  margin: 0 0 12px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.wiki-topic-picker-section + .wiki-topic-picker-section {
+  margin-top: 14px;
+}
+
+.wiki-topic-picker-heading {
+  margin: 0 0 8px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wiki-topic-picker-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wiki-topic-picker-option {
+  padding: 5px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wiki-topic-picker-option:hover {
+  background: var(--color-bg-hover);
+}
+
+.wiki-topic-picker-option--active {
+  border-color: var(--color-primary);
+  background: var(--color-bg-active);
+}
+
+.wiki-topic-picker-hint {
+  margin: 14px 0 0;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
 }
 
 /* 页面列表 */

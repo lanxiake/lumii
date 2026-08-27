@@ -1,0 +1,129 @@
+import React, { useMemo, useState } from 'react'
+import { Archive, ArrowRightLeft, ExternalLink, FileText, Image as ImageIcon, Music, Video } from 'lucide-react'
+import { Button } from '../../../components/ui/Button/Button'
+import type { WikiSourceListItem } from '../../../hooks/business/useWikiPage'
+import { formatRelativeTime } from './wikiStatusLabels'
+
+/** 芯片粒度和 media_type 不是一对一：音视频一个芯片覆盖 audio + video 两种类型 */
+export type WikiMediaChip = 'all' | 'document' | 'image' | 'av'
+
+const MEDIA_CHIPS: ReadonlyArray<{ key: WikiMediaChip; label: string }> = [
+  { key: 'all', label: '全部' },
+  { key: 'document', label: '文档' },
+  { key: 'image', label: '图片' },
+  { key: 'av', label: '音视频' },
+]
+
+const MEDIA_ICONS = {
+  document: FileText,
+  image: ImageIcon,
+  audio: Music,
+  video: Video,
+} as const
+
+function matchesChip(mediaType: string | null, chip: WikiMediaChip): boolean {
+  if (chip === 'all') return true
+  if (chip === 'av') return mediaType === 'audio' || mediaType === 'video'
+  return mediaType === chip
+}
+
+interface WikiFileListProps {
+  items: readonly WikiSourceListItem[]
+  /** 空列表提示，随所在视图变化 */
+  emptyHint: string
+  /** 搜索结果与「全部大类」列表需要显示 大类 / 小类，小类视图内不重复显示 */
+  showTopic?: boolean
+  /** 临时存放视图用「移出」，正式目录用「移动」 */
+  moveLabel?: string
+  /** 临时存放视图不再显示「存到临时存放」 */
+  showParkAction?: boolean
+  showMediaChips?: boolean
+  onOpen: (item: WikiSourceListItem) => void
+  onMove: (item: WikiSourceListItem) => void
+  onPark?: (item: WikiSourceListItem) => void
+}
+
+/**
+ * 用途目录下的文件列表：一行一个原始文件，操作直接落在文件上。
+ * 资料行不再开详情侧滑，侧滑只服务历史页面。
+ */
+export const WikiFileList: React.FC<WikiFileListProps> = ({
+  items,
+  emptyHint,
+  showTopic = false,
+  moveLabel = '移动',
+  showParkAction = true,
+  showMediaChips = true,
+  onOpen,
+  onMove,
+  onPark,
+}) => {
+  const [chip, setChip] = useState<WikiMediaChip>('all')
+  const visible = useMemo(
+    () => (showMediaChips ? items.filter((item) => matchesChip(item.mediaType, chip)) : items),
+    [items, chip, showMediaChips],
+  )
+
+  return (
+    <div className="wiki-file-list">
+      {showMediaChips && (
+        <div className="wiki-file-list-chips" role="group" aria-label="按文件类型筛选">
+          {MEDIA_CHIPS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              className={`wiki-file-list-chip${chip === key ? ' wiki-file-list-chip--active' : ''}`}
+              aria-pressed={chip === key}
+              onClick={() => setChip(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {visible.length === 0 ? (
+        <p className="wiki-empty-hint">{emptyHint}</p>
+      ) : (
+        <ul className="wiki-file-list-items">
+          {visible.map((item) => {
+            const Icon = MEDIA_ICONS[(item.mediaType ?? 'document') as keyof typeof MEDIA_ICONS] ?? FileText
+            const topic = item.topicSubtopic
+              ? `${item.topicCategory} / ${item.topicSubtopic}`
+              : (item.topicCategory ?? '待补分')
+            return (
+              <li key={item.id} className="wiki-file-list-item">
+                <Icon size={15} className="wiki-file-list-icon" />
+                <div className="wiki-file-list-main">
+                  <span className="wiki-file-list-title">{item.title}</span>
+                  <span className="wiki-file-list-meta">
+                    {showTopic && <span className="wiki-file-list-topic">{topic}</span>}
+                    {formatRelativeTime(item.updatedAt)}
+                  </span>
+                </div>
+                <div className="wiki-file-list-actions">
+                  <Button variant="ghost" size="sm" onClick={() => onOpen(item)}>
+                    <ExternalLink size={13} />
+                    打开
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => onMove(item)}>
+                    <ArrowRightLeft size={13} />
+                    {moveLabel}
+                  </Button>
+                  {showParkAction && onPark && (
+                    <Button variant="ghost" size="sm" onClick={() => onPark(item)}>
+                      <Archive size={13} />
+                      存到临时存放
+                    </Button>
+                  )}
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+export default WikiFileList

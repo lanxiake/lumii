@@ -43,3 +43,6 @@ export type { DiffLine, DiffLineType } from "./wiki/line-diff.js";
 
 // 附件引用语法的序列化是纯字符串拼接，渲染进程拖拽上传后直接生成插入正文
 export { serializeAttachmentReference } from "./wiki/wiki-attachments.js";
+
+// 临时存放常量是纯字符串，渲染进程用于选择器排除项与文件列表操作按钮判断
+export { PARKING_CATEGORY } from "./wiki/wiki-topic-tree.js";

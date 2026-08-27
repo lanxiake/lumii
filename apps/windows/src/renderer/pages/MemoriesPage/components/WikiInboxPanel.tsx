@@ -1,12 +1,16 @@
 import React from 'react'
 import { Button } from '../../../components/ui/Button/Button'
-import type { WikiInboxItem } from '../../../hooks/business/useWikiPage'
-import { inboxStatusLabel } from './wikiStatusLabels'
+import type { WikiInboxItem, WikiSourceListItem } from '../../../hooks/business/useWikiPage'
+import { inboxStatusLabel, formatRelativeTime } from './wikiStatusLabels'
 
 interface WikiInboxPanelProps {
   readonly items: readonly WikiInboxItem[]
+  /** 已进资料层但主题为空的条目，需要用户补分类 */
+  readonly unfiled: readonly WikiSourceListItem[]
   readonly onRetry: (inboxId: string) => void
   readonly onDiscard: (inboxId: string) => void
+  readonly onOrganize: (item: WikiInboxItem) => void
+  readonly onFileUnfiled: (item: WikiSourceListItem) => void
 }
 
 const INBOX_TYPE_LABELS: Record<string, string> = {
@@ -28,10 +32,13 @@ function canRetryInboxItem(status: string): boolean {
  */
 export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
   items,
+  unfiled,
   onRetry,
   onDiscard,
+  onOrganize,
+  onFileUnfiled,
 }) => {
-  if (items.length === 0) {
+  if (items.length === 0 && unfiled.length === 0) {
     return (
       <p className="wiki-empty-hint">
         暂无待整理条目。上传文件、任务产物或网页搜索结果会自动出现在这里。
@@ -40,6 +47,7 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
   }
 
   return (
+    <>
     <div className="wiki-inbox-list">
       {items.map((item) => (
         <article key={item.id} className="wiki-inbox-item">
@@ -58,6 +66,7 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
           ) : null}
           {canRetryInboxItem(item.status) ? (
             <div className="wiki-inbox-item-actions">
+              <Button variant="ghost" size="sm" onClick={() => onOrganize(item)}>归档到…</Button>
               <Button variant="ghost" size="sm" onClick={() => onRetry(item.id)}>重试</Button>
               <Button variant="ghost" size="sm" onClick={() => onDiscard(item.id)}>丢弃</Button>
             </div>
@@ -65,6 +74,26 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
         </article>
       ))}
     </div>
+
+    {unfiled.length > 0 && (
+      <section className="wiki-inbox-unfiled">
+        <h4 className="wiki-section-heading">待补分（{unfiled.length}）</h4>
+        <div className="wiki-inbox-list">
+          {unfiled.map((item) => (
+            <article key={item.id} className="wiki-inbox-item">
+              <div className="wiki-inbox-item-header">
+                <span className="wiki-inbox-item-title">{item.title}</span>
+                <span className="wiki-inbox-item-status">{formatRelativeTime(item.updatedAt)}</span>
+              </div>
+              <div className="wiki-inbox-item-actions">
+                <Button variant="ghost" size="sm" onClick={() => onFileUnfiled(item)}>归档到…</Button>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    )}
+    </>
   )
 }
 
