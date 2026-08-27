@@ -105,7 +105,8 @@ describe('registerWikiTools', () => {
 
   it('wiki_search 返回命中全文', async () => {
     const { repo, registry } = setup()
-    repo.savePage({ agentId: 'assistant', userId: 'local-user', path: 'sources/arch', title: '架构设计文档', contentMd: '正文内容', editor: 'ai' })
+    const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '架构设计文档', extractedText: '正文内容' })
+    repo.indexSource(source.id)
 
     const result = await callTool(registry, 'wiki_search', { query: '架构设计' })
     expect(result.ok).toBe(true)

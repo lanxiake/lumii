@@ -125,6 +125,12 @@ import {
   handleWikiSourceGet,
   handleWikiRunsList,
   handleWikiIndexRebuild,
+  handleWikiTopicTreeGet,
+  handleWikiTopicTreeSet,
+  handleWikiSourceList,
+  handleWikiSourceUpdateTopic,
+  handleWikiSourceMoveToParking,
+  handleWikiSourceOpen,
   handleWikiLinkBacklinks,
   handleWikiLinkUnresolved,
   handleWikiPageRevisions,
@@ -972,6 +978,25 @@ export async function handleCommand(
 
       case 'wiki:index:rebuild':
         return handleWikiIndexRebuild(bridge)
+
+      // ---- Wiki 用途主题树 / 资料层 ----
+      case 'wiki:topic:tree:get':
+        return handleWikiTopicTreeGet(bridge, command)
+
+      case 'wiki:topic:tree:set':
+        return handleWikiTopicTreeSet(bridge, command)
+
+      case 'wiki:source:list':
+        return handleWikiSourceList(bridge, command)
+
+      case 'wiki:source:update-topic':
+        return handleWikiSourceUpdateTopic(bridge, command)
+
+      case 'wiki:source:move-to-parking':
+        return handleWikiSourceMoveToParking(bridge, command)
+
+      case 'wiki:source:open':
+        return handleWikiSourceOpen(bridge, command)
 
       // ---- Wiki 知识库（P1） ----
       case 'wiki:link:backlinks':

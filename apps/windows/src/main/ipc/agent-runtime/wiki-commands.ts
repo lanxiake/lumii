@@ -4,6 +4,9 @@
  * 复用 agent-commands.ts 的 sessionKey/agentId 解析惯例：显式 agentId 优先，
  * 否则从会话参与者解析，兜底 'assistant'。userId 固定 LOCAL_USER_ID（单机应用）。
  */
+import path from 'node:path'
+import fs from 'node:fs'
+import { shell } from 'electron'
 import {
   parseSynthesisProgress,
   WikiGraphBuilder,
@@ -14,6 +17,7 @@ import {
   mergeHybridRanks,
   WikiAutoSynthesisRunner,
   WikiEroExtractor,
+  PARKING_CATEGORY,
 } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
@@ -52,13 +56,20 @@ export function handleWikiInboxList(
   }))
 }
 
-/** 返回收件箱条数（角标用，不受 list LIMIT 影响） */
+/**
+ * 返回收件箱角标数：pending 收件箱条数 + 待整理（两列皆空）资料数。
+ * `status` 显式传参时只统计该状态收件箱条目，`unfiled` 计 0（兼容旧调用方只读 total）。
+ */
 export function handleWikiInboxCount(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:inbox:count' }>,
-): { total: number } {
+): { total: number; pending: number; unfiled: number } {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  return { total: bridge.wikiRepo.countInbox(agentId, LOCAL_USER_ID, command.status) }
+  const pending = bridge.wikiRepo.countInbox(agentId, LOCAL_USER_ID, command.status)
+  const unfiled = command.status
+    ? 0
+    : bridge.wikiRepo.listSourcesByTopic(agentId, LOCAL_USER_ID, { unfiled: true }).length
+  return { total: pending + unfiled, pending, unfiled }
 }
 
 /**
@@ -87,36 +98,35 @@ export function handleWikiInboxDiscard(
   return { success: true }
 }
 
-/** 手动指定分类立即归档：绕开 AI 分类，直接落库；路径非法时 savePage 会抛错，向上层报告 */
+/**
+ * 手动指定用途分类立即归档：绕开 AI 分类，直接写入资料层用途两列。不新建 wiki_pages。
+ * 不允许手动归到「临时存放」——那是用户在文件列表里显式操作，不是整理入口。
+ */
 export function handleWikiInboxOrganize(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:inbox:organize' }>,
-): { pageId: string; path: string } {
+): { sourceId: string; category: string; subtopic: string } {
   const repo = bridge.wikiRepo
   const item = repo.findInboxById(command.inboxId)
   if (!item) throw new Error(`收件箱条目不存在: ${command.inboxId}`)
+  if (command.category === PARKING_CATEGORY) {
+    throw new Error('整理入口不允许归到临时存放，请在文件列表中操作')
+  }
 
   const source = repo.createSource({
     agentId: item.agent_id,
     userId: item.user_id,
     title: command.title ?? item.title,
     sourcePath: item.source_path ?? undefined,
-    contentMd: command.contentMd ?? item.content_preview ?? undefined,
+    contentMd: item.content_preview ?? undefined,
     contentHash: item.content_hash ?? undefined,
     mediaType: item.media_type,
     extractedText: item.content_preview ?? undefined,
   })
-  const page = repo.savePage({
-    agentId: item.agent_id,
-    userId: item.user_id,
-    path: command.path,
-    title: command.title ?? item.title,
-    contentMd: command.contentMd ?? item.content_preview ?? '',
-    editor: 'user',
-    sourceRef: source.id,
-  })
+  const updated = repo.updateSourceTopic(source.id, command.category, command.subtopic)
+  repo.indexSource(source.id)
   repo.markInboxOrganized(item.id, source.id)
-  return { pageId: page.id, path: page.path }
+  return { sourceId: source.id, category: updated.topic_category!, subtopic: updated.topic_subtopic! }
 }
 
 export function handleWikiPageList(
@@ -177,19 +187,22 @@ export function handleWikiPageDelete(
   return { success: true }
 }
 
+/** 主搜索改为资料层：命中原始文件而非旧汇总页。历史页面搜索见 wiki:search:hybrid。 */
 export function handleWikiSearch(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:search' }>,
 ): unknown {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const hits = bridge.wikiRepo.search(agentId, LOCAL_USER_ID, command.keyword, command.limit)
+  const hits = bridge.wikiRepo.searchSources(agentId, LOCAL_USER_ID, command.keyword, command.limit)
   return hits.map((h) => ({
-    pageId: h.page.id,
-    path: h.page.path,
-    category: h.page.category,
-    title: h.page.title,
+    sourceId: h.source.id,
+    title: h.source.title,
+    category: h.source.topic_category,
+    subtopic: h.source.topic_subtopic,
     snippet: h.snippet,
-    updatedAt: new Date(h.page.updated_at).getTime(),
+    mediaType: h.source.media_type,
+    sourcePath: h.source.source_path,
+    updatedAt: new Date(h.source.last_used ?? h.source.created_at).getTime(),
   }))
 }
 
@@ -247,6 +260,91 @@ function parseRunResultDetail(raw: string | null): { items: unknown[] } | null {
 export function handleWikiIndexRebuild(bridge: AgentRuntimeBridge): { rebuiltCount: number } {
   const rebuiltCount = bridge.wikiRepo.rebuildIndex()
   return { rebuiltCount }
+}
+
+// ============================================================
+// Wiki 用途主题树 / 资料层命令（记忆重构一期）
+// ============================================================
+
+export function handleWikiTopicTreeGet(
+  bridge: AgentRuntimeBridge,
+  _command: Extract<AgentRuntimeCommand, { type: 'wiki:topic:tree:get' }>,
+): { tree: ReturnType<AgentRuntimeBridge['wikiRepo']['getOrCreateTopicTree']> } {
+  return { tree: bridge.wikiRepo.getOrCreateTopicTree() }
+}
+
+export function handleWikiTopicTreeSet(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:topic:tree:set' }>,
+): { success: true } {
+  bridge.wikiRepo.setTopicTree(command.tree)
+  return { success: true }
+}
+
+function mapSourceListItem(source: ReturnType<AgentRuntimeBridge['wikiRepo']['findSourceById']> & object) {
+  return {
+    id: source.id,
+    title: source.title,
+    sourcePath: source.source_path,
+    mediaType: source.media_type,
+    topicCategory: source.topic_category,
+    topicSubtopic: source.topic_subtopic,
+    updatedAt: new Date(source.last_used ?? source.created_at).getTime(),
+    useCount: source.use_count,
+  }
+}
+
+export function handleWikiSourceList(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:source:list' }>,
+): { sources: unknown[] } {
+  const sources = bridge.wikiRepo.listSourcesByTopic(command.agentId, command.userId ?? LOCAL_USER_ID, {
+    category: command.category,
+    subtopic: command.subtopic,
+    parking: command.parking,
+    unfiled: command.unfiled,
+    mediaType: command.mediaType as never,
+  })
+  return { sources: sources.map(mapSourceListItem) }
+}
+
+export function handleWikiSourceUpdateTopic(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:source:update-topic' }>,
+): { id: string; topicCategory: string | null; topicSubtopic: string | null } {
+  const updated = bridge.wikiRepo.updateSourceTopic(command.sourceId, command.category, command.subtopic)
+  return { id: updated.id, topicCategory: updated.topic_category, topicSubtopic: updated.topic_subtopic }
+}
+
+export function handleWikiSourceMoveToParking(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:source:move-to-parking' }>,
+): { id: string; topicCategory: string | null; topicSubtopic: string | null } {
+  const updated = bridge.wikiRepo.updateSourceTopic(command.sourceId, PARKING_CATEGORY, null)
+  return { id: updated.id, topicCategory: updated.topic_category, topicSubtopic: updated.topic_subtopic }
+}
+
+/** 打开资料原文件；缺失或系统层打开失败均抛错中文提示，不静默返回 success */
+export async function handleWikiSourceOpen(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:source:open' }>,
+): Promise<{ success: true }> {
+  const source = bridge.wikiRepo.findSourceById(command.sourceId)
+  if (!source) throw new Error(`资料不存在: ${command.sourceId}`)
+  if (!source.source_path) throw new Error('无法打开原文件：该资料没有关联的原始文件路径')
+
+  const absPath = path.isAbsolute(source.source_path)
+    ? source.source_path
+    : path.resolve(bridge.getCwd(), source.source_path)
+  if (!fs.existsSync(absPath)) {
+    throw new Error(`无法打开原文件：文件已丢失或被移动（${source.source_path}）`)
+  }
+  const result = await shell.openPath(absPath)
+  if (result) {
+    throw new Error(`无法打开原文件：${result}`)
+  }
+  bridge.wikiRepo.touchSource(source.id)
+  return { success: true }
 }
 
 // ============================================================

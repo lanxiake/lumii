@@ -364,13 +364,13 @@ export interface WikiInboxDiscardCommand {
   readonly inboxId: string
 }
 
-/** 手动指定分类立即归档：绕开 AI 分类，直接把一条收件箱条目写为页面 */
+/** 手动指定用途分类立即归档：绕开 AI 分类，直接把一条收件箱条目写入资料层 */
 export interface WikiInboxOrganizeCommand {
   readonly type: 'wiki:inbox:organize'
   readonly inboxId: string
-  readonly path: string
+  readonly category: string
+  readonly subtopic: string
   readonly title?: string
-  readonly contentMd?: string
 }
 
 export interface WikiPageListCommand {
@@ -421,6 +421,57 @@ export interface WikiRunsListCommand {
 
 export interface WikiIndexRebuildCommand {
   readonly type: 'wiki:index:rebuild'
+}
+
+// ============================================================
+// Wiki 用途主题树 / 资料层命令（记忆重构一期）
+// ============================================================
+
+export interface WikiTopicTreeGetCommand {
+  readonly type: 'wiki:topic:tree:get'
+  readonly agentId: string
+  readonly userId?: string
+}
+
+export interface WikiTopicTreeSetCommand {
+  readonly type: 'wiki:topic:tree:set'
+  readonly agentId: string
+  readonly userId?: string
+  readonly tree: {
+    readonly version: 1
+    readonly categories: ReadonlyArray<{ readonly name: string; readonly subtopics: readonly string[] }>
+  }
+}
+
+export interface WikiSourceListCommand {
+  readonly type: 'wiki:source:list'
+  readonly agentId: string
+  readonly userId?: string
+  readonly category?: string
+  readonly subtopic?: string
+  readonly parking?: boolean
+  readonly unfiled?: boolean
+  readonly mediaType?: string
+}
+
+export interface WikiSourceUpdateTopicCommand {
+  readonly type: 'wiki:source:update-topic'
+  readonly agentId: string
+  readonly sourceId: string
+  readonly category: string
+  readonly subtopic: string | null
+}
+
+export interface WikiSourceMoveToParkingCommand {
+  readonly type: 'wiki:source:move-to-parking'
+  readonly agentId: string
+  readonly sourceId: string
+}
+
+export interface WikiSourceOpenCommand {
+  readonly type: 'wiki:source:open'
+  readonly agentId: string
+  readonly sourceId: string
 }
 
 // ============================================================
@@ -1231,6 +1282,12 @@ export type AgentRuntimeCommand =
   | WikiSourceGetCommand
   | WikiRunsListCommand
   | WikiIndexRebuildCommand
+  | WikiTopicTreeGetCommand
+  | WikiTopicTreeSetCommand
+  | WikiSourceListCommand
+  | WikiSourceUpdateTopicCommand
+  | WikiSourceMoveToParkingCommand
+  | WikiSourceOpenCommand
   | WikiLinkBacklinksCommand
   | WikiLinkUnresolvedCommand
   | WikiPageRevisionsCommand
@@ -1490,10 +1547,10 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       lastError: string | null
       createdAt: number
     }[]
-  : T extends 'wiki:inbox:count' ? { total: number }
+  : T extends 'wiki:inbox:count' ? { total: number; pending: number; unfiled: number }
   : T extends 'wiki:inbox:retry' ? { success: boolean }
   : T extends 'wiki:inbox:discard' ? { success: boolean }
-  : T extends 'wiki:inbox:organize' ? { pageId: string; path: string }
+  : T extends 'wiki:inbox:organize' ? { sourceId: string; category: string; subtopic: string }
   : T extends 'wiki:page:list' ? readonly {
       id: string
       path: string
@@ -1514,11 +1571,13 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:page:update' ? { pageId: string; version: number }
   : T extends 'wiki:page:delete' ? { success: boolean }
   : T extends 'wiki:search' ? readonly {
-      pageId: string
-      path: string
-      category: string
+      sourceId: string
       title: string
+      category: string | null
+      subtopic: string | null
       snippet: string
+      mediaType: string
+      sourcePath: string | null
       updatedAt: number
     }[]
   : T extends 'wiki:source:get' ? {
@@ -1551,6 +1610,33 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       finishedAt: number | null
     }[]
   : T extends 'wiki:index:rebuild' ? { rebuiltCount: number }
+  : T extends 'wiki:topic:tree:get' ? {
+      tree: { version: 1; categories: readonly { name: string; subtopics: readonly string[] }[] }
+    }
+  : T extends 'wiki:topic:tree:set' ? { success: true }
+  : T extends 'wiki:source:list' ? {
+      sources: readonly {
+        id: string
+        title: string
+        sourcePath: string | null
+        mediaType: string
+        topicCategory: string | null
+        topicSubtopic: string | null
+        updatedAt: number
+        useCount: number
+      }[]
+    }
+  : T extends 'wiki:source:update-topic' ? {
+      id: string
+      topicCategory: string | null
+      topicSubtopic: string | null
+    }
+  : T extends 'wiki:source:move-to-parking' ? {
+      id: string
+      topicCategory: string | null
+      topicSubtopic: string | null
+    }
+  : T extends 'wiki:source:open' ? { success: true }
   : T extends 'wiki:link:backlinks' ? readonly {
       linkId: string
       sourcePageId: string

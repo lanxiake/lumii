@@ -69,14 +69,15 @@ export function registerWikiTools(
       if (!query) return jsonToolResult({ ok: false, message: 'query is required' })
       const agentId = resolveAgentId(toolCallId)
       const limit = Math.max(1, Math.min(p.limit ?? 10, 50))
-      const hits = repo.search(agentId, LOCAL_USER_ID, query, limit)
+      const hits = repo.searchSources(agentId, LOCAL_USER_ID, query, limit)
       return jsonToolResult({
         ok: true,
         results: hits.map((h) => ({
-          path: h.page.path,
-          title: h.page.title,
-          category: h.page.category,
-          content: h.page.content_md,
+          sourcePath: h.source.source_path,
+          title: h.source.title,
+          category: h.source.topic_category,
+          subtopic: h.source.topic_subtopic,
+          content: h.snippet,
         })),
       })
     },

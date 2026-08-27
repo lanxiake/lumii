@@ -355,6 +355,13 @@ export {
   generateWikiId,
   validateWikiPath,
   AI_WRITABLE_CATEGORIES,
+  PARKING_CATEGORY,
+  TOPIC_CATEGORIES_META_KEY,
+  DEFAULT_TOPIC_TREE,
+  parseTopicTree,
+  validateTopicTree,
+  validateTopicAssignment,
+  treeHasOrphans,
   parseWikilinks,
   resolveWikilinkTarget,
   diffLines,
@@ -404,6 +411,8 @@ export {
 } from "./wiki/index.js";
 export type {
   WikiSearchHit,
+  WikiSourceSearchHit,
+  WikiTopicTree,
   WikiFtsHealth,
   WikiContentExtractorDeps,
   ExtractInput,

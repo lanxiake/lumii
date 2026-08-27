@@ -25,7 +25,14 @@ import {
   handleWikiRunsList,
   handleWikiIndexRebuild,
   handleWikiGraphData,
+  handleWikiTopicTreeGet,
+  handleWikiTopicTreeSet,
+  handleWikiSourceList,
+  handleWikiSourceUpdateTopic,
+  handleWikiSourceMoveToParking,
+  handleWikiSourceOpen,
 } from './wiki-commands'
+import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY } from '@mtbot/agent-runtime'
 
 const nodeRequire = createRequire(import.meta.url)
 
@@ -65,6 +72,7 @@ function buildBridge(repo: WikiRepo): AgentRuntimeBridge {
   return {
     wikiRepo: repo,
     conversationRepo: { getAgentParticipantId: () => null },
+    getCwd: () => process.cwd(),
   } as unknown as AgentRuntimeBridge
 }
 
@@ -85,10 +93,12 @@ describe('wiki commands', () => {
     const organized = handleWikiInboxOrganize(bridge, {
       type: 'wiki:inbox:organize',
       inboxId: item.id,
-      path: 'sources/a',
+      category: '做事记录',
+      subtopic: '项目/任务资料',
       title: '标题A',
     })
-    expect(organized.path).toBe('sources/a')
+    expect(organized.category).toBe('做事记录')
+    expect(organized.subtopic).toBe('项目/任务资料')
     expect(repo.findInboxById(item.id)!.status).toBe('organized')
 
     const item2 = repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'b' })
@@ -135,12 +145,17 @@ describe('wiki commands', () => {
     expect(repo.findInboxById(item.id)!.status).toBe('discarded')
   })
 
-  it('越权分类路径在 organize 时抛错（savePage 最后防线）', () => {
+  it('越权分类（不在主题树内）在 organize 时抛错', () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
     const item = repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'a' })
     expect(() =>
-      handleWikiInboxOrganize(bridge, { type: 'wiki:inbox:organize', inboxId: item.id, path: 'notallowed/x' }),
+      handleWikiInboxOrganize(bridge, {
+        type: 'wiki:inbox:organize',
+        inboxId: item.id,
+        category: '不存在的大类',
+        subtopic: 'x',
+      }),
     ).toThrow()
   })
 
@@ -170,13 +185,23 @@ describe('wiki commands', () => {
     )
   })
 
-  it('search 返回命中片段', () => {
+  it('search 命中资料层（原文件）而非旧汇总页', () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
-    repo.savePage({ agentId: 'assistant', userId: 'local-user', path: 'sources/x', title: '架构设计文档', contentMd: '正文', editor: 'ai' })
+    const source = repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: '架构设计文档',
+      extractedText: '这是一份关于系统架构设计的说明',
+    })
+    repo.indexSource(source.id)
 
-    const hits = handleWikiSearch(bridge, { type: 'wiki:search', agentId: 'assistant', keyword: '架构设计' }) as { title: string }[]
+    const hits = handleWikiSearch(bridge, { type: 'wiki:search', agentId: 'assistant', keyword: '架构设计' }) as {
+      sourceId: string
+      title: string
+    }[]
     expect(hits).toHaveLength(1)
+    expect(hits[0]!.sourceId).toBe(source.id)
     expect(hits[0]!.title).toBe('架构设计文档')
   })
 
@@ -271,5 +296,77 @@ describe('wiki commands', () => {
     for (const run of runs) {
       expect(run.resultDetail).toBeNull()
     }
+  })
+
+  it('topic:tree:get 首次读取时返回默认树，set 后可覆盖', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+
+    const got = handleWikiTopicTreeGet(bridge, { type: 'wiki:topic:tree:get', agentId: 'assistant' })
+    expect(got.tree).toEqual(DEFAULT_TOPIC_TREE)
+
+    const customTree = { version: 1 as const, categories: [{ name: '做事记录', subtopics: ['会议聊天记录'] }] }
+    expect(
+      handleWikiTopicTreeSet(bridge, { type: 'wiki:topic:tree:set', agentId: 'assistant', tree: customTree }),
+    ).toEqual({ success: true })
+    expect(handleWikiTopicTreeGet(bridge, { type: 'wiki:topic:tree:get', agentId: 'assistant' }).tree).toEqual(
+      customTree,
+    )
+  })
+
+  it('source:list 按大类/小类过滤，update-topic 写入后可被列出', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '合同' })
+
+    handleWikiSourceUpdateTopic(bridge, {
+      type: 'wiki:source:update-topic',
+      agentId: 'assistant',
+      sourceId: source.id,
+      category: '证件凭据',
+      subtopic: '合同协议文件',
+    })
+
+    const list = handleWikiSourceList(bridge, {
+      type: 'wiki:source:list',
+      agentId: 'assistant',
+      category: '证件凭据',
+      subtopic: '合同协议文件',
+    })
+    expect(list.sources).toHaveLength(1)
+    expect((list.sources[0] as { id: string }).id).toBe(source.id)
+  })
+
+  it('source:move-to-parking 写入临时存放，subtopic 为 null', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: 'x' })
+
+    const moved = handleWikiSourceMoveToParking(bridge, {
+      type: 'wiki:source:move-to-parking',
+      agentId: 'assistant',
+      sourceId: source.id,
+    })
+    expect(moved.topicCategory).toBe(PARKING_CATEGORY)
+    expect(moved.topicSubtopic).toBeNull()
+  })
+
+  it('source:open 对缺失原文件路径的资料抛错，不静默返回 success', async () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: 'x' })
+
+    await expect(
+      handleWikiSourceOpen(bridge, { type: 'wiki:source:open', agentId: 'assistant', sourceId: source.id }),
+    ).rejects.toThrow(/无法打开原文件/)
+  })
+
+  it('source:open 对不存在的资料抛错', async () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+
+    await expect(
+      handleWikiSourceOpen(bridge, { type: 'wiki:source:open', agentId: 'assistant', sourceId: 'missing' }),
+    ).rejects.toThrow(/资料不存在/)
   })
 })
