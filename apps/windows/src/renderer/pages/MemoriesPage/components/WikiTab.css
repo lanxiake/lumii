@@ -1,6 +1,7 @@
 /* WikiTab — Wiki 知识库两栏布局（样式限定在本组件作用域） */
 
 .wiki-tab {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -86,6 +87,63 @@
   margin-top: auto;
   padding-top: 8px;
   border-top: 1px solid var(--color-border);
+}
+
+.wiki-more-menu {
+  position: absolute;
+  bottom: 52px;
+  left: 10px;
+  z-index: var(--z-overlay);
+  width: 240px;
+  padding: 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-primary);
+  box-shadow: var(--shadow-xl);
+}
+
+.wiki-more-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.wiki-more-menu-item:hover,
+.wiki-more-menu-item:focus-visible {
+  background: var(--color-bg-hover);
+  outline: none;
+}
+
+.wiki-more-menu-item > svg {
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+.wiki-more-menu-item > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wiki-more-menu-item strong {
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.wiki-more-menu-item small {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .wiki-top-bar {

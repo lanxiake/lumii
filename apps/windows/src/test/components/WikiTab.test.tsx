@@ -129,6 +129,50 @@ describe('WikiTab', () => {
     expect(screen.queryByText('重建索引')).not.toBeInTheDocument()
   })
 
+  it('从更多菜单打开清理全页并显示清理控件', async () => {
+    render(<WikiTab />)
+    await screen.findByText(/暂无页面/)
+
+    fireEvent.click(screen.getByRole('button', { name: '⋯ 更多' }))
+    expect(screen.getByRole('menuitem', { name: /清理/ })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /综述合成/ })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /重建索引/ })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: /清理/ }))
+    expect(screen.getByRole('heading', { name: '清理' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /扫描/ })).toBeInTheDocument()
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('点击更多菜单外部后关闭菜单', async () => {
+    render(<WikiTab />)
+    await screen.findByText(/暂无页面/)
+
+    fireEvent.click(screen.getByRole('button', { name: '⋯ 更多' }))
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+
+    fireEvent.mouseDown(document.body)
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('从更多菜单触发重建索引任务且不切换全页', async () => {
+    const sendCommand = mockSendCommand({
+      'wiki:index:rebuild': { rebuiltCount: 3 },
+    })
+    ;(window as any).electronAPI.agentRuntime.sendCommand = sendCommand
+    render(<WikiTab />)
+    await screen.findByText(/暂无页面/)
+
+    fireEvent.click(screen.getByRole('button', { name: '⋯ 更多' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /重建索引/ }))
+
+    await waitFor(() => {
+      expect(sendCommand).toHaveBeenCalledWith({ type: 'wiki:index:rebuild' })
+    })
+    expect(screen.getByText(/暂无页面/)).toBeInTheDocument()
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
   it('任务中心将任务按失败、进行中和最近完成分段展示', () => {
     const tasks: WikiLocalTask[] = [
       {

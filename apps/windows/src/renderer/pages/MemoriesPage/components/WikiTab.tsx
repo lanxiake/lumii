@@ -23,6 +23,7 @@ import { WikiLeftNav, type WikiPrimaryNav } from './WikiLeftNav'
 import { WikiTopBar } from './WikiTopBar'
 import { WikiPageList } from './WikiPageList'
 import { WikiInboxPanel } from './WikiInboxPanel'
+import { WikiMoreMenu } from './WikiMoreMenu'
 import { WikiTaskCenter } from './WikiTaskCenter'
 import { useWikiTaskCenter, type WikiLocalTask } from './useWikiTaskCenter'
 import './WikiTab.css'
@@ -51,6 +52,7 @@ export const WikiTab: React.FC = () => {
     deletePage,
     search,
     listRuns,
+    rebuildIndex,
     listBacklinks,
     listRevisions,
     rollbackPage,
@@ -87,6 +89,7 @@ export const WikiTab: React.FC = () => {
   const [searchDegradeReason, setSearchDegradeReason] = useState<string | null>(null)
   const [searchMode, setSearchMode] = useState<string | null>(null)
   const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(false)
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false)
 
   const refreshPages = useCallback(async () => {
     const all = await listPages()
@@ -325,6 +328,25 @@ export const WikiTab: React.FC = () => {
     setSearchMode(null)
   }, [])
 
+  /**
+   * 打开工具全页，并清理会覆盖该页面的搜索与详情状态。
+   */
+  const handleOpenToolView = useCallback((view: Exclude<WikiToolView, null>) => {
+    setToolView(view)
+    setSearchResults(null)
+    setSearchDegradeReason(null)
+    setSearchMode(null)
+    setSelectedPage(null)
+    setIsDetailOpen(false)
+  }, [])
+
+  /**
+   * 在任务中心追踪索引重建，主内容保持当前页面不变。
+   */
+  const handleRebuildIndex = useCallback(() => {
+    void taskCenter.wrapAsync('rebuild', '重建索引', rebuildIndex).catch(() => undefined)
+  }, [rebuildIndex, taskCenter.wrapAsync])
+
   const handleRolledBack = useCallback(() => {
     if (!selectedPage) return
     void handleOpenPage(selectedPage.id)
@@ -342,11 +364,18 @@ export const WikiTab: React.FC = () => {
   return (
     <div className="wiki-tab">
       <WikiLeftNav
-        active={toolView ? 'more' : primaryNav}
+        active={toolView || isMoreMenuOpen ? 'more' : primaryNav}
         pendingCount={pendingCount}
         pageCounts={pageCounts}
         onSelect={handleSelectPrimaryNav}
-        onOpenMore={() => undefined}
+        onOpenMore={() => setIsMoreMenuOpen((open) => !open)}
+      />
+      <WikiMoreMenu
+        open={isMoreMenuOpen}
+        onClose={() => setIsMoreMenuOpen(false)}
+        onCleanup={() => handleOpenToolView('cleanup')}
+        onSynthesis={() => handleOpenToolView('synthesis')}
+        onRebuild={handleRebuildIndex}
       />
 
       <div className="wiki-tab-right">
