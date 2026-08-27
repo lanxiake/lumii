@@ -90,7 +90,11 @@ function mapRunToTask(run: WikiRunItem): WikiLocalTask {
 /**
  * 计算当前任务状态对应的顶栏 pill 文案。
  */
-function getPillText(tasks: readonly WikiLocalTask[], hasUnseenFailure: boolean): string | null {
+function getPillText(
+  tasks: readonly WikiLocalTask[],
+  hasUnseenFailure: boolean,
+  successToneActive: boolean,
+): string | null {
   const runningTasks = tasks.filter((task) => task.phase === 'running')
   if (runningTasks.length > 1) return `${runningTasks.length} 个任务进行中`
   if (runningTasks.length === 1) {
@@ -98,7 +102,8 @@ function getPillText(tasks: readonly WikiLocalTask[], hasUnseenFailure: boolean)
     const prefix = TASK_PROGRESS_PREFIX[task.kind]
     return task.progress ? `${prefix} ${task.progress.done}/${task.progress.total}` : prefix
   }
-  return hasUnseenFailure ? '任务失败' : null
+  if (hasUnseenFailure) return '任务失败'
+  return successToneActive ? '已完成' : null
 }
 
 /**
@@ -119,7 +124,7 @@ export function createWikiTaskCenterStore(): WikiTaskCenterStore {
     const running = tasks.some((task) => task.phase === 'running')
     return {
       tasks,
-      pillText: getPillText(tasks, hasUnseenFailure),
+      pillText: getPillText(tasks, hasUnseenFailure, successToneActive),
       pillTone: hasUnseenFailure ? 'error' : running ? 'running' : successToneActive ? 'success' : 'idle',
       hasUnseenFailure,
       startTask,
@@ -250,7 +255,6 @@ export function createWikiTaskCenterStore(): WikiTaskCenterStore {
       .map(mapRunToTask)
     if (newTasks.length === 0) return
     tasks = [...tasks, ...newTasks]
-    if (newTasks.some((task) => task.phase === 'failed')) hasUnseenFailure = true
     emitChange()
   }
 

@@ -70,6 +70,41 @@ describe('WikiTab', () => {
     })
   })
 
+  it('从搜索结果打开并关闭详情后仍显示原搜索结果', async () => {
+    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
+      'wiki:search': [{
+        pageId: 'p1',
+        path: 'sources/search-result',
+        category: 'sources',
+        title: '搜索命中页面',
+        snippet: '正文片段',
+        updatedAt: Date.now(),
+      }],
+      'wiki:page:get': {
+        id: 'p1',
+        path: 'sources/search-result',
+        category: 'sources',
+        title: '搜索命中页面',
+        contentMd: '# 搜索命中页面',
+        version: 1,
+        updatedAt: Date.now(),
+      },
+      'wiki:link:backlinks': [],
+      'wiki:page:revisions': [],
+    })
+    render(<WikiTab />)
+    await screen.findByText(/暂无页面/)
+
+    const input = screen.getByPlaceholderText('搜索 Wiki…')
+    fireEvent.change(input, { target: { value: '命中' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.click(await screen.findByText('搜索命中页面'))
+    fireEvent.click(await screen.findByRole('button', { name: '关闭' }))
+
+    expect(screen.getByRole('heading', { name: /搜索结果（1）/ })).toBeInTheDocument()
+    expect(screen.getByText('搜索命中页面')).toBeInTheDocument()
+  })
+
   it('资料列表行显示分类、相对时间与路径', async () => {
     ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
       'wiki:page:list': [
@@ -195,6 +230,42 @@ describe('WikiTab', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
+  it('从综述视图打开并关闭详情后仍显示综述视图', async () => {
+    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
+      'wiki:page:list': [{
+        id: 's1',
+        path: 'syntheses/weekly',
+        category: 'syntheses',
+        title: '每周综述',
+        version: 1,
+        updatedAt: Date.now(),
+      }],
+      'wiki:page:get': {
+        id: 's1',
+        path: 'syntheses/weekly',
+        category: 'syntheses',
+        title: '每周综述',
+        contentMd: '# 每周综述',
+        version: 1,
+        updatedAt: Date.now(),
+      },
+      'wiki:link:backlinks': [],
+      'wiki:page:revisions': [],
+      'wiki:cleanup:scan': [],
+      'wiki:page:status:scan': [],
+    })
+    render(<WikiTab />)
+    await screen.findByText(/暂无页面/)
+
+    fireEvent.click(screen.getByRole('button', { name: '⋯ 更多' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /综述合成/ }))
+    fireEvent.click(await screen.findByText('每周综述'))
+    fireEvent.click(await screen.findByRole('button', { name: '关闭' }))
+
+    expect(screen.getByRole('heading', { name: '综述合成' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /立即刷新全部/ })).toBeInTheDocument()
+  })
+
   it('点击更多菜单外部后关闭菜单', async () => {
     render(<WikiTab />)
     await screen.findByText(/暂无页面/)
@@ -291,7 +362,7 @@ describe('WikiTab', () => {
     expect(screen.getByText('归档失败')).toBeInTheDocument()
   })
 
-  it('挂载时合并历史运行，点击失败 pill 打开任务中心', async () => {
+  it('挂载时合并历史失败运行但不重新点亮失败 pill', async () => {
     ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
       'wiki:runs:list': [{
         id: 'run-failed',
@@ -307,9 +378,11 @@ describe('WikiTab', () => {
 
     render(<WikiTab />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /任务失败/ }))
-    expect(screen.getByRole('dialog', { name: '任务中心' })).toBeInTheDocument()
-    expect(screen.getByText('解析失败')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(
+        (window as any).electronAPI.agentRuntime.sendCommand,
+      ).toHaveBeenCalledWith({ type: 'wiki:runs:list' })
+    })
     expect(screen.queryByRole('button', { name: /任务失败/ })).not.toBeInTheDocument()
   })
 

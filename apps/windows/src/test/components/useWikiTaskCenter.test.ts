@@ -50,10 +50,11 @@ describe('wiki task center store', () => {
 
     store.completeTask(id)
     expect(store.getSnapshot().pillTone).toBe('success')
-    expect(store.getSnapshot().pillText).toBeNull()
+    expect(store.getSnapshot().pillText).toBe('已完成')
 
     vi.advanceTimersByTime(3_000)
     expect(store.getSnapshot().pillTone).toBe('idle')
+    expect(store.getSnapshot().pillText).toBeNull()
   })
 
   it('marks failures seen and dismisses tasks', () => {
@@ -135,5 +136,7 @@ describe('wiki task center store', () => {
       phase: 'running',
       inboxIds: [],
     })
+    expect(store.getSnapshot().hasUnseenFailure).toBe(false)
+    expect(store.getSnapshot().pillTone).toBe('running')
   })
 })

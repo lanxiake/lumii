@@ -126,7 +126,10 @@ export const WikiTab: React.FC = () => {
   const handleOpenTaskCenter = useCallback(() => {
     taskCenter.markFailuresSeen()
     setIsTaskCenterOpen(true)
-  }, [taskCenter.markFailuresSeen])
+    void listRuns()
+      .then(taskCenter.mergeRuns)
+      .catch(() => undefined)
+  }, [listRuns, taskCenter.markFailuresSeen, taskCenter.mergeRuns])
 
   /**
    * 重试任务记录中保留的原操作或归档 inbox 项。
@@ -226,8 +229,6 @@ export const WikiTab: React.FC = () => {
       setSelectedPage(page)
       setIsDetailOpen(page !== null)
       setIsEditing(false)
-      setSearchResults(null)
-      setToolView(null)
       if (
         primaryNav !== 'graph'
         && (page?.category === 'sources' || page?.category === 'media')
