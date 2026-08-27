@@ -119,6 +119,17 @@ export type {
 export { WikiIndexRepo, wikiBigramJoin } from "./wiki-index.js";
 export type { WikiFtsHealth } from "./wiki-index.js";
 
+export {
+  PARKING_CATEGORY,
+  TOPIC_CATEGORIES_META_KEY,
+  DEFAULT_TOPIC_TREE,
+  parseTopicTree,
+  validateTopicTree,
+  validateTopicAssignment,
+  treeHasOrphans,
+} from "./wiki-topic-tree.js";
+export type { WikiTopicTree } from "./wiki-topic-tree.js";
+
 export { WikiIngestHook } from "./wiki-ingest-hook.js";
 
 export { WikiOrganizer } from "./wiki-organizer.js";

@@ -12,6 +12,16 @@ import { parseWikilinks } from "./wiki-link-parser.js";
 import { resolveWikilinkTarget, type WikilinkCandidatePage } from "./wiki-link-resolver.js";
 import { computeForgettingScore } from "./wiki-forgetting.js";
 import {
+  DEFAULT_TOPIC_TREE,
+  PARKING_CATEGORY,
+  TOPIC_CATEGORIES_META_KEY,
+  parseTopicTree,
+  treeHasOrphans,
+  validateTopicAssignment,
+  validateTopicTree,
+  type WikiTopicTree,
+} from "./wiki-topic-tree.js";
+import {
   generateWikiId,
   validateWikiPath,
   type WikiAttachment,
@@ -392,6 +402,102 @@ export class WikiRepo {
         "SELECT * FROM wiki_sources WHERE agent_id = ? AND user_id = ? ORDER BY created_at DESC",
       )
       .all(agentId, userId);
+  }
+
+  // ── 用途主题树 ──────────────────────────────────────────
+
+  /** 读取主题树；不存在时写入默认树并返回 */
+  getOrCreateTopicTree(): WikiTopicTree {
+    const raw = this.getIndexMeta(TOPIC_CATEGORIES_META_KEY);
+    const parsed = parseTopicTree(raw);
+    if (parsed) return parsed;
+    this.setIndexMeta(TOPIC_CATEGORIES_META_KEY, JSON.stringify(DEFAULT_TOPIC_TREE));
+    return DEFAULT_TOPIC_TREE;
+  }
+
+  /**
+   * 覆盖主题树；若树中删除了仍有资料占用的 (category, subtopic) 组合会产生孤儿，拒绝写入。
+   */
+  setTopicTree(tree: WikiTopicTree): void {
+    if (!validateTopicTree(tree)) {
+      throw new Error("主题树结构不合法");
+    }
+    const occupied = this.db
+      .prepare<{ topic_category: string; topic_subtopic: string }>(
+        `SELECT DISTINCT topic_category, topic_subtopic FROM wiki_sources
+         WHERE topic_category IS NOT NULL AND topic_subtopic IS NOT NULL AND archived_at IS NULL`,
+      )
+      .all()
+      .map((r) => ({ category: r.topic_category, subtopic: r.topic_subtopic }));
+    if (treeHasOrphans(tree, occupied)) {
+      throw new Error("该主题树会导致已有文件的目录消失（孤儿），已拒绝保存");
+    }
+    this.setIndexMeta(TOPIC_CATEGORIES_META_KEY, JSON.stringify(tree));
+  }
+
+  /**
+   * 按用途过滤资料列表。`parking` 与 `unfiled` 互斥，不应同时传 true。
+   * 排除已归档（archived_at 非空）的资料。
+   */
+  listSourcesByTopic(
+    agentId: string,
+    userId: string,
+    filter: {
+      readonly category?: string;
+      readonly subtopic?: string;
+      readonly parking?: boolean;
+      readonly unfiled?: boolean;
+      readonly mediaType?: WikiMediaType;
+    },
+  ): readonly WikiSource[] {
+    const conditions = ["agent_id = ?", "user_id = ?", "archived_at IS NULL"];
+    const params: unknown[] = [agentId, userId];
+
+    if (filter.parking) {
+      conditions.push("topic_category = ?", "topic_subtopic IS NULL");
+      params.push(PARKING_CATEGORY);
+    } else if (filter.unfiled) {
+      conditions.push("topic_category IS NULL", "topic_subtopic IS NULL");
+    } else if (filter.category && filter.subtopic) {
+      conditions.push("topic_category = ?", "topic_subtopic = ?");
+      params.push(filter.category, filter.subtopic);
+    } else if (filter.category) {
+      conditions.push("topic_category = ?", "topic_subtopic IS NOT NULL");
+      params.push(filter.category);
+    }
+
+    if (filter.mediaType) {
+      conditions.push("media_type = ?");
+      params.push(filter.mediaType);
+    }
+
+    return this.db
+      .prepare<WikiSource>(
+        `SELECT * FROM wiki_sources WHERE ${conditions.join(" AND ")} ORDER BY created_at DESC`,
+      )
+      .all(...params);
+  }
+
+  /** 更新某条资料的用途归属；写前用 allowParking 校验，越权归属会抛错 */
+  updateSourceTopic(sourceId: string, category: string, subtopic: string | null): WikiSource {
+    const tree = this.getOrCreateTopicTree();
+    const result = validateTopicAssignment(tree, category, subtopic, { allowParking: true });
+    if (!result.ok) {
+      throw new Error(result.reason);
+    }
+    this.db
+      .prepare("UPDATE wiki_sources SET topic_category = ?, topic_subtopic = ? WHERE id = ?")
+      .run(category, subtopic, sourceId);
+    const source = this.findSourceById(sourceId);
+    if (!source) throw new Error(`资料不存在: ${sourceId}`);
+    return source;
+  }
+
+  /** 命中即更新 last_used / use_count（打开原文件、检索命中时调用） */
+  touchSource(sourceId: string): void {
+    this.db
+      .prepare("UPDATE wiki_sources SET last_used = ?, use_count = use_count + 1 WHERE id = ?")
+      .run(new Date().toISOString(), sourceId);
   }
 
   /**

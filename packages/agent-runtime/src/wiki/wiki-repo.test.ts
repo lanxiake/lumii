@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createMigratedTestDb } from "../__tests__/helpers/sqlite-test-db.js";
 import { WikiRepo } from "./wiki-repo.js";
 import { validateWikiPath } from "./types.js";
+import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY } from "./wiki-topic-tree.js";
 
 describe("validateWikiPath", () => {
   it("接受合法的固定顶层分类路径", () => {
@@ -511,5 +512,92 @@ describe("WikiRepo 运行日志", () => {
     const stored = repo.listRuns("ag", "u")[0]!;
     expect(stored.result_detail).toBe(detail);
     expect(JSON.parse(stored.result_detail!).items[0].path).toBe("sources/t");
+  });
+});
+
+describe("WikiRepo 主题树", () => {
+  it("空库 getOrCreateTopicTree 写入并返回默认树", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    expect(repo.getOrCreateTopicTree()).toEqual(DEFAULT_TOPIC_TREE);
+    expect(repo.getIndexMeta("topic_categories")).toBeTruthy();
+  });
+
+  it("setTopicTree 在已有文件占用的小类被删除时应 throw", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "会议纪要" });
+    repo.updateSourceTopic(source.id, "做事记录", "会议聊天记录");
+
+    const nextTree = {
+      version: 1 as const,
+      categories: DEFAULT_TOPIC_TREE.categories.map((c) =>
+        c.name === "做事记录"
+          ? { name: c.name, subtopics: c.subtopics.filter((s) => s !== "会议聊天记录") }
+          : c,
+      ),
+    };
+    expect(() => repo.setTopicTree(nextTree)).toThrow();
+  });
+
+  it("setTopicTree 接受合法新树", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const nextTree = { version: 1 as const, categories: [{ name: "自定义大类", subtopics: ["自定义小类"] }] };
+    repo.setTopicTree(nextTree);
+    expect(repo.getOrCreateTopicTree()).toEqual(nextTree);
+  });
+});
+
+describe("WikiRepo 资料主题读写", () => {
+  it("updateSourceTopic 写入合法归属并可被 listSourcesByTopic 按大类/小类过滤", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "合同" });
+    repo.updateSourceTopic(source.id, "证件凭据", "合同协议文件");
+
+    const bySubtopic = repo.listSourcesByTopic("ag", "u", { category: "证件凭据", subtopic: "合同协议文件" });
+    expect(bySubtopic).toHaveLength(1);
+    expect(bySubtopic[0]!.id).toBe(source.id);
+
+    const byCategory = repo.listSourcesByTopic("ag", "u", { category: "证件凭据" });
+    expect(byCategory).toHaveLength(1);
+
+    const otherCategory = repo.listSourcesByTopic("ag", "u", { category: "学习资料" });
+    expect(otherCategory).toHaveLength(0);
+  });
+
+  it("updateSourceTopic 拒绝越权归属（大类/小类不存在于树中）", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "x" });
+    expect(() => repo.updateSourceTopic(source.id, "不存在的大类", "x")).toThrow();
+  });
+
+  it("updateSourceTopic 允许移到临时存放（subtopic 必须为 null）", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "x" });
+    const updated = repo.updateSourceTopic(source.id, PARKING_CATEGORY, null);
+    expect(updated.topic_category).toBe(PARKING_CATEGORY);
+    expect(updated.topic_subtopic).toBeNull();
+
+    const parking = repo.listSourcesByTopic("ag", "u", { parking: true });
+    expect(parking).toHaveLength(1);
+  });
+
+  it("listSourcesByTopic unfiled 只返回两列皆为 NULL 的资料", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const filed = repo.createSource({ agentId: "ag", userId: "u", title: "已归档" });
+    repo.updateSourceTopic(filed.id, "做事记录", "会议聊天记录");
+    repo.createSource({ agentId: "ag", userId: "u", title: "待整理" });
+
+    const unfiled = repo.listSourcesByTopic("ag", "u", { unfiled: true });
+    expect(unfiled).toHaveLength(1);
+    expect(unfiled[0]!.title).toBe("待整理");
+  });
+
+  it("touchSource 更新 last_used 与 use_count", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "x" });
+    expect(source.use_count).toBe(0);
+    repo.touchSource(source.id);
+    const after = repo.findSourceById(source.id)!;
+    expect(after.use_count).toBe(1);
+    expect(after.last_used).toBeTruthy();
   });
 });
