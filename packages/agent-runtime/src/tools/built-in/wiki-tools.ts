@@ -73,15 +73,29 @@ const WikiCaptureParams = Type.Object({
 });
 type WikiCaptureInput = Static<typeof WikiCaptureParams>;
 
-/** 对话提取的显式信号入口：用户明确要求记录，或 Agent 判断值得沉淀时调用；固定落 inbox/ 待用户处理 */
+/**
+ * 已停用：Wiki 只收录文件与文档，不再收录对话消息（设计 §1）。
+ * 保留工具定义供模型识别调用意图，execute 固定拒绝，平台层同样直接拒绝（不调用 ingestChat）。
+ */
 export const wikiCaptureToolConfig: MtBotToolConfig<typeof WikiCaptureParams> = {
   name: "wiki_capture",
   label: "Wiki Capture",
   description:
-    "Save a piece of conversation content into the Wiki inbox for later organization. Only call this when the user explicitly asks to save/remember something as a wiki note — do not call for casual conversation.",
+    "Disabled. The Wiki no longer accepts conversation content — it only archives files and documents. Do not call this tool.",
   parameters: WikiCaptureParams,
   category: "memory",
   isReadOnly: false,
   needsPermission: false,
-  execute: async (_id: string, _p: WikiCaptureInput): Promise<AgentToolResult<unknown>> => stubExecute(),
+  execute: async (_id: string, _p: WikiCaptureInput): Promise<AgentToolResult<unknown>> => ({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          ok: false,
+          message: "Wiki 只收录文件与文档，不再收录对话消息。请上传会议纪要等文件。",
+        }),
+      },
+    ],
+    details: undefined,
+  }),
 };

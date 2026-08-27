@@ -107,18 +107,11 @@ export function registerWikiTools(
 
   const captureConfig: MtBotToolConfig = {
     ...wikiCaptureToolConfig,
-    execute: async (toolCallId, rawParams) => {
-      const hook = deps.getWikiIngestHook()
-      if (!hook) return jsonToolResult({ ok: false, message: 'wiki ingest hook not initialized' })
-      const p = rawParams as { content?: string; title?: string }
-      const content = (p.content ?? '').trim()
-      const title = (p.title ?? '').trim()
-      if (!content || !title) return jsonToolResult({ ok: false, message: 'content and title are required' })
-      const agentId = resolveAgentId(toolCallId)
-      const inboxId = hook.ingestChat(agentId, LOCAL_USER_ID, content, title)
-      if (!inboxId) return jsonToolResult({ ok: false, message: 'capture failed' })
-      return jsonToolResult({ ok: true, inboxId })
-    },
+    execute: async () =>
+      jsonToolResult({
+        ok: false,
+        message: 'Wiki 只收录文件与文档，不再收录对话消息。请上传会议纪要等文件。',
+      }),
   }
   toolRegistry.register(createMtBotTool(captureConfig, ctx))
 }

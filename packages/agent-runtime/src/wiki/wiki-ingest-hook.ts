@@ -82,22 +82,9 @@ export class WikiIngestHook {
     );
   }
 
-  /** 对话内容显式收藏（无自动钩子，只能显式调用） */
-  ingestChat(agentId: string, userId: string, content: string, title: string): string | null {
-    const hash = contentAddressId([content]);
-    return this.safeIngest(() =>
-      this.repo.ingestToInbox({
-        agentId,
-        userId,
-        itemType: "chat",
-        // 对话无真实文件路径，用哈希造一个稳定的合成路径以复用去重逻辑
-        sourcePath: `chat://${hash}`,
-        title,
-        contentPreview: content,
-        mediaType: "document",
-        contentHash: hash,
-      }),
-    );
+  /** 对话消息不再收录：Wiki 只收文件与文档（设计 §1），始终返回 null，不写 inbox */
+  ingestChat(_agentId: string, _userId: string, _content: string, _title: string): null {
+    return null;
   }
 
   private safeIngest(fn: () => { readonly id: string }): string | null {

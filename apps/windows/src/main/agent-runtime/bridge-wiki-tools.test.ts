@@ -135,19 +135,11 @@ describe('registerWikiTools', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('wiki_capture 写入 inbox 并返回 inboxId', async () => {
+  it('wiki_capture 始终拒绝，不写入 inbox', async () => {
     const { repo, registry } = setup()
     const result = await callTool(registry, 'wiki_capture', { content: '记一下这个', title: '备忘' })
-    expect(result.ok).toBe(true)
-    expect(result.inboxId).toBeTruthy()
-    const items = repo.listInbox('assistant', 'local-user')
-    expect(items).toHaveLength(1)
-    expect(items[0]!.item_type).toBe('chat')
-  })
-
-  it('wiki_capture 缺少必填字段报错', async () => {
-    const { registry } = setup()
-    const result = await callTool(registry, 'wiki_capture', { content: '', title: '' })
     expect(result.ok).toBe(false)
+    expect(result.message).toContain('不再收录对话消息')
+    expect(repo.listInbox('assistant', 'local-user')).toHaveLength(0)
   })
 })
