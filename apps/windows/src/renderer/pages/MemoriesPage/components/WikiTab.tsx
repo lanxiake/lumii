@@ -208,22 +208,6 @@ export const WikiTab: React.FC = () => {
     [autoRunSynthesis, taskCenter.wrapAsync],
   )
 
-  /**
-   * 用任务中心追踪图谱初始化。
-   */
-  const trackedBootstrapEro = useCallback(
-    () => taskCenter.wrapAsync('graph', '初始化知识图谱', bootstrapEro),
-    [bootstrapEro, taskCenter.wrapAsync],
-  )
-
-  /**
-   * 用任务中心追踪图谱实体抽取。
-   */
-  const trackedExtractEro = useCallback(
-    () => taskCenter.wrapAsync('graph', '抽取图谱实体', extractEro),
-    [extractEro, taskCenter.wrapAsync],
-  )
-
   const handleSelectPrimaryNav = useCallback((nav: WikiPrimaryNav) => {
     setPrimaryNav(nav)
     setToolView(null)
@@ -242,11 +226,14 @@ export const WikiTab: React.FC = () => {
       setIsEditing(false)
       setSearchResults(null)
       setToolView(null)
-      if (page?.category === 'sources' || page?.category === 'media') {
+      if (
+        primaryNav !== 'graph'
+        && (page?.category === 'sources' || page?.category === 'media')
+      ) {
         setPrimaryNav(page.category)
       }
     },
-    [getPage],
+    [getPage, primaryNav],
   )
 
   const handleStartEdit = useCallback(() => {
@@ -451,8 +438,9 @@ export const WikiTab: React.FC = () => {
             pages={pages}
             getGraphData={getGraphData}
             onOpenPage={(pageId) => void handleOpenPage(pageId)}
-            bootstrapEro={trackedBootstrapEro}
-            extractEro={trackedExtractEro}
+            bootstrapEro={bootstrapEro}
+            extractEro={extractEro}
+            runLongTask={(title, fn) => taskCenter.wrapAsync('graph', title, fn)}
             listEntityObservations={listEntityObservations}
           />
         ) : (

@@ -95,6 +95,12 @@ function renderWikiGraphView(
   const getGraphData = vi.fn(async () => graphData)
   const onOpenPage = vi.fn()
   const bootstrapEro = vi.fn(async () => ({ entities: 1, relations: 1 }))
+  const runLongTask = vi.fn()
+  /** 记录长任务调度并执行传入操作。 */
+  const executeLongTask = async <T,>(title: string, fn: () => Promise<T>): Promise<T> => {
+    runLongTask(title, fn)
+    return fn()
+  }
   const listEntityObservations = vi.fn(async () => [])
 
   render(
@@ -103,12 +109,13 @@ function renderWikiGraphView(
       getGraphData={getGraphData}
       onOpenPage={onOpenPage}
       bootstrapEro={bootstrapEro}
+      runLongTask={executeLongTask}
       listEntityObservations={listEntityObservations}
       {...overrides}
     />,
   )
 
-  return { getGraphData, onOpenPage, bootstrapEro, listEntityObservations }
+  return { getGraphData, onOpenPage, bootstrapEro, runLongTask, listEntityObservations }
 }
 
 /** 选择分类并加载图谱 */
@@ -204,6 +211,24 @@ describe('WikiGraphView', () => {
   it('保留从双链生成 ERO 按钮', () => {
     renderWikiGraphView()
     expect(screen.getByRole('button', { name: '从双链生成 ERO' })).toBeInTheDocument()
+  })
+
+  it('抽取实体关系通过长任务执行器运行', async () => {
+    const extractEro = vi.fn(async () => ({
+      pagesProcessed: 1,
+      entitiesUpserted: 2,
+      relationsUpserted: 1,
+      observationsAdded: 3,
+      errors: [],
+    }))
+    const { runLongTask } = renderWikiGraphView({ extractEro })
+
+    fireEvent.click(screen.getByRole('button', { name: '抽取实体关系' }))
+
+    await waitFor(() => {
+      expect(runLongTask).toHaveBeenCalledWith('抽取图谱实体', expect.any(Function))
+      expect(extractEro).toHaveBeenCalledTimes(1)
+    })
   })
 
   it('实体侧栏展示观察摘要；无观察时显示暂无观察', async () => {

@@ -28,6 +28,11 @@ function mockSendCommand(overrides: Record<string, unknown> = {}) {
 
 describe('WikiTab', () => {
   beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
     ;(window as any).electronAPI = {
       agentRuntime: { sendCommand: mockSendCommand() },
     }
@@ -127,6 +132,52 @@ describe('WikiTab', () => {
     expect(screen.queryByText('清理')).not.toBeInTheDocument()
     expect(screen.queryByText('综述合成')).not.toBeInTheDocument()
     expect(screen.queryByText('重建索引')).not.toBeInTheDocument()
+  })
+
+  it('图谱节点打开详情抽屉后保持图谱主区', async () => {
+    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
+      'wiki:page:list': [{
+        id: 'p1',
+        path: 'sources/graph-page',
+        category: 'sources',
+        title: '图谱页面',
+        version: 1,
+        updatedAt: Date.now(),
+      }],
+      'wiki:graph:data': {
+        nodes: [{
+          id: 'p1',
+          kind: 'page',
+          title: '图谱页面',
+          path: 'sources/graph-page',
+          category: 'sources',
+          useCount: 0,
+        }],
+        edges: [],
+        truncated: false,
+      },
+      'wiki:page:get': {
+        id: 'p1',
+        path: 'sources/graph-page',
+        category: 'sources',
+        title: '图谱页面',
+        contentMd: '# 图谱页面',
+        version: 1,
+        updatedAt: Date.now(),
+      },
+      'wiki:link:backlinks': [],
+      'wiki:page:revisions': [],
+    })
+    render(<WikiTab />)
+
+    fireEvent.click(await screen.findByText('知识图谱'))
+    fireEvent.change(screen.getByDisplayValue('或分类…'), { target: { value: 'sources' } })
+    fireEvent.click(screen.getByRole('button', { name: '查看图谱' }))
+    await waitFor(() => expect(document.querySelector('.react-flow__node')).toBeInTheDocument())
+    fireEvent.click(document.querySelector('.react-flow__node')!)
+
+    expect(await screen.findByRole('button', { name: '关闭' })).toBeInTheDocument()
+    expect(document.querySelector('.wiki-graph-view')).toBeInTheDocument()
   })
 
   it('从更多菜单打开清理全页并显示清理控件', async () => {

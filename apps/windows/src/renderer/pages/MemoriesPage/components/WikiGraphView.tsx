@@ -71,6 +71,7 @@ interface WikiGraphViewProps {
     observationsAdded: number
     errors: readonly string[]
   } | null>
+  readonly runLongTask: <T>(title: string, fn: () => Promise<T>) => Promise<T>
   /** 选中实体时加载观察摘要（wiki:ero:list + entityId） */
   readonly listEntityObservations?: (entityId: string) => Promise<readonly WikiObservationItem[]>
 }
@@ -175,6 +176,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
   onOpenPage,
   bootstrapEro,
   extractEro,
+  runLongTask,
   listEntityObservations,
 }) => {
   const [centerId, setCenterId] = useState('')
@@ -241,20 +243,20 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
   const handleBootstrapEro = useCallback(async () => {
     if (!bootstrapEro) return
     setEroMsg('正在从双链引导 ERO…')
-    const r = await bootstrapEro()
+    const r = await runLongTask('初始化知识图谱', bootstrapEro)
     if (r) {
       setEroMsg(`已写入 ${r.entities} 个实体、${r.relations} 条关系，请重新查看图谱`)
       void load()
     } else {
       setEroMsg('ERO 引导失败')
     }
-  }, [bootstrapEro, load])
+  }, [bootstrapEro, load, runLongTask])
 
   /** AI 抽取最近更新页的实体关系 */
   const handleExtractEro = useCallback(async () => {
     if (!extractEro) return
     setEroMsg('正在 AI 抽取实体关系…')
-    const r = await extractEro()
+    const r = await runLongTask('抽取图谱实体', extractEro)
     if (r) {
       const errHint = r.errors.length > 0 ? `，${r.errors.length} 页失败` : ''
       setEroMsg(
@@ -264,7 +266,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
     } else {
       setEroMsg('AI 抽取失败')
     }
-  }, [extractEro, load])
+  }, [extractEro, load, runLongTask])
 
   useEffect(() => {
     if (!filteredGraph) {
