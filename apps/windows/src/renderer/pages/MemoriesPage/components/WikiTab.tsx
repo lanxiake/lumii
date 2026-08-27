@@ -1,14 +1,13 @@
 /**
- * WikiTab — Wiki 知识库界面（P0 两栏 + P1 第三栏/清理视图/编辑器增强）
+ * WikiTab — Wiki 知识库工作区
  *
- * 左栏：搜索 + 固定分类树（sources/media/inbox）+ 待整理入口 + 清理入口；
- * 右栏三视图：页面（渲染/编辑，附第三栏反链+修订历史）、待整理、运行日志、清理。
- * P0 不做真实文件树懒加载——固定顶层分类，直接按分类过滤页面列表即可。
+ * 左栏只承载浏览分区、知识图谱与更多入口；顶栏统一承载搜索、
+ * 当前分区上下文和任务进度，主内容区继续复用现有业务视图。
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import MDEditor from '@uiw/react-md-editor'
-import { Search, Inbox, FileText, Image as ImageIcon, RefreshCw, Trash2, History, Sparkles, Network, BookOpen } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import { Loading } from '../../../components/ui/Loading/Loading'
 import { ConfirmModal } from '../../../components/ui/Modal'
@@ -18,7 +17,6 @@ import {
   type WikiPageListItem,
   type WikiPageDetail,
   type WikiSearchHit,
-  type WikiRunItem,
 } from '../../../hooks/business/useWikiPage'
 import { PageSidebar } from './PageSidebar'
 import { CleanupView } from './CleanupView'
@@ -26,75 +24,23 @@ import { SynthesisView } from './SynthesisView'
 import { WikiGraphView } from './WikiGraphView'
 import { LinkAutocomplete, detectWikilinkTrigger } from './LinkAutocomplete'
 import { uploadFilesForWikiAttachment } from './wikiAttachmentUpload'
+import { WikiLeftNav, type WikiPrimaryNav } from './WikiLeftNav'
+import { WikiTopBar } from './WikiTopBar'
+import { useWikiTaskCenter } from './useWikiTaskCenter'
 import './WikiTab.css'
 
-type WikiCategory = 'sources' | 'media' | 'inbox'
-type RightView = 'page' | 'inbox' | 'runs' | 'cleanup' | 'synthesis' | 'graph'
+type WikiToolView = 'cleanup' | 'synthesis' | null
 
-const CATEGORY_LABEL: Record<WikiCategory, string> = {
-  sources: '资料',
-  media: '多媒体',
-  inbox: '待整理',
-}
-
-const CATEGORY_ICON: Record<WikiCategory, React.FC<{ size?: number | string }>> = {
-  sources: FileText,
-  media: ImageIcon,
-  inbox: Inbox,
+const NAV_CONTEXT: Record<WikiPrimaryNav, { title: string; subtitle: string }> = {
+  sources: { title: '资料', subtitle: '自动归档的资料与任务产物' },
+  media: { title: '多媒体', subtitle: '图片、音频与其他媒体内容' },
+  inbox: { title: '待整理', subtitle: '等待归档处理的内容' },
+  graph: { title: '知识图谱', subtitle: '浏览页面与实体之间的关系' },
 }
 
 function formatTime(ts: number | null): string {
   if (!ts) return ''
   return new Date(ts).toLocaleString('zh-CN', { hour12: false })
-}
-
-const OUTCOME_LABEL: Record<string, string> = {
-  archived: '已归档',
-  corrected: '已纠正',
-  degraded: '已降级',
-  failed: '失败',
-}
-
-const EXTRACT_LABEL: Record<string, string> = {
-  preview: '已有预览',
-  extracted: '本次提取',
-  none: '无正文',
-}
-
-/** 可展开的归档运行日志条目 */
-const RunLogItem: React.FC<{ run: WikiRunItem }> = ({ run }) => {
-  const [expanded, setExpanded] = useState(false)
-  const hasDetail = (run.resultDetail?.items.length ?? 0) > 0
-
-  return (
-    <div className="wiki-run-item">
-      <button
-        type="button"
-        className={`wiki-run-item-header${hasDetail ? ' wiki-run-item-header--expandable' : ''}`}
-        onClick={() => hasDetail && setExpanded((v) => !v)}
-        aria-expanded={hasDetail ? expanded : undefined}
-      >
-        <span className={`wiki-run-status wiki-run-status--${run.status}`}>{run.status}</span>
-        <span>{formatTime(run.createdAt)}</span>
-        {hasDetail && <span className="wiki-run-expand-hint">{expanded ? '收起' : '展开明细'}</span>}
-      </button>
-      {run.resultSummary && <p>{run.resultSummary}</p>}
-      {run.error && <p className="wiki-inbox-item-error">{run.error}</p>}
-      {expanded && run.resultDetail?.items.map((item) => (
-        <div key={item.inboxId} className="wiki-run-detail-item">
-          <div className="wiki-run-detail-item-header">
-            <span className={`wiki-run-outcome wiki-run-outcome--${item.outcome}`}>
-              {OUTCOME_LABEL[item.outcome] ?? item.outcome}
-            </span>
-            <span className="wiki-run-detail-title">{item.title}</span>
-            <span className="wiki-run-detail-extract">{EXTRACT_LABEL[item.extract] ?? item.extract}</span>
-          </div>
-          <p className="wiki-run-detail-path">{item.title} → {item.path || '（未落库）'}</p>
-          {item.reason && <p className="wiki-run-detail-reason">{item.reason}</p>}
-        </div>
-      ))}
-    </div>
-  )
 }
 
 /** 在光标处插入文本，替换 [[ 起始位置到当前光标的内容（用于自动补全选择后落子） */
@@ -118,8 +64,6 @@ export const WikiTab: React.FC = () => {
     updatePage,
     deletePage,
     search,
-    listRuns,
-    rebuildIndex,
     listBacklinks,
     listRevisions,
     rollbackPage,
@@ -137,14 +81,14 @@ export const WikiTab: React.FC = () => {
     listEntityObservations,
     loading,
   } = useWikiPage()
+  const { pillText, pillTone } = useWikiTaskCenter()
 
-  const [category, setCategory] = useState<WikiCategory | null>('sources')
-  const [rightView, setRightView] = useState<RightView>('page')
+  const [primaryNav, setPrimaryNav] = useState<WikiPrimaryNav>('sources')
+  const [toolView, setToolView] = useState<WikiToolView>(null)
   const [pages, setPages] = useState<readonly WikiPageListItem[]>([])
   const [pageCounts, setPageCounts] = useState<Record<string, number>>({})
   const [inboxItems, setInboxItems] = useState<readonly WikiInboxItem[]>([])
   const [pendingCount, setPendingCount] = useState(0)
-  const [runs, setRuns] = useState<readonly WikiRunItem[]>([])
   const [selectedPage, setSelectedPage] = useState<WikiPageDetail | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [editDraft, setEditDraft] = useState('')
@@ -172,25 +116,17 @@ export const WikiTab: React.FC = () => {
     setPendingCount(total)
   }, [listInbox, countInbox])
 
-  const refreshRuns = useCallback(async () => {
-    setRuns(await listRuns())
-  }, [listRuns])
-
   useEffect(() => {
     void refreshPages()
     void refreshInbox()
   }, [refreshPages, refreshInbox])
 
-  useEffect(() => {
-    if (rightView === 'runs') void refreshRuns()
-  }, [rightView, refreshRuns])
-
-  const handleSelectCategory = useCallback((cat: WikiCategory) => {
-    setCategory(cat)
+  const handleSelectPrimaryNav = useCallback((nav: WikiPrimaryNav) => {
+    setPrimaryNav(nav)
+    setToolView(null)
     setSearchResults(null)
     setSearchDegradeReason(null)
     setSearchMode(null)
-    setRightView(cat === 'inbox' ? 'inbox' : 'page')
     setSelectedPage(null)
   }, [])
 
@@ -200,7 +136,10 @@ export const WikiTab: React.FC = () => {
       setSelectedPage(page)
       setIsEditing(false)
       setSearchResults(null)
-      setRightView('page')
+      setToolView(null)
+      if (page?.category === 'sources' || page?.category === 'media') {
+        setPrimaryNav(page.category)
+      }
     },
     [getPage],
   )
@@ -273,10 +212,15 @@ export const WikiTab: React.FC = () => {
     setSearchMode('fts')
   }, [query, search, searchHybrid])
 
-  const handleRebuildIndex = useCallback(async () => {
-    await rebuildIndex()
-    void refreshPages()
-  }, [rebuildIndex, refreshPages])
+  /**
+   * 清空当前检索词与结果，恢复当前一级分区内容。
+   */
+  const handleClearSearch = useCallback(() => {
+    setQuery('')
+    setSearchResults(null)
+    setSearchDegradeReason(null)
+    setSearchMode(null)
+  }, [])
 
   const handleRolledBack = useCallback(() => {
     if (!selectedPage) return
@@ -326,92 +270,44 @@ export const WikiTab: React.FC = () => {
     [isEditing],
   )
 
-  const visiblePages = category ? pages.filter((p) => p.category === category) : pages
+  const visiblePages = pages.filter((page) => page.category === primaryNav)
+  const currentContext = searchResults !== null
+    ? { title: '搜索结果', subtitle: `共找到 ${searchResults.length} 项内容` }
+    : toolView === 'cleanup'
+      ? { title: '清理', subtitle: '扫描并处理需要维护的资料' }
+      : toolView === 'synthesis'
+        ? { title: '综述合成', subtitle: '从已有页面生成主题综述' }
+        : NAV_CONTEXT[primaryNav]
 
   return (
     <div className="wiki-tab">
-      <div className="wiki-tab-left">
-        <div className="wiki-search">
-          <Search size={14} className="wiki-search-icon" />
-          <input
-            type="text"
-            placeholder="搜索 Wiki（支持中文）"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') void handleSearch() }}
-          />
-        </div>
-
-        <div className="wiki-category-list">
-          {(['sources', 'media', 'inbox'] as const).map((cat) => {
-            const Icon = CATEGORY_ICON[cat]
-            const count = cat === 'inbox' ? pendingCount : (pageCounts[cat] ?? 0)
-            return (
-              <button
-                key={cat}
-                type="button"
-                className={`wiki-category-item ${category === cat && rightView !== 'cleanup' ? 'wiki-category-item--active' : ''}`}
-                onClick={() => handleSelectCategory(cat)}
-              >
-                <Icon size={14} />
-                <span>{CATEGORY_LABEL[cat]}</span>
-                <span className="wiki-category-count">{count}</span>
-              </button>
-            )
-          })}
-        </div>
-
-        <button
-          type="button"
-          className={`wiki-runs-entry ${rightView === 'runs' ? 'wiki-category-item--active' : ''}`}
-          onClick={() => setRightView('runs')}
-        >
-          <History size={14} />
-          <span>运行日志</span>
-        </button>
-
-        <button
-          type="button"
-          className={`wiki-runs-entry ${rightView === 'cleanup' ? 'wiki-category-item--active' : ''}`}
-          onClick={() => setRightView('cleanup')}
-        >
-          <Sparkles size={14} />
-          <span>清理</span>
-        </button>
-
-        <button
-          type="button"
-          className={`wiki-runs-entry ${rightView === 'synthesis' ? 'wiki-category-item--active' : ''}`}
-          onClick={() => setRightView('synthesis')}
-        >
-          <BookOpen size={14} />
-          <span>综述合成</span>
-        </button>
-
-        <button
-          type="button"
-          className={`wiki-runs-entry ${rightView === 'graph' ? 'wiki-category-item--active' : ''}`}
-          onClick={() => setRightView('graph')}
-        >
-          <Network size={14} />
-          <span>知识图谱</span>
-        </button>
-
-        <div className="wiki-left-footer">
-          <Button variant="ghost" size="sm" onClick={() => void handleRebuildIndex()}>
-            <RefreshCw size={12} style={{ marginRight: 4 }} />
-            重建索引
-          </Button>
-        </div>
-      </div>
+      <WikiLeftNav
+        active={toolView ? 'more' : primaryNav}
+        pendingCount={pendingCount}
+        pageCounts={pageCounts}
+        onSelect={handleSelectPrimaryNav}
+        onOpenMore={() => undefined}
+      />
 
       <div className="wiki-tab-right">
-        {loading && !selectedPage && (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: 24 }}>
-            <Loading text="加载中..." />
-          </div>
-        )}
+        <WikiTopBar
+          title={currentContext.title}
+          subtitle={currentContext.subtitle}
+          query={query}
+          onQueryChange={setQuery}
+          onSearch={() => void handleSearch()}
+          onClearSearch={handleClearSearch}
+          pillText={pillText}
+          pillTone={pillTone}
+          onOpenTasks={() => undefined}
+        />
 
+        <main className="wiki-tab-content">
+          {loading && !selectedPage && (
+            <div className="wiki-loading">
+              <Loading text="加载中..." />
+            </div>
+          )}
         {searchResults !== null ? (
           <div className="wiki-search-results">
             <h3>
@@ -435,7 +331,7 @@ export const WikiTab: React.FC = () => {
               ))
             )}
           </div>
-        ) : rightView === 'inbox' ? (
+        ) : primaryNav === 'inbox' ? (
           <div className="wiki-inbox-view">
             <h3>待整理（{pendingCount}）</h3>
             {inboxItems.length < pendingCount && (
@@ -467,18 +363,7 @@ export const WikiTab: React.FC = () => {
               ))
             )}
           </div>
-        ) : rightView === 'runs' ? (
-          <div className="wiki-runs-view">
-            <h3>归档运行日志</h3>
-            {runs.length === 0 ? (
-              <p className="wiki-empty-hint">暂无归档记录</p>
-            ) : (
-              runs.map((run) => (
-                <RunLogItem key={run.id} run={run} />
-              ))
-            )}
-          </div>
-        ) : rightView === 'cleanup' ? (
+        ) : toolView === 'cleanup' ? (
           <CleanupView
             cleanupScan={cleanupScan}
             archiveSources={archiveSources}
@@ -487,14 +372,14 @@ export const WikiTab: React.FC = () => {
             statusScan={statusScan}
             confirmStatus={confirmStatus}
           />
-        ) : rightView === 'synthesis' ? (
+        ) : toolView === 'synthesis' ? (
           <SynthesisView
             pages={pages}
             autoRunSynthesis={autoRunSynthesis}
             onOpenPage={(pageId) => void handleOpenPage(pageId)}
             onRefreshPages={refreshPages}
           />
-        ) : rightView === 'graph' ? (
+        ) : primaryNav === 'graph' ? (
           <WikiGraphView
             pages={pages}
             getGraphData={getGraphData}
@@ -569,7 +454,7 @@ export const WikiTab: React.FC = () => {
           </div>
         ) : (
           <div className="wiki-page-list-view">
-            <h3>{category ? CATEGORY_LABEL[category] : '全部页面'}（{visiblePages.length}）</h3>
+            <h3>{NAV_CONTEXT[primaryNav].title}（{visiblePages.length}）</h3>
             {visiblePages.length === 0 ? (
               <p className="wiki-empty-hint">
                 暂无页面。Wiki 会自动收集上传文件、任务产物与网页搜索结果并归档整理。
@@ -584,6 +469,7 @@ export const WikiTab: React.FC = () => {
             )}
           </div>
         )}
+        </main>
       </div>
 
       <ConfirmModal
