@@ -23,7 +23,7 @@ interface WikiDetailDrawerProps {
   readonly editTitle: string
   readonly editDraft: string
   readonly onEditTitleChange: (title: string) => void
-  readonly onEditDraftChange: (content: string) => void
+  readonly onEditDraftChange: React.Dispatch<React.SetStateAction<string>>
   readonly onStartEdit: () => void
   readonly onCancelEdit: () => void
   readonly onSaveEdit: () => void
@@ -142,9 +142,11 @@ export const WikiDetailDrawer: React.FC<WikiDetailDrawerProps> = ({
       const uploaded = await uploadFilesForWikiAttachment(event.dataTransfer.files)
       if (uploaded.length === 0) return
       const lines = uploaded.map((item) => item.referenceLine).join('\n')
-      onEditDraftChange(editDraft ? `${editDraft}\n${lines}` : lines)
+      onEditDraftChange((currentDraft) => (
+        currentDraft ? `${currentDraft}\n${lines}` : lines
+      ))
     },
-    [editDraft, isEditing, onEditDraftChange],
+    [isEditing, onEditDraftChange],
   )
 
   /**
