@@ -84,6 +84,37 @@ describe('WikiTab', () => {
     expect(row).toHaveTextContent('sources/architecture.md · 刚刚')
   })
 
+  it('打开页面后仍可见列表，并出现关闭入口', async () => {
+    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
+      'wiki:page:list': [{
+        id: 'p1',
+        path: 'sources/a',
+        category: 'sources',
+        title: '架构',
+        version: 1,
+        updatedAt: Date.now(),
+      }],
+      'wiki:page:get': {
+        id: 'p1',
+        path: 'sources/a',
+        category: 'sources',
+        title: '架构',
+        contentMd: '# hi',
+        version: 1,
+        updatedAt: Date.now(),
+      },
+      'wiki:link:backlinks': [],
+      'wiki:page:revisions': [],
+    })
+    render(<WikiTab />)
+
+    const listTitle = await screen.findByText('架构')
+    fireEvent.click(listTitle)
+
+    expect(await screen.findByRole('button', { name: '关闭' })).toBeInTheDocument()
+    expect(listTitle.closest('.wiki-page-list-item')).toHaveClass('wiki-page-list-item--selected')
+  })
+
   it('左栏一级含图谱与更多，不含运维工具独立入口', async () => {
     render(<WikiTab />)
     await screen.findByText(/暂无页面/)

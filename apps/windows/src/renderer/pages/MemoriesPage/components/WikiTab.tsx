@@ -5,10 +5,7 @@
  * 当前分区上下文和任务进度，主内容区继续复用现有业务视图。
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
-import MDEditor from '@uiw/react-md-editor'
-import { Trash2 } from 'lucide-react'
-import { Button } from '../../../components/ui/Button/Button'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Loading } from '../../../components/ui/Loading/Loading'
 import { ConfirmModal } from '../../../components/ui/Modal'
 import {
@@ -18,12 +15,10 @@ import {
   type WikiPageDetail,
   type WikiSearchHit,
 } from '../../../hooks/business/useWikiPage'
-import { PageSidebar } from './PageSidebar'
 import { CleanupView } from './CleanupView'
 import { SynthesisView } from './SynthesisView'
 import { WikiGraphView } from './WikiGraphView'
-import { LinkAutocomplete, detectWikilinkTrigger } from './LinkAutocomplete'
-import { uploadFilesForWikiAttachment } from './wikiAttachmentUpload'
+import { WikiDetailDrawer } from './WikiDetailDrawer'
 import { WikiLeftNav, type WikiPrimaryNav } from './WikiLeftNav'
 import { WikiTopBar } from './WikiTopBar'
 import { WikiPageList } from './WikiPageList'
@@ -40,21 +35,9 @@ const NAV_CONTEXT: Record<WikiPrimaryNav, { title: string; subtitle: string }> =
   graph: { title: '知识图谱', subtitle: '浏览页面与实体之间的关系' },
 }
 
-function formatTime(ts: number | null): string {
-  if (!ts) return ''
-  return new Date(ts).toLocaleString('zh-CN', { hour12: false })
-}
-
-/** 在光标处插入文本，替换 [[ 起始位置到当前光标的内容（用于自动补全选择后落子） */
-function insertWikilinkAtCursor(textarea: HTMLTextAreaElement, currentValue: string, title: string): string {
-  const cursor = textarea.selectionStart
-  const before = currentValue.slice(0, cursor)
-  const after = currentValue.slice(cursor)
-  const lastOpen = before.lastIndexOf('[[')
-  if (lastOpen === -1) return currentValue
-  return `${before.slice(0, lastOpen)}[[${title}]]${after}`
-}
-
+/**
+ * 渲染 Wiki 工作区并协调列表、工具视图与详情抽屉。
+ */
 export const WikiTab: React.FC = () => {
   const {
     listInbox,
@@ -92,17 +75,15 @@ export const WikiTab: React.FC = () => {
   const [inboxItems, setInboxItems] = useState<readonly WikiInboxItem[]>([])
   const [pendingCount, setPendingCount] = useState(0)
   const [selectedPage, setSelectedPage] = useState<WikiPageDetail | null>(null)
+  const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editDraft, setEditDraft] = useState('')
   const [editTitle, setEditTitle] = useState('')
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<readonly WikiSearchHit[] | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<{ backlinks: number } | null>(null)
-  const [isDragOver, setIsDragOver] = useState(false)
-  const [linkQuery, setLinkQuery] = useState<string | null>(null)
   const [searchDegradeReason, setSearchDegradeReason] = useState<string | null>(null)
   const [searchMode, setSearchMode] = useState<string | null>(null)
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   const refreshPages = useCallback(async () => {
     const all = await listPages()
@@ -130,12 +111,14 @@ export const WikiTab: React.FC = () => {
     setSearchDegradeReason(null)
     setSearchMode(null)
     setSelectedPage(null)
+    setIsDetailOpen(false)
   }, [])
 
   const handleOpenPage = useCallback(
     async (pageId: string) => {
       const page = await getPage(pageId)
       setSelectedPage(page)
+      setIsDetailOpen(page !== null)
       setIsEditing(false)
       setSearchResults(null)
       setToolView(null)
@@ -175,6 +158,7 @@ export const WikiTab: React.FC = () => {
     setDeleteConfirm(null)
     if (ok) {
       setSelectedPage(null)
+      setIsDetailOpen(false)
       void refreshPages()
     }
   }, [selectedPage, deletePage, refreshPages])
@@ -228,49 +212,6 @@ export const WikiTab: React.FC = () => {
     if (!selectedPage) return
     void handleOpenPage(selectedPage.id)
   }, [selectedPage, handleOpenPage])
-
-  /** 编辑草稿变化时检测 [[ 触发自动补全，并同步文本框光标位置供插入定位 */
-  const handleEditChange = useCallback(
-    (val: string | undefined, event?: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const next = val ?? ''
-      setEditDraft(next)
-      if (event?.target) textareaRef.current = event.target
-      const cursor = event?.target?.selectionStart ?? next.length
-      setLinkQuery(detectWikilinkTrigger(next.slice(0, cursor)))
-    },
-    [],
-  )
-
-  const handleSelectWikilink = useCallback((page: WikiPageListItem) => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    setEditDraft((prev) => insertWikilinkAtCursor(textarea, prev, page.title))
-    setLinkQuery(null)
-  }, [])
-
-  const handleAttachmentDrop = useCallback(
-    async (e: React.DragEvent) => {
-      e.preventDefault()
-      setIsDragOver(false)
-      if (!isEditing || e.dataTransfer.files.length === 0) return
-      const uploaded = await uploadFilesForWikiAttachment(e.dataTransfer.files)
-      if (uploaded.length === 0) return
-      setEditDraft((prev) => {
-        const lines = uploaded.map((u) => u.referenceLine).join('\n')
-        return prev ? `${prev}\n${lines}` : lines
-      })
-    },
-    [isEditing],
-  )
-
-  const handleDragOver = useCallback(
-    (e: React.DragEvent) => {
-      if (!isEditing) return
-      e.preventDefault()
-      setIsDragOver(true)
-    },
-    [isEditing],
-  )
 
   const visiblePages = pages.filter((page) => page.category === primaryNav)
   const currentContext = searchResults !== null
@@ -368,70 +309,6 @@ export const WikiTab: React.FC = () => {
             extractEro={extractEro}
             listEntityObservations={listEntityObservations}
           />
-        ) : selectedPage ? (
-          <div className="wiki-page-view-layout">
-          <div className="wiki-page-view">
-            <div className="wiki-page-view-header">
-              {isEditing ? (
-                <input
-                  className="wiki-page-title-input"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                />
-              ) : (
-                <h2>{selectedPage.title}</h2>
-              )}
-              <div className="wiki-page-view-actions">
-                {isEditing ? (
-                  <>
-                    <Button variant="primary" size="sm" onClick={() => void handleSaveEdit()}>保存</Button>
-                    <Button variant="secondary" size="sm" onClick={() => setIsEditing(false)}>取消</Button>
-                  </>
-                ) : (
-                  <>
-                    <Button variant="secondary" size="sm" onClick={handleStartEdit}>编辑</Button>
-                    <Button variant="ghost" size="sm" onClick={() => void requestDeletePage()}>
-                      <Trash2 size={12} />
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
-            <p className="wiki-page-view-meta">{selectedPage.path} · v{selectedPage.version} · {formatTime(selectedPage.updatedAt)}</p>
-            <div
-              className={`wiki-page-view-editor ${isDragOver ? 'wiki-page-view-editor--dragover' : ''}`}
-              onDrop={(e) => void handleAttachmentDrop(e)}
-              onDragOver={handleDragOver}
-              onDragLeave={() => setIsDragOver(false)}
-            >
-              <MDEditor
-                value={isEditing ? editDraft : selectedPage.contentMd}
-                onChange={handleEditChange}
-                preview={isEditing ? 'live' : 'preview'}
-                height="100%"
-                visibleDragbar={false}
-                hideToolbar={!isEditing}
-              />
-              {linkQuery !== null && (
-                <LinkAutocomplete
-                  query={linkQuery}
-                  pages={pages}
-                  onSelect={handleSelectWikilink}
-                  onDismiss={() => setLinkQuery(null)}
-                />
-              )}
-            </div>
-          </div>
-          <PageSidebar
-            pageId={selectedPage.id}
-            currentContentMd={isEditing ? editDraft : selectedPage.contentMd}
-            listBacklinks={listBacklinks}
-            listRevisions={listRevisions}
-            rollbackPage={rollbackPage}
-            onOpenPage={(id) => void handleOpenPage(id)}
-            onRolledBack={handleRolledBack}
-          />
-          </div>
         ) : (
           <div className="wiki-page-list-view">
             <h3>{NAV_CONTEXT[primaryNav].title}（{visiblePages.length}）</h3>
@@ -442,12 +319,35 @@ export const WikiTab: React.FC = () => {
             ) : (
               <WikiPageList
                 pages={visiblePages}
-                selectedPageId={null}
+                selectedPageId={selectedPage?.id ?? null}
                 onOpen={(pageId) => void handleOpenPage(pageId)}
               />
             )}
           </div>
         )}
+          <WikiDetailDrawer
+            open={isDetailOpen}
+            page={selectedPage}
+            pages={pages}
+            isEditing={isEditing}
+            editTitle={editTitle}
+            editDraft={editDraft}
+            onEditTitleChange={setEditTitle}
+            onEditDraftChange={setEditDraft}
+            onStartEdit={handleStartEdit}
+            onCancelEdit={() => setIsEditing(false)}
+            onSaveEdit={() => void handleSaveEdit()}
+            onRequestDelete={() => void requestDeletePage()}
+            onClose={() => {
+              setIsDetailOpen(false)
+              setIsEditing(false)
+            }}
+            listBacklinks={listBacklinks}
+            listRevisions={listRevisions}
+            rollbackPage={rollbackPage}
+            onOpenPage={(pageId) => void handleOpenPage(pageId)}
+            onRolledBack={handleRolledBack}
+          />
         </main>
       </div>
 

@@ -38,12 +38,14 @@ export const PageSidebar: React.FC<PageSidebarProps> = ({
   const [revisions, setRevisions] = useState<readonly WikiRevisionItem[]>([])
   const [diffTarget, setDiffTarget] = useState<WikiRevisionItem | null>(null)
   const [rollbackTarget, setRollbackTarget] = useState<WikiRevisionItem | null>(null)
+  const [isExpanded, setIsExpanded] = useState(false)
 
   useEffect(() => {
     void listBacklinks(pageId).then(setBacklinks)
     void listRevisions(pageId).then(setRevisions)
     setDiffTarget(null)
     setRollbackTarget(null)
+    setIsExpanded(false)
   }, [pageId, listBacklinks, listRevisions])
 
   const diffOutput = useMemo(() => {
@@ -51,6 +53,9 @@ export const PageSidebar: React.FC<PageSidebarProps> = ({
     return diffLines(diffTarget.contentMd, currentContentMd)
   }, [diffTarget, currentContentMd])
 
+  /**
+   * 确认回滚后清理比较状态并通知详情页刷新。
+   */
   const handleConfirmRollback = async () => {
     if (!rollbackTarget) return
     await rollbackPage(pageId, rollbackTarget.version)
@@ -61,58 +66,74 @@ export const PageSidebar: React.FC<PageSidebarProps> = ({
 
   return (
     <div className="wiki-page-sidebar">
-      <div className="wiki-sidebar-section">
-        <h4>反链（{backlinks.length}）</h4>
-        {backlinks.length === 0 ? (
-          <p className="wiki-empty-hint">暂无页面链接到此页</p>
-        ) : (
-          backlinks.map((b) => (
-            <button
-              key={b.linkId}
-              type="button"
-              className="wiki-backlink-item"
-              onClick={() => onOpenPage(b.sourcePageId)}
-            >
-              <span className="wiki-backlink-title">{b.sourceTitle}</span>
-              <span className="wiki-backlink-path">{b.sourcePath}</span>
-            </button>
-          ))
-        )}
-      </div>
+      <button
+        type="button"
+        className="wiki-page-sidebar-summary"
+        aria-expanded={isExpanded}
+        onClick={() => setIsExpanded((expanded) => !expanded)}
+      >
+        <span>反链 · {backlinks.length}</span>
+        <span>{isExpanded ? '收起' : '展开'}</span>
+      </button>
 
-      <div className="wiki-sidebar-section">
-        <h4>修订历史（{revisions.length}）</h4>
-        {revisions.map((rev) => (
-          <div key={rev.id} className="wiki-revision-item">
-            <button
-              type="button"
-              className="wiki-revision-item-main"
-              onClick={() => setDiffTarget(diffTarget?.id === rev.id ? null : rev)}
-            >
-              <span className="wiki-revision-version">v{rev.version}</span>
-              <span className="wiki-revision-editor">{rev.editor === 'ai' ? 'AI' : '用户'}</span>
-              <span className="wiki-revision-time">{formatTime(rev.createdAt)}</span>
-            </button>
-            {revisions[0]?.id !== rev.id && (
-              <Button variant="ghost" size="sm" onClick={() => setRollbackTarget(rev)}>
-                回滚到此版本
-              </Button>
+      {isExpanded && (
+        <div className="wiki-page-sidebar-content">
+          <div className="wiki-sidebar-section">
+            <h4>反链（{backlinks.length}）</h4>
+            {backlinks.length === 0 ? (
+              <p className="wiki-empty-hint">暂无页面链接到此页</p>
+            ) : (
+              backlinks.map((backlink) => (
+                <button
+                  key={backlink.linkId}
+                  type="button"
+                  className="wiki-backlink-item"
+                  onClick={() => onOpenPage(backlink.sourcePageId)}
+                >
+                  <span className="wiki-backlink-title">{backlink.sourceTitle}</span>
+                  <span className="wiki-backlink-path">{backlink.sourcePath}</span>
+                </button>
+              ))
             )}
           </div>
-        ))}
-      </div>
 
-      {diffTarget && diffOutput && (
-        <div className="wiki-sidebar-section wiki-diff-view">
-          <h4>v{diffTarget.version} → 当前</h4>
-          <pre className="wiki-diff-lines">
-            {diffOutput.map((line, i) => (
-              <div key={i} className={`wiki-diff-line wiki-diff-line--${line.type}`}>
-                {line.type === 'add' ? '+ ' : line.type === 'remove' ? '- ' : '  '}
-                {line.text}
+          <div className="wiki-sidebar-section">
+            <h4>修订历史（{revisions.length}）</h4>
+            {revisions.map((revision) => (
+              <div key={revision.id} className="wiki-revision-item">
+                <button
+                  type="button"
+                  className="wiki-revision-item-main"
+                  onClick={() => setDiffTarget(diffTarget?.id === revision.id ? null : revision)}
+                >
+                  <span className="wiki-revision-version">v{revision.version}</span>
+                  <span className="wiki-revision-editor">
+                    {revision.editor === 'ai' ? 'AI' : '用户'}
+                  </span>
+                  <span className="wiki-revision-time">{formatTime(revision.createdAt)}</span>
+                </button>
+                {revisions[0]?.id !== revision.id && (
+                  <Button variant="ghost" size="sm" onClick={() => setRollbackTarget(revision)}>
+                    回滚到此版本
+                  </Button>
+                )}
               </div>
             ))}
-          </pre>
+          </div>
+
+          {diffTarget && diffOutput && (
+            <div className="wiki-sidebar-section wiki-diff-view">
+              <h4>v{diffTarget.version} → 当前</h4>
+              <pre className="wiki-diff-lines">
+                {diffOutput.map((line, index) => (
+                  <div key={index} className={`wiki-diff-line wiki-diff-line--${line.type}`}>
+                    {line.type === 'add' ? '+ ' : line.type === 'remove' ? '- ' : '  '}
+                    {line.text}
+                  </div>
+                ))}
+              </pre>
+            </div>
+          )}
         </div>
       )}
 
