@@ -7,8 +7,10 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react'
+import { ExternalLink, KeyRound } from 'lucide-react'
 import { Button, Input, Modal } from '../ui'
 import type { McpServerConfigInput } from '@shared/agent-runtime-commands'
+import { findMcpPreset } from '@shared/mcp-presets'
 import { parseMcpJson } from './parse-mcp-json'
 import styles from './McpServersPanel.module.css'
 
@@ -73,6 +75,9 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
 
   /** JSON 模式下实时预览将导入哪些 Server */
   const jsonPreview = useMemo(() => (mode === 'json' && jsonText.trim() ? parseMcpJson(jsonText) : null), [mode, jsonText])
+
+  /** 内置项的说明与申请密钥地址：按表单里的名字实时查，改名后也跟着走 */
+  const preset = useMemo(() => findMcpPreset(name.trim()), [name])
 
   const handleSubmit = async () => {
     setError(null)
@@ -151,6 +156,11 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
               <span className={styles['field-label']}>名称</span>
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="filesystem" />
               <span className={styles['field-hint']}>工具名前缀，只能用字母、数字、下划线和短横线</span>
+              {preset && (
+                <span className={styles['field-hint']}>
+                  {preset.title}：{preset.description}
+                </span>
+              )}
             </label>
 
             <label className={styles['field']}>
@@ -182,6 +192,18 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
               <span className={styles['field-hint']}>
                 每行 KEY=VALUE。写成 {'${VAR}'} 会在启动时从系统环境变量读取，密钥不落盘
               </span>
+              {preset?.todo && <span className={styles['field-hint']}>{preset.todo}</span>}
+              {preset?.keyUrl && (
+                <button
+                  type="button"
+                  className={styles['field-key-link']}
+                  onClick={() => void window.electronAPI.app.openExternal(preset.keyUrl!)}
+                >
+                  <KeyRound size={12} />
+                  前往 {new URL(preset.keyUrl).host} 获取密钥
+                  <ExternalLink size={11} />
+                </button>
+              )}
             </label>
 
             <label className={styles['field']}>

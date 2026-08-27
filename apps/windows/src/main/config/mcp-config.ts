@@ -15,7 +15,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { MCP_PRESETS, isReadyToUse } from '../../shared/mcp-presets'
+import { MCP_PRESETS, isReadyToUse, type McpPreset } from '../../shared/mcp-presets'
 import { resolveClientStateDir, resolveSharedConfigDir } from '../paths.js'
 
 const log = {
@@ -203,12 +203,29 @@ export function parseMcpServerConfigs(raw: string): McpServerEntry[] {
   return entries
 }
 
-/** 已下线的内置 MCP：仅当 args 仍指向原包时才删，避免误删用户同名自定义服务 */
-const RETIRED_BUILTIN_MCP: ReadonlyArray<{ name: string; pkg: string }> = [
-  { name: 'memory', pkg: '@modelcontextprotocol/server-memory' },
-  { name: 'chart', pkg: '@antv/mcp-server-chart' },
-  { name: 'context7', pkg: '@upstash/context7-mcp' },
-  { name: 'amap', pkg: '@amap/amap-maps-mcp-server' },
+/** 内置清单条目 → 可落盘的配置条目（需填 Key/路径的默认停用） */
+function presetToEntry(preset: McpPreset): McpServerEntry {
+  return resolveMcpEntryPaths({
+    name: preset.name,
+    command: preset.command,
+    args: [...preset.args],
+    ...(preset.env ? { env: { ...preset.env } } : {}),
+    enabled: isReadyToUse(preset),
+  })
+}
+
+/**
+ * 已下线的内置 MCP：仅当 args 仍指向原包时才删，避免误删用户同名自定义服务
+ *
+ * replacedByComfy 标记「被 comfyui-remote 顶替」的那一批；sequential-thinking
+ * 是纯下线（模型自带推理），删它不应顺手塞进一个用户没要过的生图服务。
+ */
+const RETIRED_BUILTIN_MCP: ReadonlyArray<{ name: string; pkg: string; replacedByComfy?: true }> = [
+  { name: 'memory', pkg: '@modelcontextprotocol/server-memory', replacedByComfy: true },
+  { name: 'chart', pkg: '@antv/mcp-server-chart', replacedByComfy: true },
+  { name: 'context7', pkg: '@upstash/context7-mcp', replacedByComfy: true },
+  { name: 'amap', pkg: '@amap/amap-maps-mcp-server', replacedByComfy: true },
+  { name: 'sequential-thinking', pkg: '@modelcontextprotocol/server-sequential-thinking' },
 ]
 
 /**
@@ -216,29 +233,64 @@ const RETIRED_BUILTIN_MCP: ReadonlyArray<{ name: string; pkg: string }> = [
  * 避免用户手动删除后又被每次启动加回来。
  */
 export function reconcileBuiltinMcpPresets(entries: readonly McpServerEntry[]): McpServerEntry[] {
-  const retiredNames = new Set(
-    RETIRED_BUILTIN_MCP.filter(({ name, pkg }) =>
-      entries.some((entry) => entry.name === name && entry.args?.includes(pkg)),
-    ).map((item) => item.name),
+  const retired = RETIRED_BUILTIN_MCP.filter(({ name, pkg }) =>
+    entries.some((entry) => entry.name === name && entry.args?.includes(pkg)),
   )
-  if (retiredNames.size === 0) return [...entries]
+  if (retired.length === 0) return [...entries]
 
+  const retiredNames = new Set(retired.map((item) => item.name))
   const next: McpServerEntry[] = entries.filter((entry) => !retiredNames.has(entry.name))
+  if (!retired.some((item) => item.replacedByComfy)) return next
   if (next.some((entry) => entry.name === 'comfyui-remote')) return next
 
   const preset = MCP_PRESETS.find((item) => item.name === 'comfyui-remote')
   if (!preset) return next
 
-  next.push(
-    resolveMcpEntryPaths({
-      name: preset.name,
-      command: preset.command,
-      args: [...preset.args],
-      ...(preset.env ? { env: { ...preset.env } } : {}),
-      enabled: isReadyToUse(preset),
-    }),
-  )
+  next.push(presetToEntry(preset))
   return next
+}
+
+/** 记录「哪些内置项已经推给过用户」，避免删掉的项每次启动又回来 */
+function getSeededPresetsPath(): string {
+  return path.join(resolveClientStateDir(), 'state', 'mcp-seeded-presets.json')
+}
+
+function readSeededPresetNames(): ReadonlySet<string> | null {
+  try {
+    const raw = fs.readFileSync(getSeededPresetsPath(), 'utf-8')
+    const parsed = JSON.parse(raw) as { seeded?: string[] }
+    return Array.isArray(parsed.seeded) ? new Set(parsed.seeded) : null
+  } catch {
+    return null
+  }
+}
+
+function writeSeededPresetNames(names: Iterable<string>): void {
+  const file = getSeededPresetsPath()
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, JSON.stringify({ seeded: [...names] }, null, 2), 'utf-8')
+  } catch (err) {
+    log.warn(`[writeSeededPresetNames] 写入失败: ${(err as Error).message}`)
+  }
+}
+
+/**
+ * 算出这次该补哪些新增内置项
+ *
+ * 只补「没推过 + 当前配置里也没有」的。推过一次就记档，用户删掉不再回来。
+ */
+export function computeMcpPresetBackfill(
+  entries: readonly McpServerEntry[],
+  seeded: ReadonlySet<string>,
+): { added: McpServerEntry[]; seededNext: string[] } {
+  const existing = new Set(entries.map((entry) => entry.name))
+  const added = MCP_PRESETS.filter((preset) => !seeded.has(preset.name) && !existing.has(preset.name))
+    .map(presetToEntry)
+  return {
+    added,
+    seededNext: [...new Set([...seeded, ...MCP_PRESETS.map((preset) => preset.name)])],
+  }
 }
 
 function mcpEntriesSignature(entries: readonly McpServerEntry[]): string {
@@ -256,8 +308,8 @@ function mcpEntriesSignature(entries: readonly McpServerEntry[]): string {
  *
  * 若配置文件不存在，先播种默认清单。
  * 若文件解析失败，抛错（由调用方写入 lastError / UI）。
- * 加载时会把 filesystem 的文档占位符 / 历史 `D:/Documents` 迁移为真实目录并写回，
- * 并同步已下线/新增的内置 MCP。
+ * 加载时会把 filesystem 的文档占位符 / 历史 `D:/Documents` 迁移为真实目录，
+ * 去掉已下线的内置项，并把清单里新增的内置项补给老用户（每项只补一次）。
  */
 export function loadMcpServerConfigs(): McpServerEntry[] {
   const configPath = getMcpConfigPath()
@@ -278,6 +330,16 @@ export function loadMcpServerConfigs(): McpServerEntry[] {
 
   const original = parseMcpServerConfigs(raw)
   const entries = reconcileBuiltinMcpPresets(original.map(resolveMcpEntryPaths))
+
+  // 老用户没有记档文件：按「当前配置即已推过」立档，只补这之后新增的内置项
+  const seeded = readSeededPresetNames() ?? new Set(entries.map((entry) => entry.name))
+  const { added, seededNext } = computeMcpPresetBackfill(entries, seeded)
+  if (added.length > 0) {
+    entries.push(...added)
+    log.info(`[loadMcpServerConfigs] 补充新增内置 MCP: ${added.map((e) => e.name).join('、')}`)
+  }
+  writeSeededPresetNames(seededNext)
+
   if (mcpEntriesSignature(entries) !== mcpEntriesSignature(original)) {
     try {
       saveMcpServerConfigs(entries)
@@ -336,18 +398,11 @@ export function writeMcpConfigRaw(content: string): McpServerEntry[] {
  * 零配置的默认启用，需要填路径或 Key 的先停用，避免首启一堆连接失败。
  */
 function seedDefaultMcpServers(): void {
-  const entries = MCP_PRESETS.map((preset) =>
-    resolveMcpEntryPaths({
-      name: preset.name,
-      command: preset.command,
-      args: [...preset.args],
-      ...(preset.env ? { env: preset.env } : {}),
-      enabled: isReadyToUse(preset),
-    }),
-  )
+  const entries = MCP_PRESETS.map(presetToEntry)
 
   try {
     saveMcpServerConfigs(entries)
+    writeSeededPresetNames(MCP_PRESETS.map((preset) => preset.name))
     log.info(`[seedDefaultMcpServers] 已播种 ${entries.length} 个内置 Server`)
   } catch (err) {
     log.error(`[seedDefaultMcpServers] 播种失败: ${(err as Error).message}`)

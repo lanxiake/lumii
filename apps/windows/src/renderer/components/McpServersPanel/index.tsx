@@ -6,13 +6,14 @@
  */
 
 import React, { useMemo, useState } from 'react'
-import { AlertCircle, ChevronDown, ChevronRight, Copy, Ellipsis, FileJson, Loader2, Plus, RefreshCw } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronRight, Copy, Ellipsis, ExternalLink, FileJson, KeyRound, Loader2, Plus, RefreshCw } from 'lucide-react'
 import { Button, Empty, Input, Loading, Switch } from '../ui'
 import { useToast } from '../ui/Toast/useToast'
 import { formatToolUsageCount, formatToolUsageTitle, useToolSearch } from '../../hooks/business/useToolSearch'
 import { formatTokenCount } from '../../utils/format-token-count'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import type { McpServerConfigInput } from '@shared/agent-runtime-commands'
+import { findMcpPreset } from '@shared/mcp-presets'
 import { McpConfigFileModal } from './McpConfigFileModal'
 import { McpServerEditModal } from './McpServerEditModal'
 import { type McpServer, useMcpServers } from './useMcpServers'
@@ -21,6 +22,17 @@ import styles from './McpServersPanel.module.css'
 /** 命令 + 参数拼成一行摘要 */
 function commandSummary(server: McpServer): string {
   return [server.command, ...(server.args ?? [])].join(' ')
+}
+
+/**
+ * 该 Server 是否还缺密钥
+ *
+ * 判据是 env 里有空值：内置清单把待填的 Key 留空，用户填上就不再提示。
+ */
+function isMissingKey(server: McpServer): boolean {
+  const env = server.env
+  if (!env) return false
+  return Object.values(env).some((value) => !value?.trim())
 }
 
 /** 是否处于连接/写操作忙态（用于禁用开关与展示「连接中」） */
@@ -244,6 +256,8 @@ export const McpServersPanel: React.FC = () => {
           // 搜索命中工具时自动展开，让用户直接看到结果
           const isOpen = expanded.has(server.name) || matchedByTool
           const busy = isServerBusy(server, busyName)
+          const preset = findMcpPreset(server.name)
+          const needsKey = isMissingKey(server)
           return (
             <li key={server.name} className={styles['server-item']}>
             <div className={styles['server-row']}>
@@ -268,10 +282,36 @@ export const McpServersPanel: React.FC = () => {
 
               <div className={styles['server-main']}>
                 <div className={styles['server-title-row']}>
-                  <span className={styles['server-name']}>{server.name}</span>
+                  <span
+                    className={styles['server-name']}
+                    // 悬停看这个 MCP 能干什么；用户自建的服务查不到说明，退回命令行
+                    title={preset ? `${preset.title}\n${preset.description}` : commandSummary(server)}
+                  >
+                    {server.name}
+                  </span>
+                  {preset && <span className={styles['server-preset-title']}>{preset.title}</span>}
                   <span className={busy ? styles['server-status-busy'] : styles['server-status']}>
                     {statusText(server, busy)}
                   </span>
+                  {needsKey && (
+                    preset?.keyUrl ? (
+                      <button
+                        type="button"
+                        className={styles['server-key-link']}
+                        title={`${preset.todo ?? '需要填写密钥后才能启用'}\n\n点击打开 ${preset.keyUrl}`}
+                        onClick={() => void window.electronAPI.app.openExternal(preset.keyUrl!)}
+                      >
+                        <KeyRound size={12} />
+                        获取密钥
+                        <ExternalLink size={11} />
+                      </button>
+                    ) : (
+                      <span className={styles['server-key-hint']} title="环境变量里有空值，填好后才能连上">
+                        <KeyRound size={12} />
+                        待填密钥
+                      </span>
+                    )
+                  )}
                   {!busy && server.lastError && server.enabled !== false && (
                     <span className={styles['server-error-wrap']}>
                       <button

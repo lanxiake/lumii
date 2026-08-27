@@ -11,13 +11,27 @@
  *
  * 不收录 @playwright/mcp 与 chrome-devtools-mcp：客户端已内置 browser_* 工具
  * （导航/点击/输入/滚动/截图/执行 JS）和 HTML 预览，装了只是重复一套还多依赖 Chrome。
+ *
+ * 同理不收录 @modelcontextprotocol/server-sequential-thinking：模型自带推理，
+ * 装了只是重复一套。
  */
 
-export type McpPresetCategory = 'office' | 'frontend' | 'kids' | 'creator' | 'life'
+export type McpPresetCategory =
+  | 'office'
+  | 'frontend'
+  | 'web'
+  | 'news'
+  | 'legal'
+  | 'kids'
+  | 'creator'
+  | 'life'
 
 export const MCP_PRESET_CATEGORIES: ReadonlyArray<{ id: McpPresetCategory; label: string }> = [
   { id: 'office', label: '办公' },
   { id: 'frontend', label: '前端开发' },
+  { id: 'web', label: '网页抓取' },
+  { id: 'news', label: '资讯热点' },
+  { id: 'legal', label: '法律' },
   { id: 'kids', label: '儿童教育' },
   { id: 'creator', label: '自媒体' },
   { id: 'life', label: '生活' },
@@ -60,15 +74,44 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     command: 'npx',
     // {{USER_DOCUMENTS}} 由主进程播种/加载时解析为真实「文档」目录，勿写死盘符
     args: ['-y', '@modelcontextprotocol/server-filesystem', '{{USER_DOCUMENTS}}'],
+    // 有 todo ⇒ 播种时默认停用。把文档目录交给 AI 属于隐私决定，让用户自己开
     todo: '确认参数最后一行目录：默认为本机「文档」文件夹，可改成任意愿意开放给 AI 的路径',
   },
   {
-    name: 'sequential-thinking',
-    title: '分步思考',
-    description: '把复杂需求拆成一步步推演，做方案、讲应用题、理作文思路都更有条理',
-    categories: ['office', 'frontend', 'kids'],
+    name: 'excel-mcp',
+    title: 'Excel 表格读取',
+    description: '无需装 Office，直接读取解析 Excel/CSV 表格数据，交给 AI 汇总与分析',
+    categories: ['office'],
     command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-sequential-thinking'],
+    args: ['-y', 'excel-mcp'],
+  },
+  {
+    name: 'firecrawl-mcp',
+    title: 'Firecrawl 网页爬取',
+    description: '高质量网页抓取，支持 JS 动态页面，提取网页干净正文',
+    categories: ['web', 'creator'],
+    command: 'npx',
+    // 官方包名是 firecrawl-mcp，不是 @mcp/firecrawl（后者在 npm 上不存在）
+    args: ['-y', 'firecrawl-mcp'],
+    env: { FIRECRAWL_API_KEY: '' },
+    keyUrl: 'https://www.firecrawl.dev/',
+    todo: '前往官网注册获取 API Key 填进环境变量，免费版有额度限制',
+  },
+  {
+    name: 'mcp-trends-hub',
+    title: '全网热点聚合',
+    description: '获取微博、B 站、科技圈热点资讯，输出热点标题与摘要',
+    categories: ['news', 'creator', 'life'],
+    command: 'npx',
+    args: ['-y', 'mcp-trends-hub'],
+  },
+  {
+    name: 'civil-code-mcp',
+    title: '民法典查询',
+    description: '检索民法典法条，精准引用条文原文',
+    categories: ['legal', 'life'],
+    command: 'npx',
+    args: ['-y', '@iflow-mcp/civil-code-of-china-mcp'],
   },
   {
     name: 'comfyui-remote',
@@ -91,3 +134,15 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     todo: '申请免费 Key（选「服务端」应用类型）填进环境变量',
   },
 ]
+
+const PRESET_BY_NAME = new Map(MCP_PRESETS.map((preset) => [preset.name, preset]))
+
+/**
+ * 按 Server 名查内置说明
+ *
+ * 落盘的 mcp-servers.json 只存 command/args/env，没有 title/description/keyUrl，
+ * 设置页要展示这些就得回查清单。用户自建的服务查不到，返回 undefined。
+ */
+export function findMcpPreset(name: string): McpPreset | undefined {
+  return PRESET_BY_NAME.get(name)
+}

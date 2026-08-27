@@ -370,6 +370,46 @@
   flex-shrink: 0;
 }
 
+/* 内置项的中文名，跟在英文 name 后面做人话补充 */
+.server-preset-title {
+  font-size: var(--mt-fs-xs, 11px);
+  color: var(--mt-fg-3);
+  flex-shrink: 0;
+}
+
+.server-key-link,
+.server-key-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--mt-radius-sm, 4px);
+  font-size: var(--mt-fs-xs, 11px);
+  line-height: 1.6;
+  color: var(--mt-warning);
+  background: color-mix(in srgb, var(--mt-warning) 12%, transparent);
+}
+
+.server-key-link {
+  border: none;
+  cursor: pointer;
+  transition: background var(--mt-dur-fast, 120ms) ease;
+}
+
+.server-key-link:hover {
+  background: color-mix(in srgb, var(--mt-warning) 22%, transparent);
+}
+
+.server-key-link:focus-visible {
+  outline: 2px solid var(--mt-warning);
+  outline-offset: 1px;
+}
+
+.server-key-hint {
+  border: none;
+}
+
 .tool-empty {
   padding: 2px 0;
   font-size: var(--mt-fs-xs, 11px);
@@ -544,6 +584,31 @@
   font-size: var(--mt-fs-xs, 11px);
   color: var(--mt-fg-4);
   line-height: 1.5;
+}
+
+/* 表单里的「前往官网申请密钥」，跟在环境变量说明后面 */
+.field-key-link {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  padding: 2px 8px;
+  border: none;
+  border-radius: var(--mt-radius-sm, 4px);
+  font-size: var(--mt-fs-xs, 11px);
+  color: var(--mt-accent-500);
+  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
+  cursor: pointer;
+  transition: background var(--mt-dur-fast, 120ms) ease;
+}
+
+.field-key-link:hover {
+  background: color-mix(in srgb, var(--mt-accent-500) 22%, transparent);
+}
+
+.field-key-link:focus-visible {
+  outline: 2px solid var(--mt-accent-500);
+  outline-offset: 1px;
 }
 
 .textarea,
