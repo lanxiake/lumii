@@ -123,4 +123,19 @@ describe('CleanupView', () => {
       expect(deleteSources).toHaveBeenCalledWith(['a', 'b', 'c'])
     })
   })
+
+  it('行内只读展示大类 / 小类，未归类显示待补分，不提供移到临时存放', async () => {
+    renderCleanupView({
+      cleanupScan: vi.fn(async () => [
+        { sourceId: 'a', title: '会议纪要', reason: 'stale' as const, topicCategory: '做事记录', topicSubtopic: '会议聊天记录' },
+        { sourceId: 'b', title: '搁置文件', reason: 'stale' as const, topicCategory: '临时存放', topicSubtopic: null },
+        { sourceId: 'c', title: '未归类文件', reason: 'stale' as const, topicCategory: null, topicSubtopic: null },
+      ]),
+    })
+
+    expect(await screen.findByText('做事记录 / 会议聊天记录')).toBeInTheDocument()
+    expect(screen.getByText('临时存放')).toBeInTheDocument()
+    expect(screen.getByText('待补分')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /移到临时存放/ })).not.toBeInTheDocument()
+  })
 })

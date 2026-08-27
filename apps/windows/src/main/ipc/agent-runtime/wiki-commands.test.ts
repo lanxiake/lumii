@@ -31,6 +31,7 @@ import {
   handleWikiSourceUpdateTopic,
   handleWikiSourceMoveToParking,
   handleWikiSourceOpen,
+  handleWikiCleanupScan,
 } from './wiki-commands'
 import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY } from '@mtbot/agent-runtime'
 
@@ -368,5 +369,25 @@ describe('wiki commands', () => {
     await expect(
       handleWikiSourceOpen(bridge, { type: 'wiki:source:open', agentId: 'assistant', sourceId: 'missing' }),
     ).rejects.toThrow(/资料不存在/)
+  })
+
+  it('cleanup:scan 带出两列主题供只读展示', () => {
+    const repo = createWikiRepo()
+    const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '会议纪要' })
+    repo.updateSourceTopic(source.id, '做事记录', '会议聊天记录')
+    const updated = repo.findSourceById(source.id)
+    const bridge = {
+      ...buildBridge(repo),
+      wikiCleanupScanner: { scan: () => [{ source: updated, reason: 'stale' as const }] },
+      fileExistsForWiki: () => true,
+    } as unknown as AgentRuntimeBridge
+
+    const rows = handleWikiCleanupScan(bridge, { type: 'wiki:cleanup:scan' }) as ReadonlyArray<{
+      topicCategory: string | null
+      topicSubtopic: string | null
+    }>
+
+    expect(rows[0]?.topicCategory).toBe('做事记录')
+    expect(rows[0]?.topicSubtopic).toBe('会议聊天记录')
   })
 })

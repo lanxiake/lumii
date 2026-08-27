@@ -31,6 +31,15 @@ const STATUS_REASON_LABEL: Record<string, string> = {
   doubtful_phrase: '否定表述 → doubtful',
 }
 
+/**
+ * 用两列拼展示用的 `大类 / 小类`；两列都空说明还没归类，显示「待补分」。
+ * 临时存放没有小类，只显示大类名。
+ */
+function cleanupTopicLabel(item: WikiCleanupSuggestionItem): string {
+  if (!item.topicCategory) return '待补分'
+  return item.topicSubtopic ? `${item.topicCategory} / ${item.topicSubtopic}` : item.topicCategory
+}
+
 interface CleanupViewProps {
   readonly cleanupScan: (staleDays?: number) => Promise<readonly WikiCleanupSuggestionItem[]>
   readonly archiveSources: (sourceIds: readonly string[]) => Promise<number>
@@ -199,6 +208,7 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
                 onChange={() => toggleSelected(s.sourceId)}
               />
               <span className="wiki-cleanup-item-title">{s.title}</span>
+              <span className="wiki-cleanup-item-topic">{cleanupTopicLabel(s)}</span>
               <span className={`wiki-cleanup-item-reason wiki-cleanup-item-reason--${s.reason}`}>
                 {REASON_LABEL[s.reason]}
               </span>

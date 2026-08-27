@@ -101,6 +101,9 @@ export interface WikiCleanupSuggestionItem {
   readonly title: string
   readonly reason: 'stale' | 'broken_source' | 'duplicate_content'
   readonly duplicateOfSourceId?: string
+  /** 用途目录两列，只读展示；为空表示待补分 */
+  readonly topicCategory?: string | null
+  readonly topicSubtopic?: string | null
 }
 
 export interface WikiAttachmentItem {
