@@ -3,7 +3,7 @@ import { Layers3, RefreshCw, Sparkles } from 'lucide-react'
 
 interface WikiMoreMenuProps {
   readonly open: boolean
-  readonly anchorRef?: React.RefObject<HTMLElement>
+  readonly anchorRef?: React.RefObject<HTMLButtonElement>
   readonly onClose: () => void
   readonly onCleanup: () => void
   readonly onSynthesis: () => void

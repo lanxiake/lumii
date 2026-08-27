@@ -206,6 +206,29 @@ describe('WikiTab', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
+  it('再次点击更多按钮时关闭菜单', async () => {
+    render(<WikiTab />)
+    await screen.findByText(/暂无页面/)
+
+    const moreButton = screen.getByRole('button', { name: '⋯ 更多' })
+    fireEvent.click(moreButton)
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+
+    fireEvent.mouseDown(moreButton)
+    fireEvent.click(moreButton)
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('从更多菜单切换一级导航时关闭菜单', async () => {
+    render(<WikiTab />)
+    await screen.findByText(/暂无页面/)
+
+    fireEvent.click(screen.getByRole('button', { name: '⋯ 更多' }))
+    fireEvent.click(screen.getByRole('button', { name: /^待整理/ }))
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
   it('从更多菜单触发重建索引任务且不切换全页', async () => {
     const sendCommand = mockSendCommand({
       'wiki:index:rebuild': { rebuiltCount: 3 },

@@ -5,7 +5,7 @@
  * 当前分区上下文和任务进度，主内容区继续复用现有业务视图。
  */
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Loading } from '../../../components/ui/Loading/Loading'
 import { ConfirmModal } from '../../../components/ui/Modal'
 import {
@@ -90,6 +90,7 @@ export const WikiTab: React.FC = () => {
   const [searchMode, setSearchMode] = useState<string | null>(null)
   const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(false)
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false)
+  const moreButtonRef = useRef<HTMLButtonElement>(null)
 
   const refreshPages = useCallback(async () => {
     const all = await listPages()
@@ -211,6 +212,7 @@ export const WikiTab: React.FC = () => {
   const handleSelectPrimaryNav = useCallback((nav: WikiPrimaryNav) => {
     setPrimaryNav(nav)
     setToolView(null)
+    setIsMoreMenuOpen(false)
     setSearchResults(null)
     setSearchDegradeReason(null)
     setSearchMode(null)
@@ -354,11 +356,13 @@ export const WikiTab: React.FC = () => {
         active={toolView || isMoreMenuOpen ? 'more' : primaryNav}
         pendingCount={pendingCount}
         pageCounts={pageCounts}
+        moreButtonRef={moreButtonRef}
         onSelect={handleSelectPrimaryNav}
         onOpenMore={() => setIsMoreMenuOpen((open) => !open)}
       />
       <WikiMoreMenu
         open={isMoreMenuOpen}
+        anchorRef={moreButtonRef}
         onClose={() => setIsMoreMenuOpen(false)}
         onCleanup={() => handleOpenToolView('cleanup')}
         onSynthesis={() => handleOpenToolView('synthesis')}

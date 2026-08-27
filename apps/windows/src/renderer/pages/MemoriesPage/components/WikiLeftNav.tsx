@@ -7,6 +7,7 @@ interface WikiLeftNavProps {
   active: WikiPrimaryNav | 'more'
   pendingCount: number
   pageCounts: Record<string, number>
+  moreButtonRef?: React.RefObject<HTMLButtonElement>
   onSelect: (nav: WikiPrimaryNav) => void
   onOpenMore: () => void
 }
@@ -29,6 +30,7 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
   active,
   pendingCount,
   pageCounts,
+  moreButtonRef,
   onSelect,
   onOpenMore,
 }) => (
@@ -58,6 +60,7 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
 
     <div className="wiki-left-nav-footer">
       <button
+        ref={moreButtonRef}
         type="button"
         className={`wiki-left-nav-item${active === 'more' ? ' wiki-left-nav-item--active' : ''}`}
         onClick={onOpenMore}
