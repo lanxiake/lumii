@@ -334,8 +334,9 @@ export class WikiRepo {
       .prepare(
         `INSERT INTO wiki_sources
          (id, agent_id, user_id, title, source_path, content_md, content_hash, mime_type,
-          media_type, extracted_text, media_meta, preview_path, origin_context, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          media_type, extracted_text, media_meta, preview_path, origin_context, created_at,
+          topic_category, topic_subtopic, last_used, use_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -352,6 +353,10 @@ export class WikiRepo {
         params.previewPath ?? null,
         params.originContext ?? null,
         now,
+        null,
+        null,
+        null,
+        0,
       );
     return {
       id,
@@ -369,6 +374,10 @@ export class WikiRepo {
       origin_context: params.originContext ?? null,
       archived_at: null,
       created_at: now,
+      topic_category: null,
+      topic_subtopic: null,
+      last_used: null,
+      use_count: 0,
     };
   }
 

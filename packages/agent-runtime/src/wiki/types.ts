@@ -51,6 +51,10 @@ export interface WikiSource {
   readonly origin_context: string | null;
   readonly archived_at: string | null;
   readonly created_at: string;
+  readonly topic_category: string | null;
+  readonly topic_subtopic: string | null;
+  readonly last_used: string | null;
+  readonly use_count: number;
 }
 
 export interface WikiAttachment {

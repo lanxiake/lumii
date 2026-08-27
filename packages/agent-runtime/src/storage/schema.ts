@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 /**
  * V1 DDL — 初始 schema
@@ -699,5 +699,30 @@ CREATE INDEX IF NOT EXISTS idx_wiki_page_embeddings_agent
   [
     21,
     `ALTER TABLE wiki_organize_runs ADD COLUMN result_detail TEXT;`,
+  ],
+  // V22: wiki_sources 加用途两列（topic_category/topic_subtopic）与使用统计，
+  // 资料层独立 FTS（wiki_sources_fts，与 wiki_pages_fts 同构，非 external content）；
+  // ERO 三表加可空 source_id，便于未来实体/关系挂到资料而非页面。
+  [
+    22,
+    `
+ALTER TABLE wiki_sources ADD COLUMN topic_category TEXT;
+ALTER TABLE wiki_sources ADD COLUMN topic_subtopic TEXT;
+ALTER TABLE wiki_sources ADD COLUMN last_used TEXT;
+ALTER TABLE wiki_sources ADD COLUMN use_count INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS idx_wiki_sources_topic
+  ON wiki_sources (agent_id, user_id, topic_category, topic_subtopic);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS wiki_sources_fts USING fts5(
+  title_tokens,
+  content_tokens
+);
+
+ALTER TABLE wiki_entities ADD COLUMN source_id TEXT;
+ALTER TABLE wiki_observations ADD COLUMN source_id TEXT;
+ALTER TABLE wiki_relations ADD COLUMN source_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_wiki_entities_source ON wiki_entities (source_id);
+CREATE INDEX IF NOT EXISTS idx_wiki_observations_source ON wiki_observations (source_id);
+`,
   ],
 ] as const;

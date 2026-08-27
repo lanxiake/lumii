@@ -183,3 +183,27 @@ describe("wiki schema V21", () => {
     db.close();
   });
 });
+
+describe("wiki schema V22", () => {
+  it("wiki_sources 有用途列与使用计数", () => {
+    const db = createMigratedTestDb();
+    const cols = db.prepare<{ name: string }>("PRAGMA table_info(wiki_sources)").all().map((c) => c.name);
+    expect(cols).toEqual(expect.arrayContaining([
+      "topic_category", "topic_subtopic", "last_used", "use_count",
+    ]));
+    expect(db.prepare<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE name = 'wiki_sources_fts'",
+    ).get()?.name).toBe("wiki_sources_fts");
+    expect(SCHEMA_VERSION).toBe(22);
+    db.close();
+  });
+
+  it("ERO 表有可空 source_id", () => {
+    const db = createMigratedTestDb();
+    for (const table of ["wiki_entities", "wiki_observations", "wiki_relations"]) {
+      const cols = db.prepare<{ name: string }>(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+      expect(cols, table).toContain("source_id");
+    }
+    db.close();
+  });
+});
