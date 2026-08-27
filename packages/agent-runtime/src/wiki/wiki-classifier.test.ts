@@ -1,10 +1,11 @@
 /**
  * WikiClassifier 单测：纯函数，不碰数据库。
- * 核心不变量——任何异常路径都降级到 inbox/，条目永不丢失。
+ * 核心不变量——分类必须落在当前主题树内；拿不准/越权/漏答统一 degraded，条目留待整理。
  */
 import { describe, expect, it } from "vitest";
 import { buildClassifyPrompt, classifyBatch, parseClassifyResponse } from "./wiki-classifier.js";
 import type { WikiInboxItem } from "./types.js";
+import { DEFAULT_TOPIC_TREE } from "./wiki-topic-tree.js";
 
 function makeItem(id: string, overrides: Partial<WikiInboxItem> = {}): WikiInboxItem {
   return {
@@ -29,108 +30,152 @@ function makeItem(id: string, overrides: Partial<WikiInboxItem> = {}): WikiInbox
 }
 
 describe("buildClassifyPrompt", () => {
-  it("包含每条条目的 id、标题与内容预览，并声明允许的分类", () => {
-    const prompt = buildClassifyPrompt([makeItem("i1"), makeItem("i2")]);
+  it("包含每条条目的 id、标题与内容预览，并渲染当前主题树", () => {
+    const prompt = buildClassifyPrompt([makeItem("i1"), makeItem("i2")], DEFAULT_TOPIC_TREE);
     expect(prompt).toContain("[id=i1]");
     expect(prompt).toContain("[id=i2]");
     expect(prompt).toContain("i1 正文预览");
-    expect(prompt).toContain("sources/");
-    expect(prompt).toContain("media/");
-    expect(prompt).toContain("inbox/");
+    expect(prompt).toContain("做事记录");
+    expect(prompt).toContain("口诀");
+    expect(prompt).toContain("项目/任务资料");
+  });
+
+  it("不包含旧模型的 sources/ 顶层分类或临时存放", () => {
+    const prompt = buildClassifyPrompt([makeItem("i1")], DEFAULT_TOPIC_TREE);
+    expect(prompt).not.toContain("sources/");
+    expect(prompt).not.toContain("临时存放");
   });
 
   it("截断超长内容预览，避免单批提示词膨胀", () => {
     const long = "字".repeat(1000);
-    const prompt = buildClassifyPrompt([makeItem("i1", { content_preview: long })]);
+    const prompt = buildClassifyPrompt([makeItem("i1", { content_preview: long })], DEFAULT_TOPIC_TREE);
     expect(prompt).not.toContain("字".repeat(301));
   });
 });
 
 describe("parseClassifyResponse", () => {
-  it("解析合法结果并原样保留 path/title/summaryMd", () => {
+  it("解析合法 category/subtopic 并写入这两列", () => {
     const items = [makeItem("i1")];
     const res = parseClassifyResponse(
-      JSON.stringify([{ id: "i1", path: "sources/arch-doc", title: "架构文档", summaryMd: "摘要" }]),
+      JSON.stringify([{ id: "i1", category: "学习资料", subtopic: "课堂&课程笔记", skip: false }]),
       items,
+      DEFAULT_TOPIC_TREE,
     );
-    expect(res).toEqual([
-      { inboxId: "i1", path: "sources/arch-doc", title: "架构文档", summaryMd: "摘要" },
-    ]);
+    expect(res).toEqual([{ inboxId: "i1", category: "学习资料", subtopic: "课堂&课程笔记" }]);
   });
 
   it("容忍代码围栏与前后说明文字", () => {
-    const items = [makeItem("i1", { media_type: "image" })];
+    const items = [makeItem("i1")];
     const res = parseClassifyResponse(
-      '好的，结果如下：\n```json\n[{"id":"i1","path":"media/pic","title":"图","summaryMd":"s"}]\n```\n以上。',
+      '好的，结果如下：\n```json\n[{"id":"i1","category":"做事记录","subtopic":"会议聊天记录"}]\n```\n以上。',
       items,
+      DEFAULT_TOPIC_TREE,
     );
-    expect(res[0]!.path).toBe("media/pic");
+    expect(res[0]!.category).toBe("做事记录");
+    expect(res[0]!.subtopic).toBe("会议聊天记录");
   });
 
-  it("越权顶层分类（P1/P2 分类）降级到 inbox/<id>", () => {
+  it("skip:true 映射为 degraded，category/subtopic 为 null", () => {
+    const items = [makeItem("i1")];
+    const res = parseClassifyResponse(
+      JSON.stringify([{ id: "i1", category: null, subtopic: null, skip: true, reason: "像聊天记录" }]),
+      items,
+      DEFAULT_TOPIC_TREE,
+    );
+    expect(res).toEqual([
+      {
+        inboxId: "i1",
+        category: null,
+        subtopic: null,
+        skip: true,
+        reason: "像聊天记录",
+        degraded: true,
+        degradeReason: "像聊天记录",
+      },
+    ]);
+  });
+
+  it("空 category/subtopic（未 skip）映射为 degraded", () => {
+    const items = [makeItem("i1")];
+    const res = parseClassifyResponse(
+      JSON.stringify([{ id: "i1", category: "", subtopic: "", skip: false }]),
+      items,
+      DEFAULT_TOPIC_TREE,
+    );
+    expect(res[0]!.degraded).toBe(true);
+    expect(res[0]!.category).toBeNull();
+    expect(res[0]!.subtopic).toBeNull();
+  });
+
+  it("自造小类（不在树内）判定为 degraded", () => {
+    const items = [makeItem("i1")];
+    const res = parseClassifyResponse(
+      JSON.stringify([{ id: "i1", category: "学习资料", subtopic: "深度学习", skip: false }]),
+      items,
+      DEFAULT_TOPIC_TREE,
+    );
+    expect(res[0]!.degraded).toBe(true);
+    expect(res[0]!.category).toBeNull();
+    expect(res[0]!.subtopic).toBeNull();
+    expect(res[0]!.degradeReason).toContain("深度学习");
+  });
+
+  it("自造大类（不在树内）判定为 degraded", () => {
+    const items = [makeItem("i1")];
+    const res = parseClassifyResponse(
+      JSON.stringify([{ id: "i1", category: "工作生活", subtopic: "x", skip: false }]),
+      items,
+      DEFAULT_TOPIC_TREE,
+    );
+    expect(res[0]!.degraded).toBe(true);
+  });
+
+  it("写「临时存放」时判定为 degraded（AI 不可写）", () => {
+    const items = [makeItem("i1")];
+    const res = parseClassifyResponse(
+      JSON.stringify([{ id: "i1", category: "临时存放", subtopic: null, skip: false }]),
+      items,
+      DEFAULT_TOPIC_TREE,
+    );
+    expect(res[0]!.degraded).toBe(true);
+    expect(res[0]!.category).toBeNull();
+  });
+
+  it("模型漏答的条目标记为 degraded 并说明原因", () => {
     const items = [makeItem("i1"), makeItem("i2")];
     const res = parseClassifyResponse(
-      JSON.stringify([
-        { id: "i1", path: "concepts/foo", title: "t1", summaryMd: "s1" },
-        { id: "i2", path: "syntheses/bar", title: "t2", summaryMd: "s2" },
-      ]),
+      JSON.stringify([{ id: "i1", category: "做事记录", subtopic: "会议聊天记录", skip: false }]),
       items,
-    );
-    expect(res.map((r) => r.path)).toEqual(["inbox/i1", "inbox/i2"]);
-    // 降级只改落点，标题与摘要仍保留模型产出
-    expect(res[0]!.title).toBe("t1");
-    expect(res[0]!.summaryMd).toBe("s1");
-  });
-
-  it("非法路径（.. / 绝对路径 / 反斜杠 / 空段 / 臆造分类）降级到 inbox/<id>", () => {
-    const items = ["a", "b", "c", "d", "e"].map((id) => makeItem(id));
-    const res = parseClassifyResponse(
-      JSON.stringify([
-        { id: "a", path: "sources/../etc", title: "t", summaryMd: "s" },
-        { id: "b", path: "/sources/x", title: "t", summaryMd: "s" },
-        { id: "c", path: "sources\\x", title: "t", summaryMd: "s" },
-        { id: "d", path: "sources//x", title: "t", summaryMd: "s" },
-        { id: "e", path: "notallowed/x", title: "t", summaryMd: "s" },
-      ]),
-      items,
-    );
-    expect(res.map((r) => r.path)).toEqual(["inbox/a", "inbox/b", "inbox/c", "inbox/d", "inbox/e"]);
-  });
-
-  it("模型漏答的条目补齐为 inbox/<id>，用原标题与预览兜底", () => {
-    const items = [makeItem("i1"), makeItem("i2")];
-    const res = parseClassifyResponse(
-      JSON.stringify([{ id: "i1", path: "sources/ok", title: "t1", summaryMd: "s1" }]),
-      items,
+      DEFAULT_TOPIC_TREE,
     );
     expect(res).toHaveLength(2);
     const missing = res.find((r) => r.inboxId === "i2")!;
-    expect(missing.path).toBe("inbox/i2");
-    expect(missing.title).toBe("i2 标题");
-    expect(missing.summaryMd).toBe("i2 正文预览");
+    expect(missing.degraded).toBe(true);
+    expect(missing.category).toBeNull();
+    expect(missing.degradeReason).toContain("未返回");
   });
 
   it("模型臆造的未知 id 被忽略，不产生野记录", () => {
     const items = [makeItem("i1")];
     const res = parseClassifyResponse(
       JSON.stringify([
-        { id: "i1", path: "sources/ok", title: "t", summaryMd: "s" },
-        { id: "ghost", path: "sources/ghost", title: "t", summaryMd: "s" },
+        { id: "i1", category: "做事记录", subtopic: "会议聊天记录", skip: false },
+        { id: "ghost", category: "做事记录", subtopic: "会议聊天记录", skip: false },
       ]),
       items,
+      DEFAULT_TOPIC_TREE,
     );
     expect(res).toHaveLength(1);
     expect(res[0]!.inboxId).toBe("i1");
   });
 
-  it("JSON 解析失败时整批降级，不丢任何条目", () => {
+  it("JSON 解析失败时整批 degraded，不丢任何条目", () => {
     const items = [makeItem("i1"), makeItem("i2")];
     for (const bad of ["完全不是 JSON", "[{坏的", "", "{}"]) {
-      const res = parseClassifyResponse(bad, items);
+      const res = parseClassifyResponse(bad, items, DEFAULT_TOPIC_TREE);
       expect(res).toHaveLength(2);
-      expect(res.map((r) => r.path)).toEqual(["inbox/i1", "inbox/i2"]);
-      // 降级必须自报，否则调用方会把兜底落点当成分类成功
       expect(res.every((r) => r.degraded === true)).toBe(true);
+      expect(res.every((r) => r.category === null)).toBe(true);
       expect(res[0]!.degradeReason).toBeTruthy();
     }
   });
@@ -138,176 +183,127 @@ describe("parseClassifyResponse", () => {
   it("单条批次的裸对象响应被正常解析（不再整批降级）", () => {
     const items = [makeItem("i1")];
     const res = parseClassifyResponse(
-      '{"id":"i1","path":"sources/solo","title":"单条","summaryMd":"摘要"}',
+      '{"id":"i1","category":"做事记录","subtopic":"会议聊天记录","skip":false}',
       items,
+      DEFAULT_TOPIC_TREE,
     );
     expect(res).toHaveLength(1);
-    expect(res[0]!.path).toBe("sources/solo");
+    expect(res[0]!.category).toBe("做事记录");
     expect(res[0]!.degraded).toBeUndefined();
   });
 
   it("围栏包裹的裸对象同样被解析", () => {
-    const items = [makeItem("i1", { media_type: "image" })];
+    const items = [makeItem("i1")];
     const res = parseClassifyResponse(
-      '```json\n{"id":"i1","path":"media/pic","title":"图","summaryMd":"s"}\n```',
+      '```json\n{"id":"i1","category":"做事记录","subtopic":"会议聊天记录","skip":false}\n```',
       items,
+      DEFAULT_TOPIC_TREE,
     );
-    expect(res[0]!.path).toBe("media/pic");
+    expect(res[0]!.category).toBe("做事记录");
   });
 
   it("思考块内的方括号不影响 JSON 边界识别", () => {
     const items = [makeItem("i1")];
     const res = parseClassifyResponse(
-      '<think>先看 items[0] 再定 [落点]</think>\n[{"id":"i1","path":"sources/ok","title":"t","summaryMd":"s"}]',
+      '<think>先看 items[0] 再定 [落点]</think>\n[{"id":"i1","category":"做事记录","subtopic":"会议聊天记录","skip":false}]',
       items,
+      DEFAULT_TOPIC_TREE,
     );
-    expect(res[0]!.path).toBe("sources/ok");
+    expect(res[0]!.category).toBe("做事记录");
   });
 
   it("只有闭合 think 标签（流式截断）时仍能解析", () => {
     const items = [makeItem("i1")];
     const res = parseClassifyResponse(
-      '判断依据见 [上文]\n</think>\n[{"id":"i1","path":"sources/ok","title":"t","summaryMd":"s"}]',
+      '判断依据见 [上文]\n</think>\n[{"id":"i1","category":"做事记录","subtopic":"会议聊天记录","skip":false}]',
       items,
+      DEFAULT_TOPIC_TREE,
     );
-    expect(res[0]!.path).toBe("sources/ok");
+    expect(res[0]!.category).toBe("做事记录");
   });
 
   it("前置散文含方括号时不再把切片带偏", () => {
     const items = [makeItem("i1")];
     const res = parseClassifyResponse(
-      '好的 [见下]：\n[{"id":"i1","path":"sources/ok","title":"t","summaryMd":"s"}]',
+      '好的 [见下]：\n[{"id":"i1","category":"做事记录","subtopic":"会议聊天记录","skip":false}]',
       items,
+      DEFAULT_TOPIC_TREE,
     );
-    expect(res[0]!.path).toBe("sources/ok");
+    expect(res[0]!.category).toBe("做事记录");
   });
 
   it("正文字符串内含括号与转义引号时边界仍正确", () => {
     const items = [makeItem("i1")];
     const res = parseClassifyResponse(
-      '[{"id":"i1","path":"sources/ok","title":"含 ] 和 [ 的标题","summaryMd":"带\\"引号\\"与 } 符号"}]',
+      '[{"id":"i1","category":"做事记录","subtopic":"会议聊天记录","skip":false,"reason":"带\\"引号\\"与 } 符号"}]',
       items,
+      DEFAULT_TOPIC_TREE,
     );
-    expect(res[0]!.path).toBe("sources/ok");
-    expect(res[0]!.title).toBe("含 ] 和 [ 的标题");
-    expect(res[0]!.summaryMd).toBe('带"引号"与 } 符号');
+    expect(res[0]!.category).toBe("做事记录");
   });
 
-  it("降级条目标记 degraded，正常条目不带该字段", () => {
-    const items = [makeItem("i1"), makeItem("i2")];
-    const res = parseClassifyResponse(
-      JSON.stringify([
-        { id: "i1", path: "sources/ok", title: "t1", summaryMd: "s1" },
-        { id: "i2", path: "syntheses/越权", title: "t2", summaryMd: "s2" },
-      ]),
-      items,
-    );
-    const ok = res.find((r) => r.inboxId === "i1")!;
-    const bad = res.find((r) => r.inboxId === "i2")!;
-    expect(ok.degraded).toBeUndefined();
-    expect(bad.degraded).toBe(true);
-    expect(bad.degradeReason).toContain("syntheses/越权");
-  });
-
-  it("模型漏答的条目标记为降级并说明原因", () => {
-    const items = [makeItem("i1"), makeItem("i2")];
-    const res = parseClassifyResponse(
-      JSON.stringify([{ id: "i1", path: "sources/ok", title: "t", summaryMd: "s" }]),
-      items,
-    );
-    const missing = res.find((r) => r.inboxId === "i2")!;
-    expect(missing.degraded).toBe(true);
-    expect(missing.degradeReason).toContain("未返回");
-  });
-
-  it("字段类型错误时用原条目兜底而非丢弃", () => {
+  it("字段类型错误时判定为 degraded 而非崩溃", () => {
     const items = [makeItem("i1")];
     const res = parseClassifyResponse(
-      JSON.stringify([{ id: "i1", path: 42, title: null, summaryMd: [] }]),
+      JSON.stringify([{ id: "i1", category: 42, subtopic: null, skip: false }]),
       items,
+      DEFAULT_TOPIC_TREE,
     );
-    expect(res[0]!.path).toBe("inbox/i1");
-    expect(res[0]!.title).toBe("i1 标题");
-    expect(res[0]!.summaryMd).toBe("i1 正文预览");
+    expect(res[0]!.degraded).toBe(true);
+    expect(res[0]!.category).toBeNull();
   });
 
-  it("document 落 media/ 时纠正为 sources/ 并标记 corrected", () => {
-    const items = [
-      {
-        id: "i1",
-        agent_id: "a",
-        user_id: "u",
-        item_type: "upload" as const,
-        source_path: null,
-        source_url: null,
-        title: "规格书",
-        content_preview: "正文",
-        media_type: "document" as const,
-        status: "pending" as const,
-        attempt_count: 0,
-        last_error: null,
-        organized_source_id: null,
-        content_hash: null,
-        created_at: "now",
-        organized_at: null,
-      },
-    ];
+  it("缺失 inboxId（未在 items 中）的响应条目被忽略", () => {
+    const items = [makeItem("i1")];
     const res = parseClassifyResponse(
-      JSON.stringify([{ id: "i1", path: "media/spec", title: "规格书", summaryMd: "s" }]),
+      JSON.stringify([{ category: "做事记录", subtopic: "会议聊天记录", skip: false }]),
       items,
+      DEFAULT_TOPIC_TREE,
     );
-    expect(res[0]!.path).toBe("sources/spec");
-    expect(res[0]!.corrected).toBe(true);
-    expect(res[0]!.correctReason).toBe("non_media_forced_to_sources");
-    expect(res[0]!.degraded).toBeUndefined();
-  });
-
-  it("image 落 media/ 保持不变", () => {
-    const items = [
-      {
-        id: "i1",
-        agent_id: "a",
-        user_id: "u",
-        item_type: "upload" as const,
-        source_path: null,
-        source_url: null,
-        title: "截图",
-        content_preview: null,
-        media_type: "image" as const,
-        status: "pending" as const,
-        attempt_count: 0,
-        last_error: null,
-        organized_source_id: null,
-        content_hash: null,
-        created_at: "now",
-        organized_at: null,
-      },
-    ];
-    const res = parseClassifyResponse(
-      JSON.stringify([{ id: "i1", path: "media/shot", title: "截图", summaryMd: "s" }]),
-      items,
-    );
-    expect(res[0]!.path).toBe("media/shot");
-    expect(res[0]!.corrected).toBeUndefined();
+    // 该条无 id 被忽略，i1 本身漏答判 degraded
+    expect(res).toHaveLength(1);
+    expect(res[0]!.inboxId).toBe("i1");
+    expect(res[0]!.degraded).toBe(true);
   });
 });
 
 describe("classifyBatch", () => {
   it("空批不调用 LLM", async () => {
     let called = false;
-    const res = await classifyBatch([], async () => {
-      called = true;
-      return "[]";
-    });
+    const res = await classifyBatch(
+      [],
+      async () => {
+        called = true;
+        return "[]";
+      },
+      DEFAULT_TOPIC_TREE,
+    );
     expect(res).toEqual([]);
     expect(called).toBe(false);
   });
 
   it("LLM 抛错时向上抛出，由调用方记 attempt_count 退避重试", async () => {
     await expect(
-      classifyBatch([makeItem("i1")], async () => {
-        throw new Error("网络失败");
-      }),
+      classifyBatch(
+        [makeItem("i1")],
+        async () => {
+          throw new Error("网络失败");
+        },
+        DEFAULT_TOPIC_TREE,
+      ),
     ).rejects.toThrow();
+  });
+
+  it("传入的 topicTree 会被渲染进提示词", async () => {
+    let seenPrompt = "";
+    await classifyBatch(
+      [makeItem("i1")],
+      async (prompt) => {
+        seenPrompt = prompt;
+        return JSON.stringify([{ id: "i1", category: "做事记录", subtopic: "会议聊天记录", skip: false }]);
+      },
+      DEFAULT_TOPIC_TREE,
+    );
+    expect(seenPrompt).toContain("做事记录");
   });
 });

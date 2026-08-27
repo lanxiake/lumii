@@ -1,37 +1,39 @@
 /**
  * WikiClassifier — 批量分类决策与提示词构造
  *
- * 范式同 memory-extractor.ts：callLLM 依赖注入，纯函数提示词构造与 JSON 解析，
- * 分类结果必须落在 AI_WRITABLE_CATEGORIES 内且路径合法，越权/非法路径降级到 inbox/。
+ * 范式同 memory-extractor.ts：callLLM 依赖注入，纯函数提示词构造与 JSON 解析。
+ * 分类轴是「用途」（做事记录/学习资料/…），只能从当前主题树里选节点；
+ * 拿不准、越权、模型漏答统一 skip/degraded，条目留待整理，不臆造分类、不写「临时存放」。
+ *
+ * 设计：docs/design/记忆设计/2026-08-27-wiki-topic-hierarchy-redesign.md §3
  */
 
-import { AI_WRITABLE_CATEGORIES, validateWikiPath, type WikiInboxItem } from "./types.js";
+import type { WikiInboxItem } from "./types.js";
+import { validateTopicAssignment, type WikiTopicTree } from "./wiki-topic-tree.js";
 
-/** 单条分类结果（解析并校验后，路径始终合法——非法时已降级为 inbox/） */
+/** 单条分类结果：category/subtopic 为 null 表示未归类（skip 或校验失败） */
 export interface ClassifiedItem {
   readonly inboxId: string;
-  readonly path: string;
-  readonly title: string;
-  readonly summaryMd: string;
+  readonly category: string | null;
+  readonly subtopic: string | null;
+  /** 模型主动判定无法归类 */
+  readonly skip?: boolean;
+  /** skip 原因（模型给出） */
+  readonly reason?: string;
   /**
-   * 该条是否走了降级落点（inbox/<id>）而非模型给出的分类。
-   * 仅降级时出现，正常结果不带此字段——调用方据此把「分类失败但没丢数据」
-   * 与「真正分类成功」区分开，写进运行日志供用户看见。
+   * 该条最终是否未能归类（skip / 越权 / 模型漏答 / 调用失败）。
+   * degraded 时 category/subtopic 均为 null，调用方不得写入 wiki_sources 主题。
    */
   readonly degraded?: true;
-  /** 降级原因（仅 degraded 时出现），用于运行日志与排查 */
+  /** 降级原因，用于运行日志与排查 */
   readonly degradeReason?: string;
-  /** 该条是否经硬规则纠正落点（非降级，模型分类仍视为成功） */
-  readonly corrected?: true;
-  /** 纠正原因（仅 corrected 时出现） */
-  readonly correctReason?: string;
 }
 
 /**
- * 构造批量分类提示词：一批收件箱条目的标题 + 内容预览，要求模型返回结构化数组。
+ * 构造批量分类提示词：口诀 + 易混 + 当前主题树可选目录 + 待整理资料 + 输出格式。
  * 批大小由调用方（WikiOrganizer）按内容长度动态收缩，此处只负责构造单批的提示词。
  */
-export function buildClassifyPrompt(items: readonly WikiInboxItem[]): string {
+export function buildClassifyPrompt(items: readonly WikiInboxItem[], topicTree: WikiTopicTree): string {
   const list = items
     .map(
       (item, i) =>
@@ -39,24 +41,41 @@ export function buildClassifyPrompt(items: readonly WikiInboxItem[]): string {
     )
     .join("\n\n");
 
+  const treeLines = topicTree.categories
+    .map((c) => `- ${c.name}：${c.subtopics.join("、")}`)
+    .join("\n");
+
   return [
-    "你是资料归档助手。为下面这批待整理资料各生成一条归档结果：分类落点、标题、摘要正文。",
+    "你是个人资料归档助手。按「文件拿来干什么」分类，不要按学科领域分类。",
     "",
-    "## 允许的顶层分类（不得使用其他分类）",
-    "- sources/：文档类资料，默认落点（所有 document 必须落这里）",
-    "- media/：仅图片/音频/视频索引页；禁止把文档放进 media/",
-    "- inbox/：无法判定归属时的兜底落点",
+    "## 口诀",
+    "- 事情做完留下的结果 → 做事记录",
+    "- 用来学习吸收知识 → 学习资料",
+    "- 打算做什么、做完反思 → 计划与复盘",
+    "- 可以当证据凭证 → 证件凭据",
+    "- 拿来复制修改参考 → 模板参考",
+    "- 自己随心写的爱好作品 → 随笔创作",
     "",
-    "## 输出要求",
-    "- path 格式：`<顶层分类>/<短英文或拼音 slug>`，如 `sources/architecture-doc`",
-    "- summaryMd 为该资料的摘要正文（Markdown），不超过 500 字",
-    "- 不确定分类时，path 用 `inbox/<slug>`，不要臆造分类",
+    "## 易混",
+    "- 填好的计划/预算 → 计划与复盘；空白模板 → 模板参考",
+    "- 项目交付与会议纪要文件 → 做事记录；教材/摘抄/调研 → 学习资料",
+    "- 合同/证件/发票/保单 → 证件凭据",
+    "- 用户上传的会议纪要、聊天导出 → 做事记录 / 会议聊天记录",
+    "- 对话消息本身不要归档（本批若像聊天记录而无文件用途，输出 skip）",
+    "",
+    "## 可选目录（只能从这里选，禁止自造大类或小类）",
+    treeLines,
+    "",
+    "## 规则",
+    "- 一份资料只归一个大类+小类",
+    "- 没有合适项时 category、subtopic 留空，skip=true，reason 说明",
+    "- 只能使用上方目录列出的名称，不要发明新目录或使用「其他」「未分类」等占位词",
     "",
     "## 待整理资料",
     list,
     "",
-    "## 输出格式",
-    '返回 JSON 数组，每条: {"id": "<收件箱id>", "path": "...", "title": "...", "summaryMd": "..."}',
+    "## 输出",
+    '仅 JSON 数组: {"id":"<inboxId>","category":"<大类或空>","subtopic":"<小类或空>","skip":false,"reason":""}',
     "仅输出 JSON，不要包含其他文字。",
   ].join("\n");
 }
@@ -146,8 +165,8 @@ function scanBalancedJson(text: string): unknown {
 
 /**
  * 解析并校验 LLM 返回的分类结果。
- * 越权顶层分类、非法路径（空段/../绝对路径/分隔符逃逸）的条目降级为 `inbox/<原id>`，
- * 而非丢弃——校验失败不等于资料丢失。
+ * category/subtopic 必须精确匹配当前主题树（不含临时存放），否则连同 skip=true
+ * 一起判定为 degraded：不写 wiki_sources 主题，条目留待整理，而非臆造/降级到某个兜底目录。
  *
  * 单条批次时模型常返回裸对象 `{...}` 而非数组 `[{...}]`，这里统一裹成数组处理，
  * 否则单条归档会 100% 降级（实测 3/3）。
@@ -155,6 +174,7 @@ function scanBalancedJson(text: string): unknown {
 export function parseClassifyResponse(
   response: string,
   items: readonly WikiInboxItem[],
+  topicTree: WikiTopicTree,
 ): readonly ClassifiedItem[] {
   const byId = new Map(items.map((i) => [i.id, i]));
   const payload = extractJsonPayload(response);
@@ -180,31 +200,44 @@ export function parseClassifyResponse(
     if (!item) continue;
     seen.add(item.id);
 
-    const rawPath = typeof record.path === "string" ? record.path : "";
-    const { valid, category } = validateWikiPath(rawPath);
-    const allowed = valid && category && AI_WRITABLE_CATEGORIES.has(category);
-
-    results.push(
-      applyMediaTypeGuard(item, {
+    if (record.skip === true) {
+      results.push({
         inboxId: item.id,
-        path: allowed ? rawPath : `inbox/${item.id}`,
-        title: typeof record.title === "string" && record.title ? record.title : item.title,
-        summaryMd: typeof record.summaryMd === "string" ? record.summaryMd : (item.content_preview ?? ""),
-        ...(allowed
-          ? {}
-          : { degraded: true as const, degradeReason: `分类落点不可用: ${rawPath || "(空)"}` }),
-      }),
-    );
+        category: null,
+        subtopic: null,
+        skip: true,
+        ...(typeof record.reason === "string" && record.reason ? { reason: record.reason } : {}),
+        degraded: true,
+        degradeReason: typeof record.reason === "string" && record.reason ? record.reason : "模型判定无法归类",
+      });
+      continue;
+    }
+
+    const category = typeof record.category === "string" && record.category ? record.category : null;
+    const subtopic = typeof record.subtopic === "string" && record.subtopic ? record.subtopic : null;
+    const valid = category !== null && validateTopicAssignment(topicTree, category, subtopic).ok;
+
+    if (!valid) {
+      results.push({
+        inboxId: item.id,
+        category: null,
+        subtopic: null,
+        degraded: true,
+        degradeReason: `分类不在当前主题树内: ${category ?? "(空)"} / ${subtopic ?? "(空)"}`,
+      });
+      continue;
+    }
+
+    results.push({ inboxId: item.id, category, subtopic });
   }
 
-  // 模型漏答的条目同样不能丢：降级落 inbox/
+  // 模型漏答的条目同样不能丢：标记待整理，不臆造分类
   for (const item of items) {
     if (!seen.has(item.id)) {
       results.push({
         inboxId: item.id,
-        path: `inbox/${item.id}`,
-        title: item.title,
-        summaryMd: item.content_preview ?? "",
+        category: null,
+        subtopic: null,
         degraded: true,
         degradeReason: "模型未返回该条目的分类结果",
       });
@@ -213,49 +246,29 @@ export function parseClassifyResponse(
   return results;
 }
 
-/**
- * 非多媒体禁止落 media/：保留 slug，顶层改为 sources/。
- * 仅对合法分类结果生效；inbox/ 兜底路径不做纠正。
- */
-function applyMediaTypeGuard(item: WikiInboxItem, result: ClassifiedItem): ClassifiedItem {
-  const top = result.path.split("/")[0];
-  const isMultimedia =
-    item.media_type === "image" || item.media_type === "audio" || item.media_type === "video";
-  if (top !== "media" || isMultimedia) return result;
-  const slug = result.path.split("/").slice(1).join("/") || item.id;
-  return {
-    ...result,
-    path: `sources/${slug}`,
-    corrected: true,
-    correctReason: "non_media_forced_to_sources",
-    degraded: undefined,
-    degradeReason: undefined,
-  };
-}
-
 function fallbackAll(items: readonly WikiInboxItem[], reason: string): readonly ClassifiedItem[] {
   return items.map((item) => ({
     inboxId: item.id,
-    path: `inbox/${item.id}`,
-    title: item.title,
-    summaryMd: item.content_preview ?? "",
+    category: null,
+    subtopic: null,
     degraded: true as const,
     degradeReason: reason,
   }));
 }
 
 /**
- * 批量分类：调用一次 LLM 处理一批条目。失败时整批降级到 inbox/（调用方仍应
- * 记录 attempt_count，交由退避重试；这里保证分类阶段本身失败不丢数据）。
+ * 批量分类：调用一次 LLM 处理一批条目。LLM 调用失败向上抛错（调用方记 attempt_count，
+ * 交由退避重试），分类阶段本身的解析/校验失败则走 degraded，不丢数据也不臆造分类。
  */
 export async function classifyBatch(
   items: readonly WikiInboxItem[],
   callLLM: (prompt: string) => Promise<string>,
+  topicTree: WikiTopicTree,
 ): Promise<readonly ClassifiedItem[]> {
   if (items.length === 0) return [];
   try {
-    const response = await callLLM(buildClassifyPrompt(items));
-    return parseClassifyResponse(response, items);
+    const response = await callLLM(buildClassifyPrompt(items, topicTree));
+    return parseClassifyResponse(response, items, topicTree);
   } catch (err) {
     // 保留原始原因，否则退避重试时无从判断是模型不可用还是网络问题
     throw new Error(`wiki classify batch failed: ${(err as Error).message}`);
