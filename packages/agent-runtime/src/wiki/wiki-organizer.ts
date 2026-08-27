@@ -1,9 +1,11 @@
 /**
  * WikiOrganizer — 整理主流程：取件 → 内容提取 → 批量分类 → 落库 → 写运行日志
  *
- * 失败不静默：分类整批失败时条目保持 pending 并记 attempt_count，交由退避重试
- * （见 wiki-organize-queue.ts 的 computeBackoffDelayMs）；单条落库失败降级到 inbox/
- * 而非丢弃，整批不因一条脏数据崩掉。
+ * 失败不静默：分类整批失败时条目保持 pending 并记 attempt_count（见
+ * wiki-organize-queue.ts 的 computeBackoffDelayMs）；单条无法归类（skip/越权/漏答）
+ * 不建 source、条目留在收件箱待整理，不再臆造分类或落到兜底目录。
+ *
+ * 设计：docs/design/记忆设计/2026-08-27-wiki-topic-hierarchy-redesign.md §4
  */
 
 import { classifyBatch, type ClassifiedItem } from "./wiki-classifier.js";
@@ -15,7 +17,6 @@ import type {
   WikiOrganizeRun,
   WikiOrganizeRunDetailExtract,
   WikiOrganizeRunDetailItem,
-  WikiPage,
 } from "./types.js";
 
 /**
@@ -29,28 +30,6 @@ function resolveExtractState(
   if (beforePreview) return "preview";
   if (afterPreview) return "extracted";
   return "none";
-}
-
-/**
- * 由分类结果与落库成败组装单条运行明细。
- */
-function buildDetailItem(
-  item: WikiInboxItem,
-  result: ClassifiedItem,
-  extract: WikiOrganizeRunDetailExtract,
-  savedPath: string,
-  outcome: WikiOrganizeRunDetailItem["outcome"],
-  reason?: string,
-): WikiOrganizeRunDetailItem {
-  return {
-    inboxId: result.inboxId,
-    title: result.title,
-    path: savedPath,
-    mediaType: item.media_type,
-    outcome,
-    ...(reason ? { reason } : {}),
-    extract,
-  };
 }
 
 export class WikiOrganizer {
@@ -99,9 +78,11 @@ export class WikiOrganizer {
       items.map((i) => i.id),
     );
 
+    const topicTree = this.repo.getOrCreateTopicTree();
+
     let classified;
     try {
-      classified = await classifyBatch(enriched, this.callLLM);
+      classified = await classifyBatch(enriched, this.callLLM, topicTree);
     } catch (err) {
       // 整批分类失败：条目保持 pending 且记一次尝试，下次退避后重试——数据不丢
       const message = (err as Error).message;
@@ -136,52 +117,69 @@ export class WikiOrganizer {
       const item = byId.get(result.inboxId);
       if (!item) continue;
       const extract = extractById.get(item.id) ?? "none";
+
+      if (result.degraded || result.skip || !result.category || !result.subtopic) {
+        const reason = result.degradeReason ?? result.reason ?? "无法归类";
+        degraded += 1;
+        degradeReasons.add(reason);
+        this.repo.markInboxAttemptFailed(item.id, reason);
+        detailItems.push({
+          inboxId: item.id,
+          title: item.title,
+          path: "",
+          mediaType: item.media_type,
+          outcome: "degraded",
+          reason,
+          extract,
+        });
+        continue;
+      }
+
       try {
         const source = this.repo.createSource({
           agentId,
           userId,
-          title: result.title,
+          title: item.title,
           sourcePath: item.source_path ?? undefined,
           contentMd: item.content_preview ?? undefined,
           contentHash: item.content_hash ?? undefined,
           mediaType: item.media_type,
           extractedText: item.content_preview ?? undefined,
         });
-        const savedPage = this.savePageWithFallback(agentId, userId, result, source.id);
+        this.repo.updateSourceTopic(source.id, result.category, result.subtopic);
+        this.repo.indexSource(source.id);
         this.repo.markInboxOrganized(item.id, source.id);
-        this.attachMediaIfApplicable(savedPage.id, source.id, item);
-        if (result.degraded) {
-          degraded += 1;
-          if (result.degradeReason) degradeReasons.add(result.degradeReason);
-          detailItems.push(
-            buildDetailItem(item, result, extract, savedPage.path, "degraded", result.degradeReason),
-          );
-        } else if (result.corrected) {
-          detailItems.push(
-            buildDetailItem(item, result, extract, savedPage.path, "corrected", result.correctReason),
-          );
-        } else {
-          detailItems.push(buildDetailItem(item, result, extract, savedPage.path, "archived"));
-        }
+        detailItems.push({
+          inboxId: item.id,
+          title: item.title,
+          path: `${result.category}/${result.subtopic}`,
+          mediaType: item.media_type,
+          outcome: "archived",
+          extract,
+        });
       } catch (err) {
         failed += 1;
         const reason = (err as Error).message;
-        detailItems.push(
-          buildDetailItem(item, result, extract, result.path || "", "failed", reason),
-        );
+        detailItems.push({
+          inboxId: item.id,
+          title: item.title,
+          path: "",
+          mediaType: item.media_type,
+          outcome: "failed",
+          reason,
+          extract,
+        });
         this.repo.markInboxAttemptFailed(item.id, reason);
       }
     }
 
-    // 分类降级不是「成功」：资料没丢，但落点是兜底的 inbox/，用户需要知道并可手动归档。
-    // failed（落库异常，条目仍 pending 待重试）优先级高于 degraded（已归档但落点兜底）。
+    // 无法归类不是「成功」：资料没丢（仍在收件箱待整理），但不能报成 succeeded 让用户以为已归档。
+    // failed（落库异常，条目仍 pending 待重试）优先级高于 degraded（skip/越权，留待整理）。
     const status = failed > 0 ? "partial" : degraded > 0 ? "degraded" : "succeeded";
-    const organized = classified.length - failed;
-    const corrected = detailItems.filter((d) => d.outcome === "corrected").length;
+    const organized = classified.length - failed - degraded;
     const summary = [
       `${organized} 项已归档`,
-      corrected > 0 ? `其中 ${corrected} 项纠正到 sources/` : "",
-      degraded > 0 ? `其中 ${degraded} 项分类降级到 inbox/` : "",
+      degraded > 0 ? `${degraded} 项无法归类留在待整理` : "",
       failed > 0 ? `${failed} 项待重试` : "",
     ]
       .filter(Boolean)
@@ -197,43 +195,5 @@ export class WikiOrganizer {
       ...(error ? { error } : {}),
       finished_at: new Date().toISOString(),
     };
-  }
-
-  /** 路径非法（分类器已校验，但 savePage 是最后防线）时降级到 inbox/<收件箱id> */
-  private savePageWithFallback(
-    agentId: string,
-    userId: string,
-    result: { readonly inboxId: string; readonly path: string; readonly title: string; readonly summaryMd: string },
-    sourceRef: string,
-  ): WikiPage {
-    const common = {
-      agentId,
-      userId,
-      title: result.title,
-      contentMd: result.summaryMd,
-      editor: "ai" as const,
-      sourceRef,
-    };
-    try {
-      return this.repo.savePage({ ...common, path: result.path });
-    } catch {
-      return this.repo.savePage({ ...common, path: `inbox/${result.inboxId}` });
-    }
-  }
-
-  /**
-   * 图片/音频/视频资料在建页时顺手登记为该页附件（P1 §7.2），复用既有资料路径
-   * 不重复存储文件。文档类不登记——文档正文已内嵌到页面 content_md，无需附件引用。
-   */
-  private attachMediaIfApplicable(pageId: string, sourceId: string, item: WikiInboxItem): void {
-    if (item.media_type === "document") return;
-    if (!item.source_path) return;
-    this.repo.attachFile({
-      pageId,
-      sourceId,
-      filePath: item.source_path,
-      mediaType: item.media_type,
-      displayName: item.title,
-    });
   }
 }

@@ -75,4 +75,60 @@ export class WikiIndexRepo {
     }
     return { isHealthy: true };
   }
+
+  // ── wiki_sources_fts：资料层独立索引 ─────────────────────
+
+  /** 写入/覆盖一条资料索引行（先删后插） */
+  upsertSourceRow(rowid: number | bigint, title: string, extractedText: string | null): void {
+    this.db.prepare("DELETE FROM wiki_sources_fts WHERE rowid = ?").run(rowid);
+    this.db
+      .prepare("INSERT INTO wiki_sources_fts (rowid, title_tokens, content_tokens) VALUES (?, ?, ?)")
+      .run(rowid, wikiBigramJoin(title), wikiBigramJoin(extractedText));
+  }
+
+  /** 删除单条资料索引行 */
+  deleteSourceRow(rowid: number | bigint): void {
+    this.db.prepare("DELETE FROM wiki_sources_fts WHERE rowid = ?").run(rowid);
+  }
+
+  /**
+   * 全量重建资料索引：清空后从 wiki_sources 重新分词灌入。
+   * 用于：迁移后老数据补齐索引、`wiki:index:rebuild` 命令、索引不健康时的手动修复。
+   */
+  rebuildSourceFts(): number {
+    this.db.exec("DELETE FROM wiki_sources_fts");
+    const rows = this.db
+      .prepare<{ rowid: number; title: string; extracted_text: string | null }>(
+        "SELECT rowid, title, extracted_text FROM wiki_sources",
+      )
+      .all();
+    const insert = this.db.prepare(
+      "INSERT INTO wiki_sources_fts (rowid, title_tokens, content_tokens) VALUES (?, ?, ?)",
+    );
+    for (const row of rows) {
+      insert.run(row.rowid, wikiBigramJoin(row.title), wikiBigramJoin(row.extracted_text));
+    }
+    return rows.length;
+  }
+
+  /** 健康检查：比对 wiki_sources 主表条数与资料 FTS 行数是否一致 */
+  checkSourceFtsHealth(): WikiFtsHealth {
+    let mainCount: number;
+    let ftsCount: number;
+    try {
+      mainCount = this.db.prepare<{ c: number }>("SELECT COUNT(*) as c FROM wiki_sources").get()?.c ?? 0;
+    } catch {
+      return { isHealthy: false, reason: "wiki_sources 主表不可读" };
+    }
+    try {
+      ftsCount =
+        this.db.prepare<{ c: number }>("SELECT COUNT(*) as c FROM wiki_sources_fts").get()?.c ?? 0;
+    } catch {
+      return { isHealthy: false, reason: "wiki_sources_fts 虚表不存在或不可读" };
+    }
+    if (mainCount !== ftsCount) {
+      return { isHealthy: false, reason: `条数不一致：主表 ${mainCount} 条，索引 ${ftsCount} 条` };
+    }
+    return { isHealthy: true };
+  }
 }

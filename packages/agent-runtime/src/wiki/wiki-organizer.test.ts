@@ -14,28 +14,31 @@ function setup() {
   return { repo, hook };
 }
 
-/** 让 mock LLM 按收到的 id 顺序生成合法分类结果 */
-function makeLLM(pathFor: (id: string, i: number) => string) {
+/** 让 mock LLM 按收到的 id 顺序生成合法用途分类结果 */
+function makeLLM(topicFor: (id: string, i: number) => { category: string; subtopic: string }) {
   return async (prompt: string) => {
     const ids = [...prompt.matchAll(/\[id=([0-9a-f]+)\]/g)].map((m) => m[1]!);
     return JSON.stringify(
-      ids.map((id, i) => ({ id, path: pathFor(id, i), title: `标题${i}`, summaryMd: `摘要${i}` })),
+      ids.map((id, i) => {
+        const { category, subtopic } = topicFor(id, i);
+        return { id, category, subtopic, skip: false };
+      }),
     );
   };
 }
 
+const DOC_TOPIC = { category: "做事记录", subtopic: "项目/任务资料" } as const;
+
 describe("WikiOrganizer 端到端", () => {
-  it("上传 3 条 → 整理 → 3 个页面、inbox 全 organized、run succeeded", async () => {
+  it("上传 3 条 → 3 条 sources 带主题、inbox organized、不新建 wiki_pages", async () => {
     const { repo, hook } = setup();
     hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "文档 A 的内容");
     hook.ingestUpload("ag", "u", "/tmp/b.md", "b", "text/markdown", "文档 B 的内容");
     hook.ingestUpload("ag", "u", "/tmp/c.md", "c", "text/markdown", "文档 C 的内容");
 
-    const organizer = new WikiOrganizer(
-      repo,
-      makeLLM((_id, i) => `sources/doc-${i}`),
-      new WikiContentExtractor(),
-    );
+    const pagesBefore = repo.listPages("ag", "u").length;
+
+    const organizer = new WikiOrganizer(repo, makeLLM(() => DOC_TOPIC), new WikiContentExtractor());
     const run = await organizer.organizeBatch("ag", "u", "upload");
 
     expect(run).not.toBeNull();
@@ -43,21 +46,26 @@ describe("WikiOrganizer 端到端", () => {
     const storedRun = repo.listRuns("ag", "u")[0]!;
     expect(storedRun.result_detail).toBeTruthy();
     const detail = JSON.parse(storedRun.result_detail!) as {
-      items: { inboxId: string; path: string; outcome: string; extract: string }[];
+      items: { inboxId: string; outcome: string; extract: string }[];
     };
     expect(detail.items).toHaveLength(3);
     for (const item of detail.items) {
       expect(item.outcome).toBe("archived");
-      expect(item.path).toMatch(/^sources\/doc-\d+$/);
       expect(item.extract).toBe("preview");
     }
-    expect(repo.listPages("ag", "u")).toHaveLength(3);
+
+    // 不新建 wiki_pages
+    expect(repo.listPages("ag", "u")).toHaveLength(pagesBefore);
     expect(repo.listInbox("ag", "u", "organized")).toHaveLength(3);
     expect(repo.listInbox("ag", "u", "pending")).toHaveLength(0);
 
-    // 归档后的页面可被中文检索命中
-    expect(repo.search("ag", "u", "摘要0").length).toBeGreaterThan(0);
-    // 每条 inbox 都绑定了资料层记录
+    const sources = repo.listSourcesByTopic("ag", "u", { category: "做事记录", subtopic: "项目/任务资料" });
+    expect(sources).toHaveLength(3);
+    for (const source of sources) {
+      expect(source.topic_category).toBe("做事记录");
+      expect(source.topic_subtopic).toBe("项目/任务资料");
+    }
+
     for (const item of repo.listInbox("ag", "u", "organized")) {
       expect(item.organized_source_id).toBeTruthy();
       expect(repo.findSourceById(item.organized_source_id!)).not.toBeNull();
@@ -66,7 +74,7 @@ describe("WikiOrganizer 端到端", () => {
 
   it("取件为空时返回 null，不产生空运行记录", async () => {
     const { repo } = setup();
-    const organizer = new WikiOrganizer(repo, makeLLM(() => "sources/x"), new WikiContentExtractor());
+    const organizer = new WikiOrganizer(repo, makeLLM(() => DOC_TOPIC), new WikiContentExtractor());
     expect(await organizer.organizeBatch("ag", "u", "upload")).toBeNull();
     expect(repo.listRuns("ag", "u")).toHaveLength(0);
   });
@@ -86,7 +94,7 @@ describe("WikiOrganizer 端到端", () => {
     const run = await organizer.organizeBatch("ag", "u", "upload");
 
     expect(run!.status).toBe("failed");
-    expect(repo.listPages("ag", "u")).toHaveLength(0);
+    expect(repo.listSources("ag", "u")).toHaveLength(0);
     const pending = repo.listInbox("ag", "u", "pending");
     expect(pending).toHaveLength(2);
     for (const item of pending) {
@@ -101,47 +109,47 @@ describe("WikiOrganizer 端到端", () => {
     expect(failedDetail.items.every((d) => d.outcome === "failed")).toBe(true);
   });
 
-  it("document 被纠正到 sources/ 时 result_detail outcome 为 corrected", async () => {
+  it("skip 条目保持 pending/failed 且不建 source", async () => {
     const { repo, hook } = setup();
-    hook.ingestUpload("ag", "u", "/tmp/spec.md", "规格书", "text/markdown", "正文");
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "像一段聊天记录");
 
     const organizer = new WikiOrganizer(
       repo,
-      makeLLM(() => "media/spec"),
+      async (prompt) => {
+        const id = /\[id=([0-9a-f]+)\]/.exec(prompt)![1]!;
+        return JSON.stringify([{ id, category: null, subtopic: null, skip: true, reason: "像聊天记录" }]);
+      },
       new WikiContentExtractor(),
     );
     const run = await organizer.organizeBatch("ag", "u", "upload");
 
-    expect(run!.status).toBe("succeeded");
-    const detail = JSON.parse(repo.listRuns("ag", "u")[0]!.result_detail!) as {
-      items: { outcome: string; path: string; reason?: string }[];
-    };
-    expect(detail.items[0]!.outcome).toBe("corrected");
-    expect(detail.items[0]!.path).toBe("sources/spec");
-    expect(detail.items[0]!.reason).toBe("non_media_forced_to_sources");
-    expect(run!.result_summary).toContain("纠正到 sources/");
+    expect(run!.status).toBe("degraded");
+    expect(run!.result_summary).toContain("无法归类留在待整理");
+    expect(repo.listSources("ag", "u")).toHaveLength(0);
+    expect(repo.listInbox("ag", "u", "organized")).toHaveLength(0);
+    const pending = repo.listInbox("ag", "u", "pending")[0]!;
+    expect(pending.last_error).toContain("像聊天记录");
   });
 
-  it("越权分类降级到 inbox/：条目仍归档，但 run 记 degraded 且写明原因", async () => {
+  it("越权分类（不在主题树内）不写主题、条目可重试", async () => {
     const { repo, hook } = setup();
     hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "内容 A");
 
     const organizer = new WikiOrganizer(
       repo,
-      makeLLM(() => "syntheses/越权"), // P2 分类，AI 不可自动写
+      async (prompt) => {
+        const id = /\[id=([0-9a-f]+)\]/.exec(prompt)![1]!;
+        return JSON.stringify([{ id, category: "越权大类", subtopic: "越权小类", skip: false }]);
+      },
       new WikiContentExtractor(),
     );
     const run = await organizer.organizeBatch("ag", "u", "upload");
 
-    // 资料没丢（已归档），但落点是兜底的——不能报成 succeeded，否则用户无从发现
     expect(run!.status).toBe("degraded");
-    expect(run!.result_summary).toContain("1 项分类降级");
-    expect(run!.error).toContain("syntheses/越权");
-    const pages = repo.listPages("ag", "u");
-    expect(pages).toHaveLength(1);
-    expect(pages[0]!.category).toBe("inbox");
-    // 降级仍要落库成 organized，不能卡在 pending
-    expect(repo.listInbox("ag", "u", "organized")).toHaveLength(1);
+    expect(run!.result_summary).toContain("1 项无法归类留在待整理");
+    expect(run!.error).toContain("越权大类");
+    expect(repo.listSources("ag", "u")).toHaveLength(0);
+    expect(repo.listInbox("ag", "u", "organized")).toHaveLength(0);
   });
 
   it("单条批次返回裸对象（非数组）时正常分类，不再整批降级", async () => {
@@ -153,16 +161,17 @@ describe("WikiOrganizer 端到端", () => {
       repo,
       async (prompt) => {
         const id = /\[id=([0-9a-f]+)\]/.exec(prompt)![1]!;
-        return `{"id":"${id}","path":"sources/solo","title":"单条","summaryMd":"真摘要"}`;
+        return `{"id":"${id}","category":"做事记录","subtopic":"项目/任务资料","skip":false}`;
       },
       new WikiContentExtractor(),
     );
     const run = await organizer.organizeBatch("ag", "u", "upload");
 
     expect(run!.status).toBe("succeeded");
-    const pages = repo.listPages("ag", "u");
-    expect(pages[0]!.path).toBe("sources/solo");
-    expect(pages[0]!.content_md).toBe("真摘要");
+    const sources = repo.listSources("ag", "u");
+    expect(sources).toHaveLength(1);
+    expect(sources[0]!.topic_category).toBe("做事记录");
+    expect(sources[0]!.topic_subtopic).toBe("项目/任务资料");
   });
 
   it("思考块与散文里的方括号不再带偏 JSON 边界", async () => {
@@ -176,7 +185,7 @@ describe("WikiOrganizer 端到端", () => {
         return `<think>先看 items[0] 的类型，再决定落点 [重要]</think>
 好的，结果如下：
 \`\`\`json
-[{"id":"${id}","path":"sources/from-think","title":"T","summaryMd":"S"}]
+[{"id":"${id}","category":"做事记录","subtopic":"项目/任务资料","skip":false}]
 \`\`\``;
       },
       new WikiContentExtractor(),
@@ -184,20 +193,16 @@ describe("WikiOrganizer 端到端", () => {
     const run = await organizer.organizeBatch("ag", "u", "upload");
 
     expect(run!.status).toBe("succeeded");
-    expect(repo.listPages("ag", "u")[0]!.path).toBe("sources/from-think");
+    expect(repo.listSources("ag", "u")[0]!.topic_category).toBe("做事记录");
   });
 
   it("重复整理已归档条目不会再次取件", async () => {
     const { repo, hook } = setup();
     hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "内容 A");
-    const organizer = new WikiOrganizer(
-      repo,
-      makeLLM(() => "sources/a"),
-      new WikiContentExtractor(),
-    );
+    const organizer = new WikiOrganizer(repo, makeLLM(() => DOC_TOPIC), new WikiContentExtractor());
     await organizer.organizeBatch("ag", "u", "upload");
     expect(await organizer.organizeBatch("ag", "u", "upload")).toBeNull();
-    expect(repo.listPages("ag", "u")).toHaveLength(1);
+    expect(repo.listSources("ag", "u")).toHaveLength(1);
   });
 
   it("整理时为缺失正文的图片补内容提取结果", async () => {
@@ -206,7 +211,7 @@ describe("WikiOrganizer 端到端", () => {
 
     const organizer = new WikiOrganizer(
       repo,
-      makeLLM(() => "media/pic"),
+      makeLLM(() => ({ category: "模板参考", subtopic: "图片媒体素材" })),
       new WikiContentExtractor({ recognizeImage: async () => "一张架构示意图" }),
     );
     await organizer.organizeBatch("ag", "u", "upload");
@@ -214,28 +219,6 @@ describe("WikiOrganizer 端到端", () => {
     const item = repo.listInbox("ag", "u", "organized")[0]!;
     const source = repo.findSourceById(item.organized_source_id!)!;
     expect(source.extracted_text).toBe("一张架构示意图");
-  });
-
-  it("图片资料建页时自动登记为该页附件，文档资料不登记", async () => {
-    const { repo, hook } = setup();
-    hook.ingestUpload("ag", "u", "/tmp/pic.png", "pic", "image/png", "描述");
-    hook.ingestUpload("ag", "u", "/tmp/doc.md", "doc", "text/markdown", "文档内容");
-
-    const organizer = new WikiOrganizer(
-      repo,
-      makeLLM((_id, i) => (i === 0 ? "media/pic" : "sources/doc")),
-      new WikiContentExtractor(),
-    );
-    await organizer.organizeBatch("ag", "u", "upload");
-
-    const picPage = repo.findPageByPath("ag", "u", "media/pic")!;
-    const docPage = repo.findPageByPath("ag", "u", "sources/doc")!;
-    expect(repo.listAttachments(picPage.id)).toHaveLength(1);
-    expect(repo.listAttachments(picPage.id)[0]).toMatchObject({
-      file_path: "/tmp/pic.png",
-      media_type: "image",
-    });
-    expect(repo.listAttachments(docPage.id)).toHaveLength(0);
   });
 });
 

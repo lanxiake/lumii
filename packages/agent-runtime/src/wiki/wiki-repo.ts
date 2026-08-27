@@ -500,6 +500,17 @@ export class WikiRepo {
       .run(new Date().toISOString(), sourceId);
   }
 
+  /** 把一条资料写入/覆盖资料层 FTS 索引；供归档流水线调用，避免 organizer 直接碰 db */
+  indexSource(sourceId: string): void {
+    const row = this.db
+      .prepare<{ rowid: number; title: string; extracted_text: string | null }>(
+        "SELECT rowid, title, extracted_text FROM wiki_sources WHERE id = ?",
+      )
+      .get(sourceId);
+    if (!row) return;
+    this.indexRepo.upsertSourceRow(row.rowid, row.title, row.extracted_text);
+  }
+
   /**
    * 该资料关联的页面（通过 wiki_page_revisions.source_ref = sourceId 找到）是否显示过使用痕迹
    * （last_used 非空或 use_count > 0）。找不到关联页面视为「未使用」。
@@ -1078,9 +1089,9 @@ export class WikiRepo {
     return rows.map(runRowToRun);
   }
 
-  /** 重建 FTS5 派生索引，返回重建后的行数 */
+  /** 重建 FTS5 派生索引（页面 + 资料），返回两者合计重建行数 */
   rebuildIndex(): number {
-    return this.indexRepo.rebuildFts();
+    return this.indexRepo.rebuildFts() + this.indexRepo.rebuildSourceFts();
   }
 
   // ── 索引元数据 KV ───────────────────────────────────────
