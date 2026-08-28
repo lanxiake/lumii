@@ -6,7 +6,7 @@
  */
 import path from 'node:path'
 import fs from 'node:fs'
-import { shell } from 'electron'
+import { app, shell } from 'electron'
 import {
   parseSynthesisProgress,
   WikiGraphBuilder,
@@ -19,6 +19,8 @@ import {
   WikiEroExtractor,
   PARKING_CATEGORY,
   resolveAgentFilePath,
+  sanitizeFilenameSegment,
+  validateTopicAssignment,
 } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
@@ -283,6 +285,86 @@ export function handleWikiTopicMutate(
     throw new Error('缺少 mutation 参数')
   }
   return bridge.wikiRepo.applyTopicMutation(command.mutation as never)
+}
+
+/** 笔记落盘根目录；测试可注入替代实现，避免依赖 Electron 的 app */
+export type WikiNotesDirResolver = () => string
+
+const defaultNotesDir: WikiNotesDirResolver = () => path.join(app.getPath('userData'), 'wiki-notes')
+
+/** `20260827-103000` 形式的时间戳，用于笔记文件名 */
+function noteTimestamp(now: Date): string {
+  const p = (n: number, w = 2): string => String(n).padStart(w, '0')
+  return [
+    `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}`,
+    `${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`,
+  ].join('-')
+}
+
+/**
+ * 在某个正式目录下新建 markdown 笔记：落盘 md + 插入 wiki_sources + 写主题两列 + 建索引。
+ * 不写 wiki_pages（页面只是历史遗留视图）。
+ *
+ * 目录名要 sanitize：小类名允许含 `/` 与 `&`（如「项目/任务资料」），直接拿来当路径段会
+ * 造出意外的嵌套目录。因此只用大类做子目录，小类只存库不落到路径上。
+ */
+export function handleWikiSourceCreateNote(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:source:create-note' }>,
+  deps?: { readonly notesDir?: WikiNotesDirResolver; readonly now?: () => Date },
+): { sourceId: string; sourcePath: string; title: string } {
+  const repo = bridge.wikiRepo
+  const tree = repo.getOrCreateTopicTree()
+  // 笔记必须落正式目录：临时存放是「主动搁置」语义，新建就搁置没有意义
+  const check = validateTopicAssignment(tree, command.category, command.subtopic)
+  if (!check.ok) throw new Error(check.reason)
+
+  const title = command.title?.trim() || '未命名笔记'
+  const dir = path.join((deps?.notesDir ?? defaultNotesDir)(), sanitizeFilenameSegment(command.category))
+  fs.mkdirSync(dir, { recursive: true })
+
+  const stamp = noteTimestamp(deps?.now?.() ?? new Date())
+  let filePath = path.join(dir, `${stamp}-${sanitizeFilenameSegment(title)}.md`)
+  for (let i = 2; fs.existsSync(filePath); i++) {
+    filePath = path.join(dir, `${stamp}-${sanitizeFilenameSegment(title)}-${i}.md`)
+  }
+  const content = `# ${title}\n\n`
+  fs.writeFileSync(filePath, content, 'utf8')
+
+  const userId = command.userId ?? LOCAL_USER_ID
+  const source = repo.createSource({
+    agentId: command.agentId,
+    userId,
+    title,
+    sourcePath: filePath,
+    mediaType: 'document',
+    mimeType: 'text/markdown',
+    contentMd: content,
+    extractedText: title,
+    originContext: '用户在 Wiki 目录中新建',
+  })
+  repo.updateSourceTopic(command.agentId, userId, source.id, command.category, command.subtopic)
+  repo.indexSource(source.id)
+
+  return { sourceId: source.id, sourcePath: filePath, title }
+}
+
+/**
+ * 重命名资料 = 只改 title。磁盘文件名保持不动，避免已有引用/链接失效。
+ */
+export function handleWikiSourceRename(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:source:rename' }>,
+): { id: string; title: string } {
+  const title = command.title?.trim()
+  if (!title) throw new Error('标题不能为空')
+  const updated = bridge.wikiRepo.renameSource(
+    command.agentId,
+    command.userId ?? LOCAL_USER_ID,
+    command.sourceId,
+    title,
+  )
+  return { id: updated.id, title: updated.title }
 }
 
 /** 把 IPC 的扁平 scope 参数收敘成 runtime 的联合类型，缺参直接中文报错 */

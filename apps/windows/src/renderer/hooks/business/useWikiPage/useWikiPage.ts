@@ -961,6 +961,47 @@ export function useWikiPage() {
     [],
   )
 
+  /** 在某个正式目录下新建 markdown 笔记，返回新资料 id */
+  const createNote = useCallback(
+    async (
+      category: string,
+      subtopic: string,
+      title?: string,
+    ): Promise<{ sourceId: string; title: string } | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:source:create-note',
+          agentId: DEFAULT_AGENT_ID,
+          category,
+          subtopic,
+          title,
+        })) as { sourceId: string; title: string }
+        return r ?? null
+      } catch {
+        return null
+      }
+    },
+    [],
+  )
+
+  const renameSource = useCallback(async (sourceId: string, title: string): Promise<boolean> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return false
+    try {
+      await api.sendCommand({
+        type: 'wiki:source:rename',
+        agentId: DEFAULT_AGENT_ID,
+        sourceId,
+        title,
+      })
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
   /**
    * 启动重新编目。状态冲突（已有批次）要让用户看到，所以返回结果对象而非布尔。
    */
@@ -1183,6 +1224,8 @@ export function useWikiPage() {
     loadTopicTree,
     setTopicTree,
     mutateTopic,
+    createNote,
+    renameSource,
     runReclassify,
     getReclassifyRun,
     applyReclassify,

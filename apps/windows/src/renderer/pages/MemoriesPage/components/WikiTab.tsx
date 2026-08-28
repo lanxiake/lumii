@@ -82,6 +82,7 @@ export const WikiTab: React.FC = () => {
     confirmStatus,
     loadTopicTree,
     mutateTopic,
+    createNote,
     runReclassify,
     getReclassifyRun,
     applyReclassify,
@@ -126,6 +127,7 @@ export const WikiTab: React.FC = () => {
     reason: string
   } | null>(null)
   const [suggestionState, setSuggestionState] = useState<'idle' | 'loading' | 'failed'>('idle')
+  const [highlightSourceId, setHighlightSourceId] = useState<string | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
 
   const refreshSources = useCallback(async () => {
@@ -366,6 +368,23 @@ export const WikiTab: React.FC = () => {
       setReclassifyRun(await getReclassifyRun())
     },
     [ignoreReclassify, getReclassifyRun],
+  )
+
+  /**
+   * 在当前小类下新建笔记，成功后刷新列表并高亮新行。
+   * 大类聚合视图不给这个入口——必须先选定小类，避免误放。
+   */
+  const handleCreateNote = useCallback(
+    async (category: string, subtopic: string) => {
+      const created = await createNote(category, subtopic)
+      if (!created) {
+        setOpenError('新建笔记失败')
+        return
+      }
+      await refreshSources()
+      setHighlightSourceId(created.sourceId)
+    },
+    [createNote, refreshSources],
   )
 
   /**
@@ -697,20 +716,30 @@ export const WikiTab: React.FC = () => {
               items={visibleSources}
               emptyHint={nav.kind === 'subtopic' ? '这个小类下还没有文件' : '这个大类下还没有文件'}
               showTopic={nav.kind === 'category'}
+              highlightId={highlightSourceId}
               headerActions={
                 nav.kind === 'subtopic' ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      void handleRunReclassify(
-                        { kind: 'subtopic', category: nav.category, subtopic: nav.subtopic },
-                        { force: true },
-                      )
-                    }
-                  >
-                    重新编目本小类
-                  </Button>
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void handleCreateNote(nav.category, nav.subtopic)}
+                    >
+                      新建笔记
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        void handleRunReclassify(
+                          { kind: 'subtopic', category: nav.category, subtopic: nav.subtopic },
+                          { force: true },
+                        )
+                      }
+                    >
+                      重新编目本小类
+                    </Button>
+                  </>
                 ) : undefined
               }
               onOpen={(item) => void handleOpenSource(item)}

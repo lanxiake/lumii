@@ -689,6 +689,21 @@ export class WikiRepo {
       .all(...params);
   }
 
+  /**
+   * 只改标题，不动 source_path：磁盘文件名保持稳定，避免已有引用失效。
+   * 改完重建该行的 FTS，否则按新标题搜不到。
+   */
+  renameSource(agentId: string, userId: string, sourceId: string, title: string): WikiSource {
+    const info = this.db
+      .prepare("UPDATE wiki_sources SET title = ? WHERE id = ? AND agent_id = ? AND user_id = ?")
+      .run(title, sourceId, agentId, userId);
+    if (info.changes === 0) throw new Error(`资料不存在: ${sourceId}`);
+    this.indexSource(sourceId);
+    const source = this.findSourceById(sourceId);
+    if (!source) throw new Error(`资料不存在: ${sourceId}`);
+    return source;
+  }
+
   /** 命中即更新 last_used / use_count（打开原文件、检索命中时调用），按归属限定 */
   touchSource(agentId: string, userId: string, sourceId: string): void {
     this.db

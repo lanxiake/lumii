@@ -40,6 +40,8 @@ interface WikiFileListProps {
   showMediaChips?: boolean
   /** 顶栏动作槽：小类视图的「重新编目本小类」「新建笔记」、多选时的批量条都挂这里 */
   headerActions?: React.ReactNode
+  /** 新建后高亮该行，帮用户定位刚创建的文件 */
+  highlightId?: string | null
   onOpen: (item: WikiSourceListItem) => void
   onMove: (item: WikiSourceListItem) => void
   onPark?: (item: WikiSourceListItem) => void
@@ -57,6 +59,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
   showParkAction = true,
   showMediaChips = true,
   headerActions,
+  highlightId = null,
   onOpen,
   onMove,
   onPark,
@@ -100,7 +103,10 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
               ? `${item.topicCategory} / ${item.topicSubtopic}`
               : (item.topicCategory ?? '待补分')
             return (
-              <li key={item.id} className="wiki-file-list-item">
+              <li
+                key={item.id}
+                className={`wiki-file-list-item${item.id === highlightId ? ' wiki-file-list-item--highlight' : ''}`}
+              >
                 <Icon size={15} className="wiki-file-list-icon" />
                 <div className="wiki-file-list-main">
                   <span className="wiki-file-list-title">{item.title}</span>

@@ -410,6 +410,11 @@
   background: var(--color-bg-hover);
 }
 
+.wiki-file-list-item--highlight {
+  background: var(--color-bg-active);
+  border-left: 2px solid var(--color-primary);
+}
+
 .wiki-file-list-icon {
   flex-shrink: 0;
   color: var(--color-text-tertiary);

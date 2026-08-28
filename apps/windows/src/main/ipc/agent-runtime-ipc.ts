@@ -133,6 +133,8 @@ import {
   handleWikiReclassifyApply,
   handleWikiReclassifyIgnore,
   handleWikiReclassifyDiscard,
+  handleWikiSourceCreateNote,
+  handleWikiSourceRename,
   handleWikiSourceList,
   handleWikiSourceUpdateTopic,
   handleWikiSourceMoveToParking,
@@ -994,6 +996,12 @@ export async function handleCommand(
 
       case 'wiki:topic:mutate':
         return handleWikiTopicMutate(bridge, command)
+
+      case 'wiki:source:create-note':
+        return handleWikiSourceCreateNote(bridge, command)
+
+      case 'wiki:source:rename':
+        return handleWikiSourceRename(bridge, command)
 
       case 'wiki:reclassify:run':
         return handleWikiReclassifyRun(bridge, command)

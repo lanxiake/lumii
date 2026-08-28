@@ -467,6 +467,23 @@ export interface WikiTopicMutateCommand {
   readonly mutation: WikiTopicMutationDto
 }
 
+export interface WikiSourceCreateNoteCommand {
+  readonly type: 'wiki:source:create-note'
+  readonly agentId: string
+  readonly userId?: string
+  readonly category: string
+  readonly subtopic: string
+  readonly title?: string
+}
+
+export interface WikiSourceRenameCommand {
+  readonly type: 'wiki:source:rename'
+  readonly agentId: string
+  readonly userId?: string
+  readonly sourceId: string
+  readonly title: string
+}
+
 // ---- 重新编目（二期）----
 
 export interface WikiReclassifyRunCommand {
@@ -1354,6 +1371,8 @@ export type AgentRuntimeCommand =
   | WikiReclassifyApplyCommand
   | WikiReclassifyIgnoreCommand
   | WikiReclassifyDiscardCommand
+  | WikiSourceCreateNoteCommand
+  | WikiSourceRenameCommand
   | WikiSourceListCommand
   | WikiSourceUpdateTopicCommand
   | WikiSourceMoveToParkingCommand
@@ -1712,6 +1731,8 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
         }[]
       } | null
     }
+  : T extends 'wiki:source:create-note' ? { sourceId: string; sourcePath: string; title: string }
+  : T extends 'wiki:source:rename' ? { id: string; title: string }
   : T extends 'wiki:reclassify:apply' ? { applied: number; failed: number }
   : T extends 'wiki:reclassify:ignore' ? { success: true }
   : T extends 'wiki:reclassify:discard' ? { success: true }

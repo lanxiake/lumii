@@ -7,6 +7,9 @@
  */
 import { describe, expect, it } from 'vitest'
 import { createRequire } from 'node:module'
+import fs from 'node:fs'
+import path from 'node:path'
+import os from 'node:os'
 import { WikiRepo, type DatabaseAdapter, type PreparedStatement, type StatementResult } from '@mtbot/agent-runtime'
 import { MIGRATIONS } from '../../../../../../packages/agent-runtime/src/storage/schema'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
@@ -32,6 +35,8 @@ import {
   handleWikiReclassifyGet,
   handleWikiReclassifyApply,
   handleWikiReclassifyDiscard,
+  handleWikiSourceCreateNote,
+  handleWikiSourceRename,
   handleWikiSourceList,
   handleWikiSourceUpdateTopic,
   handleWikiSourceMoveToParking,
@@ -366,6 +371,103 @@ describe('wiki commands', () => {
     })
     expect(r.movedCount).toBe(1)
     expect(repo.findSourceById(source.id)!.topic_category).toBe('工作产出')
+  })
+
+  it('create-note 写磁盘 md 并插入带主题的 source，不新建 wiki_pages', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-notes-'))
+    const pagesBefore = repo.listPages('assistant', 'local-user').length
+
+    const r = handleWikiSourceCreateNote(
+      bridge,
+      { type: 'wiki:source:create-note', agentId: 'assistant', category: '随笔创作', subtopic: '灵感随手记录' } as never,
+      { notesDir: () => notesDir },
+    )
+
+    expect(fs.existsSync(r.sourcePath)).toBe(true)
+    expect(fs.readFileSync(r.sourcePath, 'utf8')).toContain('# 未命名笔记')
+    const s = repo.findSourceById(r.sourceId)!
+    expect(s.topic_category).toBe('随笔创作')
+    expect(s.topic_subtopic).toBe('灵感随手记录')
+    expect(s.mime_type).toBe('text/markdown')
+    expect(repo.listPages('assistant', 'local-user')).toHaveLength(pagesBefore)
+  })
+
+  it('小类名含斜杠时不会落进路径，目录名被安全化', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-notes-'))
+
+    const r = handleWikiSourceCreateNote(
+      bridge,
+      { type: 'wiki:source:create-note', agentId: 'assistant', category: '做事记录', subtopic: '项目/任务资料' } as never,
+      { notesDir: () => notesDir },
+    )
+    expect(r.sourcePath).not.toContain('项目/任务资料')
+    expect(r.sourcePath).not.toContain('项目\\任务资料')
+    expect(repo.findSourceById(r.sourceId)!.topic_subtopic).toBe('项目/任务资料')
+  })
+
+  it('拒绝在临时存放或不存在的目录建笔记', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-notes-'))
+
+    expect(() =>
+      handleWikiSourceCreateNote(
+        bridge,
+        { type: 'wiki:source:create-note', agentId: 'assistant', category: PARKING_CATEGORY, subtopic: null } as never,
+        { notesDir: () => notesDir },
+      ),
+    ).toThrow()
+
+    expect(() =>
+      handleWikiSourceCreateNote(
+        bridge,
+        { type: 'wiki:source:create-note', agentId: 'assistant', category: '学习资料', subtopic: '不存在的小类' } as never,
+        { notesDir: () => notesDir },
+      ),
+    ).toThrow(/小类不存在/)
+  })
+
+  it('同名笔记连建两次不互相覆盖', () => {
+    const bridge = buildBridge(createWikiRepo())
+    const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-notes-'))
+    const cmd = {
+      type: 'wiki:source:create-note',
+      agentId: 'assistant',
+      category: '随笔创作',
+      subtopic: '灵感随手记录',
+      title: '灵感',
+    } as never
+    const fixedNow = () => new Date('2026-08-27T10:30:00')
+
+    const a = handleWikiSourceCreateNote(bridge, cmd, { notesDir: () => notesDir, now: fixedNow })
+    const b = handleWikiSourceCreateNote(bridge, cmd, { notesDir: () => notesDir, now: fixedNow })
+    expect(a.sourcePath).not.toBe(b.sourcePath)
+    expect(fs.existsSync(a.sourcePath)).toBe(true)
+    expect(fs.existsSync(b.sourcePath)).toBe(true)
+  })
+
+  it('rename 只改标题，磁盘路径不动', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-notes-'))
+    const created = handleWikiSourceCreateNote(
+      bridge,
+      { type: 'wiki:source:create-note', agentId: 'assistant', category: '随笔创作', subtopic: '灵感随手记录' } as never,
+      { notesDir: () => notesDir },
+    )
+
+    const renamed = handleWikiSourceRename(bridge, {
+      type: 'wiki:source:rename',
+      agentId: 'assistant',
+      sourceId: created.sourceId,
+      title: '周末灵感',
+    } as never)
+    expect(renamed.title).toBe('周末灵感')
+    expect(repo.findSourceById(created.sourceId)!.source_path).toBe(created.sourcePath)
   })
 
   it('reclassify:run 的 scope 与参数不匹配时抛中文错误', async () => {
