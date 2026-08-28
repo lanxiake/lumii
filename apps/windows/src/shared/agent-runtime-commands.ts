@@ -1545,6 +1545,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       status: string
       attemptCount: number
       lastError: string | null
+      lastOutcome: string | null
       createdAt: number
     }[]
   : T extends 'wiki:inbox:count' ? { total: number; pending: number; unfiled: number }

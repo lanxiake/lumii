@@ -460,6 +460,31 @@ describe('WikiTab', () => {
     await waitFor(() => expect(retry).toHaveBeenCalledWith('i1'))
   })
 
+  it('AI 拿不准的条目显示待人工归档，不报成失败', async () => {
+    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
+      'wiki:inbox:list': [{
+        id: 'i1',
+        itemType: 'upload',
+        title: '会议纪要',
+        contentPreview: null,
+        mediaType: 'document',
+        status: 'pending',
+        attemptCount: 2,
+        lastError: '无法归类',
+        lastOutcome: 'degraded',
+        createdAt: Date.now(),
+      }],
+    })
+    render(<WikiTab />)
+
+    await screen.findByText('会议纪要')
+    expect(screen.getByText(/待人工归档: 无法归类/)).toBeInTheDocument()
+    expect(screen.queryByText(/失败原因/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/已重试/)).not.toBeInTheDocument()
+    // 仍可手动归档
+    expect(screen.getByRole('button', { name: '归档到…' })).toBeInTheDocument()
+  })
+
   it('待整理失败项显示中文状态与重试', async () => {
     ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
       'wiki:inbox:list': [{

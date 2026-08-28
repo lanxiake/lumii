@@ -122,7 +122,7 @@ export class WikiOrganizer {
         const reason = result.degradeReason ?? result.reason ?? "无法归类";
         degraded += 1;
         degradeReasons.add(reason);
-        this.repo.markInboxAttemptFailed(item.id, reason);
+        this.repo.markInboxAttemptFailed(item.id, reason, "degraded");
         detailItems.push({
           inboxId: item.id,
           title: item.title,

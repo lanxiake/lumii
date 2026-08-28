@@ -29,6 +29,8 @@ export interface WikiInboxItem {
   readonly status: WikiInboxStatus;
   readonly attempt_count: number;
   readonly last_error: string | null;
+  /** degraded = AI 拿不准留待人工整理，failed = 落库或调用真的出错 */
+  readonly last_outcome: string | null;
   readonly organized_source_id: string | null;
   readonly content_hash: string | null;
   readonly created_at: string;

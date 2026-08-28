@@ -60,9 +60,14 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
           </div>
           {item.contentPreview ? <p className="wiki-inbox-item-preview">{item.contentPreview}</p> : null}
           {item.lastError ? (
-            <p className="wiki-inbox-item-error">
-              失败原因: {item.lastError}（已重试 {item.attemptCount} 次）
-            </p>
+            item.lastOutcome === 'degraded' ? (
+              // AI 拿不准就留待人工，这不是失败，别按失败报（一期约定：拿不准 skip，条目留待整理）
+              <p className="wiki-inbox-item-hint">待人工归档: {item.lastError}</p>
+            ) : (
+              <p className="wiki-inbox-item-error">
+                失败原因: {item.lastError}（已重试 {item.attemptCount} 次）
+              </p>
+            )
           ) : null}
           {canRetryInboxItem(item.status) ? (
             <div className="wiki-inbox-item-actions">

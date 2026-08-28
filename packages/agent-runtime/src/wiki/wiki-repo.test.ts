@@ -745,3 +745,30 @@ describe("WikiRepo 删除资料清理索引", () => {
     expect(repo.searchSources("ag", "u", "无关正文").map((h) => h.source.id)).toEqual([second.id]);
   });
 });
+
+describe("WikiRepo 未归档原因区分", () => {
+  it("degraded 与 failed 都占重试预算，但 last_outcome 可区分", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const skipped = repo.ingestToInbox({ agentId: "ag", userId: "u", itemType: "upload", title: "拿不准" });
+    const broken = repo.ingestToInbox({ agentId: "ag", userId: "u", itemType: "upload", title: "真出错" });
+
+    repo.markInboxAttemptFailed(skipped.id, "无法归类", "degraded");
+    repo.markInboxAttemptFailed(broken.id, "磁盘写入失败");
+
+    expect(repo.findInboxById(skipped.id)!.last_outcome).toBe("degraded");
+    expect(repo.findInboxById(broken.id)!.last_outcome).toBe("failed");
+    // 两者都仍是 pending，用户可以手动归档
+    expect(repo.findInboxById(skipped.id)!.status).toBe("pending");
+    expect(repo.findInboxById(skipped.id)!.attempt_count).toBe(1);
+  });
+
+  it("重试时清掉上一次的 outcome", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const item = repo.ingestToInbox({ agentId: "ag", userId: "u", itemType: "upload", title: "a" });
+    repo.markInboxAttemptFailed(item.id, "无法归类", "degraded");
+
+    expect(repo.retryInbox(item.id)).toBe(true);
+    expect(repo.findInboxById(item.id)!.last_outcome).toBeNull();
+    expect(repo.findInboxById(item.id)!.last_error).toBeNull();
+  });
+});

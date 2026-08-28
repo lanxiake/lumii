@@ -725,4 +725,10 @@ CREATE INDEX IF NOT EXISTS idx_wiki_entities_source ON wiki_entities (source_id)
 CREATE INDEX IF NOT EXISTS idx_wiki_observations_source ON wiki_observations (source_id);
 `,
   ],
+  // V23: 区分「AI 拿不准，留待人工」与「真的出错了」。两者都记 attempt_count，
+  // 但前者不是失败，UI 不该显示成「失败原因…（已重试 N 次）」。
+  [
+    23,
+    `ALTER TABLE wiki_inbox ADD COLUMN last_outcome TEXT;`,
+  ],
 ] as const;

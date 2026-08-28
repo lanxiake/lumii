@@ -18,6 +18,7 @@ import {
   WikiAutoSynthesisRunner,
   WikiEroExtractor,
   PARKING_CATEGORY,
+  resolveAgentFilePath,
 } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
@@ -52,6 +53,7 @@ export function handleWikiInboxList(
     status: i.status,
     attemptCount: i.attempt_count,
     lastError: i.last_error,
+    lastOutcome: i.last_outcome,
     createdAt: new Date(i.created_at).getTime(),
   }))
 }
@@ -486,9 +488,12 @@ export function handleWikiAttachAdd(
   command: Extract<AgentRuntimeCommand, { type: 'wiki:attach:add' }>,
 ): unknown {
   requirePage(bridge, command.pageId)
+  // 附件路径来自调用方，必须校验落在工作区内：现在没有命令能打开附件，
+  // 但存进库的路径迟早会被某个入口拿去用，那时校验就来不及了。
+  const filePath = resolveAgentFilePath(command.filePath, bridge.getCwd())
   const attachment = bridge.wikiRepo.attachFile({
     pageId: command.pageId,
-    filePath: command.filePath,
+    filePath,
     mediaType: command.mediaType,
     displayName: command.displayName,
     sourceId: command.sourceId,

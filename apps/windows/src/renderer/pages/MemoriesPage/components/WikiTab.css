@@ -695,6 +695,13 @@
   margin-top: 6px;
 }
 
+/* 待人工归档不是错误，用次要色而非危险色 */
+.wiki-inbox-item-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary, #6b7280);
+  margin-top: 6px;
+}
+
 .wiki-inbox-item-actions {
   display: flex;
   gap: 8px;

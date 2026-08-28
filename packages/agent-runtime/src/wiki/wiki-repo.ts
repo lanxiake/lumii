@@ -56,6 +56,7 @@ interface WikiInboxRow {
   status: string;
   attempt_count: number;
   last_error: string | null;
+  last_outcome: string | null;
   organized_source_id: string | null;
   content_hash: string | null;
   created_at: string;
@@ -203,6 +204,7 @@ export class WikiRepo {
       status: "pending",
       attempt_count: 0,
       last_error: null,
+      last_outcome: null,
       organized_source_id: null,
       content_hash: params.contentHash ?? null,
       created_at: now,
@@ -272,12 +274,18 @@ export class WikiRepo {
     return rows.map(inboxRowToItem);
   }
 
-  markInboxAttemptFailed(id: string, error: string): void {
+  /**
+   * 记一次未能归档。outcome 区分两种情形：
+   * `degraded` = AI 拿不准/越权，按一期约定留待人工整理，不是错误；
+   * `failed` = 落库或调用真的出错了，可重试。
+   * 两者都占用重试预算（attempt_count），但 UI 文案不同。
+   */
+  markInboxAttemptFailed(id: string, error: string, outcome: "degraded" | "failed" = "failed"): void {
     this.db
       .prepare(
-        "UPDATE wiki_inbox SET attempt_count = attempt_count + 1, last_error = ? WHERE id = ?",
+        "UPDATE wiki_inbox SET attempt_count = attempt_count + 1, last_error = ?, last_outcome = ? WHERE id = ?",
       )
-      .run(error, id);
+      .run(error, outcome, id);
   }
 
   markInboxOrganized(id: string, organizedSourceId: string): void {
@@ -333,7 +341,9 @@ export class WikiRepo {
    */
   retryInbox(id: string): boolean {
     const info = this.db
-      .prepare("UPDATE wiki_inbox SET attempt_count = 0, last_error = NULL WHERE id = ? AND status = 'pending'")
+      .prepare(
+        "UPDATE wiki_inbox SET attempt_count = 0, last_error = NULL, last_outcome = NULL WHERE id = ? AND status = 'pending'",
+      )
       .run(id);
     return info.changes > 0;
   }

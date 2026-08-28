@@ -18,6 +18,8 @@ export interface WikiInboxItem {
   readonly status: string
   readonly attemptCount: number
   readonly lastError: string | null
+  /** degraded = AI 拿不准留待人工整理，failed = 真的出错 */
+  readonly lastOutcome: string | null
   readonly createdAt: number
 }
 
