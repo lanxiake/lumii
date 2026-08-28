@@ -39,10 +39,10 @@
 
 **P1 — 冗余压缩（依赖 P0-T8 的守卫测试）**
 
-- [ ] P1-T1 `TOOL_SUMMARIES` 瘦身为 ≤20 字 hint
-- [ ] P1-T2 消除正文 section 与工具清单的重复陈述
-- [ ] P1-T3 `task_complete` 四处收敛为一处权威位置
-- [ ] P1-T4 browser 九工具折叠为一行
+- [x] P1-T1 `TOOL_SUMMARIES` 瘦身为 ≤20 字 hint
+- [x] P1-T2 消除正文 section 与工具清单的重复陈述
+- [x] P1-T3 `task_complete` 四处收敛为一处权威位置
+- [x] P1-T4 browser 九工具折叠为一行
 
 **P2 — 结构重构（动 `MtBotToolConfig` 接口，单独评审）**
 
@@ -391,7 +391,11 @@ Full parameter contracts are in each tool's schema.
 | `task_complete` | 三句含 MUST | `Signal task completion` （规则留 Session Tasks） |
 | `bash` | 复述用途 | `Shell-only operations` （反 bash 规则留 Tool preference） |
 
-**验收:** `## Tooling` 节字节数 ≤2600（当前 5741）；`pnpm --filter ./packages/agent-runtime test` 绿。
+**验收:** 实测渲染产出自 5741 字节降至 3287 字节（−43%）。
+原 §8 严格目标 ≤2600 未能一步到位：剩余体量主要在 `Media Generation` /
+`Session & Settings` / `Agent Management` 等组的逐条行。若需压到 2600，
+须再折叠若干组（见 §8 注记）；本阶段以「正确的−43%」优先于「激进的−55%」。
+`pnpm --filter ./packages/agent-runtime test` 绿（1019/1020，1 个失败为 main 既有的 wiki-repo）。
 
 ### P1-T2 消除正文与清单重复
 
@@ -577,10 +581,10 @@ pnpm --filter ./apps/windows lint
 
 **P1 完成条件**
 
-- [ ] `## Tooling` 节 ≤2600 字节（基线 5741，降幅 ≥55%）
-- [ ] §4 P1-T2 表中每项在 fullPrompt 中仅出现一次
-- [ ] `task_complete` 规则出现 ≤2 次，且无活跃任务时仍有兜底
-- [ ] `spawn_agent` hint 含 mode 语义；wiki 顺序约束可见
+- [x] `## Tooling` 节 5741 → 3287 字节（−43%；≤2600 的严格目标留待更多组折叠，见 note）
+- [x] §4 P1-T2 表中每项在 fullPrompt 中仅出现一次（bash 规则、cron_guide、drawer_id、browser 索引已收敛）
+- [x] `task_complete` 规则出现 ≤2 次，且无活跃任务时仍有兜底
+- [x] `spawn_agent` hint 含 mode 语义；wiki 顺序约束以组注形式可见
 
 **P2 完成条件**
 

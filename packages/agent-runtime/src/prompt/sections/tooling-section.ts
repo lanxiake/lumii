@@ -6,101 +6,120 @@ import type { PromptDetail } from "../system-prompt.types.js"
 
 // === 工具分组映射（使用实际注册的工具名） ===
 
+/**
+ * 工具「何时用」提示。
+ *
+ * 刻意保持简短（≤20 字）：每个工具的完整 description 与参数契约已随 tool schema
+ * 发给模型，此处重复只是浪费 token。本表只承担「有什么、归哪类、什么时候用」，
+ * 参数细节、失败处理、重试策略一律留给 schema。
+ *
+ * 单一用途且名字自解释的工具（如 browser_back）可不设条目，只渲染工具名。
+ */
 const TOOL_SUMMARIES: Record<string, string> = {
   // File Tools
-  file_read: "Read file contents; supports partial read with offset/limit (1-based line numbers)",
-  file_write:
-    "Write file contents; mode='overwrite' (default) writes the whole file, mode='append' appends, mode='range' with startLine/endLine (1-based, inclusive) replaces only the given line range",
-  file_edit: "Make precise edits to existing files",
-  glob: "Find files by glob pattern",
-  grep: "Search file contents for patterns",
+  file_read: "Read a file; use offset/limit for large ones",
+  file_write: "Write a file (overwrite/append/range — see schema)",
+  file_edit: "Make precise edits to an existing file",
+  glob: "Find files by name pattern",
+  grep: "Search file contents",
 
-  // Command Tools
-  bash: "Execute system/shell commands and batch operations (run scripts, process files, query system state)",
-  web_fetch: "Fetch and extract webpage content",
-  web_search: "Search the web for information",
+  // Shell
+  bash: "Shell-only operations (git, npm, builds, system state)",
+
+  // Web
+  web_search: "Look up time-sensitive facts",
+  web_fetch: "Fetch one known URL",
 
   // Media Generation
-  image_generate:
-    "Generate images from text prompts and save them under workspace/outputs; when the user asks for an image, call this tool instead of describing the image. modelId is optional (defaults to gpt-image-2); use gpt-image-2-vip for 2K/4K, nano-banana (fast draft), nano-banana-2 (better general), or nano-banana-pro (pro artistic) when needed. Do not retry with a different modelId after failure unless the user explicitly asks. For iterative edits, merge the previous revisedPrompt with the user's change request.",
+  image_generate: "Generate images to workspace/outputs (model options in schema)",
   speech_generate: "Synthesize speech audio to workspace/outputs",
 
-  // Task Management (session-scoped)
-  todo_write: "Manage in-session task list: create, update, list, delete tasks (session-scoped)",
+  // Task Management
+  todo_write: "Manage the in-session task list",
+  task_complete: "Signal task completion",
 
   // Agent Delegation
-  spawn_agent: "Spawn a sub-agent for complex tasks",
-  send_message: "Send messages to other agents",
+  spawn_agent: "Delegate a task (mode=sync blocks, mode=async notifies on finish)",
+  send_message: "Send a message to another agent",
 
   // Scheduling
-  cron_create: "Create a scheduled task — call `cron_guide` first to see parameter format and examples",
-  cron_list: "List all scheduled tasks and their status",
+  cron_create: "Create a scheduled task",
+  cron_list: "List scheduled tasks",
   cron_delete: "Delete a scheduled task by ID",
 
-  // Guide tools (lazy-loaded documentation)
-  a2ui_guide: "Get full A2UI component docs, JSON format and examples — call when you need to output UI components",
-  cron_guide: "Get cron_create parameter format and examples — call before creating a scheduled task",
-  weixin_send_guide: "Get WeChat file/image delivery guide — call when you need to send files or images to a WeChat user",
-  skill_list: "List all available skills with name and description",
-  skill_search: "Search skills by keyword — searches name, description, and when-to-use fields",
-  skill_invoke: "Load a skill's full SKILL.md instructions and list its available resources",
-  message: "Send channel messages and perform channel actions",
-  memory_search: "Search long-term memory and stored knowledge",
-  memory_read: "Read the full archived content of one memory drawer (incl. original conversation transcript) by drawer_id — use memory_search first to get the drawer_id, then read the full text here",
-  profile_memory: "Read and update user profile memory",
-  system_prompt: "Read or update user personalization/system prompt",
+  // Reference Guides (lazy-loaded docs)
+  a2ui_guide: "A2UI component docs — call before emitting UI components",
+  cron_guide: "cron_create parameter format",
+  weixin_send_guide: "WeChat file/image delivery method",
 
-  // Browser Tools
-  browser_navigate: "Navigate the browser to a URL",
-  browser_click: "Click an element by `ref` — see Browser Control for how to obtain one",
-  browser_type: "Type text into an input element by `ref`",
-  browser_scroll: "Scroll the current page (up, down, left, right, or to a specific element)",
-  browser_wait: "Wait for a specified duration in milliseconds or for an element to appear",
-  browser_eval: "Evaluate JavaScript in the current browser page context",
-  browser_back: "Navigate back in browser history",
-  browser_forward: "Navigate forward in browser history",
-  browser_screenshot: "Take a screenshot of the current browser page and return the image path",
+  // Skills
+  skill_list: "List available skills",
+  skill_search: "Search skills by keyword",
+  skill_invoke: "Load a skill's full SKILL.md",
 
-  // Client Commands
-  session_create: "Create a new conversation session",
-  session_clear: "Delete all messages in the current session",
-  session_compact: "Compress context by removing older messages, keeping recent turns",
-  session_resume: "Switch to a previous conversation session by sessionKey",
-  settings_think: "Set LLM thinking/reasoning level: off / low / medium / high",
-  settings_backend: "Switch ACP coding assistant backend (lumii / claude / codex / opencode / gemini / ...)",
-  info_status: "Query current session status: message count and active model",
-  memory_manage:
-    "Manage the current agent's working memory: add/update/delete/archive single entries or list/clear all — keep memory accurate by removing stale/wrong entries",
+  // Memory & Knowledge
+  memory_search: "Recall past work, decisions, preferences",
+  memory_read: "Read one archived drawer by drawer_id",
+  memory_manage: "Fix or remove stale working-memory entries",
 
-  // Agent Management
-  agent_team_generate: "Generate a team of custom agents by forking system agents — use when user wants to set up a specialized team",
-  agent_team_optimize: "Update existing custom agents' names, descriptions, or personality (SOUL) to improve team configuration",
-  agent_remove: "Delete a custom agent (user-created only; system agents cannot be removed)",
-
-  // Task Completion
-  task_complete: "Signal that the task is fully done — provide a brief summary of what was accomplished. MUST be called to mark task completion.",
-
-  // Interaction
-  ask_user_question: "Ask a clarifying question with preset options when you cannot safely proceed",
-
-  // Messaging
-  channel_list: "List channels and peer ids — call before channel_send",
-  channel_send: "Send text or a local file to an explicit channel peer",
+  // Self-Configuration
+  profile_memory: "Read/update the user profile",
+  system_prompt: "Read/evolve your own SOUL",
 
   // Memory & Knowledge — Wiki
-  wiki_overview: "Wiki category map — call before wiki_search",
+  wiki_overview: "Wiki category map",
   wiki_search: "Search the Wiki knowledge base",
-  wiki_read: "Read one Wiki page by its exact path",
+  wiki_read: "Read one Wiki page by exact path",
+
+  // Messaging
+  message: "Reply in the current conversation",
+  channel_list: "List channels and peer ids",
+  channel_send: "Send text/file to an explicit peer",
+
+  // Session & Settings
+  session_create: "Start a fresh conversation session",
+  session_clear: "Delete all messages in this session",
+  session_compact: "Drop older messages, keep recent turns",
+  session_resume: "Switch to a previous session by sessionKey",
+  settings_think: "Set reasoning level: off / low / medium / high",
+  settings_backend: "Switch ACP coding backend",
+  info_status: "Current message count and active model",
+
+  // Agent Management
+  agent_team_generate: "Fork system agents into a custom team",
+  agent_team_optimize: "Tune existing custom agents' name/description/SOUL",
+  agent_remove: "Delete a user-created agent",
+
+  // Interaction
+  ask_user_question: "Ask a clarifying question when you cannot safely proceed",
 
   // Dashboard
-  dashboard_feed_write: "Persist news/summary items to the dashboard feed card",
+  dashboard_feed_write: "Persist news items to the dashboard feed card",
 
   // Skills (pre-registered; not yet in the built-in registry)
   execute_skill: "Run an executable skill entry point",
 }
 
+/**
+ * 组级补充说明：表达顺序约束或组内偏好，避免在每个工具条目里重复。
+ * 仅在该组至少有一个工具可用时渲染。
+ */
+/**
+ * 折叠渲染的分组：工具名自解释且有专门正文 section，逐条列出不划算。
+ */
+const FOLDED_GROUPS = new Set(["Browser Tools"])
+
+const GROUP_NOTES: Record<string, string> = {
+  "File Tools": "Prefer these over `bash` for any file work.",
+  Scheduling: "Call `cron_guide` first for the parameter format.",
+  "Memory & Knowledge":
+    "Order matters: `memory_search` → `memory_read`; `wiki_overview` → `wiki_search` → `wiki_read`.",
+  "Browser Tools": "See `## Browser Control` for the interaction loop.",
+}
+
 const FILE_TOOLS = new Set(["file_read", "file_write", "file_edit", "glob", "grep"])
-const COMMAND_TOOLS = new Set(["bash", "web_fetch", "web_search"])
+const SHELL_TOOLS = new Set(["bash"])
+const WEB_TOOLS = new Set(["web_search", "web_fetch"])
 const MEDIA_GENERATION_TOOLS = new Set(["image_generate", "speech_generate"])
 const TASK_TOOLS = new Set(["todo_write", "task_complete"])
 const AGENT_TOOLS = new Set(["spawn_agent", "send_message"])
@@ -153,7 +172,8 @@ const AGENT_MANAGEMENT_TOOLS = new Set([
  */
 export const PROMPT_TOOL_GROUPS: Readonly<Record<string, ReadonlySet<string>>> = {
   "File Tools": FILE_TOOLS,
-  "Command Tools": COMMAND_TOOLS,
+  Shell: SHELL_TOOLS,
+  Web: WEB_TOOLS,
   "Media Generation": MEDIA_GENERATION_TOOLS,
   "Task Management": TASK_TOOLS,
   "Agent Delegation": AGENT_TOOLS,
@@ -184,10 +204,19 @@ export function categorizeTools(toolNames: readonly string[]): string[] {
     if (matching.length === 0) continue
 
     lines.push(`### ${group.label}`)
-    for (const name of matching) {
-      const summary = TOOL_SUMMARIES[name] ?? ""
-      lines.push(summary ? `- \`${name}\`: ${summary}` : `- \`${name}\``)
+
+    if (FOLDED_GROUPS.has(group.label)) {
+      // 折叠渲染：只报数量，逐条描述交给 schema 与对应正文 section
+      lines.push(`\`${group.label === "Browser Tools" ? "browser_*" : "tools"}\` (${matching.length} tools)`)
+    } else {
+      for (const name of matching) {
+        const summary = TOOL_SUMMARIES[name] ?? ""
+        lines.push(summary ? `- \`${name}\`: ${summary}` : `- \`${name}\``)
+      }
     }
+
+    const note = GROUP_NOTES[group.label]
+    if (note) lines.push(note)
     lines.push("")
   }
 

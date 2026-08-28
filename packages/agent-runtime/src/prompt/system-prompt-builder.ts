@@ -202,20 +202,18 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
   // === 2.1. 工具选择优先级（仅 standard/full 模式注入） ===
   if (detail !== "compact" && !params.isSubAgent) {
-    const hasFileTools = effectiveToolNames.includes("file_read") || effectiveToolNames.includes("file_write")
     const hasWebTools = effectiveToolNames.includes("web_search") || effectiveToolNames.includes("web_fetch")
     const hasSkillTools = effectiveToolNames.includes("skill_search")
     const hasMemoryTools = effectiveToolNames.includes("memory_search")
-    if (hasFileTools || hasWebTools || hasSkillTools || hasMemoryTools) {
+    // 「优先用专用文件工具而非 bash」已由 Tooling → File Tools 的组注承担，
+    // 此处只保留信息获取的优先级链路，避免同一条规则说两遍。
+    if (hasSkillTools || hasMemoryTools || hasWebTools) {
       staticLines.push(
         "",
         "**Tool preference:**",
-        "- Use dedicated file tools (`file_read`/`file_write`/`glob`/`grep`) instead of `bash` for file work; reserve `bash` for shell-only operations.",
+        "- 信息获取优先级：成套任务先 `skill_search` → 历史偏好先 `memory_search` → 时效事实用 `web_search` → 指定网页用 `web_fetch`",
+        "",
       )
-      if (hasSkillTools || hasMemoryTools || hasWebTools) {
-        staticLines.push("- 信息获取优先级：成套任务先 `skill_search` → 历史偏好先 `memory_search` → 时效事实用 `web_search` → 指定网页用 `web_fetch`")
-      }
-      staticLines.push("")
     }
   }
 
