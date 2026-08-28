@@ -155,17 +155,19 @@ export interface WikiSynthesisDetail extends WikiSynthesisListItem {
 export interface WikiGraphDataItem {
   readonly nodes: readonly {
     readonly id: string
-    readonly kind: 'page' | 'entity'
+    readonly kind: 'page' | 'entity' | 'category' | 'subtopic' | 'source'
     readonly title: string
     readonly path?: string
     readonly category?: string
     readonly useCount?: number
     readonly entityType?: string
     readonly pageId?: string | null
+    readonly topicCategory?: string | null
+    readonly topicSubtopic?: string | null
   }[]
   readonly edges: readonly {
     readonly id: string
-    readonly kind: 'wikilink' | 'relation'
+    readonly kind: 'wikilink' | 'relation' | 'belongs_to' | 'sibling' | 'mentioned_in'
     readonly source: string
     readonly target: string
     readonly label: string
@@ -173,6 +175,40 @@ export interface WikiGraphDataItem {
     readonly strength?: number
   }[]
   readonly truncated: boolean
+}
+
+/** 三期：实体出现的资料引用 */
+export interface WikiEntitySourceRef {
+  readonly id: string
+  readonly title: string
+  readonly sourcePath: string | null
+  readonly topicCategory: string | null
+  readonly topicSubtopic: string | null
+  readonly mediaType: string
+}
+
+/** 三期：wiki:ero:extract target='sources' 结果 */
+export interface WikiEroExtractSourceResult {
+  readonly sourcesScanned?: number
+  readonly sourcesSkipped?: number
+  readonly sourcesFailed?: number
+  readonly entitiesUpserted: number
+  readonly relationsUpserted: number
+  readonly observationsAdded: number
+  readonly errors: readonly (string | { sourceId: string; title: string; message: string })[]
+}
+
+/** 三期：图层枚举 */
+export type WikiGraphLayer = 'structure' | 'entities' | 'history'
+
+/** 三期：图谱查询参数 */
+export interface WikiGraphQuery {
+  readonly centerSourceId?: string
+  readonly category?: string
+  readonly subtopic?: string
+  readonly radius?: 0 | 1
+  readonly limit?: number
+  readonly layers?: readonly WikiGraphLayer[]
 }
 
 /** ERO 实体观察摘要（侧栏只读展示） */
@@ -832,101 +868,68 @@ export function useWikiPage() {
     [],
   )
 
-  const bootstrapEro = useCallback(async (): Promise<{ entities: number; relations: number } | null> => {
+  /**
+   * 三期：图谱数据查询，支持三层架构与小类范围。
+   */
+  const getGraphData = useCallback(async (query: WikiGraphQuery): Promise<WikiGraphDataItem | null> => {
     const api = window.electronAPI?.agentRuntime
     if (!api?.sendCommand) return null
     try {
-      return (await api.sendCommand({ type: 'wiki:ero:bootstrap' })) as {
-        entities: number
-        relations: number
-      }
+      return (await api.sendCommand({
+        type: 'wiki:graph:data',
+        category: query.category,
+        subtopic: query.subtopic,
+        radius: query.radius,
+        limit: query.limit,
+        layers: query.layers as ('structure' | 'entities' | 'history')[] | undefined,
+      })) as WikiGraphDataItem
     } catch {
       return null
     }
   }, [])
 
   /**
-   * AI 抽取最近更新页的实体关系观察。
+   * 三期：按资料范围（小类/大类/sourceIds）抽取实体关系，写 source_id，增量跳过。
    */
-  const extractEro = useCallback(async (): Promise<{
-    pagesProcessed: number
-    entitiesUpserted: number
-    relationsUpserted: number
-    observationsAdded: number
-    errors: readonly string[]
-  } | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
-    try {
-      return (await api.sendCommand({ type: 'wiki:ero:extract' })) as {
-        pagesProcessed: number
-        entitiesUpserted: number
-        relationsUpserted: number
-        observationsAdded: number
-        errors: readonly string[]
-      }
-    } catch {
-      return null
-    }
-  }, [])
-
-  /**
-   * 加载指定实体的活跃观察摘要（wiki:ero:list + entityId）。
-   */
-  const listEntityObservations = useCallback(
-    async (entityId: string): Promise<readonly WikiObservationItem[]> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand || !entityId) return []
-      try {
-        const r = (await api.sendCommand({
-          type: 'wiki:ero:list',
-          entityId,
-        })) as {
-          observations?: readonly {
-            id: string
-            entity_id: string
-            content: string
-            source_page_id: string | null
-            created_at: string
-          }[]
-        }
-        const rows = r?.observations
-        if (!Array.isArray(rows)) return []
-        return rows.map((o) => ({
-          id: o.id,
-          entityId: o.entity_id,
-          content: o.content,
-          sourcePageId: o.source_page_id,
-          createdAt: o.created_at,
-        }))
-      } catch {
-        return []
-      }
-    },
-    [],
-  )
-
-  const getGraphData = useCallback(
-    async (params: {
-      centerPageId?: string
+  const extractEroFromSources = useCallback(
+    async (scope: {
       category?: string
-      limit?: number
-    }): Promise<WikiGraphDataItem | null> => {
+      subtopic?: string
+      sourceIds?: readonly string[]
+    }): Promise<WikiEroExtractSourceResult | null> => {
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return null
       try {
         return (await api.sendCommand({
-          type: 'wiki:graph:data',
-          centerPageId: params.centerPageId,
-          category: params.category,
-          limit: params.limit,
-        })) as WikiGraphDataItem
+          type: 'wiki:ero:extract',
+          target: 'sources',
+          category: scope.category,
+          subtopic: scope.subtopic,
+          sourceIds: scope.sourceIds,
+        })) as WikiEroExtractSourceResult
       } catch {
         return null
       }
     },
     [],
   )
+
+  /**
+   * 三期：实体出现于哪些资料（实体侧栏）。
+   */
+  const listEntitySources = useCallback(async (entityId: string): Promise<readonly WikiEntitySourceRef[]> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand || !entityId) return []
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:ero:entity-sources',
+        entityId,
+      })) as { sources: readonly WikiEntitySourceRef[] }
+      return Array.isArray(r.sources) ? r.sources : []
+    } catch {
+      return []
+    }
+  }, [])
 
   const statusScan = useCallback(async (staleDays?: number): Promise<readonly WikiStatusCandidateItem[]> => {
     const api = window.electronAPI?.agentRuntime
@@ -1284,9 +1287,8 @@ export function useWikiPage() {
     statusScan,
     confirmStatus,
     searchHybrid,
-    bootstrapEro,
-    extractEro,
-    listEntityObservations,
+    extractEroFromSources,
+    listEntitySources,
     loadTopicTree,
     setTopicTree,
     mutateTopic,
