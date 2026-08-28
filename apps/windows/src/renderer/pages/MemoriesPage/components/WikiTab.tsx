@@ -15,6 +15,7 @@ import {
   type WikiPageListItem,
   type WikiPageDetail,
   type WikiSourceListItem,
+  type WikiTopicMutation,
   type WikiTopicTree,
 } from '../../../hooks/business/useWikiPage'
 import { CleanupView } from './CleanupView'
@@ -26,6 +27,7 @@ import { WikiTopBar } from './WikiTopBar'
 import { WikiPageList } from './WikiPageList'
 import { WikiFileList } from './WikiFileList'
 import { WikiTopicPicker } from './WikiTopicPicker'
+import { WikiTopicTreeEditor } from './WikiTopicTreeEditor'
 import { WikiInboxPanel } from './WikiInboxPanel'
 import { WikiMoreMenu } from './WikiMoreMenu'
 import { WikiTaskCenter } from './WikiTaskCenter'
@@ -74,6 +76,7 @@ export const WikiTab: React.FC = () => {
     statusScan,
     confirmStatus,
     loadTopicTree,
+    mutateTopic,
     listSources,
     updateSourceTopic,
     moveToParking,
@@ -104,6 +107,7 @@ export const WikiTab: React.FC = () => {
   const [picker, setPicker] = useState<PickerTarget | null>(null)
   const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(false)
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false)
+  const [isTreeEditorOpen, setIsTreeEditorOpen] = useState(false)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
 
   const refreshSources = useCallback(async () => {
@@ -292,6 +296,31 @@ export const WikiTab: React.FC = () => {
     [moveToParking, refreshSources],
   )
 
+  /**
+   * 应用一次主题树变更，成功后刷新树与文件列表。
+   * 若当前所在目录被这次变更删掉/改名，导航回待整理，避免停在空节点上。
+   */
+  const handleMutateTopic = useCallback(
+    async (mutation: WikiTopicMutation) => {
+      const result = await mutateTopic(mutation)
+      if (!result.ok) return result
+      setTopicTree(result.tree)
+      await refreshSources()
+      setNav((prev) => {
+        if (prev.kind === 'category') {
+          return result.tree.categories.some((c) => c.name === prev.name) ? prev : { kind: 'inbox' }
+        }
+        if (prev.kind === 'subtopic') {
+          const cat = result.tree.categories.find((c) => c.name === prev.category)
+          return cat?.subtopics.includes(prev.subtopic) ? prev : { kind: 'inbox' }
+        }
+        return prev
+      })
+      return result
+    },
+    [mutateTopic, refreshSources],
+  )
+
   const handleOpenPage = useCallback(
     async (pageId: string) => {
       const page = await getPage(pageId)
@@ -423,6 +452,15 @@ export const WikiTab: React.FC = () => {
         onCleanup={() => handleSelectNav({ kind: 'cleanup' })}
         onSynthesis={() => handleSelectNav({ kind: 'synthesis' })}
         onRebuild={handleRebuildIndex}
+        onEditTopicTree={() => setIsTreeEditorOpen(true)}
+      />
+
+      <WikiTopicTreeEditor
+        open={isTreeEditorOpen}
+        tree={topicTree}
+        topicCounts={topicCounts}
+        onMutate={handleMutateTopic}
+        onClose={() => setIsTreeEditorOpen(false)}
       />
 
       <div className="wiki-tab-right">

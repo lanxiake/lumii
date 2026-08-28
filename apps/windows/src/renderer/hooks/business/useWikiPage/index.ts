@@ -18,6 +18,9 @@ export {
   type WikiStatusCandidateItem,
   type WikiObservationItem,
   type WikiTopicTree,
+  type WikiFileDisposition,
+  type WikiTopicMutation,
+  type WikiTopicMutateResult,
   type WikiSourceListItem,
   type WikiSourceSearchHit,
 } from './useWikiPage'

@@ -211,7 +211,7 @@ describe('WikiTab', () => {
     expect(screen.getByRole('heading', { name: /搜索结果（1）/ })).toBeInTheDocument()
   })
 
-  it('更多菜单含历史页面，不含全库重新编目与编辑主题树', async () => {
+  it('更多菜单含历史页面与编辑主题树', async () => {
     render(<WikiTab />)
     await screen.findByText(/暂无待整理条目/)
 
@@ -219,8 +219,17 @@ describe('WikiTab', () => {
     expect(screen.getByRole('menuitem', { name: /历史页面/ })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: /清理/ })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: /重建索引/ })).toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: /全库重新编目/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: /编辑主题树/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: /编辑主题树/ })).toBeInTheDocument()
+  })
+
+  it('更多菜单点编辑主题树打开编辑弹层', async () => {
+    render(<WikiTab />)
+    await screen.findByText(/暂无待整理条目/)
+
+    fireEvent.click(screen.getByRole('button', { name: '⋯ 更多' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /编辑主题树/ }))
+    expect(await screen.findByText('编辑主题树')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /添加大类/ })).toBeInTheDocument()
   })
 
   it('历史页面视图打开旧摘要详情抽屉', async () => {

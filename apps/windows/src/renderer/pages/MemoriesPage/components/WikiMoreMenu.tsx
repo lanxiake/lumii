@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react'
-import { History, Layers3, RefreshCw, Sparkles } from 'lucide-react'
+import { FolderTree, History, Layers3, RefreshCw, Sparkles } from 'lucide-react'
 
 interface WikiMoreMenuProps {
   readonly open: boolean
@@ -9,9 +9,16 @@ interface WikiMoreMenuProps {
   readonly onCleanup: () => void
   readonly onSynthesis: () => void
   readonly onRebuild: () => void
+  readonly onEditTopicTree: () => void
 }
 
 const MENU_ITEMS = [
+  {
+    key: 'editTopicTree',
+    label: '编辑主题树',
+    description: '增删改并大类与小类',
+    icon: FolderTree,
+  },
   {
     key: 'history',
     label: '历史页面',
@@ -49,6 +56,7 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
   onCleanup,
   onSynthesis,
   onRebuild,
+  onEditTopicTree,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -69,6 +77,7 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
   if (!open) return null
 
   const actions = {
+    editTopicTree: onEditTopicTree,
     history: onHistory,
     cleanup: onCleanup,
     synthesis: onSynthesis,
