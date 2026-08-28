@@ -6,7 +6,13 @@
 |---|---|
 | [wiki-p0-test-cases.md](./wiki-p0-test-cases.md) | P0：收件箱闭环、金标检索、页面、索引、GAP |
 | [wiki-p1-test-cases.md](./wiki-p1-test-cases.md) | P1：双链、修订回滚、清理导出、GAP |
-| [wiki-p2-test-cases.md](./wiki-p2-test-cases.md) | P2：综述 accept/reject、图谱、hybrid、状态 GAP |
+| [wiki-p2-test-cases.md](./wiki-p2-test-cases.md) | P2：综述 accept/reject、图谱、hybrid、状态 GAP（旧命令，非记忆重构二期） |
+| [wiki-p1-implementation-test-cases.md](./wiki-p1-implementation-test-cases.md) | 记忆重构一期：用途两级目录、口诀分类器、归档不写摘要页、切断聊天摄入、资料层检索（含 CLI/后端签名不同步的已知问题） |
+| [wiki-p2-implementation-test-cases.md](./wiki-p2-implementation-test-cases.md) | 记忆重构二期：主题树编辑、重新编目、新建笔记、综述改产资料、清理对齐、资料向量检索 |
+| [wiki-p3-test-cases.md](./wiki-p3-test-cases.md) | 记忆重构三期：知识图谱新模型、按资料抽取实体、实体反查资料 |
+| [测试材料/](./测试材料/) | 真实文档样本（docx/mp4/PDF），供端到端摄入测试使用 |
+| [run-wiki-real-materials-suite.mjs](./run-wiki-real-materials-suite.mjs) | 用「测试材料」真实文档跑摄入→归档→检索→打开→归档保留的端到端脚本 |
+| [wiki-real-materials-test-report.md](./wiki-real-materials-test-report.md) | 真实材料套件最新报告 |
 | [run-wiki-cli-suite.mjs](./run-wiki-cli-suite.mjs) | 执行器（全部 wiki CLI + `command` GAP） |
 | [wiki-cli-test-report.md](./wiki-cli-test-report.md) | 最新报告 |
 | [wiki-cli-evidence.jsonl](./wiki-cli-evidence.jsonl) | 逐条证据 |
