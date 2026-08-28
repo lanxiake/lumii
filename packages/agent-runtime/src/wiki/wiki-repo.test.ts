@@ -7,6 +7,7 @@ import { WikiRepo } from "./wiki-repo.js";
 import { validateWikiPath } from "./types.js";
 import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY } from "./wiki-topic-tree.js";
 import { topicCountKey } from "./wiki-topic-mutate.js";
+import { GRAPH_EXTRACT_CURSOR_META_KEY } from "./wiki-graph-types.js";
 
 describe("validateWikiPath", () => {
   it("接受合法的固定顶层分类路径", () => {
@@ -865,5 +866,43 @@ describe("WikiRepo 未归档原因区分", () => {
     expect(repo.retryInbox(item.id)).toBe(true);
     expect(repo.findInboxById(item.id)!.last_outcome).toBeNull();
     expect(repo.findInboxById(item.id)!.last_error).toBeNull();
+  });
+});
+
+describe("WikiRepo 图谱抽取游标（三期）", () => {
+  it("空库返回空对象", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    expect(repo.getGraphExtractCursor("ag", "u")).toEqual({});
+  });
+
+  it("可往返且按归属隔离", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.setGraphExtractCursor("ag", "u", { s1: "h1", s2: "h2" });
+    expect(repo.getGraphExtractCursor("ag", "u")).toEqual({ s1: "h1", s2: "h2" });
+    expect(repo.getGraphExtractCursor("ag2", "u")).toEqual({});
+    expect(repo.getGraphExtractCursor("ag", "u2")).toEqual({});
+  });
+
+  it("JSON 损坏时退化为空对象，不让图谱视图整体报错", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.setIndexMeta(`${GRAPH_EXTRACT_CURSOR_META_KEY}:ag:u`, "{ not json");
+    expect(repo.getGraphExtractCursor("ag", "u")).toEqual({});
+  });
+
+  it("结构非法（数组、值非字符串）也退化为空对象", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.setIndexMeta(`${GRAPH_EXTRACT_CURSOR_META_KEY}:ag:u`, JSON.stringify(["s1"]));
+    expect(repo.getGraphExtractCursor("ag", "u")).toEqual({});
+    repo.setIndexMeta(`${GRAPH_EXTRACT_CURSOR_META_KEY}:ag:u`, JSON.stringify({ s1: 42 }));
+    expect(repo.getGraphExtractCursor("ag", "u")).toEqual({});
+    repo.setIndexMeta(`${GRAPH_EXTRACT_CURSOR_META_KEY}:ag:u`, JSON.stringify(null));
+    expect(repo.getGraphExtractCursor("ag", "u")).toEqual({});
+  });
+
+  it("覆盖式写入：后一次完全替换前一次", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.setGraphExtractCursor("ag", "u", { s1: "h1" });
+    repo.setGraphExtractCursor("ag", "u", { s2: "h2" });
+    expect(repo.getGraphExtractCursor("ag", "u")).toEqual({ s2: "h2" });
   });
 });

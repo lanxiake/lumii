@@ -22,6 +22,7 @@ import {
   type WikiTopicTree,
 } from "./wiki-topic-tree.js";
 import { RECLASSIFY_RUN_META_KEY } from "./wiki-reclassify-types.js";
+import { GRAPH_EXTRACT_CURSOR_META_KEY, type WikiGraphExtractCursor } from "./wiki-graph-types.js";
 import {
   planTopicMutation,
   topicCountKey,
@@ -652,6 +653,40 @@ export class WikiRepo {
 
   private reclassifyRunKey(agentId: string, userId: string): string {
     return `${RECLASSIFY_RUN_META_KEY}:${agentId}:${userId}`;
+  }
+
+  // ── 图谱抽取游标（三期） ────────────────────────────────
+
+  /**
+   * 读取 ERO 增量抽取游标：sourceId → content_hash。
+   * 游标是纯派生数据，损坏时重抽一遍即可，绝不能让图谱视图整体报错，
+   * 所以解析或结构校验失败都退化为空对象（等价于「全部需要重抽」）。
+   */
+  getGraphExtractCursor(agentId: string, userId: string): WikiGraphExtractCursor {
+    const raw = this.getIndexMeta(this.graphExtractCursorKey(agentId, userId));
+    if (!raw) return {};
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return {};
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {};
+    const cursor: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value !== "string") return {};
+      cursor[key] = value;
+    }
+    return cursor;
+  }
+
+  /** 覆盖式写入抽取游标 */
+  setGraphExtractCursor(agentId: string, userId: string, cursor: WikiGraphExtractCursor): void {
+    this.setIndexMeta(this.graphExtractCursorKey(agentId, userId), JSON.stringify(cursor));
+  }
+
+  private graphExtractCursorKey(agentId: string, userId: string): string {
+    return `${GRAPH_EXTRACT_CURSOR_META_KEY}:${agentId}:${userId}`;
   }
 
   /**

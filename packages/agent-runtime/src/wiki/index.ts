@@ -146,6 +146,9 @@ export type {
   WikiReclassifyStatus,
 } from "./wiki-reclassify-types.js";
 
+export { GRAPH_EXTRACT_CURSOR_META_KEY } from "./wiki-graph-types.js";
+export type { WikiGraphExtractCursor } from "./wiki-graph-types.js";
+
 export { planTopicMutation, topicCountKey, DEFAULT_NEW_SUBTOPIC } from "./wiki-topic-mutate.js";
 export type {
   FileDisposition,
