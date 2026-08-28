@@ -21,6 +21,8 @@ import {
   resolveAgentFilePath,
   sanitizeFilenameSegment,
   validateTopicAssignment,
+  WikiSourceVectorIndex,
+  mergeSourceHybridRanks,
 } from '@mtbot/agent-runtime'
 import {
   SYNTHESIS_CONFIRM_REQUIRED_CODE,
@@ -193,22 +195,69 @@ export function handleWikiPageDelete(
 }
 
 /** 主搜索改为资料层：命中原始文件而非旧汇总页。历史页面搜索见 wiki:search:hybrid。 */
-export function handleWikiSearch(
+export async function handleWikiSearch(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:search' }>,
-): unknown {
+): Promise<{ hits: unknown[]; mode: string; degradeReason: string | null }> {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const hits = bridge.wikiRepo.searchSources(agentId, LOCAL_USER_ID, command.keyword, command.limit)
-  return hits.map((h) => ({
-    sourceId: h.source.id,
-    title: h.source.title,
-    category: h.source.topic_category,
-    subtopic: h.source.topic_subtopic,
-    snippet: h.snippet,
-    mediaType: h.source.media_type,
-    sourcePath: h.source.source_path,
-    updatedAt: new Date(h.source.last_used ?? h.source.created_at).getTime(),
-  }))
+  const limit = command.limit ?? 10
+  const ftsHits = bridge.wikiRepo.searchSources(agentId, LOCAL_USER_ID, command.keyword, limit)
+  const ftsIds = ftsHits.map((h) => h.source.id)
+  const sourceById = new Map(ftsHits.map((h) => [h.source.id, h.source]))
+
+  let vectorIds: string[] = []
+  let degradeReason: string | null = null
+  let mode: 'fts' | 'vector' | 'hybrid' = 'fts'
+
+  if (command.enableVector === false) {
+    degradeReason = '向量检索已关闭，仅全文检索'
+  } else {
+    try {
+      const host = await bridge.resolveWikiEmbedder()
+      if (host.notice && host.backend === 'bigram-hash') {
+        degradeReason = host.notice
+      }
+      const index = new WikiSourceVectorIndex(bridge.wikiRepo.database, host.embedder)
+      for (const hit of ftsHits) {
+        await index.upsertSource(hit.source)
+      }
+      if (ftsHits.length === 0) {
+        const sources = bridge.wikiRepo.listSources(agentId, LOCAL_USER_ID).slice(0, 200)
+        for (const s of sources) await index.upsertSource(s)
+      }
+      const vecHits = await index.searchSimilar(agentId, LOCAL_USER_ID, command.keyword, limit)
+      vectorIds = vecHits.map((v) => v.sourceId)
+      // 向量命中的资料可能没进 FTS top-N，补进 sourceById 供映射
+      for (const s of bridge.wikiRepo.listSources(agentId, LOCAL_USER_ID)) {
+        if (vectorIds.includes(s.id) && !sourceById.has(s.id)) sourceById.set(s.id, s)
+      }
+    } catch {
+      degradeReason = '向量模型不可用，已退回全文检索'
+    }
+  }
+
+  const merged = mergeSourceHybridRanks({ ftsIds, vectorIds, sourceById })
+  mode = merged.mode
+
+  const hits = merged.ids
+    .map((id) => {
+      const source = sourceById.get(id)
+      if (!source) return null
+      const hit = ftsHits.find((h) => h.source.id === id)
+      return {
+        sourceId: source.id,
+        title: source.title,
+        category: source.topic_category,
+        subtopic: source.topic_subtopic,
+        snippet: hit?.snippet ?? '',
+        mediaType: source.media_type,
+        sourcePath: source.source_path,
+        updatedAt: new Date(source.last_used ?? source.created_at).getTime(),
+      }
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+
+  return { hits, mode, degradeReason }
 }
 
 export function handleWikiSourceGet(
@@ -1070,11 +1119,19 @@ export async function handleWikiVectorRebuild(
   command: Extract<AgentRuntimeCommand, { type: 'wiki:vector:rebuild' }>,
 ): Promise<{ rebuiltCount: number; backend: string; notice: string | null }> {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const pages = bridge.wikiRepo.listPages(agentId, LOCAL_USER_ID)
   const host = await bridge.resolveWikiEmbedder(true)
-  const index = new WikiVectorIndex(bridge.wikiRepo.database, host.embedder)
-  const rebuiltCount = await index.rebuild(pages)
-  return { rebuiltCount, backend: host.backend, notice: host.notice }
+
+  // 页面向量（历史页面的混合检索）
+  const pages = bridge.wikiRepo.listPages(agentId, LOCAL_USER_ID)
+  const pageIndex = new WikiVectorIndex(bridge.wikiRepo.database, host.embedder)
+  const pageCount = await pageIndex.rebuild(pages)
+
+  // 资料向量（wiki:search 用）
+  const sources = bridge.wikiRepo.listSources(agentId, LOCAL_USER_ID)
+  const sourceIndex = new WikiSourceVectorIndex(bridge.wikiRepo.database, host.embedder)
+  const sourceCount = await sourceIndex.rebuild(sources)
+
+  return { rebuiltCount: pageCount + sourceCount, backend: host.backend, notice: host.notice }
 }
 
 export function handleWikiStatusScan(

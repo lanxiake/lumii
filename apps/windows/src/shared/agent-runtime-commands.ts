@@ -405,6 +405,8 @@ export interface WikiSearchCommand {
   readonly agentId?: string
   readonly keyword: string
   readonly limit?: number
+  /** 显式关闭向量，只走全文检索（用于测试与降级排查） */
+  readonly enableVector?: boolean
 }
 
 export interface WikiSourceGetCommand {
@@ -1686,16 +1688,20 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
     } | null
   : T extends 'wiki:page:update' ? { pageId: string; version: number }
   : T extends 'wiki:page:delete' ? { success: boolean }
-  : T extends 'wiki:search' ? readonly {
-      sourceId: string
-      title: string
-      category: string | null
-      subtopic: string | null
-      snippet: string
-      mediaType: string
-      sourcePath: string | null
-      updatedAt: number
-    }[]
+  : T extends 'wiki:search' ? {
+      hits: readonly {
+        sourceId: string
+        title: string
+        category: string | null
+        subtopic: string | null
+        snippet: string
+        mediaType: string
+        sourcePath: string | null
+        updatedAt: number
+      }[]
+      mode: 'fts' | 'vector' | 'hybrid'
+      degradeReason: string | null
+    }
   : T extends 'wiki:source:get' ? {
       id: string
       title: string

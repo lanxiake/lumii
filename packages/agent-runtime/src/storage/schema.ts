@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 24;
 
 /**
  * V1 DDL — 初始 schema
@@ -730,5 +730,24 @@ CREATE INDEX IF NOT EXISTS idx_wiki_observations_source ON wiki_observations (so
   [
     23,
     `ALTER TABLE wiki_inbox ADD COLUMN last_outcome TEXT;`,
+  ],
+  // V24: 资料层向量派生表（可重建；结构对齐 wiki_page_embeddings）。
+  // 与 wiki_sources_fts 做 RRF，失败/关闭时显式降级；不新增列，不改三期 source_id。
+  [
+    24,
+    `
+CREATE TABLE IF NOT EXISTS wiki_source_embeddings (
+  source_id      TEXT PRIMARY KEY REFERENCES wiki_sources(id) ON DELETE CASCADE,
+  agent_id       TEXT NOT NULL,
+  user_id        TEXT NOT NULL,
+  model_id       TEXT NOT NULL,
+  dims           INTEGER NOT NULL,
+  embedding      BLOB NOT NULL,
+  content_hash   TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wiki_source_embeddings_agent
+  ON wiki_source_embeddings (agent_id, user_id, model_id);
+`,
   ],
 ] as const;

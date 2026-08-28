@@ -198,7 +198,7 @@ describe('wiki commands', () => {
     )
   })
 
-  it('search 命中资料层（原文件）而非旧汇总页', () => {
+  it('search 命中资料层（原文件）而非旧汇总页', async () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
     const source = repo.createSource({
@@ -209,13 +209,14 @@ describe('wiki commands', () => {
     })
     repo.indexSource(source.id)
 
-    const hits = handleWikiSearch(bridge, { type: 'wiki:search', agentId: 'assistant', keyword: '架构设计' }) as {
-      sourceId: string
-      title: string
-    }[]
-    expect(hits).toHaveLength(1)
-    expect(hits[0]!.sourceId).toBe(source.id)
-    expect(hits[0]!.title).toBe('架构设计文档')
+    const r = (await handleWikiSearch(bridge, {
+      type: 'wiki:search',
+      agentId: 'assistant',
+      keyword: '架构设计',
+    })) as { hits: { sourceId: string; title: string }[]; mode: string }
+    expect(r.hits).toHaveLength(1)
+    expect(r.hits[0]!.sourceId).toBe(source.id)
+    expect(r.hits[0]!.title).toBe('架构设计文档')
   })
 
   it('source:get 存在与不存在两种情况', () => {

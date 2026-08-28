@@ -118,6 +118,7 @@ export const WikiTab: React.FC = () => {
   const [editTitle, setEditTitle] = useState('')
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<readonly WikiSourceListItem[] | null>(null)
+  const [searchDegradeReason, setSearchDegradeReason] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<{ backlinks: number } | null>(null)
   const [openError, setOpenError] = useState<string | null>(null)
   const [picker, setPicker] = useState<PickerTarget | null>(null)
@@ -627,11 +628,12 @@ export const WikiTab: React.FC = () => {
   const handleSearch = useCallback(async () => {
     if (!query.trim()) {
       setSearchResults(null)
+      setSearchDegradeReason(null)
       return
     }
-    const hits = await searchSources(query)
+    const result = await searchSources(query)
     setSearchResults(
-      hits.map((hit) => ({
+      result.hits.map((hit) => ({
         id: hit.sourceId,
         title: hit.title,
         sourcePath: hit.sourcePath,
@@ -642,11 +644,13 @@ export const WikiTab: React.FC = () => {
         useCount: 0,
       })),
     )
+    setSearchDegradeReason(result.degradeReason)
   }, [query, searchSources])
 
   const handleClearSearch = useCallback(() => {
     setQuery('')
     setSearchResults(null)
+    setSearchDegradeReason(null)
   }, [])
 
   /**
@@ -755,6 +759,11 @@ export const WikiTab: React.FC = () => {
         {searchResults !== null ? (
           <div className="wiki-search-results">
             <h3>搜索结果（{searchResults.length}）</h3>
+            {searchDegradeReason && (
+              <p className="wiki-search-degrade" role="status">
+                {searchDegradeReason}
+              </p>
+            )}
             <WikiFileList
               items={searchResults}
               emptyHint="未找到相关文件"

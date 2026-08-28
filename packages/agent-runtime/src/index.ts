@@ -367,6 +367,8 @@ export {
   WikiReclassifier,
   buildReclassifyPrompt,
   parseReclassifyResponse,
+  WikiSourceVectorIndex,
+  mergeSourceHybridRanks,
   parseWikilinks,
   resolveWikilinkTarget,
   diffLines,

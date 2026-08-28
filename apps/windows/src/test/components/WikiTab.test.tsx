@@ -188,16 +188,20 @@ describe('WikiTab', () => {
 
   it('搜索结果以文件形态展示并带大类小类', async () => {
     ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
-      'wiki:search': [{
-        sourceId: 's1',
-        title: '架构设计文档.md',
-        category: '做事记录',
-        subtopic: '项目/任务资料',
-        snippet: '正文片段',
-        mediaType: 'document',
-        sourcePath: 'C:/files/架构设计文档.md',
-        updatedAt: Date.now(),
-      }],
+      'wiki:search': {
+        hits: [{
+          sourceId: 's1',
+          title: '架构设计文档.md',
+          category: '做事记录',
+          subtopic: '项目/任务资料',
+          snippet: '正文片段',
+          mediaType: 'document',
+          sourcePath: 'C:/files/架构设计文档.md',
+          updatedAt: Date.now(),
+        }],
+        mode: 'fts',
+        degradeReason: null,
+      },
     })
     render(<WikiTab />)
     await screen.findByText(/暂无待整理条目/)

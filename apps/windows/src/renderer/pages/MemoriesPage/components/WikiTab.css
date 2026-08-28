@@ -1666,3 +1666,13 @@
 .wiki-file-list-select-all {
   cursor: pointer;
 }
+
+/* 搜索结果降级提示 */
+.wiki-search-degrade {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}

@@ -258,6 +258,8 @@ export interface WikiSourceListItem {
   readonly useCount: number
 }
 
+export type SearchMode = 'fts' | 'vector' | 'hybrid'
+
 export interface WikiSourceSearchHit {
   readonly sourceId: string
   readonly title: string
@@ -1210,24 +1212,37 @@ export function useWikiPage() {
     await api.sendCommand({ type: 'wiki:source:open', agentId: DEFAULT_AGENT_ID, sourceId })
   }, [])
 
-  const searchSources = useCallback(async (keyword: string, limit?: number): Promise<readonly WikiSourceSearchHit[]> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand || !keyword.trim()) return []
-    setLoading(true)
-    try {
-      const rows = (await api.sendCommand({
-        type: 'wiki:search',
-        agentId: DEFAULT_AGENT_ID,
-        keyword,
-        limit,
-      })) as WikiSourceSearchHit[]
-      return Array.isArray(rows) ? rows : []
-    } catch {
-      return []
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  /** 资料检索：返回命中和显式降级信息，UI 据此展示降级文案。 */
+  const searchSources = useCallback(
+    async (
+      keyword: string,
+      limit?: number,
+    ): Promise<{ hits: readonly WikiSourceSearchHit[]; mode: SearchMode; degradeReason: string | null }> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand || !keyword.trim()) {
+        return { hits: [], mode: 'fts', degradeReason: null }
+      }
+      setLoading(true)
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:search',
+          agentId: DEFAULT_AGENT_ID,
+          keyword,
+          limit,
+        })) as { hits: WikiSourceSearchHit[]; mode: SearchMode; degradeReason: string | null }
+        return {
+          hits: Array.isArray(r?.hits) ? r.hits : [],
+          mode: r?.mode ?? 'fts',
+          degradeReason: r?.degradeReason ?? null,
+        }
+      } catch {
+        return { hits: [], mode: 'fts', degradeReason: null }
+      } finally {
+        setLoading(false)
+      }
+    },
+    [],
+  )
 
   return {
     loading,

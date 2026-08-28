@@ -108,6 +108,8 @@ export type {
   WikiHybridSearchResult,
 } from "./wiki-vector.js";
 
+export { WikiSourceVectorIndex, mergeSourceHybridRanks } from "./wiki-source-vector.js";
+
 export { WikiExporter, sanitizeFilenameSegment, isPathTraversalSafe } from "./wiki-exporter.js";
 export type {
   WikiExporterDeps,
