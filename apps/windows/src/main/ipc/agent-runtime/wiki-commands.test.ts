@@ -42,8 +42,10 @@ import {
   handleWikiSourceMoveToParking,
   handleWikiSourceOpen,
   handleWikiCleanupScan,
+  handleWikiEroExtract,
+  handleWikiEroEntitySources,
 } from './wiki-commands'
-import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY, WikiReclassifier } from '@mtbot/agent-runtime'
+import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY, WikiReclassifier, WikiEroRepo } from '@mtbot/agent-runtime'
 
 const nodeRequire = createRequire(import.meta.url)
 
@@ -79,13 +81,14 @@ function createMigratedDb(): DatabaseAdapter {
   return db
 }
 
-function buildBridge(repo: WikiRepo): AgentRuntimeBridge {
+function buildBridge(repo: WikiRepo, callLLM?: (prompt: string) => Promise<string>): AgentRuntimeBridge {
   return {
     wikiRepo: repo,
     // 重编目器的 LLM 用固定桩：不产候选，测的是命令编排而非模型行为
     wikiReclassifier: new WikiReclassifier(repo, async () => '[]'),
     conversationRepo: { getAgentParticipantId: () => null },
     getCwd: () => process.cwd(),
+    callLLM: callLLM ?? (async () => '{}'),
   } as unknown as AgentRuntimeBridge
 }
 
@@ -285,6 +288,104 @@ describe('wiki commands', () => {
     expect(graph.edges.some((e) => e.kind === 'wikilink')).toBe(true)
     expect(typeof graph.truncated).toBe('boolean')
     expect(ero.listEntities('assistant', 'local-user').length).toBe(0)
+  })
+
+  it('graph:data 按小类返回结构子图', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    repo.getOrCreateTopicTree()
+    const s1 = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '调研A.pdf' })
+    repo.updateSourceTopic('assistant', 'local-user', s1.id, '学习资料', '调研搜集材料')
+
+    const graph = handleWikiGraphData(bridge, {
+      type: 'wiki:graph:data',
+      agentId: 'assistant',
+      category: '学习资料',
+      subtopic: '调研搜集材料',
+      layers: ['structure'],
+    }) as { nodes: { kind: string }[]; edges: unknown[]; truncated: boolean }
+
+    expect(graph.nodes.some((n) => n.kind === 'category')).toBe(true)
+    expect(graph.nodes.some((n) => n.kind === 'subtopic')).toBe(true)
+    expect(graph.nodes.some((n) => n.kind === 'source')).toBe(true)
+  })
+
+  it('graph:data 无中心参数时缺省到主题树第一个大类', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const tree = repo.getOrCreateTopicTree()
+    const firstCategory = tree.categories[0]!.name
+
+    const graph = handleWikiGraphData(bridge, {
+      type: 'wiki:graph:data',
+      agentId: 'assistant',
+    }) as { nodes: { kind: string; title: string; id: string }[] }
+
+    expect(graph.nodes.some((n) => n.kind === 'category' && n.title === firstCategory)).toBe(true)
+  })
+
+  it('ero:extract 默认按小类抽取资料并返回统计', async () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(
+      repo,
+      async () =>
+        JSON.stringify({
+          entities: [{ name: 'Lumii', type: 'project' }],
+          relations: [],
+          observations: [],
+        }),
+    )
+    const s1 = repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: '调研A.pdf',
+      extractedText: 'Lumii 是本地优先应用',
+      contentHash: 'hash-1',
+    })
+    repo.updateSourceTopic('assistant', 'local-user', s1.id, '学习资料', '调研搜集材料')
+
+    const result = (await handleWikiEroExtract(bridge, {
+      type: 'wiki:ero:extract',
+      agentId: 'assistant',
+      category: '学习资料',
+      subtopic: '调研搜集材料',
+    })) as {
+      sourcesScanned: number
+      sourcesFailed: number
+      entitiesUpserted: number
+      errors: readonly unknown[]
+    }
+
+    expect(result.sourcesScanned).toBe(1)
+    expect(result.sourcesFailed).toBe(0)
+    expect(result.entitiesUpserted).toBeGreaterThan(0)
+    expect(result.errors).toHaveLength(0)
+  })
+
+  it('ero:entity-sources 返回该实体出现的资料及其主题', async () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const ero = new WikiEroRepo(repo.database)
+    const s1 = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '调研A.pdf' })
+    repo.updateSourceTopic('assistant', 'local-user', s1.id, '学习资料', '调研搜集材料')
+    const entity = ero.upsertEntity({
+      agentId: 'assistant',
+      userId: 'local-user',
+      name: 'Lumii',
+      entityType: 'project',
+      sourceId: s1.id,
+    })
+
+    const result = handleWikiEroEntitySources(bridge, {
+      type: 'wiki:ero:entity-sources',
+      agentId: 'assistant',
+      entityId: entity.id,
+    }) as { sources: { id: string; topicCategory: string | null; topicSubtopic: string | null }[] }
+
+    expect(result.sources).toHaveLength(1)
+    expect(result.sources[0]!.id).toBe(s1.id)
+    expect(result.sources[0]!.topicCategory).toBe('学习资料')
+    expect(result.sources[0]!.topicSubtopic).toBe('调研搜集材料')
   })
 
   it('runs:list 对无效 result_detail 形状返回 resultDetail null', () => {
