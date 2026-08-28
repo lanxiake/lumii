@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useState } from 'react'
+import { SYNTHESIS_CONFIRM_REQUIRED_CODE } from '../../../../shared/agent-runtime-commands'
 
 /** 单机应用固定单一 agent；主进程侧同样兜底 'assistant'（wiki-commands.ts resolveAgentIdForWiki） */
 const DEFAULT_AGENT_ID = 'assistant'
@@ -658,27 +659,74 @@ export function useWikiPage() {
     }
   }, [])
 
+  /**
+   * 发起综述。二期传 sourceIds 或 topicCategory 以资料为输入。
+   * 超量时后端抛带 code 的错误，需要用户确认后带 confirmed 重发，
+   * 所以返回结果对象而不是吞掉异常。
+   */
   const createSynthesis = useCallback(
     async (params: {
+      sourceIds?: readonly string[]
       pageIds?: readonly string[]
       category?: string
+      topicCategory?: string
+      topicSubtopic?: string
+      confirmed?: boolean
       title?: string
-    }): Promise<string | null> => {
+    }): Promise<
+      | { ok: true; synthesisId: string }
+      | { ok: false; needsConfirm: true; count: number }
+      | { ok: false; needsConfirm?: false; error: string }
+    > => {
       const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
+      if (!api?.sendCommand) return { ok: false, error: '运行时不可用' }
       setLoading(true)
       try {
         const r = (await api.sendCommand({
           type: 'wiki:synthesis:create',
+          sourceIds: params.sourceIds,
           pageIds: params.pageIds,
           category: params.category,
+          topicCategory: params.topicCategory,
+          topicSubtopic: params.topicSubtopic,
+          confirmed: params.confirmed,
           title: params.title,
         })) as { synthesisId: string }
-        return r?.synthesisId ?? null
-      } catch {
-        return null
+        return { ok: true, synthesisId: r.synthesisId }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : '综述发起失败'
+        // 跨 IPC 只剩 message，按 code 前缀识别「需要二次确认」
+        if (message.includes(SYNTHESIS_CONFIRM_REQUIRED_CODE)) {
+          const count = Number(/合成 (\d+) 个文件/.exec(message)?.[1] ?? 0)
+          return { ok: false, needsConfirm: true, count }
+        }
+        return { ok: false, error: message }
       } finally {
         setLoading(false)
+      }
+    },
+    [],
+  )
+
+  /** 以资料形式接受综述：产物成为目录里的一份普通文件 */
+  const acceptSynthesisAsSource = useCallback(
+    async (
+      synthesisId: string,
+      category: string,
+      subtopic: string,
+    ): Promise<{ sourceId: string } | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:synthesis:accept-as-source',
+          synthesisId,
+          category,
+          subtopic,
+        })) as { sourceId: string }
+        return r ?? null
+      } catch {
+        return null
       }
     },
     [],
@@ -1214,6 +1262,7 @@ export function useWikiPage() {
     listSyntheses,
     getSynthesis,
     acceptSynthesis,
+    acceptSynthesisAsSource,
     rejectSynthesis,
     autoRunSynthesis,
     getGraphData,

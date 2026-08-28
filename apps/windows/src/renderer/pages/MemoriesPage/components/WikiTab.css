@@ -1651,3 +1651,18 @@
   color: var(--color-danger);
   font-size: 12px;
 }
+
+/* 多选批量条 */
+.wiki-file-list-select-all,
+.wiki-file-list-batch-count {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.wiki-file-list-select-all {
+  cursor: pointer;
+}

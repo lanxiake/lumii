@@ -667,9 +667,34 @@ export interface WikiSynthesisCreateCommand {
   readonly agentId?: string
   /** 参与合成的页面 id 列表；与 category 二选一（category 优先展开为该分类下全部页） */
   readonly pageIds?: readonly string[]
-  /** 按分类全选页面发起合成 */
+  /** 按分类全选页面发起合成（历史页面路径，值是 sources/media 这类顶层分类） */
   readonly category?: string
+  /** 二期主路径：以资料为输入 */
+  readonly sourceIds?: readonly string[]
+  /**
+   * 二期：按用途目录取资料。故意不复用 category —— 它在历史路径里指页面顶层分类，
+   * 复用会让「只给大类」的调用静默走错分支。
+   */
+  readonly topicCategory?: string
+  readonly topicSubtopic?: string
+  /** 超量确认标记：UI 收到数量警告后带上这个重发 */
+  readonly confirmed?: boolean
   readonly title?: string
+}
+
+/**
+ * 资料合成超量时的错误码。主进程把它写进 message 前缀，渲染进程据此判定
+ * 「需要二次确认」——不匹配中文文案，改文案不会破坏判断。
+ */
+export const SYNTHESIS_CONFIRM_REQUIRED_CODE = 'WIKI_SYNTHESIS_CONFIRM_REQUIRED'
+
+export interface WikiSynthesisAcceptAsSourceCommand {
+  readonly type: 'wiki:synthesis:accept-as-source'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly synthesisId: string
+  readonly category: string
+  readonly subtopic: string
 }
 
 export interface WikiSynthesisListCommand {
@@ -1396,6 +1421,7 @@ export type AgentRuntimeCommand =
   | WikiSynthesisListCommand
   | WikiSynthesisGetCommand
   | WikiSynthesisAcceptCommand
+  | WikiSynthesisAcceptAsSourceCommand
   | WikiSynthesisRejectCommand
   | WikiSynthesisAutoRunCommand
   | WikiGraphDataCommand
@@ -1827,6 +1853,11 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:concept:confirm' ? { pageId: string; path: string }
   : T extends 'wiki:concept:reject' ? { success: boolean }
   : T extends 'wiki:synthesis:create' ? { synthesisId: string }
+  : T extends 'wiki:synthesis:accept-as-source' ? {
+      sourceId: string
+      category: string
+      subtopic: string
+    }
   : T extends 'wiki:synthesis:list' ? readonly {
       id: string
       title: string

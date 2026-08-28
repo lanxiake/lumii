@@ -22,10 +22,23 @@ import {
   sanitizeFilenameSegment,
   validateTopicAssignment,
 } from '@mtbot/agent-runtime'
-import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
+import {
+  SYNTHESIS_CONFIRM_REQUIRED_CODE,
+  type AgentRuntimeCommand,
+} from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 
 const LOCAL_USER_ID = 'local-user'
+
+/** 超过这个数量的资料合成需要用户二次确认（不自动截断） */
+export const SYNTHESIS_SOURCE_CONFIRM_LIMIT = 40
+
+export class WikiSynthesisConfirmRequiredError extends Error {
+  readonly code = SYNTHESIS_CONFIRM_REQUIRED_CODE
+  constructor(readonly count: number) {
+    super(`${SYNTHESIS_CONFIRM_REQUIRED_CODE}: 本次将合成 ${count} 个文件，数量较多、耗时较长，请确认后继续`)
+  }
+}
 
 function resolveAgentIdForWiki(
   bridge: AgentRuntimeBridge,
@@ -770,19 +783,65 @@ export async function handleWikiSynthesisCreate(
   command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:create' }>,
 ): Promise<{ synthesisId: string }> {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const synthesizer = bridge.createWikiSynthesizer()
+
+  // 二期主路径：以资料为输入。给 sourceIds，或给 topicCategory（可选 topicSubtopic）都走这条。
+  if ((command.sourceIds && command.sourceIds.length > 0) || command.topicCategory) {
+    let sourceIds = [...(command.sourceIds ?? [])]
+    if (sourceIds.length === 0 && command.topicCategory) {
+      sourceIds = bridge.wikiRepo
+        .listSourcesByTopic(agentId, LOCAL_USER_ID, {
+          category: command.topicCategory,
+          subtopic: command.topicSubtopic,
+        })
+        .map((s) => s.id)
+    }
+    if (sourceIds.length === 0) {
+      throw new Error('这个目录下没有可合成的文件')
+    }
+    // 不静默截断：超量时抛带 code 的错误，UI 二次确认后带 confirmed 再来。
+    // 用 code 而非匹配中文文案，避免改文案就破坏 UI 判断。
+    if (sourceIds.length > SYNTHESIS_SOURCE_CONFIRM_LIMIT && command.confirmed !== true) {
+      throw new WikiSynthesisConfirmRequiredError(sourceIds.length)
+    }
+    const synthesisId = await synthesizer.synthesizeSources(agentId, LOCAL_USER_ID, sourceIds, {
+      title: command.title,
+    })
+    return { synthesisId }
+  }
+
+  // 历史页面路径：保留给存量摘要页记录
   let pageIds = [...(command.pageIds ?? [])]
   if (command.category) {
     const pages = bridge.wikiRepo.listPages(agentId, LOCAL_USER_ID, command.category as never)
     pageIds = pages.map((p) => p.id)
   }
   if (pageIds.length === 0) {
-    throw new Error('合成至少需要一个页面（提供 pageIds 或非空 category）')
+    throw new Error('合成至少需要一个文件（提供 sourceIds / topicCategory / pageIds）')
   }
-  const synthesizer = bridge.createWikiSynthesizer()
   const synthesisId = await synthesizer.synthesize(agentId, LOCAL_USER_ID, pageIds, {
     title: command.title,
   })
   return { synthesisId }
+}
+
+/** 以资料形式接受综述：产物成为目录里的一份普通文件 */
+export function handleWikiSynthesisAcceptAsSource(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:accept-as-source' }>,
+): { sourceId: string; category: string; subtopic: string } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const source = bridge
+    .createWikiSynthesizer()
+    .acceptAsSource(agentId, LOCAL_USER_ID, command.synthesisId, {
+      category: command.category,
+      subtopic: command.subtopic,
+    })
+  return {
+    sourceId: source.id,
+    category: source.topic_category ?? command.category,
+    subtopic: source.topic_subtopic ?? command.subtopic,
+  }
 }
 
 /**

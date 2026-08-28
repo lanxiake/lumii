@@ -7,8 +7,9 @@
  */
 
 import { sanitizeFilenameSegment } from "./wiki-exporter.js";
+import { validateTopicAssignment } from "./wiki-topic-tree.js";
 import type { WikiRepo } from "./wiki-repo.js";
-import type { WikiPage } from "./types.js";
+import type { WikiPage, WikiSource } from "./types.js";
 
 /** 单块输入上限（字/字符），给提示词留余量 */
 export const SYNTHESIS_CHUNK_SIZE = 4000;
@@ -224,6 +225,103 @@ export class WikiSynthesizer {
     }
   }
 
+  /**
+   * 二期主路径：以**资料**为输入合成。语料取 extracted_text，无正文的媒体退化为
+   * 标题 + media_meta（不做转录，见设计 §19）。落盘后写 candidate，
+   * 由 acceptAsSource 接受成目录里的普通文件。
+   */
+  async synthesizeSources(
+    agentId: string,
+    userId: string,
+    sourceIds: readonly string[],
+    options: WikiSynthesizeOptions = {},
+  ): Promise<string> {
+    if (sourceIds.length === 0) {
+      throw new Error("合成至少需要一个资料 id");
+    }
+
+    const sources: WikiSource[] = [];
+    for (const id of sourceIds) {
+      const source = this.repo.findSourceById(id);
+      if (!source || source.agent_id !== agentId || source.user_id !== userId) {
+        throw new Error(`资料不存在或无权访问: ${id}`);
+      }
+      sources.push(source);
+    }
+
+    const title = options.title?.trim() || `${sources[0]!.title} 综述`;
+    const synthesisId = this.repo.insertSynthesis({
+      agentId,
+      userId,
+      sourcePageIds: [],
+      sourceIds: [...sourceIds],
+      title,
+      candidateMd: "（生成中…）",
+      error: "progress:0/0",
+    });
+
+    try {
+      await this.runSourcePipeline(
+        synthesisId,
+        sources,
+        title,
+        options.outputRoot ?? "outputs/wiki-syntheses",
+      );
+      return synthesisId;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.repo.finishSynthesisCandidate(synthesisId, {
+        candidateMd: "",
+        outputPath: null,
+        error: message,
+      });
+      throw err;
+    }
+  }
+
+  /**
+   * 二期语义的接受：产物成为目录里的一份普通资料，不写 wiki_pages。
+   * 落盘已在 synthesizeSources 完成，这里只入库 + 写主题两列。
+   */
+  acceptAsSource(
+    agentId: string,
+    userId: string,
+    synthesisId: string,
+    topic: { readonly category: string; readonly subtopic: string },
+  ): WikiSource {
+    const row = this.repo.findSynthesisById(synthesisId);
+    if (!row || row.agent_id !== agentId || row.user_id !== userId) {
+      throw new Error(`合成记录不存在: ${synthesisId}`);
+    }
+    if (row.status !== "candidate") {
+      throw new Error(`只能接受 candidate 状态的合成，当前为 ${row.status}`);
+    }
+    if (!row.candidate_md.trim() || row.candidate_md === "（生成中…）") {
+      throw new Error("合成尚未完成，无法接受");
+    }
+    if (!row.output_path) {
+      throw new Error("缺少落盘路径，无法接受");
+    }
+    // 综述是 AI 产物，必须落正式目录：不开 allowParking
+    const check = validateTopicAssignment(
+      this.repo.getOrCreateTopicTree(),
+      topic.category,
+      topic.subtopic,
+    );
+    if (!check.ok) throw new Error(check.reason);
+
+    return this.repo.acceptSynthesisAsSource({
+      synthesisId,
+      agentId,
+      userId,
+      title: row.title,
+      outputPath: row.output_path,
+      contentMd: row.candidate_md,
+      category: topic.category,
+      subtopic: topic.subtopic,
+    });
+  }
+
   /** 接受候选：同一事务建 syntheses/ 页并更新 status=accepted */
   accept(agentId: string, userId: string, synthesisId: string): WikiPage {
     const row = this.repo.findSynthesisById(synthesisId);
@@ -362,6 +460,79 @@ export class WikiSynthesizer {
     return [...ids];
   }
 
+  /**
+   * 资料版流水线：与页面版同构，只把「读 pages → content_md」换成
+   * 「读 sources → extracted_text ?? 标题 + media_meta」，来源段列文件名而非双链。
+   */
+  private async runSourcePipeline(
+    synthesisId: string,
+    sources: readonly WikiSource[],
+    title: string,
+    outputRoot: string,
+  ): Promise<void> {
+    const inputs = sources.map((s) => {
+      const body = (s.extracted_text ?? "").trim();
+      if (body) return `## ${s.title}\n\n${body}`;
+      // 无正文的媒体：至少让模型知道这份材料存在，不凭空编内容
+      const meta = s.media_meta ? `\n\n元信息：${s.media_meta}` : "";
+      return `## ${s.title}\n\n（无可提取正文，类型 ${s.media_type ?? "unknown"}）${meta}`;
+    });
+    const chunks = chunkByParagraphs(inputs.join("\n\n"), SYNTHESIS_CHUNK_SIZE);
+    if (chunks.length === 0) {
+      throw new Error("源资料正文为空，无法合成");
+    }
+    if (chunks.length > SYNTHESIS_MAX_CHUNKS) {
+      throw new Error(
+        `输入过大（${chunks.length} 块，上限 ${SYNTHESIS_MAX_CHUNKS}），请减少资料或分批合成`,
+      );
+    }
+
+    const summaries: string[] = [];
+    for (let i = 0; i < chunks.length; i += 1) {
+      this.repo.setSynthesisProgress(synthesisId, i + 1, chunks.length);
+      const summary = await this.callLLM(buildChunkSummaryPrompt(i + 1, chunks.length, chunks[i]!));
+      summaries.push(summary.trim());
+    }
+
+    this.repo.setSynthesisProgress(synthesisId, chunks.length, chunks.length);
+    const rawFinal = (await this.callLLM(buildFinalSynthesisPrompt(title, summaries))).trim();
+    const { text: finalText, truncated } = truncateSynthesis(rawFinal);
+
+    const fileRel = await this.writeSynthesisFile(synthesisId, title, outputRoot, [
+      `# ${title}`,
+      "",
+      finalText,
+      "",
+      "## 来源文件",
+      ...sources.map((s) => `- ${s.title}`),
+    ]);
+
+    this.repo.finishSynthesisCandidate(synthesisId, {
+      candidateMd: finalText,
+      outputPath: fileRel,
+      error: truncated ? "truncated" : null,
+    });
+  }
+
+  /** 落盘到 outputRoot/YYYY-MM-DD/<shortId>-<title>.md，重名追加序号 */
+  private async writeSynthesisFile(
+    synthesisId: string,
+    title: string,
+    outputRoot: string,
+    bodyLines: readonly string[],
+  ): Promise<string> {
+    const dirRel = this.fs.joinPath(outputRoot, new Date().toISOString().slice(0, 10));
+    await this.fs.mkdir(dirRel);
+    const existing = new Set(this.fs.listDir ? await this.fs.listDir(dirRel) : []);
+    const filename = resolveUniqueFilename(
+      buildSynthesisFilename(title, synthesisId.slice(0, 8)),
+      existing,
+    );
+    const fileRel = this.fs.joinPath(dirRel, filename).replace(/\\/g, "/");
+    await this.fs.writeFile(fileRel, bodyLines.join("\n"));
+    return fileRel;
+  }
+
   private async runPipeline(
     synthesisId: string,
     pages: readonly WikiPage[],
@@ -394,26 +565,14 @@ export class WikiSynthesizer {
     const rawFinal = (await this.callLLM(buildFinalSynthesisPrompt(title, summaries))).trim();
     const { text: finalText, truncated } = truncateSynthesis(rawFinal);
 
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const shortId = synthesisId.slice(0, 8);
-    const dirRel = this.fs.joinPath(outputRoot, dateStr);
-    await this.fs.mkdir(dirRel);
-
-    const existing = new Set(
-      this.fs.listDir ? await this.fs.listDir(dirRel) : [],
-    );
-    const filename = resolveUniqueFilename(buildSynthesisFilename(title, shortId), existing);
-    const fileRel = this.fs.joinPath(dirRel, filename).replace(/\\/g, "/");
-
-    const fileBody = [
+    const fileRel = await this.writeSynthesisFile(synthesisId, title, outputRoot, [
       `# ${title}`,
       "",
       finalText,
       "",
       "## 来源页面",
       ...pages.map((p) => `- ${p.title} (\`${p.path}\`)`),
-    ].join("\n");
-    await this.fs.writeFile(fileRel, fileBody);
+    ]);
 
     this.repo.finishSynthesisCandidate(synthesisId, {
       candidateMd: finalText,

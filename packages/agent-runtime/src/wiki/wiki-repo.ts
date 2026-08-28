@@ -1505,6 +1505,56 @@ export class WikiRepo {
     });
   }
 
+  /**
+   * 二期语义的接受：综述产物落成目录里的一份普通资料，而非 wiki_pages 摘要页。
+   * 单事务内 createSource + 写主题两列 + 建索引 + 标 accepted；page_id 保持 NULL。
+   */
+  acceptSynthesisAsSource(params: {
+    readonly synthesisId: string;
+    readonly agentId: string;
+    readonly userId: string;
+    readonly title: string;
+    readonly outputPath: string;
+    readonly contentMd: string;
+    readonly category: string;
+    readonly subtopic: string;
+  }): WikiSource {
+    return withTransaction(this.db, () => {
+      const existing = this.findSynthesisById(params.synthesisId);
+      if (!existing || existing.status !== "candidate") {
+        throw new Error(`接受失败：合成不存在或状态非 candidate: ${params.synthesisId}`);
+      }
+      const source = this.createSource({
+        agentId: params.agentId,
+        userId: params.userId,
+        title: params.title,
+        sourcePath: params.outputPath,
+        mediaType: "document",
+        mimeType: "text/markdown",
+        contentMd: params.contentMd,
+        extractedText: params.contentMd,
+        originContext: `综述:${params.synthesisId}`,
+      });
+      this.updateSourceTopic(
+        params.agentId,
+        params.userId,
+        source.id,
+        params.category,
+        params.subtopic,
+      );
+      this.indexSource(source.id);
+      this.db
+        .prepare(
+          `UPDATE wiki_syntheses SET status = 'accepted', finished_at = ?
+           WHERE id = ? AND status = 'candidate'`,
+        )
+        .run(new Date().toISOString(), params.synthesisId);
+      const saved = this.findSourceById(source.id);
+      if (!saved) throw new Error("接受失败：资料写入后读取不到");
+      return saved;
+    });
+  }
+
   /** 拒绝合成：保留记录，status=rejected */
   rejectSynthesis(id: string): void {
     const info = this.db

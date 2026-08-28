@@ -15,6 +15,7 @@ import {
   SYNTHESIS_CHUNK_SIZE,
   SYNTHESIS_MAX_OUTPUT_CHARS,
 } from "./wiki-synthesizer.js";
+import { PARKING_CATEGORY } from "./wiki-topic-tree.js";
 
 describe("chunkByParagraphs", () => {
   it("空输入返回空数组", () => {
@@ -224,5 +225,131 @@ describe("WikiSynthesizer 集成", () => {
     expect(path1).not.toBe(path2);
     expect(files.has(path1)).toBe(true);
     expect(files.has(path2)).toBe(true);
+  });
+});
+
+describe("WikiSynthesizer 以资料为输入（二期）", () => {
+  function createHarness() {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const files = new Map<string, string>();
+    const dirs = new Map<string, Set<string>>();
+    const fs = {
+      mkdir: async (dir: string) => {
+        if (!dirs.has(dir)) dirs.set(dir, new Set());
+      },
+      writeFile: async (p: string, content: string) => {
+        files.set(p, content);
+        const parts = p.replace(/\\/g, "/").split("/");
+        const file = parts.pop()!;
+        const dir = parts.join("/");
+        const set = dirs.get(dir) ?? new Set();
+        set.add(file);
+        dirs.set(dir, set);
+      },
+      joinPath: (...segs: string[]) => segs.join("/"),
+      listDir: async (dir: string) => [...(dirs.get(dir) ?? [])],
+    };
+    const callLLM = vi.fn(async (prompt: string) =>
+      prompt.includes("合并为一篇") ? "最终综述正文" : "块归纳",
+    );
+    const synth = new WikiSynthesizer(repo, callLLM, fs);
+    const mkFiled = (title: string, text = "调研正文内容") => {
+      const s = repo.createSource({ agentId: "ag", userId: "u", title, extractedText: text });
+      repo.updateSourceTopic("ag", "u", s.id, "学习资料", "调研搜集材料");
+      return s;
+    };
+    return { repo, synth, files, callLLM, mkFiled };
+  }
+
+  it("synthesizeSources 用 extracted_text 分块落盘，记录 source_ids 且不占 source_page_ids", async () => {
+    const { repo, synth, mkFiled } = createHarness();
+    const a = mkFiled("调研A.pdf");
+    const id = await synth.synthesizeSources("ag", "u", [a.id]);
+
+    const row = repo.findSynthesisById(id)!;
+    expect(row.status).toBe("candidate");
+    expect(row.output_path).toMatch(/^outputs\/wiki-syntheses\//);
+    expect(row.source_ids).toContain(a.id);
+    expect(row.source_page_ids).toEqual([]);
+    expect(row.candidate_md).toBe("最终综述正文");
+  });
+
+  it("正文末尾列来源文件名，不生成双链", async () => {
+    const { synth, files, mkFiled } = createHarness();
+    mkFiled("调研A.pdf");
+    const a = mkFiled("调研B.pdf");
+    await synth.synthesizeSources("ag", "u", [a.id]);
+    const body = [...files.values()][0]!;
+    expect(body).toContain("调研B.pdf");
+    expect(body).not.toContain("[[");
+  });
+
+  it("无正文的媒体退化为标题 + media_meta，不抛错", async () => {
+    const { repo, synth } = createHarness();
+    const v = repo.createSource({
+      agentId: "ag", userId: "u", title: "演示.mp4",
+      mediaType: "video", mediaMeta: '{"duration":120}',
+    });
+    repo.updateSourceTopic("ag", "u", v.id, "学习资料", "调研搜集材料");
+    await expect(synth.synthesizeSources("ag", "u", [v.id])).resolves.toBeTruthy();
+  });
+
+  it("acceptAsSource 产出带主题的 source，不新建 wiki_pages，page_id 留空", async () => {
+    const { repo, synth, mkFiled } = createHarness();
+    const a = mkFiled("调研A.pdf");
+    const id = await synth.synthesizeSources("ag", "u", [a.id]);
+    const pagesBefore = repo.listPages("ag", "u").length;
+
+    const s = synth.acceptAsSource("ag", "u", id, { category: "做事记录", subtopic: "汇报总结文稿" });
+    expect(s.topic_category).toBe("做事记录");
+    expect(s.topic_subtopic).toBe("汇报总结文稿");
+    expect(s.mime_type).toBe("text/markdown");
+    expect(repo.listPages("ag", "u")).toHaveLength(pagesBefore);
+    expect(repo.findSynthesisById(id)!.status).toBe("accepted");
+    expect(repo.findSynthesisById(id)!.page_id).toBeNull();
+  });
+
+  it("接受后的综述能被资料层检索命中", async () => {
+    const { repo, synth, mkFiled } = createHarness();
+    const a = mkFiled("调研A.pdf");
+    const id = await synth.synthesizeSources("ag", "u", [a.id]);
+    const s = synth.acceptAsSource("ag", "u", id, { category: "做事记录", subtopic: "汇报总结文稿" });
+    expect(repo.searchSources("ag", "u", "最终综述").map((h) => h.source.id)).toContain(s.id);
+  });
+
+  it("空输入、越权资料、重复接受都拒绝", async () => {
+    const { repo, synth, mkFiled } = createHarness();
+    await expect(synth.synthesizeSources("ag", "u", [])).rejects.toThrow(/至少需要一个/);
+
+    const other = repo.createSource({ agentId: "other", userId: "u2", title: "别人的" });
+    await expect(synth.synthesizeSources("ag", "u", [other.id])).rejects.toThrow(/不存在或无权/);
+
+    const a = mkFiled("调研A.pdf");
+    const id = await synth.synthesizeSources("ag", "u", [a.id]);
+    const topic = { category: "做事记录", subtopic: "汇报总结文稿" };
+    synth.acceptAsSource("ag", "u", id, topic);
+    expect(() => synth.acceptAsSource("ag", "u", id, topic)).toThrow(/candidate/);
+  });
+
+  it("acceptAsSource 拒绝临时存放与不存在的小类（AI 产物必须落正式目录）", async () => {
+    const { synth, mkFiled } = createHarness();
+    const a = mkFiled("调研A.pdf");
+    const id = await synth.synthesizeSources("ag", "u", [a.id]);
+
+    expect(() =>
+      synth.acceptAsSource("ag", "u", id, { category: PARKING_CATEGORY, subtopic: "x" }),
+    ).toThrow();
+    expect(() =>
+      synth.acceptAsSource("ag", "u", id, { category: "学习资料", subtopic: "不存在" }),
+    ).toThrow(/小类不存在/);
+  });
+
+  it("输入超块数上限时拒绝并提示分批，不留半成品", async () => {
+    const { repo, synth, mkFiled } = createHarness();
+    const huge = mkFiled("超大调研.pdf", "长".repeat(SYNTHESIS_CHUNK_SIZE * 25));
+    await expect(synth.synthesizeSources("ag", "u", [huge.id])).rejects.toThrow(/分批/);
+    const rows = repo.listSyntheses("ag", "u");
+    expect(rows[0]!.output_path).toBeNull();
+    expect(rows[0]!.candidate_md).toBe("");
   });
 });

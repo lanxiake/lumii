@@ -42,6 +42,11 @@ interface WikiFileListProps {
   headerActions?: React.ReactNode
   /** 新建后高亮该行，帮用户定位刚创建的文件 */
   highlightId?: string | null
+  /** 多选（二期）：默认关闭，不影响一期调用点的渲染 */
+  selectable?: boolean
+  selectedIds?: ReadonlySet<string>
+  onToggleSelect?: (id: string) => void
+  onToggleSelectAll?: () => void
   onOpen: (item: WikiSourceListItem) => void
   onMove: (item: WikiSourceListItem) => void
   onPark?: (item: WikiSourceListItem) => void
@@ -60,6 +65,10 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
   showMediaChips = true,
   headerActions,
   highlightId = null,
+  selectable = false,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
   onOpen,
   onMove,
   onPark,
@@ -72,8 +81,19 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
 
   return (
     <div className="wiki-file-list">
-      {(showMediaChips || headerActions) && (
+      {(showMediaChips || headerActions || (selectable && visible.length > 0)) && (
         <div className="wiki-file-list-header">
+          {selectable && visible.length > 0 && (
+            <label className="wiki-file-list-select-all">
+              <input
+                type="checkbox"
+                aria-label="全选"
+                checked={visible.every((item) => selectedIds?.has(item.id) ?? false)}
+                onChange={() => onToggleSelectAll?.()}
+              />
+              全选
+            </label>
+          )}
           {showMediaChips && (
             <div className="wiki-file-list-chips" role="group" aria-label="按文件类型筛选">
               {MEDIA_CHIPS.map(({ key, label }) => (
@@ -107,6 +127,14 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                 key={item.id}
                 className={`wiki-file-list-item${item.id === highlightId ? ' wiki-file-list-item--highlight' : ''}`}
               >
+                {selectable && (
+                  <input
+                    type="checkbox"
+                    aria-label={`选择 ${item.title}`}
+                    checked={selectedIds?.has(item.id) ?? false}
+                    onChange={() => onToggleSelect?.(item.id)}
+                  />
+                )}
                 <Icon size={15} className="wiki-file-list-icon" />
                 <div className="wiki-file-list-main">
                   <span className="wiki-file-list-title">{item.title}</span>

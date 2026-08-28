@@ -105,3 +105,60 @@ describe('WikiFileList', () => {
     expect(screen.getByText('这个小类下还没有文件')).toBeInTheDocument()
   })
 })
+
+describe('WikiFileList 多选（二期）', () => {
+  const a = makeItem({ id: 'a', title: '调研A.pdf' })
+  const b = makeItem({ id: 'b', title: '调研B.pdf' })
+
+  it('不传 selectable 时不渲染复选框（保持一期行为）', () => {
+    render(<WikiFileList items={[a]} emptyHint="空" onOpen={noop} onMove={noop} />)
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+  })
+
+  it('selectable 时每行一个复选框，勾选回调带行 id', () => {
+    const onToggleSelect = vi.fn()
+    render(
+      <WikiFileList
+        items={[a, b]} emptyHint="空" selectable selectedIds={new Set()}
+        onToggleSelect={onToggleSelect} onOpen={noop} onMove={noop}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('选择 调研A.pdf'))
+    expect(onToggleSelect).toHaveBeenCalledWith('a')
+  })
+
+  it('已选行呈选中态，未选行不选中', () => {
+    render(
+      <WikiFileList
+        items={[a, b]} emptyHint="空" selectable selectedIds={new Set(['a'])}
+        onToggleSelect={noop} onOpen={noop} onMove={noop}
+      />,
+    )
+    expect(screen.getByLabelText('选择 调研A.pdf')).toBeChecked()
+    expect(screen.getByLabelText('选择 调研B.pdf')).not.toBeChecked()
+  })
+
+  it('全选框在全选时选中，点击走 onToggleSelectAll', () => {
+    const onToggleSelectAll = vi.fn()
+    render(
+      <WikiFileList
+        items={[a, b]} emptyHint="空" selectable selectedIds={new Set(['a', 'b'])}
+        onToggleSelect={noop} onToggleSelectAll={onToggleSelectAll} onOpen={noop} onMove={noop}
+      />,
+    )
+    const selectAll = screen.getByLabelText('全选')
+    expect(selectAll).toBeChecked()
+    fireEvent.click(selectAll)
+    expect(onToggleSelectAll).toHaveBeenCalled()
+  })
+
+  it('列表为空时不渲染全选框', () => {
+    render(
+      <WikiFileList
+        items={[]} emptyHint="空" selectable selectedIds={new Set()}
+        onToggleSelect={noop} onOpen={noop} onMove={noop}
+      />,
+    )
+    expect(screen.queryByLabelText('全选')).not.toBeInTheDocument()
+  })
+})

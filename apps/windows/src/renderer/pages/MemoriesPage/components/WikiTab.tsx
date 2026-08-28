@@ -83,6 +83,7 @@ export const WikiTab: React.FC = () => {
     loadTopicTree,
     mutateTopic,
     createNote,
+    createSynthesis,
     runReclassify,
     getReclassifyRun,
     applyReclassify,
@@ -128,6 +129,9 @@ export const WikiTab: React.FC = () => {
   } | null>(null)
   const [suggestionState, setSuggestionState] = useState<'idle' | 'loading' | 'failed'>('idle')
   const [highlightSourceId, setHighlightSourceId] = useState<string | null>(null)
+  const [selectedSourceIds, setSelectedSourceIds] = useState<ReadonlySet<string>>(new Set())
+  const [isBatchPickerOpen, setBatchPickerOpen] = useState(false)
+  const [synthesisConfirm, setSynthesisConfirm] = useState<{ count: number } | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
 
   const refreshSources = useCallback(async () => {
@@ -280,7 +284,28 @@ export const WikiTab: React.FC = () => {
     setOpenError(null)
     setSelectedPage(null)
     setIsDetailOpen(false)
+    // 换目录必须清选中：否则批量动作会作用到上一个目录里已看不见的文件
+    setSelectedSourceIds(new Set())
+    setHighlightSourceId(null)
   }, [])
+
+  const toggleSelectSource = useCallback((id: string) => {
+    setSelectedSourceIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  /** 全选/取消全选当前视图可见的文件 */
+  const toggleSelectAllSources = useCallback(() => {
+    setSelectedSourceIds((prev) =>
+      prev.size === visibleSources.length && prev.size > 0
+        ? new Set()
+        : new Set(visibleSources.map((item) => item.id)),
+    )
+  }, [visibleSources])
 
   /**
    * 打开原始文件；失败时在主区展示具体原因，不静默丢弃。
@@ -325,6 +350,52 @@ export const WikiTab: React.FC = () => {
     },
     [moveToParking, refreshSources],
   )
+
+  /**
+   * 生成本组综述。超量时后端要二次确认，这里转成确认框再带 confirmed 重发。
+   * 综述完成后落 candidate，用户在综述视图里选目录接受。
+   */
+  const handleSynthesizeSelected = useCallback(
+    async (confirmed = false) => {
+      const ids = [...selectedSourceIds]
+      if (ids.length === 0) return
+      const taskId = taskCenter.startTask({ kind: 'synthesis', title: '生成综述' })
+      const created = await createSynthesis({ sourceIds: ids, confirmed })
+      if (!created.ok) {
+        if (created.needsConfirm) {
+          taskCenter.dismissTask(taskId)
+          setSynthesisConfirm({ count: created.count })
+          return
+        }
+        taskCenter.failTask(taskId, created.error)
+        return
+      }
+      taskCenter.completeTask(taskId, { detail: `${ids.length} 个文件` })
+      setSelectedSourceIds(new Set())
+      handleSelectNav({ kind: 'synthesis' })
+    },
+    [selectedSourceIds, createSynthesis, taskCenter, handleSelectNav],
+  )
+
+  /** 批量移动：逐条走确定性写入路径 */
+  const handleMoveSelected = useCallback(
+    async (category: string, subtopic: string) => {
+      for (const id of selectedSourceIds) {
+        await updateSourceTopic(id, category, subtopic)
+      }
+      setSelectedSourceIds(new Set())
+      await refreshSources()
+    },
+    [selectedSourceIds, updateSourceTopic, refreshSources],
+  )
+
+  const handleParkSelected = useCallback(async () => {
+    for (const id of selectedSourceIds) {
+      await moveToParking(id)
+    }
+    setSelectedSourceIds(new Set())
+    await refreshSources()
+  }, [selectedSourceIds, moveToParking, refreshSources])
 
   /** 逐条移到临时存放，返回成功条数（清理视图的批量动作用） */
   const handleParkMany = useCallback(
@@ -593,6 +664,18 @@ export const WikiTab: React.FC = () => {
       />
 
       <ConfirmModal
+        open={synthesisConfirm !== null}
+        title="生成综述"
+        content={`本次将合成 ${synthesisConfirm?.count ?? 0} 个文件，数量较多、耗时较长，确定继续？`}
+        confirmText="继续"
+        onConfirm={() => {
+          setSynthesisConfirm(null)
+          void handleSynthesizeSelected(true)
+        }}
+        onCancel={() => setSynthesisConfirm(null)}
+      />
+
+      <ConfirmModal
         open={reclassifyConfirm !== null}
         title="全库重新编目"
         content={`将扫描 ${reclassifyConfirm?.count ?? 0} 个已归档文件，不会改临时存放。AI 只给建议，接受后才生效。`}
@@ -731,8 +814,31 @@ export const WikiTab: React.FC = () => {
               emptyHint={nav.kind === 'subtopic' ? '这个小类下还没有文件' : '这个大类下还没有文件'}
               showTopic={nav.kind === 'category'}
               highlightId={highlightSourceId}
+              selectable
+              selectedIds={selectedSourceIds}
+              onToggleSelect={toggleSelectSource}
+              onToggleSelectAll={toggleSelectAllSources}
               headerActions={
-                nav.kind === 'subtopic' ? (
+                selectedSourceIds.size > 0 ? (
+                  <>
+                    <span className="wiki-file-list-batch-count">
+                      已选 {selectedSourceIds.size} 项
+                    </span>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => void handleSynthesizeSelected()}
+                    >
+                      生成本组综述
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setBatchPickerOpen(true)}>
+                      移动到…
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => void handleParkSelected()}>
+                      存到临时存放
+                    </Button>
+                  </>
+                ) : nav.kind === 'subtopic' ? (
                   <>
                     <Button
                       variant="ghost"
@@ -794,6 +900,18 @@ export const WikiTab: React.FC = () => {
           />
         </main>
       </div>
+
+      <WikiTopicPicker
+        open={isBatchPickerOpen}
+        tree={topicTree}
+        title="批量移动到…"
+        itemTitle={`已选 ${selectedSourceIds.size} 个文件`}
+        onCancel={() => setBatchPickerOpen(false)}
+        onConfirm={(category, subtopic) => {
+          setBatchPickerOpen(false)
+          void handleMoveSelected(category, subtopic)
+        }}
+      />
 
       <WikiTopicPicker
         open={picker !== null}
