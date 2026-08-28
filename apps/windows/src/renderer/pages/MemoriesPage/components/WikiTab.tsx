@@ -326,6 +326,19 @@ export const WikiTab: React.FC = () => {
     [moveToParking, refreshSources],
   )
 
+  /** 逐条移到临时存放，返回成功条数（清理视图的批量动作用） */
+  const handleParkMany = useCallback(
+    async (sourceIds: readonly string[]): Promise<number> => {
+      let moved = 0
+      for (const id of sourceIds) {
+        if (await moveToParking(id)) moved += 1
+      }
+      await refreshSources()
+      return moved
+    },
+    [moveToParking, refreshSources],
+  )
+
   /**
    * 启动重新编目并跳到候选视图。
    * running 期间轮询进度；已有待审阅批次时后端会拒绝，这里把中文原因抛给任务中心。
