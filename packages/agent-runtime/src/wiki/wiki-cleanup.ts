@@ -6,16 +6,22 @@
  * 一切写操作（归档/恢复/删除）由用户在 UI 确认后调用 WikiRepo 的批量方法。
  */
 
+import { PARKING_CATEGORY } from "./wiki-topic-tree.js";
 import type { WikiRepo } from "./wiki-repo.js";
 import type { WikiSource } from "./types.js";
 
 export type WikiCleanupReason = "stale" | "broken_source" | "duplicate_content";
+
+/** 建议动作：降级到临时存放，或直接删除 */
+export type WikiCleanupAction = "parking" | "delete";
 
 export interface WikiCleanupSuggestion {
   readonly source: WikiSource;
   readonly reason: WikiCleanupReason;
   /** duplicate_content 时指向被保留的那一条（content_hash 相同、created_at 最早） */
   readonly duplicateOfSourceId?: string;
+  /** 推荐给用户的默认动作；用户仍可改（设计 §12） */
+  readonly suggestedAction?: WikiCleanupAction;
 }
 
 export interface WikiCleanupScanOptions {
@@ -82,6 +88,19 @@ export class WikiCleanupScanner {
       suggestions.set(s.id, { source: s, reason: "stale" });
     }
 
-    return [...suggestions.values()];
+    return [...suggestions.values()].map((s) => ({ ...s, suggestedAction: resolveAction(s) }));
   }
+}
+
+/**
+ * 建议动作（设计 §12）。
+ * 已在临时存放又长期未用的，说明搁置后一直没回头看，直接建议删除——再移一次没有意义。
+ * 来源失效的文件已经打不开，也只能删。其余先降级到临时存放，不越权删用户数据。
+ */
+function resolveAction(suggestion: WikiCleanupSuggestion): WikiCleanupAction {
+  if (suggestion.reason === "broken_source") return "delete";
+  if (suggestion.reason === "stale" && suggestion.source.topic_category === PARKING_CATEGORY) {
+    return "delete";
+  }
+  return "parking";
 }

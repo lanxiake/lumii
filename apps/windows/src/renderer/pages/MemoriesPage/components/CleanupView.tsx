@@ -18,6 +18,12 @@ const REASON_LABEL: Record<WikiCleanupSuggestionItem['reason'], string> = {
   duplicate_content: '内容重复',
 }
 
+/** 建议动作文案（二期 §12） */
+const ACTION_LABEL: Record<'parking' | 'delete', string> = {
+  parking: '移到临时存放',
+  delete: '删除',
+}
+
 const FILTER_CHIPS: readonly { key: CleanupReasonFilter; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'stale', label: '长期未用' },
@@ -45,6 +51,7 @@ interface CleanupViewProps {
   readonly archiveSources: (sourceIds: readonly string[]) => Promise<number>
   readonly restoreSources: (sourceIds: readonly string[]) => Promise<number>
   readonly deleteSources: (sourceIds: readonly string[]) => Promise<number>
+  readonly moveToParking?: (sourceIds: readonly string[]) => Promise<number>
   readonly statusScan?: (staleDays?: number) => Promise<readonly WikiStatusCandidateItem[]>
   readonly confirmStatus?: (
     pageId: string,
@@ -59,6 +66,7 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
   archiveSources,
   restoreSources,
   deleteSources,
+  moveToParking,
   statusScan,
   confirmStatus,
 }) => {
@@ -121,6 +129,13 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
 
   const handleBatchRestore = async () => {
     await restoreSources([...selected])
+    void runScan()
+  }
+
+  /** 批量降级到临时存放：不删数据，只挪出正式目录 */
+  const handleBatchParking = async () => {
+    if (!moveToParking) return
+    await moveToParking([...selected])
     void runScan()
   }
 
@@ -195,6 +210,16 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
             <Button variant="secondary" size="sm" onClick={() => void handleBatchRestore()} disabled={selected.size === 0}>
               批量恢复
             </Button>
+            {moveToParking && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void handleBatchParking()}
+                disabled={selected.size === 0}
+              >
+                移到临时存放
+              </Button>
+            )}
             <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)} disabled={selected.size === 0}>
               批量删除
             </Button>
@@ -212,6 +237,11 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
               <span className={`wiki-cleanup-item-reason wiki-cleanup-item-reason--${s.reason}`}>
                 {REASON_LABEL[s.reason]}
               </span>
+              {s.suggestedAction && (
+                <span className="wiki-cleanup-item-action">
+                  建议{ACTION_LABEL[s.suggestedAction]}
+                </span>
+              )}
             </label>
           ))}
         </>

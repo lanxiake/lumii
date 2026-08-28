@@ -1788,6 +1788,9 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       title: string
       reason: 'stale' | 'broken_source' | 'duplicate_content'
       duplicateOfSourceId?: string
+      topicCategory?: string | null
+      topicSubtopic?: string | null
+      suggestedAction?: 'parking' | 'delete'
     }[]
   : T extends 'wiki:source:archive' ? { archived: number }
   : T extends 'wiki:source:restore' ? { restored: number }

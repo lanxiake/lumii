@@ -590,13 +590,14 @@ export function handleWikiCleanupScan(
     staleDays: command.staleDays,
     fileExists: (p) => bridge.fileExistsForWiki(p),
   })
-  // 一期只把两列主题带给 UI 只读展示，不在清理里提供改主题的动作
+  // 主题两列只读展示；suggestedAction 是默认动作建议，用户仍可改
   return suggestions.map((s) => ({
     sourceId: s.source.id,
     title: s.source.title,
     reason: s.reason,
     topicCategory: s.source.topic_category,
     topicSubtopic: s.source.topic_subtopic,
+    ...(s.suggestedAction ? { suggestedAction: s.suggestedAction } : {}),
     ...(s.duplicateOfSourceId ? { duplicateOfSourceId: s.duplicateOfSourceId } : {}),
   }))
 }

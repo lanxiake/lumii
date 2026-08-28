@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createMigratedTestDb } from "../__tests__/helpers/sqlite-test-db.js";
 import { WikiRepo } from "./wiki-repo.js";
 import { WikiCleanupScanner } from "./wiki-cleanup.js";
+import { PARKING_CATEGORY } from "./wiki-topic-tree.js";
 
 describe("WikiCleanupScanner", () => {
   it("命中内容重复规则：content_hash 相同的资料，保留最早一条，其余建议清理", () => {
@@ -158,5 +159,48 @@ describe("WikiCleanupScanner", () => {
     const result = repo.deletePages("ag", "u", [target.id]);
     expect(result).toEqual({ deleted: 1, affectedBacklinks: 1 });
     expect(repo.findPageById(target.id)).toBeNull();
+  });
+});
+
+describe("WikiCleanupScanner 建议动作（二期 §12）", () => {
+  it("正式目录里的长期未用 → 建议移到临时存放", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const s = repo.createSource({ agentId: "ag", userId: "u", title: "老调研" });
+    repo.updateSourceTopic("ag", "u", s.id, "学习资料", "调研搜集材料");
+    const scanner = new WikiCleanupScanner(repo);
+
+    // staleDays 取负数把阈值推到未来，让所有资料都算长期未用
+    const out = scanner.scan("ag", "u", { staleDays: -1 });
+    const hit = out.find((x) => x.source.id === s.id)!;
+    expect(hit).toMatchObject({ reason: "stale", suggestedAction: "parking" });
+  });
+
+  it("已在临时存放且长期未用 → 建议删除，不再移一次", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const s = repo.createSource({ agentId: "ag", userId: "u", title: "搁置很久" });
+    repo.updateSourceTopic("ag", "u", s.id, PARKING_CATEGORY, null);
+    const scanner = new WikiCleanupScanner(repo);
+
+    const out = scanner.scan("ag", "u", { staleDays: -1 });
+    expect(out.find((x) => x.source.id === s.id)!.suggestedAction).toBe("delete");
+  });
+
+  it("来源失效 → 建议删除", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const s = repo.createSource({ agentId: "ag", userId: "u", title: "丢了", sourcePath: "/gone.docx" });
+    const scanner = new WikiCleanupScanner(repo);
+
+    const out = scanner.scan("ag", "u", { fileExists: () => false });
+    expect(out.find((x) => x.source.id === s.id)!.suggestedAction).toBe("delete");
+  });
+
+  it("内容重复 → 建议移到临时存放（保留原件，先降级不删）", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.createSource({ agentId: "ag", userId: "u", title: "a", contentHash: "h1" });
+    const b = repo.createSource({ agentId: "ag", userId: "u", title: "b", contentHash: "h1" });
+    const scanner = new WikiCleanupScanner(repo);
+
+    const out = scanner.scan("ag", "u");
+    expect(out.find((x) => x.source.id === b.id)!.suggestedAction).toBe("parking");
   });
 });

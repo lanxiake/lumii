@@ -669,6 +669,7 @@ export const WikiTab: React.FC = () => {
             archiveSources={trackedArchiveSources}
             restoreSources={trackedRestoreSources}
             deleteSources={trackedDeleteSources}
+            moveToParking={handleParkMany}
             statusScan={statusScan}
             confirmStatus={confirmStatus}
           />

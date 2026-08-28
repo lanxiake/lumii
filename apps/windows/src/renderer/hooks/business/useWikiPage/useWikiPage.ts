@@ -106,6 +106,8 @@ export interface WikiCleanupSuggestionItem {
   /** 用途目录两列，只读展示；为空表示待补分 */
   readonly topicCategory?: string | null
   readonly topicSubtopic?: string | null
+  /** 推荐给用户的默认动作（二期 §12）*/
+  readonly suggestedAction?: 'parking' | 'delete'
 }
 
 export interface WikiAttachmentItem {
