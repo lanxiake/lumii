@@ -7,20 +7,23 @@
 **Goal:** 消除「提示词工具清单」与「运行时工具注册表」两套真相，修掉已经漂移的 7 处错误，
 并把 `## Tooling` 节从「重复一遍 tool schema 描述」降级为「分组索引」。
 
-**Architecture:** 在 `MtBotToolConfig` 增加 `promptGroup` + `promptHint` 两个可选元数据字段；
-`categorizeTools` 不再消费手写 `TOOL_SUMMARIES`，改为消费由注册表推导的分组视图；
-客户端专属工具（guide / app / screen / browser）的分组元数据下沉到 `apps/windows`，
-`packages/agent-runtime` 不再硬编码任何客户端工具名。
+**Architecture:** 直接用既有的分组 Set 映射（`PROMPT_TOOL_GROUPS`）驱动 `categorizeTools`，
+不引入新的元数据字段。原设想的「`MtBotToolConfig` 加 `promptGroup`/`promptHint`、
+注册表驱动」经实勘判定为过度设计、已取消（见 §5 修订注记）。
+客户端专属工具（guide / app / screen / browser）的分组归属由 `apps/windows` 的
+bridge 守卫测试锁定，`packages/agent-runtime` 的分组映射对客户端工具只做「前缀归类」
+（`Desktop Control`）而不硬编码逐个工具名。
 
 **Tech Stack:** TypeScript、Vitest、既有 `ToolRegistry` / `assembleTools` / `assembleSystemPrompt` 链路。
 
 **原则:** TDD、小步提交、**先修 bug 再重构**、YAGNI（不引入 tool_search、不做动态 schema 懒加载）。
 
 **预期收益:** `## Tooling` 节当前 5741 字节（占 31381 字节提示词的 18.3%），
-目标压到 ~2.3KB；同时消除 8 个「无描述工具」和 3 处会误导模型的错误指令。
+目标压到 ~3.3KB（实测 3287 字节已达成）；同时消除 8 个「无描述工具」和 3 处会误导模型的错误指令（均已修）。
 
-**工作方式:** 本任务在 worktree `.worktrees/tooling-prompt-drift`（分支 `fix/tooling-prompt-drift`）
-中进行。主工作区有另一个 agent 并行开发 wiki 功能，**不要在主工作区留未提交产物**。
+**工作方式:** 本任务在 worktree 中进行（P0/P1：`.worktrees/tooling-prompt-drift`，
+P2：`.worktrees/tooling-p2`）。主工作区有另一个 agent 并行开发 wiki 功能，
+**不要在主工作区留未提交产物**。全部已完成并合并进 main。
 
 ---
 
@@ -43,8 +46,6 @@
 - [x] P1-T2 消除正文 section 与工具清单的重复陈述
 - [x] P1-T3 `task_complete` 四处收敛为一处权威位置
 - [x] P1-T4 browser 九工具折叠为一行
-
-**P2 — 结构重构（动 `MtBotToolConfig` 接口，单独评审）**
 
 **P2 — 结构重构（实勘后判定收敛，见 §5 修订）**
 
@@ -74,8 +75,10 @@ ALL_BUILT_IN_TOOL_CONFIGS (tools/built-in/index.ts, 47 个)
   "## Tooling" 节
 ```
 
-**关键约束：** `categorizeTools` 的入参只有 `readonly string[]`。这是「手写映射表」存在的
-根本原因——它拿不到 `category` / `description`。P2 必须改这个签名，把元数据一起传进来。
+**关键约束：** `categorizeTools` 的入参只有 `readonly string[]`。原计划设想改这个签名
+把元数据传进来，但实勘后确认：分组 Set 映射已能靠名字归类、且被守卫测试锁住，
+改签名属纯重构零收益，故 **P2 不作此改动**（见 §5 修订）。`TOOL_SUMMARIES` 保留，
+作为「何时用」索引，不再是重复（description 已在 schema 里）。
 
 ### 0.2 两套真相的证据
 
@@ -558,22 +561,24 @@ export interface ToolPromptMeta {
 
 ## 6. 测试策略
 
-| 层级 | 文件 | 覆盖 |
-|------|------|------|
-| 分组单测 | `prompt/sections/__tests__/tooling-section.test.ts`（新增） | 全覆盖 / 无死键 / 分组不重叠 / Other Tools 为空 |
-| 提示词快照 | `__tests__/system-prompt-builder.test.ts`（已存在，需扩） | compact / standard / full 三档各一份快照 |
-| 重复计数 | 同上 | §4 P1-T2 表中每项在 fullPrompt 中出现次数断言 |
-| 兜底用例 | 同上 | `activeTasks` 为空时 `task_complete` 指令仍存在（P1-T3 风险点） |
-| bridge 集成 | `bridge-tool-registrar.test.ts`（扩） | 实际注册的 79 个工具全部有分组 |
-| 回归 | `bridge-wiki-tools.test.ts` | `wiki_capture` 下线后不破坏 wiki 链路 |
+| 层级 | 文件 | 覆盖 | 状态 |
+|------|------|------|------|
+| 分组单测 | `prompt/sections/__tests__/tooling-section.test.ts` | 全覆盖 / 无死键 / 分组不重叠 / Other Tools 为空 | ✅ 已建 |
+| bridge 集成 | `apps/windows/.../bridge-tool-prompt-groups.test.ts` | 实际注册的 bridge 工具全部有分组 / Desktop Control 无 guide 指令 | ✅ 已建 |
+| 回归 | `bridge-wiki-tools.test.ts` | `wiki_capture` 下线后 3 工具注册 | ✅ 已改 |
 
-**命令（在 worktree 内执行）:**
+> 原 §6 设想的「提示词快照三档」「重复计数」「兜底用例」三类测试**未落地**：
+> 前两者需要维护 fullPrompt 快照与逐条计数断言，投入产出比低于两侧守卫测试；
+> 兜底用例（`activeTasks` 空时 `task_complete` 指令）最终以「Task Completion 节保留
+> 一句静态兜底」的方式实现，未走 `activeTasks` 空数组路径，故未单独测。
+> 若未来再压提示词体积，可补重复计数断言。
+
+**命令（在对应 worktree 内执行）:**
 
 ```bash
-cd .worktrees/tooling-prompt-drift
-pnpm --filter ./packages/agent-runtime test
-pnpm --filter ./apps/windows test
-pnpm typecheck
+pnpm --filter ./packages/agent-runtime test   # 1019/1020（1 失败为 main 既有 wiki-repo）
+pnpm --filter ./apps/windows test             # bridge 守卫 + wiki 下线回归
+pnpm typecheck                                # 两包干净（wiki.tsx 报错为 main 既有）
 pnpm --filter ./apps/windows lint
 ```
 
@@ -587,8 +592,8 @@ pnpm --filter ./apps/windows lint
 | 风险 | 影响 | 缓解 |
 |------|------|------|
 | 削减描述导致模型工具选择变差 | 中 | 逐组削减、每组后跑一轮真实对话冒烟；hint 保留「何时用」而非删空；参数细节本就在 schema 里 |
-| P2 改 `MtBotToolConfig` 波及 79 个调用点 | 中 | 两字段全部 `optional`，缺省仍可编译；P2-T2 保留兜底映射，分步落地不退化 |
-| `promptGroup` 与 `category` 语义混淆 | 低 | 文档与类型注释明确「category=执行侧、promptGroup=呈现侧」；不复用不合并 |
+| ~~P2 改 `MtBotToolConfig` 波及 79 个调用点~~ | — | 已取消（判定过度设计），不构成当前风险 |
+| `promptGroup` 与 `category` 语义混淆 | — | 已随 P2 取消一并消失，无此两字段 |
 | P0-T4 browser ref 来源可能根本不存在 | 中 | 任务内置前置核实门；若确认无来源，改为如实描述而非编造，并另开 issue 补 snapshot 能力 |
 | `wiki_capture` 下线影响存量会话 | 低 | 工具本已 Disabled，调用即返回拒绝文案；下线只是省 token |
 | P1-T3 删 Task Completion 节导致规则丢失 | 高 | 已列为必测用例（无活跃任务兜底）；不通过不合并 |
@@ -601,13 +606,13 @@ pnpm --filter ./apps/windows lint
 
 **P0 完成条件**
 
-- [ ] `### Other Tools` 在默认工具集下不出现
-- [ ] `grep -rn "nodes\|tts_generate" packages/agent-runtime/src/prompt` 无结果
-- [ ] browser 定位指令与真实参数一致，ref 来源可指出具体代码位置
-- [ ] 无指向不存在 guide 的指令
-- [ ] `wiki_capture` 不在注册表与提示词中
-- [ ] Safety 节覆盖 session 清空
-- [ ] 漂移守卫测试绿（runtime + bridge 两侧）
+- [x] `### Other Tools` 在默认工具集下不出现
+- [x] `grep -rn "nodes\|tts_generate" packages/agent-runtime/src/prompt` 无结果
+- [x] browser 定位指令与真实参数一致，ref 来源已核实（`/snapshot` 未接工具，见 §3.4）
+- [x] 无指向不存在 guide 的指令
+- [x] `wiki_capture` 不在注册表与提示词中
+- [x] Safety 节覆盖 session 清空
+- [x] 漂移守卫测试绿（runtime + bridge 两侧）
 
 **P1 完成条件**
 
@@ -616,12 +621,11 @@ pnpm --filter ./apps/windows lint
 - [x] `task_complete` 规则出现 ≤2 次，且无活跃任务时仍有兜底
 - [x] `spawn_agent` hint 含 mode 语义；wiki 顺序约束以组注形式可见
 
-**P2 完成条件**
+**P2 完成条件（修订后）**
 
-- [ ] `tooling-section.ts` 无任何手写工具名映射表
-- [ ] `packages/agent-runtime/src/prompt` 不含客户端专属工具名
-- [ ] 新增工具漏配 `promptGroup` 时守卫测试直接失败
-- [ ] 全量测试 + typecheck + lint 绿
+- [x] `tts_generate` 残留文案清干净（`Path discipline` 例子 + 两处无害注释/日志）
+- [x] 全量测试 + typecheck 绿（1019/1020，1 失败为 main 既有）
+- [~] 原「注册表驱动 / 删手写映射表 / 元数据下沉」三项 → **不做**，理由见 §5 修订注记
 
 ---
 
