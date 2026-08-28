@@ -532,19 +532,6 @@ export class WikiRepo {
     return row ? pageRowToPage(row) : null;
   }
 
-  sourceHasUsedPage(agentId: string, userId: string, sourceId: string): boolean {
-    const row = this.db
-      .prepare<{ last_used: string | null; use_count: number }>(
-        `SELECT p.last_used, p.use_count FROM wiki_pages p
-         JOIN wiki_page_revisions r ON r.page_id = p.id
-         WHERE p.agent_id = ? AND p.user_id = ? AND r.source_ref = ?
-         LIMIT 1`,
-      )
-      .get(agentId, userId, sourceId);
-    if (!row) return false;
-    return row.last_used !== null || row.use_count > 0;
-  }
-
   /** 归档资料条目：置 archived_at，返回实际改动行数 */
   archiveSources(agentId: string, userId: string, sourceIds: readonly string[]): number {
     if (sourceIds.length === 0) return 0;

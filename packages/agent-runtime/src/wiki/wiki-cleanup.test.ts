@@ -48,7 +48,7 @@ describe("WikiCleanupScanner", () => {
     expect(scanner.scan("ag", "u")).toHaveLength(0);
   });
 
-  it("命中长期未用规则：created_at 早于阈值且无对应页面使用痕迹", () => {
+  it("命中长期未用规则：从未使用且 created_at 早于阈值", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const old = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
     const db = (repo as unknown as { db: { prepare: (sql: string) => { run: (...a: unknown[]) => void } } }).db;
@@ -61,22 +61,35 @@ describe("WikiCleanupScanner", () => {
     expect(suggestions[0]).toMatchObject({ reason: "stale" });
   });
 
-  it("不命中长期未用：对应页面已被使用过（use_count > 0）", () => {
+  it("不命中长期未用：资料近期被打开过（touchSource 写 last_used）", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const old = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
     const db = (repo as unknown as { db: { prepare: (sql: string) => { run: (...a: unknown[]) => void } } }).db;
     const s = repo.createSource({ agentId: "ag", userId: "u", title: "old" });
     db.prepare("UPDATE wiki_sources SET created_at = ? WHERE id = ?").run(old, s.id);
-    const page = repo.savePage({
-      agentId: "ag",
-      userId: "u",
-      path: "sources/old",
-      title: "old",
-      contentMd: "内容",
-      editor: "ai",
-      sourceRef: s.id,
-    });
-    db.prepare("UPDATE wiki_pages SET use_count = 1 WHERE id = ?").run(page.id);
+    repo.touchSource(s.id);
+
+    const scanner = new WikiCleanupScanner(repo);
+    expect(scanner.scan("ag", "u", { staleDays: 90 })).toHaveLength(0);
+  });
+
+  it("命中长期未用：用过但最后一次使用也早于阈值", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const old = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000).toISOString();
+    const db = (repo as unknown as { db: { prepare: (sql: string) => { run: (...a: unknown[]) => void } } }).db;
+    const s = repo.createSource({ agentId: "ag", userId: "u", title: "old" });
+    db.prepare("UPDATE wiki_sources SET created_at = ?, last_used = ?, use_count = 3 WHERE id = ?").run(old, old, s.id);
+
+    const scanner = new WikiCleanupScanner(repo);
+    expect(scanner.scan("ag", "u", { staleDays: 90 })).toHaveLength(1);
+  });
+
+  // 回归：归档不再写 wiki_pages（见 wiki-organizer），旧规则 join 页面判使用情况，
+  // 会把每条新归档的资料都误判为「长期未用」并送进批量删除的候选。
+  it("不命中长期未用：新归档资料没有页面行，也不该被判为长期未用", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const s = repo.createSource({ agentId: "ag", userId: "u", title: "刚归档" });
+    repo.updateSourceTopic(s.id, "做事记录", "会议聊天记录");
 
     const scanner = new WikiCleanupScanner(repo);
     expect(scanner.scan("ag", "u", { staleDays: 90 })).toHaveLength(0);

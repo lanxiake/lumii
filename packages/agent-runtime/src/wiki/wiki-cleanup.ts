@@ -69,17 +69,17 @@ export class WikiCleanupScanner {
       }
     }
 
-    // 规则：长期未用——对应页面 last_used 为空且 created_at 早于阈值
-    // P0 摄入时资料与页面一一对应（source_ref = source.id），取页面判定使用情况
+    // 规则：长期未用——资料自身的使用统计（wiki_sources.last_used / use_count）判定
+    // 归档不再写 wiki_pages，使用信号只落在资料行上（touchSource 维护），
+    // 所以这里不能再 join 页面判使用情况：那样每条老资料都会被误判为「长期未用」。
+    // 用过（use_count > 0）就看最后一次使用时间，没用过就看创建时间。
     const staleThresholdMs = Date.now() - staleDays * MS_PER_DAY;
     for (const s of sources) {
       if (suggestions.has(s.id)) continue;
-      const createdMs = new Date(s.created_at).getTime();
-      if (Number.isNaN(createdMs) || createdMs >= staleThresholdMs) continue;
-      const hasRecentUse = this.repo.sourceHasUsedPage(agentId, userId, s.id);
-      if (!hasRecentUse) {
-        suggestions.set(s.id, { source: s, reason: "stale" });
-      }
+      const lastActivity = s.use_count > 0 && s.last_used ? s.last_used : s.created_at;
+      const lastActivityMs = new Date(lastActivity).getTime();
+      if (Number.isNaN(lastActivityMs) || lastActivityMs >= staleThresholdMs) continue;
+      suggestions.set(s.id, { source: s, reason: "stale" });
     }
 
     return [...suggestions.values()];
