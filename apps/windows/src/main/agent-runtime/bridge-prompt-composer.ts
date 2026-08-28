@@ -247,12 +247,9 @@ function buildClientDiagnosticsSection(d: ClientDiagnostics): string {
 - 用途：用于 Agent **自我诊断**配置/运行异常，给出用户可执行的操作建议，而非向用户披露原始数值本身。
 - 修改原则：禁止让 Agent 自行修改用户数据/系统设置；如需修改必须先通过 ask_user_question 征得用户显式同意。
 
-### 1) 客户端日志目录
+### 1) lumii客户端日志目录
 - 绝对路径：\`${d.logsDir}\`
 - 说明：主进程 / 渲染进程 / Agent Runtime / 渠道适配器 / 工具 hook 的错误与运行日志都在该目录下。文件按日期滚动（如 \`main-YYYY-MM-DD.log\`、\`agent-runtime-YYYY-MM-DD.log\`）。
-- 使用建议：
-  - 若用户反馈"消息没响应 / 工具调用卡死 / 渠道没消息"，先用 \`file_tools.list_directory\` 浏览日志目录、再用 \`grep -i 'error|fatal|unhandled|warn'\` 或 \`read_file\` 读取最近 1~2 天的日志尾部。
-  - 日志可读、可解析；禁止直接删除正在写入的当日日志文件（会触发写入失败）。
 
 ### 2) lumii CLI（客户端配置命令行）
 - 执行方式：在 \`bash\` 工具中运行 \`lumii <command>\`（开发期通常是 \`node scripts/lumii-cli-stub.js <command>\`）。
