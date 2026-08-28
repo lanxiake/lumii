@@ -736,13 +736,18 @@ export interface WikiGraphDataCommand {
   readonly type: 'wiki:graph:data'
   readonly sessionKey?: string
   readonly agentId?: string
-  /** 中心页 id；与 category 二选一 */
+  /** 中心页 id（兼容旧路径，强制走历史层） */
   readonly centerPageId?: string
+  /** 大类，与 centerPageId 二选一；全空时缺省到主题树第一个大类 */
   readonly category?: string
-  /** 邻域半径，默认 1 */
+  /** 小类（可选） */
+  readonly subtopic?: string
+  /** 邻域半径，默认 1；centerPageId 路径下影响 page 双链扩散，category 路径下无效 */
   readonly radius?: number
-  /** 节点数上限，默认 50 */
+  /** source+entity 节点上限，默认 50 */
   readonly limit?: number
+  /** 图层，默认 ['structure', 'entities'] */
+  readonly layers?: Array<'structure' | 'entities' | 'history'>
 }
 
 export interface WikiStatusScanCommand {
@@ -780,8 +785,23 @@ export interface WikiEroExtractCommand {
   readonly type: 'wiki:ero:extract'
   readonly sessionKey?: string
   readonly agentId?: string
+  /** 默认 'sources'；'pages' 保持旧行为（extractRecent，服务历史页面图层） */
+  readonly target?: 'sources' | 'pages'
+  /** target='sources' 时的范围：category（+可选 subtopic）或显式 sourceIds */
+  readonly category?: string
+  readonly subtopic?: string
+  readonly sourceIds?: readonly string[]
+  /** target='pages' 时沿用的旧参数 */
   readonly maxPages?: number
   readonly maxCharsPerPage?: number
+}
+
+/** 三期：实体出现于哪些资料（实体侧栏） */
+export interface WikiEroEntitySourcesCommand {
+  readonly type: 'wiki:ero:entity-sources'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly entityId: string
 }
 
 export interface WikiSearchHybridCommand {
@@ -1432,6 +1452,7 @@ export type AgentRuntimeCommand =
   | WikiEroBootstrapCommand
   | WikiEroListCommand
   | WikiEroExtractCommand
+  | WikiEroEntitySourcesCommand
   | WikiSearchHybridCommand
   | WikiVectorRebuildCommand
   | ToolsListCommand
@@ -1905,17 +1926,19 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:graph:data' ? {
       nodes: readonly {
         id: string
-        kind: 'page' | 'entity'
+        kind: 'page' | 'entity' | 'category' | 'subtopic' | 'source'
         title: string
         path?: string
         category?: string
         useCount?: number
         entityType?: string
         pageId?: string | null
+        topicCategory?: string | null
+        topicSubtopic?: string | null
       }[]
       edges: readonly {
         id: string
-        kind: 'wikilink' | 'relation'
+        kind: 'wikilink' | 'relation' | 'belongs_to' | 'sibling' | 'mentioned_in'
         source: string
         target: string
         label: string
@@ -1945,11 +1968,26 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       }[]
     }
   : T extends 'wiki:ero:extract' ? {
-      pagesProcessed: number
+      // target='pages' 旧路径字段
+      pagesProcessed?: number
+      // target='sources'（默认）路径字段
+      sourcesScanned?: number
+      sourcesSkipped?: number
+      sourcesFailed?: number
       entitiesUpserted: number
       relationsUpserted: number
       observationsAdded: number
-      errors: readonly string[]
+      errors: readonly (string | { sourceId: string; title: string; message: string })[]
+    }
+  : T extends 'wiki:ero:entity-sources' ? {
+      sources: readonly {
+        id: string
+        title: string
+        sourcePath: string | null
+        topicCategory: string | null
+        topicSubtopic: string | null
+        mediaType: string
+      }[]
     }
   : T extends 'wiki:search:hybrid' ? {
       hits: readonly {

@@ -249,9 +249,11 @@ describe('wiki commands', () => {
     expect(handleWikiIndexRebuild(bridge)).toEqual({ rebuiltCount: 1 })
   })
 
-  it('graph:data 在空 ERO 时自动冷启动并返回含 kind 的混合节点', () => {
+  it('graph:data centerPageId 走历史层，不再自动 bootstrap ERO', () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
+    const ero = new WikiEroRepo(repo.database)
+
     const b = repo.savePage({
       agentId: 'assistant',
       userId: 'local-user',
@@ -280,10 +282,9 @@ describe('wiki commands', () => {
     }
 
     expect(graph.nodes.some((n) => n.kind === 'page' && n.id === a.id)).toBe(true)
-    expect(graph.nodes.some((n) => n.kind === 'entity')).toBe(true)
     expect(graph.edges.some((e) => e.kind === 'wikilink')).toBe(true)
-    expect(graph.edges.some((e) => e.kind === 'relation')).toBe(true)
     expect(typeof graph.truncated).toBe('boolean')
+    expect(ero.listEntities('assistant', 'local-user').length).toBe(0)
   })
 
   it('runs:list 对无效 result_detail 形状返回 resultDetail null', () => {
