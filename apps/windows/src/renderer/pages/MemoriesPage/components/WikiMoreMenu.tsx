@@ -41,7 +41,7 @@ const MENU_ITEMS = [
   {
     key: 'synthesis',
     label: '综述合成',
-    description: '从已有页面生成主题综述',
+    description: '从目录里的文件生成主题综述',
     icon: Sparkles,
   },
   {
