@@ -48,7 +48,7 @@ export type {
   AutoSynthesizeAllResult,
 } from "./wiki-auto-synthesis.js";
 
-export { WikiGraphBuilder } from "./wiki-graph.js";
+export { WikiGraphBuilder, subtopicNodeId, parseSubtopicNodeId } from "./wiki-graph.js";
 export type {
   WikiGraphNodeKind,
   WikiGraphEdgeKind,
@@ -56,6 +56,7 @@ export type {
   WikiGraphEdge,
   WikiGraphData,
   WikiGraphBuildOptions,
+  WikiGraphLayer,
 } from "./wiki-graph.js";
 
 export { WikiPageStatusScanner } from "./wiki-page-status.js";
