@@ -619,6 +619,18 @@ export class AgentRuntimeBridge {
 
     // Wiki 知识库：收件箱/资料/页面读写 + 摄入钩子 + 整理队列（P0）
     this._wikiRepo = new WikiRepo(db)
+    // 同 agent_memories_fts 的历史数据补齐：wiki 的两个 FTS 虚表也由 migration 建空
+    // （bigram 分词要 JS 做），老库升级后资料/页面搜索会静默零命中。启动时检测一次。
+    try {
+      const health = this._wikiRepo.checkIndexHealth()
+      if (!health.isHealthy) {
+        log.info(`[initialize] Wiki FTS 索引不健康: ${health.reason}，自动重建...`)
+        const rebuilt = this._wikiRepo.rebuildIndex()
+        log.info(`[initialize] Wiki FTS 索引重建完成（${rebuilt} 行）`)
+      }
+    } catch (err) {
+      log.warn('[initialize] Wiki FTS 索引健康检查/重建失败，资料搜索可能零命中:', err)
+    }
     this._wikiIngestHook = new WikiIngestHook(this._wikiRepo)
     this._wikiOrganizer = new WikiOrganizer(
       this._wikiRepo,

@@ -1108,6 +1108,19 @@ export class WikiRepo {
     return this.indexRepo.rebuildFts() + this.indexRepo.rebuildSourceFts();
   }
 
+  /**
+   * FTS 索引是否与主表一致（页面 + 资料都查）。
+   * bigram 分词要 JS 做，SQL migration 建完虚表是空的，老库升级后搜索会静默零命中，
+   * 宿主启动时据此决定要不要跑一次 rebuildIndex()。
+   */
+  checkIndexHealth(): { readonly isHealthy: boolean; readonly reason?: string } {
+    const page = this.indexRepo.checkFtsHealth();
+    if (!page.isHealthy) return { isHealthy: false, reason: `页面索引：${page.reason}` };
+    const source = this.indexRepo.checkSourceFtsHealth();
+    if (!source.isHealthy) return { isHealthy: false, reason: `资料索引：${source.reason}` };
+    return { isHealthy: true };
+  }
+
   // ── 索引元数据 KV ───────────────────────────────────────
 
   /** 读取一个元数据键值，不存在返回 null（供概念候选存取、索引健康诊断复用） */

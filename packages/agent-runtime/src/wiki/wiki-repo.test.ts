@@ -634,3 +634,26 @@ describe("WikiRepo 资料层检索", () => {
     expect(repo.searchSources("ag", "u", "归档内容")).toEqual([]);
   });
 });
+
+describe("WikiRepo 索引健康检查", () => {
+  it("主表有数据但 FTS 为空时判为不健康，rebuildIndex 后恢复", () => {
+    const db = createMigratedTestDb();
+    const repo = new WikiRepo(db);
+    // 绕过 indexSource 直接写主表，模拟 migration 建完空虚表的老库
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "老资料", extractedText: "升级前的正文" });
+    expect(repo.checkIndexHealth().isHealthy).toBe(false);
+    expect(repo.searchSources("ag", "u", "升级前")).toEqual([]);
+
+    expect(repo.rebuildIndex()).toBeGreaterThan(0);
+    expect(repo.checkIndexHealth().isHealthy).toBe(true);
+    expect(repo.searchSources("ag", "u", "升级前").map((h) => h.source.id)).toEqual([source.id]);
+  });
+
+  it("索引与主表一致时判为健康", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "新资料", extractedText: "正文" });
+    repo.indexSource(source.id);
+
+    expect(repo.checkIndexHealth().isHealthy).toBe(true);
+  });
+});
