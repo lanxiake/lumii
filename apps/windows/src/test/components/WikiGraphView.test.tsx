@@ -1,14 +1,11 @@
 /**
- * WikiGraphView：知识图谱图层、实体侧栏与节点交互
+ * WikiGraphView：三期图层、实体侧栏与节点交互
  */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import {
-  WikiGraphView,
-  filterGraph,
-} from '../../renderer/pages/MemoriesPage/components/WikiGraphView'
+import { WikiGraphView } from '../../renderer/pages/MemoriesPage/components/WikiGraphView'
 import type { WikiGraphDataItem } from '../../renderer/hooks/business/useWikiPage'
 
 vi.mock('@xyflow/react', () => {
@@ -76,13 +73,38 @@ vi.mock('@dagrejs/dagre', () => ({
   },
 }))
 
-const MOCK_GRAPH: WikiGraphDataItem = {
+const STRUCTURE_GRAPH: WikiGraphDataItem = {
   nodes: [
-    { id: 'p1', kind: 'page', title: '页A', path: 'sources/a', category: 'sources', useCount: 0 },
-    { id: 'entity:e1', kind: 'entity', title: '实体E', entityType: 'concept', pageId: 'p1' },
+    { id: '做事记录', kind: 'category', title: '做事记录' },
+    { id: '["做事记录","会议聊天记录"]', kind: 'subtopic', title: '会议聊天记录', category: '做事记录' },
+    { id: 's1', kind: 'source', title: '会议A.pdf' },
   ],
   edges: [
-    { id: 'l1', kind: 'wikilink', source: 'p1', target: 'p1', label: '自链', anchorText: '自链' },
+    {
+      id: 'b1',
+      kind: 'belongs_to',
+      source: 's1',
+      target: '["做事记录","会议聊天记录"]',
+      label: 'belongs_to',
+    },
+    {
+      id: 'b2',
+      kind: 'belongs_to',
+      source: '["做事记录","会议聊天记录"]',
+      target: '做事记录',
+      label: 'belongs_to',
+    },
+  ],
+  truncated: false,
+}
+
+const MIXED_GRAPH: WikiGraphDataItem = {
+  nodes: [
+    { id: 's1', kind: 'source', title: '会议A.pdf' },
+    { id: 'entity:e1', kind: 'entity', title: '实体E', entityType: 'concept' },
+  ],
+  edges: [
+    { id: 'm1', kind: 'mentioned_in', source: 'entity:e1', target: 's1', label: 'mentioned_in' },
     { id: 'r1', kind: 'relation', source: 'entity:e1', target: 'entity:e1', label: 'related_to', strength: 0.5 },
   ],
   truncated: false,
@@ -90,184 +112,153 @@ const MOCK_GRAPH: WikiGraphDataItem = {
 
 function renderWikiGraphView(
   overrides: Partial<Parameters<typeof WikiGraphView>[0]> = {},
-  graphData: WikiGraphDataItem | null = MOCK_GRAPH,
+  graphData: WikiGraphDataItem | null = MIXED_GRAPH,
 ) {
   const getGraphData = vi.fn(async () => graphData)
-  const onOpenPage = vi.fn()
-  const bootstrapEro = vi.fn(async () => ({ entities: 1, relations: 1 }))
+  const openSource = vi.fn(async () => {})
+  const onNavigateTo = vi.fn()
+  const extractEroFromSources = vi.fn(async () => ({
+    sourcesScanned: 1,
+    sourcesSkipped: 0,
+    sourcesFailed: 0,
+    entitiesUpserted: 2,
+    relationsUpserted: 1,
+    observationsAdded: 3,
+    errors: [],
+  }))
   const runLongTask = vi.fn()
   /** 记录长任务调度并执行传入操作。 */
   const executeLongTask = async <T,>(title: string, fn: () => Promise<T>): Promise<T> => {
     runLongTask(title, fn)
     return fn()
   }
-  const listEntityObservations = vi.fn(async () => [])
+  const listEntitySources = vi.fn(async () => [])
 
   render(
     <WikiGraphView
-      pages={[{ id: 'p1', path: 'sources/a', category: 'sources', title: '页A', version: 1, updatedAt: 1 }]}
+      currentNav={{ kind: 'graph' }}
       getGraphData={getGraphData}
-      onOpenPage={onOpenPage}
-      bootstrapEro={bootstrapEro}
+      extractEroFromSources={extractEroFromSources}
+      listEntitySources={listEntitySources}
+      openSource={openSource}
+      onNavigateTo={onNavigateTo}
       runLongTask={executeLongTask}
-      listEntityObservations={listEntityObservations}
       {...overrides}
     />,
   )
 
-  return { getGraphData, onOpenPage, bootstrapEro, runLongTask, listEntityObservations }
+  return { getGraphData, openSource, onNavigateTo, extractEroFromSources, runLongTask, listEntitySources }
 }
-
-/** 选择分类并加载图谱 */
-async function loadGraphByCategory(category = 'sources') {
-  fireEvent.change(screen.getByDisplayValue('或分类…'), { target: { value: category } })
-  fireEvent.click(screen.getByRole('button', { name: '查看图谱' }))
-  await waitFor(() => expect(screen.getByTestId('react-flow')).toBeInTheDocument())
-}
-
-describe('filterGraph', () => {
-  it('全部图层返回原图', () => {
-    expect(filterGraph(MOCK_GRAPH, 'all')).toEqual(MOCK_GRAPH)
-  })
-
-  it('仅实体关系过滤页面节点与 wikilink 边', () => {
-    const filtered = filterGraph(MOCK_GRAPH, 'entities')
-    expect(filtered.nodes).toHaveLength(1)
-    expect(filtered.nodes[0]?.kind).toBe('entity')
-    expect(filtered.edges).toHaveLength(1)
-    expect(filtered.edges[0]?.kind).toBe('relation')
-  })
-
-  it('仅页面双链过滤实体节点与 relation 边', () => {
-    const filtered = filterGraph(MOCK_GRAPH, 'pages')
-    expect(filtered.nodes).toHaveLength(1)
-    expect(filtered.nodes[0]?.kind).toBe('page')
-    expect(filtered.edges).toHaveLength(1)
-    expect(filtered.edges[0]?.kind).toBe('wikilink')
-  })
-})
 
 describe('WikiGraphView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('标题为知识图谱；图层可过滤仅实体关系', async () => {
-    renderWikiGraphView()
+  it('标题为知识图谱；渲染结构层节点与 belongs_to 边', async () => {
+    renderWikiGraphView({}, STRUCTURE_GRAPH)
     expect(screen.getByText('知识图谱')).toBeInTheDocument()
 
-    await loadGraphByCategory()
-    expect(screen.getByTestId('node-p1')).toBeInTheDocument()
-    expect(screen.getByTestId('node-entity:e1')).toBeInTheDocument()
-    expect(screen.getByTestId('edge-l1')).toHaveTextContent('自链')
-
-    fireEvent.click(screen.getByRole('tab', { name: '仅实体关系' }))
-
     await waitFor(() => {
-      expect(screen.queryByTestId('node-p1')).not.toBeInTheDocument()
-      expect(screen.getByTestId('node-entity:e1')).toBeInTheDocument()
-      expect(screen.queryByTestId('edge-l1')).not.toBeInTheDocument()
-      expect(screen.getByTestId('edge-r1')).toHaveTextContent('related_to')
+      expect(screen.getByTestId('node-做事记录')).toBeInTheDocument()
+      expect(screen.getByTestId('node-["做事记录","会议聊天记录"]')).toBeInTheDocument()
+      expect(screen.getByTestId('node-s1')).toBeInTheDocument()
     })
   })
 
-  it('页面节点点击调用 onOpenPage；实体节点打开侧栏', async () => {
-    const { onOpenPage } = renderWikiGraphView()
-    await loadGraphByCategory()
+  it('点击 subtopic 节点调用 onNavigateTo', async () => {
+    const { onNavigateTo } = renderWikiGraphView({}, STRUCTURE_GRAPH)
+    await waitFor(() => expect(screen.getByTestId('react-flow')).toBeInTheDocument())
 
-    fireEvent.click(screen.getByTestId('node-p1'))
-    expect(onOpenPage).toHaveBeenCalledWith('p1')
+    fireEvent.click(screen.getByTestId('node-["做事记录","会议聊天记录"]'))
+    expect(onNavigateTo).toHaveBeenCalledWith({ kind: 'subtopic', category: '做事记录', subtopic: '会议聊天记录' })
+  })
+
+  it('点击 category 节点调用 onNavigateTo', async () => {
+    const { onNavigateTo } = renderWikiGraphView({}, STRUCTURE_GRAPH)
+    await waitFor(() => expect(screen.getByTestId('react-flow')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('node-做事记录'))
+    expect(onNavigateTo).toHaveBeenCalledWith({ kind: 'category', name: '做事记录' })
+  })
+
+  it('点击 source 节点调用 openSource', async () => {
+    const { openSource } = renderWikiGraphView({}, STRUCTURE_GRAPH)
+    await waitFor(() => expect(screen.getByTestId('react-flow')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('node-s1'))
+    expect(openSource).toHaveBeenCalledWith('s1')
+  })
+
+  it('点击实体节点打开侧栏并展示出现的资料', async () => {
+    const listEntitySources = vi.fn(async () => [
+      { id: 's1', title: '会议A.pdf', sourcePath: null, topicCategory: '做事记录', topicSubtopic: '会议聊天记录', mediaType: 'application/pdf' },
+    ])
+    renderWikiGraphView({ listEntitySources })
+    await waitFor(() => expect(screen.getByTestId('react-flow')).toBeInTheDocument())
 
     fireEvent.click(screen.getByTestId('node-entity:e1'))
-    expect(onOpenPage).toHaveBeenCalledTimes(1)
     const sidebar = screen.getByLabelText('实体详情')
     expect(within(sidebar).getByRole('heading', { name: '实体E' })).toBeInTheDocument()
-    expect(within(sidebar).getByText('concept')).toBeInTheDocument()
-    expect(within(sidebar).getByRole('button', { name: '打开关联页面' })).toBeInTheDocument()
-  })
-
-  it('实体侧栏打开关联页按钮调用 onOpenPage', async () => {
-    const { onOpenPage } = renderWikiGraphView()
-    await loadGraphByCategory()
-
-    fireEvent.click(screen.getByTestId('node-entity:e1'))
-    fireEvent.click(within(screen.getByLabelText('实体详情')).getByRole('button', { name: '打开关联页面' }))
-    expect(onOpenPage).toHaveBeenCalledWith('p1')
-  })
-
-  it('边标签优先 label，否则 anchorText', async () => {
-    const graph: WikiGraphDataItem = {
-      nodes: [{ id: 'p1', kind: 'page', title: '页A', category: 'sources', useCount: 0 }],
-      edges: [
-        { id: 'e1', kind: 'wikilink', source: 'p1', target: 'p1', label: '', anchorText: '锚文本' },
-      ],
-      truncated: false,
-    }
-    renderWikiGraphView({}, graph)
-    await loadGraphByCategory()
-    expect(screen.getByTestId('edge-e1')).toHaveTextContent('锚文本')
-  })
-
-  it('保留从双链生成 ERO 按钮', () => {
-    renderWikiGraphView()
-    expect(screen.getByRole('button', { name: '从双链生成 ERO' })).toBeInTheDocument()
-  })
-
-  it('抽取实体关系通过长任务执行器运行', async () => {
-    const extractEro = vi.fn(async () => ({
-      pagesProcessed: 1,
-      entitiesUpserted: 2,
-      relationsUpserted: 1,
-      observationsAdded: 3,
-      errors: [],
-    }))
-    const { runLongTask } = renderWikiGraphView({ extractEro })
-
-    fireEvent.click(screen.getByRole('button', { name: '抽取实体关系' }))
 
     await waitFor(() => {
-      expect(runLongTask).toHaveBeenCalledWith('抽取图谱实体', expect.any(Function))
-      expect(extractEro).toHaveBeenCalledTimes(1)
+      expect(listEntitySources).toHaveBeenCalledWith('entity:e1')
+      expect(within(sidebar).getByText('会议A.pdf')).toBeInTheDocument()
     })
   })
 
-  it('实体侧栏展示观察摘要；无观察时显示暂无观察', async () => {
-    const listEntityObservations = vi.fn(async () => [
-      { id: 'o1', entityId: 'entity:e1', content: '第一条观察', sourcePageId: 'p1', createdAt: '2026-01-01' },
-      { id: 'o2', entityId: 'entity:e1', content: '第二条观察', sourcePageId: null, createdAt: '2026-01-02' },
+  it('实体侧栏点打开按钮调用 openSource', async () => {
+    const listEntitySources = vi.fn(async () => [
+      { id: 's1', title: '会议A.pdf', sourcePath: null, topicCategory: '做事记录', topicSubtopic: '会议聊天记录', mediaType: 'application/pdf' },
     ])
-    renderWikiGraphView({ listEntityObservations })
-    await loadGraphByCategory()
+    const { openSource } = renderWikiGraphView({ listEntitySources })
+    await waitFor(() => expect(screen.getByTestId('react-flow')).toBeInTheDocument())
 
     fireEvent.click(screen.getByTestId('node-entity:e1'))
-    const sidebar = screen.getByLabelText('实体详情')
-    await waitFor(() => {
-      expect(listEntityObservations).toHaveBeenCalledWith('entity:e1')
-      expect(within(sidebar).getByText('第一条观察')).toBeInTheDocument()
-      expect(within(sidebar).getByText('第二条观察')).toBeInTheDocument()
-    })
-    expect(within(sidebar).getByRole('button', { name: '来源页' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('会议A.pdf')).toBeInTheDocument())
+    fireEvent.click(within(screen.getByLabelText('实体详情')).getByRole('button', { name: '打开' }))
+    expect(openSource).toHaveBeenCalledWith('s1')
   })
 
-  it('实体无观察时侧栏显示暂无观察', async () => {
-    const listEntityObservations = vi.fn(async () => [])
-    renderWikiGraphView({ listEntityObservations })
-    await loadGraphByCategory()
+  it('实体无资料时侧栏显示暂无资料', async () => {
+    renderWikiGraphView()
+    await waitFor(() => expect(screen.getByTestId('react-flow')).toBeInTheDocument())
 
     fireEvent.click(screen.getByTestId('node-entity:e1'))
     await waitFor(() => {
-      expect(within(screen.getByLabelText('实体详情')).getByText('暂无观察')).toBeInTheDocument()
+      expect(within(screen.getByLabelText('实体详情')).getByText('暂无资料')).toBeInTheDocument()
     })
+  })
+
+  it('从本目录抽取实体通过长任务执行器运行', async () => {
+    const { runLongTask, extractEroFromSources } = renderWikiGraphView()
+
+    fireEvent.click(screen.getByRole('button', { name: '从本目录抽取实体' }))
+
+    await waitFor(() => {
+      expect(runLongTask).toHaveBeenCalledWith('抽取实体关系', expect.any(Function))
+      expect(extractEroFromSources).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('历史页双链开关默认关闭', async () => {
+    const getGraphData = vi.fn(async (_query: unknown) => MIXED_GRAPH)
+    renderWikiGraphView({ getGraphData })
+    await waitFor(() => expect(getGraphData).toHaveBeenCalled())
+
+    const call = getGraphData.mock.calls[0] as [{ layers?: string[] }] | undefined
+    expect(call).toBeDefined()
+    expect(call![0]!.layers).not.toContain('history')
   })
 
   it('切换图层时关闭实体侧栏', async () => {
     renderWikiGraphView()
-    await loadGraphByCategory()
+    await waitFor(() => expect(screen.getByTestId('react-flow')).toBeInTheDocument())
 
     fireEvent.click(screen.getByTestId('node-entity:e1'))
     expect(screen.getByLabelText('实体详情')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('tab', { name: '仅页面双链' }))
+    fireEvent.click(screen.getByRole('tab', { name: '结构' }))
     expect(screen.queryByLabelText('实体详情')).not.toBeInTheDocument()
   })
 })

@@ -98,9 +98,8 @@ export const WikiTab: React.FC = () => {
     moveToParking,
     openSource,
     searchSources,
-    bootstrapEro,
-    extractEro,
-    listEntityObservations,
+    extractEroFromSources,
+    listEntitySources,
     loading,
   } = useWikiPage()
   const taskCenter = useWikiTaskCenter()
@@ -847,13 +846,18 @@ export const WikiTab: React.FC = () => {
           />
         ) : nav.kind === 'graph' ? (
           <WikiGraphView
-            pages={pages}
+            currentNav={nav}
             getGraphData={getGraphData}
-            onOpenPage={(pageId) => void handleOpenPage(pageId)}
-            bootstrapEro={bootstrapEro}
-            extractEro={extractEro}
+            extractEroFromSources={async (scope) => {
+              const result = await taskCenter.wrapAsync('graph', '抽取实体关系', () =>
+                extractEroFromSources(scope),
+              )
+              return result
+            }}
+            listEntitySources={listEntitySources}
+            openSource={openSource}
+            onNavigateTo={setNav}
             runLongTask={(title, fn) => taskCenter.wrapAsync('graph', title, fn)}
-            listEntityObservations={listEntityObservations}
           />
         ) : (
           <div className="wiki-file-list-view">

@@ -281,49 +281,26 @@ describe('WikiTab', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
-  it('图谱节点打开详情抽屉后保持图谱主区', async () => {
+  it('图谱节点点击后自动加载图谱', async () => {
     ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
-      'wiki:page:list': [{
-        id: 'p1',
-        path: 'sources/graph-page',
-        category: 'sources',
-        title: '图谱页面',
-        version: 1,
-        updatedAt: Date.now(),
-      }],
+      'wiki:source:list': [{ id: 's1', title: '资料A.pdf', sourcePath: null, topicCategory: '做事记录', topicSubtopic: '会议聊天记录', contentHash: 'h1', mediaType: 'application/pdf', sizeBytes: 1024 }],
+      'wiki:inbox:list': [],
+      'wiki:inbox:count': 0,
+      'wiki:page:list': [],
       'wiki:graph:data': {
         nodes: [{
-          id: 'p1',
-          kind: 'page',
-          title: '图谱页面',
-          path: 'sources/graph-page',
-          category: 'sources',
-          useCount: 0,
+          id: 's1',
+          kind: 'source',
+          title: '资料A.pdf',
         }],
         edges: [],
         truncated: false,
       },
-      'wiki:page:get': {
-        id: 'p1',
-        path: 'sources/graph-page',
-        category: 'sources',
-        title: '图谱页面',
-        contentMd: '# 图谱页面',
-        version: 1,
-        updatedAt: Date.now(),
-      },
-      'wiki:link:backlinks': [],
-      'wiki:page:revisions': [],
     })
     render(<WikiTab />)
 
     fireEvent.click(await screen.findByText('知识图谱'))
-    fireEvent.change(screen.getByDisplayValue('或分类…'), { target: { value: 'sources' } })
-    fireEvent.click(screen.getByRole('button', { name: '查看图谱' }))
     await waitFor(() => expect(document.querySelector('.react-flow__node')).toBeInTheDocument())
-    fireEvent.click(document.querySelector('.react-flow__node')!)
-
-    expect(await screen.findByRole('button', { name: '关闭' })).toBeInTheDocument()
     expect(document.querySelector('.wiki-graph-view')).toBeInTheDocument()
   })
 
