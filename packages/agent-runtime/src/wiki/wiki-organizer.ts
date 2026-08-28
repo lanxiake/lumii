@@ -9,6 +9,7 @@
  */
 
 import { classifyBatch, type ClassifiedItem } from "./wiki-classifier.js";
+import { WikiReclassifier } from "./wiki-reclassifier.js";
 import type { WikiContentExtractor } from "./wiki-content-extractor.js";
 import type { WikiRepo } from "./wiki-repo.js";
 import type {
@@ -42,6 +43,10 @@ export class WikiOrganizer {
   /**
    * 整理一批同类型待办条目。取件为空返回 null（无运行可言）。
    * 返回的 run 已是终态（succeeded / partial / failed）。
+   *
+   * 重新编目进行中（status = running）时直接返回 null：不取件、不动 attempt_count，
+   * 条目留在 pending，编目结束后下一轮轮询自然恢复（设计 §7 / §9.2）。
+   * review 状态不阻塞——用户可能长期不处理候选，不该因此停掉自动归档。
    */
   async organizeBatch(
     agentId: string,
@@ -49,6 +54,9 @@ export class WikiOrganizer {
     itemType: WikiInboxItemType,
     batchSize = 10,
   ): Promise<WikiOrganizeRun | null> {
+    if (WikiReclassifier.isRunning(this.repo.getReclassifyRun(agentId, userId) as never)) {
+      return null;
+    }
     const items = this.repo.takeInboxBatch(agentId, userId, itemType, batchSize);
     if (items.length === 0) return null;
 

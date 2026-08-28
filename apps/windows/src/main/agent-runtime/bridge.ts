@@ -71,6 +71,7 @@ import {
   WikiIngestHook,
   WikiOrganizeQueue,
   WikiOrganizer,
+  WikiReclassifier,
   WikiContentExtractor,
   WikiCleanupScanner,
   WikiConceptCandidateScanner,
@@ -185,6 +186,7 @@ export class AgentRuntimeBridge {
   private _wikiIngestHook: WikiIngestHook | null = null
   private _wikiOrganizeQueue: WikiOrganizeQueue | null = null
   private _wikiOrganizer: WikiOrganizer | null = null
+  private _wikiReclassifier: WikiReclassifier | null = null
   private _wikiCleanupScanner: WikiCleanupScanner | null = null
   private _wikiConceptCandidateScanner: WikiConceptCandidateScanner | null = null
   private _conversationRepo: ConversationRepo | null = null
@@ -364,6 +366,8 @@ export class AgentRuntimeBridge {
   get runtimeStateRepo(): RuntimeStateRepo { return this.requireInitialized(this._runtimeStateRepo, 'runtimeStateRepo') }
   get wikiRepo(): WikiRepo { return this.requireInitialized(this._wikiRepo, 'wikiRepo') }
   get wikiOrganizer(): WikiOrganizer { return this.requireInitialized(this._wikiOrganizer, 'wikiOrganizer') }
+  /** 重新编目器；LLM purpose 与归档分类同一档，保证小模型预算一致 */
+  get wikiReclassifier(): WikiReclassifier { return this.requireInitialized(this._wikiReclassifier, 'wikiReclassifier') }
   get wikiOrganizeQueue(): WikiOrganizeQueue { return this.requireInitialized(this._wikiOrganizeQueue, 'wikiOrganizeQueue') }
   get wikiCleanupScanner(): WikiCleanupScanner { return this.requireInitialized(this._wikiCleanupScanner, 'wikiCleanupScanner') }
   get wikiConceptCandidateScanner(): WikiConceptCandidateScanner {
@@ -646,6 +650,10 @@ export class AgentRuntimeBridge {
       }),
     )
     this._wikiOrganizeQueue = new WikiOrganizeQueue()
+    this._wikiReclassifier = new WikiReclassifier(
+      this._wikiRepo,
+      (prompt: string) => this.callLLM(prompt, undefined, 'memory_extract'),
+    )
     this._wikiCleanupScanner = new WikiCleanupScanner(this._wikiRepo)
     this._wikiConceptCandidateScanner = new WikiConceptCandidateScanner(this._wikiRepo)
 

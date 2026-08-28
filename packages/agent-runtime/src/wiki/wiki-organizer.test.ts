@@ -293,3 +293,58 @@ describe("WikiIngestHook", () => {
     expect(repo.listInbox("ag", "u")[0]!.source_url).toBe("https://example.com/x");
   });
 });
+
+describe("WikiOrganizer 与重新编目互斥", () => {
+  /** 造一个只有 status 有意义的批次；organizer 只看 status */
+  const runWithStatus = (status: string) =>
+    ({
+      runId: "r1",
+      status,
+      scope: { kind: "all" },
+      total: 0,
+      processed: 0,
+      droppedInvalid: 0,
+      unchanged: 0,
+      candidates: [],
+      error: null,
+      createdAt: "2026-08-27T00:00:00.000Z",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    }) as never;
+
+  it("reclassify running 时不取件，条目仍 pending", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "会议纪要", "text/markdown", "纪要正文");
+    repo.setReclassifyRun("ag", "u", runWithStatus("running"));
+
+    const organizer = new WikiOrganizer(repo, makeLLM(() => DOC_TOPIC), new WikiContentExtractor());
+    expect(await organizer.organizeBatch("ag", "u", "upload")).toBeNull();
+
+    const pending = repo.listInbox("ag", "u").filter((i) => !i.organized_at);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.attempt_count).toBe(0);
+  });
+
+  it("review 状态不阻塞自动归档", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "会议纪要", "text/markdown", "纪要正文");
+    repo.setReclassifyRun("ag", "u", runWithStatus("review"));
+
+    const organizer = new WikiOrganizer(repo, makeLLM(() => DOC_TOPIC), new WikiContentExtractor());
+    const run = await organizer.organizeBatch("ag", "u", "upload");
+    expect(run).not.toBeNull();
+    expect(run!.status).toBe("succeeded");
+  });
+
+  it("编目结束（批次清空）后自动归档恢复", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "会议纪要", "text/markdown", "纪要正文");
+    repo.setReclassifyRun("ag", "u", runWithStatus("running"));
+
+    const organizer = new WikiOrganizer(repo, makeLLM(() => DOC_TOPIC), new WikiContentExtractor());
+    expect(await organizer.organizeBatch("ag", "u", "upload")).toBeNull();
+
+    repo.setReclassifyRun("ag", "u", null);
+    const run = await organizer.organizeBatch("ag", "u", "upload");
+    expect(run!.status).toBe("succeeded");
+  });
+});
