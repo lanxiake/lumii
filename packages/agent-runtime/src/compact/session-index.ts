@@ -12,9 +12,13 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import {
   EXECUTE_SKILL_TOOL_NAME,
+  FILE_COPY_TOOL_NAME,
   FILE_EDIT_TOOL_NAME,
+  FILE_MKDIR_TOOL_NAME,
+  FILE_MOVE_TOOL_NAME,
   FILE_READ_TOOL_NAME,
   FILE_WRITE_TOOL_NAME,
+  LIST_DIR_TOOL_NAME,
 } from "../tools/built-in/tool-names.js";
 
 /** 文件操作类型 */
@@ -39,7 +43,11 @@ export interface SkillIndexEntry {
 
 const FILE_OP_BY_TOOL: Readonly<Record<string, FileOp>> = {
   [FILE_READ_TOOL_NAME]: "read",
+  [LIST_DIR_TOOL_NAME]: "read",
   [FILE_WRITE_TOOL_NAME]: "write",
+  [FILE_MKDIR_TOOL_NAME]: "write",
+  [FILE_MOVE_TOOL_NAME]: "write",
+  [FILE_COPY_TOOL_NAME]: "write",
   [FILE_EDIT_TOOL_NAME]: "edit",
 };
 
@@ -79,16 +87,18 @@ export class SessionActivityIndex {
   }
 
   private recordFile(op: FileOp, args: unknown): void {
-    const filePath = readStringField(args, "filePath");
-    if (!filePath) {
-      return;
+    const paths = ["filePath", "path", "source", "destination"]
+      .map((field) => readStringField(args, field))
+      .filter((value): value is string => value !== null);
+    const unique = [...new Set(paths)];
+    for (const filePath of unique) {
+      const existing = this.files.get(filePath);
+      this.files.set(filePath, {
+        path: filePath,
+        lastOp: op,
+        opCount: (existing?.opCount ?? 0) + 1,
+      });
     }
-    const existing = this.files.get(filePath);
-    this.files.set(filePath, {
-      path: filePath,
-      lastOp: op,
-      opCount: (existing?.opCount ?? 0) + 1,
-    });
   }
 
   private recordSkill(args: unknown): void {

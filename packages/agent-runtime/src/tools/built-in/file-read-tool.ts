@@ -248,7 +248,12 @@ const FileReadInput = Type.Object({
 export const fileReadToolConfig: MtBotToolConfig<typeof FileReadInput> = {
   name: "file_read",
   label: "Read File",
-  description: `Read file contents. Default reads first ${DEFAULT_READ_LIMIT} lines. For large files, use offset+limit to read progressively (e.g., offset=201, limit=200 for next page).`,
+  description:
+    "Read the contents of a file from the workspace as text. " +
+    `Default reads the first ${DEFAULT_READ_LIMIT} lines (max ${MAX_READ_LIMIT} per call). ` +
+    "Use offset/limit (1-based line numbers) to page through large files. " +
+    "Do not use this tool for image, audio, video, PDF, or Office binaries — those formats are rejected with guidance. " +
+    "Only works within the workspace.",
   parameters: FileReadInput,
   category: "filesystem",
   isReadOnly: true,

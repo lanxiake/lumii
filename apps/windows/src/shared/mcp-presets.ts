@@ -14,6 +14,9 @@
  *
  * 同理不收录 @modelcontextprotocol/server-sequential-thinking：模型自带推理，
  * 装了只是重复一套。
+ *
+ * 不收录 @modelcontextprotocol/server-filesystem：客户端已内置 file_read/write/edit、
+ * list_dir、file_mkdir、file_move、file_copy、glob、grep，装了只是重复一套还多占上下文。
  */
 
 export type McpPresetCategory =
@@ -67,17 +70,6 @@ export function isReadyToUse(preset: McpPreset): boolean {
 
 export const MCP_PRESETS: readonly McpPreset[] = [
   {
-    name: 'filesystem',
-    title: '本地文件',
-    description: '读写指定文件夹里的文档，整理资料、批量改名、汇总内容、生成项目文件',
-    categories: ['office', 'frontend', 'creator'],
-    command: 'npx',
-    // {{USER_DOCUMENTS}} 由主进程播种/加载时解析为真实「文档」目录，勿写死盘符
-    args: ['-y', '@modelcontextprotocol/server-filesystem', '{{USER_DOCUMENTS}}'],
-    // 有 todo ⇒ 播种时默认停用。把文档目录交给 AI 属于隐私决定，让用户自己开
-    todo: '确认参数最后一行目录：默认为本机「文档」文件夹，可改成任意愿意开放给 AI 的路径',
-  },
-  {
     name: 'excel-mcp',
     title: 'Excel 表格读取',
     description: '无需装 Office，直接读取解析 Excel/CSV 表格数据，交给 AI 汇总与分析',
@@ -89,7 +81,7 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     name: 'firecrawl-mcp',
     title: 'Firecrawl 网页爬取',
     description: '高质量网页抓取，支持 JS 动态页面，提取网页干净正文',
-    categories: ['web', 'creator'],
+    categories: ['web', 'frontend', 'creator'],
     command: 'npx',
     // 官方包名是 firecrawl-mcp，不是 @mcp/firecrawl（后者在 npm 上不存在）
     args: ['-y', 'firecrawl-mcp'],

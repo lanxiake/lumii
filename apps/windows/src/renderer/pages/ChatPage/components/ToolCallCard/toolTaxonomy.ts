@@ -17,9 +17,18 @@ export type ToolFamily =
 export function classifyToolFamily(name: string): ToolFamily {
   const n = (name || '').toLowerCase()
   if (n.includes('todo')) return 'todo'
-  if (n.includes('read') || n.includes('view')) return 'read'
+  if (n.includes('read') || n.includes('view') || n === 'list_dir') return 'read'
   if (n.includes('search') || n.includes('grep') || n.includes('glob')) return 'search'
-  if (n.includes('write') || n.includes('edit') || n.includes('create')) return 'write'
+  if (
+    n.includes('write') ||
+    n.includes('edit') ||
+    n.includes('create') ||
+    n.includes('mkdir') ||
+    n.includes('move') ||
+    n.includes('copy')
+  ) {
+    return 'write'
+  }
   if (n.includes('bash') || n.includes('exec') || n.includes('run')) return 'exec'
   if (n.includes('agent') || n.includes('spawn')) return 'agent'
   if (n === 'image_generate' || n === 'app_screenshot' || n === 'screen_screenshot') return 'image'

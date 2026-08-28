@@ -26,7 +26,10 @@
 import type { AgentDefinition } from "../../types/agent-definition.js";
 import {
   ASK_USER_QUESTION_TOOL_NAME,
+  FILE_COPY_TOOL_NAME,
   FILE_EDIT_TOOL_NAME,
+  FILE_MKDIR_TOOL_NAME,
+  FILE_MOVE_TOOL_NAME,
   FILE_WRITE_TOOL_NAME,
   SEND_MESSAGE_TOOL_NAME,
   SPAWN_AGENT_TOOL_NAME,
@@ -77,6 +80,17 @@ const ASSISTANT_DEF: AgentDefinition = {
   isActive: true,
 };
 
+const READONLY_DISALLOWED_TOOLS: readonly string[] = [
+  FILE_EDIT_TOOL_NAME,
+  FILE_WRITE_TOOL_NAME,
+  FILE_MKDIR_TOOL_NAME,
+  FILE_MOVE_TOOL_NAME,
+  FILE_COPY_TOOL_NAME,
+  SPAWN_AGENT_TOOL_NAME,
+  SEND_MESSAGE_TOOL_NAME,
+  ASK_USER_QUESTION_TOOL_NAME,
+];
+
 // --- Explore（快速代码搜索） ---
 
 const EXPLORE_DEF: AgentDefinition = {
@@ -89,13 +103,7 @@ const EXPLORE_DEF: AgentDefinition = {
   modelTier: "basic",
   defaultPurpose: "chat",
   permissionMode: "readOnly",
-  disallowedTools: [
-    FILE_EDIT_TOOL_NAME,
-    FILE_WRITE_TOOL_NAME,
-    SPAWN_AGENT_TOOL_NAME,
-    SEND_MESSAGE_TOOL_NAME,
-    ASK_USER_QUESTION_TOOL_NAME,
-  ],
+  disallowedTools: [...READONLY_DISALLOWED_TOOLS],
   maxTurns: 30,
   canSpawnSubAgents: false,
   memory: { scope: "none" },
@@ -114,13 +122,7 @@ const PLAN_DEF: AgentDefinition = {
   modelTier: "performance",
   defaultPurpose: "reasoning",
   permissionMode: "readOnly",
-  disallowedTools: [
-    FILE_EDIT_TOOL_NAME,
-    FILE_WRITE_TOOL_NAME,
-    SPAWN_AGENT_TOOL_NAME,
-    SEND_MESSAGE_TOOL_NAME,
-    ASK_USER_QUESTION_TOOL_NAME,
-  ],
+  disallowedTools: [...READONLY_DISALLOWED_TOOLS],
   maxTurns: 40,
   canSpawnSubAgents: false,
   memory: { scope: "none" },
@@ -140,13 +142,7 @@ const VERIFY_DEF: AgentDefinition = {
   modelTier: "balanced",
   defaultPurpose: "chat",
   permissionMode: "readOnly",
-  disallowedTools: [
-    FILE_EDIT_TOOL_NAME,
-    FILE_WRITE_TOOL_NAME,
-    SPAWN_AGENT_TOOL_NAME,
-    SEND_MESSAGE_TOOL_NAME,
-    ASK_USER_QUESTION_TOOL_NAME,
-  ],
+  disallowedTools: [...READONLY_DISALLOWED_TOOLS],
   maxTurns: 60,
   canSpawnSubAgents: false,
   memory: { scope: "none" },

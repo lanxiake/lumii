@@ -42,7 +42,7 @@ describe('MCP filesystem 路径解析', () => {
       { name: 'amap', command: 'npx', args: ['-y', '@amap/amap-maps-mcp-server'] },
     ]
     const next = reconcileBuiltinMcpPresets(entries)
-    expect(next.map((e) => e.name)).toEqual(['filesystem', 'comfyui-remote'])
+    expect(next.map((e) => e.name)).toEqual(['comfyui-remote'])
     const comfy = next.find((e) => e.name === 'comfyui-remote')
     expect(comfy?.args).toEqual(['-y', 'comfyui-mcp'])
     expect(comfy?.env).toEqual({ COMFYUI_URL: 'https://cfui.cpolar.top' })
@@ -68,21 +68,35 @@ describe('MCP filesystem 路径解析', () => {
     ]
     expect(reconcileBuiltinMcpPresets(entries).map((e) => e.name)).toEqual(['baidu-map'])
   })
+
+  it('下线官方 filesystem MCP，用户自建同名服务不删', () => {
+    const official: McpServerEntry[] = [
+      { name: 'filesystem', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', 'C:/docs'] },
+      { name: 'excel-mcp', command: 'npx', args: ['-y', 'excel-mcp'] },
+    ]
+    expect(reconcileBuiltinMcpPresets(official).map((e) => e.name)).toEqual(['excel-mcp'])
+
+    const custom: McpServerEntry = {
+      name: 'filesystem',
+      command: 'npx',
+      args: ['-y', 'my-custom-filesystem', 'C:/docs'],
+    }
+    expect(reconcileBuiltinMcpPresets([custom])).toEqual([custom])
+  })
 })
 
 describe('新增内置项补给老用户', () => {
   it('只补没推过且当前没有的，要密钥的补进来默认停用', () => {
-    const seeded = new Set(['filesystem', 'comfyui-remote', 'baidu-map'])
-    const entries: McpServerEntry[] = [{ name: 'filesystem', command: 'npx', args: ['-y', 'x'] }]
+    const seeded = new Set(['excel-mcp', 'comfyui-remote', 'baidu-map'])
+    const entries: McpServerEntry[] = [{ name: 'excel-mcp', command: 'npx', args: ['-y', 'excel-mcp'] }]
     const { added } = computeMcpPresetBackfill(entries, seeded)
 
     const names = added.map((e) => e.name)
-    expect(names).toContain('excel-mcp')
     expect(names).toContain('firecrawl-mcp')
     expect(names).not.toContain('filesystem')
 
     expect(added.find((e) => e.name === 'firecrawl-mcp')?.enabled).toBe(false)
-    expect(added.find((e) => e.name === 'excel-mcp')?.enabled).toBe(true)
+    expect(added.find((e) => e.name === 'mcp-trends-hub')?.enabled).toBe(true)
   })
 
   it('推过一次就记档，用户删掉后不再回来', () => {

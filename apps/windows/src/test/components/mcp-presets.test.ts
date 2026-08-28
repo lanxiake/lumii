@@ -77,12 +77,9 @@ describe('MCP 内置清单', () => {
     expect(MCP_PRESETS.flatMap((p) => p.args).join(' ')).not.toContain('server-sequential-thinking')
   })
 
-  it('filesystem 不写死盘符路径，用占位符交给主进程解析', () => {
-    const fsPreset = MCP_PRESETS.find((p) => p.name === 'filesystem')
-    expect(fsPreset).toBeTruthy()
-    expect(fsPreset!.args).toContain('{{USER_DOCUMENTS}}')
-    expect(fsPreset!.args).not.toContain('D:/Documents')
-    expect(fsPreset!.args).not.toContain('D:\\Documents')
+  it('不收录 filesystem（已内置文件工具）', () => {
+    expect(MCP_PRESETS.map((p) => p.name)).not.toContain('filesystem')
+    expect(MCP_PRESETS.flatMap((p) => p.args).join(' ')).not.toContain('server-filesystem')
   })
 
   it('新增内置项包名与官方一致，不用不存在的名字', () => {

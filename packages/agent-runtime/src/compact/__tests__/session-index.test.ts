@@ -35,6 +35,18 @@ describe("SessionActivityIndex — 会话级文件/技能追踪", () => {
     expect(byPath.get("src/c.ts")).toMatchObject({ lastOp: "edit", opCount: 1 });
   });
 
+  it("记录 list_dir 的 path 与 file_move 的 source/destination", () => {
+    const idx = new SessionActivityIndex();
+    idx.record("list_dir", { path: "outputs" });
+    idx.record("file_move", { source: "a.txt", destination: "b.txt" });
+
+    const { files } = idx.snapshot();
+    const byPath = new Map(files.map((f) => [f.path, f]));
+    expect(byPath.get("outputs")).toMatchObject({ lastOp: "read", opCount: 1 });
+    expect(byPath.get("a.txt")).toMatchObject({ lastOp: "write", opCount: 1 });
+    expect(byPath.get("b.txt")).toMatchObject({ lastOp: "write", opCount: 1 });
+  });
+
   it("同一路径先 read 后 edit 合并为一条，lastOp=edit，opCount=2", () => {
     const idx = new SessionActivityIndex();
     idx.record("file_read", { filePath: "src/a.ts" });

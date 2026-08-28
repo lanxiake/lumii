@@ -23,14 +23,14 @@ export const CAPABILITY_OPTIONS: CapabilityOption[] = [
     id: 'file_read',
     label: '读取文件',
     description: '可以读取设备上的文件和目录',
-    toolNames: ['file_read', 'glob', 'grep'],
+    toolNames: ['file_read', 'list_dir', 'glob', 'grep'],
     icon: <FileText size={14} />,
   },
   {
     id: 'file_write',
     label: '修改文件',
-    description: '可以创建和编辑设备上的文件',
-    toolNames: ['file_write', 'file_edit'],
+    description: '可以创建、编辑、移动和复制设备上的文件',
+    toolNames: ['file_write', 'file_edit', 'file_mkdir', 'file_move', 'file_copy'],
     icon: <FilePen size={14} />,
   },
   {

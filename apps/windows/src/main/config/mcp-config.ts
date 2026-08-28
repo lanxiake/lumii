@@ -226,6 +226,7 @@ const RETIRED_BUILTIN_MCP: ReadonlyArray<{ name: string; pkg: string; replacedBy
   { name: 'context7', pkg: '@upstash/context7-mcp', replacedByComfy: true },
   { name: 'amap', pkg: '@amap/amap-maps-mcp-server', replacedByComfy: true },
   { name: 'sequential-thinking', pkg: '@modelcontextprotocol/server-sequential-thinking' },
+  { name: 'filesystem', pkg: '@modelcontextprotocol/server-filesystem' },
 ]
 
 /**

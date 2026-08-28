@@ -192,8 +192,10 @@ export const fileEditToolConfig: MtBotToolConfig<typeof FileEditInput> = {
   name: "file_edit",
   label: "Edit File",
   description:
-    "Perform exact string replacement in a file. The old_string must be unique unless replace_all is true. " +
-    "Supports fuzzy whitespace/indentation matching if exact match fails.",
+    "Make line-based edits to a text file by replacing exact string sequences with new content. " +
+    "The old_string must be unique unless replaceAll is true. " +
+    "If exact match fails, retries with whitespace/indentation-tolerant matching. " +
+    "Only works within the workspace. Prefer this over `bash` sed/awk.",
   parameters: FileEditInput,
   category: "filesystem",
   isReadOnly: false,

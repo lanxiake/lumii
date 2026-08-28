@@ -508,27 +508,43 @@ export function createAgentInstanceRuntimeEventHandler(
       const isWriteTool =
         event.toolName === 'file_write' ||
         event.toolName === 'file_edit' ||
+        event.toolName === 'file_mkdir' ||
+        event.toolName === 'file_move' ||
+        event.toolName === 'file_copy' ||
         event.toolName === 'writeLocalFile'
       if (isWriteTool && !event.isError) {
         recordTurnTouchedPath(instanceId, args, getCwd())
       }
-      if (isWriteTool && !event.isError && fileRepo) {
-        void fileMemoryHandler.handleFileWritten(instanceId, args).catch((err: unknown) => {
-          log.error(`[file:created] 注册文件元数据失败 instanceId=${instanceId}:`, err)
-        })
+      const writtenPath =
+        typeof args['filePath'] === 'string'
+          ? args['filePath']
+          : typeof args['destination'] === 'string'
+            ? args['destination']
+            : null
+      const isContentWriteTool =
+        event.toolName === 'file_write' ||
+        event.toolName === 'file_edit' ||
+        event.toolName === 'file_move' ||
+        event.toolName === 'file_copy' ||
+        event.toolName === 'writeLocalFile'
+      if (isContentWriteTool && !event.isError && fileRepo) {
+        void fileMemoryHandler
+          .handleFileWritten(instanceId, writtenPath ? { ...args, filePath: writtenPath } : args)
+          .catch((err: unknown) => {
+            log.error(`[file:created] 注册文件元数据失败 instanceId=${instanceId}:`, err)
+          })
       }
       // Wiki 摄入（P0）：上传/产物文件写入后同步插入收件箱，钩子内部已吞异常，此处不额外 try-catch
-      if (isWriteTool && !event.isError) {
-        const filePath = typeof args['filePath'] === 'string' ? args['filePath'] : null
-        if (filePath) {
+      if (isContentWriteTool && !event.isError) {
+        if (writtenPath) {
           const hook = getWikiIngestHook()
-          const normalized = filePath.replace(/\\/g, '/').toLowerCase()
+          const normalized = writtenPath.replace(/\\/g, '/').toLowerCase()
           const isUpload = normalized.startsWith('uploads/') || normalized.includes('/uploads/')
           hook?.[isUpload ? 'ingestUpload' : 'ingestOutput'](
             resolveWikiAgentId(),
             'local-user',
-            filePath,
-            filePath.split(/[/\\]/).pop() ?? filePath,
+            writtenPath,
+            writtenPath.split(/[/\\]/).pop() ?? writtenPath,
           )
         }
       }

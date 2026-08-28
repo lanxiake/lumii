@@ -20,6 +20,10 @@ const TOOL_SUMMARIES: Record<string, string> = {
   file_read: "Read a file; use offset/limit for large ones",
   file_write: "Write a file (overwrite/append/range — see schema)",
   file_edit: "Make precise edits to an existing file",
+  list_dir: "List one folder with [FILE]/[DIR]",
+  file_mkdir: "Create a directory (no-op if exists)",
+  file_move: "Move/rename; fails if dest exists",
+  file_copy: "Copy file/dir; fails if dest exists",
   glob: "Find files by name pattern",
   grep: "Search file contents",
 
@@ -117,7 +121,17 @@ const GROUP_NOTES: Record<string, string> = {
   "Browser Tools": "See `## Browser Control` for the interaction loop.",
 }
 
-const FILE_TOOLS = new Set(["file_read", "file_write", "file_edit", "glob", "grep"])
+const FILE_TOOLS = new Set([
+  "file_read",
+  "file_write",
+  "file_edit",
+  "list_dir",
+  "file_mkdir",
+  "file_move",
+  "file_copy",
+  "glob",
+  "grep",
+])
 const SHELL_TOOLS = new Set(["bash"])
 const WEB_TOOLS = new Set(["web_search", "web_fetch"])
 const MEDIA_GENERATION_TOOLS = new Set(["image_generate", "speech_generate"])
@@ -272,6 +286,7 @@ export function buildProgressiveLoadingSection(toolNames: readonly string[], det
     "## Context and Input Handling",
     "Use bounded, progressive reads: inspect indexes or summaries first, then load only needed ranges or pages. Keep large intermediate data on disk and retain a compact index in context.",
     "- `file_read`: use `offset`/`limit` for large files.",
+    "- `list_dir`: list one directory level; use `glob` for recursive filename search.",
     "- `grep`: narrow with `glob` before expanding searches.",
     "- `web_fetch`: extract only relevant sections.",
     "- For attached images, use the visual content already provided; do not read image binaries with `file_read`.",

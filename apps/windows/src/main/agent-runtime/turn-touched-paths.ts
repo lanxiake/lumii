@@ -20,22 +20,34 @@ function toWorkspaceRelative(filePath: string, cwd: string): string | null {
   return rel.replace(/\\/g, '/')
 }
 
-/** 记录某实例本轮写过的文件；args 来自 file_write / file_edit / writeLocalFile */
+/** 从工具参数里收集可能被改动的路径字段 */
+function collectTouchedArgPaths(args: Record<string, unknown>): string[] {
+  const keys = ['filePath', 'source', 'destination', 'path'] as const
+  const out: string[] = []
+  for (const key of keys) {
+    const value = args[key]
+    if (typeof value === 'string' && value) out.push(value)
+  }
+  return out
+}
+
+/** 记录某实例本轮写过的文件；args 来自 file_write / file_edit / file_move / file_copy / file_mkdir */
 export function recordTurnTouchedPath(
   instanceId: string,
   args: Record<string, unknown>,
   cwd: string,
 ): void {
-  const filePath = args['filePath']
-  if (typeof filePath !== 'string' || !filePath) return
-  const rel = toWorkspaceRelative(filePath, cwd)
-  if (!rel) return
+  const paths = collectTouchedArgPaths(args)
+  if (paths.length === 0) return
   let set = touchedByInstance.get(instanceId)
   if (!set) {
     set = new Set()
     touchedByInstance.set(instanceId, set)
   }
-  set.add(rel)
+  for (const filePath of paths) {
+    const rel = toWorkspaceRelative(filePath, cwd)
+    if (rel) set.add(rel)
+  }
 }
 
 /** 回合开始与实例销毁时清空归属记录 */

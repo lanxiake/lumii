@@ -21,6 +21,13 @@ describe("buildConfirmationMessage", () => {
     expect(buildConfirmationMessage("bash", { command: "ls -la" })).toBe("执行命令：ls -la");
   });
 
+  it("file_move / file_mkdir 展示路径", () => {
+    expect(buildConfirmationMessage("file_mkdir", { path: "outputs/tmp" })).toBe("创建目录：outputs/tmp");
+    expect(buildConfirmationMessage("file_move", { source: "a.txt", destination: "b.txt" })).toBe(
+      "移动：a.txt → b.txt",
+    );
+  });
+
   it("绝不出现 <unknown>：参数缺失时回落为完整参数 JSON", () => {
     const msg = buildConfirmationMessage("file_write", { wrongKey: "v" });
     expect(msg).not.toContain("<unknown>");

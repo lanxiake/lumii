@@ -47,6 +47,16 @@ describe("turn-touched-paths", () => {
     ).toHaveLength(1);
   });
 
+  it("记录 file_move/file_copy 的 source 与 destination", () => {
+    recordTurnTouchedPath("A", { source: "outputs/old.txt", destination: "outputs/new.txt" }, cwd);
+    expect(
+      filterOwnFileChanges("A", [
+        { path: "outputs/old.txt", status: "deleted" },
+        { path: "outputs/new.txt", status: "added" },
+      ]),
+    ).toHaveLength(2);
+  });
+
   it("clearTurnTouchedPaths 后不再影响其他会话", () => {
     recordTurnTouchedPath("B", { filePath: "outputs/b.txt" }, cwd);
     clearTurnTouchedPaths("B");

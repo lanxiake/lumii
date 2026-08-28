@@ -160,7 +160,15 @@ function extractMainParam(toolName: string, toolInput: Record<string, unknown>):
     case "file_read":
     case "file_write":
     case "file_edit":
-      return (toolInput.file_path as string) ?? null;
+      return (toolInput.filePath as string) ?? (toolInput.file_path as string) ?? null;
+
+    case "list_dir":
+    case "file_mkdir":
+      return (toolInput.path as string) ?? null;
+
+    case "file_move":
+    case "file_copy":
+      return (toolInput.destination as string) ?? (toolInput.source as string) ?? null;
 
     // Glob：主参数是 pattern
     case "glob":

@@ -25,9 +25,13 @@ export const bashToolConfig: MtBotToolConfig<typeof BashInput> = {
     "- NEVER use bash for operations that have dedicated tools:\n" +
     "  - File search -> use `glob` tool (NOT `find`)\n" +
     "  - Content search -> use `grep` tool (NOT `grep` command)\n" +
+    "  - List a directory -> use `list_dir` (NOT `ls`/`dir`)\n" +
     "  - Read files -> use `file_read` tool (NOT `cat/head/tail`)\n" +
     "  - Edit files -> use `file_edit` tool (NOT `sed/awk`)\n" +
     "  - Write files -> use `file_write` tool (NOT `echo >`/`cat <<EOF`)\n" +
+    "  - Create directories -> use `file_mkdir` (NOT `mkdir`)\n" +
+    "  - Move/rename -> use `file_move` (NOT `mv`/`Move-Item`)\n" +
+    "  - Copy files -> use `file_copy` (NOT `cp`/`Copy-Item`)\n" +
     "- Failure handling: if the same type of operation fails 2 times, switch to a fundamentally different approach " +
     "(e.g. bash -> write a script file), NOT just syntax variations (cp -> copy -> Copy-Item).\n" +
     "- Batch operations: for multiple similar operations (e.g. copy 10 files), merge into a single script execution, " +

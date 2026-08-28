@@ -6,6 +6,10 @@ export { bashToolConfig } from "./bash-tool.js";
 export { fileReadToolConfig } from "./file-read-tool.js";
 export { fileWriteToolConfig } from "./file-write-tool.js";
 export { fileEditToolConfig } from "./file-edit-tool.js";
+export { listDirToolConfig } from "./list-dir-tool.js";
+export { fileMkdirToolConfig } from "./file-mkdir-tool.js";
+export { fileMoveToolConfig } from "./file-move-tool.js";
+export { fileCopyToolConfig } from "./file-copy-tool.js";
 export { globToolConfig } from "./glob-tool.js";
 export { grepToolConfig } from "./grep-tool.js";
 export { webFetchToolConfig } from "./web-fetch-tool.js";
@@ -82,6 +86,10 @@ import { bashToolConfig } from "./bash-tool.js";
 import { fileReadToolConfig } from "./file-read-tool.js";
 import { fileWriteToolConfig } from "./file-write-tool.js";
 import { fileEditToolConfig } from "./file-edit-tool.js";
+import { listDirToolConfig } from "./list-dir-tool.js";
+import { fileMkdirToolConfig } from "./file-mkdir-tool.js";
+import { fileMoveToolConfig } from "./file-move-tool.js";
+import { fileCopyToolConfig } from "./file-copy-tool.js";
 import { globToolConfig } from "./glob-tool.js";
 import { grepToolConfig } from "./grep-tool.js";
 import { webFetchToolConfig } from "./web-fetch-tool.js";
@@ -139,6 +147,10 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   fileReadToolConfig,
   fileWriteToolConfig,
   fileEditToolConfig,
+  listDirToolConfig,
+  fileMkdirToolConfig,
+  fileMoveToolConfig,
+  fileCopyToolConfig,
   globToolConfig,
   grepToolConfig,
   webFetchToolConfig,

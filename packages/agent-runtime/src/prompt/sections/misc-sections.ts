@@ -458,7 +458,11 @@ export function buildDeviceControlSection(
   if (!devices?.length) return []
 
   const toolSet = new Set(toolNames ?? [])
-  const hasFileTools = toolSet.has("file_read") || toolSet.has("file_write") || toolSet.has("file_edit")
+  const hasFileTools =
+    toolSet.has("file_read") ||
+    toolSet.has("file_write") ||
+    toolSet.has("file_edit") ||
+    toolSet.has("list_dir")
   const hasBash = toolSet.has("bash")
 
   if (!hasFileTools && !hasBash) return []

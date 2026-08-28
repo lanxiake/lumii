@@ -166,7 +166,10 @@ function checkByMode(
         toolName === "Edit" ||
         toolName === "Write" ||
         toolName === "file_edit" ||
-        toolName === "file_write"
+        toolName === "file_write" ||
+        toolName === "file_mkdir" ||
+        toolName === "file_move" ||
+        toolName === "file_copy"
       ) {
         return {
           outcome: "allowed",
@@ -259,6 +262,23 @@ export function buildConfirmationMessage(
     case "file_write": {
       const p = (toolInput.filePath as string) ?? (toolInput.file_path as string) ?? "";
       if (p) return `写入文件：${p}`;
+      break;
+    }
+    case "file_mkdir": {
+      const p = (toolInput.path as string) ?? "";
+      if (p) return `创建目录：${p}`;
+      break;
+    }
+    case "file_move": {
+      const src = (toolInput.source as string) ?? "";
+      const dest = (toolInput.destination as string) ?? "";
+      if (src && dest) return `移动：${src} → ${dest}`;
+      break;
+    }
+    case "file_copy": {
+      const src = (toolInput.source as string) ?? "";
+      const dest = (toolInput.destination as string) ?? "";
+      if (src && dest) return `复制：${src} → ${dest}`;
       break;
     }
     case "Read":

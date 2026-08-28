@@ -15,7 +15,8 @@ const GlobInput = Type.Object({
 export const globToolConfig: MtBotToolConfig<typeof GlobInput> = {
   name: "glob",
   label: "Glob",
-  description: "Find files matching a glob pattern. Returns matching file paths.",
+  description:
+    "Find files matching a glob pattern. Returns matching file paths. For a single directory listing with [FILE]/[DIR] prefixes, use `list_dir` instead.",
   parameters: GlobInput,
   category: "filesystem",
   isReadOnly: true,

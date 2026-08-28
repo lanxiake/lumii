@@ -75,7 +75,12 @@ export const fileWriteToolConfig: MtBotToolConfig<typeof FileWriteInput> = {
   name: "file_write",
   label: "Write File",
   description:
-    "Write content to a file on the local filesystem. Supports overwrite (default), append (mode='append'), or line-range replace (mode='range' with startLine/endLine, 1-based inclusive).",
+    "Create a new file or completely overwrite an existing file with new content. " +
+    "Use with caution as it will overwrite existing files without warning. " +
+    "Missing parent directories are created automatically. " +
+    "Supports overwrite (default), append (mode='append'), or line-range replace " +
+    "(mode='range' with startLine/endLine, 1-based inclusive). " +
+    "Only works within the workspace. Prefer this over `bash` echo/redirection.",
   parameters: FileWriteInput,
   category: "filesystem",
   isReadOnly: false,
