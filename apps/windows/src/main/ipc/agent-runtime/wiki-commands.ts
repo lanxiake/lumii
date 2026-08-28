@@ -113,20 +113,8 @@ export function handleWikiInboxOrganize(
     throw new Error('整理入口不允许归到临时存放，请在文件列表中操作')
   }
 
-  const source = repo.createSource({
-    agentId: item.agent_id,
-    userId: item.user_id,
-    title: command.title ?? item.title,
-    sourcePath: item.source_path ?? undefined,
-    contentMd: item.content_preview ?? undefined,
-    contentHash: item.content_hash ?? undefined,
-    mediaType: item.media_type,
-    extractedText: item.content_preview ?? undefined,
-  })
-  const updated = repo.updateSourceTopic(source.id, command.category, command.subtopic)
-  repo.indexSource(source.id)
-  repo.markInboxOrganized(item.id, source.id)
-  return { sourceId: source.id, category: updated.topic_category!, subtopic: updated.topic_subtopic! }
+  const updated = repo.archiveInboxItem(item, command.category, command.subtopic, command.title)
+  return { sourceId: updated.id, category: updated.topic_category!, subtopic: updated.topic_subtopic! }
 }
 
 export function handleWikiPageList(
@@ -312,7 +300,14 @@ export function handleWikiSourceUpdateTopic(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:source:update-topic' }>,
 ): { id: string; topicCategory: string | null; topicSubtopic: string | null } {
-  const updated = bridge.wikiRepo.updateSourceTopic(command.sourceId, command.category, command.subtopic)
+  const agentId = resolveAgentIdForWiki(bridge, undefined, command.agentId)
+  const updated = bridge.wikiRepo.updateSourceTopic(
+    agentId,
+    LOCAL_USER_ID,
+    command.sourceId,
+    command.category,
+    command.subtopic,
+  )
   return { id: updated.id, topicCategory: updated.topic_category, topicSubtopic: updated.topic_subtopic }
 }
 
@@ -320,7 +315,14 @@ export function handleWikiSourceMoveToParking(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:source:move-to-parking' }>,
 ): { id: string; topicCategory: string | null; topicSubtopic: string | null } {
-  const updated = bridge.wikiRepo.updateSourceTopic(command.sourceId, PARKING_CATEGORY, null)
+  const agentId = resolveAgentIdForWiki(bridge, undefined, command.agentId)
+  const updated = bridge.wikiRepo.updateSourceTopic(
+    agentId,
+    LOCAL_USER_ID,
+    command.sourceId,
+    PARKING_CATEGORY,
+    null,
+  )
   return { id: updated.id, topicCategory: updated.topic_category, topicSubtopic: updated.topic_subtopic }
 }
 
@@ -329,7 +331,8 @@ export async function handleWikiSourceOpen(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:source:open' }>,
 ): Promise<{ success: true }> {
-  const source = bridge.wikiRepo.findSourceById(command.sourceId)
+  const agentId = resolveAgentIdForWiki(bridge, undefined, command.agentId)
+  const source = bridge.wikiRepo.findSourceById(command.sourceId, agentId, LOCAL_USER_ID)
   if (!source) throw new Error(`资料不存在: ${command.sourceId}`)
   if (!source.source_path) throw new Error('无法打开原文件：该资料没有关联的原始文件路径')
 
@@ -343,7 +346,7 @@ export async function handleWikiSourceOpen(
   if (result) {
     throw new Error(`无法打开原文件：${result}`)
   }
-  bridge.wikiRepo.touchSource(source.id)
+  bridge.wikiRepo.touchSource(agentId, LOCAL_USER_ID, source.id)
   return { success: true }
 }
 

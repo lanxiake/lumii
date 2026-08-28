@@ -525,7 +525,7 @@ describe("WikiRepo 主题树", () => {
   it("setTopicTree 在已有文件占用的小类被删除时应 throw", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const source = repo.createSource({ agentId: "ag", userId: "u", title: "会议纪要" });
-    repo.updateSourceTopic(source.id, "做事记录", "会议聊天记录");
+    repo.updateSourceTopic("ag", "u", source.id, "做事记录", "会议聊天记录");
 
     const nextTree = {
       version: 1 as const,
@@ -550,7 +550,7 @@ describe("WikiRepo 资料主题读写", () => {
   it("updateSourceTopic 写入合法归属并可被 listSourcesByTopic 按大类/小类过滤", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const source = repo.createSource({ agentId: "ag", userId: "u", title: "合同" });
-    repo.updateSourceTopic(source.id, "证件凭据", "合同协议文件");
+    repo.updateSourceTopic("ag", "u", source.id, "证件凭据", "合同协议文件");
 
     const bySubtopic = repo.listSourcesByTopic("ag", "u", { category: "证件凭据", subtopic: "合同协议文件" });
     expect(bySubtopic).toHaveLength(1);
@@ -566,13 +566,13 @@ describe("WikiRepo 资料主题读写", () => {
   it("updateSourceTopic 拒绝越权归属（大类/小类不存在于树中）", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const source = repo.createSource({ agentId: "ag", userId: "u", title: "x" });
-    expect(() => repo.updateSourceTopic(source.id, "不存在的大类", "x")).toThrow();
+    expect(() => repo.updateSourceTopic("ag", "u", source.id, "不存在的大类", "x")).toThrow();
   });
 
   it("updateSourceTopic 允许移到临时存放（subtopic 必须为 null）", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const source = repo.createSource({ agentId: "ag", userId: "u", title: "x" });
-    const updated = repo.updateSourceTopic(source.id, PARKING_CATEGORY, null);
+    const updated = repo.updateSourceTopic("ag", "u", source.id, PARKING_CATEGORY, null);
     expect(updated.topic_category).toBe(PARKING_CATEGORY);
     expect(updated.topic_subtopic).toBeNull();
 
@@ -583,7 +583,7 @@ describe("WikiRepo 资料主题读写", () => {
   it("listSourcesByTopic unfiled 只返回两列皆为 NULL 的资料", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const filed = repo.createSource({ agentId: "ag", userId: "u", title: "已归档" });
-    repo.updateSourceTopic(filed.id, "做事记录", "会议聊天记录");
+    repo.updateSourceTopic("ag", "u", filed.id, "做事记录", "会议聊天记录");
     repo.createSource({ agentId: "ag", userId: "u", title: "待整理" });
 
     const unfiled = repo.listSourcesByTopic("ag", "u", { unfiled: true });
@@ -595,7 +595,7 @@ describe("WikiRepo 资料主题读写", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const source = repo.createSource({ agentId: "ag", userId: "u", title: "x" });
     expect(source.use_count).toBe(0);
-    repo.touchSource(source.id);
+    repo.touchSource("ag", "u", source.id);
     const after = repo.findSourceById(source.id)!;
     expect(after.use_count).toBe(1);
     expect(after.last_used).toBeTruthy();
@@ -655,5 +655,93 @@ describe("WikiRepo 索引健康检查", () => {
     repo.indexSource(source.id);
 
     expect(repo.checkIndexHealth().isHealthy).toBe(true);
+  });
+});
+
+describe("WikiRepo 资料归属隔离", () => {
+  it("updateSourceTopic 不能改别的 agent 的资料", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const mine = repo.createSource({ agentId: "ag1", userId: "u", title: "我的" });
+
+    expect(() => repo.updateSourceTopic("ag2", "u", mine.id, "做事记录", "会议聊天记录")).toThrow(/资料不存在/);
+    expect(repo.findSourceById(mine.id)!.topic_category).toBeNull();
+  });
+
+  it("touchSource 不能改别的 agent 的使用统计", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const mine = repo.createSource({ agentId: "ag1", userId: "u", title: "我的" });
+
+    repo.touchSource("ag2", "u", mine.id);
+    expect(repo.findSourceById(mine.id)!.use_count).toBe(0);
+  });
+
+  it("findSourceById 带归属时查不到别人的资料，不带归属仍可跨归属反查", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const mine = repo.createSource({ agentId: "ag1", userId: "u", title: "我的" });
+
+    expect(repo.findSourceById(mine.id, "ag2", "u")).toBeNull();
+    expect(repo.findSourceById(mine.id, "ag1", "u")?.id).toBe(mine.id);
+    expect(repo.findSourceById(mine.id)?.id).toBe(mine.id);
+  });
+});
+
+describe("WikiRepo 归档事务性", () => {
+  it("主题越权时不留下孤儿资料行，重试也不产生重复", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const item = repo.ingestToInbox({ agentId: "ag", userId: "u", itemType: "upload", title: "会议纪要" });
+
+    for (let i = 0; i < 3; i++) {
+      expect(() => repo.archiveInboxItem(item, "不存在的大类", "x")).toThrow();
+    }
+
+    expect(repo.listSources("ag", "u")).toHaveLength(0);
+    expect(repo.findInboxById(item.id)!.status).toBe("pending");
+  });
+
+  it("归档成功后资料可检索且条目转为 organized", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const item = repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "upload",
+      title: "会议纪要",
+      contentPreview: "讨论了归档流程",
+    });
+
+    const source = repo.archiveInboxItem(item, "做事记录", "会议聊天记录");
+    expect(source.topic_category).toBe("做事记录");
+    expect(repo.findInboxById(item.id)!.status).toBe("organized");
+    expect(repo.searchSources("ag", "u", "归档流程").map((h) => h.source.id)).toEqual([source.id]);
+  });
+});
+
+describe("WikiRepo 删除资料清理索引", () => {
+  it("删除资料时同步删掉 FTS 行，不留孤儿", () => {
+    const db = createMigratedTestDb();
+    const repo = new WikiRepo(db);
+    const first = repo.createSource({ agentId: "ag", userId: "u", title: "旧资料", extractedText: "机密内容甲" });
+    repo.indexSource(first.id);
+    repo.deleteSources("ag", "u", [first.id]);
+
+    // searchSources 会 JOIN wiki_sources，孤儿行在搜索结果里看不出来，必须直查虚表：
+    // wiki_sources_fts 不是 external content 表，漏删会留行，而 SQLite 回收 rowid 后
+    // 新资料可能继承它，于是搜出别人的正文。
+    const ftsCount = db
+      .prepare<{ c: number }>("SELECT COUNT(*) as c FROM wiki_sources_fts")
+      .get()?.c;
+    expect(ftsCount).toBe(0);
+    expect(repo.checkIndexHealth().isHealthy).toBe(true);
+  });
+
+  it("删除后新建的资料不会搜出被删资料的正文", () => {    const repo = new WikiRepo(createMigratedTestDb());
+    const first = repo.createSource({ agentId: "ag", userId: "u", title: "旧资料", extractedText: "机密内容甲" });
+    repo.indexSource(first.id);
+    repo.deleteSources("ag", "u", [first.id]);
+
+    const second = repo.createSource({ agentId: "ag", userId: "u", title: "新资料", extractedText: "无关正文乙" });
+    repo.indexSource(second.id);
+
+    expect(repo.searchSources("ag", "u", "机密内容")).toEqual([]);
+    expect(repo.searchSources("ag", "u", "无关正文").map((h) => h.source.id)).toEqual([second.id]);
   });
 });

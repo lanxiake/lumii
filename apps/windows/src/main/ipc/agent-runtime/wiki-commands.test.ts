@@ -374,7 +374,7 @@ describe('wiki commands', () => {
   it('cleanup:scan 带出两列主题供只读展示', () => {
     const repo = createWikiRepo()
     const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '会议纪要' })
-    repo.updateSourceTopic(source.id, '做事记录', '会议聊天记录')
+    repo.updateSourceTopic('assistant', 'local-user', source.id, '做事记录', '会议聊天记录')
     const updated = repo.findSourceById(source.id)
     const bridge = {
       ...buildBridge(repo),

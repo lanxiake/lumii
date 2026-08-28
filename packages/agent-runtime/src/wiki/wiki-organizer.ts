@@ -136,19 +136,7 @@ export class WikiOrganizer {
       }
 
       try {
-        const source = this.repo.createSource({
-          agentId,
-          userId,
-          title: item.title,
-          sourcePath: item.source_path ?? undefined,
-          contentMd: item.content_preview ?? undefined,
-          contentHash: item.content_hash ?? undefined,
-          mediaType: item.media_type,
-          extractedText: item.content_preview ?? undefined,
-        });
-        this.repo.updateSourceTopic(source.id, result.category, result.subtopic);
-        this.repo.indexSource(source.id);
-        this.repo.markInboxOrganized(item.id, source.id);
+        this.repo.archiveInboxItem(item, result.category, result.subtopic);
         detailItems.push({
           inboxId: item.id,
           title: item.title,

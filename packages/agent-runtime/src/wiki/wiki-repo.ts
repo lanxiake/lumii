@@ -288,6 +288,35 @@ export class WikiRepo {
       .run(organizedSourceId, new Date().toISOString(), id);
   }
 
+  /**
+   * 把一条收件箱条目归档进资料层：建资料行 → 写用途归属 → 建索引 → 标记已归档。
+   * 四步必须同生共死：中途失败（最常见是主题越权被 validateTopicAssignment 拒）如果不回滚，
+   * 会留下一条主题为空的孤儿资料，而条目仍是 pending，下次重试再建一条——createSource
+   * 不按 content_hash 去重，重试几次就是几份。主题校验放在事务外先做，尽早失败。
+   */
+  archiveInboxItem(item: WikiInboxItem, category: string, subtopic: string | null, title?: string): WikiSource {
+    const tree = this.getOrCreateTopicTree();
+    const valid = validateTopicAssignment(tree, category, subtopic, { allowParking: true });
+    if (!valid.ok) throw new Error(valid.reason);
+
+    return withTransaction(this.db, () => {
+      const source = this.createSource({
+        agentId: item.agent_id,
+        userId: item.user_id,
+        title: title ?? item.title,
+        sourcePath: item.source_path ?? undefined,
+        contentMd: item.content_preview ?? undefined,
+        contentHash: item.content_hash ?? undefined,
+        mediaType: item.media_type,
+        extractedText: item.content_preview ?? undefined,
+      });
+      const updated = this.updateSourceTopic(item.agent_id, item.user_id, source.id, category, subtopic);
+      this.indexSource(source.id);
+      this.markInboxOrganized(item.id, source.id);
+      return updated;
+    });
+  }
+
 /**
    * 丢弃条目。
    * @returns 是否真的改了一行；false 表示 id 不存在（调用方据此报错而非静默成功）
@@ -391,8 +420,19 @@ export class WikiRepo {
     };
   }
 
-  findSourceById(id: string): WikiSource | null {
-    const row = this.db.prepare<WikiSource>("SELECT * FROM wiki_sources WHERE id = ?").get(id);
+  /**
+   * 按 id 取资料。传 agentId/userId 时限定归属（读取原文件、改主题等入口应当传），
+   * 不传则跨归属查找，仅供已自行确认归属的内部调用（如按 source_ref 反查）。
+   */
+  findSourceById(id: string, agentId?: string, userId?: string): WikiSource | null {
+    const row =
+      agentId !== undefined && userId !== undefined
+        ? this.db
+            .prepare<WikiSource>(
+              "SELECT * FROM wiki_sources WHERE id = ? AND agent_id = ? AND user_id = ?",
+            )
+            .get(id, agentId, userId)
+        : this.db.prepare<WikiSource>("SELECT * FROM wiki_sources WHERE id = ?").get(id);
     return row ?? null;
   }
 
@@ -478,26 +518,40 @@ export class WikiRepo {
       .all(...params);
   }
 
-  /** 更新某条资料的用途归属；写前用 allowParking 校验，越权归属会抛错 */
-  updateSourceTopic(sourceId: string, category: string, subtopic: string | null): WikiSource {
+  /**
+   * 更新某条资料的用途归属；写前用 allowParking 校验，越权归属会抛错。
+   * 按 agent_id + user_id 限定，避免拿到一个 id 就能改别的 agent 的资料。
+   */
+  updateSourceTopic(
+    agentId: string,
+    userId: string,
+    sourceId: string,
+    category: string,
+    subtopic: string | null,
+  ): WikiSource {
     const tree = this.getOrCreateTopicTree();
     const result = validateTopicAssignment(tree, category, subtopic, { allowParking: true });
     if (!result.ok) {
       throw new Error(result.reason);
     }
-    this.db
-      .prepare("UPDATE wiki_sources SET topic_category = ?, topic_subtopic = ? WHERE id = ?")
-      .run(category, subtopic, sourceId);
+    const info = this.db
+      .prepare(
+        "UPDATE wiki_sources SET topic_category = ?, topic_subtopic = ? WHERE id = ? AND agent_id = ? AND user_id = ?",
+      )
+      .run(category, subtopic, sourceId, agentId, userId);
+    if (info.changes === 0) throw new Error(`资料不存在: ${sourceId}`);
     const source = this.findSourceById(sourceId);
     if (!source) throw new Error(`资料不存在: ${sourceId}`);
     return source;
   }
 
-  /** 命中即更新 last_used / use_count（打开原文件、检索命中时调用） */
-  touchSource(sourceId: string): void {
+  /** 命中即更新 last_used / use_count（打开原文件、检索命中时调用），按归属限定 */
+  touchSource(agentId: string, userId: string, sourceId: string): void {
     this.db
-      .prepare("UPDATE wiki_sources SET last_used = ?, use_count = use_count + 1 WHERE id = ?")
-      .run(new Date().toISOString(), sourceId);
+      .prepare(
+        "UPDATE wiki_sources SET last_used = ?, use_count = use_count + 1 WHERE id = ? AND agent_id = ? AND user_id = ?",
+      )
+      .run(new Date().toISOString(), sourceId, agentId, userId);
   }
 
   /** 把一条资料写入/覆盖资料层 FTS 索引；供归档流水线调用，避免 organizer 直接碰 db */
@@ -563,10 +617,20 @@ export class WikiRepo {
   deleteSources(agentId: string, userId: string, sourceIds: readonly string[]): number {
     if (sourceIds.length === 0) return 0;
     const placeholders = sourceIds.map(() => "?").join(",");
-    const info = this.db
-      .prepare(`DELETE FROM wiki_sources WHERE agent_id = ? AND user_id = ? AND id IN (${placeholders})`)
-      .run(agentId, userId, ...sourceIds);
-    return info.changes;
+    return withTransaction(this.db, () => {
+      // 先取 rowid 再删：wiki_sources_fts 不是 external content 表，没有触发器同步，
+      // 漏删会留下孤儿索引行，而 SQLite 会回收 rowid——新资料可能继承它，搜出别人的正文。
+      const rows = this.db
+        .prepare<{ rowid: number }>(
+          `SELECT rowid FROM wiki_sources WHERE agent_id = ? AND user_id = ? AND id IN (${placeholders})`,
+        )
+        .all(agentId, userId, ...sourceIds);
+      const info = this.db
+        .prepare(`DELETE FROM wiki_sources WHERE agent_id = ? AND user_id = ? AND id IN (${placeholders})`)
+        .run(agentId, userId, ...sourceIds);
+      for (const row of rows) this.indexRepo.deleteSourceRow(row.rowid);
+      return info.changes;
+    });
   }
 
   /**
@@ -1039,7 +1103,7 @@ export class WikiRepo {
            LIMIT ?`,
         )
         .all(query, agentId, userId, limit);
-      for (const row of rows) this.touchSource(row.id);
+      for (const row of rows) this.touchSource(agentId, userId, row.id);
       return rows.map((source) => ({ source, snippet: (source.extracted_text ?? "").slice(0, 200) }));
     } catch (err) {
       console.warn("[WikiRepo.searchSources] FTS5 查询失败:", err);

@@ -67,7 +67,7 @@ describe("WikiCleanupScanner", () => {
     const db = (repo as unknown as { db: { prepare: (sql: string) => { run: (...a: unknown[]) => void } } }).db;
     const s = repo.createSource({ agentId: "ag", userId: "u", title: "old" });
     db.prepare("UPDATE wiki_sources SET created_at = ? WHERE id = ?").run(old, s.id);
-    repo.touchSource(s.id);
+    repo.touchSource("ag", "u", s.id);
 
     const scanner = new WikiCleanupScanner(repo);
     expect(scanner.scan("ag", "u", { staleDays: 90 })).toHaveLength(0);
@@ -89,7 +89,7 @@ describe("WikiCleanupScanner", () => {
   it("不命中长期未用：新归档资料没有页面行，也不该被判为长期未用", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const s = repo.createSource({ agentId: "ag", userId: "u", title: "刚归档" });
-    repo.updateSourceTopic(s.id, "做事记录", "会议聊天记录");
+    repo.updateSourceTopic("ag", "u", s.id, "做事记录", "会议聊天记录");
 
     const scanner = new WikiCleanupScanner(repo);
     expect(scanner.scan("ag", "u", { staleDays: 90 })).toHaveLength(0);
