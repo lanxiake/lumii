@@ -83,10 +83,9 @@ async function callTool(registry: { register: ReturnType<typeof mockRegister> },
 }
 
 describe('registerWikiTools', () => {
-  it('注册全部 4 个工具', () => {
+  it('只注册 3 个只读工具（wiki_capture 已下线）', () => {
     const { registry } = setup()
     expect([...registry.register.tools.keys()].sort()).toEqual([
-      'wiki_capture',
       'wiki_overview',
       'wiki_read',
       'wiki_search',
@@ -136,11 +135,8 @@ describe('registerWikiTools', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('wiki_capture 始终拒绝，不写入 inbox', async () => {
-    const { repo, registry } = setup()
-    const result = await callTool(registry, 'wiki_capture', { content: '记一下这个', title: '备忘' })
-    expect(result.ok).toBe(false)
-    expect(result.message).toContain('不再收录对话消息')
-    expect(repo.listInbox('assistant', 'local-user')).toHaveLength(0)
+  it('wiki_capture 不再注册，Agent 无法调用', () => {
+    const { registry } = setup()
+    expect(registry.register.tools.has('wiki_capture')).toBe(false)
   })
 })

@@ -28,14 +28,14 @@
 
 **P0 — 事实性错误修复（可独立合并，不动接口）**
 
-- [ ] P0-T1 `tts_generate` → `speech_generate` 键名修复
-- [ ] P0-T2 清理 `nodes` 幽灵工具与死代码
-- [ ] P0-T3 补齐 8 个掉进 Other Tools 的工具分组与描述
-- [ ] P0-T4 修正 browser 元素定位指令（ref vs index）
-- [ ] P0-T5 修正 / 删除无法执行的 On-demand tool groups 指令
-- [ ] P0-T6 下线 `wiki_capture`
-- [ ] P0-T7 `session_clear` 纳入安全边界清单
-- [ ] P0-T8 加漂移守卫测试（本阶段验收闸门）
+- [x] P0-T1 `tts_generate` → `speech_generate` 键名修复
+- [x] P0-T2 清理 `nodes` 幽灵工具与死代码
+- [x] P0-T3 补齐 8 个掉进 Other Tools 的工具分组与描述
+- [x] P0-T4 修正 browser 元素定位指令（核实结论见 §3.4 补注）
+- [x] P0-T5 修正无法执行的 On-demand tool groups 指令 → `Desktop Control`
+- [x] P0-T6 下线 `wiki_capture`
+- [x] P0-T7 `session_clear` 纳入安全边界清单
+- [x] P0-T8 加漂移守卫测试（runtime + bridge 两侧）
 
 **P1 — 冗余压缩（依赖 P0-T8 的守卫测试）**
 
@@ -287,6 +287,27 @@ Prefer these over `bash` for any file work.
    "Element indexes come from the most recent `browser_screenshot`" 按核实结果改写。
 
 **验收:** 提示词与真实参数名一致；ref 来源可在代码中指出具体返回字段。
+
+#### 核实结论（2026-08-28，已完成）
+
+前置核实门的结果比预估更糟，**ref 来源确实不存在**：
+
+| 核实项 | 结论 |
+|--------|------|
+| `browser_screenshot` 返回体 | `{ok, path, targetId, url}`（`agent.snapshot.ts:173-178`）——**不含 ref** |
+| ref 的真实产出点 | `GET /snapshot`（`agent.snapshot.ts:185`，`refs` 字段在 285 行） |
+| bridge 接了哪些路由 | 仅 `/act`、`/navigate`、`/screenshot`——**没有任何工具打到 `/snapshot`** |
+
+即 `browser_click` / `browser_type` 要求的 `ref` 参数，模型**无从获取**。
+
+**已采取的处理（如实描述，不编造来源）：**
+1. `buildBrowserSection` 明说 screenshot 不返回 ref、当前无工具暴露 ref，
+   引导改用 `browser_eval` 定位元素。
+2. `bridge-browser-tools.ts` 两处 description 补同样的 caveat。
+3. `TOOL_SUMMARIES` 的 `browser_click` / `browser_type` 指向 Browser Control 节。
+
+**遗留缺口（另开 issue，不在本计划）：** 把 `GET /snapshot` 接成
+`browser_snapshot` 工具，才能真正支持 ref 定位。届时应回滚上述 caveat 文案。
 
 ### P0-T5 修正 On-demand tool groups
 

@@ -23,6 +23,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   // Media Generation
   image_generate:
     "Generate images from text prompts and save them under workspace/outputs; when the user asks for an image, call this tool instead of describing the image. modelId is optional (defaults to gpt-image-2); use gpt-image-2-vip for 2K/4K, nano-banana (fast draft), nano-banana-2 (better general), or nano-banana-pro (pro artistic) when needed. Do not retry with a different modelId after failure unless the user explicitly asks. For iterative edits, merge the previous revisedPrompt with the user's change request.",
+  speech_generate: "Synthesize speech audio to workspace/outputs",
 
   // Task Management (session-scoped)
   todo_write: "Manage in-session task list: create, update, list, delete tasks (session-scoped)",
@@ -44,7 +45,6 @@ const TOOL_SUMMARIES: Record<string, string> = {
   skill_search: "Search skills by keyword — searches name, description, and when-to-use fields",
   skill_invoke: "Load a skill's full SKILL.md instructions and list its available resources",
   message: "Send channel messages and perform channel actions",
-  nodes: "Query and control bound devices for this user",
   memory_search: "Search long-term memory and stored knowledge",
   memory_read: "Read the full archived content of one memory drawer (incl. original conversation transcript) by drawer_id — use memory_search first to get the drawer_id, then read the full text here",
   profile_memory: "Read and update user profile memory",
@@ -52,8 +52,8 @@ const TOOL_SUMMARIES: Record<string, string> = {
 
   // Browser Tools
   browser_navigate: "Navigate the browser to a URL",
-  browser_click: "Click an element on the current page by index (from snapshot)",
-  browser_type: "Type text into an input element on the current page by index",
+  browser_click: "Click an element by `ref` — see Browser Control for how to obtain one",
+  browser_type: "Type text into an input element by `ref`",
   browser_scroll: "Scroll the current page (up, down, left, right, or to a specific element)",
   browser_wait: "Wait for a specified duration in milliseconds or for an element to appear",
   browser_eval: "Evaluate JavaScript in the current browser page context",
@@ -80,27 +80,45 @@ const TOOL_SUMMARIES: Record<string, string> = {
   // Task Completion
   task_complete: "Signal that the task is fully done — provide a brief summary of what was accomplished. MUST be called to mark task completion.",
 
-  // Interaction & Media
-  ask_user_question: "Ask the user a clarifying question with preset options when requirements are ambiguous and you cannot safely proceed",
-  tts_generate: "Synthesize speech audio from text and save it under workspace/outputs",
+  // Interaction
+  ask_user_question: "Ask a clarifying question with preset options when you cannot safely proceed",
+
+  // Messaging
+  channel_list: "List channels and peer ids — call before channel_send",
+  channel_send: "Send text or a local file to an explicit channel peer",
+
+  // Memory & Knowledge — Wiki
+  wiki_overview: "Wiki category map — call before wiki_search",
+  wiki_search: "Search the Wiki knowledge base",
+  wiki_read: "Read one Wiki page by its exact path",
+
+  // Dashboard
+  dashboard_feed_write: "Persist news/summary items to the dashboard feed card",
+
+  // Skills (pre-registered; not yet in the built-in registry)
+  execute_skill: "Run an executable skill entry point",
 }
 
 const FILE_TOOLS = new Set(["file_read", "file_write", "file_edit", "glob", "grep"])
 const COMMAND_TOOLS = new Set(["bash", "web_fetch", "web_search"])
-const MEDIA_GENERATION_TOOLS = new Set(["image_generate"])
-const TASK_TOOLS = new Set(["todo_write"])
+const MEDIA_GENERATION_TOOLS = new Set(["image_generate", "speech_generate"])
+const TASK_TOOLS = new Set(["todo_write", "task_complete"])
 const AGENT_TOOLS = new Set(["spawn_agent", "send_message"])
 const SCHEDULING_TOOLS = new Set(["cron_create", "cron_list", "cron_delete"])
-const GUIDE_TOOLS = new Set(["a2ui_guide", "cron_guide", "weixin_send_guide", "skill_list", "skill_search", "skill_invoke"])
-const BACKEND_SERVICE_TOOLS = new Set([
-  "message",
-  "nodes",
+const SKILL_TOOLS = new Set(["skill_list", "skill_search", "skill_invoke", "execute_skill"])
+const GUIDE_TOOLS = new Set(["a2ui_guide", "cron_guide", "weixin_send_guide"])
+const MEMORY_TOOLS = new Set([
   "memory_search",
   "memory_read",
-  "profile_memory",
   "memory_manage",
-  "system_prompt",
+  "wiki_overview",
+  "wiki_search",
+  "wiki_read",
 ])
+const MESSAGING_TOOLS = new Set(["message", "channel_list", "channel_send"])
+const SELF_CONFIG_TOOLS = new Set(["profile_memory", "system_prompt"])
+const INTERACTION_TOOLS = new Set(["ask_user_question"])
+const DASHBOARD_TOOLS = new Set(["dashboard_feed_write"])
 const BROWSER_TOOLS = new Set([
   "browser_navigate",
   "browser_click",
@@ -112,7 +130,7 @@ const BROWSER_TOOLS = new Set([
   "browser_forward",
   "browser_screenshot",
 ])
-const CLIENT_COMMAND_TOOLS = new Set([
+const SESSION_TOOLS = new Set([
   "session_create",
   "session_clear",
   "session_compact",
@@ -126,25 +144,40 @@ const AGENT_MANAGEMENT_TOOLS = new Set([
   "agent_team_optimize",
   "agent_remove",
 ])
-const TASK_COMPLETION_TOOLS = new Set(["task_complete"])
+
+/**
+ * 分组注册表 —— 渲染顺序即声明顺序。
+ *
+ * 导出供漂移守卫测试内省（校验成员是否真实注册、分组是否重叠）。
+ * 生产代码只应通过 categorizeTools 消费。
+ */
+export const PROMPT_TOOL_GROUPS: Readonly<Record<string, ReadonlySet<string>>> = {
+  "File Tools": FILE_TOOLS,
+  "Command Tools": COMMAND_TOOLS,
+  "Media Generation": MEDIA_GENERATION_TOOLS,
+  "Task Management": TASK_TOOLS,
+  "Agent Delegation": AGENT_TOOLS,
+  "Agent Management": AGENT_MANAGEMENT_TOOLS,
+  Scheduling: SCHEDULING_TOOLS,
+  Skills: SKILL_TOOLS,
+  "Memory & Knowledge": MEMORY_TOOLS,
+  Messaging: MESSAGING_TOOLS,
+  "Self-Configuration": SELF_CONFIG_TOOLS,
+  Interaction: INTERACTION_TOOLS,
+  Dashboard: DASHBOARD_TOOLS,
+  "Browser Tools": BROWSER_TOOLS,
+  "Session & Settings": SESSION_TOOLS,
+  "Reference Guides": GUIDE_TOOLS,
+}
+
+export { TOOL_SUMMARIES }
 
 export function categorizeTools(toolNames: readonly string[]): string[] {
   const lines: string[] = []
 
-  const groups: Array<{ label: string; tools: Set<string> }> = [
-    { label: "File Tools", tools: FILE_TOOLS },
-    { label: "Command Tools", tools: COMMAND_TOOLS },
-    { label: "Media Generation", tools: MEDIA_GENERATION_TOOLS },
-    { label: "Task Management", tools: TASK_TOOLS },
-    { label: "Agent Delegation", tools: AGENT_TOOLS },
-    { label: "Scheduling", tools: SCHEDULING_TOOLS },
-    { label: "Guide Tools", tools: GUIDE_TOOLS },
-    { label: "Backend Services", tools: BACKEND_SERVICE_TOOLS },
-    { label: "Browser Tools", tools: BROWSER_TOOLS },
-    { label: "Client Commands", tools: CLIENT_COMMAND_TOOLS },
-    { label: "Agent Management", tools: AGENT_MANAGEMENT_TOOLS },
-    { label: "Task Completion", tools: TASK_COMPLETION_TOOLS },
-  ]
+  const groups: Array<{ label: string; tools: ReadonlySet<string> }> = Object.entries(
+    PROMPT_TOOL_GROUPS,
+  ).map(([label, tools]) => ({ label, tools }))
 
   for (const group of groups) {
     const matching = toolNames.filter((t) => group.tools.has(t))
@@ -159,11 +192,7 @@ export function categorizeTools(toolNames: readonly string[]): string[] {
   }
 
   const knownTools = new Set<string>()
-  const allSets = [
-    FILE_TOOLS, COMMAND_TOOLS, MEDIA_GENERATION_TOOLS, TASK_TOOLS, AGENT_TOOLS,
-    SCHEDULING_TOOLS, GUIDE_TOOLS, BACKEND_SERVICE_TOOLS, BROWSER_TOOLS, CLIENT_COMMAND_TOOLS, AGENT_MANAGEMENT_TOOLS, TASK_COMPLETION_TOOLS,
-  ]
-  for (const s of allSets) {
+  for (const s of Object.values(PROMPT_TOOL_GROUPS)) {
     s.forEach((t) => knownTools.add(t))
   }
   const lowFrequency = toolNames.filter(
@@ -179,12 +208,18 @@ export function categorizeTools(toolNames: readonly string[]): string[] {
     lines.push("")
   }
   if (lowFrequency.length > 0) {
-    lines.push("### On-demand tool groups", "Use the relevant guide tool before calling tools in these groups; detailed names and usage are loaded on demand.")
-    if (lowFrequency.some((t) => t.startsWith("app_"))) lines.push("- `app_*`: desktop application control")
-    if (lowFrequency.some((t) => t.startsWith("screen_record_") || t === "screen_screenshot")) {
-      lines.push("- `screen_record_*` / `screen_screenshot`: screen recording and desktop/window screenshots")
+    // 这些工具的完整 schema 已随请求发给模型，此处只做归类索引，
+    // 不再声称「先调 guide 工具」——app_* / screen_record_* 并无对应 guide。
+    lines.push("### Desktop Control")
+    const appCount = lowFrequency.filter((t) => t.startsWith("app_")).length
+    const screenCount = lowFrequency.filter(
+      (t) => t.startsWith("screen_record_") || t === "screen_screenshot",
+    ).length
+    if (appCount > 0) lines.push(`- \`app_*\` (${appCount} tools): control this desktop client's own UI`)
+    if (screenCount > 0) {
+      lines.push(`- \`screen_record_*\` / \`screen_screenshot\` (${screenCount} tools): screen recording and desktop capture`)
     }
-    lines.push("")
+    lines.push("Full parameter contracts are in each tool's schema.", "")
   }
 
   return lines

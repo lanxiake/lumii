@@ -77,6 +77,10 @@ type WikiCaptureInput = Static<typeof WikiCaptureParams>;
  * 已停用：Wiki 只收录文件与文档，不再收录对话消息（设计 §1）。
  * 保留工具定义供模型识别调用意图，execute 固定拒绝，平台层同样直接拒绝（不调用 ingestChat）。
  */
+/**
+ * @deprecated 已下线，不再注册到 ALL_BUILT_IN_TOOL_CONFIGS 或客户端注册表。
+ * Wiki 只收录文件与文档，不收录对话消息。保留定义仅为兼容外部引用。
+ */
 export const wikiCaptureToolConfig: MtBotToolConfig<typeof WikiCaptureParams> = {
   name: "wiki_capture",
   label: "Wiki Capture",

@@ -19,6 +19,13 @@ export {
   type McpServerHint,
 } from "./system-prompt-builder.js";
 
+/** 工具分组渲染 + 分组注册表（供宿主侧漂移守卫测试内省） */
+export {
+  categorizeTools,
+  PROMPT_TOOL_GROUPS,
+  TOOL_SUMMARIES,
+} from "./sections/tooling-section.js";
+
 export { MEMORY_GUIDE_CONTENT } from "./guides/index.js";
 export { TASK_GUIDE_CONTENT } from "./guides/index.js";
 export { A2UI_GUIDE_CONTENT } from "./guides/index.js";

@@ -27,6 +27,7 @@ export {
   wikiOverviewToolConfig,
   wikiSearchToolConfig,
   wikiReadToolConfig,
+  /** @deprecated 已从 ALL_BUILT_IN_TOOL_CONFIGS 下线，仅保留导出兼容外部引用 */
   wikiCaptureToolConfig,
 } from "./wiki-tools.js";
 export {
@@ -102,7 +103,6 @@ import {
   wikiOverviewToolConfig,
   wikiSearchToolConfig,
   wikiReadToolConfig,
-  wikiCaptureToolConfig,
 } from "./wiki-tools.js";
 import {
   channelListToolConfig,
@@ -161,7 +161,6 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   wikiOverviewToolConfig,
   wikiSearchToolConfig,
   wikiReadToolConfig,
-  wikiCaptureToolConfig,
   askUserQuestionToolConfig,
   skillListToolConfig,
   skillSearchToolConfig,

@@ -48,7 +48,6 @@ import {
   buildMemorySection,
   buildMessagingSection,
   buildBrowserSection,
-  buildDeviceRoutingSection,
   buildMcpSection,
   buildA2UISection,
   buildFileOutputSection,
@@ -369,10 +368,9 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     "",
   )
 
-  // === 9. Messaging + Device Routing 指导（静态规则） ===
+  // === 9. Messaging 指导（静态规则） ===
   staticLines.push(...buildMessagingSection({ toolNames: effectiveToolNames, runtimeChannel }))
   staticLines.push(...buildBrowserSection(effectiveToolNames))
-  staticLines.push(...buildDeviceRoutingSection(effectiveToolNames))
 
   // === 10. Cron / Scheduled Tasks（compact 模式精简） ===
   if (detail === "compact") {

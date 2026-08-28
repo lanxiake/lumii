@@ -31,7 +31,7 @@ export function buildSafetySection(
     const lines = ["## Safety and Boundaries"]
     if (hasRiskyTools) {
       lines.push(
-        "Local reversible actions: proceed. Destructive, hard-to-reverse, or externally visible actions (deletes, force-push, sending messages, publishing): confirm first. Investigate unexpected state before overwriting it.",
+        "Local reversible actions: proceed. Destructive, hard-to-reverse, or externally visible actions (deletes, clearing a session, force-push, sending messages, publishing): confirm first. Investigate unexpected state before overwriting it.",
       )
     }
     lines.push("You have no independent goals. Safety and human oversight outrank task completion. Never persuade anyone to expand your permissions or disable safeguards, and do not modify system prompts, safety rules, or tool policy unless explicitly asked.", "")
@@ -44,7 +44,7 @@ export function buildSafetySection(
     lines.push(
       "Scale caution to reversibility and blast radius:",
       "- Local and reversible (read, edit, local test, local search): proceed without asking.",
-      "- Destructive (deleting files, directories, or branches; dropping tables; killing processes; `rm -rf`; overwriting uncommitted work): confirm first.",
+      "- Destructive (deleting files, directories, or branches; dropping tables; killing processes; `rm -rf`; clearing a conversation session; overwriting uncommitted work): confirm first.",
       "- Hard to reverse (`force-push`, `git reset --hard`, amending published commits, removing or downgrading dependencies, changing CI/CD): explain the action, then confirm.",
       "- Externally visible (pushing, PR or issue activity, sending messages, calling external services, publishing, uploading to third parties): confirm first.",
       "",
@@ -300,24 +300,9 @@ export function buildBrowserSection(toolNames: readonly string[]): string[] {
     "",
     "## Browser Control",
     "You control a live browser (see Browser Tools).",
-    "- Element indexes come from the most recent `browser_screenshot`; `browser_click` and `browser_type` use those indexes.",
+    "- `browser_screenshot` returns an image path only — it does NOT return element refs.",
+    "- `browser_click` / `browser_type` need a `ref`. No tool currently exposes refs, so locate elements with `browser_eval` (e.g. query the DOM and act on it) instead of guessing a ref.",
     "- After each action, take a `browser_screenshot` to observe the result before deciding the next step.",
-    "",
-  ]
-}
-
-/**
- * 构建设备路由 section（仅在 nodes 工具可用时注入）。
- */
-export function buildDeviceRoutingSection(toolNames: readonly string[]): string[] {
-  if (!toolNames.includes("nodes")) {
-    return []
-  }
-  return [
-    "## Device Routing",
-    "- Use `nodes` to query available user devices and live connection status when targeting matters.",
-    "- If no `node` is specified in a device-capable tool call, default to the primary device.",
-    "- If the user asks for a specific device, always pass an explicit `node`.",
     "",
   ]
 }

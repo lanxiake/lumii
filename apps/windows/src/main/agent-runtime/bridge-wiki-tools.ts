@@ -1,7 +1,7 @@
 /**
  * Wiki 知识库 Agent 工具接线（P0）
  *
- * wiki_overview / wiki_search / wiki_read 只读；wiki_capture 写入 inbox/。
+ * wiki_overview / wiki_search / wiki_read 只读。wiki_capture 已下线。
  * agentId 解析范式同 memory_manage（bridge-tool-registrar-client-cmd.ts:129）：
  * toolCallId → instanceId → definitionId，取不到则退到 'default'。
  *
@@ -13,7 +13,6 @@ import {
   wikiOverviewToolConfig,
   wikiSearchToolConfig,
   wikiReadToolConfig,
-  wikiCaptureToolConfig,
   type MtBotToolConfig,
   type ToolExecutionContext,
   type WikiRepo,
@@ -106,13 +105,6 @@ export function registerWikiTools(
   }
   toolRegistry.register(createMtBotTool(readConfig, ctx))
 
-  const captureConfig: MtBotToolConfig = {
-    ...wikiCaptureToolConfig,
-    execute: async () =>
-      jsonToolResult({
-        ok: false,
-        message: 'Wiki 只收录文件与文档，不再收录对话消息。请上传会议纪要等文件。',
-      }),
-  }
-  toolRegistry.register(createMtBotTool(captureConfig, ctx))
+  // wiki_capture 已下线：Wiki 只收录文件与文档，不再收录对话消息。
+  // 之前注册一个「永远拒绝」的工具，只是在浪费提示词与 schema token。
 }

@@ -69,9 +69,11 @@ export function registerBrowserTools(
 
   reg(createMtBotTool({
     name: 'browser_click', label: 'Browser Click', category: 'channel' as const,
-    description: 'Click an element on the current page by ref (from snapshot)',
+    description:
+      'Click an element on the current page by ref. NOTE: browser_screenshot does not return refs; ' +
+      'no tool currently exposes them. Prefer browser_eval to locate and act on elements.',
     parameters: Type.Object({
-      ref: Type.Optional(Type.String({ description: 'Element ref from snapshot' })),
+      ref: Type.Optional(Type.String({ description: 'Element ref (aria/role ref)' })),
       index: Type.Optional(Type.Number({ description: 'Legacy index, will be converted to ref' })),
     }),
     isReadOnly: false, needsPermission: false,
@@ -83,9 +85,10 @@ export function registerBrowserTools(
 
   reg(createMtBotTool({
     name: 'browser_type', label: 'Browser Type', category: 'channel' as const,
-    description: 'Type text into an input element on the current page by ref',
+    description:
+      'Type text into an input element on the current page by ref. Same ref caveat as browser_click.',
     parameters: Type.Object({
-      ref: Type.Optional(Type.String({ description: 'Element ref from snapshot' })),
+      ref: Type.Optional(Type.String({ description: 'Element ref (aria/role ref)' })),
       index: Type.Optional(Type.Number({ description: 'Legacy index, will be converted to ref' })),
       text: Type.String({ description: 'Text to type' }),
     }),

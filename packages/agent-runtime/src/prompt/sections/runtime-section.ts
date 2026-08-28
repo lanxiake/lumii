@@ -35,7 +35,7 @@ export function buildRuntimeSection(params: ClientSystemPromptParams, currentMod
   if (isWindowsClient) {
     clientContextLines.push(
       "",
-      "**Client context:** You are running inside the **MtBot Windows desktop client** (Electron). The local workspace, user files (uploads/outputs/files), user-installed skills, and user-defined agents below all live on this machine. Prefer local tools (`file_*`, `bash`, `glob`, `grep`) for anything involving the user's files. Use `message`/`nodes` only when explicitly targeting channels or remote devices.",
+      "**Client context:** You are running inside the **MtBot Windows desktop client** (Electron). The local workspace, user files (uploads/outputs/files), user-installed skills, and user-defined agents below all live on this machine. Prefer local tools (`file_*`, `bash`, `glob`, `grep`) for anything involving the user's files. Use `message` / `channel_send` only when explicitly targeting a channel.",
     )
   }
 
