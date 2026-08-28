@@ -130,6 +130,14 @@ export {
 } from "./wiki-topic-tree.js";
 export type { WikiTopicTree } from "./wiki-topic-tree.js";
 
+export { planTopicMutation, topicCountKey, DEFAULT_NEW_SUBTOPIC } from "./wiki-topic-mutate.js";
+export type {
+  FileDisposition,
+  WikiTopicMutation,
+  TopicCascade,
+  TopicMutationPlan,
+} from "./wiki-topic-mutate.js";
+
 export { WikiIngestHook } from "./wiki-ingest-hook.js";
 
 export { WikiOrganizer } from "./wiki-organizer.js";
