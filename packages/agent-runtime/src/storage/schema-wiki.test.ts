@@ -194,7 +194,7 @@ describe("wiki schema V22", () => {
     expect(db.prepare<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE name = 'wiki_sources_fts'",
     ).get()?.name).toBe("wiki_sources_fts");
-    expect(SCHEMA_VERSION).toBe(22);
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(22);
     db.close();
   });
 
@@ -204,6 +204,19 @@ describe("wiki schema V22", () => {
       const cols = db.prepare<{ name: string }>(`PRAGMA table_info(${table})`).all().map((c) => c.name);
       expect(cols, table).toContain("source_id");
     }
+    db.close();
+  });
+});
+
+describe("wiki schema V24", () => {
+  it("建出 wiki_source_embeddings 资料向量派生表", () => {
+    const db = createMigratedTestDb();
+    expect(
+      db.prepare<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE name = 'wiki_source_embeddings'",
+      ).get()?.name,
+    ).toBe("wiki_source_embeddings");
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(24);
     db.close();
   });
 });
