@@ -1,7 +1,7 @@
 /**
  * integration_tools — client runtime integration capability tools
  *
- * message / memory_search / memory_read / profile_memory / system_prompt / tts_generate
+ * message / memory_search / memory_read / profile_memory / system_prompt / speech_generate
  *
  * These are stub configs. Platform integration (Electron bridge) overrides execute.
  */

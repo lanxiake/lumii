@@ -46,11 +46,14 @@
 
 **P2 — 结构重构（动 `MtBotToolConfig` 接口，单独评审）**
 
-- [ ] P2-T1 `MtBotToolConfig` 增加 `promptGroup` / `promptHint`
-- [ ] P2-T2 `categorizeTools` 改为注册表驱动
-- [ ] P2-T3 分组重划（拆 Backend Services / 合并 Memory & Knowledge）
-- [ ] P2-T4 客户端工具元数据下沉到 `apps/windows`
-- [ ] P2-T5 删除手写映射表，守卫测试转为强约束
+**P2 — 结构重构（实勘后判定收敛，见 §5 修订）**
+
+- [x] P2-T收 修 `tts_generate` 残留文案（`Path discipline` 例子 + 无害注释/日志）
+- [~] P2-T1 `MtBotToolConfig` 加 `promptGroup`/`promptHint`　→ **实勘判定不做**（§5 修订说明）
+- [~] P2-T2 `categorizeTools` 改注册表驱动　→ **不做**
+- [~] P2-T3 分组重划　→ P1 已并入（P0 阶段已重划 16 组）
+- [~] P2-T4 客户端元数据下沉　→ **不做**
+- [~] P2-T5 删手写映射表　→ **不做**（映射表是必要的「何时用」索引，非重复）
 
 ---
 
@@ -436,6 +439,33 @@ Full parameter contracts are in each tool's schema.
 ---
 
 ## 5. P2 结构重构
+
+> **2026-08-28 修订：实勘后判定，本阶段的接口重构不做。**
+>
+> 原计划要给 `MtBotToolConfig` 加 `promptGroup`/`promptHint`、改成注册表驱动、
+> 删手写映射表。逐层读代码后确认这是过度设计，理由：
+>
+> 1. **元数据一路丢失，改签名代价大收益零。** `toolNames` 在
+>    `assemble-agent.ts:151` 就被 `.map(t => t.name)` 拍成 `string[]`，穿过
+>    `ClientSystemPromptParams` / `prompt-assembly.ts` 三层到 `categorizeTools`
+>    只剩名字。要让 `promptGroup` 传过去得改 3 个类型 + 3 个调用点 +
+>    79 个工具配置各加两字段——纯重构、零用户可见收益。
+> 2. **`categorizeTools` 现在的 Set 映射工作正常、被守卫测试锁住、能自愈。**
+>    改成「注册表驱动」只是把同一个「名字→分组」映射换个存储位置，
+>    不多代码反而多一层类型。
+> 3. **真正的重复在 P1 已经解决。** `TOOL_SUMMARIES` 已瘦身为「何时用」索引，
+>    不再是 schema 描述的重复；组注/折叠也已在 P1 处理。剩下的映射表是有价值的，
+>    不该删。
+>
+> **P2 实际收敛为文案收尾**（本分支只做这一件）：
+> - 修 `misc-sections.ts` `Path discipline` 例子里的 `tts_generate` → `speech_generate`
+>   （这一条是 V2 里仍会误导模型的残留，非重构）
+> - 统一 `integration-tools.ts` 头注释与 `bridge-tool-registrar-integration.ts`
+>   日志里的旧名
+>
+> 若未来确有「同一工具跨 Agent 复用不同分组」的需求，再回来评估接口方案。
+
+以下原计划内容保留存档，仅作背景：
 
 > 动 `MtBotToolConfig` 公共接口，影响 47 个 built-in + 32 个 bridge 工具。
 > **须单独评审后再开工。** 分支：`refactor/tooling-registry-driven`

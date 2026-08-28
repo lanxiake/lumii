@@ -461,5 +461,5 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
   }
   deps.toolRegistry.register(createMtBotTool(imageGenerateTool, ctx))
 
-  log.info('[registerToolOverrides] integration tools registered: message/memory/profile/system_prompt/tts_generate/image_generate')
+  log.info('[registerToolOverrides] integration tools registered: message/memory/profile/system_prompt/speech_generate/image_generate')
 }

@@ -370,7 +370,7 @@ export function buildFileOutputSection(toolNames: readonly string[]): string[] {
     // "  {\"components\":[{\"type\":\"FilePreview\",\"id\":\"fp1\",\"filename\":\"文件名.ext\",\"src\":\"outputs/文件名.ext\"}]}",
     // "  ```",
     // "- `src` must be a relative path starting with `outputs/` — NEVER use absolute paths (e.g. C:\\\\...)",
-    "- **Path discipline**: When a tool returns a file path (e.g. `image_generate`, `tts_generate`, `file_write`), use that EXACT path verbatim everywhere — references, previews, sending, and document links. NEVER invent or guess a filename based on its semantic meaning. If you are unsure whether a path exists, verify it with `file_read`/`glob` before writing it into a document.",
+    "- **Path discipline**: When a tool returns a file path (e.g. `image_generate`, `speech_generate`, `file_write`), use that EXACT path verbatim everywhere — references, previews, sending, and document links. NEVER invent or guess a filename based on its semantic meaning. If you are unsure whether a path exists, verify it with `file_read`/`glob` before writing it into a document.",
     "- After task completion → delete intermediate and draft files (especially anything under the task's `temp/` directory) to keep the workspace tidy",
     "",
   ]
