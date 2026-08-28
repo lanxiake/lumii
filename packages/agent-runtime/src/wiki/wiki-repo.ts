@@ -21,6 +21,7 @@ import {
   validateTopicTree,
   type WikiTopicTree,
 } from "./wiki-topic-tree.js";
+import { RECLASSIFY_RUN_META_KEY } from "./wiki-reclassify-types.js";
 import {
   planTopicMutation,
   topicCountKey,
@@ -624,6 +625,68 @@ export class WikiRepo {
     const source = this.findSourceById(sourceId);
     if (!source) throw new Error(`资料不存在: ${sourceId}`);
     return source;
+  }
+
+  // ── 重新编目批次 ────────────────────────────────────────
+
+  /** 读取当前重编目批次；解析失败视为不存在，避免坏 JSON 卡死入口 */
+  getReclassifyRun(agentId: string, userId: string): unknown | null {
+    const raw = this.getIndexMeta(this.reclassifyRunKey(agentId, userId));
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  /** 覆盖式写入当前批次；传 null 清空。每 agent+user 只留一条 */
+  setReclassifyRun(agentId: string, userId: string, run: unknown | null): void {
+    const key = this.reclassifyRunKey(agentId, userId);
+    if (run === null) {
+      this.db.prepare("DELETE FROM wiki_index_meta WHERE key = ?").run(key);
+      return;
+    }
+    this.setIndexMeta(key, JSON.stringify(run));
+  }
+
+  private reclassifyRunKey(agentId: string, userId: string): string {
+    return `${RECLASSIFY_RUN_META_KEY}:${agentId}:${userId}`;
+  }
+
+  /**
+   * 重编目扫描集：只含正式归档的资料（两列非空、非临时存放、未归档）。
+   * 待补分与临时存放不参与重编目（设计 §9.1）。
+   */
+  listSourcesForReclassify(
+    agentId: string,
+    userId: string,
+    scope:
+      | { readonly kind: "source"; readonly sourceId: string }
+      | { readonly kind: "subtopic"; readonly category: string; readonly subtopic: string }
+      | { readonly kind: "all" },
+  ): readonly WikiSource[] {
+    const conditions = [
+      "agent_id = ?",
+      "user_id = ?",
+      "archived_at IS NULL",
+      "topic_category IS NOT NULL",
+      "topic_subtopic IS NOT NULL",
+      "topic_category <> ?",
+    ];
+    const params: unknown[] = [agentId, userId, PARKING_CATEGORY];
+    if (scope.kind === "source") {
+      conditions.push("id = ?");
+      params.push(scope.sourceId);
+    } else if (scope.kind === "subtopic") {
+      conditions.push("topic_category = ?", "topic_subtopic = ?");
+      params.push(scope.category, scope.subtopic);
+    }
+    return this.db
+      .prepare<WikiSource>(
+        `SELECT * FROM wiki_sources WHERE ${conditions.join(" AND ")} ORDER BY created_at DESC`,
+      )
+      .all(...params);
   }
 
   /** 命中即更新 last_used / use_count（打开原文件、检索命中时调用），按归属限定 */

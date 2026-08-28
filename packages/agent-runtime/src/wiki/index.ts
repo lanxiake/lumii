@@ -130,6 +130,20 @@ export {
 } from "./wiki-topic-tree.js";
 export type { WikiTopicTree } from "./wiki-topic-tree.js";
 
+export {
+  WikiReclassifier,
+  buildReclassifyPrompt,
+  parseReclassifyResponse,
+  RECLASSIFY_BATCH_SIZE,
+  RECLASSIFY_RUN_META_KEY,
+} from "./wiki-reclassifier.js";
+export type {
+  WikiReclassifyCandidate,
+  WikiReclassifyRun,
+  WikiReclassifyScope,
+  WikiReclassifyStatus,
+} from "./wiki-reclassify-types.js";
+
 export { planTopicMutation, topicCountKey, DEFAULT_NEW_SUBTOPIC } from "./wiki-topic-mutate.js";
 export type {
   FileDisposition,
