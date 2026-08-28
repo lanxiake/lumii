@@ -27,6 +27,7 @@ import {
   handleWikiGraphData,
   handleWikiTopicTreeGet,
   handleWikiTopicTreeSet,
+  handleWikiTopicMutate,
   handleWikiSourceList,
   handleWikiSourceUpdateTopic,
   handleWikiSourceMoveToParking,
@@ -313,6 +314,52 @@ describe('wiki commands', () => {
     expect(handleWikiTopicTreeGet(bridge, { type: 'wiki:topic:tree:get', agentId: 'assistant' }).tree).toEqual(
       customTree,
     )
+  })
+
+  it('topic:mutate 加小类后 tree:get 能读到', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+
+    const r = handleWikiTopicMutate(bridge, {
+      type: 'wiki:topic:mutate',
+      agentId: 'assistant',
+      mutation: { op: 'addSubtopic', category: '学习资料', name: '行业报告归档' },
+    })
+    expect(r.movedCount).toBe(0)
+
+    const got = handleWikiTopicTreeGet(bridge, { type: 'wiki:topic:tree:get', agentId: 'assistant' })
+    const learning = got.tree.categories.find((c) => c.name === '学习资料')!
+    expect(learning.subtopics).toContain('行业报告归档')
+  })
+
+  it('topic:mutate 删有文件的小类时返回中文错误', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '纪要.md' })
+    repo.updateSourceTopic('assistant', 'local-user', source.id, '做事记录', '会议聊天记录')
+
+    expect(() =>
+      handleWikiTopicMutate(bridge, {
+        type: 'wiki:topic:mutate',
+        agentId: 'assistant',
+        mutation: { op: 'deleteSubtopic', category: '做事记录', name: '会议聊天记录' },
+      }),
+    ).toThrow(/请先选择去向/)
+  })
+
+  it('topic:mutate 改名时文件跟着走', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '周报.docx' })
+    repo.updateSourceTopic('assistant', 'local-user', source.id, '做事记录', '汇报总结文稿')
+
+    const r = handleWikiTopicMutate(bridge, {
+      type: 'wiki:topic:mutate',
+      agentId: 'assistant',
+      mutation: { op: 'renameCategory', from: '做事记录', to: '工作产出' },
+    })
+    expect(r.movedCount).toBe(1)
+    expect(repo.findSourceById(source.id)!.topic_category).toBe('工作产出')
   })
 
   it('source:list 按大类/小类过滤，update-topic 写入后可被列出', () => {

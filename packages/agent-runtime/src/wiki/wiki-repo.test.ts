@@ -6,6 +6,7 @@ import { createMigratedTestDb } from "../__tests__/helpers/sqlite-test-db.js";
 import { WikiRepo } from "./wiki-repo.js";
 import { validateWikiPath } from "./types.js";
 import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY } from "./wiki-topic-tree.js";
+import { topicCountKey } from "./wiki-topic-mutate.js";
 
 describe("validateWikiPath", () => {
   it("接受合法的固定顶层分类路径", () => {
@@ -599,6 +600,100 @@ describe("WikiRepo 资料主题读写", () => {
     const after = repo.findSourceById(source.id)!;
     expect(after.use_count).toBe(1);
     expect(after.last_used).toBeTruthy();
+  });
+});
+
+describe("WikiRepo 主题树 mutation 事务", () => {
+  it("countSourcesByTopic 按两列分组，跳过待补分与临时存放", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const a = repo.createSource({ agentId: "ag", userId: "u", title: "a" });
+    const b = repo.createSource({ agentId: "ag", userId: "u", title: "b" });
+    repo.createSource({ agentId: "ag", userId: "u", title: "待补分" });
+    const parked = repo.createSource({ agentId: "ag", userId: "u", title: "搁置" });
+    repo.updateSourceTopic("ag", "u", a.id, "做事记录", "会议聊天记录");
+    repo.updateSourceTopic("ag", "u", b.id, "做事记录", "会议聊天记录");
+    repo.updateSourceTopic("ag", "u", parked.id, PARKING_CATEGORY, null);
+
+    const counts = repo.countSourcesByTopic();
+    expect(counts.get(topicCountKey("做事记录", "会议聊天记录"))).toBe(2);
+    expect(counts.get(topicCountKey(PARKING_CATEGORY))).toBeUndefined();
+    expect([...counts.keys()]).toHaveLength(1);
+  });
+
+  it("applyTopicMutation 改名后文件跟着走，树也更新", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const s = repo.createSource({ agentId: "ag", userId: "u", title: "周报.docx" });
+    repo.updateSourceTopic("ag", "u", s.id, "做事记录", "汇报总结文稿");
+
+    const r = repo.applyTopicMutation({ op: "renameCategory", from: "做事记录", to: "工作产出" });
+    expect(r.tree.categories.map((c) => c.name)).toContain("工作产出");
+    expect(r.movedCount).toBe(1);
+    expect(repo.findSourceById(s.id)!.topic_category).toBe("工作产出");
+    expect(repo.findSourceById(s.id)!.topic_subtopic).toBe("汇报总结文稿");
+    expect(repo.getOrCreateTopicTree().categories.map((c) => c.name)).toContain("工作产出");
+  });
+
+  it("删有文件的小类未给去向时抛错且树与文件都不变", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const s = repo.createSource({ agentId: "ag", userId: "u", title: "纪要.md" });
+    repo.updateSourceTopic("ag", "u", s.id, "做事记录", "会议聊天记录");
+
+    expect(() =>
+      repo.applyTopicMutation({
+        op: "deleteSubtopic",
+        category: "做事记录",
+        name: "会议聊天记录",
+      }),
+    ).toThrow(/1 个文件|去向/);
+    expect(repo.getOrCreateTopicTree().categories[0]!.subtopics).toContain("会议聊天记录");
+    expect(repo.findSourceById(s.id)!.topic_subtopic).toBe("会议聊天记录");
+  });
+
+  it("带 parking 去向删除小类时文件进临时存放", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const s = repo.createSource({ agentId: "ag", userId: "u", title: "纪要.md" });
+    repo.updateSourceTopic("ag", "u", s.id, "做事记录", "会议聊天记录");
+
+    const r = repo.applyTopicMutation({
+      op: "deleteSubtopic",
+      category: "做事记录",
+      name: "会议聊天记录",
+      disposition: { type: "parking" },
+    });
+    expect(r.movedCount).toBe(1);
+    const after = repo.findSourceById(s.id)!;
+    expect(after.topic_category).toBe(PARKING_CATEGORY);
+    expect(after.topic_subtopic).toBeNull();
+  });
+
+  it("merge 后 from 的文件全部落到 to", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const a = repo.createSource({ agentId: "ag", userId: "u", title: "a.md" });
+    repo.updateSourceTopic("ag", "u", a.id, "做事记录", "汇报总结文稿");
+
+    repo.applyTopicMutation({
+      op: "mergeSubtopic",
+      fromCategory: "做事记录",
+      fromName: "汇报总结文稿",
+      toCategory: "做事记录",
+      toName: "对外沟通材料",
+    });
+    expect(repo.findSourceById(a.id)!.topic_subtopic).toBe("对外沟通材料");
+  });
+
+  it("树是全局的，级联覆盖所有 agent，改名后不留孤儿", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const mine = repo.createSource({ agentId: "ag", userId: "u", title: "mine" });
+    const other = repo.createSource({ agentId: "other", userId: "u2", title: "other" });
+    repo.updateSourceTopic("ag", "u", mine.id, "做事记录", "汇报总结文稿");
+    repo.updateSourceTopic("other", "u2", other.id, "做事记录", "汇报总结文稿");
+
+    const r = repo.applyTopicMutation({ op: "renameCategory", from: "做事记录", to: "工作产出" });
+    expect(r.movedCount).toBe(2);
+    expect(repo.findSourceById(mine.id)!.topic_category).toBe("工作产出");
+    expect(repo.findSourceById(other.id)!.topic_category).toBe("工作产出");
+    // 不留孤儿：随后整树覆盖校验应通过
+    expect(() => repo.setTopicTree(r.tree)).not.toThrow();
   });
 });
 

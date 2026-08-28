@@ -22,6 +22,12 @@ import {
   type WikiTopicTree,
 } from "./wiki-topic-tree.js";
 import {
+  planTopicMutation,
+  topicCountKey,
+  type TopicCascade,
+  type WikiTopicMutation,
+} from "./wiki-topic-mutate.js";
+import {
   generateWikiId,
   validateWikiPath,
   type WikiAttachment,
@@ -483,6 +489,71 @@ export class WikiRepo {
       throw new Error("该主题树会导致已有文件的目录消失（孤儿），已拒绝保存");
     }
     this.setIndexMeta(TOPIC_CATEGORIES_META_KEY, JSON.stringify(tree));
+  }
+
+  /**
+   * 分组统计各 (category, subtopic) 的在架文件数；key 用 topicCountKey。
+   * 主题树是全局的（同 setTopicTree 的孤儿校验口径），故不按 agent 过滤。
+   * 跳过待补分（两列 NULL）与临时存放（不参与 disposition 判定）。
+   */
+  countSourcesByTopic(): Map<string, number> {
+    const rows = this.db
+      .prepare<{ topic_category: string; topic_subtopic: string; n: number }>(
+        `SELECT topic_category, topic_subtopic, COUNT(*) AS n FROM wiki_sources
+         WHERE topic_category IS NOT NULL AND topic_subtopic IS NOT NULL
+           AND topic_category <> ? AND archived_at IS NULL
+         GROUP BY topic_category, topic_subtopic`,
+      )
+      .all(PARKING_CATEGORY);
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      counts.set(topicCountKey(r.topic_category, r.topic_subtopic), r.n);
+    }
+    return counts;
+  }
+
+  /**
+   * 单事务应用一次主题树变更：plan → 写树 JSON → 按 cascades 批量改 wiki_sources 两列。
+   * plan 失败直接抛（需要去向时 message 带文件数）；任一步失败整单回滚。
+   */
+  applyTopicMutation(mutation: WikiTopicMutation): {
+    readonly tree: WikiTopicTree;
+    readonly movedCount: number;
+  } {
+    return withTransaction(this.db, () => {
+      const tree = this.getOrCreateTopicTree();
+      const counts = this.countSourcesByTopic();
+      const plan = planTopicMutation(tree, mutation, counts);
+      if (!plan.ok) {
+        throw new Error(
+          plan.needsDisposition
+            ? `该目录下还有 ${plan.fileCount} 个文件，请先选择去向`
+            : plan.reason,
+        );
+      }
+      // 直接写 meta 键：不能走 setTopicTree，它的禁孤儿校验会在级联执行前误判。
+      // 事务结束时级联已完成，不变量恢复。
+      this.setIndexMeta(TOPIC_CATEGORIES_META_KEY, JSON.stringify(plan.tree));
+      let movedCount = 0;
+      for (const cascade of plan.cascades) {
+        movedCount += this.bulkUpdateSourceTopic(cascade);
+      }
+      return { tree: plan.tree, movedCount };
+    });
+  }
+
+  /** 等值改写一组资料的主题两列；from.subtopic 为 null 时用 IS NULL 匹配 */
+  private bulkUpdateSourceTopic(cascade: TopicCascade): number {
+    const subtopicClause =
+      cascade.from.subtopic === null ? "topic_subtopic IS NULL" : "topic_subtopic = ?";
+    const params: unknown[] = [cascade.to.category, cascade.to.subtopic, cascade.from.category];
+    if (cascade.from.subtopic !== null) params.push(cascade.from.subtopic);
+    return this.db
+      .prepare(
+        `UPDATE wiki_sources SET topic_category = ?, topic_subtopic = ?
+         WHERE topic_category = ? AND ${subtopicClause} AND archived_at IS NULL`,
+      )
+      .run(...params).changes;
   }
 
   /**

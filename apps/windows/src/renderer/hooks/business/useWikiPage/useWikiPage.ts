@@ -194,6 +194,27 @@ export interface WikiTopicTree {
   readonly categories: ReadonlyArray<{ readonly name: string; readonly subtopics: readonly string[] }>
 }
 
+/** 删除主题节点时的文件去向 */
+export type WikiFileDisposition =
+  | { readonly type: 'parking' }
+  | { readonly type: 'move'; readonly category: string; readonly subtopic: string }
+
+/** 主题树九种变更操作（与 runtime 侧 WikiTopicMutation 同形） */
+export type WikiTopicMutation =
+  | { readonly op: 'addCategory'; readonly name: string; readonly index?: number }
+  | { readonly op: 'renameCategory'; readonly from: string; readonly to: string }
+  | { readonly op: 'deleteCategory'; readonly name: string; readonly disposition?: WikiFileDisposition }
+  | { readonly op: 'reorderCategories'; readonly names: readonly string[] }
+  | { readonly op: 'addSubtopic'; readonly category: string; readonly name: string; readonly index?: number }
+  | { readonly op: 'renameSubtopic'; readonly category: string; readonly from: string; readonly to: string }
+  | { readonly op: 'deleteSubtopic'; readonly category: string; readonly name: string; readonly disposition?: WikiFileDisposition }
+  | { readonly op: 'moveSubtopic'; readonly fromCategory: string; readonly name: string; readonly toCategory: string; readonly index?: number }
+  | { readonly op: 'mergeSubtopic'; readonly fromCategory: string; readonly fromName: string; readonly toCategory: string; readonly toName: string }
+
+export type WikiTopicMutateResult =
+  | { readonly ok: true; readonly tree: WikiTopicTree; readonly movedCount: number }
+  | { readonly ok: false; readonly error: string }
+
 export interface WikiSourceListItem {
   readonly id: string
   readonly title: string
@@ -889,6 +910,28 @@ export function useWikiPage() {
     }
   }, [])
 
+  /**
+   * 应用一次主题树变更。与其它封装不同，这里要把后端中文错误交给编辑器行内显示，
+   * 所以不吞异常，而是返回带 error 的结果对象。
+   */
+  const mutateTopic = useCallback(
+    async (mutation: WikiTopicMutation): Promise<WikiTopicMutateResult> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return { ok: false, error: '运行时不可用' }
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:topic:mutate',
+          agentId: DEFAULT_AGENT_ID,
+          mutation,
+        })) as { tree: WikiTopicTree; movedCount: number }
+        return { ok: true, tree: r.tree, movedCount: r.movedCount ?? 0 }
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : '操作失败' }
+      }
+    },
+    [],
+  )
+
   const listSources = useCallback(
     async (filter?: {
       category?: string
@@ -1025,6 +1068,7 @@ export function useWikiPage() {
     listEntityObservations,
     loadTopicTree,
     setTopicTree,
+    mutateTopic,
     listSources,
     updateSourceTopic,
     moveToParking,

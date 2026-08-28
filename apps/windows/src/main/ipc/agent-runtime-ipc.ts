@@ -127,6 +127,7 @@ import {
   handleWikiIndexRebuild,
   handleWikiTopicTreeGet,
   handleWikiTopicTreeSet,
+  handleWikiTopicMutate,
   handleWikiSourceList,
   handleWikiSourceUpdateTopic,
   handleWikiSourceMoveToParking,
@@ -985,6 +986,9 @@ export async function handleCommand(
 
       case 'wiki:topic:tree:set':
         return handleWikiTopicTreeSet(bridge, command)
+
+      case 'wiki:topic:mutate':
+        return handleWikiTopicMutate(bridge, command)
 
       case 'wiki:source:list':
         return handleWikiSourceList(bridge, command)

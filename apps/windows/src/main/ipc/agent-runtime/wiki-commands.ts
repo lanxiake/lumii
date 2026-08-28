@@ -271,6 +271,20 @@ export function handleWikiTopicTreeSet(
   return { success: true }
 }
 
+/**
+ * 应用一次主题树变更。删除仍有文件的节点时 repo 会抛中文错误（带文件数），
+ * 由 IPC 层原样上抛给 UI 提示「请先选择去向」。
+ */
+export function handleWikiTopicMutate(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:topic:mutate' }>,
+): { tree: unknown; movedCount: number } {
+  if (!command.mutation || typeof command.mutation !== 'object') {
+    throw new Error('缺少 mutation 参数')
+  }
+  return bridge.wikiRepo.applyTopicMutation(command.mutation as never)
+}
+
 function mapSourceListItem(source: ReturnType<AgentRuntimeBridge['wikiRepo']['findSourceById']> & object) {
   return {
     id: source.id,

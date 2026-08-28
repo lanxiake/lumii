@@ -443,6 +443,30 @@ export interface WikiTopicTreeSetCommand {
   }
 }
 
+/** 删除节点时的文件去向；删除有文件的节点必须带 disposition */
+export type WikiFileDispositionDto =
+  | { readonly type: 'parking' }
+  | { readonly type: 'move'; readonly category: string; readonly subtopic: string }
+
+/** 主题树九种变更操作；只由用户 UI 触发，AI 不可调用 */
+export type WikiTopicMutationDto =
+  | { readonly op: 'addCategory'; readonly name: string; readonly index?: number }
+  | { readonly op: 'renameCategory'; readonly from: string; readonly to: string }
+  | { readonly op: 'deleteCategory'; readonly name: string; readonly disposition?: WikiFileDispositionDto }
+  | { readonly op: 'reorderCategories'; readonly names: readonly string[] }
+  | { readonly op: 'addSubtopic'; readonly category: string; readonly name: string; readonly index?: number }
+  | { readonly op: 'renameSubtopic'; readonly category: string; readonly from: string; readonly to: string }
+  | { readonly op: 'deleteSubtopic'; readonly category: string; readonly name: string; readonly disposition?: WikiFileDispositionDto }
+  | { readonly op: 'moveSubtopic'; readonly fromCategory: string; readonly name: string; readonly toCategory: string; readonly index?: number }
+  | { readonly op: 'mergeSubtopic'; readonly fromCategory: string; readonly fromName: string; readonly toCategory: string; readonly toName: string }
+
+export interface WikiTopicMutateCommand {
+  readonly type: 'wiki:topic:mutate'
+  readonly agentId: string
+  readonly userId?: string
+  readonly mutation: WikiTopicMutationDto
+}
+
 export interface WikiSourceListCommand {
   readonly type: 'wiki:source:list'
   readonly agentId: string
@@ -1284,6 +1308,7 @@ export type AgentRuntimeCommand =
   | WikiIndexRebuildCommand
   | WikiTopicTreeGetCommand
   | WikiTopicTreeSetCommand
+  | WikiTopicMutateCommand
   | WikiSourceListCommand
   | WikiSourceUpdateTopicCommand
   | WikiSourceMoveToParkingCommand
@@ -1615,6 +1640,10 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       tree: { version: 1; categories: readonly { name: string; subtopics: readonly string[] }[] }
     }
   : T extends 'wiki:topic:tree:set' ? { success: true }
+  : T extends 'wiki:topic:mutate' ? {
+      tree: { version: 1; categories: readonly { name: string; subtopics: readonly string[] }[] }
+      movedCount: number
+    }
   : T extends 'wiki:source:list' ? {
       sources: readonly {
         id: string
