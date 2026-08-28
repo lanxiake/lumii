@@ -9,6 +9,7 @@ export type WikiNav =
   | { kind: 'history' }
   | { kind: 'cleanup' }
   | { kind: 'synthesis' }
+  | { kind: 'reclassify' }
   | { kind: 'category'; name: string }
   | { kind: 'subtopic'; category: string; subtopic: string }
 

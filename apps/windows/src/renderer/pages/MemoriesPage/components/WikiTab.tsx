@@ -7,6 +7,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PARKING_CATEGORY } from '@mtbot/agent-runtime/browser'
+import { Button } from '../../../components/ui/Button/Button'
 import { Loading } from '../../../components/ui/Loading/Loading'
 import { ConfirmModal } from '../../../components/ui/Modal'
 import {
@@ -17,6 +18,8 @@ import {
   type WikiSourceListItem,
   type WikiTopicMutation,
   type WikiTopicTree,
+  type WikiReclassifyRunItem,
+  type WikiReclassifyScopeDto,
 } from '../../../hooks/business/useWikiPage'
 import { CleanupView } from './CleanupView'
 import { SynthesisView } from './SynthesisView'
@@ -28,6 +31,7 @@ import { WikiPageList } from './WikiPageList'
 import { WikiFileList } from './WikiFileList'
 import { WikiTopicPicker } from './WikiTopicPicker'
 import { WikiTopicTreeEditor } from './WikiTopicTreeEditor'
+import { WikiReclassifyView } from './WikiReclassifyView'
 import { WikiInboxPanel } from './WikiInboxPanel'
 import { WikiMoreMenu } from './WikiMoreMenu'
 import { WikiTaskCenter } from './WikiTaskCenter'
@@ -46,6 +50,7 @@ const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
   history: { title: '历史页面', subtitle: '早期归档生成的摘要页面，只读' },
   cleanup: { title: '清理', subtitle: '扫描并处理需要维护的资料' },
   synthesis: { title: '综述合成', subtitle: '从已有页面生成主题综述' },
+  reclassify: { title: '重新编目', subtitle: 'AI 的目录调整建议，接受后才生效' },
 }
 
 /**
@@ -77,6 +82,11 @@ export const WikiTab: React.FC = () => {
     confirmStatus,
     loadTopicTree,
     mutateTopic,
+    runReclassify,
+    getReclassifyRun,
+    applyReclassify,
+    ignoreReclassify,
+    discardReclassify,
     listSources,
     updateSourceTopic,
     moveToParking,
@@ -108,6 +118,14 @@ export const WikiTab: React.FC = () => {
   const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(false)
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false)
   const [isTreeEditorOpen, setIsTreeEditorOpen] = useState(false)
+  const [reclassifyRun, setReclassifyRun] = useState<WikiReclassifyRunItem | null>(null)
+  const [reclassifyConfirm, setReclassifyConfirm] = useState<{ count: number } | null>(null)
+  const [suggestion, setSuggestion] = useState<{
+    category: string
+    subtopic: string
+    reason: string
+  } | null>(null)
+  const [suggestionState, setSuggestionState] = useState<'idle' | 'loading' | 'failed'>('idle')
   const moreButtonRef = useRef<HTMLButtonElement>(null)
 
   const refreshSources = useCallback(async () => {
@@ -171,6 +189,14 @@ export const WikiTab: React.FC = () => {
 
   // 角标 = 队列条数 + 待补分条数
   const pendingCount = inboxPending + unfiledSources.length
+
+  // 全库重新编目的扫描量：正式归档的（有大类且不是临时存放）
+  const filedSourceCount = useMemo(
+    () =>
+      sources.filter((item) => item.topicCategory !== null && item.topicCategory !== PARKING_CATEGORY)
+        .length,
+    [sources],
+  )
 
   const visibleSources = useMemo(() => {
     if (nav.kind === 'category') {
@@ -276,6 +302,8 @@ export const WikiTab: React.FC = () => {
     async (category: string, subtopic: string) => {
       const target = picker
       setPicker(null)
+      setSuggestion(null)
+      setSuggestionState('idle')
       if (!target) return
       if (target.mode === 'inbox') {
         await organizeInbox(target.item.id, category, subtopic)
@@ -295,6 +323,82 @@ export const WikiTab: React.FC = () => {
     },
     [moveToParking, refreshSources],
   )
+
+  /**
+   * 启动重新编目并跳到候选视图。
+   * running 期间轮询进度；已有待审阅批次时后端会拒绝，这里把中文原因抛给任务中心。
+   */
+  const handleRunReclassify = useCallback(
+    async (scope: WikiReclassifyScopeDto, opts?: { force?: boolean }) => {
+      setNav({ kind: 'reclassify' })
+      const taskId = taskCenter.startTask({ kind: 'reclassify', title: '重新编目' })
+      const started = await runReclassify(scope, opts)
+      if (!started.ok) {
+        taskCenter.failTask(taskId, started.error)
+        setReclassifyRun(await getReclassifyRun())
+        return
+      }
+      const run = await getReclassifyRun()
+      setReclassifyRun(run)
+      if (run?.status === 'failed') {
+        taskCenter.failTask(taskId, run.error ?? '重新编目失败')
+        return
+      }
+      taskCenter.completeTask(taskId, {
+        detail: run ? `${run.candidates.length} 条建议` : undefined,
+      })
+    },
+    [runReclassify, getReclassifyRun, taskCenter],
+  )
+
+  const handleApplyReclassify = useCallback(
+    async (candidateIds: readonly string[]) => {
+      await applyReclassify(candidateIds)
+      setReclassifyRun(await getReclassifyRun())
+      await refreshSources()
+    },
+    [applyReclassify, getReclassifyRun, refreshSources],
+  )
+
+  const handleIgnoreReclassify = useCallback(
+    async (candidateId: string) => {
+      await ignoreReclassify(candidateId)
+      setReclassifyRun(await getReclassifyRun())
+    },
+    [ignoreReclassify, getReclassifyRun],
+  )
+
+  /**
+   * 选择器里的「让 AI 建议」：跑一次 scope=source 的编目，取第一条候选当建议。
+   * 拿到就 discard 掉批次——单文件建议用完即弃，不能长期占住「同时只允许一个批次」的槽位。
+   */
+  const handleRequestSuggestion = useCallback(
+    async (sourceId: string) => {
+      setSuggestionState('loading')
+      setSuggestion(null)
+      const started = await runReclassify({ kind: 'source', sourceId }, { force: true })
+      if (!started.ok) {
+        setSuggestionState('failed')
+        return
+      }
+      const run = await getReclassifyRun()
+      const first = run?.candidates[0]
+      await discardReclassify()
+      if (!first) {
+        setSuggestionState('failed')
+        return
+      }
+      setSuggestion({ category: first.toCategory, subtopic: first.toSubtopic, reason: first.reason })
+      setSuggestionState('idle')
+    },
+    [runReclassify, getReclassifyRun, discardReclassify],
+  )
+
+  const handleDiscardReclassify = useCallback(async () => {
+    await discardReclassify()
+    setReclassifyRun(null)
+    setNav({ kind: 'inbox' })
+  }, [discardReclassify])
 
   /**
    * 应用一次主题树变更，成功后刷新树与文件列表。
@@ -453,6 +557,19 @@ export const WikiTab: React.FC = () => {
         onSynthesis={() => handleSelectNav({ kind: 'synthesis' })}
         onRebuild={handleRebuildIndex}
         onEditTopicTree={() => setIsTreeEditorOpen(true)}
+        onReclassifyAll={() => setReclassifyConfirm({ count: filedSourceCount })}
+      />
+
+      <ConfirmModal
+        open={reclassifyConfirm !== null}
+        title="全库重新编目"
+        content={`将扫描 ${reclassifyConfirm?.count ?? 0} 个已归档文件，不会改临时存放。AI 只给建议，接受后才生效。`}
+        confirmText="开始"
+        onCancel={() => setReclassifyConfirm(null)}
+        onConfirm={() => {
+          setReclassifyConfirm(null)
+          void handleRunReclassify({ kind: 'all' }, { force: true })
+        }}
       />
 
       <WikiTopicTreeEditor
@@ -556,6 +673,13 @@ export const WikiTab: React.FC = () => {
               />
             )}
           </div>
+        ) : nav.kind === 'reclassify' ? (
+          <WikiReclassifyView
+            run={reclassifyRun}
+            onApply={(ids) => void handleApplyReclassify(ids)}
+            onIgnore={(id) => void handleIgnoreReclassify(id)}
+            onDiscard={() => void handleDiscardReclassify()}
+          />
         ) : nav.kind === 'graph' ? (
           <WikiGraphView
             pages={pages}
@@ -573,6 +697,22 @@ export const WikiTab: React.FC = () => {
               items={visibleSources}
               emptyHint={nav.kind === 'subtopic' ? '这个小类下还没有文件' : '这个大类下还没有文件'}
               showTopic={nav.kind === 'category'}
+              headerActions={
+                nav.kind === 'subtopic' ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      void handleRunReclassify(
+                        { kind: 'subtopic', category: nav.category, subtopic: nav.subtopic },
+                        { force: true },
+                      )
+                    }
+                  >
+                    重新编目本小类
+                  </Button>
+                ) : undefined
+              }
               onOpen={(item) => void handleOpenSource(item)}
               onMove={(item) => setPicker({ mode: 'source', item })}
               onPark={(item) => void handlePark(item)}
@@ -616,8 +756,23 @@ export const WikiTab: React.FC = () => {
         open={picker !== null}
         tree={topicTree}
         itemTitle={picker?.item.title}
-        onCancel={() => setPicker(null)}
+        onCancel={() => {
+          setPicker(null)
+          setSuggestion(null)
+          setSuggestionState('idle')
+        }}
         onConfirm={(category, subtopic) => void handleConfirmPicker(category, subtopic)}
+        // 只有已进资料层的文件能让 AI 建议：inbox 条目还没 source id
+        onRequestSuggestion={
+          picker?.mode === 'source' ? () => void handleRequestSuggestion(picker.item.id) : undefined
+        }
+        suggestion={suggestion}
+        suggestionState={suggestionState}
+        onAdoptSuggestion={
+          suggestion
+            ? () => void handleConfirmPicker(suggestion.category, suggestion.subtopic)
+            : undefined
+        }
       />
 
       <ConfirmModal

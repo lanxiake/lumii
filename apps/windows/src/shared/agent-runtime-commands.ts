@@ -467,6 +467,46 @@ export interface WikiTopicMutateCommand {
   readonly mutation: WikiTopicMutationDto
 }
 
+// ---- 重新编目（二期）----
+
+export interface WikiReclassifyRunCommand {
+  readonly type: 'wiki:reclassify:run'
+  readonly agentId: string
+  readonly userId?: string
+  readonly scope: 'source' | 'subtopic' | 'all'
+  readonly sourceId?: string
+  readonly category?: string
+  readonly subtopic?: string
+  /** 已有待审阅批次时是否丢弃旧批次继续 */
+  readonly force?: boolean
+}
+
+export interface WikiReclassifyGetCommand {
+  readonly type: 'wiki:reclassify:get'
+  readonly agentId: string
+  readonly userId?: string
+}
+
+export interface WikiReclassifyApplyCommand {
+  readonly type: 'wiki:reclassify:apply'
+  readonly agentId: string
+  readonly userId?: string
+  readonly candidateIds: readonly string[]
+}
+
+export interface WikiReclassifyIgnoreCommand {
+  readonly type: 'wiki:reclassify:ignore'
+  readonly agentId: string
+  readonly userId?: string
+  readonly candidateId: string
+}
+
+export interface WikiReclassifyDiscardCommand {
+  readonly type: 'wiki:reclassify:discard'
+  readonly agentId: string
+  readonly userId?: string
+}
+
 export interface WikiSourceListCommand {
   readonly type: 'wiki:source:list'
   readonly agentId: string
@@ -1309,6 +1349,11 @@ export type AgentRuntimeCommand =
   | WikiTopicTreeGetCommand
   | WikiTopicTreeSetCommand
   | WikiTopicMutateCommand
+  | WikiReclassifyRunCommand
+  | WikiReclassifyGetCommand
+  | WikiReclassifyApplyCommand
+  | WikiReclassifyIgnoreCommand
+  | WikiReclassifyDiscardCommand
   | WikiSourceListCommand
   | WikiSourceUpdateTopicCommand
   | WikiSourceMoveToParkingCommand
@@ -1644,6 +1689,32 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       tree: { version: 1; categories: readonly { name: string; subtopics: readonly string[] }[] }
       movedCount: number
     }
+  : T extends 'wiki:reclassify:run' ? { runId: string }
+  : T extends 'wiki:reclassify:get' ? {
+      run: {
+        runId: string
+        status: 'running' | 'review' | 'applying' | 'failed' | 'discarded'
+        total: number
+        processed: number
+        droppedInvalid: number
+        unchanged: number
+        error: string | null
+        candidates: readonly {
+          id: string
+          sourceId: string
+          title: string
+          fromCategory: string
+          fromSubtopic: string
+          toCategory: string
+          toSubtopic: string
+          reason: string
+          applyError?: string
+        }[]
+      } | null
+    }
+  : T extends 'wiki:reclassify:apply' ? { applied: number; failed: number }
+  : T extends 'wiki:reclassify:ignore' ? { success: true }
+  : T extends 'wiki:reclassify:discard' ? { success: true }
   : T extends 'wiki:source:list' ? {
       sources: readonly {
         id: string

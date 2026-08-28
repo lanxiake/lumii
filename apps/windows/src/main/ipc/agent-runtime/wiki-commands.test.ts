@@ -28,13 +28,17 @@ import {
   handleWikiTopicTreeGet,
   handleWikiTopicTreeSet,
   handleWikiTopicMutate,
+  handleWikiReclassifyRun,
+  handleWikiReclassifyGet,
+  handleWikiReclassifyApply,
+  handleWikiReclassifyDiscard,
   handleWikiSourceList,
   handleWikiSourceUpdateTopic,
   handleWikiSourceMoveToParking,
   handleWikiSourceOpen,
   handleWikiCleanupScan,
 } from './wiki-commands'
-import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY } from '@mtbot/agent-runtime'
+import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY, WikiReclassifier } from '@mtbot/agent-runtime'
 
 const nodeRequire = createRequire(import.meta.url)
 
@@ -73,6 +77,8 @@ function createMigratedDb(): DatabaseAdapter {
 function buildBridge(repo: WikiRepo): AgentRuntimeBridge {
   return {
     wikiRepo: repo,
+    // 重编目器的 LLM 用固定桩：不产候选，测的是命令编排而非模型行为
+    wikiReclassifier: new WikiReclassifier(repo, async () => '[]'),
     conversationRepo: { getAgentParticipantId: () => null },
     getCwd: () => process.cwd(),
   } as unknown as AgentRuntimeBridge
@@ -360,6 +366,62 @@ describe('wiki commands', () => {
     })
     expect(r.movedCount).toBe(1)
     expect(repo.findSourceById(source.id)!.topic_category).toBe('工作产出')
+  })
+
+  it('reclassify:run 的 scope 与参数不匹配时抛中文错误', async () => {
+    const bridge = buildBridge(createWikiRepo())
+
+    await expect(
+      handleWikiReclassifyRun(bridge, {
+        type: 'wiki:reclassify:run',
+        agentId: 'assistant',
+        scope: 'subtopic',
+      } as never),
+    ).rejects.toThrow(/大类与小类/)
+
+    await expect(
+      handleWikiReclassifyRun(bridge, {
+        type: 'wiki:reclassify:run',
+        agentId: 'assistant',
+        scope: 'source',
+      } as never),
+    ).rejects.toThrow(/sourceId/)
+  })
+
+  it('reclassify:run 后 get 返回批次，discard 后清空', async () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '白皮书' })
+    repo.updateSourceTopic('assistant', 'local-user', source.id, '做事记录', '项目/任务资料')
+
+    const r = await handleWikiReclassifyRun(bridge, {
+      type: 'wiki:reclassify:run',
+      agentId: 'assistant',
+      scope: 'all',
+    } as never)
+    expect(r.runId).toBeTruthy()
+
+    const got = handleWikiReclassifyGet(bridge, {
+      type: 'wiki:reclassify:get',
+      agentId: 'assistant',
+    } as never)
+    expect((got.run as { status: string }).status).toBe('review')
+
+    handleWikiReclassifyDiscard(bridge, { type: 'wiki:reclassify:discard', agentId: 'assistant' } as never)
+    expect(
+      handleWikiReclassifyGet(bridge, { type: 'wiki:reclassify:get', agentId: 'assistant' } as never).run,
+    ).toBeNull()
+  })
+
+  it('reclassify:apply 空数组返回全 0', () => {
+    const bridge = buildBridge(createWikiRepo())
+    expect(
+      handleWikiReclassifyApply(bridge, {
+        type: 'wiki:reclassify:apply',
+        agentId: 'assistant',
+        candidateIds: [],
+      } as never),
+    ).toEqual({ applied: 0, failed: 0 })
   })
 
   it('source:list 按大类/小类过滤，update-topic 写入后可被列出', () => {

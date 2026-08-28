@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react'
-import { FolderTree, History, Layers3, RefreshCw, Sparkles } from 'lucide-react'
+import { FolderSync, FolderTree, History, Layers3, RefreshCw, Sparkles } from 'lucide-react'
 
 interface WikiMoreMenuProps {
   readonly open: boolean
@@ -10,9 +10,16 @@ interface WikiMoreMenuProps {
   readonly onSynthesis: () => void
   readonly onRebuild: () => void
   readonly onEditTopicTree: () => void
+  readonly onReclassifyAll: () => void
 }
 
 const MENU_ITEMS = [
+  {
+    key: 'reclassifyAll',
+    label: '全库重新编目',
+    description: '让 AI 复查已归档文件的目录',
+    icon: FolderSync,
+  },
   {
     key: 'editTopicTree',
     label: '编辑主题树',
@@ -57,6 +64,7 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
   onSynthesis,
   onRebuild,
   onEditTopicTree,
+  onReclassifyAll,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -77,6 +85,7 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
   if (!open) return null
 
   const actions = {
+    reclassifyAll: onReclassifyAll,
     editTopicTree: onEditTopicTree,
     history: onHistory,
     cleanup: onCleanup,

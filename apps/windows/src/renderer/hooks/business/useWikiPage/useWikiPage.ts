@@ -215,6 +215,35 @@ export type WikiTopicMutateResult =
   | { readonly ok: true; readonly tree: WikiTopicTree; readonly movedCount: number }
   | { readonly ok: false; readonly error: string }
 
+/** 重新编目范围 */
+export type WikiReclassifyScopeDto =
+  | { readonly kind: 'source'; readonly sourceId: string }
+  | { readonly kind: 'subtopic'; readonly category: string; readonly subtopic: string }
+  | { readonly kind: 'all' }
+
+export interface WikiReclassifyCandidateItem {
+  readonly id: string
+  readonly sourceId: string
+  readonly title: string
+  readonly fromCategory: string
+  readonly fromSubtopic: string
+  readonly toCategory: string
+  readonly toSubtopic: string
+  readonly reason: string
+  readonly applyError?: string
+}
+
+export interface WikiReclassifyRunItem {
+  readonly runId: string
+  readonly status: 'running' | 'review' | 'applying' | 'failed' | 'discarded'
+  readonly total: number
+  readonly processed: number
+  readonly droppedInvalid: number
+  readonly unchanged: number
+  readonly error: string | null
+  readonly candidates: readonly WikiReclassifyCandidateItem[]
+}
+
 export interface WikiSourceListItem {
   readonly id: string
   readonly title: string
@@ -932,6 +961,91 @@ export function useWikiPage() {
     [],
   )
 
+  /**
+   * 启动重新编目。状态冲突（已有批次）要让用户看到，所以返回结果对象而非布尔。
+   */
+  const runReclassify = useCallback(
+    async (
+      scope: WikiReclassifyScopeDto,
+      opts?: { force?: boolean },
+    ): Promise<{ ok: true; runId: string } | { ok: false; error: string }> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return { ok: false, error: '运行时不可用' }
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:reclassify:run',
+          agentId: DEFAULT_AGENT_ID,
+          scope: scope.kind,
+          sourceId: scope.kind === 'source' ? scope.sourceId : undefined,
+          category: scope.kind === 'subtopic' ? scope.category : undefined,
+          subtopic: scope.kind === 'subtopic' ? scope.subtopic : undefined,
+          force: opts?.force,
+        })) as { runId: string }
+        return { ok: true, runId: r.runId }
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : '重新编目启动失败' }
+      }
+    },
+    [],
+  )
+
+  const getReclassifyRun = useCallback(async (): Promise<WikiReclassifyRunItem | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:reclassify:get',
+        agentId: DEFAULT_AGENT_ID,
+      })) as { run: WikiReclassifyRunItem | null }
+      return r?.run ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  const applyReclassify = useCallback(
+    async (candidateIds: readonly string[]): Promise<{ applied: number; failed: number }> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return { applied: 0, failed: 0 }
+      try {
+        return (await api.sendCommand({
+          type: 'wiki:reclassify:apply',
+          agentId: DEFAULT_AGENT_ID,
+          candidateIds,
+        })) as { applied: number; failed: number }
+      } catch {
+        return { applied: 0, failed: 0 }
+      }
+    },
+    [],
+  )
+
+  const ignoreReclassify = useCallback(async (candidateId: string): Promise<boolean> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return false
+    try {
+      await api.sendCommand({
+        type: 'wiki:reclassify:ignore',
+        agentId: DEFAULT_AGENT_ID,
+        candidateId,
+      })
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
+  const discardReclassify = useCallback(async (): Promise<boolean> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return false
+    try {
+      await api.sendCommand({ type: 'wiki:reclassify:discard', agentId: DEFAULT_AGENT_ID })
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
   const listSources = useCallback(
     async (filter?: {
       category?: string
@@ -1069,6 +1183,11 @@ export function useWikiPage() {
     loadTopicTree,
     setTopicTree,
     mutateTopic,
+    runReclassify,
+    getReclassifyRun,
+    applyReclassify,
+    ignoreReclassify,
+    discardReclassify,
     listSources,
     updateSourceTopic,
     moveToParking,

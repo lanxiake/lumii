@@ -285,6 +285,72 @@ export function handleWikiTopicMutate(
   return bridge.wikiRepo.applyTopicMutation(command.mutation as never)
 }
 
+/** 把 IPC 的扁平 scope 参数收敘成 runtime 的联合类型，缺参直接中文报错 */
+function toReclassifyScope(
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:reclassify:run' }>,
+): { kind: 'source'; sourceId: string } | { kind: 'subtopic'; category: string; subtopic: string } | { kind: 'all' } {
+  if (command.scope === 'source') {
+    if (!command.sourceId) throw new Error('重新编目单个文件需要 sourceId')
+    return { kind: 'source', sourceId: command.sourceId }
+  }
+  if (command.scope === 'subtopic') {
+    if (!command.category || !command.subtopic) throw new Error('重新编目某个小类需要大类与小类')
+    return { kind: 'subtopic', category: command.category, subtopic: command.subtopic }
+  }
+  if (command.scope === 'all') return { kind: 'all' }
+  throw new Error(`未知的重新编目范围：${String(command.scope)}`)
+}
+
+/**
+ * 启动重新编目。异步跑（不阻塞 IPC 返回），进度由 renderer 轮询 wiki:reclassify:get。
+ * 启动前的状态冲突（已有 running / 待审阅批次）是同步抛出的，需要先 await 那一步。
+ */
+export async function handleWikiReclassifyRun(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:reclassify:run' }>,
+): Promise<{ runId: string }> {
+  const scope = toReclassifyScope(command)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const runId = await bridge.wikiReclassifier.run(command.agentId, userId, scope, {
+    force: command.force === true,
+  })
+  return { runId }
+}
+
+export function handleWikiReclassifyGet(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:reclassify:get' }>,
+): { run: unknown | null } {
+  return { run: bridge.wikiReclassifier.get(command.agentId, command.userId ?? LOCAL_USER_ID) }
+}
+
+export function handleWikiReclassifyApply(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:reclassify:apply' }>,
+): { applied: number; failed: number } {
+  return bridge.wikiReclassifier.apply(
+    command.agentId,
+    command.userId ?? LOCAL_USER_ID,
+    command.candidateIds ?? [],
+  )
+}
+
+export function handleWikiReclassifyIgnore(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:reclassify:ignore' }>,
+): { success: true } {
+  bridge.wikiReclassifier.ignore(command.agentId, command.userId ?? LOCAL_USER_ID, command.candidateId)
+  return { success: true }
+}
+
+export function handleWikiReclassifyDiscard(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:reclassify:discard' }>,
+): { success: true } {
+  bridge.wikiReclassifier.discard(command.agentId, command.userId ?? LOCAL_USER_ID)
+  return { success: true }
+}
+
 function mapSourceListItem(source: ReturnType<AgentRuntimeBridge['wikiRepo']['findSourceById']> & object) {
   return {
     id: source.id,

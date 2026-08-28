@@ -38,6 +38,8 @@ interface WikiFileListProps {
   /** 临时存放视图不再显示「存到临时存放」 */
   showParkAction?: boolean
   showMediaChips?: boolean
+  /** 顶栏动作槽：小类视图的「重新编目本小类」「新建笔记」、多选时的批量条都挂这里 */
+  headerActions?: React.ReactNode
   onOpen: (item: WikiSourceListItem) => void
   onMove: (item: WikiSourceListItem) => void
   onPark?: (item: WikiSourceListItem) => void
@@ -54,6 +56,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
   moveLabel = '移动',
   showParkAction = true,
   showMediaChips = true,
+  headerActions,
   onOpen,
   onMove,
   onPark,
@@ -66,19 +69,24 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
 
   return (
     <div className="wiki-file-list">
-      {showMediaChips && (
-        <div className="wiki-file-list-chips" role="group" aria-label="按文件类型筛选">
-          {MEDIA_CHIPS.map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              className={`wiki-file-list-chip${chip === key ? ' wiki-file-list-chip--active' : ''}`}
-              aria-pressed={chip === key}
-              onClick={() => setChip(key)}
-            >
-              {label}
-            </button>
-          ))}
+      {(showMediaChips || headerActions) && (
+        <div className="wiki-file-list-header">
+          {showMediaChips && (
+            <div className="wiki-file-list-chips" role="group" aria-label="按文件类型筛选">
+              {MEDIA_CHIPS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`wiki-file-list-chip${chip === key ? ' wiki-file-list-chip--active' : ''}`}
+                  aria-pressed={chip === key}
+                  onClick={() => setChip(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {headerActions && <div className="wiki-file-list-header-actions">{headerActions}</div>}
         </div>
       )}
 

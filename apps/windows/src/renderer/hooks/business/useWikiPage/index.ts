@@ -21,6 +21,9 @@ export {
   type WikiFileDisposition,
   type WikiTopicMutation,
   type WikiTopicMutateResult,
+  type WikiReclassifyScopeDto,
+  type WikiReclassifyCandidateItem,
+  type WikiReclassifyRunItem,
   type WikiSourceListItem,
   type WikiSourceSearchHit,
 } from './useWikiPage'

@@ -13,6 +13,13 @@ interface WikiTopicPickerProps {
   itemTitle?: string
   onCancel: () => void
   onConfirm: (category: string, subtopic: string) => void
+  /** 提供时显示次要按钮「让 AI 建议」；不传则完全保持一期行为 */
+  onRequestSuggestion?: () => void
+  /** AI 建议结果 */
+  suggestion?: { category: string; subtopic: string; reason: string } | null
+  suggestionState?: 'idle' | 'loading' | 'failed'
+  /** 采用建议：走确定性写入路径，不占用重编目批次 */
+  onAdoptSuggestion?: () => void
 }
 
 /**
@@ -26,6 +33,10 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
   itemTitle,
   onCancel,
   onConfirm,
+  onRequestSuggestion,
+  suggestion,
+  suggestionState = 'idle',
+  onAdoptSuggestion,
 }) => {
   const categories = useMemo(
     () => (tree?.categories ?? []).filter((item) => item.name !== PARKING_CATEGORY),
@@ -58,6 +69,16 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
           <Button variant="ghost" size="sm" onClick={onCancel}>
             取消
           </Button>
+          {onRequestSuggestion && suggestionState === 'idle' && !suggestion && (
+            <Button variant="ghost" size="sm" onClick={onRequestSuggestion}>
+              让 AI 建议
+            </Button>
+          )}
+          {suggestion && onAdoptSuggestion && (
+            <Button variant="primary" size="sm" onClick={onAdoptSuggestion}>
+              采用建议
+            </Button>
+          )}
           <Button
             variant="primary"
             size="sm"
@@ -73,6 +94,16 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
     >
       <div className="wiki-topic-picker">
         {itemTitle && <p className="wiki-topic-picker-item">{itemTitle}</p>}
+
+        {suggestionState === 'loading' && <p className="wiki-topic-picker-hint">正在请求 AI 建议…</p>}
+        {suggestionState === 'failed' && (
+          <p className="wiki-topic-picker-error">建议失败：模型不可用或返回格式错误</p>
+        )}
+        {suggestion && (
+          <p className="wiki-topic-picker-suggestion">
+            AI 建议：{suggestion.category} / {suggestion.subtopic} — {suggestion.reason}
+          </p>
+        )}
 
         <section className="wiki-topic-picker-section">
           <h4 className="wiki-topic-picker-heading">选择大类</h4>

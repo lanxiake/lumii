@@ -38,6 +38,8 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'wiki:search', 'wiki:source:get', 'wiki:runs:list', 'wiki:index:rebuild',
   // 用途主题树 / 资料层（记忆重构一期）：set 接受结构化目录 JSON，非任意命令注入，按需放行。
   'wiki:topic:tree:get', 'wiki:topic:tree:set', 'wiki:topic:mutate', 'wiki:source:list',
+  'wiki:reclassify:run', 'wiki:reclassify:get', 'wiki:reclassify:apply',
+  'wiki:reclassify:ignore', 'wiki:reclassify:discard',
   'wiki:source:update-topic', 'wiki:source:move-to-parking', 'wiki:source:open',
   // Wiki 知识库（P1）：链接/修订/清理/附件/导出/概念候选。export 的 targetDir 来自渲染进程
   // 弹出的系统原生 dialog:showSaveDialog（用户手选目录），不是任意字符串注入，按需放行。

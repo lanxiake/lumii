@@ -128,6 +128,11 @@ import {
   handleWikiTopicTreeGet,
   handleWikiTopicTreeSet,
   handleWikiTopicMutate,
+  handleWikiReclassifyRun,
+  handleWikiReclassifyGet,
+  handleWikiReclassifyApply,
+  handleWikiReclassifyIgnore,
+  handleWikiReclassifyDiscard,
   handleWikiSourceList,
   handleWikiSourceUpdateTopic,
   handleWikiSourceMoveToParking,
@@ -989,6 +994,21 @@ export async function handleCommand(
 
       case 'wiki:topic:mutate':
         return handleWikiTopicMutate(bridge, command)
+
+      case 'wiki:reclassify:run':
+        return handleWikiReclassifyRun(bridge, command)
+
+      case 'wiki:reclassify:get':
+        return handleWikiReclassifyGet(bridge, command)
+
+      case 'wiki:reclassify:apply':
+        return handleWikiReclassifyApply(bridge, command)
+
+      case 'wiki:reclassify:ignore':
+        return handleWikiReclassifyIgnore(bridge, command)
+
+      case 'wiki:reclassify:discard':
+        return handleWikiReclassifyDiscard(bridge, command)
 
       case 'wiki:source:list':
         return handleWikiSourceList(bridge, command)

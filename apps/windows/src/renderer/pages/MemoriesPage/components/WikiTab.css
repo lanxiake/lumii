@@ -497,6 +497,21 @@
   font-size: 12px;
 }
 
+.wiki-topic-picker-suggestion {
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+  font-size: 12px;
+}
+
+.wiki-topic-picker-error {
+  margin: 0 0 12px;
+  color: var(--color-danger);
+  font-size: 12px;
+}
+
 /* 主题树编辑器 */
 .wiki-tree-editor-hint {
   margin: 0 0 10px;
@@ -1517,4 +1532,117 @@
   margin: 0 0 12px;
   font-size: 12px;
   color: var(--color-text-secondary);
+}
+
+/* 文件列表顶栏：筛选芯片 + 动作槽 */
+.wiki-file-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.wiki-file-list-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 重新编目候选 */
+.wiki-reclassify {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wiki-reclassify-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wiki-reclassify-count {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.wiki-reclassify-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.wiki-reclassify-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wiki-reclassify-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.wiki-reclassify-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.wiki-reclassify-title {
+  margin: 0 0 4px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.wiki-reclassify-move {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+
+.wiki-reclassify-target {
+  color: var(--color-primary);
+}
+
+.wiki-reclassify-reason {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.wiki-reclassify-item-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.wiki-reclassify-progress {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+.wiki-reclassify-hint,
+.wiki-reclassify-empty {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+
+.wiki-reclassify-error {
+  margin: 4px 0 0;
+  color: var(--color-danger);
+  font-size: 12px;
 }
