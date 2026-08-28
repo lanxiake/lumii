@@ -7,7 +7,12 @@
 import React, { useCallback, useMemo, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
-import type { WikiPageListItem } from '../../../hooks/business/useWikiPage'
+import { WikiSynthesisCandidates } from './WikiSynthesisCandidates'
+import type {
+  WikiPageListItem,
+  WikiSynthesisListItem,
+  WikiTopicTree,
+} from '../../../hooks/business/useWikiPage'
 
 /** autoRunSynthesis 单条结果 */
 interface AutoRunResultItem {
@@ -23,6 +28,12 @@ interface SynthesisViewProps {
   readonly autoRunSynthesis: () => Promise<{ results: readonly AutoRunResultItem[] } | null>
   readonly onOpenPage: (pageId: string) => void
   readonly onRefreshPages: () => void | Promise<void>
+  /** 二期：待审阅候选 + 接受/拒绝 */
+  readonly synthesisRows?: readonly WikiSynthesisListItem[]
+  readonly topicTree?: WikiTopicTree | null
+  readonly onAcceptSynthesis?: (synthesisId: string, category: string, subtopic: string) => void
+  readonly onRejectSynthesis?: (synthesisId: string) => void
+  readonly onRefreshSyntheses?: () => void | Promise<void>
 }
 
 /** 将 auto-run 结果格式化为简短中文状态行 */
@@ -42,6 +53,11 @@ export const SynthesisView: React.FC<SynthesisViewProps> = ({
   autoRunSynthesis,
   onOpenPage,
   onRefreshPages,
+  synthesisRows = [],
+  topicTree = null,
+  onAcceptSynthesis,
+  onRejectSynthesis,
+  onRefreshSyntheses,
 }) => {
   const [refreshing, setRefreshing] = useState(false)
   const [lastStatus, setLastStatus] = useState<string | null>(null)
@@ -90,6 +106,14 @@ export const SynthesisView: React.FC<SynthesisViewProps> = ({
           {lastStatus}
         </p>
       )}
+
+      <WikiSynthesisCandidates
+        rows={synthesisRows}
+        tree={topicTree}
+        onAccept={(id, category, subtopic) => onAcceptSynthesis?.(id, category, subtopic)}
+        onReject={(id) => onRejectSynthesis?.(id)}
+        onRefresh={onRefreshSyntheses ? () => void onRefreshSyntheses() : undefined}
+      />
 
       <div className="wiki-synthesis-list">
         {synthesisPages.length === 0 ? (

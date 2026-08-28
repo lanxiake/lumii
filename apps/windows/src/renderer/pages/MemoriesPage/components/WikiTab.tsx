@@ -20,6 +20,7 @@ import {
   type WikiTopicTree,
   type WikiReclassifyRunItem,
   type WikiReclassifyScopeDto,
+  type WikiSynthesisListItem,
 } from '../../../hooks/business/useWikiPage'
 import { CleanupView } from './CleanupView'
 import { SynthesisView } from './SynthesisView'
@@ -90,6 +91,9 @@ export const WikiTab: React.FC = () => {
     ignoreReclassify,
     discardReclassify,
     listSources,
+    listSyntheses,
+    acceptSynthesisAsSource,
+    rejectSynthesis,
     updateSourceTopic,
     moveToParking,
     openSource,
@@ -132,6 +136,7 @@ export const WikiTab: React.FC = () => {
   const [selectedSourceIds, setSelectedSourceIds] = useState<ReadonlySet<string>>(new Set())
   const [isBatchPickerOpen, setBatchPickerOpen] = useState(false)
   const [synthesisConfirm, setSynthesisConfirm] = useState<{ count: number } | null>(null)
+  const [synthesisRows, setSynthesisRows] = useState<readonly WikiSynthesisListItem[]>([])
   const moreButtonRef = useRef<HTMLButtonElement>(null)
 
   const refreshSources = useCallback(async () => {
@@ -148,6 +153,10 @@ export const WikiTab: React.FC = () => {
     setInboxPending(count)
   }, [listInbox, countInbox])
 
+  const refreshSynthesisRows = useCallback(async () => {
+    setSynthesisRows(await listSyntheses('candidate'))
+  }, [listSyntheses])
+
   useEffect(() => {
     void loadTopicTree().then(setTopicTree)
     void refreshSources()
@@ -159,7 +168,10 @@ export const WikiTab: React.FC = () => {
     if (nav.kind === 'history' || nav.kind === 'synthesis' || nav.kind === 'graph') {
       void refreshPages()
     }
-  }, [nav.kind, refreshPages])
+    if (nav.kind === 'synthesis') {
+      void refreshSynthesisRows()
+    }
+  }, [nav.kind, refreshPages, refreshSynthesisRows])
 
   useEffect(() => {
     /** 将已有归档运行合并进任务中心历史。 */
@@ -351,9 +363,29 @@ export const WikiTab: React.FC = () => {
     [moveToParking, refreshSources],
   )
 
+  /** 生成综述选了目录后的接受：产物成为目录里的一份普通文件 */
+  const handleAcceptSynthesis = useCallback(
+    async (synthesisId: string, category: string, subtopic: string) => {
+      const result = await acceptSynthesisAsSource(synthesisId, category, subtopic)
+      if (result) {
+        await refreshSources()
+      }
+      setSynthesisRows(await listSyntheses('candidate'))
+    },
+    [acceptSynthesisAsSource, listSyntheses, refreshSources],
+  )
+
+  const handleRejectSynthesis = useCallback(
+    async (synthesisId: string) => {
+      await rejectSynthesis(synthesisId)
+      setSynthesisRows(await listSyntheses('candidate'))
+    },
+    [rejectSynthesis, listSyntheses],
+  )
+
   /**
-   * 生成本组综述。超量时后端要二次确认，这里转成确认框再带 confirmed 重发。
-   * 综述完成后落 candidate，用户在综述视图里选目录接受。
+   * 生成一组选中文件的综述，完成后跳到候选视图。
+   * 后端在超量时抛「需要二次确认」，这里转成确认框再带 confirmed 重发。
    */
   const handleSynthesizeSelected = useCallback(
     async (confirmed = false) => {
@@ -372,9 +404,10 @@ export const WikiTab: React.FC = () => {
       }
       taskCenter.completeTask(taskId, { detail: `${ids.length} 个文件` })
       setSelectedSourceIds(new Set())
-      handleSelectNav({ kind: 'synthesis' })
+      setNav({ kind: 'synthesis' })
+      void refreshSynthesisRows()
     },
-    [selectedSourceIds, createSynthesis, taskCenter, handleSelectNav],
+    [selectedSourceIds, createSynthesis, taskCenter, setNav, refreshSynthesisRows],
   )
 
   /** 批量移动：逐条走确定性写入路径 */
@@ -775,6 +808,13 @@ export const WikiTab: React.FC = () => {
             autoRunSynthesis={trackedAutoRunSynthesis}
             onOpenPage={(pageId) => void handleOpenPage(pageId)}
             onRefreshPages={refreshPages}
+            synthesisRows={synthesisRows}
+            topicTree={topicTree}
+            onAcceptSynthesis={(id, category, subtopic) =>
+              void handleAcceptSynthesis(id, category, subtopic)
+            }
+            onRejectSynthesis={(id) => void handleRejectSynthesis(id)}
+            onRefreshSyntheses={refreshSynthesisRows}
           />
         ) : nav.kind === 'history' ? (
           <div className="wiki-page-list-view">
