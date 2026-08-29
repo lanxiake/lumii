@@ -134,6 +134,7 @@ function renderWikiGraphView(
   }
   const listEntitySources = vi.fn(async () => [])
 
+  const onPreviewSource = vi.fn()
   render(
     <WikiGraphView
       currentNav={{ kind: 'graph' }}
@@ -141,13 +142,14 @@ function renderWikiGraphView(
       extractEroFromSources={extractEroFromSources}
       listEntitySources={listEntitySources}
       openSource={openSource}
+      onPreviewSource={onPreviewSource}
       onNavigateTo={onNavigateTo}
       runLongTask={executeLongTask}
       {...overrides}
     />,
   )
 
-  return { getGraphData, openSource, onNavigateTo, extractEroFromSources, runLongTask, listEntitySources }
+  return { getGraphData, openSource, onPreviewSource, onNavigateTo, extractEroFromSources, runLongTask, listEntitySources }
 }
 
 describe('WikiGraphView', () => {
@@ -182,12 +184,12 @@ describe('WikiGraphView', () => {
     expect(onNavigateTo).toHaveBeenCalledWith({ kind: 'category', name: '做事记录' })
   })
 
-  it('点击 source 节点调用 openSource', async () => {
-    const { openSource } = renderWikiGraphView({}, STRUCTURE_GRAPH)
+  it('点击 source 节点调用 onPreviewSource', async () => {
+    const { onPreviewSource } = renderWikiGraphView({}, STRUCTURE_GRAPH)
     await waitFor(() => expect(screen.getByTestId('react-flow')).toBeInTheDocument())
 
     fireEvent.click(screen.getByTestId('node-s1'))
-    expect(openSource).toHaveBeenCalledWith('s1')
+    expect(onPreviewSource).toHaveBeenCalledWith('s1')
   })
 
   it('点击实体节点打开侧栏并展示出现的资料', async () => {
@@ -230,14 +232,15 @@ describe('WikiGraphView', () => {
     })
   })
 
-  it('从本目录抽取实体通过长任务执行器运行', async () => {
+  it('从当前图谱抽取实体时传入可见 source 节点 id', async () => {
     const { runLongTask, extractEroFromSources } = renderWikiGraphView()
 
-    fireEvent.click(screen.getByRole('button', { name: '从本目录抽取实体' }))
+    await waitFor(() => expect(screen.getByTestId('node-s1')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '从当前图谱抽取实体' }))
 
     await waitFor(() => {
       expect(runLongTask).toHaveBeenCalledWith('抽取实体关系', expect.any(Function))
-      expect(extractEroFromSources).toHaveBeenCalledTimes(1)
+      expect(extractEroFromSources).toHaveBeenCalledWith({ sourceIds: ['s1'] })
     })
   })
 

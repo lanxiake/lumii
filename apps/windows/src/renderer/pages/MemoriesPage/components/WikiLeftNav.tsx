@@ -92,7 +92,8 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
 
       <div className="wiki-left-nav-tree">
         {(tree?.categories ?? []).map((category) => {
-          const isCollapsed = collapsed[category.name] ?? false
+          /** 默认收起大类，减少长目录占屏；用户展开状态仅在本会话内保留 */
+          const isCollapsed = collapsed[category.name] ?? true
           const nav: WikiNav = { kind: 'category', name: category.name }
           const count = topicCounts[topicCountKey(category.name)] ?? 0
           return (
@@ -114,7 +115,7 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
                   aria-current={isActive(active, nav) ? 'page' : undefined}
                 >
                   <span className="wiki-left-nav-label">{category.name}</span>
-                  {count > 0 && <span className="wiki-left-nav-count">{count}</span>}
+                  <span className="wiki-left-nav-count">{count}</span>
                 </button>
               </div>
 
@@ -132,7 +133,7 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
                         aria-current={isActive(active, subNav) ? 'page' : undefined}
                       >
                         <span className="wiki-left-nav-label">{subtopic}</span>
-                        {subCount > 0 && <span className="wiki-left-nav-count">{subCount}</span>}
+                        <span className="wiki-left-nav-count">{subCount}</span>
                       </button>
                     )
                   })}
@@ -152,7 +153,7 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
           aria-expanded={active.kind === 'more'}
         >
           <MoreHorizontal size={15} />
-          <span className="wiki-left-nav-label">⋯ 更多</span>
+          <span className="wiki-left-nav-label">更多</span>
         </button>
       </div>
     </nav>

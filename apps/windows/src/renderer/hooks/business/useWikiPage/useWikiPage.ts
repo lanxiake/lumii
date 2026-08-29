@@ -14,6 +14,8 @@ export interface WikiInboxItem {
   readonly id: string
   readonly itemType: string
   readonly title: string
+  readonly sourcePath: string | null
+  readonly sourceUrl: string | null
   readonly contentPreview: string | null
   readonly mediaType: string
   readonly status: string
@@ -21,6 +23,21 @@ export interface WikiInboxItem {
   readonly lastError: string | null
   /** degraded = AI 拿不准留待人工整理，failed = 真的出错 */
   readonly lastOutcome: string | null
+  readonly createdAt: number
+}
+
+/** 资料详情（wiki:source:get） */
+export interface WikiSourceDetail {
+  readonly id: string
+  readonly title: string
+  readonly sourcePath: string | null
+  readonly sourceUrl: string | null
+  readonly mediaType: string
+  readonly mimeType: string | null
+  readonly extractedText: string | null
+  readonly originContext: string | null
+  readonly topicCategory: string | null
+  readonly topicSubtopic: string | null
   readonly createdAt: number
 }
 
@@ -290,6 +307,8 @@ export interface WikiSourceListItem {
   readonly mediaType: string
   readonly topicCategory: string | null
   readonly topicSubtopic: string | null
+  /** extracted_text 字符数，用于识别短文碎片 */
+  readonly textLength: number
   readonly updatedAt: number
   readonly useCount: number
 }
@@ -711,6 +730,7 @@ export function useWikiPage() {
       topicSubtopic?: string
       confirmed?: boolean
       title?: string
+      mode?: 'synthesis' | 'consolidate'
     }): Promise<
       | { ok: true; synthesisId: string }
       | { ok: false; needsConfirm: true; count: number }
@@ -729,13 +749,25 @@ export function useWikiPage() {
           topicSubtopic: params.topicSubtopic,
           confirmed: params.confirmed,
           title: params.title,
+          mode: params.mode,
         })) as { synthesisId: string }
         return { ok: true, synthesisId: r.synthesisId }
       } catch (e) {
         const message = e instanceof Error ? e.message : '综述发起失败'
-        // 跨 IPC 只剩 message，按 code 前缀识别「需要二次确认」
-        if (message.includes(SYNTHESIS_CONFIRM_REQUIRED_CODE)) {
-          const count = Number(/合成 (\d+) 个文件/.exec(message)?.[1] ?? 0)
+        const code =
+          e && typeof e === 'object' && 'code' in e
+            ? String((e as { code: unknown }).code)
+            : ''
+        const countFromErr =
+          e && typeof e === 'object' && 'count' in e
+            ? Number((e as { count: unknown }).count)
+            : NaN
+        // 跨 IPC 识别「需要二次确认」：优先 code/count 字段，回退 message 前缀
+        if (code === SYNTHESIS_CONFIRM_REQUIRED_CODE || message.includes(SYNTHESIS_CONFIRM_REQUIRED_CODE)) {
+          const count =
+            Number.isFinite(countFromErr) && countFromErr > 0
+              ? countFromErr
+              : Number(/合成 (\d+) 个文件/.exec(message)?.[1] ?? 0)
           return { ok: false, needsConfirm: true, count }
         }
         return { ok: false, error: message }
@@ -752,6 +784,7 @@ export function useWikiPage() {
       synthesisId: string,
       category: string,
       subtopic: string,
+      archiveSources = false,
     ): Promise<{ sourceId: string } | null> => {
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return null
@@ -761,6 +794,7 @@ export function useWikiPage() {
           synthesisId,
           category,
           subtopic,
+          archiveSources,
         })) as { sourceId: string }
         return r ?? null
       } catch {
@@ -1215,6 +1249,20 @@ export function useWikiPage() {
     await api.sendCommand({ type: 'wiki:source:open', agentId: DEFAULT_AGENT_ID, sourceId })
   }, [])
 
+  /** 读取单条资料详情，供预览抽屉使用 */
+  const getSource = useCallback(async (sourceId: string): Promise<WikiSourceDetail | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      return (await api.sendCommand({
+        type: 'wiki:source:get',
+        sourceId,
+      })) as WikiSourceDetail | null
+    } catch {
+      return null
+    }
+  }, [])
+
   /** 资料检索：返回命中和显式降级信息，UI 据此展示降级文案。 */
   const searchSources = useCallback(
     async (
@@ -1303,6 +1351,7 @@ export function useWikiPage() {
     updateSourceTopic,
     moveToParking,
     openSource,
+    getSource,
     searchSources,
   }
 }

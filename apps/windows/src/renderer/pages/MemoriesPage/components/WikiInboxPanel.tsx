@@ -1,7 +1,10 @@
 import React from 'react'
+import { Eye } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import type { WikiInboxItem, WikiSourceListItem } from '../../../hooks/business/useWikiPage'
 import { inboxStatusLabel, formatRelativeTime } from './wikiStatusLabels'
+import { isHttpUrl } from './wikiSourcePreview'
+import type { WikiSourcePreviewSnapshot } from './WikiSourceDetailDrawer'
 
 interface WikiInboxPanelProps {
   readonly items: readonly WikiInboxItem[]
@@ -11,6 +14,8 @@ interface WikiInboxPanelProps {
   readonly onDiscard: (inboxId: string) => void
   readonly onOrganize: (item: WikiInboxItem) => void
   readonly onFileUnfiled: (item: WikiSourceListItem) => void
+  readonly onPreviewInbox: (item: WikiInboxItem) => void
+  readonly onPreviewSource: (item: WikiSourceListItem) => void
 }
 
 const INBOX_TYPE_LABELS: Record<string, string> = {
@@ -28,6 +33,20 @@ function canRetryInboxItem(status: string): boolean {
 }
 
 /**
+ * 将待整理条目转为预览快照（网页资料用标题 + 摘要 + 原文链接）。
+ */
+export function inboxItemToPreviewSnapshot(item: WikiInboxItem): WikiSourcePreviewSnapshot {
+  const sourceUrl = item.sourceUrl ?? (isHttpUrl(item.sourcePath) ? item.sourcePath : null)
+  return {
+    title: item.title,
+    summary: item.contentPreview,
+    sourceUrl,
+    sourcePath: sourceUrl ? null : item.sourcePath,
+    mediaType: item.mediaType,
+  }
+}
+
+/**
  * 渲染待整理条目、中文状态及失败后的行内操作。
  */
 export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
@@ -37,6 +56,8 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
   onDiscard,
   onOrganize,
   onFileUnfiled,
+  onPreviewInbox,
+  onPreviewSource,
 }) => {
   if (items.length === 0 && unfiled.length === 0) {
     return (
@@ -53,7 +74,13 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
         <article key={item.id} className="wiki-inbox-item">
           <div className="wiki-inbox-item-header">
             <span className="wiki-inbox-item-type">{INBOX_TYPE_LABELS[item.itemType] ?? item.itemType}</span>
-            <span className="wiki-inbox-item-title">{item.title}</span>
+            <button
+              type="button"
+              className="wiki-inbox-item-title wiki-inbox-item-title--link"
+              onClick={() => onPreviewInbox(item)}
+            >
+              {item.title}
+            </button>
             <span className={`wiki-inbox-item-status wiki-inbox-item-status--${item.status}`}>
               {inboxStatusLabel(item.status)}
             </span>
@@ -71,6 +98,10 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
           ) : null}
           {canRetryInboxItem(item.status) ? (
             <div className="wiki-inbox-item-actions">
+              <Button variant="ghost" size="sm" onClick={() => onPreviewInbox(item)}>
+                <Eye size={13} />
+                详情
+              </Button>
               <Button variant="ghost" size="sm" onClick={() => onOrganize(item)}>归档到…</Button>
               <Button variant="ghost" size="sm" onClick={() => onRetry(item.id)}>重试</Button>
               <Button variant="ghost" size="sm" onClick={() => onDiscard(item.id)}>丢弃</Button>
@@ -87,10 +118,20 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
           {unfiled.map((item) => (
             <article key={item.id} className="wiki-inbox-item">
               <div className="wiki-inbox-item-header">
-                <span className="wiki-inbox-item-title">{item.title}</span>
+                <button
+                  type="button"
+                  className="wiki-inbox-item-title wiki-inbox-item-title--link"
+                  onClick={() => onPreviewSource(item)}
+                >
+                  {item.title}
+                </button>
                 <span className="wiki-inbox-item-status">{formatRelativeTime(item.updatedAt)}</span>
               </div>
               <div className="wiki-inbox-item-actions">
+                <Button variant="ghost" size="sm" onClick={() => onPreviewSource(item)}>
+                  <Eye size={13} />
+                  详情
+                </Button>
                 <Button variant="ghost" size="sm" onClick={() => onFileUnfiled(item)}>归档到…</Button>
               </div>
             </article>

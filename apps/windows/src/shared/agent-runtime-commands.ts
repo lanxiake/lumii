@@ -682,6 +682,8 @@ export interface WikiSynthesisCreateCommand {
   /** 超量确认标记：UI 收到数量警告后带上这个重发 */
   readonly confirmed?: boolean
   readonly title?: string
+  /** consolidate = 合并同主题短文为 1000 字以上长文 */
+  readonly mode?: 'synthesis' | 'consolidate'
 }
 
 /**
@@ -697,6 +699,8 @@ export interface WikiSynthesisAcceptAsSourceCommand {
   readonly synthesisId: string
   readonly category: string
   readonly subtopic: string
+  /** 整合模式接受后归档被合并的原始短文 */
+  readonly archiveSources?: boolean
 }
 
 export interface WikiSynthesisListCommand {
@@ -1678,6 +1682,8 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       id: string
       itemType: string
       title: string
+      sourcePath: string | null
+      sourceUrl: string | null
       contentPreview: string | null
       mediaType: string
       status: string
@@ -1727,9 +1733,13 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       id: string
       title: string
       sourcePath: string | null
+      sourceUrl: string | null
       mediaType: string
+      mimeType: string | null
       extractedText: string | null
       originContext: string | null
+      topicCategory: string | null
+      topicSubtopic: string | null
       createdAt: number
     } | null
   : T extends 'wiki:runs:list' ? readonly {

@@ -29,5 +29,6 @@ export {
   type WikiReclassifyCandidateItem,
   type WikiReclassifyRunItem,
   type WikiSourceListItem,
+  type WikiSourceDetail,
   type WikiSourceSearchHit,
 } from './useWikiPage'

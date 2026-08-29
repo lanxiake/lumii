@@ -1,12 +1,25 @@
 import React, { useMemo, useState } from 'react'
 import { Button } from '../../../components/ui/Button/Button'
+import { Checkbox } from '../../../components/ui/Checkbox/Checkbox'
 import { WikiTopicPicker } from './WikiTopicPicker'
 import type { WikiSynthesisListItem, WikiTopicTree } from '../../../hooks/business/useWikiPage'
+import {
+  displaySynthesisTitle,
+  isConsolidateSynthesis,
+  type WikiConsolidateTarget,
+} from './wikiConsolidate'
 
 interface WikiSynthesisCandidatesProps {
   readonly rows: readonly WikiSynthesisListItem[]
   readonly tree: WikiTopicTree | null
-  readonly onAccept: (synthesisId: string, category: string, subtopic: string) => void
+  /** 整合长文默认归档目录；有值时整合候选一键接受，不再弹目录选择器 */
+  readonly consolidateTarget?: WikiConsolidateTarget | null
+  readonly onAccept: (
+    synthesisId: string,
+    category: string,
+    subtopic: string,
+    archiveSources?: boolean,
+  ) => void
   readonly onReject: (synthesisId: string) => void
   readonly onRefresh?: () => void
 }
@@ -23,11 +36,13 @@ const TRUNCATED = 'truncated'
 export const WikiSynthesisCandidates: React.FC<WikiSynthesisCandidatesProps> = ({
   rows,
   tree,
+  consolidateTarget = null,
   onAccept,
   onReject,
   onRefresh,
 }) => {
   const [pendingId, setPendingId] = useState<string | null>(null)
+  const [archiveSources, setArchiveSources] = useState(true)
 
   const candidates = useMemo(() => rows.filter((r) => r.status === 'candidate'), [rows])
 
@@ -35,7 +50,7 @@ export const WikiSynthesisCandidates: React.FC<WikiSynthesisCandidatesProps> = (
     return (
       <div className="wiki-synthesis-candidates">
         <p className="wiki-empty-hint">
-          还没有待审阅的综述。在目录里多选文件后点「生成本组综述」。
+          还没有待审阅的整合/综述。在目录里多选短文后点「整合为长文」。
         </p>
         {onRefresh && (
           <Button variant="ghost" size="sm" onClick={onRefresh}>
@@ -54,10 +69,21 @@ export const WikiSynthesisCandidates: React.FC<WikiSynthesisCandidatesProps> = (
         {candidates.map((row) => {
           const running = row.progress !== null
           const failed = row.error !== null && row.error !== TRUNCATED
+          const consolidate = isConsolidateSynthesis(row.title)
           return (
             <li key={row.id} className="wiki-synthesis-candidate">
               <div className="wiki-synthesis-candidate-main">
-                <p className="wiki-synthesis-candidate-title">{row.title}</p>
+                <p className="wiki-synthesis-candidate-title">
+                  {consolidate ? '整合：' : '综述：'}
+                  {displaySynthesisTitle(row.title)}
+                </p>
+                {consolidate && !running && !failed && (
+                  <p className="wiki-synthesis-candidate-note">
+                    {consolidateTarget
+                      ? `接受后将归档到 ${consolidateTarget.category} / ${consolidateTarget.subtopic}，并归档原短文`
+                      : '接受后可归档原短文，目录只保留一篇长文'}
+                  </p>
+                )}
                 {running && (
                   <p className="wiki-synthesis-candidate-progress">
                     生成中 {row.progress!.chunk} / {row.progress!.total}
@@ -77,8 +103,23 @@ export const WikiSynthesisCandidates: React.FC<WikiSynthesisCandidatesProps> = (
               </div>
               <div className="wiki-synthesis-candidate-actions">
                 {!running && !failed && (
-                  <Button variant="primary" size="sm" onClick={() => setPendingId(row.id)}>
-                    接受到目录…
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => {
+                      if (consolidate && consolidateTarget) {
+                        onAccept(row.id, consolidateTarget.category, consolidateTarget.subtopic, true)
+                        return
+                      }
+                      setArchiveSources(consolidate)
+                      setPendingId(row.id)
+                    }}
+                  >
+                    {consolidate && consolidateTarget
+                      ? `归档到${consolidateTarget.subtopic}`
+                      : consolidate
+                        ? '接受到本目录…'
+                        : '接受到目录…'}
                   </Button>
                 )}
                 <Button variant="ghost" size="sm" onClick={() => onReject(row.id)}>
@@ -93,14 +134,26 @@ export const WikiSynthesisCandidates: React.FC<WikiSynthesisCandidatesProps> = (
       <WikiTopicPicker
         open={pending !== null}
         tree={tree}
-        title="综述归档到…"
-        itemTitle={pending?.title}
+        title={pending && isConsolidateSynthesis(pending.title) ? '整合长文归档到…' : '综述归档到…'}
+        itemTitle={pending ? displaySynthesisTitle(pending.title) : undefined}
         onCancel={() => setPendingId(null)}
         onConfirm={(category, subtopic) => {
           const id = pendingId
+          const archive = pending && isConsolidateSynthesis(pending.title) ? archiveSources : false
           setPendingId(null)
-          if (id) onAccept(id, category, subtopic)
+          if (id) onAccept(id, category, subtopic, archive)
         }}
+        extraSection={
+          pending && isConsolidateSynthesis(pending.title) ? (
+            <label className="wiki-consolidate-accept-option">
+              <Checkbox
+                checked={archiveSources}
+                onChange={(checked) => setArchiveSources(checked)}
+              />
+              <span>接受后归档被合并的原短文（推荐，减少碎片化）</span>
+            </label>
+          ) : null
+        }
       />
     </div>
   )

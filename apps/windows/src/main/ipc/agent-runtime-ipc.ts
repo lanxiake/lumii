@@ -14,6 +14,7 @@ import { ipcMain, shell, dialog, type BrowserWindow } from 'electron'
 import { Cron } from 'croner'
 import { BUILT_IN_AGENTS, type AgentDefinition } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../shared/agent-runtime-commands'
+import { SYNTHESIS_CONFIRM_REQUIRED_CODE } from '../../shared/agent-runtime-commands'
 import type { AgentRuntimeEvent } from '../../shared/agent-runtime-events'
 import { voiceEventBus } from '../voice/voice-event-bus.js'
 import { getPetWindowManager } from '../pet/pet-mode-ipc.js'
@@ -681,7 +682,15 @@ export function installAgentRuntimeCommandIpc(performanceMonitor?: PerformanceMo
     try {
       return await handleCommand(ipcBridgeRef, command)
     } catch (err) {
-      log.error(`[command] error handling ${command?.type}:`, err)
+      const confirmCode =
+        err && typeof err === 'object' && 'code' in err
+          ? String((err as { code: unknown }).code)
+          : err instanceof Error && err.message.includes(SYNTHESIS_CONFIRM_REQUIRED_CODE)
+            ? SYNTHESIS_CONFIRM_REQUIRED_CODE
+            : null
+      if (confirmCode !== SYNTHESIS_CONFIRM_REQUIRED_CODE) {
+        log.error(`[command] error handling ${command?.type}:`, err)
+      }
       throw err
     }
   }

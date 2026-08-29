@@ -13,6 +13,7 @@ import type {
   WikiSynthesisListItem,
   WikiTopicTree,
 } from '../../../hooks/business/useWikiPage'
+import type { WikiConsolidateTarget } from './wikiConsolidate'
 
 /** autoRunSynthesis 单条结果 */
 interface AutoRunResultItem {
@@ -31,7 +32,13 @@ interface SynthesisViewProps {
   /** 二期：待审阅候选 + 接受/拒绝 */
   readonly synthesisRows?: readonly WikiSynthesisListItem[]
   readonly topicTree?: WikiTopicTree | null
-  readonly onAcceptSynthesis?: (synthesisId: string, category: string, subtopic: string) => void
+  readonly consolidateTarget?: WikiConsolidateTarget | null
+  readonly onAcceptSynthesis?: (
+    synthesisId: string,
+    category: string,
+    subtopic: string,
+    archiveSources?: boolean,
+  ) => void
   readonly onRejectSynthesis?: (synthesisId: string) => void
   readonly onRefreshSyntheses?: () => void | Promise<void>
 }
@@ -55,6 +62,7 @@ export const SynthesisView: React.FC<SynthesisViewProps> = ({
   onRefreshPages,
   synthesisRows = [],
   topicTree = null,
+  consolidateTarget = null,
   onAcceptSynthesis,
   onRejectSynthesis,
   onRefreshSyntheses,
@@ -110,7 +118,10 @@ export const SynthesisView: React.FC<SynthesisViewProps> = ({
       <WikiSynthesisCandidates
         rows={synthesisRows}
         tree={topicTree}
-        onAccept={(id, category, subtopic) => onAcceptSynthesis?.(id, category, subtopic)}
+        consolidateTarget={consolidateTarget}
+        onAccept={(id, category, subtopic, archiveSources) =>
+          onAcceptSynthesis?.(id, category, subtopic, archiveSources)
+        }
         onReject={(id) => onRejectSynthesis?.(id)}
         onRefresh={onRefreshSyntheses ? () => void onRefreshSyntheses() : undefined}
       />

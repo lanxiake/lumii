@@ -20,6 +20,8 @@ interface WikiTopicPickerProps {
   suggestionState?: 'idle' | 'loading' | 'failed'
   /** 采用建议：走确定性写入路径，不占用重编目批次 */
   onAdoptSuggestion?: () => void
+  /** 选目录区下方的附加内容（如整合接受选项） */
+  extraSection?: React.ReactNode
 }
 
 /**
@@ -37,6 +39,7 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
   suggestion,
   suggestionState = 'idle',
   onAdoptSuggestion,
+  extraSection,
 }) => {
   const categories = useMemo(
     () => (tree?.categories ?? []).filter((item) => item.name !== PARKING_CATEGORY),
@@ -145,6 +148,7 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
         )}
 
         {!category && <p className="wiki-topic-picker-hint">先选一个大类，再选具体小类。</p>}
+        {extraSection}
       </div>
     </Modal>
   )

@@ -315,6 +315,11 @@ export class WikiRepo {
     const valid = validateTopicAssignment(tree, category, subtopic, { allowParking: true });
     if (!valid.ok) throw new Error(valid.reason);
 
+    const originContext =
+      item.item_type === "search" && item.source_url
+        ? `原文链接: ${item.source_url}`
+        : undefined;
+
     return withTransaction(this.db, () => {
       const source = this.createSource({
         agentId: item.agent_id,
@@ -325,6 +330,7 @@ export class WikiRepo {
         contentHash: item.content_hash ?? undefined,
         mediaType: item.media_type,
         extractedText: item.content_preview ?? undefined,
+        originContext,
       });
       const updated = this.updateSourceTopic(item.agent_id, item.user_id, source.id, category, subtopic);
       this.indexSource(source.id);

@@ -65,6 +65,8 @@ export function handleWikiInboxList(
     id: i.id,
     itemType: i.item_type,
     title: i.title,
+    sourcePath: i.source_path,
+    sourceUrl: i.source_url,
     contentPreview: i.content_preview,
     mediaType: i.media_type,
     status: i.status,
@@ -260,19 +262,37 @@ export async function handleWikiSearch(
   return { hits, mode, degradeReason }
 }
 
+/** 解析资料对应的原文 URL（网页检索归档或 source_path 即 URL） */
+export function resolveWikiSourceUrl(source: {
+  source_path: string | null
+  origin_context: string | null
+}): string | null {
+  const path = source.source_path?.trim()
+  if (path && /^https?:\/\//i.test(path)) return path
+  const ctx = source.origin_context
+  if (!ctx) return null
+  const match = ctx.match(/原文链接:\s*(https?:\/\/\S+)/i)
+  return match?.[1] ?? null
+}
+
 export function handleWikiSourceGet(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:source:get' }>,
 ): unknown {
   const source = bridge.wikiRepo.findSourceById(command.sourceId)
   if (!source) return null
+  const sourceUrl = resolveWikiSourceUrl(source)
   return {
     id: source.id,
     title: source.title,
-    sourcePath: source.source_path,
+    sourcePath: sourceUrl ? null : source.source_path,
+    sourceUrl,
     mediaType: source.media_type,
+    mimeType: source.mime_type,
     extractedText: source.extracted_text,
     originContext: source.origin_context,
+    topicCategory: source.topic_category,
+    topicSubtopic: source.topic_subtopic,
     createdAt: new Date(source.created_at).getTime(),
   }
 }
@@ -495,7 +515,8 @@ export function handleWikiReclassifyDiscard(
   return { success: true }
 }
 
-function mapSourceListItem(source: ReturnType<AgentRuntimeBridge['wikiRepo']['findSourceById']> & object) {
+function mapSourceListItem(source: NonNullable<ReturnType<AgentRuntimeBridge['wikiRepo']['findSourceById']>>) {
+  const extracted = source.extracted_text ?? ''
   return {
     id: source.id,
     title: source.title,
@@ -503,6 +524,7 @@ function mapSourceListItem(source: ReturnType<AgentRuntimeBridge['wikiRepo']['fi
     mediaType: source.media_type,
     topicCategory: source.topic_category,
     topicSubtopic: source.topic_subtopic,
+    textLength: extracted.length,
     updatedAt: new Date(source.last_used ?? source.created_at).getTime(),
     useCount: source.use_count,
   }
@@ -855,6 +877,7 @@ export async function handleWikiSynthesisCreate(
     }
     const synthesisId = await synthesizer.synthesizeSources(agentId, LOCAL_USER_ID, sourceIds, {
       title: command.title,
+      mode: command.mode,
     })
     return { synthesisId }
   }
@@ -885,7 +908,7 @@ export function handleWikiSynthesisAcceptAsSource(
     .acceptAsSource(agentId, LOCAL_USER_ID, command.synthesisId, {
       category: command.category,
       subtopic: command.subtopic,
-    })
+    }, { archiveSources: command.archiveSources === true })
   return {
     sourceId: source.id,
     category: source.topic_category ?? command.category,

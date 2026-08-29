@@ -41,12 +41,12 @@ const TREE = {
 describe('WikiSynthesisCandidates', () => {
   it('无候选时给出空提示', () => {
     render(<WikiSynthesisCandidates rows={[]} tree={TREE} {...cbs()} />)
-    expect(screen.getByText(/还没有待审阅的综述/)).toBeInTheDocument()
+    expect(screen.getByText(/还没有待审阅的整合\/综述/)).toBeInTheDocument()
   })
 
   it('候选行显示标题与接受/拒绝按钮', () => {
     render(<WikiSynthesisCandidates rows={[mkRow()]} tree={TREE} {...cbs()} />)
-    expect(screen.getByText('调研综述')).toBeInTheDocument()
+    expect(screen.getByText(/综述：调研综述/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '接受到目录…' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '丢弃' })).toBeInTheDocument()
   })
@@ -83,7 +83,39 @@ describe('WikiSynthesisCandidates', () => {
     fireEvent.click(screen.getByRole('button', { name: '学习资料' }))
     fireEvent.click(screen.getByRole('button', { name: '调研搜集材料' }))
     fireEvent.click(screen.getByRole('button', { name: '确认归档' }))
-    expect(handlers.onAccept).toHaveBeenCalledWith('sy1', '学习资料', '调研搜集材料')
+    expect(handlers.onAccept).toHaveBeenCalledWith('sy1', '学习资料', '调研搜集材料', false)
+  })
+
+  it('整合候选有一键归档目录时直接接受', () => {
+    const handlers = cbs()
+    render(
+      <WikiSynthesisCandidates
+        rows={[mkRow({ title: '[整合] 之字用法' })]}
+        tree={TREE}
+        consolidateTarget={{ category: '学习资料', subtopic: '整合长文' }}
+        {...handlers}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: '归档到整合长文' }))
+    expect(handlers.onAccept).toHaveBeenCalledWith('sy1', '学习资料', '整合长文', true)
+  })
+
+  it('整合候选显示专属文案，接受时可归档原短文', () => {
+    const handlers = cbs()
+    render(
+      <WikiSynthesisCandidates
+        rows={[mkRow({ title: '[整合] 之字用法' })]}
+        tree={TREE}
+        {...handlers}
+      />,
+    )
+    expect(screen.getByText(/整合：之字用法/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '接受到本目录…' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '接受到本目录…' }))
+    fireEvent.click(screen.getByRole('button', { name: '学习资料' }))
+    fireEvent.click(screen.getByRole('button', { name: '调研搜集材料' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认归档' }))
+    expect(handlers.onAccept).toHaveBeenCalledWith('sy1', '学习资料', '调研搜集材料', true)
   })
 
   it('丢弃回调带候选 id', () => {

@@ -17,6 +17,18 @@ export const SYNTHESIS_CHUNK_SIZE = 4000;
 /** 最终综述正文上限 */
 export const SYNTHESIS_MAX_OUTPUT_CHARS = 5000;
 
+/** 整合模式目标篇幅下限（字） */
+export const SYNTHESIS_MIN_CONSOLIDATE_CHARS = 1000;
+
+/** 合成模式：综述归纳 vs 短文整合 */
+export type WikiSynthesizeMode = "synthesis" | "consolidate";
+
+/** 整合类合成标题前缀，供 UI 识别 */
+export const WIKI_CONSOLIDATE_TITLE_PREFIX = "[整合] ";
+
+/** 整合长文统一归档小类名（各大类下共用） */
+export const WIKI_CONSOLIDATE_SUBTOPIC = "整合长文";
+
 /** 单次合成块数上限，超出提示分批 */
 export const SYNTHESIS_MAX_CHUNKS = 20;
 
@@ -33,6 +45,8 @@ export interface WikiSynthesizeOptions {
   readonly title?: string;
   /** 落盘相对 workspace 的根段，默认 outputs/wiki-syntheses */
   readonly outputRoot?: string;
+  /** consolidate = 合并同主题短文为一篇 1000 字以上长文 */
+  readonly mode?: WikiSynthesizeMode;
 }
 
 /** 直接成页选项：固定 wiki 路径，跳过用户 accept 手势 */
@@ -169,6 +183,69 @@ function buildFinalSynthesisPrompt(title: string, summaries: readonly string[]):
   ].join("\n");
 }
 
+/**
+ * 整合模式：合并多篇短资料为一篇结构清晰的长文，减少目录碎片化。
+ */
+function buildConsolidateChunkPrompt(chunkIndex: number, total: number, chunk: string): string {
+  return [
+    "你是资料整理助手。下面是一组同主题、偏短的网页摘录或笔记片段。",
+    "请提取关键信息（定义、用法、例句、出处要点），去掉重复表述，保留可核对的事实。",
+    `这是第 ${chunkIndex}/${total} 块。`,
+    "",
+    "## 资料片段",
+    chunk,
+    "",
+    "输出简洁中文要点，不要客套话。",
+  ].join("\n");
+}
+
+/** 整合模式终稿：要求合并为不少于 SYNTHESIS_MIN_CONSOLIDATE_CHARS 字的长文 */
+function buildConsolidateFinalPrompt(title: string, summaries: readonly string[]): string {
+  return [
+    "你是资料整理助手。请将下列要点合并为一篇连贯的中文长文，用于替代多篇碎片化短资料。",
+    `标题：${title}`,
+    "",
+    "要求：",
+    `- 正文不少于 ${SYNTHESIS_MIN_CONSOLIDATE_CHARS} 汉字，不超过 ${SYNTHESIS_MAX_OUTPUT_CHARS} 字`,
+    "- 按主题组织（如：读音、释义、用法、例句、辨析），去除重复",
+    "- 只使用下方要点中的信息，不得编造",
+    "- 使用 Markdown 与小标题；文末加「## 参考来源」列出合并了哪些原始标题",
+    "- 不要输出「作为 AI」类元叙述",
+    "",
+    "## 分块要点",
+    ...summaries.map((s, i) => `### 块 ${i + 1}\n${s}`),
+  ].join("\n");
+}
+
+/** 根据模式选择分块/终稿提示词 */
+function buildChunkPrompt(
+  mode: WikiSynthesizeMode,
+  chunkIndex: number,
+  total: number,
+  chunk: string,
+): string {
+  return mode === "consolidate"
+    ? buildConsolidateChunkPrompt(chunkIndex, total, chunk)
+    : buildChunkSummaryPrompt(chunkIndex, total, chunk);
+}
+
+function buildFinalPrompt(
+  mode: WikiSynthesizeMode,
+  title: string,
+  summaries: readonly string[],
+): string {
+  return mode === "consolidate"
+    ? buildConsolidateFinalPrompt(title, summaries)
+    : buildFinalSynthesisPrompt(title, summaries);
+}
+
+/** 整合模式标题加前缀，便于 UI 与接受后归档原短文 */
+function withConsolidateTitlePrefix(title: string): string {
+  return title.startsWith(WIKI_CONSOLIDATE_TITLE_PREFIX)
+    ? title
+    : `${WIKI_CONSOLIDATE_TITLE_PREFIX}${title}`;
+}
+
 export class WikiSynthesizer {
   constructor(
     private readonly repo: WikiRepo,
@@ -249,7 +326,10 @@ export class WikiSynthesizer {
       sources.push(source);
     }
 
-    const title = options.title?.trim() || `${sources[0]!.title} 综述`;
+    const mode = options.mode ?? "synthesis";
+    const baseTitle = options.title?.trim() || `${sources[0]!.title} 综述`;
+    const title =
+      mode === "consolidate" ? withConsolidateTitlePrefix(baseTitle) : baseTitle;
     const synthesisId = this.repo.insertSynthesis({
       agentId,
       userId,
@@ -266,6 +346,7 @@ export class WikiSynthesizer {
         sources,
         title,
         options.outputRoot ?? "outputs/wiki-syntheses",
+        mode,
       );
       return synthesisId;
     } catch (err) {
@@ -288,6 +369,7 @@ export class WikiSynthesizer {
     userId: string,
     synthesisId: string,
     topic: { readonly category: string; readonly subtopic: string },
+    options: { readonly archiveSources?: boolean } = {},
   ): WikiSource {
     const row = this.repo.findSynthesisById(synthesisId);
     if (!row || row.agent_id !== agentId || row.user_id !== userId) {
@@ -310,16 +392,23 @@ export class WikiSynthesizer {
     );
     if (!check.ok) throw new Error(check.reason);
 
-    return this.repo.acceptSynthesisAsSource({
+    this.ensureSubtopicExists(topic.category, topic.subtopic);
+
+    const source = this.repo.acceptSynthesisAsSource({
       synthesisId,
       agentId,
       userId,
-      title: row.title,
+      title: row.title.replace(WIKI_CONSOLIDATE_TITLE_PREFIX, ""),
       outputPath: row.output_path,
       contentMd: row.candidate_md,
       category: topic.category,
       subtopic: topic.subtopic,
     });
+
+    if (options.archiveSources && row.source_ids.length > 0) {
+      this.repo.archiveSources(agentId, userId, row.source_ids);
+    }
+    return source;
   }
 
   /** 接受候选：同一事务建 syntheses/ 页并更新 status=accepted */
@@ -443,6 +532,17 @@ export class WikiSynthesizer {
     this.repo.rejectSynthesis(synthesisId);
   }
 
+  /** 接受时若小类尚未在主题树中，自动追加（整合长文等统一目录） */
+  private ensureSubtopicExists(category: string, subtopic: string): void {
+    const tree = this.repo.getOrCreateTopicTree();
+    const cat = tree.categories.find((c) => c.name === category);
+    if (!cat) {
+      throw new Error(`大类不存在：${category}`);
+    }
+    if (cat.subtopics.includes(subtopic)) return;
+    this.repo.applyTopicMutation({ op: "addSubtopic", category, name: subtopic });
+  }
+
   /** 收集页面修订 source_ref 指向的资料 id（去重） */
   private collectSourceIds(agentId: string, userId: string, pages: readonly WikiPage[]): string[] {
     const ids = new Set<string>();
@@ -469,6 +569,7 @@ export class WikiSynthesizer {
     sources: readonly WikiSource[],
     title: string,
     outputRoot: string,
+    mode: WikiSynthesizeMode = "synthesis",
   ): Promise<void> {
     const inputs = sources.map((s) => {
       const body = (s.extracted_text ?? "").trim();
@@ -490,20 +591,21 @@ export class WikiSynthesizer {
     const summaries: string[] = [];
     for (let i = 0; i < chunks.length; i += 1) {
       this.repo.setSynthesisProgress(synthesisId, i + 1, chunks.length);
-      const summary = await this.callLLM(buildChunkSummaryPrompt(i + 1, chunks.length, chunks[i]!));
+      const summary = await this.callLLM(buildChunkPrompt(mode, i + 1, chunks.length, chunks[i]!));
       summaries.push(summary.trim());
     }
 
     this.repo.setSynthesisProgress(synthesisId, chunks.length, chunks.length);
-    const rawFinal = (await this.callLLM(buildFinalSynthesisPrompt(title, summaries))).trim();
+    const displayTitle = title.replace(WIKI_CONSOLIDATE_TITLE_PREFIX, "");
+    const rawFinal = (await this.callLLM(buildFinalPrompt(mode, displayTitle, summaries))).trim();
     const { text: finalText, truncated } = truncateSynthesis(rawFinal);
 
-    const fileRel = await this.writeSynthesisFile(synthesisId, title, outputRoot, [
-      `# ${title}`,
+    const fileRel = await this.writeSynthesisFile(synthesisId, displayTitle, outputRoot, [
+      `# ${displayTitle}`,
       "",
       finalText,
       "",
-      "## 来源文件",
+      mode === "consolidate" ? "## 参考来源" : "## 来源文件",
       ...sources.map((s) => `- ${s.title}`),
     ]);
 

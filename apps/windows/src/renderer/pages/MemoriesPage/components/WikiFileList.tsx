@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Archive, ArrowRightLeft, ExternalLink, FileText, Image as ImageIcon, Music, Video } from 'lucide-react'
+import { Archive, ArrowRightLeft, ExternalLink, Eye, FileText, Image as ImageIcon, Music, Video } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import type { WikiSourceListItem } from '../../../hooks/business/useWikiPage'
 import { formatRelativeTime } from './wikiStatusLabels'
@@ -48,13 +48,13 @@ interface WikiFileListProps {
   onToggleSelect?: (id: string) => void
   onToggleSelectAll?: () => void
   onOpen: (item: WikiSourceListItem) => void
+  onPreview: (item: WikiSourceListItem) => void
   onMove: (item: WikiSourceListItem) => void
   onPark?: (item: WikiSourceListItem) => void
 }
 
 /**
- * 用途目录下的文件列表：一行一个原始文件，操作直接落在文件上。
- * 资料行不再开详情侧滑，侧滑只服务历史页面。
+ * 用途目录下的文件列表：一行一个原始文件，支持详情预览与打开原文件。
  */
 export const WikiFileList: React.FC<WikiFileListProps> = ({
   items,
@@ -70,6 +70,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
   onToggleSelect,
   onToggleSelectAll,
   onOpen,
+  onPreview,
   onMove,
   onPark,
 }) => {
@@ -137,13 +138,23 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                 )}
                 <Icon size={15} className="wiki-file-list-icon" />
                 <div className="wiki-file-list-main">
-                  <span className="wiki-file-list-title">{item.title}</span>
+                  <button
+                    type="button"
+                    className="wiki-file-list-title wiki-file-list-title--link"
+                    onClick={() => onPreview(item)}
+                  >
+                    {item.title}
+                  </button>
                   <span className="wiki-file-list-meta">
                     {showTopic && <span className="wiki-file-list-topic">{topic}</span>}
                     {formatRelativeTime(item.updatedAt)}
                   </span>
                 </div>
                 <div className="wiki-file-list-actions">
+                  <Button variant="ghost" size="sm" onClick={() => onPreview(item)}>
+                    <Eye size={13} />
+                    详情
+                  </Button>
                   <Button variant="ghost" size="sm" onClick={() => onOpen(item)}>
                     <ExternalLink size={13} />
                     打开

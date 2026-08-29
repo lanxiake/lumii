@@ -344,6 +344,24 @@ describe("WikiSynthesizer 以资料为输入（二期）", () => {
     ).toThrow(/小类不存在/);
   });
 
+  it("consolidate 模式标题带 [整合] 前缀，acceptAsSource 可归档原短文", async () => {
+    const { repo, synth, mkFiled } = createHarness();
+    const a = mkFiled("之怎么读", "短甲");
+    const b = mkFiled("之的用法", "短乙");
+    const id = await synth.synthesizeSources("ag", "u", [a.id, b.id], {
+      title: "之字整合",
+      mode: "consolidate",
+    });
+    const row = repo.findSynthesisById(id)!;
+    expect(row.title).toBe("[整合] 之字整合");
+
+    synth.acceptAsSource("ag", "u", id, { category: "学习资料", subtopic: "调研搜集材料" }, {
+      archiveSources: true,
+    });
+    expect(repo.findSourceById(a.id, "ag", "u")?.archived_at).toBeTruthy();
+    expect(repo.findSourceById(b.id, "ag", "u")?.archived_at).toBeTruthy();
+  });
+
   it("输入超块数上限时拒绝并提示分批，不留半成品", async () => {
     const { repo, synth, mkFiled } = createHarness();
     const huge = mkFiled("超大调研.pdf", "长".repeat(SYNTHESIS_CHUNK_SIZE * 25));

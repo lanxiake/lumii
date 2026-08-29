@@ -10,6 +10,11 @@ overrides:
   '@mariozechner/pi-ai': 0.50.7
   sharp: 0.34.5
 
+patchedDependencies:
+  '@mariozechner/pi-ai@0.50.7':
+    hash: 8439699120a24b4dd6491a9b152cfa2e5034cf28c32a812e6bd3b321bbdf462e
+    path: patches/@mariozechner__pi-ai@0.50.7.patch
+
 importers:
 
   .: {}
@@ -263,7 +268,7 @@ importers:
         version: 0.50.9(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76)
       '@mariozechner/pi-ai':
         specifier: 0.50.7
-        version: 0.50.7(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76)
+        version: 0.50.7(patch_hash=8439699120a24b4dd6491a9b152cfa2e5034cf28c32a812e6bd3b321bbdf462e)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76)
       '@sinclair/typebox':
         specifier: 0.34.47
         version: 0.34.47
@@ -6215,7 +6220,7 @@ snapshots:
 
   '@mariozechner/pi-agent-core@0.50.9(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76)':
     dependencies:
-      '@mariozechner/pi-ai': 0.50.7(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76)
+      '@mariozechner/pi-ai': 0.50.7(patch_hash=8439699120a24b4dd6491a9b152cfa2e5034cf28c32a812e6bd3b321bbdf462e)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76)
       '@mariozechner/pi-tui': 0.50.9
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
@@ -6225,7 +6230,7 @@ snapshots:
       - ws
       - zod
 
-  '@mariozechner/pi-ai@0.50.7(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76)':
+  '@mariozechner/pi-ai@0.50.7(patch_hash=8439699120a24b4dd6491a9b152cfa2e5034cf28c32a812e6bd3b321bbdf462e)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(ws@8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6))(zod@3.25.76)':
     dependencies:
       '@anthropic-ai/sdk': 0.71.2(zod@3.25.76)
       '@aws-sdk/client-bedrock-runtime': 3.1101.0

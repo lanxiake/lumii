@@ -48,6 +48,7 @@ interface WikiGraphViewProps {
   }) => Promise<WikiEroExtractSourceResult | null>
   readonly listEntitySources: (entityId: string) => Promise<readonly WikiEntitySourceRef[]>
   readonly openSource: (sourceId: string) => Promise<void>
+  readonly onPreviewSource: (sourceId: string) => void
   readonly onNavigateTo: (nav: WikiNav) => void
   readonly runLongTask: <R>(title: string, fn: () => Promise<R>) => Promise<R>
 }
@@ -233,6 +234,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
   extractEroFromSources,
   listEntitySources,
   openSource,
+  onPreviewSource,
   onNavigateTo,
   runLongTask,
 }) => {
@@ -310,15 +312,25 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
     }
   }, [currentNav, layer, showHistory, getGraphData])
 
-  /** 从本目录抽取实体 */
+  /** 从当前目录或图谱范围内的资料抽取实体 */
   const handleExtractEro = useCallback(async () => {
     setExtractMsg('正在 AI 抽取实体关系…')
-    const scope: { category?: string; subtopic?: string } = {}
+    const scope: { category?: string; subtopic?: string; sourceIds?: readonly string[] } = {}
     if (currentNav.kind === 'subtopic') {
       scope.category = currentNav.category
       scope.subtopic = currentNav.subtopic
     } else if (currentNav.kind === 'category') {
       scope.category = currentNav.name
+    } else if (currentNav.kind === 'graph' && graph) {
+      const sourceIds = graph.nodes.filter((node) => node.kind === 'source').map((node) => node.id)
+      if (sourceIds.length === 0) {
+        setExtractMsg('当前图谱范围内没有可抽取的资料')
+        return
+      }
+      scope.sourceIds = sourceIds
+    } else {
+      setExtractMsg('请先选择要抽取的目录（大类或小类），或在知识图谱中加载资料后再试')
+      return
     }
     const r = await runLongTask('抽取实体关系', () => extractEroFromSources(scope))
     if (r) {
@@ -333,7 +345,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
     } else {
       setExtractMsg('AI 抽取失败')
     }
-  }, [currentNav, extractEroFromSources, load, runLongTask])
+  }, [currentNav, graph, extractEroFromSources, load, runLongTask])
 
   useEffect(() => {
     void load()
@@ -401,9 +413,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
         return
       }
       if (kind === 'source') {
-        void openSource(node.id).catch(() => {
-          alert('无法打开原文件')
-        })
+        onPreviewSource(node.id)
         return
       }
       if (kind === 'subtopic') {
@@ -418,7 +428,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
         return
       }
     },
-    [openSource, onNavigateTo],
+    [onPreviewSource, onNavigateTo],
   )
 
   const emptyHint = useMemo(() => {
@@ -438,7 +448,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
             刷新
           </Button>
           <Button variant="secondary" size="sm" onClick={() => void handleExtractEro()}>
-            从本目录抽取实体
+            {currentNav.kind === 'graph' ? '从当前图谱抽取实体' : '从本目录抽取实体'}
           </Button>
         </div>
       </div>
@@ -523,6 +533,9 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
                             </p>
                           )}
                         </div>
+                        <Button variant="ghost" size="sm" onClick={() => onPreviewSource(src.id)}>
+                          详情
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
