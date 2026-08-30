@@ -191,6 +191,14 @@ import {
   disposePetModeIpc,
 } from './pet/pet-mode-ipc'
 import { registerFilePreviewWindowIpc } from './file-preview/preview-window-ipc'
+import { applyWikiEmbeddingEnvDefaults } from './agent-runtime/wiki-embedding-config'
+import { applyPluginBootstrapEnvDefaults } from './plugin-bootstrap-config'
+import { initPluginDependenciesOnStartup } from './plugin-bootstrap'
+
+/** Wiki 向量检索默认配置（国内镜像 + 启动预下载） */
+applyWikiEmbeddingEnvDefaults()
+/** 反检测浏览器 / MemPalace 启动预安装默认配置 */
+applyPluginBootstrapEnvDefaults()
 
 const _execFileAsync = _promisify(_execFile)
 
@@ -1297,7 +1305,9 @@ async function initialize(): Promise<void> {
 
   // 脚本运行环境：写 node/python shim，缺 Python 时后台下载内置运行时
   await initScriptRuntimes()
-  log.info('[Main] initScriptRuntimes 完成，开始 initSkillWatcher')
+  // 反检测浏览器（国内 GitHub 镜像）与 MemPalace（清华 PyPI）后台预安装，不阻塞启动
+  initPluginDependenciesOnStartup()
+  log.info('[Main] initScriptRuntimes + 插件预安装已触发，开始 initSkillWatcher')
 
   await initSkillWatcher()  // 初始化技能监控器（此时种子文件已就绪）
   log.info('[Main] initSkillWatcher 完成，开始 initUpdaterService')

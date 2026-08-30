@@ -13,3 +13,14 @@
 # Optional draw API (packaged via config/draw-config.json)
 # LUMII_DRAW_API_KEY=
 # LUMII_DRAW_API_BASE_URL=
+
+# Wiki 向量检索（默认启用；启动时从国内镜像下载嵌入模型约 140MB 到 ~/.lumii/models/）
+HF_ENDPOINT=https://hf-mirror.com
+LUMII_HF_ENDPOINT=https://hf-mirror.com
+LUMII_WIKI_VECTOR=1
+
+# 插件启动预安装（默认启用；设为 0 跳过单项，LUMII_SKIP_PLUGIN_BOOTSTRAP=1 跳过全部）
+# CloakBrowser：~/.cloakbrowser，从 gh.ddlc.top 等国内镜像下载
+LUMII_CLOAK_BROWSER_BOOTSTRAP=1
+# MemPalace：内置 Python + pypi.tuna.tsinghua.edu.cn 安装 mempalace 包
+LUMII_MEMPALACE_BOOTSTRAP=1

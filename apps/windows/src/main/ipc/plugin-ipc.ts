@@ -125,6 +125,46 @@ export async function ensureMemPalacePalaceDir(): Promise<void> {
   }
 }
 
+/** MemPalace pip 安装后的 import 校验命令（与 IPC 安装、启动预安装共用） */
+const MEMPALACE_VERIFY_SCRIPT =
+  'from google.rpc.error_details_pb2 import RetryInfo; import mempalace, chromadb; print("ok")'
+
+/**
+ * 确保 MemPalace 运行时与 Python 包已就绪（内置 Python + 清华 PyPI 镜像装 mempalace）。
+ * 已安装则快速返回；失败抛出异常供 IPC / 启动预安装捕获。
+ */
+export async function ensureMemPalaceRuntime(onProgress?: (msg: string) => void): Promise<void> {
+  const report = onProgress ?? ((msg: string) => logger.info('[MemPalace]', msg))
+
+  const pythonExe = await ensureBundledPython(report)
+  if (await checkMemPalaceInstalled()) {
+    report('MemPalace 已安装')
+    return
+  }
+
+  report('正在安装 mempalace...')
+  await _execFileAsync(pythonExe, buildBundledPipInstallArgs(['mempalace']), {
+    timeout: 300000,
+    windowsHide: true,
+    cwd: getPythonRuntimeDir(),
+    env: {
+      ...process.env,
+      PYTHONHOME: getPythonRuntimeDir(),
+      PYTHONNOUSERSITE: '1',
+    },
+  })
+  await repairGoogleRpcNamespaceIfNeeded()
+
+  report('正在验证安装...')
+  await _execFileAsync(pythonExe, ['-c', MEMPALACE_VERIFY_SCRIPT], {
+    timeout: 30000,
+    cwd: getPythonRuntimeDir(),
+    env: { ...process.env, PYTHONHOME: getPythonRuntimeDir(), PYTHONNOUSERSITE: '1' },
+  })
+
+  logger.info('[MemPalace] 安装完成')
+}
+
 export function setupMemPalaceIpcHandlers(): void {
   logger.info('设置 MemPalace IPC 处理器')
 
@@ -139,33 +179,7 @@ export function setupMemPalaceIpcHandlers(): void {
     }
 
     try {
-      // Python 运行时由公共模块保证（已装则秒过），这里只负责装 mempalace 包
-      const pythonExe = await ensureBundledPython(sendProgress)
-
-      sendProgress('正在安装 mempalace...')
-      await _execFileAsync(pythonExe, buildBundledPipInstallArgs(['mempalace']), {
-        timeout: 300000,
-        windowsHide: true,
-        cwd: getPythonRuntimeDir(),
-        env: {
-          ...process.env,
-          PYTHONHOME: getPythonRuntimeDir(),
-          PYTHONNOUSERSITE: '1',
-        },
-      })
-      await repairGoogleRpcNamespaceIfNeeded()
-
-      sendProgress('正在验证安装...')
-      await _execFileAsync(pythonExe, [
-        '-c',
-        'from google.rpc.error_details_pb2 import RetryInfo; import mempalace, chromadb; print("ok")',
-      ], {
-        timeout: 30000,
-        cwd: getPythonRuntimeDir(),
-        env: { ...process.env, PYTHONHOME: getPythonRuntimeDir(), PYTHONNOUSERSITE: '1' },
-      })
-
-      logger.info('[MemPalace] 安装完成')
+      await ensureMemPalaceRuntime(sendProgress)
       return { success: true }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
