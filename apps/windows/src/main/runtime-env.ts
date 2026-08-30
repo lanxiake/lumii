@@ -69,6 +69,15 @@ export function detectSystemNode(): string | null {
 export function resolveNodeExec(): { command: string; env: Record<string, string> } {
   const system = detectSystemNode()
   if (system) return { command: system, env: {} }
+  return resolveElectronNodeExec()
+}
+
+/**
+ * 解析 Lumii 客户端内置 Node（Electron execPath + ELECTRON_RUN_AS_NODE）。
+ *
+ * lumii-ui 等客户端自有 CLI 始终走此路径，避免与系统 Node 版本/路径不一致。
+ */
+export function resolveElectronNodeExec(): { command: string; env: Record<string, string> } {
   return { command: process.execPath, env: { ELECTRON_RUN_AS_NODE: '1' } }
 }
 
@@ -100,7 +109,11 @@ async function writeShimPair(
   const sh = `#!/bin/sh
 # 由灵栖 Lumii 自动生成，请勿手改
 TARGET="${toPosixish(target)}"
-if [ ! -f "$TARGET" ]; then
+if [ -f "$TARGET" ] || [ -x "$TARGET" ]; then
+  :
+elif command -v "$TARGET" >/dev/null 2>&1; then
+  TARGET="$(command -v "$TARGET")"
+else
   echo "[lumii] ${name} 运行时尚未就绪（预期路径: $TARGET）。请在客户端内重试，或稍候等待自动安装完成。" >&2
   exit 127
 fi
@@ -130,7 +143,8 @@ export async function writeShims(): Promise<void> {
 
   if (!detectSystemNode()) {
     // Electron execPath 当纯 Node 用，需 ELECTRON_RUN_AS_NODE=1
-    await writeShimPair(dir, 'node', process.execPath, [], { ELECTRON_RUN_AS_NODE: '1' })
+    const electronNode = resolveElectronNodeExec()
+    await writeShimPair(dir, 'node', electronNode.command, [], electronNode.env)
     log.info('已写入 node shim（系统未装 Node，使用 Electron 内置）')
   }
 
@@ -142,11 +156,11 @@ export async function writeShims(): Promise<void> {
     log.info('已写入 python/python3 shim（系统未装 Python，使用内置运行时）')
   }
 
-  // lumii-ui CLI：始终写入 shim，target 用 resolveNodeExec()（系统 node 或 Electron 内置）
-  const node = resolveNodeExec()
+  // lumii-ui CLI：始终用客户端内置 Node，与 Electron 版本一致
+  const electronNode = resolveElectronNodeExec()
   const scriptPath = resolveLumiiUiScriptPath()
-  await writeShimPair(dir, 'lumii-ui', node.command, [scriptPath], node.env)
-  log.info('已写入 lumii-ui shim')
+  await writeShimPair(dir, 'lumii-ui', electronNode.command, [scriptPath], electronNode.env)
+  log.info('已写入 lumii-ui shim（Electron 内置 Node）')
 }
 
 /**

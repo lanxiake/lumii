@@ -13,6 +13,7 @@ import {
   _resetSystemNodeCache,
   buildScriptEnv,
   getShimDir,
+  resolveElectronNodeExec,
   resolveNodeExec,
 } from './runtime-env'
 
@@ -26,6 +27,20 @@ describe('runtime-env', () => {
   beforeEach(() => {
     _resetSystemNodeCache(null)
     _resetSystemPythonCache(null)
+  })
+
+  it('系统有 node 时 resolveNodeExec 优先系统 node', () => {
+    _resetSystemNodeCache('node')
+    const { command, env } = resolveNodeExec()
+    expect(command).toBe('node')
+    expect(env).toEqual({})
+  })
+
+  it('resolveElectronNodeExec 始终使用 Electron 内置 Node', () => {
+    _resetSystemNodeCache('node')
+    const { command, env } = resolveElectronNodeExec()
+    expect(command).toBe(process.execPath)
+    expect(env.ELECTRON_RUN_AS_NODE).toBe('1')
   })
 
   it('系统无 node 时回退 Electron 内置 Node', () => {

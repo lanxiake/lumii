@@ -36,7 +36,7 @@ export const WIKI_TASK_PILL_TOOLTIP =
 
 /** 待整理视图说明 */
 export const WIKI_INBOX_INTRO =
-  '待整理 = 队列中的新资料 + 已入库但未分类的文件。从文件夹导入会默认 AI 自动分类；失败或不确定的条目仍在此。可勾选后「批量归档到…」。',
+  '待整理 = 队列中的新资料 + 已入库但未分类的文件。从文件夹导入会默认 AI 自动分类；失败或不确定的条目仍在此。可勾选后「批量归档到…」。'
 
 /** 从文件夹导入按钮 */
 export const WIKI_FOLDER_IMPORT_TOOLTIP =
