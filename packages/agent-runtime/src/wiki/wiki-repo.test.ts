@@ -593,6 +593,59 @@ describe("WikiRepo 资料主题读写", () => {
     expect(unfiled[0]!.title).toBe("待整理");
   });
 
+  it("clearSourceTopic 把资料回到未分类（topic_category/subtopic 变 NULL）", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "归档过的" });
+    repo.updateSourceTopic("ag", "u", source.id, "做事记录", "会议聊天记录");
+    expect(repo.findSourceById(source.id)?.topic_category).toBe("做事记录");
+
+    repo.clearSourceTopic("ag", "u", source.id);
+    const after = repo.findSourceById(source.id)!;
+    expect(after.topic_category).toBeNull();
+    expect(after.topic_subtopic).toBeNull();
+  });
+
+  it("clearSourceTopic 对不存在的资料抛错", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    expect(() => repo.clearSourceTopic("ag", "u", "不存在")).toThrow(/资料不存在/);
+  });
+
+  it("setSourceStorage 写 origin_url 与 storage_mode", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "资料" });
+    repo.setSourceStorage("ag", "u", source.id, { originUrl: "https://example.com", storageMode: "ref" });
+    const after = repo.findSourceById(source.id)!;
+    expect(after.origin_url).toBe("https://example.com");
+    expect(after.storage_mode).toBe("ref");
+  });
+
+  it("setSourceStorage 支持只更新部分字段", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "资料" });
+    repo.setSourceStorage("ag", "u", source.id, { storageMode: "materialized" });
+    expect(repo.findSourceById(source.id)!.storage_mode).toBe("materialized");
+    expect(repo.findSourceById(source.id)!.origin_url).toBeNull();
+  });
+
+  it("createSource 支持传入 originUrl 与 storageMode", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({
+      agentId: "ag",
+      userId: "u",
+      title: "剪藏",
+      originUrl: "https://news.com/article",
+      storageMode: "ref",
+    });
+    expect(source.origin_url).toBe("https://news.com/article");
+    expect(source.storage_mode).toBe("ref");
+  });
+
+  it("createSource 默认 storage_mode 为 ref", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "默认" });
+    expect(source.storage_mode).toBe("ref");
+  });
+
   it("touchSource 更新 last_used 与 use_count", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const source = repo.createSource({ agentId: "ag", userId: "u", title: "x" });
@@ -601,6 +654,23 @@ describe("WikiRepo 资料主题读写", () => {
     const after = repo.findSourceById(source.id)!;
     expect(after.use_count).toBe(1);
     expect(after.last_used).toBeTruthy();
+  });
+});
+
+describe("WikiRepo 自动分类开关", () => {
+  it("默认关闭——没显式打开时 AI 不该擅自分类", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    expect(repo.getAutoClassifyEnabled("ag", "u")).toBe(false);
+  });
+
+  it("开关可读回，且按 agent+user 隔离", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.setAutoClassifyEnabled("ag", "u", true);
+    expect(repo.getAutoClassifyEnabled("ag", "u")).toBe(true);
+    expect(repo.getAutoClassifyEnabled("ag2", "u")).toBe(false);
+
+    repo.setAutoClassifyEnabled("ag", "u", false);
+    expect(repo.getAutoClassifyEnabled("ag", "u")).toBe(false);
   });
 });
 
@@ -808,6 +878,53 @@ describe("WikiRepo 归档事务性", () => {
     expect(source.topic_category).toBe("做事记录");
     expect(repo.findInboxById(item.id)!.status).toBe("organized");
     expect(repo.searchSources("ag", "u", "归档流程").map((h) => h.source.id)).toEqual([source.id]);
+  });
+});
+
+describe("WikiRepo 未分类归档", () => {
+  it("fileInboxItemUnclassified 建资料但不写主题，条目转 organized", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const item = repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "upload",
+      title: "没分类的会议纪要",
+      contentPreview: "讨论了收件流程",
+    });
+
+    const source = repo.fileInboxItemUnclassified(item);
+    expect(source.topic_category).toBeNull();
+    expect(source.topic_subtopic).toBeNull();
+    expect(repo.findInboxById(item.id)!.status).toBe("organized");
+    expect(repo.listSourcesByTopic("ag", "u", { unfiled: true }).map((s) => s.id)).toEqual([source.id]);
+  });
+
+  it("fileInboxItemUnclassified 建完索引即可被检索", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const item = repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "upload",
+      title: "调研",
+      contentPreview: "关于向量检索的调研笔记",
+    });
+
+    const source = repo.fileInboxItemUnclassified(item);
+    expect(repo.searchSources("ag", "u", "向量检索").map((h) => h.source.id)).toEqual([source.id]);
+  });
+
+  it("fileInboxItemUnclassified 保留搜索条目的原文链接", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const item = repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "search",
+      title: "网页结果",
+      sourceUrl: "https://example.com/post",
+    });
+
+    const source = repo.fileInboxItemUnclassified(item);
+    expect(source.origin_url).toBe("https://example.com/post");
   });
 });
 

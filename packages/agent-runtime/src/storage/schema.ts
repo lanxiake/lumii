@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 25;
 
 /**
  * V1 DDL — 初始 schema
@@ -748,6 +748,17 @@ CREATE TABLE IF NOT EXISTS wiki_source_embeddings (
 );
 CREATE INDEX IF NOT EXISTS idx_wiki_source_embeddings_agent
   ON wiki_source_embeddings (agent_id, user_id, model_id);
+`,
+  ],
+  // V25: 引用优先。origin_url 记住资料从哪来（网页/剪藏），storage_mode 区分
+  // 「只存引用」「已复制进库」「正文在库」——UI 靠它决定要不要显示「保存副本」。
+  // 历史行一律视为 ref：迁移前没有复制文件的动作。
+  [
+    25,
+    `
+ALTER TABLE wiki_sources ADD COLUMN origin_url TEXT;
+ALTER TABLE wiki_sources ADD COLUMN storage_mode TEXT NOT NULL DEFAULT 'ref'
+  CHECK (storage_mode IN ('ref', 'materialized', 'native'));
 `,
   ],
 ] as const;

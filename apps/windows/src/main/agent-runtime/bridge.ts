@@ -1841,9 +1841,15 @@ export class AgentRuntimeBridge {
       const queue = this._wikiOrganizeQueue
       if (!repo || !organizer || !queue) return
       for (const { agentId, userId } of repo.listPendingAgentUserPairs()) {
+        // 默认只收件不分类：资料先安全落到未分类，分类留给用户或显式的「AI 整理」
+        const autoClassify = repo.getAutoClassifyEnabled(agentId, userId)
         for (const itemType of ITEM_TYPES) {
           queue.enqueue(async () => {
-            await organizer.organizeBatch(agentId, userId, itemType)
+            if (autoClassify) {
+              await organizer.organizeBatch(agentId, userId, itemType)
+            } else {
+              await organizer.intakeBatch(agentId, userId, itemType)
+            }
           })
         }
       }

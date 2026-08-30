@@ -348,3 +348,95 @@ describe("WikiOrganizer 与重新编目互斥", () => {
     expect(run!.status).toBe("succeeded");
   });
 });
+
+describe("WikiOrganizer intakeBatch（不调 LLM）", () => {
+  /** 调用即失败的 LLM：intakeBatch 一旦碰它就说明走错了路径 */
+  const forbiddenLLM = async () => {
+    throw new Error("intakeBatch 不该调用 LLM");
+  };
+
+  it("归档为未分类资料，完全不调用 LLM", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "文档 A 的内容");
+    hook.ingestUpload("ag", "u", "/tmp/b.md", "b", "text/markdown", "文档 B 的内容");
+
+    const organizer = new WikiOrganizer(repo, forbiddenLLM, new WikiContentExtractor());
+    const run = await organizer.intakeBatch("ag", "u", "upload");
+
+    expect(run).not.toBeNull();
+    expect(run!.status).toBe("succeeded");
+    expect(repo.listInbox("ag", "u", "pending")).toHaveLength(0);
+    expect(repo.listInbox("ag", "u", "organized")).toHaveLength(2);
+
+    const unfiled = repo.listSourcesByTopic("ag", "u", { unfiled: true });
+    expect(unfiled).toHaveLength(2);
+    for (const source of unfiled) {
+      expect(source.topic_category).toBeNull();
+    }
+  });
+
+  it("取件为空时返回 null，不写运行日志", async () => {
+    const { repo } = setup();
+    const organizer = new WikiOrganizer(repo, forbiddenLLM, new WikiContentExtractor());
+    expect(await organizer.intakeBatch("ag", "u", "upload")).toBeNull();
+    expect(repo.listRuns("ag", "u")).toHaveLength(0);
+  });
+
+  it("重新编目进行中时不取件", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "内容");
+    repo.setReclassifyRun("ag", "u", {
+      runId: "r1",
+      status: "running",
+      scope: { kind: "all" },
+      total: 0,
+      processed: 0,
+      droppedInvalid: 0,
+      unchanged: 0,
+      candidates: [],
+      error: null,
+      createdAt: "2026-08-29T00:00:00.000Z",
+      updatedAt: "2026-08-29T00:00:00.000Z",
+    });
+
+    const organizer = new WikiOrganizer(repo, forbiddenLLM, new WikiContentExtractor());
+    expect(await organizer.intakeBatch("ag", "u", "upload")).toBeNull();
+    expect(repo.listInbox("ag", "u", "pending")).toHaveLength(1);
+  });
+
+  it("运行明细记 archived，路径为空（未分类没有归属路径）", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "纪要", "text/markdown", "纪要正文");
+
+    const organizer = new WikiOrganizer(repo, forbiddenLLM, new WikiContentExtractor());
+    await organizer.intakeBatch("ag", "u", "upload");
+
+    const detail = JSON.parse(repo.listRuns("ag", "u")[0]!.result_detail!) as {
+      items: { outcome: string; path: string; extract: string }[];
+    };
+    expect(detail.items).toHaveLength(1);
+    expect(detail.items[0]!.outcome).toBe("archived");
+    expect(detail.items[0]!.path).toBe("");
+    expect(detail.items[0]!.extract).toBe("preview");
+  });
+
+  it("单条落库失败时其余条目照常归档，run 记 partial", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "好的", "text/markdown", "正文 A");
+    hook.ingestUpload("ag", "u", "/tmp/b.md", "坏的", "text/markdown", "正文 B");
+
+    const organizer = new WikiOrganizer(repo, forbiddenLLM, new WikiContentExtractor());
+    const original = repo.fileInboxItemUnclassified.bind(repo);
+    let calls = 0;
+    repo.fileInboxItemUnclassified = ((item, title) => {
+      calls += 1;
+      if (calls === 1) throw new Error("磁盘写失败");
+      return original(item, title);
+    }) as typeof repo.fileInboxItemUnclassified;
+
+    const run = await organizer.intakeBatch("ag", "u", "upload");
+    expect(run!.status).toBe("partial");
+    expect(repo.listSourcesByTopic("ag", "u", { unfiled: true })).toHaveLength(1);
+    expect(repo.listInbox("ag", "u", "pending")).toHaveLength(1);
+  });
+});

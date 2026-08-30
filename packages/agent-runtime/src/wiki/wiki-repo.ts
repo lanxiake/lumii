@@ -47,6 +47,7 @@ import {
   type WikiPageStatus,
   type WikiRevisionEditor,
   type WikiSource,
+  type WikiStorageMode,
   type WikiSynthesis,
   type WikiSynthesisStatus,
 } from "./types.js";
@@ -339,6 +340,32 @@ export class WikiRepo {
     });
   }
 
+  /**
+   * 直接归档但不写主题：资料留在未分类状态。给「关掉 AI 自动分类，收件箱只做预处理」
+   * 的流程用。搜索条目的 source_url 记进 origin_url，让详情页能显示原文链接。
+   * 与 archiveInboxItem 同样是事务：建资料 → 建索引 → 标记已归档，中途失败一起回滚。
+   */
+  fileInboxItemUnclassified(item: WikiInboxItem, title?: string): WikiSource {
+    const originUrl = item.item_type === "search" && item.source_url ? item.source_url : null;
+
+    return withTransaction(this.db, () => {
+      const source = this.createSource({
+        agentId: item.agent_id,
+        userId: item.user_id,
+        title: title ?? item.title,
+        sourcePath: item.source_path ?? undefined,
+        contentMd: item.content_preview ?? undefined,
+        contentHash: item.content_hash ?? undefined,
+        mediaType: item.media_type,
+        extractedText: item.content_preview ?? undefined,
+        originUrl: originUrl ?? undefined,
+      });
+      this.indexSource(source.id);
+      this.markInboxOrganized(item.id, source.id);
+      return source;
+    });
+  }
+
 /**
    * 丢弃条目。
    * @returns 是否真的改了一行；false 表示 id 不存在（调用方据此报错而非静默成功）
@@ -390,16 +417,19 @@ export class WikiRepo {
     readonly mediaMeta?: string;
     readonly previewPath?: string;
     readonly originContext?: string;
+    readonly originUrl?: string;
+    readonly storageMode?: WikiStorageMode;
   }): WikiSource {
     const id = generateWikiId();
     const now = new Date().toISOString();
+    const storageMode = params.storageMode ?? "ref";
     this.db
       .prepare(
         `INSERT INTO wiki_sources
          (id, agent_id, user_id, title, source_path, content_md, content_hash, mime_type,
           media_type, extracted_text, media_meta, preview_path, origin_context, created_at,
-          topic_category, topic_subtopic, last_used, use_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          topic_category, topic_subtopic, last_used, use_count, origin_url, storage_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -420,6 +450,8 @@ export class WikiRepo {
         null,
         null,
         0,
+        params.originUrl ?? null,
+        storageMode,
       );
     return {
       id,
@@ -441,6 +473,8 @@ export class WikiRepo {
       topic_subtopic: null,
       last_used: null,
       use_count: 0,
+      origin_url: params.originUrl ?? null,
+      storage_mode: storageMode,
     };
   }
 
@@ -628,6 +662,58 @@ export class WikiRepo {
         "UPDATE wiki_sources SET topic_category = ?, topic_subtopic = ? WHERE id = ? AND agent_id = ? AND user_id = ?",
       )
       .run(category, subtopic, sourceId, agentId, userId);
+    if (info.changes === 0) throw new Error(`资料不存在: ${sourceId}`);
+    const source = this.findSourceById(sourceId);
+    if (!source) throw new Error(`资料不存在: ${sourceId}`);
+    return source;
+  }
+
+  /**
+   * 把资料退回未分类（两列置 NULL）。不走 validateTopicAssignment——清空不是一次归属，
+   * 没有「越权」可言；用户撤销误分类时不该被树校验挡住。
+   */
+  clearSourceTopic(agentId: string, userId: string, sourceId: string): WikiSource {
+    const info = this.db
+      .prepare(
+        "UPDATE wiki_sources SET topic_category = NULL, topic_subtopic = NULL WHERE id = ? AND agent_id = ? AND user_id = ?",
+      )
+      .run(sourceId, agentId, userId);
+    if (info.changes === 0) throw new Error(`资料不存在: ${sourceId}`);
+    const source = this.findSourceById(sourceId);
+    if (!source) throw new Error(`资料不存在: ${sourceId}`);
+    return source;
+  }
+
+  /**
+   * 写资料的来源与存放方式。两个字段都可选：只传一个时另一个保持原值，
+   * 便于「先记链接、后来才复制副本」这类分步更新。
+   */
+  setSourceStorage(
+    agentId: string,
+    userId: string,
+    sourceId: string,
+    params: { readonly originUrl?: string | null; readonly storageMode?: WikiStorageMode },
+  ): WikiSource {
+    const sets: string[] = [];
+    const args: unknown[] = [];
+    if (params.originUrl !== undefined) {
+      sets.push("origin_url = ?");
+      args.push(params.originUrl);
+    }
+    if (params.storageMode !== undefined) {
+      sets.push("storage_mode = ?");
+      args.push(params.storageMode);
+    }
+    if (sets.length === 0) {
+      const current = this.findSourceById(sourceId, agentId, userId);
+      if (!current) throw new Error(`资料不存在: ${sourceId}`);
+      return current;
+    }
+    const info = this.db
+      .prepare(
+        `UPDATE wiki_sources SET ${sets.join(", ")} WHERE id = ? AND agent_id = ? AND user_id = ?`,
+      )
+      .run(...args, sourceId, agentId, userId);
     if (info.changes === 0) throw new Error(`资料不存在: ${sourceId}`);
     const source = this.findSourceById(sourceId);
     if (!source) throw new Error(`资料不存在: ${sourceId}`);
@@ -1401,6 +1487,22 @@ export class WikiRepo {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
       )
       .run(key, value, new Date().toISOString());
+  }
+
+  /**
+   * 是否允许 AI 自动给收件箱条目分类。默认 false：分类是有主观判断的动作，
+   * 猜错会把资料塞进用户没预期的位置，比留在未分类更难发现。用户显式打开才生效。
+   */
+  getAutoClassifyEnabled(agentId: string, userId: string): boolean {
+    return this.getIndexMeta(this.autoClassifyKey(agentId, userId)) === "1";
+  }
+
+  setAutoClassifyEnabled(agentId: string, userId: string, enabled: boolean): void {
+    this.setIndexMeta(this.autoClassifyKey(agentId, userId), enabled ? "1" : "0");
+  }
+
+  private autoClassifyKey(agentId: string, userId: string): string {
+    return `wiki_auto_classify:${agentId}:${userId}`;
   }
 
   /** 删除一个元数据键 */

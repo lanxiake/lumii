@@ -441,3 +441,735 @@ it("重新编目 running 时依然不取件（沿用二期约束）", async () =
 - [ ] **Step 3: 实现** —— `bridge.ts` 构造 organizer 处显式传 `{ autoClassify: false }`（写死注释指向设计 §1.2，避免以后有人「顺手」打开）。检查 `useWikiTaskCenter` / 任务中心对 `archive` 任务的文案，`'inbox'` outcome 要有对应中文（「已收进收件箱」）。
 - [ ] **Step 4: 测试通过**（同时跑 `wiki-organize-queue.test.ts`，它可能断言了 organized 计数）
 - [ ] **Step 5: Commit** `feat(wiki): stop auto-classifying new sources by default`
+
+---
+
+### Task 4: 分区映射纯函数（D1/D3/D4）
+
+**Files:**
+- Create: `packages/agent-runtime/src/wiki/wiki-nav-map.ts`
+- Create: `packages/agent-runtime/src/wiki/wiki-nav-map.test.ts`
+- Modify: `packages/agent-runtime/src/wiki/index.ts`
+
+放在 agent-runtime 而非 renderer：分类建议提示词（`wiki:organize:suggest`）与未来 `wiki/` 目录 slug 都要用同一份映射，不能只活在 UI 里。
+
+**Interfaces:**
+
+```ts
+export type WikiNavId = "inbox" | "work" | "study" | "life" | "favorites" | "archive";
+
+export interface WikiNavSection {
+  readonly id: WikiNavId;
+  readonly label: string;
+  /** 归入本分区的旧大类；inbox 与 archive 为空（它们由 NULL / archived_at 判定） */
+  readonly legacyCategories: readonly string[];
+  /** 磁盘目录名（P1 用；P0 只做常量登记） */
+  readonly folderSlug: string;
+  /** 一句话边界，写进分类建议提示词与 UI tooltip */
+  readonly hint: string;
+}
+
+/** 顺序即左栏顺序 */
+export const WIKI_NAV_SECTIONS: readonly WikiNavSection[];
+
+/** 旧大类 → 分区；未映射的自定义大类归 work（不吞掉，避免用户新建大类后文件消失） */
+export function navIdFromLegacyCategory(category: string | null): WikiNavId;
+
+/** 分区 → 该分区涵盖的旧大类；inbox/archive 返回空数组 */
+export function legacyCategoriesForNav(navId: WikiNavId): readonly string[];
+
+/** 「移到…」确定时用哪个旧大类落库：取该分区首个旧大类 */
+export function primaryLegacyCategoryForNav(navId: WikiNavId): string | null;
+
+export function navLabel(navId: WikiNavId): string;
+```
+
+**映射表（D1：只映射一级）：**
+
+| navId | label | legacyCategories | folderSlug |
+|---|---|---|---|
+| `inbox` | 收件箱 | —（主题两列 NULL） | `00-收件箱` |
+| `work` | 工作 | 做事记录, 计划与复盘 | `01-工作` |
+| `study` | 学习 | 学习资料 | `02-学习` |
+| `life` | 生活 | 证件凭据, 随笔创作 | `03-生活` |
+| `favorites` | 收藏 | 模板参考 | `04-收藏` |
+| `archive` | 归档 | —（`archived_at IS NOT NULL`） | `05-归档` |
+
+`临时存放` **不**映射到任何分区（D4，由收件箱视图的筛选芯片承接）——`navIdFromLegacyCategory(PARKING_CATEGORY)` 必须显式返回 `"inbox"`，让它至少可见。
+
+- [ ] **Step 1: 写失败测试**
+
+```ts
+it("六大类各自落到正确分区", () => {
+  expect(navIdFromLegacyCategory("做事记录")).toBe("work");
+  expect(navIdFromLegacyCategory("计划与复盘")).toBe("work");
+  expect(navIdFromLegacyCategory("学习资料")).toBe("study");
+  expect(navIdFromLegacyCategory("证件凭据")).toBe("life");
+  expect(navIdFromLegacyCategory("随笔创作")).toBe("life");
+  expect(navIdFromLegacyCategory("模板参考")).toBe("favorites");
+});
+
+it("主题为空归收件箱，临时存放也归收件箱（不失踪）", () => {
+  expect(navIdFromLegacyCategory(null)).toBe("inbox");
+  expect(navIdFromLegacyCategory(PARKING_CATEGORY)).toBe("inbox");
+});
+
+it("用户自建大类兜底到工作，不被吞掉", () => {
+  expect(navIdFromLegacyCategory("外部协作")).toBe("work");
+});
+
+it("往返一致：分区的每个旧大类都能映射回该分区", () => {
+  for (const sec of WIKI_NAV_SECTIONS) {
+    for (const legacy of sec.legacyCategories) {
+      expect(navIdFromLegacyCategory(legacy)).toBe(sec.id);
+    }
+  }
+});
+
+it("inbox 与 archive 没有可写入的旧大类", () => {
+  expect(primaryLegacyCategoryForNav("inbox")).toBeNull();
+  expect(primaryLegacyCategoryForNav("archive")).toBeNull();
+  expect(primaryLegacyCategoryForNav("work")).toBe("做事记录");
+});
+
+it("六个分区顺序与设计 §3.1 一致", () => {
+  expect(WIKI_NAV_SECTIONS.map((s) => s.label)).toEqual(["收件箱","工作","学习","生活","收藏","归档"]);
+});
+```
+
+- [ ] **Step 2: 跑失败** `pnpm --filter ./packages/agent-runtime exec vitest run src/wiki/wiki-nav-map.test.ts`
+- [ ] **Step 3: 实现**（纯常量 + 查表，不碰 DB）
+- [ ] **Step 4: 测试通过**
+- [ ] **Step 5: Commit** `feat(wiki): map legacy topic categories to nav sections`
+
+---
+
+### Task 5: 左栏 6 分区 + WikiTab 接线（设计 §5.1）
+
+**Files:**
+- Create: `apps/windows/src/renderer/pages/MemoriesPage/components/wikiNavSections.ts`
+- Modify: `.../components/WikiLeftNav.tsx`
+- Modify: `.../components/WikiTab.tsx`、`WikiTab.css`
+- Modify: `apps/windows/src/test/components/WikiTab.test.tsx`
+- Modify: `.../hooks/business/useWikiPage/useWikiPage.ts`
+
+**Interfaces:**
+
+`WikiNav`（定义在 `WikiLeftNav.tsx:5-14`）**加一个 kind，其余保留**——`graph`/`cleanup`/`synthesis`/`reclassify`/`history`/`parking` 仍需存在，只是改由 ⋯ 菜单或筛选芯片进入：
+
+```ts
+export type WikiNav =
+  | { kind: 'inbox' } | { kind: 'parking' } | { kind: 'graph' } | { kind: 'history' }
+  | { kind: 'cleanup' } | { kind: 'synthesis' } | { kind: 'reclassify' }
+  | { kind: 'archive' }                                   // 新增（D3）
+  | { kind: 'category'; name: string }                    // name 改存 WikiNavId
+  | { kind: 'subtopic'; category: string; subtopic: string }  // category 仍是旧大类真名
+```
+
+**注意这里的不对称**（务必按此实现，否则计数与查询会错位）：`{ kind: 'category' }` 的 `name` 存**分区 id**（一个分区可能横跨两个旧大类，存单个旧大类表达不了）；`{ kind: 'subtopic' }` 的 `category` 存**旧大类真名**（小类只属于一个旧大类，D1 不改小类）。
+
+```ts
+// WikiLeftNavProps —— 去掉 tree/parkingCount，改传分区计数
+interface WikiLeftNavProps {
+  active: WikiNav | { kind: 'more' }
+  /** key = WikiNavId，值为该分区可见资料数 */
+  navCounts: Record<WikiNavId, number>
+  /** 收件箱角标：未分类资料 + inbox pending 条目 */
+  inboxBadge: number
+  moreButtonRef?: React.RefObject<HTMLButtonElement>
+  onSelect: (nav: WikiNav) => void
+  onOpenMore: () => void
+  onOpenSearch: () => void
+}
+```
+
+左栏结构：6 个分区按钮（`WIKI_NAV_SECTIONS` 顺序，收件箱带角标）→ 分隔线 → 「搜索」→ 底部「⋯ 更多」。**删除**「待整理 / 知识图谱 / 临时存放」三个固定项与整棵用途树渲染（`WikiLeftNav.tsx:88-144`）。小类不再进左栏——改为主列表内的小类芯片行（Task 7）。
+
+`WikiTab` 侧：
+- `navCounts` 由现有全量 `sources` 数组 `useMemo` 出来（`navIdFromLegacyCategory(s.topic_category)` 分桶）
+- 归档分区按需拉取：`nav.kind === 'archive'` 时调 `listSources({ archived: true })`，结果存独立 state，**不混进 `sources`**（否则其它分区计数会被污染）
+- `useWikiPage.listSources` 的 filter 类型加 `archived?: boolean`，透传给 `wiki:source:list`
+- 默认落地分区：收件箱（沿用现有 `{ kind: 'inbox' }` 初值）
+
+- [ ] **Step 1: 写失败测试**（`WikiTab.test.tsx`；现有第一个用例断言的是旧用途树，需整体重写）
+
+```tsx
+it("左栏只渲染六个分区加搜索，不含旧固定项", async () => {
+  render(<WikiTab />)
+  for (const label of ['收件箱','工作','学习','生活','收藏','归档','搜索']) {
+    expect(await screen.findByRole('button', { name: new RegExp(label) })).toBeInTheDocument()
+  }
+  expect(screen.queryByRole('button', { name: /待整理/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /知识图谱/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /临时存放/ })).not.toBeInTheDocument()
+})
+
+it("旧数据按映射出现在新分区：做事记录 → 工作", async () => {
+  const send = mockSendCommand({
+    'wiki:source:list': { sources: [
+      { id: 's1', title: '周报.docx', topicCategory: '做事记录', topicSubtopic: '汇报总结文稿' },
+      { id: 's2', title: '教程.pdf', topicCategory: '学习资料', topicSubtopic: '调研搜集材料' },
+    ] },
+  })
+  render(<WikiTab />)
+  await userEvent.click(await screen.findByRole('button', { name: /工作/ }))
+  expect(await screen.findByText('周报.docx')).toBeInTheDocument()
+  expect(screen.queryByText('教程.pdf')).not.toBeInTheDocument()
+})
+
+it("计划与复盘 也归到工作分区", async () => { /* 同上，topicCategory: '计划与复盘' */ })
+
+it("收件箱角标 = 未分类资料 + pending 条目", async () => {
+  // sources 里 2 条 topicCategory=null，wiki:inbox:count 返回 1 → 角标 3
+  render(<WikiTab />)
+  expect(await screen.findByRole('button', { name: /收件箱\s*3/ })).toBeInTheDocument()
+})
+
+it("点归档分区时按 archived 过滤重新拉取", async () => {
+  const send = mockSendCommand({})
+  render(<WikiTab />)
+  await userEvent.click(await screen.findByRole('button', { name: /归档/ }))
+  await waitFor(() => expect(send).toHaveBeenCalledWith(
+    expect.objectContaining({ type: 'wiki:source:list', archived: true })))
+})
+```
+
+- [ ] **Step 2: 跑失败**
+- [ ] **Step 3: 实现**
+- [ ] **Step 4:** `pnpm --filter ./apps/windows exec vitest run src/test/components/WikiTab.test.tsx` + typecheck
+- [ ] **Step 5: Commit** `feat(wiki-ui): replace topic tree nav with six plain sections`
+
+---
+
+### Task 6: 添加链接 + 保存网页内容（后端，设计 §5.6 / §6.1 / §6.2）
+
+**Files:**
+- Create: `packages/agent-runtime/src/wiki/wiki-clip-saver.ts` + `.test.ts`
+- Modify: `packages/agent-runtime/src/tools/built-in/web-fetch-tool.ts`（导出 `htmlToMarkdown`）
+- Modify: `apps/windows/src/shared/agent-runtime-commands.ts`
+- Modify: `apps/windows/src/main/ipc/agent-runtime/wiki-commands.ts` + `.test.ts`
+- Modify: `apps/windows/src/main/ipc/agent-runtime-ipc.ts`、`command-allowlist.ts`
+- Modify: `apps/windows/src/main/agent-runtime/bridge.ts`、`bridge-wiki-tools.ts`
+
+**Interfaces:**
+
+```ts
+// wiki-clip-saver.ts —— 注入 fetch，保持 agent-runtime 可测且不依赖 Electron
+export interface WikiClipSaverDeps {
+  readonly fetchImpl?: typeof fetch;
+  /** 落盘；P0 由 main 传入写 outputs 的实现，P1 改写 wiki/ 目录（D5） */
+  readonly writeFile: (relPath: string, content: string) => Promise<string>;
+  readonly timeoutSeconds?: number;
+}
+
+export interface WikiClipResult {
+  readonly title: string;
+  readonly markdown: string;
+  /** writeFile 返回的绝对路径 */
+  readonly savedPath: string;
+}
+
+export class WikiClipSaver {
+  constructor(deps: WikiClipSaverDeps);
+  /** 抓取并转 md。非 http(s)、超时、非 2xx 一律抛中文错误（调用方保留 url-ref 供重试） */
+  async save(url: string, fallbackTitle: string): Promise<WikiClipResult>;
+}
+```
+
+IPC：
+
+```ts
+{ type: 'wiki:link:add'; agentId?: string; sessionKey?: string; url: string; title?: string }
+// result: { sourceId: string; title: string }
+// 行为：直接建未分类 source（storage_mode='ref', origin_url=url），不进 inbox 队列、不抓取（D7）
+// title 缺省时用 hostname；非 http(s) 抛中文错误
+
+{ type: 'wiki:link:save'; agentId?: string; sourceId: string }
+// result: { sourceId: string; savedPath: string; title: string }
+// 行为：读 origin_url → clipSaver.save → repo.setSourceStorage(storageMode:'native', …) → indexSource
+// origin_url 为空时抛「这条资料没有网址，无法保存网页内容」
+
+{ type: 'wiki:source:clear-topic'; agentId?: string; sourceId: string }
+// result: { id: string }
+// 行为：repo.clearSourceTopic —— 详情/⋯ 的「退回收件箱」
+```
+
+`wiki:link:add` **不走 inbox 队列**：队列的价值是异步抽取正文，而 url-ref 没有正文可抽（D7），过队列只会让「粘贴完立刻看到」变成「等 30s 轮询」。设计 §6.1 的时序图也是 Main 直接写库。
+
+`mapSourceListItem` 与 `wiki:source:get` 的返回都要带 `originUrl` 与 `storageMode`（Task 9 的 UI 依赖）。
+
+Agent 工具（`bridge-wiki-tools.ts`）：新增 `wiki_save_link`，描述里写明**只存链接不下载正文**；正文下载不给 Agent 自主权（设计 §5.4「Agent 侧同理：只建 ref」），需要正文时由用户在 UI 点。
+
+- [ ] **Step 1: 写失败测试**
+
+```ts
+// wiki-clip-saver.test.ts
+it("抓取 HTML 转 md 并落盘", async () => {
+  const saver = new WikiClipSaver({
+    fetchImpl: async () => new Response('<html><head><title>示例</title></head><body><h1>标题</h1><p>正文</p></body></html>',
+      { status: 200, headers: { 'content-type': 'text/html' } }),
+    writeFile: async (rel, content) => { written = content; return `/tmp/${rel}` },
+  });
+  const r = await saver.save('https://example.com/a', '兜底标题');
+  expect(r.title).toBe('示例');
+  expect(r.markdown).toContain('正文');
+  expect(r.savedPath).toMatch(/^\/tmp\//);
+});
+
+it("非 http(s) 直接拒绝，不发请求", async () => {
+  const fetchImpl = vi.fn();
+  const saver = new WikiClipSaver({ fetchImpl, writeFile: async () => '' });
+  await expect(saver.save('file:///etc/passwd', 't')).rejects.toThrow();
+  expect(fetchImpl).not.toHaveBeenCalled();
+});
+
+it("非 2xx 抛错且不落盘", async () => {
+  const writeFile = vi.fn();
+  const saver = new WikiClipSaver({ fetchImpl: async () => new Response('', { status: 404 }), writeFile });
+  await expect(saver.save('https://e.com/a', 't')).rejects.toThrow(/404|失败/);
+  expect(writeFile).not.toHaveBeenCalled();
+});
+```
+
+```ts
+// wiki-commands.test.ts
+it("link:add 建出未分类的 url 引用，不抓取", async () => {
+  const r = await handleWikiLinkAdd(bridge, { type: 'wiki:link:add', url: 'https://e.com/a', title: '示例文章' } as never)
+  const s = bridge.wikiRepo.findSourceById(r.sourceId)!
+  expect(s.topic_category).toBeNull()
+  expect(s.origin_url).toBe('https://e.com/a')
+  expect(s.storage_mode).toBe('ref')
+  expect(s.extracted_text).toBeFalsy()
+})
+
+it("link:add 缺 title 时用域名兜底；非法 url 拒绝", async () => {
+  const r = await handleWikiLinkAdd(bridge, { type: 'wiki:link:add', url: 'https://example.com/x' } as never)
+  expect(bridge.wikiRepo.findSourceById(r.sourceId)!.title).toContain('example.com')
+  await expect(handleWikiLinkAdd(bridge, { type: 'wiki:link:add', url: 'notaurl' } as never)).rejects.toThrow()
+})
+
+it("link:save 把 ref 变 native 并写入正文", async () => {
+  const added = await handleWikiLinkAdd(bridge, { type: 'wiki:link:add', url: 'https://e.com/a' } as never)
+  await handleWikiLinkSave(bridge, { type: 'wiki:link:save', sourceId: added.sourceId } as never)
+  const s = bridge.wikiRepo.findSourceById(added.sourceId)!
+  expect(s.storage_mode).toBe('native')
+  expect(s.extracted_text).toBeTruthy()
+  expect(s.origin_url).toBe('https://e.com/a')
+})
+
+it("对无 origin_url 的资料调 link:save 报中文错误", async () => {
+  const s = bridge.wikiRepo.createSource({ agentId: 'assistant', userId: 'local-user', title: 'a.pdf' })
+  await expect(handleWikiLinkSave(bridge, { type: 'wiki:link:save', sourceId: s.id } as never))
+    .rejects.toThrow(/网址/)
+})
+```
+
+- [ ] **Step 2: 跑失败**
+- [ ] **Step 3: 实现**
+
+`htmlToMarkdown`（`web-fetch-tool.ts:89`）改为 `export function`，从 `wiki-clip-saver.ts` 导入复用；`validateUrl` / `withTimeout` 从 `web-shared.ts` 取。落盘路径 P0 沿用 `outputs/wiki-clips/<id>-<slug>.md`（`sanitizeFilenameSegment` + `resolveUniqueFilename` 已在 `wiki-exporter.ts` 导出），P1 迁 `wiki/`。四个新命令记得同步 `agent-runtime-ipc.ts` 的 switch 与 `command-allowlist.ts`。
+
+- [ ] **Step 4: 测试通过 + typecheck**
+- [ ] **Step 5: Commit** `feat(wiki): add url references and on-demand page clipping`
+
+---
+
+### Task 7: 列表整行可点 + 行尾仅 ⋯（设计 §5.2）
+
+**Files:**
+- Create: `.../components/WikiFileRowMenu.tsx` + `apps/windows/src/test/components/WikiFileRowMenu.test.tsx`
+- Modify: `.../components/WikiFileList.tsx`
+- Modify: `apps/windows/src/test/components/WikiFileList.test.tsx`
+- Modify: `.../components/WikiTab.tsx`、`WikiTab.css`
+
+**现状**：`WikiFileList` 每行是 3–4 个平铺按钮（详情 / 打开 / 移动 / 存到临时存放），整行不可点，且**没有任何行内菜单组件可复用**。
+
+**Interfaces:**
+
+```tsx
+interface WikiFileRowMenuProps {
+  readonly item: WikiSourceListItem
+  readonly onMove: () => void
+  /** 仅 storageMode==='ref' 且有 originUrl 时给 */
+  readonly onSaveWebPage?: () => void
+  /** 仅 storageMode==='ref' 且有 sourcePath 时给（P2 实现，P0 传 undefined 即隐藏） */
+  readonly onMaterialize?: () => void
+  readonly onPark?: () => void
+  readonly onBackToInbox?: () => void
+  readonly onOpenOriginal?: () => void
+  readonly onDelete: () => void
+}
+```
+
+菜单项顺序（设计 §5.2）：移到… · 保存网页内容 · 迁入 wiki · 稍后处理 · 退回收件箱 · 打开原文件 · 删除。传 `undefined` 的项不渲染。
+
+`WikiFileListProps` 变更：
+- **新增** `onPreview` 语义提升为整行点击（`<li>` 上挂 `onClick` + `role="button"` + `tabIndex={0}` + Enter/Space 键盘处理，满足 AGENTS.md 第 4 条可访问性）
+- **删除** 平铺的 `onOpen` / `onMove` / `onPark` 按钮渲染，改由 `WikiFileRowMenu` 承接（props 本身保留，因为 CleanupView 等调用点还在用）
+- 行内 ⋯ 按钮 `stopPropagation`，避免打开菜单同时开抽屉
+- 副标题：链接类显示域名（`new URL(originUrl).hostname`），文件类显示小类 + 相对时间
+- 角标：`storageMode==='ref' && originUrl` → 「链接」；`storageMode==='ref' && sourcePath` → 「引用」。小字弱化，不抢眼
+- 保留 `selectable` / `headerActions`（二期已有，收件箱批量移动 P1 要用）
+
+**小类芯片行**（替代被删掉的左栏小类）：分区视图顶部渲染该分区涵盖的旧大类下所有小类芯片，点击切到 `{ kind: 'subtopic', category: 旧大类真名, subtopic }`。芯片按 `(旧大类, 小类)` 生成，跨两个旧大类的分区（工作/生活）芯片会来自两棵子树——**芯片上不显示旧大类名**，只显示小类名；同名小类（如两个大类都有 `整合长文`）需合并显示为一个芯片并同时过滤两个 `(category, subtopic)` 组合。
+
+- [ ] **Step 1: 写失败测试**
+
+```tsx
+// WikiFileList.test.tsx
+it("点整行触发预览，不再有平铺的详情/打开/移动按钮", async () => {
+  const onPreview = vi.fn()
+  render(<WikiFileList items={[fileItem]} emptyHint="" onPreview={onPreview} {...cbs} />)
+  await userEvent.click(screen.getByRole('button', { name: /Q3报告\.pdf/ }))
+  expect(onPreview).toHaveBeenCalledWith(fileItem)
+  expect(screen.queryByRole('button', { name: '详情' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '打开' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '移动' })).not.toBeInTheDocument()
+})
+
+it("键盘 Enter 也能打开预览", async () => {
+  const onPreview = vi.fn()
+  render(<WikiFileList items={[fileItem]} emptyHint="" onPreview={onPreview} {...cbs} />)
+  screen.getByRole('button', { name: /Q3报告\.pdf/ }).focus()
+  await userEvent.keyboard('{Enter}')
+  expect(onPreview).toHaveBeenCalled()
+})
+
+it("点 ⋯ 不触发整行预览", async () => {
+  const onPreview = vi.fn()
+  render(<WikiFileList items={[fileItem]} emptyHint="" onPreview={onPreview} {...cbs} />)
+  await userEvent.click(screen.getByLabelText('更多操作 Q3报告.pdf'))
+  expect(onPreview).not.toHaveBeenCalled()
+  expect(screen.getByRole('button', { name: '移到…' })).toBeInTheDocument()
+})
+
+it("链接类显示域名与「链接」角标", () => {
+  render(<WikiFileList items={[{ ...urlItem, originUrl: 'https://zhuanlan.zhihu.com/p/1', storageMode: 'ref' }]} emptyHint="" {...cbs} />)
+  expect(screen.getByText('zhuanlan.zhihu.com')).toBeInTheDocument()
+  expect(screen.getByText('链接')).toBeInTheDocument()
+})
+```
+
+```tsx
+// WikiFileRowMenu.test.tsx
+it("未保存的链接才有「保存网页内容」", async () => {
+  render(<WikiFileRowMenu item={urlRefItem} onSaveWebPage={vi.fn()} {...req} />)
+  expect(screen.getByRole('button', { name: '保存网页内容' })).toBeInTheDocument()
+})
+
+it("已保存网页不显示「保存网页内容」", () => {
+  render(<WikiFileRowMenu item={nativeItem} {...req} />)   // onSaveWebPage 不传
+  expect(screen.queryByRole('button', { name: '保存网页内容' })).not.toBeInTheDocument()
+})
+```
+
+- [ ] **Step 2: 跑失败**
+- [ ] **Step 3: 实现**（⋯ 菜单沿用 `WikiMoreMenu.tsx:71-83` 的 outside-click `mousedown` 关闭写法，保持一致）
+- [ ] **Step 4: 测试通过**
+- [ ] **Step 5: Commit** `feat(wiki-ui): make rows preview-first with a single overflow menu`
+
+---
+
+### Task 8: 「移到…」弹层（设计 §5.5）
+
+**Files:**
+- Modify: `.../components/WikiTopicPicker.tsx`
+- Modify: `apps/windows/src/test/components/WikiTopicPicker.test.tsx`
+- Modify: `.../components/WikiTab.tsx`
+
+**现状**：`WikiTopicPicker` 已是两步选择（大类网格 → 小类网格）+ 可选 AI 建议 props，且已排除 `PARKING_CATEGORY`。P0 **改造而非新建**（草稿计划的 `WikiMovePicker.tsx` 作废）。
+
+**改动：**
+1. 第一步的芯片从「旧六大类」换成 **5 个分区**（工作/学习/生活/收藏/归档；无收件箱——移动的目的就是离开收件箱）
+2. 选分区后，小类候选 = 该分区涵盖旧大类下的**真实小类**（D1）；跨两个旧大类时合并展示，每个候选内部记住自己的旧大类
+3. **归档分区无小类**，选中即可确定（走 `wiki:source:archive`，见下）
+4. AI 建议保持灰色小字一行、不预选（设计 §5.5）
+5. 弹层必须 `layer={WIKI_MODAL_LAYER}`（现有代码已在 `WikiTopicPicker.tsx:70` 用了，别丢）
+
+```ts
+interface WikiTopicPickerProps {
+  open: boolean
+  tree: WikiTopicTree | null
+  title?: string                        // 默认改成「移到…」
+  itemTitle?: string
+  /** 归档走 archive 命令而非 update-topic，故单独回调（D3） */
+  onConfirmArchive?: () => void
+  onConfirm: (category: string, subtopic: string) => void   // category 仍是旧大类真名
+  onCancel: () => void
+  // 既有 AI 建议 props 不变
+  onRequestSuggestion?: () => void
+  suggestion?: { category: string; subtopic: string; reason: string } | null
+  suggestionState?: 'idle' | 'loading' | 'failed'
+  onAdoptSuggestion?: () => void
+}
+```
+
+`onConfirm` 仍回传**旧大类真名**——这样 `WikiTab` 的 `handleConfirmPicker`（`WikiTab.tsx:363-379`）与 `updateSourceTopic` 完全不用改，映射只发生在 Picker 内部。
+
+- [ ] **Step 1: 写失败测试**
+
+```tsx
+it("第一步显示五个分区，不含收件箱与临时存放", () => {
+  render(<WikiTopicPicker open tree={DEFAULT_TREE} {...cbs} />)
+  for (const l of ['工作','学习','生活','收藏','归档']) expect(screen.getByRole('button', { name: l })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '收件箱' })).not.toBeInTheDocument()
+  expect(screen.queryByText('临时存放')).not.toBeInTheDocument()
+})
+
+it("选「工作」后合并展示 做事记录 与 计划与复盘 的小类", async () => {
+  render(<WikiTopicPicker open tree={DEFAULT_TREE} {...cbs} />)
+  await userEvent.click(screen.getByRole('button', { name: '工作' }))
+  expect(screen.getByRole('button', { name: '汇报总结文稿' })).toBeInTheDocument()   // 做事记录
+  expect(screen.getByRole('button', { name: '目标规划方案' })).toBeInTheDocument()   // 计划与复盘
+})
+
+it("确定时回传该小类真实所属的旧大类", async () => {
+  const onConfirm = vi.fn()
+  render(<WikiTopicPicker open tree={DEFAULT_TREE} onConfirm={onConfirm} {...cbs} />)
+  await userEvent.click(screen.getByRole('button', { name: '工作' }))
+  await userEvent.click(screen.getByRole('button', { name: '目标规划方案' }))
+  await userEvent.click(screen.getByRole('button', { name: '确定' }))
+  expect(onConfirm).toHaveBeenCalledWith('计划与复盘', '目标规划方案')
+})
+
+it("选「收藏」回传 模板参考", async () => { /* → onConfirm('模板参考', '各类文档模板') */ })
+
+it("归档分区无小类，确定走 onConfirmArchive", async () => {
+  const onConfirmArchive = vi.fn(); const onConfirm = vi.fn()
+  render(<WikiTopicPicker open tree={DEFAULT_TREE} onConfirm={onConfirm} onConfirmArchive={onConfirmArchive} {...cbs} />)
+  await userEvent.click(screen.getByRole('button', { name: '归档' }))
+  await userEvent.click(screen.getByRole('button', { name: '确定' }))
+  expect(onConfirmArchive).toHaveBeenCalled()
+  expect(onConfirm).not.toHaveBeenCalled()
+})
+
+it("AI 建议只是一行灰字，不预选任何小类", () => {
+  render(<WikiTopicPicker open tree={DEFAULT_TREE} suggestion={{ category: '模板参考', subtopic: '各类文档模板', reason: '链接类' }} {...cbs} />)
+  expect(screen.getByText(/建议/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '各类文档模板' })).not.toHaveAttribute('aria-pressed', 'true')
+})
+```
+
+- [ ] **Step 2: 跑失败**
+- [ ] **Step 3: 实现**（`WikiTab` 的 `PickerTarget` 联合类型不变；只在 `handleConfirmPicker` 旁加 archive 分支）
+- [ ] **Step 4: 测试通过**
+- [ ] **Step 5: Commit** `feat(wiki-ui): move dialog picks nav sections instead of legacy categories`
+
+---
+
+### Task 9: 详情抽屉链接卡片 + 保存网页（设计 §5.3 / §5.6）
+
+**Files:**
+- Modify: `.../components/WikiSourceDetailDrawer.tsx`
+- Modify: `.../components/wikiSourcePreview.ts`
+- Create: `.../components/WikiAddLinkModal.tsx` + 测试
+- Modify: `apps/windows/src/test/components/WikiSourceDetailDrawer.test.tsx`（不存在则新建）
+- Modify: `.../components/WikiTab.tsx`、`.../useWikiPage.ts`
+
+**现状**：抽屉已能按 `resolvePreviewMode()` 分 `'web' | 'file' | 'text-only'`，已有 `在浏览器打开`，已用 `<webview>` 内嵌网页。**缺**「保存网页内容」，且 URL 靠 `parseOriginalUrlFromContext()` 正则反解。
+
+**改动：**
+1. `resolveSourceUrl()` 改为优先读 `originUrl` 字段，正则仅作存量兜底（D2）
+2. `storageMode === 'ref' && originUrl` → 渲染**链接卡片**：标题 + 域名 + 说明「仅保存了链接；需要离线阅读请点下方保存」+ 文字链「在浏览器打开」
+3. 底栏最多 3 个按钮（设计 §5.3）：**移到…** · **保存网页内容**（仅 url-ref）· **迁入 wiki**（仅 file-ref，P0 不实现则不渲染）
+4. 「打开原文件 / 打开链接」降为正文区文字链，**不占底栏**
+5. 保存中：按钮 loading 且禁用；成功 → 重新 `getSource` 刷新为 md 预览；失败 → toast + 保留 url-ref 可重试（设计 §5.6）
+6. `WikiAddLinkModal`：URL（必填、trim、http(s) 校验）+ 标题（可选）→ 调 `addLink` → toast「已加入收件箱」→ 刷新列表。`layer={WIKI_MODAL_LAYER}`
+
+- [ ] **Step 1: 写失败测试**
+
+```tsx
+it("未保存的链接显示链接卡片与保存按钮，不渲染 webview", async () => {
+  render(<WikiSourceDetailDrawer sourceId="s1" {...cbs} />)   // getSource → storageMode:'ref', originUrl:'https://e.com/a'
+  expect(await screen.findByText(/仅保存了链接/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '保存网页内容' })).toBeInTheDocument()
+  expect(document.querySelector('webview')).toBeNull()
+})
+
+it("点保存网页内容调 wiki:link:save 并刷新为正文", async () => {
+  const send = mockSendCommand({ 'wiki:link:save': { sourceId: 's1', savedPath: '/w/a.md', title: '示例' } })
+  render(<WikiSourceDetailDrawer sourceId="s1" {...cbs} />)
+  await userEvent.click(await screen.findByRole('button', { name: '保存网页内容' }))
+  await waitFor(() => expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'wiki:link:save', sourceId: 's1' })))
+  expect(await screen.findByText(/正文/)).toBeInTheDocument()
+})
+
+it("保存失败时保留链接卡片并可重试", async () => {
+  const send = mockSendCommand({ 'wiki:link:save': () => { throw new Error('抓取失败') } })
+  render(<WikiSourceDetailDrawer sourceId="s1" {...cbs} />)
+  await userEvent.click(await screen.findByRole('button', { name: '保存网页内容' }))
+  expect(await screen.findByText(/失败/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '保存网页内容' })).toBeEnabled()
+})
+
+it("已保存网页不再显示保存按钮", async () => { /* storageMode:'native' */ })
+
+it("本地文件引用底栏无「保存网页内容」", async () => { /* storageMode:'ref', sourcePath 有值、originUrl 空 */ })
+
+it("添加链接弹层校验非法 URL 且不发命令", async () => {
+  const onAdd = vi.fn()
+  render(<WikiAddLinkModal open onAdd={onAdd} {...cbs} />)
+  await userEvent.type(screen.getByLabelText(/网址/), 'notaurl')
+  await userEvent.click(screen.getByRole('button', { name: '添加' }))
+  expect(onAdd).not.toHaveBeenCalled()
+  expect(screen.getByText(/网址/)).toBeInTheDocument()
+})
+```
+
+- [ ] **Step 2: 跑失败**
+- [ ] **Step 3: 实现**（`WikiTab` 顶部加「+ 添加文件」「+ 添加链接」两个入口，设计 §5.4）
+- [ ] **Step 4: 测试通过 + typecheck**
+- [ ] **Step 5: Commit** `feat(wiki-ui): preview links as cards with opt-in page saving`
+
+---
+
+### Task 10: ⋯ 补图谱 + 收件箱合并 + 全量回归
+
+**Files:**
+- Modify: `.../components/WikiMoreMenu.tsx` + `WikiMoreMenu.test.tsx`
+- Modify: `.../components/WikiInboxPanel.tsx` + 测试
+- Modify: `.../components/wikiStatusLabels.ts`
+- Modify: `.../components/WikiTab.tsx`
+- Create: `docs/test/lumii-cli/wiki-vault-p0-test-cases.md`
+
+**改动：**
+1. `WikiMoreMenu` 的 `MENU_ITEMS` **补「知识图谱」**（现有 6 项已含重编目/编辑主题树/历史页面/清理/综述/重建索引），props 加 `onGraph: () => void`；左栏图谱入口已在 Task 5 删除
+2. `WikiInboxPanel` 合并三段为一个列表：inbox pending 条目 + 未分类资料（原「待补分」）；顶部加「稍后处理 (N)」筛选芯片（D4），点击切 `{ kind: 'parking' }`
+3. 全局文案：「待整理」「待补分」→「收件箱」（`wikiStatusLabels.ts` 与各组件 copy）
+4. 任务中心：`'inbox'` outcome 的中文文案（「已收进收件箱」）
+
+- [ ] **Step 1: 写失败测试**
+
+```tsx
+it("⋯ 菜单含知识图谱，左栏不含", async () => {
+  render(<WikiTab />)
+  expect(screen.queryByRole('button', { name: /知识图谱/ })).not.toBeInTheDocument()
+  await userEvent.click(await screen.findByRole('button', { name: /更多/ }))
+  expect(screen.getByRole('button', { name: /知识图谱/ })).toBeInTheDocument()
+})
+
+it("收件箱同时列出待处理条目与未分类资料", async () => {
+  render(<WikiTab />)   // inbox:list 1 条 pending + source:list 含 1 条 topicCategory:null
+  expect(await screen.findByText('待处理.pdf')).toBeInTheDocument()
+  expect(await screen.findByText('未分类.pdf')).toBeInTheDocument()
+})
+
+it("收件箱有稍后处理筛选芯片", async () => {
+  render(<WikiTab />)
+  expect(await screen.findByRole('button', { name: /稍后处理/ })).toBeInTheDocument()
+})
+
+it("界面不再出现「待整理」「待补分」字样", async () => {
+  render(<WikiTab />)
+  await screen.findByRole('button', { name: /收件箱/ })
+  expect(screen.queryByText(/待整理/)).not.toBeInTheDocument()
+  expect(screen.queryByText(/待补分/)).not.toBeInTheDocument()
+})
+```
+
+- [ ] **Step 2: 跑失败**
+- [ ] **Step 3: 实现**
+- [ ] **Step 4: 全量回归**
+
+```powershell
+pnpm --filter ./packages/agent-runtime exec vitest run src/wiki src/storage/schema-wiki.test.ts
+pnpm --filter ./apps/windows exec vitest run src/test/components src/main/ipc/agent-runtime/wiki-commands.test.ts src/main/agent-runtime/bridge-wiki-tools.test.ts
+pnpm typecheck
+pnpm --filter ./apps/windows lint
+```
+
+预期需要连带修的红灯：`WikiTab.test.tsx`（旧左栏断言，Task 5 已重写）、`WikiFileList.test.tsx`（平铺按钮断言）、`WikiTopicPicker.test.tsx`（六大类断言）、`wiki-organize-queue.test.ts`（organized 计数）、`bridge-wiki-tools.test.ts`（新增工具）。
+
+- [ ] **Step 5: Commit** `test(wiki): fix regressions after ref-first p0 redesign`
+
+---
+
+## 5. 手测清单（执行者必做，结论写进 PR）
+
+前 7 条对应设计 §10 的确认项，后 5 条是回归。
+
+1. 上传 PDF → 出现在**收件箱**，主题为空；等两轮轮询（≥60s）仍在收件箱，**没被 AI 分走**
+2. 添加链接（知乎/微信文章）→ 收件箱出现一行，副标题是域名，角标「链接」；抽屉只有链接卡片**无正文**
+3. 该链接点「保存网页内容」→ 几秒后抽屉变 Markdown 正文；再打开 ⋯，「保存网页内容」**已消失**
+4. 保存网页时断网 → 报错 toast，链接卡片仍在，可重试
+5. ⋯ → 移到… → 工作 → 汇报总结文稿 → 确定 → 该条出现在「工作」分区；DB 里 `topic_category` 是 `做事记录`（映射生效）
+6. 移到… → 归档 → 确定 → 条目从原分区消失，出现在「归档」分区
+7. 存量数据：一条 `计划与复盘` 的旧文件 → 在「工作」分区可见；一条 `模板参考` → 在「收藏」可见
+8. 整行点击开抽屉；点行尾 ⋯ **不**开抽屉；键盘 Tab 到行后 Enter 能开
+9. 抽屉与「移到…」弹层在设置 Hub 内**不被菜单遮挡**（`WIKI_MODAL_LAYER` 生效）
+10. ⋯ → 知识图谱 / 清理 / 综述 / 编辑主题树 / 重建索引 / 全库重编目 六项仍可正常进入
+11. 收件箱里「稍后处理」芯片能切到 `临时存放` 的旧文件（不失踪，D4）
+12. 搜索仍能命中已保存网页的正文（`indexSource` 在 `link:save` 后被调用）
+
+---
+
+## 6. P1+ Backlog（本计划不实施）
+
+| 项 | 说明 | 期 |
+|---|---|---|
+| `wiki/` 物理目录 + `.lumii-ref` | `WikiVaultLayout` / `WikiRefStore`；注意 agent-runtime 不得依赖 Electron，root 需注入（D5） | P1 |
+| `resolveWikiDir()` | 照 `workspace-paths.ts` 既有 helper 模式加 `{workspace}/wiki` | P1 |
+| 主题树一次性迁移到稀疏小类 | 用 `planTopicMutation` / `mergeSubtopic` 把小类收敛为设计 §3.2 那张表（D1 的后续） | P1 |
+| `wiki:link:save` 落盘改写 `wiki/` | P0 写 `outputs/wiki-clips/` | P1 |
+| 收件箱多选 + 批量移到… | `WikiFileList` 的 `selectable`/`headerActions` 已就绪 | P1 |
+| `wiki:source:materialize` | file-ref 复制进 wiki（**复制**，原文件保留） | P2 |
+| 失效 ref 检测 | 复用 `wiki-cleanup.ts` 的 `broken_source` 规则 | P2 |
+| 列表改服务端过滤 | D8 的已知债务，超约 2000 条资料后必须做 | P2 |
+| 批量 AI 分类（预览确认） | 复用 `autoClassify: true` 分支 | P3 |
+| 「记住这类放这里」 | 设计 §3.3 明确标 P2 先不做 | P3 |
+| 定期整理提醒 | maintenance scan | P3 |
+
+---
+
+## 7. Spec coverage
+
+| 设计条目 | Task |
+|---|---|
+| §1.2 入库不写分类 / AI 不静默改分类 | 2, 3 |
+| §3.1 一级 6 分区 + 磁盘路径登记 | 4, 5 |
+| §3.2 小类 | **部分**——见偏离 1 |
+| §3.3 低置信度留收件箱 / 建议可忽略 | 8（建议一行不预选）；阈值属 P3 |
+| §3.4 旧六大类映射共存 | 4, 5 |
+| §4.1 三态 `storage_mode` | 1, 2 |
+| §4.2 `.lumii-ref` 文件 | **不做**（P1，D5） |
+| §4.3 类型分流（url→ref / 保存→native） | 2, 6 |
+| §4.4 目录布局 | **不做**（P1，仅登记 `folderSlug`） |
+| §5.1 左栏 7 项 / 高级功能进 ⋯ | 5, 10 |
+| §5.2 整行点击 + 行尾仅 ⋯ | 7 |
+| §5.3 详情抽屉 + 底栏最多 3 键 | 9 |
+| §5.4 添加文件 / 添加链接两入口 | 9 |
+| §5.5 移到… 一步确定 | 8 |
+| §5.6 保存网页内容（含失败保留 ref） | 6, 9 |
+| §5.7 搜索 | 沿用现有 `wiki:search` |
+| §5.8 刻意不做的功能下沉 | 10 |
+| §6.1–6.4 四条流程 | 2, 6, 9 |
+| §7.1 `WikiClipSaver` | 6 |
+| §7.1 `WikiVaultLayout`/`WikiRefStore`/`WikiMaterializer` | **不做**（P1/P2） |
+| §7.2 入库总线不 enqueue 自动分类 | 3 |
+| §7.3 `wiki:link:save` | 6 |
+| §7.3 `wiki:vault:ensure-layout` / `materialize` | **不做**（P1/P2） |
+| §7.4 链接预览取最简分支 | D7 |
+| §8 与现有实现的五项调整 | 2, 3, 6, 10 |
+
+---
+
+## 8. 已知偏离设计文档之处（实施时按本节）
+
+1. **小类不改名**（D1）。设计 §3.2 的「文档/会议/汇报」等新小类名与 DB 现存小类不是同一集合，无法一对一映射；且主题树用户可编辑，写死映射会失效。P0 只映射一级，小类显示真名；§3.2 那张表作为 P1 主题树迁移的目标。
+2. **P0 改 schema（V25）**（D2）。草稿计划的「不改 schema + 启发式认链接」不可行——`origin_url` 列本就不存在，且 P0 核心交互依赖「ref / native」的确定判断。
+3. **`归档` 用 `archived_at` 而非新大类**（D3）。设计 §3.4 该格留空；代码已有完整归档能力，复用比新造旧大类干净。副作用：`listSourcesByTopic` 需加 `archived` 开关，且归档分区无小类（与 §3.2「归档无小类」一致）。
+4. **`临时存放` 收进收件箱视图**（D4）。设计 §3.1 说它作为筛选标签、不占左栏，但没说存量数据从哪看。P0 让 `navIdFromLegacyCategory(临时存放) === 'inbox'` 并加筛选芯片，保证不失踪。
+5. **关闭自动分类走独立 `intakeBatch` 路径**（D6），不给 `classifyBatch` 包 `if`。原分类路径与其测试全部保留，供 P3 批量 AI 分类复用。`WikiOrganizeRunDetailItem.outcome` 因此新增 `'inbox'` 值。
+6. **入库不拉 og/meta**（D7）。设计 §7.4 的两个分支里取「P0 最简」，避免把粘贴链接变成可失败的异步操作。
+7. **`wiki:link:add` 不过 inbox 队列**。队列只为异步抽正文而存在，url-ref 无正文可抽；设计 §6.1 时序图也是 Main 直接写库。
+8. **列表继续在 renderer 切片**（D8），只给归档分区加按需拉取。改服务端过滤与 P0 目标无关，风险不划算，已登记为 P2 债务。
+9. **`WikiNav` 的 `category` 存分区 id、`subtopic` 的 `category` 存旧大类真名**（Task 5）。不对称是因为一个分区可横跨两个旧大类，而小类只属于一个。实现时勿统一，否则计数与查询错位。
+
+---
+
+## 相关文档
+
+- 设计：[2026-08-29-wiki-vault-ref-first-design.md](../../design/记忆设计/2026-08-29-wiki-vault-ref-first-design.md)
+- 前置设计：[2026-08-27-wiki-topic-hierarchy-redesign.md](../../design/记忆设计/2026-08-27-wiki-topic-hierarchy-redesign.md)
+- 用户手册：[wiki-user-guide.md](../../guide/wiki-user-guide.md)
+- 上一期计划：[2026-08-27-wiki-topic-hierarchy-p2-implementation.md](./2026-08-27-wiki-topic-hierarchy-p2-implementation.md)、[2026-08-28-wiki-graph-phase3-implementation.md](./2026-08-28-wiki-graph-phase3-implementation.md)

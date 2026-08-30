@@ -42,6 +42,7 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'wiki:reclassify:ignore', 'wiki:reclassify:discard',
   'wiki:source:create-note', 'wiki:source:rename',
   'wiki:source:update-topic', 'wiki:source:move-to-parking', 'wiki:source:open',
+  'wiki:source:clear-topic', 'wiki:auto-classify:get', 'wiki:auto-classify:set',
   // Wiki 知识库（P1）：链接/修订/清理/附件/导出/概念候选。export 的 targetDir 来自渲染进程
   // 弹出的系统原生 dialog:showSaveDialog（用户手选目录），不是任意字符串注入，按需放行。
   'wiki:link:backlinks', 'wiki:link:unresolved', 'wiki:page:revisions', 'wiki:page:rollback',

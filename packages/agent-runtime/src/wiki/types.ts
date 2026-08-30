@@ -57,7 +57,15 @@ export interface WikiSource {
   readonly topic_subtopic: string | null;
   readonly last_used: string | null;
   readonly use_count: number;
+  readonly origin_url: string | null;
+  readonly storage_mode: WikiStorageMode;
 }
+
+/**
+ * 资料的存放方式。ref = 只记住原文件在哪，不复制；materialized = 已复制进库；
+ * native = 正文本来就在库里（剪藏、AI 产出）。UI 靠它决定要不要显示「保存副本」。
+ */
+export type WikiStorageMode = "ref" | "materialized" | "native";
 
 export interface WikiAttachment {
   readonly id: string;

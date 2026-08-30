@@ -220,3 +220,42 @@ describe("wiki schema V24", () => {
     db.close();
   });
 });
+
+describe("wiki schema V25", () => {
+  it("wiki_sources 新增 origin_url 与 storage_mode 两列", () => {
+    const db = createMigratedTestDb();
+    const cols = db
+      .prepare<{ name: string; dflt_value: string | null }>("PRAGMA table_info(wiki_sources)")
+      .all();
+    const names = cols.map((c) => c.name);
+    expect(names).toContain("origin_url");
+    expect(names).toContain("storage_mode");
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(25);
+    db.close();
+  });
+
+  it("storage_mode 默认 ref，且只接受三种取值", () => {
+    const db = createMigratedTestDb();
+    const insert = (id: string, mode?: string) =>
+      db
+        .prepare(
+          mode
+            ? "INSERT INTO wiki_sources (id, agent_id, user_id, title, created_at, storage_mode) VALUES (?, 'a', 'u', 't', 'now', ?)"
+            : "INSERT INTO wiki_sources (id, agent_id, user_id, title, created_at) VALUES (?, 'a', 'u', 't', 'now')",
+        )
+        .run(...(mode ? [id, mode] : [id]));
+
+    insert("s-default");
+    expect(
+      db
+        .prepare<{ storage_mode: string }>("SELECT storage_mode FROM wiki_sources WHERE id = ?")
+        .get("s-default")?.storage_mode,
+    ).toBe("ref");
+
+    insert("s-native", "native");
+    insert("s-mat", "materialized");
+    expect(() => insert("s-bad", "cloud")).toThrow();
+
+    db.close();
+  });
+});

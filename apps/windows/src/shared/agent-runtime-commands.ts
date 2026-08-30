@@ -613,6 +613,26 @@ export interface WikiSourceDeleteCommand {
   readonly sourceIds: readonly string[]
 }
 
+export interface WikiAutoClassifyGetCommand {
+  readonly type: 'wiki:auto-classify:get'
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
+export interface WikiAutoClassifySetCommand {
+  readonly type: 'wiki:auto-classify:set'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly enabled: boolean
+}
+
+export interface WikiSourceClearTopicCommand {
+  readonly type: 'wiki:source:clear-topic'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly sourceId: string
+}
+
 export interface WikiAttachListCommand {
   readonly type: 'wiki:attach:list'
   readonly pageId: string
@@ -1436,6 +1456,9 @@ export type AgentRuntimeCommand =
   | WikiSourceArchiveCommand
   | WikiSourceRestoreCommand
   | WikiSourceDeleteCommand
+  | WikiAutoClassifyGetCommand
+  | WikiAutoClassifySetCommand
+  | WikiSourceClearTopicCommand
   | WikiAttachListCommand
   | WikiAttachAddCommand
   | WikiAttachRemoveCommand
@@ -1858,6 +1881,9 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:source:archive' ? { archived: number }
   : T extends 'wiki:source:restore' ? { restored: number }
   : T extends 'wiki:source:delete' ? { deleted: number }
+  : T extends 'wiki:auto-classify:get' ? { enabled: boolean }
+  : T extends 'wiki:auto-classify:set' ? void
+  : T extends 'wiki:source:clear-topic' ? void
   : T extends 'wiki:attach:list' ? readonly {
       id: string
       pageId: string

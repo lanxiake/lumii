@@ -48,12 +48,20 @@ export class WikiOrganizer {
    * 条目留在 pending，编目结束后下一轮轮询自然恢复（设计 §7 / §9.2）。
    * review 状态不阻塞——用户可能长期不处理候选，不该因此停掉自动归档。
    */
-  async organizeBatch(
+  /**
+   * 取件 + 补正文预览。两条整理路径（organizeBatch / intakeBatch）共用，
+   * 保证「重新编目进行中不取件」与 extract 状态判定只有一份实现。
+   */
+  private async takeAndEnrich(
     agentId: string,
     userId: string,
     itemType: WikiInboxItemType,
-    batchSize = 10,
-  ): Promise<WikiOrganizeRun | null> {
+    batchSize: number,
+  ): Promise<{
+    readonly items: readonly WikiInboxItem[];
+    readonly enriched: readonly WikiInboxItem[];
+    readonly extractById: Map<string, WikiOrganizeRunDetailExtract>;
+  } | null> {
     if (WikiReclassifier.isRunning(this.repo.getReclassifyRun(agentId, userId) as never)) {
       return null;
     }
@@ -79,6 +87,92 @@ export class WikiOrganizer {
         return [item.id, resolveExtractState(item.content_preview, after?.content_preview)] as const;
       }),
     );
+
+    return { items, enriched, extractById };
+  }
+
+  /**
+   * 只做收件：把一批条目原样归档成未分类资料，不调 LLM、不写主题。
+   * 关掉自动分类后的默认路径——资料先安全落库，分类交给用户或显式的「AI 整理」。
+   */
+  async intakeBatch(
+    agentId: string,
+    userId: string,
+    itemType: WikiInboxItemType,
+    batchSize = 10,
+  ): Promise<WikiOrganizeRun | null> {
+    const taken = await this.takeAndEnrich(agentId, userId, itemType, batchSize);
+    if (!taken) return null;
+    const { items, enriched, extractById } = taken;
+
+    const run = this.repo.createRun(
+      agentId,
+      userId,
+      items.map((i) => i.id),
+    );
+
+    const byId = new Map(enriched.map((i) => [i.id, i]));
+    let failed = 0;
+    const failReasons = new Set<string>();
+    const detailItems: WikiOrganizeRunDetailItem[] = [];
+
+    for (const item of items) {
+      const enrichedItem = byId.get(item.id) ?? item;
+      const extract = extractById.get(item.id) ?? "none";
+      try {
+        this.repo.fileInboxItemUnclassified(enrichedItem);
+        detailItems.push({
+          inboxId: item.id,
+          title: item.title,
+          path: "",
+          mediaType: item.media_type,
+          outcome: "archived",
+          extract,
+        });
+      } catch (err) {
+        failed += 1;
+        const reason = (err as Error).message;
+        failReasons.add(reason);
+        this.repo.markInboxAttemptFailed(item.id, reason);
+        detailItems.push({
+          inboxId: item.id,
+          title: item.title,
+          path: "",
+          mediaType: item.media_type,
+          outcome: "failed",
+          reason,
+          extract,
+        });
+      }
+    }
+
+    const status = failed > 0 ? "partial" : "succeeded";
+    const filed = items.length - failed;
+    const summary = [`${filed} 项已收进未分类`, failed > 0 ? `${failed} 项待重试` : ""]
+      .filter(Boolean)
+      .join(" · ");
+    const error = failReasons.size > 0 ? [...failReasons].join("; ") : undefined;
+    const detailJson = JSON.stringify({ items: detailItems });
+    this.repo.finishRun(run.id, status, summary, error, detailJson);
+    return {
+      ...run,
+      status,
+      result_summary: summary,
+      result_detail: detailJson,
+      ...(error ? { error } : {}),
+      finished_at: new Date().toISOString(),
+    };
+  }
+
+  async organizeBatch(
+    agentId: string,
+    userId: string,
+    itemType: WikiInboxItemType,
+    batchSize = 10,
+  ): Promise<WikiOrganizeRun | null> {
+    const taken = await this.takeAndEnrich(agentId, userId, itemType, batchSize);
+    if (!taken) return null;
+    const { items, enriched, extractById } = taken;
 
     const run = this.repo.createRun(
       agentId,

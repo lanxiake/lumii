@@ -665,6 +665,31 @@ export function handleWikiPageRollback(
   return { pageId: rolledBack.id, version: rolledBack.version }
 }
 
+/** 把资料退回未分类。撤销误分类用，不做主题树校验（清空不是一次归属） */
+export function handleWikiSourceClearTopic(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:source:clear-topic' }>,
+): void {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  bridge.wikiRepo.clearSourceTopic(agentId, LOCAL_USER_ID, command.sourceId)
+}
+
+export function handleWikiAutoClassifyGet(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:auto-classify:get' }>,
+): { enabled: boolean } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  return { enabled: bridge.wikiRepo.getAutoClassifyEnabled(agentId, LOCAL_USER_ID) }
+}
+
+export function handleWikiAutoClassifySet(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:auto-classify:set' }>,
+): void {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  bridge.wikiRepo.setAutoClassifyEnabled(agentId, LOCAL_USER_ID, command.enabled)
+}
+
 export function handleWikiCleanupScan(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:cleanup:scan' }>,

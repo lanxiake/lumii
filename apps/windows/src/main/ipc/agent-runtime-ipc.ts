@@ -140,6 +140,9 @@ import {
   handleWikiSourceUpdateTopic,
   handleWikiSourceMoveToParking,
   handleWikiSourceOpen,
+  handleWikiSourceClearTopic,
+  handleWikiAutoClassifyGet,
+  handleWikiAutoClassifySet,
   handleWikiLinkBacklinks,
   handleWikiLinkUnresolved,
   handleWikiPageRevisions,
@@ -1040,6 +1043,15 @@ export async function handleCommand(
 
       case 'wiki:source:open':
         return handleWikiSourceOpen(bridge, command)
+
+      case 'wiki:source:clear-topic':
+        return handleWikiSourceClearTopic(bridge, command)
+
+      case 'wiki:auto-classify:get':
+        return handleWikiAutoClassifyGet(bridge, command)
+
+      case 'wiki:auto-classify:set':
+        return handleWikiAutoClassifySet(bridge, command)
 
       // ---- Wiki 知识库（P1） ----
       case 'wiki:link:backlinks':
