@@ -9,6 +9,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PARKING_CATEGORY } from '@mtbot/agent-runtime/browser'
 import { Button } from '../../../components/ui/Button/Button'
 import { Loading } from '../../../components/ui/Loading/Loading'
+import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
+import { useToast } from '../../../components/ui/Toast/useToast'
 import { ConfirmModal } from '../../../components/ui/Modal'
 import {
   useWikiPage,
@@ -27,7 +29,7 @@ import { SynthesisView } from './SynthesisView'
 import { WikiGraphView } from './WikiGraphView'
 import { WikiDetailDrawer } from './WikiDetailDrawer'
 import { WikiLeftNav, topicCountKey, type WikiNav } from './WikiLeftNav'
-import { navSectionFromLegacyCategory, legacyCategoriesForSection, navSectionLabel, type WikiNavSection } from './wikiNavMapping'
+import { navSectionFromLegacyCategory, legacyCategoriesForSection, type WikiNavSection } from './wikiNavMapping'
 import { WikiTopBar } from './WikiTopBar'
 import { WikiPageList } from './WikiPageList'
 import { WikiFileList } from './WikiFileList'
@@ -35,6 +37,8 @@ import { WikiTopicPicker } from './WikiTopicPicker'
 import { WikiTopicTreeEditor } from './WikiTopicTreeEditor'
 import { WikiReclassifyView } from './WikiReclassifyView'
 import { WikiInboxPanel, inboxItemToPreviewSnapshot } from './WikiInboxPanel'
+import { WikiSubtopicPanel } from './WikiSubtopicPanel'
+import { isUrlSourceItem } from './wikiSourcePreview'
 import { WikiHelpDrawer } from './WikiHelpDrawer'
 import { consumeWikiInitNav, OPEN_MEMORIES_TAB_EVENT } from '../../../utils/open-wiki-library'
 import { WIKI_INBOX_INTRO } from './wikiTooltips'
@@ -51,6 +55,8 @@ import {
   type WikiConsolidateTarget,
 } from './wikiConsolidate'
 import { WIKI_MODAL_LAYER } from './wikiModalLayer'
+import { buildWikiBreadcrumbs } from './wikiBreadcrumbs'
+import { buildWikiRemoveConfirmContent } from './wikiRemoveConfirm'
 import { WikiTaskCenter } from './WikiTaskCenter'
 import { useWikiTaskCenter, type WikiLocalTask } from './useWikiTaskCenter'
 import './WikiTab.css'
@@ -75,6 +81,7 @@ const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
  * 渲染 Wiki 工作区并协调用途目录、文件列表与归档选择器。
  */
 export const WikiTab: React.FC = () => {
+  const toast = useToast()
   const {
     listInbox,
     countInbox,
@@ -140,6 +147,10 @@ export const WikiTab: React.FC = () => {
   const [searchResults, setSearchResults] = useState<readonly WikiSourceListItem[] | null>(null)
   const [searchDegradeReason, setSearchDegradeReason] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<{ backlinks: number } | null>(null)
+  const [removeConfirm, setRemoveConfirm] = useState<{
+    inboxIds: readonly string[]
+    sourceIds: readonly string[]
+  } | null>(null)
   const [openError, setOpenError] = useState<string | null>(null)
   const [picker, setPicker] = useState<PickerTarget | null>(null)
   const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(false)
@@ -172,6 +183,13 @@ export const WikiTab: React.FC = () => {
   } | null>(null)
   const [consolidateTarget, setConsolidateTarget] = useState<WikiConsolidateTarget | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
+  const selectedInboxIdsRef = useRef(selectedInboxIds)
+  const selectedUnfiledIdsRef = useRef(selectedUnfiledIds)
+  const selectedSourceIdsRef = useRef(selectedSourceIds)
+
+  selectedInboxIdsRef.current = selectedInboxIds
+  selectedUnfiledIdsRef.current = selectedUnfiledIds
+  selectedSourceIdsRef.current = selectedSourceIds
 
   const refreshSources = useCallback(async () => {
     setSources(await listSources({}))
@@ -307,8 +325,11 @@ export const WikiTab: React.FC = () => {
         (item) => item.topicCategory === nav.category && item.topicSubtopic === nav.subtopic,
       )
     }
+    if (nav.kind === 'parking') {
+      return parkingSources
+    }
     return []
-  }, [nav, sources])
+  }, [nav, sources, parkingSources])
 
   /**
    * 打开任务中心并清除失败任务的未读提示。
@@ -396,18 +417,41 @@ export const WikiTab: React.FC = () => {
 
   /** 全选/取消全选当前视图可见的文件 */
   const toggleSelectAllSources = useCallback(() => {
-    setSelectedSourceIds((prev) =>
-      prev.size === visibleSources.length && prev.size > 0
+    setSelectedSourceIds((prev) => {
+      const allVisibleSelected =
+        visibleSources.length > 0 && visibleSources.every((item) => prev.has(item.id))
+      return allVisibleSelected
         ? new Set()
-        : new Set(visibleSources.map((item) => item.id)),
-    )
+        : new Set(visibleSources.map((item) => item.id))
+    })
   }, [visibleSources])
 
   /**
-   * 打开原始文件；失败时在主区展示具体原因，不静默丢弃。
+   * 打开资料详情预览（已归档资料走 source:get，待整理条目用快照）。
+   */
+  const handlePreviewSourceItem = useCallback((item: WikiSourceListItem) => {
+    const isUrl = isUrlSourceItem(item.sourcePath)
+    setSourcePreview({
+      sourceId: item.id,
+      snapshot: {
+        title: item.title,
+        summary: null,
+        sourceUrl: isUrl ? item.sourcePath : null,
+        sourcePath: isUrl ? null : item.sourcePath,
+        mediaType: item.mediaType,
+      },
+    })
+  }, [])
+
+  /**
+   * 打开原始文件；网页链接型资料改为内置浏览器预览。
    */
   const handleOpenSource = useCallback(
     async (item: WikiSourceListItem) => {
+      if (isUrlSourceItem(item.sourcePath)) {
+        handlePreviewSourceItem(item)
+        return
+      }
       setOpenError(null)
       try {
         await openSource(item.id)
@@ -415,7 +459,7 @@ export const WikiTab: React.FC = () => {
         setOpenError(error instanceof Error ? error.message : '无法打开原文件')
       }
     },
-    [openSource],
+    [openSource, handlePreviewSourceItem],
   )
 
   /**
@@ -443,8 +487,9 @@ export const WikiTab: React.FC = () => {
     async (item: WikiSourceListItem) => {
       await moveToParking(item.id)
       await refreshSources()
+      toast.info('已移至左栏「临时存放」')
     },
-    [moveToParking, refreshSources],
+    [moveToParking, refreshSources, toast],
   )
 
   /** 从归档分区恢复资料到活跃目录。 */
@@ -618,12 +663,15 @@ export const WikiTab: React.FC = () => {
   )
 
   const handleParkSelected = useCallback(async () => {
-    for (const id of selectedSourceIds) {
+    const ids = [...selectedSourceIds]
+    if (ids.length === 0) return
+    for (const id of ids) {
       await moveToParking(id)
     }
     setSelectedSourceIds(new Set())
     await refreshSources()
-  }, [selectedSourceIds, moveToParking, refreshSources])
+    toast.info(`已将 ${ids.length} 项移至左栏「临时存放」`)
+  }, [selectedSourceIds, moveToParking, refreshSources, toast])
 
   /** 逐条移到临时存放，返回成功条数（清理视图的批量动作用） */
   const handleParkMany = useCallback(
@@ -633,9 +681,12 @@ export const WikiTab: React.FC = () => {
         if (await moveToParking(id)) moved += 1
       }
       await refreshSources()
+      if (moved > 0) {
+        toast.info(`已将 ${moved} 项移至左栏「临时存放」`)
+      }
       return moved
     },
-    [moveToParking, refreshSources],
+    [moveToParking, refreshSources, toast],
   )
 
   /**
@@ -816,6 +867,52 @@ export const WikiTab: React.FC = () => {
     [discardInbox, refreshInbox],
   )
 
+  /** 打开删除确认：已入库资料走永久删除，队列条目走丢弃 */
+  const requestRemove = useCallback(
+    (opts: { inboxIds?: readonly string[]; sourceIds?: readonly string[] }) => {
+      const inboxIds = opts.inboxIds ?? []
+      const sourceIds = opts.sourceIds ?? []
+      if (inboxIds.length === 0 && sourceIds.length === 0) return
+      setRemoveConfirm({ inboxIds, sourceIds })
+    },
+    [],
+  )
+
+  /** 确认删除/丢弃所选资料 */
+  const handleConfirmRemove = useCallback(async () => {
+    if (!removeConfirm) return
+    const { inboxIds, sourceIds } = removeConfirm
+    setRemoveConfirm(null)
+
+    let discarded = 0
+    for (const id of inboxIds) {
+      if (await discardInbox(id)) discarded += 1
+    }
+
+    let deleted = 0
+    if (sourceIds.length > 0) {
+      deleted = await trackedDeleteSources(sourceIds)
+    }
+
+    setSelectedInboxIds(new Set())
+    setSelectedUnfiledIds(new Set())
+    setSelectedSourceIds(new Set())
+    await Promise.all([refreshInbox(), refreshSources(), refreshArchivedSources()])
+
+    const parts: string[] = []
+    if (discarded > 0) parts.push(`已移除 ${discarded} 条队列条目`)
+    if (deleted > 0) parts.push(`已删除 ${deleted} 条资料`)
+    if (parts.length > 0) toast.success(parts.join('，'))
+  }, [
+    removeConfirm,
+    discardInbox,
+    trackedDeleteSources,
+    refreshInbox,
+    refreshSources,
+    refreshArchivedSources,
+    toast,
+  ])
+
   /** 切换待整理队列条目选中状态 */
   const toggleSelectInbox = useCallback((inboxId: string) => {
     setSelectedInboxIds((prev) => {
@@ -854,39 +951,54 @@ export const WikiTab: React.FC = () => {
    */
   const handleBatchOrganizeInbox = useCallback(
     async (category: string, subtopic: string) => {
-      for (const id of selectedInboxIds) {
+      const inboxIds = [...selectedInboxIdsRef.current]
+      const unfiledIds = [...selectedUnfiledIdsRef.current]
+      for (const id of inboxIds) {
         await organizeInbox(id, category, subtopic)
       }
-      for (const id of selectedUnfiledIds) {
+      for (const id of unfiledIds) {
         await updateSourceTopic(id, category, subtopic)
       }
       setSelectedInboxIds(new Set())
       setSelectedUnfiledIds(new Set())
       await Promise.all([refreshInbox(), refreshSources()])
     },
-    [selectedInboxIds, selectedUnfiledIds, organizeInbox, updateSourceTopic, refreshInbox, refreshSources],
+    [organizeInbox, updateSourceTopic, refreshInbox, refreshSources],
   )
 
   /** 批量重试所选可重试的 inbox 条目 */
   const handleBatchRetryInbox = useCallback(async () => {
+    const selected = selectedInboxIdsRef.current
     for (const item of inboxItems) {
-      if (!selectedInboxIds.has(item.id)) continue
+      if (!selected.has(item.id)) continue
       if (item.status === 'pending' || item.status === 'failed') {
         await retryInbox(item.id)
       }
     }
     setSelectedInboxIds(new Set())
     void refreshInbox()
-  }, [inboxItems, selectedInboxIds, retryInbox, refreshInbox])
+  }, [inboxItems, retryInbox, refreshInbox])
 
-  /** 批量丢弃所选 inbox 条目 */
-  const handleBatchDiscardInbox = useCallback(async () => {
-    for (const id of selectedInboxIds) {
-      await discardInbox(id)
-    }
-    setSelectedInboxIds(new Set())
-    void refreshInbox()
-  }, [selectedInboxIds, discardInbox, refreshInbox])
+  /** 批量删除待整理所选：队列丢弃 + 已入库资料永久删除 */
+  const handleBatchDeleteInbox = useCallback(() => {
+    requestRemove({
+      inboxIds: [...selectedInboxIdsRef.current],
+      sourceIds: [...selectedUnfiledIdsRef.current],
+    })
+  }, [requestRemove])
+
+  /** 删除单条已入库资料（含待补分与已分类） */
+  const handleDeleteSource = useCallback(
+    (item: WikiSourceListItem) => {
+      requestRemove({ sourceIds: [item.id] })
+    },
+    [requestRemove],
+  )
+
+  /** 批量删除小类视图等多选资料 */
+  const handleDeleteSelectedSources = useCallback(() => {
+    requestRemove({ sourceIds: [...selectedSourceIdsRef.current] })
+  }, [requestRemove])
 
   /** 一键重试全部可重试的 inbox 条目 */
   const handleRetryAllInbox = useCallback(async () => {
@@ -942,22 +1054,6 @@ export const WikiTab: React.FC = () => {
     void handleOpenPage(selectedPage.id)
   }, [selectedPage, handleOpenPage])
 
-  /**
-   * 打开资料详情预览（已归档资料走 source:get，待整理条目用快照）。
-   */
-  const handlePreviewSourceItem = useCallback((item: WikiSourceListItem) => {
-    setSourcePreview({
-      sourceId: item.id,
-      snapshot: {
-        title: item.title,
-        summary: null,
-        sourceUrl: null,
-        sourcePath: item.sourcePath,
-        mediaType: item.mediaType,
-      },
-    })
-  }, [])
-
   /** 按 sourceId 打开资料详情（知识图谱节点等场景） */
   const handlePreviewSourceId = useCallback((sourceId: string) => {
     setSourcePreview({ sourceId, snapshot: null })
@@ -968,18 +1064,20 @@ export const WikiTab: React.FC = () => {
     setSourcePreview({ sourceId: null, snapshot: inboxItemToPreviewSnapshot(item) })
   }, [])
 
-  const breadcrumb = nav.kind === 'category'
-    ? nav.name
-    : nav.kind === 'subtopic'
-      ? `${nav.category} / ${nav.subtopic}`
-      : nav.kind === 'section'
-        ? navSectionLabel(nav.name)
-        : null
+  const navBreadcrumbs = searchResults === null ? buildWikiBreadcrumbs(nav) : null
   const currentContext = searchResults !== null
-    ? { title: '搜索结果', subtitle: `共找到 ${searchResults.length} 个文件` }
-    : breadcrumb
-      ? { title: breadcrumb, subtitle: '该目录下的原始文件' }
-      : FIXED_NAV_CONTEXT[nav.kind] ?? { title: 'Wiki', subtitle: '' }
+    ? { title: '搜索结果', subtitle: `共找到 ${searchResults.length} 个文件`, breadcrumbs: null as null, breadcrumbSuffix: undefined }
+    : navBreadcrumbs
+      ? {
+          title: navBreadcrumbs[navBreadcrumbs.length - 1]?.label ?? 'Wiki',
+          subtitle:
+            nav.kind === 'subtopic'
+              ? `${visibleSources.length} 个文件`
+              : '选择小类查看资料',
+          breadcrumbs: navBreadcrumbs,
+          breadcrumbSuffix: nav.kind === 'subtopic' ? `(${visibleSources.length})` : undefined,
+        }
+      : { title: FIXED_NAV_CONTEXT[nav.kind]?.title ?? 'Wiki', subtitle: FIXED_NAV_CONTEXT[nav.kind]?.subtitle ?? '', breadcrumbs: null as null, breadcrumbSuffix: undefined }
 
   return (
     <div className="wiki-tab">
@@ -988,6 +1086,7 @@ export const WikiTab: React.FC = () => {
         inboxCount={pendingCount}
         sectionCounts={sectionCounts}
         archivedCount={archivedCount}
+        parkingCount={parkingSources.length}
         moreButtonRef={moreButtonRef}
         onSelect={handleSelectNav}
         onOpenMore={() => setIsMoreMenuOpen((open) => !open)}
@@ -996,8 +1095,6 @@ export const WikiTab: React.FC = () => {
         open={isMoreMenuOpen}
         anchorRef={moreButtonRef}
         onClose={() => setIsMoreMenuOpen(false)}
-        onGraph={() => handleSelectNav({ kind: 'graph' })}
-        onSection={(name) => handleSelectNav({ kind: 'section', name: name as WikiNavSection })}
         onHistory={() => handleSelectNav({ kind: 'history' })}
         onCleanup={() => handleSelectNav({ kind: 'cleanup' })}
         onSynthesis={() => handleSelectNav({ kind: 'synthesis' })}
@@ -1058,6 +1155,9 @@ export const WikiTab: React.FC = () => {
         <WikiTopBar
           title={currentContext.title}
           subtitle={currentContext.subtitle}
+          breadcrumbs={currentContext.breadcrumbs}
+          breadcrumbSuffix={currentContext.breadcrumbSuffix}
+          onBreadcrumbNavigate={handleSelectNav}
           query={query}
           onQueryChange={setQuery}
           onSearch={() => void handleSearch()}
@@ -1096,6 +1196,7 @@ export const WikiTab: React.FC = () => {
               onPreview={handlePreviewSourceItem}
               onMove={(item) => setPicker({ mode: 'source', item })}
               onPark={(item) => void handlePark(item)}
+              onDelete={handleDeleteSource}
             />
           </div>
         ) : nav.kind === 'inbox' ? (
@@ -1121,7 +1222,8 @@ export const WikiTab: React.FC = () => {
               onPreviewSource={handlePreviewSourceItem}
               onBatchOrganize={() => setInboxBatchPickerOpen(true)}
               onBatchRetry={() => void handleBatchRetryInbox()}
-              onBatchDiscard={() => void handleBatchDiscardInbox()}
+              onBatchDelete={handleBatchDeleteInbox}
+              onDeleteUnfiled={(sourceId) => requestRemove({ sourceIds: [sourceId] })}
               onRetryAll={() => void handleRetryAllInbox()}
             />
           </div>
@@ -1137,6 +1239,7 @@ export const WikiTab: React.FC = () => {
               onOpen={(item) => void handleOpenSource(item)}
               onPreview={handlePreviewSourceItem}
               onMove={(item) => void handleRestoreArchived(item)}
+              onDelete={handleDeleteSource}
             />
           </div>
         ) : nav.kind === 'parking' ? (
@@ -1147,9 +1250,29 @@ export const WikiTab: React.FC = () => {
               emptyHint="临时存放里还没有文件。"
               moveLabel="移出"
               showParkAction={false}
+              showMediaChips={false}
+              selectable
+              selectedIds={selectedSourceIds}
+              onToggleSelect={toggleSelectSource}
+              onToggleSelectAll={toggleSelectAllSources}
+              headerActions={
+                selectedSourceIds.size > 0 ? (
+                  <>
+                    <span className="wiki-file-list-batch-count">
+                      已选 {selectedSourceIds.size} 项
+                    </span>
+                    <Tooltip content="永久删除所选资料，不可恢复" placement="bottom">
+                      <Button variant="ghost" size="sm" onClick={handleDeleteSelectedSources}>
+                        批量删除
+                      </Button>
+                    </Tooltip>
+                  </>
+                ) : null
+              }
               onOpen={(item) => void handleOpenSource(item)}
               onPreview={handlePreviewSourceItem}
               onMove={(item) => setPicker({ mode: 'source', item })}
+              onDelete={handleDeleteSource}
             />
           </div>
         ) : nav.kind === 'cleanup' ? (
@@ -1213,11 +1336,32 @@ export const WikiTab: React.FC = () => {
             onNavigateTo={setNav}
             runLongTask={(title, fn) => taskCenter.wrapAsync('graph', title, fn)}
           />
-        ) : (
+        ) : nav.kind === 'section' ? (
+          <div className="wiki-subtopic-view">
+            <WikiSubtopicPanel
+              section={nav.name}
+              topicTree={topicTree}
+              topicCounts={topicCounts}
+              onSelectSubtopic={(category, subtopic) =>
+                handleSelectNav({ kind: 'subtopic', category, subtopic })
+              }
+            />
+          </div>
+        ) : nav.kind === 'category' ? (
+          <div className="wiki-subtopic-view">
+            <WikiSubtopicPanel
+              section={navSectionFromLegacyCategory(nav.name)}
+              categoryFilter={nav.name}
+              topicTree={topicTree}
+              topicCounts={topicCounts}
+              onSelectSubtopic={(category, subtopic) =>
+                handleSelectNav({ kind: 'subtopic', category, subtopic })
+              }
+            />
+          </div>
+        ) : nav.kind === 'subtopic' ? (
           <div className="wiki-file-list-view">
-            <h3>{breadcrumb}（{visibleSources.length}）</h3>
-            {(nav.kind === 'subtopic' || nav.kind === 'category') &&
-              shortInViewCount >= CONSOLIDATE_HINT_MIN_COUNT && (
+            {shortInViewCount >= CONSOLIDATE_HINT_MIN_COUNT && (
               <div className="wiki-consolidate-hint">
                 <p>
                   检测到 {shortInViewCount} 篇短文，可整合为一篇 1000 字以上的长文，减少目录碎片化。
@@ -1229,8 +1373,7 @@ export const WikiTab: React.FC = () => {
             )}
             <WikiFileList
               items={visibleSources}
-              emptyHint={nav.kind === 'subtopic' ? '这个小类下还没有文件' : '这个大类下还没有文件'}
-              showTopic={nav.kind === 'category'}
+              emptyHint="这个小类下还没有文件"
               highlightId={highlightSourceId}
               selectable
               selectedIds={selectedSourceIds}
@@ -1242,29 +1385,51 @@ export const WikiTab: React.FC = () => {
                     <span className="wiki-file-list-batch-count">
                       已选 {selectedSourceIds.size} 项
                     </span>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      disabled={selectedSourceIds.size < CONSOLIDATE_MIN_SELECTION}
-                      onClick={() => void handleConsolidateSelected()}
+                    <Tooltip
+                      content="将所选短文合并为一篇长文，归档到当前小类下的「整合长文」"
+                      placement="bottom"
                     >
-                      整合为长文
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => void handleSynthesizeSelected()}
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={selectedSourceIds.size < CONSOLIDATE_MIN_SELECTION}
+                        onClick={() => void handleConsolidateSelected()}
+                      >
+                        整合为长文
+                      </Button>
+                    </Tooltip>
+                    <Tooltip
+                      content="用 AI 根据所选资料生成一篇主题综述草稿，完成后可在「综述合成」中查看"
+                      placement="bottom"
                     >
-                      生成本组综述
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setBatchPickerOpen(true)}>
-                      移动到…
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => void handleParkSelected()}>
-                      存到临时存放
-                    </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void handleSynthesizeSelected()}
+                      >
+                        生成本组综述
+                      </Button>
+                    </Tooltip>
+                    <Tooltip content="将所选资料移动到另一个分类目录" placement="bottom">
+                      <Button variant="ghost" size="sm" onClick={() => setBatchPickerOpen(true)}>
+                        移动到…
+                      </Button>
+                    </Tooltip>
+                    <Tooltip
+                      content="移到「临时存放」区，暂不归类，之后可从左栏「临时存放」再移出"
+                      placement="bottom"
+                    >
+                      <Button variant="ghost" size="sm" onClick={() => void handleParkSelected()}>
+                        存到临时存放
+                      </Button>
+                    </Tooltip>
+                    <Tooltip content="永久删除所选资料，不可恢复" placement="bottom">
+                      <Button variant="ghost" size="sm" onClick={handleDeleteSelectedSources}>
+                        删除
+                      </Button>
+                    </Tooltip>
                   </>
-                ) : nav.kind === 'subtopic' ? (
+                ) : (
                   <>
                     <Button
                       variant="ghost"
@@ -1286,59 +1451,61 @@ export const WikiTab: React.FC = () => {
                       重新编目本小类
                     </Button>
                   </>
-                ) : undefined
+                )
               }
               onOpen={(item) => void handleOpenSource(item)}
               onPreview={handlePreviewSourceItem}
               onMove={(item) => setPicker({ mode: 'source', item })}
               onPark={(item) => void handlePark(item)}
+              onDelete={handleDeleteSource}
             />
           </div>
-        )}
-          <WikiSourceDetailDrawer
-            open={sourcePreview !== null}
-            sourceId={sourcePreview?.sourceId ?? null}
-            snapshot={sourcePreview?.snapshot ?? null}
-            getSource={getSource}
-            onClose={() => setSourcePreview(null)}
-            onOpenExternal={(detail) => {
-              void openSource(detail.id).catch((error) => {
-                setOpenError(error instanceof Error ? error.message : '无法打开原文件')
-              })
-            }}
-          />
-          <WikiDetailDrawer
-            open={isDetailOpen}
-            page={selectedPage}
-            pages={pages}
-            isEditing={isEditing}
-            editTitle={editTitle}
-            editDraft={editDraft}
-            onEditTitleChange={setEditTitle}
-            onEditDraftChange={setEditDraft}
-            onStartEdit={handleStartEdit}
-            onCancelEdit={() => setIsEditing(false)}
-            onSaveEdit={() => void handleSaveEdit()}
-            onRequestDelete={() => void requestDeletePage()}
-            onClose={() => {
-              setIsDetailOpen(false)
-              setIsEditing(false)
-            }}
-            listBacklinks={listBacklinks}
-            listRevisions={listRevisions}
-            rollbackPage={rollbackPage}
-            onOpenPage={(pageId) => void handleOpenPage(pageId)}
-            onRolledBack={handleRolledBack}
-          />
-          <WikiTaskCenter
-            open={isTaskCenterOpen}
-            tasks={taskCenter.tasks}
-            onClose={() => setIsTaskCenterOpen(false)}
-            onRetry={(task) => void handleRetryTask(task)}
-            onDismiss={taskCenter.dismissTask}
-          />
+        ) : null}
         </main>
       </div>
+
+      <WikiSourceDetailDrawer
+        open={sourcePreview !== null}
+        sourceId={sourcePreview?.sourceId ?? null}
+        snapshot={sourcePreview?.snapshot ?? null}
+        getSource={getSource}
+        onClose={() => setSourcePreview(null)}
+        onOpenExternal={(detail) => {
+          void openSource(detail.id).catch((error) => {
+            setOpenError(error instanceof Error ? error.message : '无法打开原文件')
+          })
+        }}
+      />
+      <WikiDetailDrawer
+        open={isDetailOpen}
+        page={selectedPage}
+        pages={pages}
+        isEditing={isEditing}
+        editTitle={editTitle}
+        editDraft={editDraft}
+        onEditTitleChange={setEditTitle}
+        onEditDraftChange={setEditDraft}
+        onStartEdit={handleStartEdit}
+        onCancelEdit={() => setIsEditing(false)}
+        onSaveEdit={() => void handleSaveEdit()}
+        onRequestDelete={() => void requestDeletePage()}
+        onClose={() => {
+          setIsDetailOpen(false)
+          setIsEditing(false)
+        }}
+        listBacklinks={listBacklinks}
+        listRevisions={listRevisions}
+        rollbackPage={rollbackPage}
+        onOpenPage={(pageId) => void handleOpenPage(pageId)}
+        onRolledBack={handleRolledBack}
+      />
+      <WikiTaskCenter
+        open={isTaskCenterOpen}
+        tasks={taskCenter.tasks}
+        onClose={() => setIsTaskCenterOpen(false)}
+        onRetry={(task) => void handleRetryTask(task)}
+        onDismiss={taskCenter.dismissTask}
+      />
 
       <WikiTopicPicker
         open={isInboxBatchPickerOpen}
@@ -1385,6 +1552,21 @@ export const WikiTab: React.FC = () => {
             ? () => void handleConfirmPicker(suggestion.category, suggestion.subtopic)
             : undefined
         }
+      />
+
+      <ConfirmModal
+        open={removeConfirm !== null}
+        layer={WIKI_MODAL_LAYER}
+        title="删除资料"
+        content={
+          removeConfirm
+            ? buildWikiRemoveConfirmContent(removeConfirm.inboxIds.length, removeConfirm.sourceIds.length)
+            : ''
+        }
+        confirmText="删除"
+        confirmVariant="danger"
+        onConfirm={() => void handleConfirmRemove()}
+        onCancel={() => setRemoveConfirm(null)}
       />
 
       <ConfirmModal

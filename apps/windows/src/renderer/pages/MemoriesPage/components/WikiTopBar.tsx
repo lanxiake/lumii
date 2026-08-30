@@ -2,10 +2,16 @@ import React from 'react'
 import { HelpCircle, Search, X } from 'lucide-react'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 import { WIKI_SEARCH_TOOLTIP, WIKI_TASK_PILL_TOOLTIP } from './wikiTooltips'
+import { WikiBreadcrumb } from './WikiBreadcrumb'
+import type { WikiNav } from './WikiLeftNav'
+import type { WikiBreadcrumbItem } from './wikiBreadcrumbs'
 
 interface WikiTopBarProps {
   title: string
   subtitle: string
+  breadcrumbs?: readonly WikiBreadcrumbItem[] | null
+  breadcrumbSuffix?: string
+  onBreadcrumbNavigate?: (nav: WikiNav) => void
   query: string
   onQueryChange: (query: string) => void
   onSearch: () => void
@@ -22,6 +28,9 @@ interface WikiTopBarProps {
 export const WikiTopBar: React.FC<WikiTopBarProps> = ({
   title,
   subtitle,
+  breadcrumbs,
+  breadcrumbSuffix,
+  onBreadcrumbNavigate,
   query,
   onQueryChange,
   onSearch,
@@ -65,7 +74,15 @@ export const WikiTopBar: React.FC<WikiTopBarProps> = ({
       </Tooltip>
 
       <div className="wiki-top-bar-heading">
-        <h2>{title}</h2>
+        {breadcrumbs && breadcrumbs.length > 0 && onBreadcrumbNavigate ? (
+          <WikiBreadcrumb
+            items={breadcrumbs}
+            suffix={breadcrumbSuffix}
+            onNavigate={onBreadcrumbNavigate}
+          />
+        ) : (
+          <h2>{title}</h2>
+        )}
         <p>{subtitle}</p>
       </div>
 

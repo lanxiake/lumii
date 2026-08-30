@@ -1,8 +1,10 @@
 import React, { useMemo, useState } from 'react'
-import { Archive, ArrowRightLeft, ExternalLink, Eye, FileText, Image as ImageIcon, Music, Video } from 'lucide-react'
+import { Archive, ArrowRightLeft, ExternalLink, Eye, FileText, Image as ImageIcon, Music, Trash2, Video } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import type { WikiSourceListItem } from '../../../hooks/business/useWikiPage'
 import { formatRelativeTime } from './wikiStatusLabels'
+import { isUrlSourceItem } from './wikiSourcePreview'
+import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 
 /** 芯片粒度和 media_type 不是一对一：音视频一个芯片覆盖 audio + video 两种类型 */
 export type WikiMediaChip = 'all' | 'document' | 'image' | 'av'
@@ -51,6 +53,7 @@ interface WikiFileListProps {
   onPreview: (item: WikiSourceListItem) => void
   onMove: (item: WikiSourceListItem) => void
   onPark?: (item: WikiSourceListItem) => void
+  onDelete?: (item: WikiSourceListItem) => void
 }
 
 /**
@@ -73,6 +76,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
   onPreview,
   onMove,
   onPark,
+  onDelete,
 }) => {
   const [chip, setChip] = useState<WikiMediaChip>('all')
   const visible = useMemo(
@@ -120,6 +124,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
         <ul className="wiki-file-list-items">
           {visible.map((item) => {
             const Icon = MEDIA_ICONS[(item.mediaType ?? 'document') as keyof typeof MEDIA_ICONS] ?? FileText
+            const isUrl = isUrlSourceItem(item.sourcePath)
             const topic = item.topicSubtopic
               ? `${item.topicCategory} / ${item.topicSubtopic}`
               : (item.topicCategory ?? '待补分')
@@ -155,19 +160,36 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                     <Eye size={13} />
                     详情
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => onOpen(item)}>
-                    <ExternalLink size={13} />
-                    打开
-                  </Button>
+                  {isUrl ? (
+                    <Button variant="ghost" size="sm" onClick={() => onPreview(item)}>
+                      <ExternalLink size={13} />
+                      打开链接
+                    </Button>
+                  ) : (
+                    <Button variant="ghost" size="sm" onClick={() => onOpen(item)}>
+                      <ExternalLink size={13} />
+                      打开
+                    </Button>
+                  )}
                   <Button variant="ghost" size="sm" onClick={() => onMove(item)}>
                     <ArrowRightLeft size={13} />
                     {moveLabel}
                   </Button>
                   {showParkAction && onPark && (
-                    <Button variant="ghost" size="sm" onClick={() => onPark(item)}>
-                      <Archive size={13} />
-                      存到临时存放
-                    </Button>
+                    <Tooltip content="移到「临时存放」，暂不归类，之后可再移回正式目录" placement="top">
+                      <Button variant="ghost" size="sm" onClick={() => onPark(item)}>
+                        <Archive size={13} />
+                        存到临时存放
+                      </Button>
+                    </Tooltip>
+                  )}
+                  {onDelete && (
+                    <Tooltip content="永久删除这条资料，不可恢复" placement="top">
+                      <Button variant="ghost" size="sm" onClick={() => onDelete(item)}>
+                        <Trash2 size={13} />
+                        删除
+                      </Button>
+                    </Tooltip>
                   )}
                 </div>
               </li>

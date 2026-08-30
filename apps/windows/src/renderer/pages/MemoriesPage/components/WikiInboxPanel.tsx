@@ -24,7 +24,8 @@ interface WikiInboxPanelProps {
   readonly onPreviewSource: (item: WikiSourceListItem) => void
   readonly onBatchOrganize: () => void
   readonly onBatchRetry: () => void
-  readonly onBatchDiscard: () => void
+  readonly onBatchDelete: () => void
+  readonly onDeleteUnfiled: (sourceId: string) => void
   readonly onRetryAll: () => void
 }
 
@@ -75,7 +76,8 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
   onPreviewSource,
   onBatchOrganize,
   onBatchRetry,
-  onBatchDiscard,
+  onBatchDelete,
+  onDeleteUnfiled,
   onRetryAll,
 }) => {
   const retryableItems = useMemo(
@@ -128,9 +130,12 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
                 </Button>
               </Tooltip>
             )}
-            <Tooltip content="永久丢弃所选队列条目（不可恢复）" placement="bottom">
-              <Button variant="ghost" size="sm" onClick={onBatchDiscard}>
-                批量丢弃
+            <Tooltip
+              content="永久删除所选内容：队列条目会被丢弃，已入库资料会从资料库移除"
+              placement="bottom"
+            >
+              <Button variant="ghost" size="sm" onClick={onBatchDelete}>
+                批量删除
               </Button>
             </Tooltip>
           </>
@@ -186,7 +191,7 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => onOrganize(item)}>归档到…</Button>
                     <Button variant="ghost" size="sm" onClick={() => onRetry(item.id)}>重试</Button>
-                    <Button variant="ghost" size="sm" onClick={() => onDiscard(item.id)}>丢弃</Button>
+                    <Button variant="ghost" size="sm" onClick={() => onDiscard(item.id)}>删除</Button>
                   </div>
                 ) : null}
               </div>
@@ -200,7 +205,7 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
           <h4 className="wiki-section-heading">
             待补分（{unfiled.length}）
             <Tooltip
-              content="这些文件已入库但尚未指定分类。可勾选后与队列条目一起批量归档。"
+              content="这些文件已入库但尚未指定分类。可勾选后与队列条目一起批量归档或删除。"
               placement="right"
             >
               <span className="wiki-section-heading-hint" aria-hidden>?</span>
@@ -234,6 +239,7 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
                         详情
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => onFileUnfiled(item)}>归档到…</Button>
+                      <Button variant="ghost" size="sm" onClick={() => onDeleteUnfiled(item.id)}>删除</Button>
                     </div>
                   </div>
                 </div>

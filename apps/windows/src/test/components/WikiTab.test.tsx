@@ -344,12 +344,12 @@ describe('WikiTab', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
-  it('从更多菜单切换目录导航时关闭菜单', async () => {
+  it('从更多菜单切换视图时关闭菜单', async () => {
     render(<WikiTab />)
     await screen.findByText(/暂无待整理条目/)
 
     fireEvent.click(screen.getByRole('button', { name: '更多' }))
-    fireEvent.click(screen.getByText('做事记录'))
+    fireEvent.click(screen.getByText('历史页面'))
 
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })

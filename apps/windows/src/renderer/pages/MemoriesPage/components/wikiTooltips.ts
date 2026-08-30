@@ -18,7 +18,13 @@ export const WIKI_NAV_TOOLTIPS: Record<WikiNavSection, string> = {
 
 /** 左栏「更多」按钮 */
 export const WIKI_MORE_TOOLTIP =
-  '高级功能：知识图谱、清理重复资料、综述合成、重建搜索索引、编辑分类结构、全库 AI 重新编目等。'
+  '高级功能：清理重复资料、综述合成、重建搜索索引、编辑分类结构、全库 AI 重新编目、历史页面等。'
+
+/** 左栏固定入口（临时存放、知识图谱） */
+export const WIKI_LEFT_FIXED_TOOLTIPS = {
+  parking: '暂存尚未决定去向的资料。从文件列表「存到临时存放」后，可在此统一查看与移出。',
+  graph: '可视化资料、页面与实体之间的关系，支持从节点跳回原文。',
+} as const
 
 /** 顶栏搜索框 */
 export const WIKI_SEARCH_TOOLTIP =
@@ -30,11 +36,10 @@ export const WIKI_TASK_PILL_TOOLTIP =
 
 /** 待整理视图说明 */
 export const WIKI_INBOX_INTRO =
-  '待整理 = 队列中的新资料 + 已入库但未分类的文件。可勾选多条后「批量归档到…」一次放入同一目录；失败条目可「全部重试」。'
+  '待整理 = 队列中的新资料 + 已入库但未分类的文件。可勾选多条后「批量归档到…」或「批量删除」。'
 
 /** 更多菜单各项（补充 WikiMoreMenu 内 description） */
 export const WIKI_MORE_MENU_TOOLTIPS: Record<string, string> = {
-  graph: '可视化资料、页面与实体之间的关系，支持从节点跳回原文。',
   reclassifyAll:
     '让 AI 扫描已归档文件并给出目录调整建议。只生成预览，你勾选接受后才会改动，不会静默修改。',
   editTopicTree: '增删改各大类下的小类名称。大类对应 workspace/wiki/ 下的文件夹结构。',

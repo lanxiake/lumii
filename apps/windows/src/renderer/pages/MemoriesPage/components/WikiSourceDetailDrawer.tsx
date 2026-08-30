@@ -1,13 +1,20 @@
 /**
- * WikiSourceDetailDrawer — 资料详情侧滑：摘要 + 网页/文件预览
+ * WikiSourceDetailDrawer — 资料详情侧滑：摘要 + 内置网页/文件预览
  */
 import React, { useEffect, useRef, useState } from 'react'
-import { ExternalLink, X } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { X } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import { Loading } from '../../../components/ui/Loading/Loading'
 import { FilePreviewModal } from '../../../components/FilePreviewModal/FilePreviewModal'
 import type { WikiSourceDetail } from '../../../hooks/business/useWikiPage'
-import { resolvePreviewMode } from './wikiSourcePreview'
+import { resolveItemSourceUrl, resolvePreviewMode } from './wikiSourcePreview'
+
+/** Electron webview 加载失败事件（非标准 DOM 类型） */
+type WebviewFailLoadEvent = Event & {
+  readonly errorCode?: number
+  readonly errorDescription?: string
+}
 
 /**
  * 侧滑内嵌网页预览（Electron webview 独立进程）。
@@ -15,6 +22,12 @@ import { resolvePreviewMode } from './wikiSourcePreview'
  */
 const WikiWebPreviewFrame: React.FC<{ url: string; title: string }> = ({ url, title }) => {
   const hostRef = useRef<HTMLDivElement>(null)
+  const webviewRef = useRef<HTMLElement | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoadError(null)
+  }, [url])
 
   useEffect(() => {
     const host = hostRef.current
@@ -22,7 +35,7 @@ const WikiWebPreviewFrame: React.FC<{ url: string; title: string }> = ({ url, ti
 
     /** 将宿主容器的实际像素尺寸写入 webview，避免只渲染上半部分 */
     const syncWebviewSize = (): void => {
-      const webview = host.querySelector('webview')
+      const webview = webviewRef.current ?? host.querySelector('webview')
       if (!webview) return
       const { clientWidth, clientHeight } = host
       if (clientWidth > 0) webview.style.width = `${clientWidth}px`
@@ -33,12 +46,59 @@ const WikiWebPreviewFrame: React.FC<{ url: string; title: string }> = ({ url, ti
     const observer = new ResizeObserver(syncWebviewSize)
     observer.observe(host)
     return () => observer.disconnect()
+  }, [url, loadError])
+
+  useEffect(() => {
+    const webview = webviewRef.current
+    if (!webview) return undefined
+
+    /** 监听 webview 加载失败，展示友好降级而非控制台未捕获错误 */
+    const handleFailLoad = (event: Event): void => {
+      const detail = event as WebviewFailLoadEvent
+      // -3 = ERR_ABORTED，通常是切换 URL 时取消上一次导航，忽略即可
+      if (detail.errorCode === -3) return
+      setLoadError(detail.errorDescription?.trim() || '网页无法在内置浏览器中加载')
+    }
+
+    /** 加载成功后清除错误态 */
+    const handleFinishLoad = (): void => {
+      setLoadError(null)
+    }
+
+    webview.addEventListener('did-fail-load', handleFailLoad)
+    webview.addEventListener('did-finish-load', handleFinishLoad)
+    return () => {
+      webview.removeEventListener('did-fail-load', handleFailLoad)
+      webview.removeEventListener('did-finish-load', handleFinishLoad)
+    }
   }, [url])
+
+  /** 在系统默认浏览器中打开当前 URL */
+  const openInSystemBrowser = (): void => {
+    void window.electronAPI?.app?.openExternal(url)
+  }
 
   return (
     <div ref={hostRef} className="wiki-source-web-preview-host">
+      {loadError ? (
+        <div className="wiki-source-web-preview-error" role="alert">
+          <p className="wiki-source-web-preview-error-title">{loadError}</p>
+          <p className="wiki-source-web-preview-error-hint">
+            部分网站禁止内嵌预览，或当前网络无法访问。你仍可在系统浏览器中打开链接。
+          </p>
+          <Button variant="secondary" size="sm" onClick={openInSystemBrowser}>
+            在系统浏览器打开
+          </Button>
+        </div>
+      ) : null}
       {/* @ts-expect-error webview 为 Electron 专有标签 */}
-      <webview src={url} title={title} className="wiki-source-web-preview" />
+      <webview
+        ref={webviewRef as React.RefObject<never>}
+        src={url}
+        title={title}
+        className="wiki-source-web-preview"
+        hidden={loadError !== null}
+      />
     </div>
   )
 }
@@ -61,7 +121,7 @@ interface WikiSourceDetailDrawerProps {
 }
 
 /**
- * 渲染资料详情抽屉：资讯类展示摘要与原文链接，下方嵌入网页或文件预览。
+ * 渲染资料详情：网页链接用居中弹窗 + 内置 webview，文件类仍用右侧抽屉。
  */
 export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
   open,
@@ -125,31 +185,55 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
 
   const title = detail?.title ?? snapshot?.title ?? '资料详情'
   const summary = detail?.extractedText ?? snapshot?.summary ?? null
-  const sourceUrl = detail?.sourceUrl ?? snapshot?.sourceUrl ?? null
-  const sourcePath = detail?.sourcePath ?? snapshot?.sourcePath ?? null
-  const previewMode = resolvePreviewMode(sourcePath, sourceUrl)
+  const sourceUrl = resolveItemSourceUrl(
+    detail?.sourcePath ?? snapshot?.sourcePath,
+    detail?.sourceUrl ?? snapshot?.sourceUrl,
+    detail?.originContext,
+  )
+  const filePath =
+    sourceUrl ? null : (detail?.sourcePath ?? snapshot?.sourcePath ?? null)
+  const previewMode = resolvePreviewMode(filePath, sourceUrl)
+  const isWebPreview = previewMode === 'web'
 
-  return (
-    <div className="wiki-detail-overlay" role="presentation">
+  const drawer = (
+    <div
+      className={`wiki-detail-overlay wiki-detail-overlay--fixed${isWebPreview ? ' wiki-detail-overlay--centered' : ''}`}
+      role="presentation"
+    >
       <button type="button" className="wiki-detail-mask" aria-label="关闭资料详情" onClick={onClose} />
-      <aside className="wiki-detail-drawer wiki-source-detail-drawer" aria-label="资料详情">
+      <div
+        className={isWebPreview ? 'wiki-source-detail-modal' : 'wiki-detail-drawer wiki-source-detail-drawer'}
+        role="dialog"
+        aria-label="资料详情"
+        aria-modal="true"
+      >
         <header className="wiki-source-detail-header">
-          <h2 className="wiki-source-detail-title">{title}</h2>
-          <div className="wiki-source-detail-header-actions">
-            {detail && onOpenExternal && previewMode === 'file' && (
-              <Button variant="ghost" size="sm" onClick={() => onOpenExternal(detail)}>
-                <ExternalLink size={14} />
-                打开原文件
-              </Button>
-            )}
+          <div className="wiki-source-detail-heading">
+            <h2 className="wiki-source-detail-title">{title}</h2>
             {sourceUrl && (
+              <a
+                className="wiki-source-detail-url"
+                href={sourceUrl}
+                onClick={(e) => e.preventDefault()}
+                title={sourceUrl}
+              >
+                {sourceUrl}
+              </a>
+            )}
+          </div>
+          <div className="wiki-source-detail-header-actions">
+            {sourceUrl && isWebPreview && (
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => void window.electronAPI?.openExternal?.(sourceUrl)}
+                onClick={() => void window.electronAPI?.app?.openExternal(sourceUrl)}
               >
-                <ExternalLink size={14} />
                 在浏览器打开
+              </Button>
+            )}
+            {detail && onOpenExternal && previewMode === 'file' && (
+              <Button variant="ghost" size="sm" onClick={() => onOpenExternal(detail)}>
+                打开原文件
               </Button>
             )}
             <button type="button" className="wiki-source-detail-close" aria-label="关闭" onClick={onClose}>
@@ -168,47 +252,42 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
 
           {!loading && !error && (
             <>
-              {summary && (
+              {summary && previewMode !== 'web' && (
                 <section className="wiki-source-detail-summary" aria-label="摘要">
                   <h3>摘要</h3>
                   <p>{summary}</p>
                 </section>
               )}
 
-              {sourceUrl && (
-                <section className="wiki-source-detail-link" aria-label="原文链接">
-                  <h3>原文链接</h3>
-                  <a href={sourceUrl} target="_blank" rel="noreferrer noopener">
-                    {sourceUrl}
-                  </a>
+              {previewMode === 'web' && sourceUrl && (
+                <WikiWebPreviewFrame url={sourceUrl} title={title} />
+              )}
+              {previewMode === 'file' && filePath && (
+                <div className="wiki-source-file-preview-host">
+                  <FilePreviewModal
+                    variant="embedded"
+                    filePath={filePath}
+                    fileName={title}
+                    onClose={() => undefined}
+                  />
+                </div>
+              )}
+              {previewMode === 'text-only' && summary && (
+                <section className="wiki-source-detail-summary" aria-label="正文">
+                  <p>{summary}</p>
                 </section>
               )}
-
-              <section className="wiki-source-detail-preview" aria-label="预览">
-                <h3>预览</h3>
-                {previewMode === 'web' && sourceUrl && (
-                  <WikiWebPreviewFrame url={sourceUrl} title={title} />
-                )}
-                {previewMode === 'file' && sourcePath && (
-                  <div className="wiki-source-file-preview-host">
-                    <FilePreviewModal
-                      variant="embedded"
-                      filePath={sourcePath}
-                      fileName={title}
-                      onClose={() => undefined}
-                    />
-                  </div>
-                )}
-                {previewMode === 'text-only' && !summary && (
-                  <p className="wiki-empty-hint">暂无可预览内容</p>
-                )}
-              </section>
+              {previewMode === 'text-only' && !summary && (
+                <p className="wiki-empty-hint">暂无可预览内容</p>
+              )}
             </>
           )}
         </div>
-      </aside>
+      </div>
     </div>
   )
+
+  return createPortal(drawer, document.body)
 }
 
 export default WikiSourceDetailDrawer

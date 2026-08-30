@@ -1,16 +1,14 @@
 import React from 'react'
-import { Inbox, Archive, Briefcase, BookOpen, Home, Star, MoreHorizontal } from 'lucide-react'
+import { Inbox, Archive, Briefcase, BookOpen, Home, Star, MoreHorizontal, Network, Package } from 'lucide-react'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 import { navSectionLabel, topicCountKey, type WikiNavSection } from './wikiNavMapping'
-import { WIKI_MORE_TOOLTIP, WIKI_NAV_TOOLTIPS } from './wikiTooltips'
+import { WIKI_LEFT_FIXED_TOOLTIPS, WIKI_MORE_TOOLTIP, WIKI_NAV_TOOLTIPS } from './wikiTooltips'
 
 // 导出 topicCountKey 供 WikiTab 与 WikiTopicTreeEditor 复用
 export { topicCountKey }
 
 /**
- * P0 左栏显示 6 个导航分区（工作/学习/生活/收藏/收件箱/归档）+ 更多。
- * WikiNav 保留 category/subtopic/parking/graph 等旧 kind（从 ⋯ 菜单或芯片进入），
- * 新增 section 与 archived kind。
+ * P0 左栏显示用途目录、临时存放、知识图谱与更多入口。
  */
 export type WikiNav =
   | { kind: 'inbox' }
@@ -32,6 +30,7 @@ interface WikiLeftNavProps {
   /** 各分区计数；key = section name */
   sectionCounts: Record<WikiNavSection, number>
   archivedCount: number
+  parkingCount: number
   moreButtonRef?: React.RefObject<HTMLButtonElement>
   onSelect: (nav: WikiNav) => void
   onOpenMore: () => void
@@ -56,14 +55,21 @@ const SECTION_ICONS: Record<WikiNavSection, React.FC<{ size?: number | string }>
 /** 左栏分区顺序 */
 const NAV_SECTIONS: readonly WikiNavSection[] = ['inbox', 'work', 'study', 'life', 'collection', 'archived']
 
+/** 左栏固定入口（排在已归档之后） */
+const FIXED_NAV_ITEMS = [
+  { kind: 'parking' as const, label: '临时存放', icon: Package },
+  { kind: 'graph' as const, label: '知识图谱', icon: Network },
+]
+
 /**
- * 左栏 = 6 个分区按钮（收件箱带角标）+ 更多；悬停显示使用说明。
+ * 左栏 = 用途目录 + 临时存放/知识图谱 + 更多；悬停显示使用说明。
  */
 export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
   active,
   inboxCount,
   sectionCounts,
   archivedCount,
+  parkingCount,
   moreButtonRef,
   onSelect,
   onOpenMore,
@@ -93,6 +99,27 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
     )
   }
 
+  /**
+   * 渲染临时存放、知识图谱等固定入口。
+   */
+  const renderFixedNav = (kind: 'parking' | 'graph', label: string, Icon: React.FC<{ size?: number | string }>, count = 0) => {
+    const nav: WikiNav = { kind }
+    return (
+      <Tooltip key={kind} content={WIKI_LEFT_FIXED_TOOLTIPS[kind]} placement="right">
+        <button
+          type="button"
+          className={`wiki-left-nav-item${isActive(active, nav) ? ' wiki-left-nav-item--active' : ''}`}
+          onClick={() => onSelect(nav)}
+          aria-current={isActive(active, nav) ? 'page' : undefined}
+        >
+          <Icon size={15} />
+          <span className="wiki-left-nav-label">{label}</span>
+          {count > 0 && <span className="wiki-left-nav-count">{count}</span>}
+        </button>
+      </Tooltip>
+    )
+  }
+
   return (
     <nav className="wiki-left-nav" aria-label="Wiki 导航">
       <div className="wiki-left-nav-primary">
@@ -101,6 +128,9 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
           if (section === 'archived') return renderSection(section, archivedCount)
           return renderSection(section, sectionCounts[section] ?? 0)
         })}
+        {FIXED_NAV_ITEMS.map(({ kind, label, icon: Icon }) =>
+          renderFixedNav(kind, label, Icon, kind === 'parking' ? parkingCount : 0),
+        )}
       </div>
 
       <div className="wiki-left-nav-footer">

@@ -37,7 +37,25 @@ export function resolvePreviewMode(
   sourcePath: string | null | undefined,
   sourceUrl: string | null | undefined,
 ): WikiSourcePreviewMode {
-  if (sourceUrl) return 'web'
+  if (sourceUrl || isHttpUrl(sourcePath)) return 'web'
   if (sourcePath && !isHttpUrl(sourcePath)) return 'file'
   return 'text-only'
+}
+
+/**
+ * 从列表项或详情字段解析可预览的网页 URL。
+ */
+export function resolveItemSourceUrl(
+  sourcePath: string | null | undefined,
+  sourceUrl?: string | null | undefined,
+  originContext?: string | null | undefined,
+): string | null {
+  if (sourceUrl) return sourceUrl
+  if (isHttpUrl(sourcePath)) return sourcePath!.trim()
+  return parseOriginalUrlFromContext(originContext)
+}
+
+/** 列表项是否为网页链接型资料 */
+export function isUrlSourceItem(sourcePath: string | null | undefined): boolean {
+  return isHttpUrl(sourcePath)
 }
