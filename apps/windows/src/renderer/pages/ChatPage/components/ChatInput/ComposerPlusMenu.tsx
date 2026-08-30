@@ -33,6 +33,8 @@ export interface ComposerPlusMenuProps {
   onManageMcp?: () => void
   /** 跳转 Agent 管理页 */
   onManageAgents?: () => void
+  /** 打开 Wiki 资料库 */
+  onOpenWiki?: () => void
 }
 
 /**
@@ -56,6 +58,7 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
   onManageSkills,
   onManageMcp,
   onManageAgents,
+  onOpenWiki,
 }) => {
   const rootRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -327,6 +330,23 @@ const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
                 <span className={styles.menuMeta}>{currentAgentLabel}</span>
                 <span className={styles.menuChevron} aria-hidden>›</span>
               </button>
+
+              {onOpenWiki && (
+                <button
+                  type="button"
+                  className={styles.menuItem}
+                  role="menuitem"
+                  onClick={() => {
+                    onOpenWiki()
+                    closeMenu()
+                  }}
+                >
+                  <span className={styles.menuIcon} aria-hidden>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></svg>
+                  </span>
+                  <span className={styles.menuLabel}>打开资料库</span>
+                </button>
+              )}
             </>
           )}
 

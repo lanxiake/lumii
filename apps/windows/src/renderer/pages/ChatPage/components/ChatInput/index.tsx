@@ -13,6 +13,7 @@ import ContextUsageCard from './ContextUsageCard'
 import { useRotatingTip } from '../TipsBanner/useRotatingTip'
 import { ComposerPlusMenu } from './ComposerPlusMenu'
 import { useComposerDraft } from './useComposerDraft'
+import { openWikiLibrary } from '../../../../utils/open-wiki-library'
 import type { ViewType } from '../../../../components/Router'
 
 interface ChatInputProps {
@@ -865,6 +866,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
               onManageSkills={handleManageSkills}
               onManageMcp={handleManageMcp}
               onManageAgents={handleManageAgents}
+              onOpenWiki={openWikiLibrary}
             />
 
             {/* 模型切换 */}

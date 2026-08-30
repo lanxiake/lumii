@@ -34,6 +34,16 @@
   color: var(--color-primary);
 }
 
+/* 工作区根目录 wiki/ 文件夹：与资料库入口视觉呼应 */
+.node--wiki {
+  background: color-mix(in srgb, var(--color-warning, #faad14) 8%, transparent);
+}
+
+.node--wiki .name {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
 /* 展开箭头 */
 .arrow {
   flex-shrink: 0;

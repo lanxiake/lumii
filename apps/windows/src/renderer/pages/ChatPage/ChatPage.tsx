@@ -46,6 +46,7 @@ import { useChatPageZoom } from './hooks/useChatPageZoom'
 import { ChatToolbar } from './layout/ChatToolbar'
 import { ChatBottomOverlay } from './layout/ChatBottomOverlay'
 import { useStableMapById } from '../../utils/useStableMapById'
+import { openWikiLibrary } from '../../utils/open-wiki-library'
 import type { RuntimeMessage } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
 
 /** 将 File 读取为 base64 字符串（当 file.path 不可用时使用） */
@@ -1532,6 +1533,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             onToggleAutoApprove={handleToggleAutoApprove}
             onToggleReadAloud={handleToggleReadAloud}
             onToggleWorkbench={toggleFilesWorkbench}
+            onOpenWiki={openWikiLibrary}
             onEnterPetMode={handleEnterPetMode}
           />
         </div>

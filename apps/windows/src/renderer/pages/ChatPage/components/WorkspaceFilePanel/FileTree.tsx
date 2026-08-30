@@ -205,6 +205,7 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
 
   const relPath = toRelative(rootPath, item.path)
   const gitState = getGitState(relPath, item.isDirectory, gitMap)
+  const isWikiRootFolder = item.isDirectory && relPath === 'wiki'
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
@@ -236,7 +237,11 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
   return (
     <>
       <div
-        className={clsx(styles.node, isSelected && styles['node--selected'])}
+        className={clsx(
+          styles.node,
+          isSelected && styles['node--selected'],
+          isWikiRootFolder && styles['node--wiki'],
+        )}
         style={{ paddingLeft: indent }}
         data-tree-path={item.path}
         draggable
