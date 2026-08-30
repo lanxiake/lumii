@@ -433,28 +433,113 @@ export const COMMANDS = [
   {
     name: 'wiki inbox organize',
     group: 'Wiki',
-    usage: 'wiki inbox organize <id> --path <path> [--title <t>] [--content <md>|-]',
-    summary: '手动指定分类路径立即归档（绕开 AI 分类）',
+    usage: 'wiki inbox organize <id> --category <c> --subtopic <s> [--title <t>]',
+    summary: '手动指定用途分类立即归档（绕开 AI 分类）',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
     options: [
       { flag: '<id>', desc: '收件箱条目 ID' },
-      { flag: '--path <p>', desc: '目标页面路径，如 sources/my-doc（必填，顶层须为 sources/media/inbox 等固定分类）' },
-      { flag: '--title <t>', desc: '页面标题，不传则用原标题' },
-      { flag: '--content <md>', desc: '页面正文 Markdown，或 "-" 从 stdin 读；不传则用条目预览内容' },
+      { flag: '--category <c>', desc: '一级分类，如 工作 / 学习 / 生活 / 收藏（必填）' },
+      { flag: '--subtopic <s>', desc: '二级分类（必填）' },
+      { flag: '--title <t>', desc: '资料标题，不传则用原标题' },
     ],
-    build(args, extra) {
+    build(args) {
       const inboxId = args.positional[0]
-      const path = args.flags.path
+      const category = args.flags.category
+      const subtopic = args.flags.subtopic
       if (typeof inboxId !== 'string' || inboxId.length === 0) return null
-      if (typeof path !== 'string' || path.length === 0) return null
-      const body = { type: 'wiki:inbox:organize', inboxId, path }
+      if (typeof category !== 'string' || category.length === 0) return null
+      if (typeof subtopic !== 'string' || subtopic.length === 0) return null
+      const body = { type: 'wiki:inbox:organize', inboxId, category, subtopic }
       if (typeof args.flags.title === 'string') body.title = args.flags.title
-      const raw = args.flags.content
-      if (raw !== undefined) {
-        const text = raw === '-' ? extra?.stdin ?? '' : raw
-        if (typeof text === 'string' && text.length > 0) body.contentMd = text
+      return body
+    },
+  },
+  {
+    name: 'wiki folder scan',
+    group: 'Wiki',
+    usage: 'wiki folder scan <dir> [--recursive] [--item-type upload|output|auto] [--session <key>]',
+    summary: '预览目录内可导入 Wiki 的文件（不写库）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '<dir>', desc: '目录绝对或相对路径（必填）' },
+      { flag: '--recursive', desc: '递归子目录，默认开启' },
+      { flag: '--no-recursive', desc: '仅扫描当前目录' },
+      { flag: '--item-type <t>', desc: 'upload | output | auto（默认 auto）' },
+      { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
+    ],
+    build(args) {
+      const dir = args.positional[0]
+      if (typeof dir !== 'string' || dir.length === 0) return null
+      const body = { type: 'wiki:folder:scan', dir }
+      if (args.flags['no-recursive']) body.recursive = false
+      else body.recursive = true
+      const itemType = args.flags['item-type']
+      if (itemType === 'upload' || itemType === 'output' || itemType === 'auto') {
+        body.itemType = itemType
       }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      return body
+    },
+  },
+  {
+    name: 'wiki folder import',
+    group: 'Wiki',
+    usage: 'wiki folder import <dir> [--recursive] [--item-type upload|output|auto] [--dry-run] [--session <key>]',
+    summary: '批量将目录文件摄入 Wiki 收件箱（引用优先，不移动原文件）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '<dir>', desc: '目录绝对或相对路径（必填）' },
+      { flag: '--recursive', desc: '递归子目录，默认开启' },
+      { flag: '--no-recursive', desc: '仅导入当前目录' },
+      { flag: '--item-type <t>', desc: 'upload | output | auto（默认 auto）' },
+      { flag: '--dry-run', desc: '只预览数量，不写入收件箱' },
+      { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
+    ],
+    build(args) {
+      const dir = args.positional[0]
+      if (typeof dir !== 'string' || dir.length === 0) return null
+      const body = { type: 'wiki:folder:import', dir }
+      if (args.flags['no-recursive']) body.recursive = false
+      else body.recursive = true
+      const itemType = args.flags['item-type']
+      if (itemType === 'upload' || itemType === 'output' || itemType === 'auto') {
+        body.itemType = itemType
+      }
+      if (args.flags['dry-run']) body.dryRun = true
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      return body
+    },
+  },
+  {
+    name: 'wiki organize run',
+    group: 'Wiki',
+    usage: 'wiki organize run [--mode intake|organize] [--item-type upload|output|search] [--batch-size <n>] [--session <key>]',
+    summary: '显式触发一批 Wiki intake/organize（不等后台轮询）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--mode <m>', desc: 'intake（默认，只收件）| organize（需开启自动分类）' },
+      { flag: '--item-type <t>', desc: 'upload | output | search，默认 output' },
+      { flag: '--batch-size <n>', desc: '单批条数，默认 10' },
+      { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
+    ],
+    build(args) {
+      const body = { type: 'wiki:organize:run' }
+      const mode = args.flags.mode
+      if (mode === 'intake' || mode === 'organize') body.mode = mode
+      const itemType = args.flags['item-type']
+      if (itemType === 'upload' || itemType === 'output' || itemType === 'search' || itemType === 'chat') {
+        body.itemType = itemType
+      }
+      const batch = args.flags['batch-size']
+      if (typeof batch === 'string' && batch.length > 0) {
+        const n = Number(batch)
+        if (Number.isFinite(n) && n > 0) body.batchSize = n
+      }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
       return body
     },
   },

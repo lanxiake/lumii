@@ -233,30 +233,27 @@ function runP0() {
       'inbox',
       'organize',
       id,
-      '--path',
-      'sources/wiki-cli-organized',
+      '--category',
+      '做事记录',
+      '--subtopic',
+      '项目/任务资料',
       '--title',
       'wiki-cli-organized',
-      '--content',
-      '手动归档正文',
     ])
     assert(org.code === 0, `organize: ${org.out.slice(0, 200)}`)
-    assert(org.json?.pageId, '缺 pageId')
-    const page = findPage('sources/wiki-cli-organized')
-    assert(page, '页面未出现')
+    assert(org.json?.sourceId, '缺 sourceId')
+    assert(org.json?.category === '做事记录', 'category 不匹配')
     const listed = asArray(ui(['wiki', 'inbox', 'list', '--status', 'organized']).json) || []
     assert(listed.some((x) => x.id === id), '未变 organized')
-    record('P0-I01', 'PASS', `pageId=${org.json.pageId}`)
+    record('P0-I01', 'PASS', `sourceId=${org.json.sourceId.slice(0, 8)}`)
   } catch (e) {
     record('P0-I01', 'FAIL', e.message)
   }
 
   try {
     const id = seedInbox(`${PROBE}-inbox-escape`, 'escape')
-    const bad = ui(['wiki', 'inbox', 'organize', id, '--path', '../escape', '--title', 'x', '--content', 'x'])
-    assert(bad.code !== 0, '路径逃逸应失败')
-    const escaped = findPage('../escape') || findPage('escape')
-    assert(!escaped || !String(escaped.path).includes('..'), '不应落逃逸页')
+    const bad = ui(['wiki', 'inbox', 'organize', id, '--category', '临时存放', '--subtopic', 'x', '--title', 'x'])
+    assert(bad.code !== 0, '临时存放应拒绝')
     record('P0-I02', 'PASS', `rejected: ${(bad.json?.message || bad.out).slice(0, 80)}`)
   } catch (e) {
     record('P0-I02', 'FAIL', e.message)
@@ -299,6 +296,25 @@ function runP0() {
     record('P0-I06', 'PASS', 'ghost rejected')
   } catch (e) {
     record('P0-I06', 'FAIL', e.message)
+  }
+
+  // F 文件夹导入
+  try {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `${PROBE}-folder-`))
+    fs.writeFileSync(path.join(tmpDir, 'cli-probe.md'), '# wiki folder import probe', 'utf8')
+    const scan = ui(['wiki', 'folder', 'scan', tmpDir, '--recursive'])
+    assert(scan.code === 0, scan.out.slice(0, 200))
+    assert((scan.json?.summary?.importable ?? 0) >= 1, 'scan importable')
+    const dry = ui(['wiki', 'folder', 'import', tmpDir, '--recursive', '--dry-run'])
+    assert(dry.code === 0 && dry.json?.dryRun === true, dry.out.slice(0, 200))
+    const imp = ui(['wiki', 'folder', 'import', tmpDir, '--recursive', '--item-type', 'output'])
+    assert(imp.code === 0 && (imp.json?.imported ?? 0) >= 1, imp.out.slice(0, 200))
+    const orgRun = ui(['wiki', 'organize', 'run', '--mode', 'intake', '--item-type', 'output'])
+    assert(orgRun.code === 0, orgRun.out.slice(0, 200))
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+    record('P0-F01', 'PASS', `imported=${imp.json.imported} run=${orgRun.json?.status ?? 'ok'}`)
+  } catch (e) {
+    record('P0-F01', 'FAIL', e.message)
   }
 
   // P 页面
@@ -1050,7 +1066,7 @@ function writeReport() {
     '',
     '## 覆盖说明',
     '',
-    '- **P0**：inbox organize/discard/retry/逃逸、金标检索、索引、page CRUD、inbox:count/page:delete/source:get',
+    '- **P0**：inbox organize/discard/retry、folder scan/import/organize run、金标检索、索引、page CRUD、inbox:count/page:delete/source:get',
     '- **P1**：wikilink 反链、未解析保留正文、回滚、清理归档观察、导出三选项、unresolved/concept/attach GAP',
     '- **P2**：synthesis create→accept/reject、synthesis:get、graph 约束、hybrid、vector/ero、status:scan',
     '- **Agent**：tools 含 wiki_*；可选一轮 wiki_search',
