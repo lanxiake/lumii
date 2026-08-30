@@ -26,6 +26,37 @@ export interface WikiInboxItem {
   readonly createdAt: number
 }
 
+/** 文件夹导入 scan 单条候选 */
+export interface WikiFolderCandidateItem {
+  readonly path: string
+  readonly title: string
+  readonly size: number
+  readonly itemType: string
+  readonly skipReason: string | null
+  readonly alreadyInWiki: boolean
+}
+
+/** 文件夹 scan 结果 */
+export interface WikiFolderScanResult {
+  readonly dir: string
+  readonly candidates: readonly WikiFolderCandidateItem[]
+  readonly summary: {
+    readonly total: number
+    readonly importable: number
+    readonly skipped: number
+    readonly alreadyInWiki: number
+  }
+}
+
+/** 文件夹 import 结果 */
+export interface WikiFolderImportResult {
+  readonly dir: string
+  readonly dryRun: boolean
+  readonly imported: number
+  readonly skipped: number
+  readonly inboxIds: readonly string[]
+}
+
 /** 资料详情（wiki:source:get） */
 export interface WikiSourceDetail {
   readonly id: string
@@ -398,6 +429,71 @@ export function useWikiPage() {
           subtopic,
           title,
         })) as { sourceId: string; category: string; subtopic: string }
+      } catch {
+        return null
+      }
+    },
+    [],
+  )
+
+  /**
+   * 预览目录内可导入 Wiki 的文件（不写库）。
+   */
+  const scanFolder = useCallback(async (dir: string, recursive = true): Promise<WikiFolderScanResult | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      return (await api.sendCommand({
+        type: 'wiki:folder:scan',
+        agentId: DEFAULT_AGENT_ID,
+        dir,
+        recursive,
+      })) as WikiFolderScanResult
+    } catch {
+      return null
+    }
+  }, [])
+
+  /**
+   * 批量将目录文件摄入 Wiki 收件箱。
+   */
+  const importFolder = useCallback(
+    async (dir: string, options?: { recursive?: boolean; dryRun?: boolean }): Promise<WikiFolderImportResult | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        return (await api.sendCommand({
+          type: 'wiki:folder:import',
+          agentId: DEFAULT_AGENT_ID,
+          dir,
+          recursive: options?.recursive ?? true,
+          dryRun: options?.dryRun,
+        })) as WikiFolderImportResult
+      } catch {
+        return null
+      }
+    },
+    [],
+  )
+
+  /**
+   * 显式触发一批 Wiki intake（加速落库为未分类资料）。
+   */
+  const runOrganize = useCallback(
+    async (options?: { mode?: 'intake' | 'organize'; itemType?: string }): Promise<{
+      runId: string | null
+      status: string
+      summary: string | null
+    } | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        return (await api.sendCommand({
+          type: 'wiki:organize:run',
+          agentId: DEFAULT_AGENT_ID,
+          mode: options?.mode ?? 'intake',
+          itemType: (options?.itemType as 'upload' | 'output' | 'search' | 'chat') ?? 'output',
+        })) as { runId: string | null; status: string; summary: string | null }
       } catch {
         return null
       }
@@ -1304,6 +1400,9 @@ export function useWikiPage() {
     retryInbox,
     discardInbox,
     organizeInbox,
+    scanFolder,
+    importFolder,
+    runOrganize,
     listPages,
     getPage,
     updatePage,

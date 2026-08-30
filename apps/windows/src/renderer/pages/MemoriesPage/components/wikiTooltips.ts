@@ -36,7 +36,11 @@ export const WIKI_TASK_PILL_TOOLTIP =
 
 /** 待整理视图说明 */
 export const WIKI_INBOX_INTRO =
-  '待整理 = 队列中的新资料 + 已入库但未分类的文件。可勾选多条后「批量归档到…」或「批量删除」。'
+  '待整理 = 队列中的新资料 + 已入库但未分类的文件。可勾选多条后「批量归档到…」或「批量删除」；也可点「从文件夹导入」批量收进待整理。'
+
+/** 从文件夹导入按钮 */
+export const WIKI_FOLDER_IMPORT_TOOLTIP =
+  '选择本地文件夹，将其中的文件批量登记到 Wiki 待整理（引用原路径，不移动文件）。适合整理 outputs/ 等任务产物目录。'
 
 /** 更多菜单各项（补充 WikiMoreMenu 内 description） */
 export const WIKI_MORE_MENU_TOOLTIPS: Record<string, string> = {

@@ -41,7 +41,7 @@ import { WikiSubtopicPanel } from './WikiSubtopicPanel'
 import { isUrlSourceItem } from './wikiSourcePreview'
 import { WikiHelpDrawer } from './WikiHelpDrawer'
 import { consumeWikiInitNav, OPEN_MEMORIES_TAB_EVENT } from '../../../utils/open-wiki-library'
-import { WIKI_INBOX_INTRO } from './wikiTooltips'
+import { WIKI_INBOX_INTRO, WIKI_FOLDER_IMPORT_TOOLTIP } from './wikiTooltips'
 import { WikiMoreMenu } from './WikiMoreMenu'
 import { WikiSourceDetailDrawer, type WikiSourcePreviewSnapshot } from './WikiSourceDetailDrawer'
 import {
@@ -88,6 +88,9 @@ export const WikiTab: React.FC = () => {
     retryInbox,
     discardInbox,
     organizeInbox,
+    scanFolder,
+    importFolder,
+    runOrganize,
     listPages,
     getPage,
     updatePage,
@@ -155,6 +158,7 @@ export const WikiTab: React.FC = () => {
   const [picker, setPicker] = useState<PickerTarget | null>(null)
   const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(false)
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false)
+  const [folderImportBusy, setFolderImportBusy] = useState(false)
   const [isTreeEditorOpen, setIsTreeEditorOpen] = useState(false)
   const [reclassifyRun, setReclassifyRun] = useState<WikiReclassifyRunItem | null>(null)
   const [reclassifyConfirm, setReclassifyConfirm] = useState<{ count: number } | null>(null)
@@ -913,6 +917,59 @@ export const WikiTab: React.FC = () => {
     toast,
   ])
 
+  /**
+   * 选择文件夹并批量导入 Wiki 收件箱（scan 预览 → 确认 → import → intake）。
+   */
+  const handleImportFromFolder = useCallback(async () => {
+    const dialog = window.electronAPI?.dialog
+    if (!dialog?.showOpenDialog) {
+      toast.error('当前环境不支持文件夹选择')
+      return
+    }
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+      title: '选择要导入 Wiki 的文件夹',
+    })
+    if (result.canceled || result.filePaths.length === 0) return
+
+    const dir = result.filePaths[0]!
+    setFolderImportBusy(true)
+    try {
+      const preview = await scanFolder(dir, true)
+      if (!preview) {
+        toast.error('扫描文件夹失败，请检查路径是否在允许范围内')
+        return
+      }
+      const { importable, skipped, alreadyInWiki } = preview.summary
+      if (importable === 0) {
+        toast.info(
+          alreadyInWiki > 0
+            ? `该目录 ${preview.summary.total} 个文件均已在 Wiki 中或不可导入`
+            : '该目录没有可导入的文件',
+        )
+        return
+      }
+      const ok = window.confirm(
+        `在「${dir}」中找到 ${importable} 个可导入文件` +
+          (skipped > 0 ? `（跳过 ${skipped} 个）` : '') +
+          (alreadyInWiki > 0 ? `，${alreadyInWiki} 个已在 Wiki` : '') +
+          '。是否全部收进「待整理」？',
+      )
+      if (!ok) return
+
+      const imported = await importFolder(dir, { recursive: true })
+      if (!imported || imported.imported === 0) {
+        toast.error('导入失败，请稍后重试')
+        return
+      }
+      await runOrganize({ mode: 'intake', itemType: 'output' })
+      await refreshInbox()
+      toast.success(`已导入 ${imported.imported} 个文件到待整理`)
+    } finally {
+      setFolderImportBusy(false)
+    }
+  }, [scanFolder, importFolder, runOrganize, refreshInbox, toast])
+
   /** 切换待整理队列条目选中状态 */
   const toggleSelectInbox = useCallback((inboxId: string) => {
     setSelectedInboxIds((prev) => {
@@ -1201,7 +1258,19 @@ export const WikiTab: React.FC = () => {
           </div>
         ) : nav.kind === 'inbox' ? (
           <div className="wiki-inbox-view">
-            <h3>待整理（{pendingCount}）</h3>
+            <div className="wiki-inbox-view-header">
+              <h3>待整理（{pendingCount}）</h3>
+              <Tooltip content={WIKI_FOLDER_IMPORT_TOOLTIP}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={folderImportBusy || loading}
+                  onClick={() => void handleImportFromFolder()}
+                >
+                  {folderImportBusy ? '导入中…' : '从文件夹导入'}
+                </Button>
+              </Tooltip>
+            </div>
             <p className="wiki-inbox-intro">{WIKI_INBOX_INTRO}</p>
             {inboxItems.length < inboxPending && (
               <p className="wiki-empty-hint">仅显示最近 {inboxItems.length} 条</p>

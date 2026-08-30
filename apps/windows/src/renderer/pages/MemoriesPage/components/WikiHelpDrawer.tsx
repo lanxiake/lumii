@@ -1,4 +1,6 @@
-import React from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { HelpCircle, X } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import './WikiHelpDrawer.css'
@@ -8,7 +10,9 @@ interface WikiHelpDrawerProps {
   readonly onClose: () => void
 }
 
-const SECTIONS = [
+type HelpTab = 'quick' | 'manual'
+
+const QUICK_SECTIONS = [
   {
     title: '资料库是什么',
     body: 'Wiki 是你的个人资料库：文件、网页链接、笔记集中存放，可搜索、可预览。与「工作记忆」「个人记忆」不同，这里存的是真实资料和正文。',
@@ -16,6 +20,14 @@ const SECTIONS = [
   {
     title: '资料怎么进来',
     body: '聊天里上传附件、保存网页链接、任务产物会自动进入「待整理」。默认只建立引用，不会移动或删除原文件；网页链接默认只存网址，需要正文时在预览里点「保存网页内容」。',
+  },
+  {
+    title: '从文件夹导入',
+    body: '待整理页右上角「从文件夹导入」：选一个目录（如 outputs/ 下的任务文件夹），系统会预览可导入文件数量，确认后批量收进待整理。原文件保留在原处，Wiki 只建立引用。',
+  },
+  {
+    title: '让 Agent 帮忙整理',
+    body: '在聊天中说「帮我把 outputs/某目录整理到 Wiki」即可。Agent 会通过 lumii-ui 命令扫描、导入并验证；默认只收进待整理，不会静默全库 AI 分类。你可在待整理里批量归档到工作/学习等分类。',
   },
   {
     title: '待整理怎么用（推荐流程）',
@@ -40,9 +52,50 @@ const SECTIONS = [
 ] as const
 
 /**
- * Wiki 应用内操作指引抽屉
+ * Wiki 应用内操作指引抽屉（快速指引 + 内置完整手册）
  */
 export const WikiHelpDrawer: React.FC<WikiHelpDrawerProps> = ({ open, onClose }) => {
+  const [tab, setTab] = useState<HelpTab>('quick')
+  const [manualMd, setManualMd] = useState<string | null>(null)
+  const [manualError, setManualError] = useState<string | null>(null)
+  const [manualLoading, setManualLoading] = useState(false)
+
+  /**
+   * 打开「完整手册」时从内置 extraResources 加载 Markdown。
+   */
+  const loadManual = useCallback(async () => {
+    setManualLoading(true)
+    setManualError(null)
+    try {
+      const api = window.electronAPI?.userGuides
+      if (!api?.read) {
+        setManualError('当前环境无法读取内置手册')
+        setManualMd(null)
+        return
+      }
+      const content = await api.read('wiki')
+      setManualMd(content.markdown)
+    } catch (err) {
+      setManualError(err instanceof Error ? err.message : '加载手册失败')
+      setManualMd(null)
+    } finally {
+      setManualLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!open) return
+    if (tab === 'manual' && manualMd === null && !manualLoading && !manualError) {
+      void loadManual()
+    }
+  }, [open, tab, manualMd, manualLoading, manualError, loadManual])
+
+  useEffect(() => {
+    if (!open) {
+      setTab('quick')
+    }
+  }, [open])
+
   if (!open) return null
 
   return (
@@ -62,22 +115,59 @@ export const WikiHelpDrawer: React.FC<WikiHelpDrawerProps> = ({ open, onClose })
             <X size={16} />
           </button>
         </header>
-        <div className="wiki-help-body">
-          {SECTIONS.map((section) => (
-            <section key={section.title} className="wiki-help-section">
-              <h3>{section.title}</h3>
-              <p>{section.body.split('\n').map((line, i) => (
-                <React.Fragment key={i}>
-                  {i > 0 && <br />}
-                  {line}
-                </React.Fragment>
-              ))}</p>
-            </section>
-          ))}
-          <p className="wiki-help-footnote">
-            完整手册见项目文档 docs/guide/wiki-user-guide.md
-          </p>
+
+        <div className="wiki-help-tabs" role="tablist" aria-label="指引类型">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'quick'}
+            className={tab === 'quick' ? 'wiki-help-tab wiki-help-tab--active' : 'wiki-help-tab'}
+            onClick={() => setTab('quick')}
+          >
+            快速指引
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'manual'}
+            className={tab === 'manual' ? 'wiki-help-tab wiki-help-tab--active' : 'wiki-help-tab'}
+            onClick={() => setTab('manual')}
+          >
+            完整手册
+          </button>
         </div>
+
+        <div className="wiki-help-body">
+          {tab === 'quick' ? (
+            <>
+              {QUICK_SECTIONS.map((section) => (
+                <section key={section.title} className="wiki-help-section">
+                  <h3>{section.title}</h3>
+                  <p>
+                    {section.body.split('\n').map((line, i) => (
+                      <React.Fragment key={i}>
+                        {i > 0 && <br />}
+                        {line}
+                      </React.Fragment>
+                    ))}
+                  </p>
+                </section>
+              ))}
+              <p className="wiki-help-footnote">完整版见「完整手册」标签（随应用安装包内置，离线可用）。</p>
+            </>
+          ) : manualLoading ? (
+            <p className="wiki-help-loading">正在加载内置手册…</p>
+          ) : manualError ? (
+            <p className="wiki-help-error" role="alert">
+              {manualError}
+            </p>
+          ) : manualMd ? (
+            <article className="wiki-help-markdown">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{manualMd}</ReactMarkdown>
+            </article>
+          ) : null}
+        </div>
+
         <footer className="wiki-help-footer">
           <Button variant="primary" size="sm" onClick={onClose}>
             知道了

@@ -35,6 +35,91 @@
   font-weight: 600;
 }
 
+.wiki-help-tabs {
+  display: flex;
+  gap: var(--mt-space-1);
+  padding: var(--mt-space-2) var(--mt-space-5) 0;
+  flex-shrink: 0;
+}
+
+.wiki-help-tab {
+  padding: var(--mt-space-2) var(--mt-space-3);
+  border: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.wiki-help-tab--active {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.wiki-help-loading,
+.wiki-help-error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.wiki-help-error {
+  color: var(--color-danger, #c0392b);
+}
+
+.wiki-help-markdown {
+  font-size: var(--font-size-sm);
+  line-height: 1.65;
+  color: var(--color-text-secondary);
+}
+
+.wiki-help-markdown h1,
+.wiki-help-markdown h2,
+.wiki-help-markdown h3 {
+  color: var(--color-text-primary);
+  margin: var(--mt-space-4) 0 var(--mt-space-2);
+  font-size: var(--font-size-sm);
+}
+
+.wiki-help-markdown h1 {
+  font-size: var(--font-size-md);
+}
+
+.wiki-help-markdown p,
+.wiki-help-markdown li {
+  margin: 0 0 var(--mt-space-2);
+}
+
+.wiki-help-markdown ul,
+.wiki-help-markdown ol {
+  padding-left: 1.25rem;
+  margin: 0 0 var(--mt-space-3);
+}
+
+.wiki-help-markdown code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.92em;
+  background: var(--color-bg-tertiary);
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-sm);
+}
+
+.wiki-help-markdown pre {
+  overflow-x: auto;
+  padding: var(--mt-space-3);
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+}
+
+.wiki-help-markdown blockquote {
+  margin: 0 0 var(--mt-space-3);
+  padding-left: var(--mt-space-3);
+  border-left: 3px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+
 .wiki-help-close {
   display: flex;
   align-items: center;
