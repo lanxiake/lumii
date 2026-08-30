@@ -127,6 +127,7 @@ export const WikiTab: React.FC = () => {
     openSource,
     getSource,
     searchSources,
+    ensureVaultLayout,
     extractEroFromSources,
     listEntitySources,
     loading,
@@ -225,7 +226,8 @@ export const WikiTab: React.FC = () => {
     void loadTopicTree().then(setTopicTree)
     void refreshSources()
     void refreshInbox()
-  }, [loadTopicTree, refreshSources, refreshInbox])
+    void ensureVaultLayout()
+  }, [loadTopicTree, refreshSources, refreshInbox, ensureVaultLayout])
 
   /** 外部入口要求打开待整理：首次挂载或 Hub 已打开时再次触发 */
   useEffect(() => {

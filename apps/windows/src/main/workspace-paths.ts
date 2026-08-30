@@ -55,6 +55,17 @@ export function ensureDirExists(dirPath: string): string {
   return resolved
 }
 
+/** 工作空间下 Wiki 资料库根目录名 */
+export const WORKSPACE_WIKI_DIRNAME = 'wiki'
+
+/**
+ * `{workspace}/wiki` — Wiki 资料库物理目录（ref 侧车与 native md）。
+ */
+export function resolveWikiDir(workspaceRoot?: string): string {
+  const root = path.resolve(workspaceRoot ?? resolveActiveWorkspaceDir())
+  return ensureDirExists(path.join(root, WORKSPACE_WIKI_DIRNAME))
+}
+
 /**
  * `{workspace}/temp` — 被删后调用即重建。
  */

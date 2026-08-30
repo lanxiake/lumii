@@ -665,6 +665,28 @@ export interface WikiSourceClearTopicCommand {
   readonly sourceId: string
 }
 
+export interface WikiLinkAddCommand {
+  readonly type: 'wiki:link:add'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly url: string
+  readonly title?: string
+}
+
+export interface WikiLinkSaveCommand {
+  readonly type: 'wiki:link:save'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly sourceId: string
+}
+
+export interface WikiVaultEnsureLayoutCommand {
+  readonly type: 'wiki:vault:ensure-layout'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly backfill?: boolean
+}
+
 export interface WikiAttachListCommand {
   readonly type: 'wiki:attach:list'
   readonly pageId: string
@@ -1494,6 +1516,9 @@ export type AgentRuntimeCommand =
   | WikiAutoClassifyGetCommand
   | WikiAutoClassifySetCommand
   | WikiSourceClearTopicCommand
+  | WikiLinkAddCommand
+  | WikiLinkSaveCommand
+  | WikiVaultEnsureLayoutCommand
   | WikiAttachListCommand
   | WikiAttachAddCommand
   | WikiAttachRemoveCommand
@@ -1939,6 +1964,9 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:auto-classify:get' ? { enabled: boolean }
   : T extends 'wiki:auto-classify:set' ? void
   : T extends 'wiki:source:clear-topic' ? void
+  : T extends 'wiki:link:add' ? { sourceId: string; title: string }
+  : T extends 'wiki:link:save' ? { sourceId: string; savedPath: string; title: string }
+  : T extends 'wiki:vault:ensure-layout' ? { vaultRoot: string; synced: number; createdDirs?: readonly string[] }
   : T extends 'wiki:attach:list' ? readonly {
       id: string
       pageId: string

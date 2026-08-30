@@ -1393,6 +1393,21 @@ export function useWikiPage() {
     [],
   )
 
+  /** 确保 workspace/wiki/ 目录存在，并回填已有资料到磁盘。 */
+  const ensureVaultLayout = useCallback(async (): Promise<{ vaultRoot: string; synced: number } | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      return (await api.sendCommand({
+        type: 'wiki:vault:ensure-layout',
+        agentId: DEFAULT_AGENT_ID,
+        backfill: true,
+      })) as { vaultRoot: string; synced: number }
+    } catch {
+      return null
+    }
+  }, [])
+
   return {
     loading,
     listInbox,
@@ -1454,5 +1469,6 @@ export function useWikiPage() {
     openSource,
     getSource,
     searchSources,
+    ensureVaultLayout,
   }
 }

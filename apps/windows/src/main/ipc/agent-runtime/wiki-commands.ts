@@ -6,7 +6,7 @@
  */
 import path from 'node:path'
 import fs from 'node:fs'
-import { app, shell } from 'electron'
+import { shell } from 'electron'
 import {
   parseSynthesisProgress,
   WikiGraphBuilder,
@@ -26,15 +26,54 @@ import {
   WikiFolderImporter,
   type WikiFolderImporterFs,
   type WikiInboxItemType,
+  WikiClipSaver,
+  vaultDirSegmentsForSource,
+  resolveOriginalFilePath,
 } from '@mtbot/agent-runtime'
 import {
   SYNTHESIS_CONFIRM_REQUIRED_CODE,
   type AgentRuntimeCommand,
 } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
+import {
+  createWikiVaultSyncDeps,
+  ensureAndBackfillWikiVault,
+  ensureWikiVaultLayoutOnDisk,
+  syncWikiSourceById,
+  syncWikiSourceToVault,
+} from '../../agent-runtime/wiki-vault-host'
+import { resolveWikiDir } from '../../workspace-paths'
 import { securityUtils } from '../../security-utils'
 
 const LOCAL_USER_ID = 'local-user'
+
+/**
+ * 资料变更后同步 workspace/wiki/ 目录（失败不阻断主流程）。
+ */
+function vaultSyncSource(bridge: AgentRuntimeBridge, sourceId: string, agentId?: string): void {
+  try {
+    const resolvedAgent = resolveAgentIdForWiki(bridge, undefined, agentId)
+    syncWikiSourceById(bridge.wikiRepo, resolvedAgent, LOCAL_USER_ID, sourceId)
+  } catch (err) {
+    console.warn('[wiki-vault] sync failed:', (err as Error).message)
+  }
+}
+
+/**
+ * 解析 http(s) URL；非法时抛中文错误。
+ */
+function parseHttpUrl(raw: string): URL {
+  const trimmed = raw.trim()
+  if (!trimmed) throw new Error('链接不能为空')
+  try {
+    const url = new URL(trimmed)
+    if (!url.protocol.startsWith('http')) throw new Error('仅支持 http/https 链接')
+    return url
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('http')) throw err
+    throw new Error('链接格式无效')
+  }
+}
 
 /** Node fs 适配器，供 WikiFolderImporter 扫描目录 */
 const wikiFolderNodeFs: WikiFolderImporterFs = {
@@ -158,6 +197,7 @@ export function handleWikiInboxOrganize(
   }
 
   const updated = repo.archiveInboxItem(item, command.category, command.subtopic, command.title)
+  vaultSyncSource(bridge, updated.id, command.agentId)
   return { sourceId: updated.id, category: updated.topic_category!, subtopic: updated.topic_subtopic! }
 }
 
@@ -485,7 +525,7 @@ export function handleWikiTopicMutate(
 /** 笔记落盘根目录；测试可注入替代实现，避免依赖 Electron 的 app */
 export type WikiNotesDirResolver = () => string
 
-const defaultNotesDir: WikiNotesDirResolver = () => path.join(app.getPath('userData'), 'wiki-notes')
+const defaultNotesDir: WikiNotesDirResolver = () => resolveWikiDir()
 
 /** `20260827-103000` 形式的时间戳，用于笔记文件名 */
 function noteTimestamp(now: Date): string {
@@ -515,7 +555,13 @@ export function handleWikiSourceCreateNote(
   if (!check.ok) throw new Error(check.reason)
 
   const title = command.title?.trim() || '未命名笔记'
-  const dir = path.join((deps?.notesDir ?? defaultNotesDir)(), sanitizeFilenameSegment(command.category))
+  const vaultRoot = (deps?.notesDir ?? defaultNotesDir)()
+  const segments = vaultDirSegmentsForSource({
+    topicCategory: command.category,
+    topicSubtopic: command.subtopic,
+    archivedAt: null,
+  }).map(sanitizeFilenameSegment)
+  const dir = path.join(vaultRoot, ...segments)
   fs.mkdirSync(dir, { recursive: true })
 
   const stamp = noteTimestamp(deps?.now?.() ?? new Date())
@@ -537,11 +583,13 @@ export function handleWikiSourceCreateNote(
     contentMd: content,
     extractedText: title,
     originContext: '用户在 Wiki 目录中新建',
+    storageMode: 'native',
   })
   repo.updateSourceTopic(command.agentId, userId, source.id, command.category, command.subtopic)
   repo.indexSource(source.id)
+  const synced = syncWikiSourceToVault(repo, repo.findSourceById(source.id, command.agentId, userId)!)
 
-  return { sourceId: source.id, sourcePath: filePath, title }
+  return { sourceId: synced.id, sourcePath: synced.source_path ?? filePath, title }
 }
 
 /**
@@ -670,6 +718,7 @@ export function handleWikiSourceUpdateTopic(
     command.category,
     command.subtopic,
   )
+  vaultSyncSource(bridge, updated.id, command.agentId)
   return { id: updated.id, topicCategory: updated.topic_category, topicSubtopic: updated.topic_subtopic }
 }
 
@@ -685,6 +734,7 @@ export function handleWikiSourceMoveToParking(
     PARKING_CATEGORY,
     null,
   )
+  vaultSyncSource(bridge, updated.id, command.agentId)
   return { id: updated.id, topicCategory: updated.topic_category, topicSubtopic: updated.topic_subtopic }
 }
 
@@ -698,9 +748,14 @@ export async function handleWikiSourceOpen(
   if (!source) throw new Error(`资料不存在: ${command.sourceId}`)
   if (!source.source_path) throw new Error('无法打开原文件：该资料没有关联的原始文件路径')
 
-  const absPath = path.isAbsolute(source.source_path)
-    ? source.source_path
-    : path.resolve(bridge.getCwd(), source.source_path)
+  const deps = createWikiVaultSyncDeps()
+  let openPath = source.source_path
+  const original = resolveOriginalFilePath(deps, source)
+  if (original) openPath = original
+
+  const absPath = path.isAbsolute(openPath)
+    ? openPath
+    : path.resolve(deps.workspaceRoot, openPath.replace(/\//g, path.sep))
   if (!fs.existsSync(absPath)) {
     throw new Error(`无法打开原文件：文件已丢失或被移动（${source.source_path}）`)
   }
@@ -710,6 +765,93 @@ export async function handleWikiSourceOpen(
   }
   bridge.wikiRepo.touchSource(agentId, LOCAL_USER_ID, source.id)
   return { success: true }
+}
+
+/**
+ * 添加链接引用：只建 url-ref，不抓取正文。
+ */
+export function handleWikiLinkAdd(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:link:add' }>,
+): { sourceId: string; title: string } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const url = parseHttpUrl(command.url)
+  const title = command.title?.trim() || url.hostname
+  const source = bridge.wikiRepo.createSource({
+    agentId,
+    userId: LOCAL_USER_ID,
+    title,
+    originUrl: url.toString(),
+    storageMode: 'ref',
+    mediaType: 'document',
+    originContext: `原文链接: ${url.toString()}`,
+  })
+  bridge.wikiRepo.indexSource(source.id)
+  const synced = syncWikiSourceToVault(bridge.wikiRepo, source)
+  return { sourceId: synced.id, title: synced.title }
+}
+
+/**
+ * 用户主动保存网页：抓取 URL 并写入 vault native md。
+ */
+export async function handleWikiLinkSave(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:link:save' }>,
+): Promise<{ sourceId: string; savedPath: string; title: string }> {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const source = bridge.wikiRepo.findSourceById(command.sourceId, agentId, LOCAL_USER_ID)
+  if (!source) throw new Error(`资料不存在: ${command.sourceId}`)
+  if (!source.origin_url) throw new Error('这条资料没有网址，无法保存网页内容')
+
+  const deps = createWikiVaultSyncDeps()
+  const { resolveVaultDirAbs } = await import('@mtbot/agent-runtime')
+  const destDir = resolveVaultDirAbs(deps, source)
+  fs.mkdirSync(destDir, { recursive: true })
+
+  const saver = new WikiClipSaver({
+    writeFile: async (_rel, content) => {
+      const slug = sanitizeFilenameSegment(source.title).slice(0, 80) || 'web-clip'
+      let abs = path.join(destDir, `${slug}.md`)
+      for (let i = 2; fs.existsSync(abs); i++) {
+        abs = path.join(destDir, `${slug}-${i}.md`)
+      }
+      fs.writeFileSync(abs, content, 'utf8')
+      return deps.toRelPath(abs)
+    },
+  })
+
+  const clip = await saver.save(source.origin_url, source.title)
+  bridge.wikiRepo.setSourceStorage(agentId, LOCAL_USER_ID, source.id, {
+    storageMode: 'native',
+    sourcePath: clip.savedPath,
+    contentMd: clip.markdown,
+    extractedText: clip.markdown,
+    mimeType: 'text/markdown',
+  })
+  const updated = bridge.wikiRepo.findSourceById(source.id, agentId, LOCAL_USER_ID)!
+  bridge.wikiRepo.indexSource(updated.id)
+
+  return { sourceId: updated.id, savedPath: clip.savedPath, title: clip.title }
+}
+
+/**
+ * 初始化 workspace/wiki/ 目录；可选回填已有资料。
+ */
+export function handleWikiVaultEnsureLayout(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:vault:ensure-layout' }>,
+): { vaultRoot: string; synced: number; createdDirs?: readonly string[] } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const layout = ensureWikiVaultLayoutOnDisk()
+  if (command.backfill === false) {
+    return { vaultRoot: layout.vaultRoot, synced: 0, createdDirs: layout.createdDirs }
+  }
+  const backfill = ensureAndBackfillWikiVault(bridge.wikiRepo, agentId, LOCAL_USER_ID)
+  return {
+    vaultRoot: backfill.vaultRoot,
+    synced: backfill.synced,
+    createdDirs: layout.createdDirs,
+  }
 }
 
 // ============================================================
@@ -785,7 +927,8 @@ export function handleWikiSourceClearTopic(
   command: Extract<AgentRuntimeCommand, { type: 'wiki:source:clear-topic' }>,
 ): void {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  bridge.wikiRepo.clearSourceTopic(agentId, LOCAL_USER_ID, command.sourceId)
+  const cleared = bridge.wikiRepo.clearSourceTopic(agentId, LOCAL_USER_ID, command.sourceId)
+  vaultSyncSource(bridge, cleared.id, command.agentId)
 }
 
 export function handleWikiAutoClassifyGet(
@@ -831,6 +974,7 @@ export function handleWikiSourceArchive(
 ): { archived: number } {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
   const archived = bridge.wikiRepo.archiveSources(agentId, LOCAL_USER_ID, command.sourceIds)
+  for (const id of command.sourceIds) vaultSyncSource(bridge, id, command.agentId)
   return { archived }
 }
 
@@ -840,6 +984,7 @@ export function handleWikiSourceRestore(
 ): { restored: number } {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
   const restored = bridge.wikiRepo.restoreSources(agentId, LOCAL_USER_ID, command.sourceIds)
+  for (const id of command.sourceIds) vaultSyncSource(bridge, id, command.agentId)
   return { restored }
 }
 

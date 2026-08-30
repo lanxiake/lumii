@@ -34,6 +34,8 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   // organize / update 接受任意 contentMd，属知识库正文写入而非配置/命令注入，
   // 与被拒的 mcp:writeConfigFile（可注入 stdio 命令，等价 RCE）性质不同，按需放行。
   'wiki:inbox:list', 'wiki:inbox:count', 'wiki:inbox:retry', 'wiki:inbox:discard', 'wiki:inbox:organize',
+  // Wiki 文件夹导入（P0）：scan 只读预览；import 写入收件箱（引用优先，不移动原文件）；organize:run 触发 intake 管线
+  'wiki:folder:scan', 'wiki:folder:import', 'wiki:organize:run',
   'wiki:page:list', 'wiki:page:get', 'wiki:page:update', 'wiki:page:delete',
   'wiki:search', 'wiki:source:get', 'wiki:runs:list', 'wiki:index:rebuild',
   // 用途主题树 / 资料层（记忆重构一期）：set 接受结构化目录 JSON，非任意命令注入，按需放行。
@@ -42,7 +44,8 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'wiki:reclassify:ignore', 'wiki:reclassify:discard',
   'wiki:source:create-note', 'wiki:source:rename',
   'wiki:source:update-topic', 'wiki:source:move-to-parking', 'wiki:source:open',
-  'wiki:source:clear-topic', 'wiki:auto-classify:get', 'wiki:auto-classify:set',
+  'wiki:source:clear-topic', 'wiki:link:add', 'wiki:link:save', 'wiki:vault:ensure-layout',
+  'wiki:auto-classify:get', 'wiki:auto-classify:set',
   // Wiki 知识库（P1）：链接/修订/清理/附件/导出/概念候选。export 的 targetDir 来自渲染进程
   // 弹出的系统原生 dialog:showSaveDialog（用户手选目录），不是任意字符串注入，按需放行。
   'wiki:link:backlinks', 'wiki:link:unresolved', 'wiki:page:revisions', 'wiki:page:rollback',

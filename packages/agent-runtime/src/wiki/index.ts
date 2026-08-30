@@ -171,6 +171,51 @@ export {
 } from "./wiki-folder-importer.js";
 
 export { WikiOrganizer } from "./wiki-organizer.js";
+export type { WikiOrganizerHooks } from "./wiki-organizer.js";
+
+export {
+  WIKI_NAV_SECTIONS,
+  WIKI_PARKING_DIR,
+  WIKI_META_DIR,
+  navIdFromLegacyCategory,
+  legacyCategoriesForNav,
+  primaryLegacyCategoryForNav,
+  navLabel,
+  folderSlugForNavId,
+  vaultDirSegmentsForSource,
+} from "./wiki-nav-map.js";
+export type { WikiNavId, WikiNavSectionDef } from "./wiki-nav-map.js";
+
+export {
+  WIKI_REF_KIND,
+  WIKI_REF_VERSION,
+  FILE_REF_EXT,
+  URL_REF_EXT,
+  isVaultRefPath,
+  buildFileRefDoc,
+  buildUrlRefDoc,
+  parseRefDocument,
+  readRefTarget,
+  writeFileRef,
+  writeUrlRef,
+  moveRefFile,
+} from "./wiki-ref-store.js";
+export type { WikiRefDocument, WikiRefStoreFs, WikiRefType } from "./wiki-ref-store.js";
+
+export { ensureWikiVaultLayout } from "./wiki-vault-layout.js";
+export type { WikiVaultLayoutFs, WikiVaultLayoutResult } from "./wiki-vault-layout.js";
+
+export {
+  syncSourceToVault,
+  backfillVaultFromSources,
+  resolveVaultDirAbs,
+  resolveOriginalFilePath,
+  shouldUseRefSidecar,
+} from "./wiki-vault-sync.js";
+export type { WikiVaultFs, WikiVaultSyncDeps, WikiVaultSyncResult } from "./wiki-vault-sync.js";
+
+export { WikiClipSaver } from "./wiki-clip-saver.js";
+export type { WikiClipSaverDeps, WikiClipResult } from "./wiki-clip-saver.js";
 
 export { WikiOrganizeQueue, computeBackoffDelayMs, MAX_ORGANIZE_ATTEMPTS } from "./wiki-organize-queue.js";
 

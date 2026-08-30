@@ -85,8 +85,8 @@ function normalizeInlineWhitespace(value: string): string {
   return value.replace(/[^\S\n]+/g, " ").trim();
 }
 
-/** HTML 转 Markdown */
-function htmlToMarkdown(html: string): { text: string; title?: string } {
+/** HTML 转 Markdown（供 wiki-clip-saver 等模块复用） */
+export function htmlToMarkdown(html: string): { text: string; title?: string } {
   // 提取 title
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch

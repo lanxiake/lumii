@@ -727,6 +727,26 @@ export class WikiRepo {
   }
 
   /**
+   * 更新资料的 source_path（vault ref 或 native md 相对/绝对路径）。
+   */
+  updateSourcePath(
+    agentId: string,
+    userId: string,
+    sourceId: string,
+    sourcePath: string,
+  ): WikiSource {
+    const info = this.db
+      .prepare(
+        "UPDATE wiki_sources SET source_path = ? WHERE id = ? AND agent_id = ? AND user_id = ?",
+      )
+      .run(sourcePath, sourceId, agentId, userId);
+    if (info.changes === 0) throw new Error(`资料不存在: ${sourceId}`);
+    const source = this.findSourceById(sourceId, agentId, userId);
+    if (!source) throw new Error(`资料不存在: ${sourceId}`);
+    return source;
+  }
+
+  /**
    * 写资料的来源与存放方式。两个字段都可选：只传一个时另一个保持原值，
    * 便于「先记链接、后来才复制副本」这类分步更新。
    */
@@ -734,7 +754,14 @@ export class WikiRepo {
     agentId: string,
     userId: string,
     sourceId: string,
-    params: { readonly originUrl?: string | null; readonly storageMode?: WikiStorageMode },
+    params: {
+      readonly originUrl?: string | null;
+      readonly storageMode?: WikiStorageMode;
+      readonly sourcePath?: string;
+      readonly contentMd?: string;
+      readonly extractedText?: string;
+      readonly mimeType?: string;
+    },
   ): WikiSource {
     const sets: string[] = [];
     const args: unknown[] = [];
@@ -745,6 +772,22 @@ export class WikiRepo {
     if (params.storageMode !== undefined) {
       sets.push("storage_mode = ?");
       args.push(params.storageMode);
+    }
+    if (params.sourcePath !== undefined) {
+      sets.push("source_path = ?");
+      args.push(params.sourcePath);
+    }
+    if (params.contentMd !== undefined) {
+      sets.push("content_md = ?");
+      args.push(params.contentMd);
+    }
+    if (params.extractedText !== undefined) {
+      sets.push("extracted_text = ?");
+      args.push(params.extractedText);
+    }
+    if (params.mimeType !== undefined) {
+      sets.push("mime_type = ?");
+      args.push(params.mimeType);
     }
     if (sets.length === 0) {
       const current = this.findSourceById(sourceId, agentId, userId);

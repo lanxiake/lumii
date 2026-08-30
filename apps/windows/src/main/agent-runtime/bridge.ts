@@ -89,6 +89,7 @@ import { McpManager, type McpServerRuntimeStatus } from './mcp-manager'
 import type { McpServerEntry } from '../config/mcp-config'
 import { PermissionController } from './permission-controller'
 import { readWorkspaceTextForWiki } from './wiki-text-reader'
+import { syncWikiSourceToVault } from './wiki-vault-host'
 import { isWikiVectorEnabled } from './wiki-embedding-config'
 import { AskUserQuestionController } from './ask-user-question-controller'
 import { FileMemoryHandler } from './file-memory-handler'
@@ -650,6 +651,15 @@ export class AgentRuntimeBridge {
         readTextFile: (filePath: string, maxBytes: number) =>
           readWorkspaceTextForWiki(filePath, maxBytes),
       }),
+      {
+        onSourceCreated: (source) => {
+          try {
+            syncWikiSourceToVault(this._wikiRepo!, source)
+          } catch (err) {
+            log.warn('[wiki-vault] organizer sync failed:', err)
+          }
+        },
+      },
     )
     this._wikiOrganizeQueue = new WikiOrganizeQueue()
     this._wikiReclassifier = new WikiReclassifier(

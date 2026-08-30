@@ -18,7 +18,13 @@ import type {
   WikiOrganizeRun,
   WikiOrganizeRunDetailExtract,
   WikiOrganizeRunDetailItem,
+  WikiSource,
 } from "./types.js";
+
+export interface WikiOrganizerHooks {
+  /** 资料落库后回调（供宿主同步 vault 目录） */
+  readonly onSourceCreated?: (source: WikiSource) => void;
+}
 
 /**
  * 根据 enrich 前后正文预览判定 extract 字段：
@@ -38,6 +44,7 @@ export class WikiOrganizer {
     private readonly repo: WikiRepo,
     private readonly callLLM: (prompt: string) => Promise<string>,
     private readonly extractor: WikiContentExtractor,
+    private readonly hooks?: WikiOrganizerHooks,
   ) {}
 
   /**
@@ -120,7 +127,8 @@ export class WikiOrganizer {
       const enrichedItem = byId.get(item.id) ?? item;
       const extract = extractById.get(item.id) ?? "none";
       try {
-        this.repo.fileInboxItemUnclassified(enrichedItem);
+        const source = this.repo.fileInboxItemUnclassified(enrichedItem);
+        this.hooks?.onSourceCreated?.(source);
         detailItems.push({
           inboxId: item.id,
           title: item.title,
@@ -238,7 +246,8 @@ export class WikiOrganizer {
       }
 
       try {
-        this.repo.archiveInboxItem(item, result.category, result.subtopic);
+        const source = this.repo.archiveInboxItem(item, result.category, result.subtopic);
+        this.hooks?.onSourceCreated?.(source);
         detailItems.push({
           inboxId: item.id,
           title: item.title,

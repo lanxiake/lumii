@@ -53,6 +53,12 @@ describe('COMMAND_ALLOWLIST', () => {
     expect(isCommandExposed('wiki:inbox:count')).toBe(true)
   })
 
+  it('放行 Wiki 文件夹导入与 intake 管线（Agent @outputs 整理）', () => {
+    for (const t of ['wiki:folder:scan', 'wiki:folder:import', 'wiki:organize:run']) {
+      expect(isCommandExposed(t)).toBe(true)
+    }
+  })
+
   it('放行压缩自动化所需命令', () => {
     for (const t of [
       'conversation:create',
