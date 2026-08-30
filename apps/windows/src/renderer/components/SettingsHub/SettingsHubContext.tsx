@@ -17,6 +17,7 @@ import {
   type SettingsHubState,
   type SettingsHubTab,
 } from './types'
+import { consumeMemoriesInitTab } from '../../utils/open-wiki-library'
 
 interface SettingsHubContextValue {
   state: SettingsHubState
@@ -30,6 +31,8 @@ interface SettingsHubContextValue {
   setTab: (tab: SettingsHubTab) => void
   /** 切换设置左侧分类 */
   setCategory: (category: MergedSettingsCategory) => void
+  /** 清除记忆页子 Tab 跳转标记（MemoriesPage 消费后调用） */
+  clearMemoriesSubTab: () => void
   /** 根据路由视图打开对应 Hub Tab */
   openHubForView: (view: string) => void
 }
@@ -66,12 +69,19 @@ export const SettingsHubProvider: React.FC<SettingsHubProviderProps> = ({ childr
     setState((prev) => ({ ...prev, category, tab: 'settings' }))
   }, [])
 
+  /** 记忆子 Tab 跳转标记仅用一次，避免后续覆盖用户手动切换 */
+  const clearMemoriesSubTab = useCallback(() => {
+    setState((prev) => (prev.memoriesSubTab ? { ...prev, memoriesSubTab: null } : prev))
+  }, [])
+
   const openHubForView = useCallback((view: string) => {
     const tab = viewToHubTab(view)
+    const memoriesSubTab = view === 'memories' ? consumeMemoriesInitTab() : null
     setState((prev) => ({
       open: true,
       tab,
       category: prev.category,
+      memoriesSubTab: memoriesSubTab ?? (view === 'memories' ? prev.memoriesSubTab : null),
     }))
   }, [])
 
@@ -83,9 +93,10 @@ export const SettingsHubProvider: React.FC<SettingsHubProviderProps> = ({ childr
       closeHub,
       setTab,
       setCategory,
+      clearMemoriesSubTab,
       openHubForView,
     }),
-    [state, openHub, closeHub, setTab, setCategory, openHubForView],
+    [state, openHub, closeHub, setTab, setCategory, clearMemoriesSubTab, openHubForView],
   )
 
   return (

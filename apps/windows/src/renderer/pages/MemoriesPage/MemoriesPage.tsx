@@ -33,7 +33,6 @@ import { MemPalaceViewer } from './MemPalaceViewer'
 import { WikiTab } from './components/WikiTab'
 import {
   OPEN_MEMORIES_TAB_EVENT,
-  consumeMemoriesInitTab,
   type MemoriesTab,
 } from '../../utils/open-wiki-library'
 import './MemoriesPage.css'
@@ -44,10 +43,19 @@ interface MemoriesPageProps {
   onViewChange?: (view: ViewType) => void
   /** Hub 嵌入时隐藏 PageHeader 标题区 */
   embedded?: boolean
+  /** Hub 打开时指定默认 Tab（如从资料库入口跳转 wiki） */
+  initialTab?: MemoryTab
+  /** initialTab 应用后回调，用于清除 Hub 一次性标记 */
+  onMemoriesSubTabConsumed?: () => void
 }
 
-export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedded = false }) => {
-  const [activeTab, setActiveTab] = useState<MemoryTab>(() => consumeMemoriesInitTab() ?? 'soul')
+export const MemoriesPage: React.FC<MemoriesPageProps> = ({
+  onViewChange,
+  embedded = false,
+  initialTab,
+  onMemoriesSubTabConsumed,
+}) => {
+  const [activeTab, setActiveTab] = useState<MemoryTab>('soul')
   const [isEditMode, setIsEditMode] = useState(false)
   const [content, setContent] = useState('')
   const [showDraftRestore, setShowDraftRestore] = useState(false)
@@ -145,6 +153,13 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
     window.addEventListener(OPEN_MEMORIES_TAB_EVENT, handler)
     return () => window.removeEventListener(OPEN_MEMORIES_TAB_EVENT, handler)
   }, [])
+
+  /** Hub 通过 props 传入的一次性 Tab（比 sessionStorage 更可靠） */
+  useEffect(() => {
+    if (!initialTab) return
+    setActiveTab(initialTab)
+    onMemoriesSubTabConsumed?.()
+  }, [initialTab, onMemoriesSubTabConsumed])
 
   useEffect(() => {
     if (soul !== null) {

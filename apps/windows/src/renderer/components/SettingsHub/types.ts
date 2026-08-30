@@ -33,12 +33,15 @@ export interface SettingsHubState {
   open: boolean
   tab: SettingsHubTab
   category: MergedSettingsCategory
+  /** 打开记忆 Hub 时默认选中的子 Tab（如 wiki） */
+  memoriesSubTab?: string | null
 }
 
 export const DEFAULT_SETTINGS_HUB_STATE: SettingsHubState = {
   open: false,
   tab: 'settings',
   category: 'general',
+  memoriesSubTab: null,
 }
 
 /** 顶栏 Tab 配置 */

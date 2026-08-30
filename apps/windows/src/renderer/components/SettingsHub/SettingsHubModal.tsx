@@ -60,7 +60,7 @@ const SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
 export const SettingsHubModal: React.FC<{
   onViewChange?: (view: ViewType) => void
 }> = ({ onViewChange }) => {
-  const { state, isOpen, closeHub, setTab, setCategory, openHub } = useSettingsHub()
+  const { state, isOpen, closeHub, setTab, setCategory, clearMemoriesSubTab, openHub } = useSettingsHub()
 
   const header = useMemo(
     () => (
@@ -143,7 +143,12 @@ export const SettingsHubModal: React.FC<{
       case 'memories':
         return (
           <div className={styles.embedPane}>
-            <MemoriesPage embedded onViewChange={handleEmbeddedViewChange} />
+            <MemoriesPage
+              embedded
+              initialTab={state.memoriesSubTab as 'wiki' | 'soul' | 'ai' | 'user-memory' | 'plugin' | undefined}
+              onMemoriesSubTabConsumed={clearMemoriesSubTab}
+              onViewChange={handleEmbeddedViewChange}
+            />
           </div>
         )
       case 'plugins':

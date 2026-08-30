@@ -18,6 +18,17 @@ export type MemoriesTab = 'soul' | 'ai' | 'user-memory' | 'plugin' | 'wiki'
 export type WikiInitNav = 'inbox'
 
 /**
+ * 读取 sessionStorage 中的记忆 Tab 标记（不删除）
+ */
+export function peekMemoriesInitTab(): MemoriesTab | null {
+  try {
+    return sessionStorage.getItem(MEMORIES_INIT_TAB_KEY) as MemoriesTab | null
+  } catch {
+    return null
+  }
+}
+
+/**
  * 读取并清除 sessionStorage 中的 Wiki 初始导航标记
  */
 export function consumeWikiInitNav(): WikiInitNav | null {
