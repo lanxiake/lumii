@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { VCS_SKIP_DIRS } from "./vcs-ignore";
+import { shouldSkipWalkDir } from "./vcs-ignore";
 import { createLogger } from "../logger";
 
 const logger = createLogger("workspace-vcs/turn-snapshot");
@@ -102,7 +102,7 @@ interface WalkStats {
 
 /**
  * 递归遍历工作区，收集相对 posix 路径 → sha256(内容) 映射。
- * 跳过 node_modules、.git、.mtbot-vcs、tmp/temp/.cache 及 DEFAULT_VCS_IGNORE 大文件模式。
+ * 跳过 node_modules、.git、.mtbot-vcs、tmp/temp/.cache、根层 projects/ 及 DEFAULT_VCS_IGNORE 大文件模式。
  * 异步 IO + 定期让出事件循环；触达文件数/字节数上限后剩余文件降级为伪哈希。
  */
 async function walkWorkspace(
@@ -119,7 +119,7 @@ async function walkWorkspace(
   }
 
   for (const entry of entries) {
-    if (VCS_SKIP_DIRS.has(entry.name)) continue;
+    if (shouldSkipWalkDir(relDir, entry.name)) continue;
 
     const abs = path.join(absDir, entry.name);
     const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
@@ -157,7 +157,7 @@ async function walkWorkspace(
 
 /**
  * 递归遍历工作区，返回相对 posix 路径 → sha256(内容) 映射。
- * 跳过：node_modules、.git、.mtbot-vcs、tmp/temp/.cache，以及 DEFAULT_VCS_IGNORE 中的大文件模式。
+ * 跳过：node_modules、.git、.mtbot-vcs、tmp/temp/.cache、根层 projects/，以及 DEFAULT_VCS_IGNORE 中的大文件模式。
  * workspaceDir 无效或不存在时抛错。
  */
 export async function captureWorkspaceTurnSnapshot(

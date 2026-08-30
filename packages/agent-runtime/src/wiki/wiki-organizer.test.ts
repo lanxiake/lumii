@@ -439,4 +439,17 @@ describe("WikiOrganizer intakeBatch（不调 LLM）", () => {
     expect(repo.listSourcesByTopic("ag", "u", { unfiled: true })).toHaveLength(1);
     expect(repo.listInbox("ag", "u", "pending")).toHaveLength(1);
   });
+
+  it("intakeInboxIds 对指定条目落未分类资料", async () => {
+    const { repo, hook } = setup();
+    const id1 = hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "A")!;
+    hook.ingestUpload("ag", "u", "/tmp/b.md", "b", "text/markdown", "B");
+
+    const organizer = new WikiOrganizer(repo, forbiddenLLM, new WikiContentExtractor());
+    const run = await organizer.intakeInboxIds("ag", "u", [id1]);
+    expect(run).not.toBeNull();
+    expect(run!.status).toBe("succeeded");
+    expect(repo.listSourcesByTopic("ag", "u", { unfiled: true })).toHaveLength(1);
+    expect(repo.listInbox("ag", "u", "pending")).toHaveLength(1);
+  });
 });

@@ -251,6 +251,105 @@ export class WikiOrganizer {
   }
 
   /**
+   * 对指定 inbox 条目只做收件（不调 LLM），落为未分类资料。
+   * 供文件夹导入等在关闭自动分类后立即落库，避免只写 inbox 队列导致 UI 无可见资料。
+   */
+  async intakeInboxIds(
+    agentId: string,
+    userId: string,
+    inboxIds: readonly string[],
+  ): Promise<WikiOrganizeRun | null> {
+    if (inboxIds.length === 0) return null;
+    if (WikiReclassifier.isRunning(this.repo.getReclassifyRun(agentId, userId) as never)) {
+      return null;
+    }
+
+    const pending = inboxIds
+      .map((id) => this.repo.findInboxById(id))
+      .filter((item): item is WikiInboxItem => item !== null && item.status === "pending");
+
+    if (pending.length === 0) return null;
+
+    const run = this.repo.createRun(
+      agentId,
+      userId,
+      pending.map((i) => i.id),
+    );
+
+    const enriched = await Promise.all(
+      pending.map(async (item) => {
+        if (item.content_preview) return item;
+        const text = await this.extractor.extract({
+          mediaType: item.media_type,
+          sourcePath: item.source_path,
+          text: item.content_preview,
+        });
+        return text === null ? item : { ...item, content_preview: text };
+      }),
+    );
+
+    const extractById = new Map(
+      pending.map((item) => {
+        const after = enriched.find((e) => e.id === item.id);
+        return [item.id, resolveExtractState(item.content_preview, after?.content_preview)] as const;
+      }),
+    );
+
+    const byId = new Map(enriched.map((i) => [i.id, i]));
+    let failed = 0;
+    const failReasons = new Set<string>();
+    const detailItems: WikiOrganizeRunDetailItem[] = [];
+
+    for (const item of pending) {
+      const enrichedItem = byId.get(item.id) ?? item;
+      const extract = extractById.get(item.id) ?? "none";
+      try {
+        const source = this.repo.fileInboxItemUnclassified(enrichedItem);
+        this.hooks?.onSourceCreated?.(source);
+        detailItems.push({
+          inboxId: item.id,
+          title: item.title,
+          path: "",
+          mediaType: item.media_type,
+          outcome: "archived",
+          extract,
+        });
+      } catch (err) {
+        failed += 1;
+        const reason = (err as Error).message;
+        failReasons.add(reason);
+        this.repo.markInboxAttemptFailed(item.id, reason);
+        detailItems.push({
+          inboxId: item.id,
+          title: item.title,
+          path: "",
+          mediaType: item.media_type,
+          outcome: "failed",
+          reason,
+          extract,
+        });
+      }
+    }
+
+    const status = failed > 0 ? "partial" : "succeeded";
+    const filed = pending.length - failed;
+    const summary = [`${filed} 项已收进未分类`, failed > 0 ? `${failed} 项待重试` : ""]
+      .filter(Boolean)
+      .join(" · ");
+    const error = failReasons.size > 0 ? [...failReasons].join("; ") : undefined;
+    const detailJson = JSON.stringify({ items: detailItems });
+    this.repo.finishRun(run.id, status, summary, error, detailJson);
+    return {
+      ...run,
+      status,
+      result_summary: summary,
+      result_detail: detailJson,
+      ...(error ? { error } : {}),
+      finished_at: new Date().toISOString(),
+    };
+  }
+
+  /**
    * 只做收件：把一批条目原样归档成未分类资料，不调 LLM、不写主题。
    * 关掉自动分类后的默认路径——资料先安全落库，分类交给用户或显式的「AI 整理」。
    */

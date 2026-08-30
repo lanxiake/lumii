@@ -1009,9 +1009,14 @@ export const WikiTab: React.FC = () => {
         toast.error('导入失败，请稍后重试')
         return
       }
+      setNav({ kind: 'inbox' })
       await Promise.all([refreshInbox(), refreshSources()])
       const orgSummary = imported.organizeRun?.summary
-      if (orgSummary) {
+      if (autoClassifyEnabled && orgSummary && /\d+\s*项已归档/.test(orgSummary)) {
+        toast.success(
+          `已导入 ${imported.imported} 个文件 · ${orgSummary}。请在左侧「工作 / 学习 / 生活 / 收藏」查看。`,
+        )
+      } else if (orgSummary) {
         toast.success(`已导入 ${imported.imported} 个文件 · ${orgSummary}`)
       } else {
         toast.success(`已导入 ${imported.imported} 个文件到待整理`)

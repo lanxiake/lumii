@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   isVcsBinaryPath,
+  shouldSkipWalkDir,
   stripOutputsIgnoreRules,
 } from './vcs-ignore'
 
@@ -26,5 +27,11 @@ describe('vcs-ignore', () => {
     expect(isVcsBinaryPath('outputs/a/b.png')).toBe(true)
     expect(isVcsBinaryPath('SOUL.md')).toBe(false)
     expect(isVcsBinaryPath('skills/foo.ts')).toBe(false)
+  })
+
+  it('shouldSkipWalkDir 仅根层跳过 projects', () => {
+    expect(shouldSkipWalkDir('', 'projects')).toBe(true)
+    expect(shouldSkipWalkDir('outputs/demo', 'projects')).toBe(false)
+    expect(shouldSkipWalkDir('', 'node_modules')).toBe(true)
   })
 })

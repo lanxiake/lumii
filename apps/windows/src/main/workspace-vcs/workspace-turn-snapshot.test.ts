@@ -39,13 +39,15 @@ describe("captureWorkspaceTurnSnapshot", () => {
     ]);
   });
 
-  it("跳过 VCS_SKIP_DIRS 与 uploads 大文件模式", async () => {
+  it("跳过 VCS_SKIP_DIRS、根层 projects 与 uploads 大文件模式", async () => {
     fs.mkdirSync(path.join(dir, ".git"));
     fs.writeFileSync(path.join(dir, ".git", "HEAD"), "ref");
     fs.mkdirSync(path.join(dir, "tmp"));
     fs.writeFileSync(path.join(dir, "tmp", "cache.txt"), "x");
     fs.mkdirSync(path.join(dir, "uploads"), { recursive: true });
     fs.writeFileSync(path.join(dir, "uploads", "big.pdf"), "pdf");
+    fs.mkdirSync(path.join(dir, "projects", "my-app"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "projects", "my-app", "main.ts"), "app");
     fs.writeFileSync(path.join(dir, "readme.md"), "ok");
 
     const snap = await captureWorkspaceTurnSnapshot(dir);
@@ -53,6 +55,7 @@ describe("captureWorkspaceTurnSnapshot", () => {
     expect([...snap.keys()].some((k) => k.includes(".git"))).toBe(false);
     expect([...snap.keys()].some((k) => k.startsWith("tmp/"))).toBe(false);
     expect(snap.has("uploads/big.pdf")).toBe(false);
+    expect([...snap.keys()].some((k) => k.startsWith("projects/"))).toBe(false);
   });
 
   it("跳过 skills/index.json，但保留技能本体文件", async () => {
@@ -65,6 +68,17 @@ describe("captureWorkspaceTurnSnapshot", () => {
     expect(snap.has("skills/index.json")).toBe(false);
     // 技能本体仍需跟踪
     expect(snap.has("skills/my-skill/SKILL.md")).toBe(true);
+  });
+
+  it("根层 projects 跳过，但 outputs 内同名子目录仍纳入快照", async () => {
+    fs.mkdirSync(path.join(dir, "projects", "linked-app"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "projects", "linked-app", "app.ts"), "skip");
+    fs.mkdirSync(path.join(dir, "outputs", "demo", "projects"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "outputs", "demo", "projects", "note.md"), "keep");
+
+    const snap = await captureWorkspaceTurnSnapshot(dir);
+    expect([...snap.keys()].some((k) => k.startsWith("projects/"))).toBe(false);
+    expect(snap.has("outputs/demo/projects/note.md")).toBe(true);
   });
 
   it("workspaceDir 不存在时抛错", async () => {

@@ -712,7 +712,7 @@ describe('wiki commands', () => {
     expect(rows[0]?.topicSubtopic).toBe('会议聊天记录')
   })
 
-  it('folder scan/import 批量摄入收件箱', () => {
+  it('folder scan/import 批量摄入收件箱', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-cmd-folder-'))
     const outputs = path.join(root, 'outputs')
     fs.mkdirSync(outputs, { recursive: true })
@@ -729,13 +729,16 @@ describe('wiki commands', () => {
     }) as { summary: { importable: number } }
     expect(scan.summary.importable).toBe(1)
 
-    const imported = handleWikiFolderImport(bridge, {
+    const imported = await handleWikiFolderImport(bridge, {
       type: 'wiki:folder:import',
       agentId: 'assistant',
       dir: outputs,
-    }) as { imported: number; inboxIds: string[] }
+      autoClassify: false,
+    }) as { imported: number; inboxIds: string[]; organizeRun?: { summary: string | null } }
     expect(imported.imported).toBe(1)
     expect(imported.inboxIds).toHaveLength(1)
+    expect(imported.organizeRun?.summary).toContain('未分类')
+    expect(repo.listSourcesByTopic('assistant', 'local-user', { unfiled: true })).toHaveLength(1)
 
     fs.rmSync(root, { recursive: true, force: true })
   })

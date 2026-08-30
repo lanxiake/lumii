@@ -19,7 +19,7 @@ import type {
   VcsFileStatus,
   VcsRollbackResult,
 } from './types'
-import { buildDefaultGitignore, VCS_SKIP_DIRS, stripOutputsIgnoreRules, isVcsBinaryPath } from './vcs-ignore'
+import { buildDefaultGitignore, VCS_SKIP_DIRS, shouldSkipWalkDir, stripOutputsIgnoreRules, isVcsBinaryPath } from './vcs-ignore'
 import { computeFileDiff, computeDiffStats, MAX_DIFF_BYTES } from './vcs-diff'
 import { createVcsFs, VCS_TMP_SUFFIX } from './vcs-fs'
 
@@ -201,9 +201,7 @@ export class WorkspaceVcs {
       }
       for (const entry of entries) {
         if (entry.name === '.mtbot-vcs' || entry.name === '.git') continue
-        // 根层跳过挂载项目目录，不依赖 junction Dirent 类型的隐式行为
-        if (relDir === '' && entry.name === 'projects') continue
-        if (VCS_SKIP_DIRS.has(entry.name)) continue
+        if (shouldSkipWalkDir(relDir, entry.name)) continue
         const abs = path.join(absDir, entry.name)
         const rel = relDir ? `${relDir}/${entry.name}` : entry.name
         if (entry.isDirectory()) {

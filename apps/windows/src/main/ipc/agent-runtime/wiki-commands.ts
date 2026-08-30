@@ -280,8 +280,27 @@ export async function handleWikiFolderImport(
     workspaceRoot,
   })
 
-  if (command.dryRun || !autoClassify || importResult.inboxIds.length === 0) {
+  if (command.dryRun || importResult.inboxIds.length === 0) {
     return importResult
+  }
+
+  if (!autoClassify) {
+    const intakeRun = await bridge.wikiOrganizer.intakeInboxIds(
+      agentId,
+      LOCAL_USER_ID,
+      importResult.inboxIds,
+    )
+    return {
+      ...importResult,
+      autoClassify: false,
+      organizeRun: intakeRun
+        ? {
+            runId: intakeRun.id,
+            status: intakeRun.status,
+            summary: intakeRun.result_summary ?? null,
+          }
+        : null,
+    }
   }
 
   const inboxItems = importResult.inboxIds
@@ -753,7 +772,8 @@ export function handleWikiSourceList(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:source:list' }>,
 ): { sources: unknown[] } {
-  const sources = bridge.wikiRepo.listSourcesByTopic(command.agentId, command.userId ?? LOCAL_USER_ID, {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const sources = bridge.wikiRepo.listSourcesByTopic(agentId, LOCAL_USER_ID, {
     category: command.category,
     subtopic: command.subtopic,
     parking: command.parking,

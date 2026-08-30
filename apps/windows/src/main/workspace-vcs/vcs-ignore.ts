@@ -59,6 +59,7 @@ export function stripOutputsIgnoreRules(gitignoreContent: string): string {
  * node_modules（动辄上万文件）再逐个判断，会在每轮自动快照时阻塞主进程造成卡顿。
  * 在 walk 阶段直接剪枝这些目录，避免无谓的递归与 stat。
  * 注意：不得包含 outputs —— Agent 产出目录需要进入版本管理。
+ * 根层 `projects/` 见 shouldSkipWalkDir，不在此 Set 内。
  */
 export const VCS_SKIP_DIRS: ReadonlySet<string> = new Set([
   '.git',
@@ -68,6 +69,18 @@ export const VCS_SKIP_DIRS: ReadonlySet<string> = new Set([
   'tmp',
   'temp',
 ])
+
+/**
+ * 遍历工作树时是否跳过该目录项。
+ *
+ * `projects/` 仅在工作区根层剪枝（挂载项目由各自 .git 管理）；不能放进
+ * VCS_SKIP_DIRS，否则会误伤项目内部的同名子目录。
+ */
+export function shouldSkipWalkDir(relDir: string, entryName: string): boolean {
+  if (VCS_SKIP_DIRS.has(entryName)) return true
+  if (relDir === '' && entryName === 'projects') return true
+  return false
+}
 
 /** 按扩展名判定为二进制，跳过逐行文本 diff（仍纳入 status / commit） */
 export const VCS_BINARY_EXTENSIONS: ReadonlySet<string> = new Set([

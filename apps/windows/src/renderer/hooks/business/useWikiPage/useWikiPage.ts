@@ -374,7 +374,11 @@ export function useWikiPage() {
     if (!api?.sendCommand) return []
     setLoading(true)
     try {
-      const rows = (await api.sendCommand({ type: 'wiki:inbox:list', status })) as WikiInboxItem[]
+      const rows = (await api.sendCommand({
+        type: 'wiki:inbox:list',
+        agentId: DEFAULT_AGENT_ID,
+        status,
+      })) as WikiInboxItem[]
       return Array.isArray(rows) ? rows : []
     } catch {
       return []
@@ -390,8 +394,12 @@ export function useWikiPage() {
     try {
       const r = (await api.sendCommand({
         type: 'wiki:inbox:count',
+        agentId: DEFAULT_AGENT_ID,
         status: status as 'pending' | 'organized' | 'discarded' | undefined,
-      })) as { total: number }
+      })) as { total: number; pending: number; unfiled: number }
+      if (status) {
+        return typeof r?.pending === 'number' ? r.pending : 0
+      }
       return typeof r?.total === 'number' ? r.total : 0
     } catch {
       return 0
