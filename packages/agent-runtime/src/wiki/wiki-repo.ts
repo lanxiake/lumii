@@ -494,6 +494,19 @@ export class WikiRepo {
     return row ?? null;
   }
 
+  /**
+   * 按 source_path 反查资料。供 wiki_read 兼容 wiki_search 返回的 sourcePath——
+   * 资料层没有独立的路径命名空间，磁盘路径就是它的自然键。
+   */
+  findSourceBySourcePath(agentId: string, userId: string, sourcePath: string): WikiSource | null {
+    const row = this.db
+      .prepare<WikiSource>(
+        "SELECT * FROM wiki_sources WHERE agent_id = ? AND user_id = ? AND source_path = ?",
+      )
+      .get(agentId, userId, sourcePath);
+    return row ?? null;
+  }
+
   listSources(agentId: string, userId: string): readonly WikiSource[] {
     return this.db
       .prepare<WikiSource>(
@@ -600,7 +613,7 @@ export class WikiRepo {
 
   /**
    * 按用途过滤资料列表。`parking` 与 `unfiled` 互斥，不应同时传 true。
-   * 排除已归档（archived_at 非空）的资料。
+   * 默认排除已归档（archived_at 非空）；`archived: true` 时只返回已归档项且忽略分类过滤。
    */
   listSourcesByTopic(
     agentId: string,
@@ -610,13 +623,22 @@ export class WikiRepo {
       readonly subtopic?: string;
       readonly parking?: boolean;
       readonly unfiled?: boolean;
+      readonly archived?: boolean;
       readonly mediaType?: WikiMediaType;
     },
   ): readonly WikiSource[] {
-    const conditions = ["agent_id = ?", "user_id = ?", "archived_at IS NULL"];
+    const conditions = ["agent_id = ?", "user_id = ?"];
     const params: unknown[] = [agentId, userId];
 
-    if (filter.parking) {
+    if (filter.archived) {
+      conditions.push("archived_at IS NOT NULL");
+    } else {
+      conditions.push("archived_at IS NULL");
+    }
+
+    if (filter.archived) {
+      // 归档分区为扁平列表，不受 category/subtopic/unfiled/parking 影响。
+    } else if (filter.parking) {
       conditions.push("topic_category = ?", "topic_subtopic IS NULL");
       params.push(PARKING_CATEGORY);
     } else if (filter.unfiled) {
@@ -1372,7 +1394,8 @@ export class WikiRepo {
 
   /**
    * FTS5 + BM25 检索资料层（title/extracted_text），构造方式同 search()（页面层）。
-   * 排除已归档资料；命中即 touchSource。
+   * 排除已归档资料；命中即 touchSource。返回完整正文而非截断片段：
+   * 一次调用应给 Agent 足够上下文，避免再来一轮 wiki_read（wiki_search 工具描述的承诺）。
    */
   searchSources(agentId: string, userId: string, keyword: string, limit = 10): readonly WikiSourceSearchHit[] {
     const tokens = [...tokenizeBigram(keyword)];
@@ -1390,7 +1413,7 @@ export class WikiRepo {
         )
         .all(query, agentId, userId, limit);
       for (const row of rows) this.touchSource(agentId, userId, row.id);
-      return rows.map((source) => ({ source, snippet: (source.extracted_text ?? "").slice(0, 200) }));
+      return rows.map((source) => ({ source, snippet: source.extracted_text ?? "" }));
     } catch (err) {
       console.warn("[WikiRepo.searchSources] FTS5 查询失败:", err);
       return [];

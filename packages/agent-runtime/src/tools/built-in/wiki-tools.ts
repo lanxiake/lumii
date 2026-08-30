@@ -52,14 +52,18 @@ export const wikiSearchToolConfig: MtBotToolConfig<typeof WikiSearchParams> = {
 };
 
 const WikiReadParams = Type.Object({
-  path: Type.String({ description: "Full Wiki page path, e.g. sources/architecture-doc." }),
+  path: Type.String({
+    description:
+      "Wiki page path (e.g. sources/architecture-doc) or the exact sourcePath returned by wiki_search.",
+  }),
 });
 type WikiReadInput = Static<typeof WikiReadParams>;
 
 export const wikiReadToolConfig: MtBotToolConfig<typeof WikiReadParams> = {
   name: "wiki_read",
   label: "Wiki Read",
-  description: "Read the full content of a Wiki page by its exact path. Use wiki_search or wiki_overview first to find the path.",
+  description:
+    "Read the full content of a Wiki page or source by its path. Accepts both compiled Wiki page paths and the sourcePath returned by wiki_search. Use wiki_search or wiki_overview first to find the path.",
   parameters: WikiReadParams,
   category: "memory",
   isReadOnly: true,

@@ -593,6 +593,20 @@ describe("WikiRepo 资料主题读写", () => {
     expect(unfiled[0]!.title).toBe("待整理");
   });
 
+  it("listSourcesByTopic archived 只返回已归档，且不受 category 影响", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const archived = repo.createSource({ agentId: "ag", userId: "u", title: "旧项目.docx" });
+    repo.updateSourceTopic("ag", "u", archived.id, "做事记录", "汇报总结文稿");
+    const active = repo.createSource({ agentId: "ag", userId: "u", title: "在用.docx" });
+    repo.archiveSources("ag", "u", [archived.id]);
+
+    expect(repo.listSourcesByTopic("ag", "u", { archived: true }).map((x) => x.id)).toEqual([archived.id]);
+    expect(repo.listSourcesByTopic("ag", "u", {}).map((x) => x.id)).toEqual([active.id]);
+    expect(
+      repo.listSourcesByTopic("ag", "u", { archived: true, category: "做事记录" }).map((x) => x.id),
+    ).toEqual([archived.id]);
+  });
+
   it("clearSourceTopic 把资料回到未分类（topic_category/subtopic 变 NULL）", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const source = repo.createSource({ agentId: "ag", userId: "u", title: "归档过的" });
@@ -799,6 +813,18 @@ describe("WikiRepo 资料层检索", () => {
 
     expect(repo.searchSources("ag", "u", "归档内容")).toEqual([]);
   });
+
+  it("命中片段返回全文，不截断到 200 字", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const longText = "架构设计".repeat(100); // 400 字，远超旧的 200 字截断
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "长文档", extractedText: longText });
+    repo.indexSource(source.id);
+
+    const hits = repo.searchSources("ag", "u", "架构设计");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.snippet).toBe(longText);
+    expect(hits[0]!.snippet.length).toBeGreaterThan(200);
+  });
 });
 
 describe("WikiRepo 索引健康检查", () => {
@@ -848,6 +874,34 @@ describe("WikiRepo 资料归属隔离", () => {
     expect(repo.findSourceById(mine.id, "ag2", "u")).toBeNull();
     expect(repo.findSourceById(mine.id, "ag1", "u")?.id).toBe(mine.id);
     expect(repo.findSourceById(mine.id)?.id).toBe(mine.id);
+  });
+});
+
+describe("WikiRepo 按路径反查资料", () => {
+  it("findSourceBySourcePath 按归属+路径命中，读到 wiki_search 返回的原始路径", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({
+      agentId: "ag",
+      userId: "u",
+      title: "会议纪要",
+      sourcePath: "/tmp/uploads/meeting-notes.pdf",
+      extractedText: "这是会议纪要正文",
+    });
+
+    const found = repo.findSourceBySourcePath("ag", "u", "/tmp/uploads/meeting-notes.pdf");
+    expect(found?.id).toBe(source.id);
+  });
+
+  it("findSourceBySourcePath 不能跨归属命中", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.createSource({ agentId: "ag1", userId: "u", title: "我的", sourcePath: "/tmp/a.txt" });
+
+    expect(repo.findSourceBySourcePath("ag2", "u", "/tmp/a.txt")).toBeNull();
+  });
+
+  it("findSourceBySourcePath 找不到时返回 null", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    expect(repo.findSourceBySourcePath("ag", "u", "/tmp/missing.txt")).toBeNull();
   });
 });
 
