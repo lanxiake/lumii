@@ -1040,6 +1040,24 @@ IPC：
 
 用户在接受前仍可用 `WikiTopicPicker` 改。
 
+#### Task 8b：短文整合（§11.3，2026-08-28 增补）
+
+**Files:**
+- Modify: `packages/agent-runtime/src/wiki/wiki-synthesizer.ts`（`mode: consolidate`、`WIKI_CONSOLIDATE_*` 常量、`ensureSubtopicExists`）
+- Modify: `packages/agent-runtime/src/wiki/wiki-topic-tree.ts`（默认树各大类含 `整合长文`）
+- Modify: `apps/windows/src/shared/agent-runtime-commands.ts`（`mode`、`archiveSources`）
+- Modify: `apps/windows/src/main/ipc/agent-runtime/wiki-commands.ts`、`agent-runtime-ipc.ts`（确认错误降噪）
+- Modify: `WikiTab.tsx`、`wikiConsolidate.ts`、`WikiSynthesisCandidates.tsx`、`WikiFileList` 样式
+- Modify: `docs/guide/wiki-user-guide.md`
+
+**行为摘要：**
+
+- 短文：< 800 字；≥ 3 篇提示；多选 ≥ 2 可「整合为长文」
+- `create` 带 `mode: 'consolidate'`；标题前缀 `[整合] `；终稿 ≥ 1000 字
+- 生成完成后自动 `accept-as-source` → `{当前大类} / 整合长文`，`archiveSources: true`
+- 用户自定义树缺 `整合长文` 时 `acceptAsSource` 自动 `addSubtopic`
+- 失败/超时留在综述候选，按钮「归档到整合长文」一键接受
+
 - [ ] **Step 1: 写失败测试**
 
 ```ts
@@ -1349,6 +1367,7 @@ pnpm typecheck
 | §9.4 主区候选列表、选择器「让 AI 建议」、小类/全库入口 | 6 |
 | §10 新建笔记（安全目录名、不写 wiki_pages） | 7 |
 | §11 综述改产资料文件、默认目标目录规则、>40 确认 | 8 |
+| §11.3 短文整合（consolidate）、`整合长文` 统一目录、自动 accept + archiveSources | 8b |
 | §12 清理三规则对齐主题列、「移到临时存放」 | 9 |
 | §6.3 二期多选 | 9 |
 | §5.1 二期资料层向量 RRF + 显式降级 | 10 |
@@ -1373,6 +1392,7 @@ pnpm typecheck
 3. **`accept` 双路径**：设计 §11 说 `accept()` 不再写 `wiki_pages`。实现上保留旧 `accept()` 给存量 `wiki_syntheses`（其 `source_page_ids` 指向历史页），新增 `acceptAsSource()` 承担二期语义。UI 只暴露后者。
 4. **单文件「让 AI 建议」不占 run 槽**：设计 §9.1 把 `scope=source` 归入路径 ③ 的候选态。实现上采纳建议后走 `onConfirm` 直写并立即 `discard` 该批次，避免一次单文件建议长期占用「同时只允许一个 run」的槽位。行为对用户无差别，但状态机更干净。
 5. **`topicCountKey` 两处实现**：renderer 侧已在 `WikiLeftNav.tsx` 导出，runtime 侧 Task 1 再实现一份（agent-runtime 不应依赖 renderer）。两处必须同为 `JSON.stringify` 两列数组，各留断言测试。
+6. **短文整合自动接受**：设计 §11.3 允许生成完成后自动 `accept-as-source` 到 `{大类}/整合长文` 并归档原短文；综述仍走手动选择器。超 40 篇确认时 UI 须缓存完整 `sourceIds` 再带 `confirmed` 重发（不能只依赖多选框状态）。
 
 ## 一期已提前解决的项（原计划中已移除）
 

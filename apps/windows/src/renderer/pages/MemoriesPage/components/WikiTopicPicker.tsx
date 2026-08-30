@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { PARKING_CATEGORY } from '@mtbot/agent-runtime/browser'
 import { Modal } from '../../../components/ui/Modal'
+import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import { Button } from '../../../components/ui/Button/Button'
 import type { WikiTopicTree } from '../../../hooks/business/useWikiPage'
 
@@ -66,6 +67,7 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
       open={open}
       title={title}
       width={460}
+      layer={WIKI_MODAL_LAYER}
       onClose={onCancel}
       footer={
         <>

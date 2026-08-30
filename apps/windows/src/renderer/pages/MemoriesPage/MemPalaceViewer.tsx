@@ -3,6 +3,7 @@ import { Button } from '../../components/ui/Button/Button'
 import { Loading } from '../../components/ui/Loading/Loading'
 import { ErrorBanner } from '../../components/ui/ErrorBanner/ErrorBanner'
 import { Modal } from '../../components/ui/Modal/Modal'
+import { WIKI_MODAL_LAYER } from './components/wikiModalLayer'
 import { useMemPalace } from '../../hooks/business/useMemPalace/useMemPalace'
 import './MemPalaceViewer.css'
 
@@ -246,6 +247,7 @@ export const MemPalaceViewer: React.FC = () => {
       <Modal
         open={showClearConfirm}
         title="清空全部记忆"
+        layer={WIKI_MODAL_LAYER}
         onClose={handleClearCancel}
         footer={
           <div className="mpv-modal-footer">

@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import { ConfirmModal } from '../../../components/ui/Modal'
+import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import type { WikiCleanupSuggestionItem, WikiStatusCandidateItem } from '../../../hooks/business/useWikiPage'
 import { filterCleanupSuggestions, type CleanupReasonFilter } from './cleanupSelection'
 
@@ -270,6 +271,7 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
 
       <ConfirmModal
         open={confirmArchiveAll}
+        layer={WIKI_MODAL_LAYER}
         title="一键归档全部建议"
         content={`将归档 ${suggestions.length} 条清理建议，确定？`}
         confirmText="确认"
@@ -279,6 +281,7 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
 
       <ConfirmModal
         open={confirmDelete}
+        layer={WIKI_MODAL_LAYER}
         title="批量删除"
         content={`将永久删除已选 ${selected.size} 条，不可恢复`}
         confirmText="确认"

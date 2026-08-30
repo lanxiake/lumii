@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { PARKING_CATEGORY } from '@mtbot/agent-runtime/browser'
 import { Check, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { Modal } from '../../../components/ui/Modal'
+import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import { Button } from '../../../components/ui/Button/Button'
 import { topicCountKey } from './WikiLeftNav'
 import type {
@@ -216,6 +217,7 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
       open={open}
       title="编辑主题树"
       width={720}
+      layer={WIKI_MODAL_LAYER}
       onClose={onClose}
       footer={
         <Button variant="ghost" size="sm" onClick={onClose}>

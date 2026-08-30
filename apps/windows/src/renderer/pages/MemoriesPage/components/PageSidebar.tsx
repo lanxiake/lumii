@@ -9,6 +9,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { diffLines } from '@mtbot/agent-runtime/browser'
 import { Button } from '../../../components/ui/Button/Button'
 import { ConfirmModal } from '../../../components/ui/Modal'
+import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import type { WikiBacklinkItem, WikiRevisionItem } from '../../../hooks/business/useWikiPage'
 
 interface PageSidebarProps {
@@ -139,6 +140,7 @@ export const PageSidebar: React.FC<PageSidebarProps> = ({
 
       <ConfirmModal
         open={rollbackTarget !== null}
+        layer={WIKI_MODAL_LAYER}
         title="回滚到此版本"
         content={`将把页面内容回滚为 v${rollbackTarget?.version} 的内容。这会新增一个版本，原有修订历史不会被覆盖。`}
         confirmText="回滚"

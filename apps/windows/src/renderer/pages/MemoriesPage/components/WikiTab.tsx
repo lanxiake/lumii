@@ -46,6 +46,7 @@ import {
   WIKI_CONSOLIDATE_SUBTOPIC,
   type WikiConsolidateTarget,
 } from './wikiConsolidate'
+import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import { WikiTaskCenter } from './WikiTaskCenter'
 import { useWikiTaskCenter, type WikiLocalTask } from './useWikiTaskCenter'
 import './WikiTab.css'
@@ -851,6 +852,7 @@ export const WikiTab: React.FC = () => {
 
       <ConfirmModal
         open={consolidateConfirm !== null}
+        layer={WIKI_MODAL_LAYER}
         title="整合短文"
         content={`将 ${consolidateConfirm?.count ?? 0} 篇资料合并为一篇长文，数量较多、耗时较长，确定继续？`}
         confirmText="继续"
@@ -864,6 +866,7 @@ export const WikiTab: React.FC = () => {
 
       <ConfirmModal
         open={synthesisConfirm !== null}
+        layer={WIKI_MODAL_LAYER}
         title="生成综述"
         content={`本次将合成 ${synthesisConfirm?.count ?? 0} 个文件，数量较多、耗时较长，确定继续？`}
         confirmText="继续"
@@ -876,6 +879,7 @@ export const WikiTab: React.FC = () => {
 
       <ConfirmModal
         open={reclassifyConfirm !== null}
+        layer={WIKI_MODAL_LAYER}
         title="全库重新编目"
         content={`将扫描 ${reclassifyConfirm?.count ?? 0} 个已归档文件，不会改临时存放。AI 只给建议，接受后才生效。`}
         confirmText="开始"
@@ -1192,6 +1196,7 @@ export const WikiTab: React.FC = () => {
 
       <ConfirmModal
         open={deleteConfirm !== null}
+        layer={WIKI_MODAL_LAYER}
         title="删除页面"
         content={
           deleteConfirm && deleteConfirm.backlinks > 0
