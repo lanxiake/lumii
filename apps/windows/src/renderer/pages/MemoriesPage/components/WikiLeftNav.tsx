@@ -1,27 +1,34 @@
 import React from 'react'
-import { Archive, Inbox, FolderOpen, MoreHorizontal } from 'lucide-react'
+import { Inbox, Archive, Briefcase, BookOpen, Home, Star, MoreHorizontal } from 'lucide-react'
+import { navSectionLabel, topicCountKey, type WikiNavSection } from './wikiNavMapping'
+
+// 导出 topicCountKey 供 WikiTab 与 WikiTopicTreeEditor 复用
+export { topicCountKey }
 
 /**
- * P0 简化：只保留 inbox / unfiled / archived 三项 + more。
- * 取消折叠树：5 个 nav section（工作/学习/生活/收藏）由 WikiMoreMenu 进入，
- * 或通过点击资料卡片的主题标签快速跳转（归属视图）。
+ * P0 左栏显示 6 个导航分区（工作/学习/生活/收藏/收件箱/归档）+ 更多。
+ * WikiNav 保留 category/subtopic/parking/graph 等旧 kind（从 ⋯ 菜单或芯片进入），
+ * 新增 section 与 archived kind。
  */
 export type WikiNav =
   | { kind: 'inbox' }
-  | { kind: 'unfiled' }
+  | { kind: 'section'; name: WikiNavSection }
   | { kind: 'archived' }
+  | { kind: 'parking' }
   | { kind: 'graph' }
   | { kind: 'history' }
   | { kind: 'cleanup' }
   | { kind: 'synthesis' }
   | { kind: 'reclassify' }
-  | { kind: 'section'; name: string }
+  | { kind: 'category'; name: string }
+  | { kind: 'subtopic'; category: string; subtopic: string }
 
 interface WikiLeftNavProps {
   active: WikiNav | { kind: 'more' }
-  /** 待整理角标 = 收件箱 pending 条数 */
+  /** 收件箱角标（pending 条数，不含未分类） */
   inboxCount: number
-  unfiledCount: number
+  /** 各分区计数；key = section name */
+  sectionCounts: Record<WikiNavSection, number>
   archivedCount: number
   moreButtonRef?: React.RefObject<HTMLButtonElement>
   onSelect: (nav: WikiNav) => void
@@ -34,46 +41,61 @@ function isActive(active: WikiLeftNavProps['active'], nav: WikiNav): boolean {
   return true
 }
 
+const SECTION_ICONS: Record<WikiNavSection, React.FC<{ size?: number | string }>> = {
+  work: Briefcase,
+  study: BookOpen,
+  life: Home,
+  collection: Star,
+  inbox: Inbox,
+  archived: Archive,
+  unfiled: Inbox, // 不在左栏渲染，但类型完整性需要
+}
+
+/** 左栏分区顺序 */
+const NAV_SECTIONS: readonly WikiNavSection[] = ['inbox', 'work', 'study', 'life', 'collection', 'archived']
+
 /**
- * 左栏 = inbox（待整理）/ unfiled（未分类）/ archived（已归档）+ 更多。
- * 折叠树移除——P0 简化设计，5 区导航交给 more 菜单或卡片主题快速跳转。
+ * 左栏 = 6 个分区按钮（收件箱带角标）+ 更多。
+ * 删除旧的固定项（待整理/知识图谱/临时存放）与用途树渲染。
  */
 export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
   active,
   inboxCount,
-  unfiledCount,
+  sectionCounts,
   archivedCount,
   moreButtonRef,
   onSelect,
   onOpenMore,
 }) => {
-  const renderItem = (
-    nav: WikiNav,
-    label: string,
-    Icon: React.FC<{ size?: number | string }>,
-    count: number | null,
-    warn = false,
-  ) => (
-    <button
-      type="button"
-      className={`wiki-left-nav-item${isActive(active, nav) ? ' wiki-left-nav-item--active' : ''}`}
-      onClick={() => onSelect(nav)}
-      aria-current={isActive(active, nav) ? 'page' : undefined}
-    >
-      <Icon size={15} />
-      <span className="wiki-left-nav-label">{label}</span>
-      {count !== null && count > 0 && (
-        <span className={`wiki-left-nav-count${warn ? ' wiki-left-nav-count--warn' : ''}`}>{count}</span>
-      )}
-    </button>
-  )
+  const renderSection = (section: WikiNavSection, count: number, warn = false) => {
+    const nav: WikiNav = section === 'inbox' || section === 'archived' ? { kind: section } : { kind: 'section', name: section }
+    const Icon = SECTION_ICONS[section]
+    const label = navSectionLabel(section)
+    return (
+      <button
+        key={section}
+        type="button"
+        className={`wiki-left-nav-item${isActive(active, nav) ? ' wiki-left-nav-item--active' : ''}`}
+        onClick={() => onSelect(nav)}
+        aria-current={isActive(active, nav) ? 'page' : undefined}
+      >
+        <Icon size={15} />
+        <span className="wiki-left-nav-label">{label}</span>
+        {count > 0 && (
+          <span className={`wiki-left-nav-count${warn ? ' wiki-left-nav-count--warn' : ''}`}>{count}</span>
+        )}
+      </button>
+    )
+  }
 
   return (
     <nav className="wiki-left-nav" aria-label="Wiki 导航">
       <div className="wiki-left-nav-primary">
-        {renderItem({ kind: 'inbox' }, '待整理', Inbox, inboxCount, true)}
-        {renderItem({ kind: 'unfiled' }, '未分类', FolderOpen, unfiledCount)}
-        {renderItem({ kind: 'archived' }, '已归档', Archive, archivedCount)}
+        {NAV_SECTIONS.map((section) => {
+          if (section === 'inbox') return renderSection(section, inboxCount, true)
+          if (section === 'archived') return renderSection(section, archivedCount)
+          return renderSection(section, sectionCounts[section] ?? 0)
+        })}
       </div>
 
       <div className="wiki-left-nav-footer">

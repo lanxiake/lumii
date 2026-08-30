@@ -27,6 +27,7 @@ import { SynthesisView } from './SynthesisView'
 import { WikiGraphView } from './WikiGraphView'
 import { WikiDetailDrawer } from './WikiDetailDrawer'
 import { WikiLeftNav, topicCountKey, type WikiNav } from './WikiLeftNav'
+import { navSectionFromLegacyCategory, type WikiNavSection } from './wikiNavMapping'
 import { WikiTopBar } from './WikiTopBar'
 import { WikiPageList } from './WikiPageList'
 import { WikiFileList } from './WikiFileList'
@@ -205,8 +206,19 @@ export const WikiTab: React.FC = () => {
     void loadRunHistory()
   }, [listRuns, taskCenter.mergeRuns])
 
-  // 一期计数在渲染进程按两列分组，不做 topic_path 拼接
-  const { topicCounts, parkingSources, unfiledSources } = useMemo(() => {
+  // 按 section 分组计数 + 保留 topicCounts（小类芯片仍需）+ 分离 parking/unfiled。
+  // 已归档不在这里统计：listSources 的 SQL 固定过滤 archived_at IS NULL，
+  // 归档列表与计数走独立的按需查询（archivedSources state）。
+  const { sectionCounts, topicCounts, parkingSources, unfiledSources } = useMemo(() => {
+    const sections: Record<WikiNavSection, number> = {
+      work: 0,
+      study: 0,
+      life: 0,
+      collection: 0,
+      inbox: 0,
+      archived: 0,
+      unfiled: 0,
+    }
     const counts: Record<string, number> = {}
     const parking: WikiSourceListItem[] = []
     const unfiled: WikiSourceListItem[] = []
@@ -219,16 +231,18 @@ export const WikiTab: React.FC = () => {
         unfiled.push(item)
         continue
       }
+      const section = navSectionFromLegacyCategory(item.topicCategory)
+      sections[section] = (sections[section] ?? 0) + 1
       counts[topicCountKey(item.topicCategory)] = (counts[topicCountKey(item.topicCategory)] ?? 0) + 1
       if (item.topicSubtopic) {
         const key = topicCountKey(item.topicCategory, item.topicSubtopic)
         counts[key] = (counts[key] ?? 0) + 1
       }
     }
-    return { topicCounts: counts, parkingSources: parking, unfiledSources: unfiled }
+    return { sectionCounts: sections, topicCounts: counts, parkingSources: parking, unfiledSources: unfiled }
   }, [sources])
 
-  // 角标 = 队列条数 + 待补分条数
+  // 收件箱角标 = 队列 pending + 未分类（两者都需要用户处理）
   const pendingCount = inboxPending + unfiledSources.length
 
   // 全库重新编目的扫描量：正式归档的（有大类且不是临时存放）
@@ -764,6 +778,7 @@ export const WikiTab: React.FC = () => {
         mediaType: hit.mediaType,
         topicCategory: hit.category,
         topicSubtopic: hit.subtopic,
+        textLength: 0,
         updatedAt: hit.updatedAt,
         useCount: 0,
       })),
@@ -830,10 +845,9 @@ export const WikiTab: React.FC = () => {
     <div className="wiki-tab">
       <WikiLeftNav
         active={isMoreMenuOpen ? { kind: 'more' } : nav}
-        tree={topicTree}
-        pendingCount={pendingCount}
-        parkingCount={parkingSources.length}
-        topicCounts={topicCounts}
+        inboxCount={pendingCount}
+        sectionCounts={sectionCounts}
+        archivedCount={0}
         moreButtonRef={moreButtonRef}
         onSelect={handleSelectNav}
         onOpenMore={() => setIsMoreMenuOpen((open) => !open)}
@@ -842,6 +856,8 @@ export const WikiTab: React.FC = () => {
         open={isMoreMenuOpen}
         anchorRef={moreButtonRef}
         onClose={() => setIsMoreMenuOpen(false)}
+        onGraph={() => handleSelectNav({ kind: 'graph' })}
+        onSection={(name) => handleSelectNav({ kind: 'section', name: name as WikiNavSection })}
         onHistory={() => handleSelectNav({ kind: 'history' })}
         onCleanup={() => handleSelectNav({ kind: 'cleanup' })}
         onSynthesis={() => handleSelectNav({ kind: 'synthesis' })}
