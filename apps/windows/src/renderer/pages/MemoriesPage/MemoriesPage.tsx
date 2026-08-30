@@ -31,9 +31,14 @@ import { SOUL_TEMPLATES } from './soul-templates'
 import { DEFAULT_SOUL_CONTENT } from '../../../../../../packages/agent-runtime/src/prompt/default-soul'
 import { MemPalaceViewer } from './MemPalaceViewer'
 import { WikiTab } from './components/WikiTab'
+import {
+  OPEN_MEMORIES_TAB_EVENT,
+  consumeMemoriesInitTab,
+  type MemoriesTab,
+} from '../../utils/open-wiki-library'
 import './MemoriesPage.css'
 
-type MemoryTab = 'soul' | 'ai' | 'user-memory' | 'plugin' | 'wiki'
+type MemoryTab = MemoriesTab
 
 interface MemoriesPageProps {
   onViewChange?: (view: ViewType) => void
@@ -42,7 +47,7 @@ interface MemoriesPageProps {
 }
 
 export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedded = false }) => {
-  const [activeTab, setActiveTab] = useState<MemoryTab>('soul')
+  const [activeTab, setActiveTab] = useState<MemoryTab>(() => consumeMemoriesInitTab() ?? 'soul')
   const [isEditMode, setIsEditMode] = useState(false)
   const [content, setContent] = useState('')
   const [showDraftRestore, setShowDraftRestore] = useState(false)
@@ -128,6 +133,18 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({ onViewChange, embedd
   useEffect(() => {
     fetchSoul()
   }, [fetchSoul])
+
+  /** 监听工作空间 / 聊天工具栏 / Composer「+」等入口：打开 Wiki Tab */
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab?: MemoryTab }>).detail?.tab
+      if (tab === 'wiki') {
+        setActiveTab('wiki')
+      }
+    }
+    window.addEventListener(OPEN_MEMORIES_TAB_EVENT, handler)
+    return () => window.removeEventListener(OPEN_MEMORIES_TAB_EVENT, handler)
+  }, [])
 
   useEffect(() => {
     if (soul !== null) {

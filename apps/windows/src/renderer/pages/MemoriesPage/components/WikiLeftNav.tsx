@@ -1,6 +1,8 @@
 import React from 'react'
 import { Inbox, Archive, Briefcase, BookOpen, Home, Star, MoreHorizontal } from 'lucide-react'
+import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 import { navSectionLabel, topicCountKey, type WikiNavSection } from './wikiNavMapping'
+import { WIKI_MORE_TOOLTIP, WIKI_NAV_TOOLTIPS } from './wikiTooltips'
 
 // 导出 topicCountKey 供 WikiTab 与 WikiTopicTreeEditor 复用
 export { topicCountKey }
@@ -48,15 +50,14 @@ const SECTION_ICONS: Record<WikiNavSection, React.FC<{ size?: number | string }>
   collection: Star,
   inbox: Inbox,
   archived: Archive,
-  unfiled: Inbox, // 不在左栏渲染，但类型完整性需要
+  unfiled: Inbox,
 }
 
 /** 左栏分区顺序 */
 const NAV_SECTIONS: readonly WikiNavSection[] = ['inbox', 'work', 'study', 'life', 'collection', 'archived']
 
 /**
- * 左栏 = 6 个分区按钮（收件箱带角标）+ 更多。
- * 删除旧的固定项（待整理/知识图谱/临时存放）与用途树渲染。
+ * 左栏 = 6 个分区按钮（收件箱带角标）+ 更多；悬停显示使用说明。
  */
 export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
   active,
@@ -67,24 +68,28 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
   onSelect,
   onOpenMore,
 }) => {
+  /**
+   * 渲染单个分区按钮（带 Tooltip）
+   */
   const renderSection = (section: WikiNavSection, count: number, warn = false) => {
     const nav: WikiNav = section === 'inbox' || section === 'archived' ? { kind: section } : { kind: 'section', name: section }
     const Icon = SECTION_ICONS[section]
     const label = navSectionLabel(section)
     return (
-      <button
-        key={section}
-        type="button"
-        className={`wiki-left-nav-item${isActive(active, nav) ? ' wiki-left-nav-item--active' : ''}`}
-        onClick={() => onSelect(nav)}
-        aria-current={isActive(active, nav) ? 'page' : undefined}
-      >
-        <Icon size={15} />
-        <span className="wiki-left-nav-label">{label}</span>
-        {count > 0 && (
-          <span className={`wiki-left-nav-count${warn ? ' wiki-left-nav-count--warn' : ''}`}>{count}</span>
-        )}
-      </button>
+      <Tooltip key={section} content={WIKI_NAV_TOOLTIPS[section]} placement="right">
+        <button
+          type="button"
+          className={`wiki-left-nav-item${isActive(active, nav) ? ' wiki-left-nav-item--active' : ''}`}
+          onClick={() => onSelect(nav)}
+          aria-current={isActive(active, nav) ? 'page' : undefined}
+        >
+          <Icon size={15} />
+          <span className="wiki-left-nav-label">{label}</span>
+          {count > 0 && (
+            <span className={`wiki-left-nav-count${warn ? ' wiki-left-nav-count--warn' : ''}`}>{count}</span>
+          )}
+        </button>
+      </Tooltip>
     )
   }
 
@@ -99,16 +104,18 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
       </div>
 
       <div className="wiki-left-nav-footer">
-        <button
-          ref={moreButtonRef}
-          type="button"
-          className={`wiki-left-nav-item${active.kind === 'more' ? ' wiki-left-nav-item--active' : ''}`}
-          onClick={onOpenMore}
-          aria-expanded={active.kind === 'more'}
-        >
-          <MoreHorizontal size={15} />
-          <span className="wiki-left-nav-label">更多</span>
-        </button>
+        <Tooltip content={WIKI_MORE_TOOLTIP} placement="right">
+          <button
+            ref={moreButtonRef}
+            type="button"
+            className={`wiki-left-nav-item${active.kind === 'more' ? ' wiki-left-nav-item--active' : ''}`}
+            onClick={onOpenMore}
+            aria-expanded={active.kind === 'more'}
+          >
+            <MoreHorizontal size={15} />
+            <span className="wiki-left-nav-label">更多</span>
+          </button>
+        </Tooltip>
       </div>
     </nav>
   )

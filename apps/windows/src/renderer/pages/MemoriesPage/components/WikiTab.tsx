@@ -35,6 +35,9 @@ import { WikiTopicPicker } from './WikiTopicPicker'
 import { WikiTopicTreeEditor } from './WikiTopicTreeEditor'
 import { WikiReclassifyView } from './WikiReclassifyView'
 import { WikiInboxPanel, inboxItemToPreviewSnapshot } from './WikiInboxPanel'
+import { WikiHelpDrawer } from './WikiHelpDrawer'
+import { consumeWikiInitNav, OPEN_MEMORIES_TAB_EVENT } from '../../../utils/open-wiki-library'
+import { WIKI_INBOX_INTRO } from './wikiTooltips'
 import { WikiMoreMenu } from './WikiMoreMenu'
 import { WikiSourceDetailDrawer, type WikiSourcePreviewSnapshot } from './WikiSourceDetailDrawer'
 import {
@@ -59,6 +62,7 @@ type PickerTarget =
 
 const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
   inbox: { title: '待整理', subtitle: '系统还在归档或无法自动归类的文件' },
+  archived: { title: '已归档', subtitle: '已移出活跃目录、可随时恢复的资料' },
   parking: { title: '临时存放', subtitle: '你主动搁置、暂不进入正式目录的文件' },
   graph: { title: '知识图谱', subtitle: '浏览页面与实体之间的关系' },
   history: { title: '历史页面', subtitle: '早期归档生成的摘要页面，只读' },
@@ -122,6 +126,8 @@ export const WikiTab: React.FC = () => {
   const [nav, setNav] = useState<WikiNav>({ kind: 'inbox' })
   const [topicTree, setTopicTree] = useState<WikiTopicTree | null>(null)
   const [sources, setSources] = useState<readonly WikiSourceListItem[]>([])
+  const [archivedSources, setArchivedSources] = useState<readonly WikiSourceListItem[]>([])
+  const [archivedCount, setArchivedCount] = useState(0)
   const [pages, setPages] = useState<readonly WikiPageListItem[]>([])
   const [inboxItems, setInboxItems] = useState<readonly WikiInboxItem[]>([])
   const [inboxPending, setInboxPending] = useState(0)
@@ -150,6 +156,10 @@ export const WikiTab: React.FC = () => {
   const [highlightSourceId, setHighlightSourceId] = useState<string | null>(null)
   const [selectedSourceIds, setSelectedSourceIds] = useState<ReadonlySet<string>>(new Set())
   const [isBatchPickerOpen, setBatchPickerOpen] = useState(false)
+  const [isInboxBatchPickerOpen, setInboxBatchPickerOpen] = useState(false)
+  const [isHelpOpen, setHelpOpen] = useState(false)
+  const [selectedInboxIds, setSelectedInboxIds] = useState<ReadonlySet<string>>(new Set())
+  const [selectedUnfiledIds, setSelectedUnfiledIds] = useState<ReadonlySet<string>>(new Set())
   const [synthesisConfirm, setSynthesisConfirm] = useState<{ count: number } | null>(null)
   const [synthesisRows, setSynthesisRows] = useState<readonly WikiSynthesisListItem[]>([])
   const [consolidateConfirm, setConsolidateConfirm] = useState<{
@@ -165,6 +175,14 @@ export const WikiTab: React.FC = () => {
 
   const refreshSources = useCallback(async () => {
     setSources(await listSources({}))
+  }, [listSources])
+
+  /** 按需拉取已归档资料，供归档分区与左栏角标使用。 */
+  const refreshArchivedSources = useCallback(async () => {
+    const items = await listSources({ archived: true })
+    setArchivedSources(items)
+    setArchivedCount(items.length)
+    return items
   }, [listSources])
 
   const refreshPages = useCallback(async () => {
@@ -186,6 +204,29 @@ export const WikiTab: React.FC = () => {
     void refreshSources()
     void refreshInbox()
   }, [loadTopicTree, refreshSources, refreshInbox])
+
+  /** 外部入口要求打开待整理：首次挂载或 Hub 已打开时再次触发 */
+  useEffect(() => {
+    const applyWikiInitNav = (): void => {
+      if (consumeWikiInitNav() === 'inbox') {
+        setNav({ kind: 'inbox' })
+      }
+    }
+    applyWikiInitNav()
+    const onOpenWiki = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
+      if (tab === 'wiki') applyWikiInitNav()
+    }
+    window.addEventListener(OPEN_MEMORIES_TAB_EVENT, onOpenWiki)
+    return () => window.removeEventListener(OPEN_MEMORIES_TAB_EVENT, onOpenWiki)
+  }, [])
+
+  /** 进入归档分区时按需拉取列表并同步左栏角标。 */
+  useEffect(() => {
+    if (nav.kind === 'archived') {
+      void refreshArchivedSources()
+    }
+  }, [nav.kind, refreshArchivedSources])
 
   // 历史页面与综述、图谱仍以 wiki_pages 为数据源，进入这些视图时才加载
   useEffect(() => {
@@ -339,6 +380,8 @@ export const WikiTab: React.FC = () => {
     setIsDetailOpen(false)
     // 换目录必须清选中：否则批量动作会作用到上一个目录里已看不见的文件
     setSelectedSourceIds(new Set())
+    setSelectedInboxIds(new Set())
+    setSelectedUnfiledIds(new Set())
     setHighlightSourceId(null)
   }, [])
 
@@ -402,6 +445,15 @@ export const WikiTab: React.FC = () => {
       await refreshSources()
     },
     [moveToParking, refreshSources],
+  )
+
+  /** 从归档分区恢复资料到活跃目录。 */
+  const handleRestoreArchived = useCallback(
+    async (item: WikiSourceListItem) => {
+      await trackedRestoreSources([item.id])
+      await Promise.all([refreshSources(), refreshArchivedSources()])
+    },
+    [trackedRestoreSources, refreshSources, refreshArchivedSources],
   )
 
   /** 接受整合/综述：整合类接受后跳转到统一「整合长文」目录 */
@@ -764,6 +816,88 @@ export const WikiTab: React.FC = () => {
     [discardInbox, refreshInbox],
   )
 
+  /** 切换待整理队列条目选中状态 */
+  const toggleSelectInbox = useCallback((inboxId: string) => {
+    setSelectedInboxIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(inboxId)) next.delete(inboxId)
+      else next.add(inboxId)
+      return next
+    })
+  }, [])
+
+  /** 切换待补分资料选中状态 */
+  const toggleSelectUnfiled = useCallback((sourceId: string) => {
+    setSelectedUnfiledIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(sourceId)) next.delete(sourceId)
+      else next.add(sourceId)
+      return next
+    })
+  }, [])
+
+  /** 全选/取消全选待整理视图全部条目 */
+  const toggleSelectAllInbox = useCallback(() => {
+    const total = inboxItems.length + unfiledSources.length
+    const selected = selectedInboxIds.size + selectedUnfiledIds.size
+    if (selected === total && total > 0) {
+      setSelectedInboxIds(new Set())
+      setSelectedUnfiledIds(new Set())
+      return
+    }
+    setSelectedInboxIds(new Set(inboxItems.map((item) => item.id)))
+    setSelectedUnfiledIds(new Set(unfiledSources.map((item) => item.id)))
+  }, [inboxItems, unfiledSources, selectedInboxIds.size, selectedUnfiledIds.size])
+
+  /**
+   * 批量归档：队列条目走 organizeInbox，待补分走 updateSourceTopic。
+   */
+  const handleBatchOrganizeInbox = useCallback(
+    async (category: string, subtopic: string) => {
+      for (const id of selectedInboxIds) {
+        await organizeInbox(id, category, subtopic)
+      }
+      for (const id of selectedUnfiledIds) {
+        await updateSourceTopic(id, category, subtopic)
+      }
+      setSelectedInboxIds(new Set())
+      setSelectedUnfiledIds(new Set())
+      await Promise.all([refreshInbox(), refreshSources()])
+    },
+    [selectedInboxIds, selectedUnfiledIds, organizeInbox, updateSourceTopic, refreshInbox, refreshSources],
+  )
+
+  /** 批量重试所选可重试的 inbox 条目 */
+  const handleBatchRetryInbox = useCallback(async () => {
+    for (const item of inboxItems) {
+      if (!selectedInboxIds.has(item.id)) continue
+      if (item.status === 'pending' || item.status === 'failed') {
+        await retryInbox(item.id)
+      }
+    }
+    setSelectedInboxIds(new Set())
+    void refreshInbox()
+  }, [inboxItems, selectedInboxIds, retryInbox, refreshInbox])
+
+  /** 批量丢弃所选 inbox 条目 */
+  const handleBatchDiscardInbox = useCallback(async () => {
+    for (const id of selectedInboxIds) {
+      await discardInbox(id)
+    }
+    setSelectedInboxIds(new Set())
+    void refreshInbox()
+  }, [selectedInboxIds, discardInbox, refreshInbox])
+
+  /** 一键重试全部可重试的 inbox 条目 */
+  const handleRetryAllInbox = useCallback(async () => {
+    for (const item of inboxItems) {
+      if (item.status === 'pending' || item.status === 'failed') {
+        await retryInbox(item.id)
+      }
+    }
+    void refreshInbox()
+  }, [inboxItems, retryInbox, refreshInbox])
+
   /**
    * 主搜索框只检索资料层正文，历史页面检索留在「历史页面」视图内。
    */
@@ -845,7 +979,7 @@ export const WikiTab: React.FC = () => {
     ? { title: '搜索结果', subtitle: `共找到 ${searchResults.length} 个文件` }
     : breadcrumb
       ? { title: breadcrumb, subtitle: '该目录下的原始文件' }
-      : FIXED_NAV_CONTEXT[nav.kind]
+      : FIXED_NAV_CONTEXT[nav.kind] ?? { title: 'Wiki', subtitle: '' }
 
   return (
     <div className="wiki-tab">
@@ -853,7 +987,7 @@ export const WikiTab: React.FC = () => {
         active={isMoreMenuOpen ? { kind: 'more' } : nav}
         inboxCount={pendingCount}
         sectionCounts={sectionCounts}
-        archivedCount={0}
+        archivedCount={archivedCount}
         moreButtonRef={moreButtonRef}
         onSelect={handleSelectNav}
         onOpenMore={() => setIsMoreMenuOpen((open) => !open)}
@@ -931,6 +1065,7 @@ export const WikiTab: React.FC = () => {
           pillText={taskCenter.pillText}
           pillTone={taskCenter.pillTone}
           onOpenTasks={handleOpenTaskCenter}
+          onOpenHelp={() => setHelpOpen(true)}
         />
 
         <main className="wiki-tab-content">
@@ -966,18 +1101,42 @@ export const WikiTab: React.FC = () => {
         ) : nav.kind === 'inbox' ? (
           <div className="wiki-inbox-view">
             <h3>待整理（{pendingCount}）</h3>
+            <p className="wiki-inbox-intro">{WIKI_INBOX_INTRO}</p>
             {inboxItems.length < inboxPending && (
               <p className="wiki-empty-hint">仅显示最近 {inboxItems.length} 条</p>
             )}
             <WikiInboxPanel
               items={inboxItems}
               unfiled={unfiledSources}
+              selectedInboxIds={selectedInboxIds}
+              selectedUnfiledIds={selectedUnfiledIds}
+              onToggleInboxSelect={toggleSelectInbox}
+              onToggleUnfiledSelect={toggleSelectUnfiled}
+              onToggleSelectAll={toggleSelectAllInbox}
               onRetry={(inboxId) => void handleRetry(inboxId)}
               onDiscard={(inboxId) => void handleDiscard(inboxId)}
               onOrganize={(item) => setPicker({ mode: 'inbox', item })}
               onFileUnfiled={(item) => setPicker({ mode: 'source', item })}
               onPreviewInbox={handlePreviewInboxItem}
               onPreviewSource={handlePreviewSourceItem}
+              onBatchOrganize={() => setInboxBatchPickerOpen(true)}
+              onBatchRetry={() => void handleBatchRetryInbox()}
+              onBatchDiscard={() => void handleBatchDiscardInbox()}
+              onRetryAll={() => void handleRetryAllInbox()}
+            />
+          </div>
+        ) : nav.kind === 'archived' ? (
+          <div className="wiki-archived-view">
+            <h3>已归档（{archivedSources.length}）</h3>
+            <WikiFileList
+              items={archivedSources}
+              emptyHint="还没有已归档的资料。"
+              showTopic
+              moveLabel="恢复"
+              showParkAction={false}
+              onOpen={(item) => void handleOpenSource(item)}
+              onPreview={handlePreviewSourceItem}
+              onMove={(item) => void handleRestoreArchived(item)}
             />
           </div>
         ) : nav.kind === 'parking' ? (
@@ -1182,6 +1341,18 @@ export const WikiTab: React.FC = () => {
       </div>
 
       <WikiTopicPicker
+        open={isInboxBatchPickerOpen}
+        tree={topicTree}
+        title="批量归档到…"
+        itemTitle={`已选 ${selectedInboxIds.size + selectedUnfiledIds.size} 项`}
+        onCancel={() => setInboxBatchPickerOpen(false)}
+        onConfirm={(category, subtopic) => {
+          setInboxBatchPickerOpen(false)
+          void handleBatchOrganizeInbox(category, subtopic)
+        }}
+      />
+
+      <WikiTopicPicker
         open={isBatchPickerOpen}
         tree={topicTree}
         title="批量移动到…"
@@ -1230,6 +1401,8 @@ export const WikiTab: React.FC = () => {
         onConfirm={() => void handleConfirmDeletePage()}
         onCancel={() => setDeleteConfirm(null)}
       />
+
+      <WikiHelpDrawer open={isHelpOpen} onClose={() => setHelpOpen(false)} />
     </div>
   )
 }

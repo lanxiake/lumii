@@ -534,6 +534,7 @@ export interface WikiSourceListCommand {
   readonly subtopic?: string
   readonly parking?: boolean
   readonly unfiled?: boolean
+  readonly archived?: boolean
   readonly mediaType?: string
 }
 

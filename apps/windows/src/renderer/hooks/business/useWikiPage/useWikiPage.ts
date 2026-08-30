@@ -1182,6 +1182,7 @@ export function useWikiPage() {
       subtopic?: string
       parking?: boolean
       unfiled?: boolean
+      archived?: boolean
       mediaType?: string
     }): Promise<readonly WikiSourceListItem[]> => {
       const api = window.electronAPI?.agentRuntime
@@ -1195,6 +1196,7 @@ export function useWikiPage() {
           subtopic: filter?.subtopic,
           parking: filter?.parking,
           unfiled: filter?.unfiled,
+          archived: filter?.archived,
           mediaType: filter?.mediaType,
         })) as { sources: WikiSourceListItem[] }
         return Array.isArray(r?.sources) ? r.sources : []

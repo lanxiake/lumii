@@ -1,7 +1,7 @@
 /**
  * WikiSourceDetailDrawer — 资料详情侧滑：摘要 + 网页/文件预览
  */
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { ExternalLink, X } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import { Loading } from '../../../components/ui/Loading/Loading'
@@ -9,11 +9,39 @@ import { FilePreviewModal } from '../../../components/FilePreviewModal/FilePrevi
 import type { WikiSourceDetail } from '../../../hooks/business/useWikiPage'
 import { resolvePreviewMode } from './wikiSourcePreview'
 
-/** 侧滑内嵌网页预览（Electron webview 独立进程） */
-const WikiWebPreviewFrame: React.FC<{ url: string; title: string }> = ({ url, title }) => (
-  // @ts-expect-error webview 为 Electron 专有标签
-  <webview src={url} title={title} className="wiki-source-web-preview" />
-)
+/**
+ * 侧滑内嵌网页预览（Electron webview 独立进程）。
+ * webview 对 CSS 百分比高度支持不稳定，用 ResizeObserver 同步宿主像素尺寸。
+ */
+const WikiWebPreviewFrame: React.FC<{ url: string; title: string }> = ({ url, title }) => {
+  const hostRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return undefined
+
+    /** 将宿主容器的实际像素尺寸写入 webview，避免只渲染上半部分 */
+    const syncWebviewSize = (): void => {
+      const webview = host.querySelector('webview')
+      if (!webview) return
+      const { clientWidth, clientHeight } = host
+      if (clientWidth > 0) webview.style.width = `${clientWidth}px`
+      if (clientHeight > 0) webview.style.height = `${clientHeight}px`
+    }
+
+    syncWebviewSize()
+    const observer = new ResizeObserver(syncWebviewSize)
+    observer.observe(host)
+    return () => observer.disconnect()
+  }, [url])
+
+  return (
+    <div ref={hostRef} className="wiki-source-web-preview-host">
+      {/* @ts-expect-error webview 为 Electron 专有标签 */}
+      <webview src={url} title={title} className="wiki-source-web-preview" />
+    </div>
+  )
+}
 
 export interface WikiSourcePreviewSnapshot {
   readonly title: string

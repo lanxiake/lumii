@@ -1,0 +1,45 @@
+/**
+ * Wiki 界面元素悬停说明文案
+ */
+
+import type { WikiNavSection } from './wikiNavMapping'
+
+/** 左栏分区 Tooltip */
+export const WIKI_NAV_TOOLTIPS: Record<WikiNavSection, string> = {
+  inbox:
+    '新上传的文件、保存的链接、任务产物会先出现在这里。选中多条后可批量归档到同一分类，或一键全部重试。',
+  work: '与上班、项目、会议、汇报相关的资料。归档时选「工作」及其小类（如文档、会议记录）。',
+  study: '读书、课程、教程、考试等学习材料。适合放笔记、课件、参考资料。',
+  life: '私人生活相关：证件凭据、家庭事务、个人随笔与计划复盘。',
+  collection: '长期参考的链接、模板、媒体收藏。网页链接默认只存网址，需要正文时再保存。',
+  archived: '暂时不用但仍需保留的资料。可从归档恢复回活跃目录。',
+  unfiled: '已入库但尚未指定分类的资料，需要在「待整理」中补选目录。',
+}
+
+/** 左栏「更多」按钮 */
+export const WIKI_MORE_TOOLTIP =
+  '高级功能：知识图谱、清理重复资料、综述合成、重建搜索索引、编辑分类结构、全库 AI 重新编目等。'
+
+/** 顶栏搜索框 */
+export const WIKI_SEARCH_TOOLTIP =
+  '搜索已入库资料的正文与标题。历史摘要页面需进入「更多 → 历史页面」单独浏览。'
+
+/** 顶栏任务 pill */
+export const WIKI_TASK_PILL_TOOLTIP =
+  '查看后台任务进度：索引重建、综述生成、重新编目、知识图谱抽取等。'
+
+/** 待整理视图说明 */
+export const WIKI_INBOX_INTRO =
+  '待整理 = 队列中的新资料 + 已入库但未分类的文件。可勾选多条后「批量归档到…」一次放入同一目录；失败条目可「全部重试」。'
+
+/** 更多菜单各项（补充 WikiMoreMenu 内 description） */
+export const WIKI_MORE_MENU_TOOLTIPS: Record<string, string> = {
+  graph: '可视化资料、页面与实体之间的关系，支持从节点跳回原文。',
+  reclassifyAll:
+    '让 AI 扫描已归档文件并给出目录调整建议。只生成预览，你勾选接受后才会改动，不会静默修改。',
+  editTopicTree: '增删改各大类下的小类名称。大类对应 workspace/wiki/ 下的文件夹结构。',
+  history: '早期自动生成的摘要页面（只读）。新资料请用左侧分类目录浏览原始文件。',
+  cleanup: '扫描重复内容、失效引用、长期未用资料，并给出归档或删除建议。',
+  synthesis: '从多篇资料生成主题综述草稿，确认后才会写入资料库。',
+  rebuild: '重新建立全文检索索引。搜索异常或大量导入后可尝试。',
+}

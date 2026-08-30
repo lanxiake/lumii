@@ -539,6 +539,7 @@ export function handleWikiSourceList(
     subtopic: command.subtopic,
     parking: command.parking,
     unfiled: command.unfiled,
+    archived: command.archived,
     mediaType: command.mediaType as never,
   })
   return { sources: sources.map(mapSourceListItem) }

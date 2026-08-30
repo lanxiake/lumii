@@ -283,6 +283,96 @@
   min-width: 0;
 }
 
+.wiki-top-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--mt-space-2);
+  flex-shrink: 0;
+}
+
+.wiki-top-bar-help {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.wiki-top-bar-help:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+.wiki-inbox-intro {
+  margin: 0 0 var(--mt-space-3);
+  padding: var(--mt-space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
+}
+
+.wiki-inbox-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mt-space-2);
+  margin-bottom: var(--mt-space-3);
+  padding-bottom: var(--mt-space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.wiki-inbox-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.wiki-inbox-batch-count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.wiki-inbox-item-row {
+  display: flex;
+  gap: var(--mt-space-2);
+  align-items: flex-start;
+}
+
+.wiki-inbox-item-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.wiki-inbox-checkbox {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.wiki-section-heading-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  cursor: help;
+}
+
 .wiki-task-pill {
   display: inline-flex;
   align-items: center;
@@ -1704,6 +1794,8 @@
 /* 资料详情抽屉 */
 .wiki-source-detail-drawer {
   z-index: calc(var(--z-overlay) + 1);
+  /* 滚动仅交给 body，避免与 .wiki-detail-drawer 双重滚动导致 webview 被裁切 */
+  overflow: hidden;
 }
 
 .wiki-source-detail-header {
@@ -1747,7 +1839,10 @@
 
 .wiki-source-detail-body {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 16px 20px 24px;
 }
 
@@ -1772,11 +1867,21 @@
   text-transform: uppercase;
 }
 
+.wiki-source-detail-summary {
+  flex-shrink: 0;
+  max-height: 28vh;
+  overflow-y: auto;
+}
+
 .wiki-source-detail-summary p {
   margin: 0 0 16px;
   font-size: 14px;
   line-height: 1.6;
   white-space: pre-wrap;
+}
+
+.wiki-source-detail-link {
+  flex-shrink: 0;
 }
 
 .wiki-source-detail-link a {
@@ -1787,18 +1892,37 @@
   word-break: break-all;
 }
 
+.wiki-source-detail-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wiki-source-web-preview-host {
+  flex: 1;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .wiki-source-web-preview {
-  display: block;
+  display: flex;
+  flex: 1;
   width: 100%;
-  min-height: 360px;
-  height: min(52vh, 520px);
+  min-height: 240px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-bg-secondary);
 }
 
 .wiki-source-file-preview-host {
-  min-height: 360px;
+  flex: 1;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   overflow: hidden;

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React from 'react'
 import {
   FolderSync,
   FolderTree,
@@ -12,6 +12,8 @@ import {
   Home,
   Star,
 } from 'lucide-react'
+import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
+import { WIKI_MORE_MENU_TOOLTIPS } from './wikiTooltips'
 
 interface WikiMoreMenuProps {
   readonly open: boolean
@@ -99,7 +101,7 @@ const MENU_ITEMS = [
 ] as const
 
 /**
- * 渲染 Wiki 导航与运维工具菜单。P0 新增：图谱 + 5 个 nav section 入口。
+ * 渲染 Wiki 导航与运维工具菜单；悬停显示详细使用说明。
  */
 export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
   open,
@@ -114,9 +116,9 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
   onEditTopicTree,
   onReclassifyAll,
 }) => {
-  const menuRef = useRef<HTMLDivElement>(null)
+  const menuRef = React.useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!open) return undefined
 
     /** 在指针落于菜单与触发器之外时关闭菜单。 */
@@ -151,20 +153,23 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
           onClose()
         }
 
+        const tooltip = WIKI_MORE_MENU_TOOLTIPS[key] ?? description
+
         return (
-          <button
-            key={key}
-            type="button"
-            className="wiki-more-menu-item"
-            role="menuitem"
-            onClick={handleClick}
-          >
-            {Icon && <Icon size={16} />}
-            <span>
-              <strong>{label}</strong>
-              <small>{description}</small>
-            </span>
-          </button>
+          <Tooltip key={key} content={tooltip} placement="left">
+            <button
+              type="button"
+              className="wiki-more-menu-item"
+              role="menuitem"
+              onClick={handleClick}
+            >
+              {Icon && <Icon size={16} />}
+              <span>
+                <strong>{label}</strong>
+                <small>{description}</small>
+              </span>
+            </button>
+          </Tooltip>
         )
       })}
     </div>
