@@ -27,7 +27,7 @@ import { SynthesisView } from './SynthesisView'
 import { WikiGraphView } from './WikiGraphView'
 import { WikiDetailDrawer } from './WikiDetailDrawer'
 import { WikiLeftNav, topicCountKey, type WikiNav } from './WikiLeftNav'
-import { navSectionFromLegacyCategory, type WikiNavSection } from './wikiNavMapping'
+import { navSectionFromLegacyCategory, legacyCategoriesForSection, navSectionLabel, type WikiNavSection } from './wikiNavMapping'
 import { WikiTopBar } from './WikiTopBar'
 import { WikiPageList } from './WikiPageList'
 import { WikiFileList } from './WikiFileList'
@@ -254,6 +254,10 @@ export const WikiTab: React.FC = () => {
   )
 
   const visibleSources = useMemo(() => {
+    if (nav.kind === 'section') {
+      const targetCategories = legacyCategoriesForSection(nav.name)
+      return sources.filter((item) => item.topicCategory && targetCategories.includes(item.topicCategory))
+    }
     if (nav.kind === 'category') {
       return sources.filter((item) => item.topicCategory === nav.name)
     }
@@ -834,7 +838,9 @@ export const WikiTab: React.FC = () => {
     ? nav.name
     : nav.kind === 'subtopic'
       ? `${nav.category} / ${nav.subtopic}`
-      : null
+      : nav.kind === 'section'
+        ? navSectionLabel(nav.name)
+        : null
   const currentContext = searchResults !== null
     ? { title: '搜索结果', subtitle: `共找到 ${searchResults.length} 个文件` }
     : breadcrumb
