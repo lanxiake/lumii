@@ -92,14 +92,27 @@ export function registerWikiTools(
       if (!path) return jsonToolResult({ ok: false, message: 'path is required' })
       const agentId = resolveAgentId(toolCallId)
       const page = repo.findPageByPath(agentId, LOCAL_USER_ID, path)
-      if (!page) return jsonToolResult({ ok: false, message: `page not found: ${path}` })
-      repo.touchPage(page.id)
+      if (page) {
+        repo.touchPage(page.id)
+        return jsonToolResult({
+          ok: true,
+          path: page.path,
+          title: page.title,
+          category: page.category,
+          content: page.content_md,
+        })
+      }
+      // wiki_search 命中的多是资料层（wiki_sources），其 sourcePath 不在 wiki_pages 里；
+      // 兜底按 source_path 反查，避免"搜到了但读不到"的契约不一致（真实测试报告发现的问题）。
+      const source = repo.findSourceBySourcePath(agentId, LOCAL_USER_ID, path)
+      if (!source) return jsonToolResult({ ok: false, message: `page not found: ${path}` })
+      repo.touchSource(agentId, LOCAL_USER_ID, source.id)
       return jsonToolResult({
         ok: true,
-        path: page.path,
-        title: page.title,
-        category: page.category,
-        content: page.content_md,
+        path: source.source_path,
+        title: source.title,
+        category: source.topic_category,
+        content: source.extracted_text ?? source.content_md ?? '',
       })
     },
   }

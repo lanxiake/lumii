@@ -135,6 +135,28 @@ describe('registerWikiTools', () => {
     expect(result.ok).toBe(false)
   })
 
+  it('wiki_read 兼容资料层：能用 wiki_search 返回的 sourcePath 读取资料正文', async () => {
+    const { repo, registry } = setup()
+    const source = repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: '会议纪要',
+      sourcePath: '/tmp/uploads/meeting-notes.pdf',
+      extractedText: '这是会议纪要的完整正文内容',
+    })
+    repo.indexSource(source.id)
+
+    const searchResult = await callTool(registry, 'wiki_search', { query: '会议纪要' })
+    expect(searchResult.results).toHaveLength(1)
+    const returnedPath = searchResult.results[0].sourcePath
+    expect(returnedPath).toBe('/tmp/uploads/meeting-notes.pdf')
+
+    const readResult = await callTool(registry, 'wiki_read', { path: returnedPath })
+    expect(readResult.ok).toBe(true)
+    expect(readResult.content).toBe('这是会议纪要的完整正文内容')
+    expect(repo.findSourceById(source.id)!.use_count).toBeGreaterThan(0)
+  })
+
   it('wiki_capture 不再注册，Agent 无法调用', () => {
     const { registry } = setup()
     expect(registry.register.tools.has('wiki_capture')).toBe(false)
