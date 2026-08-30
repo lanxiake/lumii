@@ -1,36 +1,28 @@
-import React, { useState } from 'react'
-import { Archive, ChevronDown, ChevronRight, Inbox, MoreHorizontal, Network } from 'lucide-react'
-import type { WikiTopicTree } from '../../../hooks/business/useWikiPage'
+import React from 'react'
+import { Archive, Inbox, FolderOpen, MoreHorizontal } from 'lucide-react'
 
+/**
+ * P0 简化：只保留 inbox / unfiled / archived 三项 + more。
+ * 取消折叠树：5 个 nav section（工作/学习/生活/收藏）由 WikiMoreMenu 进入，
+ * 或通过点击资料卡片的主题标签快速跳转（归属视图）。
+ */
 export type WikiNav =
   | { kind: 'inbox' }
-  | { kind: 'parking' }
+  | { kind: 'unfiled' }
+  | { kind: 'archived' }
   | { kind: 'graph' }
   | { kind: 'history' }
   | { kind: 'cleanup' }
   | { kind: 'synthesis' }
   | { kind: 'reclassify' }
-  | { kind: 'category'; name: string }
-  | { kind: 'subtopic'; category: string; subtopic: string }
-
-/**
- * 两列分组计数的 key。
- * 不能用 `/` 拼：小类名本身允许含斜杠（如「项目/任务资料」）。
- * 也不能用空格拼：大类名可能带空格，`「做事 记录」` 会和 `「做事」+「记录」` 撞 key。
- * 直接序列化两列，天然无歧义，且不引入不可见的分隔符。
- */
-export function topicCountKey(category: string, subtopic?: string | null): string {
-  return subtopic ? JSON.stringify([category, subtopic]) : JSON.stringify([category])
-}
+  | { kind: 'section'; name: string }
 
 interface WikiLeftNavProps {
   active: WikiNav | { kind: 'more' }
-  tree: WikiTopicTree | null
-  /** 待整理角标 = 队列条数 + 待补分条数 */
-  pendingCount: number
-  parkingCount: number
-  /** key 由 topicCountKey 生成 */
-  topicCounts: Record<string, number>
+  /** 待整理角标 = 收件箱 pending 条数 */
+  inboxCount: number
+  unfiledCount: number
+  archivedCount: number
   moreButtonRef?: React.RefObject<HTMLButtonElement>
   onSelect: (nav: WikiNav) => void
   onOpenMore: () => void
@@ -38,30 +30,24 @@ interface WikiLeftNavProps {
 
 function isActive(active: WikiLeftNavProps['active'], nav: WikiNav): boolean {
   if (active.kind !== nav.kind) return false
-  if (nav.kind === 'category') return active.kind === 'category' && active.name === nav.name
-  if (nav.kind === 'subtopic') {
-    return active.kind === 'subtopic' && active.category === nav.category && active.subtopic === nav.subtopic
-  }
+  if (nav.kind === 'section') return active.kind === 'section' && active.name === nav.name
   return true
 }
 
 /**
- * 左栏 = 固定区（待整理 / 知识图谱 / 临时存放）+ 用途目录树 + 更多。
- * 目录顺序完全按主题树数组序，只渲染树里存在的小类，空小类也可点。
+ * 左栏 = inbox（待整理）/ unfiled（未分类）/ archived（已归档）+ 更多。
+ * 折叠树移除——P0 简化设计，5 区导航交给 more 菜单或卡片主题快速跳转。
  */
 export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
   active,
-  tree,
-  pendingCount,
-  parkingCount,
-  topicCounts,
+  inboxCount,
+  unfiledCount,
+  archivedCount,
   moreButtonRef,
   onSelect,
   onOpenMore,
 }) => {
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-
-  const renderFixed = (
+  const renderItem = (
     nav: WikiNav,
     label: string,
     Icon: React.FC<{ size?: number | string }>,
@@ -85,63 +71,9 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
   return (
     <nav className="wiki-left-nav" aria-label="Wiki 导航">
       <div className="wiki-left-nav-primary">
-        {renderFixed({ kind: 'inbox' }, '待整理', Inbox, pendingCount, true)}
-        {renderFixed({ kind: 'graph' }, '知识图谱', Network, null)}
-        {renderFixed({ kind: 'parking' }, '临时存放', Archive, parkingCount)}
-      </div>
-
-      <div className="wiki-left-nav-tree">
-        {(tree?.categories ?? []).map((category) => {
-          /** 默认收起大类，减少长目录占屏；用户展开状态仅在本会话内保留 */
-          const isCollapsed = collapsed[category.name] ?? true
-          const nav: WikiNav = { kind: 'category', name: category.name }
-          const count = topicCounts[topicCountKey(category.name)] ?? 0
-          return (
-            <div key={category.name} className="wiki-left-nav-group">
-              <div className="wiki-left-nav-group-header">
-                <button
-                  type="button"
-                  className="wiki-left-nav-chevron"
-                  aria-label={isCollapsed ? `展开 ${category.name}` : `折叠 ${category.name}`}
-                  aria-expanded={!isCollapsed}
-                  onClick={() => setCollapsed((prev) => ({ ...prev, [category.name]: !isCollapsed }))}
-                >
-                  {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-                </button>
-                <button
-                  type="button"
-                  className={`wiki-left-nav-item wiki-left-nav-item--group${isActive(active, nav) ? ' wiki-left-nav-item--active' : ''}`}
-                  onClick={() => onSelect(nav)}
-                  aria-current={isActive(active, nav) ? 'page' : undefined}
-                >
-                  <span className="wiki-left-nav-label">{category.name}</span>
-                  <span className="wiki-left-nav-count">{count}</span>
-                </button>
-              </div>
-
-              {!isCollapsed && (
-                <div className="wiki-left-nav-subtopics">
-                  {category.subtopics.map((subtopic) => {
-                    const subNav: WikiNav = { kind: 'subtopic', category: category.name, subtopic }
-                    const subCount = topicCounts[topicCountKey(category.name, subtopic)] ?? 0
-                    return (
-                      <button
-                        key={subtopic}
-                        type="button"
-                        className={`wiki-left-nav-item wiki-left-nav-item--sub${isActive(active, subNav) ? ' wiki-left-nav-item--active' : ''}`}
-                        onClick={() => onSelect(subNav)}
-                        aria-current={isActive(active, subNav) ? 'page' : undefined}
-                      >
-                        <span className="wiki-left-nav-label">{subtopic}</span>
-                        <span className="wiki-left-nav-count">{subCount}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )
-        })}
+        {renderItem({ kind: 'inbox' }, '待整理', Inbox, inboxCount, true)}
+        {renderItem({ kind: 'unfiled' }, '未分类', FolderOpen, unfiledCount)}
+        {renderItem({ kind: 'archived' }, '已归档', Archive, archivedCount)}
       </div>
 
       <div className="wiki-left-nav-footer">
