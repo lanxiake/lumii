@@ -10,6 +10,9 @@
 
 import type { WikiInboxItem } from "./types.js";
 import { validateTopicAssignment, type WikiTopicTree } from "./wiki-topic-tree.js";
+import type { WikiClassifyContext } from "./wiki-classify-context.js";
+
+export type { WikiClassifyContext } from "./wiki-classify-context.js";
 
 /** 单条分类结果：category/subtopic 为 null 表示未归类（skip 或校验失败） */
 export interface ClassifiedItem {
@@ -30,24 +33,51 @@ export interface ClassifiedItem {
 }
 
 /**
- * 构造批量分类提示词：口诀 + 易混 + 当前主题树可选目录 + 待整理资料 + 输出格式。
- * 批大小由调用方（WikiOrganizer）按内容长度动态收缩，此处只负责构造单批的提示词。
+ * 构造批量分类提示词：口诀 + 易混 + 主题树 + 可选目录/占用上下文 + 待整理资料。
  */
-export function buildClassifyPrompt(items: readonly WikiInboxItem[], topicTree: WikiTopicTree): string {
+export function buildClassifyPrompt(
+  items: readonly WikiInboxItem[],
+  topicTree: WikiTopicTree,
+  context?: WikiClassifyContext | null,
+): string {
   const list = items
-    .map(
-      (item, i) =>
-        `${i + 1}. [id=${item.id}] 标题: ${item.title}\n内容预览: ${(item.content_preview ?? "").slice(0, 300)}`,
-    )
+    .map((item, i) => {
+      const lines = [`${i + 1}. [id=${item.id}] 标题: ${item.title}`];
+      if (item.source_path) lines.push(`   源路径: ${item.source_path}`);
+      if (context?.importRoot && item.source_path) {
+        lines.push(`   （路径相对本次导入根目录解析）`);
+      }
+      lines.push(`   内容预览: ${(item.content_preview ?? "").slice(0, 500)}`);
+      return lines.join("\n");
+    })
     .join("\n\n");
 
   const treeLines = topicTree.categories
     .map((c) => `- ${c.name}：${c.subtopics.join("、")}`)
     .join("\n");
 
-  return [
+  const sections: string[] = [
     "你是个人资料归档助手。按「文件拿来干什么」分类，不要按学科领域分类。",
     "",
+  ];
+
+  if (context?.importRoot) {
+    sections.push("## 本次导入来源", `根目录: ${context.importRoot}`, "");
+  }
+  if (context?.directoryTree) {
+    sections.push("## 源目录结构（同批文件所在文件夹）", "```", context.directoryTree, "```", "");
+  }
+  if (context?.navSectionGuide) {
+    sections.push("## UI 分区对照（写入时仍用下方「可选目录」中的旧大类名）", context.navSectionGuide, "");
+  }
+  if (context?.topicOccupancy) {
+    sections.push("## 库内已有分类（可参考同类文件归位，避免重复开新类）", context.topicOccupancy, "");
+  }
+  if (context?.batchHint) {
+    sections.push("## 本批提示", context.batchHint, "");
+  }
+
+  sections.push(
     "## 口诀",
     "- 事情做完留下的结果 → 做事记录",
     "- 用来学习吸收知识 → 学习资料",
@@ -62,6 +92,7 @@ export function buildClassifyPrompt(items: readonly WikiInboxItem[], topicTree: 
     "- 合同/证件/发票/保单 → 证件凭据",
     "- 用户上传的会议纪要、聊天导出 → 做事记录 / 会议聊天记录",
     "- 对话消息本身不要归档（本批若像聊天记录而无文件用途，输出 skip）",
+    "- 同一任务/项目文件夹下的产物通常同属一个小类",
     "",
     "## 可选目录（只能从这里选，禁止自造大类或小类）",
     treeLines,
@@ -70,6 +101,7 @@ export function buildClassifyPrompt(items: readonly WikiInboxItem[], topicTree: 
     "- 一份资料只归一个大类+小类",
     "- 没有合适项时 category、subtopic 留空，skip=true，reason 说明",
     "- 只能使用上方目录列出的名称，不要发明新目录或使用「其他」「未分类」等占位词",
+    "- 分类时综合标题、源路径、文件夹语义与内容预览，不要只看文件名",
     "",
     "## 待整理资料",
     list,
@@ -77,7 +109,9 @@ export function buildClassifyPrompt(items: readonly WikiInboxItem[], topicTree: 
     "## 输出",
     '仅 JSON 数组: {"id":"<inboxId>","category":"<大类或空>","subtopic":"<小类或空>","skip":false,"reason":""}',
     "仅输出 JSON，不要包含其他文字。",
-  ].join("\n");
+  );
+
+  return sections.join("\n");
 }
 
 /**
@@ -264,10 +298,11 @@ export async function classifyBatch(
   items: readonly WikiInboxItem[],
   callLLM: (prompt: string) => Promise<string>,
   topicTree: WikiTopicTree,
+  context?: WikiClassifyContext | null,
 ): Promise<readonly ClassifiedItem[]> {
   if (items.length === 0) return [];
   try {
-    const response = await callLLM(buildClassifyPrompt(items, topicTree));
+    const response = await callLLM(buildClassifyPrompt(items, topicTree, context));
     return parseClassifyResponse(response, items, topicTree);
   } catch (err) {
     // 保留原始原因，否则退避重试时无从判断是模型不可用还是网络问题

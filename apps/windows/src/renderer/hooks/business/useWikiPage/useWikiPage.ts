@@ -46,6 +46,9 @@ export interface WikiFolderScanResult {
     readonly skipped: number
     readonly alreadyInWiki: number
   }
+  readonly directoryTree?: string
+  readonly topicOccupancy?: string
+  readonly navSectionGuide?: string
 }
 
 /** 文件夹 import 结果 */
@@ -55,6 +58,12 @@ export interface WikiFolderImportResult {
   readonly imported: number
   readonly skipped: number
   readonly inboxIds: readonly string[]
+  readonly autoClassify?: boolean
+  readonly organizeRun?: {
+    readonly runId: string
+    readonly status: string
+    readonly summary: string | null
+  } | null
 }
 
 /** 资料详情（wiki:source:get） */

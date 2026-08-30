@@ -5,7 +5,17 @@
  * 实施计划：docs/plans/记忆重构/2026-08-29-wiki-vault-p0-implementation.md T4
  */
 
+import { PARKING_CATEGORY } from '@mtbot/agent-runtime/browser'
+
 export type WikiNavSection = 'work' | 'study' | 'life' | 'collection' | 'inbox' | 'archived' | 'unfiled'
+
+/** 主题树只读形态，供展示格式化使用 */
+export interface WikiTopicTreeLike {
+  readonly categories: ReadonlyArray<{
+    readonly name: string
+    readonly subtopics: readonly string[]
+  }>
+}
 
 /**
  * 两列分组计数的 key。
@@ -85,4 +95,55 @@ export function legacyCategoriesForSection(section: WikiNavSection): readonly st
     case 'unfiled':
       return [] // unfiled 由 topic_category IS NULL 过滤
   }
+}
+
+/**
+ * 判断同一分区内小类名是否对应多个旧大类（如「整合长文」）。
+ */
+export function isSubtopicAmbiguousInSection(
+  tree: WikiTopicTreeLike,
+  section: WikiNavSection,
+  subtopic: string,
+): boolean {
+  const legacyNames = legacyCategoriesForSection(section)
+  if (legacyNames.length <= 1) return false
+  let hits = 0
+  for (const cat of tree.categories) {
+    if (legacyNames.includes(cat.name) && cat.subtopics.includes(subtopic)) hits += 1
+  }
+  return hits > 1
+}
+
+/**
+ * 将 DB 中的旧大类 + 小类格式化为用户可见的「分区 / 小类」文案。
+ * 与左栏导航、归档选择器保持一致；跨旧大类的分区在歧义时保留旧大类名。
+ */
+export function formatTopicDisplay(
+  category: string | null,
+  subtopic: string | null,
+  tree?: WikiTopicTreeLike | null,
+): string {
+  if (!category) return '待补分'
+  if (category === PARKING_CATEGORY) return '临时存放'
+
+  const section = navSectionFromLegacyCategory(category)
+  if (section === 'inbox' || section === 'unfiled') {
+    return subtopic ? `${category} / ${subtopic}` : category
+  }
+
+  const sectionLabel = navSectionLabel(section)
+  const catsInSection = legacyCategoriesForSection(section)
+
+  if (!subtopic) {
+    return catsInSection.length <= 1 ? sectionLabel : `${sectionLabel} / ${category}`
+  }
+
+  if (catsInSection.length <= 1) {
+    return `${sectionLabel} / ${subtopic}`
+  }
+
+  if (tree && isSubtopicAmbiguousInSection(tree, section, subtopic)) {
+    return `${sectionLabel} / ${category} / ${subtopic}`
+  }
+  return `${sectionLabel} / ${subtopic}`
 }

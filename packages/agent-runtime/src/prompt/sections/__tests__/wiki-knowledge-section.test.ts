@@ -15,8 +15,8 @@ describe("buildWikiKnowledgeSection", () => {
     expect(text).toContain("Wiki Knowledge Base");
     expect(text).toContain("wiki folder scan");
     expect(text).toContain("wiki folder import");
-    expect(text).toContain("mode intake");
-    expect(text).toContain("mode organize");
+    expect(text).toContain("auto-classifies");
+    expect(text).toContain("no-auto-classify");
   });
 
   it("仅有 wiki 读工具时不包含 CLI 写入指引", () => {

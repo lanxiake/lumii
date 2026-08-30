@@ -49,7 +49,20 @@ describe("buildClassifyPrompt", () => {
   it("截断超长内容预览，避免单批提示词膨胀", () => {
     const long = "字".repeat(1000);
     const prompt = buildClassifyPrompt([makeItem("i1", { content_preview: long })], DEFAULT_TOPIC_TREE);
-    expect(prompt).not.toContain("字".repeat(301));
+    expect(prompt).not.toContain("字".repeat(501));
+  });
+
+  it("含文件夹导入上下文时写入目录树与占用信息", () => {
+    const prompt = buildClassifyPrompt([makeItem("i1")], DEFAULT_TOPIC_TREE, {
+      importRoot: "outputs/demo",
+      directoryTree: "demo/\n  readme.md",
+      topicOccupancy: "（尚无已分类文件）",
+      navSectionGuide: "- 工作 → 做事记录",
+      batchHint: "同批 3 个文件",
+    });
+    expect(prompt).toContain("outputs/demo");
+    expect(prompt).toContain("readme.md");
+    expect(prompt).toContain("源路径:");
   });
 });
 

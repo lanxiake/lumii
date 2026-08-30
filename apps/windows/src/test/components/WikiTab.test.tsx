@@ -17,13 +17,14 @@ const TOPIC_TREE = {
   ],
 }
 
-/** 展开左栏大类，便于在默认收起状态下访问小类 */
-async function expandWikiCategory(name: string) {
-  fireEvent.click(await screen.findByRole('button', { name: `展开 ${name}` }))
+/** 进入左栏分区（工作/学习/生活/收藏） */
+async function selectNavSection(label: string) {
+  const btn = await screen.findByRole('button', { name: new RegExp(`^${label}`) })
+  fireEvent.click(btn)
 }
 
-/** 读取左栏目录树节点右侧的文件数量角标 */
-function getNavTopicCount(label: string): string | null {
+/** 读取左栏分区按钮右侧的文件数量角标 */
+function getNavSectionCount(label: string): string | null {
   const labelEl = screen.getAllByText(label).find((node) => node.classList.contains('wiki-left-nav-label'))
   return labelEl?.parentElement?.querySelector('.wiki-left-nav-count')?.textContent ?? null
 }
@@ -66,8 +67,9 @@ describe('WikiTab', () => {
     render(<WikiTab />)
     await screen.findByText(/暂无待整理条目/)
 
-    expect(screen.getByText('做事记录')).toBeInTheDocument()
-    expect(screen.queryByText('项目/任务资料')).not.toBeInTheDocument()
+    expect(screen.getByText('工作')).toBeInTheDocument()
+    expect(screen.getByText('学习')).toBeInTheDocument()
+    expect(screen.queryByText('做事记录')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^待整理/ })).toBeInTheDocument()
     expect(screen.getByText('临时存放')).toBeInTheDocument()
     expect(screen.getByText('知识图谱')).toBeInTheDocument()
@@ -80,7 +82,7 @@ describe('WikiTab', () => {
     render(<WikiTab />)
     await screen.findByText(/暂无待整理条目/)
 
-    await expandWikiCategory('做事记录')
+    await selectNavSection('工作')
     fireEvent.click(screen.getByText('会议聊天记录'))
     expect(await screen.findByText('这个小类下还没有文件')).toBeInTheDocument()
   })
@@ -103,11 +105,11 @@ describe('WikiTab', () => {
     render(<WikiTab />)
 
     await screen.findByText(/暂无待整理条目/)
-    await expandWikiCategory('做事记录')
+    await selectNavSection('工作')
     fireEvent.click(await screen.findByText('会议聊天记录'))
     const title = await screen.findByText('周会纪要.docx')
     expect(title.closest('.wiki-file-list-item')).toHaveTextContent('刚刚')
-    expect(screen.getByRole('heading', { name: '做事记录 / 会议聊天记录（1）' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '会议聊天记录 (1)' })).toBeInTheDocument()
   })
 
   it('文件行「打开」失败时展示无法打开原文件', async () => {
@@ -135,7 +137,7 @@ describe('WikiTab', () => {
     render(<WikiTab />)
 
     await screen.findByText(/暂无待整理条目/)
-    await expandWikiCategory('证件凭据')
+    await selectNavSection('生活')
     fireEvent.click(await screen.findByText('合同协议文件'))
     fireEvent.click(await screen.findByRole('button', { name: /打开/ }))
 
@@ -163,7 +165,7 @@ describe('WikiTab', () => {
 
     fireEvent.click(await screen.findByText('归档到…'))
     const dialog = within(await screen.findByRole('dialog'))
-    fireEvent.click(dialog.getByRole('button', { name: '证件凭据' }))
+    fireEvent.click(dialog.getByRole('button', { name: '生活' }))
     fireEvent.click(await dialog.findByRole('button', { name: '合同协议文件' }))
     fireEvent.click(dialog.getByRole('button', { name: '确认归档' }))
 
@@ -227,7 +229,7 @@ describe('WikiTab', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     const title = await screen.findByText('架构设计文档.md')
-    expect(title.closest('.wiki-file-list-item')).toHaveTextContent('做事记录 / 项目/任务资料')
+    expect(title.closest('.wiki-file-list-item')).toHaveTextContent('工作 / 项目/任务资料')
     expect(screen.getByRole('heading', { name: /搜索结果（1）/ })).toBeInTheDocument()
   })
 
@@ -354,21 +356,7 @@ describe('WikiTab', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
-  it('大类默认收起，chevron 可展开/折叠且不切换主区', async () => {
-    render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
-
-    expect(screen.queryByText('会议聊天记录')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: '展开 做事记录' }))
-    expect(screen.getByText('会议聊天记录')).toBeInTheDocument()
-    expect(screen.getByText(/暂无待整理条目/)).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: '折叠 做事记录' }))
-    expect(screen.queryByText('会议聊天记录')).not.toBeInTheDocument()
-  })
-
-  it('左栏大类与小类始终显示文件数量角标', async () => {
+  it('左栏分区显示文件数量角标', async () => {
     ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
       'wiki:source:list': {
         sources: [{
@@ -387,12 +375,11 @@ describe('WikiTab', () => {
     await screen.findByText(/暂无待整理条目/)
 
     await waitFor(() => {
-      expect(getNavTopicCount('做事记录')).toBe('1')
+      expect(getNavSectionCount('工作')).toBe('1')
     })
-    expect(getNavTopicCount('证件凭据')).toBe('0')
 
-    await expandWikiCategory('做事记录')
-    expect(getNavTopicCount('会议聊天记录')).toBe('1')
+    await selectNavSection('工作')
+    expect(screen.getByText('会议聊天记录').closest('button')?.querySelector('.wiki-subtopic-chip-count')).toHaveTextContent('1')
   })
 
   it('从更多菜单触发重建索引任务且不切换全页', async () => {

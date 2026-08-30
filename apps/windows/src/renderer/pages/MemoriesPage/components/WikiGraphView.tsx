@@ -28,6 +28,7 @@ import type {
   WikiEroExtractSourceResult,
 } from '../../../hooks/business/useWikiPage'
 import type { WikiNav } from './WikiLeftNav'
+import { formatTopicDisplay } from './wikiNavMapping'
 
 const NODE_W = 160
 const NODE_H = 56
@@ -528,8 +529,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
                           <p style={{ fontWeight: 500 }}>{src.title}</p>
                           {src.topicCategory && (
                             <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)' }}>
-                              {src.topicCategory}
-                              {src.topicSubtopic && ` / ${src.topicSubtopic}`}
+                              {formatTopicDisplay(src.topicCategory, src.topicSubtopic)}
                             </p>
                           )}
                         </div>

@@ -26,6 +26,10 @@ import {
   WikiFolderImporter,
   type WikiFolderImporterFs,
   type WikiInboxItemType,
+  buildDirectoryTreeText,
+  buildFolderImportClassifyContext,
+  buildTopicOccupancySummary,
+  buildNavSectionGuide,
   WikiClipSaver,
   vaultDirSegmentsForSource,
   resolveOriginalFilePath,
@@ -232,35 +236,89 @@ export function handleWikiFolderScan(
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
   const dir = resolveWikiFolderDir(bridge, command.dir)
   const importer = createWikiFolderImporter(bridge)
-  return importer.scan({
+  const workspaceRoot = bridge.getCwd()
+  const result = importer.scan({
     agentId,
     userId: LOCAL_USER_ID,
     dir,
     recursive: command.recursive,
     itemType: command.itemType,
-    workspaceRoot: bridge.getCwd(),
+    workspaceRoot,
   })
+  const importablePaths = result.candidates
+    .filter((c) => !c.skipReason && !c.alreadyInWiki)
+    .map((c) => c.path)
+  const topicTree = bridge.wikiRepo.getOrCreateTopicTree()
+  return {
+    ...result,
+    directoryTree: buildDirectoryTreeText(importablePaths, dir, workspaceRoot),
+    topicOccupancy: buildTopicOccupancySummary(bridge.wikiRepo, agentId, LOCAL_USER_ID, topicTree),
+    navSectionGuide: buildNavSectionGuide(),
+  }
 }
 
 /**
- * 批量将目录内文件摄入 Wiki 收件箱（引用优先，不移动原文件）。
+ * 批量将目录内文件摄入 Wiki 收件箱；可选导入后立即 AI 分类归档。
  */
-export function handleWikiFolderImport(
+export async function handleWikiFolderImport(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:folder:import' }>,
-): unknown {
+): Promise<unknown> {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
   const dir = resolveWikiFolderDir(bridge, command.dir)
   const importer = createWikiFolderImporter(bridge)
-  return importer.import({
+  const workspaceRoot = bridge.getCwd()
+  const autoClassify = command.autoClassify !== false
+
+  const importResult = importer.import({
     agentId,
     userId: LOCAL_USER_ID,
     dir,
     recursive: command.recursive,
     itemType: command.itemType,
     dryRun: command.dryRun,
-    workspaceRoot: bridge.getCwd(),
+    workspaceRoot,
   })
+
+  if (command.dryRun || !autoClassify || importResult.inboxIds.length === 0) {
+    return importResult
+  }
+
+  const inboxItems = importResult.inboxIds
+    .map((id) => bridge.wikiRepo.findInboxById(id))
+    .filter((item): item is NonNullable<typeof item> => item !== null)
+
+  const topicTree = bridge.wikiRepo.getOrCreateTopicTree()
+  const classifyContext = buildFolderImportClassifyContext({
+    importRoot: dir,
+    workspaceRoot,
+    inboxItems,
+    repo: bridge.wikiRepo,
+    agentId,
+    userId: LOCAL_USER_ID,
+    topicTree,
+  })
+
+  const batchSize = command.classifyBatchSize ?? 10
+  const organizeRun = await bridge.wikiOrganizer.organizeInboxIds(
+    agentId,
+    LOCAL_USER_ID,
+    importResult.inboxIds,
+    classifyContext,
+    batchSize,
+  )
+
+  return {
+    ...importResult,
+    autoClassify: true,
+    organizeRun: organizeRun
+      ? {
+          runId: organizeRun.id,
+          status: organizeRun.status,
+          summary: organizeRun.result_summary ?? null,
+        }
+      : null,
+  }
 }
 
 /**

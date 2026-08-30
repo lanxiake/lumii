@@ -12,6 +12,7 @@ import { ConfirmModal } from '../../../components/ui/Modal'
 import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import type { WikiCleanupSuggestionItem, WikiStatusCandidateItem } from '../../../hooks/business/useWikiPage'
 import { filterCleanupSuggestions, type CleanupReasonFilter } from './cleanupSelection'
+import { formatTopicDisplay } from './wikiNavMapping'
 
 const REASON_LABEL: Record<WikiCleanupSuggestionItem['reason'], string> = {
   stale: '长期未用',
@@ -39,12 +40,10 @@ const STATUS_REASON_LABEL: Record<string, string> = {
 }
 
 /**
- * 用两列拼展示用的 `大类 / 小类`；两列都空说明还没归类，显示「待补分」。
- * 临时存放没有小类，只显示大类名。
+ * 展示用的分区 / 小类文案（与左栏导航一致）。
  */
 function cleanupTopicLabel(item: WikiCleanupSuggestionItem): string {
-  if (!item.topicCategory) return '待补分'
-  return item.topicSubtopic ? `${item.topicCategory} / ${item.topicSubtopic}` : item.topicCategory
+  return formatTopicDisplay(item.topicCategory, item.topicSubtopic)
 }
 
 interface CleanupViewProps {

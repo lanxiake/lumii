@@ -486,8 +486,8 @@ export const COMMANDS = [
   {
     name: 'wiki folder import',
     group: 'Wiki',
-    usage: 'wiki folder import <dir> [--recursive] [--item-type upload|output|auto] [--dry-run] [--session <key>]',
-    summary: '批量将目录文件摄入 Wiki 收件箱（引用优先，不移动原文件）',
+    usage: 'wiki folder import <dir> [--recursive] [--item-type upload|output|auto] [--dry-run] [--no-auto-classify] [--session <key>]',
+    summary: '批量导入目录并默认 AI 自动分类归档（引用优先，不移动原文件）',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
     options: [
@@ -496,6 +496,7 @@ export const COMMANDS = [
       { flag: '--no-recursive', desc: '仅导入当前目录' },
       { flag: '--item-type <t>', desc: 'upload | output | auto（默认 auto）' },
       { flag: '--dry-run', desc: '只预览数量，不写入收件箱' },
+      { flag: '--no-auto-classify', desc: '只导入到待整理，不立即 AI 分类' },
       { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
     ],
     build(args) {
@@ -509,6 +510,7 @@ export const COMMANDS = [
         body.itemType = itemType
       }
       if (args.flags['dry-run']) body.dryRun = true
+      if (args.flags['no-auto-classify']) body.autoClassify = false
       if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
       return body
     },

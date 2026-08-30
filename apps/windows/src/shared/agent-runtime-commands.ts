@@ -390,6 +390,9 @@ export interface WikiFolderImportCommand {
   readonly recursive?: boolean
   readonly itemType?: 'upload' | 'output' | 'auto'
   readonly dryRun?: boolean
+  /** 导入后立即 AI 分类归档；默认 true */
+  readonly autoClassify?: boolean
+  readonly classifyBatchSize?: number
   readonly sessionKey?: string
   readonly agentId?: string
 }
@@ -1797,6 +1800,8 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       imported: number
       skipped: number
       inboxIds: readonly string[]
+      autoClassify?: boolean
+      organizeRun?: { runId: string; status: string; summary: string | null } | null
     }
   : T extends 'wiki:organize:run' ? { runId: string | null; status: string; summary: string | null }
   : T extends 'wiki:page:list' ? readonly {

@@ -9,6 +9,7 @@
  */
 
 import { classifyBatch, type ClassifiedItem } from "./wiki-classifier.js";
+import type { WikiClassifyContext } from "./wiki-classify-context.js";
 import { WikiReclassifier } from "./wiki-reclassifier.js";
 import type { WikiContentExtractor } from "./wiki-content-extractor.js";
 import type { WikiRepo } from "./wiki-repo.js";
@@ -96,6 +97,157 @@ export class WikiOrganizer {
     );
 
     return { items, enriched, extractById };
+  }
+
+  /**
+   * 对指定 inbox 条目批量 AI 分类归档（文件夹导入等场景）。
+   * 与 takeInboxBatch 不同：只处理给定 id，且整批共享 classify 上下文。
+   */
+  async organizeInboxIds(
+    agentId: string,
+    userId: string,
+    inboxIds: readonly string[],
+    context?: WikiClassifyContext | null,
+    batchSize = 10,
+  ): Promise<WikiOrganizeRun | null> {
+    if (inboxIds.length === 0) return null;
+    if (WikiReclassifier.isRunning(this.repo.getReclassifyRun(agentId, userId) as never)) {
+      return null;
+    }
+
+    const pending = inboxIds
+      .map((id) => this.repo.findInboxById(id))
+      .filter((item): item is WikiInboxItem => item !== null && item.status === "pending");
+
+    if (pending.length === 0) return null;
+
+    const run = this.repo.createRun(
+      agentId,
+      userId,
+      pending.map((i) => i.id),
+    );
+
+    const topicTree = this.repo.getOrCreateTopicTree();
+    let totalOrganized = 0;
+    let totalDegraded = 0;
+    let totalFailed = 0;
+    const allDetailItems: WikiOrganizeRunDetailItem[] = [];
+    const degradeReasons = new Set<string>();
+
+    for (let offset = 0; offset < pending.length; offset += batchSize) {
+      const chunk = pending.slice(offset, offset + batchSize);
+      const enriched = await Promise.all(
+        chunk.map(async (item) => {
+          if (item.content_preview) return item;
+          const text = await this.extractor.extract({
+            mediaType: item.media_type,
+            sourcePath: item.source_path,
+            text: item.content_preview,
+          });
+          return text === null ? item : { ...item, content_preview: text };
+        }),
+      );
+
+      const extractById = new Map(
+        chunk.map((item) => {
+          const after = enriched.find((e) => e.id === item.id);
+          return [item.id, resolveExtractState(item.content_preview, after?.content_preview)] as const;
+        }),
+      );
+
+      let classified: readonly ClassifiedItem[];
+      try {
+        classified = await classifyBatch(enriched, this.callLLM, topicTree, context);
+      } catch (err) {
+        const message = (err as Error).message;
+        for (const item of chunk) this.repo.markInboxAttemptFailed(item.id, message);
+        totalFailed += chunk.length;
+        for (const item of chunk) {
+          allDetailItems.push({
+            inboxId: item.id,
+            title: item.title,
+            path: "",
+            mediaType: item.media_type,
+            outcome: "failed",
+            reason: message,
+            extract: extractById.get(item.id) ?? "none",
+          });
+        }
+        continue;
+      }
+
+      const byId = new Map(enriched.map((i) => [i.id, i]));
+      for (const result of classified) {
+        const item = byId.get(result.inboxId);
+        if (!item) continue;
+        const extract = extractById.get(item.id) ?? "none";
+
+        if (result.degraded || result.skip || !result.category || !result.subtopic) {
+          const reason = result.degradeReason ?? result.reason ?? "无法归类";
+          totalDegraded += 1;
+          degradeReasons.add(reason);
+          this.repo.markInboxAttemptFailed(item.id, reason, "degraded");
+          allDetailItems.push({
+            inboxId: item.id,
+            title: item.title,
+            path: "",
+            mediaType: item.media_type,
+            outcome: "degraded",
+            reason,
+            extract,
+          });
+          continue;
+        }
+
+        try {
+          const source = this.repo.archiveInboxItem(item, result.category, result.subtopic);
+          this.hooks?.onSourceCreated?.(source);
+          totalOrganized += 1;
+          allDetailItems.push({
+            inboxId: item.id,
+            title: item.title,
+            path: `${result.category}/${result.subtopic}`,
+            mediaType: item.media_type,
+            outcome: "archived",
+            extract,
+          });
+        } catch (err) {
+          totalFailed += 1;
+          const reason = (err as Error).message;
+          this.repo.markInboxAttemptFailed(item.id, reason);
+          allDetailItems.push({
+            inboxId: item.id,
+            title: item.title,
+            path: "",
+            mediaType: item.media_type,
+            outcome: "failed",
+            reason,
+            extract,
+          });
+        }
+      }
+    }
+
+    const status =
+      totalFailed > 0 ? "partial" : totalDegraded > 0 ? "degraded" : "succeeded";
+    const summary = [
+      `${totalOrganized} 项已归档`,
+      totalDegraded > 0 ? `${totalDegraded} 项无法归类留在待整理` : "",
+      totalFailed > 0 ? `${totalFailed} 项待重试` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const error = degradeReasons.size > 0 ? [...degradeReasons].join("; ") : undefined;
+    const detailJson = JSON.stringify({ items: allDetailItems });
+    this.repo.finishRun(run.id, status, summary, error, detailJson);
+    return {
+      ...run,
+      status,
+      result_summary: summary,
+      result_detail: detailJson,
+      ...(error ? { error } : {}),
+      finished_at: new Date().toISOString(),
+    };
   }
 
   /**

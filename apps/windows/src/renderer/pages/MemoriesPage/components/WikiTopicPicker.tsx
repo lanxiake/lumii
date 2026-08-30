@@ -1,9 +1,35 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { PARKING_CATEGORY } from '@mtbot/agent-runtime/browser'
 import { Modal } from '../../../components/ui/Modal'
 import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import { Button } from '../../../components/ui/Button/Button'
 import type { WikiTopicTree } from '../../../hooks/business/useWikiPage'
+import {
+  legacyCategoriesForSection,
+  navSectionLabel,
+  type WikiNavSection,
+} from './wikiNavMapping'
+
+/** 归档弹层第一步可选分区（不含待整理 / 临时存放） */
+export const WIKI_TOPIC_PICKER_SECTIONS: readonly WikiNavSection[] = [
+  'work',
+  'study',
+  'life',
+  'collection',
+  'archived',
+]
+
+/** 待整理批量归档：只选活跃分区，不含「已归档」冷存储 */
+export const WIKI_TOPIC_PICKER_ACTIVE_SECTIONS: readonly WikiNavSection[] = [
+  'work',
+  'study',
+  'life',
+  'collection',
+]
+
+interface TopicTarget {
+  readonly category: string
+  readonly subtopic: string
+}
 
 interface WikiTopicPickerProps {
   open: boolean
@@ -12,9 +38,14 @@ interface WikiTopicPickerProps {
   title?: string
   /** 待归档条目名称，展示在选择区上方帮助用户确认对象 */
   itemTitle?: string
+  /** 第一步分区列表；默认含「已归档」 */
+  sections?: readonly WikiNavSection[]
   onCancel: () => void
+  /** 写入主题树；category 为旧大类真名（与左栏分区映射一致） */
   onConfirm: (category: string, subtopic: string) => void
-  /** 提供时显示次要按钮「让 AI 建议」；不传则完全保持一期行为 */
+  /** 选中「已归档」分区时调用，不走 update-topic */
+  onConfirmArchive?: () => void
+  /** 提供时显示次要按钮「让 AI 建议」 */
   onRequestSuggestion?: () => void
   /** AI 建议结果 */
   suggestion?: { category: string; subtopic: string; reason: string } | null
@@ -26,41 +57,67 @@ interface WikiTopicPickerProps {
 }
 
 /**
- * 用途目录两级选择器：先选大类再选小类，只允许从主题树里挑，不提供自由输入。
- * 临时存放不是正式目录，这里始终不列出，只能通过文件列表的「存到临时存放」进入。
+ * 根据分区从主题树取出小类分组（与 WikiSubtopicPanel 同源逻辑）。
+ */
+function buildSubtopicGroups(
+  tree: WikiTopicTree | null,
+  section: WikiNavSection,
+): ReadonlyArray<{ category: string; subtopics: readonly string[] }> {
+  const legacyNames = legacyCategoriesForSection(section)
+  if (!tree || legacyNames.length === 0) return []
+  return tree.categories
+    .filter((cat) => legacyNames.includes(cat.name))
+    .map((cat) => ({ category: cat.name, subtopics: cat.subtopics }))
+}
+
+/**
+ * 用途目录两级选择器：先选左栏分区（工作/学习/生活/收藏），再选小类。
+ * 回调仍传旧大类真名 + 小类，与 updateSourceTopic / organizeInbox 兼容。
  */
 export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
   open,
   tree,
   title = '归档到…',
   itemTitle,
+  sections = WIKI_TOPIC_PICKER_SECTIONS,
   onCancel,
   onConfirm,
+  onConfirmArchive,
   onRequestSuggestion,
   suggestion,
   suggestionState = 'idle',
   onAdoptSuggestion,
   extraSection,
 }) => {
-  const categories = useMemo(
-    () => (tree?.categories ?? []).filter((item) => item.name !== PARKING_CATEGORY),
-    [tree],
-  )
-  const [category, setCategory] = useState<string | null>(null)
-  const [subtopic, setSubtopic] = useState<string | null>(null)
+  const [section, setSection] = useState<WikiNavSection | null>(null)
+  const [target, setTarget] = useState<TopicTarget | null>(null)
 
-  // 每次重新打开都回到大类选择，避免沿用上一个条目的选择造成误归档
+  /** 每次重新打开都回到分区选择，避免沿用上一个条目的选择造成误归档 */
   useEffect(() => {
     if (open) {
-      setCategory(null)
-      setSubtopic(null)
+      setSection(null)
+      setTarget(null)
     }
   }, [open])
 
-  const subtopics = useMemo(
-    () => categories.find((item) => item.name === category)?.subtopics ?? [],
-    [categories, category],
+  const subtopicGroups = useMemo(
+    () => (section && section !== 'archived' ? buildSubtopicGroups(tree, section) : []),
+    [tree, section],
   )
+
+  const isArchiveSection = section === 'archived'
+  const canConfirm = isArchiveSection ? Boolean(onConfirmArchive) : Boolean(target)
+
+  /**
+   * 确认：已归档走 archive；其余走主题写入。
+   */
+  const handleConfirm = () => {
+    if (isArchiveSection) {
+      onConfirmArchive?.()
+      return
+    }
+    if (target) onConfirm(target.category, target.subtopic)
+  }
 
   return (
     <Modal
@@ -84,14 +141,7 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
               采用建议
             </Button>
           )}
-          <Button
-            variant="primary"
-            size="sm"
-            disabled={!category || !subtopic}
-            onClick={() => {
-              if (category && subtopic) onConfirm(category, subtopic)
-            }}
-          >
+          <Button variant="primary" size="sm" disabled={!canConfirm} onClick={handleConfirm}>
             确认归档
           </Button>
         </>
@@ -111,45 +161,58 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
         )}
 
         <section className="wiki-topic-picker-section">
-          <h4 className="wiki-topic-picker-heading">选择大类</h4>
+          <h4 className="wiki-topic-picker-heading">选择分区</h4>
           <div className="wiki-topic-picker-options">
-            {categories.map((item) => (
+            {sections.map((item) => (
               <button
-                key={item.name}
+                key={item}
                 type="button"
-                className={`wiki-topic-picker-option${category === item.name ? ' wiki-topic-picker-option--active' : ''}`}
-                aria-pressed={category === item.name}
+                className={`wiki-topic-picker-option${section === item ? ' wiki-topic-picker-option--active' : ''}`}
+                aria-pressed={section === item}
                 onClick={() => {
-                  setCategory(item.name)
-                  setSubtopic(null)
+                  setSection(item)
+                  setTarget(null)
                 }}
               >
-                {item.name}
+                {navSectionLabel(item)}
               </button>
             ))}
           </div>
         </section>
 
-        {category && (
+        {section && !isArchiveSection && (
           <section className="wiki-topic-picker-section">
             <h4 className="wiki-topic-picker-heading">选择小类</h4>
-            <div className="wiki-topic-picker-options">
-              {subtopics.map((name) => (
-                <button
-                  key={name}
-                  type="button"
-                  className={`wiki-topic-picker-option${subtopic === name ? ' wiki-topic-picker-option--active' : ''}`}
-                  aria-pressed={subtopic === name}
-                  onClick={() => setSubtopic(name)}
-                >
-                  {name}
-                </button>
-              ))}
-            </div>
+            {subtopicGroups.length === 0 ? (
+              <p className="wiki-topic-picker-hint">该分区下还没有小类，可在 更多 → 编辑主题树 中添加。</p>
+            ) : (
+              <div className="wiki-topic-picker-options">
+                {subtopicGroups.flatMap((group) =>
+                  group.subtopics.map((name) => {
+                    const active = target?.category === group.category && target?.subtopic === name
+                    return (
+                      <button
+                        key={`${group.category}/${name}`}
+                        type="button"
+                        className={`wiki-topic-picker-option${active ? ' wiki-topic-picker-option--active' : ''}`}
+                        aria-pressed={active}
+                        onClick={() => setTarget({ category: group.category, subtopic: name })}
+                      >
+                        {name}
+                      </button>
+                    )
+                  }),
+                )}
+              </div>
+            )}
           </section>
         )}
 
-        {!category && <p className="wiki-topic-picker-hint">先选一个大类，再选具体小类。</p>}
+        {isArchiveSection && (
+          <p className="wiki-topic-picker-hint">移入「已归档」后资料不再出现在活跃分区，可随时恢复。</p>
+        )}
+
+        {!section && <p className="wiki-topic-picker-hint">先选一个分区，再选具体小类。</p>}
         {extraSection}
       </div>
     </Modal>

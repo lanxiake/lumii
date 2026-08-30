@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import type { WikiReclassifyRunItem } from '../../../hooks/business/useWikiPage'
+import { formatTopicDisplay } from './wikiNavMapping'
 
 interface WikiReclassifyViewProps {
   run: WikiReclassifyRunItem | null
@@ -116,9 +117,11 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
             <div className="wiki-reclassify-body">
               <p className="wiki-reclassify-title">{c.title}</p>
               <p className="wiki-reclassify-move">
-                <span>{`${c.fromCategory} / ${c.fromSubtopic}`}</span>
+                <span>{formatTopicDisplay(c.fromCategory, c.fromSubtopic)}</span>
                 <ArrowRight size={13} />
-                <span className="wiki-reclassify-target">{`${c.toCategory} / ${c.toSubtopic}`}</span>
+                <span className="wiki-reclassify-target">
+                  {formatTopicDisplay(c.toCategory, c.toSubtopic)}
+                </span>
               </p>
               {c.reason && <p className="wiki-reclassify-reason">{c.reason}</p>}
               {c.applyError && (

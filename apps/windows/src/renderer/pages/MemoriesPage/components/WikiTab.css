@@ -655,6 +655,16 @@
   font-weight: 600;
 }
 
+.wiki-topic-picker-group + .wiki-topic-picker-group {
+  margin-top: 10px;
+}
+
+.wiki-topic-picker-group-title {
+  margin: 0 0 6px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
 .wiki-topic-picker-options {
   display: flex;
   flex-wrap: wrap;

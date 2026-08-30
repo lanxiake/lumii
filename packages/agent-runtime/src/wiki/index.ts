@@ -231,7 +231,15 @@ export {
   parseClassifyResponse,
   classifyBatch,
 } from "./wiki-classifier.js";
-export type { ClassifiedItem } from "./wiki-classifier.js";
+export type { ClassifiedItem, WikiClassifyContext } from "./wiki-classifier.js";
+
+export {
+  buildFolderImportClassifyContext,
+  buildDirectoryTreeText,
+  buildTopicOccupancySummary,
+  buildNavSectionGuide,
+} from "./wiki-classify-context.js";
+export type { BuildFolderImportContextParams } from "./wiki-classify-context.js";
 
 export {
   generateWikiId,

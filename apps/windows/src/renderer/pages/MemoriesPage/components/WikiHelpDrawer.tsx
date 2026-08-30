@@ -27,7 +27,7 @@ const QUICK_SECTIONS = [
   },
   {
     title: '让 Agent 帮忙整理',
-    body: '在聊天中说「帮我把 outputs/某目录整理到 Wiki」即可。Agent 会通过 lumii-ui 命令扫描、导入并验证；默认只收进待整理，不会静默全库 AI 分类。你可在待整理里批量归档到工作/学习等分类。',
+    body: '在聊天中说「帮我把 outputs/某目录整理到 Wiki」即可。Agent 会通过 lumii-ui 扫描目录树、导入并 AI 自动分类；拿不准的条目会留在待整理，你可批量归档或重试。',
   },
   {
     title: '待整理怎么用（推荐流程）',

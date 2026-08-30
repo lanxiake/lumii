@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-08-30T16:11:16.640Z",
+  "generatedAt": "2026-08-30T16:22:15.937Z",
   "guides": [
     {
       "id": "wiki",
@@ -14,7 +14,7 @@
       ],
       "file": "wiki-user-guide.md",
       "seedToWiki": false,
-      "updatedAt": "2026-08-30T15:59:58.637Z"
+      "updatedAt": "2026-08-30T16:20:46.167Z"
     }
   ]
 }

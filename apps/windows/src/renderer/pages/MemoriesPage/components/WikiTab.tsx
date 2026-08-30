@@ -33,7 +33,7 @@ import { navSectionFromLegacyCategory, legacyCategoriesForSection, type WikiNavS
 import { WikiTopBar } from './WikiTopBar'
 import { WikiPageList } from './WikiPageList'
 import { WikiFileList } from './WikiFileList'
-import { WikiTopicPicker } from './WikiTopicPicker'
+import { WikiTopicPicker, WIKI_TOPIC_PICKER_ACTIVE_SECTIONS } from './WikiTopicPicker'
 import { WikiTopicTreeEditor } from './WikiTopicTreeEditor'
 import { WikiReclassifyView } from './WikiReclassifyView'
 import { WikiInboxPanel, inboxItemToPreviewSnapshot } from './WikiInboxPanel'
@@ -469,8 +469,18 @@ export const WikiTab: React.FC = () => {
   )
 
   /**
-   * 确认归档目标后按来源分流：队列条目走 organizeInbox，资料层条目走 updateSourceTopic。
+   * 单条资料移入已归档冷存储（「移到…」选已归档分区）。
    */
+  const handleArchivePickerTarget = useCallback(async () => {
+    const target = picker
+    setPicker(null)
+    setSuggestion(null)
+    setSuggestionState('idle')
+    if (!target || target.mode !== 'source') return
+    await trackedArchiveSources([target.item.id])
+    await Promise.all([refreshSources(), refreshArchivedSources()])
+  }, [picker, trackedArchiveSources, refreshSources, refreshArchivedSources])
+
   const handleConfirmPicker = useCallback(
     async (category: string, subtopic: string) => {
       const target = picker
@@ -667,6 +677,16 @@ export const WikiTab: React.FC = () => {
     },
     [selectedSourceIds, updateSourceTopic, refreshSources],
   )
+
+  /** 批量移入已归档冷存储 */
+  const handleArchiveSelected = useCallback(async () => {
+    const ids = [...selectedSourceIdsRef.current]
+    if (ids.length === 0) return
+    await trackedArchiveSources(ids)
+    setSelectedSourceIds(new Set())
+    setBatchPickerOpen(false)
+    await Promise.all([refreshSources(), refreshArchivedSources()])
+  }, [trackedArchiveSources, refreshSources, refreshArchivedSources])
 
   const handleParkSelected = useCallback(async () => {
     const ids = [...selectedSourceIds]
@@ -955,7 +975,7 @@ export const WikiTab: React.FC = () => {
         `在「${dir}」中找到 ${importable} 个可导入文件` +
           (skipped > 0 ? `（跳过 ${skipped} 个）` : '') +
           (alreadyInWiki > 0 ? `，${alreadyInWiki} 个已在 Wiki` : '') +
-          '。是否全部收进「待整理」？',
+          '。导入后将由 AI 自动分类归档（依据目录结构、已有分类与文件内容）。是否继续？',
       )
       if (!ok) return
 
@@ -964,13 +984,17 @@ export const WikiTab: React.FC = () => {
         toast.error('导入失败，请稍后重试')
         return
       }
-      await runOrganize({ mode: 'intake', itemType: 'output' })
-      await refreshInbox()
-      toast.success(`已导入 ${imported.imported} 个文件到待整理`)
+      await Promise.all([refreshInbox(), refreshSources()])
+      const orgSummary = imported.organizeRun?.summary
+      if (orgSummary) {
+        toast.success(`已导入 ${imported.imported} 个文件 · ${orgSummary}`)
+      } else {
+        toast.success(`已导入 ${imported.imported} 个文件到待整理`)
+      }
     } finally {
       setFolderImportBusy(false)
     }
-  }, [scanFolder, importFolder, runOrganize, refreshInbox, toast])
+  }, [scanFolder, importFolder, refreshInbox, refreshSources, toast])
 
   /** 切换待整理队列条目选中状态 */
   const toggleSelectInbox = useCallback((inboxId: string) => {
@@ -1250,6 +1274,7 @@ export const WikiTab: React.FC = () => {
               items={searchResults}
               emptyHint="未找到相关文件"
               showTopic
+              topicTree={topicTree}
               showMediaChips={false}
               onOpen={(item) => void handleOpenSource(item)}
               onPreview={handlePreviewSourceItem}
@@ -1305,6 +1330,7 @@ export const WikiTab: React.FC = () => {
               items={archivedSources}
               emptyHint="还没有已归档的资料。"
               showTopic
+              topicTree={topicTree}
               moveLabel="恢复"
               showParkAction={false}
               onOpen={(item) => void handleOpenSource(item)}
@@ -1445,6 +1471,7 @@ export const WikiTab: React.FC = () => {
             <WikiFileList
               items={visibleSources}
               emptyHint="这个小类下还没有文件"
+              topicTree={topicTree}
               highlightId={highlightSourceId}
               selectable
               selectedIds={selectedSourceIds}
@@ -1582,6 +1609,7 @@ export const WikiTab: React.FC = () => {
         open={isInboxBatchPickerOpen}
         tree={topicTree}
         title="批量归档到…"
+        sections={WIKI_TOPIC_PICKER_ACTIVE_SECTIONS}
         itemTitle={`已选 ${selectedInboxIds.size + selectedUnfiledIds.size} 项`}
         onCancel={() => setInboxBatchPickerOpen(false)}
         onConfirm={(category, subtopic) => {
@@ -1600,6 +1628,7 @@ export const WikiTab: React.FC = () => {
           setBatchPickerOpen(false)
           void handleMoveSelected(category, subtopic)
         }}
+        onConfirmArchive={() => void handleArchiveSelected()}
       />
 
       <WikiTopicPicker
@@ -1612,6 +1641,8 @@ export const WikiTab: React.FC = () => {
           setSuggestionState('idle')
         }}
         onConfirm={(category, subtopic) => void handleConfirmPicker(category, subtopic)}
+        onConfirmArchive={picker?.mode === 'source' ? () => void handleArchivePickerTarget() : undefined}
+        sections={picker?.mode === 'inbox' ? WIKI_TOPIC_PICKER_ACTIVE_SECTIONS : undefined}
         // 只有已进资料层的文件能让 AI 建议：inbox 条目还没 source id
         onRequestSuggestion={
           picker?.mode === 'source' ? () => void handleRequestSuggestion(picker.item.id) : undefined

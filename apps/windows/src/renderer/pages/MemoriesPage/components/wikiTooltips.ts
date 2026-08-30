@@ -10,7 +10,7 @@ export const WIKI_NAV_TOOLTIPS: Record<WikiNavSection, string> = {
     '新上传的文件、保存的链接、任务产物会先出现在这里。选中多条后可批量归档到同一分类，或一键全部重试。',
   work: '与上班、项目、会议、汇报相关的资料。归档时选「工作」及其小类（如文档、会议记录）。',
   study: '读书、课程、教程、考试等学习材料。适合放笔记、课件、参考资料。',
-  life: '私人生活相关：证件凭据、家庭事务、个人随笔与计划复盘。',
+  life: '私人生活相关：证件、家庭事务、计划复盘与个人随笔。',
   collection: '长期参考的链接、模板、媒体收藏。网页链接默认只存网址，需要正文时再保存。',
   archived: '暂时不用但仍需保留的资料。可从归档恢复回活跃目录。',
   unfiled: '已入库但尚未指定分类的资料，需要在「待整理」中补选目录。',
@@ -36,7 +36,7 @@ export const WIKI_TASK_PILL_TOOLTIP =
 
 /** 待整理视图说明 */
 export const WIKI_INBOX_INTRO =
-  '待整理 = 队列中的新资料 + 已入库但未分类的文件。可勾选多条后「批量归档到…」或「批量删除」；也可点「从文件夹导入」批量收进待整理。'
+  '待整理 = 队列中的新资料 + 已入库但未分类的文件。从文件夹导入会默认 AI 自动分类；失败或不确定的条目仍在此。可勾选后「批量归档到…」。',
 
 /** 从文件夹导入按钮 */
 export const WIKI_FOLDER_IMPORT_TOOLTIP =
@@ -46,7 +46,7 @@ export const WIKI_FOLDER_IMPORT_TOOLTIP =
 export const WIKI_MORE_MENU_TOOLTIPS: Record<string, string> = {
   reclassifyAll:
     '让 AI 扫描已归档文件并给出目录调整建议。只生成预览，你勾选接受后才会改动，不会静默修改。',
-  editTopicTree: '增删改各大类下的小类名称。大类对应 workspace/wiki/ 下的文件夹结构。',
+  editTopicTree: '增删改各分区下的小类名称。分区对应 workspace/wiki/ 下的文件夹结构。',
   history: '早期自动生成的摘要页面（只读）。新资料请用左侧分类目录浏览原始文件。',
   cleanup: '扫描重复内容、失效引用、长期未用资料，并给出归档或删除建议。',
   synthesis: '从多篇资料生成主题综述草稿，确认后才会写入资料库。',
