@@ -367,6 +367,7 @@ export class AgentRuntimeBridge {
   get runtimeStateRepo(): RuntimeStateRepo { return this.requireInitialized(this._runtimeStateRepo, 'runtimeStateRepo') }
   get wikiRepo(): WikiRepo { return this.requireInitialized(this._wikiRepo, 'wikiRepo') }
   get wikiOrganizer(): WikiOrganizer { return this.requireInitialized(this._wikiOrganizer, 'wikiOrganizer') }
+  get wikiIngestHook(): WikiIngestHook { return this.requireInitialized(this._wikiIngestHook, 'wikiIngestHook') }
   /** 重新编目器；LLM purpose 与归档分类同一档，保证小模型预算一致 */
   get wikiReclassifier(): WikiReclassifier { return this.requireInitialized(this._wikiReclassifier, 'wikiReclassifier') }
   get wikiOrganizeQueue(): WikiOrganizeQueue { return this.requireInitialized(this._wikiOrganizeQueue, 'wikiOrganizeQueue') }

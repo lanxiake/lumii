@@ -10,7 +10,7 @@ import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { WikiRepo, type DatabaseAdapter, type PreparedStatement, type StatementResult } from '@mtbot/agent-runtime'
+import { WikiRepo, type DatabaseAdapter, type PreparedStatement, type StatementResult, WikiIngestHook, WikiOrganizer, WikiContentExtractor } from '@mtbot/agent-runtime'
 import { MIGRATIONS } from '../../../../../../packages/agent-runtime/src/storage/schema'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import {
@@ -19,6 +19,8 @@ import {
   handleWikiInboxRetry,
   handleWikiInboxDiscard,
   handleWikiInboxOrganize,
+  handleWikiFolderScan,
+  handleWikiFolderImport,
   handleWikiPageList,
   handleWikiPageGet,
   handleWikiPageUpdate,
@@ -46,6 +48,7 @@ import {
   handleWikiEroEntitySources,
 } from './wiki-commands'
 import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY, WikiReclassifier, WikiEroRepo } from '@mtbot/agent-runtime'
+import { securityUtils } from '../../security-utils'
 
 const nodeRequire = createRequire(import.meta.url)
 
@@ -81,13 +84,17 @@ function createMigratedDb(): DatabaseAdapter {
   return db
 }
 
-function buildBridge(repo: WikiRepo, callLLM?: (prompt: string) => Promise<string>): AgentRuntimeBridge {
+function buildBridge(repo: WikiRepo, callLLM?: (prompt: string) => Promise<string>, cwd?: string): AgentRuntimeBridge {
+  const hook = new WikiIngestHook(repo)
+  const organizer = new WikiOrganizer(repo, callLLM ?? (async () => '{}'), new WikiContentExtractor())
   return {
     wikiRepo: repo,
+    wikiIngestHook: hook,
+    wikiOrganizer: organizer,
     // 重编目器的 LLM 用固定桩：不产候选，测的是命令编排而非模型行为
     wikiReclassifier: new WikiReclassifier(repo, async () => '[]'),
     conversationRepo: { getAgentParticipantId: () => null },
-    getCwd: () => process.cwd(),
+    getCwd: () => cwd ?? process.cwd(),
     callLLM: callLLM ?? (async () => '{}'),
   } as unknown as AgentRuntimeBridge
 }
@@ -703,5 +710,33 @@ describe('wiki commands', () => {
 
     expect(rows[0]?.topicCategory).toBe('做事记录')
     expect(rows[0]?.topicSubtopic).toBe('会议聊天记录')
+  })
+
+  it('folder scan/import 批量摄入收件箱', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-cmd-folder-'))
+    const outputs = path.join(root, 'outputs')
+    fs.mkdirSync(outputs, { recursive: true })
+    fs.writeFileSync(path.join(outputs, 'note.md'), '# note', 'utf8')
+    securityUtils.addAllowedBasePath(root)
+
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo, undefined, root)
+
+    const scan = handleWikiFolderScan(bridge, {
+      type: 'wiki:folder:scan',
+      agentId: 'assistant',
+      dir: outputs,
+    }) as { summary: { importable: number } }
+    expect(scan.summary.importable).toBe(1)
+
+    const imported = handleWikiFolderImport(bridge, {
+      type: 'wiki:folder:import',
+      agentId: 'assistant',
+      dir: outputs,
+    }) as { imported: number; inboxIds: string[] }
+    expect(imported.imported).toBe(1)
+    expect(imported.inboxIds).toHaveLength(1)
+
+    fs.rmSync(root, { recursive: true, force: true })
   })
 })

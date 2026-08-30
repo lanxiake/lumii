@@ -373,6 +373,37 @@ export interface WikiInboxOrganizeCommand {
   readonly title?: string
 }
 
+/** 预览目录内可导入 Wiki 的文件（不写库） */
+export interface WikiFolderScanCommand {
+  readonly type: 'wiki:folder:scan'
+  readonly dir: string
+  readonly recursive?: boolean
+  readonly itemType?: 'upload' | 'output' | 'auto'
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
+/** 批量将目录文件摄入 Wiki 收件箱 */
+export interface WikiFolderImportCommand {
+  readonly type: 'wiki:folder:import'
+  readonly dir: string
+  readonly recursive?: boolean
+  readonly itemType?: 'upload' | 'output' | 'auto'
+  readonly dryRun?: boolean
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
+/** 显式触发一批 intake/organize */
+export interface WikiOrganizeRunCommand {
+  readonly type: 'wiki:organize:run'
+  readonly mode?: 'intake' | 'organize'
+  readonly itemType?: 'upload' | 'output' | 'search' | 'chat'
+  readonly batchSize?: number
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
 export interface WikiPageListCommand {
   readonly type: 'wiki:page:list'
   readonly sessionKey?: string
@@ -1427,6 +1458,9 @@ export type AgentRuntimeCommand =
   | WikiInboxRetryCommand
   | WikiInboxDiscardCommand
   | WikiInboxOrganizeCommand
+  | WikiFolderScanCommand
+  | WikiFolderImportCommand
+  | WikiOrganizeRunCommand
   | WikiPageListCommand
   | WikiPageGetCommand
   | WikiPageUpdateCommand
@@ -1720,6 +1754,26 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:inbox:retry' ? { success: boolean }
   : T extends 'wiki:inbox:discard' ? { success: boolean }
   : T extends 'wiki:inbox:organize' ? { sourceId: string; category: string; subtopic: string }
+  : T extends 'wiki:folder:scan' ? {
+      dir: string
+      candidates: readonly {
+        path: string
+        title: string
+        size: number
+        itemType: string
+        skipReason: string | null
+        alreadyInWiki: boolean
+      }[]
+      summary: { total: number; importable: number; skipped: number; alreadyInWiki: number }
+    }
+  : T extends 'wiki:folder:import' ? {
+      dir: string
+      dryRun: boolean
+      imported: number
+      skipped: number
+      inboxIds: readonly string[]
+    }
+  : T extends 'wiki:organize:run' ? { runId: string | null; status: string; summary: string | null }
   : T extends 'wiki:page:list' ? readonly {
       id: string
       path: string

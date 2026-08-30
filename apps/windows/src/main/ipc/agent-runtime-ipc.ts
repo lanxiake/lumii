@@ -118,6 +118,9 @@ import {
   handleWikiInboxRetry,
   handleWikiInboxDiscard,
   handleWikiInboxOrganize,
+  handleWikiFolderScan,
+  handleWikiFolderImport,
+  handleWikiOrganizeRun,
   handleWikiPageList,
   handleWikiPageGet,
   handleWikiPageUpdate,
@@ -976,6 +979,15 @@ export async function handleCommand(
 
       case 'wiki:inbox:organize':
         return handleWikiInboxOrganize(bridge, command)
+
+      case 'wiki:folder:scan':
+        return handleWikiFolderScan(bridge, command)
+
+      case 'wiki:folder:import':
+        return handleWikiFolderImport(bridge, command)
+
+      case 'wiki:organize:run':
+        return handleWikiOrganizeRun(bridge, command)
 
       case 'wiki:page:list':
         return handleWikiPageList(bridge, command)

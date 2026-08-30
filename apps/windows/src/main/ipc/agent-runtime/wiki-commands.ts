@@ -23,14 +23,37 @@ import {
   validateTopicAssignment,
   WikiSourceVectorIndex,
   mergeSourceHybridRanks,
+  WikiFolderImporter,
+  type WikiFolderImporterFs,
+  type WikiInboxItemType,
 } from '@mtbot/agent-runtime'
 import {
   SYNTHESIS_CONFIRM_REQUIRED_CODE,
   type AgentRuntimeCommand,
 } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
+import { securityUtils } from '../../security-utils'
 
 const LOCAL_USER_ID = 'local-user'
+
+/** Node fs 适配器，供 WikiFolderImporter 扫描目录 */
+const wikiFolderNodeFs: WikiFolderImporterFs = {
+  statSync(p) {
+    try {
+      const s = fs.statSync(p)
+      return { isFile: s.isFile(), isDirectory: s.isDirectory(), size: s.size }
+    } catch {
+      return null
+    }
+  },
+  readdirSync(dir) {
+    return fs.readdirSync(dir, { withFileTypes: true }).map((d) => ({
+      name: d.name,
+      isFile: d.isFile(),
+      isDirectory: d.isDirectory(),
+    }))
+  },
+}
 
 /** 超过这个数量的资料合成需要用户二次确认（不自动截断） */
 export const SYNTHESIS_SOURCE_CONFIRM_LIMIT = 40
@@ -136,6 +159,96 @@ export function handleWikiInboxOrganize(
 
   const updated = repo.archiveInboxItem(item, command.category, command.subtopic, command.title)
   return { sourceId: updated.id, category: updated.topic_category!, subtopic: updated.topic_subtopic! }
+}
+
+/**
+ * 解析并校验文件夹路径（须在 Security 允许的基础路径内）。
+ */
+function resolveWikiFolderDir(bridge: AgentRuntimeBridge, dir: string): string {
+  const trimmed = dir.trim()
+  if (!trimmed) throw new Error('目录路径不能为空')
+  const abs = path.isAbsolute(trimmed) ? trimmed : path.resolve(bridge.getCwd(), trimmed)
+  securityUtils.addAllowedBasePath(abs)
+  const normalized = securityUtils.validatePath(abs)
+  const stat = fs.statSync(normalized)
+  if (!stat.isDirectory()) throw new Error(`不是目录: ${normalized}`)
+  return normalized
+}
+
+/**
+ * 创建 WikiFolderImporter 实例（共用 Node fs 适配器）。
+ */
+function createWikiFolderImporter(bridge: AgentRuntimeBridge): WikiFolderImporter {
+  return new WikiFolderImporter(bridge.wikiRepo, bridge.wikiIngestHook, wikiFolderNodeFs)
+}
+
+/**
+ * 预览目录内可导入 Wiki 的文件列表（不写库）。
+ */
+export function handleWikiFolderScan(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:folder:scan' }>,
+): unknown {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const dir = resolveWikiFolderDir(bridge, command.dir)
+  const importer = createWikiFolderImporter(bridge)
+  return importer.scan({
+    agentId,
+    userId: LOCAL_USER_ID,
+    dir,
+    recursive: command.recursive,
+    itemType: command.itemType,
+    workspaceRoot: bridge.getCwd(),
+  })
+}
+
+/**
+ * 批量将目录内文件摄入 Wiki 收件箱（引用优先，不移动原文件）。
+ */
+export function handleWikiFolderImport(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:folder:import' }>,
+): unknown {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const dir = resolveWikiFolderDir(bridge, command.dir)
+  const importer = createWikiFolderImporter(bridge)
+  return importer.import({
+    agentId,
+    userId: LOCAL_USER_ID,
+    dir,
+    recursive: command.recursive,
+    itemType: command.itemType,
+    dryRun: command.dryRun,
+    workspaceRoot: bridge.getCwd(),
+  })
+}
+
+/**
+ * 显式触发一批 Wiki intake/organize（不等 30s 轮询）。
+ */
+export async function handleWikiOrganizeRun(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:organize:run' }>,
+): Promise<{ runId: string | null; status: string; summary: string | null }> {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const itemType: WikiInboxItemType = command.itemType ?? 'output'
+  const mode = command.mode ?? 'intake'
+  const batchSize = command.batchSize ?? 10
+
+  if (mode === 'organize' && !bridge.wikiRepo.getAutoClassifyEnabled(agentId, LOCAL_USER_ID)) {
+    throw new Error('自动分类未开启，请使用 --mode intake 或先在 Wiki 设置中开启自动分类')
+  }
+
+  const organizer = bridge.wikiOrganizer
+  const run =
+    mode === 'organize'
+      ? await organizer.organizeBatch(agentId, LOCAL_USER_ID, itemType, batchSize)
+      : await organizer.intakeBatch(agentId, LOCAL_USER_ID, itemType, batchSize)
+
+  if (!run) {
+    return { runId: null, status: 'empty', summary: '没有待处理的收件箱条目' }
+  }
+  return { runId: run.id, status: run.status, summary: run.result_summary ?? null }
 }
 
 export function handleWikiPageList(
