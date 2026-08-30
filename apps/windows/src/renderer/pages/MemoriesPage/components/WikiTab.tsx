@@ -130,6 +130,8 @@ export const WikiTab: React.FC = () => {
     ensureVaultLayout,
     extractEroFromSources,
     listEntitySources,
+    loadAutoClassifySetting,
+    setAutoClassifyEnabled,
     loading,
   } = useWikiPage()
   const taskCenter = useWikiTaskCenter()
@@ -160,6 +162,7 @@ export const WikiTab: React.FC = () => {
   const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(false)
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false)
   const [folderImportBusy, setFolderImportBusy] = useState(false)
+  const [autoClassifyEnabled, setAutoClassifyEnabledState] = useState(false)
   const [isTreeEditorOpen, setIsTreeEditorOpen] = useState(false)
   const [reclassifyRun, setReclassifyRun] = useState<WikiReclassifyRunItem | null>(null)
   const [reclassifyConfirm, setReclassifyConfirm] = useState<{ count: number } | null>(null)
@@ -227,7 +230,24 @@ export const WikiTab: React.FC = () => {
     void refreshSources()
     void refreshInbox()
     void ensureVaultLayout()
-  }, [loadTopicTree, refreshSources, refreshInbox, ensureVaultLayout])
+    void loadAutoClassifySetting().then(setAutoClassifyEnabledState)
+  }, [loadTopicTree, refreshSources, refreshInbox, ensureVaultLayout, loadAutoClassifySetting])
+
+  /** 切换 Wiki「AI 自动分类」开关并持久化。 */
+  const handleAutoClassifyChange = useCallback(
+    async (enabled: boolean) => {
+      const prev = autoClassifyEnabled
+      setAutoClassifyEnabledState(enabled)
+      const ok = await setAutoClassifyEnabled(enabled)
+      if (!ok) {
+        setAutoClassifyEnabledState(prev)
+        toast.error('保存设置失败，请稍后重试')
+        return
+      }
+      toast.success(enabled ? '已开启 AI 自动分类' : '已关闭 AI 自动分类，新资料将留在待整理')
+    },
+    [autoClassifyEnabled, setAutoClassifyEnabled, toast],
+  )
 
   /** 外部入口要求打开待整理：首次挂载或 Hub 已打开时再次触发 */
   useEffect(() => {
@@ -975,11 +995,16 @@ export const WikiTab: React.FC = () => {
         `在「${dir}」中找到 ${importable} 个可导入文件` +
           (skipped > 0 ? `（跳过 ${skipped} 个）` : '') +
           (alreadyInWiki > 0 ? `，${alreadyInWiki} 个已在 Wiki` : '') +
-          '。导入后将由 AI 自动分类归档（依据目录结构、已有分类与文件内容）。是否继续？',
+          (autoClassifyEnabled
+            ? '。导入后将由 AI 自动分类归档（依据目录结构、已有分类与文件内容）。是否继续？'
+            : '。将导入到「待整理」，不自动分类（可在左栏「更多」开启 AI 自动分类）。是否继续？'),
       )
       if (!ok) return
 
-      const imported = await importFolder(dir, { recursive: true })
+      const imported = await importFolder(dir, {
+        recursive: true,
+        autoClassify: autoClassifyEnabled,
+      })
       if (!imported || imported.imported === 0) {
         toast.error('导入失败，请稍后重试')
         return
@@ -994,7 +1019,7 @@ export const WikiTab: React.FC = () => {
     } finally {
       setFolderImportBusy(false)
     }
-  }, [scanFolder, importFolder, refreshInbox, refreshSources, toast])
+  }, [scanFolder, importFolder, refreshInbox, refreshSources, toast, autoClassifyEnabled])
 
   /** 切换待整理队列条目选中状态 */
   const toggleSelectInbox = useCallback((inboxId: string) => {
@@ -1178,6 +1203,8 @@ export const WikiTab: React.FC = () => {
         open={isMoreMenuOpen}
         anchorRef={moreButtonRef}
         onClose={() => setIsMoreMenuOpen(false)}
+        autoClassifyEnabled={autoClassifyEnabled}
+        onAutoClassifyChange={(enabled) => void handleAutoClassifyChange(enabled)}
         onHistory={() => handleSelectNav({ kind: 'history' })}
         onCleanup={() => handleSelectNav({ kind: 'cleanup' })}
         onSynthesis={() => handleSelectNav({ kind: 'synthesis' })}

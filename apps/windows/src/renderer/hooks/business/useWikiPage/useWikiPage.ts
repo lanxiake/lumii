@@ -467,7 +467,10 @@ export function useWikiPage() {
    * 批量将目录文件摄入 Wiki 收件箱。
    */
   const importFolder = useCallback(
-    async (dir: string, options?: { recursive?: boolean; dryRun?: boolean }): Promise<WikiFolderImportResult | null> => {
+    async (
+      dir: string,
+      options?: { recursive?: boolean; dryRun?: boolean; autoClassify?: boolean },
+    ): Promise<WikiFolderImportResult | null> => {
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return null
       try {
@@ -477,6 +480,7 @@ export function useWikiPage() {
           dir,
           recursive: options?.recursive ?? true,
           dryRun: options?.dryRun,
+          ...(options?.autoClassify === false ? { autoClassify: false } : {}),
         })) as WikiFolderImportResult
       } catch {
         return null
@@ -484,6 +488,41 @@ export function useWikiPage() {
     },
     [],
   )
+
+  /**
+   * 读取 Wiki「新资料 AI 自动分类」开关（默认关闭）。
+   */
+  const loadAutoClassifySetting = useCallback(async (): Promise<boolean> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return false
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:auto-classify:get',
+        agentId: DEFAULT_AGENT_ID,
+      })) as { enabled: boolean }
+      return r?.enabled === true
+    } catch {
+      return false
+    }
+  }, [])
+
+  /**
+   * 保存 Wiki「新资料 AI 自动分类」开关。
+   */
+  const setAutoClassifyEnabled = useCallback(async (enabled: boolean): Promise<boolean> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return false
+    try {
+      await api.sendCommand({
+        type: 'wiki:auto-classify:set',
+        agentId: DEFAULT_AGENT_ID,
+        enabled,
+      })
+      return true
+    } catch {
+      return false
+    }
+  }, [])
 
   /**
    * 显式触发一批 Wiki intake（加速落库为未分类资料）。
@@ -1479,5 +1518,7 @@ export function useWikiPage() {
     getSource,
     searchSources,
     ensureVaultLayout,
+    loadAutoClassifySetting,
+    setAutoClassifyEnabled,
   }
 }

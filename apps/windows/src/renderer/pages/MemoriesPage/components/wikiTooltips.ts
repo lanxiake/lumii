@@ -36,14 +36,16 @@ export const WIKI_TASK_PILL_TOOLTIP =
 
 /** 待整理视图说明 */
 export const WIKI_INBOX_INTRO =
-  '待整理 = 队列中的新资料 + 已入库但未分类的文件。从文件夹导入会默认 AI 自动分类；失败或不确定的条目仍在此。可勾选后「批量归档到…」。'
+  '待整理 = 队列中的新资料 + 已入库但未分类的文件。若未开启「更多 → AI 自动分类」，条目会留在此；开启后导入/上传会尝试 AI 归档，拿不准的仍在此。可勾选后「批量归档到…」。'
 
 /** 从文件夹导入按钮 */
 export const WIKI_FOLDER_IMPORT_TOOLTIP =
-  '选择本地文件夹，将其中的文件批量登记到 Wiki 待整理（引用原路径，不移动文件）。适合整理 outputs/ 等任务产物目录。'
+  '选择本地文件夹，将其中的文件批量登记到 Wiki（引用原路径，不移动文件）。是否 AI 自动分类取决于「更多 → AI 自动分类」开关。'
 
 /** 更多菜单各项（补充 WikiMoreMenu 内 description） */
 export const WIKI_MORE_MENU_TOOLTIPS: Record<string, string> = {
+  autoClassify:
+    '开启后：从文件夹导入、聊天上传等新资料会由 AI 自动归档到目录；关闭则只进「待整理」，需手动批量归档或重试。',
   reclassifyAll:
     '让 AI 扫描已归档文件并给出目录调整建议。只生成预览，你勾选接受后才会改动，不会静默修改。',
   editTopicTree: '增删改各分区下的小类名称。分区对应 workspace/wiki/ 下的文件夹结构。',

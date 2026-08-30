@@ -211,6 +211,34 @@
   background: var(--color-border);
 }
 
+.wiki-more-menu-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 6px;
+}
+
+.wiki-more-menu-toggle > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wiki-more-menu-toggle strong {
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.wiki-more-menu-toggle small {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .wiki-top-bar {
   display: grid;
   grid-template-columns: minmax(180px, 280px) minmax(0, 1fr) minmax(120px, auto);

@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Sparkles,
 } from 'lucide-react'
+import { Switch } from '../../../components/ui/Switch/Switch'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 import { WIKI_MORE_MENU_TOOLTIPS } from './wikiTooltips'
 
@@ -14,6 +15,8 @@ interface WikiMoreMenuProps {
   readonly open: boolean
   readonly anchorRef?: React.RefObject<HTMLButtonElement>
   readonly onClose: () => void
+  readonly autoClassifyEnabled: boolean
+  readonly onAutoClassifyChange: (enabled: boolean) => void
   readonly onHistory: () => void
   readonly onCleanup: () => void
   readonly onSynthesis: () => void
@@ -68,6 +71,8 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
   open,
   anchorRef,
   onClose,
+  autoClassifyEnabled,
+  onAutoClassifyChange,
   onHistory,
   onCleanup,
   onSynthesis,
@@ -125,6 +130,21 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
           </Tooltip>
         )
       })}
+      <div className="wiki-more-menu-divider" role="separator" />
+      <Tooltip content={WIKI_MORE_MENU_TOOLTIPS.autoClassify} placement="right">
+        <div className="wiki-more-menu-toggle">
+          <span>
+            <strong>AI 自动分类</strong>
+            <small>新资料导入后自动归档到目录</small>
+          </span>
+          <Switch
+            size="sm"
+            checked={autoClassifyEnabled}
+            onChange={onAutoClassifyChange}
+            aria-label="AI 自动分类"
+          />
+        </div>
+      </Tooltip>
     </div>
   )
 }
