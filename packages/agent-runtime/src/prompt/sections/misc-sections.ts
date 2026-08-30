@@ -242,6 +242,45 @@ export function buildMemorySection(
 }
 
 /**
+ * Wiki 资料库读写分工：进程内工具只读；写入/导入/整理走 `lumii-ui` CLI（经 `bash`）。
+ */
+export function buildWikiKnowledgeSection(toolNames: readonly string[]): string[] {
+  const hasWikiRead =
+    toolNames.includes("wiki_overview") ||
+    toolNames.includes("wiki_search") ||
+    toolNames.includes("wiki_read");
+  const hasBash = toolNames.includes("bash");
+  if (!hasWikiRead && !hasBash) return [];
+
+  const lines: string[] = ["## Wiki Knowledge Base (资料库)"];
+
+  if (hasWikiRead) {
+    lines.push(
+      "**Read** (in-process): `wiki_overview` → `wiki_search` → `wiki_read`. Call `wiki_overview` before `wiki_search`.",
+    );
+  }
+
+  if (hasBash) {
+    lines.push(
+      "**Import / organize / archive** (CLI via `bash`, not `wiki_*`): discover commands with `lumii-ui help --json`.",
+      "Typical **folder → Wiki** flow when the user asks to organize `outputs/` or a directory:",
+      "1. `lumii-ui wiki folder scan \"<dir>\" --recursive` — preview importable count",
+      "2. Confirm with the user when many files or binary docs (pdf/docx)",
+      "3. `lumii-ui wiki folder import \"<dir>\" --recursive --item-type output`",
+      "4. `lumii-ui wiki organize run --mode intake --item-type output` — land as unclassified sources (safe default)",
+      "5. `lumii-ui wiki inbox count` / `wiki inbox list --status pending` — verify",
+      "Manual filing: `lumii-ui wiki inbox organize <inboxId> --category <c> --subtopic <s>`.",
+      "Do **not** use `wiki organize run --mode organize` unless the user explicitly wants AI batch classify **and** auto-classify is enabled.",
+      "`@outputs` / \"上述目录\" → `<cwd>/outputs` or the subfolder the user named.",
+      "Reference-first: imports register paths; do not move or delete original files.",
+    );
+  }
+
+  lines.push("");
+  return lines;
+}
+
+/**
  * 构建消息投递 section（message 或 channel_* 工具可用时注入）。
  */
 export function buildMessagingSection(params: {

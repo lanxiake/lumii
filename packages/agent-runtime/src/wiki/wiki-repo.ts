@@ -507,6 +507,26 @@ export class WikiRepo {
     return row ?? null;
   }
 
+  /**
+   * 判断 source_path 是否已在 Wiki（资料层或有效收件箱条目）。
+   * 供文件夹批量导入 scan 阶段去重预览。
+   */
+  isSourcePathKnown(agentId: string, userId: string, sourcePath: string): boolean {
+    const key = sourcePath.replace(/\\/g, "/");
+    const source = this.findSourceBySourcePath(agentId, userId, key);
+    if (source) return true;
+    const row = this.db
+      .prepare<{ n: number }>(
+        `SELECT 1 AS n FROM wiki_inbox
+         WHERE agent_id = ? AND user_id = ?
+           AND REPLACE(source_path, '\\', '/') = ?
+           AND status != 'discarded'
+         LIMIT 1`,
+      )
+      .get(agentId, userId, key);
+    return row != null;
+  }
+
   listSources(agentId: string, userId: string): readonly WikiSource[] {
     return this.db
       .prepare<WikiSource>(

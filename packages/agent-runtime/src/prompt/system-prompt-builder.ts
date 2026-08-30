@@ -46,6 +46,7 @@ import {
   buildVerificationSection,
   buildOperatingPrinciplesSection,
   buildMemorySection,
+  buildWikiKnowledgeSection,
   buildMessagingSection,
   buildBrowserSection,
   buildMcpSection,
@@ -368,6 +369,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
   // === 9. Messaging 指导（静态规则） ===
   staticLines.push(...buildMessagingSection({ toolNames: effectiveToolNames, runtimeChannel }))
+  staticLines.push(...buildWikiKnowledgeSection(effectiveToolNames))
   staticLines.push(...buildBrowserSection(effectiveToolNames))
 
   // === 10. Cron / Scheduled Tasks（compact 模式精简） ===

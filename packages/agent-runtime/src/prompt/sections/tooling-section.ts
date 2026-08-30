@@ -117,7 +117,7 @@ const GROUP_NOTES: Record<string, string> = {
   "File Tools": "Prefer these over `bash` for any file work.",
   Scheduling: "Call `cron_guide` first for the parameter format.",
   "Memory & Knowledge":
-    "Order matters: `memory_search` → `memory_read`; `wiki_overview` → `wiki_search` → `wiki_read`.",
+    "Order matters: `memory_search` → `memory_read`; `wiki_overview` → `wiki_search` → `wiki_read`. Wiki **writes** (folder import, organize, archive) use `bash` + `lumii-ui`, not `wiki_*` tools — see `## Wiki Knowledge Base`.",
   "Browser Tools": "See `## Browser Control` for the interaction loop.",
 }
 

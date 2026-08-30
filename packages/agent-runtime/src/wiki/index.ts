@@ -160,6 +160,16 @@ export type {
 
 export { WikiIngestHook } from "./wiki-ingest-hook.js";
 
+export {
+  WikiFolderImporter,
+  type WikiFolderImporterFs,
+  type WikiFolderImporterFsEntry,
+  type WikiFolderImporterBaseOptions,
+  type WikiFolderCandidate,
+  type WikiFolderScanResult,
+  type WikiFolderImportResult,
+} from "./wiki-folder-importer.js";
+
 export { WikiOrganizer } from "./wiki-organizer.js";
 
 export { WikiOrganizeQueue, computeBackoffDelayMs, MAX_ORGANIZE_ATTEMPTS } from "./wiki-organize-queue.js";

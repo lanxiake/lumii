@@ -342,6 +342,7 @@ export {
   WikiIndexRepo,
   wikiBigramJoin,
   WikiIngestHook,
+  WikiFolderImporter,
   WikiOrganizer,
   WikiOrganizeQueue,
   computeBackoffDelayMs,

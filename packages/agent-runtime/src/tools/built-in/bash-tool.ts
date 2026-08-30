@@ -32,6 +32,7 @@ export const bashToolConfig: MtBotToolConfig<typeof BashInput> = {
     "  - Create directories -> use `file_mkdir` (NOT `mkdir`)\n" +
     "  - Move/rename -> use `file_move` (NOT `mv`/`Move-Item`)\n" +
     "  - Copy files -> use `file_copy` (NOT `cp`/`Copy-Item`)\n" +
+    "  - Lumii Wiki/memory/settings batch ops -> `bash` + `lumii-ui` (`lumii-ui help --json`); Wiki read stays on `wiki_*` tools\n" +
     "- Failure handling: if the same type of operation fails 2 times, switch to a fundamentally different approach " +
     "(e.g. bash -> write a script file), NOT just syntax variations (cp -> copy -> Copy-Item).\n" +
     "- Batch operations: for multiple similar operations (e.g. copy 10 files), merge into a single script execution, " +
