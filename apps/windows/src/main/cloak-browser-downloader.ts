@@ -26,13 +26,23 @@ const RELEASES_API_URLS = [
   'https://api.github.com/repos/CloakHQ/CloakBrowser/releases/latest',
 ]
 
-// 下载镜像前缀列表（候选池，下载前会并发测速选最快的源；测速失败时按此顺序兜底）
-const DOWNLOAD_MIRROR_PREFIXES = [
-  'https://gh.ddlc.top/',  // 国内镜像（实测较快）
-  'https://gh-proxy.com/', // 国内镜像
-  '',                      // 直连 GitHub
+// 下载镜像前缀列表（GitHub Releases 国内加速；无官方 Gitee 镜像，见 resolveDownloadMirrorPrefixes）
+const DEFAULT_DOWNLOAD_MIRROR_PREFIXES = [
+  'https://gh-proxy.com/', // 国内镜像（实测稳定）
+  'https://gh.ddlc.top/',  // 国内镜像
   'https://ghfast.top/',   // 国内镜像（兜底，大文件较慢）
+  '',                      // 直连 GitHub
 ]
+
+/**
+ * 解析 CloakBrowser 下载镜像前缀列表。
+ * 可通过 LUMII_CLOAK_MIRROR_PREFIXES 覆盖（逗号分隔，空字符串表示直连 GitHub）。
+ */
+function resolveDownloadMirrorPrefixes(): string[] {
+  const raw = process.env.LUMII_CLOAK_MIRROR_PREFIXES?.trim()
+  if (!raw) return [...DEFAULT_DOWNLOAD_MIRROR_PREFIXES]
+  return raw.split(',').map((p) => p.trim())
+}
 
 // 测速参数：每个源各拉取一小段，按耗时排序选最快
 const SPEED_TEST_RANGE_BYTES = 2 * 1024 * 1024 // 探测下载 2MB
@@ -155,22 +165,54 @@ async function tryFetchRelease(apiUrl: string, signal?: AbortSignal): Promise<Gi
   return parsed
 }
 
-async function fetchLatestRelease(signal?: AbortSignal): Promise<GitHubRelease> {
+const RELEASES_LIST_API_URL =
+  'https://api.github.com/repos/CloakHQ/CloakBrowser/releases?per_page=30'
+
+/**
+ * 从 release 列表中选取当前平台可安装的最新版本（含完整二进制资产）。
+ * Pro 版 release 往往只有 SHA256SUMS，不含免费版 cloakbrowser-*.zip / .tar.gz。
+ */
+function pickInstallableRelease(releases: GitHubRelease[]): GitHubRelease | null {
+  for (const release of releases) {
+    if (findAssetForPlatform(release.assets ?? [])) return release
+  }
+  return null
+}
+
+/**
+ * 获取当前平台可安装的 CloakBrowser release。
+ * 优先 latest；若 Pro 版无免费二进制则回溯历史 release；API 不可达时用兜底版本。
+ */
+async function fetchInstallableRelease(signal?: AbortSignal): Promise<GitHubRelease> {
   const errors: string[] = []
   for (const url of RELEASES_API_URLS) {
     if (signal?.aborted) throw new DownloadAbortError()
     try {
-      const release = await tryFetchRelease(url, signal)
-      log.info(`[fetchLatestRelease] 成功: ${url}，版本: ${release.tag_name}`)
-      return release
+      const latest = await tryFetchRelease(url, signal)
+      const latestAsset = findAssetForPlatform(latest.assets ?? [])
+      if (latestAsset) {
+        log.info(`[fetchInstallableRelease] 成功: ${url}，版本: ${latest.tag_name}`)
+        return latest
+      }
+      log.warn(
+        `[fetchInstallableRelease] ${latest.tag_name} 无当前平台发布包（可能为 Pro 版），回溯历史 release`,
+      )
+      const listData = await fetchWithRedirects(RELEASES_LIST_API_URL, 10000, signal)
+      const releases = JSON.parse(listData.toString('utf8')) as GitHubRelease[]
+      const installable = pickInstallableRelease(releases)
+      if (installable) {
+        log.info(`[fetchInstallableRelease] 回溯到可安装版本: ${installable.tag_name}`)
+        return installable
+      }
+      throw new Error('release 列表中未找到当前平台的二进制包')
     } catch (err) {
       if (err instanceof DownloadAbortError) throw err
       const msg = String(err instanceof Error ? err.message : err)
-      log.warn(`[fetchLatestRelease] 失败 ${url}: ${msg}`)
+      log.warn(`[fetchInstallableRelease] 失败 ${url}: ${msg}`)
       errors.push(msg)
     }
   }
-  log.warn(`[fetchLatestRelease] 所有 API 不可达，使用兜底版本 ${FALLBACK_VERSION}`)
+  log.warn(`[fetchInstallableRelease] 所有 API 不可达，使用兜底版本 ${FALLBACK_VERSION}`)
   return buildFallbackRelease(FALLBACK_VERSION)
 }
 
@@ -333,8 +375,9 @@ function probeMirrorSpeed(url: string, signal?: AbortSignal): Promise<number | n
  */
 async function rankMirrorsBySpeed(originalUrl: string, signal?: AbortSignal): Promise<string[]> {
   log.info('[rankMirrors] 开始并发测速所有下载源...')
+  const mirrorPrefixes = resolveDownloadMirrorPrefixes()
   const results = await Promise.all(
-    DOWNLOAD_MIRROR_PREFIXES.map(async (prefix) => {
+    mirrorPrefixes.map(async (prefix) => {
       const speed = await probeMirrorSpeed(applyMirrorPrefix(originalUrl, prefix), signal)
       const mbps = speed != null ? (speed / 1024 / 1024).toFixed(2) : 'N/A'
       log.info(`[rankMirrors] ${mirrorLabelOf(prefix)}: ${speed != null ? `${mbps} MB/s` : '失败/超时'}`)
@@ -349,11 +392,11 @@ async function rankMirrorsBySpeed(originalUrl: string, signal?: AbortSignal): Pr
 
   if (ranked.length === 0) {
     log.warn('[rankMirrors] 所有源测速失败，回退到默认顺序')
-    return [...DOWNLOAD_MIRROR_PREFIXES]
+    return [...mirrorPrefixes]
   }
 
   // 把测速成功的源排前面，再追加测速失败的源作为兜底（去重）
-  const failed = DOWNLOAD_MIRROR_PREFIXES.filter((p) => !ranked.includes(p))
+  const failed = mirrorPrefixes.filter((p) => !ranked.includes(p))
   const order = [...ranked, ...failed]
   log.info(`[rankMirrors] 最终下载顺序: ${order.map(mirrorLabelOf).join(' > ')}`)
   return order
@@ -573,7 +616,7 @@ export async function ensureCloakBrowser(
     if (signal?.aborted) throw new DownloadAbortError()
     report({ phase: 'checking' })
 
-    const release = await fetchLatestRelease(signal)
+    const release = await fetchInstallableRelease(signal)
     const version = release.tag_name
 
     if (isAlreadyInstalled(version)) {
