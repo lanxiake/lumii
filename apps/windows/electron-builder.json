@@ -91,6 +91,13 @@
       "filter": [
         "**/*"
       ]
+    },
+    {
+      "from": "resources/user-guides",
+      "to": "user-guides",
+      "filter": [
+        "**/*"
+      ]
     }
   ],
   "asar": true,

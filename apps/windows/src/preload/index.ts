@@ -35,7 +35,9 @@ import {
   apiServerHttpApi,
   agentRuntimeApi,
   screenRecordApi,
+  userGuidesApi,
 } from './api'
+import type { BundledUserGuideContent, BundledUserGuideIndex } from '../shared/user-guides-types'
 
 // 日志输出
 const log = {
@@ -288,6 +290,11 @@ export interface ElectronAPI {
   splash: {
     /** 是否应跳过开机画面（托盘静默启动 / 测试模式 / 环境变量�?*/
     shouldSkip: () => boolean
+  }
+  /** 内置使用指南（extraResources/user-guides，后续可扩展为 Wiki 种子） */
+  userGuides: {
+    list: () => Promise<readonly BundledUserGuideIndex[]>
+    read: (guideId: string) => Promise<BundledUserGuideContent>
   }
   app: {
     getVersion: () => Promise<string>
@@ -1207,6 +1214,8 @@ const electronAPI: ElectronAPI = {
   },
 
   splash: splashApi,
+
+  userGuides: userGuidesApi,
 
   // 应用操作 API
   app: appApi,

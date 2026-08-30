@@ -18,6 +18,11 @@ if (process.platform === 'win32') {
 }
 
 const cwd = path.resolve(__dirname, '..')
+try {
+  require('node:child_process').execSync('node scripts/sync-user-guides.mjs', { cwd, stdio: 'inherit' })
+} catch {
+  console.warn('[run-dev] sync-user-guides 失败，将使用 resources/user-guides 现有副本')
+}
 const child = spawn('npx', ['electron-vite', 'dev'], {
   cwd,
   stdio: 'inherit',
