@@ -201,6 +201,12 @@
   line-height: 1.35;
 }
 
+.wiki-more-menu-divider {
+  height: 1px;
+  margin: 6px 0;
+  background: var(--color-border);
+}
+
 .wiki-top-bar {
   display: grid;
   grid-template-columns: minmax(180px, 280px) minmax(0, 1fr) minmax(120px, auto);
