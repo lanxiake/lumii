@@ -28,6 +28,7 @@
     "prepare:splash": "node scripts/prepare-splash.cjs",
     "import:azur-lane-models": "node scripts/import-azur-lane-pet-models.mjs",
     "import:azur-lane-models:dry": "node scripts/import-azur-lane-pet-models.mjs --dry-run",
+    "download:wiki-embedding-model": "node scripts/download-wiki-embedding-model.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run src/test",
     "test:all": "vitest run",

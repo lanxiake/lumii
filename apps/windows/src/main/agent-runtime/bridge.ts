@@ -89,6 +89,7 @@ import { McpManager, type McpServerRuntimeStatus } from './mcp-manager'
 import type { McpServerEntry } from '../config/mcp-config'
 import { PermissionController } from './permission-controller'
 import { readWorkspaceTextForWiki } from './wiki-text-reader'
+import { isWikiVectorEnabled } from './wiki-embedding-config'
 import { AskUserQuestionController } from './ask-user-question-controller'
 import { FileMemoryHandler } from './file-memory-handler'
 import { SegmentMemoryService } from './segment-memory-service'
@@ -438,7 +439,7 @@ export class AgentRuntimeBridge {
     if (this._wikiEmbedderCache && !forceReload) return this._wikiEmbedderCache
     const { resolveWikiHostEmbedder } = await import('./wiki-transformers-embedder')
     this._wikiEmbedderCache = await resolveWikiHostEmbedder({
-      enabled: process.env.LUMII_WIKI_VECTOR !== '0',
+      enabled: isWikiVectorEnabled(),
     })
     return this._wikiEmbedderCache
   }
@@ -989,6 +990,10 @@ export class AgentRuntimeBridge {
     this.startIdleCompactionPolling()
     // 启动 Wiki 整理轮询（P0：每 30s 对 upload/output/search 三类待整理条目跑一次批量归档）
     this.startWikiOrganizePolling()
+    // 后台预下载 Wiki 嵌入模型（hf-mirror → ~/.lumii/models/wiki-embeddings）
+    void import('./wiki-embedding-model-downloader').then(({ prefetchWikiEmbeddingModelOnInit }) =>
+      prefetchWikiEmbeddingModelOnInit(),
+    )
   }
 
   // ── 存储统计 ──

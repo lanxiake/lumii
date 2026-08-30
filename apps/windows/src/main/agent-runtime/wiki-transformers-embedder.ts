@@ -1,5 +1,5 @@
 /**
- * Wiki 宿主侧多语言嵌入：优先 Transformers.js（multilingual-e5-small），失败回退 bigram 哈希。
+ * Wiki 宿主侧多语言嵌入：优先本地缓存（hf-mirror 预下载），失败回退 bigram 哈希。
  *
  * 设计：P2 §9.1 — 须支持中文；可关闭；失败显式降级无静默。
  * agent-runtime 保持零模型依赖，本模块仅在 Electron 主进程加载。
@@ -13,6 +13,12 @@ import { createRequire } from 'node:module'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import { createLogger } from '../logger'
+import { isWikiVectorEnabled } from './wiki-embedding-config'
+import { ensureWikiEmbeddingModelReady } from './wiki-embedding-model-downloader'
+import {
+  resolveWikiEmbeddingCacheDir,
+  TRANSFORMERS_E5_MODEL_ID,
+} from './wiki-embedding-model-path'
 
 const log = createLogger('WikiEmbedder')
 
@@ -25,8 +31,32 @@ function requireFromAppRoot<T = unknown>(specifier: string): T {
   return createRequire(appPackageJson)(specifier) as T
 }
 
-export const TRANSFORMERS_E5_MODEL_ID = 'Xenova/multilingual-e5-small'
+export { TRANSFORMERS_E5_MODEL_ID } from './wiki-embedding-model-path'
+
 export const TRANSFORMERS_E5_DIMS = 384
+
+const DEFAULT_HF_REMOTE_HOST = 'https://huggingface.co/'
+const HF_MIRROR_REMOTE_HOST = 'https://hf-mirror.com/'
+
+/**
+ * 规范化 Transformers.js remoteHost（须带尾部斜杠）。
+ */
+export function normalizeTransformersRemoteHost(host: string): string {
+  const trimmed = host.trim()
+  if (!trimmed) return HF_MIRROR_REMOTE_HOST
+  return trimmed.endsWith('/') ? trimmed : `${trimmed}/`
+}
+
+/**
+ * 解析模型下载 host 候选列表：优先用户配置，默认国内 hf-mirror，官方 Hub 作回退。
+ */
+export function resolveTransformersRemoteHosts(): readonly string[] {
+  const configured = process.env.HF_ENDPOINT ?? process.env.LUMII_HF_ENDPOINT
+  const hosts = configured
+    ? [normalizeTransformersRemoteHost(configured)]
+    : [HF_MIRROR_REMOTE_HOST, DEFAULT_HF_REMOTE_HOST]
+  return [...new Set(hosts)]
+}
 
 export type WikiEmbedBackend = 'transformers' | 'bigram-hash'
 
@@ -74,20 +104,57 @@ export function meanPoolAndNormalize(
  * 查询加 `query:` 前缀，文档加 `passage:` 前缀（E5 约定）。
  */
 export async function createTransformersE5Embedder(cacheDir?: string): Promise<WikiEmbedder> {
-  if (cacheDir) {
-    await fs.promises.mkdir(cacheDir, { recursive: true })
-    process.env.TRANSFORMERS_CACHE = cacheDir
-  }
+  const localRoot = cacheDir ?? resolveWikiEmbeddingCacheDir()
+  await fs.promises.mkdir(localRoot, { recursive: true })
+  process.env.TRANSFORMERS_CACHE = localRoot
 
   const { pipeline, env } = requireFromAppRoot<typeof import('@xenova/transformers')>('@xenova/transformers')
-  // Electron/Node：允许本地缓存，避免重复下载
   env.allowLocalModels = true
-  if (cacheDir) env.cacheDir = cacheDir
+  env.cacheDir = localRoot
 
+  let lastError: unknown = new Error('未尝试加载嵌入模型')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const extractor: any = await pipeline('feature-extraction', TRANSFORMERS_E5_MODEL_ID, {
-    quantized: true,
-  })
+  let extractor: any
+
+  try {
+    await ensureWikiEmbeddingModelReady()
+    env.localModelPath = localRoot
+    env.allowRemoteModels = false
+    log.info(`[wiki-embedder] 从本地缓存加载 ${TRANSFORMERS_E5_MODEL_ID} (${localRoot})`)
+    extractor = await pipeline('feature-extraction', TRANSFORMERS_E5_MODEL_ID, {
+      quantized: true,
+      local_files_only: true,
+    })
+    log.info(`[wiki-embedder] 已从本地缓存加载 ${TRANSFORMERS_E5_MODEL_ID}`)
+  } catch (err) {
+    lastError = err
+    const message = err instanceof Error ? err.message : String(err)
+    log.warn(`[wiki-embedder] 本地缓存加载失败，尝试镜像在线拉取：${message}`)
+    env.allowRemoteModels = true
+  }
+
+  if (!extractor) {
+    const remoteHosts = resolveTransformersRemoteHosts()
+    for (const remoteHost of remoteHosts) {
+      try {
+        env.remoteHost = remoteHost
+        log.info(`[wiki-embedder] 尝试从 ${remoteHost} 加载 ${TRANSFORMERS_E5_MODEL_ID}`)
+        extractor = await pipeline('feature-extraction', TRANSFORMERS_E5_MODEL_ID, {
+          quantized: true,
+        })
+        log.info(`[wiki-embedder] 已从 ${remoteHost} 加载 ${TRANSFORMERS_E5_MODEL_ID}`)
+        break
+      } catch (err) {
+        lastError = err
+        const message = err instanceof Error ? err.message : String(err)
+        log.warn(`[wiki-embedder] ${remoteHost} 加载失败：${message}`)
+      }
+    }
+  }
+
+  if (!extractor) {
+    throw lastError instanceof Error ? lastError : new Error(String(lastError))
+  }
 
   return {
     modelId: TRANSFORMERS_E5_MODEL_ID,
@@ -95,11 +162,9 @@ export async function createTransformersE5Embedder(cacheDir?: string): Promise<W
     async embed(text: string): Promise<Float32Array> {
       const trimmed = text.trim()
       if (!trimmed) return new Float32Array(TRANSFORMERS_E5_DIMS)
-      // 检索查询与文档统一用 passage 前缀亦可；短查询用 query 前缀更贴 E5
       const prefixed = trimmed.length < 200 ? `query: ${trimmed}` : `passage: ${trimmed}`
       const output = await extractor(prefixed, { pooling: 'mean', normalize: true })
       if (output?.data && output.dims) {
-        // 部分版本已做 pooling；若 dims 为 [1, hidden] 直接拷贝
         if (output.dims.length === 2 && output.dims[0] === 1) {
           const data = output.data instanceof Float32Array ? output.data : Float32Array.from(output.data)
           return data.length === TRANSFORMERS_E5_DIMS ? data : meanPoolAndNormalize(output)
@@ -117,7 +182,7 @@ export async function createTransformersE5Embedder(cacheDir?: string): Promise<W
 export async function resolveWikiHostEmbedder(
   options: WikiHostEmbedderOptions = {},
 ): Promise<WikiHostEmbedderResult> {
-  if (options.enabled === false || process.env.LUMII_WIKI_VECTOR === '0') {
+  if (!options.enabled || !isWikiVectorEnabled()) {
     return {
       embedder: createBigramHashEmbedder(),
       backend: 'bigram-hash',
@@ -125,9 +190,7 @@ export async function resolveWikiHostEmbedder(
     }
   }
 
-  const cacheDir =
-    options.cacheDir ??
-    path.join(process.env.LUMII_CLIENT_DATA_DIR ?? path.join(process.env.HOME ?? process.env.USERPROFILE ?? '.', '.lumii'), 'models', 'wiki-embeddings')
+  const cacheDir = options.cacheDir ?? resolveWikiEmbeddingCacheDir()
 
   try {
     const embedder = await createTransformersE5Embedder(cacheDir)
