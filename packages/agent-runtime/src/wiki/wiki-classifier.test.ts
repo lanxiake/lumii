@@ -40,10 +40,11 @@ describe("buildClassifyPrompt", () => {
     expect(prompt).toContain("项目/任务资料");
   });
 
-  it("不包含旧模型的 sources/ 顶层分类或临时存放", () => {
+  it("不包含旧模型的 sources/ 顶层分类；临时存放只作为禁止项出现", () => {
     const prompt = buildClassifyPrompt([makeItem("i1")], LEGACY_TOPIC_TREE_V1);
     expect(prompt).not.toContain("sources/");
-    expect(prompt).not.toContain("临时存放");
+    // v1.1：改为显式告知 AI 不得选用，而不是绝口不提——后者模型仍会偶尔自造该值
+    expect(prompt).toContain("临时存放仅用户可写，AI 不得选用");
   });
 
   it("截断超长内容预览，避免单批提示词膨胀", () => {

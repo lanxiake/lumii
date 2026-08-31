@@ -9,6 +9,7 @@
  */
 
 import { extractJsonPayload } from "./wiki-classifier.js";
+import { buildTaxonomyGuide } from "./wiki-taxonomy-prompt.js";
 import type { WikiRepo } from "./wiki-repo.js";
 import { generateWikiId, type WikiSource } from "./types.js";
 import {
@@ -59,32 +60,15 @@ export function buildReclassifyPrompt(
     )
     .join("\n\n");
 
-  const treeLines = tree.categories.map((c) => `- ${c.name}：${c.subtopics.join("、")}`).join("\n");
-
   return [
-    "你是个人资料归档助手，正在复查已归档资料的目录是否合适。按「文件拿来干什么」分类，不要按学科领域分类。",
+    // 口诀 / 易混 / 可选目录 / 通用规则与归档分类共用同一份真源
+    buildTaxonomyGuide(tree),
     "",
-    "## 口诀",
-    "- 事情做完留下的结果 → 做事记录",
-    "- 用来学习吸收知识 → 学习资料",
-    "- 打算做什么、做完反思 → 计划与复盘",
-    "- 可以当证据凭证 → 证件凭据",
-    "- 拿来复制修改参考 → 模板参考",
-    "- 自己随心写的爱好作品 → 随笔创作",
-    "",
-    "## 易混",
-    "- 填好的计划/预算 → 计划与复盘；空白模板 → 模板参考",
-    "- 项目交付与会议纪要文件 → 做事记录；教材/摘抄/调研 → 学习资料",
-    "- 合同/证件/发票/保单 → 证件凭据",
-    "",
-    "## 可选目录（只能从这里选，禁止自造大类或小类）",
-    treeLines,
-    "",
-    "## 规则",
-    "- 只有当前目录确实不合适、且能在上表里找到明显更好的位置时才改",
+    "## 本次任务",
+    "你正在复查**已归档**资料的目录是否合适，不是首次归档。",
+    "- 只有当前目录确实不合适、且能在上方目录里找到明显更好的位置时才改",
     "- 拿不准就保持原目录（输出与当前目录相同的大类小类）",
-    "- 一份资料只归一个大类+小类，reason 用一句中文说明为什么更合适",
-    "- 只能使用上方目录列出的名称，不要发明新目录或使用「其他」「未分类」等占位词",
+    "- reason 用一句中文说明为什么新目录更合适",
     "",
     "## 待复查资料",
     list,

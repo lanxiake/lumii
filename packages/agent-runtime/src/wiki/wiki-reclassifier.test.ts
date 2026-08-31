@@ -48,7 +48,7 @@ beforeEach(() => {
 });
 
 describe("buildReclassifyPrompt", () => {
-  it("含口诀、当前树与当前所属目录，且不含临时存放", () => {
+  it("含统一口诀、当前树与当前所属目录，且不含临时存放", () => {
     const p = buildReclassifyPrompt(
       [
         {
@@ -61,10 +61,23 @@ describe("buildReclassifyPrompt", () => {
       ],
       LEGACY_TOPIC_TREE_V1,
     );
-    expect(p).toContain("事情做完留下的结果");
-    expect(p).toContain("目标规划方案");
-    expect(p).toContain("做事记录 / 项目/任务资料");
-    expect(p).not.toContain(PARKING_CATEGORY);
+    // 口诀来自 wiki-taxonomy-prompt 单一真源，与归档分类逐字一致
+    expect(p).toContain("跟上班、项目、赚钱有关 → 工作");
+    expect(p).toContain("目标规划方案"); // 动态渲染的当前树
+    expect(p).toContain("做事记录 / 项目/任务资料"); // 当前所属目录
+    // 临时存放只作为禁止项出现，不进「可选目录」
+    expect(p).toContain(`${PARKING_CATEGORY}仅用户可写，AI 不得选用`);
+    expect(p).not.toContain(`- ${PARKING_CATEGORY}：`);
+  });
+
+  it("追加重编目专属的保守规则，但不引入 skip 语义", () => {
+    const p = buildReclassifyPrompt(
+      [{ id: "i1", title: "x", text: null, fromCategory: "做事记录", fromSubtopic: "项目/任务资料" }],
+      LEGACY_TOPIC_TREE_V1,
+    );
+    expect(p).toContain("拿不准就保持原目录");
+    // 重编目不输出 skip：拿不准由「保持原目录」表达，与 P5 的 unchanged 兜底同一语义
+    expect(p).not.toContain('"skip"');
   });
 });
 

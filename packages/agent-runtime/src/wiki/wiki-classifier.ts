@@ -10,6 +10,7 @@
 
 import type { WikiInboxItem } from "./types.js";
 import { validateTopicAssignment, type WikiTopicTree } from "./wiki-topic-tree.js";
+import { buildTaxonomyGuide } from "./wiki-taxonomy-prompt.js";
 import type { WikiClassifyContext } from "./wiki-classify-context.js";
 
 export type { WikiClassifyContext } from "./wiki-classify-context.js";
@@ -52,14 +53,8 @@ export function buildClassifyPrompt(
     })
     .join("\n\n");
 
-  const treeLines = topicTree.categories
-    .map((c) => `- ${c.name}：${c.subtopics.join("、")}`)
-    .join("\n");
-
-  const sections: string[] = [
-    "你是个人资料归档助手。按「文件拿来干什么」分类，不要按学科领域分类。",
-    "",
-  ];
+  // 口诀 / 易混 / 可选目录 / 规则统一来自 wiki-taxonomy-prompt，不在此处硬编码
+  const sections: string[] = [buildTaxonomyGuide(topicTree), ""];
 
   if (context?.importRoot) {
     sections.push("## 本次导入来源", `根目录: ${context.importRoot}`, "");
@@ -78,31 +73,6 @@ export function buildClassifyPrompt(
   }
 
   sections.push(
-    "## 口诀",
-    "- 事情做完留下的结果 → 做事记录",
-    "- 用来学习吸收知识 → 学习资料",
-    "- 打算做什么、做完反思 → 计划与复盘",
-    "- 可以当证据凭证 → 证件凭据",
-    "- 拿来复制修改参考 → 模板参考",
-    "- 自己随心写的爱好作品 → 随笔创作",
-    "",
-    "## 易混",
-    "- 填好的计划/预算 → 计划与复盘；空白模板 → 模板参考",
-    "- 项目交付与会议纪要文件 → 做事记录；教材/摘抄/调研 → 学习资料",
-    "- 合同/证件/发票/保单 → 证件凭据",
-    "- 用户上传的会议纪要、聊天导出 → 做事记录 / 会议聊天记录",
-    "- 对话消息本身不要归档（本批若像聊天记录而无文件用途，输出 skip）",
-    "- 同一任务/项目文件夹下的产物通常同属一个小类",
-    "",
-    "## 可选目录（只能从这里选，禁止自造大类或小类）",
-    treeLines,
-    "",
-    "## 规则",
-    "- 一份资料只归一个大类+小类",
-    "- 没有合适项时 category、subtopic 留空，skip=true，reason 说明",
-    "- 只能使用上方目录列出的名称，不要发明新目录或使用「其他」「未分类」等占位词",
-    "- 分类时综合标题、源路径、文件夹语义与内容预览，不要只看文件名",
-    "",
     "## 待整理资料",
     list,
     "",
