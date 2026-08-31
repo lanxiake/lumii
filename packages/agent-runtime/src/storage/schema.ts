@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 25;
+export const SCHEMA_VERSION = 26;
 
 /**
  * V1 DDL — 初始 schema
@@ -759,6 +759,38 @@ CREATE INDEX IF NOT EXISTS idx_wiki_source_embeddings_agent
 ALTER TABLE wiki_sources ADD COLUMN origin_url TEXT;
 ALTER TABLE wiki_sources ADD COLUMN storage_mode TEXT NOT NULL DEFAULT 'ref'
   CHECK (storage_mode IN ('ref', 'materialized', 'native'));
+`,
+  ],
+  // V26: 分类体系 v2。大类机械改写（6 条规则）、小类整体置空待编目重填。
+  // 旧小类值留存 legacy_subtopic 供审计；「计划与复盘」整类与「整合长文」小类
+  // （综述产物专属落点，六大类下都有）无法机械映射到 v2 树，退回收件箱由用户/P5 编目重填。
+  //
+  // 设计：docs/design/记忆设计/2026-08-31-wiki-intelligent-vault-design.md v1.1 §3
+  [
+    26,
+    `
+ALTER TABLE wiki_sources ADD COLUMN legacy_subtopic TEXT;
+ALTER TABLE wiki_sources ADD COLUMN title_locked INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE wiki_sources ADD COLUMN summary TEXT;
+ALTER TABLE wiki_sources ADD COLUMN summary_hash TEXT;
+ALTER TABLE wiki_sources ADD COLUMN summary_level TEXT
+  CHECK (summary_level IN ('heuristic','extractive','llm'));
+
+-- 1) 旧小类留档（含即将回收件箱的「整合长文」，一并留痕）
+UPDATE wiki_sources SET legacy_subtopic = topic_subtopic WHERE topic_subtopic IS NOT NULL;
+
+-- 2) 计划与复盘 整类 + 整合长文 → 收件箱（两列置空，legacy_subtopic 已留痕）。
+--    必须先于第 3 步的大类改写执行：「整合长文」同时挂在其余五个大类下，
+--    若先跑大类改写会把 topic_subtopic 提前清空，这里就再也匹配不到了。
+UPDATE wiki_sources SET topic_category=NULL, topic_subtopic=NULL
+  WHERE topic_category='计划与复盘' OR topic_subtopic='整合长文';
+
+-- 3) 大类改写（5 条无歧义），小类一律置空待编目重填
+UPDATE wiki_sources SET topic_category='工作', topic_subtopic=NULL WHERE topic_category='做事记录';
+UPDATE wiki_sources SET topic_category='学习', topic_subtopic=NULL WHERE topic_category='学习资料';
+UPDATE wiki_sources SET topic_category='生活', topic_subtopic=NULL WHERE topic_category='证件凭据';
+UPDATE wiki_sources SET topic_category='收藏', topic_subtopic=NULL WHERE topic_category='模板参考';
+UPDATE wiki_sources SET topic_category='生活', topic_subtopic=NULL WHERE topic_category='随笔创作';
 `,
   ],
 ] as const;

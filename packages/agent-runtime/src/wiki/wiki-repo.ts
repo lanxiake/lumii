@@ -570,12 +570,16 @@ export class WikiRepo {
    * 分组统计各 (category, subtopic) 的在架文件数；key 用 topicCountKey。
    * 主题树是全局的（同 setTopicTree 的孤儿校验口径），故不按 agent 过滤。
    * 跳过待补分（两列 NULL）与临时存放（不参与 disposition 判定）。
+   *
+   * v1.1 小类可选：只按大类分类的资料（topic_subtopic IS NULL）单独一组统计，
+   * key 用 topicCountKey(category)（不传 subtopic），否则这些资料会从计数里彻底消失，
+   * 左栏大类计数与「按大类查」都会少算。
    */
   countSourcesByTopic(): Map<string, number> {
     const rows = this.db
-      .prepare<{ topic_category: string; topic_subtopic: string; n: number }>(
+      .prepare<{ topic_category: string; topic_subtopic: string | null; n: number }>(
         `SELECT topic_category, topic_subtopic, COUNT(*) AS n FROM wiki_sources
-         WHERE topic_category IS NOT NULL AND topic_subtopic IS NOT NULL
+         WHERE topic_category IS NOT NULL
            AND topic_category <> ? AND archived_at IS NULL
          GROUP BY topic_category, topic_subtopic`,
       )
@@ -667,7 +671,9 @@ export class WikiRepo {
       conditions.push("topic_category = ?", "topic_subtopic = ?");
       params.push(filter.category, filter.subtopic);
     } else if (filter.category) {
-      conditions.push("topic_category = ?", "topic_subtopic IS NOT NULL");
+      // v1.1 小类可选：仅按大类查时不再要求 topic_subtopic 非空，
+      // 否则 category 已定、subtopic=null（未细分）的资料会在「按大类浏览」里消失。
+      conditions.push("topic_category = ?");
       params.push(filter.category);
     }
 
@@ -686,14 +692,24 @@ export class WikiRepo {
   /**
    * 更新某条资料的用途归属；写前用 allowParking 校验，越权归属会抛错。
    * 按 agent_id + user_id 限定，避免拿到一个 id 就能改别的 agent 的资料。
+   *
+   * v1.1：category 放宽为 `string | null`，支持「整类退回收件箱」语义
+   * （category=null 时 subtopic 必须同为 null，直接落两列为 NULL，不经 validateTopicAssignment——
+   * 语义等价 clearSourceTopic，但走这个方法能让调用方统一走一个入口）。
    */
   updateSourceTopic(
     agentId: string,
     userId: string,
     sourceId: string,
-    category: string,
+    category: string | null,
     subtopic: string | null,
   ): WikiSource {
+    if (category === null) {
+      if (subtopic !== null) {
+        throw new Error("大类为空时小类必须也为空");
+      }
+      return this.clearSourceTopic(agentId, userId, sourceId);
+    }
     const tree = this.getOrCreateTopicTree();
     const result = validateTopicAssignment(tree, category, subtopic, { allowParking: true });
     if (!result.ok) {

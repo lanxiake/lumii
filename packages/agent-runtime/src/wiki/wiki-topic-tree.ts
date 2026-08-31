@@ -13,11 +13,12 @@ export const PARKING_CATEGORY = "临时存放";
 export const TOPIC_CATEGORIES_META_KEY = "topic_categories";
 
 export interface WikiTopicTree {
-  readonly version: 1;
+  readonly version: 1 | 2;
   readonly categories: ReadonlyArray<{ readonly name: string; readonly subtopics: readonly string[] }>;
 }
 
-export const DEFAULT_TOPIC_TREE: WikiTopicTree = {
+/** v1 六大类树，仅供 V26 迁移前的历史数据/迁移代码引用，不再作为默认树 */
+export const LEGACY_TOPIC_TREE_V1: WikiTopicTree = {
   version: 1,
   categories: [
     { name: "做事记录", subtopics: ["项目/任务资料", "会议聊天记录", "汇报总结文稿", "规则制度文档", "数据统计报表", "对外沟通材料", "整合长文"] },
@@ -26,6 +27,20 @@ export const DEFAULT_TOPIC_TREE: WikiTopicTree = {
     { name: "证件凭据", subtopics: ["合同协议文件", "证件扫描副本", "票据收据凭证", "保险相关资料", "个人履历档案", "申请证明材料", "整合长文"] },
     { name: "模板参考", subtopics: ["各类文档模板", "PPT与表单素材", "范文案例参考", "图片媒体素材", "工具使用参考", "文案脚本素材", "整合长文"] },
     { name: "随笔创作", subtopics: ["原创作品底稿", "灵感随手记录", "爱好相关笔记", "生活感悟随笔", "作品修改草稿", "整合长文"] },
+  ],
+};
+
+/**
+ * v2 默认树：4 大类 × 用途轴小类，小类数量收窄、去掉「整合长文」专属小类
+ * （综述功能已移除，见 P2）。小类可选——大类下允许无小类的资料（见 validateTopicAssignment）。
+ */
+export const DEFAULT_TOPIC_TREE: WikiTopicTree = {
+  version: 2,
+  categories: [
+    { name: "工作", subtopics: ["项目", "例行", "对外"] },
+    { name: "学习", subtopics: ["在学", "参考"] },
+    { name: "生活", subtopics: ["凭据", "家事", "自留"] },
+    { name: "收藏", subtopics: ["待读", "可复用"] },
   ],
 };
 
@@ -49,13 +64,14 @@ export function parseTopicTree(json: string | null): WikiTopicTree | null {
 }
 
 /**
- * 校验树结构：version===1；≥1 个大类；大类名唯一、1-20 字、无控制字符、≠临时存放；
+ * 校验树结构：version 为 1 或 2（1 仅供读取 V26 迁移前的历史 meta JSON，写入一律用 2）；
+ * ≥1 个大类；大类名唯一、1-20 字、无控制字符、≠临时存放；
  * 小类名在同一大类内不重复、1-32 字、允许 `/` 和 `&`。
  */
 export function validateTopicTree(tree: unknown): tree is WikiTopicTree {
   if (typeof tree !== "object" || tree === null) return false;
   const t = tree as { version?: unknown; categories?: unknown };
-  if (t.version !== 1) return false;
+  if (t.version !== 1 && t.version !== 2) return false;
   if (!Array.isArray(t.categories) || t.categories.length === 0) return false;
 
   const seenCategoryNames = new Set<string>();
@@ -99,8 +115,9 @@ export function validateTopicAssignment(
   if (!cat) {
     return { ok: false, reason: `大类不存在：${category}` };
   }
-  if (subtopic === null || !cat.subtopics.includes(subtopic)) {
-    return { ok: false, reason: `小类不存在：${category} / ${subtopic ?? "(空)"}` };
+  // 小类可选（v1.1）：subtopic 为 null 表示只归大类，未细分；非空则必须属于该大类。
+  if (subtopic !== null && !cat.subtopics.includes(subtopic)) {
+    return { ok: false, reason: `小类不存在：${category} / ${subtopic}` };
   }
   return { ok: true };
 }

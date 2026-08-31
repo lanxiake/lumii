@@ -2,7 +2,11 @@
  * Wiki V16 迁移最小验证：7 张表建成功，SCHEMA_VERSION 正确递增。
  */
 import { describe, expect, it } from "vitest";
-import { createMigratedTestDb } from "../__tests__/helpers/sqlite-test-db.js";
+import {
+  createMigratedTestDb,
+  createPreV26TestDb,
+  runMigration26,
+} from "../__tests__/helpers/sqlite-test-db.js";
 import { SCHEMA_VERSION } from "./schema.js";
 
 describe("wiki schema V16", () => {
@@ -256,6 +260,104 @@ describe("wiki schema V25", () => {
     insert("s-mat", "materialized");
     expect(() => insert("s-bad", "cloud")).toThrow();
 
+    db.close();
+  });
+});
+
+describe("wiki schema V26", () => {
+  it("新增 legacy_subtopic / title_locked / summary 三列", () => {
+    const db = createMigratedTestDb();
+    const cols = db.prepare<{ name: string }>("PRAGMA table_info(wiki_sources)").all().map((c) => c.name);
+    expect(cols).toEqual(
+      expect.arrayContaining(["legacy_subtopic", "title_locked", "summary", "summary_hash", "summary_level"]),
+    );
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(26);
+    db.close();
+  });
+
+  it("title_locked 默认 0；summary_level 只接受三种取值", () => {
+    const db = createMigratedTestDb();
+    db.prepare(
+      "INSERT INTO wiki_sources (id, agent_id, user_id, title, created_at) VALUES ('s1', 'a', 'u', 't', 'now')",
+    ).run();
+    const row = db
+      .prepare<{ title_locked: number }>("SELECT title_locked FROM wiki_sources WHERE id = 's1'")
+      .get();
+    expect(row?.title_locked).toBe(0);
+
+    expect(() =>
+      db
+        .prepare(
+          "INSERT INTO wiki_sources (id, agent_id, user_id, title, created_at, summary_level) VALUES ('s2', 'a', 'u', 't', 'now', 'bad')",
+        )
+        .run(),
+    ).toThrow();
+
+    db.close();
+  });
+
+  it("大类机械改写：6 条无歧义规则，旧小类留痕 legacy_subtopic", () => {
+    const db = createPreV26TestDb();
+    db.prepare(
+      `INSERT INTO wiki_sources (id, agent_id, user_id, title, created_at, topic_category, topic_subtopic)
+       VALUES ('s1', 'a', 'u', 't1', 'now', '做事记录', '项目/任务资料')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO wiki_sources (id, agent_id, user_id, title, created_at, topic_category, topic_subtopic)
+       VALUES ('s2', 'a', 'u', 't2', 'now', '学习资料', '读书摘抄整理')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO wiki_sources (id, agent_id, user_id, title, created_at, topic_category, topic_subtopic)
+       VALUES ('s3', 'a', 'u', 't3', 'now', '证件凭据', '合同协议文件')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO wiki_sources (id, agent_id, user_id, title, created_at, topic_category, topic_subtopic)
+       VALUES ('s4', 'a', 'u', 't4', 'now', '模板参考', '各类文档模板')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO wiki_sources (id, agent_id, user_id, title, created_at, topic_category, topic_subtopic)
+       VALUES ('s5', 'a', 'u', 't5', 'now', '随笔创作', '生活感悟随笔')`,
+    ).run();
+
+    runMigration26(db);
+
+    const rows = db
+      .prepare<{ id: string; topic_category: string | null; topic_subtopic: string | null; legacy_subtopic: string | null }>(
+        "SELECT id, topic_category, topic_subtopic, legacy_subtopic FROM wiki_sources ORDER BY id",
+      )
+      .all();
+    expect(rows).toEqual([
+      { id: "s1", topic_category: "工作", topic_subtopic: null, legacy_subtopic: "项目/任务资料" },
+      { id: "s2", topic_category: "学习", topic_subtopic: null, legacy_subtopic: "读书摘抄整理" },
+      { id: "s3", topic_category: "生活", topic_subtopic: null, legacy_subtopic: "合同协议文件" },
+      { id: "s4", topic_category: "收藏", topic_subtopic: null, legacy_subtopic: "各类文档模板" },
+      { id: "s5", topic_category: "生活", topic_subtopic: null, legacy_subtopic: "生活感悟随笔" },
+    ]);
+    db.close();
+  });
+
+  it("计划与复盘 整类 + 整合长文 小类 → 收件箱（两列置空）", () => {
+    const db = createPreV26TestDb();
+    db.prepare(
+      `INSERT INTO wiki_sources (id, agent_id, user_id, title, created_at, topic_category, topic_subtopic)
+       VALUES ('s1', 'a', 'u', 't1', 'now', '计划与复盘', '目标规划方案')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO wiki_sources (id, agent_id, user_id, title, created_at, topic_category, topic_subtopic)
+       VALUES ('s2', 'a', 'u', 't2', 'now', '做事记录', '整合长文')`,
+    ).run();
+
+    runMigration26(db);
+
+    const rows = db
+      .prepare<{ id: string; topic_category: string | null; topic_subtopic: string | null; legacy_subtopic: string | null }>(
+        "SELECT id, topic_category, topic_subtopic, legacy_subtopic FROM wiki_sources ORDER BY id",
+      )
+      .all();
+    expect(rows).toEqual([
+      { id: "s1", topic_category: null, topic_subtopic: null, legacy_subtopic: "目标规划方案" },
+      { id: "s2", topic_category: null, topic_subtopic: null, legacy_subtopic: "整合长文" },
+    ]);
     db.close();
   });
 });
