@@ -27,48 +27,59 @@
 
 ---
 
+
+
 ## 现状与差距
 
-| 项 | 现状 | 三期目标 |
-|---|---|---|
-| 图数据源 | `wiki_pages` + `wiki_links` 双链 | `wiki_sources` + 用途树现推结构 |
-| 节点类型 | `page` / `entity` | `category` / `subtopic` / `source` / `entity` |
-| 边类型 | `wikilink` / `relation` | + `belongs_to` / `sibling` / `mentioned_in` |
-| 入参中心 | `centerPageId` / `category`(旧枚举) | `centerSourceId` / `category` / `subtopic` / `layers` |
-| ERO 抽取源 | `wiki_pages` 最近 N 页 | `wiki_sources.extracted_text` 按目录或 id |
-| ERO 归属列 | 写 `page_id` / `source_page_id` | 写 `source_id` |
-| 增量 | 无 | `graph_extract_cursor` + `content_hash` |
-| 实体侧栏 | 「打开关联页面」 | 「出现于哪些资料」→ 打开原文件 |
+
+| 项       | 现状                               | 三期目标                                                  |
+| ------- | -------------------------------- | ----------------------------------------------------- |
+| 图数据源    | `wiki_pages` + `wiki_links` 双链   | `wiki_sources` + 用途树现推结构                              |
+| 节点类型    | `page` / `entity`                | `category` / `subtopic` / `source` / `entity`         |
+| 边类型     | `wikilink` / `relation`          | + `belongs_to` / `sibling` / `mentioned_in`           |
+| 入参中心    | `centerPageId` / `category`(旧枚举) | `centerSourceId` / `category` / `subtopic` / `layers` |
+| ERO 抽取源 | `wiki_pages` 最近 N 页              | `wiki_sources.extracted_text` 按目录或 id                 |
+| ERO 归属列 | 写 `page_id` / `source_page_id`   | 写 `source_id`                                         |
+| 增量      | 无                                | `graph_extract_cursor` + `content_hash`               |
+| 实体侧栏    | 「打开关联页面」                         | 「出现于哪些资料」→ 打开原文件                                      |
+
 
 Schema 无需变更（V22 已加齐 `source_id`；当前 `SCHEMA_VERSION = 24`）。
 
 ---
 
+
+
 ## File Map
 
-| 文件 | 职责 |
-|---|---|
-| `packages/agent-runtime/src/wiki/wiki-graph.ts` | 新图模型与子图构建（重写） |
-| `packages/agent-runtime/src/wiki/wiki-graph.test.ts` | 新模型断言 |
-| `packages/agent-runtime/src/wiki/wiki-ero.ts` | `upsertEntity` / `addObservation` / `upsertRelation` 支持 `sourceId`；新增按 source 反查 |
-| `packages/agent-runtime/src/wiki/wiki-ero.test.ts` | source 归属断言 |
-| `packages/agent-runtime/src/wiki/wiki-ero-extractor.ts` | `extractFromSources`：按目录/id 抽取，增量游标 |
-| `packages/agent-runtime/src/wiki/wiki-ero-extractor.test.ts` | 增量跳过、按文件失败隔离 |
-| `packages/agent-runtime/src/wiki/wiki-repo.ts` | `getGraphExtractCursor` / `setGraphExtractCursor` |
-| `packages/agent-runtime/src/wiki/index.ts` | 导出新类型 |
-| `apps/windows/src/shared/agent-runtime-commands.ts` | `wiki:graph:data` 入参与返回扩展；`wiki:ero:extract` 入参扩展 |
-| `apps/windows/src/main/ipc/agent-runtime/wiki-commands.ts` | handler 改造 |
-| `apps/windows/src/main/ipc/agent-runtime/wiki-commands.test.ts` | handler 测试 |
-| `apps/windows/src/renderer/hooks/business/useWikiPage/useWikiPage.ts` | 新入参封装 |
-| `apps/windows/src/renderer/pages/MemoriesPage/components/WikiGraphView.tsx` | 新图层、新节点渲染、实体侧栏改造 |
-| `apps/windows/src/test/components/WikiGraphView.test.tsx` | 交互测试 |
-| `apps/windows/src/renderer/pages/MemoriesPage/components/WikiTab.tsx` | 图谱入参接线（当前小类为中心） |
+
+| 文件                                                                          | 职责                                                                               |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `packages/agent-runtime/src/wiki/wiki-graph.ts`                             | 新图模型与子图构建（重写）                                                                    |
+| `packages/agent-runtime/src/wiki/wiki-graph.test.ts`                        | 新模型断言                                                                            |
+| `packages/agent-runtime/src/wiki/wiki-ero.ts`                               | `upsertEntity` / `addObservation` / `upsertRelation` 支持 `sourceId`；新增按 source 反查 |
+| `packages/agent-runtime/src/wiki/wiki-ero.test.ts`                          | source 归属断言                                                                      |
+| `packages/agent-runtime/src/wiki/wiki-ero-extractor.ts`                     | `extractFromSources`：按目录/id 抽取，增量游标                                              |
+| `packages/agent-runtime/src/wiki/wiki-ero-extractor.test.ts`                | 增量跳过、按文件失败隔离                                                                     |
+| `packages/agent-runtime/src/wiki/wiki-repo.ts`                              | `getGraphExtractCursor` / `setGraphExtractCursor`                                |
+| `packages/agent-runtime/src/wiki/index.ts`                                  | 导出新类型                                                                            |
+| `apps/windows/src/shared/agent-runtime-commands.ts`                         | `wiki:graph:data` 入参与返回扩展；`wiki:ero:extract` 入参扩展                                |
+| `apps/windows/src/main/ipc/agent-runtime/wiki-commands.ts`                  | handler 改造                                                                       |
+| `apps/windows/src/main/ipc/agent-runtime/wiki-commands.test.ts`             | handler 测试                                                                       |
+| `apps/windows/src/renderer/hooks/business/useWikiPage/useWikiPage.ts`       | 新入参封装                                                                            |
+| `apps/windows/src/renderer/pages/MemoriesPage/components/WikiGraphView.tsx` | 新图层、新节点渲染、实体侧栏改造                                                                 |
+| `apps/windows/src/test/components/WikiGraphView.test.tsx`                   | 交互测试                                                                             |
+| `apps/windows/src/renderer/pages/MemoriesPage/components/WikiTab.tsx`       | 图谱入参接线（当前小类为中心）                                                                  |
+
 
 ---
+
+
 
 ### Task 1: ERO 归属列改写 source_id
 
 **Files:**
+
 - Modify: `packages/agent-runtime/src/wiki/wiki-ero.ts`
 - Modify: `packages/agent-runtime/src/wiki/wiki-ero.test.ts`
 
@@ -146,9 +157,12 @@ pnpm --filter ./packages/agent-runtime exec vitest run src/wiki/wiki-ero.test.ts
 
 ---
 
+
+
 ### Task 2: 增量抽取游标
 
 **Files:**
+
 - Modify: `packages/agent-runtime/src/wiki/wiki-repo.ts`
 - Modify: `packages/agent-runtime/src/wiki/wiki-repo.test.ts`
 
@@ -195,9 +209,12 @@ it("游标 JSON 损坏时退化为空对象而非抛错", () => {
 
 ---
 
+
+
 ### Task 3: 按资料抽取实体
 
 **Files:**
+
 - Modify: `packages/agent-runtime/src/wiki/wiki-ero-extractor.ts`
 - Modify: `packages/agent-runtime/src/wiki/wiki-ero-extractor.test.ts`
 
@@ -297,9 +314,12 @@ this.repo.setGraphExtractCursor(agentId, userId, nextCursor);
 
 ---
 
+
+
 ### Task 4: 新图模型 — 节点与边类型
 
 **Files:**
+
 - Modify: `packages/agent-runtime/src/wiki/wiki-graph.ts`（大幅重写）
 - Modify: `packages/agent-runtime/src/wiki/wiki-graph.test.ts`
 - Modify: `packages/agent-runtime/src/wiki/index.ts`
@@ -398,24 +418,29 @@ it("历史层：page + wikilink（可选，默认不启用）", () => {
 核心逻辑：
 
 **A. 取资料节点**：
+
 - `centerSourceId` 指定：radius=1 → 该 source 所在小类 + 同大类其他小类的 sources；radius=0 → 仅该小类
 - `category` / `subtopic` 指定：按 `listSourcesByTopic`
 - 按 `use_count DESC`, `last_used DESC` 排序后截取 limit（**仅限 source**）
 
 **B. 生成结构边（layers 含 'structure'）**：
+
 - `belongs_to`：每个 source → 其 subtopic 节点；每个 subtopic → 其 category 节点
 - `sibling`：同一 subtopic 下 source ≤ 8 时，两两连边（完全图）
 
 **C. 生成实体边（layers 含 'entities'）**：
+
 - `relation`：`ero.listRelations` 按 source_id 范围过滤，取两端都在已选 source 内的关系
 - `mentioned_in`：`ero.listEntitiesBySources` 聚合当前 sources 的实体 → 每个 entity 连到其出现的 source（多对多）
 - entity 节点占用剩余名额（`limit - sourceNodes.length`）
 
 **D. 历史层（layers 含 'history'）**：
+
 - 旧逻辑 `listPages` / `listOutboundLinks` 生成 page 节点与 wikilink 边（兼容）
 - page 不占 limit 名额（独立子图）
 
 `WikiGraphNode` ID 规范：
+
 - category: `category name`（大类名本身无歧义）
 - subtopic: `JSON.stringify([category, subtopic])`（小类名可含 `/`，用 JSON 避免拼接歧义，与 topicCountKey 一致）
 - source: `source.id`
@@ -435,9 +460,12 @@ export function parseSubtopicNodeId(id: string): { category: string; subtopic: s
 
 ---
 
+
+
 ### Task 5: IPC 命令改造
 
 **Files:**
+
 - Modify: `apps/windows/src/shared/agent-runtime-commands.ts`
 - Modify: `apps/windows/src/main/ipc/agent-runtime/wiki-commands.ts`
 - Modify: `apps/windows/src/main/ipc/agent-runtime/wiki-commands.test.ts`
@@ -515,14 +543,17 @@ it("ero:entity-sources 返回该实体出现的资料及其主题", async () => 
 
 `ero:extract` 的 `errors` 里的 `message` 须是中文可读文案，不要直接 `String(err)` 暴露堆栈。
 
-- [ ] **Step 4: `pnpm --filter ./apps/windows exec vitest run src/main/ipc/agent-runtime/wiki-commands.test.ts` + typecheck**
+- [ ] **Step 4:** `pnpm --filter ./apps/windows exec vitest run src/main/ipc/agent-runtime/wiki-commands.test.ts` **+ typecheck**
 - [ ] **Step 5: Commit** `feat(wiki): add source-scoped graph and ERO extract commands`
 
 ---
 
+
+
 ### Task 6: useWikiPage 封装
 
 **Files:**
+
 - Modify: `apps/windows/src/renderer/hooks/business/useWikiPage/useWikiPage.ts`
 - Modify: `apps/windows/src/renderer/hooks/business/useWikiPage/index.ts`
 
@@ -559,9 +590,12 @@ listEntitySources(entityId: string): Promise<WikiEntitySourceRef[]>
 
 ---
 
+
+
 ### Task 7: WikiGraphView 重构
 
 **Files:**
+
 - Modify: `apps/windows/src/renderer/pages/MemoriesPage/components/WikiGraphView.tsx`
 - Modify: `apps/windows/src/test/components/WikiGraphView.test.tsx`
 - Modify: `apps/windows/src/renderer/pages/MemoriesPage/components/WikiTab.tsx`（接线当前导航态作为图谱中心）
@@ -625,22 +659,26 @@ useEffect(() => {
 
 **节点渲染样式**（复用既有 xyflow Node 组件或内联样式）：
 
-| kind | 样式 |
-|---|---|
-| `category` | 方形容器（xyflow parent node），蓝色边框粗 2px，无 handle |
-| `subtopic` | 嵌套容器（parent），灰色虚线边框，左上角 chevron 图标可点 |
-| `source` | 小圆角矩形，左边框彩色条（按 mediaType），右上角打开图标 |
-| `entity` | 圆角矩形，粉色边框，右下角实体类型 badge（person/project/tool/concept） |
+
+| kind       | 样式                                                   |
+| ---------- | ---------------------------------------------------- |
+| `category` | 方形容器（xyflow parent node），蓝色边框粗 2px，无 handle          |
+| `subtopic` | 嵌套容器（parent），灰色虚线边框，左上角 chevron 图标可点                 |
+| `source`   | 小圆角矩形，左边框彩色条（按 mediaType），右上角打开图标                    |
+| `entity`   | 圆角矩形，粉色边框，右下角实体类型 badge（person/project/tool/concept） |
+
 
 **边渲染**：
 
-| kind | 样式 |
-|---|---|
-| `belongs_to` | 直线，蓝色，无箭头（树结构） |
-| `sibling` | 虚线，浅灰色，无箭头 |
-| `relation` | 有向箭头，主色，label 居中，粗细按 strength（0.3→1px, 0.7→2px, 1.0→3px） |
-| `mentioned_in` | 虚线箭头，紫色，entity → source |
-| `wikilink` | 有向箭头，绿色（保留旧样式） |
+
+| kind           | 样式                                                       |
+| -------------- | -------------------------------------------------------- |
+| `belongs_to`   | 直线，蓝色，无箭头（树结构）                                           |
+| `sibling`      | 虚线，浅灰色，无箭头                                               |
+| `relation`     | 有向箭头，主色，label 居中，粗细按 strength（0.3→1px, 0.7→2px, 1.0→3px） |
+| `mentioned_in` | 虚线箭头，紫色，entity → source                                  |
+| `wikilink`     | 有向箭头，绿色（保留旧样式）                                           |
+
 
 **布局**：`dagre` LR（左→右），category / subtopic 用 xyflow 的 parent node 自动分组。
 
@@ -715,9 +753,12 @@ dagre 布局参数：`{ rankdir: 'LR', ranksep: 80, nodesep: 40 }`。
 
 ---
 
+
+
 ### Task 8: WikiTab 接线与回归
 
 **Files:**
+
 - Modify: `apps/windows/src/renderer/pages/MemoriesPage/components/WikiTab.tsx`
 - Modify: `apps/windows/src/test/components/WikiTab.test.tsx`
 
@@ -778,21 +819,27 @@ pnpm typecheck
 
 ---
 
+
+
 ## Spec coverage（三期）
 
-| Spec | Task |
-|---|---|
-| ERO 挂资料（source_id） | 1 |
-| 增量游标防重抽 | 2 |
-| 按资料抽取实体 | 3 |
-| 新图模型（4 类节点 5 类边） | 4 |
-| 图层控制（结构/实体/历史） | 4+7 |
-| 命令入参改造（centerSourceId / category / subtopic / layers） | 5 |
-| 实体侧栏改为「出现于哪些资料」 | 7 |
-| 点 source 打开原文件 | 7 |
-| 点 subtopic 切到列表 | 7 |
-| 历史页双链默认关 | 7 |
-| sibling 边 ≤8 画全图 | 4 |
+
+| Spec                                                  | Task |
+| ----------------------------------------------------- | ---- |
+| ERO 挂资料（source_id）                                    | 1    |
+| 增量游标防重抽                                               | 2    |
+| 按资料抽取实体                                               | 3    |
+| 新图模型（4 类节点 5 类边）                                      | 4    |
+| 图层控制（结构/实体/历史）                                        | 4+7  |
+| 命令入参改造（centerSourceId / category / subtopic / layers） | 5    |
+| 实体侧栏改为「出现于哪些资料」                                       | 7    |
+| 点 source 打开原文件                                        | 7    |
+| 点 subtopic 切到列表                                       | 7    |
+| 历史页双链默认关                                              | 7    |
+| sibling 边 ≤8 画全图                                      | 4    |
+
+
+
 
 ## 不做（防止执行时膨胀）
 
@@ -807,6 +854,8 @@ pnpm typecheck
 
 ---
 
+
+
 ## 后续可选优化（不在三期范围）
 
 - `belongs_to` / `sibling` 边落库加速：当前每次现推，性能瓶颈在 SQL 连接；可预计算存 `wiki_structure_edges` 表
@@ -814,3 +863,6 @@ pnpm typecheck
 - 观察软退役 UI：实体侧栏增加「已过时观察」折叠区
 - 图谱导出为 Markdown / GraphML
 - 跨大类跳数扩圈：radius=2 时跨越大类边界，通过同名实体桥接
+
+  
+
