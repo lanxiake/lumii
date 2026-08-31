@@ -5,7 +5,7 @@ import type { WikiSourceListItem } from '../../../hooks/business/useWikiPage'
 import { formatRelativeTime } from './wikiStatusLabels'
 import { isUrlSourceItem } from './wikiSourcePreview'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
-import { formatTopicDisplay, type WikiTopicTreeLike } from './wikiNavMapping'
+import { formatTopicDisplay } from './wikiTopicDisplay'
 
 /** 芯片粒度和 media_type 不是一对一：音视频一个芯片覆盖 audio + video 两种类型 */
 export type WikiMediaChip = 'all' | 'document' | 'image' | 'av'
@@ -41,8 +41,6 @@ interface WikiFileListProps {
   /** 临时存放视图不再显示「存到临时存放」 */
   showParkAction?: boolean
   showMediaChips?: boolean
-  /** 用于歧义小类（如「整合长文」）展示时判断是否需带旧大类 */
-  topicTree?: WikiTopicTreeLike | null
   /** 顶栏动作槽：小类视图的「重新编目本小类」「新建笔记」、多选时的批量条都挂这里 */
   headerActions?: React.ReactNode
   /** 新建后高亮该行，帮用户定位刚创建的文件 */
@@ -69,7 +67,6 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
   moveLabel = '移动',
   showParkAction = true,
   showMediaChips = true,
-  topicTree = null,
   headerActions,
   highlightId = null,
   selectable = false,
@@ -129,7 +126,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
           {visible.map((item) => {
             const Icon = MEDIA_ICONS[(item.mediaType ?? 'document') as keyof typeof MEDIA_ICONS] ?? FileText
             const isUrl = isUrlSourceItem(item.sourcePath)
-            const topic = formatTopicDisplay(item.topicCategory, item.topicSubtopic, topicTree)
+            const topic = formatTopicDisplay(item.topicCategory, item.topicSubtopic)
             return (
               <li
                 key={item.id}

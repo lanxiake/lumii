@@ -572,6 +572,8 @@ export interface WikiSourceListCommand {
   readonly userId?: string
   readonly category?: string
   readonly subtopic?: string
+  /** 与 category 同用：只要该大类下「未细分」（小类为空）的资料 */
+  readonly subtopicUnfiled?: boolean
   readonly parking?: boolean
   readonly unfiled?: boolean
   readonly archived?: boolean
@@ -744,79 +746,6 @@ export interface WikiConceptRejectCommand {
   readonly type: 'wiki:concept:reject'
   readonly name: string
   readonly conceptType: 'concept' | 'entity'
-}
-
-export interface WikiSynthesisCreateCommand {
-  readonly type: 'wiki:synthesis:create'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  /** 参与合成的页面 id 列表；与 category 二选一（category 优先展开为该分类下全部页） */
-  readonly pageIds?: readonly string[]
-  /** 按分类全选页面发起合成（历史页面路径，值是 sources/media 这类顶层分类） */
-  readonly category?: string
-  /** 二期主路径：以资料为输入 */
-  readonly sourceIds?: readonly string[]
-  /**
-   * 二期：按用途目录取资料。故意不复用 category —— 它在历史路径里指页面顶层分类，
-   * 复用会让「只给大类」的调用静默走错分支。
-   */
-  readonly topicCategory?: string
-  readonly topicSubtopic?: string
-  /** 超量确认标记：UI 收到数量警告后带上这个重发 */
-  readonly confirmed?: boolean
-  readonly title?: string
-  /** consolidate = 合并同主题短文为 1000 字以上长文 */
-  readonly mode?: 'synthesis' | 'consolidate'
-}
-
-/**
- * 资料合成超量时的错误码。主进程把它写进 message 前缀，渲染进程据此判定
- * 「需要二次确认」——不匹配中文文案，改文案不会破坏判断。
- */
-export const SYNTHESIS_CONFIRM_REQUIRED_CODE = 'WIKI_SYNTHESIS_CONFIRM_REQUIRED'
-
-export interface WikiSynthesisAcceptAsSourceCommand {
-  readonly type: 'wiki:synthesis:accept-as-source'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly synthesisId: string
-  readonly category: string
-  readonly subtopic: string
-  /** 整合模式接受后归档被合并的原始短文 */
-  readonly archiveSources?: boolean
-}
-
-export interface WikiSynthesisListCommand {
-  readonly type: 'wiki:synthesis:list'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly status?: 'candidate' | 'accepted' | 'rejected'
-}
-
-export interface WikiSynthesisGetCommand {
-  readonly type: 'wiki:synthesis:get'
-  readonly synthesisId: string
-}
-
-export interface WikiSynthesisAcceptCommand {
-  readonly type: 'wiki:synthesis:accept'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly synthesisId: string
-}
-
-export interface WikiSynthesisRejectCommand {
-  readonly type: 'wiki:synthesis:reject'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly synthesisId: string
-}
-
-/** 一键自动综述：串行生成 sources/media 稳定 overview 页 */
-export interface WikiSynthesisAutoRunCommand {
-  readonly type: 'wiki:synthesis:auto-run'
-  readonly sessionKey?: string
-  readonly agentId?: string
 }
 
 export interface WikiGraphDataCommand {
@@ -1536,13 +1465,6 @@ export type AgentRuntimeCommand =
   | WikiConceptScanCommand
   | WikiConceptConfirmCommand
   | WikiConceptRejectCommand
-  | WikiSynthesisCreateCommand
-  | WikiSynthesisListCommand
-  | WikiSynthesisGetCommand
-  | WikiSynthesisAcceptCommand
-  | WikiSynthesisAcceptAsSourceCommand
-  | WikiSynthesisRejectCommand
-  | WikiSynthesisAutoRunCommand
   | WikiGraphDataCommand
   | WikiStatusScanCommand
   | WikiStatusConfirmCommand
@@ -2019,50 +1941,6 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
     }[]
   : T extends 'wiki:concept:confirm' ? { pageId: string; path: string }
   : T extends 'wiki:concept:reject' ? { success: boolean }
-  : T extends 'wiki:synthesis:create' ? { synthesisId: string }
-  : T extends 'wiki:synthesis:accept-as-source' ? {
-      sourceId: string
-      category: string
-      subtopic: string
-    }
-  : T extends 'wiki:synthesis:list' ? readonly {
-      id: string
-      title: string
-      status: string
-      sourcePageIds: readonly string[]
-      outputPath: string | null
-      error: string | null
-      progress: { chunk: number; total: number } | null
-      pageId: string | null
-      createdAt: number
-      finishedAt: number | null
-    }[]
-  : T extends 'wiki:synthesis:get' ? {
-      id: string
-      title: string
-      status: string
-      candidateMd: string
-      sourcePageIds: readonly string[]
-      sourceIds: readonly string[] | null
-      sourcePages: readonly { id: string; title: string; path: string }[]
-      outputPath: string | null
-      error: string | null
-      progress: { chunk: number; total: number } | null
-      pageId: string | null
-      createdAt: number
-      finishedAt: number | null
-    }
-  : T extends 'wiki:synthesis:accept' ? { pageId: string; path: string }
-  : T extends 'wiki:synthesis:reject' ? { success: boolean }
-  : T extends 'wiki:synthesis:auto-run' ? {
-      results: readonly {
-        category: string
-        pageId: string
-        path: string
-        skipped?: boolean
-        error?: string
-      }[]
-    }
   : T extends 'wiki:graph:data' ? {
       nodes: readonly {
         id: string

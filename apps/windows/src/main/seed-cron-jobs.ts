@@ -151,15 +151,6 @@ const SEED_JOBS: readonly SeedJob[] = [
     enabled: true,
   },
   {
-    id: 'wiki-auto-synthesis',
-    name: 'Wiki 分类综述自动刷新',
-    taskText: '__wiki_auto_synthesis__',
-    agentId: null,
-    scheduleType: 'cron',
-    scheduleExpr: '0 3 * * *',
-    notifyTargets: 'silent',
-  },
-  {
     id: 'wiki-ero-extract',
     name: 'Wiki 实体关系抽取',
     taskText: '__wiki_ero_extract__',

@@ -13,8 +13,9 @@ function makeItem(overrides: Partial<WikiSourceListItem> = {}): WikiSourceListIt
     title: '会议纪要.docx',
     sourcePath: 'C:/files/会议纪要.docx',
     mediaType: 'document',
-    topicCategory: '做事记录',
-    topicSubtopic: '会议聊天记录',
+    topicCategory: '工作',
+    topicSubtopic: '例行',
+    textLength: 0,
     updatedAt: Date.now(),
     useCount: 0,
     ...overrides,
@@ -76,11 +77,12 @@ describe('WikiFileList', () => {
         emptyHint="空"
         showTopic
         onOpen={noop}
+        onPreview={noop}
         onMove={noop}
       />,
     )
 
-    expect(screen.getByText('工作 / 会议聊天记录')).toBeInTheDocument()
+    expect(screen.getByText('工作 / 例行')).toBeInTheDocument()
     expect(screen.getByText('收件箱')).toBeInTheDocument()
   })
 
@@ -92,6 +94,7 @@ describe('WikiFileList', () => {
         moveLabel="移出"
         showParkAction={false}
         onOpen={noop}
+        onPreview={noop}
         onMove={noop}
       />,
     )

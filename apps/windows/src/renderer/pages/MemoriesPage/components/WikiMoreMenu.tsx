@@ -5,7 +5,6 @@ import {
   History,
   Layers3,
   RefreshCw,
-  Sparkles,
 } from 'lucide-react'
 import { Switch } from '../../../components/ui/Switch/Switch'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
@@ -19,7 +18,6 @@ interface WikiMoreMenuProps {
   readonly onAutoClassifyChange: (enabled: boolean) => void
   readonly onHistory: () => void
   readonly onCleanup: () => void
-  readonly onSynthesis: () => void
   readonly onRebuild: () => void
   readonly onEditTopicTree: () => void
   readonly onReclassifyAll: () => void
@@ -51,12 +49,6 @@ const MENU_ITEMS = [
     icon: RefreshCw,
   },
   {
-    key: 'synthesis',
-    label: '综述合成',
-    description: '从目录里的文件生成主题综述',
-    icon: Sparkles,
-  },
-  {
     key: 'rebuild',
     label: '重建索引',
     description: '重新生成全文检索索引',
@@ -75,7 +67,6 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
   onAutoClassifyChange,
   onHistory,
   onCleanup,
-  onSynthesis,
   onRebuild,
   onEditTopicTree,
   onReclassifyAll,
@@ -106,7 +97,6 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
           else if (key === 'editTopicTree') onEditTopicTree()
           else if (key === 'history') onHistory()
           else if (key === 'cleanup') onCleanup()
-          else if (key === 'synthesis') onSynthesis()
           else if (key === 'rebuild') onRebuild()
           onClose()
         }

@@ -127,13 +127,13 @@ describe('CleanupView', () => {
   it('行内只读展示大类 / 小类，未归类显示收件箱，不提供移到临时存放', async () => {
     renderCleanupView({
       cleanupScan: vi.fn(async () => [
-        { sourceId: 'a', title: '会议纪要', reason: 'stale' as const, topicCategory: '做事记录', topicSubtopic: '会议聊天记录' },
+        { sourceId: 'a', title: '会议纪要', reason: 'stale' as const, topicCategory: '工作', topicSubtopic: '例行' },
         { sourceId: 'b', title: '搁置文件', reason: 'stale' as const, topicCategory: '临时存放', topicSubtopic: null },
         { sourceId: 'c', title: '未归类文件', reason: 'stale' as const, topicCategory: null, topicSubtopic: null },
       ]),
     })
 
-    expect(await screen.findByText('工作 / 会议聊天记录')).toBeInTheDocument()
+    expect(await screen.findByText('工作 / 例行')).toBeInTheDocument()
     expect(screen.getByText('临时存放')).toBeInTheDocument()
     expect(screen.getByText('收件箱')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /移到临时存放/ })).not.toBeInTheDocument()

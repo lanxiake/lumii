@@ -77,10 +77,6 @@ import {
   WikiConceptCandidateScanner,
   WikiExporter,
   type WikiExporterDeps,
-  WikiSynthesizer,
-  type WikiSynthesizerFsDeps,
-  WikiAutoSynthesisRunner,
-  type AutoSynthesisRunResult,
   WikiEroRepo,
   WikiEroExtractor,
   type WikiEroExtractResult,
@@ -130,19 +126,6 @@ import { ensureProviderBaseUrl } from '../provider-config'
 
 /** 单机客户端固定 userId，与 wiki-commands 一致 */
 const LOCAL_USER_ID = 'local-user'
-
-/**
- * 将 Wiki 自动综述各分类结果格式化为 cron 运行摘要（如 sources:ok media:skipped）。
- */
-function formatWikiAutoSynthesisSummary(results: readonly AutoSynthesisRunResult[]): string {
-  return results
-    .map((r) => {
-      if (r.error) return `${r.category}:error`
-      if (r.skipped) return `${r.category}:skipped`
-      return `${r.category}:ok`
-    })
-    .join(' ')
-}
 
 /**
  * 将 Wiki ERO 抽取结果格式化为 cron 运行摘要。
@@ -401,35 +384,6 @@ export class AgentRuntimeBridge {
       joinPath: (...segments) => path.join(...segments),
     }
     return new WikiExporter(deps)
-  }
-
-  /**
-   * 按需创建综述合成器：落盘相对 workspace cwd，LLM 走 wiki_synthesis purpose。
-   */
-  createWikiSynthesizer(): WikiSynthesizer {
-    const cwd = this.config.getCwd()
-    const resolve = (p: string) => (path.isAbsolute(p) ? p : path.join(cwd, p))
-    const deps: WikiSynthesizerFsDeps = {
-      mkdir: async (dirPath) => {
-        await fs.promises.mkdir(resolve(dirPath), { recursive: true })
-      },
-      writeFile: async (filePath, content) => {
-        await fs.promises.writeFile(resolve(filePath), content, 'utf-8')
-      },
-      joinPath: (...segments) => path.join(...segments),
-      listDir: async (dirPath) => {
-        try {
-          return await fs.promises.readdir(resolve(dirPath))
-        } catch {
-          return []
-        }
-      },
-    }
-    return new WikiSynthesizer(
-      this.wikiRepo,
-      (prompt) => this.callLLM(prompt, undefined, 'wiki_synthesis'),
-      deps,
-    )
   }
 
   private _wikiEmbedderCache: import('./wiki-transformers-embedder').WikiHostEmbedderResult | null = null
@@ -838,19 +792,6 @@ export class AgentRuntimeBridge {
             getUserMemory: this.config.getUserMemory,
             updateUserMemory: this.config.updateUserMemory,
             callLLM: (prompt) => this.callLLM(prompt, undefined, 'memory_consolidation'),
-            runWikiAutoSynthesis: async () => {
-              try {
-                const runner = new WikiAutoSynthesisRunner(
-                  this.createWikiSynthesizer(),
-                  this.wikiRepo,
-                )
-                const { results } = await runner.autoSynthesizeAll('assistant', LOCAL_USER_ID)
-                return formatWikiAutoSynthesisSummary(results)
-              } catch (err) {
-                const message = err instanceof Error ? err.message : String(err)
-                return `error: ${message}`
-              }
-            },
             runWikiEroExtract: async () => {
               try {
                 const ero = new WikiEroRepo(this.wikiRepo.database)

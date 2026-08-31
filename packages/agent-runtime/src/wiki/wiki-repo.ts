@@ -49,8 +49,6 @@ import {
   type WikiRevisionEditor,
   type WikiSource,
   type WikiStorageMode,
-  type WikiSynthesis,
-  type WikiSynthesisStatus,
   type WikiTopicMigrationRule,
   type WikiTopicTreeMigrationReport,
 } from "./types.js";
@@ -736,6 +734,8 @@ export class WikiRepo {
     filter: {
       readonly category?: string;
       readonly subtopic?: string;
+      /** 与 category 同用：只要该大类下「未细分」（小类为空）的资料 */
+      readonly subtopicUnfiled?: boolean;
       readonly parking?: boolean;
       readonly unfiled?: boolean;
       readonly archived?: boolean;
@@ -758,6 +758,10 @@ export class WikiRepo {
       params.push(PARKING_CATEGORY);
     } else if (filter.unfiled) {
       conditions.push("topic_category IS NULL", "topic_subtopic IS NULL");
+    } else if (filter.category && filter.subtopicUnfiled) {
+      // 「大类下未细分」分组：小类可选带来的新视图（设计 §2.1.1）
+      conditions.push("topic_category = ?", "topic_subtopic IS NULL");
+      params.push(filter.category);
     } else if (filter.category && filter.subtopic) {
       conditions.push("topic_category = ?", "topic_subtopic = ?");
       params.push(filter.category, filter.subtopic);
@@ -1710,200 +1714,6 @@ export class WikiRepo {
       .all(`${prefix}%`);
   }
 
-  // ── 综述合成（wiki_syntheses）────────────────────────────
-
-  /** 插入一条 candidate 合成记录，返回 id */
-  insertSynthesis(params: {
-    readonly agentId: string;
-    readonly userId: string;
-    readonly sourcePageIds: readonly string[];
-    readonly sourceIds?: readonly string[] | null;
-    readonly title: string;
-    readonly candidateMd: string;
-    readonly outputPath?: string | null;
-    readonly error?: string | null;
-  }): string {
-    const id = generateWikiId();
-    const now = new Date().toISOString();
-    this.db
-      .prepare(
-        `INSERT INTO wiki_syntheses
-         (id, agent_id, user_id, source_page_ids, source_ids, title, output_path, candidate_md, status, error, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'candidate', ?, ?)`,
-      )
-      .run(
-        id,
-        params.agentId,
-        params.userId,
-        JSON.stringify(params.sourcePageIds),
-        params.sourceIds && params.sourceIds.length > 0 ? JSON.stringify(params.sourceIds) : null,
-        params.title,
-        params.outputPath ?? null,
-        params.candidateMd,
-        params.error ?? null,
-        now,
-      );
-    return id;
-  }
-
-  findSynthesisById(id: string): WikiSynthesis | null {
-    const row = this.db.prepare<WikiSynthesisRow>("SELECT * FROM wiki_syntheses WHERE id = ?").get(id);
-    return row ? synthesisRowToSynthesis(row) : null;
-  }
-
-  /** 按状态筛选合成列表（缺省全部），按 created_at 降序 */
-  listSyntheses(
-    agentId: string,
-    userId: string,
-    status?: WikiSynthesisStatus,
-  ): readonly WikiSynthesis[] {
-    const rows = status
-      ? this.db
-          .prepare<WikiSynthesisRow>(
-            `SELECT * FROM wiki_syntheses WHERE agent_id = ? AND user_id = ? AND status = ?
-             ORDER BY created_at DESC`,
-          )
-          .all(agentId, userId, status)
-      : this.db
-          .prepare<WikiSynthesisRow>(
-            `SELECT * FROM wiki_syntheses WHERE agent_id = ? AND user_id = ?
-             ORDER BY created_at DESC`,
-          )
-          .all(agentId, userId);
-    return rows.map(synthesisRowToSynthesis);
-  }
-
-  /** 写入进行中进度标记到 error 字段：progress:i/n */
-  setSynthesisProgress(id: string, chunk: number, total: number): void {
-    this.db
-      .prepare("UPDATE wiki_syntheses SET error = ? WHERE id = ? AND status = 'candidate'")
-      .run(`progress:${chunk}/${total}`, id);
-  }
-
-  /** 完成候选正文落库（仍为 candidate，供审阅） */
-  finishSynthesisCandidate(
-    id: string,
-    params: {
-      readonly candidateMd: string;
-      readonly outputPath: string | null;
-      readonly error: string | null;
-    },
-  ): void {
-    this.db
-      .prepare(
-        `UPDATE wiki_syntheses
-         SET candidate_md = ?, output_path = ?, error = ?, finished_at = ?
-         WHERE id = ? AND status = 'candidate'`,
-      )
-      .run(
-        params.candidateMd,
-        params.outputPath,
-        params.error,
-        new Date().toISOString(),
-        id,
-      );
-  }
-
-  /**
-   * 接受合成：同一事务内 savePage 建 syntheses/ 页，并更新 wiki_syntheses.status=accepted。
-   * 注意：savePage 自身也开事务——嵌套时依赖 SQLite 外层事务，此处手动内联插入避免双重事务冲突。
-   */
-  acceptSynthesis(params: {
-    readonly synthesisId: string;
-    readonly agentId: string;
-    readonly userId: string;
-    readonly path: string;
-    readonly title: string;
-    readonly contentMd: string;
-  }): WikiPage {
-    return withTransaction(this.db, () => {
-      const existing = this.findSynthesisById(params.synthesisId);
-      if (!existing || existing.status !== "candidate") {
-        throw new Error(`接受失败：合成不存在或状态非 candidate: ${params.synthesisId}`);
-      }
-      const page = this.savePage({
-        agentId: params.agentId,
-        userId: params.userId,
-        path: params.path,
-        title: params.title,
-        contentMd: params.contentMd,
-        editor: "ai",
-        sourceRef: `synthesis:${params.synthesisId}`,
-      });
-      this.db
-        .prepare(
-          `UPDATE wiki_syntheses
-           SET status = 'accepted', page_id = ?, finished_at = ?
-           WHERE id = ? AND status = 'candidate'`,
-        )
-        .run(page.id, new Date().toISOString(), params.synthesisId);
-      return page;
-    });
-  }
-
-  /**
-   * 二期语义的接受：综述产物落成目录里的一份普通资料，而非 wiki_pages 摘要页。
-   * 单事务内 createSource + 写主题两列 + 建索引 + 标 accepted；page_id 保持 NULL。
-   */
-  acceptSynthesisAsSource(params: {
-    readonly synthesisId: string;
-    readonly agentId: string;
-    readonly userId: string;
-    readonly title: string;
-    readonly outputPath: string;
-    readonly contentMd: string;
-    readonly category: string;
-    readonly subtopic: string;
-  }): WikiSource {
-    return withTransaction(this.db, () => {
-      const existing = this.findSynthesisById(params.synthesisId);
-      if (!existing || existing.status !== "candidate") {
-        throw new Error(`接受失败：合成不存在或状态非 candidate: ${params.synthesisId}`);
-      }
-      const source = this.createSource({
-        agentId: params.agentId,
-        userId: params.userId,
-        title: params.title,
-        sourcePath: params.outputPath,
-        mediaType: "document",
-        mimeType: "text/markdown",
-        contentMd: params.contentMd,
-        extractedText: params.contentMd,
-        originContext: `综述:${params.synthesisId}`,
-      });
-      this.updateSourceTopic(
-        params.agentId,
-        params.userId,
-        source.id,
-        params.category,
-        params.subtopic,
-      );
-      this.indexSource(source.id);
-      this.db
-        .prepare(
-          `UPDATE wiki_syntheses SET status = 'accepted', finished_at = ?
-           WHERE id = ? AND status = 'candidate'`,
-        )
-        .run(new Date().toISOString(), params.synthesisId);
-      const saved = this.findSourceById(source.id);
-      if (!saved) throw new Error("接受失败：资料写入后读取不到");
-      return saved;
-    });
-  }
-
-  /** 拒绝合成：保留记录，status=rejected */
-  rejectSynthesis(id: string): void {
-    const info = this.db
-      .prepare(
-        `UPDATE wiki_syntheses SET status = 'rejected', finished_at = ?
-         WHERE id = ? AND status = 'candidate'`,
-      )
-      .run(new Date().toISOString(), id);
-    if (info.changes === 0) {
-      throw new Error(`拒绝失败：合成不存在或状态非 candidate: ${id}`);
-    }
-  }
-
   /** 更新页面 status 列（供 P2 状态候选确认） */
   updatePageStatus(pageId: string, status: WikiPageStatus): void {
     const info = this.db.prepare("UPDATE wiki_pages SET status = ?, updated_at = ? WHERE id = ?").run(
@@ -1927,57 +1737,3 @@ export interface WikiSourceSearchHit {
   readonly snippet: string;
 }
 
-interface WikiSynthesisRow {
-  id: string;
-  agent_id: string;
-  user_id: string;
-  page_id: string | null;
-  source_page_ids: string;
-  source_ids: string | null;
-  title: string;
-  output_path: string | null;
-  candidate_md: string;
-  status: string;
-  error: string | null;
-  created_at: string;
-  finished_at: string | null;
-}
-
-/** 将 wiki_syntheses 行转为领域对象，JSON 数组字段容错解析 */
-function synthesisRowToSynthesis(row: WikiSynthesisRow): WikiSynthesis {
-  let sourcePageIds: string[] = [];
-  try {
-    const parsed = JSON.parse(row.source_page_ids) as unknown;
-    if (Array.isArray(parsed)) {
-      sourcePageIds = parsed.filter((x): x is string => typeof x === "string");
-    }
-  } catch {
-    sourcePageIds = [];
-  }
-  let sourceIds: string[] | null = null;
-  if (row.source_ids) {
-    try {
-      const parsed = JSON.parse(row.source_ids) as unknown;
-      if (Array.isArray(parsed)) {
-        sourceIds = parsed.filter((x): x is string => typeof x === "string");
-      }
-    } catch {
-      sourceIds = null;
-    }
-  }
-  return {
-    id: row.id,
-    agent_id: row.agent_id,
-    user_id: row.user_id,
-    page_id: row.page_id,
-    source_page_ids: sourcePageIds,
-    source_ids: sourceIds,
-    title: row.title,
-    output_path: row.output_path,
-    candidate_md: row.candidate_md,
-    status: row.status as WikiSynthesisStatus,
-    error: row.error,
-    created_at: row.created_at,
-    finished_at: row.finished_at,
-  };
-}

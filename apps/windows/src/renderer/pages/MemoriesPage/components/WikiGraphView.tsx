@@ -28,7 +28,7 @@ import type {
   WikiEroExtractSourceResult,
 } from '../../../hooks/business/useWikiPage'
 import type { WikiNav } from './WikiLeftNav'
-import { formatTopicDisplay } from './wikiNavMapping'
+import { formatTopicDisplay } from './wikiTopicDisplay'
 
 const NODE_W = 160
 const NODE_H = 56
@@ -301,7 +301,8 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
       let subtopic: string | undefined
       if (currentNav.kind === 'subtopic') {
         category = currentNav.category
-        subtopic = currentNav.subtopic
+        // 「未细分」分组（subtopic 为 null）退化为按大类取图
+        subtopic = currentNav.subtopic ?? undefined
       } else if (currentNav.kind === 'category') {
         category = currentNav.name
       }
@@ -319,7 +320,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
     const scope: { category?: string; subtopic?: string; sourceIds?: readonly string[] } = {}
     if (currentNav.kind === 'subtopic') {
       scope.category = currentNav.category
-      scope.subtopic = currentNav.subtopic
+      scope.subtopic = currentNav.subtopic ?? undefined
     } else if (currentNav.kind === 'category') {
       scope.category = currentNav.name
     } else if (currentNav.kind === 'graph' && graph) {

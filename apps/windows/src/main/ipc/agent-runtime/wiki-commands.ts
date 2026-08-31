@@ -8,14 +8,12 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { shell } from 'electron'
 import {
-  parseSynthesisProgress,
   WikiGraphBuilder,
   WikiPageStatusScanner,
   WikiEroRepo,
   bootstrapEroFromWikilinks,
   WikiVectorIndex,
   mergeHybridRanks,
-  WikiAutoSynthesisRunner,
   WikiEroExtractor,
   PARKING_CATEGORY,
   resolveAgentFilePath,
@@ -34,10 +32,7 @@ import {
   vaultDirSegmentsForSource,
   resolveOriginalFilePath,
 } from '@mtbot/agent-runtime'
-import {
-  SYNTHESIS_CONFIRM_REQUIRED_CODE,
-  type AgentRuntimeCommand,
-} from '../../../shared/agent-runtime-commands'
+import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import {
   createWikiVaultSyncDeps,
@@ -96,16 +91,6 @@ const wikiFolderNodeFs: WikiFolderImporterFs = {
       isDirectory: d.isDirectory(),
     }))
   },
-}
-
-/** 超过这个数量的资料合成需要用户二次确认（不自动截断） */
-export const SYNTHESIS_SOURCE_CONFIRM_LIMIT = 40
-
-export class WikiSynthesisConfirmRequiredError extends Error {
-  readonly code = SYNTHESIS_CONFIRM_REQUIRED_CODE
-  constructor(readonly count: number) {
-    super(`${SYNTHESIS_CONFIRM_REQUIRED_CODE}: 本次将合成 ${count} 个文件，数量较多、耗时较长，请确认后继续`)
-  }
 }
 
 function resolveAgentIdForWiki(
@@ -803,6 +788,7 @@ export function handleWikiSourceList(
   const sources = bridge.wikiRepo.listSourcesByTopic(agentId, LOCAL_USER_ID, {
     category: command.category,
     subtopic: command.subtopic,
+    subtopicUnfiled: command.subtopicUnfiled,
     parking: command.parking,
     unfiled: command.unfiled,
     archived: command.archived,
@@ -1206,167 +1192,6 @@ export function handleWikiConceptReject(
   command: Extract<AgentRuntimeCommand, { type: 'wiki:concept:reject' }>,
 ): { success: boolean } {
   bridge.wikiConceptCandidateScanner.reject(command.name, command.conceptType)
-  return { success: true }
-}
-
-/** 将合成行映射为 IPC 列表项 */
-function mapSynthesisListItem(row: {
-  id: string
-  title: string
-  status: string
-  source_page_ids: readonly string[]
-  output_path: string | null
-  error: string | null
-  page_id: string | null
-  created_at: string
-  finished_at: string | null
-}) {
-  return {
-    id: row.id,
-    title: row.title,
-    status: row.status,
-    sourcePageIds: row.source_page_ids,
-    outputPath: row.output_path,
-    error: row.error,
-    progress: parseSynthesisProgress(row.error),
-    pageId: row.page_id,
-    createdAt: new Date(row.created_at).getTime(),
-    finishedAt: row.finished_at ? new Date(row.finished_at).getTime() : null,
-  }
-}
-
-/**
- * 发起综述合成。pageIds 与 category 至少其一；category 展开为该分类全部页面。
- */
-export async function handleWikiSynthesisCreate(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:create' }>,
-): Promise<{ synthesisId: string }> {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const synthesizer = bridge.createWikiSynthesizer()
-
-  // 二期主路径：以资料为输入。给 sourceIds，或给 topicCategory（可选 topicSubtopic）都走这条。
-  if ((command.sourceIds && command.sourceIds.length > 0) || command.topicCategory) {
-    let sourceIds = [...(command.sourceIds ?? [])]
-    if (sourceIds.length === 0 && command.topicCategory) {
-      sourceIds = bridge.wikiRepo
-        .listSourcesByTopic(agentId, LOCAL_USER_ID, {
-          category: command.topicCategory,
-          subtopic: command.topicSubtopic,
-        })
-        .map((s) => s.id)
-    }
-    if (sourceIds.length === 0) {
-      throw new Error('这个目录下没有可合成的文件')
-    }
-    // 不静默截断：超量时抛带 code 的错误，UI 二次确认后带 confirmed 再来。
-    // 用 code 而非匹配中文文案，避免改文案就破坏 UI 判断。
-    if (sourceIds.length > SYNTHESIS_SOURCE_CONFIRM_LIMIT && command.confirmed !== true) {
-      throw new WikiSynthesisConfirmRequiredError(sourceIds.length)
-    }
-    const synthesisId = await synthesizer.synthesizeSources(agentId, LOCAL_USER_ID, sourceIds, {
-      title: command.title,
-      mode: command.mode,
-    })
-    return { synthesisId }
-  }
-
-  // 历史页面路径：保留给存量摘要页记录
-  let pageIds = [...(command.pageIds ?? [])]
-  if (command.category) {
-    const pages = bridge.wikiRepo.listPages(agentId, LOCAL_USER_ID, command.category as never)
-    pageIds = pages.map((p) => p.id)
-  }
-  if (pageIds.length === 0) {
-    throw new Error('合成至少需要一个文件（提供 sourceIds / topicCategory / pageIds）')
-  }
-  const synthesisId = await synthesizer.synthesize(agentId, LOCAL_USER_ID, pageIds, {
-    title: command.title,
-  })
-  return { synthesisId }
-}
-
-/** 以资料形式接受综述：产物成为目录里的一份普通文件 */
-export function handleWikiSynthesisAcceptAsSource(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:accept-as-source' }>,
-): { sourceId: string; category: string; subtopic: string } {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const source = bridge
-    .createWikiSynthesizer()
-    .acceptAsSource(agentId, LOCAL_USER_ID, command.synthesisId, {
-      category: command.category,
-      subtopic: command.subtopic,
-    }, { archiveSources: command.archiveSources === true })
-  return {
-    sourceId: source.id,
-    category: source.topic_category ?? command.category,
-    subtopic: source.topic_subtopic ?? command.subtopic,
-  }
-}
-
-/**
- * 一键自动综述：串行生成各分类的稳定 overview 页（不经 candidate 接受态）。
- */
-export async function handleWikiSynthesisAutoRun(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:auto-run' }>,
-): Promise<{
-  results: readonly {
-    category: string
-    pageId: string
-    path: string
-    skipped?: boolean
-    error?: string
-  }[]
-}> {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const runner = new WikiAutoSynthesisRunner(bridge.createWikiSynthesizer(), bridge.wikiRepo)
-  return runner.autoSynthesizeAll(agentId, LOCAL_USER_ID)
-}
-
-export function handleWikiSynthesisList(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:list' }>,
-): unknown {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const rows = bridge.wikiRepo.listSyntheses(agentId, LOCAL_USER_ID, command.status)
-  return rows.map(mapSynthesisListItem)
-}
-
-export function handleWikiSynthesisGet(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:get' }>,
-): unknown {
-  const row = bridge.wikiRepo.findSynthesisById(command.synthesisId)
-  if (!row) throw new Error(`合成记录不存在: ${command.synthesisId}`)
-  const sourcePages = row.source_page_ids
-    .map((id) => bridge.wikiRepo.findPageById(id))
-    .filter((p): p is NonNullable<typeof p> => p !== null)
-    .map((p) => ({ id: p.id, title: p.title, path: p.path }))
-  return {
-    ...mapSynthesisListItem(row),
-    candidateMd: row.candidate_md,
-    sourceIds: row.source_ids,
-    sourcePages,
-  }
-}
-
-export function handleWikiSynthesisAccept(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:accept' }>,
-): { pageId: string; path: string } {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const page = bridge.createWikiSynthesizer().accept(agentId, LOCAL_USER_ID, command.synthesisId)
-  return { pageId: page.id, path: page.path }
-}
-
-export function handleWikiSynthesisReject(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:synthesis:reject' }>,
-): { success: boolean } {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  bridge.createWikiSynthesizer().reject(agentId, LOCAL_USER_ID, command.synthesisId)
   return { success: true }
 }
 

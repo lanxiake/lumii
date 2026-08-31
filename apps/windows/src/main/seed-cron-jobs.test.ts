@@ -122,14 +122,12 @@ describe('ensureSeedCronJobsSeeded', () => {
     }
   })
 
-  it('Wiki 自动综述走 companion 通道、静默、每天 03:00', () => {
+  it('综述自动刷新任务已随综述功能一并移除（P2）', () => {
     const db = createFakeDb()
     ensureSeedCronJobsSeeded(db.adapter)
-    const row = db.jobs.get('wiki-auto-synthesis')!
-    expect(row[COL.taskText]).toBe('__wiki_auto_synthesis__')
-    expect(row[COL.agentId]).toBeNull()
-    expect(row[COL.scheduleExpr]).toBe('0 3 * * *')
-    expect(row[COL.notifyTargets]).toBe('silent')
+    expect(db.jobs.get('wiki-auto-synthesis')).toBeUndefined()
+    // 同文件的 ERO 抽取任务与综述无关，不应被误删
+    expect(db.jobs.get('wiki-ero-extract')).toBeTruthy()
   })
 
   it('Wiki ERO 抽取走 companion 通道、静默、每周日 04:00', () => {

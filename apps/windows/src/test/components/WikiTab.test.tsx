@@ -11,10 +11,10 @@ import type { WikiLocalTask } from '../../renderer/pages/MemoriesPage/components
 import { ToastProvider } from '../../renderer/components/ui/Toast/ToastContainer'
 
 const TOPIC_TREE = {
-  version: 1,
+  version: 2,
   categories: [
-    { name: '做事记录', subtopics: ['项目/任务资料', '会议聊天记录'] },
-    { name: '证件凭据', subtopics: ['合同协议文件', '证件扫描副本'] },
+    { name: '工作', subtopics: ['项目', '例行', '对外'] },
+    { name: '生活', subtopics: ['凭据', '家事', '自留'] },
   ],
 }
 
@@ -78,8 +78,7 @@ describe('WikiTab', () => {
     await screen.findByText(/暂无收件箱条目/)
 
     expect(screen.getByText('工作')).toBeInTheDocument()
-    expect(screen.getByText('学习')).toBeInTheDocument()
-    expect(screen.queryByText('做事记录')).not.toBeInTheDocument()
+    expect(screen.getByText('生活')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^收件箱/ })).toBeInTheDocument()
     expect(screen.getByText('临时存放')).toBeInTheDocument()
     expect(screen.getByText('知识图谱')).toBeInTheDocument()
@@ -93,7 +92,7 @@ describe('WikiTab', () => {
     await screen.findByText(/暂无收件箱条目/)
 
     await selectNavSection('工作')
-    fireEvent.click(screen.getByText('会议聊天记录'))
+    fireEvent.click(screen.getByText('例行'))
     expect(await screen.findByText('这个小类下还没有文件')).toBeInTheDocument()
   })
 
@@ -105,8 +104,8 @@ describe('WikiTab', () => {
           title: '周会纪要.docx',
           sourcePath: 'C:/files/周会纪要.docx',
           mediaType: 'document',
-          topicCategory: '做事记录',
-          topicSubtopic: '会议聊天记录',
+          topicCategory: '工作',
+          topicSubtopic: '例行',
           updatedAt: Date.now(),
           useCount: 0,
         }],
@@ -116,10 +115,10 @@ describe('WikiTab', () => {
 
     await screen.findByText(/暂无收件箱条目/)
     await selectNavSection('工作')
-    fireEvent.click(await screen.findByText('会议聊天记录'))
+    fireEvent.click(await screen.findByText('例行'))
     const title = await screen.findByText('周会纪要.docx')
     expect(title.closest('.wiki-file-list-item')).toHaveTextContent('刚刚')
-    expect(screen.getByRole('heading', { name: '会议聊天记录 (1)' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '例行 (1)' })).toBeInTheDocument()
   })
 
   it('文件行「打开」失败时展示无法打开原文件', async () => {
@@ -132,8 +131,8 @@ describe('WikiTab', () => {
             title: '合同.pdf',
             sourcePath: 'C:/files/合同.pdf',
             mediaType: 'document',
-            topicCategory: '证件凭据',
-            topicSubtopic: '合同协议文件',
+            topicCategory: '生活',
+            topicSubtopic: '凭据',
             updatedAt: Date.now(),
             useCount: 0,
           }],
@@ -148,7 +147,7 @@ describe('WikiTab', () => {
 
     await screen.findByText(/暂无收件箱条目/)
     await selectNavSection('生活')
-    fireEvent.click(await screen.findByText('合同协议文件'))
+    fireEvent.click(await screen.findByText('凭据'))
     fireEvent.click(await screen.findByRole('button', { name: /打开/ }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('无法打开原文件')
@@ -168,7 +167,7 @@ describe('WikiTab', () => {
         createdAt: Date.now(),
       }],
       'wiki:inbox:count': { total: 1 },
-      'wiki:inbox:organize': { sourceId: 's1', category: '证件凭据', subtopic: '合同协议文件' },
+      'wiki:inbox:organize': { sourceId: 's1', category: '生活', subtopic: '凭据' },
     })
     ;(window as any).electronAPI.agentRuntime.sendCommand = sendCommand
     renderWikiTab()
@@ -176,15 +175,15 @@ describe('WikiTab', () => {
     fireEvent.click(await screen.findByText('归档到…'))
     const dialog = within(await screen.findByRole('dialog'))
     fireEvent.click(dialog.getByRole('button', { name: '生活' }))
-    fireEvent.click(await dialog.findByRole('button', { name: '合同协议文件' }))
+    fireEvent.click(await dialog.findByRole('button', { name: '凭据' }))
     fireEvent.click(dialog.getByRole('button', { name: '确认归档' }))
 
     await waitFor(() => {
       expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({
         type: 'wiki:inbox:organize',
         inboxId: 'i1',
-        category: '证件凭据',
-        subtopic: '合同协议文件',
+        category: '生活',
+        subtopic: '凭据',
       }))
     })
   })
@@ -220,8 +219,8 @@ describe('WikiTab', () => {
         hits: [{
           sourceId: 's1',
           title: '架构设计文档.md',
-          category: '做事记录',
-          subtopic: '项目/任务资料',
+          category: '工作',
+          subtopic: '项目',
           snippet: '正文片段',
           mediaType: 'document',
           sourcePath: 'C:/files/架构设计文档.md',
@@ -239,7 +238,7 @@ describe('WikiTab', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     const title = await screen.findByText('架构设计文档.md')
-    expect(title.closest('.wiki-file-list-item')).toHaveTextContent('工作 / 项目/任务资料')
+    expect(title.closest('.wiki-file-list-item')).toHaveTextContent('工作 / 项目')
     expect(screen.getByRole('heading', { name: /搜索结果（1）/ })).toBeInTheDocument()
   })
 
@@ -311,7 +310,7 @@ describe('WikiTab', () => {
 
   it('图谱节点点击后自动加载图谱', async () => {
     ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
-      'wiki:source:list': [{ id: 's1', title: '资料A.pdf', sourcePath: null, topicCategory: '做事记录', topicSubtopic: '会议聊天记录', contentHash: 'h1', mediaType: 'application/pdf', sizeBytes: 1024 }],
+      'wiki:source:list': [{ id: 's1', title: '资料A.pdf', sourcePath: null, topicCategory: '工作', topicSubtopic: '例行', contentHash: 'h1', mediaType: 'application/pdf', sizeBytes: 1024 }],
       'wiki:inbox:list': [],
       'wiki:inbox:count': 0,
       'wiki:page:list': [],
@@ -374,8 +373,8 @@ describe('WikiTab', () => {
           title: '周会纪要.docx',
           sourcePath: 'C:/files/周会纪要.docx',
           mediaType: 'document',
-          topicCategory: '做事记录',
-          topicSubtopic: '会议聊天记录',
+          topicCategory: '工作',
+          topicSubtopic: '例行',
           updatedAt: Date.now(),
           useCount: 0,
         }],
@@ -389,7 +388,7 @@ describe('WikiTab', () => {
     })
 
     await selectNavSection('工作')
-    expect(screen.getByText('会议聊天记录').closest('button')?.querySelector('.wiki-subtopic-chip-count')).toHaveTextContent('1')
+    expect(screen.getByText('例行').closest('button')?.querySelector('.wiki-subtopic-chip-count')).toHaveTextContent('1')
   })
 
   it('从更多菜单触发重建索引任务且不切换全页', async () => {

@@ -5,19 +5,19 @@ import React, { useMemo } from 'react'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 import type { WikiTopicTree } from '../../../hooks/business/useWikiPage'
 import {
-  legacyCategoriesForSection,
+  UNFILED_SUBTOPIC_LABEL,
   navSectionLabel,
   topicCountKey,
   type WikiNavSection,
-} from './wikiNavMapping'
+} from './wikiTopicDisplay'
 
 interface WikiSubtopicPanelProps {
+  /** v1.1：分区即树中的大类名 */
   readonly section: WikiNavSection
-  /** 若指定则只展示该 legacy 大类下的小类 */
-  readonly categoryFilter?: string
   readonly topicTree: WikiTopicTree | null
   readonly topicCounts: Record<string, number>
-  readonly onSelectSubtopic: (category: string, subtopic: string) => void
+  /** subtopic 为 null 表示进入该大类的「未细分」分组 */
+  readonly onSelectSubtopic: (category: string, subtopic: string | null) => void
 }
 
 /**
@@ -25,37 +25,40 @@ interface WikiSubtopicPanelProps {
  */
 export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
   section,
-  categoryFilter,
   topicTree,
   topicCounts,
   onSelectSubtopic,
 }) => {
-  const groups = useMemo(() => {
-    const legacyNames = categoryFilter
-      ? [categoryFilter]
-      : legacyCategoriesForSection(section)
-    if (!topicTree || legacyNames.length === 0) return []
-    return topicTree.categories
-      .filter((cat) => legacyNames.includes(cat.name))
-      .map((cat) => ({
-        category: cat.name,
-        subtopics: cat.subtopics.map((subtopic) => ({
-          name: subtopic,
-          count: topicCounts[topicCountKey(cat.name, subtopic)] ?? 0,
-        })),
-      }))
-  }, [section, categoryFilter, topicTree, topicCounts])
+  /** 该大类下的小类 chip；末尾追加「未细分」（小类可选，见设计 §2.1.1） */
+  const chips = useMemo(() => {
+    const cat = topicTree?.categories.find((c) => c.name === section)
+    if (!cat) return []
+    const items = cat.subtopics.map((subtopic) => ({
+      key: subtopic,
+      label: subtopic,
+      subtopic: subtopic as string | null,
+      count: topicCounts[topicCountKey(cat.name, subtopic)] ?? 0,
+    }))
+    // 只在真有未细分资料时才显示这一组，避免空 chip 占位
+    const unfiledCount = topicCounts[topicCountKey(cat.name)] ?? 0
+    if (unfiledCount > 0) {
+      items.push({
+        key: '__unfiled__',
+        label: UNFILED_SUBTOPIC_LABEL,
+        subtopic: null,
+        count: unfiledCount,
+      })
+    }
+    return items
+  }, [section, topicTree, topicCounts])
 
-  const totalInSection = groups.reduce(
-    (sum, g) => sum + g.subtopics.reduce((s, st) => s + st.count, 0),
-    0,
-  )
+  const totalInSection = chips.reduce((sum, c) => sum + c.count, 0)
 
   if (!topicTree) {
     return <p className="wiki-empty-hint">加载分类结构…</p>
   }
 
-  if (groups.every((g) => g.subtopics.length === 0)) {
+  if (chips.length === 0) {
     return (
       <p className="wiki-empty-hint">
         「{navSectionLabel(section)}」下还没有小类。可在 更多 → 编辑主题树 中添加。
@@ -67,27 +70,27 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
     <div className="wiki-subtopic-panel">
       <p className="wiki-subtopic-panel-intro">共 {totalInSection} 个文件 · 选择小类查看</p>
       <ul className="wiki-subtopic-chips">
-        {groups.flatMap((group) =>
-          group.subtopics.map((subtopic) => (
-            <li key={`${group.category}/${subtopic.name}`}>
-              <Tooltip
-                content={`进入「${subtopic.name}」查看该小类下的全部资料`}
-                placement="top"
+        {chips.map((chip) => (
+          <li key={chip.key}>
+            <Tooltip
+              content={
+                chip.subtopic === null
+                  ? `进入「${section}」下还没细分小类的资料`
+                  : `进入「${chip.label}」查看该小类下的全部资料`
+              }
+              placement="top"
+            >
+              <button
+                type="button"
+                className="wiki-subtopic-chip"
+                onClick={() => onSelectSubtopic(section, chip.subtopic)}
               >
-                <button
-                  type="button"
-                  className="wiki-subtopic-chip"
-                  onClick={() => onSelectSubtopic(group.category, subtopic.name)}
-                >
-                  <span>{subtopic.name}</span>
-                  {subtopic.count > 0 && (
-                    <span className="wiki-subtopic-chip-count">{subtopic.count}</span>
-                  )}
-                </button>
-              </Tooltip>
-            </li>
-          )),
-        )}
+                <span>{chip.label}</span>
+                {chip.count > 0 && <span className="wiki-subtopic-chip-count">{chip.count}</span>}
+              </button>
+            </Tooltip>
+          </li>
+        ))}
       </ul>
     </div>
   )

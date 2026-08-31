@@ -53,8 +53,6 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'wiki:cleanup:scan', 'wiki:source:archive', 'wiki:source:restore', 'wiki:source:delete',
   'wiki:attach:list', 'wiki:attach:add', 'wiki:attach:remove', 'wiki:export',
   'wiki:concept:scan', 'wiki:concept:confirm', 'wiki:concept:reject',
-  'wiki:synthesis:create', 'wiki:synthesis:list', 'wiki:synthesis:get',
-  'wiki:synthesis:accept', 'wiki:synthesis:accept-as-source', 'wiki:synthesis:reject', 'wiki:synthesis:auto-run',
   'wiki:graph:data', 'wiki:status:scan', 'wiki:status:confirm',
   'wiki:ero:bootstrap', 'wiki:ero:list', 'wiki:ero:extract', 'wiki:ero:entity-sources',
   'wiki:search:hybrid', 'wiki:vector:rebuild',

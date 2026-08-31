@@ -1,13 +1,11 @@
 /**
- * Wiki 目录面包屑：section → category → subtopic
+ * Wiki 目录面包屑：大类 → 小类
+ *
+ * v1.1：左栏分区就是树中的大类，`section` 与 `category` 不再是两层
+ * （原先 section 是「旧六大类聚合出的分区」，故有 分区/大类/小类 三级）。
  */
 import type { WikiNav } from './WikiLeftNav'
-import {
-  legacyCategoriesForSection,
-  navSectionFromLegacyCategory,
-  navSectionLabel,
-  type WikiNavSection,
-} from './wikiNavMapping'
+import { UNFILED_SUBTOPIC_LABEL, isSystemSection, navSectionLabel } from './wikiTopicDisplay'
 
 /** 单个面包屑节点；有 nav 时可点击返回上级 */
 export interface WikiBreadcrumbItem {
@@ -15,56 +13,24 @@ export interface WikiBreadcrumbItem {
   readonly nav?: WikiNav
 }
 
-type BrowsableSection = 'work' | 'study' | 'life' | 'collection'
-
-/**
- * 判断分区是否属于左栏可浏览的四大用途目录。
- */
-function isBrowsableSection(section: WikiNavSection): section is BrowsableSection {
-  return section === 'work' || section === 'study' || section === 'life' || section === 'collection'
-}
-
 /**
  * 根据当前导航状态生成分级面包屑；非目录浏览视图返回 null。
  */
 export function buildWikiBreadcrumbs(nav: WikiNav): readonly WikiBreadcrumbItem[] | null {
-  if (nav.kind === 'section' && isBrowsableSection(nav.name)) {
+  // 大类分区：单级面包屑。系统分区（收件箱/归档）有自己的视图，不走目录面包屑。
+  if (nav.kind === 'section' && !isSystemSection(nav.name)) {
     return [{ label: navSectionLabel(nav.name) }]
   }
 
   if (nav.kind === 'category') {
-    const section = navSectionFromLegacyCategory(nav.name)
-    const items: WikiBreadcrumbItem[] = []
-    if (isBrowsableSection(section)) {
-      items.push({
-        label: navSectionLabel(section),
-        nav: { kind: 'section', name: section },
-      })
-    }
-    items.push({ label: nav.name })
-    return items
+    return [{ label: nav.name }]
   }
 
   if (nav.kind === 'subtopic') {
-    const section = navSectionFromLegacyCategory(nav.category)
-    const items: WikiBreadcrumbItem[] = []
-    if (isBrowsableSection(section)) {
-      items.push({
-        label: navSectionLabel(section),
-        nav: { kind: 'section', name: section },
-      })
-    }
-    const categoriesInSection = isBrowsableSection(section)
-      ? legacyCategoriesForSection(section)
-      : []
-    if (categoriesInSection.length > 1) {
-      items.push({
-        label: nav.category,
-        nav: { kind: 'category', name: nav.category },
-      })
-    }
-    items.push({ label: nav.subtopic })
-    return items
+    return [
+      { label: nav.category, nav: { kind: 'section', name: nav.category } },
+      { label: nav.subtopic ?? UNFILED_SUBTOPIC_LABEL },
+    ]
   }
 
   return null

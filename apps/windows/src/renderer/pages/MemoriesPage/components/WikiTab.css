@@ -1666,48 +1666,10 @@
   cursor: pointer;
 }
 
-.wiki-synthesis-view,
 .wiki-graph-view {
   padding: 16px;
   overflow: auto;
   height: 100%;
-}
-
-.wiki-synthesis-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.wiki-synthesis-header h3 {
-  margin: 0;
-}
-
-.wiki-synthesis-status {
-  margin: 0 0 12px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  background: var(--color-bg-secondary, rgba(0, 0, 0, 0.04));
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-
-.wiki-synthesis-list {
-  margin-bottom: 20px;
-}
-
-.wiki-synthesis-page-pick {
-  max-height: 200px;
-  overflow: auto;
-  margin: 8px 0;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  padding: 4px;
-}
-
-.wiki-synthesis-sources {
-  margin-top: 12px;
 }
 
 .wiki-status-candidates {
@@ -2193,28 +2155,6 @@
   border: 1px solid var(--color-border);
   border-radius: 8px;
   overflow: hidden;
-}
-
-.wiki-consolidate-hint {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--color-bg-hover);
-  font-size: 13px;
-  color: var(--color-text-secondary);
-}
-
-.wiki-consolidate-accept-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 12px;
-  font-size: 13px;
-  color: var(--color-text-secondary);
 }
 
 .wiki-inbox-item-title--link {

@@ -14,7 +14,6 @@ import { ipcMain, shell, dialog, type BrowserWindow } from 'electron'
 import { Cron } from 'croner'
 import { BUILT_IN_AGENTS, type AgentDefinition } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../shared/agent-runtime-commands'
-import { SYNTHESIS_CONFIRM_REQUIRED_CODE } from '../../shared/agent-runtime-commands'
 import type { AgentRuntimeEvent } from '../../shared/agent-runtime-events'
 import { voiceEventBus } from '../voice/voice-event-bus.js'
 import { getPetWindowManager } from '../pet/pet-mode-ipc.js'
@@ -165,13 +164,6 @@ import {
   handleWikiConceptScan,
   handleWikiConceptConfirm,
   handleWikiConceptReject,
-  handleWikiSynthesisCreate,
-  handleWikiSynthesisList,
-  handleWikiSynthesisGet,
-  handleWikiSynthesisAccept,
-  handleWikiSynthesisAcceptAsSource,
-  handleWikiSynthesisReject,
-  handleWikiSynthesisAutoRun,
   handleWikiGraphData,
   handleWikiStatusScan,
   handleWikiStatusConfirm,
@@ -692,15 +684,7 @@ export function installAgentRuntimeCommandIpc(performanceMonitor?: PerformanceMo
     try {
       return await handleCommand(ipcBridgeRef, command)
     } catch (err) {
-      const confirmCode =
-        err && typeof err === 'object' && 'code' in err
-          ? String((err as { code: unknown }).code)
-          : err instanceof Error && err.message.includes(SYNTHESIS_CONFIRM_REQUIRED_CODE)
-            ? SYNTHESIS_CONFIRM_REQUIRED_CODE
-            : null
-      if (confirmCode !== SYNTHESIS_CONFIRM_REQUIRED_CODE) {
-        log.error(`[command] error handling ${command?.type}:`, err)
-      }
+      log.error(`[command] error handling ${command?.type}:`, err)
       throw err
     }
   }
@@ -1126,27 +1110,6 @@ export async function handleCommand(
 
       case 'wiki:concept:reject':
         return handleWikiConceptReject(bridge, command)
-
-      case 'wiki:synthesis:create':
-        return handleWikiSynthesisCreate(bridge, command)
-
-      case 'wiki:synthesis:list':
-        return handleWikiSynthesisList(bridge, command)
-
-      case 'wiki:synthesis:get':
-        return handleWikiSynthesisGet(bridge, command)
-
-      case 'wiki:synthesis:accept':
-        return handleWikiSynthesisAccept(bridge, command)
-
-      case 'wiki:synthesis:accept-as-source':
-        return handleWikiSynthesisAcceptAsSource(bridge, command)
-
-      case 'wiki:synthesis:reject':
-        return handleWikiSynthesisReject(bridge, command)
-
-      case 'wiki:synthesis:auto-run':
-        return handleWikiSynthesisAutoRun(bridge, command)
 
       case 'wiki:graph:data':
         return handleWikiGraphData(bridge, command)

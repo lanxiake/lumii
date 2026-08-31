@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import type { WikiReclassifyRunItem } from '../../../hooks/business/useWikiPage'
-import { formatTopicDisplay } from './wikiNavMapping'
+import { formatTopicDisplay } from './wikiTopicDisplay'
 
 interface WikiReclassifyViewProps {
   run: WikiReclassifyRunItem | null

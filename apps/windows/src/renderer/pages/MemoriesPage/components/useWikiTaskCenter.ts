@@ -1,7 +1,7 @@
 import { useRef, useSyncExternalStore } from 'react'
 import type { WikiRunItem } from '../../../hooks/business/useWikiPage/useWikiPage'
 
-export type WikiTaskKind = 'archive' | 'cleanup' | 'synthesis' | 'rebuild' | 'graph' | 'reclassify'
+export type WikiTaskKind = 'archive' | 'cleanup' | 'rebuild' | 'graph' | 'reclassify'
 export type WikiTaskPhase = 'running' | 'succeeded' | 'failed'
 
 export interface WikiLocalTask {
@@ -51,7 +51,6 @@ export interface WikiTaskCenterStore {
 const TASK_PROGRESS_PREFIX: Record<WikiTaskKind, string> = {
   archive: '归档中',
   cleanup: '清理中',
-  synthesis: '综述合成中',
   rebuild: '重建索引…',
   graph: '图谱任务中',
   reclassify: '重新编目中',

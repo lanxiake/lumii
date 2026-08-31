@@ -1,7 +1,7 @@
 import React from 'react'
-import { Inbox, Archive, Briefcase, BookOpen, Home, Star, MoreHorizontal, Network, Package } from 'lucide-react'
+import { Inbox, Archive, Briefcase, BookOpen, Home, Star, MoreHorizontal, Network, Package, Folder } from 'lucide-react'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
-import { navSectionLabel, topicCountKey, type WikiNavSection } from './wikiNavMapping'
+import { navSectionLabel, topicCountKey, type WikiNavSection } from './wikiTopicDisplay'
 import { WIKI_LEFT_FIXED_TOOLTIPS, WIKI_MORE_TOOLTIP, WIKI_NAV_TOOLTIPS } from './wikiTooltips'
 
 // 导出 topicCountKey 供 WikiTab 与 WikiTopicTreeEditor 复用
@@ -18,17 +18,22 @@ export type WikiNav =
   | { kind: 'graph' }
   | { kind: 'history' }
   | { kind: 'cleanup' }
-  | { kind: 'synthesis' }
   | { kind: 'reclassify' }
   | { kind: 'category'; name: string }
-  | { kind: 'subtopic'; category: string; subtopic: string }
+  /** subtopic 为 null 表示该大类下的「未细分」分组（小类可选，见设计 §2.1.1） */
+  | { kind: 'subtopic'; category: string; subtopic: string | null }
 
 interface WikiLeftNavProps {
   active: WikiNav | { kind: 'more' }
   /** 收件箱角标（pending 条数，不含未分类） */
   inboxCount: number
-  /** 各分区计数；key = section name */
-  sectionCounts: Record<WikiNavSection, number>
+  /**
+   * 大类分区，按树序。v1.1 起左栏分区即树中的大类，随树动态变化
+   * （用户自建大类会出现在这里），不再是写死的四项。
+   */
+  categories: readonly string[]
+  /** 各分区计数；key = 大类名 */
+  sectionCounts: Record<string, number>
   archivedCount: number
   parkingCount: number
   moreButtonRef?: React.RefObject<HTMLButtonElement>
@@ -42,18 +47,19 @@ function isActive(active: WikiLeftNavProps['active'], nav: WikiNav): boolean {
   return true
 }
 
-const SECTION_ICONS: Record<WikiNavSection, React.FC<{ size?: number | string }>> = {
-  work: Briefcase,
-  study: BookOpen,
-  life: Home,
-  collection: Star,
+/**
+ * 分区图标。键是系统分区 id 或 v2 树的大类名；
+ * 用户自建大类取不到时兜底 Folder（分区集合开放，不能穷举）。
+ */
+const SECTION_ICONS: Record<string, React.FC<{ size?: number | string }>> = {
   inbox: Inbox,
   archived: Archive,
   unfiled: Inbox,
+  工作: Briefcase,
+  学习: BookOpen,
+  生活: Home,
+  收藏: Star,
 }
-
-/** 左栏分区顺序 */
-const NAV_SECTIONS: readonly WikiNavSection[] = ['inbox', 'work', 'study', 'life', 'collection', 'archived']
 
 /** 左栏固定入口（排在已归档之后） */
 const FIXED_NAV_ITEMS = [
@@ -67,6 +73,7 @@ const FIXED_NAV_ITEMS = [
 export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
   active,
   inboxCount,
+  categories,
   sectionCounts,
   archivedCount,
   parkingCount,
@@ -78,8 +85,13 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
    * 渲染单个分区按钮（带 Tooltip）
    */
   const renderSection = (section: WikiNavSection, count: number, warn = false) => {
-    const nav: WikiNav = section === 'inbox' || section === 'archived' ? { kind: section } : { kind: 'section', name: section }
-    const Icon = SECTION_ICONS[section]
+    const nav: WikiNav =
+      section === 'inbox'
+        ? { kind: 'inbox' }
+        : section === 'archived'
+          ? { kind: 'archived' }
+          : { kind: 'section', name: section }
+    const Icon = SECTION_ICONS[section] ?? Folder
     const label = navSectionLabel(section)
     return (
       <Tooltip key={section} content={WIKI_NAV_TOOLTIPS[section]} placement="right">
@@ -123,11 +135,10 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
   return (
     <nav className="wiki-left-nav" aria-label="Wiki 导航">
       <div className="wiki-left-nav-primary">
-        {NAV_SECTIONS.map((section) => {
-          if (section === 'inbox') return renderSection(section, inboxCount, true)
-          if (section === 'archived') return renderSection(section, archivedCount)
-          return renderSection(section, sectionCounts[section] ?? 0)
-        })}
+        {/* 收件箱固定在最前、归档固定在最后，中间按树序渲染大类 */}
+        {renderSection('inbox', inboxCount, true)}
+        {categories.map((category) => renderSection(category, sectionCounts[category] ?? 0))}
+        {renderSection('archived', archivedCount)}
         {FIXED_NAV_ITEMS.map(({ kind, label, icon: Icon }) =>
           renderFixedNav(kind, label, Icon, kind === 'parking' ? parkingCount : 0),
         )}

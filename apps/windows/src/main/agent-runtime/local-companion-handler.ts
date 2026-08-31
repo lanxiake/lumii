@@ -88,7 +88,6 @@ const COMPANION_INSTRUCTIONS = new Set([
   '__companion_tick__',
   '__companion_memory_fast__',
   '__companion_memory_deep__',
-  '__wiki_auto_synthesis__',
   '__wiki_ero_extract__',
 ])
 
@@ -118,8 +117,6 @@ export interface LocalCompanionDeps {
   updateUserMemory?: (content: string) => Promise<unknown>
   /** 整理用记忆的 LLM 调用 */
   callLLM?: (prompt: string) => Promise<string>
-  /** Wiki 分类综述自动刷新（cron / 手动触发） */
-  runWikiAutoSynthesis?: () => Promise<string>
   /** Wiki ERO 实体关系抽取（cron / 手动触发） */
   runWikiEroExtract?: () => Promise<string>
 }
@@ -150,10 +147,6 @@ export async function handleLocalCompanionInstruction(
       return handleMemoryConsolidation(deps, 'fast')
     case '__companion_memory_deep__':
       return handleMemoryConsolidation(deps, 'deep')
-    case '__wiki_auto_synthesis__': {
-      if (!deps.runWikiAutoSynthesis) return 'wiki auto synthesis unavailable'
-      return deps.runWikiAutoSynthesis()
-    }
     case '__wiki_ero_extract__': {
       if (!deps.runWikiEroExtract) return 'wiki ero extract unavailable'
       return deps.runWikiEroExtract()

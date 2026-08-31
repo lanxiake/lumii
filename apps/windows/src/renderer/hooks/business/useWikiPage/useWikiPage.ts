@@ -5,7 +5,6 @@
  */
 
 import { useCallback, useState } from 'react'
-import { SYNTHESIS_CONFIRM_REQUIRED_CODE } from '../../../../shared/agent-runtime-commands'
 
 /** 单机应用固定单一 agent；主进程侧同样兜底 'assistant'（wiki-commands.ts resolveAgentIdForWiki） */
 const DEFAULT_AGENT_ID = 'assistant'
@@ -190,25 +189,6 @@ export interface WikiConceptCandidateItem {
   readonly suggestedContentMd: string
 }
 
-export interface WikiSynthesisListItem {
-  readonly id: string
-  readonly title: string
-  readonly status: string
-  readonly sourcePageIds: readonly string[]
-  readonly outputPath: string | null
-  readonly error: string | null
-  readonly progress: { chunk: number; total: number } | null
-  readonly pageId: string | null
-  readonly createdAt: number
-  readonly finishedAt: number | null
-}
-
-export interface WikiSynthesisDetail extends WikiSynthesisListItem {
-  readonly candidateMd: string
-  readonly sourceIds: readonly string[] | null
-  readonly sourcePages: readonly { id: string; title: string; path: string }[]
-}
-
 export interface WikiGraphDataItem {
   readonly nodes: readonly {
     readonly id: string
@@ -286,7 +266,7 @@ export interface WikiStatusCandidateItem {
 }
 
 export interface WikiTopicTree {
-  readonly version: 1
+  readonly version: 1 | 2
   readonly categories: ReadonlyArray<{ readonly name: string; readonly subtopics: readonly string[] }>
 }
 
@@ -314,7 +294,7 @@ export type WikiTopicMutateResult =
 /** 重新编目范围 */
 export type WikiReclassifyScopeDto =
   | { readonly kind: 'source'; readonly sourceId: string }
-  | { readonly kind: 'subtopic'; readonly category: string; readonly subtopic: string }
+  | { readonly kind: 'subtopic'; readonly category: string; readonly subtopic: string | null }
   | { readonly kind: 'all' }
 
 export interface WikiReclassifyCandidateItem {
@@ -433,9 +413,10 @@ export function useWikiPage() {
     async (
       inboxId: string,
       category: string,
-      subtopic: string,
+      /** null = 只归大类、暂不细分（小类可选） */
+      subtopic: string | null,
       title?: string,
-    ): Promise<{ sourceId: string; category: string; subtopic: string } | null> => {
+    ): Promise<{ sourceId: string; category: string; subtopic: string | null } | null> => {
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return null
       try {
@@ -445,7 +426,7 @@ export function useWikiPage() {
           category,
           subtopic,
           title,
-        })) as { sourceId: string; category: string; subtopic: string }
+        })) as { sourceId: string; category: string; subtopic: string | null }
       } catch {
         return null
       }
@@ -868,161 +849,6 @@ export function useWikiPage() {
     }
   }, [])
 
-  /**
-   * 发起综述。二期传 sourceIds 或 topicCategory 以资料为输入。
-   * 超量时后端抛带 code 的错误，需要用户确认后带 confirmed 重发，
-   * 所以返回结果对象而不是吞掉异常。
-   */
-  const createSynthesis = useCallback(
-    async (params: {
-      sourceIds?: readonly string[]
-      pageIds?: readonly string[]
-      category?: string
-      topicCategory?: string
-      topicSubtopic?: string
-      confirmed?: boolean
-      title?: string
-      mode?: 'synthesis' | 'consolidate'
-    }): Promise<
-      | { ok: true; synthesisId: string }
-      | { ok: false; needsConfirm: true; count: number }
-      | { ok: false; needsConfirm?: false; error: string }
-    > => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return { ok: false, error: '运行时不可用' }
-      setLoading(true)
-      try {
-        const r = (await api.sendCommand({
-          type: 'wiki:synthesis:create',
-          sourceIds: params.sourceIds,
-          pageIds: params.pageIds,
-          category: params.category,
-          topicCategory: params.topicCategory,
-          topicSubtopic: params.topicSubtopic,
-          confirmed: params.confirmed,
-          title: params.title,
-          mode: params.mode,
-        })) as { synthesisId: string }
-        return { ok: true, synthesisId: r.synthesisId }
-      } catch (e) {
-        const message = e instanceof Error ? e.message : '综述发起失败'
-        const code =
-          e && typeof e === 'object' && 'code' in e
-            ? String((e as { code: unknown }).code)
-            : ''
-        const countFromErr =
-          e && typeof e === 'object' && 'count' in e
-            ? Number((e as { count: unknown }).count)
-            : NaN
-        // 跨 IPC 识别「需要二次确认」：优先 code/count 字段，回退 message 前缀
-        if (code === SYNTHESIS_CONFIRM_REQUIRED_CODE || message.includes(SYNTHESIS_CONFIRM_REQUIRED_CODE)) {
-          const count =
-            Number.isFinite(countFromErr) && countFromErr > 0
-              ? countFromErr
-              : Number(/合成 (\d+) 个文件/.exec(message)?.[1] ?? 0)
-          return { ok: false, needsConfirm: true, count }
-        }
-        return { ok: false, error: message }
-      } finally {
-        setLoading(false)
-      }
-    },
-    [],
-  )
-
-  /** 以资料形式接受综述：产物成为目录里的一份普通文件 */
-  const acceptSynthesisAsSource = useCallback(
-    async (
-      synthesisId: string,
-      category: string,
-      subtopic: string,
-      archiveSources = false,
-    ): Promise<{ sourceId: string } | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
-      try {
-        const r = (await api.sendCommand({
-          type: 'wiki:synthesis:accept-as-source',
-          synthesisId,
-          category,
-          subtopic,
-          archiveSources,
-        })) as { sourceId: string }
-        return r ?? null
-      } catch {
-        return null
-      }
-    },
-    [],
-  )
-
-  const listSyntheses = useCallback(
-    async (status?: 'candidate' | 'accepted' | 'rejected'): Promise<readonly WikiSynthesisListItem[]> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return []
-      try {
-        const rows = (await api.sendCommand({ type: 'wiki:synthesis:list', status })) as WikiSynthesisListItem[]
-        return Array.isArray(rows) ? rows : []
-      } catch {
-        return []
-      }
-    },
-    [],
-  )
-
-  const getSynthesis = useCallback(async (synthesisId: string): Promise<WikiSynthesisDetail | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
-    try {
-      return (await api.sendCommand({ type: 'wiki:synthesis:get', synthesisId })) as WikiSynthesisDetail
-    } catch {
-      return null
-    }
-  }, [])
-
-  const acceptSynthesis = useCallback(async (synthesisId: string): Promise<string | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
-    try {
-      const r = (await api.sendCommand({ type: 'wiki:synthesis:accept', synthesisId })) as { pageId: string }
-      return r?.pageId ?? null
-    } catch {
-      return null
-    }
-  }, [])
-
-  const rejectSynthesis = useCallback(async (synthesisId: string): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
-    try {
-      const r = (await api.sendCommand({ type: 'wiki:synthesis:reject', synthesisId })) as { success: boolean }
-      return !!r?.success
-    } catch {
-      return false
-    }
-  }, [])
-
-  /**
-   * 一键自动综述：串行生成 sources/media 稳定 overview 页。
-   */
-  const autoRunSynthesis = useCallback(async () => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
-    try {
-      return (await api.sendCommand({ type: 'wiki:synthesis:auto-run' })) as {
-        results: readonly {
-          category: string
-          pageId: string
-          path: string
-          skipped?: boolean
-          error?: string
-        }[]
-      }
-    } catch {
-      return null
-    }
-  }, [])
-
   const searchHybrid = useCallback(
     async (
       keyword: string,
@@ -1206,7 +1032,8 @@ export function useWikiPage() {
   const createNote = useCallback(
     async (
       category: string,
-      subtopic: string,
+      /** null = 「暂不细分」分组（小类可选） */
+      subtopic: string | null,
       title?: string,
     ): Promise<{ sourceId: string; title: string } | null> => {
       const api = window.electronAPI?.agentRuntime
@@ -1496,13 +1323,6 @@ export function useWikiPage() {
     conceptScan,
     confirmConcept,
     rejectConcept,
-    createSynthesis,
-    listSyntheses,
-    getSynthesis,
-    acceptSynthesis,
-    acceptSynthesisAsSource,
-    rejectSynthesis,
-    autoRunSynthesis,
     getGraphData,
     statusScan,
     confirmStatus,

@@ -46,7 +46,7 @@ describe('wiki task center store', () => {
   it('shows a success tone for about three seconds', () => {
     vi.useFakeTimers()
     const store = createWikiTaskCenterStore()
-    const id = store.startTask({ kind: 'synthesis', title: '生成综述' })
+    const id = store.startTask({ kind: 'cleanup', title: '清理扫描' })
 
     store.completeTask(id)
     expect(store.getSnapshot().pillTone).toBe('success')

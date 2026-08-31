@@ -17,37 +17,6 @@ export { serializeAttachmentReference, isAttachmentReferenceLine } from "./wiki-
 export { WikiConceptCandidateScanner, buildConceptScanPrompt } from "./wiki-concept-candidate.js";
 export type { WikiConceptType, WikiConceptCandidate } from "./wiki-concept-candidate.js";
 
-export {
-  WikiSynthesizer,
-  chunkByParagraphs,
-  truncateSynthesis,
-  buildSynthesisFilename,
-  resolveUniqueFilename,
-  buildAcceptedSynthesisPageMd,
-  parseSynthesisProgress,
-  SYNTHESIS_CHUNK_SIZE,
-  SYNTHESIS_MAX_OUTPUT_CHARS,
-  SYNTHESIS_MAX_CHUNKS,
-} from "./wiki-synthesizer.js";
-export type {
-  WikiSynthesizerFsDeps,
-  WikiSynthesizeOptions,
-  WikiSynthesizeDirectOptions,
-} from "./wiki-synthesizer.js";
-
-export {
-  AUTO_SYNTHESIS_CATEGORIES,
-  WikiAutoSynthesisRunner,
-  autoSynthesisPath,
-  selectPagesForAutoSynthesis,
-} from "./wiki-auto-synthesis.js";
-export type {
-  AutoSynthesisCategory,
-  AutoSynthesizeCategoryResult,
-  AutoSynthesisRunResult,
-  AutoSynthesizeAllResult,
-} from "./wiki-auto-synthesis.js";
-
 export { WikiGraphBuilder, subtopicNodeId, parseSubtopicNodeId } from "./wiki-graph.js";
 export type {
   WikiGraphNodeKind,
@@ -265,8 +234,6 @@ export type {
   WikiLink,
   WikiBacklink,
   WikiAttachment,
-  WikiSynthesis,
-  WikiSynthesisStatus,
 } from "./types.js";
 
 export { parseWikilinks } from "./wiki-link-parser.js";

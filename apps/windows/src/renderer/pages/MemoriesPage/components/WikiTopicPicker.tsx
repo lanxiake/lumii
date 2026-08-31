@@ -3,32 +3,15 @@ import { Modal } from '../../../components/ui/Modal'
 import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import { Button } from '../../../components/ui/Button/Button'
 import type { WikiTopicTree } from '../../../hooks/business/useWikiPage'
-import {
-  legacyCategoriesForSection,
-  navSectionLabel,
-  type WikiNavSection,
-} from './wikiNavMapping'
+import { navSectionLabel, type WikiNavSection } from './wikiTopicDisplay'
 
-/** 归档弹层第一步可选分区（不含收件箱 / 临时存放） */
-export const WIKI_TOPIC_PICKER_SECTIONS: readonly WikiNavSection[] = [
-  'work',
-  'study',
-  'life',
-  'collection',
-  'archived',
-]
-
-/** 收件箱批量归档：只选活跃分区，不含「已归档」冷存储 */
-export const WIKI_TOPIC_PICKER_ACTIVE_SECTIONS: readonly WikiNavSection[] = [
-  'work',
-  'study',
-  'life',
-  'collection',
-]
+/** 「已归档」是系统分区，与树中的大类并列出现在第一步 */
+const ARCHIVED_SECTION: WikiNavSection = 'archived'
 
 interface TopicTarget {
   readonly category: string
-  readonly subtopic: string
+  /** null = 暂不细分（小类可选，见设计 §2.1.1） */
+  readonly subtopic: string | null
 }
 
 interface WikiTopicPickerProps {
@@ -38,11 +21,11 @@ interface WikiTopicPickerProps {
   title?: string
   /** 待归档条目名称，展示在选择区上方帮助用户确认对象 */
   itemTitle?: string
-  /** 第一步分区列表；默认含「已归档」 */
-  sections?: readonly WikiNavSection[]
+  /** 是否在第一步提供「已归档」；收件箱批量归档场景传 false（不进冷存储） */
+  includeArchived?: boolean
   onCancel: () => void
-  /** 写入主题树；category 为旧大类真名（与左栏分区映射一致） */
-  onConfirm: (category: string, subtopic: string) => void
+  /** 写入主题树；subtopic 为 null 表示只归大类、暂不细分 */
+  onConfirm: (category: string, subtopic: string | null) => void
   /** 选中「已归档」分区时调用，不走 update-topic */
   onConfirmArchive?: () => void
   /** 提供时显示次要按钮「让 AI 建议」 */
@@ -57,29 +40,15 @@ interface WikiTopicPickerProps {
 }
 
 /**
- * 根据分区从主题树取出小类分组（与 WikiSubtopicPanel 同源逻辑）。
- */
-function buildSubtopicGroups(
-  tree: WikiTopicTree | null,
-  section: WikiNavSection,
-): ReadonlyArray<{ category: string; subtopics: readonly string[] }> {
-  const legacyNames = legacyCategoriesForSection(section)
-  if (!tree || legacyNames.length === 0) return []
-  return tree.categories
-    .filter((cat) => legacyNames.includes(cat.name))
-    .map((cat) => ({ category: cat.name, subtopics: cat.subtopics }))
-}
-
-/**
- * 用途目录两级选择器：先选左栏分区（工作/学习/生活/收藏），再选小类。
- * 回调仍传旧大类真名 + 小类，与 updateSourceTopic / organizeInbox 兼容。
+ * 用途目录两级选择器：先选大类，再选小类（可「暂不细分」）。
+ * v1.1：分区就是树中的大类，不再有「分区 → 旧大类」的中间映射。
  */
 export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
   open,
   tree,
   title = '归档到…',
   itemTitle,
-  sections = WIKI_TOPIC_PICKER_SECTIONS,
+  includeArchived = true,
   onCancel,
   onConfirm,
   onConfirmArchive,
@@ -100,12 +69,18 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
     }
   }, [open])
 
-  const subtopicGroups = useMemo(
-    () => (section && section !== 'archived' ? buildSubtopicGroups(tree, section) : []),
-    [tree, section],
-  )
+  /** 第一步分区 = 树中的大类（按树序）+ 可选的「已归档」 */
+  const sections = useMemo<readonly WikiNavSection[]>(() => {
+    const categories = tree?.categories.map((c) => c.name) ?? []
+    return includeArchived ? [...categories, ARCHIVED_SECTION] : categories
+  }, [tree, includeArchived])
 
-  const isArchiveSection = section === 'archived'
+  const subtopics = useMemo<readonly string[]>(() => {
+    if (!section || section === ARCHIVED_SECTION) return []
+    return tree?.categories.find((c) => c.name === section)?.subtopics ?? []
+  }, [tree, section])
+
+  const isArchiveSection = section === ARCHIVED_SECTION
   const canConfirm = isArchiveSection ? Boolean(onConfirmArchive) : Boolean(target)
 
   /**
@@ -183,28 +158,35 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
         {section && !isArchiveSection && (
           <section className="wiki-topic-picker-section">
             <h4 className="wiki-topic-picker-heading">选择小类</h4>
-            {subtopicGroups.length === 0 ? (
-              <p className="wiki-topic-picker-hint">该分区下还没有小类，可在 更多 → 编辑主题树 中添加。</p>
-            ) : (
-              <div className="wiki-topic-picker-options">
-                {subtopicGroups.flatMap((group) =>
-                  group.subtopics.map((name) => {
-                    const active = target?.category === group.category && target?.subtopic === name
-                    return (
-                      <button
-                        key={`${group.category}/${name}`}
-                        type="button"
-                        className={`wiki-topic-picker-option${active ? ' wiki-topic-picker-option--active' : ''}`}
-                        aria-pressed={active}
-                        onClick={() => setTarget({ category: group.category, subtopic: name })}
-                      >
-                        {name}
-                      </button>
-                    )
-                  }),
-                )}
-              </div>
-            )}
+            <div className="wiki-topic-picker-options">
+              {subtopics.map((name) => {
+                const active = target?.category === section && target?.subtopic === name
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    className={`wiki-topic-picker-option${active ? ' wiki-topic-picker-option--active' : ''}`}
+                    aria-pressed={active}
+                    onClick={() => setTarget({ category: section, subtopic: name })}
+                  >
+                    {name}
+                  </button>
+                )
+              })}
+              {/* 小类可选：拿不准就只归大类，不逼用户硬选一个（设计 §2.1.1） */}
+              <button
+                type="button"
+                className={`wiki-topic-picker-option${
+                  target?.category === section && target?.subtopic === null
+                    ? ' wiki-topic-picker-option--active'
+                    : ''
+                }`}
+                aria-pressed={target?.category === section && target?.subtopic === null}
+                onClick={() => setTarget({ category: section, subtopic: null })}
+              >
+                暂不细分
+              </button>
+            </div>
           </section>
         )}
 

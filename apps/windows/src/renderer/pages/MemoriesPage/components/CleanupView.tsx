@@ -12,7 +12,7 @@ import { ConfirmModal } from '../../../components/ui/Modal'
 import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import type { WikiCleanupSuggestionItem, WikiStatusCandidateItem } from '../../../hooks/business/useWikiPage'
 import { filterCleanupSuggestions, type CleanupReasonFilter } from './cleanupSelection'
-import { formatTopicDisplay } from './wikiNavMapping'
+import { formatTopicDisplay } from './wikiTopicDisplay'
 
 const REASON_LABEL: Record<WikiCleanupSuggestionItem['reason'], string> = {
   stale: '长期未用',

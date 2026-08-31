@@ -2,33 +2,29 @@ import { describe, expect, it } from 'vitest'
 import { buildWikiBreadcrumbs } from '../../renderer/pages/MemoriesPage/components/wikiBreadcrumbs'
 
 describe('buildWikiBreadcrumbs', () => {
-  it('section 视图只显示分区名', () => {
-    expect(buildWikiBreadcrumbs({ kind: 'section', name: 'work' })).toEqual([{ label: '工作' }])
+  it('section 视图只显示分区名（分区即大类，v1.1 不再有映射层）', () => {
+    expect(buildWikiBreadcrumbs({ kind: 'section', name: '工作' })).toEqual([{ label: '工作' }])
   })
 
-  it('category 视图可返回分区', () => {
-    expect(buildWikiBreadcrumbs({ kind: 'category', name: '计划与复盘' })).toEqual([
-      { label: '生活', nav: { kind: 'section', name: 'life' } },
-      { label: '计划与复盘' },
+  it('系统分区（收件箱/归档/未分类）不走目录面包屑', () => {
+    expect(buildWikiBreadcrumbs({ kind: 'section', name: 'inbox' })).toBeNull()
+  })
+
+  it('category 视图返回单级面包屑', () => {
+    expect(buildWikiBreadcrumbs({ kind: 'category', name: '生活' })).toEqual([{ label: '生活' }])
+  })
+
+  it('subtopic 视图返回大类 + 小类两级', () => {
+    expect(buildWikiBreadcrumbs({ kind: 'subtopic', category: '工作', subtopic: '例行' })).toEqual([
+      { label: '工作', nav: { kind: 'section', name: '工作' } },
+      { label: '例行' },
     ])
   })
 
-  it('subtopic 单大类分区省略中间层', () => {
-    expect(
-      buildWikiBreadcrumbs({ kind: 'subtopic', category: '做事记录', subtopic: '会议记录' }),
-    ).toEqual([
-      { label: '工作', nav: { kind: 'section', name: 'work' } },
-      { label: '会议记录' },
-    ])
-  })
-
-  it('subtopic 多大类分区保留 category 层', () => {
-    expect(
-      buildWikiBreadcrumbs({ kind: 'subtopic', category: '模板参考', subtopic: '设计稿' }),
-    ).toEqual([
-      { label: '收藏', nav: { kind: 'section', name: 'collection' } },
-      { label: '模板参考', nav: { kind: 'category', name: '模板参考' } },
-      { label: '设计稿' },
+  it('subtopic 为 null 时用「未细分」占位（小类可选）', () => {
+    expect(buildWikiBreadcrumbs({ kind: 'subtopic', category: '收藏', subtopic: null })).toEqual([
+      { label: '收藏', nav: { kind: 'section', name: '收藏' } },
+      { label: '未细分' },
     ])
   })
 

@@ -22,18 +22,16 @@ import {
   type WikiTopicTree,
   type WikiReclassifyRunItem,
   type WikiReclassifyScopeDto,
-  type WikiSynthesisListItem,
 } from '../../../hooks/business/useWikiPage'
 import { CleanupView } from './CleanupView'
-import { SynthesisView } from './SynthesisView'
 import { WikiGraphView } from './WikiGraphView'
 import { WikiDetailDrawer } from './WikiDetailDrawer'
 import { WikiLeftNav, topicCountKey, type WikiNav } from './WikiLeftNav'
-import { navSectionFromLegacyCategory, legacyCategoriesForSection, type WikiNavSection } from './wikiNavMapping'
+import { navSectionLabel } from './wikiTopicDisplay'
 import { WikiTopBar } from './WikiTopBar'
 import { WikiPageList } from './WikiPageList'
 import { WikiFileList } from './WikiFileList'
-import { WikiTopicPicker, WIKI_TOPIC_PICKER_ACTIVE_SECTIONS } from './WikiTopicPicker'
+import { WikiTopicPicker } from './WikiTopicPicker'
 import { WikiTopicTreeEditor } from './WikiTopicTreeEditor'
 import { WikiReclassifyView } from './WikiReclassifyView'
 import { WikiInboxPanel, inboxItemToPreviewSnapshot } from './WikiInboxPanel'
@@ -44,16 +42,6 @@ import { consumeWikiInitNav, OPEN_MEMORIES_TAB_EVENT } from '../../../utils/open
 import { WIKI_INBOX_INTRO, WIKI_FOLDER_IMPORT_TOOLTIP } from './wikiTooltips'
 import { WikiMoreMenu } from './WikiMoreMenu'
 import { WikiSourceDetailDrawer, type WikiSourcePreviewSnapshot } from './WikiSourceDetailDrawer'
-import {
-  CONSOLIDATE_HINT_MIN_COUNT,
-  CONSOLIDATE_MIN_SELECTION,
-  countShortSources,
-  isShortSource,
-  resolveConsolidateTarget,
-  waitForSynthesisReady,
-  WIKI_CONSOLIDATE_SUBTOPIC,
-  type WikiConsolidateTarget,
-} from './wikiConsolidate'
 import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import { buildWikiBreadcrumbs } from './wikiBreadcrumbs'
 import { buildWikiRemoveConfirmContent } from './wikiRemoveConfirm'
@@ -73,7 +61,6 @@ const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
   graph: { title: '知识图谱', subtitle: '浏览页面与实体之间的关系' },
   history: { title: '历史页面', subtitle: '早期归档生成的摘要页面，只读' },
   cleanup: { title: '清理', subtitle: '扫描并处理需要维护的资料' },
-  synthesis: { title: '综述合成', subtitle: '从已有页面生成主题综述' },
   reclassify: { title: '重新编目', subtitle: 'AI 的目录调整建议，接受后才生效' },
 }
 
@@ -104,24 +91,18 @@ export const WikiTab: React.FC = () => {
     archiveSources,
     restoreSources,
     deleteSources,
-    autoRunSynthesis,
     getGraphData,
     statusScan,
     confirmStatus,
     loadTopicTree,
     mutateTopic,
     createNote,
-    createSynthesis,
     runReclassify,
     getReclassifyRun,
     applyReclassify,
     ignoreReclassify,
     discardReclassify,
     listSources,
-    listSyntheses,
-    getSynthesis,
-    acceptSynthesisAsSource,
-    rejectSynthesis,
     updateSourceTopic,
     moveToParking,
     openSource,
@@ -179,17 +160,10 @@ export const WikiTab: React.FC = () => {
   const [isHelpOpen, setHelpOpen] = useState(false)
   const [selectedInboxIds, setSelectedInboxIds] = useState<ReadonlySet<string>>(new Set())
   const [selectedUnfiledIds, setSelectedUnfiledIds] = useState<ReadonlySet<string>>(new Set())
-  const [synthesisConfirm, setSynthesisConfirm] = useState<{ count: number } | null>(null)
-  const [synthesisRows, setSynthesisRows] = useState<readonly WikiSynthesisListItem[]>([])
-  const [consolidateConfirm, setConsolidateConfirm] = useState<{
-    count: number
-    sourceIds: readonly string[]
-  } | null>(null)
   const [sourcePreview, setSourcePreview] = useState<{
     sourceId: string | null
     snapshot: WikiSourcePreviewSnapshot | null
   } | null>(null)
-  const [consolidateTarget, setConsolidateTarget] = useState<WikiConsolidateTarget | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
   const selectedInboxIdsRef = useRef(selectedInboxIds)
   const selectedUnfiledIdsRef = useRef(selectedUnfiledIds)
@@ -220,10 +194,6 @@ export const WikiTab: React.FC = () => {
     setInboxItems(all)
     setInboxPending(count)
   }, [listInbox, countInbox])
-
-  const refreshSynthesisRows = useCallback(async () => {
-    setSynthesisRows(await listSyntheses('candidate'))
-  }, [listSyntheses])
 
   useEffect(() => {
     void loadTopicTree().then(setTopicTree)
@@ -272,16 +242,12 @@ export const WikiTab: React.FC = () => {
     }
   }, [nav.kind, refreshArchivedSources])
 
-  // 历史页面与综述、图谱仍以 wiki_pages 为数据源，进入这些视图时才加载
+  // 历史页面与图谱仍以 wiki_pages 为数据源，进入这些视图时才加载
   useEffect(() => {
-    if (nav.kind === 'history' || nav.kind === 'synthesis' || nav.kind === 'graph') {
+    if (nav.kind === 'history' || nav.kind === 'graph') {
       void refreshPages()
     }
-    if (nav.kind === 'synthesis') {
-      void refreshSynthesisRows()
-    }
-  }, [nav.kind, refreshPages, refreshSynthesisRows])
-
+  }, [nav.kind, refreshPages])
   useEffect(() => {
     /** 将已有归档运行合并进任务中心历史。 */
     const loadRunHistory = async (): Promise<void> => {
@@ -295,15 +261,8 @@ export const WikiTab: React.FC = () => {
   // 已归档不在这里统计：listSources 的 SQL 固定过滤 archived_at IS NULL，
   // 归档列表与计数走独立的按需查询（archivedSources state）。
   const { sectionCounts, topicCounts, parkingSources, unfiledSources } = useMemo(() => {
-    const sections: Record<WikiNavSection, number> = {
-      work: 0,
-      study: 0,
-      life: 0,
-      collection: 0,
-      inbox: 0,
-      archived: 0,
-      unfiled: 0,
-    }
+    // v1.1：分区就是大类，key 直接用大类名，不再预置固定的六个槽位
+    const sections: Record<string, number> = {}
     const counts: Record<string, number> = {}
     const parking: WikiSourceListItem[] = []
     const unfiled: WikiSourceListItem[] = []
@@ -316,11 +275,13 @@ export const WikiTab: React.FC = () => {
         unfiled.push(item)
         continue
       }
-      const section = navSectionFromLegacyCategory(item.topicCategory)
-      sections[section] = (sections[section] ?? 0) + 1
-      counts[topicCountKey(item.topicCategory)] = (counts[topicCountKey(item.topicCategory)] ?? 0) + 1
+      sections[item.topicCategory] = (sections[item.topicCategory] ?? 0) + 1
       if (item.topicSubtopic) {
         const key = topicCountKey(item.topicCategory, item.topicSubtopic)
+        counts[key] = (counts[key] ?? 0) + 1
+      } else {
+        // 小类为空 → 计入该大类的「未细分」分组（key 只含大类，与 repo 侧口径一致）
+        const key = topicCountKey(item.topicCategory)
         counts[key] = (counts[key] ?? 0) + 1
       }
     }
@@ -339,16 +300,19 @@ export const WikiTab: React.FC = () => {
   )
 
   const visibleSources = useMemo(() => {
+    // 分区即大类：section 与 category 两种 nav 现在是同一种过滤
     if (nav.kind === 'section') {
-      const targetCategories = legacyCategoriesForSection(nav.name)
-      return sources.filter((item) => item.topicCategory && targetCategories.includes(item.topicCategory))
+      return sources.filter((item) => item.topicCategory === nav.name)
     }
     if (nav.kind === 'category') {
       return sources.filter((item) => item.topicCategory === nav.name)
     }
     if (nav.kind === 'subtopic') {
+      // subtopic 为 null → 该大类下未细分的那批
       return sources.filter(
-        (item) => item.topicCategory === nav.category && item.topicSubtopic === nav.subtopic,
+        (item) =>
+          item.topicCategory === nav.category &&
+          (nav.subtopic === null ? !item.topicSubtopic : item.topicSubtopic === nav.subtopic),
       )
     }
     if (nav.kind === 'parking') {
@@ -411,11 +375,6 @@ export const WikiTab: React.FC = () => {
   const trackedDeleteSources = useCallback(
     (sourceIds: readonly string[]) => taskCenter.wrapAsync('cleanup', '删除资料', () => deleteSources(sourceIds)),
     [deleteSources, taskCenter.wrapAsync],
-  )
-
-  const trackedAutoRunSynthesis = useCallback(
-    () => taskCenter.wrapAsync('synthesis', '自动综述合成', autoRunSynthesis),
-    [autoRunSynthesis, taskCenter.wrapAsync],
   )
 
   const handleSelectNav = useCallback((next: WikiNav) => {
@@ -502,7 +461,7 @@ export const WikiTab: React.FC = () => {
   }, [picker, trackedArchiveSources, refreshSources, refreshArchivedSources])
 
   const handleConfirmPicker = useCallback(
-    async (category: string, subtopic: string) => {
+    async (category: string, subtopic: string | null) => {
       const target = picker
       setPicker(null)
       setSuggestion(null)
@@ -537,158 +496,12 @@ export const WikiTab: React.FC = () => {
     [trackedRestoreSources, refreshSources, refreshArchivedSources],
   )
 
-  /** 接受整合/综述：整合类接受后跳转到统一「整合长文」目录 */
-  const handleAcceptSynthesis = useCallback(
-    async (synthesisId: string, category: string, subtopic: string, archiveSources = false) => {
-      const result = await acceptSynthesisAsSource(synthesisId, category, subtopic, archiveSources)
-      if (result) {
-        await refreshSources()
-        if (subtopic === WIKI_CONSOLIDATE_SUBTOPIC) {
-          setHighlightSourceId(result.sourceId)
-          setNav({ kind: 'subtopic', category, subtopic })
-        }
-      }
-      setSynthesisRows(await listSyntheses('candidate'))
-    },
-    [acceptSynthesisAsSource, listSyntheses, refreshSources, setNav],
-  )
 
-  const handleRejectSynthesis = useCallback(
-    async (synthesisId: string) => {
-      await rejectSynthesis(synthesisId)
-      setSynthesisRows(await listSyntheses('candidate'))
-    },
-    [rejectSynthesis, listSyntheses],
-  )
 
-  /**
-   * 将多篇短文整合为一篇 1000 字以上的长文；完成后自动归档到「{大类} / 整合长文」。
-   */
-  const runConsolidate = useCallback(
-    async (sourceIds: readonly string[], confirmed = false) => {
-      if (sourceIds.length < CONSOLIDATE_MIN_SELECTION) return
-      const target = resolveConsolidateTarget(nav)
-      if (!target) {
-        taskCenter.failTask(
-          taskCenter.startTask({ kind: 'synthesis', title: '整合短文' }),
-          '请在具体大类或小类目录下发起整合',
-        )
-        return
-      }
-      setConsolidateTarget(target)
-      const title =
-        nav.kind === 'subtopic'
-          ? `${nav.subtopic} 整合`
-          : nav.kind === 'category'
-            ? `${nav.name} 整合`
-            : '主题整合'
-      const taskId = taskCenter.startTask({ kind: 'synthesis', title: '整合短文' })
-      const created = await createSynthesis({
-        sourceIds,
-        confirmed,
-        title,
-        mode: 'consolidate',
-      })
-      if (!created.ok) {
-        if (created.needsConfirm) {
-          taskCenter.dismissTask(taskId)
-          setConsolidateConfirm({ count: created.count, sourceIds: [...sourceIds] })
-          return
-        }
-        taskCenter.failTask(taskId, created.error)
-        return
-      }
-      taskCenter.updateTask(taskId, { detail: '生成中…' })
-      const ready = await waitForSynthesisReady(getSynthesis, created.synthesisId)
-      if (ready !== 'ready') {
-        taskCenter.failTask(taskId, ready === 'timeout' ? '生成超时，请到综述合成查看' : '生成失败')
-        setNav({ kind: 'synthesis' })
-        void refreshSynthesisRows()
-        return
-      }
-      const accepted = await acceptSynthesisAsSource(
-        created.synthesisId,
-        target.category,
-        target.subtopic,
-        true,
-      )
-      if (!accepted) {
-        taskCenter.failTask(taskId, '归档到整合长文失败，请到综述合成手动接受')
-        setNav({ kind: 'synthesis' })
-        void refreshSynthesisRows()
-        return
-      }
-      taskCenter.completeTask(taskId, {
-        detail: `${sourceIds.length} 篇 → ${target.category} / ${target.subtopic}`,
-      })
-      setSelectedSourceIds(new Set())
-      setHighlightSourceId(accepted.sourceId)
-      setNav({ kind: 'subtopic', category: target.category, subtopic: target.subtopic })
-      await refreshSources()
-      void refreshSynthesisRows()
-      void loadTopicTree().then(setTopicTree)
-    },
-    [
-      createSynthesis,
-      getSynthesis,
-      acceptSynthesisAsSource,
-      taskCenter,
-      setNav,
-      refreshSynthesisRows,
-      refreshSources,
-      loadTopicTree,
-      nav,
-    ],
-  )
-
-  const handleConsolidateSelected = useCallback(
-    (confirmed = false) => void runConsolidate([...selectedSourceIds], confirmed),
-    [runConsolidate, selectedSourceIds],
-  )
-
-  /** 一键整合当前目录下全部短文 */
-  const handleConsolidateAllShort = useCallback(() => {
-    const shortIds = visibleSources
-      .filter((item) => isShortSource(item.textLength, item.title.length))
-      .map((item) => item.id)
-    void runConsolidate(shortIds)
-  }, [visibleSources, runConsolidate])
-
-  const shortInViewCount = useMemo(
-    () => countShortSources(visibleSources),
-    [visibleSources],
-  )
-
-  /**
-   * 生成一组选中文件的综述，完成后跳到候选视图。
-   * 后端在超量时抛「需要二次确认」，这里转成确认框再带 confirmed 重发。
-   */
-  const handleSynthesizeSelected = useCallback(
-    async (confirmed = false) => {
-      const ids = [...selectedSourceIds]
-      if (ids.length === 0) return
-      const taskId = taskCenter.startTask({ kind: 'synthesis', title: '生成综述' })
-      const created = await createSynthesis({ sourceIds: ids, confirmed })
-      if (!created.ok) {
-        if (created.needsConfirm) {
-          taskCenter.dismissTask(taskId)
-          setSynthesisConfirm({ count: created.count })
-          return
-        }
-        taskCenter.failTask(taskId, created.error)
-        return
-      }
-      taskCenter.completeTask(taskId, { detail: `${ids.length} 个文件` })
-      setSelectedSourceIds(new Set())
-      setNav({ kind: 'synthesis' })
-      void refreshSynthesisRows()
-    },
-    [selectedSourceIds, createSynthesis, taskCenter, setNav, refreshSynthesisRows],
-  )
 
   /** 批量移动：逐条走确定性写入路径 */
   const handleMoveSelected = useCallback(
-    async (category: string, subtopic: string) => {
+    async (category: string, subtopic: string | null) => {
       for (const id of selectedSourceIds) {
         await updateSourceTopic(id, category, subtopic)
       }
@@ -784,7 +597,7 @@ export const WikiTab: React.FC = () => {
    * 大类聚合视图不给这个入口——必须先选定小类，避免误放。
    */
   const handleCreateNote = useCallback(
-    async (category: string, subtopic: string) => {
+    async (category: string, subtopic: string | null) => {
       const created = await createNote(category, subtopic)
       if (!created) {
         setOpenError('新建笔记失败')
@@ -844,6 +657,8 @@ export const WikiTab: React.FC = () => {
         }
         if (prev.kind === 'subtopic') {
           const cat = result.tree.categories.find((c) => c.name === prev.category)
+          // subtopic 为 null 是「未细分」分组，只要大类还在就有效
+          if (prev.subtopic === null) return cat ? prev : { kind: 'inbox' }
           return cat?.subtopics.includes(prev.subtopic) ? prev : { kind: 'inbox' }
         }
         return prev
@@ -1063,7 +878,7 @@ export const WikiTab: React.FC = () => {
    * 批量归档：队列条目走 organizeInbox，待补分走 updateSourceTopic。
    */
   const handleBatchOrganizeInbox = useCallback(
-    async (category: string, subtopic: string) => {
+    async (category: string, subtopic: string | null) => {
       const inboxIds = [...selectedInboxIdsRef.current]
       const unfiledIds = [...selectedUnfiledIdsRef.current]
       for (const id of inboxIds) {
@@ -1197,6 +1012,7 @@ export const WikiTab: React.FC = () => {
       <WikiLeftNav
         active={isMoreMenuOpen ? { kind: 'more' } : nav}
         inboxCount={pendingCount}
+        categories={topicTree?.categories.map((c) => c.name) ?? []}
         sectionCounts={sectionCounts}
         archivedCount={archivedCount}
         parkingCount={parkingSources.length}
@@ -1212,37 +1028,9 @@ export const WikiTab: React.FC = () => {
         onAutoClassifyChange={(enabled) => void handleAutoClassifyChange(enabled)}
         onHistory={() => handleSelectNav({ kind: 'history' })}
         onCleanup={() => handleSelectNav({ kind: 'cleanup' })}
-        onSynthesis={() => handleSelectNav({ kind: 'synthesis' })}
         onRebuild={handleRebuildIndex}
         onEditTopicTree={() => setIsTreeEditorOpen(true)}
         onReclassifyAll={() => setReclassifyConfirm({ count: filedSourceCount })}
-      />
-
-      <ConfirmModal
-        open={consolidateConfirm !== null}
-        layer={WIKI_MODAL_LAYER}
-        title="整合短文"
-        content={`将 ${consolidateConfirm?.count ?? 0} 篇资料合并为一篇长文，数量较多、耗时较长，确定继续？`}
-        confirmText="继续"
-        onConfirm={() => {
-          const pending = consolidateConfirm
-          setConsolidateConfirm(null)
-          if (pending) void runConsolidate(pending.sourceIds, true)
-        }}
-        onCancel={() => setConsolidateConfirm(null)}
-      />
-
-      <ConfirmModal
-        open={synthesisConfirm !== null}
-        layer={WIKI_MODAL_LAYER}
-        title="生成综述"
-        content={`本次将合成 ${synthesisConfirm?.count ?? 0} 个文件，数量较多、耗时较长，确定继续？`}
-        confirmText="继续"
-        onConfirm={() => {
-          setSynthesisConfirm(null)
-          void handleSynthesizeSelected(true)
-        }}
-        onCancel={() => setSynthesisConfirm(null)}
       />
 
       <ConfirmModal
@@ -1306,7 +1094,6 @@ export const WikiTab: React.FC = () => {
               items={searchResults}
               emptyHint="未找到相关文件"
               showTopic
-              topicTree={topicTree}
               showMediaChips={false}
               onOpen={(item) => void handleOpenSource(item)}
               onPreview={handlePreviewSourceItem}
@@ -1362,7 +1149,6 @@ export const WikiTab: React.FC = () => {
               items={archivedSources}
               emptyHint="还没有已归档的资料。"
               showTopic
-              topicTree={topicTree}
               moveLabel="恢复"
               showParkAction={false}
               onOpen={(item) => void handleOpenSource(item)}
@@ -1414,21 +1200,6 @@ export const WikiTab: React.FC = () => {
             statusScan={statusScan}
             confirmStatus={confirmStatus}
           />
-        ) : nav.kind === 'synthesis' ? (
-          <SynthesisView
-            pages={pages}
-            autoRunSynthesis={trackedAutoRunSynthesis}
-            onOpenPage={(pageId) => void handleOpenPage(pageId)}
-            onRefreshPages={refreshPages}
-            synthesisRows={synthesisRows}
-            topicTree={topicTree}
-            consolidateTarget={consolidateTarget}
-            onAcceptSynthesis={(id, category, subtopic, archiveSources) =>
-              void handleAcceptSynthesis(id, category, subtopic, archiveSources)
-            }
-            onRejectSynthesis={(id) => void handleRejectSynthesis(id)}
-            onRefreshSyntheses={refreshSynthesisRows}
-          />
         ) : nav.kind === 'history' ? (
           <div className="wiki-page-list-view">
             <h3>历史页面（{pages.length}）</h3>
@@ -1479,8 +1250,7 @@ export const WikiTab: React.FC = () => {
         ) : nav.kind === 'category' ? (
           <div className="wiki-subtopic-view">
             <WikiSubtopicPanel
-              section={navSectionFromLegacyCategory(nav.name)}
-              categoryFilter={nav.name}
+              section={nav.name}
               topicTree={topicTree}
               topicCounts={topicCounts}
               onSelectSubtopic={(category, subtopic) =>
@@ -1490,20 +1260,9 @@ export const WikiTab: React.FC = () => {
           </div>
         ) : nav.kind === 'subtopic' ? (
           <div className="wiki-file-list-view">
-            {shortInViewCount >= CONSOLIDATE_HINT_MIN_COUNT && (
-              <div className="wiki-consolidate-hint">
-                <p>
-                  检测到 {shortInViewCount} 篇短文，可整合为一篇 1000 字以上的长文，减少目录碎片化。
-                </p>
-                <Button variant="secondary" size="sm" onClick={() => void handleConsolidateAllShort()}>
-                  整合全部短文
-                </Button>
-              </div>
-            )}
             <WikiFileList
               items={visibleSources}
               emptyHint="这个小类下还没有文件"
-              topicTree={topicTree}
               highlightId={highlightSourceId}
               selectable
               selectedIds={selectedSourceIds}
@@ -1515,31 +1274,6 @@ export const WikiTab: React.FC = () => {
                     <span className="wiki-file-list-batch-count">
                       已选 {selectedSourceIds.size} 项
                     </span>
-                    <Tooltip
-                      content="将所选短文合并为一篇长文，归档到当前小类下的「整合长文」"
-                      placement="bottom"
-                    >
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        disabled={selectedSourceIds.size < CONSOLIDATE_MIN_SELECTION}
-                        onClick={() => void handleConsolidateSelected()}
-                      >
-                        整合为长文
-                      </Button>
-                    </Tooltip>
-                    <Tooltip
-                      content="用 AI 根据所选资料生成一篇主题综述草稿，完成后可在「综述合成」中查看"
-                      placement="bottom"
-                    >
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => void handleSynthesizeSelected()}
-                      >
-                        生成本组综述
-                      </Button>
-                    </Tooltip>
                     <Tooltip content="将所选资料移动到另一个分类目录" placement="bottom">
                       <Button variant="ghost" size="sm" onClick={() => setBatchPickerOpen(true)}>
                         移动到…
@@ -1641,7 +1375,7 @@ export const WikiTab: React.FC = () => {
         open={isInboxBatchPickerOpen}
         tree={topicTree}
         title="批量归档到…"
-        sections={WIKI_TOPIC_PICKER_ACTIVE_SECTIONS}
+        includeArchived={false}
         itemTitle={`已选 ${selectedInboxIds.size + selectedUnfiledIds.size} 项`}
         onCancel={() => setInboxBatchPickerOpen(false)}
         onConfirm={(category, subtopic) => {
@@ -1674,7 +1408,7 @@ export const WikiTab: React.FC = () => {
         }}
         onConfirm={(category, subtopic) => void handleConfirmPicker(category, subtopic)}
         onConfirmArchive={picker?.mode === 'source' ? () => void handleArchivePickerTarget() : undefined}
-        sections={picker?.mode === 'inbox' ? WIKI_TOPIC_PICKER_ACTIVE_SECTIONS : undefined}
+        includeArchived={picker?.mode !== 'inbox'}
         // 只有已进资料层的文件能让 AI 建议：inbox 条目还没 source id
         onRequestSuggestion={
           picker?.mode === 'source' ? () => void handleRequestSuggestion(picker.item.id) : undefined
