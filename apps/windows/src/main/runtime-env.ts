@@ -21,6 +21,7 @@ import {
   getBundledSitePackages,
 } from './python-env'
 import { resolveLumiiUiScriptPath } from './app-ui-control/cli-paths'
+import { refreshCommonCliPathsInProcessEnv } from './cli-user-path'
 import { resolvePluginRuntimeDir } from './paths'
 
 const log = {
@@ -200,6 +201,8 @@ export function buildScriptEnv(extra?: Record<string, string>): Record<string, s
  * 设 LUMII_SKIP_PYTHON_BOOTSTRAP=1 可跳过自动下载（离线环境 / 不想占带宽）。
  */
 export async function initScriptRuntimes(): Promise<void> {
+  // GUI 进程 PATH 不含用户安装的 uvx 等 CLI，先并入 ~/.local/bin
+  refreshCommonCliPathsInProcessEnv()
   try {
     await writeShims()
   } catch (err) {

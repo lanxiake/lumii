@@ -6,6 +6,7 @@
  */
 
 import { McpStdioClient, loadMcpTools, type ToolRegistry } from '@mtbot/agent-runtime'
+import { refreshCommonCliPathsInProcessEnv } from '../cli-user-path'
 import {
   expandEntry,
   loadMcpServerConfigs,
@@ -81,6 +82,8 @@ export class McpManager {
    * 连接单个 MCP Server，失败时最多重试 3 次
    */
   private async connect(config: McpServerEntry, retryCount = 0): Promise<void> {
+    // 会话中新装的 uv 会创建 ~/.local/bin，每次连接前刷新，避免仍 ENOENT
+    refreshCommonCliPathsInProcessEnv()
     const { name, command, args, env, cwd } = expandEntry(config)
     log.info(`[connect] 连接 MCP Server: ${name} (${command} ${(args ?? []).join(' ')})`)
 

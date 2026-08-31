@@ -3,9 +3,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import fs from 'node:fs'
 import os from 'node:os'
-import path from 'node:path'
 import {
   detectLocalAcpTool,
   isPrimaryLocalAcpToolId,
@@ -13,6 +11,7 @@ import {
   type PrimaryLocalAcpToolId,
 } from './coding-dev-cli-detect.js'
 import { createLogger } from './logger.js'
+import { refreshCommonCliPathsInProcessEnv } from './cli-user-path'
 
 const log = createLogger('CodingDevCliInstall')
 
@@ -206,39 +205,7 @@ export function getAcpInstallDisplay(toolId: PrimaryLocalAcpToolId): {
   return { displayCommand: r.displayCommand, hint: r.hint }
 }
 
-/**
- * 把常见 CLI 目录并入当前进程 PATH（安装脚本写入 User PATH 后，Electron 不会自动刷新）
- */
-export function refreshCommonCliPathsInProcessEnv(): void {
-  const extras: string[] = []
-  const home = os.homedir()
-  const local = process.env.LOCALAPPDATA
-  extras.push(path.join(home, '.local', 'bin'))
-  if (local) extras.push(path.join(local, 'cursor-agent'))
-  try {
-    // npm 全局 bin（若存在）
-    const npmPrefix = process.env.npm_config_prefix
-    if (npmPrefix) extras.push(npmPrefix)
-    const appDataRoaming = process.env.APPDATA
-    if (appDataRoaming) {
-      extras.push(path.join(appDataRoaming, 'npm'))
-    }
-  } catch {
-    /* ignore */
-  }
-
-  const current = process.env.PATH ?? ''
-  const parts = current.split(path.delimiter).filter(Boolean)
-  const seen = new Set(parts.map((p) => p.toLowerCase()))
-  for (const dir of extras) {
-    if (!dir || !fs.existsSync(dir)) continue
-    const key = dir.toLowerCase()
-    if (seen.has(key)) continue
-    parts.unshift(dir)
-    seen.add(key)
-  }
-  process.env.PATH = parts.join(path.delimiter)
-}
+export { refreshCommonCliPathsInProcessEnv } from './cli-user-path'
 
 /**
  * 在 PowerShell 中执行白名单脚本（安装 / 卸载共用）
