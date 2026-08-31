@@ -15,8 +15,8 @@ import { planTopicMutation, topicCountKey } from "./wiki-topic-mutate.js";
 const T: WikiTopicTree = {
   version: 1,
   categories: [
-    { name: "做事记录", subtopics: ["项目/任务资料", "会议聊天记录", "汇报总结文稿", "对外沟通材料"] },
-    { name: "学习资料", subtopics: ["课堂&课程笔记", "数据统计报表"] },
+    { name: "做事记录", subtopics: ["项目/任务资料", "会议聊天记录", "汇报总结文稿", "对外沟通材料", "数据统计报表"] },
+    { name: "学习资料", subtopics: ["课堂&课程笔记"] },
   ],
 };
 const empty = new Map<string, number>();
@@ -153,5 +153,125 @@ describe("planTopicMutation - 删除与去向", () => {
     if (r.ok) {
       expect(r.cascades[0]!.to).toEqual({ category: "做事记录", subtopic: "汇报总结文稿" });
     }
+  });
+});
+
+describe("planTopicMutation - 小类增改移并", () => {
+  it("addSubtopic 支持 index 且拒绝同大类内重名", () => {
+    const r = planTopicMutation(
+      T,
+      { op: "addSubtopic", category: "做事记录", name: "客户往来函件", index: 0 },
+      empty,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.tree.categories[0]!.subtopics[0]).toBe("客户往来函件");
+    expect(
+      planTopicMutation(T, { op: "addSubtopic", category: "做事记录", name: "会议聊天记录" }, empty).ok,
+    ).toBe(false);
+  });
+
+  it("renameSubtopic 只级联该节点", () => {
+    const r = planTopicMutation(
+      T,
+      { op: "renameSubtopic", category: "做事记录", from: "会议聊天记录", to: "会议纪要" },
+      empty,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.cascades).toEqual([
+        {
+          from: { category: "做事记录", subtopic: "会议聊天记录" },
+          to: { category: "做事记录", subtopic: "会议纪要" },
+        },
+      ]);
+    }
+  });
+
+  it("moveSubtopic 只改大类，小类名不变；目标重名拒绝", () => {
+    const r = planTopicMutation(
+      T,
+      { op: "moveSubtopic", fromCategory: "做事记录", name: "数据统计报表", toCategory: "学习资料" },
+      empty,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.cascades).toContainEqual({
+        from: { category: "做事记录", subtopic: "数据统计报表" },
+        to: { category: "学习资料", subtopic: "数据统计报表" },
+      });
+    }
+    // 同名已存在于目标大类
+    const dup = planTopicMutation(
+      T,
+      { op: "moveSubtopic", fromCategory: "做事记录", name: "数据统计报表", toCategory: "做事记录" },
+      empty,
+    );
+    expect(dup.ok).toBe(false);
+  });
+
+  it("moveSubtopic 不得掏空来源大类", () => {
+    const tree: WikiTopicTree = {
+      version: 1,
+      categories: [
+        { name: "甲", subtopics: ["独苗"] },
+        { name: "乙", subtopics: ["其它"] },
+      ],
+    };
+    expect(
+      planTopicMutation(tree, { op: "moveSubtopic", fromCategory: "甲", name: "独苗", toCategory: "乙" }, empty).ok,
+    ).toBe(false);
+  });
+
+  it("mergeSubtopic 把 from 文件改成 to 并从树删除 from；同节点拒绝", () => {
+    const r = planTopicMutation(
+      T,
+      {
+        op: "mergeSubtopic",
+        fromCategory: "做事记录",
+        fromName: "汇报总结文稿",
+        toCategory: "做事记录",
+        toName: "对外沟通材料",
+      },
+      empty,
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.tree.categories[0]!.subtopics).not.toContain("汇报总结文稿");
+      expect(r.cascades).toEqual([
+        {
+          from: { category: "做事记录", subtopic: "汇报总结文稿" },
+          to: { category: "做事记录", subtopic: "对外沟通材料" },
+        },
+      ]);
+    }
+    expect(
+      planTopicMutation(
+        T,
+        {
+          op: "mergeSubtopic",
+          fromCategory: "做事记录",
+          fromName: "汇报总结文稿",
+          toCategory: "做事记录",
+          toName: "汇报总结文稿",
+        },
+        empty,
+      ).ok,
+    ).toBe(false);
+  });
+
+  it("mergeSubtopic 的 to 必须已存在", () => {
+    expect(
+      planTopicMutation(
+        T,
+        {
+          op: "mergeSubtopic",
+          fromCategory: "做事记录",
+          fromName: "汇报总结文稿",
+          toCategory: "做事记录",
+          toName: "不存在的小类",
+        },
+        empty,
+      ).ok,
+    ).toBe(false);
   });
 });

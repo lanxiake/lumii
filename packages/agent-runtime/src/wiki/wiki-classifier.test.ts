@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { buildClassifyPrompt, classifyBatch, parseClassifyResponse } from "./wiki-classifier.js";
 import type { WikiInboxItem } from "./types.js";
-import { DEFAULT_TOPIC_TREE } from "./wiki-topic-tree.js";
+import { LEGACY_TOPIC_TREE_V1 } from "./wiki-topic-tree.js";
 
 function makeItem(id: string, overrides: Partial<WikiInboxItem> = {}): WikiInboxItem {
   return {
@@ -31,7 +31,7 @@ function makeItem(id: string, overrides: Partial<WikiInboxItem> = {}): WikiInbox
 
 describe("buildClassifyPrompt", () => {
   it("包含每条条目的 id、标题与内容预览，并渲染当前主题树", () => {
-    const prompt = buildClassifyPrompt([makeItem("i1"), makeItem("i2")], DEFAULT_TOPIC_TREE);
+    const prompt = buildClassifyPrompt([makeItem("i1"), makeItem("i2")], LEGACY_TOPIC_TREE_V1);
     expect(prompt).toContain("[id=i1]");
     expect(prompt).toContain("[id=i2]");
     expect(prompt).toContain("i1 正文预览");
@@ -41,19 +41,19 @@ describe("buildClassifyPrompt", () => {
   });
 
   it("不包含旧模型的 sources/ 顶层分类或临时存放", () => {
-    const prompt = buildClassifyPrompt([makeItem("i1")], DEFAULT_TOPIC_TREE);
+    const prompt = buildClassifyPrompt([makeItem("i1")], LEGACY_TOPIC_TREE_V1);
     expect(prompt).not.toContain("sources/");
     expect(prompt).not.toContain("临时存放");
   });
 
   it("截断超长内容预览，避免单批提示词膨胀", () => {
     const long = "字".repeat(1000);
-    const prompt = buildClassifyPrompt([makeItem("i1", { content_preview: long })], DEFAULT_TOPIC_TREE);
+    const prompt = buildClassifyPrompt([makeItem("i1", { content_preview: long })], LEGACY_TOPIC_TREE_V1);
     expect(prompt).not.toContain("字".repeat(501));
   });
 
   it("含文件夹导入上下文时写入目录树与占用信息", () => {
-    const prompt = buildClassifyPrompt([makeItem("i1")], DEFAULT_TOPIC_TREE, {
+    const prompt = buildClassifyPrompt([makeItem("i1")], LEGACY_TOPIC_TREE_V1, {
       importRoot: "outputs/demo",
       directoryTree: "demo/\n  readme.md",
       topicOccupancy: "（尚无已分类文件）",
@@ -72,7 +72,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       JSON.stringify([{ id: "i1", category: "学习资料", subtopic: "课堂&课程笔记", skip: false }]),
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res).toEqual([{ inboxId: "i1", category: "学习资料", subtopic: "课堂&课程笔记" }]);
   });
@@ -82,7 +82,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       '好的，结果如下：\n```json\n[{"id":"i1","category":"做事记录","subtopic":"会议聊天记录"}]\n```\n以上。',
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res[0]!.category).toBe("做事记录");
     expect(res[0]!.subtopic).toBe("会议聊天记录");
@@ -93,7 +93,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       JSON.stringify([{ id: "i1", category: null, subtopic: null, skip: true, reason: "像聊天记录" }]),
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res).toEqual([
       {
@@ -113,7 +113,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       JSON.stringify([{ id: "i1", category: "", subtopic: "", skip: false }]),
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res[0]!.degraded).toBe(true);
     expect(res[0]!.category).toBeNull();
@@ -125,7 +125,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       JSON.stringify([{ id: "i1", category: "学习资料", subtopic: "深度学习", skip: false }]),
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res[0]!.degraded).toBe(true);
     expect(res[0]!.category).toBeNull();
@@ -138,7 +138,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       JSON.stringify([{ id: "i1", category: "工作生活", subtopic: "x", skip: false }]),
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res[0]!.degraded).toBe(true);
   });
@@ -148,7 +148,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       JSON.stringify([{ id: "i1", category: "临时存放", subtopic: null, skip: false }]),
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res[0]!.degraded).toBe(true);
     expect(res[0]!.category).toBeNull();
@@ -159,7 +159,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       JSON.stringify([{ id: "i1", category: "做事记录", subtopic: "会议聊天记录", skip: false }]),
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res).toHaveLength(2);
     const missing = res.find((r) => r.inboxId === "i2")!;
@@ -176,7 +176,7 @@ describe("parseClassifyResponse", () => {
         { id: "ghost", category: "做事记录", subtopic: "会议聊天记录", skip: false },
       ]),
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res).toHaveLength(1);
     expect(res[0]!.inboxId).toBe("i1");
@@ -185,7 +185,7 @@ describe("parseClassifyResponse", () => {
   it("JSON 解析失败时整批 degraded，不丢任何条目", () => {
     const items = [makeItem("i1"), makeItem("i2")];
     for (const bad of ["完全不是 JSON", "[{坏的", "", "{}"]) {
-      const res = parseClassifyResponse(bad, items, DEFAULT_TOPIC_TREE);
+      const res = parseClassifyResponse(bad, items, LEGACY_TOPIC_TREE_V1);
       expect(res).toHaveLength(2);
       expect(res.every((r) => r.degraded === true)).toBe(true);
       expect(res.every((r) => r.category === null)).toBe(true);
@@ -198,7 +198,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       '{"id":"i1","category":"做事记录","subtopic":"会议聊天记录","skip":false}',
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res).toHaveLength(1);
     expect(res[0]!.category).toBe("做事记录");
@@ -210,7 +210,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       '```json\n{"id":"i1","category":"做事记录","subtopic":"会议聊天记录","skip":false}\n```',
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res[0]!.category).toBe("做事记录");
   });
@@ -220,7 +220,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       '<think>先看 items[0] 再定 [落点]</think>\n[{"id":"i1","category":"做事记录","subtopic":"会议聊天记录","skip":false}]',
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res[0]!.category).toBe("做事记录");
   });
@@ -230,7 +230,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       '判断依据见 [上文]\n</think>\n[{"id":"i1","category":"做事记录","subtopic":"会议聊天记录","skip":false}]',
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res[0]!.category).toBe("做事记录");
   });
@@ -240,7 +240,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       '好的 [见下]：\n[{"id":"i1","category":"做事记录","subtopic":"会议聊天记录","skip":false}]',
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res[0]!.category).toBe("做事记录");
   });
@@ -250,7 +250,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       '[{"id":"i1","category":"做事记录","subtopic":"会议聊天记录","skip":false,"reason":"带\\"引号\\"与 } 符号"}]',
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res[0]!.category).toBe("做事记录");
   });
@@ -260,7 +260,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       JSON.stringify([{ id: "i1", category: 42, subtopic: null, skip: false }]),
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res[0]!.degraded).toBe(true);
     expect(res[0]!.category).toBeNull();
@@ -271,7 +271,7 @@ describe("parseClassifyResponse", () => {
     const res = parseClassifyResponse(
       JSON.stringify([{ category: "做事记录", subtopic: "会议聊天记录", skip: false }]),
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     // 该条无 id 被忽略，i1 本身漏答判 degraded
     expect(res).toHaveLength(1);
@@ -289,7 +289,7 @@ describe("classifyBatch", () => {
         called = true;
         return "[]";
       },
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(res).toEqual([]);
     expect(called).toBe(false);
@@ -302,7 +302,7 @@ describe("classifyBatch", () => {
         async () => {
           throw new Error("网络失败");
         },
-        DEFAULT_TOPIC_TREE,
+        LEGACY_TOPIC_TREE_V1,
       ),
     ).rejects.toThrow();
   });
@@ -315,7 +315,7 @@ describe("classifyBatch", () => {
         seenPrompt = prompt;
         return JSON.stringify([{ id: "i1", category: "做事记录", subtopic: "会议聊天记录", skip: false }]);
       },
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(seenPrompt).toContain("做事记录");
   });

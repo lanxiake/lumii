@@ -255,7 +255,7 @@ describe("WikiSynthesizer 以资料为输入（二期）", () => {
     const synth = new WikiSynthesizer(repo, callLLM, fs);
     const mkFiled = (title: string, text = "调研正文内容") => {
       const s = repo.createSource({ agentId: "ag", userId: "u", title, extractedText: text });
-      repo.updateSourceTopic("ag", "u", s.id, "学习资料", "调研搜集材料");
+      repo.updateSourceTopic("ag", "u", s.id, "学习", "在学");
       return s;
     };
     return { repo, synth, files, callLLM, mkFiled };
@@ -290,7 +290,7 @@ describe("WikiSynthesizer 以资料为输入（二期）", () => {
       agentId: "ag", userId: "u", title: "演示.mp4",
       mediaType: "video", mediaMeta: '{"duration":120}',
     });
-    repo.updateSourceTopic("ag", "u", v.id, "学习资料", "调研搜集材料");
+    repo.updateSourceTopic("ag", "u", v.id, "学习", "在学");
     await expect(synth.synthesizeSources("ag", "u", [v.id])).resolves.toBeTruthy();
   });
 
@@ -300,9 +300,9 @@ describe("WikiSynthesizer 以资料为输入（二期）", () => {
     const id = await synth.synthesizeSources("ag", "u", [a.id]);
     const pagesBefore = repo.listPages("ag", "u").length;
 
-    const s = synth.acceptAsSource("ag", "u", id, { category: "做事记录", subtopic: "汇报总结文稿" });
-    expect(s.topic_category).toBe("做事记录");
-    expect(s.topic_subtopic).toBe("汇报总结文稿");
+    const s = synth.acceptAsSource("ag", "u", id, { category: "工作", subtopic: "项目" });
+    expect(s.topic_category).toBe("工作");
+    expect(s.topic_subtopic).toBe("项目");
     expect(s.mime_type).toBe("text/markdown");
     expect(repo.listPages("ag", "u")).toHaveLength(pagesBefore);
     expect(repo.findSynthesisById(id)!.status).toBe("accepted");
@@ -313,7 +313,7 @@ describe("WikiSynthesizer 以资料为输入（二期）", () => {
     const { repo, synth, mkFiled } = createHarness();
     const a = mkFiled("调研A.pdf");
     const id = await synth.synthesizeSources("ag", "u", [a.id]);
-    const s = synth.acceptAsSource("ag", "u", id, { category: "做事记录", subtopic: "汇报总结文稿" });
+    const s = synth.acceptAsSource("ag", "u", id, { category: "工作", subtopic: "项目" });
     expect(repo.searchSources("ag", "u", "最终综述").map((h) => h.source.id)).toContain(s.id);
   });
 
@@ -326,7 +326,7 @@ describe("WikiSynthesizer 以资料为输入（二期）", () => {
 
     const a = mkFiled("调研A.pdf");
     const id = await synth.synthesizeSources("ag", "u", [a.id]);
-    const topic = { category: "做事记录", subtopic: "汇报总结文稿" };
+    const topic = { category: "工作", subtopic: "项目" };
     synth.acceptAsSource("ag", "u", id, topic);
     expect(() => synth.acceptAsSource("ag", "u", id, topic)).toThrow(/candidate/);
   });
@@ -340,7 +340,7 @@ describe("WikiSynthesizer 以资料为输入（二期）", () => {
       synth.acceptAsSource("ag", "u", id, { category: PARKING_CATEGORY, subtopic: "x" }),
     ).toThrow();
     expect(() =>
-      synth.acceptAsSource("ag", "u", id, { category: "学习资料", subtopic: "不存在" }),
+      synth.acceptAsSource("ag", "u", id, { category: "学习", subtopic: "不存在" }),
     ).toThrow(/小类不存在/);
   });
 
@@ -355,7 +355,7 @@ describe("WikiSynthesizer 以资料为输入（二期）", () => {
     const row = repo.findSynthesisById(id)!;
     expect(row.title).toBe("[整合] 之字整合");
 
-    synth.acceptAsSource("ag", "u", id, { category: "学习资料", subtopic: "调研搜集材料" }, {
+    synth.acceptAsSource("ag", "u", id, { category: "学习", subtopic: "在学" }, {
       archiveSources: true,
     });
     expect(repo.findSourceById(a.id, "ag", "u")?.archived_at).toBeTruthy();

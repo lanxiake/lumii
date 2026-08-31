@@ -13,6 +13,7 @@ import { resolveWikilinkTarget, type WikilinkCandidatePage } from "./wiki-link-r
 import { computeForgettingScore } from "./wiki-forgetting.js";
 import {
   DEFAULT_TOPIC_TREE,
+  LEGACY_TOPIC_TREE_V1,
   PARKING_CATEGORY,
   TOPIC_CATEGORIES_META_KEY,
   parseTopicTree,
@@ -50,6 +51,8 @@ import {
   type WikiStorageMode,
   type WikiSynthesis,
   type WikiSynthesisStatus,
+  type WikiTopicMigrationRule,
+  type WikiTopicTreeMigrationReport,
 } from "./types.js";
 
 interface WikiInboxRow {
@@ -544,6 +547,94 @@ export class WikiRepo {
     if (parsed) return parsed;
     this.setIndexMeta(TOPIC_CATEGORIES_META_KEY, JSON.stringify(DEFAULT_TOPIC_TREE));
     return DEFAULT_TOPIC_TREE;
+  }
+
+  /**
+   * 一次性把主题树 JSON 从 v1（六大类）迁到 v2（4 大类），并保留用户自建大类。
+   *
+   * 与 V26 SQL 迁移的分工：SQL 只改 `wiki_sources` 的两列（大类机械改写、小类置空），
+   * 这里只换 meta 里的树定义。两者都靠「幂等 + 防重跑」保证多次调用安全：
+   * 已是 v2 直接返回 `alreadyMigrated`，不覆盖用户在 v2 下的任何编辑。
+   *
+   * 用户自建大类（不在旧六大类里的）整体追加到 v2 树末尾——它们的小类是用户自己定的，
+   * 无从机械映射，只能原样保留，否则 setTopicTree 的禁孤儿校验会因为占用节点消失而拒绝写入。
+   */
+  migrateTopicTreeToV2(): WikiTopicTreeMigrationReport {
+    const startedAt = Date.now();
+    const current = this.getOrCreateTopicTree();
+    if (current.version === 2) {
+      return {
+        alreadyMigrated: true,
+        categoryRules: [],
+        inboxCount: 0,
+        legacySubtopicTop: [],
+        userCategories: [],
+        elapsedMs: Date.now() - startedAt,
+      };
+    }
+
+    const legacyNames = new Set(LEGACY_TOPIC_TREE_V1.categories.map((c) => c.name));
+    const userCategories = current.categories.filter((c) => !legacyNames.has(c.name));
+    const nextTree: WikiTopicTree = {
+      version: 2,
+      categories: [...DEFAULT_TOPIC_TREE.categories, ...userCategories],
+    };
+
+    // 直接写 meta：不能走 setTopicTree。V26 SQL 已把小类整体置空，
+    // 但旧大类名仍在（SQL 与本函数的执行先后不保证），禁孤儿校验会误判。
+    this.setIndexMeta(TOPIC_CATEGORIES_META_KEY, JSON.stringify(nextTree));
+
+    return {
+      alreadyMigrated: false,
+      categoryRules: this.countV26CategoryRules(),
+      inboxCount:
+        this.db
+          .prepare<{ n: number }>(
+            "SELECT COUNT(*) AS n FROM wiki_sources WHERE topic_category IS NULL AND legacy_subtopic IS NOT NULL",
+          )
+          .get()?.n ?? 0,
+      legacySubtopicTop: this.db
+        .prepare<{ legacy_subtopic: string; n: number }>(
+          `SELECT legacy_subtopic, COUNT(*) AS n FROM wiki_sources
+           WHERE legacy_subtopic IS NOT NULL
+           GROUP BY legacy_subtopic ORDER BY n DESC, legacy_subtopic ASC LIMIT 20`,
+        )
+        .all()
+        .map((r) => ({ subtopic: r.legacy_subtopic, count: r.n })),
+      userCategories: userCategories.map((c) => c.name),
+      elapsedMs: Date.now() - startedAt,
+    };
+  }
+
+  /** 统计 V26 六条大类改写规则各命中多少条（迁移后按新大类名反查） */
+  private countV26CategoryRules(): readonly WikiTopicMigrationRule[] {
+    const rules: ReadonlyArray<{ from: string; to: string | null }> = [
+      { from: "做事记录", to: "工作" },
+      { from: "学习资料", to: "学习" },
+      { from: "证件凭据", to: "生活" },
+      { from: "模板参考", to: "收藏" },
+      { from: "随笔创作", to: "生活" },
+      { from: "计划与复盘", to: null },
+    ];
+    const legacySubtopicsOf = (name: string): readonly string[] =>
+      LEGACY_TOPIC_TREE_V1.categories.find((c) => c.name === name)?.subtopics ?? [];
+
+    return rules.map((rule) => {
+      // 迁移已把 topic_category 改写掉，只能靠 legacy_subtopic 反推来源大类。
+      // 「整合长文」在六个大类下都有，无法归属到某一条规则，这里排除，避免重复计数。
+      const subtopics = legacySubtopicsOf(rule.from).filter((s) => s !== "整合长文");
+      if (subtopics.length === 0) return { from: rule.from, to: rule.to, count: 0 };
+      const placeholders = subtopics.map(() => "?").join(",");
+      const sql =
+        rule.to === null
+          ? `SELECT COUNT(*) AS n FROM wiki_sources
+             WHERE topic_category IS NULL AND legacy_subtopic IN (${placeholders})`
+          : `SELECT COUNT(*) AS n FROM wiki_sources
+             WHERE topic_category = ? AND legacy_subtopic IN (${placeholders})`;
+      const params = rule.to === null ? subtopics : [rule.to, ...subtopics];
+      const count = this.db.prepare<{ n: number }>(sql).get(...params)?.n ?? 0;
+      return { from: rule.from, to: rule.to, count };
+    });
   }
 
   /**

@@ -190,6 +190,24 @@ export interface WikiOrganizeRun {
   readonly finished_at: string | null;
 }
 
+/** V26 迁移：单条大类改写规则的统计结果 */
+export interface WikiTopicMigrationRule {
+  readonly from: string;
+  readonly to: string | null;
+  readonly count: number;
+}
+
+/** V26 主题树 JSON 迁移报告 */
+export interface WikiTopicTreeMigrationReport {
+  readonly alreadyMigrated?: boolean;
+  readonly categoryRules: readonly WikiTopicMigrationRule[];
+  readonly inboxCount: number;
+  readonly legacySubtopicTop: ReadonlyArray<{ readonly subtopic: string; readonly count: number }>;
+  readonly userCategories: readonly string[];
+  readonly elapsedMs: number;
+}
+
+
 /** 生成短随机 ID（同 memory 模块范式） */
 export function generateWikiId(): string {
   const bytes = new Uint8Array(16);

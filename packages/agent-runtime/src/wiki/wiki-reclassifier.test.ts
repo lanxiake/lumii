@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMigratedTestDb } from "../__tests__/helpers/sqlite-test-db.js";
 import { WikiRepo } from "./wiki-repo.js";
-import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY } from "./wiki-topic-tree.js";
+import { LEGACY_TOPIC_TREE_V1, PARKING_CATEGORY } from "./wiki-topic-tree.js";
 import {
   WikiReclassifier,
   buildReclassifyPrompt,
@@ -34,8 +34,8 @@ function setup(targets: ReadonlyArray<{ category: string; subtopic: string; reas
     return JSON.stringify(out);
   });
   const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
-  /** 建一条已归档到 (category, subtopic) 的资料 */
-  const mkFiled = (title: string, category = "做事记录", subtopic = "项目/任务资料") => {
+  /** 建一条已归档到 (category, subtopic) 的资料；默认落 v2 树的 工作/项目 */
+  const mkFiled = (title: string, category = "工作", subtopic = "项目") => {
     const s = repo.createSource({ agentId: "ag", userId: "u", title, extractedText: "正文" });
     repo.updateSourceTopic("ag", "u", s.id, category, subtopic);
     return s;
@@ -59,7 +59,7 @@ describe("buildReclassifyPrompt", () => {
           fromSubtopic: "项目/任务资料",
         },
       ],
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
     );
     expect(p).toContain("事情做完留下的结果");
     expect(p).toContain("目标规划方案");
@@ -81,7 +81,7 @@ describe("parseReclassifyResponse", () => {
         { id: "b", category: "学习资料", subtopic: "读书摘抄整理", reason: "y" },
       ]),
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
       mkId,
     );
     expect(r.droppedInvalid).toBe(1);
@@ -93,7 +93,7 @@ describe("parseReclassifyResponse", () => {
     const r = parseReclassifyResponse(
       JSON.stringify([{ id: "a", category: "计划与复盘", subtopic: "目标规划方案", reason: "尚未执行的规划" }]),
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
       mkId,
     );
     expect(r.candidates).toHaveLength(1);
@@ -112,7 +112,7 @@ describe("parseReclassifyResponse", () => {
     const r = parseReclassifyResponse(
       JSON.stringify([{ id: "a", category: PARKING_CATEGORY, subtopic: null, reason: "没用" }]),
       items,
-      DEFAULT_TOPIC_TREE,
+      LEGACY_TOPIC_TREE_V1,
       mkId,
     );
     expect(r.candidates).toHaveLength(0);
@@ -120,13 +120,13 @@ describe("parseReclassifyResponse", () => {
   });
 
   it("模型漏答的条目算 unchanged，不产候选", () => {
-    const r = parseReclassifyResponse("[]", items, DEFAULT_TOPIC_TREE, mkId);
+    const r = parseReclassifyResponse("[]", items, LEGACY_TOPIC_TREE_V1, mkId);
     expect(r.candidates).toHaveLength(0);
     expect(r.unchanged).toBe(2);
   });
 
   it("回复不可解析时整批算 unchanged，不抛错", () => {
-    const r = parseReclassifyResponse("模型今天不想输出 JSON", items, DEFAULT_TOPIC_TREE, mkId);
+    const r = parseReclassifyResponse("模型今天不想输出 JSON", items, LEGACY_TOPIC_TREE_V1, mkId);
     expect(r.candidates).toHaveLength(0);
     expect(r.unchanged).toBe(2);
   });
@@ -147,19 +147,19 @@ describe("WikiReclassifier 状态机", () => {
 
   it("scope=subtopic 只扫描该小类", async () => {
     const { reclassifier, mkFiled } = setup([null, null]);
-    mkFiled("甲.docx", "做事记录", "项目/任务资料");
-    mkFiled("乙.docx", "做事记录", "汇报总结文稿");
+    mkFiled("甲.docx", "工作", "项目");
+    mkFiled("乙.docx", "工作", "例行");
 
     await reclassifier.run("ag", "u", {
       kind: "subtopic",
-      category: "做事记录",
-      subtopic: "汇报总结文稿",
+      category: "工作",
+      subtopic: "例行",
     });
     expect(reclassifier.get("ag", "u")!.total).toBe(1);
   });
 
   it("已有 running 时再 run 抛错；review 时需 force", async () => {
-    const { reclassifier, mkFiled } = setup([{ category: "学习资料", subtopic: "调研搜集材料" }]);
+    const { reclassifier, mkFiled } = setup([{ category: "学习", subtopic: "在学" }]);
     mkFiled("技术白皮书");
 
     await reclassifier.run("ag", "u", { kind: "all" });
@@ -171,7 +171,7 @@ describe("WikiReclassifier 状态机", () => {
 
   it("run 成功后 status = review，含候选；apply 部分接受后写两列并标 applied", async () => {
     const { reclassifier, mkFiled, repo } = setup([
-      { category: "学习资料", subtopic: "调研搜集材料", reason: "技术调研" },
+      { category: "学习", subtopic: "在学", reason: "技术调研" },
     ]);
     const s = mkFiled("技术白皮书");
 
@@ -186,8 +186,8 @@ describe("WikiReclassifier 状态机", () => {
     expect(r.failed).toBe(0);
 
     const after = repo.findSourceById(s.id)!;
-    expect(after.topic_category).toBe("学习资料");
-    expect(after.topic_subtopic).toBe("调研搜集材料");
+    expect(after.topic_category).toBe("学习");
+    expect(after.topic_subtopic).toBe("在学");
 
     const got2 = reclassifier.get("ag", "u");
     expect(got2).toBeNull(); // 全部接受后清空 run
@@ -195,8 +195,8 @@ describe("WikiReclassifier 状态机", () => {
 
   it("apply 时目标小类已删则该条留 review 带 applyError", async () => {
     const { reclassifier, mkFiled, repo } = setup([
-      { category: "学习资料", subtopic: "调研搜集材料", reason: "技术调研" },
-      { category: "做事记录", subtopic: "汇报总结文稿", reason: "内部汇报" },
+      { category: "学习", subtopic: "在学", reason: "技术调研" },
+      { category: "工作", subtopic: "例行", reason: "内部汇报" },
     ]);
     mkFiled("白皮书");
     mkFiled("周报");
@@ -207,8 +207,8 @@ describe("WikiReclassifier 状态机", () => {
 
     repo.applyTopicMutation({
       op: "deleteSubtopic",
-      category: "学习资料",
-      name: "调研搜集材料",
+      category: "学习",
+      name: "在学",
       disposition: { type: "parking" },
     });
 
@@ -224,8 +224,8 @@ describe("WikiReclassifier 状态机", () => {
 
   it("全部 applied/ignored 后 run 被清空", async () => {
     const { reclassifier, mkFiled } = setup([
-      { category: "学习资料", subtopic: "调研搜集材料" },
-      { category: "学习资料", subtopic: "调研搜集材料" },
+      { category: "学习", subtopic: "在学" },
+      { category: "学习", subtopic: "在学" },
     ]);
     mkFiled("白皮书");
     mkFiled("材料");
@@ -240,7 +240,7 @@ describe("WikiReclassifier 状态机", () => {
   });
 
   it("discard 清空 run", async () => {
-    const { reclassifier, mkFiled } = setup([{ category: "学习资料", subtopic: "调研搜集材料" }]);
+    const { reclassifier, mkFiled } = setup([{ category: "学习", subtopic: "在学" }]);
     mkFiled("白皮书");
 
     await reclassifier.run("ag", "u", { kind: "all" });
@@ -253,7 +253,7 @@ describe("WikiReclassifier 状态机", () => {
   it("LLM 抛错时批次落 failed 并保留 scope 供重试", async () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const s = repo.createSource({ agentId: "ag", userId: "u", title: "白皮书" });
-    repo.updateSourceTopic("ag", "u", s.id, "做事记录", "项目/任务资料");
+    repo.updateSourceTopic("ag", "u", s.id, "工作", "项目");
     const reclassifier = new WikiReclassifier(
       repo,
       vi.fn().mockRejectedValue(new Error("模型不可用")),
@@ -268,7 +268,7 @@ describe("WikiReclassifier 状态机", () => {
   });
 
   it("apply 空数组不改动任何内容", async () => {
-    const { reclassifier, mkFiled } = setup([{ category: "学习资料", subtopic: "调研搜集材料" }]);
+    const { reclassifier, mkFiled } = setup([{ category: "学习", subtopic: "在学" }]);
     mkFiled("白皮书");
     await reclassifier.run("ag", "u", { kind: "all" });
     expect(reclassifier.apply("ag", "u", [])).toEqual({ applied: 0, failed: 0 });

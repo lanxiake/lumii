@@ -107,8 +107,16 @@ export function folderSlugForNavId(navId: WikiNavId): string {
   return WIKI_NAV_SECTIONS.find((s) => s.id === navId)?.folderSlug ?? "00-收件箱";
 }
 
+/** 收件箱与归档是系统分区，不是树节点，目录名固定 */
+export const WIKI_INBOX_DIR = "收件箱";
+export const WIKI_ARCHIVED_DIR = "归档";
+
 /**
  * 根据资料当前主题/归档状态，解析 vault 内目录段（不含 wiki/ 前缀）。
+ *
+ * v1.1：大类名直接当目录名，不再经旧 nav 映射、不带 `01-` 序号前缀——序号会把目录路径
+ * 与树的排列顺序耦合，一重排树就让所有 `.lumii-ref` 侧车的相对路径失配。
+ * 展示顺序交给 UI 层按固定次序渲染。
  */
 export function vaultDirSegmentsForSource(params: {
   readonly topicCategory: string | null;
@@ -116,18 +124,17 @@ export function vaultDirSegmentsForSource(params: {
   readonly archivedAt: string | null;
 }): string[] {
   if (params.archivedAt) {
-    return [folderSlugForNavId("archived")];
+    return [WIKI_ARCHIVED_DIR];
   }
   if (params.topicCategory === PARKING_CATEGORY) {
     return [WIKI_PARKING_DIR];
   }
   if (!params.topicCategory) {
-    return [folderSlugForNavId("inbox")];
+    return [WIKI_INBOX_DIR];
   }
-  const navId = navIdFromLegacyCategory(params.topicCategory);
-  const base = folderSlugForNavId(navId);
+  // 小类可选：为空时只落到大类目录
   if (params.topicSubtopic) {
-    return [base, params.topicSubtopic];
+    return [params.topicCategory, params.topicSubtopic];
   }
-  return [base];
+  return [params.topicCategory];
 }

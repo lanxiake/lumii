@@ -4,11 +4,10 @@
 import type { WikiTopicTree } from "./wiki-topic-tree.js";
 import { DEFAULT_TOPIC_TREE } from "./wiki-topic-tree.js";
 import {
+  WIKI_ARCHIVED_DIR,
+  WIKI_INBOX_DIR,
   WIKI_META_DIR,
-  WIKI_NAV_SECTIONS,
   WIKI_PARKING_DIR,
-  folderSlugForNavId,
-  navIdFromLegacyCategory,
 } from "./wiki-nav-map.js";
 import { sanitizeFilenameSegment } from "./wiki-exporter.js";
 
@@ -44,19 +43,18 @@ export function ensureWikiVaultLayout(
 
   ensureDir(vaultRoot);
 
-  for (const sec of WIKI_NAV_SECTIONS) {
-    const sectionDir = fs.joinPath(vaultRoot, sec.folderSlug);
-    ensureDir(sectionDir);
-  }
-
+  // 系统分区：收件箱 / 归档 / 临时存放。都不是树节点，目录名固定。
+  ensureDir(fs.joinPath(vaultRoot, WIKI_INBOX_DIR));
+  ensureDir(fs.joinPath(vaultRoot, WIKI_ARCHIVED_DIR));
   ensureDir(fs.joinPath(vaultRoot, WIKI_PARKING_DIR));
 
+  // v1.1：直接按树生成「大类/小类」两级目录，不带序号前缀。
+  // 用户自建大类同样按名建目录，无需额外映射。
   for (const cat of topicTree.categories) {
-    const navId = navIdFromLegacyCategory(cat.name);
-    const sectionDir = fs.joinPath(vaultRoot, folderSlugForNavId(navId));
-    ensureDir(sectionDir);
+    const categoryDir = fs.joinPath(vaultRoot, sanitizeFilenameSegment(cat.name));
+    ensureDir(categoryDir);
     for (const sub of cat.subtopics) {
-      ensureDir(fs.joinPath(sectionDir, sanitizeFilenameSegment(sub)));
+      ensureDir(fs.joinPath(categoryDir, sanitizeFilenameSegment(sub)));
     }
   }
 
@@ -65,9 +63,15 @@ export function ensureWikiVaultLayout(
   const metaPath = fs.joinPath(metaDir, "wiki-meta.json");
   if (!fs.exists(metaPath)) {
     const meta = {
-      version: 1,
+      version: 2,
       layout: "ref-first",
-      sections: WIKI_NAV_SECTIONS.map((s) => ({ id: s.id, folderSlug: s.folderSlug, label: s.label })),
+      // 目录即分类：大类/小类直接对应目录名，不再有 nav 分区与旧大类的映射表
+      categories: topicTree.categories.map((c) => ({ name: c.name, subtopics: [...c.subtopics] })),
+      systemDirs: {
+        inbox: WIKI_INBOX_DIR,
+        archived: WIKI_ARCHIVED_DIR,
+        parking: WIKI_PARKING_DIR,
+      },
       initializedAt: new Date().toISOString(),
     };
     fs.writeFile(metaPath, `${JSON.stringify(meta, null, 2)}\n`);

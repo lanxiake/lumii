@@ -13,7 +13,7 @@ import { createBigramHashEmbedder } from "./wiki-vector.js";
 
 function mkSource(repo: WikiRepo, title: string, text: string) {
   const s = repo.createSource({ agentId: "ag", userId: "u", title, extractedText: text });
-  repo.updateSourceTopic("ag", "u", s.id, "学习资料", "调研搜集材料");
+  repo.updateSourceTopic("ag", "u", s.id, "学习", "在学");
   return s;
 }
 

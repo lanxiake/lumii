@@ -90,7 +90,7 @@ describe("WikiCleanupScanner", () => {
   it("不命中长期未用：新归档资料没有页面行，也不该被判为长期未用", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const s = repo.createSource({ agentId: "ag", userId: "u", title: "刚归档" });
-    repo.updateSourceTopic("ag", "u", s.id, "做事记录", "会议聊天记录");
+    repo.updateSourceTopic("ag", "u", s.id, "工作", "例行");
 
     const scanner = new WikiCleanupScanner(repo);
     expect(scanner.scan("ag", "u", { staleDays: 90 })).toHaveLength(0);
@@ -166,7 +166,7 @@ describe("WikiCleanupScanner 建议动作（二期 §12）", () => {
   it("正式目录里的长期未用 → 建议移到临时存放", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const s = repo.createSource({ agentId: "ag", userId: "u", title: "老调研" });
-    repo.updateSourceTopic("ag", "u", s.id, "学习资料", "调研搜集材料");
+    repo.updateSourceTopic("ag", "u", s.id, "学习", "在学");
     const scanner = new WikiCleanupScanner(repo);
 
     // staleDays 取负数把阈值推到未来，让所有资料都算长期未用

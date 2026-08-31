@@ -211,19 +211,19 @@ describe("WikiEroExtractor.extractFromSources（三期）", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     repo.getOrCreateTopicTree();
     const s1 = seedSource(repo, "调研A.pdf", "Lumii 用 SQLite 存数据", {
-      category: "学习资料",
-      subtopic: "调研搜集材料",
+      category: "学习",
+      subtopic: "在学",
     });
     const s2 = seedSource(repo, "调研B.pdf", "另一份调研正文", {
-      category: "学习资料",
-      subtopic: "调研搜集材料",
+      category: "学习",
+      subtopic: "在学",
     });
     const ero = new WikiEroRepo(repo.database);
     const extractor = new WikiEroExtractor(repo, ero, async () => ERO_JSON);
 
     const result = await extractor.extractFromSources("ag", "u", {
-      category: "学习资料",
-      subtopic: "调研搜集材料",
+      category: "学习",
+      subtopic: "在学",
     });
 
     expect(result.sourcesScanned).toBe(2);

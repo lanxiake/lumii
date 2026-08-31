@@ -58,7 +58,8 @@ describe("syncSourceToVault", () => {
       toAbsPath: (rel: string) => `/ws/${rel}`,
     };
     const result = syncSourceToVault(deps, sampleSource());
-    expect(result?.relPath).toMatch(/^wiki\/00-收件箱\/.+\.lumii-ref$/);
+    // v1.1：收件箱目录不带序号前缀
+    expect(result?.relPath).toMatch(/^wiki\/收件箱\/.+\.lumii-ref$/);
     expect(fs.files.size).toBeGreaterThan(0);
   });
 

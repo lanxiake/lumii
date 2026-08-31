@@ -39,7 +39,8 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'wiki:page:list', 'wiki:page:get', 'wiki:page:update', 'wiki:page:delete',
   'wiki:search', 'wiki:source:get', 'wiki:runs:list', 'wiki:index:rebuild',
   // 用途主题树 / 资料层（记忆重构一期）：set 接受结构化目录 JSON，非任意命令注入，按需放行。
-  'wiki:topic:tree:get', 'wiki:topic:tree:set', 'wiki:topic:mutate', 'wiki:source:list',
+  'wiki:topic:tree:get', 'wiki:topic:tree:set', 'wiki:topic:tree:migrate',
+  'wiki:topic:mutate', 'wiki:source:list',
   'wiki:reclassify:run', 'wiki:reclassify:get', 'wiki:reclassify:apply',
   'wiki:reclassify:ignore', 'wiki:reclassify:discard',
   'wiki:source:create-note', 'wiki:source:rename',

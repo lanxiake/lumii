@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { PARKING_CATEGORY } from "./wiki-topic-tree.js";
 import {
+  WIKI_ARCHIVED_DIR,
+  WIKI_INBOX_DIR,
   WIKI_NAV_SECTIONS,
-  folderSlugForNavId,
+  WIKI_PARKING_DIR,
   navIdFromLegacyCategory,
   primaryLegacyCategoryForNav,
   vaultDirSegmentsForSource,
@@ -44,27 +46,48 @@ describe("wiki-nav-map", () => {
     ]);
   });
 
-  it("vaultDirSegments 反映归档与分类", () => {
+  it("vaultDirSegments 反映归档与分类，且不带序号前缀（v1.1）", () => {
     expect(
       vaultDirSegmentsForSource({
         topicCategory: null,
         topicSubtopic: null,
         archivedAt: null,
       }),
-    ).toEqual([folderSlugForNavId("inbox")]);
+    ).toEqual([WIKI_INBOX_DIR]);
+    // 大类名直接当目录名，不再经旧 nav 映射、不带 `01-` 前缀
     expect(
       vaultDirSegmentsForSource({
-        topicCategory: "做事记录",
-        topicSubtopic: "会议聊天记录",
+        topicCategory: "工作",
+        topicSubtopic: "例行",
         archivedAt: null,
       }),
-    ).toEqual([folderSlugForNavId("work"), "会议聊天记录"]);
+    ).toEqual(["工作", "例行"]);
     expect(
       vaultDirSegmentsForSource({
-        topicCategory: "做事记录",
+        topicCategory: "工作",
         topicSubtopic: null,
         archivedAt: "2026-01-01",
       }),
-    ).toEqual([folderSlugForNavId("archived")]);
+    ).toEqual([WIKI_ARCHIVED_DIR]);
+  });
+
+  it("小类可选：只有大类时只落大类一层目录", () => {
+    expect(
+      vaultDirSegmentsForSource({
+        topicCategory: "学习",
+        topicSubtopic: null,
+        archivedAt: null,
+      }),
+    ).toEqual(["学习"]);
+  });
+
+  it("临时存放落 _parking，与树无关", () => {
+    expect(
+      vaultDirSegmentsForSource({
+        topicCategory: PARKING_CATEGORY,
+        topicSubtopic: null,
+        archivedAt: null,
+      }),
+    ).toEqual([WIKI_PARKING_DIR]);
   });
 });

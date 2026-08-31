@@ -27,7 +27,7 @@ function makeLLM(topicFor: (id: string, i: number) => { category: string; subtop
   };
 }
 
-const DOC_TOPIC = { category: "做事记录", subtopic: "项目/任务资料" } as const;
+const DOC_TOPIC = { category: "工作", subtopic: "项目" } as const;
 
 describe("WikiOrganizer 端到端", () => {
   it("上传 3 条 → 3 条 sources 带主题、inbox organized、不新建 wiki_pages", async () => {
@@ -59,11 +59,11 @@ describe("WikiOrganizer 端到端", () => {
     expect(repo.listInbox("ag", "u", "organized")).toHaveLength(3);
     expect(repo.listInbox("ag", "u", "pending")).toHaveLength(0);
 
-    const sources = repo.listSourcesByTopic("ag", "u", { category: "做事记录", subtopic: "项目/任务资料" });
+    const sources = repo.listSourcesByTopic("ag", "u", { category: "工作", subtopic: "项目" });
     expect(sources).toHaveLength(3);
     for (const source of sources) {
-      expect(source.topic_category).toBe("做事记录");
-      expect(source.topic_subtopic).toBe("项目/任务资料");
+      expect(source.topic_category).toBe("工作");
+      expect(source.topic_subtopic).toBe("项目");
     }
 
     for (const item of repo.listInbox("ag", "u", "organized")) {
@@ -161,7 +161,7 @@ describe("WikiOrganizer 端到端", () => {
       repo,
       async (prompt) => {
         const id = /\[id=([0-9a-f]+)\]/.exec(prompt)![1]!;
-        return `{"id":"${id}","category":"做事记录","subtopic":"项目/任务资料","skip":false}`;
+        return `{"id":"${id}","category":"工作","subtopic":"项目","skip":false}`;
       },
       new WikiContentExtractor(),
     );
@@ -170,8 +170,8 @@ describe("WikiOrganizer 端到端", () => {
     expect(run!.status).toBe("succeeded");
     const sources = repo.listSources("ag", "u");
     expect(sources).toHaveLength(1);
-    expect(sources[0]!.topic_category).toBe("做事记录");
-    expect(sources[0]!.topic_subtopic).toBe("项目/任务资料");
+    expect(sources[0]!.topic_category).toBe("工作");
+    expect(sources[0]!.topic_subtopic).toBe("项目");
   });
 
   it("思考块与散文里的方括号不再带偏 JSON 边界", async () => {
@@ -185,7 +185,7 @@ describe("WikiOrganizer 端到端", () => {
         return `<think>先看 items[0] 的类型，再决定落点 [重要]</think>
 好的，结果如下：
 \`\`\`json
-[{"id":"${id}","category":"做事记录","subtopic":"项目/任务资料","skip":false}]
+[{"id":"${id}","category":"工作","subtopic":"项目","skip":false}]
 \`\`\``;
       },
       new WikiContentExtractor(),
@@ -193,7 +193,7 @@ describe("WikiOrganizer 端到端", () => {
     const run = await organizer.organizeBatch("ag", "u", "upload");
 
     expect(run!.status).toBe("succeeded");
-    expect(repo.listSources("ag", "u")[0]!.topic_category).toBe("做事记录");
+    expect(repo.listSources("ag", "u")[0]!.topic_category).toBe("工作");
   });
 
   it("重复整理已归档条目不会再次取件", async () => {
@@ -211,7 +211,7 @@ describe("WikiOrganizer 端到端", () => {
 
     const organizer = new WikiOrganizer(
       repo,
-      makeLLM(() => ({ category: "模板参考", subtopic: "图片媒体素材" })),
+      makeLLM(() => ({ category: "收藏", subtopic: "可复用" })),
       new WikiContentExtractor({ recognizeImage: async () => "一张架构示意图" }),
     );
     await organizer.organizeBatch("ag", "u", "upload");

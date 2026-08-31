@@ -36,7 +36,9 @@ export interface WikiExportResult {
 }
 
 /** Windows 非法文件名字符 + 保留名，替换为下划线 */
-const ILLEGAL_FILENAME_CHARS = /[<>:"|?*\x00-\x1f]/g;
+// 含 `/` 与 `\`：小类名允许含斜杠（如「项目/任务资料」），但作为单个路径段使用时
+// 斜杠会被当成分隔符，凭空造出一层嵌套目录。这里一并替换掉。
+const ILLEGAL_FILENAME_CHARS = /[<>:"|?*/\\\x00-\x1f]/g;
 
 /** 安全化单个路径段：替换非法字符，去除首尾空白与点（Windows 不允许以点/空格结尾） */
 export function sanitizeFilenameSegment(segment: string): string {

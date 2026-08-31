@@ -116,12 +116,12 @@ describe('wiki commands', () => {
     const organized = handleWikiInboxOrganize(bridge, {
       type: 'wiki:inbox:organize',
       inboxId: item.id,
-      category: '做事记录',
-      subtopic: '项目/任务资料',
+      category: '工作',
+      subtopic: '项目',
       title: '标题A',
     })
-    expect(organized.category).toBe('做事记录')
-    expect(organized.subtopic).toBe('项目/任务资料')
+    expect(organized.category).toBe('工作')
+    expect(organized.subtopic).toBe('项目')
     expect(repo.findInboxById(item.id)!.status).toBe('organized')
 
     const item2 = repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'b' })
@@ -302,13 +302,13 @@ describe('wiki commands', () => {
     const bridge = buildBridge(repo)
     repo.getOrCreateTopicTree()
     const s1 = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '调研A.pdf' })
-    repo.updateSourceTopic('assistant', 'local-user', s1.id, '学习资料', '调研搜集材料')
+    repo.updateSourceTopic('assistant', 'local-user', s1.id, '学习', '在学')
 
     const graph = handleWikiGraphData(bridge, {
       type: 'wiki:graph:data',
       agentId: 'assistant',
-      category: '学习资料',
-      subtopic: '调研搜集材料',
+      category: '学习',
+      subtopic: '在学',
       layers: ['structure'],
     }) as { nodes: { kind: string }[]; edges: unknown[]; truncated: boolean }
 
@@ -349,13 +349,13 @@ describe('wiki commands', () => {
       extractedText: 'Lumii 是本地优先应用',
       contentHash: 'hash-1',
     })
-    repo.updateSourceTopic('assistant', 'local-user', s1.id, '学习资料', '调研搜集材料')
+    repo.updateSourceTopic('assistant', 'local-user', s1.id, '学习', '在学')
 
     const result = (await handleWikiEroExtract(bridge, {
       type: 'wiki:ero:extract',
       agentId: 'assistant',
-      category: '学习资料',
-      subtopic: '调研搜集材料',
+      category: '学习',
+      subtopic: '在学',
     })) as {
       sourcesScanned: number
       sourcesFailed: number
@@ -374,7 +374,7 @@ describe('wiki commands', () => {
     const bridge = buildBridge(repo)
     const ero = new WikiEroRepo(repo.database)
     const s1 = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '调研A.pdf' })
-    repo.updateSourceTopic('assistant', 'local-user', s1.id, '学习资料', '调研搜集材料')
+    repo.updateSourceTopic('assistant', 'local-user', s1.id, '学习', '在学')
     const entity = ero.upsertEntity({
       agentId: 'assistant',
       userId: 'local-user',
@@ -391,8 +391,8 @@ describe('wiki commands', () => {
 
     expect(result.sources).toHaveLength(1)
     expect(result.sources[0]!.id).toBe(s1.id)
-    expect(result.sources[0]!.topicCategory).toBe('学习资料')
-    expect(result.sources[0]!.topicSubtopic).toBe('调研搜集材料')
+    expect(result.sources[0]!.topicCategory).toBe('学习')
+    expect(result.sources[0]!.topicSubtopic).toBe('在学')
   })
 
   it('runs:list 对无效 result_detail 形状返回 resultDetail null', () => {
@@ -428,7 +428,7 @@ describe('wiki commands', () => {
     const got = handleWikiTopicTreeGet(bridge, { type: 'wiki:topic:tree:get', agentId: 'assistant' })
     expect(got.tree).toEqual(DEFAULT_TOPIC_TREE)
 
-    const customTree = { version: 1 as const, categories: [{ name: '做事记录', subtopics: ['会议聊天记录'] }] }
+    const customTree = { version: 1 as const, categories: [{ name: '自定义大类', subtopics: ['自定义小类'] }] }
     expect(
       handleWikiTopicTreeSet(bridge, { type: 'wiki:topic:tree:set', agentId: 'assistant', tree: customTree }),
     ).toEqual({ success: true })
@@ -444,12 +444,12 @@ describe('wiki commands', () => {
     const r = handleWikiTopicMutate(bridge, {
       type: 'wiki:topic:mutate',
       agentId: 'assistant',
-      mutation: { op: 'addSubtopic', category: '学习资料', name: '行业报告归档' },
+      mutation: { op: 'addSubtopic', category: '学习', name: '行业报告归档' },
     })
     expect(r.movedCount).toBe(0)
 
     const got = handleWikiTopicTreeGet(bridge, { type: 'wiki:topic:tree:get', agentId: 'assistant' })
-    const learning = got.tree.categories.find((c) => c.name === '学习资料')!
+    const learning = got.tree.categories.find((c) => c.name === '学习')!
     expect(learning.subtopics).toContain('行业报告归档')
   })
 
@@ -457,13 +457,13 @@ describe('wiki commands', () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
     const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '纪要.md' })
-    repo.updateSourceTopic('assistant', 'local-user', source.id, '做事记录', '会议聊天记录')
+    repo.updateSourceTopic('assistant', 'local-user', source.id, '工作', '例行')
 
     expect(() =>
       handleWikiTopicMutate(bridge, {
         type: 'wiki:topic:mutate',
         agentId: 'assistant',
-        mutation: { op: 'deleteSubtopic', category: '做事记录', name: '会议聊天记录' },
+        mutation: { op: 'deleteSubtopic', category: '工作', name: '例行' },
       }),
     ).toThrow(/请先选择去向/)
   })
@@ -472,12 +472,12 @@ describe('wiki commands', () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
     const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '周报.docx' })
-    repo.updateSourceTopic('assistant', 'local-user', source.id, '做事记录', '汇报总结文稿')
+    repo.updateSourceTopic('assistant', 'local-user', source.id, '工作', '对外')
 
     const r = handleWikiTopicMutate(bridge, {
       type: 'wiki:topic:mutate',
       agentId: 'assistant',
-      mutation: { op: 'renameCategory', from: '做事记录', to: '工作产出' },
+      mutation: { op: 'renameCategory', from: '工作', to: '工作产出' },
     })
     expect(r.movedCount).toBe(1)
     expect(repo.findSourceById(source.id)!.topic_category).toBe('工作产出')
@@ -491,15 +491,15 @@ describe('wiki commands', () => {
 
     const r = handleWikiSourceCreateNote(
       bridge,
-      { type: 'wiki:source:create-note', agentId: 'assistant', category: '随笔创作', subtopic: '灵感随手记录' } as never,
+      { type: 'wiki:source:create-note', agentId: 'assistant', category: '生活', subtopic: '自留' } as never,
       { notesDir: () => notesDir },
     )
 
     expect(fs.existsSync(r.sourcePath)).toBe(true)
     expect(fs.readFileSync(r.sourcePath, 'utf8')).toContain('# 未命名笔记')
     const s = repo.findSourceById(r.sourceId)!
-    expect(s.topic_category).toBe('随笔创作')
-    expect(s.topic_subtopic).toBe('灵感随手记录')
+    expect(s.topic_category).toBe('生活')
+    expect(s.topic_subtopic).toBe('自留')
     expect(s.mime_type).toBe('text/markdown')
     expect(repo.listPages('assistant', 'local-user')).toHaveLength(pagesBefore)
   })
@@ -509,9 +509,12 @@ describe('wiki commands', () => {
     const bridge = buildBridge(repo)
     const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-notes-'))
 
+    // v2 默认树的小类名不含斜杠；用户仍可自建含 `/` 的小类，这里显式建一个来验证 sanitize
+    repo.setTopicTree({ version: 2, categories: [{ name: '工作', subtopics: ['项目/任务资料'] }] })
+
     const r = handleWikiSourceCreateNote(
       bridge,
-      { type: 'wiki:source:create-note', agentId: 'assistant', category: '做事记录', subtopic: '项目/任务资料' } as never,
+      { type: 'wiki:source:create-note', agentId: 'assistant', category: '工作', subtopic: '项目/任务资料' } as never,
       { notesDir: () => notesDir },
     )
     expect(r.sourcePath).not.toContain('项目/任务资料')
@@ -535,7 +538,7 @@ describe('wiki commands', () => {
     expect(() =>
       handleWikiSourceCreateNote(
         bridge,
-        { type: 'wiki:source:create-note', agentId: 'assistant', category: '学习资料', subtopic: '不存在的小类' } as never,
+        { type: 'wiki:source:create-note', agentId: 'assistant', category: '学习', subtopic: '不存在的小类' } as never,
         { notesDir: () => notesDir },
       ),
     ).toThrow(/小类不存在/)
@@ -547,8 +550,8 @@ describe('wiki commands', () => {
     const cmd = {
       type: 'wiki:source:create-note',
       agentId: 'assistant',
-      category: '随笔创作',
-      subtopic: '灵感随手记录',
+      category: '生活',
+      subtopic: '自留',
       title: '灵感',
     } as never
     const fixedNow = () => new Date('2026-08-27T10:30:00')
@@ -566,7 +569,7 @@ describe('wiki commands', () => {
     const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-notes-'))
     const created = handleWikiSourceCreateNote(
       bridge,
-      { type: 'wiki:source:create-note', agentId: 'assistant', category: '随笔创作', subtopic: '灵感随手记录' } as never,
+      { type: 'wiki:source:create-note', agentId: 'assistant', category: '生活', subtopic: '自留' } as never,
       { notesDir: () => notesDir },
     )
 
@@ -604,7 +607,7 @@ describe('wiki commands', () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
     const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '白皮书' })
-    repo.updateSourceTopic('assistant', 'local-user', source.id, '做事记录', '项目/任务资料')
+    repo.updateSourceTopic('assistant', 'local-user', source.id, '工作', '项目')
 
     const r = await handleWikiReclassifyRun(bridge, {
       type: 'wiki:reclassify:run',
@@ -645,15 +648,15 @@ describe('wiki commands', () => {
       type: 'wiki:source:update-topic',
       agentId: 'assistant',
       sourceId: source.id,
-      category: '证件凭据',
-      subtopic: '合同协议文件',
+      category: '生活',
+      subtopic: '凭据',
     })
 
     const list = handleWikiSourceList(bridge, {
       type: 'wiki:source:list',
       agentId: 'assistant',
-      category: '证件凭据',
-      subtopic: '合同协议文件',
+      category: '生活',
+      subtopic: '凭据',
     })
     expect(list.sources).toHaveLength(1)
     expect((list.sources[0] as { id: string }).id).toBe(source.id)
@@ -695,7 +698,7 @@ describe('wiki commands', () => {
   it('cleanup:scan 带出两列主题供只读展示', () => {
     const repo = createWikiRepo()
     const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '会议纪要' })
-    repo.updateSourceTopic('assistant', 'local-user', source.id, '做事记录', '会议聊天记录')
+    repo.updateSourceTopic('assistant', 'local-user', source.id, '工作', '例行')
     const updated = repo.findSourceById(source.id)
     const bridge = {
       ...buildBridge(repo),
@@ -708,8 +711,8 @@ describe('wiki commands', () => {
       topicSubtopic: string | null
     }>
 
-    expect(rows[0]?.topicCategory).toBe('做事记录')
-    expect(rows[0]?.topicSubtopic).toBe('会议聊天记录')
+    expect(rows[0]?.topicCategory).toBe('工作')
+    expect(rows[0]?.topicSubtopic).toBe('例行')
   })
 
   it('folder scan/import 批量摄入收件箱', async () => {

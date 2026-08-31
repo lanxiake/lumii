@@ -586,6 +586,33 @@ export function handleWikiTopicTreeSet(
 }
 
 /**
+ * V26 一次性迁移：主题树 JSON v1→v2，返回统计报告并落盘到 reports/wiki-topic-tree-migration-*.json。
+ * 幂等调用——已是 v2 时返回 alreadyMigrated: true，不覆盖用户在 v2 下的编辑。
+ */
+export function handleWikiTopicTreeMigrate(
+  bridge: AgentRuntimeBridge,
+  _command: Extract<AgentRuntimeCommand, { type: 'wiki:topic:tree:migrate' }>,
+): ReturnType<AgentRuntimeBridge['wikiRepo']['migrateTopicTreeToV2']> & { reportPath?: string } {
+  const report = bridge.wikiRepo.migrateTopicTreeToV2()
+
+  // 只在真正迁移时写报告文件（alreadyMigrated 时跳过，避免重复写）
+  if (!report.alreadyMigrated) {
+    const vaultRoot = resolveWikiDir()
+    const reportsDir = path.join(vaultRoot, 'reports')
+    fs.mkdirSync(reportsDir, { recursive: true })
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const filename = `wiki-topic-tree-migration-${timestamp}.json`
+    const reportPath = path.join(reportsDir, filename)
+    fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf8')
+
+    return { ...report, reportPath }
+  }
+
+  return report
+}
+
+/**
  * 应用一次主题树变更。删除仍有文件的节点时 repo 会抛中文错误（带文件数），
  * 由 IPC 层原样上抛给 UI 提示「请先选择去向」。
  */

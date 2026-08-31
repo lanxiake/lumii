@@ -479,6 +479,12 @@ export interface WikiTopicTreeSetCommand {
   }
 }
 
+export interface WikiTopicTreeMigrateCommand {
+  readonly type: 'wiki:topic:tree:migrate'
+  readonly agentId: string
+  readonly userId?: string
+}
+
 /** 删除节点时的文件去向；删除有文件的节点必须带 disposition */
 export type WikiFileDispositionDto =
   | { readonly type: 'parking' }
@@ -1496,6 +1502,7 @@ export type AgentRuntimeCommand =
   | WikiIndexRebuildCommand
   | WikiTopicTreeGetCommand
   | WikiTopicTreeSetCommand
+  | WikiTopicTreeMigrateCommand
   | WikiTopicMutateCommand
   | WikiReclassifyRunCommand
   | WikiReclassifyGetCommand
@@ -1875,6 +1882,15 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       tree: { version: 1; categories: readonly { name: string; subtopics: readonly string[] }[] }
     }
   : T extends 'wiki:topic:tree:set' ? { success: true }
+  : T extends 'wiki:topic:tree:migrate' ? {
+      alreadyMigrated?: boolean
+      categoryRules: readonly { from: string; to: string | null; count: number }[]
+      inboxCount: number
+      legacySubtopicTop: readonly { subtopic: string; count: number }[]
+      userCategories: readonly string[]
+      elapsedMs: number
+      reportPath?: string
+    }
   : T extends 'wiki:topic:mutate' ? {
       tree: { version: 1; categories: readonly { name: string; subtopics: readonly string[] }[] }
       movedCount: number
