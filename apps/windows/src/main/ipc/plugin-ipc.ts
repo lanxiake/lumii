@@ -10,8 +10,10 @@ import {
   getBundledPythonExe,
   getPythonRuntimeDir,
   hasPackage as hasPythonPackage,
+  BUNDLED_ONNXRUNTIME_SPEC,
   buildBundledPipInstallArgs,
   repairGoogleRpcNamespaceIfNeeded,
+  repairOnnxRuntimeIfNeeded,
 } from '../python-env'
 import { resolveClientStateDir } from '../paths'
 
@@ -138,12 +140,13 @@ export async function ensureMemPalaceRuntime(onProgress?: (msg: string) => void)
 
   const pythonExe = await ensureBundledPython(report)
   if (await checkMemPalaceInstalled()) {
+    await repairOnnxRuntimeIfNeeded()
     report('MemPalace 已安装')
     return
   }
 
   report('正在安装 mempalace...')
-  await _execFileAsync(pythonExe, buildBundledPipInstallArgs(['mempalace']), {
+  await _execFileAsync(pythonExe, buildBundledPipInstallArgs(['mempalace', BUNDLED_ONNXRUNTIME_SPEC]), {
     timeout: 300000,
     windowsHide: true,
     cwd: getPythonRuntimeDir(),
@@ -154,6 +157,7 @@ export async function ensureMemPalaceRuntime(onProgress?: (msg: string) => void)
     },
   })
   await repairGoogleRpcNamespaceIfNeeded()
+  await repairOnnxRuntimeIfNeeded()
 
   report('正在验证安装...')
   await _execFileAsync(pythonExe, ['-c', MEMPALACE_VERIFY_SCRIPT], {

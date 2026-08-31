@@ -124,7 +124,7 @@ describe('CleanupView', () => {
     })
   })
 
-  it('行内只读展示大类 / 小类，未归类显示待补分，不提供移到临时存放', async () => {
+  it('行内只读展示大类 / 小类，未归类显示收件箱，不提供移到临时存放', async () => {
     renderCleanupView({
       cleanupScan: vi.fn(async () => [
         { sourceId: 'a', title: '会议纪要', reason: 'stale' as const, topicCategory: '做事记录', topicSubtopic: '会议聊天记录' },
@@ -133,9 +133,9 @@ describe('CleanupView', () => {
       ]),
     })
 
-    expect(await screen.findByText('做事记录 / 会议聊天记录')).toBeInTheDocument()
+    expect(await screen.findByText('工作 / 会议聊天记录')).toBeInTheDocument()
     expect(screen.getByText('临时存放')).toBeInTheDocument()
-    expect(screen.getByText('待补分')).toBeInTheDocument()
+    expect(screen.getByText('收件箱')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /移到临时存放/ })).not.toBeInTheDocument()
   })
 })

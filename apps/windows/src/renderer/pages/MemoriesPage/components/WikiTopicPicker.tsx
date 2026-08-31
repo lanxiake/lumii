@@ -9,7 +9,7 @@ import {
   type WikiNavSection,
 } from './wikiNavMapping'
 
-/** 归档弹层第一步可选分区（不含待整理 / 临时存放） */
+/** 归档弹层第一步可选分区（不含收件箱 / 临时存放） */
 export const WIKI_TOPIC_PICKER_SECTIONS: readonly WikiNavSection[] = [
   'work',
   'study',
@@ -18,7 +18,7 @@ export const WIKI_TOPIC_PICKER_SECTIONS: readonly WikiNavSection[] = [
   'archived',
 ]
 
-/** 待整理批量归档：只选活跃分区，不含「已归档」冷存储 */
+/** 收件箱批量归档：只选活跃分区，不含「已归档」冷存储 */
 export const WIKI_TOPIC_PICKER_ACTIVE_SECTIONS: readonly WikiNavSection[] = [
   'work',
   'study',

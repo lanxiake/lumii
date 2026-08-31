@@ -29,6 +29,15 @@ const RUNTIME_NAME = 'python-embed'
 
 export const PYPI_MIRROR = 'https://pypi.tuna.tsinghua.edu.cn/simple'
 
+/**
+ * 内置运行时钉死的 onnxruntime。
+ *
+ * chromadb 会拉最新版；1.21+ 的 Windows wheel 在 Win10 19045 上
+ * LoadLibrary 返回 1114（DLL 初始化失败），chroma 误报成「未安装」。
+ * 1.20.1 是本机验证过能 import 的最后一版。
+ */
+export const BUNDLED_ONNXRUNTIME_SPEC = 'onnxruntime==1.20.1'
+
 const PYTHON_EMBED_URLS = [
   'https://npmmirror.com/mirrors/python/3.11.9/python-3.11.9-embed-amd64.zip',
   'https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip',
@@ -131,6 +140,54 @@ export async function repairGoogleRpcNamespaceIfNeeded(): Promise<boolean> {
     },
   })
   log.info('google.rpc 命名空间已修复')
+  return true
+}
+
+/** 内置 Python 子进程环境：钉 PYTHONHOME，避免混用用户站点包 */
+function bundledPythonProcEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    PYTHONHOME: getPythonRuntimeDir(),
+    PYTHONNOUSERSITE: '1',
+  }
+}
+
+/**
+ * 探测 onnxruntime 能否真实 import（目录存在不等于 DLL 能加载）。
+ */
+async function canImportOnnxRuntime(pythonExe: string): Promise<boolean> {
+  try {
+    await execFileAsync(pythonExe, ['-c', 'import onnxruntime; print(onnxruntime.__version__)'], {
+      timeout: 20000,
+      windowsHide: true,
+      cwd: getPythonRuntimeDir(),
+      env: bundledPythonProcEnv(),
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 若 onnxruntime 无法 import（Win10 + 1.21+ 常见），则安装 {@link BUNDLED_ONNXRUNTIME_SPEC}。
+ *
+ * @returns 是否执行了降级安装
+ */
+export async function repairOnnxRuntimeIfNeeded(): Promise<boolean> {
+  const pythonExe = getBundledPythonExe()
+  if (!existsSync(pythonExe)) return false
+  if (!hasPackage('onnxruntime') && !hasPackage('chromadb')) return false
+  if (await canImportOnnxRuntime(pythonExe)) return false
+
+  log.warn(`onnxruntime 无法加载，正在安装 ${BUNDLED_ONNXRUNTIME_SPEC}...`)
+  await execFileAsync(pythonExe, buildBundledPipInstallArgs([BUNDLED_ONNXRUNTIME_SPEC]), {
+    timeout: 180000,
+    windowsHide: true,
+    cwd: getPythonRuntimeDir(),
+    env: bundledPythonProcEnv(),
+  })
+  log.info('onnxruntime 已降级到可加载版本')
   return true
 }
 

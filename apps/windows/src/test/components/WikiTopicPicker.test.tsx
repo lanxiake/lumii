@@ -38,7 +38,7 @@ describe('WikiTopicPicker', () => {
     for (const label of ['工作', '学习', '生活', '收藏']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
     }
-    expect(screen.queryByRole('button', { name: '待整理' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '收件箱' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '临时存放' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '做事记录' })).not.toBeInTheDocument()
   })

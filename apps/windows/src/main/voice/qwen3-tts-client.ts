@@ -7,6 +7,7 @@ import path from 'node:path'
 import { app } from 'electron'
 import {
   PYPI_MIRROR,
+  BUNDLED_ONNXRUNTIME_SPEC,
   ensureBundledPython,
   getBundledPythonExe,
 } from '../python-env.js'
@@ -424,7 +425,7 @@ async function installQwenDeps(pythonExe: string): Promise<void> {
       'soundfile',
       'numpy',
       'librosa',
-      'onnxruntime',
+      BUNDLED_ONNXRUNTIME_SPEC,
       'einops',
       '-i',
       PYPI_MIRROR,

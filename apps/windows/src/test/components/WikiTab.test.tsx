@@ -8,6 +8,7 @@ import '@testing-library/jest-dom'
 import { WikiTab } from '../../renderer/pages/MemoriesPage/components/WikiTab'
 import { WikiTaskCenter } from '../../renderer/pages/MemoriesPage/components/WikiTaskCenter'
 import type { WikiLocalTask } from '../../renderer/pages/MemoriesPage/components/useWikiTaskCenter'
+import { ToastProvider } from '../../renderer/components/ui/Toast/ToastContainer'
 
 const TOPIC_TREE = {
   version: 1,
@@ -51,6 +52,15 @@ function mockSendCommand(overrides: Record<string, unknown> = {}) {
   })
 }
 
+/** 包一层 Toast，WikiTab 依赖 useToast */
+function renderWikiTab() {
+  return render(
+    <ToastProvider>
+      <WikiTab />
+    </ToastProvider>,
+  )
+}
+
 describe('WikiTab', () => {
   beforeEach(() => {
     vi.stubGlobal('ResizeObserver', class {
@@ -64,13 +74,13 @@ describe('WikiTab', () => {
   })
 
   it('左栏渲染用途目录树与固定入口，不含资料/多媒体一级项', async () => {
-    render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
+    renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
 
     expect(screen.getByText('工作')).toBeInTheDocument()
     expect(screen.getByText('学习')).toBeInTheDocument()
     expect(screen.queryByText('做事记录')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^待整理/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^收件箱/ })).toBeInTheDocument()
     expect(screen.getByText('临时存放')).toBeInTheDocument()
     expect(screen.getByText('知识图谱')).toBeInTheDocument()
     expect(screen.getByText('更多')).toBeInTheDocument()
@@ -79,8 +89,8 @@ describe('WikiTab', () => {
   })
 
   it('空小类可点击并显示专属空状态', async () => {
-    render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
+    renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
 
     await selectNavSection('工作')
     fireEvent.click(screen.getByText('会议聊天记录'))
@@ -102,9 +112,9 @@ describe('WikiTab', () => {
         }],
       },
     })
-    render(<WikiTab />)
+    renderWikiTab()
 
-    await screen.findByText(/暂无待整理条目/)
+    await screen.findByText(/暂无收件箱条目/)
     await selectNavSection('工作')
     fireEvent.click(await screen.findByText('会议聊天记录'))
     const title = await screen.findByText('周会纪要.docx')
@@ -134,9 +144,9 @@ describe('WikiTab', () => {
       if (cmd.type === 'wiki:inbox:list' || cmd.type === 'wiki:page:list' || cmd.type === 'wiki:runs:list') return []
       return null
     })
-    render(<WikiTab />)
+    renderWikiTab()
 
-    await screen.findByText(/暂无待整理条目/)
+    await screen.findByText(/暂无收件箱条目/)
     await selectNavSection('生活')
     fireEvent.click(await screen.findByText('合同协议文件'))
     fireEvent.click(await screen.findByRole('button', { name: /打开/ }))
@@ -161,7 +171,7 @@ describe('WikiTab', () => {
       'wiki:inbox:organize': { sourceId: 's1', category: '证件凭据', subtopic: '合同协议文件' },
     })
     ;(window as any).electronAPI.agentRuntime.sendCommand = sendCommand
-    render(<WikiTab />)
+    renderWikiTab()
 
     fireEvent.click(await screen.findByText('归档到…'))
     const dialog = within(await screen.findByRole('dialog'))
@@ -194,7 +204,7 @@ describe('WikiTab', () => {
         }],
       },
     })
-    render(<WikiTab />)
+    renderWikiTab()
 
     fireEvent.click(await screen.findByText('临时存放'))
     expect(await screen.findByText('待定方案.pptx')).toBeInTheDocument()
@@ -221,8 +231,8 @@ describe('WikiTab', () => {
         degradeReason: null,
       },
     })
-    render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
+    renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
 
     const input = screen.getByPlaceholderText('搜索 Wiki…')
     fireEvent.change(input, { target: { value: '架构设计' } })
@@ -234,8 +244,8 @@ describe('WikiTab', () => {
   })
 
   it('更多菜单含历史页面与编辑主题树', async () => {
-    render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
+    renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
 
     fireEvent.click(screen.getByRole('button', { name: '更多' }))
     expect(screen.getByRole('menuitem', { name: /历史页面/ })).toBeInTheDocument()
@@ -245,8 +255,8 @@ describe('WikiTab', () => {
   })
 
   it('更多菜单点编辑主题树打开编辑弹层', async () => {
-    render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
+    renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
 
     fireEvent.click(screen.getByRole('button', { name: '更多' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /编辑主题树/ }))
@@ -276,8 +286,8 @@ describe('WikiTab', () => {
       'wiki:link:backlinks': [],
       'wiki:page:revisions': [],
     })
-    render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
+    renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
 
     fireEvent.click(screen.getByRole('button', { name: '更多' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /历史页面/ }))
@@ -288,8 +298,8 @@ describe('WikiTab', () => {
   })
 
   it('从更多菜单打开清理全页并显示清理控件', async () => {
-    render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
+    renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
 
     fireEvent.click(screen.getByRole('button', { name: '更多' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /清理/ }))
@@ -315,7 +325,7 @@ describe('WikiTab', () => {
         truncated: false,
       },
     })
-    render(<WikiTab />)
+    renderWikiTab()
 
     fireEvent.click(await screen.findByText('知识图谱'))
     await waitFor(() => expect(document.querySelector('.react-flow__node')).toBeInTheDocument())
@@ -323,8 +333,8 @@ describe('WikiTab', () => {
   })
 
   it('点击更多菜单外部后关闭菜单', async () => {
-    render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
+    renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
 
     fireEvent.click(screen.getByRole('button', { name: '更多' }))
     expect(screen.getByRole('menu')).toBeInTheDocument()
@@ -334,8 +344,8 @@ describe('WikiTab', () => {
   })
 
   it('再次点击更多按钮时关闭菜单', async () => {
-    render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
+    renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
 
     const moreButton = screen.getByRole('button', { name: '更多' })
     fireEvent.click(moreButton)
@@ -347,8 +357,8 @@ describe('WikiTab', () => {
   })
 
   it('从更多菜单切换视图时关闭菜单', async () => {
-    render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
+    renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
 
     fireEvent.click(screen.getByRole('button', { name: '更多' }))
     fireEvent.click(screen.getByText('历史页面'))
@@ -371,8 +381,8 @@ describe('WikiTab', () => {
         }],
       },
     })
-    render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
+    renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
 
     await waitFor(() => {
       expect(getNavSectionCount('工作')).toBe('1')
@@ -387,8 +397,8 @@ describe('WikiTab', () => {
       'wiki:index:rebuild': { rebuiltCount: 3 },
     })
     ;(window as any).electronAPI.agentRuntime.sendCommand = sendCommand
-    render(<WikiTab />)
-    await screen.findByText(/暂无待整理条目/)
+    renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
 
     fireEvent.click(screen.getByRole('button', { name: '更多' }))
     fireEvent.click(screen.getByRole('menuitem', { name: /重建索引/ }))
@@ -396,7 +406,7 @@ describe('WikiTab', () => {
     await waitFor(() => {
       expect(sendCommand).toHaveBeenCalledWith({ type: 'wiki:index:rebuild' })
     })
-    expect(screen.getByText(/暂无待整理条目/)).toBeInTheDocument()
+    expect(screen.getByText(/暂无收件箱条目/)).toBeInTheDocument()
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
@@ -445,7 +455,7 @@ describe('WikiTab', () => {
       }],
     })
 
-    render(<WikiTab />)
+    renderWikiTab()
 
     await waitFor(() => {
       expect(
@@ -473,7 +483,7 @@ describe('WikiTab', () => {
       if (cmd.type === 'wiki:page:list' || cmd.type === 'wiki:runs:list') return []
       return null
     })
-    render(<WikiTab />)
+    renderWikiTab()
 
     await screen.findByText('a.png')
     expect(screen.getByText(/失败原因: 网络错误/)).toBeInTheDocument()
@@ -497,7 +507,7 @@ describe('WikiTab', () => {
         createdAt: Date.now(),
       }],
     })
-    render(<WikiTab />)
+    renderWikiTab()
 
     await screen.findByText('会议纪要')
     expect(screen.getByText(/待人工归档: 无法归类/)).toBeInTheDocument()
@@ -522,16 +532,16 @@ describe('WikiTab', () => {
       }],
       'wiki:inbox:count': { total: 1 },
     })
-    render(<WikiTab />)
+    renderWikiTab()
 
     expect(await screen.findByText('失败')).toBeInTheDocument()
     expect(screen.getByText('重试')).toBeInTheDocument()
     expect(screen.queryByText(/^failed$/)).not.toBeInTheDocument()
   })
 
-  it('待补分文件在待整理下单独成段并计入角标', async () => {
+  it('未分类文件与队列条目合并在收件箱列表并计入角标', async () => {
     ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
-      'wiki:inbox:count': { total: 1 },
+      'wiki:inbox:count': { total: 1, pending: 1 },
       'wiki:inbox:list': [{
         id: 'i1',
         itemType: 'file',
@@ -541,7 +551,7 @@ describe('WikiTab', () => {
         status: 'pending',
         attemptCount: 0,
         lastError: null,
-        createdAt: Date.now(),
+        createdAt: Date.now() - 1000,
       }],
       'wiki:source:list': {
         sources: [{
@@ -556,10 +566,12 @@ describe('WikiTab', () => {
         }],
       },
     })
-    render(<WikiTab />)
+    renderWikiTab()
 
-    expect(await screen.findByRole('heading', { name: '待补分（1）' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '待整理（2）' })).toBeInTheDocument()
-    expect(screen.getByText('未分类文件.pdf')).toBeInTheDocument()
+    expect(await screen.findByText('未分类文件.pdf')).toBeInTheDocument()
+    expect(screen.getByText('队列文件.pdf')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '收件箱（2）' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /待补分/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('待整理')).not.toBeInTheDocument()
   })
 })

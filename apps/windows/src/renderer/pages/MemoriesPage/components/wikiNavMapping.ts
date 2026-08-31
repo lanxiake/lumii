@@ -66,7 +66,7 @@ export function navSectionLabel(section: WikiNavSection): string {
     case 'collection':
       return '收藏'
     case 'inbox':
-      return '待整理'
+      return '收件箱'
     case 'archived':
       return '已归档'
     case 'unfiled':
@@ -123,7 +123,7 @@ export function formatTopicDisplay(
   subtopic: string | null,
   tree?: WikiTopicTreeLike | null,
 ): string {
-  if (!category) return '待补分'
+  if (!category) return '收件箱'
   if (category === PARKING_CATEGORY) return '临时存放'
 
   const section = navSectionFromLegacyCategory(category)

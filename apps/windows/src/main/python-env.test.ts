@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   PYPI_MIRROR,
+  BUNDLED_ONNXRUNTIME_SPEC,
   buildBundledPipInstallArgs,
   needsGoogleRpcRepair,
 } from './python-env'
@@ -15,6 +16,13 @@ describe('buildBundledPipInstallArgs', () => {
       '--no-warn-script-location',
       '-i', PYPI_MIRROR,
     ])
+    expect(args).not.toContain('--target')
+  })
+
+  it('MemPalace 安装钉死 Win10 可加载的 onnxruntime', () => {
+    const args = buildBundledPipInstallArgs(['mempalace', BUNDLED_ONNXRUNTIME_SPEC])
+    expect(args).toContain('mempalace')
+    expect(args).toContain('onnxruntime==1.20.1')
     expect(args).not.toContain('--target')
   })
 

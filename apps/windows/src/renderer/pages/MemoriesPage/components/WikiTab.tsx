@@ -67,7 +67,7 @@ type PickerTarget =
   | { mode: 'source'; item: WikiSourceListItem }
 
 const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
-  inbox: { title: '待整理', subtitle: '系统还在归档或无法自动归类的文件' },
+  inbox: { title: '收件箱', subtitle: '还没分类的新资料，可批量归档或稍后处理' },
   archived: { title: '已归档', subtitle: '已移出活跃目录、可随时恢复的资料' },
   parking: { title: '临时存放', subtitle: '你主动搁置、暂不进入正式目录的文件' },
   graph: { title: '知识图谱', subtitle: '浏览页面与实体之间的关系' },
@@ -244,7 +244,7 @@ export const WikiTab: React.FC = () => {
         toast.error('保存设置失败，请稍后重试')
         return
       }
-      toast.success(enabled ? '已开启 AI 自动分类' : '已关闭 AI 自动分类，新资料将留在待整理')
+      toast.success(enabled ? '已开启 AI 自动分类' : '已关闭 AI 自动分类，新资料将留在收件箱')
     },
     [autoClassifyEnabled, setAutoClassifyEnabled, toast],
   )
@@ -997,7 +997,7 @@ export const WikiTab: React.FC = () => {
           (alreadyInWiki > 0 ? `，${alreadyInWiki} 个已在 Wiki` : '') +
           (autoClassifyEnabled
             ? '。导入后将由 AI 自动分类归档（依据目录结构、已有分类与文件内容）。是否继续？'
-            : '。将导入到「待整理」，不自动分类（可在左栏「更多」开启 AI 自动分类）。是否继续？'),
+            : '。将导入到「收件箱」，不自动分类（可在左栏「更多」开启 AI 自动分类）。是否继续？'),
       )
       if (!ok) return
 
@@ -1019,7 +1019,7 @@ export const WikiTab: React.FC = () => {
       } else if (orgSummary) {
         toast.success(`已导入 ${imported.imported} 个文件 · ${orgSummary}`)
       } else {
-        toast.success(`已导入 ${imported.imported} 个文件到待整理`)
+        toast.success(`已导入 ${imported.imported} 个文件到收件箱`)
       }
     } finally {
       setFolderImportBusy(false)
@@ -1318,7 +1318,7 @@ export const WikiTab: React.FC = () => {
         ) : nav.kind === 'inbox' ? (
           <div className="wiki-inbox-view">
             <div className="wiki-inbox-view-header">
-              <h3>待整理（{pendingCount}）</h3>
+              <h3>收件箱（{pendingCount}）</h3>
               <Tooltip content={WIKI_FOLDER_IMPORT_TOOLTIP}>
                 <Button
                   variant="secondary"

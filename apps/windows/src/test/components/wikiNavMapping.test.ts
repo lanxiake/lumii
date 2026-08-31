@@ -68,6 +68,10 @@ describe('navSectionLabel', () => {
       expect(navSectionLabel(section).length, section).toBeGreaterThan(0)
     }
   })
+
+  it('inbox 对外统一叫收件箱', () => {
+    expect(navSectionLabel('inbox')).toBe('收件箱')
+  })
 })
 
 const SAMPLE_TREE = {
@@ -92,8 +96,8 @@ describe('formatTopicDisplay', () => {
     expect(formatTopicDisplay('证件凭据', '整合长文', SAMPLE_TREE)).toBe('生活 / 证件凭据 / 整合长文')
   })
 
-  it('待补分与临时存放', () => {
-    expect(formatTopicDisplay(null, null)).toBe('待补分')
+  it('未分类与临时存放', () => {
+    expect(formatTopicDisplay(null, null)).toBe('收件箱')
     expect(formatTopicDisplay('临时存放', null)).toBe('临时存放')
   })
 })

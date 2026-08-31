@@ -55,7 +55,7 @@ export function consumeMemoriesInitTab(): MemoriesTab | null {
 }
 
 /**
- * 打开设置 Hub 的记忆页并切换到 Wiki Tab、待整理视图
+ * 打开设置 Hub 的记忆页并切换到 Wiki Tab、收件箱视图
  */
 export function openWikiLibrary(): void {
   try {

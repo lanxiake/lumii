@@ -69,7 +69,7 @@ describe('WikiFileList', () => {
     expect(screen.getByText('录音.m4a')).toBeInTheDocument()
   })
 
-  it('showTopic 打开时显示大类 / 小类，待补分显示为待补分', () => {
+  it('showTopic 打开时显示大类 / 小类，未分类显示为收件箱', () => {
     render(
       <WikiFileList
         items={[makeItem(), makeItem({ id: 'u', title: '未分类.pdf', topicCategory: null, topicSubtopic: null })]}
@@ -80,8 +80,8 @@ describe('WikiFileList', () => {
       />,
     )
 
-    expect(screen.getByText('做事记录 / 会议聊天记录')).toBeInTheDocument()
-    expect(screen.getByText('待补分')).toBeInTheDocument()
+    expect(screen.getByText('工作 / 会议聊天记录')).toBeInTheDocument()
+    expect(screen.getByText('收件箱')).toBeInTheDocument()
   })
 
   it('临时存放形态用移出并隐藏存到临时存放', () => {

@@ -1,4 +1,4 @@
-/** 待整理 inbox 状态 → 中文展示文案 */
+/** 收件箱 inbox 状态 → 中文展示文案 */
 const INBOX_STATUS_LABEL: Record<string, string> = {
   pending: '待处理',
   processing: '处理中',

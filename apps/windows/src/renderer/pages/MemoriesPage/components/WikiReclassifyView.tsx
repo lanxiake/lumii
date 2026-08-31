@@ -39,7 +39,7 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
           正在重新编目 {run.processed} / {run.total}
         </p>
         <p className="wiki-reclassify-hint">
-          期间新上传的文件会留在待整理，不会丢；编目结束后自动归档恢复。
+          期间新上传的文件会留在收件箱，不会丢；编目结束后自动归档恢复。
         </p>
       </div>
     )

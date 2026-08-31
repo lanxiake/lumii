@@ -3,7 +3,7 @@ import { buildWikiRemoveConfirmContent } from '../../renderer/pages/MemoriesPage
 
 describe('buildWikiRemoveConfirmContent', () => {
   it('混合删除文案', () => {
-    expect(buildWikiRemoveConfirmContent(2, 3)).toContain('丢弃 2 条')
+    expect(buildWikiRemoveConfirmContent(2, 3)).toContain('2 条收件箱')
     expect(buildWikiRemoveConfirmContent(2, 3)).toContain('删除 3 条')
   })
 
