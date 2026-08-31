@@ -1,7 +1,8 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { McpStdioClient, resolveCommand } from "./mcp-client";
+import { listWellKnownCliBinDirs, McpStdioClient, resolveCommand } from "./mcp-client";
 
 describe("resolveCommand", () => {
   it("npx 直接跑 npx-cli.js，优先系统 node", () => {
@@ -42,6 +43,21 @@ describe("resolveCommand", () => {
     const { command, prefixArgs } = resolveCommand("node");
     expect(prefixArgs).toEqual([]);
     expect(path.isAbsolute(command)).toBe(true);
+  });
+
+  it("PATH 没有时仍能从 well-known extraDirs 解析（uv 装在 ~/.local/bin）", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "lumii-mcp-cli-"));
+    const stem = "lumii-fake-uvx";
+    const fileName = process.platform === "win32" ? `${stem}.exe` : stem;
+    writeFileSync(path.join(dir, fileName), "");
+    const { command, prefixArgs } = resolveCommand(stem, process.execPath, [dir]);
+    expect(prefixArgs).toEqual([]);
+    expect(path.basename(command).toLowerCase()).toBe(fileName.toLowerCase());
+    expect(path.dirname(command)).toBe(dir);
+  });
+
+  it("well-known CLI 目录包含用户 .local/bin", () => {
+    expect(listWellKnownCliBinDirs()).toContain(path.join(os.homedir(), ".local", "bin"));
   });
 });
 

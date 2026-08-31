@@ -48,13 +48,36 @@ interface JsonRpcResponse {
   readonly error?: { code: number; message: string; data?: unknown };
 }
 
-/** PATH 里按 PATHEXT 补后缀找可执行文件（Windows 的 spawn 不走 shell 时不会自动补） */
-function findOnPath(command: string): string | null {
+/**
+ * GUI 进程 PATH 经常缺用户目录；uv/uvx 默认装在这些位置。
+ */
+export function listWellKnownCliBinDirs(): string[] {
+  const home = os.homedir();
+  const dirs = [path.join(home, ".local", "bin"), path.join(home, ".cargo", "bin")];
+  const local = process.env.LOCALAPPDATA;
+  if (local) dirs.push(path.join(local, "Programs", "uv"));
+  return dirs;
+}
+
+/** PATH + 用户 CLI 目录里按 PATHEXT 补后缀找可执行文件（Windows 的 spawn 不走 shell 时不会自动补） */
+function findOnPath(command: string, extraDirs: readonly string[] = []): string | null {
   const exts =
     process.platform === "win32"
-      ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean)
+      ? ["", ...(process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean).map((e) => e.toLowerCase())]
       : [""];
-  for (const dir of (process.env.PATH ?? "").split(path.delimiter).filter(Boolean)) {
+  const pathDirs = (process.env.PATH ?? process.env.Path ?? "")
+    .split(path.delimiter)
+    .filter(Boolean)
+    .map((dir) => dir.replace(/^"(.*)"$/, "$1"));
+  const seen = new Set<string>();
+  const dirs: string[] = [];
+  for (const dir of [...pathDirs, ...extraDirs]) {
+    const key = dir.toLowerCase();
+    if (!dir || seen.has(key)) continue;
+    seen.add(key);
+    dirs.push(dir);
+  }
+  for (const dir of dirs) {
     for (const ext of exts) {
       const candidate = path.join(dir, command + ext);
       if (existsSync(candidate)) return candidate;
@@ -80,16 +103,20 @@ export interface ResolvedCommand {
  *
  * npx / npm 优先直接跑 npx-cli.js / npm-cli.js（不走 .cmd，避免弹控制台）。
  * 解释器优先用系统 node.exe；没有再退回 Electron 的 process.execPath +
- * ELECTRON_RUN_AS_NODE。其他命令只做 PATH + PATHEXT 补全。
+ * ELECTRON_RUN_AS_NODE。其他命令只做 PATH + PATHEXT + 用户 CLI 目录补全。
  */
-export function resolveCommand(command: string, execPath = process.execPath): ResolvedCommand {
+export function resolveCommand(
+  command: string,
+  execPath = process.execPath,
+  extraDirs: readonly string[] = listWellKnownCliBinDirs(),
+): ResolvedCommand {
   const plain = { command, prefixArgs: [] as readonly string[] };
 
   // 已经是路径或带后缀，用户指定了什么就用什么
   if (path.isAbsolute(command) || command.includes("/") || command.includes("\\")) return plain;
   if (path.extname(command)) return plain;
 
-  const found = findOnPath(command);
+  const found = findOnPath(command, extraDirs);
 
   if (command === "npx" || command === "npm") {
     const script = command === "npx" ? "npx-cli.js" : "npm-cli.js";
@@ -98,7 +125,7 @@ export function resolveCommand(command: string, execPath = process.execPath): Re
       (found && npmJsEntry(found, script)) ?? npmJsEntry(execPath, script);
     if (entry) {
       // 优先系统 node.exe：CONSOLE 子系统 + windowsHide 比 Electron GUI 更稳
-      const nodeExe = findOnPath("node") ?? execPath;
+      const nodeExe = findOnPath("node", extraDirs) ?? execPath;
       return { command: nodeExe, prefixArgs: [entry] };
     }
   }
@@ -299,7 +326,11 @@ export class McpStdioClient extends EventEmitter {
      */
     const spawnFailed = new Promise<never>((_, reject) => {
       this.process?.once("error", (err: Error) => {
-        reject(new Error(`启动 MCP Server 失败（${this.config.command}）：${err.message}`));
+        const hint =
+          /ENOENT/i.test(err.message) && this.config.command === "uvx"
+            ? "。找不到 uvx：请安装 uv（https://docs.astral.sh/uv/）后重连，或把用户 .local/bin 加入 PATH"
+            : "";
+        reject(new Error(`启动 MCP Server 失败（${this.config.command}）：${err.message}${hint}`));
       });
     });
 
