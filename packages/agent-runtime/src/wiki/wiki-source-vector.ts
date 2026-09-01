@@ -19,6 +19,29 @@ import {
 } from "./wiki-vector.js";
 import type { WikiSource } from "./types.js";
 
+export const VECTOR_CORPUS_MAX_CHARS = 300;
+
+/**
+ * 向量语料 = title + summary + 主题路径，硬上限 300 字。
+ *
+ * 不再编码全量 extracted_text：长文压成单向量会让语义被平均，且吸入 OCR 残字、
+ * 票据数字、页眉页脚等噪声，反而污染全库余弦相似度。长文关键词命中交给 FTS
+ * （BM25 本就强于单向量），二者在 mergeSourceHybridRanks 里做 RRF —— 向量管
+ * 语义改写查询，FTS 管精确匹配与长文。
+ *
+ * 设计：docs/design/记忆设计/2026-08-31-wiki-intelligent-vault-design.md §5.8
+ */
+export function buildVectorCorpus(
+  source: Pick<WikiSource, "title" | "summary" | "topic_category" | "topic_subtopic">,
+): string {
+  const topicPath = [source.topic_category, source.topic_subtopic].filter(Boolean).join(" / ");
+  return [source.title, source.summary ?? "", topicPath]
+    .filter((s) => s.trim())
+    .join("\n")
+    .slice(0, VECTOR_CORPUS_MAX_CHARS)
+    .trim();
+}
+
 export class WikiSourceVectorIndex {
   constructor(
     private readonly db: DatabaseAdapter,
@@ -29,12 +52,12 @@ export class WikiSourceVectorIndex {
     return this.embedder !== null;
   }
 
-  /** 语料 = title + extracted_text；content_hash 未变且模型一致时跳过 */
+  /** 语料 = title + summary + 主题路径（buildVectorCorpus）；语料未变且模型一致时跳过 */
   async upsertSource(
-    source: Pick<WikiSource, "id" | "agent_id" | "user_id" | "title" | "extracted_text">,
+    source: Pick<WikiSource, "id" | "agent_id" | "user_id" | "title" | "summary" | "topic_category" | "topic_subtopic">,
   ): Promise<void> {
     if (!this.embedder) return;
-    const corpus = `${source.title}\n\n${source.extracted_text ?? ""}`.trim();
+    const corpus = buildVectorCorpus(source);
     if (!corpus) return;
     const contentHash = hashContent(corpus);
 
@@ -74,7 +97,10 @@ export class WikiSourceVectorIndex {
 
   /** 全量重建，返回写入条数；关闭时返回 0 */
   async rebuild(
-    sources: readonly Pick<WikiSource, "id" | "agent_id" | "user_id" | "title" | "extracted_text">[],
+    sources: readonly Pick<
+      WikiSource,
+      "id" | "agent_id" | "user_id" | "title" | "summary" | "topic_category" | "topic_subtopic"
+    >[],
   ): Promise<number> {
     if (!this.embedder) return 0;
     this.db.prepare("DELETE FROM wiki_source_embeddings").run();

@@ -59,7 +59,17 @@ export interface WikiSource {
   readonly use_count: number;
   readonly origin_url: string | null;
   readonly storage_mode: WikiStorageMode;
+  /** v2 分类迁移前的旧小类值，供审计（V26） */
+  readonly legacy_subtopic: string | null;
+  /** 标题已被用户手动锁定，AI 重命名不应覆盖（V26） */
+  readonly title_locked: number;
+  readonly summary: string | null;
+  /** 生成摘要时的 content_hash 快照；与当前 content_hash 不一致即失效重算 */
+  readonly summary_hash: string | null;
+  readonly summary_level: SummaryLevel | null;
 }
+
+export type SummaryLevel = "heuristic" | "extractive" | "llm";
 
 /**
  * 资料的存放方式。ref = 只记住原文件在哪，不复制；materialized = 已复制进库；
