@@ -204,6 +204,26 @@ describe('wiki commands', () => {
     expect(r.hits[0]!.title).toBe('架构设计文档')
   })
 
+  it('search 在无 FTS 命中触发向量兜底时不应召回已归档资料', async () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const source = repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: '架构设计文档',
+      extractedText: '这是一份关于系统架构设计的说明',
+    })
+    repo.indexSource(source.id)
+    repo.archiveSources('assistant', 'local-user', [source.id])
+
+    const r = (await handleWikiSearch(bridge, {
+      type: 'wiki:search',
+      agentId: 'assistant',
+      keyword: '架构设计',
+    })) as { hits: { sourceId: string }[] }
+    expect(r.hits.find((h) => h.sourceId === source.id)).toBeUndefined()
+  })
+
   it('source:get 存在与不存在两种情况', () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
@@ -365,13 +385,33 @@ describe('wiki commands', () => {
     const got = handleWikiTopicTreeGet(bridge, { type: 'wiki:topic:tree:get', agentId: 'assistant' })
     expect(got.tree).toEqual(DEFAULT_TOPIC_TREE)
 
-    const customTree = { version: 1 as const, categories: [{ name: '自定义大类', subtopics: ['自定义小类'] }] }
+    const customTree = { version: 2 as const, categories: [{ name: '自定义大类', subtopics: ['自定义小类'] }] }
     expect(
       handleWikiTopicTreeSet(bridge, { type: 'wiki:topic:tree:set', agentId: 'assistant', tree: customTree }),
     ).toEqual({ success: true })
     expect(handleWikiTopicTreeGet(bridge, { type: 'wiki:topic:tree:get', agentId: 'assistant' }).tree).toEqual(
       customTree,
     )
+  })
+
+  it('topic:tree:get 遇到 v1 树时自动迁到 v2，并保留用户自建大类', () => {
+    const repo = createWikiRepo()
+    repo.setIndexMeta(
+      'topic_categories',
+      JSON.stringify({
+        version: 1,
+        categories: [
+          { name: '做事记录', subtopics: ['会议聊天记录'] },
+          { name: '自定义大类', subtopics: ['自定义小类'] },
+        ],
+      }),
+    )
+    const bridge = buildBridge(repo)
+
+    const got = handleWikiTopicTreeGet(bridge, { type: 'wiki:topic:tree:get', agentId: 'assistant' })
+    expect(got.tree.version).toBe(2)
+    expect(got.tree.categories.map((c) => c.name)).toEqual(['工作', '学习', '生活', '收藏', '自定义大类'])
+    expect(got.tree.categories.find((c) => c.name === '自定义大类')?.subtopics).toEqual(['自定义小类'])
   })
 
   it('topic:mutate 加小类后 tree:get 能读到', () => {

@@ -382,15 +382,20 @@ export async function handleWikiSearch(
         await index.upsertSource(hit.source)
       }
       if (ftsHits.length === 0) {
-        const sources = bridge.wikiRepo.listSources(agentId, LOCAL_USER_ID).slice(0, 200)
+        const sources = bridge.wikiRepo
+          .listSources(agentId, LOCAL_USER_ID)
+          .filter((s) => !s.archived_at)
+          .slice(0, 200)
         for (const s of sources) await index.upsertSource(s)
       }
       const vecHits = await index.searchSimilar(agentId, LOCAL_USER_ID, command.keyword, limit)
       vectorIds = vecHits.map((v) => v.sourceId)
-      // 向量命中的资料可能没进 FTS top-N，补进 sourceById 供映射
+      // 向量命中的资料可能没进 FTS top-N，补进 sourceById 供映射；已归档的排除，避免绕过 FTS 的归档过滤
       for (const s of bridge.wikiRepo.listSources(agentId, LOCAL_USER_ID)) {
+        if (s.archived_at) continue
         if (vectorIds.includes(s.id) && !sourceById.has(s.id)) sourceById.set(s.id, s)
       }
+      vectorIds = vectorIds.filter((id) => sourceById.has(id))
     } catch {
       degradeReason = '向量模型不可用，已退回全文检索'
     }
@@ -498,6 +503,10 @@ export function handleWikiIndexRebuild(bridge: AgentRuntimeBridge): { rebuiltCou
 // Wiki 用途主题树 / 资料层命令（记忆重构一期）
 // ============================================================
 
+/**
+ * 读取主题树。getOrCreateTopicTree 会把仍停在 v1 的库当场迁到 v2，
+ * 打开 Wiki 左栏就会显示工作/学习/生活/收藏，而不是旧六大类。
+ */
 export function handleWikiTopicTreeGet(
   bridge: AgentRuntimeBridge,
   _command: Extract<AgentRuntimeCommand, { type: 'wiki:topic:tree:get' }>,

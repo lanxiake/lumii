@@ -96,6 +96,7 @@ export {
   validateTopicTree,
   validateTopicAssignment,
   treeHasOrphans,
+  topicTreeHasLegacyV1Categories,
 } from "./wiki-topic-tree.js";
 export type { WikiTopicTree } from "./wiki-topic-tree.js";
 

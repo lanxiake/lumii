@@ -161,9 +161,52 @@ describe("WikiRepo 主题树", () => {
 
   it("setTopicTree 接受合法新树", () => {
     const repo = new WikiRepo(createMigratedTestDb());
-    const nextTree = { version: 1 as const, categories: [{ name: "自定义大类", subtopics: ["自定义小类"] }] };
+    const nextTree = { version: 2 as const, categories: [{ name: "自定义大类", subtopics: ["自定义小类"] }] };
     repo.setTopicTree(nextTree);
     expect(repo.getOrCreateTopicTree()).toEqual(nextTree);
+  });
+
+  it("getOrCreateTopicTree 给已有 v2 大类补上缺失的预设小类，不删用户自建小类", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.setIndexMeta(
+      "topic_categories",
+      JSON.stringify({
+        version: 2,
+        categories: [
+          { name: "工作", subtopics: ["项目", "我的专项"] },
+          { name: "学习", subtopics: ["在学", "参考"] },
+          { name: "生活", subtopics: ["凭据", "家事", "自留"] },
+          { name: "收藏", subtopics: ["待读", "可复用"] },
+        ],
+      }),
+    );
+
+    const tree = repo.getOrCreateTopicTree();
+    const work = tree.categories.find((c) => c.name === "工作")!;
+    expect(work.subtopics[0]).toBe("项目");
+    expect(work.subtopics).toContain("我的专项");
+    expect(work.subtopics).toContain("协作");
+    expect(work.subtopics).toContain("规范");
+    expect(work.subtopics.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("getOrCreateTopicTree 读到 v1 树时自动迁到 v2，并保留用户自建大类", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.setIndexMeta(
+      "topic_categories",
+      JSON.stringify({
+        version: 1,
+        categories: [
+          { name: "做事记录", subtopics: ["会议聊天记录"] },
+          { name: "自定义", subtopics: ["特殊小类"] },
+        ],
+      }),
+    );
+
+    const tree = repo.getOrCreateTopicTree();
+    expect(tree.version).toBe(2);
+    expect(tree.categories.map((c) => c.name)).toEqual(["工作", "学习", "生活", "收藏", "自定义"]);
+    expect(tree.categories.find((c) => c.name === "自定义")?.subtopics).toEqual(["特殊小类"]);
   });
 });
 

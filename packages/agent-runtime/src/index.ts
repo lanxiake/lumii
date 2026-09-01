@@ -375,6 +375,7 @@ export {
   validateTopicTree,
   validateTopicAssignment,
   treeHasOrphans,
+  topicTreeHasLegacyV1Categories,
   planTopicMutation,
   topicCountKey,
   WikiReclassifier,

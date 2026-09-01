@@ -18,6 +18,12 @@ describe("DEFAULT_TOPIC_TREE", () => {
     expect(DEFAULT_TOPIC_TREE.categories.map((c) => c.name)).toEqual(["工作", "学习", "生活", "收藏"]);
     expect(DEFAULT_TOPIC_TREE.categories.map((c) => c.name)).not.toContain(PARKING_CATEGORY);
   });
+
+  it("每个大类至少 5 个预设小类", () => {
+    for (const cat of DEFAULT_TOPIC_TREE.categories) {
+      expect(cat.subtopics.length, `${cat.name} 预设小类不足 5 个`).toBeGreaterThanOrEqual(5);
+    }
+  });
 });
 
 describe("validateTopicTree", () => {

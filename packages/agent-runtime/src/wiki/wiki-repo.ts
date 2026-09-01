@@ -14,6 +14,7 @@ import {
   PARKING_CATEGORY,
   TOPIC_CATEGORIES_META_KEY,
   parseTopicTree,
+  topicTreeHasLegacyV1Categories,
   treeHasOrphans,
   validateTopicAssignment,
   validateTopicTree,
@@ -497,13 +498,29 @@ export class WikiRepo {
 
   // ── 用途主题树 ──────────────────────────────────────────
 
-  /** 读取主题树；不存在时写入默认树并返回 */
-  getOrCreateTopicTree(): WikiTopicTree {
+  /**
+   * 读取已存主题树；没有合法 JSON 时写入 v2 默认树。
+   * 不自动升版本——给 migrateTopicTreeToV2 用，避免「读即迁」后再统计变成 alreadyMigrated。
+   */
+  private readTopicTreeOrDefault(): WikiTopicTree {
     const raw = this.getIndexMeta(TOPIC_CATEGORIES_META_KEY);
     const parsed = parseTopicTree(raw);
     if (parsed) return parsed;
     this.setIndexMeta(TOPIC_CATEGORIES_META_KEY, JSON.stringify(DEFAULT_TOPIC_TREE));
     return DEFAULT_TOPIC_TREE;
+  }
+
+  /**
+   * 读取主题树；不存在时写入默认树。
+   * 仍含 v1 旧六大类名时当场迁到 v2，打开 Wiki 就不会继续显示做事记录/学习资料等。
+   */
+  getOrCreateTopicTree(): WikiTopicTree {
+    const current = this.readTopicTreeOrDefault();
+    if (topicTreeHasLegacyV1Categories(current)) {
+      this.migrateTopicTreeToV2();
+      return this.readTopicTreeOrDefault();
+    }
+    return current;
   }
 
   /**
@@ -518,8 +535,8 @@ export class WikiRepo {
    */
   migrateTopicTreeToV2(): WikiTopicTreeMigrationReport {
     const startedAt = Date.now();
-    const current = this.getOrCreateTopicTree();
-    if (current.version === 2) {
+    const current = this.readTopicTreeOrDefault();
+    if (!topicTreeHasLegacyV1Categories(current)) {
       return {
         alreadyMigrated: true,
         categoryRules: [],
@@ -531,7 +548,10 @@ export class WikiRepo {
     }
 
     const legacyNames = new Set(LEGACY_TOPIC_TREE_V1.categories.map((c) => c.name));
-    const userCategories = current.categories.filter((c) => !legacyNames.has(c.name));
+    const defaultNames = new Set(DEFAULT_TOPIC_TREE.categories.map((c) => c.name));
+    const userCategories = current.categories.filter(
+      (c) => !legacyNames.has(c.name) && !defaultNames.has(c.name),
+    );
     const nextTree: WikiTopicTree = {
       version: 2,
       categories: [...DEFAULT_TOPIC_TREE.categories, ...userCategories],

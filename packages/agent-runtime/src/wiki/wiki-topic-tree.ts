@@ -44,6 +44,16 @@ export const DEFAULT_TOPIC_TREE: WikiTopicTree = {
   ],
 };
 
+const LEGACY_V1_CATEGORY_NAMES = new Set(LEGACY_TOPIC_TREE_V1.categories.map((c) => c.name));
+
+/**
+ * 树里是否还带着 v1 旧六大类名。打开 Wiki 时只对这种树自动迁 v2；
+ * 仅 version 字段为 1、内容已是工作/学习的（旧 mutation 写错版本）不能当旧六大类清掉。
+ */
+export function topicTreeHasLegacyV1Categories(tree: WikiTopicTree): boolean {
+  return tree.categories.some((c) => LEGACY_V1_CATEGORY_NAMES.has(c.name));
+}
+
 /** 名称合法：非空、长度在 [min,max]、无控制字符 */
 function isValidName(name: unknown, min: number, max: number): name is string {
   if (typeof name !== "string") return false;

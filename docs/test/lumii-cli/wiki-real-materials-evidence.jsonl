@@ -1,22 +1,22 @@
-{"ts":"2026-08-28T13:01:35.460Z","id":"M01","status":"PASS","note":"docx1 chars=2727"}
-{"ts":"2026-08-28T13:01:35.500Z","id":"M02","status":"PASS","note":"docx2 chars=14458"}
-{"ts":"2026-08-28T13:01:36.370Z","id":"M03","status":"PASS","note":"pdf上册 pages=118 chars=36909"}
-{"ts":"2026-08-28T13:01:37.111Z","id":"M04","status":"PASS","note":"pdf下册 pages=127 chars=54336"}
-{"ts":"2026-08-28T13:01:37.225Z","id":"I-docx1","status":"PASS","note":"sourceId=9fb51609d914defd6b91d97142f771f7 模板参考/工具使用参考"}
-{"ts":"2026-08-28T13:01:37.359Z","id":"I-docx2","status":"PASS","note":"sourceId=d4bbb5c0f1e9360e039f3f9cfd13d8ed 模板参考/工具使用参考"}
-{"ts":"2026-08-28T13:01:37.513Z","id":"I-pdfUp","status":"PASS","note":"sourceId=f74b1540634a2df6a123fd7d8c3fe96f 学习资料/课堂&课程笔记"}
-{"ts":"2026-08-28T13:01:37.651Z","id":"I-pdfDown","status":"PASS","note":"sourceId=b43edef2ad56530de49f312ff92c36f1 学习资料/课堂&课程笔记"}
-{"ts":"2026-08-28T13:01:37.793Z","id":"I-mp4_1","status":"PASS","note":"sourceId=a377ad30c891b51fcc67f6cf01ef1dbd 模板参考/图片媒体素材"}
-{"ts":"2026-08-28T13:01:37.935Z","id":"I-mp4_2","status":"PASS","note":"sourceId=16ff4649c6a861aafecbe513408b3f66 模板参考/图片媒体素材"}
-{"ts":"2026-08-28T13:01:38.046Z","id":"V01","status":"PASS","note":"mp4_1 mediaType=video"}
-{"ts":"2026-08-28T13:01:38.154Z","id":"D01","status":"PASS","note":"当前 page 数=35（organize 路径不写 wiki_pages）"}
-{"ts":"2026-08-28T13:01:38.246Z","id":"R-docx1","status":"PASS","note":"关键词「WordPress」命中 sourceId=9fb51609d914defd6b91d97142f771f7"}
-{"ts":"2026-08-28T13:01:38.342Z","id":"R-docx2","status":"PASS","note":"关键词「GITHUB」命中 sourceId=d4bbb5c0f1e9360e039f3f9cfd13d8ed"}
-{"ts":"2026-08-28T13:01:38.458Z","id":"R-pdfUp","status":"PASS","note":"关键词「识字」命中 sourceId=f74b1540634a2df6a123fd7d8c3fe96f"}
-{"ts":"2026-08-28T13:01:38.579Z","id":"R-pdfDown","status":"PASS","note":"关键词「课文」命中 sourceId=b43edef2ad56530de49f312ff92c36f1"}
-{"ts":"2026-08-28T13:01:38.691Z","id":"R-rare","status":"PASS","note":"稀有词 + enableVector:false 空结果"}
-{"ts":"2026-08-28T13:01:39.532Z","id":"R-rare-hybrid","status":"PASS","note":"默认 hybrid 模式 hits=10（观察项：向量兜底无零相似度概念，恒返回近邻，enableVector:false 才是真正的空结果判定）"}
-{"ts":"2026-08-28T13:01:39.679Z","id":"O-open","status":"PASS","note":"sourceId=9fb51609d914defd6b91d97142f771f7 success=true"}
-{"ts":"2026-08-28T13:01:39.804Z","id":"A-archive","status":"PASS","note":"archived=6/6"}
-{"ts":"2026-08-28T13:01:39.807Z","id":"A-verify","status":"PASS","note":"全部 6 条 archived_at 已置位"}
-{"ts":"2026-08-28T13:01:40.014Z","id":"A-search-excluded","status":"PASS","note":"归档后再搜索仍命中=false（观察项，searchSources 显式排除 archived_at IS NULL）"}
+{"ts":"2026-09-01T04:57:13.641Z","id":"M01","status":"PASS","note":"docx1 chars=2727"}
+{"ts":"2026-09-01T04:57:13.677Z","id":"M02","status":"PASS","note":"docx2 chars=14458"}
+{"ts":"2026-09-01T04:57:14.344Z","id":"M03","status":"PASS","note":"pdf上册 pages=118 chars=36909"}
+{"ts":"2026-09-01T04:57:14.867Z","id":"M04","status":"PASS","note":"pdf下册 pages=127 chars=54336"}
+{"ts":"2026-09-01T04:57:14.964Z","id":"I-docx1","status":"PASS","note":"sourceId=e1c27a555482a4d0c8fe309fc9369810 学习/参考"}
+{"ts":"2026-09-01T04:57:15.055Z","id":"I-docx2","status":"PASS","note":"sourceId=63ed986aeb2963703711438871323f48 学习/参考"}
+{"ts":"2026-09-01T04:57:15.164Z","id":"I-pdfUp","status":"PASS","note":"sourceId=aed7fa09826a2f399fd6887d13a23f83 学习/在学"}
+{"ts":"2026-09-01T04:57:15.271Z","id":"I-pdfDown","status":"PASS","note":"sourceId=5adc4baf9474b24de18b2f96942a58c1 学习/在学"}
+{"ts":"2026-09-01T04:57:15.376Z","id":"I-mp4_1","status":"PASS","note":"sourceId=0bb9dc9b5ef1422e06bb159de4db8451 收藏/可复用"}
+{"ts":"2026-09-01T04:57:15.492Z","id":"I-mp4_2","status":"PASS","note":"sourceId=ab6ad72647fbbbb20fdc6cb83da5c73b 收藏/可复用"}
+{"ts":"2026-09-01T04:57:15.574Z","id":"V01","status":"PASS","note":"mp4_1 mediaType=video"}
+{"ts":"2026-09-01T04:57:15.575Z","id":"D01","status":"PASS","note":"wiki_pages 表已随 P3 移除（organize 路径天然不写摘要页）"}
+{"ts":"2026-09-01T04:57:15.677Z","id":"R-docx1","status":"PASS","note":"关键词「WordPress」命中 sourceId=e1c27a555482a4d0c8fe309fc9369810"}
+{"ts":"2026-09-01T04:57:15.778Z","id":"R-docx2","status":"PASS","note":"关键词「GITHUB」命中 sourceId=63ed986aeb2963703711438871323f48"}
+{"ts":"2026-09-01T04:57:15.899Z","id":"R-pdfUp","status":"PASS","note":"关键词「识字」命中 sourceId=aed7fa09826a2f399fd6887d13a23f83"}
+{"ts":"2026-09-01T04:57:15.992Z","id":"R-pdfDown","status":"PASS","note":"关键词「课文」命中 sourceId=5adc4baf9474b24de18b2f96942a58c1"}
+{"ts":"2026-09-01T04:57:16.072Z","id":"R-rare","status":"PASS","note":"稀有词 + enableVector:false 空结果"}
+{"ts":"2026-09-01T04:57:16.191Z","id":"R-rare-hybrid","status":"PASS","note":"默认 hybrid 模式 hits=3（观察项：向量兜底无零相似度概念，恒返回近邻，enableVector:false 才是真正的空结果判定）"}
+{"ts":"2026-09-01T04:57:16.401Z","id":"O-open","status":"PASS","note":"sourceId=e1c27a555482a4d0c8fe309fc9369810 success=true"}
+{"ts":"2026-09-01T04:57:16.504Z","id":"A-archive","status":"PASS","note":"archived=6/6"}
+{"ts":"2026-09-01T04:57:16.505Z","id":"A-verify","status":"PASS","note":"全部 6 条 archived_at 已置位"}
+{"ts":"2026-09-01T04:57:16.607Z","id":"A-search-excluded","status":"PASS","note":"归档后再搜索仍命中=false（观察项，searchSources 显式排除 archived_at IS NULL）"}

@@ -56,6 +56,13 @@ describe("planTopicMutation - 大类", () => {
     }
   });
 
+  it("变更后保留输入树的 version，不把 v2 打回 v1", () => {
+    const v2: WikiTopicTree = { version: 2, categories: [{ name: "工作", subtopics: ["项目"] }] };
+    const r = planTopicMutation(v2, { op: "addSubtopic", category: "工作", name: "例行" }, empty);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.tree.version).toBe(2);
+  });
+
   it("renameCategory 级联该大类全部小类的文件", () => {
     const r = planTopicMutation(T, { op: "renameCategory", from: "做事记录", to: "工作产出" }, empty);
     expect(r.ok).toBe(true);

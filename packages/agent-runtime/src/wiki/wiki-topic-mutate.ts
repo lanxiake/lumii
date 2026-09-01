@@ -137,9 +137,13 @@ function planDisposition(
   return { ok: true, cascades };
 }
 
-/** 收尾自检：任何分支产出的树都必须合法 */
-function finish(categories: MutableCategory[], cascades: TopicCascade[]): TopicMutationPlan {
-  const tree: WikiTopicTree = { version: 1, categories };
+/** 收尾自检：任何分支产出的树都必须合法，version 沿用输入树，避免把 v2 树打回 v1 */
+function finish(
+  version: WikiTopicTree["version"],
+  categories: MutableCategory[],
+  cascades: TopicCascade[],
+): TopicMutationPlan {
+  const tree: WikiTopicTree = { version, categories };
   if (!validateTopicTree(tree)) {
     return fail("变更后的主题树不合法");
   }
@@ -166,7 +170,7 @@ export function planTopicMutation(
       if (nameError) return fail(nameError);
       if (findIndex(mutation.name) >= 0) return fail(`大类「${mutation.name}」已存在`);
       insertAt(cats, { name: mutation.name, subtopics: [DEFAULT_NEW_SUBTOPIC] }, mutation.index);
-      return finish(cats, []);
+      return finish(tree.version, cats, []);
     }
 
     case "renameCategory": {
@@ -182,7 +186,7 @@ export function planTopicMutation(
         to: { category: mutation.to, subtopic: s },
       }));
       target.name = mutation.to;
-      return finish(cats, cascades);
+      return finish(tree.version, cats, cascades);
     }
 
     case "reorderCategories": {
@@ -196,7 +200,7 @@ export function planTopicMutation(
         if (idx < 0) return fail(`排序列表中的大类不存在：${name}`);
         reordered.push(cats[idx]!);
       }
-      return finish(reordered, []);
+      return finish(tree.version, reordered, []);
     }
 
     case "deleteCategory": {
@@ -212,10 +216,10 @@ export function planTopicMutation(
         return { ok: false, reason: "删除前需要选择文件去向", needsDisposition: true, fileCount };
       }
       cats.splice(idx, 1);
-      if (fileCount === 0) return finish(cats, []);
-      const disp = planDisposition({ version: 1, categories: cats }, mutation.disposition!, affected);
+      if (fileCount === 0) return finish(tree.version, cats, []);
+      const disp = planDisposition({ version: tree.version, categories: cats }, mutation.disposition!, affected);
       if (!disp.ok) return fail(disp.reason);
-      return finish(cats, disp.cascades);
+      return finish(tree.version, cats, disp.cascades);
     }
 
     case "addSubtopic": {
@@ -228,7 +232,7 @@ export function planTopicMutation(
         return fail(`「${mutation.category}」下已有小类「${mutation.name}」`);
       }
       insertAt(target.subtopics, mutation.name, mutation.index);
-      return finish(cats, []);
+      return finish(tree.version, cats, []);
     }
 
     case "renameSubtopic": {
@@ -244,7 +248,7 @@ export function planTopicMutation(
         return fail(`「${mutation.category}」下已有小类「${mutation.to}」`);
       }
       target.subtopics[subIdx] = mutation.to;
-      return finish(cats, [
+      return finish(tree.version, cats, [
         {
           from: { category: mutation.category, subtopic: mutation.from },
           to: { category: mutation.category, subtopic: mutation.to },
@@ -266,12 +270,12 @@ export function planTopicMutation(
         return { ok: false, reason: "删除前需要选择文件去向", needsDisposition: true, fileCount };
       }
       target.subtopics.splice(subIdx, 1);
-      if (fileCount === 0) return finish(cats, []);
-      const disp = planDisposition({ version: 1, categories: cats }, mutation.disposition!, [
+      if (fileCount === 0) return finish(tree.version, cats, []);
+      const disp = planDisposition({ version: tree.version, categories: cats }, mutation.disposition!, [
         { category: mutation.category, subtopic: mutation.name },
       ]);
       if (!disp.ok) return fail(disp.reason);
-      return finish(cats, disp.cascades);
+      return finish(tree.version, cats, disp.cascades);
     }
 
     case "moveSubtopic": {
@@ -292,7 +296,7 @@ export function planTopicMutation(
       }
       src.subtopics.splice(subIdx, 1);
       insertAt(dst.subtopics, mutation.name, mutation.index);
-      return finish(cats, [
+      return finish(tree.version, cats, [
         {
           from: { category: mutation.fromCategory, subtopic: mutation.name },
           to: { category: mutation.toCategory, subtopic: mutation.name },
@@ -318,7 +322,7 @@ export function planTopicMutation(
         return fail(`「${mutation.fromCategory}」至少要保留一个小类`);
       }
       src.subtopics.splice(subIdx, 1);
-      return finish(cats, [
+      return finish(tree.version, cats, [
         {
           from: { category: mutation.fromCategory, subtopic: mutation.fromName },
           to: { category: mutation.toCategory, subtopic: mutation.toName },

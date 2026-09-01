@@ -145,7 +145,7 @@ async function main() {
   fs.writeFileSync(EVID, '', 'utf8')
   console.log('Wiki 真实材料套件 starting…')
 
-  const ping = ui(['wiki', 'page', 'list'])
+  const ping = ui(['wiki', 'inbox', 'count'])
   if (ping.code === 3 || /connection_failed/.test(ping.out)) {
     console.error('控制口不可达，请先启动应用（pnpm dev）')
     process.exit(3)
@@ -239,8 +239,8 @@ async function main() {
       preview: d1.text.slice(0, 4000),
       mediaType: 'document',
       filePath: files.docx1,
-      category: '模板参考',
-      subtopic: '工具使用参考',
+      category: '学习',
+      subtopic: '参考',
       keyword: 'WordPress',
     })
   } else {
@@ -253,8 +253,8 @@ async function main() {
       preview: d2.text.slice(0, 4000),
       mediaType: 'document',
       filePath: files.docx2,
-      category: '模板参考',
-      subtopic: '工具使用参考',
+      category: '学习',
+      subtopic: '参考',
       keyword: 'GITHUB',
     })
   } else {
@@ -267,8 +267,8 @@ async function main() {
       preview: pUp.text.slice(0, 4000),
       mediaType: 'document',
       filePath: files.pdfUp,
-      category: '学习资料',
-      subtopic: '课堂&课程笔记',
+      category: '学习',
+      subtopic: '在学',
       keyword: '识字',
     })
   } else {
@@ -281,8 +281,8 @@ async function main() {
       preview: pDown.text.slice(0, 4000),
       mediaType: 'document',
       filePath: files.pdfDown,
-      category: '学习资料',
-      subtopic: '课堂&课程笔记',
+      category: '学习',
+      subtopic: '在学',
       keyword: '课文',
     })
   } else {
@@ -295,8 +295,8 @@ async function main() {
     preview: null,
     mediaType: 'video',
     filePath: files.mp4_1,
-    category: '模板参考',
-    subtopic: '图片媒体素材',
+    category: '收藏',
+    subtopic: '可复用',
     keyword: null,
   })
 
@@ -305,8 +305,8 @@ async function main() {
     preview: null,
     mediaType: 'video',
     filePath: files.mp4_2,
-    category: '模板参考',
-    subtopic: '图片媒体素材',
+    category: '收藏',
+    subtopic: '可复用',
     keyword: null,
   })
 
@@ -314,7 +314,7 @@ async function main() {
   try {
     const s = seeded.mp4_1
     if (!s) throw new Error('mp4_1 未成功归档，跳过')
-    const list = cmd('wiki:source:list', { agentId: AGENT_ID, category: '模板参考', subtopic: '图片媒体素材' }).json?.sources || []
+    const list = cmd('wiki:source:list', { agentId: AGENT_ID, category: '收藏', subtopic: '可复用' }).json?.sources || []
     const row = list.find((x) => x.id === s.sourceId)
     assert(row, '资料列表未见 mp4_1')
     assert(row.mediaType === 'video', `mediaType 应为 video，实际 ${row.mediaType}`)
@@ -324,13 +324,20 @@ async function main() {
   }
 
   // ---- D 归档不写摘要页（延续一期核心断言，对真实材料再验一次） ----
+  // wiki:page:list 已随 P3 移除 IPC 暴露面，wiki_pages 表本身也已被 P3 的迁移删除
+  // （历史页面能力整体下线）；直接确认该表不存在即是对断言的最强验证。
   try {
-    const pageCountBefore = asArray(ui(['wiki', 'page', 'list']).json)?.length
-    // organize 已在上面全部跑完，这里只需确认此刻 page 数未随之新增
-    // 保守做法：只断言 organize 产生的 sourceId 均未出现在任何 page 的关联字段中
-    // （wiki_pages 与 wiki_sources 是不同表，organize 路径不写 wiki_pages，直接读 count 佐证）
-    assert(typeof pageCountBefore === 'number', 'page list 异常')
-    record('D01', 'PASS', `当前 page 数=${pageCountBefore}（organize 路径不写 wiki_pages）`)
+    const db = new DatabaseSync(DB_PATH, { readOnly: true })
+    let tableExists
+    try {
+      tableExists = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='wiki_pages'")
+        .get()
+    } finally {
+      db.close()
+    }
+    assert(!tableExists, 'wiki_pages 表仍存在，与 P3 移除历史页面的断言不符')
+    record('D01', 'PASS', 'wiki_pages 表已随 P3 移除（organize 路径天然不写摘要页）')
   } catch (e) {
     record('D01', 'FAIL', e.message)
   }
