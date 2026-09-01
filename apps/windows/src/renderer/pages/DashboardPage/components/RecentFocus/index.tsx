@@ -12,6 +12,7 @@ import { Card } from '../../../../components/ui/Card/Card'
 import { Modal } from '../../../../components/ui/Modal/Modal'
 import { useMemoryUsage } from '../../../../hooks/business/useMemoryUsage'
 import { useWikiPage } from '../../../../hooks/business/useWikiPage'
+import { openWikiLibrary } from '../../../../utils/open-wiki-library'
 import type { ViewType } from '../../../../components/layout/Sidebar/Sidebar'
 import clsx from 'clsx'
 import styles from './RecentFocus.module.css'
@@ -175,6 +176,17 @@ export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
 
   const current = useMemo(() => TABS.find((t) => t.id === activeTab) ?? TABS[0], [activeTab])
 
+  /**
+   * 底栏入口：Wiki 分段需打开记忆页的 Wiki Tab，不能只切到「记忆」默认灵魂页。
+   */
+  const handleFooterAction = useCallback(() => {
+    if (activeTab === 'wiki') {
+      openWikiLibrary()
+      return
+    }
+    onViewChange?.(current.view)
+  }, [activeTab, current.view, onViewChange])
+
   return (
     <Card className={styles.panel} flush>
       <div className={styles.head}>
@@ -226,7 +238,7 @@ export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
 
       <div className={styles.foot}>
         <span>{loadedAt ? `最近读取 ${formatWhen(loadedAt)}` : '最近读取 —'}</span>
-        <button type="button" className={styles.link} onClick={() => onViewChange?.(current.view)}>
+        <button type="button" className={styles.link} onClick={handleFooterAction}>
           {current.action}
         </button>
       </div>

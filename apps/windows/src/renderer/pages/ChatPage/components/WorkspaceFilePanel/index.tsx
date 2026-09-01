@@ -20,8 +20,6 @@ import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
 import { FileTree } from './FileTree'
 import { FileSearchBar } from './FileSearchBar'
 import { ProjectsSection } from './ProjectsSection'
-import { useWikiPage } from '../../../../hooks/business/useWikiPage'
-import { openWikiLibrary } from '../../../../utils/open-wiki-library'
 import styles from './WorkspaceFilePanel.module.css'
 
 // ── SVG 图标 ──────────────────────────────────────────────────────────────
@@ -37,13 +35,6 @@ const IconRefresh: React.FC<{ size?: number }> = ({ size = 14 }) => (
     <polyline points="23 4 23 10 17 10" />
     <polyline points="1 20 1 14 7 14" />
     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-  </svg>
-)
-
-const IconBookOpen: React.FC<{ size?: number }> = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
   </svg>
 )
 
@@ -353,9 +344,6 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
   )
   const projectsApi = useCodingDevProjects()
   const { uncommittedDiff } = useWorkspaceVcs()
-  const { countInbox } = useWikiPage()
-
-  const [inboxPendingCount, setInboxPendingCount] = useState(0)
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   /** 外部定位请求的目标路径（驱动 FileTree 展开并滚动到该节点） */
@@ -400,17 +388,6 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
       void projectsApi.reload()
     }
   }, [open, workspaceDir]) // eslint-disable-line react-hooks/exhaustive-deps -- 仅在打开/工作区变更时刷新
-
-  /** 面板打开时刷新 Wiki 收件箱待处理数量（角标） */
-  useEffect(() => {
-    if (!open) return
-    let cancelled = false
-    void (async () => {
-      const count = await countInbox('pending')
-      if (!cancelled) setInboxPendingCount(count)
-    })()
-    return () => { cancelled = true }
-  }, [open, countInbox, refreshToken])
 
   // 面板关闭时清空临时 UI 状态：embedded 模式下组件不会真正卸载（父级只是不渲染），
   // previewFile 等状态若不清空，下次重新打开时会残留并"自动"弹出之前预览过的文件
@@ -627,27 +604,6 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
             >
               <IconRefresh size={14} />
               {hasPendingUpdate && <span className={styles.pendingDot} aria-hidden />}
-            </button>
-          </div>
-        )}
-
-        {/* 资料库入口（主入口：收件箱角标 + 跳转 Wiki Tab） */}
-        {!isInitializing && workspaceDir && (
-          <div className={styles.wikiLibraryBar}>
-            <button
-              type="button"
-              className={styles.wikiLibraryBtn}
-              onClick={openWikiLibrary}
-              title="打开资料库"
-              aria-label="打开资料库"
-            >
-              <IconBookOpen size={14} />
-              <span className={styles.wikiLibraryLabel}>资料库</span>
-              {inboxPendingCount > 0 && (
-                <span className={styles.wikiInboxBadge} aria-label={`${inboxPendingCount} 条待处理`}>
-                  {inboxPendingCount > 99 ? '99+' : inboxPendingCount}
-                </span>
-              )}
             </button>
           </div>
         )}
