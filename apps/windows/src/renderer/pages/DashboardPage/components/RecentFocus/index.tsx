@@ -3,7 +3,7 @@
  *
  * 三个分段各自一个真实数据源，不做「AI 归纳过」的假象：
  * - 工作记忆：`agent:memories:list` 的 project/reference/general（= WORK_MEMORY_CATEGORIES）
- * - Wiki：`wiki:page:list` 最近整理好的页面
+ * - Wiki：`wiki:source:list` 最近使用的资料
  * - 定时任务：`cron:list` + `cron:runs` 的执行记录，点击看产出正文
  */
 
@@ -62,7 +62,7 @@ export interface RecentFocusProps {
 
 export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
   const { listMemories } = useMemoryUsage()
-  const { listPages, getPage } = useWikiPage()
+  const { listSources, getSource } = useWikiPage()
   const [activeTab, setActiveTab] = useState<TabId>('work')
   const [items, setItems] = useState<readonly FocusItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -79,12 +79,12 @@ export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
   }, [listMemories])
 
   const loadWiki = useCallback(async (): Promise<readonly FocusItem[]> => {
-    const rows = await listPages()
+    const rows = await listSources()
     return [...rows]
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, MAX_ITEMS)
-      .map((p) => ({ id: p.id, text: p.title, at: p.updatedAt, weight: 0.7, wikiPageId: p.id }))
-  }, [listPages])
+      .map((s) => ({ id: s.id, text: s.title, at: s.updatedAt, weight: 0.7, wikiPageId: s.id }))
+  }, [listSources])
 
   /**
    * 定时任务执行记录：cron:list 拿任务名，再逐任务拉最近执行。
@@ -144,16 +144,16 @@ export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
   }, [])
 
   const handleWikiClick = useCallback(
-    async (pageId: string, title: string) => {
+    async (sourceId: string, title: string) => {
       setDetail({ title, body: '正在加载…', meta: '' })
-      const page = await getPage(pageId)
+      const source = await getSource(sourceId)
       setDetail({
-        title: page?.title ?? title,
-        body: page?.contentMd || '未找到该页面内容。',
-        meta: page ? new Date(page.updatedAt).toLocaleString('zh-CN', { hour12: false }) : '',
+        title: source?.title ?? title,
+        body: source?.extractedText || '未找到该资料内容。',
+        meta: source ? new Date(source.createdAt).toLocaleString('zh-CN', { hour12: false }) : '',
       })
     },
-    [getPage],
+    [getSource],
   )
 
   useEffect(() => {

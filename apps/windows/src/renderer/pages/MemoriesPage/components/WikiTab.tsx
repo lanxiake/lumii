@@ -2,7 +2,7 @@
  * WikiTab — Wiki 知识库工作区
  *
  * 左栏承载用途目录树与固定入口，顶栏统一承载搜索、当前目录上下文与任务进度，
- * 主内容区按用途目录展示原始文件；历史摘要页面只从「更多 → 历史页面」进入。
+ * 主内容区按用途目录展示原始文件。历史摘要页面已随 P3 删除。
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -15,8 +15,6 @@ import { ConfirmModal } from '../../../components/ui/Modal'
 import {
   useWikiPage,
   type WikiInboxItem,
-  type WikiPageListItem,
-  type WikiPageDetail,
   type WikiSourceListItem,
   type WikiTopicMutation,
   type WikiTopicTree,
@@ -25,11 +23,9 @@ import {
 } from '../../../hooks/business/useWikiPage'
 import { CleanupView } from './CleanupView'
 import { WikiGraphView } from './WikiGraphView'
-import { WikiDetailDrawer } from './WikiDetailDrawer'
 import { WikiLeftNav, topicCountKey, type WikiNav } from './WikiLeftNav'
 import { navSectionLabel } from './wikiTopicDisplay'
 import { WikiTopBar } from './WikiTopBar'
-import { WikiPageList } from './WikiPageList'
 import { WikiFileList } from './WikiFileList'
 import { WikiTopicPicker } from './WikiTopicPicker'
 import { WikiTopicTreeEditor } from './WikiTopicTreeEditor'
@@ -59,7 +55,6 @@ const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
   archived: { title: '已归档', subtitle: '已移出活跃目录、可随时恢复的资料' },
   parking: { title: '临时存放', subtitle: '你主动搁置、暂不进入正式目录的文件' },
   graph: { title: '知识图谱', subtitle: '浏览页面与实体之间的关系' },
-  history: { title: '历史页面', subtitle: '早期归档生成的摘要页面，只读' },
   cleanup: { title: '清理', subtitle: '扫描并处理需要维护的资料' },
   reclassify: { title: '重新编目', subtitle: 'AI 的目录调整建议，接受后才生效' },
 }
@@ -78,22 +73,13 @@ export const WikiTab: React.FC = () => {
     scanFolder,
     importFolder,
     runOrganize,
-    listPages,
-    getPage,
-    updatePage,
-    deletePage,
     listRuns,
     rebuildIndex,
-    listBacklinks,
-    listRevisions,
-    rollbackPage,
     cleanupScan,
     archiveSources,
     restoreSources,
     deleteSources,
     getGraphData,
-    statusScan,
-    confirmStatus,
     loadTopicTree,
     mutateTopic,
     createNote,
@@ -122,18 +108,11 @@ export const WikiTab: React.FC = () => {
   const [sources, setSources] = useState<readonly WikiSourceListItem[]>([])
   const [archivedSources, setArchivedSources] = useState<readonly WikiSourceListItem[]>([])
   const [archivedCount, setArchivedCount] = useState(0)
-  const [pages, setPages] = useState<readonly WikiPageListItem[]>([])
   const [inboxItems, setInboxItems] = useState<readonly WikiInboxItem[]>([])
   const [inboxPending, setInboxPending] = useState(0)
-  const [selectedPage, setSelectedPage] = useState<WikiPageDetail | null>(null)
-  const [isDetailOpen, setIsDetailOpen] = useState(false)
-  const [isEditing, setIsEditing] = useState(false)
-  const [editDraft, setEditDraft] = useState('')
-  const [editTitle, setEditTitle] = useState('')
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<readonly WikiSourceListItem[] | null>(null)
   const [searchDegradeReason, setSearchDegradeReason] = useState<string | null>(null)
-  const [deleteConfirm, setDeleteConfirm] = useState<{ backlinks: number } | null>(null)
   const [removeConfirm, setRemoveConfirm] = useState<{
     inboxIds: readonly string[]
     sourceIds: readonly string[]
@@ -184,10 +163,6 @@ export const WikiTab: React.FC = () => {
     setArchivedCount(items.length)
     return items
   }, [listSources])
-
-  const refreshPages = useCallback(async () => {
-    setPages(await listPages())
-  }, [listPages])
 
   const refreshInbox = useCallback(async () => {
     const [all, count] = await Promise.all([listInbox('pending'), countInbox('pending')])
@@ -242,12 +217,6 @@ export const WikiTab: React.FC = () => {
     }
   }, [nav.kind, refreshArchivedSources])
 
-  // 历史页面与图谱仍以 wiki_pages 为数据源，进入这些视图时才加载
-  useEffect(() => {
-    if (nav.kind === 'history' || nav.kind === 'graph') {
-      void refreshPages()
-    }
-  }, [nav.kind, refreshPages])
   useEffect(() => {
     /** 将已有归档运行合并进任务中心历史。 */
     const loadRunHistory = async (): Promise<void> => {
@@ -382,8 +351,6 @@ export const WikiTab: React.FC = () => {
     setIsMoreMenuOpen(false)
     setSearchResults(null)
     setOpenError(null)
-    setSelectedPage(null)
-    setIsDetailOpen(false)
     // 换目录必须清选中：否则批量动作会作用到上一个目录里已看不见的文件
     setSelectedSourceIds(new Set())
     setSelectedInboxIds(new Set())
@@ -668,50 +635,6 @@ export const WikiTab: React.FC = () => {
     [mutateTopic, refreshSources],
   )
 
-  const handleOpenPage = useCallback(
-    async (pageId: string) => {
-      const page = await getPage(pageId)
-      setSelectedPage(page)
-      setIsDetailOpen(page !== null)
-      setIsEditing(false)
-    },
-    [getPage],
-  )
-
-  const handleStartEdit = useCallback(() => {
-    if (!selectedPage) return
-    setEditTitle(selectedPage.title)
-    setEditDraft(selectedPage.contentMd)
-    setIsEditing(true)
-  }, [selectedPage])
-
-  const handleSaveEdit = useCallback(async () => {
-    if (!selectedPage) return
-    const updated = await updatePage(selectedPage.path, editTitle, editDraft)
-    if (updated) {
-      setSelectedPage(updated)
-      setIsEditing(false)
-      void refreshPages()
-    }
-  }, [selectedPage, editTitle, editDraft, updatePage, refreshPages])
-
-  const requestDeletePage = useCallback(async () => {
-    if (!selectedPage) return
-    const backlinks = await listBacklinks(selectedPage.id)
-    setDeleteConfirm({ backlinks: backlinks.length })
-  }, [selectedPage, listBacklinks])
-
-  const handleConfirmDeletePage = useCallback(async () => {
-    if (!selectedPage) return
-    const ok = await deletePage(selectedPage.id)
-    setDeleteConfirm(null)
-    if (ok) {
-      setSelectedPage(null)
-      setIsDetailOpen(false)
-      void refreshPages()
-    }
-  }, [selectedPage, deletePage, refreshPages])
-
   const handleRetry = useCallback(
     async (inboxId: string) => {
       await retryInbox(inboxId)
@@ -977,11 +900,6 @@ export const WikiTab: React.FC = () => {
     void taskCenter.wrapAsync('rebuild', '重建索引', rebuildIndex).catch(() => undefined)
   }, [rebuildIndex, taskCenter.wrapAsync])
 
-  const handleRolledBack = useCallback(() => {
-    if (!selectedPage) return
-    void handleOpenPage(selectedPage.id)
-  }, [selectedPage, handleOpenPage])
-
   /** 按 sourceId 打开资料详情（知识图谱节点等场景） */
   const handlePreviewSourceId = useCallback((sourceId: string) => {
     setSourcePreview({ sourceId, snapshot: null })
@@ -1026,7 +944,6 @@ export const WikiTab: React.FC = () => {
         onClose={() => setIsMoreMenuOpen(false)}
         autoClassifyEnabled={autoClassifyEnabled}
         onAutoClassifyChange={(enabled) => void handleAutoClassifyChange(enabled)}
-        onHistory={() => handleSelectNav({ kind: 'history' })}
         onCleanup={() => handleSelectNav({ kind: 'cleanup' })}
         onRebuild={handleRebuildIndex}
         onEditTopicTree={() => setIsTreeEditorOpen(true)}
@@ -1072,7 +989,7 @@ export const WikiTab: React.FC = () => {
         />
 
         <main className="wiki-tab-content">
-          {loading && !selectedPage && (
+          {loading && (
             <div className="wiki-loading">
               <Loading text="加载中..." />
             </div>
@@ -1197,22 +1114,7 @@ export const WikiTab: React.FC = () => {
             restoreSources={trackedRestoreSources}
             deleteSources={trackedDeleteSources}
             moveToParking={handleParkMany}
-            statusScan={statusScan}
-            confirmStatus={confirmStatus}
           />
-        ) : nav.kind === 'history' ? (
-          <div className="wiki-page-list-view">
-            <h3>历史页面（{pages.length}）</h3>
-            {pages.length === 0 ? (
-              <p className="wiki-empty-hint">没有历史摘要页面。新归档的文件请用左侧目录浏览。</p>
-            ) : (
-              <WikiPageList
-                pages={pages}
-                selectedPageId={selectedPage?.id ?? null}
-                onOpen={(pageId) => void handleOpenPage(pageId)}
-              />
-            )}
-          </div>
         ) : nav.kind === 'reclassify' ? (
           <WikiReclassifyView
             run={reclassifyRun}
@@ -1340,29 +1242,6 @@ export const WikiTab: React.FC = () => {
           })
         }}
       />
-      <WikiDetailDrawer
-        open={isDetailOpen}
-        page={selectedPage}
-        pages={pages}
-        isEditing={isEditing}
-        editTitle={editTitle}
-        editDraft={editDraft}
-        onEditTitleChange={setEditTitle}
-        onEditDraftChange={setEditDraft}
-        onStartEdit={handleStartEdit}
-        onCancelEdit={() => setIsEditing(false)}
-        onSaveEdit={() => void handleSaveEdit()}
-        onRequestDelete={() => void requestDeletePage()}
-        onClose={() => {
-          setIsDetailOpen(false)
-          setIsEditing(false)
-        }}
-        listBacklinks={listBacklinks}
-        listRevisions={listRevisions}
-        rollbackPage={rollbackPage}
-        onOpenPage={(pageId) => void handleOpenPage(pageId)}
-        onRolledBack={handleRolledBack}
-      />
       <WikiTaskCenter
         open={isTaskCenterOpen}
         tasks={taskCenter.tasks}
@@ -1435,21 +1314,6 @@ export const WikiTab: React.FC = () => {
         confirmVariant="danger"
         onConfirm={() => void handleConfirmRemove()}
         onCancel={() => setRemoveConfirm(null)}
-      />
-
-      <ConfirmModal
-        open={deleteConfirm !== null}
-        layer={WIKI_MODAL_LAYER}
-        title="删除页面"
-        content={
-          deleteConfirm && deleteConfirm.backlinks > 0
-            ? `删除后，${deleteConfirm.backlinks} 处指向此页的链接将变为未解析。修订历史仍会保留在数据库中。`
-            : '删除后修订历史仍会保留在数据库中，但页面不再可见。'
-        }
-        confirmText="删除"
-        confirmVariant="danger"
-        onConfirm={() => void handleConfirmDeletePage()}
-        onCancel={() => setDeleteConfirm(null)}
       />
 
       <WikiHelpDrawer open={isHelpOpen} onClose={() => setHelpOpen(false)} />

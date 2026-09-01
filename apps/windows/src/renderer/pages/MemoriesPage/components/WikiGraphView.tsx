@@ -1,5 +1,5 @@
 /**
- * WikiGraphView — 三期知识图谱：支持结构层、实体层、历史层
+ * WikiGraphView — 三期知识图谱：支持结构层、实体层
  *
  * 数据来自 wiki:graph:data，根据 currentNav 自动构造查询。
  */
@@ -79,14 +79,13 @@ const ENTITY_BORDER_COLOR = '#ec4899'
 /**
  * 按图层过滤混合图谱。
  */
-function filterGraphByLayer(g: WikiGraphDataItem, layer: LayerControl, showHistory: boolean): WikiGraphDataItem {
+function filterGraphByLayer(g: WikiGraphDataItem, layer: LayerControl): WikiGraphDataItem {
   const layers: WikiGraphLayer[] = (() => {
     if (layer === 'all') return ['structure', 'entities']
     if (layer === 'structure') return ['structure']
     if (layer === 'entities') return ['entities']
     return []
   })()
-  if (showHistory && !layers.includes('history')) layers.push('history')
 
   // 前端不重新查询，只过滤已拉取的节点/边
   const allowedKinds = new Set<string>()
@@ -98,9 +97,6 @@ function filterGraphByLayer(g: WikiGraphDataItem, layer: LayerControl, showHisto
   if (layers.includes('entities')) {
     allowedKinds.add('entity')
     allowedKinds.add('source') // entity 的 mentioned_in 边指向 source
-  }
-  if (layers.includes('history')) {
-    allowedKinds.add('page')
   }
 
   const nodes = g.nodes.filter((n) => allowedKinds.has(n.kind))
@@ -114,9 +110,6 @@ function filterGraphByLayer(g: WikiGraphDataItem, layer: LayerControl, showHisto
   if (layers.includes('entities')) {
     allowedEdgeKinds.add('relation')
     allowedEdgeKinds.add('mentioned_in')
-  }
-  if (layers.includes('history')) {
-    allowedEdgeKinds.add('wikilink')
   }
 
   const edges = g.edges.filter((e) => allowedEdgeKinds.has(e.kind) && ids.has(e.source) && ids.has(e.target))
@@ -141,10 +134,10 @@ function layoutNodes(rawNodes: Node[], rawEdges: Edge[]) {
   }
 }
 
-/** Wiki 页面节点 */
-function WikiPageNode({ data }: NodeProps) {
+/** 结构层节点：category/subtopic 容器 */
+function WikiStructureNode({ data }: NodeProps) {
   const title = (data.title as string) ?? ''
-  const category = (data.category as string) ?? 'sources'
+  const category = (data.category as string) ?? ''
   const useCount = (data.useCount as number) ?? 0
   const scale = Math.min(1.4, 1 + Math.log1p(useCount) * 0.08)
   const label = title.length > 16 ? `${title.slice(0, 16)}…` : title
@@ -165,7 +158,7 @@ function WikiPageNode({ data }: NodeProps) {
     >
       <Handle type="target" position={Position.Left} style={{ width: 6, height: 6 }} />
       <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-primary)' }}>{label}</div>
-      <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>{category}</div>
+      {category && <div style={{ fontSize: 10, color: 'var(--color-text-tertiary)' }}>{category}</div>}
       <Handle type="source" position={Position.Right} style={{ width: 6, height: 6 }} />
     </div>
   )
@@ -227,7 +220,7 @@ function WikiSourceNode({ data }: NodeProps) {
   )
 }
 
-const nodeTypes: NodeTypes = { wikiPage: WikiPageNode, wikiEntity: WikiEntityNode, wikiSource: WikiSourceNode }
+const nodeTypes: NodeTypes = { wikiStructure: WikiStructureNode, wikiEntity: WikiEntityNode, wikiSource: WikiSourceNode }
 
 export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
   currentNav,
@@ -240,7 +233,6 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
   runLongTask,
 }) => {
   const [layer, setLayer] = useState<LayerControl>('all')
-  const [showHistory, setShowHistory] = useState(false)
   const [graph, setGraph] = useState<WikiGraphDataItem | null>(null)
   const [selectedEntity, setSelectedEntity] = useState<SelectedEntity | null>(null)
   const [entitySources, setEntitySources] = useState<readonly WikiEntitySourceRef[]>([])
@@ -251,8 +243,8 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
 
   const filteredGraph = useMemo(
-    () => (graph ? filterGraphByLayer(graph, layer, showHistory) : null),
-    [graph, layer, showHistory],
+    () => (graph ? filterGraphByLayer(graph, layer) : null),
+    [graph, layer],
   )
 
   /** 切换图层时关闭实体侧栏 */
@@ -287,15 +279,12 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
     setSelectedEntity(null)
     setEntitySources([])
     try {
-      const baseLayers: WikiGraphLayer[] = (() => {
+      const layers: WikiGraphLayer[] = (() => {
         if (layer === 'all') return ['structure', 'entities']
         if (layer === 'structure') return ['structure']
         if (layer === 'entities') return ['entities']
         return []
       })()
-      const layers = showHistory && !baseLayers.includes('history')
-        ? [...baseLayers, 'history' as const]
-        : baseLayers
 
       let category: string | undefined
       let subtopic: string | undefined
@@ -306,13 +295,13 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
       } else if (currentNav.kind === 'category') {
         category = currentNav.name
       }
-      // 其他 kind（inbox/parking/history）缺省到默认大类
-      const data = await getGraphData({ radius: 1, limit: 50, layers, category, subtopic })
+      // 其他 kind（inbox/parking）缺省到默认大类
+      const data = await getGraphData({ limit: 50, layers, category, subtopic })
       setGraph(data)
     } finally {
       setLoading(false)
     }
-  }, [currentNav, layer, showHistory, getGraphData])
+  }, [currentNav, layer, getGraphData])
 
   /** 从当前目录或图谱范围内的资料抽取实体 */
   const handleExtractEro = useCallback(async () => {
@@ -360,7 +349,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
       return
     }
     const rawNodes: Node[] = filteredGraph.nodes.map((n) => {
-      let nodeType = 'wikiPage'
+      let nodeType = 'wikiStructure'
       if (n.kind === 'entity') nodeType = 'wikiEntity'
       else if (n.kind === 'source') nodeType = 'wikiSource'
       return {
@@ -469,14 +458,6 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
               {opt.label}
             </button>
           ))}
-          <label style={{ marginLeft: 16, fontSize: 13 }}>
-            <input
-              type="checkbox"
-              checked={showHistory}
-              onChange={(e) => setShowHistory(e.target.checked)}
-            />
-            <span style={{ marginLeft: 4 }}>包含历史页面</span>
-          </label>
         </div>
       )}
 

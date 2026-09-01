@@ -80,34 +80,6 @@ export interface WikiSourceDetail {
   readonly createdAt: number
 }
 
-export interface WikiPageListItem {
-  readonly id: string
-  readonly path: string
-  readonly category: string
-  readonly title: string
-  readonly version: number
-  readonly updatedAt: number
-}
-
-export interface WikiPageDetail {
-  readonly id: string
-  readonly path: string
-  readonly category: string
-  readonly title: string
-  readonly contentMd: string
-  readonly version: number
-  readonly updatedAt: number
-}
-
-export interface WikiSearchHit {
-  readonly pageId: string
-  readonly path: string
-  readonly category: string
-  readonly title: string
-  readonly snippet: string
-  readonly updatedAt: number
-}
-
 export interface WikiRunItem {
   readonly id: string
   readonly inboxIds: readonly string[]
@@ -129,32 +101,6 @@ export interface WikiRunItem {
   readonly finishedAt: number | null
 }
 
-export interface WikiBacklinkItem {
-  readonly linkId: string
-  readonly sourcePageId: string
-  readonly sourceTitle: string
-  readonly sourcePath: string
-  readonly anchorText: string
-  readonly isResolved: boolean
-}
-
-export interface WikiUnresolvedLinkItem {
-  readonly id: string
-  readonly sourcePageId: string
-  readonly anchorText: string
-  readonly createdAt: number
-}
-
-export interface WikiRevisionItem {
-  readonly id: string
-  readonly version: number
-  readonly title: string
-  readonly editor: string
-  readonly sourceRef: string | null
-  readonly createdAt: number
-  readonly contentMd: string
-}
-
 export interface WikiCleanupSuggestionItem {
   readonly sourceId: string
   readonly title: string
@@ -167,32 +113,15 @@ export interface WikiCleanupSuggestionItem {
   readonly suggestedAction?: 'parking' | 'delete'
 }
 
-export interface WikiAttachmentItem {
-  readonly id: string
-  readonly pageId: string
-  readonly sourceId: string | null
-  readonly filePath: string
-  readonly mediaType: string
-  readonly displayName: string
-  readonly createdAt: number
-}
-
 export interface WikiExportResultItem {
   readonly exported: number
   readonly failed: readonly { path: string; error: string }[]
 }
 
-export interface WikiConceptCandidateItem {
-  readonly name: string
-  readonly type: 'concept' | 'entity'
-  readonly evidenceSourceIds: readonly string[]
-  readonly suggestedContentMd: string
-}
-
 export interface WikiGraphDataItem {
   readonly nodes: readonly {
     readonly id: string
-    readonly kind: 'page' | 'entity' | 'category' | 'subtopic' | 'source'
+    readonly kind: 'entity' | 'category' | 'subtopic' | 'source'
     readonly title: string
     readonly path?: string
     readonly category?: string
@@ -204,7 +133,7 @@ export interface WikiGraphDataItem {
   }[]
   readonly edges: readonly {
     readonly id: string
-    readonly kind: 'wikilink' | 'relation' | 'belongs_to' | 'sibling' | 'mentioned_in'
+    readonly kind: 'relation' | 'belongs_to' | 'sibling' | 'mentioned_in'
     readonly source: string
     readonly target: string
     readonly label: string
@@ -236,14 +165,12 @@ export interface WikiEroExtractSourceResult {
 }
 
 /** 三期：图层枚举 */
-export type WikiGraphLayer = 'structure' | 'entities' | 'history'
+export type WikiGraphLayer = 'structure' | 'entities'
 
 /** 三期：图谱查询参数 */
 export interface WikiGraphQuery {
-  readonly centerSourceId?: string
   readonly category?: string
   readonly subtopic?: string
-  readonly radius?: 0 | 1
   readonly limit?: number
   readonly layers?: readonly WikiGraphLayer[]
 }
@@ -255,14 +182,6 @@ export interface WikiObservationItem {
   readonly content: string
   readonly sourcePageId: string | null
   readonly createdAt: string
-}
-
-export interface WikiStatusCandidateItem {
-  readonly pageId: string
-  readonly title: string
-  readonly path: string
-  readonly suggestedStatus: string
-  readonly reason: string
 }
 
 export interface WikiTopicTree {
@@ -331,6 +250,9 @@ export interface WikiSourceListItem {
   readonly textLength: number
   readonly updatedAt: number
   readonly useCount: number
+  readonly summary?: string | null
+  /** 无摘要时的兜底副标题：正文前 60 字 */
+  readonly extractedTextPreview?: string | null
 }
 
 export type SearchMode = 'fts' | 'vector' | 'hybrid'
@@ -538,76 +460,6 @@ export function useWikiPage() {
     [],
   )
 
-  const listPages = useCallback(async (category?: string): Promise<readonly WikiPageListItem[]> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return []
-    setLoading(true)
-    try {
-      const rows = (await api.sendCommand({ type: 'wiki:page:list', category })) as WikiPageListItem[]
-      return Array.isArray(rows) ? rows : []
-    } catch {
-      return []
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const getPage = useCallback(async (pageId: string): Promise<WikiPageDetail | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
-    try {
-      const r = (await api.sendCommand({ type: 'wiki:page:get', pageId })) as WikiPageDetail | null
-      return r ?? null
-    } catch {
-      return null
-    }
-  }, [])
-
-  const updatePage = useCallback(
-    async (path: string, title: string, contentMd: string): Promise<WikiPageDetail | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
-      try {
-        const r = (await api.sendCommand({
-          type: 'wiki:page:update',
-          path,
-          title,
-          contentMd,
-        })) as { pageId: string; version: number }
-        if (!r?.pageId) return null
-        return getPage(r.pageId)
-      } catch {
-        return null
-      }
-    },
-    [getPage],
-  )
-
-  const deletePage = useCallback(async (pageId: string): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
-    try {
-      const r = (await api.sendCommand({ type: 'wiki:page:delete', pageId })) as { success: boolean }
-      return !!r?.success
-    } catch {
-      return false
-    }
-  }, [])
-
-  const search = useCallback(async (keyword: string, limit?: number): Promise<readonly WikiSearchHit[]> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand || !keyword.trim()) return []
-    setLoading(true)
-    try {
-      const rows = (await api.sendCommand({ type: 'wiki:search', keyword, limit })) as WikiSearchHit[]
-      return Array.isArray(rows) ? rows : []
-    } catch {
-      return []
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
   const listRuns = useCallback(async (limit?: number): Promise<readonly WikiRunItem[]> => {
     const api = window.electronAPI?.agentRuntime
     if (!api?.sendCommand) return []
@@ -629,58 +481,6 @@ export function useWikiPage() {
       return 0
     }
   }, [])
-
-  const listBacklinks = useCallback(async (pageId: string): Promise<readonly WikiBacklinkItem[]> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return []
-    try {
-      const rows = (await api.sendCommand({ type: 'wiki:link:backlinks', pageId })) as WikiBacklinkItem[]
-      return Array.isArray(rows) ? rows : []
-    } catch {
-      return []
-    }
-  }, [])
-
-  const listUnresolvedLinks = useCallback(async (): Promise<readonly WikiUnresolvedLinkItem[]> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return []
-    try {
-      const rows = (await api.sendCommand({ type: 'wiki:link:unresolved' })) as WikiUnresolvedLinkItem[]
-      return Array.isArray(rows) ? rows : []
-    } catch {
-      return []
-    }
-  }, [])
-
-  const listRevisions = useCallback(async (pageId: string): Promise<readonly WikiRevisionItem[]> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return []
-    try {
-      const rows = (await api.sendCommand({ type: 'wiki:page:revisions', pageId })) as WikiRevisionItem[]
-      return Array.isArray(rows) ? rows : []
-    } catch {
-      return []
-    }
-  }, [])
-
-  const rollbackPage = useCallback(
-    async (pageId: string, targetVersion: number): Promise<WikiPageDetail | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
-      try {
-        const r = (await api.sendCommand({
-          type: 'wiki:page:rollback',
-          pageId,
-          targetVersion,
-        })) as { pageId: string }
-        if (!r?.pageId) return null
-        return getPage(r.pageId)
-      } catch {
-        return null
-      }
-    },
-    [getPage],
-  )
 
   const cleanupScan = useCallback(async (staleDays?: number): Promise<readonly WikiCleanupSuggestionItem[]> => {
     const api = window.electronAPI?.agentRuntime
@@ -732,60 +532,8 @@ export function useWikiPage() {
     }
   }, [])
 
-  const listAttachments = useCallback(async (pageId: string): Promise<readonly WikiAttachmentItem[]> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return []
-    try {
-      const rows = (await api.sendCommand({ type: 'wiki:attach:list', pageId })) as WikiAttachmentItem[]
-      return Array.isArray(rows) ? rows : []
-    } catch {
-      return []
-    }
-  }, [])
-
-  const addAttachment = useCallback(
-    async (
-      pageId: string,
-      filePath: string,
-      mediaType: 'document' | 'image' | 'audio' | 'video',
-      displayName: string,
-      sourceId?: string,
-    ): Promise<WikiAttachmentItem | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
-      try {
-        const r = (await api.sendCommand({
-          type: 'wiki:attach:add',
-          pageId,
-          filePath,
-          mediaType,
-          displayName,
-          sourceId,
-        })) as WikiAttachmentItem
-        return r ?? null
-      } catch {
-        return null
-      }
-    },
-    [],
-  )
-
-  const removeAttachment = useCallback(async (attachmentId: string): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
-    try {
-      const r = (await api.sendCommand({ type: 'wiki:attach:remove', attachmentId })) as { success: boolean }
-      return !!r?.success
-    } catch {
-      return false
-    }
-  }, [])
-
-  const exportPages = useCallback(
-    async (
-      targetDir: string,
-      options?: { includeSources?: boolean; includeAttachments?: boolean },
-    ): Promise<WikiExportResultItem | null> => {
+  const exportSources = useCallback(
+    async (targetDir: string): Promise<WikiExportResultItem | null> => {
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return null
       setLoading(true)
@@ -793,88 +541,12 @@ export function useWikiPage() {
         const r = (await api.sendCommand({
           type: 'wiki:export',
           targetDir,
-          includeSources: options?.includeSources,
-          includeAttachments: options?.includeAttachments,
         })) as WikiExportResultItem
         return r ?? null
       } catch {
         return null
       } finally {
         setLoading(false)
-      }
-    },
-    [],
-  )
-
-  const conceptScan = useCallback(async (limit?: number): Promise<readonly WikiConceptCandidateItem[]> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return []
-    setLoading(true)
-    try {
-      const rows = (await api.sendCommand({ type: 'wiki:concept:scan', limit })) as WikiConceptCandidateItem[]
-      return Array.isArray(rows) ? rows : []
-    } catch {
-      return []
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const confirmConcept = useCallback(
-    async (name: string, conceptType: 'concept' | 'entity'): Promise<string | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
-      try {
-        const r = (await api.sendCommand({
-          type: 'wiki:concept:confirm',
-          name,
-          conceptType,
-        })) as { pageId: string }
-        return r?.pageId ?? null
-      } catch {
-        return null
-      }
-    },
-    [],
-  )
-
-  const rejectConcept = useCallback(async (name: string, conceptType: 'concept' | 'entity'): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
-    try {
-      const r = (await api.sendCommand({ type: 'wiki:concept:reject', name, conceptType })) as { success: boolean }
-      return !!r?.success
-    } catch {
-      return false
-    }
-  }, [])
-
-  const searchHybrid = useCallback(
-    async (
-      keyword: string,
-      options?: { limit?: number; enableVector?: boolean },
-    ): Promise<{
-      hits: readonly WikiSearchHit[]
-      degradeReason: string | null
-      mode: string
-    } | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
-      try {
-        const r = (await api.sendCommand({
-          type: 'wiki:search:hybrid',
-          keyword,
-          limit: options?.limit,
-          enableVector: options?.enableVector,
-        })) as {
-          hits: readonly WikiSearchHit[]
-          degradeReason: string | null
-          mode: string
-          backend?: string
-        }
-        return r
-      } catch {
-        return null
       }
     },
     [],
@@ -891,9 +563,8 @@ export function useWikiPage() {
         type: 'wiki:graph:data',
         category: query.category,
         subtopic: query.subtopic,
-        radius: query.radius,
         limit: query.limit,
-        layers: query.layers as ('structure' | 'entities' | 'history')[] | undefined,
+        layers: query.layers as ('structure' | 'entities')[] | undefined,
       })) as WikiGraphDataItem
     } catch {
       return null
@@ -942,40 +613,6 @@ export function useWikiPage() {
       return []
     }
   }, [])
-
-  const statusScan = useCallback(async (staleDays?: number): Promise<readonly WikiStatusCandidateItem[]> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return []
-    try {
-      const rows = (await api.sendCommand({ type: 'wiki:status:scan', staleDays })) as WikiStatusCandidateItem[]
-      return Array.isArray(rows) ? rows : []
-    } catch {
-      return []
-    }
-  }, [])
-
-  const confirmStatus = useCallback(
-    async (
-      pageId: string,
-      action: 'confirm' | 'reject',
-      status?: 'outdated' | 'doubtful' | 'archived',
-    ): Promise<boolean> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return false
-      try {
-        const r = (await api.sendCommand({
-          type: 'wiki:status:confirm',
-          pageId,
-          action,
-          status,
-        })) as { success: boolean }
-        return !!r?.success
-      } catch {
-        return false
-      }
-    },
-    [],
-  )
 
   const loadTopicTree = useCallback(async (): Promise<WikiTopicTree | null> => {
     const api = window.electronAPI?.agentRuntime
@@ -1301,32 +938,14 @@ export function useWikiPage() {
     scanFolder,
     importFolder,
     runOrganize,
-    listPages,
-    getPage,
-    updatePage,
-    deletePage,
-    search,
     listRuns,
     rebuildIndex,
-    listBacklinks,
-    listUnresolvedLinks,
-    listRevisions,
-    rollbackPage,
     cleanupScan,
     archiveSources,
     restoreSources,
     deleteSources,
-    listAttachments,
-    addAttachment,
-    removeAttachment,
-    exportPages,
-    conceptScan,
-    confirmConcept,
-    rejectConcept,
+    exportSources,
     getGraphData,
-    statusScan,
-    confirmStatus,
-    searchHybrid,
     extractEroFromSources,
     listEntitySources,
     loadTopicTree,

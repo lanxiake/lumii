@@ -2,7 +2,6 @@ import React from 'react'
 import {
   FolderSync,
   FolderTree,
-  History,
   Layers3,
   RefreshCw,
 } from 'lucide-react'
@@ -16,7 +15,6 @@ interface WikiMoreMenuProps {
   readonly onClose: () => void
   readonly autoClassifyEnabled: boolean
   readonly onAutoClassifyChange: (enabled: boolean) => void
-  readonly onHistory: () => void
   readonly onCleanup: () => void
   readonly onRebuild: () => void
   readonly onEditTopicTree: () => void
@@ -35,12 +33,6 @@ const MENU_ITEMS = [
     label: '编辑主题树',
     description: '增删改并大类与小类',
     icon: FolderTree,
-  },
-  {
-    key: 'history',
-    label: '历史页面',
-    description: '查看早期归档生成的摘要页面',
-    icon: History,
   },
   {
     key: 'cleanup',
@@ -65,7 +57,6 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
   onClose,
   autoClassifyEnabled,
   onAutoClassifyChange,
-  onHistory,
   onCleanup,
   onRebuild,
   onEditTopicTree,
@@ -95,7 +86,6 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
         const handleClick = () => {
           if (key === 'reclassifyAll') onReclassifyAll()
           else if (key === 'editTopicTree') onEditTopicTree()
-          else if (key === 'history') onHistory()
           else if (key === 'cleanup') onCleanup()
           else if (key === 'rebuild') onRebuild()
           onClose()

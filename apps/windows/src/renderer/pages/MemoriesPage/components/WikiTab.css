@@ -659,6 +659,14 @@
   color: var(--color-text-secondary);
 }
 
+.wiki-file-list-subtitle {
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .wiki-file-list-actions {
   display: flex;
   flex-shrink: 0;

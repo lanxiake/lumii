@@ -242,12 +242,11 @@ describe('WikiTab', () => {
     expect(screen.getByRole('heading', { name: /搜索结果（1）/ })).toBeInTheDocument()
   })
 
-  it('更多菜单含历史页面与编辑主题树', async () => {
+  it('更多菜单含清理与编辑主题树', async () => {
     renderWikiTab()
     await screen.findByText(/暂无收件箱条目/)
 
     fireEvent.click(screen.getByRole('button', { name: '更多' }))
-    expect(screen.getByRole('menuitem', { name: /历史页面/ })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: /清理/ })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: /重建索引/ })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: /编辑主题树/ })).toBeInTheDocument()
@@ -261,39 +260,6 @@ describe('WikiTab', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /编辑主题树/ }))
     expect(await screen.findByText('编辑主题树')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /添加大类/ })).toBeInTheDocument()
-  })
-
-  it('历史页面视图打开旧摘要详情抽屉', async () => {
-    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
-      'wiki:page:list': [{
-        id: 'p1',
-        path: 'sources/architecture.md',
-        category: 'sources',
-        title: '架构设计文档',
-        version: 1,
-        updatedAt: Date.now(),
-      }],
-      'wiki:page:get': {
-        id: 'p1',
-        path: 'sources/architecture.md',
-        category: 'sources',
-        title: '架构设计文档',
-        contentMd: '# 架构设计文档',
-        version: 1,
-        updatedAt: Date.now(),
-      },
-      'wiki:link:backlinks': [],
-      'wiki:page:revisions': [],
-    })
-    renderWikiTab()
-    await screen.findByText(/暂无收件箱条目/)
-
-    fireEvent.click(screen.getByRole('button', { name: '更多' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /历史页面/ }))
-    fireEvent.click(await screen.findByText('架构设计文档'))
-
-    expect(await screen.findByRole('button', { name: '关闭' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '历史页面（1）' })).toBeInTheDocument()
   })
 
   it('从更多菜单打开清理全页并显示清理控件', async () => {
@@ -360,7 +326,7 @@ describe('WikiTab', () => {
     await screen.findByText(/暂无收件箱条目/)
 
     fireEvent.click(screen.getByRole('button', { name: '更多' }))
-    fireEvent.click(screen.getByText('历史页面'))
+    fireEvent.click(screen.getByRole('menuitem', { name: /清理/ }))
 
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })

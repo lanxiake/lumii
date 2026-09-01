@@ -153,6 +153,10 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                     {showTopic && <span className="wiki-file-list-topic">{topic}</span>}
                     {formatRelativeTime(item.updatedAt)}
                   </span>
+                  {(() => {
+                    const subtitle = item.summary || item.extractedTextPreview
+                    return subtitle ? <span className="wiki-file-list-subtitle">{subtitle}</span> : null
+                  })()}
                 </div>
                 <div className="wiki-file-list-actions">
                   <Button variant="ghost" size="sm" onClick={() => onPreview(item)}>

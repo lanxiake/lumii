@@ -109,6 +109,35 @@ describe('WikiFileList', () => {
   })
 })
 
+describe('WikiFileList 副标题（摘要优先）', () => {
+  it('有摘要时显示摘要', () => {
+    const item = makeItem({ summary: '本周完成了登录改造', extractedTextPreview: '这是正文前缀内容' })
+    render(<WikiFileList items={[item]} emptyHint="空" onOpen={noop} onPreview={noop} onMove={noop} />)
+    expect(screen.getByText('本周完成了登录改造')).toBeInTheDocument()
+    expect(screen.queryByText('这是正文前缀内容')).not.toBeInTheDocument()
+  })
+
+  it('无摘要时回退正文前 60 字', () => {
+    const item = makeItem({ summary: null, extractedTextPreview: '这是正文前缀内容' })
+    render(<WikiFileList items={[item]} emptyHint="空" onOpen={noop} onPreview={noop} onMove={noop} />)
+    expect(screen.getByText('这是正文前缀内容')).toBeInTheDocument()
+  })
+
+  it('都没有时不渲染副标题', () => {
+    const item = makeItem({ summary: null, extractedTextPreview: null })
+    render(<WikiFileList items={[item]} emptyHint="空" onOpen={noop} onPreview={noop} onMove={noop} />)
+    expect(document.querySelector('.wiki-file-list-subtitle')).not.toBeInTheDocument()
+  })
+
+  it('渲染不触发任何 IPC', () => {
+    const sendCommand = vi.fn()
+    ;(window as any).electronAPI = { agentRuntime: { sendCommand } }
+    const item = makeItem({ summary: '摘要', extractedTextPreview: '正文' })
+    render(<WikiFileList items={[item]} emptyHint="空" onOpen={noop} onPreview={noop} onMove={noop} />)
+    expect(sendCommand).not.toHaveBeenCalled()
+  })
+})
+
 describe('WikiFileList 多选（二期）', () => {
   const a = makeItem({ id: 'a', title: '调研A.pdf' })
   const b = makeItem({ id: 'b', title: '调研B.pdf' })

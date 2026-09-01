@@ -1,16 +1,16 @@
 /**
- * CleanupView — 清理建议扫描 + 筛选/全选/一键归档 + 批量归档/恢复/删除 + 页面状态候选
+ * CleanupView — 清理建议扫描 + 筛选/全选/一键归档 + 批量归档/恢复/删除
  *
  * 设计：docs/plans/记忆重构/2026-08-26-wiki-p1-implementation.md Task 8 §10.2
  *       docs/plans/记忆重构/2026-08-26-wiki-p2-implementation.md Task 4/5
- * 扫描只读不执行，勾选后由用户确认才触发批量操作。
+ * 扫描只读不执行，勾选后由用户确认才触发批量操作。页面状态候选已随 P3 历史页面删除一并移除。
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import { ConfirmModal } from '../../../components/ui/Modal'
 import { WIKI_MODAL_LAYER } from './wikiModalLayer'
-import type { WikiCleanupSuggestionItem, WikiStatusCandidateItem } from '../../../hooks/business/useWikiPage'
+import type { WikiCleanupSuggestionItem } from '../../../hooks/business/useWikiPage'
 import { filterCleanupSuggestions, type CleanupReasonFilter } from './cleanupSelection'
 import { formatTopicDisplay } from './wikiTopicDisplay'
 
@@ -33,17 +33,11 @@ const FILTER_CHIPS: readonly { key: CleanupReasonFilter; label: string }[] = [
   { key: 'duplicate_content', label: '内容重复' },
 ]
 
-const STATUS_REASON_LABEL: Record<string, string> = {
-  broken_source: '来源失效 → outdated',
-  stale: '长期未用 → archived',
-  doubtful_phrase: '否定表述 → doubtful',
-}
-
 /**
  * 展示用的分区 / 小类文案（与左栏导航一致）。
  */
 function cleanupTopicLabel(item: WikiCleanupSuggestionItem): string {
-  return formatTopicDisplay(item.topicCategory, item.topicSubtopic)
+  return formatTopicDisplay(item.topicCategory ?? null, item.topicSubtopic ?? null)
 }
 
 interface CleanupViewProps {
@@ -52,23 +46,15 @@ interface CleanupViewProps {
   readonly restoreSources: (sourceIds: readonly string[]) => Promise<number>
   readonly deleteSources: (sourceIds: readonly string[]) => Promise<number>
   readonly moveToParking?: (sourceIds: readonly string[]) => Promise<number>
-  readonly statusScan?: (staleDays?: number) => Promise<readonly WikiStatusCandidateItem[]>
-  readonly confirmStatus?: (
-    pageId: string,
-    action: 'confirm' | 'reject',
-    status?: 'outdated' | 'doubtful' | 'archived',
-  ) => Promise<boolean>
 }
 
-/** 清理与页面状态候选视图 */
+/** 清理建议视图 */
 export const CleanupView: React.FC<CleanupViewProps> = ({
   cleanupScan,
   archiveSources,
   restoreSources,
   deleteSources,
   moveToParking,
-  statusScan,
-  confirmStatus,
 }) => {
   const [suggestions, setSuggestions] = useState<readonly WikiCleanupSuggestionItem[]>([])
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
@@ -76,7 +62,6 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
   const [confirmArchiveAll, setConfirmArchiveAll] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [scanning, setScanning] = useState(false)
-  const [statusCandidates, setStatusCandidates] = useState<readonly WikiStatusCandidateItem[]>([])
 
   const visible = filterCleanupSuggestions(suggestions, reasonFilter)
   const allVisibleSelected =
@@ -87,13 +72,10 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
     try {
       setSuggestions(await cleanupScan())
       setSelected(new Set())
-      if (statusScan) {
-        setStatusCandidates(await statusScan())
-      }
     } finally {
       setScanning(false)
     }
-  }, [cleanupScan, statusScan])
+  }, [cleanupScan])
 
   useEffect(() => {
     void runScan()
@@ -150,18 +132,6 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
   const handleConfirmDelete = async () => {
     setConfirmDelete(false)
     await deleteSources([...selected])
-    void runScan()
-  }
-
-  const handleConfirmStatus = async (c: WikiStatusCandidateItem) => {
-    if (!confirmStatus) return
-    await confirmStatus(c.pageId, 'confirm', c.suggestedStatus as 'outdated' | 'doubtful' | 'archived')
-    void runScan()
-  }
-
-  const handleRejectStatus = async (c: WikiStatusCandidateItem) => {
-    if (!confirmStatus) return
-    await confirmStatus(c.pageId, 'reject')
     void runScan()
   }
 
@@ -245,27 +215,6 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
             </label>
           ))}
         </>
-      )}
-
-      {statusScan && (
-        <div className="wiki-status-candidates">
-          <h3>页面状态候选（{statusCandidates.length}）</h3>
-          <p className="wiki-empty-hint">规则层检测，确认后才更新页面 status；不做语义漂移检测。</p>
-          {statusCandidates.length === 0 ? (
-            <p className="wiki-empty-hint">{scanning ? '扫描中...' : '暂无状态候选'}</p>
-          ) : (
-            statusCandidates.map((c) => (
-              <div key={c.pageId} className="wiki-cleanup-item">
-                <span className="wiki-cleanup-item-title">{c.title}</span>
-                <span className="wiki-cleanup-item-reason">
-                  {STATUS_REASON_LABEL[c.reason] ?? `${c.reason} → ${c.suggestedStatus}`}
-                </span>
-                <Button variant="primary" size="sm" onClick={() => void handleConfirmStatus(c)}>确认</Button>
-                <Button variant="ghost" size="sm" onClick={() => void handleRejectStatus(c)}>拒绝</Button>
-              </div>
-            ))
-          )}
-        </div>
       )}
 
       <ConfirmModal
