@@ -13,6 +13,9 @@ export const LOCAL_MEDIA_SCHEME = 'lumii-local'
 
 let workspaceCwdGetter: (() => string) | null = null
 
+/** Wiki 原文件可能在工作区外：预览 IPC 校验侧车后登记，供 lumii-local 流式读取 */
+const extraAllowedLocalMediaPaths = new Set<string>()
+
 /**
  * 注入 Agent 工作区 cwd 获取器（bridge 就绪后设置），供协议 ACL 使用。
  */
@@ -26,6 +29,13 @@ export function setLocalMediaWorkspaceCwdGetter(getter: () => string): void {
 export function buildLocalMediaUrl(absPath: string): string {
   const resolved = path.resolve(absPath)
   return `${LOCAL_MEDIA_SCHEME}://media/?path=${encodeURIComponent(resolved)}`
+}
+
+/**
+ * 允许 lumii-local 读取工作区外的预览目标（须先由 files 预览 IPC 完成路径校验）。
+ */
+export function allowLocalMediaPreviewPath(absPath: string): void {
+  extraAllowedLocalMediaPaths.add(path.resolve(absPath))
 }
 
 /**
@@ -46,7 +56,9 @@ function resolveAclDirs(): {
  * 判断路径是否允许经 lumii-local 提供。
  */
 export function isAllowedLocalMediaPath(resolvedAbs: string): boolean {
-  return isAllowedPreviewPath(path.resolve(resolvedAbs), resolveAclDirs())
+  const abs = path.resolve(resolvedAbs)
+  if (extraAllowedLocalMediaPaths.has(abs)) return true
+  return isAllowedPreviewPath(abs, resolveAclDirs())
 }
 
 /**

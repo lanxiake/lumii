@@ -1889,6 +1889,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       mimeType: string | null
       /** 默认按 utf-8 文本；PDF/Office/图片等二进制为 base64 */
       encoding?: 'utf-8' | 'base64'
+      fileUrl?: string
     }
   : T extends 'files:read-preview-by-path' ? {
       truncated: boolean

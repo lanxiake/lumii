@@ -59,15 +59,21 @@ export function shouldUseRefSidecar(source: WikiSource): boolean {
 }
 
 /**
- * 解析 file-ref 指向的原始文件路径。
+ * 解析 file-ref 指向的原始文件路径（穿过多层 .lumii-ref，避免新侧车把旧侧车当成原文件）。
  */
 export function resolveOriginalFilePath(deps: WikiVaultSyncDeps, source: WikiSource): string | null {
-  if (!source.source_path) return null;
-  if (isVaultRefPath(source.source_path)) {
-    const absRef = deps.toAbsPath(source.source_path);
-    return readRefTarget(deps.fs, absRef);
+  let current = source.source_path;
+  if (!current) return null;
+  const seen = new Set<string>();
+  while (isVaultRefPath(current)) {
+    const absRef = deps.toAbsPath(current);
+    if (seen.has(absRef)) return null;
+    seen.add(absRef);
+    const next = readRefTarget(deps.fs, absRef);
+    if (!next) return null;
+    current = next;
   }
-  return source.source_path;
+  return current;
 }
 
 /**

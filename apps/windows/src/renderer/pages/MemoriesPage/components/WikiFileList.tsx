@@ -58,7 +58,7 @@ interface WikiFileListProps {
 }
 
 /**
- * 用途目录下的文件列表：一行一个原始文件，支持详情预览与打开原文件。
+ * 用途目录下的文件列表：一行一个原始文件，支持详情预览（应用内居中预览）。
  */
 export const WikiFileList: React.FC<WikiFileListProps> = ({
   items,

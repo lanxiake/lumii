@@ -402,22 +402,13 @@ export const WikiTab: React.FC = () => {
   }, [])
 
   /**
-   * 打开原始文件；网页链接型资料改为内置浏览器预览。
+   * 打开资料：本地文件与网页都走应用内预览（与对话里点文件相同），不再调系统默认应用。
    */
   const handleOpenSource = useCallback(
-    async (item: WikiSourceListItem) => {
-      if (isUrlSourceItem(item.sourcePath)) {
-        handlePreviewSourceItem(item)
-        return
-      }
-      setOpenError(null)
-      try {
-        await openSource(item.id)
-      } catch (error) {
-        setOpenError(error instanceof Error ? error.message : '无法打开原文件')
-      }
+    (item: WikiSourceListItem) => {
+      handlePreviewSourceItem(item)
     },
-    [openSource, handlePreviewSourceItem],
+    [handlePreviewSourceItem],
   )
 
   /**
@@ -1273,11 +1264,6 @@ export const WikiTab: React.FC = () => {
         snapshot={sourcePreview?.snapshot ?? null}
         getSource={getSource}
         onClose={() => setSourcePreview(null)}
-        onOpenExternal={(detail) => {
-          void openSource(detail.id).catch((error) => {
-            setOpenError(error instanceof Error ? error.message : '无法打开原文件')
-          })
-        }}
       />
       <WikiTaskCenter
         open={isTaskCenterOpen}

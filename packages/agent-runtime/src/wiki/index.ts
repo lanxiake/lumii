@@ -97,6 +97,7 @@ export {
   validateTopicAssignment,
   treeHasOrphans,
   topicTreeHasLegacyV1Categories,
+  mergeDefaultSubtopics,
 } from "./wiki-topic-tree.js";
 export type { WikiTopicTree } from "./wiki-topic-tree.js";
 
@@ -195,7 +196,7 @@ export {
 } from "./wiki-ref-store.js";
 export type { WikiRefDocument, WikiRefStoreFs, WikiRefType } from "./wiki-ref-store.js";
 
-export { ensureWikiVaultLayout } from "./wiki-vault-layout.js";
+export { ensureWikiVaultLayout, WIKI_VAULT_LAYOUT_ID } from "./wiki-vault-layout.js";
 export type { WikiVaultLayoutFs, WikiVaultLayoutResult } from "./wiki-vault-layout.js";
 
 export {

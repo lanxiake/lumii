@@ -10,8 +10,10 @@ import { shell } from 'electron'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { resolveRecordingsDir } from '../../workspace-paths'
-import { buildLocalMediaUrl } from '../../local-media-protocol'
+import { buildLocalMediaUrl, allowLocalMediaPreviewPath } from '../../local-media-protocol'
 import { extractDocumentText } from '../../vendor/document-parser.js'
+import { resolveWikiRefPreviewTarget } from './resolve-wiki-ref-preview'
+import { isVaultRefPath } from '@mtbot/agent-runtime'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -19,6 +21,57 @@ const log = {
 }
 
 const LOCAL_USER_ID = 'local-user'
+
+/** 预览允许的最大文件体积（超过则标记 truncated，不读入内存） */
+const PREVIEW_MAX_BYTES = 500 * 1024 * 1024
+/** 超过此体积的二进制改为 lumii-local 流式读取，避免 IPC base64 撑爆 */
+const INLINE_BASE64_MAX_BYTES = 8 * 1024 * 1024
+/** 文本预览仍走 IPC 字符串，过大则截断 */
+const TEXT_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
+
+/**
+ * 音视频、录屏目录、以及超过内联上限的二进制走协议 URL。
+ */
+function shouldStreamPreviewViaFileUrl(
+  mime: string,
+  fileName: string,
+  size: number,
+  inRecordings: boolean,
+): boolean {
+  if (mime.startsWith('video/') || mime.startsWith('audio/') || inRecordings) return true
+  if (deps!.shouldReadPreviewAsUtf8(mime, fileName)) return false
+  return size > INLINE_BASE64_MAX_BYTES
+}
+
+/**
+ * 构造流式预览返回值，并把路径登记进 lumii-local ACL（含工作区外的 wiki 原文件）。
+ */
+function streamedPreviewPayload(
+  absPath: string,
+  size: number,
+  mime: string,
+  extra?: { fileName: string },
+): {
+  truncated: false
+  content: null
+  fileUrl: string
+  size: number
+  mimeType: string
+  encoding: 'base64'
+  fileName?: string
+  ranged?: boolean
+} {
+  allowLocalMediaPreviewPath(absPath)
+  return {
+    truncated: false,
+    content: null,
+    fileUrl: buildLocalMediaUrl(absPath),
+    size,
+    mimeType: mime,
+    encoding: 'base64',
+    ...(extra ? { fileName: extra.fileName, ranged: false as const } : {}),
+  }
+}
 
 // ============================================================
 // 依赖注入接口
@@ -163,9 +216,15 @@ export async function handleFilesReadPreviewContent(
   ) {
     effectiveMime = inferred
   }
-  const MAX_BYTES = 10 * 1024 * 1024
   const stat = await fs.promises.stat(absPath)
-  if (stat.size > MAX_BYTES) {
+  if (stat.size > PREVIEW_MAX_BYTES) {
+    return { truncated: true, content: null, size: stat.size, mimeType: effectiveMime }
+  }
+  const inRecordings = absPath.startsWith(path.resolve(resolveRecordingsDir()) + path.sep)
+  if (shouldStreamPreviewViaFileUrl(effectiveMime, file.fileName, stat.size, inRecordings)) {
+    return streamedPreviewPayload(absPath, stat.size, effectiveMime)
+  }
+  if (deps!.shouldReadPreviewAsUtf8(effectiveMime, file.fileName) && stat.size > TEXT_PREVIEW_MAX_BYTES) {
     return { truncated: true, content: null, size: stat.size, mimeType: effectiveMime }
   }
   if (deps!.shouldReadPreviewAsUtf8(effectiveMime, file.fileName)) {
@@ -197,10 +256,14 @@ export async function handleFilesReadPreviewByPath(
   const expandedPath = deps!.expandTildePath(filePath)
   // 路径安全：须位于 workspace / recordings / 截图临时目录内
   const absPath = path.isAbsolute(expandedPath) ? expandedPath : path.resolve(cwd, expandedPath)
-  const resolvedAbs = path.resolve(absPath)
+  let resolvedAbs = path.resolve(absPath)
   const resolvedCwd = path.resolve(cwd)
   if (!deps!.isAllowedPreviewPath(resolvedAbs, resolvedCwd)) {
     throw new Error('该路径不在允许的预览目录内（工作区 / recordings / 截图），无法预览')
+  }
+  // 工作区内的 .lumii-ref 只是指针，预览必须跟到原文件（可在工作区外，可多层引用）
+  if (isVaultRefPath(resolvedAbs)) {
+    resolvedAbs = resolveWikiRefPreviewTarget(resolvedAbs, resolvedCwd)
   }
   if (!fs.existsSync(resolvedAbs)) {
     throw new Error('文件不存在或已被删除')
@@ -209,23 +272,15 @@ export async function handleFilesReadPreviewByPath(
   /** 与 files:read-preview-content 共用推断，避免 PDF 等被误作 text/plain */
   const inferred = deps!.inferPreviewMimeFromFileName(fileName)
   let effectiveMime = inferred ?? 'text/plain'
-  const MAX_BYTES = 10 * 1024 * 1024
   const stat = await fs.promises.stat(resolvedAbs)
   if (stat.isDirectory()) {
     throw new Error('无法预览目录，请在文件树中展开查看')
   }
 
-  /**
-   * 音视频大文件（或 recordings 目录内）按 path 走 lumii-local，避免 10MB base64 整包。
-   * 小体积 workspace 媒体仍可走 base64，兼容旧预览路径。
-   */
-  const isAv = effectiveMime.startsWith('video/') || effectiveMime.startsWith('audio/')
-  const inRecordings = resolvedAbs.startsWith(path.resolve(resolveRecordingsDir()) + path.sep)
-  if (isAv && (stat.size > MAX_BYTES || inRecordings)) {
+  if (stat.size > PREVIEW_MAX_BYTES) {
     return {
-      truncated: false,
+      truncated: true,
       content: null,
-      fileUrl: buildLocalMediaUrl(resolvedAbs),
       size: stat.size,
       mimeType: effectiveMime,
       fileName,
@@ -233,7 +288,12 @@ export async function handleFilesReadPreviewByPath(
     }
   }
 
-  if (stat.size > MAX_BYTES) {
+  const inRecordings = resolvedAbs.startsWith(path.resolve(resolveRecordingsDir()) + path.sep)
+  if (shouldStreamPreviewViaFileUrl(effectiveMime, fileName, stat.size, inRecordings)) {
+    return streamedPreviewPayload(resolvedAbs, stat.size, effectiveMime, { fileName })
+  }
+
+  if (deps!.shouldReadPreviewAsUtf8(effectiveMime, fileName) && stat.size > TEXT_PREVIEW_MAX_BYTES) {
     return {
       truncated: true,
       content: null,

@@ -6,6 +6,7 @@ import path from 'node:path'
 import {
   ensureWikiVaultLayout,
   syncSourceToVault,
+  WIKI_VAULT_LAYOUT_ID,
   type WikiSource,
   type WikiVaultFs,
   type WikiVaultSyncDeps,
@@ -66,13 +67,44 @@ export function createWikiVaultSyncDeps(workspaceRoot?: string, vaultRootOverrid
 }
 
 /**
- * 初始化 wiki/ 目录树。
+ * 是否需要清空重建 wiki/：旧序号目录、过期 layoutId、损坏的 meta。
+ */
+export function wikiVaultNeedsRebuild(vaultRoot: string): boolean {
+  if (!fs.existsSync(vaultRoot)) return false
+  const names = fs.readdirSync(vaultRoot)
+  if (names.length === 0) return false
+  if (names.some((name) => /^\d{2}-/.test(name))) return true
+  const metaPath = path.join(vaultRoot, '.lumii', 'wiki-meta.json')
+  if (!fs.existsSync(metaPath)) return true
+  try {
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as { layoutId?: string }
+    return meta.layoutId !== WIKI_VAULT_LAYOUT_ID
+  } catch {
+    return true
+  }
+}
+
+/**
+ * 删除 wiki/ 下全部历史文件与目录，随后由 ensureWikiVaultLayout 重建空树。
+ */
+export function emptyWikiVaultDir(vaultRoot: string): void {
+  if (!fs.existsSync(vaultRoot)) return
+  for (const name of fs.readdirSync(vaultRoot)) {
+    fs.rmSync(path.join(vaultRoot, name), { recursive: true, force: true })
+  }
+}
+
+/**
+ * 初始化磁盘上的 wiki/ 目录树；遇到旧序号目录或过期 layoutId 时先清空再重建。
  */
 export function ensureWikiVaultLayoutOnDisk(workspaceRoot?: string): {
   vaultRoot: string
   createdDirs: readonly string[]
 } {
   const deps = createWikiVaultSyncDeps(workspaceRoot)
+  if (wikiVaultNeedsRebuild(deps.vaultRoot)) {
+    emptyWikiVaultDir(deps.vaultRoot)
+  }
   const result = ensureWikiVaultLayout(deps.vaultRoot, deps.fs)
   return { vaultRoot: result.vaultRoot, createdDirs: result.createdDirs }
 }
@@ -117,6 +149,9 @@ export function ensureAndBackfillWikiVault(
   workspaceRoot?: string,
 ): { vaultRoot: string; synced: number } {
   const deps = createWikiVaultSyncDeps(workspaceRoot)
+  if (wikiVaultNeedsRebuild(deps.vaultRoot)) {
+    emptyWikiVaultDir(deps.vaultRoot)
+  }
   ensureWikiVaultLayout(deps.vaultRoot, deps.fs, repo.getOrCreateTopicTree())
   const sources = repo.listSources(agentId, userId)
   let synced = 0

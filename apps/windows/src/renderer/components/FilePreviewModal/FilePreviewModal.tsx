@@ -196,8 +196,22 @@ interface PreviewResult {
   ranged?: boolean
   startLine?: number
   endLine?: number
-  /** 大音视频按 path 预览（lumii-local），优先于 base64 content */
+  /** 大文件走 lumii-local fileUrl，优先于 base64 content */
   fileUrl?: string
+}
+
+/**
+ * 从 IPC 结果得到二进制字节：优先 fetch 协议 URL，否则解码 base64。
+ */
+async function loadBinaryPreviewBytes(result: PreviewResult): Promise<Uint8Array | null> {
+  if (result.fileUrl) {
+    const res = await fetch(result.fileUrl)
+    if (!res.ok) throw new Error(`预览读取失败（${res.status}）`)
+    return new Uint8Array(await res.arrayBuffer())
+  }
+  const raw = result.content
+  if (!raw || result.encoding !== 'base64') return null
+  return Uint8Array.from(atob(raw.replace(/\s/g, '')), (c) => c.charCodeAt(0))
 }
 
 /**
@@ -584,6 +598,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
 
   const imageDataUrl = useMemo(() => {
     if (!result || route !== 'image' || result.truncated) return ''
+    if (result.fileUrl) return result.fileUrl
     return buildImageDataUrl(result)
   }, [result, route])
 
@@ -610,36 +625,47 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     }
   }, [result, route])
 
-  /**
-   * PDF 原始字节（Electron 内 iframe+blob 常空白，改由 PdfJsPreview 走 PDF.js）
-   */
-  const pdfBytes = useMemo(() => {
-    const raw = result?.content
-    if (!result || route !== 'pdf' || result.truncated || !raw) return null
-    if (!(result.encoding === 'base64' || isPdfBase64Payload(raw))) return null
-    try {
-      const normalized = raw.replace(/\s/g, '')
-      return Uint8Array.from(atob(normalized), (c) => c.charCodeAt(0))
-    } catch {
-      return null
+  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null)
+  useEffect(() => {
+    if (!result || route !== 'pdf' || result.truncated) {
+      setPdfBytes(null)
+      return
+    }
+    let cancelled = false
+    void loadBinaryPreviewBytes(result)
+      .then((bytes) => {
+        if (!cancelled) setPdfBytes(bytes)
+      })
+      .catch(() => {
+        if (!cancelled) setPdfBytes(null)
+      })
+    return () => {
+      cancelled = true
     }
   }, [result, route])
 
-  /** Excel / PPTX 原始字节（base64 → Uint8Array） */
-  const officeBytes = useMemo(() => {
-    const raw = result?.content
-    if (!result || (route !== 'xlsx' && route !== 'pptx') || result.truncated || !raw) return null
-    if (result.encoding !== 'base64') return null
-    try {
-      return Uint8Array.from(atob(raw.replace(/\s/g, '')), (c) => c.charCodeAt(0))
-    } catch {
-      return null
+  const [officeBytes, setOfficeBytes] = useState<Uint8Array | null>(null)
+  useEffect(() => {
+    if (!result || (route !== 'xlsx' && route !== 'pptx') || result.truncated) {
+      setOfficeBytes(null)
+      return
+    }
+    let cancelled = false
+    void loadBinaryPreviewBytes(result)
+      .then((bytes) => {
+        if (!cancelled) setOfficeBytes(bytes)
+      })
+      .catch(() => {
+        if (!cancelled) setOfficeBytes(null)
+      })
+    return () => {
+      cancelled = true
     }
   }, [result, route])
 
   // DOCX：mammoth 转 HTML
   useEffect(() => {
-    if (!result || route !== 'docx' || result.encoding !== 'base64' || !result.content) {
+    if (!result || route !== 'docx' || result.truncated) {
       setDocxHtml(null)
       setDocxError(null)
       setDocxLoading(false)
@@ -649,12 +675,12 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     setDocxLoading(true)
     setDocxError(null)
     setDocxHtml(null)
-    const rawB64 = result.content
     void (async () => {
       try {
+        const bytes = await loadBinaryPreviewBytes(result)
+        if (!bytes) throw new Error('无法读取 DOCX 内容')
         const mammoth = await import('mammoth')
-        const buf = Uint8Array.from(atob(rawB64), (c) => c.charCodeAt(0))
-        const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+        const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
         const { value } = await mammoth.convertToHtml({ arrayBuffer: ab })
         if (!cancelled) setDocxHtml(value)
       } catch (e) {

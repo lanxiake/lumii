@@ -687,6 +687,31 @@ describe('wiki commands', () => {
     expect((list.sources[0] as { id: string }).id).toBe(source.id)
   })
 
+  it('source:list 标题带原文件后缀名', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const source = repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: '一年级语文下册',
+      sourcePath: 'C:/教材/一年级语文下册.pdf',
+    })
+    handleWikiSourceUpdateTopic(bridge, {
+      type: 'wiki:source:update-topic',
+      agentId: 'assistant',
+      sourceId: source.id,
+      category: '学习',
+      subtopic: '在学',
+    })
+    const list = handleWikiSourceList(bridge, {
+      type: 'wiki:source:list',
+      agentId: 'assistant',
+      category: '学习',
+      subtopic: '在学',
+    })
+    expect((list.sources[0] as { title: string }).title).toBe('一年级语文下册.pdf')
+  })
+
   it('source:move-to-parking 写入临时存放，subtopic 为 null', () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)

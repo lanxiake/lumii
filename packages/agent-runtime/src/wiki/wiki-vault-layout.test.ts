@@ -22,6 +22,7 @@ describe("wiki-vault-layout", () => {
     expect(dirs.has("/ws/wiki/工作/项目")).toBe(true);
     expect(dirs.has("/ws/wiki/学习/在学")).toBe(true);
     expect(files.has("/ws/wiki/.lumii/wiki-meta.json")).toBe(true);
+    expect(files.get("/ws/wiki/.lumii/wiki-meta.json")).toContain("ref-first-v2-20260901");
     // 旧序号前缀目录不再出现
     expect([...dirs].some((d) => /\/\d\d-/.test(d))).toBe(false);
   });

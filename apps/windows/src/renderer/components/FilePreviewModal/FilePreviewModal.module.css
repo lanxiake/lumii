@@ -3,7 +3,8 @@
 .overlay {
   position: fixed;
   inset: 0;
-  z-index: 10050;
+  /* Wiki 嵌在设置中心 Hub（12000）内；10050 会被挡住。对话预览同样用此层无妨。 */
+  z-index: calc(var(--z-settings-hub, 12000) + 40);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -16,7 +17,7 @@
 
 /* 全屏覆盖对话区（由 JS 写入 top/left/width/height） */
 .dialogOverlay {
-  z-index: 10060;
+  z-index: calc(var(--z-settings-hub, 12000) + 41);
   display: flex;
   flex-direction: column;
   background: var(--mt-surface-1, var(--bg-primary, #f7f4ef));

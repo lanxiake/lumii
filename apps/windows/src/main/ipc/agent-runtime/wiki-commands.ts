@@ -32,6 +32,7 @@ import {
   STRUCTURE_BATCH_SIZE,
   CONTENT_BATCH_SIZE,
   resolveUniqueFilename,
+  type WikiSource,
 } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
@@ -44,6 +45,7 @@ import {
 } from '../../agent-runtime/wiki-vault-host'
 import { resolveWikiDir } from '../../workspace-paths'
 import { securityUtils } from '../../security-utils'
+import { titleWithOriginalExt } from './wiki-display-title'
 
 const LOCAL_USER_ID = 'local-user'
 
@@ -113,20 +115,25 @@ export function handleWikiInboxList(
 ): unknown {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
   const items = bridge.wikiRepo.listInbox(agentId, LOCAL_USER_ID, command.status)
-  return items.map((i) => ({
-    id: i.id,
-    itemType: i.item_type,
-    title: i.title,
-    sourcePath: i.source_path,
-    sourceUrl: i.source_url,
-    contentPreview: i.content_preview,
-    mediaType: i.media_type,
-    status: i.status,
-    attemptCount: i.attempt_count,
-    lastError: i.last_error,
-    lastOutcome: i.last_outcome,
-    createdAt: new Date(i.created_at).getTime(),
-  }))
+  const deps = createWikiVaultSyncDeps()
+  return items.map((i) => {
+    const original =
+      resolveOriginalFilePath(deps, { source_path: i.source_path } as WikiSource) ?? i.source_path
+    return {
+      id: i.id,
+      itemType: i.item_type,
+      title: titleWithOriginalExt(i.title, original),
+      sourcePath: i.source_path,
+      sourceUrl: i.source_url,
+      contentPreview: i.content_preview,
+      mediaType: i.media_type,
+      status: i.status,
+      attemptCount: i.attempt_count,
+      lastError: i.last_error,
+      lastOutcome: i.last_outcome,
+      createdAt: new Date(i.created_at).getTime(),
+    }
+  })
 }
 
 /**
@@ -806,11 +813,18 @@ export function handleWikiReclassifyDiscard(
   return { success: true }
 }
 
-function mapSourceListItem(source: NonNullable<ReturnType<AgentRuntimeBridge['wikiRepo']['findSourceById']>>) {
+/**
+ * 列表展示：标题带上原文件后缀。
+ */
+function mapSourceListItem(
+  source: NonNullable<ReturnType<AgentRuntimeBridge['wikiRepo']['findSourceById']>>,
+  vaultDeps: ReturnType<typeof createWikiVaultSyncDeps>,
+) {
   const extracted = source.extracted_text ?? ''
+  const original = resolveOriginalFilePath(vaultDeps, source) ?? source.source_path
   return {
     id: source.id,
-    title: source.title,
+    title: titleWithOriginalExt(source.title, original),
     sourcePath: source.source_path,
     mediaType: source.media_type,
     topicCategory: source.topic_category,
@@ -837,7 +851,8 @@ export function handleWikiSourceList(
     archived: command.archived,
     mediaType: command.mediaType as never,
   })
-  return { sources: sources.map(mapSourceListItem) }
+  const vaultDeps = createWikiVaultSyncDeps()
+  return { sources: sources.map((s) => mapSourceListItem(s, vaultDeps)) }
 }
 
 export function handleWikiSourceUpdateTopic(

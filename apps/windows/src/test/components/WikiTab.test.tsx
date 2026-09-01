@@ -121,9 +121,9 @@ describe('WikiTab', () => {
     expect(screen.getByRole('heading', { name: '例行 (1)' })).toBeInTheDocument()
   })
 
-  it('文件行「打开」失败时展示无法打开原文件', async () => {
+  it('文件行「打开」使用应用内居中预览，不调系统打开', async () => {
     ;(window as any).electronAPI.agentRuntime.sendCommand = vi.fn(async (cmd: { type: string }) => {
-      if (cmd.type === 'wiki:source:open') throw new Error('无法打开原文件：文件已被移动或删除')
+      if (cmd.type === 'wiki:source:open') throw new Error('不应调用系统打开')
       if (cmd.type === 'wiki:source:list') {
         return {
           sources: [{
@@ -141,6 +141,9 @@ describe('WikiTab', () => {
       if (cmd.type === 'wiki:topic:tree:get') return { tree: TOPIC_TREE }
       if (cmd.type === 'wiki:inbox:count') return { total: 0 }
       if (cmd.type === 'wiki:inbox:list' || cmd.type === 'wiki:page:list' || cmd.type === 'wiki:runs:list') return []
+      if (cmd.type === 'files:read-preview-by-path') {
+        return { content: 'JVBERi0xLjQ=', mimeType: 'application/pdf', encoding: 'base64', fileName: '合同.pdf' }
+      }
       return null
     })
     renderWikiTab()
@@ -150,7 +153,9 @@ describe('WikiTab', () => {
     fireEvent.click(await screen.findByText('凭据'))
     fireEvent.click(await screen.findByRole('button', { name: /打开/ }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('无法打开原文件')
+    expect(await screen.findByRole('dialog', { name: '文件预览' })).toBeInTheDocument()
+    const send = (window as any).electronAPI.agentRuntime.sendCommand as ReturnType<typeof vi.fn>
+    expect(send.mock.calls.some((c: [{ type: string }]) => c[0].type === 'wiki:source:open')).toBe(false)
   })
 
   it('待整理条目可通过选择器归档到指定小类', async () => {

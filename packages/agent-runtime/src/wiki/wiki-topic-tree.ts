@@ -31,18 +31,72 @@ export const LEGACY_TOPIC_TREE_V1: WikiTopicTree = {
 };
 
 /**
- * v2 默认树：4 大类 × 用途轴小类，小类数量收窄、去掉「整合长文」专属小类
- * （综述功能已移除，见 P2）。小类可选——大类下允许无小类的资料（见 validateTopicAssignment）。
+ * v2 默认树：4 大类 × 用途轴小类（每类 5 个，边界见 DEFAULT_SUBTOPIC_HINTS）。
+ * 去掉「整合长文」专属小类（综述功能已移除，见 P2）。小类可选。
  */
 export const DEFAULT_TOPIC_TREE: WikiTopicTree = {
   version: 2,
   categories: [
-    { name: "工作", subtopics: ["项目", "例行", "对外"] },
-    { name: "学习", subtopics: ["在学", "参考"] },
-    { name: "生活", subtopics: ["凭据", "家事", "自留"] },
-    { name: "收藏", subtopics: ["待读", "可复用"] },
+    { name: "工作", subtopics: ["项目", "例行", "对外", "协作", "规范"] },
+    { name: "学习", subtopics: ["在学", "备考", "练习", "参考", "成果"] },
+    { name: "生活", subtopics: ["凭据", "家事", "财务", "健康", "自留"] },
+    { name: "收藏", subtopics: ["待读", "可复用", "范例", "存档", "灵感"] },
   ],
 };
+
+/**
+ * 预设小类的一句话边界，写入分类提示词「可选目录」。
+ * 键是大类名 → 小类名；用户自建名称不会出现在这里，渲染时不加括号。
+ */
+export const DEFAULT_SUBTOPIC_HINTS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  工作: {
+    项目: "某个有起止的具体项目，不是周期汇报",
+    例行: "按周/月反复产出",
+    对外: "给客户、合作方、监管看",
+    协作: "只跟同事对齐：纪要、同步、分工",
+    规范: "拿来遵守的制度、流程、手册",
+  },
+  学习: {
+    在学: "当前正在推进的主线",
+    备考: "终点是考试或证书",
+    练习: "动手做的习题、作业、实验",
+    参考: "查过以后翻，不是当前主线",
+    成果: "学完自己写出来的笔记/书评",
+  },
+  生活: {
+    凭据: "必须能找回的证件、票据、保险、履历",
+    家事: "家里公共事务、分工、亲属安排",
+    财务: "个人或家庭收支、账本、预算",
+    健康: "医疗、体检、用药",
+    自留: "随笔、日记、创作、爱好",
+  },
+  收藏: {
+    待读: "打算看、还没看",
+    可复用: "拿来就能套的模板、素材",
+    范例: "当样本看，不直接套",
+    存档: "不想丢，但不确定会看",
+    灵感: "一句话或截图，还不成篇",
+  },
+};
+
+/**
+ * 给已有 v2 树补上默认大类里缺失的预设小类。
+ * 不删、不改用户已有小类，也不重排已有顺序；缺失的追加在末尾。
+ * 用户自建大类（不在默认四类里）原样保留。
+ */
+export function mergeDefaultSubtopics(tree: WikiTopicTree): WikiTopicTree {
+  if (tree.version !== 2) return tree;
+  let changed = false;
+  const categories = tree.categories.map((cat) => {
+    const preset = DEFAULT_TOPIC_TREE.categories.find((c) => c.name === cat.name);
+    if (!preset) return cat;
+    const missing = preset.subtopics.filter((s) => !cat.subtopics.includes(s));
+    if (missing.length === 0) return cat;
+    changed = true;
+    return { name: cat.name, subtopics: [...cat.subtopics, ...missing] };
+  });
+  return changed ? { version: 2, categories } : tree;
+}
 
 const LEGACY_V1_CATEGORY_NAMES = new Set(LEGACY_TOPIC_TREE_V1.categories.map((c) => c.name));
 

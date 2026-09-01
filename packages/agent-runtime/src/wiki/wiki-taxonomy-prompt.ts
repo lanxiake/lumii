@@ -9,13 +9,25 @@
  */
 
 import type { WikiTopicTree } from "./wiki-topic-tree.js";
+import { DEFAULT_SUBTOPIC_HINTS } from "./wiki-topic-tree.js";
+
+/**
+ * 把一个小类名格式化成提示词用的「名（边界）」；没有预设边界就只写名字。
+ */
+function formatSubtopicForGuide(category: string, subtopic: string): string {
+  const hint = DEFAULT_SUBTOPIC_HINTS[category]?.[subtopic];
+  return hint ? `${subtopic}（${hint}）` : subtopic;
+}
 
 /**
  * 渲染当前主题树为「可选目录」列表。
  * 模型永远只能从当前树里选节点，故这段必须动态生成，不能写死。
+ * 预设小类附带一句话边界，避免同大类内互相抢资料。
  */
 export function buildTopicTreeLines(tree: WikiTopicTree): string {
-  return tree.categories.map((c) => `- ${c.name}：${c.subtopics.join("、")}`).join("\n");
+  return tree.categories
+    .map((c) => `- ${c.name}：${c.subtopics.map((s) => formatSubtopicForGuide(c.name, s)).join("、")}`)
+    .join("\n");
 }
 
 /**
@@ -38,8 +50,10 @@ export function buildTaxonomyGuide(tree: WikiTopicTree): string {
     "## 易混",
     "- 为了完成工作任务用的资料 → 工作；为了个人提升在学的 → 学习（同一学科内容可进不同大类）",
     "- 个人证件/票据/保险/履历 → 生活；跟工作签约的合同、给客户的材料 → 工作",
+    "- 个人或家庭账本、预算 → 生活；工作报销、对客结算 → 工作",
     "- 空白可套用的模板、范例、素材 → 收藏，即使内容关于工作",
     "- 网页链接默认 → 收藏，除非明显属于某个具体工作项目",
+    "- 学完自己写的笔记/书评 → 学习；随笔日记创作 → 生活",
     "",
     "## 可选目录（只能从这里选，禁止自造名称）",
     buildTopicTreeLines(tree),

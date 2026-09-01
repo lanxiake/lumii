@@ -18,6 +18,8 @@ export interface WikiVaultLayoutFs {
   readonly joinPath: (...segments: string[]) => string;
 }
 
+export const WIKI_VAULT_LAYOUT_ID = "ref-first-v2-20260901";
+
 export interface WikiVaultLayoutResult {
   readonly vaultRoot: string;
   readonly createdDirs: readonly string[];
@@ -65,6 +67,7 @@ export function ensureWikiVaultLayout(
     const meta = {
       version: 2,
       layout: "ref-first",
+      layoutId: WIKI_VAULT_LAYOUT_ID,
       // 目录即分类：大类/小类直接对应目录名，不再有 nav 分区与旧大类的映射表
       categories: topicTree.categories.map((c) => ({ name: c.name, subtopics: [...c.subtopics] })),
       systemDirs: {

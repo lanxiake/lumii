@@ -116,11 +116,10 @@ interface WikiSourceDetailDrawerProps {
   readonly snapshot: WikiSourcePreviewSnapshot | null
   readonly getSource: (sourceId: string) => Promise<WikiSourceDetail | null>
   readonly onClose: () => void
-  readonly onOpenExternal?: (detail: WikiSourceDetail) => void
 }
 
 /**
- * 渲染资料详情：网页链接用居中弹窗 + 内置 webview，文件类仍用右侧抽屉。
+ * 渲染资料详情：网页与本地文件都居中。本地文件复用对话里的 FilePreviewModal。
  */
 export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
   open,
@@ -128,8 +127,7 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
   snapshot,
   getSource,
   onClose,
-  onOpenExternal,
-}) => {
+}: WikiSourceDetailDrawerProps) => {
   const [detail, setDetail] = useState<WikiSourceDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -141,7 +139,7 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
       return undefined
     }
 
-    /** Escape 关闭抽屉 */
+    /** Escape 关闭详情；本地文件预览由 FilePreviewModal 自己处理 Esc */
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') onClose()
     }
@@ -192,16 +190,25 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
   const filePath =
     sourceUrl ? null : (detail?.sourcePath ?? snapshot?.sourcePath ?? null)
   const previewMode = resolvePreviewMode(filePath, sourceUrl)
-  const isWebPreview = previewMode === 'web'
+
+  if (previewMode === 'file' && filePath) {
+    return (
+      <FilePreviewModal
+        filePath={filePath}
+        fileName={title}
+        onClose={onClose}
+      />
+    )
+  }
 
   const drawer = (
     <div
-      className={`wiki-detail-overlay wiki-detail-overlay--fixed${isWebPreview ? ' wiki-detail-overlay--centered' : ''}`}
+      className="wiki-detail-overlay wiki-detail-overlay--fixed wiki-detail-overlay--centered"
       role="presentation"
     >
       <button type="button" className="wiki-detail-mask" aria-label="关闭资料详情" onClick={onClose} />
       <div
-        className={isWebPreview ? 'wiki-source-detail-modal' : 'wiki-detail-drawer wiki-source-detail-drawer'}
+        className="wiki-source-detail-modal"
         role="dialog"
         aria-label="资料详情"
         aria-modal="true"
@@ -221,18 +228,13 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
             )}
           </div>
           <div className="wiki-source-detail-header-actions">
-            {sourceUrl && isWebPreview && (
+            {sourceUrl && previewMode === 'web' && (
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => void window.electronAPI?.app?.openExternal(sourceUrl)}
               >
                 在浏览器打开
-              </Button>
-            )}
-            {detail && onOpenExternal && previewMode === 'file' && (
-              <Button variant="ghost" size="sm" onClick={() => onOpenExternal(detail)}>
-                打开原文件
               </Button>
             )}
             <button type="button" className="wiki-source-detail-close" aria-label="关闭" onClick={onClose}>
@@ -260,16 +262,6 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
 
               {previewMode === 'web' && sourceUrl && (
                 <WikiWebPreviewFrame url={sourceUrl} title={title} />
-              )}
-              {previewMode === 'file' && filePath && (
-                <div className="wiki-source-file-preview-host">
-                  <FilePreviewModal
-                    variant="embedded"
-                    filePath={filePath}
-                    fileName={title}
-                    onClose={() => undefined}
-                  />
-                </div>
               )}
               {previewMode === 'text-only' && summary && (
                 <section className="wiki-source-detail-summary" aria-label="正文">

@@ -14,7 +14,9 @@ describe("buildTopicTreeLines", () => {
         { name: "学习", subtopics: ["在学"] },
       ],
     });
-    expect(lines).toBe("- 工作：项目、例行\n- 学习：在学");
+    expect(lines).toBe(
+      "- 工作：项目（某个有起止的具体项目，不是周期汇报）、例行（按周/月反复产出）\n- 学习：在学（当前正在推进的主线）",
+    );
   });
 
   it("用户自建大类同样被渲染进可选目录", () => {
@@ -66,7 +68,7 @@ describe("buildTaxonomyGuide", () => {
     const guide = buildTaxonomyGuide(DEFAULT_TOPIC_TREE);
     const confusion = guide.split("## 易混")[1]!.split("## 可选目录")[0]!;
     const rules = confusion.split("\n").filter((l) => l.startsWith("- "));
-    expect(rules).toHaveLength(4);
+    expect(rules).toHaveLength(6);
     // 每条易混的落点都是大类，不出现「大类/小类」这种替模型定小类的写法
     for (const rule of rules) {
       expect(rule, `易混规则不应指定小类：${rule}`).not.toMatch(/→\s*\S+\s*\/\s*\S+/);

@@ -15,6 +15,7 @@ import {
   TOPIC_CATEGORIES_META_KEY,
   parseTopicTree,
   topicTreeHasLegacyV1Categories,
+  mergeDefaultSubtopics,
   treeHasOrphans,
   validateTopicAssignment,
   validateTopicTree,
@@ -512,15 +513,19 @@ export class WikiRepo {
 
   /**
    * 读取主题树；不存在时写入默认树。
-   * 仍含 v1 旧六大类名时当场迁到 v2，打开 Wiki 就不会继续显示做事记录/学习资料等。
+   * 仍含 v1 旧六大类名时当场迁到 v2；已是 v2 时给默认大类补上缺失的预设小类。
    */
   getOrCreateTopicTree(): WikiTopicTree {
-    const current = this.readTopicTreeOrDefault();
+    let current = this.readTopicTreeOrDefault();
     if (topicTreeHasLegacyV1Categories(current)) {
       this.migrateTopicTreeToV2();
-      return this.readTopicTreeOrDefault();
+      current = this.readTopicTreeOrDefault();
     }
-    return current;
+    const merged = mergeDefaultSubtopics(current);
+    if (merged !== current) {
+      this.setIndexMeta(TOPIC_CATEGORIES_META_KEY, JSON.stringify(merged));
+    }
+    return merged;
   }
 
   /**

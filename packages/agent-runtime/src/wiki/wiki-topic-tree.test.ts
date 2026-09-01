@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_TOPIC_TREE,
   PARKING_CATEGORY,
+  mergeDefaultSubtopics,
   parseTopicTree,
   treeHasOrphans,
   validateTopicAssignment,
@@ -23,6 +24,26 @@ describe("DEFAULT_TOPIC_TREE", () => {
     for (const cat of DEFAULT_TOPIC_TREE.categories) {
       expect(cat.subtopics.length, `${cat.name} 预设小类不足 5 个`).toBeGreaterThanOrEqual(5);
     }
+  });
+});
+
+describe("mergeDefaultSubtopics", () => {
+  it("给缺小类的默认大类追加预设，保留用户已有顺序与自建小类", () => {
+    const merged = mergeDefaultSubtopics({
+      version: 2,
+      categories: [
+        { name: "工作", subtopics: ["项目", "我的专项"] },
+        { name: "自定义", subtopics: ["甲"] },
+      ],
+    });
+    expect(merged.categories[0]!.subtopics[0]).toBe("项目");
+    expect(merged.categories[0]!.subtopics).toContain("我的专项");
+    expect(merged.categories[0]!.subtopics.slice(2)).toEqual(["例行", "对外", "协作", "规范"]);
+    expect(merged.categories[1]).toEqual({ name: "自定义", subtopics: ["甲"] });
+  });
+
+  it("已经齐全时返回同一引用，不改写", () => {
+    expect(mergeDefaultSubtopics(DEFAULT_TOPIC_TREE)).toBe(DEFAULT_TOPIC_TREE);
   });
 });
 
