@@ -320,6 +320,29 @@ describe("WikiReclassifier 两轮制", () => {
 });
 
 describe("WikiReclassifier 状态机（scope/apply/discard）", () => {
+  it("scope=source 对临时存放条目给出移出建议", async () => {
+    const { repo } = setup();
+    const parked = repo.createSource({
+      agentId: "ag",
+      userId: "u",
+      title: "五年级语文.pdf",
+      extractedText: "课文",
+    });
+    repo.updateSourceTopic("ag", "u", parked.id, PARKING_CATEGORY, null);
+
+    const callLLM = scriptedLLM({ [parked.id]: { category: "学习", subtopic: "在学" } });
+    const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
+    await reclassifier.run("ag", "u", { kind: "source", sourceId: parked.id }, { vaultRoot: VAULT_ROOT });
+    const got = reclassifier.get("ag", "u")!;
+    expect(got.total).toBe(1);
+    expect(callLLM).toHaveBeenCalled();
+    expect(got.candidates[0]).toMatchObject({
+      sourceId: parked.id,
+      toCategory: "学习",
+      toSubtopic: "在学",
+    });
+  });
+
   it("scope=all 纳入收件箱，跳过临时存放与已归档", async () => {
     const { repo, mkFiled } = setup();
     mkFiled("已归档.docx");

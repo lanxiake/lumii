@@ -45,6 +45,24 @@ export function topicCountKey(category: string, subtopic?: string | null): strin
   return subtopic ? JSON.stringify([category, subtopic]) : JSON.stringify([category])
 }
 
+/**
+ * 解析 topicCountKey。坏 key 返回 null，避免芯片列表被脏计数打穿。
+ */
+export function parseTopicCountKey(key: string): { category: string; subtopic: string | null } | null {
+  try {
+    const parsed: unknown = JSON.parse(key)
+    if (!Array.isArray(parsed) || parsed.length < 1 || parsed.length > 2) return null
+    const category = parsed[0]
+    if (typeof category !== 'string') return null
+    if (parsed.length === 1) return { category, subtopic: null }
+    const subtopic = parsed[1]
+    if (typeof subtopic !== 'string') return null
+    return { category, subtopic }
+  } catch {
+    return null
+  }
+}
+
 /** 是否是系统分区（inbox / archived / unfiled），而非树中的大类 */
 export function isSystemSection(section: WikiNavSection): section is WikiSystemSection {
   return (SYSTEM_SECTIONS as readonly string[]).includes(section)

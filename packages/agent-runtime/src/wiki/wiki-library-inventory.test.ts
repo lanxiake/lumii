@@ -141,4 +141,30 @@ describe("buildLibraryInventory", () => {
     const inv = buildLibraryInventory(repo, "ag", "u", { kind: "all" }, VAULT_ROOT);
     expect(inv.files.map((f) => f.id)).toContain(inbox.id);
   });
+
+  it("scope=source 包含临时存放的那一条（移出时「让 AI 建议」）", () => {
+    const repo = setup();
+    const parked = repo.createSource({ agentId: "ag", userId: "u", title: "五年级语文.pdf" });
+    repo.updateSourceTopic("ag", "u", parked.id, PARKING_CATEGORY, null);
+    const other = repo.createSource({ agentId: "ag", userId: "u", title: "另一份.pdf" });
+    repo.updateSourceTopic("ag", "u", other.id, PARKING_CATEGORY, null);
+
+    const inv = buildLibraryInventory(
+      repo,
+      "ag",
+      "u",
+      { kind: "source", sourceId: parked.id },
+      VAULT_ROOT,
+    );
+    expect(inv.files).toHaveLength(1);
+    expect(inv.files[0]!.id).toBe(parked.id);
+  });
+
+  it("scope=all 仍排除临时存放", () => {
+    const repo = setup();
+    const parked = repo.createSource({ agentId: "ag", userId: "u", title: "搁置.pdf" });
+    repo.updateSourceTopic("ag", "u", parked.id, PARKING_CATEGORY, null);
+    const inv = buildLibraryInventory(repo, "ag", "u", { kind: "all" }, VAULT_ROOT);
+    expect(inv.files.map((f) => f.id)).not.toContain(parked.id);
+  });
 });

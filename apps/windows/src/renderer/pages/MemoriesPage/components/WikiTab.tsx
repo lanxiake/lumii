@@ -602,7 +602,8 @@ export const WikiTab: React.FC = () => {
 
   /**
    * 选择器里的「让 AI 建议」：跑一次 scope=source 的编目，取第一条候选当建议。
-   * 拿到就 discard 掉批次——单文件建议用完即弃，不能长期占住「同时只允许一个批次」的槽位。
+   * run 启动后立刻返回 running，必须等到 review/failed 再读候选。
+   * 拿到就 discard——单文件建议用完即弃，不能长期占住「同时只允许一个批次」的槽位。
    */
   const handleRequestSuggestion = useCallback(
     async (sourceId: string) => {
@@ -613,8 +614,12 @@ export const WikiTab: React.FC = () => {
         setSuggestionState('failed')
         return
       }
-      const run = await getReclassifyRun()
-      const first = run?.candidates[0]
+      let run = await getReclassifyRun()
+      while (run?.status === 'running') {
+        await new Promise((resolve) => window.setTimeout(resolve, 400))
+        run = await getReclassifyRun()
+      }
+      const first = run?.status === 'failed' ? undefined : run?.candidates[0]
       await discardReclassify()
       if (!first) {
         setSuggestionState('failed')

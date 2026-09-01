@@ -218,6 +218,48 @@ describe('WikiTab', () => {
     expect(screen.queryByRole('button', { name: /存到临时存放/ })).not.toBeInTheDocument()
   })
 
+  it('临时存放移出时「让 AI 建议」等到编目结束后展示结果', async () => {
+    let getCount = 0
+    ;(window as any).electronAPI.agentRuntime.sendCommand = vi.fn(async (cmd: { type: string }) => {
+      if (cmd.type === 'wiki:source:list') {
+        return {
+          sources: [{
+            id: 's9',
+            title: '五年级语文课本.pdf',
+            sourcePath: 'C:/files/五年级语文课本.pdf',
+            mediaType: 'document',
+            topicCategory: '临时存放',
+            topicSubtopic: null,
+            updatedAt: Date.now(),
+            useCount: 0,
+          }],
+        }
+      }
+      if (cmd.type === 'wiki:topic:tree:get') return { tree: TOPIC_TREE }
+      if (cmd.type === 'wiki:inbox:count') return { total: 0 }
+      if (cmd.type === 'wiki:inbox:list' || cmd.type === 'wiki:page:list' || cmd.type === 'wiki:runs:list') return []
+      if (cmd.type === 'wiki:reclassify:run') return { runId: 'r1' }
+      if (cmd.type === 'wiki:reclassify:get') {
+        getCount += 1
+        if (getCount === 1) return { run: { status: 'running', candidates: [] } }
+        return {
+          run: {
+            status: 'review',
+            candidates: [{ toCategory: '学习', toSubtopic: '在学', reason: '小学语文教材' }],
+          },
+        }
+      }
+      if (cmd.type === 'wiki:reclassify:discard') return { success: true }
+      return null
+    })
+    renderWikiTab()
+    fireEvent.click(await screen.findByText('临时存放'))
+    fireEvent.click(await screen.findByRole('button', { name: /移出/ }))
+    const dialog = within(await screen.findByRole('dialog'))
+    fireEvent.click(dialog.getByRole('button', { name: '让 AI 建议' }))
+    expect(await dialog.findByText(/AI 建议：学习 \/ 在学/)).toBeInTheDocument()
+  })
+
   it('搜索结果以文件形态展示并带大类小类', async () => {
     ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
       'wiki:search': {
@@ -360,6 +402,49 @@ describe('WikiTab', () => {
 
     await selectNavSection('工作')
     expect(screen.getByText('例行').closest('button')?.querySelector('.wiki-subtopic-chip-count')).toHaveTextContent('1')
+  })
+
+  it('大类角标含树外旧小类的文件，分区页列出该旧小类', async () => {
+    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
+      'wiki:source:list': {
+        sources: [
+          {
+            id: 's1',
+            title: '五年级语文.pdf',
+            sourcePath: 'C:/files/a.pdf',
+            mediaType: 'document',
+            topicCategory: '工作',
+            topicSubtopic: '课堂&课程笔记',
+            updatedAt: Date.now(),
+            useCount: 0,
+          },
+          {
+            id: 's2',
+            title: '模板.docx',
+            sourcePath: 'C:/files/b.docx',
+            mediaType: 'document',
+            topicCategory: '工作',
+            topicSubtopic: '各类文档模板',
+            updatedAt: Date.now(),
+            useCount: 0,
+          },
+        ],
+      },
+    })
+    renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
+    await waitFor(() => {
+      expect(getNavSectionCount('工作')).toBe('2')
+    })
+
+    await selectNavSection('工作')
+    expect(await screen.findByText(/共 2 个文件/)).toBeInTheDocument()
+    expect(screen.getByText('课堂&课程笔记').closest('button')?.querySelector('.wiki-subtopic-chip-count')).toHaveTextContent('1')
+    expect(screen.getByText('各类文档模板').closest('button')?.querySelector('.wiki-subtopic-chip-count')).toHaveTextContent('1')
+    expect(screen.getByText('例行').closest('button')?.querySelector('.wiki-subtopic-chip-count')).toBeNull()
+
+    fireEvent.click(screen.getByText('课堂&课程笔记'))
+    expect(await screen.findByText('五年级语文.pdf')).toBeInTheDocument()
   })
 
   it('从更多菜单触发重建索引任务且不切换全页', async () => {

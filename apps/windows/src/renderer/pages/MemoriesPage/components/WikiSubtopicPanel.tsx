@@ -7,6 +7,7 @@ import type { WikiTopicTree } from '../../../hooks/business/useWikiPage'
 import {
   UNFILED_SUBTOPIC_LABEL,
   navSectionLabel,
+  parseTopicCountKey,
   topicCountKey,
   type WikiNavSection,
 } from './wikiTopicDisplay'
@@ -29,10 +30,11 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
   topicCounts,
   onSelectSubtopic,
 }) => {
-  /** 该大类下的小类 chip；末尾追加「未细分」（小类可选，见设计 §2.1.1） */
+  /** 该大类下的小类 chip；未细分 + 树里没有、但库里还有文件的旧小类也列出来 */
   const chips = useMemo(() => {
     const cat = topicTree?.categories.find((c) => c.name === section)
     if (!cat) return []
+    const known = new Set(cat.subtopics)
     const items = cat.subtopics.map((subtopic) => ({
       key: subtopic,
       label: subtopic,
@@ -47,6 +49,18 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
         label: UNFILED_SUBTOPIC_LABEL,
         subtopic: null,
         count: unfiledCount,
+      })
+    }
+    for (const [key, count] of Object.entries(topicCounts)) {
+      if (count <= 0) continue
+      const parsed = parseTopicCountKey(key)
+      if (!parsed || parsed.category !== cat.name || parsed.subtopic === null) continue
+      if (known.has(parsed.subtopic)) continue
+      items.push({
+        key: parsed.subtopic,
+        label: parsed.subtopic,
+        subtopic: parsed.subtopic,
+        count,
       })
     }
     return items
