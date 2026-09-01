@@ -30,6 +30,7 @@ import {
   handleWikiTopicTreeSet,
   handleWikiTopicMutate,
   handleWikiReclassifyRun,
+  handleWikiReclassifyEstimate,
   handleWikiReclassifyGet,
   handleWikiReclassifyApply,
   handleWikiReclassifyDiscard,
@@ -500,7 +501,7 @@ describe('wiki commands', () => {
     expect(fs.existsSync(path.resolve(notesDir, b.sourcePath))).toBe(true)
   })
 
-  it('rename 只改标题，磁盘路径不动', () => {
+  it('rename native 资料时磁盘文件名跟随改，目录不变', () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
     const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-notes-'))
@@ -510,14 +511,43 @@ describe('wiki commands', () => {
       { notesDir: () => notesDir },
     )
 
+    const renamed = handleWikiSourceRename(
+      bridge,
+      {
+        type: 'wiki:source:rename',
+        agentId: 'assistant',
+        sourceId: created.sourceId,
+        title: '周末灵感',
+      } as never,
+      { workspaceRoot: notesDir },
+    )
+    expect(renamed.title).toBe('周末灵感')
+    const after = repo.findSourceById(created.sourceId)!
+    expect(after.source_path).not.toBe(created.sourcePath)
+    expect(path.basename(after.source_path!)).toBe('周末灵感.md')
+    expect(path.dirname(after.source_path!)).toBe(path.dirname(path.resolve(notesDir, created.sourcePath)))
+    expect(fs.existsSync(after.source_path!)).toBe(true)
+  })
+
+  it('rename ref 资料时不动用户原文件', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const source = repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: '合同',
+      sourcePath: '/outside/合同.pdf',
+      storageMode: 'ref',
+    })
+
     const renamed = handleWikiSourceRename(bridge, {
       type: 'wiki:source:rename',
       agentId: 'assistant',
-      sourceId: created.sourceId,
-      title: '周末灵感',
+      sourceId: source.id,
+      title: '2026年合同',
     } as never)
-    expect(renamed.title).toBe('周末灵感')
-    expect(repo.findSourceById(created.sourceId)!.source_path).toBe(created.sourcePath)
+    expect(renamed.title).toBe('2026年合同')
+    expect(repo.findSourceById(source.id)!.source_path).toBe('/outside/合同.pdf')
   })
 
   it('reclassify:run 的 scope 与参数不匹配时抛中文错误', async () => {
@@ -529,7 +559,7 @@ describe('wiki commands', () => {
         agentId: 'assistant',
         scope: 'subtopic',
       } as never),
-    ).rejects.toThrow(/大类与小类/)
+    ).rejects.toThrow(/大类/)
 
     await expect(
       handleWikiReclassifyRun(bridge, {
@@ -574,6 +604,24 @@ describe('wiki commands', () => {
         candidateIds: [],
       } as never),
     ).toEqual({ applied: 0, failed: 0 })
+  })
+
+  it('reclassify:estimate 按批大小估算调用数', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    for (let i = 0; i < 3; i++) {
+      const s = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: `文档${i}` })
+      repo.updateSourceTopic('assistant', 'local-user', s.id, '工作', '项目')
+    }
+
+    const est = handleWikiReclassifyEstimate(bridge, {
+      type: 'wiki:reclassify:estimate',
+      agentId: 'assistant',
+      scope: 'all',
+    } as never)
+    expect(est.fileCount).toBe(3)
+    expect(est.structureCalls).toBe(1)
+    expect(est.note).toContain('3')
   })
 
   it('source:list 按大类/小类过滤，update-topic 写入后可被列出', () => {

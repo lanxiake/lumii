@@ -17,6 +17,7 @@ export {
   type WikiReclassifyScopeDto,
   type WikiReclassifyCandidateItem,
   type WikiReclassifyRunItem,
+  type WikiReclassifyEstimateItem,
   type WikiSourceListItem,
   type WikiSourceDetail,
   type WikiSourceSearchHit,

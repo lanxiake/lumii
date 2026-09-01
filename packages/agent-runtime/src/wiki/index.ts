@@ -65,7 +65,7 @@ export type {
 
 export { WikiSourceVectorIndex, buildVectorCorpus, mergeSourceHybridRanks, VECTOR_CORPUS_MAX_CHARS } from "./wiki-source-vector.js";
 
-export { WikiExporter, sanitizeFilenameSegment, isPathTraversalSafe } from "./wiki-exporter.js";
+export { WikiExporter, sanitizeFilenameSegment, isPathTraversalSafe, resolveUniqueFilename } from "./wiki-exporter.js";
 export type {
   WikiExporterDeps,
   WikiExportResult,
@@ -101,10 +101,7 @@ export type { WikiTopicTree } from "./wiki-topic-tree.js";
 
 export {
   WikiReclassifier,
-  buildReclassifyPrompt,
-  parseReclassifyResponse,
-  RECLASSIFY_BATCH_SIZE,
-  RECLASSIFY_RUN_META_KEY,
+  RECLASSIFY_CONFIDENCE_THRESHOLD,
 } from "./wiki-reclassifier.js";
 export type {
   WikiReclassifyCandidate,
@@ -112,6 +109,35 @@ export type {
   WikiReclassifyScope,
   WikiReclassifyStatus,
 } from "./wiki-reclassify-types.js";
+
+export {
+  buildLibraryInventory,
+  ANCHOR_SAMPLES_PER_LEAF,
+} from "./wiki-library-inventory.js";
+export type {
+  LibraryInventory,
+  LibraryInventoryScope,
+  LeafOccupancy,
+  InventoryFileRow,
+} from "./wiki-library-inventory.js";
+
+export {
+  buildLibraryImpression,
+  buildStructurePrompt,
+  parseStructureResponse,
+  buildContentPrompt,
+  STRUCTURE_BATCH_SIZE,
+  CONTENT_BATCH_SIZE,
+} from "./wiki-catalog-prompt.js";
+export type { StructureDecision } from "./wiki-catalog-prompt.js";
+
+export {
+  titleInfoScore,
+  isLowInfoTitle,
+  LOW_INFO_THRESHOLD,
+  shouldAcceptRenameProposal,
+  RENAME_CONFIDENCE_THRESHOLD,
+} from "./wiki-title-score.js";
 
 export { GRAPH_EXTRACT_CURSOR_META_KEY } from "./wiki-graph-types.js";
 export type { WikiGraphExtractCursor } from "./wiki-graph-types.js";

@@ -19,6 +19,7 @@ const CANDIDATE = {
   toCategory: '计划与复盘',
   toSubtopic: '目标规划方案',
   reason: '尚未执行的规划',
+  decidedBy: 'structure' as const,
 }
 
 const reviewRun: WikiReclassifyRunItem = {

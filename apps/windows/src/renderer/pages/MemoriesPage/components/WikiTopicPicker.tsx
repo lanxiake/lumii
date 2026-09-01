@@ -31,7 +31,7 @@ interface WikiTopicPickerProps {
   /** 提供时显示次要按钮「让 AI 建议」 */
   onRequestSuggestion?: () => void
   /** AI 建议结果 */
-  suggestion?: { category: string; subtopic: string; reason: string } | null
+  suggestion?: { category: string; subtopic: string | null; reason: string } | null
   suggestionState?: 'idle' | 'loading' | 'failed'
   /** 采用建议：走确定性写入路径，不占用重编目批次 */
   onAdoptSuggestion?: () => void

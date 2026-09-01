@@ -168,6 +168,16 @@ describe("WikiRepo 主题树", () => {
 });
 
 describe("WikiRepo 资料主题读写", () => {
+  it("renameSource 成功后置 title_locked=1", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "旧标题" });
+    expect(source.title_locked).toBe(0);
+
+    const renamed = repo.renameSource("ag", "u", source.id, "新标题");
+    expect(renamed.title).toBe("新标题");
+    expect(renamed.title_locked).toBe(1);
+  });
+
   it("updateSourceTopic 写入合法归属并可被 listSourcesByTopic 按大类/小类过滤", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const source = repo.createSource({ agentId: "ag", userId: "u", title: "合同" });

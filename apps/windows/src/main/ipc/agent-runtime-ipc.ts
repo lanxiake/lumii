@@ -129,6 +129,7 @@ import {
   handleWikiTopicTreeMigrate,
   handleWikiTopicMutate,
   handleWikiReclassifyRun,
+  handleWikiReclassifyEstimate,
   handleWikiReclassifyGet,
   handleWikiReclassifyApply,
   handleWikiReclassifyIgnore,
@@ -993,6 +994,9 @@ export async function handleCommand(
 
       case 'wiki:reclassify:run':
         return handleWikiReclassifyRun(bridge, command)
+
+      case 'wiki:reclassify:estimate':
+        return handleWikiReclassifyEstimate(bridge, command)
 
       case 'wiki:reclassify:get':
         return handleWikiReclassifyGet(bridge, command)

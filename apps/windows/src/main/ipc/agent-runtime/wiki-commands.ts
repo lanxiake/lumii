@@ -28,6 +28,10 @@ import {
   WikiClipSaver,
   vaultDirSegmentsForSource,
   resolveOriginalFilePath,
+  buildLibraryInventory,
+  STRUCTURE_BATCH_SIZE,
+  CONTENT_BATCH_SIZE,
+  resolveUniqueFilename,
 } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
@@ -627,34 +631,87 @@ export function handleWikiSourceCreateNote(
 }
 
 /**
- * 重命名资料 = 只改 title。磁盘文件名保持不动，避免已有引用/链接失效。
+ * 重命名资料：改 title；materialized/native 的实体文件同目录内跟随改名，
+ * ref 存储绝不触碰用户原文件（只改库内标题，侧车文件名跟随改）。
  */
 export function handleWikiSourceRename(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:source:rename' }>,
+  deps?: { readonly workspaceRoot?: string },
 ): { id: string; title: string } {
   const title = command.title?.trim()
   if (!title) throw new Error('标题不能为空')
-  const updated = bridge.wikiRepo.renameSource(
-    command.agentId,
-    command.userId ?? LOCAL_USER_ID,
-    command.sourceId,
-    title,
-  )
+  const agentId = resolveAgentIdForWiki(bridge, undefined, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const before = bridge.wikiRepo.findSourceById(command.sourceId, agentId, userId)
+  if (!before) throw new Error(`资料不存在: ${command.sourceId}`)
+
+  const updated = bridge.wikiRepo.renameSource(agentId, userId, command.sourceId, title)
+  renameSourceFileOnDisk(bridge, agentId, userId, before, updated, deps?.workspaceRoot)
   return { id: updated.id, title: updated.title }
 }
 
+/**
+ * 改名落盘边界（P6 Task 4）：只改文件名，不改目录（目录归属由 update-topic 流程单独处理）。
+ * - ref：绝不触碰 source_path 指向的用户原文件；已生成的 `.lumii-ref` 侧车文件名跟随改
+ *   （同目录内改名），源文件不跟随。
+ * - materialized/native：实体文件在 vault 内，同目录内改磁盘文件名。
+ */
+function renameSourceFileOnDisk(
+  bridge: AgentRuntimeBridge,
+  agentId: string,
+  userId: string,
+  before: { readonly source_path: string | null; readonly storage_mode: string },
+  after: { readonly id: string; readonly title: string },
+  workspaceRoot?: string,
+): void {
+  if (!before.source_path) return
+  const isRefSidecar = /\.lumii-ref$/i.test(before.source_path)
+  // ref 存储但没有侧车文件（尚未落盘）：没有文件名可改，跳过。
+  if (before.storage_mode === 'ref' && !isRefSidecar) return
+
+  const deps = createWikiVaultSyncDeps(workspaceRoot)
+  const currentAbs = path.isAbsolute(before.source_path)
+    ? before.source_path
+    : path.resolve(deps.workspaceRoot, before.source_path.replace(/\//g, path.sep))
+  if (!fs.existsSync(currentAbs)) return
+
+  const ext = isRefSidecar
+    ? currentAbs.toLowerCase().endsWith('.url.lumii-ref')
+      ? '.url.lumii-ref'
+      : '.lumii-ref'
+    : path.extname(currentAbs)
+  const dirAbs = path.dirname(currentAbs)
+  const newBaseName = resolveUniqueFilename({
+    dirAbs,
+    baseName: after.title,
+    ext,
+    joinPath: (...segments) => path.join(...segments),
+    exists: (p) => fs.existsSync(p),
+    skip: currentAbs,
+  })
+  const newAbs = path.join(dirAbs, newBaseName)
+  if (newAbs === currentAbs) return
+
+  fs.renameSync(currentAbs, newAbs)
+  bridge.wikiRepo.updateSourcePath(agentId, userId, after.id, newAbs)
+}
+
+
+
 /** 把 IPC 的扁平 scope 参数收敘成 runtime 的联合类型，缺参直接中文报错 */
 function toReclassifyScope(
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:reclassify:run' }>,
-): { kind: 'source'; sourceId: string } | { kind: 'subtopic'; category: string; subtopic: string } | { kind: 'all' } {
+  command:
+    | Extract<AgentRuntimeCommand, { type: 'wiki:reclassify:run' }>
+    | Extract<AgentRuntimeCommand, { type: 'wiki:reclassify:estimate' }>,
+): { kind: 'source'; sourceId: string } | { kind: 'subtopic'; category: string; subtopic: string | null } | { kind: 'all' } {
   if (command.scope === 'source') {
     if (!command.sourceId) throw new Error('重新编目单个文件需要 sourceId')
     return { kind: 'source', sourceId: command.sourceId }
   }
   if (command.scope === 'subtopic') {
-    if (!command.category || !command.subtopic) throw new Error('重新编目某个小类需要大类与小类')
-    return { kind: 'subtopic', category: command.category, subtopic: command.subtopic }
+    if (!command.category) throw new Error('重新编目某个小类需要大类')
+    return { kind: 'subtopic', category: command.category, subtopic: command.subtopic ?? null }
   }
   if (command.scope === 'all') return { kind: 'all' }
   throw new Error(`未知的重新编目范围：${String(command.scope)}`)
@@ -663,6 +720,7 @@ function toReclassifyScope(
 /**
  * 启动重新编目。异步跑（不阻塞 IPC 返回），进度由 renderer 轮询 wiki:reclassify:get。
  * 启动前的状态冲突（已有 running / 待审阅批次）是同步抛出的，需要先 await 那一步。
+ * vaultRoot 由 handler 从 workspace-paths 计算后注入（agent-runtime 不依赖 Electron）。
  */
 export async function handleWikiReclassifyRun(
   bridge: AgentRuntimeBridge,
@@ -670,10 +728,35 @@ export async function handleWikiReclassifyRun(
 ): Promise<{ runId: string }> {
   const scope = toReclassifyScope(command)
   const userId = command.userId ?? LOCAL_USER_ID
+  const vaultRoot = resolveWikiDir()
   const runId = await bridge.wikiReclassifier.run(command.agentId, userId, scope, {
     force: command.force === true,
+    vaultRoot,
+    enableRename: command.enableRename === true,
   })
   return { runId }
+}
+
+/**
+ * 编目预估：结构轮 = ceil(文件数/50)，内容轮按经验 20% 需正文估算，供 UI 确认弹窗展示。
+ */
+export function handleWikiReclassifyEstimate(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:reclassify:estimate' }>,
+): { fileCount: number; structureCalls: number; estimatedContentCalls: number; note: string } {
+  const scope = toReclassifyScope(command)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const vaultRoot = resolveWikiDir()
+  const inv = buildLibraryInventory(bridge.wikiRepo, command.agentId, userId, scope, vaultRoot)
+  const fileCount = inv.files.length
+  const structureCalls = Math.ceil(fileCount / STRUCTURE_BATCH_SIZE)
+  const estimatedContentCalls = Math.ceil((fileCount * 0.2) / CONTENT_BATCH_SIZE)
+  return {
+    fileCount,
+    structureCalls,
+    estimatedContentCalls,
+    note: `将对 ${fileCount} 份资料编目，预计 ${structureCalls + estimatedContentCalls} 次模型调用`,
+  }
 }
 
 export function handleWikiReclassifyGet(
@@ -687,11 +770,15 @@ export function handleWikiReclassifyApply(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:reclassify:apply' }>,
 ): { applied: number; failed: number } {
-  return bridge.wikiReclassifier.apply(
+  const result = bridge.wikiReclassifier.apply(
     command.agentId,
     command.userId ?? LOCAL_USER_ID,
     command.candidateIds ?? [],
   )
+  for (const sourceId of result.appliedSourceIds) {
+    vaultSyncSource(bridge, sourceId, command.agentId)
+  }
+  return { applied: result.applied, failed: result.failed }
 }
 
 export function handleWikiReclassifyIgnore(

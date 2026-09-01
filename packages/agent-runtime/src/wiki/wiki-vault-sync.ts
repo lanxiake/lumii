@@ -2,7 +2,7 @@
  * 将 wiki_sources 行同步到 workspace/wiki/ 目录（ref / native md）。
  */
 import type { WikiSource, WikiStorageMode } from "./types.js";
-import { sanitizeFilenameSegment } from "./wiki-exporter.js";
+import { sanitizeFilenameSegment, resolveUniqueFilename } from "./wiki-exporter.js";
 import { vaultDirSegmentsForSource } from "./wiki-nav-map.js";
 import {
   type WikiRefStoreFs,

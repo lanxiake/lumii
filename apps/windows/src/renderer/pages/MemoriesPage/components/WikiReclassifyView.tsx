@@ -115,7 +115,15 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
               onChange={() => toggle(c.id)}
             />
             <div className="wiki-reclassify-body">
-              <p className="wiki-reclassify-title">{c.title}</p>
+              <p className="wiki-reclassify-title">
+                {c.title}
+                <span
+                  className="wiki-reclassify-decided-by"
+                  title={c.decidedBy === 'content' ? '结合摘要判定' : '仅按文件名/路径判定'}
+                >
+                  {c.decidedBy === 'content' ? '内容' : '结构'}
+                </span>
+              </p>
               <p className="wiki-reclassify-move">
                 <span>{formatTopicDisplay(c.fromCategory, c.fromSubtopic)}</span>
                 <ArrowRight size={13} />
@@ -123,6 +131,13 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
                   {formatTopicDisplay(c.toCategory, c.toSubtopic)}
                 </span>
               </p>
+              {c.renameTitle && (
+                <p className="wiki-reclassify-rename">
+                  <span>{c.title}</span>
+                  <ArrowRight size={13} />
+                  <span className="wiki-reclassify-target">{c.renameTitle}</span>
+                </p>
+              )}
               {c.reason && <p className="wiki-reclassify-reason">{c.reason}</p>}
               {c.applyError && (
                 <p className="wiki-reclassify-error" role="alert">
@@ -146,3 +161,4 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
 }
 
 export default WikiReclassifyView
+

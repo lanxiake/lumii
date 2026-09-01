@@ -949,32 +949,36 @@ export class WikiRepo {
   }
 
   /**
-   * 重编目扫描集：只含正式归档的资料（两列非空、非临时存放、未归档）。
-   * 待补分与临时存放不参与重编目（设计 §9.1）。
+   * 重编目扫描集：v1.1 起 `scope='all'` 纳入收件箱（未分类，topic_category IS NULL），
+   * 与「整理收件箱」合并为同一能力（设计 §5.9 D5）。始终排除已归档与临时存放。
    */
   listSourcesForReclassify(
     agentId: string,
     userId: string,
     scope:
       | { readonly kind: "source"; readonly sourceId: string }
-      | { readonly kind: "subtopic"; readonly category: string; readonly subtopic: string }
+      | { readonly kind: "subtopic"; readonly category: string; readonly subtopic: string | null }
       | { readonly kind: "all" },
   ): readonly WikiSource[] {
     const conditions = [
       "agent_id = ?",
       "user_id = ?",
       "archived_at IS NULL",
-      "topic_category IS NOT NULL",
-      "topic_subtopic IS NOT NULL",
-      "topic_category <> ?",
+      "(topic_category IS NULL OR topic_category <> ?)",
     ];
     const params: unknown[] = [agentId, userId, PARKING_CATEGORY];
     if (scope.kind === "source") {
       conditions.push("id = ?");
       params.push(scope.sourceId);
     } else if (scope.kind === "subtopic") {
-      conditions.push("topic_category = ?", "topic_subtopic = ?");
-      params.push(scope.category, scope.subtopic);
+      conditions.push("topic_category = ?");
+      params.push(scope.category);
+      if (scope.subtopic === null) {
+        conditions.push("topic_subtopic IS NULL");
+      } else {
+        conditions.push("topic_subtopic = ?");
+        params.push(scope.subtopic);
+      }
     }
     return this.db
       .prepare<WikiSource>(
@@ -986,10 +990,11 @@ export class WikiRepo {
   /**
    * 只改标题，不动 source_path：磁盘文件名保持稳定，避免已有引用失效。
    * 改完重建该行的 FTS，否则按新标题搜不到。
+   * 用户手动改名后置 title_locked=1：AI 编目改名提案（P6）必须丢弃 locked 资料的 renameTitle。
    */
   renameSource(agentId: string, userId: string, sourceId: string, title: string): WikiSource {
     const info = this.db
-      .prepare("UPDATE wiki_sources SET title = ? WHERE id = ? AND agent_id = ? AND user_id = ?")
+      .prepare("UPDATE wiki_sources SET title = ?, title_locked = 1 WHERE id = ? AND agent_id = ? AND user_id = ?")
       .run(title, sourceId, agentId, userId);
     if (info.changes === 0) throw new Error(`资料不存在: ${sourceId}`);
     this.indexSource(sourceId);

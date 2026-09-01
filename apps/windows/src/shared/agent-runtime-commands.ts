@@ -514,6 +514,18 @@ export interface WikiReclassifyRunCommand {
   readonly subtopic?: string
   /** 已有待审阅批次时是否丢弃旧批次继续 */
   readonly force?: boolean
+  /** 同时对低信息标题产出改名提案（P6，默认关闭） */
+  readonly enableRename?: boolean
+}
+
+export interface WikiReclassifyEstimateCommand {
+  readonly type: 'wiki:reclassify:estimate'
+  readonly agentId: string
+  readonly userId?: string
+  readonly scope: 'source' | 'subtopic' | 'all'
+  readonly sourceId?: string
+  readonly category?: string
+  readonly subtopic?: string
 }
 
 export interface WikiReclassifyGetCommand {
@@ -1308,6 +1320,7 @@ export type AgentRuntimeCommand =
   | WikiTopicTreeMigrateCommand
   | WikiTopicMutateCommand
   | WikiReclassifyRunCommand
+  | WikiReclassifyEstimateCommand
   | WikiReclassifyGetCommand
   | WikiReclassifyApplyCommand
   | WikiReclassifyIgnoreCommand
@@ -1660,6 +1673,12 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       movedCount: number
     }
   : T extends 'wiki:reclassify:run' ? { runId: string }
+  : T extends 'wiki:reclassify:estimate' ? {
+      fileCount: number
+      structureCalls: number
+      estimatedContentCalls: number
+      note: string
+    }
   : T extends 'wiki:reclassify:get' ? {
       run: {
         runId: string
@@ -1673,11 +1692,13 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
           id: string
           sourceId: string
           title: string
-          fromCategory: string
-          fromSubtopic: string
+          fromCategory: string | null
+          fromSubtopic: string | null
           toCategory: string
-          toSubtopic: string
+          toSubtopic: string | null
           reason: string
+          decidedBy: 'structure' | 'content'
+          renameTitle?: string
           applyError?: string
         }[]
       } | null

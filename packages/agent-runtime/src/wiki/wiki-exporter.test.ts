@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WikiExporter, sanitizeFilenameSegment, isPathTraversalSafe } from "./wiki-exporter.js";
+import { WikiExporter, sanitizeFilenameSegment, isPathTraversalSafe, resolveUniqueFilename } from "./wiki-exporter.js";
 import type { WikiExporterDeps } from "./wiki-exporter.js";
 import type { WikiSource } from "./types.js";
 
@@ -75,6 +75,58 @@ describe("isPathTraversalSafe", () => {
     expect(isPathTraversalSafe("sources/../etc")).toBe(false);
     expect(isPathTraversalSafe("/etc/passwd")).toBe(false);
     expect(isPathTraversalSafe("sources//doc")).toBe(false);
+  });
+});
+
+describe("resolveUniqueFilename", () => {
+  const join = (...segments: string[]) => segments.join("/");
+
+  it("无冲突时直接返回 base+ext", () => {
+    const name = resolveUniqueFilename({
+      dirAbs: "/vault/工作",
+      baseName: "周报",
+      ext: ".md",
+      joinPath: join,
+      exists: () => false,
+    });
+    expect(name).toBe("周报.md");
+  });
+
+  it("冲突时追加序号", () => {
+    const existing = new Set(["/vault/工作/周报.md", "/vault/工作/周报-2.md"]);
+    const name = resolveUniqueFilename({
+      dirAbs: "/vault/工作",
+      baseName: "周报",
+      ext: ".md",
+      joinPath: join,
+      exists: (p) => existing.has(p),
+    });
+    expect(name).toBe("周报-3.md");
+  });
+
+  it("skip 允许目标恰好是自身路径时不改名", () => {
+    const self = "/vault/工作/周报.md";
+    const existing = new Set([self]);
+    const name = resolveUniqueFilename({
+      dirAbs: "/vault/工作",
+      baseName: "周报",
+      ext: ".md",
+      joinPath: join,
+      exists: (p) => existing.has(p),
+      skip: self,
+    });
+    expect(name).toBe("周报.md");
+  });
+
+  it("基名会先做非法字符安全化", () => {
+    const name = resolveUniqueFilename({
+      dirAbs: "/vault/工作",
+      baseName: "报告:草稿",
+      ext: ".md",
+      joinPath: join,
+      exists: () => false,
+    });
+    expect(name).toBe("报告_草稿.md");
   });
 });
 

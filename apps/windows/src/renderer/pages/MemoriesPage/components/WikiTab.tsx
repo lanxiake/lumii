@@ -11,7 +11,7 @@ import { Button } from '../../../components/ui/Button/Button'
 import { Loading } from '../../../components/ui/Loading/Loading'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 import { useToast } from '../../../components/ui/Toast/useToast'
-import { ConfirmModal } from '../../../components/ui/Modal'
+import { ConfirmModal, Modal } from '../../../components/ui/Modal'
 import {
   useWikiPage,
   type WikiInboxItem,
@@ -20,6 +20,7 @@ import {
   type WikiTopicTree,
   type WikiReclassifyRunItem,
   type WikiReclassifyScopeDto,
+  type WikiReclassifyEstimateItem,
 } from '../../../hooks/business/useWikiPage'
 import { CleanupView } from './CleanupView'
 import { WikiGraphView } from './WikiGraphView'
@@ -84,6 +85,7 @@ export const WikiTab: React.FC = () => {
     mutateTopic,
     createNote,
     runReclassify,
+    estimateReclassify,
     getReclassifyRun,
     applyReclassify,
     ignoreReclassify,
@@ -125,10 +127,14 @@ export const WikiTab: React.FC = () => {
   const [autoClassifyEnabled, setAutoClassifyEnabledState] = useState(false)
   const [isTreeEditorOpen, setIsTreeEditorOpen] = useState(false)
   const [reclassifyRun, setReclassifyRun] = useState<WikiReclassifyRunItem | null>(null)
-  const [reclassifyConfirm, setReclassifyConfirm] = useState<{ count: number } | null>(null)
+  const [reclassifyConfirm, setReclassifyConfirm] = useState<{
+    count: number
+    estimate: WikiReclassifyEstimateItem | null
+  } | null>(null)
+  const [reclassifyEnableRename, setReclassifyEnableRename] = useState(false)
   const [suggestion, setSuggestion] = useState<{
     category: string
-    subtopic: string
+    subtopic: string | null
     reason: string
   } | null>(null)
   const [suggestionState, setSuggestionState] = useState<'idle' | 'loading' | 'failed'>('idle')
@@ -520,7 +526,7 @@ export const WikiTab: React.FC = () => {
    * running 期间轮询进度；已有待审阅批次时后端会拒绝，这里把中文原因抛给任务中心。
    */
   const handleRunReclassify = useCallback(
-    async (scope: WikiReclassifyScopeDto, opts?: { force?: boolean }) => {
+    async (scope: WikiReclassifyScopeDto, opts?: { force?: boolean; enableRename?: boolean }) => {
       setNav({ kind: 'reclassify' })
       const taskId = taskCenter.startTask({ kind: 'reclassify', title: '重新编目' })
       const started = await runReclassify(scope, opts)
@@ -947,21 +953,52 @@ export const WikiTab: React.FC = () => {
         onCleanup={() => handleSelectNav({ kind: 'cleanup' })}
         onRebuild={handleRebuildIndex}
         onEditTopicTree={() => setIsTreeEditorOpen(true)}
-        onReclassifyAll={() => setReclassifyConfirm({ count: filedSourceCount })}
+        onReclassifyAll={() => {
+          setReclassifyConfirm({ count: filedSourceCount, estimate: null })
+          void estimateReclassify({ kind: 'all' }).then((estimate) => {
+            setReclassifyConfirm((prev) => (prev ? { ...prev, estimate } : prev))
+          })
+        }}
       />
 
-      <ConfirmModal
+      <Modal
         open={reclassifyConfirm !== null}
         layer={WIKI_MODAL_LAYER}
         title="全库重新编目"
-        content={`将扫描 ${reclassifyConfirm?.count ?? 0} 个已归档文件，不会改临时存放。AI 只给建议，接受后才生效。`}
-        confirmText="开始"
-        onCancel={() => setReclassifyConfirm(null)}
-        onConfirm={() => {
-          setReclassifyConfirm(null)
-          void handleRunReclassify({ kind: 'all' }, { force: true })
-        }}
-      />
+        onClose={() => setReclassifyConfirm(null)}
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setReclassifyConfirm(null)}>
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                setReclassifyConfirm(null)
+                void handleRunReclassify({ kind: 'all' }, { force: true, enableRename: reclassifyEnableRename })
+              }}
+            >
+              开始
+            </Button>
+          </>
+        }
+      >
+        <p>
+          {reclassifyConfirm?.estimate
+            ? reclassifyConfirm.estimate.note
+            : `将扫描 ${reclassifyConfirm?.count ?? 0} 个已归档文件，不会改临时存放。`}
+        </p>
+        <p className="wiki-reclassify-hint">AI 只给建议，接受后才生效。</p>
+        <label className="wiki-reclassify-rename-toggle">
+          <input
+            type="checkbox"
+            checked={reclassifyEnableRename}
+            onChange={(e) => setReclassifyEnableRename(e.target.checked)}
+          />
+          同时建议修改低信息文件名（可单独取消）
+        </label>
+      </Modal>
 
       <WikiTopicTreeEditor
         open={isTreeEditorOpen}

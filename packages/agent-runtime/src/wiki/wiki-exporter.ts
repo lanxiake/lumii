@@ -42,6 +42,32 @@ export function sanitizeFilenameSegment(segment: string): string {
 }
 
 /**
+ * 在目录下解析不冲突的文件名：`<base><ext>`，冲突则 `<base>-2<ext>`、`<base>-3<ext>`……
+ * `exists` 由调用方注入（agent-runtime 不直接依赖 node:fs）。
+ * `skip` 可选：允许目标恰好等于当前文件名时不改名（自身重命名场景）。
+ */
+export function resolveUniqueFilename(params: {
+  readonly dirAbs: string;
+  readonly baseName: string;
+  readonly ext: string;
+  readonly joinPath: (...segments: string[]) => string;
+  readonly exists: (absPath: string) => boolean;
+  readonly skip?: string;
+}): string {
+  const base = sanitizeFilenameSegment(params.baseName) || "_";
+  let name = `${base}${params.ext}`;
+  let i = 2;
+  while (
+    params.exists(params.joinPath(params.dirAbs, name)) &&
+    params.joinPath(params.dirAbs, name) !== params.skip
+  ) {
+    name = `${base}-${i}${params.ext}`;
+    i += 1;
+  }
+  return name;
+}
+
+/**
  * 校验导出目标路径段是否安全：不含空段、`..`、绝对路径逃逸。
  * 复用 validateWikiPath 的思路，但导出场景任意分类都可用，只查逃逸不查白名单分类。
  */

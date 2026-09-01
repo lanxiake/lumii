@@ -220,11 +220,13 @@ export interface WikiReclassifyCandidateItem {
   readonly id: string
   readonly sourceId: string
   readonly title: string
-  readonly fromCategory: string
-  readonly fromSubtopic: string
+  readonly fromCategory: string | null
+  readonly fromSubtopic: string | null
   readonly toCategory: string
-  readonly toSubtopic: string
+  readonly toSubtopic: string | null
   readonly reason: string
+  readonly decidedBy: 'structure' | 'content'
+  readonly renameTitle?: string
   readonly applyError?: string
 }
 
@@ -237,6 +239,13 @@ export interface WikiReclassifyRunItem {
   readonly unchanged: number
   readonly error: string | null
   readonly candidates: readonly WikiReclassifyCandidateItem[]
+}
+
+export interface WikiReclassifyEstimateItem {
+  readonly fileCount: number
+  readonly structureCalls: number
+  readonly estimatedContentCalls: number
+  readonly note: string
 }
 
 export interface WikiSourceListItem {
@@ -713,7 +722,7 @@ export function useWikiPage() {
   const runReclassify = useCallback(
     async (
       scope: WikiReclassifyScopeDto,
-      opts?: { force?: boolean },
+      opts?: { force?: boolean; enableRename?: boolean },
     ): Promise<{ ok: true; runId: string } | { ok: false; error: string }> => {
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return { ok: false, error: '运行时不可用' }
@@ -726,10 +735,32 @@ export function useWikiPage() {
           category: scope.kind === 'subtopic' ? scope.category : undefined,
           subtopic: scope.kind === 'subtopic' ? scope.subtopic : undefined,
           force: opts?.force,
+          enableRename: opts?.enableRename,
         })) as { runId: string }
         return { ok: true, runId: r.runId }
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : '重新编目启动失败' }
+      }
+    },
+    [],
+  )
+
+  /** 预估某次编目将调用多少次模型，供确认弹窗展示。 */
+  const estimateReclassify = useCallback(
+    async (scope: WikiReclassifyScopeDto): Promise<WikiReclassifyEstimateItem | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        return (await api.sendCommand({
+          type: 'wiki:reclassify:estimate',
+          agentId: DEFAULT_AGENT_ID,
+          scope: scope.kind,
+          sourceId: scope.kind === 'source' ? scope.sourceId : undefined,
+          category: scope.kind === 'subtopic' ? scope.category : undefined,
+          subtopic: scope.kind === 'subtopic' ? scope.subtopic : undefined,
+        })) as WikiReclassifyEstimateItem
+      } catch {
+        return null
       }
     },
     [],
@@ -954,6 +985,7 @@ export function useWikiPage() {
     createNote,
     renameSource,
     runReclassify,
+    estimateReclassify,
     getReclassifyRun,
     applyReclassify,
     ignoreReclassify,

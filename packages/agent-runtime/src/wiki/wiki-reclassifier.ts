@@ -1,22 +1,32 @@
 /**
- * WikiReclassifier — 重新编目：生成候选、审阅、部分接受
+ * WikiReclassifier — 全库编目 v2：两轮制（结构优先、正文按需）+ 断点续跑
  *
  * 与自动归档（WikiOrganizer）的区别：重编目**不直接写库**，先落候选态，
  * 用户接受后才改主题两列。每 agent+user 同时只允许一个批次。
  * AI 只能在当前树里选节点，不能自造、不能写临时存放。
  *
- * 设计：docs/design/记忆设计/2026-08-27-wiki-topic-hierarchy-redesign.md §9
+ * 算法（P5 v1.1）：
+ * (1) 盘点线 — buildLibraryInventory：纯 DB+文件系统，输出全局视野。
+ * (2) 两轮线 — 结构轮（不带正文，模型可 needContent）→ 内容轮（仅 needContent 且有正文，补摘要）。
+ * (3) 无正文线 — needContent 且无正文的资料留收件箱，不进内容轮，不产候选。
+ *
+ * 设计：docs/plans/记忆重构/2026-08-31-wiki-intelligent-vault-p5-cataloging.md
  */
 
-import { extractJsonPayload } from "./wiki-classifier.js";
-import { buildTaxonomyGuide } from "./wiki-taxonomy-prompt.js";
 import type { WikiRepo } from "./wiki-repo.js";
-import { generateWikiId, type WikiSource } from "./types.js";
+import { generateWikiId } from "./types.js";
+import { validateTopicAssignment } from "./wiki-topic-tree.js";
+import { buildLibraryInventory, type InventoryFileRow, type LibraryInventoryScope } from "./wiki-library-inventory.js";
 import {
-  PARKING_CATEGORY,
-  validateTopicAssignment,
-  type WikiTopicTree,
-} from "./wiki-topic-tree.js";
+  buildLibraryImpression,
+  buildStructurePrompt,
+  buildContentPrompt,
+  parseStructureResponse,
+  STRUCTURE_BATCH_SIZE,
+  CONTENT_BATCH_SIZE,
+} from "./wiki-catalog-prompt.js";
+import { WikiSummarizer } from "./wiki-summary.js";
+import { shouldAcceptRenameProposal } from "./wiki-title-score.js";
 import type {
   WikiReclassifyCandidate,
   WikiReclassifyRun,
@@ -31,138 +41,23 @@ export type {
 } from "./wiki-reclassify-types.js";
 export { RECLASSIFY_RUN_META_KEY } from "./wiki-reclassify-types.js";
 
-/** 单批条数：与归档分类同量级，正文已截断，一批 8 条 */
-export const RECLASSIFY_BATCH_SIZE = 8;
-/** 每条正文截断长度，与 buildClassifyPrompt 的预览一致 */
-export const RECLASSIFY_TEXT_CHARS = 300;
+/** 结构轮/内容轮批量置信阈值：低于此不产候选（有人工复核，比增量 0.75 宽） */
+export const RECLASSIFY_CONFIDENCE_THRESHOLD = 0.6;
 
-/** 提示词输入项 */
-interface ReclassifyPromptItem {
-  readonly id: string;
-  readonly title: string;
-  readonly text: string | null;
-  readonly fromCategory: string;
-  readonly fromSubtopic: string;
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push([...items.slice(i, i + size)]);
+  return out;
 }
 
-/**
- * 构造重编目提示词。与归档分类共用口诀，但多给「当前所属目录」，
- * 并要求只在确有更好用途时才输出新节点——否则原样返回，避免无意义抖动。
- */
-export function buildReclassifyPrompt(
-  items: readonly ReclassifyPromptItem[],
-  tree: WikiTopicTree,
-): string {
-  const list = items
-    .map(
-      (item, i) =>
-        `${i + 1}. [id=${item.id}] 标题: ${item.title}\n当前目录: ${item.fromCategory} / ${item.fromSubtopic}\n内容预览: ${(item.text ?? "").slice(0, RECLASSIFY_TEXT_CHARS)}`,
-    )
-    .join("\n\n");
-
-  return [
-    // 口诀 / 易混 / 可选目录 / 通用规则与归档分类共用同一份真源
-    buildTaxonomyGuide(tree),
-    "",
-    "## 本次任务",
-    "你正在复查**已归档**资料的目录是否合适，不是首次归档。",
-    "- 只有当前目录确实不合适、且能在上方目录里找到明显更好的位置时才改",
-    "- 拿不准就保持原目录（输出与当前目录相同的大类小类）",
-    "- reason 用一句中文说明为什么新目录更合适",
-    "",
-    "## 待复查资料",
-    list,
-    "",
-    "## 输出",
-    '仅 JSON 数组: {"id":"<id>","category":"<大类>","subtopic":"<小类>","reason":"<一句话理由>"}',
-    "仅输出 JSON，不要包含其他文字。",
-  ].join("\n");
+function toInventoryScope(scope: WikiReclassifyScope): LibraryInventoryScope {
+  return scope;
 }
 
-/** 解析输入项：比提示词项多一个 sourceId */
-interface ReclassifyParseItem {
-  readonly id: string;
-  readonly sourceId: string;
-  readonly title: string;
-  readonly fromCategory: string;
-  readonly fromSubtopic: string;
-}
-
-/**
- * 解析模型回复为候选列表。
- * 三类不产候选：与原目录相同（unchanged）、模型漏答（unchanged）、
- * 越权或自造节点含临时存放（droppedInvalid）。整批不可解析时全算 unchanged，不抛错。
- */
-export function parseReclassifyResponse(
-  response: string,
-  items: readonly ReclassifyParseItem[],
-  tree: WikiTopicTree,
-  newId: () => string,
-): { candidates: WikiReclassifyCandidate[]; droppedInvalid: number; unchanged: number } {
-  const byId = new Map(items.map((i) => [i.id, i]));
-  const payload = extractJsonPayload(response);
-  if (payload === null) return { candidates: [], droppedInvalid: 0, unchanged: items.length };
-
-  let parsed: unknown[];
-  if (Array.isArray(payload)) {
-    parsed = payload;
-  } else if (typeof payload === "object" && "id" in (payload as Record<string, unknown>)) {
-    parsed = [payload];
-  } else {
-    return { candidates: [], droppedInvalid: 0, unchanged: items.length };
-  }
-
-  const candidates: WikiReclassifyCandidate[] = [];
-  const seen = new Set<string>();
-  let droppedInvalid = 0;
-  let unchanged = 0;
-
-  for (const raw of parsed) {
-    if (typeof raw !== "object" || raw === null) continue;
-    const record = raw as Record<string, unknown>;
-    const id = typeof record.id === "string" ? record.id : null;
-    const item = id ? byId.get(id) : null;
-    if (!item || seen.has(item.id)) continue;
-    seen.add(item.id);
-
-    const category = typeof record.category === "string" && record.category ? record.category : null;
-    const subtopic = typeof record.subtopic === "string" && record.subtopic ? record.subtopic : null;
-
-    // AI 不得写临时存放，也不得自造节点
-    if (category === null || category === PARKING_CATEGORY) {
-      droppedInvalid++;
-      continue;
-    }
-    if (!validateTopicAssignment(tree, category, subtopic).ok) {
-      droppedInvalid++;
-      continue;
-    }
-    if (category === item.fromCategory && subtopic === item.fromSubtopic) {
-      unchanged++;
-      continue;
-    }
-
-    candidates.push({
-      id: newId(),
-      sourceId: item.sourceId,
-      title: item.title,
-      fromCategory: item.fromCategory,
-      fromSubtopic: item.fromSubtopic,
-      toCategory: category,
-      toSubtopic: subtopic!,
-      reason: typeof record.reason === "string" ? record.reason : "",
-      decision: "pending",
-    });
-  }
-
-  // 模型漏答的不算改动
-  unchanged += items.filter((i) => !seen.has(i.id)).length;
-  return { candidates, droppedInvalid, unchanged };
-}
-
-/** 正文语料：无 extracted_text 的媒体退化为标题 */
-function corpusOf(source: WikiSource): string | null {
-  return source.extracted_text ?? source.title;
+function rowOf(batch: readonly InventoryFileRow[], id: string): InventoryFileRow {
+  const row = batch.find((f) => f.id === id);
+  if (!row) throw new Error(`结构轮返回了本批之外的 id: ${id}`);
+  return row;
 }
 
 export class WikiReclassifier {
@@ -183,14 +78,15 @@ export class WikiReclassifier {
   }
 
   /**
-   * 启动一个批次：写 running → 分批问 LLM → 写 review。
-   * 已有 running 一律拒绝；review/failed 需要 force（UI 先弹「丢弃旧批次？」）。
+   * 启动一批编目：盘点 → 结构轮（分批）→ 内容轮（仅 needContent 且有正文）→ review。
+   * 已有 running 一律拒绝；review/failed 需要 force。
+   * failed 批次续跑：按 resumeCursor 跳过已完成的批次，已产候选按 sourceId 去重不重复生成。
    */
   async run(
     agentId: string,
     userId: string,
     scope: WikiReclassifyScope,
-    opts?: { readonly force?: boolean },
+    opts: { readonly force?: boolean; readonly vaultRoot: string; readonly enableRename?: boolean },
   ): Promise<string> {
     const existing = this.get(agentId, userId);
     if (existing) {
@@ -202,74 +98,163 @@ export class WikiReclassifier {
       }
     }
 
-    const sources = this.repo.listSourcesForReclassify(agentId, userId, scope);
-    const runId = this.newId();
+    const resumable = existing?.status === "failed" ? existing : null;
+    const inv = buildLibraryInventory(this.repo, agentId, userId, toInventoryScope(scope), opts.vaultRoot);
+
+    const runId = resumable?.runId ?? this.newId();
     const now = new Date().toISOString();
+    const priorCandidates = resumable?.candidates ?? [];
+    const priorSourceIds = new Set(priorCandidates.map((c) => c.sourceId));
+
     let run: WikiReclassifyRun = {
       runId,
       status: "running",
       scope,
-      total: sources.length,
-      processed: 0,
-      droppedInvalid: 0,
-      unchanged: 0,
-      candidates: [],
+      total: inv.files.length,
+      processed: resumable?.processed ?? 0,
+      droppedInvalid: resumable?.droppedInvalid ?? 0,
+      unchanged: resumable?.unchanged ?? 0,
+      candidates: priorCandidates,
       error: null,
-      createdAt: now,
+      createdAt: resumable?.createdAt ?? now,
       updatedAt: now,
     };
     this.repo.setReclassifyRun(agentId, userId, run);
 
-    if (sources.length === 0) {
+    if (inv.files.length === 0) {
       run = { ...run, status: "review", updatedAt: new Date().toISOString() };
       this.repo.setReclassifyRun(agentId, userId, run);
       return runId;
     }
 
-    const tree = this.repo.getOrCreateTopicTree();
-    const candidates: WikiReclassifyCandidate[] = [];
-    let droppedInvalid = 0;
-    let unchanged = 0;
+    const tree = inv.tree;
+    const candidates: WikiReclassifyCandidate[] = [...priorCandidates];
+    let droppedInvalid = run.droppedInvalid;
+    let unchanged = run.unchanged;
+    const needContent: InventoryFileRow[] = [];
+
+    const resumeCursor = resumable?.resumeCursor;
 
     try {
-      for (let i = 0; i < sources.length; i += RECLASSIFY_BATCH_SIZE) {
-        const batch = sources.slice(i, i + RECLASSIFY_BATCH_SIZE);
-        const parseItems: ReclassifyParseItem[] = batch.map((s) => ({
-          id: s.id,
-          sourceId: s.id,
-          title: s.title,
-          fromCategory: s.topic_category!,
-          fromSubtopic: s.topic_subtopic!,
-        }));
-        const prompt = buildReclassifyPrompt(
-          batch.map((s) => ({
-            id: s.id,
-            title: s.title,
-            text: corpusOf(s),
-            fromCategory: s.topic_category!,
-            fromSubtopic: s.topic_subtopic!,
-          })),
-          tree,
-        );
-        const response = await this.callLLM(prompt);
-        const parsed = parseReclassifyResponse(response, parseItems, tree, this.newId);
-        candidates.push(...parsed.candidates);
-        droppedInvalid += parsed.droppedInvalid;
-        unchanged += parsed.unchanged;
+      // ── 结构轮 ──────────────────────────────────────────
+      const structureBatches = chunk(inv.files, STRUCTURE_BATCH_SIZE);
+      const structureStart = resumeCursor?.pass === "structure" ? resumeCursor.batchIndex : 0;
 
-        // 每批结束刷进度，任务中心 pill 读这个
+      for (let bi = structureStart; bi < structureBatches.length; bi++) {
+        const batch = structureBatches[bi]!;
+        const impression = buildLibraryImpression(inv);
+        const raw = await this.callLLM(buildStructurePrompt(tree, impression, batch));
+        const { decisions, droppedInvalid: di } = parseStructureResponse(raw, batch, tree);
+        droppedInvalid += di;
+
+        for (const d of decisions) {
+          if (d.needContent) {
+            needContent.push(rowOf(batch, d.id));
+            continue;
+          }
+          if (priorSourceIds.has(d.id)) continue;
+          const row = rowOf(batch, d.id);
+          const sameAsCurrent = d.category === row.fromCategory && d.subtopic === row.fromSubtopic;
+          if (d.confidence < RECLASSIFY_CONFIDENCE_THRESHOLD || sameAsCurrent) {
+            unchanged++;
+            continue;
+          }
+          candidates.push({
+            id: this.newId(),
+            sourceId: row.id,
+            title: row.fileName,
+            fromCategory: row.fromCategory,
+            fromSubtopic: row.fromSubtopic,
+            toCategory: d.category!,
+            toSubtopic: d.subtopic,
+            reason: d.reason,
+            decidedBy: "structure",
+            decision: "pending",
+          });
+        }
+
         run = {
           ...run,
-          processed: Math.min(i + batch.length, sources.length),
+          processed: Math.min(run.processed + batch.length, inv.files.length),
           droppedInvalid,
           unchanged,
           candidates: [...candidates],
+          resumeCursor: { pass: "structure", batchIndex: bi + 1 },
+          updatedAt: new Date().toISOString(),
+        };
+        this.repo.setReclassifyRun(agentId, userId, run);
+      }
+
+      // ── 内容轮：仅 needContent 且有正文；无正文的留收件箱，不进内容轮不产候选 ──
+      const withText = needContent.filter((f) => f.hasText);
+      const contentBatches = chunk(withText, CONTENT_BATCH_SIZE);
+      const contentStart = resumeCursor?.pass === "content" ? resumeCursor.batchIndex : 0;
+      const summarizer = new WikiSummarizer(this.repo, this.callLLM);
+
+      for (let bi = contentStart; bi < contentBatches.length; bi++) {
+        const batch = contentBatches[bi]!;
+        const summaries = new Map<string, string>();
+        for (const f of batch) {
+          const source = this.repo.findSourceById(f.id);
+          if (!source) continue;
+          const result = await summarizer.getOrBuildSummary(source, { allowLlm: true });
+          if (result) summaries.set(f.id, result.summary);
+        }
+
+        const impression = buildLibraryImpression(inv);
+        const raw = await this.callLLM(
+          buildContentPrompt(tree, impression, batch, summaries, { enableRename: opts.enableRename }),
+        );
+        const { decisions } = parseStructureResponse(raw, batch, tree);
+
+        for (const d of decisions) {
+          if (priorSourceIds.has(d.id)) continue;
+          if (d.category === null) continue; // 补了正文仍判不了：留收件箱，不产候选
+          const row = rowOf(batch, d.id);
+          const sameAsCurrent = d.category === row.fromCategory && d.subtopic === row.fromSubtopic;
+          if (d.confidence < RECLASSIFY_CONFIDENCE_THRESHOLD || sameAsCurrent) {
+            unchanged++;
+            continue;
+          }
+          const source = this.repo.findSourceById(row.id);
+          const renameTitle =
+            opts.enableRename && source
+              ? shouldAcceptRenameProposal({
+                  renameTitle: d.renameTitle,
+                  currentTitle: row.fileName,
+                  titleLocked: source.title_locked === 1,
+                  storageMode: source.storage_mode,
+                  confidence: d.confidence,
+                })
+                ? d.renameTitle
+                : undefined
+              : undefined;
+          candidates.push({
+            id: this.newId(),
+            sourceId: row.id,
+            title: row.fileName,
+            fromCategory: row.fromCategory,
+            fromSubtopic: row.fromSubtopic,
+            toCategory: d.category,
+            toSubtopic: d.subtopic,
+            reason: d.reason,
+            decidedBy: "content",
+            decision: "pending",
+            ...(renameTitle ? { renameTitle } : {}),
+          });
+        }
+
+        run = {
+          ...run,
+          droppedInvalid,
+          unchanged,
+          candidates: [...candidates],
+          resumeCursor: { pass: "content", batchIndex: bi + 1 },
           updatedAt: new Date().toISOString(),
         };
         this.repo.setReclassifyRun(agentId, userId, run);
       }
     } catch (err) {
-      // 保留 scope 供 retry
       this.repo.setReclassifyRun(agentId, userId, {
         ...run,
         status: "failed",
@@ -279,8 +264,9 @@ export class WikiReclassifier {
       throw err;
     }
 
+    const { resumeCursor: _drop, ...settled } = run;
     this.repo.setReclassifyRun(agentId, userId, {
-      ...run,
+      ...settled,
       status: "review",
       updatedAt: new Date().toISOString(),
     });
@@ -295,26 +281,28 @@ export class WikiReclassifier {
     agentId: string,
     userId: string,
     candidateIds: readonly string[],
-  ): { applied: number; failed: number } {
+  ): { applied: number; failed: number; appliedSourceIds: readonly string[] } {
     const run = this.get(agentId, userId);
-    if (!run) return { applied: 0, failed: 0 };
-    if (candidateIds.length === 0) return { applied: 0, failed: 0 };
+    if (!run) return { applied: 0, failed: 0, appliedSourceIds: [] };
+    if (candidateIds.length === 0) return { applied: 0, failed: 0, appliedSourceIds: [] };
 
     const tree = this.repo.getOrCreateTopicTree();
     const wanted = new Set(candidateIds);
     let applied = 0;
     let failed = 0;
+    const appliedSourceIds: string[] = [];
 
     const next = run.candidates.map((c) => {
       if (!wanted.has(c.id) || c.decision !== "pending") return c;
       const check = validateTopicAssignment(tree, c.toCategory, c.toSubtopic);
       if (!check.ok) {
         failed++;
-        return { ...c, applyError: `目标目录已不存在：${c.toCategory} / ${c.toSubtopic}` };
+        return { ...c, applyError: `目标目录已不存在：${c.toCategory}${c.toSubtopic ? ` / ${c.toSubtopic}` : ""}` };
       }
       try {
         this.repo.updateSourceTopic(agentId, userId, c.sourceId, c.toCategory, c.toSubtopic);
         applied++;
+        appliedSourceIds.push(c.sourceId);
         const { applyError: _drop, ...rest } = c;
         return { ...rest, decision: "applied" as const };
       } catch (err) {
@@ -324,7 +312,7 @@ export class WikiReclassifier {
     });
 
     this.persist(agentId, userId, run, next);
-    return { applied, failed };
+    return { applied, failed, appliedSourceIds };
   }
 
   ignore(agentId: string, userId: string, candidateId: string): void {
