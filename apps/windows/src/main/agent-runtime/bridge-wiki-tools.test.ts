@@ -92,14 +92,15 @@ describe('registerWikiTools', () => {
     ])
   })
 
-  it('wiki_overview 返回分类统计与最近页面', async () => {
+  it('wiki_overview 返回分类统计与最近资料', async () => {
     const { repo, registry } = setup()
-    repo.savePage({ agentId: 'assistant', userId: 'local-user', path: 'sources/a', title: 'A', contentMd: 'x', editor: 'ai' })
+    const s = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: 'A' })
+    repo.updateSourceTopic('assistant', 'local-user', s.id, '工作', '例行')
 
     const result = await callTool(registry, 'wiki_overview', {})
     expect(result.ok).toBe(true)
-    expect(result.countsByCategory.sources).toBe(1)
-    expect(result.recentPages).toEqual([{ path: 'sources/a', title: 'A' }])
+    expect(result.countsByCategory['工作']).toBe(1)
+    expect(result.recentSources).toEqual([{ title: 'A', category: '工作', subtopic: '例行' }])
   })
 
   it('wiki_search 返回命中全文', async () => {
@@ -119,23 +120,30 @@ describe('registerWikiTools', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('wiki_read 读取存在的页面并更新 use_count', async () => {
+  it('wiki_read 按 sourcePath 读取资料正文并更新 use_count', async () => {
     const { repo, registry } = setup()
-    repo.savePage({ agentId: 'assistant', userId: 'local-user', path: 'sources/x', title: 'X', contentMd: '内容X', editor: 'ai' })
+    repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: 'X',
+      sourcePath: 'sources/x',
+      extractedText: '内容X',
+    })
 
     const result = await callTool(registry, 'wiki_read', { path: 'sources/x' })
     expect(result.ok).toBe(true)
     expect(result.content).toBe('内容X')
-    expect(repo.findPageByPath('assistant', 'local-user', 'sources/x')!.use_count).toBe(1)
+    const source = repo.findSourceBySourcePath('assistant', 'local-user', 'sources/x')!
+    expect(source.use_count).toBe(1)
   })
 
-  it('wiki_read 页面不存在返回错误而非抛异常', async () => {
+  it('wiki_read 资料不存在返回错误而非抛异常', async () => {
     const { registry } = setup()
     const result = await callTool(registry, 'wiki_read', { path: 'sources/missing' })
     expect(result.ok).toBe(false)
   })
 
-  it('wiki_read 兼容资料层：能用 wiki_search 返回的 sourcePath 读取资料正文', async () => {
+  it('wiki_read 能用 wiki_search 返回的 sourcePath 读取资料正文', async () => {
     const { repo, registry } = setup()
     const source = repo.createSource({
       agentId: 'assistant',

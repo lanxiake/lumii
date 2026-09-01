@@ -36,7 +36,6 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'wiki:inbox:list', 'wiki:inbox:count', 'wiki:inbox:retry', 'wiki:inbox:discard', 'wiki:inbox:organize',
   // Wiki 文件夹导入（P0）：scan 只读预览；import 写入收件箱（引用优先，不移动原文件）；organize:run 触发 intake 管线
   'wiki:folder:scan', 'wiki:folder:import', 'wiki:organize:run',
-  'wiki:page:list', 'wiki:page:get', 'wiki:page:update', 'wiki:page:delete',
   'wiki:search', 'wiki:source:get', 'wiki:runs:list', 'wiki:index:rebuild',
   // 用途主题树 / 资料层（记忆重构一期）：set 接受结构化目录 JSON，非任意命令注入，按需放行。
   'wiki:topic:tree:get', 'wiki:topic:tree:set', 'wiki:topic:tree:migrate',
@@ -47,15 +46,14 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'wiki:source:update-topic', 'wiki:source:move-to-parking', 'wiki:source:open',
   'wiki:source:clear-topic', 'wiki:link:add', 'wiki:link:save', 'wiki:vault:ensure-layout',
   'wiki:auto-classify:get', 'wiki:auto-classify:set',
-  // Wiki 知识库（P1）：链接/修订/清理/附件/导出/概念候选。export 的 targetDir 来自渲染进程
-  // 弹出的系统原生 dialog:showSaveDialog（用户手选目录），不是任意字符串注入，按需放行。
-  'wiki:link:backlinks', 'wiki:link:unresolved', 'wiki:page:revisions', 'wiki:page:rollback',
+  // Wiki 知识库（P1）：清理/导出/图谱/ERO/摘要。历史页面链接/修订/附件/概念候选/
+  // 状态流转/混合检索已随 P3 删除。export 的 targetDir 来自渲染进程弹出的系统原生
+  // dialog:showSaveDialog（用户手选目录），不是任意字符串注入，按需放行。
   'wiki:cleanup:scan', 'wiki:source:archive', 'wiki:source:restore', 'wiki:source:delete',
-  'wiki:attach:list', 'wiki:attach:add', 'wiki:attach:remove', 'wiki:export',
-  'wiki:concept:scan', 'wiki:concept:confirm', 'wiki:concept:reject',
-  'wiki:graph:data', 'wiki:status:scan', 'wiki:status:confirm',
-  'wiki:ero:bootstrap', 'wiki:ero:list', 'wiki:ero:extract', 'wiki:ero:entity-sources',
-  'wiki:search:hybrid', 'wiki:vector:rebuild',
+  'wiki:export',
+  'wiki:graph:data',
+  'wiki:ero:list', 'wiki:ero:extract', 'wiki:ero:entity-sources',
+  'wiki:vector:rebuild', 'wiki:source:summary',
   // MCP 只读
   'mcp:status',
   // 存储只读

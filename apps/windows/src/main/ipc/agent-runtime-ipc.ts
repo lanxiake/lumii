@@ -120,10 +120,6 @@ import {
   handleWikiFolderScan,
   handleWikiFolderImport,
   handleWikiOrganizeRun,
-  handleWikiPageList,
-  handleWikiPageGet,
-  handleWikiPageUpdate,
-  handleWikiPageDelete,
   handleWikiSearch,
   handleWikiSourceGet,
   handleWikiRunsList,
@@ -149,30 +145,17 @@ import {
   handleWikiVaultEnsureLayout,
   handleWikiAutoClassifyGet,
   handleWikiAutoClassifySet,
-  handleWikiLinkBacklinks,
-  handleWikiLinkUnresolved,
-  handleWikiPageRevisions,
-  handleWikiPageRollback,
   handleWikiCleanupScan,
   handleWikiSourceArchive,
   handleWikiSourceRestore,
   handleWikiSourceDelete,
-  handleWikiAttachList,
-  handleWikiAttachAdd,
-  handleWikiAttachRemove,
   handleWikiExport,
-  handleWikiConceptScan,
-  handleWikiConceptConfirm,
-  handleWikiConceptReject,
   handleWikiGraphData,
-  handleWikiStatusScan,
-  handleWikiStatusConfirm,
-  handleWikiEroBootstrap,
   handleWikiEroList,
   handleWikiEroExtract,
   handleWikiEroEntitySources,
-  handleWikiSearchHybrid,
   handleWikiVectorRebuild,
+  handleWikiSourceSummary,
 } from './agent-runtime/wiki-commands'
 import {
   handleToolsList,
@@ -977,18 +960,6 @@ export async function handleCommand(
       case 'wiki:organize:run':
         return handleWikiOrganizeRun(bridge, command)
 
-      case 'wiki:page:list':
-        return handleWikiPageList(bridge, command)
-
-      case 'wiki:page:get':
-        return handleWikiPageGet(bridge, command)
-
-      case 'wiki:page:update':
-        return handleWikiPageUpdate(bridge, command)
-
-      case 'wiki:page:delete':
-        return handleWikiPageDelete(bridge, command)
-
       case 'wiki:search':
         return handleWikiSearch(bridge, command)
 
@@ -1066,18 +1037,6 @@ export async function handleCommand(
         return handleWikiAutoClassifySet(bridge, command)
 
       // ---- Wiki 知识库（P1） ----
-      case 'wiki:link:backlinks':
-        return handleWikiLinkBacklinks(bridge, command)
-
-      case 'wiki:link:unresolved':
-        return handleWikiLinkUnresolved(bridge, command)
-
-      case 'wiki:page:revisions':
-        return handleWikiPageRevisions(bridge, command)
-
-      case 'wiki:page:rollback':
-        return handleWikiPageRollback(bridge, command)
-
       case 'wiki:cleanup:scan':
         return handleWikiCleanupScan(bridge, command)
 
@@ -1090,38 +1049,11 @@ export async function handleCommand(
       case 'wiki:source:delete':
         return handleWikiSourceDelete(bridge, command)
 
-      case 'wiki:attach:list':
-        return handleWikiAttachList(bridge, command)
-
-      case 'wiki:attach:add':
-        return handleWikiAttachAdd(bridge, command)
-
-      case 'wiki:attach:remove':
-        return handleWikiAttachRemove(bridge, command)
-
       case 'wiki:export':
         return handleWikiExport(bridge, command)
 
-      case 'wiki:concept:scan':
-        return handleWikiConceptScan(bridge, command)
-
-      case 'wiki:concept:confirm':
-        return handleWikiConceptConfirm(bridge, command)
-
-      case 'wiki:concept:reject':
-        return handleWikiConceptReject(bridge, command)
-
       case 'wiki:graph:data':
         return handleWikiGraphData(bridge, command)
-
-      case 'wiki:status:scan':
-        return handleWikiStatusScan(bridge, command)
-
-      case 'wiki:status:confirm':
-        return handleWikiStatusConfirm(bridge, command)
-
-      case 'wiki:ero:bootstrap':
-        return handleWikiEroBootstrap(bridge, command)
 
       case 'wiki:ero:list':
         return handleWikiEroList(bridge, command)
@@ -1132,8 +1064,8 @@ export async function handleCommand(
       case 'wiki:ero:entity-sources':
         return handleWikiEroEntitySources(bridge, command)
 
-      case 'wiki:search:hybrid':
-        return handleWikiSearchHybrid(bridge, command)
+      case 'wiki:source:summary':
+        return handleWikiSourceSummary(bridge, command)
 
       case 'wiki:vector:rebuild':
         return handleWikiVectorRebuild(bridge, command)

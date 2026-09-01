@@ -21,10 +21,6 @@ import {
   handleWikiInboxOrganize,
   handleWikiFolderScan,
   handleWikiFolderImport,
-  handleWikiPageList,
-  handleWikiPageGet,
-  handleWikiPageUpdate,
-  handleWikiPageDelete,
   handleWikiSearch,
   handleWikiSourceGet,
   handleWikiRunsList,
@@ -46,6 +42,8 @@ import {
   handleWikiCleanupScan,
   handleWikiEroExtract,
   handleWikiEroEntitySources,
+  handleWikiVectorRebuild,
+  handleWikiSourceSummary,
 } from './wiki-commands'
 import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY, WikiReclassifier, WikiEroRepo } from '@mtbot/agent-runtime'
 import { securityUtils } from '../../security-utils'
@@ -96,6 +94,8 @@ function buildBridge(repo: WikiRepo, callLLM?: (prompt: string) => Promise<strin
     conversationRepo: { getAgentParticipantId: () => null },
     getCwd: () => cwd ?? process.cwd(),
     callLLM: callLLM ?? (async () => '{}'),
+    // 向量重建/摘要相关命令用：桩掉真实嵌入模型加载，embedder=null 走禁用路径
+    resolveWikiEmbedder: async () => ({ embedder: null, backend: 'disabled', notice: null }),
   } as unknown as AgentRuntimeBridge
 }
 
@@ -182,32 +182,6 @@ describe('wiki commands', () => {
     ).toThrow()
   })
 
-  it('page list/get/update/delete 全流程', () => {
-    const repo = createWikiRepo()
-    const bridge = buildBridge(repo)
-
-    const updated = handleWikiPageUpdate(bridge, {
-      type: 'wiki:page:update',
-      agentId: 'assistant',
-      path: 'sources/doc',
-      title: '文档',
-      contentMd: '正文',
-    })
-    expect(updated.version).toBe(1)
-
-    const list = handleWikiPageList(bridge, { type: 'wiki:page:list', agentId: 'assistant' }) as { id: string }[]
-    expect(list).toHaveLength(1)
-
-    const got = handleWikiPageGet(bridge, { type: 'wiki:page:get', pageId: updated.pageId }) as { contentMd: string }
-    expect(got.contentMd).toBe('正文')
-
-    expect(handleWikiPageDelete(bridge, { type: 'wiki:page:delete', pageId: updated.pageId })).toEqual({ success: true })
-    // 删除后读取要报错而非返回 null——null 在 CLI 里是 exit 0，分不清不存在与空页
-    expect(() => handleWikiPageGet(bridge, { type: 'wiki:page:get', pageId: updated.pageId })).toThrow(
-      /页面不存在/,
-    )
-  })
-
   it('search 命中资料层（原文件）而非旧汇总页', async () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
@@ -255,46 +229,8 @@ describe('wiki commands', () => {
     expect(runs[0]!.status).toBe('succeeded')
     expect(runs[0]!.resultDetail?.items[0]!.path).toBe('sources/t')
 
-    repo.savePage({ agentId: 'assistant', userId: 'local-user', path: 'sources/y', title: 'y', contentMd: 'c', editor: 'ai' })
+    repo.createSource({ agentId: 'assistant', userId: 'local-user', title: 'y', extractedText: 'c' })
     expect(handleWikiIndexRebuild(bridge)).toEqual({ rebuiltCount: 1 })
-  })
-
-  it('graph:data centerPageId 走历史层，不再自动 bootstrap ERO', () => {
-    const repo = createWikiRepo()
-    const bridge = buildBridge(repo)
-    const ero = new WikiEroRepo(repo.database)
-
-    const b = repo.savePage({
-      agentId: 'assistant',
-      userId: 'local-user',
-      path: 'sources/b',
-      title: 'B页',
-      contentMd: '正文',
-      editor: 'user',
-    })
-    const a = repo.savePage({
-      agentId: 'assistant',
-      userId: 'local-user',
-      path: 'sources/a',
-      title: 'A页',
-      contentMd: '见 [[B页]]',
-      editor: 'user',
-    })
-
-    const graph = handleWikiGraphData(bridge, {
-      type: 'wiki:graph:data',
-      agentId: 'assistant',
-      centerPageId: a.id,
-    }) as {
-      nodes: { id: string; kind: string; title: string }[]
-      edges: { id: string; kind: string; source: string; target: string; label: string }[]
-      truncated: boolean
-    }
-
-    expect(graph.nodes.some((n) => n.kind === 'page' && n.id === a.id)).toBe(true)
-    expect(graph.edges.some((e) => e.kind === 'wikilink')).toBe(true)
-    expect(typeof graph.truncated).toBe('boolean')
-    expect(ero.listEntities('assistant', 'local-user').length).toBe(0)
   })
 
   it('graph:data 按小类返回结构子图', () => {
@@ -483,11 +419,10 @@ describe('wiki commands', () => {
     expect(repo.findSourceById(source.id)!.topic_category).toBe('工作产出')
   })
 
-  it('create-note 写磁盘 md 并插入带主题的 source，不新建 wiki_pages', () => {
+  it('create-note 写磁盘 md 并插入带主题的 source', () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
     const notesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-notes-'))
-    const pagesBefore = repo.listPages('assistant', 'local-user').length
 
     const r = handleWikiSourceCreateNote(
       bridge,
@@ -495,13 +430,14 @@ describe('wiki commands', () => {
       { notesDir: () => notesDir },
     )
 
-    expect(fs.existsSync(r.sourcePath)).toBe(true)
-    expect(fs.readFileSync(r.sourcePath, 'utf8')).toContain('# 未命名笔记')
+    // sourcePath 落库时是相对 vault 根的相对路径，落盘位置需要拼回 notesDir 才是绝对路径
+    const absPath = path.resolve(notesDir, r.sourcePath)
+    expect(fs.existsSync(absPath)).toBe(true)
+    expect(fs.readFileSync(absPath, 'utf8')).toContain('# 未命名笔记')
     const s = repo.findSourceById(r.sourceId)!
     expect(s.topic_category).toBe('生活')
     expect(s.topic_subtopic).toBe('自留')
     expect(s.mime_type).toBe('text/markdown')
-    expect(repo.listPages('assistant', 'local-user')).toHaveLength(pagesBefore)
   })
 
   it('小类名含斜杠时不会落进路径，目录名被安全化', () => {
@@ -519,6 +455,7 @@ describe('wiki commands', () => {
     )
     expect(r.sourcePath).not.toContain('项目/任务资料')
     expect(r.sourcePath).not.toContain('项目\\任务资料')
+    expect(fs.existsSync(path.resolve(notesDir, r.sourcePath))).toBe(true)
     expect(repo.findSourceById(r.sourceId)!.topic_subtopic).toBe('项目/任务资料')
   })
 
@@ -559,8 +496,8 @@ describe('wiki commands', () => {
     const a = handleWikiSourceCreateNote(bridge, cmd, { notesDir: () => notesDir, now: fixedNow })
     const b = handleWikiSourceCreateNote(bridge, cmd, { notesDir: () => notesDir, now: fixedNow })
     expect(a.sourcePath).not.toBe(b.sourcePath)
-    expect(fs.existsSync(a.sourcePath)).toBe(true)
-    expect(fs.existsSync(b.sourcePath)).toBe(true)
+    expect(fs.existsSync(path.resolve(notesDir, a.sourcePath))).toBe(true)
+    expect(fs.existsSync(path.resolve(notesDir, b.sourcePath))).toBe(true)
   })
 
   it('rename 只改标题，磁盘路径不动', () => {
@@ -744,5 +681,73 @@ describe('wiki commands', () => {
     expect(repo.listSourcesByTopic('assistant', 'local-user', { unfiled: true })).toHaveLength(1)
 
     fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  it('vector:rebuild 先补零成本摘要再重建向量，返回 summarized 计数', async () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const s = repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: '周报',
+      extractedText: '本周完成了登录改造。',
+      contentHash: 'h1',
+    })
+    expect(repo.findSourceById(s.id)!.summary).toBeNull()
+
+    const result = await handleWikiVectorRebuild(bridge, {
+      type: 'wiki:vector:rebuild',
+      agentId: 'assistant',
+    })
+    expect(result.summarized).toBe(1)
+    expect(repo.findSourceById(s.id)!.summary).toBe('本周完成了登录改造。')
+  })
+
+  it('vector:rebuild 第二次跑摘要已缓存，summarized 计数不再增加内容变化', async () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: '周报',
+      extractedText: '本周完成了登录改造。',
+      contentHash: 'h1',
+    })
+
+    const first = await handleWikiVectorRebuild(bridge, { type: 'wiki:vector:rebuild', agentId: 'assistant' })
+    const second = await handleWikiVectorRebuild(bridge, { type: 'wiki:vector:rebuild', agentId: 'assistant' })
+    expect(first.summarized).toBe(1)
+    expect(second.summarized).toBe(1)
+  })
+
+  it('source:summary allowLlm=false 时只走零成本层，不调 LLM', async () => {
+    const repo = createWikiRepo()
+    const callLLM = async () => {
+      throw new Error('不应调用 LLM')
+    }
+    const bridge = buildBridge(repo, callLLM)
+    const s = repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: '周报',
+      extractedText: '本周完成了登录改造。',
+      contentHash: 'h1',
+    })
+
+    const result = await handleWikiSourceSummary(bridge, {
+      type: 'wiki:source:summary',
+      agentId: 'assistant',
+      sourceId: s.id,
+    })
+    expect(result.level).toBe('heuristic')
+    expect(result.summary).toBe('本周完成了登录改造。')
+  })
+
+  it('source:summary 资料不存在时抛错', async () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    await expect(
+      handleWikiSourceSummary(bridge, { type: 'wiki:source:summary', agentId: 'assistant', sourceId: 'missing' }),
+    ).rejects.toThrow(/资料不存在/)
   })
 })

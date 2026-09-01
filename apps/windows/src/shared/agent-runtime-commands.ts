@@ -367,6 +367,8 @@ export interface WikiInboxDiscardCommand {
 /** 手动指定用途分类立即归档：绕开 AI 分类，直接把一条收件箱条目写入资料层 */
 export interface WikiInboxOrganizeCommand {
   readonly type: 'wiki:inbox:organize'
+  readonly sessionKey?: string
+  readonly agentId?: string
   readonly inboxId: string
   readonly category: string
   readonly subtopic: string
@@ -405,32 +407,6 @@ export interface WikiOrganizeRunCommand {
   readonly batchSize?: number
   readonly sessionKey?: string
   readonly agentId?: string
-}
-
-export interface WikiPageListCommand {
-  readonly type: 'wiki:page:list'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly category?: string
-}
-
-export interface WikiPageGetCommand {
-  readonly type: 'wiki:page:get'
-  readonly pageId: string
-}
-
-export interface WikiPageUpdateCommand {
-  readonly type: 'wiki:page:update'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly path: string
-  readonly title: string
-  readonly contentMd: string
-}
-
-export interface WikiPageDeleteCommand {
-  readonly type: 'wiki:page:delete'
-  readonly pageId: string
 }
 
 export interface WikiSearchCommand {
@@ -568,7 +544,8 @@ export interface WikiReclassifyDiscardCommand {
 
 export interface WikiSourceListCommand {
   readonly type: 'wiki:source:list'
-  readonly agentId: string
+  readonly sessionKey?: string
+  readonly agentId?: string
   readonly userId?: string
   readonly category?: string
   readonly subtopic?: string
@@ -603,29 +580,6 @@ export interface WikiSourceOpenCommand {
 // ============================================================
 // Wiki 知识库命令（P1）
 // ============================================================
-
-/** 查某页反链：源页信息由 pageId 反查所属 agent/user，无需额外传归属 */
-export interface WikiLinkBacklinksCommand {
-  readonly type: 'wiki:link:backlinks'
-  readonly pageId: string
-}
-
-export interface WikiLinkUnresolvedCommand {
-  readonly type: 'wiki:link:unresolved'
-  readonly sessionKey?: string
-  readonly agentId?: string
-}
-
-export interface WikiPageRevisionsCommand {
-  readonly type: 'wiki:page:revisions'
-  readonly pageId: string
-}
-
-export interface WikiPageRollbackCommand {
-  readonly type: 'wiki:page:rollback'
-  readonly pageId: string
-  readonly targetVersion: number
-}
 
 export interface WikiCleanupScanCommand {
   readonly type: 'wiki:cleanup:scan'
@@ -698,95 +652,25 @@ export interface WikiVaultEnsureLayoutCommand {
   readonly backfill?: boolean
 }
 
-export interface WikiAttachListCommand {
-  readonly type: 'wiki:attach:list'
-  readonly pageId: string
-}
-
-export interface WikiAttachAddCommand {
-  readonly type: 'wiki:attach:add'
-  readonly pageId: string
-  readonly filePath: string
-  readonly mediaType: 'document' | 'image' | 'audio' | 'video'
-  readonly displayName: string
-  readonly sourceId?: string
-}
-
-export interface WikiAttachRemoveCommand {
-  readonly type: 'wiki:attach:remove'
-  readonly attachmentId: string
-}
-
 export interface WikiExportCommand {
   readonly type: 'wiki:export'
   readonly sessionKey?: string
   readonly agentId?: string
   readonly targetDir: string
-  readonly includeSources?: boolean
-  readonly includeAttachments?: boolean
-}
-
-export interface WikiConceptScanCommand {
-  readonly type: 'wiki:concept:scan'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  /** 参与扫描的最近资料条数上限，默认 30 */
-  readonly limit?: number
-}
-
-export interface WikiConceptConfirmCommand {
-  readonly type: 'wiki:concept:confirm'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly name: string
-  readonly conceptType: 'concept' | 'entity'
-}
-
-export interface WikiConceptRejectCommand {
-  readonly type: 'wiki:concept:reject'
-  readonly name: string
-  readonly conceptType: 'concept' | 'entity'
 }
 
 export interface WikiGraphDataCommand {
   readonly type: 'wiki:graph:data'
   readonly sessionKey?: string
   readonly agentId?: string
-  /** 中心页 id（兼容旧路径，强制走历史层） */
-  readonly centerPageId?: string
-  /** 大类，与 centerPageId 二选一；全空时缺省到主题树第一个大类 */
+  /** 大类；为空时缺省到主题树第一个大类 */
   readonly category?: string
   /** 小类（可选） */
   readonly subtopic?: string
-  /** 邻域半径，默认 1；centerPageId 路径下影响 page 双链扩散，category 路径下无效 */
-  readonly radius?: number
   /** source+entity 节点上限，默认 50 */
   readonly limit?: number
   /** 图层，默认 ['structure', 'entities'] */
-  readonly layers?: Array<'structure' | 'entities' | 'history'>
-}
-
-export interface WikiStatusScanCommand {
-  readonly type: 'wiki:status:scan'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly staleDays?: number
-}
-
-export interface WikiStatusConfirmCommand {
-  readonly type: 'wiki:status:confirm'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly pageId: string
-  /** 确认采纳建议状态，或 reject 清除候选 */
-  readonly action: 'confirm' | 'reject'
-  readonly status?: 'outdated' | 'doubtful' | 'archived'
-}
-
-export interface WikiEroBootstrapCommand {
-  readonly type: 'wiki:ero:bootstrap'
-  readonly sessionKey?: string
-  readonly agentId?: string
+  readonly layers?: Array<'structure' | 'entities'>
 }
 
 export interface WikiEroListCommand {
@@ -801,15 +685,10 @@ export interface WikiEroExtractCommand {
   readonly type: 'wiki:ero:extract'
   readonly sessionKey?: string
   readonly agentId?: string
-  /** 默认 'sources'；'pages' 保持旧行为（extractRecent，服务历史页面图层） */
-  readonly target?: 'sources' | 'pages'
-  /** target='sources' 时的范围：category（+可选 subtopic）或显式 sourceIds */
+  /** 范围：category（+可选 subtopic）或显式 sourceIds */
   readonly category?: string
   readonly subtopic?: string
   readonly sourceIds?: readonly string[]
-  /** target='pages' 时沿用的旧参数 */
-  readonly maxPages?: number
-  readonly maxCharsPerPage?: number
 }
 
 /** 三期：实体出现于哪些资料（实体侧栏） */
@@ -820,20 +699,19 @@ export interface WikiEroEntitySourcesCommand {
   readonly entityId: string
 }
 
-export interface WikiSearchHybridCommand {
-  readonly type: 'wiki:search:hybrid'
-  readonly sessionKey?: string
-  readonly agentId?: string
-  readonly keyword: string
-  readonly limit?: number
-  /** 默认 true；false 时仅 FTS 并返回 degradeReason */
-  readonly enableVector?: boolean
-}
-
 export interface WikiVectorRebuildCommand {
   readonly type: 'wiki:vector:rebuild'
   readonly sessionKey?: string
   readonly agentId?: string
+}
+
+/** 供 P5 编目/P7 重命名索取摘要；allowLlm=true 时长正文可能触发一次 LLM 调用 */
+export interface WikiSourceSummaryCommand {
+  readonly type: 'wiki:source:summary'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly sourceId: string
+  readonly allowLlm?: boolean
 }
 
 // ============================================================
@@ -1421,10 +1299,6 @@ export type AgentRuntimeCommand =
   | WikiFolderScanCommand
   | WikiFolderImportCommand
   | WikiOrganizeRunCommand
-  | WikiPageListCommand
-  | WikiPageGetCommand
-  | WikiPageUpdateCommand
-  | WikiPageDeleteCommand
   | WikiSearchCommand
   | WikiSourceGetCommand
   | WikiRunsListCommand
@@ -1444,10 +1318,6 @@ export type AgentRuntimeCommand =
   | WikiSourceUpdateTopicCommand
   | WikiSourceMoveToParkingCommand
   | WikiSourceOpenCommand
-  | WikiLinkBacklinksCommand
-  | WikiLinkUnresolvedCommand
-  | WikiPageRevisionsCommand
-  | WikiPageRollbackCommand
   | WikiCleanupScanCommand
   | WikiSourceArchiveCommand
   | WikiSourceRestoreCommand
@@ -1458,22 +1328,13 @@ export type AgentRuntimeCommand =
   | WikiLinkAddCommand
   | WikiLinkSaveCommand
   | WikiVaultEnsureLayoutCommand
-  | WikiAttachListCommand
-  | WikiAttachAddCommand
-  | WikiAttachRemoveCommand
   | WikiExportCommand
-  | WikiConceptScanCommand
-  | WikiConceptConfirmCommand
-  | WikiConceptRejectCommand
   | WikiGraphDataCommand
-  | WikiStatusScanCommand
-  | WikiStatusConfirmCommand
-  | WikiEroBootstrapCommand
   | WikiEroListCommand
   | WikiEroExtractCommand
   | WikiEroEntitySourcesCommand
-  | WikiSearchHybridCommand
   | WikiVectorRebuildCommand
+  | WikiSourceSummaryCommand
   | ToolsListCommand
   | ToolsToggleCommand
   | McpStatusCommand
@@ -1733,25 +1594,6 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       organizeRun?: { runId: string; status: string; summary: string | null } | null
     }
   : T extends 'wiki:organize:run' ? { runId: string | null; status: string; summary: string | null }
-  : T extends 'wiki:page:list' ? readonly {
-      id: string
-      path: string
-      category: string
-      title: string
-      version: number
-      updatedAt: number
-    }[]
-  : T extends 'wiki:page:get' ? {
-      id: string
-      path: string
-      category: string
-      title: string
-      contentMd: string
-      version: number
-      updatedAt: number
-    } | null
-  : T extends 'wiki:page:update' ? { pageId: string; version: number }
-  : T extends 'wiki:page:delete' ? { success: boolean }
   : T extends 'wiki:search' ? {
       hits: readonly {
         sourceId: string
@@ -1868,30 +1710,6 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       topicSubtopic: string | null
     }
   : T extends 'wiki:source:open' ? { success: true }
-  : T extends 'wiki:link:backlinks' ? readonly {
-      linkId: string
-      sourcePageId: string
-      sourceTitle: string
-      sourcePath: string
-      anchorText: string
-      isResolved: boolean
-    }[]
-  : T extends 'wiki:link:unresolved' ? readonly {
-      id: string
-      sourcePageId: string
-      anchorText: string
-      createdAt: number
-    }[]
-  : T extends 'wiki:page:revisions' ? readonly {
-      id: string
-      version: number
-      title: string
-      editor: string
-      sourceRef: string | null
-      createdAt: number
-      contentMd: string
-    }[]
-  : T extends 'wiki:page:rollback' ? { pageId: string; version: number }
   : T extends 'wiki:cleanup:scan' ? readonly {
       sourceId: string
       title: string
@@ -1910,41 +1728,14 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:link:add' ? { sourceId: string; title: string }
   : T extends 'wiki:link:save' ? { sourceId: string; savedPath: string; title: string }
   : T extends 'wiki:vault:ensure-layout' ? { vaultRoot: string; synced: number; createdDirs?: readonly string[] }
-  : T extends 'wiki:attach:list' ? readonly {
-      id: string
-      pageId: string
-      sourceId: string | null
-      filePath: string
-      mediaType: string
-      displayName: string
-      createdAt: number
-    }[]
-  : T extends 'wiki:attach:add' ? {
-      id: string
-      pageId: string
-      sourceId: string | null
-      filePath: string
-      mediaType: string
-      displayName: string
-      createdAt: number
-    }
-  : T extends 'wiki:attach:remove' ? { success: boolean }
   : T extends 'wiki:export' ? {
       exported: number
       failed: readonly { path: string; error: string }[]
     }
-  : T extends 'wiki:concept:scan' ? readonly {
-      name: string
-      type: 'concept' | 'entity'
-      evidenceSourceIds: readonly string[]
-      suggestedContentMd: string
-    }[]
-  : T extends 'wiki:concept:confirm' ? { pageId: string; path: string }
-  : T extends 'wiki:concept:reject' ? { success: boolean }
   : T extends 'wiki:graph:data' ? {
       nodes: readonly {
         id: string
-        kind: 'page' | 'entity' | 'category' | 'subtopic' | 'source'
+        kind: 'entity' | 'category' | 'subtopic' | 'source'
         title: string
         path?: string
         category?: string
@@ -1956,7 +1747,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       }[]
       edges: readonly {
         id: string
-        kind: 'wikilink' | 'relation' | 'belongs_to' | 'sibling' | 'mentioned_in'
+        kind: 'relation' | 'belongs_to' | 'sibling' | 'mentioned_in'
         source: string
         target: string
         label: string
@@ -1965,15 +1756,6 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       }[]
       truncated: boolean
     }
-  : T extends 'wiki:status:scan' ? readonly {
-      pageId: string
-      title: string
-      path: string
-      suggestedStatus: string
-      reason: string
-    }[]
-  : T extends 'wiki:status:confirm' ? { success: boolean }
-  : T extends 'wiki:ero:bootstrap' ? { entities: number; relations: number }
   : T extends 'wiki:ero:list' ? {
       entities: readonly unknown[]
       relations: readonly unknown[]
@@ -1986,16 +1768,13 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       }[]
     }
   : T extends 'wiki:ero:extract' ? {
-      // target='pages' 旧路径字段
-      pagesProcessed?: number
-      // target='sources'（默认）路径字段
-      sourcesScanned?: number
-      sourcesSkipped?: number
-      sourcesFailed?: number
+      sourcesScanned: number
+      sourcesSkipped: number
+      sourcesFailed: number
       entitiesUpserted: number
       relationsUpserted: number
       observationsAdded: number
-      errors: readonly (string | { sourceId: string; title: string; message: string })[]
+      errors: readonly { sourceId: string; title: string; message: string }[]
     }
   : T extends 'wiki:ero:entity-sources' ? {
       sources: readonly {
@@ -2007,21 +1786,8 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
         mediaType: string
       }[]
     }
-  : T extends 'wiki:search:hybrid' ? {
-      hits: readonly {
-        pageId: string
-        path: string
-        category: string
-        title: string
-        snippet: string
-        updatedAt: number
-        mode: string
-      }[]
-      degradeReason: string | null
-      mode: string
-      backend?: string
-    }
-  : T extends 'wiki:vector:rebuild' ? { rebuiltCount: number; backend?: string; notice?: string | null }
+  : T extends 'wiki:vector:rebuild' ? { rebuiltCount: number; summarized: number; backend?: string; notice?: string | null }
+  : T extends 'wiki:source:summary' ? { summary: string | null; level: 'heuristic' | 'extractive' | 'llm' | null }
   : T extends 'tools:list' ? readonly {
       name: string
       label: string

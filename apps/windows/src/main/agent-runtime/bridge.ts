@@ -74,12 +74,11 @@ import {
   WikiReclassifier,
   WikiContentExtractor,
   WikiCleanupScanner,
-  WikiConceptCandidateScanner,
   WikiExporter,
   type WikiExporterDeps,
   WikiEroRepo,
   WikiEroExtractor,
-  type WikiEroExtractResult,
+  type WikiEroExtractSourceResult,
 } from '@mtbot/agent-runtime'
 import { McpManager, type McpServerRuntimeStatus } from './mcp-manager'
 import type { McpServerEntry } from '../config/mcp-config'
@@ -130,9 +129,9 @@ const LOCAL_USER_ID = 'local-user'
 /**
  * 将 Wiki ERO 抽取结果格式化为 cron 运行摘要。
  */
-function formatWikiEroExtractSummary(result: WikiEroExtractResult): string {
+function formatWikiEroExtractSummary(result: WikiEroExtractSourceResult): string {
   const errPart = result.errors.length > 0 ? ` errors:${result.errors.length}` : ''
-  return `pages:${result.pagesProcessed} entities:${result.entitiesUpserted} relations:${result.relationsUpserted} obs:${result.observationsAdded}${errPart}`
+  return `scanned:${result.sourcesScanned} skipped:${result.sourcesSkipped} failed:${result.sourcesFailed} entities:${result.entitiesUpserted} relations:${result.relationsUpserted} obs:${result.observationsAdded}${errPart}`
 }
 
 export type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot }
@@ -173,7 +172,6 @@ export class AgentRuntimeBridge {
   private _wikiOrganizer: WikiOrganizer | null = null
   private _wikiReclassifier: WikiReclassifier | null = null
   private _wikiCleanupScanner: WikiCleanupScanner | null = null
-  private _wikiConceptCandidateScanner: WikiConceptCandidateScanner | null = null
   private _conversationRepo: ConversationRepo | null = null
   private _taskRepo: TaskRepo | null = null
   private _auditRepo: AuditRepo | null = null
@@ -356,9 +354,6 @@ export class AgentRuntimeBridge {
   get wikiReclassifier(): WikiReclassifier { return this.requireInitialized(this._wikiReclassifier, 'wikiReclassifier') }
   get wikiOrganizeQueue(): WikiOrganizeQueue { return this.requireInitialized(this._wikiOrganizeQueue, 'wikiOrganizeQueue') }
   get wikiCleanupScanner(): WikiCleanupScanner { return this.requireInitialized(this._wikiCleanupScanner, 'wikiCleanupScanner') }
-  get wikiConceptCandidateScanner(): WikiConceptCandidateScanner {
-    return this.requireInitialized(this._wikiConceptCandidateScanner, 'wikiConceptCandidateScanner')
-  }
 
   /** 清理扫描判断「来源失效」规则用：同步检查文件是否存在 */
   fileExistsForWiki(filePath: string): boolean {
@@ -377,9 +372,6 @@ export class AgentRuntimeBridge {
       },
       writeFile: async (filePath, content) => {
         await fs.promises.writeFile(filePath, content, 'utf-8')
-      },
-      copyFile: async (src, dest) => {
-        await fs.promises.copyFile(src, dest)
       },
       joinPath: (...segments) => path.join(...segments),
     }
@@ -608,7 +600,9 @@ export class AgentRuntimeBridge {
       {
         onSourceCreated: (source) => {
           try {
-            syncWikiSourceToVault(this._wikiRepo!, source)
+            // organizer 已在建 source 后同步补完零成本摘要，这里读到的是最新行
+            const latest = this._wikiRepo!.findSourceById(source.id) ?? source
+            syncWikiSourceToVault(this._wikiRepo!, latest)
           } catch (err) {
             log.warn('[wiki-vault] organizer sync failed:', err)
           }
@@ -621,7 +615,6 @@ export class AgentRuntimeBridge {
       (prompt: string) => this.callLLM(prompt, undefined, 'memory_extract'),
     )
     this._wikiCleanupScanner = new WikiCleanupScanner(this._wikiRepo)
-    this._wikiConceptCandidateScanner = new WikiConceptCandidateScanner(this._wikiRepo)
 
     // 中断感知：清理流式残留前记录哪些对话被中断
     try {
@@ -800,7 +793,7 @@ export class AgentRuntimeBridge {
                   ero,
                   (prompt) => this.callLLM(prompt, undefined, 'wiki_ero_extract'),
                 )
-                const result = await extractor.extractRecent('assistant', LOCAL_USER_ID)
+                const result = await extractor.extractFromSources('assistant', LOCAL_USER_ID, {})
                 return formatWikiEroExtractSummary(result)
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err)

@@ -9,18 +9,15 @@ import fs from 'node:fs'
 import { shell } from 'electron'
 import {
   WikiGraphBuilder,
-  WikiPageStatusScanner,
   WikiEroRepo,
-  bootstrapEroFromWikilinks,
-  WikiVectorIndex,
-  mergeHybridRanks,
-  WikiEroExtractor,
+  WikiSourceVectorIndex,
+  mergeSourceHybridRanks,
+  WikiSummarizer,
   PARKING_CATEGORY,
   resolveAgentFilePath,
   sanitizeFilenameSegment,
   validateTopicAssignment,
-  WikiSourceVectorIndex,
-  mergeSourceHybridRanks,
+  WikiEroExtractor,
   WikiFolderImporter,
   type WikiFolderImporterFs,
   type WikiInboxItemType,
@@ -353,65 +350,7 @@ export async function handleWikiOrganizeRun(
   return { runId: run.id, status: run.status, summary: run.result_summary ?? null }
 }
 
-export function handleWikiPageList(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:page:list' }>,
-): unknown {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const pages = bridge.wikiRepo.listPages(agentId, LOCAL_USER_ID, command.category as never)
-  return pages.map((p) => ({
-    id: p.id,
-    path: p.path,
-    category: p.category,
-    title: p.title,
-    version: p.version,
-    updatedAt: new Date(p.updated_at).getTime(),
-  }))
-}
-
-export function handleWikiPageGet(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:page:get' }>,
-): unknown {
-  const page = bridge.wikiRepo.findPageById(command.pageId)
-  // 抛错而非返回 null：null 在 CLI 里是 exit 0，调用方分不清「页面不存在」和「读到空页」
-  if (!page) throw new Error(`页面不存在: ${command.pageId}`)
-  return {
-    id: page.id,
-    path: page.path,
-    category: page.category,
-    title: page.title,
-    contentMd: page.content_md,
-    version: page.version,
-    updatedAt: new Date(page.updated_at).getTime(),
-  }
-}
-
-export function handleWikiPageUpdate(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:page:update' }>,
-): { pageId: string; version: number } {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const page = bridge.wikiRepo.savePage({
-    agentId,
-    userId: LOCAL_USER_ID,
-    path: command.path,
-    title: command.title,
-    contentMd: command.contentMd,
-    editor: 'user',
-  })
-  return { pageId: page.id, version: page.version }
-}
-
-export function handleWikiPageDelete(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:page:delete' }>,
-): { success: boolean } {
-  bridge.wikiRepo.deletePage(command.pageId)
-  return { success: true }
-}
-
-/** 主搜索改为资料层：命中原始文件而非旧汇总页。历史页面搜索见 wiki:search:hybrid。 */
+/** 主搜索改为资料层：命中原始文件而非旧汇总页。历史页面搜索已随 P3 删除。 */
 export async function handleWikiSearch(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:search' }>,
@@ -676,8 +615,14 @@ export function handleWikiSourceCreateNote(
   })
   repo.updateSourceTopic(command.agentId, userId, source.id, command.category, command.subtopic)
   repo.indexSource(source.id)
-  const synced = syncWikiSourceToVault(repo, repo.findSourceById(source.id, command.agentId, userId)!)
-
+  // 笔记文件已写在 vaultRoot 下：vault 同步必须用同一个根，否则测试注入的 notesDir
+  // 会被忽略，同步阶段改用生产环境的真实 workspace/wiki 目录，把临时文件错当成正式落点。
+  const synced = syncWikiSourceToVault(
+    repo,
+    repo.findSourceById(source.id, command.agentId, userId)!,
+    undefined,
+    vaultRoot,
+  )
   return { sourceId: synced.id, sourcePath: synced.source_path ?? filePath, title }
 }
 
@@ -777,6 +722,8 @@ function mapSourceListItem(source: NonNullable<ReturnType<AgentRuntimeBridge['wi
     textLength: extracted.length,
     updatedAt: new Date(source.last_used ?? source.created_at).getTime(),
     useCount: source.use_count,
+    summary: source.summary,
+    extractedTextPreview: extracted.slice(0, 60),
   }
 }
 
@@ -945,73 +892,6 @@ export function handleWikiVaultEnsureLayout(
   }
 }
 
-// ============================================================
-// Wiki 知识库命令（P1）
-// ============================================================
-
-/** 反链/修订/回滚都以 pageId 为入口，从页面反查归属，不要求调用方额外传 agentId/userId */
-function requirePage(bridge: AgentRuntimeBridge, pageId: string) {
-  const page = bridge.wikiRepo.findPageById(pageId)
-  if (!page) throw new Error(`页面不存在: ${pageId}`)
-  return page
-}
-
-export function handleWikiLinkBacklinks(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:link:backlinks' }>,
-): unknown {
-  const page = requirePage(bridge, command.pageId)
-  const backlinks = bridge.wikiRepo.listBacklinks(page.agent_id, page.user_id, page.id)
-  return backlinks.map((b) => ({
-    linkId: b.linkId,
-    sourcePageId: b.sourcePageId,
-    sourceTitle: b.sourceTitle,
-    sourcePath: b.sourcePath,
-    anchorText: b.anchorText,
-    isResolved: b.isResolved,
-  }))
-}
-
-export function handleWikiLinkUnresolved(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:link:unresolved' }>,
-): unknown {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const links = bridge.wikiRepo.listUnresolvedLinks(agentId, LOCAL_USER_ID)
-  return links.map((l) => ({
-    id: l.id,
-    sourcePageId: l.source_page_id,
-    anchorText: l.anchor_text,
-    createdAt: new Date(l.created_at).getTime(),
-  }))
-}
-
-export function handleWikiPageRevisions(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:page:revisions' }>,
-): unknown {
-  requirePage(bridge, command.pageId)
-  const revisions = bridge.wikiRepo.listRevisions(command.pageId)
-  return revisions.map((r) => ({
-    id: r.id,
-    version: r.version,
-    title: r.title,
-    editor: r.editor,
-    sourceRef: r.source_ref,
-    createdAt: new Date(r.created_at).getTime(),
-    contentMd: r.content_md,
-  }))
-}
-
-export function handleWikiPageRollback(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:page:rollback' }>,
-): { pageId: string; version: number } {
-  const page = requirePage(bridge, command.pageId)
-  const rolledBack = bridge.wikiRepo.rollbackPage(page.agent_id, page.user_id, page.id, command.targetVersion)
-  return { pageId: rolledBack.id, version: rolledBack.version }
-}
-
 /** 把资料退回未分类。撤销误分类用，不做主题树校验（清空不是一次归属） */
 export function handleWikiSourceClearTopic(
   bridge: AgentRuntimeBridge,
@@ -1088,117 +968,26 @@ export function handleWikiSourceDelete(
   return { deleted }
 }
 
-export function handleWikiAttachList(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:attach:list' }>,
-): unknown {
-  requirePage(bridge, command.pageId)
-  const attachments = bridge.wikiRepo.listAttachments(command.pageId)
-  return attachments.map((a) => ({
-    id: a.id,
-    pageId: a.page_id,
-    sourceId: a.source_id,
-    filePath: a.file_path,
-    mediaType: a.media_type,
-    displayName: a.display_name,
-    createdAt: new Date(a.created_at).getTime(),
-  }))
-}
-
-export function handleWikiAttachAdd(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:attach:add' }>,
-): unknown {
-  requirePage(bridge, command.pageId)
-  // 附件路径来自调用方，必须校验落在工作区内：现在没有命令能打开附件，
-  // 但存进库的路径迟早会被某个入口拿去用，那时校验就来不及了。
-  const filePath = resolveAgentFilePath(command.filePath, bridge.getCwd())
-  const attachment = bridge.wikiRepo.attachFile({
-    pageId: command.pageId,
-    filePath,
-    mediaType: command.mediaType,
-    displayName: command.displayName,
-    sourceId: command.sourceId,
-  })
-  return {
-    id: attachment.id,
-    pageId: attachment.page_id,
-    sourceId: attachment.source_id,
-    filePath: attachment.file_path,
-    mediaType: attachment.media_type,
-    displayName: attachment.display_name,
-    createdAt: new Date(attachment.created_at).getTime(),
-  }
-}
-
-export function handleWikiAttachRemove(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:attach:remove' }>,
-): { success: boolean } {
-  return { success: bridge.wikiRepo.detachFile(command.attachmentId) }
-}
-
+/**
+ * 导出资料清单：每条资料一个 md 文件（标题 + 摘要 + 原文/引用链接）。
+ * 历史页面导出已随 P3 删除，导出维度统一切到资料层。
+ */
 export async function handleWikiExport(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:export' }>,
 ): Promise<{ exported: number; failed: readonly { path: string; error: string }[] }> {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const pages = bridge.wikiRepo.listPages(agentId, LOCAL_USER_ID)
+  const sources = bridge.wikiRepo.listSources(agentId, LOCAL_USER_ID)
   const exporter = bridge.createWikiExporter()
 
-  const context: { sources?: readonly ReturnType<typeof bridge.wikiRepo.listSources>[number][] } = {}
-  if (command.includeSources) {
-    context.sources = bridge.wikiRepo.listSources(agentId, LOCAL_USER_ID)
-  }
-
-  const result = await exporter.exportPages(
-    command.targetDir,
-    pages,
-    { includeSources: command.includeSources, includeAttachments: command.includeAttachments },
-    context,
-  )
+  const result = await exporter.exportSources(command.targetDir, sources)
   return result
-}
-
-export async function handleWikiConceptScan(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:concept:scan' }>,
-): Promise<unknown> {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const allSources = bridge.wikiRepo.listSources(agentId, LOCAL_USER_ID)
-  const sources = allSources.slice(0, command.limit ?? 30)
-  const candidates = await bridge.wikiConceptCandidateScanner.scan(agentId, LOCAL_USER_ID, sources, (prompt) =>
-    bridge.callLLM(prompt, undefined, 'memory_extract'),
-  )
-  return candidates.map((c) => ({
-    name: c.name,
-    type: c.type,
-    evidenceSourceIds: c.evidenceSourceIds,
-    suggestedContentMd: c.suggestedContentMd,
-  }))
-}
-
-export function handleWikiConceptConfirm(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:concept:confirm' }>,
-): { pageId: string; path: string } {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const page = bridge.wikiConceptCandidateScanner.confirm(agentId, LOCAL_USER_ID, command.name, command.conceptType)
-  return { pageId: page.id, path: page.path }
-}
-
-export function handleWikiConceptReject(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:concept:reject' }>,
-): { success: boolean } {
-  bridge.wikiConceptCandidateScanner.reject(command.name, command.conceptType)
-  return { success: true }
 }
 
 /**
  * 三期混合知识子图：结构层（category/subtopic/source + belongs_to/sibling）+
- * 实体层（entity + relation/mentioned_in）+ 历史层（page + wikilink）。
- * 参数 centerPageId、category、subtopic 全空时缺省到主题树第一个大类。
+ * 实体层（entity + relation/mentioned_in）。centerPageId/历史层已随 P3 删除，
+ * category 缺省到主题树第一个大类。
  */
 export function handleWikiGraphData(
   bridge: AgentRuntimeBridge,
@@ -1207,35 +996,22 @@ export function handleWikiGraphData(
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
   const ero = new WikiEroRepo(bridge.wikiRepo.database)
 
-  let centerPageId = command.centerPageId
   let category = command.category
   const subtopic = command.subtopic
 
-  if (!centerPageId && !category) {
+  if (!category) {
     const tree = bridge.wikiRepo.getOrCreateTopicTree()
-    category = tree.categories[0]?.name ?? '做事记录'
+    category = tree.categories[0]?.name ?? '工作'
   }
 
   const builder = new WikiGraphBuilder(bridge.wikiRepo)
   return builder.buildSubgraph(agentId, LOCAL_USER_ID, {
-    centerPageId,
     category,
     subtopic,
-    radius: command.radius,
     limit: command.limit,
     layers: command.layers,
     eroRepo: ero,
   })
-}
-
-/** 从双链引导 ERO 实体与关系 */
-export function handleWikiEroBootstrap(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:ero:bootstrap' }>,
-): { entities: number; relations: number } {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const ero = new WikiEroRepo(bridge.wikiRepo.database)
-  return bootstrapEroFromWikilinks(bridge.wikiRepo.database, bridge.wikiRepo, ero, agentId, LOCAL_USER_ID)
 }
 
 export function handleWikiEroList(
@@ -1264,8 +1040,9 @@ export function handleWikiEroList(
 }
 
 /**
- * AI 抽取知识图谱三元组。默认 target='sources'：按目录/id 抽取资料，写 source_id，
- * 用 content_hash 游标增量跳过未变正文。target='pages' 保持旧行为（服务历史页面图层）。
+ * AI 抽取知识图谱三元组：按目录/id 抽取资料，写 source_id，
+ * 用 content_hash 游标增量跳过未变正文。旧的 target='pages'（历史页面图层）
+ * 已随 P3 删除。
  */
 export async function handleWikiEroExtract(
   bridge: AgentRuntimeBridge,
@@ -1278,13 +1055,6 @@ export async function handleWikiEroExtract(
     ero,
     (prompt) => bridge.callLLM(prompt, undefined, 'wiki_ero_extract'),
   )
-
-  if (command.target === 'pages') {
-    return extractor.extractRecent(agentId, LOCAL_USER_ID, {
-      maxPages: command.maxPages,
-      maxCharsPerPage: command.maxCharsPerPage,
-    })
-  }
 
   return extractor.extractFromSources(agentId, LOCAL_USER_ID, {
     category: command.category,
@@ -1316,122 +1086,42 @@ export function handleWikiEroEntitySources(
 }
 
 /**
- * 混合检索：FTS + 可选向量 RRF；向量关闭/失败时 degradeReason 显式返回。
+ * 全量重建资料层向量派生表：先补零成本摘要（不调 LLM），再按最新摘要重建向量语料。
+ * 页面向量重建已随 P3 删除。
  */
-export async function handleWikiSearchHybrid(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:search:hybrid' }>,
-): Promise<unknown> {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const limit = command.limit ?? 10
-  const ftsHits = bridge.wikiRepo.search(agentId, LOCAL_USER_ID, command.keyword, limit)
-  const ftsIds = ftsHits.map((h) => h.page.id)
-  const pageById = new Map(ftsHits.map((h) => [h.page.id, h.page]))
-
-  let vectorIds: string[] = []
-  let degradeReason: string | null = null
-  let backend = 'none'
-
-  if (command.enableVector === false) {
-    degradeReason = '向量检索已关闭，仅全文检索'
-  } else {
-    try {
-      const host = await bridge.resolveWikiEmbedder()
-      backend = host.backend
-      if (host.notice && host.backend === 'bigram-hash') {
-        degradeReason = host.notice
-      }
-      const index = new WikiVectorIndex(bridge.wikiRepo.database, host.embedder)
-      for (const hit of ftsHits) {
-        await index.upsertPage(hit.page)
-      }
-      if (ftsHits.length === 0) {
-        const pages = bridge.wikiRepo.listPages(agentId, LOCAL_USER_ID).slice(0, 200)
-        for (const p of pages) {
-          await index.upsertPage(p)
-          pageById.set(p.id, p)
-        }
-      }
-      const vecHits = await index.searchSimilar(agentId, LOCAL_USER_ID, command.keyword, limit)
-      vectorIds = vecHits.map((h) => h.pageId)
-      for (const id of vectorIds) {
-        if (!pageById.has(id)) {
-          const p = bridge.wikiRepo.findPageById(id)
-          if (p) pageById.set(id, p)
-        }
-      }
-    } catch (err) {
-      degradeReason = `向量检索失败，已降级全文：${err instanceof Error ? err.message : String(err)}`
-    }
-  }
-
-  const merged = mergeHybridRanks({ ftsIds, vectorIds, pageById })
-  const hits = merged.ids.slice(0, limit).map((id) => {
-    const page = pageById.get(id)!
-    return {
-      pageId: page.id,
-      path: page.path,
-      category: page.category,
-      title: page.title,
-      snippet: page.content_md.slice(0, 200),
-      updatedAt: new Date(page.updated_at).getTime(),
-      mode: merged.mode,
-    }
-  })
-
-  return { hits, degradeReason, mode: merged.mode, backend }
-}
-
 export async function handleWikiVectorRebuild(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:vector:rebuild' }>,
-): Promise<{ rebuiltCount: number; backend: string; notice: string | null }> {
+): Promise<{ rebuiltCount: number; summarized: number; backend: string; notice: string | null }> {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
   const host = await bridge.resolveWikiEmbedder(true)
 
-  // 页面向量（历史页面的混合检索）
-  const pages = bridge.wikiRepo.listPages(agentId, LOCAL_USER_ID)
-  const pageIndex = new WikiVectorIndex(bridge.wikiRepo.database, host.embedder)
-  const pageCount = await pageIndex.rebuild(pages)
+  const summarizer = new WikiSummarizer(bridge.wikiRepo, null)
+  let summarized = 0
+  for (const s of bridge.wikiRepo.listSources(agentId, LOCAL_USER_ID)) {
+    const result = await summarizer.getOrBuildSummary(s, { allowLlm: false })
+    if (result) summarized += 1
+  }
 
-  // 资料向量（wiki:search 用）
   const sources = bridge.wikiRepo.listSources(agentId, LOCAL_USER_ID)
   const sourceIndex = new WikiSourceVectorIndex(bridge.wikiRepo.database, host.embedder)
   const sourceCount = await sourceIndex.rebuild(sources)
 
-  return { rebuiltCount: pageCount + sourceCount, backend: host.backend, notice: host.notice }
+  return { rebuiltCount: sourceCount, summarized, backend: host.backend, notice: host.notice }
 }
 
-export function handleWikiStatusScan(
+/** 供 P5 编目/P7 重命名索取摘要；allowLlm=true 时长正文可能触发一次 LLM 调用 */
+export async function handleWikiSourceSummary(
   bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:status:scan' }>,
-): unknown {
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:source:summary' }>,
+): Promise<{ summary: string | null; level: 'heuristic' | 'extractive' | 'llm' | null }> {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const scanner = new WikiPageStatusScanner(bridge.wikiRepo)
-  const candidates = scanner.scan(agentId, LOCAL_USER_ID, {
-    staleDays: command.staleDays,
-    fileExists: (p) => bridge.fileExistsForWiki(p),
-  })
-  return candidates.map((c) => ({
-    pageId: c.pageId,
-    title: c.title,
-    path: c.path,
-    suggestedStatus: c.suggestedStatus,
-    reason: c.reason,
-  }))
-}
+  const source = bridge.wikiRepo.findSourceById(command.sourceId, agentId, LOCAL_USER_ID)
+  if (!source) throw new Error(`资料不存在: ${command.sourceId}`)
 
-export function handleWikiStatusConfirm(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:status:confirm' }>,
-): { success: boolean } {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const scanner = new WikiPageStatusScanner(bridge.wikiRepo)
-  if (command.action === 'reject') {
-    scanner.reject(agentId, LOCAL_USER_ID, command.pageId)
-  } else {
-    if (!command.status) throw new Error('confirm 需要 status')
-    scanner.confirm(agentId, LOCAL_USER_ID, command.pageId, command.status)
-  }
-  return { success: true }
+  const summarizer = new WikiSummarizer(bridge.wikiRepo, (prompt) =>
+    bridge.callLLM(prompt, undefined, 'memory_extract'),
+  )
+  const result = await summarizer.getOrBuildSummary(source, { allowLlm: command.allowLlm ?? false })
+  return { summary: result?.summary ?? null, level: result?.level ?? null }
 }

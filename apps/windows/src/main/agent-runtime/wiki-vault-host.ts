@@ -42,9 +42,13 @@ export function createNodeWikiVaultFs(): WikiVaultFs {
 /**
  * 构造 vault 同步依赖（vaultRoot 与 workspaceRoot 由当前工作空间解析）。
  */
-export function createWikiVaultSyncDeps(workspaceRoot?: string): WikiVaultSyncDeps {
-  const workspace = path.resolve(workspaceRoot ?? resolveActiveWorkspaceDir())
-  const vaultRoot = resolveWikiDir(workspace)
+export function createWikiVaultSyncDeps(workspaceRoot?: string, vaultRootOverride?: string): WikiVaultSyncDeps {
+  // vaultRootOverride 供测试注入隔离的临时目录，跳过默认的真实用户 workspace/wiki 路径。
+  // 未显式传 workspaceRoot 时让它跟 vaultRoot 重合，这样 toRelPath/toAbsPath 的相对路径
+  // 计算落在同一棵临时目录树内，不会因为落回真实 workspace 而产生跨目录的 ".." 相对路径
+  // 或误把测试文件解析回生产环境路径。
+  const workspace = path.resolve(workspaceRoot ?? vaultRootOverride ?? resolveActiveWorkspaceDir())
+  const vaultRoot = vaultRootOverride ? path.resolve(vaultRootOverride) : resolveWikiDir(workspace)
   const fsAdapter = createNodeWikiVaultFs()
   return {
     vaultRoot,
@@ -80,8 +84,9 @@ export function syncWikiSourceToVault(
   repo: WikiRepo,
   source: WikiSource,
   workspaceRoot?: string,
+  vaultRootOverride?: string,
 ): WikiSource {
-  const deps = createWikiVaultSyncDeps(workspaceRoot)
+  const deps = createWikiVaultSyncDeps(workspaceRoot, vaultRootOverride)
   const synced = syncSourceToVault(deps, source)
   if (!synced) return source
   return repo.updateSourcePath(source.agent_id, source.user_id, source.id, synced.relPath)

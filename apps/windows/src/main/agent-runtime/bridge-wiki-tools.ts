@@ -47,12 +47,19 @@ export function registerWikiTools(
       const repo = deps.getWikiRepo()
       if (!repo) return jsonToolResult({ ok: false, message: 'wiki repo not initialized' })
       const agentId = resolveAgentId(toolCallId)
-      const counts = repo.countByCategory(agentId, LOCAL_USER_ID)
-      const recent = repo.listPages(agentId, LOCAL_USER_ID).slice(0, 10)
+      const sources = repo.listSources(agentId, LOCAL_USER_ID)
+      const counts: Record<string, number> = {}
+      for (const s of sources) {
+        if (!s.topic_category) continue
+        counts[s.topic_category] = (counts[s.topic_category] ?? 0) + 1
+      }
+      const recent = [...sources]
+        .sort((a, b) => (b.last_used ?? b.created_at).localeCompare(a.last_used ?? a.created_at))
+        .slice(0, 10)
       return jsonToolResult({
         ok: true,
         countsByCategory: counts,
-        recentPages: recent.map((p) => ({ path: p.path, title: p.title })),
+        recentSources: recent.map((s) => ({ title: s.title, category: s.topic_category, subtopic: s.topic_subtopic })),
       })
     },
   }
@@ -91,19 +98,6 @@ export function registerWikiTools(
       const path = String((rawParams as { path?: string }).path ?? '').trim()
       if (!path) return jsonToolResult({ ok: false, message: 'path is required' })
       const agentId = resolveAgentId(toolCallId)
-      const page = repo.findPageByPath(agentId, LOCAL_USER_ID, path)
-      if (page) {
-        repo.touchPage(page.id)
-        return jsonToolResult({
-          ok: true,
-          path: page.path,
-          title: page.title,
-          category: page.category,
-          content: page.content_md,
-        })
-      }
-      // wiki_search 命中的多是资料层（wiki_sources），其 sourcePath 不在 wiki_pages 里；
-      // 兜底按 source_path 反查，避免"搜到了但读不到"的契约不一致（真实测试报告发现的问题）。
       const source = repo.findSourceBySourcePath(agentId, LOCAL_USER_ID, path)
       if (!source) return jsonToolResult({ ok: false, message: `page not found: ${path}` })
       repo.touchSource(agentId, LOCAL_USER_ID, source.id)
