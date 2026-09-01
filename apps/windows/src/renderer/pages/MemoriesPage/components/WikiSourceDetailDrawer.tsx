@@ -91,7 +91,6 @@ const WikiWebPreviewFrame: React.FC<{ url: string; title: string }> = ({ url, ti
           </Button>
         </div>
       ) : null}
-      {/* @ts-expect-error webview 为 Electron 专有标签 */}
       <webview
         ref={webviewRef as React.RefObject<never>}
         src={url}

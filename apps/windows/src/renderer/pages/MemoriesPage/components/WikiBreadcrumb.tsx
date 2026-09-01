@@ -40,7 +40,14 @@ export const WikiBreadcrumb: React.FC<WikiBreadcrumbProps> = ({ items, suffix, o
                   {item.label}
                 </button>
               ) : (
-                <span className="wiki-breadcrumb-current" aria-current={isLast ? 'page' : undefined}>
+                <span
+                  className="wiki-breadcrumb-current"
+                  aria-current={isLast ? 'page' : undefined}
+                  // 面包屑激活时是主区唯一的标题来源，末级需要 heading 语义，
+                  // 否则无障碍工具与依赖 heading 角色定位标题的测试都找不到当前页标题。
+                  role={isLast ? 'heading' : undefined}
+                  aria-level={isLast ? 2 : undefined}
+                >
                   {item.label}
                   {isLast && suffix ? ` ${suffix}` : ''}
                 </span>

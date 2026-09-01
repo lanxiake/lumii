@@ -1,4 +1,5 @@
 import React, { ReactElement, useCallback, useEffect, useRef, useState } from 'react';
+import type { Ref } from 'react';
 import clsx from 'clsx';
 import styles from './Tooltip.module.css';
 
@@ -26,7 +27,7 @@ const Tooltip: React.FC<TooltipProps> = ({
 }) => {
   const [visible, setVisible] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const triggerRef = useRef<HTMLElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
 
   const showTooltip = useCallback(() => {
     if (disabled) return;
@@ -82,10 +83,26 @@ const Tooltip: React.FC<TooltipProps> = ({
     return {};
   };
 
+  // children 自带的 ref（如外部传入的 moreButtonRef）必须和内部 triggerRef 合并转发，
+  // 否则 cloneElement 直接覆盖会让外部 ref 永远拿不到 DOM 节点（анchor 检测失效、
+  // 外部点击误判为"点在锚点外"，菜单会在同一次点击里先关再开）。
+  const originalRef = (children as { ref?: Ref<HTMLElement> }).ref;
+  const mergedRef = useCallback(
+    (node: HTMLElement | null) => {
+      triggerRef.current = node;
+      if (typeof originalRef === 'function') {
+        originalRef(node);
+      } else if (originalRef && typeof originalRef === 'object') {
+        (originalRef as { current: HTMLElement | null }).current = node;
+      }
+    },
+    [originalRef],
+  );
+
   return (
     <span className={styles['tooltip-wrapper']}>
       {React.cloneElement(children, {
-        ref: triggerRef,
+        ref: mergedRef,
         ...getTriggerProps(),
       })}
       {visible && (
