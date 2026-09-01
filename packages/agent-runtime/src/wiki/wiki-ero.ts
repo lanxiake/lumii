@@ -6,9 +6,7 @@
  */
 
 import type { DatabaseAdapter } from "../storage/local-database.js";
-import { withTransaction } from "../storage/local-database.js";
 import { generateWikiId } from "./types.js";
-import type { WikiRepo } from "./wiki-repo.js";
 
 export type WikiEntityType = "person" | "project" | "tool" | "concept" | "other";
 
@@ -364,57 +362,4 @@ export class WikiEroRepo {
     if (entity?.source_id) ids.add(entity.source_id);
     return [...ids];
   }
-}
-
-/**
- * 从页面双链引导 ERO：页面标题作概念实体，出站已解析链接建 relates_to 边。
- * 不调用 LLM；用户可后续补充观察。
- */
-export function bootstrapEroFromWikilinks(
-  db: DatabaseAdapter,
-  wikiRepo: WikiRepo,
-  ero: WikiEroRepo,
-  agentId: string,
-  userId: string,
-): { readonly entities: number; readonly relations: number } {
-  return withTransaction(db, () => {
-    const pages = wikiRepo.listPages(agentId, userId);
-    let entities = 0;
-    let relations = 0;
-    const byPageId = new Map<string, ReturnType<WikiEroRepo["upsertEntity"]>>();
-
-    for (const page of pages) {
-      const entity = ero.upsertEntity({
-        agentId,
-        userId,
-        name: page.title,
-        entityType: page.category === "entities" ? "other" : "concept",
-        pageId: page.id,
-      });
-      byPageId.set(page.id, entity);
-      entities += 1;
-    }
-
-    for (const page of pages) {
-      const source = byPageId.get(page.id);
-      if (!source) continue;
-      for (const link of wikiRepo.listOutboundLinks(agentId, userId, page.id)) {
-        if (!link.is_resolved || !link.target_page_id) continue;
-        const target = byPageId.get(link.target_page_id);
-        if (!target) continue;
-        ero.upsertRelation({
-          agentId,
-          userId,
-          sourceEntityId: source.id,
-          targetEntityId: target.id,
-          relationType: "relates_to",
-          strength: 0.4,
-          sourcePageId: page.id,
-        });
-        relations += 1;
-      }
-    }
-
-    return { entities, relations };
-  });
 }

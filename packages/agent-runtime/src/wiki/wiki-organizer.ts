@@ -13,6 +13,7 @@ import type { WikiClassifyContext } from "./wiki-classify-context.js";
 import { WikiReclassifier } from "./wiki-reclassifier.js";
 import type { WikiContentExtractor } from "./wiki-content-extractor.js";
 import type { WikiRepo } from "./wiki-repo.js";
+import { WikiSummarizer } from "./wiki-summary.js";
 import type {
   WikiInboxItem,
   WikiInboxItemType,
@@ -41,12 +42,29 @@ function resolveExtractState(
 }
 
 export class WikiOrganizer {
+  private readonly summarizer: WikiSummarizer;
+
   constructor(
     private readonly repo: WikiRepo,
     private readonly callLLM: (prompt: string) => Promise<string>,
     private readonly extractor: WikiContentExtractor,
     private readonly hooks?: WikiOrganizerHooks,
-  ) {}
+  ) {
+    // 摄入时只跑零成本层（allowLlm=false），故不需要真的注入 LLM 调用。
+    this.summarizer = new WikiSummarizer(repo, null);
+  }
+
+  /**
+   * 落库后立即补零成本摘要（heuristic/extractive），再回调 onSourceCreated——
+   * 保证宿主同步 vault 时读到的已是带摘要的最新行。顺序很重要：先摘要后向量/vault，
+   * 否则向量语料与列表副标题都会短暂缺摘要。
+   */
+  private async finalizeCreatedSource(source: WikiSource): Promise<WikiSource> {
+    await this.summarizer.getOrBuildSummary(source, { allowLlm: false }).catch(() => null);
+    const updated = this.repo.findSourceById(source.id) ?? source;
+    this.hooks?.onSourceCreated?.(updated);
+    return updated;
+  }
 
   /**
    * 整理一批同类型待办条目。取件为空返回 null（无运行可言）。
@@ -201,7 +219,7 @@ export class WikiOrganizer {
 
         try {
           const source = this.repo.archiveInboxItem(item, result.category, result.subtopic);
-          this.hooks?.onSourceCreated?.(source);
+          await this.finalizeCreatedSource(source);
           totalOrganized += 1;
           allDetailItems.push({
             inboxId: item.id,
@@ -305,7 +323,7 @@ export class WikiOrganizer {
       const extract = extractById.get(item.id) ?? "none";
       try {
         const source = this.repo.fileInboxItemUnclassified(enrichedItem);
-        this.hooks?.onSourceCreated?.(source);
+        await this.finalizeCreatedSource(source);
         detailItems.push({
           inboxId: item.id,
           title: item.title,
@@ -379,7 +397,7 @@ export class WikiOrganizer {
       const extract = extractById.get(item.id) ?? "none";
       try {
         const source = this.repo.fileInboxItemUnclassified(enrichedItem);
-        this.hooks?.onSourceCreated?.(source);
+        await this.finalizeCreatedSource(source);
         detailItems.push({
           inboxId: item.id,
           title: item.title,
@@ -498,7 +516,7 @@ export class WikiOrganizer {
 
       try {
         const source = this.repo.archiveInboxItem(item, result.category, result.subtopic);
-        this.hooks?.onSourceCreated?.(source);
+        await this.finalizeCreatedSource(source);
         detailItems.push({
           inboxId: item.id,
           title: item.title,

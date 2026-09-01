@@ -1,17 +1,15 @@
 /**
- * Wiki 向量检索：可注入 embedder + 线性余弦 + RRF 与 FTS 融合
+ * Wiki 向量检索通用工具：embedder 接口、哈希、余弦、RRF、buffer 编解码
+ *
+ * 页面向量索引（WikiVectorIndex）随 P3 历史页面全链路删除一并移除
+ * （wiki_page_embeddings 表已在 V27 DROP）。本文件只保留资料层
+ * wiki-source-vector.ts 复用的通用工具函数。
  *
  * 设计：`docs/plans/记忆重构/2026-08-26-wiki-p2-implementation.md` §9.1
- * 默认可关闭；失败时降级全文检索并返回 degradeReason（无静默降级）。
- * 默认 embedder 为确定性 bigram 哈希向量（零模型依赖，供测试与离线）；
- * 宿主可注入 transformers.js / ONNX 等真实嵌入。
  */
 
-import type { DatabaseAdapter } from "../storage/local-database.js";
 import { tokenizeBigram } from "../memory/segmentation.js";
 import { wikiBigramJoin } from "./wiki-index.js";
-import type { WikiPage } from "./types.js";
-import { computeForgettingScore } from "./wiki-forgetting.js";
 
 export const DEFAULT_EMBED_MODEL_ID = "lumii-bigram-hash-v1";
 export const DEFAULT_EMBED_DIMS = 256;
@@ -100,160 +98,6 @@ export function reciprocalRankFusion(
     });
   }
   return scores;
-}
-
-export interface WikiHybridSearchHit {
-  readonly page: WikiPage;
-  readonly snippet: string;
-  readonly score: number;
-  readonly mode: "fts" | "vector" | "hybrid";
-}
-
-export interface WikiHybridSearchResult {
-  readonly hits: readonly WikiHybridSearchHit[];
-  /** 向量关闭或失败时的显式原因；null 表示向量参与成功 */
-  readonly degradeReason: string | null;
-}
-
-export class WikiVectorIndex {
-  constructor(
-    private readonly db: DatabaseAdapter,
-    private readonly embedder: WikiEmbedder | null,
-  ) {}
-
-  get enabled(): boolean {
-    return this.embedder !== null;
-  }
-
-  /** 为单页写入/更新向量；无 embedder 时空操作 */
-  async upsertPage(page: {
-    readonly id: string;
-    readonly agent_id: string;
-    readonly user_id: string;
-    readonly title: string;
-    readonly content_md: string;
-  }): Promise<void> {
-    if (!this.embedder) return;
-    const text = `${page.title}\n${page.content_md}`;
-    const contentHash = hashContent(text);
-    const existing = this.db
-      .prepare<{ content_hash: string; model_id: string }>(
-        "SELECT content_hash, model_id FROM wiki_page_embeddings WHERE page_id = ?",
-      )
-      .get(page.id);
-    if (
-      existing &&
-      existing.content_hash === contentHash &&
-      existing.model_id === this.embedder.modelId
-    ) {
-      return;
-    }
-    const vec = await this.embedder.embed(text);
-    const now = new Date().toISOString();
-    this.db
-      .prepare(
-        `INSERT INTO wiki_page_embeddings
-         (page_id, agent_id, user_id, model_id, dims, embedding, content_hash, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(page_id) DO UPDATE SET
-           model_id = excluded.model_id,
-           dims = excluded.dims,
-           embedding = excluded.embedding,
-           content_hash = excluded.content_hash,
-           updated_at = excluded.updated_at`,
-      )
-      .run(
-        page.id,
-        page.agent_id,
-        page.user_id,
-        this.embedder.modelId,
-        this.embedder.dims,
-        float32ToBuffer(vec),
-        contentHash,
-        now,
-      );
-  }
-
-  /** 全量重建向量派生表，返回写入条数 */
-  async rebuild(pages: readonly {
-    readonly id: string;
-    readonly agent_id: string;
-    readonly user_id: string;
-    readonly title: string;
-    readonly content_md: string;
-  }[]): Promise<number> {
-    if (!this.embedder) return 0;
-    this.db.prepare("DELETE FROM wiki_page_embeddings").run();
-    let n = 0;
-    for (const page of pages) {
-      await this.upsertPage(page);
-      n += 1;
-    }
-    return n;
-  }
-
-  /**
-   * 线性余弦检索（小库路径）。返回按相似度降序的 pageId。
-   */
-  async searchSimilar(
-    agentId: string,
-    userId: string,
-    query: string,
-    limit: number,
-  ): Promise<readonly { pageId: string; score: number }[]> {
-    if (!this.embedder) return [];
-    const q = await this.embedder.embed(query);
-    const rows = this.db
-      .prepare<{ page_id: string; embedding: Buffer; dims: number; model_id: string }>(
-        `SELECT page_id, embedding, dims, model_id FROM wiki_page_embeddings
-         WHERE agent_id = ? AND user_id = ? AND model_id = ?`,
-      )
-      .all(agentId, userId, this.embedder.modelId);
-
-    const scored = rows.map((row) => ({
-      pageId: row.page_id,
-      score: cosineSimilarity(q, bufferToFloat32(row.embedding)),
-    }));
-    scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, limit);
-  }
-}
-
-/**
- * 将 FTS 命中 id 列表与向量命中 id 列表做 RRF，再按遗忘分数微调排序键。
- */
-export function mergeHybridRanks(params: {
-  readonly ftsIds: readonly string[];
-  readonly vectorIds: readonly string[];
-  readonly pageById: ReadonlyMap<string, WikiPage>;
-  readonly forgettingBoost?: boolean;
-}): { readonly ids: string[]; readonly mode: "fts" | "vector" | "hybrid" } {
-  const lists: string[][] = [];
-  if (params.ftsIds.length > 0) lists.push([...params.ftsIds]);
-  if (params.vectorIds.length > 0) lists.push([...params.vectorIds]);
-  if (lists.length === 0) return { ids: [], mode: "fts" };
-
-  const rrf = reciprocalRankFusion(lists);
-  let mode: "fts" | "vector" | "hybrid" = "hybrid";
-  if (params.vectorIds.length === 0) mode = "fts";
-  else if (params.ftsIds.length === 0) mode = "vector";
-
-  const ids = [...rrf.entries()]
-    .map(([id, rrfScore]) => {
-      const page = params.pageById.get(id);
-      const forget = page && params.forgettingBoost !== false
-        ? computeForgettingScore({
-            lastUsedAt: page.last_used,
-            createdAt: page.created_at,
-            useCount: page.use_count,
-          })
-        : 0;
-      return { id, score: rrfScore + 0.05 * forget };
-    })
-    .sort((a, b) => b.score - a.score)
-    .map((x) => x.id);
-
-  return { ids, mode };
 }
 
 /** 导出供索引重建提示：bigram 列仍由 WikiIndexRepo 维护 */

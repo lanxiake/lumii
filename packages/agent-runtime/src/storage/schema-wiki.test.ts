@@ -5,23 +5,17 @@ import { describe, expect, it } from "vitest";
 import {
   createMigratedTestDb,
   createPreV26TestDb,
+  createPreV27TestDb,
   runMigration26,
+  runMigration27,
 } from "../__tests__/helpers/sqlite-test-db.js";
 import { SCHEMA_VERSION } from "./schema.js";
 
 describe("wiki schema V16", () => {
-  it("建出 7 张 wiki 表", () => {
+  it("建出非页面相关的 wiki 表", () => {
     const db = createMigratedTestDb();
 
-    const tables = [
-      "wiki_inbox",
-      "wiki_sources",
-      "wiki_pages",
-      "wiki_page_revisions",
-      "wiki_organize_runs",
-      "wiki_pages_fts",
-      "wiki_index_meta",
-    ];
+    const tables = ["wiki_inbox", "wiki_sources", "wiki_organize_runs", "wiki_index_meta"];
     for (const t of tables) {
       const row = db
         .prepare<{ name: string }>("SELECT name FROM sqlite_master WHERE name = ?")
@@ -33,8 +27,8 @@ describe("wiki schema V16", () => {
     db.close();
   });
 
-  it("wiki_pages 同归属同路径唯一约束生效", () => {
-    const db = createMigratedTestDb();
+  it("V27 之前：wiki_pages 同归属同路径唯一约束生效", () => {
+    const db = createPreV27TestDb();
 
     const insert = () =>
       db
@@ -49,8 +43,8 @@ describe("wiki schema V16", () => {
     db.close();
   });
 
-  it("wiki_page_revisions 级联删除随 wiki_pages 一并清除", () => {
-    const db = createMigratedTestDb();
+  it("V27 之前：wiki_page_revisions 级联删除随 wiki_pages 一并清除", () => {
+    const db = createPreV27TestDb();
     db.exec("PRAGMA foreign_keys=ON");
 
     db.prepare(
@@ -70,9 +64,9 @@ describe("wiki schema V16", () => {
   });
 });
 
-describe("wiki schema V18", () => {
-  it("建出 wiki_links 与 wiki_page_attachments 两张表", () => {
-    const db = createMigratedTestDb();
+describe("wiki schema V18（历史页面表已在 V27 删除，测试改用 pre-V27 库固定行为）", () => {
+  it("V27 之前：建出 wiki_links 与 wiki_page_attachments 两张表", () => {
+    const db = createPreV27TestDb();
 
     for (const t of ["wiki_links", "wiki_page_attachments"]) {
       const row = db
@@ -81,12 +75,11 @@ describe("wiki schema V18", () => {
       expect(row?.name, `表 ${t} 应存在`).toBe(t);
     }
 
-    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(18);
     db.close();
   });
 
-  it("wiki_pages 新增 status 列，默认值 active", () => {
-    const db = createMigratedTestDb();
+  it("V27 之前：wiki_pages 新增 status 列，默认值 active", () => {
+    const db = createPreV27TestDb();
 
     db.prepare(
       "INSERT INTO wiki_pages (id, agent_id, user_id, path, category, title, created_at, updated_at) VALUES ('p2', 'a', 'u', 'sources/z', 'sources', 'z', 'now', 'now')",
@@ -99,8 +92,8 @@ describe("wiki schema V18", () => {
     db.close();
   });
 
-  it("wiki_page_attachments 级联删除随 wiki_pages 一并清除", () => {
-    const db = createMigratedTestDb();
+  it("V27 之前：wiki_page_attachments 级联删除随 wiki_pages 一并清除", () => {
+    const db = createPreV27TestDb();
     db.exec("PRAGMA foreign_keys=ON");
 
     db.prepare(
@@ -162,15 +155,24 @@ describe("wiki schema V19", () => {
 });
 
 describe("wiki schema V20", () => {
-  it("建出 ERO 三表与 wiki_page_embeddings", () => {
+  it("建出 ERO 三表", () => {
     const db = createMigratedTestDb();
-    for (const t of ["wiki_entities", "wiki_observations", "wiki_relations", "wiki_page_embeddings"]) {
+    for (const t of ["wiki_entities", "wiki_observations", "wiki_relations"]) {
       const row = db
         .prepare<{ name: string }>("SELECT name FROM sqlite_master WHERE name = ?")
         .get(t);
       expect(row?.name, `表 ${t} 应存在`).toBe(t);
     }
     expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(20);
+    db.close();
+  });
+
+  it("V27 之前：建出 wiki_page_embeddings（历史页面向量派生表）", () => {
+    const db = createPreV27TestDb();
+    const row = db
+      .prepare<{ name: string }>("SELECT name FROM sqlite_master WHERE name = ?")
+      .get("wiki_page_embeddings");
+    expect(row?.name).toBe("wiki_page_embeddings");
     db.close();
   });
 });
@@ -358,6 +360,62 @@ describe("wiki schema V26", () => {
       { id: "s1", topic_category: null, topic_subtopic: null, legacy_subtopic: "目标规划方案" },
       { id: "s2", topic_category: null, topic_subtopic: null, legacy_subtopic: "整合长文" },
     ]);
+    db.close();
+  });
+});
+
+describe("wiki schema V27", () => {
+  const DROPPED_TABLES = [
+    "wiki_page_embeddings",
+    "wiki_page_attachments",
+    "wiki_pages_fts",
+    "wiki_links",
+    "wiki_page_revisions",
+    "wiki_pages",
+  ];
+
+  it("6 张历史页面表全部不存在", () => {
+    const db = createMigratedTestDb();
+    for (const t of DROPPED_TABLES) {
+      const row = db
+        .prepare<{ name: string }>("SELECT name FROM sqlite_master WHERE name = ?")
+        .get(t);
+      expect(row, `表 ${t} 应已删除`).toBeUndefined();
+    }
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(27);
+    db.close();
+  });
+
+  it("wiki_sources / wiki_source_embeddings 不受影响", () => {
+    const db = createPreV27TestDb();
+    db.prepare(
+      "INSERT INTO wiki_sources (id, agent_id, user_id, title, created_at) VALUES ('s1', 'a', 'u', 't1', 'now')",
+    ).run();
+    db.prepare(
+      `INSERT INTO wiki_source_embeddings (source_id, agent_id, user_id, model_id, dims, embedding, content_hash, updated_at)
+       VALUES ('s1', 'a', 'u', 'm1', 4, x'00000000', 'h1', 'now')`,
+    ).run();
+
+    const sourcesBefore = db.prepare<{ c: number }>("SELECT COUNT(*) as c FROM wiki_sources").get()?.c;
+    const embeddingsBefore = db
+      .prepare<{ c: number }>("SELECT COUNT(*) as c FROM wiki_source_embeddings")
+      .get()?.c;
+
+    runMigration27(db);
+
+    const sourcesAfter = db.prepare<{ c: number }>("SELECT COUNT(*) as c FROM wiki_sources").get()?.c;
+    const embeddingsAfter = db
+      .prepare<{ c: number }>("SELECT COUNT(*) as c FROM wiki_source_embeddings")
+      .get()?.c;
+    expect(sourcesAfter).toBe(sourcesBefore);
+    expect(embeddingsAfter).toBe(embeddingsBefore);
+
+    for (const t of DROPPED_TABLES) {
+      const row = db
+        .prepare<{ name: string }>("SELECT name FROM sqlite_master WHERE name = ?")
+        .get(t);
+      expect(row, `表 ${t} 应已删除`).toBeUndefined();
+    }
     db.close();
   });
 });

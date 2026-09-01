@@ -3,7 +3,7 @@
  */
 
 export { WikiRepo } from "./wiki-repo.js";
-export type { WikiSearchHit, WikiSourceSearchHit } from "./wiki-repo.js";
+export type { WikiSourceSearchHit } from "./wiki-repo.js";
 
 export { WikiCleanupScanner } from "./wiki-cleanup.js";
 export type {
@@ -13,9 +13,6 @@ export type {
 } from "./wiki-cleanup.js";
 
 export { serializeAttachmentReference, isAttachmentReferenceLine } from "./wiki-attachments.js";
-
-export { WikiConceptCandidateScanner, buildConceptScanPrompt } from "./wiki-concept-candidate.js";
-export type { WikiConceptType, WikiConceptCandidate } from "./wiki-concept-candidate.js";
 
 export { WikiGraphBuilder, subtopicNodeId, parseSubtopicNodeId } from "./wiki-graph.js";
 export type {
@@ -28,13 +25,6 @@ export type {
   WikiGraphLayer,
 } from "./wiki-graph.js";
 
-export { WikiPageStatusScanner } from "./wiki-page-status.js";
-export type {
-  WikiStatusScanReason,
-  WikiPageStatusCandidate,
-  WikiPageStatusScanOptions,
-} from "./wiki-page-status.js";
-
 export {
   computeForgettingScore,
   rankByForgettingScore,
@@ -43,7 +33,6 @@ export type { ForgettingScoreInput } from "./wiki-forgetting.js";
 
 export {
   WikiEroRepo,
-  bootstrapEroFromWikilinks,
   mergeRelationStrength,
 } from "./wiki-ero.js";
 export {
@@ -53,7 +42,7 @@ export {
   DEFAULT_ERO_EXTRACT_MAX_PAGES,
   DEFAULT_ERO_EXTRACT_MAX_CHARS,
 } from "./wiki-ero-extractor.js";
-export type { WikiEroExtractResult } from "./wiki-ero-extractor.js";
+export type { WikiEroExtractSourceScope, WikiEroExtractSourceResult } from "./wiki-ero-extractor.js";
 export type {
   WikiEntityType,
   WikiEntity,
@@ -62,11 +51,9 @@ export type {
 } from "./wiki-ero.js";
 
 export {
-  WikiVectorIndex,
   createBigramHashEmbedder,
   cosineSimilarity,
   reciprocalRankFusion,
-  mergeHybridRanks,
   hashContent,
   DEFAULT_EMBED_MODEL_ID,
   DEFAULT_EMBED_DIMS,
@@ -74,22 +61,32 @@ export {
 } from "./wiki-vector.js";
 export type {
   WikiEmbedder,
-  WikiHybridSearchHit,
-  WikiHybridSearchResult,
 } from "./wiki-vector.js";
 
-export { WikiSourceVectorIndex, mergeSourceHybridRanks } from "./wiki-source-vector.js";
+export { WikiSourceVectorIndex, buildVectorCorpus, mergeSourceHybridRanks, VECTOR_CORPUS_MAX_CHARS } from "./wiki-source-vector.js";
 
 export { WikiExporter, sanitizeFilenameSegment, isPathTraversalSafe } from "./wiki-exporter.js";
 export type {
   WikiExporterDeps,
-  WikiExportOptions,
   WikiExportResult,
   WikiExportFailure,
 } from "./wiki-exporter.js";
 
 export { WikiIndexRepo, wikiBigramJoin } from "./wiki-index.js";
 export type { WikiFtsHealth } from "./wiki-index.js";
+
+export {
+  buildHeuristicSummary,
+  buildExtractiveSummary,
+  buildSummaryPrompt,
+  WikiSummarizer,
+  SUMMARY_MAX_CHARS,
+  HEURISTIC_MAX_TEXT,
+  EXTRACTIVE_MAX_TEXT,
+  LLM_HEAD_CHARS,
+  LLM_TAIL_CHARS,
+} from "./wiki-summary.js";
+export type { SummaryResult, SummaryLevel } from "./wiki-summary.js";
 
 export {
   PARKING_CATEGORY,

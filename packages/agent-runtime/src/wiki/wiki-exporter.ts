@@ -1,28 +1,22 @@
 /**
- * WikiExporter — 按页面 path 结构批量导出为 Markdown
+ * WikiExporter — 按用途目录结构批量导出资料为 Markdown
  *
- * 设计：`docs/plans/记忆重构/2026-08-26-wiki-p1-implementation.md` Task 7 §9.1
+ * 设计：`docs/plans/记忆重构/2026-08-31-wiki-intelligent-vault-p3-remove-pages.md` Task 5
  * agent-runtime 不直接依赖 node:fs——文件系统操作通过 WikiExporterDeps 注入，
- * 宿主（apps/windows 主进程）负责实际写盘。逐页失败返回清单，不静默跳过。
- * `[[标题]]` 链接语法不转换、原样保留，兼容 Obsidian。
+ * 宿主（apps/windows 主进程）负责实际写盘。逐条失败返回清单，不静默跳过。
+ * 历史页面导出（exportPages）已随 P3 删除，导出维度统一切到资料层：
+ * 每条资料一个 md 文件，正文为「标题 + 摘要 + 原文/引用链接」。
  */
 
-import type { WikiPage, WikiSource } from "./types.js";
+import type { WikiSource } from "./types.js";
 
 export interface WikiExporterDeps {
   /** 递归创建目录（已存在不报错，同 fs.mkdir 的 recursive:true 语义） */
   readonly mkdir: (dirPath: string) => Promise<void>;
   /** 写入文本文件（覆盖已存在文件；调用方已保证目标路径不冲突） */
   readonly writeFile: (filePath: string, content: string) => Promise<void>;
-  /** 复制文件（供附件导出）；未提供时不导出附件文件 */
-  readonly copyFile?: (src: string, dest: string) => Promise<void>;
   /** 路径拼接（宿主按平台分隔符实现，agent-runtime 不依赖 node:path） */
   readonly joinPath: (...segments: string[]) => string;
-}
-
-export interface WikiExportOptions {
-  readonly includeSources?: boolean;
-  readonly includeAttachments?: boolean;
 }
 
 export interface WikiExportFailure {
@@ -58,68 +52,65 @@ export function isPathTraversalSafe(pathStr: string): boolean {
 }
 
 interface ManifestEntry {
-  readonly path: string;
   readonly title: string;
-  readonly version: number;
+  readonly category: string | null;
+  readonly subtopic: string | null;
+}
+
+/** 资料一条的导出正文：标题 + 摘要 + 原文/引用链接 */
+function buildSourceMarkdown(source: WikiSource): string {
+  const lines = [`# ${source.title}`, ""];
+  if (source.summary) {
+    lines.push(source.summary, "");
+  }
+  if (source.origin_url) {
+    lines.push(`原文链接: ${source.origin_url}`, "");
+  } else if (source.source_path) {
+    lines.push(`原始文件: ${source.source_path}`, "");
+  }
+  if (source.content_md) {
+    lines.push(source.content_md);
+  } else if (source.extracted_text) {
+    lines.push(source.extracted_text);
+  }
+  return lines.join("\n");
 }
 
 export class WikiExporter {
   constructor(private readonly deps: WikiExporterDeps) {}
 
   /**
-   * 导出页面列表到目标目录。按 path 结构建目录树，每页写为 `<title 安全化>.md`
-   * （用标题而非 path 末段命名文件，path 末段仅用于目录结构）。
+   * 导出资料清单到目标目录。按大类/小类分子目录，每条资料写为 `<标题 安全化>.md`。
    * 文件名冲突时追加序号，不覆盖已导出的同批次文件。
    */
-  async exportPages(
-    targetDir: string,
-    pages: readonly WikiPage[],
-    options: WikiExportOptions = {},
-    context?: { readonly sources?: readonly WikiSource[]; readonly attachmentsByPageId?: ReadonlyMap<string, readonly { filePath: string; displayName: string }[]> },
-  ): Promise<WikiExportResult> {
+  async exportSources(targetDir: string, sources: readonly WikiSource[]): Promise<WikiExportResult> {
     const failed: WikiExportFailure[] = [];
     const manifestEntries: ManifestEntry[] = [];
     const usedFilePaths = new Set<string>();
 
-    for (const page of pages) {
+    for (const source of sources) {
       try {
-        if (!isPathTraversalSafe(page.path)) {
-          throw new Error(`路径逃逸被拒绝: ${page.path}`);
-        }
-        const segments = page.path.split("/").map(sanitizeFilenameSegment);
-        const dirSegments = segments.slice(0, -1);
+        const dirSegments = [source.topic_category, source.topic_subtopic]
+          .filter((s): s is string => Boolean(s))
+          .map(sanitizeFilenameSegment);
         const dirPath = dirSegments.length > 0 ? this.deps.joinPath(targetDir, ...dirSegments) : targetDir;
         await this.deps.mkdir(dirPath);
 
-        const fileName = this.resolveUniqueFileName(dirPath, page.title, usedFilePaths);
+        const fileName = this.resolveUniqueFileName(dirPath, source.title, usedFilePaths);
         const filePath = this.deps.joinPath(dirPath, fileName);
+        await this.deps.writeFile(filePath, buildSourceMarkdown(source));
 
-        const frontmatter = [
-          "---",
-          `title: ${page.title}`,
-          `category: ${page.category}`,
-          `version: ${page.version}`,
-          `updatedAt: ${page.updated_at}`,
-          "---",
-          "",
-        ].join("\n");
-        await this.deps.writeFile(filePath, frontmatter + page.content_md);
-
-        if (options.includeAttachments && context?.attachmentsByPageId && this.deps.copyFile) {
-          await this.exportAttachments(dirPath, page.id, context.attachmentsByPageId);
-        }
-
-        manifestEntries.push({ path: page.path, title: page.title, version: page.version });
+        manifestEntries.push({
+          title: source.title,
+          category: source.topic_category,
+          subtopic: source.topic_subtopic,
+        });
       } catch (err) {
-        failed.push({ path: page.path, error: (err as Error).message });
+        failed.push({ path: source.title, error: (err as Error).message });
       }
     }
 
-    if (options.includeSources && context?.sources) {
-      await this.exportSources(targetDir, context.sources, failed);
-    }
-
-    await this.writeManifest(targetDir, manifestEntries, failed, options);
+    await this.writeManifest(targetDir, manifestEntries, failed);
 
     return { exported: manifestEntries.length, failed };
   }
@@ -138,48 +129,13 @@ export class WikiExporter {
     return candidate;
   }
 
-  private async exportAttachments(
-    dirPath: string,
-    pageId: string,
-    attachmentsByPageId: ReadonlyMap<string, readonly { filePath: string; displayName: string }[]>,
-  ): Promise<void> {
-    const attachments = attachmentsByPageId.get(pageId);
-    if (!attachments || attachments.length === 0) return;
-    const attachmentsDir = this.deps.joinPath(dirPath, "_attachments");
-    await this.deps.mkdir(attachmentsDir);
-    for (const att of attachments) {
-      const destName = sanitizeFilenameSegment(att.displayName);
-      await this.deps.copyFile!(att.filePath, this.deps.joinPath(attachmentsDir, destName));
-    }
-  }
-
-  private async exportSources(
-    targetDir: string,
-    sources: readonly WikiSource[],
-    failed: WikiExportFailure[],
-  ): Promise<void> {
-    const sourcesDir = this.deps.joinPath(targetDir, "_sources");
-    await this.deps.mkdir(sourcesDir);
-    const used = new Set<string>();
-    for (const source of sources) {
-      try {
-        const fileName = this.resolveUniqueFileName(sourcesDir, source.title, used);
-        await this.deps.writeFile(this.deps.joinPath(sourcesDir, fileName), source.content_md ?? "");
-      } catch (err) {
-        failed.push({ path: `_sources/${source.title}`, error: (err as Error).message });
-      }
-    }
-  }
-
   private async writeManifest(
     targetDir: string,
     entries: readonly ManifestEntry[],
     failed: readonly WikiExportFailure[],
-    options: WikiExportOptions,
   ): Promise<void> {
     const manifest = {
       exportedAt: new Date().toISOString(),
-      options,
       exported: entries,
       failed,
     };

@@ -1,18 +1,19 @@
 /**
  * WikiGraphBuilder — 三期：基于主题树 + 资料 + 实体的分层混合图
  *
- * 节点：category/subtopic/source/entity/page；边：belongs_to/sibling/relation/mentioned_in/wikilink。
- * 三层可选：structure（用途结构）+ entities（ERO 知识图谱）+ history（历史页面双链）。
+ * 节点：category/subtopic/source/entity；边：relation/belongs_to/sibling/mentioned_in。
+ * 两层可选：structure（用途结构）+ entities（ERO 知识图谱）。历史页面双链图（page/wikilink）
+ * 已随 P3 删除——「以某份资料为中心看关联」改用 category/subtopic 路径起步查询。
  * limit 只约束 source+entity 数量，category/subtopic 容器节点不计数。
  */
 
 import type { WikiRepo } from "./wiki-repo.js";
-import type { WikiCategory, WikiPage, WikiSource } from "./types.js";
+import type { WikiCategory, WikiSource } from "./types.js";
 import type { WikiEroRepo } from "./wiki-ero.js";
 
-export type WikiGraphNodeKind = "page" | "entity" | "category" | "subtopic" | "source";
-export type WikiGraphEdgeKind = "wikilink" | "relation" | "belongs_to" | "sibling" | "mentioned_in";
-export type WikiGraphLayer = "structure" | "entities" | "history";
+export type WikiGraphNodeKind = "entity" | "category" | "subtopic" | "source";
+export type WikiGraphEdgeKind = "relation" | "belongs_to" | "sibling" | "mentioned_in";
+export type WikiGraphLayer = "structure" | "entities";
 
 export interface WikiGraphNode {
   readonly id: string;
@@ -46,10 +47,9 @@ export interface WikiGraphData {
 }
 
 export interface WikiGraphBuildOptions {
-  readonly centerPageId?: string;
   readonly category?: WikiCategory | string;
   readonly subtopic?: string;
-  /** 邻域半径（跳数），默认 1；仅影响历史层 page 图与 category 邻域 */
+  /** 邻域半径（跳数），默认 1；当前未被结构/实体层使用，保留字段供未来扩展 */
   readonly radius?: number;
   /** 节点数上限，默认 50；只约束 source+entity */
   readonly limit?: number;
@@ -73,7 +73,6 @@ export interface WikiGraphBuildOptions {
   }[];
 }
 
-const DEFAULT_RADIUS = 1;
 const DEFAULT_LIMIT = 50;
 /** sibling 边只在同小类资料数 ≤ 此值时生成，避免完全图边数爆炸 */
 const SIBLING_MAX_SOURCES = 8;
@@ -94,18 +93,6 @@ export function parseSubtopicNodeId(id: string): { category: string; subtopic: s
   } catch {
     return null;
   }
-}
-
-/** 将 Wiki 页面转为图谱 page 节点 */
-function toPageNode(page: WikiPage): WikiGraphNode {
-  return {
-    id: page.id,
-    kind: "page",
-    title: page.title,
-    path: page.path,
-    category: page.category,
-    useCount: page.use_count,
-  };
 }
 
 /** 将资料转为图谱 source 节点 */
@@ -142,23 +129,17 @@ export class WikiGraphBuilder {
   constructor(private readonly repo: WikiRepo) {}
 
   /**
-   * 构建受限子图。三期主路径：按 category（+可选 subtopic）取用途结构 + 实体层。
-   * 兼容旧路径：centerPageId 走历史 page 双链图（layers 强制视为 ['history']）。
+   * 构建受限子图：按 category（+可选 subtopic）取用途结构 + 实体层。
    */
   buildSubgraph(agentId: string, userId: string, options: WikiGraphBuildOptions = {}): WikiGraphData {
-    const radius = options.radius ?? DEFAULT_RADIUS;
     const limit = options.limit ?? DEFAULT_LIMIT;
 
-    if (!options.centerPageId && !options.category) {
-      throw new Error("图谱需要 centerPageId 或 category");
-    }
-
-    if (options.centerPageId) {
-      return this.buildFromCenter(agentId, userId, options.centerPageId, radius, limit, options);
+    if (!options.category) {
+      throw new Error("图谱需要 category");
     }
 
     const layers = options.layers ?? (options.includeEntities === false ? ["structure"] : DEFAULT_LAYERS);
-    return this.buildFromTopic(agentId, userId, options.category!, options.subtopic, limit, layers, options);
+    return this.buildFromTopic(agentId, userId, options.category, options.subtopic, limit, layers, options);
   }
 
   // ── 三期：主题结构 + 实体层 ──────────────────────────────
@@ -175,13 +156,6 @@ export class WikiGraphBuilder {
     const nodes: WikiGraphNode[] = [];
     const edges: WikiGraphEdge[] = [];
     let truncated = false;
-
-    if (layers.includes("history")) {
-      const historyGraph = this.buildHistoryLayer(agentId, userId, category as WikiCategory, limit);
-      nodes.push(...historyGraph.nodes);
-      edges.push(...historyGraph.edges);
-      truncated = truncated || historyGraph.truncated;
-    }
 
     const wantsStructure = layers.includes("structure");
     const wantsEntities = layers.includes("entities");
@@ -338,179 +312,6 @@ export class WikiGraphBuilder {
       });
     }
 
-    return { nodes, edges, truncated };
-  }
-
-  /** 历史层：兼容二期 page + wikilink 图（不占 limit，独立子图） */
-  private buildHistoryLayer(
-    agentId: string,
-    userId: string,
-    category: WikiCategory,
-    limit: number,
-  ): WikiGraphData {
-    const pages = this.repo.listPages(agentId, userId, category);
-    const nodeMap = new Map<string, WikiPage>();
-    for (const p of pages) nodeMap.set(p.id, p);
-
-    const allIds = [...nodeMap.keys()];
-    const truncated = allIds.length > limit;
-    const keptIds = new Set(truncated ? allIds.slice(0, limit) : allIds);
-    const nodes = [...keptIds].map((id) => toPageNode(nodeMap.get(id)!));
-
-    const edges: WikiGraphEdge[] = [];
-    for (const id of keptIds) {
-      for (const link of this.repo.listOutboundLinks(agentId, userId, id)) {
-        if (!link.is_resolved || !link.target_page_id) continue;
-        if (!keptIds.has(link.target_page_id)) continue;
-        const label = link.anchor_text;
-        edges.push({
-          id: link.id,
-          kind: "wikilink",
-          source: link.source_page_id,
-          target: link.target_page_id,
-          label,
-          anchorText: label,
-        });
-      }
-    }
-
-    return { nodes, edges, truncated };
-  }
-
-  // ── 兼容旧路径：centerPageId 走历史 page 双链 + 可选 ERO 混合图 ──
-
-  private buildFromCenter(
-    agentId: string,
-    userId: string,
-    centerPageId: string,
-    radius: number,
-    limit: number,
-    options: WikiGraphBuildOptions,
-  ): WikiGraphData {
-    const center = this.repo.findPageById(centerPageId);
-    if (!center || center.agent_id !== agentId || center.user_id !== userId) {
-      throw new Error(`中心页不存在: ${centerPageId}`);
-    }
-
-    const nodeMap = new Map<string, WikiPage>();
-    nodeMap.set(center.id, center);
-    let frontier = [center.id];
-
-    for (let hop = 0; hop < radius; hop += 1) {
-      const next: string[] = [];
-      for (const pageId of frontier) {
-        const outbound = this.repo.listOutboundLinks(agentId, userId, pageId);
-        for (const link of outbound) {
-          if (!link.is_resolved || !link.target_page_id) continue;
-          if (nodeMap.has(link.target_page_id)) continue;
-          const target = this.repo.findPageById(link.target_page_id);
-          if (!target) continue;
-          nodeMap.set(target.id, target);
-          next.push(target.id);
-        }
-        const backlinks = this.repo.listBacklinks(agentId, userId, pageId);
-        for (const bl of backlinks) {
-          if (!bl.isResolved) continue;
-          if (nodeMap.has(bl.sourcePageId)) continue;
-          const src = this.repo.findPageById(bl.sourcePageId);
-          if (!src) continue;
-          nodeMap.set(src.id, src);
-          next.push(src.id);
-        }
-      }
-      frontier = next;
-    }
-
-    return this.finalizeCenter(agentId, userId, nodeMap, limit, options);
-  }
-
-  /**
-   * 汇总页面节点、双链边与可选 ERO 实体/关系边（兼容旧混合图调用）。
-   * 页面先占满 limit 截断逻辑；实体用剩余名额；关系边仅连 entity 节点。
-   */
-  private finalizeCenter(
-    agentId: string,
-    userId: string,
-    nodeMap: Map<string, WikiPage>,
-    limit: number,
-    options: WikiGraphBuildOptions,
-  ): WikiGraphData {
-    const allIds = [...nodeMap.keys()];
-    const truncated = allIds.length > limit;
-    const keptIds = new Set(truncated ? allIds.slice(0, limit) : allIds);
-    const pageNodes = [...keptIds].map((id) => toPageNode(nodeMap.get(id)!));
-
-    const edges: WikiGraphEdge[] = [];
-    for (const id of keptIds) {
-      for (const link of this.repo.listOutboundLinks(agentId, userId, id)) {
-        if (!link.is_resolved || !link.target_page_id) continue;
-        if (!keptIds.has(link.target_page_id)) continue;
-        const label = link.anchor_text;
-        edges.push({
-          id: link.id,
-          kind: "wikilink",
-          source: link.source_page_id,
-          target: link.target_page_id,
-          label,
-          anchorText: label,
-        });
-      }
-    }
-
-    const includeEntities = options.includeEntities !== false;
-    let entityNodes: WikiGraphNode[] = [];
-
-    if (includeEntities && options.eroEntities) {
-      const entityPageMap = new Map<string, string>();
-      for (const e of options.eroEntities) {
-        if (e.page_id) entityPageMap.set(e.id, e.page_id);
-      }
-
-      const relevantEntityIds = new Set<string>();
-      for (const e of options.eroEntities) {
-        if (e.page_id && keptIds.has(e.page_id)) {
-          relevantEntityIds.add(e.id);
-        }
-      }
-      if (options.eroRelations) {
-        for (const rel of options.eroRelations) {
-          const srcPage = entityPageMap.get(rel.source_entity_id);
-          const tgtPage = entityPageMap.get(rel.target_entity_id);
-          const srcLinked = srcPage !== undefined && keptIds.has(srcPage);
-          const tgtLinked = tgtPage !== undefined && keptIds.has(tgtPage);
-          if (srcLinked || tgtLinked) {
-            relevantEntityIds.add(rel.source_entity_id);
-            relevantEntityIds.add(rel.target_entity_id);
-          }
-        }
-      }
-
-      const remainingSlots = Math.max(0, limit - pageNodes.length);
-      const keptEntities = options.eroEntities
-        .filter((e) => relevantEntityIds.has(e.id))
-        .slice(0, remainingSlots);
-      const keptEntityIds = new Set(keptEntities.map((e) => e.id));
-      entityNodes = keptEntities.map((e) => toEntityNode(e));
-
-      if (options.eroRelations) {
-        for (const rel of options.eroRelations) {
-          if (!keptEntityIds.has(rel.source_entity_id) || !keptEntityIds.has(rel.target_entity_id)) {
-            continue;
-          }
-          edges.push({
-            id: `ero:${rel.id}`,
-            kind: "relation",
-            source: `entity:${rel.source_entity_id}`,
-            target: `entity:${rel.target_entity_id}`,
-            label: rel.relation_type,
-            strength: rel.strength,
-            anchorText: rel.relation_type,
-          });
-        }
-      }
-    }
-
-    const nodes = [...pageNodes, ...entityNodes];
     return { nodes, edges, truncated };
   }
 }

@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { WikiExporter, sanitizeFilenameSegment, isPathTraversalSafe } from "./wiki-exporter.js";
 import type { WikiExporterDeps } from "./wiki-exporter.js";
-import type { WikiPage, WikiSource } from "./types.js";
+import type { WikiSource } from "./types.js";
 
 function makeFakeFs() {
   const files = new Map<string, string>();
   const dirs = new Set<string>();
-  const copied: { src: string; dest: string }[] = [];
   const join = (...segments: string[]) => segments.join("/");
   const deps: WikiExporterDeps = {
     mkdir: async (dirPath) => {
@@ -15,29 +14,39 @@ function makeFakeFs() {
     writeFile: async (filePath, content) => {
       files.set(filePath, content);
     },
-    copyFile: async (src, dest) => {
-      copied.push({ src, dest });
-    },
     joinPath: join,
   };
-  return { deps, files, dirs, copied };
+  return { deps, files, dirs };
 }
 
-function makePage(overrides: Partial<WikiPage> = {}): WikiPage {
+function makeSource(overrides: Partial<WikiSource> = {}): WikiSource {
   return {
-    id: "p1",
+    id: "s1",
     agent_id: "ag",
     user_id: "u",
-    path: "sources/doc",
-    category: "sources",
-    title: "文档",
+    title: "资料",
+    source_path: null,
     content_md: "正文内容",
-    version: 1,
+    content_hash: null,
+    mime_type: null,
+    media_type: "document",
+    extracted_text: null,
+    media_meta: null,
+    preview_path: null,
+    origin_context: null,
+    archived_at: null,
+    created_at: "2026-08-26T00:00:00.000Z",
+    topic_category: null,
+    topic_subtopic: null,
     last_used: null,
     use_count: 0,
-    created_at: "2026-08-26T00:00:00.000Z",
-    updated_at: "2026-08-26T00:00:00.000Z",
-    status: "active",
+    origin_url: null,
+    storage_mode: "native",
+    legacy_subtopic: null,
+    title_locked: 0,
+    summary: null,
+    summary_hash: null,
+    summary_level: null,
     ...overrides,
   };
 }
@@ -69,57 +78,91 @@ describe("isPathTraversalSafe", () => {
   });
 });
 
-describe("WikiExporter", () => {
-  it("按路径结构生成目录树，写出 md 与 frontmatter", async () => {
+describe("WikiExporter.exportSources", () => {
+  it("按大类/小类生成目录树，正文含标题+摘要+原文", async () => {
     const { deps, files, dirs } = makeFakeFs();
     const exporter = new WikiExporter(deps);
-    const page = makePage({ path: "sources/subdir/doc", title: "我的文档" });
+    const source = makeSource({
+      title: "我的资料",
+      topic_category: "工作",
+      topic_subtopic: "例行",
+      summary: "一句话摘要",
+      content_md: "正文内容",
+    });
 
-    const result = await exporter.exportPages("/out", [page]);
+    const result = await exporter.exportSources("/out", [source]);
 
     expect(result).toEqual({ exported: 1, failed: [] });
-    expect(dirs.has("/out/sources/subdir")).toBe(true);
-    const written = files.get("/out/sources/subdir/我的文档.md")!;
-    expect(written).toContain("title: 我的文档");
-    expect(written).toContain("category: sources");
+    expect(dirs.has("/out/工作/例行")).toBe(true);
+    const written = files.get("/out/工作/例行/我的资料.md")!;
+    expect(written).toContain("# 我的资料");
+    expect(written).toContain("一句话摘要");
     expect(written).toContain("正文内容");
+  });
+
+  it("收件箱资料（无主题）落到根目录", async () => {
+    const { deps, files } = makeFakeFs();
+    const exporter = new WikiExporter(deps);
+    const source = makeSource({ title: "未分类", topic_category: null, topic_subtopic: null });
+
+    await exporter.exportSources("/out", [source]);
+    expect(files.has("/out/未分类.md")).toBe(true);
+  });
+
+  it("只有大类没有小类时落到大类目录", async () => {
+    const { deps, files, dirs } = makeFakeFs();
+    const exporter = new WikiExporter(deps);
+    const source = makeSource({ title: "资料", topic_category: "工作", topic_subtopic: null });
+
+    await exporter.exportSources("/out", [source]);
+    expect(dirs.has("/out/工作")).toBe(true);
+    expect(files.has("/out/工作/资料.md")).toBe(true);
+  });
+
+  it("有 origin_url 时写入原文链接，没有摘要时省略摘要行", async () => {
+    const { deps, files } = makeFakeFs();
+    const exporter = new WikiExporter(deps);
+    const source = makeSource({ title: "网页剪藏", summary: null, origin_url: "https://example.com/a" });
+
+    await exporter.exportSources("/out", [source]);
+    const written = files.get("/out/网页剪藏.md")!;
+    expect(written).toContain("原文链接: https://example.com/a");
+  });
+
+  it("有 source_path 无 origin_url 时写入原始文件路径", async () => {
+    const { deps, files } = makeFakeFs();
+    const exporter = new WikiExporter(deps);
+    const source = makeSource({ title: "本地文件", summary: null, source_path: "C:/files/a.pdf" });
+
+    await exporter.exportSources("/out", [source]);
+    const written = files.get("/out/本地文件.md")!;
+    expect(written).toContain("原始文件: C:/files/a.pdf");
   });
 
   it("非法文件名字符被替换", async () => {
     const { deps, files } = makeFakeFs();
     const exporter = new WikiExporter(deps);
-    const page = makePage({ path: "sources/doc", title: 'a<b>c' });
+    const source = makeSource({ title: 'a<b>c' });
 
-    await exporter.exportPages("/out", [page]);
-    expect(files.has("/out/sources/a_b_c.md")).toBe(true);
+    await exporter.exportSources("/out", [source]);
+    expect(files.has("/out/a_b_c.md")).toBe(true);
   });
 
   it("文件名冲突时追加序号，不覆盖", async () => {
     const { deps, files } = makeFakeFs();
     const exporter = new WikiExporter(deps);
-    const pages = [
-      makePage({ id: "p1", path: "sources/a", title: "同名", content_md: "第一份" }),
-      makePage({ id: "p2", path: "sources/b", title: "同名", content_md: "第二份" }),
+    const sources = [
+      makeSource({ id: "s1", title: "同名", content_md: "第一份" }),
+      makeSource({ id: "s2", title: "同名", content_md: "第二份" }),
     ];
 
-    const result = await exporter.exportPages("/out", pages);
+    const result = await exporter.exportSources("/out", sources);
     expect(result.exported).toBe(2);
-    expect(files.get("/out/sources/同名.md")).toContain("第一份");
-    expect(files.get("/out/sources/同名-1.md")).toContain("第二份");
+    expect(files.get("/out/同名.md")).toContain("第一份");
+    expect(files.get("/out/同名-1.md")).toContain("第二份");
   });
 
-  it("路径逃逸被拒绝，计入失败清单", async () => {
-    const { deps } = makeFakeFs();
-    const exporter = new WikiExporter(deps);
-    const page = makePage({ path: "sources/../../etc/passwd", title: "恶意" });
-
-    const result = await exporter.exportPages("/out", [page]);
-    expect(result.exported).toBe(0);
-    expect(result.failed).toHaveLength(1);
-    expect(result.failed[0]!.error).toContain("路径逃逸");
-  });
-
-  it("逐页失败不影响其他页导出，失败清单完整", async () => {
+  it("逐条失败不影响其他资料导出，失败清单完整", async () => {
     const { deps } = makeFakeFs();
     let callCount = 0;
     const failingDeps: WikiExporterDeps = {
@@ -131,65 +174,25 @@ describe("WikiExporter", () => {
       },
     };
     const exporter = new WikiExporter(failingDeps);
-    const pages = [
-      makePage({ id: "p1", path: "sources/a", title: "失败页" }),
-      makePage({ id: "p2", path: "sources/b", title: "成功页" }),
+    const sources = [
+      makeSource({ id: "s1", title: "失败项" }),
+      makeSource({ id: "s2", title: "成功项" }),
     ];
 
-    const result = await exporter.exportPages("/out", pages);
+    const result = await exporter.exportSources("/out", sources);
     expect(result.exported).toBe(1);
-    expect(result.failed).toEqual([{ path: "sources/a", error: "磁盘写满" }]);
+    expect(result.failed).toEqual([{ path: "失败项", error: "磁盘写满" }]);
   });
 
   it("写入导出清单 _export-manifest.json", async () => {
     const { deps, files } = makeFakeFs();
     const exporter = new WikiExporter(deps);
-    const page = makePage();
+    const source = makeSource({ title: "资料", topic_category: "工作", topic_subtopic: "例行" });
 
-    await exporter.exportPages("/out", [page]);
+    await exporter.exportSources("/out", [source]);
     const manifestRaw = files.get("/out/_export-manifest.json")!;
     const manifest = JSON.parse(manifestRaw);
-    expect(manifest.exported).toEqual([{ path: "sources/doc", title: "文档", version: 1 }]);
+    expect(manifest.exported).toEqual([{ title: "资料", category: "工作", subtopic: "例行" }]);
     expect(manifest.failed).toEqual([]);
-  });
-
-  it("可选携带附件文件（复制到 _attachments 子目录）", async () => {
-    const { deps, copied } = makeFakeFs();
-    const exporter = new WikiExporter(deps);
-    const page = makePage({ id: "p1", path: "media/pic", title: "图片页" });
-    const attachmentsByPageId = new Map([
-      ["p1", [{ filePath: "/tmp/a.png", displayName: "a.png" }]],
-    ]);
-
-    await exporter.exportPages("/out", [page], { includeAttachments: true }, { attachmentsByPageId });
-    expect(copied).toEqual([{ src: "/tmp/a.png", dest: "/out/media/_attachments/a.png" }]);
-  });
-
-  it("可选携带资料原文到 _sources 子目录", async () => {
-    const { deps, files } = makeFakeFs();
-    const exporter = new WikiExporter(deps);
-    const page = makePage();
-    const sources: WikiSource[] = [
-      {
-        id: "s1",
-        agent_id: "ag",
-        user_id: "u",
-        title: "原始资料",
-        source_path: null,
-        content_md: "资料原文",
-        content_hash: null,
-        mime_type: null,
-        media_type: "document",
-        extracted_text: null,
-        media_meta: null,
-        preview_path: null,
-        origin_context: null,
-        archived_at: null,
-        created_at: "2026-08-26T00:00:00.000Z",
-      },
-    ];
-
-    await exporter.exportPages("/out", [page], { includeSources: true }, { sources });
-    expect(files.get("/out/_sources/原始资料.md")).toBe("资料原文");
   });
 });

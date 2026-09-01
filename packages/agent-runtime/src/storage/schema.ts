@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 26;
+export const SCHEMA_VERSION = 27;
 
 /**
  * V1 DDL — 初始 schema
@@ -791,6 +791,19 @@ UPDATE wiki_sources SET topic_category='学习', topic_subtopic=NULL WHERE topic
 UPDATE wiki_sources SET topic_category='生活', topic_subtopic=NULL WHERE topic_category='证件凭据';
 UPDATE wiki_sources SET topic_category='收藏', topic_subtopic=NULL WHERE topic_category='模板参考';
 UPDATE wiki_sources SET topic_category='生活', topic_subtopic=NULL WHERE topic_category='随笔创作';
+`,
+  ],
+  // V27: 移除历史页面全链路（design v1.1 §8）。存量页面内容直接丢弃，用户已确认（§14）。
+  // DROP 顺序需遵循外键依赖：先删引用 wiki_pages 的表，最后删 wiki_pages 本体。
+  [
+    27,
+    `
+DROP TABLE IF EXISTS wiki_page_embeddings;
+DROP TABLE IF EXISTS wiki_page_attachments;
+DROP TABLE IF EXISTS wiki_pages_fts;
+DROP TABLE IF EXISTS wiki_links;
+DROP TABLE IF EXISTS wiki_page_revisions;
+DROP TABLE IF EXISTS wiki_pages;
 `,
   ],
 ] as const;

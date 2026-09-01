@@ -30,13 +30,11 @@ function makeLLM(topicFor: (id: string, i: number) => { category: string; subtop
 const DOC_TOPIC = { category: "工作", subtopic: "项目" } as const;
 
 describe("WikiOrganizer 端到端", () => {
-  it("上传 3 条 → 3 条 sources 带主题、inbox organized、不新建 wiki_pages", async () => {
+  it("上传 3 条 → 3 条 sources 带主题、inbox organized", async () => {
     const { repo, hook } = setup();
     hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "文档 A 的内容");
     hook.ingestUpload("ag", "u", "/tmp/b.md", "b", "text/markdown", "文档 B 的内容");
     hook.ingestUpload("ag", "u", "/tmp/c.md", "c", "text/markdown", "文档 C 的内容");
-
-    const pagesBefore = repo.listPages("ag", "u").length;
 
     const organizer = new WikiOrganizer(repo, makeLLM(() => DOC_TOPIC), new WikiContentExtractor());
     const run = await organizer.organizeBatch("ag", "u", "upload");
@@ -54,8 +52,6 @@ describe("WikiOrganizer 端到端", () => {
       expect(item.extract).toBe("preview");
     }
 
-    // 不新建 wiki_pages
-    expect(repo.listPages("ag", "u")).toHaveLength(pagesBefore);
     expect(repo.listInbox("ag", "u", "organized")).toHaveLength(3);
     expect(repo.listInbox("ag", "u", "pending")).toHaveLength(0);
 

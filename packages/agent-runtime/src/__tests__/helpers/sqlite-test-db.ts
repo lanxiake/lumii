@@ -125,3 +125,20 @@ export function runMigration26(db: DatabaseAdapter): void {
   if (!entry) throw new Error("V26 migration not found in MIGRATIONS");
   db.exec(entry[1]);
 }
+
+/** 建一个只迁移到 V26（即将执行 V27 之前）的内存库，供 V27 迁移测试构造 fixture */
+export function createPreV27TestDb(): DatabaseAdapter {
+  const db = createTestSqliteAdapter();
+  for (const [version, sql] of MIGRATIONS) {
+    if (version >= 27) continue;
+    db.exec(sql);
+  }
+  return db;
+}
+
+/** 对一个 pre-V27 库执行 V27 迁移 SQL */
+export function runMigration27(db: DatabaseAdapter): void {
+  const entry = MIGRATIONS.find(([version]) => version === 27);
+  if (!entry) throw new Error("V27 migration not found in MIGRATIONS");
+  db.exec(entry[1]);
+}

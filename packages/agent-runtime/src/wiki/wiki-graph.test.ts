@@ -1,5 +1,6 @@
 /**
- * WikiGraphBuilder 单测：1 跳边界、上限截断、方向、孤立节点、混合实体图。
+ * WikiGraphBuilder 单测：结构层/实体层/limit 截断/sibling 边。
+ * 页面双链图（centerPageId/history 层）已随 P3 删除，改用 category/subtopic 起步查询。
  * 纯逻辑断言不依赖 FTS5；建库失败时跳过集成断言。
  */
 import { describe, expect, it } from "vitest";
@@ -17,184 +18,20 @@ function tryCreateRepo(): WikiRepo | null {
 }
 
 describe("WikiGraphBuilder", () => {
-  it("1 跳子图含中心与邻居，边方向正确；孤立中心仅自身", () => {
+  it("无 category 时抛错", () => {
     const repo = tryCreateRepo();
     if (!repo) return;
-
-    const a = repo.savePage({
-      agentId: "ag",
-      userId: "u",
-      path: "sources/a",
-      title: "A页",
-      contentMd: "见 [[B页]]",
-      editor: "user",
-    });
-    const b = repo.savePage({
-      agentId: "ag",
-      userId: "u",
-      path: "sources/b",
-      title: "B页",
-      contentMd: "正文",
-      editor: "user",
-    });
-    // 触发 A 的链接重算：再保存一次含双链
-    repo.savePage({
-      agentId: "ag",
-      userId: "u",
-      path: "sources/a",
-      title: "A页",
-      contentMd: "见 [[B页]]",
-      editor: "user",
-    });
-
     const builder = new WikiGraphBuilder(repo);
-    const g = builder.buildSubgraph("ag", "u", { centerPageId: a.id, radius: 1 });
-    expect(g.nodes.map((n) => n.id).sort()).toEqual([a.id, b.id].sort());
-    expect(g.nodes.every((n) => n.kind === "page")).toBe(true);
-    const wikilink = g.edges.find((e) => e.source === a.id && e.target === b.id);
-    expect(wikilink).toBeDefined();
-    expect(wikilink!.kind).toBe("wikilink");
-    expect(wikilink!.anchorText).toBe(wikilink!.label);
-
-    const alone = repo.savePage({
-      agentId: "ag",
-      userId: "u",
-      path: "sources/alone",
-      title: "孤立",
-      contentMd: "无链接",
-      editor: "user",
-    });
-    const g2 = builder.buildSubgraph("ag", "u", { centerPageId: alone.id });
-    expect(g2.nodes).toHaveLength(1);
-    expect(g2.edges).toHaveLength(0);
+    expect(() => builder.buildSubgraph("ag", "u", {})).toThrow(/category/);
   });
 
-  it("节点上限截断时 truncated=true", () => {
-    const repo = tryCreateRepo();
-    if (!repo) return;
-
-    const center = repo.savePage({
-      agentId: "ag",
-      userId: "u",
-      path: "sources/center",
-      title: "中心",
-      contentMd: "x",
-      editor: "user",
-    });
-    const titles: string[] = [];
-    for (let i = 0; i < 5; i += 1) {
-      const t = `邻${i}`;
-      titles.push(t);
-      repo.savePage({
-        agentId: "ag",
-        userId: "u",
-        path: `sources/n${i}`,
-        title: t,
-        contentMd: "y",
-        editor: "user",
-      });
-    }
-    repo.savePage({
-      agentId: "ag",
-      userId: "u",
-      path: "sources/center",
-      title: "中心",
-      contentMd: titles.map((t) => `[[${t}]]`).join(" "),
-      editor: "user",
-    });
-
-    const builder = new WikiGraphBuilder(repo);
-    const g = builder.buildSubgraph("ag", "u", { centerPageId: center.id, limit: 3 });
-    expect(g.nodes.length).toBeLessThanOrEqual(3);
-    expect(g.truncated).toBe(true);
-  });
-
-  it("混合图：页面节点 + 实体节点；wikilink 与 relation 边分 kind", () => {
-    const repo = tryCreateRepo();
-    if (!repo) return;
-    const db = repo.database;
-    const ero = new WikiEroRepo(db);
-
-    const a = repo.savePage({
-      agentId: "ag",
-      userId: "u",
-      path: "sources/a",
-      title: "A页",
-      contentMd: "见 [[B页]]",
-      editor: "user",
-    });
-    repo.savePage({
-      agentId: "ag",
-      userId: "u",
-      path: "sources/b",
-      title: "B页",
-      contentMd: "正文",
-      editor: "user",
-    });
-    repo.savePage({
-      agentId: "ag",
-      userId: "u",
-      path: "sources/a",
-      title: "A页",
-      contentMd: "见 [[B页]]",
-      editor: "user",
-    });
-
-    const e1 = ero.upsertEntity({
-      agentId: "ag",
-      userId: "u",
-      name: "项目X",
-      entityType: "project",
-      pageId: a.id,
-    });
-    const e2 = ero.upsertEntity({
-      agentId: "ag",
-      userId: "u",
-      name: "工具Y",
-      entityType: "tool",
-      pageId: null,
-    });
-    ero.upsertRelation({
-      agentId: "ag",
-      userId: "u",
-      sourceEntityId: e1.id,
-      targetEntityId: e2.id,
-      relationType: "uses",
-      strength: 0.6,
-      sourcePageId: a.id,
-    });
-
-    const g = new WikiGraphBuilder(repo).buildSubgraph("ag", "u", {
-      centerPageId: a.id,
-      radius: 1,
-      limit: 50,
-      includeEntities: true,
-      eroEntities: ero.listEntities("ag", "u"),
-      eroRelations: ero.listRelations("ag", "u"),
-    });
-
-    const pageNodes = g.nodes.filter((n) => n.kind === "page");
-    const entityNodes = g.nodes.filter((n) => n.kind === "entity");
-    expect(pageNodes.length).toBeGreaterThan(0);
-    expect(entityNodes.some((n) => n.id === `entity:${e1.id}`)).toBe(true);
-    expect(entityNodes.some((n) => n.id === `entity:${e2.id}`)).toBe(true);
-    expect(g.edges.some((e) => e.kind === "wikilink")).toBe(true);
-    const relation = g.edges.find((e) => e.kind === "relation" && e.label === "uses");
-    expect(relation).toBeDefined();
-    expect(relation!.source).toBe(`entity:${e1.id}`);
-    expect(relation!.target).toBe(`entity:${e2.id}`);
-    expect(relation!.strength).toBeCloseTo(0.6);
-    expect(g.edges.every((e) => !(e.kind === "relation" && !e.source.startsWith("entity:")))).toBe(true);
-  });
-
-  /** 三期：新图谱模型测试 */
   it("结构层：大类节点 + 小类节点 + 资料节点 + belongs_to 边", () => {
     const repo = tryCreateRepo();
     if (!repo) return;
     const ero = new WikiEroRepo(repo.database);
     const tree = repo.getOrCreateTopicTree();
-    const firstCategory = tree.categories[0]?.name ?? "做事记录";
-    const firstSubtopic = tree.categories[0]?.subtopics[0] ?? "会议聊天记录";
+    const firstCategory = tree.categories[0]?.name ?? "工作";
+    const firstSubtopic = tree.categories[0]?.subtopics[0] ?? "例行";
 
     const s1 = repo.createSource({ agentId: "ag", userId: "u", title: "会议A.pdf" });
     const s2 = repo.createSource({ agentId: "ag", userId: "u", title: "会议B.pdf" });
@@ -232,8 +69,8 @@ describe("WikiGraphBuilder", () => {
     if (!repo) return;
     const ero = new WikiEroRepo(repo.database);
     const tree = repo.getOrCreateTopicTree();
-    const cat = tree.categories[0]?.name ?? "做事记录";
-    const sub = tree.categories[0]?.subtopics[0] ?? "会议聊天记录";
+    const cat = tree.categories[0]?.name ?? "工作";
+    const sub = tree.categories[0]?.subtopics[0] ?? "例行";
 
     for (let i = 0; i < 7; i += 1) {
       const s = repo.createSource({ agentId: "ag", userId: "u", title: `资料${i}.pdf` });
@@ -258,8 +95,8 @@ describe("WikiGraphBuilder", () => {
     if (!repo) return;
     const ero = new WikiEroRepo(repo.database);
     const tree = repo.getOrCreateTopicTree();
-    const cat = tree.categories[0]?.name ?? "做事记录";
-    const sub = tree.categories[0]?.subtopics[0] ?? "会议聊天记录";
+    const cat = tree.categories[0]?.name ?? "工作";
+    const sub = tree.categories[0]?.subtopics[0] ?? "例行";
 
     const s1 = repo.createSource({ agentId: "ag", userId: "u", title: "调研A.pdf" });
     repo.updateSourceTopic("ag", "u", s1.id, cat, sub);
@@ -315,8 +152,8 @@ describe("WikiGraphBuilder", () => {
     if (!repo) return;
     const ero = new WikiEroRepo(repo.database);
     const tree = repo.getOrCreateTopicTree();
-    const cat = tree.categories[0]?.name ?? "做事记录";
-    const sub = tree.categories[0]?.subtopics[0] ?? "会议聊天记录";
+    const cat = tree.categories[0]?.name ?? "工作";
+    const sub = tree.categories[0]?.subtopics[0] ?? "例行";
 
     for (let i = 0; i < 10; i += 1) {
       const s = repo.createSource({ agentId: "ag", userId: "u", title: `资料${i}.pdf` });
@@ -336,43 +173,21 @@ describe("WikiGraphBuilder", () => {
     expect(g.truncated).toBe(true);
   });
 
-  it("历史层：page 节点 + wikilink 边（兼容二期）", () => {
+  it("默认 layers 为 structure+entities，不再有 history 层", () => {
     const repo = tryCreateRepo();
     if (!repo) return;
     const ero = new WikiEroRepo(repo.database);
+    const tree = repo.getOrCreateTopicTree();
+    const cat = tree.categories[0]?.name ?? "工作";
 
-    const p1 = repo.savePage({
-      agentId: "ag",
-      userId: "u",
-      path: "concepts/p1",
-      title: "概念A",
-      contentMd: "见 [[概念B]]",
-      editor: "user",
-    });
-    repo.savePage({
-      agentId: "ag",
-      userId: "u",
-      path: "concepts/p2",
-      title: "概念B",
-      contentMd: "正文",
-      editor: "user",
-    });
-    repo.savePage({
-      agentId: "ag",
-      userId: "u",
-      path: "concepts/p1",
-      title: "概念A",
-      contentMd: "见 [[概念B]]",
-      editor: "user",
-    });
+    const s1 = repo.createSource({ agentId: "ag", userId: "u", title: "资料.pdf" });
+    repo.updateSourceTopic("ag", "u", s1.id, cat, null);
 
     const builder = new WikiGraphBuilder(repo);
-    const g = builder.buildSubgraph("ag", "u", { category: "concepts", layers: ["history"], eroRepo: ero });
+    const g = builder.buildSubgraph("ag", "u", { category: cat, eroRepo: ero });
 
-    const pageNodes = g.nodes.filter((n) => n.kind === "page");
-    expect(pageNodes.length).toBeGreaterThan(0);
-    const wikilinkEdges = g.edges.filter((e) => e.kind === "wikilink");
-    expect(wikilinkEdges.length).toBeGreaterThan(0);
-    expect(g.nodes.every((n) => n.kind === "page")).toBe(true);
+    expect(g.nodes.some((n) => n.kind === "category")).toBe(true);
+    expect(g.nodes.some((n) => (n.kind as string) === "page")).toBe(false);
+    expect(g.edges.some((e) => (e.kind as string) === "wikilink")).toBe(false);
   });
 });
