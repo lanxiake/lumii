@@ -31,6 +31,28 @@ export const LEGACY_TOPIC_TREE_V1: WikiTopicTree = {
 };
 
 /**
+ * v1 大类 → v2 大类；`null` 表示退回收件箱（计划与复盘无直接对应）。
+ */
+export const LEGACY_CATEGORY_TO_V2: Readonly<Record<string, string | null>> = {
+  做事记录: "工作",
+  学习资料: "学习",
+  证件凭据: "生活",
+  模板参考: "收藏",
+  随笔创作: "生活",
+  计划与复盘: null,
+};
+
+/**
+ * vault 落盘用的大类目录名：旧六大类改写到 v2，其余原样。
+ */
+export function resolveVaultCategoryName(category: string): string {
+  if (Object.prototype.hasOwnProperty.call(LEGACY_CATEGORY_TO_V2, category)) {
+    return LEGACY_CATEGORY_TO_V2[category] ?? "收件箱";
+  }
+  return category;
+}
+
+/**
  * v2 默认树：4 大类 × 用途轴小类（每类 5 个，边界见 DEFAULT_SUBTOPIC_HINTS）。
  * 去掉「整合长文」专属小类（综述功能已移除，见 P2）。小类可选。
  */

@@ -46,3 +46,4 @@ export { serializeAttachmentReference } from "./wiki/wiki-attachments.js";
 
 // 临时存放常量是纯字符串，渲染进程用于选择器排除项与文件列表操作按钮判断
 export { PARKING_CATEGORY } from "./wiki/wiki-topic-tree.js";
+export { wikiRecordsShareFileIdentity } from "./wiki/wiki-source-identity.js";

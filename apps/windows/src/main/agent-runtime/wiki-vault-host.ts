@@ -153,13 +153,18 @@ export function ensureAndBackfillWikiVault(
     emptyWikiVaultDir(deps.vaultRoot)
   }
   ensureWikiVaultLayout(deps.vaultRoot, deps.fs, repo.getOrCreateTopicTree())
+  repo.remapLegacyTopicCategories()
   const sources = repo.listSources(agentId, userId)
   let synced = 0
   for (const source of sources) {
-    const result = syncSourceToVault(deps, source)
-    if (result) {
-      repo.updateSourcePath(source.agent_id, source.user_id, source.id, result.relPath)
-      synced += 1
+    try {
+      const result = syncSourceToVault(deps, source)
+      if (result) {
+        repo.updateSourcePath(source.agent_id, source.user_id, source.id, result.relPath)
+        synced += 1
+      }
+    } catch (err) {
+      console.warn('[wiki-vault] backfill skipped:', source.id, (err as Error).message)
     }
   }
   return { vaultRoot: deps.vaultRoot, synced }

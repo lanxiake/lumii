@@ -20,6 +20,16 @@ describe("wiki-nav-map", () => {
     expect(navIdFromLegacyCategory("随笔创作")).toBe("collection");
   });
 
+  it("旧大类落盘到 v2 目录名", () => {
+    expect(
+      vaultDirSegmentsForSource({
+        topicCategory: "模板参考",
+        topicSubtopic: "图片媒体素材",
+        archivedAt: null,
+      }),
+    ).toEqual(["收藏", "图片媒体素材"]);
+  });
+
   it("主题为空与临时存放归 inbox", () => {
     expect(navIdFromLegacyCategory(null)).toBe("inbox");
     expect(navIdFromLegacyCategory(PARKING_CATEGORY)).toBe("inbox");

@@ -2,7 +2,7 @@
  * Wiki 左栏分区与磁盘目录映射。
  * 供 vault 落盘与分类建议共用，避免 UI 与 agent-runtime 各维护一份。
  */
-import { PARKING_CATEGORY } from "./wiki-topic-tree.js";
+import { PARKING_CATEGORY, resolveVaultCategoryName } from "./wiki-topic-tree.js";
 
 /** 左栏分区 id（与 renderer wikiNavMapping 对齐） */
 export type WikiNavId = "inbox" | "work" | "study" | "life" | "collection" | "archived";
@@ -132,9 +132,13 @@ export function vaultDirSegmentsForSource(params: {
   if (!params.topicCategory) {
     return [WIKI_INBOX_DIR];
   }
+  const categoryDir = resolveVaultCategoryName(params.topicCategory);
+  if (categoryDir === WIKI_INBOX_DIR) {
+    return [WIKI_INBOX_DIR];
+  }
   // 小类可选：为空时只落到大类目录
   if (params.topicSubtopic) {
-    return [params.topicCategory, params.topicSubtopic];
+    return [categoryDir, params.topicSubtopic];
   }
-  return [params.topicCategory];
+  return [categoryDir];
 }

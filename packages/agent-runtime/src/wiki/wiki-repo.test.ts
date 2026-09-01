@@ -108,6 +108,51 @@ describe("WikiRepo 收件箱", () => {
     expect(repo.countInbox("ag", "u", "pending")).toBe(4);
     expect(repo.countInbox("ag", "u")).toBe(5);
   });
+
+  it("reconcilePendingInboxWithSources 把已归入收藏的队列条目标成 organized", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const inbox = repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "upload",
+      title: "拍照姿势21.mp4",
+      sourcePath: "C:/教材/拍照姿势21.mp4",
+      contentHash: "h-fav",
+    });
+    const source = repo.createSource({
+      agentId: "ag",
+      userId: "u",
+      title: "拍照姿势21.mp4",
+      sourcePath: "wiki/收藏/可复用/拍照姿势21.lumii-ref",
+      contentHash: "h-fav",
+    });
+    repo.updateSourceTopic("ag", "u", source.id, "收藏", "可复用");
+
+    expect(repo.reconcilePendingInboxWithSources("ag", "u")).toBe(1);
+    expect(repo.listInbox("ag", "u", "pending")).toHaveLength(0);
+    expect(repo.findInboxById(inbox.id)?.status).toBe("organized");
+    expect(repo.findInboxById(inbox.id)?.organized_source_id).toBe(source.id);
+  });
+
+  it("reconcilePendingInboxWithSources 不把仅有未分类资料的队列关账", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "upload",
+      title: "待整理.pdf",
+      sourcePath: "/tmp/待整理.pdf",
+    });
+    repo.createSource({
+      agentId: "ag",
+      userId: "u",
+      title: "待整理.pdf",
+      sourcePath: "/tmp/待整理.pdf",
+    });
+
+    expect(repo.reconcilePendingInboxWithSources("ag", "u")).toBe(0);
+    expect(repo.listInbox("ag", "u", "pending")).toHaveLength(1);
+  });
 });
 
 
@@ -263,6 +308,26 @@ describe("WikiRepo 资料主题读写", () => {
     const unfiled = repo.listSourcesByTopic("ag", "u", { unfiled: true });
     expect(unfiled).toHaveLength(1);
     expect(unfiled[0]!.title).toBe("待整理");
+  });
+
+  it("listSourcesByTopic unfiled 不含已有已分类重复件", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const filed = repo.createSource({
+      agentId: "ag",
+      userId: "u",
+      title: "范文.docx",
+      sourcePath: "wiki/收藏/范例/范文.lumii-ref",
+    });
+    repo.updateSourceTopic("ag", "u", filed.id, "收藏", "范例");
+    repo.createSource({
+      agentId: "ag",
+      userId: "u",
+      title: "范文.docx",
+      sourcePath: "C:/docs/范文.docx",
+    });
+
+    const unfiled = repo.listSourcesByTopic("ag", "u", { unfiled: true });
+    expect(unfiled).toHaveLength(0);
   });
 
   it("listSourcesByTopic archived 只返回已归档，且不受 category 影响", () => {
@@ -866,5 +931,17 @@ describe("WikiRepo 主题树 V1→V2 迁移", () => {
 
     const r2 = repo.migrateTopicTreeToV2();
     expect(r2.alreadyMigrated).toBe(true);
+  });
+
+  it("remapLegacyTopicCategories 把模板参考改写为收藏", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const source = repo.createSource({ agentId: "ag", userId: "u", title: "素材" });
+    repo.database
+      .prepare("UPDATE wiki_sources SET topic_category = ?, topic_subtopic = ? WHERE id = ?")
+      .run("模板参考", "图片媒体素材", source.id);
+    expect(repo.remapLegacyTopicCategories()).toBe(1);
+    const after = repo.findSourceById(source.id)!;
+    expect(after.topic_category).toBe("收藏");
+    expect(after.topic_subtopic).toBe("图片媒体素材");
   });
 });

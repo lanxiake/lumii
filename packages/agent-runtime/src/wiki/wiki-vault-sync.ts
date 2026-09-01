@@ -77,12 +77,22 @@ export function resolveOriginalFilePath(deps: WikiVaultSyncDeps, source: WikiSou
 }
 
 /**
+ * 确保 vault 目标目录存在（旧主题目录、用户自建类在重建后可能尚未建出）。
+ */
+function ensureVaultDestDir(fs: WikiVaultFs, dirAbs: string): void {
+  if (!fs.exists(dirAbs)) {
+    fs.mkdir(dirAbs);
+  }
+}
+
+/**
  * 把单条资料同步到 vault；返回应写入 DB 的 source_path（相对 workspace）。
  */
 export function syncSourceToVault(deps: WikiVaultSyncDeps, source: WikiSource): WikiVaultSyncResult | null {
   ensureWikiVaultLayout(deps.vaultRoot, deps.fs);
 
   const destDirAbs = resolveVaultDirAbs(deps, source);
+  ensureVaultDestDir(deps.fs, destDirAbs);
 
   // native markdown：若已在 vault 外，复制/移动到 vault；已在 vault 内则随分类移动
   if (source.storage_mode === "native" && source.source_path?.replace(/\\/g, "/").endsWith(".md")) {

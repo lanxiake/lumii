@@ -78,4 +78,25 @@ describe("syncSourceToVault", () => {
     );
     expect(result?.relPath).toMatch(/\.url\.lumii-ref$/);
   });
+
+  it("目标主题目录不存在时先建目录再写 ref", () => {
+    const fs = mockVaultFs();
+    const deps = {
+      vaultRoot: "/ws/wiki",
+      workspaceRoot: "/ws",
+      fs,
+      toRelPath: (abs: string) => abs.replace("/ws/", ""),
+      toAbsPath: (rel: string) => `/ws/${rel}`,
+    };
+    const result = syncSourceToVault(
+      deps,
+      sampleSource({
+        title: "拍照姿势21",
+        topic_category: "模板参考",
+        topic_subtopic: "图片媒体素材",
+      }),
+    );
+    expect(result?.relPath).toContain("收藏/图片媒体素材/");
+    expect([...fs.files.keys()].some((p) => p.includes("收藏/图片媒体素材/"))).toBe(true);
+  });
 });

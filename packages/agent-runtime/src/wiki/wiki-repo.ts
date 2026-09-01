@@ -8,9 +8,11 @@ import type { DatabaseAdapter } from "../storage/local-database.js";
 import { withTransaction } from "../storage/local-database.js";
 import { tokenizeBigram } from "../memory/segmentation.js";
 import { WikiIndexRepo } from "./wiki-index.js";
+import { wikiRecordsShareFileIdentity } from "./wiki-source-identity.js";
 import {
   DEFAULT_TOPIC_TREE,
   LEGACY_TOPIC_TREE_V1,
+  LEGACY_CATEGORY_TO_V2,
   PARKING_CATEGORY,
   TOPIC_CATEGORIES_META_KEY,
   parseTopicTree,
@@ -263,6 +265,44 @@ export class WikiRepo {
   }
 
   /**
+   * 资料层已有同一文件时，把仍为 pending 的收件箱条目标成 organized。
+   * 避免「已归到收藏等目录」的文件因队列未关账而继续出现在收件箱。
+   */
+  reconcilePendingInboxWithSources(agentId: string, userId: string): number {
+    const pending = this.listInbox(agentId, userId, "pending", 500);
+    if (pending.length === 0) return 0;
+    const filed = this.listSources(agentId, userId).filter(
+      (source) =>
+        source.archived_at === null &&
+        source.topic_category !== null &&
+        source.topic_category !== PARKING_CATEGORY,
+    );
+    let marked = 0;
+    for (const item of pending) {
+      const match = filed.find((source) =>
+        wikiRecordsShareFileIdentity(
+          {
+            title: item.title,
+            sourcePath: item.source_path,
+            sourceUrl: item.source_url,
+            contentHash: item.content_hash,
+          },
+          {
+            title: source.title,
+            sourcePath: source.source_path,
+            originUrl: source.origin_url,
+            contentHash: source.content_hash,
+          },
+        ),
+      );
+      if (!match) continue;
+      this.markInboxOrganized(item.id, match.id);
+      marked += 1;
+    }
+    return marked;
+  }
+
+  /**
    * 把一条收件箱条目归档进资料层：建资料行 → 写用途归属 → 建索引 → 标记已归档。
    * 四步必须同生共死：中途失败（最常见是主题越权被 validateTopicAssignment 拒）如果不回滚，
    * 会留下一条主题为空的孤儿资料，而条目仍是 pending，下次重试再建一条——createSource
@@ -354,6 +394,19 @@ export class WikiRepo {
     const rows = this.db
       .prepare<{ agent_id: string; user_id: string }>(
         "SELECT DISTINCT agent_id, user_id FROM wiki_inbox WHERE status = 'pending'",
+      )
+      .all();
+    return rows.map((r) => ({ agentId: r.agent_id, userId: r.user_id }));
+  }
+
+  /**
+   * 列出仍有未分类资料的归属，供自动分类轮询在 inbox 队列已空时继续处理。
+   */
+  listUnfiledAgentUserPairs(): readonly { readonly agentId: string; readonly userId: string }[] {
+    const rows = this.db
+      .prepare<{ agent_id: string; user_id: string }>(
+        `SELECT DISTINCT agent_id, user_id FROM wiki_sources
+         WHERE topic_category IS NULL AND archived_at IS NULL`,
       )
       .all();
     return rows.map((r) => ({ agentId: r.agent_id, userId: r.user_id }));
@@ -526,6 +579,29 @@ export class WikiRepo {
       this.setIndexMeta(TOPIC_CATEGORIES_META_KEY, JSON.stringify(merged));
     }
     return merged;
+  }
+
+  /**
+   * 把仍写着 v1 六大类名的资料改写到 v2（或退回收件箱），避免 UI 已是新树、磁盘却去建「模板参考」。
+   */
+  remapLegacyTopicCategories(): number {
+    let changes = 0;
+    for (const [from, to] of Object.entries(LEGACY_CATEGORY_TO_V2)) {
+      if (to === null) {
+        const info = this.db
+          .prepare(
+            "UPDATE wiki_sources SET topic_category = NULL, topic_subtopic = NULL WHERE topic_category = ?",
+          )
+          .run(from);
+        changes += info.changes;
+      } else {
+        const info = this.db
+          .prepare("UPDATE wiki_sources SET topic_category = ? WHERE topic_category = ?")
+          .run(to, from);
+        changes += info.changes;
+      }
+    }
+    return changes;
   }
 
   /**
@@ -761,11 +837,39 @@ export class WikiRepo {
       params.push(filter.mediaType);
     }
 
-    return this.db
+    const rows = this.db
       .prepare<WikiSource>(
         `SELECT * FROM wiki_sources WHERE ${conditions.join(" AND ")} ORDER BY created_at DESC`,
       )
       .all(...params);
+
+    if (!filter.unfiled) return rows;
+
+    const filed = this.listSources(agentId, userId).filter(
+      (s) =>
+        s.archived_at === null &&
+        s.topic_category !== null &&
+        s.topic_category !== PARKING_CATEGORY,
+    );
+    return rows.filter(
+      (unfiled) =>
+        !filed.some((s) =>
+          wikiRecordsShareFileIdentity(
+            {
+              title: unfiled.title,
+              sourcePath: unfiled.source_path,
+              originUrl: unfiled.origin_url,
+              contentHash: unfiled.content_hash,
+            },
+            {
+              title: s.title,
+              sourcePath: s.source_path,
+              originUrl: s.origin_url,
+              contentHash: s.content_hash,
+            },
+          ),
+        ),
+    );
   }
 
   /**
