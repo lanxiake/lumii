@@ -23,9 +23,37 @@ import type {
   WikiSource,
 } from "./types.js";
 
-export interface WikiOrganizerHooks {
-  /** 资料落库后回调（供宿主同步 vault 目录） */
-  readonly onSourceCreated?: (source: WikiSource) => void;
+export const WIKI_INBOX_ITEM_TYPES: readonly WikiInboxItemType[] = [
+  "upload",
+  "output",
+  "search",
+  "chat",
+];
+
+/**
+ * 把未分类资料转成分类器用的收件箱形态（id 用 sourceId）。
+ */
+function sourceToClassifyItem(source: WikiSource): WikiInboxItem {
+  const preview = (source.extracted_text ?? source.content_md ?? source.summary ?? "").trim();
+  return {
+    id: source.id,
+    agent_id: source.agent_id,
+    user_id: source.user_id,
+    item_type: "upload",
+    source_path: source.source_path,
+    source_url: source.origin_url,
+    title: source.title,
+    content_preview: preview || null,
+    media_type: source.media_type,
+    status: "pending",
+    attempt_count: 0,
+    last_error: null,
+    last_outcome: null,
+    organized_source_id: null,
+    content_hash: source.content_hash,
+    created_at: source.created_at,
+    organized_at: null,
+  };
 }
 
 /**
@@ -200,7 +228,7 @@ export class WikiOrganizer {
         if (!item) continue;
         const extract = extractById.get(item.id) ?? "none";
 
-        if (result.degraded || result.skip || !result.category || !result.subtopic) {
+        if (result.degraded || result.skip || !result.category) {
           const reason = result.degradeReason ?? result.reason ?? "无法归类";
           totalDegraded += 1;
           degradeReasons.add(reason);
@@ -224,7 +252,7 @@ export class WikiOrganizer {
           allDetailItems.push({
             inboxId: item.id,
             title: item.title,
-            path: `${result.category}/${result.subtopic}`,
+            path: result.subtopic ? `${result.category}/${result.subtopic}` : result.category,
             mediaType: item.media_type,
             outcome: "archived",
             extract,
@@ -266,6 +294,138 @@ export class WikiOrganizer {
       ...(error ? { error } : {}),
       finished_at: new Date().toISOString(),
     };
+  }
+
+  /**
+   * 对资料层未分类行做 AI 分类并写入主题（文件夹导入后 intake 留下的收件箱可见项）。
+   */
+  async organizeUnfiledSourceIds(
+    agentId: string,
+    userId: string,
+    sourceIds?: readonly string[],
+    batchSize = 10,
+  ): Promise<WikiOrganizeRun | null> {
+    if (WikiReclassifier.isRunning(this.repo.getReclassifyRun(agentId, userId) as never)) {
+      return null;
+    }
+
+    const unfiled = this.repo.listSourcesByTopic(agentId, userId, { unfiled: true });
+    const wanted = sourceIds && sourceIds.length > 0 ? new Set(sourceIds) : null;
+    const targets = wanted ? unfiled.filter((s) => wanted.has(s.id)) : [...unfiled];
+    if (targets.length === 0) return null;
+
+    const run = this.repo.createRun(
+      agentId,
+      userId,
+      targets.map((s) => s.id),
+    );
+
+    const topicTree = this.repo.getOrCreateTopicTree();
+    let totalOrganized = 0;
+    let totalDegraded = 0;
+    let totalFailed = 0;
+    const allDetailItems: WikiOrganizeRunDetailItem[] = [];
+    const degradeReasons = new Set<string>();
+
+    for (let offset = 0; offset < targets.length; offset += batchSize) {
+      const chunk = targets.slice(offset, offset + batchSize);
+      const items = chunk.map(sourceToClassifyItem);
+      let classified;
+      try {
+        classified = await classifyBatch(items, this.callLLM, topicTree);
+      } catch (err) {
+        const message = (err as Error).message;
+        this.repo.finishRun(run.id, "failed", undefined, message);
+        return { ...run, status: "failed", error: message, finished_at: new Date().toISOString() };
+      }
+
+      const byId = new Map(classified.map((c) => [c.inboxId, c]));
+      for (const source of chunk) {
+        const result = byId.get(source.id);
+        if (!result || result.degraded || result.skip || !result.category) {
+          totalDegraded += 1;
+          const reason = result?.degradeReason ?? result?.reason ?? "无法归类";
+          degradeReasons.add(reason);
+          allDetailItems.push({
+            inboxId: source.id,
+            title: source.title,
+            path: "",
+            mediaType: source.media_type,
+            outcome: "degraded",
+            reason,
+            extract: source.extracted_text ? "preview" : "none",
+          });
+          continue;
+        }
+        try {
+          const updated = this.repo.updateSourceTopic(
+            agentId,
+            userId,
+            source.id,
+            result.category,
+            result.subtopic,
+          );
+          await this.finalizeCreatedSource(updated);
+          totalOrganized += 1;
+          allDetailItems.push({
+            inboxId: source.id,
+            title: source.title,
+            path: result.subtopic ? `${result.category}/${result.subtopic}` : result.category,
+            mediaType: source.media_type,
+            outcome: "archived",
+            extract: source.extracted_text ? "preview" : "none",
+          });
+        } catch (err) {
+          totalFailed += 1;
+          allDetailItems.push({
+            inboxId: source.id,
+            title: source.title,
+            path: "",
+            mediaType: source.media_type,
+            outcome: "failed",
+            reason: (err as Error).message,
+            extract: source.extracted_text ? "preview" : "none",
+          });
+        }
+      }
+    }
+
+    const status =
+      totalFailed > 0 ? "partial" : totalDegraded > 0 ? "degraded" : "succeeded";
+    const summary = [
+      `${totalOrganized} 项已归档`,
+      totalDegraded > 0 ? `${totalDegraded} 项无法归类留在待整理` : "",
+      totalFailed > 0 ? `${totalFailed} 项待重试` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const error = degradeReasons.size > 0 ? [...degradeReasons].join("; ") : undefined;
+    const detailJson = JSON.stringify({ items: allDetailItems });
+    this.repo.finishRun(run.id, status, summary, error, detailJson);
+    return {
+      ...run,
+      status,
+      result_summary: summary,
+      result_detail: detailJson,
+      ...(error ? { error } : {}),
+      finished_at: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * 处理全部 pending 队列类型 + 未分类资料。
+   */
+  async organizeAllInbox(agentId: string, userId: string, batchSize = 10): Promise<WikiOrganizeRun | null> {
+    let last: WikiOrganizeRun | null = null;
+    for (const itemType of WIKI_INBOX_ITEM_TYPES) {
+      for (;;) {
+        const run = await this.organizeBatch(agentId, userId, itemType, batchSize);
+        if (!run) break;
+        last = run;
+      }
+    }
+    const unfiled = await this.organizeUnfiledSourceIds(agentId, userId, undefined, batchSize);
+    return unfiled ?? last;
   }
 
   /**
@@ -497,7 +657,7 @@ export class WikiOrganizer {
       if (!item) continue;
       const extract = extractById.get(item.id) ?? "none";
 
-      if (result.degraded || result.skip || !result.category || !result.subtopic) {
+      if (result.degraded || result.skip || !result.category) {
         const reason = result.degradeReason ?? result.reason ?? "无法归类";
         degraded += 1;
         degradeReasons.add(reason);
@@ -520,7 +680,7 @@ export class WikiOrganizer {
         detailItems.push({
           inboxId: item.id,
           title: item.title,
-          path: `${result.category}/${result.subtopic}`,
+          path: result.subtopic ? `${result.category}/${result.subtopic}` : result.category,
           mediaType: item.media_type,
           outcome: "archived",
           extract,

@@ -114,6 +114,7 @@ export function handleWikiInboxList(
   command: Extract<AgentRuntimeCommand, { type: 'wiki:inbox:list' }>,
 ): unknown {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  bridge.wikiRepo.reconcilePendingInboxWithSources(agentId, LOCAL_USER_ID)
   const items = bridge.wikiRepo.listInbox(agentId, LOCAL_USER_ID, command.status)
   const deps = createWikiVaultSyncDeps()
   return items.map((i) => {
@@ -145,6 +146,7 @@ export function handleWikiInboxCount(
   command: Extract<AgentRuntimeCommand, { type: 'wiki:inbox:count' }>,
 ): { total: number; pending: number; unfiled: number } {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  bridge.wikiRepo.reconcilePendingInboxWithSources(agentId, LOCAL_USER_ID)
   const pending = bridge.wikiRepo.countInbox(agentId, LOCAL_USER_ID, command.status)
   const unfiled = command.status
     ? 0
@@ -335,6 +337,7 @@ export async function handleWikiFolderImport(
 
 /**
  * 显式触发一批 Wiki intake/organize（不等 30s 轮询）。
+ * 传入 inboxIds/sourceIds 或 mode=organize-all 时视为用户主动让 AI 分类，不检查自动分类开关。
  */
 export async function handleWikiOrganizeRun(
   bridge: AgentRuntimeBridge,
@@ -344,12 +347,47 @@ export async function handleWikiOrganizeRun(
   const itemType: WikiInboxItemType = command.itemType ?? 'output'
   const mode = command.mode ?? 'intake'
   const batchSize = command.batchSize ?? 10
+  const organizer = bridge.wikiOrganizer
+
+  if ((command.inboxIds && command.inboxIds.length > 0) || (command.sourceIds && command.sourceIds.length > 0)) {
+    const parts: string[] = []
+    let lastId: string | null = null
+    let lastStatus = 'empty'
+    if (command.inboxIds && command.inboxIds.length > 0) {
+      const run = await organizer.organizeInboxIds(agentId, LOCAL_USER_ID, command.inboxIds, undefined, batchSize)
+      if (run) {
+        lastId = run.id
+        lastStatus = run.status
+        if (run.result_summary) parts.push(run.result_summary)
+      }
+    }
+    if (command.sourceIds && command.sourceIds.length > 0) {
+      const run = await organizer.organizeUnfiledSourceIds(agentId, LOCAL_USER_ID, command.sourceIds, batchSize)
+      if (run) {
+        lastId = run.id
+        lastStatus = run.status
+        if (run.result_summary) parts.push(run.result_summary)
+      }
+    }
+    return {
+      runId: lastId,
+      status: parts.length > 0 ? lastStatus : 'empty',
+      summary: parts.length > 0 ? parts.join(' · ') : '没有可分类的收件箱条目',
+    }
+  }
+
+  if (mode === 'organize-all') {
+    const run = await organizer.organizeAllInbox(agentId, LOCAL_USER_ID, batchSize)
+    if (!run) {
+      return { runId: null, status: 'empty', summary: '没有待处理的收件箱条目' }
+    }
+    return { runId: run.id, status: run.status, summary: run.result_summary ?? null }
+  }
 
   if (mode === 'organize' && !bridge.wikiRepo.getAutoClassifyEnabled(agentId, LOCAL_USER_ID)) {
     throw new Error('自动分类未开启，请使用 --mode intake 或先在 Wiki 设置中开启自动分类')
   }
 
-  const organizer = bridge.wikiOrganizer
   const run =
     mode === 'organize'
       ? await organizer.organizeBatch(agentId, LOCAL_USER_ID, itemType, batchSize)
@@ -745,11 +783,23 @@ export async function handleWikiReclassifyRun(
   const scope = toReclassifyScope(command)
   const userId = command.userId ?? LOCAL_USER_ID
   const vaultRoot = resolveWikiDir()
-  const runId = await bridge.wikiReclassifier.run(command.agentId, userId, scope, {
+  const work = bridge.wikiReclassifier.run(command.agentId, userId, scope, {
     force: command.force === true,
     vaultRoot,
     enableRename: command.enableRename === true,
   })
+  const startedAt = Date.now()
+  while (Date.now() - startedAt < 8_000) {
+    const current = bridge.wikiReclassifier.get(command.agentId, userId)
+    if (current) {
+      void work.catch((err) => {
+        console.error('[wiki-reclassify]', err)
+      })
+      return { runId: current.runId }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  const runId = await work
   return { runId }
 }
 
@@ -764,14 +814,27 @@ export function handleWikiReclassifyEstimate(
   const userId = command.userId ?? LOCAL_USER_ID
   const vaultRoot = resolveWikiDir()
   const inv = buildLibraryInventory(bridge.wikiRepo, command.agentId, userId, scope, vaultRoot)
+  const inboxCount = inv.inboxCount
   const fileCount = inv.files.length
-  const structureCalls = Math.ceil(fileCount / STRUCTURE_BATCH_SIZE)
-  const estimatedContentCalls = Math.ceil((fileCount * 0.2) / CONTENT_BATCH_SIZE)
+  const structureCalls = fileCount === 0 ? 0 : Math.ceil(fileCount / STRUCTURE_BATCH_SIZE)
+  const estimatedContentCalls = fileCount === 0 ? 0 : Math.ceil((fileCount * 0.2) / CONTENT_BATCH_SIZE)
+  let note: string
+  if (fileCount === 0 && inboxCount > 0) {
+    note = `资料层没有已进目录的文件可编目。收件箱还有 ${inboxCount} 条未分类资料——全库重新编目不会处理它们，请回到收件箱勾选后点「让 AI 分类」，或开启「AI 自动分类」。`
+  } else if (fileCount === 0) {
+    note = '当前没有可编目的资料。请先把文件导入收件箱并分类到工作 / 学习 / 生活 / 收藏。'
+  } else {
+    note = `将对 ${fileCount} 份已入库资料给出调整建议，预计 ${structureCalls + estimatedContentCalls} 次模型调用。接受预览后才会改目录。`
+    if (inboxCount > 0) {
+      note += ` 收件箱另有 ${inboxCount} 条未分类，不会出现在本次建议里。`
+    }
+  }
   return {
     fileCount,
     structureCalls,
     estimatedContentCalls,
-    note: `将对 ${fileCount} 份资料编目，预计 ${structureCalls + estimatedContentCalls} 次模型调用`,
+    inboxCount,
+    note,
   }
 }
 
@@ -1027,6 +1090,11 @@ export function handleWikiAutoClassifySet(
 ): void {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
   bridge.wikiRepo.setAutoClassifyEnabled(agentId, LOCAL_USER_ID, command.enabled)
+  if (command.enabled) {
+    bridge.wikiOrganizeQueue.enqueue(async () => {
+      await bridge.wikiOrganizer.organizeAllInbox(agentId, LOCAL_USER_ID)
+    })
+  }
 }
 
 export function handleWikiCleanupScan(

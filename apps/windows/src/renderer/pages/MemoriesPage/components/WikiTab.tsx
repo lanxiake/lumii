@@ -6,7 +6,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { PARKING_CATEGORY } from '@mtbot/agent-runtime/browser'
+import { PARKING_CATEGORY, wikiRecordsShareFileIdentity } from '@mtbot/agent-runtime/browser'
 import { Button } from '../../../components/ui/Button/Button'
 import { Loading } from '../../../components/ui/Loading/Loading'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
@@ -50,6 +50,21 @@ import './WikiTab.css'
 type PickerTarget =
   | { mode: 'inbox'; item: WikiInboxItem }
   | { mode: 'source'; item: WikiSourceListItem }
+
+/**
+ * 未分类行是否与已归入用途目录（含收藏）的资料指向同一文件。
+ */
+function isUnfiledDuplicateOfFiled(
+  item: WikiSourceListItem,
+  filed: readonly WikiSourceListItem[],
+): boolean {
+  return filed.some((other) =>
+    wikiRecordsShareFileIdentity(
+      { title: item.title, sourcePath: item.sourcePath },
+      { title: other.title, sourcePath: other.sourcePath },
+    ),
+  )
+}
 
 const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
   inbox: { title: '收件箱', subtitle: '还没分类的新资料，可批量归档或稍后处理' },
@@ -124,6 +139,7 @@ export const WikiTab: React.FC = () => {
   const [isTaskCenterOpen, setIsTaskCenterOpen] = useState(false)
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false)
   const [folderImportBusy, setFolderImportBusy] = useState(false)
+  const [aiClassifyBusy, setAiClassifyBusy] = useState(false)
   const [autoClassifyEnabled, setAutoClassifyEnabledState] = useState(false)
   const [isTreeEditorOpen, setIsTreeEditorOpen] = useState(false)
   const [reclassifyRun, setReclassifyRun] = useState<WikiReclassifyRunItem | null>(null)
@@ -195,9 +211,21 @@ export const WikiTab: React.FC = () => {
         toast.error('保存设置失败，请稍后重试')
         return
       }
-      toast.success(enabled ? '已开启 AI 自动分类' : '已关闭 AI 自动分类，新资料将留在收件箱')
+      toast.success(
+        enabled
+          ? '已开启 AI 自动分类，正在整理收件箱中的文件'
+          : '已关闭 AI 自动分类，新资料将留在收件箱',
+      )
+      if (enabled) {
+        window.setTimeout(() => {
+          void Promise.all([refreshInbox(), refreshSources()])
+        }, 2500)
+        window.setTimeout(() => {
+          void Promise.all([refreshInbox(), refreshSources()])
+        }, 12000)
+      }
     },
-    [autoClassifyEnabled, setAutoClassifyEnabled, toast],
+    [autoClassifyEnabled, setAutoClassifyEnabled, toast, refreshInbox, refreshSources],
   )
 
   /** 外部入口要求打开待整理：首次挂载或 Hub 已打开时再次触发 */
@@ -241,13 +269,16 @@ export const WikiTab: React.FC = () => {
     const counts: Record<string, number> = {}
     const parking: WikiSourceListItem[] = []
     const unfiled: WikiSourceListItem[] = []
+    const filed = sources.filter(
+      (item) => item.topicCategory !== null && item.topicCategory !== PARKING_CATEGORY,
+    )
     for (const item of sources) {
       if (item.topicCategory === PARKING_CATEGORY) {
         parking.push(item)
         continue
       }
       if (!item.topicCategory) {
-        unfiled.push(item)
+        if (!isUnfiledDuplicateOfFiled(item, filed)) unfiled.push(item)
         continue
       }
       sections[item.topicCategory] = (sections[item.topicCategory] ?? 0) + 1
@@ -402,16 +433,6 @@ export const WikiTab: React.FC = () => {
   }, [])
 
   /**
-   * 打开资料：本地文件与网页都走应用内预览（与对话里点文件相同），不再调系统默认应用。
-   */
-  const handleOpenSource = useCallback(
-    (item: WikiSourceListItem) => {
-      handlePreviewSourceItem(item)
-    },
-    [handlePreviewSourceItem],
-  )
-
-  /**
    * 单条资料移入已归档冷存储（「移到…」选已归档分区）。
    */
   const handleArchivePickerTarget = useCallback(async () => {
@@ -526,15 +547,21 @@ export const WikiTab: React.FC = () => {
         setReclassifyRun(await getReclassifyRun())
         return
       }
-      const run = await getReclassifyRun()
-      setReclassifyRun(run)
-      if (run?.status === 'failed') {
-        taskCenter.failTask(taskId, run.error ?? '重新编目失败')
-        return
+      for (;;) {
+        const run = await getReclassifyRun()
+        setReclassifyRun(run)
+        if (!run || run.status !== 'running') {
+          if (run?.status === 'failed') {
+            taskCenter.failTask(taskId, run.error ?? '重新编目失败')
+          } else {
+            taskCenter.completeTask(taskId, {
+              detail: run ? `${run.candidates.length} 条建议` : undefined,
+            })
+          }
+          return
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 400))
       }
-      taskCenter.completeTask(taskId, {
-        detail: run ? `${run.candidates.length} 条建议` : undefined,
-      })
     },
     [runReclassify, getReclassifyRun, taskCenter],
   )
@@ -814,6 +841,38 @@ export const WikiTab: React.FC = () => {
     [organizeInbox, updateSourceTopic, refreshInbox, refreshSources],
   )
 
+  /**
+   * 对勾选（或全部）收件箱条目做 AI 分类归档。
+   */
+  const handleAiClassifyInbox = useCallback(async () => {
+    const hasSelection = selectedInboxIdsRef.current.size + selectedUnfiledIdsRef.current.size > 0
+    const inboxIds = hasSelection
+      ? [...selectedInboxIdsRef.current]
+      : inboxItems.map((item) => item.id)
+    const sourceIds = hasSelection
+      ? [...selectedUnfiledIdsRef.current]
+      : unfiledSources.map((item) => item.id)
+    if (inboxIds.length === 0 && sourceIds.length === 0) {
+      toast.info('收件箱没有可分类的文件')
+      return
+    }
+    setAiClassifyBusy(true)
+    try {
+      const result = await taskCenter.wrapAsync('archive', 'AI 分类收件箱', () =>
+        runOrganize({ inboxIds, sourceIds }),
+      )
+      setSelectedInboxIds(new Set())
+      setSelectedUnfiledIds(new Set())
+      await Promise.all([refreshInbox(), refreshSources()])
+      if (result?.summary) toast.success(result.summary)
+      else toast.info('没有可分类的条目')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'AI 分类失败')
+    } finally {
+      setAiClassifyBusy(false)
+    }
+  }, [inboxItems, unfiledSources, runOrganize, refreshInbox, refreshSources, toast, taskCenter])
+
   /** 批量重试所选可重试的 inbox 条目 */
   const handleBatchRetryInbox = useCallback(async () => {
     const selected = selectedInboxIdsRef.current
@@ -966,11 +1025,17 @@ export const WikiTab: React.FC = () => {
               variant="primary"
               size="sm"
               onClick={() => {
+                const fileCount = reclassifyConfirm?.estimate?.fileCount
+                if (fileCount === 0) {
+                  setReclassifyConfirm(null)
+                  setNav({ kind: 'inbox' })
+                  return
+                }
                 setReclassifyConfirm(null)
                 void handleRunReclassify({ kind: 'all' }, { force: true, enableRename: reclassifyEnableRename })
               }}
             >
-              开始
+              {reclassifyConfirm?.estimate?.fileCount === 0 ? '去收件箱分类' : '开始并查看建议'}
             </Button>
           </>
         }
@@ -1040,7 +1105,6 @@ export const WikiTab: React.FC = () => {
               emptyHint="未找到相关文件"
               showTopic
               showMediaChips={false}
-              onOpen={(item) => void handleOpenSource(item)}
               onPreview={handlePreviewSourceItem}
               onMove={(item) => setPicker({ mode: 'source', item })}
               onPark={(item) => void handlePark(item)}
@@ -1081,6 +1145,8 @@ export const WikiTab: React.FC = () => {
               onPreviewInbox={handlePreviewInboxItem}
               onPreviewSource={handlePreviewSourceItem}
               onBatchOrganize={() => setInboxBatchPickerOpen(true)}
+              onAiClassify={() => void handleAiClassifyInbox()}
+              aiClassifyBusy={aiClassifyBusy}
               onBatchRetry={() => void handleBatchRetryInbox()}
               onBatchDelete={handleBatchDeleteInbox}
               onDeleteUnfiled={(sourceId) => requestRemove({ sourceIds: [sourceId] })}
@@ -1096,7 +1162,6 @@ export const WikiTab: React.FC = () => {
               showTopic
               moveLabel="恢复"
               showParkAction={false}
-              onOpen={(item) => void handleOpenSource(item)}
               onPreview={handlePreviewSourceItem}
               onMove={(item) => void handleRestoreArchived(item)}
               onDelete={handleDeleteSource}
@@ -1129,7 +1194,6 @@ export const WikiTab: React.FC = () => {
                   </>
                 ) : null
               }
-              onOpen={(item) => void handleOpenSource(item)}
               onPreview={handlePreviewSourceItem}
               onMove={(item) => setPicker({ mode: 'source', item })}
               onDelete={handleDeleteSource}
@@ -1146,6 +1210,7 @@ export const WikiTab: React.FC = () => {
         ) : nav.kind === 'reclassify' ? (
           <WikiReclassifyView
             run={reclassifyRun}
+            inboxHint={pendingCount > 0 ? `收件箱还有 ${pendingCount} 条未分类，不会出现在本页；请回收件箱用「让 AI 分类」。` : null}
             onApply={(ids) => void handleApplyReclassify(ids)}
             onIgnore={(id) => void handleIgnoreReclassify(id)}
             onDiscard={() => void handleDiscardReclassify()}
@@ -1247,7 +1312,6 @@ export const WikiTab: React.FC = () => {
                   </>
                 )
               }
-              onOpen={(item) => void handleOpenSource(item)}
               onPreview={handlePreviewSourceItem}
               onMove={(item) => setPicker({ mode: 'source', item })}
               onPark={(item) => void handlePark(item)}

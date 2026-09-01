@@ -245,6 +245,7 @@ export interface WikiReclassifyEstimateItem {
   readonly fileCount: number
   readonly structureCalls: number
   readonly estimatedContentCalls: number
+  readonly inboxCount?: number
   readonly note: string
 }
 
@@ -448,7 +449,12 @@ export function useWikiPage() {
    * 显式触发一批 Wiki intake（加速落库为未分类资料）。
    */
   const runOrganize = useCallback(
-    async (options?: { mode?: 'intake' | 'organize'; itemType?: string }): Promise<{
+    async (options?: {
+      mode?: 'intake' | 'organize' | 'organize-all'
+      itemType?: string
+      inboxIds?: readonly string[]
+      sourceIds?: readonly string[]
+    }): Promise<{
       runId: string | null
       status: string
       summary: string | null
@@ -461,6 +467,8 @@ export function useWikiPage() {
           agentId: DEFAULT_AGENT_ID,
           mode: options?.mode ?? 'intake',
           itemType: (options?.itemType as 'upload' | 'output' | 'search' | 'chat') ?? 'output',
+          inboxIds: options?.inboxIds,
+          sourceIds: options?.sourceIds,
         })) as { runId: string | null; status: string; summary: string | null }
       } catch {
         return null

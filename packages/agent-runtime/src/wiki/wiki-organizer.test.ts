@@ -448,4 +448,19 @@ describe("WikiOrganizer intakeBatch（不调 LLM）", () => {
     expect(repo.listSourcesByTopic("ag", "u", { unfiled: true })).toHaveLength(1);
     expect(repo.listInbox("ag", "u", "pending")).toHaveLength(1);
   });
+
+  it("organizeUnfiledSourceIds 把未分类资料写入主题", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "文档 A 的内容");
+    const organizerIntake = new WikiOrganizer(repo, forbiddenLLM, new WikiContentExtractor());
+    await organizerIntake.intakeBatch("ag", "u", "upload");
+    const unfiled = repo.listSourcesByTopic("ag", "u", { unfiled: true });
+    expect(unfiled).toHaveLength(1);
+
+    const organizer = new WikiOrganizer(repo, makeLLM(() => DOC_TOPIC), new WikiContentExtractor());
+    const run = await organizer.organizeUnfiledSourceIds("ag", "u", [unfiled[0]!.id]);
+    expect(run?.status).toBe("succeeded");
+    expect(repo.findSourceById(unfiled[0]!.id)?.topic_category).toBe("工作");
+    expect(repo.listSourcesByTopic("ag", "u", { unfiled: true })).toHaveLength(0);
+  });
 });

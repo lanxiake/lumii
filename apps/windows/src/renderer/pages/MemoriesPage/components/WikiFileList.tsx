@@ -1,9 +1,8 @@
 import React, { useMemo, useState } from 'react'
-import { Archive, ArrowRightLeft, ExternalLink, Eye, FileText, Image as ImageIcon, Music, Trash2, Video } from 'lucide-react'
+import { Archive, ArrowRightLeft, Eye, FileText, Image as ImageIcon, Music, Trash2, Video } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import type { WikiSourceListItem } from '../../../hooks/business/useWikiPage'
 import { formatRelativeTime } from './wikiStatusLabels'
-import { isUrlSourceItem } from './wikiSourcePreview'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 import { formatTopicDisplay } from './wikiTopicDisplay'
 
@@ -50,7 +49,6 @@ interface WikiFileListProps {
   selectedIds?: ReadonlySet<string>
   onToggleSelect?: (id: string) => void
   onToggleSelectAll?: () => void
-  onOpen: (item: WikiSourceListItem) => void
   onPreview: (item: WikiSourceListItem) => void
   onMove: (item: WikiSourceListItem) => void
   onPark?: (item: WikiSourceListItem) => void
@@ -73,7 +71,6 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
   selectedIds,
   onToggleSelect,
   onToggleSelectAll,
-  onOpen,
   onPreview,
   onMove,
   onPark,
@@ -125,7 +122,6 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
         <ul className="wiki-file-list-items">
           {visible.map((item) => {
             const Icon = MEDIA_ICONS[(item.mediaType ?? 'document') as keyof typeof MEDIA_ICONS] ?? FileText
-            const isUrl = isUrlSourceItem(item.sourcePath)
             const topic = formatTopicDisplay(item.topicCategory, item.topicSubtopic)
             return (
               <li
@@ -163,17 +159,6 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                     <Eye size={13} />
                     详情
                   </Button>
-                  {isUrl ? (
-                    <Button variant="ghost" size="sm" onClick={() => onPreview(item)}>
-                      <ExternalLink size={13} />
-                      打开链接
-                    </Button>
-                  ) : (
-                    <Button variant="ghost" size="sm" onClick={() => onOpen(item)}>
-                      <ExternalLink size={13} />
-                      打开
-                    </Button>
-                  )}
                   <Button variant="ghost" size="sm" onClick={() => onMove(item)}>
                     <ArrowRightLeft size={13} />
                     {moveLabel}

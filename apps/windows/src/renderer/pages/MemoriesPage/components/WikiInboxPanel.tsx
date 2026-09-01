@@ -23,6 +23,8 @@ interface WikiInboxPanelProps {
   readonly onPreviewInbox: (item: WikiInboxItem) => void
   readonly onPreviewSource: (item: WikiSourceListItem) => void
   readonly onBatchOrganize: () => void
+  readonly onAiClassify: () => void
+  readonly aiClassifyBusy?: boolean
   readonly onBatchRetry: () => void
   readonly onBatchDelete: () => void
   readonly onDeleteUnfiled: (sourceId: string) => void
@@ -93,6 +95,8 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
   onPreviewInbox,
   onPreviewSource,
   onBatchOrganize,
+  onAiClassify,
+  aiClassifyBusy = false,
   onBatchRetry,
   onBatchDelete,
   onDeleteUnfiled,
@@ -138,8 +142,13 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
         {totalSelected > 0 ? (
           <>
             <span className="wiki-inbox-batch-count">已选 {totalSelected} 项</span>
+            <Tooltip content="根据文件名与正文，由 AI 归档到工作 / 学习 / 生活 / 收藏（可与手动归档并用）" placement="bottom">
+              <Button variant="primary" size="sm" disabled={aiClassifyBusy} onClick={onAiClassify}>
+                {aiClassifyBusy ? 'AI 分类中…' : '让 AI 分类'}
+              </Button>
+            </Tooltip>
             <Tooltip content="将所选条目一次性归档到同一分类目录" placement="bottom">
-              <Button variant="primary" size="sm" onClick={onBatchOrganize}>
+              <Button variant="secondary" size="sm" onClick={onBatchOrganize}>
                 批量归档到…
               </Button>
             </Tooltip>
@@ -159,12 +168,23 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
               </Button>
             </Tooltip>
           </>
-        ) : retryableItems.length > 0 ? (
-          <Tooltip content="对全部待处理/失败条目重新触发后台处理" placement="bottom">
-            <Button variant="secondary" size="sm" onClick={onRetryAll}>
-              全部重试（{retryableItems.length}）
-            </Button>
-          </Tooltip>
+        ) : retryableItems.length > 0 || totalSelectable > 0 ? (
+          <>
+            {totalSelectable > 0 ? (
+              <Tooltip content="对收件箱全部条目做一次 AI 分类归档" placement="bottom">
+                <Button variant="secondary" size="sm" disabled={aiClassifyBusy} onClick={onAiClassify}>
+                  {aiClassifyBusy ? 'AI 分类中…' : `全部交给 AI 分类（${totalSelectable}）`}
+                </Button>
+              </Tooltip>
+            ) : null}
+            {retryableItems.length > 0 ? (
+              <Tooltip content="对全部待处理/失败条目重新触发后台处理" placement="bottom">
+                <Button variant="secondary" size="sm" onClick={onRetryAll}>
+                  全部重试（{retryableItems.length}）
+                </Button>
+              </Tooltip>
+            ) : null}
+          </>
         ) : null}
       </div>
 
@@ -208,23 +228,23 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
                       </p>
                     )
                   ) : null}
-                  <div className="wiki-inbox-item-actions">
-                    <Button variant="ghost" size="sm" onClick={() => onPreviewInbox(row.item)}>
-                      <Eye size={13} />
-                      详情
+                </div>
+                <div className="wiki-inbox-item-actions">
+                  <Button variant="ghost" size="sm" onClick={() => onPreviewInbox(row.item)}>
+                    <Eye size={13} />
+                    详情
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => onOrganize(row.item)}>
+                    归档到…
+                  </Button>
+                  {canRetryInboxItem(row.item.status) ? (
+                    <Button variant="ghost" size="sm" onClick={() => onRetry(row.item.id)}>
+                      重试
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => onOrganize(row.item)}>
-                      归档到…
-                    </Button>
-                    {canRetryInboxItem(row.item.status) ? (
-                      <Button variant="ghost" size="sm" onClick={() => onRetry(row.item.id)}>
-                        重试
-                      </Button>
-                    ) : null}
-                    <Button variant="ghost" size="sm" onClick={() => onDiscard(row.item.id)}>
-                      删除
-                    </Button>
-                  </div>
+                  ) : null}
+                  <Button variant="ghost" size="sm" onClick={() => onDiscard(row.item.id)}>
+                    删除
+                  </Button>
                 </div>
               </div>
             </article>
@@ -249,18 +269,18 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
                     </button>
                     <span className="wiki-inbox-item-status">{formatRelativeTime(row.item.updatedAt)}</span>
                   </div>
-                  <div className="wiki-inbox-item-actions">
-                    <Button variant="ghost" size="sm" onClick={() => onPreviewSource(row.item)}>
-                      <Eye size={13} />
-                      详情
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => onFileUnfiled(row.item)}>
-                      归档到…
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => onDeleteUnfiled(row.item.id)}>
-                      删除
-                    </Button>
-                  </div>
+                </div>
+                <div className="wiki-inbox-item-actions">
+                  <Button variant="ghost" size="sm" onClick={() => onPreviewSource(row.item)}>
+                    <Eye size={13} />
+                    详情
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => onFileUnfiled(row.item)}>
+                    归档到…
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => onDeleteUnfiled(row.item.id)}>
+                    删除
+                  </Button>
                 </div>
               </div>
             </article>

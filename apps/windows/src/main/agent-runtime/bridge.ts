@@ -71,6 +71,7 @@ import {
   WikiIngestHook,
   WikiOrganizeQueue,
   WikiOrganizer,
+  WIKI_INBOX_ITEM_TYPES,
   WikiReclassifier,
   WikiContentExtractor,
   WikiCleanupScanner,
@@ -1784,22 +1785,29 @@ export class AgentRuntimeBridge {
    * 串行队列（WikiOrganizeQueue）保证同一时刻只有一个整理任务在跑，避免写冲突。
    */
   private startWikiOrganizePolling(): void {
-    const ITEM_TYPES = ['upload', 'output', 'search', 'chat'] as const
     const runOnce = () => {
       const repo = this._wikiRepo
       const organizer = this._wikiOrganizer
       const queue = this._wikiOrganizeQueue
       if (!repo || !organizer || !queue) return
-      for (const { agentId, userId } of repo.listPendingAgentUserPairs()) {
-        // 默认只收件不分类：资料先安全落到未分类，分类留给用户或显式的「AI 整理」
+      const pairKey = (agentId: string, userId: string) => `${agentId}\0${userId}`
+      const pairs = new Map<string, { agentId: string; userId: string }>()
+      for (const p of repo.listPendingAgentUserPairs()) pairs.set(pairKey(p.agentId, p.userId), p)
+      for (const p of repo.listUnfiledAgentUserPairs()) pairs.set(pairKey(p.agentId, p.userId), p)
+      for (const { agentId, userId } of pairs.values()) {
         const autoClassify = repo.getAutoClassifyEnabled(agentId, userId)
-        for (const itemType of ITEM_TYPES) {
+        for (const itemType of WIKI_INBOX_ITEM_TYPES) {
           queue.enqueue(async () => {
             if (autoClassify) {
               await organizer.organizeBatch(agentId, userId, itemType)
             } else {
               await organizer.intakeBatch(agentId, userId, itemType)
             }
+          })
+        }
+        if (autoClassify) {
+          queue.enqueue(async () => {
+            await organizer.organizeUnfiledSourceIds(agentId, userId)
           })
         }
       }

@@ -48,9 +48,9 @@ export const WIKI_FOLDER_IMPORT_TOOLTIP =
 /** 更多菜单各项（补充 WikiMoreMenu 内 description） */
 export const WIKI_MORE_MENU_TOOLTIPS: Record<string, string> = {
   autoClassify:
-    '开启后：从文件夹导入、聊天上传等新资料会由 AI 自动归档到目录；关闭则只进「收件箱」，需手动批量归档或重试。',
+    '开启后：从文件夹导入、聊天上传等新资料会由 AI 自动归档到目录；已在收件箱里的文件也会随后分类。关闭则只进「收件箱」，可勾选后点「让 AI 分类」。',
   reclassifyAll:
-    '让 AI 扫描已归档文件并给出目录调整建议。只生成预览，你勾选接受后才会改动，不会静默修改。',
+    '让 AI 扫描已经进工作/学习/生活/收藏的文件并给出调整建议。收件箱里的未分类文件不会被编目，请用「让 AI 分类」。建议需勾选接受后才生效。',
   editTopicTree: '增删改各分区下的小类名称。分区对应 workspace/wiki/ 下的文件夹结构。',
   history: '早期自动生成的摘要页面（只读）。新资料请用左侧分类目录浏览原始文件。',
   cleanup: '扫描重复内容、失效引用、长期未用资料，并给出归档或删除建议。',

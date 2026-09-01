@@ -402,9 +402,13 @@ export interface WikiFolderImportCommand {
 /** 显式触发一批 intake/organize */
 export interface WikiOrganizeRunCommand {
   readonly type: 'wiki:organize:run'
-  readonly mode?: 'intake' | 'organize'
+  readonly mode?: 'intake' | 'organize' | 'organize-all'
   readonly itemType?: 'upload' | 'output' | 'search' | 'chat'
   readonly batchSize?: number
+  /** 用户勾选的收件箱队列 id，有值时走 AI 分类且不受自动分类开关限制 */
+  readonly inboxIds?: readonly string[]
+  /** 用户勾选的未分类资料 id */
+  readonly sourceIds?: readonly string[]
   readonly sessionKey?: string
   readonly agentId?: string
 }
@@ -1677,6 +1681,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       fileCount: number
       structureCalls: number
       estimatedContentCalls: number
+      inboxCount: number
       note: string
     }
   : T extends 'wiki:reclassify:get' ? {

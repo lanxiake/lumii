@@ -26,24 +26,25 @@ const noop = () => undefined
 
 describe('WikiFileList', () => {
   it('行显示文件名与相对时间，操作回调带上该行数据', () => {
-    const onOpen = vi.fn()
+    const onPreview = vi.fn()
     const onMove = vi.fn()
     const onPark = vi.fn()
     const item = makeItem()
     render(
-      <WikiFileList items={[item]} emptyHint="空" onOpen={onOpen} onPreview={vi.fn()} onMove={onMove} onPark={onPark} />,
+      <WikiFileList items={[item]} emptyHint="空" onPreview={onPreview} onMove={onMove} onPark={onPark} />,
     )
 
     const row = screen.getByText('会议纪要.docx').closest('.wiki-file-list-item')
     expect(row).toHaveTextContent('刚刚')
 
-    fireEvent.click(screen.getByRole('button', { name: /打开/ }))
+    fireEvent.click(screen.getByRole('button', { name: /详情/ }))
     fireEvent.click(screen.getByRole('button', { name: /移动/ }))
     fireEvent.click(screen.getByRole('button', { name: /存到临时存放/ }))
 
-    expect(onOpen).toHaveBeenCalledWith(item)
+    expect(onPreview).toHaveBeenCalledWith(item)
     expect(onMove).toHaveBeenCalledWith(item)
     expect(onPark).toHaveBeenCalledWith(item)
+    expect(screen.queryByRole('button', { name: /打开/ })).not.toBeInTheDocument()
   })
 
   it('音视频芯片同时覆盖 audio 与 video', () => {
@@ -53,7 +54,7 @@ describe('WikiFileList', () => {
       makeItem({ id: 'd', title: '文档.docx', mediaType: 'document' }),
       makeItem({ id: 'i', title: '截图.png', mediaType: 'image' }),
     ]
-    render(<WikiFileList items={items} emptyHint="空" onOpen={noop} onPreview={noop} onMove={noop} />)
+    render(<WikiFileList items={items} emptyHint="空" onPreview={noop} onMove={noop} />)
 
     fireEvent.click(screen.getByRole('button', { name: '音视频' }))
     expect(screen.getByText('录音.m4a')).toBeInTheDocument()
@@ -76,7 +77,6 @@ describe('WikiFileList', () => {
         items={[makeItem(), makeItem({ id: 'u', title: '未分类.pdf', topicCategory: null, topicSubtopic: null })]}
         emptyHint="空"
         showTopic
-        onOpen={noop}
         onPreview={noop}
         onMove={noop}
       />,
@@ -93,7 +93,6 @@ describe('WikiFileList', () => {
         emptyHint="空"
         moveLabel="移出"
         showParkAction={false}
-        onOpen={noop}
         onPreview={noop}
         onMove={noop}
       />,
@@ -104,7 +103,7 @@ describe('WikiFileList', () => {
   })
 
   it('空列表显示传入的空状态文案', () => {
-    render(<WikiFileList items={[]} emptyHint="这个小类下还没有文件" onOpen={noop} onPreview={noop} onMove={noop} />)
+    render(<WikiFileList items={[]} emptyHint="这个小类下还没有文件" onPreview={noop} onMove={noop} />)
     expect(screen.getByText('这个小类下还没有文件')).toBeInTheDocument()
   })
 })
@@ -112,20 +111,20 @@ describe('WikiFileList', () => {
 describe('WikiFileList 副标题（摘要优先）', () => {
   it('有摘要时显示摘要', () => {
     const item = makeItem({ summary: '本周完成了登录改造', extractedTextPreview: '这是正文前缀内容' })
-    render(<WikiFileList items={[item]} emptyHint="空" onOpen={noop} onPreview={noop} onMove={noop} />)
+    render(<WikiFileList items={[item]} emptyHint="空" onPreview={noop} onMove={noop} />)
     expect(screen.getByText('本周完成了登录改造')).toBeInTheDocument()
     expect(screen.queryByText('这是正文前缀内容')).not.toBeInTheDocument()
   })
 
   it('无摘要时回退正文前 60 字', () => {
     const item = makeItem({ summary: null, extractedTextPreview: '这是正文前缀内容' })
-    render(<WikiFileList items={[item]} emptyHint="空" onOpen={noop} onPreview={noop} onMove={noop} />)
+    render(<WikiFileList items={[item]} emptyHint="空" onPreview={noop} onMove={noop} />)
     expect(screen.getByText('这是正文前缀内容')).toBeInTheDocument()
   })
 
   it('都没有时不渲染副标题', () => {
     const item = makeItem({ summary: null, extractedTextPreview: null })
-    render(<WikiFileList items={[item]} emptyHint="空" onOpen={noop} onPreview={noop} onMove={noop} />)
+    render(<WikiFileList items={[item]} emptyHint="空" onPreview={noop} onMove={noop} />)
     expect(document.querySelector('.wiki-file-list-subtitle')).not.toBeInTheDocument()
   })
 
@@ -133,7 +132,7 @@ describe('WikiFileList 副标题（摘要优先）', () => {
     const sendCommand = vi.fn()
     ;(window as any).electronAPI = { agentRuntime: { sendCommand } }
     const item = makeItem({ summary: '摘要', extractedTextPreview: '正文' })
-    render(<WikiFileList items={[item]} emptyHint="空" onOpen={noop} onPreview={noop} onMove={noop} />)
+    render(<WikiFileList items={[item]} emptyHint="空" onPreview={noop} onMove={noop} />)
     expect(sendCommand).not.toHaveBeenCalled()
   })
 })
@@ -143,7 +142,7 @@ describe('WikiFileList 多选（二期）', () => {
   const b = makeItem({ id: 'b', title: '调研B.pdf' })
 
   it('不传 selectable 时不渲染复选框（保持一期行为）', () => {
-    render(<WikiFileList items={[a]} emptyHint="空" onOpen={noop} onPreview={noop} onMove={noop} />)
+    render(<WikiFileList items={[a]} emptyHint="空" onPreview={noop} onMove={noop} />)
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
   })
 
@@ -152,7 +151,7 @@ describe('WikiFileList 多选（二期）', () => {
     render(
       <WikiFileList
         items={[a, b]} emptyHint="空" selectable selectedIds={new Set()}
-        onToggleSelect={onToggleSelect} onOpen={noop} onPreview={noop} onMove={noop}
+        onToggleSelect={onToggleSelect} onPreview={noop} onMove={noop}
       />,
     )
     fireEvent.click(screen.getByLabelText('选择 调研A.pdf'))
@@ -163,7 +162,7 @@ describe('WikiFileList 多选（二期）', () => {
     render(
       <WikiFileList
         items={[a, b]} emptyHint="空" selectable selectedIds={new Set(['a'])}
-        onToggleSelect={noop} onOpen={noop} onPreview={noop} onMove={noop}
+        onToggleSelect={noop} onPreview={noop} onMove={noop}
       />,
     )
     expect(screen.getByLabelText('选择 调研A.pdf')).toBeChecked()
@@ -175,7 +174,7 @@ describe('WikiFileList 多选（二期）', () => {
     render(
       <WikiFileList
         items={[a, b]} emptyHint="空" selectable selectedIds={new Set(['a', 'b'])}
-        onToggleSelect={noop} onToggleSelectAll={onToggleSelectAll} onOpen={noop} onPreview={noop} onMove={noop}
+        onToggleSelect={noop} onToggleSelectAll={onToggleSelectAll} onPreview={noop} onMove={noop}
       />,
     )
     const selectAll = screen.getByLabelText('全选')
@@ -188,7 +187,7 @@ describe('WikiFileList 多选（二期）', () => {
     render(
       <WikiFileList
         items={[]} emptyHint="空" selectable selectedIds={new Set()}
-        onToggleSelect={noop} onOpen={noop} onPreview={noop} onMove={noop}
+        onToggleSelect={noop} onPreview={noop} onMove={noop}
       />,
     )
     expect(screen.queryByLabelText('全选')).not.toBeInTheDocument()

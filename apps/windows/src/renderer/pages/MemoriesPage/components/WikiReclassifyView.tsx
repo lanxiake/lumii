@@ -6,6 +6,7 @@ import { formatTopicDisplay } from './wikiTopicDisplay'
 
 interface WikiReclassifyViewProps {
   run: WikiReclassifyRunItem | null
+  inboxHint?: string | null
   onApply: (candidateIds: readonly string[]) => void
   onIgnore: (candidateId: string) => void
   onDiscard: () => void
@@ -20,6 +21,7 @@ interface WikiReclassifyViewProps {
  */
 export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
   run,
+  inboxHint,
   onApply,
   onIgnore,
   onDiscard,
@@ -62,8 +64,11 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
     return (
       <div className="wiki-reclassify">
         <p className="wiki-reclassify-empty">
-          已检查 {run.total} 个文件，当前目录都合适，无需调整。
+          {run.total === 0
+            ? '没有已进目录的文件可编目。收件箱里的资料请勾选后点「让 AI 分类」。'
+            : `已检查 ${run.total} 个已归档文件，没有需要调整的目录建议。`}
         </p>
+        {inboxHint ? <p className="wiki-reclassify-hint">{inboxHint}</p> : null}
         <Button variant="ghost" size="sm" onClick={onDiscard}>
           知道了
         </Button>
@@ -84,7 +89,7 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
     <div className="wiki-reclassify">
       <header className="wiki-reclassify-header">
         <span className="wiki-reclassify-count">
-          {run.candidates.length} 条建议
+          {run.candidates.length} 条建议（请勾选后点接受才会改目录）
           {run.unchanged > 0 && `（另有 ${run.unchanged} 个文件无需调整）`}
         </span>
         <div className="wiki-reclassify-actions">

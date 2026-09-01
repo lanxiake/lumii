@@ -359,6 +359,7 @@ export {
   buildTopicOccupancySummary,
   buildNavSectionGuide,
   WikiOrganizer,
+  WIKI_INBOX_ITEM_TYPES,
   WikiOrganizeQueue,
   computeBackoffDelayMs,
   MAX_ORGANIZE_ATTEMPTS,

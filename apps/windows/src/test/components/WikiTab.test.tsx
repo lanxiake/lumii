@@ -121,7 +121,7 @@ describe('WikiTab', () => {
     expect(screen.getByRole('heading', { name: '例行 (1)' })).toBeInTheDocument()
   })
 
-  it('文件行「打开」使用应用内居中预览，不调系统打开', async () => {
+  it('文件行「详情」使用应用内居中预览，不调系统打开', async () => {
     ;(window as any).electronAPI.agentRuntime.sendCommand = vi.fn(async (cmd: { type: string }) => {
       if (cmd.type === 'wiki:source:open') throw new Error('不应调用系统打开')
       if (cmd.type === 'wiki:source:list') {
@@ -151,7 +151,7 @@ describe('WikiTab', () => {
     await screen.findByText(/暂无收件箱条目/)
     await selectNavSection('生活')
     fireEvent.click(await screen.findByText('凭据'))
-    fireEvent.click(await screen.findByRole('button', { name: /打开/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
 
     expect(await screen.findByRole('dialog', { name: '文件预览' })).toBeInTheDocument()
     const send = (window as any).electronAPI.agentRuntime.sendCommand as ReturnType<typeof vi.fn>
@@ -541,7 +541,56 @@ describe('WikiTab', () => {
     expect(await screen.findByText('未分类文件.pdf')).toBeInTheDocument()
     expect(screen.getByText('队列文件.pdf')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '收件箱（2）' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /全部交给 AI 分类/ })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /待补分/ })).not.toBeInTheDocument()
     expect(screen.queryByText('待整理')).not.toBeInTheDocument()
+  })
+
+  it('已归入收藏的文件即使仍有未分类重复行也不出现在收件箱', async () => {
+    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
+      'wiki:topic:tree:get': {
+        tree: {
+          version: 2,
+          categories: [
+            { name: '工作', subtopics: ['项目', '例行', '对外'] },
+            { name: '收藏', subtopics: ['待读', '可复用', '范例'] },
+          ],
+        },
+      },
+      'wiki:inbox:count': { total: 0, pending: 0, unfiled: 0 },
+      'wiki:inbox:list': [],
+      'wiki:source:list': {
+        sources: [
+          {
+            id: 's-filed',
+            title: '拍照姿势21.mp4',
+            sourcePath: 'wiki/收藏/可复用/拍照姿势21.lumii-ref',
+            mediaType: 'video',
+            topicCategory: '收藏',
+            topicSubtopic: '可复用',
+            updatedAt: Date.now(),
+            useCount: 0,
+          },
+          {
+            id: 's-unfiled',
+            title: '拍照姿势21.mp4',
+            sourcePath: 'C:/教材/拍照姿势21.mp4',
+            mediaType: 'video',
+            topicCategory: null,
+            topicSubtopic: null,
+            updatedAt: Date.now(),
+            useCount: 0,
+          },
+        ],
+      },
+    })
+    renderWikiTab()
+
+    expect(await screen.findByText(/暂无收件箱条目/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '收件箱（0）' })).toBeInTheDocument()
+
+    await selectNavSection('收藏')
+    fireEvent.click(await screen.findByText('可复用'))
+    expect(await screen.findByText('拍照姿势21.mp4')).toBeInTheDocument()
   })
 })

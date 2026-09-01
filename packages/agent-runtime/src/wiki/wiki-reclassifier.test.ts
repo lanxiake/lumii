@@ -377,13 +377,19 @@ describe("WikiReclassifier 状态机（scope/apply/discard）", () => {
 
   it("apply 时目标小类已删则该条留 review 带 applyError", async () => {
     const { repo, mkFiled } = setup();
+    repo.getOrCreateTopicTree();
+    repo.applyTopicMutation({
+      op: "addSubtopic",
+      category: "学习",
+      name: "编目实验",
+    });
     mkFiled("白皮书");
     mkFiled("周报");
     const callLLM = vi.fn(async (prompt: string) => {
       const ids = [...prompt.matchAll(/\[id=([^\]]+)\]/g)].map((m) => m[1]!);
       const items = ids.map((id, i) =>
         i === 0
-          ? { id, category: "学习", subtopic: "在学", confidence: 0.9 }
+          ? { id, category: "学习", subtopic: "编目实验", confidence: 0.9 }
           : { id, category: "工作", subtopic: "例行", confidence: 0.9 },
       );
       return JSON.stringify({ items });
@@ -397,7 +403,7 @@ describe("WikiReclassifier 状态机（scope/apply/discard）", () => {
     repo.applyTopicMutation({
       op: "deleteSubtopic",
       category: "学习",
-      name: "在学",
+      name: "编目实验",
       disposition: { type: "parking" },
     });
 

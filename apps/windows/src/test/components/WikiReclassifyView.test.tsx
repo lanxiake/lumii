@@ -121,9 +121,9 @@ describe('WikiReclassifyView', () => {
     expect(screen.getByText(/模型不可用/)).toBeInTheDocument()
   })
 
-  it('review 但无候选时给出「无需调整」提示', () => {
+  it('review 但无候选时说明已归档文件无需调整', () => {
     render(<WikiReclassifyView run={{ ...reviewRun, candidates: [], unchanged: 5 }} {...cbs()} />)
-    expect(screen.getByText(/无需调整/)).toBeInTheDocument()
+    expect(screen.getByText(/没有需要调整的目录建议/)).toBeInTheDocument()
   })
 
   it('run 为 null 时提示尚未运行', () => {

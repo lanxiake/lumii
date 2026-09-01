@@ -2,6 +2,8 @@
  * Wiki 模块入口
  */
 
+export { wikiRecordsShareFileIdentity } from "./wiki-source-identity.js";
+export type { WikiFileIdentity } from "./wiki-source-identity.js";
 export { WikiRepo } from "./wiki-repo.js";
 export type { WikiSourceSearchHit } from "./wiki-repo.js";
 
@@ -164,7 +166,7 @@ export {
   type WikiFolderImportResult,
 } from "./wiki-folder-importer.js";
 
-export { WikiOrganizer } from "./wiki-organizer.js";
+export { WikiOrganizer, WIKI_INBOX_ITEM_TYPES } from "./wiki-organizer.js";
 export type { WikiOrganizerHooks } from "./wiki-organizer.js";
 
 export {
