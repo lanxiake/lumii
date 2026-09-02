@@ -137,10 +137,11 @@ import {
   checkMemPalaceInstalled,
   ensureMemPalacePalaceDir,
   getMemPalaceBridge,
-  getSoulFilePath,
+  readSoulFile,
   readUserMemoryFile,
   setupCloakBrowserIpcHandlers,
   setupMemPalaceIpcHandlers,
+  writeSoulFile,
   writeUserMemoryFile,
 } from './ipc/plugin-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
@@ -657,10 +658,9 @@ async function initAgentRuntime(): Promise<void> {
     /** 获取用户 SOUL 内容（从本地文件 ~/.lumii/data/soul.md 读取） */
     getSoulContent: async () => {
       try {
-        const p = getSoulFilePath()
-        if (!existsSync(p)) return undefined
-        const content = await fs.readFile(p, 'utf-8')
-        return content.trim() || undefined
+        const soul = await readSoulFile()
+        if (!soul) return undefined
+        return soul.content.trim() || undefined
       } catch {
         return undefined
       }
@@ -746,16 +746,7 @@ async function initAgentRuntime(): Promise<void> {
     /** 更新用户记忆（用于 profile_memory 工具，写入本地文件 ~/.lumii/data/user-memory.md） */
     updateUserMemory: async (content: string) => writeUserMemoryFile(content),
     /** 更新用户 SOUL 内容（写入本地文件 ~/.lumii/data/soul.md） */
-    updateSoulContent: async (content: string) => {
-      try {
-        const p = getSoulFilePath()
-        await fs.mkdir(dirname(p), { recursive: true })
-        await fs.writeFile(p, content, 'utf-8')
-        return { updatedAt: new Date().toISOString() }
-      } catch {
-        return undefined
-      }
-    },
+    updateSoulContent: async (content: string) => writeSoulFile(content),
     fetchAgentDefinitionById: async (id: string) => {
       const built = findBuiltInAgent(id)
       if (built) return built

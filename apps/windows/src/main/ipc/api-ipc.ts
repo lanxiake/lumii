@@ -2,11 +2,10 @@
  * API 相关 IPC handlers (本地配置、用量、资讯、Agent 管理等)
  */
 import { ipcMain, app } from 'electron'
-import { dirname } from 'path'
-import { promises as fs, existsSync } from 'fs'
 import {
-  getSoulFilePath,
+  readSoulFile,
   readUserMemoryFile,
+  writeSoulFile,
   writeUserMemoryFile,
 } from '../ipc/plugin-ipc'
 import {
@@ -64,10 +63,11 @@ export function registerApiIpcHandlers(): void {
   // --- AI 灵魂 / 个人记忆（本地文件，返回渲染层期望的 {success, data} 形态） ---
   ipcMain.handle('api:getSoulContent', async () => {
     try {
-      const p = getSoulFilePath()
-      const content = existsSync(p) ? await fs.readFile(p, 'utf-8') : ''
-      const updatedAt = existsSync(p) ? (await fs.stat(p)).mtime.toISOString() : new Date(0).toISOString()
-      return { success: true, data: { content, updatedAt } }
+      const soul = await readSoulFile()
+      return {
+        success: true,
+        data: soul ?? { content: '', updatedAt: new Date(0).toISOString() },
+      }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
@@ -75,10 +75,9 @@ export function registerApiIpcHandlers(): void {
 
   ipcMain.handle('api:updateSoulContent', async (_event, content: string) => {
     try {
-      const p = getSoulFilePath()
-      await fs.mkdir(dirname(p), { recursive: true })
-      await fs.writeFile(p, content ?? '', 'utf-8')
-      return { success: true, data: { updatedAt: new Date().toISOString() } }
+      const result = await writeSoulFile(content ?? '')
+      if (!result) return { success: false, error: '写入 AI 灵魂失败' }
+      return { success: true, data: result }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }

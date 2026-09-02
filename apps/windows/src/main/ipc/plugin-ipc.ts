@@ -56,6 +56,39 @@ export function getSoulFilePath(): string {
   return join(resolveClientStateDir(), 'data', 'soul.md')
 }
 
+/**
+ * 读取本地 SOUL 文件；不存在时返回 undefined。
+ */
+export async function readSoulFile(): Promise<{ content: string; updatedAt: string } | undefined> {
+  try {
+    const p = getSoulFilePath()
+    if (!existsSync(p)) return undefined
+    const content = await fs.readFile(p, 'utf-8')
+    const stat = await fs.stat(p)
+    return { content, updatedAt: stat.mtime.toISOString() }
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 写入本地 SOUL 文件，并在覆盖前备份旧内容。
+ */
+export async function writeSoulFile(content: string): Promise<{ updatedAt: string } | undefined> {
+  try {
+    const p = getSoulFilePath()
+    await fs.mkdir(dirname(p), { recursive: true })
+    if (existsSync(p)) {
+      await fs.copyFile(p, `${p}.bak`)
+    }
+    await fs.writeFile(p, content, 'utf-8')
+    const stat = await fs.stat(p)
+    return { updatedAt: stat.mtime.toISOString() }
+  } catch {
+    return undefined
+  }
+}
+
 export function getUserMemoryFilePath(): string {
   return join(resolveClientStateDir(), 'data', 'user-memory.md')
 }

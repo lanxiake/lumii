@@ -60,6 +60,15 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
   const [content, setContent] = useState('')
   const [showDraftRestore, setShowDraftRestore] = useState(false)
   const autoSaveIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  /** 与 MDEditor 同步的最新正文，保存时优先使用，避免受控状态滞后 */
+  const contentRef = useRef('')
+
+  /**
+   * 将磁盘上的 SOUL 转为编辑器展示内容：空文件时展示默认模板（与运行时一致）。
+   */
+  const resolveSoulDisplayContent = useCallback((raw: string) => {
+    return raw.trim() ? raw : DEFAULT_SOUL_CONTENT
+  }, [])
 
   const {
     soul,
@@ -163,25 +172,29 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
 
   useEffect(() => {
     if (soul !== null) {
-      setContent(soul.content)
+      const displayContent = resolveSoulDisplayContent(soul.content)
+      setContent(displayContent)
+      contentRef.current = displayContent
 
       if (hasDraft()) {
         const draft = getDraft()
         if (draft) {
           const draftTime = new Date(draft.savedAt).getTime()
           const serverTime = new Date(soul.updatedAt).getTime()
-          if (draftTime > serverTime && draft.content !== soul.content) {
+          if (draftTime > serverTime && draft.content !== displayContent) {
             setShowDraftRestore(true)
           }
         }
       }
     }
-  }, [soul, hasDraft, getDraft])
+  }, [soul, hasDraft, getDraft, resolveSoulDisplayContent])
 
   useEffect(() => {
     if (isEditMode && content) {
       saveDraft(content)
-      autoSaveIntervalRef.current = setInterval(() => { saveDraft(content) }, 30000)
+      autoSaveIntervalRef.current = setInterval(() => {
+        saveDraft(contentRef.current)
+      }, 30000)
     }
     return () => {
       if (autoSaveIntervalRef.current) clearInterval(autoSaveIntervalRef.current)
@@ -189,23 +202,38 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
   }, [isEditMode, content, saveDraft])
 
   const handleToggleEdit = useCallback(() => {
-    if (isEditMode && soul !== null) setContent(soul.content)
+    if (isEditMode && soul !== null) {
+      const displayContent = resolveSoulDisplayContent(soul.content)
+      setContent(displayContent)
+      contentRef.current = displayContent
+    }
     if (isEditMode) setShowDraftRestore(false)
     setIsEditMode(!isEditMode)
-  }, [isEditMode, soul])
+  }, [isEditMode, soul, resolveSoulDisplayContent])
 
   const handleSave = useCallback(async () => {
     if (isSaving) return
-    const success = await updateSoul(content)
+    const nextContent = contentRef.current
+    const success = await updateSoul(nextContent)
     if (success) {
+      setContent(nextContent)
       setIsEditMode(false)
       setShowDraftRestore(false)
     }
-  }, [content, isSaving, updateSoul])
+  }, [isSaving, updateSoul])
+
+  const handleContentChange = useCallback((val: string | undefined) => {
+    const next = val ?? ''
+    contentRef.current = next
+    setContent(next)
+  }, [])
 
   const handleRestoreDraft = useCallback(() => {
     const draft = getDraft()
-    if (draft) setContent(draft.content)
+    if (draft) {
+      setContent(draft.content)
+      contentRef.current = draft.content
+    }
     setShowDraftRestore(false)
   }, [getDraft])
 
@@ -216,11 +244,13 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
 
   const handleApplyTemplate = useCallback((templateContent: string) => {
     setContent(templateContent)
+    contentRef.current = templateContent
     setIsEditMode(true)
   }, [])
 
   const handleResetSoul = useCallback(() => {
     setContent(DEFAULT_SOUL_CONTENT)
+    contentRef.current = DEFAULT_SOUL_CONTENT
     setIsEditMode(true)
   }, [])
 
@@ -370,7 +400,7 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
                 <div className="editor-wrapper">
                   <MDEditor
                     value={content}
-                    onChange={(val: string | undefined) => setContent(val ?? '')}
+                    onChange={handleContentChange}
                     preview={isEditMode ? 'live' : 'preview'}
                     height="100%"
                     visibleDragbar={false}

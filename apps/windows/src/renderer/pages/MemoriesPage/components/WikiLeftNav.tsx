@@ -15,7 +15,6 @@ export type WikiNav =
   | { kind: 'section'; name: WikiNavSection }
   | { kind: 'archived' }
   | { kind: 'parking' }
-  | { kind: 'graph' }
   | { kind: 'cleanup' }
   | { kind: 'reclassify' }
   | { kind: 'category'; name: string }
