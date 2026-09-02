@@ -594,8 +594,8 @@
 .wiki-file-list-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 8px;
+  padding: 6px 8px;
   border-radius: 6px;
 }
 
@@ -618,6 +618,7 @@
   flex: 1;
   min-width: 0;
   align-items: center;
+  justify-content: flex-start;
 }
 
 .wiki-file-list-title {
@@ -630,8 +631,9 @@
 
 /** 标题可点击预览：重置 button 默认样式，避免深色主题下文字不可读 */
 .wiki-file-list-title--link {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 100%;
   padding: 0;
   border: none;
   background: none;
@@ -670,23 +672,35 @@
 }
 
 .wiki-file-list-summary-tooltip {
-  max-width: min(420px, 90vw);
+  max-width: min(420px, calc(100vw - 48px));
+  z-index: var(--z-tooltip, 1200);
 }
 
 .wiki-file-list-summary-tooltip-content {
   max-width: 400px;
+  max-height: min(280px, 45vh);
+  overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  line-height: 1.5;
+  line-height: 1.55;
   text-align: left;
 }
 
 .wiki-file-list-title-row {
   display: flex;
   align-items: baseline;
-  gap: 8px;
   min-width: 0;
   flex: 1;
+  justify-content: flex-start;
+}
+
+/** 小类、文件名、时间紧凑左对齐，不与右侧操作区拉开 */
+.wiki-file-list-title-cluster {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .wiki-file-list-subtopic-prefix {
@@ -697,21 +711,44 @@
   white-space: nowrap;
 }
 
-.wiki-file-list-title-row .wiki-file-list-title--link {
-  flex: 1;
-  min-width: 0;
+.wiki-file-list-title-cluster .wiki-file-list-title--link {
+  display: block;
 }
 
-.wiki-file-list-title-row > span {
-  flex: 1;
+.wiki-file-list-title-cluster > span {
+  flex: 0 1 auto;
   min-width: 0;
-  display: flex;
+  max-width: 100%;
 }
 
 .wiki-file-list-actions {
   display: flex;
   flex-shrink: 0;
+  align-items: center;
   gap: 2px;
+  margin-left: auto;
+}
+
+/** 行内操作：仅图标，紧凑方形按钮 */
+.wiki-file-list-action-btn {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 !important;
+  border: none !important;
+}
+
+.wiki-file-list-action-btn .btn-content {
+  gap: 0;
+}
+
+/** Wiki 内向下弹出的说明：避免顶栏遮挡，长文可滚动阅读 */
+.wiki-tooltip-below {
+  max-width: min(360px, calc(100vw - 32px));
+}
+
+.wiki-subtopic-chip-tooltip {
+  z-index: var(--z-tooltip, 1200);
 }
 
 /* 归档选择器 */

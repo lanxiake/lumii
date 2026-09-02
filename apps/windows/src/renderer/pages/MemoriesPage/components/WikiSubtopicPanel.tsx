@@ -90,7 +90,11 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
       </p>
       <ul className="wiki-subtopic-chips" role="tablist" aria-label={`${navSectionLabel(section)}小类筛选`}>
         <li role="presentation">
-          <Tooltip content={`显示「${section}」下的全部文件`} placement="top">
+          <Tooltip
+            content={`显示「${section}」下的全部文件`}
+            placement="bottom"
+            className="wiki-subtopic-chip-tooltip wiki-tooltip-below"
+          >
             <button
               type="button"
               role="tab"
@@ -113,7 +117,8 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
                   ? `只显示「${section}」下尚未细分小类的资料`
                   : `只显示「${chip.label}」小类下的资料`
               }
-              placement="top"
+              placement="bottom"
+              className="wiki-subtopic-chip-tooltip wiki-tooltip-below"
             >
               <button
                 type="button"

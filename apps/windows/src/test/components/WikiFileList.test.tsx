@@ -37,9 +37,9 @@ describe('WikiFileList', () => {
     const row = screen.getByText('会议纪要.docx').closest('.wiki-file-list-item')
     expect(row).toHaveTextContent('刚刚')
 
-    fireEvent.click(screen.getByRole('button', { name: /详情/ }))
-    fireEvent.click(screen.getByRole('button', { name: /移动/ }))
-    fireEvent.click(screen.getByRole('button', { name: /存到临时存放/ }))
+    fireEvent.click(screen.getByRole('button', { name: '查看详情' }))
+    fireEvent.click(screen.getByRole('button', { name: '移动' }))
+    fireEvent.click(screen.getByRole('button', { name: '存到临时存放' }))
 
     expect(onPreview).toHaveBeenCalledWith(item)
     expect(onMove).toHaveBeenCalledWith(item)
@@ -113,7 +113,7 @@ describe('WikiFileList', () => {
       />,
     )
 
-    expect(screen.getByRole('button', { name: /移出/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '移出' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /存到临时存放/ })).not.toBeInTheDocument()
   })
 

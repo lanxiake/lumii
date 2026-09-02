@@ -160,48 +160,74 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                 <Icon size={15} className="wiki-file-list-icon" />
                 <div className="wiki-file-list-main">
                   <div className="wiki-file-list-title-row">
-                    {showSubtopicPrefix && (
-                      <span className="wiki-file-list-subtopic-prefix">
-                        {item.topicSubtopic ?? UNFILED_SUBTOPIC_LABEL}
-                      </span>
-                    )}
-                    {summary ? (
-                      <Tooltip
-                        content={<div className="wiki-file-list-summary-tooltip-content">{summary}</div>}
-                        placement="top"
-                        className="wiki-file-list-summary-tooltip"
-                      >
-                        {titleButton}
-                      </Tooltip>
-                    ) : (
-                      titleButton
-                    )}
-                    {showTopic && <span className="wiki-file-list-topic">{topic}</span>}
-                    <span className="wiki-file-list-time">{formatRelativeTime(item.updatedAt)}</span>
+                    <div className="wiki-file-list-title-cluster">
+                      {showSubtopicPrefix && (
+                        <span className="wiki-file-list-subtopic-prefix">
+                          {item.topicSubtopic ?? UNFILED_SUBTOPIC_LABEL}
+                        </span>
+                      )}
+                      {summary ? (
+                        <Tooltip
+                          content={<div className="wiki-file-list-summary-tooltip-content">{summary}</div>}
+                          placement="bottom"
+                          className="wiki-file-list-summary-tooltip wiki-tooltip-below"
+                        >
+                          {titleButton}
+                        </Tooltip>
+                      ) : (
+                        titleButton
+                      )}
+                      {showTopic && <span className="wiki-file-list-topic">{topic}</span>}
+                      <span className="wiki-file-list-time">{formatRelativeTime(item.updatedAt)}</span>
+                    </div>
                   </div>
                 </div>
                 <div className="wiki-file-list-actions">
-                  <Button variant="ghost" size="sm" onClick={() => onPreview(item)}>
-                    <Eye size={13} />
-                    详情
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => onMove(item)}>
-                    <ArrowRightLeft size={13} />
-                    {moveLabel}
-                  </Button>
+                  <Tooltip content="查看详情" placement="bottom">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="wiki-file-list-action-btn"
+                      aria-label="查看详情"
+                      onClick={() => onPreview(item)}
+                    >
+                      <Eye size={14} />
+                    </Button>
+                  </Tooltip>
+                  <Tooltip content={moveLabel} placement="bottom">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="wiki-file-list-action-btn"
+                      aria-label={moveLabel}
+                      onClick={() => onMove(item)}
+                    >
+                      <ArrowRightLeft size={14} />
+                    </Button>
+                  </Tooltip>
                   {showParkAction && onPark && (
-                    <Tooltip content="移到「临时存放」，暂不归类，之后可再移回正式目录" placement="top">
-                      <Button variant="ghost" size="sm" onClick={() => onPark(item)}>
-                        <Archive size={13} />
-                        存到临时存放
+                    <Tooltip content="移到「临时存放」，暂不归类，之后可再移回正式目录" placement="bottom">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="wiki-file-list-action-btn"
+                        aria-label="存到临时存放"
+                        onClick={() => onPark(item)}
+                      >
+                        <Archive size={14} />
                       </Button>
                     </Tooltip>
                   )}
                   {onDelete && (
-                    <Tooltip content="永久删除这条资料，不可恢复" placement="top">
-                      <Button variant="ghost" size="sm" onClick={() => onDelete(item)}>
-                        <Trash2 size={13} />
-                        删除
+                    <Tooltip content="永久删除这条资料，不可恢复" placement="bottom">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="wiki-file-list-action-btn"
+                        aria-label="删除"
+                        onClick={() => onDelete(item)}
+                      >
+                        <Trash2 size={14} />
                       </Button>
                     </Tooltip>
                   )}
