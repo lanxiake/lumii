@@ -14,7 +14,7 @@ import { MessageActions } from '../MessageActions'
 import { ToolFilePreviewProvider, ToolFilePreviewContext } from '../ToolCallCard'
 import toolCardStyles from '../ToolCallCard/ToolCallCard.module.css'
 import { A2UIRenderer } from '../../../../components/A2UIRenderer'
-import { ArtifactBlock } from '../../../../components/A2UIRenderer/ArtifactBlock'
+import { MarkdownExternalLink } from '../../../../utils/markdown-external-link'
 import {
   parseA2UIBlocks,
   tryParseA2UISpecFromJson,
@@ -194,13 +194,7 @@ function buildMarkdownComponents(isStreaming: boolean): Components {
         </div>
       )
     },
-    a({ href, children }) {
-      return (
-        <a href={href} target="_blank" rel="noopener noreferrer">
-          {children}
-        </a>
-      )
-    },
+    a: MarkdownExternalLink,
   }
 }
 

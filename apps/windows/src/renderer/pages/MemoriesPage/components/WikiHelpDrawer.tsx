@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
+import { MarkdownExternalLink } from '../../../utils/markdown-external-link'
 import remarkGfm from 'remark-gfm'
 import { HelpCircle, X } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
@@ -163,7 +164,12 @@ export const WikiHelpDrawer: React.FC<WikiHelpDrawerProps> = ({ open, onClose })
             </p>
           ) : manualMd ? (
             <article className="wiki-help-markdown">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{manualMd}</ReactMarkdown>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{ a: MarkdownExternalLink }}
+              >
+                {manualMd}
+              </ReactMarkdown>
             </article>
           ) : null}
         </div>

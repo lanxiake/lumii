@@ -1,4 +1,4 @@
-import { BrowserWindow, Menu, screen } from 'electron'
+import { BrowserWindow, Menu, screen, shell } from 'electron'
 import { join } from 'path'
 import { getAppIconPath } from '../asset-paths'
 import { setIpcMainWindow } from '../agent-runtime'
@@ -149,6 +149,28 @@ export function createMainWindow(
   setupContentSecurityPolicy(window)
   // 将主窗口引用注入 ACP 事件推送层
   setIpcMainWindow(window)
+
+  /**
+   * 拦截 target=_blank / window.open：外链一律用系统浏览器打开，
+   * 避免弹出无标题栏、无法关闭的内嵌窗口（如 Markdown 预览里点资讯原文链接）。
+   */
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      void shell.openExternal(url)
+    }
+    return { action: 'deny' }
+  })
+
+  /**
+   * 兜底：渲染进程内未拦截的 <a href> 整页导航也改走系统浏览器，防止主窗口被外链替换。
+   */
+  window.webContents.on('will-navigate', (event, targetUrl) => {
+    if (!/^https?:\/\//i.test(targetUrl)) return
+    const devOrigin = process.env.ELECTRON_RENDERER_URL
+    if (devOrigin && targetUrl.startsWith(devOrigin)) return
+    event.preventDefault()
+    void shell.openExternal(targetUrl)
+  })
 
   // 渲染进程诊断：把渲染层 console / 崩溃 / 加载失败转写到文件日志。
   // 生产环境默认无 DevTools，渲染层报错原本不可见（表现为黑屏），此处使其可追踪。

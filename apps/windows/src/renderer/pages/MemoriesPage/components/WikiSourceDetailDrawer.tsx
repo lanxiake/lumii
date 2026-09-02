@@ -9,6 +9,13 @@ import { Loading } from '../../../components/ui/Loading/Loading'
 import { FilePreviewModal } from '../../../components/FilePreviewModal/FilePreviewModal'
 import type { WikiSourceDetail } from '../../../hooks/business/useWikiPage'
 import { resolveItemSourceUrl, resolvePreviewMode } from './wikiSourcePreview'
+import { openExternalUrl } from '../../../utils/markdown-external-link'
+
+/** Electron webview 导航事件（非标准 DOM 类型） */
+type WebviewNavigateEvent = Event & {
+  readonly url?: string
+  preventDefault?: () => void
+}
 
 /** Electron webview 加载失败事件（非标准 DOM 类型） */
 type WebviewFailLoadEvent = Event & {
@@ -65,11 +72,33 @@ const WikiWebPreviewFrame: React.FC<{ url: string; title: string }> = ({ url, ti
       setLoadError(null)
     }
 
+    /**
+     * 拦截 webview 内链接跳转：在系统浏览器打开，避免整页导航盖住详情弹窗且无法返回。
+     */
+    const handleWillNavigate = (event: Event): void => {
+      const detail = event as WebviewNavigateEvent
+      const target = detail.url?.trim()
+      if (!target || target === url) return
+      detail.preventDefault?.()
+      openExternalUrl(target)
+    }
+
+    /** target=_blank 等新开窗口同样走系统浏览器 */
+    const handleNewWindow = (event: Event): void => {
+      const detail = event as WebviewNavigateEvent
+      detail.preventDefault?.()
+      if (detail.url) openExternalUrl(detail.url)
+    }
+
     webview.addEventListener('did-fail-load', handleFailLoad)
     webview.addEventListener('did-finish-load', handleFinishLoad)
+    webview.addEventListener('will-navigate', handleWillNavigate as EventListener)
+    webview.addEventListener('new-window', handleNewWindow as EventListener)
     return () => {
       webview.removeEventListener('did-fail-load', handleFailLoad)
       webview.removeEventListener('did-finish-load', handleFinishLoad)
+      webview.removeEventListener('will-navigate', handleWillNavigate as EventListener)
+      webview.removeEventListener('new-window', handleNewWindow as EventListener)
     }
   }, [url])
 

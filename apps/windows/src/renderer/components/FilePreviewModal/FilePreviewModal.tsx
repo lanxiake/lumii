@@ -19,6 +19,7 @@ import {
   AppWindow,
   File,
 } from 'lucide-react'
+import { MarkdownExternalLink } from '../../utils/markdown-external-link'
 import { useDataThemeColorMode } from '../../hooks/common/useDataThemeColorMode'
 import { PdfJsPreview } from './PdfJsPreview'
 import { ExcelPreview } from './ExcelPreview'
@@ -937,6 +938,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                     img: ({ src, alt }) => (
                       <MarkdownImage src={src} alt={alt} mdFilePath={filePath ?? mdBasePath} version={imageVersion} />
                     ),
+                    a: MarkdownExternalLink,
                   }}
                 />
               )}
