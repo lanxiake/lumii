@@ -129,6 +129,15 @@ export interface CronSchedulerDeps {
   /** 写入一条 Agent 记忆（notify_targets 含 focus 时用，概览页「近期关注」读记忆） */
   addMemory?: (content: string) => void
   /**
+   * 将指定定时任务产出持久化到 Wiki（失败由实现方记日志，不抛错）。
+   */
+  persistCronOutputToWiki?: (
+    jobId: string,
+    jobName: string,
+    output: string,
+    finishedAt: number,
+  ) => Promise<void>
+  /**
    * Companion 魔法指令处理器（__companion_tick__ 等）
    * 返回执行结果描述供 cron_runs 记录；返回 null 表示不拦截（走正常 Agent 流程）
    * @param options.manual 来自「立即执行」时为 true，供 companion 绕过软门闩
@@ -814,6 +823,8 @@ export class CronScheduler {
       )
 
       const finishedAt = Date.now()
+      await this.deps.persistCronOutputToWiki?.(job.id, currentRow.name, output, finishedAt)
+
       // 更新任务状态为 ok + last_run_at
       this.localDb.db.prepare(
         `UPDATE local_cron_jobs SET last_run_at = ?, last_status = 'ok' WHERE id = ?`

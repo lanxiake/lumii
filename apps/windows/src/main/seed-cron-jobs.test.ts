@@ -28,6 +28,9 @@ function createFakeDb(): FakeDb {
           jobs.set(String(params[0]), params)
         } else if (sql.includes('INSERT OR REPLACE INTO runtime_state')) {
           state.set(String(params[0]), String(params[1] ?? '1'))
+        } else if (sql.includes('DELETE FROM local_cron_jobs')) {
+          const deleted = jobs.delete(String(params[0]))
+          return { changes: deleted ? 1 : 0, lastInsertRowid: 0 }
         }
         return { changes: 1, lastInsertRowid: 0 }
       },
@@ -122,21 +125,19 @@ describe('ensureSeedCronJobsSeeded', () => {
     }
   })
 
-  it('综述自动刷新任务已随综述功能一并移除（P2）', () => {
+  it('综述与 Wiki ERO 抽取定时任务均已移除', () => {
     const db = createFakeDb()
     ensureSeedCronJobsSeeded(db.adapter)
     expect(db.jobs.get('wiki-auto-synthesis')).toBeUndefined()
-    // 同文件的 ERO 抽取任务与综述无关，不应被误删
-    expect(db.jobs.get('wiki-ero-extract')).toBeTruthy()
+    expect(db.jobs.get('wiki-ero-extract')).toBeUndefined()
   })
 
-  it('Wiki ERO 抽取走 companion 通道、静默、每周日 04:00', () => {
+  it('四类产出任务仍会种入（资讯/简报/日报/复盘）', () => {
     const db = createFakeDb()
     ensureSeedCronJobsSeeded(db.adapter)
-    const row = db.jobs.get('wiki-ero-extract')!
-    expect(row[COL.taskText]).toBe('__wiki_ero_extract__')
-    expect(row[COL.agentId]).toBeNull()
-    expect(row[COL.scheduleExpr]).toBe('0 4 * * 0')
-    expect(row[COL.notifyTargets]).toBe('silent')
+    expect(db.jobs.has('news-pipeline')).toBe(true)
+    expect(db.jobs.has('seed-morning-briefing')).toBe(true)
+    expect(db.jobs.has('seed-daily-report')).toBe(true)
+    expect(db.jobs.has('seed-weekly-review')).toBe(true)
   })
 })

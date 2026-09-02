@@ -151,15 +151,6 @@ const SEED_JOBS: readonly SeedJob[] = [
     enabled: true,
   },
   {
-    id: 'wiki-ero-extract',
-    name: 'Wiki 实体关系抽取',
-    taskText: '__wiki_ero_extract__',
-    agentId: null,
-    scheduleType: 'cron',
-    scheduleExpr: '0 4 * * 0',
-    notifyTargets: 'silent',
-  },
-  {
     id: 'seed-workspace-tidy',
     name: '工作区文件整理',
     taskText: '检查工作区里新增的文件，按类型归类并指出可以清理的内容。',
@@ -196,6 +187,7 @@ function initialNextRunAt(job: SeedJob, now: number): number {
 export function ensureSeedCronJobsSeeded(db: DatabaseAdapter): void {
   const now = Date.now()
   migrateLegacyNewsPipeline(db)
+  migrateRemovedWikiEroExtractCron(db)
   for (const job of SEED_JOBS) {
     try {
       const existing = db
@@ -258,6 +250,20 @@ function markSeeded(db: DatabaseAdapter, jobId: string): void {
  *    把 notify_targets 改为 'silent'。
  * 只在命中这两种「系统预置特征」时才动，用户手改成别的 taskText 的不碰。
  */
+/**
+ * 移除已下线的 Wiki 实体关系抽取定时任务（老用户升级后自动清理）。
+ */
+function migrateRemovedWikiEroExtractCron(db: DatabaseAdapter): void {
+  try {
+    const result = db.prepare(`DELETE FROM local_cron_jobs WHERE id = 'wiki-ero-extract'`).run()
+    if (result.changes > 0) {
+      log.info('[migrateRemovedWikiEroExtractCron] 已移除 Wiki 实体关系抽取定时任务')
+    }
+  } catch (err) {
+    log.error('[migrateRemovedWikiEroExtractCron] 迁移失败:', err)
+  }
+}
+
 function migrateLegacyNewsPipeline(db: DatabaseAdapter): void {
   try {
     const row = db

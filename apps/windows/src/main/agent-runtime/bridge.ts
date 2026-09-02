@@ -91,6 +91,7 @@ import { AskUserQuestionController } from './ask-user-question-controller'
 import { FileMemoryHandler } from './file-memory-handler'
 import { SegmentMemoryService } from './segment-memory-service'
 import { CronScheduler } from './cron-scheduler'
+import { persistCronOutputToWiki } from './cron-wiki-persist'
 import {
   isLocalCompanionInstruction,
   handleLocalCompanionInstruction,
@@ -764,6 +765,13 @@ export class AgentRuntimeBridge {
           category: 'project',
           content,
         })
+      },
+      persistCronOutputToWiki: async (jobId, jobName, output, finishedAt) => {
+        try {
+          await persistCronOutputToWiki(this.wikiRepo, { jobId, jobName, output, finishedAt })
+        } catch (err) {
+          log.warn('[cron-wiki-persist] 持久化失败:', err)
+        }
       },
       handleCompanionInstruction: async (instruction: string, options) => {
         if (!isLocalCompanionInstruction(instruction)) return null
