@@ -536,8 +536,8 @@ export type {
 } from "./messaging/index.js";
 
 // === MCP 工具代理导出 ===
-export { McpStdioClient, loadMcpTools } from "./tools/mcp/index.js";
-export type { McpServerConfig, McpToolDefinition } from "./tools/mcp/index.js";
+export { McpStdioClient, loadMcpTools, resolveCommand, listWellKnownCliBinDirs } from "./tools/mcp/index.js";
+export type { McpServerConfig, McpToolDefinition, ResolvedCommand } from "./tools/mcp/index.js";
 
 // === 系统提示词构建导出 ===
 export {

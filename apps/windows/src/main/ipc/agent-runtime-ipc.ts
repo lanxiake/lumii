@@ -1265,8 +1265,7 @@ export async function handleCommand(
         return handleSkillSessionDisabled(bridge, command)
 
       default: {
-        const _exhaustive: never = command
-        throw new Error(`Unknown command type: ${(_exhaustive as AgentRuntimeCommand).type}`)
+        throw new Error(`Unknown command type: ${command.type}`)
       }
     }
   }

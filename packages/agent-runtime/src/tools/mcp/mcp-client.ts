@@ -328,7 +328,7 @@ export class McpStdioClient extends EventEmitter {
       this.process?.once("error", (err: Error) => {
         const hint =
           /ENOENT/i.test(err.message) && this.config.command === "uvx"
-            ? "。找不到 uvx：请安装 uv（https://docs.astral.sh/uv/）后重连，或把用户 .local/bin 加入 PATH"
+            ? "。找不到 uvx：请检查 uv 是否已安装（客户端会自动尝试安装），或重启灵栖后重连"
             : "";
         reject(new Error(`启动 MCP Server 失败（${this.config.command}）：${err.message}${hint}`));
       });

@@ -7,6 +7,7 @@
 
 import { McpStdioClient, loadMcpTools, type ToolRegistry } from '@mtbot/agent-runtime'
 import { refreshCommonCliPathsInProcessEnv } from '../cli-user-path'
+import { ensureUvxInstalled } from '../uv-installer'
 import {
   expandEntry,
   loadMcpServerConfigs,
@@ -86,6 +87,19 @@ export class McpManager {
     refreshCommonCliPathsInProcessEnv()
     const { name, command, args, env, cwd } = expandEntry(config)
     log.info(`[connect] 连接 MCP Server: ${name} (${command} ${(args ?? []).join(' ')})`)
+
+    if (command === 'uvx' || command === 'uv') {
+      const uv = await ensureUvxInstalled()
+      if (!uv.ok) {
+        log.error(`[connect] MCP Server [${name}] 缺少 uv: ${uv.message}`)
+        this.lastErrors.set(name, uv.message)
+        return
+      }
+      if (uv.installed) {
+        log.info(`[connect] MCP Server [${name}] 已自动安装 uv`)
+      }
+      refreshCommonCliPathsInProcessEnv()
+    }
 
     const client = new McpStdioClient({ command, args, env, cwd })
     this.connecting.add(name)
