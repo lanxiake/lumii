@@ -20,6 +20,7 @@ const NOTIFY_TARGETS = [
   { id: 'news', label: '最近资讯', hint: '写入概览页资讯卡片' },
   { id: 'focus', label: '近期关注', hint: '写入概览页关注卡片' },
   { id: 'feishu', label: '飞书', hint: '推送到飞书私聊', needsFeishu: true },
+  { id: 'silent', label: '静默执行', hint: '任务自行处理产出，不额外通知' },
 ] as const
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
@@ -67,7 +68,13 @@ export const CreateJobModal: FC<CreateJobModalProps> = ({ agents, defaultAgentId
   const [hourStart, setHourStart] = useState(editingJob?.activeHourStart ?? 9)
   const [hourEnd, setHourEnd] = useState(editingJob?.activeHourEnd ?? 18)
   const [onceAt, setOnceAt] = useState(editingJob?.scheduleType === 'at' ? msToDatetimeLocal(Number(editingJob.scheduleExpr)) : getDefaultDatetime())
-  const [notify, setNotify] = useState<string[]>(editingJob?.notifyTargets?.split(',').filter(Boolean) ?? ['system'])
+  const validTargetIds = new Set<string>(NOTIFY_TARGETS.map((t) => t.id))
+  const [notify, setNotify] = useState<string[]>(
+    editingJob?.notifyTargets
+      ?.split(',')
+      .filter(Boolean)
+      .filter((id) => validTargetIds.has(id)) ?? ['system']
+  )
   const [feishuReady, setFeishuReady] = useState(false)
   const [notifyOpen, setNotifyOpen] = useState(false)
   const notifyRef = useRef<HTMLDivElement>(null)

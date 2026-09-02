@@ -48,14 +48,14 @@ interface SeedJob {
  * 保证两条触发路径（定时 / 手动）驱动 Agent 的方式完全一致。
  */
 export const NEWS_PIPELINE_TASK_TEXT =
-  '搜索今天值得关注的热门资讯（优先 IT之家、少数派等中文科技媒体），整理 10-15 条，' +
+  '搜索今天值得关注的热门资讯，整理 16-20 条，' +
   '每条包含标题、2-3 句话的正文摘要（交代清楚事件是什么、有什么值得关注的点）、来源、链接，' +
   '并写一段不超过 120 字的整体综述，调用 dashboard_feed_write 工具写入概览页资讯卡片（标题「最近资讯」）。'
 
 export const NEWS_PIPELINE_SYSTEM_PROMPT = [
   '你在为概览页生成「最近资讯」卡片，这是结构化数据源，不是普通对话回复：',
-  '1. 用 web_search 搜索今天的科技资讯，优先中文科技媒体（IT之家、少数派等）；',
-  '2. 挑选 10-15 条有实质信息量的条目，逐条给出：标题、2-3 句话的正文摘要、来源站点、原文链接。',
+  '1. 用 web_search 搜索今天的热门资讯；',
+  '2. 挑选 16-20 条有实质信息量的条目，逐条给出：标题、2-3 句话的正文摘要、来源站点、原文链接。',
   '   正文摘要要像新闻导语一样交代清楚事件本身与看点，不要只写一个短语；',
   '3. 最后写一段不超过 120 字的整体综述，点出这批资讯里最值得关注的 1-2 个趋势；',
   '4. 必须调用 dashboard_feed_write 工具把结果写入卡片（每条的 summary 字段放正文摘要）—— 只在对话里回复文本不会显示在概览页上。',
@@ -84,11 +84,15 @@ const SEED_JOBS: readonly SeedJob[] = [
     name: '早间简报',
     taskText: '汇总我今天需要关注的事项，生成一份早间简报。',
     systemPrompt: [
-      '你在为用户生成每日早间简报。请按下面的顺序组织内容，全文控制在 300 字内：',
-      '1. 今天的日期与星期；',
-      '2. 从记忆中取出用户近期在推进的事项，挑出今天最该动手的 2-3 件，各一句话；',
-      '3. 若有明确的截止时间或约定时间，单独列出；',
-      '4. 结尾一句简短的开场提示，不要说教、不要客套。',
+      '你在为用户生成每日早间简报。请：',
+      '1. 先用 wiki_search 搜索「工作日报」，找到昨天的日报（如果有）；',
+      '2. 从日报中提取「进行中」和「明天优先」的事项；',
+      '3. 按下面的顺序组织内容，全文控制在 300 字内：',
+      '   - 今天的日期与星期；',
+      '   - 从昨天日报中提取今天最该动手的 2-3 件事，各一句话；',
+      '   - 若有明确的截止时间或约定时间，单独列出；',
+      '   - 结尾一句简短的开场提示，不要说教、不要客套。',
+      '如果找不到昨天的日报，用 memory_search 查询用户近期在推进的事项。',
       '没有可用信息的段落直接省略，不要编造事项，也不要输出「暂无数据」这类占位内容。',
     ].join('\n'),
     scheduleType: 'cron',
@@ -101,11 +105,14 @@ const SEED_JOBS: readonly SeedJob[] = [
     name: '工作日报整理',
     taskText: '整理我今天的工作进度，生成一份简短日报。',
     systemPrompt: [
-      '你在帮用户整理当天工作日报。请输出三段，全文不超过 400 字：',
-      '「今天完成」——具体做完的事，一条一行，动词开头；',
-      '「进行中」——已开始但没收尾的事，各标注卡在哪一步；',
-      '「明天优先」——最多 3 条，按重要性排序。',
-      '只依据记忆与会话里真实出现过的信息，宁可少写也不要推测。',
+      '你在帮用户整理当天工作日报。请：',
+      '1. 读取用户今天的工作记忆：先看 system prompt 已注入的「工作记忆」段，必要时用 memory_manage action=list 补全；',
+      '2. 从中提取今天实际完成的工作、进行中的任务、遇到的问题；',
+      '3. 输出三段，全文不超过 400 字：',
+      '   「今天完成」——具体做完的事，一条一行，动词开头；',
+      '   「进行中」——已开始但没收尾的事，各标注卡在哪一步；',
+      '   「明天优先」——最多 3 条，按重要性排序。',
+      '只依据工作记忆中真实出现过的信息，宁可少写也不要推测。',
       '不要加标题、寒暄和总结性评价。',
     ].join('\n'),
     scheduleType: 'cron',
@@ -118,12 +125,16 @@ const SEED_JOBS: readonly SeedJob[] = [
     name: '每周复盘',
     taskText: '汇总本周完成的事项、遗留问题和下周计划，生成一份复盘。',
     systemPrompt: [
-      '你在帮用户做每周复盘。请输出四段，全文不超过 600 字：',
-      '「本周产出」——按主题归并，不要逐日罗列；',
-      '「卡住的地方」——写清阻塞原因，而不只是现象；',
-      '「值得留下的判断」——本周做过的关键取舍，各一句；',
-      '「下周计划」——最多 5 条，可执行、有明确产出。',
-      '基于记忆中本周的真实记录来写，信息不足的段落如实说明缺什么，不要凑数。',
+      '你在帮用户做每周复盘。请：',
+      '1. 先用 wiki_search 搜索「工作日报」，找到本周（周一到今天）的所有日报；',
+      '2. 基于这些日报汇总本周工作情况；',
+      '3. 输出四段，全文不超过 600 字：',
+      '   「本周产出」——按主题归并，不要逐日罗列；',
+      '   「卡住的地方」——写清阻塞原因，而不只是现象；',
+      '   「值得留下的判断」——本周做过的关键取舍，各一句；',
+      '   「下周计划」——最多 5 条，可执行、有明确产出。',
+      '如果找不到本周的日报，就用 memory_manage action=list 读取本周工作记忆来汇总。',
+      '信息不足的段落如实说明缺什么，不要凑数。',
     ].join('\n'),
     scheduleType: 'cron',
     scheduleExpr: '0 17 * * 5',
@@ -188,6 +199,8 @@ export function ensureSeedCronJobsSeeded(db: DatabaseAdapter): void {
   const now = Date.now()
   migrateLegacyNewsPipeline(db)
   migrateRemovedWikiEroExtractCron(db)
+  migrateRemovedWikiAutoSynthesisCron(db)
+  migrateSystemPromptsForWorkReports(db)
   for (const job of SEED_JOBS) {
     try {
       const existing = db
@@ -255,12 +268,58 @@ function markSeeded(db: DatabaseAdapter, jobId: string): void {
  */
 function migrateRemovedWikiEroExtractCron(db: DatabaseAdapter): void {
   try {
-    const result = db.prepare(`DELETE FROM local_cron_jobs WHERE id = 'wiki-ero-extract'`).run()
+    const result = db.prepare(`DELETE FROM local_cron_jobs WHERE id = ?`).run('wiki-ero-extract')
     if (result.changes > 0) {
       log.info('[migrateRemovedWikiEroExtractCron] 已移除 Wiki 实体关系抽取定时任务')
     }
   } catch (err) {
     log.error('[migrateRemovedWikiEroExtractCron] 迁移失败:', err)
+  }
+}
+
+/**
+ * 移除已下线的 Wiki 分类综述自动刷新定时任务（老用户升级后自动清理）。
+ */
+function migrateRemovedWikiAutoSynthesisCron(db: DatabaseAdapter): void {
+  try {
+    const result = db.prepare(`DELETE FROM local_cron_jobs WHERE id = ?`).run('wiki-auto-synthesis')
+    if (result.changes > 0) {
+      log.info('[migrateRemovedWikiAutoSynthesisCron] 已移除 Wiki 分类综述自动刷新定时任务')
+    }
+  } catch (err) {
+    log.error('[migrateRemovedWikiAutoSynthesisCron] 迁移失败:', err)
+  }
+}
+
+/**
+ * 将 SEED_JOBS 中的 system_prompt 同步到老库（仅更新预置的三条工作流任务）。
+ * 与 SEED_JOBS 定义保持一致，避免迁移块与种子定义漂移。
+ */
+function migrateSystemPromptsForWorkReports(db: DatabaseAdapter): void {
+  const jobIds = ['seed-morning-briefing', 'seed-daily-report', 'seed-weekly-review'] as const
+
+  for (const id of jobIds) {
+    try {
+      const job = SEED_JOBS.find((j) => j.id === id)
+      const systemPrompt = job?.systemPrompt ?? null
+      if (!systemPrompt) continue
+
+      const existing = db
+        .prepare<{ system_prompt: string | null }>(`SELECT system_prompt FROM local_cron_jobs WHERE id = ?`)
+        .get(id)
+      if (!existing) continue
+
+      // 只在 system_prompt 确实不同时才更新，避免每次启动都刷 SQL
+      if (existing.system_prompt === systemPrompt) continue
+
+      db.prepare(`UPDATE local_cron_jobs SET system_prompt = ? WHERE id = ?`).run(systemPrompt, id)
+      const hadLegacyTool = existing.system_prompt?.includes('conversation_history_read')
+      log.info(
+        `[migrateSystemPromptsForWorkReports] ${hadLegacyTool ? '已移除 conversation_history_read 并更新' : '已更新'} ${id}`,
+      )
+    } catch (err) {
+      log.error(`[migrateSystemPromptsForWorkReports] 更新 ${id} 失败:`, err)
+    }
   }
 }
 

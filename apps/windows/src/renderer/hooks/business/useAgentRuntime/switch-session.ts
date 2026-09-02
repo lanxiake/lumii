@@ -10,7 +10,7 @@ import {
   getDefaultPerSessionState,
   updateSessionState,
 } from './agent-runtime-store'
-import type { RuntimeMessage, RuntimeToolCall, RuntimeFileEvent } from './agent-runtime-store'
+import type { PerSessionState, RuntimeMessage, RuntimeToolCall, RuntimeFileEvent } from './agent-runtime-store'
 import type { ContextUsageBreakdownEntry } from '../../../../shared/agent-runtime-events'
 import { toRuntimeMsg, debugLog } from './bridge-init'
 import { HISTORY_PAGE_SIZE, type DbMessagePage } from './useAgentRuntime.types'
@@ -22,6 +22,33 @@ type DbFileRow = {
 }
 type DbTaskRow = {
   id: string; subject: string; description: string | null; status: string; owner: string | null
+}
+
+/**
+ * 判断会话是否仅由通道 notifyIncomingMessage 注入占位消息、尚未从 DB 加载首页历史。
+ * 此类会话 memory 里可能只有 1 条 incoming-* 消息，但 DB 已有完整聊天记录。
+ */
+function sessionNeedsDbHydration(session: PerSessionState): boolean {
+  if (session.messages.length === 0) return false
+  if (session.historyPaging.hasMore || session.historyPaging.cursor !== null) return false
+  return session.messages.some((m) => m.id.startsWith('incoming-'))
+}
+
+/**
+ * 丢弃与 DB 已持久化用户消息重复的 incoming-* 占位气泡（通道 notify 与 saveMessage 双写）。
+ */
+function isIncomingPlaceholderDuplicateOfDb(
+  memMsg: RuntimeMessage,
+  dbMessages: readonly RuntimeMessage[],
+): boolean {
+  if (!memMsg.id.startsWith('incoming-') || memMsg.role !== 'user') return false
+  const text = memMsg.content[0]?.type === 'text' ? memMsg.content[0].text : ''
+  if (!text) return false
+  return dbMessages.some((db) => {
+    if (db.role !== 'user') return false
+    const dbText = db.content[0]?.type === 'text' ? db.content[0].text : ''
+    return dbText === text && Math.abs(db.timestamp - memMsg.timestamp) < 120_000
+  })
 }
 
 /** 将 FileRepo 行转为 RuntimeFileEvent */
@@ -135,7 +162,7 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
 
   // 目标会话内存中已有消息 → 直接切换，但仍刷新 files/tasks
   const existingSession = runtimeStore.getState().sessions.get(sessionKey)
-  if (existingSession && existingSession.messages.length > 0) {
+  if (existingSession && existingSession.messages.length > 0 && !sessionNeedsDbHydration(existingSession)) {
     runtimeStore.setState((prev) => ({ ...prev, currentSessionKey: sessionKey }))
     try {
       const [contextUsage, meta] = await Promise.all([
@@ -224,7 +251,11 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
 
     if (latestMemSession && latestMemSession.messages.length > 0) {
       const dbMsgIds = new Set(dbMsgList.map((m) => m.id))
-      const pendingMsgs = latestMemSession.messages.filter((m) => !dbMsgIds.has(m.id))
+      const pendingMsgs = latestMemSession.messages.filter((m) => {
+        if (dbMsgIds.has(m.id)) return false
+        if (isIncomingPlaceholderDuplicateOfDb(m, dbMsgList)) return false
+        return true
+      })
 
       const mergedDbMsgs = dbMsgList.map((dbMsg) => {
         const memMsg = latestMemSession.messages.find((m) => m.id === dbMsg.id)

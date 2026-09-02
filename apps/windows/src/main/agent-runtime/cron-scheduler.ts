@@ -110,6 +110,10 @@ export interface CronSchedulerDeps {
   createInstanceById: (agentId: string, sessionKey?: string, conversationId?: string) => Promise<string>
   /** 向指定 Agent 实例发送消息 */
   prompt: (instanceId: string, message: string) => Promise<void>
+  /** 等待 Agent 实例进入 idle（prompt 返回后事件落库可能仍在进行） */
+  waitForInstanceIdle?: (instanceId: string) => Promise<void>
+  /** 从实例内存读取最新 assistant 正文（比 DB 回读更及时，destroy 前使用） */
+  getAssistantOutputFromInstance?: (instanceId: string) => string | null
   /** 销毁 Agent 实例 */
   destroy: (instanceId: string) => void
   /** 确保对话记录存在（cron 任务用固定 sessionKey，让每个任务在会话列表里有专属可查看的记录） */
@@ -699,8 +703,54 @@ export class CronScheduler {
   }
 
   /**
-   * 执行本地定时任务：推送系统通知，并按需驱动指定 Agent 完成任务。
+   * 轮询收集 Agent 产出：prompt() 返回时 bridge 侧 agent:end 落库可能尚未完成，
+   * 且 destroy() 会删掉流式占位行，必须在销毁实例前先拿到正文。
    */
+  private async collectAssistantOutput(params: {
+    conversationId: string
+    instanceId: string
+    since: number
+    fallback: string
+  }): Promise<string> {
+    const deadline = Date.now() + 30_000
+    const pollIntervalMs = 200
+
+    while (Date.now() < deadline) {
+      const output = this.readAssistantOutputCandidate(params)
+      if (output) return output
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
+    }
+
+    const output = this.readAssistantOutputCandidate(params)
+    if (output) return output
+
+    log.warn(
+      `[collectAssistantOutput] 未回读到 Agent 产出，回落任务指令 conversationId=${params.conversationId}`,
+    )
+    return params.fallback
+  }
+
+  /**
+   * 合并内存与 DB 两路回读，跳过与任务指令相同的占位文本。
+   */
+  private readAssistantOutputCandidate(params: {
+    conversationId: string
+    instanceId: string
+    since: number
+    fallback: string
+  }): string | null {
+    const candidates = [
+      this.deps.getAssistantOutputFromInstance?.(params.instanceId) ?? null,
+      this.readLatestAssistantText(params.conversationId, params.since),
+    ]
+    for (const raw of candidates) {
+      const text = raw?.trim()
+      if (!text || text === params.fallback.trim()) continue
+      return text
+    }
+    return null
+  }
+
   /**
    * 驱动指定 Agent 执行任务，返回用于推送的正文（回读 Agent 最后一条回复）。
    *
@@ -724,11 +774,16 @@ export class CronScheduler {
         ? `${currentRow.system_prompt}\n\n---\n\n${job.task_text}`
         : job.task_text
       await this.deps.prompt(instanceId, message)
+      await this.deps.waitForInstanceIdle?.(instanceId)
+      return await this.collectAssistantOutput({
+        conversationId: convId,
+        instanceId,
+        since: startedAt,
+        fallback: job.task_text,
+      })
     } finally {
       this.deps.destroy(instanceId)
     }
-    // prompt() 不返回内容，从会话里回读 Agent 的最后一条回复作为推送正文
-    return this.readLatestAssistantText(convId, startedAt) ?? job.task_text
   }
 
   private async runLocalCronJob(

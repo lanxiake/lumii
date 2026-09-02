@@ -1359,6 +1359,9 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
         }
         return { ...prev, sessions: newSessions, currentSessionKey: navKey }
       })
+      // 通道入站只通过 conversation:message:new 注入最新一条占位消息，不会拉 DB 历史。
+      // 若不触发 switchSession，UI 只会显示最新一条，表现为「聊天记录消失」。
+      window.dispatchEvent(new CustomEvent('mtbot:session-switch-request', { detail: { sessionKey: navKey } }))
       break
     }
 

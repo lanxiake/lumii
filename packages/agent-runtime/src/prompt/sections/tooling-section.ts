@@ -16,16 +16,16 @@ import type { PromptDetail } from "../system-prompt.types.js"
  * 单一用途且名字自解释的工具（如 browser_back）可不设条目，只渲染工具名。
  */
 const TOOL_SUMMARIES: Record<string, string> = {
-  // File Tools
-  file_read: "Read a file; use offset/limit for large ones",
-  file_write: "Write a file (overwrite/append/range — see schema)",
-  file_edit: "Make precise edits to an existing file",
-  list_dir: "List one folder with [FILE]/[DIR]",
-  file_mkdir: "Create a directory (no-op if exists)",
-  file_move: "Move/rename; fails if dest exists",
-  file_copy: "Copy file/dir; fails if dest exists",
-  glob: "Find files by name pattern",
-  grep: "Search file contents",
+  // File Tools — default for any path/content work (see GROUP_NOTES)
+  file_read: "Read/explore text, code, config, logs, docs; offset/limit for large files",
+  file_write: "Create or replace files (source, config, docs, data, scripts)",
+  file_edit: "Targeted edits to existing files without rewriting the whole file",
+  list_dir: "Explore folders, project layout, and entry names at one level",
+  file_mkdir: "Create directory trees for projects, outputs, or assets",
+  file_move: "Move, rename, or reorganize files and directories",
+  file_copy: "Duplicate files/dirs (backups, templates, staging copies)",
+  glob: "Discover files by name/path pattern across directory trees",
+  grep: "Search code, logs, configs, and text for strings or regex",
 
   // Shell
   bash: "Shell-only operations (git, npm, builds, system state)",
@@ -114,7 +114,8 @@ const TOOL_SUMMARIES: Record<string, string> = {
 const FOLDED_GROUPS = new Set(["Browser Tools"])
 
 const GROUP_NOTES: Record<string, string> = {
-  "File Tools": "Prefer these over `bash` for any file work.",
+  "File Tools":
+    "**Default first** for all file, path, and content work—inspect, read, write, edit, search, list, organize. Prefer these over `bash` for cat/head/tail/sed/awk/find/grep/cp/mv/mkdir/rm/ls; use `bash` only when no file tool fits (git, npm, builds, permissions, pipes).",
   Scheduling: "Call `cron_guide` first for the parameter format.",
   "Memory & Knowledge":
     "Order matters: `memory_search` → `memory_read`; `wiki_overview` → `wiki_search` → `wiki_read`. Wiki **writes** (folder import, organize, archive) use `bash` + `lumii-ui`, not `wiki_*` tools — see `## Wiki Knowledge Base`.",
@@ -284,13 +285,13 @@ export function buildProgressiveLoadingSection(toolNames: readonly string[], det
 
   const lines: string[] = [
     "## Context and Input Handling",
-    // "Use bounded, progressive reads: inspect indexes or summaries first, then load only needed ranges or pages. Keep large intermediate data on disk and retain a compact index in context.",
-    // "- `file_read`: use `offset`/`limit` for large files.",
-    // "- `list_dir`: list one directory level; use `glob` for recursive filename search.",
-    // "- `grep`: narrow with `glob` before expanding searches.",
-    // "- `web_fetch`: extract only relevant sections.",
-    // "- For attached images, use the visual content already provided; do not read image binaries with `file_read`.",
-    // "- For attached text or code, use `file_read`; for PDF/DOCX/XLSX, prefer the provided parsed text.",
+    "Use bounded, progressive reads: inspect indexes or summaries first, then load only needed ranges or pages. Keep large intermediate data on disk and retain a compact index in context.",
+    "- `file_read`: use `offset`/`limit` for large files.",
+    "- `list_dir`: list one directory level; use `glob` for recursive filename search.",
+    "- `grep`: narrow with `glob` before expanding searches.",
+    "- `web_fetch`: extract only relevant sections.",
+    "- For attached images, use the visual content already provided; do not read image binaries with `file_read`.",
+    "- For attached text or code, use `file_read`; for PDF/DOCX/XLSX, prefer the provided parsed text.",
   ]
 
   // Disk-Index Pattern 仅在 full 模式注入（数据密集型任务场景，compact/standard 节省 token）

@@ -73,8 +73,15 @@ export const CronPage: FC<{ embedded?: boolean }> = ({ embedded = false }) => {
             // 编辑已失效的一次性任务时自动重新启用，让调度器按新时间重新排期
             const wasExpired = Boolean(editingJob && isExpired(editingJob))
             const ok = await updateJob(id, {
-              name: data.name, taskText: data.taskText, agentId: data.agentId,
-              scheduleType: data.scheduleType, scheduleExpr: data.scheduleExpr,
+              name: data.name,
+              taskText: data.taskText,
+              agentId: data.agentId,
+              scheduleType: data.scheduleType,
+              scheduleExpr: data.scheduleExpr,
+              activeDays: data.activeDays,
+              activeHourStart: data.activeHourStart,
+              activeHourEnd: data.activeHourEnd,
+              notifyTargets: data.notifyTargets,
               ...(wasExpired ? { enabled: true } : {}),
             })
             if (ok) { setEditingJob(null); toast.success(wasExpired ? '任务已更新并重新启用' : '任务已更新') }

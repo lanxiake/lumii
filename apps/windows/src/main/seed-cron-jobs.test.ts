@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { DatabaseAdapter } from '@mtbot/agent-runtime'
-import { ensureSeedCronJobsSeeded } from './seed-cron-jobs'
+import { ensureSeedCronJobsSeeded, __testables } from './seed-cron-jobs'
 
 interface FakeDb {
   adapter: DatabaseAdapter
@@ -26,6 +26,12 @@ function createFakeDb(): FakeDb {
       run: (...params: unknown[]) => {
         if (sql.includes('INSERT INTO local_cron_jobs')) {
           jobs.set(String(params[0]), params)
+        } else if (sql.includes('UPDATE local_cron_jobs') && sql.includes('system_prompt')) {
+          // 迁移 system_prompt：只更新字段，不改变 jobs Map 结构
+          const id = String(params[1])
+          if (jobs.has(id)) {
+            return { changes: 1, lastInsertRowid: 0 }
+          }
         } else if (sql.includes('INSERT OR REPLACE INTO runtime_state')) {
           state.set(String(params[0]), String(params[1] ?? '1'))
         } else if (sql.includes('DELETE FROM local_cron_jobs')) {
@@ -37,6 +43,10 @@ function createFakeDb(): FakeDb {
       get: (...params: unknown[]) => {
         if (sql.includes('FROM local_cron_jobs')) {
           const row = jobs.get(String(params[0]))
+          if (sql.includes('system_prompt')) {
+            // 迁移查询：返回 system_prompt 字段
+            return row ? { system_prompt: null } : undefined
+          }
           return row ? { id: params[0] } : undefined
         }
         if (sql.includes('FROM runtime_state')) {
@@ -132,6 +142,13 @@ describe('ensureSeedCronJobsSeeded', () => {
     expect(db.jobs.get('wiki-ero-extract')).toBeUndefined()
   })
 
+  it('升级后自动清理老库里的 Wiki 分类综述定时任务', () => {
+    const db = createFakeDb()
+    db.jobs.set('wiki-auto-synthesis', ['wiki-auto-synthesis', 'Wiki 分类综述自动刷新'])
+    ensureSeedCronJobsSeeded(db.adapter)
+    expect(db.jobs.get('wiki-auto-synthesis')).toBeUndefined()
+  })
+
   it('四类产出任务仍会种入（资讯/简报/日报/复盘）', () => {
     const db = createFakeDb()
     ensureSeedCronJobsSeeded(db.adapter)
@@ -139,5 +156,15 @@ describe('ensureSeedCronJobsSeeded', () => {
     expect(db.jobs.has('seed-morning-briefing')).toBe(true)
     expect(db.jobs.has('seed-daily-report')).toBe(true)
     expect(db.jobs.has('seed-weekly-review')).toBe(true)
+  })
+
+  it('工作日报与周复盘改用工作记忆，不引用不存在的 conversation_history_read', () => {
+    const daily = __testables.SEED_JOBS.find((j) => j.id === 'seed-daily-report')
+    const weekly = __testables.SEED_JOBS.find((j) => j.id === 'seed-weekly-review')
+    expect(daily?.systemPrompt).not.toContain('conversation_history_read')
+    expect(daily?.systemPrompt).toContain('工作记忆')
+    expect(daily?.systemPrompt).toContain('memory_manage')
+    expect(weekly?.systemPrompt).not.toContain('conversation_history_read')
+    expect(weekly?.systemPrompt).toContain('memory_manage')
   })
 })

@@ -761,6 +761,8 @@ export class AgentRuntimeBridge {
       createInstanceById: (agentId, sessionKey, conversationId) =>
         this.createInstanceById(agentId, sessionKey, conversationId),
       prompt: (instanceId, message) => this.prompt(instanceId, message),
+      waitForInstanceIdle: (instanceId) => this.waitForInstanceIdle(instanceId),
+      getAssistantOutputFromInstance: (instanceId) => this.getAssistantOutputFromInstance(instanceId),
       destroy: (instanceId) => this.destroy(instanceId),
       ensureConversationExists: (conversationId, title) => this.ensureConversationExists(conversationId, title),
       notifyIncomingMessage: (sessionKey, text) => this.notifyIncomingMessage(sessionKey, text),
@@ -1527,6 +1529,22 @@ export class AgentRuntimeBridge {
     await instance.waitForIdle()
   }
 
+  /**
+   * 从实例内存中提取最新 assistant 正文，供定时任务在 destroy 前回读产出。
+   */
+  getAssistantOutputFromInstance(instanceId: string): string | null {
+    const instance = this.agentRegistry.get(instanceId)
+    if (!instance) return null
+    const messages = instance.getAgentMessages()
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
+      if (!msg || msg.role !== 'assistant') continue
+      const text = extractAssistantTextFromAgentMessage(msg.content)
+      if (text) return text
+    }
+    return null
+  }
+
   clearInstanceMemory(instanceId: string): void {
     const instance = this.agentRegistry.get(instanceId)
     if (!instance) { log.warn(`[clearInstanceMemory] 实例不存在: ${instanceId}`); return }
@@ -2008,4 +2026,22 @@ export class AgentRuntimeBridge {
       this.idleCompactingSessions.delete(sessionKey)
     }
   }
+}
+
+/**
+ * 从 pi-agent-core 的 assistant 消息 content 中提取可见正文。
+ */
+function extractAssistantTextFromAgentMessage(content: unknown): string {
+  if (typeof content === 'string') return content.trim()
+  if (!Array.isArray(content)) return ''
+  return content
+    .filter((block): block is { type: string; text: string } => {
+      if (!block || typeof block !== 'object') return false
+      const part = block as Record<string, unknown>
+      return part.type === 'text' && typeof part.text === 'string'
+    })
+    .map((block) => block.text.trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim()
 }
