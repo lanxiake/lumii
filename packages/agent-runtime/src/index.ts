@@ -351,6 +351,7 @@ export {
   resolveVaultDirAbs,
   resolveOriginalFilePath,
   shouldUseRefSidecar,
+  removeSourceVaultArtifacts,
   isVaultRefPath,
   parseRefDocument,
   WikiClipSaver,

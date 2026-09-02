@@ -39,6 +39,7 @@ import {
   createWikiVaultSyncDeps,
   ensureAndBackfillWikiVault,
   ensureWikiVaultLayoutOnDisk,
+  removeWikiSourcesVaultArtifacts,
   syncWikiSourceById,
   syncWikiSourceToVault,
 } from '../../agent-runtime/wiki-vault-host'
@@ -1083,6 +1084,10 @@ export function handleWikiSourceDelete(
   command: Extract<AgentRuntimeCommand, { type: 'wiki:source:delete' }>,
 ): { deleted: number } {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const sources = command.sourceIds
+    .map((id) => bridge.wikiRepo.findSourceById(id, agentId, LOCAL_USER_ID))
+    .filter((s): s is WikiSource => s != null)
+  removeWikiSourcesVaultArtifacts(sources)
   const deleted = bridge.wikiRepo.deleteSources(agentId, LOCAL_USER_ID, command.sourceIds)
   return { deleted }
 }

@@ -23,9 +23,8 @@ import {
   type WikiReclassifyEstimateItem,
 } from '../../../hooks/business/useWikiPage'
 import { CleanupView } from './CleanupView'
-import { WikiGraphView } from './WikiGraphView'
 import { WikiLeftNav, topicCountKey, type WikiNav } from './WikiLeftNav'
-import { navSectionLabel } from './wikiTopicDisplay'
+import { navSectionLabel, WIKI_SUBTOPIC_FILTER_ALL, WIKI_SUBTOPIC_FILTER_UNFILED, type WikiSubtopicFilter } from './wikiTopicDisplay'
 import { WikiTopBar } from './WikiTopBar'
 import { WikiFileList } from './WikiFileList'
 import { WikiTopicPicker } from './WikiTopicPicker'
@@ -70,7 +69,6 @@ const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
   inbox: { title: '收件箱', subtitle: '还没分类的新资料，可批量归档或稍后处理' },
   archived: { title: '已归档', subtitle: '已移出活跃目录、可随时恢复的资料' },
   parking: { title: '临时存放', subtitle: '你主动搁置、暂不进入正式目录的文件' },
-  graph: { title: '知识图谱', subtitle: '浏览页面与实体之间的关系' },
   cleanup: { title: '清理', subtitle: '扫描并处理需要维护的资料' },
   reclassify: { title: '重新编目', subtitle: 'AI 的目录调整建议，接受后才生效' },
 }
@@ -95,7 +93,6 @@ export const WikiTab: React.FC = () => {
     archiveSources,
     restoreSources,
     deleteSources,
-    getGraphData,
     loadTopicTree,
     mutateTopic,
     createNote,
@@ -112,8 +109,6 @@ export const WikiTab: React.FC = () => {
     getSource,
     searchSources,
     ensureVaultLayout,
-    extractEroFromSources,
-    listEntitySources,
     loadAutoClassifySetting,
     setAutoClassifyEnabled,
     loading,
@@ -121,6 +116,7 @@ export const WikiTab: React.FC = () => {
   const taskCenter = useWikiTaskCenter()
 
   const [nav, setNav] = useState<WikiNav>({ kind: 'inbox' })
+  const [sectionSubtopicFilter, setSectionSubtopicFilter] = useState<WikiSubtopicFilter>(WIKI_SUBTOPIC_FILTER_ALL)
   const [topicTree, setTopicTree] = useState<WikiTopicTree | null>(null)
   const [sources, setSources] = useState<readonly WikiSourceListItem[]>([])
   const [archivedSources, setArchivedSources] = useState<readonly WikiSourceListItem[]>([])
@@ -305,27 +301,34 @@ export const WikiTab: React.FC = () => {
     [sources],
   )
 
-  const visibleSources = useMemo(() => {
-    // 分区即大类：section 与 category 两种 nav 现在是同一种过滤
-    if (nav.kind === 'section') {
-      return sources.filter((item) => item.topicCategory === nav.name)
-    }
-    if (nav.kind === 'category') {
-      return sources.filter((item) => item.topicCategory === nav.name)
-    }
+  const categorySectionName = useMemo(() => {
+    if (nav.kind === 'section' || nav.kind === 'category') return nav.name
+    if (nav.kind === 'subtopic') return nav.category
+    return null
+  }, [nav])
+
+  const effectiveSubtopicFilter = useMemo((): WikiSubtopicFilter => {
+    if (!categorySectionName) return WIKI_SUBTOPIC_FILTER_ALL
     if (nav.kind === 'subtopic') {
-      // subtopic 为 null → 该大类下未细分的那批
-      return sources.filter(
-        (item) =>
-          item.topicCategory === nav.category &&
-          (nav.subtopic === null ? !item.topicSubtopic : item.topicSubtopic === nav.subtopic),
-      )
+      return nav.subtopic === null ? WIKI_SUBTOPIC_FILTER_UNFILED : nav.subtopic
+    }
+    return sectionSubtopicFilter
+  }, [categorySectionName, nav, sectionSubtopicFilter])
+
+  const visibleSources = useMemo(() => {
+    if (categorySectionName) {
+      const inCategory = sources.filter((item) => item.topicCategory === categorySectionName)
+      if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL) return inCategory
+      if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_UNFILED) {
+        return inCategory.filter((item) => !item.topicSubtopic)
+      }
+      return inCategory.filter((item) => item.topicSubtopic === effectiveSubtopicFilter)
     }
     if (nav.kind === 'parking') {
       return parkingSources
     }
     return []
-  }, [nav, sources, parkingSources])
+  }, [categorySectionName, effectiveSubtopicFilter, nav.kind, sources, parkingSources])
 
   /**
    * 打开任务中心并清除失败任务的未读提示。
@@ -384,6 +387,11 @@ export const WikiTab: React.FC = () => {
   )
 
   const handleSelectNav = useCallback((next: WikiNav) => {
+    if (next.kind === 'section' || next.kind === 'category') {
+      setSectionSubtopicFilter(WIKI_SUBTOPIC_FILTER_ALL)
+    } else if (next.kind === 'subtopic') {
+      setSectionSubtopicFilter(next.subtopic === null ? WIKI_SUBTOPIC_FILTER_UNFILED : next.subtopic)
+    }
     setNav(next)
     setIsMoreMenuOpen(false)
     setSearchResults(null)
@@ -394,6 +402,21 @@ export const WikiTab: React.FC = () => {
     setSelectedUnfiledIds(new Set())
     setHighlightSourceId(null)
   }, [])
+
+  /**
+   * 在大类视图内切换小类筛选；图谱等入口若落在 subtopic 导航，会归一到 section。
+   */
+  const handleSubtopicFilter = useCallback(
+    (filter: WikiSubtopicFilter) => {
+      setSectionSubtopicFilter(filter)
+      if (categorySectionName && nav.kind === 'subtopic') {
+        setNav({ kind: 'section', name: categorySectionName })
+      }
+      setSelectedSourceIds(new Set())
+      setHighlightSourceId(null)
+    },
+    [categorySectionName, nav.kind],
+  )
 
   const toggleSelectSource = useCallback((id: string) => {
     setSelectedSourceIds((prev) => {
@@ -648,8 +671,9 @@ export const WikiTab: React.FC = () => {
       setTopicTree(result.tree)
       await refreshSources()
       setNav((prev) => {
-        if (prev.kind === 'category') {
-          return result.tree.categories.some((c) => c.name === prev.name) ? prev : { kind: 'inbox' }
+        if (prev.kind === 'section' || prev.kind === 'category') {
+          const name = prev.kind === 'section' ? prev.name : prev.name
+          return result.tree.categories.some((c) => c.name === name) ? prev : { kind: 'inbox' }
         }
         if (prev.kind === 'subtopic') {
           const cat = result.tree.categories.find((c) => c.name === prev.category)
@@ -970,7 +994,7 @@ export const WikiTab: React.FC = () => {
     void taskCenter.wrapAsync('rebuild', '重建索引', rebuildIndex).catch(() => undefined)
   }, [rebuildIndex, taskCenter.wrapAsync])
 
-  /** 按 sourceId 打开资料详情（知识图谱节点等场景） */
+  /** 按 sourceId 打开资料详情。 */
   const handlePreviewSourceId = useCallback((sourceId: string) => {
     setSourcePreview({ sourceId, snapshot: null })
   }, [])
@@ -980,18 +1004,16 @@ export const WikiTab: React.FC = () => {
     setSourcePreview({ sourceId: null, snapshot: inboxItemToPreviewSnapshot(item) })
   }, [])
 
-  const navBreadcrumbs = searchResults === null ? buildWikiBreadcrumbs(nav) : null
+  const navBreadcrumbs = searchResults === null ? buildWikiBreadcrumbs(nav, effectiveSubtopicFilter) : null
+  const isCategoryBrowse = categorySectionName !== null
   const currentContext = searchResults !== null
     ? { title: '搜索结果', subtitle: `共找到 ${searchResults.length} 个文件`, breadcrumbs: null as null, breadcrumbSuffix: undefined }
     : navBreadcrumbs
       ? {
           title: navBreadcrumbs[navBreadcrumbs.length - 1]?.label ?? 'Wiki',
-          subtitle:
-            nav.kind === 'subtopic'
-              ? `${visibleSources.length} 个文件`
-              : '选择小类查看资料',
+          subtitle: isCategoryBrowse ? `${visibleSources.length} 个文件` : '选择小类查看资料',
           breadcrumbs: navBreadcrumbs,
-          breadcrumbSuffix: nav.kind === 'subtopic' ? `(${visibleSources.length})` : undefined,
+          breadcrumbSuffix: isCategoryBrowse ? `(${visibleSources.length})` : undefined,
         }
       : { title: FIXED_NAV_CONTEXT[nav.kind]?.title ?? 'Wiki', subtitle: FIXED_NAV_CONTEXT[nav.kind]?.subtitle ?? '', breadcrumbs: null as null, breadcrumbSuffix: undefined }
 
@@ -1229,49 +1251,24 @@ export const WikiTab: React.FC = () => {
             onIgnore={(id) => void handleIgnoreReclassify(id)}
             onDiscard={() => void handleDiscardReclassify()}
           />
-        ) : nav.kind === 'graph' ? (
-          <WikiGraphView
-            currentNav={nav}
-            getGraphData={getGraphData}
-            extractEroFromSources={async (scope) => {
-              const result = await taskCenter.wrapAsync('graph', '抽取实体关系', () =>
-                extractEroFromSources(scope),
-              )
-              return result
-            }}
-            listEntitySources={listEntitySources}
-            openSource={openSource}
-            onPreviewSource={handlePreviewSourceId}
-            onNavigateTo={setNav}
-            runLongTask={(title, fn) => taskCenter.wrapAsync('graph', title, fn)}
-          />
-        ) : nav.kind === 'section' ? (
-          <div className="wiki-subtopic-view">
+        ) : isCategoryBrowse && categorySectionName ? (
+          <div className="wiki-category-view">
             <WikiSubtopicPanel
-              section={nav.name}
+              section={categorySectionName}
               topicTree={topicTree}
               topicCounts={topicCounts}
-              onSelectSubtopic={(category, subtopic) =>
-                handleSelectNav({ kind: 'subtopic', category, subtopic })
-              }
+              sectionFileCount={sectionCounts[categorySectionName] ?? 0}
+              activeFilter={effectiveSubtopicFilter}
+              onSelectFilter={handleSubtopicFilter}
             />
-          </div>
-        ) : nav.kind === 'category' ? (
-          <div className="wiki-subtopic-view">
-            <WikiSubtopicPanel
-              section={nav.name}
-              topicTree={topicTree}
-              topicCounts={topicCounts}
-              onSelectSubtopic={(category, subtopic) =>
-                handleSelectNav({ kind: 'subtopic', category, subtopic })
-              }
-            />
-          </div>
-        ) : nav.kind === 'subtopic' ? (
-          <div className="wiki-file-list-view">
             <WikiFileList
               items={visibleSources}
-              emptyHint="这个小类下还没有文件"
+              emptyHint={
+                effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL
+                  ? '这个大类下还没有文件'
+                  : '这个小类下还没有文件'
+              }
+              showSubtopicPrefix={effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL}
               highlightId={highlightSourceId}
               selectable
               selectedIds={selectedSourceIds}
@@ -1307,22 +1304,39 @@ export const WikiTab: React.FC = () => {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => void handleCreateNote(nav.category, nav.subtopic)}
-                    >
-                      新建笔记
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
                       onClick={() =>
-                        void handleRunReclassify(
-                          { kind: 'subtopic', category: nav.category, subtopic: nav.subtopic },
-                          { force: true },
+                        void handleCreateNote(
+                          categorySectionName,
+                          effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL ||
+                            effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_UNFILED
+                            ? null
+                            : effectiveSubtopicFilter,
                         )
                       }
                     >
-                      重新编目本小类
+                      新建笔记
                     </Button>
+                    {effectiveSubtopicFilter !== WIKI_SUBTOPIC_FILTER_ALL && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          void handleRunReclassify(
+                            {
+                              kind: 'subtopic',
+                              category: categorySectionName,
+                              subtopic:
+                                effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_UNFILED
+                                  ? null
+                                  : effectiveSubtopicFilter,
+                            },
+                            { force: true },
+                          )
+                        }
+                      >
+                        重新编目本小类
+                      </Button>
+                    )}
                   </>
                 )
               }

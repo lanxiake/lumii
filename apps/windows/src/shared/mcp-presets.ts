@@ -2,12 +2,12 @@
  * 内置常用 MCP 服务清单
  *
  * 收录门槛（三条都满足才进来）：
- *   1. `npx -y` 能装上——不引入 uv/pip/docker 这类需要用户先装运行时的方式
- *   2. 包在 npm 上，国内配了镜像就能拉；服务端也得是国内可访问的
+ *   1. 优先 `npx -y` 能装上；少数 Python 包可用 `uvx`（需用户本机已装 uv）
+ *   2. 包在 npm/PyPI 上，国内配了镜像就能拉；服务端也得是国内可访问的
  *   3. 官方或一方维护，包名可确认
  *
- * 需要密钥的一律把 env 值留空并给出申请地址，不写死假值。
- * 非密钥（如服务 URL）可以写默认值，播种时视为已就绪。
+ * 需要用户自行申请的密钥一律把 env 值留空并给出申请地址。
+ * 非密钥（如服务 URL、已内置的共享 Key）可以写默认值，播种时视为已就绪。
  *
  * 不收录 @playwright/mcp 与 chrome-devtools-mcp：客户端已内置 browser_* 工具
  * （导航/点击/输入/滚动/截图/执行 JS）和 HTML 预览，装了只是重复一套还多依赖 Chrome。
@@ -21,8 +21,6 @@
 
 export type McpPresetCategory =
   | 'office'
-  | 'frontend'
-  | 'web'
   | 'news'
   | 'legal'
   | 'kids'
@@ -31,8 +29,6 @@ export type McpPresetCategory =
 
 export const MCP_PRESET_CATEGORIES: ReadonlyArray<{ id: McpPresetCategory; label: string }> = [
   { id: 'office', label: '办公' },
-  { id: 'frontend', label: '前端开发' },
-  { id: 'web', label: '网页抓取' },
   { id: 'news', label: '资讯热点' },
   { id: 'legal', label: '法律' },
   { id: 'kids', label: '儿童教育' },
@@ -53,6 +49,8 @@ export interface McpPreset {
   readonly keyUrl?: string
   /** 填进表单后用户还需要动手补的东西 */
   readonly todo?: string
+  /** 播种时是否默认启用；未指定时按 isReadyToUse 判断 */
+  readonly defaultEnabled?: boolean
 }
 
 /**
@@ -70,24 +68,22 @@ export function isReadyToUse(preset: McpPreset): boolean {
 
 export const MCP_PRESETS: readonly McpPreset[] = [
   {
+    name: 'comfyui-remote',
+    title: 'ComfyUI 生图',
+    description: '连接远程 ComfyUI，用工作流生成图片、处理图像',
+    categories: ['creator'],
+    command: 'npx',
+    args: ['-y', 'comfyui-mcp'],
+    env: { COMFYUI_URL: 'https://cfui.cpolar.top' },
+    defaultEnabled: false,
+  },
+  {
     name: 'excel-mcp',
     title: 'Excel 表格读取',
     description: '无需装 Office，直接读取解析 Excel/CSV 表格数据，交给 AI 汇总与分析',
     categories: ['office'],
     command: 'npx',
     args: ['-y', 'excel-mcp'],
-  },
-  {
-    name: 'firecrawl-mcp',
-    title: 'Firecrawl 网页爬取',
-    description: '高质量网页抓取，支持 JS 动态页面，提取网页干净正文',
-    categories: ['web', 'frontend', 'creator'],
-    command: 'npx',
-    // 官方包名是 firecrawl-mcp，不是 @mcp/firecrawl（后者在 npm 上不存在）
-    args: ['-y', 'firecrawl-mcp'],
-    env: { FIRECRAWL_API_KEY: '' },
-    keyUrl: 'https://www.firecrawl.dev/',
-    todo: '前往官网注册获取 API Key 填进环境变量，免费版有额度限制',
   },
   {
     name: 'mcp-trends-hub',
@@ -106,24 +102,29 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     args: ['-y', '@iflow-mcp/civil-code-of-china-mcp'],
   },
   {
-    name: 'comfyui-remote',
-    title: 'ComfyUI 生图',
-    description: '连接远程 ComfyUI，用工作流生成图片、处理图像',
-    categories: ['creator'],
+    name: '12306-mcp',
+    title: '12306 火车票',
+    description: '查询火车票余票、车次与站点信息',
+    categories: ['life'],
     command: 'npx',
-    args: ['-y', 'comfyui-mcp'],
-    env: { COMFYUI_URL: 'https://cfui.cpolar.top' },
+    args: ['-y', '12306-mcp'],
   },
   {
-    name: 'baidu-map',
-    title: '百度地图',
+    name: 'flight-price-compare',
+    title: '机票比价',
+    description: '对比各平台机票价格，辅助出行决策',
+    categories: ['life'],
+    command: 'uvx',
+    args: ['flight-price-compare-mcp==4.0.2'],
+  },
+  {
+    name: 'amap-maps',
+    title: '高德地图',
     description: '地点检索、路线规划、周边推荐',
     categories: ['life', 'kids'],
     command: 'npx',
-    args: ['-y', '@baidumap/mcp-server-baidu-map'],
-    env: { BAIDU_MAP_API_KEY: '' },
-    keyUrl: 'https://lbsyun.baidu.com/apiconsole/key',
-    todo: '申请免费 Key（选「服务端」应用类型）填进环境变量',
+    args: ['-y', '@amap/amap-maps-mcp-server'],
+    env: { AMAP_MAPS_API_KEY: '6be468a574af8f0c366a930f42bd692b' },
   },
 ]
 

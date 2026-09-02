@@ -25,6 +25,26 @@ const SYSTEM_SECTIONS: readonly WikiSystemSection[] = ['inbox', 'archived', 'unf
 /** 大类下「有大类无小类」的那组资料在 UI 上的分组名（小类可选，见设计 §2.1.1） */
 export const UNFILED_SUBTOPIC_LABEL = '未细分'
 
+/** 大类视图：显示全部文件 */
+export const WIKI_SUBTOPIC_FILTER_ALL = '__all__' as const
+/** 大类视图：只显示未细分小类的文件 */
+export const WIKI_SUBTOPIC_FILTER_UNFILED = '__unfiled__' as const
+
+/** 大类下的小类筛选状态 */
+export type WikiSubtopicFilter =
+  | typeof WIKI_SUBTOPIC_FILTER_ALL
+  | typeof WIKI_SUBTOPIC_FILTER_UNFILED
+  | (string & {})
+
+/**
+ * 把小类筛选状态格式化为 UI 标签。
+ */
+export function subtopicFilterLabel(filter: WikiSubtopicFilter): string {
+  if (filter === WIKI_SUBTOPIC_FILTER_ALL) return '全部'
+  if (filter === WIKI_SUBTOPIC_FILTER_UNFILED) return UNFILED_SUBTOPIC_LABEL
+  return filter
+}
+
 /** 主题树只读形态，供展示格式化使用 */
 export interface WikiTopicTreeLike {
   readonly categories: ReadonlyArray<{

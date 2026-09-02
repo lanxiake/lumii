@@ -1,5 +1,5 @@
 import React from 'react'
-import { Inbox, Archive, Briefcase, BookOpen, Home, Star, MoreHorizontal, Network, Package, Folder } from 'lucide-react'
+import { Inbox, Archive, Briefcase, BookOpen, Home, Star, MoreHorizontal, Package, Folder } from 'lucide-react'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 import { navSectionLabel, topicCountKey, type WikiNavSection } from './wikiTopicDisplay'
 import { WIKI_LEFT_FIXED_TOOLTIPS, WIKI_MORE_TOOLTIP, WIKI_NAV_TOOLTIPS } from './wikiTooltips'
@@ -8,7 +8,7 @@ import { WIKI_LEFT_FIXED_TOOLTIPS, WIKI_MORE_TOOLTIP, WIKI_NAV_TOOLTIPS } from '
 export { topicCountKey }
 
 /**
- * P0 左栏显示用途目录、临时存放、知识图谱与更多入口。
+ * P0 左栏显示用途目录、临时存放与更多入口。
  */
 export type WikiNav =
   | { kind: 'inbox' }
@@ -41,8 +41,13 @@ interface WikiLeftNavProps {
 }
 
 function isActive(active: WikiLeftNavProps['active'], nav: WikiNav): boolean {
+  if (nav.kind === 'section') {
+    if (active.kind === 'section') return active.name === nav.name
+    if (active.kind === 'subtopic') return active.category === nav.name
+    if (active.kind === 'category') return active.name === nav.name
+    return false
+  }
   if (active.kind !== nav.kind) return false
-  if (nav.kind === 'section') return active.kind === 'section' && active.name === nav.name
   return true
 }
 
@@ -63,11 +68,10 @@ const SECTION_ICONS: Record<string, React.FC<{ size?: number | string }>> = {
 /** 左栏固定入口（排在已归档之后） */
 const FIXED_NAV_ITEMS = [
   { kind: 'parking' as const, label: '临时存放', icon: Package },
-  { kind: 'graph' as const, label: '知识图谱', icon: Network },
 ]
 
 /**
- * 左栏 = 用途目录 + 临时存放/知识图谱 + 更多；悬停显示使用说明。
+ * 左栏 = 用途目录 + 临时存放 + 更多；悬停显示使用说明。
  */
 export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
   active,
@@ -111,9 +115,9 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
   }
 
   /**
-   * 渲染临时存放、知识图谱等固定入口。
+   * 渲染临时存放等固定入口。
    */
-  const renderFixedNav = (kind: 'parking' | 'graph', label: string, Icon: React.FC<{ size?: number | string }>, count = 0) => {
+  const renderFixedNav = (kind: 'parking', label: string, Icon: React.FC<{ size?: number | string }>, count = 0) => {
     const nav: WikiNav = { kind }
     return (
       <Tooltip key={kind} content={WIKI_LEFT_FIXED_TOOLTIPS[kind]} placement="right">

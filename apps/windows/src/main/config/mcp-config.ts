@@ -205,12 +205,13 @@ export function parseMcpServerConfigs(raw: string): McpServerEntry[] {
 
 /** 内置清单条目 → 可落盘的配置条目（需填 Key/路径的默认停用） */
 function presetToEntry(preset: McpPreset): McpServerEntry {
+  const enabled = preset.defaultEnabled !== undefined ? preset.defaultEnabled : isReadyToUse(preset)
   return resolveMcpEntryPaths({
     name: preset.name,
     command: preset.command,
     args: [...preset.args],
     ...(preset.env ? { env: { ...preset.env } } : {}),
-    enabled: isReadyToUse(preset),
+    enabled,
   })
 }
 
@@ -227,6 +228,8 @@ const RETIRED_BUILTIN_MCP: ReadonlyArray<{ name: string; pkg: string; replacedBy
   { name: 'amap', pkg: '@amap/amap-maps-mcp-server', replacedByComfy: true },
   { name: 'sequential-thinking', pkg: '@modelcontextprotocol/server-sequential-thinking' },
   { name: 'filesystem', pkg: '@modelcontextprotocol/server-filesystem' },
+  { name: 'firecrawl-mcp', pkg: 'firecrawl-mcp' },
+  { name: 'baidu-map', pkg: '@baidumap/mcp-server-baidu-map' },
 ]
 
 /**

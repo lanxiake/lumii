@@ -35,10 +35,13 @@ describe('MCP 内置清单', () => {
     }
   })
 
-  it('全部走 npx 自动安装，不依赖 uv/pip/docker', () => {
+  it('npx 项走 -y 自动安装；uvx 项用于 Python 包', () => {
     for (const preset of MCP_PRESETS) {
-      expect(preset.command).toBe('npx')
-      expect(preset.args[0]).toBe('-y')
+      if (preset.command === 'npx') {
+        expect(preset.args[0]).toBe('-y')
+      } else {
+        expect(preset.command).toBe('uvx')
+      }
     }
   })
 
@@ -49,7 +52,7 @@ describe('MCP 内置清单', () => {
   })
 
   it('播种时至少有一个就绪项默认启用，需配置的都不自动启用', () => {
-    const ready = MCP_PRESETS.filter(isReadyToUse)
+    const ready = MCP_PRESETS.filter((p) => p.defaultEnabled !== false && isReadyToUse(p))
     expect(ready.length).toBeGreaterThan(0)
     for (const preset of MCP_PRESETS) {
       const needsSetup =
@@ -59,9 +62,9 @@ describe('MCP 内置清单', () => {
     }
   })
 
-  it('已下线 memory / chart / context7 / amap，并内置 comfyui-remote', () => {
+  it('已下线 memory / chart / context7 / firecrawl / baidu-map，并内置 comfyui-remote', () => {
     const names = MCP_PRESETS.map((p) => p.name)
-    for (const name of ['memory', 'chart', 'context7', 'amap']) {
+    for (const name of ['memory', 'chart', 'context7', 'firecrawl-mcp', 'baidu-map']) {
       expect(names).not.toContain(name)
     }
 
@@ -69,6 +72,7 @@ describe('MCP 内置清单', () => {
     expect(comfy).toBeTruthy()
     expect(comfy!.args).toEqual(['-y', 'comfyui-mcp'])
     expect(comfy!.env).toEqual({ COMFYUI_URL: 'https://cfui.cpolar.top' })
+    expect(comfy!.defaultEnabled).toBe(false)
     expect(isReadyToUse(comfy!)).toBe(true)
   })
 
@@ -85,10 +89,11 @@ describe('MCP 内置清单', () => {
   it('新增内置项包名与官方一致，不用不存在的名字', () => {
     const pkgOf = (name: string) => MCP_PRESETS.find((p) => p.name === name)?.args.at(-1)
     expect(pkgOf('excel-mcp')).toBe('excel-mcp')
-    // 官方是 firecrawl-mcp；@mcp/firecrawl 在 npm 上不存在，写错等于把安装位交给抢注者
-    expect(pkgOf('firecrawl-mcp')).toBe('firecrawl-mcp')
     expect(pkgOf('mcp-trends-hub')).toBe('mcp-trends-hub')
     expect(pkgOf('civil-code-mcp')).toBe('@iflow-mcp/civil-code-of-china-mcp')
+    expect(pkgOf('12306-mcp')).toBe('12306-mcp')
+    expect(pkgOf('flight-price-compare')).toBe('flight-price-compare-mcp==4.0.2')
+    expect(pkgOf('amap-maps')).toBe('@amap/amap-maps-mcp-server')
   })
 
   it('要密钥的默认不启用，且给出申请地址', () => {
@@ -101,15 +106,22 @@ describe('MCP 内置清单', () => {
   })
 
   it('无密钥的内置项默认启用，不让用户多点一次', () => {
-    for (const name of ['excel-mcp', 'mcp-trends-hub', 'civil-code-mcp']) {
+    for (const name of ['excel-mcp', 'mcp-trends-hub', 'civil-code-mcp', '12306-mcp', 'flight-price-compare', 'amap-maps']) {
       const preset = MCP_PRESETS.find((p) => p.name === name)
       expect(preset, name).toBeTruthy()
+      expect(preset!.defaultEnabled).not.toBe(false)
       expect(isReadyToUse(preset!), name).toBe(true)
     }
   })
 
+  it('comfyui-remote 配置就绪但默认停用', () => {
+    const preset = MCP_PRESETS.find((p) => p.name === 'comfyui-remote')
+    expect(preset?.defaultEnabled).toBe(false)
+    expect(isReadyToUse(preset!)).toBe(true)
+  })
+
   it('findMcpPreset 能按名字查到说明，自建服务查不到', () => {
-    expect(findMcpPreset('firecrawl-mcp')?.keyUrl).toBe('https://www.firecrawl.dev/')
+    expect(findMcpPreset('amap-maps')?.title).toBe('高德地图')
     expect(findMcpPreset('我自己配的')).toBeUndefined()
   })
 })

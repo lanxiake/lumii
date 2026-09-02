@@ -24,6 +24,11 @@ async function selectNavSection(label: string) {
   fireEvent.click(btn)
 }
 
+/** 点击大类下的小类筛选 tab（与文件类型「全部」芯片区分） */
+function clickSubtopicFilter(label: string) {
+  fireEvent.click(screen.getByRole('tab', { name: new RegExp(label) }))
+}
+
 /** 读取左栏分区按钮右侧的文件数量角标 */
 function getNavSectionCount(label: string): string | null {
   const labelEl = screen.getAllByText(label).find((node) => node.classList.contains('wiki-left-nav-label'))
@@ -81,7 +86,7 @@ describe('WikiTab', () => {
     expect(screen.getByText('生活')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^收件箱/ })).toBeInTheDocument()
     expect(screen.getByText('临时存放')).toBeInTheDocument()
-    expect(screen.getByText('知识图谱')).toBeInTheDocument()
+    expect(screen.queryByText('知识图谱')).not.toBeInTheDocument()
     expect(screen.getByText('更多')).toBeInTheDocument()
     expect(screen.queryByText('资料')).not.toBeInTheDocument()
     expect(screen.queryByText('多媒体')).not.toBeInTheDocument()
@@ -92,8 +97,32 @@ describe('WikiTab', () => {
     await screen.findByText(/暂无收件箱条目/)
 
     await selectNavSection('工作')
-    fireEvent.click(screen.getByText('例行'))
+    clickSubtopicFilter('例行')
     expect(await screen.findByText('这个小类下还没有文件')).toBeInTheDocument()
+  })
+
+  it('点击大类默认展示全部文件，并在文件名前显示小类', async () => {
+    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
+      'wiki:source:list': {
+        sources: [{
+          id: 's1',
+          title: '周会纪要.docx',
+          sourcePath: 'C:/files/周会纪要.docx',
+          mediaType: 'document',
+          topicCategory: '工作',
+          topicSubtopic: '例行',
+          updatedAt: Date.now(),
+          useCount: 0,
+        }],
+      },
+    })
+    renderWikiTab()
+
+    await screen.findByText(/暂无收件箱条目/)
+    await selectNavSection('工作')
+    const title = await screen.findByText('周会纪要.docx')
+    expect(title.closest('.wiki-file-list-item')).toHaveTextContent('例行')
+    expect(screen.getByRole('heading', { name: '工作 (1)' })).toBeInTheDocument()
   })
 
   it('点击小类后主区列出该小类下的文件', async () => {
@@ -115,10 +144,11 @@ describe('WikiTab', () => {
 
     await screen.findByText(/暂无收件箱条目/)
     await selectNavSection('工作')
-    fireEvent.click(await screen.findByText('例行'))
+    clickSubtopicFilter('例行')
     const title = await screen.findByText('周会纪要.docx')
     expect(title.closest('.wiki-file-list-item')).toHaveTextContent('刚刚')
     expect(screen.getByRole('heading', { name: '例行 (1)' })).toBeInTheDocument()
+    expect(document.querySelectorAll('.wiki-file-list-subtopic-prefix')).toHaveLength(0)
   })
 
   it('文件行「详情」使用应用内居中预览，不调系统打开', async () => {
@@ -150,7 +180,7 @@ describe('WikiTab', () => {
 
     await screen.findByText(/暂无收件箱条目/)
     await selectNavSection('生活')
-    fireEvent.click(await screen.findByText('凭据'))
+    clickSubtopicFilter('凭据')
     fireEvent.click(await screen.findByRole('button', { name: /详情/ }))
 
     expect(await screen.findByRole('dialog', { name: '文件预览' })).toBeInTheDocument()
@@ -321,27 +351,12 @@ describe('WikiTab', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
-  it('图谱节点点击后自动加载图谱', async () => {
-    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
-      'wiki:source:list': [{ id: 's1', title: '资料A.pdf', sourcePath: null, topicCategory: '工作', topicSubtopic: '例行', contentHash: 'h1', mediaType: 'application/pdf', sizeBytes: 1024 }],
-      'wiki:inbox:list': [],
-      'wiki:inbox:count': 0,
-      'wiki:page:list': [],
-      'wiki:graph:data': {
-        nodes: [{
-          id: 's1',
-          kind: 'source',
-          title: '资料A.pdf',
-        }],
-        edges: [],
-        truncated: false,
-      },
-    })
+  it('不显示知识图谱入口', async () => {
     renderWikiTab()
+    await screen.findByText(/暂无收件箱条目/)
 
-    fireEvent.click(await screen.findByText('知识图谱'))
-    await waitFor(() => expect(document.querySelector('.react-flow__node')).toBeInTheDocument())
-    expect(document.querySelector('.wiki-graph-view')).toBeInTheDocument()
+    expect(screen.queryByText('知识图谱')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /知识图谱/ })).not.toBeInTheDocument()
   })
 
   it('点击更多菜单外部后关闭菜单', async () => {
@@ -401,7 +416,8 @@ describe('WikiTab', () => {
     })
 
     await selectNavSection('工作')
-    expect(screen.getByText('例行').closest('button')?.querySelector('.wiki-subtopic-chip-count')).toHaveTextContent('1')
+    expect(screen.getByRole('tab', { name: /全部/ })).toHaveClass('wiki-subtopic-chip--active')
+    expect(screen.getByRole('tab', { name: /例行/ }).querySelector('.wiki-subtopic-chip-count')).toHaveTextContent('1')
   })
 
   it('大类角标含树外旧小类的文件，分区页列出该旧小类', async () => {
@@ -438,12 +454,13 @@ describe('WikiTab', () => {
     })
 
     await selectNavSection('工作')
-    expect(await screen.findByText(/共 2 个文件/)).toBeInTheDocument()
-    expect(screen.getByText('课堂&课程笔记').closest('button')?.querySelector('.wiki-subtopic-chip-count')).toHaveTextContent('1')
-    expect(screen.getByText('各类文档模板').closest('button')?.querySelector('.wiki-subtopic-chip-count')).toHaveTextContent('1')
-    expect(screen.getByText('例行').closest('button')?.querySelector('.wiki-subtopic-chip-count')).toBeNull()
+    expect(await screen.findByText(/按小类筛选/)).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /全部/ })).toHaveClass('wiki-subtopic-chip--active')
+    expect(screen.getByRole('tab', { name: /课堂&课程笔记/ }).querySelector('.wiki-subtopic-chip-count')).toHaveTextContent('1')
+    expect(screen.getByRole('tab', { name: /各类文档模板/ }).querySelector('.wiki-subtopic-chip-count')).toHaveTextContent('1')
+    expect(screen.getByRole('tab', { name: /^例行$/ }).querySelector('.wiki-subtopic-chip-count')).toBeNull()
 
-    fireEvent.click(screen.getByText('课堂&课程笔记'))
+    clickSubtopicFilter('课堂&课程笔记')
     expect(await screen.findByText('五年级语文.pdf')).toBeInTheDocument()
   })
 
@@ -675,7 +692,7 @@ describe('WikiTab', () => {
     expect(screen.getByRole('heading', { name: '收件箱（0）' })).toBeInTheDocument()
 
     await selectNavSection('收藏')
-    fireEvent.click(await screen.findByText('可复用'))
+    clickSubtopicFilter('可复用')
     expect(await screen.findByText('拍照姿势21.mp4')).toBeInTheDocument()
   })
 })

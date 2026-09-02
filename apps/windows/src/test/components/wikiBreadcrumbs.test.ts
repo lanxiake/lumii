@@ -10,6 +10,13 @@ describe('buildWikiBreadcrumbs', () => {
     expect(buildWikiBreadcrumbs({ kind: 'section', name: 'inbox' })).toBeNull()
   })
 
+  it('section 筛选到具体小类时显示两级面包屑', () => {
+    expect(buildWikiBreadcrumbs({ kind: 'section', name: '工作' }, '例行')).toEqual([
+      { label: '工作', nav: { kind: 'section', name: '工作' } },
+      { label: '例行' },
+    ])
+  })
+
   it('category 视图返回单级面包屑', () => {
     expect(buildWikiBreadcrumbs({ kind: 'category', name: '生活' })).toEqual([{ label: '生活' }])
   })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { syncSourceToVault } from "./wiki-vault-sync.js";
+import { removeSourceVaultArtifacts, syncSourceToVault } from "./wiki-vault-sync.js";
 import type { WikiSource } from "./types.js";
 
 function mockVaultFs() {
@@ -98,5 +98,68 @@ describe("syncSourceToVault", () => {
     );
     expect(result?.relPath).toContain("收藏/图片媒体素材/");
     expect([...fs.files.keys()].some((p) => p.includes("收藏/图片媒体素材/"))).toBe(true);
+  });
+});
+
+describe("removeSourceVaultArtifacts", () => {
+  it("删除 vault 内的 url-ref 侧车", () => {
+    const fs = mockVaultFs();
+    const refPath = "/ws/wiki/收藏/示例.url.lumii-ref";
+    fs.writeFile(refPath, "{}");
+    const deps = {
+      vaultRoot: "/ws/wiki",
+      workspaceRoot: "/ws",
+      fs,
+      toRelPath: (abs: string) => abs.replace("/ws/", ""),
+      toAbsPath: (rel: string) => `/ws/${rel}`,
+    };
+    const removed = removeSourceVaultArtifacts(
+      deps,
+      sampleSource({
+        source_path: "wiki/收藏/示例.url.lumii-ref",
+        origin_url: "https://example.com",
+        storage_mode: "ref",
+      }),
+    );
+    expect(removed).toBe(true);
+    expect(fs.files.has(refPath)).toBe(false);
+  });
+
+  it("删除 vault 内的 file-ref 侧车，不删外部原始文件", () => {
+    const fs = mockVaultFs();
+    fs.writeFile("/ws/outputs/q3.pdf", "pdf");
+    fs.writeFile("/ws/wiki/收藏/q3.pdf.lumii-ref", "{}");
+    const deps = {
+      vaultRoot: "/ws/wiki",
+      workspaceRoot: "/ws",
+      fs,
+      toRelPath: (abs: string) => abs.replace("/ws/", ""),
+      toAbsPath: (rel: string) => `/ws/${rel}`,
+    };
+    const removed = removeSourceVaultArtifacts(
+      deps,
+      sampleSource({
+        source_path: "wiki/收藏/q3.pdf.lumii-ref",
+        storage_mode: "ref",
+      }),
+    );
+    expect(removed).toBe(true);
+    expect(fs.files.has("/ws/wiki/收藏/q3.pdf.lumii-ref")).toBe(false);
+    expect(fs.files.has("/ws/outputs/q3.pdf")).toBe(true);
+  });
+
+  it("不删除 vault 外的原始文件路径", () => {
+    const fs = mockVaultFs();
+    fs.writeFile("/ws/outputs/q3.pdf", "pdf");
+    const deps = {
+      vaultRoot: "/ws/wiki",
+      workspaceRoot: "/ws",
+      fs,
+      toRelPath: (abs: string) => abs.replace("/ws/", ""),
+      toAbsPath: (rel: string) => `/ws/${rel}`,
+    };
+    const removed = removeSourceVaultArtifacts(deps, sampleSource({ source_path: "outputs/q3.pdf" }));
+    expect(removed).toBe(false);
+    expect(fs.files.has("/ws/outputs/q3.pdf")).toBe(true);
   });
 });

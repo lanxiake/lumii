@@ -6,6 +6,7 @@ import path from 'node:path'
 import {
   ensureWikiVaultLayout,
   syncSourceToVault,
+  removeSourceVaultArtifacts,
   WIKI_VAULT_LAYOUT_ID,
   type WikiSource,
   type WikiVaultFs,
@@ -168,6 +169,22 @@ export function ensureAndBackfillWikiVault(
     }
   }
   return { vaultRoot: deps.vaultRoot, synced }
+}
+
+/**
+ * 删除多条资料在 wiki/ vault 内的侧车或 native 实体，不碰 file-ref 指向的原始文件。
+ */
+export function removeWikiSourcesVaultArtifacts(sources: readonly WikiSource[], workspaceRoot?: string): number {
+  const deps = createWikiVaultSyncDeps(workspaceRoot)
+  let removed = 0
+  for (const source of sources) {
+    try {
+      if (removeSourceVaultArtifacts(deps, source)) removed += 1
+    } catch (err) {
+      console.warn('[wiki-vault] remove artifact failed:', source.id, (err as Error).message)
+    }
+  }
+  return removed
 }
 
 /**

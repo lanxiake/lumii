@@ -4,7 +4,7 @@ import { Button } from '../../../components/ui/Button/Button'
 import type { WikiSourceListItem } from '../../../hooks/business/useWikiPage'
 import { formatRelativeTime } from './wikiStatusLabels'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
-import { formatTopicDisplay } from './wikiTopicDisplay'
+import { formatTopicDisplay, UNFILED_SUBTOPIC_LABEL } from './wikiTopicDisplay'
 
 /** 芯片粒度和 media_type 不是一对一：音视频一个芯片覆盖 audio + video 两种类型 */
 export type WikiMediaChip = 'all' | 'document' | 'image' | 'av'
@@ -29,11 +29,21 @@ function matchesChip(mediaType: string | null, chip: WikiMediaChip): boolean {
   return mediaType === chip
 }
 
+/**
+ * 解析列表行用于悬停提示的摘要正文（优先 summary，其次正文预览）。
+ */
+function resolveItemSummary(item: WikiSourceListItem): string | null {
+  const text = (item.summary ?? item.extractedTextPreview ?? '').trim()
+  return text || null
+}
+
 interface WikiFileListProps {
   items: readonly WikiSourceListItem[]
   /** 空列表提示，随所在视图变化 */
   emptyHint: string
-  /** 搜索结果与「全部大类」列表需要显示 大类 / 小类，小类视图内不重复显示 */
+  /** 大类「全部」视图：在文件名前显示小类名 */
+  showSubtopicPrefix?: boolean
+  /** 搜索结果等跨类视图：在文件名后显示大类 / 小类 */
   showTopic?: boolean
   /** 临时存放视图用「移出」，正式目录用「移动」 */
   moveLabel?: string
@@ -62,6 +72,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
   items,
   emptyHint,
   showTopic = false,
+  showSubtopicPrefix = false,
   moveLabel = '移动',
   showParkAction = true,
   showMediaChips = true,
@@ -123,6 +134,16 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
           {visible.map((item) => {
             const Icon = MEDIA_ICONS[(item.mediaType ?? 'document') as keyof typeof MEDIA_ICONS] ?? FileText
             const topic = formatTopicDisplay(item.topicCategory, item.topicSubtopic)
+            const summary = resolveItemSummary(item)
+            const titleButton = (
+              <button
+                type="button"
+                className="wiki-file-list-title wiki-file-list-title--link"
+                onClick={() => onPreview(item)}
+              >
+                {item.title}
+              </button>
+            )
             return (
               <li
                 key={item.id}
@@ -138,21 +159,26 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                 )}
                 <Icon size={15} className="wiki-file-list-icon" />
                 <div className="wiki-file-list-main">
-                  <button
-                    type="button"
-                    className="wiki-file-list-title wiki-file-list-title--link"
-                    onClick={() => onPreview(item)}
-                  >
-                    {item.title}
-                  </button>
-                  <span className="wiki-file-list-meta">
+                  <div className="wiki-file-list-title-row">
+                    {showSubtopicPrefix && (
+                      <span className="wiki-file-list-subtopic-prefix">
+                        {item.topicSubtopic ?? UNFILED_SUBTOPIC_LABEL}
+                      </span>
+                    )}
+                    {summary ? (
+                      <Tooltip
+                        content={<div className="wiki-file-list-summary-tooltip-content">{summary}</div>}
+                        placement="top"
+                        className="wiki-file-list-summary-tooltip"
+                      >
+                        {titleButton}
+                      </Tooltip>
+                    ) : (
+                      titleButton
+                    )}
                     {showTopic && <span className="wiki-file-list-topic">{topic}</span>}
-                    {formatRelativeTime(item.updatedAt)}
-                  </span>
-                  {(() => {
-                    const subtitle = item.summary || item.extractedTextPreview
-                    return subtitle ? <span className="wiki-file-list-subtitle">{subtitle}</span> : null
-                  })()}
+                    <span className="wiki-file-list-time">{formatRelativeTime(item.updatedAt)}</span>
+                  </div>
                 </div>
                 <div className="wiki-file-list-actions">
                   <Button variant="ghost" size="sm" onClick={() => onPreview(item)}>

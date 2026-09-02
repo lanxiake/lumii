@@ -207,6 +207,7 @@ export {
   resolveVaultDirAbs,
   resolveOriginalFilePath,
   shouldUseRefSidecar,
+  removeSourceVaultArtifacts,
 } from "./wiki-vault-sync.js";
 export type { WikiVaultFs, WikiVaultSyncDeps, WikiVaultSyncResult } from "./wiki-vault-sync.js";
 

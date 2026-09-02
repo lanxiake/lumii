@@ -23,10 +23,9 @@ export const WIKI_NAV_TOOLTIPS: Record<string, string> = {
 export const WIKI_MORE_TOOLTIP =
   '高级功能：清理重复资料、综述合成、重建搜索索引、编辑分类结构、全库 AI 重新编目、历史页面等。'
 
-/** 左栏固定入口（临时存放、知识图谱） */
+/** 左栏固定入口（临时存放） */
 export const WIKI_LEFT_FIXED_TOOLTIPS = {
   parking: '暂存尚未决定去向的资料。从文件列表「存到临时存放」后，可在此统一查看与移出。',
-  graph: '可视化资料、页面与实体之间的关系，支持从节点跳回原文。',
 } as const
 
 /** 顶栏搜索框 */
@@ -35,7 +34,7 @@ export const WIKI_SEARCH_TOOLTIP =
 
 /** 顶栏任务 pill */
 export const WIKI_TASK_PILL_TOOLTIP =
-  '查看后台任务进度：索引重建、综述生成、重新编目、知识图谱抽取等。'
+  '查看后台任务进度：索引重建、综述生成、重新编目等。'
 
 /** 收件箱视图说明 */
 export const WIKI_INBOX_INTRO =

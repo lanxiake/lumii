@@ -33,20 +33,22 @@ describe('MCP filesystem 路径解析', () => {
     }
   })
 
-  it('下线 memory/chart/context7/amap 并补上 comfyui-remote', () => {
+  it('下线 memory/chart/context7/amap/firecrawl/baidu-map 并补上 comfyui-remote', () => {
     const entries: McpServerEntry[] = [
       { name: 'filesystem', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', 'C:/docs'] },
       { name: 'memory', command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'] },
       { name: 'chart', command: 'npx', args: ['-y', '@antv/mcp-server-chart'] },
       { name: 'context7', command: 'npx', args: ['-y', '@upstash/context7-mcp'] },
       { name: 'amap', command: 'npx', args: ['-y', '@amap/amap-maps-mcp-server'] },
+      { name: 'firecrawl-mcp', command: 'npx', args: ['-y', 'firecrawl-mcp'] },
+      { name: 'baidu-map', command: 'npx', args: ['-y', '@baidumap/mcp-server-baidu-map'] },
     ]
     const next = reconcileBuiltinMcpPresets(entries)
     expect(next.map((e) => e.name)).toEqual(['comfyui-remote'])
     const comfy = next.find((e) => e.name === 'comfyui-remote')
     expect(comfy?.args).toEqual(['-y', 'comfyui-mcp'])
     expect(comfy?.env).toEqual({ COMFYUI_URL: 'https://cfui.cpolar.top' })
-    expect(comfy?.enabled).toBe(true)
+    expect(comfy?.enabled).toBe(false)
   })
 
   it('用户改过包名的同名服务不删；没有旧项时不反复补 comfyui-remote', () => {
@@ -64,9 +66,9 @@ describe('MCP filesystem 路径解析', () => {
   it('下线 sequential-thinking，但不顺手补一个用户没要过的 comfyui-remote', () => {
     const entries: McpServerEntry[] = [
       { name: 'sequential-thinking', command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] },
-      { name: 'baidu-map', command: 'npx', args: ['-y', '@baidumap/mcp-server-baidu-map'] },
+      { name: 'excel-mcp', command: 'npx', args: ['-y', 'excel-mcp'] },
     ]
-    expect(reconcileBuiltinMcpPresets(entries).map((e) => e.name)).toEqual(['baidu-map'])
+    expect(reconcileBuiltinMcpPresets(entries).map((e) => e.name)).toEqual(['excel-mcp'])
   })
 
   it('下线官方 filesystem MCP，用户自建同名服务不删', () => {
@@ -87,15 +89,18 @@ describe('MCP filesystem 路径解析', () => {
 
 describe('新增内置项补给老用户', () => {
   it('只补没推过且当前没有的，要密钥的补进来默认停用', () => {
-    const seeded = new Set(['excel-mcp', 'comfyui-remote', 'baidu-map'])
+    const seeded = new Set(['excel-mcp'])
     const entries: McpServerEntry[] = [{ name: 'excel-mcp', command: 'npx', args: ['-y', 'excel-mcp'] }]
     const { added } = computeMcpPresetBackfill(entries, seeded)
 
     const names = added.map((e) => e.name)
-    expect(names).toContain('firecrawl-mcp')
+    expect(names).toContain('12306-mcp')
+    expect(names).toContain('amap-maps')
+    expect(names).toContain('comfyui-remote')
     expect(names).not.toContain('filesystem')
 
-    expect(added.find((e) => e.name === 'firecrawl-mcp')?.enabled).toBe(false)
+    expect(added.find((e) => e.name === '12306-mcp')?.enabled).toBe(true)
+    expect(added.find((e) => e.name === 'comfyui-remote')?.enabled).toBe(false)
     expect(added.find((e) => e.name === 'mcp-trends-hub')?.enabled).toBe(true)
   })
 

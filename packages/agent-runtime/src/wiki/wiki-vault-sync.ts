@@ -199,6 +199,36 @@ export function backfillVaultFromSources(
 }
 
 /**
+ * 判断绝对路径是否位于 wiki vault 根目录之下（防止误删外部原始文件）。
+ */
+function isPathUnderVault(deps: WikiVaultSyncDeps, absPath: string): boolean {
+  const vault = deps.vaultRoot.replace(/\\/g, "/").replace(/\/$/, "");
+  const abs = absPath.replace(/\\/g, "/");
+  return abs === vault || abs.startsWith(`${vault}/`);
+}
+
+/**
+ * 删除资料在 wiki vault 内的实体（ref 侧车或 native md）。
+ * 不删除 file-ref 指向的 workspace 外部原始文件。
+ */
+export function removeSourceVaultArtifacts(deps: WikiVaultSyncDeps, source: WikiSource): boolean {
+  const relOrAbs = source.source_path;
+  if (!relOrAbs) return false;
+
+  const absPath = deps.toAbsPath(relOrAbs);
+  if (!deps.fs.exists(absPath)) return false;
+  if (!isPathUnderVault(deps, absPath)) return false;
+
+  const normalized = relOrAbs.replace(/\\/g, "/");
+  const shouldRemove =
+    isVaultRefPath(normalized) || (source.storage_mode === "native" && normalized.endsWith(".md"));
+  if (!shouldRemove) return false;
+
+  deps.fs.unlink(absPath);
+  return true;
+}
+
+/**
  * 根据 storage_mode 与 origin_url 推断 ref 类型展示用后缀。
  */
 export function refExtForSource(source: { readonly origin_url: string | null; readonly storage_mode: WikiStorageMode }): string {

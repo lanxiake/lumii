@@ -5,7 +5,7 @@
  * 绕过 vite-node 对 "node:sqlite" 的静态解析；better-sqlite3 原生绑定在本环境编译
  * 版本不匹配，不可用作回退）。
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -47,9 +47,11 @@ import {
   handleWikiSourceSummary,
   handleWikiLinkAdd,
   handleWikiLinkSave,
+  handleWikiSourceDelete,
 } from './wiki-commands'
 import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY, WikiReclassifier, WikiEroRepo } from '@mtbot/agent-runtime'
 import { securityUtils } from '../../security-utils'
+import * as wikiVaultHost from '../../agent-runtime/wiki-vault-host'
 
 const nodeRequire = createRequire(import.meta.url)
 
@@ -963,5 +965,30 @@ describe('wiki commands', () => {
     await expect(
       handleWikiLinkSave(bridge, { type: 'wiki:link:save', agentId: 'assistant', sourceId: 'any' }),
     ).rejects.toThrow(/只收录文件/)
+  })
+
+  it('source:delete 删除 DB 前先清理 vault 实体', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const source = repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: '链接示例',
+      sourcePath: 'wiki/收藏/链接示例.url.lumii-ref',
+      originUrl: 'https://example.com',
+      storageMode: 'ref',
+    })
+    const removeSpy = vi.spyOn(wikiVaultHost, 'removeWikiSourcesVaultArtifacts').mockReturnValue(1)
+
+    const result = handleWikiSourceDelete(bridge, {
+      type: 'wiki:source:delete',
+      agentId: 'assistant',
+      sourceIds: [source.id],
+    })
+
+    expect(removeSpy).toHaveBeenCalledWith([expect.objectContaining({ id: source.id })])
+    expect(result.deleted).toBe(1)
+    expect(repo.findSourceById(source.id, 'assistant', 'local-user')).toBeNull()
+    removeSpy.mockRestore()
   })
 })

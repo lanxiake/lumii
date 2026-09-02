@@ -46,13 +46,11 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'wiki:source:update-topic', 'wiki:source:move-to-parking', 'wiki:source:open',
   'wiki:source:clear-topic', 'wiki:link:add', 'wiki:link:save', 'wiki:vault:ensure-layout',
   'wiki:auto-classify:get', 'wiki:auto-classify:set',
-  // Wiki 知识库（P1）：清理/导出/图谱/ERO/摘要。历史页面链接/修订/附件/概念候选/
+  // Wiki 知识库（P1）：清理/导出/摘要。历史页面链接/修订/附件/概念候选/
   // 状态流转/混合检索已随 P3 删除。export 的 targetDir 来自渲染进程弹出的系统原生
   // dialog:showSaveDialog（用户手选目录），不是任意字符串注入，按需放行。
   'wiki:cleanup:scan', 'wiki:source:archive', 'wiki:source:restore', 'wiki:source:delete',
   'wiki:export',
-  'wiki:graph:data',
-  'wiki:ero:list', 'wiki:ero:extract', 'wiki:ero:entity-sources',
   'wiki:vector:rebuild', 'wiki:source:summary',
   // MCP 只读
   'mcp:status',

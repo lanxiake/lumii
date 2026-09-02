@@ -37,7 +37,7 @@ describe('wiki task center store', () => {
   it('shows the running task count when multiple tasks are active', () => {
     const store = createWikiTaskCenterStore()
     store.startTask({ kind: 'cleanup', title: '扫描清理项' })
-    store.startTask({ kind: 'graph', title: '构建图谱' })
+    store.startTask({ kind: 'reclassify', title: '重新编目' })
 
     expect(store.getSnapshot().pillText).toBe('2 个任务进行中')
     expect(store.getSnapshot().pillTone).toBe('running')

@@ -617,8 +617,7 @@
   display: flex;
   flex: 1;
   min-width: 0;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
 }
 
 .wiki-file-list-title {
@@ -631,9 +630,8 @@
 
 /** 标题可点击预览：重置 button 默认样式，避免深色主题下文字不可读 */
 .wiki-file-list-title--link {
-  display: block;
-  width: 100%;
-  max-width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 0;
   border: none;
   background: none;
@@ -643,8 +641,18 @@
   font: inherit;
   font-size: 13px;
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   appearance: none;
   -webkit-appearance: none;
+}
+
+.wiki-file-list-time {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .wiki-file-list-meta {
@@ -655,15 +663,49 @@
 }
 
 .wiki-file-list-topic {
+  flex-shrink: 0;
   color: var(--color-text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
-.wiki-file-list-subtitle {
-  overflow: hidden;
+.wiki-file-list-summary-tooltip {
+  max-width: min(420px, 90vw);
+}
+
+.wiki-file-list-summary-tooltip-content {
+  max-width: 400px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.wiki-file-list-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.wiki-file-list-subtopic-prefix {
+  flex-shrink: 0;
   color: var(--color-text-tertiary);
-  font-size: 12px;
-  text-overflow: ellipsis;
+  font-size: 11px;
+  font-weight: 600;
   white-space: nowrap;
+}
+
+.wiki-file-list-title-row .wiki-file-list-title--link {
+  flex: 1;
+  min-width: 0;
+}
+
+.wiki-file-list-title-row > span {
+  flex: 1;
+  min-width: 0;
+  display: flex;
 }
 
 .wiki-file-list-actions {
@@ -2046,6 +2088,19 @@
 .wiki-subtopic-chip:hover {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
+}
+
+.wiki-subtopic-chip--active {
+  background: var(--color-accent-subtle, var(--color-bg-hover));
+  color: var(--color-accent, var(--color-text-primary));
+  font-weight: 600;
+}
+
+.wiki-category-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
 }
 
 .wiki-subtopic-chip-count {

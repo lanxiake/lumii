@@ -52,7 +52,6 @@ const TASK_PROGRESS_PREFIX: Record<WikiTaskKind, string> = {
   archive: '归档中',
   cleanup: '清理中',
   rebuild: '重建索引…',
-  graph: '图谱任务中',
   reclassify: '重新编目中',
 }
 

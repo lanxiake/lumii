@@ -86,6 +86,21 @@ describe('WikiFileList', () => {
     expect(screen.getByText('收件箱')).toBeInTheDocument()
   })
 
+  it('showSubtopicPrefix 打开时在文件名前显示小类', () => {
+    render(
+      <WikiFileList
+        items={[makeItem(), makeItem({ id: 'u', title: '未细分.pdf', topicSubtopic: null })]}
+        emptyHint="空"
+        showSubtopicPrefix
+        onPreview={noop}
+        onMove={noop}
+      />,
+    )
+
+    expect(screen.getByText('例行')).toHaveClass('wiki-file-list-subtopic-prefix')
+    expect(screen.getByText('未细分')).toHaveClass('wiki-file-list-subtopic-prefix')
+  })
+
   it('临时存放形态用移出并隐藏存到临时存放', () => {
     render(
       <WikiFileList
@@ -108,24 +123,30 @@ describe('WikiFileList', () => {
   })
 })
 
-describe('WikiFileList 副标题（摘要优先）', () => {
-  it('有摘要时显示摘要', () => {
+describe('WikiFileList 摘要悬停提示', () => {
+  it('有摘要时默认不展示在列表中，悬停标题后显示完整摘要', async () => {
     const item = makeItem({ summary: '本周完成了登录改造', extractedTextPreview: '这是正文前缀内容' })
     render(<WikiFileList items={[item]} emptyHint="空" onPreview={noop} onMove={noop} />)
-    expect(screen.getByText('本周完成了登录改造')).toBeInTheDocument()
+    expect(screen.queryByText('本周完成了登录改造')).not.toBeInTheDocument()
+
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '会议纪要.docx' }))
+    expect(await screen.findByText('本周完成了登录改造')).toBeInTheDocument()
     expect(screen.queryByText('这是正文前缀内容')).not.toBeInTheDocument()
   })
 
-  it('无摘要时回退正文前 60 字', () => {
+  it('无摘要时回退正文预览作为悬停内容', async () => {
     const item = makeItem({ summary: null, extractedTextPreview: '这是正文前缀内容' })
     render(<WikiFileList items={[item]} emptyHint="空" onPreview={noop} onMove={noop} />)
-    expect(screen.getByText('这是正文前缀内容')).toBeInTheDocument()
+    expect(screen.queryByText('这是正文前缀内容')).not.toBeInTheDocument()
+
+    fireEvent.mouseEnter(screen.getByRole('button', { name: '会议纪要.docx' }))
+    expect(await screen.findByText('这是正文前缀内容')).toBeInTheDocument()
   })
 
-  it('都没有时不渲染副标题', () => {
+  it('都没有时不渲染摘要提示', () => {
     const item = makeItem({ summary: null, extractedTextPreview: null })
     render(<WikiFileList items={[item]} emptyHint="空" onPreview={noop} onMove={noop} />)
-    expect(document.querySelector('.wiki-file-list-subtitle')).not.toBeInTheDocument()
+    expect(document.querySelector('.wiki-file-list-summary-tooltip-content')).not.toBeInTheDocument()
   })
 
   it('渲染不触发任何 IPC', () => {
