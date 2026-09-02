@@ -94,7 +94,12 @@ export class ChannelInteractionHub {
   /** bridge 回调：把请求文字化推给渠道用户 */
   private onInteraction(req: ChannelInteractionRequest): boolean {
     const route = this.routes.get(req.sessionKey)
-    if (!route) return false
+    if (!route) {
+      log.warn(
+        `[onInteraction] 未找到渠道路由 sessionKey=${req.sessionKey} kind=${req.kind}`,
+      )
+      return false
+    }
 
     let interaction: ChannelInteraction
     let text: string

@@ -111,6 +111,8 @@ export interface BridgeInstanceFactoryDeps {
   permissionController: PermissionController
   /** 把提问/审批文字化推给渠道用户；返回 true 表示该会话由渠道承接 */
   notifyChannelInteraction: (interaction: ChannelInteractionRequest) => boolean
+  /** 渲染进程「自动审批」开关镜像（渠道场景须在主进程直接放行） */
+  isAutoApproveEnabled: () => boolean
   fileMemoryHandler: FileMemoryHandler
   getWikiIngestHook: () => WikiIngestHook | null
   mcpClients: Map<string, McpStdioClient>
@@ -367,6 +369,22 @@ export class BridgeInstanceFactory {
     const permission: PermissionProvider = {
       requestPermission: async (input) => {
         const timeoutMs = 5 * 60 * 1000
+        // 主进程直接放行：不依赖 ChatPage 挂载，纯渠道场景也不会推送 IM 审批或挂起等待
+        if (this.deps.isAutoApproveEnabled()) {
+          this.deps.ipcChannel.forwardIpcEvent({
+            type: 'agent:permission:request',
+            requestId: input.requestId,
+            runId: input.runId,
+            toolName: input.toolName,
+            toolArgs: input.toolArgs,
+            riskLevel: riskLevelForTool(input.toolName),
+            description: input.description,
+            timeoutMs,
+            instanceId: input.instanceId,
+            rootSessionKey: input.rootSessionKey,
+          })
+          return 'allow-once'
+        }
         const ipcSent = this.deps.ipcChannel.forwardIpcEvent({
           type: 'agent:permission:request',
           requestId: input.requestId,

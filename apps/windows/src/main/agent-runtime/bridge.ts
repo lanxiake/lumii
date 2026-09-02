@@ -676,24 +676,37 @@ export class AgentRuntimeBridge {
       getCwd: () => this.config.getCwd(),
       askUserQuestion: async (input) => {
         const timeoutMs = input.timeoutMs ?? 10 * 60 * 1000
+        const instanceId =
+          input.instanceId ?? this.currentToolExecutorInstanceIdRef.value
+        const sessionKey = instanceId
+          ? (this.instanceToRootSessionKey.get(instanceId) ??
+            this.instanceToConversation.get(instanceId))
+          : undefined
         this.ipcChannel.forwardIpcEvent({
           type: 'agent:ask-user:request',
           requestId: input.requestId,
-          instanceId: input.instanceId,
+          instanceId,
+          rootSessionKey: sessionKey,
           questions: input.questions,
           timeoutMs,
         })
         // 渠道会话没有弹窗，同步把问题文字化推给渠道用户
-        const sessionKey = input.instanceId
-          ? this.instanceToConversation.get(input.instanceId)
-          : undefined
         if (sessionKey) {
-          this.notifyChannelInteraction({
+          const pushed = this.notifyChannelInteraction({
             kind: 'ask',
             requestId: input.requestId,
             sessionKey,
             questions: input.questions,
           })
+          if (!pushed) {
+            log.warn(
+              `[askUserQuestion] 渠道未承接提问 sessionKey=${sessionKey} requestId=${input.requestId}`,
+            )
+          }
+        } else {
+          log.warn(
+            `[askUserQuestion] 无法解析 sessionKey，跳过渠道提问推送 requestId=${input.requestId} instanceId=${instanceId ?? 'none'}`,
+          )
         }
         return this.askUserQuestionController.waitForAnswer(input.requestId, timeoutMs)
       },
@@ -855,6 +868,7 @@ export class AgentRuntimeBridge {
   private initializeInstanceFactory(): void {
     this.instanceFactory = new BridgeInstanceFactory({
       notifyChannelInteraction: (interaction) => this.notifyChannelInteraction(interaction),
+      isAutoApproveEnabled: () => this.isAutoApproveEnabled,
       config: this.config,
       agentRegistry: this.agentRegistry,
       toolRegistry: this.toolRegistry,
@@ -1638,7 +1652,7 @@ export class AgentRuntimeBridge {
    * 渲染进程「自动审批」开关的镜像。
    * 开启时审批请求会被渲染进程立刻放行，渠道无需再推文字审批消息（纯噪音）。
    */
-  private autoApprove = false
+  private autoApprove = true
 
   setAutoApprove(enabled: boolean): void {
     this.autoApprove = enabled

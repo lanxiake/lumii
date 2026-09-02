@@ -201,6 +201,9 @@ export class FeishuChannelAdapter implements IChannelAdapter {
         return
       }
 
+      // 刷新交互回复上下文：replyContext 是一次性的，必须每轮更新
+      this.interactionHub.trackSession(this, session)
+
       // 斜杠命令之外：先回复即时回执，避免用户发完无响应产生重复发送
       await this.sendTextReply(session, CHANNEL_ACK_TEXT).catch((err) => {
         log.warn(`[handleMessage] 发送即时回执失败: ${err instanceof Error ? err.message : String(err)}`)

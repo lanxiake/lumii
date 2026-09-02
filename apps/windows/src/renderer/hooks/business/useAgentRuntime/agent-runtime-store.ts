@@ -413,6 +413,60 @@ export function findAnyPendingPermission(
 }
 
 /** useSyncExternalStore 用的稳定空快照（引用不变，避免无限重渲染） */
+export interface PendingAskUserSnapshot {
+  readonly sessionKey: string | null
+  readonly pending: PendingAskUser | null
+}
+
+const EMPTY_PENDING_ASK_USER_SNAPSHOT: PendingAskUserSnapshot = {
+  sessionKey: null,
+  pending: null,
+}
+
+let cachedPendingAskUserSnapshot: PendingAskUserSnapshot = EMPTY_PENDING_ASK_USER_SNAPSHOT
+
+/**
+ * 在全部会话中查找首个待回答的 ask_user_question 请求。
+ * 后台频道会话与当前 UI 会话不一致时，仍需弹出 Modal。
+ */
+export function findAnyPendingAskUser(
+  state: MultiSessionRuntimeState,
+): { sessionKey: string; pending: PendingAskUser } | null {
+  for (const [sessionKey, sessionState] of state.sessions) {
+    const pending = sessionState.pendingAskUser
+    if (pending) {
+      return { sessionKey, pending }
+    }
+  }
+  return null
+}
+
+/**
+ * 返回缓存的 ask 快照，仅在 requestId 或 sessionKey 变化时更新引用。
+ */
+export function getPendingAskUserSnapshot(): PendingAskUserSnapshot {
+  const found = findAnyPendingAskUser(runtimeStore.getState())
+  if (!found) {
+    if (cachedPendingAskUserSnapshot !== EMPTY_PENDING_ASK_USER_SNAPSHOT) {
+      cachedPendingAskUserSnapshot = EMPTY_PENDING_ASK_USER_SNAPSHOT
+    }
+    return cachedPendingAskUserSnapshot
+  }
+  const prev = cachedPendingAskUserSnapshot
+  if (
+    prev.sessionKey === found.sessionKey &&
+    prev.pending?.requestId === found.pending.requestId
+  ) {
+    return prev
+  }
+  cachedPendingAskUserSnapshot = {
+    sessionKey: found.sessionKey,
+    pending: found.pending,
+  }
+  return cachedPendingAskUserSnapshot
+}
+
+/** useSyncExternalStore 用的稳定空快照（引用不变，避免无限重渲染） */
 export interface PendingPermissionSnapshot {
   readonly sessionKey: string | null
   readonly pending: PendingPermission | null
@@ -454,6 +508,7 @@ export function getPendingPermissionSnapshot(): PendingPermissionSnapshot {
 /** 重置 Store（用于测试） */
 export function resetRuntimeStore(): void {
   cachedPendingPermissionSnapshot = EMPTY_PENDING_PERMISSION_SNAPSHOT
+  cachedPendingAskUserSnapshot = EMPTY_PENDING_ASK_USER_SNAPSHOT
   runtimeStore.setState(() => getDefaultRuntimeState())
 }
 

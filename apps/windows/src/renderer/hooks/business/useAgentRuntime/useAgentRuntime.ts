@@ -16,8 +16,11 @@ import {
   getDefaultPerSessionState,
   updateSessionState,
   findAnyPendingPermission,
+  findAnyPendingAskUser,
   getPendingPermissionSnapshot,
+  getPendingAskUserSnapshot,
   type PendingPermissionSnapshot,
+  type PendingAskUserSnapshot,
 } from './agent-runtime-store'
 import type {
   ContextUsageBreakdownEntry,
@@ -70,6 +73,15 @@ export function useAgentRuntimeState<T>(
  */
 export function useAnyPendingPermission(): PendingPermissionSnapshot {
   const get = useCallback(() => getPendingPermissionSnapshot(), [])
+  return useSyncExternalStore(runtimeStore.subscribe, get, get)
+}
+
+/**
+ * 订阅任意会话中的待回答 ask_user_question（含后台频道会话）。
+ * 解决「当前 UI 会话与 Agent 运行会话不一致时 Modal 不显示」的问题。
+ */
+export function useAnyPendingAskUser(): PendingAskUserSnapshot {
+  const get = useCallback(() => getPendingAskUserSnapshot(), [])
   return useSyncExternalStore(runtimeStore.subscribe, get, get)
 }
 
@@ -244,13 +256,9 @@ export function useAgentRuntimeActions() {
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return
 
-      const globalState = runtimeStore.getState()
-      const sessionKey = globalState.currentSessionKey
-      if (!sessionKey) return
-      const sessionState = globalState.sessions.get(sessionKey)
-      const pending = sessionState?.pendingAskUser ?? null
-      if (!pending) return
-
+      const found = findAnyPendingAskUser(runtimeStore.getState())
+      if (!found) return
+      const { sessionKey, pending } = found
       await api.sendCommand({
         type: 'user:ask-user:respond',
         requestId: pending.requestId,

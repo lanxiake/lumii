@@ -4,6 +4,7 @@ export {
   useAgentRuntimeActions,
   useAgentRuntimeGlobalState,
   useAnyPendingPermission,
+  useAnyPendingAskUser,
 } from './useAgentRuntime'
 export type {
   AgentRuntimeState,
@@ -18,6 +19,8 @@ export {
   resetRuntimeStore,
   getDefaultPerSessionState,
   findAnyPendingPermission,
+  findAnyPendingAskUser,
   getPendingPermissionSnapshot,
+  getPendingAskUserSnapshot,
 } from './agent-runtime-store'
-export type { PendingPermissionSnapshot } from './agent-runtime-store'
+export type { PendingPermissionSnapshot, PendingAskUserSnapshot } from './agent-runtime-store'

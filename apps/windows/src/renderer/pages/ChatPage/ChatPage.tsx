@@ -11,6 +11,7 @@ import {
   useAgentRuntimeState,
   useAgentRuntimeGlobalState,
   useAnyPendingPermission,
+  useAnyPendingAskUser,
   runtimeStore,
 } from '../../hooks/business/useAgentRuntime'
 import { AskUserModal } from '../../components/AskUserModal'
@@ -129,7 +130,10 @@ const logger = {
   debug: (...args: unknown[]) => console.debug('[ChatPage]', ...args),
 }
 
-const AUTO_APPROVE_KEY = 'mtbot-auto-approve'
+import {
+  AUTO_APPROVE_STORAGE_KEY,
+  readAutoApproveEnabled,
+} from '../../../shared/auto-approve-prefs'
 
 // 本地 Runtime 不走 Gateway 审批/workflow，这些占位恒为空。
 // 提到模块级常量（而非每次 render 新建数组/Set），避免破坏 ChatContainer 的 React.memo 浅比较。
@@ -152,7 +156,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   const runtimeMessages = useAgentRuntimeState((s) => s.messages)
   const runtimeCurrentSessionKey = useAgentRuntimeGlobalState((s) => s.currentSessionKey)
   const { sessionKey: permissionSessionKey, pending: runtimePendingPermission } = useAnyPendingPermission()
-  const runtimePendingAskUser = useAgentRuntimeState((s) => s.pendingAskUser)
+  const { pending: runtimePendingAskUser } = useAnyPendingAskUser()
   const runtimeContextUsage = useAgentRuntimeState((s) => s.contextUsage)
   const runtimeIsAutoCompacting = useAgentRuntimeState((s) => s.isAutoCompacting)
   const runtimeFileEvents = useAgentRuntimeState((s) => s.fileEvents)
@@ -734,13 +738,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     revealInFiles,
     locateAbsoluteFile,
   } = useWorkspacePanels(activeView)
-  const [autoApprove, setAutoApprove] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(AUTO_APPROVE_KEY) === 'true'
-    } catch {
-      return false
-    }
-  })
+  const [autoApprove, setAutoApprove] = useState<boolean>(() => readAutoApproveEnabled())
 
   /** 消息字号改由 TitleBar 全局 A−/A+ 控制（--chat-font-size） */
 
@@ -781,7 +779,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   useEffect(() => {
     autoApproveRef.current = autoApprove
     try {
-      localStorage.setItem(AUTO_APPROVE_KEY, String(autoApprove))
+      localStorage.setItem(AUTO_APPROVE_STORAGE_KEY, String(autoApprove))
     } catch {
       // ignore
     }

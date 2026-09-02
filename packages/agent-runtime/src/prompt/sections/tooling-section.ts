@@ -284,13 +284,13 @@ export function buildProgressiveLoadingSection(toolNames: readonly string[], det
 
   const lines: string[] = [
     "## Context and Input Handling",
-    "Use bounded, progressive reads: inspect indexes or summaries first, then load only needed ranges or pages. Keep large intermediate data on disk and retain a compact index in context.",
-    "- `file_read`: use `offset`/`limit` for large files.",
-    "- `list_dir`: list one directory level; use `glob` for recursive filename search.",
-    "- `grep`: narrow with `glob` before expanding searches.",
-    "- `web_fetch`: extract only relevant sections.",
-    "- For attached images, use the visual content already provided; do not read image binaries with `file_read`.",
-    "- For attached text or code, use `file_read`; for PDF/DOCX/XLSX, prefer the provided parsed text.",
+    // "Use bounded, progressive reads: inspect indexes or summaries first, then load only needed ranges or pages. Keep large intermediate data on disk and retain a compact index in context.",
+    // "- `file_read`: use `offset`/`limit` for large files.",
+    // "- `list_dir`: list one directory level; use `glob` for recursive filename search.",
+    // "- `grep`: narrow with `glob` before expanding searches.",
+    // "- `web_fetch`: extract only relevant sections.",
+    // "- For attached images, use the visual content already provided; do not read image binaries with `file_read`.",
+    // "- For attached text or code, use `file_read`; for PDF/DOCX/XLSX, prefer the provided parsed text.",
   ]
 
   // Disk-Index Pattern 仅在 full 模式注入（数据密集型任务场景，compact/standard 节省 token）

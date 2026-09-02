@@ -6,6 +6,7 @@
  * agent:turn:end / agent:error 等终止事件，避免 isStreaming 永久为 true。
  */
 
+import { syncAutoApproveToMainProcess } from '../../../../shared/auto-approve-prefs'
 import { handleRuntimeEvent } from './event-handler'
 import { runtimeStore } from './agent-runtime-store'
 import type { RuntimeMessage } from './agent-runtime-store'
@@ -207,6 +208,9 @@ export function ensureIpcEventListener(): void {
     }
   })
   globalObj[GLOBAL_ON_EVENT_UNSUB_KEY] = _ipcEventUnsubscribe
+
+  // 启动即同步自动审批：不依赖 ChatPage mount，纯渠道场景也能跳过 IM 审批推送
+  syncAutoApproveToMainProcess(api.sendCommand)
 
   // 监听器刚建立时，bridge 可能已经就绪（runtime:ready 在监听前发出）。
   // 单次 ping 若遇 ipcBridgeRef 尚未挂接会返回 NOT_READY 且无重试，会导致 isReady 恒为 false、侧边栏历史永不加载。

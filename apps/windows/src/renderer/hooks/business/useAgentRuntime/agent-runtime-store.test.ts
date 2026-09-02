@@ -5,10 +5,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
   findAnyPendingPermission,
+  findAnyPendingAskUser,
   getDefaultPerSessionState,
   getPendingPermissionSnapshot,
+  getPendingAskUserSnapshot,
   resetRuntimeStore,
   runtimeStore,
+  type PendingAskUser,
   type PendingPermission,
 } from './agent-runtime-store'
 import {
@@ -74,6 +77,96 @@ describe('findAnyPendingPermission', () => {
     const b = getPendingPermissionSnapshot()
     expect(a).toBe(b)
     expect(a.pending?.requestId).toBe('req-2')
+  })
+})
+
+describe('findAnyPendingAskUser', () => {
+  beforeEach(() => {
+    resetRuntimeStore()
+  })
+
+  it('无待回答 ask 时返回 null', () => {
+    expect(findAnyPendingAskUser(runtimeStore.getState())).toBeNull()
+  })
+
+  it('应找到非当前会话中的待回答 ask', () => {
+    const pending: PendingAskUser = {
+      requestId: 'ask-1',
+      questions: [
+        {
+          question: '选哪个？',
+          header: 'choice',
+          options: [{ label: 'A', description: '选项 A' }],
+        },
+      ],
+      timeoutMs: 60_000,
+      receivedAt: Date.now(),
+    }
+    runtimeStore.setState((prev) => {
+      const sessions = new Map(prev.sessions)
+      sessions.set('weixin:foo@im.wechat', {
+        ...getDefaultPerSessionState(),
+        pendingAskUser: pending,
+      })
+      return { ...prev, currentSessionKey: 'local:other', sessions }
+    })
+    const found = findAnyPendingAskUser(runtimeStore.getState())
+    expect(found?.sessionKey).toBe('weixin:foo@im.wechat')
+    expect(found?.pending.requestId).toBe('ask-1')
+  })
+
+  it('getPendingAskUserSnapshot 在 ask 未变时返回稳定引用', () => {
+    const pending: PendingAskUser = {
+      requestId: 'ask-2',
+      questions: [
+        {
+          question: '确认？',
+          header: 'confirm',
+          options: [{ label: '是', description: 'yes' }],
+        },
+      ],
+      timeoutMs: 60_000,
+      receivedAt: Date.now(),
+    }
+    runtimeStore.setState((prev) => {
+      const sessions = new Map(prev.sessions)
+      sessions.set('feishu:ou_abc', { ...getDefaultPerSessionState(), pendingAskUser: pending })
+      return { ...prev, sessions }
+    })
+    const a = getPendingAskUserSnapshot()
+    const b = getPendingAskUserSnapshot()
+    expect(a).toBe(b)
+    expect(a.pending?.requestId).toBe('ask-2')
+  })
+})
+
+describe('handleRuntimeEvent ask-user routing', () => {
+  beforeEach(() => {
+    resetRuntimeStore()
+    resetAgentRuntimeEventHandlerForTests()
+  })
+
+  it('agent:ask-user:request 应按 rootSessionKey 路由到渠道会话', () => {
+    runtimeStore.setState((prev) => ({
+      ...prev,
+      currentSessionKey: 'local:desktop',
+    }))
+    handleRuntimeEvent({
+      type: 'agent:ask-user:request',
+      requestId: 'ask-r1',
+      rootSessionKey: 'weixin:user1',
+      questions: [
+        {
+          question: '选哪个？',
+          header: 'pick',
+          options: [{ label: 'A', description: 'a' }],
+        },
+      ],
+      timeoutMs: 60_000,
+    })
+    const channelState = runtimeStore.getState().sessions.get('weixin:user1')
+    expect(channelState?.pendingAskUser?.requestId).toBe('ask-r1')
+    expect(runtimeStore.getState().sessions.get('local:desktop')?.pendingAskUser).toBeUndefined()
   })
 })
 

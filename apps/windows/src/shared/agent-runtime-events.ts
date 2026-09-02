@@ -247,6 +247,8 @@ export interface AgentAskUserRequestEvent {
   readonly type: 'agent:ask-user:request'
   readonly requestId: string
   readonly instanceId?: string
+  /** 对话根 sessionKey，用于跨会话路由 Modal（渠道会话与当前 UI 会话不一致时） */
+  readonly rootSessionKey?: string
   readonly questions: readonly {
     readonly question: string
     readonly header: string
@@ -266,6 +268,8 @@ export interface AgentAskUserRequestEvent {
 export interface AgentAskUserCancelledEvent {
   readonly type: 'agent:ask-user:cancelled'
   readonly requestId: string
+  /** 对话根 sessionKey，用于跨会话清除 pendingAskUser */
+  readonly rootSessionKey?: string
   readonly reason: 'timeout' | 'aborted' | 'superseded'
 }
 
