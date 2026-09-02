@@ -34,10 +34,29 @@ describe("WikiCleanupScanner", () => {
     const s = repo.createSource({ agentId: "ag", userId: "u", title: "a", sourcePath: "/tmp/missing.txt" });
     const scanner = new WikiCleanupScanner(repo);
 
-    const suggestions = scanner.scan("ag", "u", { fileExists: () => false });
+    const suggestions = scanner.scan("ag", "u", {
+      sourceFileExists: () => false,
+    });
     expect(suggestions).toHaveLength(1);
     expect(suggestions[0]).toMatchObject({ reason: "broken_source" });
     expect(suggestions[0]!.source.id).toBe(s.id);
+  });
+
+  it("命中来源失效规则：侧车存在但底层文件已删", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const s = repo.createSource({
+      agentId: "ag",
+      userId: "u",
+      title: "ref",
+      sourcePath: "wiki/inbox/temp.lumii-ref",
+    });
+    const scanner = new WikiCleanupScanner(repo);
+
+    const suggestions = scanner.scan("ag", "u", {
+      sourceFileExists: (source) => source.id === s.id ? false : true,
+    });
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]).toMatchObject({ reason: "broken_source" });
   });
 
   it("不命中来源失效：文件存在或未提供 fileExists 时跳过该规则", () => {

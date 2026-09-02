@@ -44,6 +44,7 @@ function mkWorkspace(): string {
   fs.mkdirSync(path.join(root, "wiki"), { recursive: true });
   fs.writeFileSync(path.join(root, "outputs", "a.md"), "# A", "utf8");
   fs.writeFileSync(path.join(root, "outputs", "b.exe"), "bin", "utf8");
+  fs.writeFileSync(path.join(root, "outputs", "script.py"), "print(1)", "utf8");
   fs.writeFileSync(path.join(root, "wiki", "x.md"), "x", "utf8");
   return root;
 }
@@ -65,6 +66,7 @@ describe("WikiFolderImporter", () => {
     expect(result.summary.importable).toBe(1);
     expect(result.candidates.find((c) => c.title === "a.md")?.skipReason).toBeNull();
     expect(result.candidates.find((c) => c.title === "b.exe")?.skipReason).toBe("ignored:extension");
+    expect(result.candidates.find((c) => c.title === "script.py")?.skipReason).toBe("ignored:code-or-script");
   });
 
   it("scan 不进入 wiki/ 目录", () => {

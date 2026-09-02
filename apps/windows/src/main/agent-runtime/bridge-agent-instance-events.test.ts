@@ -58,6 +58,16 @@ describe("Wiki 摄入钩子接线", () => {
     return { handler, ctx };
   }
 
+  it("file_write 写入 .py 脚本时不调用 ingestOutput", () => {
+    const ingestOutput = vi.fn();
+    const { handler } = buildHandler(() => ({ ingestUpload: vi.fn(), ingestOutput } as never));
+
+    handler({ type: "tool:start", toolCallId: "t1", toolName: "file_write", args: { filePath: "outputs/run.py" } } as never);
+    handler({ type: "tool:end", toolCallId: "t1", toolName: "file_write", isError: false, result: {} } as never);
+
+    expect(ingestOutput).not.toHaveBeenCalled();
+  });
+
   it("file_write 成功后调用 ingestOutput（非 uploads/ 路径）", () => {
     const ingestOutput = vi.fn();
     const { handler } = buildHandler(() => ({ ingestUpload: vi.fn(), ingestOutput } as never));

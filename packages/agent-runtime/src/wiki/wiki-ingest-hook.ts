@@ -11,6 +11,7 @@
 import { contentAddressId } from "../memory/content-address.js";
 import type { WikiRepo } from "./wiki-repo.js";
 import type { WikiMediaType } from "./types.js";
+import { shouldSkipWikiIngestPath } from "./wiki-ingest-filter.js";
 
 /** 按扩展名归类媒体类型，未知一律当文档处理 */
 function mediaTypeFromPath(path: string, mime?: string): WikiMediaType {
@@ -36,6 +37,7 @@ export class WikiIngestHook {
     mime?: string,
     contentPreview?: string,
   ): string | null {
+    if (shouldSkipWikiIngestPath(path, title)) return null;
     return this.safeIngest(() =>
       this.repo.ingestToInbox({
         agentId,
@@ -52,6 +54,7 @@ export class WikiIngestHook {
 
   /** 任务产物落盘 */
   ingestOutput(agentId: string, userId: string, path: string, title: string, taskContext?: string): string | null {
+    if (shouldSkipWikiIngestPath(path, title)) return null;
     return this.safeIngest(() =>
       this.repo.ingestToInbox({
         agentId,

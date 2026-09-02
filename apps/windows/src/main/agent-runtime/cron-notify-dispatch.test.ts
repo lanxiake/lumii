@@ -36,7 +36,7 @@ function makeScheduler(overrides: Partial<Deps> = {}) {
   const dispatch = (
     scheduler as unknown as {
       dispatchNotifications: (
-        job: { name: string; task_text: string },
+        job: { id: string; name: string; task_text: string },
         targets: string | null,
         output: string,
       ) => Promise<void>
@@ -45,7 +45,7 @@ function makeScheduler(overrides: Partial<Deps> = {}) {
   return { dispatch, showCronNotification, addMemory, sendFeishuMessage }
 }
 
-const job = { name: '早间简报', task_text: '汇总今天要做的事' }
+const job = { id: 'custom-job', name: '测试提醒', task_text: '汇总今天要做的事' }
 
 describe('dispatchNotifications', () => {
   beforeEach(() => {
@@ -55,7 +55,7 @@ describe('dispatchNotifications', () => {
   it('未配置 targets 时回落系统通知', async () => {
     const s = makeScheduler()
     await s.dispatch(job, null, '结果')
-    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 早间简报', '结果')
+    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '结果')
     expect(s.addMemory).not.toHaveBeenCalled()
     expect(s.sendFeishuMessage).not.toHaveBeenCalled()
     expect(prependMock).not.toHaveBeenCalled()
@@ -65,24 +65,24 @@ describe('dispatchNotifications', () => {
     const s = makeScheduler()
     await s.dispatch(job, 'feishu', '结果')
     expect(s.showCronNotification).not.toHaveBeenCalled()
-    expect(s.sendFeishuMessage).toHaveBeenCalledWith('【早间简报】\n结果')
+    expect(s.sendFeishuMessage).toHaveBeenCalledWith('【测试提醒】\n结果')
   })
 
   it('多渠道逐个派发，各渠道拿到自己策略的产出', async () => {
     const s = makeScheduler()
     await s.dispatch(job, 'system,news,focus', '今天三件事')
-    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 早间简报', '今天三件事')
-    expect(s.addMemory).toHaveBeenCalledWith('早间简报：今天三件事')
+    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '今天三件事')
+    expect(s.addMemory).toHaveBeenCalledWith('测试提醒：今天三件事')
     expect(prependMock).toHaveBeenCalledWith(
-      expect.objectContaining({ title: '早间简报', summary: '今天三件事', source: '定时任务' }),
+      expect.objectContaining({ title: '测试提醒', summary: '今天三件事', source: '定时任务' }),
     )
   })
 
   it('Markdown 正文按渠道降级：通知压单行、飞书保留换行', async () => {
     const s = makeScheduler()
     await s.dispatch(job, 'system,feishu', '## 今天\n\n- 写方案\n- **评审**')
-    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 早间简报', '今天 · 写方案 · 评审')
-    expect(s.sendFeishuMessage).toHaveBeenCalledWith('【早间简报】\n今天\n\n· 写方案\n· 评审')
+    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '今天 · 写方案 · 评审')
+    expect(s.sendFeishuMessage).toHaveBeenCalledWith('【测试提醒】\n今天\n\n· 写方案\n· 评审')
   })
 
   it('企微目标只 warn 跳过，不伪装成功', async () => {
@@ -95,12 +95,12 @@ describe('dispatchNotifications', () => {
     prependMock.mockRejectedValueOnce(new Error('磁盘满'))
     const s = makeScheduler()
     await expect(s.dispatch(job, 'news,feishu', '结果')).resolves.toBeUndefined()
-    expect(s.sendFeishuMessage).toHaveBeenCalledWith('【早间简报】\n结果')
+    expect(s.sendFeishuMessage).toHaveBeenCalledWith('【测试提醒】\n结果')
   })
 
   it('任务名为空时用任务指令首句兜底', async () => {
     const s = makeScheduler()
-    await s.dispatch({ name: '  ', task_text: '汇总今天要做的事' }, 'focus', '结果')
+    await s.dispatch({ id: 't-empty', name: '  ', task_text: '汇总今天要做的事' }, 'focus', '结果')
     expect(s.addMemory).toHaveBeenCalledWith('汇总今天要做的事：结果')
   })
 
@@ -122,7 +122,7 @@ describe('dispatchNotifications', () => {
     expect(send).toHaveBeenCalledWith({
       channel: 'feishu',
       to: 'ou_me',
-      text: '【早间简报】\n结果',
+      text: '【测试提醒】\n结果',
     })
   })
 
@@ -136,7 +136,7 @@ describe('dispatchNotifications', () => {
     expect(send).toHaveBeenCalledWith({
       channel: 'weixin',
       to: 'wxid_abc',
-      text: '【早间简报】\n结果',
+      text: '【测试提醒】\n结果',
     })
   })
 
@@ -147,5 +147,19 @@ describe('dispatchNotifications', () => {
     })
     await s.dispatch(job, 'weixin', '结果')
     expect(send).not.toHaveBeenCalled()
+  })
+
+  it('预置简报/日报/复盘任务不再 focus 写工作记忆', async () => {
+    const s = makeScheduler()
+    await s.dispatch(
+      {
+        id: 'seed-daily-report',
+        name: '工作日报整理',
+        task_text: '整理我今天的工作进度，生成一份简短日报。',
+      },
+      'focus',
+      '今天完成\n- 修了 bug',
+    )
+    expect(s.addMemory).not.toHaveBeenCalled()
   })
 })

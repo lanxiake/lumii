@@ -92,6 +92,7 @@ import { FileMemoryHandler } from './file-memory-handler'
 import { SegmentMemoryService } from './segment-memory-service'
 import { CronScheduler } from './cron-scheduler'
 import { persistCronOutputToWiki } from './cron-wiki-persist'
+import { purgeCronFocusNoiseMemories } from './cron-focus-memory'
 import {
   isLocalCompanionInstruction,
   handleLocalCompanionInstruction,
@@ -824,6 +825,13 @@ export class AgentRuntimeBridge {
                 return `error: ${message}`
               }
             },
+            runWikiPurgeBrokenRefs: async () => {
+              const { purgeBrokenWikiSourcesOnDisk, formatWikiBrokenSourcePurgeSummary } = await import(
+                './wiki-broken-source-purge'
+              )
+              const { deleted, titles } = purgeBrokenWikiSourcesOnDisk(this.wikiRepo, this.wikiCleanupScanner)
+              return formatWikiBrokenSourcePurgeSummary(deleted, titles)
+            },
           },
           options,
         )
@@ -834,6 +842,7 @@ export class AgentRuntimeBridge {
     ensureCompanionCronJobsSeeded(this.localDb.db)
     // 资讯任务已并入 ensureSeedCronJobsSeeded，不再单独播种
     ensureSeedCronJobsSeeded(this.localDb.db)
+    this.purgeCronFocusNoiseMemoriesOnce()
     // 设置页修改主动联系开关时，同步 tick job 的 enabled 状态并重载本地 cron 调度
     this.unsubscribeVhSettings?.()
     this.unsubscribeVhSettings = onVirtualHumanSettingsChanged((_settings, patch) => {
@@ -842,6 +851,24 @@ export class AgentRuntimeBridge {
       this.cronScheduler?.reloadLocalCronScheduler()
     })
     this.cronScheduler.start()
+  }
+
+  /**
+   * 启动时一次性清理 focus 渠道曾写入的工作记忆噪声（幂等哨兵）。
+   */
+  private purgeCronFocusNoiseMemoriesOnce(): void {
+    const sentinelKey = 'cron:purged_focus_noise_v1'
+    if (this._runtimeStateRepo.get(sentinelKey)) return
+    if (!this._memoryManager) return
+    try {
+      const removed = purgeCronFocusNoiseMemories(this._memoryManager)
+      this._runtimeStateRepo.set(sentinelKey, '1')
+      if (removed > 0) {
+        log.info(`[purgeCronFocusNoise] 已清理 ${removed} 条定时任务污染的工作记忆`)
+      }
+    } catch (err) {
+      log.warn('[purgeCronFocusNoise] 清理失败:', err)
+    }
   }
 
   /** initialize() 子块 4/7：AgentDefinitionStore、同步用户 Agent、McpManager */

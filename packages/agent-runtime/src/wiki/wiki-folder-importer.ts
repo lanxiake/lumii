@@ -7,6 +7,7 @@
 
 import type { WikiInboxItemType } from "./types.js";
 import type { WikiIngestHook } from "./wiki-ingest-hook.js";
+import { shouldSkipWikiIngestPath } from "./wiki-ingest-filter.js";
 import type { WikiRepo } from "./wiki-repo.js";
 
 /** 目录项 stat 结果（由宿主注入） */
@@ -68,12 +69,10 @@ export interface WikiFolderImportResult {
 /** 默认跳过的目录名（小写比较） */
 const DEFAULT_EXCLUDE_DIR_NAMES = new Set([".git", "node_modules", "temp", "wiki"]);
 
-/** 可导入的扩展名（引用型资料，含二进制） */
+/** 可导入的扩展名（文档/数据/媒体；代码与脚本见 wiki-ingest-filter） */
 const IMPORTABLE_EXTENSIONS = new Set([
   "txt", "md", "markdown", "json", "yaml", "yml", "toml", "ini", "csv", "tsv",
-  "log", "xml", "html", "htm", "css", "js", "mjs", "cjs", "jsx", "ts", "tsx",
-  "py", "rb", "go", "rs", "java", "kt", "c", "h", "cpp", "hpp", "cs", "sh",
-  "bash", "zsh", "ps1", "sql", "graphql", "vue", "svelte", "properties", "env",
+  "log", "xml", "html", "htm", "properties", "env",
   "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "rtf", "odt",
   "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico",
   "mp3", "wav", "flac", "m4a", "aac", "ogg",
@@ -243,13 +242,10 @@ function resolveSkipReason(
   fileName: string,
   workspaceRoot?: string,
 ): string | null {
-  if (fileName.startsWith(".")) return "ignored:dotfile";
+  const ingestSkip = shouldSkipWikiIngestPath(sourcePath, fileName);
+  if (ingestSkip) return ingestSkip;
 
   const normalized = sourcePath.replace(/\\/g, "/").toLowerCase();
-  if (normalized.includes("/.git/") || normalized.includes("/node_modules/")) {
-    return "ignored:system-dir";
-  }
-  if (normalized.includes("/temp/")) return "ignored:temp";
 
   if (workspaceRoot) {
     const rel = toRelativePosix(sourcePath, workspaceRoot);

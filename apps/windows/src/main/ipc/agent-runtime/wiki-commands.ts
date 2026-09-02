@@ -46,6 +46,7 @@ import {
 import { resolveWikiDir } from '../../workspace-paths'
 import { securityUtils } from '../../security-utils'
 import { titleWithOriginalExt } from './wiki-display-title'
+import { createWikiSourceFileExistsChecker } from '../../agent-runtime/wiki-broken-source-purge'
 
 const LOCAL_USER_ID = 'local-user'
 
@@ -1043,9 +1044,10 @@ export function handleWikiCleanupScan(
   command: Extract<AgentRuntimeCommand, { type: 'wiki:cleanup:scan' }>,
 ): unknown {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const resolveExists = createWikiSourceFileExistsChecker()
   const suggestions = bridge.wikiCleanupScanner.scan(agentId, LOCAL_USER_ID, {
     staleDays: command.staleDays,
-    fileExists: (p) => bridge.fileExistsForWiki(p),
+    sourceFileExists: (source) => resolveExists(source) ?? true,
   })
   // 主题两列只读展示；suggestedAction 是默认动作建议，用户仍可改
   return suggestions.map((s) => ({

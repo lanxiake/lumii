@@ -89,6 +89,7 @@ const COMPANION_INSTRUCTIONS = new Set([
   '__companion_memory_fast__',
   '__companion_memory_deep__',
   '__wiki_ero_extract__',
+  '__wiki_purge_broken_refs__',
 ])
 
 export function isLocalCompanionInstruction(message: string): boolean {
@@ -119,6 +120,8 @@ export interface LocalCompanionDeps {
   callLLM?: (prompt: string) => Promise<string>
   /** Wiki ERO 实体关系抽取（cron / 手动触发） */
   runWikiEroExtract?: () => Promise<string>
+  /** Wiki 失效引用清理（cron / 手动触发） */
+  runWikiPurgeBrokenRefs?: () => Promise<string>
 }
 
 /** Companion 指令执行选项 */
@@ -150,6 +153,10 @@ export async function handleLocalCompanionInstruction(
     case '__wiki_ero_extract__': {
       if (!deps.runWikiEroExtract) return 'wiki ero extract unavailable'
       return deps.runWikiEroExtract()
+    }
+    case '__wiki_purge_broken_refs__': {
+      if (!deps.runWikiPurgeBrokenRefs) return 'wiki purge broken refs unavailable'
+      return deps.runWikiPurgeBrokenRefs()
     }
     default:
       return `unknown companion instruction: ${instruction}`
@@ -448,6 +455,12 @@ const COMPANION_CRON_JOBS = [
     name: '记忆深度整理',
     taskText: '__companion_memory_deep__',
     scheduleExpr: '0 */6 * * *',
+  },
+  {
+    id: 'wiki-purge-broken-refs',
+    name: 'Wiki 失效引用清理',
+    taskText: '__wiki_purge_broken_refs__',
+    scheduleExpr: '0 4 * * *',
   },
 ] as const
 

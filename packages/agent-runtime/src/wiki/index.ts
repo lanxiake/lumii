@@ -14,6 +14,21 @@ export type {
   WikiCleanupScanOptions,
 } from "./wiki-cleanup.js";
 
+export {
+  DEFAULT_EXCLUDED_WIKI_INGEST_EXTENSIONS,
+  shouldSkipWikiIngestPath,
+  wikiIngestFileExtension,
+} from "./wiki-ingest-filter.js";
+
+export { resolveWikiSourceFileExists } from "./wiki-source-exists.js";
+export type { WikiSourceExistsChecker } from "./wiki-source-exists.js";
+
+export {
+  listBrokenWikiSources,
+  purgeBrokenWikiSources,
+} from "./wiki-broken-source-purge.js";
+export type { WikiBrokenSourcePurgeResult } from "./wiki-broken-source-purge.js";
+
 export { serializeAttachmentReference, isAttachmentReferenceLine } from "./wiki-attachments.js";
 
 export { WikiGraphBuilder, subtopicNodeId, parseSubtopicNodeId } from "./wiki-graph.js";

@@ -167,4 +167,12 @@ describe('ensureSeedCronJobsSeeded', () => {
     expect(weekly?.systemPrompt).not.toContain('conversation_history_read')
     expect(weekly?.systemPrompt).toContain('memory_manage')
   })
+
+  it('简报/日报/复盘不再通过 focus 写入工作记忆', () => {
+    for (const id of ['seed-morning-briefing', 'seed-daily-report', 'seed-weekly-review'] as const) {
+      const job = __testables.SEED_JOBS.find((j) => j.id === id)
+      expect(job?.notifyTargets, id).toBe('system')
+      expect(job?.notifyTargets, id).not.toContain('focus')
+    }
+  })
 })

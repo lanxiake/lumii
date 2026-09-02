@@ -27,7 +27,12 @@ export interface WikiCleanupSuggestion {
 export interface WikiCleanupScanOptions {
   /** 长期未用判定天数阈值，默认 90 天 */
   readonly staleDays?: number;
-  /** 判断来源文件是否仍存在（宿主注入，agent-runtime 不直接依赖 node:fs） */
+  /**
+   * 判断资料底层文件是否仍存在（推荐：可解引用 .lumii-ref）。
+   * 返回 null 表示无法判定，跳过来源失效规则。
+   */
+  readonly sourceFileExists?: (source: WikiSource) => boolean | null;
+  /** @deprecated 优先使用 sourceFileExists；仅检查 source_path 字面路径 */
   readonly fileExists?: (path: string) => boolean;
 }
 
@@ -65,11 +70,17 @@ export class WikiCleanupScanner {
       }
     }
 
-    // 规则：来源失效——source_path 非空且文件已不存在（未注入 fileExists 时跳过该规则）
-    if (options.fileExists) {
+    // 规则：来源失效——底层文件已不存在（未注入检查器时跳过该规则）
+    if (options.sourceFileExists || options.fileExists) {
       for (const s of sources) {
         if (suggestions.has(s.id)) continue;
-        if (s.source_path && !options.fileExists(s.source_path)) {
+        const exists = options.sourceFileExists
+          ? options.sourceFileExists(s)
+          : s.source_path && options.fileExists
+            ? options.fileExists(s.source_path)
+            : null;
+        if (exists === null) continue;
+        if (!exists) {
           suggestions.set(s.id, { source: s, reason: "broken_source" });
         }
       }

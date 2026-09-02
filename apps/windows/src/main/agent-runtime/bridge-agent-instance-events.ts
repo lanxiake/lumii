@@ -17,6 +17,7 @@ import {
   diffTurnSnapshots,
   finalizeAssistantParts,
   providerPromptTokens,
+  shouldSkipWikiIngestPath,
 } from '@mtbot/agent-runtime'
 import { convertOldEventToIpcEvents, parseThinkTagsFromRaw, type RunContext } from './event-converter'
 import { resetAppUiToolTurnQuotas } from './bridge-app-ui-tools'
@@ -540,12 +541,15 @@ export function createAgentInstanceRuntimeEventHandler(
           const hook = getWikiIngestHook()
           const normalized = writtenPath.replace(/\\/g, '/').toLowerCase()
           const isUpload = normalized.startsWith('uploads/') || normalized.includes('/uploads/')
-          hook?.[isUpload ? 'ingestUpload' : 'ingestOutput'](
-            resolveWikiAgentId(),
-            'local-user',
-            writtenPath,
-            writtenPath.split(/[/\\]/).pop() ?? writtenPath,
-          )
+          const title = writtenPath.split(/[/\\]/).pop() ?? writtenPath
+          if (!shouldSkipWikiIngestPath(writtenPath, title)) {
+            hook?.[isUpload ? 'ingestUpload' : 'ingestOutput'](
+              resolveWikiAgentId(),
+              'local-user',
+              writtenPath,
+              title,
+            )
+          }
         }
       }
 

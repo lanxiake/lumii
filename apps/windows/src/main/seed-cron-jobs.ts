@@ -98,7 +98,7 @@ const SEED_JOBS: readonly SeedJob[] = [
     scheduleType: 'cron',
     scheduleExpr: '30 8 * * 1,2,3,4,5',
     activeDays: '1,2,3,4,5',
-    notifyTargets: 'system,focus',
+    notifyTargets: 'system',
   },
   {
     id: 'seed-daily-report',
@@ -118,7 +118,7 @@ const SEED_JOBS: readonly SeedJob[] = [
     scheduleType: 'cron',
     scheduleExpr: '0 18 * * 1,2,3,4,5',
     activeDays: '1,2,3,4,5',
-    notifyTargets: 'system,focus',
+    notifyTargets: 'system',
   },
   {
     id: 'seed-weekly-review',
@@ -139,7 +139,7 @@ const SEED_JOBS: readonly SeedJob[] = [
     scheduleType: 'cron',
     scheduleExpr: '0 17 * * 5',
     activeDays: '5',
-    notifyTargets: 'system,focus',
+    notifyTargets: 'system',
   },
   {
     id: 'seed-focus-check',
@@ -201,6 +201,7 @@ export function ensureSeedCronJobsSeeded(db: DatabaseAdapter): void {
   migrateRemovedWikiEroExtractCron(db)
   migrateRemovedWikiAutoSynthesisCron(db)
   migrateSystemPromptsForWorkReports(db)
+  migrateCronJobsRemoveFocusNotify(db)
   for (const job of SEED_JOBS) {
     try {
       const existing = db
@@ -319,6 +320,32 @@ function migrateSystemPromptsForWorkReports(db: DatabaseAdapter): void {
       )
     } catch (err) {
       log.error(`[migrateSystemPromptsForWorkReports] 更新 ${id} 失败:`, err)
+    }
+  }
+}
+
+/**
+ * 简报/日报/复盘不再写入工作记忆：老库去掉 notify_targets 里的 focus。
+ */
+function migrateCronJobsRemoveFocusNotify(db: DatabaseAdapter): void {
+  const jobIds = ['seed-morning-briefing', 'seed-daily-report', 'seed-weekly-review'] as const
+  for (const id of jobIds) {
+    try {
+      const row = db
+        .prepare<{ notify_targets: string | null }>(`SELECT notify_targets FROM local_cron_jobs WHERE id = ?`)
+        .get(id)
+      if (!row?.notify_targets?.includes('focus')) continue
+      const next =
+        row.notify_targets
+          .split(',')
+          .map((t) => t.trim())
+          .filter((t) => t && t !== 'focus')
+          .join(',') || 'system'
+      if (next === row.notify_targets) continue
+      db.prepare(`UPDATE local_cron_jobs SET notify_targets = ? WHERE id = ?`).run(next, id)
+      log.info(`[migrateCronJobsRemoveFocusNotify] ${id} notify_targets → ${next}`)
+    } catch (err) {
+      log.error(`[migrateCronJobsRemoveFocusNotify] 更新 ${id} 失败:`, err)
     }
   }
 }

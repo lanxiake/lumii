@@ -18,6 +18,7 @@ import type { LocalDatabase, FileRepo } from '@mtbot/agent-runtime'
 import { prependActiveDashboardFeedItem } from '../dashboard-feed-store'
 import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { formatForTarget } from './cron-notify-format'
+import { shouldSkipCronFocusMemoryWrite } from './cron-focus-memory'
 
 const log = {
   info: (...args: unknown[]) => console.log('[CronScheduler]', ...args),
@@ -605,7 +606,7 @@ export class CronScheduler {
    * 飞书/微信出站优先走 ChannelOutboundRouter（与 Agent channel_send 同源）。
    */
   private async dispatchNotifications(
-    job: { name: string; task_text: string },
+    job: { id: string; name: string; task_text: string },
     notifyTargets: string | null,
     output: string,
   ): Promise<void> {
@@ -641,6 +642,17 @@ export class CronScheduler {
             })
             break
           case 'focus':
+            if (
+              shouldSkipCronFocusMemoryWrite({
+                jobId: job.id,
+                jobName: label,
+                taskText: job.task_text,
+                output,
+              })
+            ) {
+              log.info(`[dispatchNotifications] 跳过 focus 写工作记忆 jobId=${job.id}`)
+              break
+            }
             this.deps.addMemory?.(payload.body)
             break
           case 'feishu': {
@@ -872,7 +884,7 @@ export class CronScheduler {
         }
       }
       await this.dispatchNotifications(
-        { name: currentRow.name, task_text: job.task_text },
+        { id: job.id, name: currentRow.name, task_text: job.task_text },
         currentRow.notify_targets,
         output,
       )

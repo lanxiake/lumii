@@ -243,10 +243,21 @@ describe('local-companion-handler / 记忆整理', () => {
 })
 
 describe('local-companion-handler / 综述指令已移除（P2）', () => {
+  it('__wiki_purge_broken_refs__ 调用 runWikiPurgeBrokenRefs', async () => {
+    const runWikiPurgeBrokenRefs = vi.fn().mockResolvedValue('executed: 已删除 2 条失效引用')
+    const result = await handleLocalCompanionInstruction('__wiki_purge_broken_refs__', {
+      ...createDeps(),
+      runWikiPurgeBrokenRefs,
+    })
+    expect(runWikiPurgeBrokenRefs).toHaveBeenCalled()
+    expect(result).toContain('已删除 2 条')
+  })
+
   it('__wiki_auto_synthesis__ 不再是 companion 指令', () => {
     expect(isLocalCompanionInstruction('__wiki_auto_synthesis__')).toBe(false)
     // ERO 抽取与综述无关，仍应受理
     expect(isLocalCompanionInstruction('__wiki_ero_extract__')).toBe(true)
+    expect(isLocalCompanionInstruction('__wiki_purge_broken_refs__')).toBe(true)
   })
 })
 
