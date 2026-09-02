@@ -24,9 +24,18 @@ export const TASK_GUIDE_CONTENT = `## Task Orchestration (Full Guide)
 - Use a structured section such as "Prerequisite Results:" to provide key facts.
 - Avoid unrelated data; pass only what downstream tasks need.
 
+### Task Completion Check (REQUIRED)
+After completing any task (whether using \`task_complete\` or marking as done in \`todo_write\`):
+1. **MUST** call \`todo_write action=list\` to check current task status
+2. **MUST** review the list for any tasks still in \`in_progress\` or \`pending\` state
+3. If all related tasks are complete → summarize and close
+4. If any tasks remain → list them explicitly and update their status
+5. **NEVER** mark a task as complete without checking related tasks first
+
 ### Completion and Summary
 - After all sub-tasks finish, summarize the outcomes.
 - Use \`todo_write\` to mark all tasks as \`completed\`.
+- Clean up the task list: delete obsolete or superseded tasks.
 
 ### File Output Standards
 - When generating complete content (articles/reports/code files, etc.) → MUST use \`file_write\` to write to \`outputs/\` directory

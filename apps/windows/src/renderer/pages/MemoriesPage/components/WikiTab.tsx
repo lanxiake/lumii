@@ -751,11 +751,20 @@ export const WikiTab: React.FC = () => {
       }
       const { importable, skipped, alreadyInWiki } = preview.summary
       if (importable === 0) {
-        toast.info(
-          alreadyInWiki > 0
-            ? `该目录 ${preview.summary.total} 个文件均已在 Wiki 中或不可导入`
-            : '该目录没有可导入的文件',
-        )
+        if (alreadyInWiki > 0) {
+          const names = preview.candidates.filter((c) => c.alreadyInWiki).map((c) => c.title)
+          const head = names.slice(0, 3).join('、')
+          const label = names.length > 3 ? `${head} 等 ${names.length} 个文件` : head
+          toast.info(
+            `${label} 已在 Wiki 中。请到收件箱、分类目录、临时存放或已归档查找，也可用顶栏搜索文件名。若资料已被删除仍提示重复，请再试一次导入。`,
+          )
+        } else {
+          toast.info(
+            skipped > 0
+              ? `该目录没有可导入的文件（已跳过 ${skipped} 个，例如不支持的格式或 wiki 库自身）`
+              : '该目录没有可导入的文件',
+          )
+        }
         return
       }
       const ok = window.confirm(

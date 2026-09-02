@@ -42,4 +42,9 @@ export const apiServerApi = {
   deleteAgent: (agentId: string) => ipcRenderer.invoke('api:deleteAgent', agentId),
   getUserSkills: () => ipcRenderer.invoke('api:getUserSkills'),
   uploadSkillFile: () => ipcRenderer.invoke('api:uploadSkillFile'),
+
+  // 搜索配置
+  getSearchConfig: () => ipcRenderer.invoke('api:getSearchConfig'),
+  setSearchConfig: (config: { langSearchApiKey?: string; searxngBaseUrl?: string }) =>
+    ipcRenderer.invoke('api:setSearchConfig', config),
 }

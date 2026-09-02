@@ -129,6 +129,7 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
 
   setApiIpcDeps({
     getAgentRuntimeBridge: deps.getAgentRuntimeBridge,
+    getConfigManager: deps.getConfigManager,
     log: deps.log,
   })
 

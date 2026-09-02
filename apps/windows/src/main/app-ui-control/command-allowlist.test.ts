@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { COMMAND_ALLOWLIST, findDeniedField, isCommandExposed } from './command-allowlist'
+import { COMMANDS } from '../../../resources/app-ui-cli/commands.mjs'
 
 describe('COMMAND_ALLOWLIST', () => {
   it('允许 cron:list / tools:toggle / session:preferredModel:set', () => {
@@ -100,5 +101,60 @@ describe('findDeniedField', () => {
     expect(findDeniedField({ type: 'cron:list' })).toBe(null)
     expect(findDeniedField(null)).toBe(null)
     expect(findDeniedField({ type: 123 })).toBe(null)
+  })
+})
+
+/**
+ * 用几组占位参数探测 CLI build 产出的 IPC type（build 返回 null 则换下一组）。
+ */
+function collectCliIpcTypes(): string[] {
+  const tries = [
+    { positional: [], flags: {} },
+    { positional: ['x'], flags: {} },
+    { positional: ['x', '1'], flags: {} },
+    { positional: ['keyword'], flags: { category: '工作', subtopic: '项目', title: 't', path: 'p', content: 'c' } },
+  ]
+  const types = new Set<string>()
+  for (const cmd of COMMANDS) {
+    if (cmd.route.path !== '/command' || cmd.name === 'command') continue
+    for (const args of tries) {
+      const body = cmd.build(args)
+      if (body && typeof body.type === 'string') {
+        types.add(body.type)
+        break
+      }
+    }
+  }
+  return [...types]
+}
+
+describe('lumii-ui /command 与白名单对齐', () => {
+  it('拒绝已删除的页面/综述/独立混合检索类型', () => {
+    for (const t of [
+      'wiki:page:list',
+      'wiki:page:get',
+      'wiki:page:update',
+      'wiki:page:revisions',
+      'wiki:page:rollback',
+      'wiki:link:backlinks',
+      'wiki:link:unresolved',
+      'wiki:synthesis:list',
+      'wiki:synthesis:get',
+      'wiki:synthesis:create',
+      'wiki:synthesis:accept',
+      'wiki:synthesis:reject',
+      'wiki:search:hybrid',
+      'wiki:ero:bootstrap',
+    ]) {
+      expect(isCommandExposed(t)).toBe(false)
+    }
+  })
+
+  it('CLI 注册的 /command 类型全部在白名单内', () => {
+    const types = collectCliIpcTypes()
+    expect(types.length).toBeGreaterThan(10)
+    for (const t of types) {
+      expect(isCommandExposed(t), t).toBe(true)
+    }
   })
 })

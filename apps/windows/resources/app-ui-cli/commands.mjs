@@ -546,71 +546,16 @@ export const COMMANDS = [
     },
   },
   {
-    name: 'wiki page list',
-    group: 'Wiki',
-    usage: 'wiki page list [--category <c>] [--session <key>]',
-    summary: '按分类列出 Wiki 页面',
-    layer: 'A',
-    route: { method: 'POST', path: '/command' },
-    options: [
-      { flag: '--category <c>', desc: '按顶层分类筛选：sources | media | inbox | concepts | entities | syntheses' },
-      { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
-    ],
-    build(args) {
-      const body = { type: 'wiki:page:list' }
-      if (typeof args.flags.category === 'string') body.category = args.flags.category
-      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
-      return body
-    },
-  },
-  {
-    name: 'wiki page get',
-    group: 'Wiki',
-    usage: 'wiki page get <pageId>',
-    summary: '读取单个 Wiki 页面全文',
-    layer: 'A',
-    route: { method: 'POST', path: '/command' },
-    options: [{ flag: '<pageId>', desc: '页面 ID（wiki page list 输出中的 id）' }],
-    build(args) {
-      const pageId = args.positional[0]
-      if (typeof pageId !== 'string' || pageId.length === 0) return null
-      return { type: 'wiki:page:get', pageId }
-    },
-  },
-  {
-    name: 'wiki page update',
-    group: 'Wiki',
-    usage: 'wiki page update --path <path> --title <t> --content <md>|-',
-    summary: '保存 Wiki 页面（不存在则新建，每次保存写新修订）',
-    layer: 'A',
-    route: { method: 'POST', path: '/command' },
-    options: [
-      { flag: '--path <p>', desc: '页面路径，如 sources/my-doc（必填）' },
-      { flag: '--title <t>', desc: '页面标题（必填）' },
-      { flag: '--content <md>', desc: '页面正文 Markdown，或 "-" 从 stdin 读（必填）' },
-    ],
-    build(args, extra) {
-      const path = args.flags.path
-      const title = args.flags.title
-      const raw = args.flags.content
-      if (typeof path !== 'string' || path.length === 0) return null
-      if (typeof title !== 'string' || title.length === 0) return null
-      if (raw === undefined) return null
-      const contentMd = raw === '-' ? extra?.stdin ?? '' : raw
-      if (typeof contentMd !== 'string') return null
-      return { type: 'wiki:page:update', path, title, contentMd }
-    },
-  },
-  {
     name: 'wiki search',
     group: 'Wiki',
-    usage: 'wiki search <关键词> [--limit <n>] [--session <key>]',
-    summary: 'FTS5 全文检索 Wiki 页面（验证中文召回）',
+    usage: 'wiki search <关键词> [--limit <n>] [--no-vector] [--session <key>]',
+    summary: '检索 Wiki 资料（FTS；默认可叠加向量，返回 hits/mode/degradeReason）',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
     options: [
       { flag: '<关键词>', desc: '搜索关键词（中文 bigram 切分，支持 2 字词）' },
       { flag: '--limit <n>', desc: '返回条数上限，默认 10' },
+      { flag: '--no-vector', desc: '关闭向量，仅全文' },
       { flag: '--session <key>', desc: '指定会话，不传则使用默认归属' },
     ],
     build(args) {
@@ -620,6 +565,7 @@ export const COMMANDS = [
       if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
       const limit = num(args.flags.limit)
       if (limit !== undefined && limit > 0) body.limit = limit
+      if (args.flags['no-vector'] === true || args.flags['no-vector'] === 'true') body.enableVector = false
       return body
     },
   },
@@ -627,7 +573,7 @@ export const COMMANDS = [
     name: 'wiki runs list',
     group: 'Wiki',
     usage: 'wiki runs list [--session <key>] [--limit <n>]',
-    summary: '归档运行日志（追溯页面生成依据）',
+    summary: '归档运行日志',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
     options: [
@@ -646,7 +592,7 @@ export const COMMANDS = [
     name: 'wiki index rebuild',
     group: 'Wiki',
     usage: 'wiki index rebuild',
-    summary: '重建 Wiki 全文检索派生索引',
+    summary: '重建 Wiki 资料层全文检索派生索引',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
     options: [],
@@ -655,64 +601,57 @@ export const COMMANDS = [
     },
   },
   {
-    name: 'wiki backlinks',
+    name: 'wiki source list',
     group: 'Wiki',
-    usage: 'wiki backlinks <pageId>',
-    summary: '查某页反链',
+    usage: 'wiki source list [--category <c>] [--subtopic <s>] [--unfiled] [--parking] [--archived] [--session <key>]',
+    summary: '按用途列出 Wiki 资料',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
-    options: [{ flag: '<pageId>', desc: '页面 ID（wiki page list 输出中的 id）' }],
+    options: [
+      { flag: '--category <c>', desc: '一级分类' },
+      { flag: '--subtopic <s>', desc: '二级分类' },
+      { flag: '--unfiled', desc: '只列未分类资料' },
+      { flag: '--parking', desc: '只列临时存放' },
+      { flag: '--archived', desc: '只列已归档资料' },
+      { flag: '--session <key>', desc: '指定会话' },
+    ],
     build(args) {
-      const pageId = args.positional[0]
-      if (typeof pageId !== 'string' || pageId.length === 0) return null
-      return { type: 'wiki:link:backlinks', pageId }
-    },
-  },
-  {
-    name: 'wiki unresolved',
-    group: 'Wiki',
-    usage: 'wiki unresolved [--session <key>]',
-    summary: '列出未解析的 [[双链]]（target 尚未建页）',
-    layer: 'A',
-    route: { method: 'POST', path: '/command' },
-    options: [{ flag: '--session <key>', desc: '指定会话，不传则使用默认归属' }],
-    build(args) {
-      const body = { type: 'wiki:link:unresolved' }
+      const body = { type: 'wiki:source:list', agentId: 'assistant' }
+      if (typeof args.flags.category === 'string') body.category = args.flags.category
+      if (typeof args.flags.subtopic === 'string') body.subtopic = args.flags.subtopic
+      if (args.flags.unfiled === true || args.flags.unfiled === 'true') body.unfiled = true
+      if (args.flags.parking === true || args.flags.parking === 'true') body.parking = true
+      if (args.flags.archived === true || args.flags.archived === 'true') body.archived = true
       if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
       return body
     },
   },
   {
-    name: 'wiki revisions',
+    name: 'wiki source get',
     group: 'Wiki',
-    usage: 'wiki revisions <pageId>',
-    summary: '修订列表（按 version 降序）',
+    usage: 'wiki source get <id>',
+    summary: '读取单条 Wiki 资料详情',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
-    options: [{ flag: '<pageId>', desc: '页面 ID（wiki page list 输出中的 id）' }],
+    options: [{ flag: '<id>', desc: '资料 ID' }],
     build(args) {
-      const pageId = args.positional[0]
-      if (typeof pageId !== 'string' || pageId.length === 0) return null
-      return { type: 'wiki:page:revisions', pageId }
+      const sourceId = args.positional[0]
+      if (typeof sourceId !== 'string' || sourceId.length === 0) return null
+      return { type: 'wiki:source:get', sourceId }
     },
   },
   {
-    name: 'wiki rollback',
+    name: 'wiki topic tree',
     group: 'Wiki',
-    usage: 'wiki rollback <pageId> <version>',
-    summary: '回滚页面到指定版本（回滚即新增一版，旧修订不变）',
+    usage: 'wiki topic tree [--session <key>]',
+    summary: '读取用途主题树',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
-    options: [
-      { flag: '<pageId>', desc: '页面 ID' },
-      { flag: '<version>', desc: '目标版本号' },
-    ],
+    options: [{ flag: '--session <key>', desc: '指定会话' }],
     build(args) {
-      const pageId = args.positional[0]
-      const targetVersion = num(args.positional[1])
-      if (typeof pageId !== 'string' || pageId.length === 0) return null
-      if (targetVersion === undefined) return null
-      return { type: 'wiki:page:rollback', pageId, targetVersion }
+      const body = { type: 'wiki:topic:tree:get', agentId: 'assistant' }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      return body
     },
   },
   {
@@ -762,7 +701,7 @@ export const COMMANDS = [
     name: 'wiki export',
     group: 'Wiki',
     usage: 'wiki export <dir> [--include-sources] [--include-attachments] [--session <key>]',
-    summary: '按页面路径结构批量导出为 Markdown',
+    summary: '按资料清单导出 Markdown',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
     options: [
@@ -784,108 +723,24 @@ export const COMMANDS = [
     },
   },
   {
-    name: 'wiki synthesis create',
-    group: 'Wiki',
-    usage: 'wiki synthesis create <pageId...> [--title <t>] [--category <c>] [--session <key>]',
-    summary: '发起综述合成（页面 id 列表或分类全选）',
-    layer: 'A',
-    route: { method: 'POST', path: '/command' },
-    options: [
-      { flag: '<pageId...>', desc: '参与合成的页面 ID（可多个）' },
-      { flag: '--title <t>', desc: '综述标题' },
-      { flag: '--category <c>', desc: '按分类全选页面（与 pageId 二选一）' },
-      { flag: '--session <key>', desc: '指定会话' },
-    ],
-    build(args) {
-      const body = { type: 'wiki:synthesis:create' }
-      if (args.positional.length > 0) body.pageIds = args.positional.filter((p) => typeof p === 'string')
-      if (typeof args.flags.title === 'string') body.title = args.flags.title
-      if (typeof args.flags.category === 'string') body.category = args.flags.category
-      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
-      if (!body.pageIds?.length && !body.category) return null
-      return body
-    },
-  },
-  {
-    name: 'wiki synthesis list',
-    group: 'Wiki',
-    usage: 'wiki synthesis list [--status candidate|accepted|rejected] [--session <key>]',
-    summary: '列出综述合成候选/历史',
-    layer: 'A',
-    route: { method: 'POST', path: '/command' },
-    options: [
-      { flag: '--status <s>', desc: '按状态筛选' },
-      { flag: '--session <key>', desc: '指定会话' },
-    ],
-    build(args) {
-      const body = { type: 'wiki:synthesis:list' }
-      if (typeof args.flags.status === 'string') body.status = args.flags.status
-      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
-      return body
-    },
-  },
-  {
-    name: 'wiki synthesis get',
-    group: 'Wiki',
-    usage: 'wiki synthesis get <id>',
-    summary: '读取综述候选正文与来源清单（审阅用）',
-    layer: 'A',
-    route: { method: 'POST', path: '/command' },
-    options: [{ flag: '<id>', desc: '合成记录 ID' }],
-    build(args) {
-      const synthesisId = args.positional[0]
-      if (typeof synthesisId !== 'string' || synthesisId.length === 0) return null
-      return { type: 'wiki:synthesis:get', synthesisId }
-    },
-  },
-  {
-    name: 'wiki synthesis accept',
-    group: 'Wiki',
-    usage: 'wiki synthesis accept <id>',
-    summary: '接受综述候选并建 syntheses/ 页面',
-    layer: 'A',
-    route: { method: 'POST', path: '/command' },
-    options: [{ flag: '<id>', desc: '合成记录 ID' }],
-    build(args) {
-      const synthesisId = args.positional[0]
-      if (typeof synthesisId !== 'string' || synthesisId.length === 0) return null
-      return { type: 'wiki:synthesis:accept', synthesisId }
-    },
-  },
-  {
-    name: 'wiki synthesis reject',
-    group: 'Wiki',
-    usage: 'wiki synthesis reject <id>',
-    summary: '拒绝综述候选（保留审计记录）',
-    layer: 'A',
-    route: { method: 'POST', path: '/command' },
-    options: [{ flag: '<id>', desc: '合成记录 ID' }],
-    build(args) {
-      const synthesisId = args.positional[0]
-      if (typeof synthesisId !== 'string' || synthesisId.length === 0) return null
-      return { type: 'wiki:synthesis:reject', synthesisId }
-    },
-  },
-  {
     name: 'wiki graph',
     group: 'Wiki',
-    usage: 'wiki graph [--center <pageId>] [--category <c>] [--limit <n>] [--session <key>]',
-    summary: '输出双链图谱 JSON（受限子图）',
+    usage: 'wiki graph [--category <c>] [--subtopic <s>] [--limit <n>] [--session <key>]',
+    summary: '输出用途+实体知识子图 JSON',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
     options: [
-      { flag: '--center <pageId>', desc: '中心页 ID' },
-      { flag: '--category <c>', desc: '按分类局部图' },
+      { flag: '--category <c>', desc: '大类；不传则用主题树第一个大类' },
+      { flag: '--subtopic <s>', desc: '小类（可选）' },
       { flag: '--limit <n>', desc: '节点上限，默认 50' },
       { flag: '--session <key>', desc: '指定会话' },
     ],
     build(args) {
       const body = { type: 'wiki:graph:data' }
-      if (typeof args.flags.center === 'string') body.centerPageId = args.flags.center
       if (typeof args.flags.category === 'string') body.category = args.flags.category
+      if (typeof args.flags.subtopic === 'string') body.subtopic = args.flags.subtopic
       if (typeof args.flags.limit === 'string') body.limit = Number(args.flags.limit)
       if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
-      if (!body.centerPageId && !body.category) return null
       return body
     },
   },
@@ -893,7 +748,7 @@ export const COMMANDS = [
     name: 'wiki search hybrid',
     group: 'Wiki',
     usage: 'wiki search hybrid <关键词> [--limit <n>] [--no-vector] [--session <key>]',
-    summary: 'FTS + 向量 RRF 混合检索（失败时显式降级原因）',
+    summary: '同 wiki search（兼容旧子命令名）',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
     options: [
@@ -905,23 +760,9 @@ export const COMMANDS = [
     build(args) {
       const keyword = args.positional[0]
       if (typeof keyword !== 'string' || keyword.length === 0) return null
-      const body = { type: 'wiki:search:hybrid', keyword }
+      const body = { type: 'wiki:search', keyword }
       if (typeof args.flags.limit === 'string') body.limit = Number(args.flags.limit)
       if (args.flags['no-vector'] === true || args.flags['no-vector'] === 'true') body.enableVector = false
-      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
-      return body
-    },
-  },
-  {
-    name: 'wiki ero bootstrap',
-    group: 'Wiki',
-    usage: 'wiki ero bootstrap [--session <key>]',
-    summary: '从双链引导 ERO 实体与关系',
-    layer: 'A',
-    route: { method: 'POST', path: '/command' },
-    options: [{ flag: '--session <key>', desc: '指定会话' }],
-    build(args) {
-      const body = { type: 'wiki:ero:bootstrap' }
       if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
       return body
     },
@@ -930,7 +771,7 @@ export const COMMANDS = [
     name: 'wiki vector rebuild',
     group: 'Wiki',
     usage: 'wiki vector rebuild [--session <key>]',
-    summary: '重建页面向量派生表',
+    summary: '重建资料摘要与向量派生表',
     layer: 'A',
     route: { method: 'POST', path: '/command' },
     options: [{ flag: '--session <key>', desc: '指定会话' }],

@@ -276,7 +276,7 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
               记忆插件
             </button>
           </Tooltip>
-          <Tooltip content="自动收集上传文件、任务产物与网页搜索结果，AI 分类归档后可检索" placement="bottom">
+          <Tooltip content="自动收集上传文件与任务产物，AI 分类归档后可检索" placement="bottom">
             <button type="button" className={`memories-tab ${activeTab === 'wiki' ? 'memories-tab--active' : ''}`} onClick={() => setActiveTab('wiki')}>
               Wiki
             </button>

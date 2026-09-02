@@ -25,7 +25,6 @@ import {
   buildFolderImportClassifyContext,
   buildTopicOccupancySummary,
   buildNavSectionGuide,
-  WikiClipSaver,
   vaultDirSegmentsForSource,
   resolveOriginalFilePath,
   buildLibraryInventory,
@@ -58,22 +57,6 @@ function vaultSyncSource(bridge: AgentRuntimeBridge, sourceId: string, agentId?:
     syncWikiSourceById(bridge.wikiRepo, resolvedAgent, LOCAL_USER_ID, sourceId)
   } catch (err) {
     console.warn('[wiki-vault] sync failed:', (err as Error).message)
-  }
-}
-
-/**
- * 解析 http(s) URL；非法时抛中文错误。
- */
-function parseHttpUrl(raw: string): URL {
-  const trimmed = raw.trim()
-  if (!trimmed) throw new Error('链接不能为空')
-  try {
-    const url = new URL(trimmed)
-    if (!url.protocol.startsWith('http')) throw new Error('仅支持 http/https 链接')
-    return url
-  } catch (err) {
-    if (err instanceof Error && err.message.includes('http')) throw err
-    throw new Error('链接格式无效')
   }
 }
 
@@ -139,6 +122,7 @@ export function handleWikiInboxList(
 
 /**
  * 返回收件箱角标数：pending 收件箱条数 + 待整理（两列皆空）资料数。
+ * 不传 `status` 时按 pending 计，避免把 organized/discarded 算进角标。
  * `status` 显式传参时只统计该状态收件箱条目，`unfiled` 计 0（兼容旧调用方只读 total）。
  */
 export function handleWikiInboxCount(
@@ -147,7 +131,8 @@ export function handleWikiInboxCount(
 ): { total: number; pending: number; unfiled: number } {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
   bridge.wikiRepo.reconcilePendingInboxWithSources(agentId, LOCAL_USER_ID)
-  const pending = bridge.wikiRepo.countInbox(agentId, LOCAL_USER_ID, command.status)
+  const inboxStatus = command.status ?? 'pending'
+  const pending = bridge.wikiRepo.countInbox(agentId, LOCAL_USER_ID, inboxStatus)
   const unfiled = command.status
     ? 0
     : bridge.wikiRepo.listSourcesByTopic(agentId, LOCAL_USER_ID, { unfiled: true }).length
@@ -399,14 +384,20 @@ export async function handleWikiOrganizeRun(
   return { runId: run.id, status: run.status, summary: run.result_summary ?? null }
 }
 
-/** 主搜索改为资料层：命中原始文件而非旧汇总页。历史页面搜索已随 P3 删除。 */
+/** 主搜索改为资料层：命中原始文件而非旧汇总页。历史页面搜索已随 P3 删除。
+ * FTS 空命中时先检查并重建资料索引；仍无命中则不再把全库灌进向量充数。
+ */
 export async function handleWikiSearch(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:search' }>,
 ): Promise<{ hits: unknown[]; mode: string; degradeReason: string | null }> {
   const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
   const limit = command.limit ?? 10
-  const ftsHits = bridge.wikiRepo.searchSources(agentId, LOCAL_USER_ID, command.keyword, limit)
+  let ftsHits = bridge.wikiRepo.searchSources(agentId, LOCAL_USER_ID, command.keyword, limit)
+  if (ftsHits.length === 0 && !bridge.wikiRepo.checkIndexHealth().isHealthy) {
+    bridge.wikiRepo.rebuildIndex()
+    ftsHits = bridge.wikiRepo.searchSources(agentId, LOCAL_USER_ID, command.keyword, limit)
+  }
   const ftsIds = ftsHits.map((h) => h.source.id)
   const sourceById = new Map(ftsHits.map((h) => [h.source.id, h.source]))
 
@@ -416,6 +407,9 @@ export async function handleWikiSearch(
 
   if (command.enableVector === false) {
     degradeReason = '向量检索已关闭，仅全文检索'
+  } else if (ftsHits.length === 0) {
+    // FTS 全空时禁止把整库灌进向量充数：余弦仍会返回 top-K，snippet 空、语义不相关。
+    degradeReason = '全文无命中'
   } else {
     try {
       const host = await bridge.resolveWikiEmbedder()
@@ -425,13 +419,6 @@ export async function handleWikiSearch(
       const index = new WikiSourceVectorIndex(bridge.wikiRepo.database, host.embedder)
       for (const hit of ftsHits) {
         await index.upsertSource(hit.source)
-      }
-      if (ftsHits.length === 0) {
-        const sources = bridge.wikiRepo
-          .listSources(agentId, LOCAL_USER_ID)
-          .filter((s) => !s.archived_at)
-          .slice(0, 200)
-        for (const s of sources) await index.upsertSource(s)
       }
       const vecHits = await index.searchSimilar(agentId, LOCAL_USER_ID, command.keyword, limit)
       vectorIds = vecHits.map((v) => v.sourceId)
@@ -980,70 +967,23 @@ export async function handleWikiSourceOpen(
 }
 
 /**
- * 添加链接引用：只建 url-ref，不抓取正文。
+ * 添加链接引用：已下线。Wiki 只收录文件与文档，链接可嵌入文档正文。
  */
 export function handleWikiLinkAdd(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:link:add' }>,
-): { sourceId: string; title: string } {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const url = parseHttpUrl(command.url)
-  const title = command.title?.trim() || url.hostname
-  const source = bridge.wikiRepo.createSource({
-    agentId,
-    userId: LOCAL_USER_ID,
-    title,
-    originUrl: url.toString(),
-    storageMode: 'ref',
-    mediaType: 'document',
-    originContext: `原文链接: ${url.toString()}`,
-  })
-  bridge.wikiRepo.indexSource(source.id)
-  const synced = syncWikiSourceToVault(bridge.wikiRepo, source)
-  return { sourceId: synced.id, title: synced.title }
+  _bridge: AgentRuntimeBridge,
+  _command: Extract<AgentRuntimeCommand, { type: 'wiki:link:add' }>,
+): never {
+  throw new Error('Wiki 只收录文件与文档，不再单独收录网页链接。编写文档时可将链接嵌入正文。')
 }
 
 /**
- * 用户主动保存网页：抓取 URL 并写入 vault native md。
+ * 保存网页正文：已下线。Wiki 只收录文件与文档。
  */
 export async function handleWikiLinkSave(
-  bridge: AgentRuntimeBridge,
-  command: Extract<AgentRuntimeCommand, { type: 'wiki:link:save' }>,
-): Promise<{ sourceId: string; savedPath: string; title: string }> {
-  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
-  const source = bridge.wikiRepo.findSourceById(command.sourceId, agentId, LOCAL_USER_ID)
-  if (!source) throw new Error(`资料不存在: ${command.sourceId}`)
-  if (!source.origin_url) throw new Error('这条资料没有网址，无法保存网页内容')
-
-  const deps = createWikiVaultSyncDeps()
-  const { resolveVaultDirAbs } = await import('@mtbot/agent-runtime')
-  const destDir = resolveVaultDirAbs(deps, source)
-  fs.mkdirSync(destDir, { recursive: true })
-
-  const saver = new WikiClipSaver({
-    writeFile: async (_rel, content) => {
-      const slug = sanitizeFilenameSegment(source.title).slice(0, 80) || 'web-clip'
-      let abs = path.join(destDir, `${slug}.md`)
-      for (let i = 2; fs.existsSync(abs); i++) {
-        abs = path.join(destDir, `${slug}-${i}.md`)
-      }
-      fs.writeFileSync(abs, content, 'utf8')
-      return deps.toRelPath(abs)
-    },
-  })
-
-  const clip = await saver.save(source.origin_url, source.title)
-  bridge.wikiRepo.setSourceStorage(agentId, LOCAL_USER_ID, source.id, {
-    storageMode: 'native',
-    sourcePath: clip.savedPath,
-    contentMd: clip.markdown,
-    extractedText: clip.markdown,
-    mimeType: 'text/markdown',
-  })
-  const updated = bridge.wikiRepo.findSourceById(source.id, agentId, LOCAL_USER_ID)!
-  bridge.wikiRepo.indexSource(updated.id)
-
-  return { sourceId: updated.id, savedPath: clip.savedPath, title: clip.title }
+  _bridge: AgentRuntimeBridge,
+  _command: Extract<AgentRuntimeCommand, { type: 'wiki:link:save' }>,
+): Promise<never> {
+  throw new Error('Wiki 只收录文件与文档，不再保存网页链接为独立资料。')
 }
 
 /**

@@ -215,7 +215,7 @@ export const webSearchToolConfig: MtBotToolConfig<typeof WebSearchInput> = {
   name: "web_search",
   label: "Web Search",
   description:
-    "Search the web and return structured results. Uses LangSearch API (requires LANGSEARCH_API_KEY) or SearXNG (requires SEARXNG_BASE_URL).",
+    "Search the web and return structured results. Priority: Bing (built-in, no config) → LangSearch API (requires LANGSEARCH_API_KEY) → SearXNG (requires SEARXNG_BASE_URL).",
   parameters: WebSearchInput,
   category: "web",
   isReadOnly: true,
@@ -239,11 +239,32 @@ export const webSearchToolConfig: MtBotToolConfig<typeof WebSearchInput> = {
 
     let items: SearchItem[] = [];
     let provider = "unknown";
+    let bingError: Error | null = null;
     let langSearchError: Error | null = null;
     let searxngError: Error | null = null;
 
-    // 优先尝试 LangSearch
-    if (process.env.LANGSEARCH_API_KEY) {
+    // 优先尝试内置 Bing 搜索（无需配置）
+    console.log(`[web_search] 尝试内置 Bing 搜索: query="${query}"`);
+    try {
+      const { fetchBingSearchHtml, parseBingSearchHtml } = await import("./bing-search-tool.js");
+      const html = await fetchBingSearchHtml(query, 0);
+      const bingItems = parseBingSearchHtml(html, count);
+      if (bingItems.length > 0) {
+        items = bingItems.map((item) => ({
+          title: item.title,
+          url: item.url,
+          summary: item.snippet,
+        }));
+        provider = "Bing (内置)";
+        console.log(`[web_search] Bing 成功: ${items.length} 条结果`);
+      }
+    } catch (err) {
+      bingError = err instanceof Error ? err : new Error(String(err));
+      console.error(`[web_search] Bing 失败: ${bingError.message}`);
+    }
+
+    // Bing 失败时，尝试 LangSearch
+    if (items.length === 0 && process.env.LANGSEARCH_API_KEY) {
       console.log(`[web_search] 尝试 LangSearch: query="${query}"`);
       try {
         items = await searchViaLangSearch(
@@ -263,7 +284,7 @@ export const webSearchToolConfig: MtBotToolConfig<typeof WebSearchInput> = {
 
     const searxngBaseUrl = resolveSearxngBaseUrl();
 
-    // LangSearch 未配置或失败时，fallback 到 SearXNG
+    // LangSearch 失败时，fallback 到 SearXNG
     if (items.length === 0 && searxngBaseUrl) {
       console.log(
         `[web_search] 尝试 SearXNG: query="${query}" baseUrl=${searxngBaseUrl}`,
@@ -287,17 +308,18 @@ export const webSearchToolConfig: MtBotToolConfig<typeof WebSearchInput> = {
 
     cleanup();
 
-    // 未配置任何 provider
-    if (!process.env.LANGSEARCH_API_KEY && !searxngBaseUrl) {
-      throw new Error(
-        "No search provider configured. Set LANGSEARCH_API_KEY or SEARXNG_BASE_URL environment variable.",
-      );
-    }
-
     // 所有 provider 都失败
-    if (items.length === 0 && (langSearchError || searxngError)) {
-      const errors = [langSearchError, searxngError].filter(Boolean).map((e) => e!.message);
-      throw new Error(`Web search failed. Errors: ${errors.join(" | ")}`);
+    if (items.length === 0 && (bingError || langSearchError || searxngError)) {
+      const errors = [bingError, langSearchError, searxngError]
+        .filter(Boolean)
+        .map((e) => e!.message);
+
+      const errorMessage = `Web search failed. ${errors.join(" | ")}`;
+      const configHint = (!process.env.LANGSEARCH_API_KEY && !searxngBaseUrl)
+        ? "\n\nTip: Configure search API keys in Settings → Advanced → Search Tools for better reliability."
+        : "";
+
+      throw new Error(errorMessage + configHint);
     }
 
     const result: SearchResult = {

@@ -35,6 +35,10 @@ export const taskCompleteToolConfig: MtBotToolConfig<typeof TaskCompleteParams> 
     params: TaskCompleteInput,
     _context: ToolExecutionContext,
   ): Promise<AgentToolResult<unknown>> {
+    const { summary } = params;
+
+    console.log(`[task_complete] 任务完成: ${summary}`);
+
     return {
       content: [
         { type: "text", text: JSON.stringify({ status: "completed", summary: params.summary }) },

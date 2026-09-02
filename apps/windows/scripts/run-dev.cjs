@@ -23,7 +23,8 @@ try {
 } catch {
   console.warn('[run-dev] sync-user-guides 失败，将使用 resources/user-guides 现有副本')
 }
-const child = spawn('npx', ['electron-vite', 'dev'], {
+// 透传 CLI 参数，供调试用（如 --inspect=5858 --remoteDebuggingPort=9222 --sourcemap）
+const child = spawn('npx', ['electron-vite', 'dev', ...process.argv.slice(2)], {
   cwd,
   stdio: 'inherit',
   shell: true,

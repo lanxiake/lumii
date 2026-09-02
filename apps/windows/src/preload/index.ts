@@ -737,6 +737,12 @@ export interface ElectronAPI {
     deleteAgent: (agentId: string) => Promise<unknown>
     /** 获取用户技能列�?*/
     getUserSkills: () => Promise<unknown>
+
+    // --- 搜索工具配置 ---
+    /** 获取搜索工具配置 */
+    getSearchConfig: () => Promise<{ success: boolean; data?: { langSearchApiKey?: string; searxngBaseUrl?: string }; error?: string }>
+    /** 保存搜索工具配置 */
+    setSearchConfig: (config: { langSearchApiKey?: string; searxngBaseUrl?: string }) => Promise<{ success: boolean; error?: string }>
   }
 
   // MemPalace 插件

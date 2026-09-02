@@ -274,6 +274,7 @@ export function buildWikiKnowledgeSection(toolNames: readonly string[]): string[
       "UI partitions: 工作/学习/生活/收藏 + subtopic. CLI `--category` uses legacy tree names: 工作→做事记录, 学习→学习资料, 生活→计划与复盘|证件凭据, 收藏→模板参考|随笔创作 (match subtopic owner).",
       "`@outputs` / \"上述目录\" → `<cwd>/outputs` or the subfolder the user named.",
       "Reference-first: imports register paths; do not move or delete original files.",
+      "Files only: do not save URLs or web search results as separate wiki entries — embed links in document content when needed.",
     );
   }
 

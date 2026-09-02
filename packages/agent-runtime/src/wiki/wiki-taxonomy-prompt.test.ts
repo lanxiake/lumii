@@ -68,7 +68,7 @@ describe("buildTaxonomyGuide", () => {
     const guide = buildTaxonomyGuide(DEFAULT_TOPIC_TREE);
     const confusion = guide.split("## 易混")[1]!.split("## 可选目录")[0]!;
     const rules = confusion.split("\n").filter((l) => l.startsWith("- "));
-    expect(rules).toHaveLength(6);
+    expect(rules).toHaveLength(5);
     // 每条易混的落点都是大类，不出现「大类/小类」这种替模型定小类的写法
     for (const rule of rules) {
       expect(rule, `易混规则不应指定小类：${rule}`).not.toMatch(/→\s*\S+\s*\/\s*\S+/);

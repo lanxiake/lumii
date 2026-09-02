@@ -1265,6 +1265,17 @@ async function initialize(): Promise<void> {
   configManager = new ConfigManager(directoryManager)
   await configManager.initialize()
   reapplyCodingDevAcpEnvFromConfig()
+
+  // 将搜索配置注入到 process.env（供 Agent Runtime 工具使用）
+  const searchConfig = configManager.getSearchConfig()
+  if (searchConfig.langSearchApiKey) {
+    process.env.LANGSEARCH_API_KEY = searchConfig.langSearchApiKey
+  }
+  if (searchConfig.searxngBaseUrl) {
+    process.env.SEARXNG_BASE_URL = searchConfig.searxngBaseUrl
+  }
+  log.info('搜索工具配置已加载')
+
   // 将 ACP 后端选择持久化到 config 目录（而非 %TEMP%），确保重启后不丢失
   {
     const { setBackendSelectionBaseDir } = await import('./coding-dev-backends-stub/backend-selection.js')

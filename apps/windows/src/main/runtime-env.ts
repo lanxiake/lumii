@@ -169,8 +169,13 @@ export async function writeShims(): Promise<void> {
  *
  * Windows 上 process.env 的键名大小写不定（通常是 Path），必须复用已有键名，
  * 否则子进程会拿到 PATH 与 Path 两个变量，行为取决于实现，容易出诡异 bug。
+ *
+ * 同时注入搜索工具配置（从 ConfigManager 读取）。
  */
-export function buildScriptEnv(extra?: Record<string, string>): Record<string, string> {
+export function buildScriptEnv(
+  extra?: Record<string, string>,
+  searchConfig?: { langSearchApiKey?: string; searxngBaseUrl?: string },
+): Record<string, string> {
   const env: Record<string, string> = { ...process.env, ...(extra ?? {}) } as Record<string, string>
 
   const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
@@ -178,6 +183,14 @@ export function buildScriptEnv(extra?: Record<string, string>): Record<string, s
   const shimDir = getShimDir()
   if (!current.split(delimiter).includes(shimDir)) {
     env[pathKey] = current ? `${current}${delimiter}${shimDir}` : shimDir
+  }
+
+  // 注入搜索工具配置
+  if (searchConfig?.langSearchApiKey) {
+    env.LANGSEARCH_API_KEY = searchConfig.langSearchApiKey
+  }
+  if (searchConfig?.searxngBaseUrl) {
+    env.SEARXNG_BASE_URL = searchConfig.searxngBaseUrl
   }
 
   // 内置 Python 走镜像装包，否则国内 pip install 基本等于卡死。

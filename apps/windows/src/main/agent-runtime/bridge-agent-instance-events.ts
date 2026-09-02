@@ -556,18 +556,6 @@ export function createAgentInstanceRuntimeEventHandler(
         })
       }
 
-      // Wiki 摄入（P0）：网页搜索结果逐条摄入收件箱
-      if (event.toolName === 'web_search' && !event.isError) {
-        const hook = getWikiIngestHook()
-        const details = (event.result as { details?: { items?: Array<{ title?: string; url?: string; summary?: string }> } } | undefined)
-          ?.details
-        if (hook && details?.items) {
-          for (const item of details.items) {
-            if (!item.url) continue
-            hook.ingestWebSearch(resolveWikiAgentId(), 'local-user', item.url, item.title ?? item.url, item.summary)
-          }
-        }
-      }
     }
     if (event.type === 'message:delta') {
       const state = instanceStates.get(instanceId)

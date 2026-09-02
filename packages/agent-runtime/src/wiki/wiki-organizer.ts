@@ -23,11 +23,10 @@ import type {
   WikiSource,
 } from "./types.js";
 
+/** 仅处理文件类摄入；网页链接与对话消息已下线，不再自动整理 */
 export const WIKI_INBOX_ITEM_TYPES: readonly WikiInboxItemType[] = [
   "upload",
   "output",
-  "search",
-  "chat",
 ];
 
 /**

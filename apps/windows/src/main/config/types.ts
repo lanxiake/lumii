@@ -58,11 +58,22 @@ export interface LogConfig {
 }
 
 /**
+ * 搜索工具配置
+ */
+export interface SearchConfig {
+  /** LangSearch API Key（用于 web_search 工具） */
+  langSearchApiKey?: string
+  /** SearXNG Base URL（用于 web_search 工具后备） */
+  searxngBaseUrl?: string
+}
+
+/**
  * 完整配置
  */
 export interface Config {
   app: AppConfig
   log: LogConfig
+  search: SearchConfig
 }
 
 /**
@@ -88,5 +99,9 @@ export const DEFAULT_CONFIG: Config = {
     level: 'info',
     maxSize: 10,
     maxFiles: 5,
+  },
+  search: {
+    langSearchApiKey: undefined,
+    searxngBaseUrl: undefined,
   },
 }

@@ -233,4 +233,9 @@ export const apiServerHttpApi = {
     ipcRenderer.invoke('api:updateAgent', agentId, data),
   deleteAgent: (agentId: string) => ipcRenderer.invoke('api:deleteAgent', agentId),
   getUserSkills: () => ipcRenderer.invoke('api:getUserSkills'),
+
+  // --- 搜索工具配置 ---
+  getSearchConfig: () => ipcRenderer.invoke('api:getSearchConfig'),
+  setSearchConfig: (config: { langSearchApiKey?: string; searxngBaseUrl?: string }) =>
+    ipcRenderer.invoke('api:setSearchConfig', config),
 }

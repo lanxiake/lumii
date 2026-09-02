@@ -19,7 +19,9 @@
   "dependencies": {
     "@mariozechner/pi-agent-core": "^0.50.7",
     "@mariozechner/pi-ai": "^0.50.7",
-    "@sinclair/typebox": "^0.34.33"
+    "@sinclair/typebox": "^0.34.33",
+    "axios": "^1.20.0",
+    "cheerio": "^1.2.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

@@ -42,6 +42,7 @@ import { invalidateAgentInstancesForProviderChange } from '../agent-runtime'
 
 interface ApiIpcDeps {
   getAgentRuntimeBridge: () => AgentRuntimeBridge | null
+  getConfigManager: () => any // ConfigManager 实例
   log: {
     info: (...args: unknown[]) => void
     warn: (...args: unknown[]) => void
@@ -302,5 +303,39 @@ export function registerApiIpcHandlers(): void {
    */
   ipcMain.handle('api:getUserSkills', async () => {
     return { success: true, data: [] }
+  })
+
+  // === 搜索工具配置 ===
+  ipcMain.handle('api:getSearchConfig', async () => {
+    try {
+      const config = deps!.getConfigManager().getSearchConfig()
+      return { success: true, data: config }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle('api:setSearchConfig', async (_event, searchConfig: { langSearchApiKey?: string; searxngBaseUrl?: string }) => {
+    try {
+      await deps!.getConfigManager().updateSearchConfig(searchConfig)
+      // 更新 process.env 以便立即生效
+      if (searchConfig.langSearchApiKey !== undefined) {
+        if (searchConfig.langSearchApiKey) {
+          process.env.LANGSEARCH_API_KEY = searchConfig.langSearchApiKey
+        } else {
+          delete process.env.LANGSEARCH_API_KEY
+        }
+      }
+      if (searchConfig.searxngBaseUrl !== undefined) {
+        if (searchConfig.searxngBaseUrl) {
+          process.env.SEARXNG_BASE_URL = searchConfig.searxngBaseUrl
+        } else {
+          delete process.env.SEARXNG_BASE_URL
+        }
+      }
+      return { success: true }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
   })
 }

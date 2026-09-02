@@ -17,6 +17,7 @@ describe("buildWikiKnowledgeSection", () => {
     expect(text).toContain("wiki folder import");
     expect(text).toContain("auto-classifies");
     expect(text).toContain("no-auto-classify");
+    expect(text).toContain("Files only");
   });
 
   it("仅有 wiki 读工具时不包含 CLI 写入指引", () => {

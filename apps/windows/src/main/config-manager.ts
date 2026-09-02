@@ -8,7 +8,7 @@
 import { promises as fs } from 'fs'
 import { join } from 'path'
 import type { DirectoryManager } from './directory-manager'
-import type { Config, AppConfig, LogConfig, PartialConfig } from './config/types'
+import type { Config, AppConfig, LogConfig, SearchConfig, PartialConfig } from './config/types'
 import { DEFAULT_CONFIG } from './config/types'
 
 const log = {
@@ -78,6 +78,7 @@ export class ConfigManager {
     return {
       app: this.mergeSection(base.app, override.app),
       log: this.mergeSection(base.log, override.log),
+      search: this.mergeSection(base.search, override.search),
     }
   }
 
@@ -173,6 +174,13 @@ export class ConfigManager {
   }
 
   /**
+   * 获取搜索配置
+   */
+  getSearchConfig(): SearchConfig {
+    return this.getConfig().search
+  }
+
+  /**
    * 更新应用配置
    */
   async updateAppConfig(config: Partial<AppConfig>): Promise<void> {
@@ -184,6 +192,13 @@ export class ConfigManager {
    */
   async updateLogConfig(config: Partial<LogConfig>): Promise<void> {
     await this.saveConfig({ log: config })
+  }
+
+  /**
+   * 更新搜索配置
+   */
+  async updateSearchConfig(config: Partial<SearchConfig>): Promise<void> {
+    await this.saveConfig({ search: config })
   }
 
   /**

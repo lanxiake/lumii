@@ -89,7 +89,7 @@ describe("Wiki 摄入钩子接线", () => {
     expect(ingestOutput).not.toHaveBeenCalled();
   });
 
-  it("web_search 成功后按结果条目逐条调用 ingestWebSearch", () => {
+  it("web_search 成功后不再摄入 Wiki（只收录文件）", () => {
     const ingestWebSearch = vi.fn();
     const { handler } = buildHandler(() => ({ ingestWebSearch } as never));
 
@@ -109,9 +109,7 @@ describe("Wiki 摄入钩子接线", () => {
       },
     } as never);
 
-    expect(ingestWebSearch).toHaveBeenCalledTimes(2);
-    expect(ingestWebSearch).toHaveBeenCalledWith("assistant", "local-user", "https://a.example.com", "标题A", "摘要A");
-    expect(ingestWebSearch).toHaveBeenCalledWith("assistant", "local-user", "https://b.example.com", "标题B", "摘要B");
+    expect(ingestWebSearch).not.toHaveBeenCalled();
   });
 
   it("getWikiIngestHook 返回 null 时安静跳过（不抛错）", () => {

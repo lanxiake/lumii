@@ -122,7 +122,7 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
   if (totalSelectable === 0) {
     return (
       <p className="wiki-empty-hint">
-        暂无收件箱条目。上传文件、任务产物或网页搜索结果会自动出现在这里。
+        暂无收件箱条目。上传文件或任务产物会自动出现在这里。
       </p>
     )
   }

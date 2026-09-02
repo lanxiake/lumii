@@ -68,6 +68,62 @@ describe("WikiRepo 收件箱", () => {
     expect(repo.listInbox("ag", "u")).toHaveLength(2);
   });
 
+  it("isSourcePathKnown：资料已删的 organized 收件箱不算还在 Wiki", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const inbox = repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "upload",
+      title: "课本.pdf",
+      sourcePath: "C:/教材/课本.pdf",
+      contentHash: "h1",
+    });
+    const source = repo.createSource({
+      agentId: "ag",
+      userId: "u",
+      title: "课本.pdf",
+      sourcePath: "C:/教材/课本.pdf",
+    });
+    repo.markInboxOrganized(inbox.id, source.id);
+    expect(repo.isSourcePathKnown("ag", "u", "C:/教材/课本.pdf")).toBe(true);
+
+    repo.deleteSources("ag", "u", [source.id]);
+    expect(repo.findSourceById(source.id)).toBeNull();
+    expect(repo.isSourcePathKnown("ag", "u", "C:/教材/课本.pdf")).toBe(false);
+  });
+
+  it("ingestToInbox 在 organized 资料已删时把收件箱重新打开为 pending", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const inbox = repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "upload",
+      title: "课本.pdf",
+      sourcePath: "/tmp/课本.pdf",
+      contentHash: "h1",
+    });
+    const source = repo.createSource({
+      agentId: "ag",
+      userId: "u",
+      title: "课本.pdf",
+      sourcePath: "/tmp/课本.pdf",
+    });
+    repo.markInboxOrganized(inbox.id, source.id);
+    repo.deleteSources("ag", "u", [source.id]);
+
+    const again = repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "upload",
+      title: "课本.pdf",
+      sourcePath: "/tmp/课本.pdf",
+      contentHash: "h1",
+    });
+    expect(again.id).toBe(inbox.id);
+    expect(again.status).toBe("pending");
+    expect(repo.listInbox("ag", "u", "pending")).toHaveLength(1);
+  });
+
   it("批量取件只取 pending 且未超重试上限的同类型条目", () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const item = repo.ingestToInbox({ agentId: "ag", userId: "u", itemType: "upload", title: "a" });
@@ -737,7 +793,31 @@ describe("WikiRepo 删除资料清理索引", () => {
     expect(repo.checkIndexHealth().isHealthy).toBe(true);
   });
 
-  it("删除后新建的资料不会搜出被删资料的正文", () => {    const repo = new WikiRepo(createMigratedTestDb());
+  it("删除资料时把对应收件箱关账记录作废，路径不再算已在 Wiki", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const inbox = repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "upload",
+      title: "课本.pdf",
+      sourcePath: "/tmp/课本.pdf",
+      contentHash: "h1",
+    });
+    const source = repo.createSource({
+      agentId: "ag",
+      userId: "u",
+      title: "课本.pdf",
+      sourcePath: "/tmp/课本.pdf",
+    });
+    repo.markInboxOrganized(inbox.id, source.id);
+    repo.deleteSources("ag", "u", [source.id]);
+
+    expect(repo.findInboxById(inbox.id)?.status).toBe("discarded");
+    expect(repo.isSourcePathKnown("ag", "u", "/tmp/课本.pdf")).toBe(false);
+  });
+
+  it("删除后新建的资料不会搜出被删资料的正文", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
     const first = repo.createSource({ agentId: "ag", userId: "u", title: "旧资料", extractedText: "机密内容甲" });
     repo.indexSource(first.id);
     repo.deleteSources("ag", "u", [first.id]);

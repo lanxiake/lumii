@@ -219,17 +219,22 @@ describe("WikiOrganizer 端到端", () => {
 });
 
 describe("WikiIngestHook", () => {
-  it("三路摄入各写入对应 item_type", () => {
+  it("两路摄入各写入对应 item_type", () => {
     const { repo, hook } = setup();
     hook.ingestUpload("ag", "u", "/tmp/a.md", "a");
     hook.ingestOutput("ag", "u", "/tmp/out.md", "产物", "任务上下文");
-    hook.ingestWebSearch("ag", "u", "https://example.com/x", "网页", "摘要片段");
 
     const types = repo
       .listInbox("ag", "u")
       .map((i) => i.item_type)
       .sort();
-    expect(types).toEqual(["output", "search", "upload"]);
+    expect(types).toEqual(["output", "upload"]);
+  });
+
+  it("ingestWebSearch 始终返回 null，不写入 inbox", () => {
+    const { repo, hook } = setup();
+    expect(hook.ingestWebSearch("ag", "u", "https://example.com/x", "网页", "摘要片段")).toBeNull();
+    expect(repo.listInbox("ag", "u")).toHaveLength(0);
   });
 
   it("ingestChat 始终返回 null，不写入 inbox", () => {
@@ -281,13 +286,6 @@ describe("WikiIngestHook", () => {
     expect(hook.ingestUpload("ag", "u", "/tmp/a.md", "a")).toBeNull();
   });
 
-  it("网页检索以 url 为去重维度，同 url 同摘要只摄入一次", () => {
-    const { repo, hook } = setup();
-    hook.ingestWebSearch("ag", "u", "https://example.com/x", "标题", "摘要");
-    hook.ingestWebSearch("ag", "u", "https://example.com/x", "标题", "摘要");
-    expect(repo.listInbox("ag", "u")).toHaveLength(1);
-    expect(repo.listInbox("ag", "u")[0]!.source_url).toBe("https://example.com/x");
-  });
 });
 
 describe("WikiOrganizer 与重新编目互斥", () => {

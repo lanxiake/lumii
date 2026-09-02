@@ -45,6 +45,8 @@ import {
   handleWikiEroEntitySources,
   handleWikiVectorRebuild,
   handleWikiSourceSummary,
+  handleWikiLinkAdd,
+  handleWikiLinkSave,
 } from './wiki-commands'
 import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY, WikiReclassifier, WikiEroRepo } from '@mtbot/agent-runtime'
 import { securityUtils } from '../../security-utils'
@@ -83,7 +85,12 @@ function createMigratedDb(): DatabaseAdapter {
   return db
 }
 
-function buildBridge(repo: WikiRepo, callLLM?: (prompt: string) => Promise<string>, cwd?: string): AgentRuntimeBridge {
+function buildBridge(
+  repo: WikiRepo,
+  callLLM?: (prompt: string) => Promise<string>,
+  cwd?: string,
+  resolveWikiEmbedder?: AgentRuntimeBridge['resolveWikiEmbedder'],
+): AgentRuntimeBridge {
   const hook = new WikiIngestHook(repo)
   const organizer = new WikiOrganizer(repo, callLLM ?? (async () => '{}'), new WikiContentExtractor())
   return {
@@ -96,7 +103,9 @@ function buildBridge(repo: WikiRepo, callLLM?: (prompt: string) => Promise<strin
     getCwd: () => cwd ?? process.cwd(),
     callLLM: callLLM ?? (async () => '{}'),
     // 向量重建/摘要相关命令用：桩掉真实嵌入模型加载，embedder=null 走禁用路径
-    resolveWikiEmbedder: async () => ({ embedder: null, backend: 'disabled', notice: null }),
+    resolveWikiEmbedder:
+      resolveWikiEmbedder ??
+      (async () => ({ embedder: null, backend: 'disabled' as const, notice: null })),
   } as unknown as AgentRuntimeBridge
 }
 
@@ -144,6 +153,31 @@ describe('wiki commands', () => {
     repo.markInboxOrganized(organized.id, 'src1')
 
     expect(handleWikiInboxCount(bridge, { type: 'wiki:inbox:count', agentId: 'assistant', status: 'pending' }).total).toBe(2)
+  })
+
+  it('inbox count 不传 status 时 pending 只计 pending，organized 不混进角标', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'p1' })
+    const organized = repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'o1' })
+    repo.markInboxOrganized(organized.id, 'src1')
+
+    const r = handleWikiInboxCount(bridge, { type: 'wiki:inbox:count', agentId: 'assistant' })
+    expect(r.pending).toBe(1)
+    expect(r.unfiled).toBe(0)
+    expect(r.total).toBe(1)
+  })
+
+  it('inbox count 不传 status 时 total 含未分类资料', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    repo.ingestToInbox({ agentId: 'assistant', userId: 'local-user', itemType: 'upload', title: 'p1' })
+    repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '未分类笔记' })
+
+    const r = handleWikiInboxCount(bridge, { type: 'wiki:inbox:count', agentId: 'assistant' })
+    expect(r.pending).toBe(1)
+    expect(r.unfiled).toBe(1)
+    expect(r.total).toBe(2)
   })
 
   it('retry / discard 对不存在的 id 抛错，不静默返回 success', () => {
@@ -222,6 +256,57 @@ describe('wiki commands', () => {
       keyword: '架构设计',
     })) as { hits: { sourceId: string }[] }
     expect(r.hits.find((h) => h.sourceId === source.id)).toBeUndefined()
+  })
+
+  it('search FTS 空命中时不把全库灌进向量充数', async () => {
+    const repo = createWikiRepo()
+    const embedder = {
+      modelId: 'test-vec',
+      dims: 4,
+      embed: async () => new Float32Array([1, 0, 0, 0]),
+    }
+    const bridge = buildBridge(repo, undefined, undefined, async () => ({
+      embedder,
+      backend: 'transformers' as const,
+      notice: null,
+    }))
+    repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: 'ppt-cover.png',
+      extractedText: 'RGB',
+    })
+
+    const r = (await handleWikiSearch(bridge, {
+      type: 'wiki:search',
+      agentId: 'assistant',
+      keyword: '架构设计',
+    })) as { hits: { title: string }[]; mode: string; degradeReason: string | null }
+    expect(r.hits).toEqual([])
+    expect(r.mode).toBe('fts')
+    expect(r.degradeReason).toMatch(/全文无命中/)
+  })
+
+  it('search 在资料 FTS 丢失时先重建再检索', async () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    repo.createSource({
+      agentId: 'assistant',
+      userId: 'local-user',
+      title: '架构设计文档',
+      extractedText: '这是一份关于系统架构设计的说明',
+    })
+    repo.database.exec('DELETE FROM wiki_sources_fts')
+    expect(repo.checkIndexHealth().isHealthy).toBe(false)
+
+    const r = (await handleWikiSearch(bridge, {
+      type: 'wiki:search',
+      agentId: 'assistant',
+      keyword: '架构设计',
+    })) as { hits: { title: string }[] }
+    expect(r.hits).toHaveLength(1)
+    expect(r.hits[0]!.title).toBe('架构设计文档')
+    expect(repo.checkIndexHealth().isHealthy).toBe(true)
   })
 
   it('source:get 存在与不存在两种情况', () => {
@@ -862,5 +947,21 @@ describe('wiki commands', () => {
     await expect(
       handleWikiSourceSummary(bridge, { type: 'wiki:source:summary', agentId: 'assistant', sourceId: 'missing' }),
     ).rejects.toThrow(/资料不存在/)
+  })
+
+  it('link:add 拒绝单独收录网页链接', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    expect(() =>
+      handleWikiLinkAdd(bridge, { type: 'wiki:link:add', agentId: 'assistant', url: 'https://example.com' }),
+    ).toThrow(/只收录文件/)
+  })
+
+  it('link:save 拒绝保存网页为独立资料', async () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    await expect(
+      handleWikiLinkSave(bridge, { type: 'wiki:link:save', agentId: 'assistant', sourceId: 'any' }),
+    ).rejects.toThrow(/只收录文件/)
   })
 })

@@ -133,7 +133,7 @@ export class WikiRepo {
            LIMIT 1`,
         )
         .get(params.agentId, params.userId, params.sourcePath, params.contentHash);
-      if (existing) return inboxRowToItem(existing);
+      if (existing) return this.reuseOrReopenInbox(existing);
     }
 
     const id = generateWikiId();
@@ -514,32 +514,66 @@ export class WikiRepo {
    * 资料层没有独立的路径命名空间，磁盘路径就是它的自然键。
    */
   findSourceBySourcePath(agentId: string, userId: string, sourcePath: string): WikiSource | null {
+    const key = sourcePath.replace(/\\/g, "/");
     const row = this.db
       .prepare<WikiSource>(
-        "SELECT * FROM wiki_sources WHERE agent_id = ? AND user_id = ? AND source_path = ?",
+        `SELECT * FROM wiki_sources
+         WHERE agent_id = ? AND user_id = ? AND REPLACE(IFNULL(source_path, ''), '\\', '/') = ?`,
       )
-      .get(agentId, userId, sourcePath);
+      .get(agentId, userId, key);
     return row ?? null;
   }
 
   /**
-   * 判断 source_path 是否已在 Wiki（资料层或有效收件箱条目）。
-   * 供文件夹批量导入 scan 阶段去重预览。
+   * 判断 source_path 是否已在 Wiki：资料层还在，或收件箱仍是 pending。
+   * organized 但对应资料已删 / discarded 不算，否则会挡住重新导入，界面上又看不到。
    */
   isSourcePathKnown(agentId: string, userId: string, sourcePath: string): boolean {
     const key = sourcePath.replace(/\\/g, "/");
-    const source = this.findSourceBySourcePath(agentId, userId, key);
-    if (source) return true;
+    if (this.findSourceBySourcePath(agentId, userId, key)) return true;
     const row = this.db
-      .prepare<{ n: number }>(
-        `SELECT 1 AS n FROM wiki_inbox
+      .prepare<WikiInboxRow>(
+        `SELECT * FROM wiki_inbox
          WHERE agent_id = ? AND user_id = ?
-           AND REPLACE(source_path, '\\', '/') = ?
+           AND REPLACE(IFNULL(source_path, ''), '\\', '/') = ?
            AND status != 'discarded'
          LIMIT 1`,
       )
       .get(agentId, userId, key);
-    return row != null;
+    if (!row) return false;
+    return this.inboxStillVisibleInWiki(row);
+  }
+
+  /**
+   * pending 会出现在收件箱；organized 只有资料行还在才算「已在 Wiki」。
+   */
+  private inboxStillVisibleInWiki(row: WikiInboxRow): boolean {
+    if (row.status === "pending") return true;
+    if (row.status !== "organized") return false;
+    if (row.organized_source_id) {
+      return this.findSourceById(row.organized_source_id) !== null;
+    }
+    return false;
+  }
+
+  /**
+   * 重复摄入：资料还在就复用；organized/discarded 且资料已没了则重新打开为 pending。
+   */
+  private reuseOrReopenInbox(row: WikiInboxRow): WikiInboxItem {
+    if (row.status === "pending") return inboxRowToItem(row);
+    if (row.status === "organized" && this.inboxStillVisibleInWiki(row)) {
+      return inboxRowToItem(row);
+    }
+    this.db
+      .prepare(
+        `UPDATE wiki_inbox
+         SET status = 'pending', organized_source_id = NULL, organized_at = NULL,
+             last_error = NULL, last_outcome = NULL
+         WHERE id = ?`,
+      )
+      .run(row.id);
+    const updated = this.db.prepare<WikiInboxRow>("SELECT * FROM wiki_inbox WHERE id = ?").get(row.id);
+    return inboxRowToItem(updated ?? { ...row, status: "pending", organized_source_id: null, organized_at: null });
   }
 
   listSources(agentId: string, userId: string): readonly WikiSource[] {
@@ -1176,7 +1210,7 @@ export class WikiRepo {
     return info.changes;
   }
 
-  /** 物理删除资料条目，同时清掉资料层 FTS 索引行 */
+  /** 物理删除资料条目，同时清掉资料层 FTS 索引行，并作废对应收件箱关账记录 */
   deleteSources(agentId: string, userId: string, sourceIds: readonly string[]): number {
     if (sourceIds.length === 0) return 0;
     const placeholders = sourceIds.map(() => "?").join(",");
@@ -1192,6 +1226,13 @@ export class WikiRepo {
         .prepare(`DELETE FROM wiki_sources WHERE agent_id = ? AND user_id = ? AND id IN (${placeholders})`)
         .run(agentId, userId, ...sourceIds);
       for (const row of rows) this.indexRepo.deleteSourceRow(row.rowid);
+      // 资料没了，organized 收件箱不能再挡住同一路径重新导入
+      this.db
+        .prepare(
+          `UPDATE wiki_inbox SET status = 'discarded'
+           WHERE agent_id = ? AND user_id = ? AND organized_source_id IN (${placeholders})`,
+        )
+        .run(agentId, userId, ...sourceIds);
       return info.changes;
     });
   }

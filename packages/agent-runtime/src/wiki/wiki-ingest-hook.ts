@@ -1,9 +1,10 @@
 /**
- * WikiIngestHook — 四路摄入统一入口（上传 / 任务产物 / 网页检索 / 对话）
+ * WikiIngestHook — 两路摄入统一入口（上传 / 任务产物）
  *
  * 薄封装 repo.ingestToInbox，只负责组装参数与算去重哈希。
  * 关键约束：每个方法内部吞掉异常——摄入是主流程的旁路，钩子失败绝不能影响
- * 上传/产物写入/检索本身（设计原则「自动优先」的前提是钩子无侵入性）。
+ * 上传/产物写入本身（设计原则「自动优先」的前提是钩子无侵入性）。
+ * 网页链接与对话消息不单独收录；编写文档时可将链接嵌入正文。
  * 返回摄入条目 id，摄入被跳过或失败时返回 null。
  */
 
@@ -65,21 +66,9 @@ export class WikiIngestHook {
     );
   }
 
-  /** 网页检索结果 */
-  ingestWebSearch(agentId: string, userId: string, url: string, title: string, snippet?: string): string | null {
-    return this.safeIngest(() =>
-      this.repo.ingestToInbox({
-        agentId,
-        userId,
-        itemType: "search",
-        sourcePath: url, // 以 url 作为去重维度（ingestToInbox 按 sourcePath+hash 去重）
-        sourceUrl: url,
-        title,
-        contentPreview: snippet,
-        mediaType: "document",
-        contentHash: contentAddressId([url, snippet ?? ""]),
-      }),
-    );
+  /** 网页检索结果不再收录：Wiki 只收文件与文档；链接可嵌入文档正文，不单独建资料 */
+  ingestWebSearch(_agentId: string, _userId: string, _url: string, _title: string, _snippet?: string): null {
+    return null;
   }
 
   /** 对话消息不再收录：Wiki 只收文件与文档（设计 §1），始终返回 null，不写 inbox */

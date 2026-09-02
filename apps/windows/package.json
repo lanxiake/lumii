@@ -9,6 +9,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "node scripts/run-dev.cjs",
+    "dev:debug": "node scripts/run-dev.cjs --inspect=5858 --remoteDebuggingPort=9222 --sourcemap",
     "sync:guides": "node scripts/sync-user-guides.mjs",
     "lab": "vite --config pet-lab/vite.config.ts",
     "prebuild": "pnpm sync:guides && pnpm typecheck",
