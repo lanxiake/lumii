@@ -111,9 +111,16 @@ export function registerApiIpcHandlers(): void {
     } else {
       saveProviderConfig(cfg as LocalProviderConfigView)
     }
+    const saved = loadProviderSlotsConfig()
+    const availableChatModels = saved.chat.enabled
+      ? [saved.chat.modelId, ...(saved.chat.allowedModelIds ?? [])]
+        .map((modelId) => modelId?.trim())
+        .filter((modelId): modelId is string => Boolean(modelId))
+      : []
+    deps!.getAgentRuntimeBridge()?.clearInvalidSessionPreferredModels(availableChatModels)
     // 配置变更后销毁旧实例，避免继续走创建时快照的 Gateway/旧凭据
     invalidateAgentInstancesForProviderChange()
-    return loadProviderSlotsConfig()
+    return saved
   })
 
   ipcMain.handle('provider:listModels', async (_event, slot: CapabilitySlot, draftCfg?: LocalProviderConfigView) => {

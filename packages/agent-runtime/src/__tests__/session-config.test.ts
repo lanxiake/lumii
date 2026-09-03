@@ -10,6 +10,7 @@ import {
   filterEnabledForSession,
   readSessionConfig,
   patchSessionConfig,
+  clearInvalidSessionPreferredModels,
   toggleSessionDisabled,
 } from "../storage/session-config.js";
 import { createMigratedTestDb } from "./helpers/sqlite-test-db.js";
@@ -86,6 +87,25 @@ describe("readSessionConfig / patchSessionConfig", () => {
     patchSessionConfig(db, convId, { preferredModel: "m1", disabledSkills: ["art"] });
     patchSessionConfig(db, convId, { preferredModel: undefined });
     expect(readSessionConfig(db, convId)).toEqual({ disabledSkills: ["art"] });
+  });
+
+  it("clears model overrides that are unavailable from the active provider", () => {
+    const { db, convId } = seedDb();
+    const validConvId = "conv-valid-model";
+    db.prepare(
+      `INSERT INTO conversations (id, user_id, type, title, is_active, created_at)
+       VALUES (?, 'local-user', 'direct', 'valid', 1, ?)`,
+    ).run(validConvId, new Date().toISOString());
+
+    patchSessionConfig(db, convId, {
+      preferredModel: "qwen3.8-27b",
+      disabledSkills: ["art"],
+    });
+    patchSessionConfig(db, validConvId, { preferredModel: "gpt-5.6-luna" });
+
+    expect(clearInvalidSessionPreferredModels(db, ["gpt-5.6-luna"])).toBe(1);
+    expect(readSessionConfig(db, convId)).toEqual({ disabledSkills: ["art"] });
+    expect(readSessionConfig(db, validConvId)).toEqual({ preferredModel: "gpt-5.6-luna" });
   });
 });
 

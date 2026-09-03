@@ -30,6 +30,7 @@ import {
   AuditRepo,
   RuntimeStateRepo,
   FileRepo,
+  clearInvalidSessionPreferredModels,
   patchSessionConfig,
   readSessionConfig,
   toggleSessionDisabled,  maybeRunAutoVacuumSync,
@@ -458,6 +459,7 @@ export class AgentRuntimeBridge {
     if (this.initialized) return
 
     await this.initializeDatabaseAndRepos()
+    this.reconcileStoredSessionModelPreferences()
     this.initializeToolContextAndRegistry()
     this.initializeCronScheduler()
     this.initializeDefinitionStoreAndMcp()
@@ -1293,6 +1295,31 @@ export class AgentRuntimeBridge {
       patchSessionConfig(this.localDb.db, sessionKey, { preferredModel: raw?.trim() || undefined })
     } catch (err) {
       log.error(`[setSessionPreferredModel] 持久化会话模型偏好失败 sessionKey=${sessionKey}:`, err)
+    }
+  }
+
+  clearInvalidSessionPreferredModels(availableModelIds: readonly string[]): number {
+    this.sessionModelCatalog.clearInvalidSessionPreferredModels(availableModelIds)
+    if (!this.localDb.isOpen) return 0
+    try {
+      return clearInvalidSessionPreferredModels(this.localDb.db, availableModelIds)
+    } catch (err) {
+      log.error('[clearInvalidSessionPreferredModels] 清理失效会话模型失败:', err)
+      return 0
+    }
+  }
+
+  private reconcileStoredSessionModelPreferences(): void {
+    const config = this.config.getProviderConfig?.()
+    if (!config) return
+    const availableModelIds = config.enabled
+      ? [config.modelId, ...(config.allowedModelIds ?? [])]
+        .map((modelId) => modelId?.trim())
+        .filter((modelId): modelId is string => Boolean(modelId))
+      : []
+    const cleared = this.clearInvalidSessionPreferredModels(availableModelIds)
+    if (cleared > 0) {
+      log.info(`[reconcileStoredSessionModelPreferences] 已清理 ${cleared} 个失效会话模型覆盖`)
     }
   }
 

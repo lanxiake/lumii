@@ -114,4 +114,32 @@ describe('switchSession 冷加载路径', () => {
     expect(loaded?.messages.some((m) => m.id.startsWith('incoming-'))).toBe(false)
     expect(sendCommand).toHaveBeenCalledWith(expect.objectContaining({ type: 'conversation:messages' }))
   })
+  it('keeps the most recently selected session when an earlier load resolves late', async () => {
+    const firstMessages = makeDeferred<unknown>()
+    const secondMessages = makeDeferred<unknown>()
+    const sendCommand = vi.fn((cmd: { type: string; sessionKey?: string }) => {
+      if (cmd.type === 'conversation:messages') {
+        return cmd.sessionKey === 'first-session' ? firstMessages.promise : secondMessages.promise
+      }
+      if (cmd.type === 'files:list') return Promise.resolve({ files: [] })
+      if (cmd.type === 'tasks:list') return Promise.resolve({ tasks: [] })
+      if (cmd.type === 'conversation:context-usage') {
+        return Promise.resolve({ usedTokens: 0, contextWindow: 200_000, triggerThreshold: 0.8 })
+      }
+      return Promise.resolve({})
+    })
+
+    ;(globalThis as unknown as { window: unknown }).window = {
+      electronAPI: { agentRuntime: { sendCommand } },
+    }
+
+    const first = switchSession('first-session')
+    const second = switchSession('second-session')
+    secondMessages.resolve({ items: [], hasMore: false, nextCursor: null })
+    await second
+    firstMessages.resolve({ items: [], hasMore: false, nextCursor: null })
+    await first
+
+    expect(runtimeStore.getState().currentSessionKey).toBe('second-session')
+  })
 })

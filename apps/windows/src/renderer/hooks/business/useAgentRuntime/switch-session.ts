@@ -24,6 +24,8 @@ type DbTaskRow = {
   id: string; subject: string; description: string | null; status: string; owner: string | null
 }
 
+let latestSwitchRequestId = 0
+
 /**
  * 判断会话是否仅由通道 notifyIncomingMessage 注入占位消息、尚未从 DB 加载首页历史。
  * 此类会话 memory 里可能只有 1 条 incoming-* 消息，但 DB 已有完整聊天记录。
@@ -129,10 +131,15 @@ function injectRestoredTasks(
 export async function switchSession(sessionKey: string, preferredModelId?: string): Promise<void> {
   const api = window.electronAPI?.agentRuntime
   if (!api?.sendCommand) return
+  const switchRequestId = ++latestSwitchRequestId
+  const isCurrentSwitch = () => switchRequestId === latestSwitchRequestId
+
+  runtimeStore.setState((prev) => ({ ...prev, currentSessionKey: sessionKey }))
 
   // 切换前先 prime 模型偏好，确保 context-usage 返回正确的 contextWindow（而非 128K 默认值）
   if (preferredModelId) {
-    await api.sendCommand({ type: 'session:preferredModel:set', sessionKey, modelId: preferredModelId }).catch(() => undefined)
+    await api.sendCommand({ type: 'session:preferredModel:prime', sessionKey, modelId: preferredModelId }).catch(() => undefined)
+    if (!isCurrentSwitch()) return
   }
 
   /** 拉取会话关联的文件与任务（缓存命中与冷加载共用） */
@@ -163,7 +170,6 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
   // 目标会话内存中已有消息 → 直接切换，但仍刷新 files/tasks
   const existingSession = runtimeStore.getState().sessions.get(sessionKey)
   if (existingSession && existingSession.messages.length > 0 && !sessionNeedsDbHydration(existingSession)) {
-    runtimeStore.setState((prev) => ({ ...prev, currentSessionKey: sessionKey }))
     try {
       const [contextUsage, meta] = await Promise.all([
         api.sendCommand({
@@ -177,6 +183,7 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
         }>,
         fetchSessionMeta(),
       ])
+      if (!isCurrentSwitch()) return
       updateSessionState(sessionKey, (prev) => {
         const ratio = contextUsage.contextWindow > 0
           ? contextUsage.usedTokens / contextUsage.contextWindow
@@ -206,9 +213,7 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
   // 先切当前会话，再去 DB 拉历史：useAgentRuntimeState 按 currentSessionKey 选消息，
   // 若等三个 IPC 都回来才切（原实现在末尾 setState），这段窗口里 UI 仍显示旧会话，
   // 期间发出的消息与回流的事件会落到「正在显示的会话」之外，表现为回复不渲染。
-  // 与上面已缓存分支的顺序保持一致；末尾 setState 仍会再写一次，幂等。
-  runtimeStore.setState((prev) => ({ ...prev, currentSessionKey: sessionKey }))
-
+  // 异步回读只会由最新一次切换提交，避免较早请求的结果覆盖当前选择。
   // 从 DB 加载目标会话历史（只取最新一页，更早的由上滑懒加载补齐）
   const [dbPage, meta, dbContextUsage] = await Promise.all([
     api.sendCommand({
@@ -239,7 +244,9 @@ export async function switchSession(sessionKey: string, preferredModelId?: strin
    * 合并逻辑放在 setState updater 内，确保基于写入时刻的最新内存状态做合并，
    * 消除 await 期间后台事件写入导致的竞态覆盖问题。
    */
+  if (!isCurrentSwitch()) return
   runtimeStore.setState((prev) => {
+    if (!isCurrentSwitch()) return prev
     const newSessions = new Map(prev.sessions)
     const latestMemSession = prev.sessions.get(sessionKey)
     const baseState = latestMemSession ?? getDefaultPerSessionState()

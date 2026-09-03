@@ -110,6 +110,14 @@ export function handleSessionPreferredModelSet(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'session:preferredModel:set' }>,
 ): unknown {
+  bridge.setSessionPreferredModel(command.sessionKey, command.modelId)
+  return bridge.getSessionContextUsage(command.sessionKey)
+}
+
+export function handleSessionPreferredModelPrime(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'session:preferredModel:prime' }>,
+): unknown {
   bridge.primeSessionModelCompaction(command.sessionKey, command.modelId)
   return bridge.getSessionContextUsage(command.sessionKey)
 }

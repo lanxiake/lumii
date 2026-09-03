@@ -132,6 +132,13 @@ export interface SessionPreferredModelSetCommand {
   readonly modelId?: string
 }
 
+/** 切换会话时预热模型上下文；不会修改会话级模型覆盖。 */
+export interface SessionPreferredModelPrimeCommand {
+  readonly type: 'session:preferredModel:prime'
+  readonly sessionKey: string
+  readonly modelId?: string
+}
+
 /** 更新会话级思考模式与推理强度 */
 export interface SessionThinkingPrefsSetCommand {
   readonly type: 'session:thinkingPrefs:set'
@@ -1278,6 +1285,7 @@ export type AgentRuntimeCommand =
   | UserAutoApproveSetCommand
   | RuntimeModelCatalogSetCommand
   | SessionPreferredModelSetCommand
+  | SessionPreferredModelPrimeCommand
   | SessionThinkingPrefsSetCommand
   | ConversationCreateCommand
   | ConversationCloseCommand
@@ -1432,6 +1440,11 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'user:ask-user:respond' ? void
   : T extends 'runtime:modelCatalog:set' ? { ok: boolean }
   : T extends 'session:preferredModel:set' ? {
+      usedTokens: number
+      contextWindow: number
+      triggerThreshold: number
+    }
+  : T extends 'session:preferredModel:prime' ? {
       usedTokens: number
       contextWindow: number
       triggerThreshold: number

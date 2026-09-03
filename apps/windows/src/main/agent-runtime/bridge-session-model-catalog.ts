@@ -260,6 +260,14 @@ export class BridgeSessionModelCatalog {
     this.sessionCompactionBySessionKey.delete(k)
   }
 
+  clearInvalidSessionPreferredModels(availableModelIds: readonly string[]): void {
+    const available = new Set(availableModelIds.map((modelId) => modelId.trim()).filter(Boolean))
+    for (const [sessionKey, modelId] of this.sessionPreferredModelRaw) {
+      if (available.has(modelId)) continue
+      this.clearSessionPreferredModel(sessionKey)
+    }
+  }
+
   /**
    * 解析 streamFn 外包层：按根会话或有效会话键读取 UI 选择的模型原始串
    */

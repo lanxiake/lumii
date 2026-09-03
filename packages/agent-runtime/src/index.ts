@@ -240,6 +240,7 @@ export {
   filterEnabledForSession,
   readSessionConfig,
   patchSessionConfig,
+  clearInvalidSessionPreferredModels,
   toggleSessionDisabled,
 } from "./storage/index.js";
 export type {

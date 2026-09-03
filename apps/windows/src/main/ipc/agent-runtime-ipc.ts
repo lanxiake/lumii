@@ -194,6 +194,7 @@ import {
 } from './agent-runtime/user-commands'
 import {
   handleSessionPreferredModelSet,
+  handleSessionPreferredModelPrime,
   handleSessionThinkingPrefsSet,
   handleMessageDelete as handleMiscMessageDelete,
   handleMessageEdit as handleMiscMessageEdit,
@@ -842,6 +843,9 @@ export async function handleCommand(
 
       case 'session:preferredModel:set':
         return handleSessionPreferredModelSet(bridge, command)
+
+      case 'session:preferredModel:prime':
+        return handleSessionPreferredModelPrime(bridge, command)
 
       case 'session:thinkingPrefs:set':
         return handleSessionThinkingPrefsSet(bridge, command)

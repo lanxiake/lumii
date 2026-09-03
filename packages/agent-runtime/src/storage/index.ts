@@ -50,6 +50,7 @@ export {
   filterEnabledForSession,
   readSessionConfig,
   patchSessionConfig,
+  clearInvalidSessionPreferredModels,
   toggleSessionDisabled,
 } from "./session-config.js";
 export type { SessionConfig } from "./session-config.js";

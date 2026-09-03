@@ -98,6 +98,35 @@ export function patchSessionConfig(
   return next as SessionConfig;
 }
 
+/**
+ * 删除已不在当前 chat provider 可用列表中的会话模型覆盖。
+ *
+ * 仅移除 preferredModel，保留会话内的工具、技能和压缩设置。
+ */
+export function clearInvalidSessionPreferredModels(
+  db: DatabaseAdapter,
+  availableModelIds: readonly string[],
+): number {
+  const available = new Set(
+    availableModelIds.map((modelId) => modelId.trim()).filter(Boolean),
+  );
+  const rows = db
+    .prepare<{ id: string }>(
+      "SELECT id FROM conversations WHERE session_config IS NOT NULL AND session_config != ''",
+    )
+    .all();
+  let cleared = 0;
+
+  for (const row of rows) {
+    const preferredModel = readSessionConfig(db, row.id).preferredModel?.trim();
+    if (!preferredModel || available.has(preferredModel)) continue;
+    patchSessionConfig(db, row.id, { preferredModel: undefined });
+    cleared += 1;
+  }
+
+  return cleared;
+}
+
 /** 切换某项的会话级禁用状态，返回更新后的禁用集 */
 export function toggleSessionDisabled(
   db: DatabaseAdapter,
