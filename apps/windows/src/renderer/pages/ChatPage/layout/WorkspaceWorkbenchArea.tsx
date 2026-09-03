@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useRef, useCallback } from 'react'
 import { WorkspaceWorkbench, type WorkbenchLayoutMode, type WorkbenchTab } from '../components/WorkspaceWorkbench'
 import { WorkspaceFilePanel } from '../components/WorkspaceFilePanel'
 import { WorkspaceVersionPanel } from '../components/WorkspaceVersionPanel/WorkspaceVersionPanel'
@@ -12,7 +12,6 @@ export interface WorkspaceWorkbenchAreaProps {
   locateFileTarget: React.ComponentProps<typeof WorkspaceFilePanel>['locateTarget']
   onTabChange: (tab: WorkbenchTab) => void
   onClose: () => void
-  onRefresh: () => void
   onWidthChange: NonNullable<WorkbenchProps['onWidthChange']>
   onResizingChange: NonNullable<WorkbenchProps['onResizingChange']>
   onLayoutModeChange: (mode: WorkbenchLayoutMode) => void
@@ -27,35 +26,54 @@ export const WorkspaceWorkbenchArea: React.FC<WorkspaceWorkbenchAreaProps> = ({
   locateFileTarget,
   onTabChange,
   onClose,
-  onRefresh,
   onWidthChange,
   onResizingChange,
   onLayoutModeChange,
   onRevealInFiles,
-}) => (
-  <WorkspaceWorkbench
-    open={workbench.open}
-    tab={workbench.tab}
-    onTabChange={onTabChange}
-    onClose={onClose}
-    uncommittedCount={uncommittedCount}
-    onRefresh={onRefresh}
-    onWidthChange={onWidthChange}
-    onResizingChange={onResizingChange}
-    layoutMode={layoutMode}
-    onLayoutModeChange={onLayoutModeChange}
-    childrenFiles={
-      <WorkspaceFilePanel open={workbench.open} onClose={onClose} locateTarget={locateFileTarget} embedded />
+}) => {
+  const fileRefreshRef = useRef<(() => void) | null>(null)
+  const vcsRefreshRef = useRef<(() => Promise<void>) | null>(null)
+
+  const handleRefresh = useCallback(async () => {
+    if (workbench.tab === 'files') {
+      fileRefreshRef.current?.()
+    } else if (workbench.tab === 'vcs') {
+      await vcsRefreshRef.current?.()
     }
-    childrenVcs={
-      <WorkspaceVersionPanel
-        open={workbench.open}
-        onClose={onClose}
-        embedded
-        layoutMode={layoutMode}
-        onLayoutModeChange={onLayoutModeChange}
-        onRevealInFiles={onRevealInFiles}
-      />
-    }
-  />
-)
+  }, [workbench.tab])
+
+  return (
+    <WorkspaceWorkbench
+      open={workbench.open}
+      tab={workbench.tab}
+      onTabChange={onTabChange}
+      onClose={onClose}
+      uncommittedCount={uncommittedCount}
+      onRefresh={handleRefresh}
+      onWidthChange={onWidthChange}
+      onResizingChange={onResizingChange}
+      layoutMode={layoutMode}
+      onLayoutModeChange={onLayoutModeChange}
+      childrenFiles={
+        <WorkspaceFilePanel
+          open={workbench.open}
+          onClose={onClose}
+          locateTarget={locateFileTarget}
+          embedded
+          refreshRef={fileRefreshRef}
+        />
+      }
+      childrenVcs={
+        <WorkspaceVersionPanel
+          open={workbench.open}
+          onClose={onClose}
+          embedded
+          layoutMode={layoutMode}
+          onLayoutModeChange={onLayoutModeChange}
+          onRevealInFiles={onRevealInFiles}
+          refreshRef={vcsRefreshRef}
+        />
+      }
+    />
+  )
+}

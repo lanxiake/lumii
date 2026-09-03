@@ -29,6 +29,12 @@ export {
 } from "./wiki-broken-source-purge.js";
 export type { WikiBrokenSourcePurgeResult } from "./wiki-broken-source-purge.js";
 
+export {
+  listInvalidWikiFiles,
+  purgeInvalidWikiFiles,
+} from "./wiki-invalid-file-purge.js";
+export type { WikiInvalidFilePurgeResult } from "./wiki-invalid-file-purge.js";
+
 export { serializeAttachmentReference, isAttachmentReferenceLine } from "./wiki-attachments.js";
 
 export { WikiGraphBuilder, subtopicNodeId, parseSubtopicNodeId } from "./wiki-graph.js";

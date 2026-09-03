@@ -38,7 +38,11 @@ describe("mergeDefaultSubtopics", () => {
     });
     expect(merged.categories[0]!.subtopics[0]).toBe("项目");
     expect(merged.categories[0]!.subtopics).toContain("我的专项");
-    expect(merged.categories[0]!.subtopics.slice(2)).toEqual(["例行", "对外", "协作", "规范"]);
+    // 追加项从默认树推导，避免每次调整分类边界都要改这条断言
+    const workDefaults = DEFAULT_TOPIC_TREE.categories.find((c) => c.name === "工作")!.subtopics;
+    expect(merged.categories[0]!.subtopics.slice(2)).toEqual(
+      workDefaults.filter((s) => s !== "项目"),
+    );
     expect(merged.categories[1]).toEqual({ name: "自定义", subtopics: ["甲"] });
   });
 

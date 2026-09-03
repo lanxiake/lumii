@@ -58,7 +58,7 @@ export interface AgentRuntimeBridgeConfig {
    * 本地定时任务触发时发送系统通知（由 index.ts 注入，使用 Electron Notification + tray balloon）
    * 不依赖任何会话 ID，纯系统级弹窗。
    */
-  showCronNotification?: (title: string, body: string) => void
+  showCronNotification?: (title: string, body: string, convId?: string) => void
   /**
    * 主动推送文本到飞书（由 index.ts 注入，调用 feishuLoginService.pushText）。
    * 收件人是登录时记录的 openId，定时任务结果推送用。

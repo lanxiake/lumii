@@ -81,6 +81,65 @@ function extractTextFromContentJson(contentJson: string): string {
   }
 }
 
+/**
+ * 根据通知渠道生成工具调用提示词。
+ * 每个渠道对应不同的工具和格式化要求。
+ */
+function buildNotifyToolsPrompt(notifyTargets: string | null): string {
+  if (!notifyTargets?.trim()) return ''
+
+  const targets = notifyTargets.split(',').map((t) => t.trim()).filter(Boolean)
+  if (targets.length === 0 || (targets.length === 1 && targets[0] === 'silent')) return ''
+
+  const toolInstructions: string[] = []
+
+  for (const target of targets) {
+    const colon = target.indexOf(':')
+    const kind = colon > 0 ? target.slice(0, colon) : target
+
+    switch (kind) {
+      case 'system':
+        toolInstructions.push(
+          '- 系统通知：完成任务后，输出简短的标题和正文摘要（控制在 100 字内），' +
+          '系统会自动发送桌面通知。不要使用工具，直接输出文本即可。'
+        )
+        break
+      case 'news':
+        toolInstructions.push(
+          '- 最近资讯：使用 dashboard_feed_write 工具将结果写入概览页资讯卡片。' +
+          '每条资讯需包含：标题、正文摘要（2-3 句话）、来源、链接。' +
+          '整体综述控制在 120 字内。'
+        )
+        break
+      case 'focus':
+        toolInstructions.push(
+          '- 近期关注：使用 memory_upsert 工具将重要事项写入工作记忆。' +
+          '格式简洁，每条事项包含：具体内容、当前状态或进度、截止时间（如有）。'
+        )
+        break
+      case 'feishu':
+        toolInstructions.push(
+          '- 飞书：完成任务后，输出适合即时通讯的消息格式（支持 Markdown）。' +
+          '保持简洁，突出关键信息，系统会自动推送到飞书。'
+        )
+        break
+      case 'weixin':
+        toolInstructions.push(
+          '- 微信：完成任务后，输出简短的文本消息（不支持 Markdown）。' +
+          '控制在 500 字内，系统会自动推送到指定的微信联系人。'
+        )
+        break
+      case 'silent':
+        // silent 不需要额外指导
+        break
+    }
+  }
+
+  if (toolInstructions.length === 0) return ''
+
+  return `\n\n## 通知输出\n\n完成任务后，需要通过以下渠道输出结果：\n\n${toolInstructions.join('\n\n')}`
+}
+
 /** LocalCronJobRow 的完整列清单，避免多处 SELECT 漂移 */
 const CRON_JOB_COLUMNS = `id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms,
         enabled, created_at, last_run_at, last_status,
@@ -103,8 +162,8 @@ export function isWithinActiveWindow(
 }
 
 export interface CronSchedulerDeps {
-  /** 是否显示系统通知 */
-  showCronNotification?: (title: string, body: string) => void
+  /** 是否显示系统通知。convId 用于点击通知后跳转到对应会话。 */
+  showCronNotification?: (title: string, body: string, convId?: string) => void
   /** 获取当前活跃会话 ID（Cron Agent 实例挂载用） */
   getLastActiveConvId: () => string | null
   /** 按 Agent ID 创建 Agent 实例 */
@@ -629,7 +688,7 @@ export class CronScheduler {
 
         switch (kind) {
           case 'system':
-            this.deps.showCronNotification?.(payload.title ?? '灵栖 定时任务', payload.body)
+            this.deps.showCronNotification?.(payload.title ?? '灵栖 定时任务', payload.body, `cron:${job.id}`)
             break
           case 'news':
             await prependActiveDashboardFeedItem({
@@ -771,7 +830,7 @@ export class CronScheduler {
    */
   private async driveAgent(
     job: { id: string; task_text: string },
-    currentRow: { name: string; system_prompt: string | null },
+    currentRow: { name: string; system_prompt: string | null; notify_targets: string | null },
     agentId: string,
     startedAt: number,
   ): Promise<string> {
@@ -781,10 +840,11 @@ export class CronScheduler {
     this.deps.notifyIncomingMessage(convId, job.task_text)
     const instanceId = await this.deps.createInstanceById(agentId, convId, convId)
     try {
-      // 预置任务带完整系统提示词，拼在任务指令之前
-      const message = currentRow.system_prompt
-        ? `${currentRow.system_prompt}\n\n---\n\n${job.task_text}`
-        : job.task_text
+      // 构建完整消息：system_prompt + 通知工具指导 + task_text
+      const notifyPrompt = buildNotifyToolsPrompt(currentRow.notify_targets)
+      const systemPart = currentRow.system_prompt ? `${currentRow.system_prompt}${notifyPrompt}` : ''
+      const message = systemPart ? `${systemPart}\n\n---\n\n${job.task_text}` : job.task_text
+
       await this.deps.prompt(instanceId, message)
       await this.deps.waitForInstanceIdle?.(instanceId)
       return await this.collectAssistantOutput({

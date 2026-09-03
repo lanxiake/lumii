@@ -832,6 +832,13 @@ export class AgentRuntimeBridge {
               const { deleted, titles } = purgeBrokenWikiSourcesOnDisk(this.wikiRepo, this.wikiCleanupScanner)
               return formatWikiBrokenSourcePurgeSummary(deleted, titles)
             },
+            runWikiPurgeInvalidFiles: async () => {
+              const { purgeInvalidWikiFilesOnDisk, formatWikiInvalidFilePurgeSummary } = await import(
+                './wiki-invalid-file-purge'
+              )
+              const { deleted, titles } = purgeInvalidWikiFilesOnDisk(this.wikiRepo)
+              return formatWikiInvalidFilePurgeSummary(deleted, titles)
+            },
           },
           options,
         )

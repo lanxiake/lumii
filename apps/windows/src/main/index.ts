@@ -250,8 +250,8 @@ export function getScreenRecordService(): ScreenRecordService | null {
  * @param title - 通知标题
  * @param body - 正文（宜简短）
  */
-function showDesktopTaskNotification(title: string, body: string): void {
-  log.info(`[DesktopNotify] title="${title}" body="${body.slice(0, 80)}"`)
+function showDesktopTaskNotification(title: string, body: string, convId?: string): void {
+  log.info(`[DesktopNotify] title="${title}" body="${body.slice(0, 80)}" convId="${convId ?? ''}"`)
   let usedElectron = false
   try {
     if (Notification.isSupported()) {
@@ -266,6 +266,12 @@ function showDesktopTaskNotification(title: string, body: string): void {
         if (mainWindow && !mainWindow.isDestroyed()) {
           if (mainWindow.isMinimized()) mainWindow.restore()
           mainWindow.focus()
+          if (convId) {
+            mainWindow.webContents.send('agent-runtime:event', {
+              type: 'conversation:navigate',
+              sessionKey: convId,
+            })
+          }
         }
       })
       n.show()
@@ -759,9 +765,9 @@ async function initAgentRuntime(): Promise<void> {
       // 灵栖/Lumii：从本地 agents 仓库返回全部 Agent 定义
       return listAgents().agents.map((a) => mapApiRecordToAgentDefinition(a as unknown as Record<string, unknown>))
     },
-    showCronNotification: (title: string, body: string) => {
-      log.info(`[AgentRuntime:CronNotify] title="${title}" body="${body.slice(0, 60)}"`)
-      showDesktopTaskNotification(title, body)
+    showCronNotification: (title: string, body: string, convId?: string) => {
+      log.info(`[AgentRuntime:CronNotify] title="${title}" body="${body.slice(0, 60)}" convId="${convId ?? ''}"`)
+      showDesktopTaskNotification(title, body, convId)
     },
     sendFeishuMessage: async (text: string) => {
       if (!feishuLoginService) return { ok: false, error: '飞书服务未初始化' }

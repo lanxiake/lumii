@@ -53,13 +53,12 @@ export const NEWS_PIPELINE_TASK_TEXT =
   '并写一段不超过 120 字的整体综述，调用 dashboard_feed_write 工具写入概览页资讯卡片（标题「最近资讯」）。'
 
 export const NEWS_PIPELINE_SYSTEM_PROMPT = [
-  '你在为概览页生成「最近资讯」卡片，这是结构化数据源，不是普通对话回复：',
+  '你在为用户生成资讯汇总，请：',
   '1. 用 web_search 搜索今天的热门资讯；',
   '2. 挑选 16-20 条有实质信息量的条目，逐条给出：标题、2-3 句话的正文摘要、来源站点、原文链接。',
   '   正文摘要要像新闻导语一样交代清楚事件本身与看点，不要只写一个短语；',
-  '3. 最后写一段不超过 120 字的整体综述，点出这批资讯里最值得关注的 1-2 个趋势；',
-  '4. 必须调用 dashboard_feed_write 工具把结果写入卡片（每条的 summary 字段放正文摘要）—— 只在对话里回复文本不会显示在概览页上。',
-  '搜索失败或没有找到有效资讯时，不要编造条目，也不要调用 dashboard_feed_write。',
+  '3. 最后写一段不超过 120 字的整体综述，点出这批资讯里最值得关注的 1-2 个趋势。',
+  '搜索失败或没有找到有效资讯时，不要编造条目。',
 ].join('\n')
 
 const SEED_JOBS: readonly SeedJob[] = [
@@ -73,8 +72,8 @@ const SEED_JOBS: readonly SeedJob[] = [
     scheduleType: 'cron',
     /** 每 2 小时整点抓一次：资讯源本身更新频率有限，再密只是白跑 */
     scheduleExpr: '0 */2 * * *',
-    // silent：Agent 已通过 dashboard_feed_write 直接写好资讯卡片，
-    // 不能再用 'news' 让派发器把 Agent 原始回复当成一条资讯重复塞进卡片顶部
+    // silent：Agent 通过 taskText 里的 dashboard_feed_write 指令直接写好资讯卡片，
+    // 派发器不能再推送（否则把 Agent 原始回复当成一条资讯重复塞进卡片顶部）
     notifyTargets: 'silent',
     // 旧的 ensureNewsCronJobSeeded 用的哨兵键。用户在老版本删过这条任务，升级后不该复活。
     legacySeededKey: 'workflow:news:seeded',
@@ -177,6 +176,16 @@ const SEED_JOBS: readonly SeedJob[] = [
     scheduleExpr: '0 20 * * 0',
     activeDays: '0',
     notifyTargets: 'system',
+  },
+  {
+    id: 'wiki-purge-invalid-files',
+    name: 'Wiki 无效文件清理',
+    taskText: '__wiki_purge_invalid_files__',
+    agentId: null,
+    scheduleType: 'cron',
+    scheduleExpr: '0 3 * * 0',
+    activeDays: '0',
+    notifyTargets: 'silent',
   },
 ]
 
@@ -297,7 +306,7 @@ function migrateRemovedWikiAutoSynthesisCron(db: DatabaseAdapter): void {
  * 与 SEED_JOBS 定义保持一致，避免迁移块与种子定义漂移。
  */
 function migrateSystemPromptsForWorkReports(db: DatabaseAdapter): void {
-  const jobIds = ['seed-morning-briefing', 'seed-daily-report', 'seed-weekly-review'] as const
+  const jobIds = ['news-pipeline', 'seed-morning-briefing', 'seed-daily-report', 'seed-weekly-review'] as const
 
   for (const id of jobIds) {
     try {
@@ -306,18 +315,32 @@ function migrateSystemPromptsForWorkReports(db: DatabaseAdapter): void {
       if (!systemPrompt) continue
 
       const existing = db
-        .prepare<{ system_prompt: string | null }>(`SELECT system_prompt FROM local_cron_jobs WHERE id = ?`)
+        .prepare<{ system_prompt: string | null; task_text: string | null }>(
+          `SELECT system_prompt, task_text FROM local_cron_jobs WHERE id = ?`,
+        )
         .get(id)
       if (!existing) continue
 
-      // 只在 system_prompt 确实不同时才更新，避免每次启动都刷 SQL
-      if (existing.system_prompt === systemPrompt) continue
+      let changed = false
 
-      db.prepare(`UPDATE local_cron_jobs SET system_prompt = ? WHERE id = ?`).run(systemPrompt, id)
-      const hadLegacyTool = existing.system_prompt?.includes('conversation_history_read')
-      log.info(
-        `[migrateSystemPromptsForWorkReports] ${hadLegacyTool ? '已移除 conversation_history_read 并更新' : '已更新'} ${id}`,
-      )
+      // 同步 system_prompt（清理写死的工具调用）
+      if (existing.system_prompt !== systemPrompt) {
+        db.prepare(`UPDATE local_cron_jobs SET system_prompt = ? WHERE id = ?`).run(systemPrompt, id)
+        changed = true
+      }
+
+      // 同步 task_text（news-pipeline 曾把工具调用写进 system_prompt，现已归位到 taskText）
+      if (job?.taskText && existing.task_text !== job.taskText) {
+        db.prepare(`UPDATE local_cron_jobs SET task_text = ? WHERE id = ?`).run(job.taskText, id)
+        changed = true
+      }
+
+      if (changed) {
+        const hadLegacyTool = existing.system_prompt?.includes('conversation_history_read')
+        log.info(
+          `[migrateSystemPromptsForWorkReports] ${hadLegacyTool ? '已移除 conversation_history_read 并更新' : '已更新'} ${id}`,
+        )
+      }
     } catch (err) {
       log.error(`[migrateSystemPromptsForWorkReports] 更新 ${id} 失败:`, err)
     }

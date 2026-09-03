@@ -750,19 +750,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   // Toast state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
 
-  // 监听 task_complete 工具调用，触发任务完成 Toast
-  // 用 timestamp 去重：lastTaskCompletion 是会话持久状态，进入历史会话时引用也会变化，
-  // 仅当 timestamp 比上次处理过的更新（真正新发生的完成）时才弹，避免重复弹窗。
-  const handledTaskCompletionTsRef = useRef(0)
-  useEffect(() => {
-    if (!runtimeLastTaskCompletion) return
-    if (runtimeLastTaskCompletion.timestamp <= handledTaskCompletionTsRef.current) return
-    handledTaskCompletionTsRef.current = runtimeLastTaskCompletion.timestamp
-    const msg = runtimeLastTaskCompletion.summary
-      ? `✅ 任务完成：${runtimeLastTaskCompletion.summary}`
-      : '✅ 任务已完成'
-    setToast({ message: msg, type: 'success' })
-  }, [runtimeLastTaskCompletion])
+  // 任务完成不再显示 Toast 提示（用户可通过工具卡片等 UI 元素获得反馈）
+  // 原监听 task_complete 工具调用的逻辑已移除
 
   // 自动压缩完成现以对话流内的「上下文压缩」卡片展示（见 ChatContainer + CompactionCard），
   // 不再额外弹 toast，避免与卡片重复提示。
@@ -1184,10 +1173,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   // Message action handlers
   const handleCopyMessage = useCallback((content: string) => {
     navigator.clipboard.writeText(content).then(() => {
-      setToast({ message: '已复制到剪贴板', type: 'success' })
+      // 移除 toast 提示，复制操作静默完成
     }).catch((err) => {
       logger.error(`[handleCopyMessage] 复制失败: ${err instanceof Error ? err.message : String(err)}`)
-      setToast({ message: '复制失败', type: 'error' })
+      // 移除 toast 提示，错误已记录到日志
     })
   }, [])
 
@@ -1634,7 +1623,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         onTabChange={selectWorkbenchTab}
         onClose={closeWorkbench}
         uncommittedCount={uncommittedDiff.length}
-        onRefresh={() => { void refreshVcs() }}
         onWidthChange={handleWorkbenchWidthChange}
         onResizingChange={setWorkbenchResizing}
         layoutMode={workbenchLayout}

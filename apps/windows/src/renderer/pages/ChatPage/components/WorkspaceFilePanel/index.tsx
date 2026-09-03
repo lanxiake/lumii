@@ -330,6 +330,8 @@ export interface WorkspaceFilePanelProps {
   } | null
   /** 嵌入 WorkspaceWorkbench 时去掉独立抽屉壳与关闭钮 */
   embedded?: boolean
+  /** 向共享工作台注册当前面板的刷新函数 */
+  refreshRef?: React.MutableRefObject<(() => void) | null>
 }
 
 export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
@@ -337,6 +339,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
   onClose,
   locateTarget,
   embedded = false,
+  refreshRef,
 }) => {
   const { workspaceDir, isInitializing } = useWorkspace()
   const { renameFile } = useFiles(
@@ -480,6 +483,15 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
     setTimeout(() => setIsRefreshing(false), 600)
   }, [])
 
+  /** 将刷新函数暴露给共享工作台顶栏 */
+  useEffect(() => {
+    if (!refreshRef) return
+    refreshRef.current = handleRefresh
+    return () => {
+      if (refreshRef.current === handleRefresh) refreshRef.current = null
+    }
+  }, [handleRefresh, refreshRef])
+
   const handleRename = useCallback(async (newName: string) => {
     if (!renameTarget) return
     try {
@@ -591,19 +603,6 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
             </button>
             <button className={styles.headerBtn} onClick={onClose} title="关闭">
               <IconX size={14} />
-            </button>
-          </div>
-        )}
-        {embedded && (
-          <div className={styles.embeddedToolbar}>
-            <button
-              className={clsx(styles.headerBtn, isRefreshing && styles['headerBtn--spinning'])}
-              onClick={handleRefresh}
-              disabled={isRefreshing || isInitializing}
-              title={hasPendingUpdate ? '检测到文件变更，点击刷新' : '刷新'}
-            >
-              <IconRefresh size={14} />
-              {hasPendingUpdate && <span className={styles.pendingDot} aria-hidden />}
             </button>
           </div>
         )}

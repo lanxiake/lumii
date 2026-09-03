@@ -116,9 +116,14 @@ function makeScheduler(db: DatabaseAdapter, agentReply: string | null) {
     destroy: () => undefined,
     getFileRepo: () => null,
     getCwd: () => 'C:/tmp',
-    // 资讯任务的魔法指令走 workflow 拦截，不创建 Agent
-    handleCompanionInstruction: async (instruction: string) =>
-      instruction.startsWith('__lumii_workflow__:') ? 'executed: 抓取 12 条资讯' : null,
+    // 魔法指令走拦截通道，不创建 Agent：与生产侧 isLocalCompanionInstruction 的判定口径一致，
+    // 否则新增的 __wiki_*__ 类任务会掉进 driveAgent 分支，在这里空转到超时
+    handleCompanionInstruction: async (instruction: string) => {
+      const text = instruction.trim()
+      if (text.startsWith('__lumii_workflow__:')) return 'executed: 抓取 12 条资讯'
+      if (text.startsWith('__') && text.endsWith('__')) return `executed: ${text}`
+      return null
+    },
   }
 
   const scheduler = new CronScheduler({ isOpen: true, db } as never, deps as never)

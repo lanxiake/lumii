@@ -55,7 +55,7 @@ describe('dispatchNotifications', () => {
   it('未配置 targets 时回落系统通知', async () => {
     const s = makeScheduler()
     await s.dispatch(job, null, '结果')
-    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '结果')
+    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '结果', 'cron:custom-job')
     expect(s.addMemory).not.toHaveBeenCalled()
     expect(s.sendFeishuMessage).not.toHaveBeenCalled()
     expect(prependMock).not.toHaveBeenCalled()
@@ -71,7 +71,7 @@ describe('dispatchNotifications', () => {
   it('多渠道逐个派发，各渠道拿到自己策略的产出', async () => {
     const s = makeScheduler()
     await s.dispatch(job, 'system,news,focus', '今天三件事')
-    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '今天三件事')
+    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '今天三件事', 'cron:custom-job')
     expect(s.addMemory).toHaveBeenCalledWith('测试提醒：今天三件事')
     expect(prependMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: '测试提醒', summary: '今天三件事', source: '定时任务' }),
@@ -81,7 +81,7 @@ describe('dispatchNotifications', () => {
   it('Markdown 正文按渠道降级：通知压单行、飞书保留换行', async () => {
     const s = makeScheduler()
     await s.dispatch(job, 'system,feishu', '## 今天\n\n- 写方案\n- **评审**')
-    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '今天 · 写方案 · 评审')
+    expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '今天 · 写方案 · 评审', 'cron:custom-job')
     expect(s.sendFeishuMessage).toHaveBeenCalledWith('【测试提醒】\n今天\n\n· 写方案\n· 评审')
   })
 

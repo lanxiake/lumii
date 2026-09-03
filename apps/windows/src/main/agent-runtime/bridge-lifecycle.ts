@@ -50,7 +50,7 @@ export interface BridgeLifecycleDeps {
   /** 关闭数据库 + 重置 repos 等运行状态（destroyAll 的善后；orchestrator 由本类内部清理） */
   finalizeShutdown: () => void
   /** 系统级定时通知（来自 config.showCronNotification） */
-  showCronNotification?: (title: string, body: string) => void
+  showCronNotification?: (title: string, body: string, convId?: string) => void
   /** 创建 Agent 实例（用于 orchestrator.createChildInstance 回调） */
   createInstance: (
     def: AgentDefinition,

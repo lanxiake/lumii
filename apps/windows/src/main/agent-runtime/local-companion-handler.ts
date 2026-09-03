@@ -90,6 +90,7 @@ const COMPANION_INSTRUCTIONS = new Set([
   '__companion_memory_deep__',
   '__wiki_ero_extract__',
   '__wiki_purge_broken_refs__',
+  '__wiki_purge_invalid_files__',
 ])
 
 export function isLocalCompanionInstruction(message: string): boolean {
@@ -122,6 +123,8 @@ export interface LocalCompanionDeps {
   runWikiEroExtract?: () => Promise<string>
   /** Wiki 失效引用清理（cron / 手动触发） */
   runWikiPurgeBrokenRefs?: () => Promise<string>
+  /** Wiki 不合规文件清理（cron / 手动触发） */
+  runWikiPurgeInvalidFiles?: () => Promise<string>
 }
 
 /** Companion 指令执行选项 */
@@ -157,6 +160,10 @@ export async function handleLocalCompanionInstruction(
     case '__wiki_purge_broken_refs__': {
       if (!deps.runWikiPurgeBrokenRefs) return 'wiki purge broken refs unavailable'
       return deps.runWikiPurgeBrokenRefs()
+    }
+    case '__wiki_purge_invalid_files__': {
+      if (!deps.runWikiPurgeInvalidFiles) return 'wiki purge invalid files unavailable'
+      return deps.runWikiPurgeInvalidFiles()
     }
     default:
       return `unknown companion instruction: ${instruction}`
