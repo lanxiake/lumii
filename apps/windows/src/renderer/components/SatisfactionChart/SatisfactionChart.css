@@ -1,0 +1,60 @@
+/**
+ * 满意度趋势图样式
+ */
+
+.satisfaction-chart {
+  position: relative;
+  padding: 20px;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e8e8e8;
+}
+
+.satisfaction-chart.empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: #999;
+}
+
+.satisfaction-chart canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  cursor: crosshair;
+}
+
+/* 提示框 */
+.chart-tooltip {
+  position: absolute;
+  bottom: 100%;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  border-radius: 6px;
+  font-size: 13px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 10;
+}
+
+.chart-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: rgba(0, 0, 0, 0.85);
+}
+
+.tooltip-date {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.tooltip-score {
+  font-size: 14px;
+  font-weight: 600;
+  color: #91d5ff;
+}

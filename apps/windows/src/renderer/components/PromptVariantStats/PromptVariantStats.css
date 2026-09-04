@@ -1,0 +1,191 @@
+/**
+ * Prompt 变体统计样式
+ */
+
+.prompt-variant-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.prompt-variant-stats.empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: #999;
+  background: white;
+  border-radius: 8px;
+}
+
+/* 片段卡片 */
+.fragment-card {
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  background: white;
+  overflow: hidden;
+}
+
+.fragment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: #fafafa;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+.fragment-header:hover {
+  background: #f0f0f0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fragment-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  color: #1a1a1a;
+}
+
+.variant-count {
+  font-size: 13px;
+  color: #999;
+  padding: 2px 8px;
+  background: white;
+  border-radius: 4px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.best-score {
+  font-size: 14px;
+  color: #52c41a;
+  font-weight: 600;
+}
+
+.expand-icon {
+  font-size: 12px;
+  color: #999;
+  transition: transform 0.3s ease;
+}
+
+/* 片段主体 */
+.fragment-body {
+  padding: 20px;
+}
+
+/* 变体表格 */
+.variants-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.variants-table th {
+  text-align: left;
+  padding: 12px;
+  background: #fafafa;
+  border-bottom: 2px solid #e8e8e8;
+  font-size: 13px;
+  font-weight: 600;
+  color: #666;
+}
+
+.variants-table td {
+  padding: 12px;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 14px;
+}
+
+.variants-table tr:last-child td {
+  border-bottom: none;
+}
+
+.variants-table tr.baseline {
+  background: #fffbe6;
+}
+
+.variants-table tr:hover {
+  background: #fafafa;
+}
+
+.variant-id {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.baseline-badge {
+  padding: 2px 6px;
+  background: #faad14;
+  color: white;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* 成功率 */
+.success-rate {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rate-value {
+  font-weight: 600;
+  color: #1890ff;
+}
+
+.rate-bar {
+  width: 80px;
+  height: 6px;
+  background: #f0f0f0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.rate-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1890ff 0%, #40a9ff 100%);
+  transition: width 0.3s ease;
+}
+
+/* 满意度 */
+.satisfaction-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.satisfaction-value.high {
+  color: #52c41a;
+}
+
+.satisfaction-value.medium {
+  color: #faad14;
+}
+
+.satisfaction-value.low {
+  color: #ff4d4f;
+}
+
+.best-marker {
+  font-size: 16px;
+}
+
+/* UCB 分数 */
+.ucb-score {
+  font-family: monospace;
+  font-size: 13px;
+  color: #666;
+}

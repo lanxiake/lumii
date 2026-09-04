@@ -1,0 +1,57 @@
+/**
+ * 能力雷达图样式
+ */
+
+.capability-radar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e8e8e8;
+}
+
+.capability-radar.empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: #999;
+}
+
+.capability-radar canvas {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 图例 */
+.radar-legend {
+  display: flex;
+  gap: 24px;
+  margin-top: 20px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-color {
+  width: 20px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.legend-color.level {
+  background: rgba(24, 144, 255, 0.6);
+}
+
+.legend-color.confidence {
+  background: rgba(130, 202, 157, 0.6);
+  border: 2px dashed rgba(130, 202, 157, 0.8);
+}
+
+.legend-label {
+  font-size: 14px;
+  color: #666;
+}

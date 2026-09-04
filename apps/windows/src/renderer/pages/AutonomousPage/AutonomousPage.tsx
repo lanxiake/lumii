@@ -6,10 +6,17 @@
  * - 待审批目标
  * - 能力追踪（P1）
  * - 反思记录（P1）
+ * - 满意度趋势图（P2）
+ * - Prompt 变体统计（P2）
  */
 
 import React, { useState, useEffect } from 'react'
 import { autonomousApi, type AutonomousGoal, type AutonomousStatus } from '../../preload/api/autonomous-api'
+import { CapabilityRadar } from '../../components/CapabilityRadar/CapabilityRadar'
+import { CapabilityProgressBar } from '../../components/CapabilityProgressBar/CapabilityProgressBar'
+import { ReflectionCard, type Reflection } from '../../components/ReflectionCard/ReflectionCard'
+import { SatisfactionChart, type SatisfactionDataPoint } from '../../components/SatisfactionChart/SatisfactionChart'
+import { PromptVariantStats, type PromptFragmentStats } from '../../components/PromptVariantStats/PromptVariantStats'
 import './AutonomousPage.css'
 
 /**
@@ -18,7 +25,12 @@ import './AutonomousPage.css'
 export function AutonomousPage() {
   const [status, setStatus] = useState<AutonomousStatus | null>(null)
   const [goals, setGoals] = useState<AutonomousGoal[]>([])
+  const [capabilities, setCapabilities] = useState<Record<string, any>>({})
+  const [reflections, setReflections] = useState<Reflection[]>([])
+  const [satisfactionHistory, setSatisfactionHistory] = useState<SatisfactionDataPoint[]>([])
+  const [promptStats, setPromptStats] = useState<PromptFragmentStats[]>([])
   const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<'overview' | 'capabilities' | 'reflections' | 'prompt'>('overview')
 
   // 加载数据
   useEffect(() => {
@@ -30,12 +42,18 @@ export function AutonomousPage() {
 
   async function loadData() {
     try {
-      const [statusData, goalsData] = await Promise.all([
+      const [statusData, goalsData, capabilitiesData, reflectionsData, historyData] = await Promise.all([
         autonomousApi.getStatus(),
         autonomousApi.getPendingGoals(),
+        autonomousApi.getCapabilities().catch(() => ({})),
+        autonomousApi.getReflections(5).catch(() => []),
+        autonomousApi.getSatisfactionHistory('7d').catch(() => ({ dataPoints: [] })),
       ])
       setStatus(statusData)
       setGoals(goalsData)
+      setCapabilities(capabilitiesData)
+      setReflections(reflectionsData)
+      setSatisfactionHistory(historyData.dataPoints || [])
     } catch (error) {
       console.error('加载自主进化数据失败:', error)
     } finally {

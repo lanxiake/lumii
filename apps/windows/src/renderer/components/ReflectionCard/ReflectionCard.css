@@ -1,0 +1,324 @@
+/**
+ * 反思卡片样式
+ */
+
+.reflection-card {
+  border: 1px solid #e8e8e8;
+  border-radius: 12px;
+  padding: 24px;
+  background: white;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+}
+
+.reflection-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+/* 头部 */
+.reflection-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.reflection-icon {
+  font-size: 32px;
+}
+
+.header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.reflection-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  color: #1a1a1a;
+}
+
+.reflection-date {
+  font-size: 13px;
+  color: #999;
+}
+
+.expand-btn {
+  padding: 8px 16px;
+  background: #f5f5f5;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.expand-btn:hover {
+  background: #e6f7ff;
+  color: #1890ff;
+  border-color: #91d5ff;
+}
+
+/* 主体 */
+.reflection-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.reflection-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-label {
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+}
+
+.section-value {
+  font-size: 14px;
+  color: #333;
+  padding: 6px 12px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  display: inline-block;
+  width: fit-content;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 问题诊断 */
+.reflection-section.diagnosis {
+  padding: 16px;
+  background: linear-gradient(135deg, #fff1f0 0%, #ffccc7 100%);
+  border-radius: 8px;
+  border-left: 4px solid #ff4d4f;
+}
+
+.primary-issue {
+  font-size: 15px;
+  color: #333;
+  line-height: 1.6;
+  margin: 0 0 12px 0;
+}
+
+.affected-dimensions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.label {
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+}
+
+.dimension-tag {
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #ffccc7;
+  border-radius: 12px;
+  font-size: 12px;
+  color: #ff4d4f;
+  font-weight: 500;
+}
+
+.dimension-tag.small {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.root-cause {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(255, 77, 79, 0.2);
+}
+
+.root-cause p {
+  margin: 4px 0 0 0;
+  font-size: 14px;
+  color: #666;
+  line-height: 1.5;
+}
+
+/* 改进建议 */
+.reflection-section.recommendations {
+  padding: 16px;
+  background: linear-gradient(135deg, #e6f7ff 0%, #bae7ff 100%);
+  border-radius: 8px;
+  border-left: 4px solid #1890ff;
+}
+
+.recommendations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.recommendation-item {
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  padding: 12px;
+  transition: all 0.3s ease;
+}
+
+.recommendation-item:hover {
+  background: white;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.1);
+}
+
+.rec-header {
+  display: flex;
+  gap: 12px;
+}
+
+.rec-number {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1890ff;
+  color: white;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rec-description {
+  flex: 1;
+  margin: 0;
+  font-size: 14px;
+  color: #333;
+  line-height: 1.6;
+}
+
+.rec-footer {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(24, 144, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rec-metrics {
+  display: flex;
+  gap: 16px;
+}
+
+.metric {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.metric-label {
+  color: #666;
+}
+
+.metric-value {
+  color: #1890ff;
+  font-weight: 600;
+}
+
+.rec-dimensions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.show-more-btn {
+  margin-top: 8px;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px dashed #91d5ff;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #1890ff;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  width: 100%;
+}
+
+.show-more-btn:hover {
+  background: white;
+  border-color: #1890ff;
+}
+
+/* 建议目标 */
+.reflection-section.suggested-goals {
+  padding: 16px;
+  background: linear-gradient(135deg, #f6ffed 0%, #d9f7be 100%);
+  border-radius: 8px;
+  border-left: 4px solid #52c41a;
+}
+
+.goals-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.goal-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 6px;
+  transition: all 0.3s ease;
+}
+
+.goal-item:hover {
+  background: white;
+  box-shadow: 0 2px 8px rgba(82, 196, 26, 0.1);
+}
+
+.goal-type {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #52c41a;
+  font-weight: 600;
+}
+
+.goal-description {
+  flex: 1;
+  font-size: 14px;
+  color: #333;
+}
+
+.goal-priority {
+  flex-shrink: 0;
+  font-size: 14px;
+  color: #faad14;
+}
+
