@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 28;
+export const SCHEMA_VERSION = 29;
 
 /**
  * V1 DDL — 初始 schema
@@ -834,7 +834,7 @@ CREATE INDEX IF NOT EXISTS idx_satisfaction_session
 CREATE TABLE IF NOT EXISTS autonomous_goals (
   id                   TEXT PRIMARY KEY,
   agent_id             TEXT NOT NULL,
-  type                 TEXT NOT NULL CHECK (type IN ('learning', 'proactive-message')),
+  type                 TEXT NOT NULL CHECK (type IN ('learning', 'proactive-message', 'capability-improvement')),
   description          TEXT NOT NULL,
   trigger_reason       TEXT NOT NULL,
   status               TEXT NOT NULL DEFAULT 'pending'
@@ -921,6 +921,93 @@ CREATE INDEX IF NOT EXISTS idx_coordination_agent_created
   ON evolution_coordination_history (agent_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_coordination_goal
   ON evolution_coordination_history (goal_id);
+`,
+  ],
+  // V29: 自主进化 Agent MVP P1 —— 能力边界检测与自我反思
+  //
+  // 设计：docs/design/自主进化Agent/7-P1实施计划-能力边界与反思.md
+  // 3 张表支持能力追踪、测试记录和反思输出
+  // 同时更新 autonomous_goals 表以支持 capability-improvement 类型
+  [
+    29,
+    `
+-- 更新 autonomous_goals 表，添加 capability-improvement 类型
+-- SQLite 不支持 ALTER TABLE ... ALTER COLUMN，需要重建表
+CREATE TABLE IF NOT EXISTS autonomous_goals_new (
+  id                   TEXT PRIMARY KEY,
+  agent_id             TEXT NOT NULL,
+  type                 TEXT NOT NULL CHECK (type IN ('learning', 'proactive-message', 'capability-improvement')),
+  description          TEXT NOT NULL,
+  trigger_reason       TEXT NOT NULL,
+  status               TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected', 'executing', 'completed', 'failed')),
+  priority             REAL NOT NULL CHECK (priority BETWEEN 0 AND 1),
+  satisfaction_before  REAL,
+  satisfaction_after   REAL,
+  metadata             TEXT,
+  created_at           TEXT NOT NULL,
+  approved_at          TEXT,
+  executed_at          TEXT,
+  completed_at         TEXT
+);
+
+INSERT INTO autonomous_goals_new SELECT * FROM autonomous_goals;
+DROP TABLE autonomous_goals;
+ALTER TABLE autonomous_goals_new RENAME TO autonomous_goals;
+
+CREATE INDEX IF NOT EXISTS idx_goals_agent_status_created
+  ON autonomous_goals (agent_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_goals_created
+  ON autonomous_goals (created_at DESC);
+
+-- capability_dimensions: 能力维度追踪表
+CREATE TABLE IF NOT EXISTS capability_dimensions (
+  agent_id      TEXT NOT NULL,
+  dimension     TEXT NOT NULL,
+  level         REAL NOT NULL DEFAULT 0.5 CHECK (level BETWEEN 0 AND 1),
+  confidence    REAL NOT NULL DEFAULT 0 CHECK (confidence BETWEEN 0 AND 1),
+  boundary      REAL NOT NULL DEFAULT 0.5 CHECK (boundary BETWEEN 0 AND 1),
+  test_count    INTEGER NOT NULL DEFAULT 0,
+  last_updated  TEXT NOT NULL,
+  PRIMARY KEY (agent_id, dimension)
+);
+CREATE INDEX IF NOT EXISTS idx_capability_agent_dimension
+  ON capability_dimensions (agent_id, dimension);
+
+-- capability_tests: 能力测试记录表
+CREATE TABLE IF NOT EXISTS capability_tests (
+  id            TEXT PRIMARY KEY,
+  agent_id      TEXT NOT NULL,
+  dimension     TEXT NOT NULL,
+  session_id    TEXT NOT NULL,
+  task_summary  TEXT NOT NULL,
+  difficulty    REAL NOT NULL CHECK (difficulty BETWEEN 0 AND 1),
+  result        TEXT NOT NULL CHECK (result IN ('success', 'partial', 'failure')),
+  level_before  REAL,
+  level_after   REAL,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_capability_tests_agent_dimension_created
+  ON capability_tests (agent_id, dimension, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_capability_tests_session
+  ON capability_tests (session_id);
+
+-- reflections: 自我反思记录表
+CREATE TABLE IF NOT EXISTS reflections (
+  id                      TEXT PRIMARY KEY,
+  agent_id                TEXT NOT NULL,
+  trigger_reason          TEXT NOT NULL CHECK (trigger_reason IN ('scheduled', 'low-satisfaction', 'user-request')),
+  primary_issue           TEXT NOT NULL,
+  affected_dimensions     TEXT NOT NULL,
+  root_cause              TEXT NOT NULL,
+  recommendations         TEXT NOT NULL,
+  suggested_goals         TEXT NOT NULL,
+  analysis_window_start   TEXT NOT NULL,
+  analysis_window_end     TEXT NOT NULL,
+  created_at              TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reflections_agent_created
+  ON reflections (agent_id, created_at DESC);
 `,
   ],
 ] as const;
