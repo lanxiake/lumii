@@ -1,0 +1,26 @@
+{"ts":"2026-09-04T06:50:06.853Z","id":"TC1.1","status":"PASS","note":"autonomous_satisfaction_scores 表存在"}
+{"ts":"2026-09-04T06:50:06.854Z","id":"TC1.2","status":"PASS","note":"autonomous_goals 表存在"}
+{"ts":"2026-09-04T06:50:06.854Z","id":"TC1.3","status":"PASS","note":"prompt_variants 表存在"}
+{"ts":"2026-09-04T06:50:06.854Z","id":"TC1.4","status":"PASS","note":"personality_state 表存在"}
+{"ts":"2026-09-04T06:50:06.855Z","id":"TC1.5","status":"PASS","note":"personality_events 表存在"}
+{"ts":"2026-09-04T06:50:06.855Z","id":"TC1.6","status":"PASS","note":"evolution_coordination_history 表存在"}
+{"ts":"2026-09-04T06:50:06.855Z","id":"TC1.7","status":"PASS","note":"prompt_evolution_history 表存在"}
+{"ts":"2026-09-04T06:50:06.858Z","id":"TC2.1","status":"PASS","note":"插入满意度评分"}
+{"ts":"2026-09-04T06:50:06.859Z","id":"TC2.2","status":"FAIL","note":"验证满意度权重计算","error":"权重计算公式: expected 0.695, got 0.6749999999999999 (diff: 0.020000000000000018)"}
+{"ts":"2026-09-04T06:50:06.859Z","id":"TC3.1","status":"FAIL","note":"生成学习型目标","error":"NOT NULL constraint failed: autonomous_goals.trigger_reason"}
+{"ts":"2026-09-04T06:50:06.860Z","id":"TC3.2","status":"FAIL","note":"生成主动消息目标","error":"NOT NULL constraint failed: autonomous_goals.trigger_reason"}
+{"ts":"2026-09-04T06:50:06.861Z","id":"TC4.1","status":"INFO","note":"今日已有 0 个目标"}
+{"ts":"2026-09-04T06:50:06.861Z","id":"TC4.1","status":"PASS","note":"统计今日目标数"}
+{"ts":"2026-09-04T06:50:06.864Z","id":"TC5.1","status":"PASS","note":"插入基线 Prompt"}
+{"ts":"2026-09-04T06:50:06.870Z","id":"TC5.2","status":"PASS","note":"插入变体 v1"}
+{"ts":"2026-09-04T06:50:06.876Z","id":"TC5.3","status":"PASS","note":"插入变体 v2"}
+{"ts":"2026-09-04T06:50:06.877Z","id":"TC5.4","status":"PASS","note":"查询所有变体"}
+{"ts":"2026-09-04T06:50:06.879Z","id":"TC6.1","status":"PASS","note":"初始化中性人格"}
+{"ts":"2026-09-04T06:50:06.882Z","id":"TC6.2","status":"PASS","note":"EMA 更新人格（goal-generated）"}
+{"ts":"2026-09-04T06:50:06.882Z","id":"TC6.3","status":"FAIL","note":"人格边界限制","error":"CHECK constraint failed: openness BETWEEN 0 AND 1"}
+{"ts":"2026-09-04T06:50:06.883Z","id":"TC7.1","status":"INFO","note":"总评估次数: 1"}
+{"ts":"2026-09-04T06:50:06.883Z","id":"TC7.1","status":"PASS","note":"统计总评估次数"}
+{"ts":"2026-09-04T06:50:06.883Z","id":"TC7.2","status":"INFO","note":"目标分布: []"}
+{"ts":"2026-09-04T06:50:06.883Z","id":"TC7.2","status":"FAIL","note":"按类型统计目标","error":"应有目标记录"}
+{"ts":"2026-09-04T06:50:06.884Z","id":"TC7.3","status":"INFO","note":"平均满意度: 0.695"}
+{"ts":"2026-09-04T06:50:06.884Z","id":"TC7.3","status":"PASS","note":"计算平均满意度"}

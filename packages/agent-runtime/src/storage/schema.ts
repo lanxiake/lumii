@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 27;
+export const SCHEMA_VERSION = 28;
 
 /**
  * V1 DDL — 初始 schema
@@ -804,6 +804,123 @@ DROP TABLE IF EXISTS wiki_pages_fts;
 DROP TABLE IF EXISTS wiki_links;
 DROP TABLE IF EXISTS wiki_page_revisions;
 DROP TABLE IF EXISTS wiki_pages;
+`,
+  ],
+  // V28: 自主进化 Agent MVP P0 —— 满意度评分、目标生成、Prompt进化、人格追踪
+  //
+  // 设计：docs/design/自主进化Agent/6-实施计划.md
+  // 7 张表支持元认知感知 → 目标生成 → 进化执行 → 人格记录的自主闭环
+  [
+    28,
+    `
+-- autonomous_satisfaction_scores: 满意度评分历史
+CREATE TABLE IF NOT EXISTS autonomous_satisfaction_scores (
+  id                TEXT PRIMARY KEY,
+  session_id        TEXT NOT NULL,
+  agent_id          TEXT NOT NULL,
+  task_completion   REAL NOT NULL CHECK (task_completion BETWEEN 0 AND 1),
+  user_feedback     REAL NOT NULL CHECK (user_feedback BETWEEN 0 AND 1),
+  efficiency        REAL NOT NULL CHECK (efficiency BETWEEN 0 AND 1),
+  knowledge_growth  REAL NOT NULL CHECK (knowledge_growth BETWEEN 0 AND 1),
+  overall_score     REAL NOT NULL CHECK (overall_score BETWEEN 0 AND 1),
+  created_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_satisfaction_agent_created
+  ON autonomous_satisfaction_scores (agent_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_satisfaction_session
+  ON autonomous_satisfaction_scores (session_id);
+
+-- autonomous_goals: 自主生成的目标
+CREATE TABLE IF NOT EXISTS autonomous_goals (
+  id                   TEXT PRIMARY KEY,
+  agent_id             TEXT NOT NULL,
+  type                 TEXT NOT NULL CHECK (type IN ('learning', 'proactive-message')),
+  description          TEXT NOT NULL,
+  trigger_reason       TEXT NOT NULL,
+  status               TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected', 'executing', 'completed', 'failed')),
+  priority             REAL NOT NULL CHECK (priority BETWEEN 0 AND 1),
+  satisfaction_before  REAL,
+  satisfaction_after   REAL,
+  metadata             TEXT,
+  created_at           TEXT NOT NULL,
+  approved_at          TEXT,
+  executed_at          TEXT,
+  completed_at         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_goals_agent_status_created
+  ON autonomous_goals (agent_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_goals_created
+  ON autonomous_goals (created_at DESC);
+
+-- prompt_variants: Prompt 变体池
+CREATE TABLE IF NOT EXISTS prompt_variants (
+  id                  TEXT PRIMARY KEY,
+  baseline_prompt_id  TEXT NOT NULL,
+  variant_text        TEXT NOT NULL,
+  is_baseline         INTEGER DEFAULT 0,
+  trial_count         INTEGER DEFAULT 0,
+  success_count       INTEGER DEFAULT 0,
+  total_reward        REAL DEFAULT 0,
+  avg_satisfaction    REAL,
+  ucb_score           REAL,
+  created_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_variants_baseline
+  ON prompt_variants (baseline_prompt_id);
+CREATE INDEX IF NOT EXISTS idx_variants_baseline_ucb
+  ON prompt_variants (baseline_prompt_id, ucb_score DESC);
+
+-- prompt_evolution_history: Prompt 进化历史
+CREATE TABLE IF NOT EXISTS prompt_evolution_history (
+  id               TEXT PRIMARY KEY,
+  variant_id       TEXT NOT NULL,
+  event_type       TEXT NOT NULL CHECK (event_type IN ('selected', 'feedback-recorded')),
+  exploration_mode TEXT CHECK (exploration_mode IN ('explore', 'exploit')),
+  satisfaction     REAL,
+  created_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_evolution_variant_created
+  ON prompt_evolution_history (variant_id, created_at DESC);
+
+-- personality_state: Agent 人格状态（Big Five 模型）
+CREATE TABLE IF NOT EXISTS personality_state (
+  agent_id          TEXT PRIMARY KEY,
+  openness          REAL NOT NULL DEFAULT 0.5 CHECK (openness BETWEEN 0 AND 1),
+  conscientiousness REAL NOT NULL DEFAULT 0.5 CHECK (conscientiousness BETWEEN 0 AND 1),
+  extraversion      REAL NOT NULL DEFAULT 0.5 CHECK (extraversion BETWEEN 0 AND 1),
+  agreeableness     REAL NOT NULL DEFAULT 0.5 CHECK (agreeableness BETWEEN 0 AND 1),
+  neuroticism       REAL NOT NULL DEFAULT 0.5 CHECK (neuroticism BETWEEN 0 AND 1),
+  update_count      INTEGER DEFAULT 0,
+  last_updated      TEXT NOT NULL
+);
+
+-- personality_events: 人格事件记录
+CREATE TABLE IF NOT EXISTS personality_events (
+  id                 TEXT PRIMARY KEY,
+  agent_id           TEXT NOT NULL,
+  event_type         TEXT NOT NULL,
+  personality_delta  TEXT NOT NULL,
+  trigger_context    TEXT,
+  created_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_personality_agent_created
+  ON personality_events (agent_id, created_at DESC);
+
+-- evolution_coordination_history: 协调事件历史
+CREATE TABLE IF NOT EXISTS evolution_coordination_history (
+  id          TEXT PRIMARY KEY,
+  event_type  TEXT NOT NULL,
+  agent_id    TEXT NOT NULL,
+  goal_id     TEXT,
+  session_id  TEXT,
+  metadata    TEXT,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_coordination_agent_created
+  ON evolution_coordination_history (agent_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_coordination_goal
+  ON evolution_coordination_history (goal_id);
 `,
   ],
 ] as const;
