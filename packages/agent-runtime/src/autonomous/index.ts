@@ -1,128 +1,37 @@
 /**
- * 自主进化 Agent 能力模块导出
+ * 自主进化 Agent - 统一导出
  *
- * MVP P0 范围：满意度评分、目标生成、Prompt 进化、人格追踪
+ * 包含所有自主进化相关的模块和类型。
  */
 
-// 核心模块
-export { MetaCognitionEngine, type DatabaseClient, MetaCognitionError } from './meta-cognition-engine';
-export { IntrinsicGoalGenerator, type GoalGenerationContext } from './intrinsic-goal-generator';
-export { PromptEvolutionEngine } from './prompt-evolution';
-export { PersonalityTracker, recordPersonalityEvent, EVENT_PERSONALITY_IMPACT } from './personality-tracker';
-export { AutonomousCoordinator } from './autonomous-coordinator';
+// 核心类型
+export * from './types'
 
-// P2: 多层进化协同模块
-export { MemoryRankingModel, computeMeanSquaredError } from './memory-ranking-model';
-export { MemoryEvolution } from './memory-evolution';
-export { ToolThompsonSampling } from './tool-thompson-sampling';
-export { ToolEvolution } from './tool-evolution';
-export { SkillEvolution, type SkillGap, type SkillGapIssue } from './skill-evolution';
-export {
-  CoordinatedScheduler,
-  computeExplorationBudget,
-  createInitialSchedulerState,
-  type SchedulingDecision,
-  type RandomSource,
-} from './coordinated-scheduler';
-export {
-  ATTRIBUTION_LAYERS,
-  computeMarginalContribution,
-  computeShapleyContribution,
-  uniformContribution,
-  isContributionNormalized,
-} from './shapley-attribution';
-export {
-  ConflictDetector,
-  type ConflictContext,
-  type DetectionResult,
-  type ResolutionResult,
-} from './conflict-detector';
-export { ParetoFrontier, dominates, computeConfigHash, OBJECTIVE_DIRECTIONS } from './pareto-frontier';
+// P0 - 基础功能
+export * from './meta-cognition-engine'
+export * from './intrinsic-goal-generator'
+export * from './prompt-evolution'
+export * from './personality-tracker'
+export * from './autonomous-coordinator'
+export * from './metrics-collector'
+export * from './db-adapter'
+export * from './config'
 
-// P2: 目标生成纯函数
-export { generateSkillEnhancementGoal, generateMemoryOptimizationGoal, type SkillGapInput } from './intrinsic-goal-generator';
-export { validatePersonalityState, describePersonalityChange } from './personality-tracker';
+// P1 - 高级功能
+export * from './capability-tracker'
+export * from './reflection-engine'
 
-// 指标收集
-export type { SessionMetrics, AgentSession } from './metrics-collector';
-export { extractTaskCompletion, extractUserFeedback, extractEfficiency, extractKnowledgeGrowth, collectMetricsFromSession } from './metrics-collector';
+// 审批系统（离线审批架构）
+export * from './goal-risk-classifier'
+export * from './auto-approval-policy'
+export * from './approval-queue'
+export * from './approval-delivery'
+export * from './approval-reply-parser'
+export * from './approval-timeout-scanner'
+export * from './approval-db-adapter'
 
-// 纯函数导出
-export { computeSatisfactionScore, shouldTriggerGoalGeneration, categorizeSatisfactionLevel } from './meta-cognition-engine';
-export { generateLearningGoal, generateProactiveMessageGoal } from './intrinsic-goal-generator';
-export { shouldExplore, computeUCB, selectVariant, updateVariantReward } from './prompt-evolution';
-export { applyEMA } from './personality-tracker';
+// 实用工具
+export * from './satisfaction-calculator'
 
-// 类型导出
-export type {
-  SatisfactionScore,
-  SatisfactionWeights,
-  AutonomousGoal,
-  PromptVariant,
-  PersonalityState,
-  PersonalityEvent,
-  MetaCognitionConfig,
-  GoalGenerationConfig,
-  PromptEvolutionConfig,
-  PersonalityConfig,
-  MVPScope,
-  CoordinationEvent,
-  CoordinationMetrics,
-  // P1 types
-  CapabilityState,
-  CapabilityTest,
-  CapabilityGap,
-  ReflectionOutput,
-  P1Scope,
-  // P2 types
-  MemoryRankingFeatures,
-  MemoryUsageFeedback,
-  MemoryRankingWeights,
-  ToolSelectionStats,
-  ToolUsageFeedback,
-  SkillUsageRecord,
-  SkillStats,
-  LayerConfigs,
-  LayerContribution,
-  OptimizationObjectives,
-  SchedulerState,
-  Conflict,
-  ConflictSeverity,
-  ParetoConfig,
-  ParetoPreference,
-  P2Scope,
-} from './types';
-
-// 枚举导出
-export { GoalType, GoalStatus, EvolutionLayer, ExplorationMode } from './types';
-
-// 配置导出
-export {
-  SATISFACTION_WEIGHTS,
-  SATISFACTION_THRESHOLD,
-  EPSILON,
-  MAX_VARIANTS_PER_PROMPT,
-  MIN_TRIALS_BEFORE_EXPLOIT,
-  UCB_CONFIDENCE,
-  EMA_ALPHA,
-  MAX_GOALS_PER_DAY,
-  ELO_K_FACTOR,
-  AUTONOMOUS_ENABLED,
-  AUTONOMOUS_GOAL_TYPES,
-  // P2 config
-  MEMORY_LEARNING_RATE,
-  MEMORY_MIN_SAMPLES,
-  MEMORY_INEFFECTIVE_THRESHOLD,
-  MEMORY_RETRAIN_INTERVAL_DAYS,
-  SKILL_MIN_USAGE_COUNT,
-  SKILL_SUCCESS_RATE_THRESHOLD,
-  SKILL_SATISFACTION_THRESHOLD,
-  SKILL_EXECUTION_TIME_THRESHOLD,
-  THOMPSON_SAMPLING_MAX_ITERATIONS,
-  SHAPLEY_MAX_COMBINATIONS,
-  EXPLORATION_BUDGET_BASE,
-  EXPLORATION_BUDGET_MAX,
-  PARETO_FRONTIER_MAX_SIZE,
-  LAYER_PRIORITY_EMA_ALPHA,
-  validateConfig,
-} from './config';
+// 示例（仅开发使用）
+export * from './approval-integration-example'

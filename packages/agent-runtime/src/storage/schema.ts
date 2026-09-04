@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 30;
+export const SCHEMA_VERSION = 31;
 
 /**
  * V1 DDL — 初始 schema
@@ -1165,6 +1165,51 @@ CREATE TABLE IF NOT EXISTS coordinated_scheduler_state (
   exploration_budget   REAL NOT NULL CHECK (exploration_budget BETWEEN 0 AND 1),
   state_json           TEXT NOT NULL,
   last_updated         TEXT NOT NULL
+);
+`,
+  ],
+  // V31: 自主进化审批队列表（离线审批架构）
+  [
+    31,
+    `
+-- autonomous_approvals: 自主目标审批队列（支持离线审批）
+CREATE TABLE IF NOT EXISTS autonomous_approvals (
+  id TEXT PRIMARY KEY,
+  goal_id TEXT NOT NULL,
+  risk_level TEXT NOT NULL CHECK (risk_level IN ('internal', 'user-visible', 'side-effect')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'expired')),
+  -- 送达
+  channel TEXT,
+  peer_id TEXT,
+  delivery_status TEXT CHECK (delivery_status IN ('sent', 'failed', 'unreachable')),
+  delivery_error TEXT,
+  delivered_at INTEGER,
+  -- 决策
+  decided_by TEXT CHECK (decided_by IN ('user', 'auto-policy', 'timeout-policy')),
+  decided_at INTEGER,
+  decision_note TEXT,
+  -- 超时
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (goal_id) REFERENCES autonomous_goals(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_approvals_pending
+  ON autonomous_approvals(status, expires_at);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_approvals_goal
+  ON autonomous_approvals(goal_id);
+
+-- autonomous_approval_settings: 用户审批设置
+CREATE TABLE IF NOT EXISTS autonomous_approval_settings (
+  user_id TEXT PRIMARY KEY,
+  channel TEXT NOT NULL DEFAULT 'local' CHECK (channel IN ('feishu', 'weixin', 'wecom', 'local', 'off')),
+  peer_id TEXT,
+  auto_approve_internal INTEGER NOT NULL DEFAULT 1,
+  ttl_overrides TEXT,
+  quiet_hours_start INTEGER,
+  quiet_hours_end INTEGER,
+  updated_at INTEGER NOT NULL
 );
 `,
   ],
