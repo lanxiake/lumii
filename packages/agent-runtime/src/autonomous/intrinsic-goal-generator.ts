@@ -5,7 +5,7 @@
  * 来源：设计文档 3-内在目标生成器.md
  */
 
-import type { SatisfactionScore, AutonomousGoal, GoalType, GoalStatus, GoalGenerationConfig } from './types';
+import type { SatisfactionScore, AutonomousGoal, GoalType, GoalStatus, GoalGenerationConfig, CapabilityGap, CapabilityDimension } from './types';
 import type { SessionMetrics } from './metrics-collector';
 import type { DatabaseClient } from './meta-cognition-engine';
 import { GoalType as GoalTypeEnum, GoalStatus as GoalStatusEnum } from './types';
@@ -18,6 +18,8 @@ export interface GoalGenerationContext {
   recentHistory?: SessionMetrics[];
   /** 用户上次消息时间 */
   lastUserMessageTime?: Date;
+  /** 能力缺口列表（P1 新增）*/
+  capabilityGaps?: CapabilityGap[];
   /** 其他上下文数据 */
   [key: string]: any;
 }
@@ -112,6 +114,61 @@ export function generateProactiveMessageGoal(score: SatisfactionScore, context: 
 }
 
 /**
+ * 能力维度到中文名称的映射
+ */
+const CAPABILITY_DIMENSION_NAMES: Record<string, string> = {
+  code_generation: '代码生成',
+  document_analysis: '文档分析',
+  web_search: '网络搜索',
+  data_processing: '数据处理',
+  api_integration: 'API 集成',
+  creative_writing: '创意写作',
+  logical_reasoning: '逻辑推理',
+  multi_step_planning: '多步规划',
+};
+
+/**
+ * 生成能力改进目标（纯函数）
+ *
+ * @param gaps 能力缺口列表（按优先级排序）
+ * @param agentId Agent ID
+ * @returns 能力改进目标或 null
+ */
+export function generateCapabilityImprovementGoal(
+  gaps: CapabilityGap[],
+  agentId: string
+): AutonomousGoal | null {
+  if (gaps.length === 0) {
+    return null;
+  }
+
+  // 选择优先级最高的缺口
+  const topGap = gaps[0];
+
+  // 构造目标描述
+  const dimensionName = CAPABILITY_DIMENSION_NAMES[topGap.dimension] || topGap.dimension;
+  const description = `提升${dimensionName}能力：从当前水平 ${(topGap.currentLevel * 100).toFixed(0)}% 提升到目标水平 ${(topGap.desiredLevel * 100).toFixed(0)}%`;
+
+  return {
+    id: '',
+    agentId,
+    type: GoalTypeEnum.CAPABILITY_IMPROVEMENT,
+    description,
+    triggerReason: 'low-satisfaction',
+    status: GoalStatusEnum.PENDING,
+    priority: topGap.priority,
+    metadata: {
+      dimension: topGap.dimension,
+      currentLevel: topGap.currentLevel,
+      desiredLevel: topGap.desiredLevel,
+      gap: topGap.gap,
+      demandFrequency: topGap.demandFrequency,
+    },
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/**
  * 内在目标生成器
  */
 export class IntrinsicGoalGenerator {
@@ -146,8 +203,17 @@ export class IntrinsicGoalGenerator {
         } else if (type === GoalTypeEnum.PROACTIVE_MESSAGE) {
           const goal = generateProactiveMessageGoal(score, context);
           if (goal) goals.push(goal);
+        } else if (type === GoalTypeEnum.CAPABILITY_IMPROVEMENT) {
+          // P1 新增：能力改进目标
+          if (context.capabilityGaps && context.capabilityGaps.length > 0) {
+            const goal = generateCapabilityImprovementGoal(context.capabilityGaps, score.agentId);
+            if (goal) goals.push(goal);
+          }
         }
       }
+
+      // 按优先级排序
+      goals.sort((a, b) => b.priority - a.priority);
 
       // 限制不超过剩余配额
       const remaining = this.config.maxGoalsPerDay - todayCount;

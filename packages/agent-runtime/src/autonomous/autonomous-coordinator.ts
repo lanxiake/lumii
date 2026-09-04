@@ -6,21 +6,27 @@
  */
 
 import { EventEmitter } from 'events';
-import type { MVPScope, CoordinationMetrics, CoordinationEvent, AutonomousGoal } from './types';
+import type { MVPScope, CoordinationMetrics, CoordinationEvent, AutonomousGoal, CapabilityDimension, CapabilityTest } from './types';
 import type { AgentSession } from './metrics-collector';
 import type { DatabaseClient } from './meta-cognition-engine';
 import { MetaCognitionEngine, shouldTriggerGoalGeneration } from './meta-cognition-engine';
 import { IntrinsicGoalGenerator, type GoalGenerationContext } from './intrinsic-goal-generator';
 import { PromptEvolutionEngine } from './prompt-evolution';
 import { PersonalityTracker, recordPersonalityEvent } from './personality-tracker';
+import { CapabilityTracker } from './capability-tracker';
+import { ReflectionEngine } from './reflection-engine';
+import { createExtendedDbClient } from './db-adapter';
 import { GoalStatus } from './types';
-import { AUTONOMOUS_ENABLED } from './config';
+import { AUTONOMOUS_ENABLED, REFLECTION_SCHEDULE } from './config';
 
 /**
  * 自主协调器
  */
 export class AutonomousCoordinator extends EventEmitter {
   private initialized = false;
+  private reflectionTimer?: ReturnType<typeof setTimeout>;
+  private readonly capabilityTracker: CapabilityTracker;
+  private readonly reflectionEngine?: ReflectionEngine;
 
   constructor(
     private readonly metaCognitionEngine: MetaCognitionEngine,
@@ -29,8 +35,13 @@ export class AutonomousCoordinator extends EventEmitter {
     private readonly personalityTracker: PersonalityTracker,
     private readonly config: MVPScope,
     private readonly db: DatabaseClient,
+    capabilityTracker?: CapabilityTracker,
+    reflectionEngine?: ReflectionEngine,
   ) {
     super();
+    const extendedDb = createExtendedDbClient(db);
+    this.capabilityTracker = capabilityTracker || new CapabilityTracker(extendedDb);
+    this.reflectionEngine = reflectionEngine;
   }
 
   /**
