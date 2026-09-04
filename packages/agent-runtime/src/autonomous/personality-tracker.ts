@@ -164,10 +164,11 @@ export class PersonalityTracker {
       // 获取当前状态
       const currentState = await this.getCurrentState(agentId);
 
-      // P2: 人格自动进化受配置开关控制；关闭时只记录事件、不改变状态
-      if (!this.config.evolutionEnabled) {
-        console.info('[PersonalityTracker] 人格自动进化已关闭，跳过状态更新', {
-          event: 'personality-evolution-skipped',
+      // P2: 人格追踪可整体关闭；关闭时不改变状态（P0/P1 的 EMA 追踪行为不受
+      // evolutionEnabled 影响，该开关保留给 P3 的人格主动进化）
+      if (!this.config.trackingEnabled) {
+        console.info('[PersonalityTracker] 人格追踪已关闭，跳过状态更新', {
+          event: 'personality-tracking-disabled',
           agentId,
           eventType: event.eventType,
         });

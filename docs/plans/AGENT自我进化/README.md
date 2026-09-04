@@ -1,6 +1,6 @@
 # Agent 自我进化实施计划总览
 
-本目录包含自主进化 Agent 系统的完整实施计划，涵盖 P0、P1、P2 三个阶段。
+本目录包含自主进化 Agent 系统的完整实施计划，涵盖 P0、P1、P2、P3 四个阶段。
 
 ---
 
@@ -18,9 +18,15 @@
 
 ### 实施计划（`docs/plans/AGENT自我进化/`）
 
-- **2026-09-04-P2实施计划-多层进化协同.md** - P2 阶段完整实施计划
-- **用户指南-如何使用和观测自主进化Agent.md** - 用户使用指南和验证方案
-- **前端可视化实施方案.md** - 前端界面和可视化完整技术方案
+- **2026-09-04-autonomous-evolution-agent-implementation-p0.md** - P0 阶段实施计划
+- **2026-09-04-autonomous-evolution-agent-implementation-p1.md** - P1 阶段实施计划
+- **2026-09-04-autonomous-evolution-agent-implementation-p2.md** - P2 阶段实施计划（多层进化协同）
+- **2026-09-04-autonomous-evolution-agent-implementation-p3.md** - P3 阶段实施计划（协同闭环落地 + 多 Agent 自组织）
+- **交付总结.md** - 交付物汇总与 v1.1 修订说明
+
+> 用户指南与前端可视化方案位于 `docs/design/自主进化Agent/`：
+> - **用户指南-如何使用和观测自主进化Agent.md** - 用户使用指南和验证方案
+> - **前端可视化实施方案.md** - 前端界面、离线审批架构（第十节）完整技术方案
 
 ---
 
@@ -213,30 +219,30 @@
 
 ---
 
-## P3 展望
+## P3（本计划）- 协同闭环落地与多 Agent 自组织
 
-P2 为 P3 提供：
-- 四层可比较的贡献度和效果历史
-- 稳定的协同探索调度接口
-- 可持久化的多目标 Pareto 前沿
-- 版本化的策略、模型和人格状态
+**重要**：P3 的实际起点与原路线图设想不同。经代码核查，P2 交付的四个协同算法模块（`coordinated-scheduler`、`conflict-detector`、`pareto-frontier`、`shapley-attribution`）**仅在 `index.ts` 导出，无任何业务代码消费，且全为无持久化的内存态**；`apps/windows/src` 对整个 autonomous 模块的引用数为 **0**，即 P0/P1/P2 代码在产品中从未被实例化。
 
-P3 将实现：
-- 人格主动进化（不仅追踪）
-- 协同探索高级策略
-- Pareto 多目标动态权重
-- 多 Agent 自组织
+因此 P3 = **让已有算法真正连上电**，而非再造新算法。三条主线：
+
+- **主线 A：协同闭环落地（60h，必做）** — 新增 `CoordinationController` 有状态门面 + V31 状态持久化 + 配置下发 + 接入协调器 + Electron 主进程接线
+- **主线 B：审批链路实施（40h，必做）** — 实施离线审批架构 A1-A8，解开"目标生成后无人可批、占满配额、不再生成"的进化死锁
+- **主线 C：多 Agent 自组织（48h，选做）** — 复用已有 `AgentOrchestrator`（编排层已成熟），但设**门控条件**：主线 A 稳定运行 2 周且观测到探索排队才启动
+
+详见 [P3 实施计划](2026-09-04-autonomous-evolution-agent-implementation-p3.md)。
 
 ---
 
 ## 相关文档
 
-- [P0 实施计划](../../plans/2026-09-04-autonomous-evolution-agent-implementation.md)
-- [P1 实施计划](../../design/自主进化Agent/7-P1实施计划-能力边界与反思.md)
+- [P0 实施计划](2026-09-04-autonomous-evolution-agent-implementation-p0.md)
+- [P1 实施计划](2026-09-04-autonomous-evolution-agent-implementation-p1.md)
+- [P2 实施计划](2026-09-04-autonomous-evolution-agent-implementation-p2.md)
+- [P3 实施计划](2026-09-04-autonomous-evolution-agent-implementation-p3.md)
 - [设计理念](../../design/自主进化Agent/1-核心设计理念.md)
 - [算法详解](../../design/自主进化Agent/)
 
 ---
 
 **更新日期：** 2026-09-04  
-**状态：** P2 设计阶段，待评审
+**状态：** P0/P1 已完成，P2 代码已落地待接线，P3 设计阶段

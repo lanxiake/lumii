@@ -204,8 +204,8 @@ describe('自主进化 Agent E2E 测试', () => {
       agentId: 'agent1',
     };
 
-    // Mock：已有 5 个目标（P1 上限提升到 5）
-    mockDb.query = vi.fn().mockResolvedValue([{ count: 5 }]);
+    // Mock：已达当日上限（P2 上限提升到 7）
+    mockDb.query = vi.fn().mockResolvedValue([{ count: MAX_GOALS_PER_DAY }]);
 
     const goals = await goalGenerator.generateGoals(score, {});
 
