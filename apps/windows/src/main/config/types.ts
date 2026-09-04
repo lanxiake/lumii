@@ -88,7 +88,7 @@ export type PartialConfig = {
  */
 export const DEFAULT_CONFIG: Config = {
   app: {
-    version: '0.1.2',
+    version: '0.1.3',
     language: 'zh-CN',
     theme: 'auto',
     autoConnect: true,

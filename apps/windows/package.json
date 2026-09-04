@@ -1,6 +1,6 @@
 {
   "name": "lumii-windows",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "灵栖 Lumii — 本地优先的 AI 桌面伙伴",
   "main": "out/main/index.js",
   "author": {

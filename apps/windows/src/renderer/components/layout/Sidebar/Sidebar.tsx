@@ -86,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isConnected = false,
   collapsed = false,
   onCollapseChange,
-  version = 'v0.1.2',
+  version = 'v0.1.3',
   className = '',
 }) => {
   const [internalCollapsed, setInternalCollapsed] = useState(collapsed);
