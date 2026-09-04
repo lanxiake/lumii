@@ -51,6 +51,11 @@ const LAYER_TO_MODE: Record<EvolutionLayer, ExplorationMode> = {
  * 结果限制在 [EXPLORATION_BUDGET_BASE, EXPLORATION_BUDGET_MAX]
  */
 export function computeExplorationBudget(globalSatisfaction: number): number {
+  // 非有限输入（NaN/Infinity）无法裁剪，按基准预算保守处理
+  if (!Number.isFinite(globalSatisfaction)) {
+    return EXPLORATION_BUDGET_BASE;
+  }
+
   const satisfaction = Math.max(0, Math.min(1, globalSatisfaction));
 
   if (satisfaction >= SATISFACTION_THRESHOLD) {

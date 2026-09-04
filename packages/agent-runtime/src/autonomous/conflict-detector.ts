@@ -196,8 +196,9 @@ export class ConflictDetector {
       lastDetection = this.detect({ ...ctx, configs });
     }
 
-    const resolvedIds = new Set(resolved.map((c) => c.id));
-    const unresolved = lastDetection.conflicts.filter((c) => !resolvedIds.has(c.id));
+    // 最后一次校验仍然命中的冲突都算未解决——即使它曾被"修复"过。
+    // 这样规则循环（修复无法消除命中条件）不会被误报成已解决。
+    const unresolved = lastDetection.conflicts;
 
     for (const conflict of unresolved) {
       const level = conflict.severity === 'critical' ? 'error' : 'warn';
