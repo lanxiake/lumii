@@ -49,6 +49,53 @@ export function applyEMA(currentState: PersonalityState, delta: Partial<Personal
   return updated;
 }
 
+/** Big Five 五个维度（不含元数据字段） */
+const PERSONALITY_DIMENSIONS: Array<keyof Omit<PersonalityState, 'lastUpdated' | 'updateCount'>> = [
+  'openness',
+  'conscientiousness',
+  'extraversion',
+  'agreeableness',
+  'neuroticism',
+];
+
+/**
+ * P2: 校验人格状态各维度是否在 [0, 1] 内且为有限数
+ */
+export function validatePersonalityState(state: PersonalityState): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  for (const dim of PERSONALITY_DIMENSIONS) {
+    const value = state[dim] as number;
+    if (!Number.isFinite(value)) {
+      errors.push(`${dim} 不是有限数：${value}`);
+    } else if (value < 0 || value > 1) {
+      errors.push(`${dim} 超出 [0, 1]：${value}`);
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/**
+ * P2: 描述人格变更（用于审计日志，只包含实际发生变化的维度）
+ */
+export function describePersonalityChange(
+  before: PersonalityState,
+  after: PersonalityState,
+): Record<string, { before: number; after: number; delta: number }> {
+  const changes: Record<string, { before: number; after: number; delta: number }> = {};
+
+  for (const dim of PERSONALITY_DIMENSIONS) {
+    const b = before[dim] as number;
+    const a = after[dim] as number;
+    if (b !== a) {
+      changes[dim] = { before: b, after: a, delta: a - b };
+    }
+  }
+
+  return changes;
+}
+
 /**
  * 人格追踪器
  */
@@ -117,6 +164,16 @@ export class PersonalityTracker {
       // 获取当前状态
       const currentState = await this.getCurrentState(agentId);
 
+      // P2: 人格自动进化受配置开关控制；关闭时只记录事件、不改变状态
+      if (!this.config.evolutionEnabled) {
+        console.info('[PersonalityTracker] 人格自动进化已关闭，跳过状态更新', {
+          event: 'personality-evolution-skipped',
+          agentId,
+          eventType: event.eventType,
+        });
+        return currentState;
+      }
+
       // 应用 EMA 更新
       const updatedState = applyEMA(currentState, event.personalityDelta, this.config.emaAlpha);
 
@@ -124,8 +181,29 @@ export class PersonalityTracker {
       updatedState.lastUpdated = new Date().toISOString();
       updatedState.updateCount = currentState.updateCount + 1;
 
+      // P2: 更新后边界校验，任一维度越界则放弃本次更新
+      const validation = validatePersonalityState(updatedState);
+      if (!validation.valid) {
+        console.error('[PersonalityTracker] 人格更新越界，已放弃本次更新', {
+          event: 'personality-update-rejected',
+          agentId,
+          errors: validation.errors,
+        });
+        return currentState;
+      }
+
       // 持久化
       await this.saveState(agentId, updatedState);
+
+      // P2: 变更审计（记录前后差值，便于解释和回滚）
+      console.info('[PersonalityTracker] 人格状态已更新', {
+        event: 'personality-updated',
+        agentId,
+        eventType: event.eventType,
+        emaAlpha: this.config.emaAlpha,
+        updateCount: updatedState.updateCount,
+        changes: describePersonalityChange(currentState, updatedState),
+      });
 
       return updatedState;
     } catch (error) {

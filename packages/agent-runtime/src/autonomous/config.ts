@@ -154,6 +154,13 @@ export const MEMORY_MIN_SAMPLES = 50;
 export const MEMORY_INEFFECTIVE_THRESHOLD = 0.2;
 
 /**
+ * P2: 低效记忆判定最小使用次数
+ * 来源：设计文档 2026-09-04-autonomous-evolution-agent-implementation-p2.md
+ * 记忆至少被使用此次数后才参与低效判定，避免小样本误判
+ */
+export const MEMORY_INEFFECTIVE_MIN_USES = 5;
+
+/**
  * P2: 记忆排序批量重训练周期（天）
  * 来源：设计文档 2026-09-04-autonomous-evolution-agent-implementation-p2.md
  * 每隔此天数重新训练记忆排序模型

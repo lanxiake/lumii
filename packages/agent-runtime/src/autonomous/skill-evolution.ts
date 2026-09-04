@@ -44,16 +44,17 @@ export class SkillEvolution {
       this.validateRecord(record);
 
       // 2. 持久化记录
-      await this.db.insert('skill_usage_records', {
-        skill_name: record.skillName,
-        session_id: record.sessionId,
-        task_type: record.context.taskType,
-        complexity: record.context.complexity,
-        success: record.outcome.success,
-        execution_time: record.outcome.executionTime,
-        user_satisfaction: record.outcome.userSatisfaction,
-        created_at: record.timestamp,
-      });
+      const sql = `INSERT INTO skill_usage_records (skill_name, session_id, task_type, complexity, success, execution_time, user_satisfaction, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+      await this.db.execute(sql, [
+        record.skillName,
+        record.sessionId,
+        record.context.taskType,
+        record.context.complexity,
+        record.outcome.success ? 1 : 0,
+        record.outcome.executionTime,
+        record.outcome.userSatisfaction,
+        record.timestamp,
+      ]);
 
       console.info('[SkillEvolution] Skill usage recorded', {
         event: 'skill-usage-recorded',
@@ -90,8 +91,10 @@ export class SkillEvolution {
    */
   async getSkillStats(skillName?: string): Promise<SkillStats[]> {
     try {
-      const filter = skillName ? { skill_name: skillName } : {};
-      const records = await this.db.find('skill_usage_records', filter);
+      const sql = skillName
+        ? `SELECT skill_name, success, execution_time, user_satisfaction, created_at FROM skill_usage_records WHERE skill_name = ?`
+        : `SELECT skill_name, success, execution_time, user_satisfaction, created_at FROM skill_usage_records`;
+      const records = await this.db.query<any>(sql, skillName ? [skillName] : []);
 
       // 按技能名称分组统计
       const statsMap = new Map<

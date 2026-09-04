@@ -8,7 +8,12 @@
 import { MemoryRankingModel, computeMeanSquaredError } from './memory-ranking-model';
 import type { DatabaseClient } from './meta-cognition-engine';
 import type { MemoryUsageFeedback, MemoryRankingFeatures, MemoryRankingWeights } from './types';
-import { MEMORY_LEARNING_RATE, MEMORY_INEFFECTIVE_THRESHOLD, MEMORY_MIN_SAMPLES } from './config';
+import {
+  MEMORY_LEARNING_RATE,
+  MEMORY_INEFFECTIVE_THRESHOLD,
+  MEMORY_INEFFECTIVE_MIN_USES,
+  MEMORY_MIN_SAMPLES,
+} from './config';
 
 /**
  * 记忆策略进化器

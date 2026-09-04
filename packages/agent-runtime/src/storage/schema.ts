@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 29;
+export const SCHEMA_VERSION = 30;
 
 /**
  * V1 DDL — 初始 schema
@@ -1008,6 +1008,164 @@ CREATE TABLE IF NOT EXISTS reflections (
 );
 CREATE INDEX IF NOT EXISTS idx_reflections_agent_created
   ON reflections (agent_id, created_at DESC);
+`,
+  ],
+  // V30: 自主进化 Agent MVP P2 —— 多层进化协同
+  //
+  // 设计：docs/plans/AGENT自我进化/2026-09-04-autonomous-evolution-agent-implementation-p2.md
+  // 5 张表支持记忆排序（Learning-to-Rank）、技能效果跟踪、工具选择
+  // （Thompson Sampling）、协同贡献归因和帕累托前沿。
+  // 同时扩展 autonomous_goals 以支持 skill-enhancement / memory-optimization。
+  //
+  // 注意：设计文档中的 Postgres SQL 为逻辑 Schema；此处按仓库实际的
+  // SQLite 方言实现（TEXT 时间戳、INTEGER 布尔、独立 CREATE INDEX）。
+  [
+    30,
+    `
+-- 扩展 autonomous_goals 的 type 约束（SQLite 不支持 ALTER COLUMN，需重建表）
+CREATE TABLE IF NOT EXISTS autonomous_goals_p2 (
+  id                   TEXT PRIMARY KEY,
+  agent_id             TEXT NOT NULL,
+  type                 TEXT NOT NULL CHECK (type IN ('learning', 'proactive-message', 'capability-improvement', 'skill-enhancement', 'memory-optimization')),
+  description          TEXT NOT NULL,
+  trigger_reason       TEXT NOT NULL,
+  status               TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected', 'executing', 'completed', 'failed')),
+  priority             REAL NOT NULL CHECK (priority BETWEEN 0 AND 1),
+  satisfaction_before  REAL,
+  satisfaction_after   REAL,
+  metadata             TEXT,
+  created_at           TEXT NOT NULL,
+  approved_at          TEXT,
+  executed_at          TEXT,
+  completed_at         TEXT
+);
+
+INSERT INTO autonomous_goals_p2 SELECT * FROM autonomous_goals;
+DROP TABLE autonomous_goals;
+ALTER TABLE autonomous_goals_p2 RENAME TO autonomous_goals;
+
+CREATE INDEX IF NOT EXISTS idx_goals_agent_status_created
+  ON autonomous_goals (agent_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_goals_created
+  ON autonomous_goals (created_at DESC);
+
+-- memory_usage_feedback: 记忆使用反馈（Learning-to-Rank 训练数据）
+-- 隐私：只保存查询长度和特征快照，不保存查询原文或记忆内容
+CREATE TABLE IF NOT EXISTS memory_usage_feedback (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  memory_id             TEXT NOT NULL,
+  session_id            TEXT NOT NULL,
+  query_length          INTEGER NOT NULL CHECK (query_length >= 0),
+  was_used_in_response  INTEGER NOT NULL CHECK (was_used_in_response IN (0, 1)),
+  contribution_score    REAL NOT NULL CHECK (contribution_score BETWEEN 0 AND 1),
+  user_satisfaction     REAL CHECK (user_satisfaction BETWEEN 0 AND 1),
+  features              TEXT NOT NULL,
+  created_at            TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_memory_feedback_memory_created
+  ON memory_usage_feedback (memory_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_feedback_session
+  ON memory_usage_feedback (session_id);
+CREATE INDEX IF NOT EXISTS idx_memory_feedback_created
+  ON memory_usage_feedback (created_at DESC);
+
+-- skill_usage_records: 技能使用效果记录
+CREATE TABLE IF NOT EXISTS skill_usage_records (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  skill_name         TEXT NOT NULL,
+  session_id         TEXT NOT NULL,
+  task_type          TEXT NOT NULL,
+  complexity         TEXT NOT NULL CHECK (complexity IN ('low', 'medium', 'high')),
+  success            INTEGER NOT NULL CHECK (success IN (0, 1)),
+  execution_time     INTEGER NOT NULL CHECK (execution_time >= 0),
+  user_satisfaction  REAL NOT NULL CHECK (user_satisfaction BETWEEN 0 AND 1),
+  created_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skill_usage_name_created
+  ON skill_usage_records (skill_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_skill_usage_session
+  ON skill_usage_records (session_id);
+
+-- tool_usage_feedback: 工具选择与执行反馈（Thompson Sampling 后验数据）
+CREATE TABLE IF NOT EXISTS tool_usage_feedback (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  tool_name       TEXT NOT NULL,
+  session_id      TEXT NOT NULL,
+  task_type       TEXT NOT NULL,
+  difficulty      REAL NOT NULL CHECK (difficulty BETWEEN 0 AND 1),
+  result          TEXT NOT NULL CHECK (result IN ('success', 'failure')),
+  execution_time  INTEGER NOT NULL CHECK (execution_time >= 0),
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tool_feedback_name_created
+  ON tool_usage_feedback (tool_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tool_feedback_session
+  ON tool_usage_feedback (session_id);
+CREATE INDEX IF NOT EXISTS idx_tool_feedback_created
+  ON tool_usage_feedback (created_at DESC);
+
+-- coordinated_evolution_history: 协同进化历史（四层配置快照与贡献归因）
+CREATE TABLE IF NOT EXISTS coordinated_evolution_history (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id              TEXT NOT NULL,
+  session_id            TEXT,
+  correlation_id        TEXT,
+  config_json           TEXT NOT NULL,
+  user_satisfaction     REAL NOT NULL CHECK (user_satisfaction BETWEEN 0 AND 1),
+  response_time         INTEGER NOT NULL CHECK (response_time >= 0),
+  token_cost            INTEGER NOT NULL CHECK (token_cost >= 0),
+  consistency_score     REAL CHECK (consistency_score BETWEEN 0 AND 1),
+  prompt_contribution   REAL,
+  memory_contribution   REAL,
+  skill_contribution    REAL,
+  tool_contribution     REAL,
+  exploration_mode      TEXT NOT NULL,
+  explored_layer        TEXT,
+  conflicts_json        TEXT,
+  strategy_version      TEXT,
+  model_version         INTEGER,
+  created_at            TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_coordinated_evolution_created
+  ON coordinated_evolution_history (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_coordinated_evolution_agent_created
+  ON coordinated_evolution_history (agent_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_coordinated_evolution_session
+  ON coordinated_evolution_history (session_id);
+
+-- pareto_frontier: 多目标帕累托前沿
+CREATE TABLE IF NOT EXISTS pareto_frontier (
+  config_hash        TEXT PRIMARY KEY,
+  agent_id           TEXT NOT NULL,
+  config_json        TEXT NOT NULL,
+  user_satisfaction  REAL NOT NULL CHECK (user_satisfaction BETWEEN 0 AND 1),
+  response_time      INTEGER NOT NULL CHECK (response_time >= 0),
+  token_cost         INTEGER NOT NULL CHECK (token_cost >= 0),
+  consistency_score  REAL CHECK (consistency_score BETWEEN 0 AND 1),
+  usage_count        INTEGER NOT NULL DEFAULT 0 CHECK (usage_count >= 0),
+  added_at           TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pareto_agent_satisfaction
+  ON pareto_frontier (agent_id, user_satisfaction DESC);
+
+-- memory_ranking_weights: 记忆排序模型权重快照（支持版本化回滚）
+CREATE TABLE IF NOT EXISTS memory_ranking_weights (
+  agent_id      TEXT NOT NULL,
+  version       INTEGER NOT NULL,
+  weights_json  TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  PRIMARY KEY (agent_id, version)
+);
+
+-- scheduler_state: 协同调度器状态（支持重启恢复）
+CREATE TABLE IF NOT EXISTS coordinated_scheduler_state (
+  agent_id             TEXT PRIMARY KEY,
+  global_satisfaction  REAL NOT NULL CHECK (global_satisfaction BETWEEN 0 AND 1),
+  exploration_budget   REAL NOT NULL CHECK (exploration_budget BETWEEN 0 AND 1),
+  state_json           TEXT NOT NULL,
+  last_updated         TEXT NOT NULL
+);
 `,
   ],
 ] as const;

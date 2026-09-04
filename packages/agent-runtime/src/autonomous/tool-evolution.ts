@@ -99,15 +99,16 @@ export class ToolEvolution {
       strategy.updateStats(feedback.toolName, feedback.result === 'success');
 
       // 3. 持久化反馈
-      await this.db.insert('tool_usage_feedback', {
-        tool_name: feedback.toolName,
-        session_id: feedback.sessionId,
-        task_type: feedback.context.taskType,
-        difficulty: feedback.context.difficulty,
-        result: feedback.result,
-        execution_time: feedback.executionTime,
-        created_at: feedback.timestamp,
-      });
+      const sql = `INSERT INTO tool_usage_feedback (tool_name, session_id, task_type, difficulty, result, execution_time, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+      await this.db.execute(sql, [
+        feedback.toolName,
+        feedback.sessionId,
+        feedback.context.taskType,
+        feedback.context.difficulty,
+        feedback.result,
+        feedback.executionTime,
+        feedback.timestamp,
+      ]);
 
       console.info('[ToolEvolution] Tool feedback recorded', {
         event: 'tool-feedback-recorded',
@@ -225,15 +226,17 @@ export class ToolEvolution {
       const since = new Date();
       since.setDate(since.getDate() - days);
 
-      const rows = await this.db.find('tool_usage_feedback', {
-        created_at: { $gte: since.toISOString() },
-      });
+      const sql = `SELECT tool_name, task_type, difficulty, result FROM tool_usage_feedback WHERE created_at >= ?`;
+      const rows = await this.db.query<any>(sql, [since.toISOString()]);
 
       console.info('[ToolEvolution] Loading tool statistics from database', {
         event: 'tool-stats-loading',
         rowCount: rows.length,
         days,
       });
+
+      // 清空后重建统计，避免重复加载导致后验被重复计数
+      this.contextStrategies.clear();
 
       // 重建统计
       for (const row of rows) {

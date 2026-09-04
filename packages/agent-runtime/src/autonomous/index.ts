@@ -11,6 +11,38 @@ export { PromptEvolutionEngine } from './prompt-evolution';
 export { PersonalityTracker, recordPersonalityEvent, EVENT_PERSONALITY_IMPACT } from './personality-tracker';
 export { AutonomousCoordinator } from './autonomous-coordinator';
 
+// P2: 多层进化协同模块
+export { MemoryRankingModel, computeMeanSquaredError } from './memory-ranking-model';
+export { MemoryEvolution } from './memory-evolution';
+export { ToolThompsonSampling } from './tool-thompson-sampling';
+export { ToolEvolution } from './tool-evolution';
+export { SkillEvolution, type SkillGap, type SkillGapIssue } from './skill-evolution';
+export {
+  CoordinatedScheduler,
+  computeExplorationBudget,
+  createInitialSchedulerState,
+  type SchedulingDecision,
+  type RandomSource,
+} from './coordinated-scheduler';
+export {
+  ATTRIBUTION_LAYERS,
+  computeMarginalContribution,
+  computeShapleyContribution,
+  uniformContribution,
+  isContributionNormalized,
+} from './shapley-attribution';
+export {
+  ConflictDetector,
+  type ConflictContext,
+  type DetectionResult,
+  type ResolutionResult,
+} from './conflict-detector';
+export { ParetoFrontier, dominates, computeConfigHash, OBJECTIVE_DIRECTIONS } from './pareto-frontier';
+
+// P2: 目标生成纯函数
+export { generateSkillEnhancementGoal, generateMemoryOptimizationGoal, type SkillGapInput } from './intrinsic-goal-generator';
+export { validatePersonalityState, describePersonalityChange } from './personality-tracker';
+
 // 指标收集
 export type { SessionMetrics, AgentSession } from './metrics-collector';
 export { extractTaskCompletion, extractUserFeedback, extractEfficiency, extractKnowledgeGrowth, collectMetricsFromSession } from './metrics-collector';

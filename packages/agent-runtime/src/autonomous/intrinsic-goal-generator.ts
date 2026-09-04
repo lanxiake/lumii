@@ -20,8 +20,24 @@ export interface GoalGenerationContext {
   lastUserMessageTime?: Date;
   /** 能力缺口列表（P1 新增）*/
   capabilityGaps?: CapabilityGap[];
+  /** 技能缺口列表（P2 新增）*/
+  skillGaps?: SkillGapInput[];
+  /** 低效记忆 ID 列表（P2 新增）*/
+  ineffectiveMemoryIds?: string[];
   /** 其他上下文数据 */
   [key: string]: any;
+}
+
+/**
+ * 技能缺口输入（P2）
+ * 与 SkillEvolution.identifySkillGaps 的输出结构对齐
+ */
+export interface SkillGapInput {
+  skillName: string;
+  issue: 'low-success-rate' | 'low-satisfaction' | 'high-execution-time';
+  priority: number;
+  currentValue: number;
+  threshold: number;
 }
 
 /**
@@ -168,6 +184,93 @@ export function generateCapabilityImprovementGoal(
   };
 }
 
+/** 技能缺口类型的中文说明（P2） */
+const SKILL_ISSUE_NAMES: Record<SkillGapInput['issue'], string> = {
+  'low-success-rate': '成功率较低',
+  'low-satisfaction': '用户满意度不足',
+  'high-execution-time': '执行时间过长',
+};
+
+/**
+ * P2: 生成技能改进目标（纯函数）
+ *
+ * 只输出待批准的改进候选，不自动生成、安装或执行任何技能代码。
+ *
+ * @param gaps 技能缺口列表（按优先级排序）
+ * @param agentId Agent ID
+ * @returns 技能改进目标或 null
+ */
+export function generateSkillEnhancementGoal(gaps: SkillGapInput[], agentId: string): AutonomousGoal | null {
+  if (gaps.length === 0) {
+    return null;
+  }
+
+  const topGap = gaps[0];
+  const issueName = SKILL_ISSUE_NAMES[topGap.issue] || topGap.issue;
+  const description = `改进技能"${topGap.skillName}"：${issueName}`;
+
+  return {
+    id: '',
+    agentId,
+    type: GoalTypeEnum.SKILL_ENHANCEMENT,
+    description,
+    triggerReason: 'low-satisfaction',
+    status: GoalStatusEnum.PENDING,
+    // 优先级归一化到 [0, 1]，缺口优先级是无界的原始分值
+    priority: Math.max(0, Math.min(1, topGap.priority)),
+    metadata: {
+      skillName: topGap.skillName,
+      issue: topGap.issue,
+      currentValue: topGap.currentValue,
+      threshold: topGap.threshold,
+      rawPriority: topGap.priority,
+      /** 明确标记：需要用户批准后才可执行任何改动 */
+      requiresApproval: true,
+    },
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * P2: 生成记忆优化目标（纯函数）
+ *
+ * 只提出"标记并复核低效记忆"的目标；P2 不自动删除任何记忆。
+ *
+ * @param ineffectiveMemoryIds 低效记忆 ID 列表
+ * @param agentId Agent ID
+ * @returns 记忆优化目标或 null
+ */
+export function generateMemoryOptimizationGoal(ineffectiveMemoryIds: string[], agentId: string): AutonomousGoal | null {
+  if (ineffectiveMemoryIds.length === 0) {
+    return null;
+  }
+
+  const count = ineffectiveMemoryIds.length;
+  const description = `复核 ${count} 条低效记忆：这些记忆的历史贡献度持续偏低，建议确认是否保留`;
+
+  // 低效记忆越多，优先级越高；20 条以上到达上限
+  const priority = Math.max(0, Math.min(1, count / 20));
+
+  return {
+    id: '',
+    agentId,
+    type: GoalTypeEnum.MEMORY_OPTIMIZATION,
+    description,
+    triggerReason: 'scheduled',
+    status: GoalStatusEnum.PENDING,
+    priority,
+    metadata: {
+      ineffectiveMemoryCount: count,
+      // 只保存 ID，不保存记忆内容
+      memoryIds: ineffectiveMemoryIds.slice(0, 50),
+      /** P2 只标记不删除，删除必须显式批准 */
+      action: 'review-only',
+      requiresApproval: true,
+    },
+    createdAt: new Date().toISOString(),
+  };
+}
+
 /**
  * 内在目标生成器
  */
@@ -209,15 +312,30 @@ export class IntrinsicGoalGenerator {
             const goal = generateCapabilityImprovementGoal(context.capabilityGaps, score.agentId);
             if (goal) goals.push(goal);
           }
+        } else if (type === GoalTypeEnum.SKILL_ENHANCEMENT) {
+          // P2 新增：技能改进目标
+          if (context.skillGaps && context.skillGaps.length > 0) {
+            const goal = generateSkillEnhancementGoal(context.skillGaps, score.agentId);
+            if (goal) goals.push(goal);
+          }
+        } else if (type === GoalTypeEnum.MEMORY_OPTIMIZATION) {
+          // P2 新增：记忆优化目标
+          if (context.ineffectiveMemoryIds && context.ineffectiveMemoryIds.length > 0) {
+            const goal = generateMemoryOptimizationGoal(context.ineffectiveMemoryIds, score.agentId);
+            if (goal) goals.push(goal);
+          }
         }
       }
 
       // 按优先级排序
       goals.sort((a, b) => b.priority - a.priority);
 
-      // 限制不超过剩余配额
+      // P2: 与已存在的未完成目标去重，避免新来源重复生成同一目标
+      const deduped = await this.deduplicateGoals(score.agentId, goals);
+
+      // 限制不超过剩余配额（全局每日上限对所有来源统一生效）
       const remaining = this.config.maxGoalsPerDay - todayCount;
-      const goalsToCreate = goals.slice(0, remaining);
+      const goalsToCreate = deduped.slice(0, remaining);
 
       // 持久化到数据库
       for (const goal of goalsToCreate) {
@@ -267,6 +385,58 @@ export class IntrinsicGoalGenerator {
     `;
     const rows = await this.db.query<any>(sql, [agentId, GoalStatusEnum.PENDING]);
     return rows.map(this.mapRowToGoal);
+  }
+
+  /**
+   * P2: 与已存在的未完成目标去重
+   *
+   * 同类型 + 同描述的目标若已处于 pending/approved/executing，则本次不再生成。
+   * 同时对本批次内部去重。
+   */
+  private async deduplicateGoals(agentId: string, goals: AutonomousGoal[]): Promise<AutonomousGoal[]> {
+    if (goals.length === 0) {
+      return goals;
+    }
+
+    try {
+      const sql = `
+        SELECT type, description FROM autonomous_goals
+        WHERE agent_id = ? AND status IN (?, ?, ?)
+      `;
+      const rows = await this.db.query<any>(sql, [
+        agentId,
+        GoalStatusEnum.PENDING,
+        GoalStatusEnum.APPROVED,
+        GoalStatusEnum.EXECUTING,
+      ]);
+
+      const seen = new Set<string>(rows.map((row) => `${row.type}::${row.description}`));
+      const result: AutonomousGoal[] = [];
+
+      for (const goal of goals) {
+        const key = `${goal.type}::${goal.description}`;
+        if (seen.has(key)) {
+          console.log(`[IntrinsicGoalGenerator] 跳过重复目标: ${key}`);
+          continue;
+        }
+        seen.add(key);
+        result.push(goal);
+      }
+
+      return result;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error('[IntrinsicGoalGenerator] 目标去重失败，仅做批次内去重:', err.message);
+
+      // 降级：只在本批次内部去重
+      const seen = new Set<string>();
+      return goals.filter((goal) => {
+        const key = `${goal.type}::${goal.description}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
   }
 
   /**
