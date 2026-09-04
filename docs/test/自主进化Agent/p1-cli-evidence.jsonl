@@ -1,0 +1,20 @@
+{"ts":"2026-09-04T10:25:52.188Z","id":"TC1.1","status":"PASS","note":"capability_dimensions 表存在"}
+{"ts":"2026-09-04T10:25:52.189Z","id":"TC1.2","status":"PASS","note":"capability_tests 表存在"}
+{"ts":"2026-09-04T10:25:52.189Z","id":"TC1.3","status":"PASS","note":"reflections 表存在"}
+{"ts":"2026-09-04T10:25:52.190Z","id":"TC2.1","status":"PASS","note":"新 Agent 能力维度返回默认值"}
+{"ts":"2026-09-04T10:25:52.193Z","id":"TC3.1","status":"PASS","note":"记录成功的能力测试"}
+{"ts":"2026-09-04T10:25:52.196Z","id":"TC3.2","status":"PASS","note":"记录失败的能力测试"}
+{"ts":"2026-09-04T10:25:52.199Z","id":"TC3.3","status":"PASS","note":"记录部分成功的能力测试"}
+{"ts":"2026-09-04T10:25:52.203Z","id":"TC4.1","status":"PASS","note":"更新能力维度状态"}
+{"ts":"2026-09-04T10:25:52.204Z","id":"TC4.2","status":"PASS","note":"验证能力边界等于能力水平"}
+{"ts":"2026-09-04T10:25:52.238Z","id":"TC5.1","status":"PASS","note":"模拟高需求维度"}
+{"ts":"2026-09-04T10:25:52.239Z","id":"TC5.2","status":"PASS","note":"验证能力维度检查约束"}
+{"ts":"2026-09-04T10:25:52.242Z","id":"TC6.1","status":"PASS","note":"插入反思记录"}
+{"ts":"2026-09-04T10:25:52.242Z","id":"TC6.2","status":"PASS","note":"验证反思时间窗口"}
+{"ts":"2026-09-04T10:25:52.243Z","id":"TC6.3","status":"PASS","note":"验证反思 JSON 字段"}
+{"ts":"2026-09-04T10:25:52.246Z","id":"TC7.1","status":"PASS","note":"插入 capability-improvement 目标"}
+{"ts":"2026-09-04T10:25:52.246Z","id":"TC7.2","status":"PASS","note":"验证目标类型检查约束"}
+{"ts":"2026-09-04T10:25:52.270Z","id":"TC8.1","status":"PASS","note":"追踪 8 个能力维度"}
+{"ts":"2026-09-04T10:25:52.273Z","id":"TC9.1","status":"PASS","note":"验证 P0 功能不受影响"}
+{"ts":"2026-09-04T10:25:52.279Z","id":"TC9.2","status":"INFO","note":"共 3 个目标 (learning: 1, capability-improvement: 2)"}
+{"ts":"2026-09-04T10:25:52.279Z","id":"TC9.2","status":"PASS","note":"生成混合目标（P0 + P1）"}
