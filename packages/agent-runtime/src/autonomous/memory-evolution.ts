@@ -152,9 +152,8 @@ export class MemoryEvolution {
       const since = new Date();
       since.setDate(since.getDate() - days);
 
-      const rows = await this.db.find('memory_usage_feedback', {
-        created_at: { $gte: since.toISOString() },
-      });
+      const sql = `SELECT features, contribution_score FROM memory_usage_feedback WHERE created_at >= ?`;
+      const rows = await this.db.query<any>(sql, [since.toISOString()]);
 
       if (rows.length < MEMORY_MIN_SAMPLES) {
         console.info('[MemoryEvolution] Not enough samples for retraining', {
@@ -165,11 +164,29 @@ export class MemoryEvolution {
         return;
       }
 
-      // 准备训练样本
-      const samples = rows.map((row) => ({
-        features: typeof row.features === 'string' ? JSON.parse(row.features) : row.features,
-        actualUtility: row.contribution_score as number,
-      }));
+      // 准备训练样本（跳过损坏或越界的记录）
+      const samples: Array<{ features: MemoryRankingFeatures; actualUtility: number }> = [];
+      for (const row of rows) {
+        try {
+          const features = typeof row.features === 'string' ? JSON.parse(row.features) : row.features;
+          const actualUtility = Number(row.contribution_score);
+          if (!features || !Number.isFinite(actualUtility) || actualUtility < 0 || actualUtility > 1) {
+            continue;
+          }
+          samples.push({ features, actualUtility });
+        } catch {
+          // 忽略无法解析的特征快照
+        }
+      }
+
+      if (samples.length < MEMORY_MIN_SAMPLES) {
+        console.info('[MemoryEvolution] Not enough valid samples for retraining', {
+          event: 'retrain-skipped',
+          validSampleCount: samples.length,
+          required: MEMORY_MIN_SAMPLES,
+        });
+        return;
+      }
 
       // 保存当前快照
       const snapshot = this.rankingModel.createSnapshot();
@@ -199,7 +216,7 @@ export class MemoryEvolution {
 
       console.info('[MemoryEvolution] Memory ranking model retrained', {
         event: 'memory-model-retrained',
-        feedbackCount: rows.length,
+        feedbackCount: samples.length,
         errorBefore,
         errorAfter,
         weights: this.rankingModel.getWeights(),
@@ -223,15 +240,17 @@ export class MemoryEvolution {
     ineffectiveMemoryCount: number;
   }> {
     try {
-      const rows = await this.db.find('memory_usage_feedback', {});
-      const avgScore = rows.length > 0 ? rows.reduce((sum, f) => sum + (f.contribution_score as number), 0) / rows.length : 0;
+      const sql = `SELECT COUNT(*) AS total, AVG(contribution_score) AS avg_score FROM memory_usage_feedback`;
+      const rows = await this.db.query<any>(sql);
+      const total = Number(rows[0]?.total ?? 0);
+      const avgScore = Number(rows[0]?.avg_score ?? 0);
       const ineffective = await this.identifyIneffectiveMemories('default', MEMORY_INEFFECTIVE_THRESHOLD);
 
       return {
         weights: this.rankingModel.getWeights(),
         modelVersion: this.rankingModel.getVersion(),
-        totalFeedbacks: rows.length,
-        avgContributionScore: avgScore,
+        totalFeedbacks: total,
+        avgContributionScore: Number.isFinite(avgScore) ? avgScore : 0,
         ineffectiveMemoryCount: ineffective.length,
       };
     } catch (error) {
