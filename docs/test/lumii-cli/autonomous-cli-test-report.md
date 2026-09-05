@@ -1,6 +1,6 @@
 # 自主进化 CLI 测试报告
 
-**执行时间**: 2026-09-05T10:50:15.088Z
+**执行时间**: 2026-09-05T13:11:00.753Z
 **结果**: 22 PASS / 0 FAIL（共 22）
 **数据库**: `C:\Users\Administrator\.lumii\data\agent-runtime.db`
 **探针 agent**: `autonomous-test-*`（跑完已清理）
@@ -17,7 +17,7 @@
 | TC6 | PASS | 时间窗口过滤边界: 7d=3 / 30d=3 / all=4，边界正确 |
 | TC7 | PASS | 目标列表与状态过滤: 全部 2 条，pending 1 条，字段映射正确 |
 | TC8 | PASS | 非法 status 安全降级: 白名单拦下非法状态值，数据完好 |
-| TC9 | PASS | 批准目标状态流转落库: status=approved，approved_at 已写入 |
+| TC9 | PASS | 批准目标流转 executing 并记录 evolution-decided: status=executing + evolution-decided 人格事件已落库 |
 | TC10 | PASS | 拒绝目标状态流转落库: status=rejected |
 | TC11 | PASS | 重复审批被拒绝: 非 pending 目标无法二次流转 |
 | TC12 | PASS | 不存在目标优雅失败: 返回 success=false 并说明原因 |

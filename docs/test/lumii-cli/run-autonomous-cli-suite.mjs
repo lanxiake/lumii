@@ -220,6 +220,9 @@ function cleanup() {
     db.prepare("DELETE FROM capability_dimensions WHERE agent_id LIKE 'autonomous-test-%'").run()
     db.prepare("DELETE FROM reflections WHERE agent_id LIKE 'autonomous-test-%'").run()
     db.prepare("DELETE FROM prompt_variants WHERE baseline_prompt_id LIKE 'autonomous-test-%'").run()
+    // 审批会触发协调器写入人格表，探针数据需一并清理
+    db.prepare("DELETE FROM personality_state WHERE agent_id LIKE 'autonomous-test-%'").run()
+    db.prepare("DELETE FROM personality_events WHERE agent_id LIKE 'autonomous-test-%'").run()
   })
 }
 
@@ -356,16 +359,27 @@ function run() {
     return '白名单拦下非法状态值，数据完好'
   })
 
-  // ---- TC9: 批准落库 ----
-  runTest('TC9', '批准目标状态流转落库', () => {
+  // ---- TC9: 批准落库 + 协调器流转 executing + 进化人格事件 ----
+  runTest('TC9', '批准目标流转 executing 并记录 evolution-decided', () => {
     const goalId = seedGoal({ status: 'pending', description: '待批准探针' })
     const j = okJson(ui(['autonomous', 'goals', 'approve', goalId, '--note', '测试批准']), 'approve')
     assert(j.success === true, `应成功: ${JSON.stringify(j)}`)
-    const row = withDb((db) =>
-      db.prepare('SELECT status, approved_at FROM autonomous_goals WHERE id = ?').get(goalId))
-    assert(row.status === 'approved', `库中应 approved，实际 ${row.status}`)
+    // 协调器 onGoalApproved 把 approved 继续流转到 executing（异步微任务），重试等待
+    let row = null
+    for (let i = 0; i < 20; i++) {
+      row = withDb((db) =>
+        db.prepare('SELECT status, approved_at FROM autonomous_goals WHERE id = ?').get(goalId))
+      if (row.status === 'executing') break
+      sleep(100)
+    }
+    assert(row.status === 'executing', `库中应流转到 executing，实际 ${row.status}`)
     assert(row.approved_at, 'approved_at 未写入')
-    return `status=approved，approved_at 已写入`
+    const ev = withDb((db) =>
+      db.prepare(
+        "SELECT event_type FROM personality_events WHERE agent_id = ? AND event_type = 'evolution-decided' ORDER BY created_at DESC LIMIT 1",
+      ).get(PROBE_AGENT))
+    assert(ev, '审批未触发 evolution-decided 人格事件（协调器绕过未修复）')
+    return 'status=executing + evolution-decided 人格事件已落库'
   })
 
   // ---- TC10: 拒绝落库 ----

@@ -481,12 +481,6 @@ export interface AutonomousDisableCommand {
   readonly type: 'autonomous:disable'
 }
 
-export interface AutonomousTriggerEvaluationCommand {
-  readonly type: 'autonomous:trigger:evaluation'
-  readonly sessionKey?: string
-  readonly agentId?: string
-}
-
 export interface WikiSearchCommand {
   readonly type: 'wiki:search'
   readonly sessionKey?: string

@@ -10,6 +10,7 @@
 import { ipcMain } from 'electron'
 import { getAgentRuntimeBridge } from './agent-runtime-ipc'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
+import { notifyAutonomousGoalApproved } from '../agent-runtime/autonomous-wiring'
 
 const ENABLED_KEY = 'autonomous.enabled'
 const DEFAULT_AGENT_ID = 'assistant'
@@ -125,6 +126,7 @@ ipcMain.handle('autonomous:approveGoal', async (_event, goalId: string, note?: s
   const bridge = requireBridge()
   const ok = bridge.autonomousRepo.approveGoal(goalId, note)
   if (!ok) throw new Error('目标不存在或不处于 pending 状态')
+  notifyAutonomousGoalApproved(goalId)
   return { success: true, goalId }
 })
 

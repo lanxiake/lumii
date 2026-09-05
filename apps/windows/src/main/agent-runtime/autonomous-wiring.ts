@@ -110,6 +110,36 @@ export async function shutdownAutonomousRuntime(): Promise<void> {
 }
 
 /**
+ * 目标批准通知。
+ *
+ * 审批路径（CLI / 前端）经 AutonomousRepo 直接改状态为 approved，
+ * 绕过了协调器的 goal:approved 事件，导致目标永远停在 approved、
+ * 不流转到 executing、也不记 evolution-decided 人格事件。这里补一枪：
+ * 从正式表重建最小目标对象，触发协调器 onGoalApproved。
+ */
+export function notifyAutonomousGoalApproved(goalId: string): boolean {
+  if (!runtime || !runtimeDb) return false
+  try {
+    const row = runtimeDb
+      .prepare<{ agent_id: string; type: string; description: string }>(
+        `SELECT agent_id, type, description FROM autonomous_goals WHERE id = ?`,
+      )
+      .get(goalId)
+    if (!row) return false
+    runtime.coordinator.emit('goal:approved', {
+      id: goalId,
+      agentId: row.agent_id,
+      type: row.type,
+      description: row.description,
+    })
+    return true
+  } catch (err) {
+    log.warn('[autonomous] 通知目标批准失败:', err instanceof Error ? err.message : err)
+    return false
+  }
+}
+
+/**
  * 回合结束通知。agentId 按会话归属解析，与 CLI 侧 resolveAgentId 同口径。
  */
 export async function notifyAutonomousTurnEnd(conversationId: string): Promise<void> {
@@ -260,13 +290,16 @@ function buildSessionSnapshot(db: DatabaseAdapter, sessionId: string, agentId: s
 
   // 工具调用与失败数从 tool_result 消息统计：任务完成度与效率维度都依赖它，
   // 恒传空数组会让完成度永远算成 1.0
-  const toolCalls: Array<{ success: boolean }> = []
+  const toolCalls: Array<{ success: boolean; toolName?: string }> = []
   const errors: Array<{ message: string }> = []
   for (const row of rows) {
     const parsed = tryParse(row.content_json)
     if (parsed?.type !== 'tool_result') continue
     const isError = parsed.is_error === true
-    toolCalls.push({ success: !isError })
+    toolCalls.push({
+      success: !isError,
+      toolName: typeof parsed.tool_name === 'string' ? parsed.tool_name : undefined,
+    })
     if (isError) errors.push({ message: String(parsed.tool_name ?? 'tool') })
   }
 
