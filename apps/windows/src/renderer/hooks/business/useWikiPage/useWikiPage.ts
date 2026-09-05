@@ -79,15 +79,40 @@ export interface WikiMigrateProgressItem {
   readonly cancelRequested?: boolean
 }
 
+/** 库级迁移单文件夹映射（与 IPC MigrateFolderMapping 对齐） */
+export interface WikiMigrateMappingItem {
+  readonly folderRel: string
+  readonly category: string | null
+  readonly subtopic: string | null
+  readonly confidence: number
+  readonly reason: string
+  readonly proposedSubtopic?: string
+  readonly approvedProposedSubtopic?: boolean
+  readonly ignored?: boolean
+  readonly status: 'ok' | 'conflict' | 'needContent'
+  readonly inboxIds: readonly string[]
+}
+
 /** 库级迁移 run 摘要（与 IPC WikiMigrateRunDto 对齐） */
 export interface WikiMigrateRunItem {
   readonly runId: string
   readonly phase: string
   readonly importRoot: string
   readonly inboxIds: readonly string[]
+  readonly mappings: readonly WikiMigrateMappingItem[]
+  readonly appliedSourceIds?: readonly string[]
+  readonly appliedInboxIds?: readonly string[]
   readonly cancelRequested: boolean
   readonly progress: WikiMigrateProgressItem
   readonly error: string | null
+}
+
+/** update-mapping 可写字段 */
+export interface WikiMigrateMappingPatch {
+  readonly category?: string | null
+  readonly subtopic?: string | null
+  readonly approvedProposedSubtopic?: boolean
+  readonly ignored?: boolean
 }
 
 /** 资料详情（wiki:source:get） */
@@ -1082,6 +1107,96 @@ export function useWikiPage() {
     [],
   )
 
+  /**
+   * 用户确认 review 映射后执行 apply，逐条归档 inbox。
+   */
+  const applyMigrate = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:migrate:apply',
+        agentId: DEFAULT_AGENT_ID,
+      })) as { run: WikiMigrateRunItem }
+      return r?.run ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  /**
+   * 丢弃当前 migrate 映射方案；inbox 保持 pending。
+   */
+  const discardMigrate = useCallback(async (): Promise<boolean> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return false
+    try {
+      await api.sendCommand({
+        type: 'wiki:migrate:discard',
+        agentId: DEFAULT_AGENT_ID,
+      })
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
+  /**
+   * 撤销本 run 已落位的 source，退回收件箱。
+   */
+  const undoMigrate = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:migrate:undo',
+        agentId: DEFAULT_AGENT_ID,
+      })) as { run: WikiMigrateRunItem }
+      return r?.run ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  /**
+   * 对仍 pending 的本批 inbox 重跑盘点 + 映射 → review。
+   */
+  const replanMigrate = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:migrate:replan',
+        agentId: DEFAULT_AGENT_ID,
+      })) as { run: WikiMigrateRunItem }
+      return r?.run ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  /**
+   * 预览中改单簇映射、批准 proposedSubtopic 或标记 ignored。
+   */
+  const updateMigrateMapping = useCallback(
+    async (folderRel: string, patch: WikiMigrateMappingPatch): Promise<WikiMigrateRunItem | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:migrate:update-mapping',
+          agentId: DEFAULT_AGENT_ID,
+          folderRel,
+          patch,
+        })) as { run: WikiMigrateRunItem }
+        return r?.run ?? null
+      } catch {
+        return null
+      }
+    },
+    [],
+  )
+
   return {
     loading,
     listInbox,
@@ -1126,5 +1241,10 @@ export function useWikiPage() {
     getMigrateRun,
     cancelMigrate,
     subscribeMigrateProgress,
+    applyMigrate,
+    discardMigrate,
+    undoMigrate,
+    replanMigrate,
+    updateMigrateMapping,
   }
 }

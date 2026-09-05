@@ -31,6 +31,7 @@ import { WikiFileList } from './WikiFileList'
 import { WikiTopicPicker } from './WikiTopicPicker'
 import { WikiTopicTreeEditor } from './WikiTopicTreeEditor'
 import { WikiReclassifyView } from './WikiReclassifyView'
+import { WikiMigrateReviewView } from './WikiMigrateReviewView'
 import { WikiInboxPanel, inboxItemToPreviewSnapshot } from './WikiInboxPanel'
 import { WikiSubtopicPanel } from './WikiSubtopicPanel'
 import { isUrlSourceItem } from './wikiSourcePreview'
@@ -57,6 +58,7 @@ const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
   parking: { title: '临时存放', subtitle: '你主动搁置、暂不进入正式目录的文件' },
   cleanup: { title: '清理', subtitle: '扫描并处理需要维护的资料' },
   reclassify: { title: '重新编目', subtitle: 'AI 的目录调整建议，接受后才生效' },
+  migrate: { title: '整理入库', subtitle: '文件夹映射方案，确认后才归档' },
 }
 
 /** migrate 进行中阶段（可取消） */
@@ -139,6 +141,11 @@ export const WikiTab: React.FC = () => {
     getMigrateRun,
     cancelMigrate,
     subscribeMigrateProgress,
+    applyMigrate,
+    discardMigrate,
+    undoMigrate,
+    replanMigrate,
+    updateMigrateMapping,
     loading,
   } = useWikiPage()
   const taskCenter = useWikiTaskCenter()
@@ -176,6 +183,9 @@ export const WikiTab: React.FC = () => {
   const [autoClassifyEnabled, setAutoClassifyEnabledState] = useState(false)
   const [isTreeEditorOpen, setIsTreeEditorOpen] = useState(false)
   const [reclassifyRun, setReclassifyRun] = useState<WikiReclassifyRunItem | null>(null)
+  const [migrateRun, setMigrateRun] = useState<WikiMigrateRunItem | null>(null)
+  const [migrateApplying, setMigrateApplying] = useState(false)
+  const [migrateUndoPrompt, setMigrateUndoPrompt] = useState<{ appliedCount: number } | null>(null)
   const [reclassifyConfirm, setReclassifyConfirm] = useState<{
     count: number
     estimate: WikiReclassifyEstimateItem | null
@@ -262,6 +272,15 @@ export const WikiTab: React.FC = () => {
     setInboxItems(all)
     setInboxPending(count)
   }, [listInbox, countInbox])
+
+  /**
+   * 拉取当前 migrate run 并同步本地状态。
+   */
+  const refreshMigrateRun = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
+    const run = await getMigrateRun()
+    setMigrateRun(run)
+    return run
+  }, [getMigrateRun])
 
   useEffect(() => {
     void loadTopicTree().then(setTopicTree)
@@ -358,32 +377,40 @@ export const WikiTab: React.FC = () => {
     (taskId: string, progress: WikiMigrateProgressItem, error?: string | null): void => {
       migrateTaskRef.current = null
       const tc = taskCenterRef.current
+      const applied = progress.appliedCount ?? 0
       if (progress.phase === 'failed') {
         tc.failTask(taskId, error ?? progress.message ?? '整理入库失败')
         return
       }
       if (progress.phase === 'cancelled') {
-        const applied = progress.appliedCount ?? 0
         tc.completeTask(taskId, {
           detail: applied > 0 ? `已取消 · 已整理 ${applied} 项` : '已取消',
+          migratePhase: progress.phase as WikiMigratePhase,
+          appliedCount: applied,
         })
+        if (applied > 0) setMigrateUndoPrompt({ appliedCount: applied })
         return
       }
       if (progress.phase === 'review') {
         tc.completeTask(taskId, {
           detail: progress.total > 0 ? `${progress.total} 条映射待确认` : '映射方案待确认',
+          migratePhase: 'review',
         })
+        void refreshMigrateRun().then(() => setNav({ kind: 'migrate' }))
         return
       }
       if (progress.phase === 'succeeded' || progress.phase === 'partial') {
         tc.completeTask(taskId, {
           detail: progress.message ?? progress.phaseLabel,
+          migratePhase: progress.phase as WikiMigratePhase,
+          appliedCount: applied,
         })
+        if (applied > 0) setMigrateUndoPrompt({ appliedCount: applied })
         return
       }
       tc.completeTask(taskId, { detail: progress.phaseLabel })
     },
-    [],
+    [refreshMigrateRun],
   )
 
   /**
@@ -431,11 +458,18 @@ export const WikiTab: React.FC = () => {
     return unsubscribe
   }, [finalizeMigrateTask, subscribeMigrateProgress])
 
-  /** 进页时恢复进行中的 migrate 任务 */
+  /** 进页时恢复进行中的 migrate 任务；若有 review 方案则同步状态 */
   useEffect(() => {
     void getMigrateRun().then((run) => {
-      if (!run || !isMigrateBusyPhase(run.phase)) return
-      registerMigrateTask(run)
+      if (!run) return
+      setMigrateRun(run)
+      if (isMigrateBusyPhase(run.phase)) {
+        registerMigrateTask(run)
+        return
+      }
+      if (run.phase === 'review') {
+        setNav((prev) => (prev.kind === 'inbox' ? { kind: 'migrate' } : prev))
+      }
     })
   }, [getMigrateRun, registerMigrateTask])
 
@@ -806,6 +840,114 @@ export const WikiTab: React.FC = () => {
   }, [discardReclassify])
 
   /**
+   * 更新单条文件夹映射并刷新 run。
+   */
+  const handleUpdateMigrateMapping = useCallback(
+    async (folderRel: string, patch: Parameters<typeof updateMigrateMapping>[1]) => {
+      const run = await updateMigrateMapping(folderRel, patch)
+      if (run) setMigrateRun(run)
+    },
+    [updateMigrateMapping],
+  )
+
+  /**
+   * 确认执行 migrate apply，订阅 applying 进度直至终态。
+   */
+  const handleApplyMigrate = useCallback(async () => {
+    setMigrateApplying(true)
+    const taskId = taskCenter.startTask({ kind: 'migrate', title: '整理入库' })
+    try {
+      const started = await applyMigrate()
+      if (!started) {
+        taskCenter.failTask(taskId, '确认整理失败')
+        return
+      }
+      setMigrateRun(started)
+      if (started.phase === 'applying') {
+        migrateTaskRef.current = { taskId, runId: started.runId }
+      }
+      for (;;) {
+        const run = await getMigrateRun()
+        if (!run) break
+        setMigrateRun(run)
+        if (run.phase !== 'applying') {
+          if (run.progress) finalizeMigrateTask(taskId, run.progress, run.error)
+          break
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 400))
+      }
+      await Promise.all([refreshInbox(), refreshSources()])
+    } finally {
+      setMigrateApplying(false)
+    }
+  }, [applyMigrate, getMigrateRun, finalizeMigrateTask, refreshInbox, refreshSources, taskCenter])
+
+  /**
+   * 丢弃 migrate 映射方案并返回收件箱。
+   */
+  const handleDiscardMigrate = useCallback(async () => {
+    await discardMigrate()
+    setMigrateRun(null)
+    setNav({ kind: 'inbox' })
+  }, [discardMigrate])
+
+  /**
+   * 重跑盘点 + 映射，进入 review。
+   */
+  const handleReplanMigrate = useCallback(async () => {
+    const taskId = taskCenter.startTask({ kind: 'migrate', title: '重新规划映射' })
+    const run = await replanMigrate()
+    if (!run) {
+      taskCenter.failTask(taskId, '重新规划失败')
+      return
+    }
+    setMigrateRun(run)
+    if (isMigrateBusyPhase(run.phase)) {
+      migrateTaskRef.current = { taskId, runId: run.runId }
+      return
+    }
+    if (run.phase === 'review') {
+      taskCenter.completeTask(taskId, {
+        detail: `${run.mappings.length} 条映射待确认`,
+        migratePhase: 'review',
+      })
+      setNav({ kind: 'migrate' })
+    } else {
+      taskCenter.completeTask(taskId, { detail: run.progress.phaseLabel })
+    }
+  }, [replanMigrate, taskCenter])
+
+  /**
+   * 撤销本次已整理项并退回收件箱。
+   */
+  const handleUndoMigrate = useCallback(async () => {
+    const run = await undoMigrate()
+    setMigrateUndoPrompt(null)
+    if (run) setMigrateRun(run)
+    await Promise.all([refreshInbox(), refreshSources()])
+    toast.info('已撤销本次整理，文件已退回收件箱')
+  }, [undoMigrate, refreshInbox, refreshSources, toast])
+
+  /**
+   * 撤销后重新规划映射并打开预览。
+   */
+  const handleUndoAndReplanMigrate = useCallback(async () => {
+    setMigrateUndoPrompt(null)
+    await undoMigrate()
+    await Promise.all([refreshInbox(), refreshSources()])
+    await handleReplanMigrate()
+  }, [undoMigrate, refreshInbox, refreshSources, handleReplanMigrate])
+
+  /**
+   * 从任务中心打开 migrate 预览页。
+   */
+  const handleOpenMigrateReview = useCallback(() => {
+    setIsTaskCenterOpen(false)
+    void refreshMigrateRun()
+    setNav({ kind: 'migrate' })
+  }, [refreshMigrateRun])
+
+  /**
    * 应用一次主题树变更，成功后刷新树与文件列表。
    * 若当前所在目录被这次变更删掉/改名，导航回待整理，避免停在空节点上。
    */
@@ -958,7 +1100,9 @@ export const WikiTab: React.FC = () => {
       await Promise.all([refreshInbox(), refreshSources()])
       if (autoClassifyEnabled && imported.migrateRun) {
         registerMigrateTask(imported.migrateRun)
+        setMigrateRun(imported.migrateRun)
         if (imported.migrateRun.phase === 'review') {
+          setNav({ kind: 'migrate' })
           toast.success(
             `已导入 ${imported.imported} 个文件 · ${imported.migrateRun.progress.total} 条映射待确认`,
           )
@@ -1407,6 +1551,16 @@ export const WikiTab: React.FC = () => {
             onIgnore={(id) => void handleIgnoreReclassify(id)}
             onDiscard={() => void handleDiscardReclassify()}
           />
+        ) : nav.kind === 'migrate' ? (
+          <WikiMigrateReviewView
+            run={migrateRun}
+            topicTree={topicTree}
+            applying={migrateApplying}
+            onUpdateMapping={(folderRel, patch) => void handleUpdateMigrateMapping(folderRel, patch)}
+            onApply={() => void handleApplyMigrate()}
+            onDiscard={() => void handleDiscardMigrate()}
+            onReplan={() => void handleReplanMigrate()}
+          />
         ) : isCategoryBrowse && categorySectionName ? (
           <div className="wiki-category-view">
             <WikiSubtopicPanel
@@ -1519,6 +1673,7 @@ export const WikiTab: React.FC = () => {
         onClose={() => setIsTaskCenterOpen(false)}
         onRetry={(task) => void handleRetryTask(task)}
         onDismiss={taskCenter.dismissTask}
+        onOpenMigrateReview={handleOpenMigrateReview}
       />
 
       <WikiTopicPicker
@@ -1571,6 +1726,34 @@ export const WikiTab: React.FC = () => {
             : undefined
         }
       />
+
+      <Modal
+        open={migrateUndoPrompt !== null}
+        layer={WIKI_MODAL_LAYER}
+        title="整理已部分完成"
+        onClose={() => setMigrateUndoPrompt(null)}
+        footer={
+          migrateUndoPrompt ? (
+            <>
+              <Button variant="ghost" size="sm" onClick={() => setMigrateUndoPrompt(null)}>
+                保留已整理
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => void handleUndoAndReplanMigrate()}>
+                撤销并重新规划
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => void handleUndoMigrate()}>
+                撤销本次整理
+              </Button>
+            </>
+          ) : null
+        }
+      >
+        {migrateUndoPrompt && (
+          <p>
+            已整理 {migrateUndoPrompt.appliedCount} 项。撤销将把已归档文件退回收件箱；重新规划会撤销后生成新映射方案。
+          </p>
+        )}
+      </Modal>
 
       <ConfirmModal
         open={removeConfirm !== null}

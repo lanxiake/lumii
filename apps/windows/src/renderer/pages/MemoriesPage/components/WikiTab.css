@@ -2320,3 +2320,144 @@
   text-decoration: underline;
 }
 
+/* 库级迁移映射预览 */
+.wiki-migrate-review {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wiki-migrate-review-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wiki-migrate-review-count {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.wiki-migrate-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wiki-migrate-review-hint {
+  font-size: 13px;
+  color: var(--color-text-tertiary);
+  margin: 0;
+}
+
+.wiki-migrate-review-empty {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+.wiki-migrate-review-progress {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.wiki-migrate-review-error {
+  color: var(--color-danger, #c0392b);
+  font-size: 13px;
+}
+
+.wiki-migrate-review-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.wiki-migrate-review-table th,
+.wiki-migrate-review-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.wiki-migrate-review-table th {
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-secondary);
+}
+
+.wiki-migrate-review-folder {
+  font-family: var(--font-mono, monospace);
+  word-break: break-all;
+}
+
+.wiki-migrate-review-target {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+}
+
+.wiki-migrate-review-target select {
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-primary);
+}
+
+.wiki-migrate-review-approve {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.wiki-migrate-review-target-preview {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.wiki-migrate-review-reason {
+  max-width: 220px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+.wiki-migrate-review-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.wiki-migrate-review-status--ok {
+  background: var(--color-success-bg, #e8f5e9);
+  color: var(--color-success, #2e7d32);
+}
+
+.wiki-migrate-review-status--conflict {
+  background: var(--color-warning-bg, #fff3e0);
+  color: var(--color-warning, #e65100);
+}
+
+.wiki-migrate-review-status--needContent {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-tertiary);
+}
+
+.wiki-migrate-review-row--ignored {
+  opacity: 0.55;
+}
+
+.wiki-migrate-review-row--conflict {
+  background: color-mix(in srgb, var(--color-warning, #e65100) 6%, transparent);
+}
+
+.wiki-migrate-review-ignored-label {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+

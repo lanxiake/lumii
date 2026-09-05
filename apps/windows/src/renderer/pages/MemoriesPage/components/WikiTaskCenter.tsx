@@ -15,6 +15,8 @@ export interface WikiTaskCenterProps {
   readonly onClose: () => void
   readonly onRetry: (task: WikiLocalTask) => void
   readonly onDismiss: (taskId: string) => void
+  /** migrate review 待确认时打开映射预览 */
+  readonly onOpenMigrateReview?: () => void
 }
 
 const TASK_SECTIONS: readonly {
@@ -67,7 +69,8 @@ const WikiTaskItem: React.FC<{
   task: WikiLocalTask
   onRetry: (task: WikiLocalTask) => void
   onDismiss: (taskId: string) => void
-}> = ({ task, onRetry, onDismiss }) => {
+  onOpenMigrateReview?: () => void
+}> = ({ task, onRetry, onDismiss, onOpenMigrateReview }) => {
   const [cancelBusy, setCancelBusy] = useState(false)
 
   /** 调用 migrate 停止回调并防止重复点击 */
@@ -113,6 +116,11 @@ const WikiTaskItem: React.FC<{
     )}
     {task.phase !== 'running' && (
       <div className="wiki-task-center-actions">
+        {task.kind === 'migrate' && task.migratePhase === 'review' && onOpenMigrateReview && (
+          <Button variant="secondary" size="sm" onClick={onOpenMigrateReview}>
+            查看映射
+          </Button>
+        )}
         {task.retryable && (
           <Button variant="secondary" size="sm" onClick={() => onRetry(task)}>
             <RotateCcw size={12} />
@@ -143,6 +151,7 @@ export const WikiTaskCenter: React.FC<WikiTaskCenterProps> = ({
   onClose,
   onRetry,
   onDismiss,
+  onOpenMigrateReview,
 }) => {
   useEffect(() => {
     if (!open) return undefined
@@ -198,6 +207,7 @@ export const WikiTaskCenter: React.FC<WikiTaskCenterProps> = ({
                     task={task}
                     onRetry={onRetry}
                     onDismiss={onDismiss}
+                    onOpenMigrateReview={onOpenMigrateReview}
                   />
                 ))}
               </section>

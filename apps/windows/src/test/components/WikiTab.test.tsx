@@ -9,6 +9,7 @@ import { WikiTab } from '../../renderer/pages/MemoriesPage/components/WikiTab'
 import { WikiTaskCenter } from '../../renderer/pages/MemoriesPage/components/WikiTaskCenter'
 import type { WikiLocalTask } from '../../renderer/pages/MemoriesPage/components/useWikiTaskCenter'
 import { ToastProvider } from '../../renderer/components/ui/Toast/ToastContainer'
+import { topicCountKey } from '../../renderer/pages/MemoriesPage/components/wikiTopicDisplay'
 
 const TOPIC_TREE = {
   version: 2,
@@ -35,6 +36,33 @@ function getNavSectionCount(label: string): string | null {
   return labelEl?.parentElement?.querySelector('.wiki-left-nav-count')?.textContent ?? null
 }
 
+/** 从 source 列表推导 wiki:source:counts 返回值 */
+function countsFromSources(sources: ReadonlyArray<{ topicCategory?: string | null; topicSubtopic?: string | null }>) {
+  const sectionCounts: Record<string, number> = {}
+  const topicCounts: Record<string, number> = {}
+  let unfiled = 0
+  let filed = 0
+  for (const item of sources) {
+    const category = item.topicCategory
+    if (!category || category === '临时存放') {
+      if (!category) unfiled += 1
+      continue
+    }
+    filed += 1
+    sectionCounts[category] = (sectionCounts[category] ?? 0) + 1
+    const key = topicCountKey(category, item.topicSubtopic)
+    topicCounts[key] = (topicCounts[key] ?? 0) + 1
+  }
+  return {
+    sectionCounts,
+    topicCounts,
+    parking: 0,
+    unfiled,
+    filed,
+    archived: 0,
+  }
+}
+
 function mockSendCommand(overrides: Record<string, unknown> = {}) {
   return vi.fn(async (cmd: { type: string }) => {
     if (cmd.type in overrides) return overrides[cmd.type]
@@ -53,9 +81,15 @@ function mockSendCommand(overrides: Record<string, unknown> = {}) {
         return { enabled: false }
       case 'wiki:topic:tree:get':
         return { tree: TOPIC_TREE }
-      case 'wiki:source:list':
-        return { sources: [] }
-      case 'wiki:source:counts':
+      case 'wiki:source:list': {
+        const sources = (overrides['wiki:source:list'] as { sources?: unknown[] } | undefined)?.sources ?? []
+        return { sources }
+      }
+      case 'wiki:source:counts': {
+        const listOverride = overrides['wiki:source:list'] as { sources?: ReadonlyArray<{ topicCategory?: string | null; topicSubtopic?: string | null }> } | undefined
+        if (listOverride?.sources) {
+          return countsFromSources(listOverride.sources)
+        }
         return {
           sectionCounts: {},
           topicCounts: {},
@@ -64,6 +98,7 @@ function mockSendCommand(overrides: Record<string, unknown> = {}) {
           filed: 0,
           archived: 0,
         }
+      }
       default:
         return null
     }
@@ -665,7 +700,7 @@ describe('WikiTab', () => {
   })
 
   it('已归入收藏的文件即使仍有未分类重复行也不出现在收件箱', async () => {
-    ;(window as any).electronAPI.agentRuntime.sendCommand = mockSendCommand({
+    const baseMock = mockSendCommand({
       'wiki:topic:tree:get': {
         tree: {
           version: 2,
@@ -677,6 +712,14 @@ describe('WikiTab', () => {
       },
       'wiki:inbox:count': { total: 0, pending: 0, unfiled: 0 },
       'wiki:inbox:list': [],
+      'wiki:source:counts': {
+        sectionCounts: { 收藏: 1 },
+        topicCounts: { [topicCountKey('收藏', '可复用')]: 1 },
+        parking: 0,
+        unfiled: 0,
+        filed: 1,
+        archived: 0,
+      },
       'wiki:source:list': {
         sources: [
           {
@@ -701,6 +744,27 @@ describe('WikiTab', () => {
           },
         ],
       },
+    })
+    ;(window as any).electronAPI.agentRuntime.sendCommand = vi.fn(async (cmd: { type: string; unfiled?: boolean; category?: string; subtopic?: string }) => {
+      // 模拟后端 reconcile：已归档重复行不会出现在 unfiled 列表
+      if (cmd.type === 'wiki:source:list' && cmd.unfiled) {
+        return { sources: [] }
+      }
+      if (cmd.type === 'wiki:source:list' && cmd.category === '收藏' && cmd.subtopic === '可复用') {
+        return {
+          sources: [{
+            id: 's-filed',
+            title: '拍照姿势21.mp4',
+            sourcePath: 'wiki/收藏/可复用/拍照姿势21.lumii-ref',
+            mediaType: 'video',
+            topicCategory: '收藏',
+            topicSubtopic: '可复用',
+            updatedAt: Date.now(),
+            useCount: 0,
+          }],
+        }
+      }
+      return baseMock(cmd)
     })
     renderWikiTab()
 
