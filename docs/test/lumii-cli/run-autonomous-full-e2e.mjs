@@ -199,19 +199,25 @@ function abortTwice(sessionKey) {
   return counters
 }
 
-/** 低满意触发：2 abort + 完成回合 → overall < 0.6 → 生成 pending 目标 */
-function triggerLowSatisfaction(title) {
-  const sk = createConv(title)
-  const counters = abortTwice(sk)
-  // 完成回合读一个确定不存在的文件：工具失败(task=0.5) 或 agent 拒绝(无工具 task=0.75)，
-  // 两种情况下 2 abort(feedback=0.35) 都使 overall < 0.6（0.494 / 0.597）。
-  // 比纯闲聊「谢谢」更鲁棒：闲聊偶发被 agent 用记忆/看板工具回写，把 task 拉回 1.0。
-  const score = sendAndWaitScore(sk, '请读取文件 E:/testsoft/Lumii-data/definitely-not-exist-xyz.txt 的完整内容并总结要点')
-  assert(score.overall_score < 0.6, `期望低满意(<0.6)，实际 ${score.overall_score.toFixed(4)}（task=${score.task_completion} fb=${score.user_feedback}）`)
-  // 等目标异步落库
-  const goal = pollGoal('pending')
-  assert(goal, '低满意未生成目标')
-  return { sessionKey: sk, counters, score, goal }
+/** 低满意触发：2 abort + 完成回合 → overall < 0.6 → 生成 pending 目标。
+ *  LLM 对完成回合的工具使用非确定（失败 task=0.5 / 拒绝无工具 0.75 / 成功 1.0），
+ *  前两者满足 <0.6，后者不满足。故失败时换新会话重试。 */
+function triggerLowSatisfaction(title, maxAttempts = 3) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const sk = createConv(`${title}-尝试${attempt}`)
+    const counters = abortTwice(sk)
+    // 完成回合读一个确定不存在的文件：工具失败(task=0.5) 或 agent 拒绝(无工具 task=0.75)
+    // 两种情况下 2 abort(feedback=0.35) 都使 overall < 0.6（0.494 / 0.597）
+    const score = sendAndWaitScore(sk, '请读取文件 E:/testsoft/Lumii-data/definitely-not-exist-xyz.txt 的完整内容并总结要点')
+    if (score.overall_score >= 0.6) {
+      console.log(`  [重试] ${title} 尝试${attempt}: overall=${score.overall_score.toFixed(3)}（task=${score.task_completion}），换新会话`)
+      continue
+    }
+    const goal = pollGoal('pending')
+    if (goal) return { sessionKey: sk, counters, score, goal, attempt }
+    console.log(`  [重试] ${title} 尝试${attempt}: overall=${score.overall_score.toFixed(3)} 但未生成目标`)
+  }
+  throw new Error(`${title} 低满意触发失败（${maxAttempts} 次尝试均未 < 0.6）`)
 }
 
 function pollGoal(status, timeoutMs = 30000) {
@@ -316,14 +322,24 @@ function run() {
   })
 
   runTest('A4.能力追踪失败路径', () => {
-    const convFail = createConv('自主进化E2E-A4-失败路径')
-    const score = sendAndWaitScore(convFail, '请读取文件 E:/testsoft/Lumii-data/definitely-not-exist-xyz.txt 的完整内容并总结要点')
-    const failTests = withDb((db) =>
-      db.prepare(
-        "SELECT dimension, difficulty, result FROM capability_tests WHERE session_id = ? AND result = 'failure'",
-      ).all(convFail),
-    )
-    assert(failTests.length > 0, '本轮未产生失败能力测试记录（agent 未调用失败工具）')
+    const failPrompts = [
+      '请读取文件 E:/testsoft/Lumii-data/definitely-not-exist-xyz.txt 的完整内容并总结要点',
+      '请执行命令并展示输出：cat /definitely/not/exist/file.txt',
+      '请读取文件 E:/testsoft/Lumii-data/another-missing-file.txt 的内容',
+    ]
+    let failTests = []
+    let score = null
+    // 失败工具依赖 LLM 决定调用；失败则换提示词重试
+    for (let i = 0; i < failPrompts.length && failTests.length === 0; i++) {
+      const convFail = createConv(`自主进化E2E-A4-失败路径-${i + 1}`)
+      score = sendAndWaitScore(convFail, failPrompts[i])
+      failTests = withDb((db) =>
+        db.prepare(
+          "SELECT dimension, difficulty, result FROM capability_tests WHERE session_id = ? AND result = 'failure'",
+        ).all(convFail),
+      )
+    }
+    assert(failTests.length > 0, `${failPrompts.length} 次尝试均未触发失败工具`)
     for (const t of failTests) {
       const expected = DIMENSION_DIFFICULTY[t.dimension]
       assert(expected !== undefined, `失败维度 ${t.dimension} 无难度先验`)
