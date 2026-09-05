@@ -36,6 +36,7 @@ import {
   agentRuntimeApi,
   screenRecordApi,
   userGuidesApi,
+  autonomousApi,
 } from './api'
 import type { BundledUserGuideContent, BundledUserGuideIndex } from '../shared/user-guides-types'
 
@@ -1147,6 +1148,9 @@ export interface ElectronAPI {
     /** 获取历史时间序列（IPC 60秒窗口聚合 + 内存快照序列），用于运行时趋势图 */
     getHistory: () => Promise<{ ipcAggregates: IpcAggregateEvent[]; memorySnapshots: MemorySnapshotEvent[] }>
   }
+
+  // 自主进化
+  autonomous: typeof autonomousApi
 }
 
 /**
@@ -1378,6 +1382,9 @@ const electronAPI: ElectronAPI = {
     openLogFolder: () => ipcRenderer.invoke('performance:openLogFolder'),
     getHistory: () => ipcRenderer.invoke('performance:getHistory'),
   },
+
+  // 自主进化
+  autonomous: autonomousApi,
 }
 
 // 通过 contextBridge 安全地暴�?API

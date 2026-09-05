@@ -124,3 +124,58 @@ a {
 a:hover {
   color: var(--mt-accent-600);
 }
+
+/* Toggle Switch - 全局开关组件 */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  cursor: pointer;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background-color: var(--mt-bg-tertiary);
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-full);
+  transition: all var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 3px;
+  bottom: 3px;
+  background-color: var(--mt-fg-1);
+  border-radius: 50%;
+  transition: transform var(--mt-dur-fast) var(--mt-ease-spring);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background-color: var(--mt-accent-500);
+  border-color: var(--mt-accent-500);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(20px);
+}
+
+.toggle-switch input:disabled + .toggle-slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toggle-switch:hover input:not(:disabled) + .toggle-slider {
+  border-color: var(--mt-accent-500);
+}

@@ -31,7 +31,7 @@ export * from './approval-timeout-scanner'
 export * from './approval-db-adapter'
 
 // 实用工具
-export * from './satisfaction-calculator'
+// export * from './satisfaction-calculator' // TODO: 待实现
 
 // 示例（仅开发使用）
 export * from './approval-integration-example'

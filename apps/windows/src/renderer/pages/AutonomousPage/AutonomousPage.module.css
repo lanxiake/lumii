@@ -1,0 +1,420 @@
+/**
+ * AutonomousPage Styles - 自主进化页面
+ * 固定高度布局，无整页滚动，使用系统主题变量
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  max-width: var(--mt-page-max);
+  height: 100%;
+  min-height: 0;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+/* 页头 */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-4);
+  margin-bottom: var(--spacing-4);
+  padding: var(--spacing-2) 0;
+}
+
+.title {
+  margin: 0;
+  color: var(--mt-fg-1);
+  font-size: 22px;
+  font-weight: var(--mt-fw-bold);
+  letter-spacing: -0.025em;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2) var(--spacing-3);
+  border-radius: var(--mt-radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--mt-fw-semibold);
+}
+
+.statusBadge.enabled {
+  background: color-mix(in srgb, var(--mt-success) 15%, transparent);
+  color: var(--mt-success);
+}
+
+.statusBadge.disabled {
+  background: color-mix(in srgb, var(--mt-fg-4) 15%, transparent);
+  color: var(--mt-fg-4);
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--mt-radius-full);
+  background: currentColor;
+}
+
+/* 设置行 */
+.settingsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-3) var(--spacing-4);
+  margin-bottom: var(--spacing-4);
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-xl);
+  background: var(--mt-bg-elevated);
+}
+
+.settingsLabel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
+}
+
+.settingsTitle {
+  color: var(--mt-fg-1);
+  font-size: var(--font-size-sm);
+  font-weight: var(--mt-fw-semibold);
+}
+
+.settingsDesc {
+  color: var(--mt-fg-3);
+  font-size: var(--font-size-xs);
+}
+
+/* 标签页导航 */
+.tabs {
+  display: flex;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-4);
+  padding: var(--spacing-1);
+  border-radius: var(--mt-radius-xl);
+  background: var(--mt-bg-secondary);
+}
+
+.tab {
+  flex: 1;
+  padding: var(--spacing-2) var(--spacing-4);
+  border: none;
+  border-radius: var(--mt-radius-lg);
+  background: transparent;
+  color: var(--mt-fg-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--mt-fw-semibold);
+  cursor: pointer;
+  transition: all var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.tab:hover {
+  background: var(--mt-bg-tertiary);
+  color: var(--mt-fg-2);
+}
+
+.tab.active {
+  background: var(--mt-bg-elevated);
+  color: var(--mt-accent-500);
+  box-shadow: var(--mt-shadow-sm);
+}
+
+.tabIcon {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: var(--spacing-2);
+}
+
+/* 标签页内容区 - 固定高度，内部滚动 */
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: var(--spacing-1);
+}
+
+/* 滚动条样式 */
+.content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.content::-webkit-scrollbar-thumb {
+  background: var(--mt-border);
+  border-radius: var(--mt-radius-full);
+}
+
+.content::-webkit-scrollbar-thumb:hover {
+  background: var(--mt-border-light);
+}
+
+/* 空状态 */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-16) var(--spacing-8);
+  color: var(--mt-fg-4);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.emptyIcon {
+  margin-bottom: var(--spacing-4);
+  color: var(--mt-fg-4);
+  opacity: 0.5;
+}
+
+/* 加载状态 */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--mt-fg-3);
+  font-size: var(--font-size-sm);
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 错误状态 */
+.error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--mt-error);
+  font-size: var(--font-size-sm);
+}
+
+/* 满意度卡片内容 */
+.satisfactionOverview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--spacing-6) 0;
+}
+
+.satisfactionScore {
+  font-size: 48px;
+  font-weight: var(--mt-fw-bold);
+  color: var(--mt-accent-500);
+  line-height: 1;
+}
+
+.satisfactionTrend {
+  margin-top: var(--spacing-2);
+  font-size: var(--font-size-sm);
+  font-weight: var(--mt-fw-semibold);
+}
+
+.satisfactionTrend.improving {
+  color: var(--mt-success);
+}
+
+.satisfactionTrend.declining {
+  color: var(--mt-error);
+}
+
+.satisfactionTrend.stable {
+  color: var(--mt-fg-3);
+}
+
+.satisfactionBreakdown {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+  margin-top: var(--spacing-6);
+}
+
+.breakdownItem {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+}
+
+.breakdownLabel {
+  min-width: 80px;
+  color: var(--mt-fg-3);
+  font-size: var(--font-size-sm);
+}
+
+.progressBar {
+  flex: 1;
+  height: 8px;
+  border-radius: var(--mt-radius-full);
+  background: var(--mt-bg-secondary);
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--mt-accent-500) 0%, var(--mt-success) 100%);
+  border-radius: var(--mt-radius-full);
+  transition: width var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+.breakdownValue {
+  min-width: 45px;
+  text-align: right;
+  color: var(--mt-accent-500);
+  font-family: var(--mt-font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: var(--mt-fw-semibold);
+}
+
+/* 能力列表 */
+.capabilitiesList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+/* 反思列表 */
+.reflectionsList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+}
+
+/* 目标列表 */
+.goalsList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
+}
+
+.goalCard {
+  padding: var(--spacing-4);
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-lg);
+  background: var(--mt-bg-secondary);
+  transition: all var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.goalCard:hover {
+  border-color: var(--mt-accent-500);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
+}
+
+.goalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--spacing-3);
+}
+
+.goalType {
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--mt-radius-sm);
+  color: white;
+  font-size: var(--font-size-xs);
+  font-weight: var(--mt-fw-semibold);
+}
+
+.goalType.learning {
+  background: var(--mt-accent-500);
+}
+
+.goalType.proactiveMessage {
+  background: var(--mt-success);
+}
+
+.goalType.capabilityImprovement {
+  background: #8b5cf6;
+}
+
+.goalType.skillEnhancement {
+  background: var(--mt-warning);
+}
+
+.goalType.memoryOptimization {
+  background: #06b6d4;
+}
+
+.goalPriority {
+  color: var(--mt-warning);
+  font-size: var(--font-size-sm);
+}
+
+.goalTitle {
+  margin: 0 0 var(--spacing-2) 0;
+  color: var(--mt-fg-1);
+  font-size: var(--font-size-base);
+  font-weight: var(--mt-fw-semibold);
+}
+
+.goalDetails {
+  margin-bottom: var(--spacing-3);
+  color: var(--mt-fg-3);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+
+.goalDetails strong {
+  color: var(--mt-fg-2);
+}
+
+.goalActions {
+  display: flex;
+  gap: var(--spacing-2);
+}
+
+.btnPrimary,
+.btnSecondary {
+  flex: 1;
+  padding: var(--spacing-2) var(--spacing-4);
+  border-radius: var(--mt-radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--mt-fw-semibold);
+  cursor: pointer;
+  transition: all var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.btnPrimary {
+  border: none;
+  background: var(--mt-accent-500);
+  color: white;
+}
+
+.btnPrimary:hover {
+  background: var(--mt-accent-600);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mt-accent-500) 20%, transparent);
+}
+
+.btnSecondary {
+  border: 1px solid var(--mt-border);
+  background: transparent;
+  color: var(--mt-fg-2);
+}
+
+.btnSecondary:hover {
+  border-color: var(--mt-accent-500);
+  color: var(--mt-accent-500);
+}

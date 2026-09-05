@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-04T10:11:57.740Z",
+  "generatedAt": "2026-09-05T05:29:29.978Z",
   "guides": [
     {
       "id": "desktop",
@@ -15,7 +15,7 @@
       ],
       "file": "Lumii-Desktop-User-Guide.md",
       "seedToWiki": false,
-      "updatedAt": "2026-09-04T06:00:31.006Z"
+      "updatedAt": "2026-09-04T14:45:42.798Z"
     },
     {
       "id": "wiki",
@@ -29,7 +29,7 @@
       ],
       "file": "wiki-user-guide.md",
       "seedToWiki": false,
-      "updatedAt": "2026-08-31T02:50:00.435Z"
+      "updatedAt": "2026-09-02T13:34:21.118Z"
     }
   ]
 }

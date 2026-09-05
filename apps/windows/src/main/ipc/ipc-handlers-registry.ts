@@ -54,6 +54,7 @@ import {
   registerSettingsIpcHandlers
 } from './settings-ipc'
 import { registerUserGuidesIpcHandlers } from './user-guides-ipc'
+import { registerAutonomousIpcHandlers } from './autonomous-ipc'
 
 export interface IpcHandlersDeps {
   getMainWindow: () => BrowserWindow | null
@@ -148,5 +149,6 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
   registerApiIpcHandlers()
   registerSettingsIpcHandlers()
   registerUserGuidesIpcHandlers()
+  registerAutonomousIpcHandlers()
   registerAppQuitHandler(deps.isQuittingGetter, deps.setIsQuitting)
 }

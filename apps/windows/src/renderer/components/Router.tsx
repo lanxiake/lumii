@@ -8,6 +8,7 @@
 import React from 'react'
 import { DashboardPage } from '../pages/DashboardPage/DashboardPage'
 import { ChatPage } from '../pages/ChatPage/ChatPage'
+import { AutonomousPage } from '../pages/AutonomousPage/AutonomousPage'
 
 /**
  * 视图类型
@@ -18,6 +19,7 @@ import { ChatPage } from '../pages/ChatPage/ChatPage'
 export type ViewType =
   | 'dashboard'
   | 'chat'
+  | 'autonomous'
   | 'skills'
   | 'settings'
   | 'memories'
@@ -47,6 +49,8 @@ export const Router: React.FC<RouterProps> = ({ activeView, onViewChange }) => {
     switch (activeView) {
       case 'dashboard':
         return <DashboardPage onViewChange={onViewChange} />
+      case 'autonomous':
+        return <AutonomousPage />
       case 'chat':
         return null
       default:
