@@ -143,6 +143,13 @@ export type {
 } from "./wiki-migrate-types.js";
 export { MIGRATE_RUN_META_KEY } from "./wiki-migrate-types.js";
 
+export { buildMigrateInventory } from "./wiki-migrate-inventory.js";
+export type {
+  MigrateFolderCluster,
+  MigrateInventory,
+  BuildMigrateInventoryParams,
+} from "./wiki-migrate-inventory.js";
+
 export {
   buildLibraryInventory,
   ANCHOR_SAMPLES_PER_LEAF,
