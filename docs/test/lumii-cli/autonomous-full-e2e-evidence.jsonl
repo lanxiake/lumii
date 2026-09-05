@@ -1,0 +1,21 @@
+{"ts":"2026-09-05T16:35:02.291Z","id":"A1","status":"PASS","note":"满意度落库 overall=0.9470 (task=1.00 fb=0.85 eff=1.00)"}
+{"ts":"2026-09-05T16:35:02.298Z","id":"A2","status":"PASS","note":"4 条能力测试落库，维度难度正确（document_analysis:0.35, code_generation:0.55）；capability_dimensions 3 维"}
+{"ts":"2026-09-05T16:35:02.302Z","id":"A3","status":"PASS","note":"trial_count 7 → 8"}
+{"ts":"2026-09-05T16:35:11.500Z","id":"B1","status":"PASS","note":"2 次 abort 信号落 runtime_state（aborts=2）"}
+{"ts":"2026-09-05T16:35:11.501Z","id":"B2","status":"PASS","note":"overall=0.5971 → 生成 learning 目标（pending）\"增强知识积累：主动学习相关领域知识\""}
+{"ts":"2026-09-05T16:35:11.694Z","id":"B3","status":"PASS","note":"目标 goal_1788626111418_388hadi 已拒绝（rejected）"}
+{"ts":"2026-09-05T16:35:26.723Z","id":"C1","status":"PASS","note":"生成 pending 目标 \"增强知识积累：主动学习相关领域知识\""}
+{"ts":"2026-09-05T16:35:26.921Z","id":"C2","status":"PASS","note":"executing + evolution-decided 人格事件落库（personality update_count=6）"}
+{"ts":"2026-09-05T16:35:27.082Z","id":"C3","status":"PASS","note":"CLI goals list 可见 executing 目标（total=3）"}
+{"ts":"2026-09-05T16:35:51.214Z","id":"D1","status":"PASS","note":"反思落库 trigger=user-request primaryIssue=\"当前输出在多数会话中未能稳定确认任务意图并形成可评估的知识沉淀，导致反馈波动且知…\""}
+{"ts":"2026-09-05T16:39:12.324Z","id":"A1","status":"PASS","note":"满意度落库 overall=0.9470 (task=1.00 fb=0.85 eff=1.00)"}
+{"ts":"2026-09-05T16:39:12.331Z","id":"A2","status":"PASS","note":"3 条能力测试落库，维度难度正确（document_analysis:0.35, code_generation:0.55）；capability_dimensions 3 维"}
+{"ts":"2026-09-05T16:39:12.334Z","id":"A3","status":"PASS","note":"trial_count 12 → 13"}
+{"ts":"2026-09-05T16:39:19.646Z","id":"A4","status":"PASS","note":"1 条失败测试（result=failure，难度正确），task=0.50（含失败惩罚）"}
+{"ts":"2026-09-05T16:41:27.107Z","id":"A1","status":"PASS","note":"满意度落库 overall=0.9470 (task=1.00 fb=0.85 eff=1.00)"}
+{"ts":"2026-09-05T16:41:27.115Z","id":"A2","status":"PASS","note":"4 条能力测试落库，维度难度正确（document_analysis:0.35, code_generation:0.55）；capability_dimensions 3 维"}
+{"ts":"2026-09-05T16:41:27.118Z","id":"A3","status":"PASS","note":"trial_count 15 → 16"}
+{"ts":"2026-09-05T16:41:34.382Z","id":"A4","status":"PASS","note":"1 条失败测试（result=failure，难度正确），task=0.50（含失败惩罚）"}
+{"ts":"2026-09-05T16:41:51.011Z","id":"B1","status":"PASS","note":"2 次 abort 信号落 runtime_state（aborts=2）"}
+{"ts":"2026-09-05T16:41:51.011Z","id":"B2","status":"PASS","note":"overall=0.5971 → 生成 learning 目标（pending）\"增强知识积累：主动学习相关领域知识\""}
+{"ts":"2026-09-05T16:41:51.175Z","id":"B3","status":"PASS","note":"目标 goal_1788626509857_t4ol0o9 已拒绝（rejected）"}
