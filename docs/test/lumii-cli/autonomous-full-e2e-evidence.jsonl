@@ -19,3 +19,10 @@
 {"ts":"2026-09-05T16:41:51.011Z","id":"B1","status":"PASS","note":"2 次 abort 信号落 runtime_state（aborts=2）"}
 {"ts":"2026-09-05T16:41:51.011Z","id":"B2","status":"PASS","note":"overall=0.5971 → 生成 learning 目标（pending）\"增强知识积累：主动学习相关领域知识\""}
 {"ts":"2026-09-05T16:41:51.175Z","id":"B3","status":"PASS","note":"目标 goal_1788626509857_t4ol0o9 已拒绝（rejected）"}
+{"ts":"2026-09-05T16:44:23.154Z","id":"A1","status":"PASS","note":"满意度落库 overall=0.9470 (task=1.00 fb=0.85 eff=1.00)"}
+{"ts":"2026-09-05T16:44:23.161Z","id":"A2","status":"PASS","note":"2 条能力测试落库，维度难度正确（document_analysis:0.35, code_generation:0.55）；capability_dimensions 3 维"}
+{"ts":"2026-09-05T16:44:23.164Z","id":"A3","status":"PASS","note":"trial_count 19 → 20"}
+{"ts":"2026-09-05T16:44:52.453Z","id":"A4.能力追踪失败路径","status":"FAIL","note":"本轮未产生失败能力测试记录（agent 未调用失败工具）","stack":"Error: 本轮未产生失败能力测试记录（agent 未调用失败工具）\n    at assert (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/run-autonomous-full-e2e.mjs:96:20)\n    at file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/run-autonomous-full-e2e.mjs:326:5\n    at runTest (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/run-autonomous-full-e2e.mjs:117:5)\n    at run (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/run-autonomous-full-e2e.mjs:318:3)\n    at file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/run-autonomous-full-e2e.mjs:466:3\n    at ModuleJob.run (node:internal/modules/esm/module_job:271:25)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:547:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)"}
+{"ts":"2026-09-05T16:45:33.278Z","id":"B1","status":"PASS","note":"2 次 abort 信号落 runtime_state（aborts=2）"}
+{"ts":"2026-09-05T16:45:33.279Z","id":"B2","status":"PASS","note":"overall=0.5971 → 生成 learning 目标（pending）\"增强知识积累：主动学习相关领域知识\""}
+{"ts":"2026-09-05T16:45:33.459Z","id":"B3","status":"PASS","note":"目标 goal_1788626731461_ybd0wpf 已拒绝（rejected）"}
