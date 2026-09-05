@@ -22,9 +22,8 @@ import { AUTONOMOUS_ENABLED, REFLECTION_SCHEDULE } from './config';
 /**
  * 工具名 → 能力维度映射（P1 能力追踪）。
  *
- * 只映射语义明确的工具；未命中的工具不记能力测试。难度缺省 0.5，
- * 追踪的是「该维度成功率」而非难度调节后的水平——等工具难度分类器
- * 落地后再按真实难度评分。
+ * 只映射语义明确的工具；未命中的工具不记能力测试。
+ * 任务难度按维度类别估计，见 DIMENSION_DIFFICULTY。
  */
 const TOOL_TO_DIMENSION: Record<string, CapabilityDimension> = {
   // 代码生成/修改
@@ -59,6 +58,21 @@ function mapToolToDimension(toolName?: string): CapabilityDimension | undefined 
   if (!toolName) return undefined;
   return TOOL_TO_DIMENSION[toolName];
 }
+
+/**
+ * 维度 → 任务难度估计（0-1）。
+ *
+ * 无逐任务难度 ground truth，按工具类别语义给静态先验：读/检索低、
+ * 写/改中、编排高。Elo 的 difficulty 决定「一局成功值多少」，有差异
+ * 才让 boundary（50% 成功率的难度阈值）有意义。等有真实难度信号
+ * （任务规模 / 重试次数）再替换。
+ */
+const DIMENSION_DIFFICULTY: Partial<Record<CapabilityDimension, number>> = {
+  [CapabilityDimension.DOCUMENT_ANALYSIS]: 0.35,
+  [CapabilityDimension.WEB_SEARCH]: 0.4,
+  [CapabilityDimension.CODE_GENERATION]: 0.55,
+  [CapabilityDimension.MULTI_STEP_PLANNING]: 0.7,
+};
 
 /**
  * 自主协调器
@@ -152,7 +166,7 @@ export class AutonomousCoordinator extends EventEmitter {
             dimension,
             sessionId: session.id,
             taskSummary: session.taskDescription ?? '',
-            difficulty: 0.5,
+            difficulty: DIMENSION_DIFFICULTY[dimension] ?? 0.5,
             result: tc.success ? 'success' : 'failure',
           });
         }

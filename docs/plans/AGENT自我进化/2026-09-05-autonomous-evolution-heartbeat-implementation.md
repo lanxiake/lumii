@@ -18,7 +18,7 @@
 | 用户反馈信号采集 | ✅ 已修 | `autonomous-feedback-signals.ts`，edit/resend/abort 在事件点记录 |
 | Prompt 进化 | ✅ 完整接线 | 选择注入（`bridge-instance-factory.ts:736`）+ 反馈回写（`autonomous-coordinator.ts:166`）+ 变体播种（`seedPromptVariants`）全通 |
 | 反思 | ✅ 引擎接线，⏳ 缺定时触发 | `ReflectionEngine` + LLMClient 已装配，`reflectAutonomous` 已暴露，但无人定时调用 → 本计划 Step 6 |
-| 能力追踪 | ✅ 引擎接线，⏳ 缺数据写入 | `CapabilityTracker.recordTest` 接口就绪但零调用，缺工具→维度映射 + 难度估计 → 本计划 Step 4.5 |
+| 能力追踪 | ✅ 完整接线 | 24 工具→4 维度映射（`autonomous-coordinator.ts` `TOOL_TO_DIMENSION`）+ 按维度类别静态难度（`DIMENSION_DIFFICULTY` 读0.35/检索0.4/写0.55/编排0.7）+ `onSessionEnd` 写入 `recordTest`，E2E 实测落库 |
 | 心跳 tick | ❌ 未开始 | 本文档主线 A |
 | 专属会话 / 生命感 | ❌ 未开始 | 本文档主线 B |
 
@@ -249,6 +249,11 @@ for (const tc of session.toolCalls ?? []) {
 - 连续多次后 `confidence` 随 `test_count` 上升
 
 **测试**：`__tests__/capability-tracker.test.ts` 补 `mapToolToDimension`（`web_search` → `WEB_SEARCH`，未知工具 → null）与 `estimateDifficulty` 固定值断言。
+
+**已实现（相对计划的偏离）**：
+- 纯函数内联在 `autonomous-coordinator.ts`（非 `capability-tracker.ts`）：`TOOL_TO_DIMENSION` 24 工具 → 4 维度（code_generation / document_analysis / web_search / multi_step_planning）+ `mapToolToDimension`，未映射工具跳过不记。
+- 难度用按维度类别静态先验 `DIMENSION_DIFFICULTY`（读0.35 / 检索0.4 / 写0.55 / 编排0.7，未命中回退 0.5）替代固定 0.5，让 Elo `boundary`（50% 成功率难度阈值）有意义；数据驱动难度模型仍后置（见「不做」表）。
+- 写入点与计划一致：`onSessionEnd` 满意度评分后遍历 `toolCalls` 调 `recordTest`，E2E 实测 document_analysis/code_generation 落库。
 
 ---
 
@@ -609,7 +614,7 @@ pnpm --filter @lumii/agent-runtime typecheck
 | 不做 | 理由 |
 |------|------|
 | Step 12 看法（Stances） | 文档 11 明确后置，依赖经验积累，数据为空时做了也是无源之物 |
-| 能力追踪的"难度估计"精细化 | 先用固定 0.5 中性难度（`estimateDifficulty` 有 `ponytail:` 注释标注升级路径），数据量不足时做难度模型是噪声放大 |
+| 能力追踪的"难度估计"精细化（数据驱动/LLM 难度模型） | 已用按维度类别静态先验 `DIMENSION_DIFFICULTY`（读0.35/检索0.4/写0.55/编排0.7）替代固定 0.5；真正的数据驱动/LLM 难度模型仍后置，数据量不足时做难度模型是噪声放大 |
 | 多 Agent 协作 | 只有一个 Agent |
 | 自动生成并安装技能 | 沙箱验证工程量远超本计划全部 |
 | 独立的自主进化数据库 | 统一 `agent-runtime.db`（双 schema 分裂已修） |
