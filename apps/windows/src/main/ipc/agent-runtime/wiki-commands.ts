@@ -22,7 +22,6 @@ import {
   type WikiFolderImporterFs,
   type WikiInboxItemType,
   buildDirectoryTreeText,
-  buildFolderImportClassifyContext,
   buildTopicOccupancySummary,
   buildNavSectionGuide,
   vaultDirSegmentsForSource,
@@ -32,6 +31,8 @@ import {
   CONTENT_BATCH_SIZE,
   resolveUniqueFilename,
   type WikiSource,
+  type WikiMigrateRun,
+  type WikiMigrateMappingPatch,
 } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
@@ -240,7 +241,27 @@ export function handleWikiFolderScan(
 }
 
 /**
- * 批量将目录内文件摄入 Wiki 收件箱；可选导入后立即 AI 分类归档。
+ * 将 WikiMigrateRun 压缩为 IPC 友好 DTO（不含 repo 内部字段）。
+ */
+function summarizeMigrateRun(run: WikiMigrateRun) {
+  return {
+    runId: run.id,
+    phase: run.phase,
+    importRoot: run.importRoot,
+    inboxIds: run.inboxIds,
+    mappings: run.mappings,
+    appliedSourceIds: run.appliedSourceIds,
+    appliedInboxIds: run.appliedInboxIds,
+    cancelRequested: run.cancelRequested,
+    progress: run.progress,
+    error: run.error ?? null,
+    createdAt: run.createdAt,
+    finishedAt: run.finishedAt ?? null,
+  }
+}
+
+/**
+ * 批量将目录内文件摄入 Wiki 收件箱；默认 plan→review，用户确认后才 apply 归档。
  */
 export async function handleWikiFolderImport(
   bridge: AgentRuntimeBridge,
@@ -285,41 +306,110 @@ export async function handleWikiFolderImport(
     }
   }
 
-  const inboxItems = importResult.inboxIds
-    .map((id) => bridge.wikiRepo.findInboxById(id))
-    .filter((item): item is NonNullable<typeof item> => item !== null)
-
-  const topicTree = bridge.wikiRepo.getOrCreateTopicTree()
-  const classifyContext = buildFolderImportClassifyContext({
-    importRoot: dir,
-    workspaceRoot,
-    inboxItems,
-    repo: bridge.wikiRepo,
+  const migrate = bridge.wikiLibraryMigrate
+  const vaultRoot = resolveWikiDir()
+  const run = await migrate.plan({
     agentId,
     userId: LOCAL_USER_ID,
-    topicTree,
+    importRoot: dir,
+    inboxIds: importResult.inboxIds,
+    workspaceRoot,
+    vaultRoot,
   })
-
-  const batchSize = command.classifyBatchSize ?? 10
-  const organizeRun = await bridge.wikiOrganizer.organizeInboxIds(
-    agentId,
-    LOCAL_USER_ID,
-    importResult.inboxIds,
-    classifyContext,
-    batchSize,
-  )
 
   return {
     ...importResult,
     autoClassify: true,
-    organizeRun: organizeRun
-      ? {
-          runId: organizeRun.id,
-          status: organizeRun.status,
-          summary: organizeRun.result_summary ?? null,
-        }
-      : null,
+    migrateRun: summarizeMigrateRun(run),
   }
+}
+
+/** 读取当前库级迁移 run（含 progress） */
+export function handleWikiMigrateGet(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:get' }>,
+): { run: ReturnType<typeof summarizeMigrateRun> | null } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const run = bridge.wikiLibraryMigrate.get(agentId, userId)
+  return { run: run ? summarizeMigrateRun(run) : null }
+}
+
+/** 用户确认后执行 migrate apply，逐条归档 inbox */
+export async function handleWikiMigrateApply(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:apply' }>,
+): Promise<{ run: ReturnType<typeof summarizeMigrateRun> }> {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const run = await bridge.wikiLibraryMigrate.apply(agentId, userId)
+  for (const sourceId of run.appliedSourceIds) {
+    vaultSyncSource(bridge, sourceId, command.agentId)
+  }
+  return { run: summarizeMigrateRun(run) }
+}
+
+/** 请求停止当前 inventory / planning / applying */
+export function handleWikiMigrateCancel(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:cancel' }>,
+): { run: ReturnType<typeof summarizeMigrateRun> | null } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const run = bridge.wikiLibraryMigrate.cancel(agentId, userId)
+  return { run: run ? summarizeMigrateRun(run) : null }
+}
+
+/** 丢弃映射方案；inbox 保持 pending，不撤销已归档 */
+export function handleWikiMigrateDiscard(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:discard' }>,
+): { success: true } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  bridge.wikiLibraryMigrate.discard(agentId, userId)
+  return { success: true }
+}
+
+/** 撤销本 run 已落位的 source，退回收件箱 */
+export function handleWikiMigrateUndo(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:undo' }>,
+): { run: ReturnType<typeof summarizeMigrateRun> } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const run = bridge.wikiLibraryMigrate.undo(agentId, userId)
+  return { run: summarizeMigrateRun(run) }
+}
+
+/** 对仍 pending 的本批 inbox 重跑盘点 + 映射 → review */
+export async function handleWikiMigrateReplan(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:replan' }>,
+): Promise<{ run: ReturnType<typeof summarizeMigrateRun> }> {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const vaultRoot = resolveWikiDir()
+  const workspaceRoot = bridge.getCwd()
+  const run = await bridge.wikiLibraryMigrate.replan(agentId, userId, { vaultRoot, workspaceRoot })
+  return { run: summarizeMigrateRun(run) }
+}
+
+/** 预览中改单簇映射、批准 proposedSubtopic 或标记 ignored */
+export function handleWikiMigrateUpdateMapping(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:update-mapping' }>,
+): { run: ReturnType<typeof summarizeMigrateRun> } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const patch: WikiMigrateMappingPatch = {
+    category: command.patch.category,
+    subtopic: command.patch.subtopic,
+    approvedProposedSubtopic: command.patch.approvedProposedSubtopic,
+    ignored: command.patch.ignored,
+  }
+  const run = bridge.wikiLibraryMigrate.updateMapping(agentId, userId, command.folderRel, patch)
+  return { run: summarizeMigrateRun(run) }
 }
 
 /**

@@ -134,6 +134,13 @@ import {
   handleWikiReclassifyApply,
   handleWikiReclassifyIgnore,
   handleWikiReclassifyDiscard,
+  handleWikiMigrateGet,
+  handleWikiMigrateApply,
+  handleWikiMigrateCancel,
+  handleWikiMigrateDiscard,
+  handleWikiMigrateUndo,
+  handleWikiMigrateReplan,
+  handleWikiMigrateUpdateMapping,
   handleWikiSourceCreateNote,
   handleWikiSourceRename,
   handleWikiSourceList,
@@ -1023,6 +1030,27 @@ export async function handleCommand(
 
       case 'wiki:reclassify:discard':
         return handleWikiReclassifyDiscard(bridge, command)
+
+      case 'wiki:migrate:get':
+        return handleWikiMigrateGet(bridge, command)
+
+      case 'wiki:migrate:apply':
+        return handleWikiMigrateApply(bridge, command)
+
+      case 'wiki:migrate:cancel':
+        return handleWikiMigrateCancel(bridge, command)
+
+      case 'wiki:migrate:discard':
+        return handleWikiMigrateDiscard(bridge, command)
+
+      case 'wiki:migrate:undo':
+        return handleWikiMigrateUndo(bridge, command)
+
+      case 'wiki:migrate:replan':
+        return handleWikiMigrateReplan(bridge, command)
+
+      case 'wiki:migrate:update-mapping':
+        return handleWikiMigrateUpdateMapping(bridge, command)
 
       case 'wiki:source:list':
         return handleWikiSourceList(bridge, command)

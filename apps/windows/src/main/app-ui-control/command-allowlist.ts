@@ -42,6 +42,8 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'wiki:topic:mutate', 'wiki:source:list', 'wiki:source:counts',
   'wiki:reclassify:run', 'wiki:reclassify:estimate', 'wiki:reclassify:get', 'wiki:reclassify:apply',
   'wiki:reclassify:ignore', 'wiki:reclassify:discard',
+  'wiki:migrate:get', 'wiki:migrate:apply', 'wiki:migrate:cancel', 'wiki:migrate:discard',
+  'wiki:migrate:undo', 'wiki:migrate:replan', 'wiki:migrate:update-mapping',
   'wiki:source:create-note', 'wiki:source:rename',
   'wiki:source:update-topic', 'wiki:source:move-to-parking', 'wiki:source:open',
   'wiki:source:clear-topic', 'wiki:link:add', 'wiki:link:save', 'wiki:vault:ensure-layout',
