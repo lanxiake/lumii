@@ -165,6 +165,7 @@ import {
   handleAutonomousPromptVariants,
   handleAutonomousEnable,
   handleAutonomousDisable,
+  handleAutonomousReflect,
 } from './agent-runtime/autonomous-commands'
 import {
   handleToolsList,
@@ -1283,6 +1284,9 @@ export async function handleCommand(
 
       case 'autonomous:disable':
         return handleAutonomousDisable(bridge)
+
+      case 'autonomous:reflect':
+        return handleAutonomousReflect(bridge, command)
 
       // ---- 图片处理（识别 / 美化 / 等，按 operation 扩展） ----
       case 'image:recognize':

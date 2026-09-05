@@ -61,7 +61,7 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   // 自主进化：状态查询、目标管理、能力监控、Prompt 进化控制
   'autonomous:status', 'autonomous:goals:list', 'autonomous:goals:approve', 'autonomous:goals:reject',
   'autonomous:capabilities', 'autonomous:reflections', 'autonomous:satisfaction:history',
-  'autonomous:prompt:variants', 'autonomous:enable', 'autonomous:disable',
+  'autonomous:prompt:variants', 'autonomous:enable', 'autonomous:disable', 'autonomous:reflect',
 ])
 
 /** 判断命令 type 是否在白名单内 */

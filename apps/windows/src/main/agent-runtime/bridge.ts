@@ -533,8 +533,9 @@ export class AgentRuntimeBridge {
     this._auditRepo = new AuditRepo(db)
     this._runtimeStateRepo = new RuntimeStateRepo(db)
     this._autonomousRepo = new AutonomousRepo(db)
-    // 自主进化引擎接线：装配失败已在内部降级，不影响运行时启动
-    initAutonomousRuntime(db)
+    // 自主进化引擎接线：装配失败已在内部降级，不影响运行时启动。
+    // 反思引擎复用桥接的独立 LLM 管道（同记忆提取/整理），无实例时走 callLLM 兜底 stream。
+    initAutonomousRuntime(db, (prompt) => this.callLLM(prompt, undefined, 'reflection'))
     this._fileRepo = new FileRepo(db)
 
     // 恢复用户手动禁用的工具集合（重启后不丢失），并注册变更回调持久化

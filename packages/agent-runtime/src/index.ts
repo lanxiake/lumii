@@ -705,6 +705,9 @@ export {
   IntrinsicGoalGenerator,
   PromptEvolutionEngine,
   PersonalityTracker,
+  CapabilityTracker,
+  ReflectionEngine,
+  createExtendedDbClient,
   recordPersonalityEvent,
   EVENT_PERSONALITY_IMPACT,
   computeSatisfactionScore,
@@ -758,4 +761,5 @@ export type {
   AgentSession,
   GoalGenerationContext,
   DatabaseClient,
+  ReflectionOutput,
 } from "./autonomous/index.js";

@@ -9,7 +9,7 @@
 
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
-import { notifyAutonomousGoalApproved } from '../../agent-runtime/autonomous-wiring'
+import { notifyAutonomousGoalApproved, reflectAutonomous } from '../../agent-runtime/autonomous-wiring'
 
 const ENABLED_KEY = 'autonomous.enabled'
 const DEFAULT_AGENT_ID = 'assistant'
@@ -237,6 +237,28 @@ export function handleAutonomousEnable(bridge: AgentRuntimeBridge): unknown {
 export function handleAutonomousDisable(bridge: AgentRuntimeBridge): unknown {
   bridge.runtimeStateRepo.set(ENABLED_KEY, 'false')
   return { success: true, enabled: false }
+}
+
+export async function handleAutonomousReflect(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'autonomous:reflect' }>,
+): Promise<unknown> {
+  const agentId = resolveAgentId(bridge, command.sessionKey, command.agentId)
+  if (!readEnabled(bridge)) {
+    return { success: false, reason: '自主进化功能未启用', agentId }
+  }
+  // 反思会真实调用一次 LLM，可能耗时数十秒；失败时抛给控制口返回错误
+  const output = await reflectAutonomous(agentId, 'user-request')
+  return {
+    success: true,
+    agentId,
+    id: output.id,
+    triggerReason: output.triggerReason,
+    diagnosis: output.diagnosis,
+    recommendations: output.recommendations,
+    suggestedGoals: output.suggestedGoals,
+    createdAt: output.createdAt,
+  }
 }
 
 /** JSON 列解析失败时退化为空数组，避免单条脏数据打断整个列表 */

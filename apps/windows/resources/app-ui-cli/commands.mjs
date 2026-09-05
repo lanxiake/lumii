@@ -1166,4 +1166,22 @@ export const COMMANDS = [
       return { type: 'autonomous:disable' }
     },
   },
+  {
+    name: 'autonomous reflect',
+    group: '自主进化',
+    usage: 'autonomous reflect [--session <key>] [--agent <id>]',
+    summary: '触发一次自我反思（诊断问题根因并给出建议，真实调用一次 LLM）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--session <key>', desc: '按会话解析 agentId（可选）' },
+      { flag: '--agent <id>', desc: '显式指定 agentId，默认 assistant' },
+    ],
+    build(args) {
+      const body = { type: 'autonomous:reflect' }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      if (typeof args.flags.agent === 'string') body.agentId = args.flags.agent
+      return body
+    },
+  },
 ]

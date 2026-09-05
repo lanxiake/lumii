@@ -481,6 +481,12 @@ export interface AutonomousDisableCommand {
   readonly type: 'autonomous:disable'
 }
 
+export interface AutonomousReflectCommand {
+  readonly type: 'autonomous:reflect'
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
 export interface WikiSearchCommand {
   readonly type: 'wiki:search'
   readonly sessionKey?: string
@@ -1395,6 +1401,7 @@ export type AgentRuntimeCommand =
   | AutonomousPromptVariantsCommand
   | AutonomousEnableCommand
   | AutonomousDisableCommand
+  | AutonomousReflectCommand
   | WikiSourceGetCommand
   | WikiRunsListCommand
   | WikiIndexRebuildCommand

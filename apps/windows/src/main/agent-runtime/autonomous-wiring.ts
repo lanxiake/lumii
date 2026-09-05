@@ -14,6 +14,9 @@ import {
   IntrinsicGoalGenerator,
   PromptEvolutionEngine,
   PersonalityTracker,
+  CapabilityTracker,
+  ReflectionEngine,
+  createExtendedDbClient,
   SATISFACTION_WEIGHTS,
   SATISFACTION_THRESHOLD,
   EPSILON,
@@ -26,6 +29,7 @@ import {
   AUTONOMOUS_GOAL_TYPES,
   type DatabaseAdapter,
   type MVPScope,
+  type ReflectionOutput,
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log } from './bridge-utils'
 import {
@@ -58,6 +62,8 @@ export interface AutonomousRuntime {
   coordinator: AutonomousCoordinator
   /** 回合结束时调用；内部已 try-catch，不会把异常抛给会话流程 */
   onTurnEnd(sessionId: string, agentId: string): Promise<void>
+  /** 触发一次自我反思（需装配了 LLM 客户端）；缺 LLM 时抛错 */
+  reflect(agentId: string, triggerReason: 'scheduled' | 'low-satisfaction' | 'user-request'): Promise<ReflectionOutput>
   shutdown(): Promise<void>
 }
 
@@ -66,17 +72,33 @@ let runtimeDb: DatabaseAdapter | null = null
 
 /**
  * 由 bridge 初始化完成后调用一次。重复调用会替换旧实例（dev 热重启场景）。
+ * callLLM 复用桥接的独立 LLM 管道（同记忆提取/整理），用于反思引擎。
  */
-export function initAutonomousRuntime(db: DatabaseAdapter): void {
+export function initAutonomousRuntime(
+  db: DatabaseAdapter,
+  callLLM?: (prompt: string) => Promise<string>,
+): void {
   try {
     runtimeDb = db
-    runtime = createAutonomousRuntime(db, () => readAutonomousEnabled(db))
-    log.info('[autonomous] 自主进化运行时已装配')
+    runtime = createAutonomousRuntime(db, () => readAutonomousEnabled(db), callLLM)
+    log.info('[autonomous] 自主进化运行时已装配' + (callLLM ? '（含反思引擎）' : ''))
   } catch (err) {
     // 装配失败不能拖垮启动流程，降级为不启用
     runtime = null
     log.warn('[autonomous] 装配失败，自主进化不启用:', err instanceof Error ? err.message : err)
   }
+}
+
+/**
+ * 供外部（CLI / 定时任务）触发一次自我反思。
+ * 反思会真实调用一次 LLM，耗时较长，需调用方决定是否 await。
+ */
+export async function reflectAutonomous(
+  agentId: string,
+  triggerReason: 'scheduled' | 'low-satisfaction' | 'user-request',
+): Promise<ReflectionOutput> {
+  if (!runtime) throw new Error('自主进化运行时未装配')
+  return runtime.reflect(agentId, triggerReason)
 }
 
 /**
@@ -161,14 +183,16 @@ export async function notifyAutonomousTurnEnd(conversationId: string): Promise<v
 /**
  * 装配自主进化运行时。
  *
- * 不注入 ReflectionEngine：它依赖 LLMClient，会在低满意度时产生额外模型调用，
- * 需要单独的预算与灰度策略，留到反思接线时再补。
+ * callLLM 复用桥接的独立 LLM 管道（同记忆提取/整理）装配反思引擎；
+ * 缺省不装配反思，避免无 LLM 时启动报错。
  */
 export function createAutonomousRuntime(
   db: DatabaseAdapter,
   isEnabled: () => boolean,
+  callLLM?: (prompt: string) => Promise<string>,
 ): AutonomousRuntime {
   const asyncDb = toAsyncClient(db)
+  const extendedDb = createExtendedDbClient(asyncDb)
 
   const metaCognition = new MetaCognitionEngine(
     {
@@ -211,6 +235,21 @@ export function createAutonomousRuntime(
     asyncDb,
   )
 
+  const capabilityTracker = new CapabilityTracker(extendedDb)
+
+  let reflectionEngine: ReflectionEngine | undefined
+  if (callLLM) {
+    // 反思引擎要 LLMClient.complete()；桥接的 callLLM 返回纯文本，
+    // 这里包成 { content } 结构。model/temperature/maxTokens 由桥接模型配置接管。
+    const llmClient = {
+      complete: async ({ prompt }: { prompt: string }): Promise<{ content: string }> => {
+        const content = await callLLM(prompt)
+        return { content }
+      },
+    }
+    reflectionEngine = new ReflectionEngine(extendedDb, llmClient, metaCognition, capabilityTracker)
+  }
+
   // MVPScope 字面量类型收得很紧（如 maxGoalsPerDay: 3），这里按其声明构造
   const scope = {
     metaCognition: {
@@ -234,6 +273,8 @@ export function createAutonomousRuntime(
     personalityTracker,
     scope,
     asyncDb,
+    capabilityTracker,
+    reflectionEngine,
   )
 
   void coordinator.initialize()
@@ -259,6 +300,13 @@ export function createAutonomousRuntime(
         // 自主进化是旁路能力，失败只记日志，绝不影响用户的会话
         log.warn('[autonomous] 回合结束处理失败:', err instanceof Error ? err.message : err)
       }
+    },
+
+    async reflect(agentId: string, triggerReason: 'scheduled' | 'low-satisfaction' | 'user-request') {
+      if (!reflectionEngine) {
+        throw new Error('反思引擎未装配（缺少 LLM 客户端），无法触发反思')
+      }
+      return reflectionEngine.reflect(agentId, triggerReason)
     },
 
     async shutdown() {
