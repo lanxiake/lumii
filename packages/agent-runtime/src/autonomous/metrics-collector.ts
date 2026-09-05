@@ -43,7 +43,7 @@ export interface AgentSession {
   startedAt: Date;
   endedAt?: Date;
   messages?: Array<{ role: string; content: any }>;
-  toolCalls?: Array<{ success: boolean }>;
+  toolCalls?: Array<{ success: boolean; toolName?: string }>;
   errors?: Array<{ message: string }>;
   [key: string]: any;
 }

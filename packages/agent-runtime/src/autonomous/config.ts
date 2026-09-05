@@ -5,7 +5,7 @@
  * 集中定义，禁止在业务代码中硬编码
  */
 
-import type { SatisfactionWeights } from './types';
+import { GoalType, type SatisfactionWeights } from './types';
 
 /**
  * 满意度权重配置
@@ -123,13 +123,13 @@ export const AUTONOMOUS_ENABLED = process.env.AUTONOMOUS_ENABLED !== 'false';
  * P1 新增 capability-improvement
  * P2 新增 skill-enhancement, memory-optimization
  */
-export const AUTONOMOUS_GOAL_TYPES = process.env.AUTONOMOUS_GOAL_TYPES?.split(',') || [
+export const AUTONOMOUS_GOAL_TYPES: GoalType[] = (process.env.AUTONOMOUS_GOAL_TYPES?.split(',') || [
   'learning',
   'proactive-message',
   'capability-improvement',
   'skill-enhancement',
   'memory-optimization',
-];
+]) as GoalType[];
 
 /**
  * ==========================================

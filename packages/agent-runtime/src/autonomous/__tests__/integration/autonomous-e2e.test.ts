@@ -23,7 +23,7 @@ import {
   EMA_ALPHA,
   MAX_GOALS_PER_DAY,
 } from '../../config';
-import { GoalType, GoalStatus } from '../../types';
+import { GoalType, GoalStatus, type AutonomousGoal } from '../../types';
 
 describe('自主进化 Agent E2E 测试', () => {
   let mockDb: DatabaseClient;
@@ -323,6 +323,71 @@ describe('自主进化 Agent E2E 测试', () => {
     // 验证所有维度在 [0, 1] 范围
     expect(state2.openness).toBeGreaterThanOrEqual(0);
     expect(state2.openness).toBeLessThanOrEqual(1);
+  });
+
+  it('场景 6：审批目标应流转 executing 并记录 evolution-decided 人格事件', async () => {
+    mockDb.query = vi.fn().mockResolvedValue([]);
+
+    const goal: AutonomousGoal = {
+      id: 'goal-approve-1',
+      agentId: 'agent1',
+      type: GoalType.LEARNING,
+      description: '增强知识积累：主动学习相关领域知识',
+      triggerReason: 'low-satisfaction',
+      status: GoalStatus.APPROVED,
+      priority: 0.8,
+      createdAt: new Date().toISOString(),
+    };
+
+    await coordinator.onGoalApproved(goal);
+
+    // 1. 目标状态从 approved 流转到 executing
+    const executingCall = mockDb.execute.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes('UPDATE autonomous_goals SET status')
+    );
+    expect(executingCall).toBeTruthy();
+    expect(executingCall![1]).toEqual([GoalStatus.EXECUTING, 'goal-approve-1']);
+
+    // 2. 记录 evolution-decided 人格事件（event_type 是 INSERT 参数数组第 3 项）
+    const eventInsert = mockDb.execute.mock.calls.find(
+      (c: unknown[]) =>
+        String(c[0]).includes('INSERT INTO personality_events') &&
+        (c[1] as unknown[])[2] === 'evolution-decided',
+    );
+    expect(eventInsert).toBeTruthy();
+  });
+
+  it('场景 7：会话工具调用应按维度记录能力测试，未映射工具跳过', async () => {
+    mockDb.query = vi.fn().mockResolvedValue([]);
+
+    const session: AgentSession = {
+      id: 'session-cap',
+      agentId: 'agent1',
+      startedAt: new Date(),
+      endedAt: new Date(),
+      messages: [{ role: 'user', content: 'x' }, { role: 'assistant', content: 'y' }],
+      toolCalls: [
+        { success: true, toolName: 'file_edit' },
+        { success: false, toolName: 'web_search' },
+        { success: true, toolName: 'unknown_tool' },
+      ],
+      errors: [],
+    };
+
+    await coordinator.onSessionEnd(session);
+
+    const capInserts = mockDb.execute.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes('INSERT INTO capability_tests'),
+    );
+    expect(capInserts.length).toBe(2);
+    // 参数数组首项是 agent_id，末项之前的 dimension 应正确映射
+    const dims = capInserts.map((c: unknown[]) => {
+      const vals = c[1] as unknown[];
+      // INSERT 列顺序：id, agent_id, dimension, session_id, task_summary, difficulty, result, level_before, level_after, created_at
+      return vals[2];
+    });
+    expect(dims).toContain('code_generation');
+    expect(dims).toContain('web_search');
   });
 
   it('协调器应正确获取指标', async () => {

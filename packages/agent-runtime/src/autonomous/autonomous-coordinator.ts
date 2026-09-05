@@ -6,7 +6,7 @@
  */
 
 import { EventEmitter } from 'events';
-import type { MVPScope, CoordinationMetrics, CoordinationEvent, AutonomousGoal, CapabilityDimension, CapabilityTest } from './types';
+import type { MVPScope, CoordinationMetrics, CoordinationEvent, AutonomousGoal, CapabilityTest } from './types';
 import type { AgentSession } from './metrics-collector';
 import type { DatabaseClient } from './meta-cognition-engine';
 import { MetaCognitionEngine, shouldTriggerGoalGeneration } from './meta-cognition-engine';
@@ -16,8 +16,49 @@ import { PersonalityTracker, recordPersonalityEvent } from './personality-tracke
 import { CapabilityTracker } from './capability-tracker';
 import { ReflectionEngine } from './reflection-engine';
 import { createExtendedDbClient } from './db-adapter';
-import { GoalStatus } from './types';
+import { GoalStatus, CapabilityDimension } from './types';
 import { AUTONOMOUS_ENABLED, REFLECTION_SCHEDULE } from './config';
+
+/**
+ * 工具名 → 能力维度映射（P1 能力追踪）。
+ *
+ * 只映射语义明确的工具；未命中的工具不记能力测试。难度缺省 0.5，
+ * 追踪的是「该维度成功率」而非难度调节后的水平——等工具难度分类器
+ * 落地后再按真实难度评分。
+ */
+const TOOL_TO_DIMENSION: Record<string, CapabilityDimension> = {
+  // 代码生成/修改
+  bash: CapabilityDimension.CODE_GENERATION,
+  file_edit: CapabilityDimension.CODE_GENERATION,
+  file_write: CapabilityDimension.CODE_GENERATION,
+  file_copy: CapabilityDimension.CODE_GENERATION,
+  file_move: CapabilityDimension.CODE_GENERATION,
+  file_mkdir: CapabilityDimension.CODE_GENERATION,
+  // 文档/信息分析
+  file_read: CapabilityDimension.DOCUMENT_ANALYSIS,
+  glob: CapabilityDimension.DOCUMENT_ANALYSIS,
+  grep: CapabilityDimension.DOCUMENT_ANALYSIS,
+  list_dir: CapabilityDimension.DOCUMENT_ANALYSIS,
+  memory_search: CapabilityDimension.DOCUMENT_ANALYSIS,
+  memory_read: CapabilityDimension.DOCUMENT_ANALYSIS,
+  wiki_read: CapabilityDimension.DOCUMENT_ANALYSIS,
+  wiki_search: CapabilityDimension.DOCUMENT_ANALYSIS,
+  // 网络检索
+  web_search: CapabilityDimension.WEB_SEARCH,
+  web_fetch: CapabilityDimension.WEB_SEARCH,
+  bing_search: CapabilityDimension.WEB_SEARCH,
+  // 多步规划/编排
+  spawn_agent: CapabilityDimension.MULTI_STEP_PLANNING,
+  todo_write: CapabilityDimension.MULTI_STEP_PLANNING,
+  task_complete: CapabilityDimension.MULTI_STEP_PLANNING,
+  agent_team_generate: CapabilityDimension.MULTI_STEP_PLANNING,
+  agent_team_optimize: CapabilityDimension.MULTI_STEP_PLANNING,
+};
+
+function mapToolToDimension(toolName?: string): CapabilityDimension | undefined {
+  if (!toolName) return undefined;
+  return TOOL_TO_DIMENSION[toolName];
+}
 
 /**
  * 自主协调器
@@ -99,6 +140,24 @@ export class AutonomousCoordinator extends EventEmitter {
       // 检查是否触发目标生成
       if (shouldTriggerGoalGeneration(score, this.metaCognitionEngine['config'].satisfactionThreshold)) {
         this.emit('satisfaction:low', score, {});
+      }
+
+      // P1 能力追踪：按工具映射到维度记录成败（best-effort，不影响已完成的评分/目标生成）
+      try {
+        for (const tc of session.toolCalls ?? []) {
+          const dimension = mapToolToDimension(tc.toolName);
+          if (!dimension) continue;
+          await this.capabilityTracker.recordTest({
+            agentId: session.agentId,
+            dimension,
+            sessionId: session.id,
+            taskSummary: session.taskDescription ?? '',
+            difficulty: 0.5,
+            result: tc.success ? 'success' : 'failure',
+          });
+        }
+      } catch (capErr) {
+        console.error('[AutonomousCoordinator] 能力追踪失败:', (capErr as Error).message);
       }
 
       // 更新 Prompt 变体奖励（假设会话使用了某个变体）
