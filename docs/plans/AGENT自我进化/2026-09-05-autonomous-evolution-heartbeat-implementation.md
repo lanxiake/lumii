@@ -16,9 +16,9 @@
 | 引擎核心闭环接线 | ✅ 已完成 | `autonomous-wiring.ts` 的 `notifyAutonomousTurnEnd`（挂 `onConversationEnd`）、`notifyAutonomousGoalApproved`（挂审批入口），389 单测全绿 |
 | 满意度口径 V1.0 | ✅ 已修 | 四维改三维（`task/feedback/efficiency`），见记忆 `autonomous-evolution-state.md` |
 | 用户反馈信号采集 | ✅ 已修 | `autonomous-feedback-signals.ts`，edit/resend/abort 在事件点记录 |
-| Prompt 进化 | ⛔ 硬阻塞 | 缺 prompt 片段注入 `buildSystemPrompt` |
-| 能力追踪 | ⛔ 硬阻塞 | 缺工具→维度映射 + 难度估计 |
-| 反思 | ⛔ 硬阻塞 | 缺 LLMClient + 定时触发（会真实烧模型调用） |
+| Prompt 进化 | ✅ 完整接线 | 选择注入（`bridge-instance-factory.ts:736`）+ 反馈回写（`autonomous-coordinator.ts:166`）+ 变体播种（`seedPromptVariants`）全通 |
+| 反思 | ✅ 引擎接线，⏳ 缺定时触发 | `ReflectionEngine` + LLMClient 已装配，`reflectAutonomous` 已暴露，但无人定时调用 → 本计划 Step 6 |
+| 能力追踪 | ✅ 引擎接线，⏳ 缺数据写入 | `CapabilityTracker.recordTest` 接口就绪但零调用，缺工具→维度映射 + 难度估计 → 本计划 Step 4.5 |
 | 心跳 tick | ❌ 未开始 | 本文档主线 A |
 | 专属会话 / 生命感 | ❌ 未开始 | 本文档主线 B |
 
@@ -192,7 +192,67 @@ const GOAL_EXECUTION_TOOLS = ['web_search', 'web_fetch', 'memory_search', 'memor
 
 ---
 
-### 2.4 Step 5：主动消息 + 预算（1 天）
+### 2.4 Step 4.5：能力追踪数据流入（0.5 天）
+
+**目标**：让能力追踪从"引擎就绪但零数据"变成"工具调用成败自动喂给能力维度"。这是能力边界检测的数据源头。
+
+> **现状**（经代码核实）：`CapabilityTracker.recordTest` 接口就绪（`{agentId, dimension, sessionId, taskSummary, difficulty, result}`），`AgentSession.toolCalls` 已含 `toolName`（`metrics-collector.ts:46`），但 **`recordTest` 零调用点**。`capability_dimensions` 表恒空，`identifyGaps` 永远返回空数组，能力改进目标永不生成。本步补的是"工具→维度映射 + 难度估计 + 写入点"，不是重建引擎。
+
+**文件**：
+- 修改：`packages/agent-runtime/src/autonomous/capability-tracker.ts`（新增两个导出的纯函数）
+- 修改：`packages/agent-runtime/src/autonomous/autonomous-coordinator.ts`（`onSessionEnd` 里遍历 `session.toolCalls` 调 `recordTest`）
+
+**核心纯函数**：
+
+```typescript
+// 工具名 → 能力维度。未映射的工具返回 null（不记录，避免污染维度统计）
+export function mapToolToDimension(toolName: string): CapabilityDimension | null {
+  switch (toolName) {
+    case 'web_search': case 'bing_search': case 'bing_web_search':
+      return CapabilityDimension.WEB_SEARCH
+    case 'web_fetch': case 'fetch_webpage':
+      return CapabilityDimension.DOCUMENT_ANALYSIS
+    // ponytail: 只映射最常用的两类；其余 6 个维度等有对应工具再补
+    default:
+      return null
+  }
+}
+
+export function estimateDifficulty(_toolName: string): number {
+  // ponytail: 固定 0.5 中性难度。升级路径：用工具重试次数或 LLM 自评难度做代理
+  return 0.5
+}
+```
+
+**写入点**（`coordinator.onSessionEnd`，满意度评分之后）：
+
+```typescript
+for (const tc of session.toolCalls ?? []) {
+  if (!tc.toolName) continue
+  const dimension = mapToolToDimension(tc.toolName)
+  if (!dimension) continue
+  await this.capabilityTracker.recordTest({
+    agentId: session.agentId,
+    dimension,
+    sessionId: session.id,
+    taskSummary: tc.toolName,
+    difficulty: estimateDifficulty(tc.toolName),
+    result: tc.success ? 'success' : 'failure',
+  })
+}
+```
+
+**验收标准**：
+- 用户会话里用一次 `web_search` → 回合结束后 `capability_dimensions` 出现 `web_search` 行，`test_count >= 1`
+- `web_search` 失败一次 → 该维度 `level` 下降（Elo 更新生效）
+- 用未映射工具（如记忆读写）→ 不产生 `capability_tests` 记录
+- 连续多次后 `confidence` 随 `test_count` 上升
+
+**测试**：`__tests__/capability-tracker.test.ts` 补 `mapToolToDimension`（`web_search` → `WEB_SEARCH`，未知工具 → null）与 `estimateDifficulty` 固定值断言。
+
+---
+
+### 2.5 Step 5：主动消息 + 预算（1 天）
 
 **目标**：`proactive-message` 目标执行后能真正触达用户，且有每日 20 条硬顶 + 跨通道合并计数。
 
@@ -221,30 +281,27 @@ export function getOutreachUsedToday(db: DatabaseAdapter, now: Date): number
 
 ---
 
-### 2.5 Step 6：反思接线（1 天）
+### 2.6 Step 6：反思定时触发（0.5 天）
 
-**目标**：打通最后一块硬阻塞 —— 反思引擎真正能用，tick 的 `reflect` 分支生效。
+**目标**：让已装配的反思引擎被 tick 定时唤起，`reflect` 分支生效。
+
+> 注意：反思引擎的**接线已完成**（`autonomous-wiring.ts:288-298` 已创建 `ReflectionEngine` 并包好 LLMClient，`initAutonomousRuntime` 的 `callLLM` 参数已接入桥接 LLM 管道）。本步骤只做"谁来定时调用它"这一件事，不是重新接线。
 
 **文件**：
-- 修改：`apps/windows/src/main/agent-runtime/autonomous-wiring.ts`（注入 LLMClient + ReflectionEngine）
-- 修改：`evolution-tick.ts`（`decideAction` 加 reflect 分支，调 `coordinator.triggerReflection` 或直接 `reflectionEngine.reflect`）
+- 修改：`apps/windows/src/main/agent-runtime/evolution-tick.ts`（`decideAction` 加 `reflect` 分支，调已暴露的 `reflectAutonomous`）
 
-**关键点**（对应文档 10 Step 6 + 记忆里的硬阻塞说明）：
-- `ReflectionEngine` 依赖 `LLMClient`（`reflection-engine.ts:14` 的 `complete({model,prompt,...}) => Promise<{content}>`）。主进程现成能力是 `bridge.callLLM(prompt, instanceId?, purpose)`，包一层 3 行适配：
-
-```typescript
-const llmClient: LLMClient = {
-  complete: async ({ prompt }) => ({ content: await bridge.callLLM(prompt) }),
-}
-```
-
-- **反思是唯一会在 tick 里真实烧模型调用的动作**，必须加三重约束：日频（`REFLECTION_MIN_INTERVAL_HOURS = 24`）+ 静默时段触发 + 全局 token 预算内。
+**关键点**：
+- 复用现成入口 `reflectAutonomous(agentId, 'scheduled')`（`autonomous-wiring.ts:124`），**不要**在 tick 里重新 new `ReflectionEngine` 或调 `reflectionEngine.reflect`。
+- 触发条件放 `decideAction`（纯函数）：`hoursSinceLastReflection >= 24` 且静默时段。`hoursSinceLastReflection` 由 `collectTickSignals` 读 `reflections` 表最近一条 `created_at` 得出。
+- **反思是唯一会在 tick 里真实烧模型调用的动作**，三重约束不可省：日频（`REFLECTION_MIN_INTERVAL_HOURS = 24`）+ 静默时段触发 + 全局 token 预算内（`readSettings().maxTokensPerDay`）。
+- `reflectAutonomous` 需 await（一次 LLM 调用，耗时较长），但 tick 本身是异步的，不阻塞后续 tick（cron 的 `localCronRunningJobs` 已防同 job 重入）。
 
 **验收标准**（对应文档 10 Step 6）：
-- 强制触发反思（临时把间隔改 1 分钟或手动调用）→ `reflections` 表有新行，且 `root_cause` / `trigger_reason` 非空（这两列 NOT NULL，是常踩坑）
+- 强制触发（临时把 `REFLECTION_MIN_INTERVAL_HOURS` 改 1，或手动调 `reflectAutonomous`）→ `reflections` 表有新行，且 `root_cause` / `trigger_reason` 非空（这两列 NOT NULL，常踩坑）
 - 反思产生的 `high` 优先级改进 → 进入 `autonomous_goals`（status=pending，走审批）
+- 未到 24 小时间隔的 tick → `decideAction` 不返回 `reflect`（纯函数单测覆盖）
 
-**测试**：反思逻辑已有 `reflection-engine.test.ts`，本步只补一个"接线后 LLMClient 适配层"的单测（mock `callLLM`，断言传参和返回值透传）。
+**测试**：反思引擎本身已有 `reflection-engine.test.ts`。本步只补 `tick-signals.test.ts` 里的 `reflect` 分支断言（到间隔触发 / 未到间隔不触发 / 静默时段外不触发）。
 
 ---
 
@@ -449,8 +506,9 @@ export function pickConcernToRaise(concerns: Concern[], now: number): Concern | 
 Step 2（专属会话，0.5d）
    └→ Step 3（心跳骨架，1d）           ← 依赖 Step 2 的会话落独白
          └→ Step 4（目标执行，2d）     ← 依赖 Step 3 的 tick 决策
+               ├→ Step 4.5（能力追踪，0.5d）← 依赖 Step 4 的工具调用数据
                └→ Step 5（主动消息，1d）← 依赖 Step 4 的执行结果产生 proactive 事件
-                     └→ Step 6（反思，1d）← 依赖 Step 3 的 reflect 分支
+                     └→ Step 6（反思定时，0.5d）← 依赖 Step 3 的 reflect 分支 + 已装配的反射引擎
                                                           ↓
 Step 7（设置 Tab，1.5d）            ← 可与 Step 3-6 并行，仅依赖 config.ts
                                                           ↓
@@ -460,7 +518,7 @@ Step 8（Mood，1.5d）                 ← 依赖 Step 4/5 的事件源
          └→ Step 11（日记，1.5d）     ← 依赖 Step 8 的 moodDescription
 ```
 
-**关键路径**：Step 2 → 3 → 4 → 5 → 6（主线 A，约 5.5 天）。主线 B（7-11，约 6.5 天）可与主线 A 尾部并行，但 Step 8-11 依赖主线 A 的事件源。
+**关键路径**：Step 2 → 3 → 4 → 4.5 → 5 → 6（主线 A，约 5.5 天）。主线 B（7-11，约 6.5 天）可与主线 A 尾部并行，但 Step 8-11 依赖主线 A 的事件源。
 
 **每个 Step 独立提交 + 独立可回滚**，提交边界见第六节。
 
@@ -512,8 +570,9 @@ log.warn(`[collectTickSignals] 满意度无数据，跳过满意度相关决策`
 feat(autonomous): add evolution:main conversation with delete guard       # Step 2
 feat(autonomous): add evolution tick skeleton with idle decision         # Step 3
 feat(autonomous): execute approved goals via driveAgent with tool allowlist  # Step 4
+feat(autonomous): feed tool outcomes into capability tracker              # Step 4.5
 feat(autonomous): add proactive outreach with daily budget               # Step 5
-feat(autonomous): wire reflection engine with LLM client                 # Step 6
+feat(autonomous): schedule reflection via evolution tick                  # Step 6
 feat(autonomous): add configurable settings tab with live quota          # Step 7
 feat(autonomous): add mood state with decay and circadian rhythm         # Step 8
 feat(autonomous): map mood to pet emotion                                 # Step 9
@@ -549,8 +608,8 @@ pnpm --filter @lumii/agent-runtime typecheck
 
 | 不做 | 理由 |
 |------|------|
-| Step 12 看法（Stances） | 文档 11 明确后置，依赖经验积累，数据为空时做了也是无源之水 |
-| Prompt 进化 / 能力追踪接线 | 三个硬阻塞中的两个，各自有独立阻塞（缺 prompt 注入点 / 缺维度映射），不在本计划范围，单独立项 |
+| Step 12 看法（Stances） | 文档 11 明确后置，依赖经验积累，数据为空时做了也是无源之物 |
+| 能力追踪的"难度估计"精细化 | 先用固定 0.5 中性难度（`estimateDifficulty` 有 `ponytail:` 注释标注升级路径），数据量不足时做难度模型是噪声放大 |
 | 多 Agent 协作 | 只有一个 Agent |
 | 自动生成并安装技能 | 沙箱验证工程量远超本计划全部 |
 | 独立的自主进化数据库 | 统一 `agent-runtime.db`（双 schema 分裂已修） |

@@ -71,6 +71,7 @@ import { resizeImageIfNeeded } from './image-resizer'
 import type { FileMemoryHandler } from './file-memory-handler'
 import type { WikiIngestHook } from '@mtbot/agent-runtime'
 import { maybeSnapshot } from '../workspace-vcs/vcs-snapshot'
+import { selectPromptVariantForSession } from './autonomous-wiring'
 
 /** LLM 摘要生成器构造函数签名（由 bridge.ts 注入，避免循环依赖） */
 export type CreateSummaryGeneratorFn = (
@@ -729,7 +730,17 @@ export class BridgeInstanceFactory {
       promptResult,
       injSettings,
     )
-    instance.setSystemPrompt(initialPrompt)
+    // Prompt 进化：ε-greedy 选变体并末尾追加（best-effort，失败/无变体则不注入）
+    let promptVariantText = ''
+    try {
+      const variant = await selectPromptVariantForSession(conversationId ?? '')
+      if (variant?.variantText) promptVariantText = variant.variantText
+    } catch (err) {
+      log.warn('[PromptEvo] 变体注入失败，跳过:', err instanceof Error ? err.message : err)
+    }
+    instance.setSystemPrompt(
+      promptVariantText ? `${initialPrompt}\n\n${promptVariantText}` : initialPrompt,
+    )
 
     if (def.proactivity?.triggers?.length) {
       const sched = new ProactivityScheduler(def.proactivity, (trigger) => {

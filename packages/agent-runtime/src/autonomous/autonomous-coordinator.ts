@@ -160,9 +160,11 @@ export class AutonomousCoordinator extends EventEmitter {
         console.error('[AutonomousCoordinator] 能力追踪失败:', (capErr as Error).message);
       }
 
-      // 更新 Prompt 变体奖励（假设会话使用了某个变体）
-      // 实际应从会话中获取 variantId
-      // await this.promptEvolution.recordFeedback(variantId, score.overall);
+      // Prompt 进化：会话用到的变体由 buildSessionSnapshot 注入 variantId，
+      // 此处回写该变体的奖励（满意度），供 ε-greedy 学习哪个变体更优
+      if (typeof session.variantId === 'string' && session.variantId) {
+        await this.promptEvolution.recordFeedback(session.variantId, score.overall);
+      }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       console.error('[AutonomousCoordinator] 处理会话结束失败:', err.message);

@@ -390,6 +390,28 @@ describe('自主进化 Agent E2E 测试', () => {
     expect(dims).toContain('web_search');
   });
 
+  it('场景 8：会话携带 variantId 时回写 Prompt 变体奖励', async () => {
+    mockDb.query = vi.fn().mockResolvedValue([]);
+
+    const session: AgentSession = {
+      id: 'session-variant',
+      agentId: 'agent1',
+      startedAt: new Date(),
+      endedAt: new Date(),
+      messages: [{ role: 'user', content: 'x' }, { role: 'assistant', content: 'y' }],
+      toolCalls: [],
+      errors: [],
+      variantId: 'variant-1',
+    };
+
+    await coordinator.onSessionEnd(session);
+
+    const variantQuery = mockDb.query.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes('FROM prompt_variants'),
+    );
+    expect(variantQuery).toBeTruthy();
+  });
+
   it('协调器应正确获取指标', async () => {
     mockDb.query = vi.fn().mockImplementation(async (sql: string) => {
       if (sql.includes('COUNT(*) as count FROM autonomous_satisfaction_scores')) {

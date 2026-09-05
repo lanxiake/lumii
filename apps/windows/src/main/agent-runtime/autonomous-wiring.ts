@@ -42,6 +42,32 @@ import {
 } from './autonomous-feedback-signals'
 
 const ENABLED_KEY = 'autonomous.enabled'
+const PROMPT_VARIANT_KEY_PREFIX = 'prompt-variant:'
+/** Prompt 进化的片段键：先在「表达风格」这一无害维度上做 A/B，不碰身份/工具/安全 */
+const BASELINE_PROMPT_ID = 'expression-style'
+
+function variantKey(conversationId: string): string {
+  return `${PROMPT_VARIANT_KEY_PREFIX}${conversationId}`
+}
+
+function writeVariantId(db: DatabaseAdapter, conversationId: string, variantId: string): void {
+  db.prepare(
+    `INSERT INTO runtime_state (key, value, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  ).run(variantKey(conversationId), variantId, new Date().toISOString())
+}
+
+function readVariantId(db: DatabaseAdapter, conversationId: string): string | undefined {
+  try {
+    const row = db
+      .prepare<{ value: string }>('SELECT value FROM runtime_state WHERE key = ?')
+      .get(variantKey(conversationId))
+    return row?.value || undefined
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * sync DatabaseAdapter → async DatabaseClient。
@@ -64,6 +90,8 @@ export interface AutonomousRuntime {
   onTurnEnd(sessionId: string, agentId: string): Promise<void>
   /** 触发一次自我反思（需装配了 LLM 客户端）；缺 LLM 时抛错 */
   reflect(agentId: string, triggerReason: 'scheduled' | 'low-satisfaction' | 'user-request'): Promise<ReflectionOutput>
+  /** 为本会话选一个 Prompt 变体并记录其 id（回合结束回写奖励） */
+  selectPromptVariant(conversationId: string): Promise<{ variantId: string; variantText: string }>
   shutdown(): Promise<void>
 }
 
@@ -99,6 +127,22 @@ export async function reflectAutonomous(
 ): Promise<ReflectionOutput> {
   if (!runtime) throw new Error('自主进化运行时未装配')
   return runtime.reflect(agentId, triggerReason)
+}
+
+/**
+ * 供 bridge 在装配实例时选一个 Prompt 变体并注入。
+ * 返回 null 表示未启用或选择失败（调用方按「不注入」处理，绝不影响启动）。
+ */
+export async function selectPromptVariantForSession(
+  conversationId: string,
+): Promise<{ variantId: string; variantText: string } | null> {
+  if (!runtime || !conversationId) return null
+  try {
+    return await runtime.selectPromptVariant(conversationId)
+  } catch (err) {
+    log.warn('[autonomous] 选择 Prompt 变体失败:', err instanceof Error ? err.message : err)
+    return null
+  }
 }
 
 /**
@@ -224,6 +268,9 @@ export function createAutonomousRuntime(
     asyncDb,
   )
 
+  // 播种表达风格变体（幂等，仅首次）；A/B 需要至少一个变体才有对比
+  void seedPromptVariants(promptEvolution)
+
   const personalityTracker = new PersonalityTracker(
     {
       emaAlpha: EMA_ALPHA,
@@ -309,9 +356,32 @@ export function createAutonomousRuntime(
       return reflectionEngine.reflect(agentId, triggerReason)
     },
 
+    async selectPromptVariant(conversationId: string) {
+      const variant = await promptEvolution.selectPrompt(BASELINE_PROMPT_ID)
+      writeVariantId(db, conversationId, variant.id)
+      return { variantId: variant.id, variantText: variant.variantText }
+    },
+
     async shutdown() {
       await coordinator.shutdown()
     },
+  }
+}
+
+/**
+ * 播种 Prompt 进化变体（幂等）。首次运行时基线为空，创建基线 + 两个表达风格变体，
+ * 之后 selectPrompt 的 ε-greedy 才有的选。失败只记日志，不影响任何会话。
+ */
+async function seedPromptVariants(promptEvolution: PromptEvolutionEngine): Promise<void> {
+  try {
+    const existing = await promptEvolution.getVariantPerformance(BASELINE_PROMPT_ID)
+    if (existing.length > 0) return
+    await promptEvolution.selectPrompt(BASELINE_PROMPT_ID) // 创建基线（variantText 为空 = 默认行为）
+    await promptEvolution.createVariant(BASELINE_PROMPT_ID, '回答尽量简洁，直达要点，少铺垫。')
+    await promptEvolution.createVariant(BASELINE_PROMPT_ID, '回答尽量详尽，多给背景与理由。')
+    log.info('[autonomous] 已播种表达风格 Prompt 变体')
+  } catch (err) {
+    log.warn('[autonomous] 播种 Prompt 变体失败:', err instanceof Error ? err.message : err)
   }
 }
 
@@ -336,19 +406,32 @@ function buildSessionSnapshot(db: DatabaseAdapter, sessionId: string, agentId: s
   const startedAt = new Date(rows[0].timestamp)
   const endedAt = new Date(rows[rows.length - 1].timestamp)
 
-  // 工具调用与失败数从 tool_result 消息统计：任务完成度与效率维度都依赖它，
-  // 恒传空数组会让完成度永远算成 1.0
+  // 工具调用与失败数：兼容两种消息形态
+  // - tool_result 消息（旧形态）：tool_name / is_error
+  // - assistant_parts 消息（当前形态）：parts 里的 tool part（name / isError / status）
   const toolCalls: Array<{ success: boolean; toolName?: string }> = []
   const errors: Array<{ message: string }> = []
   for (const row of rows) {
     const parsed = tryParse(row.content_json)
-    if (parsed?.type !== 'tool_result') continue
-    const isError = parsed.is_error === true
-    toolCalls.push({
-      success: !isError,
-      toolName: typeof parsed.tool_name === 'string' ? parsed.tool_name : undefined,
-    })
-    if (isError) errors.push({ message: String(parsed.tool_name ?? 'tool') })
+    if (!parsed) continue
+    if (parsed.type === 'tool_result') {
+      const isError = parsed.is_error === true
+      toolCalls.push({
+        success: !isError,
+        toolName: typeof parsed.tool_name === 'string' ? parsed.tool_name : undefined,
+      })
+      if (isError) errors.push({ message: String(parsed.tool_name ?? 'tool') })
+    } else if (parsed.type === 'assistant_parts' && Array.isArray(parsed.parts)) {
+      for (const part of parsed.parts as Array<Record<string, unknown>>) {
+        if (part?.type !== 'tool') continue
+        const isError = part.isError === true || part.status === 'error'
+        toolCalls.push({
+          success: !isError,
+          toolName: typeof part.name === 'string' ? part.name : undefined,
+        })
+        if (isError) errors.push({ message: String(part.name ?? 'tool') })
+      }
+    }
   }
 
   return {
@@ -359,6 +442,7 @@ function buildSessionSnapshot(db: DatabaseAdapter, sessionId: string, agentId: s
     messages: rows.map((r) => ({ role: r.role, content: '' })),
     toolCalls,
     errors,
+    variantId: readVariantId(db, sessionId),
   }
 }
 

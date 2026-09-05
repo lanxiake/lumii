@@ -158,6 +158,22 @@ export function buildReflectionPrompt(
 }
 
 /**
+ * 从 LLM 输出中提取 JSON 文本。LLM 常会额外加代码围栏、语言标注或前后文字，
+ * 逐级降级提取；完全找不到 JSON 时返回 null。
+ */
+function extractJsonText(llmContent: string): string | null {
+  // 1. 优先 ```json / ``` 代码围栏
+  const fenceMatch = llmContent.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fenceMatch) return fenceMatch[1].trim()
+  // 2. 取第一个 { 到最后一个 } 之间的内容
+  const start = llmContent.indexOf('{')
+  const end = llmContent.lastIndexOf('}')
+  if (start >= 0 && end > start) return llmContent.slice(start, end + 1)
+  // 3. 无围栏也无花括号 → 无法提取
+  return null
+}
+
+/**
  * 解析 LLM 反思输出
  */
 export function parseReflectionOutput(llmContent: string): {
@@ -179,18 +195,23 @@ export function parseReflectionOutput(llmContent: string): {
     priority: number;
   }>;
 } {
-  // 提取 JSON 块
-  const jsonMatch = llmContent.match(/```json\s*([\s\S]*?)\s*```/);
-  if (!jsonMatch) {
+  const jsonText = extractJsonText(llmContent);
+  if (jsonText == null) {
     throw new Error('Failed to extract JSON from reflection output');
   }
 
-  const parsed = JSON.parse(jsonMatch[1]);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch {
+    throw new Error('Failed to parse JSON from reflection output');
+  }
 
   // 验证基本结构
-  if (!parsed.diagnosis || !parsed.recommendations || !parsed.suggestedGoals) {
+  const obj = parsed as Record<string, unknown>;
+  if (!obj.diagnosis || !obj.recommendations || !obj.suggestedGoals) {
     throw new Error('Invalid reflection output structure');
   }
 
-  return parsed;
+  return parsed as ReturnType<typeof parseReflectionOutput>;
 }
