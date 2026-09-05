@@ -174,6 +174,41 @@ export class MetaCognitionEngine {
   }
 
   /**
+   * 查询指定时间窗口内的评分（按 created_at 过滤，非 LIMIT）。
+   * 供反思引擎取「近 N 天」窗口，避免把天数误当条数。
+   *
+   * @param agentId Agent ID
+   * @param since 起始时间（ISO 字符串）
+   * @returns 评分列表（按时间升序）
+   */
+  async getRecentScoresSince(agentId: string, since: string): Promise<SatisfactionScore[]> {
+    try {
+      const sql = `
+        SELECT session_id, agent_id, task_completion, user_feedback,
+               efficiency, knowledge_growth, overall_score, created_at
+        FROM autonomous_satisfaction_scores
+        WHERE agent_id = ? AND created_at >= ?
+        ORDER BY created_at ASC
+      `;
+      const rows = await this.db.query<any>(sql, [agentId, since]);
+
+      return rows.map((row) => ({
+        sessionId: row.session_id,
+        agentId: row.agent_id,
+        taskCompletion: row.task_completion,
+        userFeedback: row.user_feedback,
+        efficiency: row.efficiency,
+        knowledgeGrowth: row.knowledge_growth,
+        overall: row.overall_score,
+        timestamp: row.created_at,
+      }));
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      throw new MetaCognitionError(`查询时间窗口评分失败: ${err.message}`, err);
+    }
+  }
+
+  /**
    * 计算最近 N 天平均满意度
    *
    * @param agentId Agent ID

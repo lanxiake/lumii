@@ -22,7 +22,7 @@ interface LLMClient {
 
 // 元认知引擎接口
 interface MetaCognitionEngine {
-  getRecentScores(agentId: string, days: number): Promise<SatisfactionScore[]>;
+  getRecentScoresSince(agentId: string, since: string): Promise<SatisfactionScore[]>;
 }
 
 // 能力追踪器接口
@@ -80,9 +80,11 @@ export class ReflectionEngine {
       });
 
       // 1. 收集输入数据
-      const satisfactionHistory = await this.metaCognitionEngine.getRecentScores(
+      const windowStart = new Date();
+      windowStart.setDate(windowStart.getDate() - REFLECTION_WINDOW_DAYS);
+      const satisfactionHistory = await this.metaCognitionEngine.getRecentScoresSince(
         agentId,
-        REFLECTION_WINDOW_DAYS
+        windowStart.toISOString()
       );
       const capabilityReport = await this.capabilityTracker.getCapabilityReport(agentId);
       const recentSessions = await this.getRecentSessionSummaries(
@@ -110,8 +112,6 @@ export class ReflectionEngine {
 
       // 5. 构造完整反思输出
       const now = new Date().toISOString();
-      const windowStart = new Date();
-      windowStart.setDate(windowStart.getDate() - REFLECTION_WINDOW_DAYS);
 
       const reflection: ReflectionOutput = {
         id: generateUUID(),
