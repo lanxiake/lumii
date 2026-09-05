@@ -157,6 +157,13 @@ export {
   parseMigratePlanResponse,
 } from "./wiki-migrate-prompt.js";
 
+export { WikiLibraryMigrate } from "./wiki-library-migrate.js";
+export type {
+  WikiLibraryMigratePlanOptions,
+  WikiLibraryMigrateReplanOptions,
+  WikiMigrateMappingPatch,
+} from "./wiki-library-migrate.js";
+
 export {
   buildLibraryInventory,
   ANCHOR_SAMPLES_PER_LEAF,
