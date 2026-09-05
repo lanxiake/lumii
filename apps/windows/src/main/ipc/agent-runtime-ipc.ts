@@ -155,6 +155,18 @@ import {
   handleWikiSourceSummary,
 } from './agent-runtime/wiki-commands'
 import {
+  handleAutonomousStatus,
+  handleAutonomousGoalsList,
+  handleAutonomousGoalsApprove,
+  handleAutonomousGoalsReject,
+  handleAutonomousCapabilities,
+  handleAutonomousReflections,
+  handleAutonomousSatisfactionHistory,
+  handleAutonomousPromptVariants,
+  handleAutonomousEnable,
+  handleAutonomousDisable,
+} from './agent-runtime/autonomous-commands'
+import {
   handleToolsList,
   handleToolsToggle,
   handleMcpStatus,
@@ -1240,6 +1252,37 @@ export async function handleCommand(
 
       case 'codingDev:listBackends':
         return handleCodingDevListBackends()
+
+      // ---- 自主进化 ----
+      case 'autonomous:status':
+        return handleAutonomousStatus(bridge, command)
+
+      case 'autonomous:goals:list':
+        return handleAutonomousGoalsList(bridge, command)
+
+      case 'autonomous:goals:approve':
+        return handleAutonomousGoalsApprove(bridge, command)
+
+      case 'autonomous:goals:reject':
+        return handleAutonomousGoalsReject(bridge, command)
+
+      case 'autonomous:capabilities':
+        return handleAutonomousCapabilities(bridge, command)
+
+      case 'autonomous:reflections':
+        return handleAutonomousReflections(bridge, command)
+
+      case 'autonomous:satisfaction:history':
+        return handleAutonomousSatisfactionHistory(bridge, command)
+
+      case 'autonomous:prompt:variants':
+        return handleAutonomousPromptVariants(bridge, command)
+
+      case 'autonomous:enable':
+        return handleAutonomousEnable(bridge)
+
+      case 'autonomous:disable':
+        return handleAutonomousDisable(bridge)
 
       // ---- 图片处理（识别 / 美化 / 等，按 operation 扩展） ----
       case 'image:recognize':

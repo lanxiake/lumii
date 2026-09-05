@@ -218,6 +218,7 @@ export {
   TaskRepo,
   AuditRepo,
   RuntimeStateRepo,
+  AutonomousRepo,
   SCHEMA_VERSION,
   verifyDatabaseIntegrity,
   runBackupNow,

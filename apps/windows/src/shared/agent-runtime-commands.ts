@@ -420,6 +420,67 @@ export interface WikiOrganizeRunCommand {
   readonly agentId?: string
 }
 
+export interface AutonomousStatusCommand {
+  readonly type: 'autonomous:status'
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
+export interface AutonomousGoalsListCommand {
+  readonly type: 'autonomous:goals:list'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  /** pending | approved | rejected | executing | completed | failed */
+  readonly status?: string
+}
+
+export interface AutonomousGoalsApproveCommand {
+  readonly type: 'autonomous:goals:approve'
+  readonly goalId: string
+  readonly note?: string
+}
+
+export interface AutonomousGoalsRejectCommand {
+  readonly type: 'autonomous:goals:reject'
+  readonly goalId: string
+  readonly reason?: string
+}
+
+export interface AutonomousCapabilitiesCommand {
+  readonly type: 'autonomous:capabilities'
+  readonly sessionKey?: string
+  readonly agentId?: string
+}
+
+export interface AutonomousReflectionsCommand {
+  readonly type: 'autonomous:reflections'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly limit?: number
+}
+
+export interface AutonomousSatisfactionHistoryCommand {
+  readonly type: 'autonomous:satisfaction:history'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  /** 7d（默认）| 30d | all */
+  readonly window?: string
+}
+
+export interface AutonomousPromptVariantsCommand {
+  readonly type: 'autonomous:prompt:variants'
+  /** 按 baseline_prompt_id 过滤 */
+  readonly fragmentKey?: string
+}
+
+export interface AutonomousEnableCommand {
+  readonly type: 'autonomous:enable'
+}
+
+export interface AutonomousDisableCommand {
+  readonly type: 'autonomous:disable'
+}
+
 export interface WikiSearchCommand {
   readonly type: 'wiki:search'
   readonly sessionKey?: string
@@ -1324,6 +1385,16 @@ export type AgentRuntimeCommand =
   | WikiFolderImportCommand
   | WikiOrganizeRunCommand
   | WikiSearchCommand
+  | AutonomousStatusCommand
+  | AutonomousGoalsListCommand
+  | AutonomousGoalsApproveCommand
+  | AutonomousGoalsRejectCommand
+  | AutonomousCapabilitiesCommand
+  | AutonomousReflectionsCommand
+  | AutonomousSatisfactionHistoryCommand
+  | AutonomousPromptVariantsCommand
+  | AutonomousEnableCommand
+  | AutonomousDisableCommand
   | WikiSourceGetCommand
   | WikiRunsListCommand
   | WikiIndexRebuildCommand

@@ -34,6 +34,15 @@ export type { AuditLogRow } from "./audit-repo.js";
 
 export { RuntimeStateRepo } from "./runtime-state-repo.js";
 
+export { AutonomousRepo } from "./autonomous-repo.js";
+export type {
+  SatisfactionRow,
+  GoalRow,
+  CapabilityRow,
+  ReflectionRow,
+  PromptVariantRow,
+} from "./autonomous-repo.js";
+
 export { SegmentRepo } from "./segment-repo.js";
 export type {
   MemorySegment,

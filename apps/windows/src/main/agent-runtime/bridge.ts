@@ -29,6 +29,7 @@ import {
   TaskRepo,
   AuditRepo,
   RuntimeStateRepo,
+  AutonomousRepo,
   FileRepo,
   clearInvalidSessionPreferredModels,
   patchSessionConfig,
@@ -118,6 +119,7 @@ import { BridgeImageServices } from './bridge-image-services'
 import { BridgeContextCompactor, createLlmSummaryGenerator } from './bridge-context-compactor'
 import { BridgeConversationManager } from './bridge-conversation-manager'
 import { BridgeLifecycle } from './bridge-lifecycle'
+import { initAutonomousRuntime, shutdownAutonomousRuntime } from './autonomous-wiring'
 import { BridgeInstanceFactory } from './bridge-instance-factory'
 import { BridgeToolRegistrar } from './bridge-tool-registrar'
 import { BridgePromptDispatcher } from './bridge-prompt-dispatcher'
@@ -180,6 +182,7 @@ export class AgentRuntimeBridge {
   private _taskRepo: TaskRepo | null = null
   private _auditRepo: AuditRepo | null = null
   private _runtimeStateRepo: RuntimeStateRepo | null = null
+  private _autonomousRepo: AutonomousRepo | null = null
   private toolContext: ToolExecutionContext | null = null
   private cronScheduler!: CronScheduler
   private definitionStore: AgentDefinitionStore | null = null
@@ -326,6 +329,8 @@ export class AgentRuntimeBridge {
         this._taskRepo = null
         this._auditRepo = null
         this._runtimeStateRepo = null
+        this._autonomousRepo = null
+        void shutdownAutonomousRuntime()
         this.toolContext = null
         this.initialized = false
       },
@@ -351,6 +356,7 @@ export class AgentRuntimeBridge {
   get taskRepo(): TaskRepo { return this.requireInitialized(this._taskRepo, 'taskRepo') }
   get auditRepo(): AuditRepo { return this.requireInitialized(this._auditRepo, 'auditRepo') }
   get runtimeStateRepo(): RuntimeStateRepo { return this.requireInitialized(this._runtimeStateRepo, 'runtimeStateRepo') }
+  get autonomousRepo(): AutonomousRepo { return this.requireInitialized(this._autonomousRepo, 'autonomousRepo') }
   get wikiRepo(): WikiRepo { return this.requireInitialized(this._wikiRepo, 'wikiRepo') }
   get wikiOrganizer(): WikiOrganizer { return this.requireInitialized(this._wikiOrganizer, 'wikiOrganizer') }
   get wikiIngestHook(): WikiIngestHook { return this.requireInitialized(this._wikiIngestHook, 'wikiIngestHook') }
@@ -526,6 +532,9 @@ export class AgentRuntimeBridge {
     this._taskRepo = new TaskRepo(db)
     this._auditRepo = new AuditRepo(db)
     this._runtimeStateRepo = new RuntimeStateRepo(db)
+    this._autonomousRepo = new AutonomousRepo(db)
+    // 自主进化引擎接线：装配失败已在内部降级，不影响运行时启动
+    initAutonomousRuntime(db)
     this._fileRepo = new FileRepo(db)
 
     // 恢复用户手动禁用的工具集合（重启后不丢失），并注册变更回调持久化

@@ -121,6 +121,7 @@ import { setBurnSubtitlesService } from './screen-record/burn-accessor'
 import { clearScreenshotTempDir } from './app-ui-control/screenshot-cleanup'
 import { startAppUiControlServer, stopAppUiControlServer } from './app-ui-control/server'
 import { resizeImageIfNeeded } from './agent-runtime/image-resizer'
+import { notifyAutonomousTurnEnd } from './agent-runtime/autonomous-wiring'
 import {
   AgentRuntimeBridge,
   installAgentRuntimeCommandIpc,
@@ -836,6 +837,9 @@ async function initAgentRuntime(): Promise<void> {
           log.warn(`[MemPalace] 记忆写入失败: ${err instanceof Error ? err.message : String(err)}`)
         }
       })()
+
+      // 自主进化：回合结束触发满意度评分与目标生成（旁路，失败不影响会话）
+      void notifyAutonomousTurnEnd(convId)
     },
     setAcpBackend: async (backendId: string) => {
       try {

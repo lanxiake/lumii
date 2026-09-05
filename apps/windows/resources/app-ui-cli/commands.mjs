@@ -983,4 +983,187 @@ export const COMMANDS = [
       }
     },
   },
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 自主进化
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  {
+    name: 'autonomous status',
+    group: '自主进化',
+    usage: 'autonomous status [--session <key>] [--agent <id>]',
+    summary: '查看自主进化开关、满意度评分与待审批目标数',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--session <key>', desc: '按会话解析 agentId（可选）' },
+      { flag: '--agent <id>', desc: '显式指定 agentId，默认 assistant' },
+    ],
+    build(args) {
+      const body = { type: 'autonomous:status' }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      if (typeof args.flags.agent === 'string') body.agentId = args.flags.agent
+      return body
+    },
+  },
+  {
+    name: 'autonomous goals list',
+    group: '自主进化',
+    usage: 'autonomous goals list [--status <s>] [--session <key>] [--agent <id>]',
+    summary: '列出自主生成的目标',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--status <s>', desc: 'pending | approved | rejected | executing | completed | failed' },
+      { flag: '--session <key>', desc: '按会话解析 agentId（可选）' },
+      { flag: '--agent <id>', desc: '显式指定 agentId，默认 assistant' },
+    ],
+    build(args) {
+      const body = { type: 'autonomous:goals:list' }
+      if (typeof args.flags.status === 'string') body.status = args.flags.status
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      if (typeof args.flags.agent === 'string') body.agentId = args.flags.agent
+      return body
+    },
+  },
+  {
+    name: 'autonomous goals approve',
+    group: '自主进化',
+    usage: 'autonomous goals approve <goalId> [--note <text>]',
+    summary: '批准目标并执行',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '<goalId>', desc: '目标 ID' },
+      { flag: '--note <text>', desc: '批准备注（可选）' },
+    ],
+    build(args) {
+      const goalId = args.positional[0]
+      if (typeof goalId !== 'string' || goalId.length === 0) return null
+      const body = { type: 'autonomous:goals:approve', goalId }
+      if (typeof args.flags.note === 'string') body.note = args.flags.note
+      return body
+    },
+  },
+  {
+    name: 'autonomous goals reject',
+    group: '自主进化',
+    usage: 'autonomous goals reject <goalId> [--reason <text>] [--never-ask-again]',
+    summary: '拒绝目标',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '<goalId>', desc: '目标 ID' },
+      { flag: '--reason <text>', desc: '拒绝原因（可选）' },
+      { flag: '--never-ask-again', desc: '永不再问此类目标' },
+    ],
+    build(args) {
+      const goalId = args.positional[0]
+      if (typeof goalId !== 'string' || goalId.length === 0) return null
+      const body = { type: 'autonomous:goals:reject', goalId }
+      if (typeof args.flags.reason === 'string') body.reason = args.flags.reason
+      if (args.flags['never-ask-again'] === true || args.flags['never-ask-again'] === 'true') {
+        body.neverAskAgain = true
+      }
+      return body
+    },
+  },
+  {
+    name: 'autonomous capabilities',
+    group: '自主进化',
+    usage: 'autonomous capabilities [--session <key>] [--agent <id>]',
+    summary: '查看各能力维度的水平、置信度与边界',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--session <key>', desc: '按会话解析 agentId（可选）' },
+      { flag: '--agent <id>', desc: '显式指定 agentId，默认 assistant' },
+    ],
+    build(args) {
+      const body = { type: 'autonomous:capabilities' }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      if (typeof args.flags.agent === 'string') body.agentId = args.flags.agent
+      return body
+    },
+  },
+  {
+    name: 'autonomous reflections',
+    group: '自主进化',
+    usage: 'autonomous reflections [--limit <n>] [--session <key>] [--agent <id>]',
+    summary: '查看 Agent 自我反思记录（诊断/根因/建议）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--limit <n>', desc: '返回条数，默认 5' },
+      { flag: '--session <key>', desc: '按会话解析 agentId（可选）' },
+      { flag: '--agent <id>', desc: '显式指定 agentId，默认 assistant' },
+    ],
+    build(args) {
+      const body = { type: 'autonomous:reflections' }
+      const limit = num(args.flags.limit)
+      if (limit !== undefined) body.limit = limit
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      if (typeof args.flags.agent === 'string') body.agentId = args.flags.agent
+      return body
+    },
+  },
+  {
+    name: 'autonomous satisfaction history',
+    group: '自主进化',
+    usage: 'autonomous satisfaction history [--window 7d|30d|all] [--session <key>] [--agent <id>]',
+    summary: '查看满意度历史趋势与四维明细',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--window <w>', desc: '时间窗口：7d（默认）| 30d | all' },
+      { flag: '--session <key>', desc: '按会话解析 agentId（可选）' },
+      { flag: '--agent <id>', desc: '显式指定 agentId，默认 assistant' },
+    ],
+    build(args) {
+      const body = { type: 'autonomous:satisfaction:history' }
+      const window = args.flags.window
+      if (typeof window === 'string' && ['7d', '30d', 'all'].includes(window)) {
+        body.window = window
+      }
+      if (typeof args.flags.session === 'string') body.sessionKey = args.flags.session
+      if (typeof args.flags.agent === 'string') body.agentId = args.flags.agent
+      return body
+    },
+  },
+  {
+    name: 'autonomous prompt variants',
+    group: '自主进化',
+    usage: 'autonomous prompt variants [--fragment <baselinePromptId>]',
+    summary: '查看 Prompt 变体统计（含成功率与 UCB 分数）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '--fragment <id>', desc: '按 baselinePromptId 过滤（可选）' }],
+    build(args) {
+      const body = { type: 'autonomous:prompt:variants' }
+      if (typeof args.flags.fragment === 'string') body.fragmentKey = args.flags.fragment
+      return body
+    },
+  },
+  {
+    name: 'autonomous enable',
+    group: '自主进化',
+    usage: 'autonomous enable',
+    summary: '启用自主进化功能',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [],
+    build() {
+      return { type: 'autonomous:enable' }
+    },
+  },
+  {
+    name: 'autonomous disable',
+    group: '自主进化',
+    usage: 'autonomous disable',
+    summary: '禁用自主进化功能',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [],
+    build() {
+      return { type: 'autonomous:disable' }
+    },
+  },
 ]

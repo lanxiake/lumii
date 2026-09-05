@@ -122,13 +122,15 @@ export class MetaCognitionEngine {
    */
   private async saveScore(score: SatisfactionScore): Promise<void> {
     try {
+      // id 是 TEXT PRIMARY KEY 且无自增，必须显式生成，否则插入被 NOT NULL 拒绝
+      const id = `sat_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
       const sql = `
         INSERT INTO autonomous_satisfaction_scores (
-          session_id, agent_id, task_completion, user_feedback,
+          id, session_id, agent_id, task_completion, user_feedback,
           efficiency, knowledge_growth, overall_score, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
-      await this.db.execute(sql, [score.sessionId, score.agentId, score.taskCompletion, score.userFeedback, score.efficiency, score.knowledgeGrowth, score.overall, score.timestamp]);
+      await this.db.execute(sql, [id, score.sessionId, score.agentId, score.taskCompletion, score.userFeedback, score.efficiency, score.knowledgeGrowth, score.overall, score.timestamp]);
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       // 数据库失败仅记录日志，不影响评分返回
