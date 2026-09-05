@@ -199,11 +199,14 @@ function abortTwice(sessionKey) {
   return counters
 }
 
-/** 低满意触发：2 abort + 无工具完成回合 → overall < 0.6 → 生成 pending 目标 */
+/** 低满意触发：2 abort + 完成回合 → overall < 0.6 → 生成 pending 目标 */
 function triggerLowSatisfaction(title) {
   const sk = createConv(title)
   const counters = abortTwice(sk)
-  const score = sendAndWaitScore(sk, '谢谢你，讲得不错')
+  // 完成回合读一个确定不存在的文件：工具失败(task=0.5) 或 agent 拒绝(无工具 task=0.75)，
+  // 两种情况下 2 abort(feedback=0.35) 都使 overall < 0.6（0.494 / 0.597）。
+  // 比纯闲聊「谢谢」更鲁棒：闲聊偶发被 agent 用记忆/看板工具回写，把 task 拉回 1.0。
+  const score = sendAndWaitScore(sk, '请读取文件 E:/testsoft/Lumii-data/definitely-not-exist-xyz.txt 的完整内容并总结要点')
   assert(score.overall_score < 0.6, `期望低满意(<0.6)，实际 ${score.overall_score.toFixed(4)}（task=${score.task_completion} fb=${score.user_feedback}）`)
   // 等目标异步落库
   const goal = pollGoal('pending')
