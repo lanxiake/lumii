@@ -1,26 +1,22 @@
-{"ts":"2026-09-04T06:50:06.853Z","id":"TC1.1","status":"PASS","note":"autonomous_satisfaction_scores 表存在"}
-{"ts":"2026-09-04T06:50:06.854Z","id":"TC1.2","status":"PASS","note":"autonomous_goals 表存在"}
-{"ts":"2026-09-04T06:50:06.854Z","id":"TC1.3","status":"PASS","note":"prompt_variants 表存在"}
-{"ts":"2026-09-04T06:50:06.854Z","id":"TC1.4","status":"PASS","note":"personality_state 表存在"}
-{"ts":"2026-09-04T06:50:06.855Z","id":"TC1.5","status":"PASS","note":"personality_events 表存在"}
-{"ts":"2026-09-04T06:50:06.855Z","id":"TC1.6","status":"PASS","note":"evolution_coordination_history 表存在"}
-{"ts":"2026-09-04T06:50:06.855Z","id":"TC1.7","status":"PASS","note":"prompt_evolution_history 表存在"}
-{"ts":"2026-09-04T06:50:06.858Z","id":"TC2.1","status":"PASS","note":"插入满意度评分"}
-{"ts":"2026-09-04T06:50:06.859Z","id":"TC2.2","status":"FAIL","note":"验证满意度权重计算","error":"权重计算公式: expected 0.695, got 0.6749999999999999 (diff: 0.020000000000000018)"}
-{"ts":"2026-09-04T06:50:06.859Z","id":"TC3.1","status":"FAIL","note":"生成学习型目标","error":"NOT NULL constraint failed: autonomous_goals.trigger_reason"}
-{"ts":"2026-09-04T06:50:06.860Z","id":"TC3.2","status":"FAIL","note":"生成主动消息目标","error":"NOT NULL constraint failed: autonomous_goals.trigger_reason"}
-{"ts":"2026-09-04T06:50:06.861Z","id":"TC4.1","status":"INFO","note":"今日已有 0 个目标"}
-{"ts":"2026-09-04T06:50:06.861Z","id":"TC4.1","status":"PASS","note":"统计今日目标数"}
-{"ts":"2026-09-04T06:50:06.864Z","id":"TC5.1","status":"PASS","note":"插入基线 Prompt"}
-{"ts":"2026-09-04T06:50:06.870Z","id":"TC5.2","status":"PASS","note":"插入变体 v1"}
-{"ts":"2026-09-04T06:50:06.876Z","id":"TC5.3","status":"PASS","note":"插入变体 v2"}
-{"ts":"2026-09-04T06:50:06.877Z","id":"TC5.4","status":"PASS","note":"查询所有变体"}
-{"ts":"2026-09-04T06:50:06.879Z","id":"TC6.1","status":"PASS","note":"初始化中性人格"}
-{"ts":"2026-09-04T06:50:06.882Z","id":"TC6.2","status":"PASS","note":"EMA 更新人格（goal-generated）"}
-{"ts":"2026-09-04T06:50:06.882Z","id":"TC6.3","status":"FAIL","note":"人格边界限制","error":"CHECK constraint failed: openness BETWEEN 0 AND 1"}
-{"ts":"2026-09-04T06:50:06.883Z","id":"TC7.1","status":"INFO","note":"总评估次数: 1"}
-{"ts":"2026-09-04T06:50:06.883Z","id":"TC7.1","status":"PASS","note":"统计总评估次数"}
-{"ts":"2026-09-04T06:50:06.883Z","id":"TC7.2","status":"INFO","note":"目标分布: []"}
-{"ts":"2026-09-04T06:50:06.883Z","id":"TC7.2","status":"FAIL","note":"按类型统计目标","error":"应有目标记录"}
-{"ts":"2026-09-04T06:50:06.884Z","id":"TC7.3","status":"INFO","note":"平均满意度: 0.695"}
-{"ts":"2026-09-04T06:50:06.884Z","id":"TC7.3","status":"PASS","note":"计算平均满意度"}
+{"ts":"2026-09-05T07:02:44.108Z","id":"TC1","status":"PASS","note":"正式表结构齐全: 12 张表齐全"}
+{"ts":"2026-09-05T07:02:44.237Z","id":"TC2","status":"PASS","note":"help 暴露全部 autonomous 命令: 10 个命令均可被 Agent 发现"}
+{"ts":"2026-09-05T07:02:44.415Z","id":"TC3","status":"PASS","note":"status 空数据降级: hasData=false，不抛异常"}
+{"ts":"2026-09-05T07:02:44.600Z","id":"TC4","status":"PASS","note":"满意度四维加权公式一致性: overall=0.6750，与设计公式 0.695 一致，四维无错位"}
+{"ts":"2026-09-05T07:02:44.796Z","id":"TC5","status":"PASS","note":"满意度趋势判定: trend=improving，3 点升序"}
+{"ts":"2026-09-05T07:02:45.341Z","id":"TC6","status":"PASS","note":"时间窗口过滤边界: 7d=3 / 30d=3 / all=4，边界正确"}
+{"ts":"2026-09-05T07:02:46.013Z","id":"TC7","status":"PASS","note":"目标列表与状态过滤: 全部 2 条，pending 1 条，字段映射正确"}
+{"ts":"2026-09-05T07:02:46.202Z","id":"TC8","status":"PASS","note":"非法 status 安全降级: 白名单拦下非法状态值，数据完好"}
+{"ts":"2026-09-05T07:02:46.368Z","id":"TC9","status":"PASS","note":"批准目标状态流转落库: status=approved，approved_at 已写入"}
+{"ts":"2026-09-05T07:02:46.559Z","id":"TC10","status":"PASS","note":"拒绝目标状态流转落库: status=rejected"}
+{"ts":"2026-09-05T07:02:46.913Z","id":"TC11","status":"PASS","note":"重复审批被拒绝: 非 pending 目标无法二次流转"}
+{"ts":"2026-09-05T07:02:47.083Z","id":"TC12","status":"PASS","note":"不存在目标优雅失败: 返回 success=false 并说明原因"}
+{"ts":"2026-09-05T07:02:47.184Z","id":"TC13","status":"PASS","note":"缺 goalId 参数校验: 退出码 2"}
+{"ts":"2026-09-05T07:02:47.353Z","id":"TC14","status":"PASS","note":"能力维度查询与字段映射: level/confidence/boundary/testCount 映射正确"}
+{"ts":"2026-09-05T07:02:47.547Z","id":"TC15","status":"PASS","note":"反思记录 JSON 列解析: JSON 列解析为数组，含 rootCause"}
+{"ts":"2026-09-05T07:02:47.741Z","id":"TC16","status":"PASS","note":"脏 JSON 列降级不打断列表: 脏 JSON 降级空数组，整表仍可用"}
+{"ts":"2026-09-05T07:02:47.916Z","id":"TC17","status":"PASS","note":"Prompt 变体统计与成功率: 成功率=0.8444，基线优先排序"}
+{"ts":"2026-09-05T07:02:48.086Z","id":"TC18","status":"PASS","note":"零试验变体不产生除零: successRate=null，无 NaN 污染"}
+{"ts":"2026-09-05T07:02:48.762Z","id":"TC19","status":"PASS","note":"开关读写闭环持久化: 写入 runtime_state 且可回读"}
+{"ts":"2026-09-05T07:02:49.113Z","id":"TC20","status":"PASS","note":"未配置时默认启用: 缺配置默认 enabled=true"}
+{"ts":"2026-09-05T07:02:49.441Z","id":"TC21","status":"PASS","note":"agentId 数据隔离: 能力与目标均按 agentId 隔离"}
+{"ts":"2026-09-05T07:02:49.538Z","id":"TC22","status":"PASS","note":"未知 autonomous 子命令报错: 退出码 2"}

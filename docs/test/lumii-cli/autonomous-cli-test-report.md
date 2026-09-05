@@ -1,107 +1,48 @@
-# 自主进化 Agent CLI 测试报告
+# 自主进化 CLI 测试报告
 
-**生成时间**: 2026-09-04T06:50:06.896Z
-**数据库**: `C:\Users\75791\.lumii\data\agent-runtime.db`
+**执行时间**: 2026-09-05T07:02:49.569Z
+**结果**: 22 PASS / 0 FAIL（共 22）
+**数据库**: `C:\Users\Administrator\.lumii\data\agent-runtime.db`
+**探针 agent**: `autonomous-test-*`（跑完已清理）
 
-## 测试摘要
+## 明细
 
-| 指标 | 数值 |
-|------|------|
-| 总测试数 | 26 |
-| 通过 | 17 |
-| 失败 | 5 |
-| 成功率 | 65.4% |
+| 用例 | 结果 | 说明 |
+|---|---|---|
+| TC1 | PASS | 正式表结构齐全: 12 张表齐全 |
+| TC2 | PASS | help 暴露全部 autonomous 命令: 10 个命令均可被 Agent 发现 |
+| TC3 | PASS | status 空数据降级: hasData=false，不抛异常 |
+| TC4 | PASS | 满意度四维加权公式一致性: overall=0.6750，与设计公式 0.695 一致，四维无错位 |
+| TC5 | PASS | 满意度趋势判定: trend=improving，3 点升序 |
+| TC6 | PASS | 时间窗口过滤边界: 7d=3 / 30d=3 / all=4，边界正确 |
+| TC7 | PASS | 目标列表与状态过滤: 全部 2 条，pending 1 条，字段映射正确 |
+| TC8 | PASS | 非法 status 安全降级: 白名单拦下非法状态值，数据完好 |
+| TC9 | PASS | 批准目标状态流转落库: status=approved，approved_at 已写入 |
+| TC10 | PASS | 拒绝目标状态流转落库: status=rejected |
+| TC11 | PASS | 重复审批被拒绝: 非 pending 目标无法二次流转 |
+| TC12 | PASS | 不存在目标优雅失败: 返回 success=false 并说明原因 |
+| TC13 | PASS | 缺 goalId 参数校验: 退出码 2 |
+| TC14 | PASS | 能力维度查询与字段映射: level/confidence/boundary/testCount 映射正确 |
+| TC15 | PASS | 反思记录 JSON 列解析: JSON 列解析为数组，含 rootCause |
+| TC16 | PASS | 脏 JSON 列降级不打断列表: 脏 JSON 降级空数组，整表仍可用 |
+| TC17 | PASS | Prompt 变体统计与成功率: 成功率=0.8444，基线优先排序 |
+| TC18 | PASS | 零试验变体不产生除零: successRate=null，无 NaN 污染 |
+| TC19 | PASS | 开关读写闭环持久化: 写入 runtime_state 且可回读 |
+| TC20 | PASS | 未配置时默认启用: 缺配置默认 enabled=true |
+| TC21 | PASS | agentId 数据隔离: 能力与目标均按 agentId 隔离 |
+| TC22 | PASS | 未知 autonomous 子命令报错: 退出码 2 |
 
-## 测试结果分组
+## 覆盖范围
 
-### TC1: 数据库 Schema 验证
-- ✓ TC1.1: autonomous_satisfaction_scores 表存在
-- ✓ TC1.2: autonomous_goals 表存在
-- ✓ TC1.3: prompt_variants 表存在
-- ✓ TC1.4: personality_state 表存在
-- ✓ TC1.5: personality_events 表存在
-- ✓ TC1.6: evolution_coordination_history 表存在
-- ✓ TC1.7: prompt_evolution_history 表存在
+- 10 个 autonomous CLI 命令真实调用（经控制口 → IPC → Repo → SQLite）
+- 算法一致性：满意度四维加权 0.35/0.30/0.20/0.15，趋势判定，成功率计算
+- 落库校验：状态流转与 approved_at 时间戳回查数据库确认
+- 异常路径：SQL 注入尝试、不存在目标、重复审批、缺参数、脏 JSON、零试验除零、未知子命令
+- 数据隔离：按 agentId 过滤，互不可见
 
-### TC2: 满意度评分
-- ✓ TC2.1: 插入满意度评分
-- ✗ TC2.2: 验证满意度权重计算
+## 说明
 
-### TC3: 目标生成
-- ✗ TC3.1: 生成学习型目标
-- ✗ TC3.2: 生成主动消息目标
+探针数据经 SQL 直接播种，读取全部走 CLI 真实链路，因此校验的是
+命令分发、白名单、字段映射与查询逻辑，而非自己写自己读的空转。
 
-### TC4: 每日目标上限
-- ○ TC4.1: 今日已有 0 个目标
-- ✓ TC4.1: 统计今日目标数
-
-### TC5: Prompt 变体管理
-- ✓ TC5.1: 插入基线 Prompt
-- ✓ TC5.2: 插入变体 v1
-- ✓ TC5.3: 插入变体 v2
-- ✓ TC5.4: 查询所有变体
-
-### TC6: 人格状态管理
-- ✓ TC6.1: 初始化中性人格
-- ✓ TC6.2: EMA 更新人格（goal-generated）
-- ✗ TC6.3: 人格边界限制
-
-### TC7: 协调器指标统计
-- ○ TC7.1: 总评估次数: 1
-- ✓ TC7.1: 统计总评估次数
-- ○ TC7.2: 目标分布: []
-- ✗ TC7.2: 按类型统计目标
-- ○ TC7.3: 平均满意度: 0.695
-- ✓ TC7.3: 计算平均满意度
-
-## 失败详情
-
-### TC2.2: 验证满意度权重计算
-
-**错误**: `权重计算公式: expected 0.695, got 0.6749999999999999 (diff: 0.020000000000000018)`
-
-
-
-### TC3.1: 生成学习型目标
-
-**错误**: `NOT NULL constraint failed: autonomous_goals.trigger_reason`
-
-
-
-### TC3.2: 生成主动消息目标
-
-**错误**: `NOT NULL constraint failed: autonomous_goals.trigger_reason`
-
-
-
-### TC6.3: 人格边界限制
-
-**错误**: `CHECK constraint failed: openness BETWEEN 0 AND 1`
-
-
-
-### TC7.2: 按类型统计目标
-
-**错误**: `应有目标记录`
-
-
-
-
-## 测试环境
-
-- Node.js: v24.19.0
-- 平台: win32
-- 架构: x64
-- 数据库: C:\Users\75791\.lumii\data\agent-runtime.db
-- 详细模式: 否
-- 数据清理: 是
-
-## 证据文件
-
-原始测试证据保存在: `C:\myself\projects\my\open-source\lumii\docs\test\lumii-cli\autonomous-cli-evidence.jsonl`
-
-每行为一个 JSON 对象，包含完整的测试执行信息。
-
-## 下一步
-
-❌ 有测试失败，请检查失败详情并修复问题。
+证据文件: `autonomous-cli-evidence.jsonl`

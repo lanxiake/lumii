@@ -236,6 +236,30 @@ export function handleAutonomousDisable(bridge: AgentRuntimeBridge): unknown {
   return { success: true, enabled: false }
 }
 
+export function handleAutonomousTriggerEvaluation(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'autonomous:trigger:evaluation' }>,
+): unknown {
+  const agentId = resolveAgentId(bridge, command.sessionKey, command.agentId)
+  const enabled = readEnabled(bridge)
+
+  if (!enabled) {
+    return {
+      success: false,
+      reason: '自主进化功能未启用',
+      agentId,
+    }
+  }
+
+  // TODO: 实际触发满意度评分逻辑
+  // 这里暂时返回成功，等待接线完成
+  return {
+    success: true,
+    message: '满意度评分已触发（待引擎接线）',
+    agentId,
+  }
+}
+
 /** JSON 列解析失败时退化为空数组，避免单条脏数据打断整个列表 */
 function safeJsonArray(raw: string): unknown[] {
   try {

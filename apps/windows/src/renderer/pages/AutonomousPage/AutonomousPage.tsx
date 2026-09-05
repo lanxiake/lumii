@@ -47,6 +47,8 @@ const api = window.electronAPI?.autonomous || {
   getCapabilities: () => Promise.reject(new Error('API not available')),
   getReflections: () => Promise.reject(new Error('API not available')),
   getSatisfactionHistory: () => Promise.reject(new Error('API not available')),
+  getPromptStats: () => Promise.reject(new Error('API not available')),
+  setEnabled: () => Promise.reject(new Error('API not available')),
 }
 
 type TabType = 'overview' | 'capabilities' | 'reflections' | 'prompt'
@@ -73,18 +75,20 @@ export function AutonomousPage() {
 
   async function loadData() {
     try {
-      const [statusData, goalsData, capabilitiesData, reflectionsData, historyData] = await Promise.all([
+      const [statusData, goalsData, capabilitiesData, reflectionsData, historyData, promptData] = await Promise.all([
         api.getStatus(),
         api.getPendingGoals(),
         api.getCapabilities().catch(() => ({})),
         api.getReflections(5).catch(() => []),
         api.getSatisfactionHistory('7d').catch(() => ({ dataPoints: [] })),
+        api.getPromptStats().catch(() => []),
       ])
       setStatus(statusData)
       setGoals(goalsData)
       setCapabilities(capabilitiesData)
       setReflections(reflectionsData)
       setSatisfactionHistory(historyData.dataPoints || [])
+      setPromptStats(Array.isArray(promptData) ? (promptData as PromptFragmentStats[]) : [])
       // 从后端读取真实状态，默认为 true
       setAutonomousEnabled(statusData.enabled !== false)
     } catch (error) {
@@ -114,8 +118,14 @@ export function AutonomousPage() {
 
   function handleToggleAutonomous(enabled: boolean) {
     setAutonomousEnabled(enabled)
-    // TODO: 调用后端 API 更新设置
-    console.log('[AutonomousPage] 自主进化开关:', enabled)
+    // 调用后端 API 更新设置
+    api.setEnabled(enabled).then(() => {
+      console.log('[AutonomousPage] 自主进化开关已更新:', enabled)
+    }).catch((error) => {
+      console.error('[AutonomousPage] 更新自主进化开关失败:', error)
+      // 回滚到之前的状态
+      setAutonomousEnabled(!enabled)
+    })
   }
 
   if (loading) {

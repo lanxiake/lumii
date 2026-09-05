@@ -145,4 +145,18 @@ export const autonomousApi = {
   updateApprovalSettings: (userId: string, settings: Partial<ApprovalSettings>): Promise<void> => {
     return ipcRenderer.invoke('autonomous:updateApprovalSettings', userId, settings)
   },
+
+  /**
+   * 设置自主进化开关
+   */
+  setEnabled: (enabled: boolean): Promise<{ success: boolean }> => {
+    return ipcRenderer.invoke('autonomous:setEnabled', enabled)
+  },
+
+  /**
+   * 获取 Prompt 统计
+   */
+  getPromptStats: (): Promise<unknown> => {
+    return ipcRenderer.invoke('autonomous:getPromptStats')
+  },
 }
