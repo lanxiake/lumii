@@ -556,22 +556,39 @@ export class WikiLibraryMigrate {
     return progress;
   }
 
-  /** 对 approvedProposedSubtopic 的映射先 addSubtopic（已存在则跳过） */
+  /** 对 approvedProposedSubtopic 的映射先 addSubtopic（跳过 ignored/conflict；同批去重；每次读最新树） */
   private ensureApprovedSubtopics(mappings: readonly MigrateFolderMapping[]): void {
-    const tree = this.repo.getOrCreateTopicTree();
+    const seen = new Set<string>();
+
     for (const mapping of mappings) {
-      if (!mapping.approvedProposedSubtopic || !mapping.proposedSubtopic || !mapping.category) {
+      if (
+        mapping.ignored ||
+        mapping.status === "conflict" ||
+        mapping.status === "needContent" ||
+        !mapping.approvedProposedSubtopic ||
+        !mapping.proposedSubtopic ||
+        !mapping.category
+      ) {
         continue;
       }
-      const cat = tree.categories.find((c) => c.name === mapping.category);
-      if (cat?.subtopics.includes(mapping.proposedSubtopic)) continue;
+
       const subtopic = mapping.subtopic ?? mapping.proposedSubtopic;
-      if (cat?.subtopics.includes(subtopic)) continue;
+      const key = `${mapping.category}\0${subtopic}`;
+      if (seen.has(key)) continue;
+
+      const tree = this.repo.getOrCreateTopicTree();
+      const cat = tree.categories.find((c) => c.name === mapping.category);
+      if (cat?.subtopics.includes(mapping.proposedSubtopic) || cat?.subtopics.includes(subtopic)) {
+        seen.add(key);
+        continue;
+      }
+
       this.repo.applyTopicMutation({
         op: "addSubtopic",
         category: mapping.category,
         name: subtopic,
       });
+      seen.add(key);
     }
   }
 

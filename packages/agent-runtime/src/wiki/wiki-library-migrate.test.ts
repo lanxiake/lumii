@@ -346,6 +346,44 @@ describe("WikiLibraryMigrate apply", () => {
     expect(created[0]!.topic_category).toBe("工作");
   });
 
+  it("两个映射批准同一 proposedSubtopic 时 apply 成功", async () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const { id1, id2 } = setupTwoFolderInbox(repo);
+    const mig = new WikiLibraryMigrate(
+      repo,
+      async () =>
+        JSON.stringify([
+          {
+            folderRel: "proj",
+            category: "工作",
+            subtopic: null,
+            confidence: 0.9,
+            reason: "proj",
+            proposedSubtopic: "新项目",
+          },
+          {
+            folderRel: "other",
+            category: "工作",
+            subtopic: null,
+            confidence: 0.9,
+            reason: "other",
+            proposedSubtopic: "新项目",
+          },
+        ]),
+      mkId,
+    );
+    await planTwoFoldersToReview(mig, id1, id2);
+    mig.updateMapping("ag", "u", "proj", { approvedProposedSubtopic: true });
+    mig.updateMapping("ag", "u", "other", { approvedProposedSubtopic: true });
+
+    const run = await mig.apply("ag", "u");
+
+    expect(run.phase).toBe("succeeded");
+    expect(run.appliedSourceIds).toHaveLength(2);
+    const workCat = repo.getOrCreateTopicTree().categories.find((c) => c.name === "工作");
+    expect(workCat?.subtopics.filter((s) => s === "新项目")).toHaveLength(1);
+  });
+
   it("非 review 阶段 apply 抛错", async () => {
     const repo = new WikiRepo(createMigratedTestDb());
     repo.setMigrateRun("ag", "u", {
