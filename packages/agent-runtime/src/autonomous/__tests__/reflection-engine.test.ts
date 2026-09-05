@@ -25,7 +25,7 @@ describe('ReflectionEngine', () => {
     };
 
     mockMetaCognition = {
-      getRecentScores: vi.fn(),
+      getRecentScoresSince: vi.fn(),
     };
 
     mockCapabilityTracker = {
@@ -43,7 +43,7 @@ describe('ReflectionEngine', () => {
   describe('reflect', () => {
     it('应成功执行完整反思流程', async () => {
       // 准备 mock 数据
-      mockMetaCognition.getRecentScores.mockResolvedValue([
+      mockMetaCognition.getRecentScoresSince.mockResolvedValue([
         {
           taskCompletion: 0.6,
           userFeedback: 0.5,
@@ -135,7 +135,7 @@ describe('ReflectionEngine', () => {
       expect(result.suggestedGoals).toHaveLength(1);
 
       // 验证调用了正确的方法
-      expect(mockMetaCognition.getRecentScores).toHaveBeenCalledWith('agent-1', 7);
+      expect(mockMetaCognition.getRecentScoresSince).toHaveBeenCalledWith('agent-1', expect.any(String));
       expect(mockCapabilityTracker.getCapabilityReport).toHaveBeenCalledWith('agent-1');
       expect(mockDb.find).toHaveBeenCalled();
 
@@ -160,7 +160,7 @@ describe('ReflectionEngine', () => {
     });
 
     it('应正确处理 LLM 调用失败', async () => {
-      mockMetaCognition.getRecentScores.mockResolvedValue([]);
+      mockMetaCognition.getRecentScoresSince.mockResolvedValue([]);
       mockCapabilityTracker.getCapabilityReport.mockResolvedValue({
         states: [],
         gaps: [],
@@ -176,7 +176,7 @@ describe('ReflectionEngine', () => {
     });
 
     it('应正确处理 JSON 解析失败', async () => {
-      mockMetaCognition.getRecentScores.mockResolvedValue([]);
+      mockMetaCognition.getRecentScoresSince.mockResolvedValue([]);
       mockCapabilityTracker.getCapabilityReport.mockResolvedValue({
         states: [],
         gaps: [],
@@ -192,7 +192,7 @@ describe('ReflectionEngine', () => {
     });
 
     it('应处理空数据输入', async () => {
-      mockMetaCognition.getRecentScores.mockResolvedValue([]);
+      mockMetaCognition.getRecentScoresSince.mockResolvedValue([]);
       mockCapabilityTracker.getCapabilityReport.mockResolvedValue({
         states: [],
         gaps: [],
@@ -280,7 +280,7 @@ describe('ReflectionEngine', () => {
 
   describe('getRecentSessionSummaries (private method)', () => {
     it('应通过 reflect 测试会话摘要提取', async () => {
-      mockMetaCognition.getRecentScores.mockResolvedValue([]);
+      mockMetaCognition.getRecentScoresSince.mockResolvedValue([]);
       mockCapabilityTracker.getCapabilityReport.mockResolvedValue({
         states: [],
         gaps: [],
