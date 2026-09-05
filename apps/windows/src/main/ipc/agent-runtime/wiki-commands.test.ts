@@ -10,7 +10,16 @@ import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { WikiRepo, type DatabaseAdapter, type PreparedStatement, type StatementResult, WikiIngestHook, WikiOrganizer, WikiContentExtractor } from '@mtbot/agent-runtime'
+import {
+  WikiRepo,
+  type DatabaseAdapter,
+  type PreparedStatement,
+  type StatementResult,
+  WikiIngestHook,
+  WikiOrganizer,
+  WikiContentExtractor,
+  WikiLibraryMigrate,
+} from '@mtbot/agent-runtime'
 import { MIGRATIONS } from '../../../../../../packages/agent-runtime/src/storage/schema'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import {
@@ -21,6 +30,8 @@ import {
   handleWikiInboxOrganize,
   handleWikiFolderScan,
   handleWikiFolderImport,
+  handleWikiMigrateGet,
+  handleWikiMigrateDiscard,
   handleWikiSearch,
   handleWikiSourceGet,
   handleWikiRunsList,
@@ -95,10 +106,17 @@ function buildBridge(
 ): AgentRuntimeBridge {
   const hook = new WikiIngestHook(repo)
   const organizer = new WikiOrganizer(repo, callLLM ?? (async () => '{}'), new WikiContentExtractor())
+  let migrateSeq = 0
+  const wikiLibraryMigrate = new WikiLibraryMigrate(
+    repo,
+    callLLM ?? (async () => '[]'),
+    () => `mig-test-${++migrateSeq}`,
+  )
   return {
     wikiRepo: repo,
     wikiIngestHook: hook,
     wikiOrganizer: organizer,
+    wikiLibraryMigrate,
     // 重编目器的 LLM 用固定桩：不产候选，测的是命令编排而非模型行为
     wikiReclassifier: new WikiReclassifier(repo, async () => '[]'),
     conversationRepo: { getAgentParticipantId: () => null },
@@ -850,6 +868,70 @@ describe('wiki commands', () => {
 
     expect(rows[0]?.topicCategory).toBe('工作')
     expect(rows[0]?.topicSubtopic).toBe('例行')
+  })
+
+  it('folder import 默认进入 migrate review 而非静默 archive', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-cmd-migrate-'))
+    const outputs = path.join(root, 'outputs')
+    const proj = path.join(outputs, 'proj')
+    fs.mkdirSync(proj, { recursive: true })
+    fs.writeFileSync(path.join(proj, 'a.md'), '# a', 'utf8')
+    fs.writeFileSync(path.join(proj, 'b.md'), '# b', 'utf8')
+    securityUtils.addAllowedBasePath(root)
+
+    const repo = createWikiRepo()
+    const llm = vi.fn(async () =>
+      JSON.stringify([
+        { folderRel: 'proj', category: '工作', subtopic: '项目', confidence: 0.9, reason: '同项目' },
+      ]),
+    )
+    const bridge = buildBridge(repo, llm, root)
+
+    const r = await handleWikiFolderImport(bridge, {
+      type: 'wiki:folder:import',
+      agentId: 'assistant',
+      dir: outputs,
+    }) as { migrateRun?: { phase: string } }
+
+    expect(r.migrateRun?.phase).toBe('review')
+    expect(repo.listSources('assistant', 'local-user').filter((s) => s.topic_category)).toHaveLength(0)
+    expect(llm).toHaveBeenCalled()
+
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  it('migrate:get 无 run 时返回 null', () => {
+    const repo = createWikiRepo()
+    const bridge = buildBridge(repo)
+    const r = handleWikiMigrateGet(bridge, { type: 'wiki:migrate:get', agentId: 'assistant' })
+    expect(r.run).toBeNull()
+  })
+
+  it('migrate:discard 清除当前 run', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-cmd-migrate-discard-'))
+    const outputs = path.join(root, 'outputs')
+    fs.mkdirSync(outputs, { recursive: true })
+    fs.writeFileSync(path.join(outputs, 'note.md'), '# note', 'utf8')
+    securityUtils.addAllowedBasePath(root)
+
+    const repo = createWikiRepo()
+    const llm = vi.fn(async () =>
+      JSON.stringify([{ folderRel: '', category: '工作', subtopic: '项目', confidence: 0.9, reason: 'ok' }]),
+    )
+    const bridge = buildBridge(repo, llm, root)
+
+    await handleWikiFolderImport(bridge, {
+      type: 'wiki:folder:import',
+      agentId: 'assistant',
+      dir: outputs,
+    })
+    expect(handleWikiMigrateGet(bridge, { type: 'wiki:migrate:get', agentId: 'assistant' }).run).not.toBeNull()
+
+    const discarded = handleWikiMigrateDiscard(bridge, { type: 'wiki:migrate:discard', agentId: 'assistant' })
+    expect(discarded.success).toBe(true)
+    expect(handleWikiMigrateGet(bridge, { type: 'wiki:migrate:get', agentId: 'assistant' }).run).toBeNull()
+
+    fs.rmSync(root, { recursive: true, force: true })
   })
 
   it('folder scan/import 批量摄入收件箱', async () => {

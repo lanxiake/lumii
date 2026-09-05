@@ -447,6 +447,7 @@ export {
   EXTRACTIVE_MAX_TEXT,
   LLM_HEAD_CHARS,
   LLM_TAIL_CHARS,
+  WikiLibraryMigrate,
 } from "./wiki/index.js";
 export type {
   WikiSourceSearchHit,
@@ -527,6 +528,9 @@ export type {
   StructureDecision,
   DiffLine,
   DiffLineType,
+  WikiMigrateRun,
+  WikiMigrateProgress,
+  WikiMigrateMappingPatch,
 } from "./wiki/index.js";
 
 // === 消息系统导出 ===

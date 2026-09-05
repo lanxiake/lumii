@@ -399,7 +399,7 @@ export interface WikiFolderImportCommand {
   readonly recursive?: boolean
   readonly itemType?: 'upload' | 'output' | 'auto'
   readonly dryRun?: boolean
-  /** 导入后立即 AI 分类归档；默认 true */
+  /** 导入后跑库级迁移 plan→review；设为 false 时仅 intake 到收件箱 */
   readonly autoClassify?: boolean
   readonly classifyBatchSize?: number
   readonly sessionKey?: string
@@ -632,6 +632,101 @@ export interface WikiReclassifyDiscardCommand {
   readonly userId?: string
 }
 
+// ---- 库级迁移（文件夹导入 plan→review）----
+
+/** migrate run IPC DTO（与 summarizeMigrateRun 对齐） */
+export interface WikiMigrateRunDto {
+  readonly runId: string
+  readonly phase: string
+  readonly importRoot: string
+  readonly inboxIds: readonly string[]
+  readonly mappings: readonly {
+    readonly folderRel: string
+    readonly category: string | null
+    readonly subtopic: string | null
+    readonly confidence: number
+    readonly reason: string
+    readonly proposedSubtopic?: string
+    readonly approvedProposedSubtopic?: boolean
+    readonly ignored?: boolean
+    readonly status: 'ok' | 'conflict' | 'needContent'
+    readonly inboxIds: readonly string[]
+  }[]
+  readonly appliedSourceIds: readonly string[]
+  readonly appliedInboxIds: readonly string[]
+  readonly cancelRequested: boolean
+  readonly progress: {
+    readonly runId: string
+    readonly phase: string
+    readonly phaseLabel: string
+    readonly done: number
+    readonly total: number
+    readonly currentItem: string | null
+    readonly message?: string
+    readonly appliedCount?: number
+    readonly cancelRequested?: boolean
+  }
+  readonly error: string | null
+  readonly createdAt: string
+  readonly finishedAt: string | null
+}
+
+export interface WikiMigrateGetCommand {
+  readonly type: 'wiki:migrate:get'
+  readonly agentId?: string
+  readonly userId?: string
+  readonly sessionKey?: string
+}
+
+export interface WikiMigrateApplyCommand {
+  readonly type: 'wiki:migrate:apply'
+  readonly agentId?: string
+  readonly userId?: string
+  readonly sessionKey?: string
+}
+
+export interface WikiMigrateCancelCommand {
+  readonly type: 'wiki:migrate:cancel'
+  readonly agentId?: string
+  readonly userId?: string
+  readonly sessionKey?: string
+}
+
+export interface WikiMigrateDiscardCommand {
+  readonly type: 'wiki:migrate:discard'
+  readonly agentId?: string
+  readonly userId?: string
+  readonly sessionKey?: string
+}
+
+export interface WikiMigrateUndoCommand {
+  readonly type: 'wiki:migrate:undo'
+  readonly agentId?: string
+  readonly userId?: string
+  readonly sessionKey?: string
+}
+
+export interface WikiMigrateReplanCommand {
+  readonly type: 'wiki:migrate:replan'
+  readonly agentId?: string
+  readonly userId?: string
+  readonly sessionKey?: string
+}
+
+export interface WikiMigrateUpdateMappingCommand {
+  readonly type: 'wiki:migrate:update-mapping'
+  readonly agentId?: string
+  readonly userId?: string
+  readonly sessionKey?: string
+  readonly folderRel: string
+  readonly patch: {
+    readonly category?: string | null
+    readonly subtopic?: string | null
+    readonly approvedProposedSubtopic?: boolean
+    readonly ignored?: boolean
+  }
+}
+
 export interface WikiSourceListCommand {
   readonly type: 'wiki:source:list'
   readonly sessionKey?: string
@@ -645,6 +740,14 @@ export interface WikiSourceListCommand {
   readonly unfiled?: boolean
   readonly archived?: boolean
   readonly mediaType?: string
+}
+
+/** 左栏角标 / 小类芯片用的轻量计数（不拉正文、不拉列表） */
+export interface WikiSourceCountsCommand {
+  readonly type: 'wiki:source:counts'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly userId?: string
 }
 
 export interface WikiSourceUpdateTopicCommand {
@@ -1415,9 +1518,17 @@ export type AgentRuntimeCommand =
   | WikiReclassifyApplyCommand
   | WikiReclassifyIgnoreCommand
   | WikiReclassifyDiscardCommand
+  | WikiMigrateGetCommand
+  | WikiMigrateApplyCommand
+  | WikiMigrateCancelCommand
+  | WikiMigrateDiscardCommand
+  | WikiMigrateUndoCommand
+  | WikiMigrateReplanCommand
+  | WikiMigrateUpdateMappingCommand
   | WikiSourceCreateNoteCommand
   | WikiSourceRenameCommand
   | WikiSourceListCommand
+  | WikiSourceCountsCommand
   | WikiSourceUpdateTopicCommand
   | WikiSourceMoveToParkingCommand
   | WikiSourceOpenCommand
@@ -1700,6 +1811,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       inboxIds: readonly string[]
       autoClassify?: boolean
       organizeRun?: { runId: string; status: string; summary: string | null } | null
+      migrateRun?: WikiMigrateRunDto | null
     }
   : T extends 'wiki:organize:run' ? { runId: string | null; status: string; summary: string | null }
   : T extends 'wiki:search' ? {
@@ -1804,6 +1916,13 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:reclassify:apply' ? { applied: number; failed: number }
   : T extends 'wiki:reclassify:ignore' ? { success: true }
   : T extends 'wiki:reclassify:discard' ? { success: true }
+  : T extends 'wiki:migrate:get' ? { run: WikiMigrateRunDto | null }
+  : T extends 'wiki:migrate:apply' ? { run: WikiMigrateRunDto }
+  : T extends 'wiki:migrate:cancel' ? { run: WikiMigrateRunDto | null }
+  : T extends 'wiki:migrate:discard' ? { success: true }
+  : T extends 'wiki:migrate:undo' ? { run: WikiMigrateRunDto }
+  : T extends 'wiki:migrate:replan' ? { run: WikiMigrateRunDto }
+  : T extends 'wiki:migrate:update-mapping' ? { run: WikiMigrateRunDto }
   : T extends 'wiki:source:list' ? {
       sources: readonly {
         id: string
@@ -1815,6 +1934,14 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
         updatedAt: number
         useCount: number
       }[]
+    }
+  : T extends 'wiki:source:counts' ? {
+      sectionCounts: Record<string, number>
+      topicCounts: Record<string, number>
+      parking: number
+      unfiled: number
+      filed: number
+      archived: number
     }
   : T extends 'wiki:source:update-topic' ? {
       id: string

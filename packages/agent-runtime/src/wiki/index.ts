@@ -135,6 +135,36 @@ export type {
   WikiReclassifyStatus,
 } from "./wiki-reclassify-types.js";
 
+export type {
+  WikiMigratePhase,
+  WikiMigrateProgress,
+  MigrateFolderMapping,
+  WikiMigrateRun,
+} from "./wiki-migrate-types.js";
+export { MIGRATE_RUN_META_KEY } from "./wiki-migrate-types.js";
+
+export { buildMigrateInventory } from "./wiki-migrate-inventory.js";
+export type {
+  MigrateFolderCluster,
+  MigrateInventory,
+  BuildMigrateInventoryParams,
+} from "./wiki-migrate-inventory.js";
+
+export {
+  MIGRATE_PLAN_BATCH_SIZE,
+  MIGRATE_CONFIDENCE_THRESHOLD,
+  buildMigratePlanPrompt,
+  parseMigratePlanResponse,
+} from "./wiki-migrate-prompt.js";
+
+export { WikiLibraryMigrate } from "./wiki-library-migrate.js";
+export type {
+  WikiLibraryMigratePlanOptions,
+  WikiLibraryMigrateReplanOptions,
+  WikiLibraryMigrateHooks,
+  WikiMigrateMappingPatch,
+} from "./wiki-library-migrate.js";
+
 export {
   buildLibraryInventory,
   ANCHOR_SAMPLES_PER_LEAF,

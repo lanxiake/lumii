@@ -22,7 +22,6 @@ import {
   type WikiFolderImporterFs,
   type WikiInboxItemType,
   buildDirectoryTreeText,
-  buildFolderImportClassifyContext,
   buildTopicOccupancySummary,
   buildNavSectionGuide,
   vaultDirSegmentsForSource,
@@ -32,6 +31,8 @@ import {
   CONTENT_BATCH_SIZE,
   resolveUniqueFilename,
   type WikiSource,
+  type WikiMigrateRun,
+  type WikiMigrateMappingPatch,
 } from '@mtbot/agent-runtime'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
@@ -240,7 +241,27 @@ export function handleWikiFolderScan(
 }
 
 /**
- * 批量将目录内文件摄入 Wiki 收件箱；可选导入后立即 AI 分类归档。
+ * 将 WikiMigrateRun 压缩为 IPC 友好 DTO（不含 repo 内部字段）。
+ */
+function summarizeMigrateRun(run: WikiMigrateRun) {
+  return {
+    runId: run.id,
+    phase: run.phase,
+    importRoot: run.importRoot,
+    inboxIds: run.inboxIds,
+    mappings: run.mappings,
+    appliedSourceIds: run.appliedSourceIds,
+    appliedInboxIds: run.appliedInboxIds,
+    cancelRequested: run.cancelRequested,
+    progress: run.progress,
+    error: run.error ?? null,
+    createdAt: run.createdAt,
+    finishedAt: run.finishedAt ?? null,
+  }
+}
+
+/**
+ * 批量将目录内文件摄入 Wiki 收件箱；默认 plan→review，用户确认后才 apply 归档。
  */
 export async function handleWikiFolderImport(
   bridge: AgentRuntimeBridge,
@@ -285,41 +306,110 @@ export async function handleWikiFolderImport(
     }
   }
 
-  const inboxItems = importResult.inboxIds
-    .map((id) => bridge.wikiRepo.findInboxById(id))
-    .filter((item): item is NonNullable<typeof item> => item !== null)
-
-  const topicTree = bridge.wikiRepo.getOrCreateTopicTree()
-  const classifyContext = buildFolderImportClassifyContext({
-    importRoot: dir,
-    workspaceRoot,
-    inboxItems,
-    repo: bridge.wikiRepo,
+  const migrate = bridge.wikiLibraryMigrate
+  const vaultRoot = resolveWikiDir()
+  const run = await migrate.plan({
     agentId,
     userId: LOCAL_USER_ID,
-    topicTree,
+    importRoot: dir,
+    inboxIds: importResult.inboxIds,
+    workspaceRoot,
+    vaultRoot,
   })
-
-  const batchSize = command.classifyBatchSize ?? 10
-  const organizeRun = await bridge.wikiOrganizer.organizeInboxIds(
-    agentId,
-    LOCAL_USER_ID,
-    importResult.inboxIds,
-    classifyContext,
-    batchSize,
-  )
 
   return {
     ...importResult,
     autoClassify: true,
-    organizeRun: organizeRun
-      ? {
-          runId: organizeRun.id,
-          status: organizeRun.status,
-          summary: organizeRun.result_summary ?? null,
-        }
-      : null,
+    migrateRun: summarizeMigrateRun(run),
   }
+}
+
+/** 读取当前库级迁移 run（含 progress） */
+export function handleWikiMigrateGet(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:get' }>,
+): { run: ReturnType<typeof summarizeMigrateRun> | null } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const run = bridge.wikiLibraryMigrate.get(agentId, userId)
+  return { run: run ? summarizeMigrateRun(run) : null }
+}
+
+/** 用户确认后执行 migrate apply，逐条归档 inbox */
+export async function handleWikiMigrateApply(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:apply' }>,
+): Promise<{ run: ReturnType<typeof summarizeMigrateRun> }> {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const run = await bridge.wikiLibraryMigrate.apply(agentId, userId)
+  for (const sourceId of run.appliedSourceIds) {
+    vaultSyncSource(bridge, sourceId, command.agentId)
+  }
+  return { run: summarizeMigrateRun(run) }
+}
+
+/** 请求停止当前 inventory / planning / applying */
+export function handleWikiMigrateCancel(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:cancel' }>,
+): { run: ReturnType<typeof summarizeMigrateRun> | null } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const run = bridge.wikiLibraryMigrate.cancel(agentId, userId)
+  return { run: run ? summarizeMigrateRun(run) : null }
+}
+
+/** 丢弃映射方案；inbox 保持 pending，不撤销已归档 */
+export function handleWikiMigrateDiscard(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:discard' }>,
+): { success: true } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  bridge.wikiLibraryMigrate.discard(agentId, userId)
+  return { success: true }
+}
+
+/** 撤销本 run 已落位的 source，退回收件箱 */
+export function handleWikiMigrateUndo(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:undo' }>,
+): { run: ReturnType<typeof summarizeMigrateRun> } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const run = bridge.wikiLibraryMigrate.undo(agentId, userId)
+  return { run: summarizeMigrateRun(run) }
+}
+
+/** 对仍 pending 的本批 inbox 重跑盘点 + 映射 → review */
+export async function handleWikiMigrateReplan(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:replan' }>,
+): Promise<{ run: ReturnType<typeof summarizeMigrateRun> }> {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const vaultRoot = resolveWikiDir()
+  const workspaceRoot = bridge.getCwd()
+  const run = await bridge.wikiLibraryMigrate.replan(agentId, userId, { vaultRoot, workspaceRoot })
+  return { run: summarizeMigrateRun(run) }
+}
+
+/** 预览中改单簇映射、批准 proposedSubtopic 或标记 ignored */
+export function handleWikiMigrateUpdateMapping(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:migrate:update-mapping' }>,
+): { run: ReturnType<typeof summarizeMigrateRun> } {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const userId = command.userId ?? LOCAL_USER_ID
+  const patch: WikiMigrateMappingPatch = {
+    category: command.patch.category,
+    subtopic: command.patch.subtopic,
+    approvedProposedSubtopic: command.patch.approvedProposedSubtopic,
+    ignored: command.patch.ignored,
+  }
+  const run = bridge.wikiLibraryMigrate.updateMapping(agentId, userId, command.folderRel, patch)
+  return { run: summarizeMigrateRun(run) }
 }
 
 /**
@@ -866,26 +956,24 @@ export function handleWikiReclassifyDiscard(
 }
 
 /**
- * 列表展示：标题带上原文件后缀。
+ * 列表 DTO：不读 vault ref、不带正文，避免 800+ 条时逐条磁盘 IO 与巨型 IPC。
  */
 function mapSourceListItem(
   source: NonNullable<ReturnType<AgentRuntimeBridge['wikiRepo']['findSourceById']>>,
-  vaultDeps: ReturnType<typeof createWikiVaultSyncDeps>,
 ) {
-  const extracted = source.extracted_text ?? ''
-  const original = resolveOriginalFilePath(vaultDeps, source) ?? source.source_path
+  const summary = source.summary ?? null
   return {
     id: source.id,
-    title: titleWithOriginalExt(source.title, original),
+    title: titleWithOriginalExt(source.title, source.source_path),
     sourcePath: source.source_path,
     mediaType: source.media_type,
     topicCategory: source.topic_category,
     topicSubtopic: source.topic_subtopic,
-    textLength: extracted.length,
+    textLength: summary?.length ?? 0,
     updatedAt: new Date(source.last_used ?? source.created_at).getTime(),
     useCount: source.use_count,
-    summary: source.summary,
-    extractedTextPreview: extracted.slice(0, 60),
+    summary,
+    extractedTextPreview: summary ? summary.slice(0, 60) : '',
   }
 }
 
@@ -903,8 +991,49 @@ export function handleWikiSourceList(
     archived: command.archived,
     mediaType: command.mediaType as never,
   })
-  const vaultDeps = createWikiVaultSyncDeps()
-  return { sources: sources.map((s) => mapSourceListItem(s, vaultDeps)) }
+  return { sources: sources.map((s) => mapSourceListItem(s)) }
+}
+
+/**
+ * 左栏角标与小类芯片计数：GROUP BY，不读正文。
+ */
+export function handleWikiSourceCounts(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:source:counts' }>,
+): {
+  sectionCounts: Record<string, number>
+  topicCounts: Record<string, number>
+  parking: number
+  unfiled: number
+  filed: number
+  archived: number
+} {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const topicMap = bridge.wikiRepo.countSourcesByTopic()
+  const topicCounts: Record<string, number> = {}
+  const sectionCounts: Record<string, number> = {}
+  let filed = 0
+  for (const [key, n] of topicMap) {
+    topicCounts[key] = n
+    filed += n
+    try {
+      const parsed = JSON.parse(key) as string[]
+      const category = parsed[0]
+      if (category) sectionCounts[category] = (sectionCounts[category] ?? 0) + n
+    } catch {
+      // ignore malformed keys
+    }
+  }
+  // 角标用 raw COUNT；收件箱列表仍走 unfiled 去重逻辑
+  const buckets = bridge.wikiRepo.countSourceBuckets(agentId, LOCAL_USER_ID)
+  return {
+    sectionCounts,
+    topicCounts,
+    parking: buckets.parking,
+    unfiled: buckets.unfiledRaw,
+    filed,
+    archived: buckets.archived,
+  }
 }
 
 export function handleWikiSourceUpdateTopic(

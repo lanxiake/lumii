@@ -15,6 +15,7 @@
 
 import type { WikiRepo } from "./wiki-repo.js";
 import { generateWikiId } from "./types.js";
+import { WikiLibraryMigrate } from "./wiki-library-migrate.js";
 import { validateTopicAssignment } from "./wiki-topic-tree.js";
 import { buildLibraryInventory, type InventoryFileRow, type LibraryInventoryScope } from "./wiki-library-inventory.js";
 import {
@@ -88,6 +89,10 @@ export class WikiReclassifier {
     scope: WikiReclassifyScope,
     opts: { readonly force?: boolean; readonly vaultRoot: string; readonly enableRename?: boolean },
   ): Promise<string> {
+    if (WikiLibraryMigrate.isBusy(this.repo.getMigrateRun(agentId, userId))) {
+      throw new Error("已有正在进行的库级迁移，请等它结束后再重新编目");
+    }
+
     const existing = this.get(agentId, userId);
     if (existing) {
       if (existing.status === "running") {

@@ -75,6 +75,8 @@ import {
   WikiOrganizer,
   WIKI_INBOX_ITEM_TYPES,
   WikiReclassifier,
+  WikiLibraryMigrate,
+  type WikiMigrateProgress,
   WikiContentExtractor,
   WikiCleanupScanner,
   WikiExporter,
@@ -177,6 +179,7 @@ export class AgentRuntimeBridge {
   private _wikiOrganizeQueue: WikiOrganizeQueue | null = null
   private _wikiOrganizer: WikiOrganizer | null = null
   private _wikiReclassifier: WikiReclassifier | null = null
+  private _wikiLibraryMigrate: WikiLibraryMigrate | null = null
   private _wikiCleanupScanner: WikiCleanupScanner | null = null
   private _conversationRepo: ConversationRepo | null = null
   private _taskRepo: TaskRepo | null = null
@@ -362,6 +365,31 @@ export class AgentRuntimeBridge {
   get wikiIngestHook(): WikiIngestHook { return this.requireInitialized(this._wikiIngestHook, 'wikiIngestHook') }
   /** 重新编目器；LLM purpose 与归档分类同一档，保证小模型预算一致 */
   get wikiReclassifier(): WikiReclassifier { return this.requireInitialized(this._wikiReclassifier, 'wikiReclassifier') }
+  /**
+   * 库级迁移状态机（惰性创建）：folder import 默认 plan→review，apply 才归档。
+   * onProgress 广播 wiki:migrate:progress 供 Task 7 UI 订阅。
+   */
+  get wikiLibraryMigrate(): WikiLibraryMigrate {
+    if (!this._wikiLibraryMigrate) {
+      this._wikiLibraryMigrate = new WikiLibraryMigrate(
+        this.wikiRepo,
+        (prompt: string) => this.callLLM(prompt, undefined, 'memory_extract'),
+        undefined,
+        (progress) => this.broadcastWikiMigrateProgress(progress),
+        {
+          onSourceCreated: (source) => {
+            try {
+              const latest = this._wikiRepo!.findSourceById(source.id) ?? source
+              syncWikiSourceToVault(this._wikiRepo!, latest)
+            } catch (err) {
+              log.warn('[wiki-vault] migrate apply sync failed:', err)
+            }
+          },
+        },
+      )
+    }
+    return this._wikiLibraryMigrate
+  }
   get wikiOrganizeQueue(): WikiOrganizeQueue { return this.requireInitialized(this._wikiOrganizeQueue, 'wikiOrganizeQueue') }
   get wikiCleanupScanner(): WikiCleanupScanner { return this.requireInitialized(this._wikiCleanupScanner, 'wikiCleanupScanner') }
 
@@ -371,6 +399,21 @@ export class AgentRuntimeBridge {
       return fs.existsSync(filePath)
     } catch {
       return false
+    }
+  }
+
+  /**
+   * 向渲染进程广播库级迁移进度（通道 wiki:migrate:progress，Task 7 UI 订阅）。
+   */
+  private broadcastWikiMigrateProgress(progress: WikiMigrateProgress): void {
+    const win = this.config.getWindow()
+    if (!win || win.isDestroyed()) return
+    const wc = win.webContents
+    if (wc.isDestroyed()) return
+    try {
+      wc.send('wiki:migrate:progress', progress)
+    } catch (err) {
+      log.warn('[wiki-migrate] progress broadcast failed:', (err as Error).message)
     }
   }
 

@@ -63,6 +63,56 @@ export interface WikiFolderImportResult {
     readonly status: string
     readonly summary: string | null
   } | null
+  readonly migrateRun?: WikiMigrateRunItem | null
+}
+
+/** 库级迁移进度（与 IPC wiki:migrate:progress 对齐） */
+export interface WikiMigrateProgressItem {
+  readonly runId: string
+  readonly phase: string
+  readonly phaseLabel: string
+  readonly done: number
+  readonly total: number
+  readonly currentItem: string | null
+  readonly message?: string
+  readonly appliedCount?: number
+  readonly cancelRequested?: boolean
+}
+
+/** 库级迁移单文件夹映射（与 IPC MigrateFolderMapping 对齐） */
+export interface WikiMigrateMappingItem {
+  readonly folderRel: string
+  readonly category: string | null
+  readonly subtopic: string | null
+  readonly confidence: number
+  readonly reason: string
+  readonly proposedSubtopic?: string
+  readonly approvedProposedSubtopic?: boolean
+  readonly ignored?: boolean
+  readonly status: 'ok' | 'conflict' | 'needContent'
+  readonly inboxIds: readonly string[]
+}
+
+/** 库级迁移 run 摘要（与 IPC WikiMigrateRunDto 对齐） */
+export interface WikiMigrateRunItem {
+  readonly runId: string
+  readonly phase: string
+  readonly importRoot: string
+  readonly inboxIds: readonly string[]
+  readonly mappings: readonly WikiMigrateMappingItem[]
+  readonly appliedSourceIds?: readonly string[]
+  readonly appliedInboxIds?: readonly string[]
+  readonly cancelRequested: boolean
+  readonly progress: WikiMigrateProgressItem
+  readonly error: string | null
+}
+
+/** update-mapping 可写字段 */
+export interface WikiMigrateMappingPatch {
+  readonly category?: string | null
+  readonly subtopic?: string | null
+  readonly approvedProposedSubtopic?: boolean
+  readonly ignored?: boolean
 }
 
 /** 资料详情（wiki:source:get） */
@@ -835,6 +885,7 @@ export function useWikiPage() {
     async (filter?: {
       category?: string
       subtopic?: string
+      subtopicUnfiled?: boolean
       parking?: boolean
       unfiled?: boolean
       archived?: boolean
@@ -849,6 +900,7 @@ export function useWikiPage() {
           agentId: DEFAULT_AGENT_ID,
           category: filter?.category,
           subtopic: filter?.subtopic,
+          subtopicUnfiled: filter?.subtopicUnfiled,
           parking: filter?.parking,
           unfiled: filter?.unfiled,
           archived: filter?.archived,
@@ -863,6 +915,36 @@ export function useWikiPage() {
     },
     [],
   )
+
+  /**
+   * 拉取左栏角标计数（GROUP BY，不含正文）。
+   */
+  const loadSourceCounts = useCallback(async (): Promise<{
+    sectionCounts: Record<string, number>
+    topicCounts: Record<string, number>
+    parking: number
+    unfiled: number
+    filed: number
+    archived: number
+  } | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      return (await api.sendCommand({
+        type: 'wiki:source:counts',
+        agentId: DEFAULT_AGENT_ID,
+      })) as {
+        sectionCounts: Record<string, number>
+        topicCounts: Record<string, number>
+        parking: number
+        unfiled: number
+        filed: number
+        archived: number
+      }
+    } catch {
+      return null
+    }
+  }, [])
 
   const updateSourceTopic = useCallback(
     async (sourceId: string, category: string, subtopic: string | null): Promise<boolean> => {
@@ -952,20 +1034,168 @@ export function useWikiPage() {
     [],
   )
 
-  /** 确保 workspace/wiki/ 目录存在，并回填已有资料到磁盘。 */
-  const ensureVaultLayout = useCallback(async (): Promise<{ vaultRoot: string; synced: number } | null> => {
+  /**
+   * 确保 workspace/wiki/ 分区目录存在。
+   * 默认不做全库 backfill：800+ 资料时逐条 sync 会堵死进页（可达十余秒）。
+   * 需要回填时显式传 `{ backfill: true }`。
+   */
+  const ensureVaultLayout = useCallback(
+    async (opts?: { backfill?: boolean }): Promise<{ vaultRoot: string; synced: number } | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        return (await api.sendCommand({
+          type: 'wiki:vault:ensure-layout',
+          agentId: DEFAULT_AGENT_ID,
+          backfill: opts?.backfill === true,
+        })) as { vaultRoot: string; synced: number }
+      } catch {
+        return null
+      }
+    },
+    [],
+  )
+
+  /**
+   * 读取当前库级迁移 run（含 progress）。
+   */
+  const getMigrateRun = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
     const api = window.electronAPI?.agentRuntime
     if (!api?.sendCommand) return null
     try {
-      return (await api.sendCommand({
-        type: 'wiki:vault:ensure-layout',
+      const r = (await api.sendCommand({
+        type: 'wiki:migrate:get',
         agentId: DEFAULT_AGENT_ID,
-        backfill: true,
-      })) as { vaultRoot: string; synced: number }
+      })) as { run: WikiMigrateRunItem | null }
+      return r?.run ?? null
     } catch {
       return null
     }
   }, [])
+
+  /**
+   * 请求停止当前 migrate（inventory / planning / applying）。
+   */
+  const cancelMigrate = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:migrate:cancel',
+        agentId: DEFAULT_AGENT_ID,
+      })) as { run: WikiMigrateRunItem | null }
+      return r?.run ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  /**
+   * 订阅 migrate 进度推送（wiki:migrate:progress）。
+   */
+  const subscribeMigrateProgress = useCallback(
+    (handler: (progress: WikiMigrateProgressItem) => void): (() => void) => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.onWikiMigrateProgress) return () => undefined
+      return api.onWikiMigrateProgress((payload: unknown) => {
+        if (!payload || typeof payload !== 'object') return
+        const p = payload as WikiMigrateProgressItem
+        if (typeof p.runId !== 'string' || typeof p.phase !== 'string') return
+        handler(p)
+      })
+    },
+    [],
+  )
+
+  /**
+   * 用户确认 review 映射后执行 apply，逐条归档 inbox。
+   */
+  const applyMigrate = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:migrate:apply',
+        agentId: DEFAULT_AGENT_ID,
+      })) as { run: WikiMigrateRunItem }
+      return r?.run ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  /**
+   * 丢弃当前 migrate 映射方案；inbox 保持 pending。
+   */
+  const discardMigrate = useCallback(async (): Promise<boolean> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return false
+    try {
+      await api.sendCommand({
+        type: 'wiki:migrate:discard',
+        agentId: DEFAULT_AGENT_ID,
+      })
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
+  /**
+   * 撤销本 run 已落位的 source，退回收件箱。
+   */
+  const undoMigrate = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:migrate:undo',
+        agentId: DEFAULT_AGENT_ID,
+      })) as { run: WikiMigrateRunItem }
+      return r?.run ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  /**
+   * 对仍 pending 的本批 inbox 重跑盘点 + 映射 → review。
+   */
+  const replanMigrate = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:migrate:replan',
+        agentId: DEFAULT_AGENT_ID,
+      })) as { run: WikiMigrateRunItem }
+      return r?.run ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  /**
+   * 预览中改单簇映射、批准 proposedSubtopic 或标记 ignored。
+   */
+  const updateMigrateMapping = useCallback(
+    async (folderRel: string, patch: WikiMigrateMappingPatch): Promise<WikiMigrateRunItem | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        const r = (await api.sendCommand({
+          type: 'wiki:migrate:update-mapping',
+          agentId: DEFAULT_AGENT_ID,
+          folderRel,
+          patch,
+        })) as { run: WikiMigrateRunItem }
+        return r?.run ?? null
+      } catch {
+        return null
+      }
+    },
+    [],
+  )
 
   return {
     loading,
@@ -999,6 +1229,7 @@ export function useWikiPage() {
     ignoreReclassify,
     discardReclassify,
     listSources,
+    loadSourceCounts,
     updateSourceTopic,
     moveToParking,
     openSource,
@@ -1007,5 +1238,13 @@ export function useWikiPage() {
     ensureVaultLayout,
     loadAutoClassifySetting,
     setAutoClassifyEnabled,
+    getMigrateRun,
+    cancelMigrate,
+    subscribeMigrateProgress,
+    applyMigrate,
+    discardMigrate,
+    undoMigrate,
+    replanMigrate,
+    updateMigrateMapping,
   }
 }

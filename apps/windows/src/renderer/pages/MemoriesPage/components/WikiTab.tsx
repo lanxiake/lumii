@@ -6,7 +6,6 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { PARKING_CATEGORY, wikiRecordsShareFileIdentity } from '@mtbot/agent-runtime/browser'
 import { Button } from '../../../components/ui/Button/Button'
 import { Loading } from '../../../components/ui/Loading/Loading'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
@@ -21,15 +20,18 @@ import {
   type WikiReclassifyRunItem,
   type WikiReclassifyScopeDto,
   type WikiReclassifyEstimateItem,
+  type WikiMigrateProgressItem,
+  type WikiMigrateRunItem,
 } from '../../../hooks/business/useWikiPage'
 import { CleanupView } from './CleanupView'
-import { WikiLeftNav, topicCountKey, type WikiNav } from './WikiLeftNav'
+import { WikiLeftNav, type WikiNav } from './WikiLeftNav'
 import { navSectionLabel, WIKI_SUBTOPIC_FILTER_ALL, WIKI_SUBTOPIC_FILTER_UNFILED, type WikiSubtopicFilter } from './wikiTopicDisplay'
 import { WikiTopBar } from './WikiTopBar'
 import { WikiFileList } from './WikiFileList'
 import { WikiTopicPicker } from './WikiTopicPicker'
 import { WikiTopicTreeEditor } from './WikiTopicTreeEditor'
 import { WikiReclassifyView } from './WikiReclassifyView'
+import { WikiMigrateReviewView } from './WikiMigrateReviewView'
 import { WikiInboxPanel, inboxItemToPreviewSnapshot } from './WikiInboxPanel'
 import { WikiSubtopicPanel } from './WikiSubtopicPanel'
 import { isUrlSourceItem } from './wikiSourcePreview'
@@ -42,7 +44,7 @@ import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import { buildWikiBreadcrumbs } from './wikiBreadcrumbs'
 import { buildWikiRemoveConfirmContent } from './wikiRemoveConfirm'
 import { WikiTaskCenter } from './WikiTaskCenter'
-import { useWikiTaskCenter, type WikiLocalTask } from './useWikiTaskCenter'
+import { useWikiTaskCenter, type WikiLocalTask, type WikiMigratePhase } from './useWikiTaskCenter'
 import './WikiTab.css'
 
 /** 归档选择器的目标：inbox 队列条目，或已进资料层但待补分/需要移动的文件 */
@@ -50,27 +52,51 @@ type PickerTarget =
   | { mode: 'inbox'; item: WikiInboxItem }
   | { mode: 'source'; item: WikiSourceListItem }
 
-/**
- * 未分类行是否与已归入用途目录（含收藏）的资料指向同一文件。
- */
-function isUnfiledDuplicateOfFiled(
-  item: WikiSourceListItem,
-  filed: readonly WikiSourceListItem[],
-): boolean {
-  return filed.some((other) =>
-    wikiRecordsShareFileIdentity(
-      { title: item.title, sourcePath: item.sourcePath },
-      { title: other.title, sourcePath: other.sourcePath },
-    ),
-  )
-}
-
 const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
   inbox: { title: '收件箱', subtitle: '还没分类的新资料，可批量归档或稍后处理' },
   archived: { title: '已归档', subtitle: '已移出活跃目录、可随时恢复的资料' },
   parking: { title: '临时存放', subtitle: '你主动搁置、暂不进入正式目录的文件' },
   cleanup: { title: '清理', subtitle: '扫描并处理需要维护的资料' },
   reclassify: { title: '重新编目', subtitle: 'AI 的目录调整建议，接受后才生效' },
+  migrate: { title: '整理入库', subtitle: '文件夹映射方案，确认后才归档' },
+}
+
+/** migrate 进行中阶段（可取消） */
+const MIGRATE_BUSY_PHASES = new Set(['inventorying', 'planning', 'applying'])
+
+/**
+ * 判断 migrate 是否仍处于可取消的进行中阶段。
+ */
+function isMigrateBusyPhase(phase: string): boolean {
+  return MIGRATE_BUSY_PHASES.has(phase)
+}
+
+/**
+ * 将 migrate progress 格式化为任务中心 detail 文案。
+ */
+function formatMigrateDetail(progress: WikiMigrateProgressItem): string {
+  const label = progress.phaseLabel || progress.phase
+  if (progress.currentItem) return `${label} · ${progress.currentItem}`
+  return label
+}
+
+/**
+ * 将 migrate progress 转为任务中心局部更新字段。
+ */
+function migrateProgressToTaskPatch(
+  progress: WikiMigrateProgressItem,
+  onCancel: () => Promise<unknown>,
+): Partial<WikiLocalTask> {
+  const busy = isMigrateBusyPhase(progress.phase)
+  return {
+    progress: { done: progress.done, total: progress.total },
+    currentItem: progress.currentItem ?? undefined,
+    migratePhase: progress.phase as WikiMigratePhase,
+    detail: formatMigrateDetail(progress),
+    cancelRequested: progress.cancelRequested,
+    appliedCount: progress.appliedCount,
+    onCancel: busy ? onCancel : undefined,
+  }
 }
 
 /**
@@ -103,6 +129,7 @@ export const WikiTab: React.FC = () => {
     ignoreReclassify,
     discardReclassify,
     listSources,
+    loadSourceCounts,
     updateSourceTopic,
     moveToParking,
     openSource,
@@ -111,14 +138,31 @@ export const WikiTab: React.FC = () => {
     ensureVaultLayout,
     loadAutoClassifySetting,
     setAutoClassifyEnabled,
+    getMigrateRun,
+    cancelMigrate,
+    subscribeMigrateProgress,
+    applyMigrate,
+    discardMigrate,
+    undoMigrate,
+    replanMigrate,
+    updateMigrateMapping,
     loading,
   } = useWikiPage()
   const taskCenter = useWikiTaskCenter()
+  const migrateTaskRef = useRef<{ taskId: string; runId: string } | null>(null)
+  const taskCenterRef = useRef(taskCenter)
+  taskCenterRef.current = taskCenter
+  const handleMigrateCancelRef = useRef<() => Promise<void>>(async () => undefined)
 
   const [nav, setNav] = useState<WikiNav>({ kind: 'inbox' })
   const [sectionSubtopicFilter, setSectionSubtopicFilter] = useState<WikiSubtopicFilter>(WIKI_SUBTOPIC_FILTER_ALL)
   const [topicTree, setTopicTree] = useState<WikiTopicTree | null>(null)
   const [sources, setSources] = useState<readonly WikiSourceListItem[]>([])
+  const [sectionCounts, setSectionCounts] = useState<Record<string, number>>({})
+  const [topicCounts, setTopicCounts] = useState<Record<string, number>>({})
+  const [unfiledSources, setUnfiledSources] = useState<readonly WikiSourceListItem[]>([])
+  const [unfiledCount, setUnfiledCount] = useState(0)
+  const [filedSourceCount, setFiledSourceCount] = useState(0)
   const [archivedSources, setArchivedSources] = useState<readonly WikiSourceListItem[]>([])
   const [archivedCount, setArchivedCount] = useState(0)
   const [inboxItems, setInboxItems] = useState<readonly WikiInboxItem[]>([])
@@ -139,6 +183,9 @@ export const WikiTab: React.FC = () => {
   const [autoClassifyEnabled, setAutoClassifyEnabledState] = useState(false)
   const [isTreeEditorOpen, setIsTreeEditorOpen] = useState(false)
   const [reclassifyRun, setReclassifyRun] = useState<WikiReclassifyRunItem | null>(null)
+  const [migrateRun, setMigrateRun] = useState<WikiMigrateRunItem | null>(null)
+  const [migrateApplying, setMigrateApplying] = useState(false)
+  const [migrateUndoPrompt, setMigrateUndoPrompt] = useState<{ appliedCount: number } | null>(null)
   const [reclassifyConfirm, setReclassifyConfirm] = useState<{
     count: number
     estimate: WikiReclassifyEstimateItem | null
@@ -170,9 +217,47 @@ export const WikiTab: React.FC = () => {
   selectedUnfiledIdsRef.current = selectedUnfiledIds
   selectedSourceIdsRef.current = selectedSourceIds
 
+  const refreshCounts = useCallback(async () => {
+    const counts = await loadSourceCounts()
+    if (!counts) return
+    setSectionCounts(counts.sectionCounts)
+    setTopicCounts(counts.topicCounts)
+    setFiledSourceCount(counts.filed)
+    setArchivedCount(counts.archived)
+    setUnfiledCount(counts.unfiled)
+  }, [loadSourceCounts])
+
+  /**
+   * 按当前导航拉取可见列表，避免一次把全库 800+ 行塞进 React。
+   */
   const refreshSources = useCallback(async () => {
-    setSources(await listSources({}))
-  }, [listSources])
+    await refreshCounts()
+    if (nav.kind === 'section' || nav.kind === 'category') {
+      setSources(await listSources({ category: nav.name }))
+      return
+    }
+    if (nav.kind === 'subtopic') {
+      setSources(
+        await listSources({
+          category: nav.category,
+          ...(nav.subtopic === null
+            ? { subtopicUnfiled: true }
+            : { subtopic: nav.subtopic }),
+        }),
+      )
+      return
+    }
+    if (nav.kind === 'parking') {
+      setSources(await listSources({ parking: true }))
+      return
+    }
+    if (nav.kind === 'inbox') {
+      setUnfiledSources(await listSources({ unfiled: true }))
+      setSources([])
+      return
+    }
+    setSources([])
+  }, [listSources, nav, refreshCounts])
 
   /** 按需拉取已归档资料，供归档分区与左栏角标使用。 */
   const refreshArchivedSources = useCallback(async () => {
@@ -188,13 +273,26 @@ export const WikiTab: React.FC = () => {
     setInboxPending(count)
   }, [listInbox, countInbox])
 
+  /**
+   * 拉取当前 migrate run 并同步本地状态。
+   */
+  const refreshMigrateRun = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
+    const run = await getMigrateRun()
+    setMigrateRun(run)
+    return run
+  }, [getMigrateRun])
+
   useEffect(() => {
     void loadTopicTree().then(setTopicTree)
-    void refreshSources()
     void refreshInbox()
     void ensureVaultLayout()
     void loadAutoClassifySetting().then(setAutoClassifyEnabledState)
-  }, [loadTopicTree, refreshSources, refreshInbox, ensureVaultLayout, loadAutoClassifySetting])
+  }, [loadTopicTree, refreshInbox, ensureVaultLayout, loadAutoClassifySetting])
+
+  /** 导航变化时按需刷新可见列表与角标计数 */
+  useEffect(() => {
+    void refreshSources()
+  }, [refreshSources])
 
   /** 切换 Wiki「AI 自动分类」开关并持久化。 */
   const handleAutoClassifyChange = useCallback(
@@ -256,50 +354,130 @@ export const WikiTab: React.FC = () => {
     void loadRunHistory()
   }, [listRuns, taskCenter.mergeRuns])
 
-  // 按 section 分组计数 + 保留 topicCounts（小类芯片仍需）+ 分离 parking/unfiled。
-  // 已归档不在这里统计：listSources 的 SQL 固定过滤 archived_at IS NULL，
-  // 归档列表与计数走独立的按需查询（archivedSources state）。
-  const { sectionCounts, topicCounts, parkingSources, unfiledSources } = useMemo(() => {
-    // v1.1：分区就是大类，key 直接用大类名，不再预置固定的六个槽位
-    const sections: Record<string, number> = {}
-    const counts: Record<string, number> = {}
-    const parking: WikiSourceListItem[] = []
-    const unfiled: WikiSourceListItem[] = []
-    const filed = sources.filter(
-      (item) => item.topicCategory !== null && item.topicCategory !== PARKING_CATEGORY,
-    )
-    for (const item of sources) {
-      if (item.topicCategory === PARKING_CATEGORY) {
-        parking.push(item)
-        continue
-      }
-      if (!item.topicCategory) {
-        if (!isUnfiledDuplicateOfFiled(item, filed)) unfiled.push(item)
-        continue
-      }
-      sections[item.topicCategory] = (sections[item.topicCategory] ?? 0) + 1
-      if (item.topicSubtopic) {
-        const key = topicCountKey(item.topicCategory, item.topicSubtopic)
-        counts[key] = (counts[key] ?? 0) + 1
-      } else {
-        // 小类为空 → 计入该大类的「未细分」分组（key 只含大类，与 repo 侧口径一致）
-        const key = topicCountKey(item.topicCategory)
-        counts[key] = (counts[key] ?? 0) + 1
-      }
+  /**
+   * 请求停止当前 migrate 任务并同步任务中心状态。
+   */
+  const handleMigrateCancel = useCallback(async (): Promise<void> => {
+    const run = await cancelMigrate()
+    const tracked = migrateTaskRef.current
+    if (!tracked) return
+    if (run?.progress) {
+      taskCenterRef.current.updateTask(
+        tracked.taskId,
+        migrateProgressToTaskPatch(run.progress, () => handleMigrateCancelRef.current()),
+      )
     }
-    return { sectionCounts: sections, topicCounts: counts, parkingSources: parking, unfiledSources: unfiled }
-  }, [sources])
+  }, [cancelMigrate])
+  handleMigrateCancelRef.current = handleMigrateCancel
 
-  // 收件箱角标 = 队列 pending + 未分类（两者都需要用户处理）
-  const pendingCount = inboxPending + unfiledSources.length
-
-  // 全库重新编目的扫描量：正式归档的（有大类且不是临时存放）
-  const filedSourceCount = useMemo(
-    () =>
-      sources.filter((item) => item.topicCategory !== null && item.topicCategory !== PARKING_CATEGORY)
-        .length,
-    [sources],
+  /**
+   * 根据 migrate 终态更新任务中心（review 视为成功待确认）。
+   */
+  const finalizeMigrateTask = useCallback(
+    (taskId: string, progress: WikiMigrateProgressItem, error?: string | null): void => {
+      migrateTaskRef.current = null
+      const tc = taskCenterRef.current
+      const applied = progress.appliedCount ?? 0
+      if (progress.phase === 'failed') {
+        tc.failTask(taskId, error ?? progress.message ?? '整理入库失败')
+        return
+      }
+      if (progress.phase === 'cancelled') {
+        tc.completeTask(taskId, {
+          detail: applied > 0 ? `已取消 · 已整理 ${applied} 项` : '已取消',
+          migratePhase: progress.phase as WikiMigratePhase,
+          appliedCount: applied,
+        })
+        if (applied > 0) setMigrateUndoPrompt({ appliedCount: applied })
+        return
+      }
+      if (progress.phase === 'review') {
+        tc.completeTask(taskId, {
+          detail: progress.total > 0 ? `${progress.total} 条映射待确认` : '映射方案待确认',
+          migratePhase: 'review',
+        })
+        void refreshMigrateRun().then(() => setNav({ kind: 'migrate' }))
+        return
+      }
+      if (progress.phase === 'succeeded' || progress.phase === 'partial') {
+        tc.completeTask(taskId, {
+          detail: progress.message ?? progress.phaseLabel,
+          migratePhase: progress.phase as WikiMigratePhase,
+          appliedCount: applied,
+        })
+        if (applied > 0) setMigrateUndoPrompt({ appliedCount: applied })
+        return
+      }
+      tc.completeTask(taskId, { detail: progress.phaseLabel })
+    },
+    [refreshMigrateRun],
   )
+
+  /**
+   * 注册或刷新 migrate 任务到任务中心。
+   */
+  const registerMigrateTask = useCallback(
+    (run: WikiMigrateRunItem): string => {
+      const onCancel = () => handleMigrateCancelRef.current()
+      const patch = migrateProgressToTaskPatch(run.progress, onCancel)
+      const tracked = migrateTaskRef.current
+      const tc = taskCenterRef.current
+      if (tracked?.runId === run.runId) {
+        tc.updateTask(tracked.taskId, patch)
+        return tracked.taskId
+      }
+      const taskId = tc.startTask({
+        kind: 'migrate',
+        title: '整理入库',
+        ...patch,
+      })
+      migrateTaskRef.current = { taskId, runId: run.runId }
+      if (!isMigrateBusyPhase(run.phase)) {
+        finalizeMigrateTask(taskId, run.progress, run.error)
+      }
+      return taskId
+    },
+    [finalizeMigrateTask],
+  )
+
+  /** 订阅 migrate 进度推送并同步任务中心 */
+  useEffect(() => {
+    const unsubscribe = subscribeMigrateProgress((progress) => {
+      const tracked = migrateTaskRef.current
+      if (!tracked || tracked.runId !== progress.runId) return
+      const onCancel = () => handleMigrateCancelRef.current()
+      if (isMigrateBusyPhase(progress.phase)) {
+        taskCenterRef.current.updateTask(
+          tracked.taskId,
+          migrateProgressToTaskPatch(progress, onCancel),
+        )
+        return
+      }
+      finalizeMigrateTask(tracked.taskId, progress)
+    })
+    return unsubscribe
+  }, [finalizeMigrateTask, subscribeMigrateProgress])
+
+  /** 进页时恢复进行中的 migrate 任务；若有 review 方案则同步状态 */
+  useEffect(() => {
+    void getMigrateRun().then((run) => {
+      if (!run) return
+      setMigrateRun(run)
+      if (isMigrateBusyPhase(run.phase)) {
+        registerMigrateTask(run)
+        return
+      }
+      if (run.phase === 'review') {
+        setNav((prev) => (prev.kind === 'inbox' ? { kind: 'migrate' } : prev))
+      }
+    })
+  }, [getMigrateRun, registerMigrateTask])
+
+  // 角标来自 wiki:source:counts；可见列表按导航按需拉取（见 refreshSources）
+  const parkingSources = nav.kind === 'parking' ? sources : []
+
+  // 收件箱角标 = 队列 pending + 未分类
+  const pendingCount = inboxPending + (unfiledSources.length > 0 ? unfiledSources.length : unfiledCount)
 
   const categorySectionName = useMemo(() => {
     if (nav.kind === 'section' || nav.kind === 'category') return nav.name
@@ -317,12 +495,13 @@ export const WikiTab: React.FC = () => {
 
   const visibleSources = useMemo(() => {
     if (categorySectionName) {
-      const inCategory = sources.filter((item) => item.topicCategory === categorySectionName)
-      if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL) return inCategory
+      // section/category 已按大类服务端过滤；小类芯片仍可在前端收窄
+      if (nav.kind === 'subtopic') return sources
+      if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL) return sources
       if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_UNFILED) {
-        return inCategory.filter((item) => !item.topicSubtopic)
+        return sources.filter((item) => !item.topicSubtopic)
       }
-      return inCategory.filter((item) => item.topicSubtopic === effectiveSubtopicFilter)
+      return sources.filter((item) => item.topicSubtopic === effectiveSubtopicFilter)
     }
     if (nav.kind === 'parking') {
       return parkingSources
@@ -661,6 +840,114 @@ export const WikiTab: React.FC = () => {
   }, [discardReclassify])
 
   /**
+   * 更新单条文件夹映射并刷新 run。
+   */
+  const handleUpdateMigrateMapping = useCallback(
+    async (folderRel: string, patch: Parameters<typeof updateMigrateMapping>[1]) => {
+      const run = await updateMigrateMapping(folderRel, patch)
+      if (run) setMigrateRun(run)
+    },
+    [updateMigrateMapping],
+  )
+
+  /**
+   * 确认执行 migrate apply，订阅 applying 进度直至终态。
+   */
+  const handleApplyMigrate = useCallback(async () => {
+    setMigrateApplying(true)
+    const taskId = taskCenter.startTask({ kind: 'migrate', title: '整理入库' })
+    try {
+      const started = await applyMigrate()
+      if (!started) {
+        taskCenter.failTask(taskId, '确认整理失败')
+        return
+      }
+      setMigrateRun(started)
+      if (started.phase === 'applying') {
+        migrateTaskRef.current = { taskId, runId: started.runId }
+      }
+      for (;;) {
+        const run = await getMigrateRun()
+        if (!run) break
+        setMigrateRun(run)
+        if (run.phase !== 'applying') {
+          if (run.progress) finalizeMigrateTask(taskId, run.progress, run.error)
+          break
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 400))
+      }
+      await Promise.all([refreshInbox(), refreshSources()])
+    } finally {
+      setMigrateApplying(false)
+    }
+  }, [applyMigrate, getMigrateRun, finalizeMigrateTask, refreshInbox, refreshSources, taskCenter])
+
+  /**
+   * 丢弃 migrate 映射方案并返回收件箱。
+   */
+  const handleDiscardMigrate = useCallback(async () => {
+    await discardMigrate()
+    setMigrateRun(null)
+    setNav({ kind: 'inbox' })
+  }, [discardMigrate])
+
+  /**
+   * 重跑盘点 + 映射，进入 review。
+   */
+  const handleReplanMigrate = useCallback(async () => {
+    const taskId = taskCenter.startTask({ kind: 'migrate', title: '重新规划映射' })
+    const run = await replanMigrate()
+    if (!run) {
+      taskCenter.failTask(taskId, '重新规划失败')
+      return
+    }
+    setMigrateRun(run)
+    if (isMigrateBusyPhase(run.phase)) {
+      migrateTaskRef.current = { taskId, runId: run.runId }
+      return
+    }
+    if (run.phase === 'review') {
+      taskCenter.completeTask(taskId, {
+        detail: `${run.mappings.length} 条映射待确认`,
+        migratePhase: 'review',
+      })
+      setNav({ kind: 'migrate' })
+    } else {
+      taskCenter.completeTask(taskId, { detail: run.progress.phaseLabel })
+    }
+  }, [replanMigrate, taskCenter])
+
+  /**
+   * 撤销本次已整理项并退回收件箱。
+   */
+  const handleUndoMigrate = useCallback(async () => {
+    const run = await undoMigrate()
+    setMigrateUndoPrompt(null)
+    if (run) setMigrateRun(run)
+    await Promise.all([refreshInbox(), refreshSources()])
+    toast.info('已撤销本次整理，文件已退回收件箱')
+  }, [undoMigrate, refreshInbox, refreshSources, toast])
+
+  /**
+   * 撤销后重新规划映射并打开预览。
+   */
+  const handleUndoAndReplanMigrate = useCallback(async () => {
+    setMigrateUndoPrompt(null)
+    await undoMigrate()
+    await Promise.all([refreshInbox(), refreshSources()])
+    await handleReplanMigrate()
+  }, [undoMigrate, refreshInbox, refreshSources, handleReplanMigrate])
+
+  /**
+   * 从任务中心打开 migrate 预览页。
+   */
+  const handleOpenMigrateReview = useCallback(() => {
+    setIsTaskCenterOpen(false)
+    void refreshMigrateRun()
+    setNav({ kind: 'migrate' })
+  }, [refreshMigrateRun])
+
+  /**
    * 应用一次主题树变更，成功后刷新树与文件列表。
    * 若当前所在目录被这次变更删掉/改名，导航回待整理，避免停在空节点上。
    */
@@ -811,20 +1098,33 @@ export const WikiTab: React.FC = () => {
       }
       setNav({ kind: 'inbox' })
       await Promise.all([refreshInbox(), refreshSources()])
-      const orgSummary = imported.organizeRun?.summary
-      if (autoClassifyEnabled && orgSummary && /\d+\s*项已归档/.test(orgSummary)) {
-        toast.success(
-          `已导入 ${imported.imported} 个文件 · ${orgSummary}。请在左侧「工作 / 学习 / 生活 / 收藏」查看。`,
-        )
-      } else if (orgSummary) {
-        toast.success(`已导入 ${imported.imported} 个文件 · ${orgSummary}`)
+      if (autoClassifyEnabled && imported.migrateRun) {
+        registerMigrateTask(imported.migrateRun)
+        setMigrateRun(imported.migrateRun)
+        if (imported.migrateRun.phase === 'review') {
+          setNav({ kind: 'migrate' })
+          toast.success(
+            `已导入 ${imported.imported} 个文件 · ${imported.migrateRun.progress.total} 条映射待确认`,
+          )
+        } else {
+          toast.success(`已导入 ${imported.imported} 个文件 · 正在整理入库`)
+        }
       } else {
-        toast.success(`已导入 ${imported.imported} 个文件到收件箱`)
+        const orgSummary = imported.organizeRun?.summary
+        if (autoClassifyEnabled && orgSummary && /\d+\s*项已归档/.test(orgSummary)) {
+          toast.success(
+            `已导入 ${imported.imported} 个文件 · ${orgSummary}。请在左侧「工作 / 学习 / 生活 / 收藏」查看。`,
+          )
+        } else if (orgSummary) {
+          toast.success(`已导入 ${imported.imported} 个文件 · ${orgSummary}`)
+        } else {
+          toast.success(`已导入 ${imported.imported} 个文件到收件箱`)
+        }
       }
     } finally {
       setFolderImportBusy(false)
     }
-  }, [scanFolder, importFolder, refreshInbox, refreshSources, toast, autoClassifyEnabled])
+  }, [scanFolder, importFolder, refreshInbox, refreshSources, toast, autoClassifyEnabled, registerMigrateTask])
 
   /** 切换待整理队列条目选中状态 */
   const toggleSelectInbox = useCallback((inboxId: string) => {
@@ -1251,6 +1551,16 @@ export const WikiTab: React.FC = () => {
             onIgnore={(id) => void handleIgnoreReclassify(id)}
             onDiscard={() => void handleDiscardReclassify()}
           />
+        ) : nav.kind === 'migrate' ? (
+          <WikiMigrateReviewView
+            run={migrateRun}
+            topicTree={topicTree}
+            applying={migrateApplying}
+            onUpdateMapping={(folderRel, patch) => void handleUpdateMigrateMapping(folderRel, patch)}
+            onApply={() => void handleApplyMigrate()}
+            onDiscard={() => void handleDiscardMigrate()}
+            onReplan={() => void handleReplanMigrate()}
+          />
         ) : isCategoryBrowse && categorySectionName ? (
           <div className="wiki-category-view">
             <WikiSubtopicPanel
@@ -1363,6 +1673,7 @@ export const WikiTab: React.FC = () => {
         onClose={() => setIsTaskCenterOpen(false)}
         onRetry={(task) => void handleRetryTask(task)}
         onDismiss={taskCenter.dismissTask}
+        onOpenMigrateReview={handleOpenMigrateReview}
       />
 
       <WikiTopicPicker
@@ -1415,6 +1726,34 @@ export const WikiTab: React.FC = () => {
             : undefined
         }
       />
+
+      <Modal
+        open={migrateUndoPrompt !== null}
+        layer={WIKI_MODAL_LAYER}
+        title="整理已部分完成"
+        onClose={() => setMigrateUndoPrompt(null)}
+        footer={
+          migrateUndoPrompt ? (
+            <>
+              <Button variant="ghost" size="sm" onClick={() => setMigrateUndoPrompt(null)}>
+                保留已整理
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => void handleUndoAndReplanMigrate()}>
+                撤销并重新规划
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => void handleUndoMigrate()}>
+                撤销本次整理
+              </Button>
+            </>
+          ) : null
+        }
+      >
+        {migrateUndoPrompt && (
+          <p>
+            已整理 {migrateUndoPrompt.appliedCount} 项。撤销将把已归档文件退回收件箱；重新规划会撤销后生成新映射方案。
+          </p>
+        )}
+      </Modal>
 
       <ConfirmModal
         open={removeConfirm !== null}
