@@ -23,6 +23,7 @@ import type {
 } from "./wiki-migrate-types.js";
 import type { WikiRepo } from "./wiki-repo.js";
 import { WikiReclassifier } from "./wiki-reclassifier.js";
+import type { WikiReclassifyRun } from "./wiki-reclassify-types.js";
 import { validateTopicAssignment } from "./wiki-topic-tree.js";
 
 /** plan / replan 入参 */
@@ -444,7 +445,7 @@ export class WikiLibraryMigrate {
 
   /** 启动前互斥检查 */
   private assertCanStartPlan(agentId: string, userId: string): void {
-    const reclassify = this.repo.getReclassifyRun(agentId, userId);
+    const reclassify = this.repo.getReclassifyRun(agentId, userId) as WikiReclassifyRun | null;
     if (WikiReclassifier.isRunning(reclassify)) {
       throw new Error("已有正在进行的重新编目，请等它结束后再整理入库");
     }
