@@ -137,6 +137,7 @@ import {
   handleWikiSourceCreateNote,
   handleWikiSourceRename,
   handleWikiSourceList,
+  handleWikiSourceCounts,
   handleWikiSourceUpdateTopic,
   handleWikiSourceMoveToParking,
   handleWikiSourceOpen,
@@ -1025,6 +1026,9 @@ export async function handleCommand(
 
       case 'wiki:source:list':
         return handleWikiSourceList(bridge, command)
+
+      case 'wiki:source:counts':
+        return handleWikiSourceCounts(bridge, command)
 
       case 'wiki:source:update-topic':
         return handleWikiSourceUpdateTopic(bridge, command)

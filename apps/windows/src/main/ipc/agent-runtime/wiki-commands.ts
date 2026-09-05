@@ -866,26 +866,24 @@ export function handleWikiReclassifyDiscard(
 }
 
 /**
- * 列表展示：标题带上原文件后缀。
+ * 列表 DTO：不读 vault ref、不带正文，避免 800+ 条时逐条磁盘 IO 与巨型 IPC。
  */
 function mapSourceListItem(
   source: NonNullable<ReturnType<AgentRuntimeBridge['wikiRepo']['findSourceById']>>,
-  vaultDeps: ReturnType<typeof createWikiVaultSyncDeps>,
 ) {
-  const extracted = source.extracted_text ?? ''
-  const original = resolveOriginalFilePath(vaultDeps, source) ?? source.source_path
+  const summary = source.summary ?? null
   return {
     id: source.id,
-    title: titleWithOriginalExt(source.title, original),
+    title: titleWithOriginalExt(source.title, source.source_path),
     sourcePath: source.source_path,
     mediaType: source.media_type,
     topicCategory: source.topic_category,
     topicSubtopic: source.topic_subtopic,
-    textLength: extracted.length,
+    textLength: summary?.length ?? 0,
     updatedAt: new Date(source.last_used ?? source.created_at).getTime(),
     useCount: source.use_count,
-    summary: source.summary,
-    extractedTextPreview: extracted.slice(0, 60),
+    summary,
+    extractedTextPreview: summary ? summary.slice(0, 60) : '',
   }
 }
 
@@ -903,8 +901,49 @@ export function handleWikiSourceList(
     archived: command.archived,
     mediaType: command.mediaType as never,
   })
-  const vaultDeps = createWikiVaultSyncDeps()
-  return { sources: sources.map((s) => mapSourceListItem(s, vaultDeps)) }
+  return { sources: sources.map((s) => mapSourceListItem(s)) }
+}
+
+/**
+ * 左栏角标与小类芯片计数：GROUP BY，不读正文。
+ */
+export function handleWikiSourceCounts(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:source:counts' }>,
+): {
+  sectionCounts: Record<string, number>
+  topicCounts: Record<string, number>
+  parking: number
+  unfiled: number
+  filed: number
+  archived: number
+} {
+  const agentId = resolveAgentIdForWiki(bridge, command.sessionKey, command.agentId)
+  const topicMap = bridge.wikiRepo.countSourcesByTopic()
+  const topicCounts: Record<string, number> = {}
+  const sectionCounts: Record<string, number> = {}
+  let filed = 0
+  for (const [key, n] of topicMap) {
+    topicCounts[key] = n
+    filed += n
+    try {
+      const parsed = JSON.parse(key) as string[]
+      const category = parsed[0]
+      if (category) sectionCounts[category] = (sectionCounts[category] ?? 0) + n
+    } catch {
+      // ignore malformed keys
+    }
+  }
+  // 角标用 raw COUNT；收件箱列表仍走 unfiled 去重逻辑
+  const buckets = bridge.wikiRepo.countSourceBuckets(agentId, LOCAL_USER_ID)
+  return {
+    sectionCounts,
+    topicCounts,
+    parking: buckets.parking,
+    unfiled: buckets.unfiledRaw,
+    filed,
+    archived: buckets.archived,
+  }
 }
 
 export function handleWikiSourceUpdateTopic(

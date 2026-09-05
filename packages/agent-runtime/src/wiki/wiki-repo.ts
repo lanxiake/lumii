@@ -775,6 +775,37 @@ export class WikiRepo {
   }
 
   /**
+   * 角标用 COUNT：临时存放 / 未分类（未去重）/ 已归档，不读行内容。
+   */
+  countSourceBuckets(agentId: string, userId: string): {
+    readonly parking: number;
+    readonly unfiledRaw: number;
+    readonly archived: number;
+  } {
+    const parking = this.db
+      .prepare<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM wiki_sources
+         WHERE agent_id = ? AND user_id = ? AND archived_at IS NULL
+           AND topic_category = ? AND topic_subtopic IS NULL`,
+      )
+      .get(agentId, userId, PARKING_CATEGORY)?.n ?? 0;
+    const unfiledRaw = this.db
+      .prepare<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM wiki_sources
+         WHERE agent_id = ? AND user_id = ? AND archived_at IS NULL
+           AND topic_category IS NULL AND topic_subtopic IS NULL`,
+      )
+      .get(agentId, userId)?.n ?? 0;
+    const archived = this.db
+      .prepare<{ n: number }>(
+        `SELECT COUNT(*) AS n FROM wiki_sources
+         WHERE agent_id = ? AND user_id = ? AND archived_at IS NOT NULL`,
+      )
+      .get(agentId, userId)?.n ?? 0;
+    return { parking, unfiledRaw, archived };
+  }
+
+  /**
    * 单事务应用一次主题树变更：plan → 写树 JSON → 按 cascades 批量改 wiki_sources 两列。
    * plan 失败直接抛（需要去向时 message 带文件数）；任一步失败整单回滚。
    */
@@ -871,20 +902,39 @@ export class WikiRepo {
       params.push(filter.mediaType);
     }
 
+    // 列表不拉 content_md / extracted_text：800+ 行时正文列会让 IPC 与主线程暴涨
     const rows = this.db
       .prepare<WikiSource>(
-        `SELECT * FROM wiki_sources WHERE ${conditions.join(" AND ")} ORDER BY created_at DESC`,
+        `SELECT id, agent_id, user_id, title, source_path,
+                NULL AS content_md, content_hash, mime_type, media_type,
+                NULL AS extracted_text, media_meta, preview_path, origin_context,
+                archived_at, created_at, topic_category, topic_subtopic,
+                last_used, use_count, origin_url, storage_mode, legacy_subtopic,
+                title_locked, summary, summary_hash, summary_level
+         FROM wiki_sources
+         WHERE ${conditions.join(" AND ")}
+         ORDER BY created_at DESC`,
       )
       .all(...params);
 
     if (!filter.unfiled) return rows;
 
-    const filed = this.listSources(agentId, userId).filter(
-      (s) =>
-        s.archived_at === null &&
-        s.topic_category !== null &&
-        s.topic_category !== PARKING_CATEGORY,
-    );
+    // 去重只需身份字段，禁止再 listSources 全表（含正文）
+    const filed = this.db
+      .prepare<{
+        title: string;
+        source_path: string | null;
+        origin_url: string | null;
+        content_hash: string | null;
+      }>(
+        `SELECT title, source_path, origin_url, content_hash FROM wiki_sources
+         WHERE agent_id = ? AND user_id = ?
+           AND archived_at IS NULL
+           AND topic_category IS NOT NULL
+           AND topic_category <> ?`,
+      )
+      .all(agentId, userId, PARKING_CATEGORY);
+
     return rows.filter(
       (unfiled) =>
         !filed.some((s) =>

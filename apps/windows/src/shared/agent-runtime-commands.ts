@@ -647,6 +647,14 @@ export interface WikiSourceListCommand {
   readonly mediaType?: string
 }
 
+/** 左栏角标 / 小类芯片用的轻量计数（不拉正文、不拉列表） */
+export interface WikiSourceCountsCommand {
+  readonly type: 'wiki:source:counts'
+  readonly sessionKey?: string
+  readonly agentId?: string
+  readonly userId?: string
+}
+
 export interface WikiSourceUpdateTopicCommand {
   readonly type: 'wiki:source:update-topic'
   readonly agentId: string
@@ -1418,6 +1426,7 @@ export type AgentRuntimeCommand =
   | WikiSourceCreateNoteCommand
   | WikiSourceRenameCommand
   | WikiSourceListCommand
+  | WikiSourceCountsCommand
   | WikiSourceUpdateTopicCommand
   | WikiSourceMoveToParkingCommand
   | WikiSourceOpenCommand
@@ -1815,6 +1824,14 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
         updatedAt: number
         useCount: number
       }[]
+    }
+  : T extends 'wiki:source:counts' ? {
+      sectionCounts: Record<string, number>
+      topicCounts: Record<string, number>
+      parking: number
+      unfiled: number
+      filed: number
+      archived: number
     }
   : T extends 'wiki:source:update-topic' ? {
       id: string

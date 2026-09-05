@@ -6,7 +6,6 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { PARKING_CATEGORY, wikiRecordsShareFileIdentity } from '@mtbot/agent-runtime/browser'
 import { Button } from '../../../components/ui/Button/Button'
 import { Loading } from '../../../components/ui/Loading/Loading'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
@@ -23,7 +22,7 @@ import {
   type WikiReclassifyEstimateItem,
 } from '../../../hooks/business/useWikiPage'
 import { CleanupView } from './CleanupView'
-import { WikiLeftNav, topicCountKey, type WikiNav } from './WikiLeftNav'
+import { WikiLeftNav, type WikiNav } from './WikiLeftNav'
 import { navSectionLabel, WIKI_SUBTOPIC_FILTER_ALL, WIKI_SUBTOPIC_FILTER_UNFILED, type WikiSubtopicFilter } from './wikiTopicDisplay'
 import { WikiTopBar } from './WikiTopBar'
 import { WikiFileList } from './WikiFileList'
@@ -49,21 +48,6 @@ import './WikiTab.css'
 type PickerTarget =
   | { mode: 'inbox'; item: WikiInboxItem }
   | { mode: 'source'; item: WikiSourceListItem }
-
-/**
- * 未分类行是否与已归入用途目录（含收藏）的资料指向同一文件。
- */
-function isUnfiledDuplicateOfFiled(
-  item: WikiSourceListItem,
-  filed: readonly WikiSourceListItem[],
-): boolean {
-  return filed.some((other) =>
-    wikiRecordsShareFileIdentity(
-      { title: item.title, sourcePath: item.sourcePath },
-      { title: other.title, sourcePath: other.sourcePath },
-    ),
-  )
-}
 
 const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
   inbox: { title: '收件箱', subtitle: '还没分类的新资料，可批量归档或稍后处理' },
@@ -103,6 +87,7 @@ export const WikiTab: React.FC = () => {
     ignoreReclassify,
     discardReclassify,
     listSources,
+    loadSourceCounts,
     updateSourceTopic,
     moveToParking,
     openSource,
@@ -119,6 +104,11 @@ export const WikiTab: React.FC = () => {
   const [sectionSubtopicFilter, setSectionSubtopicFilter] = useState<WikiSubtopicFilter>(WIKI_SUBTOPIC_FILTER_ALL)
   const [topicTree, setTopicTree] = useState<WikiTopicTree | null>(null)
   const [sources, setSources] = useState<readonly WikiSourceListItem[]>([])
+  const [sectionCounts, setSectionCounts] = useState<Record<string, number>>({})
+  const [topicCounts, setTopicCounts] = useState<Record<string, number>>({})
+  const [unfiledSources, setUnfiledSources] = useState<readonly WikiSourceListItem[]>([])
+  const [unfiledCount, setUnfiledCount] = useState(0)
+  const [filedSourceCount, setFiledSourceCount] = useState(0)
   const [archivedSources, setArchivedSources] = useState<readonly WikiSourceListItem[]>([])
   const [archivedCount, setArchivedCount] = useState(0)
   const [inboxItems, setInboxItems] = useState<readonly WikiInboxItem[]>([])
@@ -170,9 +160,47 @@ export const WikiTab: React.FC = () => {
   selectedUnfiledIdsRef.current = selectedUnfiledIds
   selectedSourceIdsRef.current = selectedSourceIds
 
+  const refreshCounts = useCallback(async () => {
+    const counts = await loadSourceCounts()
+    if (!counts) return
+    setSectionCounts(counts.sectionCounts)
+    setTopicCounts(counts.topicCounts)
+    setFiledSourceCount(counts.filed)
+    setArchivedCount(counts.archived)
+    setUnfiledCount(counts.unfiled)
+  }, [loadSourceCounts])
+
+  /**
+   * 按当前导航拉取可见列表，避免一次把全库 800+ 行塞进 React。
+   */
   const refreshSources = useCallback(async () => {
-    setSources(await listSources({}))
-  }, [listSources])
+    await refreshCounts()
+    if (nav.kind === 'section' || nav.kind === 'category') {
+      setSources(await listSources({ category: nav.name }))
+      return
+    }
+    if (nav.kind === 'subtopic') {
+      setSources(
+        await listSources({
+          category: nav.category,
+          ...(nav.subtopic === null
+            ? { subtopicUnfiled: true }
+            : { subtopic: nav.subtopic }),
+        }),
+      )
+      return
+    }
+    if (nav.kind === 'parking') {
+      setSources(await listSources({ parking: true }))
+      return
+    }
+    if (nav.kind === 'inbox') {
+      setUnfiledSources(await listSources({ unfiled: true }))
+      setSources([])
+      return
+    }
+    setSources([])
+  }, [listSources, nav, refreshCounts])
 
   /** 按需拉取已归档资料，供归档分区与左栏角标使用。 */
   const refreshArchivedSources = useCallback(async () => {
@@ -190,11 +218,15 @@ export const WikiTab: React.FC = () => {
 
   useEffect(() => {
     void loadTopicTree().then(setTopicTree)
-    void refreshSources()
     void refreshInbox()
     void ensureVaultLayout()
     void loadAutoClassifySetting().then(setAutoClassifyEnabledState)
-  }, [loadTopicTree, refreshSources, refreshInbox, ensureVaultLayout, loadAutoClassifySetting])
+  }, [loadTopicTree, refreshInbox, ensureVaultLayout, loadAutoClassifySetting])
+
+  /** 导航变化时按需刷新可见列表与角标计数 */
+  useEffect(() => {
+    void refreshSources()
+  }, [refreshSources])
 
   /** 切换 Wiki「AI 自动分类」开关并持久化。 */
   const handleAutoClassifyChange = useCallback(
@@ -256,50 +288,11 @@ export const WikiTab: React.FC = () => {
     void loadRunHistory()
   }, [listRuns, taskCenter.mergeRuns])
 
-  // 按 section 分组计数 + 保留 topicCounts（小类芯片仍需）+ 分离 parking/unfiled。
-  // 已归档不在这里统计：listSources 的 SQL 固定过滤 archived_at IS NULL，
-  // 归档列表与计数走独立的按需查询（archivedSources state）。
-  const { sectionCounts, topicCounts, parkingSources, unfiledSources } = useMemo(() => {
-    // v1.1：分区就是大类，key 直接用大类名，不再预置固定的六个槽位
-    const sections: Record<string, number> = {}
-    const counts: Record<string, number> = {}
-    const parking: WikiSourceListItem[] = []
-    const unfiled: WikiSourceListItem[] = []
-    const filed = sources.filter(
-      (item) => item.topicCategory !== null && item.topicCategory !== PARKING_CATEGORY,
-    )
-    for (const item of sources) {
-      if (item.topicCategory === PARKING_CATEGORY) {
-        parking.push(item)
-        continue
-      }
-      if (!item.topicCategory) {
-        if (!isUnfiledDuplicateOfFiled(item, filed)) unfiled.push(item)
-        continue
-      }
-      sections[item.topicCategory] = (sections[item.topicCategory] ?? 0) + 1
-      if (item.topicSubtopic) {
-        const key = topicCountKey(item.topicCategory, item.topicSubtopic)
-        counts[key] = (counts[key] ?? 0) + 1
-      } else {
-        // 小类为空 → 计入该大类的「未细分」分组（key 只含大类，与 repo 侧口径一致）
-        const key = topicCountKey(item.topicCategory)
-        counts[key] = (counts[key] ?? 0) + 1
-      }
-    }
-    return { sectionCounts: sections, topicCounts: counts, parkingSources: parking, unfiledSources: unfiled }
-  }, [sources])
+  // 角标来自 wiki:source:counts；可见列表按导航按需拉取（见 refreshSources）
+  const parkingSources = nav.kind === 'parking' ? sources : []
 
-  // 收件箱角标 = 队列 pending + 未分类（两者都需要用户处理）
-  const pendingCount = inboxPending + unfiledSources.length
-
-  // 全库重新编目的扫描量：正式归档的（有大类且不是临时存放）
-  const filedSourceCount = useMemo(
-    () =>
-      sources.filter((item) => item.topicCategory !== null && item.topicCategory !== PARKING_CATEGORY)
-        .length,
-    [sources],
-  )
+  // 收件箱角标 = 队列 pending + 未分类
+  const pendingCount = inboxPending + (unfiledSources.length > 0 ? unfiledSources.length : unfiledCount)
 
   const categorySectionName = useMemo(() => {
     if (nav.kind === 'section' || nav.kind === 'category') return nav.name
@@ -317,12 +310,13 @@ export const WikiTab: React.FC = () => {
 
   const visibleSources = useMemo(() => {
     if (categorySectionName) {
-      const inCategory = sources.filter((item) => item.topicCategory === categorySectionName)
-      if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL) return inCategory
+      // section/category 已按大类服务端过滤；小类芯片仍可在前端收窄
+      if (nav.kind === 'subtopic') return sources
+      if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL) return sources
       if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_UNFILED) {
-        return inCategory.filter((item) => !item.topicSubtopic)
+        return sources.filter((item) => !item.topicSubtopic)
       }
-      return inCategory.filter((item) => item.topicSubtopic === effectiveSubtopicFilter)
+      return sources.filter((item) => item.topicSubtopic === effectiveSubtopicFilter)
     }
     if (nav.kind === 'parking') {
       return parkingSources

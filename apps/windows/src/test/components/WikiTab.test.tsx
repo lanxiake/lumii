@@ -51,6 +51,15 @@ function mockSendCommand(overrides: Record<string, unknown> = {}) {
         return { tree: TOPIC_TREE }
       case 'wiki:source:list':
         return { sources: [] }
+      case 'wiki:source:counts':
+        return {
+          sectionCounts: {},
+          topicCounts: {},
+          parking: 0,
+          unfiled: 0,
+          filed: 0,
+          archived: 0,
+        }
       default:
         return null
     }

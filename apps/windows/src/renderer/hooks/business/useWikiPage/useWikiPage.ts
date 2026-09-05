@@ -835,6 +835,7 @@ export function useWikiPage() {
     async (filter?: {
       category?: string
       subtopic?: string
+      subtopicUnfiled?: boolean
       parking?: boolean
       unfiled?: boolean
       archived?: boolean
@@ -849,6 +850,7 @@ export function useWikiPage() {
           agentId: DEFAULT_AGENT_ID,
           category: filter?.category,
           subtopic: filter?.subtopic,
+          subtopicUnfiled: filter?.subtopicUnfiled,
           parking: filter?.parking,
           unfiled: filter?.unfiled,
           archived: filter?.archived,
@@ -863,6 +865,36 @@ export function useWikiPage() {
     },
     [],
   )
+
+  /**
+   * 拉取左栏角标计数（GROUP BY，不含正文）。
+   */
+  const loadSourceCounts = useCallback(async (): Promise<{
+    sectionCounts: Record<string, number>
+    topicCounts: Record<string, number>
+    parking: number
+    unfiled: number
+    filed: number
+    archived: number
+  } | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      return (await api.sendCommand({
+        type: 'wiki:source:counts',
+        agentId: DEFAULT_AGENT_ID,
+      })) as {
+        sectionCounts: Record<string, number>
+        topicCounts: Record<string, number>
+        parking: number
+        unfiled: number
+        filed: number
+        archived: number
+      }
+    } catch {
+      return null
+    }
+  }, [])
 
   const updateSourceTopic = useCallback(
     async (sourceId: string, category: string, subtopic: string | null): Promise<boolean> => {
@@ -952,20 +984,27 @@ export function useWikiPage() {
     [],
   )
 
-  /** 确保 workspace/wiki/ 目录存在，并回填已有资料到磁盘。 */
-  const ensureVaultLayout = useCallback(async (): Promise<{ vaultRoot: string; synced: number } | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
-    try {
-      return (await api.sendCommand({
-        type: 'wiki:vault:ensure-layout',
-        agentId: DEFAULT_AGENT_ID,
-        backfill: true,
-      })) as { vaultRoot: string; synced: number }
-    } catch {
-      return null
-    }
-  }, [])
+  /**
+   * 确保 workspace/wiki/ 分区目录存在。
+   * 默认不做全库 backfill：800+ 资料时逐条 sync 会堵死进页（可达十余秒）。
+   * 需要回填时显式传 `{ backfill: true }`。
+   */
+  const ensureVaultLayout = useCallback(
+    async (opts?: { backfill?: boolean }): Promise<{ vaultRoot: string; synced: number } | null> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return null
+      try {
+        return (await api.sendCommand({
+          type: 'wiki:vault:ensure-layout',
+          agentId: DEFAULT_AGENT_ID,
+          backfill: opts?.backfill === true,
+        })) as { vaultRoot: string; synced: number }
+      } catch {
+        return null
+      }
+    },
+    [],
+  )
 
   return {
     loading,
@@ -999,6 +1038,7 @@ export function useWikiPage() {
     ignoreReclassify,
     discardReclassify,
     listSources,
+    loadSourceCounts,
     updateSourceTopic,
     moveToParking,
     openSource,
