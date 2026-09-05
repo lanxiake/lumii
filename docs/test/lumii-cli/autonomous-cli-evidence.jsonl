@@ -1,22 +1,22 @@
-{"ts":"2026-09-05T15:03:15.907Z","id":"TC1","status":"PASS","note":"正式表结构齐全: 12 张表齐全"}
-{"ts":"2026-09-05T15:03:16.017Z","id":"TC2","status":"PASS","note":"help 暴露全部 autonomous 命令: 10 个命令均可被 Agent 发现"}
-{"ts":"2026-09-05T15:03:16.200Z","id":"TC3","status":"PASS","note":"status 空数据降级: hasData=false，不抛异常"}
-{"ts":"2026-09-05T15:03:16.393Z","id":"TC4","status":"PASS","note":"满意度四维加权公式一致性: overall=0.6750，与设计公式 0.695 一致，四维无错位"}
-{"ts":"2026-09-05T15:03:16.575Z","id":"TC5","status":"PASS","note":"满意度趋势判定: trend=improving，3 点升序"}
-{"ts":"2026-09-05T15:03:17.130Z","id":"TC6","status":"PASS","note":"时间窗口过滤边界: 7d=3 / 30d=3 / all=4，边界正确"}
-{"ts":"2026-09-05T15:03:17.461Z","id":"TC7","status":"PASS","note":"目标列表与状态过滤: 全部 2 条，pending 1 条，字段映射正确"}
-{"ts":"2026-09-05T15:03:17.629Z","id":"TC8","status":"PASS","note":"非法 status 安全降级: 白名单拦下非法状态值，数据完好"}
-{"ts":"2026-09-05T15:03:17.813Z","id":"TC9","status":"PASS","note":"批准目标流转 executing 并记录 evolution-decided: status=executing + evolution-decided 人格事件已落库"}
-{"ts":"2026-09-05T15:03:17.988Z","id":"TC10","status":"PASS","note":"拒绝目标状态流转落库: status=rejected"}
-{"ts":"2026-09-05T15:03:18.351Z","id":"TC11","status":"PASS","note":"重复审批被拒绝: 非 pending 目标无法二次流转"}
-{"ts":"2026-09-05T15:03:18.522Z","id":"TC12","status":"PASS","note":"不存在目标优雅失败: 返回 success=false 并说明原因"}
-{"ts":"2026-09-05T15:03:18.612Z","id":"TC13","status":"PASS","note":"缺 goalId 参数校验: 退出码 2"}
-{"ts":"2026-09-05T15:03:18.785Z","id":"TC14","status":"PASS","note":"能力维度查询与字段映射: level/confidence/boundary/testCount 映射正确"}
-{"ts":"2026-09-05T15:03:18.960Z","id":"TC15","status":"PASS","note":"反思记录 JSON 列解析: JSON 列解析为数组，含 rootCause"}
-{"ts":"2026-09-05T15:03:19.152Z","id":"TC16","status":"PASS","note":"脏 JSON 列降级不打断列表: 脏 JSON 降级空数组，整表仍可用"}
-{"ts":"2026-09-05T15:03:19.328Z","id":"TC17","status":"PASS","note":"Prompt 变体统计与成功率: 成功率=0.8444，基线优先排序"}
-{"ts":"2026-09-05T15:03:19.516Z","id":"TC18","status":"PASS","note":"零试验变体不产生除零: successRate=null，无 NaN 污染"}
-{"ts":"2026-09-05T15:03:20.210Z","id":"TC19","status":"PASS","note":"开关读写闭环持久化: 写入 runtime_state 且可回读"}
-{"ts":"2026-09-05T15:03:20.585Z","id":"TC20","status":"PASS","note":"未配置时默认启用: 缺配置默认 enabled=true"}
-{"ts":"2026-09-05T15:03:20.953Z","id":"TC21","status":"PASS","note":"agentId 数据隔离: 能力与目标均按 agentId 隔离"}
-{"ts":"2026-09-05T15:03:21.057Z","id":"TC22","status":"PASS","note":"未知 autonomous 子命令报错: 退出码 2"}
+{"ts":"2026-09-05T16:59:12.644Z","id":"TC1","status":"PASS","note":"正式表结构齐全: 12 张表齐全"}
+{"ts":"2026-09-05T16:59:12.753Z","id":"TC2","status":"PASS","note":"help 暴露全部 autonomous 命令: 10 个命令均可被 Agent 发现"}
+{"ts":"2026-09-05T16:59:12.919Z","id":"TC3","status":"PASS","note":"status 空数据降级: hasData=false，不抛异常"}
+{"ts":"2026-09-05T16:59:13.110Z","id":"TC4","status":"PASS","note":"满意度四维加权公式一致性: overall=0.6750，与设计公式 0.695 一致，四维无错位"}
+{"ts":"2026-09-05T16:59:13.289Z","id":"TC5","status":"PASS","note":"满意度趋势判定: trend=improving，3 点升序"}
+{"ts":"2026-09-05T16:59:16.697Z","id":"TC6","status":"PASS","note":"时间窗口过滤边界: 7d=3 / 30d=3 / all=4，边界正确"}
+{"ts":"2026-09-05T16:59:17.223Z","id":"TC7","status":"PASS","note":"目标列表与状态过滤: 全部 2 条，pending 1 条，字段映射正确"}
+{"ts":"2026-09-05T16:59:17.397Z","id":"TC8","status":"PASS","note":"非法 status 安全降级: 白名单拦下非法状态值，数据完好"}
+{"ts":"2026-09-05T16:59:17.619Z","id":"TC9","status":"PASS","note":"批准目标流转 executing 并记录 evolution-decided: status=executing + evolution-decided 人格事件已落库"}
+{"ts":"2026-09-05T16:59:17.802Z","id":"TC10","status":"PASS","note":"拒绝目标状态流转落库: status=rejected"}
+{"ts":"2026-09-05T16:59:18.191Z","id":"TC11","status":"PASS","note":"重复审批被拒绝: 非 pending 目标无法二次流转"}
+{"ts":"2026-09-05T16:59:18.362Z","id":"TC12","status":"PASS","note":"不存在目标优雅失败: 返回 success=false 并说明原因"}
+{"ts":"2026-09-05T16:59:18.460Z","id":"TC13","status":"PASS","note":"缺 goalId 参数校验: 退出码 2"}
+{"ts":"2026-09-05T16:59:18.639Z","id":"TC14","status":"PASS","note":"能力维度查询与字段映射: level/confidence/boundary/testCount 映射正确"}
+{"ts":"2026-09-05T16:59:18.815Z","id":"TC15","status":"PASS","note":"反思记录 JSON 列解析: JSON 列解析为数组，含 rootCause"}
+{"ts":"2026-09-05T16:59:18.999Z","id":"TC16","status":"PASS","note":"脏 JSON 列降级不打断列表: 脏 JSON 降级空数组，整表仍可用"}
+{"ts":"2026-09-05T16:59:19.188Z","id":"TC17","status":"PASS","note":"Prompt 变体统计与成功率: 成功率=0.8444，基线优先排序"}
+{"ts":"2026-09-05T16:59:19.578Z","id":"TC18","status":"PASS","note":"零试验变体不产生除零: successRate=null，无 NaN 污染"}
+{"ts":"2026-09-05T16:59:20.255Z","id":"TC19","status":"PASS","note":"开关读写闭环持久化: 写入 runtime_state 且可回读"}
+{"ts":"2026-09-05T16:59:20.616Z","id":"TC20","status":"PASS","note":"未配置时默认启用: 缺配置默认 enabled=true"}
+{"ts":"2026-09-05T16:59:20.952Z","id":"TC21","status":"PASS","note":"agentId 数据隔离: 能力与目标均按 agentId 隔离"}
+{"ts":"2026-09-05T16:59:21.050Z","id":"TC22","status":"PASS","note":"未知 autonomous 子命令报错: 退出码 2"}

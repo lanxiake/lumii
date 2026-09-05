@@ -1,6 +1,6 @@
 # 自主进化 CLI 测试报告
 
-**执行时间**: 2026-09-05T15:03:21.070Z
+**执行时间**: 2026-09-05T16:59:21.065Z
 **结果**: 22 PASS / 0 FAIL（共 22）
 **数据库**: `C:\Users\Administrator\.lumii\data\agent-runtime.db`
 **探针 agent**: `autonomous-test-*`（跑完已清理）
