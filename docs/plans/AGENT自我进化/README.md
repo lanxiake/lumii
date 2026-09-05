@@ -22,6 +22,7 @@
 - **2026-09-04-autonomous-evolution-agent-implementation-p1.md** - P1 阶段实施计划
 - **2026-09-04-autonomous-evolution-agent-implementation-p2.md** - P2 阶段实施计划（多层进化协同）
 - **2026-09-04-autonomous-evolution-agent-implementation-p3.md** - P3 阶段实施计划（协同闭环落地 + 多 Agent 自组织）
+- **2026-09-05-autonomous-evolution-heartbeat-implementation.md** ⭐ 最新 - 心跳与生命感实施计划（对应设计文档 10、11）
 - **交付总结.md** - 交付物汇总与 v1.1 修订说明
 
 > 用户指南与前端可视化方案位于 `docs/design/自主进化Agent/`：
