@@ -151,6 +151,13 @@ export type {
 } from "./wiki-migrate-inventory.js";
 
 export {
+  MIGRATE_PLAN_BATCH_SIZE,
+  MIGRATE_CONFIDENCE_THRESHOLD,
+  buildMigratePlanPrompt,
+  parseMigratePlanResponse,
+} from "./wiki-migrate-prompt.js";
+
+export {
   buildLibraryInventory,
   ANCHOR_SAMPLES_PER_LEAF,
 } from "./wiki-library-inventory.js";
