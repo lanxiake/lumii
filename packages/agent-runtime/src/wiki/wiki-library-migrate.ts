@@ -8,7 +8,7 @@
  */
 
 import { generateWikiId } from "./types.js";
-import type { WikiInboxItem } from "./types.js";
+import type { WikiInboxItem, WikiSource } from "./types.js";
 import { buildMigrateInventory } from "./wiki-migrate-inventory.js";
 import {
   MIGRATE_PLAN_BATCH_SIZE,
@@ -46,6 +46,11 @@ export type WikiMigrateMappingPatch = Partial<
   Pick<MigrateFolderMapping, "category" | "subtopic" | "approvedProposedSubtopic" | "ignored">
 >;
 
+/** apply 阶段可选钩子（bridge 接线 vault sync 等） */
+export interface WikiLibraryMigrateHooks {
+  readonly onSourceCreated?: (source: WikiSource) => void;
+}
+
 const PHASE_LABELS: Record<WikiMigratePhase, string> = {
   inventorying: "正在盘点源目录",
   planning: "正在规划目录映射",
@@ -75,6 +80,7 @@ export class WikiLibraryMigrate {
     /** 测试注入固定 id；生产用 generateWikiId */
     private readonly newId: () => string = generateWikiId,
     private readonly onProgress?: (p: WikiMigrateProgress) => void,
+    private readonly hooks?: WikiLibraryMigrateHooks,
   ) {}
 
   /** inventorying / planning / applying 视为 busy，阻塞 organizer 与 reclassify */
@@ -287,6 +293,155 @@ export class WikiLibraryMigrate {
     });
   }
 
+  /**
+   * 按 review 映射逐条归档 inbox → wiki_sources。
+   * 先写入已批准的 proposedSubtopic；跳过 ignored / conflict 簇；每条前检查 cancel。
+   */
+  async apply(agentId: string, userId: string): Promise<WikiMigrateRun> {
+    const run = this.repo.getMigrateRun(agentId, userId);
+    if (!run) throw new Error("无迁移方案可执行");
+    if (run.phase !== "review") {
+      throw new Error("仅预览阶段可确认执行");
+    }
+
+    this.ensureApprovedSubtopics(run.mappings);
+
+    const queue = this.buildApplyQueue(run.mappings);
+    if (queue.length === 0) {
+      const finished: WikiMigrateRun = {
+        ...run,
+        phase: "succeeded",
+        finishedAt: new Date().toISOString(),
+        progress: this.makeProgress(run.id, "succeeded", 0, 0, null, undefined, false, 0),
+      };
+      this.persistRun(agentId, userId, finished);
+      return finished;
+    }
+
+    let current: WikiMigrateRun = {
+      ...run,
+      phase: "applying",
+      appliedSourceIds: [],
+      appliedInboxIds: [],
+      cancelRequested: false,
+      progress: this.makeProgress(run.id, "applying", 0, queue.length, null, undefined, false, 0),
+    };
+    this.persistRun(agentId, userId, current);
+
+    const appliedSourceIds: string[] = [];
+    const appliedInboxIds: string[] = [];
+    let failed = 0;
+
+    for (const entry of queue) {
+      if (this.isCancelRequested(agentId, userId)) {
+        break;
+      }
+
+      const item = this.repo.findInboxById(entry.inboxId);
+      if (!item || item.status !== "pending") continue;
+
+      current = {
+        ...current,
+        progress: this.makeProgress(
+          run.id,
+          "applying",
+          appliedInboxIds.length,
+          queue.length,
+          item.title,
+          undefined,
+          this.isCancelRequested(agentId, userId),
+          appliedInboxIds.length,
+        ),
+      };
+      this.persistRun(agentId, userId, current);
+
+      if (this.isCancelRequested(agentId, userId)) {
+        break;
+      }
+
+      if (entry.category === null) continue;
+
+      try {
+        const source = this.repo.archiveInboxItem(item, entry.category, entry.subtopic);
+        this.hooks?.onSourceCreated?.(source);
+        appliedSourceIds.push(source.id);
+        appliedInboxIds.push(item.id);
+      } catch {
+        failed += 1;
+      }
+
+      current = {
+        ...current,
+        appliedSourceIds: [...appliedSourceIds],
+        appliedInboxIds: [...appliedInboxIds],
+        progress: this.makeProgress(
+          run.id,
+          "applying",
+          appliedInboxIds.length,
+          queue.length,
+          item.title,
+          undefined,
+          this.isCancelRequested(agentId, userId),
+          appliedInboxIds.length,
+        ),
+      };
+      this.persistRun(agentId, userId, current);
+    }
+
+    const cancelled = this.isCancelRequested(agentId, userId);
+    const phase: WikiMigratePhase = cancelled ? "cancelled" : failed > 0 ? "partial" : "succeeded";
+
+    const finished: WikiMigrateRun = {
+      ...current,
+      phase,
+      appliedSourceIds,
+      appliedInboxIds,
+      cancelRequested: cancelled,
+      finishedAt: new Date().toISOString(),
+      progress: this.makeProgress(
+        run.id,
+        phase,
+        appliedInboxIds.length,
+        queue.length,
+        null,
+        cancelled ? undefined : failed > 0 ? `${failed} 项归档失败` : undefined,
+        cancelled,
+        appliedInboxIds.length,
+      ),
+    };
+    this.persistRun(agentId, userId, finished);
+    return finished;
+  }
+
+  /**
+   * 撤销本 run 已成功落位的 source，inbox 回 pending。
+   * 仅 cancelled / partial / succeeded 且 appliedSourceIds 非空时可用。
+   */
+  undo(agentId: string, userId: string): WikiMigrateRun {
+    const run = this.repo.getMigrateRun(agentId, userId);
+    if (!run) throw new Error("无迁移方案可撤销");
+    if (run.appliedSourceIds.length === 0) {
+      throw new Error("本 run 没有已落位条目可撤销");
+    }
+    if (run.phase !== "cancelled" && run.phase !== "partial" && run.phase !== "succeeded") {
+      throw new Error("当前阶段不可撤销");
+    }
+
+    this.repo.reopenInboxAfterUndo(agentId, userId, run.appliedSourceIds);
+
+    const undone: WikiMigrateRun = {
+      ...run,
+      phase: "undone",
+      appliedSourceIds: [],
+      appliedInboxIds: [],
+      cancelRequested: false,
+      finishedAt: new Date().toISOString(),
+      progress: this.makeProgress(run.id, "undone", 0, run.progress.total, null, undefined, false, 0),
+    };
+    this.persistRun(agentId, userId, undone);
+    return undone;
+  }
+
   /** 启动前互斥检查 */
   private assertCanStartPlan(agentId: string, userId: string): void {
     const reclassify = this.repo.getReclassifyRun(agentId, userId);
@@ -384,6 +539,7 @@ export class WikiLibraryMigrate {
     currentItem: string | null,
     message?: string,
     cancelRequested?: boolean,
+    appliedCount?: number,
   ): WikiMigrateProgress {
     const progress: WikiMigrateProgress = {
       runId,
@@ -394,9 +550,60 @@ export class WikiLibraryMigrate {
       currentItem,
       ...(message ? { message } : {}),
       ...(cancelRequested ? { cancelRequested } : {}),
+      ...(appliedCount !== undefined ? { appliedCount } : {}),
     };
     this.onProgress?.(progress);
     return progress;
+  }
+
+  /** 对 approvedProposedSubtopic 的映射先 addSubtopic（已存在则跳过） */
+  private ensureApprovedSubtopics(mappings: readonly MigrateFolderMapping[]): void {
+    const tree = this.repo.getOrCreateTopicTree();
+    for (const mapping of mappings) {
+      if (!mapping.approvedProposedSubtopic || !mapping.proposedSubtopic || !mapping.category) {
+        continue;
+      }
+      const cat = tree.categories.find((c) => c.name === mapping.category);
+      if (cat?.subtopics.includes(mapping.proposedSubtopic)) continue;
+      const subtopic = mapping.subtopic ?? mapping.proposedSubtopic;
+      if (cat?.subtopics.includes(subtopic)) continue;
+      this.repo.applyTopicMutation({
+        op: "addSubtopic",
+        category: mapping.category,
+        name: subtopic,
+      });
+    }
+  }
+
+  /** 从可执行映射展开 inbox 归档队列（跳过 ignored / conflict / needContent） */
+  private buildApplyQueue(
+    mappings: readonly MigrateFolderMapping[],
+  ): { readonly inboxId: string; readonly category: string | null; readonly subtopic: string | null }[] {
+    const queue: { inboxId: string; category: string | null; subtopic: string | null }[] = [];
+
+    for (const mapping of mappings) {
+      if (mapping.ignored || mapping.status === "conflict" || mapping.status === "needContent") {
+        continue;
+      }
+      const exceptionByInbox = new Map(
+        (mapping.exceptions ?? []).map((ex) => [ex.inboxId, ex] as const),
+      );
+
+      for (const inboxId of mapping.inboxIds) {
+        const ex = exceptionByInbox.get(inboxId);
+        if (ex) {
+          queue.push({ inboxId, category: ex.category, subtopic: ex.subtopic });
+        } else {
+          queue.push({
+            inboxId,
+            category: mapping.category,
+            subtopic: mapping.subtopic,
+          });
+        }
+      }
+    }
+
+    return queue;
   }
 
   /** 写入 run 并广播进度 */

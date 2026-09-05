@@ -1,7 +1,8 @@
 /**
- * WikiLibraryMigrate 状态机：plan / cancel / discard / replan / updateMapping
+ * WikiLibraryMigrate 状态机：plan / cancel / discard / replan / updateMapping / apply / undo
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { WikiSource } from "./types.js";
 import { createMigratedTestDb } from "../__tests__/helpers/sqlite-test-db.js";
 import { WikiRepo } from "./wiki-repo.js";
 import { WikiLibraryMigrate } from "./wiki-library-migrate.js";
@@ -251,5 +252,188 @@ describe("WikiLibraryMigrate updateMapping", () => {
     await mig.plan(planOpts([id1]));
     const updated = mig.updateMapping("ag", "u", "proj", { ignored: true });
     expect(updated.mappings[0]!.ignored).toBe(true);
+  });
+});
+
+function setupTwoFolderInbox(repo: WikiRepo): { id1: string; id2: string } {
+  const id1 = repo.ingestToInbox({
+    agentId: "ag",
+    userId: "u",
+    itemType: "output",
+    title: "a.md",
+    sourcePath: `${IMPORT_ROOT}/proj/a.md`,
+  }).id;
+  const id2 = repo.ingestToInbox({
+    agentId: "ag",
+    userId: "u",
+    itemType: "output",
+    title: "b.md",
+    sourcePath: `${IMPORT_ROOT}/other/b.md`,
+  }).id;
+  return { id1, id2 };
+}
+
+async function planTwoFoldersToReview(mig: WikiLibraryMigrate, id1: string, id2: string) {
+  return mig.plan(planOpts([id1, id2]));
+}
+
+describe("WikiLibraryMigrate apply", () => {
+  it("apply 按映射 archive，写入 appliedSourceIds", async () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const { id1, id2 } = setupInboxPair(repo);
+    const mig = new WikiLibraryMigrate(
+      repo,
+      async () =>
+        JSON.stringify([
+          { folderRel: "proj", category: "工作", subtopic: "项目", confidence: 0.9, reason: "同项目" },
+        ]),
+      mkId,
+    );
+    await mig.plan(planOpts([id1, id2]));
+    const run = await mig.apply("ag", "u");
+
+    expect(run.phase).toBe("succeeded");
+    expect(run.appliedSourceIds).toHaveLength(2);
+    expect(run.appliedInboxIds).toEqual(expect.arrayContaining([id1, id2]));
+    expect(repo.findSourceById(run.appliedSourceIds[0]!)!.topic_category).toBe("工作");
+    expect(repo.findSourceById(run.appliedSourceIds[0]!)!.topic_subtopic).toBe("项目");
+    expect(repo.findInboxById(id1)!.status).toBe("organized");
+    expect(repo.findInboxById(id2)!.status).toBe("organized");
+  });
+
+  it("apply 中途 cancel：仅部分落位，phase=cancelled", async () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const { id1, id2 } = setupTwoFolderInbox(repo);
+    let mig!: WikiLibraryMigrate;
+    mig = new WikiLibraryMigrate(
+      repo,
+      async () =>
+        JSON.stringify([
+          { folderRel: "proj", category: "工作", subtopic: "项目", confidence: 0.9, reason: "proj" },
+          { folderRel: "other", category: "学习", subtopic: "在学", confidence: 0.9, reason: "other" },
+        ]),
+      mkId,
+      (p) => {
+        if (p.appliedCount === 1) mig.cancel("ag", "u");
+      },
+    );
+    await planTwoFoldersToReview(mig, id1, id2);
+    const run = await mig.apply("ag", "u");
+
+    expect(run.phase).toBe("cancelled");
+    expect(run.appliedSourceIds).toHaveLength(1);
+    const remainingId = run.appliedInboxIds[0] === id1 ? id2 : id1;
+    expect(repo.findInboxById(remainingId)!.status).toBe("pending");
+  });
+
+  it("apply 调用 onSourceCreated 钩子", async () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const { id1 } = setupInboxPair(repo);
+    const created: WikiSource[] = [];
+    const mig = new WikiLibraryMigrate(
+      repo,
+      async () =>
+        JSON.stringify([
+          { folderRel: "proj", category: "工作", subtopic: "项目", confidence: 0.9, reason: "同项目" },
+        ]),
+      mkId,
+      undefined,
+      { onSourceCreated: (s) => created.push(s) },
+    );
+    await mig.plan(planOpts([id1]));
+    await mig.apply("ag", "u");
+    expect(created).toHaveLength(1);
+    expect(created[0]!.topic_category).toBe("工作");
+  });
+
+  it("非 review 阶段 apply 抛错", async () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.setMigrateRun("ag", "u", {
+      id: "r1",
+      agentId: "ag",
+      userId: "u",
+      importRoot: IMPORT_ROOT,
+      phase: "planning",
+      inboxIds: [],
+      mappings: [],
+      appliedSourceIds: [],
+      appliedInboxIds: [],
+      cancelRequested: false,
+      progress: {
+        runId: "r1",
+        phase: "planning",
+        phaseLabel: "规划中",
+        done: 0,
+        total: 0,
+        currentItem: null,
+      },
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    const mig = new WikiLibraryMigrate(repo, async () => "[]", mkId);
+    await expect(mig.apply("ag", "u")).rejects.toThrow(/预览/);
+  });
+});
+
+describe("WikiLibraryMigrate undo", () => {
+  it("undo 后 source 消失且 inbox 回 pending，可再 plan", async () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const { id1, id2 } = setupInboxPair(repo);
+    const mig = new WikiLibraryMigrate(
+      repo,
+      async () =>
+        JSON.stringify([
+          { folderRel: "proj", category: "工作", subtopic: "项目", confidence: 0.9, reason: "同项目" },
+        ]),
+      mkId,
+    );
+    await mig.plan(planOpts([id1, id2]));
+    const applied = await mig.apply("ag", "u");
+    const sourceIds = [...applied.appliedSourceIds];
+
+    const undone = await mig.undo("ag", "u");
+    expect(undone.phase).toBe("undone");
+    expect(undone.appliedSourceIds).toHaveLength(0);
+    expect(repo.findInboxById(id1)!.status).toBe("pending");
+    expect(repo.findInboxById(id2)!.status).toBe("pending");
+    for (const sid of sourceIds) {
+      expect(repo.findSourceById(sid)).toBeNull();
+    }
+
+    mig.discard("ag", "u");
+    const llm2 = vi.fn(async () =>
+      JSON.stringify([
+        { folderRel: "proj", category: "学习", subtopic: "在学", confidence: 0.85, reason: "重规划" },
+      ]),
+    );
+    const mig2 = new WikiLibraryMigrate(repo, llm2, mkId);
+    const replanned = await mig2.plan(planOpts([id1, id2]));
+    expect(replanned.phase).toBe("review");
+  });
+
+  it("不修改本 run 之外已归档资料的 topic", async () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const preItem = repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "output",
+      title: "old.md",
+      sourcePath: `${IMPORT_ROOT}/legacy/old.md`,
+    });
+    const preexisting = repo.archiveInboxItem(preItem, "学习", "参考");
+
+    const { id1, id2 } = setupInboxPair(repo);
+    const mig = new WikiLibraryMigrate(
+      repo,
+      async () =>
+        JSON.stringify([
+          { folderRel: "proj", category: "工作", subtopic: "项目", confidence: 0.9, reason: "同项目" },
+        ]),
+      mkId,
+    );
+    await mig.plan(planOpts([id1, id2]));
+    await mig.apply("ag", "u");
+
+    expect(repo.findSourceById(preexisting.id)!.topic_category).toBe("学习");
+    expect(repo.findSourceById(preexisting.id)!.topic_subtopic).toBe("参考");
   });
 });

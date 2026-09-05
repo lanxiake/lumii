@@ -161,6 +161,7 @@ export { WikiLibraryMigrate } from "./wiki-library-migrate.js";
 export type {
   WikiLibraryMigratePlanOptions,
   WikiLibraryMigrateReplanOptions,
+  WikiLibraryMigrateHooks,
   WikiMigrateMappingPatch,
 } from "./wiki-library-migrate.js";
 
