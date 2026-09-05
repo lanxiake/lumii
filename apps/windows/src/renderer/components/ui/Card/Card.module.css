@@ -4,9 +4,6 @@
   --mx: 50%;
   --my: 0%;
   position: relative;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
   border: 1px solid var(--mt-border);
   border-radius: var(--mt-radius-xl);
   background:

@@ -251,7 +251,6 @@ export function AutonomousPage() {
               header={<TitledHeader title="满意度评分" tip={TIP_SATISFACTION_OVERALL} />}
               className={styles.overviewScore}
               bodyClassName={styles.cardBodyFill}
-              overflowVisible
             >
               <div className={styles.satisfactionCompact}>
                 <Tooltip content={TIP_SATISFACTION_OVERALL} placement="bottom">
@@ -292,8 +291,7 @@ export function AutonomousPage() {
             <Card
               header={<TitledHeader title="满意度趋势 · 7 天" tip={TIP_SATISFACTION_CHART} />}
               className={styles.overviewTrend}
-              bodyClassName={styles.chartBodyFill}
-              overflowVisible
+              bodyClassName={styles.cardBodyFill}
             >
               <div className={styles.chartFill}>
                 <SatisfactionChart history={satisfactionHistory} window="7d" fillHeight />
@@ -304,7 +302,6 @@ export function AutonomousPage() {
               header={<TitledHeader title={`待审批目标 (${goals.length})`} tip={TIP_PENDING_GOALS} />}
               className={styles.overviewGoals}
               bodyClassName={styles.cardBodyFill}
-              overflowVisible
             >
               {goals.length === 0 ? (
                 <div className={styles.emptyCompact}>
@@ -334,7 +331,6 @@ export function AutonomousPage() {
                 header={<TitledHeader title="能力雷达" tip={TIP_CAPABILITY_RADAR} />}
                 className={styles.radarCol}
                 bodyClassName={styles.cardBodyFill}
-                overflowVisible
               >
                 <CapabilityRadar capabilities={capabilities} size={280} />
               </Card>
@@ -342,7 +338,6 @@ export function AutonomousPage() {
                 header={<TitledHeader title="进化维度" tip={TIP_CAPABILITY_DIMENSIONS} />}
                 className={styles.dimensionsCol}
                 bodyClassName={styles.cardBodyFill}
-                overflowVisible
               >
                 <div className={styles.capabilitiesList}>
                   {Object.entries(capabilities).map(([dimension, state]: [string, any]) => (
@@ -380,7 +375,6 @@ export function AutonomousPage() {
                 header={<TitledHeader title="最近反思" tip={TIP_REFLECTION_LIST} />}
                 className={styles.reflectionListCol}
                 bodyClassName={styles.cardBodyFill}
-                overflowVisible
               >
                 <div className={styles.reflectionNav}>
                   {reflections.map((reflection) => (
@@ -406,7 +400,6 @@ export function AutonomousPage() {
                 header={<TitledHeader title="详情" tip={TIP_REFLECTION.detail} />}
                 className={styles.reflectionDetailCol}
                 bodyClassName={styles.cardBodyFill}
-                overflowVisible
               >
                 {selectedReflection ? (
                   <ReflectionCard reflection={selectedReflection} variant="detail" />
@@ -432,7 +425,6 @@ export function AutonomousPage() {
         {activeTab === 'prompt' && (
           <Card
             header={<TitledHeader title="Prompt 变体统计" tip={TIP_PROMPT_STATS} />}
-            overflowVisible
           >
             {promptStats.length > 0 ? (
               <PromptVariantStats stats={promptStats} />

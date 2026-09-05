@@ -27,12 +27,12 @@ interface SatisfactionChartProps {
   fillHeight?: boolean
 }
 
-/** 绘图边距：为轴标签预留足够空间，避免被裁切 */
+/** 绘图边距：轴标签画在画布内部，不依赖父级 overflow:visible */
 const CHART_PAD = {
-  top: 16,
-  right: 16,
-  bottom: 36,
-  left: 44,
+  top: 18,
+  right: 18,
+  bottom: 40,
+  left: 48,
 } as const
 
 /**

@@ -171,11 +171,6 @@
   overflow: hidden;
 }
 
-.overviewTrend {
-  /* 趋势图轴标签需要可见，避免卡片裁切 */
-  overflow: visible;
-}
-
 .overviewGoals {
   grid-column: 1 / -1;
 }
@@ -184,15 +179,6 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-/** 趋势图卡片 body：不裁切坐标轴标签 */
-.chartBodyFill {
-  flex: 1;
-  min-height: 0;
-  overflow: visible;
   display: flex;
   flex-direction: column;
 }
@@ -278,11 +264,11 @@
 
 .chartFill {
   flex: 1;
-  min-height: 220px;
+  min-height: 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  overflow: visible;
+  overflow: hidden;
 }
 
 /* ===== 能力：左雷达 + 右维度 ===== */
