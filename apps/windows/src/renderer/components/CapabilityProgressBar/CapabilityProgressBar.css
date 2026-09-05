@@ -17,11 +17,21 @@
   font-size: 14px;
   font-weight: 500;
   color: #333;
+  cursor: help;
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.6);
 }
 
 .level-value {
   font-size: 14px;
   font-weight: 600;
+  cursor: help;
+}
+
+.test-count,
+.confidence-value {
+  font-size: 12px;
+  cursor: help;
+  border-bottom: 1px dashed rgba(148, 163, 184, 0.45);
 }
 
 .level-value.trend-up {
@@ -80,9 +90,4 @@
   justify-content: space-between;
   font-size: 12px;
   color: #999;
-}
-
-.test-count,
-.confidence-value {
-  font-size: 12px;
 }

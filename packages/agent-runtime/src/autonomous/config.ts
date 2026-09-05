@@ -11,12 +11,17 @@ import type { SatisfactionWeights } from './types';
  * 满意度权重配置
  * 来源：设计文档 2-元认知引擎算法.md
  * 四个维度权重总和必须为 1.0
+ *
+ * V1.0 口径（2026-09-05 后）：
+ * - knowledge_growth 因工具分类器未实现而暂时禁用（权重 0），剩余三维归一化
+ * - 原权重 task:0.35 / feedback:0.30 / efficiency:0.20 / knowledge:0.15
+ * - 归一化后 task:0.41176 / feedback:0.35294 / efficiency:0.23529 / knowledge:0
  */
 export const SATISFACTION_WEIGHTS: SatisfactionWeights = {
-  task: 0.35,       // 任务完成度权重
-  feedback: 0.30,   // 用户反馈权重
-  efficiency: 0.20, // 效率权重
-  knowledge: 0.15,  // 知识增长权重
+  task: 0.41176,       // 任务完成度权重（0.35 / 0.85 归一化）
+  feedback: 0.35294,   // 用户反馈权重（0.30 / 0.85 归一化）
+  efficiency: 0.23529, // 效率权重（0.20 / 0.85 归一化）
+  knowledge: 0,        // 知识增长权重（暂时禁用，等工具分类器实现）
 };
 
 /**

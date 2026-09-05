@@ -4,35 +4,51 @@
 
 .satisfaction-chart {
   position: relative;
-  padding: 20px;
-  background: white;
-  border-radius: 12px;
-  border: 1px solid #e8e8e8;
+  width: 100%;
+  min-height: 180px;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  border: none;
+  overflow: visible;
+}
+
+.satisfaction-chart.fill {
+  flex: 1;
+  height: 100%;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .satisfaction-chart.empty {
-  padding: 60px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
   text-align: center;
-  color: #999;
+  color: var(--mt-fg-4, #999);
+  font-size: 13px;
 }
 
 .satisfaction-chart canvas {
   display: block;
+  /* 用 JS 设定的像素尺寸，避免 CSS 拉伸导致轴标签被裁切/糊掉 */
   max-width: 100%;
-  height: auto;
+  flex-shrink: 0;
   cursor: crosshair;
 }
 
-/* 提示框 */
 .chart-tooltip {
   position: absolute;
-  bottom: 100%;
+  bottom: calc(100% - 36px);
   margin-bottom: 10px;
   padding: 8px 12px;
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(15, 23, 42, 0.9);
   color: white;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12px;
   pointer-events: none;
   white-space: nowrap;
   z-index: 10;
@@ -45,7 +61,7 @@
   left: 50%;
   transform: translateX(-50%);
   border: 5px solid transparent;
-  border-top-color: rgba(0, 0, 0, 0.85);
+  border-top-color: rgba(15, 23, 42, 0.9);
 }
 
 .tooltip-date {
@@ -54,7 +70,7 @@
 }
 
 .tooltip-score {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
-  color: #91d5ff;
+  color: #93c5fd;
 }

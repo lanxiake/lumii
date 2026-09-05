@@ -1,14 +1,15 @@
 /**
  * 能力进度条组件
  *
- * 展示单个能力维度的进度，包括：
- * - 能力水平（实心条）
- * - 置信度（虚线边框）
- * - 测试次数
- * - 趋势指示
+ * 展示单个能力维度的进度，包括水平、置信度、测试次数与趋势。
  */
 
 import React from 'react'
+import { Tooltip } from '../ui/Tooltip/Tooltip'
+import {
+  TIP_CAPABILITY_FIELD,
+  TIP_DIMENSION,
+} from '../../pages/AutonomousPage/autonomousTooltips'
 import './CapabilityProgressBar.css'
 
 /**
@@ -47,25 +48,29 @@ export function CapabilityProgressBar({
   trend = 'stable',
 }: CapabilityProgressBarProps) {
   const label = DIMENSION_LABELS[dimension] || dimension
+  const dimensionTip = TIP_DIMENSION[dimension] || `能力维度：${label}`
   const trendIcon = trend === 'up' ? '↑' : trend === 'down' ? '↓' : '→'
   const trendClass = trend === 'up' ? 'trend-up' : trend === 'down' ? 'trend-down' : 'trend-stable'
 
   return (
     <div className="capability-progress-bar">
       <div className="progress-header">
-        <span className="dimension-label">{label}</span>
-        <span className={`level-value ${trendClass}`}>
-          {(level * 100).toFixed(0)}% {trendIcon}
-        </span>
+        <Tooltip content={dimensionTip} placement="top">
+          <span className="dimension-label">{label}</span>
+        </Tooltip>
+        <Tooltip content={`${TIP_CAPABILITY_FIELD.level} ${TIP_CAPABILITY_FIELD.trend}`} placement="left">
+          <span className={`level-value ${trendClass}`}>
+            {(level * 100).toFixed(0)}% {trendIcon}
+          </span>
+        </Tooltip>
       </div>
 
-      <div className="progress-container">
+      <div className="progress-container" title={TIP_CAPABILITY_FIELD.level}>
         {/* 能力水平（实心条） */}
         <div className="progress-bar">
           <div
             className="progress-fill"
             style={{ width: `${level * 100}%` }}
-            title={`能力水平: ${(level * 100).toFixed(0)}%`}
           />
         </div>
 
@@ -73,13 +78,17 @@ export function CapabilityProgressBar({
         <div
           className="confidence-indicator"
           style={{ width: `${confidence * 100}%` }}
-          title={`置信度: ${(confidence * 100).toFixed(0)}%`}
+          title={TIP_CAPABILITY_FIELD.confidence}
         />
       </div>
 
       <div className="progress-footer">
-        <span className="test-count">测试次数: {testCount}</span>
-        <span className="confidence-value">置信度: {(confidence * 100).toFixed(0)}%</span>
+        <Tooltip content={TIP_CAPABILITY_FIELD.testCount} placement="top">
+          <span className="test-count">测试次数: {testCount}</span>
+        </Tooltip>
+        <Tooltip content={TIP_CAPABILITY_FIELD.confidence} placement="top">
+          <span className="confidence-value">置信度: {(confidence * 100).toFixed(0)}%</span>
+        </Tooltip>
       </div>
     </div>
   )

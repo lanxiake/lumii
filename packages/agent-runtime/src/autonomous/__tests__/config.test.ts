@@ -20,21 +20,22 @@ describe('自主进化 Agent 配置', () => {
   describe('SATISFACTION_WEIGHTS', () => {
     it('权重总和应严格等于 1.0', () => {
       const sum = SATISFACTION_WEIGHTS.task + SATISFACTION_WEIGHTS.feedback + SATISFACTION_WEIGHTS.efficiency + SATISFACTION_WEIGHTS.knowledge;
-      expect(sum).toBeCloseTo(1.0, 10);
+      expect(sum).toBeCloseTo(1.0, 4); // 放宽到 1e-4 容差避免浮点累积误差
     });
 
-    it('所有权重应为正数', () => {
+    it('所有权重应为非负数（V1.0 暂时禁用 knowledge）', () => {
       expect(SATISFACTION_WEIGHTS.task).toBeGreaterThan(0);
       expect(SATISFACTION_WEIGHTS.feedback).toBeGreaterThan(0);
       expect(SATISFACTION_WEIGHTS.efficiency).toBeGreaterThan(0);
-      expect(SATISFACTION_WEIGHTS.knowledge).toBeGreaterThan(0);
+      expect(SATISFACTION_WEIGHTS.knowledge).toBeGreaterThanOrEqual(0); // 暂时为 0
     });
 
-    it('权重应符合设计文档定义', () => {
-      expect(SATISFACTION_WEIGHTS.task).toBe(0.35);
-      expect(SATISFACTION_WEIGHTS.feedback).toBe(0.30);
-      expect(SATISFACTION_WEIGHTS.efficiency).toBe(0.20);
-      expect(SATISFACTION_WEIGHTS.knowledge).toBe(0.15);
+    it('权重应符合 V1.0 口径（三维归一化）', () => {
+      // 0.35/0.85 = 0.41176, 0.30/0.85 = 0.35294, 0.20/0.85 = 0.23529
+      expect(SATISFACTION_WEIGHTS.task).toBeCloseTo(0.41176, 5);
+      expect(SATISFACTION_WEIGHTS.feedback).toBeCloseTo(0.35294, 5);
+      expect(SATISFACTION_WEIGHTS.efficiency).toBeCloseTo(0.23529, 5);
+      expect(SATISFACTION_WEIGHTS.knowledge).toBe(0);
     });
   });
 

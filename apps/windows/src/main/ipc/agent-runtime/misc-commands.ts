@@ -8,6 +8,7 @@
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { StatefulContextStrategy } from '../../channel/context-strategy/stateful-strategy'
+import { recordFeedbackSignal } from '../../agent-runtime/autonomous-wiring'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -152,6 +153,8 @@ export async function handleMessageEditAndResend(
 ): Promise<{ success: boolean; messagesRemoved?: number; error?: string }> {
   const { sessionKey: convId, messageId, newContent } = command
   log.info(`[message:edit-and-resend] convId=${convId} messageId=${messageId}`)
+  // 重发是比单纯编辑更强的否定信号；删改都不留历史，只能在此刻记录
+  recordFeedbackSignal(convId, 'resend')
   try {
     // 1. 删除该消息之后的所有消息
     const removed = bridge.conversationRepo.deleteMessagesAfter(messageId, convId)

@@ -4,6 +4,7 @@
 
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
+import { recordFeedbackSignal } from '../../agent-runtime/autonomous-wiring'
 
 const log = {
   info: (...args: unknown[]) => console.log('[agent-runtime-ipc/message]', ...args),
@@ -36,6 +37,8 @@ export async function handleMessageEdit(
       contentJson: { type: 'text', text: newContent },
       isStreaming: false,
     })
+    // 编辑是原地覆盖、无历史，自主进化的反馈信号必须在此刻记录
+    recordFeedbackSignal(convId, 'edit')
     return { success: true }
   } catch (err) {
     log.error(`[message:edit] failed to edit message ${messageId}:`, err)

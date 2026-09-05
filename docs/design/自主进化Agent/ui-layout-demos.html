@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>自主进化页面布局 Demo</title>
+  <style>
+    :root {
+      --bg: #eef3f8;
+      --bg-grid: rgba(100, 140, 180, 0.06);
+      --card: #ffffff;
+      --fg-1: #0f172a;
+      --fg-2: #334155;
+      --fg-3: #64748b;
+      --fg-4: #94a3b8;
+      --border: #e2e8f0;
+      --accent: #3b82f6;
+      --accent-soft: #dbeafe;
+      --success: #16a34a;
+      --warning: #d97706;
+      --radius: 14px;
+      --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.04);
+      --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      color: var(--fg-1);
+      background:
+        linear-gradient(var(--bg-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px),
+        var(--bg);
+      background-size: 24px 24px, 24px 24px, auto;
+      min-height: 100vh;
+    }
+
+    .shell {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 20px 48px;
+    }
+
+    .demo-nav {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      margin: -24px -20px 20px;
+      padding: 14px 20px;
+      background: rgba(238, 243, 248, 0.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .demo-nav h1 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .demo-nav p {
+      margin: 0 0 12px;
+      color: var(--fg-3);
+      font-size: 13px;
+    }
+
+    .nav-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .nav-btn {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--fg-2);
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .nav-btn.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .label-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #fff;
+      border: 1px solid var(--border);
+      color: var(--fg-3);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .label-tag em {
+      font-style: normal;
+      color: var(--accent);
+    }
+
+    /* ===== Shared page chrome ===== */
+    .page {
+      background: transparent;
+      min-height: 640px;
+    }
+
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 14px;
+    }
+
+    .page-title {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--fg-3);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .switch {
+      width: 42px;
+      height: 24px;
+      border-radius: 999px;
+      background: var(--accent);
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .switch::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,.2);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      padding: 4px;
+      margin-bottom: 14px;
+      border-radius: 12px;
+      background: rgba(255,255,255,.7);
+      border: 1px solid var(--border);
+    }
+
+    .tab {
+      flex: 1;
+      text-align: center;
+      padding: 8px 10px;
+      border-radius: 10px;
+      color: var(--fg-3);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .tab.on {
+      background: #fff;
+      color: var(--accent);
+      box-shadow: var(--shadow);
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .card-h {
+      padding: 12px 16px 0;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--fg-1);
+    }
+
+    .card-b { padding: 12px 16px 16px; }
+
+    .muted { color: var(--fg-3); font-size: 12px; }
+    .score {
+      font-size: 40px;
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1;
+    }
+    .trend { color: var(--fg-3); font-size: 13px; font-weight: 600; margin-top: 6px; }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 64px 1fr 36px;
+      gap: 8px;
+      align-items: center;
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--fg-3);
+    }
+
+    .bar {
+      height: 7px;
+      border-radius: 999px;
+      background: #eef2f7;
+      overflow: hidden;
+    }
+
+    .bar > i {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), #22c55e);
+      border-radius: inherit;
+    }
+
+    .val { text-align: right; color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+    /* fake chart */
+    .chart {
+      position: relative;
+      height: 160px;
+      border-radius: 10px;
+      background:
+        linear-gradient(to top, transparent 19%, #eef2f7 19%, #eef2f7 20%, transparent 20%) 0 0 / 100% 20%,
+        #f8fafc;
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    .chart svg { width: 100%; height: 100%; display: block; }
+    .chart-axis {
+      position: absolute;
+      left: 8px;
+      top: 8px;
+      bottom: 8px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      color: var(--fg-4);
+      font-size: 10px;
+      pointer-events: none;
+    }
+
+    .empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 120px;
+      color: var(--fg-4);
+      font-size: 13px;
+    }
+
+    .empty .clock {
+      width: 36px;
+      height: 36px;
+      border: 2px solid currentColor;
+      border-radius: 50%;
+      opacity: .45;
+      position: relative;
+    }
+    .empty .clock::before {
+      content: "";
+      position: absolute;
+      left: 50%; top: 50%;
+      width: 2px; height: 10px;
+      background: currentColor;
+      transform: translate(-50%, -80%);
+      border-radius: 1px;
+    }
+    .empty .clock::after {
+      content: "";
+      position: absolute;
+      left: 50%; top: 50%;
+      width: 8px; height: 2px;
+      background: currentColor;
+      transform: translate(0, -50%);
+      border-radius: 1px;
+    }
+
+    .goal {
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #f8fafc;
+      margin-top: 10px;
+    }
+    .goal-top { display: flex; justify-content: space-between; margin-bottom: 6px; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .stars { color: var(--warning); font-size: 12px; }
+    .goal h4 { margin: 0 0 6px; font-size: 14px; }
+    .goal p { margin: 0; color: var(--fg-3); font-size: 12px; line-height: 1.5; }
+    .goal-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .btn {
+      flex: 1;
+      border: none;
+      border-radius: 8px;
+      padding: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: default;
+    }
+    .btn.primary { background: var(--accent); color: #fff; }
+    .btn.ghost { background: transparent; border: 1px solid var(--border); color: var(--fg-2); }
+
+    /* ===== Overview layouts ===== */
+    .ov-a {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      grid-template-rows: auto 1fr;
+      gap: 12px;
+    }
+    .ov-a .goals { grid-column: 1 / -1; }
+
+    .ov-b .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .kpi {
+      padding: 14px 14px 12px;
+    }
+    .kpi .k { font-size: 11px; color: var(--fg-3); font-weight: 600; margin-bottom: 8px; }
+    .kpi .v { font-size: 24px; font-weight: 800; color: var(--fg-1); line-height: 1; }
+    .kpi .v.accent { color: var(--accent); }
+    .kpi .s { margin-top: 6px; font-size: 11px; color: var(--fg-4); }
+    .ov-b .stack { display: grid; gap: 12px; }
+
+    .ov-c {
+      display: grid;
+      grid-template-columns: 0.9fr 1.2fr 1fr;
+      gap: 12px;
+      align-items: stretch;
+    }
+    .ov-c .col { min-height: 360px; display: flex; flex-direction: column; }
+    .ov-c .col .card { flex: 1; display: flex; flex-direction: column; }
+    .ov-c .col .card-b { flex: 1; }
+
+    /* ===== Capability layouts ===== */
+    .cap-a {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 12px;
+    }
+    .radar-box {
+      aspect-ratio: 1;
+      max-width: 300px;
+      margin: 8px auto;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle, transparent 18%, #eef2f7 18.5%, #eef2f7 19%, transparent 19.5%) center/100% 100%,
+        radial-gradient(circle, transparent 38%, #eef2f7 38.5%, #eef2f7 39%, transparent 39.5%) center/100% 100%,
+        radial-gradient(circle, transparent 58%, #eef2f7 58.5%, #eef2f7 59%, transparent 59.5%) center/100% 100%,
+        radial-gradient(circle, transparent 78%, #eef2f7 78.5%, #eef2f7 79%, transparent 79.5%) center/100% 100%,
+        conic-gradient(from -90deg, rgba(59,130,246,.28) 0 18%, transparent 18% 100%);
+      position: relative;
+      border: 1px solid var(--border);
+    }
+    .radar-box::before {
+      content: "";
+      position: absolute;
+      inset: 22%;
+      clip-path: polygon(50% 8%, 82% 28%, 88% 62%, 62% 88%, 28% 82%, 12% 48%, 28% 18%);
+      background: rgba(59,130,246,.28);
+      border: 2px solid rgba(59,130,246,.75);
+    }
+    .radar-box::after {
+      content: "";
+      position: absolute;
+      inset: 28%;
+      clip-path: polygon(50% 18%, 78% 34%, 80% 66%, 58% 82%, 32% 76%, 18% 50%, 34% 26%);
+      background: rgba(34,197,94,.18);
+      border: 1.5px dashed rgba(34,197,94,.75);
+    }
+    .legend {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      font-size: 12px;
+      color: var(--fg-3);
+    }
+    .legend span::before {
+      content: "";
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      margin-right: 6px;
+      vertical-align: -1px;
+    }
+    .legend .lv::before { background: rgba(59,130,246,.7); }
+    .legend .cf::before { background: rgba(34,197,94,.7); }
+
+    .dim-list { display: grid; gap: 10px; }
+    .dim {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #f8fafc;
+    }
+    .dim-top {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .dim-meta { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--fg-4); }
+
+    .cap-b {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .cap-b .radar-full { grid-column: 1 / -1; }
+    .cap-b .radar-full .radar-box { max-width: 260px; }
+
+    .cap-c .dim-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .mini-dim {
+      padding: 14px;
+      text-align: center;
+    }
+    .mini-dim .name { font-size: 12px; color: var(--fg-3); margin-bottom: 8px; }
+    .mini-dim .pct { font-size: 22px; font-weight: 800; color: var(--accent); }
+    .cap-c .bottom {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 12px;
+    }
+
+    /* ===== Reflection layouts ===== */
+    .ref-a { display: grid; gap: 12px; }
+    .ref-card { padding: 0; }
+    .ref-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 14px 16px 0;
+    }
+    .ref-title { margin: 0; font-size: 14px; font-weight: 700; }
+    .ref-time { color: var(--fg-4); font-size: 12px; white-space: nowrap; }
+    .ref-body { padding: 10px 16px 14px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+    .chip {
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .rec {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-left: 3px solid var(--accent);
+      background: #f8fafc;
+      border-radius: 0 8px 8px 0;
+      font-size: 12px;
+      color: var(--fg-2);
+    }
+
+    .ref-b {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 12px;
+      min-height: 420px;
+    }
+    .ref-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .ref-item {
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      cursor: default;
+    }
+    .ref-item.on {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .ref-item .t { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+    .ref-item .d { font-size: 11px; color: var(--fg-4); }
+
+    .ref-c .timeline {
+      position: relative;
+      padding-left: 22px;
+      display: grid;
+      gap: 14px;
+    }
+    .ref-c .timeline::before {
+      content: "";
+      position: absolute;
+      left: 7px;
+      top: 8px;
+      bottom: 8px;
+      width: 2px;
+      background: var(--border);
+    }
+    .tl-item { position: relative; }
+    .tl-item::before {
+      content: "";
+      position: absolute;
+      left: -19px;
+      top: 16px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
+    .note {
+      margin-top: 14px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(255,255,255,.75);
+      border: 1px dashed var(--border);
+      color: var(--fg-3);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    @media (max-width: 900px) {
+      .ov-a, .ov-c, .cap-a, .cap-c .bottom, .ref-b, .ov-b .kpi-row, .cap-c .dim-grid, .cap-b {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="demo-nav">
+      <h1>自主进化 · 布局 Demo（纯视觉稿，非真实数据）</h1>
+      <p>点选方案对比。所有方案均已把「启用开关」合并到标题行。推荐项会标星。</p>
+      <div class="nav-row" id="nav"></div>
+    </div>
+
+    <!-- ========== Overview A ========== -->
+    <section class="panel" data-id="ov-a">
+      <div class="label-tag">概览 · 方案 A · <em>双栏卡片（推荐）</em></div>
+      <div class="page">
+        <div class="page-header">
+          <h2 class="page-title">自主进化</h2>
+          <div class="toggle">已启用 <div class="switch"></div></div>
+        </div>
+        <div class="tabs">
+          <div class="tab on">概览</div><div class="tab">能力</div><div class="tab">反思</div><div class="tab">Prompt</div>
+        </div>
+        <div class="ov-a">
+          <div class="card">
+            <div class="card-h">满意度评分</div>
+            <div class="card-b">
+              <div style="display:flex;align-items:flex-end;gap:12px;margin-bottom:8px;">
+                <div class="score" style="font-size:36px;">75%</div>
+                <div class="trend">→ 稳定</div>
+              </div>
+              <div class="bar-row"><span>任务完成</span><div class="bar"><i style="width:82%"></i></div><span class="val">82%</span></div>
+              <div class="bar-row"><span>用户反馈</span><div class="bar"><i style="width:70%"></i></div><span class="val">70%</span></div>
+              <div class="bar-row"><span>效率</span><div class="bar"><i style="width:68%"></i></div><span class="val">68%</span></div>
+              <div class="bar-row"><span>知识增长</span><div class="bar"><i style="width:74%"></i></div><span class="val">74%</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-h">满意度趋势 · 7 天</div>
+            <div class="card-b">
+              <div class="chart">
+                <div class="chart-axis"><span>100%</span><span>75%</span><span>50%</span></div>
+                <svg viewBox="0 0 400 160" preserveAspectRatio="none">
+                  <path d="M20 110 C70 100, 110 90, 150 85 S230 70, 270 75 S340 55, 380 48" fill="none" stroke="#3b82f6" stroke-width="3"/>
+                  <path d="M20 110 C70 100, 110 90, 150 85 S230 70, 270 75 S340 55, 380 48 L380 150 L20 150 Z" fill="rgba(59,130,246,.12)" stroke="none"/>
+                </svg>
+              </div>
+            </div>
+          </div>
+          <div class="card goals">
+            <div class="card-h">待审批目标 (1)</div>
+            <div class="card-b">
+              <div class="goal">
+                <div class="goal-top"><span class="badge">能力提升</span><span class="stars">★★★☆☆</span></div>
+                <h4>加强多步规划能力，减少复杂任务中途偏离</h4>
+                <p><strong>触发原因：</strong>近 7 天复杂任务完成率偏低</p>
+                <div class="goal-actions"><button class="btn primary">批准并执行</button><button class="btn ghost">拒绝</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">评分与趋势并排，底部给目标足够高度；评分卡信息密度高，不再留大片空白。</div>
+    </section>
+
+    <!-- ========== Overview B ========== -->
+    <section class="panel" data-id="ov-b">
+      <div class="label-tag">概览 · 方案 B · KPI 顶栏 + 趋势主图</div>
+      <div class="page">
+        <div class="page-header">
+          <h2 class="page-title">自主进化</h2>
+          <div class="toggle">已启用 <div class="switch"></div></div>
+        </div>
+        <div class="tabs">
+          <div class="tab on">概览</div><div class="tab">能力</div><div class="tab">反思</div><div class="tab">Prompt</div>
+        </div>
+        <div class="ov-b">
+          <div class="kpi-row">
+            <div class="card kpi"><div class="k">综合满意度</div><div class="v accent">75%</div><div class="s">→ 稳定</div></div>
+            <div class="card kpi"><div class="k">任务完成</div><div class="v">82%</div><div class="s">本周 +3%</div></div>
+            <div class="card kpi"><div class="k">用户反馈</div><div class="v">70%</div><div class="s">持平</div></div>
+            <div class="card kpi"><div class="k">待审批</div><div class="v">1</div><div class="s">需确认</div></div>
+          </div>
+          <div class="stack">
+            <div class="card">
+              <div class="card-h">满意度趋势 · 7 天</div>
+              <div class="card-b">
+                <div class="chart" style="height:200px;">
+                  <div class="chart-axis"><span>100%</span><span>75%</span><span>50%</span></div>
+                  <svg viewBox="0 0 400 160" preserveAspectRatio="none">
+                    <path d="M20 110 C70 100, 110 90, 150 85 S230 70, 270 75 S340 55, 380 48" fill="none" stroke="#3b82f6" stroke-width="3"/>
+                    <path d="M20 110 C70 100, 110 90, 150 85 S230 70, 270 75 S340 55, 380 48 L380 150 L20 150 Z" fill="rgba(59,130,246,.12)" stroke="none"/>
+                  </svg>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-h">待审批目标 (1)</div>
+              <div class="card-b">
+                <div class="goal">
+                  <div class="goal-top"><span class="badge">能力提升</span><span class="stars">★★★☆☆</span></div>
+                  <h4>加强多步规划能力，减少复杂任务中途偏离</h4>
+                  <p><strong>触发原因：</strong>近 7 天复杂任务完成率偏低</p>
+                  <div class="goal-actions"><button class="btn primary">批准并执行</button><button class="btn ghost">拒绝</button></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">顶部一眼扫 KPI，趋势图成为视觉主角；维度明细拆成独立小卡，适合偏「监控台」风格。</div>
+    </section>
+
+    <!-- ========== Overview C ========== -->
+    <section class="panel" data-id="ov-c">
+      <div class="label-tag">概览 · 方案 C · 三列并排仪表盘</div>
+      <div class="page">
+        <div class="page-header">
+          <h2 class="page-title">自主进化</h2>
+          <div class="toggle">已启用 <div class="switch"></div></div>
+        </div>
+        <div class="tabs">
+          <div class="tab on">概览</div><div class="tab">能力</div><div class="tab">反思</div><div class="tab">Prompt</div>
+        </div>
+        <div class="ov-c">
+          <div class="col card">
+            <div class="card-h">满意度</div>
+            <div class="card-b">
+              <div class="score" style="font-size:42px;text-align:center;">75%</div>
+              <div class="trend" style="text-align:center;">→ 稳定</div>
+              <div style="margin-top:16px;">
+                <div class="bar-row"><span>任务</span><div class="bar"><i style="width:82%"></i></div><span class="val">82%</span></div>
+                <div class="bar-row"><span>反馈</span><div class="bar"><i style="width:70%"></i></div><span class="val">70%</span></div>
+                <div class="bar-row"><span>效率</span><div class="bar"><i style="width:68%"></i></div><span class="val">68%</span></div>
+                <div class="bar-row"><span>知识</span><div class="bar"><i style="width:74%"></i></div><span class="val">74%</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="col card">
+            <div class="card-h">趋势</div>
+            <div class="card-b">
+              <div class="chart" style="height:100%;min-height:260px;">
+                <div class="chart-axis"><span>100%</span><span>75%</span><span>50%</span></div>
+                <svg viewBox="0 0 400 160" preserveAspectRatio="none">
+                  <path d="M20 110 C70 100, 110 90, 150 85 S230 70, 270 75 S340 55, 380 48" fill="none" stroke="#3b82f6" stroke-width="3"/>
+                  <path d="M20 110 C70 100, 110 90, 150 85 S230 70, 270 75 S340 55, 380 48 L380 150 L20 150 Z" fill="rgba(59,130,246,.12)" stroke="none"/>
+                </svg>
+              </div>
+            </div>
+          </div>
+          <div class="col card">
+            <div class="card-h">待审批 (1)</div>
+            <div class="card-b">
+              <div class="goal">
+                <div class="goal-top"><span class="badge">能力提升</span><span class="stars">★★★</span></div>
+                <h4>加强多步规划能力</h4>
+                <p>近 7 天复杂任务完成率偏低</p>
+                <div class="goal-actions"><button class="btn primary">批准</button><button class="btn ghost">拒绝</button></div>
+              </div>
+              <div class="empty" style="min-height:80px;margin-top:12px;"><div class="clock"></div>更多目标将显示在此</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">一屏看全三块信息；宽屏好看，窄窗口会变纵向堆叠，目标区域偏挤。</div>
+    </section>
+
+    <!-- ========== Capability A ========== -->
+    <section class="panel" data-id="cap-a">
+      <div class="label-tag">能力 · 方案 A · <em>左雷达 + 右维度列表（推荐）</em></div>
+      <div class="page">
+        <div class="page-header">
+          <h2 class="page-title">自主进化</h2>
+          <div class="toggle">已启用 <div class="switch"></div></div>
+        </div>
+        <div class="tabs">
+          <div class="tab">概览</div><div class="tab on">能力</div><div class="tab">反思</div><div class="tab">Prompt</div>
+        </div>
+        <div class="cap-a">
+          <div class="card">
+            <div class="card-h">能力雷达</div>
+            <div class="card-b">
+              <div class="radar-box"></div>
+              <div class="legend"><span class="lv">能力水平</span><span class="cf">置信度</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-h">进化维度</div>
+            <div class="card-b">
+              <div class="dim-list">
+                <div class="dim"><div class="dim-top"><span>代码生成</span><span>78%</span></div><div class="bar"><i style="width:78%"></i></div><div class="dim-meta"><span>置信度 72%</span><span>测试 12 次 · ↑</span></div></div>
+                <div class="dim"><div class="dim-top"><span>文档分析</span><span>65%</span></div><div class="bar"><i style="width:65%"></i></div><div class="dim-meta"><span>置信度 60%</span><span>测试 8 次 · →</span></div></div>
+                <div class="dim"><div class="dim-top"><span>网络搜索</span><span>71%</span></div><div class="bar"><i style="width:71%"></i></div><div class="dim-meta"><span>置信度 68%</span><span>测试 15 次 · ↑</span></div></div>
+                <div class="dim"><div class="dim-top"><span>多步规划</span><span>54%</span></div><div class="bar"><i style="width:54%"></i></div><div class="dim-meta"><span>置信度 48%</span><span>测试 5 次 · ↓</span></div></div>
+                <div class="dim"><div class="dim-top"><span>逻辑推理</span><span>80%</span></div><div class="bar"><i style="width:80%"></i></div><div class="dim-meta"><span>置信度 77%</span><span>测试 20 次 · ↑</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">雷达固定合理尺寸，维度列表可滚动；避免「雷达占满一屏、列表被挤没」。</div>
+    </section>
+
+    <!-- ========== Capability B ========== -->
+    <section class="panel" data-id="cap-b">
+      <div class="label-tag">能力 · 方案 B · 维度卡片网格 + 顶部雷达</div>
+      <div class="page">
+        <div class="page-header">
+          <h2 class="page-title">自主进化</h2>
+          <div class="toggle">已启用 <div class="switch"></div></div>
+        </div>
+        <div class="tabs">
+          <div class="tab">概览</div><div class="tab on">能力</div><div class="tab">反思</div><div class="tab">Prompt</div>
+        </div>
+        <div class="cap-b">
+          <div class="card radar-full">
+            <div class="card-h">能力雷达</div>
+            <div class="card-b" style="display:flex;align-items:center;gap:24px;">
+              <div class="radar-box"></div>
+              <div>
+                <div class="legend" style="justify-content:flex-start;margin-bottom:12px;"><span class="lv">能力水平</span><span class="cf">置信度</span></div>
+                <p class="muted" style="max-width:280px;line-height:1.5;">八维能力总览。下方卡片展示各维度详情，点击可展开历史（示意）。</p>
+              </div>
+            </div>
+          </div>
+          <div class="card mini-dim"><div class="name">代码生成</div><div class="pct">78%</div><div class="s muted" style="margin-top:6px;">↑ 提升中</div></div>
+          <div class="card mini-dim"><div class="name">文档分析</div><div class="pct">65%</div><div class="s muted" style="margin-top:6px;">→ 稳定</div></div>
+          <div class="card mini-dim"><div class="name">网络搜索</div><div class="pct">71%</div><div class="s muted" style="margin-top:6px;">↑ 提升中</div></div>
+          <div class="card mini-dim"><div class="name">多步规划</div><div class="pct">54%</div><div class="s muted" style="margin-top:6px;">↓ 需关注</div></div>
+          <div class="card mini-dim"><div class="name">逻辑推理</div><div class="pct">80%</div><div class="s muted" style="margin-top:6px;">↑ 提升中</div></div>
+          <div class="card mini-dim"><div class="name">创意写作</div><div class="pct">62%</div><div class="s muted" style="margin-top:6px;">→ 稳定</div></div>
+          <div class="card mini-dim"><div class="name">数据处理</div><div class="pct">69%</div><div class="s muted" style="margin-top:6px;">↑ 提升中</div></div>
+          <div class="card mini-dim"><div class="name">API 集成</div><div class="pct">58%</div><div class="s muted" style="margin-top:6px;">→ 稳定</div></div>
+        </div>
+      </div>
+      <div class="note">卡片感最强，扫读友好；细节（置信度/测试次数）需要二次展开。</div>
+    </section>
+
+    <!-- ========== Capability C ========== -->
+    <section class="panel" data-id="cap-c">
+      <div class="label-tag">能力 · 方案 C · 维度 KPI 条 + 下方雷达/详情</div>
+      <div class="page">
+        <div class="page-header">
+          <h2 class="page-title">自主进化</h2>
+          <div class="toggle">已启用 <div class="switch"></div></div>
+        </div>
+        <div class="tabs">
+          <div class="tab">概览</div><div class="tab on">能力</div><div class="tab">反思</div><div class="tab">Prompt</div>
+        </div>
+        <div class="cap-c">
+          <div class="dim-grid">
+            <div class="card mini-dim"><div class="name">代码生成</div><div class="pct">78%</div></div>
+            <div class="card mini-dim"><div class="name">文档分析</div><div class="pct">65%</div></div>
+            <div class="card mini-dim"><div class="name">网络搜索</div><div class="pct">71%</div></div>
+            <div class="card mini-dim"><div class="name">多步规划</div><div class="pct">54%</div></div>
+          </div>
+          <div class="bottom">
+            <div class="card">
+              <div class="card-h">雷达总览</div>
+              <div class="card-b"><div class="radar-box"></div></div>
+            </div>
+            <div class="card">
+              <div class="card-h">选中维度 · 多步规划</div>
+              <div class="card-b">
+                <div class="bar-row"><span>水平</span><div class="bar"><i style="width:54%"></i></div><span class="val">54%</span></div>
+                <div class="bar-row"><span>置信</span><div class="bar"><i style="width:48%"></i></div><span class="val">48%</span></div>
+                <p class="muted" style="margin-top:14px;line-height:1.6;">近期复杂任务拆解不稳定。建议结合反思页的改进目标一起查看。</p>
+                <div class="chips"><span class="chip">测试 5 次</span><span class="chip">趋势 ↓</span><span class="chip">优先改进</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">适合「先扫数字、再下钻某一维」的交互；实现成本略高。</div>
+    </section>
+
+    <!-- ========== Reflection A ========== -->
+    <section class="panel" data-id="ref-a">
+      <div class="label-tag">反思 · 方案 A · <em>信息卡片流（推荐）</em></div>
+      <div class="page">
+        <div class="page-header">
+          <h2 class="page-title">自主进化</h2>
+          <div class="toggle">已启用 <div class="switch"></div></div>
+        </div>
+        <div class="tabs">
+          <div class="tab">概览</div><div class="tab">能力</div><div class="tab on">反思</div><div class="tab">Prompt</div>
+        </div>
+        <div class="ref-a">
+          <div class="card ref-card">
+            <div class="ref-head">
+              <div>
+                <h3 class="ref-title">复杂任务执行中出现目标漂移</h3>
+                <div class="chips"><span class="chip">多步规划</span><span class="chip">逻辑推理</span></div>
+              </div>
+              <div class="ref-time">今天 14:20</div>
+            </div>
+            <div class="ref-body">
+              <p class="muted"><strong style="color:var(--fg-2)">诊断：</strong>根因是长链路缺少阶段性校验，导致中途偏离用户意图。</p>
+              <div class="rec">建议：在规划节点增加 checkpoint，并提升多步规划训练优先级。</div>
+              <div class="goal" style="margin-top:10px;">
+                <div class="goal-top"><span class="badge">能力提升</span><span class="stars">★★★☆☆</span></div>
+                <h4>生成目标：加强多步规划能力</h4>
+              </div>
+            </div>
+          </div>
+          <div class="card ref-card">
+            <div class="ref-head">
+              <div>
+                <h3 class="ref-title">搜索结果引用不够精准</h3>
+                <div class="chips"><span class="chip">网络搜索</span></div>
+              </div>
+              <div class="ref-time">昨天 09:12</div>
+            </div>
+            <div class="ref-body">
+              <p class="muted"><strong style="color:var(--fg-2)">诊断：</strong>检索 query 过于宽泛，二次筛选不足。</p>
+              <div class="rec">建议：强化 query 重写与来源可信度排序。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">每条反思是一张完整卡片：原因 → 诊断 → 建议 → 关联目标，阅读路径清晰。</div>
+    </section>
+
+    <!-- ========== Reflection B ========== -->
+    <section class="panel" data-id="ref-b">
+      <div class="label-tag">反思 · 方案 B · 左列表 + 右详情</div>
+      <div class="page">
+        <div class="page-header">
+          <h2 class="page-title">自主进化</h2>
+          <div class="toggle">已启用 <div class="switch"></div></div>
+        </div>
+        <div class="tabs">
+          <div class="tab">概览</div><div class="tab">能力</div><div class="tab on">反思</div><div class="tab">Prompt</div>
+        </div>
+        <div class="ref-b">
+          <div class="card">
+            <div class="card-h">最近反思</div>
+            <div class="card-b">
+              <div class="ref-list">
+                <div class="ref-item on"><div class="t">目标漂移</div><div class="d">今天 14:20</div></div>
+                <div class="ref-item"><div class="t">搜索不够准</div><div class="d">昨天 09:12</div></div>
+                <div class="ref-item"><div class="t">文档摘要偏长</div><div class="d">03-02</div></div>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-h">详情</div>
+            <div class="card-b">
+              <h3 class="ref-title" style="margin-bottom:8px;">复杂任务执行中出现目标漂移</h3>
+              <div class="chips"><span class="chip">多步规划</span><span class="chip">逻辑推理</span></div>
+              <p class="muted" style="margin:12px 0;line-height:1.6;"><strong style="color:var(--fg-2)">诊断：</strong>长链路缺少阶段性校验，导致中途偏离用户意图。</p>
+              <div class="rec">建议：在规划节点增加 checkpoint，并提升多步规划训练优先级。</div>
+              <div class="goal">
+                <div class="goal-top"><span class="badge">能力提升</span><span class="stars">★★★☆☆</span></div>
+                <h4>生成目标：加强多步规划能力</h4>
+                <div class="goal-actions"><button class="btn primary">去审批</button><button class="btn ghost">忽略</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">记录多时更好扫；但空状态和窄屏体验一般，实现也更重。</div>
+    </section>
+
+    <!-- ========== Reflection C ========== -->
+    <section class="panel" data-id="ref-c">
+      <div class="label-tag">反思 · 方案 C · 时间轴</div>
+      <div class="page">
+        <div class="page-header">
+          <h2 class="page-title">自主进化</h2>
+          <div class="toggle">已启用 <div class="switch"></div></div>
+        </div>
+        <div class="tabs">
+          <div class="tab">概览</div><div class="tab">能力</div><div class="tab on">反思</div><div class="tab">Prompt</div>
+        </div>
+        <div class="ref-c">
+          <div class="timeline">
+            <div class="tl-item card">
+              <div class="ref-head">
+                <h3 class="ref-title">复杂任务执行中出现目标漂移</h3>
+                <div class="ref-time">今天 14:20</div>
+              </div>
+              <div class="ref-body">
+                <div class="chips"><span class="chip">多步规划</span></div>
+                <div class="rec">建议：增加 checkpoint 与阶段性校验。</div>
+              </div>
+            </div>
+            <div class="tl-item card">
+              <div class="ref-head">
+                <h3 class="ref-title">搜索结果引用不够精准</h3>
+                <div class="ref-time">昨天 09:12</div>
+              </div>
+              <div class="ref-body">
+                <div class="chips"><span class="chip">网络搜索</span></div>
+                <div class="rec">建议：强化 query 重写。</div>
+              </div>
+            </div>
+            <div class="tl-item card">
+              <div class="ref-head">
+                <h3 class="ref-title">文档摘要偏长</h3>
+                <div class="ref-time">03-02 18:40</div>
+              </div>
+              <div class="ref-body">
+                <div class="chips"><span class="chip">文档分析</span></div>
+                <div class="rec">建议：按用户目标做层级摘要。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">时间感强，适合「进化日记」叙事；信息密度不如卡片流，详情展开空间有限。</div>
+    </section>
+  </div>
+
+  <script>
+    /** 注册顶部导航并切换 Demo 面板 */
+    const items = [
+      { id: 'ov-a', label: '概览 A ★' },
+      { id: 'ov-b', label: '概览 B' },
+      { id: 'ov-c', label: '概览 C' },
+      { id: 'cap-a', label: '能力 A ★' },
+      { id: 'cap-b', label: '能力 B' },
+      { id: 'cap-c', label: '能力 C' },
+      { id: 'ref-a', label: '反思 A ★' },
+      { id: 'ref-b', label: '反思 B' },
+      { id: 'ref-c', label: '反思 C' },
+    ];
+
+    const nav = document.getElementById('nav');
+    const panels = [...document.querySelectorAll('.panel')];
+
+    /** 激活指定 Demo */
+    function show(id) {
+      panels.forEach((p) => p.classList.toggle('active', p.dataset.id === id));
+      [...nav.children].forEach((b) => b.classList.toggle('active', b.dataset.id === id));
+      history.replaceState(null, '', '#' + id);
+    }
+
+    items.forEach((item, i) => {
+      const btn = document.createElement('button');
+      btn.className = 'nav-btn' + (i === 0 ? ' active' : '');
+      btn.textContent = item.label;
+      btn.dataset.id = item.id;
+      btn.onclick = () => show(item.id);
+      nav.appendChild(btn);
+    });
+
+    const initial = location.hash.slice(1) || 'ov-a';
+    show(items.some((x) => x.id === initial) ? initial : 'ov-a');
+  </script>
+</body>
+</html>

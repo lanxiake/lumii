@@ -1,18 +1,34 @@
 /**
- * 自主进化仪表板页面 - 符合系统规范
- * - 使用 Module CSS + CSS Variables 支持主题切换
- * - 固定高度布局，无整页滚动
- * - 使用 SVG 图标代替 emoji
- * - 提供开关控制自主进化功能
+ * 自主进化仪表板页面
+ * - 标题行合并启用开关
+ * - 概览：三列卡片（评分 / 趋势 / 待审批）
+ * - 能力：左雷达 + 右维度列表
+ * - 反思：左列表 + 右详情
  */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { Card } from '../../components/ui/Card/Card'
+import { Tooltip } from '../../components/ui/Tooltip/Tooltip'
 import { CapabilityRadar } from '../../components/CapabilityRadar/CapabilityRadar'
 import { CapabilityProgressBar } from '../../components/CapabilityProgressBar/CapabilityProgressBar'
 import { ReflectionCard, type Reflection } from '../../components/ReflectionCard/ReflectionCard'
 import { SatisfactionChart, type SatisfactionDataPoint } from '../../components/SatisfactionChart/SatisfactionChart'
 import { PromptVariantStats, type PromptFragmentStats } from '../../components/PromptVariantStats/PromptVariantStats'
+import { LabeledMetric, MetricTip, TitledHeader } from './MetricTip'
+import {
+  TIP_BREAKDOWN,
+  TIP_CAPABILITY_DIMENSIONS,
+  TIP_CAPABILITY_RADAR,
+  TIP_ENABLED,
+  TIP_GOAL,
+  TIP_PENDING_GOALS,
+  TIP_PROMPT_STATS,
+  TIP_REFLECTION,
+  TIP_REFLECTION_LIST,
+  TIP_SATISFACTION_CHART,
+  TIP_SATISFACTION_OVERALL,
+  TIP_SATISFACTION_TREND,
+} from './autonomousTooltips'
 import styles from './AutonomousPage.module.css'
 
 type AutonomousStatus = {
@@ -53,6 +69,13 @@ const api = window.electronAPI?.autonomous || {
 
 type TabType = 'overview' | 'capabilities' | 'reflections' | 'prompt'
 
+const TRIGGER_LABELS: Record<string, string> = {
+  'low-satisfaction': '满意度低',
+  scheduled: '定时反思',
+  'user-request': '用户请求',
+  'capability-gap': '能力缺口',
+}
+
 /**
  * 自主进化仪表板
  */
@@ -66,6 +89,7 @@ export function AutonomousPage() {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [autonomousEnabled, setAutonomousEnabled] = useState(true)
+  const [selectedReflectionId, setSelectedReflectionId] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
@@ -73,13 +97,14 @@ export function AutonomousPage() {
     return () => clearInterval(timer)
   }, [])
 
+  /** 加载自主进化相关数据 */
   async function loadData() {
     try {
       const [statusData, goalsData, capabilitiesData, reflectionsData, historyData, promptData] = await Promise.all([
         api.getStatus(),
         api.getPendingGoals(),
         api.getCapabilities().catch(() => ({})),
-        api.getReflections(5).catch(() => []),
+        api.getReflections(20).catch(() => []),
         api.getSatisfactionHistory('7d').catch(() => ({ dataPoints: [] })),
         api.getPromptStats().catch(() => []),
       ])
@@ -89,8 +114,11 @@ export function AutonomousPage() {
       setReflections(reflectionsData)
       setSatisfactionHistory(historyData.dataPoints || [])
       setPromptStats(Array.isArray(promptData) ? (promptData as PromptFragmentStats[]) : [])
-      // 从后端读取真实状态，默认为 true
       setAutonomousEnabled(statusData.enabled !== false)
+      setSelectedReflectionId((prev) => {
+        if (prev && reflectionsData.some((r: Reflection) => r.id === prev)) return prev
+        return reflectionsData[0]?.id ?? null
+      })
     } catch (error) {
       console.error('[AutonomousPage] 加载数据失败:', error)
     } finally {
@@ -98,6 +126,7 @@ export function AutonomousPage() {
     }
   }
 
+  /** 批准目标 */
   async function handleApprove(goalId: string) {
     try {
       await api.approveGoal(goalId)
@@ -107,6 +136,7 @@ export function AutonomousPage() {
     }
   }
 
+  /** 拒绝目标 */
   async function handleReject(goalId: string) {
     try {
       await api.rejectGoal(goalId)
@@ -116,17 +146,21 @@ export function AutonomousPage() {
     }
   }
 
+  /** 切换自主进化开关 */
   function handleToggleAutonomous(enabled: boolean) {
     setAutonomousEnabled(enabled)
-    // 调用后端 API 更新设置
     api.setEnabled(enabled).then(() => {
       console.log('[AutonomousPage] 自主进化开关已更新:', enabled)
     }).catch((error) => {
       console.error('[AutonomousPage] 更新自主进化开关失败:', error)
-      // 回滚到之前的状态
       setAutonomousEnabled(!enabled)
     })
   }
+
+  const selectedReflection = useMemo(
+    () => reflections.find((r) => r.id === selectedReflectionId) ?? null,
+    [reflections, selectedReflectionId],
+  )
 
   if (loading) {
     return (
@@ -149,25 +183,23 @@ export function AutonomousPage() {
 
   return (
     <div className={styles.page}>
-      {/* 页头 */}
+      {/* 页头：标题 + 启用开关同行 */}
       <div className={styles.header}>
         <h1 className={styles.title}>自主进化</h1>
-      </div>
-
-      {/* 设置行 - 自主进化开关 */}
-      <div className={styles.settingsRow}>
-        <div className={styles.settingsLabel}>
-          <div className={styles.settingsTitle}>启用自主进化</div>
-          <div className={styles.settingsDesc}>允许 Agent 自主学习、优化能力并提出改进建议</div>
+        <div className={styles.headerActions}>
+          <Tooltip content={TIP_ENABLED} placement="bottom">
+            <span className={styles.toggleLabel}>{autonomousEnabled ? '已启用' : '已禁用'}</span>
+          </Tooltip>
+          <MetricTip content={TIP_ENABLED} label="自主进化开关" placement="bottom" />
+          <label className="toggle-switch" aria-label="启用或禁用自主进化">
+            <input
+              type="checkbox"
+              checked={autonomousEnabled}
+              onChange={(e) => handleToggleAutonomous(e.target.checked)}
+            />
+            <span className="toggle-slider" />
+          </label>
         </div>
-        <label className="toggle-switch">
-          <input
-            type="checkbox"
-            checked={autonomousEnabled}
-            onChange={(e) => handleToggleAutonomous(e.target.checked)}
-          />
-          <span className="toggle-slider" />
-        </label>
       </div>
 
       {/* 标签页导航 */}
@@ -214,26 +246,41 @@ export function AutonomousPage() {
       {/* 标签页内容 */}
       <div className={styles.content}>
         {activeTab === 'overview' && (
-          <>
-            <Card title="满意度评分">
-              <div className={styles.satisfactionOverview}>
-                <div className={styles.satisfactionScore}>{(status.satisfaction.overall * 100).toFixed(0)}%</div>
-                <div className={`${styles.satisfactionTrend} ${styles[status.satisfaction.trend]}`}>
-                  {status.satisfaction.trend === 'improving' && '↑ 提升中'}
-                  {status.satisfaction.trend === 'declining' && '↓ 下降'}
-                  {status.satisfaction.trend === 'stable' && '→ 稳定'}
-                </div>
+          <div className={styles.overviewGrid}>
+            <Card
+              header={<TitledHeader title="满意度评分" tip={TIP_SATISFACTION_OVERALL} />}
+              className={styles.overviewScore}
+              bodyClassName={styles.cardBodyFill}
+              overflowVisible
+            >
+              <div className={styles.satisfactionCompact}>
+                <Tooltip content={TIP_SATISFACTION_OVERALL} placement="bottom">
+                  <div className={styles.satisfactionScore}>{(status.satisfaction.overall * 100).toFixed(0)}%</div>
+                </Tooltip>
+                <Tooltip content={TIP_SATISFACTION_TREND} placement="bottom">
+                  <div className={`${styles.satisfactionTrend} ${styles[status.satisfaction.trend]}`}>
+                    {status.satisfaction.trend === 'improving' && '↑ 提升中'}
+                    {status.satisfaction.trend === 'declining' && '↓ 下降'}
+                    {status.satisfaction.trend === 'stable' && '→ 稳定'}
+                  </div>
+                </Tooltip>
               </div>
               <div className={styles.satisfactionBreakdown}>
-                {Object.entries({
-                  任务完成: status.satisfaction.breakdown.taskCompletion,
-                  用户反馈: status.satisfaction.breakdown.userFeedback,
-                  效率: status.satisfaction.breakdown.efficiency,
-                  知识增长: status.satisfaction.breakdown.knowledgeGrowth,
-                }).map(([label, value]) => (
+                {(
+                  [
+                    ['任务完成', status.satisfaction.breakdown.taskCompletion],
+                    ['用户反馈', status.satisfaction.breakdown.userFeedback],
+                    ['效率', status.satisfaction.breakdown.efficiency],
+                    ['知识增长', status.satisfaction.breakdown.knowledgeGrowth],
+                  ] as const
+                ).map(([label, value]) => (
                   <div key={label} className={styles.breakdownItem}>
-                    <span className={styles.breakdownLabel}>{label}</span>
-                    <div className={styles.progressBar}>
+                    <LabeledMetric
+                      label={label}
+                      tip={TIP_BREAKDOWN[label]}
+                      className={styles.breakdownLabel}
+                    />
+                    <div className={styles.progressBar} title={TIP_BREAKDOWN[label]}>
                       <div className={styles.progressFill} style={{ width: `${value * 100}%` }} />
                     </div>
                     <span className={styles.breakdownValue}>{(value * 100).toFixed(0)}%</span>
@@ -242,17 +289,27 @@ export function AutonomousPage() {
               </div>
             </Card>
 
-            {satisfactionHistory.length > 0 && (
-              <Card title="满意度趋势">
-                <SatisfactionChart history={satisfactionHistory} window="7d" />
-              </Card>
-            )}
+            <Card
+              header={<TitledHeader title="满意度趋势 · 7 天" tip={TIP_SATISFACTION_CHART} />}
+              className={styles.overviewTrend}
+              bodyClassName={styles.chartBodyFill}
+              overflowVisible
+            >
+              <div className={styles.chartFill}>
+                <SatisfactionChart history={satisfactionHistory} window="7d" fillHeight />
+              </div>
+            </Card>
 
-            <Card title={`待审批目标 (${goals.length})`}>
+            <Card
+              header={<TitledHeader title={`待审批目标 (${goals.length})`} tip={TIP_PENDING_GOALS} />}
+              className={styles.overviewGoals}
+              bodyClassName={styles.cardBodyFill}
+              overflowVisible
+            >
               {goals.length === 0 ? (
-                <div className={styles.empty}>
+                <div className={styles.emptyCompact}>
                   <div className={styles.emptyIcon}>
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                       <circle cx="12" cy="12" r="10" strokeWidth="2"/>
                       <path d="M12 6v6l4 2" strokeWidth="2" strokeLinecap="round"/>
                     </svg>
@@ -267,72 +324,116 @@ export function AutonomousPage() {
                 </div>
               )}
             </Card>
-          </>
+          </div>
         )}
 
         {activeTab === 'capabilities' && (
-          <>
-            {Object.keys(capabilities).length > 0 ? (
-              <>
-                <Card title="能力雷达图">
-                  <CapabilityRadar capabilities={capabilities} />
-                </Card>
-                <Card title="能力详细进度">
-                  <div className={styles.capabilitiesList}>
-                    {Object.entries(capabilities).map(([dimension, state]: [string, any]) => (
-                      <CapabilityProgressBar
-                        key={dimension}
-                        dimension={dimension}
-                        level={state.level}
-                        confidence={state.confidence}
-                        testCount={state.testCount}
-                        trend={state.trend || 'stable'}
-                      />
-                    ))}
-                  </div>
-                </Card>
-              </>
-            ) : (
-              <Card title="能力数据">
-                <div className={styles.empty}>
-                  <div className={styles.emptyIcon}>
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path d="M12 2L2 7l10 5 10-5-10-5z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      <path d="M2 17l10 5 10-5M2 12l10 5 10-5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </div>
-                  暂无能力数据
+          Object.keys(capabilities).length > 0 ? (
+            <div className={styles.capabilitiesGrid}>
+              <Card
+                header={<TitledHeader title="能力雷达" tip={TIP_CAPABILITY_RADAR} />}
+                className={styles.radarCol}
+                bodyClassName={styles.cardBodyFill}
+                overflowVisible
+              >
+                <CapabilityRadar capabilities={capabilities} size={280} />
+              </Card>
+              <Card
+                header={<TitledHeader title="进化维度" tip={TIP_CAPABILITY_DIMENSIONS} />}
+                className={styles.dimensionsCol}
+                bodyClassName={styles.cardBodyFill}
+                overflowVisible
+              >
+                <div className={styles.capabilitiesList}>
+                  {Object.entries(capabilities).map(([dimension, state]: [string, any]) => (
+                    <CapabilityProgressBar
+                      key={dimension}
+                      dimension={dimension}
+                      level={state.level}
+                      confidence={state.confidence}
+                      testCount={state.testCount}
+                      trend={state.trend || 'stable'}
+                    />
+                  ))}
                 </div>
               </Card>
-            )}
-          </>
+            </div>
+          ) : (
+            <Card title="能力数据">
+              <div className={styles.empty}>
+                <div className={styles.emptyIcon}>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M2 17l10 5 10-5M2 12l10 5 10-5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </div>
+                暂无能力数据
+              </div>
+            </Card>
+          )
         )}
 
         {activeTab === 'reflections' && (
-          <>
-            {reflections.length > 0 ? (
-              <div className={styles.reflectionsList}>
-                {reflections.map((reflection) => (
-                  <ReflectionCard key={reflection.id} reflection={reflection} />
-                ))}
-              </div>
-            ) : (
-              <Card title="反思记录">
-                <div className={styles.empty}>
-                  <div className={styles.emptyIcon}>
-                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" strokeWidth="2"/>
-                    </svg>
-                  </div>
-                  暂无反思记录
+          reflections.length > 0 ? (
+            <div className={styles.reflectionsGrid}>
+              <Card
+                header={<TitledHeader title="最近反思" tip={TIP_REFLECTION_LIST} />}
+                className={styles.reflectionListCol}
+                bodyClassName={styles.cardBodyFill}
+                overflowVisible
+              >
+                <div className={styles.reflectionNav}>
+                  {reflections.map((reflection) => (
+                    <button
+                      key={reflection.id}
+                      type="button"
+                      className={`${styles.reflectionNavItem} ${selectedReflectionId === reflection.id ? styles.reflectionNavActive : ''}`}
+                      onClick={() => setSelectedReflectionId(reflection.id)}
+                    >
+                      <div className={styles.reflectionNavTitle}>
+                        {reflection.diagnosis.primaryIssue || TRIGGER_LABELS[reflection.triggerReason] || '反思记录'}
+                      </div>
+                      <div className={styles.reflectionNavMeta}>
+                        {formatReflectionTime(reflection.createdAt)}
+                        {' · '}
+                        {TRIGGER_LABELS[reflection.triggerReason] || reflection.triggerReason}
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </Card>
-            )}
-          </>
+              <Card
+                header={<TitledHeader title="详情" tip={TIP_REFLECTION.detail} />}
+                className={styles.reflectionDetailCol}
+                bodyClassName={styles.cardBodyFill}
+                overflowVisible
+              >
+                {selectedReflection ? (
+                  <ReflectionCard reflection={selectedReflection} variant="detail" />
+                ) : (
+                  <div className={styles.emptyCompact}>请选择一条反思</div>
+                )}
+              </Card>
+            </div>
+          ) : (
+            <Card title="反思记录">
+              <div className={styles.empty}>
+                <div className={styles.emptyIcon}>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" strokeWidth="2"/>
+                  </svg>
+                </div>
+                暂无反思记录
+              </div>
+            </Card>
+          )
         )}
 
         {activeTab === 'prompt' && (
-          <Card title="Prompt 变体统计">
+          <Card
+            header={<TitledHeader title="Prompt 变体统计" tip={TIP_PROMPT_STATS} />}
+            overflowVisible
+          >
             {promptStats.length > 0 ? (
               <PromptVariantStats stats={promptStats} />
             ) : (
@@ -351,6 +452,19 @@ export function AutonomousPage() {
       </div>
     </div>
   )
+}
+
+/**
+ * 格式化反思列表时间
+ */
+function formatReflectionTime(dateStr: string): string {
+  const date = new Date(dateStr)
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 /**
@@ -378,21 +492,32 @@ function GoalCard({ goal, onApprove, onReject }: GoalCardProps) {
     <div className={styles.goalCard}>
       <div className={styles.goalHeader}>
         <span className={`${styles.goalType} ${styles[typeClass]}`}>{typeLabels[goal.type] || goal.type}</span>
-        <span className={styles.goalPriority}>{priorityStars}</span>
+        <Tooltip content={TIP_GOAL.priority} placement="left">
+          <span className={styles.goalPriority}>{priorityStars}</span>
+        </Tooltip>
       </div>
       <h3 className={styles.goalTitle}>{goal.description}</h3>
       <div className={styles.goalDetails}>
         <p>
-          <strong>触发原因:</strong> {goal.triggerReason}
+          <Tooltip content={TIP_GOAL.triggerReason} placement="top">
+            <strong>触发原因:</strong>
+          </Tooltip>{' '}
+          {goal.triggerReason}
         </p>
         {goal.userValueScore !== undefined && (
           <p>
-            <strong>用户价值:</strong> {(goal.userValueScore * 100).toFixed(0)}%
+            <Tooltip content={TIP_GOAL.userValue} placement="top">
+              <strong>用户价值:</strong>
+            </Tooltip>{' '}
+            {(goal.userValueScore * 100).toFixed(0)}%
           </p>
         )}
         {goal.feasibility !== undefined && (
           <p>
-            <strong>可行性:</strong> {(goal.feasibility * 100).toFixed(0)}%
+            <Tooltip content={TIP_GOAL.feasibility} placement="top">
+              <strong>可行性:</strong>
+            </Tooltip>{' '}
+            {(goal.feasibility * 100).toFixed(0)}%
           </p>
         )}
       </div>

@@ -6,16 +6,18 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20px;
-  background: white;
-  border-radius: 12px;
-  border: 1px solid #e8e8e8;
+  justify-content: center;
+  padding: 8px 0 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  width: 100%;
 }
 
 .capability-radar.empty {
-  padding: 60px 20px;
+  padding: 40px 16px;
   text-align: center;
-  color: #999;
+  color: var(--mt-fg-4, #999);
 }
 
 .capability-radar canvas {
@@ -23,35 +25,35 @@
   height: auto;
 }
 
-/* 图例 */
 .radar-legend {
   display: flex;
-  gap: 24px;
-  margin-top: 20px;
+  gap: 20px;
+  margin-top: 12px;
 }
 
 .legend-item {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: help;
 }
 
 .legend-color {
-  width: 20px;
-  height: 12px;
+  width: 16px;
+  height: 10px;
   border-radius: 2px;
 }
 
 .legend-color.level {
-  background: rgba(24, 144, 255, 0.6);
+  background: rgba(59, 130, 246, 0.65);
 }
 
 .legend-color.confidence {
-  background: rgba(130, 202, 157, 0.6);
-  border: 2px dashed rgba(130, 202, 157, 0.8);
+  background: rgba(34, 197, 94, 0.55);
+  border: 1.5px dashed rgba(34, 197, 94, 0.85);
 }
 
 .legend-label {
-  font-size: 14px;
-  color: #666;
+  font-size: 12px;
+  color: var(--mt-fg-3, #666);
 }

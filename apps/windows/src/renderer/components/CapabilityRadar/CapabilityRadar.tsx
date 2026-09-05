@@ -1,21 +1,12 @@
 /**
  * 能力雷达图组件
  *
- * 展示 Agent 在 8 个能力维度上的水平和置信度。
- * 使用 Recharts 库绘制雷达图。
+ * 展示 Agent 在多个能力维度上的水平和置信度。
+ * 使用 Canvas 绘制雷达图，支持自定义尺寸。
  */
 
 import React from 'react'
 import './CapabilityRadar.css'
-
-/**
- * 能力维度数据
- */
-export interface CapabilityData {
-  dimension: string
-  level: number
-  confidence: number
-}
 
 /**
  * 能力维度中文标签
@@ -43,17 +34,16 @@ interface CapabilityRadarProps {
       testCount: number
     }
   >
+  /** 画布边长，默认 280（适合侧栏布局） */
+  size?: number
 }
 
 /**
  * 能力雷达图组件
- *
- * 使用 Canvas 绘制雷达图，避免依赖外部库。
  */
-export function CapabilityRadar({ capabilities }: CapabilityRadarProps) {
+export function CapabilityRadar({ capabilities, size = 280 }: CapabilityRadarProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
 
-  // 转换数据格式
   const data = React.useMemo(() => {
     return Object.entries(capabilities).map(([dim, state]) => ({
       dimension: dim,
@@ -71,12 +61,15 @@ export function CapabilityRadar({ capabilities }: CapabilityRadarProps) {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // 清空画布
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-    // 绘制雷达图
-    drawRadarChart(ctx, canvas.width, canvas.height, data)
-  }, [data])
+    const dpr = globalThis.devicePixelRatio || 1
+    canvas.width = size * dpr
+    canvas.height = size * dpr
+    canvas.style.width = `${size}px`
+    canvas.style.height = `${size}px`
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, size, size)
+    drawRadarChart(ctx, size, size, data)
+  }, [data, size])
 
   if (data.length === 0) {
     return (
@@ -88,13 +81,13 @@ export function CapabilityRadar({ capabilities }: CapabilityRadarProps) {
 
   return (
     <div className="capability-radar">
-      <canvas ref={canvasRef} width={500} height={500} />
+      <canvas ref={canvasRef} title="能力雷达：实心区为能力水平，虚线区为置信度" />
       <div className="radar-legend">
-        <div className="legend-item">
+        <div className="legend-item" title="能力水平：该维度当前预估熟练度">
           <span className="legend-color level"></span>
           <span className="legend-label">能力水平</span>
         </div>
-        <div className="legend-item">
+        <div className="legend-item" title="置信度：对水平判断的确信程度，样本少时通常更低">
           <span className="legend-color confidence"></span>
           <span className="legend-label">置信度</span>
         </div>
@@ -104,7 +97,7 @@ export function CapabilityRadar({ capabilities }: CapabilityRadarProps) {
 }
 
 /**
- * 绘制雷达图
+ * 绘制能力雷达网格、水平与置信度多边形
  */
 function drawRadarChart(
   ctx: CanvasRenderingContext2D,
@@ -114,128 +107,97 @@ function drawRadarChart(
     label: string
     level: number
     confidence: number
-  }>
+  }>,
 ) {
+  if (data.length === 0) return
+
   const centerX = width / 2
   const centerY = height / 2
-  const radius = Math.min(width, height) / 2 - 60
-  const levels = 5 // 5 个级别
+  const radius = Math.min(width, height) / 2 - 52
+  const levels = 5
   const angleStep = (Math.PI * 2) / data.length
 
-  // 绘制背景网格
-  ctx.strokeStyle = '#e0e0e0'
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)'
   ctx.lineWidth = 1
 
   for (let i = 1; i <= levels; i++) {
     const r = (radius * i) / levels
     ctx.beginPath()
-
     for (let j = 0; j <= data.length; j++) {
       const angle = angleStep * j - Math.PI / 2
       const x = centerX + r * Math.cos(angle)
       const y = centerY + r * Math.sin(angle)
-
-      if (j === 0) {
-        ctx.moveTo(x, y)
-      } else {
-        ctx.lineTo(x, y)
-      }
+      if (j === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
     }
-
     ctx.closePath()
     ctx.stroke()
   }
 
-  // 绘制轴线
-  ctx.strokeStyle = '#ccc'
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.55)'
   for (let i = 0; i < data.length; i++) {
     const angle = angleStep * i - Math.PI / 2
     const x = centerX + radius * Math.cos(angle)
     const y = centerY + radius * Math.sin(angle)
-
     ctx.beginPath()
     ctx.moveTo(centerX, centerY)
     ctx.lineTo(x, y)
     ctx.stroke()
   }
 
-  // 绘制能力水平（蓝色填充）
-  ctx.fillStyle = 'rgba(24, 144, 255, 0.3)'
-  ctx.strokeStyle = 'rgba(24, 144, 255, 0.8)'
+  ctx.fillStyle = 'rgba(59, 130, 246, 0.28)'
+  ctx.strokeStyle = 'rgba(59, 130, 246, 0.85)'
   ctx.lineWidth = 2
   ctx.beginPath()
-
   for (let i = 0; i <= data.length; i++) {
     const item = data[i % data.length]
     const angle = angleStep * i - Math.PI / 2
     const r = radius * item.level
     const x = centerX + r * Math.cos(angle)
     const y = centerY + r * Math.sin(angle)
-
-    if (i === 0) {
-      ctx.moveTo(x, y)
-    } else {
-      ctx.lineTo(x, y)
-    }
+    if (i === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
   }
-
   ctx.closePath()
   ctx.fill()
   ctx.stroke()
 
-  // 绘制置信度（绿色虚线）
-  ctx.fillStyle = 'rgba(130, 202, 157, 0.2)'
-  ctx.strokeStyle = 'rgba(130, 202, 157, 0.8)'
+  ctx.fillStyle = 'rgba(34, 197, 94, 0.16)'
+  ctx.strokeStyle = 'rgba(34, 197, 94, 0.8)'
   ctx.setLineDash([5, 5])
   ctx.beginPath()
-
   for (let i = 0; i <= data.length; i++) {
     const item = data[i % data.length]
     const angle = angleStep * i - Math.PI / 2
     const r = radius * item.confidence
     const x = centerX + r * Math.cos(angle)
     const y = centerY + r * Math.sin(angle)
-
-    if (i === 0) {
-      ctx.moveTo(x, y)
-    } else {
-      ctx.lineTo(x, y)
-    }
+    if (i === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
   }
-
   ctx.closePath()
   ctx.fill()
   ctx.stroke()
   ctx.setLineDash([])
 
-  // 绘制维度标签
-  ctx.fillStyle = '#333'
-  ctx.font = '14px sans-serif'
-  ctx.textAlign = 'center'
+  ctx.font = '12px sans-serif'
   ctx.textBaseline = 'middle'
 
   for (let i = 0; i < data.length; i++) {
     const angle = angleStep * i - Math.PI / 2
-    const labelRadius = radius + 30
+    const labelRadius = radius + 26
     const x = centerX + labelRadius * Math.cos(angle)
     const y = centerY + labelRadius * Math.sin(angle)
 
-    // 调整文本对齐
-    if (Math.abs(Math.cos(angle)) < 0.1) {
-      ctx.textAlign = 'center'
-    } else if (Math.cos(angle) > 0) {
-      ctx.textAlign = 'left'
-    } else {
-      ctx.textAlign = 'right'
-    }
+    if (Math.abs(Math.cos(angle)) < 0.1) ctx.textAlign = 'center'
+    else if (Math.cos(angle) > 0) ctx.textAlign = 'left'
+    else ctx.textAlign = 'right'
 
+    ctx.fillStyle = '#334155'
     ctx.fillText(data[i].label, x, y)
-
-    // 绘制数值
+    ctx.font = '11px sans-serif'
+    ctx.fillStyle = '#64748b'
+    ctx.fillText(`${(data[i].level * 100).toFixed(0)}%`, x, y + 14)
     ctx.font = '12px sans-serif'
-    ctx.fillStyle = '#666'
-    ctx.fillText(`${(data[i].level * 100).toFixed(0)}%`, x, y + 16)
-    ctx.font = '14px sans-serif'
-    ctx.fillStyle = '#333'
   }
 }

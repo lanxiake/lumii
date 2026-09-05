@@ -122,9 +122,9 @@ describe('指标提取函数', () => {
       expect(result).toBeGreaterThan(0.5);
     });
 
-    it('超长会话应返回低分', () => {
+    it('超长会话应返回正常分（新口径不看墙钟时间）', () => {
       const start = new Date();
-      const end = new Date(start.getTime() + 3600000); // 1小时
+      const end = new Date(start.getTime() + 3600000); // 1小时墙钟时间
       const metrics: SessionMetrics = {
         sessionId: 'test',
         agentId: 'agent1',
@@ -132,12 +132,13 @@ describe('指标提取函数', () => {
         endTime: end.toISOString(),
         messageCount: 10,
         toolCallCount: 5,
-        errorCount: 0,
+        errorCount: 0, // 全成功
         userInteractionCount: 3,
         knowledgeQueriesCount: 2,
       };
       const result = extractEfficiency(metrics);
-      expect(result).toBeLessThan(0.5);
+      // V1.0 口径：5 次全成功 = 1.0，墙钟时间不再影响评分
+      expect(result).toBe(1.0);
     });
   });
 

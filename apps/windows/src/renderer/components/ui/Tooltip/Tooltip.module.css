@@ -1,13 +1,14 @@
 .tooltip-wrapper {
   position: relative;
   display: inline-flex;
+  max-width: 100%;
+  vertical-align: baseline;
 }
 
 .tooltip {
-  position: absolute;
-  z-index: var(--z-tooltip);
+  z-index: var(--z-tooltip, 1800);
   padding: var(--spacing-2) var(--spacing-3);
-  background-color: rgba(var(--mt-surface-rgb), 0.95);
+  background-color: rgba(var(--mt-surface-rgb), 0.96);
   border: 1px solid var(--mt-border);
   border-radius: var(--mt-radius-md);
   box-shadow: var(--mt-shadow-md);
@@ -15,18 +16,24 @@
   animation: tooltip-fade-in var(--mt-dur-fast) var(--mt-ease-decel);
   width: fit-content;
   min-width: 120px;
-  max-width: min(360px, 80vw);
+  max-width: min(360px, calc(100vw - 16px));
   box-sizing: border-box;
+}
+
+/* Portal 模式：挂到 body，不受父级 overflow 裁切 */
+.tooltip.portal {
+  position: fixed;
+  margin: 0;
+  /* 初始在视口外测量，避免首帧闪一下；坐标就绪后由 inline style 覆盖 */
+  transform: none;
 }
 
 @keyframes tooltip-fade-in {
   from {
     opacity: 0;
-    transform: translateY(-4px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -44,59 +51,41 @@
   position: absolute;
   width: 8px;
   height: 8px;
-  background-color: rgba(var(--mt-surface-rgb), 0.95);
-  transform: rotate(45deg);
+  background-color: rgba(var(--mt-surface-rgb), 0.96);
+  border: 1px solid var(--mt-border);
+  /* 只保留朝向触发器一侧的边框感，其余被气泡盖住 */
+  box-sizing: border-box;
 }
 
-/* Placements */
-.tooltip-top {
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-bottom: var(--spacing-2);
-}
-
+/* 箭头朝向：相对固定定位气泡 */
 .tooltip-top .tooltip-arrow {
-  bottom: -4px;
+  bottom: -5px;
   left: 50%;
   transform: translateX(-50%) rotate(45deg);
-}
-
-.tooltip-bottom {
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-top: var(--spacing-2);
+  border-top: none;
+  border-left: none;
 }
 
 .tooltip-bottom .tooltip-arrow {
-  top: -4px;
+  top: -5px;
   left: 50%;
   transform: translateX(-50%) rotate(45deg);
-}
-
-.tooltip-left {
-  right: 100%;
-  top: 50%;
-  transform: translateY(-50%);
-  margin-right: var(--spacing-2);
+  border-bottom: none;
+  border-right: none;
 }
 
 .tooltip-left .tooltip-arrow {
-  right: -4px;
+  right: -5px;
   top: 50%;
   transform: translateY(-50%) rotate(45deg);
-}
-
-.tooltip-right {
-  left: 100%;
-  top: 50%;
-  transform: translateY(-50%);
-  margin-left: var(--spacing-2);
+  border-bottom: none;
+  border-left: none;
 }
 
 .tooltip-right .tooltip-arrow {
-  left: -4px;
+  left: -5px;
   top: 50%;
   transform: translateY(-50%) rotate(45deg);
+  border-top: none;
+  border-right: none;
 }

@@ -28,6 +28,14 @@ import {
   type MVPScope,
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log } from './bridge-utils'
+import {
+  readCounters,
+  resetCounters,
+  deriveUserFeedback,
+  recordEdit,
+  recordResend,
+  recordAbort,
+} from './autonomous-feedback-signals'
 
 const ENABLED_KEY = 'autonomous.enabled'
 
@@ -68,6 +76,26 @@ export function initAutonomousRuntime(db: DatabaseAdapter): void {
     // 装配失败不能拖垮启动流程，降级为不启用
     runtime = null
     log.warn('[autonomous] 装配失败，自主进化不启用:', err instanceof Error ? err.message : err)
+  }
+}
+
+/**
+ * 供 IPC 层记录用户负反馈信号。
+ *
+ * 编辑/重发/打断都不落库（编辑是原地 UPDATE，打断无痕），
+ * 必须在事件发生时主动记录，无法事后回溯。
+ */
+export function recordFeedbackSignal(
+  conversationId: string,
+  kind: 'edit' | 'resend' | 'abort',
+): void {
+  if (!runtimeDb) return
+  try {
+    if (kind === 'edit') recordEdit(runtimeDb, conversationId)
+    else if (kind === 'resend') recordResend(runtimeDb, conversationId)
+    else recordAbort(runtimeDb, conversationId)
+  } catch (err) {
+    log.warn('[autonomous] 记录反馈信号失败:', err instanceof Error ? err.message : err)
   }
 }
 
@@ -188,7 +216,15 @@ export function createAutonomousRuntime(
       try {
         const session = buildSessionSnapshot(db, sessionId, agentId)
         if (!session) return
-        await coordinator.onSessionEnd(session)
+        // 真实负反馈信号（编辑/重发/打断）推导 user_feedback，
+        // 否则该维度在单轮对话中恒为 0.5，不携带区分度
+        const counters = readCounters(db, sessionId)
+        await coordinator.onSessionEnd({
+          ...session,
+          userFeedbackOverride: deriveUserFeedback(counters),
+        })
+        // 评分已消费本轮信号，清零避免一次编辑永久拉低后续轮次
+        resetCounters(db, sessionId)
       } catch (err) {
         // 自主进化是旁路能力，失败只记日志，绝不影响用户的会话
         log.warn('[autonomous] 回合结束处理失败:', err instanceof Error ? err.message : err)
