@@ -24,6 +24,7 @@ import {
   type WikiTopicTree,
 } from "./wiki-topic-tree.js";
 import { RECLASSIFY_RUN_META_KEY } from "./wiki-reclassify-types.js";
+import { MIGRATE_RUN_META_KEY, type WikiMigrateRun } from "./wiki-migrate-types.js";
 import { GRAPH_EXTRACT_CURSOR_META_KEY, type WikiGraphExtractCursor } from "./wiki-graph-types.js";
 import {
   planTopicMutation,
@@ -1125,6 +1126,68 @@ export class WikiRepo {
 
   private reclassifyRunKey(agentId: string, userId: string): string {
     return `${RECLASSIFY_RUN_META_KEY}:${agentId}:${userId}`;
+  }
+
+  // ── 库级迁移批次 ────────────────────────────────────────
+
+  /** 读取当前库级迁移 run；解析失败视为不存在，避免坏 JSON 卡死入口 */
+  getMigrateRun(agentId: string, userId: string): WikiMigrateRun | null {
+    const raw = this.getIndexMeta(this.migrateRunKey(agentId, userId));
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as WikiMigrateRun;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 覆盖式写入当前迁移 run；传 null 清空。每 agent+user 只留一条 */
+  setMigrateRun(agentId: string, userId: string, run: WikiMigrateRun | null): void {
+    const key = this.migrateRunKey(agentId, userId);
+    if (run === null) {
+      this.db.prepare("DELETE FROM wiki_index_meta WHERE key = ?").run(key);
+      return;
+    }
+    this.setIndexMeta(key, JSON.stringify(run));
+  }
+
+  private migrateRunKey(agentId: string, userId: string): string {
+    return `${MIGRATE_RUN_META_KEY}:${agentId}:${userId}`;
+  }
+
+  /**
+   * 撤销本轮迁移落位：删除 sources，并将对应 organized/discarded inbox 重开为 pending。
+   * @returns 成功重开的 inbox 条数
+   */
+  reopenInboxAfterUndo(agentId: string, userId: string, sourceIds: readonly string[]): number {
+    if (sourceIds.length === 0) return 0;
+    const placeholders = sourceIds.map(() => "?").join(",");
+
+    return withTransaction(this.db, () => {
+      const inboxRows = this.db
+        .prepare<{ id: string }>(
+          `SELECT id FROM wiki_inbox
+           WHERE agent_id = ? AND user_id = ?
+             AND organized_source_id IN (${placeholders})
+             AND status IN ('organized', 'discarded')`,
+        )
+        .all(agentId, userId, ...sourceIds);
+      const inboxIds = inboxRows.map((row) => row.id);
+
+      this.deleteSources(agentId, userId, sourceIds);
+
+      if (inboxIds.length === 0) return 0;
+      const inboxPlaceholders = inboxIds.map(() => "?").join(",");
+      const info = this.db
+        .prepare(
+          `UPDATE wiki_inbox
+           SET status = 'pending', organized_source_id = NULL, organized_at = NULL,
+               last_error = NULL, last_outcome = NULL, attempt_count = 0
+           WHERE agent_id = ? AND user_id = ? AND id IN (${inboxPlaceholders})`,
+        )
+        .run(agentId, userId, ...inboxIds);
+      return info.changes;
+    });
   }
 
   // ── 图谱抽取游标（三期） ────────────────────────────────

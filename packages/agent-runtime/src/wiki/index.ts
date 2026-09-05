@@ -135,6 +135,14 @@ export type {
   WikiReclassifyStatus,
 } from "./wiki-reclassify-types.js";
 
+export type {
+  WikiMigratePhase,
+  WikiMigrateProgress,
+  MigrateFolderMapping,
+  WikiMigrateRun,
+} from "./wiki-migrate-types.js";
+export { MIGRATE_RUN_META_KEY } from "./wiki-migrate-types.js";
+
 export {
   buildLibraryInventory,
   ANCHOR_SAMPLES_PER_LEAF,

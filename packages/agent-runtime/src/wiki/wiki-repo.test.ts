@@ -1025,3 +1025,60 @@ describe("WikiRepo 主题树 V1→V2 迁移", () => {
     expect(after.topic_subtopic).toBe("图片媒体素材");
   });
 });
+
+describe("WikiRepo 库级迁移 run 持久化", () => {
+  it("get/setMigrateRun 读写同一份 JSON", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.setMigrateRun("ag", "u", {
+      id: "m1",
+      phase: "review",
+      agentId: "ag",
+      userId: "u",
+      importRoot: "/tmp/import",
+      inboxIds: [],
+      mappings: [],
+      appliedSourceIds: [],
+      appliedInboxIds: [],
+      cancelRequested: false,
+      progress: {
+        runId: "m1",
+        phase: "review",
+        phaseLabel: "预览",
+        done: 0,
+        total: 0,
+        currentItem: null,
+      },
+      createdAt: "2026-09-05T00:00:00.000Z",
+    });
+    expect(repo.getMigrateRun("ag", "u")).toMatchObject({ id: "m1", phase: "review" });
+    repo.setMigrateRun("ag", "u", null);
+    expect(repo.getMigrateRun("ag", "u")).toBeNull();
+  });
+
+  it("JSON 损坏时 getMigrateRun 返回 null", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    repo.setIndexMeta("wiki_migrate_run:ag:u", "{ not json");
+    expect(repo.getMigrateRun("ag", "u")).toBeNull();
+  });
+});
+
+describe("WikiRepo reopenInboxAfterUndo", () => {
+  it("reopenInboxAfterUndo 删除 source 并把对应 inbox 重开为 pending", () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const item = repo.ingestToInbox({
+      agentId: "ag",
+      userId: "u",
+      itemType: "output",
+      title: "a.md",
+      sourcePath: "outputs/a/a.md",
+    });
+    const source = repo.archiveInboxItem(item, "工作", "项目");
+    expect(repo.findInboxById(item.id)!.status).toBe("organized");
+    const n = repo.reopenInboxAfterUndo("ag", "u", [source.id]);
+    expect(n).toBe(1);
+    expect(repo.findSourceById(source.id)).toBeNull();
+    expect(repo.findInboxById(item.id)!.status).toBe("pending");
+    expect(repo.findInboxById(item.id)!.organized_source_id).toBeNull();
+    expect(repo.findInboxById(item.id)!.organized_at).toBeNull();
+  });
+});
