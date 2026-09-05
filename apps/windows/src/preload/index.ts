@@ -953,6 +953,8 @@ export interface ElectronAPI {
     onEventType: (eventType: string, handler: (event: unknown) => void) => () => void
     /** [P3] 检查新协议是否可用 */
     isAvailable: () => Promise<boolean>
+    /** 订阅 Wiki 库级迁移进度（wiki:migrate:progress） */
+    onWikiMigrateProgress: (callback: (progress: unknown) => void) => () => void
     /** 本地 SQLite 存储占用与表行数 */
     getLocalStorageStats: () => Promise<{
       dbPath: string

@@ -85,6 +85,30 @@ describe('wiki task center store', () => {
     expect(store.getSnapshot().pillText).toBeNull()
   })
 
+  it('migrate running 显示 done/total 与 currentItem', () => {
+    const store = createWikiTaskCenterStore()
+    store.startTask({
+      kind: 'migrate',
+      title: '整理入库',
+      phase: 'running',
+      progress: { done: 3, total: 10 },
+      currentItem: 'a.md',
+      detail: '落位中 · a.md',
+    })
+    expect(store.getSnapshot().pillText).toMatch(/整理入库中.*3\/10/)
+  })
+
+  it('migrate cancelRequested 时 pill 显示正在停止', () => {
+    const store = createWikiTaskCenterStore()
+    store.startTask({
+      kind: 'migrate',
+      title: '整理入库',
+      progress: { done: 5, total: 10 },
+      cancelRequested: true,
+    })
+    expect(store.getSnapshot().pillText).toBe('正在停止…')
+  })
+
   it('merges run history once without replacing a local task', () => {
     const store = createWikiTaskCenterStore()
     const localId = store.startTask({ kind: 'archive', title: '本地归档' })

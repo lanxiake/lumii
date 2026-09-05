@@ -1,8 +1,21 @@
 import { useRef, useSyncExternalStore } from 'react'
 import type { WikiRunItem } from '../../../hooks/business/useWikiPage/useWikiPage'
 
-export type WikiTaskKind = 'archive' | 'cleanup' | 'rebuild' | 'graph' | 'reclassify'
+export type WikiTaskKind = 'archive' | 'cleanup' | 'rebuild' | 'graph' | 'reclassify' | 'migrate'
 export type WikiTaskPhase = 'running' | 'succeeded' | 'failed'
+
+/** Wiki 库级迁移阶段（与 runtime WikiMigratePhase 对齐） */
+export type WikiMigratePhase =
+  | 'inventorying'
+  | 'planning'
+  | 'review'
+  | 'applying'
+  | 'succeeded'
+  | 'partial'
+  | 'failed'
+  | 'cancelled'
+  | 'discarded'
+  | 'undone'
 
 export interface WikiLocalTask {
   readonly id: string
@@ -18,6 +31,12 @@ export interface WikiLocalTask {
   readonly inboxIds?: readonly string[]
   readonly runDetail?: WikiRunItem['resultDetail']
   readonly retry?: () => Promise<unknown>
+  /** migrate：当前处理的文件或文件夹相对路径 */
+  readonly currentItem?: string
+  readonly migratePhase?: WikiMigratePhase
+  readonly appliedCount?: number
+  readonly cancelRequested?: boolean
+  readonly onCancel?: () => Promise<unknown>
 }
 
 export interface WikiTaskCenterApi {
@@ -54,6 +73,7 @@ const TASK_PROGRESS_PREFIX: Record<WikiTaskKind, string> = {
   rebuild: '重建索引…',
   graph: '图谱任务中',
   reclassify: '重新编目中',
+  migrate: '整理入库中',
 }
 
 const SUCCESS_TONE_DURATION_MS = 3_000
@@ -99,6 +119,7 @@ function getPillText(
   if (runningTasks.length > 1) return `${runningTasks.length} 个任务进行中`
   if (runningTasks.length === 1) {
     const [task] = runningTasks
+    if (task.cancelRequested) return '正在停止…'
     const prefix = TASK_PROGRESS_PREFIX[task.kind]
     return task.progress ? `${prefix} ${task.progress.done}/${task.progress.total}` : prefix
   }

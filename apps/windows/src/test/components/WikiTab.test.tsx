@@ -47,6 +47,10 @@ function mockSendCommand(overrides: Record<string, unknown> = {}) {
         return { total: 0 }
       case 'wiki:runs:list':
         return []
+      case 'wiki:migrate:get':
+        return { run: null }
+      case 'wiki:auto-classify:get':
+        return { enabled: false }
       case 'wiki:topic:tree:get':
         return { tree: TOPIC_TREE }
       case 'wiki:source:list':
@@ -83,7 +87,10 @@ describe('WikiTab', () => {
       disconnect() {}
     })
     ;(window as any).electronAPI = {
-      agentRuntime: { sendCommand: mockSendCommand() },
+      agentRuntime: {
+        sendCommand: mockSendCommand(),
+        onWikiMigrateProgress: () => () => undefined,
+      },
     }
   })
 

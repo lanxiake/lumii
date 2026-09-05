@@ -87,4 +87,7 @@ export const agentRuntimeApi = {
   restoreDatabaseFromLatestBackup: () => send({ type: 'storage:restoreLatestBackup' }),
   deleteDatabaseBackup: (backupFileName: string) =>
     send({ type: 'storage:deleteBackup', backupFileName }),
+  /** 订阅库级迁移进度（主进程 wiki:migrate:progress 通道） */
+  onWikiMigrateProgress: (handler: (progress: unknown) => void) =>
+    createEventListener('wiki:migrate:progress', handler),
 }

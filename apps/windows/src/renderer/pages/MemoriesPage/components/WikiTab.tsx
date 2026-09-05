@@ -20,6 +20,8 @@ import {
   type WikiReclassifyRunItem,
   type WikiReclassifyScopeDto,
   type WikiReclassifyEstimateItem,
+  type WikiMigrateProgressItem,
+  type WikiMigrateRunItem,
 } from '../../../hooks/business/useWikiPage'
 import { CleanupView } from './CleanupView'
 import { WikiLeftNav, type WikiNav } from './WikiLeftNav'
@@ -41,7 +43,7 @@ import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import { buildWikiBreadcrumbs } from './wikiBreadcrumbs'
 import { buildWikiRemoveConfirmContent } from './wikiRemoveConfirm'
 import { WikiTaskCenter } from './WikiTaskCenter'
-import { useWikiTaskCenter, type WikiLocalTask } from './useWikiTaskCenter'
+import { useWikiTaskCenter, type WikiLocalTask, type WikiMigratePhase } from './useWikiTaskCenter'
 import './WikiTab.css'
 
 /** 归档选择器的目标：inbox 队列条目，或已进资料层但待补分/需要移动的文件 */
@@ -55,6 +57,44 @@ const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
   parking: { title: '临时存放', subtitle: '你主动搁置、暂不进入正式目录的文件' },
   cleanup: { title: '清理', subtitle: '扫描并处理需要维护的资料' },
   reclassify: { title: '重新编目', subtitle: 'AI 的目录调整建议，接受后才生效' },
+}
+
+/** migrate 进行中阶段（可取消） */
+const MIGRATE_BUSY_PHASES = new Set(['inventorying', 'planning', 'applying'])
+
+/**
+ * 判断 migrate 是否仍处于可取消的进行中阶段。
+ */
+function isMigrateBusyPhase(phase: string): boolean {
+  return MIGRATE_BUSY_PHASES.has(phase)
+}
+
+/**
+ * 将 migrate progress 格式化为任务中心 detail 文案。
+ */
+function formatMigrateDetail(progress: WikiMigrateProgressItem): string {
+  const label = progress.phaseLabel || progress.phase
+  if (progress.currentItem) return `${label} · ${progress.currentItem}`
+  return label
+}
+
+/**
+ * 将 migrate progress 转为任务中心局部更新字段。
+ */
+function migrateProgressToTaskPatch(
+  progress: WikiMigrateProgressItem,
+  onCancel: () => Promise<unknown>,
+): Partial<WikiLocalTask> {
+  const busy = isMigrateBusyPhase(progress.phase)
+  return {
+    progress: { done: progress.done, total: progress.total },
+    currentItem: progress.currentItem ?? undefined,
+    migratePhase: progress.phase as WikiMigratePhase,
+    detail: formatMigrateDetail(progress),
+    cancelRequested: progress.cancelRequested,
+    appliedCount: progress.appliedCount,
+    onCancel: busy ? onCancel : undefined,
+  }
 }
 
 /**
@@ -96,9 +136,16 @@ export const WikiTab: React.FC = () => {
     ensureVaultLayout,
     loadAutoClassifySetting,
     setAutoClassifyEnabled,
+    getMigrateRun,
+    cancelMigrate,
+    subscribeMigrateProgress,
     loading,
   } = useWikiPage()
   const taskCenter = useWikiTaskCenter()
+  const migrateTaskRef = useRef<{ taskId: string; runId: string } | null>(null)
+  const taskCenterRef = useRef(taskCenter)
+  taskCenterRef.current = taskCenter
+  const handleMigrateCancelRef = useRef<() => Promise<void>>(async () => undefined)
 
   const [nav, setNav] = useState<WikiNav>({ kind: 'inbox' })
   const [sectionSubtopicFilter, setSectionSubtopicFilter] = useState<WikiSubtopicFilter>(WIKI_SUBTOPIC_FILTER_ALL)
@@ -287,6 +334,110 @@ export const WikiTab: React.FC = () => {
 
     void loadRunHistory()
   }, [listRuns, taskCenter.mergeRuns])
+
+  /**
+   * 请求停止当前 migrate 任务并同步任务中心状态。
+   */
+  const handleMigrateCancel = useCallback(async (): Promise<void> => {
+    const run = await cancelMigrate()
+    const tracked = migrateTaskRef.current
+    if (!tracked) return
+    if (run?.progress) {
+      taskCenterRef.current.updateTask(
+        tracked.taskId,
+        migrateProgressToTaskPatch(run.progress, () => handleMigrateCancelRef.current()),
+      )
+    }
+  }, [cancelMigrate])
+  handleMigrateCancelRef.current = handleMigrateCancel
+
+  /**
+   * 根据 migrate 终态更新任务中心（review 视为成功待确认）。
+   */
+  const finalizeMigrateTask = useCallback(
+    (taskId: string, progress: WikiMigrateProgressItem, error?: string | null): void => {
+      migrateTaskRef.current = null
+      const tc = taskCenterRef.current
+      if (progress.phase === 'failed') {
+        tc.failTask(taskId, error ?? progress.message ?? '整理入库失败')
+        return
+      }
+      if (progress.phase === 'cancelled') {
+        const applied = progress.appliedCount ?? 0
+        tc.completeTask(taskId, {
+          detail: applied > 0 ? `已取消 · 已整理 ${applied} 项` : '已取消',
+        })
+        return
+      }
+      if (progress.phase === 'review') {
+        tc.completeTask(taskId, {
+          detail: progress.total > 0 ? `${progress.total} 条映射待确认` : '映射方案待确认',
+        })
+        return
+      }
+      if (progress.phase === 'succeeded' || progress.phase === 'partial') {
+        tc.completeTask(taskId, {
+          detail: progress.message ?? progress.phaseLabel,
+        })
+        return
+      }
+      tc.completeTask(taskId, { detail: progress.phaseLabel })
+    },
+    [],
+  )
+
+  /**
+   * 注册或刷新 migrate 任务到任务中心。
+   */
+  const registerMigrateTask = useCallback(
+    (run: WikiMigrateRunItem): string => {
+      const onCancel = () => handleMigrateCancelRef.current()
+      const patch = migrateProgressToTaskPatch(run.progress, onCancel)
+      const tracked = migrateTaskRef.current
+      const tc = taskCenterRef.current
+      if (tracked?.runId === run.runId) {
+        tc.updateTask(tracked.taskId, patch)
+        return tracked.taskId
+      }
+      const taskId = tc.startTask({
+        kind: 'migrate',
+        title: '整理入库',
+        ...patch,
+      })
+      migrateTaskRef.current = { taskId, runId: run.runId }
+      if (!isMigrateBusyPhase(run.phase)) {
+        finalizeMigrateTask(taskId, run.progress, run.error)
+      }
+      return taskId
+    },
+    [finalizeMigrateTask],
+  )
+
+  /** 订阅 migrate 进度推送并同步任务中心 */
+  useEffect(() => {
+    const unsubscribe = subscribeMigrateProgress((progress) => {
+      const tracked = migrateTaskRef.current
+      if (!tracked || tracked.runId !== progress.runId) return
+      const onCancel = () => handleMigrateCancelRef.current()
+      if (isMigrateBusyPhase(progress.phase)) {
+        taskCenterRef.current.updateTask(
+          tracked.taskId,
+          migrateProgressToTaskPatch(progress, onCancel),
+        )
+        return
+      }
+      finalizeMigrateTask(tracked.taskId, progress)
+    })
+    return unsubscribe
+  }, [finalizeMigrateTask, subscribeMigrateProgress])
+
+  /** 进页时恢复进行中的 migrate 任务 */
+  useEffect(() => {
+    void getMigrateRun().then((run) => {
+      if (!run || !isMigrateBusyPhase(run.phase)) return
+      registerMigrateTask(run)
+    })
+  }, [getMigrateRun, registerMigrateTask])
 
   // 角标来自 wiki:source:counts；可见列表按导航按需拉取（见 refreshSources）
   const parkingSources = nav.kind === 'parking' ? sources : []
@@ -805,20 +956,31 @@ export const WikiTab: React.FC = () => {
       }
       setNav({ kind: 'inbox' })
       await Promise.all([refreshInbox(), refreshSources()])
-      const orgSummary = imported.organizeRun?.summary
-      if (autoClassifyEnabled && orgSummary && /\d+\s*项已归档/.test(orgSummary)) {
-        toast.success(
-          `已导入 ${imported.imported} 个文件 · ${orgSummary}。请在左侧「工作 / 学习 / 生活 / 收藏」查看。`,
-        )
-      } else if (orgSummary) {
-        toast.success(`已导入 ${imported.imported} 个文件 · ${orgSummary}`)
+      if (autoClassifyEnabled && imported.migrateRun) {
+        registerMigrateTask(imported.migrateRun)
+        if (imported.migrateRun.phase === 'review') {
+          toast.success(
+            `已导入 ${imported.imported} 个文件 · ${imported.migrateRun.progress.total} 条映射待确认`,
+          )
+        } else {
+          toast.success(`已导入 ${imported.imported} 个文件 · 正在整理入库`)
+        }
       } else {
-        toast.success(`已导入 ${imported.imported} 个文件到收件箱`)
+        const orgSummary = imported.organizeRun?.summary
+        if (autoClassifyEnabled && orgSummary && /\d+\s*项已归档/.test(orgSummary)) {
+          toast.success(
+            `已导入 ${imported.imported} 个文件 · ${orgSummary}。请在左侧「工作 / 学习 / 生活 / 收藏」查看。`,
+          )
+        } else if (orgSummary) {
+          toast.success(`已导入 ${imported.imported} 个文件 · ${orgSummary}`)
+        } else {
+          toast.success(`已导入 ${imported.imported} 个文件到收件箱`)
+        }
       }
     } finally {
       setFolderImportBusy(false)
     }
-  }, [scanFolder, importFolder, refreshInbox, refreshSources, toast, autoClassifyEnabled])
+  }, [scanFolder, importFolder, refreshInbox, refreshSources, toast, autoClassifyEnabled, registerMigrateTask])
 
   /** 切换待整理队列条目选中状态 */
   const toggleSelectInbox = useCallback((inboxId: string) => {

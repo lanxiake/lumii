@@ -63,6 +63,31 @@ export interface WikiFolderImportResult {
     readonly status: string
     readonly summary: string | null
   } | null
+  readonly migrateRun?: WikiMigrateRunItem | null
+}
+
+/** 库级迁移进度（与 IPC wiki:migrate:progress 对齐） */
+export interface WikiMigrateProgressItem {
+  readonly runId: string
+  readonly phase: string
+  readonly phaseLabel: string
+  readonly done: number
+  readonly total: number
+  readonly currentItem: string | null
+  readonly message?: string
+  readonly appliedCount?: number
+  readonly cancelRequested?: boolean
+}
+
+/** 库级迁移 run 摘要（与 IPC WikiMigrateRunDto 对齐） */
+export interface WikiMigrateRunItem {
+  readonly runId: string
+  readonly phase: string
+  readonly importRoot: string
+  readonly inboxIds: readonly string[]
+  readonly cancelRequested: boolean
+  readonly progress: WikiMigrateProgressItem
+  readonly error: string | null
 }
 
 /** 资料详情（wiki:source:get） */
@@ -1006,6 +1031,57 @@ export function useWikiPage() {
     [],
   )
 
+  /**
+   * 读取当前库级迁移 run（含 progress）。
+   */
+  const getMigrateRun = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:migrate:get',
+        agentId: DEFAULT_AGENT_ID,
+      })) as { run: WikiMigrateRunItem | null }
+      return r?.run ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  /**
+   * 请求停止当前 migrate（inventory / planning / applying）。
+   */
+  const cancelMigrate = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return null
+    try {
+      const r = (await api.sendCommand({
+        type: 'wiki:migrate:cancel',
+        agentId: DEFAULT_AGENT_ID,
+      })) as { run: WikiMigrateRunItem | null }
+      return r?.run ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  /**
+   * 订阅 migrate 进度推送（wiki:migrate:progress）。
+   */
+  const subscribeMigrateProgress = useCallback(
+    (handler: (progress: WikiMigrateProgressItem) => void): (() => void) => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.onWikiMigrateProgress) return () => undefined
+      return api.onWikiMigrateProgress((payload: unknown) => {
+        if (!payload || typeof payload !== 'object') return
+        const p = payload as WikiMigrateProgressItem
+        if (typeof p.runId !== 'string' || typeof p.phase !== 'string') return
+        handler(p)
+      })
+    },
+    [],
+  )
+
   return {
     loading,
     listInbox,
@@ -1047,5 +1123,8 @@ export function useWikiPage() {
     ensureVaultLayout,
     loadAutoClassifySetting,
     setAutoClassifyEnabled,
+    getMigrateRun,
+    cancelMigrate,
+    subscribeMigrateProgress,
   }
 }

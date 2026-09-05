@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react'
-import { RotateCcw, Trash2, X } from 'lucide-react'
+import React, { useEffect, useState } from 'react'
+import { RotateCcw, Square, Trash2, X } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import type { WikiLocalTask, WikiTaskPhase } from './useWikiTaskCenter'
 import {
@@ -67,7 +67,21 @@ const WikiTaskItem: React.FC<{
   task: WikiLocalTask
   onRetry: (task: WikiLocalTask) => void
   onDismiss: (taskId: string) => void
-}> = ({ task, onRetry, onDismiss }) => (
+}> = ({ task, onRetry, onDismiss }) => {
+  const [cancelBusy, setCancelBusy] = useState(false)
+
+  /** 调用 migrate 停止回调并防止重复点击 */
+  const handleCancel = async (): Promise<void> => {
+    if (!task.onCancel || cancelBusy) return
+    setCancelBusy(true)
+    try {
+      await task.onCancel()
+    } finally {
+      setCancelBusy(false)
+    }
+  }
+
+  return (
   <article className={`wiki-task-center-item wiki-task-center-item--${task.phase}`}>
     <div className="wiki-task-center-item-heading">
       <div>
@@ -79,8 +93,24 @@ const WikiTaskItem: React.FC<{
       </span>
     </div>
     {task.detail && <p className="wiki-task-center-message">{task.detail}</p>}
+    {task.currentItem && (
+      <p className="wiki-task-center-message">当前：{task.currentItem}</p>
+    )}
     {task.error && <p className="wiki-task-center-error">{task.error}</p>}
     <WikiTaskRunDetail task={task} />
+    {task.phase === 'running' && task.onCancel && (
+      <div className="wiki-task-center-actions">
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={cancelBusy || task.cancelRequested}
+          onClick={() => void handleCancel()}
+        >
+          <Square size={12} />
+          {task.cancelRequested ? '正在停止…' : '停止'}
+        </Button>
+      </div>
+    )}
     {task.phase !== 'running' && (
       <div className="wiki-task-center-actions">
         {task.retryable && (
@@ -101,7 +131,8 @@ const WikiTaskItem: React.FC<{
       </div>
     )}
   </article>
-)
+  )
+}
 
 /**
  * 在 Wiki 工作区右侧展示当前任务与归档运行历史。
