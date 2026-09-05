@@ -5,7 +5,10 @@ import { describe, expect, it } from "vitest";
 import { createMigratedTestDb } from "../__tests__/helpers/sqlite-test-db.js";
 import { WikiContentExtractor } from "./wiki-content-extractor.js";
 import { WikiIngestHook } from "./wiki-ingest-hook.js";
+import { WikiLibraryMigrate } from "./wiki-library-migrate.js";
+import type { WikiMigratePhase } from "./wiki-migrate-types.js";
 import { WikiOrganizer } from "./wiki-organizer.js";
+import { WikiReclassifier } from "./wiki-reclassifier.js";
 import { WikiRepo } from "./wiki-repo.js";
 
 function setup() {
@@ -286,6 +289,95 @@ describe("WikiIngestHook", () => {
     expect(hook.ingestUpload("ag", "u", "/tmp/a.md", "a")).toBeNull();
   });
 
+});
+
+/** 造 migrate run，仅 phase 对 isBusy / organizer 互斥有意义 */
+function migrateRunWithPhase(phase: WikiMigratePhase) {
+  return {
+    id: "m1",
+    agentId: "ag",
+    userId: "u",
+    importRoot: "/import/root",
+    phase,
+    inboxIds: [] as readonly string[],
+    mappings: [] as readonly never[],
+    appliedSourceIds: [] as readonly string[],
+    appliedInboxIds: [] as readonly string[],
+    cancelRequested: false,
+    progress: {
+      runId: "m1",
+      phase,
+      phaseLabel: "",
+      done: 0,
+      total: 0,
+      currentItem: null,
+    },
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+describe("WikiOrganizer 与库级迁移互斥", () => {
+  it("migrate busy（planning）时不取件，organizeBatch 返回 null", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "内容");
+    repo.setMigrateRun("ag", "u", migrateRunWithPhase("planning"));
+
+    const organizer = new WikiOrganizer(repo, makeLLM(() => DOC_TOPIC), new WikiContentExtractor());
+    expect(await organizer.organizeBatch("ag", "u", "upload")).toBeNull();
+    expect(repo.listRuns("ag", "u")).toHaveLength(0);
+    expect(repo.listInbox("ag", "u", "pending")).toHaveLength(1);
+    expect(repo.listInbox("ag", "u", "pending")[0]!.attempt_count).toBe(0);
+  });
+
+  it("migrate review 不阻塞自动归档", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "内容");
+    repo.setMigrateRun("ag", "u", migrateRunWithPhase("review"));
+
+    const organizer = new WikiOrganizer(repo, makeLLM(() => DOC_TOPIC), new WikiContentExtractor());
+    const run = await organizer.organizeBatch("ag", "u", "upload");
+    expect(run).not.toBeNull();
+    expect(run!.status).toBe("succeeded");
+  });
+
+  it("migrate 结束后自动归档恢复", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "内容");
+    repo.setMigrateRun("ag", "u", migrateRunWithPhase("applying"));
+
+    const organizer = new WikiOrganizer(repo, makeLLM(() => DOC_TOPIC), new WikiContentExtractor());
+    expect(await organizer.organizeBatch("ag", "u", "upload")).toBeNull();
+
+    repo.setMigrateRun("ag", "u", null);
+    const run = await organizer.organizeBatch("ag", "u", "upload");
+    expect(run!.status).toBe("succeeded");
+  });
+
+  it("migrate busy 时 intakeBatch 也不取件", async () => {
+    const { repo, hook } = setup();
+    hook.ingestUpload("ag", "u", "/tmp/a.md", "a", "text/markdown", "内容");
+    repo.setMigrateRun("ag", "u", migrateRunWithPhase("inventorying"));
+
+    const forbiddenLLM = async () => {
+      throw new Error("不该调用 LLM");
+    };
+    const organizer = new WikiOrganizer(repo, forbiddenLLM, new WikiContentExtractor());
+    expect(await organizer.intakeBatch("ag", "u", "upload")).toBeNull();
+    expect(repo.listInbox("ag", "u", "pending")).toHaveLength(1);
+  });
+});
+
+describe("WikiReclassifier 与库级迁移互斥", () => {
+  it("migrate busy 时 run 抛错", async () => {
+    const { repo } = setup();
+    repo.setMigrateRun("ag", "u", migrateRunWithPhase("planning"));
+
+    const reclassifier = new WikiReclassifier(repo, async () => "[]");
+    await expect(
+      reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: "/vault" }),
+    ).rejects.toThrow(/库级迁移/);
+    expect(WikiLibraryMigrate.isBusy(migrateRunWithPhase("planning"))).toBe(true);
+  });
 });
 
 describe("WikiOrganizer 与重新编目互斥", () => {

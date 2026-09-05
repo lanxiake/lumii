@@ -10,6 +10,7 @@
 
 import { classifyBatch, type ClassifiedItem } from "./wiki-classifier.js";
 import type { WikiClassifyContext } from "./wiki-classify-context.js";
+import { WikiLibraryMigrate } from "./wiki-library-migrate.js";
 import { WikiReclassifier } from "./wiki-reclassifier.js";
 import type { WikiContentExtractor } from "./wiki-content-extractor.js";
 import type { WikiRepo } from "./wiki-repo.js";
@@ -99,13 +100,16 @@ export class WikiOrganizer {
   }
 
   /**
-   * 整理一批同类型待办条目。取件为空返回 null（无运行可言）。
-   * 返回的 run 已是终态（succeeded / partial / failed）。
-   *
-   * 重新编目进行中（status = running）时直接返回 null：不取件、不动 attempt_count，
-   * 条目留在 pending，编目结束后下一轮轮询自然恢复（设计 §7 / §9.2）。
-   * review 状态不阻塞——用户可能长期不处理候选，不该因此停掉自动归档。
+   * 重新编目或库级迁移进行中时不取件、不调 LLM。
+   * review 态 migrate / reclassify 不阻塞——用户可能长期不确认方案。
    */
+  private isLongRunningJobBlocking(agentId: string, userId: string): boolean {
+    if (WikiReclassifier.isRunning(this.repo.getReclassifyRun(agentId, userId) as never)) {
+      return true;
+    }
+    return WikiLibraryMigrate.isBusy(this.repo.getMigrateRun(agentId, userId));
+  }
+
   /**
    * 取件 + 补正文预览。两条整理路径（organizeBatch / intakeBatch）共用，
    * 保证「重新编目进行中不取件」与 extract 状态判定只有一份实现。
@@ -120,7 +124,7 @@ export class WikiOrganizer {
     readonly enriched: readonly WikiInboxItem[];
     readonly extractById: Map<string, WikiOrganizeRunDetailExtract>;
   } | null> {
-    if (WikiReclassifier.isRunning(this.repo.getReclassifyRun(agentId, userId) as never)) {
+    if (this.isLongRunningJobBlocking(agentId, userId)) {
       return null;
     }
     const items = this.repo.takeInboxBatch(agentId, userId, itemType, batchSize);
@@ -161,7 +165,7 @@ export class WikiOrganizer {
     batchSize = 10,
   ): Promise<WikiOrganizeRun | null> {
     if (inboxIds.length === 0) return null;
-    if (WikiReclassifier.isRunning(this.repo.getReclassifyRun(agentId, userId) as never)) {
+    if (this.isLongRunningJobBlocking(agentId, userId)) {
       return null;
     }
 
@@ -309,7 +313,7 @@ export class WikiOrganizer {
     sourceIds?: readonly string[],
     batchSize = 10,
   ): Promise<WikiOrganizeRun | null> {
-    if (WikiReclassifier.isRunning(this.repo.getReclassifyRun(agentId, userId) as never)) {
+    if (this.isLongRunningJobBlocking(agentId, userId)) {
       return null;
     }
 
@@ -442,7 +446,7 @@ export class WikiOrganizer {
     inboxIds: readonly string[],
   ): Promise<WikiOrganizeRun | null> {
     if (inboxIds.length === 0) return null;
-    if (WikiReclassifier.isRunning(this.repo.getReclassifyRun(agentId, userId) as never)) {
+    if (this.isLongRunningJobBlocking(agentId, userId)) {
       return null;
     }
 
