@@ -311,6 +311,21 @@ describe('CloudSyncManager', () => {
     expect(manager.getStatus().lastError).toMatch(/交叉合并/)
   })
 
+  it('error 后下次成功同步 → lastError 被清除', async () => {
+    await setupBase()
+    writeLocal('a.md', 'A-local')
+    await getWorkspaceVcs(workspaceDir).commit({ author: 'user', message: 'local diverge' })
+    await commitRemote('b.md', 'B-remote')
+    vi.spyOn(git, 'findMergeBase').mockResolvedValueOnce(['1'.repeat(40), '2'.repeat(40)])
+    const r1 = await manager.sync()
+    expect(r1.state).toBe('error')
+    expect(manager.getStatus().lastError).toBeDefined()
+
+    const r2 = await manager.sync()
+    expect(r2.state).toBe('idle')
+    expect(manager.getStatus().lastError).toBeUndefined()
+  })
+
   it('conflict 期间再调 sync → 直接返回不重试', async () => {
     await setupBase()
     writeLocal('shared.md', 'local')

@@ -297,8 +297,13 @@ export class CloudSyncManager extends EventEmitter {
 
   private setState(state: SyncState, message: string): void {
     this.state = state
-    this.status = { ...this.status, state, message, lastSyncAt: state === 'idle' ? Date.now() : this.status.lastSyncAt }
-    if (state === 'error') this.status.lastError = message
+    this.status = {
+      ...this.status,
+      state,
+      message,
+      lastSyncAt: state === 'idle' ? Date.now() : this.status.lastSyncAt,
+      lastError: state === 'error' ? message : undefined,
+    }
     this.emit('status', this.status)
     logger.info(`[状态变更] ${state}: ${message}`)
   }

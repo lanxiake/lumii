@@ -205,10 +205,47 @@ lumii-ui cloudsync sync
 
 - **`cloudsync status` 返回 `not_ready`**：云同步 manager 未初始化（应用初始化顺序问题），或控制口在 manager 创建前已就绪。
 - **`cloudsync sync` 返回 `云同步未启用`**：`cloud-sync.json` 缺 `enabled/repoUrl/tokenEnc`，或 token 解密失败（safeStorage 密钥随系统/登录态变）。
-- **`测试连接` 一直失败**：GitCode 令牌需 `repo` 权限；认证头为 `x-oauth-basic`，与 GitHub 一致，GitCode 实测确认。
-- **首推后远端无文件**：确认 `projects/`、`temp/` 在 `.gitignore` 内被排除（`vcs-ignore.ts` 默认规则）；确认 `ensureInitialized` 已写入默认 `.gitignore`。
+- **`测试连接` 一直失败（401）**：GitCode 基于 GitLab，认证头为 `username=oauth2 + password=token`（**不是** GitHub 的 `x-oauth-basic`）；令牌需仓库读写权限（read_repository + write_repository）。
+- **`测试连接` 一直失败（超时）**：多为网络瞬时抖动；`gitcode.com` 可达时通常自动恢复，重试即可。
+- **首推后远端无文件**：`projects/`、`temp/` 通过 `shouldSkipWalkDir` 在 walk 阶段剪枝（`vcs-ignore.ts`），`.gitignore` 里也可能缺旧规则——两道保险之一生效即可；确认 `ensureInitialized` 已写入默认 `.gitignore`。
 - **控制口不可达**：确认应用已启动、`~/.lumii/runtime/app-ui.json` 存在；隐私设置里 `allowAgentAppUiControl` 未关。
 
 ---
 
 **执行时间估算**：Track A 约 10 分钟（纯 CLI）；Track B 约 20 分钟（含真实仓库准备 + Agent 对话落决）。
+
+---
+
+## 执行记录（2026-09-06）
+
+> 实际以 CLI（`lumii-ui`）驱动运行中的应用，工作空间 `E:/testsoft/Lumii-data`，
+> 远端 `https://gitcode.com/qq_42997950111111111111111sfq/lumii-worksapces.git`。
+
+### 已执行并通过
+
+| 项 | 结果 |
+|---|---|
+| A1 区块渲染 | ✅ `screenshot --annotate` refs 含 `section_title=云同步`，其下「启用云同步」switch、「平台」combobox(value=gitcode)、「仓库地址」「访问令牌 (Token)」「分支(main)」「同步间隔(15)」、「测试连接/立即同步/保存配置」三按钮、「同步状态」全部就位，无红屏 |
+| 新手引导渲染 | ✅ 引导卡片默认展开（toggle 文案「收起」），内含「打开 GitCode」按钮与 3 步文案 |
+| A4 token 掩码 + 落盘 | ✅ 输入框 placeholder「留空沿用已保存令牌」；`cloud-sync.json` 的 `tokenEnc` 为 76 位 base64，**非** `plain:` 明文 |
+| B1 真实鉴权 + 同步 | ✅ `cloudsync sync` → `{success:true, state:idle}`；`lastSyncAt` 更新 |
+| B2 排除规则 | ✅ `git --git-dir=.mtbot-vcs ls-files`：`projects/` 0 个、`temp/` 0 个被 track（顶层分布 wiki/skills/outputs/uploads/.tool-results） |
+| 单测 | ✅ `sync-manager.test.ts` 15/15（含新增 lastError 回归），`gitcode-provider.test.ts` 5/5 |
+
+### 本次实测发现并修复的 3 个 bug
+
+1. **GitCode 认证 401**：原 `username=token, password=x-oauth-basic` 是 GitHub 约定，GitCode（GitLab 系）不认 → 改 `username=oauth2, password=token`（`gitcode-provider.ts`）。
+2. **`打开 GitCode` 按钮无降级**：无默认浏览器的环境 `shell.openExternal` 抛 `0x800401F5` → 降级为复制链接到剪贴板 + toast（`CloudSyncSection`）。
+3. **`lastError` 永久残留**：`setState` 只在 error 态写入、从不清除，导致 `state=idle` 时 status 仍带旧 `lastError` → 非 error 态置 `undefined`，并补回归测试（`sync-manager.ts`）。
+
+### 未在真实环境执行（附原因）
+
+- **A2/A5**（未启用静默返回 / 禁用停调度）：需切换 `enabled` 开关，会打断当前已配置的同步；逻辑已由代码分支 + 单测覆盖。
+- **A3**（非 GitCode 地址拒绝）：需改「仓库地址」字段，破坏已保存配置；`validateUrl` 已由 `gitcode-provider.test.ts` 覆盖，UI 层接线（`cloudSync:testConnection` 调 `provider.validateUrl`）逻辑简单。
+- **B3/B4/B5/B6**（第二设备拉取 / 自动 merge / 冲突落决 / 防重试）：需双数据目录双应用实例（或双真机）并发，单应用实例无法完整复现；其分支已由 `sync-manager.test.ts` 14 场景覆盖（本地双目录互推，含 conflict 三策略、merge 后 checkout、串行队列）。
+
+### 反思
+
+1. **单测兜住了真实环境难复现的分支**：B3–B6 的双设备竞态在单机 CLI 下不可复现，幸好 `sync-manager.test.ts` 用双目录互推把它们全覆盖了，CLI 只补「真实网络 + 接线 + 排除规则」。
+2. **旧工作空间的 `.gitignore` 缺 `projects/`**：`E:/testsoft/Lumii-data/.gitignore` 是 8 月旧版生成的（无 `projects/` 条目），但 `shouldSkipWalkDir` 在 walk 层剪枝了它，所以实际仍排除——印证了「双保险」设计的必要性，也提示 `ensureInitialized` 目前**不会**给已有 `.gitignore` 补写新规则。
+3. **认证格式这类「平台约定」必须实测**：`x-oauth-basic` 在本计划里被当作已知结论写死，实际一测就 401，说明跨平台认证头只能靠真实账号验证，不能凭 GitHub 经验类推。
