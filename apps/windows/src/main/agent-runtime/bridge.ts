@@ -66,6 +66,9 @@ import {
   DIARY_PROMPT,
   buildDiaryContext,
   readConcerns,
+  pickConcernToRaise,
+  writeConcerns,
+  markConcernRaised,
   markDiaryWritten,
 } from '@mtbot/agent-runtime'
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
@@ -233,6 +236,14 @@ export class AgentRuntimeBridge {
     getTaskRepo: () => this._taskRepo,
     instanceToConversation: this.instanceToConversation,
     instanceStates: this.instanceStates,
+    consumeConcernToRaise: (conversationId) => {
+      if (!this.localDb || conversationId === EVOLUTION_CONVERSATION_ID) return null
+      const concerns = readConcerns(this.localDb.db)
+      const concern = pickConcernToRaise(concerns, Date.now())
+      if (!concern) return null
+      writeConcerns(this.localDb.db, markConcernRaised(concerns, concern.id, Date.now()))
+      return concern.description
+    },
   })
 
   private readonly mcpClients = new Map<string, McpStdioClient>()

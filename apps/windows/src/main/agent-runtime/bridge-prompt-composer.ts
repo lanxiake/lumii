@@ -36,6 +36,8 @@ export interface BridgePromptComposerDeps {
   instanceToConversation: Map<string, string>
   /** Per-instance 聚合状态存储（提供 memoryGuideInjected / skipTaskInjection） */
   instanceStates: InstanceStateStore
+  /** 取一条可提起的牵挂并标记已提起（返回牵挂描述或 null 表示无可提） */
+  consumeConcernToRaise?: (conversationId: string) => string | null
 }
 
 /** 诊断采样结果（单进程共享缓存） */
@@ -71,6 +73,16 @@ const TASK_COMPLETION_CONTRACT = [
   "- 工具调用返回错误时，**必须** (a) 将对应任务保留 in_progress (b) 在回复中显式说明「X 任务未完成，原因：Y」，不得静默跳过。",
   "- 准备向用户宣告任务完成前，**必须先调用** todo_write 核对：所有项的 status 均为 completed 才可宣告，否则继续执行未完成项。",
 ].join("\n")
+
+/** 牵挂注入段：轻量提示，LLM 自行判断是否顺带提起，绝不强制追问 */
+function buildConcernSection(description: string): string {
+  return [
+    "## Open Concerns",
+    "你还在意、但尚未有结论的事。若对话自然合适可顺带提起一句，不要专门追问或打断当前话题：",
+    `- ${description}`,
+    "",
+  ].join("\n")
+}
 
 /** 模块级诊断缓存（所有 Composer 实例共享，保证 prompt 连续轮次间命中缓存） */
 let diagCache: { value: ClientDiagnostics; expiresAt: number } | null = null
@@ -379,6 +391,21 @@ export class BridgePromptComposer {
         dynamicParts.push(vhSection)
         log.info(
           `[vh] prompt:inject modelId=${vhContext.modelId} emotions=${vhContext.emotionKeys.length} motions=${vhContext.motionActions.length} expr=${vhContext.enableExpressionPrompt} think=${vhContext.enableThinkTagPrompt}`,
+        )
+      }
+    }
+
+    // 牵挂：用户主动对话时顺带注入可提起的牵挂（内部会话排除在 bridge 侧）
+    if (this.deps.consumeConcernToRaise && sessionKey) {
+      try {
+        const concern = this.deps.consumeConcernToRaise(sessionKey)
+        if (concern) {
+          dynamicParts.push(buildConcernSection(concern))
+        }
+      } catch (err) {
+        log.warn(
+          '[buildPromptWithMemory] 注入牵挂失败:',
+          err instanceof Error ? err.message : String(err),
         )
       }
     }
