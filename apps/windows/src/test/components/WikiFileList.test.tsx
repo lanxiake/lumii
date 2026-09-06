@@ -214,3 +214,38 @@ describe('WikiFileList 多选（二期）', () => {
     expect(screen.queryByLabelText('全选')).not.toBeInTheDocument()
   })
 })
+
+describe('WikiFileList 懒加载', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('超过 50 条时默认只渲染前 50 条，滚动哨兵留在列表末尾', () => {
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+        takeRecords() {
+          return []
+        }
+      },
+    )
+    const items = Array.from({ length: 120 }, (_, i) => makeItem({ id: `s${i}`, title: `文件${i}.md` }))
+    render(<WikiFileList items={items} emptyHint="空" onPreview={noop} onMove={noop} />)
+
+    expect(screen.getByText('文件0.md')).toBeInTheDocument()
+    expect(screen.getByText('文件49.md')).toBeInTheDocument()
+    expect(screen.queryByText('文件50.md')).not.toBeInTheDocument()
+    expect(document.querySelector('.wiki-file-list-sentinel')).toBeInTheDocument()
+  })
+
+  it('不超过 50 条时全部渲染且无哨兵', () => {
+    const items = Array.from({ length: 30 }, (_, i) => makeItem({ id: `s${i}`, title: `文件${i}.md` }))
+    render(<WikiFileList items={items} emptyHint="空" onPreview={noop} onMove={noop} />)
+
+    expect(screen.getByText('文件29.md')).toBeInTheDocument()
+    expect(document.querySelector('.wiki-file-list-sentinel')).not.toBeInTheDocument()
+  })
+})

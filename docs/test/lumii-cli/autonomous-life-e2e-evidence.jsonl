@@ -1,0 +1,20 @@
+{"ts":"2026-09-06T06:16:54.994Z","id":"A1","status":"PASS","note":"settings get 返回全量默认值: 9 字段与 DEFAULT_SETTINGS 一致"}
+{"ts":"2026-09-06T06:16:55.183Z","id":"A2","status":"PASS","note":"settings set 部分覆盖不丢默认: 只覆盖 maxOutreachPerDay，其余 8 字段保持默认"}
+{"ts":"2026-09-06T06:16:55.383Z","id":"A3","status":"FAIL","note":"非法值回落默认: 999 应 clamp 到 60: 10"}
+{"ts":"2026-09-06T06:16:55.541Z","id":"A4","status":"PASS","note":"maxOutreachPerDay=0 合法边界: 0 被保留，未当非法值回落"}
+{"ts":"2026-09-06T06:16:55.735Z","id":"C1","status":"PASS","note":"空信号 tick → idle（默认路径）: summary=\"idle\""}
+{"ts":"2026-09-06T06:16:56.275Z","id":"C2","status":"PASS","note":"关闭开关 tick → skipped: disabled: summary=\"skipped: disabled\""}
+{"ts":"2026-09-06T06:16:56.682Z","id":"E1","status":"FAIL","note":"proactive 目标 → 发送 + 计数 + 完成: last_sent_at 应写入"}
+{"ts":"2026-09-06T06:16:56.900Z","id":"E2","status":"FAIL","note":"最小间隔未到 → 不再发: 间隔未到不应 outreach，实际 \"outreach: sent\""}
+{"ts":"2026-09-06T06:16:57.104Z","id":"E3","status":"PASS","note":"预算用尽 → 主动消息停发: summary=\"idle\"，计数封顶 20"}
+{"ts":"2026-09-06T06:16:57.275Z","id":"B2","status":"PASS","note":"删除守卫拒绝删除 evolution:main: 拒绝（code=5），会话仍在"}
+{"ts":"2026-09-06T06:16:57.276Z","id":"D1","status":"SKIP","note":"目标执行: LIFEE2E_SKIP_LLM=1"}
+{"ts":"2026-09-06T06:16:57.276Z","id":"G1","status":"SKIP","note":"Mood 事件: 依赖 D1（已跳过）"}
+{"ts":"2026-09-06T06:16:57.276Z","id":"J2","status":"SKIP","note":"token 累计: 依赖 D1（已跳过）"}
+{"ts":"2026-09-06T06:16:57.792Z","id":"J1","status":"PASS","note":"预算超限 → 目标执行降级 idle: summary=\"idle\"，未烧 LLM"}
+{"ts":"2026-09-06T06:16:59.121Z","id":"H1","status":"PASS","note":"对话中顺带提起牵挂（提一次）: raisedCount=1，nextRaiseAfter 后移，status=open"}
+{"ts":"2026-09-06T06:17:00.307Z","id":"H2","status":"PASS","note":"提两次无回应 → dropped: raisedCount=2，status=dropped"}
+{"ts":"2026-09-06T06:17:00.310Z","id":"H3","status":"PASS","note":"牵挂只进上下文，不产生通知: outreach 计数仍为 20（牵挂不触达系统通知）"}
+{"ts":"2026-09-06T06:17:00.310Z","id":"F1","status":"SKIP","note":"反思定时触发: LIFEE2E_SKIP_LLM=1"}
+{"ts":"2026-09-06T06:17:00.310Z","id":"I1","status":"SKIP","note":"日记生成: LIFEE2E_SKIP_LLM=1"}
+{"ts":"2026-09-06T06:17:00.311Z","id":"I2","status":"SKIP","note":"日记防重: 依赖 I1（已跳过）"}

@@ -2143,6 +2143,29 @@
   min-height: 0;
 }
 
+/* 大类视图：小分类条与文件列表头（全选/文档类型/新建笔记）在滚动时固定，不随列表滚走 */
+.wiki-subtopic-bar {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  background: var(--color-bg-primary);
+  padding-bottom: 8px;
+}
+
+.wiki-category-view .wiki-file-list-header {
+  position: sticky;
+  top: var(--wiki-subtopic-bar-height, 0px);
+  z-index: 8;
+  margin-bottom: 0;
+  padding: 4px 0 8px;
+  background: var(--color-bg-primary);
+}
+
+.wiki-file-list-sentinel {
+  height: 1px;
+  flex-shrink: 0;
+}
+
 .wiki-subtopic-chip-count {
   min-width: 16px;
   padding: 0 5px;

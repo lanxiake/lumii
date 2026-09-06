@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Archive, ArrowRightLeft, Eye, FileText, Image as ImageIcon, Music, Trash2, Video } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import type { WikiSourceListItem } from '../../../hooks/business/useWikiPage'
@@ -28,6 +28,9 @@ function matchesChip(mediaType: string | null, chip: WikiMediaChip): boolean {
   if (chip === 'av') return mediaType === 'audio' || mediaType === 'video'
   return mediaType === chip
 }
+
+/** 大列表默认渲染条数，滚动到底部时再按页追加，避免一次挂载数百行卡顿 */
+const WIKI_FILE_LIST_PAGE = 50
 
 /**
  * 解析列表行用于悬停提示的摘要正文（优先 summary，其次正文预览）。
@@ -88,10 +91,40 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
   onDelete,
 }) => {
   const [chip, setChip] = useState<WikiMediaChip>('all')
+  const [visibleCount, setVisibleCount] = useState(WIKI_FILE_LIST_PAGE)
+  const sentinelRef = useRef<HTMLLIElement | null>(null)
   const visible = useMemo(
     () => (showMediaChips ? items.filter((item) => matchesChip(item.mediaType, chip)) : items),
     [items, chip, showMediaChips],
   )
+
+  // 切换大类或文档类型筛选时，回到默认渲染条数
+  useEffect(() => {
+    setVisibleCount(WIKI_FILE_LIST_PAGE)
+  }, [items, chip])
+
+  const hasMore = visible.length > visibleCount
+
+  // 底部哨兵进入视口时追加一页
+  useEffect(() => {
+    if (!hasMore) return
+    const el = sentinelRef.current
+    if (!el) return
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisibleCount(visible.length)
+      return
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleCount((count) => count + WIKI_FILE_LIST_PAGE)
+        }
+      },
+      { rootMargin: '200px 0px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasMore, visible.length])
 
   return (
     <div className="wiki-file-list">
@@ -131,7 +164,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
         <p className="wiki-empty-hint">{emptyHint}</p>
       ) : (
         <ul className="wiki-file-list-items">
-          {visible.map((item) => {
+          {visible.slice(0, visibleCount).map((item) => {
             const Icon = MEDIA_ICONS[(item.mediaType ?? 'document') as keyof typeof MEDIA_ICONS] ?? FileText
             const topic = formatTopicDisplay(item.topicCategory, item.topicSubtopic)
             const summary = resolveItemSummary(item)
@@ -235,6 +268,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
               </li>
             )
           })}
+          {hasMore && <li ref={sentinelRef} className="wiki-file-list-sentinel" aria-hidden="true" />}
         </ul>
       )}
     </div>

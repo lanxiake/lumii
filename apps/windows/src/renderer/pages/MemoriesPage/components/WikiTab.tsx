@@ -5,7 +5,7 @@
  * 主内容区按用途目录展示原始文件。历史摘要页面已随 P3 删除。
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button/Button'
 import { Loading } from '../../../components/ui/Loading/Loading'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
@@ -209,6 +209,7 @@ export const WikiTab: React.FC = () => {
     snapshot: WikiSourcePreviewSnapshot | null
   } | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement>(null)
+  const subtopicBarRef = useRef<HTMLDivElement | null>(null)
   const selectedInboxIdsRef = useRef(selectedInboxIds)
   const selectedUnfiledIdsRef = useRef(selectedUnfiledIds)
   const selectedSourceIdsRef = useRef(selectedSourceIds)
@@ -484,6 +485,24 @@ export const WikiTab: React.FC = () => {
     if (nav.kind === 'subtopic') return nav.category
     return null
   }, [nav])
+
+  // 大类视图固定筛选区：测量小分类条高度，供文件列表 header 的 sticky top 定位在其下方
+  useLayoutEffect(() => {
+    const el = subtopicBarRef.current
+    if (!el) {
+      document.documentElement.style.removeProperty('--wiki-subtopic-bar-height')
+      return
+    }
+    const root = document.documentElement
+    const update = () => {
+      root.style.setProperty('--wiki-subtopic-bar-height', `${el.offsetHeight}px`)
+    }
+    update()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [categorySectionName])
 
   const effectiveSubtopicFilter = useMemo((): WikiSubtopicFilter => {
     if (!categorySectionName) return WIKI_SUBTOPIC_FILTER_ALL
@@ -1418,7 +1437,7 @@ export const WikiTab: React.FC = () => {
         />
 
         <main className="wiki-tab-content">
-          {loading && (
+          {loading && !isCategoryBrowse && (
             <div className="wiki-loading">
               <Loading text="加载中..." />
             </div>
@@ -1563,14 +1582,16 @@ export const WikiTab: React.FC = () => {
           />
         ) : isCategoryBrowse && categorySectionName ? (
           <div className="wiki-category-view">
-            <WikiSubtopicPanel
-              section={categorySectionName}
-              topicTree={topicTree}
-              topicCounts={topicCounts}
-              sectionFileCount={sectionCounts[categorySectionName] ?? 0}
-              activeFilter={effectiveSubtopicFilter}
-              onSelectFilter={handleSubtopicFilter}
-            />
+            <div ref={subtopicBarRef} className="wiki-subtopic-bar">
+              <WikiSubtopicPanel
+                section={categorySectionName}
+                topicTree={topicTree}
+                topicCounts={topicCounts}
+                sectionFileCount={sectionCounts[categorySectionName] ?? 0}
+                activeFilter={effectiveSubtopicFilter}
+                onSelectFilter={handleSubtopicFilter}
+              />
+            </div>
             <WikiFileList
               items={visibleSources}
               emptyHint={
