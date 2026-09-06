@@ -353,6 +353,7 @@ export const PetModeShell: React.FC = () => {
           sessionKey?: string
           rootSessionKey?: string
           delta?: string
+          emotion?: string
           content?: readonly { type: string; text?: string }[]
         }
         const evtSessionKey = event.rootSessionKey ?? event.sessionKey
@@ -374,6 +375,20 @@ export const PetModeShell: React.FC = () => {
             )
           }
           return
+        }
+
+        if (event.type === 'autonomous:mood:emotion') {
+          const emotion = event.emotion
+          if (emotion && orchestratorRef.current) {
+            const emotionMap = modelConfigRef.current?.emotionMap ?? {}
+            const idx = emotionMap[emotion]
+            if (idx !== undefined) {
+              orchestratorRef.current.setExpression(idx, emotion)
+              log.info(`[onEvent] mood 表情 ${emotion} (idx=${idx})`)
+            } else {
+              log.warn(`[onEvent] mood 表情 "${emotion}" 不在当前模型 emotionMap: ${Object.keys(emotionMap).join(',')}`)
+            }
+          }
         }
 
         if (event.type === 'agent:turn:start') {

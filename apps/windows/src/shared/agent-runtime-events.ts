@@ -505,6 +505,12 @@ export interface SkillDeprecationSuggestedEvent {
   readonly humanTitle: string
 }
 
+/** 自主进化 Mood 变化 → 桌宠实时表情（只推情绪键，不推 mood 数值） */
+export interface AutonomousMoodEmotionEvent {
+  readonly type: 'autonomous:mood:emotion'
+  readonly emotion: 'joy' | 'sadness' | 'surprise' | 'neutral'
+}
+
 // ============================================================
 // 联合类型
 // ============================================================
@@ -551,6 +557,7 @@ export type AgentRuntimeEvent =
   | SkillDraftReadyEvent
   | SkillImprovementReadyEvent
   | SkillDeprecationSuggestedEvent
+  | AutonomousMoodEmotionEvent
 
 /** 所有事件类型字面量 */
 export type AgentRuntimeEventType = AgentRuntimeEvent['type']

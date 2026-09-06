@@ -63,6 +63,7 @@ import {
   decayMood,
   applyMoodImpact,
   writeMood,
+  moodToPetEmotion,
   DIARY_PROMPT,
   buildDiaryContext,
   readConcerns,
@@ -1857,7 +1858,11 @@ export class AgentRuntimeBridge {
     try {
       const now = Date.now()
       const mood = decayMood(readMood(this.localDb.db, now), now)
-      writeMood(this.localDb.db, applyMoodImpact(mood, event))
+      const next = applyMoodImpact(mood, event)
+      writeMood(this.localDb.db, next)
+      // Mood 变化后推送桌宠实时表情（只推情绪键，不推 mood 数值，见设计 11 §11 禁令）
+      const emotion = moodToPetEmotion(next)
+      this.ipcChannel.forwardIpcEvent({ type: 'autonomous:mood:emotion', emotion })
     } catch (err) {
       log.warn('[recordMoodEvent] 记录情绪事件失败:', err)
     }
