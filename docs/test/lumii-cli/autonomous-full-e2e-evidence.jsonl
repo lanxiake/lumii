@@ -81,3 +81,14 @@
 {"ts":"2026-09-06T14:48:20.026Z","id":"C2","status":"PASS","note":"executing + evolution-decided 人格事件落库（personality update_count=37）"}
 {"ts":"2026-09-06T14:48:20.203Z","id":"C3","status":"PASS","note":"CLI goals list 可见 executing 目标（total=26）"}
 {"ts":"2026-09-06T14:48:52.378Z","id":"D1","status":"PASS","note":"反思落库 trigger=user-request primaryIssue=\"我常在信息不足或反馈信号微弱时直接给出回答，没有及时把用户反馈转成可验证的下一步…\""}
+{"ts":"2026-09-06T16:26:02.936Z","id":"A1","status":"PASS","note":"满意度落库 overall=0.9475 (task=1.00 fb=0.85 eff=1.00)"}
+{"ts":"2026-09-06T16:26:02.943Z","id":"A2","status":"PASS","note":"3 条能力测试落库，维度难度正确（document_analysis:0.35, code_generation:0.55）；capability_dimensions 4 维"}
+{"ts":"2026-09-06T16:26:02.945Z","id":"A3","status":"PASS","note":"trial_count 168 → 169"}
+{"ts":"2026-09-06T16:26:12.468Z","id":"A4","status":"PASS","note":"1 条失败测试（result=failure，难度正确），task=0.50（含失败惩罚）"}
+{"ts":"2026-09-06T16:26:29.454Z","id":"B1","status":"PASS","note":"2 次 abort 信号落 runtime_state（aborts=2）"}
+{"ts":"2026-09-06T16:26:29.455Z","id":"B2","status":"PASS","note":"overall=0.4875 → 生成 learning 目标（pending）\"改善用户反馈质量：学习更好的交互模式\""}
+{"ts":"2026-09-06T16:26:29.638Z","id":"B3","status":"PASS","note":"目标 goal_1788711988857_if1wzk6 已拒绝（rejected）"}
+{"ts":"2026-09-06T16:26:46.427Z","id":"C1","status":"PASS","note":"生成 pending 目标 \"改善用户反馈质量：学习更好的交互模式\""}
+{"ts":"2026-09-06T16:26:46.632Z","id":"C2","status":"PASS","note":"executing + evolution-decided 人格事件落库（personality update_count=42）"}
+{"ts":"2026-09-06T16:26:46.805Z","id":"C3","status":"PASS","note":"CLI goals list 可见 executing 目标（total=29）"}
+{"ts":"2026-09-06T16:27:22.821Z","id":"D1","status":"PASS","note":"反思落库 trigger=user-request primaryIssue=\"我在许多对话中完成了表达或生成，但没有稳定完成资料理解、证据提取和可复用知识沉淀…\""}

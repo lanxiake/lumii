@@ -464,8 +464,17 @@ function run() {
     clearExecutingGoals()
     const evoExistsAtStart = evolutionExists()
 
+    // 让 tick 决策/主动消息/预算用例在「白天」语义下跑：把静默时段设到不包含当前小时，
+    // 否则深夜跑会误触发日记/反思/主动规划兜底，改变 idle 与 outreach 的预期。
+    // （F1/I1 会各自把静默时段改回当前小时来测反思/日记。）
+    const daytimeHour = new Date().getHours()
+    okJson(
+      ui(['autonomous', 'settings', 'set', '--data', `{"quietHours":[${(daytimeHour + 2) % 24},${(daytimeHour + 3) % 24}]}`]),
+      '设静默时段避开当前小时',
+    )
+
     runTest('C1', '空信号 tick → idle（默认路径）', () => {
-      // 确保日记不触发（默认 quietHours 23-8，当前 14 点不在静默时段）
+      // 确保日记不触发（静默时段已避开当前小时，等价于白天）
       setState('autonomous.last_diary_date', localDateKey())
       const r = cronTick()
       assert(r.code === 0, `cron run 退出码 ${r.code}: ${r.out.slice(0, 200)}`)

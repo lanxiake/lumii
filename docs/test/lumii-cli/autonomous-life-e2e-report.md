@@ -1,6 +1,6 @@
 # 自主进化「心跳与生命感」E2E 测试报告
 
-**执行时间**: 2026-09-06T15:20:21.489Z
+**执行时间**: 2026-09-06T16:33:25.604Z
 **结果**: 23 PASS / 0 FAIL / 0 SKIP（共 23）
 **数据库**: `C:\Users\Administrator\.lumii\data\agent-runtime.db`
 **驱动方式**: 真实动作（发消息/改设置/cron run/删除）经 lumii-ui CLI，探针播种经 node:sqlite，读取回查 DB 验证落库
@@ -13,25 +13,27 @@
 | A2 | PASS | settings set 部分覆盖不丢默认: 只覆盖 maxOutreachPerDay，其余 8 字段保持默认 |
 | A3 | PASS | 非法值回落默认: 越界数字回落默认、非法枚举回落 |
 | A4 | PASS | maxOutreachPerDay=0 合法边界: 0 被保留，未当非法值回落 |
-| C1 | PASS | 空信号 tick → idle（默认路径）: summary="idle" |
+| C1 | PASS | 空信号 tick → idle（默认路径）: summary="idle: liveness-ok" |
 | B1 | PASS | 空闲 tick 不创建 evolution:main（延迟创建）: 会话已存在，idle 未新增 |
 | C2 | PASS | 关闭开关 tick → skipped: disabled: summary="skipped: disabled" |
 | E1 | PASS | proactive 目标 → 发送 + 计数 + 完成: outreach sent，目标 completed，计数=1 |
-| E2 | PASS | 最小间隔未到 → 不再发: summary="idle"，目标仍 executing |
-| E3 | PASS | 预算用尽 → 主动消息停发: summary="idle"，计数封顶 20 |
+| E2 | PASS | 最小间隔未到 → 不再发: summary="idle: liveness-ok"，目标仍 executing |
+| E3 | PASS | 预算用尽 → 主动消息停发: summary="idle: liveness-ok"，计数封顶 20 |
 | B2 | PASS | 删除守卫拒绝删除 evolution:main: 拒绝（code=5），会话仍在 |
-| D1 | PASS | learning 目标执行 → 完成 + 独白: 目标 completed，独白 "**一句话：心跳是自主进化系统的内在节律——它定期唤醒没有外…"，mood {"energy":0.9995760187844935,"valence":0.25,"arousal":0.35,"updatedAt":1788707971501} |
-| G1 | PASS | 目标执行触发情绪事件（方向断言）: d1Status=completed → mood {"energy":1,"valence":0,"arousal":0.5,"updatedAt":1788707949469} -> {"energy":0.9995760187844935,"valence":0.25,"arousal":0.35,"updatedAt":1788707971501} |
-| J2 | PASS | 目标执行后 token 累计: 今日已消耗 34000 token（≥8000） |
+| D1 | PASS | learning 目标执行 → 完成 + 独白: 目标 completed，独白 "学完并沉淀好了。一句话回答：
+
+**「心跳」是自主进化系统的…"，mood {"energy":0.9996874165503086,"valence":0.25,"arousal":0.35,"updatedAt":1788712320457} |
+| G1 | PASS | 目标执行触发情绪事件（方向断言）: d1Status=completed → mood {"energy":1,"valence":0,"arousal":0.5,"updatedAt":1788712304216} -> {"energy":0.9996874165503086,"valence":0.25,"arousal":0.35,"updatedAt":1788712320457} |
+| J2 | PASS | 目标执行后 token 累计: 今日已消耗 10000 token（≥8000） |
 | J1 | PASS | 预算超限 → 目标执行降级 idle: summary="idle"，未烧 LLM |
 | H1 | PASS | 对话中顺带提起牵挂（提一次）: raisedCount=1，nextRaiseAfter 后移，status=open |
 | H2 | PASS | 提两次无回应 → dropped: raisedCount=2，status=dropped |
 | H3 | PASS | 牵挂只进上下文，不产生通知: outreach 计数仍为 20（牵挂不触达系统通知） |
-| F1 | PASS | 静默时段 + 满 24h → tick 触发反思: trigger=scheduled primaryIssue="我在任务不明确时倾向直接作答，导致交付与用户反馈不匹配，尤其…" |
-| I1 | PASS | 静默时段 + 今日未写 → 写日记入 evolution:main: 日记 "2026-09-08 今日日记
+| F1 | PASS | 静默时段 + 满 24h → tick 触发反思: trigger=scheduled primaryIssue="面对未知或缺少上下文的任务时，我没有先澄清、验证和沉淀关键信…" |
+| I1 | PASS | 静默时段 + 今日未写 → 写日记入 evolution:main: 日记 "今日日记
 
-今天依旧没有发生特别的事。…"，无指标词，标记今日已写 |
-| I2 | PASS | 同日第二次 tick 不重复写日记: summary="idle"，消息数不变 |
+今天依旧没有特别的事。提醒休息、继续学习、完成一…"，无指标词，标记今日已写 |
+| I2 | PASS | 同日第二次 tick 不重复写日记: summary="idle: liveness-ok"，消息数不变 |
 | K1 | PASS | edit 负反馈信号落库（计数器/评分消费）: edits=1, user_feedbacks=[] |
 | K2 | PASS | resend 负反馈信号落库（计数器/评分消费）: resends=0, user_feedbacks=[0.6499999999999999] |
 
