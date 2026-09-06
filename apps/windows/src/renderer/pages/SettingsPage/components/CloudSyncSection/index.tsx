@@ -22,6 +22,7 @@ export function CloudSyncSection() {
   const [testing, setTesting] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [guideOpen, setGuideOpen] = useState(true)
 
   const load = useCallback(async () => {
     const cfg = await window.electronAPI.cloudSync.getConfig()
@@ -82,6 +83,54 @@ export function CloudSyncSection() {
   return (
     <div className={styles['settings-section']}>
       <h3 data-app-ui-section-title>云同步</h3>
+
+      <div className={styles['cloud-guide']}>
+        <button
+          type="button"
+          className={styles['cloud-guide-toggle']}
+          onClick={() => setGuideOpen((v) => !v)}
+        >
+          <span>新手引导 · 准备 GitCode 仓库（只需一次）</span>
+          <span className={styles['cloud-guide-toggle-hint']}>{guideOpen ? '收起' : '展开'}</span>
+        </button>
+        {guideOpen && (
+          <div className={styles['cloud-guide-body']}>
+            <ol className={styles['cloud-guide-steps']}>
+              <li>
+                <strong>注册账号</strong>
+                <span>打开 GitCode（gitcode.com），用邮箱或手机号注册并登录。</span>
+              </li>
+              <li>
+                <strong>创建私有仓库</strong>
+                <span>
+                  登录后点「新建项目」，仓库名随意（如 lumii-sync），可见性务必选「
+                  <strong>私有 Private</strong>
+                  」，创建后复制仓库地址（形如 https://gitcode.com/你的用户名/仓库名.git）。
+                </span>
+              </li>
+              <li>
+                <strong>生成访问令牌</strong>
+                <span>
+                  点右上角头像 →「个人设置」→「访问令牌 / Access Tokens」→「新建令牌」，勾选
+                  <strong>读写仓库</strong>
+                  （read_repository + write_repository）权限，生成后立即复制令牌（令牌只显示这一次）。
+                </span>
+              </li>
+            </ol>
+            <div className={styles['cloud-guide-actions']}>
+              <Button
+                variant="secondary"
+                onClick={() => void window.electronAPI.app.openExternal('https://gitcode.com')}
+              >
+                打开 GitCode
+              </Button>
+            </div>
+            <p className={styles['cloud-guide-tip']}>
+              回来后：把仓库地址填入「仓库地址」、令牌填入「访问令牌 (Token)」，点「测试连接」，成功后点「保存配置」并打开「启用云同步」。
+            </p>
+          </div>
+        )}
+      </div>
 
       <div className={styles['setting-group']}>
         <div className={styles['setting-item']}>

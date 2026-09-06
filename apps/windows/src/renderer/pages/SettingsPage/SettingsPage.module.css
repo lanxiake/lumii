@@ -893,3 +893,71 @@
   line-height: 1.55;
   color: var(--mt-fg-2, var(--color-text-secondary));
 }
+
+/* 云同步新手引导 */
+.cloud-guide {
+  margin-bottom: var(--spacing-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg, 12px);
+  background: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);
+  overflow: hidden;
+}
+
+.cloud-guide-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  text-align: left;
+}
+
+.cloud-guide-toggle:hover {
+  background: color-mix(in srgb, var(--color-primary, #0ea5e9) 6%, transparent);
+}
+
+.cloud-guide-toggle-hint {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.cloud-guide-body {
+  padding: 0 16px 14px;
+}
+
+.cloud-guide-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cloud-guide-steps li {
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+.cloud-guide-steps strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.cloud-guide-actions {
+  margin-top: 12px;
+}
+
+.cloud-guide-tip {
+  margin: 10px 0 0;
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+  color: var(--color-text-tertiary);
+}
