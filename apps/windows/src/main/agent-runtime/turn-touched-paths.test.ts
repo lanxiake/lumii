@@ -57,6 +57,14 @@ describe("turn-touched-paths", () => {
     ).toHaveLength(2);
   });
 
+  it("并发回合：A 结束回合后不清空归属，B 的 diff 仍剔除 A 的写入", () => {
+    recordTurnTouchedPath("A", { filePath: "outputs/a.txt" }, cwd);
+    // agent:end 不再调用 clearTurnTouchedPaths（见 bridge-agent-instance-events.ts），
+    // 归属应持续到 A 的下一次回合开始或实例销毁，避免串台。
+    const diff = [{ path: "outputs/a.txt", status: "added" as const }];
+    expect(filterOwnFileChanges("B", diff)).toEqual([]);
+  });
+
   it("clearTurnTouchedPaths 后不再影响其他会话", () => {
     recordTurnTouchedPath("B", { filePath: "outputs/b.txt" }, cwd);
     clearTurnTouchedPaths("B");

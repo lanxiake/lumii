@@ -34,11 +34,7 @@ import { agentRuntimeLog as log, parseJsonToolResultPayload } from './bridge-uti
 import { recordUsage } from '../usage-store'
 import { markRunStart, markFirstToken, clearRun } from '../provider-latency'
 import { captureWorkspaceTurnSnapshot } from '../workspace-vcs/workspace-turn-snapshot'
-import {
-  recordTurnTouchedPath,
-  clearTurnTouchedPaths,
-  filterOwnFileChanges,
-} from './turn-touched-paths'
+import { recordTurnTouchedPath, filterOwnFileChanges } from './turn-touched-paths'
 import { applyConversationCompactToUsage } from '../../shared/context-usage-compact'
 
 /** 单实例运行时累计指标（主进程内部，与 DetailPanel「运行状态」对应） */
@@ -736,7 +732,6 @@ export function createAgentInstanceRuntimeEventHandler(
           log.warn(`[turn-snapshot] end failed: ${err instanceof Error ? err.message : String(err)}`)
         }
       }
-      clearTurnTouchedPaths(instanceId)
       const contentJson = createAssistantPartsContent(state?.pendingParts ?? [], {
         usage,
         sourceAgent: sourceAgentInfo,

@@ -29,6 +29,7 @@ import type { CronScheduler } from './cron-scheduler'
 import { agentRuntimeLog as log, CHILD_AGENT_DISALLOWED_TOOLS, findAgentInstanceByRecipient } from './bridge-utils'
 import type { AgentLifecycleSnapshot } from './bridge-types'
 import { deliverSubagentCompletion } from './subagent-delivery'
+import { clearTurnTouchedPaths } from './turn-touched-paths'
 
 export interface BridgeLifecycleDeps {
   agentRegistry: AgentRegistry
@@ -171,6 +172,7 @@ export class BridgeLifecycle {
       if (val === instanceId) this.deps.toolCallInstanceMap.delete(key)
     }
     this.deps.nodeStreamCallbacks.delete(instanceId)
+    clearTurnTouchedPaths(instanceId)
     log.info(`Destroyed agent: ${instanceId}`)
     if (wasRunning) {
       this.notifyRunTerminatedByDestroy(instanceId, state)
@@ -202,6 +204,9 @@ export class BridgeLifecycle {
       this.deps.toolCallInstanceMap.clear()
       for (const id of this.deps.instanceToRootSessionKey.keys()) {
         this.deps.messageBus.unregister(id)
+      }
+      for (const id of this.deps.instanceStates.keys()) {
+        clearTurnTouchedPaths(id)
       }
       this.deps.instanceToRootSessionKey.clear()
       this.deps.instanceStates.clear()
