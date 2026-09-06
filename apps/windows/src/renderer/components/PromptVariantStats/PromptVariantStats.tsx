@@ -2,6 +2,8 @@
  * Prompt 变体统计组件
  *
  * 展示 Prompt 进化的 A/B 测试统计数据。
+ * 每个变体是一张自包含卡片：名称 + 满意度 + 指标 + 实际文案，
+ * 替代「表格 + 文本区」分离布局，让对应关系一目了然。
  */
 
 import React from 'react'
@@ -47,13 +49,17 @@ const FRAGMENT_LABELS: Record<string, string> = {
   constraints: '约束条件',
   examples: '示例',
   system_prompt: '系统提示',
+  'expression-style': '表达风格',
 }
 
 /**
  * Prompt 变体统计组件
  */
 export function PromptVariantStats({ stats }: PromptVariantStatsProps) {
-  const [expandedFragment, setExpandedFragment] = React.useState<string | null>(null)
+  // 首个片段默认展开（单片段时即为默认展开），后续可由用户手动切换
+  const [expandedFragment, setExpandedFragment] = React.useState<string | null>(
+    () => stats[0]?.fragmentKey ?? null,
+  )
 
   const handleToggle = (fragmentKey: string) => {
     setExpandedFragment(expandedFragment === fragmentKey ? null : fragmentKey)
@@ -94,17 +100,18 @@ function PromptFragmentCard({ fragment, expanded, onToggle }: PromptFragmentCard
   const label = FRAGMENT_LABELS[fragment.fragmentKey] || fragment.fragmentKey
   const sortedVariants = [...fragment.variants].sort((a, b) => b.avgSatisfaction - a.avgSatisfaction)
   const bestVariant = sortedVariants[0]
+  const nonBaselineVariants = sortedVariants.filter((v) => !v.isBaseline)
 
   return (
     <div className="fragment-card">
       <div className="fragment-header" onClick={onToggle}>
         <div className="header-left">
           <h3 className="fragment-title">{label}</h3>
-          <span className="variant-count">{fragment.variants.length} 个变体</span>
+          <span className="variant-count">{fragment.variants.length} 个风格</span>
         </div>
         <div className="header-right">
           {bestVariant && (
-            <span className="best-score">最佳: {(bestVariant.avgSatisfaction * 100).toFixed(0)}%</span>
+            <span className="best-score">最佳 {(bestVariant.avgSatisfaction * 100).toFixed(0)}%</span>
           )}
           <span className="expand-icon">{expanded ? '▼' : '▶'}</span>
         </div>
@@ -112,92 +119,68 @@ function PromptFragmentCard({ fragment, expanded, onToggle }: PromptFragmentCard
 
       {expanded && (
         <div className="fragment-body">
-          <table className="variants-table">
-            <thead>
-              <tr>
-                <th>变体 ID</th>
-                <th>
-                  <Tooltip content={TIP_PROMPT_FIELD.trialCount} placement="top">
-                    <span className="th-label">使用次数</span>
-                  </Tooltip>
-                </th>
-                <th>
-                  <Tooltip content={TIP_PROMPT_FIELD.successRate} placement="top">
-                    <span className="th-label">成功率</span>
-                  </Tooltip>
-                </th>
-                <th>
-                  <Tooltip content={TIP_PROMPT_FIELD.avgSatisfaction} placement="top">
-                    <span className="th-label">平均满意度</span>
-                  </Tooltip>
-                </th>
-                <th>
-                  <Tooltip content={TIP_PROMPT_FIELD.ucbScore} placement="top">
-                    <span className="th-label">UCB 分数</span>
-                  </Tooltip>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedVariants.map((variant) => (
-                <tr key={variant.id} className={variant.isBaseline ? 'baseline' : ''}>
-                  <td>
-                    <span className="variant-id">
-                      {variant.id}
-                      {variant.isBaseline && <span className="baseline-badge">基线</span>}
-                    </span>
-                  </td>
-                  <td>{variant.trialCount}</td>
-                  <td>
-                    <div className="success-rate">
-                      <span className="rate-value">
-                        {variant.trialCount > 0
-                          ? ((variant.successCount / variant.trialCount) * 100).toFixed(0)
-                          : 0}
-                        %
-                      </span>
-                      <div className="rate-bar">
-                        <div
-                          className="rate-fill"
-                          style={{
-                            width: `${variant.trialCount > 0 ? (variant.successCount / variant.trialCount) * 100 : 0}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <span className={`satisfaction-value ${getSatisfactionClass(variant.avgSatisfaction)}`}>
-                      {(variant.avgSatisfaction * 100).toFixed(0)}%
-                      {variant === bestVariant && <span className="best-marker">⭐</span>}
-                    </span>
-                  </td>
-                  <td>
-                    <span className="ucb-score">{variant.ucbScore.toFixed(3)}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="variant-texts">
-            {sortedVariants.map((variant) => (
-              <div
-                key={variant.id}
-                className={`variant-text-block${variant.isBaseline ? ' baseline' : ''}`}
-              >
-                <div className="variant-text-head">
-                  <span className="variant-text-id">{variant.id}</span>
-                  {variant.isBaseline && <span className="baseline-badge">基线</span>}
-                </div>
-                <div className="variant-text-content">
-                  {variant.variantText || '（暂无文本，基线由调用方管理）'}
-                </div>
-              </div>
-            ))}
-          </div>
+          {sortedVariants.map((variant) => (
+            <VariantCard
+              key={variant.id}
+              variant={variant}
+              rank={variant.isBaseline ? 0 : nonBaselineVariants.indexOf(variant) + 1}
+              isBest={variant === bestVariant}
+            />
+          ))}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * 单张变体卡片：名称 + 满意度 + 指标 + 实际文案
+ */
+function VariantCard({
+  variant,
+  rank,
+  isBest,
+}: {
+  variant: PromptVariant
+  rank: number
+  isBest: boolean
+}) {
+  const successRate =
+    variant.trialCount > 0 ? ((variant.successCount / variant.trialCount) * 100).toFixed(0) : '0'
+  const name = variant.isBaseline ? '默认风格' : `变体 ${rank}`
+
+  return (
+    <div
+      className={`variant-card${variant.isBaseline ? ' baseline' : ''}${isBest ? ' best' : ''}`}
+    >
+      <div className="variant-card-head">
+        <div className="variant-title">
+          <span className="variant-name">{name}</span>
+          {variant.isBaseline && <span className="baseline-badge">基线</span>}
+          {isBest && <span className="best-badge">当前最佳</span>}
+        </div>
+        <Tooltip content={TIP_PROMPT_FIELD.avgSatisfaction} placement="top">
+          <span className={`variant-satisfaction ${getSatisfactionClass(variant.avgSatisfaction)}`}>
+            {(variant.avgSatisfaction * 100).toFixed(0)}%
+          </span>
+        </Tooltip>
+      </div>
+
+      <div className="variant-stats">
+        <Tooltip content={TIP_PROMPT_FIELD.trialCount} placement="top">
+          <span className="stat-item">使用 {variant.trialCount} 次</span>
+        </Tooltip>
+        <Tooltip content={TIP_PROMPT_FIELD.successRate} placement="top">
+          <span className="stat-item">成功率 {successRate}%</span>
+        </Tooltip>
+        <Tooltip content={TIP_PROMPT_FIELD.ucbScore} placement="top">
+          <span className="stat-item">UCB {variant.ucbScore.toFixed(2)}</span>
+        </Tooltip>
+      </div>
+
+      <div className="variant-text">
+        {variant.variantText || '默认行为（不附加额外风格提示）'}
+      </div>
     </div>
   )
 }

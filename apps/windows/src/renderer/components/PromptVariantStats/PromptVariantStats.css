@@ -19,7 +19,7 @@
 /* 片段卡片 */
 .fragment-card {
   border: 1px solid var(--mt-border);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--mt-bg-secondary);
   overflow: hidden;
 }
@@ -79,50 +79,46 @@
 
 /* 片段主体 */
 .fragment-body {
-  padding: 20px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-/* 变体表格 */
-.variants-table {
-  width: 100%;
-  border-collapse: collapse;
+/* 变体卡片 */
+.variant-card {
+  border: 1px solid var(--mt-border);
+  border-radius: 10px;
+  background: var(--mt-bg-elevated);
+  padding: 14px 16px;
 }
 
-.variants-table th {
-  text-align: left;
-  padding: 12px;
-  background: var(--mt-bg-overlay);
-  border-bottom: 2px solid var(--mt-border);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--mt-fg-2);
+.variant-card.baseline {
+  border-color: color-mix(in srgb, var(--mt-warning) 40%, var(--mt-border));
 }
 
-.variants-table td {
-  padding: 12px;
-  border-bottom: 1px solid var(--mt-border-hairline);
-  font-size: 14px;
-  color: var(--mt-fg-1);
+.variant-card.best {
+  border-color: color-mix(in srgb, var(--mt-success) 45%, var(--mt-border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mt-success) 18%, transparent);
 }
 
-.variants-table tr:last-child td {
-  border-bottom: none;
+.variant-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
 }
 
-.variants-table tr.baseline {
-  background: color-mix(in srgb, var(--mt-warning) 12%, transparent);
-}
-
-.variants-table tr:hover {
-  background: var(--mt-bg-tertiary);
-}
-
-.variant-id {
+.variant-title {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-family: monospace;
-  font-size: 13px;
+  gap: 8px;
+}
+
+.variant-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--mt-fg-1);
 }
 
 .baseline-badge {
@@ -134,106 +130,53 @@
   font-weight: 600;
 }
 
-/* 成功率 */
-.success-rate {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.rate-value {
-  font-weight: 600;
-  color: var(--mt-accent-500);
-}
-
-.rate-bar {
-  width: 80px;
-  height: 6px;
-  background: var(--mt-bg-tertiary);
+.best-badge {
+  padding: 2px 6px;
+  background: color-mix(in srgb, var(--mt-success) 18%, transparent);
+  color: var(--mt-success);
   border-radius: 3px;
-  overflow: hidden;
-}
-
-.rate-fill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--mt-accent-500) 0%, var(--mt-accent-400) 100%);
-  transition: width 0.3s ease;
-}
-
-/* 满意度 */
-.satisfaction-value {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  font-size: 11px;
   font-weight: 600;
 }
 
-.satisfaction-value.high {
+.variant-satisfaction {
+  font-size: 18px;
+  font-weight: 700;
+  cursor: help;
+}
+
+.variant-satisfaction.high {
   color: var(--mt-success);
 }
 
-.satisfaction-value.medium {
+.variant-satisfaction.medium {
   color: var(--mt-warning);
 }
 
-.satisfaction-value.low {
+.variant-satisfaction.low {
   color: var(--mt-error);
 }
 
-.best-marker {
-  font-size: 16px;
-}
-
-/* UCB 分数 */
-.ucb-score {
-  font-family: monospace;
-  font-size: 13px;
-  color: var(--mt-fg-2);
-}
-
-/* 表头说明文字（tooltip 触发） */
-.th-label {
-  cursor: help;
-  border-bottom: 1px dashed color-mix(in srgb, var(--mt-fg-4) 55%, transparent);
-}
-
-/* 变体文本对比 */
-.variant-texts {
+.variant-stats {
   display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 20px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 10px;
 }
 
-.variant-text-block {
-  border: 1px solid var(--mt-border);
-  border-radius: 8px;
-  padding: 12px;
-  background: var(--mt-bg-elevated);
-}
-
-.variant-text-block.baseline {
-  border-color: color-mix(in srgb, var(--mt-warning) 45%, var(--mt-border));
-  background: color-mix(in srgb, var(--mt-warning) 8%, var(--mt-bg-elevated));
-}
-
-.variant-text-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.variant-text-id {
-  font-family: monospace;
+.stat-item {
   font-size: 12px;
   color: var(--mt-fg-3);
+  cursor: help;
 }
 
-.variant-text-content {
+.variant-text {
   font-size: 13px;
   line-height: 1.6;
   color: var(--mt-fg-2);
+  padding: 10px 12px;
+  background: var(--mt-bg-secondary);
+  border-radius: 6px;
   white-space: pre-wrap;
   word-break: break-word;
 }
