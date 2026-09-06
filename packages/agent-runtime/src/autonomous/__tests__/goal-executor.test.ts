@@ -41,18 +41,30 @@ describe('buildGoalPrompt', () => {
 });
 
 describe('getGoalToolAllowlist', () => {
-  it('白名单不含写文件/命令类工具', () => {
-    const allowlist = getGoalToolAllowlist('learning');
-    expect(allowlist).not.toContain('bash');
-    expect(allowlist).not.toContain('file_write');
-    expect(allowlist).not.toContain('file_edit');
-  });
-
-  it('白名单含只读检索与通知工具', () => {
+  it('白名单含 T1 只读/知识/自组织工具', () => {
     const allowlist = getGoalToolAllowlist('learning');
     expect(allowlist).toContain('web_search');
     expect(allowlist).toContain('memory_search');
-    expect(allowlist).toContain('notify_user');
+    expect(allowlist).toContain('memory_manage');
+    expect(allowlist).toContain('message');
+    expect(allowlist).toContain('file_read');
+    expect(allowlist).toContain('wiki_read');
+    expect(allowlist).toContain('todo_write');
+    expect(allowlist).toContain('cron_create');
+  });
+
+  it('白名单含 T2 预算内可写工具', () => {
+    const allowlist = getGoalToolAllowlist('learning');
+    expect(allowlist).toContain('file_write');
+    expect(allowlist).toContain('file_edit');
+  });
+
+  it('白名单不含 T3 高危工具', () => {
+    const allowlist = getGoalToolAllowlist('learning');
+    expect(allowlist).not.toContain('bash');
+    expect(allowlist).not.toContain('spawn_agent');
+    expect(allowlist).not.toContain('channel_send');
+    expect(allowlist).not.toContain('cron_delete'); // 删除需 id 守卫，规划器阶段再放行
   });
 });
 

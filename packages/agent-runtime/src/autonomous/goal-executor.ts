@@ -18,15 +18,43 @@ export interface GoalExecutionResult {
 
 /**
  * 目标执行工具白名单 —— prompt 之外的硬防线。
- * 只放只读检索 + 记忆读写 + 通知；绝不放 bash / 文件写入 / 渠道群发。
+ *
+ * 分层（设计 §4.6）：
+ * - T1 无条件：只读检索 / 知识（file_* 读、web、memory、wiki、skill）+ 自组织（todo_write、cron_list/cron_create）+ 通知。
+ * - T2 预算内可写：file_write/edit/mkdir/move/copy、dashboard_feed_write（受 token 预算硬闸门约束）。
+ * - T3 高危（绝不放行）：bash、spawn_agent、channel_send/send_message、image/speech_generate、
+ *   browser_*、app_*、mcp__*，以及 cron_delete（删除需 id 前缀守卫，留到规划器阶段再放行）。
  */
 const GOAL_EXECUTION_TOOLS: readonly string[] = [
+  // 既有：只读检索 + 记忆读写 + 通知（memory_add/notify_user 是历史死名，改为真实工具名）
   'web_search',
   'web_fetch',
   'memory_search',
   'memory_read',
-  'memory_add',
-  'notify_user',
+  'memory_manage',
+  'message',
+  // T1：读 + 知识
+  'bing_search',
+  'file_read',
+  'list_dir',
+  'glob',
+  'grep',
+  'wiki_overview',
+  'wiki_search',
+  'wiki_read',
+  'skill_list',
+  'skill_search',
+  // T1：自组织
+  'todo_write',
+  'cron_list',
+  'cron_create',
+  // T2：预算内可写
+  'file_write',
+  'file_edit',
+  'file_mkdir',
+  'file_move',
+  'file_copy',
+  'dashboard_feed_write',
 ];
 
 /** 护栏 prompt（拼进 systemPromptAppend / 正文头部）。安全约束是硬底线，措辞上仍保持「灵栖」的生命感 */
