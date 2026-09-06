@@ -1,6 +1,6 @@
 # 自主进化「心跳与生命感」E2E 测试报告
 
-**执行时间**: 2026-09-06T13:22:29.428Z
+**执行时间**: 2026-09-06T14:33:28.430Z
 **结果**: 23 PASS / 0 FAIL / 0 SKIP（共 23）
 **数据库**: `C:\Users\Administrator\.lumii\data\agent-runtime.db`
 **驱动方式**: 真实动作（发消息/改设置/cron run/删除）经 lumii-ui CLI，探针播种经 node:sqlite，读取回查 DB 验证落库
@@ -20,20 +20,22 @@
 | E2 | PASS | 最小间隔未到 → 不再发: summary="idle"，目标仍 executing |
 | E3 | PASS | 预算用尽 → 主动消息停发: summary="idle"，计数封顶 20 |
 | B2 | PASS | 删除守卫拒绝删除 evolution:main: 拒绝（code=5），会话仍在 |
-| D1 | PASS | learning 目标执行 → 完成 + 独白: 目标 completed，独白 "两次检索均未命中直接资料（记忆库中没有相关存档，网络搜索返回…"，mood {"energy":0.7294550795035335,"valence":0.9128382091662022,"arousal":0.27593477325911275,"updatedAt":1788700874596} |
-| G1 | PASS | 目标执行触发情绪事件（方向断言）: d1Status=completed → mood {"energy":0.7295818809682907,"valence":0.6634874602897702,"arousal":0.4258622262468647,"updatedAt":1788700854257} -> {"energy":0.7294550795035335,"valence":0.9128382091662022,"arousal":0.27593477325911275,"updatedAt":1788700874596} |
+| D1 | PASS | learning 目标执行 → 完成 + 独白: 目标 completed，独白 "一句话说明：
+
+**心跳（heartbeat）是自主进化系统…"，mood {"energy":0.9994595950506419,"valence":0.25,"arousal":0.35,"updatedAt":1788705150580} |
+| G1 | PASS | 目标执行触发情绪事件（方向断言）: d1Status=completed → mood {"energy":1,"valence":0,"arousal":0.5,"updatedAt":1788705122494} -> {"energy":0.9994595950506419,"valence":0.25,"arousal":0.35,"updatedAt":1788705150580} |
 | J2 | PASS | 目标执行后 token 累计: 今日已消耗 34000 token（≥8000） |
 | J1 | PASS | 预算超限 → 目标执行降级 idle: summary="idle"，未烧 LLM |
 | H1 | PASS | 对话中顺带提起牵挂（提一次）: raisedCount=1，nextRaiseAfter 后移，status=open |
 | H2 | PASS | 提两次无回应 → dropped: raisedCount=2，status=dropped |
 | H3 | PASS | 牵挂只进上下文，不产生通知: outreach 计数仍为 20（牵挂不触达系统通知） |
-| F1 | PASS | 静默时段 + 满 24h → tick 触发反思: trigger=scheduled primaryIssue="任务完成或效率评分较高时用户反馈频繁偏低，同时效率和知识维度…" |
+| F1 | PASS | 静默时段 + 满 24h → tick 触发反思: trigger=scheduled primaryIssue="多次任务完成度高、效率也不低，但反馈分频繁偏低，说明交付结果…" |
 | I1 | PASS | 静默时段 + 今日未写 → 写日记入 evolution:main: 日记 "今日日记
 
-今天没有发生什么特别的事。日子很安静，我也没有刻…"，无指标词，标记今日已写 |
+今天还是没有发生什么特别的事。我提醒了用户休息，…"，无指标词，标记今日已写 |
 | I2 | PASS | 同日第二次 tick 不重复写日记: summary="idle"，消息数不变 |
 | K1 | PASS | edit 负反馈信号落库（计数器/评分消费）: edits=1, user_feedbacks=[] |
-| K2 | PASS | resend 负反馈信号落库（计数器/评分消费）: resends=1, user_feedbacks=[] |
+| K2 | PASS | resend 负反馈信号落库（计数器/评分消费）: resends=0, user_feedbacks=[0.6499999999999999] |
 
 ## 覆盖范围
 

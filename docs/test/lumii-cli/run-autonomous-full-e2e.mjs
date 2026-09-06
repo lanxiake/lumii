@@ -275,12 +275,38 @@ function preClean() {
 
 // ==================== 用例 ====================
 
+/** 读 autonomous.settings 原始 JSON（快照用） */
+function readRawSettings() {
+  return withDb((db) =>
+    db.prepare("SELECT value FROM runtime_state WHERE key = 'autonomous.settings'").get()?.value,
+  )
+}
+
+/** 还原 autonomous.settings 原始 JSON */
+function restoreRawSettings(value) {
+  withDb((db) => {
+    if (value === undefined) {
+      db.prepare("DELETE FROM runtime_state WHERE key = 'autonomous.settings'").run()
+    } else {
+      db.prepare(
+        `INSERT INTO runtime_state (key, value, updated_at) VALUES ('autonomous.settings', ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+      ).run(value, new Date().toISOString())
+    }
+  })
+}
+
 function run() {
   console.log('自主进化「完整真实用户」E2E 测试\n')
   assert(fs.existsSync(DB_PATH), `数据库不存在: ${DB_PATH}，请先启动应用`)
   assert(fs.existsSync(LUMII_UI), `CLI 不存在: ${LUMII_UI}`)
 
   preClean()
+
+  // 审批模式必须为 always：risky-only 会把低满意生成的 learning 目标直接推进 executing（非 pending），
+  // 场景 B/C 的 pending → 拒绝/批准 断言会失败。快照后强制 always，run 结束还原。
+  const settingsBefore = readRawSettings()
+  okJson(ui(['autonomous', 'settings', 'set', '--data', '{"approvalMode":"always"}']), '设 approvalMode=always')
 
   const base = {
     scores: count('autonomous_satisfaction_scores'),
@@ -430,6 +456,7 @@ function run() {
   }
 
   // ==================== 汇总 ====================
+  restoreRawSettings(settingsBefore)
   writeReport()
 }
 

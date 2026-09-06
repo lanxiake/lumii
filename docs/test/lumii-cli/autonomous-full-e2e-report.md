@@ -1,6 +1,6 @@
 # 自主进化「完整真实用户」E2E 测试报告
 
-**执行时间**: 2026-09-06T11:04:25.313Z
+**执行时间**: 2026-09-06T14:48:52.385Z
 **结果**: 11 PASS / 0 FAIL（共 11）
 **数据库**: `C:\Users\Administrator\.lumii\data\agent-runtime.db`
 **驱动方式**: 全部经 lumii-ui CLI 真实调用（conversation/send/send abort/goals approve/goals reject/reflect），无 SQL 播种
@@ -11,15 +11,15 @@
 |---|---|---|
 | A1 | PASS | 满意度落库 overall=0.9475 (task=1.00 fb=0.85 eff=1.00) |
 | A2 | PASS | 2 条能力测试落库，维度难度正确（document_analysis:0.35, code_generation:0.55）；capability_dimensions 4 维 |
-| A3 | PASS | trial_count 115 → 116 |
-| A4 | PASS | 1 条失败测试（result=failure，难度正确），task=0.75（含失败惩罚） |
+| A3 | PASS | trial_count 156 → 157 |
+| A4 | PASS | 1 条失败测试（result=failure，难度正确），task=0.50（含失败惩罚） |
 | B1 | PASS | 2 次 abort 信号落 runtime_state（aborts=2） |
-| B2 | PASS | overall=0.4875 → 生成 learning 目标（pending）"改善用户反馈质量：学习更好的交互模式" |
-| B3 | PASS | 目标 goal_1788692600577_ipyg71v 已拒绝（rejected） |
+| B2 | PASS | overall=0.5875 → 生成 learning 目标（pending）"改善用户反馈质量：学习更好的交互模式" |
+| B3 | PASS | 目标 goal_1788705961451_anma8i1 已拒绝（rejected） |
 | C1 | PASS | 生成 pending 目标 "改善用户反馈质量：学习更好的交互模式" |
-| C2 | PASS | executing + evolution-decided 人格事件落库（personality update_count=22） |
-| C3 | PASS | CLI goals list 可见 executing 目标（total=16） |
-| D1 | PASS | 反思落库 trigger=user-request primaryIssue="总分下降主要由反馈维度不稳定且偏低导致，表现为任务完成或效率较高但用户反馈低。…" |
+| C2 | PASS | executing + evolution-decided 人格事件落库（personality update_count=37） |
+| C3 | PASS | CLI goals list 可见 executing 目标（total=26） |
+| D1 | PASS | 反思落库 trigger=user-request primaryIssue="我常在信息不足或反馈信号微弱时直接给出回答，没有及时把用户反馈转成可验证的下一步…" |
 
 ## 覆盖范围
 

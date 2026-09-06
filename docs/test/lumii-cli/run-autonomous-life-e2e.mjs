@@ -358,6 +358,11 @@ function readMood() {
   }
 }
 
+/** 播种高精力 mood，使目标执行不因昼夜节律（夜间低能量）被跳过，保证 D1/G1 时间无关 */
+function seedMood(mood = { energy: 1, valence: 0, arousal: 0.5 }) {
+  setState('autonomous.mood', JSON.stringify({ ...mood, updatedAt: Date.now() }))
+}
+
 function readConcerns() {
   const row = getState('autonomous.concerns')
   if (!row) return []
@@ -558,6 +563,7 @@ function run() {
       let d1MoodAfter = null
 
       runTest('D1', 'learning 目标执行 → 完成 + 独白', () => {
+        seedMood()
         d1MoodBefore = readMood()
         const gid = seedGoal({
           type: 'learning',
