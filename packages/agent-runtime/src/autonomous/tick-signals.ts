@@ -13,6 +13,7 @@ import { REFLECTION_MIN_INTERVAL_HOURS } from './config.js';
 import { hasWrittenDiaryToday } from './diary.js';
 import { readSettings } from './settings.js';
 import { TOKEN_COST, readTodayTokenUsage } from './token-budget.js';
+import { readMood, moodToDecisionParams } from './mood.js';
 
 /** 一条待执行的已批准目标（最小信号） */
 export interface ApprovedGoalSignal {
@@ -43,6 +44,10 @@ export interface TickSignals {
   tokenUsedToday: number;
   /** 每日自主进化 token 上限（readSettings().maxTokensPerDay） */
   tokenLimit: number;
+  /** 是否有精力做重活（低 energy 时 false，来自 moodToDecisionParams） */
+  willDoHeavyWork: boolean;
+  /** 主动打扰系数（低 valence 时 0.5，来自 moodToDecisionParams） */
+  outreachMultiplier: number;
 }
 
 /** 单次心跳的决策结果 */
@@ -62,6 +67,7 @@ export function collectTickSignals(db: DatabaseAdapter, agentId: string, now = n
   // 心跳必须消费 executing 状态，否则目标会永远卡住不被执行
   const approved = repo.listGoals(agentId, 'executing');
   const settings = readSettings(db);
+  const decisionParams = moodToDecisionParams(readMood(db, now.getTime()));
   return {
     approvedGoalCount: approved.length,
     approvedGoals: approved.map((g) => ({ id: g.id, type: g.type, description: g.description })),
@@ -73,6 +79,8 @@ export function collectTickSignals(db: DatabaseAdapter, agentId: string, now = n
     diaryDue: computeDiaryDue(db, now, settings.quietHours),
     tokenUsedToday: readTodayTokenUsage(db, now),
     tokenLimit: settings.maxTokensPerDay,
+    willDoHeavyWork: decisionParams.willDoHeavyWork,
+    outreachMultiplier: decisionParams.outreachMultiplier,
   };
 }
 
@@ -114,12 +122,18 @@ function computeReflectionDue(
  * 避免后台无节制消耗；主动消息走系统通知不烧 LLM，不受 token 预算限制。
  */
 export function decideAction(signals: TickSignals, now = new Date()): TickAction {
+  // 低 valence 时减少主动打扰（outreachMultiplier 0.5 → 有效上限减半）
+  const effectiveOutreachLimit = Math.floor(signals.outreachLimit * signals.outreachMultiplier);
   const proactive = signals.approvedGoals.find((g) => g.type === 'proactive-message');
-  if (proactive && signals.outreachUsedToday < signals.outreachLimit && outreachIntervalSatisfied(signals, now)) {
+  if (proactive && signals.outreachUsedToday < effectiveOutreachLimit && outreachIntervalSatisfied(signals, now)) {
     return { kind: 'outreach', reason: 'proactive-message-pending', goal: proactive };
   }
   const executable = signals.approvedGoals.find((g) => g.type !== 'proactive-message');
   if (executable) {
+    // 低 energy 时跳过重活（目标执行），不影响主动消息/日记/反思
+    if (!signals.willDoHeavyWork) {
+      return { kind: 'idle', reason: 'low-energy' };
+    }
     if (!tokenAllowed(signals, TOKEN_COST.executeGoal)) {
       return { kind: 'idle', reason: 'token-budget-exhausted' };
     }

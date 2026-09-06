@@ -268,6 +268,8 @@ ipcMain.handle('autonomous:settings:get', async () => {
 ipcMain.handle('autonomous:settings:update', async (_event, settings: Partial<AutonomousSettings>) => {
   const bridge = requireBridge()
   writeSettings(bridge.db, settings)
+  // 心跳周期变更即时生效（与 CLI autonomous settings set 同一路径）
+  bridge.syncEvolutionTickSettings?.()
   return readSettings(bridge.db)
 })
 

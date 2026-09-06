@@ -25,6 +25,8 @@ const emptySignals = {
   diaryDue: false,
   tokenUsedToday: 0,
   tokenLimit: 100000,
+  willDoHeavyWork: true,
+  outreachMultiplier: 1,
 };
 
 describe('decideAction', () => {
@@ -174,6 +176,29 @@ describe('decideAction', () => {
     );
     expect(action.kind).toBe('execute-goal');
     expect(action.goal?.id).toBe('g2');
+  });
+
+  it('低 energy → 跳过重活（目标执行）', () => {
+    const action = decideAction({
+      ...emptySignals,
+      approvedGoalCount: 1,
+      approvedGoals: [{ id: 'g2', type: 'learning', description: '学习' }],
+      willDoHeavyWork: false,
+    });
+    expect(action.kind).toBe('idle');
+    expect(action.reason).toBe('low-energy');
+  });
+
+  it('低 valence → outreach 有效上限减半', () => {
+    const action = decideAction({
+      ...emptySignals,
+      approvedGoalCount: 1,
+      approvedGoals: [{ id: 'g1', type: 'proactive-message', description: '问候' }],
+      outreachUsedToday: 12,
+      outreachMultiplier: 0.5,
+    });
+    // 有效上限 = floor(20 * 0.5) = 10；已用 12 ≥ 10 → 不发
+    expect(action.kind).toBe('idle');
   });
 });
 

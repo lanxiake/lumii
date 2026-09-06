@@ -249,6 +249,8 @@ export function handleAutonomousUpdateSettings(
   command: Extract<AgentRuntimeCommand, { type: 'autonomous:settings:update' }>,
 ): unknown {
   writeSettings(bridge.db, command.settings as Parameters<typeof writeSettings>[1])
+  // 心跳周期变更即时生效：重播 evolution tick cron job（interval_ms 读新设置）+ 重载调度器
+  bridge.syncEvolutionTickSettings?.()
   return readSettings(bridge.db)
 }
 

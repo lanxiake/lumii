@@ -26,7 +26,6 @@ import {
   EMA_ALPHA,
   AUTONOMOUS_ENABLED,
   AUTONOMOUS_GOAL_TYPES,
-  REFLECTION_SCHEDULE,
   readMood,
   readConcerns,
   writeConcerns,
@@ -35,7 +34,6 @@ import {
   type ReflectionOutput,
   type Concern,
 } from '@mtbot/agent-runtime'
-import { Cron } from 'croner'
 import { agentRuntimeLog as log } from './bridge-utils'
 import {
   readCounters,
@@ -114,7 +112,6 @@ export function initAutonomousRuntime(
   try {
     runtimeDb = db
     runtime = createAutonomousRuntime(db, () => readAutonomousEnabled(db), callLLM)
-    if (callLLM) startReflectionScheduler()
     log.info('[autonomous] 自主进化运行时已装配' + (callLLM ? '（含反思引擎）' : ''))
   } catch (err) {
     // 装配失败不能拖垮启动流程，降级为不启用
@@ -133,30 +130,6 @@ export async function reflectAutonomous(
 ): Promise<ReflectionOutput> {
   if (!runtime) throw new Error('自主进化运行时未装配')
   return runtime.reflect(agentId, triggerReason)
-}
-
-let reflectionCron: Cron | null = null
-
-/**
- * 启动反思定时触发（默认每日 23:00，见 REFLECTION_SCHEDULE）。
- * 仅在装配了 LLM 客户端（反思引擎可用）时调用；触发时检查开关，关闭则跳过。
- * 反思只写库不主动打扰用户，无推送副作用。
- */
-export function startReflectionScheduler(agentId = 'assistant'): void {
-  if (reflectionCron) return
-  reflectionCron = new Cron(REFLECTION_SCHEDULE, { timezone: 'Asia/Shanghai' }, () => {
-    if (!runtime || !runtimeDb || !readAutonomousEnabled(runtimeDb)) return
-    void reflectAutonomous(agentId, 'scheduled').catch((err) => {
-      log.warn('[autonomous] 定时反思失败:', err instanceof Error ? err.message : err)
-    })
-  })
-  log.info(`[autonomous] 反思定时触发已启动（${REFLECTION_SCHEDULE}）`)
-}
-
-export function stopReflectionScheduler(): void {
-  if (!reflectionCron) return
-  reflectionCron.stop()
-  reflectionCron = null
 }
 
 /**
@@ -196,7 +169,6 @@ export function recordFeedbackSignal(
 }
 
 export async function shutdownAutonomousRuntime(): Promise<void> {
-  stopReflectionScheduler()
   try {
     await runtime?.shutdown()
   } catch {

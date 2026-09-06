@@ -12,7 +12,7 @@ import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import {
   collectTickSignals,
   decideAction,
-  TICK_INTERVAL_MS,
+  readSettings,
   TOKEN_COST,
   recordTokenUsage,
   type ApprovedGoalSignal,
@@ -94,10 +94,11 @@ export async function handleEvolutionTick(deps: EvolutionTickDeps): Promise<stri
 
 /**
  * 播种 evolution tick cron job（幂等）。enabled 跟随 autonomous.enabled 开关，
- * interval_ms 读 TICK_INTERVAL_MS（Step 7 参数化后由设置页覆盖）。
+ * interval_ms 读 readSettings().tickIntervalMinutes（设置页改动后重播一次即生效）。
  */
 export function ensureEvolutionCronJobSeeded(db: DatabaseAdapter, isEnabled: boolean): void {
   try {
+    const intervalMs = readSettings(db).tickIntervalMinutes * 60_000
     const existing = db
       .prepare<{ id: string }>(`SELECT id FROM local_cron_jobs WHERE id = ?`)
       .get(EVOLUTION_TICK_CRON_ID)
@@ -105,7 +106,7 @@ export function ensureEvolutionCronJobSeeded(db: DatabaseAdapter, isEnabled: boo
     if (existing) {
       db.prepare(
         `UPDATE local_cron_jobs SET enabled = ?, interval_ms = ? WHERE id = ?`,
-      ).run(isEnabled ? 1 : 0, TICK_INTERVAL_MS, EVOLUTION_TICK_CRON_ID)
+      ).run(isEnabled ? 1 : 0, intervalMs, EVOLUTION_TICK_CRON_ID)
       return
     }
 
@@ -119,11 +120,11 @@ export function ensureEvolutionCronJobSeeded(db: DatabaseAdapter, isEnabled: boo
       EVOLUTION_TICK_NAME,
       EVOLUTION_TICK_INSTRUCTION,
       now,
-      TICK_INTERVAL_MS,
+      intervalMs,
       isEnabled ? 1 : 0,
       now,
     )
-    log.info(`[ensureEvolutionCronJobSeeded] 新建 job id=${EVOLUTION_TICK_CRON_ID}`)
+    log.info(`[ensureEvolutionCronJobSeeded] 新建 job id=${EVOLUTION_TICK_CRON_ID} intervalMs=${intervalMs}`)
   } catch (err) {
     log.error('[ensureEvolutionCronJobSeeded] 失败:', err)
   }

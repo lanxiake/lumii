@@ -55,6 +55,7 @@ import {
   IDLE_COOLDOWN_FAILURE_MS,
   EVOLUTION_CONVERSATION_ID,
   buildGoalPrompt,
+  getGoalToolAllowlist,
   finalizeGoal,
   canSendOutreach,
   recordOutreach,
@@ -945,14 +946,26 @@ export class AgentRuntimeBridge {
                 executeGoal: async (goal) => {
                   const convId = EVOLUTION_CONVERSATION_ID
                   this.ensureConversationExists(convId, '自主进化 · 内心独白')
-                  const instanceId = await this.createInstanceById('assistant', convId, convId)
+                  // 硬防线：目标执行实例只挂白名单内的只读工具，不继承 assistant 全量工具，
+                  // 即使护栏 prompt 被绕过也无法执行 bash / 文件写入 / 渠道群发。
+                  const baseDef = this.definitionStore
+                    ? await this.definitionStore.get('assistant')
+                    : null
+                  if (!baseDef) {
+                    finalizeGoal(this.localDb.db, goal.id, { success: false, output: 'assistant 定义缺失，无法执行' })
+                    return 'unavailable'
+                  }
+                  const restrictedDef: AgentDefinition = {
+                    ...baseDef,
+                    canSpawnSubAgents: false,
+                    tools: getGoalToolAllowlist(goal.type),
+                  }
+                  const instanceId = await this.createInstance(restrictedDef, convId, convId)
                   try {
                     await this.prompt(instanceId, buildGoalPrompt(goal))
                     await this.waitForInstanceIdle(instanceId)
                     const output = this.getAssistantOutputFromInstance(instanceId) ?? ''
                     const ok = output.trim().length > 0
-                    // ponytail: 工具层硬白名单待 bridge 支持 per-instance 工具过滤后接入；
-                    // 当前以护栏 prompt（buildGoalPrompt 内）+ getGoalToolAllowlist 纯函数兜底
                     finalizeGoal(this.localDb.db, goal.id, { success: ok, output })
                     this.recordMoodEvent(ok ? 'goal_completed' : 'task_failed')
                     return ok ? 'completed' : 'failed'
@@ -1071,6 +1084,7 @@ export class AgentRuntimeBridge {
    */
   private purgeCronFocusNoiseMemoriesOnce(): void {
     const sentinelKey = 'cron:purged_focus_noise_v1'
+    if (!this._runtimeStateRepo) return
     if (this._runtimeStateRepo.get(sentinelKey)) return
     if (!this._memoryManager) return
     try {
@@ -2069,6 +2083,13 @@ export class AgentRuntimeBridge {
   }
   // ── Cron 公共接口 ──
   reloadLocalCronScheduler(): void { this.cronScheduler.reloadLocalCronScheduler() }
+
+  /** 设置页改动心跳周期后重播 cron job（interval_ms 读 readSettings().tickIntervalMinutes）+ 重载调度器 */
+  syncEvolutionTickSettings(): void {
+    if (!this.localDb) return
+    ensureEvolutionCronJobSeeded(this.localDb.db, readAutonomousEnabled(this.localDb.db))
+    this.cronScheduler?.reloadLocalCronScheduler()
+  }
 
   createLocalCronJobRecord(params: Parameters<CronScheduler['createLocalCronJobRecord']>[0]): void {
     this.cronScheduler.createLocalCronJobRecord(params)
