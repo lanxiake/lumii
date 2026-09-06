@@ -3,6 +3,7 @@
  */
 import { ipcRenderer } from 'electron'
 import type { CloudSyncConfigView, SyncState, SyncStatus } from '../../main/cloud-sync/types'
+import type { SyncLogEntry } from '../../main/cloud-sync/sync-log'
 
 export type ResolveStrategy = 'keep-local' | 'keep-remote' | 'per-file'
 export type ResolveChoice = { path: string; side: 'local' | 'remote' }
@@ -16,6 +17,8 @@ export const cloudSyncApi = {
     ipcRenderer.invoke('cloudSync:testConnection', view),
   getStatus: (): Promise<{ success: boolean; data?: SyncStatus }> =>
     ipcRenderer.invoke('cloudSync:getStatus'),
+  getLogs: (): Promise<{ success: boolean; data?: SyncLogEntry[] }> =>
+    ipcRenderer.invoke('cloudSync:getLogs'),
   syncNow: (): Promise<{ success: boolean; state: SyncState }> =>
     ipcRenderer.invoke('cloudSync:syncNow'),
   resolveConflict: (

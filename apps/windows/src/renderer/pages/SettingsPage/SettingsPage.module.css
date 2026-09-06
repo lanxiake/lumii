@@ -961,3 +961,64 @@
   line-height: 1.6;
   color: var(--color-text-tertiary);
 }
+
+/* 云同步历史日志 */
+.cloud-log-list {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-bg-secondary, transparent);
+}
+
+.cloud-log-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: var(--font-size-xs);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.cloud-log-item:last-child {
+  border-bottom: none;
+}
+
+.cloud-log-time {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+.cloud-log-state {
+  flex-shrink: 0;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.cloud-log-state-idle {
+  color: var(--color-success, #16a34a);
+  background: color-mix(in srgb, var(--color-success, #16a34a) 12%, transparent);
+}
+
+.cloud-log-state-syncing {
+  color: #0ea5e9;
+  background: color-mix(in srgb, #0ea5e9 12%, transparent);
+}
+
+.cloud-log-state-conflict {
+  color: #d97706;
+  background: color-mix(in srgb, #d97706 16%, transparent);
+}
+
+.cloud-log-state-error {
+  color: var(--color-danger, #ef4444);
+  background: color-mix(in srgb, var(--color-danger, #ef4444) 12%, transparent);
+}
+
+.cloud-log-msg {
+  flex: 1;
+  color: var(--color-text-secondary);
+  word-break: break-all;
+}

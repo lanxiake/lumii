@@ -5,6 +5,7 @@ import { Select } from '../../../../components/ui/Select/Select'
 import { Switch } from '../../../../components/ui/Switch/Switch'
 import { useToast } from '../../../../components/ui/Toast/useToast'
 import type { CloudSyncConfigView, SyncStatus } from '../../../../../main/cloud-sync/types'
+import type { SyncLogEntry } from '../../../../../main/cloud-sync/sync-log'
 import styles from '../../SettingsPage.module.css'
 
 const STATE_LABEL: Record<string, string> = {
@@ -23,18 +24,30 @@ export function CloudSyncSection() {
   const [syncing, setSyncing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [guideOpen, setGuideOpen] = useState(true)
+  const [logs, setLogs] = useState<SyncLogEntry[]>([])
 
   const load = useCallback(async () => {
     const cfg = await window.electronAPI.cloudSync.getConfig()
     if (cfg.success && cfg.data) setForm(cfg.data)
     const st = await window.electronAPI.cloudSync.getStatus()
     if (st.success && st.data) setStatus(st.data)
+    const lg = await window.electronAPI.cloudSync.getLogs()
+    if (lg.success && lg.data) setLogs(lg.data)
+  }, [])
+
+  const refreshStatusAndLogs = useCallback(async () => {
+    const st = await window.electronAPI.cloudSync.getStatus()
+    if (st.success && st.data) setStatus(st.data)
+    const lg = await window.electronAPI.cloudSync.getLogs()
+    if (lg.success && lg.data) setLogs(lg.data)
   }, [])
 
   useEffect(() => {
     load()
-    return window.electronAPI.cloudSync.onStatusChange(setStatus)
-  }, [load])
+    return window.electronAPI.cloudSync.onStatusChange(() => {
+      void refreshStatusAndLogs()
+    })
+  }, [load, refreshStatusAndLogs])
 
   const save = async () => {
     if (!form) return
@@ -240,6 +253,32 @@ export function CloudSyncSection() {
           )}
         </div>
       )}
+
+      <div className={styles['setting-item']}>
+        <label className={styles['setting-label']} data-app-ui-label>同步日志</label>
+        {logs.length === 0 ? (
+          <div className={styles['setting-hint']}>暂无同步记录</div>
+        ) : (
+          <div className={styles['cloud-log-list']}>
+            {logs
+              .slice()
+              .reverse()
+              .map((log, i) => (
+                <div key={`${log.ts}-${i}`} className={styles['cloud-log-item']}>
+                  <span className={styles['cloud-log-time']}>
+                    {new Date(log.ts).toLocaleString()}
+                  </span>
+                  <span
+                    className={`${styles['cloud-log-state']} ${styles[`cloud-log-state-${log.state}`]}`}
+                  >
+                    {STATE_LABEL[log.state] ?? log.state}
+                  </span>
+                  <span className={styles['cloud-log-msg']}>{log.message}</span>
+                </div>
+              ))}
+          </div>
+        )}
+      </div>
 
       <p className={styles['settings-note']}>
         冲突由 Agent 通过 resolve_sync_conflict 工具解决；后台静默同步，不弹窗打扰。

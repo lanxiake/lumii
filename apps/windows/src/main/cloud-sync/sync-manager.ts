@@ -15,6 +15,7 @@ import { resolveActiveWorkspaceDir } from '../workspace-paths'
 import { createLogger } from '../logger'
 import { getProvider } from './git-provider'
 import { loadCloudSyncConfig, decryptToken } from './sync-config'
+import { appendSyncLog } from './sync-log'
 import type { SyncState, SyncStatus, ConflictInfo } from './types'
 
 const logger = createLogger('cloud-sync/manager')
@@ -305,6 +306,7 @@ export class CloudSyncManager extends EventEmitter {
       lastError: state === 'error' ? message : undefined,
     }
     this.emit('status', this.status)
+    appendSyncLog(state, message)
     logger.info(`[状态变更] ${state}: ${message}`)
   }
 }

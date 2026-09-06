@@ -11,6 +11,7 @@ import http from 'isomorphic-git/http/node'
 import { getCloudSyncManager } from './sync-accessor'
 import { loadCloudSyncConfig, saveConfigFromView, toConfigView, decryptToken } from './sync-config'
 import { getProvider } from './git-provider'
+import { loadSyncLogs } from './sync-log'
 import { resolveActiveWorkspaceDir } from '../workspace-paths'
 import type { CloudSyncConfig, CloudSyncConfigView } from './types'
 
@@ -67,6 +68,11 @@ export function registerCloudSyncIpcHandlers(): void {
   ipcMain.handle('cloudSync:getStatus', () => ({
     success: true,
     data: getCloudSyncManager()?.getStatus() ?? { state: 'idle' as const },
+  }))
+
+  ipcMain.handle('cloudSync:getLogs', () => ({
+    success: true,
+    data: loadSyncLogs(),
   }))
 
   ipcMain.handle('cloudSync:syncNow', async () => {

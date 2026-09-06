@@ -17,6 +17,9 @@ vi.mock('./sync-config', () => ({
   loadCloudSyncConfig: vi.fn(),
   decryptToken: vi.fn((enc?: string) => (enc ?? '').replace(/^plain:/, '')),
 }))
+vi.mock('./sync-log', () => ({
+  appendSyncLog: vi.fn(),
+}))
 
 import { loadCloudSyncConfig } from './sync-config'
 import { CloudSyncManager } from './sync-manager'
