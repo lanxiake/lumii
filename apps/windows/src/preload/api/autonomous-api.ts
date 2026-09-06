@@ -5,7 +5,16 @@
  */
 
 import { ipcRenderer } from 'electron'
-import type { AutonomousSettings } from '@mtbot/agent-runtime'
+import type { AutonomousSettings, Mood, Concern } from '@mtbot/agent-runtime'
+
+/**
+ * 内心 Tab 日记流条目（evolution:main 会话里 agent 的自述/独白）
+ */
+export interface DiaryEntry {
+  id: string
+  text: string
+  timestamp: number
+}
 
 /**
  * 自主进化状态
@@ -173,5 +182,26 @@ export const autonomousApi = {
    */
   updateSettings: (settings: Partial<AutonomousSettings>): Promise<AutonomousSettings> => {
     return ipcRenderer.invoke('autonomous:settings:update', settings)
+  },
+
+  /**
+   * 获取当前情绪状态（energy/valence/arousal 三维）
+   */
+  getMood: (): Promise<Mood> => {
+    return ipcRenderer.invoke('autonomous:getMood')
+  },
+
+  /**
+   * 获取牵挂列表（在意但还没结论的事）
+   */
+  getConcerns: (): Promise<Concern[]> => {
+    return ipcRenderer.invoke('autonomous:getConcerns')
+  },
+
+  /**
+   * 获取内心日记流（evolution:main 会话里 agent 的自述/独白，时间倒序）
+   */
+  getDiary: (limit?: number): Promise<DiaryEntry[]> => {
+    return ipcRenderer.invoke('autonomous:getDiary', limit)
   },
 }

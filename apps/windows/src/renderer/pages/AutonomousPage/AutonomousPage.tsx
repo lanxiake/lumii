@@ -29,6 +29,9 @@ import {
   TIP_SATISFACTION_OVERALL,
   TIP_SATISFACTION_TREND,
   TIP_SETTINGS,
+  TIP_INNER_MOOD,
+  TIP_INNER_CONCERNS,
+  TIP_INNER_DIARY,
 } from './autonomousTooltips'
 import styles from './AutonomousPage.module.css'
 
@@ -68,6 +71,29 @@ type AutonomousSettings = {
   approvalMode: 'always' | 'risky-only' | 'never'
 }
 
+type MoodState = {
+  energy: number
+  valence: number
+  arousal: number
+  updatedAt: number
+}
+
+type Concern = {
+  id: string
+  description: string
+  origin: string
+  arousalWeight: number
+  raisedCount: number
+  nextRaiseAfter: number
+  status: 'open' | 'resolved' | 'dropped'
+}
+
+type DiaryEntry = {
+  id: string
+  text: string
+  timestamp: number
+}
+
 const api = window.electronAPI?.autonomous || {
   getStatus: () => Promise.reject(new Error('API not available')),
   getPendingGoals: () => Promise.reject(new Error('API not available')),
@@ -80,9 +106,12 @@ const api = window.electronAPI?.autonomous || {
   setEnabled: () => Promise.reject(new Error('API not available')),
   getSettings: () => Promise.reject(new Error('API not available')),
   updateSettings: () => Promise.reject(new Error('API not available')),
+  getMood: () => Promise.reject(new Error('API not available')),
+  getConcerns: () => Promise.reject(new Error('API not available')),
+  getDiary: () => Promise.reject(new Error('API not available')),
 }
 
-type TabType = 'overview' | 'capabilities' | 'reflections' | 'prompt' | 'settings'
+type TabType = 'overview' | 'capabilities' | 'reflections' | 'prompt' | 'settings' | 'inner'
 
 const TRIGGER_LABELS: Record<string, string> = {
   'low-satisfaction': '满意度低',
@@ -104,6 +133,9 @@ export function AutonomousPage() {
   const [settings, setSettings] = useState<AutonomousSettings | null>(null)
   const [settingsSaving, setSettingsSaving] = useState(false)
   const [settingsSaved, setSettingsSaved] = useState(false)
+  const [mood, setMood] = useState<MoodState | null>(null)
+  const [concerns, setConcerns] = useState<Concern[]>([])
+  const [diary, setDiary] = useState<DiaryEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [autonomousEnabled, setAutonomousEnabled] = useState(true)
@@ -118,7 +150,7 @@ export function AutonomousPage() {
   /** 加载自主进化相关数据 */
   async function loadData() {
     try {
-      const [statusData, goalsData, capabilitiesData, reflectionsData, historyData, promptData, settingsData] = await Promise.all([
+      const [statusData, goalsData, capabilitiesData, reflectionsData, historyData, promptData, settingsData, moodData, concernsData, diaryData] = await Promise.all([
         api.getStatus(),
         api.getPendingGoals(),
         api.getCapabilities().catch(() => ({})),
@@ -126,6 +158,9 @@ export function AutonomousPage() {
         api.getSatisfactionHistory('7d').catch(() => ({ dataPoints: [] })),
         api.getPromptStats().catch(() => []),
         api.getSettings().catch(() => null),
+        api.getMood().catch(() => null),
+        api.getConcerns().catch(() => []),
+        api.getDiary(100).catch(() => []),
       ])
       setStatus(statusData)
       setGoals(goalsData)
@@ -134,6 +169,9 @@ export function AutonomousPage() {
       setSatisfactionHistory(historyData.dataPoints || [])
       setPromptStats(Array.isArray(promptData) ? (promptData as PromptFragmentStats[]) : [])
       setSettings(settingsData)
+      setMood(moodData)
+      setConcerns(Array.isArray(concernsData) ? (concernsData as Concern[]) : [])
+      setDiary(Array.isArray(diaryData) ? (diaryData as DiaryEntry[]) : [])
       setAutonomousEnabled(statusData.enabled !== false)
       setSelectedReflectionId((prev) => {
         if (prev && reflectionsData.some((r: Reflection) => r.id === prev)) return prev
@@ -292,6 +330,15 @@ export function AutonomousPage() {
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           设置
+        </button>
+        <button
+          className={`${styles.tab} ${activeTab === 'inner' ? styles.active : ''}`}
+          onClick={() => setActiveTab('inner')}
+        >
+          <svg className={styles.tabIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          内心
         </button>
       </div>
 
@@ -667,6 +714,56 @@ export function AutonomousPage() {
             )}
           </Card>
         )}
+
+        {activeTab === 'inner' && (
+          <div className={styles.innerGrid}>
+            <Card header={<TitledHeader title="现在的心情" tip={TIP_INNER_MOOD} />}>
+              {mood ? (
+                <div className={styles.moodSummary}>
+                  <div className={styles.moodEmoji}>{moodToEmoji(mood)}</div>
+                  <div className={styles.moodText}>{describeMood(mood)}</div>
+                </div>
+              ) : (
+                <div className={styles.emptyCompact}>暂无情绪数据</div>
+              )}
+            </Card>
+
+            <Card header={<TitledHeader title="还在惦记" tip={TIP_INNER_CONCERNS} />}>
+              {concerns.filter((c) => c.status === 'open').length > 0 ? (
+                <div className={styles.concernsList}>
+                  {concerns
+                    .filter((c) => c.status === 'open')
+                    .map((c) => (
+                      <div key={c.id} className={styles.concernItem}>
+                        {c.description}
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <div className={styles.emptyCompact}>暂时没有放不下的事</div>
+              )}
+            </Card>
+
+            <Card
+              header={<TitledHeader title="日记" tip={TIP_INNER_DIARY} />}
+              className={styles.diaryCard}
+              bodyClassName={styles.cardBodyFill}
+            >
+              {diary.length > 0 ? (
+                <div className={styles.diaryList}>
+                  {diary.map((d) => (
+                    <div key={d.id} className={styles.diaryItem}>
+                      <div className={styles.diaryMeta}>{formatDiaryTime(d.timestamp)}</div>
+                      <div className={styles.diaryText}>{d.text}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className={styles.emptyCompact}>还没有日记。夜深时它会写点什么。</div>
+              )}
+            </Card>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -683,6 +780,38 @@ function formatReflectionTime(dateStr: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+/** 日记/独白时间（毫秒时间戳 → 可读） */
+function formatDiaryTime(timestamp: number): string {
+  const date = new Date(timestamp)
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+/** 情绪三维 → 简短文字描述（不显示数值，避免表演情绪） */
+function describeMood(mood: MoodState): string {
+  const parts: string[] = []
+  if (mood.energy > 0.7) parts.push('精力充沛')
+  else if (mood.energy < 0.3) parts.push('有点累')
+  if (mood.valence > 0.3) parts.push('心情不错')
+  else if (mood.valence < -0.3) parts.push('有点低落')
+  if (mood.arousal > 0.6) parts.push('兴致很高')
+  if (parts.length === 0) parts.push('平静')
+  return parts.join('，')
+}
+
+/** 情绪 → 表情符号（对齐 moodToPetEmotion 的 joy/sadness/surprise/neutral） */
+function moodToEmoji(mood: MoodState): string {
+  if (mood.valence > 0.3 && mood.energy > 0.6) return '😊'
+  if (mood.arousal > 0.6) return '🤔'
+  if (mood.energy < 0.3) return '😴'
+  if (mood.valence < -0.3) return '😞'
+  return '😐'
 }
 
 /**

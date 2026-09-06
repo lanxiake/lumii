@@ -13,6 +13,7 @@ import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 import { notifyAutonomousGoalApproved } from '../agent-runtime/autonomous-wiring'
 import { readSettings, writeSettings } from '@mtbot/agent-runtime'
 import type { AutonomousSettings } from '@mtbot/agent-runtime'
+import { readMood, readConcerns, EVOLUTION_CONVERSATION_ID } from '@mtbot/agent-runtime'
 
 const ENABLED_KEY = 'autonomous.enabled'
 const DEFAULT_AGENT_ID = 'assistant'
@@ -22,6 +23,21 @@ function requireBridge(): AgentRuntimeBridge {
   const bridge = getAgentRuntimeBridge()
   if (!bridge) throw new Error('AgentRuntimeBridge 未就绪')
   return bridge
+}
+
+/** 从 content_json 提取纯文本（日记/独白统一存 { type:'text', text }） */
+function extractInnerText(contentJson: unknown): string {
+  try {
+    const parsed = typeof contentJson === 'string' ? JSON.parse(contentJson) : contentJson
+    if (parsed && typeof parsed === 'object') {
+      const p = parsed as Record<string, unknown>
+      if (typeof p.text === 'string') return p.text
+      if (typeof p.content === 'string') return p.content
+    }
+    return typeof contentJson === 'string' ? contentJson : ''
+  } catch {
+    return typeof contentJson === 'string' ? contentJson : ''
+  }
 }
 
 /** 未写过配置时默认启用 */
@@ -234,6 +250,30 @@ ipcMain.handle('autonomous:settings:update', async (_event, settings: Partial<Au
   const bridge = requireBridge()
   writeSettings(bridge.db, settings)
   return readSettings(bridge.db)
+})
+
+ipcMain.handle('autonomous:getMood', async () => {
+  const bridge = requireBridge()
+  return readMood(bridge.db)
+})
+
+ipcMain.handle('autonomous:getConcerns', async () => {
+  const bridge = requireBridge()
+  return readConcerns(bridge.db)
+})
+
+ipcMain.handle('autonomous:getDiary', async (_event, limit = 50) => {
+  const bridge = requireBridge()
+  const page = bridge.conversationRepo.loadMessagesPage(EVOLUTION_CONVERSATION_ID, { limit })
+  return page.items
+    .filter((m) => m.role === 'assistant')
+    .map((m) => ({
+      id: m.id,
+      text: extractInnerText(m.content_json),
+      timestamp: new Date(m.timestamp).getTime(),
+    }))
+    .filter((e) => e.text.trim().length > 0)
+    .reverse()
 })
 
 ipcMain.handle('autonomous:getApprovalSettings', async () => null)
