@@ -185,6 +185,70 @@ describe('反思提示词', () => {
       const result = parseReflectionOutput(llmContent);
       expect(result.diagnosis.primaryIssue).toBe('测试');
     });
+
+    it('应提取 suggestedConcerns（顺带识别的牵挂）', () => {
+      const llmContent = `
+\`\`\`json
+{
+  "diagnosis": {
+    "primaryIssue": "测试",
+    "affectedDimensions": ["task"],
+    "rootCause": "测试"
+  },
+  "recommendations": [],
+  "suggestedGoals": [],
+  "suggestedConcerns": [
+    { "description": "用户上周提的部署方案还没下文", "origin": "session-1" }
+  ]
+}
+\`\`\`
+`;
+      const result = parseReflectionOutput(llmContent);
+      expect(result.suggestedConcerns).toHaveLength(1);
+      expect(result.suggestedConcerns[0].description).toBe('用户上周提的部署方案还没下文');
+      expect(result.suggestedConcerns[0].origin).toBe('session-1');
+    });
+
+    it('缺少 suggestedConcerns 时返回空数组（向后兼容）', () => {
+      const llmContent = `
+\`\`\`json
+{
+  "diagnosis": {
+    "primaryIssue": "测试",
+    "affectedDimensions": ["task"],
+    "rootCause": "测试"
+  },
+  "recommendations": [],
+  "suggestedGoals": []
+}
+\`\`\`
+`;
+      const result = parseReflectionOutput(llmContent);
+      expect(result.suggestedConcerns).toEqual([]);
+    });
+
+    it('suggestedConcerns 里空 description 被过滤', () => {
+      const llmContent = `
+\`\`\`json
+{
+  "diagnosis": {
+    "primaryIssue": "测试",
+    "affectedDimensions": ["task"],
+    "rootCause": "测试"
+  },
+  "recommendations": [],
+  "suggestedGoals": [],
+  "suggestedConcerns": [
+    { "description": "", "origin": "session-1" },
+    { "description": "有效牵挂", "origin": "session-2" }
+  ]
+}
+\`\`\`
+`;
+      const result = parseReflectionOutput(llmContent);
+      expect(result.suggestedConcerns).toHaveLength(1);
+      expect(result.suggestedConcerns[0].description).toBe('有效牵挂');
+    });
   });
 
   describe('REFLECTION_PROMPT_TEMPLATE', () => {
@@ -199,6 +263,7 @@ describe('反思提示词', () => {
       expect(REFLECTION_PROMPT_TEMPLATE).toContain('diagnosis');
       expect(REFLECTION_PROMPT_TEMPLATE).toContain('recommendations');
       expect(REFLECTION_PROMPT_TEMPLATE).toContain('suggestedGoals');
+      expect(REFLECTION_PROMPT_TEMPLATE).toContain('suggestedConcerns');
     });
 
     it('应包含约束条件', () => {

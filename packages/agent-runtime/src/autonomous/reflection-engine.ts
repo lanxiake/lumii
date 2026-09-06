@@ -123,6 +123,7 @@ export class ReflectionEngine {
           ...goal,
           type: goal.type as GoalType,
         })),
+        suggestedConcerns: parsed.suggestedConcerns,
         createdAt: now,
         analysisWindow: {
           start: windowStart.toISOString(),
@@ -241,6 +242,7 @@ export class ReflectionEngine {
         },
         recommendations: JSON.parse(row.recommendations),
         suggestedGoals: JSON.parse(row.suggested_goals),
+        suggestedConcerns: [],
         createdAt: row.created_at,
         analysisWindow: {
           start: row.analysis_window_start,

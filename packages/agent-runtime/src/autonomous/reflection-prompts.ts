@@ -49,6 +49,11 @@ export const REFLECTION_PROMPT_TEMPLATE = `
      * 目标描述
      * 优先级（0-1）
 
+4. **牵挂识别**
+   - 从会话摘要里识别出「你在意、但还没有结论」的事（最多 2 件）
+   - 只识别这三类：用户提过但没下文、你自己没做好、你自己好奇
+   - 没有就留空数组，不要硬编
+
 ## 输出格式
 
 严格按照以下 JSON Schema 输出（不要包含其他文字）：
@@ -74,6 +79,12 @@ export const REFLECTION_PROMPT_TEMPLATE = `
       "type": "learning" | "proactive-message" | "capability-improvement",
       "description": "string",
       "priority": 0.0-1.0
+    }
+  ],
+  "suggestedConcerns": [
+    {
+      "description": "string",
+      "origin": "string"
     }
   ]
 }
@@ -194,6 +205,10 @@ export function parseReflectionOutput(llmContent: string): {
     description: string;
     priority: number;
   }>;
+  suggestedConcerns: Array<{
+    description: string;
+    origin: string;
+  }>;
 } {
   const jsonText = extractJsonText(llmContent);
   if (jsonText == null) {
@@ -207,11 +222,20 @@ export function parseReflectionOutput(llmContent: string): {
     throw new Error('Failed to parse JSON from reflection output');
   }
 
-  // 验证基本结构
+  // 验证基本结构（suggestedConcerns 为新增可选字段，老输出缺省按空数组）
   const obj = parsed as Record<string, unknown>;
   if (!obj.diagnosis || !obj.recommendations || !obj.suggestedGoals) {
     throw new Error('Invalid reflection output structure');
   }
 
-  return parsed as ReturnType<typeof parseReflectionOutput>;
+  const concerns = Array.isArray(obj.suggestedConcerns)
+    ? (obj.suggestedConcerns as Array<Record<string, unknown>>)
+        .filter((c) => typeof c?.description === 'string' && c.description.trim().length > 0)
+        .map((c) => ({
+          description: c.description as string,
+          origin: typeof c.origin === 'string' ? c.origin : '',
+        }))
+    : [];
+
+  return { ...(parsed as ReturnType<typeof parseReflectionOutput>), suggestedConcerns: concerns };
 }

@@ -28,9 +28,13 @@ import {
   AUTONOMOUS_ENABLED,
   AUTONOMOUS_GOAL_TYPES,
   REFLECTION_SCHEDULE,
+  readMood,
+  readConcerns,
+  writeConcerns,
   type DatabaseAdapter,
   type MVPScope,
   type ReflectionOutput,
+  type Concern,
 } from '@mtbot/agent-runtime'
 import { Cron } from 'croner'
 import { agentRuntimeLog as log } from './bridge-utils'
@@ -381,7 +385,10 @@ export function createAutonomousRuntime(
       if (!reflectionEngine) {
         throw new Error('反思引擎未装配（缺少 LLM 客户端），无法触发反思')
       }
-      return reflectionEngine.reflect(agentId, triggerReason)
+      const output = await reflectionEngine.reflect(agentId, triggerReason)
+      // 反思顺带识别牵挂（零额外 LLM 调用），合并写入 runtime_state
+      mergeSuggestedConcerns(db, output.suggestedConcerns)
+      return output
     },
 
     async selectPromptVariant(conversationId: string) {
@@ -492,5 +499,37 @@ export function readAutonomousEnabled(db: DatabaseAdapter): boolean {
     return row?.value !== 'false'
   } catch {
     return true
+  }
+}
+
+/**
+ * 把反思顺带识别出的牵挂合并进 runtime_state（autonomous.concerns）。
+ * 补全 Concern 缺失字段（id/arousalWeight/raisedCount/nextRaiseAfter/status），
+ * 按 description 去重，避免日频反思反复累积同一件牵挂。
+ */
+function mergeSuggestedConcerns(
+  db: DatabaseAdapter,
+  suggested: Array<{ description: string; origin: string }>,
+): void {
+  if (!suggested || suggested.length === 0) return
+  try {
+    const existing = readConcerns(db)
+    const mood = readMood(db)
+    const now = Date.now()
+    const seen = new Set(existing.map((c) => c.description))
+    const fresh: Concern[] = suggested
+      .filter((c) => c.description && !seen.has(c.description))
+      .map((c, i) => ({
+        id: `${now}-${i}`,
+        description: c.description,
+        origin: c.origin,
+        arousalWeight: mood.arousal,
+        raisedCount: 0,
+        nextRaiseAfter: now + 24 * 3_600_000,
+        status: 'open',
+      }))
+    if (fresh.length > 0) writeConcerns(db, [...existing, ...fresh])
+  } catch (err) {
+    log.warn('[autonomous] 写入牵挂失败:', err instanceof Error ? err.message : err)
   }
 }

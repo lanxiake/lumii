@@ -409,6 +409,12 @@ export interface ReflectionOutput {
     priority: number;
   }>;
 
+  /** 顺带识别的牵挂（用户提过没下文 / 自己没做好 / 自己好奇），零 LLM 额外开销 */
+  suggestedConcerns: Array<{
+    description: string;
+    origin: string;
+  }>;
+
   /** 反思时间 */
   createdAt: string;
   /** 分析的时间窗口 */
