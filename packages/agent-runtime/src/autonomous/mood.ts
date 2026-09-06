@@ -64,10 +64,11 @@ export function decayMood(mood: Mood, now: number): Mood {
   };
 }
 
-/** 昼夜节律（纯函数，零存储）：午间最高、深夜最低，返回 0..1 */
+/** 昼夜节律（纯函数，零存储）：9-11 峰值、14-15 午后低谷、23-6 夜间低，返回 0..1。按设计 §7.2 查表，不落到 0（否则深夜高精力也被乘到 0）。 */
 export function circadianEnergy(hour: number): number {
-  const phase = ((hour - 12) / 24) * 2 * Math.PI;
-  return 0.5 + 0.5 * Math.cos(phase);
+  const curve = [0.25, 0.2, 0.15, 0.15, 0.2, 0.3, 0.45, 0.6, 0.75, 0.9, 0.95, 0.9,
+                 0.8, 0.65, 0.6, 0.65, 0.75, 0.8, 0.8, 0.75, 0.65, 0.55, 0.4, 0.3];
+  return curve[((hour % 24) + 24) % 24];
 }
 
 /** 事件冲击：按 MOOD_IMPACT 叠加，返回新对象 */

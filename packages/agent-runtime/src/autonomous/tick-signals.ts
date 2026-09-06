@@ -72,10 +72,13 @@ export function collectTickSignals(db: DatabaseAdapter, agentId: string, now = n
   const approved = repo.listGoals(agentId, 'executing');
   const settings = readSettings(db);
   const mood = readMood(db, now.getTime());
-  // 昼夜节律调制 energy：深夜自然不干重活、午间更活跃（设计 §7.2，零存储零 token）
+  // 昼夜节律是精力「基线」而非硬乘子：纯乘法会在深夜把高精力也压到 ~0.04，
+  // 使目标执行在夜间被绝对禁绝。改成 mood 与节律各半合成，高精力（≈1.0）仍可执行目标，
+  // 符合设计 §7.3「状态影响决策，但不绝对禁绝」。
+  const circadian = circadianEnergy(now.getHours());
   const effectiveMood = {
     ...mood,
-    energy: Math.max(0, Math.min(1, mood.energy * circadianEnergy(now.getHours()))),
+    energy: Math.max(0, Math.min(1, mood.energy * 0.5 + circadian * 0.5)),
   };
   const decisionParams = moodToDecisionParams(effectiveMood);
   return {
