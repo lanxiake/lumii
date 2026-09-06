@@ -753,6 +753,7 @@ export {
   canSendOutreach,
   recordOutreach,
   getOutreachUsedToday,
+  getLastOutreachAt,
   decayMood,
   circadianEnergy,
   applyMoodImpact,

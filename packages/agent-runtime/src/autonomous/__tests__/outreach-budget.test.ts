@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canSendOutreach, recordOutreach, getOutreachUsedToday } from '../outreach-budget';
+import { canSendOutreach, recordOutreach, getOutreachUsedToday, getLastOutreachAt } from '../outreach-budget';
 
 function makeDb(initial: Record<string, string> = {}) {
   const store = { ...initial };
@@ -45,5 +45,15 @@ describe('outreach-budget', () => {
     recordOutreach(db, NOW);
     const nextDay = new Date(2026, 8, 7, 0, 0, 0);
     expect(getOutreachUsedToday(db, nextDay)).toBe(0);
+  });
+
+  it('从未发送时 getLastOutreachAt 返回 null', () => {
+    expect(getLastOutreachAt(makeDb())).toBeNull();
+  });
+
+  it('recordOutreach 记录上次发送时间戳', () => {
+    const db = makeDb();
+    recordOutreach(db, NOW);
+    expect(getLastOutreachAt(db)).toBe(NOW.getTime());
   });
 });

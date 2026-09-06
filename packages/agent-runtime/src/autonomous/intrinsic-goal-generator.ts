@@ -271,6 +271,25 @@ export function generateMemoryOptimizationGoal(ineffectiveMemoryIds: string[], a
   };
 }
 
+/** 解析每日目标上限：支持静态数字或动态函数（用于接线 readSettings 即时生效） */
+function resolveMaxGoalsPerDay(max: number | (() => number)): number {
+  return typeof max === 'function' ? max() : max;
+}
+
+type ApprovalMode = 'always' | 'risky-only' | 'never';
+
+/** 解析审批模式：支持静态值或动态函数（接线 settings.approvalMode 即时生效） */
+function resolveApprovalMode(mode: ApprovalMode | (() => ApprovalMode)): ApprovalMode {
+  return typeof mode === 'function' ? mode() : mode;
+}
+
+/** 该类型目标是否需要用户审批（主动消息会打扰用户，视为高风险） */
+function shouldRequireApproval(type: string, mode: ApprovalMode): boolean {
+  if (mode === 'never') return false;
+  if (mode === 'risky-only') return type === GoalTypeEnum.PROACTIVE_MESSAGE;
+  return true;
+}
+
 /**
  * 内在目标生成器
  */
@@ -289,10 +308,11 @@ export class IntrinsicGoalGenerator {
    */
   async generateGoals(score: SatisfactionScore, context: GoalGenerationContext = {}): Promise<AutonomousGoal[]> {
     try {
+      const maxPerDay = resolveMaxGoalsPerDay(this.config.maxGoalsPerDay);
       // 检查今日已生成目标数
       const todayCount = await this.getTodayGoalCount(score.agentId);
-      if (todayCount >= this.config.maxGoalsPerDay) {
-        console.log(`[IntrinsicGoalGenerator] 已达到每日目标上限 ${this.config.maxGoalsPerDay}`);
+      if (todayCount >= maxPerDay) {
+        console.log(`[IntrinsicGoalGenerator] 已达到每日目标上限 ${maxPerDay}`);
         return [];
       }
 
@@ -334,11 +354,15 @@ export class IntrinsicGoalGenerator {
       const deduped = await this.deduplicateGoals(score.agentId, goals);
 
       // 限制不超过剩余配额（全局每日上限对所有来源统一生效）
-      const remaining = this.config.maxGoalsPerDay - todayCount;
+      const remaining = maxPerDay - todayCount;
       const goalsToCreate = deduped.slice(0, remaining);
 
-      // 持久化到数据库
+      // 持久化到数据库：按审批模式决定初始状态（需审批 → pending，自动批准 → executing）
+      const approvalMode = resolveApprovalMode(this.config.approvalMode ?? 'always');
       for (const goal of goalsToCreate) {
+        goal.status = shouldRequireApproval(goal.type, approvalMode)
+          ? GoalStatusEnum.PENDING
+          : GoalStatusEnum.EXECUTING;
         await this.saveGoal(goal);
       }
 

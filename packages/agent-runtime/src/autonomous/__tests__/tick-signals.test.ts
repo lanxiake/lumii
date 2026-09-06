@@ -19,6 +19,8 @@ const emptySignals = {
   approvedGoals: [] as Array<{ id: string; type: string; description: string }>,
   outreachUsedToday: 0,
   outreachLimit: 20,
+  outreachLastSentAt: null as number | null,
+  minOutreachIntervalMinutes: 60,
   reflectionDue: false,
   diaryDue: false,
   tokenUsedToday: 0,
@@ -120,6 +122,58 @@ describe('decideAction', () => {
       tokenLimit: 100000,
     });
     expect(action.kind).toBe('outreach');
+  });
+
+  it('proactive-message 间隔未到 → 跳过不发送', () => {
+    const now = new Date(2026, 8, 6, 10, 0, 0);
+    const action = decideAction(
+      {
+        ...emptySignals,
+        approvedGoalCount: 1,
+        approvedGoals: [{ id: 'g1', type: 'proactive-message', description: '问候' }],
+        outreachUsedToday: 3,
+        outreachLastSentAt: new Date(2026, 8, 6, 9, 50, 0).getTime(), // 10 分钟前
+        minOutreachIntervalMinutes: 60,
+      },
+      now,
+    );
+    expect(action.kind).toBe('idle');
+  });
+
+  it('proactive-message 间隔已满足 → outreach', () => {
+    const now = new Date(2026, 8, 6, 10, 0, 0);
+    const action = decideAction(
+      {
+        ...emptySignals,
+        approvedGoalCount: 1,
+        approvedGoals: [{ id: 'g1', type: 'proactive-message', description: '问候' }],
+        outreachUsedToday: 3,
+        outreachLastSentAt: new Date(2026, 8, 6, 8, 0, 0).getTime(), // 2 小时前
+        minOutreachIntervalMinutes: 60,
+      },
+      now,
+    );
+    expect(action.kind).toBe('outreach');
+  });
+
+  it('proactive-message 间隔未到但有其它目标 → 执行其它目标', () => {
+    const now = new Date(2026, 8, 6, 10, 0, 0);
+    const action = decideAction(
+      {
+        ...emptySignals,
+        approvedGoalCount: 2,
+        approvedGoals: [
+          { id: 'g1', type: 'proactive-message', description: '问候' },
+          { id: 'g2', type: 'learning', description: '学习' },
+        ],
+        outreachUsedToday: 3,
+        outreachLastSentAt: new Date(2026, 8, 6, 9, 50, 0).getTime(),
+        minOutreachIntervalMinutes: 60,
+      },
+      now,
+    );
+    expect(action.kind).toBe('execute-goal');
+    expect(action.goal?.id).toBe('g2');
   });
 });
 

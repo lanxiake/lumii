@@ -56,7 +56,7 @@ export async function handleEvolutionTick(deps: EvolutionTickDeps): Promise<stri
 
     const now = deps.now?.() ?? new Date()
     const signals = collectTickSignals(deps.getDb(), EVOLUTION_AGENT_ID, now)
-    const action = decideAction(signals)
+    const action = decideAction(signals, now)
 
     if (action.kind === 'idle') {
       log.info(`[handleEvolutionTick] idle reason=${action.reason}`)

@@ -8,7 +8,7 @@
 
 import { AutonomousRepo } from '../storage/autonomous-repo.js';
 import type { DatabaseAdapter } from '../storage/local-database.js';
-import { getOutreachUsedToday } from './outreach-budget.js';
+import { getOutreachUsedToday, getLastOutreachAt } from './outreach-budget.js';
 import { REFLECTION_MIN_INTERVAL_HOURS } from './config.js';
 import { hasWrittenDiaryToday } from './diary.js';
 import { readSettings } from './settings.js';
@@ -31,6 +31,10 @@ export interface TickSignals {
   outreachUsedToday: number;
   /** 今日主动消息上限 */
   outreachLimit: number;
+  /** 上次主动消息发送时间戳（epoch ms），从未发送为 null */
+  outreachLastSentAt: number | null;
+  /** 主动消息最小间隔（分钟） */
+  minOutreachIntervalMinutes: number;
   /** 是否该触发反思（静默时段 + 距上次反思满 24h） */
   reflectionDue: boolean;
   /** 是否该写日记（静默时段 + 今天尚未写过） */
@@ -63,6 +67,8 @@ export function collectTickSignals(db: DatabaseAdapter, agentId: string, now = n
     approvedGoals: approved.map((g) => ({ id: g.id, type: g.type, description: g.description })),
     outreachUsedToday: getOutreachUsedToday(db, now),
     outreachLimit: settings.maxOutreachPerDay,
+    outreachLastSentAt: getLastOutreachAt(db),
+    minOutreachIntervalMinutes: settings.minOutreachIntervalMinutes,
     reflectionDue: computeReflectionDue(repo, agentId, now, settings.quietHours),
     diaryDue: computeDiaryDue(db, now, settings.quietHours),
     tokenUsedToday: readTodayTokenUsage(db, now),
@@ -107,9 +113,9 @@ function computeReflectionDue(
  * 烧 LLM 的动作（执行 / 日记 / 反思）受每日 token 预算约束，超限降级为 idle，
  * 避免后台无节制消耗；主动消息走系统通知不烧 LLM，不受 token 预算限制。
  */
-export function decideAction(signals: TickSignals): TickAction {
+export function decideAction(signals: TickSignals, now = new Date()): TickAction {
   const proactive = signals.approvedGoals.find((g) => g.type === 'proactive-message');
-  if (proactive && signals.outreachUsedToday < signals.outreachLimit) {
+  if (proactive && signals.outreachUsedToday < signals.outreachLimit && outreachIntervalSatisfied(signals, now)) {
     return { kind: 'outreach', reason: 'proactive-message-pending', goal: proactive };
   }
   const executable = signals.approvedGoals.find((g) => g.type !== 'proactive-message');
@@ -137,4 +143,14 @@ export function decideAction(signals: TickSignals): TickAction {
 /** 本次动作预估成本 + 今日已消耗是否仍在每日 token 上限内 */
 function tokenAllowed(signals: TickSignals, cost: number): boolean {
   return signals.tokenUsedToday + cost <= signals.tokenLimit;
+}
+
+/** 主动消息最小间隔是否满足（间隔 ≤ 0 或从未发送视为满足） */
+function outreachIntervalSatisfied(signals: TickSignals, now: Date): boolean {
+  const intervalMin = signals.minOutreachIntervalMinutes;
+  if (intervalMin <= 0) return true;
+  const last = signals.outreachLastSentAt;
+  if (last == null) return true;
+  const elapsedMin = (now.getTime() - last) / 60_000;
+  return elapsedMin >= intervalMin;
 }

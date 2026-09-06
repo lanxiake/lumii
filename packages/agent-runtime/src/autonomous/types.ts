@@ -202,8 +202,10 @@ export interface GoalGenerationConfig {
   enabledTypes: GoalType[];
   /** 用户审批模式 */
   userApproval: 'always' | 'optional' | 'never';
-  /** 每日目标上限 */
-  maxGoalsPerDay: number;
+  /** 每日目标上限（可传函数动态读取，设置页修改即时生效） */
+  maxGoalsPerDay: number | (() => number);
+  /** 审批模式（可选，默认 always；可传函数动态读取 settings.approvalMode 即时生效） */
+  approvalMode?: 'always' | 'risky-only' | 'never' | (() => 'always' | 'risky-only' | 'never');
   /** 优先级权重 */
   priorityWeights: {
     satisfactionGap: number;

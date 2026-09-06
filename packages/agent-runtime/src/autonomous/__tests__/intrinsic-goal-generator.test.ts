@@ -201,6 +201,130 @@ describe('IntrinsicGoalGenerator', () => {
     expect(goals).toHaveLength(0);
   });
 
+  it('maxGoalsPerDay 支持动态函数（readSettings 接线即时生效）', async () => {
+    let limit = 3;
+    generator = new IntrinsicGoalGenerator(
+      {
+        enabledTypes: [GoalType.LEARNING],
+        userApproval: 'always',
+        maxGoalsPerDay: () => limit,
+        priorityWeights: {
+          satisfactionGap: 0.7,
+          dimensionGap: 0.3,
+        },
+      },
+      mockDb,
+    );
+
+    const score: SatisfactionScore = {
+      taskCompletion: 0.5,
+      userFeedback: 0.5,
+      efficiency: 0.5,
+      knowledgeGrowth: 0.5,
+      overall: 0.5,
+      timestamp: new Date().toISOString(),
+      sessionId: 'session1',
+      agentId: 'agent1',
+    };
+
+    // 今日已生成 3 个，达到上限 → 拒绝
+    mockDb.query = vi.fn().mockResolvedValue([{ count: 3 }]);
+    expect(await generator.generateGoals(score, {})).toHaveLength(0);
+
+    // 提高上限到 10，无需重建实例即时生效 → 允许生成
+    limit = 10;
+    const goals = await generator.generateGoals(score, {});
+    expect(goals.length).toBeGreaterThan(0);
+  });
+
+  it('approvalMode=never 时学习目标直接进入 executing', async () => {
+    generator = new IntrinsicGoalGenerator(
+      {
+        enabledTypes: [GoalType.LEARNING],
+        userApproval: 'always',
+        maxGoalsPerDay: 3,
+        approvalMode: 'never',
+        priorityWeights: { satisfactionGap: 0.7, dimensionGap: 0.3 },
+      },
+      mockDb,
+    );
+    mockDb.query = vi.fn().mockResolvedValue([{ count: 0 }]);
+
+    const score: SatisfactionScore = {
+      taskCompletion: 0.5,
+      userFeedback: 0.5,
+      efficiency: 0.5,
+      knowledgeGrowth: 0.5,
+      overall: 0.5,
+      timestamp: new Date().toISOString(),
+      sessionId: 'session1',
+      agentId: 'agent1',
+    };
+
+    const goals = await generator.generateGoals(score, {});
+    expect(goals.length).toBeGreaterThan(0);
+    expect(goals.every((g) => g.status === GoalStatus.EXECUTING)).toBe(true);
+  });
+
+  it('approvalMode=risky-only 时主动消息仍需审批', async () => {
+    generator = new IntrinsicGoalGenerator(
+      {
+        enabledTypes: [GoalType.PROACTIVE_MESSAGE],
+        userApproval: 'always',
+        maxGoalsPerDay: 3,
+        approvalMode: 'risky-only',
+        priorityWeights: { satisfactionGap: 0.7, dimensionGap: 0.3 },
+      },
+      mockDb,
+    );
+    mockDb.query = vi.fn().mockResolvedValue([{ count: 0 }]);
+
+    const score: SatisfactionScore = {
+      taskCompletion: 0.8,
+      userFeedback: 0.8,
+      efficiency: 0.8,
+      knowledgeGrowth: 0.8,
+      overall: 0.8,
+      timestamp: new Date().toISOString(),
+      sessionId: 'session1',
+      agentId: 'agent1',
+    };
+    const sevenHoursAgo = new Date(Date.now() - 7 * 3600 * 1000);
+
+    const goals = await generator.generateGoals(score, { lastUserMessageTime: sevenHoursAgo });
+    expect(goals.length).toBeGreaterThan(0);
+    expect(goals.every((g) => g.status === GoalStatus.PENDING)).toBe(true);
+  });
+
+  it('approvalMode=risky-only 时学习目标自动执行', async () => {
+    generator = new IntrinsicGoalGenerator(
+      {
+        enabledTypes: [GoalType.LEARNING],
+        userApproval: 'always',
+        maxGoalsPerDay: 3,
+        approvalMode: 'risky-only',
+        priorityWeights: { satisfactionGap: 0.7, dimensionGap: 0.3 },
+      },
+      mockDb,
+    );
+    mockDb.query = vi.fn().mockResolvedValue([{ count: 0 }]);
+
+    const score: SatisfactionScore = {
+      taskCompletion: 0.5,
+      userFeedback: 0.5,
+      efficiency: 0.5,
+      knowledgeGrowth: 0.5,
+      overall: 0.5,
+      timestamp: new Date().toISOString(),
+      sessionId: 'session1',
+      agentId: 'agent1',
+    };
+
+    const goals = await generator.generateGoals(score, {});
+    expect(goals.length).toBeGreaterThan(0);
+    expect(goals.every((g) => g.status === GoalStatus.EXECUTING)).toBe(true);
+  });
+
   it('仅启用 learning 时不应生成 proactive-message', async () => {
     generator = new IntrinsicGoalGenerator(
       {

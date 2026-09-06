@@ -8,6 +8,7 @@
 import type { DatabaseAdapter } from '../storage/local-database.js';
 
 const OUTREACH_KEY_PREFIX = 'autonomous.outreach.';
+const LAST_OUTREACH_AT_KEY = 'autonomous.outreach.last_sent_at';
 
 function dateKey(now: Date): string {
   const y = now.getFullYear();
@@ -35,7 +36,7 @@ export function canSendOutreach(db: DatabaseAdapter, now: Date, max: number): bo
   return getOutreachUsedToday(db, now) < max;
 }
 
-/** 记一次主动消息（幂等计数） */
+/** 记一次主动消息（幂等计数，并更新上次发送时间戳） */
 export function recordOutreach(db: DatabaseAdapter, now: Date): void {
   const key = dateKey(now);
   const next = getOutreachUsedToday(db, now) + 1;
@@ -44,4 +45,23 @@ export function recordOutreach(db: DatabaseAdapter, now: Date): void {
      VALUES (?, ?, ?)
      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
   ).run(key, String(next), new Date().toISOString());
+  db.prepare(
+    `INSERT INTO runtime_state (key, value, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+  ).run(LAST_OUTREACH_AT_KEY, String(now.getTime()), new Date().toISOString());
+}
+
+/** 上次发送主动消息的时间戳（epoch ms），从未发送返回 null */
+export function getLastOutreachAt(db: DatabaseAdapter): number | null {
+  try {
+    const row = db
+      .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
+      .get(LAST_OUTREACH_AT_KEY);
+    if (!row) return null;
+    const n = Number(row.value);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
 }
