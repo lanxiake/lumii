@@ -80,7 +80,7 @@ export function showDesktopTaskNotification(
           }
         }
       })
-      n.on('closed', () => {
+      n.on('close', () => {
         if (activeNotification === n) activeNotification = null
       })
       n.show()

@@ -36,11 +36,13 @@ const MOOD_STATE_KEY = 'autonomous.mood';
 /** 事件冲击表 —— 独立事件源，语义与 Big Five delta 不同 */
 const MOOD_IMPACT: Record<string, { energy?: number; valence?: number; arousal?: number }> = {
   task_failed: { valence: -0.35, arousal: +0.2 }, // 失败让人在意：降心情、升唤起
+  repeated_failure: { valence: -0.5, energy: -0.2 }, // 连续失败：更重打击，且耗竭精力
   task_perfect: { valence: +0.3, energy: +0.1 },
   praise: { valence: +0.4, energy: +0.15 },
   proactive_ignored: { valence: -0.2, energy: -0.1 },
   ask_silence: { valence: -0.3, energy: -0.3 },
   user_initiates: { arousal: +0.25, energy: +0.1 },
+  novel_concept_found: { arousal: +0.4 }, // 发现新东西：唤起兴趣
   goal_completed: { valence: +0.25, arousal: -0.15 },
 };
 

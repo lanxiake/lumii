@@ -1,6 +1,13 @@
 export {
   useWikiPage,
   type WikiInboxItem,
+  type WikiFolderCandidateItem,
+  type WikiFolderScanResult,
+  type WikiFolderImportResult,
+  type WikiMigrateProgressItem,
+  type WikiMigrateMappingItem,
+  type WikiMigrateRunItem,
+  type WikiMigrateMappingPatch,
   type WikiRunItem,
   type WikiCleanupSuggestionItem,
   type WikiExportResultItem,
@@ -21,4 +28,5 @@ export {
   type WikiSourceListItem,
   type WikiSourceDetail,
   type WikiSourceSearchHit,
+  type SearchMode,
 } from './useWikiPage'

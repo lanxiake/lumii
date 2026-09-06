@@ -423,7 +423,7 @@ export const WikiTab: React.FC = () => {
       const patch = migrateProgressToTaskPatch(run.progress, onCancel)
       const tracked = migrateTaskRef.current
       const tc = taskCenterRef.current
-      if (tracked?.runId === run.runId) {
+      if (tracked && tracked.runId === run.runId) {
         tc.updateTask(tracked.taskId, patch)
         return tracked.taskId
       }

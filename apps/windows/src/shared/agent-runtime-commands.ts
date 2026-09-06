@@ -537,7 +537,7 @@ export interface WikiTopicTreeSetCommand {
   readonly agentId: string
   readonly userId?: string
   readonly tree: {
-    readonly version: 1
+    readonly version: 1 | 2
     readonly categories: ReadonlyArray<{ readonly name: string; readonly subtopics: readonly string[] }>
   }
 }

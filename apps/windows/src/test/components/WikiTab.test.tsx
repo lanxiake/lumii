@@ -236,7 +236,7 @@ describe('WikiTab', () => {
 
     expect(await screen.findByRole('dialog', { name: '文件预览' })).toBeInTheDocument()
     const send = (window as any).electronAPI.agentRuntime.sendCommand as ReturnType<typeof vi.fn>
-    expect(send.mock.calls.some((c: [{ type: string }]) => c[0].type === 'wiki:source:open')).toBe(false)
+    expect(send.mock.calls.some((c) => (c[0] as { type?: string })?.type === 'wiki:source:open')).toBe(false)
   })
 
   it('待整理条目可通过选择器归档到指定小类', async () => {

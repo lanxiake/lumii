@@ -51,3 +51,18 @@
 {"ts":"2026-09-06T10:43:48.523Z","id":"B1","status":"PASS","note":"2 次 abort 信号落 runtime_state（aborts=2）"}
 {"ts":"2026-09-06T10:43:48.524Z","id":"B2","status":"PASS","note":"overall=0.5875 → 生成 learning 目标（pending）\"改善用户反馈质量：学习更好的交互模式\""}
 {"ts":"2026-09-06T10:43:48.708Z","id":"B3","status":"PASS","note":"目标 goal_1788691428249_562ww8e 已拒绝（rejected）"}
+{"ts":"2026-09-06T10:52:07.190Z","id":"A1","status":"PASS","note":"满意度落库 overall=0.9475 (task=1.00 fb=0.85 eff=1.00)"}
+{"ts":"2026-09-06T10:52:07.197Z","id":"A2","status":"PASS","note":"5 条能力测试落库，维度难度正确（document_analysis:0.35, code_generation:0.55, multi_step_planning:0.7）；capability_dimensions 4 维"}
+{"ts":"2026-09-06T10:52:07.200Z","id":"A3","status":"PASS","note":"trial_count 102 → 103"}
+{"ts":"2026-09-06T10:52:37.173Z","id":"A4","status":"PASS","note":"1 条失败测试（result=failure，难度正确），task=0.75（含失败惩罚）"}
+{"ts":"2026-09-06T11:02:56.012Z","id":"A1","status":"PASS","note":"满意度落库 overall=0.9475 (task=1.00 fb=0.85 eff=1.00)"}
+{"ts":"2026-09-06T11:02:56.023Z","id":"A2","status":"PASS","note":"2 条能力测试落库，维度难度正确（document_analysis:0.35, code_generation:0.55）；capability_dimensions 4 维"}
+{"ts":"2026-09-06T11:02:56.025Z","id":"A3","status":"PASS","note":"trial_count 115 → 116"}
+{"ts":"2026-09-06T11:03:05.405Z","id":"A4","status":"PASS","note":"1 条失败测试（result=failure，难度正确），task=0.75（含失败惩罚）"}
+{"ts":"2026-09-06T11:03:22.182Z","id":"B1","status":"PASS","note":"2 次 abort 信号落 runtime_state（aborts=2）"}
+{"ts":"2026-09-06T11:03:22.183Z","id":"B2","status":"PASS","note":"overall=0.4875 → 生成 learning 目标（pending）\"改善用户反馈质量：学习更好的交互模式\""}
+{"ts":"2026-09-06T11:03:22.378Z","id":"B3","status":"PASS","note":"目标 goal_1788692600577_ipyg71v 已拒绝（rejected）"}
+{"ts":"2026-09-06T11:03:59.645Z","id":"C1","status":"PASS","note":"生成 pending 目标 \"改善用户反馈质量：学习更好的交互模式\""}
+{"ts":"2026-09-06T11:03:59.832Z","id":"C2","status":"PASS","note":"executing + evolution-decided 人格事件落库（personality update_count=22）"}
+{"ts":"2026-09-06T11:03:59.996Z","id":"C3","status":"PASS","note":"CLI goals list 可见 executing 目标（total=16）"}
+{"ts":"2026-09-06T11:04:25.312Z","id":"D1","status":"PASS","note":"反思落库 trigger=user-request primaryIssue=\"总分下降主要由反馈维度不稳定且偏低导致，表现为任务完成或效率较高但用户反馈低。…\""}

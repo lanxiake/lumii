@@ -681,7 +681,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         const bytes = await loadBinaryPreviewBytes(result)
         if (!bytes) throw new Error('无法读取 DOCX 内容')
         const mammoth = await import('mammoth')
-        const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+        const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
         const { value } = await mammoth.convertToHtml({ arrayBuffer: ab })
         if (!cancelled) setDocxHtml(value)
       } catch (e) {

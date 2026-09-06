@@ -71,6 +71,9 @@ import {
   writeConcerns,
   markConcernRaised,
   markDiaryWritten,
+  listRecentDiaries,
+  saveDiary,
+  todayDateKey,
   readSettings,
 } from '@mtbot/agent-runtime'
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
@@ -116,6 +119,7 @@ import { FileMemoryHandler } from './file-memory-handler'
 import { SegmentMemoryService } from './segment-memory-service'
 import { CronScheduler } from './cron-scheduler'
 import { persistCronOutputToWiki } from './cron-wiki-persist'
+import { persistLearningOutcome, recordProactiveAction } from './evolution-memory-persist'
 import { purgeCronFocusNoiseMemories } from './cron-focus-memory'
 import {
   isLocalCompanionInstruction,
@@ -975,14 +979,28 @@ export class AgentRuntimeBridge {
                     const output = this.getAssistantOutputFromInstance(instanceId) ?? ''
                     const ok = output.trim().length > 0
                     if (ok) {
-                      // 显式落独白（与 writeDiary/appendEvolutionMessage 一致），
-                      // 不能依赖 message:end 自动持久化——内部 cron 实例不会走 UI 流式落库路径。
+                      // 成对落独白：lumii 的「自问」（user）+「自答」（assistant）。
+                      // 不能依赖 message:end 自动持久化——内部 cron 实例不走 UI 流式落库路径。
+                      this._conversationRepo?.saveMessage({
+                        conversationId: convId,
+                        agentId: 'assistant',
+                        role: 'user',
+                        contentJson: { type: 'text', text: `完成目标：${goal.description}` },
+                      })
                       this._conversationRepo?.saveMessage({
                         conversationId: convId,
                         agentId: 'assistant',
                         role: 'assistant',
                         contentJson: { type: 'text', text: output },
                       })
+                      // 学习产出沉淀进工作记忆 + Wiki（失败仅记日志，不影响目标状态）
+                      if (this._memoryManager && this._wikiRepo) {
+                        persistLearningOutcome(
+                          { memoryManager: this._memoryManager, wikiRepo: this._wikiRepo },
+                          goal,
+                          output,
+                        )
+                      }
                     }
                     finalizeGoal(this.localDb.db, goal.id, { success: ok, output })
                     this.recordMoodEvent(ok ? 'goal_completed' : 'task_failed')
@@ -1051,32 +1069,61 @@ export class AgentRuntimeBridge {
                   recordOutreach(this.localDb.db, now)
                   finalizeGoal(this.localDb.db, goal.id, { success: true, output: goal.description })
                   this.recordMoodEvent('user_initiates')
+                  if (this._memoryManager) {
+                    recordProactiveAction(this._memoryManager, goal, 'sent')
+                  }
                   return 'sent'
                 },
                 reflect: async () => {
                   const output = await reflectAutonomous('assistant', 'scheduled')
-                  return output.diagnosis.primaryIssue
+                  const summary = output.diagnosis.primaryIssue
+                  this.ensureConversationExists(EVOLUTION_CONVERSATION_ID, '自主进化 · 内心独白')
+                  this._conversationRepo?.saveMessage({
+                    conversationId: EVOLUTION_CONVERSATION_ID,
+                    agentId: 'assistant',
+                    role: 'user',
+                    contentJson: { type: 'text', text: '回顾一下最近的自己' },
+                  })
+                  this._conversationRepo?.saveMessage({
+                    conversationId: EVOLUTION_CONVERSATION_ID,
+                    agentId: 'assistant',
+                    role: 'assistant',
+                    contentJson: { type: 'text', text: summary },
+                  })
+                  return summary
                 },
                 writeDiary: async () => {
                   const repo = this._autonomousRepo
                   if (!repo) return 'diary-unavailable'
                   const goals = repo.listGoals('assistant')
                   const reflections = repo.reflections('assistant', 5)
+                  const recentDiaries = listRecentDiaries(this.localDb.db, 'assistant', 5)
                   const context = buildDiaryContext({
                     goals: goals.map((g) => ({ description: g.description, status: g.status })),
                     reflections: reflections.map((r) => ({ primaryIssue: r.primary_issue })),
                     concerns: readConcerns(this.localDb.db),
                     mood: readMood(this.localDb.db),
+                    recentDiaries,
                   })
-                  const prompt = `${DIARY_PROMPT}\n\n今日素材：${JSON.stringify(context)}`
+                  const historyBlock = recentDiaries.length
+                    ? `\n\n你最近的日记：\n${recentDiaries.map((d) => `- ${d.diaryDate}：${d.content}`).join('\n')}`
+                    : ''
+                  const prompt = `${DIARY_PROMPT}${historyBlock}\n\n今日素材：${JSON.stringify(context)}`
                   const diary = await this.callLLM(prompt, undefined, 'diary')
                   this.ensureConversationExists(EVOLUTION_CONVERSATION_ID, '自主进化 · 内心独白')
+                  this._conversationRepo?.saveMessage({
+                    conversationId: EVOLUTION_CONVERSATION_ID,
+                    agentId: 'assistant',
+                    role: 'user',
+                    contentJson: { type: 'text', text: '写今天的日记' },
+                  })
                   this._conversationRepo?.saveMessage({
                     conversationId: EVOLUTION_CONVERSATION_ID,
                     agentId: 'assistant',
                     role: 'assistant',
                     contentJson: { type: 'text', text: diary },
                   })
+                  saveDiary(this.localDb.db, 'assistant', todayDateKey(), diary)
                   markDiaryWritten(this.localDb.db)
                   return diary.slice(0, 60)
                 },

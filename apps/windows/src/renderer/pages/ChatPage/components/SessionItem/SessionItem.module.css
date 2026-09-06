@@ -81,32 +81,62 @@
 
 /*
  * 运行中：标题文字始终可见；光波用 ::after 叠加从左扫到右，不改文字 fill/clip。
+ * 高级感处理：细窄流光 + 白芯高光 + 柔化边缘，叠加文字呼吸微光，缓动更从容。
  */
+.session-title--streaming {
+  animation: mt-title-breathe 2.6s ease-in-out infinite;
+}
+
 .session-title--streaming::after {
   content: '';
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
-  width: 42%;
+  width: 32%;
   background: linear-gradient(
-    90deg,
+    100deg,
     transparent 0%,
-    color-mix(in srgb, var(--mt-accent-500) 35%, transparent) 35%,
-    color-mix(in srgb, #fff 75%, var(--mt-accent-500)) 50%,
-    color-mix(in srgb, var(--mt-accent-500) 35%, transparent) 65%,
+    transparent 28%,
+    color-mix(in srgb, var(--mt-violet) 30%, transparent) 40%,
+    color-mix(in srgb, var(--mt-violet) 58%, #fff) 46%,
+    color-mix(in srgb, #fff 96%, var(--mt-violet)) 50%,
+    color-mix(in srgb, var(--mt-violet) 58%, #fff) 54%,
+    color-mix(in srgb, var(--mt-violet) 30%, transparent) 60%,
+    transparent 72%,
     transparent 100%
   );
+  filter: blur(1.5px);
   pointer-events: none;
-  animation: mt-title-wave 1.6s linear infinite;
+  animation: mt-title-sweep 2.6s cubic-bezier(0.4, 0.14, 0.3, 1) infinite;
 }
 
-@keyframes mt-title-wave {
+/* 扫过整行：淡入 -> 匀速掠过 -> 淡出，避免机械的匀速直线感 */
+@keyframes mt-title-sweep {
   0% {
-    transform: translateX(-120%);
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  14% {
+    opacity: 1;
+  }
+  82% {
+    opacity: 1;
   }
   100% {
-    transform: translateX(280%);
+    transform: translateX(360%);
+    opacity: 0;
+  }
+}
+
+/* 呼吸微光：标题光晕缓慢脉动，暗示“正在思考” */
+@keyframes mt-title-breathe {
+  0%,
+  100% {
+    text-shadow: 0 0 0 color-mix(in srgb, var(--mt-accent-500) 0%, transparent);
+  }
+  50% {
+    text-shadow: 0 0 14px color-mix(in srgb, var(--mt-violet) 55%, transparent);
   }
 }
 
@@ -155,11 +185,17 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .session-title--streaming {
+    animation: none;
+  }
+
   .session-title--streaming::after {
     animation: none;
     left: 0;
     width: 100%;
     transform: none;
-    background: color-mix(in srgb, var(--mt-accent-500) 18%, transparent);
+    filter: none;
+    opacity: 1;
+    background: color-mix(in srgb, var(--mt-violet) 18%, transparent);
   }
 }

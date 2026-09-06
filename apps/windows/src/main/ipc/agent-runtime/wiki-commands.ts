@@ -888,7 +888,7 @@ export async function handleWikiReclassifyRun(
 export function handleWikiReclassifyEstimate(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:reclassify:estimate' }>,
-): { fileCount: number; structureCalls: number; estimatedContentCalls: number; note: string } {
+): { fileCount: number; structureCalls: number; estimatedContentCalls: number; inboxCount: number; note: string } {
   const scope = toReclassifyScope(command)
   const userId = command.userId ?? LOCAL_USER_ID
   const vaultRoot = resolveWikiDir()

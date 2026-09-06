@@ -206,7 +206,7 @@ export async function handleFilesReadPreviewContent(
   }
   const inferred = deps!.inferPreviewMimeFromFileName(file.fileName)
   /** 元数据误标为 text/* 时仍以扩展名为准（避免 PDF 等被按 UTF-8 读坏） */
-  let effectiveMime = file.mimeType ?? inferred
+  let effectiveMime: string = file.mimeType ?? inferred ?? 'application/octet-stream'
   if (
     inferred &&
     file.mimeType?.startsWith('text/') &&

@@ -18,6 +18,7 @@ export type WikiNav =
   | { kind: 'cleanup' }
   | { kind: 'reclassify' }
   | { kind: 'migrate' }
+  | { kind: 'graph' }
   | { kind: 'category'; name: string }
   /** subtopic 为 null 表示该大类下的「未细分」分组（小类可选，见设计 §2.1.1） */
   | { kind: 'subtopic'; category: string; subtopic: string | null }

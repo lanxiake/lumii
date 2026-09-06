@@ -33,6 +33,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   // Web
   web_search: "Look up time-sensitive facts",
   web_fetch: "Fetch one known URL",
+  bing_search: "Search the web via Bing (Chinese results, no API key)",
 
   // Media Generation
   image_generate: "Generate images to workspace/outputs (model options in schema)",
@@ -134,7 +135,7 @@ const FILE_TOOLS = new Set([
   "grep",
 ])
 const SHELL_TOOLS = new Set(["bash"])
-const WEB_TOOLS = new Set(["web_search", "web_fetch"])
+const WEB_TOOLS = new Set(["web_search", "web_fetch", "bing_search"])
 const MEDIA_GENERATION_TOOLS = new Set(["image_generate", "speech_generate"])
 const TASK_TOOLS = new Set(["todo_write", "task_complete"])
 const AGENT_TOOLS = new Set(["spawn_agent", "send_message"])

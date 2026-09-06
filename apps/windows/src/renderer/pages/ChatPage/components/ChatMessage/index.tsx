@@ -14,6 +14,7 @@ import { MessageActions } from '../MessageActions'
 import { ToolFilePreviewProvider, ToolFilePreviewContext } from '../ToolCallCard'
 import toolCardStyles from '../ToolCallCard/ToolCallCard.module.css'
 import { A2UIRenderer } from '../../../../components/A2UIRenderer'
+import { ArtifactBlock } from '../../../../components/A2UIRenderer/ArtifactBlock'
 import { MarkdownExternalLink } from '../../../../utils/markdown-external-link'
 import {
   parseA2UIBlocks,

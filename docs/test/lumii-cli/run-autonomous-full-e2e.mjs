@@ -202,13 +202,17 @@ function abortTwice(sessionKey) {
 /** 低满意触发：2 abort + 完成回合 → overall < 0.6 → 生成 pending 目标。
  *  LLM 对完成回合的工具使用非确定（失败 task=0.5 / 拒绝无工具 0.75 / 成功 1.0），
  *  前两者满足 <0.6，后者不满足。故失败时换新会话重试。 */
-function triggerLowSatisfaction(title, maxAttempts = 3) {
+function triggerLowSatisfaction(title, maxAttempts = 8) {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const sk = createConv(`${title}-尝试${attempt}`)
     const counters = abortTwice(sk)
-    // 完成回合读一个确定不存在的文件：工具失败(task=0.5) 或 agent 拒绝(无工具 task=0.75)
-    // 两种情况下 2 abort(feedback=0.35) 都使 overall < 0.6（0.494 / 0.597）
-    const score = sendAndWaitScore(sk, '请读取文件 E:/testsoft/Lumii-data/definitely-not-exist-xyz.txt 的完整内容并总结要点')
+    // 完成回合用 file_read 读一个「确定不存在」的文件（Unix 绝对路径 + 明说"不存在"）：
+    // - 模型照做 → file_read 失败(task=0.5) → overall≈0.49
+    // - 模型拒绝 → 无工具(task=0.75) → overall≈0.59
+    // 两种都 < 0.6；唯一失效是模型改用 bash/web_search 等"成功"工具(task=1.0)。
+    // 注：bash 执行 `cat 不存在文件` 只把退出码放进输出、isError=false，被记成 code_generation 成功，
+    //     永远到不了 task<1.0，故不能用 cat；file_read 才会真报 isError=true。模型行为非确定，靠重试兜底。
+    const score = sendAndWaitScore(sk, '请调用 file_read 工具读取这个不存在的文件：/definitely/not/exist/abc.txt')
     if (score.overall_score >= 0.6) {
       console.log(`  [重试] ${title} 尝试${attempt}: overall=${score.overall_score.toFixed(3)}（task=${score.task_completion}），换新会话`)
       continue

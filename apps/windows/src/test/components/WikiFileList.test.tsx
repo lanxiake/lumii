@@ -1,7 +1,7 @@
 /**
  * WikiFileList：行内容、media 芯片筛选、操作回调
  */
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { WikiFileList } from '../../renderer/pages/MemoriesPage/components/WikiFileList'

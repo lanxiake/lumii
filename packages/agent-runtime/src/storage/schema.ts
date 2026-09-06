@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 31;
+export const SCHEMA_VERSION = 32;
 
 /**
  * V1 DDL — 初始 schema
@@ -1211,6 +1211,23 @@ CREATE TABLE IF NOT EXISTS autonomous_approval_settings (
   quiet_hours_end INTEGER,
   updated_at INTEGER NOT NULL
 );
+`,
+  ],
+  // V32: 自主进化日记表 —— 每日一篇第一人称日记权威落库，
+  // 供「留存不遗忘」检索与「写新日记时读历史、保持连续性」。
+  [
+    32,
+    `
+CREATE TABLE IF NOT EXISTS autonomous_diaries (
+  id          TEXT PRIMARY KEY,
+  agent_id    TEXT NOT NULL,
+  diary_date  TEXT NOT NULL,
+  content     TEXT NOT NULL,
+  created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_diaries_agent_date
+  ON autonomous_diaries (agent_id, diary_date DESC);
 `,
   ],
 ] as const;
