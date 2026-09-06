@@ -49,6 +49,7 @@
 | **无 `git.reset`**（只有 `resetIndex`），有 `git.writeRef` / `git.checkout` | `index.d.ts:3867`、`1046` | 无关历史建 lineage 用 `writeRef + checkout` |
 | `merge` 不支持递归合并策略，多 base 直接失败 | `index.d.ts:2230` | criss-cross 需人工 |
 | 无 `ORIG_HEAD` 维护 | 全库无写点 | baseOid 只能来自 `findMergeBase` |
+| `merge` 只更新 index + 建提交，**不回写工作树**（`_pull` 里 `_merge` 后接 `_checkout`，`merge` 命令没有） | `index.js:11150` `_merge`、`11270` `_pull` | merge 成功后必须补 `git.checkout({ref:'HEAD',force:true})` 物化，否则磁盘文件停在本地旧值 |
 
 ---
 
@@ -383,6 +384,8 @@ export class CloudSyncManager extends EventEmitter {
         throw err
       }
 
+      // merge 只改 index + 建提交，不回写工作树，需 checkout 物化
+      await git.checkout({ ...p, ref: 'HEAD', force: true })
       await this.push(p, url, localRef, auth)
       this.setState('idle', '同步完成')
       return { success: true, state: 'idle' }

@@ -37,6 +37,7 @@ import {
   screenRecordApi,
   userGuidesApi,
   autonomousApi,
+  cloudSyncApi,
 } from './api'
 import type { BundledUserGuideContent, BundledUserGuideIndex } from '../shared/user-guides-types'
 
@@ -1153,6 +1154,9 @@ export interface ElectronAPI {
 
   // 自主进化
   autonomous: typeof autonomousApi
+
+  // 云同步
+  cloudSync: typeof cloudSyncApi
 }
 
 /**
@@ -1387,6 +1391,9 @@ const electronAPI: ElectronAPI = {
 
   // 自主进化
   autonomous: autonomousApi,
+
+  // 云同步
+  cloudSync: cloudSyncApi,
 }
 
 // 通过 contextBridge 安全地暴�?API

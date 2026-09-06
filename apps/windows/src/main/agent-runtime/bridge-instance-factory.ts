@@ -71,6 +71,7 @@ import { resizeImageIfNeeded } from './image-resizer'
 import type { FileMemoryHandler } from './file-memory-handler'
 import type { WikiIngestHook } from '@mtbot/agent-runtime'
 import { maybeSnapshot } from '../workspace-vcs/vcs-snapshot'
+import { notifyCloudSyncWorkspaceChanged } from '../cloud-sync/sync-accessor'
 import { selectPromptVariantForSession } from './autonomous-wiring'
 
 /** LLM 摘要生成器构造函数签名（由 bridge.ts 注入，避免循环依赖） */
@@ -568,6 +569,7 @@ export class BridgeInstanceFactory {
         const cwd = this.deps.config.getCwd()
         if (cwd) {
           void maybeSnapshot({ workspaceDir: cwd, conversationId, runId })
+          notifyCloudSyncWorkspaceChanged()
         }
       },
       onTurnComplete: (id, msgs) => {

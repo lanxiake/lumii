@@ -147,6 +147,10 @@ import {
 } from './ipc/plugin-ipc'
 import { registerAllIpcHandlers } from './ipc/ipc-handlers-registry'
 import { registerCodingDevIpcHandlers } from './ipc/coding-dev-ipc'
+import { CloudSyncManager } from './cloud-sync/sync-manager'
+import { setCloudSyncManager, setCloudSyncWorkspaceChangedHandler } from './cloud-sync/sync-accessor'
+import { SyncScheduler } from './cloud-sync/sync-scheduler'
+import { loadCloudSyncConfig } from './cloud-sync/sync-config'
 import { initScriptRuntimes } from './runtime-env'
 import { VoiceModelManager } from './voice/model-manager.js'
 import { VoiceCallService } from './voice/voice-service.js'
@@ -236,6 +240,9 @@ let mainWindow: BrowserWindow | null = null
 let trayManager: TrayManager | null = null
 /** 录屏服务单例（主窗创建后初始化） */
 let screenRecordService: ScreenRecordService | null = null
+/** 云同步管理器与调度器（setupIpcHandlers 前创建，setActiveWorkspaceDirGetter 后启动） */
+let cloudSyncManager: CloudSyncManager | null = null
+let syncScheduler: SyncScheduler | null = null
 
 /**
  * 获取录屏服务单例（供 bridge / 托盘读取）。
@@ -1058,6 +1065,7 @@ function setupIpcHandlers(): void {
     setMemoryInjectionSettings: setMemoryInjectionSettingsCache,
     isQuittingGetter: () => isQuitting,
     setIsQuitting: (value: boolean) => { isQuitting = value },
+    restartCloudSyncScheduler: (cfg) => { syncScheduler?.start(cfg) },
     log,
   })
 
@@ -1255,6 +1263,13 @@ async function initialize(): Promise<void> {
   const screenRecordStartTime = performance.now()
   initScreenRecordService()
   performanceMonitor?.recordStartupPhase('screen-record', performance.now() - screenRecordStartTime)
+
+  // 云同步管理器须在 setupIpcHandlers 前创建，使 registerCloudSyncIpcHandlers 能订阅 status 事件
+  cloudSyncManager = new CloudSyncManager()
+  setCloudSyncManager(cloudSyncManager)
+  syncScheduler = new SyncScheduler(cloudSyncManager)
+  setCloudSyncWorkspaceChangedHandler(() => syncScheduler?.onWorkspaceChanged())
+
   setupIpcHandlers()
   if (performanceMonitor) {
     setupPerformanceIpcHandlers(performanceMonitor)
@@ -1294,6 +1309,9 @@ async function initialize(): Promise<void> {
   // 须在工作空间 getter 挂接后清空，避免清到默认路径而非用户配置的工作空间
   clearScreenshotTempDir()
   log.info('工作空间 temp 布局已确保（temp/recordings、temp/screenshots）')
+
+  // 云同步调度：工作空间 getter 挂接后再启动（sync 惰性读工作空间目录）
+  syncScheduler?.start(loadCloudSyncConfig())
 
   // 灵栖/Lumii 独立版：无后端、无登录。
   // 不构造 apiClient / gatewayClient / nodeModeCoordinator / devicePairingService，

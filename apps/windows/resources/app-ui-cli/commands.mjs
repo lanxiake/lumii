@@ -1184,4 +1184,31 @@ export const COMMANDS = [
       return body
     },
   },
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 云同步
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  {
+    name: 'cloudsync status',
+    group: '云同步',
+    usage: 'cloudsync status',
+    summary: '查看云同步状态（state / lastSyncAt / conflict / lastError）',
+    layer: 'B',
+    route: { method: 'POST', path: '/ipc/cloudsync/status' },
+    options: [],
+    build() {
+      return {}
+    },
+  },
+  {
+    name: 'cloudsync sync',
+    group: '云同步',
+    usage: 'cloudsync sync',
+    summary: '立即触发一次云同步（等价于设置页「立即同步」按钮）',
+    layer: 'B',
+    route: { method: 'POST', path: '/ipc/cloudsync/sync' },
+    options: [],
+    build() {
+      return {}
+    },
+  },
 ]

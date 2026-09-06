@@ -33,6 +33,7 @@ import { ModelConfigSection } from './components/ModelConfigSection'
 import { VoiceSettingsSection } from './components/VoiceSettingsSection'
 import { AccountSection } from './components/AccountSection'
 import { WorkspaceSection } from './components/WorkspaceSection'
+import { CloudSyncSection } from './components/CloudSyncSection'
 import { NotificationSection } from './components/NotificationSection'
 import { PrivacySection } from './components/PrivacySection'
 import { SearchToolsSection } from './components/SearchToolsSection'
@@ -838,12 +839,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         )
       case 'workspace':
         return (
-          <WorkspaceSection
-            settings={settings}
-            defaultWorkspaceDir={defaultWorkspaceDir}
-            updateWorkspace={updateWorkspace}
-            save={workspaceSave}
-          />
+          <>
+            <WorkspaceSection
+              settings={settings}
+              defaultWorkspaceDir={defaultWorkspaceDir}
+              updateWorkspace={updateWorkspace}
+              save={workspaceSave}
+            />
+            <div className={styles['settings-merged-block']}>
+              <CloudSyncSection />
+            </div>
+          </>
         )
       case 'modelConfig':
         return <ModelConfigSection />
