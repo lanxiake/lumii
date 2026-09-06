@@ -198,7 +198,8 @@ ipcMain.handle('autonomous:getReflections', async (_event, limit = 10) => {
     const bridge = requireBridge()
     return bridge.autonomousRepo.reflections(DEFAULT_AGENT_ID, limit).map((r) => ({
       id: r.id,
-      timestamp: r.created_at,
+      triggerReason: r.trigger_reason,
+      createdAt: r.created_at,
       diagnosis: {
         primaryIssue: r.primary_issue,
         affectedDimensions: safeJsonArray(r.affected_dimensions),

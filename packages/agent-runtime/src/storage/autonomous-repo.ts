@@ -51,6 +51,7 @@ export interface CapabilityTestRow {
 
 export interface ReflectionRow {
   id: string;
+  trigger_reason: string;
   primary_issue: string;
   affected_dimensions: string;
   root_cause: string;
@@ -233,7 +234,7 @@ export class AutonomousRepo {
   reflections(agentId: string, limit: number): ReflectionRow[] {
     return this.db
       .prepare<ReflectionRow>(
-        `SELECT id, primary_issue, affected_dimensions, root_cause,
+        `SELECT id, trigger_reason, primary_issue, affected_dimensions, root_cause,
                 recommendations, suggested_goals, created_at
            FROM reflections
           WHERE agent_id = ?

@@ -170,7 +170,8 @@ export function handleAutonomousReflections(
   const rows = bridge.autonomousRepo.reflections(agentId, limit)
   return rows.map((r) => ({
     id: r.id,
-    timestamp: r.created_at,
+    triggerReason: r.trigger_reason,
+    createdAt: r.created_at,
     diagnosis: {
       primaryIssue: r.primary_issue,
       affectedDimensions: safeJsonArray(r.affected_dimensions),
