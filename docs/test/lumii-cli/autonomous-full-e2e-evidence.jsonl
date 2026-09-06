@@ -37,3 +37,17 @@
 {"ts":"2026-09-05T16:51:13.679Z","id":"C2","status":"PASS","note":"executing + evolution-decided 人格事件落库（personality update_count=11）"}
 {"ts":"2026-09-05T16:51:13.849Z","id":"C3","status":"PASS","note":"CLI goals list 可见 executing 目标（total=7）"}
 {"ts":"2026-09-05T16:51:41.109Z","id":"D1","status":"PASS","note":"反思落库 trigger=user-request primaryIssue=\"满意度波动主要源于反馈维度不稳定和知识维度缺失，而非明显工具执行错误。…\""}
+{"ts":"2026-09-06T10:34:04.646Z","id":"A1","status":"PASS","note":"满意度落库 overall=0.9475 (task=1.00 fb=0.85 eff=1.00)"}
+{"ts":"2026-09-06T10:34:04.653Z","id":"A2","status":"PASS","note":"3 条能力测试落库，维度难度正确（document_analysis:0.35, code_generation:0.55）；capability_dimensions 4 维"}
+{"ts":"2026-09-06T10:34:04.657Z","id":"A3","status":"PASS","note":"trial_count 77 → 78"}
+{"ts":"2026-09-06T10:34:16.197Z","id":"A4","status":"PASS","note":"1 条失败测试（result=failure，难度正确），task=0.50（含失败惩罚）"}
+{"ts":"2026-09-06T10:35:13.727Z","id":"B1","status":"PASS","note":"2 次 abort 信号落 runtime_state（aborts=2）"}
+{"ts":"2026-09-06T10:35:13.728Z","id":"B2","status":"PASS","note":"overall=0.5875 → 生成 learning 目标（pending）\"改善用户反馈质量：学习更好的交互模式\""}
+{"ts":"2026-09-06T10:35:13.909Z","id":"B3","status":"PASS","note":"目标 goal_1788690877333_ont9hme 已拒绝（rejected）"}
+{"ts":"2026-09-06T10:42:33.527Z","id":"A1","status":"PASS","note":"满意度落库 overall=0.9475 (task=1.00 fb=0.85 eff=1.00)"}
+{"ts":"2026-09-06T10:42:33.542Z","id":"A2","status":"PASS","note":"3 条能力测试落库，维度难度正确（document_analysis:0.35, code_generation:0.55）；capability_dimensions 4 维"}
+{"ts":"2026-09-06T10:42:33.548Z","id":"A3","status":"PASS","note":"trial_count 94 → 95"}
+{"ts":"2026-09-06T10:43:09.685Z","id":"A4","status":"PASS","note":"1 条失败测试（result=failure，难度正确），task=0.83（含失败惩罚）"}
+{"ts":"2026-09-06T10:43:48.523Z","id":"B1","status":"PASS","note":"2 次 abort 信号落 runtime_state（aborts=2）"}
+{"ts":"2026-09-06T10:43:48.524Z","id":"B2","status":"PASS","note":"overall=0.5875 → 生成 learning 目标（pending）\"改善用户反馈质量：学习更好的交互模式\""}
+{"ts":"2026-09-06T10:43:48.708Z","id":"B3","status":"PASS","note":"目标 goal_1788691428249_562ww8e 已拒绝（rejected）"}
