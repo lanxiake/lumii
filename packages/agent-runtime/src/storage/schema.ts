@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 33;
+export const SCHEMA_VERSION = 34;
 
 /**
  * V1 DDL — 初始 schema
@@ -1235,6 +1235,16 @@ CREATE INDEX IF NOT EXISTS idx_diaries_agent_date
     33,
     `
 ALTER TABLE autonomous_goals ADD COLUMN reflection_id TEXT;
+`,
+  ],
+  // V34: 目标带时间 —— 区分「被动触发」与「主动排期」，支撑心跳按时间派发
+  // scheduled_for：ISO 时间，Agent 计划何时做；NULL 表示被动目标（立即可做）
+  // planned_by：'trigger'（被动触发）| 'planner'（规划器主动排期）
+  [
+    34,
+    `
+ALTER TABLE autonomous_goals ADD COLUMN scheduled_for TEXT;
+ALTER TABLE autonomous_goals ADD COLUMN planned_by TEXT;
 `,
   ],
 ] as const;

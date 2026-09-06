@@ -174,7 +174,7 @@ export function buildReflectionPrompt(
  * 从 LLM 输出中提取 JSON 文本。LLM 常会额外加代码围栏、语言标注或前后文字，
  * 逐级降级提取；完全找不到 JSON 时返回 null。
  */
-function extractJsonText(llmContent: string): string | null {
+export function extractJsonText(llmContent: string): string | null {
   // 1. 优先 ```json / ``` 代码围栏
   const fenceMatch = llmContent.match(/```(?:json)?\s*([\s\S]*?)```/)
   if (fenceMatch) return fenceMatch[1].trim()

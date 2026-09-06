@@ -147,6 +147,7 @@ import { BridgeConversationManager } from './bridge-conversation-manager'
 import { BridgeLifecycle } from './bridge-lifecycle'
 import { initAutonomousRuntime, shutdownAutonomousRuntime, readAutonomousEnabled, reflectAutonomous } from './autonomous-wiring'
 import { handleEvolutionTick, ensureEvolutionCronJobSeeded } from './evolution-tick'
+import { runPlanner, shouldFallbackPlan } from './planner-wiring'
 import { OUTREACH_SYSTEM_NOTIFY_TITLE } from '../desktop-notify'
 import { BridgeInstanceFactory } from './bridge-instance-factory'
 import { BridgeToolRegistrar } from './bridge-tool-registrar'
@@ -845,6 +846,35 @@ export class AgentRuntimeBridge {
     this.toolRegistrar.registerAll()
   }
 
+  /** 跑一次主动规划（反思后 / 心跳兜底触发）。返回是否真的产出了计划。 */
+  private async runPlannerNow(): Promise<boolean> {
+    try {
+      const plan = await runPlanner({
+        db: this.localDb.db,
+        callLLM: (prompt) => this.callLLM(prompt, undefined, 'planning'),
+        scheduleCron: (job) => this.cronScheduler?.scheduleJob(job),
+        countAgentSelfCronJobs: () => this.countAgentSelfCronJobs(),
+      })
+      return plan !== null
+    } catch (err) {
+      log.warn('[planner] 主动规划失败:', err instanceof Error ? err.message : err)
+      return false
+    }
+  }
+
+  private countAgentSelfCronJobs(): number {
+    try {
+      const row = this.localDb.db
+        .prepare<{ count: number }>(
+          `SELECT COUNT(*) as count FROM local_cron_jobs WHERE id LIKE 'agent-self:%'`,
+        )
+        .get()
+      return row?.count ?? 0
+    } catch {
+      return 0
+    }
+  }
+
   /** initialize() 子块 3/7：构造 CronScheduler、迁移/播种 companion cron、订阅 vhSettings 变更、start() */
   private initializeCronScheduler(): void {
     this.cronScheduler = new CronScheduler(this.localDb, {
@@ -852,6 +882,16 @@ export class AgentRuntimeBridge {
       getLastActiveConvId: () => this.lastActiveConvId,
       createInstanceById: (agentId, sessionKey, conversationId) =>
         this.createInstanceById(agentId, sessionKey, conversationId),
+      createRestrictedInstanceById: async (agentId, sessionKey, conversationId) => {
+        const baseDef = this.definitionStore ? await this.definitionStore.get(agentId) : null
+        if (!baseDef) return this.createInstanceById(agentId, sessionKey, conversationId)
+        const restrictedDef: AgentDefinition = {
+          ...baseDef,
+          canSpawnSubAgents: false,
+          tools: getGoalToolAllowlist('learning'),
+        }
+        return this.createInstance(restrictedDef, sessionKey, conversationId)
+      },
       prompt: (instanceId, message) => this.prompt(instanceId, message),
       waitForInstanceIdle: (instanceId) => this.waitForInstanceIdle(instanceId),
       getAssistantOutputFromInstance: (instanceId) => this.getAssistantOutputFromInstance(instanceId),
@@ -1098,6 +1138,8 @@ export class AgentRuntimeBridge {
                     role: 'assistant',
                     contentJson: { type: 'text', text: summary },
                   })
+                  // 反思之后立即主动规划一次（低频，静默时段内，继承反思的触发节奏）
+                  await this.runPlannerNow()
                   return summary
                 },
                 writeDiary: async () => {
@@ -1134,6 +1176,12 @@ export class AgentRuntimeBridge {
                   saveDiary(this.localDb.db, 'assistant', todayDateKey(), diary)
                   markDiaryWritten(this.localDb.db)
                   return diary.slice(0, 60)
+                },
+                plan: async () => {
+                  // 心跳兜底：静默时段 + 距上次规划满 24h 才拉起规划，否则返回 null 表示不规划
+                  if (!shouldFallbackPlan(this.localDb.db, new Date())) return null
+                  const ok = await this.runPlannerNow()
+                  return ok ? 'planned' : null
                 },
               }),
           },

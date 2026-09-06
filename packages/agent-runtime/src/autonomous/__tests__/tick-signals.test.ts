@@ -28,6 +28,7 @@ const emptySignals = {
   willDoHeavyWork: true,
   outreachMultiplier: 1,
   selfCheckBias: false,
+  stuckGoalCount: 0,
 };
 
 describe('decideAction', () => {
@@ -246,5 +247,29 @@ describe('collectTickSignals', () => {
     const db = makeDb([]);
     const signals = collectTickSignals(db, 'assistant', new Date(2026, 8, 6, 12, 0, 0));
     expect(signals.willDoHeavyWork).toBe(true);
+  });
+
+  it('到期过滤：未来 scheduled_for 的目标不派发，到期/被动的派发', () => {
+    const now = new Date(2026, 8, 6, 10, 0, 0);
+    const db = makeDb([
+      { id: 'g-future', type: 'learning', description: '未来', scheduled_for: new Date(2026, 8, 6, 11, 0, 0).toISOString() },
+      { id: 'g-past', type: 'learning', description: '过去', scheduled_for: new Date(2026, 8, 6, 9, 0, 0).toISOString() },
+      { id: 'g-none', type: 'learning', description: '被动', scheduled_for: null },
+    ]);
+    const signals = collectTickSignals(db, 'assistant', now);
+    expect(signals.approvedGoalCount).toBe(2);
+    expect(signals.approvedGoals.map((g) => g.id)).toEqual(['g-past', 'g-none']);
+  });
+
+  it('卡死检测：批准时间早于阈值仍未完成的目标计入 stuckGoalCount', () => {
+    const now = new Date(2026, 8, 6, 10, 0, 0);
+    const stuckApprovedAt = new Date(2026, 8, 4, 10, 0, 0).toISOString();
+    const recentApprovedAt = new Date(2026, 8, 6, 9, 0, 0).toISOString();
+    const db = makeDb([
+      { id: 'g-stuck', type: 'learning', description: '卡死', approved_at: stuckApprovedAt, created_at: stuckApprovedAt },
+      { id: 'g-ok', type: 'learning', description: '正常', approved_at: recentApprovedAt, created_at: recentApprovedAt },
+    ]);
+    const signals = collectTickSignals(db, 'assistant', now);
+    expect(signals.stuckGoalCount).toBe(1);
   });
 });

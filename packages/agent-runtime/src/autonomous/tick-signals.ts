@@ -9,7 +9,7 @@
 import { AutonomousRepo } from '../storage/autonomous-repo.js';
 import type { DatabaseAdapter } from '../storage/local-database.js';
 import { getOutreachUsedToday, getLastOutreachAt } from './outreach-budget.js';
-import { REFLECTION_MIN_INTERVAL_HOURS } from './config.js';
+import { REFLECTION_MIN_INTERVAL_HOURS, STUCK_GOAL_THRESHOLD_MS } from './config.js';
 import { hasWrittenDiaryToday } from './diary.js';
 import { readSettings } from './settings.js';
 import { TOKEN_COST, readTodayTokenUsage } from './token-budget.js';
@@ -50,6 +50,8 @@ export interface TickSignals {
   outreachMultiplier: number;
   /** 心情差时更审慎（低 valence 时 true，来自 moodToDecisionParams） */
   selfCheckBias: boolean;
+  /** 卡死的 executing 目标数（批准后长期未完成，供心跳健康检查记日志） */
+  stuckGoalCount: number;
 }
 
 /** 单次心跳的决策结果 */
@@ -69,7 +71,11 @@ export function collectTickSignals(db: DatabaseAdapter, agentId: string, now = n
   const repo = new AutonomousRepo(db);
   // approve 命令经 notifyAutonomousGoalApproved 把目标流转到 executing，
   // 心跳必须消费 executing 状态，否则目标会永远卡住不被执行
-  const approved = repo.listGoals(agentId, 'executing');
+  const executing = repo.listGoals(agentId, 'executing');
+  // 派发只挑「已到期」的目标：被动目标（scheduled_for 为空）立即可做，
+  // 规划器排期的目标（scheduled_for 非空）等到计划时间才做（心跳=派发器，不再凭空决策）
+  const due = executing.filter((g) => isGoalDue(g.scheduled_for, now));
+  const stuckGoalCount = detectStuckGoals(executing, now, STUCK_GOAL_THRESHOLD_MS).length;
   const settings = readSettings(db);
   const mood = readMood(db, now.getTime());
   // 昼夜节律是精力「基线」而非硬乘子：纯乘法会在深夜把高精力也压到 ~0.04，
@@ -82,8 +88,8 @@ export function collectTickSignals(db: DatabaseAdapter, agentId: string, now = n
   };
   const decisionParams = moodToDecisionParams(effectiveMood);
   return {
-    approvedGoalCount: approved.length,
-    approvedGoals: approved.map((g) => ({ id: g.id, type: g.type, description: g.description })),
+    approvedGoalCount: due.length,
+    approvedGoals: due.map((g) => ({ id: g.id, type: g.type, description: g.description })),
     outreachUsedToday: getOutreachUsedToday(db, now),
     outreachLimit: settings.maxOutreachPerDay,
     outreachLastSentAt: getLastOutreachAt(db),
@@ -95,7 +101,32 @@ export function collectTickSignals(db: DatabaseAdapter, agentId: string, now = n
     willDoHeavyWork: decisionParams.willDoHeavyWork,
     outreachMultiplier: decisionParams.outreachMultiplier,
     selfCheckBias: decisionParams.selfCheckBias,
+    stuckGoalCount,
   };
+}
+
+/** 目标是否已到可执行时间：被动目标（无计划时间）或计划时间已到 */
+function isGoalDue(scheduledFor: string | null, now: Date): boolean {
+  if (!scheduledFor) return true;
+  const dueAt = new Date(scheduledFor).getTime();
+  return Number.isFinite(dueAt) && dueAt <= now.getTime();
+}
+
+/** 检测长期卡在 executing 的目标：批准（或创建）时间早于阈值仍未完成 */
+function detectStuckGoals(
+  goals: Array<{ id: string; approved_at: string | null; created_at: string }>,
+  now: Date,
+  thresholdMs: number,
+): string[] {
+  return goals
+    .filter((g) => {
+      const sinceRaw = g.approved_at ?? g.created_at;
+      if (!sinceRaw) return false;
+      const since = new Date(sinceRaw).getTime();
+      if (!Number.isFinite(since)) return false;
+      return now.getTime() - since > thresholdMs;
+    })
+    .map((g) => g.id);
 }
 
 /** 静默时段判定：支持跨午夜（如 [23,8] = 23:00-次日 8:00） */

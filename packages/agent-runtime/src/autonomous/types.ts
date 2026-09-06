@@ -95,6 +95,10 @@ export interface AutonomousGoal {
   completedAt?: string;
   /** 关联反思 ID（目标生成时回填的最近一条反思；无则空） */
   reflectionId?: string;
+  /** 计划执行时间（ISO）；NULL/undefined 表示被动目标、立即可做 */
+  scheduledFor?: string;
+  /** 目标来源：'trigger'（被动触发）| 'planner'（规划器主动排期） */
+  plannedBy?: 'trigger' | 'planner';
 }
 
 /**

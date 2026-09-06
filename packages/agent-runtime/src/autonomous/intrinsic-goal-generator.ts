@@ -489,10 +489,11 @@ export class IntrinsicGoalGenerator {
     const sql = `
       INSERT INTO autonomous_goals (
         id, agent_id, type, description, trigger_reason,
-        status, priority, satisfaction_before, metadata, reflection_id, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        status, priority, satisfaction_before, metadata, reflection_id,
+        scheduled_for, planned_by, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-    await this.db.execute(sql, [id, goal.agentId, goal.type, goal.description, goal.triggerReason, goal.status, goal.priority, goal.satisfactionBefore, JSON.stringify(goal.metadata || {}), goal.reflectionId ?? null, goal.createdAt]);
+    await this.db.execute(sql, [id, goal.agentId, goal.type, goal.description, goal.triggerReason, goal.status, goal.priority, goal.satisfactionBefore, JSON.stringify(goal.metadata || {}), goal.reflectionId ?? null, goal.scheduledFor ?? null, goal.plannedBy ?? 'trigger', goal.createdAt]);
 
     goal.id = id;
   }
@@ -524,6 +525,8 @@ export class IntrinsicGoalGenerator {
       executedAt: row.executed_at,
       completedAt: row.completed_at,
       reflectionId: row.reflection_id ?? undefined,
+      scheduledFor: row.scheduled_for ?? undefined,
+      plannedBy: row.planned_by ?? undefined,
     };
   }
 

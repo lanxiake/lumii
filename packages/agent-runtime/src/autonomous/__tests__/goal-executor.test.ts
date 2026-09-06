@@ -51,6 +51,7 @@ describe('getGoalToolAllowlist', () => {
     expect(allowlist).toContain('wiki_read');
     expect(allowlist).toContain('todo_write');
     expect(allowlist).toContain('cron_create');
+    expect(allowlist).toContain('cron_delete'); // 放行，但带 agent-self:* 前缀守卫
   });
 
   it('白名单含 T2 预算内可写工具', () => {
@@ -64,7 +65,6 @@ describe('getGoalToolAllowlist', () => {
     expect(allowlist).not.toContain('bash');
     expect(allowlist).not.toContain('spawn_agent');
     expect(allowlist).not.toContain('channel_send');
-    expect(allowlist).not.toContain('cron_delete'); // 删除需 id 守卫，规划器阶段再放行
   });
 });
 

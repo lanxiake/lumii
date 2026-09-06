@@ -171,6 +171,27 @@ export const MAX_OUTREACH_PER_DAY = 20;
 export const REFLECTION_MIN_INTERVAL_HOURS = 24;
 
 /**
+ * 卡死目标判定阈值（毫秒）
+ * 来源：主动规划设计 §4.2 心跳健康检查
+ * executing 目标自批准（或创建）起超过该时长仍未完成，判定为「卡死」，
+ * 心跳记日志告警，不阻断（不自动改状态）。
+ */
+export const STUCK_GOAL_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 主动规划触发的最小间隔（小时）
+ * 来源：主动规划设计 §4.2「距上次规划满 N 小时兜底」
+ */
+export const PLANNER_MIN_INTERVAL_HOURS = 24;
+
+/**
+ * 自建定时任务（agent-self:*）同一时刻数量上限
+ * 来源：主动规划设计 §4.5 安全护栏 #2
+ * 超限规划器拒绝新增（enforcePlanBudget 裁剪 cronJobs）。
+ */
+export const MAX_SELF_CRON_JOBS = 20;
+
+/**
  * ==========================================
  * P2: 多层进化协同配置参数
  * ==========================================

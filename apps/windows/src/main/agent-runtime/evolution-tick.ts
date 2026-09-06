@@ -39,6 +39,8 @@ export interface EvolutionTickDeps {
   reflect: () => Promise<string>
   /** 写一篇今日日记（LLM 生成 + 落 evolution:main） */
   writeDiary: () => Promise<string>
+  /** 兜底拉起一次主动规划；返回 null 表示本次不规划（静默时段外或未超期） */
+  plan?: () => Promise<string | null>
   /** 当前时间（可注入，默认 new Date()；测试用于固定静默时段） */
   now?: () => Date
 }
@@ -56,11 +58,29 @@ export async function handleEvolutionTick(deps: EvolutionTickDeps): Promise<stri
 
     const now = deps.now?.() ?? new Date()
     const signals = collectTickSignals(deps.getDb(), EVOLUTION_AGENT_ID, now)
+
+    // 健康检查（保活看门狗）：卡死的 executing 目标只记日志告警，不阻断、不自动改状态。
+    // 心跳的职责从「凭空决定该做什么」降为「确认还活着 + 派发已计划的事 + 兜底」。
+    if (signals.stuckGoalCount > 0) {
+      log.warn(
+        `[handleEvolutionTick] 健康检查：${signals.stuckGoalCount} 个 executing 目标疑似卡死（超过阈值仍未完成）`,
+      )
+    }
+
     const action = decideAction(signals, now)
 
     if (action.kind === 'idle') {
       log.info(`[handleEvolutionTick] idle reason=${action.reason}`)
-      return 'idle'
+      // 兜底：健康且无任何已计划/到期的事时，规划器若已超期则补一次规划（静默时段内）
+      if (action.reason === 'no-action-needed' && deps.plan) {
+        const planSummary = await deps.plan()
+        if (planSummary) {
+          log.info(`[handleEvolutionTick] plan result=${planSummary}`)
+          return `plan: ${planSummary}`
+        }
+      }
+      // 健康且无任何已计划的事 → 保活成功；其余 idle（低能量/预算耗尽）保持原语义
+      return action.reason === 'no-action-needed' ? 'idle: liveness-ok' : 'idle'
     }
     if (action.kind === 'outreach' && action.goal) {
       const result = await deps.sendOutreach(action.goal)

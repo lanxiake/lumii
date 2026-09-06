@@ -28,6 +28,8 @@ export interface GoalRow {
   created_at: string;
   approved_at: string | null;
   reflection_id: string | null;
+  scheduled_for: string | null;
+  planned_by: string | null;
 }
 
 export interface CapabilityRow {
@@ -121,7 +123,7 @@ export class AutonomousRepo {
       return this.db
         .prepare<GoalRow>(
           `SELECT id, agent_id, type, description, trigger_reason, status,
-                  priority, created_at, approved_at, reflection_id
+                  priority, created_at, approved_at, reflection_id, scheduled_for, planned_by
              FROM autonomous_goals
             WHERE agent_id = ? AND status = ?
             ORDER BY created_at DESC`,
@@ -131,7 +133,7 @@ export class AutonomousRepo {
     return this.db
       .prepare<GoalRow>(
         `SELECT id, agent_id, type, description, trigger_reason, status,
-                priority, created_at, approved_at, reflection_id
+                priority, created_at, approved_at, reflection_id, scheduled_for, planned_by
            FROM autonomous_goals
           WHERE agent_id = ?
           ORDER BY created_at DESC`,

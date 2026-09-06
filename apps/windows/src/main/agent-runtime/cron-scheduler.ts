@@ -14,7 +14,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { Cron } from 'croner'
-import type { LocalDatabase, FileRepo } from '@mtbot/agent-runtime'
+import { SELF_CRON_ID_PREFIX, type LocalDatabase, type FileRepo } from '@mtbot/agent-runtime'
 import { prependActiveDashboardFeedItem, readDashboardFeedSnapshot, getDashboardFeedWriteVersion } from '../dashboard-feed-store'
 import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { formatForTarget, formatDashboardFeedForPush } from './cron-notify-format'
@@ -168,6 +168,12 @@ export interface CronSchedulerDeps {
   getLastActiveConvId: () => string | null
   /** 按 Agent ID 创建 Agent 实例 */
   createInstanceById: (agentId: string, sessionKey?: string, conversationId?: string) => Promise<string>
+  /**
+   * 按 Agent ID 创建受限实例（工具白名单护栏）。
+   * agent-self:* 自建任务必须走这条路径，防止自主排期任务拿到 assistant 全量工具。
+   * 未提供时 agent-self 任务回落普通 createInstanceById（兼容旧装配）。
+   */
+  createRestrictedInstanceById?: (agentId: string, sessionKey?: string, conversationId?: string) => Promise<string>
   /** 向指定 Agent 实例发送消息 */
   prompt: (instanceId: string, message: string) => Promise<void>
   /** 等待 Agent 实例进入 idle（prompt 返回后事件落库可能仍在进行） */
@@ -841,7 +847,13 @@ export class CronScheduler {
     const convId = `cron:${job.id}`
     this.deps.ensureConversationExists(convId, `定时任务 · ${currentRow.name}`)
     this.deps.notifyIncomingMessage(convId, job.task_text)
-    const instanceId = await this.deps.createInstanceById(agentId, convId, convId)
+    // 硬防线：自主规划的自建任务（agent-self:*）必须走工具白名单受限实例，
+    // 不能像预置/用户任务那样拿 assistant 全量工具。
+    const isSelfTask = job.id.startsWith(SELF_CRON_ID_PREFIX)
+    const instanceId =
+      isSelfTask && this.deps.createRestrictedInstanceById
+        ? await this.deps.createRestrictedInstanceById(agentId, convId, convId)
+        : await this.deps.createInstanceById(agentId, convId, convId)
     try {
       // 构建完整消息：system_prompt + 通知工具指导 + task_text
       const notifyPrompt = buildNotifyToolsPrompt(currentRow.notify_targets)

@@ -31,9 +31,9 @@ describe('handleEvolutionTick', () => {
     expect(await handleEvolutionTick(deps)).toBe('skipped: user turn in progress')
   })
 
-  it('无已批准目标时 idle', async () => {
+  it('无已批准目标时 idle（健康保活）', async () => {
     const deps = makeDeps()
-    expect(await handleEvolutionTick(deps)).toBe('idle')
+    expect(await handleEvolutionTick(deps)).toBe('idle: liveness-ok')
     expect(deps.executeGoal).not.toHaveBeenCalled()
   })
 

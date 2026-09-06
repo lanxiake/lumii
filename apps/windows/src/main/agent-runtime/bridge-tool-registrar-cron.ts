@@ -11,6 +11,7 @@ import {
   cronListToolConfig,
   cronDeleteToolConfig,
   dashboardFeedWriteToolConfig,
+  SELF_CRON_ID_PREFIX,
 } from '@mtbot/agent-runtime'
 import {
   agentRuntimeLog as log,
@@ -215,6 +216,14 @@ export function registerLocalCronTools(deps: BridgeToolRegistrarDeps): void {
       const id = p.id?.trim()
       if (!id) {
         return jsonToolResult({ status: 'error', message: 'id is required' })
+      }
+      // id 前缀守卫（硬防线）：Agent 只能撤掉自己（规划器）自建的 agent-self:* 任务，
+      // 不能删除用户自建、预置（news-pipeline / autonomous-tick）或其他 Agent 的任务。
+      if (!id.startsWith(SELF_CRON_ID_PREFIX)) {
+        return jsonToolResult({
+          status: 'error',
+          message: '只能删除自主规划的自建任务（agent-self:*）',
+        })
       }
       deps.getCronScheduler().clearLocalCronTimer(id)
       const result = deps.localDb.db

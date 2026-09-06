@@ -20,10 +20,11 @@ export interface GoalExecutionResult {
  * 目标执行工具白名单 —— prompt 之外的硬防线。
  *
  * 分层（设计 §4.6）：
- * - T1 无条件：只读检索 / 知识（file_* 读、web、memory、wiki、skill）+ 自组织（todo_write、cron_list/cron_create）+ 通知。
+ * - T1 无条件：只读检索 / 知识（file_* 读、web、memory、wiki、skill）+ 自组织（todo_write、cron_list/cron_create/cron_delete）+ 通知。
  * - T2 预算内可写：file_write/edit/mkdir/move/copy、dashboard_feed_write（受 token 预算硬闸门约束）。
  * - T3 高危（绝不放行）：bash、spawn_agent、channel_send/send_message、image/speech_generate、
- *   browser_*、app_*、mcp__*，以及 cron_delete（删除需 id 前缀守卫，留到规划器阶段再放行）。
+ *   browser_*、app_*、mcp__*。
+ * cron_delete 已放行，但带 id 前缀守卫（只允许删 agent-self:* 自建任务，见 bridge 侧实现）。
  */
 const GOAL_EXECUTION_TOOLS: readonly string[] = [
   // 既有：只读检索 + 记忆读写 + 通知（memory_add/notify_user 是历史死名，改为真实工具名）
@@ -48,6 +49,7 @@ const GOAL_EXECUTION_TOOLS: readonly string[] = [
   'todo_write',
   'cron_list',
   'cron_create',
+  'cron_delete',
   // T2：预算内可写
   'file_write',
   'file_edit',
