@@ -1,0 +1,3 @@
+{"ts":"2026-09-06T16:42:53.165Z","id":"P1","status":"PASS","note":"心跳兜底拉起规划器 → 记录 last_plan_at: summary=\"plan: planned\"，last_plan_at 已记录"}
+{"ts":"2026-09-06T16:42:53.172Z","id":"P2","status":"PASS","note":"落库结构：agent-self cron + planner 目标 + 待办: cron=8 plannerGoals=5 todos=18"}
+{"ts":"2026-09-06T16:43:49.511Z","id":"P3","status":"PASS","note":"目标配额耗尽 → enforcePlanBudget 裁剪为 0: planner 目标数 5 保持不变（配额已满）"}
