@@ -1,5 +1,5 @@
 /**
- * MoodAvatar 样式 —— 情绪光晕 + 浮动 logo + 灵光粒子
+ * MoodAvatar 样式 —— 光晕 + 漂浮的发光小精灵 + 五官动画
  */
 
 .moodAvatar {
@@ -14,28 +14,77 @@
 /* 背景光晕：按情绪颜色呼吸 */
 .halo {
   position: absolute;
-  inset: 6%;
+  inset: 4%;
   border-radius: 50%;
   background: radial-gradient(
     circle at 50% 45%,
     rgba(var(--mood-glow), var(--mood-glow-opacity)) 0%,
-    rgba(var(--mood-glow), 0) 68%
+    rgba(var(--mood-glow), 0) 70%
   );
   animation: haloBreath 2.6s ease-in-out infinite;
 }
 
-/* logo：浮动（精力驱动速度与幅度）+ 轻微呼吸缩放 */
-.logo {
+/* 精灵本体：漂浮（精力驱动速度与幅度）+ 轻微呼吸缩放 */
+.mascot {
   position: relative;
-  width: 62%;
-  height: 62%;
-  object-fit: contain;
-  filter: drop-shadow(0 6px 16px rgba(var(--mood-glow), 0.35));
+  width: 92%;
+  height: 92%;
+  overflow: visible;
+  filter: drop-shadow(0 6px 14px rgba(var(--mood-glow), 0.28));
   animation: moodFloat var(--mood-float-duration) ease-in-out infinite;
   will-change: transform;
 }
 
-/* 情绪徽标：右下角小圆点标签，状态可读 */
+.shine {
+  fill: #fff;
+  opacity: 0.28;
+}
+
+/* 龙角（金色）—— 随本体漂浮，只加一点金色投影提亮 */
+.horns {
+  filter: drop-shadow(0 1px 1px rgba(245, 158, 11, 0.3));
+}
+
+/* 龙须：轻柔摆动 */
+.whiskers {
+  transform-box: fill-box;
+  transform-origin: center top;
+  animation: whiskerSway 3s ease-in-out infinite;
+}
+
+/* 眨眼（作用于眼睛分组） */
+.eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: blink 4.5s infinite;
+}
+
+/* 低落：眼泪滴落 */
+.tear {
+  animation: tearDrop 2.2s ease-in infinite;
+}
+
+/* 困倦：zzz 上浮 */
+.zzz {
+  animation: zzzFloat 2.4s ease-out infinite;
+}
+
+.zzz2 {
+  animation: zzzFloat 2.4s ease-out 0.9s infinite;
+}
+
+/* 身体内的灵光粒子 */
+.sparklesSvg {
+  pointer-events: none;
+}
+
+.sparkle {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: sparklePop 1.8s ease-in-out infinite;
+}
+
+/* 情绪徽标：右下角小圆点标签 */
 .emotionBadge {
   position: absolute;
   right: 2%;
@@ -51,38 +100,37 @@
   white-space: nowrap;
 }
 
-/* 灵光粒子 */
+/* 外层漂浮粒子 */
 .sparkles {
   position: absolute;
   inset: 0;
   pointer-events: none;
 }
 
-.sparkle {
+.sparkles .sparkle {
   position: absolute;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--mood-accent);
   box-shadow: 0 0 8px var(--mood-accent);
-  animation: sparklePop 1.8s ease-in-out infinite;
 }
 
 .sparkleA {
-  top: 8%;
-  left: 16%;
+  top: 6%;
+  left: 14%;
   animation-delay: 0s;
 }
 
 .sparkleB {
-  top: 18%;
-  right: 12%;
+  top: 16%;
+  right: 10%;
   animation-delay: 0.6s;
 }
 
 .sparkleC {
-  bottom: 16%;
-  left: 10%;
+  bottom: 14%;
+  left: 8%;
   animation-delay: 1.2s;
 }
 
@@ -106,6 +154,52 @@
   }
 }
 
+@keyframes whiskerSway {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-1.5px) rotate(3deg);
+  }
+}
+
+@keyframes blink {
+  0%, 93%, 100% {
+    transform: scaleY(1);
+  }
+  95%, 97% {
+    transform: scaleY(0.08);
+  }
+}
+
+@keyframes tearDrop {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(11px);
+  }
+}
+
+@keyframes zzzFloat {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.7);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(10px, -15px) scale(1.15);
+  }
+}
+
 @keyframes sparklePop {
   0%, 100% {
     opacity: 0;
@@ -119,7 +213,12 @@
 
 @media (prefers-reduced-motion: reduce) {
   .halo,
-  .logo,
+  .mascot,
+  .whiskers,
+  .eye,
+  .tear,
+  .zzz,
+  .zzz2,
   .sparkle {
     animation: none;
   }

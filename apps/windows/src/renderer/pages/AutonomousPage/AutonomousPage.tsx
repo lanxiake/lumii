@@ -6,7 +6,7 @@
  * - 反思：左列表 + 右详情
  */
 
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { Card } from '../../components/ui/Card/Card'
 import { Tooltip } from '../../components/ui/Tooltip/Tooltip'
 import { Modal } from '../../components/ui/Modal/Modal'
@@ -162,6 +162,7 @@ export function AutonomousPage() {
   const [diaryCursor, setDiaryCursor] = useState<{ timestamp: number; id: string } | null>(null)
   const [diaryLoadingMore, setDiaryLoadingMore] = useState(false)
   const [selectedDiary, setSelectedDiary] = useState<DiaryEntry | null>(null)
+  const diaryInitializedRef = useRef(false)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [autonomousEnabled, setAutonomousEnabled] = useState(true)
@@ -202,9 +203,20 @@ export function AutonomousPage() {
       setMood(moodData)
       setConcerns(Array.isArray(concernsData) ? (concernsData as Concern[]) : [])
       const diaryPage = diaryData as DiaryPage
-      setDiary(diaryPage.items ?? [])
-      setDiaryHasMore(diaryPage.hasMore ?? false)
-      setDiaryCursor(diaryPage.nextBefore ?? null)
+      const incoming = diaryPage.items ?? []
+      if (!diaryInitializedRef.current) {
+        diaryInitializedRef.current = true
+        setDiary(incoming)
+        setDiaryHasMore(diaryPage.hasMore ?? false)
+        setDiaryCursor(diaryPage.nextBefore ?? null)
+      } else {
+        // 周期刷新：只把最新写出的条目前插，保持已加载的「更早」分页与游标不变
+        setDiary((prev) => {
+          const existing = new Set(prev.map((d) => d.id))
+          const fresh = incoming.filter((d) => !existing.has(d.id))
+          return fresh.length > 0 ? [...fresh, ...prev] : prev
+        })
+      }
       setAutonomousEnabled(statusData.enabled !== false)
       setSelectedReflectionId((prev) => {
         if (prev && reflectionsData.some((r: Reflection) => r.id === prev)) return prev
