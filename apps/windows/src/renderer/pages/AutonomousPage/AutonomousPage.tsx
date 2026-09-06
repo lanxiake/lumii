@@ -28,6 +28,7 @@ import {
   TIP_SATISFACTION_CHART,
   TIP_SATISFACTION_OVERALL,
   TIP_SATISFACTION_TREND,
+  TIP_SETTINGS,
 } from './autonomousTooltips'
 import styles from './AutonomousPage.module.css'
 
@@ -55,6 +56,18 @@ type AutonomousGoal = {
   feasibility?: number
 }
 
+type AutonomousSettings = {
+  enabled: boolean
+  tickIntervalMinutes: number
+  quietHours: [number, number]
+  maxOutreachPerDay: number
+  minOutreachIntervalMinutes: number
+  outreachChannels: string[]
+  maxTokensPerDay: number
+  maxGoalsPerDay: number
+  approvalMode: 'always' | 'risky-only' | 'never'
+}
+
 const api = window.electronAPI?.autonomous || {
   getStatus: () => Promise.reject(new Error('API not available')),
   getPendingGoals: () => Promise.reject(new Error('API not available')),
@@ -65,9 +78,11 @@ const api = window.electronAPI?.autonomous || {
   getSatisfactionHistory: () => Promise.reject(new Error('API not available')),
   getPromptStats: () => Promise.reject(new Error('API not available')),
   setEnabled: () => Promise.reject(new Error('API not available')),
+  getSettings: () => Promise.reject(new Error('API not available')),
+  updateSettings: () => Promise.reject(new Error('API not available')),
 }
 
-type TabType = 'overview' | 'capabilities' | 'reflections' | 'prompt'
+type TabType = 'overview' | 'capabilities' | 'reflections' | 'prompt' | 'settings'
 
 const TRIGGER_LABELS: Record<string, string> = {
   'low-satisfaction': '满意度低',
@@ -86,6 +101,9 @@ export function AutonomousPage() {
   const [reflections, setReflections] = useState<Reflection[]>([])
   const [satisfactionHistory, setSatisfactionHistory] = useState<SatisfactionDataPoint[]>([])
   const [promptStats, setPromptStats] = useState<PromptFragmentStats[]>([])
+  const [settings, setSettings] = useState<AutonomousSettings | null>(null)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [settingsSaved, setSettingsSaved] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [autonomousEnabled, setAutonomousEnabled] = useState(true)
@@ -100,13 +118,14 @@ export function AutonomousPage() {
   /** 加载自主进化相关数据 */
   async function loadData() {
     try {
-      const [statusData, goalsData, capabilitiesData, reflectionsData, historyData, promptData] = await Promise.all([
+      const [statusData, goalsData, capabilitiesData, reflectionsData, historyData, promptData, settingsData] = await Promise.all([
         api.getStatus(),
         api.getPendingGoals(),
         api.getCapabilities().catch(() => ({})),
         api.getReflections(20).catch(() => []),
         api.getSatisfactionHistory('7d').catch(() => ({ dataPoints: [] })),
         api.getPromptStats().catch(() => []),
+        api.getSettings().catch(() => null),
       ])
       setStatus(statusData)
       setGoals(goalsData)
@@ -114,6 +133,7 @@ export function AutonomousPage() {
       setReflections(reflectionsData)
       setSatisfactionHistory(historyData.dataPoints || [])
       setPromptStats(Array.isArray(promptData) ? (promptData as PromptFragmentStats[]) : [])
+      setSettings(settingsData)
       setAutonomousEnabled(statusData.enabled !== false)
       setSelectedReflectionId((prev) => {
         if (prev && reflectionsData.some((r: Reflection) => r.id === prev)) return prev
@@ -155,6 +175,28 @@ export function AutonomousPage() {
       console.error('[AutonomousPage] 更新自主进化开关失败:', error)
       setAutonomousEnabled(!enabled)
     })
+  }
+
+  /** 保存设置（部分覆盖，非法值由后端回落默认） */
+  async function handleSaveSettings() {
+    if (!settings) return
+    setSettingsSaving(true)
+    setSettingsSaved(false)
+    try {
+      const updated = await api.updateSettings(settings)
+      setSettings(updated)
+      setSettingsSaved(true)
+      setTimeout(() => setSettingsSaved(false), 2000)
+    } catch (error) {
+      console.error('[AutonomousPage] 保存设置失败:', error)
+    } finally {
+      setSettingsSaving(false)
+    }
+  }
+
+  /** 局部更新设置草稿（不可变） */
+  function patchSettings(patch: Partial<AutonomousSettings>) {
+    setSettings((prev) => (prev ? { ...prev, ...patch } : prev))
   }
 
   const selectedReflection = useMemo(
@@ -240,6 +282,16 @@ export function AutonomousPage() {
             <path d="M12 1v6m0 6v6M1 12h6m6 0h6" strokeWidth="2" strokeLinecap="round"/>
           </svg>
           Prompt
+        </button>
+        <button
+          className={`${styles.tab} ${activeTab === 'settings' ? styles.active : ''}`}
+          onClick={() => setActiveTab('settings')}
+        >
+          <svg className={styles.tabIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <circle cx="12" cy="12" r="3" strokeWidth="2"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          设置
         </button>
       </div>
 
@@ -437,6 +489,180 @@ export function AutonomousPage() {
                   </svg>
                 </div>
                 暂无 Prompt 变体数据（功能开发中）
+              </div>
+            )}
+          </Card>
+        )}
+
+        {activeTab === 'settings' && (
+          <Card
+            header={<TitledHeader title="自主进化参数" tip={TIP_SETTINGS} />}
+          >
+            {settings ? (
+              <div className={styles.settingsForm}>
+                <div className={styles.settingRow}>
+                  <label className={styles.settingLabel} htmlFor="tickInterval">
+                    心跳频率（分钟）
+                  </label>
+                  <input
+                    id="tickInterval"
+                    type="number"
+                    className={styles.settingInput}
+                    min={5}
+                    max={60}
+                    value={settings.tickIntervalMinutes}
+                    onChange={(e) => {
+                      const n = Number(e.target.value)
+                      if (Number.isFinite(n)) patchSettings({ tickIntervalMinutes: n })
+                    }}
+                  />
+                  <span className={styles.settingHint}>5–60，默认 10</span>
+                </div>
+
+                <div className={styles.settingRow}>
+                  <label className={styles.settingLabel}>静默时段（起–止小时）</label>
+                  <div className={styles.settingPair}>
+                    <input
+                      type="number"
+                      className={styles.settingInput}
+                      min={0}
+                      max={23}
+                      value={settings.quietHours[0]}
+                      onChange={(e) => {
+                        const n = Number(e.target.value)
+                        if (Number.isFinite(n)) patchSettings({ quietHours: [n, settings.quietHours[1]] })
+                      }}
+                    />
+                    <span className={styles.settingDash}>–</span>
+                    <input
+                      type="number"
+                      className={styles.settingInput}
+                      min={0}
+                      max={23}
+                      value={settings.quietHours[1]}
+                      onChange={(e) => {
+                        const n = Number(e.target.value)
+                        if (Number.isFinite(n)) patchSettings({ quietHours: [settings.quietHours[0], n] })
+                      }}
+                    />
+                  </div>
+                  <span className={styles.settingHint}>静默时段内写日记、定时反思</span>
+                </div>
+
+                <div className={styles.settingRow}>
+                  <label className={styles.settingLabel} htmlFor="maxOutreach">
+                    每日主动消息配额
+                  </label>
+                  <input
+                    id="maxOutreach"
+                    type="number"
+                    className={styles.settingInput}
+                    min={0}
+                    max={50}
+                    value={settings.maxOutreachPerDay}
+                    onChange={(e) => {
+                      const n = Number(e.target.value)
+                      if (Number.isFinite(n)) patchSettings({ maxOutreachPerDay: n })
+                    }}
+                  />
+                  <span className={styles.settingHint}>0–50，默认 20</span>
+                </div>
+
+                <div className={styles.settingRow}>
+                  <label className={styles.settingLabel} htmlFor="minInterval">
+                    主动消息最小间隔（分钟）
+                  </label>
+                  <input
+                    id="minInterval"
+                    type="number"
+                    className={styles.settingInput}
+                    min={0}
+                    max={1440}
+                    value={settings.minOutreachIntervalMinutes}
+                    onChange={(e) => {
+                      const n = Number(e.target.value)
+                      if (Number.isFinite(n)) patchSettings({ minOutreachIntervalMinutes: n })
+                    }}
+                  />
+                  <span className={styles.settingHint}>0–1440，默认 60</span>
+                </div>
+
+                <div className={styles.settingRow}>
+                  <label className={styles.settingLabel} htmlFor="maxGoals">
+                    每日目标上限
+                  </label>
+                  <input
+                    id="maxGoals"
+                    type="number"
+                    className={styles.settingInput}
+                    min={1}
+                    max={20}
+                    value={settings.maxGoalsPerDay}
+                    onChange={(e) => {
+                      const n = Number(e.target.value)
+                      if (Number.isFinite(n)) patchSettings({ maxGoalsPerDay: n })
+                    }}
+                  />
+                  <span className={styles.settingHint}>1–20，默认 7</span>
+                </div>
+
+                <div className={styles.settingRow}>
+                  <label className={styles.settingLabel} htmlFor="maxTokens">
+                    每日 Token 上限
+                  </label>
+                  <input
+                    id="maxTokens"
+                    type="number"
+                    className={styles.settingInput}
+                    min={0}
+                    max={1000000}
+                    step={1000}
+                    value={settings.maxTokensPerDay}
+                    onChange={(e) => {
+                      const n = Number(e.target.value)
+                      if (Number.isFinite(n)) patchSettings({ maxTokensPerDay: n })
+                    }}
+                  />
+                  <span className={styles.settingHint}>默认 50000</span>
+                </div>
+
+                <div className={styles.settingRow}>
+                  <label className={styles.settingLabel} htmlFor="approvalMode">
+                    审批模式
+                  </label>
+                  <select
+                    id="approvalMode"
+                    className={styles.settingInput}
+                    value={settings.approvalMode}
+                    onChange={(e) => patchSettings({ approvalMode: e.target.value as AutonomousSettings['approvalMode'] })}
+                  >
+                    <option value="always">总是审批</option>
+                    <option value="risky-only">仅高风险审批</option>
+                    <option value="never">从不审批</option>
+                  </select>
+                  <span className={styles.settingHint}>新目标的审批策略</span>
+                </div>
+
+                <div className={styles.settingsActions}>
+                  <button
+                    className={styles.btnPrimary}
+                    disabled={settingsSaving}
+                    onClick={handleSaveSettings}
+                  >
+                    {settingsSaving ? '保存中…' : '保存设置'}
+                  </button>
+                  {settingsSaved && <span className={styles.settingsSaved}>已保存</span>}
+                </div>
+              </div>
+            ) : (
+              <div className={styles.empty}>
+                <div className={styles.emptyIcon}>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <circle cx="12" cy="12" r="10" strokeWidth="2"/>
+                    <path d="M12 16v-4M12 8h.01" strokeWidth="2" strokeLinecap="round"/>
+                  </svg>
+                </div>
+                无法加载设置
               </div>
             )}
           </Card>

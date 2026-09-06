@@ -4,6 +4,7 @@ import type { AppUiSettingsCategory, AppUiViewType, GotoInput } from './types'
 const VALID_VIEWS: ReadonlySet<string> = new Set<AppUiViewType>([
   'dashboard',
   'chat',
+  'autonomous',
   'skills',
   'settings',
   'memories',

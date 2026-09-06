@@ -527,6 +527,73 @@
   color: var(--mt-accent-500);
 }
 
+.settingsForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-4);
+  padding: var(--spacing-2) 0;
+}
+
+.settingRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  flex-wrap: wrap;
+}
+
+.settingLabel {
+  flex: 0 0 200px;
+  font-size: var(--font-size-sm);
+  font-weight: var(--mt-fw-medium);
+  color: var(--mt-fg-2);
+}
+
+.settingInput {
+  min-width: 140px;
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-md);
+  background: var(--mt-bg-2);
+  color: var(--mt-fg-1);
+  font-size: var(--font-size-sm);
+}
+
+.settingInput:focus {
+  border-color: var(--mt-accent-500);
+  outline: none;
+}
+
+.settingPair {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.settingDash {
+  color: var(--mt-fg-3);
+}
+
+.settingHint {
+  font-size: var(--font-size-xs);
+  color: var(--mt-fg-3);
+}
+
+.settingsActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+}
+
+.settingsActions .btnPrimary {
+  flex: 0 0 auto;
+  min-width: 120px;
+}
+
+.settingsSaved {
+  font-size: var(--font-size-xs);
+  color: var(--mt-success, #2e7d32);
+}
+
 @media (max-width: 960px) {
   .overviewGrid,
   .capabilitiesGrid,

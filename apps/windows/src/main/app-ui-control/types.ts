@@ -90,6 +90,7 @@ export interface FilterSnapshotOptions {
 export type AppUiViewType =
   | 'dashboard'
   | 'chat'
+  | 'autonomous'
   | 'skills'
   | 'settings'
   | 'memories'

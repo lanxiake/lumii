@@ -50,7 +50,7 @@ export const COMMANDS = [
     layer: 'ui',
     route: { method: 'POST', path: '/goto' },
     options: [
-      { flag: '--view <v>', desc: 'dashboard | chat | settings | skills | mcp | cron | memories | agents | plugins' },
+      { flag: '--view <v>', desc: 'dashboard | chat | autonomous | settings | skills | mcp | cron | memories | agents | plugins' },
       { flag: '--category <c>', desc: 'settings 分类（可选）' },
     ],
     build(args) {

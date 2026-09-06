@@ -87,3 +87,7 @@ export const TIP_REFLECTION = {
 /** Prompt 变体 */
 export const TIP_PROMPT_STATS =
   'Prompt 片段/变体的效果统计（如平均满意度、选用次数）。用于比较哪套提示更有效；功能完善后数据会更完整。'
+
+/** 自主进化参数 */
+export const TIP_SETTINGS =
+  '自主进化的可配置参数：心跳频率、静默时段、主动消息配额、目标与 Token 上限、审批模式。算法权重（评分/学习率）不在此暴露，避免误调影响进化质量。'
