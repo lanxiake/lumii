@@ -185,6 +185,27 @@ function delState(key) {
   withDb((db) => db.prepare('DELETE FROM runtime_state WHERE key = ?').run(key))
 }
 
+/**
+ * 禁用除 autonomous-tick 外的后台定时任务（news-pipeline 每 2h 抓资讯烧 LLM ~78s，
+ * seed-focus-check 每 2h 驱动 assistant），避免它们与测试的 cronTick/真实对话抢 LLM 与 IPC。
+ * 手动 `cron run` 不受 enabled 影响（runLocalCronJob 的 manual 分支跳过 enabled 校验），
+ * 故 autonomous-tick 也可一并禁用。返回被禁用的 job id 列表供恢复。
+ */
+function disableBackgroundCronJobs() {
+  return withDb((db) => {
+    const rows = db.prepare("SELECT id FROM local_cron_jobs WHERE enabled = 1").all()
+    for (const r of rows) db.prepare('UPDATE local_cron_jobs SET enabled = 0 WHERE id = ?').run(r.id)
+    return rows.map((r) => r.id)
+  })
+}
+
+function restoreBackgroundCronJobs(ids) {
+  withDb((db) => {
+    for (const id of ids) db.prepare('UPDATE local_cron_jobs SET enabled = 1 WHERE id = ?').run(id)
+  })
+}
+
+
 // ── tick 触发与结果读取 ──
 
 function cronTick({ timeoutMs = 30000 } = {}) {
@@ -248,6 +269,34 @@ function readFeedbackCounters(sessionKey) {
   } catch {
     return { edits: 0, resends: 0, aborts: 0 }
   }
+}
+
+/** 读会话满意度评分的 user_feedback 维度（负反馈信号被评分消费后的持久证据） */
+function readUserFeedbacks(sessionKey) {
+  return withDb((db) =>
+    db
+      .prepare(
+        'SELECT user_feedback FROM autonomous_satisfaction_scores WHERE session_id = ? ORDER BY created_at',
+      )
+      .all(sessionKey)
+      .map((r) => Number(r.user_feedback)),
+  )
+}
+
+/**
+ * 负反馈信号（edit/resend/abort）记录后，要么仍留在计数器（回合未结束），
+ * 要么已被回合结束的满意度评分消费掉（user_feedback 低于 0.85 基线）。
+ * 二者取一即证明信号可达，轮询避免撞上「评分进行中」的竞态窗口。
+ */
+function waitForFeedbackSignal(sessionKey, field) {
+  let counters = readFeedbackCounters(sessionKey)
+  let ufs = readUserFeedbacks(sessionKey)
+  for (let i = 0; i < 15 && counters[field] < 1 && !ufs.some((v) => v < 0.85); i++) {
+    sleep(1000)
+    counters = readFeedbackCounters(sessionKey)
+    ufs = readUserFeedbacks(sessionKey)
+  }
+  return { counters, ufs }
 }
 
 /** 取会话最新一条 user 消息 ID（edit/resend 需要 messageId） */
@@ -351,6 +400,7 @@ function run() {
   assert(fs.existsSync(LUMII_UI), `CLI 不存在: ${LUMII_UI}`)
 
   const snap = snapshotState()
+  const disabledJobs = disableBackgroundCronJobs()
   cleanupProbeGoals()
 
   try {
@@ -689,7 +739,8 @@ function run() {
 
       runTest('I2', '同日第二次 tick 不重复写日记', () => {
         const msgBefore = evolutionMessageCount()
-        cronTick()
+        const r = cronTick({ timeoutMs: 150000 })
+        assert(!r.timedOut, '第二次 tick 超时（150s）')
         const run = lastRunSummary()
         assert(!/diary/.test(run?.summary ?? ''), `同日第二次不应再写日记，实际 "${run?.summary}"`)
         const msgAfter = evolutionMessageCount()
@@ -699,7 +750,7 @@ function run() {
     }
 
     // ==================== 场景 K：编辑/重发反馈信号（CLI 可达性） ====================
-    runTest('K1', 'edit 负反馈信号落库', () => {
+    runTest('K1', 'edit 负反馈信号落库（计数器/评分消费）', () => {
       const sk = createConv('自主进化LifeE2E-编辑信号')
       okJson(ui(['send', '--session', sk, '--text', '你好，测试编辑信号']), 'send')
       let msgId = null
@@ -713,12 +764,15 @@ function run() {
         'send edit',
       )
       assert(j.success === true, `edit 应成功: ${JSON.stringify(j)}`)
-      const counters = readFeedbackCounters(sk)
-      assert(counters.edits >= 1, `edits 应 >=1: ${JSON.stringify(counters)}`)
-      return `edits=${counters.edits}`
+      const { counters, ufs } = waitForFeedbackSignal(sk, 'edits')
+      assert(
+        counters.edits >= 1 || ufs.some((v) => v < 0.85),
+        `edit 信号应记录（计数器或评分消费）: counters=${JSON.stringify(counters)} ufs=${JSON.stringify(ufs)}`,
+      )
+      return `edits=${counters.edits}, user_feedbacks=${JSON.stringify(ufs)}`
     })
 
-    runTest('K2', 'resend 负反馈信号落库', () => {
+    runTest('K2', 'resend 负反馈信号落库（计数器/评分消费）', () => {
       const sk = createConv('自主进化LifeE2E-重发信号')
       okJson(ui(['send', '--session', sk, '--text', '你好，测试重发信号']), 'send')
       let msgId = null
@@ -733,13 +787,17 @@ function run() {
         'send resend',
       )
       assert(j.success === true, `resend 应成功: ${JSON.stringify(j)}`)
-      const counters = readFeedbackCounters(sk)
-      assert(counters.resends >= 1, `resends 应 >=1: ${JSON.stringify(counters)}`)
-      return `resends=${counters.resends}`
+      const { counters, ufs } = waitForFeedbackSignal(sk, 'resends')
+      assert(
+        counters.resends >= 1 || ufs.some((v) => v < 0.85),
+        `resend 信号应记录（计数器或评分消费）: counters=${JSON.stringify(counters)} ufs=${JSON.stringify(ufs)}`,
+      )
+      return `resends=${counters.resends}, user_feedbacks=${JSON.stringify(ufs)}`
     })
 
     writeReport()
   } finally {
+    restoreBackgroundCronJobs(disabledJobs)
     if (!NO_RESTORE) {
       restoreState(snap)
       console.log('\n[restore] 已恢复 runtime_state 快照')

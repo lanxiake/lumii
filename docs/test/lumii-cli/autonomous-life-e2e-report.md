@@ -1,7 +1,7 @@
 # 自主进化「心跳与生命感」E2E 测试报告
 
-**执行时间**: 2026-09-06T07:42:36.899Z
-**结果**: 21 PASS / 0 FAIL / 0 SKIP（共 21）
+**执行时间**: 2026-09-06T09:25:56.039Z
+**结果**: 23 PASS / 0 FAIL / 0 SKIP（共 23）
 **数据库**: `C:\Users\Administrator\.lumii\data\agent-runtime.db`
 **驱动方式**: 真实动作（发消息/改设置/cron run/删除）经 lumii-ui CLI，探针播种经 node:sqlite，读取回查 DB 验证落库
 
@@ -20,21 +20,20 @@
 | E2 | PASS | 最小间隔未到 → 不再发: summary="idle"，目标仍 executing |
 | E3 | PASS | 预算用尽 → 主动消息停发: summary="idle"，计数封顶 20 |
 | B2 | PASS | 删除守卫拒绝删除 evolution:main: 拒绝（code=5），会话仍在 |
-| D1 | PASS | learning 目标执行 → 完成 + 独白: 目标 completed，独白 "已查阅文档并核对来源，下面是结论。
+| D1 | PASS | learning 目标执行 → 完成 + 独白: 目标 completed，独白 "**一句话答案：**
 
-**一句话说明**
-
-…"，mood {"energy":0.7786147255047103,"valence":0.4395257444066517,"arousal":0.6828213671177848,"updatedAt":1788680504966} |
-| G1 | PASS | 目标执行触发情绪事件（方向断言）: d1Status=completed → mood {"energy":0.7789133135763829,"valence":0.18984257229637247,"arousal":0.833377740563134,"updatedAt":1788680470266} -> {"energy":0.7786147255047103,"valence":0.4395257444066517,"arousal":0.6828213671177848,"updatedAt":1788680504966} |
+心跳（heartbeat）是自主进化…"，mood {"energy":0.7583689170075971,"valence":0.39066714063818475,"arousal":0.6615220081360822,"updatedAt":1788686698528} |
+| G1 | PASS | 目标执行触发情绪事件（方向断言）: d1Status=completed → mood {"energy":0.7585326319008799,"valence":0.14081255620553926,"arousal":0.8118440460288765,"updatedAt":1788686677063} -> {"energy":0.7583689170075971,"valence":0.39066714063818475,"arousal":0.6615220081360822,"updatedAt":1788686698528} |
 | J2 | PASS | 目标执行后 token 累计: 今日已消耗 10000 token（≥8000） |
 | J1 | PASS | 预算超限 → 目标执行降级 idle: summary="idle"，未烧 LLM |
 | H1 | PASS | 对话中顺带提起牵挂（提一次）: raisedCount=1，nextRaiseAfter 后移，status=open |
 | H2 | PASS | 提两次无回应 → dropped: raisedCount=2，status=dropped |
 | H3 | PASS | 牵挂只进上下文，不产生通知: outreach 计数仍为 20（牵挂不触达系统通知） |
-| F1 | PASS | 静默时段 + 满 24h → tick 触发反思: trigger=scheduled primaryIssue="会话缺少明确的意图识别、验收确认与知识沉淀闭环，导致反馈波动…" |
-| I1 | PASS | 静默时段 + 今日未写 → 写日记入 evolution:main: 日记 "今天很平淡。  
-我把“心跳”在系统里的作用解释成一句维护节…"，无指标词，标记今日已写 |
+| F1 | PASS | 静默时段 + 满 24h → tick 触发反思: trigger=scheduled primaryIssue="反馈评分波动大且低反馈频繁，同时知识沉淀和效率表现或记录不稳…" |
+| I1 | PASS | 静默时段 + 今日未写 → 写日记入 evolution:main: 日记 "今天很轻。完成了几个小目标，把“心跳”在自主进化系统里的作用…"，无指标词，标记今日已写 |
 | I2 | PASS | 同日第二次 tick 不重复写日记: summary="idle"，消息数不变 |
+| K1 | PASS | edit 负反馈信号落库（计数器/评分消费）: edits=1, user_feedbacks=[] |
+| K2 | PASS | resend 负反馈信号落库（计数器/评分消费）: resends=1, user_feedbacks=[] |
 
 ## 覆盖范围
 
@@ -57,8 +56,8 @@
 - ~~反思双重触发冗余~~ ✅ 已修（移除 23:00 Cron，统一由心跳 reflect 分支触发）
 - ~~tickIntervalMinutes 未接线~~ ✅ 已修（接入 cron interval_ms + 设置变更即时重载）
 - ~~outreachChannels 未实现~~ ✅ 已由并行提交接入（sendOutreach 按渠道派发）
-- Mood → 桌宠实时表情未接线（moodToPetEmotion 仅纯函数 + AutonomousPage emoji 映射）
-- 编辑/重发反馈信号只在前端 UI 触发，CLI 无 edit/resend 子命令
+- ~~Mood → 桌宠实时表情未接线~~ ✅ 已修（recordMoodEvent 推 autonomous:mood:emotion 事件）
+- ~~编辑/重发反馈信号 CLI 不可达~~ ✅ 已修（白名单放行 + CLI send edit/send resend）
 
 ## 说明
 
