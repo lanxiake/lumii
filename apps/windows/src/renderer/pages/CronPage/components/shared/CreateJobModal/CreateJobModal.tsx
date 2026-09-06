@@ -20,7 +20,7 @@ const NOTIFY_TARGETS = [
   { id: 'news', label: '最近资讯', hint: '写入概览页资讯卡片' },
   { id: 'focus', label: '近期关注', hint: '写入概览页关注卡片' },
   { id: 'feishu', label: '飞书', hint: '推送到飞书私聊', needsFeishu: true },
-  { id: 'silent', label: '静默执行', hint: '任务自行处理产出，不额外通知' },
+  { id: 'silent', label: '静默执行', hint: '任务自行处理产出，不额外通知（与其它渠道互斥）' },
 ] as const
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
@@ -114,7 +114,12 @@ export const CreateJobModal: FC<CreateJobModalProps> = ({ agents, defaultAgentId
   const canSubmit = Boolean(name.trim() && taskText.trim() && agentId && !scheduleError && !noDaySelected && !submitting)
 
   const toggleDay = (day: string) => setDays((current) => current.includes(day) ? current.filter((item) => item !== day) : [...current, day])
-  const toggleNotify = (id: string) => setNotify((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+  /** 静默执行与其它渠道互斥：选静默则清空其它，选其它则清空静默。 */
+  const toggleNotify = (id: string) => setNotify((current) => {
+    if (id === 'silent') return current.includes('silent') ? [] : ['silent']
+    const rest = current.filter((t) => t !== 'silent')
+    return rest.includes(id) ? rest.filter((t) => t !== id) : [...rest, id]
+  })
 
   /** 收起状态下要能看出选了哪些渠道，所以按 NOTIFY_TARGETS 顺序拼名字而不是显示「已选 2 项」 */
   const notifySummary = notify.length === 0
@@ -256,12 +261,15 @@ export const CreateJobModal: FC<CreateJobModalProps> = ({ agents, defaultAgentId
             {notifyOpen && (
               <div className={styles.notifyPanel} role="listbox" aria-multiselectable="true">
                 {NOTIFY_TARGETS.map((target) => {
-                  const disabled = 'needsFeishu' in target && target.needsFeishu === true && !feishuReady
+                  const needsFeishu = 'needsFeishu' in target && target.needsFeishu === true && !feishuReady
+                  const mutedByExclusive =
+                    target.id === 'silent' ? notify.some((t) => t !== 'silent') : notify.includes('silent')
+                  const disabled = needsFeishu || mutedByExclusive
                   return (
                     <label key={target.id} className={`${styles.notifyItem} ${disabled ? styles.notifyDisabled : ''}`}>
                       <input type="checkbox" checked={notify.includes(target.id)} disabled={disabled} onChange={() => toggleNotify(target.id)} />
                       <span className={styles.notifyLabel}>{target.label}</span>
-                      <span className={styles.notifyHint}>{disabled ? '需先在设置中登录飞书' : target.hint}</span>
+                      <span className={styles.notifyHint}>{needsFeishu ? '需先在设置中登录飞书' : mutedByExclusive ? '与静默执行互斥' : target.hint}</span>
                     </label>
                   )
                 })}
