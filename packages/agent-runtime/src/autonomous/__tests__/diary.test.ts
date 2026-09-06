@@ -12,14 +12,14 @@ import {
 describe('DIARY_PROMPT', () => {
   it('含防指标/表演情绪的关键约束', () => {
     expect(DIARY_PROMPT).toContain('平淡');
-    expect(DIARY_PROMPT).toContain('别凑字数');
+    expect(DIARY_PROMPT).toContain('凑篇幅');
     expect(DIARY_PROMPT).toContain('满意度');
     expect(DIARY_PROMPT).toContain('第一人称');
   });
 
   it('含历史日记连续性指引', () => {
     expect(DIARY_PROMPT).toContain('最近的日记');
-    expect(DIARY_PROMPT).toContain('延续');
+    expect(DIARY_PROMPT).toContain('续写');
   });
 });
 

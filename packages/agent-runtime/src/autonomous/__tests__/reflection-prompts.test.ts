@@ -88,7 +88,7 @@ describe('反思提示词', () => {
     it('应包含模板的关键部分', () => {
       const prompt = buildReflectionPrompt([], { states: [], gaps: [], overallLevel: 0.5 }, []);
 
-      expect(prompt).toContain('元认知引擎');
+      expect(prompt).toContain('灵栖');
       expect(prompt).toContain('问题诊断');
       expect(prompt).toContain('改进建议');
       expect(prompt).toContain('学习目标建议');

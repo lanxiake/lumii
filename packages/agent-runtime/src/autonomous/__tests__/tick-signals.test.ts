@@ -27,6 +27,7 @@ const emptySignals = {
   tokenLimit: 100000,
   willDoHeavyWork: true,
   outreachMultiplier: 1,
+  selfCheckBias: false,
 };
 
 describe('decideAction', () => {
@@ -200,6 +201,17 @@ describe('decideAction', () => {
     // 有效上限 = floor(20 * 0.5) = 10；已用 12 ≥ 10 → 不发
     expect(action.kind).toBe('idle');
   });
+
+  it('心情差 → execute-goal 携带审慎标记', () => {
+    const action = decideAction({
+      ...emptySignals,
+      approvedGoalCount: 1,
+      approvedGoals: [{ id: 'g2', type: 'learning', description: '学习' }],
+      selfCheckBias: true,
+    });
+    expect(action.kind).toBe('execute-goal');
+    expect(action.selfCheckBias).toBe(true);
+  });
 });
 
 describe('collectTickSignals', () => {
@@ -222,5 +234,17 @@ describe('collectTickSignals', () => {
     const db = makeDb([], [{ created_at: new Date(2026, 8, 6, 20, 0, 0).toISOString() }]);
     const signals = collectTickSignals(db, 'assistant', new Date(2026, 8, 6, 23, 30, 0));
     expect(signals.reflectionDue).toBe(false);
+  });
+
+  it('深夜昼夜节律压低能量 → 不做重活', () => {
+    const db = makeDb([{ id: 'g2', type: 'learning', description: '学习' }]);
+    const signals = collectTickSignals(db, 'assistant', new Date(2026, 8, 6, 3, 0, 0));
+    expect(signals.willDoHeavyWork).toBe(false);
+  });
+
+  it('午间昼夜节律 → 正常做重活', () => {
+    const db = makeDb([]);
+    const signals = collectTickSignals(db, 'assistant', new Date(2026, 8, 6, 12, 0, 0));
+    expect(signals.willDoHeavyWork).toBe(true);
   });
 });

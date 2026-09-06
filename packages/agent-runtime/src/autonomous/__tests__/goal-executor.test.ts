@@ -23,10 +23,20 @@ describe('buildGoalPrompt', () => {
     GoalType.MEMORY_OPTIMIZATION, // 走 default 分支
   ];
 
-  it.each(types)('类型 %s 含「停止/如实说明」安全出口', (type) => {
+  it.each(types)('类型 %s 含「停止/如实」安全出口', (type) => {
     const prompt = buildGoalPrompt(makeGoal(type));
-    expect(prompt).toContain('如实说明');
+    expect(prompt).toContain('如实');
     expect(prompt).toContain('测试目标描述');
+  });
+
+  it('审慎状态时含复查护栏', () => {
+    const prompt = buildGoalPrompt(makeGoal(GoalType.LEARNING), true);
+    expect(prompt).toContain('复查');
+  });
+
+  it('非审慎状态时不含复查护栏', () => {
+    const prompt = buildGoalPrompt(makeGoal(GoalType.LEARNING), false);
+    expect(prompt).not.toContain('复查');
   });
 });
 

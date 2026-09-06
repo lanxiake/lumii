@@ -22,6 +22,8 @@ export interface DecisionParams {
   willDoHeavyWork: boolean;
   /** 主动打扰系数（低 valence 时 < 1，少打扰） */
   outreachMultiplier: number;
+  /** 心情差时更审慎，倾向复查自己的结论（valence < -0.2 时 true） */
+  selfCheckBias: boolean;
 }
 
 /** 桌宠表情（对齐 emotionMap 标准 key，见 renderer PetEmotionMapper） */
@@ -85,6 +87,7 @@ export function moodToDecisionParams(mood: Mood): DecisionParams {
   return {
     willDoHeavyWork: mood.energy > 0.4,
     outreachMultiplier: mood.valence >= 0 ? 1 : 0.5,
+    selfCheckBias: mood.valence < -0.2,
   };
 }
 

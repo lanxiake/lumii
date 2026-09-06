@@ -955,7 +955,7 @@ export class AgentRuntimeBridge {
                     contentJson: { type: 'text', text },
                   })
                 },
-                executeGoal: async (goal) => {
+                executeGoal: async (goal, selfCheckBias) => {
                   const convId = EVOLUTION_CONVERSATION_ID
                   this.ensureConversationExists(convId, '自主进化 · 内心独白')
                   // 硬防线：目标执行实例只挂白名单内的只读工具，不继承 assistant 全量工具，
@@ -974,7 +974,7 @@ export class AgentRuntimeBridge {
                   }
                   const instanceId = await this.createInstance(restrictedDef, convId, convId)
                   try {
-                    await this.prompt(instanceId, buildGoalPrompt(goal))
+                    await this.prompt(instanceId, buildGoalPrompt(goal, selfCheckBias))
                     await this.waitForInstanceIdle(instanceId)
                     const output = this.getAssistantOutputFromInstance(instanceId) ?? ''
                     const ok = output.trim().length > 0

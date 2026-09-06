@@ -13,7 +13,7 @@ import { REFLECTION_MIN_INTERVAL_HOURS } from './config.js';
 import { hasWrittenDiaryToday } from './diary.js';
 import { readSettings } from './settings.js';
 import { TOKEN_COST, readTodayTokenUsage } from './token-budget.js';
-import { readMood, moodToDecisionParams } from './mood.js';
+import { readMood, moodToDecisionParams, circadianEnergy } from './mood.js';
 
 /** 一条待执行的已批准目标（最小信号） */
 export interface ApprovedGoalSignal {
@@ -48,6 +48,8 @@ export interface TickSignals {
   willDoHeavyWork: boolean;
   /** 主动打扰系数（低 valence 时 0.5，来自 moodToDecisionParams） */
   outreachMultiplier: number;
+  /** 心情差时更审慎（低 valence 时 true，来自 moodToDecisionParams） */
+  selfCheckBias: boolean;
 }
 
 /** 单次心跳的决策结果 */
@@ -56,6 +58,8 @@ export interface TickAction {
   reason: string;
   /** execute-goal / outreach 时携带要处理的目标 */
   goal?: ApprovedGoalSignal;
+  /** execute-goal 时携带：心情差时提示审慎复查 */
+  selfCheckBias?: boolean;
 }
 
 /**
@@ -67,7 +71,13 @@ export function collectTickSignals(db: DatabaseAdapter, agentId: string, now = n
   // 心跳必须消费 executing 状态，否则目标会永远卡住不被执行
   const approved = repo.listGoals(agentId, 'executing');
   const settings = readSettings(db);
-  const decisionParams = moodToDecisionParams(readMood(db, now.getTime()));
+  const mood = readMood(db, now.getTime());
+  // 昼夜节律调制 energy：深夜自然不干重活、午间更活跃（设计 §7.2，零存储零 token）
+  const effectiveMood = {
+    ...mood,
+    energy: Math.max(0, Math.min(1, mood.energy * circadianEnergy(now.getHours()))),
+  };
+  const decisionParams = moodToDecisionParams(effectiveMood);
   return {
     approvedGoalCount: approved.length,
     approvedGoals: approved.map((g) => ({ id: g.id, type: g.type, description: g.description })),
@@ -81,6 +91,7 @@ export function collectTickSignals(db: DatabaseAdapter, agentId: string, now = n
     tokenLimit: settings.maxTokensPerDay,
     willDoHeavyWork: decisionParams.willDoHeavyWork,
     outreachMultiplier: decisionParams.outreachMultiplier,
+    selfCheckBias: decisionParams.selfCheckBias,
   };
 }
 
@@ -137,7 +148,7 @@ export function decideAction(signals: TickSignals, now = new Date()): TickAction
     if (!tokenAllowed(signals, TOKEN_COST.executeGoal)) {
       return { kind: 'idle', reason: 'token-budget-exhausted' };
     }
-    return { kind: 'execute-goal', reason: 'approved-goal-pending', goal: executable };
+    return { kind: 'execute-goal', reason: 'approved-goal-pending', goal: executable, selfCheckBias: signals.selfCheckBias };
   }
   if (signals.diaryDue) {
     if (!tokenAllowed(signals, TOKEN_COST.writeDiary)) {

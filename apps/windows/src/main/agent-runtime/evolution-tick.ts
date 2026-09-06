@@ -32,7 +32,7 @@ export interface EvolutionTickDeps {
   /** 往 evolution:main 会话追加一条内心独白（内部负责 ensureConversationExists） */
   appendEvolutionMessage: (text: string) => void
   /** 执行一个已批准目标（复用 bridge 的驱动能力 + 工具白名单护栏） */
-  executeGoal: (goal: ApprovedGoalSignal) => Promise<string>
+  executeGoal: (goal: ApprovedGoalSignal, selfCheckBias?: boolean) => Promise<string>
   /** 发送一条主动消息（proactive-message 目标，走系统通知 + 预算计数） */
   sendOutreach: (goal: ApprovedGoalSignal) => Promise<string>
   /** 触发一次自我反思（复用已装配的 ReflectionEngine） */
@@ -68,7 +68,7 @@ export async function handleEvolutionTick(deps: EvolutionTickDeps): Promise<stri
       return `outreach: ${result}`
     }
     if (action.kind === 'execute-goal' && action.goal) {
-      const result = await deps.executeGoal(action.goal)
+      const result = await deps.executeGoal(action.goal, action.selfCheckBias)
       recordTokenUsage(deps.getDb(), now, TOKEN_COST.executeGoal)
       log.info(`[handleEvolutionTick] execute-goal goalId=${action.goal.id} result=${result}`)
       return `execute-goal: ${result}`

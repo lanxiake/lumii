@@ -72,6 +72,16 @@ describe('moodToDecisionParams', () => {
     expect(params.willDoHeavyWork).toBe(true);
     expect(params.outreachMultiplier).toBe(1);
   });
+
+  it('低 valence（<-0.2）→ 审慎复查', () => {
+    const params = moodToDecisionParams({ energy: 0.8, valence: -0.5, arousal: 0.5, updatedAt: 0 });
+    expect(params.selfCheckBias).toBe(true);
+  });
+
+  it('非负 valence → 不强制审慎', () => {
+    const params = moodToDecisionParams({ energy: 0.8, valence: 0.3, arousal: 0.5, updatedAt: 0 });
+    expect(params.selfCheckBias).toBe(false);
+  });
 });
 
 describe('moodToPetEmotion', () => {
