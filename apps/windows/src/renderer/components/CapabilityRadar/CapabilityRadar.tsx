@@ -6,6 +6,7 @@
  */
 
 import React from 'react'
+import { useDataThemeColorMode } from '../../hooks/common/useDataThemeColorMode/useDataThemeColorMode'
 import './CapabilityRadar.css'
 
 /**
@@ -20,6 +21,25 @@ const DIMENSION_LABELS: Record<string, string> = {
   creative_writing: '创意写作',
   logical_reasoning: '逻辑推理',
   multi_step_planning: '多步规划',
+}
+
+/* canvas 画不了 CSS 变量，这里映射到 token 名，运行时取计算值，
+   避免写死 hex 在浅色/深色主题下失真 */
+const readToken = (name: string, fallback: string): string => {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return v || fallback
+}
+
+/** 雷达图绘制配色 */
+interface RadarColors {
+  grid: string
+  axis: string
+  levelFill: string
+  levelStroke: string
+  confFill: string
+  confStroke: string
+  label: string
+  sublabel: string
 }
 
 /**
@@ -43,6 +63,7 @@ interface CapabilityRadarProps {
  */
 export function CapabilityRadar({ capabilities, size = 280 }: CapabilityRadarProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
+  const colorMode = useDataThemeColorMode()
 
   const data = React.useMemo(() => {
     return Object.entries(capabilities).map(([dim, state]) => ({
@@ -61,6 +82,17 @@ export function CapabilityRadar({ capabilities, size = 280 }: CapabilityRadarPro
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    const colors: RadarColors = {
+      grid: readToken('--mt-fg-3', '#94a3b8'),
+      axis: readToken('--mt-fg-3', '#94a3b8'),
+      levelFill: `rgba(${readToken('--mt-accent-rgb', '59, 130, 246')}, 0.28)`,
+      levelStroke: `rgba(${readToken('--mt-accent-rgb', '59, 130, 246')}, 0.85)`,
+      confFill: `rgba(${readToken('--mt-success-rgb', '34, 197, 94')}, 0.16)`,
+      confStroke: `rgba(${readToken('--mt-success-rgb', '34, 197, 94')}, 0.8)`,
+      label: readToken('--mt-fg-2', '#334155'),
+      sublabel: readToken('--mt-fg-3', '#64748b'),
+    }
+
     const dpr = globalThis.devicePixelRatio || 1
     canvas.width = size * dpr
     canvas.height = size * dpr
@@ -68,8 +100,8 @@ export function CapabilityRadar({ capabilities, size = 280 }: CapabilityRadarPro
     canvas.style.height = `${size}px`
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, size, size)
-    drawRadarChart(ctx, size, size, data)
-  }, [data, size])
+    drawRadarChart(ctx, size, size, data, colors)
+  }, [data, size, colorMode])
 
   if (data.length === 0) {
     return (
@@ -108,6 +140,7 @@ function drawRadarChart(
     level: number
     confidence: number
   }>,
+  colors: RadarColors,
 ) {
   if (data.length === 0) return
 
@@ -117,7 +150,8 @@ function drawRadarChart(
   const levels = 5
   const angleStep = (Math.PI * 2) / data.length
 
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)'
+  ctx.strokeStyle = colors.grid
+  ctx.globalAlpha = 0.45
   ctx.lineWidth = 1
 
   for (let i = 1; i <= levels; i++) {
@@ -134,7 +168,8 @@ function drawRadarChart(
     ctx.stroke()
   }
 
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.55)'
+  ctx.strokeStyle = colors.axis
+  ctx.globalAlpha = 0.55
   for (let i = 0; i < data.length; i++) {
     const angle = angleStep * i - Math.PI / 2
     const x = centerX + radius * Math.cos(angle)
@@ -144,9 +179,10 @@ function drawRadarChart(
     ctx.lineTo(x, y)
     ctx.stroke()
   }
+  ctx.globalAlpha = 1
 
-  ctx.fillStyle = 'rgba(59, 130, 246, 0.28)'
-  ctx.strokeStyle = 'rgba(59, 130, 246, 0.85)'
+  ctx.fillStyle = colors.levelFill
+  ctx.strokeStyle = colors.levelStroke
   ctx.lineWidth = 2
   ctx.beginPath()
   for (let i = 0; i <= data.length; i++) {
@@ -162,8 +198,8 @@ function drawRadarChart(
   ctx.fill()
   ctx.stroke()
 
-  ctx.fillStyle = 'rgba(34, 197, 94, 0.16)'
-  ctx.strokeStyle = 'rgba(34, 197, 94, 0.8)'
+  ctx.fillStyle = colors.confFill
+  ctx.strokeStyle = colors.confStroke
   ctx.setLineDash([5, 5])
   ctx.beginPath()
   for (let i = 0; i <= data.length; i++) {
@@ -193,10 +229,10 @@ function drawRadarChart(
     else if (Math.cos(angle) > 0) ctx.textAlign = 'left'
     else ctx.textAlign = 'right'
 
-    ctx.fillStyle = '#334155'
+    ctx.fillStyle = colors.label
     ctx.fillText(data[i].label, x, y)
     ctx.font = '11px sans-serif'
-    ctx.fillStyle = '#64748b'
+    ctx.fillStyle = colors.sublabel
     ctx.fillText(`${(data[i].level * 100).toFixed(0)}%`, x, y + 14)
     ctx.font = '12px sans-serif'
   }

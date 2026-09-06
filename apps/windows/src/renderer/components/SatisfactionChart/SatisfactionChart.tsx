@@ -6,6 +6,7 @@
  */
 
 import React from 'react'
+import { useDataThemeColorMode } from '../../hooks/common/useDataThemeColorMode/useDataThemeColorMode'
 import './SatisfactionChart.css'
 
 /**
@@ -35,6 +36,22 @@ const CHART_PAD = {
   left: 48,
 } as const
 
+/* canvas 画不了 CSS 变量，这里映射到 token 名，运行时取计算值，
+   避免写死 hex 在浅色/深色主题下失真 */
+const readToken = (name: string, fallback: string): string => {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return v || fallback
+}
+
+/** 折线图绘制配色 */
+interface ChartColors {
+  grid: string
+  axisLabel: string
+  line: string
+  area: string
+  point: string
+}
+
 /**
  * 满意度趋势图组件
  */
@@ -43,6 +60,7 @@ export function SatisfactionChart({ history, window = '7d', fillHeight = false }
   const containerRef = React.useRef<HTMLDivElement>(null)
   const [hoveredPoint, setHoveredPoint] = React.useState<number | null>(null)
   const [size, setSize] = React.useState({ width: 640, height: 240 })
+  const colorMode = useDataThemeColorMode()
 
   const filteredData = React.useMemo(() => {
     const now = Date.now()
@@ -86,6 +104,14 @@ export function SatisfactionChart({ history, window = '7d', fillHeight = false }
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    const colors: ChartColors = {
+      grid: readToken('--mt-fg-3', '#94a3b8'),
+      axisLabel: readToken('--mt-fg-3', '#94a3b8'),
+      line: readToken('--mt-accent-500', '#3b82f6'),
+      area: `rgba(${readToken('--mt-accent-rgb', '59, 130, 246')}, 0.12)`,
+      point: readToken('--mt-accent-500', '#3b82f6'),
+    }
+
     const dpr = globalThis.devicePixelRatio || 1
     canvas.width = size.width * dpr
     canvas.height = size.height * dpr
@@ -93,8 +119,8 @@ export function SatisfactionChart({ history, window = '7d', fillHeight = false }
     canvas.style.height = `${size.height}px`
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-    drawChart(ctx, size.width, size.height, filteredData)
-  }, [filteredData, size])
+    drawChart(ctx, size.width, size.height, filteredData, colors)
+  }, [filteredData, size, colorMode])
 
   if (filteredData.length === 0) {
     return (
@@ -180,6 +206,7 @@ function drawChart(
   width: number,
   height: number,
   data: SatisfactionDataPoint[],
+  colors: ChartColors,
 ) {
   const { top, right, bottom, left } = CHART_PAD
   const chartWidth = Math.max(1, width - left - right)
@@ -188,18 +215,21 @@ function drawChart(
   ctx.clearRect(0, 0, width, height)
 
   // Y 轴网格与标签
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)'
   ctx.lineWidth = 1
   ctx.font = '11px system-ui, "Segoe UI", sans-serif'
 
   for (let i = 0; i <= 5; i++) {
     const y = top + (chartHeight * (5 - i)) / 5
+
+    ctx.strokeStyle = colors.grid
+    ctx.globalAlpha = 0.35
     ctx.beginPath()
     ctx.moveTo(left, y)
     ctx.lineTo(width - right, y)
     ctx.stroke()
 
-    ctx.fillStyle = '#94a3b8'
+    ctx.globalAlpha = 1
+    ctx.fillStyle = colors.axisLabel
     ctx.textAlign = 'right'
     ctx.textBaseline = 'middle'
     ctx.fillText(`${i * 20}%`, left - 6, y)
@@ -217,7 +247,7 @@ function drawChart(
   }
 
   // 折线
-  ctx.strokeStyle = '#3b82f6'
+  ctx.strokeStyle = colors.line
   ctx.lineWidth = 2.5
   ctx.beginPath()
   data.forEach((_, index) => {
@@ -228,7 +258,7 @@ function drawChart(
   ctx.stroke()
 
   // 面积
-  ctx.fillStyle = 'rgba(59, 130, 246, 0.12)'
+  ctx.fillStyle = colors.area
   ctx.beginPath()
   const first = pointAt(0)
   ctx.moveTo(first.x, top + chartHeight)
@@ -242,7 +272,7 @@ function drawChart(
   ctx.fill()
 
   // 数据点
-  ctx.fillStyle = '#3b82f6'
+  ctx.fillStyle = colors.point
   data.forEach((_, index) => {
     const { x, y } = pointAt(index)
     ctx.beginPath()
@@ -251,7 +281,7 @@ function drawChart(
   })
 
   // X 轴日期标签（短格式，避免溢出）
-  ctx.fillStyle = '#94a3b8'
+  ctx.fillStyle = colors.axisLabel
   ctx.font = '11px system-ui, "Segoe UI", sans-serif'
   ctx.textBaseline = 'top'
 

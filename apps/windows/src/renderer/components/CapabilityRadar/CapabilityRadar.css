@@ -45,12 +45,12 @@
 }
 
 .legend-color.level {
-  background: rgba(59, 130, 246, 0.65);
+  background: rgba(var(--mt-accent-rgb), 0.65);
 }
 
 .legend-color.confidence {
-  background: rgba(34, 197, 94, 0.55);
-  border: 1.5px dashed rgba(34, 197, 94, 0.85);
+  background: rgba(var(--mt-success-rgb), 0.55);
+  border: 1.5px dashed rgba(var(--mt-success-rgb), 0.85);
 }
 
 .legend-label {

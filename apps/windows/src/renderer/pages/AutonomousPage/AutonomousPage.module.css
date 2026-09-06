@@ -553,7 +553,7 @@
   padding: var(--spacing-2) var(--spacing-3);
   border: 1px solid var(--mt-border);
   border-radius: var(--mt-radius-md);
-  background: var(--mt-bg-2);
+  background: var(--mt-bg-tertiary);
   color: var(--mt-fg-1);
   font-size: var(--font-size-sm);
 }
