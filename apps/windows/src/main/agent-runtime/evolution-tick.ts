@@ -104,8 +104,14 @@ export function ensureEvolutionCronJobSeeded(db: DatabaseAdapter, isEnabled: boo
       .get(EVOLUTION_TICK_CRON_ID)
 
     if (existing) {
+      // 自愈：__evolution_tick__ 是魔法指令，只能由 companion 拦截（agent_id 必须为 NULL）。
+      // 若被改成 agent 驱动（agent_id 非空），cron 会把它当真实 prompt 驱动 assistant，导致 tick 失效。
+      // 这里每次启动强制复位为 companion 指令形态。
       db.prepare(
-        `UPDATE local_cron_jobs SET enabled = ?, interval_ms = ? WHERE id = ?`,
+        `UPDATE local_cron_jobs SET enabled = ?, interval_ms = ?, agent_id = NULL,
+         schedule_type = 'every', schedule_expr = '',
+         active_hour_start = NULL, active_hour_end = NULL, notify_targets = NULL
+         WHERE id = ?`,
       ).run(isEnabled ? 1 : 0, intervalMs, EVOLUTION_TICK_CRON_ID)
       return
     }
