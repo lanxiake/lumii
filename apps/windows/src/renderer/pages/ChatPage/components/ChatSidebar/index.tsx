@@ -5,21 +5,27 @@ import { useAgents } from '../../../../hooks/business/useAgents/useAgents'
 import type { ChatSession } from '../../../../hooks/business/useChat'
 import styles from './ChatSidebar.module.css'
 
-/** 会话渠道：系统默认 / 个人微信 / 企业微信 / 飞书 */
-type SessionChannel = 'default' | 'wechat' | 'wecom' | 'feishu'
+/** 会话来源：系统默认 / 个人微信 / 企业微信 / 飞书 / 定时任务 / 自主进化 */
+type SessionChannel = 'default' | 'wechat' | 'wecom' | 'feishu' | 'cron' | 'evolution'
+
+/** 侧栏顶层 tab */
+type SidebarTab = 'default' | 'channel' | 'system'
 
 interface ChannelMeta {
   id: SessionChannel
   label: string
   icon: string
+  tab: SidebarTab
 }
 
-/** 固定渠道顺序（始终展示系统默认；其余有会话时展示） */
+/** 固定来源顺序（默认 tab 放系统默认；渠道 tab 放外部渠道；系统 tab 放定时任务/自主进化） */
 const CHANNEL_META: readonly ChannelMeta[] = [
-  { id: 'default', label: '系统默认', icon: '本机' },
-  { id: 'wechat', label: '个人微信', icon: '微信' },
-  { id: 'wecom', label: '企业微信', icon: '企微' },
-  { id: 'feishu', label: '飞书', icon: '飞书' },
+  { id: 'default', label: '系统默认', icon: '本机', tab: 'default' },
+  { id: 'wechat', label: '个人微信', icon: '微信', tab: 'channel' },
+  { id: 'wecom', label: '企业微信', icon: '企微', tab: 'channel' },
+  { id: 'feishu', label: '飞书', icon: '飞书', tab: 'channel' },
+  { id: 'cron', label: '定时任务', icon: '定时', tab: 'system' },
+  { id: 'evolution', label: '自主进化', icon: '进化', tab: 'system' },
 ]
 
 interface ChatSidebarProps {
@@ -36,7 +42,15 @@ interface ChatSidebarProps {
  * 归一化会话渠道（兼容旧数据 / 空值）。
  */
 function normalizeChannel(channel?: string): SessionChannel {
-  if (channel === 'wechat' || channel === 'wecom' || channel === 'feishu') return channel
+  if (
+    channel === 'wechat' ||
+    channel === 'wecom' ||
+    channel === 'feishu' ||
+    channel === 'cron' ||
+    channel === 'evolution'
+  ) {
+    return channel
+  }
   return 'default'
 }
 
@@ -68,8 +82,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   const [collapsedChannels, setCollapsedChannels] = useState<Set<string>>(() => new Set())
   /** 绑定渠道弹窗 */
   const [bindModalOpen, setBindModalOpen] = useState(false)
-  /** 默认会话 / 渠道会话 两态切换 */
-  const [tab, setTab] = useState<'default' | 'channel'>('default')
+  /** 默认会话 / 渠道会话 / 系统会话 三态切换 */
+  const [tab, setTab] = useState<SidebarTab>('default')
 
   const { agents } = useAgents()
   const agentsMap = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents])
@@ -160,8 +174,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
         bucket.today.length +
         bucket.yesterday.length +
         bucket.earlier.length
-      // 默认 tab 只要系统默认；渠道 tab 只要有会话的外部渠道
-      if (tab === 'default' ? meta.id !== 'default' : meta.id === 'default' || total === 0) continue
+      // 各 tab 只展示归属自己的来源分组；渠道/系统 tab 隐藏空分组
+      if (meta.tab !== tab) continue
+      if (tab !== 'default' && total === 0) continue
       visible.push({ meta, ...bucket, total })
     }
 
@@ -232,7 +247,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
     <div className={styles['chat-sidebar']}>
       <ChannelBindModal open={bindModalOpen} onClose={() => setBindModalOpen(false)} />
 
-      {/* 默认会话 / 渠道 两态切换 */}
+      {/* 默认 / 渠道 / 系统 三态切换 */}
       <div className={styles['session-seg']} role="tablist">
         <button
           role="tab"
@@ -249,6 +264,14 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
           onClick={() => setTab('channel')}
         >
           渠道
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === 'system'}
+          className={`${styles['seg-btn']}${tab === 'system' ? ` ${styles['seg-btn--active']}` : ''}`}
+          onClick={() => setTab('system')}
+        >
+          系统
         </button>
       </div>
 
@@ -288,7 +311,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       <div className={styles['conversations-list']}>
         {channelGroups.visible.length === 0 ? (
           <div className={styles['no-conversations']}>
-            {tab === 'channel' ? '暂无渠道会话，先绑定渠道' : '暂无会话，点击上方按钮创建'}
+            {tab === 'channel'
+              ? '暂无渠道会话，先绑定渠道'
+              : tab === 'system'
+                ? '暂无系统会话'
+                : '暂无会话，点击上方按钮创建'}
           </div>
         ) : searchQuery.trim() && filteredSessions.length === 0 ? (
           <div className={styles['no-search-results']}>未找到匹配的会话</div>
@@ -299,7 +326,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
             return (
               <div key={key} className={styles['channel-group']}>
                 {/* 默认 tab 只有一个分组，tab 本身已表明来源，不再重复渠道标题 */}
-                {tab === 'channel' && <div
+                {tab !== 'default' && <div
                   className={`${styles['channel-group-label']} ${styles['channel-group-label--collapsible']}`}
                   onClick={() => toggleChannel(key)}
                   role="button"
@@ -352,19 +379,21 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
         )}
       </div>
 
-      {/* 列表底部主操作：默认 tab 新建对话，渠道 tab 绑定渠道 */}
-      <div className={styles['sidebar-footer']}>
-        {tab === 'default' ? (
-          <button className={styles['footer-btn']} onClick={onCreateSession}>
-            <span className={styles['footer-btn-glyph']}>+</span>
-            新建对话
-          </button>
-        ) : (
-          <button className={styles['footer-btn']} onClick={() => setBindModalOpen(true)}>
-            绑定渠道
-          </button>
-        )}
-      </div>
+      {/* 列表底部主操作：默认 tab 新建对话，渠道 tab 绑定渠道，系统 tab 无操作 */}
+      {tab !== 'system' && (
+        <div className={styles['sidebar-footer']}>
+          {tab === 'default' ? (
+            <button className={styles['footer-btn']} onClick={onCreateSession}>
+              <span className={styles['footer-btn-glyph']}>+</span>
+              新建对话
+            </button>
+          ) : (
+            <button className={styles['footer-btn']} onClick={() => setBindModalOpen(true)}>
+              绑定渠道
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

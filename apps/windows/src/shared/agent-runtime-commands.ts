@@ -1664,6 +1664,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       hasRunning?: boolean
       isPinned?: boolean
       wasInterrupted?: boolean
+      channel?: string
     }[]
   : T extends 'conversation:messages' ? {
       /** 按时间升序的一页消息 */

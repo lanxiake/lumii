@@ -104,7 +104,7 @@ export interface ChatSession {
   agentId?: string
   /** 上次运行被中断（客户端重启检测到 is_streaming=1 残留） */
   wasInterrupted?: boolean
-  /** 会话渠道：'default' | 'wechat' | 'wecom' | 'feishu' */
+  /** 会话来源：'default' | 'wechat' | 'wecom' | 'feishu' | 'cron' | 'evolution' */
   channel?: string
 }
 

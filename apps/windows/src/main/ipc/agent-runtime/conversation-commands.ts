@@ -561,16 +561,20 @@ export async function handleConversationFork(
  * 根据会话 ID / 微信绑定推断渠道标记。
  * - wechat：微信绑定会话，或 id 以 weixin: 开头
  * - wecom / feishu：id 前缀
+ * - cron：定时任务专属会话（cron:<jobId>）
+ * - evolution：自主进化内心独白会话（evolution:main）
  * - default：其余（含客户端本地新建）
  */
-function resolveConversationChannel(
+export function resolveConversationChannel(
   conversationId: string,
   weixinConvIds: Set<string>,
-): 'default' | 'wechat' | 'wecom' | 'feishu' {
+): 'default' | 'wechat' | 'wecom' | 'feishu' | 'cron' | 'evolution' {
   if (weixinConvIds.has(conversationId) || conversationId.startsWith('weixin:')) {
     return 'wechat'
   }
   if (conversationId.startsWith('wecom:')) return 'wecom'
   if (conversationId.startsWith('feishu:')) return 'feishu'
+  if (conversationId === EVOLUTION_CONVERSATION_ID) return 'evolution'
+  if (conversationId.startsWith('cron:')) return 'cron'
   return 'default'
 }

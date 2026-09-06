@@ -315,7 +315,7 @@ export function useAgentRuntimeActions() {
    * 拉取侧栏会话列表：数据**仅来自客户端本地 SQLite**（`conversation:list` → 主进程 `listConversations`），
    * 不经由网关或远程同步；若主进程尚未挂接 Bridge，IPC 会返回 `NOT_READY`，此处对 `NOT_READY` 做有限次重试。
    */
-  const listSessions = useCallback(async (): Promise<readonly { sessionKey: string; title: string; updatedAt: string; agentId?: string; lastMessagePreview?: string; hasRunning?: boolean; isPinned?: boolean; wasInterrupted?: boolean }[]> => {
+  const listSessions = useCallback(async (): Promise<readonly { sessionKey: string; title: string; updatedAt: string; agentId?: string; lastMessagePreview?: string; hasRunning?: boolean; isPinned?: boolean; wasInterrupted?: boolean; channel?: string }[]> => {
     const api = window.electronAPI?.agentRuntime
     if (!api?.sendCommand) return []
 
@@ -339,7 +339,7 @@ export function useAgentRuntimeActions() {
           return []
         }
 
-        const rows = (result as readonly { id: string; sessionKey: string; title: string; updatedAt: string; agentId?: string; lastMessagePreview?: string; hasRunning?: boolean; isPinned?: boolean; wasInterrupted?: boolean }[]).filter(
+        const rows = (result as readonly { id: string; sessionKey: string; title: string; updatedAt: string; agentId?: string; lastMessagePreview?: string; hasRunning?: boolean; isPinned?: boolean; wasInterrupted?: boolean; channel?: string }[]).filter(
           (s) => s.sessionKey,
         )
         debugLog('[useAgentRuntime] conversation:list 条数=', rows.length)

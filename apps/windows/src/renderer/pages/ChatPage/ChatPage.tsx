@@ -238,7 +238,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       return
     }
     if (localRuntimeSessions.length === 0) return
-    const latest = [...localRuntimeSessions].sort(
+    // 排除系统会话（定时任务/自主进化），避免启动误切到后台独白或 cron 记录
+    const candidates = localRuntimeSessions.filter(
+      (s) => s.channel !== 'cron' && s.channel !== 'evolution',
+    )
+    const latest = [...candidates].sort(
       (a, b) => (b.updatedAt > a.updatedAt ? 1 : -1),
     )[0]
     if (latest) {
