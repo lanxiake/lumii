@@ -212,12 +212,12 @@
 | 反思双重触发冗余 | ✅ 已修（本会话） | 删除 `startReflectionScheduler`（23:00 Cron），统一由心跳 reflect 分支触发 |
 | `tickIntervalMinutes` 不生效 | ✅ 已修（本会话） | `ensureEvolutionCronJobSeeded` 读 `readSettings().tickIntervalMinutes`，新增 `syncEvolutionTickSettings()` 设置变更即时重载 |
 | `outreachChannels` 未实现 | ✅ 已修（并行提交 `68ad470`） | `sendOutreach` 已按 `settings.outreachChannels` 派发（system/feishu/weixin/wecom） |
+| Mood → 桌宠实时表情未接线 | ✅ 已修（本会话 `8aca7d3`） | `recordMoodEvent` 用 `moodToPetEmotion` 算情绪键，经 `autonomous:mood:emotion` 事件推宠物窗 `setExpression` |
 
 **仍存在的缺口**（本套不当通过测）：
 
 | 缺口 | 现状 |
 |------|------|
-| Mood → 桌宠实时表情未接线 | `moodToPetEmotion` 是纯函数（单测覆盖），`AutonomousPage` 有独立 emoji 映射，但宠物模式 `PetEmotionMapper` 不消费 mood |
 | 编辑/重发反馈信号 | 采集点只在前端 UI 触发，CLI 无 `edit`/`resend` 子命令 |
 
 ---

@@ -729,7 +729,7 @@ function writeReport() {
     '- ~~反思双重触发冗余~~ ✅ 已修（移除 23:00 Cron，统一由心跳 reflect 分支触发）',
     '- ~~tickIntervalMinutes 未接线~~ ✅ 已修（接入 cron interval_ms + 设置变更即时重载）',
     '- ~~outreachChannels 未实现~~ ✅ 已由并行提交接入（sendOutreach 按渠道派发）',
-    '- Mood → 桌宠实时表情未接线（moodToPetEmotion 仅纯函数 + AutonomousPage emoji 映射）',
+    '- ~~Mood → 桌宠实时表情未接线~~ ✅ 已修（recordMoodEvent 推 autonomous:mood:emotion 事件）',
     '- 编辑/重发反馈信号只在前端 UI 触发，CLI 无 edit/resend 子命令',
     '',
     '## 说明',
