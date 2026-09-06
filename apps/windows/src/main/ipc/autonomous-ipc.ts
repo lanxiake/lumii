@@ -11,6 +11,8 @@ import { ipcMain } from 'electron'
 import { getAgentRuntimeBridge } from './agent-runtime-ipc'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
 import { notifyAutonomousGoalApproved } from '../agent-runtime/autonomous-wiring'
+import { readSettings, writeSettings } from '@mtbot/agent-runtime'
+import type { AutonomousSettings } from '@mtbot/agent-runtime'
 
 const ENABLED_KEY = 'autonomous.enabled'
 const DEFAULT_AGENT_ID = 'assistant'
@@ -221,6 +223,17 @@ ipcMain.handle('autonomous:setEnabled', async (_event, enabled: boolean) => {
   const bridge = requireBridge()
   bridge.runtimeStateRepo.set(ENABLED_KEY, enabled ? 'true' : 'false')
   return { success: true, enabled }
+})
+
+ipcMain.handle('autonomous:settings:get', async () => {
+  const bridge = requireBridge()
+  return readSettings(bridge.db)
+})
+
+ipcMain.handle('autonomous:settings:update', async (_event, settings: Partial<AutonomousSettings>) => {
+  const bridge = requireBridge()
+  writeSettings(bridge.db, settings)
+  return readSettings(bridge.db)
 })
 
 ipcMain.handle('autonomous:getApprovalSettings', async () => null)
