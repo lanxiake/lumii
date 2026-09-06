@@ -299,6 +299,86 @@
   padding-right: var(--spacing-1);
 }
 
+.dimensionItem {
+  display: flex;
+  flex-direction: column;
+}
+
+.dimensionHeader {
+  cursor: pointer;
+  border-radius: var(--mt-radius-md);
+  transition: background var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.dimensionHeader:hover {
+  background: color-mix(in srgb, var(--mt-accent-500) 6%, transparent);
+}
+
+.capabilityTests {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+  margin: -4px 0 var(--spacing-2) var(--spacing-3);
+  padding-left: var(--spacing-3);
+  border-left: 2px solid var(--mt-border);
+}
+
+.capabilityTestsEmpty {
+  color: var(--mt-fg-4);
+  font-size: var(--font-size-xs);
+  padding: var(--spacing-2) 0;
+}
+
+.capabilityTestRow {
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-md);
+  background: var(--mt-bg-secondary);
+}
+
+.capabilityTestSummary {
+  color: var(--mt-fg-2);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  margin-bottom: var(--spacing-1);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.capabilityTestMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  font-size: var(--font-size-xs);
+  color: var(--mt-fg-3);
+}
+
+.capabilityTestResult {
+  font-weight: var(--mt-fw-semibold);
+}
+
+.capabilityTestResultSuccess {
+  color: var(--mt-success);
+}
+
+.capabilityTestResultPartial {
+  color: var(--mt-warning);
+}
+
+.capabilityTestResultFailure {
+  color: var(--mt-error);
+}
+
+.levelUp {
+  color: var(--mt-success);
+}
+
+.levelDown {
+  color: var(--mt-error);
+}
+
 /* ===== 反思：左列表 + 右详情 ===== */
 .reflectionsGrid {
   display: grid;

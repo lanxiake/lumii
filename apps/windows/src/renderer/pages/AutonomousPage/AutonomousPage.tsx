@@ -59,6 +59,17 @@ type AutonomousGoal = {
   feasibility?: number
 }
 
+type CapabilityTest = {
+  id: string
+  dimension: string
+  taskSummary: string
+  difficulty: number
+  result: 'success' | 'partial' | 'failure'
+  levelBefore: number | null
+  levelAfter: number | null
+  createdAt: string
+}
+
 type AutonomousSettings = {
   enabled: boolean
   tickIntervalMinutes: number
@@ -100,6 +111,7 @@ const api = window.electronAPI?.autonomous || {
   approveGoal: () => Promise.reject(new Error('API not available')),
   rejectGoal: () => Promise.reject(new Error('API not available')),
   getCapabilities: () => Promise.reject(new Error('API not available')),
+  getCapabilityTests: () => Promise.reject(new Error('API not available')),
   getReflections: () => Promise.reject(new Error('API not available')),
   getSatisfactionHistory: () => Promise.reject(new Error('API not available')),
   getPromptStats: () => Promise.reject(new Error('API not available')),
@@ -140,6 +152,8 @@ export function AutonomousPage() {
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [autonomousEnabled, setAutonomousEnabled] = useState(true)
   const [selectedReflectionId, setSelectedReflectionId] = useState<string | null>(null)
+  const [capabilityTests, setCapabilityTests] = useState<CapabilityTest[]>([])
+  const [expandedDimension, setExpandedDimension] = useState<string | null>(null)
 
   useEffect(() => {
     loadData()
@@ -150,10 +164,11 @@ export function AutonomousPage() {
   /** 加载自主进化相关数据 */
   async function loadData() {
     try {
-      const [statusData, goalsData, capabilitiesData, reflectionsData, historyData, promptData, settingsData, moodData, concernsData, diaryData] = await Promise.all([
+      const [statusData, goalsData, capabilitiesData, capabilityTestsData, reflectionsData, historyData, promptData, settingsData, moodData, concernsData, diaryData] = await Promise.all([
         api.getStatus(),
         api.getPendingGoals(),
         api.getCapabilities().catch(() => ({})),
+        api.getCapabilityTests().catch(() => []),
         api.getReflections(20).catch(() => []),
         api.getSatisfactionHistory('7d').catch(() => ({ dataPoints: [] })),
         api.getPromptStats().catch(() => []),
@@ -165,6 +180,7 @@ export function AutonomousPage() {
       setStatus(statusData)
       setGoals(goalsData)
       setCapabilities(capabilitiesData)
+      setCapabilityTests(Array.isArray(capabilityTestsData) ? (capabilityTestsData as CapabilityTest[]) : [])
       setReflections(reflectionsData)
       setSatisfactionHistory(historyData.dataPoints || [])
       setPromptStats(Array.isArray(promptData) ? (promptData as PromptFragmentStats[]) : [])
@@ -439,16 +455,35 @@ export function AutonomousPage() {
                 bodyClassName={styles.cardBodyFill}
               >
                 <div className={styles.capabilitiesList}>
-                  {Object.entries(capabilities).map(([dimension, state]: [string, any]) => (
-                    <CapabilityProgressBar
-                      key={dimension}
-                      dimension={dimension}
-                      level={state.level}
-                      confidence={state.confidence}
-                      testCount={state.testCount}
-                      trend={state.trend || 'stable'}
-                    />
-                  ))}
+                  {Object.entries(capabilities).map(([dimension, state]: [string, any]) => {
+                    const expanded = expandedDimension === dimension
+                    const tests = capabilityTests.filter((t) => t.dimension === dimension)
+                    return (
+                      <div key={dimension} className={styles.dimensionItem}>
+                        <div
+                          className={styles.dimensionHeader}
+                          onClick={() => setExpandedDimension(expanded ? null : dimension)}
+                        >
+                          <CapabilityProgressBar
+                            dimension={dimension}
+                            level={state.level}
+                            confidence={state.confidence}
+                            testCount={state.testCount}
+                            trend={state.trend || 'stable'}
+                          />
+                        </div>
+                        {expanded && (
+                          <div className={styles.capabilityTests}>
+                            {tests.length === 0 ? (
+                              <div className={styles.capabilityTestsEmpty}>暂无测试记录</div>
+                            ) : (
+                              tests.map((test) => <CapabilityTestRow key={test.id} test={test} />)
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                 </div>
               </Card>
             </div>
@@ -812,6 +847,54 @@ function moodToEmoji(mood: MoodState): string {
   if (mood.energy < 0.3) return '😴'
   if (mood.valence < -0.3) return '😞'
   return '😐'
+}
+
+/** 能力测试结果中文标签 */
+const TEST_RESULT_LABELS: Record<string, string> = {
+  success: '成功',
+  partial: '部分',
+  failure: '失败',
+}
+
+/** 格式化能力测试时间（ISO 字符串 → 可读） */
+function formatTestTime(timestamp: string): string {
+  const date = new Date(timestamp)
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+/** 单条能力测试记录 */
+function CapabilityTestRow({ test }: { test: CapabilityTest }) {
+  const delta =
+    test.levelAfter != null && test.levelBefore != null ? test.levelAfter - test.levelBefore : null
+  const resultClass = {
+    success: styles.capabilityTestResultSuccess,
+    partial: styles.capabilityTestResultPartial,
+    failure: styles.capabilityTestResultFailure,
+  }[test.result]
+
+  return (
+    <div className={styles.capabilityTestRow}>
+      <div className={styles.capabilityTestSummary}>{test.taskSummary}</div>
+      <div className={styles.capabilityTestMeta}>
+        <span className={`${styles.capabilityTestResult} ${resultClass}`}>
+          {TEST_RESULT_LABELS[test.result]}
+        </span>
+        <span>难度 {(test.difficulty * 100).toFixed(0)}%</span>
+        {delta != null && (
+          <span className={delta >= 0 ? styles.levelUp : styles.levelDown}>
+            水平 {delta >= 0 ? '+' : ''}
+            {(delta * 100).toFixed(1)}%
+          </span>
+        )}
+        <span>{formatTestTime(test.createdAt)}</span>
+      </div>
+    </div>
+  )
 }
 
 /**

@@ -78,6 +78,20 @@ export interface ApprovalSettings {
 }
 
 /**
+ * 能力测试记录
+ */
+export interface CapabilityTest {
+  id: string
+  dimension: string
+  taskSummary: string
+  difficulty: number
+  result: 'success' | 'partial' | 'failure'
+  levelBefore: number | null
+  levelAfter: number | null
+  createdAt: string
+}
+
+/**
  * 自主进化 API
  */
 export const autonomousApi = {
@@ -126,6 +140,13 @@ export const autonomousApi = {
     >
   > => {
     return ipcRenderer.invoke('autonomous:getCapabilities')
+  },
+
+  /**
+   * 获取能力测试记录（可选按维度过滤，时间倒序）
+   */
+  getCapabilityTests: (dimension?: string, limit?: number): Promise<CapabilityTest[]> => {
+    return ipcRenderer.invoke('autonomous:getCapabilityTests', dimension, limit)
   },
 
   /**

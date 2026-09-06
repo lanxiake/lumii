@@ -174,6 +174,25 @@ ipcMain.handle('autonomous:getCapabilities', async () => {
   }
 })
 
+ipcMain.handle('autonomous:getCapabilityTests', async (_event, dimension?: string, limit = 100) => {
+  try {
+    const bridge = requireBridge()
+    return bridge.autonomousRepo.capabilityTests(DEFAULT_AGENT_ID, dimension, limit).map((t) => ({
+      id: t.id,
+      dimension: t.dimension,
+      taskSummary: t.task_summary,
+      difficulty: t.difficulty,
+      result: t.result,
+      levelBefore: t.level_before,
+      levelAfter: t.level_after,
+      createdAt: t.created_at,
+    }))
+  } catch (error) {
+    console.error('[autonomous:getCapabilityTests]', error)
+    return []
+  }
+})
+
 ipcMain.handle('autonomous:getReflections', async (_event, limit = 10) => {
   try {
     const bridge = requireBridge()

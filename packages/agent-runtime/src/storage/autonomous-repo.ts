@@ -38,6 +38,17 @@ export interface CapabilityRow {
   last_updated: string;
 }
 
+export interface CapabilityTestRow {
+  id: string;
+  dimension: string;
+  task_summary: string;
+  difficulty: number;
+  result: "success" | "partial" | "failure";
+  level_before: number | null;
+  level_after: number | null;
+  created_at: string;
+}
+
 export interface ReflectionRow {
   id: string;
   primary_issue: string;
@@ -191,6 +202,32 @@ export class AutonomousRepo {
           ORDER BY dimension ASC`,
       )
       .all(agentId);
+  }
+
+  /** 能力测试记录（可选按维度过滤，时间倒序，limit 兜底防爆内存） */
+  capabilityTests(agentId: string, dimension?: string, limit = 100): CapabilityTestRow[] {
+    if (dimension) {
+      return this.db
+        .prepare<CapabilityTestRow>(
+          `SELECT id, dimension, task_summary, difficulty, result,
+                  level_before, level_after, created_at
+             FROM capability_tests
+            WHERE agent_id = ? AND dimension = ?
+            ORDER BY created_at DESC
+            LIMIT ?`,
+        )
+        .all(agentId, dimension, limit);
+    }
+    return this.db
+      .prepare<CapabilityTestRow>(
+        `SELECT id, dimension, task_summary, difficulty, result,
+                level_before, level_after, created_at
+           FROM capability_tests
+          WHERE agent_id = ?
+          ORDER BY created_at DESC
+          LIMIT ?`,
+      )
+      .all(agentId, limit);
   }
 
   reflections(agentId: string, limit: number): ReflectionRow[] {
