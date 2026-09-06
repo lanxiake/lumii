@@ -58,7 +58,6 @@ import {
   finalizeGoal,
   canSendOutreach,
   recordOutreach,
-  MAX_OUTREACH_PER_DAY,
   readMood,
   decayMood,
   applyMoodImpact,
@@ -70,6 +69,7 @@ import {
   writeConcerns,
   markConcernRaised,
   markDiaryWritten,
+  readSettings,
 } from '@mtbot/agent-runtime'
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
 import type { AgentMessage, StreamFn } from '@mariozechner/pi-agent-core'
@@ -962,7 +962,8 @@ export class AgentRuntimeBridge {
                 },
                 sendOutreach: async (goal) => {
                   const now = new Date()
-                  if (!canSendOutreach(this.localDb.db, now, MAX_OUTREACH_PER_DAY)) {
+                  const outreachLimit = readSettings(this.localDb.db).maxOutreachPerDay
+                  if (!canSendOutreach(this.localDb.db, now, outreachLimit)) {
                     finalizeGoal(this.localDb.db, goal.id, { success: false, output: '预算用尽' })
                     return 'budget-exhausted'
                   }

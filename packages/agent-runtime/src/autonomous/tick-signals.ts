@@ -9,7 +9,7 @@
 import { AutonomousRepo } from '../storage/autonomous-repo.js';
 import type { DatabaseAdapter } from '../storage/local-database.js';
 import { getOutreachUsedToday } from './outreach-budget.js';
-import { MAX_OUTREACH_PER_DAY, REFLECTION_MIN_INTERVAL_HOURS } from './config.js';
+import { REFLECTION_MIN_INTERVAL_HOURS } from './config.js';
 import { hasWrittenDiaryToday } from './diary.js';
 import { readSettings } from './settings.js';
 import { TOKEN_COST, readTodayTokenUsage } from './token-budget.js';
@@ -57,29 +57,39 @@ export function collectTickSignals(db: DatabaseAdapter, agentId: string, now = n
   // approve 命令经 notifyAutonomousGoalApproved 把目标流转到 executing，
   // 心跳必须消费 executing 状态，否则目标会永远卡住不被执行
   const approved = repo.listGoals(agentId, 'executing');
+  const settings = readSettings(db);
   return {
     approvedGoalCount: approved.length,
     approvedGoals: approved.map((g) => ({ id: g.id, type: g.type, description: g.description })),
     outreachUsedToday: getOutreachUsedToday(db, now),
-    outreachLimit: MAX_OUTREACH_PER_DAY,
-    reflectionDue: computeReflectionDue(repo, agentId, now),
-    diaryDue: computeDiaryDue(db, now),
+    outreachLimit: settings.maxOutreachPerDay,
+    reflectionDue: computeReflectionDue(repo, agentId, now, settings.quietHours),
+    diaryDue: computeDiaryDue(db, now, settings.quietHours),
     tokenUsedToday: readTodayTokenUsage(db, now),
-    tokenLimit: readSettings(db).maxTokensPerDay,
+    tokenLimit: settings.maxTokensPerDay,
   };
 }
 
+/** 静默时段判定：支持跨午夜（如 [23,8] = 23:00-次日 8:00） */
+function isInQuietHours(hour: number, start: number, end: number): boolean {
+  if (start <= end) return hour >= start && hour < end;
+  return hour >= start || hour < end;
+}
+
 /** 静默时段内且今天尚未写日记才触发 */
-function computeDiaryDue(db: DatabaseAdapter, now: Date): boolean {
-  const hour = now.getHours();
-  const inQuietHours = hour >= 23 || hour < 8;
+function computeDiaryDue(db: DatabaseAdapter, now: Date, quietHours: [number, number]): boolean {
+  const inQuietHours = isInQuietHours(now.getHours(), quietHours[0], quietHours[1]);
   return inQuietHours && !hasWrittenDiaryToday(db, now);
 }
 
-/** 静默时段（默认 23:00-08:00）内且距上次反思满 24h 才触发反思 */
-function computeReflectionDue(repo: AutonomousRepo, agentId: string, now: Date): boolean {
-  const hour = now.getHours();
-  const inQuietHours = hour >= 23 || hour < 8;
+/** 静默时段内且距上次反思满 24h 才触发反思 */
+function computeReflectionDue(
+  repo: AutonomousRepo,
+  agentId: string,
+  now: Date,
+  quietHours: [number, number],
+): boolean {
+  const inQuietHours = isInQuietHours(now.getHours(), quietHours[0], quietHours[1]);
   if (!inQuietHours) return false;
 
   const recent = repo.reflections(agentId, 1);
