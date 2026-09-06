@@ -11,6 +11,18 @@ import { resolveWindowsClientDataRoot } from './client-data-root'
 
 export const DEFAULT_DASHBOARD_FEED_ID = 'news'
 
+/**
+ * 写盘版本计数。每次 writeDashboardFeedSnapshot 成功 +1，
+ * 供 cron 调度器判断「本次任务运行期间是否写入了 feed」——
+ * 资讯任务的结果落在 feed 里而非 Agent 文本回复，靠这个版本号识别。
+ */
+let feedWriteVersion = 0
+
+/** 读取当前写盘版本，跨模块用。 */
+export function getDashboardFeedWriteVersion(): number {
+  return feedWriteVersion
+}
+
 export type DashboardFeedMetadata = Record<string, string | number | boolean | null>
 
 export interface DashboardFeedItem {
@@ -196,6 +208,7 @@ export async function writeDashboardFeedSnapshot(snapshot: DashboardFeedSnapshot
   const normalized = normalizeSnapshot(snapshot, feedId)
   if (!normalized) throw new Error('Dashboard feed 快照无有效条目结构')
   await writeJsonAtomically(feedSnapshotPath(feedId), normalized)
+  feedWriteVersion++
 }
 
 export async function readActiveDashboardFeedId(): Promise<string> {

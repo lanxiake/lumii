@@ -151,3 +151,31 @@ export function formatForTarget(target: string, label: string, output: string): 
   if (strategy) return strategy.format(label, output)
   return { body: truncate(toSingleLine(markdownToPlainText(output)), 500) }
 }
+
+/**
+ * 把 Dashboard feed 快照压成可读的纯文本，作为「资讯类任务」的推送正文。
+ *
+ * 资讯任务的结果通过 dashboard_feed_write 落在 feed 里，Agent 的文本回复不是结果，
+ * 派发器需要把 feed 内容（标题 + 综述 + 条目列表）转成文本再交给各渠道策略。
+ * 用结构类型参数而非导入 DashboardFeedSnapshot，保持本模块零依赖、可独立单测。
+ */
+export function formatDashboardFeedForPush(snapshot: {
+  title?: string
+  summary?: string
+  items: ReadonlyArray<{ title: string; summary?: string; source?: string; href?: string }>
+}): string {
+  const lines: string[] = []
+  const title = snapshot.title?.trim() || '最近资讯'
+  lines.push(`${title} · 共 ${snapshot.items.length} 条`)
+  if (snapshot.summary?.trim()) {
+    lines.push(`综述：${snapshot.summary.trim()}`)
+  }
+  snapshot.items.forEach((item, index) => {
+    lines.push('')
+    lines.push(`${index + 1}. ${item.title}`)
+    const meta = [item.summary, item.source].filter(Boolean).join(' · ')
+    if (meta) lines.push(`   ${meta}`)
+    if (item.href) lines.push(`   ${item.href}`)
+  })
+  return lines.join('\n')
+}

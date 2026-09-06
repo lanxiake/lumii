@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import {
   NOTIFY_STRATEGIES,
   formatForTarget,
+  formatDashboardFeedForPush,
   markdownToPlainText,
   truncate,
 } from './cron-notify-format'
@@ -96,5 +97,37 @@ describe('formatForTarget', () => {
 
   it('未注册渠道回落纯文本，不原样吐 Markdown', () => {
     expect(formatForTarget('unknown', '任务', '**粗**\n下一行').body).toBe('粗 下一行')
+  })
+})
+
+describe('formatDashboardFeedForPush', () => {
+  it('标题/综述/条目列表齐全，逐条带摘要、来源与链接', () => {
+    const text = formatDashboardFeedForPush({
+      title: '最近资讯',
+      summary: '今天值得关注的趋势',
+      items: [
+        { title: '条目A', summary: '摘要A', source: '来源A', href: 'https://a.com' },
+        { title: '条目B' },
+      ],
+    })
+    expect(text).toBe(
+      [
+        '最近资讯 · 共 2 条',
+        '综述：今天值得关注的趋势',
+        '',
+        '1. 条目A',
+        '   摘要A · 来源A',
+        '   https://a.com',
+        '',
+        '2. 条目B',
+      ].join('\n'),
+    )
+  })
+
+  it('无综述时省略综述行，缺链接时省略链接行', () => {
+    const text = formatDashboardFeedForPush({
+      items: [{ title: '只有标题', source: '来源' }],
+    })
+    expect(text).toBe(['最近资讯 · 共 1 条', '', '1. 只有标题', '   来源'].join('\n'))
   })
 })

@@ -15,9 +15,9 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { Cron } from 'croner'
 import type { LocalDatabase, FileRepo } from '@mtbot/agent-runtime'
-import { prependActiveDashboardFeedItem } from '../dashboard-feed-store'
+import { prependActiveDashboardFeedItem, readDashboardFeedSnapshot, getDashboardFeedWriteVersion } from '../dashboard-feed-store'
 import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
-import { formatForTarget } from './cron-notify-format'
+import { formatForTarget, formatDashboardFeedForPush } from './cron-notify-format'
 import { shouldSkipCronFocusMemoryWrite } from './cron-focus-memory'
 
 const log = {
@@ -930,6 +930,10 @@ export class CronScheduler {
         }
       }
 
+      // 记录执行前的 feed 写版本：资讯类任务的结果落在 feed 里（dashboard_feed_write），
+      // 文本回复不是结果。执行后若版本变化，说明本次运行写了 feed，改用 feed 内容作推送正文，
+      // 而不是把任务指令原文当结果推出去。
+      const feedVersionBefore = getDashboardFeedWriteVersion()
       let output = job.task_text
       if (job.agent_id) {
         output = await this.driveAgent(job, currentRow, job.agent_id, startedAt)
@@ -943,9 +947,24 @@ export class CronScheduler {
           log.warn(`[runLocalCronJob] 回落默认 Agent 失败，退回通知模式 jobId=${job.id}:`, err)
         }
       }
+      let notifyTargets = currentRow.notify_targets
+      if (getDashboardFeedWriteVersion() > feedVersionBefore) {
+        const snapshot = await readDashboardFeedSnapshot()
+        if (snapshot && snapshot.items.length > 0) {
+          output = formatDashboardFeedForPush(snapshot)
+          // 资讯卡片已由 dashboard_feed_write 直接写入，news 渠道再 prepend 会重复塞一张
+          // 「定时任务」来源的脏卡片到顶部。此处把 news 过滤掉，只保留真正的推送渠道。
+          const remaining = notifyTargets
+            ?.split(',')
+            .map((t) => t.trim())
+            .filter((t) => t && t !== 'news')
+          notifyTargets = remaining?.length ? remaining.join(',') : 'silent'
+          log.info(`[runLocalCronJob] 本次运行写入 feed，改用 feed 内容作推送正文 jobId=${job.id} items=${snapshot.items.length} targets=${notifyTargets}`)
+        }
+      }
       await this.dispatchNotifications(
         { id: job.id, name: currentRow.name, task_text: job.task_text },
-        currentRow.notify_targets,
+        notifyTargets,
         output,
       )
 
