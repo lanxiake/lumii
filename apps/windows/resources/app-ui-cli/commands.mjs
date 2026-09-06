@@ -955,6 +955,50 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'send edit',
+    group: '上下文压缩',
+    usage: 'send edit --session <key> --message <id> --text <t>',
+    summary: '编辑指定消息内容（记录 edit 负反馈信号）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--session <key>', desc: '会话 key' },
+      { flag: '--message <id>', desc: '消息 ID' },
+      { flag: '--text <t>', desc: '新正文' },
+    ],
+    build(args) {
+      const sessionKey = args.flags.session
+      const messageId = args.flags.message
+      const newContent = args.flags.text
+      if (typeof sessionKey !== 'string' || sessionKey.length === 0) return null
+      if (typeof messageId !== 'string' || messageId.length === 0) return null
+      if (typeof newContent !== 'string' || newContent.length === 0) return null
+      return { type: 'message:edit', sessionKey, messageId, newContent }
+    },
+  },
+  {
+    name: 'send resend',
+    group: '上下文压缩',
+    usage: 'send resend --session <key> --message <id> --text <t>',
+    summary: '编辑消息并重新触发回答（记录 resend 负反馈信号）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--session <key>', desc: '会话 key' },
+      { flag: '--message <id>', desc: '消息 ID' },
+      { flag: '--text <t>', desc: '新正文' },
+    ],
+    build(args) {
+      const sessionKey = args.flags.session
+      const messageId = args.flags.message
+      const newContent = args.flags.text
+      if (typeof sessionKey !== 'string' || sessionKey.length === 0) return null
+      if (typeof messageId !== 'string' || messageId.length === 0) return null
+      if (typeof newContent !== 'string' || newContent.length === 0) return null
+      return { type: 'message:edit-and-resend', sessionKey, messageId, newContent }
+    },
+  },
+  {
     name: 'command',
     group: '底层',
     usage: 'command <type> [--data <json>|-]',

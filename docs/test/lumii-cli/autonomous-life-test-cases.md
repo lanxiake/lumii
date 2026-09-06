@@ -213,12 +213,9 @@
 | `tickIntervalMinutes` 不生效 | ✅ 已修（本会话） | `ensureEvolutionCronJobSeeded` 读 `readSettings().tickIntervalMinutes`，新增 `syncEvolutionTickSettings()` 设置变更即时重载 |
 | `outreachChannels` 未实现 | ✅ 已修（并行提交 `68ad470`） | `sendOutreach` 已按 `settings.outreachChannels` 派发（system/feishu/weixin/wecom） |
 | Mood → 桌宠实时表情未接线 | ✅ 已修（本会话 `8aca7d3`） | `recordMoodEvent` 用 `moodToPetEmotion` 算情绪键，经 `autonomous:mood:emotion` 事件推宠物窗 `setExpression` |
+| 编辑/重发反馈信号 CLI 不可达 | ✅ 已修（本会话） | 白名单放行 `message:edit`/`message:edit-and-resend` + CLI 新增 `send edit`/`send resend` 子命令 |
 
-**仍存在的缺口**（本套不当通过测）：
-
-| 缺口 | 现状 |
-|------|------|
-| 编辑/重发反馈信号 | 采集点只在前端 UI 触发，CLI 无 `edit`/`resend` 子命令 |
+**当前无剩余缺口**：计划 Step 2-11 全部接线，且全部可经 CLI 真实测试（`run-autonomous-life-e2e.mjs` K1/K2 覆盖 edit/resend 信号）。
 
 ---
 

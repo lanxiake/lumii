@@ -239,6 +239,26 @@ function clearExecutingGoals() {
   })
 }
 
+/** 读某会话的负反馈计数器（edit/resend/abort），评分后由引擎清零 */
+function readFeedbackCounters(sessionKey) {
+  const row = getState(`feedback:${sessionKey}`)
+  if (!row) return { edits: 0, resends: 0, aborts: 0 }
+  try {
+    return JSON.parse(row.value)
+  } catch {
+    return { edits: 0, resends: 0, aborts: 0 }
+  }
+}
+
+/** 取会话最新一条 user 消息 ID（edit/resend 需要 messageId） */
+function latestUserMessageId(sessionKey) {
+  return withDb((db) =>
+    db.prepare(
+      "SELECT id FROM messages WHERE conversation_id = ? AND role = 'user' ORDER BY timestamp DESC LIMIT 1",
+    ).get(sessionKey)?.id,
+  )
+}
+
 // ── evolution:main 会话 ──
 
 function evolutionMessageCount() {
@@ -678,6 +698,46 @@ function run() {
       })
     }
 
+    // ==================== 场景 K：编辑/重发反馈信号（CLI 可达性） ====================
+    runTest('K1', 'edit 负反馈信号落库', () => {
+      const sk = createConv('自主进化LifeE2E-编辑信号')
+      okJson(ui(['send', '--session', sk, '--text', '你好，测试编辑信号']), 'send')
+      let msgId = null
+      for (let i = 0; i < 10 && !msgId; i++) {
+        msgId = latestUserMessageId(sk)
+        if (!msgId) sleep(500)
+      }
+      assert(msgId, '未找到用户消息 ID')
+      const j = okJson(
+        ui(['send', 'edit', '--session', sk, '--message', msgId, '--text', '你好，编辑后的内容']),
+        'send edit',
+      )
+      assert(j.success === true, `edit 应成功: ${JSON.stringify(j)}`)
+      const counters = readFeedbackCounters(sk)
+      assert(counters.edits >= 1, `edits 应 >=1: ${JSON.stringify(counters)}`)
+      return `edits=${counters.edits}`
+    })
+
+    runTest('K2', 'resend 负反馈信号落库', () => {
+      const sk = createConv('自主进化LifeE2E-重发信号')
+      okJson(ui(['send', '--session', sk, '--text', '你好，测试重发信号']), 'send')
+      let msgId = null
+      for (let i = 0; i < 10 && !msgId; i++) {
+        msgId = latestUserMessageId(sk)
+        if (!msgId) sleep(500)
+      }
+      assert(msgId, '未找到用户消息 ID')
+      // resend 会触发重新回答（真实 LLM），给足超时
+      const j = okJson(
+        ui(['send', 'resend', '--session', sk, '--message', msgId, '--text', '你好，重发后的内容'], { timeoutMs: 150000 }),
+        'send resend',
+      )
+      assert(j.success === true, `resend 应成功: ${JSON.stringify(j)}`)
+      const counters = readFeedbackCounters(sk)
+      assert(counters.resends >= 1, `resends 应 >=1: ${JSON.stringify(counters)}`)
+      return `resends=${counters.resends}`
+    })
+
     writeReport()
   } finally {
     if (!NO_RESTORE) {
@@ -730,7 +790,7 @@ function writeReport() {
     '- ~~tickIntervalMinutes 未接线~~ ✅ 已修（接入 cron interval_ms + 设置变更即时重载）',
     '- ~~outreachChannels 未实现~~ ✅ 已由并行提交接入（sendOutreach 按渠道派发）',
     '- ~~Mood → 桌宠实时表情未接线~~ ✅ 已修（recordMoodEvent 推 autonomous:mood:emotion 事件）',
-    '- 编辑/重发反馈信号只在前端 UI 触发，CLI 无 edit/resend 子命令',
+    '- ~~编辑/重发反馈信号 CLI 不可达~~ ✅ 已修（白名单放行 + CLI send edit/send resend）',
     '',
     '## 说明',
     '',

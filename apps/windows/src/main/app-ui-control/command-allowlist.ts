@@ -19,6 +19,8 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   // 会话读写：create/send 仅用于自动化测试构造对话，字段被 COMMAND_FIELD_DENYLIST 收窄
   'conversation:list', 'conversation:messages', 'conversation:context-usage',
   'conversation:create', 'user:send', 'user:abort',
+  // 消息编辑/重发：仅用于自动化测试触发 edit/resend 负反馈信号（编辑原地覆盖、无文件系统读写，与 user:send 同风险级）
+  'message:edit', 'message:edit-and-resend',
   // 上下文压缩：只重排既有会话内容，不接受外部注入的正文，
   // 与被拒的 agentInstance:prompt 不同（那个可投喂任意 prompt）
   'user:compact-context', 'user:abort-compact-context',
