@@ -966,6 +966,16 @@ export class AgentRuntimeBridge {
                     await this.waitForInstanceIdle(instanceId)
                     const output = this.getAssistantOutputFromInstance(instanceId) ?? ''
                     const ok = output.trim().length > 0
+                    if (ok) {
+                      // 显式落独白（与 writeDiary/appendEvolutionMessage 一致），
+                      // 不能依赖 message:end 自动持久化——内部 cron 实例不会走 UI 流式落库路径。
+                      this._conversationRepo?.saveMessage({
+                        conversationId: convId,
+                        agentId: 'assistant',
+                        role: 'assistant',
+                        contentJson: { type: 'text', text: output },
+                      })
+                    }
                     finalizeGoal(this.localDb.db, goal.id, { success: ok, output })
                     this.recordMoodEvent(ok ? 'goal_completed' : 'task_failed')
                     return ok ? 'completed' : 'failed'

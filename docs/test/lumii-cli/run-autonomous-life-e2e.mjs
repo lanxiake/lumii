@@ -603,16 +603,17 @@ function run() {
         const hour = new Date().getHours()
         okJson(ui(['autonomous', 'settings', 'set', '--data', `{"quietHours":[${hour},${(hour + 1) % 24}]}`]), '设静默时段为当前小时')
 
-        // 回拨最新反思到 >24h 前（保存原值，事后恢复）
+        // 回拨全部 assistant 反思到 >24h 前（保存原值，事后恢复）。
+        // 只回拨最新一条会露出次新一条（仍 <24h），computeReflectionDue 读到的还是 <24h。
         const backdated = withDb((db) => {
-          const row = db.prepare(
-            "SELECT id, created_at FROM reflections WHERE agent_id = 'assistant' ORDER BY created_at DESC LIMIT 1",
-          ).get()
-          if (!row) return null
-          db.prepare('UPDATE reflections SET created_at = ? WHERE id = ?').run(
-            new Date(Date.now() - 25 * 3600_000).toISOString(), row.id,
-          )
-          return { id: row.id, created_at: row.created_at }
+          const rows = db.prepare(
+            "SELECT id, created_at FROM reflections WHERE agent_id = 'assistant'",
+          ).all()
+          if (rows.length === 0) return null
+          const cutoff = new Date(Date.now() - 25 * 3600_000).toISOString()
+          const stmt = db.prepare('UPDATE reflections SET created_at = ? WHERE id = ?')
+          for (const row of rows) stmt.run(cutoff, row.id)
+          return rows
         })
 
         const before = withDb((db) => db.prepare('SELECT COUNT(*) c FROM reflections').get().c)
@@ -632,9 +633,10 @@ function run() {
         assert(latest.primary_issue && latest.root_cause, 'primary_issue/root_cause 非空（NOT NULL 列）')
 
         if (backdated) {
-          withDb((db) =>
-            db.prepare('UPDATE reflections SET created_at = ? WHERE id = ?').run(backdated.created_at, backdated.id),
-          )
+          withDb((db) => {
+            const stmt = db.prepare('UPDATE reflections SET created_at = ? WHERE id = ?')
+            for (const row of backdated) stmt.run(row.created_at, row.id)
+          })
         }
         return `trigger=scheduled primaryIssue="${(latest.primary_issue || '').slice(0, 30)}…"`
       })
