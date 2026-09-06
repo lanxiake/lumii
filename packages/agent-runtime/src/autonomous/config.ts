@@ -12,16 +12,16 @@ import { GoalType, type SatisfactionWeights } from './types';
  * 来源：设计文档 2-元认知引擎算法.md
  * 四个维度权重总和必须为 1.0
  *
- * V1.0 口径（2026-09-05 后）：
- * - knowledge_growth 因工具分类器未实现而暂时禁用（权重 0），剩余三维归一化
- * - 原权重 task:0.35 / feedback:0.30 / efficiency:0.20 / knowledge:0.15
- * - 归一化后 task:0.41176 / feedback:0.35294 / efficiency:0.23529 / knowledge:0
+ * V1.1 口径（2026-09-06 后）：
+ * - 工具分类器已实现（metrics-collector 的 KNOWLEDGE_QUERY_TOOLS）
+ * - knowledge 原始 0.15 过高：无知识查询的纯闲聊会话会被真实 0 分拉低 overall，
+ *   故降到 0.05，把释放的 0.10 摊给 task/feedback，保持总权重 1.0
  */
 export const SATISFACTION_WEIGHTS: SatisfactionWeights = {
-  task: 0.41176,       // 任务完成度权重（0.35 / 0.85 归一化）
-  feedback: 0.35294,   // 用户反馈权重（0.30 / 0.85 归一化）
-  efficiency: 0.23529, // 效率权重（0.20 / 0.85 归一化）
-  knowledge: 0,        // 知识增长权重（暂时禁用，等工具分类器实现）
+  task: 0.40,     // 任务完成度权重
+  feedback: 0.35, // 用户反馈权重
+  efficiency: 0.20, // 效率权重
+  knowledge: 0.05, // 知识增长权重（工具分类器已实现，降权重避免拖累无查询会话）
 };
 
 /**

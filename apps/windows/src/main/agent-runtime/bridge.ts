@@ -962,12 +962,55 @@ export class AgentRuntimeBridge {
                 },
                 sendOutreach: async (goal) => {
                   const now = new Date()
-                  const outreachLimit = readSettings(this.localDb.db).maxOutreachPerDay
-                  if (!canSendOutreach(this.localDb.db, now, outreachLimit)) {
+                  const settings = readSettings(this.localDb.db)
+                  if (!canSendOutreach(this.localDb.db, now, settings.maxOutreachPerDay)) {
                     finalizeGoal(this.localDb.db, goal.id, { success: false, output: '预算用尽' })
                     return 'budget-exhausted'
                   }
-                  this.config.showCronNotification?.('自主进化', goal.description, EVOLUTION_CONVERSATION_ID)
+                  // 按 settings.outreachChannels 派发（复用 cron notify_targets 的渠道语义）
+                  const channels = settings.outreachChannels?.length ? settings.outreachChannels : ['system']
+                  for (const channel of channels) {
+                    try {
+                      const colon = channel.indexOf(':')
+                      const kind = colon > 0 ? channel.slice(0, colon) : channel
+                      const peerFromChannel = colon > 0 ? channel.slice(colon + 1).trim() : ''
+                      if (kind === 'system') {
+                        this.config.showCronNotification?.('自主进化', goal.description, EVOLUTION_CONVERSATION_ID)
+                      } else if (kind === 'feishu') {
+                        const router = this.config.getChannelRouter?.()
+                        if (!router) {
+                          log.warn('[sendOutreach] ChannelOutboundRouter 未就绪，飞书推送已跳过')
+                          continue
+                        }
+                        const feishu = (await router.list()).find((s) => s.channel === 'feishu')
+                        const to = peerFromChannel || feishu?.peers.find((p) => p.canSend)?.id || feishu?.peers[0]?.id
+                        if (!to) {
+                          log.warn('[sendOutreach] 飞书无可用 peer，已跳过')
+                          continue
+                        }
+                        const res = await router.send({ channel: 'feishu', to, text: goal.description })
+                        if (!res.ok) log.warn('[sendOutreach] 飞书推送失败:', res.errorCode)
+                      } else if (kind === 'weixin') {
+                        const router = this.config.getChannelRouter?.()
+                        if (!peerFromChannel) {
+                          log.warn('[sendOutreach] weixin 目标缺少 peerId，请使用 weixin:<peerId>，已跳过')
+                          continue
+                        }
+                        if (!router) {
+                          log.warn('[sendOutreach] ChannelOutboundRouter 未就绪，微信推送已跳过')
+                          continue
+                        }
+                        const res = await router.send({ channel: 'weixin', to: peerFromChannel, text: goal.description })
+                        if (!res.ok) log.warn('[sendOutreach] 微信推送失败:', res.errorCode)
+                      } else if (kind === 'wecom') {
+                        log.warn('[sendOutreach] 企业微信不支持主动推送（reply_only），已跳过')
+                      } else {
+                        log.warn(`[sendOutreach] 未知主动消息渠道，已忽略: ${channel}`)
+                      }
+                    } catch (err) {
+                      log.warn(`[sendOutreach] 渠道 ${channel} 推送失败:`, err instanceof Error ? err.message : err)
+                    }
+                  }
                   recordOutreach(this.localDb.db, now)
                   finalizeGoal(this.localDb.db, goal.id, { success: true, output: goal.description })
                   this.recordMoodEvent('user_initiates')

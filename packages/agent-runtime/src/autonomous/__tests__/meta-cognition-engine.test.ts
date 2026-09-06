@@ -270,6 +270,30 @@ describe('MetaCognitionEngine', () => {
     );
   });
 
+  it('collectMetricsFromSession 应按工具分类器统计知识查询', () => {
+    const session: AgentSession = {
+      id: 'session1',
+      agentId: 'agent1',
+      startedAt: new Date(),
+      messages: [
+        { role: 'user', content: 'test' },
+        { role: 'assistant', content: 'response' },
+      ],
+      toolCalls: [
+        { success: true, toolName: 'web_search' },
+        { success: true, toolName: 'memory_read' },
+        { success: true, toolName: 'wiki_search' },
+        { success: true, toolName: 'bash' },       // 写/执行类，非知识查询
+        { success: true, toolName: 'file_write' }, // 写文件，非知识查询
+      ],
+      errors: [],
+    };
+
+    const metrics = collectMetricsFromSession(session);
+    expect(metrics.knowledgeQueriesCount).toBe(3);
+    expect(metrics.toolCallCount).toBe(5);
+  });
+
   it('应成功评估会话', async () => {
     const session: AgentSession = {
       id: 'session1',

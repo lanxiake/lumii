@@ -23,19 +23,18 @@ describe('自主进化 Agent 配置', () => {
       expect(sum).toBeCloseTo(1.0, 4); // 放宽到 1e-4 容差避免浮点累积误差
     });
 
-    it('所有权重应为非负数（V1.0 暂时禁用 knowledge）', () => {
+    it('所有权重应为正数', () => {
       expect(SATISFACTION_WEIGHTS.task).toBeGreaterThan(0);
       expect(SATISFACTION_WEIGHTS.feedback).toBeGreaterThan(0);
       expect(SATISFACTION_WEIGHTS.efficiency).toBeGreaterThan(0);
-      expect(SATISFACTION_WEIGHTS.knowledge).toBeGreaterThanOrEqual(0); // 暂时为 0
+      expect(SATISFACTION_WEIGHTS.knowledge).toBeGreaterThan(0);
     });
 
-    it('权重应符合 V1.0 口径（三维归一化）', () => {
-      // 0.35/0.85 = 0.41176, 0.30/0.85 = 0.35294, 0.20/0.85 = 0.23529
-      expect(SATISFACTION_WEIGHTS.task).toBeCloseTo(0.41176, 5);
-      expect(SATISFACTION_WEIGHTS.feedback).toBeCloseTo(0.35294, 5);
-      expect(SATISFACTION_WEIGHTS.efficiency).toBeCloseTo(0.23529, 5);
-      expect(SATISFACTION_WEIGHTS.knowledge).toBe(0);
+    it('权重应符合 V1.1 口径（四维，knowledge 降权）', () => {
+      expect(SATISFACTION_WEIGHTS.task).toBeCloseTo(0.40, 5);
+      expect(SATISFACTION_WEIGHTS.feedback).toBeCloseTo(0.35, 5);
+      expect(SATISFACTION_WEIGHTS.efficiency).toBeCloseTo(0.20, 5);
+      expect(SATISFACTION_WEIGHTS.knowledge).toBeCloseTo(0.05, 5);
     });
   });
 

@@ -124,6 +124,24 @@ export function extractKnowledgeGrowth(metrics: SessionMetrics): number {
 }
 
 /**
+ * 知识查询工具分类器：读取/检索外部知识的工具调用计入 knowledge_growth，
+ * 区别于写/改/编排类工具（bash、file_edit、file_write、spawn_agent 等）。
+ */
+const KNOWLEDGE_QUERY_TOOLS = new Set([
+  'web_search',
+  'web_fetch',
+  'bing_search',
+  'memory_search',
+  'memory_read',
+  'wiki_read',
+  'wiki_search',
+  'file_read',
+  'glob',
+  'grep',
+  'list_dir',
+])
+
+/**
  * 从 Agent 会话收集指标
  */
 export function collectMetricsFromSession(session: AgentSession): SessionMetrics {
@@ -134,8 +152,10 @@ export function collectMetricsFromSession(session: AgentSession): SessionMetrics
   // 统计用户交互次数（用户消息数）
   const userInteractionCount = session.messages?.filter((msg: any) => msg.role === 'user').length || 0;
 
-  // 统计知识查询次数（假设：工具调用中包含记忆/知识查询）
-  const knowledgeQueriesCount = 0; // 简化处理，实际应从工具调用中统计
+  // 统计知识查询次数（工具分类器：读取/检索类工具调用）
+  const knowledgeQueriesCount = (session.toolCalls || []).filter(
+    (tc) => tc.toolName != null && KNOWLEDGE_QUERY_TOOLS.has(tc.toolName),
+  ).length;
 
   return {
     sessionId: session.id,
