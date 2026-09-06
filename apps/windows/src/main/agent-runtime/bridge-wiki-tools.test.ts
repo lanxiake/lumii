@@ -5,47 +5,18 @@
  * node:sqlite 内存库同 wiki-commands.test.ts 手法（createRequire 绕过 vite-node 解析）。
  */
 import { describe, expect, it } from 'vitest'
-import { createRequire } from 'node:module'
 import {
   WikiRepo,
   WikiIngestHook,
   type DatabaseAdapter,
-  type PreparedStatement,
-  type StatementResult,
   type ToolExecutionContext,
 } from '@mtbot/agent-runtime'
 import { MIGRATIONS } from '../../../../../packages/agent-runtime/src/storage/schema'
+import { createTestSqliteAdapter } from '../../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
 import { registerWikiTools, type WikiToolsDeps } from './bridge-wiki-tools'
 
-const nodeRequire = createRequire(import.meta.url)
-
-interface DatabaseSyncLike {
-  exec(sql: string): void
-  prepare(sql: string): {
-    run(...p: unknown[]): { changes: number; lastInsertRowid: number | bigint }
-    get(...p: unknown[]): unknown
-    all(...p: unknown[]): unknown[]
-  }
-  close(): void
-}
-
 function createMigratedDb(): DatabaseAdapter {
-  const { DatabaseSync } = nodeRequire('node:sqlite') as {
-    DatabaseSync: new (path: string) => DatabaseSyncLike
-  }
-  const sq = new DatabaseSync(':memory:')
-  const db: DatabaseAdapter = {
-    exec: (sql) => sq.exec(sql),
-    prepare: <T = Record<string, unknown>>(sql: string): PreparedStatement<T> => {
-      const stmt = sq.prepare(sql)
-      return {
-        run: (...p: unknown[]) => stmt.run(...p) as unknown as StatementResult,
-        get: (...p: unknown[]) => stmt.get(...p) as T | undefined,
-        all: (...p: unknown[]) => stmt.all(...p) as T[],
-      }
-    },
-    close: () => sq.close(),
-  }
+  const db = createTestSqliteAdapter()
   for (const [, sql] of MIGRATIONS) db.exec(sql)
   return db
 }

@@ -9,48 +9,23 @@
  * 需要 NODE_OPTIONS=--experimental-sqlite（见下方 skip 守卫）。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createRequire } from 'node:module'
-import type { DatabaseAdapter, PreparedStatement, StatementResult } from '@mtbot/agent-runtime'
+import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import { MIGRATIONS } from '../../../../../packages/agent-runtime/src/storage/schema'
+import { createTestSqliteAdapter } from '../../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
 
 const prependMock = vi.fn(async () => undefined)
 vi.mock('../dashboard-feed-store', () => ({
   prependActiveDashboardFeedItem: prependMock,
+  readDashboardFeedSnapshot: vi.fn(async () => null),
+  getDashboardFeedWriteVersion: vi.fn(() => 0),
 }))
 
 const { CronScheduler } = await import('./cron-scheduler')
 const { ensureSeedCronJobsSeeded, __testables } = await import('../seed-cron-jobs')
 
-const nodeRequire = createRequire(import.meta.url)
-
-interface DatabaseSyncLike {
-  exec(sql: string): void
-  prepare(sql: string): {
-    run(...p: unknown[]): { changes: number; lastInsertRowid: number | bigint }
-    get(...p: unknown[]): unknown
-    all(...p: unknown[]): unknown[]
-  }
-  close(): void
-}
-
 /** 内存库 + 全量迁移，等价于用户首启后的真实 schema */
 function createMigratedDb(): DatabaseAdapter {
-  const { DatabaseSync } = nodeRequire('node:sqlite') as {
-    DatabaseSync: new (path: string) => DatabaseSyncLike
-  }
-  const sq = new DatabaseSync(':memory:')
-  const db: DatabaseAdapter = {
-    exec: (sql) => sq.exec(sql),
-    prepare: <T = Record<string, unknown>>(sql: string): PreparedStatement<T> => {
-      const stmt = sq.prepare(sql)
-      return {
-        run: (...p: unknown[]) => stmt.run(...p) as unknown as StatementResult,
-        get: (...p: unknown[]) => stmt.get(...p) as T | undefined,
-        all: (...p: unknown[]) => stmt.all(...p) as T[],
-      }
-    },
-    close: () => sq.close(),
-  }
+  const db = createTestSqliteAdapter()
   for (const [, sql] of MIGRATIONS) db.exec(sql)
   // messages.conversation_id 有 FK 指向 conversations，Agent 回复落库前必须先有会话
   db.prepare(
@@ -157,16 +132,17 @@ function listJobs(db: DatabaseAdapter): JobRow[] {
   return db.prepare<JobRow>(`SELECT * FROM local_cron_jobs ORDER BY id`).all()
 }
 
-const hasSqlite = (() => {
+const hasFts5Db = (() => {
   try {
-    nodeRequire('node:sqlite')
+    const db = createTestSqliteAdapter()
+    db.close()
     return true
   } catch {
     return false
   }
 })()
 
-describe.skipIf(!hasSqlite)('预置定时任务端到端', () => {
+describe.skipIf(!hasFts5Db)('预置定时任务端到端', () => {
   let db: DatabaseAdapter
 
   beforeEach(() => {
@@ -230,10 +206,10 @@ describe.skipIf(!hasSqlite)('预置定时任务端到端', () => {
       expect(runs[0].summary?.trim(), `${job.id} 摘要非空`).toBeTruthy()
     }
 
-    // 每条任务的 notify_targets 至少命中一个渠道
+    // 每条非 silent 任务的 notify_targets 至少命中一个渠道（silent 任务由 Agent 直接写卡片，不推送）
     const totalPushes =
       captured.notifications.length + captured.memories.length + captured.feishu.length + prependMock.mock.calls.length
-    expect(totalPushes).toBeGreaterThanOrEqual(jobs.length)
+    expect(totalPushes).toBeGreaterThanOrEqual(jobs.filter((j) => j.notify_targets !== 'silent').length)
   })
 
   it('资讯任务改为 Agent 驱动 + silent：Agent 直接写卡片，派发器不重复塞脏卡片', async () => {

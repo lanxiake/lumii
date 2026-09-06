@@ -302,8 +302,11 @@ function migrateRemovedWikiAutoSynthesisCron(db: DatabaseAdapter): void {
 }
 
 /**
- * 将 SEED_JOBS 中的 system_prompt 同步到老库（仅更新预置的三条工作流任务）。
- * 与 SEED_JOBS 定义保持一致，避免迁移块与种子定义漂移。
+ * 清理老库 system_prompt 里写死的 conversation_history_read 工具调用，并把
+ * news-pipeline 的 task_text 升级到新定义（工具调用已归位到 taskText）。
+ *
+ * 只迁移命中历史特征（system_prompt 含 conversation_history_read）的老数据，
+ * 用户手改过 system_prompt/task_text 的任务不碰。
  */
 function migrateSystemPromptsForWorkReports(db: DatabaseAdapter): void {
   const jobIds = ['news-pipeline', 'seed-morning-briefing', 'seed-daily-report', 'seed-weekly-review'] as const
@@ -321,6 +324,9 @@ function migrateSystemPromptsForWorkReports(db: DatabaseAdapter): void {
         .get(id)
       if (!existing) continue
 
+      const hadLegacyTool = existing.system_prompt?.includes('conversation_history_read') ?? false
+      if (!hadLegacyTool) continue
+
       let changed = false
 
       // 同步 system_prompt（清理写死的工具调用）
@@ -336,10 +342,7 @@ function migrateSystemPromptsForWorkReports(db: DatabaseAdapter): void {
       }
 
       if (changed) {
-        const hadLegacyTool = existing.system_prompt?.includes('conversation_history_read')
-        log.info(
-          `[migrateSystemPromptsForWorkReports] ${hadLegacyTool ? '已移除 conversation_history_read 并更新' : '已更新'} ${id}`,
-        )
+        log.info(`[migrateSystemPromptsForWorkReports] 已移除 conversation_history_read 并更新 ${id}`)
       }
     } catch (err) {
       log.error(`[migrateSystemPromptsForWorkReports] 更新 ${id} 失败:`, err)

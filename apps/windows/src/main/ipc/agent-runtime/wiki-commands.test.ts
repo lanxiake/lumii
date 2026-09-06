@@ -6,21 +6,19 @@
  * 版本不匹配，不可用作回退）。
  */
 import { describe, expect, it, vi } from 'vitest'
-import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import {
   WikiRepo,
   type DatabaseAdapter,
-  type PreparedStatement,
-  type StatementResult,
   WikiIngestHook,
   WikiOrganizer,
   WikiContentExtractor,
   WikiLibraryMigrate,
 } from '@mtbot/agent-runtime'
 import { MIGRATIONS } from '../../../../../../packages/agent-runtime/src/storage/schema'
+import { createTestSqliteAdapter } from '../../../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import {
   handleWikiInboxList,
@@ -64,36 +62,9 @@ import { DEFAULT_TOPIC_TREE, PARKING_CATEGORY, WikiReclassifier, WikiEroRepo } f
 import { securityUtils } from '../../security-utils'
 import * as wikiVaultHost from '../../agent-runtime/wiki-vault-host'
 
-const nodeRequire = createRequire(import.meta.url)
-
-interface DatabaseSyncLike {
-  exec(sql: string): void
-  prepare(sql: string): {
-    run(...p: unknown[]): { changes: number; lastInsertRowid: number | bigint }
-    get(...p: unknown[]): unknown
-    all(...p: unknown[]): unknown[]
-  }
-  close(): void
-}
-
 /** 内存库 + 全量迁移，等价于用户首启后的真实 schema */
 function createMigratedDb(): DatabaseAdapter {
-  const { DatabaseSync } = nodeRequire('node:sqlite') as {
-    DatabaseSync: new (path: string) => DatabaseSyncLike
-  }
-  const sq = new DatabaseSync(':memory:')
-  const db: DatabaseAdapter = {
-    exec: (sql) => sq.exec(sql),
-    prepare: <T = Record<string, unknown>>(sql: string): PreparedStatement<T> => {
-      const stmt = sq.prepare(sql)
-      return {
-        run: (...p: unknown[]) => stmt.run(...p) as unknown as StatementResult,
-        get: (...p: unknown[]) => stmt.get(...p) as T | undefined,
-        all: (...p: unknown[]) => stmt.all(...p) as T[],
-      }
-    },
-    close: () => sq.close(),
-  }
+  const db = createTestSqliteAdapter()
   for (const [, sql] of MIGRATIONS) db.exec(sql)
   return db
 }

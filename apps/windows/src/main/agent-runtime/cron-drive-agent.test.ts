@@ -2,56 +2,30 @@
  * cron driveAgent 产出回读：模拟 prompt 先返回、落库延后的竞态。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createRequire } from 'node:module'
-import type { DatabaseAdapter, PreparedStatement, StatementResult } from '@mtbot/agent-runtime'
+import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import { MIGRATIONS } from '../../../../../packages/agent-runtime/src/storage/schema'
+import { createTestSqliteAdapter } from '../../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
 
 const { CronScheduler } = await import('./cron-scheduler')
 
-const nodeRequire = createRequire(import.meta.url)
-
-interface DatabaseSyncLike {
-  exec(sql: string): void
-  prepare(sql: string): {
-    run(...p: unknown[]): { changes: number; lastInsertRowid: number | bigint }
-    get(...p: unknown[]): unknown
-    all(...p: unknown[]): unknown[]
-  }
-  close(): void
-}
-
 /** 内存库 + 全量迁移 */
 function createMigratedDb(): DatabaseAdapter {
-  const { DatabaseSync } = nodeRequire('node:sqlite') as {
-    DatabaseSync: new (path: string) => DatabaseSyncLike
-  }
-  const sq = new DatabaseSync(':memory:')
-  const db: DatabaseAdapter = {
-    exec: (sql) => sq.exec(sql),
-    prepare: <T = Record<string, unknown>>(sql: string): PreparedStatement<T> => {
-      const stmt = sq.prepare(sql)
-      return {
-        run: (...p: unknown[]) => stmt.run(...p) as unknown as StatementResult,
-        get: (...p: unknown[]) => stmt.get(...p) as T | undefined,
-        all: (...p: unknown[]) => stmt.all(...p) as T[],
-      }
-    },
-    close: () => sq.close(),
-  }
+  const db = createTestSqliteAdapter()
   for (const [, sql] of MIGRATIONS) db.exec(sql)
   return db
 }
 
-const hasSqlite = (() => {
+const hasFts5Db = (() => {
   try {
-    nodeRequire('node:sqlite')
+    const db = createTestSqliteAdapter()
+    db.close()
     return true
   } catch {
     return false
   }
 })()
 
-describe.skipIf(!hasSqlite)('cron driveAgent 产出回读', () => {
+describe.skipIf(!hasFts5Db)('cron driveAgent 产出回读', () => {
   let db: DatabaseAdapter
 
   beforeEach(() => {
