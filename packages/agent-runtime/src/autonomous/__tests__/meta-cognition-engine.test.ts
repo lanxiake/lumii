@@ -143,7 +143,7 @@ describe('指标提取函数', () => {
   });
 
   describe('extractKnowledgeGrowth', () => {
-    it('无查询应返回 0', () => {
+    it('无查询应返回中性 0.5（不惩罚纯闲聊会话）', () => {
       const metrics: SessionMetrics = {
         sessionId: 'test',
         agentId: 'agent1',
@@ -155,7 +155,7 @@ describe('指标提取函数', () => {
         userInteractionCount: 3,
         knowledgeQueriesCount: 0,
       };
-      expect(extractKnowledgeGrowth(metrics)).toBe(0);
+      expect(extractKnowledgeGrowth(metrics)).toBe(0.5);
     });
 
     it('高查询占比应返回 1.0', () => {
@@ -220,17 +220,17 @@ describe('满意度评分计算', () => {
 
 describe('目标生成触发判断', () => {
   it('低于阈值应触发', () => {
-    const score: any = { overall: 0.59 };
+    const score: any = { overall: 0.79 };
     expect(shouldTriggerGoalGeneration(score, SATISFACTION_THRESHOLD)).toBe(true);
   });
 
   it('等于阈值不应触发', () => {
-    const score: any = { overall: 0.6 };
+    const score: any = { overall: 0.8 };
     expect(shouldTriggerGoalGeneration(score, SATISFACTION_THRESHOLD)).toBe(false);
   });
 
   it('高于阈值不应触发', () => {
-    const score: any = { overall: 0.8 };
+    const score: any = { overall: 0.9 };
     expect(shouldTriggerGoalGeneration(score, SATISFACTION_THRESHOLD)).toBe(false);
   });
 });

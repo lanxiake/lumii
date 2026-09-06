@@ -28,8 +28,13 @@ export const SATISFACTION_WEIGHTS: SatisfactionWeights = {
  * 满意度阈值
  * 来源：设计文档 2-元认知引擎算法.md
  * 低于此值触发内在目标生成
+ *
+ * V1.2 重标定（2026-09-06 后）：
+ * V1.1 把中性分抬到 ~0.74（反馈 0.85 / 任务 0.75 / 效率 0.7），
+ * 原 0.6 阈值已低于中性分，`score < 0.6` 永不触发 → 目标/待审批恒为 0。
+ * 故上调到 0.8：满意度未达「高」即触发改进目标，恢复该功能可用性。
  */
-export const SATISFACTION_THRESHOLD = 0.6;
+export const SATISFACTION_THRESHOLD = 0.8;
 
 /**
  * ε-greedy 探索率

@@ -44,8 +44,8 @@ describe('自主进化 Agent 配置', () => {
       expect(SATISFACTION_THRESHOLD).toBeLessThanOrEqual(1);
     });
 
-    it('应为设计文档定义值 0.6', () => {
-      expect(SATISFACTION_THRESHOLD).toBe(0.6);
+    it('应为 V1.2 重标定值 0.8', () => {
+      expect(SATISFACTION_THRESHOLD).toBe(0.8);
     });
   });
 

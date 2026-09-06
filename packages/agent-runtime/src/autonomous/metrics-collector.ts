@@ -117,10 +117,18 @@ export function extractEfficiency(metrics: SessionMetrics): number {
  * 提取知识增长
  * 公式：min(knowledgeQueriesCount / max(messageCount, 1) * 2, 1.0)
  * 查询占比超过 50% 时返回 1.0
+ *
+ * V1.2 口径（2026-09-06 后）：
+ * 无知识查询时返回中性 0.5，与其余三维「无信号 → 中性」口径一致，
+ * 避免纯闲聊会话的知识增长维度恒为 0 并拖低 overall。
+ * 有查询时以 0.5 为下界，保证随查询占比单调不减。
  */
 export function extractKnowledgeGrowth(metrics: SessionMetrics): number {
+  if (metrics.knowledgeQueriesCount === 0) {
+    return 0.5;
+  }
   const queryRate = metrics.knowledgeQueriesCount / Math.max(metrics.messageCount, 1);
-  return Math.min(queryRate * 2, 1.0);
+  return Math.max(0.5, Math.min(queryRate * 2, 1.0));
 }
 
 /**
