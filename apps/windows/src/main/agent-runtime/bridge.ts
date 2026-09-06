@@ -930,8 +930,14 @@ export class AgentRuntimeBridge {
                 getDb: () => this.localDb.db,
                 isAutonomousEnabled: () => readAutonomousEnabled(this.localDb.db),
                 hasActiveUserTurn: () => {
+                  // 只认「真实用户会话」的流式消息。后台 cron 任务（cron:% 前缀会话）与
+                  // 自主进化自己的独白（evolution:main）在流式期间不算用户回合，否则
+                  // 后台定时任务一跑起来，心跳 tick 就会全部误判为「用户正在对话」而空转。
                   const row = this.localDb.db.prepare<{ count: number }>(
-                    `SELECT COUNT(*) as count FROM messages WHERE is_streaming = 1`,
+                    `SELECT COUNT(*) as count FROM messages
+                     WHERE is_streaming = 1
+                       AND conversation_id NOT LIKE 'cron:%'
+                       AND conversation_id != 'evolution:main'`,
                   ).get()
                   return (row?.count ?? 0) > 0
                 },
