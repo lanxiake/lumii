@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Newspaper, RefreshCw, Sparkles } from 'lucide-react'
 import { Card } from '../../../../components/ui/Card/Card'
 import type { ViewType } from '../../../../components/layout/Sidebar/Sidebar'
+import { openExternalUrl } from '../../../../utils/markdown-external-link'
 import styles from './NewsFeed.module.css'
 
 /** Dashboard 通用 feed 条目 */
@@ -156,29 +157,42 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
         <div className={styles.scroll}>
           <div className={styles.grid}>
             {items.map((item, index) => (
-              <button
+              <div
                 key={`${item.id}::${index}`}
-                type="button"
                 className={styles.card}
                 style={{ ['--i' as string]: index }}
-                onClick={() => interpret(item)}
-                title="点击让 Lumii 解读这条资讯"
               >
-                <span className={styles.idx} aria-hidden="true">
-                  {String(index + 1).padStart(2, '0')}
-                </span>
-                <span className={styles['card-main']}>
-                  <span className={styles['card-title']}>{item.title}</span>
-                  {item.summary && (
-                    <span className={styles['card-excerpt']}>{item.summary}</span>
-                  )}
-                  <span className={styles['card-foot']}>
-                    {item.source && <span className={styles.source}>{item.source}</span>}
-                    <span className={styles.when}>{formatWhen(item.timestamp)}</span>
-                    <span className={styles.hint}>解读 →</span>
+                <button
+                  type="button"
+                  className={styles['card-body']}
+                  onClick={() => interpret(item)}
+                  title="点击让 Lumii 解读这条资讯"
+                >
+                  <span className={styles.idx} aria-hidden="true">
+                    {String(index + 1).padStart(2, '0')}
                   </span>
+                  <span className={styles['card-main']}>
+                    <span className={styles['card-title']}>{item.title}</span>
+                    {item.summary && (
+                      <span className={styles['card-excerpt']}>{item.summary}</span>
+                    )}
+                  </span>
+                </button>
+                <span className={styles['card-foot']}>
+                  {item.source && <span className={styles.source}>{item.source}</span>}
+                  <span className={styles.when}>{formatWhen(item.timestamp)}</span>
+                  {item.href && (
+                    <button
+                      type="button"
+                      className={styles['card-open']}
+                      onClick={() => openExternalUrl(item.href!)}
+                      title="在浏览器中打开原文"
+                    >
+                      查看原文
+                    </button>
+                  )}
                 </span>
-              </button>
+              </div>
             ))}
           </div>
         </div>
