@@ -91,6 +91,11 @@ export function moodToDecisionParams(mood: Mood): DecisionParams {
   };
 }
 
+/** 兴趣（arousal）高 + 人格开放性高 → 更愿探索（设计 §7.3 explorationRate）。供 Prompt 进化 ε 使用。 */
+export function computeExplorationRate(mood: Mood, openness: number): number {
+  return Math.max(0, Math.min(0.5, openness * 0.3 * (0.5 + mood.arousal)));
+}
+
 /** 情绪 → 桌宠表情（不把 mood 数值展示给用户，只通过表情透出） */
 export function moodToPetEmotion(mood: Mood): PetEmotion {
   if (mood.valence > 0.3 && mood.energy > 0.6) return 'joy';

@@ -123,9 +123,10 @@ export class PromptEvolutionEngine {
    * 选择 Prompt 变体
    *
    * @param baselinePromptId 基线 Prompt ID
+   * @param explorationRate 可选探索率覆盖（来自 mood 的 explorationRate；缺省用 config.epsilon）
    * @returns 选中的变体
    */
-  async selectPrompt(baselinePromptId: string): Promise<PromptVariant> {
+  async selectPrompt(baselinePromptId: string, explorationRate?: number): Promise<PromptVariant> {
     try {
       // 查询所有变体
       const variants = await this.getVariants(baselinePromptId);
@@ -135,11 +136,12 @@ export class PromptEvolutionEngine {
         return this.getOrCreateBaseline(baselinePromptId);
       }
 
-      // 使用 ε-greedy + UCB 选择变体
-      const selected = selectVariant(variants, this.config.epsilon, this.config.ucbConfidence, this.config.minTrialsBeforeExploit);
+      // 使用 ε-greedy + UCB 选择变体；mood 的探索率覆盖静态 epsilon
+      const epsilon = explorationRate ?? this.config.epsilon;
+      const selected = selectVariant(variants, epsilon, this.config.ucbConfidence, this.config.minTrialsBeforeExploit);
 
       // 记录选择事件
-      await this.recordSelectionEvent(selected.id, shouldExplore(this.config.epsilon) ? 'explore' : 'exploit');
+      await this.recordSelectionEvent(selected.id, shouldExplore(epsilon) ? 'explore' : 'exploit');
 
       return selected;
     } catch (error) {

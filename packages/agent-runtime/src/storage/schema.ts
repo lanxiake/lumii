@@ -1230,4 +1230,11 @@ CREATE INDEX IF NOT EXISTS idx_diaries_agent_date
   ON autonomous_diaries (agent_id, diary_date DESC);
 `,
   ],
+  // V33: 目标关联反思 —— 生成目标时回填最近一条反思 ID，供概览点击跳转精确定位
+  [
+    33,
+    `
+ALTER TABLE autonomous_goals ADD COLUMN reflection_id TEXT;
+`,
+  ],
 ] as const;

@@ -93,6 +93,8 @@ export interface AutonomousGoal {
   executedAt?: string;
   /** 完成时间 */
   completedAt?: string;
+  /** 关联反思 ID（目标生成时回填的最近一条反思；无则空） */
+  reflectionId?: string;
 }
 
 /**

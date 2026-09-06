@@ -359,10 +359,13 @@ export class IntrinsicGoalGenerator {
 
       // 持久化到数据库：按审批模式决定初始状态（需审批 → pending，自动批准 → executing）
       const approvalMode = resolveApprovalMode(this.config.approvalMode ?? 'always');
+      // 目标关联到生成时最近的一条反思，供概览点击精确定位（持久化 reflection_id）
+      const latestReflectionId = await this.getLatestReflectionId(score.agentId);
       for (const goal of goalsToCreate) {
         goal.status = shouldRequireApproval(goal.type, approvalMode)
           ? GoalStatusEnum.PENDING
           : GoalStatusEnum.EXECUTING;
+        goal.reflectionId = latestReflectionId ?? undefined;
         await this.saveGoal(goal);
       }
 
@@ -486,12 +489,19 @@ export class IntrinsicGoalGenerator {
     const sql = `
       INSERT INTO autonomous_goals (
         id, agent_id, type, description, trigger_reason,
-        status, priority, satisfaction_before, metadata, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        status, priority, satisfaction_before, metadata, reflection_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-    await this.db.execute(sql, [id, goal.agentId, goal.type, goal.description, goal.triggerReason, goal.status, goal.priority, goal.satisfactionBefore, JSON.stringify(goal.metadata || {}), goal.createdAt]);
+    await this.db.execute(sql, [id, goal.agentId, goal.type, goal.description, goal.triggerReason, goal.status, goal.priority, goal.satisfactionBefore, JSON.stringify(goal.metadata || {}), goal.reflectionId ?? null, goal.createdAt]);
 
     goal.id = id;
+  }
+
+  /** 最近一条反思的 ID（目标生成时回填，用于概览关联跳转）；无反思返回 null */
+  private async getLatestReflectionId(agentId: string): Promise<string | null> {
+    const sql = `SELECT id FROM reflections WHERE agent_id = ? ORDER BY created_at DESC LIMIT 1`;
+    const rows = await this.db.query<{ id: string }>(sql, [agentId]);
+    return rows[0]?.id ?? null;
   }
 
   /**
@@ -513,6 +523,7 @@ export class IntrinsicGoalGenerator {
       approvedAt: row.approved_at,
       executedAt: row.executed_at,
       completedAt: row.completed_at,
+      reflectionId: row.reflection_id ?? undefined,
     };
   }
 

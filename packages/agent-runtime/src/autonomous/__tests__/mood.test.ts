@@ -4,6 +4,7 @@ import {
   circadianEnergy,
   applyMoodImpact,
   moodToDecisionParams,
+  computeExplorationRate,
   moodToPetEmotion,
   type Mood,
 } from '../mood';
@@ -81,6 +82,23 @@ describe('moodToDecisionParams', () => {
   it('非负 valence → 不强制审慎', () => {
     const params = moodToDecisionParams({ energy: 0.8, valence: 0.3, arousal: 0.5, updatedAt: 0 });
     expect(params.selfCheckBias).toBe(false);
+  });
+});
+
+describe('computeExplorationRate', () => {
+  it('arousal 高 + openness 高 → 探索率高', () => {
+    const r = computeExplorationRate({ energy: 0.6, valence: 0, arousal: 1, updatedAt: 0 }, 1);
+    expect(r).toBeCloseTo(0.45); // 1 * 0.3 * (0.5 + 1)
+  });
+
+  it('arousal 低 → 探索率低', () => {
+    const r = computeExplorationRate({ energy: 0.6, valence: 0, arousal: 0, updatedAt: 0 }, 0.5);
+    expect(r).toBeCloseTo(0.075); // 0.5 * 0.3 * 0.5
+  });
+
+  it('封顶 0.5', () => {
+    const r = computeExplorationRate({ energy: 0.6, valence: 0, arousal: 1, updatedAt: 0 }, 1);
+    expect(r).toBeLessThanOrEqual(0.5);
   });
 });
 

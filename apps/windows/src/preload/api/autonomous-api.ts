@@ -119,6 +119,13 @@ export const autonomousApi = {
   },
 
   /**
+   * 获取最近目标（全状态，附关联反思，最多 limit 条）
+   */
+  getGoals: (limit?: number): Promise<Array<AutonomousGoal & { reflectionId: string | null }>> => {
+    return ipcRenderer.invoke('autonomous:getGoals', limit)
+  },
+
+  /**
    * 批准目标
    */
   approveGoal: (goalId: string, note?: string): Promise<AutonomousGoal> => {

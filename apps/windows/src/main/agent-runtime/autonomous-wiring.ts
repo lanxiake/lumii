@@ -27,6 +27,7 @@ import {
   AUTONOMOUS_ENABLED,
   AUTONOMOUS_GOAL_TYPES,
   readMood,
+  computeExplorationRate,
   readConcerns,
   writeConcerns,
   readSettings,
@@ -69,6 +70,18 @@ function readVariantId(db: DatabaseAdapter, conversationId: string): string | un
     return row?.value || undefined
   } catch {
     return undefined
+  }
+}
+
+/** 读人格开放性（personality_state 表）；未初始化时返回中性 0.5。 */
+function readOpenness(db: DatabaseAdapter, agentId: string): number {
+  try {
+    const row = db
+      .prepare<{ openness: number }>('SELECT openness FROM personality_state WHERE agent_id = ?')
+      .get(agentId)
+    return typeof row?.openness === 'number' ? row.openness : 0.5
+  } catch {
+    return 0.5
   }
 }
 
@@ -345,7 +358,10 @@ export function createAutonomousRuntime(
     },
 
     async selectPromptVariant(conversationId: string) {
-      const variant = await promptEvolution.selectPrompt(BASELINE_PROMPT_ID)
+      const variant = await promptEvolution.selectPrompt(
+        BASELINE_PROMPT_ID,
+        computeExplorationRate(readMood(db), readOpenness(db, 'assistant')),
+      )
       writeVariantId(db, conversationId, variant.id)
       return { variantId: variant.id, variantText: variant.variantText }
     },

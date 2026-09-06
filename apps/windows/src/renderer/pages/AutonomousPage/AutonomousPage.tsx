@@ -56,9 +56,12 @@ type AutonomousGoal = {
   type: string
   description: string
   triggerReason: string
+  status?: string
   priority: number
   userValueScore?: number
   feasibility?: number
+  createdAt?: string
+  reflectionId?: string | null
 }
 
 type CapabilityTest = {
@@ -118,6 +121,7 @@ const DIARY_PAGE_SIZE = 8
 const api = window.electronAPI?.autonomous || {
   getStatus: () => Promise.reject(new Error('API not available')),
   getPendingGoals: () => Promise.reject(new Error('API not available')),
+  getGoals: () => Promise.reject(new Error('API not available')),
   approveGoal: () => Promise.reject(new Error('API not available')),
   rejectGoal: () => Promise.reject(new Error('API not available')),
   getCapabilities: () => Promise.reject(new Error('API not available')),
@@ -140,6 +144,15 @@ const TRIGGER_LABELS: Record<string, string> = {
   scheduled: '定时反思',
   'user-request': '用户请求',
   'capability-gap': '能力缺口',
+}
+
+const GOAL_STATUS_LABELS: Record<string, string> = {
+  pending: '待审批',
+  approved: '已批准',
+  rejected: '已拒绝',
+  executing: '执行中',
+  completed: '已完成',
+  failed: '失败',
 }
 
 /**
@@ -181,7 +194,7 @@ export function AutonomousPage() {
     try {
       const [statusData, goalsData, capabilitiesData, capabilityTestsData, reflectionsData, historyData, promptData, settingsData, moodData, concernsData, diaryData] = await Promise.all([
         api.getStatus(),
-        api.getPendingGoals(),
+        api.getGoals(20),
         api.getCapabilities().catch(() => ({})),
         api.getCapabilityTests().catch(() => []),
         api.getReflections(20).catch(() => []),
@@ -263,6 +276,13 @@ export function AutonomousPage() {
     } catch (error) {
       console.error('[AutonomousPage] 拒绝目标失败:', error)
     }
+  }
+
+  /** 点击已处理的目标 → 跳转到关联反思 */
+  function handleGoalJump(goal: AutonomousGoal) {
+    if (!goal.reflectionId) return
+    setActiveTab('reflections')
+    setSelectedReflectionId(goal.reflectionId)
   }
 
   /** 切换自主进化开关 */
@@ -459,7 +479,7 @@ export function AutonomousPage() {
             </Card>
 
             <Card
-              header={<TitledHeader title={`待审批目标 (${goals.length})`} tip={TIP_PENDING_GOALS} />}
+              header={<TitledHeader title={`最近目标 (${goals.length})`} tip={TIP_PENDING_GOALS} />}
               className={styles.overviewGoals}
               bodyClassName={styles.cardBodyFill}
             >
@@ -471,12 +491,12 @@ export function AutonomousPage() {
                       <path d="M12 6v6l4 2" strokeWidth="2" strokeLinecap="round"/>
                     </svg>
                   </div>
-                  暂无待审批目标
+                  暂无目标
                 </div>
               ) : (
                 <div className={styles.goalsList}>
                   {goals.map((goal) => (
-                    <GoalCard key={goal.id} goal={goal} onApprove={handleApprove} onReject={handleReject} />
+                    <GoalCard key={goal.id} goal={goal} onApprove={handleApprove} onReject={handleReject} onJump={handleGoalJump} />
                   ))}
                 </div>
               )}
@@ -999,9 +1019,10 @@ interface GoalCardProps {
   goal: AutonomousGoal
   onApprove: (goalId: string) => void
   onReject: (goalId: string) => void
+  onJump: (goal: AutonomousGoal) => void
 }
 
-function GoalCard({ goal, onApprove, onReject }: GoalCardProps) {
+function GoalCard({ goal, onApprove, onReject, onJump }: GoalCardProps) {
   const typeLabels: Record<string, string> = {
     learning: '学习目标',
     'proactive-message': '主动消息',
@@ -1012,11 +1033,21 @@ function GoalCard({ goal, onApprove, onReject }: GoalCardProps) {
 
   const typeClass = goal.type.replace(/-/g, '')
   const priorityStars = '★'.repeat(Math.ceil(goal.priority * 5))
+  const isPending = !goal.status || goal.status === 'pending'
+  const jumpable = !isPending && !!goal.reflectionId
 
   return (
-    <div className={styles.goalCard}>
+    <div
+      className={`${styles.goalCard}${jumpable ? ` ${styles.goalCardClickable}` : ''}`}
+      onClick={() => jumpable && onJump(goal)}
+    >
       <div className={styles.goalHeader}>
         <span className={`${styles.goalType} ${styles[typeClass]}`}>{typeLabels[goal.type] || goal.type}</span>
+        {goal.status && (
+          <span className={`${styles.goalStatus} ${styles[`goalStatus_${goal.status}`] || ''}`}>
+            {GOAL_STATUS_LABELS[goal.status] || goal.status}
+          </span>
+        )}
         <Tooltip content={TIP_GOAL.priority} placement="left">
           <span className={styles.goalPriority}>{priorityStars}</span>
         </Tooltip>
@@ -1046,14 +1077,18 @@ function GoalCard({ goal, onApprove, onReject }: GoalCardProps) {
           </p>
         )}
       </div>
-      <div className={styles.goalActions}>
-        <button className={styles.btnPrimary} onClick={() => onApprove(goal.id)}>
-          批准并执行
-        </button>
-        <button className={styles.btnSecondary} onClick={() => onReject(goal.id)}>
-          拒绝
-        </button>
-      </div>
+      {isPending ? (
+        <div className={styles.goalActions}>
+          <button className={styles.btnPrimary} onClick={() => onApprove(goal.id)}>
+            批准并执行
+          </button>
+          <button className={styles.btnSecondary} onClick={() => onReject(goal.id)}>
+            拒绝
+          </button>
+        </div>
+      ) : jumpable ? (
+        <div className={styles.goalJumpHint}>查看关联反思 →</div>
+      ) : null}
     </div>
   )
 }

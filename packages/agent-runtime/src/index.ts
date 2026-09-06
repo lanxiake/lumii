@@ -758,6 +758,7 @@ export {
   circadianEnergy,
   applyMoodImpact,
   moodToDecisionParams,
+  computeExplorationRate,
   moodToPetEmotion,
   readMood,
   writeMood,

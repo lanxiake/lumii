@@ -575,6 +575,34 @@
   gap: var(--spacing-2);
 }
 
+.goalCardClickable {
+  cursor: pointer;
+}
+
+.goalStatus {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--mt-border);
+  color: var(--mt-fg-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--mt-fw-semibold);
+}
+
+.goalStatus_pending { color: var(--mt-accent-500); border-color: var(--mt-accent-500); }
+.goalStatus_approved { color: var(--mt-success); border-color: var(--mt-success); }
+.goalStatus_executing { color: var(--mt-warning); border-color: var(--mt-warning); }
+.goalStatus_completed { color: var(--mt-success); border-color: var(--mt-success); }
+.goalStatus_rejected { color: var(--mt-fg-3); }
+.goalStatus_failed { color: #ef4444; border-color: #ef4444; }
+
+.goalJumpHint {
+  padding-top: var(--spacing-2);
+  border-top: 1px solid var(--mt-border);
+  color: var(--mt-accent-500);
+  font-size: var(--font-size-xs);
+  font-weight: var(--mt-fw-semibold);
+}
+
 .btnPrimary,
 .btnSecondary {
   flex: 1;

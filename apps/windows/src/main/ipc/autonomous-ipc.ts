@@ -140,6 +140,28 @@ ipcMain.handle('autonomous:getPendingGoals', async () => {
   }
 })
 
+/** 最近目标（全状态，时间倒序，最多 limit 条），附生成时回填的关联反思 ID */
+ipcMain.handle('autonomous:getGoals', async (_event, limit = 20) => {
+  try {
+    const bridge = requireBridge()
+    const goals = bridge.autonomousRepo.listGoals(DEFAULT_AGENT_ID).slice(0, limit)
+    return goals.map((g) => ({
+      id: g.id,
+      type: g.type,
+      description: g.description,
+      triggerReason: g.trigger_reason,
+      status: g.status,
+      priority: g.priority,
+      createdAt: g.created_at,
+      approvedAt: g.approved_at,
+      reflectionId: g.reflection_id,
+    }))
+  } catch (error) {
+    console.error('[autonomous:getGoals]', error)
+    return []
+  }
+})
+
 ipcMain.handle('autonomous:approveGoal', async (_event, goalId: string, note?: string) => {
   const bridge = requireBridge()
   const ok = bridge.autonomousRepo.approveGoal(goalId, note)
