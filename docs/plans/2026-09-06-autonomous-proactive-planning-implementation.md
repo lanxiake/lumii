@@ -11,7 +11,7 @@
 | 阶段 | 需求 | 交付物 | 状态 |
 |---|---|---|---|
 | 0 | 1 日记一天一次 | 确认已实现 | ✅ 已完成 |
-| 1 | 5 更多系统工具 | 分层扩展 `GOAL_EXECUTION_TOOLS` | 待实施 |
+| 1 | 5 更多系统工具 | 分层扩展 `GOAL_EXECUTION_TOOLS` | ✅ 已完成 |
 | 2 | 3 心跳 = 保活 | `handleEvolutionTick` 重定义 | 待实施 |
 | 3 | 2 目标带时间 | migration V34 + goal 字段 | 待实施 |
 | 4 | 2+4 主动规划 + 预算自管 | 规划器 + `cron_create` 放行 | 待实施 |
@@ -22,23 +22,22 @@
 - 已由 `run-autonomous-life-e2e.mjs` I1/I2 实测通过。
 - **验收**：无需改动；回归测试保持 I1/I2 绿。
 
-## 阶段 1：分层扩展工具白名单
+## 阶段 1：分层扩展工具白名单（✅ 已完成）
 
 **目标**：让 Agent 能「主动做任何事」——读、学、记忆、排期、记待办。
 
-**改动**：`packages/agent-runtime/src/autonomous/goal-executor.ts` 的 `GOAL_EXECUTION_TOOLS` 从 6 个扩到 T1+T2（设计 §4.6）。
+**已改动**：`packages/agent-runtime/src/autonomous/goal-executor.ts` 的 `GOAL_EXECUTION_TOOLS` 从 6 个扩到 T1+T2：
 
-- T1 新增：`file_read / list_dir / glob / grep`、`bing_search`、`wiki_overview / wiki_search / wiki_read`、`skill_list / skill_search`、`todo_write`、`cron_list / cron_create / cron_delete`。
-- T2 新增（可选，本期先只读，写类留 T2 待用户确认后再开）：`file_write / file_edit / file_mkdir / file_move / file_copy`。
-- T3（`bash / spawn_agent / channel_send / image_generate / browser_* / app_* / mcp__*`）**保持排除**。
+- T1 新增：`bing_search / file_read / list_dir / glob / grep / wiki_overview / wiki_search / wiki_read / skill_list / skill_search / todo_write / cron_list / cron_create`。
+- T2 新增（用户已确认开放）：`file_write / file_edit / file_mkdir / file_move / file_copy / dashboard_feed_write`。
+- **死名修复**：原 `memory_add`/`notify_user` 在工具注册表中不存在（历史死名），改为真实工具 `memory_manage` / `message`。
+- T3（`bash / spawn_agent / channel_send / send_message / image_generate / speech_generate / browser_* / app_* / mcp__*`）**保持排除**；`cron_delete` 暂缓（需 id 守卫，留规划器阶段）。
 
-**配套护栏**：
-- `cron_delete` 加 id 前缀守卫：只允许删 `agent-self:*`（本次新增约定）与已存在 `autonomous-tick`，不得删用户其他 cron。
-- `getGoalToolAllowlist` 由「按类型细分」仍保留签名，先全体共用 T1+T2。
+**验证**：
+- 单测：`goal-executor.test.ts` 12 例绿；`agent-runtime` 全量 1725 例绿。
+- E2E：`run-autonomous-life-e2e.mjs` 23/23 绿（D1 目标执行在扩展白名单下仍完成）。
 
-**验收**：
-- 单测：`goal-executor.test.ts` 更新断言——`not.toContain('bash')` 仍成立；新增 `toContain('cron_create') / toContain('todo_write') / toContain('file_read')`。
-- 回归：`run-autonomous-life-e2e.mjs` 21 例绿（D1 目标执行仍跑通）。
+**遗留（阶段 4 处理）**：`cron_delete` 的 id 前缀守卫（只允许删 `agent_id='assistant'` 的任务）。
 
 ## 阶段 2：心跳重定义为保活看门狗
 
