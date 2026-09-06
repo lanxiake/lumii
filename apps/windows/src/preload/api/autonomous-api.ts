@@ -17,6 +17,15 @@ export interface DiaryEntry {
 }
 
 /**
+ * 日记流分页结果（时间倒序，nextBefore 为更早历史游标）
+ */
+export interface DiaryPage {
+  items: DiaryEntry[]
+  hasMore: boolean
+  nextBefore: { timestamp: number; id: string } | null
+}
+
+/**
  * 自主进化状态
  */
 export interface AutonomousStatus {
@@ -220,9 +229,9 @@ export const autonomousApi = {
   },
 
   /**
-   * 获取内心日记流（evolution:main 会话里 agent 的自述/独白，时间倒序）
+   * 获取内心日记流（evolution:main 会话里 agent 的自述/独白，时间倒序，游标分页）
    */
-  getDiary: (limit?: number): Promise<DiaryEntry[]> => {
-    return ipcRenderer.invoke('autonomous:getDiary', limit)
+  getDiary: (limit?: number, before?: { timestamp: number; id: string }): Promise<DiaryPage> => {
+    return ipcRenderer.invoke('autonomous:getDiary', limit, before)
   },
 }

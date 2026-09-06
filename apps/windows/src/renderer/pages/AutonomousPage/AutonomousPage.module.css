@@ -678,7 +678,7 @@
 .innerGrid {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(260px, 1.2fr);
-  grid-template-rows: minmax(140px, auto) minmax(240px, 1fr);
+  grid-template-rows: minmax(180px, 1fr) minmax(240px, 1.4fr);
   gap: var(--spacing-3);
   flex: 1;
   min-height: 0;
@@ -686,6 +686,11 @@
 
 .diaryCard {
   grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .moodSummary {
@@ -698,11 +703,6 @@
   padding: var(--spacing-4) var(--spacing-3);
 }
 
-.moodEmoji {
-  font-size: 44px;
-  line-height: 1;
-}
-
 .moodText {
   color: var(--mt-fg-2);
   font-size: var(--font-size-base);
@@ -710,16 +710,29 @@
   text-align: center;
 }
 
+/* 牵挂卡片：撑满上排右侧格子，列表可滚动 */
+.concernsCard {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
 .concernsList {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-2);
-  padding: var(--spacing-3);
+  padding: var(--spacing-1) var(--spacing-1) var(--spacing-1) 0;
   overflow-y: auto;
   min-height: 0;
+  flex: 1;
 }
 
 .concernItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-1);
   padding: var(--spacing-3);
   border-left: 3px solid var(--mt-accent-500);
   border-radius: var(--mt-radius-md);
@@ -727,20 +740,94 @@
   color: var(--mt-fg-2);
   font-size: var(--font-size-sm);
   line-height: 1.5;
+  flex-shrink: 0;
+}
+
+.concern_resolved {
+  border-left-color: var(--mt-success);
+  opacity: 0.72;
+}
+
+.concern_dropped {
+  border-left-color: var(--mt-fg-4);
+  opacity: 0.55;
+}
+
+.concernHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+}
+
+.concernDesc {
+  color: var(--mt-fg-1);
+  font-weight: var(--mt-fw-medium);
+  flex: 1;
+  min-width: 0;
+}
+
+.concernStatus {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: var(--mt-radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: var(--mt-fw-semibold);
+  white-space: nowrap;
+}
+
+.concernStatus_open {
+  color: var(--mt-accent-500);
+  background: color-mix(in srgb, var(--mt-accent-500) 14%, transparent);
+}
+
+.concernStatus_resolved {
+  color: var(--mt-success);
+  background: color-mix(in srgb, var(--mt-success) 14%, transparent);
+}
+
+.concernStatus_dropped {
+  color: var(--mt-fg-3);
+  background: var(--mt-bg-tertiary);
+}
+
+.concernMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-3);
+  color: var(--mt-fg-4);
+  font-size: var(--font-size-xs);
 }
 
 .diaryList {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-3);
-  padding: var(--spacing-1) 0;
+  gap: var(--spacing-2);
+  padding: var(--spacing-1) var(--spacing-1) var(--spacing-1) 0;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
 }
 
 .diaryItem {
-  padding: var(--spacing-4);
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-3);
   border: 1px solid var(--mt-border);
   border-radius: var(--mt-radius-lg);
   background: var(--mt-bg-secondary);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color var(--mt-dur-fast) var(--mt-ease-standard),
+    background var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.diaryItem:hover {
+  border-color: var(--mt-accent-500);
+  background: color-mix(in srgb, var(--mt-accent-500) 6%, var(--mt-bg-secondary));
 }
 
 .diaryMeta {
@@ -755,6 +842,45 @@
   line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.diaryLoadMore {
+  align-self: center;
+  padding: var(--spacing-2) var(--spacing-4);
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-md);
+  background: transparent;
+  color: var(--mt-fg-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--mt-fw-semibold);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.diaryLoadMore:hover:not(:disabled) {
+  border-color: var(--mt-accent-500);
+  color: var(--mt-accent-500);
+}
+
+.diaryLoadMore:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.diaryDetail {
+  color: var(--mt-fg-1);
+  font-size: var(--font-size-sm);
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: var(--spacing-1) 0;
 }
 
 @media (max-width: 960px) {
@@ -773,7 +899,9 @@
   .radarCol,
   .dimensionsCol,
   .reflectionListCol,
-  .reflectionDetailCol {
+  .reflectionDetailCol,
+  .concernsCard,
+  .diaryCard {
     height: auto;
     min-height: 220px;
   }

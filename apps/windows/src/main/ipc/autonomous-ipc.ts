@@ -283,19 +283,34 @@ ipcMain.handle('autonomous:getConcerns', async () => {
   return readConcerns(bridge.db)
 })
 
-ipcMain.handle('autonomous:getDiary', async (_event, limit = 50) => {
-  const bridge = requireBridge()
-  const page = bridge.conversationRepo.loadMessagesPage(EVOLUTION_CONVERSATION_ID, { limit })
-  return page.items
-    .filter((m) => m.role === 'assistant')
-    .map((m) => ({
-      id: m.id,
-      text: extractInnerText(m.content_json),
-      timestamp: new Date(m.timestamp).getTime(),
-    }))
-    .filter((e) => e.text.trim().length > 0)
-    .reverse()
-})
+ipcMain.handle(
+  'autonomous:getDiary',
+  async (_event, limit = 20, before?: { timestamp: number; id: string }) => {
+    const bridge = requireBridge()
+    const page = bridge.conversationRepo.loadMessagesPage(EVOLUTION_CONVERSATION_ID, {
+      limit,
+      before: before
+        ? { timestamp: new Date(before.timestamp).toISOString(), id: before.id }
+        : undefined,
+    })
+    const items = page.items
+      .filter((m) => m.role === 'assistant')
+      .map((m) => ({
+        id: m.id,
+        text: extractInnerText(m.content_json),
+        timestamp: new Date(m.timestamp).getTime(),
+      }))
+      .filter((e) => e.text.trim().length > 0)
+      .reverse()
+    // 下一页游标：当前页最早一条原始消息（升序首条），严格早于它的才是更早历史
+    const oldest = page.items[0]
+    const nextBefore =
+      page.hasMore && oldest
+        ? { timestamp: new Date(oldest.timestamp).getTime(), id: oldest.id }
+        : null
+    return { items, hasMore: page.hasMore, nextBefore }
+  },
+)
 
 ipcMain.handle('autonomous:getApprovalSettings', async () => null)
 

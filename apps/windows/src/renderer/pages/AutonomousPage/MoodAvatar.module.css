@@ -1,0 +1,126 @@
+/**
+ * MoodAvatar 样式 —— 情绪光晕 + 浮动 logo + 灵光粒子
+ */
+
+.moodAvatar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* 背景光晕：按情绪颜色呼吸 */
+.halo {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 45%,
+    rgba(var(--mood-glow), var(--mood-glow-opacity)) 0%,
+    rgba(var(--mood-glow), 0) 68%
+  );
+  animation: haloBreath 2.6s ease-in-out infinite;
+}
+
+/* logo：浮动（精力驱动速度与幅度）+ 轻微呼吸缩放 */
+.logo {
+  position: relative;
+  width: 62%;
+  height: 62%;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 16px rgba(var(--mood-glow), 0.35));
+  animation: moodFloat var(--mood-float-duration) ease-in-out infinite;
+  will-change: transform;
+}
+
+/* 情绪徽标：右下角小圆点标签，状态可读 */
+.emotionBadge {
+  position: absolute;
+  right: 2%;
+  bottom: 2%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mood-accent) 18%, var(--mt-bg-elevated));
+  color: var(--mood-accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.5;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* 灵光粒子 */
+.sparkles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.sparkle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mood-accent);
+  box-shadow: 0 0 8px var(--mood-accent);
+  animation: sparklePop 1.8s ease-in-out infinite;
+}
+
+.sparkleA {
+  top: 8%;
+  left: 16%;
+  animation-delay: 0s;
+}
+
+.sparkleB {
+  top: 18%;
+  right: 12%;
+  animation-delay: 0.6s;
+}
+
+.sparkleC {
+  bottom: 16%;
+  left: 10%;
+  animation-delay: 1.2s;
+}
+
+@keyframes haloBreath {
+  0%, 100% {
+    transform: scale(0.96);
+    opacity: 0.75;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+@keyframes moodFloat {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(calc(var(--mood-float-amp) * -1)) scale(1.04);
+  }
+}
+
+@keyframes sparklePop {
+  0%, 100% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .halo,
+  .logo,
+  .sparkle {
+    animation: none;
+  }
+}

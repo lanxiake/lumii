@@ -9,12 +9,14 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { Card } from '../../components/ui/Card/Card'
 import { Tooltip } from '../../components/ui/Tooltip/Tooltip'
+import { Modal } from '../../components/ui/Modal/Modal'
 import { CapabilityRadar } from '../../components/CapabilityRadar/CapabilityRadar'
 import { CapabilityProgressBar } from '../../components/CapabilityProgressBar/CapabilityProgressBar'
 import { ReflectionCard, type Reflection } from '../../components/ReflectionCard/ReflectionCard'
 import { SatisfactionChart, type SatisfactionDataPoint } from '../../components/SatisfactionChart/SatisfactionChart'
 import { PromptVariantStats, type PromptFragmentStats } from '../../components/PromptVariantStats/PromptVariantStats'
 import { LabeledMetric, MetricTip, TitledHeader } from './MetricTip'
+import { MoodAvatar } from './MoodAvatar'
 import {
   TIP_BREAKDOWN,
   TIP_CAPABILITY_DIMENSIONS,
@@ -105,6 +107,14 @@ type DiaryEntry = {
   timestamp: number
 }
 
+type DiaryPage = {
+  items: DiaryEntry[]
+  hasMore: boolean
+  nextBefore: { timestamp: number; id: string } | null
+}
+
+const DIARY_PAGE_SIZE = 8
+
 const api = window.electronAPI?.autonomous || {
   getStatus: () => Promise.reject(new Error('API not available')),
   getPendingGoals: () => Promise.reject(new Error('API not available')),
@@ -148,6 +158,10 @@ export function AutonomousPage() {
   const [mood, setMood] = useState<MoodState | null>(null)
   const [concerns, setConcerns] = useState<Concern[]>([])
   const [diary, setDiary] = useState<DiaryEntry[]>([])
+  const [diaryHasMore, setDiaryHasMore] = useState(false)
+  const [diaryCursor, setDiaryCursor] = useState<{ timestamp: number; id: string } | null>(null)
+  const [diaryLoadingMore, setDiaryLoadingMore] = useState(false)
+  const [selectedDiary, setSelectedDiary] = useState<DiaryEntry | null>(null)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<TabType>('overview')
   const [autonomousEnabled, setAutonomousEnabled] = useState(true)
@@ -175,7 +189,7 @@ export function AutonomousPage() {
         api.getSettings().catch(() => null),
         api.getMood().catch(() => null),
         api.getConcerns().catch(() => []),
-        api.getDiary(100).catch(() => []),
+        api.getDiary(DIARY_PAGE_SIZE).catch(() => ({ items: [], hasMore: false, nextBefore: null })),
       ])
       setStatus(statusData)
       setGoals(goalsData)
@@ -187,7 +201,10 @@ export function AutonomousPage() {
       setSettings(settingsData)
       setMood(moodData)
       setConcerns(Array.isArray(concernsData) ? (concernsData as Concern[]) : [])
-      setDiary(Array.isArray(diaryData) ? (diaryData as DiaryEntry[]) : [])
+      const diaryPage = diaryData as DiaryPage
+      setDiary(diaryPage.items ?? [])
+      setDiaryHasMore(diaryPage.hasMore ?? false)
+      setDiaryCursor(diaryPage.nextBefore ?? null)
       setAutonomousEnabled(statusData.enabled !== false)
       setSelectedReflectionId((prev) => {
         if (prev && reflectionsData.some((r: Reflection) => r.id === prev)) return prev
@@ -197,6 +214,22 @@ export function AutonomousPage() {
       console.error('[AutonomousPage] 加载数据失败:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  /** 加载更早的日记（游标分页） */
+  async function loadMoreDiary() {
+    if (!diaryCursor || diaryLoadingMore) return
+    setDiaryLoadingMore(true)
+    try {
+      const page = await api.getDiary(DIARY_PAGE_SIZE, diaryCursor)
+      setDiary((prev) => [...prev, ...(page.items ?? [])])
+      setDiaryHasMore(page.hasMore ?? false)
+      setDiaryCursor(page.nextBefore ?? null)
+    } catch (error) {
+      console.error('[AutonomousPage] 加载更多日记失败:', error)
+    } finally {
+      setDiaryLoadingMore(false)
     }
   }
 
@@ -338,6 +371,15 @@ export function AutonomousPage() {
           Prompt
         </button>
         <button
+          className={`${styles.tab} ${activeTab === 'inner' ? styles.active : ''}`}
+          onClick={() => setActiveTab('inner')}
+        >
+          <svg className={styles.tabIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          内心
+        </button>
+        <button
           className={`${styles.tab} ${activeTab === 'settings' ? styles.active : ''}`}
           onClick={() => setActiveTab('settings')}
         >
@@ -346,15 +388,6 @@ export function AutonomousPage() {
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           设置
-        </button>
-        <button
-          className={`${styles.tab} ${activeTab === 'inner' ? styles.active : ''}`}
-          onClick={() => setActiveTab('inner')}
-        >
-          <svg className={styles.tabIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          内心
         </button>
       </div>
 
@@ -755,7 +788,7 @@ export function AutonomousPage() {
             <Card header={<TitledHeader title="现在的心情" tip={TIP_INNER_MOOD} />}>
               {mood ? (
                 <div className={styles.moodSummary}>
-                  <div className={styles.moodEmoji}>{moodToEmoji(mood)}</div>
+                  <MoodAvatar mood={mood} size={96} />
                   <div className={styles.moodText}>{describeMood(mood)}</div>
                 </div>
               ) : (
@@ -763,16 +796,30 @@ export function AutonomousPage() {
               )}
             </Card>
 
-            <Card header={<TitledHeader title="还在惦记" tip={TIP_INNER_CONCERNS} />}>
-              {concerns.filter((c) => c.status === 'open').length > 0 ? (
+            <Card
+              header={<TitledHeader title="还在惦记" tip={TIP_INNER_CONCERNS} />}
+              className={styles.concernsCard}
+              bodyClassName={styles.cardBodyFill}
+            >
+              {concerns.length > 0 ? (
                 <div className={styles.concernsList}>
-                  {concerns
-                    .filter((c) => c.status === 'open')
-                    .map((c) => (
-                      <div key={c.id} className={styles.concernItem}>
-                        {c.description}
+                  {sortConcerns(concerns).map((c) => (
+                    <div key={c.id} className={`${styles.concernItem} ${styles[`concern_${c.status}`]}`}>
+                      <div className={styles.concernHeader}>
+                        <span className={styles.concernDesc}>{c.description}</span>
+                        <span className={`${styles.concernStatus} ${styles[`concernStatus_${c.status}`]}`}>
+                          {CONCERN_STATUS_LABELS[c.status]}
+                        </span>
                       </div>
-                    ))}
+                      <div className={styles.concernMeta}>
+                        {c.origin && <span>来源 {c.origin}</span>}
+                        <span>提起 {c.raisedCount} 次</span>
+                        {c.status === 'open' && c.nextRaiseAfter > Date.now() && (
+                          <span>下次 {formatDiaryTime(c.nextRaiseAfter)} 可提起</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <div className={styles.emptyCompact}>暂时没有放不下的事</div>
@@ -787,11 +834,27 @@ export function AutonomousPage() {
               {diary.length > 0 ? (
                 <div className={styles.diaryList}>
                   {diary.map((d) => (
-                    <div key={d.id} className={styles.diaryItem}>
+                    <button
+                      key={d.id}
+                      type="button"
+                      className={styles.diaryItem}
+                      title={d.text}
+                      onClick={() => setSelectedDiary(d)}
+                    >
                       <div className={styles.diaryMeta}>{formatDiaryTime(d.timestamp)}</div>
                       <div className={styles.diaryText}>{d.text}</div>
-                    </div>
+                    </button>
                   ))}
+                  {diaryHasMore && (
+                    <button
+                      type="button"
+                      className={styles.diaryLoadMore}
+                      disabled={diaryLoadingMore}
+                      onClick={loadMoreDiary}
+                    >
+                      {diaryLoadingMore ? '加载中…' : '加载更早的日记'}
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className={styles.emptyCompact}>还没有日记。夜深时它会写点什么。</div>
@@ -800,6 +863,15 @@ export function AutonomousPage() {
           </div>
         )}
       </div>
+
+      <Modal
+        open={selectedDiary !== null}
+        title={selectedDiary ? formatDiaryTime(selectedDiary.timestamp) : '日记详情'}
+        onClose={() => setSelectedDiary(null)}
+        width={560}
+      >
+        {selectedDiary && <div className={styles.diaryDetail}>{selectedDiary.text}</div>}
+      </Modal>
     </div>
   )
 }
@@ -840,13 +912,24 @@ function describeMood(mood: MoodState): string {
   return parts.join('，')
 }
 
-/** 情绪 → 表情符号（对齐 moodToPetEmotion 的 joy/sadness/surprise/neutral） */
-function moodToEmoji(mood: MoodState): string {
-  if (mood.valence > 0.3 && mood.energy > 0.6) return '😊'
-  if (mood.arousal > 0.6) return '🤔'
-  if (mood.energy < 0.3) return '😴'
-  if (mood.valence < -0.3) return '😞'
-  return '😐'
+/** 牵挂状态中文标签 */
+const CONCERN_STATUS_LABELS: Record<Concern['status'], string> = {
+  open: '还在惦记',
+  resolved: '已解决',
+  dropped: '已放下',
+}
+
+/** 牵挂排序：进行中的在前，已放下/已解决的在后 */
+const CONCERN_STATUS_ORDER: Record<Concern['status'], number> = {
+  open: 0,
+  resolved: 1,
+  dropped: 2,
+}
+
+function sortConcerns(list: Concern[]): Concern[] {
+  return [...list].sort(
+    (a, b) => CONCERN_STATUS_ORDER[a.status] - CONCERN_STATUS_ORDER[b.status],
+  )
 }
 
 /** 能力测试结果中文标签 */
