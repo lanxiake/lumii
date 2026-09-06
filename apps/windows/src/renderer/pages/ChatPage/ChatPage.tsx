@@ -166,6 +166,31 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   // 本轮 Agent 正常结束时间戳（供 ChatInput 自动发送等待队列）
   const runtimeLastTurnEndAt = useAgentRuntimeState((s) => s.lastTurnEndAt)
 
+  /**
+   * 侧栏运行态：已进过内存的会话以 store.isStreaming 为准（避免 DB hasRunning 滞后导致动效不消）；
+   * 从未加载的会话仍回退 hasRunning（渠道后台跑等）。
+   */
+  const sessionStorePresenceSig = useAgentRuntimeGlobalState((state) => {
+    const keys = Array.from(state.sessions.keys()).sort()
+    return keys.join('\0')
+  })
+  const streamingSessionKeysSig = useAgentRuntimeGlobalState((state) => {
+    const keys: string[] = []
+    for (const [key, session] of state.sessions) {
+      if (session.isStreaming) keys.push(key)
+    }
+    keys.sort()
+    return keys.join('\0')
+  })
+  const sessionsInStore = useMemo(
+    () => new Set(sessionStorePresenceSig ? sessionStorePresenceSig.split('\0') : []),
+    [sessionStorePresenceSig],
+  )
+  const liveStreamingKeys = useMemo(
+    () => new Set(streamingSessionKeysSig ? streamingSessionKeysSig.split('\0') : []),
+    [streamingSessionKeysSig],
+  )
+
   // 本地 Runtime 会话列表（侧边栏使用）
   const [localRuntimeSessions, setLocalRuntimeSessions] = useState<
     readonly { sessionKey: string; title: string; updatedAt: string; agentId?: string; lastMessagePreview?: string; hasRunning?: boolean; isPinned?: boolean; wasInterrupted?: boolean; channel?: string }[]
@@ -320,12 +345,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       updatedAt: new Date(s.updatedAt),
       source: 'local' as const,
       agentId: s.agentId,
-      isStreaming: Boolean(s.hasRunning),
+      // 已在 store 的会话只信内存 isStreaming；未加载的才用 DB hasRunning
+      isStreaming: sessionsInStore.has(s.sessionKey)
+        ? liveStreamingKeys.has(s.sessionKey)
+        : Boolean(s.hasRunning),
       isPinned: s.isPinned,
       wasInterrupted: s.wasInterrupted,
       channel: s.channel,
     }))
-  }, [localRuntimeSessions])
+  }, [localRuntimeSessions, liveStreamingKeys, sessionsInStore])
 
   // 当前会话是否被中断
   const currentSessionInterrupted = useMemo(() => {

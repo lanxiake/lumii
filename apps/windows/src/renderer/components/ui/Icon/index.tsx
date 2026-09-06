@@ -47,7 +47,7 @@ export {
 } from 'lucide-react'
 
 // 状态图标
-export { AlertCircle, CheckCircle, XCircle, Loader2 } from 'lucide-react'
+export { AlertCircle, CheckCircle, XCircle, Loader2, Circle } from 'lucide-react'
 
 // Agent 相关
 export { Users, Cpu, Wrench, Search, Filter } from 'lucide-react'
@@ -68,7 +68,7 @@ export { Boxes } from 'lucide-react'
 export { Mic } from 'lucide-react'
 
 // 会话列表 / 工具栏
-export { Pin, PinOff, Trash2, Type, FolderTree, GitBranch } from 'lucide-react'
+export { Pin, PinOff, Trash2, Type, FolderTree, GitBranch, MoreHorizontal } from 'lucide-react'
 
 // 重导出类型
 export type { LucideIcon, LucideProps } from 'lucide-react'

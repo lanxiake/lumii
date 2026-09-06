@@ -1,13 +1,14 @@
-/* 会话项：对齐原型 .si —— 无边框、9px 圆角、选中态左侧发光竖条 */
+/* 会话项：单行胶囊布局，对齐参考图 Chats and tasks 列表 */
 .session-item {
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--mt-space-2);
+  gap: 8px;
   width: 100%;
-  padding: 8px 9px;
+  min-height: 32px;
+  padding: 6px 8px 6px 10px;
   border: none;
-  border-radius: 9px;
+  border-radius: 999px;
   background: transparent;
   color: var(--mt-fg-2);
   text-align: left;
@@ -23,59 +24,42 @@
 }
 
 .session-item.active {
-  background: color-mix(in srgb, var(--mt-accent-500) 12%, transparent);
+  background: color-mix(in srgb, var(--mt-fg-1) 10%, transparent);
   color: var(--mt-fg-1);
 }
 
-/* 选中标识用发光竖条，不再靠 border-left 挤压内容 */
-.session-item.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--mt-accent-500);
-  box-shadow: 0 0 8px var(--mt-accent-500);
+.session-item.active .session-title {
+  font-weight: var(--mt-fw-medium);
+}
+
+.session-item.streaming:not(.active) {
+  color: var(--mt-fg-1);
 }
 
 .session-item.editing {
-  padding: 6px 9px;
+  padding: 4px 10px;
+  border-radius: var(--mt-radius-lg);
 }
 
-/* 流式中：竖条改用强调色呼吸，不占布局 */
-.session-item.streaming::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--mt-accent-500);
-  animation: mt-session-bar 1.4s var(--mt-ease-standard) infinite;
+/* 左侧状态图标槽，固定宽度对齐 */
+.status-slot {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
 }
 
-@keyframes mt-session-bar {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
+.status-icon {
+  display: block;
 }
 
-.session-content {
-  flex: 1;
-  min-width: 0;
+.status-icon--idle {
+  color: var(--mt-fg-4);
 }
 
-.session-title-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.status-icon--active {
+  color: var(--mt-accent-500);
 }
 
 .session-pin-icon {
@@ -84,143 +68,98 @@
 }
 
 .session-title {
+  position: relative;
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  /* 基准 12px +10%，并跟随全局字号档位 */
   font-size: calc(13.2px * var(--app-font-scale, 1));
+  line-height: 1.35;
   color: inherit;
 }
 
-/* 时间用等宽小字（原型 .si-m） */
-.session-time {
-  flex-shrink: 0;
-  font-family: var(--mt-font-mono);
-  font-size: calc(10.45px * var(--app-font-scale, 1));
-  color: var(--mt-fg-4);
+/*
+ * 运行中：标题文字始终可见；光波用 ::after 叠加从左扫到右，不改文字 fill/clip。
+ */
+.session-title--streaming::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 42%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--mt-accent-500) 35%, transparent) 35%,
+    color-mix(in srgb, #fff 75%, var(--mt-accent-500)) 50%,
+    color-mix(in srgb, var(--mt-accent-500) 35%, transparent) 65%,
+    transparent 100%
+  );
+  pointer-events: none;
+  animation: mt-title-wave 1.6s linear infinite;
 }
 
-.status-badges {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
+@keyframes mt-title-wave {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(280%);
+  }
 }
 
-.session-preview {
-  margin-top: 1px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: calc(11px * var(--app-font-scale, 1));
-  color: var(--mt-fg-4);
-}
-
-/* Agent 徽标（原型 .si-u） */
-.agent-badge {
-  display: inline-block;
-  max-width: 120px;
-  margin-top: 2px;
-  padding: 1px 5px;
-  border-radius: var(--mt-radius-full);
-  background: color-mix(in srgb, var(--mt-accent-500) 22%, transparent);
-  color: var(--mt-accent-500);
-  font-family: var(--mt-font-mono);
-  font-size: calc(10.45px * var(--app-font-scale, 1));
-  font-weight: var(--mt-fw-semibold);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* hover 操作：图标按钮，正式化，不用 emoji */
-.session-hover-actions {
-  display: flex;
-  gap: 2px;
-  flex-shrink: 0;
-  opacity: 0;
-  transition: opacity var(--mt-dur-normal) var(--mt-ease-standard);
-}
-
-.session-item:hover .session-hover-actions,
-.session-item:focus-within .session-hover-actions {
-  opacity: 1;
-}
-
-.session-action-btn {
+/* ···：默认隐藏，悬停 / 选中 / 焦点时显示 */
+.session-more-btn {
   display: grid;
   place-items: center;
+  flex-shrink: 0;
   width: 22px;
   height: 22px;
+  margin-left: auto;
   padding: 0;
   border: none;
   border-radius: 7px;
   background: transparent;
   color: var(--mt-fg-4);
+  opacity: 0;
   cursor: pointer;
   transition:
+    opacity var(--mt-dur-normal) var(--mt-ease-standard),
     background var(--mt-dur-normal) var(--mt-ease-standard),
     color var(--mt-dur-normal) var(--mt-ease-standard);
 }
 
-.session-action-btn:hover {
-  background: var(--mt-surface-3);
-  color: var(--mt-accent-500);
+.session-item:hover .session-more-btn,
+.session-item:focus-within .session-more-btn,
+.session-item.active .session-more-btn {
+  opacity: 1;
 }
 
-.session-action-btn.delete:hover {
-  background: color-mix(in srgb, var(--mt-error) 12%, transparent);
-  color: var(--mt-error);
+.session-more-btn:hover {
+  background: var(--mt-surface-3);
+  color: var(--mt-fg-1);
 }
 
 /* 重命名输入 */
 .session-edit-input {
   width: 100%;
-  padding: 3px 6px;
+  padding: 3px 8px;
   border: 1px solid var(--mt-accent-500);
-  border-radius: 7px;
+  border-radius: 999px;
   background: var(--mt-bg-elevated);
   color: var(--mt-fg-1);
   font-size: calc(13.2px * var(--app-font-scale, 1));
   outline: none;
 }
 
-.streaming-dot,
-.active-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--mt-radius-full);
-  flex-shrink: 0;
-}
-
-.streaming-dot {
-  background: var(--mt-accent-500);
-  animation: mt-session-dot 1.2s var(--mt-ease-standard) infinite;
-}
-
-.active-dot {
-  background: var(--mt-success);
-  animation: mt-session-dot 1.4s var(--mt-ease-standard) infinite;
-}
-
-@keyframes mt-session-dot {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.4;
-    transform: scale(0.7);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .session-item.streaming::before,
-  .streaming-dot,
-  .active-dot {
+  .session-title--streaming::after {
     animation: none;
+    left: 0;
+    width: 100%;
+    transform: none;
+    background: color-mix(in srgb, var(--mt-accent-500) 18%, transparent);
   }
 }

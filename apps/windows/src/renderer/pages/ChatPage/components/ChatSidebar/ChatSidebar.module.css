@@ -146,14 +146,14 @@
   color: var(--color-text-primary);
 }
 
-/* 会话列表容器（原型 .slist）：2px 行距，两侧留出竖条空间 */
+/* 会话列表容器：胶囊行距略拉开，贴近参考图呼吸感 */
 .conversations-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   padding: var(--mt-space-2) var(--mt-space-2);
 }
 
@@ -273,6 +273,9 @@
 .channel-group-body {
   overflow: hidden;
   max-height: 2000px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   transition: max-height 0.2s ease, opacity 0.15s ease;
   opacity: 1;
 }
@@ -285,6 +288,9 @@
 
 .channel-subgroup {
   margin-bottom: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .channel-subgroup-label {

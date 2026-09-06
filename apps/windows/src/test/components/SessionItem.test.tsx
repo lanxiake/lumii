@@ -1,6 +1,6 @@
 /**
  * SessionItem 组件测试
- * 测试 Phase 4: 会话管理增强 - 悬停操作/右键菜单/重命名
+ * 单行布局：状态图标 / ··· 菜单 / 右键菜单 / 重命名
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -77,68 +77,61 @@ describe('Phase 4: 会话管理 - SessionItem组件', () => {
       expect(screen.getByText('测试会话')).toBeInTheDocument()
     })
 
-    it('TC-4.3.6: 显示最后消息预览', () => {
+    it('TC-4.3.6: 不显示消息预览', () => {
       render(<SessionItem {...mockProps} />)
-      expect(screen.getByText(/Hello world/)).toBeInTheDocument()
+      expect(screen.queryByText(/Hello world/)).not.toBeInTheDocument()
     })
 
-    it('TC-4.3.7: 无消息时显示默认提示', () => {
-      const session = createMockSession({ messages: [] })
-      render(<SessionItem {...mockProps} session={session} />)
-      expect(screen.getByText('暂无消息')).toBeInTheDocument()
+    it('TC-4.3.7: 运行中显示标题光波样式', () => {
+      const session = createMockSession({ isStreaming: true })
+      const { container } = render(<SessionItem {...mockProps} session={session} />)
+
+      const sessionItem = container.querySelector('.session-item')
+      expect(sessionItem).toHaveClass('streaming')
+      expect(container.querySelector('.session-title--streaming')).toBeInTheDocument()
     })
 
-    it('TC-4.3.8: 超长预览文本截断显示', () => {
-      const longContent = 'A'.repeat(50)
-      const session = createMockSession({
-        messages: [
-          {
-            id: 'm1',
-            role: 'user',
-            content: longContent,
-            timestamp: new Date(),
-          },
-        ],
-      })
-      render(<SessionItem {...mockProps} session={session} />)
-
-      const preview = screen.getByText(/\.\.\./)
-      expect(preview.textContent!.length).toBeLessThanOrEqual(35) // 30 + "..."
-    })
-
-    it('TC-4.3.9: 置顶会话显示图钉图标', () => {
+    it('TC-4.3.8: 置顶会话显示图钉图标', () => {
       const session = createMockSession({ isPinned: true })
       const { container } = render(<SessionItem {...mockProps} session={session} />)
 
       expect(container.querySelector('.session-pin-icon')).toBeInTheDocument()
     })
+
+    it('TC-4.3.9: 渲染 ··· 操作按钮', () => {
+      render(<SessionItem {...mockProps} />)
+      expect(screen.getByLabelText('会话操作')).toBeInTheDocument()
+    })
   })
 
-  describe('TC-4.3 悬停操作按钮', () => {
-    it('TC-4.3.1: 点击置顶按钮触发回调', () => {
-      const { container } = render(<SessionItem {...mockProps} />)
+  describe('TC-4.3 ··· 操作菜单', () => {
+    it('TC-4.3.1: 点击 ··· 打开菜单', () => {
+      render(<SessionItem {...mockProps} />)
 
-      const pinBtn = container.querySelector('.session-action-btn')
-      fireEvent.click(pinBtn!)
+      fireEvent.click(screen.getByLabelText('会话操作'))
+
+      expect(screen.getByText('置顶会话')).toBeInTheDocument()
+      expect(screen.getByText('重命名')).toBeInTheDocument()
+      expect(screen.getByText('删除会话')).toBeInTheDocument()
+    })
+
+    it('TC-4.3.2: 菜单内置顶触发回调且不选中会话', () => {
+      render(<SessionItem {...mockProps} />)
+
+      fireEvent.click(screen.getByLabelText('会话操作'))
+      fireEvent.click(screen.getByText('置顶会话'))
 
       expect(mockProps.onPin).toHaveBeenCalled()
+      expect(mockProps.onSelect).not.toHaveBeenCalled()
     })
 
-    it('TC-4.3.2: 点击删除按钮触发回调', () => {
-      const { container } = render(<SessionItem {...mockProps} />)
+    it('TC-4.3.3: 菜单内删除触发回调且不选中会话', () => {
+      render(<SessionItem {...mockProps} />)
 
-      const deleteBtn = container.querySelector('.session-action-btn.delete')
-      fireEvent.click(deleteBtn!)
+      fireEvent.click(screen.getByLabelText('会话操作'))
+      fireEvent.click(screen.getByText('删除会话'))
 
       expect(mockProps.onDelete).toHaveBeenCalled()
-    })
-
-    it('TC-4.3.3: 操作按钮点击不触发选择', () => {
-      const { container } = render(<SessionItem {...mockProps} />)
-
-      const pinBtn = container.querySelector('.session-action-btn')
-      fireEvent.click(pinBtn!)
-
       expect(mockProps.onSelect).not.toHaveBeenCalled()
     })
   })

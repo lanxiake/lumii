@@ -1,10 +1,9 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Pin, PinOff, Trash2, PenLine } from '../../../../components/ui/Icon'
+import { Pin, PinOff, Trash2, PenLine, Circle, MoreHorizontal } from '../../../../components/ui/Icon'
 import { ContextMenu } from '../ContextMenu'
 import type { ContextMenuItem } from '../ContextMenu'
 import type { ChatSession } from '../../../../hooks/business/useChat'
-import { getDisplayMessagePreview } from '../../utils/file-attachment-strategy'
 import styles from './SessionItem.module.css'
 
 interface SessionItemProps {
@@ -17,6 +16,26 @@ interface SessionItemProps {
   agent?: { id: string; name: string }
 }
 
+/**
+ * 格式化会话更新时间，用于 tooltip。
+ */
+function formatTooltipTime(date: Date): string {
+  const d = new Date(date)
+  if (isNaN(d.getTime())) return ''
+  const now = new Date()
+  const isToday =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  if (isToday) {
+    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  }
+  return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+}
+
+/**
+ * 会话列表单行项：状态图标 + 标题（运行中标题光波）+ ··· 菜单。
+ */
 const SessionItem: React.FC<SessionItemProps> = ({
   session,
   isActive,
@@ -24,39 +43,54 @@ const SessionItem: React.FC<SessionItemProps> = ({
   onPin,
   onDelete,
   onRename,
-  agent,
 }) => {
   const [showContextMenu, setShowContextMenu] = useState(false)
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 })
   const [isEditing, setIsEditing] = useState(false)
   const [editTitle, setEditTitle] = useState(session.title)
+  const moreBtnRef = useRef<HTMLButtonElement>(null)
 
-  const formatTime = (date: Date): string => {
-    const d = new Date(date)
-    if (isNaN(d.getTime())) return ''
-    const now = new Date()
-    const isToday =
-      d.getFullYear() === now.getFullYear() &&
-      d.getMonth() === now.getMonth() &&
-      d.getDate() === now.getDate()
-    if (isToday) {
-      return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
-    }
-    return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
-  }
-
-  const handleContextMenu = (e: React.MouseEvent) => {
-    e.preventDefault()
-    setContextMenuPosition({ x: e.clientX, y: e.clientY })
+  /**
+   * 在指定屏幕坐标打开上下文菜单。
+   */
+  const openContextMenuAt = (x: number, y: number) => {
+    setContextMenuPosition({ x, y })
     setShowContextMenu(true)
   }
 
+  /**
+   * 右键整行打开菜单。
+   */
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    openContextMenuAt(e.clientX, e.clientY)
+  }
+
+  /**
+   * 点击 ··· 在按钮下方打开菜单。
+   */
+  const handleMoreClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const rect = moreBtnRef.current?.getBoundingClientRect()
+    if (rect) {
+      openContextMenuAt(rect.right - 168, rect.bottom + 4)
+    } else {
+      openContextMenuAt(e.clientX, e.clientY)
+    }
+  }
+
+  /**
+   * 进入行内重命名。
+   */
   const handleStartRename = () => {
     setEditTitle(session.title)
     setIsEditing(true)
     setShowContextMenu(false)
   }
 
+  /**
+   * 保存重命名结果。
+   */
   const handleSaveRename = () => {
     if (editTitle.trim() && editTitle !== session.title) {
       onRename(editTitle.trim())
@@ -64,6 +98,9 @@ const SessionItem: React.FC<SessionItemProps> = ({
     setIsEditing(false)
   }
 
+  /**
+   * 取消重命名。
+   */
   const handleCancelRename = () => {
     setEditTitle(session.title)
     setIsEditing(false)
@@ -91,12 +128,13 @@ const SessionItem: React.FC<SessionItemProps> = ({
     },
   ]
 
-  // Get last message preview（剥离附件与 Agent 注入的 parsed text 等标记）
-  // 末条消息可能是纯工具调用/附件，没有正文，因此回溯到最近一条有文字的消息
-  const lastTextMessage = [...session.messages].reverse().find((m) => m.content?.trim())
-  const preview = lastTextMessage
-    ? getDisplayMessagePreview(lastTextMessage.content)
-    : '暂无消息'
+  const displayTitle = session.title || '新对话'
+  const tooltipTime = formatTooltipTime(session.updatedAt)
+  const itemTitle = session.isStreaming
+    ? `${displayTitle} · AI 正在回复${tooltipTime ? ` · ${tooltipTime}` : ''}`
+    : tooltipTime
+      ? `${displayTitle} · ${tooltipTime}`
+      : displayTitle
 
   if (isEditing) {
     return (
@@ -117,6 +155,32 @@ const SessionItem: React.FC<SessionItemProps> = ({
     )
   }
 
+  /**
+   * 渲染左侧状态圆点：选中实心 / 默认空心（运行态改由标题光波表达）。
+   */
+  const renderStatusIcon = () => {
+    if (isActive) {
+      return (
+        <Circle
+          className={clsx(styles['status-icon'], styles['status-icon--active'])}
+          size={10}
+          strokeWidth={0}
+          fill="currentColor"
+          aria-hidden
+        />
+      )
+    }
+    return (
+      <Circle
+        className={clsx(styles['status-icon'], styles['status-icon--idle'])}
+        size={10}
+        strokeWidth={1.6}
+        fill="none"
+        aria-hidden
+      />
+    )
+  }
+
   return (
     <>
       <div
@@ -130,6 +194,8 @@ const SessionItem: React.FC<SessionItemProps> = ({
         onContextMenu={handleContextMenu}
         role="button"
         tabIndex={0}
+        title={itemTitle}
+        aria-busy={session.isStreaming || undefined}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
@@ -137,53 +203,31 @@ const SessionItem: React.FC<SessionItemProps> = ({
           }
         }}
       >
-        <div className={styles['session-content']}>
-          <div className={styles['session-title-row']}>
-            {session.isPinned && (
-              <Pin className={styles['session-pin-icon']} size={11} strokeWidth={2} />
-            )}
-            <span className={styles['session-title']} title={session.title || '新对话'}>{session.title || '新对话'}</span>
-            <div className={styles['status-badges']}>
-              {isActive && <span className={styles['active-dot']} title="当前查看会话" />}
-              {session.isStreaming && <span className={styles['streaming-dot']} title="AI 正在回复" />}
-            </div>
-            <span className={styles['session-time']}>{formatTime(session.updatedAt)}</span>
-          </div>
-          {agent && (
-            <span className={styles['agent-badge']}>{agent.name}</span>
-          )}
-          <div className={styles['session-preview']}>{preview}</div>
-        </div>
+        <span className={styles['status-slot']}>{renderStatusIcon()}</span>
 
-        {/* Hover actions */}
-        <div className={styles['session-hover-actions']}>
-          <button
-            className={styles['session-action-btn']}
-            onClick={(e) => {
-              e.stopPropagation()
-              onPin()
-            }}
-            title={session.isPinned ? '取消置顶' : '置顶'}
-            aria-label={session.isPinned ? '取消置顶' : '置顶'}
-          >
-            {session.isPinned ? (
-              <PinOff size={13} strokeWidth={1.8} />
-            ) : (
-              <Pin size={13} strokeWidth={1.8} />
-            )}
-          </button>
-          <button
-            className={clsx(styles['session-action-btn'], styles.delete)}
-            onClick={(e) => {
-              e.stopPropagation()
-              onDelete()
-            }}
-            title="删除"
-            aria-label="删除会话"
-          >
-            <Trash2 size={13} strokeWidth={1.8} />
-          </button>
-        </div>
+        {session.isPinned && (
+          <Pin className={styles['session-pin-icon']} size={11} strokeWidth={2} aria-hidden />
+        )}
+
+        <span
+          className={clsx(
+            styles['session-title'],
+            session.isStreaming && styles['session-title--streaming'],
+          )}
+        >
+          {displayTitle}
+        </span>
+
+        <button
+          ref={moreBtnRef}
+          type="button"
+          className={styles['session-more-btn']}
+          onClick={handleMoreClick}
+          aria-label="会话操作"
+          title="会话操作"
+        >
+          <MoreHorizontal size={14} strokeWidth={1.8} />
+        </button>
       </div>
 
       {showContextMenu && (
