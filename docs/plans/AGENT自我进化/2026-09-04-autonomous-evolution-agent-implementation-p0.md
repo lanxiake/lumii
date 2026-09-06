@@ -15,10 +15,10 @@
 ## 全局约束
 
 - **MVP P0 范围严格限定：** 仅实现满意度评分、目标生成（learning + proactive-message 两类）、Prompt 进化、人格追踪；不实现能力边界检测（标记为手动）、自我反思（标记为定时触发但暂不实现）、记忆/技能/工具进化（标记为 false）。
-- **用户审批必需：** P0 阶段所有自主生成的目标必须经用户明确同意后执行（`userApproval: 'always'`），每日目标上限 3 个（`maxGoalsPerDay: 3`）。
+- **用户审批必需：** P0 阶段所有自主生成的目标必须经用户明确同意后执行（`approvalMode: 'always'`，原 `userApproval` 字段已废弃），每日目标上限 3 个（`maxGoalsPerDay: 3`）。
 - **配置即代码：** 所有算法参数（满意度权重、epsilon、Elo K 值、EMA alpha 等）集中定义在 `autonomous/config.ts` 或 `types.ts` 常量区，禁止散布在业务代码中。
 - **数据库 Schema 完整性：** 必须按照 `docs/design/自主进化Agent/6-实施计划.md` 中定义的 7 张表 Schema 创建迁移脚本（`autonomous_satisfaction_scores`, `autonomous_goals`, `prompt_evolution_history`, `prompt_variants`, `personality_events`, `personality_state`, `evolution_coordination_history`）。
-- **算法实现一致性：** 满意度评分公式（task 0.35 + feedback 0.30 + efficiency 0.20 + knowledge 0.15）、ε-greedy 探索率（epsilon=0.15）、Elo Rating K 值（K=32）、人格 EMA 更新率（alpha=0.05）必须与设计文档完全一致。
+- **算法实现一致性：** 满意度评分公式（task 0.40 + feedback 0.35 + efficiency 0.20 + knowledge 0.05（V1.1 降权））、ε-greedy 探索率（epsilon=0.15）、Elo Rating K 值（K=32）、人格 EMA 更新率（alpha=0.05）必须与设计文档完全一致。
 - **可观测性强制要求：** 每个算法决策点必须记录 Telemetry（满意度分数、目标生成原因、Prompt 变体选择、人格更新事件），使用结构化日志（JSON 格式），支持按 runId/goalId/variantId 追踪。
 - **单元测试优先：** 每个算法模块（`meta-cognition-engine.ts`, `intrinsic-goal-generator.ts`, `prompt-evolution.ts`, `personality-tracker.ts`）必须先编写失败测试，再实现功能代码，覆盖率要求 ≥ 80%。
 - **集成测试必需：** 完整端到端测试场景（从满意度评分低于阈值 → 生成学习目标 → 用户同意 → 执行 Prompt 进化 → 记录人格事件）至少 2 个。
@@ -35,7 +35,7 @@
 
 ### 1.1 MVP P0 核心行为
 
-- 每次 Agent 会话结束后自动计算满意度评分（使用加权公式：task 0.35 + feedback 0.30 + efficiency 0.20 + knowledge 0.15），评分低于阈值 0.6 时触发内在目标生成。
+- 每次 Agent 会话结束后自动计算满意度评分（使用加权公式：task 0.40 + feedback 0.35 + efficiency 0.20 + knowledge 0.05（V1.1 降权）），评分低于阈值 0.6 时触发内在目标生成。
 - 目标生成器仅生成两类目标：学习型目标（learning，用于知识积累）和主动消息目标（proactive-message，用于主动向用户反馈），每日上限 3 个，所有目标需用户明确同意后执行。
 - Prompt 进化使用 ε-greedy 策略（epsilon=0.15），维护 Prompt 变体池（每个基线 Prompt 最多 5 个变体），通过多臂老虎机算法选择最优变体，满意度作为奖励信号更新变体 UCB 分数。
 - 人格追踪记录关键事件（目标生成、进化决策、用户反馈、异常处理），使用 Big Five 模型维护人格状态（开放性、尽责性、外向性、宜人性、神经质），通过 EMA（alpha=0.05）更新人格向量。
@@ -111,8 +111,8 @@ packages/agent-runtime/index.ts                   # 导出自主能力公开接�
 - [ ] 定义 `MetaCognitionConfig` 接口：`satisfactionWeights`（task/feedback/efficiency/knowledge 权重对象）、`satisfactionThreshold`（触发阈值）、`reflectionTrigger`（反思触发策略）、`capabilityTracking`（能力追踪模式）。
 - [ ] 定义 `GoalGenerationConfig` 接口：`enabledTypes`（允许的目标类型数组）、`userApproval`（'always' | 'optional' | 'never'）、`maxGoalsPerDay`（每日上限）、`priorityWeights`（优先级计算权重）。
 - [ ] 定义 `PromptEvolutionConfig` 接口：`epsilon`（ε-greedy 探索率）、`maxVariantsPerPrompt`（每个基线 Prompt 最大变体数）、`minTrialsBeforeExploit`（开始利用前的最小试验次数）、`ucbConfidence`（UCB 置信度参数）。
-- [ ] 定义 `PersonalityConfig` 接口：`emaAlpha`（EMA 平滑系数）、`eventWeights`（不同事件类型对人格影响的权重）、`trackingEnabled`（是否启用追踪）、`evolutionEnabled`（是否启用进化，P0 为 false）。
-- [ ] 定义 MVP 范围接口 `MVPScope`（与设计文档 6-实施计划.md 一致）：
+- [ ] 定义 `PersonalityConfig` 接口：`emaAlpha`（EMA 平滑系数）、`eventWeights`（不同事件类型对人格影响的权重）、`trackingEnabled`（是否启用追踪）。`evolutionEnabled` 字段已废弃删除（P3 清理，人格主动进化未实现）。
+- [ ] 定义 MVP 范围接口 `MVPScope`（与设计文档 6-实施计划.md 一致）。**注：该类型已删除**——coordinator 的 `config` 参数零引用，P3 清理时连同 `P1Scope`/`P2Scope` 一并移除，下面代码块仅供历史对照：
   ```typescript
   interface MVPScope {
     metaCognition: {
@@ -132,7 +132,7 @@ packages/agent-runtime/index.ts                   # 导出自主能力公开接�
 
 ### 2.2 定义算法参数配置（config.ts）
 
-- [ ] 导出 `SATISFACTION_WEIGHTS` 常量对象：`{ task: 0.35, feedback: 0.30, efficiency: 0.20, knowledge: 0.15 }`，总和必须为 1.0。
+- [ ] 导出 `SATISFACTION_WEIGHTS` 常量对象：`{ task: 0.40, feedback: 0.35, efficiency: 0.20, knowledge: 0.05（V1.1 降权） }`，总和必须为 1.0。
 - [ ] 导出 `SATISFACTION_THRESHOLD` 常量：`0.6`（低于此值触发目标生成）。
 - [ ] 导出 `EPSILON` 常量：`0.15`（ε-greedy 探索率）。
 - [ ] 导出 `MAX_VARIANTS_PER_PROMPT` 常量：`5`（每个基线 Prompt 最大变体数）。
@@ -826,7 +826,7 @@ packages/agent-runtime/index.ts                   # 导出自主能力公开接�
   ```markdown
   ## Baseline 参数配置
   
-  - 满意度权重：task=0.35, feedback=0.30, efficiency=0.20, knowledge=0.15
+  - 满意度权重：task=0.40, feedback=0.35, efficiency=0.20, knowledge=0.05（V1.1 降权）
   - 满意度阈值：0.6
   - ε-greedy 探索率：0.15
   - 最大变体数：5

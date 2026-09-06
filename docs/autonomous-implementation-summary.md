@@ -102,9 +102,9 @@
 
 ### 满意度评分
 ```
-overall = task * 0.35 + feedback * 0.30 + efficiency * 0.20 + knowledge * 0.15
+overall = task * 0.40 + feedback * 0.35 + efficiency * 0.20 + knowledge * 0.05
 ```
-✅ 与设计文档完全一致
+✅ 与设计文档一致（V1.1：knowledge 降权 0.15→0.05，摊给 task/feedback）
 
 ### ε-greedy 策略
 ```

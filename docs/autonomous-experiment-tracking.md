@@ -5,7 +5,7 @@
 基于设计文档 `docs/design/自主进化Agent/2-元认知引擎算法.md`
 
 ### 满意度评分
-- **权重配置**: task=0.35, feedback=0.30, efficiency=0.20, knowledge=0.15
+- **权重配置**: task=0.40, feedback=0.35, efficiency=0.20, knowledge=0.05（V1.1 降权）
 - **触发阈值**: 0.6
 - **来源**: 设计文档 §2.2
 
