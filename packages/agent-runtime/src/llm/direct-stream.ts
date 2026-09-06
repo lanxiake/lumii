@@ -14,6 +14,7 @@
 import { streamSimple } from "@mariozechner/pi-ai";
 import type { Model } from "@mariozechner/pi-ai";
 import type { StreamFn } from "@mariozechner/pi-agent-core";
+import { captureLLMCall } from "./prompt-capture";
 
 /** 直连凭据（host 本地，注入时提供） */
 export interface DirectStreamCredentials {
@@ -93,6 +94,26 @@ export function createDirectStreamFn(opts: CreateDirectStreamFnOptions): StreamF
 
     const stream = impl(effectiveModel, context, mergedOptions);
 
+    // 提示词捕获（默认关闭，见 prompt-capture.ts）。fire-and-forget 调 result() 收尾，
+    // 与调用方/审计日志的 result() 共用同一个 finalResultPromise，幂等无副作用。
+    const capture = captureLLMCall({ model: effectiveModel, context, options: mergedOptions });
+    if (capture) {
+      void Promise.resolve(stream)
+        .then((s) => s.result())
+        .then((msg: { content?: unknown; usage?: unknown; stopReason?: string; errorMessage?: string }) => {
+          const text = extractCapturedText(msg?.content);
+          capture.finish({
+            text,
+            usage: msg?.usage,
+            stopReason: msg?.stopReason,
+            errorMessage: msg?.errorMessage,
+          });
+        })
+        .catch((err: unknown) => {
+          capture.finish({ text: '', errorMessage: err instanceof Error ? err.message : String(err) });
+        });
+    }
+
     // 调试：拦截事件流，记录 usage 信息
     // if (normalizedApi === "openai-responses") {
     //   const originalResult = stream.result.bind(stream);
@@ -114,4 +135,17 @@ function normalizeApi(api: string, apiFormat?: 'completions' | 'responses'): str
     return apiFormat === "completions" ? "openai-completions" : "openai-responses";
   }
   return api;
+}
+
+/** 从 AssistantMessage.content 提取纯文本（供提示词捕获落盘） */
+function extractCapturedText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter(
+      (c): c is { text?: string } =>
+        !!c && typeof c === "object" && (c as { type?: string }).type === "text",
+    )
+    .map((c) => c.text ?? "")
+    .join("");
 }
