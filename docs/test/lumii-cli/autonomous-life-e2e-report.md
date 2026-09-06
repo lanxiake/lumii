@@ -1,7 +1,7 @@
 # 自主进化「心跳与生命感」E2E 测试报告
 
-**执行时间**: 2026-09-06T06:17:00.312Z
-**结果**: 11 PASS / 3 FAIL / 6 SKIP（共 20）
+**执行时间**: 2026-09-06T07:42:36.899Z
+**结果**: 21 PASS / 0 FAIL / 0 SKIP（共 21）
 **数据库**: `C:\Users\Administrator\.lumii\data\agent-runtime.db`
 **驱动方式**: 真实动作（发消息/改设置/cron run/删除）经 lumii-ui CLI，探针播种经 node:sqlite，读取回查 DB 验证落库
 
@@ -11,24 +11,30 @@
 |---|---|---|
 | A1 | PASS | settings get 返回全量默认值: 9 字段与 DEFAULT_SETTINGS 一致 |
 | A2 | PASS | settings set 部分覆盖不丢默认: 只覆盖 maxOutreachPerDay，其余 8 字段保持默认 |
-| A3 | FAIL | 非法值回落默认: 999 应 clamp 到 60: 10 |
+| A3 | PASS | 非法值回落默认: 越界数字回落默认、非法枚举回落 |
 | A4 | PASS | maxOutreachPerDay=0 合法边界: 0 被保留，未当非法值回落 |
 | C1 | PASS | 空信号 tick → idle（默认路径）: summary="idle" |
+| B1 | PASS | 空闲 tick 不创建 evolution:main（延迟创建）: 会话已存在，idle 未新增 |
 | C2 | PASS | 关闭开关 tick → skipped: disabled: summary="skipped: disabled" |
-| E1 | FAIL | proactive 目标 → 发送 + 计数 + 完成: last_sent_at 应写入 |
-| E2 | FAIL | 最小间隔未到 → 不再发: 间隔未到不应 outreach，实际 "outreach: sent" |
+| E1 | PASS | proactive 目标 → 发送 + 计数 + 完成: outreach sent，目标 completed，计数=1 |
+| E2 | PASS | 最小间隔未到 → 不再发: summary="idle"，目标仍 executing |
 | E3 | PASS | 预算用尽 → 主动消息停发: summary="idle"，计数封顶 20 |
 | B2 | PASS | 删除守卫拒绝删除 evolution:main: 拒绝（code=5），会话仍在 |
-| D1 | SKIP | 目标执行: LIFEE2E_SKIP_LLM=1 |
-| G1 | SKIP | Mood 事件: 依赖 D1（已跳过） |
-| J2 | SKIP | token 累计: 依赖 D1（已跳过） |
+| D1 | PASS | learning 目标执行 → 完成 + 独白: 目标 completed，独白 "已查阅文档并核对来源，下面是结论。
+
+**一句话说明**
+
+…"，mood {"energy":0.7786147255047103,"valence":0.4395257444066517,"arousal":0.6828213671177848,"updatedAt":1788680504966} |
+| G1 | PASS | 目标执行触发情绪事件（方向断言）: d1Status=completed → mood {"energy":0.7789133135763829,"valence":0.18984257229637247,"arousal":0.833377740563134,"updatedAt":1788680470266} -> {"energy":0.7786147255047103,"valence":0.4395257444066517,"arousal":0.6828213671177848,"updatedAt":1788680504966} |
+| J2 | PASS | 目标执行后 token 累计: 今日已消耗 10000 token（≥8000） |
 | J1 | PASS | 预算超限 → 目标执行降级 idle: summary="idle"，未烧 LLM |
 | H1 | PASS | 对话中顺带提起牵挂（提一次）: raisedCount=1，nextRaiseAfter 后移，status=open |
 | H2 | PASS | 提两次无回应 → dropped: raisedCount=2，status=dropped |
 | H3 | PASS | 牵挂只进上下文，不产生通知: outreach 计数仍为 20（牵挂不触达系统通知） |
-| F1 | SKIP | 反思定时触发: LIFEE2E_SKIP_LLM=1 |
-| I1 | SKIP | 日记生成: LIFEE2E_SKIP_LLM=1 |
-| I2 | SKIP | 日记防重: 依赖 I1（已跳过） |
+| F1 | PASS | 静默时段 + 满 24h → tick 触发反思: trigger=scheduled primaryIssue="会话缺少明确的意图识别、验收确认与知识沉淀闭环，导致反馈波动…" |
+| I1 | PASS | 静默时段 + 今日未写 → 写日记入 evolution:main: 日记 "今天很平淡。  
+我把“心跳”在系统里的作用解释成一句维护节…"，无指标词，标记今日已写 |
+| I2 | PASS | 同日第二次 tick 不重复写日记: summary="idle"，消息数不变 |
 
 ## 覆盖范围
 
@@ -44,8 +50,13 @@
 
 ## 诚实声明的已知缺口（本套未按"通过"测）
 
-- `tickIntervalMinutes` 暴露但未接 cron 实际间隔（仍用常量 10min，见 evolution-tick.ts）
-- `outreachChannels` 只走 system 通道，数组设置未分流
+> 本轮代码已修复前五项缺口，剩余两项见下。
+
+- ~~目标执行工具白名单未强制~~ ✅ 已修（executeGoal 强制 getGoalToolAllowlist 白名单）
+- ~~Mood 不参与决策~~ ✅ 已修（decideAction 消费 willDoHeavyWork/outreachMultiplier）
+- ~~反思双重触发冗余~~ ✅ 已修（移除 23:00 Cron，统一由心跳 reflect 分支触发）
+- ~~tickIntervalMinutes 未接线~~ ✅ 已修（接入 cron interval_ms + 设置变更即时重载）
+- ~~outreachChannels 未实现~~ ✅ 已由并行提交接入（sendOutreach 按渠道派发）
 - Mood → 桌宠实时表情未接线（moodToPetEmotion 仅纯函数 + AutonomousPage emoji 映射）
 - 编辑/重发反馈信号只在前端 UI 触发，CLI 无 edit/resend 子命令
 
