@@ -22,6 +22,15 @@ describe('gitcodeProvider.validateUrl', () => {
   })
 })
 
+describe('gitcodeProvider.auth', () => {
+  it('使用 GitLab 风格 OAuth2 认证（用户名 oauth2 + 密码为令牌）', () => {
+    expect(gitcodeProvider.auth('secret-token')).toEqual({
+      username: 'oauth2',
+      password: 'secret-token',
+    })
+  })
+})
+
 describe('getProvider', () => {
   it('gitcode 已注册', () => {
     expect(getProvider('gitcode')).toBe(gitcodeProvider)
