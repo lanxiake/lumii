@@ -55,6 +55,8 @@ import {
 } from './settings-ipc'
 import { registerUserGuidesIpcHandlers } from './user-guides-ipc'
 import { registerAutonomousIpcHandlers } from './autonomous-ipc'
+import { setCloudSyncIpcDeps, registerCloudSyncIpcHandlers } from '../cloud-sync/sync-ipc'
+import type { CloudSyncConfig } from '../cloud-sync/types'
 
 export interface IpcHandlersDeps {
   getMainWindow: () => BrowserWindow | null
@@ -77,6 +79,7 @@ export interface IpcHandlersDeps {
   }) => void
   isQuittingGetter: () => boolean
   setIsQuitting: (value: boolean) => void
+  restartCloudSyncScheduler?: (cfg: CloudSyncConfig) => void
   log: {
     debug: (...args: unknown[]) => void
     info: (...args: unknown[]) => void
@@ -138,6 +141,11 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
     setMemoryInjectionSettings: deps.setMemoryInjectionSettings,
   })
 
+  setCloudSyncIpcDeps({
+    getMainWindow: deps.getMainWindow,
+    onConfigChanged: deps.restartCloudSyncScheduler,
+  })
+
   // 注册所有 IPC handlers
   registerWorkspaceIpcHandlers()
   registerVcsIpcHandlers()
@@ -150,5 +158,6 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
   registerSettingsIpcHandlers()
   registerUserGuidesIpcHandlers()
   registerAutonomousIpcHandlers()
+  registerCloudSyncIpcHandlers()
   registerAppQuitHandler(deps.isQuittingGetter, deps.setIsQuitting)
 }

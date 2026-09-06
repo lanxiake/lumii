@@ -45,6 +45,14 @@ function enqueue<T>(workspaceDir: string, task: () => Promise<T>): Promise<T> {
 }
 
 /**
+ * 供云同步复用同一串行队列，避免其 git 操作与 Turn 快照并发读写 index/HEAD
+ * 造成提交被静默覆盖丢失。
+ */
+export function enqueueWorkspace<T>(workspaceDir: string, task: () => Promise<T>): Promise<T> {
+  return enqueue(workspaceDir, task)
+}
+
+/**
  * Agent 轮次结束后触发的自动快照。失败不抛出。
  */
 export async function maybeSnapshot(params: {

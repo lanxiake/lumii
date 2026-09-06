@@ -10,6 +10,7 @@ import http from 'node:http'
 import path from 'node:path'
 import type { BrowserWindow } from 'electron'
 import { getAgentRuntimeBridge, handleCommand } from '../ipc/agent-runtime-ipc'
+import { getCloudSyncManager } from '../cloud-sync/sync-accessor'
 import { resizeImageIfNeeded } from '../agent-runtime/image-resizer'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
 import { findDeniedField, isCommandExposed } from './command-allowlist'
@@ -308,6 +309,14 @@ async function handleRoute(
       await handlePetListModelsRoute(res)
       return
     }
+    case '/ipc/cloudsync/status': {
+      await handleCloudSyncStatusRoute(res)
+      return
+    }
+    case '/ipc/cloudsync/sync': {
+      await handleCloudSyncSyncRoute(res)
+      return
+    }
     default:
       sendJson(res, 404, { ok: false, error: 'not_found' })
   }
@@ -387,6 +396,31 @@ async function handlePetListModelsRoute(res: http.ServerResponse): Promise<void>
   const { loadPetModelRegistry } = await import('../pet/pet-model-resolver')
   const { models } = await loadPetModelRegistry()
   sendJson(res, 200, { ok: true, models })
+}
+
+/**
+ * B 层：云同步状态（供 CLI 校验 state / lastSyncAt / conflict）。
+ */
+async function handleCloudSyncStatusRoute(res: http.ServerResponse): Promise<void> {
+  const m = getCloudSyncManager()
+  if (!m) {
+    sendJson(res, 200, { ok: false, error: 'not_ready' })
+    return
+  }
+  sendJson(res, 200, { ok: true, status: m.getStatus() })
+}
+
+/**
+ * B 层：立即触发一次云同步（等价于设置页「立即同步」）。
+ */
+async function handleCloudSyncSyncRoute(res: http.ServerResponse): Promise<void> {
+  const m = getCloudSyncManager()
+  if (!m) {
+    sendJson(res, 200, { ok: false, error: 'not_ready' })
+    return
+  }
+  const result = await m.sync()
+  sendJson(res, 200, { ok: true, ...result })
 }
 
 /**

@@ -71,6 +71,11 @@ export class WorkspaceVcs {
     return { fs: this.gitfs, dir: this.workspaceDir, gitdir: this.gitdir }
   }
 
+  /** 供云同步复用同一仓库实例的 isomorphic-git 通用参数 */
+  getGitParams(): { fs: PromiseFsClient; dir: string; gitdir: string } {
+    return { fs: this.gitfs, dir: this.workspaceDir, gitdir: this.gitdir }
+  }
+
   /**
    * 执行会读写 index 的 git 操作；若 index 已损坏，则删除后重试一次。
    *

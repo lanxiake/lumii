@@ -30,6 +30,7 @@ import { resizeImageIfNeeded } from './image-resizer'
 import { agentRuntimeLog as log, jsonToolResult, parseTaskStatus } from './bridge-utils'
 import { registerGuideTools } from './bridge-tool-registrar-guide'
 import { registerLocalCronTools, registerDashboardFeedTool } from './bridge-tool-registrar-cron'
+import { registerSyncConflictTool } from './bridge-tool-registrar-sync'
 import { registerChannelTools, registerIntegrationTools } from './bridge-tool-registrar-integration'
 import { registerClientCommandTools, registerAgentManagementTools } from './bridge-tool-registrar-client-cmd'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
@@ -50,6 +51,8 @@ export class BridgeToolRegistrar {
     this.registerSendMessageOverride()
     // 本地 cron 工具无需 Gateway，始终注册
     registerLocalCronTools(this.deps)
+    // 云同步冲突解决（resolve_sync_conflict / cloud_sync_read_file），始终注册
+    registerSyncConflictTool(this.deps)
     // 资讯卡片写入，供 Agent 驱动的资讯抓取任务落盘结构化结果
     registerDashboardFeedTool(this.deps)
     // 渠道出站：不依赖 Gateway，始终注册
