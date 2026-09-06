@@ -62,4 +62,28 @@ describe("listActiveConversations 排序", () => {
 
     expect(rows.map((r) => r.id)).toEqual(["pinned", "newer", "older"]);
   });
+
+  it("省略 limit 时返回全部会话，不截断渠道/系统会话", () => {
+    const db = createMigratedTestDb();
+    const base = Date.parse("2026-06-30T10:00:00.000Z");
+
+    // 55 条默认会话（超过旧的全局 limit 50），last_msg_at 都比渠道/系统会话更新
+    for (let i = 0; i < 55; i++) {
+      const ts = new Date(base + i * 1000).toISOString();
+      insertConversation(db, `default-${i}`, ts, ts);
+    }
+    // 渠道/系统会话的 last_msg_at 更旧，全局 limit 50 会把它们挤出列表
+    insertConversation(db, "feishu:ou_x", "2026-06-29T10:00:00.000Z", "2026-06-29T10:00:00.000Z");
+    insertConversation(db, "cron:job-1", "2026-06-29T09:00:00.000Z", "2026-06-29T09:00:00.000Z");
+    insertConversation(db, "evolution:main", "2026-06-29T08:00:00.000Z", "2026-06-29T08:00:00.000Z");
+
+    const repo = new ConversationRepo(db);
+    const rows = repo.listActiveConversations("local-user");
+
+    expect(rows).toHaveLength(58);
+    const ids = rows.map((r) => r.id);
+    expect(ids).toContain("feishu:ou_x");
+    expect(ids).toContain("cron:job-1");
+    expect(ids).toContain("evolution:main");
+  });
 });

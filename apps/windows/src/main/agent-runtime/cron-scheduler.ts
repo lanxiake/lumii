@@ -180,6 +180,9 @@ export interface CronSchedulerDeps {
   ensureConversationExists: (conversationId: string, title?: string) => boolean
   /** 通知渲染进程有新的用户消息（不落库，仅推送 UI 展示；不跳转视图，避免打断用户当前操作） */
   notifyIncomingMessage: (sessionKey: string, text: string) => void
+  /** 落库一条消息到指定会话。cron 实例不走 UI 流式落库路径，产出只在内存，
+   *  必须手动持久化任务指令与 Agent 产出，否则会话历史在重启后为空。 */
+  saveMessage?: (params: { conversationId: string; role: 'user' | 'assistant'; text: string }) => void
   /** 获取文件仓储（用于文件清理任务） */
   getFileRepo: () => FileRepo | null
   /** 获取 workspace 根目录（用于文件清理任务） */
@@ -847,12 +850,25 @@ export class CronScheduler {
 
       await this.deps.prompt(instanceId, message)
       await this.deps.waitForInstanceIdle?.(instanceId)
-      return await this.collectAssistantOutput({
+      const output = await this.collectAssistantOutput({
         conversationId: convId,
         instanceId,
         since: startedAt,
         fallback: job.task_text,
       })
+      // cron 实例不走 UI 流式落库路径，产出只存在实例内存（getAssistantOutputFromInstance），
+      // 必须手动落库任务指令(user) + Agent 产出(assistant)，否则会话历史在重启后为空。
+      this.deps.saveMessage?.({
+        conversationId: convId,
+        role: 'user',
+        text: job.task_text,
+      })
+      this.deps.saveMessage?.({
+        conversationId: convId,
+        role: 'assistant',
+        text: output,
+      })
+      return output
     } finally {
       this.deps.destroy(instanceId)
     }

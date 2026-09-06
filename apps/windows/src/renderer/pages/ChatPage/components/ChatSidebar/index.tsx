@@ -349,7 +349,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                 </div>}
 
                 <div
-                  className={`${styles['channel-group-body']}${tab === 'channel' && isCollapsed ? ` ${styles['channel-group-body--collapsed']}` : ''}`}
+                  className={`${styles['channel-group-body']}${tab !== 'default' && isCollapsed ? ` ${styles['channel-group-body--collapsed']}` : ''}`}
                 >
                   {group.total === 0 ? (
                     <div className={styles['channel-empty']}>暂无会话</div>

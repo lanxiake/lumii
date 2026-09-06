@@ -858,6 +858,14 @@ export class AgentRuntimeBridge {
       destroy: (instanceId) => this.destroy(instanceId),
       ensureConversationExists: (conversationId, title) => this.ensureConversationExists(conversationId, title),
       notifyIncomingMessage: (sessionKey, text) => this.notifyIncomingMessage(sessionKey, text),
+      saveMessage: (params) => {
+        this._conversationRepo?.saveMessage({
+          conversationId: params.conversationId,
+          agentId: 'assistant',
+          role: params.role,
+          contentJson: { type: 'text', text: params.text },
+        })
+      },
       getFileRepo: () => this._fileRepo,
       getCwd: () => this.config.getCwd(),
       ...(this.config.sendFeishuMessage ? { sendFeishuMessage: this.config.sendFeishuMessage } : {}),

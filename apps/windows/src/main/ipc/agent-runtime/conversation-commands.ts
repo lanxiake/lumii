@@ -246,7 +246,11 @@ export function handleConversationList(
   wasInterrupted?: boolean
   channel?: string
 }[] {
-  const conversations = bridge.conversationRepo.listActiveConversations(LOCAL_USER_ID, 50)
+  // 侧栏按「默认 / 渠道 / 系统」三个 tab 分组展示。这里不能设全局 LIMIT：
+  // 否则数量最多的「默认」会话会把「渠道」「系统」会话挤出列表（重启后这些会话的
+  // last_msg_at 靠后即从侧栏消失）。预览走 loadLastMessagesForConversations 单次
+  // 窗口函数批量查询，全量返回不产生 N+1。
+  const conversations = bridge.conversationRepo.listActiveConversations(LOCAL_USER_ID)
 
   // 构建微信绑定的 conversationId 集合（用于渠道标记）
   const weixinConvIds = new Set<string>()
