@@ -487,6 +487,15 @@ export interface AutonomousReflectCommand {
   readonly agentId?: string
 }
 
+export interface AutonomousSettingsGetCommand {
+  readonly type: 'autonomous:settings:get'
+}
+
+export interface AutonomousSettingsUpdateCommand {
+  readonly type: 'autonomous:settings:update'
+  readonly settings: Record<string, unknown>
+}
+
 export interface WikiSearchCommand {
   readonly type: 'wiki:search'
   readonly sessionKey?: string
@@ -1505,6 +1514,8 @@ export type AgentRuntimeCommand =
   | AutonomousEnableCommand
   | AutonomousDisableCommand
   | AutonomousReflectCommand
+  | AutonomousSettingsGetCommand
+  | AutonomousSettingsUpdateCommand
   | WikiSourceGetCommand
   | WikiRunsListCommand
   | WikiIndexRebuildCommand

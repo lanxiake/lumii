@@ -173,6 +173,8 @@ import {
   handleAutonomousPromptVariants,
   handleAutonomousEnable,
   handleAutonomousDisable,
+  handleAutonomousGetSettings,
+  handleAutonomousUpdateSettings,
   handleAutonomousReflect,
 } from './agent-runtime/autonomous-commands'
 import {
@@ -1319,6 +1321,12 @@ export async function handleCommand(
 
       case 'autonomous:reflect':
         return handleAutonomousReflect(bridge, command)
+
+      case 'autonomous:settings:get':
+        return handleAutonomousGetSettings(bridge)
+
+      case 'autonomous:settings:update':
+        return handleAutonomousUpdateSettings(bridge, command)
 
       // ---- 图片处理（识别 / 美化 / 等，按 operation 扩展） ----
       case 'image:recognize':

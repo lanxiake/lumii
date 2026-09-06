@@ -64,6 +64,7 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'autonomous:status', 'autonomous:goals:list', 'autonomous:goals:approve', 'autonomous:goals:reject',
   'autonomous:capabilities', 'autonomous:reflections', 'autonomous:satisfaction:history',
   'autonomous:prompt:variants', 'autonomous:enable', 'autonomous:disable', 'autonomous:reflect',
+  'autonomous:settings:get', 'autonomous:settings:update',
 ])
 
 /** 判断命令 type 是否在白名单内 */

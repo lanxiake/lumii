@@ -91,6 +91,7 @@ const COMPANION_INSTRUCTIONS = new Set([
   '__wiki_ero_extract__',
   '__wiki_purge_broken_refs__',
   '__wiki_purge_invalid_files__',
+  '__evolution_tick__',
 ])
 
 export function isLocalCompanionInstruction(message: string): boolean {
@@ -125,6 +126,8 @@ export interface LocalCompanionDeps {
   runWikiPurgeBrokenRefs?: () => Promise<string>
   /** Wiki 不合规文件清理（cron / 手动触发） */
   runWikiPurgeInvalidFiles?: () => Promise<string>
+  /** 自主进化心跳 tick（cron 触发，见 evolution-tick.ts） */
+  runEvolutionTick?: () => Promise<string>
 }
 
 /** Companion 指令执行选项 */
@@ -164,6 +167,10 @@ export async function handleLocalCompanionInstruction(
     case '__wiki_purge_invalid_files__': {
       if (!deps.runWikiPurgeInvalidFiles) return 'wiki purge invalid files unavailable'
       return deps.runWikiPurgeInvalidFiles()
+    }
+    case '__evolution_tick__': {
+      if (!deps.runEvolutionTick) return 'evolution tick unavailable'
+      return deps.runEvolutionTick()
     }
     default:
       return `unknown companion instruction: ${instruction}`

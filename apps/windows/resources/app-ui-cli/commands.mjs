@@ -1184,4 +1184,42 @@ export const COMMANDS = [
       return body
     },
   },
+  {
+    name: 'autonomous settings get',
+    group: '自主进化',
+    usage: 'autonomous settings get',
+    summary: '读取自主进化可配置参数（心跳频率、配额、审批模式等）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [],
+    build() {
+      return { type: 'autonomous:settings:get' }
+    },
+  },
+  {
+    name: 'autonomous settings set',
+    group: '自主进化',
+    usage: 'autonomous settings set --data <json>|-',
+    summary: '部分覆盖自主进化参数（非法值回落默认）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--data <json>', desc: '部分覆盖 JSON，如 {"maxOutreachPerDay":10}，或 "-" 从 stdin 读' },
+    ],
+    build(args, extra) {
+      const raw = args.flags.data
+      if (raw === undefined) return null
+      const text = raw === '-' ? extra?.stdin ?? '' : raw
+      if (typeof text !== 'string' || text.length === 0) return null
+      try {
+        const parsed = JSON.parse(text)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return { type: 'autonomous:settings:update', settings: parsed }
+        }
+        return null
+      } catch {
+        return null
+      }
+    },
+  },
 ]

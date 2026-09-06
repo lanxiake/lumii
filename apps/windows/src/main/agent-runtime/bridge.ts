@@ -39,6 +39,7 @@ import {
   listDatabaseBackups,
   deleteDatabaseBackup,
   restoreDatabaseFromBackup,
+  type DatabaseAdapter,
   type DatabaseBackupInfo,
   type LocalStorageStats,
   type AgentRuntimeEvent,
@@ -52,6 +53,20 @@ import {
   shouldIdleCompact,
   decideIdleCooldownMs,
   IDLE_COOLDOWN_FAILURE_MS,
+  EVOLUTION_CONVERSATION_ID,
+  buildGoalPrompt,
+  finalizeGoal,
+  canSendOutreach,
+  recordOutreach,
+  MAX_OUTREACH_PER_DAY,
+  readMood,
+  decayMood,
+  applyMoodImpact,
+  writeMood,
+  DIARY_PROMPT,
+  buildDiaryContext,
+  readConcerns,
+  markDiaryWritten,
 } from '@mtbot/agent-runtime'
 import type { ArchivePalaceMeta } from '@mtbot/agent-runtime'
 import type { AgentMessage, StreamFn } from '@mariozechner/pi-agent-core'
@@ -121,7 +136,8 @@ import { BridgeImageServices } from './bridge-image-services'
 import { BridgeContextCompactor, createLlmSummaryGenerator } from './bridge-context-compactor'
 import { BridgeConversationManager } from './bridge-conversation-manager'
 import { BridgeLifecycle } from './bridge-lifecycle'
-import { initAutonomousRuntime, shutdownAutonomousRuntime } from './autonomous-wiring'
+import { initAutonomousRuntime, shutdownAutonomousRuntime, readAutonomousEnabled, reflectAutonomous } from './autonomous-wiring'
+import { handleEvolutionTick, ensureEvolutionCronJobSeeded } from './evolution-tick'
 import { BridgeInstanceFactory } from './bridge-instance-factory'
 import { BridgeToolRegistrar } from './bridge-tool-registrar'
 import { BridgePromptDispatcher } from './bridge-prompt-dispatcher'
@@ -360,6 +376,8 @@ export class AgentRuntimeBridge {
   get auditRepo(): AuditRepo { return this.requireInitialized(this._auditRepo, 'auditRepo') }
   get runtimeStateRepo(): RuntimeStateRepo { return this.requireInitialized(this._runtimeStateRepo, 'runtimeStateRepo') }
   get autonomousRepo(): AutonomousRepo { return this.requireInitialized(this._autonomousRepo, 'autonomousRepo') }
+  /** 底层 DatabaseAdapter（settings / mood / 牵挂等 KV 读写用） */
+  get db(): DatabaseAdapter { return this.localDb.db }
   get wikiRepo(): WikiRepo { return this.requireInitialized(this._wikiRepo, 'wikiRepo') }
   get wikiOrganizer(): WikiOrganizer { return this.requireInitialized(this._wikiOrganizer, 'wikiOrganizer') }
   get wikiIngestHook(): WikiIngestHook { return this.requireInitialized(this._wikiIngestHook, 'wikiIngestHook') }
@@ -894,6 +912,83 @@ export class AgentRuntimeBridge {
               const { deleted, titles } = purgeInvalidWikiFilesOnDisk(this.wikiRepo)
               return formatWikiInvalidFilePurgeSummary(deleted, titles)
             },
+            runEvolutionTick: () =>
+              handleEvolutionTick({
+                getDb: () => this.localDb.db,
+                isAutonomousEnabled: () => readAutonomousEnabled(this.localDb.db),
+                hasActiveUserTurn: () => {
+                  const row = this.localDb.db.prepare<{ count: number }>(
+                    `SELECT COUNT(*) as count FROM messages WHERE is_streaming = 1`,
+                  ).get()
+                  return (row?.count ?? 0) > 0
+                },
+                appendEvolutionMessage: (text) => {
+                  this.ensureConversationExists(EVOLUTION_CONVERSATION_ID, '自主进化 · 内心独白')
+                  this._conversationRepo?.saveMessage({
+                    conversationId: EVOLUTION_CONVERSATION_ID,
+                    agentId: 'assistant',
+                    role: 'assistant',
+                    contentJson: { type: 'text', text },
+                  })
+                },
+                executeGoal: async (goal) => {
+                  const convId = EVOLUTION_CONVERSATION_ID
+                  this.ensureConversationExists(convId, '自主进化 · 内心独白')
+                  const instanceId = await this.createInstanceById('assistant', convId, convId)
+                  try {
+                    await this.prompt(instanceId, buildGoalPrompt(goal))
+                    await this.waitForInstanceIdle(instanceId)
+                    const output = this.getAssistantOutputFromInstance(instanceId) ?? ''
+                    const ok = output.trim().length > 0
+                    // ponytail: 工具层硬白名单待 bridge 支持 per-instance 工具过滤后接入；
+                    // 当前以护栏 prompt（buildGoalPrompt 内）+ getGoalToolAllowlist 纯函数兜底
+                    finalizeGoal(this.localDb.db, goal.id, { success: ok, output })
+                    this.recordMoodEvent(ok ? 'goal_completed' : 'task_failed')
+                    return ok ? 'completed' : 'failed'
+                  } finally {
+                    this.destroy(instanceId)
+                  }
+                },
+                sendOutreach: async (goal) => {
+                  const now = new Date()
+                  if (!canSendOutreach(this.localDb.db, now, MAX_OUTREACH_PER_DAY)) {
+                    finalizeGoal(this.localDb.db, goal.id, { success: false, output: '预算用尽' })
+                    return 'budget-exhausted'
+                  }
+                  this.config.showCronNotification?.('自主进化', goal.description, EVOLUTION_CONVERSATION_ID)
+                  recordOutreach(this.localDb.db, now)
+                  finalizeGoal(this.localDb.db, goal.id, { success: true, output: goal.description })
+                  this.recordMoodEvent('user_initiates')
+                  return 'sent'
+                },
+                reflect: async () => {
+                  const output = await reflectAutonomous('assistant', 'scheduled')
+                  return output.diagnosis.primaryIssue
+                },
+                writeDiary: async () => {
+                  const repo = this._autonomousRepo
+                  if (!repo) return 'diary-unavailable'
+                  const goals = repo.listGoals('assistant')
+                  const reflections = repo.reflections('assistant', 5)
+                  const context = buildDiaryContext({
+                    goals: goals.map((g) => ({ description: g.description, status: g.status })),
+                    reflections: reflections.map((r) => ({ primaryIssue: r.primary_issue })),
+                    concerns: readConcerns(this.localDb.db),
+                    mood: readMood(this.localDb.db),
+                  })
+                  const prompt = `${DIARY_PROMPT}\n\n今日素材：${JSON.stringify(context)}`
+                  const diary = await this.callLLM(prompt, undefined, 'diary')
+                  this.ensureConversationExists(EVOLUTION_CONVERSATION_ID, '自主进化 · 内心独白')
+                  this._conversationRepo?.saveMessage({
+                    conversationId: EVOLUTION_CONVERSATION_ID,
+                    agentId: 'assistant',
+                    role: 'assistant',
+                    contentJson: { type: 'text', text: diary },
+                  })
+                  markDiaryWritten(this.localDb.db)
+                  return diary.slice(0, 60)
+                },
+              }),
           },
           options,
         )
@@ -902,6 +997,7 @@ export class AgentRuntimeBridge {
     // 旧版 local_companion_prefs 一次性迁移到 vhSettings（幂等，需先于 seed 执行）
     migrateLocalCompanionPrefsToVhSettings(this.localDb.db)
     ensureCompanionCronJobsSeeded(this.localDb.db)
+    ensureEvolutionCronJobSeeded(this.localDb.db, readAutonomousEnabled(this.localDb.db))
     // 资讯任务已并入 ensureSeedCronJobsSeeded，不再单独播种
     ensureSeedCronJobsSeeded(this.localDb.db)
     this.purgeCronFocusNoiseMemoriesOnce()
@@ -1676,6 +1772,17 @@ export class AgentRuntimeBridge {
   notifyNavigateToSession(sessionKey: string, title?: string): void { this.lifecycle.notifyNavigateToSession(sessionKey, title) }
   triggerCronNotification(title: string, body: string): void { this.lifecycle.triggerCronNotification(title, body) }
   setLastActiveConversation(sessionKey: string): void { this.lifecycle.setLastActiveConversation(sessionKey) }
+
+  /** 记录一次情绪事件：衰减后叠加冲击并落库（best-effort，失败只记日志） */
+  private recordMoodEvent(event: string): void {
+    try {
+      const now = Date.now()
+      const mood = decayMood(readMood(this.localDb.db, now), now)
+      writeMood(this.localDb.db, applyMoodImpact(mood, event))
+    } catch (err) {
+      log.warn('[recordMoodEvent] 记录情绪事件失败:', err)
+    }
+  }
 
   /** 检查会话是否有流式消息 */
   hasStreamingMessages(conversationId: string): boolean {

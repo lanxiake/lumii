@@ -8,6 +8,7 @@ import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { parseThinkTagsFromRaw } from '../../agent-runtime/event-converter'
 import { isCompactSummaryText } from '../../../shared/compact-summary-text'
+import { EVOLUTION_CONVERSATION_ID } from '@mtbot/agent-runtime'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -285,6 +286,10 @@ export function handleConversationDelete(
   command: Extract<AgentRuntimeCommand, { type: 'conversation:delete' }>,
 ): void {
   const { sessionKey } = command
+  if (sessionKey === EVOLUTION_CONVERSATION_ID) {
+    log.warn(`[conversation:delete] 拒绝删除自主进化会话 sessionKey=${sessionKey}`)
+    throw new Error('拒绝删除自主进化会话')
+  }
   const instanceId = deps!.sessionToInstance.get(sessionKey)
   if (instanceId) {
     try {

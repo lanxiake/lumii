@@ -5,6 +5,7 @@
  */
 
 import { ipcRenderer } from 'electron'
+import type { AutonomousSettings } from '@mtbot/agent-runtime'
 
 /**
  * 自主进化状态
@@ -158,5 +159,19 @@ export const autonomousApi = {
    */
   getPromptStats: (): Promise<unknown> => {
     return ipcRenderer.invoke('autonomous:getPromptStats')
+  },
+
+  /**
+   * 获取自主进化可配置参数
+   */
+  getSettings: (): Promise<AutonomousSettings> => {
+    return ipcRenderer.invoke('autonomous:settings:get')
+  },
+
+  /**
+   * 更新自主进化可配置参数（部分覆盖，非法值回落默认）
+   */
+  updateSettings: (settings: Partial<AutonomousSettings>): Promise<AutonomousSettings> => {
+    return ipcRenderer.invoke('autonomous:settings:update', settings)
   },
 }

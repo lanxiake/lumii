@@ -16,6 +16,13 @@ export * from './autonomous-coordinator'
 export * from './metrics-collector'
 export * from './db-adapter'
 export * from './config'
+export * from './tick-signals'
+export * from './goal-executor'
+export * from './outreach-budget'
+export * from './mood'
+export * from './concerns'
+export * from './diary'
+export * from './settings'
 
 // P1 - 高级功能
 export * from './capability-tracker'

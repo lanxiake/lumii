@@ -10,6 +10,7 @@
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import { notifyAutonomousGoalApproved, reflectAutonomous } from '../../agent-runtime/autonomous-wiring'
+import { readSettings, writeSettings } from '@mtbot/agent-runtime'
 
 const ENABLED_KEY = 'autonomous.enabled'
 const DEFAULT_AGENT_ID = 'assistant'
@@ -237,6 +238,18 @@ export function handleAutonomousEnable(bridge: AgentRuntimeBridge): unknown {
 export function handleAutonomousDisable(bridge: AgentRuntimeBridge): unknown {
   bridge.runtimeStateRepo.set(ENABLED_KEY, 'false')
   return { success: true, enabled: false }
+}
+
+export function handleAutonomousGetSettings(bridge: AgentRuntimeBridge): unknown {
+  return readSettings(bridge.db)
+}
+
+export function handleAutonomousUpdateSettings(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'autonomous:settings:update' }>,
+): unknown {
+  writeSettings(bridge.db, command.settings as Parameters<typeof writeSettings>[1])
+  return readSettings(bridge.db)
 }
 
 export async function handleAutonomousReflect(
