@@ -52,11 +52,14 @@ describe('handleEvolutionTick', () => {
     })
     const result = await handleEvolutionTick(deps)
     expect(result).toContain('execute-goal')
-    expect(executeGoal).toHaveBeenCalledWith({
-      id: 'g1',
-      type: 'learning',
-      description: '学点东西',
-    })
+    expect(executeGoal).toHaveBeenCalledWith(
+      {
+        id: 'g1',
+        type: 'learning',
+        description: '学点东西',
+      },
+      false,
+    )
   })
 
   it('proactive-message 目标走 outreach', async () => {
