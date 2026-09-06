@@ -13,6 +13,8 @@ import {
   collectTickSignals,
   decideAction,
   TICK_INTERVAL_MS,
+  TOKEN_COST,
+  recordTokenUsage,
   type ApprovedGoalSignal,
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log } from './bridge-utils'

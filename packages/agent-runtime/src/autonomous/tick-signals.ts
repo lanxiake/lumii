@@ -11,6 +11,8 @@ import type { DatabaseAdapter } from '../storage/local-database.js';
 import { getOutreachUsedToday } from './outreach-budget.js';
 import { MAX_OUTREACH_PER_DAY, REFLECTION_MIN_INTERVAL_HOURS } from './config.js';
 import { hasWrittenDiaryToday } from './diary.js';
+import { readSettings } from './settings.js';
+import { TOKEN_COST, readTodayTokenUsage } from './token-budget.js';
 
 /** 一条待执行的已批准目标（最小信号） */
 export interface ApprovedGoalSignal {
@@ -33,6 +35,10 @@ export interface TickSignals {
   reflectionDue: boolean;
   /** 是否该写日记（静默时段 + 今天尚未写过） */
   diaryDue: boolean;
+  /** 今日自主进化已消耗 token（预估累计） */
+  tokenUsedToday: number;
+  /** 每日自主进化 token 上限（readSettings().maxTokensPerDay） */
+  tokenLimit: number;
 }
 
 /** 单次心跳的决策结果 */
@@ -58,6 +64,8 @@ export function collectTickSignals(db: DatabaseAdapter, agentId: string, now = n
     outreachLimit: MAX_OUTREACH_PER_DAY,
     reflectionDue: computeReflectionDue(repo, agentId, now),
     diaryDue: computeDiaryDue(db, now),
+    tokenUsedToday: readTodayTokenUsage(db, now),
+    tokenLimit: readSettings(db).maxTokensPerDay,
   };
 }
 
@@ -86,6 +94,8 @@ function computeReflectionDue(repo: AutonomousRepo, agentId: string, now: Date):
  *
  * 优先级：目标（主动消息 / 执行）优先于反思；无目标且该反思时才反思。
  * 主动消息预算用尽时跳过，不影响学习/能力类目标照常执行。
+ * 烧 LLM 的动作（执行 / 日记 / 反思）受每日 token 预算约束，超限降级为 idle，
+ * 避免后台无节制消耗；主动消息走系统通知不烧 LLM，不受 token 预算限制。
  */
 export function decideAction(signals: TickSignals): TickAction {
   const proactive = signals.approvedGoals.find((g) => g.type === 'proactive-message');
@@ -94,13 +104,27 @@ export function decideAction(signals: TickSignals): TickAction {
   }
   const executable = signals.approvedGoals.find((g) => g.type !== 'proactive-message');
   if (executable) {
+    if (!tokenAllowed(signals, TOKEN_COST.executeGoal)) {
+      return { kind: 'idle', reason: 'token-budget-exhausted' };
+    }
     return { kind: 'execute-goal', reason: 'approved-goal-pending', goal: executable };
   }
   if (signals.diaryDue) {
+    if (!tokenAllowed(signals, TOKEN_COST.writeDiary)) {
+      return { kind: 'idle', reason: 'token-budget-exhausted' };
+    }
     return { kind: 'diary', reason: 'diary-due' };
   }
   if (signals.reflectionDue) {
+    if (!tokenAllowed(signals, TOKEN_COST.reflect)) {
+      return { kind: 'idle', reason: 'token-budget-exhausted' };
+    }
     return { kind: 'reflect', reason: 'reflection-due' };
   }
   return { kind: 'idle', reason: 'no-action-needed' };
+}
+
+/** 本次动作预估成本 + 今日已消耗是否仍在每日 token 上限内 */
+function tokenAllowed(signals: TickSignals, cost: number): boolean {
+  return signals.tokenUsedToday + cost <= signals.tokenLimit;
 }

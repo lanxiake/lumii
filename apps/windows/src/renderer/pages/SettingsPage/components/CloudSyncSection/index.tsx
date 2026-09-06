@@ -78,6 +78,21 @@ export function CloudSyncSection() {
     }
   }
 
+  const openGitCode = async () => {
+    const url = 'https://gitcode.com'
+    try {
+      await window.electronAPI.app.openExternal(url)
+    } catch {
+      // 环境未配置默认浏览器时降级：复制链接并提示手动打开
+      try {
+        await window.electronAPI.clipboard.writeText(url)
+        toast.info('已复制 GitCode 链接，请在浏览器中粘贴打开')
+      } catch {
+        toast.error('无法打开浏览器，请手动访问 https://gitcode.com')
+      }
+    }
+  }
+
   if (!form) return null
 
   return (
@@ -120,7 +135,7 @@ export function CloudSyncSection() {
             <div className={styles['cloud-guide-actions']}>
               <Button
                 variant="secondary"
-                onClick={() => void window.electronAPI.app.openExternal('https://gitcode.com')}
+                onClick={() => void openGitCode()}
               >
                 打开 GitCode
               </Button>
