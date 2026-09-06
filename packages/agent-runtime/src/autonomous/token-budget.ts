@@ -26,17 +26,24 @@ export const TOKEN_COST = {
 const TOKEN_KEY_PREFIX = 'autonomous.tokens.';
 
 function dayKey(now: Date): string {
-  return now.toISOString().slice(0, 10);
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 /** 读取今日已消耗 token（无记录或脏数据按 0） */
 export function readTodayTokenUsage(db: DatabaseAdapter, now: Date): number {
-  const row = db
-    .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
-    .get(TOKEN_KEY_PREFIX + dayKey(now));
-  if (!row) return 0;
-  const n = Number(row.value);
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  try {
+    const row = db
+      .prepare<{ value: string }>(`SELECT value FROM runtime_state WHERE key = ?`)
+      .get(TOKEN_KEY_PREFIX + dayKey(now));
+    if (!row) return 0;
+    const n = Number(row.value);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /** 累加今日 token 消耗（幂等：以 value 存累计值，非增量记录） */

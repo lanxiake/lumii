@@ -21,6 +21,8 @@ const emptySignals = {
   outreachLimit: 20,
   reflectionDue: false,
   diaryDue: false,
+  tokenUsedToday: 0,
+  tokenLimit: 100000,
 };
 
 describe('decideAction', () => {
@@ -84,6 +86,40 @@ describe('decideAction', () => {
   it('日记与反思同时到期 → 日记优先', () => {
     const action = decideAction({ ...emptySignals, diaryDue: true, reflectionDue: true });
     expect(action.kind).toBe('diary');
+  });
+
+  it('token 超限时执行目标 → idle（token-budget-exhausted）', () => {
+    const action = decideAction({
+      ...emptySignals,
+      approvedGoalCount: 1,
+      approvedGoals: [{ id: 'g2', type: 'learning', description: '学习' }],
+      tokenUsedToday: 95000,
+      tokenLimit: 100000,
+    });
+    expect(action.kind).toBe('idle');
+    expect(action.reason).toBe('token-budget-exhausted');
+  });
+
+  it('token 超限时反思 → idle', () => {
+    const action = decideAction({
+      ...emptySignals,
+      reflectionDue: true,
+      tokenUsedToday: 100000,
+      tokenLimit: 100000,
+    });
+    expect(action.kind).toBe('idle');
+    expect(action.reason).toBe('token-budget-exhausted');
+  });
+
+  it('主动消息不受 token 预算限制（不烧 LLM）', () => {
+    const action = decideAction({
+      ...emptySignals,
+      approvedGoalCount: 1,
+      approvedGoals: [{ id: 'g1', type: 'proactive-message', description: '问候' }],
+      tokenUsedToday: 100000,
+      tokenLimit: 100000,
+    });
+    expect(action.kind).toBe('outreach');
   });
 });
 

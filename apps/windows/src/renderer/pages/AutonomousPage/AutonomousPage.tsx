@@ -623,7 +623,7 @@ export function AutonomousPage() {
                       if (Number.isFinite(n)) patchSettings({ maxTokensPerDay: n })
                     }}
                   />
-                  <span className={styles.settingHint}>默认 50000</span>
+                  <span className={styles.settingHint}>默认 100000</span>
                 </div>
 
                 <div className={styles.settingRow}>

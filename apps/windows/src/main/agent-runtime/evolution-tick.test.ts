@@ -6,7 +6,7 @@ function makeDeps(overrides: Partial<EvolutionTickDeps> = {}): EvolutionTickDeps
   return {
     getDb: () =>
       ({
-        prepare: () => ({ all: () => [], get: () => undefined }),
+        prepare: () => ({ all: () => [], get: () => undefined, run: () => undefined }),
       }) as never,
     isAutonomousEnabled: () => true,
     hasActiveUserTurn: () => false,
@@ -45,6 +45,7 @@ describe('handleEvolutionTick', () => {
           prepare: () => ({
             all: () => [{ id: 'g1', type: 'learning', description: '学点东西' }],
             get: () => undefined,
+            run: () => undefined,
           }),
         }) as never,
       executeGoal,
@@ -84,6 +85,7 @@ describe('handleEvolutionTick', () => {
             all: () => (sql.includes('FROM reflections') ? [] : []),
             get: (key: string) =>
               key === 'autonomous.last_diary_date' ? { value: '2026-09-06' } : undefined,
+            run: () => undefined,
           }),
         }) as never,
       reflect,
@@ -99,7 +101,7 @@ describe('handleEvolutionTick', () => {
     const deps = makeDeps({
       getDb: () =>
         ({
-          prepare: () => ({ all: () => [], get: () => undefined }),
+          prepare: () => ({ all: () => [], get: () => undefined, run: () => undefined }),
         }) as never,
       writeDiary,
       now: () => new Date(2026, 8, 6, 23, 30, 0),

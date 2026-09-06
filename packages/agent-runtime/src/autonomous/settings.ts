@@ -14,7 +14,7 @@ export interface AutonomousSettings {
   maxOutreachPerDay: number;        // 默认 20，范围 0-50
   minOutreachIntervalMinutes: number; // 默认 60
   outreachChannels: string[];       // 默认 ['system']
-  maxTokensPerDay: number;          // 默认 50000
+  maxTokensPerDay: number;          // 默认 100000
   maxGoalsPerDay: number;           // 默认 7，范围 1-20
   approvalMode: 'always' | 'risky-only' | 'never';
 }
@@ -26,7 +26,7 @@ export const DEFAULT_SETTINGS: AutonomousSettings = {
   maxOutreachPerDay: 20,
   minOutreachIntervalMinutes: 60,
   outreachChannels: ['system'],
-  maxTokensPerDay: 50000,
+  maxTokensPerDay: 100000,
   maxGoalsPerDay: 7,
   approvalMode: 'always',
 };

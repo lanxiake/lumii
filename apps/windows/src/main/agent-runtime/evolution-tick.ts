@@ -54,7 +54,8 @@ export async function handleEvolutionTick(deps: EvolutionTickDeps): Promise<stri
     if (!deps.isAutonomousEnabled()) return 'skipped: disabled'
     if (deps.hasActiveUserTurn()) return 'skipped: user turn in progress'
 
-    const signals = collectTickSignals(deps.getDb(), EVOLUTION_AGENT_ID, deps.now?.() ?? new Date())
+    const now = deps.now?.() ?? new Date()
+    const signals = collectTickSignals(deps.getDb(), EVOLUTION_AGENT_ID, now)
     const action = decideAction(signals)
 
     if (action.kind === 'idle') {
@@ -68,16 +69,19 @@ export async function handleEvolutionTick(deps: EvolutionTickDeps): Promise<stri
     }
     if (action.kind === 'execute-goal' && action.goal) {
       const result = await deps.executeGoal(action.goal)
+      recordTokenUsage(deps.getDb(), now, TOKEN_COST.executeGoal)
       log.info(`[handleEvolutionTick] execute-goal goalId=${action.goal.id} result=${result}`)
       return `execute-goal: ${result}`
     }
     if (action.kind === 'reflect') {
       const result = await deps.reflect()
+      recordTokenUsage(deps.getDb(), now, TOKEN_COST.reflect)
       log.info(`[handleEvolutionTick] reflect result=${result}`)
       return `reflect: ${result}`
     }
     if (action.kind === 'diary') {
       const result = await deps.writeDiary()
+      recordTokenUsage(deps.getDb(), now, TOKEN_COST.writeDiary)
       log.info(`[handleEvolutionTick] diary result=${result}`)
       return `diary: ${result}`
     }
