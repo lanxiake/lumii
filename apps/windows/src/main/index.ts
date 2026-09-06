@@ -29,7 +29,8 @@ process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
 
 import { execSync, spawn, execFile as _execFile } from 'child_process'
 import { promisify as _promisify } from 'util'
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, screen, Notification } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, screen } from 'electron'
+import { showDesktopTaskNotification as showDesktopNotify } from './desktop-notify'
 import {
   registerLocalMediaSchemePrivileged,
   registerLocalMediaProtocolHandler,
@@ -252,49 +253,22 @@ export function getScreenRecordService(): ScreenRecordService | null {
 }
 
 /**
- * 桌面任务通知：优先使用 Electron 系统通知；仅在不可用或失败时回退到托盘气球，避免同一事件出现两个弹窗。
- * 窗口未聚焦时仍任务栏闪烁。
+ * 桌面任务通知：统一走 desktop-notify（关上一条、default 超时，避免相同提醒叠层）。
  *
  * @param title - 通知标题
  * @param body - 正文（宜简短）
+ * @param convId - 可选；点击后导航到会话
  */
 function showDesktopTaskNotification(title: string, body: string, convId?: string): void {
-  log.info(`[DesktopNotify] title="${title}" body="${body.slice(0, 80)}" convId="${convId ?? ''}"`)
-  let usedElectron = false
-  try {
-    if (Notification.isSupported()) {
-      const n = new Notification({
-        title,
-        body,
-        silent: false,
-        timeoutType: 'never',
-        urgency: 'critical',
-      })
-      n.on('click', () => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          if (mainWindow.isMinimized()) mainWindow.restore()
-          mainWindow.focus()
-          if (convId) {
-            mainWindow.webContents.send('agent-runtime:event', {
-              type: 'conversation:navigate',
-              sessionKey: convId,
-            })
-          }
-        }
-      })
-      n.show()
-      usedElectron = true
-    }
-  } catch (err) {
-    log.warn('[DesktopNotify] Electron Notification 失败:', err)
-  }
-  if (!usedElectron) {
-    trayManager?.showNotification(title, body)
-  }
-  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFocused()) {
-    trayManager?.flashWindow(mainWindow)
-    mainWindow.once('focus', () => trayManager?.stopFlash(mainWindow!))
-  }
+  showDesktopNotify(title, body, convId, {
+    log,
+    getMainWindow: () => mainWindow,
+    showTrayBalloon: (t, b) => trayManager?.showNotification(t, b),
+    flashUnfocusedWindow: (win) => {
+      trayManager?.flashWindow(win)
+      win.once('focus', () => trayManager?.stopFlash(win))
+    },
+  })
 }
 // 灵栖/Lumii 独立版：无网关、无后端、无设备配对，相关运行时实例已删除。
 let systemService: SystemService | null = null
@@ -1147,6 +1121,8 @@ async function initialize(): Promise<void> {
   if (process.platform === 'win32') {
     app.setAppUserModelId('com.lumii.app')
   }
+  // 通知/托盘等处的应用显示名（与 electron-builder productName 一致）
+  app.setName('Lumii')
 
   // 初始化文件日志系统（必须在 app.whenReady() 之后）
   fileLogger.initialize()

@@ -143,6 +143,7 @@ import { BridgeConversationManager } from './bridge-conversation-manager'
 import { BridgeLifecycle } from './bridge-lifecycle'
 import { initAutonomousRuntime, shutdownAutonomousRuntime, readAutonomousEnabled, reflectAutonomous } from './autonomous-wiring'
 import { handleEvolutionTick, ensureEvolutionCronJobSeeded } from './evolution-tick'
+import { OUTREACH_SYSTEM_NOTIFY_TITLE } from '../desktop-notify'
 import { BridgeInstanceFactory } from './bridge-instance-factory'
 import { BridgeToolRegistrar } from './bridge-tool-registrar'
 import { BridgePromptDispatcher } from './bridge-prompt-dispatcher'
@@ -998,14 +999,20 @@ export class AgentRuntimeBridge {
                     return 'budget-exhausted'
                   }
                   // 按 settings.outreachChannels 派发（复用 cron notify_targets 的渠道语义）
-                  const channels = settings.outreachChannels?.length ? settings.outreachChannels : ['system']
+                  // 去重：同一渠道只推一次，避免 settings 里重复写 system 时叠两个相同弹窗
+                  const rawChannels = settings.outreachChannels?.length ? settings.outreachChannels : ['system']
+                  const channels = [...new Set(rawChannels.map((c) => c.trim()).filter(Boolean))]
                   for (const channel of channels) {
                     try {
                       const colon = channel.indexOf(':')
                       const kind = colon > 0 ? channel.slice(0, colon) : channel
                       const peerFromChannel = colon > 0 ? channel.slice(colon + 1).trim() : ''
                       if (kind === 'system') {
-                        this.config.showCronNotification?.('自主进化', goal.description, EVOLUTION_CONVERSATION_ID)
+                        this.config.showCronNotification?.(
+                          OUTREACH_SYSTEM_NOTIFY_TITLE,
+                          goal.description,
+                          EVOLUTION_CONVERSATION_ID,
+                        )
                       } else if (kind === 'feishu') {
                         const router = this.config.getChannelRouter?.()
                         if (!router) {
