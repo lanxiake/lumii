@@ -6,7 +6,7 @@
  */
 
 import { EventEmitter } from 'events';
-import type { MVPScope, CoordinationMetrics, CoordinationEvent, AutonomousGoal, CapabilityTest } from './types';
+import type { CoordinationMetrics, CoordinationEvent, AutonomousGoal, CapabilityTest } from './types';
 import type { AgentSession } from './metrics-collector';
 import type { DatabaseClient } from './meta-cognition-engine';
 import { MetaCognitionEngine, shouldTriggerGoalGeneration } from './meta-cognition-engine';
@@ -88,7 +88,6 @@ export class AutonomousCoordinator extends EventEmitter {
     private readonly goalGenerator: IntrinsicGoalGenerator,
     private readonly promptEvolution: PromptEvolutionEngine,
     private readonly personalityTracker: PersonalityTracker,
-    private readonly config: MVPScope,
     private readonly db: DatabaseClient,
     capabilityTracker?: CapabilityTracker,
     reflectionEngine?: ReflectionEngine,

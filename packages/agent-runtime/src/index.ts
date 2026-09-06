@@ -794,7 +794,6 @@ export type {
   GoalGenerationConfig,
   PromptEvolutionConfig,
   PersonalityConfig,
-  MVPScope,
   CoordinationEvent,
   CoordinationMetrics,
   SessionMetrics,

@@ -12,7 +12,6 @@ import { PromptEvolutionEngine } from '../../prompt-evolution';
 import { PersonalityTracker } from '../../personality-tracker';
 import type { AgentSession } from '../../metrics-collector';
 import type { DatabaseClient } from '../../meta-cognition-engine';
-import type { MVPScope } from '../../types';
 import {
   SATISFACTION_WEIGHTS,
   SATISFACTION_THRESHOLD,
@@ -40,31 +39,6 @@ describe('自主进化 Agent E2E 测试', () => {
       query: vi.fn().mockResolvedValue([]),
     };
 
-    // 配置 MVP 范围
-    const mvpConfig: MVPScope = {
-      metaCognition: {
-        satisfactionScoring: true,
-        capabilityTracking: 'manual',
-        reflectionTrigger: 'scheduled',
-      },
-      goalGeneration: {
-        types: ['learning', 'proactive-message'],
-        userApproval: 'always',
-        maxGoalsPerDay: 3,
-      },
-      evolution: {
-        prompt: true,
-        memory: false,
-        skill: false,
-        tool: false,
-      },
-      personality: {
-        tracking: true,
-        evolution: false,
-        display: true,
-      },
-    };
-
     // 初始化子模块
     metaCognitionEngine = new MetaCognitionEngine(
       {
@@ -79,7 +53,6 @@ describe('自主进化 Agent E2E 测试', () => {
     goalGenerator = new IntrinsicGoalGenerator(
       {
         enabledTypes: [GoalType.LEARNING, GoalType.PROACTIVE_MESSAGE],
-        userApproval: 'always',
         maxGoalsPerDay: MAX_GOALS_PER_DAY,
         priorityWeights: {
           satisfactionGap: 0.7,
@@ -104,13 +77,12 @@ describe('自主进化 Agent E2E 测试', () => {
         emaAlpha: EMA_ALPHA,
         eventWeights: {},
         trackingEnabled: true,
-        evolutionEnabled: false,
       },
       mockDb,
     );
 
     // 初始化协调器
-    coordinator = new AutonomousCoordinator(metaCognitionEngine, goalGenerator, promptEvolution, personalityTracker, mvpConfig, mockDb);
+    coordinator = new AutonomousCoordinator(metaCognitionEngine, goalGenerator, promptEvolution, personalityTracker, mockDb);
 
     await coordinator.initialize();
   });

@@ -459,7 +459,6 @@ describe('场景 7：P0/P1/P2 目标共存与限流', () => {
           GoalType.SKILL_ENHANCEMENT,
           GoalType.MEMORY_OPTIMIZATION,
         ],
-        userApproval: 'always',
         maxGoalsPerDay: MAX_GOALS_PER_DAY,
         priorityWeights: { satisfactionGap: 0.5, dimensionGap: 0.5 },
       },

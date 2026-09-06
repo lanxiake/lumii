@@ -32,7 +32,6 @@ import {
   writeConcerns,
   readSettings,
   type DatabaseAdapter,
-  type MVPScope,
   type ReflectionOutput,
   type Concern,
 } from '@mtbot/agent-runtime'
@@ -283,7 +282,6 @@ export function createAutonomousRuntime(
   const goalGenerator = new IntrinsicGoalGenerator(
     {
       enabledTypes: AUTONOMOUS_GOAL_TYPES,
-      userApproval: 'always',
       // 动态读取设置，设置页修改 maxGoalsPerDay / approvalMode 即时生效
       maxGoalsPerDay: () => readSettings(db).maxGoalsPerDay,
       approvalMode: () => readSettings(db).approvalMode,
@@ -310,8 +308,6 @@ export function createAutonomousRuntime(
       emaAlpha: EMA_ALPHA,
       eventWeights: {},
       trackingEnabled: true,
-      // P3 的人格主动进化未实现，保持关闭
-      evolutionEnabled: false,
     },
     asyncDb,
   )
@@ -331,28 +327,11 @@ export function createAutonomousRuntime(
     reflectionEngine = new ReflectionEngine(extendedDb, llmClient, metaCognition, capabilityTracker)
   }
 
-  // MVPScope 字面量类型收得很紧（如 maxGoalsPerDay: 3），这里按其声明构造
-  const scope = {
-    metaCognition: {
-      satisfactionScoring: true,
-      capabilityTracking: 'manual',
-      reflectionTrigger: 'scheduled',
-    },
-    goalGeneration: {
-      types: ['learning', 'proactive-message'],
-      userApproval: 'always',
-      maxGoalsPerDay: 3,
-    },
-    evolution: { prompt: true, memory: false, skill: false, tool: false },
-    personality: { tracking: true, evolution: false, display: true },
-  } as unknown as MVPScope
-
   const coordinator = new AutonomousCoordinator(
     metaCognition,
     goalGenerator,
     promptEvolution,
     personalityTracker,
-    scope,
     asyncDb,
     capabilityTracker,
     reflectionEngine,

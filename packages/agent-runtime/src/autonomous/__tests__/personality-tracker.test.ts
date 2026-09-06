@@ -136,7 +136,6 @@ describe('PersonalityTracker', () => {
         emaAlpha: EMA_ALPHA,
         eventWeights: {},
         trackingEnabled: true,
-        evolutionEnabled: false,
       },
       mockDb,
     );

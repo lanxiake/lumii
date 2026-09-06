@@ -151,7 +151,6 @@ describe('IntrinsicGoalGenerator', () => {
     generator = new IntrinsicGoalGenerator(
       {
         enabledTypes: [GoalType.LEARNING, GoalType.PROACTIVE_MESSAGE],
-        userApproval: 'always',
         maxGoalsPerDay: 3,
         priorityWeights: {
           satisfactionGap: 0.7,
@@ -206,7 +205,6 @@ describe('IntrinsicGoalGenerator', () => {
     generator = new IntrinsicGoalGenerator(
       {
         enabledTypes: [GoalType.LEARNING],
-        userApproval: 'always',
         maxGoalsPerDay: () => limit,
         priorityWeights: {
           satisfactionGap: 0.7,
@@ -241,7 +239,6 @@ describe('IntrinsicGoalGenerator', () => {
     generator = new IntrinsicGoalGenerator(
       {
         enabledTypes: [GoalType.LEARNING],
-        userApproval: 'always',
         maxGoalsPerDay: 3,
         approvalMode: 'never',
         priorityWeights: { satisfactionGap: 0.7, dimensionGap: 0.3 },
@@ -270,7 +267,6 @@ describe('IntrinsicGoalGenerator', () => {
     generator = new IntrinsicGoalGenerator(
       {
         enabledTypes: [GoalType.PROACTIVE_MESSAGE],
-        userApproval: 'always',
         maxGoalsPerDay: 3,
         approvalMode: 'risky-only',
         priorityWeights: { satisfactionGap: 0.7, dimensionGap: 0.3 },
@@ -300,7 +296,6 @@ describe('IntrinsicGoalGenerator', () => {
     generator = new IntrinsicGoalGenerator(
       {
         enabledTypes: [GoalType.LEARNING],
-        userApproval: 'always',
         maxGoalsPerDay: 3,
         approvalMode: 'risky-only',
         priorityWeights: { satisfactionGap: 0.7, dimensionGap: 0.3 },
@@ -329,7 +324,6 @@ describe('IntrinsicGoalGenerator', () => {
     generator = new IntrinsicGoalGenerator(
       {
         enabledTypes: [GoalType.LEARNING],
-        userApproval: 'always',
         maxGoalsPerDay: 3,
         priorityWeights: {
           satisfactionGap: 0.7,

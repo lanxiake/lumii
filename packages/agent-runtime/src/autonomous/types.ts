@@ -200,8 +200,6 @@ export interface MetaCognitionConfig {
 export interface GoalGenerationConfig {
   /** 允许的目标类型 */
   enabledTypes: GoalType[];
-  /** 用户审批模式 */
-  userApproval: 'always' | 'optional' | 'never';
   /** 每日目标上限（可传函数动态读取，设置页修改即时生效） */
   maxGoalsPerDay: number | (() => number);
   /** 审批模式（可选，默认 always；可传函数动态读取 settings.approvalMode 即时生效） */
@@ -237,35 +235,6 @@ export interface PersonalityConfig {
   eventWeights: Record<string, number>;
   /** 是否启用追踪 */
   trackingEnabled: boolean;
-  /** 是否启用进化（P0 为 false）*/
-  evolutionEnabled: boolean;
-}
-
-/**
- * MVP P0 范围定义
- */
-export interface MVPScope {
-  metaCognition: {
-    satisfactionScoring: true;
-    capabilityTracking: 'manual';
-    reflectionTrigger: 'scheduled';
-  };
-  goalGeneration: {
-    types: ['learning', 'proactive-message'];
-    userApproval: 'always';
-    maxGoalsPerDay: 3;
-  };
-  evolution: {
-    prompt: true;
-    memory: false;
-    skill: false;
-    tool: false;
-  };
-  personality: {
-    tracking: true;
-    evolution: false;
-    display: true;
-  };
 }
 
 /**
@@ -423,33 +392,6 @@ export interface ReflectionOutput {
   analysisWindow: {
     start: string;
     end: string;
-  };
-}
-
-/**
- * MVP P1 范围定义
- */
-export interface P1Scope {
-  metaCognition: {
-    satisfactionScoring: true;
-    capabilityTracking: 'auto';  // P1 升级到 auto
-    reflectionTrigger: 'scheduled';
-  };
-  goalGeneration: {
-    types: ['learning', 'proactive-message', 'capability-improvement'];
-    userApproval: 'always';
-    maxGoalsPerDay: 5;  // P1 提升上限
-  };
-  evolution: {
-    prompt: true;
-    memory: false;
-    skill: false;
-    tool: false;
-  };
-  personality: {
-    tracking: true;
-    evolution: false;
-    display: true;
   };
 }
 
@@ -732,41 +674,3 @@ export interface ParetoConfig {
  * P2: Pareto 偏好
  */
 export type ParetoPreference = 'satisfaction' | 'speed' | 'cost' | 'balanced';
-
-/**
- * MVP P2 范围定义
- */
-export interface P2Scope {
-  metaCognition: {
-    satisfactionScoring: true;
-    capabilityTracking: 'auto';
-    reflectionTrigger: 'scheduled';
-    multiLayerAttribution: true;  // P2 新增：多层贡献归因
-  };
-
-  goalGeneration: {
-    types: [
-      'learning',
-      'proactive-message',
-      'capability-improvement',
-      'skill-enhancement',       // P2 新增
-      'memory-optimization'      // P2 新增
-    ];
-    userApproval: 'always';
-    maxGoalsPerDay: 7;           // P2 提升上限（从 5 到 7）
-  };
-
-  evolution: {
-    prompt: true;                // P0（ε-greedy）
-    memory: true;                // P2 新增（Learning-to-Rank）
-    skill: true;                 // P2 新增（效果跟踪）
-    tool: true;                  // P2 新增（Thompson Sampling）
-    coordinated: true;           // P2 新增（协同调度）
-  };
-
-  personality: {
-    tracking: true;              // P0
-    evolution: true;             // P2 启用（基于 P0/P1 积累的事件数据）
-    display: true;
-  };
-}

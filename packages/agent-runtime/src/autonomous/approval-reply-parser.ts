@@ -6,7 +6,7 @@
  * 来源：前端可视化实施方案.md 第十节 10.4
  */
 
-import type { ApprovalQueue } from './approval-queue'
+import type { ApprovalQueue, ApprovalDatabase } from './approval-queue'
 
 /**
  * 审批回复决策
@@ -92,15 +92,4 @@ export async function tryConsumeGoalApproval(
   }
 
   return true
-}
-
-/**
- * 数据库接口（用于回复匹配）
- */
-export interface ApprovalDatabase {
-  findLatestPendingApproval(peerId: string): Promise<{
-    id: string
-    goalId: string
-    expiresAt: number
-  } | null>
 }

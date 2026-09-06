@@ -9,7 +9,18 @@
 
 import type { AutonomousGoal, GoalType } from './types'
 import type { ApprovalRecord } from './approval-queue'
-import type { ChannelOutboundRouter } from '../../main/channel/channel-outbound-router'
+
+/**
+ * 渠道出站能力的最小接口（依赖倒置）。
+ *
+ * 审批送达只需要 list / send 两个能力；这里声明最小契约而非 import
+ * windows 侧的 ChannelOutboundRouter，保持 agent-runtime 纯库不依赖 Electron。
+ * 接线时由 windows 侧注入真实 router（结构兼容）。
+ */
+export interface ChannelOutboundRouterLike {
+  list(): Promise<Array<{ channel: string; connected: boolean; peers: Array<{ id: string }> }>>
+  send(params: { channel: string; to: string; text: string }): Promise<{ ok: boolean; errorCode?: string }>
+}
 
 /**
  * 目标类型中文标签
@@ -73,7 +84,7 @@ export function formatGoalApprovalPrompt(goal: AutonomousGoal): string {
  */
 export class ApprovalDeliveryService {
   constructor(
-    private readonly router: ChannelOutboundRouter,
+    private readonly router: ChannelOutboundRouterLike,
     private readonly settingsProvider: DeliverySettingsProvider
   ) {}
 
