@@ -86,7 +86,16 @@ export const TIP_REFLECTION = {
 
 /** Prompt 变体 */
 export const TIP_PROMPT_STATS =
-  'Prompt 片段/变体的效果统计（如平均满意度、选用次数）。用于比较哪套提示更有效；功能完善后数据会更完整。'
+  'Prompt 进化引擎的 A/B 测试统计：Agent 会为同一段提示词维护多个版本（变体），通过对比各自的使用次数、成功率、平均满意度与 UCB 分数，自动选出表现最好的版本。基线是最初的默认版本，作为对照基准。展开片段可查看每个变体的实际文案。'
+
+/** Prompt 变体字段 */
+export const TIP_PROMPT_FIELD = {
+  trialCount: '使用次数：该版本被实际采用的次数。次数越多，统计越可信。',
+  successRate: '成功率：满意度高于 60% 的使用记为一次成功，反映该版本是否稳定达标。',
+  avgSatisfaction: '平均满意度：每次使用后反馈的满意度均值。越高表示该版本越受认可。',
+  ucbScore: 'UCB 分数：多臂老虎机算法用于权衡「利用已知最优」与「探索新版本」的分数，越高越优先被选用。',
+  baseline: '基线：最初的默认提示词版本，作为与其他变体对比的基准。',
+} as const
 
 /** 自主进化参数 */
 export const TIP_SETTINGS =

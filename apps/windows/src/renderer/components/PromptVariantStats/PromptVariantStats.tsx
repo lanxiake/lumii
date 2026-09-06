@@ -5,6 +5,8 @@
  */
 
 import React from 'react'
+import { Tooltip } from '../ui/Tooltip/Tooltip'
+import { TIP_PROMPT_FIELD } from '../../pages/AutonomousPage/autonomousTooltips'
 import './PromptVariantStats.css'
 
 /**
@@ -12,6 +14,7 @@ import './PromptVariantStats.css'
  */
 export interface PromptVariant {
   id: string
+  variantText: string
   isBaseline: boolean
   trialCount: number
   successCount: number
@@ -113,10 +116,26 @@ function PromptFragmentCard({ fragment, expanded, onToggle }: PromptFragmentCard
             <thead>
               <tr>
                 <th>变体 ID</th>
-                <th>使用次数</th>
-                <th>成功率</th>
-                <th>平均满意度</th>
-                <th>UCB 分数</th>
+                <th>
+                  <Tooltip content={TIP_PROMPT_FIELD.trialCount} placement="top">
+                    <span className="th-label">使用次数</span>
+                  </Tooltip>
+                </th>
+                <th>
+                  <Tooltip content={TIP_PROMPT_FIELD.successRate} placement="top">
+                    <span className="th-label">成功率</span>
+                  </Tooltip>
+                </th>
+                <th>
+                  <Tooltip content={TIP_PROMPT_FIELD.avgSatisfaction} placement="top">
+                    <span className="th-label">平均满意度</span>
+                  </Tooltip>
+                </th>
+                <th>
+                  <Tooltip content={TIP_PROMPT_FIELD.ucbScore} placement="top">
+                    <span className="th-label">UCB 分数</span>
+                  </Tooltip>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -160,6 +179,23 @@ function PromptFragmentCard({ fragment, expanded, onToggle }: PromptFragmentCard
               ))}
             </tbody>
           </table>
+
+          <div className="variant-texts">
+            {sortedVariants.map((variant) => (
+              <div
+                key={variant.id}
+                className={`variant-text-block${variant.isBaseline ? ' baseline' : ''}`}
+              >
+                <div className="variant-text-head">
+                  <span className="variant-text-id">{variant.id}</span>
+                  {variant.isBaseline && <span className="baseline-badge">基线</span>}
+                </div>
+                <div className="variant-text-content">
+                  {variant.variantText || '（暂无文本，基线由调用方管理）'}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

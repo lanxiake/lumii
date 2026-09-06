@@ -11,16 +11,16 @@
 .prompt-variant-stats.empty {
   padding: 60px 20px;
   text-align: center;
-  color: #999;
-  background: white;
+  color: var(--mt-fg-4);
+  background: var(--mt-bg-elevated);
   border-radius: 8px;
 }
 
 /* 片段卡片 */
 .fragment-card {
-  border: 1px solid #e8e8e8;
+  border: 1px solid var(--mt-border);
   border-radius: 8px;
-  background: white;
+  background: var(--mt-bg-secondary);
   overflow: hidden;
 }
 
@@ -29,13 +29,13 @@
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  background: #fafafa;
+  background: var(--mt-bg-overlay);
   cursor: pointer;
   transition: background 0.3s ease;
 }
 
 .fragment-header:hover {
-  background: #f0f0f0;
+  background: var(--mt-bg-tertiary);
 }
 
 .header-left {
@@ -48,14 +48,14 @@
   font-size: 16px;
   font-weight: 600;
   margin: 0;
-  color: #1a1a1a;
+  color: var(--mt-fg-1);
 }
 
 .variant-count {
   font-size: 13px;
-  color: #999;
+  color: var(--mt-fg-3);
   padding: 2px 8px;
-  background: white;
+  background: var(--mt-bg-elevated);
   border-radius: 4px;
 }
 
@@ -67,13 +67,13 @@
 
 .best-score {
   font-size: 14px;
-  color: #52c41a;
+  color: var(--mt-success);
   font-weight: 600;
 }
 
 .expand-icon {
   font-size: 12px;
-  color: #999;
+  color: var(--mt-fg-3);
   transition: transform 0.3s ease;
 }
 
@@ -91,17 +91,18 @@
 .variants-table th {
   text-align: left;
   padding: 12px;
-  background: #fafafa;
-  border-bottom: 2px solid #e8e8e8;
+  background: var(--mt-bg-overlay);
+  border-bottom: 2px solid var(--mt-border);
   font-size: 13px;
   font-weight: 600;
-  color: #666;
+  color: var(--mt-fg-2);
 }
 
 .variants-table td {
   padding: 12px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--mt-border-hairline);
   font-size: 14px;
+  color: var(--mt-fg-1);
 }
 
 .variants-table tr:last-child td {
@@ -109,11 +110,11 @@
 }
 
 .variants-table tr.baseline {
-  background: #fffbe6;
+  background: color-mix(in srgb, var(--mt-warning) 12%, transparent);
 }
 
 .variants-table tr:hover {
-  background: #fafafa;
+  background: var(--mt-bg-tertiary);
 }
 
 .variant-id {
@@ -126,7 +127,7 @@
 
 .baseline-badge {
   padding: 2px 6px;
-  background: #faad14;
+  background: var(--mt-warning);
   color: white;
   border-radius: 3px;
   font-size: 11px;
@@ -142,20 +143,20 @@
 
 .rate-value {
   font-weight: 600;
-  color: #1890ff;
+  color: var(--mt-accent-500);
 }
 
 .rate-bar {
   width: 80px;
   height: 6px;
-  background: #f0f0f0;
+  background: var(--mt-bg-tertiary);
   border-radius: 3px;
   overflow: hidden;
 }
 
 .rate-fill {
   height: 100%;
-  background: linear-gradient(90deg, #1890ff 0%, #40a9ff 100%);
+  background: linear-gradient(90deg, var(--mt-accent-500) 0%, var(--mt-accent-400) 100%);
   transition: width 0.3s ease;
 }
 
@@ -168,15 +169,15 @@
 }
 
 .satisfaction-value.high {
-  color: #52c41a;
+  color: var(--mt-success);
 }
 
 .satisfaction-value.medium {
-  color: #faad14;
+  color: var(--mt-warning);
 }
 
 .satisfaction-value.low {
-  color: #ff4d4f;
+  color: var(--mt-error);
 }
 
 .best-marker {
@@ -187,5 +188,52 @@
 .ucb-score {
   font-family: monospace;
   font-size: 13px;
-  color: #666;
+  color: var(--mt-fg-2);
+}
+
+/* 表头说明文字（tooltip 触发） */
+.th-label {
+  cursor: help;
+  border-bottom: 1px dashed color-mix(in srgb, var(--mt-fg-4) 55%, transparent);
+}
+
+/* 变体文本对比 */
+.variant-texts {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.variant-text-block {
+  border: 1px solid var(--mt-border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--mt-bg-elevated);
+}
+
+.variant-text-block.baseline {
+  border-color: color-mix(in srgb, var(--mt-warning) 45%, var(--mt-border));
+  background: color-mix(in srgb, var(--mt-warning) 8%, var(--mt-bg-elevated));
+}
+
+.variant-text-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.variant-text-id {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--mt-fg-3);
+}
+
+.variant-text-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--mt-fg-2);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
