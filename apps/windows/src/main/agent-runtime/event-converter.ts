@@ -364,6 +364,19 @@ export function convertOldEventToIpcEvents(
     }
 
     case 'agent:end': {
+      // 同步抛错（未配置 API Key / 模型未启用）时，mapAgentEvent 会把错误放进 agent:end.error。
+      // 这里转成 agent:error 让渲染进程弹 toast，否则桌面端对这类错误静默无提示（只有渠道侧能回传）。
+      if (oldEvent.error) {
+        return [{
+          type: 'agent:error',
+          runId: ctx.runId,
+          sessionKey: ctx.sessionKey,
+          errorCode: 'AGENT_ERROR',
+          errorMessage: oldEvent.error,
+          isRetryable: false,
+          ...ipcMeta(ctx),
+        }]
+      }
       const durationMs = now - ctx.turnStartMs
       return [
         {

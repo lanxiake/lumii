@@ -224,10 +224,25 @@ export class WecomChannelAdapter implements IChannelAdapter {
       }
 
       const finalTexts: string[] = []
+      let streamError: string | null = null
       this.bridge.registerNodeStreamCallback(instanceId, (event) => {
         const evt = event as Record<string, unknown>
-        if (evt.type === 'message:end' && typeof evt.fullText === 'string') {
-          finalTexts.push(evt.fullText)
+        if (evt.type === 'message:end') {
+          if (typeof evt.fullText === 'string' && evt.fullText.trim()) {
+            finalTexts.push(evt.fullText)
+          }
+          const llmErr = evt.llmError as { message?: unknown } | undefined
+          if (llmErr && typeof llmErr.message === 'string' && llmErr.message.trim()) {
+            streamError = llmErr.message
+          }
+        } else if (evt.type === 'agent:end') {
+          if (typeof evt.error === 'string' && evt.error.trim()) {
+            streamError = evt.error
+          }
+        } else if (evt.type === 'agent:error') {
+          if (typeof evt.error === 'string' && evt.error.trim()) {
+            streamError = evt.error
+          }
         }
       })
 
@@ -247,6 +262,8 @@ export class WecomChannelAdapter implements IChannelAdapter {
       const replyText = finalTexts.join('\n').trim()
       if (replyText && replyText !== 'NO_REPLY') {
         await this.sendTextReply(activeSession, replyText)
+      } else if (streamError) {
+        await this.sendTextReply(activeSession, buildChannelErrorMessage(streamError))
       }
     } catch (err) {
       log.error(`[handleMessage] 异常: ${err instanceof Error ? err.message : String(err)}`)

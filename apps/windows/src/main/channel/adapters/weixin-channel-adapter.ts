@@ -273,12 +273,27 @@ export class WeixinChannelAdapter implements IChannelAdapter {
         log.error(`[handleMessage] 持久化用户消息失败: ${err instanceof Error ? err.message : String(err)}`)
       }
 
-      // 收集 Agent 输出
+      // 收集 Agent 输出 + 捕获错误信号（模型未配置/Key 失效等不抛异常，而是以事件收尾）
       const finalTexts: string[] = []
+      let streamError: string | null = null
       this.bridge.registerNodeStreamCallback(instanceId, (event) => {
         const evt = event as Record<string, unknown>
-        if (evt.type === 'message:end' && typeof evt.fullText === 'string') {
-          finalTexts.push(evt.fullText)
+        if (evt.type === 'message:end') {
+          if (typeof evt.fullText === 'string' && evt.fullText.trim()) {
+            finalTexts.push(evt.fullText)
+          }
+          const llmErr = evt.llmError as { message?: unknown } | undefined
+          if (llmErr && typeof llmErr.message === 'string' && llmErr.message.trim()) {
+            streamError = llmErr.message
+          }
+        } else if (evt.type === 'agent:end') {
+          if (typeof evt.error === 'string' && evt.error.trim()) {
+            streamError = evt.error
+          }
+        } else if (evt.type === 'agent:error') {
+          if (typeof evt.error === 'string' && evt.error.trim()) {
+            streamError = evt.error
+          }
         }
       })
 
@@ -316,6 +331,8 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       if (!replyText || replyText === 'NO_REPLY') {
         if (sentViaTool) {
           log.info(`[handleMessage] 本轮已通过 message 工具发送，跳过空/NO_REPLY 文本回复`)
+        } else if (streamError) {
+          await this.sendTextReply(activeSession, buildChannelErrorMessage(streamError))
         }
       } else {
         await this.sendTextReply(activeSession, replyText)

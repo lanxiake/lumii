@@ -20,7 +20,7 @@ export type AgentInstanceState = "idle" | "running" | "paused" | "error" | "abor
  */
 export type AgentRuntimeEvent =
   | { type: "agent:start"; instanceId: string }
-  | { type: "agent:end"; instanceId: string; loopInterrupted?: true }
+  | { type: "agent:end"; instanceId: string; loopInterrupted?: true; error?: string }
   | {
       type: "agent:error";
       instanceId: string;
@@ -145,8 +145,22 @@ export function mapAgentEvent(
     case "agent_start":
       return { type: "agent:start", instanceId };
 
-    case "agent_end":
-      return { type: "agent:end", instanceId };
+    case "agent_end": {
+      // 同步抛错（未配置 API Key / 模型未启用）时 pi-agent-core 会把错误消息
+      // 放进 agent_end.messages（stopReason="error"），HTTP 错误则走 message:end 的 llmError。
+      // 这里把同步错误提取出来，供渠道层回传，避免「已收到」后无声卡死。
+      const messages = (
+        event as { messages?: ReadonlyArray<{ stopReason?: string; errorMessage?: unknown }> }
+      ).messages;
+      const rawErr = messages?.find((m) => m.stopReason === "error")?.errorMessage;
+      const error =
+        typeof rawErr === "string" && rawErr.trim()
+          ? rawErr
+          : rawErr !== undefined && rawErr !== null
+            ? String(rawErr)
+            : undefined;
+      return error ? { type: "agent:end", instanceId, error } : { type: "agent:end", instanceId };
+    }
 
     case "message_start":
       return { type: "message:start", instanceId };

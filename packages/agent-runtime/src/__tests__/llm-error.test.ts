@@ -115,3 +115,44 @@ describe("mapAgentEvent message_end", () => {
     expect((mapped as { llmError?: { code: string } }).llmError?.code).toBe("billing_error");
   });
 });
+
+describe("mapAgentEvent agent_end", () => {
+  it("同步抛错（如未配置 API Key）时从 messages 提取 error", () => {
+    const mapped = mapAgentEvent(
+      "agent-1",
+      {
+        type: "agent_end",
+        messages: [
+          { role: "user", content: [{ type: "text", text: "hi" }] },
+          {
+            role: "assistant",
+            stopReason: "error",
+            errorMessage: "请先在设置中填写文本对话模型的 API Key",
+            content: [{ type: "text", text: "" }],
+          },
+        ],
+      } as unknown as AgentEvent,
+      "",
+    );
+    expect(mapped).toMatchObject({
+      type: "agent:end",
+      error: "请先在设置中填写文本对话模型的 API Key",
+    });
+  });
+
+  it("正常结束时 agent:end 不附带 error", () => {
+    const mapped = mapAgentEvent(
+      "agent-1",
+      {
+        type: "agent_end",
+        messages: [
+          { role: "user", content: [{ type: "text", text: "hi" }] },
+          { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "ok" }] },
+        ],
+      } as unknown as AgentEvent,
+      "",
+    );
+    expect(mapped).toMatchObject({ type: "agent:end" });
+    expect((mapped as { error?: unknown }).error).toBeUndefined();
+  });
+});
