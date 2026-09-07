@@ -64,6 +64,10 @@ type AutonomousGoal = {
   reflectionId?: string | null
 }
 
+type PlannedGoal = AutonomousGoal & {
+  scheduledFor?: string | null
+}
+
 type CapabilityTest = {
   id: string
   dimension: string
@@ -85,6 +89,7 @@ type AutonomousSettings = {
   maxTokensPerDay: number
   maxGoalsPerDay: number
   approvalMode: 'always' | 'risky-only' | 'never'
+  reflectionGoalPriorityThreshold: number
 }
 
 type MoodState = {
@@ -122,6 +127,9 @@ const api = window.electronAPI?.autonomous || {
   getStatus: () => Promise.reject(new Error('API not available')),
   getPendingGoals: () => Promise.reject(new Error('API not available')),
   getGoals: () => Promise.reject(new Error('API not available')),
+  getPlannedGoals: () => Promise.reject(new Error('API not available')),
+  deleteGoal: () => Promise.reject(new Error('API not available')),
+  replan: () => Promise.reject(new Error('API not available')),
   approveGoal: () => Promise.reject(new Error('API not available')),
   rejectGoal: () => Promise.reject(new Error('API not available')),
   getCapabilities: () => Promise.reject(new Error('API not available')),
@@ -137,7 +145,7 @@ const api = window.electronAPI?.autonomous || {
   getDiary: () => Promise.reject(new Error('API not available')),
 }
 
-type TabType = 'overview' | 'capabilities' | 'reflections' | 'prompt' | 'settings' | 'inner'
+type TabType = 'overview' | 'capabilities' | 'planned' | 'reflections' | 'prompt' | 'settings' | 'inner'
 
 const TRIGGER_LABELS: Record<string, string> = {
   'low-satisfaction': '满意度低',
@@ -161,6 +169,8 @@ const GOAL_STATUS_LABELS: Record<string, string> = {
 export function AutonomousPage() {
   const [status, setStatus] = useState<AutonomousStatus | null>(null)
   const [goals, setGoals] = useState<AutonomousGoal[]>([])
+  const [plannedGoals, setPlannedGoals] = useState<PlannedGoal[]>([])
+  const [replanning, setReplanning] = useState(false)
   const [capabilities, setCapabilities] = useState<Record<string, any>>({})
   const [reflections, setReflections] = useState<Reflection[]>([])
   const [satisfactionHistory, setSatisfactionHistory] = useState<SatisfactionDataPoint[]>([])
@@ -192,9 +202,10 @@ export function AutonomousPage() {
   /** 加载自主进化相关数据 */
   async function loadData() {
     try {
-      const [statusData, goalsData, capabilitiesData, capabilityTestsData, reflectionsData, historyData, promptData, settingsData, moodData, concernsData, diaryData] = await Promise.all([
+      const [statusData, goalsData, plannedGoalsData, capabilitiesData, capabilityTestsData, reflectionsData, historyData, promptData, settingsData, moodData, concernsData, diaryData] = await Promise.all([
         api.getStatus(),
         api.getGoals(20),
+        api.getPlannedGoals(50).catch(() => []),
         api.getCapabilities().catch(() => ({})),
         api.getCapabilityTests().catch(() => []),
         api.getReflections(20).catch(() => []),
@@ -207,6 +218,7 @@ export function AutonomousPage() {
       ])
       setStatus(statusData)
       setGoals(goalsData)
+      setPlannedGoals(Array.isArray(plannedGoalsData) ? (plannedGoalsData as PlannedGoal[]) : [])
       setCapabilities(capabilitiesData)
       setCapabilityTests(Array.isArray(capabilityTestsData) ? (capabilityTestsData as CapabilityTest[]) : [])
       setReflections(reflectionsData)
@@ -275,6 +287,30 @@ export function AutonomousPage() {
       await loadData()
     } catch (error) {
       console.error('[AutonomousPage] 拒绝目标失败:', error)
+    }
+  }
+
+  /** 删除规划目标（硬删，供「规划任务」tab） */
+  async function handleDeletePlannedGoal(goalId: string) {
+    try {
+      await api.deleteGoal(goalId)
+      setPlannedGoals((prev) => prev.filter((g) => g.id !== goalId))
+    } catch (error) {
+      console.error('[AutonomousPage] 删除规划目标失败:', error)
+    }
+  }
+
+  /** 重置规划：让 Agent 重新规划未来 24h 任务 */
+  async function handleReplan() {
+    if (replanning) return
+    setReplanning(true)
+    try {
+      await api.replan()
+      await loadData()
+    } catch (error) {
+      console.error('[AutonomousPage] 重新规划失败:', error)
+    } finally {
+      setReplanning(false)
     }
   }
 
@@ -382,6 +418,16 @@ export function AutonomousPage() {
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
           能力
+        </button>
+        <button
+          className={`${styles.tab} ${activeTab === 'planned' ? styles.active : ''}`}
+          onClick={() => setActiveTab('planned')}
+        >
+          <svg className={styles.tabIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <rect x="3" y="4" width="18" height="18" rx="2" strokeWidth="2"/>
+            <path d="M16 2v4M8 2v4M3 10h18" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+          规划任务
         </button>
         <button
           className={`${styles.tab} ${activeTab === 'reflections' ? styles.active : ''}`}
@@ -565,6 +611,44 @@ export function AutonomousPage() {
               </div>
             </Card>
           )
+        )}
+
+        {activeTab === 'planned' && (
+          <Card
+            header={
+              <div className={styles.plannedHeader}>
+                <TitledHeader title={`规划任务 (${plannedGoals.length})`} tip={TIP_PENDING_GOALS} />
+                <Tooltip content="清除今日规划并让 Agent 重新排期未来 24 小时" placement="bottom">
+                  <button
+                    className={styles.btnSecondary}
+                    disabled={replanning}
+                    onClick={handleReplan}
+                  >
+                    {replanning ? '规划中…' : '重置规划'}
+                  </button>
+                </Tooltip>
+              </div>
+            }
+            bodyClassName={styles.cardBodyFill}
+          >
+            {plannedGoals.length === 0 ? (
+              <div className={styles.empty}>
+                <div className={styles.emptyIcon}>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <rect x="3" y="4" width="18" height="18" rx="2" strokeWidth="2"/>
+                    <path d="M16 2v4M8 2v4M3 10h18" strokeWidth="2" strokeLinecap="round"/>
+                  </svg>
+                </div>
+                暂无规划任务。启动或心跳会为未来 24 小时主动排期。
+              </div>
+            ) : (
+              <div className={styles.plannedList}>
+                {plannedGoals.map((goal) => (
+                  <PlannedGoalCard key={goal.id} goal={goal} onDelete={handleDeletePlannedGoal} />
+                ))}
+              </div>
+            )}
+          </Card>
         )}
 
         {activeTab === 'reflections' && (
@@ -788,6 +872,29 @@ export function AutonomousPage() {
                     <option value="never">从不审批</option>
                   </select>
                   <span className={styles.settingHint}>新目标的审批策略</span>
+                </div>
+
+                <div className={styles.settingRow}>
+                  <label className={styles.settingLabel} htmlFor="reflectionGoalPriorityThreshold">
+                    反思建议进入目标阈值
+                  </label>
+                  <input
+                    id="reflectionGoalPriorityThreshold"
+                    type="range"
+                    className={styles.settingInput}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={settings.reflectionGoalPriorityThreshold}
+                    onChange={(e) => {
+                      const n = Number(e.target.value)
+                      if (Number.isFinite(n)) patchSettings({ reflectionGoalPriorityThreshold: n })
+                    }}
+                  />
+                  <span className={styles.settingHint}>
+                    {(settings.reflectionGoalPriorityThreshold * 100).toFixed(0)}%
+                    — 反思建议目标优先级达到该值才进入最近目标
+                  </span>
                 </div>
 
                 <div className={styles.settingsActions}>
@@ -1089,6 +1196,39 @@ function GoalCard({ goal, onApprove, onReject, onJump }: GoalCardProps) {
       ) : jumpable ? (
         <div className={styles.goalJumpHint}>查看关联反思 →</div>
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * 规划任务卡片：紧凑单行（类型 + 描述 + 计划时间 + 删除），不展示审批/状态。
+ */
+function PlannedGoalCard({ goal, onDelete }: { goal: PlannedGoal; onDelete: (goalId: string) => void }) {
+  const typeLabels: Record<string, string> = {
+    learning: '学习',
+    'proactive-message': '主动消息',
+    'capability-improvement': '能力提升',
+    'skill-enhancement': '技能增强',
+    'memory-optimization': '记忆优化',
+  }
+  const typeClass = goal.type.replace(/-/g, '')
+  const scheduledLabel = goal.scheduledFor
+    ? formatReflectionTime(goal.scheduledFor)
+    : '尽快'
+
+  return (
+    <div className={styles.plannedGoalRow}>
+      <span className={`${styles.goalType} ${styles[typeClass]}`}>{typeLabels[goal.type] || goal.type}</span>
+      <span className={styles.plannedGoalDesc}>{goal.description}</span>
+      <span className={styles.plannedGoalTime}>{scheduledLabel}</span>
+      <button
+        type="button"
+        className={styles.plannedGoalDelete}
+        onClick={() => onDelete(goal.id)}
+        title="删除该规划任务"
+      >
+        删除
+      </button>
     </div>
   )
 }

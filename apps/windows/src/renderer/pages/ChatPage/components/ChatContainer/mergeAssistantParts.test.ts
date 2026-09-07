@@ -6,7 +6,7 @@ import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browse
 import { mergeAssistantParts, mergeFileChanges } from './mergeAssistantParts'
 
 describe('mergeAssistantParts', () => {
-  it('子 Agent parts 插入到父消息末尾连续 text 段之前', () => {
+  it('子 Agent parts 追加到父消息末尾，保持时间顺序', () => {
     const parent: AssistantPart[] = [
       { type: 'thinking', id: 'th-1', text: 'plan', status: 'done' },
       { type: 'tool', id: 't1', name: 'Read', args: {}, status: 'done' },
@@ -19,7 +19,8 @@ describe('mergeAssistantParts', () => {
 
     const merged = mergeAssistantParts(parent, child)
 
-    expect(merged.map((p) => p.id)).toEqual(['th-1', 't1', 't2', 'tx1', 'tx2'])
+    // 修复后：子 Agent parts 追加到末尾，避免打乱主 Agent 已输出的内容顺序
+    expect(merged.map((p) => p.id)).toEqual(['th-1', 't1', 'tx1', 'tx2', 't2'])
   })
 
   it('无 trailing text 时子 parts 追加到末尾', () => {

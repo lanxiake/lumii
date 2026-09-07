@@ -64,8 +64,26 @@ function isInQuietHours(hour: number, quietHours: [number, number]): boolean {
   return hour >= start || hour < end;
 }
 
-/** 心跳兜底判定：静默时段内且距上次规划满 24h（从未规划也视为到期） */
+/** 今天是否还没有 planner 产出的目标（planner 目标按 created_at 落在今天） */
+function hasPlannerGoalsToday(db: DatabaseAdapter, now: Date): boolean {
+  try {
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const row = db
+      .prepare<{ count: number }>(
+        `SELECT COUNT(*) as count FROM autonomous_goals
+          WHERE planned_by = 'planner' AND created_at >= ? AND agent_id = 'assistant'`,
+      )
+      .get(todayStart);
+    return (row?.count ?? 0) > 0;
+  } catch {
+    return true;
+  }
+}
+
+/** 心跳兜底判定：静默时段内且距上次规划满 24h（从未规划也视为到期），或今天还没主动规划过 */
 export function shouldFallbackPlan(db: DatabaseAdapter, now: Date): boolean {
+  // 今天还没有 planner 目标 → 触发一次规划（启动 / 心跳首次兜底），不再受静默时段与 24h 门槛限制
+  if (!hasPlannerGoalsToday(db, now)) return true;
   const settings = readSettings(db);
   if (!isInQuietHours(now.getHours(), settings.quietHours)) return false;
   const last = readLastPlanAt(db);

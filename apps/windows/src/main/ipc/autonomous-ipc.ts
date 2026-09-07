@@ -162,6 +162,48 @@ ipcMain.handle('autonomous:getGoals', async (_event, limit = 20) => {
   }
 })
 
+/** 规划器产出的目标（planned_by='planner'，时间倒序），含计划执行时间 scheduledFor */
+ipcMain.handle('autonomous:getPlannedGoals', async (_event, limit = 50) => {
+  try {
+    const bridge = requireBridge()
+    const goals = bridge.autonomousRepo
+      .listGoals(DEFAULT_AGENT_ID)
+      .filter((g) => g.planned_by === 'planner')
+      .slice(0, limit)
+    return goals.map((g) => ({
+      id: g.id,
+      type: g.type,
+      description: g.description,
+      triggerReason: g.trigger_reason,
+      status: g.status,
+      priority: g.priority,
+      createdAt: g.created_at,
+      approvedAt: g.approved_at,
+      reflectionId: g.reflection_id,
+      scheduledFor: g.scheduled_for,
+      plannedBy: g.planned_by,
+    }))
+  } catch (error) {
+    console.error('[autonomous:getPlannedGoals]', error)
+    return []
+  }
+})
+
+/** 删除规划目标（硬删，供「规划任务」tab 移除被规划的任务） */
+ipcMain.handle('autonomous:deleteGoal', async (_event, goalId: string) => {
+  const bridge = requireBridge()
+  const ok = bridge.autonomousRepo.deleteGoal(goalId)
+  if (!ok) throw new Error('目标不存在')
+  return { success: true, goalId }
+})
+
+/** 手动触发 Agent 重新规划（供「规划任务」tab 重置按钮） */
+ipcMain.handle('autonomous:replan', async () => {
+  const bridge = requireBridge()
+  const ok = await bridge.triggerReplan()
+  return { success: ok }
+})
+
 ipcMain.handle('autonomous:approveGoal', async (_event, goalId: string, note?: string) => {
   const bridge = requireBridge()
   const ok = bridge.autonomousRepo.approveGoal(goalId, note)

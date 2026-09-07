@@ -1114,6 +1114,10 @@ async function initialize(): Promise<void> {
     )
   }
 
+  // 禁用 Electron 安全警告（桌面应用运行在受信任的本地环境中）
+  // 避免控制台显示 "Electron Security Warning" 和 CSP 相关警告
+  process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true'
+
   // 等待 app ready
   await app.whenReady()
 
@@ -1245,6 +1249,38 @@ async function initialize(): Promise<void> {
   setCloudSyncManager(cloudSyncManager)
   syncScheduler = new SyncScheduler(cloudSyncManager)
   setCloudSyncWorkspaceChangedHandler(() => syncScheduler?.onWorkspaceChanged())
+
+  // 注入云同步冲突回调：检测到冲突时创建自主目标让 Agent 处理
+  cloudSyncManager.setOnConflictDetected((conflict) => {
+    if (!agentRuntimeBridge) {
+      log.warn('[CloudSync] 检测到冲突但 agentRuntimeBridge 未就绪，跳过目标创建')
+      return
+    }
+    try {
+      const db = agentRuntimeBridge.db
+      const goalId = `goal-sync-conflict-${Date.now()}`
+      const now = new Date().toISOString()
+      db.prepare(
+        `INSERT INTO autonomous_goals
+         (id, agent_id, type, description, trigger_reason, status, priority, metadata, created_at, approved_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        goalId,
+        'assistant',
+        'system-maintenance',
+        `解决云同步冲突：${conflict.files.length} 个文件冲突（${conflict.files.slice(0, 3).join(', ')}${conflict.files.length > 3 ? '...' : ''}）`,
+        'cloud-sync-conflict',
+        'executing', // 直接进入 executing 状态，无需审批
+        0.9, // 高优先级
+        JSON.stringify({ conflictFiles: conflict.files, localOid: conflict.localOid, remoteOid: conflict.remoteOid }),
+        now,
+        now,
+      )
+      log.info(`[CloudSync] 已创建冲突处理目标 ${goalId}，files=${conflict.files.length}`)
+    } catch (err) {
+      log.error('[CloudSync] 创建冲突处理目标失败:', err instanceof Error ? err.message : String(err))
+    }
+  })
 
   setupIpcHandlers()
   if (performanceMonitor) {

@@ -39,7 +39,7 @@ describe('buildPlannerPrompt', () => {
     const prompt = buildPlannerPrompt(
       makeInput({ budget: { tokensRemaining: -5, outreachRemaining: -1, goalsRemaining: -2, cronSlotsRemaining: -3 } }),
     );
-    expect(prompt).toContain('0-0');
+    expect(prompt).toContain('0 到 0 个'); // 目标配额裁剪为 0
   });
 });
 

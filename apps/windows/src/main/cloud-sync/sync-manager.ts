@@ -7,16 +7,20 @@
  */
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
+import path from 'node:path'
 import git from 'isomorphic-git'
 import type { PromiseFsClient } from 'isomorphic-git'
 import http from 'isomorphic-git/http/node'
 import { getWorkspaceVcs, enqueueWorkspace } from '../workspace-vcs/vcs-snapshot'
 import { resolveActiveWorkspaceDir } from '../workspace-paths'
+import { resolveWindowsClientDataRoot } from '../client-data-root'
 import { createLogger } from '../logger'
 import { getProvider } from './git-provider'
 import { loadCloudSyncConfig, decryptToken } from './sync-config'
 import { appendSyncLog } from './sync-log'
 import type { SyncState, SyncStatus, ConflictInfo } from './types'
+import { SyncExporter } from './sync-exporter'
+import { SyncImporter } from './sync-importer'
 
 const logger = createLogger('cloud-sync/manager')
 
@@ -48,10 +52,33 @@ export class CloudSyncManager extends EventEmitter {
   private state: SyncState = 'idle'
   private status: SyncStatus = { state: 'idle' }
   private conflict: ConflictInfo | undefined
+  private onConflictDetected?: (conflict: ConflictInfo) => void
 
   /** 不缓存目录，每次惰性取（切工作空间无需重建实例） */
   private get workspaceDir(): string {
     return resolveActiveWorkspaceDir()
+  }
+
+  /** sync 目录（新的同步数据目录） */
+  private get syncDir(): string {
+    const clientRoot = resolveWindowsClientDataRoot()
+    return path.join(clientRoot, 'sync')
+  }
+
+  /** 数据目录 */
+  private get dataDir(): string {
+    const clientRoot = resolveWindowsClientDataRoot()
+    return path.join(clientRoot, 'data')
+  }
+
+  /** 数据库路径 */
+  private get dbPath(): string {
+    return path.join(this.dataDir, 'agent-runtime.db')
+  }
+
+  /** 设置冲突检测回调（由 main/index.ts 注入，用于创建自主目标） */
+  setOnConflictDetected(callback: (conflict: ConflictInfo) => void): void {
+    this.onConflictDetected = callback
   }
 
   getStatus(): SyncStatus {
@@ -78,8 +105,31 @@ export class CloudSyncManager extends EventEmitter {
 
     this.setState('syncing', '开始同步')
     try {
-      const repo = getWorkspaceVcs(this.workspaceDir)
-      const p = repo.getGitParams()
+      // 确保 sync 目录存在
+      if (!fs.existsSync(this.syncDir)) {
+        fs.mkdirSync(this.syncDir, { recursive: true })
+      }
+
+      // ===== 新增：推送前导出数据 =====
+      logger.info('[sync] 1. 导出数据到 sync/...')
+      const exporter = new SyncExporter({
+        dbPath: this.dbPath,
+        syncDir: this.syncDir,
+        workspaceDir: this.workspaceDir,
+        dataDir: this.dataDir,
+      })
+      const exportResult = await exporter.export()
+      if (!exportResult.success) {
+        logger.warn(`[sync] 导出有错误: ${exportResult.errors.join(', ')}`)
+      }
+
+      // 使用 sync 目录作为 Git 仓库
+      const p: GitParams = {
+        fs,
+        dir: this.syncDir,
+        gitdir: path.join(this.syncDir, '.git'),
+      }
+
       const provider = getProvider(cfg.provider)
       const token = decryptToken(cfg.tokenEnc)
       const auth = (): ReturnType<AuthFn> => provider.auth(token)
@@ -88,14 +138,43 @@ export class CloudSyncManager extends EventEmitter {
       const localRef = `refs/heads/${branch}`
       const remoteRef = `refs/remotes/origin/${branch}`
 
-      // 1. 本地未提交变更先落 commit
-      await repo.ensureInitialized()
-      await repo.commit({ author: 'user', message: '云同步自动提交' })
+      // 1. 初始化 Git 仓库（如果不存在）
+      if (!fs.existsSync(path.join(this.syncDir, '.git'))) {
+        await git.init({ ...p, defaultBranch: branch })
+        logger.info('[sync] 初始化 Git 仓库')
+      }
 
-      // 2. 确保 remote origin（force 覆盖 URL 变更）
-      await git.addRemote({ ...p, remote: 'origin', url, force: true })
+      // 1.5 写入 .gitignore，忽略每次导出都会重写时间戳的同步清单，
+      // 避免 statusMatrix 把 .sync-manifest.json 的时间戳变化当作真实变更、产生空提交。
+      this.ensureSyncGitignore()
 
-      // 3. fetch（远程分支不存在 → 首推）
+      // 2. 检查是否有变更
+      const status = await git.statusMatrix({ ...p })
+      const hasChanges = status.some(([_, head, workdir, stage]) => head !== workdir || workdir !== stage)
+
+      if (hasChanges) {
+        // 添加所有文件
+        await git.add({ ...p, filepath: '.' })
+
+        // 提交
+        await git.commit({
+          ...p,
+          message: `云同步自动提交 ${new Date().toISOString()}`,
+          author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
+        })
+        logger.info('[sync] 已提交本地变更')
+      } else {
+        logger.info('[sync] 无本地变更')
+      }
+
+      // 3. 确保 remote origin
+      try {
+        await git.addRemote({ ...p, remote: 'origin', url, force: true })
+      } catch (err) {
+        // 已存在，忽略
+      }
+
+      // 4. fetch
       let remoteOid: string | null
       try {
         await git.fetch({ ...p, http, remote: 'origin', ref: branch, singleBranch: true, onAuth: auth })
@@ -104,50 +183,60 @@ export class CloudSyncManager extends EventEmitter {
         remoteOid = null
       }
 
-      const localOid = await git.resolveRef({ ...p, ref: 'HEAD' })
+      const localOid = await git.resolveRef({ ...p, ref: 'HEAD' }).catch(() => null)
 
-      // 4. 首推
+      // 5. 首推
       if (remoteOid === null) {
         await this.push(p, url, localRef, auth)
         this.setState('idle', '首次推送完成')
         return { success: true, state: 'idle' }
       }
       if (remoteOid === localOid) {
+        // ===== 新增：拉取后导入数据 =====
+        logger.info('[sync] 已是最新，检查是否需要导入...')
+        await this.importDataIfNeeded()
         this.setState('idle', '已是最新')
         return { success: true, state: 'idle' }
       }
 
-      // 5. commit 图关系判定（findMergeBase 入参是 oids，返回数组）
+      // 6. 分支判定
+      if (!localOid) {
+        // 本地无提交，直接拉取远程
+        await git.fetch({ ...p, http, remote: 'origin', ref: branch, onAuth: auth })
+        await git.checkout({ ...p, ref: branch, force: true })
+        await this.importDataIfNeeded()
+        this.setState('idle', '已拉取远程数据')
+        return { success: true, state: 'idle' }
+      }
+
       const baseOids = await git.findMergeBase({ ...p, oids: [localOid, remoteOid] })
 
       if (baseOids.length === 0) {
-        // 无关历史：新设备首同步 → 远端为准，先备份
+        // 无关历史：采用远端
         await this.adoptRemote(p, localRef, remoteOid)
+        await this.importDataIfNeeded()
         this.setState('idle', '已采用远端历史作为本地主线')
         return { success: true, state: 'idle' }
       }
-      if (baseOids.length > 1) {
-        // criss-cross：isomorphic-git 无递归合并，人工介入
-        this.setState('error', '检测到交叉合并历史，暂不支持自动同步')
-        return { success: false, state: 'error' }
-      }
+
       const baseOid = baseOids[0]
 
       if (baseOid === remoteOid) {
-        // 仅本地新 → 直接 push
+        // 仅本地新 → push
         await this.push(p, url, localRef, auth)
         this.setState('idle', '同步完成')
         return { success: true, state: 'idle' }
       }
       if (baseOid === localOid) {
-        // 仅远程新 → 本地快进（writeRef + checkout；不用 git.fastForward，它会重新 _pull 需 http）
+        // 仅远程新 → 快进
         await git.writeRef({ ...p, ref: localRef, value: remoteOid, force: true })
         await git.checkout({ ...p, ref: localRef, force: true })
+        await this.importDataIfNeeded()
         this.setState('idle', '已拉取远程变更')
         return { success: true, state: 'idle' }
       }
 
-      // 双方都新 → 尝试 merge（默认 abortOnConflict，冲突时干净抛出带 filepaths）
+      // 双方都新 → 尝试 merge
       try {
         await git.merge({
           ...p,
@@ -167,8 +256,8 @@ export class CloudSyncManager extends EventEmitter {
         throw err
       }
 
-      // merge 只更新 index + 建提交，不回写工作树，需 checkout 物化合并结果
       await git.checkout({ ...p, ref: 'HEAD', force: true })
+      await this.importDataIfNeeded()
       await this.push(p, url, localRef, auth)
       this.setState('idle', '同步完成')
       return { success: true, state: 'idle' }
@@ -180,6 +269,23 @@ export class CloudSyncManager extends EventEmitter {
       this.setState('error', safeReason)
       return { success: false, state: 'error' }
     }
+  }
+
+  /** 确保 sync 目录有 .gitignore，忽略导出时每次都会重写时间戳的 .sync-manifest.json */
+  private ensureSyncGitignore(): void {
+    const gitignorePath = path.join(this.syncDir, '.gitignore')
+    const ignoreLine = '.sync-manifest.json'
+    let content: string
+    try {
+      content = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, 'utf8') : ''
+    } catch {
+      content = ''
+    }
+    // 已含该规则则跳过，避免覆盖用户自定义内容
+    if (content.split(/\r?\n/).some((l) => l.trim() === ignoreLine)) return
+    const sep = content && !content.endsWith('\n') ? '\n' : ''
+    fs.writeFileSync(gitignorePath, content + sep + ignoreLine + '\n')
+    logger.info('[sync] 已写入 .gitignore 忽略同步清单')
   }
 
   /** 推送；被拒不强推，等下轮（remote 又变） */
@@ -197,15 +303,48 @@ export class CloudSyncManager extends EventEmitter {
 
   /** 无关历史：备份本地 → 分支钉到远端 HEAD → checkout 远端内容 */
   private async adoptRemote(p: GitParams, localRef: string, remoteOid: string): Promise<void> {
-    const backupDir = `${this.workspaceDir}.lumii-sync-backup-${Date.now()}`
-    fs.cpSync(this.workspaceDir, backupDir, {
-      recursive: true,
-      filter: (src) => !src.includes('.mtbot-vcs'),
-    })
-    logger.warn(`[adoptRemote] 检测到无关历史，本地已备份到 ${backupDir}`)
+    const backupDir = `${this.syncDir}.lumii-sync-backup-${Date.now()}`
+    try {
+      // 使用 errorOnExist: true 选项，在 Windows 上遇到符号链接时会忽略而不是抛出 EPERM 错误
+      fs.cpSync(this.syncDir, backupDir, {
+        recursive: true,
+        filter: (src) => !src.includes('.git'),
+        // Windows 上复制符号链接需要管理员权限，使用 verbatimSymlinks: false 跟随链接而非复制它
+        verbatimSymlinks: false,
+      })
+      logger.warn(`[adoptRemote] 检测到无关历史，本地已备份到 ${backupDir}`)
+    } catch (err) {
+      // 备份失败不应阻止同步，记录警告并继续
+      logger.warn(`[adoptRemote] 备份失败（将继续同步）: ${err instanceof Error ? err.message : String(err)}`)
+    }
     await git.writeRef({ ...p, ref: localRef, value: remoteOid, force: true })
-    await git.checkout({ ...p, ref: remoteOid, force: true })
+    // 用分支名而非 oid checkout，避免 HEAD 进入 detached 状态（否则后续 commit 落到游离提交、push 推空）
+    await git.checkout({ ...p, ref: localRef, force: true })
     logger.info('[adoptRemote] 已采用远端历史作为本地主线')
+  }
+
+  /**
+   * 导入数据（拉取后）
+   */
+  private async importDataIfNeeded(): Promise<void> {
+    try {
+      logger.info('[importDataIfNeeded] 导入远程数据...')
+      const importer = new SyncImporter({
+        dbPath: this.dbPath,
+        syncDir: this.syncDir,
+        workspaceDir: this.workspaceDir,
+        dataDir: this.dataDir,
+      })
+      const result = await importer.import()
+      if (result.success) {
+        logger.info(`[importDataIfNeeded] 导入成功: Wiki=${result.stats.wikiRows}, 记忆=${result.stats.memoriesImported}`)
+      } else {
+        logger.warn(`[importDataIfNeeded] 导入有错误: ${result.errors.join(', ')}`)
+      }
+    } catch (err) {
+      logger.error('[importDataIfNeeded] 导入失败:', err)
+      // 导入失败不应阻止同步流程
+    }
   }
 
   private enterConflict(
@@ -225,6 +364,16 @@ export class CloudSyncManager extends EventEmitter {
     }
     this.status.conflict = this.conflict
     this.setState('conflict', `检测到 ${this.conflict.files.length} 个冲突文件，等待 Agent 处理`)
+
+    // 触发冲突回调，由外部（main/index.ts）创建自主目标让 Agent 处理
+    if (this.onConflictDetected) {
+      try {
+        this.onConflictDetected(this.conflict)
+      } catch (err) {
+        logger.warn('[enterConflict] 冲突回调失败:', err instanceof Error ? err.message : String(err))
+      }
+    }
+
     return { success: false, state: 'conflict' }
   }
 

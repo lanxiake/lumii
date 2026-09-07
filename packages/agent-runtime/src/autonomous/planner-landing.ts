@@ -51,6 +51,18 @@ function generateId(prefix: string): string {
   return `${prefix}${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/** 目标计划时间约束到未来 24h 窗口内；非法/越界一律回落 null（尽快） */
+function clampScheduledFor(scheduledFor: string | null, nowMs: number): string | null {
+  if (!scheduledFor) return null;
+  const parsed = Date.parse(scheduledFor);
+  if (!Number.isFinite(parsed)) return null;
+  if (parsed < nowMs || parsed > nowMs + MAX_EVERY_INTERVAL_MS) return null;
+  return scheduledFor;
+}
+
+/** 定时任务的最大周期：24 小时（毫秒）。规划器只排未来 24h，跨天/跨周周期一律拒绝。 */
+const MAX_EVERY_INTERVAL_MS = 24 * 3_600_000;
+
 /** 解析调度表达式为绝对时间 + 间隔。非法表达式返回 null（该 cron 跳过）。 */
 export function resolveCronSchedule(
   scheduleType: 'at' | 'every',
@@ -62,16 +74,20 @@ export function resolveCronSchedule(
     if (!/^\d+$/.test(expr)) return null;
     const ms = Number(expr);
     if (!Number.isFinite(ms) || ms <= 0) return null;
+    // 只允许 < 24h 的周期；跨天/跨周（每 1 天、每 7 天…）是长期习惯，不属于未来 24h 排期
+    if (ms >= MAX_EVERY_INTERVAL_MS) return null;
     return { nextRunAt: now + ms, intervalMs: ms };
   }
   // 'at'：纯数字字符串按「秒 < 1e12 转毫秒，否则毫秒」处理（对齐 bridge 侧 parseAtScheduleExpr 口径）
   if (/^\d+$/.test(expr)) {
     const direct = Number(expr);
     const atMs = direct > 0 && direct < 1_000_000_000_000 ? direct * 1000 : direct;
-    return { nextRunAt: atMs, intervalMs: null };
+    return atMs >= now && atMs <= now + MAX_EVERY_INTERVAL_MS ? { nextRunAt: atMs, intervalMs: null } : null;
   }
   const parsed = Date.parse(expr);
   if (!Number.isFinite(parsed)) return null;
+  // 一次性任务必须落在未来 24h 窗口内（不排过去、不跨天）
+  if (parsed < now || parsed > now + MAX_EVERY_INTERVAL_MS) return null;
   return { nextRunAt: parsed, intervalMs: null };
 }
 
@@ -120,8 +136,10 @@ export function landPlannerPlan(
   const goalIds: string[] = [];
   for (const g of plan.goals) {
     const status = shouldRequireApproval(g.type, opts.approvalMode) ? 'pending' : 'executing';
+    // scheduled_for 必须落在未来 24h 窗口内，否则按「尽快」处理（跨天/跨周计划不属于未来 24h 排期）
+    const scheduledFor = clampScheduledFor(g.scheduled_for, nowMs);
     try {
-      goalIds.push(insertGoal(db, agentId, g, status, nowIso));
+      goalIds.push(insertGoal(db, agentId, { ...g, scheduled_for: scheduledFor }, status, nowIso));
     } catch (err) {
       console.warn('[landPlannerPlan] 写入目标失败，跳过:', err instanceof Error ? err.message : err);
     }

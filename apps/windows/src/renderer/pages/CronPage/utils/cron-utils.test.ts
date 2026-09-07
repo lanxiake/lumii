@@ -63,4 +63,10 @@ describe('describeCron', () => {
     const at = new Date(2026, 7, 10, 9, 30).getTime()
     expect(describeCron(job({ scheduleType: 'at', scheduleExpr: String(at) }))).toContain('一次性')
   })
+
+  it('一次性任务 ISO 时间字符串不显示错误时间戳', () => {
+    const desc = describeCron(job({ scheduleType: 'at', scheduleExpr: '2026-09-07T20:30:00+08:00' }))
+    expect(desc).toContain('一次性')
+    expect(desc).not.toContain('1970')
+  })
 })

@@ -354,6 +354,8 @@ export function createAutonomousRuntime(
       const output = await reflectionEngine.reflect(agentId, triggerReason)
       // 反思顺带识别牵挂（零额外 LLM 调用），合并写入 runtime_state
       mergeSuggestedConcerns(db, output.suggestedConcerns)
+      // 反思建议目标 → 达到阈值的落成真实目标（供概览最近目标展示，可删）
+      landSuggestedGoals(db, output, agentId)
       return output
     },
 
@@ -476,8 +478,7 @@ export function readAutonomousEnabled(db: DatabaseAdapter): boolean {
  * 补全 Concern 缺失字段（id/arousalWeight/raisedCount/nextRaiseAfter/status），
  * 按 description 去重，避免日频反思反复累积同一件牵挂。
  */
-function mergeSuggestedConcerns(
-  db: DatabaseAdapter,
+function mergeSuggestedConcerns(db: DatabaseAdapter,
   suggested: Array<{ description: string; origin: string }>,
 ): void {
   if (!suggested || suggested.length === 0) return
@@ -500,5 +501,66 @@ function mergeSuggestedConcerns(
     if (fresh.length > 0) writeConcerns(db, [...existing, ...fresh])
   } catch (err) {
     log.warn('[autonomous] 写入牵挂失败:', err instanceof Error ? err.message : err)
+  }
+}
+
+/**
+ * 把反思产出的建议目标，按优先级阈值落成真实目标（autonomous_goals）。
+ *
+ * - 达到 reflectionGoalPriorityThreshold 的 suggestedGoals 才创建；
+ *   否则留在 reflections.suggested_goals 里即可（对应设置页「反思建议进入最近目标」阈值）。
+ * - planned_by='trigger'、reflection_id=本次反思、trigger_reason='reflection-suggestion'，
+ *   与规划器（planner）产出的目标区分，前端「规划任务」tab 只取 planner 目标。
+ * - 状态跟随审批模式（active 类型靠既有的 approveGoal/rejectGoal 走审批）。
+ */
+function landSuggestedGoals(
+  db: DatabaseAdapter,
+  output: ReflectionOutput,
+  agentId: string,
+): void {
+  const goals = output.suggestedGoals
+  if (!goals || goals.length === 0) return
+  const threshold = readSettings(db).reflectionGoalPriorityThreshold
+  const accepted = goals.filter((g) => g && typeof g.description === 'string' && g.description.trim().length > 0 && g.priority >= threshold)
+  if (accepted.length === 0) return
+  try {
+    // 去重：跳过已有同类型+同描述的未完成目标（pending/approved/executing），避免反复反思反复落库
+    const existing = db
+      .prepare<{ type: string; description: string }>(
+        `SELECT type, description FROM autonomous_goals
+          WHERE agent_id = ? AND status IN ('pending','approved','executing')`,
+      )
+      .all(agentId);
+    const seen = new Set(existing.map((r) => `${r.type}::${r.description}`));
+
+    const now = new Date().toISOString();
+    const insert = db.prepare(
+      `INSERT INTO autonomous_goals
+       (id, agent_id, type, description, trigger_reason, status, priority, metadata,
+        reflection_id, scheduled_for, planned_by, created_at)
+       VALUES (?, ?, ?, ?, 'reflection-suggestion', 'pending', ?, ?, ?, NULL, 'trigger', ?)`,
+    )
+    let landed = 0
+    for (const g of accepted) {
+      const desc = g.description.trim()
+      if (seen.has(`${g.type}::${desc}`)) continue
+      const id = `goal-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+      insert.run(
+        id,
+        agentId,
+        g.type,
+        desc,
+        g.priority,
+        JSON.stringify({ source: 'reflection-suggestion' }),
+        output.id,
+        now,
+      )
+      landed++
+    }
+    if (landed > 0) {
+      log.info(`[autonomous] 反思建议目标落库 landed=${landed} threshold=${threshold}`)
+    }
+  } catch (err) {
+    log.warn('[autonomous] 反思建议目标落库失败:', err instanceof Error ? err.message : err)
   }
 }

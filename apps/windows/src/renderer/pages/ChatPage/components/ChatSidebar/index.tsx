@@ -174,9 +174,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
         bucket.today.length +
         bucket.yesterday.length +
         bucket.earlier.length
-      // 各 tab 只展示归属自己的来源分组；渠道/系统 tab 隐藏空分组
+      // 各 tab 只展示归属自己的来源分组；渠道/系统 tab 隐藏空分组，
+      // 但系统 tab 的「自主进化」始终保留（提供固定聊天框入口）。
       if (meta.tab !== tab) continue
-      if (tab !== 'default' && total === 0) continue
+      const isEvolutionSystem = tab === 'system' && meta.id === 'evolution'
+      if (tab !== 'default' && total === 0 && !isEvolutionSystem) continue
       visible.push({ meta, ...bucket, total })
     }
 
@@ -352,7 +354,18 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                   className={`${styles['channel-group-body']}${tab !== 'default' && isCollapsed ? ` ${styles['channel-group-body--collapsed']}` : ''}`}
                 >
                   {group.total === 0 ? (
-                    <div className={styles['channel-empty']}>暂无会话</div>
+                    group.meta.id === 'evolution' && tab === 'system' ? (
+                      <button
+                        type="button"
+                        className={styles['evolution-entry']}
+                        onClick={() => onSelectSession('evolution:main')}
+                      >
+                        <span className={styles['evolution-entry-glyph']}>进化</span>
+                        <span className={styles['evolution-entry-label']}>进入自主进化</span>
+                      </button>
+                    ) : (
+                      <div className={styles['channel-empty']}>暂无会话</div>
+                    )
                   ) : (
                     <>
                       {group.pinned.length > 0 && (

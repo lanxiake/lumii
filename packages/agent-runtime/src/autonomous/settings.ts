@@ -17,6 +17,8 @@ export interface AutonomousSettings {
   maxTokensPerDay: number;          // 默认 100000
   maxGoalsPerDay: number;           // 默认 7，范围 1-20
   approvalMode: 'always' | 'risky-only' | 'never';
+  /** 反思建议目标采纳阈值（0~1）：suggestedGoals 的 priority 达到该值才落成真实目标 */
+  reflectionGoalPriorityThreshold: number;
 }
 
 export const DEFAULT_SETTINGS: AutonomousSettings = {
@@ -29,6 +31,7 @@ export const DEFAULT_SETTINGS: AutonomousSettings = {
   maxTokensPerDay: 100000,
   maxGoalsPerDay: 7,
   approvalMode: 'always',
+  reflectionGoalPriorityThreshold: 0.5,
 };
 
 const SETTINGS_KEY = 'autonomous.settings';
@@ -37,6 +40,12 @@ function clampInt(v: unknown, lo: number, hi: number, fallback: number): number 
   const n = typeof v === 'number' ? v : Number(v);
   if (!Number.isFinite(n) || n < lo || n > hi) return fallback;
   return Math.round(n);
+}
+
+function clampFloat(v: unknown, lo: number, hi: number, fallback: number): number {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n) || n < lo || n > hi) return fallback;
+  return n;
 }
 
 /** 读设置：用户覆盖合并默认值，非法值回落默认 */
@@ -71,6 +80,12 @@ export function readSettings(db: DatabaseAdapter): AutonomousSettings {
         parsed.approvalMode === 'risky-only' || parsed.approvalMode === 'never'
           ? parsed.approvalMode
           : 'always',
+      reflectionGoalPriorityThreshold: clampFloat(
+        parsed.reflectionGoalPriorityThreshold,
+        0,
+        1,
+        DEFAULT_SETTINGS.reflectionGoalPriorityThreshold,
+      ),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

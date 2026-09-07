@@ -862,6 +862,11 @@ export class AgentRuntimeBridge {
     }
   }
 
+  /** 供「规划任务」tab 手动触发 Agent 重新规划（无 dd 兜底条件约束，直接跑）。 */
+  async triggerReplan(): Promise<boolean> {
+    return this.runPlannerNow()
+  }
+
   private countAgentSelfCronJobs(): number {
     try {
       const row = this.localDb.db
@@ -1204,6 +1209,14 @@ export class AgentRuntimeBridge {
       this.cronScheduler?.reloadLocalCronScheduler()
     })
     this.cronScheduler.start()
+
+    // 启动即检查主动规划：启用自主进化且今天还没规划过 → 异步补一次未来 24h 的规划。
+    // 不阻塞启动流程；runPlannerNow 内部已 try-catch，失败只记日志。
+    if (readAutonomousEnabled(this.localDb.db) && shouldFallbackPlan(this.localDb.db, new Date())) {
+      setTimeout(() => {
+        void this.runPlannerNow()
+      }, 60_000)
+    }
   }
 
   /**

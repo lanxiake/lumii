@@ -13,9 +13,13 @@ export function describeCron(job: CronJob): string {
   const expr = job.scheduleExpr ?? ''
 
   if (job.scheduleType === 'at') {
-    const ms = parseInt(expr, 10)
-    if (!isNaN(ms)) {
-      return `一次性 ${new Date(ms).toLocaleString()}`
+    const parsed = Date.parse(expr)
+    // 纯数字按毫秒（老口径）；ISO 时间字符串也能解析出有效时间
+    if (!isNaN(parsed) && /^\d+$/.test(expr.trim())) {
+      return `一次性 ${new Date(parseInt(expr, 10)).toLocaleString()}`
+    }
+    if (!isNaN(parsed)) {
+      return `一次性 ${new Date(parsed).toLocaleString()}`
     }
     return `一次性`
   }

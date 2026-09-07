@@ -307,3 +307,41 @@
   font-size: calc(13.2px * var(--app-font-scale, 1));
   color: var(--color-text-tertiary, rgba(128, 128, 128, 0.65));
 }
+
+.evolution-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 24px);
+  margin: 4px 12px 6px;
+  padding: 8px 12px;
+  border: 1px dashed var(--mt-fg-4);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mt-fg-2);
+  font-size: calc(13px * var(--app-font-scale, 1));
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.evolution-entry:hover {
+  border-color: var(--mt-accent-500);
+  background: color-mix(in srgb, var(--mt-accent-500) 8%, transparent);
+}
+
+.evolution-entry-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--mt-accent-500);
+  color: #fff;
+  font-size: 11px;
+  font-weight: var(--mt-fw-semibold);
+}
+
+.evolution-entry-label {
+  font-weight: var(--mt-fw-medium);
+}

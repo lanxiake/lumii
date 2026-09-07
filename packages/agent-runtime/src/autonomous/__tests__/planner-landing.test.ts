@@ -35,14 +35,24 @@ describe('resolveCronSchedule', () => {
   });
 
   it('at 纯数字按秒转毫秒', () => {
-    expect(resolveCronSchedule('at', '1775557371', now)).toEqual({ nextRunAt: 1775557371000, intervalMs: null });
+    // now = 2026-09-06T09:00:00Z；加 1h 的秒值落在未来 24h 窗口内，验证秒→毫秒转换
+    const atSec = Math.floor(now / 1000) + 3600;
+    expect(resolveCronSchedule('at', String(atSec), now)).toEqual({ nextRunAt: atSec * 1000, intervalMs: null });
+  });
+
+  it('at 过去的纯数字秒值被窗口校验拒绝', () => {
+    const pastSec = Math.floor(now / 1000) - 3600;
+    expect(resolveCronSchedule('at', String(pastSec), now)).toBeNull();
   });
 });
 
 describe('landPlannerPlan', () => {
+  // 固定 now，落在 makePlan 里 2026-09-07T09:00+08:00 之前，使 scheduled_for 处于未来 24h 窗口内
+  const now = new Date('2026-09-06T09:00:00Z');
+
   it('目标落地 planned_by=planner + scheduled_for，走审批模式', () => {
     const db = createMigratedTestDb();
-    const result = landPlannerPlan(db, 'assistant', makePlan(), { approvalMode: 'always' });
+    const result = landPlannerPlan(db, 'assistant', makePlan(), { approvalMode: 'always', now });
     expect(result.goalIds).toHaveLength(2);
 
     const goals = db
@@ -61,7 +71,7 @@ describe('landPlannerPlan', () => {
 
   it('approvalMode=never 目标直接 executing', () => {
     const db = createMigratedTestDb();
-    landPlannerPlan(db, 'assistant', makePlan(), { approvalMode: 'never' });
+    landPlannerPlan(db, 'assistant', makePlan(), { approvalMode: 'never', now });
     const statuses = db
       .prepare<{ status: string }>(`SELECT status FROM autonomous_goals`)
       .all()
@@ -72,7 +82,7 @@ describe('landPlannerPlan', () => {
 
   it('定时任务落地 agent-self: 前缀 + assistant + silent', () => {
     const db = createMigratedTestDb();
-    const result = landPlannerPlan(db, 'assistant', makePlan(), { approvalMode: 'always' });
+    const result = landPlannerPlan(db, 'assistant', makePlan(), { approvalMode: 'always', now });
     expect(result.cronJobs).toHaveLength(2);
 
     const jobs = db
@@ -91,7 +101,7 @@ describe('landPlannerPlan', () => {
 
   it('待办落地 agent_memories（category=reference）', () => {
     const db = createMigratedTestDb();
-    const result = landPlannerPlan(db, 'assistant', makePlan(), { approvalMode: 'always' });
+    const result = landPlannerPlan(db, 'assistant', makePlan(), { approvalMode: 'always', now });
     expect(result.todoCount).toBe(2);
 
     const rows = db

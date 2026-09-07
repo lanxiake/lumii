@@ -126,6 +126,27 @@ export const autonomousApi = {
   },
 
   /**
+   * 获取规划器产出的目标（planned_by='planner'，附计划执行时间）
+   */
+  getPlannedGoals: (limit?: number): Promise<Array<AutonomousGoal & { scheduledFor: string | null }>> => {
+    return ipcRenderer.invoke('autonomous:getPlannedGoals', limit)
+  },
+
+  /**
+   * 删除规划目标（硬删）
+   */
+  deleteGoal: (goalId: string): Promise<{ success: boolean; goalId: string }> => {
+    return ipcRenderer.invoke('autonomous:deleteGoal', goalId)
+  },
+
+  /**
+   * 手动触发 Agent 重新规划（重置规划任务）
+   */
+  replan: (): Promise<{ success: boolean }> => {
+    return ipcRenderer.invoke('autonomous:replan')
+  },
+
+  /**
    * 批准目标
    */
   approveGoal: (goalId: string, note?: string): Promise<AutonomousGoal> => {

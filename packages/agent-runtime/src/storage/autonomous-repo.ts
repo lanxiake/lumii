@@ -197,6 +197,12 @@ export class AutonomousRepo {
     return true;
   }
 
+  /** 删除目标（硬删）；返回是否命中记录。供「规划任务」tab 删除 planner 目标。 */
+  deleteGoal(goalId: string): boolean {
+    const result = this.db.prepare(`DELETE FROM autonomous_goals WHERE id = ?`).run(goalId);
+    return result.changes > 0;
+  }
+
   capabilities(agentId: string): CapabilityRow[] {
     return this.db
       .prepare<CapabilityRow>(

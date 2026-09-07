@@ -273,8 +273,10 @@ export default defineConfig({
       port: 5174,
       host: '127.0.0.1', // 确保监听 IPv4，避免 Electron 在 Windows 上无法连接 IPv6-only 的 Vite
       fs: {
-        // 允许从 apps/windows/assets 导入产品 logo 等静态资源
-        allow: [resolve(__dirname)],
+        // 允许访问项目根目录和 monorepo 根 node_modules（支持 @fontsource 字体和 workspace 包）
+        allow: [
+          resolve(__dirname, '../..'), // monorepo 根目录
+        ],
       },
     },
     build: {
@@ -312,6 +314,7 @@ export default defineConfig({
         'pdfjs-dist',
         'pixi.js', 'pixi-live2d-display/cubism4',
         'lodash-es',
+        'lottie-web',
       ]
     }
   }
