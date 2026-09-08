@@ -68,6 +68,8 @@ export interface BridgePromptDispatcherDeps {
   modelRouter: ModelRouter
   config: AgentRuntimeBridgeConfig
   getSkillEvolutionEngine: () => import('../skill-evolution/index').SkillEvolutionEngine | undefined
+  /** 工具进化审批回复消费（可选，未装配时跳过） */
+  getToolEvolutionEngine?: () => import('./bash-tool-evolution/index').ToolEvolutionEngine | null
   getConversationRepo: () => ConversationRepo | null
   /**
    * 会话整窗用量与分类明细（用于把自动压缩阈值扣掉固定开销后再算）。
@@ -617,6 +619,15 @@ export class BridgePromptDispatcher {
         if (intercepted) {
           log.info(`[prompt] 技能进化状态机拦截消息: instanceId=${instanceId}`)
           return
+        }
+      }
+      // 集成点2b：工具进化审批回复消费（不拦截，确认/拒绝后消息正常继续对话）
+      const toolEvoEngine = this.deps.getToolEvolutionEngine?.()
+      if (toolEvoEngine) {
+        try {
+          await toolEvoEngine.handleUserMessage(message)
+        } catch (err) {
+          log.warn('[prompt] 工具进化消息处理失败:', err)
         }
       }
       const imageContents = await this.deps.instanceFactory.buildImageContents(imageAttachmentPaths)

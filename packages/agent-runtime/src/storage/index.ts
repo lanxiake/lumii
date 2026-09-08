@@ -38,6 +38,8 @@ export type { TaskRow, TaskStatus } from "./task-repo.js";
 
 export { AuditRepo } from "./audit-repo.js";
 export type { AuditLogRow } from "./audit-repo.js";
+export { BashCommandRepo } from "./bash-command-repo.js";
+export type { BashCommandRow, BashCommandLogParams } from "./bash-command-repo.js";
 
 export { RuntimeStateRepo } from "./runtime-state-repo.js";
 

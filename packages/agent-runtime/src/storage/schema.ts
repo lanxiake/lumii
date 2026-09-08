@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 35;
+export const SCHEMA_VERSION = 36;
 
 /**
  * V1 DDL — 初始 schema
@@ -1290,6 +1290,26 @@ DELETE FROM agent_memories WHERE id IS NULL;
 DELETE FROM agent_memories WHERE rowid NOT IN (
   SELECT MIN(rowid) FROM agent_memories GROUP BY agent_id, user_id, category, content
 );
+`,
+  ],
+  [
+    36,
+    `
+-- bash_command_log — bash 工具调用逐条记录（命令原文，供「工具进化」模式挖掘）
+CREATE TABLE IF NOT EXISTS bash_command_log (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id        TEXT NOT NULL,
+  conversation_id TEXT,
+  tool_call_id    TEXT NOT NULL,
+  command         TEXT NOT NULL,
+  cwd             TEXT,
+  is_error        INTEGER NOT NULL DEFAULT 0,
+  duration_ms     INTEGER,
+  created_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_bash_cmd_created
+  ON bash_command_log (created_at);
 `,
   ],
 ] as const;

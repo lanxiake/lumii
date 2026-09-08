@@ -33,6 +33,13 @@ export {
   type PersistLargeResultOutcome,
 } from "./tool-result-storage.js";
 export {
+  createTemplateTool,
+  validateTemplateToolDefinition,
+  extractPlaceholders,
+  renderTemplate,
+  type TemplateToolDefinition,
+} from "./template-tool.js";
+export {
   ToolTelemetryCollector,
   reportToolMetrics,
   type ToolMetric,
