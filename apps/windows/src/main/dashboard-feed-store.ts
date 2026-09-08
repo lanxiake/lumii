@@ -3,13 +3,21 @@
  *
  * Dashboard 只消费这份规范化数据，不关心内容来自 RSS、飞书、工作日报
  * 还是用户自己注册的工作流。新闻只是默认的一个 feed。
+ *
+ * 存储：SQLite（dashboard_feed_meta + dashboard_feed_items，schema V35）累积历史，
+ * 每 feed 最多 1000 条，支持游标分页读。db 未注入（如某些测试/早期调用）时，
+ * 读路径回退旧文件只读兼容。
  */
 
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import type { DatabaseAdapter } from '@mtbot/agent-runtime'
 import { resolveWindowsClientDataRoot } from './client-data-root'
 
 export const DEFAULT_DASHBOARD_FEED_ID = 'news'
+
+/** 每个 feed 最多保留的条目数（概览页滑动分页上限） */
+export const MAX_FEED_ITEMS = 1000
 
 /**
  * 写盘版本计数。每次 writeDashboardFeedSnapshot 成功 +1，
@@ -21,6 +29,17 @@ let feedWriteVersion = 0
 /** 读取当前写盘版本，跨模块用。 */
 export function getDashboardFeedWriteVersion(): number {
   return feedWriteVersion
+}
+
+/** 模块级 db 注入（由 bridge.initialize 打开数据库后调用） */
+let dashboardFeedDb: DatabaseAdapter | null = null
+
+export function setDashboardFeedDb(db: DatabaseAdapter): void {
+  dashboardFeedDb = db
+}
+
+export function getDashboardFeedDb(): DatabaseAdapter | null {
+  return dashboardFeedDb
 }
 
 export type DashboardFeedMetadata = Record<string, string | number | boolean | null>
@@ -43,6 +62,26 @@ export interface DashboardFeedSnapshot {
   updatedAt: number
   summary?: string
   items: DashboardFeedItem[]
+}
+
+/** 游标分页游标：上一页最后一条的 (timestamp, id) */
+export interface DashboardFeedCursor {
+  timestamp: number
+  id: string
+}
+
+export interface DashboardFeedPage {
+  feedId: string
+  items: DashboardFeedItem[]
+  nextCursor: DashboardFeedCursor | null
+}
+
+/** feed 元信息（标题/综述/更新时间），供概览页头部展示，不与条目一起全量读取 */
+export interface DashboardFeedMeta {
+  feedId: string
+  title: string
+  updatedAt: number
+  summary?: string
 }
 
 interface DashboardFeedSelection {
@@ -187,11 +226,110 @@ async function writeJsonAtomically(filePath: string, value: unknown): Promise<vo
   }
 }
 
+// ── DB 行 → 领域模型 ──────────────────────────────────────
+
+interface FeedItemRow {
+  id: string
+  title: string
+  summary: string | null
+  href: string | null
+  source: string | null
+  kind: string | null
+  timestamp: number
+  metadata: string | null
+}
+
+function rowToItem(row: FeedItemRow): DashboardFeedItem {
+  const item: DashboardFeedItem = {
+    id: row.id,
+    title: row.title,
+    timestamp: row.timestamp,
+  }
+  if (row.summary) item.summary = row.summary
+  if (row.href) item.href = row.href
+  if (row.source) item.source = row.source
+  if (row.kind) item.kind = row.kind
+  if (row.metadata) {
+    try {
+      const parsed = JSON.parse(row.metadata) as unknown
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        item.metadata = parsed as DashboardFeedMetadata
+      }
+    } catch {
+      // 损坏的 metadata 直接丢弃，不阻断读取
+    }
+  }
+  return item
+}
+
+function metadataToJson(metadata: DashboardFeedMetadata | undefined): string | null {
+  if (!metadata || Object.keys(metadata).length === 0) return null
+  return JSON.stringify(metadata)
+}
+
+/** 读取指定 feed 的元信息（标题/综述/更新时间），不读条目。 */
+export async function readDashboardFeedMeta(
+  feedId = DEFAULT_DASHBOARD_FEED_ID,
+): Promise<DashboardFeedMeta | null> {
+  const normalizedId = validateFeedId(feedId)
+  if (dashboardFeedDb) {
+    const meta = dashboardFeedDb
+      .prepare<{ title: string; summary: string | null; updated_at: number }>(
+        `SELECT title, summary, updated_at FROM dashboard_feed_meta WHERE feed_id = ?`,
+      )
+      .get(normalizedId)
+    if (meta) {
+      return {
+        feedId: normalizedId,
+        title: meta.title,
+        updatedAt: meta.updated_at,
+        ...(meta.summary ? { summary: meta.summary } : {}),
+      }
+    }
+  }
+  const snapshot = await readDashboardFeedSnapshot(normalizedId)
+  if (!snapshot) return null
+  return {
+    feedId: snapshot.feedId,
+    title: snapshot.title,
+    updatedAt: snapshot.updatedAt,
+    ...(snapshot.summary ? { summary: snapshot.summary } : {}),
+  }
+}
+
 /** 读取指定 feed 的最新快照；news 会兼容旧版 ~/.lumii/news/latest.json。 */
 export async function readDashboardFeedSnapshot(
   feedId = DEFAULT_DASHBOARD_FEED_ID,
 ): Promise<DashboardFeedSnapshot | null> {
   const normalizedId = validateFeedId(feedId)
+
+  if (dashboardFeedDb) {
+    const meta = dashboardFeedDb
+      .prepare<{ title: string; summary: string | null; updated_at: number }>(
+        `SELECT title, summary, updated_at FROM dashboard_feed_meta WHERE feed_id = ?`,
+      )
+      .get(normalizedId)
+    if (meta) {
+      const rows = dashboardFeedDb
+        .prepare<FeedItemRow>(
+          `SELECT id, title, summary, href, source, kind, timestamp, metadata
+           FROM dashboard_feed_items
+           WHERE feed_id = ?
+           ORDER BY timestamp DESC, id DESC
+           LIMIT ${MAX_FEED_ITEMS}`,
+        )
+        .all(normalizedId)
+      return {
+        feedId: normalizedId,
+        title: meta.title,
+        updatedAt: meta.updated_at,
+        ...(meta.summary ? { summary: meta.summary } : {}),
+        items: rows.map(rowToItem),
+      }
+    }
+    // DB 里没有该 feed（如老库升级后尚未回填），回退旧文件只读兼容
+  }
+
   const current = await readJson(feedSnapshotPath(normalizedId))
   const currentSnapshot = normalizeSnapshot(current, normalizedId)
   if (currentSnapshot) return currentSnapshot
@@ -202,12 +340,132 @@ export async function readDashboardFeedSnapshot(
   return null
 }
 
-/** 写入工作流产出的规范化 Dashboard feed 快照。 */
+/**
+ * 游标分页读取 feed 条目（时间倒序）。before 传上一页最后一条的 (timestamp, id)，
+ * 首次调用传 null。返回条目与下一页游标（无更多时为 null）。
+ */
+export async function readDashboardFeedPage(
+  feedId = DEFAULT_DASHBOARD_FEED_ID,
+  opts: { limit?: number; before?: DashboardFeedCursor | null } = {},
+): Promise<DashboardFeedPage> {
+  const normalizedId = validateFeedId(feedId)
+  const limit = Math.max(1, Math.min(opts.limit ?? 20, MAX_FEED_ITEMS))
+
+  if (!dashboardFeedDb) {
+    // db 未注入：回退读文件快照并一次性切页（保持接口可用）
+    const snapshot = await readDashboardFeedSnapshot(normalizedId)
+    const items = snapshot?.items ?? []
+    return { feedId: normalizedId, items, nextCursor: null }
+  }
+
+  const before = opts.before ?? null
+  const rows = before
+    ? dashboardFeedDb
+        .prepare<FeedItemRow>(
+          `SELECT id, title, summary, href, source, kind, timestamp, metadata
+           FROM dashboard_feed_items
+           WHERE feed_id = ?
+             AND (timestamp < ? OR (timestamp = ? AND id < ?))
+           ORDER BY timestamp DESC, id DESC
+           LIMIT ?`,
+        )
+        .all(normalizedId, before.timestamp, before.timestamp, before.id, limit)
+    : dashboardFeedDb
+        .prepare<FeedItemRow>(
+          `SELECT id, title, summary, href, source, kind, timestamp, metadata
+           FROM dashboard_feed_items
+           WHERE feed_id = ?
+           ORDER BY timestamp DESC, id DESC
+           LIMIT ?`,
+        )
+        .all(normalizedId, limit)
+
+  const items = rows.map(rowToItem)
+  const last = rows.length === limit ? rows[rows.length - 1] : undefined
+  const nextCursor = last ? { timestamp: last.timestamp, id: last.id } : null
+  return { feedId: normalizedId, items, nextCursor }
+}
+
+/**
+ * 写入工作流产出的规范化 Dashboard feed 快照（DB 合并累积）。
+ *
+ * 按 id UPSERT 去重（同一条资讯多次抓取只保留一行，内容覆盖更新），
+ * 时间倒序后裁剪到 MAX_FEED_ITEMS。db 未注入时回退旧文件覆盖写（兼容测试）。
+ */
 export async function writeDashboardFeedSnapshot(snapshot: DashboardFeedSnapshot): Promise<void> {
   const feedId = validateFeedId(snapshot.feedId)
   const normalized = normalizeSnapshot(snapshot, feedId)
   if (!normalized) throw new Error('Dashboard feed 快照无有效条目结构')
-  await writeJsonAtomically(feedSnapshotPath(feedId), normalized)
+
+  if (!dashboardFeedDb) {
+    await writeJsonAtomically(feedSnapshotPath(feedId), normalized)
+    feedWriteVersion++
+    return
+  }
+
+  const now = new Date().toISOString()
+  const upsertMeta = dashboardFeedDb.prepare(
+    `INSERT INTO dashboard_feed_meta (feed_id, title, summary, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(feed_id) DO UPDATE SET
+       title = excluded.title,
+       summary = excluded.summary,
+       updated_at = excluded.updated_at`,
+  )
+  const upsertItem = dashboardFeedDb.prepare(
+    `INSERT INTO dashboard_feed_items
+       (id, feed_id, title, summary, href, source, kind, timestamp, metadata, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       feed_id = excluded.feed_id,
+       title = excluded.title,
+       summary = excluded.summary,
+       href = excluded.href,
+       source = excluded.source,
+       kind = excluded.kind,
+       timestamp = excluded.timestamp,
+       metadata = excluded.metadata`,
+  )
+
+  const tx = (fn: () => void) => {
+    dashboardFeedDb!.exec('BEGIN')
+    try {
+      fn()
+      dashboardFeedDb!.exec('COMMIT')
+    } catch (err) {
+      dashboardFeedDb!.exec('ROLLBACK')
+      throw err
+    }
+  }
+
+  tx(() => {
+    upsertMeta.run(feedId, normalized.title, normalized.summary ?? null, normalized.updatedAt)
+    for (const item of normalized.items) {
+      upsertItem.run(
+        item.id,
+        feedId,
+        item.title,
+        item.summary ?? null,
+        item.href ?? null,
+        item.source ?? null,
+        item.kind ?? null,
+        item.timestamp ?? normalized.updatedAt,
+        metadataToJson(item.metadata),
+        now,
+      )
+    }
+    // 裁剪到 MAX_FEED_ITEMS：保留最新的 N 条，删除更旧的
+    dashboardFeedDb!.prepare(
+      `DELETE FROM dashboard_feed_items
+       WHERE feed_id = ? AND id IN (
+         SELECT id FROM dashboard_feed_items
+         WHERE feed_id = ?
+         ORDER BY timestamp DESC, id DESC
+         LIMIT -1 OFFSET ?
+       )`,
+    ).run(feedId, feedId, MAX_FEED_ITEMS)
+  })
+
   feedWriteVersion++
 }
 
@@ -256,9 +514,33 @@ export async function prependActiveDashboardFeedItem(
   })
 }
 
+/**
+ * 一次性回填：老库升级到 V35 后，若 dashboard_feed_meta 无该 feed 且旧 latest.json 存在，
+ * 导入旧快照到 DB。幂等（DB 已有该 feed 即跳过），由首个 dashboard-feed:* IPC 调用触发。
+ */
+export async function ensureDashboardFeedMigrated(feedId = DEFAULT_DASHBOARD_FEED_ID): Promise<void> {
+  if (!dashboardFeedDb) return
+  const normalizedId = validateFeedId(feedId)
+  const meta = dashboardFeedDb
+    .prepare<{ feed_id: string }>(`SELECT feed_id FROM dashboard_feed_meta WHERE feed_id = ?`)
+    .get(normalizedId)
+  if (meta) return
+
+  const legacy = normalizeSnapshot(
+    await readJson(feedSnapshotPath(normalizedId)),
+    normalizedId,
+  ) ?? (normalizedId === DEFAULT_DASHBOARD_FEED_ID
+    ? normalizeSnapshot(await readJson(legacyNewsPath()), normalizedId)
+    : null)
+  if (legacy) {
+    await writeDashboardFeedSnapshot(legacy)
+  }
+}
+
 export const __testables = {
   normalizeItem,
   normalizeSnapshot,
   validateFeedId,
   uniqueDashboardFeedItemId,
+  MAX_FEED_ITEMS,
 }

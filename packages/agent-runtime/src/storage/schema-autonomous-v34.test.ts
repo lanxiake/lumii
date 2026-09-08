@@ -7,8 +7,8 @@ import { createMigratedTestDb, createTestSqliteAdapter } from "../__tests__/help
 import { MIGRATIONS, SCHEMA_VERSION } from "./schema.js";
 
 describe("autonomous_goals schema V34", () => {
-  it("SCHEMA_VERSION 已递增到 34", () => {
-    expect(SCHEMA_VERSION).toBe(34);
+  it("SCHEMA_VERSION 已递增到 34 之后（V34 迁移仍在）", () => {
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(34);
   });
 
   it("autonomous_goals 含 scheduled_for / planned_by 两列", () => {

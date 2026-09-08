@@ -3,11 +3,12 @@
  *
  * 抓取：硬编码国内免费 RSS 白名单，不接受外部传入 URL —— 定时任务只能抓这几个站，
  *       避免变成一个可被 prompt 操纵的任意 URL 请求器（SSRF）。
- * 存储：`~/.lumii/news/latest.json` 覆盖写。概览只需要「最新一批」，不做历史留存，
- *       所以不像 usage-store 那样按月 JSONL 追加。
+ * 存储：走 dashboard-feed-store 的 SQLite 累积（schema V35），历史最多 1000 条，
+ *       概览页可滑动分页查看。旧路径 ~/.lumii/news/latest.json 保留一份覆盖写，
+ *       兼容已有诊断脚本和旧版本客户端。
  * 解析：正则抽 `<item>` 字段。源固定且都是标准 RSS 2.0，为此引一个 XML 解析依赖不值。
  *
- * ponytail: 正则解析 + 覆盖写；换成结构复杂的 Atom 源再上真正的 XML 解析。
+ * ponytail: 正则解析 + DB 累积；换成结构复杂的 Atom 源再上真正的 XML 解析。
  */
 
 import { promises as fs } from 'node:fs'
@@ -33,6 +34,7 @@ const SOURCES: ReadonlyArray<{ name: string; url: string }> = [
 
 /** 每个源最多取几条，两源合并后再按时间截断到 MAX_ITEMS */
 const PER_SOURCE_LIMIT = 12
+/** 每次抓取返回的最新条目数上限（历史由 DB 累积，最多 1000 条） */
 const MAX_ITEMS = 20
 /** 抓取超时。定时任务不该被慢源拖住 */
 const FETCH_TIMEOUT_MS = 15_000

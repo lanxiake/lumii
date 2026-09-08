@@ -1345,8 +1345,11 @@ async function initialize(): Promise<void> {
 
   await initSkillRuntime()  // 初始化技能运行时（此时种子文件已就绪）
 
-  // 脚本运行环境：写 node/python shim，缺 Python 时后台下载内置运行时
-  await initScriptRuntimes()
+  // 脚本运行环境：写 node/python shim，缺 Python 时后台下载内置运行时。
+  // 脚本运行时按需懒加载，不阻塞首屏（首次会下载内置 Python，改 fire-and-forget）。
+  void initScriptRuntimes().catch((err) => {
+    log.warn('脚本运行时初始化失败（不影响主流程，用到可执行技能时按需重试）:', err instanceof Error ? err.message : err)
+  })
   // 反检测浏览器（国内 GitHub 镜像）与 MemPalace（清华 PyPI）后台预安装，不阻塞启动
   initPluginDependenciesOnStartup()
   log.info('[Main] initScriptRuntimes + 插件预安装已触发，开始 initSkillWatcher')
@@ -1372,78 +1375,97 @@ async function initialize(): Promise<void> {
 
   log.info('灵栖 Lumii 启动完成')
 
-  // 初始化微信(iLink)登录服务
-  weixinLoginService = new WeixinLoginService()
-  await weixinLoginService.initialize()
-  // 注入 SILK ASR 转录回调
-  weixinLoginService.silkAsrCallback = (samples, sampleRate) => voiceCallService!.transcribePcm(samples, sampleRate)
+  // 三个渠道登录服务移出关键路径：setImmediate 后台异步初始化，不阻塞首屏；
+  // 装配逻辑保留，失败仅记日志。channelHub 依赖三者实例，一并放入后台完成。
+  setImmediate(() => {
+    void (async () => {
+      // 初始化微信(iLink)登录服务
+      try {
+        weixinLoginService = new WeixinLoginService()
+        await weixinLoginService.initialize()
+        // 注入 SILK ASR 转录回调
+        weixinLoginService.silkAsrCallback = (samples, sampleRate) => voiceCallService!.transcribePcm(samples, sampleRate)
+      } catch (err) {
+        log.warn('微信(iLink)服务初始化失败:', err instanceof Error ? err.message : err)
+        return
+      }
 
-  // 微信消息：通过 WeixinChannelAdapter 处理，支持完整斜杠命令集和 ACP 后端路由
-  const weixinAcpBackendManager = new AcpBackendManager()
-  const weixinReplyContextStore = createWeixinReplyContextStore(resolveWindowsClientDataRoot())
-  const weixinChannelAdapter = new WeixinChannelAdapter(
-    weixinLoginService,
-    agentRuntimeBridge!,
-    weixinAcpBackendManager,
-    weixinReplyContextStore,
-  )
-  weixinChannelAdapter.startListening()
-  setWeixinBindingManagerForIpc(weixinChannelAdapter.bindingManager)
+      // 微信消息：通过 WeixinChannelAdapter 处理，支持完整斜杠命令集和 ACP 后端路由
+      const weixinAcpBackendManager = new AcpBackendManager()
+      const weixinReplyContextStore = createWeixinReplyContextStore(resolveWindowsClientDataRoot())
+      const weixinChannelAdapter = new WeixinChannelAdapter(
+        weixinLoginService!,
+        agentRuntimeBridge!,
+        weixinAcpBackendManager,
+        weixinReplyContextStore,
+      )
+      weixinChannelAdapter.startListening()
+      setWeixinBindingManagerForIpc(weixinChannelAdapter.bindingManager)
 
-  // 微信状态变化推送到渲染进程
-  weixinLoginService.on('statusChange', (status: string, session?: unknown) => {
-    mainWindow?.webContents.send('weixin:statusChange', status, session)
-  })
-  weixinLoginService.on('qrcode', (dataUrl: string) => {
-    mainWindow?.webContents.send('weixin:qrcode', dataUrl)
-  })
-  weixinLoginService.on('error', (message: string) => {
-    mainWindow?.webContents.send('weixin:error', message)
-  })
-  log.info('微信(iLink)服务已初始化')
+      // 微信状态变化推送到渲染进程
+      weixinLoginService!.on('statusChange', (status: string, session?: unknown) => {
+        mainWindow?.webContents.send('weixin:statusChange', status, session)
+      })
+      weixinLoginService!.on('qrcode', (dataUrl: string) => {
+        mainWindow?.webContents.send('weixin:qrcode', dataUrl)
+      })
+      weixinLoginService!.on('error', (message: string) => {
+        mainWindow?.webContents.send('weixin:error', message)
+      })
+      log.info('微信(iLink)服务已初始化')
 
-  // 初始化企业微信 AI Bot 扫码服务
-  wecomLoginService = new WecomLoginService()
-  await wecomLoginService.initialize()
-  const wecomChannelAdapter = new WecomChannelAdapter(wecomLoginService, agentRuntimeBridge!)
-  wecomChannelAdapter.startListening()
-  wecomLoginService.on('statusChange', (status: string, session?: unknown) => {
-    mainWindow?.webContents.send('wecom:statusChange', status, session)
-  })
-  wecomLoginService.on('qrcode', (dataUrl: string) => {
-    mainWindow?.webContents.send('wecom:qrcode', dataUrl)
-  })
-  wecomLoginService.on('error', (message: string) => {
-    mainWindow?.webContents.send('wecom:error', message)
-  })
-  log.info('企业微信(AI Bot)服务已初始化')
+      // 初始化企业微信 AI Bot 扫码服务
+      try {
+        wecomLoginService = new WecomLoginService()
+        await wecomLoginService.initialize()
+        const wecomChannelAdapter = new WecomChannelAdapter(wecomLoginService, agentRuntimeBridge!)
+        wecomChannelAdapter.startListening()
+        wecomLoginService.on('statusChange', (status: string, session?: unknown) => {
+          mainWindow?.webContents.send('wecom:statusChange', status, session)
+        })
+        wecomLoginService.on('qrcode', (dataUrl: string) => {
+          mainWindow?.webContents.send('wecom:qrcode', dataUrl)
+        })
+        wecomLoginService.on('error', (message: string) => {
+          mainWindow?.webContents.send('wecom:error', message)
+        })
+        log.info('企业微信(AI Bot)服务已初始化')
+      } catch (err) {
+        log.warn('企业微信(AI Bot)服务初始化失败:', err instanceof Error ? err.message : err)
+      }
 
-  // 初始化飞书扫码服务
-  feishuLoginService = new FeishuLoginService()
-  await feishuLoginService.initialize()
-  const feishuChannelAdapter = new FeishuChannelAdapter(feishuLoginService, agentRuntimeBridge!)
-  feishuChannelAdapter.startListening()
-  feishuLoginService.on('statusChange', (status: string, session?: unknown) => {
-    mainWindow?.webContents.send('feishu:statusChange', status, session)
-  })
-  feishuLoginService.on('qrcode', (dataUrl: string) => {
-    mainWindow?.webContents.send('feishu:qrcode', dataUrl)
-  })
-  feishuLoginService.on('error', (message: string) => {
-    mainWindow?.webContents.send('feishu:error', message)
-  })
-  log.info('飞书服务已初始化')
+      // 初始化飞书扫码服务
+      try {
+        feishuLoginService = new FeishuLoginService()
+        await feishuLoginService.initialize()
+        const feishuChannelAdapter = new FeishuChannelAdapter(feishuLoginService, agentRuntimeBridge!)
+        feishuChannelAdapter.startListening()
+        feishuLoginService.on('statusChange', (status: string, session?: unknown) => {
+          mainWindow?.webContents.send('feishu:statusChange', status, session)
+        })
+        feishuLoginService.on('qrcode', (dataUrl: string) => {
+          mainWindow?.webContents.send('feishu:qrcode', dataUrl)
+        })
+        feishuLoginService.on('error', (message: string) => {
+          mainWindow?.webContents.send('feishu:error', message)
+        })
+        log.info('飞书服务已初始化')
+      } catch (err) {
+        log.warn('飞书服务初始化失败:', err instanceof Error ? err.message : err)
+      }
 
-  // 装配渠道出站 Hub（Agent channel_list/send + cron 同源）
-  channelHub = createChannelHub({
-    feishu: feishuLoginService,
-    weixin: weixinLoginService,
-    wecom: wecomLoginService,
-    dataRoot: resolveWindowsClientDataRoot(),
-    weixinStore: weixinReplyContextStore,
+      // 装配渠道出站 Hub（Agent channel_list/send + cron 同源）
+      channelHub = createChannelHub({
+        feishu: feishuLoginService!,
+        weixin: weixinLoginService!,
+        wecom: wecomLoginService!,
+        dataRoot: resolveWindowsClientDataRoot(),
+        weixinStore: weixinReplyContextStore,
+      })
+      weixinChannelAdapter.setReplyContextStore(channelHub.weixinStore)
+      log.info('渠道出站 Hub 已装配')
+    })()
   })
-  weixinChannelAdapter.setReplyContextStore(channelHub.weixinStore)
-  log.info('渠道出站 Hub 已装配')
 }
 
 // macOS 特殊处理

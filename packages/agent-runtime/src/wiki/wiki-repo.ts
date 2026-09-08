@@ -1360,7 +1360,10 @@ export class WikiRepo {
   searchSources(agentId: string, userId: string, keyword: string, limit = 10): readonly WikiSourceSearchHit[] {
     const tokens = [...tokenizeBigram(keyword)];
     if (tokens.length === 0) return [];
-    const query = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" AND ");
+    // OR 连接：中文 bigram 分出的每个词根任一中即召回（对齐 memory-repo.search 的 OR 写法）。
+    // 短语如「工作日报」若用 AND 连接（"工作" AND "作日" AND "日报"）要求每个 bigram 同时出现，
+    // 过严常零命中；OR 保证「日报」单独命中也能召回。
+    const query = tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" OR ");
     try {
       const rows = this.db
         .prepare<WikiSource>(

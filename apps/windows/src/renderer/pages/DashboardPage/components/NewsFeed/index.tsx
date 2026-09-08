@@ -3,9 +3,12 @@
  *
  * 左右对称两列卡片（含序号），摘要两行便于扫读。
  * 点卡片把解读请求预填进对话页输入框。
+ *
+ * 数据来自 SQLite 累积存储（最多 1000 条），前端不做缓存：挂载即拉首屏一页，
+ * 底部哨兵触底后游标分页加载下一页，最多展示 1000 条。首屏之后只增量渲染新一页。
  */
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Newspaper, RefreshCw, Sparkles } from 'lucide-react'
 import { Card } from '../../../../components/ui/Card/Card'
 import type { ViewType } from '../../../../components/layout/Sidebar/Sidebar'
@@ -23,15 +26,15 @@ interface FeedItem {
   kind?: string
 }
 
-interface DashboardFeedSnapshot {
-  feedId: string
-  title: string
-  updatedAt: number
-  items: FeedItem[]
-  summary?: string
+interface FeedCursor {
+  timestamp: number
+  id: string
 }
 
-/** 卡片区展示全部 Agent 抓到的条目，容器内部纵向滚动，不再截断到固定条数 */
+/** 滑动分页上限：用户最多查看最近 1000 条 */
+const MAX_VISIBLE = 1000
+/** 每页条数（首屏与后续一致） */
+const PAGE_SIZE = 12
 
 function formatWhen(ts?: number): string {
   if (!ts) return ''
@@ -62,40 +65,122 @@ export interface NewsFeedProps {
 }
 
 export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
-  const [snapshot, setSnapshot] = useState<DashboardFeedSnapshot | null>(null)
+  const [title, setTitle] = useState('最近资讯')
+  const [summary, setSummary] = useState<string | undefined>()
+  const [updatedAt, setUpdatedAt] = useState<number | undefined>()
+  const [items, setItems] = useState<FeedItem[]>([])
+  const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string>()
+  // 触发「整页重置」的信号：抓取后必须从第 0 条重新拉，否则游标错位
+  const [resetToken, setResetToken] = useState(0)
 
-  const load = useCallback(async () => {
-    try {
-      const res = await window.electronAPI?.dashboardFeed?.latest()
-      if (!res) {
-        setError('资讯接口不可用')
-      } else if (res.success) {
-        setSnapshot(res.data ?? null)
-        setError(undefined)
-      } else {
-        setError(res.error ?? '读取资讯失败')
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '读取资讯失败')
-    } finally {
-      setLoading(false)
-    }
+  const cursorRef = useRef<FeedCursor | null>(null)
+  const loadingMoreRef = useRef(false)
+  // 加载哨兵（底部触底即拉下一页）
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+
+  const reset = useCallback(() => {
+    setItems([])
+    setHasMore(false)
+    cursorRef.current = null
+    setResetToken((t) => t + 1)
   }, [])
 
+  // 加载一页：before 为 null 拉首屏；否则拉下一页累加
+  const loadPage = useCallback(async (before: FeedCursor | null) => {
+    const res = await window.electronAPI?.dashboardFeed?.page('news', {
+      limit: PAGE_SIZE,
+      before,
+    })
+    if (!res) throw new Error('资讯接口不可用')
+    if (!res.success) throw new Error(res.error ?? '读取资讯失败')
+    return res.data ?? { feedId: 'news', items: [], nextCursor: null }
+  }, [])
+
+  // 首屏 / 重置后加载（拉 meta + 第一页）
   useEffect(() => {
-    void load()
-  }, [load])
+    let cancelled = false
+    void (async () => {
+      setLoading(true)
+      setError(undefined)
+      try {
+        const api = window.electronAPI?.dashboardFeed
+        if (!api) throw new Error('资讯接口不可用')
+        const [metaRes, pageRes] = await Promise.all([
+          api.meta('news'),
+          api.page('news', { limit: PAGE_SIZE, before: null }),
+        ])
+        if (cancelled) return
+        const meta = metaRes?.success ? metaRes.data : null
+        if (meta) {
+          setTitle(meta.title ?? '最近资讯')
+          setSummary(meta.summary)
+          setUpdatedAt(meta.updatedAt)
+        }
+        if (!pageRes?.success) throw new Error(pageRes?.error ?? '读取资讯失败')
+        const page = pageRes.data ?? { feedId: 'news', items: [], nextCursor: null }
+        setItems(page.items)
+        cursorRef.current = page.nextCursor
+        setHasMore(page.nextCursor !== null && page.items.length > 0)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '读取资讯失败')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [resetToken])
+
+  // 触底加载下一页
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    if (!sentinel) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return
+        if (loadingMoreRef.current) return
+        if (!hasMore || items.length >= MAX_VISIBLE) return
+        loadingMoreRef.current = true
+        setLoadingMore(true)
+        const before = cursorRef.current
+        void loadPage(before)
+          .then((page) => {
+            setItems((prev) => {
+              const seen = new Set(prev.map((i) => i.id))
+              const merged = [...prev, ...page.items.filter((i) => !seen.has(i.id))]
+              return merged.slice(0, MAX_VISIBLE)
+            })
+            cursorRef.current = page.nextCursor
+            setHasMore(page.nextCursor !== null && page.items.length > 0)
+          })
+          .catch((err) => setError(err instanceof Error ? err.message : '加载更多失败'))
+          .finally(() => {
+            loadingMoreRef.current = false
+            setLoadingMore(false)
+          })
+      },
+      { root: null, rootMargin: '120px' },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasMore, items.length, loadPage])
 
   const refresh = async () => {
     setRefreshing(true)
     setError(undefined)
     try {
       const res = await window.electronAPI?.dashboardFeed?.refresh()
-      if (res?.success) setSnapshot(res.data?.snapshot ?? null)
-      else setError(res?.error ?? '抓取失败')
+      if (res?.success) {
+        // 抓取是 DB 累积合并，抓完从第 0 条重新拉，避免游标错位
+        reset()
+      } else {
+        setError(res?.error ?? '抓取失败')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '抓取失败')
     } finally {
@@ -113,15 +198,20 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
     onViewChange?.('chat')
   }
 
-  const items = snapshot?.items ?? []
+  // 首屏可见项才保留入场错落动画；后续页直接显示，避免整列表重放动画的性能负担
+  const firstScreenCount = Math.min(items.length, PAGE_SIZE)
+  const cardDelay = useMemo(
+    () => (index: number) => (index < firstScreenCount ? index : undefined),
+    [firstScreenCount],
+  )
 
   return (
     <Card className={styles.panel} flush>
       <div className={styles.head}>
         <Newspaper size={14} strokeWidth={1.8} className={styles['head-icon']} />
-        <span className={styles.title}>{snapshot?.title ?? '最近资讯'}</span>
+        <span className={styles.title}>{title}</span>
         <span className={styles.tag}>
-          {snapshot ? `更新于 ${formatWhen(snapshot.updatedAt)}` : '尚未抓取'}
+          {updatedAt ? `更新于 ${formatWhen(updatedAt)}` : '尚未抓取'}
         </span>
         <button
           type="button"
@@ -138,10 +228,10 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
         </button>
       </div>
 
-      {snapshot?.summary && (
+      {summary && (
         <div className={styles.digest}>
           <Sparkles size={12} strokeWidth={1.8} />
-          <span>{snapshot.summary}</span>
+          <span>{summary}</span>
         </div>
       )}
 
@@ -158,9 +248,13 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
           <div className={styles.grid}>
             {items.map((item, index) => (
               <div
-                key={`${item.id}::${index}`}
+                key={item.id}
                 className={styles.card}
-                style={{ ['--i' as string]: index }}
+                style={
+                  cardDelay(index) === undefined
+                    ? undefined
+                    : ({ ['--i' as string]: cardDelay(index) } as React.CSSProperties)
+                }
               >
                 <button
                   type="button"
@@ -195,6 +289,11 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
               </div>
             ))}
           </div>
+          {(hasMore || loadingMore) && (
+            <div ref={sentinelRef} className={styles.sentinel}>
+              {loadingMore ? '加载更多…' : ''}
+            </div>
+          )}
         </div>
       )}
     </Card>

@@ -135,6 +135,7 @@ import { BridgeSessionModelCatalog } from './bridge-session-model-catalog'
 import { BridgeSessionThinkingPrefs } from './bridge-session-thinking-prefs'
 import { BridgeRendererIpcChannel } from './bridge-renderer-ipc'
 import { initToolUsageStore } from '../tool-usage-store'
+import { setDashboardFeedDb } from '../dashboard-feed-store'
 import { BridgePromptComposer } from './bridge-prompt-composer'
 import {
   agentRuntimeLog as log,
@@ -564,6 +565,9 @@ export class AgentRuntimeBridge {
     await this.localDb.open({ dbPath, backupOnOpen: true })
     const db = this.localDb.db
     void maybeRunAutoVacuumSync(db, dbPath)
+
+    // 资讯存储注入：dashboard-feed-store 从文件覆盖写切换为 SQLite 累积（schema V35）
+    setDashboardFeedDb(db)
 
     // 工具使用统计：注入 SQLite 适配器，并迁移旧 JSON（如存在）
     try {

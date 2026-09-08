@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 34;
+export const SCHEMA_VERSION = 35;
 
 /**
  * V1 DDL — 初始 schema
@@ -1245,6 +1245,51 @@ ALTER TABLE autonomous_goals ADD COLUMN reflection_id TEXT;
     `
 ALTER TABLE autonomous_goals ADD COLUMN scheduled_for TEXT;
 ALTER TABLE autonomous_goals ADD COLUMN planned_by TEXT;
+`,
+  ],
+  // V35: 资讯改数据库存储（概览页「最近资讯」数据源从 ~/.lumii/news/latest.json 覆盖写
+  // 迁移到 SQLite 累积历史，支持滑动分页查看最多 1000 条）+ 记忆脏数据清理。
+  //
+  // feed 元信息表：标题 / 综述 / 更新时间。
+  // feed 条目表：按 id 去重主键（同一条资讯多次抓取只保留一行，内容更新覆盖），
+  // timestamp 倒序，每个 feed 上限 1000 条（超出的旧行由写路径裁剪）。
+  [
+    35,
+    `
+CREATE TABLE IF NOT EXISTS dashboard_feed_meta (
+  feed_id     TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,
+  summary     TEXT,
+  updated_at  INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dashboard_feed_items (
+  id         TEXT PRIMARY KEY,
+  feed_id    TEXT NOT NULL,
+  title      TEXT NOT NULL,
+  summary    TEXT,
+  href       TEXT,
+  source     TEXT,
+  kind       TEXT,
+  timestamp  INTEGER NOT NULL,
+  metadata   TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_dfi_feed_ts
+  ON dashboard_feed_items (feed_id, timestamp DESC, id);
+
+-- 记忆脏数据清理（根因见 bridge-utils 注释与 dashboard-feed-store 迁移回填注释）：
+-- agent_memories 里历史遗留 52 万条 id IS NULL 的重复行（一次性裸 SQL 灌入的测试夹具，
+-- 每条演示文本被复制 2^18 次）。SQLite 里 TEXT PRIMARY KEY 是普通 unique 约束，
+-- 允许多个 NULL，故当年裸 INSERT 不报错也不去重。当前所有写入路径
+-- （memory-repo.saveCandidate / planner-landing / sync-importer）都写非空 id，非在途 bug。
+-- 这里只做清理，不重建表、不加 NOT NULL：agent_memories_fts 虚表按 rowid 关联，
+-- 重建主表会改变 rowid，健康检查只比条数不比对应关系，会误判健康，连锁风险大于收益。
+DELETE FROM agent_memories WHERE id IS NULL;
+DELETE FROM agent_memories WHERE rowid NOT IN (
+  SELECT MIN(rowid) FROM agent_memories GROUP BY agent_id, user_id, category, content
+);
 `,
   ],
 ] as const;

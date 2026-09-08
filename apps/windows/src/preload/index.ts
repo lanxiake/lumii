@@ -11,7 +11,7 @@ import type { PetElectronAPI } from '../shared/pet-mode'
 // 仅类型引用，编译期擦除，不会把主进程代码打进 preload
 import type { UsageSummary } from '../main/usage-store'
 import type { NewsSnapshot } from '../main/news-store'
-import type { DashboardFeedSnapshot } from '../main/dashboard-feed-store'
+import type { DashboardFeedSnapshot, DashboardFeedPage, DashboardFeedMeta } from '../main/dashboard-feed-store'
 import type { LatencyView } from '../main/provider-latency'
 import type { PerformanceReport, IpcAggregateEvent, MemorySnapshotEvent } from '../main/perf/performance-types'
 // 导入提取的 API 模块
@@ -251,6 +251,12 @@ export interface ElectronAPI {
   /** Dashboard 当前激活的通用 feed；默认是资讯，也可由工作流替换�?*/
   dashboardFeed: {
     latest: () => Promise<{ success: boolean; data?: DashboardFeedSnapshot | null; error?: string }>
+    meta: (feedId: string) => Promise<{ success: boolean; data?: DashboardFeedMeta | null; error?: string }>
+    page: (feedId: string, opts?: { limit?: number; before?: { timestamp: number; id: string } | null }) => Promise<{
+      success: boolean
+      data?: DashboardFeedPage | null
+      error?: string
+    }>
     refresh: () => Promise<{
       success: boolean
       data?: { summary: string; snapshot: DashboardFeedSnapshot | null }
@@ -1204,6 +1210,9 @@ const electronAPI: ElectronAPI = {
 
   dashboardFeed: {
     latest: () => apiServerApi.getLatestDashboardFeed(),
+    meta: (feedId: string) => apiServerApi.getDashboardFeedMeta(feedId),
+    page: (feedId: string, opts?: { limit?: number; before?: { timestamp: number; id: string } | null }) =>
+      apiServerApi.getDashboardFeedPage(feedId, opts),
     refresh: () => apiServerApi.refreshDashboardFeed(),
     setActive: (feedId: string) => apiServerApi.setActiveDashboardFeed(feedId),
   },

@@ -84,14 +84,14 @@ const SEED_JOBS: readonly SeedJob[] = [
     taskText: '汇总我今天需要关注的事项，生成一份早间简报。',
     systemPrompt: [
       '你在为用户生成每日早间简报。请：',
-      '1. 先用 wiki_search 搜索「工作日报」，找到昨天的日报（如果有）；',
+      '1. 先用 work_report_read(kind="daily") 读取昨天的日报（如果有）；',
       '2. 从日报中提取「进行中」和「明天优先」的事项；',
       '3. 按下面的顺序组织内容，全文控制在 300 字内：',
       '   - 今天的日期与星期；',
       '   - 从昨天日报中提取今天最该动手的 2-3 件事，各一句话；',
       '   - 若有明确的截止时间或约定时间，单独列出；',
       '   - 结尾一句简短的开场提示，不要说教、不要客套。',
-      '如果找不到昨天的日报，用 memory_search 查询用户近期在推进的事项。',
+      '如果 work_report_read 找不到昨天的日报，再用 memory_search 或 wiki_search 查询用户近期在推进的事项。',
       '没有可用信息的段落直接省略，不要编造事项，也不要输出「暂无数据」这类占位内容。',
     ].join('\n'),
     scheduleType: 'cron',
@@ -210,6 +210,7 @@ export function ensureSeedCronJobsSeeded(db: DatabaseAdapter): void {
   migrateRemovedWikiEroExtractCron(db)
   migrateRemovedWikiAutoSynthesisCron(db)
   migrateSystemPromptsForWorkReports(db)
+  migrateMorningBriefingToWorkReportRead(db)
   migrateCronJobsRemoveFocusNotify(db)
   for (const job of SEED_JOBS) {
     try {
@@ -373,6 +374,26 @@ function migrateCronJobsRemoveFocusNotify(db: DatabaseAdapter): void {
     } catch (err) {
       log.error(`[migrateCronJobsRemoveFocusNotify] 更新 ${id} 失败:`, err)
     }
+  }
+}
+
+/**
+ * 早间简报改用 work_report_read 读日报（旧版用 wiki_search 搜「工作日报」）。
+ * 只迁移命中历史特征（system_prompt 含 wiki_search 搜「工作日报」）的老数据，
+ * 用户手改过的 system_prompt 不碰。
+ */
+function migrateMorningBriefingToWorkReportRead(db: DatabaseAdapter): void {
+  try {
+    const row = db
+      .prepare<{ system_prompt: string | null }>(`SELECT system_prompt FROM local_cron_jobs WHERE id = 'seed-morning-briefing'`)
+      .get()
+    if (!row?.system_prompt?.includes('wiki_search')) return
+    const next = SEED_JOBS.find((j) => j.id === 'seed-morning-briefing')?.systemPrompt
+    if (!next || row.system_prompt === next) return
+    db.prepare(`UPDATE local_cron_jobs SET system_prompt = ? WHERE id = 'seed-morning-briefing'`).run(next)
+    log.info('[migrateMorningBriefingToWorkReportRead] 早间简报 system_prompt → work_report_read')
+  } catch (err) {
+    log.error('[migrateMorningBriefingToWorkReportRead] 迁移失败:', err)
   }
 }
 

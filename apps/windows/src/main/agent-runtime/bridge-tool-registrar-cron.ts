@@ -11,6 +11,7 @@ import {
   cronListToolConfig,
   cronDeleteToolConfig,
   dashboardFeedWriteToolConfig,
+  workReportReadToolConfig,
   SELF_CRON_ID_PREFIX,
 } from '@mtbot/agent-runtime'
 import {
@@ -295,4 +296,85 @@ export function registerDashboardFeedTool(deps: BridgeToolRegistrarDeps): void {
   }
   deps.toolRegistry.register(createMtBotTool(dashboardFeedWrite, ctx))
   log.info('[registerDashboardFeedTool] dashboard_feed_write registered')
+}
+
+/**
+ * 注册 work_report_read：读工作日报/每周复盘产出（只读）。
+ *
+ * 供早间简报、每周复盘等预置任务直接取「进行中 / 明天优先」等结构化结论。
+ * 数据源：local_cron_runs 里 seed-daily-report / seed-weekly-review 的 summary。
+ */
+export function registerWorkReportReadTool(deps: BridgeToolRegistrarDeps): void {
+  const ctx = deps.toolContext
+  if (!ctx) return
+
+  const JOB_ID_BY_KIND = {
+    daily: 'seed-daily-report',
+    weekly: 'seed-weekly-review',
+  } as const
+
+  const workReportRead: MtBotToolConfig = {
+    ...workReportReadToolConfig,
+    execute: async (_id, rawParams) => {
+      const p = rawParams as { kind?: 'daily' | 'weekly' | 'all'; limit?: number; days?: number }
+      const kind = p.kind ?? 'daily'
+      const limit = Math.max(1, Math.min(Math.floor(p.limit ?? 3), 10))
+      if (!deps.localDb.isOpen) {
+        return jsonToolResult({ status: 'error', message: 'database not initialized' })
+      }
+
+      const jobIds =
+        kind === 'all'
+          ? [JOB_ID_BY_KIND.daily, JOB_ID_BY_KIND.weekly]
+          : [JOB_ID_BY_KIND[kind]]
+
+      try {
+        const cutoff = p.days && p.days > 0 ? Date.now() - Math.floor(p.days) * 86_400_000 : 0
+        const reports = []
+        for (const jobId of jobIds) {
+          const rows = deps.localDb.db
+            .prepare<{
+              id: string
+              started_at: number
+              finished_at: number
+              summary: string | null
+            }>(
+              `SELECT id, started_at, finished_at, summary
+               FROM local_cron_runs
+               WHERE job_id = ? AND status = 'ok' AND summary IS NOT NULL AND summary != ''
+                 AND started_at >= ?
+               ORDER BY started_at DESC
+               LIMIT ?`,
+            )
+            .all(jobId, cutoff, limit)
+          for (const row of rows) {
+            reports.push({
+              jobId,
+              startedAt: row.started_at,
+              finishedAt: row.finished_at,
+              summary: row.summary,
+            })
+          }
+        }
+        reports.sort((a, b) => b.startedAt - a.startedAt)
+
+        return jsonToolResult({
+          status: 'ok',
+          count: reports.length,
+          reports,
+          note:
+            reports.length === 0
+              ? '没有找到任何工作日报/复盘产出。请用 memory_manage action=list 或 wiki_search 兜底。'
+              : undefined,
+        })
+      } catch (err) {
+        return jsonToolResult({
+          status: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        })
+      }
+    },
+  }
+  deps.toolRegistry.register(createMtBotTool(workReportRead, ctx))
+  log.info('[registerWorkReportReadTool] work_report_read registered')
 }

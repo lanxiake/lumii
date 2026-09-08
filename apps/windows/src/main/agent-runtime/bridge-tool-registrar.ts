@@ -29,7 +29,7 @@ import { getNarrateService } from '../screen-record/narrate-accessor'
 import { resizeImageIfNeeded } from './image-resizer'
 import { agentRuntimeLog as log, jsonToolResult, parseTaskStatus } from './bridge-utils'
 import { registerGuideTools } from './bridge-tool-registrar-guide'
-import { registerLocalCronTools, registerDashboardFeedTool } from './bridge-tool-registrar-cron'
+import { registerLocalCronTools, registerDashboardFeedTool, registerWorkReportReadTool } from './bridge-tool-registrar-cron'
 import { registerSyncConflictTool } from './bridge-tool-registrar-sync'
 import { registerChannelTools, registerIntegrationTools } from './bridge-tool-registrar-integration'
 import { registerClientCommandTools, registerAgentManagementTools } from './bridge-tool-registrar-client-cmd'
@@ -55,6 +55,8 @@ export class BridgeToolRegistrar {
     registerSyncConflictTool(this.deps)
     // 资讯卡片写入，供 Agent 驱动的资讯抓取任务落盘结构化结果
     registerDashboardFeedTool(this.deps)
+    // 工作日报/复盘只读工具，供早间简报/每周复盘取真实「进行中/明天优先」
+    registerWorkReportReadTool(this.deps)
     // 渠道出站：不依赖 Gateway，始终注册
     registerChannelTools(this.deps)
     // Agent 操作本客户端界面（Part A：app_screenshot），始终注册

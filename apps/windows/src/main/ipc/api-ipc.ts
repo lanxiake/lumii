@@ -27,6 +27,10 @@ import { readNewsSnapshot } from '../news-store'
 import { NEWS_PIPELINE_TASK_TEXT, NEWS_PIPELINE_SYSTEM_PROMPT } from '../seed-cron-jobs'
 import {
   readActiveDashboardFeedSnapshot,
+  readActiveDashboardFeedId,
+  readDashboardFeedMeta,
+  readDashboardFeedPage,
+  ensureDashboardFeedMigrated,
   setActiveDashboardFeedId,
 } from '../dashboard-feed-store'
 import {
@@ -162,9 +166,39 @@ export function registerApiIpcHandlers(): void {
   // === Dashboard 通用 feed（资讯只是默认 feed，后续工作流可替换其内容）===
   ipcMain.handle('dashboard-feed:latest', async () => {
     try {
+      await ensureDashboardFeedMigrated(await readActiveDashboardFeedId())
       return { success: true, data: await readActiveDashboardFeedSnapshot() }
     } catch (error) {
       console.error('[IPC] dashboard-feed:latest 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  /**
+   * 读取 feed 元信息（标题/综述/更新时间），供概览页头部展示。
+   */
+  ipcMain.handle('dashboard-feed:meta', async (_event, feedId: string) => {
+    try {
+      const id = feedId ?? 'news'
+      await ensureDashboardFeedMigrated(id)
+      return { success: true, data: await readDashboardFeedMeta(id) }
+    } catch (error) {
+      console.error('[IPC] dashboard-feed:meta 失败:', error)
+      return { success: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
+  /**
+   * 滑动分页读取 feed 条目（时间倒序，游标分页）。
+   * before 传上一页返回的 nextCursor；首屏传 null。
+   */
+  ipcMain.handle('dashboard-feed:page', async (_event, feedId: string, opts?: { limit?: number; before?: { timestamp: number; id: string } | null }) => {
+    try {
+      const id = feedId ?? 'news'
+      await ensureDashboardFeedMigrated(id)
+      return { success: true, data: await readDashboardFeedPage(id, opts ?? {}) }
+    } catch (error) {
+      console.error('[IPC] dashboard-feed:page 失败:', error)
       return { success: false, error: error instanceof Error ? error.message : String(error) }
     }
   })

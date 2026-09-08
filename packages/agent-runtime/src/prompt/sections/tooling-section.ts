@@ -66,6 +66,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   memory_search: "Recall past work, decisions, preferences",
   memory_read: "Read one archived drawer by drawer_id",
   memory_manage: "Fix or remove stale working-memory entries",
+  work_report_read: "Read recent work reports (daily/weekly) for real progress/priorities",
 
   // Self-Configuration
   profile_memory: "Read/update the user profile",
@@ -146,6 +147,7 @@ const MEMORY_TOOLS = new Set([
   "memory_search",
   "memory_read",
   "memory_manage",
+  "work_report_read",
   "wiki_overview",
   "wiki_search",
   "wiki_read",
