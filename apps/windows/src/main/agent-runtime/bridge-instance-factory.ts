@@ -50,6 +50,10 @@ import { createRunContext } from './event-converter'
 import { riskLevelForTool, createLargeToolResultHook } from './permission-tool-wrap'
 import { createSkillHitRateHook } from './hooks/skill-hit-rate-hook'
 import { createToolUsageHook } from './hooks/tool-usage-hook'
+import {
+  createBashCommandLogHook,
+  type BashCommandRepo,
+} from '@mtbot/agent-runtime'
 import type { McpStdioClient } from '@mtbot/agent-runtime'
 import type { PermissionController } from './permission-controller'
 import type { ChannelInteractionRequest } from '../channel/types'
@@ -121,6 +125,8 @@ export interface BridgeInstanceFactoryDeps {
   getDefinitionStore: () => AgentDefinitionStore | null
   getOrchestrator: () => AgentOrchestrator | null
   getAuditRepo: () => AuditRepo | null
+  /** bash 命令采集仓库（工具进化 M1） */
+  getBashCommandRepo: () => BashCommandRepo | null
   getConversationRepo: () => ConversationRepo | null
   /**
    * 该会话禁用的 MCP server 名（设置页是全局总开关，这里是会话覆盖）。
@@ -433,6 +439,12 @@ export class BridgeInstanceFactory {
       createLargeToolResultHook({ getCwd, getConversationId }),
       skillHitRateTracker.hook,
       createToolUsageHook(),
+      // 工具进化 M1：逐条采集 bash 命令原文（模式挖掘数据源），失败静默不影响主链路
+      createBashCommandLogHook({
+        repo: this.deps.getBashCommandRepo() ?? undefined,
+        getAgentId: () => instanceId,
+        getConversationId: () => this.deps.instanceToConversation.get(instanceId),
+      }),
     ]
 
     // ── 注入接口：ConfigProvider（模型解析 + feature flags） ──

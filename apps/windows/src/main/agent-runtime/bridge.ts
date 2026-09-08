@@ -28,6 +28,8 @@ import {
   SegmentRepo,
   TaskRepo,
   AuditRepo,
+  BashCommandRepo,
+  createTemplateTool,
   RuntimeStateRepo,
   AutonomousRepo,
   FileRepo,
@@ -212,6 +214,8 @@ export class AgentRuntimeBridge {
   private _conversationRepo: ConversationRepo | null = null
   private _taskRepo: TaskRepo | null = null
   private _auditRepo: AuditRepo | null = null
+  /** bash 命令采集仓库（工具进化 M1：模式挖掘数据源） */
+  private _bashCommandRepo: BashCommandRepo | null = null
   private _runtimeStateRepo: RuntimeStateRepo | null = null
   private _autonomousRepo: AutonomousRepo | null = null
   private toolContext: ToolExecutionContext | null = null
@@ -491,6 +495,45 @@ export class AgentRuntimeBridge {
     return this.config.skillEvolutionEngine
   }
 
+  /** bash 命令工具进化引擎（index.ts 装配） */
+  private _toolEvolutionEngine: import('./bash-tool-evolution/index').ToolEvolutionEngine | null = null
+
+  setToolEvolutionEngine(engine: import('./bash-tool-evolution/index').ToolEvolutionEngine): void {
+    this._toolEvolutionEngine = engine
+  }
+
+  getToolEvolutionEngine(): import('./bash-tool-evolution/index').ToolEvolutionEngine | null {
+    return this._toolEvolutionEngine
+  }
+
+  /** 工具列表变化后使所有实例失效（工具进化注册 / MCP 变更共用） */
+  refreshAllInstanceTools(): void {
+    this.refreshAllInstanceToolsInternal()
+  }
+
+  /** 注册进化工具：绑定 toolContext 后入 registry，并使现有实例失效（下一轮生效） */
+  registerEvolvedTool(def: import('@mtbot/agent-runtime').TemplateToolDefinition): void {
+    const ctx = this.toolContext
+    if (!ctx) throw new Error('toolContext 未初始化')
+    this.toolRegistry.register(createMtBotTool(createTemplateTool(def), ctx))
+    this.refreshAllInstanceTools()
+  }
+
+  /** 已注册工具名快照（重名检查） */
+  getRegisteredToolNames(): string[] {
+    return this.toolRegistry.getAll().map((t) => t.name)
+  }
+
+  /** bash 命令采集仓库（工具进化） */
+  get bashCommandRepo(): BashCommandRepo | null {
+    return this._bashCommandRepo
+  }
+
+  /** 最近活跃会话 id（工具进化审批消息落库目标） */
+  getLastActiveConversationId(): string | null {
+    return this.lastActiveConvIdRef.value
+  }
+
   callLLM(prompt: string, instanceId?: string, purpose?: string): Promise<string> {
     return this.compactor.callLLM(prompt, instanceId, purpose)
   }
@@ -615,6 +658,7 @@ export class AgentRuntimeBridge {
     })
     this._taskRepo = new TaskRepo(db)
     this._auditRepo = new AuditRepo(db)
+    this._bashCommandRepo = new BashCommandRepo(db)
     this._runtimeStateRepo = new RuntimeStateRepo(db)
     this._autonomousRepo = new AutonomousRepo(db)
     // 自主进化引擎接线：装配失败已在内部降级，不影响运行时启动。
@@ -1296,6 +1340,7 @@ export class AgentRuntimeBridge {
       getDefinitionStore: () => this.definitionStore,
       getOrchestrator: () => this.lifecycle.ensureOrchestrator(),
       getAuditRepo: () => this._auditRepo,
+      getBashCommandRepo: () => this._bashCommandRepo,
       getConversationRepo: () => this._conversationRepo,
       getFileRepo: () => this._fileRepo,
       getSessionDisabledMcpServers: (sk) => this.getSessionDisabledMcpServers(sk),
@@ -1330,6 +1375,7 @@ export class AgentRuntimeBridge {
       modelRouter: this.modelRouter,
       config: this.config,
       getSkillEvolutionEngine: () => this.config.skillEvolutionEngine,
+      getToolEvolutionEngine: () => this._toolEvolutionEngine,
       getConversationRepo: () => this._conversationRepo,
       getSessionContextUsage: (k) => this.getSessionContextUsage(k),
       routerService: this.createRouterService(),
@@ -1837,7 +1883,7 @@ export class AgentRuntimeBridge {
    * 与 Provider 配置变更（invalidateAgentInstancesForProviderChange）同一套路：
    * 逐个失效（而非 destroyAll，后者会关库/停 cron）。
    */
-  private refreshAllInstanceTools(): void {
+  private refreshAllInstanceToolsInternal(): void {
     let deferred = 0
     const instances = this.agentRegistry.getAll()
     for (const inst of instances) {

@@ -123,6 +123,7 @@ import { clearScreenshotTempDir } from './app-ui-control/screenshot-cleanup'
 import { startAppUiControlServer, stopAppUiControlServer } from './app-ui-control/server'
 import { resizeImageIfNeeded } from './agent-runtime/image-resizer'
 import { notifyAutonomousTurnEnd } from './agent-runtime/autonomous-wiring'
+import { initToolEvolutionRuntime } from './agent-runtime/bash-tool-evolution/engine-assembly'
 import {
   AgentRuntimeBridge,
   installAgentRuntimeCommandIpc,
@@ -938,6 +939,14 @@ async function initAgentRuntime(): Promise<void> {
   })
   log.info('[SkillEvolution] 技能自进化引擎已启动')
   */
+
+  // ── bash 命令工具进化引擎 ──
+  // 自动挖掘高频 bash 命令 → LLM 草拟参数化工具 → 对话内审批 → 运行时注册。
+  // 设计见 docs/plans/2026-09-08-bash-命令工具进化-design.md
+  initToolEvolutionRuntime({
+    bridge: agentRuntimeBridge!,
+    getMainWindow: () => mainWindow,
+  })
 }
 
 /**

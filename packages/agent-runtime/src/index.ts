@@ -62,6 +62,10 @@ export {
   ALL_BUILT_IN_TOOL_CONFIGS,
   createMtBotTool,
   resolveAgentFilePath,
+  createTemplateTool,
+  validateTemplateToolDefinition,
+  extractPlaceholders,
+  renderTemplate,
 } from "./tools/index.js";
 export type {
   MtBotToolConfig,
@@ -75,7 +79,31 @@ export type {
   ToolMetric,
   ToolMetricAggregate,
   TelemetrySink,
+  TemplateToolDefinition,
 } from "./tools/index.js";
+export {
+  createBashCommandLogHook,
+  mineCommandPatterns,
+  normalizeCommand,
+  splitCommandChain,
+  hasDedicatedTool,
+  refinePatternWithLLM,
+  draftToolFromPattern,
+  buildDraftPrompt,
+  checkToolDraft,
+  sampleReplayRate,
+} from "./tools/bash-evolution/index.js";
+export type {
+  BashCommandLogHookDeps,
+  CommandSample,
+  CommandPattern,
+  MinerOptions,
+  RefinedPattern,
+  RefinePatternDeps,
+  ToolDraft,
+  DraftToolDeps,
+  QualityGateResult,
+} from "./tools/bash-evolution/index.js";
 export {
   todoWriteToolConfig,
   spawnAgentToolConfig,
@@ -222,6 +250,7 @@ export {
   ConversationRepo,
   TaskRepo,
   AuditRepo,
+  BashCommandRepo,
   RuntimeStateRepo,
   AutonomousRepo,
   SCHEMA_VERSION,
@@ -264,6 +293,8 @@ export type {
   TaskRow,
   TaskStatus,
   AuditLogRow,
+  BashCommandRow,
+  BashCommandLogParams,
   LocalStorageStats,
   DatabaseBackupInfo,
   ClientFile,
