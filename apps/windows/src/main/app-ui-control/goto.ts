@@ -25,6 +25,7 @@ const VALID_CATEGORIES: ReadonlySet<string> = new Set<AppUiSettingsCategory>([
   'pet',
   'usage',
   'privacy',
+  'autonomous',
   'aboutAndUpdate',
 ])
 

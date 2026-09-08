@@ -4,8 +4,8 @@
  * 引擎侧要 async 的 DatabaseClient（execute/query），bridge 侧只有 sync 的
  * DatabaseAdapter（prepare）。这里做适配并装配协调器，挂到回合结束事件上。
  *
- * 开关：runtime_state 键 autonomous.enabled，缺省启用。与 config.ts 里读 env 的
- * AUTONOMOUS_ENABLED 是两道闸，任一关闭即不运行。
+ * 开关：runtime_state 键 autonomous.enabled，缺省关闭（实验性功能，需用户在设置页
+ * 主动开启）。与 config.ts 里读 env 的 AUTONOMOUS_ENABLED 是两道闸，任一关闭即不运行。
  */
 
 import {
@@ -461,15 +461,15 @@ function tryParse(raw: string): Record<string, unknown> | null {
   }
 }
 
-/** 读开关：未写过配置时默认启用 */
+/** 读开关：未写过配置时默认关闭（实验性功能，需用户在设置页主动开启） */
 export function readAutonomousEnabled(db: DatabaseAdapter): boolean {
   try {
     const row = db
       .prepare<{ value: string }>('SELECT value FROM runtime_state WHERE key = ?')
       .get(ENABLED_KEY)
-    return row?.value !== 'false'
+    return row?.value === 'true'
   } catch {
-    return true
+    return false
   }
 }
 

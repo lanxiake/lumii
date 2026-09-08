@@ -109,6 +109,7 @@ export function defaultConvertToLlm(messages: AgentMessage[]): Message[] {
 export type LlmErrorCategory =
   | "tool_pairing"
   | "prompt_too_long"
+  | "output_truncated"
   | "rate_limit"
   | "server_error"
   | "thinking_required"
@@ -129,6 +130,18 @@ const PROMPT_TOO_LONG_PATTERNS = [
   "too many tokens",
 ];
 
+/**
+ * 输出被截断的 JSON 解析错误 —— pi-ai 在流结束用裸 JSON.parse 解析 tool call 的
+ * arguments，当模型输出在字符串中间被 max_tokens 截断时抛这类错误（见 direct-stream
+ * 的 DEFAULT_MAX_OUTPUT_TOKENS 兜底注释）。判定为可自愈：丢尾部错误 assistant 重试。
+ */
+const OUTPUT_TRUNCATED_PATTERNS = [
+  "unterminated string",
+  "unexpected end of json",
+  "unexpected end of input",
+  "unexpected token",
+];
+
 export function classifyLlmError(errorText: string): LlmErrorCategory {
   const lower = errorText.toLowerCase();
 
@@ -137,6 +150,9 @@ export function classifyLlmError(errorText: string): LlmErrorCategory {
   }
   for (const p of PROMPT_TOO_LONG_PATTERNS) {
     if (lower.includes(p.toLowerCase())) return "prompt_too_long";
+  }
+  for (const p of OUTPUT_TRUNCATED_PATTERNS) {
+    if (lower.includes(p.toLowerCase())) return "output_truncated";
   }
   if (
     /\b429\b/.test(lower) ||

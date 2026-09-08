@@ -165,8 +165,11 @@ const GOAL_STATUS_LABELS: Record<string, string> = {
 
 /**
  * 自主进化仪表板
+ *
+ * embedded=true 时作为设置页「自主进化（实验）」分类嵌入展示：
+ * 去掉居中最大宽度，撑满设置内容区；其余逻辑与独立页完全一致。
  */
-export function AutonomousPage() {
+export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [status, setStatus] = useState<AutonomousStatus | null>(null)
   const [goals, setGoals] = useState<AutonomousGoal[]>([])
   const [plannedGoals, setPlannedGoals] = useState<PlannedGoal[]>([])
@@ -379,7 +382,7 @@ export function AutonomousPage() {
   }
 
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} ${embedded ? styles.pageEmbedded : ''}`}>
       {/* 页头：标题 + 启用开关同行 */}
       <div className={styles.header}>
         <h1 className={styles.title}>自主进化</h1>
@@ -1008,6 +1011,7 @@ export function AutonomousPage() {
         title={selectedDiary ? formatDiaryTime(selectedDiary.timestamp) : '日记详情'}
         onClose={() => setSelectedDiary(null)}
         width={560}
+        layer={embedded ? 'aboveHub' : undefined}
       >
         {selectedDiary && <div className={styles.diaryDetail}>{selectedDiary.text}</div>}
       </Modal>

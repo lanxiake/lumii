@@ -39,6 +39,25 @@ describe("normalizeLlmError", () => {
     expect(e.retryable).toBe(true);
   });
 
+  it("输出截断（Unterminated string）识别为可重试的 output_truncated", () => {
+    const e = normalizeLlmError("Unterminated string in JSON at position 9723");
+    expect(e.code).toBe("output_truncated");
+    expect(e.retryable).toBe(true);
+  });
+
+  it("输出截断（Unexpected end of JSON input）同样识别为 output_truncated", () => {
+    const e = normalizeLlmError("Unexpected end of JSON input");
+    expect(e.code).toBe("output_truncated");
+    expect(e.retryable).toBe(true);
+  });
+
+  it("output_truncated 有专属中文指引", () => {
+    const text = describeLlmError(
+      normalizeLlmError("Unterminated string in JSON at position 9723"),
+    );
+    expect(text).toContain("截断");
+  });
+
   it("空错误文本也给出可读兜底", () => {
     const e = normalizeLlmError(undefined);
     expect(e.code).toBe("llm_error");

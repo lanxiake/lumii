@@ -80,6 +80,15 @@
   max-width: 600px;
 }
 
+/* 自主进化（实验）：嵌入完整仪表板，撑满设置内容区并自带内部滚动 */
+.autonomous-embed {
+  height: 100%;
+  min-height: 560px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 /* 渠道设置改为整宽卡片列表，容器比其他分区宽一档 */
 .settings-section--channels {
   max-width: 880px;

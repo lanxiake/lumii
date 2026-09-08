@@ -4,7 +4,7 @@
  * 数据源为 agent-runtime.db 中 V28-V31 迁移建立的正式表，
  * 全部经 bridge.autonomousRepo 访问，不自建库、不落演示数据。
  *
- * 开关状态存 runtime_state，键 autonomous.enabled；缺省视为启用。
+ * 开关状态存 runtime_state，键 autonomous.enabled；缺省视为关闭（实验性功能）。
  */
 
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
@@ -29,9 +29,9 @@ function resolveAgentId(
   return DEFAULT_AGENT_ID
 }
 
-/** 读取开关：未写过配置时默认启用 */
+/** 读取开关：未写过配置时默认关闭（实验性功能，需用户在设置页主动开启） */
 function readEnabled(bridge: AgentRuntimeBridge): boolean {
-  return bridge.runtimeStateRepo.get(ENABLED_KEY) !== 'false'
+  return bridge.runtimeStateRepo.get(ENABLED_KEY) === 'true'
 }
 
 /** 由前后两点满意度判定趋势；样本不足按 stable 处理 */
@@ -233,11 +233,14 @@ export function handleAutonomousPromptVariants(
 
 export function handleAutonomousEnable(bridge: AgentRuntimeBridge): unknown {
   bridge.runtimeStateRepo.set(ENABLED_KEY, 'true')
+  // 即时生效：重播 evolution tick cron（enabled 跟随开关）+ 重载本地 cron 调度
+  bridge.syncEvolutionTickSettings?.()
   return { success: true, enabled: true }
 }
 
 export function handleAutonomousDisable(bridge: AgentRuntimeBridge): unknown {
   bridge.runtimeStateRepo.set(ENABLED_KEY, 'false')
+  bridge.syncEvolutionTickSettings?.()
   return { success: true, enabled: false }
 }
 

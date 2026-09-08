@@ -24,6 +24,7 @@
 .tooltip.portal {
   position: fixed;
   margin: 0;
+  z-index: var(--z-above-settings-hub, 12040);
   /* 初始在视口外测量，避免首帧闪一下；坐标就绪后由 inline style 覆盖 */
   transform: none;
 }

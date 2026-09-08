@@ -19,6 +19,7 @@ import {
   Info,
   Zap,
   Search,
+  FlaskConical,
 } from '../ui/Icon'
 import { McpServersPanel } from '../McpServersPanel'
 import { SettingsPage } from '../../pages/SettingsPage/SettingsPage'
@@ -53,6 +54,7 @@ const SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
   { id: 'pet', label: '宠物模式', icon: <Smartphone size={ICON_SIZE} /> },
   { id: 'usage', label: '用量与花费', icon: <Zap size={ICON_SIZE} /> },
   { id: 'privacy', label: '隐私与数据', icon: <Shield size={ICON_SIZE} /> },
+  { id: 'autonomous', label: '自主进化（实验）', icon: <FlaskConical size={ICON_SIZE} /> },
   { id: 'aboutAndUpdate', label: '关于与更新', icon: <Info size={ICON_SIZE} /> },
 ]
 

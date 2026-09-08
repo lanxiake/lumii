@@ -13,6 +13,17 @@ import { Type } from "@sinclair/typebox";
 import type { MtBotToolConfig } from "../tool-adapter.js";
 import { resolveAgentFilePath } from "../resolve-file-path.js";
 
+/**
+ * 大文件分段写入的字符阈值与块大小。
+ *
+ * 背景：模型一次性输出过大的 content（写长文档）会被 max_tokens 截断，tool call 的
+ * arguments 变成半截 JSON，上游裸 JSON.parse 抛错整轮失败。即使提高 maxTokens 兜底，
+ * 再大的上限也架不住无限长文档。因此超过阈值时把内容按块切分写入，让「单段写满后
+ * 继续追加」成为模型可感知的稳定路径，从源头避免单次 arguments 超长。
+ */
+const SEGMENT_THRESHOLD = 32_000;
+const SEGMENT_CHUNK = 24_000;
+
 const FileWriteInput = Type.Object({
   filePath: Type.String({
     description:
@@ -69,6 +80,44 @@ async function verifyWrite(
   } catch {
     return false;
   }
+}
+
+/** 把字符串按块边界切分；边界优先落在换行符上，避免切断多字节字符。 */
+function chunkByBoundary(text: string, size: number): string[] {
+  if (text.length <= size) return [text];
+  const chunks: string[] = [];
+  let rest = text;
+  while (rest.length > size) {
+    let cut = rest.lastIndexOf("\n", size);
+    if (cut <= 0) cut = size;
+    chunks.push(rest.slice(0, cut));
+    rest = rest.slice(cut);
+  }
+  if (rest.length > 0) chunks.push(rest);
+  return chunks;
+}
+
+/**
+ * 分段写入：内容超阈值时逐块落盘（首块覆盖、后续块追加），返回最终全文与是否分段。
+ * 分段写入同样做回读验证；若回读失败，调用方会以失败提示兜底。
+ */
+async function writeInSegments(
+  filePath: string,
+  content: string,
+  writeFile: (path: string, data: string) => Promise<void>,
+  readFile: (path: string) => Promise<string>,
+): Promise<{ segmented: boolean; verified: boolean }> {
+  const chunks = chunkByBoundary(content, SEGMENT_CHUNK);
+  if (chunks.length <= 1) {
+    await writeFile(filePath, content);
+    return { segmented: false, verified: await verifyWrite(filePath, content, readFile) };
+  }
+  await writeFile(filePath, chunks[0]!);
+  for (let i = 1; i < chunks.length; i++) {
+    const existing = await readFile(filePath);
+    await writeFile(filePath, existing + chunks[i]!);
+  }
+  return { segmented: true, verified: await verifyWrite(filePath, content, readFile) };
 }
 
 export const fileWriteToolConfig: MtBotToolConfig<typeof FileWriteInput> = {
@@ -160,21 +209,24 @@ export const fileWriteToolConfig: MtBotToolConfig<typeof FileWriteInput> = {
       };
     }
 
-    // 默认：整文件覆盖写入
-    await context.writeFile(filePath, content);
-
-    const verified = await verifyWrite(filePath, content, context.readFile);
+    // 默认：整文件覆盖写入（超长内容分段落盘，避免单次 arguments 超限被截断）
+    const { segmented, verified } = await writeInSegments(
+      filePath,
+      content,
+      context.writeFile,
+      context.readFile,
+    );
 
     return {
       content: [
         {
           type: "text",
           text: verified
-            ? `File written: ${filePath}\n[文件路径: ${filePath}，如需读取请使用此完整路径]`
+            ? `File written: ${filePath}${segmented ? ` (large content written in ${Math.ceil(content.length / SEGMENT_CHUNK)} segments)` : ""}\n[文件路径: ${filePath}，如需读取请使用此完整路径]`
             : `File written: ${filePath} (post-write verification failed — please re-read to confirm)\n[文件路径: ${filePath}]`,
         },
       ],
-      details: { filePath, mode: "overwrite", verified },
+      details: { filePath, mode: "overwrite", verified, segmented },
     };
   },
 };

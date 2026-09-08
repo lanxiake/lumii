@@ -16,6 +16,20 @@ import type { Model } from "@mariozechner/pi-ai";
 import type { StreamFn } from "@mariozechner/pi-agent-core";
 import { captureLLMCall } from "./prompt-capture";
 
+/**
+ * 直连时单次输出 token 兜底上限。
+ *
+ * 历史缺陷：agent 层（pi-agent-core）从不向 streamFn 传 maxTokens，导致 provider 用
+ * 其默认输出上限（如 DeepSeek 8K）。模型写大文件时输出在 arguments 中间被硬截断，
+ * 上游 pi-ai 流结束用裸 JSON.parse 解析半截 JSON，抛 "Unterminated string" → 整条
+ * message 归一化为不可重试的 llm_error。
+ *
+ * 这里给一个显式兜底（与 BridgeSessionModelCatalog.DEFAULT_SESSION_COMPACTION
+ * .outputReserveTokens 对齐），调用方仍可用 options.maxTokens 覆盖。上限再大也架不住
+ * 无限长文档，故真正的大文件应由 file_write 的分段写入兜底。
+ */
+export const DEFAULT_MAX_OUTPUT_TOKENS = 16_384;
+
 /** 直连凭据（host 本地，注入时提供） */
 export interface DirectStreamCredentials {
   /** OpenAI 兼容端点（如 http://localhost:11434/v1） */
@@ -83,6 +97,9 @@ export function createDirectStreamFn(opts: CreateDirectStreamFnOptions): StreamF
       // 本地 OpenAI 兼容端点（Ollama 等）通常免鉴权，但 pi-ai 的 openai-completions
       // provider 强制校验 apiKey 存在性。无 key 时填占位符让校验通过（端点会忽略它）。
       apiKey: apiKey || options?.apiKey || "local-no-key",
+      // 兜底单次输出上限：调用方未显式指定时补齐，避免 provider 默认上限截断大文件写入
+      // （否则 arguments 半截 JSON → 上游裸 JSON.parse 抛错 → 不可重试 llm_error）。
+      maxTokens: options?.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
       ...(headers ? { headers: { ...headers, ...(options?.headers ?? {}) } } : {}),
       // 调试：拦截原始响应 payload（仅 responses API）
       onPayload: normalizedApi === "openai-responses" ? (payload: unknown) => {

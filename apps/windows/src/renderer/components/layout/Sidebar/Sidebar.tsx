@@ -11,7 +11,6 @@ import {
   LayoutDashboard,
   Settings,
   ChevronLeft,
-  Brain,
 } from '../../ui/Icon';
 import { LumiiLogo } from '../../brand/LumiiLogo';
 import styles from './Sidebar.module.css';
@@ -66,11 +65,10 @@ export interface SidebarProps {
 const ICON_SIZE = 18;
 
 /**
- * 默认导航菜单配置（插件中心等低频入口改由设置页「功能」区进入）
+ * 默认导航菜单配置（低频入口改由设置页「功能」区进入）
  */
 const defaultNavItems: NavItem[] = [
   { id: 'dashboard', label: '概览', icon: <LayoutDashboard size={ICON_SIZE} /> },
-  { id: 'autonomous', label: '自主进化', icon: <Brain size={ICON_SIZE} /> },
 ];
 
 /** 会话列表挂载点 id：ChatPage 通过 portal 把 ChatSidebar 渲染进来 */

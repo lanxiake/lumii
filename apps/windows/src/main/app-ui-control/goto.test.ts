@@ -40,6 +40,7 @@ describe('parseGotoInput', () => {
       'pet',
       'usage',
       'privacy',
+      'autonomous',
       'aboutAndUpdate',
     ] as const
     for (const category of categories) {

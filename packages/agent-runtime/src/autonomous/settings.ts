@@ -22,7 +22,7 @@ export interface AutonomousSettings {
 }
 
 export const DEFAULT_SETTINGS: AutonomousSettings = {
-  enabled: true,
+  enabled: false,
   tickIntervalMinutes: 10,
   quietHours: [23, 8],
   maxOutreachPerDay: 20,
@@ -58,7 +58,7 @@ export function readSettings(db: DatabaseAdapter): AutonomousSettings {
     const parsed = JSON.parse(row.value) as Partial<AutonomousSettings>;
     const qh = Array.isArray(parsed.quietHours) ? parsed.quietHours : DEFAULT_SETTINGS.quietHours;
     return {
-      enabled: parsed.enabled !== false,
+      enabled: parsed.enabled === true,
       tickIntervalMinutes: clampInt(parsed.tickIntervalMinutes, 5, 60, DEFAULT_SETTINGS.tickIntervalMinutes),
       quietHours: [
         clampInt(qh[0], 0, 23, DEFAULT_SETTINGS.quietHours[0]),

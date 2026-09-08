@@ -59,3 +59,5 @@ docs/test/lumii-cli/测试材料/
 **/.lumii/models/wiki-embeddings/
 apps/windows/resources/wiki-embeddings/Xenova/
 apps/windows/resources/wiki-embeddings/.lumii-complete
+
+docs/wiki/

@@ -110,6 +110,7 @@ export type AppUiSettingsCategory =
   | 'pet'
   | 'usage'
   | 'privacy'
+  | 'autonomous'
   | 'aboutAndUpdate'
 
 /** app_goto 工具入参 */

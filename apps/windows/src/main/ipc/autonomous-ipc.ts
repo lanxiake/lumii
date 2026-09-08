@@ -40,9 +40,9 @@ function extractInnerText(contentJson: unknown): string {
   }
 }
 
-/** 未写过配置时默认启用 */
+/** 未写过配置时默认关闭（实验性功能，需用户在设置页主动开启） */
 function readEnabled(bridge: AgentRuntimeBridge): boolean {
-  return bridge.runtimeStateRepo.get(ENABLED_KEY) !== 'false'
+  return bridge.runtimeStateRepo.get(ENABLED_KEY) === 'true'
 }
 
 /** 由首尾两点判定趋势；样本不足按 stable 处理 */
@@ -322,6 +322,8 @@ ipcMain.handle('autonomous:getPromptStats', async () => {
 ipcMain.handle('autonomous:setEnabled', async (_event, enabled: boolean) => {
   const bridge = requireBridge()
   bridge.runtimeStateRepo.set(ENABLED_KEY, enabled ? 'true' : 'false')
+  // 即时生效：重播 evolution tick cron（enabled 跟随开关）+ 重载本地 cron 调度
+  bridge.syncEvolutionTickSettings?.()
   return { success: true, enabled }
 })
 

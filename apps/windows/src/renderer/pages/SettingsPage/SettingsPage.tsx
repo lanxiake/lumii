@@ -12,6 +12,7 @@ import {
   Info,
   Zap,
   Search,
+  FlaskConical,
 } from '../../components/ui/Icon'
 import { FileText } from 'lucide-react'
 import { Card } from '../../components/ui/Card/Card'
@@ -44,6 +45,7 @@ import styles from './SettingsPage.module.css'
 import { StorageInfo } from './components/StorageInfo'
 import { SecurityLogViewer } from './components/SecurityLogViewer/SecurityLogViewer'
 import { PerformanceDiagnostics } from './components/PerformanceDiagnostics/PerformanceDiagnostics'
+import { AutonomousPage } from '../AutonomousPage/AutonomousPage'
 
 /**
  * 设置分类图标尺寸
@@ -64,6 +66,7 @@ const CATEGORIES: Array<{ id: MergedSettingsCategory; label: string; icon: React
   { id: 'pet', label: '宠物模式', icon: <Smartphone size={SETTINGS_ICON_SIZE} /> },
   { id: 'usage', label: '用量与花费', icon: <Zap size={SETTINGS_ICON_SIZE} /> },
   { id: 'privacy', label: '隐私与数据', icon: <Shield size={SETTINGS_ICON_SIZE} /> },
+  { id: 'autonomous', label: '自主进化（实验）', icon: <FlaskConical size={SETTINGS_ICON_SIZE} /> },
   { id: 'aboutAndUpdate', label: '关于与更新', icon: <Info size={SETTINGS_ICON_SIZE} /> },
 ]
 
@@ -863,6 +866,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         return <SearchToolsSection />
       case 'privacy':
         return renderPrivacySettings()
+      case 'autonomous':
+        return (
+          <div className={styles['autonomous-embed']}>
+            <AutonomousPage embedded />
+          </div>
+        )
       case 'pet':
         return <PetSettingsSection />
       case 'usage':

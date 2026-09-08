@@ -125,6 +125,24 @@ describe("createDirectStreamFn", () => {
     expect(impl.mock.calls[0][2]).toMatchObject({ temperature: 0.5, signal });
   });
 
+  it("未显式指定 maxTokens 时补齐兜底上限（防大文件写入被 provider 默认值截断）", () => {
+    const impl = vi.fn(() => ({}) as never);
+    const fn = createDirectStreamFn({ credentials: {}, streamImpl: impl });
+
+    fn(fakeModel(), fakeContext, undefined);
+
+    expect(impl.mock.calls[0][2]?.maxTokens).toBe(16_384);
+  });
+
+  it("调用方显式 maxTokens 优先于兜底上限", () => {
+    const impl = vi.fn(() => ({}) as never);
+    const fn = createDirectStreamFn({ credentials: {}, streamImpl: impl });
+
+    fn(fakeModel(), fakeContext, { maxTokens: 800 } as never);
+
+    expect(impl.mock.calls[0][2]?.maxTokens).toBe(800);
+  });
+
   it("apiFormat='responses' → openai-responses API", () => {
     const impl = vi.fn(() => ({}) as never);
     const fn = createDirectStreamFn({

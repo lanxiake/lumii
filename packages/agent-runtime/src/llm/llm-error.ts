@@ -73,6 +73,23 @@ function isRetryableNetworkMessage(raw: string): boolean {
   );
 }
 
+/**
+ * 判断是否为「输出被截断」的 JSON 解析错误。
+ *
+ * pi-ai 流结束用裸 JSON.parse 解析 tool call arguments；模型输出在字符串中间被
+ * max_tokens 截断时抛 "Unterminated string in JSON at position N" / "Unexpected end of
+ * JSON input"。这类错误可重试（丢尾部错误 assistant 重试），且需要专属中文指引，
+ * 不能被归为笼统的不可重试 llm_error。
+ */
+function isOutputTruncatedMessage(raw: string): boolean {
+  const lower = raw.toLowerCase();
+  return (
+    lower.includes("unterminated string") ||
+    lower.includes("unexpected end of json") ||
+    lower.includes("unexpected end of input")
+  );
+}
+
 /** {@link normalizeLlmError} 的可选覆盖项 */
 export interface NormalizeLlmErrorOptions {
   /** 已知的 HTTP 状态（网关路径可直接给出，省去正则推断） */
@@ -101,10 +118,14 @@ export function normalizeLlmError(
     options.code ??
     (httpStatus !== undefined
       ? llmErrorCodeFromHttpStatus(httpStatus)
-      : (options.fallbackCode ?? "llm_error"));
+      : isOutputTruncatedMessage(message)
+        ? "output_truncated"
+        : (options.fallbackCode ?? "llm_error"));
   const retryable =
     options.retryable ??
-    (httpStatus !== undefined ? isRetryableHttpStatus(httpStatus) : isRetryableNetworkMessage(message));
+    (httpStatus !== undefined
+      ? isRetryableHttpStatus(httpStatus)
+      : isOutputTruncatedMessage(message) || isRetryableNetworkMessage(message));
 
   return {
     code,
@@ -127,6 +148,7 @@ const LLM_ERROR_HINTS: Readonly<Record<string, string>> = {
   bad_gateway: "模型服务暂时不可用，请稍后重试",
   stream_error: "与模型服务的连接中断，请检查网络或 Base URL",
   sse_parse_error: "模型返回的数据无法解析，请稍后重试或更换模型",
+  output_truncated: "单次输出超长被截断，已自动重试；如反复出现请拆分任务或增大模型输出上限",
   aborted: "请求已被取消",
 };
 

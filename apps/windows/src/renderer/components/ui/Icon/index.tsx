@@ -64,6 +64,9 @@ export { Plug } from 'lucide-react'
 // MCP 服务图标
 export { Boxes } from 'lucide-react'
 
+// 实验性功能图标
+export { FlaskConical } from 'lucide-react'
+
 // 语音图标
 export { Mic } from 'lucide-react'
 

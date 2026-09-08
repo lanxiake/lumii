@@ -28,6 +28,7 @@ export type MergedSettingsCategory =
   | 'pet'
   | 'usage'
   | 'privacy'
+  | 'autonomous'
   | 'aboutAndUpdate'
 
 export interface SettingsHubState {

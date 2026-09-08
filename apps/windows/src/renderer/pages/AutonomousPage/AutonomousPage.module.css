@@ -13,6 +13,12 @@
   overflow: hidden;
 }
 
+/* 嵌入设置页时：去掉居中最大宽度，撑满内容区 */
+.pageEmbedded {
+  max-width: none;
+  margin: 0;
+}
+
 /* 页头：标题 + 开关同行 */
 .header {
   display: flex;

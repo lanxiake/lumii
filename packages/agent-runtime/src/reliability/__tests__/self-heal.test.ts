@@ -91,6 +91,27 @@ describe("SelfHealController", () => {
     expect(continueAgent).toHaveBeenCalledTimes(1);
   });
 
+  it("output_truncated：丢尾部错误 assistant 并 continue 重试（不丢历史）", () => {
+    const messages: AgentMessage[] = [
+      { role: "user", content: "写一份长文档" } as unknown as AgentMessage,
+      errorMsg("Unterminated string in JSON at position 9723"),
+    ];
+    const { deps, replaceMessages, continueAgent, state } = makeDeps(messages);
+    const c = new SelfHealController(deps);
+    expect(c.attemptSelfHeal()).toBe(true);
+    expect(continueAgent).toHaveBeenCalledTimes(1);
+    // 丢掉了错误 assistant，但保留了 user 历史（区别于 prompt_too_long 截断）
+    expect(state.messages).toHaveLength(1);
+    expect(state.messages[0]!.role).toBe("user");
+  });
+
+  it("output_truncated：unexpected end of json 同样可自愈", () => {
+    const { deps, continueAgent } = makeDeps([errorMsg("Unexpected end of JSON input")]);
+    const c = new SelfHealController(deps);
+    expect(c.attemptSelfHeal()).toBe(true);
+    expect(continueAgent).toHaveBeenCalledTimes(1);
+  });
+
   it("rate_limit：延迟后 continue 重试", async () => {
     vi.useFakeTimers();
     const { deps, continueAgent } = makeDeps([errorMsg("429 rate limit exceeded")]);

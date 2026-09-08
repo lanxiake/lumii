@@ -94,6 +94,8 @@ export class SelfHealController {
       this.healToolPairing();
     } else if (category === "prompt_too_long") {
       this.healPromptTooLong();
+    } else if (category === "output_truncated") {
+      this.healOutputTruncated();
     } else if (category === "thinking_required") {
       this.healThinkingRequired();
     } else {
@@ -132,6 +134,27 @@ export class SelfHealController {
     this.deps.replaceMessages(cleaned);
     console.log(
       `[AgentInstance:${this.deps.instanceId}] 自愈层: prompt_too_long 截断`,
+      `before=${messages.length} after=${cleaned.length}`,
+    );
+    this.continueRetry();
+  }
+
+  /**
+   * 输出被截断（tool call arguments 半截 JSON）后重试。
+   *
+   * 丢尾部错误 assistant 并注入「继续、拆分任务」的恢复提示，让模型在下一轮以更小
+   * 输出完成同一目标。这里不能像 prompt_too_long 那样丢历史——问题不在上下文超限，
+   * 而在单次输出超限，丢历史反而破坏续写上下文。
+   */
+  private healOutputTruncated(): void {
+    const messages = this.deps.getMessages();
+    const cleaned = messages.filter((m) => {
+      const msg = m as { role?: string; stopReason?: string };
+      return !(msg.role === "assistant" && msg.stopReason === "error");
+    });
+    this.deps.replaceMessages(cleaned as AgentMessage[]);
+    console.log(
+      `[AgentInstance:${this.deps.instanceId}] 自愈层: output_truncated 丢尾部错误 assistant 重试`,
       `before=${messages.length} after=${cleaned.length}`,
     );
     this.continueRetry();
