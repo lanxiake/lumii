@@ -12,6 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
+import { SQLITE_BUSY_TIMEOUT_MS } from '@mtbot/agent-runtime'
 import { createLogger } from '../logger'
 
 const logger = createLogger('cloud-sync/importer')
@@ -24,6 +25,16 @@ async function loadDatabaseSync(): Promise<typeof DatabaseSync> {
     dbSyncCtor = mod.DatabaseSync
   }
   return dbSyncCtor
+}
+
+/**
+ * 打开 agent-runtime.db 旁路写连接，并设置 busy_timeout，避免与主连接流式写立刻 SQLITE_BUSY。
+ */
+async function openWritableDb(dbPath: string): Promise<InstanceType<typeof DatabaseSync>> {
+  const DatabaseSync = await loadDatabaseSync()
+  const db = new DatabaseSync(dbPath)
+  db.exec(`PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`)
+  return db
 }
 
 export interface SyncImportOptions {
@@ -200,8 +211,7 @@ export class SyncImporter {
       return 0
     }
 
-    const DatabaseSync = await loadDatabaseSync()
-    const db = new DatabaseSync(this.options.dbPath)
+    const db = await openWritableDb(this.options.dbPath)
     try {
       const content = fs.readFileSync(jsonFile, 'utf-8')
       const data = JSON.parse(content)
@@ -246,8 +256,7 @@ export class SyncImporter {
    * 导入 Agent 记忆
    */
   private async importMemories(): Promise<number> {
-    const DatabaseSync = await loadDatabaseSync()
-    const db = new DatabaseSync(this.options.dbPath)
+    const db = await openWritableDb(this.options.dbPath)
 
     const jsonlFile = path.join(this.options.syncDir, 'memory/agent-memories.jsonl')
 
@@ -311,8 +320,7 @@ export class SyncImporter {
    * 导入自主进化数据
    */
   private async importAutonomous(): Promise<number> {
-    const DatabaseSync = await loadDatabaseSync()
-    const db = new DatabaseSync(this.options.dbPath)
+    const db = await openWritableDb(this.options.dbPath)
 
     const autoDir = path.join(this.options.syncDir, 'autonomous')
     let imported = 0

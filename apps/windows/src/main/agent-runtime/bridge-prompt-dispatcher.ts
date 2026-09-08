@@ -20,6 +20,7 @@ import {
   resolveSkillActivations,
   estimateTokenCount,
   microcompactToolResults,
+  proactivePrune,
   DEFAULT_COMPACTION_TRIGGER_RATIO,
   diffTurnSnapshots,
 } from '@mtbot/agent-runtime'
@@ -200,8 +201,18 @@ export class BridgePromptDispatcher {
    * @param imageAttachmentPaths 可选：图片附件的 workspace 绝对路径列表。
    *   传入后会读盘 → base64 → 构造 ImageContent[] 作为多模态 UserMessage 一部分，
    *   仅当目标模型支持视觉输入时由调用方填充。
+   * @param pendingUserMsgId 可选：本轮正在处理、已先行持久化到 DB 的用户消息 id。
+   *   自动压缩块从 DB 重载历史做剪枝/摘要时必须排除它——否则该消息会被
+   *   replaceMessages 注入实例内存、又被 instance.prompt() 追加一次，发送给
+   *   LLM 的末尾出现两条相同 user 消息（与 restoreHistoryForInstance 的
+   *   excludeMessageId 同一防重复机制）。
    */
-  async prompt(instanceId: string, message: string, imageAttachmentPaths?: readonly string[]): Promise<void> {
+  async prompt(
+    instanceId: string,
+    message: string,
+    imageAttachmentPaths?: readonly string[],
+    pendingUserMsgId?: string,
+  ): Promise<void> {
     log.info(
       `[prompt] start: instanceId=${instanceId}, message="${message.slice(0, 100)}", imageCount=${imageAttachmentPaths?.length ?? 0}`,
     )
@@ -320,7 +331,13 @@ export class BridgePromptDispatcher {
       const rootSessionKey = this.deps.instanceToRootSessionKey.get(instanceId) ?? sessionKey
       try {
         const comp = this.deps.sessionModelCatalog.getCompactionForRootSession(rootSessionKey)
-        const historyMessages = conversationRepo.loadMessagesAsPiFormat(sessionKey, { limit: 500 }) as AgentMessage[]
+        // 排除本轮正在处理的 user 消息：它已由 handleUserSend 落库（is_streaming=0），
+        // 不排除会进入剪枝结果被 replaceMessages 注入内存，随后 instance.prompt()
+        // 又追加一次 → 发送给 LLM 的末尾两条相同 user 消息。
+        const historyMessages = conversationRepo.loadMessagesAsPiFormat(sessionKey, {
+          limit: 500,
+          ...(pendingUserMsgId ? { excludeMessageId: pendingUserMsgId } : {}),
+        }) as AgentMessage[]
         const thinkingMsgCount = (historyMessages as any[]).filter(m =>
           Array.isArray(m.content) && m.content.some((b: any) => b.type === "thinking")
         ).length
@@ -350,16 +367,43 @@ export class BridgePromptDispatcher {
             )
           }
 
-          // 先尝试 microcompact（清理旧轮次工具结果），成本极低
-          const microcompacted = microcompactToolResults(historyMessages, 4)
+          // ─── 第一档：ProactivePrune 三阶段确定性剪枝（Dedup+Summarize+Truncate） ───
+          // 与 agent-runtime transformContext 管线同一策略（0.48×窗口触发，7 道 Gate 内置）。
+          // 纯本地无 LLM 成本；结果只注入实例内存当轮生效（不落库，与 transformContext
+          // 语义一致），每轮从 DB 重载完整历史后重新剪枝（幂等）。
+          const pruned = proactivePrune(historyMessages, {
+            contextWindow: comp.contextWindow,
+            protectLastN: 20,
+            keepRecentToolResults: 20,
+          })
+          let workingMessages = historyMessages
+          let workingTokens = estimatedTokens
+          if (pruned.changed) {
+            workingMessages = pruned.messages
+            workingTokens = estimateTokenCount(workingMessages)
+            log.info(
+              `[prompt] ProactivePrune 剪枝成功: 回收 ${pruned.reclaimedTokens} tokens` +
+                ` (dedup=${pruned.passStats.dedupedCount}, summarize=${pruned.passStats.summarizedCount}, ` +
+                `truncate=${pruned.passStats.truncatedArgsCount}), ${estimatedTokens} → ${workingTokens}, sessionKey=${sessionKey}`,
+            )
+            instance.replaceMessages(workingMessages)
+          } else if (pruned.reclaimedTokens > 0) {
+            log.info(
+              `[prompt] ProactivePrune Reclaim Gate 拦截: 回收 ${pruned.reclaimedTokens} tokens < 门槛, 不提交` +
+                ` (dedup=${pruned.passStats.dedupedCount}, summarize=${pruned.passStats.summarizedCount}), sessionKey=${sessionKey}`,
+            )
+          }
+
+          // 第二档：microcompact 试算（清理旧轮次工具结果），成本极低
+          const microcompacted = microcompactToolResults(workingMessages, 4)
           const afterMicrocompact = estimateTokenCount(microcompacted)
           if (afterMicrocompact <= autoCompactThreshold) {
             log.info(
-              `[prompt] microcompact 已足够: ${estimatedTokens} → ${afterMicrocompact} tokens, 跳过 LLM 摘要`,
+              `[prompt] microcompact 已足够: ${workingTokens} → ${afterMicrocompact} tokens, 跳过 LLM 摘要`,
             )
           } else {
             log.info(
-              `[prompt] microcompact 不足: ${estimatedTokens} → ${afterMicrocompact} tokens, 继续 LLM 摘要`,
+              `[prompt] microcompact 不足: ${workingTokens} → ${afterMicrocompact} tokens, 继续 LLM 摘要`,
             )
             try {
               const compactResult = await this.deps.compactor.compactContextAsync(instanceId, sessionKey, 6)

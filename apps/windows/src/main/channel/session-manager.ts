@@ -112,7 +112,10 @@ export class SessionManager {
 
     await strategy.beforePrompt(instanceId, sessionKey, pendingUserMsgId)
     try {
-      await this.bridge.prompt(instanceId, message, imageAttachmentPaths)
+      // pendingUserMsgId 继续透传给 bridge.prompt：prompt() 内的自动压缩块会从 DB
+      // 重载历史做剪枝/摘要，同样必须排除本条消息，否则它会被 replaceMessages
+      // 注入实例内存、又被 instance.prompt() 追加一次，发送末尾出现重复 user。
+      await this.bridge.prompt(instanceId, message, imageAttachmentPaths, pendingUserMsgId)
     } finally {
       await strategy.afterPrompt(instanceId, sessionKey)
     }

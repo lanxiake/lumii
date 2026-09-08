@@ -28,6 +28,34 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * SQLite 忙等超时（毫秒）。
+ * 默认 0 时第二连接写库（如云同步 SyncImporter）会立刻 SQLITE_BUSY / database is locked。
+ */
+export const SQLITE_BUSY_TIMEOUT_MS = 5000;
+
+/**
+ * 主库与旁路连接（云同步等）共用的连接级 PRAGMA。
+ */
+export function sqliteConnectionPragmaStatements(): string[] {
+  return [
+    "PRAGMA journal_mode=WAL",
+    "PRAGMA synchronous=NORMAL",
+    "PRAGMA foreign_keys=ON",
+    "PRAGMA wal_autocheckpoint=256",
+    `PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`,
+  ];
+}
+
+/**
+ * 对已打开的 SQLite 连接应用标准 PRAGMA（含 busy_timeout）。
+ */
+export function applySqliteConnectionPragmas(db: { exec(sql: string): void }): void {
+  for (const sql of sqliteConnectionPragmaStatements()) {
+    db.exec(sql);
+  }
+}
+
+/**
  * 记录「当前实际使用的数据库路径」的指针文件路径
  *
  * 当主库路径被其他进程长期锁定（如残留的僵尸进程）时，每次启动都会轮转到新的
@@ -193,13 +221,7 @@ async function createNodeSqliteAdapter(dbPath: string): Promise<DatabaseAdapter>
   }
   console.log("[local-database] 创建 DatabaseSync 实例:", dbPath);
   const db = new DatabaseSync(dbPath);
-
-  // 启用 WAL 模式和外键约束
-  db.exec("PRAGMA journal_mode=WAL");
-  db.exec("PRAGMA synchronous=NORMAL");
-  db.exec("PRAGMA foreign_keys=ON");
-  // 默认 1000 页（4MB）才 checkpoint，实测 WAL 会长到主库的 10 倍。降到 256 页（1MB）。
-  db.exec("PRAGMA wal_autocheckpoint=256");
+  applySqliteConnectionPragmas(db);
 
   return {
     exec: (sql: string) => db.exec(sql),
@@ -258,11 +280,8 @@ async function createBetterSqliteAdapter(dbPath: string): Promise<DatabaseAdapte
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = new BetterSqlite(dbPath) as any;
-
-  db.pragma("journal_mode = WAL");
-  db.pragma("synchronous = NORMAL");
-  db.pragma("foreign_keys = ON");
-  db.pragma("wal_autocheckpoint = 256");
+  // 与 node:sqlite 路径共用同一组 PRAGMA（含 busy_timeout）
+  applySqliteConnectionPragmas({ exec: (sql) => db.exec(sql) });
 
   return {
     exec: (sql: string) => db.exec(sql),

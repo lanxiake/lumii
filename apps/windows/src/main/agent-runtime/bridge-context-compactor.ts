@@ -513,6 +513,7 @@ export function createLlmSummaryGenerator(
     messages: AgentMessage[],
     summaryPrompt: string,
     signal?: AbortSignal,
+    options?: { onProgress?: () => void },
   ): Promise<string | null> => {
     // 将 AgentMessage[] 转换为 LLM 兼容的 Message[]（只保留 user/assistant/toolResult）
     const llmMessages: import('@mariozechner/pi-ai').Message[] = messages.flatMap((m) => {
@@ -532,19 +533,42 @@ export function createLlmSummaryGenerator(
       messages: messagesWithPrompt,
     }
 
-    // 流式调用并收集文本
+    // 摘要请求显式不请求思考（reasoning 置 undefined）：
+    // - openai-completions 只在 reasoningEffort 为真时发送 reasoning_effort / thinking:enabled
+    // - 思考会吃满输出预算导致正文为空，且摘要不需要推理链
+    // 服务端仍可能无视此请求默认思考（z.ai 系默认开启），故循环内同时收集
+    // thinking_delta 兜底，保证摘要永不因思考模式而丢失上下文。
     const streamResult = await innerStream(model, context, {
       purpose: 'session_summary',
+      reasoning: undefined,
     } as Parameters<typeof innerStream>[2])
     let summaryText = ''
+    let thinkingText = ''
 
     for await (const event of streamResult) {
       if (signal?.aborted) return null
       if (event.type === 'text_delta') {
         summaryText += event.delta
+      } else if (event.type === 'thinking_delta') {
+        thinkingText += event.delta
       }
+      options?.onProgress?.()
     }
 
-    return summaryText.trim() || null
+    const text = summaryText.trim()
+    if (text) return text
+
+    // 兜底：模型把输出全部放进思考流（thinking 模式吃满输出预算时正文恒空）。
+    // 摘要质量降级为"思考原文"（格式不保证），但上下文信息保住了——
+    // 返回 null 会走"纯标记降级"，旧消息被移出且无任何摘要，上下文永久丢失。
+    const thinking = thinkingText.trim()
+    if (thinking) {
+      log.warn(
+        `[summaryGenerator] 摘要正文为空（思考流 ${thinking.length} 字符），` +
+          `用思考文本兜底以保证上下文不丢`,
+      )
+      return thinking
+    }
+    return null
   }
 }

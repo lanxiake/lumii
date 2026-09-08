@@ -8,7 +8,31 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { activePathPointerFile, readActivePathPointer, writeActivePathPointer } from "./local-database.js";
+import {
+  activePathPointerFile,
+  applySqliteConnectionPragmas,
+  readActivePathPointer,
+  SQLITE_BUSY_TIMEOUT_MS,
+  sqliteConnectionPragmaStatements,
+  writeActivePathPointer,
+} from "./local-database.js";
+
+describe("sqlite connection pragmas", () => {
+  /**
+   * 多连接争用时（如云同步另开 DatabaseSync），无 busy_timeout 会立刻 SQLITE_BUSY。
+   */
+  it("连接 PRAGMA 列表包含 busy_timeout", () => {
+    expect(sqliteConnectionPragmaStatements()).toContain(
+      `PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`,
+    );
+  });
+
+  it("applySqliteConnectionPragmas 会执行 busy_timeout", () => {
+    const calls: string[] = [];
+    applySqliteConnectionPragmas({ exec: (sql) => calls.push(sql) });
+    expect(calls).toContain(`PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`);
+  });
+});
 
 describe("active-path pointer", () => {
   const tmpDirs: string[] = [];

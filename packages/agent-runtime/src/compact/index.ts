@@ -42,7 +42,7 @@ export {
 } from "./token-estimate.js";
 
 // === 策略（供测试 / 高级宿主直接调用） ===
-export { microcompactToolResults } from "./strategies/micro-compact.js";
+export { microcompactToolResults, proactivePrune } from "./strategies/micro-compact.js";
 export { resolveManualCompactKeepCount } from "./policy.js";
 
 // === Idle Compaction（Phase 2）===

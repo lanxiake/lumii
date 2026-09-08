@@ -12,6 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
+import { SQLITE_BUSY_TIMEOUT_MS } from '@mtbot/agent-runtime'
 import { createLogger } from '../logger'
 
 const logger = createLogger('cloud-sync/exporter')
@@ -25,6 +26,16 @@ async function loadDatabaseSync(): Promise<typeof DatabaseSync> {
     dbSyncCtor = mod.DatabaseSync
   }
   return dbSyncCtor
+}
+
+/**
+ * 打开 agent-runtime.db 只读旁路连接，并设置 busy_timeout（写锁争用时短暂等待而非立刻失败）。
+ */
+async function openReadonlyDb(dbPath: string): Promise<InstanceType<typeof DatabaseSync>> {
+  const DatabaseSync = await loadDatabaseSync()
+  const db = new DatabaseSync(dbPath, { readOnly: true })
+  db.exec(`PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}`)
+  return db
 }
 
 export interface SyncExportOptions {
@@ -200,8 +211,7 @@ export class SyncExporter {
       'wiki_index_meta',
     ]
 
-    const DatabaseSync = await loadDatabaseSync()
-    const db = new DatabaseSync(this.options.dbPath, { readOnly: true })
+    const db = await openReadonlyDb(this.options.dbPath)
     try {
       const data: Record<string, unknown[]> = {}
       for (const table of wikiTables) {
@@ -223,8 +233,7 @@ export class SyncExporter {
    * 导出 Agent 记忆（JSONL）
    */
   private async exportMemories(): Promise<void> {
-    const DatabaseSync = await loadDatabaseSync()
-    const db = new DatabaseSync(this.options.dbPath, { readOnly: true })
+    const db = await openReadonlyDb(this.options.dbPath)
 
     const memoryDir = path.join(this.options.syncDir, 'memory')
     const jsonlFile = path.join(memoryDir, 'agent-memories.jsonl')
@@ -253,8 +262,7 @@ export class SyncExporter {
    * 导出自主进化数据（JSON）
    */
   private async exportAutonomous(): Promise<void> {
-    const DatabaseSync = await loadDatabaseSync()
-    const db = new DatabaseSync(this.options.dbPath, { readOnly: true })
+    const db = await openReadonlyDb(this.options.dbPath)
 
     const autoDir = path.join(this.options.syncDir, 'autonomous')
 

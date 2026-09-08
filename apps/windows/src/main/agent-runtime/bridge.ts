@@ -1777,9 +1777,14 @@ export class AgentRuntimeBridge {
     this.instanceFactory.unregisterNodeStreamCallback(instanceId)
   }
 
-  async prompt(instanceId: string, message: string, imageAttachmentPaths?: readonly string[]): Promise<void> {
+  async prompt(
+    instanceId: string,
+    message: string,
+    imageAttachmentPaths?: readonly string[],
+    pendingUserMsgId?: string,
+  ): Promise<void> {
     try {
-      return await this.promptDispatcher.prompt(instanceId, message, imageAttachmentPaths)
+      return await this.promptDispatcher.prompt(instanceId, message, imageAttachmentPaths, pendingUserMsgId)
     } finally {
       // 本轮期间若发生配置/工具变更，销毁被推迟到此刻，下次使用时按新配置重建
       this.lifecycle.consumePendingInvalidation(instanceId)

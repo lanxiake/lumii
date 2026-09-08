@@ -104,3 +104,188 @@ describe("BridgePromptDispatcher direct image turns", () => {
     }
   });
 });
+
+describe("BridgePromptDispatcher auto-compact pendingUserMsgId exclusion", () => {
+  it("自动压缩块从 DB 重载历史时排除本轮 pendingUserMsgId，防止发送末尾重复 user 消息", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-exclude-msg-"));
+
+    try {
+      const ctx = createRunContext("conversation-1", "instance-1", "conversation-1");
+      const state = createInstanceState(ctx, {
+        definitionId: "agent",
+        runningStartedAt: null,
+        completedTurns: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      });
+      const instanceStates = new InstanceStateStore();
+      instanceStates.set("instance-1", state);
+
+      // 20 条长文本 user 消息：估算 tokens 远超 contextWindow 20000 × 0.78 阈值，触发自动压缩
+      const longText = "压".repeat(1500);
+      const historyMessages = Array.from({ length: 20 }, (_, i) => ({
+        role: "user" as const,
+        content: [{ type: "text" as const, text: `历史消息${i} ${longText}` }],
+      }));
+
+      const loadMessagesAsPiFormat = vi.fn(
+        (_conversationId: string, _options?: { limit?: number; excludeMessageId?: string }) =>
+          historyMessages,
+      );
+      const instancePrompt = vi.fn(async () => {});
+      const replaceMessages = vi.fn();
+      const compactContextAsync = vi.fn(async () => ({
+        success: true,
+        previousMessageCount: 20,
+        newMessageCount: 20,
+        messagesRemoved: 0,
+        hadSummary: false,
+        conversationTokensBefore: 0,
+        conversationTokensAfter: 0,
+      }));
+
+      const dispatcher = new BridgePromptDispatcher({
+        agentRegistry: {
+          get: () => ({
+            state: "idle",
+            replaceMessages,
+            prompt: instancePrompt,
+            setMemoryInjectionFlags: () => {},
+            setSystemPrompt: () => {},
+          }),
+        },
+        instanceStates,
+        instanceToConversation: new Map([["instance-1", "conversation-1"]]),
+        instanceToRootSessionKey: new Map([["instance-1", "conversation-1"]]),
+        sessionModelCatalog: {
+          getPreferredModelRawForStream: () => undefined,
+          getCompactionForRootSession: () => ({
+            contextWindow: 20_000,
+            outputReserveTokens: 0,
+            summaryReserveTokens: 0,
+          }),
+        },
+        promptComposer: {},
+        featureFlags: {},
+        ipcChannel: {
+          forwardIpcEvent: () => {},
+        },
+        compactor: {
+          compactContextAsync,
+        },
+        instanceFactory: {
+          buildImageContents: async () => undefined,
+        },
+        modelRouter: {},
+        config: {
+          getCwd: () => workspaceDir,
+          getMemoryInjectionSettings: () => undefined,
+        },
+        getSkillEvolutionEngine: () => undefined,
+        getConversationRepo: () => ({
+          loadMessagesAsPiFormat,
+        }),
+      } as never);
+
+      await dispatcher.prompt("instance-1", "新消息", undefined, "pending-msg-1");
+
+      expect(loadMessagesAsPiFormat).toHaveBeenCalledWith(
+        "conversation-1",
+        expect.objectContaining({ excludeMessageId: "pending-msg-1" }),
+      );
+      expect(compactContextAsync).toHaveBeenCalled();
+      expect(instancePrompt).toHaveBeenCalledWith("新消息", undefined);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("不传 pendingUserMsgId 时自动压缩块不加 excludeMessageId（保持旧调用形状）", async () => {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-no-exclude-msg-"));
+
+    try {
+      const ctx = createRunContext("conversation-1", "instance-1", "conversation-1");
+      const state = createInstanceState(ctx, {
+        definitionId: "agent",
+        runningStartedAt: null,
+        completedTurns: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      });
+      const instanceStates = new InstanceStateStore();
+      instanceStates.set("instance-1", state);
+
+      const longText = "压".repeat(1500);
+      const historyMessages = Array.from({ length: 20 }, (_, i) => ({
+        role: "user" as const,
+        content: [{ type: "text" as const, text: `历史消息${i} ${longText}` }],
+      }));
+
+      const loadMessagesAsPiFormat = vi.fn(
+        (_conversationId: string, _options?: { limit?: number; excludeMessageId?: string }) =>
+          historyMessages,
+      );
+      const dispatcher = new BridgePromptDispatcher({
+        agentRegistry: {
+          get: () => ({
+            state: "idle",
+            replaceMessages: () => {},
+            prompt: async () => {},
+            setMemoryInjectionFlags: () => {},
+            setSystemPrompt: () => {},
+          }),
+        },
+        instanceStates,
+        instanceToConversation: new Map([["instance-1", "conversation-1"]]),
+        instanceToRootSessionKey: new Map([["instance-1", "conversation-1"]]),
+        sessionModelCatalog: {
+          getPreferredModelRawForStream: () => undefined,
+          getCompactionForRootSession: () => ({
+            contextWindow: 20_000,
+            outputReserveTokens: 0,
+            summaryReserveTokens: 0,
+          }),
+        },
+        promptComposer: {},
+        featureFlags: {},
+        ipcChannel: {
+          forwardIpcEvent: () => {},
+        },
+        compactor: {
+          compactContextAsync: async () => ({
+            success: true,
+            previousMessageCount: 20,
+            newMessageCount: 20,
+            messagesRemoved: 0,
+            hadSummary: false,
+            conversationTokensBefore: 0,
+            conversationTokensAfter: 0,
+          }),
+        },
+        instanceFactory: {
+          buildImageContents: async () => undefined,
+        },
+        modelRouter: {},
+        config: {
+          getCwd: () => workspaceDir,
+          getMemoryInjectionSettings: () => undefined,
+        },
+        getSkillEvolutionEngine: () => undefined,
+        getConversationRepo: () => ({
+          loadMessagesAsPiFormat,
+        }),
+      } as never);
+
+      await dispatcher.prompt("instance-1", "新消息");
+
+      expect(loadMessagesAsPiFormat).toHaveBeenCalledWith(
+        "conversation-1",
+        expect.objectContaining({ limit: 500 }),
+      );
+      const options = loadMessagesAsPiFormat.mock.calls[0]?.[1];
+      expect(options?.excludeMessageId).toBeUndefined();
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+});

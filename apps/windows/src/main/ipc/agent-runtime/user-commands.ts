@@ -123,6 +123,10 @@ export async function handleUserSend(
   }
 
   // 持久化用户消息到 DB（sessionKey === conversationId；语音消息含 WAV 供历史回放）
+  // 落库返回的 id 外提：CLI / 控制口不传 msgId，beforePrompt 的 pendingUserMsgId
+  // 排除必须用真实落库 id，否则本条消息会被 restore 注入实例内存、又被
+  // instance.prompt() 追加一次，发送给 LLM 的末尾出现两条相同 user 消息。
+  let savedUserMessageId: string | undefined
   try {
     const voice = 'isVoice' in command && command.isVoice === true
     const wav =
@@ -130,7 +134,7 @@ export async function handleUserSend(
       typeof (command as { audioWavBase64?: string }).audioWavBase64 === 'string'
         ? (command as { audioWavBase64: string }).audioWavBase64
         : undefined
-    const savedUserMessageId = bridge.conversationRepo.saveMessage({
+    savedUserMessageId = bridge.conversationRepo.saveMessage({
       id: command.msgId,
       conversationId: command.sessionKey,
       role: 'user',
@@ -226,7 +230,14 @@ export async function handleUserSend(
   }
   deps!
     .getIpcChannelAdapter(bridge)
-    .sendPrompt(instanceId, command.sessionKey, command.content, imageAttachmentPaths, command.msgId)
+    .sendPrompt(
+      instanceId,
+      command.sessionKey,
+      command.content,
+      imageAttachmentPaths,
+      // 优先落库返回的真实 id（CLI/控制口不传 msgId，落库失败时回退 command.msgId）
+      savedUserMessageId ?? command.msgId,
+    )
     .catch((err) => {
       log.error(`[user:send] prompt failed:`, err)
     })

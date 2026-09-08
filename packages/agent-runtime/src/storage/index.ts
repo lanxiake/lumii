@@ -2,7 +2,14 @@
  * Storage 模块入口
  */
 
-export { LocalDatabase, withTransaction, createMemoryDatabase } from "./local-database.js";
+export {
+  LocalDatabase,
+  withTransaction,
+  createMemoryDatabase,
+  SQLITE_BUSY_TIMEOUT_MS,
+  sqliteConnectionPragmaStatements,
+  applySqliteConnectionPragmas,
+} from "./local-database.js";
 export type {
   DatabaseAdapter,
   PreparedStatement,

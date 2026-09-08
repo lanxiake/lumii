@@ -120,6 +120,10 @@ export function createTransformContext(
       const proactivePruneRatio = config.proactivePruneRatio ?? 0.48;
       const proactiveThreshold = Math.floor(config.contextWindow * proactivePruneRatio);
       if (estimation.totalTokens >= proactiveThreshold) {
+        logger.info(
+          `ProactivePrune 进入剪枝区间: tokens=${estimation.totalTokens} ≥ threshold=${proactiveThreshold}` +
+            (proactiveRearmTokens != null ? `, rearm=${proactiveRearmTokens}` : ""),
+        );
         const pr = proactivePrune(working, {
           contextWindow: config.contextWindow,
           proactivePruneRatio: config.proactivePruneRatio,
@@ -132,8 +136,26 @@ export function createTransformContext(
         });
         if (pr.changed) {
           proactiveRearmTokens = pr.nextRearmTokens!;
+          logger.info(
+            `ProactivePrune 剪枝成功: 回收 ${pr.reclaimedTokens} tokens` +
+              ` (dedup=${pr.passStats.dedupedCount}, summarize=${pr.passStats.summarizedCount}, truncate=${pr.passStats.truncatedArgsCount})` +
+              `, 下轮 rearm=${pr.nextRearmTokens}`,
+          );
           // 不调用 onCompaction（Proactive 是后台静默清理，不暴露 UI 事件）
           return finalizeHistoryMessages(pr.messages, config, "ProactivePrune-三阶段剪枝");
+        }
+        // changed=false 分两种：Rearm 挡（连扫描都没做，reclaimed=0）或 Reclaim Gate 拒（扫了但回收不足）
+        if (pr.reclaimedTokens > 0) {
+          logger.info(
+            `ProactivePrune Reclaim Gate 拦截: 回收 ${pr.reclaimedTokens} tokens < 门槛 ` +
+              `${config.proactivePruneMinReclaimTokens ?? 4096}, 不提交` +
+              ` (dedup=${pr.passStats.dedupedCount}, summarize=${pr.passStats.summarizedCount})`,
+          );
+        } else {
+          logger.info(
+            `ProactivePrune 未提交: 被 Rearm 跑道或三阶段零改动挡下` +
+              ` (rearm=${proactiveRearmTokens ?? "无"})`,
+          );
         }
       }
 

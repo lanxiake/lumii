@@ -27,6 +27,7 @@ export {
   createTransformContext,
   estimateTokenCount,
   microcompactToolResults,
+  proactivePrune,
   resolveManualCompactKeepCount,
   buildCompactSummaryPrompt,
   formatCompactSummary,

@@ -75,10 +75,17 @@ export function createDirectStreamFn(opts: CreateDirectStreamFnOptions): StreamF
     // ModelRouter.resolveExplicitModelId 只产出 {id, api} 最小模型——直连场景必须
     // 补全这些字段，否则 pi-ai 内部 undefined.includes 崩溃。
     const m = model as Partial<Model<string>> & { id: string };
+    // z.ai 端点服务端默认开启思考，openai-completions 仅在 model.reasoning 为真时
+    // 发送 thinking 参数（含显式关闭 thinking:{type:"disabled"}）。最小模型无
+    // reasoning 字段，若盲目置 false 会跳过该分支 → 用户关思考/摘要请求反而回到
+    // 服务端默认思考（见 bridge-instance-factory wrapStreamFn 注释的警告）。
+    const isZaiLike =
+      m.provider === 'zai' ||
+      ((m.baseUrl ?? baseUrl ?? '') as string).includes('api.z.ai');
     const effectiveModel = {
       ...model,
       provider: m.provider ?? "openai",
-      reasoning: m.reasoning ?? false,
+      reasoning: m.reasoning ?? isZaiLike,
       input: m.input ?? ["text"],
       cost: m.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: m.contextWindow ?? 1_000_000,
