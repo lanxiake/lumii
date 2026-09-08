@@ -37,7 +37,17 @@
   -webkit-user-select: text;
 }
 
-.slides > * {
+/* 幻灯片缩放内容层：margin auto 保证内容不足时居中、溢出时从顶部可滚动 */
+.slideZoom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  margin: auto;
+}
+
+.slides .slideZoom > * {
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
   background: #fff;
   max-width: 100%;

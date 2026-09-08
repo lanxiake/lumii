@@ -6,7 +6,7 @@
  * - variant=embedded：填满父容器（保留兼容）
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import MDEditor from '@uiw/react-md-editor'
@@ -18,12 +18,15 @@ import {
   Pencil,
   AppWindow,
   File,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import { MarkdownExternalLink } from '../../utils/markdown-external-link'
 import { useDataThemeColorMode } from '../../hooks/common/useDataThemeColorMode'
 import { PdfJsPreview } from './PdfJsPreview'
 import { ExcelPreview } from './ExcelPreview'
 import styles from './FilePreviewModal.module.css'
+import { buildZoomedSrcDoc, clampZoom, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP } from './zoom-utils'
 
 /** PPTX 预览按需加载，避免启动时拉 pptx-preview/lodash 导致白屏 */
 const PptxPreview = React.lazy(() =>
@@ -35,9 +38,23 @@ const PptxPreview = React.lazy(() =>
  * 用 Electron <webview> 在独立渲染进程中运行，拥有进程级沙箱隔离，
  * 不继承父页面 CSP，内联脚本可正常执行，同时与主进程完全隔离。
  * 内容通过 blob URL 传入，避免写临时文件。
+ *
+ * 缩放：webview 是独立渲染进程，CSS zoom 不穿透，改用 setZoomFactor
+ * 缩放内嵌页面（dom-ready 后重试一次，兜底挂载早于内容就绪的时序）。
+ * 限制：webview 获得焦点后 Ctrl+滚轮 / 快捷键事件到达内嵌页面而非宿主，
+ * 此时请用工具栏按钮缩放。
  */
-const HtmlActiveSandboxFrame: React.FC<{ content: string; fileName: string }> = ({ content, fileName }) => {
+
+/** webview 元素的最小类型面：渲染层无 Electron 完整类型，仅声明用到的 API */
+interface WebviewZoomApi {
+  setZoomFactor?: (factor: number) => void
+  addEventListener?: (type: string, listener: () => void) => void
+  removeEventListener?: (type: string, listener: () => void) => void
+}
+
+const HtmlActiveSandboxFrame: React.FC<{ content: string; fileName: string; zoom: number }> = ({ content, fileName, zoom }) => {
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const webviewRef = useRef<WebviewZoomApi | null>(null)
 
   useEffect(() => {
     const blob = new Blob([content], { type: 'text/html' })
@@ -46,10 +63,26 @@ const HtmlActiveSandboxFrame: React.FC<{ content: string; fileName: string }> = 
     return () => { URL.revokeObjectURL(url) }
   }, [content])
 
+  useEffect(() => {
+    const wv = webviewRef.current
+    if (!wv?.setZoomFactor) return
+    const apply = () => {
+      try {
+        wv.setZoomFactor?.(zoom)
+      } catch {
+        // webview 未就绪时忽略，dom-ready 后会重试
+      }
+    }
+    apply()
+    wv.addEventListener?.('dom-ready', apply)
+    return () => wv.removeEventListener?.('dom-ready', apply)
+  }, [zoom, blobUrl])
+
   if (!blobUrl) return null
   return (
     // @ts-ignore — webview 是 Electron 专有标签，React 类型定义中不包含
     <webview
+      ref={(el) => { webviewRef.current = el as unknown as WebviewZoomApi | null }}
       src={blobUrl}
       title={fileName}
       className={styles.sandboxFrame}
@@ -59,12 +92,13 @@ const HtmlActiveSandboxFrame: React.FC<{ content: string; fileName: string }> = 
 
 /**
  * CSS / SVG 静态内容预览：无脚本需求，直接用 srcDoc 渲染，不授予任何脚本权限。
+ * 缩放通过向 srcDoc 注入 <style>body{zoom:...}</style> 实现（zoom 不穿透 iframe 边界）。
  */
-const HtmlStaticSandboxFrame: React.FC<{ content: string; fileName: string }> = ({ content, fileName }) => (
+const HtmlStaticSandboxFrame: React.FC<{ content: string; fileName: string; zoom: number }> = ({ content, fileName, zoom }) => (
   <iframe
     className={styles.sandboxFrame}
     sandbox=""
-    srcDoc={content}
+    srcDoc={buildZoomedSrcDoc(content, zoom)}
     title={fileName}
   />
 )
@@ -92,6 +126,17 @@ const HTML_ACTIVE_MIMES = new Set([
 const HTML_STATIC_MIMES = new Set([
   'text/css',
   'image/svg+xml',
+])
+
+/** 支持内容缩放的路由（DOM 渲染与内嵌文档；pdf/音频视频暂不缩放） */
+const ZOOMABLE_ROUTES: ReadonlySet<PreviewRoute> = new Set([
+  'html-active',
+  'html-static',
+  'image',
+  'code',
+  'docx',
+  'xlsx',
+  'pptx',
 ])
 
 /**
@@ -415,6 +460,16 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const mdColorMode = useDataThemeColorMode()
   const dialogBounds = useChatDialogBounds(isFullscreen && variant === 'modal')
 
+  /** 内容缩放（1 = 100%）；切换文件 / 进入编辑时重置 */
+  const [zoom, setZoom] = useState(1)
+  /** 内容区容器：用于挂载非 passive 的 Ctrl+滚轮缩放监听 */
+  const bodyRef = useRef<HTMLDivElement>(null)
+
+  /** 按步进增减缩放（收敛到 [50%, 300%]） */
+  const zoomBy = useCallback((delta: number) => {
+    setZoom((z) => clampZoom(z + delta))
+  }, [])
+
   /** DOCX：mammoth 转 HTML */
   const [docxHtml, setDocxHtml] = useState<string | null>(null)
   const [docxLoading, setDocxLoading] = useState(false)
@@ -454,10 +509,54 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     }
   }, [fileName, fileId, filePath, userId, startLine, endLine, mdBasePath, editablePath, onClose])
 
-  // Esc 退出全屏；编辑模式下 Esc 先退出编辑
+  const route = useMemo(
+    () =>
+      result
+        ? getPreviewRoute(result.mimeType, fileName, result.encoding, result.content)
+        : null,
+    [result, fileName],
+  )
+
+  /** 是否可编辑：filePath 模式 或 提供了 editablePath（会话文件），且为完整 Markdown 文件 */
+  const isMarkdownEditable = useMemo(
+    () =>
+      (!!filePath || !!editablePath) &&
+      result?.mimeType === 'text/markdown' &&
+      route === 'code' &&
+      !result?.ranged, // 行号片段预览不可编辑，避免保存覆盖整文件
+    [filePath, editablePath, result, route],
+  )
+
+  /** Markdown 文件（可切换预览/源码，不要求可写） */
+  const isMarkdown = useMemo(
+    () => result?.mimeType === 'text/markdown' && route === 'code',
+    [result, route],
+  )
+
+  /** 当前内容是否支持缩放（内容已加载且非 Markdown 编辑态） */
+  const zoomSupported = useMemo(
+    () => !!route && !loading && !error && !isEditingMarkdown && ZOOMABLE_ROUTES.has(route),
+    [route, loading, error, isEditingMarkdown],
+  )
+
+  const imageDataUrl = useMemo(() => {
+    if (!result || route !== 'image' || result.truncated) return ''
+    if (result.fileUrl) return result.fileUrl
+    return buildImageDataUrl(result)
+  }, [result, route])
+
+  // 内容缩放快捷键（独立窗同样生效） + Esc 退出全屏；编辑模式下 Esc 先退出编辑
   useEffect(() => {
-    if (isWindow) return // 独立窗由系统关闭 / 顶栏关闭
     const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0')) {
+        if (zoomSupported) {
+          e.preventDefault()
+          if (e.key === '0') setZoom(1)
+          else zoomBy(e.key === '-' ? -ZOOM_STEP : ZOOM_STEP)
+        }
+        return
+      }
+      if (isWindow) return // 独立窗由系统关闭 / 顶栏关闭
       if (e.key !== 'Escape') return
       if (isEditingMarkdown) {
         e.stopPropagation()
@@ -472,18 +571,33 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isFullscreen, isEditingMarkdown, onClose, isWindow])
+  }, [isFullscreen, isEditingMarkdown, onClose, isWindow, zoomSupported, zoomBy])
 
-  /** 切换文件时重置 Markdown 视图为预览 */
+  // Ctrl+滚轮缩放：原生非 passive 监听（React 根容器的 wheel 为 passive，无法 preventDefault）
+  useEffect(() => {
+    const el = bodyRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey || !zoomSupported) return
+      e.preventDefault()
+      zoomBy(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [zoomSupported, zoomBy])
+
+  /** 切换文件时重置 Markdown 视图为预览、退出全屏并复位缩放 */
   useEffect(() => {
     setMdViewMode('preview')
     setIsEditingMarkdown(false)
     setIsFullscreen(false)
+    setZoom(1)
   }, [fileId, filePath, fileName])
 
   const handleEnterEdit = useCallback(() => {
     setEditingContent(result?.content ?? '')
     setSaveError(null)
+    setZoom(1)
     setIsEditingMarkdown(true)
   }, [result])
 
@@ -572,36 +686,6 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
       // 忽略
     }
   }, [fileId, userId])
-
-  const route = useMemo(
-    () =>
-      result
-        ? getPreviewRoute(result.mimeType, fileName, result.encoding, result.content)
-        : null,
-    [result, fileName],
-  )
-
-  /** 是否可编辑：filePath 模式 或 提供了 editablePath（会话文件），且为完整 Markdown 文件 */
-  const isMarkdownEditable = useMemo(
-    () =>
-      (!!filePath || !!editablePath) &&
-      result?.mimeType === 'text/markdown' &&
-      route === 'code' &&
-      !result?.ranged, // 行号片段预览不可编辑，避免保存覆盖整文件
-    [filePath, editablePath, result, route],
-  )
-
-  /** Markdown 文件（可切换预览/源码，不要求可写） */
-  const isMarkdown = useMemo(
-    () => result?.mimeType === 'text/markdown' && route === 'code',
-    [result, route],
-  )
-
-  const imageDataUrl = useMemo(() => {
-    if (!result || route !== 'image' || result.truncated) return ''
-    if (result.fileUrl) return result.fileUrl
-    return buildImageDataUrl(result)
-  }, [result, route])
 
   /** 音频/视频 Blob URL（需在卸载时 revoke）；有 fileUrl 时直接用协议 URL */
   const [mediaBlobUrl, setMediaBlobUrl] = useState<string>('')
@@ -810,6 +894,40 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 <Copy size={14} strokeWidth={1.8} />
               </button>
             )}
+            {zoomSupported && (
+              <div className={styles.zoomGroup} role="group" aria-label="内容缩放">
+                <button
+                  type="button"
+                  className={styles.iconBtn}
+                  onClick={() => zoomBy(-ZOOM_STEP)}
+                  disabled={zoom <= ZOOM_MIN}
+                  title="缩小 (Ctrl+-)"
+                  aria-label="缩小"
+                >
+                  <ZoomOut size={14} strokeWidth={1.8} />
+                </button>
+                <button
+                  type="button"
+                  className={styles.zoomLabel}
+                  onClick={() => setZoom(1)}
+                  disabled={zoom === 1}
+                  title="重置缩放 (Ctrl+0)"
+                  aria-label="重置缩放"
+                >
+                  {Math.round(zoom * 100)}%
+                </button>
+                <button
+                  type="button"
+                  className={styles.iconBtn}
+                  onClick={() => zoomBy(ZOOM_STEP)}
+                  disabled={zoom >= ZOOM_MAX}
+                  title="放大 (Ctrl+=)"
+                  aria-label="放大"
+                >
+                  <ZoomIn size={14} strokeWidth={1.8} />
+                </button>
+              </div>
+            )}
             {!isWindow && (
               <button
                 type="button"
@@ -849,7 +967,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
         </div>
 
         {/* 内容区 */}
-        <div className={styles.body}>
+        <div className={styles.body} ref={bodyRef}>
           {loading && (
             <div className={styles.center}>
               <span className={styles.spinner} />
@@ -876,11 +994,11 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           )}
 
           {!loading && !error && result && !result.truncated && route === 'html-active' && (
-            <HtmlActiveSandboxFrame content={result.content ?? ''} fileName={fileName} />
+            <HtmlActiveSandboxFrame content={result.content ?? ''} fileName={fileName} zoom={zoom} />
           )}
 
           {!loading && !error && result && !result.truncated && route === 'html-static' && (
-            <HtmlStaticSandboxFrame content={result.content ?? ''} fileName={fileName} />
+            <HtmlStaticSandboxFrame content={result.content ?? ''} fileName={fileName} zoom={zoom} />
           )}
 
           {!loading && !error && result && !result.truncated && route === 'image' && imageDataUrl && (
@@ -889,6 +1007,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                 src={imageDataUrl}
                 alt={fileName}
                 className={styles.image}
+                style={zoom !== 1 ? { zoom } : undefined}
               />
             </div>
           )}
@@ -927,28 +1046,34 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
                   }}
                 />
               ) : mdViewMode === 'source' ? (
-                <pre className={styles.code}>
-                  <code>{result.content}</code>
-                </pre>
+                <div className={styles.codeScroll}>
+                  <pre className={styles.code} style={zoom !== 1 ? { zoom } : undefined}>
+                    <code>{result.content}</code>
+                  </pre>
+                </div>
               ) : (
-                <MDEditor.Markdown
-                  source={result.content ?? ''}
-                  style={{ background: 'transparent', color: 'inherit' }}
-                  components={{
-                    img: ({ src, alt }) => (
-                      <MarkdownImage src={src} alt={alt} mdFilePath={filePath ?? mdBasePath} version={imageVersion} />
-                    ),
-                    a: MarkdownExternalLink,
-                  }}
-                />
+                <div style={zoom !== 1 ? { zoom } : undefined}>
+                  <MDEditor.Markdown
+                    source={result.content ?? ''}
+                    style={{ background: 'transparent', color: 'inherit' }}
+                    components={{
+                      img: ({ src, alt }) => (
+                        <MarkdownImage src={src} alt={alt} mdFilePath={filePath ?? mdBasePath} version={imageVersion} />
+                      ),
+                      a: MarkdownExternalLink,
+                    }}
+                  />
+                </div>
               )}
             </div>
           )}
 
           {!loading && !error && result && !result.truncated && route === 'code' && result.mimeType !== 'text/markdown' && (
-            <pre className={styles.code}>
-              <code>{result.content}</code>
-            </pre>
+            <div className={styles.codeScroll}>
+              <pre className={styles.code} style={zoom !== 1 ? { zoom } : undefined}>
+                <code>{result.content}</code>
+              </pre>
+            </div>
           )}
 
           {!loading && !error && result && !result.truncated && route === 'pdf' && pdfBytes && (
@@ -974,6 +1099,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
               {!docxLoading && !docxError && docxHtml !== null && (
                 <div
                   className={styles.docxHtml}
+                  style={zoom !== 1 ? { zoom } : undefined}
                   dangerouslySetInnerHTML={{ __html: docxHtml }}
                 />
               )}
@@ -981,12 +1107,12 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
           )}
 
           {!loading && !error && result && !result.truncated && route === 'xlsx' && officeBytes && (
-            <ExcelPreview bytes={officeBytes} fileName={fileName} />
+            <ExcelPreview bytes={officeBytes} fileName={fileName} zoom={zoom} />
           )}
 
           {!loading && !error && result && !result.truncated && route === 'pptx' && officeBytes && (
             <React.Suspense fallback={<div className={styles.center}>正在加载 PPT 预览…</div>}>
-              <PptxPreview bytes={officeBytes} fileName={fileName} onOpenExternal={handleOpen} />
+              <PptxPreview bytes={officeBytes} fileName={fileName} onOpenExternal={handleOpen} zoom={zoom} />
             </React.Suspense>
           )}
 

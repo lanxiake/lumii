@@ -12,9 +12,11 @@ export interface ExcelPreviewProps {
   /** Excel 原始字节 */
   bytes: Uint8Array
   fileName: string
+  /** 内容缩放（CSS zoom，仅作用于表格层，sheet 标签不缩放） */
+  zoom?: number
 }
 
-export const ExcelPreview: React.FC<ExcelPreviewProps> = ({ bytes }) => {
+export const ExcelPreview: React.FC<ExcelPreviewProps> = ({ bytes, zoom }) => {
   const [error, setError] = useState<string | null>(null)
   const [sheetNames, setSheetNames] = useState<string[]>([])
   const [activeSheet, setActiveSheet] = useState(0)
@@ -60,11 +62,15 @@ export const ExcelPreview: React.FC<ExcelPreviewProps> = ({ bytes }) => {
           ))}
         </div>
       )}
-      <div
-        className={styles.table}
-        // SheetJS 输出为受控的表格 HTML；限制在隔离容器内渲染
-        dangerouslySetInnerHTML={{ __html: activeHtml }}
-      />
+      {/* 滚动容器与缩放层分离：zoom 应用在内容层，滚动区域随缩放同步变化 */}
+      <div className={styles.tableScroll}>
+        <div
+          className={styles.table}
+          style={zoom !== 1 ? { zoom } : undefined}
+          // SheetJS 输出为受控的表格 HTML；限制在隔离容器内渲染
+          dangerouslySetInnerHTML={{ __html: activeHtml }}
+        />
+      </div>
     </div>
   )
 }

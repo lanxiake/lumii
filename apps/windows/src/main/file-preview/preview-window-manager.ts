@@ -7,6 +7,7 @@
 
 import { BrowserWindow, screen } from 'electron'
 import type { FilePreviewWindowPayload } from '../../shared/file-preview-window'
+import { installPreviewZoomGuard } from '../window/preview-zoom-guard'
 
 const log = {
   info: (...args: unknown[]) => console.log('[PreviewWindow]', ...args),
@@ -103,6 +104,8 @@ export class PreviewWindowManager {
     })
 
     this.win = win
+    // 独立预览窗同样需要守卫：阻止默认菜单的窗口级缩放快捷键
+    installPreviewZoomGuard(win)
     win.on('closed', () => {
       if (this.win === win) {
         this.win = null

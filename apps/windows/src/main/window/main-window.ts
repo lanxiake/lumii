@@ -3,6 +3,7 @@ import { join } from 'path'
 import { getAppIconPath } from '../asset-paths'
 import { setIpcMainWindow } from '../agent-runtime'
 import type { ScreenRecordService } from '../screen-record'
+import { installPreviewZoomGuard } from './preview-zoom-guard'
 
 export interface MainWindowLogger {
   info: (...args: unknown[]) => void
@@ -149,6 +150,10 @@ export function createMainWindow(
   setupContentSecurityPolicy(window)
   // 将主窗口引用注入 ACP 事件推送层
   setIpcMainWindow(window)
+
+  // 文件预览缩放：拦截默认菜单 Ctrl+- / Ctrl+0 / Ctrl+Plus 的窗口级缩放，
+  // 重注入渲染进程交由预览组件做内容缩放（详见 preview-zoom-guard）
+  installPreviewZoomGuard(window)
 
   /**
    * 拦截 target=_blank / window.open：外链一律用系统浏览器打开，

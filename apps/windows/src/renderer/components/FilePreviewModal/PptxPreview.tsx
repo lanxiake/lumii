@@ -26,6 +26,8 @@ export interface PptxPreviewProps {
   fileName: string
   /** 预览失败时「用系统应用打开」 */
   onOpenExternal?: () => void
+  /** 内容缩放（CSS zoom，仅作用于幻灯片层） */
+  zoom?: number
 }
 
 /**
@@ -45,7 +47,7 @@ function friendlyPptxError(err: unknown): string {
 /**
  * PPTX 幻灯片预览（可点击翻页）
  */
-export const PptxPreview: React.FC<PptxPreviewProps> = ({ bytes, fileName, onOpenExternal }) => {
+export const PptxPreview: React.FC<PptxPreviewProps> = ({ bytes, fileName, onOpenExternal, zoom }) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const previewerRef = useRef<PptxPreviewer | null>(null)
   const [loading, setLoading] = useState(true)
@@ -180,12 +182,18 @@ export const PptxPreview: React.FC<PptxPreviewProps> = ({ bytes, fileName, onOpe
         </div>
       )}
       <div
-        ref={containerRef}
         className={styles.slides}
         onClick={handleSlideClick}
         role="application"
         aria-label={`PPT 预览：${fileName}`}
-      />
+      >
+        {/* 缩放内容层：zoom 应用在此层，.slides 保持滚动容器职责 */}
+        <div
+          ref={containerRef}
+          className={styles.slideZoom}
+          style={zoom !== 1 ? { zoom } : undefined}
+        />
+      </div>
     </div>
   )
 }

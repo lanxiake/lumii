@@ -35,7 +35,8 @@
   font-weight: 600;
 }
 
-.table {
+/* 滚动容器：flex 占满剩余空间，内层 .table 可应用 CSS zoom */
+.tableScroll {
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -45,6 +46,10 @@
   /* 单元格文字可选中复制 */
   user-select: text;
   -webkit-user-select: text;
+}
+
+.table {
+  width: max-content;
 }
 
 .table :global(table) {
