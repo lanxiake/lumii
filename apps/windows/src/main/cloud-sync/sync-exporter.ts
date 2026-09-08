@@ -14,6 +14,7 @@ import path from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { SQLITE_BUSY_TIMEOUT_MS } from '@mtbot/agent-runtime'
 import { createLogger } from '../logger'
+import { SYNC_OUTPUTS_MAX_BYTES, copySyncDirectory } from './sync-copy'
 
 const logger = createLogger('cloud-sync/exporter')
 
@@ -291,52 +292,36 @@ export class SyncExporter {
   }
 
   /**
-   * 导出用户文件
+   * 导出用户文件（跳过 .git 等重目录；outputs 单文件 >5MB 跳过；单文件失败不阻断）
    */
   private async exportUserFiles(): Promise<void> {
+    const errors: string[] = []
+
     const srcFiles = path.join(this.options.workspaceDir, 'files')
     const dstFiles = path.join(this.options.syncDir, 'workspace/files')
-
     if (fs.existsSync(srcFiles)) {
-      this.copyDirectory(srcFiles, dstFiles)
+      const r = copySyncDirectory(srcFiles, dstFiles)
+      errors.push(...r.errors)
     }
 
-    // 复制 outputs（小文件）
     const srcOutputs = path.join(this.options.workspaceDir, 'outputs')
     const dstOutputs = path.join(this.options.syncDir, 'workspace/outputs')
-
     if (fs.existsSync(srcOutputs)) {
-      this.copyDirectory(srcOutputs, dstOutputs, { maxSize: 1 * 1024 * 1024 }) // 1MB
-    }
-  }
-
-  /**
-   * 递归复制目录
-   */
-  private copyDirectory(src: string, dst: string, options?: { maxSize?: number }): void {
-    if (!fs.existsSync(dst)) {
-      fs.mkdirSync(dst, { recursive: true })
-    }
-
-    const entries = fs.readdirSync(src, { withFileTypes: true })
-
-    for (const entry of entries) {
-      const srcPath = path.join(src, entry.name)
-      const dstPath = path.join(dst, entry.name)
-
-      if (entry.isDirectory()) {
-        this.copyDirectory(srcPath, dstPath, options)
-      } else {
-        // 检查文件大小
-        if (options?.maxSize) {
-          const stat = fs.statSync(srcPath)
-          if (stat.size > options.maxSize) {
-            logger.warn(`[copyDirectory] 跳过大文件: ${srcPath} (${stat.size} bytes)`)
-            continue
-          }
-        }
-        fs.copyFileSync(srcPath, dstPath)
+      const r = copySyncDirectory(srcOutputs, dstOutputs, { maxSize: SYNC_OUTPUTS_MAX_BYTES })
+      errors.push(...r.errors)
+      if (r.skippedLarge > 0) {
+        logger.info(`[exportUserFiles] outputs 跳过大文件 ${r.skippedLarge} 个（阈值 ${SYNC_OUTPUTS_MAX_BYTES} bytes）`)
       }
+      if (r.skippedDirs > 0) {
+        logger.info(`[exportUserFiles] 跳过目录 ${r.skippedDirs} 个（含 .git/node_modules 等）`)
+      }
+    }
+
+    // 单文件失败已在 copy 内跳过；仅告警，不阻断整次导出（避免偶发 EPERM 拖垮同步）
+    if (errors.length > 0) {
+      logger.warn(
+        `[exportUserFiles] ${errors.length} 个文件复制失败已跳过: ${errors.slice(0, 3).join('; ')}${errors.length > 3 ? ' …' : ''}`,
+      )
     }
   }
 

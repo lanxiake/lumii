@@ -14,6 +14,7 @@ import path from 'node:path'
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite'
 import { SQLITE_BUSY_TIMEOUT_MS } from '@mtbot/agent-runtime'
 import { createLogger } from '../logger'
+import { copySyncDirectory } from './sync-copy'
 
 const logger = createLogger('cloud-sync/importer')
 
@@ -370,51 +371,23 @@ export class SyncImporter {
   }
 
   /**
-   * 导入用户文件
+   * 导入用户文件（同样跳过 .git 等；单文件失败跳过继续）
    */
   private async importUserFiles(): Promise<number> {
     let imported = 0
 
-    // 导入 files
     const srcFiles = path.join(this.options.syncDir, 'workspace/files')
     const dstFiles = path.join(this.options.workspaceDir, 'files')
     if (fs.existsSync(srcFiles)) {
-      imported += this.copyDirectory(srcFiles, dstFiles)
+      imported += copySyncDirectory(srcFiles, dstFiles).copied
     }
 
-    // 导入 outputs
     const srcOutputs = path.join(this.options.syncDir, 'workspace/outputs')
     const dstOutputs = path.join(this.options.workspaceDir, 'outputs')
     if (fs.existsSync(srcOutputs)) {
-      imported += this.copyDirectory(srcOutputs, dstOutputs)
+      imported += copySyncDirectory(srcOutputs, dstOutputs).copied
     }
 
     return imported
-  }
-
-  /**
-   * 递归复制目录，返回文件数
-   */
-  private copyDirectory(src: string, dst: string): number {
-    if (!fs.existsSync(dst)) {
-      fs.mkdirSync(dst, { recursive: true })
-    }
-
-    let count = 0
-    const entries = fs.readdirSync(src, { withFileTypes: true })
-
-    for (const entry of entries) {
-      const srcPath = path.join(src, entry.name)
-      const dstPath = path.join(dst, entry.name)
-
-      if (entry.isDirectory()) {
-        count += this.copyDirectory(srcPath, dstPath)
-      } else {
-        fs.copyFileSync(srcPath, dstPath)
-        count++
-      }
-    }
-
-    return count
   }
 }
