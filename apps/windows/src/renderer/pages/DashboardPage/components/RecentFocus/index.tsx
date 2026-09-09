@@ -21,7 +21,7 @@ type TabId = 'work' | 'wiki' | 'cron'
 
 const TABS: ReadonlyArray<{ id: TabId; label: string; view: ViewType; action: string }> = [
   { id: 'work', label: '工作记忆', view: 'memories', action: '管理记忆' },
-  { id: 'wiki', label: 'Wiki', view: 'memories', action: '打开 Wiki' },
+  { id: 'wiki', label: '资料库', view: 'wiki', action: '打开资料库' },
   { id: 'cron', label: '定时任务', view: 'cron', action: '任务中心' },
 ]
 
@@ -177,7 +177,7 @@ export const RecentFocus: React.FC<RecentFocusProps> = ({ onViewChange }) => {
   const current = useMemo(() => TABS.find((t) => t.id === activeTab) ?? TABS[0], [activeTab])
 
   /**
-   * 底栏入口：Wiki 分段需打开记忆页的 Wiki Tab，不能只切到「记忆」默认灵魂页。
+   * 底栏入口：资料库分段需打开 Hub「资料库」Tab（默认收件箱），不能只切到记忆页。
    */
   const handleFooterAction = useCallback(() => {
     if (activeTab === 'wiki') {

@@ -8,6 +8,7 @@ const VALID_VIEWS: ReadonlySet<string> = new Set<AppUiViewType>([
   'skills',
   'settings',
   'memories',
+  'wiki',
   'agents',
   'cron',
   'plugins',

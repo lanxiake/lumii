@@ -23,6 +23,7 @@ export type ViewType =
   | 'skills'
   | 'settings'
   | 'memories'
+  | 'wiki'
   | 'agents'
   | 'cron'
   | 'plugins'

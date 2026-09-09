@@ -9,7 +9,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import MDEditor from '@uiw/react-md-editor'
-import { Brain, Check, RotateCcw, HelpCircle } from 'lucide-react'
+import { Brain, Check, RotateCcw } from 'lucide-react'
 import { Button } from '../../components/ui/Button/Button'
 import { Loading } from '../../components/ui/Loading/Loading'
 import { ErrorBanner } from '../../components/ui/ErrorBanner/ErrorBanner'
@@ -30,30 +30,20 @@ import { Checkbox } from '../../components/ui/Checkbox/Checkbox'
 import { SOUL_TEMPLATES } from './soul-templates'
 import { DEFAULT_SOUL_CONTENT } from '../../../../../../packages/agent-runtime/src/prompt/default-soul'
 import { MemPalaceViewer } from './MemPalaceViewer'
-import { WikiTab } from './components/WikiTab'
-import {
-  OPEN_MEMORIES_TAB_EVENT,
-  type MemoriesTab,
-} from '../../utils/open-wiki-library'
 import './MemoriesPage.css'
 
-type MemoryTab = MemoriesTab
+/** 记忆页内部子 Tab（资料库已提升为 Hub 顶栏独立模块） */
+type MemoryTab = 'soul' | 'ai' | 'user-memory' | 'plugin'
 
 interface MemoriesPageProps {
   onViewChange?: (view: ViewType) => void
   /** Hub 嵌入时隐藏 PageHeader 标题区 */
   embedded?: boolean
-  /** Hub 打开时指定默认 Tab（如从资料库入口跳转 wiki） */
-  initialTab?: MemoryTab
-  /** initialTab 应用后回调，用于清除 Hub 一次性标记 */
-  onMemoriesSubTabConsumed?: () => void
 }
 
 export const MemoriesPage: React.FC<MemoriesPageProps> = ({
   onViewChange,
   embedded = false,
-  initialTab,
-  onMemoriesSubTabConsumed,
 }) => {
   const [activeTab, setActiveTab] = useState<MemoryTab>('soul')
   const [isEditMode, setIsEditMode] = useState(false)
@@ -150,25 +140,6 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
   useEffect(() => {
     fetchSoul()
   }, [fetchSoul])
-
-  /** 监听工作空间 / 聊天工具栏 / Composer「+」等入口：打开 Wiki Tab */
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const tab = (e as CustomEvent<{ tab?: MemoryTab }>).detail?.tab
-      if (tab === 'wiki') {
-        setActiveTab('wiki')
-      }
-    }
-    window.addEventListener(OPEN_MEMORIES_TAB_EVENT, handler)
-    return () => window.removeEventListener(OPEN_MEMORIES_TAB_EVENT, handler)
-  }, [])
-
-  /** Hub 通过 props 传入的一次性 Tab（比 sessionStorage 更可靠） */
-  useEffect(() => {
-    if (!initialTab) return
-    setActiveTab(initialTab)
-    onMemoriesSubTabConsumed?.()
-  }, [initialTab, onMemoriesSubTabConsumed])
 
   useEffect(() => {
     if (soul !== null) {
@@ -304,11 +275,6 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
           <Tooltip content="基于向量数据库的语义长期记忆，自动召回相关历史对话" placement="bottom">
             <button type="button" className={`memories-tab ${activeTab === 'plugin' ? 'memories-tab--active' : ''}`} onClick={() => setActiveTab('plugin')}>
               记忆插件
-            </button>
-          </Tooltip>
-          <Tooltip content="自动收集上传文件与任务产物，AI 分类归档后可检索" placement="bottom">
-            <button type="button" className={`memories-tab ${activeTab === 'wiki' ? 'memories-tab--active' : ''}`} onClick={() => setActiveTab('wiki')}>
-              Wiki
             </button>
           </Tooltip>
         </div>
@@ -544,9 +510,6 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
           {mempalaceInstalled && <MemPalaceViewer />}
         </div>
       )}
-
-      {/* Wiki Tab（P0）*/}
-      {activeTab === 'wiki' && <WikiTab />}
     </div>
   )
 }

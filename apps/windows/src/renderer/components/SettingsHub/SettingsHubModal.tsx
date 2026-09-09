@@ -27,6 +27,7 @@ import { AgentsPage } from '../../pages/AgentsPage/AgentsPage'
 import { SkillsPage } from '../../pages/SkillsPage/SkillsPage'
 import { CronPage } from '../../pages/CronPage/CronPage'
 import { MemoriesPage } from '../../pages/MemoriesPage/MemoriesPage'
+import { WikiTab } from '../../pages/MemoriesPage/components/WikiTab'
 import { PluginCenterPage } from '../../pages/PluginCenterPage/PluginCenterPage'
 import type { ViewType } from '../Router'
 import { useSettingsHub } from './SettingsHubContext'
@@ -65,7 +66,7 @@ const SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
 export const SettingsHubModal: React.FC<{
   onViewChange?: (view: ViewType) => void
 }> = ({ onViewChange }) => {
-  const { state, isOpen, closeHub, setTab, setCategory, clearMemoriesSubTab, openHub } = useSettingsHub()
+  const { state, isOpen, closeHub, setTab, setCategory, openHub } = useSettingsHub()
 
   const header = useMemo(
     () => (
@@ -150,10 +151,14 @@ export const SettingsHubModal: React.FC<{
           <div className={styles.embedPane}>
             <MemoriesPage
               embedded
-              initialTab={state.memoriesSubTab as 'wiki' | 'soul' | 'ai' | 'user-memory' | 'plugin' | undefined}
-              onMemoriesSubTabConsumed={clearMemoriesSubTab}
               onViewChange={handleEmbeddedViewChange}
             />
+          </div>
+        )
+      case 'wiki':
+        return (
+          <div className={styles.embedPane}>
+            <WikiTab />
           </div>
         )
       case 'plugins':

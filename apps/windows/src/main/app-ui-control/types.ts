@@ -94,6 +94,7 @@ export type AppUiViewType =
   | 'skills'
   | 'settings'
   | 'memories'
+  | 'wiki'
   | 'agents'
   | 'cron'
   | 'plugins'

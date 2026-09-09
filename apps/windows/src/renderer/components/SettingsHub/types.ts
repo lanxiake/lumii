@@ -14,6 +14,7 @@ export type SettingsHubTab =
   | 'mcp'
   | 'cron'
   | 'memories'
+  | 'wiki'
   | 'plugins'
 
 /** 设置区内左侧分类 */
@@ -36,15 +37,12 @@ export interface SettingsHubState {
   open: boolean
   tab: SettingsHubTab
   category: MergedSettingsCategory
-  /** 打开记忆 Hub 时默认选中的子 Tab（如 wiki） */
-  memoriesSubTab?: string | null
 }
 
 export const DEFAULT_SETTINGS_HUB_STATE: SettingsHubState = {
   open: false,
   tab: 'settings',
   category: 'general',
-  memoriesSubTab: null,
 }
 
 /** 顶栏 Tab 配置 */
@@ -55,6 +53,7 @@ export const SETTINGS_HUB_TABS: Array<{ id: SettingsHubTab; label: string }> = [
   { id: 'mcp', label: 'MCP' },
   { id: 'cron', label: '定时任务' },
   { id: 'memories', label: '记忆' },
+  { id: 'wiki', label: '资料库' },
   { id: 'plugins', label: '插件' },
 ]
 
@@ -66,6 +65,7 @@ export const HUB_VIEW_TABS = [
   'mcp',
   'cron',
   'memories',
+  'wiki',
   'plugins',
 ] as const
 

@@ -19,6 +19,7 @@ describe('parseGotoInput', () => {
       'skills',
       'settings',
       'memories',
+      'wiki',
       'agents',
       'cron',
       'plugins',

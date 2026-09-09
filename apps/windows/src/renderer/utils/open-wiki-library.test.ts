@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import {
-  OPEN_MEMORIES_TAB_EVENT,
-  MEMORIES_INIT_TAB_KEY,
+  OPEN_WIKI_LIBRARY_EVENT,
   WIKI_INIT_NAV_KEY,
   openWikiLibrary,
 } from './open-wiki-library'
@@ -25,19 +24,17 @@ describe('openWikiLibrary', () => {
     vi.unstubAllGlobals()
   })
 
-  it('写入 sessionStorage 并派发导航事件', () => {
+  it('写入 sessionStorage 并派发导航到资料库 Tab', () => {
     openWikiLibrary()
 
-    expect(storage.get(MEMORIES_INIT_TAB_KEY)).toBe('wiki')
     expect(storage.get(WIKI_INIT_NAV_KEY)).toBe('inbox')
     expect(window.dispatchEvent).toHaveBeenCalledTimes(2)
 
     const navigateCall = vi.mocked(window.dispatchEvent).mock.calls[0][0] as CustomEvent
     expect(navigateCall.type).toBe('mtbot:navigate-request')
-    expect(navigateCall.detail).toEqual({ view: 'memories' })
+    expect(navigateCall.detail).toEqual({ view: 'wiki' })
 
-    const memoriesTabCall = vi.mocked(window.dispatchEvent).mock.calls[1][0] as CustomEvent
-    expect(memoriesTabCall.type).toBe(OPEN_MEMORIES_TAB_EVENT)
-    expect(memoriesTabCall.detail).toEqual({ tab: 'wiki' })
+    const wikiOpenCall = vi.mocked(window.dispatchEvent).mock.calls[1][0] as CustomEvent
+    expect(wikiOpenCall.type).toBe(OPEN_WIKI_LIBRARY_EVENT)
   })
 })
