@@ -3,7 +3,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { draftToolFromPattern } from "./tool-drafter.js";
+import { draftToolFromPattern, normalizeDraftTemplate } from "./tool-drafter.js";
 import {
   checkToolDraft,
   sampleReplayRate,
@@ -82,6 +82,33 @@ describe("draftToolFromPattern", () => {
     expect(captured).toContain("bash, file_read");
     expect(captured).toContain("pnpm --filter ./apps/windows build");
   });
+
+  it("LLM 模板保留引号时草拟结果自动剥离占位符引号", async () => {
+    const quoted = JSON.stringify({
+      ...JSON.parse(goodDraftJson),
+      name: "git-commit",
+      commandTemplate: 'git commit -m "{{msg}}"',
+      parameters: {
+        type: "object",
+        properties: { msg: { type: "string", description: "提交信息" } },
+      },
+    });
+    const draft = await draftToolFromPattern(
+      { ...pattern, pattern: "git commit -m {{msg}}" },
+      null,
+      { callLLM: async () => quoted, existingToolNames: [] },
+    );
+    expect(draft?.commandTemplate).toBe("git commit -m {{msg}}");
+  });
+});
+
+describe("normalizeDraftTemplate", () => {
+  it("剥离双/单引号包裹的占位符，其余位置不动", () => {
+    expect(normalizeDraftTemplate('git commit -m "{{msg}}"')).toBe("git commit -m {{msg}}");
+    expect(normalizeDraftTemplate("echo '{{text}}'")).toBe("echo {{text}}");
+    expect(normalizeDraftTemplate("pnpm --filter {{pkg}} build")).toBe("pnpm --filter {{pkg}} build");
+    expect(normalizeDraftTemplate("echo \"literal {{x}} tail\"")).toBe('echo "literal {{x}} tail"');
+  });
 });
 
 describe("sampleReplayRate", () => {
@@ -107,6 +134,31 @@ describe("sampleReplayRate", () => {
       ],
     };
     expect(sampleReplayRate(def, mismatched, normalizeCommand)).toBe(0.5);
+  });
+
+  it("模板保留引号时按原始样本口径仍可回放（git commit 案例）", () => {
+    const quotedDef: TemplateToolDefinition = {
+      name: "git-commit",
+      description: "提交代码",
+      parameters: { type: "object", properties: { message: { type: "string" } } },
+      // LLM 基于带引号的原始样本草拟，模板保留了引号
+      commandTemplate: 'git commit -m "{{message}}"',
+      isReadOnly: false,
+      needsPermission: true,
+    };
+    const commitPattern: CommandPattern = {
+      pattern: "git commit -m {{msg}}",
+      count: 5,
+      errorCount: 0,
+      errorRate: 0,
+      avgDurationMs: 800,
+      distinctDays: 1,
+      samples: [
+        'git commit -m "feat: 添加设置页工具进化管理UI"',
+        'git commit -m "fix: 修复命令归一化路径匹配问题"',
+      ],
+    };
+    expect(sampleReplayRate(quotedDef, commitPattern, normalizeCommand)).toBe(1);
   });
 });
 

@@ -51,6 +51,7 @@ const SETTINGS_CATEGORIES: SettingsCategoryItem[] = [
   { id: 'channels', label: '渠道设置', icon: <Radio size={ICON_SIZE} /> },
   { id: 'codingDev', label: 'ACP 设置', icon: <Wrench size={ICON_SIZE} /> },
   { id: 'searchTools', label: '搜索工具', icon: <Search size={ICON_SIZE} /> },
+  { id: 'toolEvolution', label: '工具进化（实验）', icon: <FlaskConical size={ICON_SIZE} /> },
   { id: 'pet', label: '宠物模式', icon: <Smartphone size={ICON_SIZE} /> },
   { id: 'usage', label: '用量与花费', icon: <Zap size={ICON_SIZE} /> },
   { id: 'privacy', label: '隐私与数据', icon: <Shield size={ICON_SIZE} /> },

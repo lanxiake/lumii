@@ -75,6 +75,14 @@ export class BashCommandRepo {
     return res.changes;
   }
 
+  /** 删除指定 agent 的全部记录（CLI 模拟数据清理用），返回删除条数 */
+  deleteByAgent(agentId: string): number {
+    const res = this.db
+      .prepare(`DELETE FROM bash_command_log WHERE agent_id = ?`)
+      .run(agentId);
+    return res.changes;
+  }
+
   /** 记录总数（测试与统计用） */
   count(): number {
     const row = this.db

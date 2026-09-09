@@ -1,0 +1,103 @@
+/* EvolvedToolsSection — 工具进化管理 */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.intro {
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--mt-fg-2, var(--text-secondary, #718096));
+}
+
+.status {
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--mt-fg-4, var(--text-secondary, #a0aec0));
+}
+
+.error {
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--mt-error, #ef4444);
+}
+
+.groupTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 18px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mt-fg-1, var(--text-primary, #1a202c));
+}
+
+.groupTitle:first-of-type {
+  margin-top: 8px;
+}
+
+.item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--mt-border-hairline, var(--border-color, #e2e8f0));
+  border-radius: 10px;
+  background: var(--mt-surface-2, var(--bg-secondary, #f7fafc));
+}
+
+.itemMain {
+  min-width: 0;
+  flex: 1;
+}
+
+.itemHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolName {
+  font-family: var(--mt-font-mono, Consolas, Monaco, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mt-accent-600, var(--color-primary, #4299e1));
+}
+
+.meta {
+  font-size: 11px;
+  color: var(--mt-fg-4, var(--text-secondary, #a0aec0));
+}
+
+.desc {
+  margin: 4px 0 6px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--mt-fg-2, var(--text-secondary, #4a5568));
+  word-break: break-all;
+}
+
+.template {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-family: var(--mt-font-mono, Consolas, Monaco, monospace);
+  font-size: 12px;
+  color: var(--mt-fg-2, #4a5568);
+  background: var(--mt-code-bg, var(--bg-code, #edf2f7));
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.itemActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}

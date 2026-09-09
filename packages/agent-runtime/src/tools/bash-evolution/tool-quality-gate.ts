@@ -60,7 +60,8 @@ function templateToRegex(template: string): RegExp {
 
 /**
  * 样本回放：统计样本中能被模板完整匹配的比例。
- * 样本先经规则归一化（与草拟时同一口径），再对模板做占位符通配匹配。
+ * 匹配同时尝试两个口径：原始样本（LLM 草拟基于原文，模板可能保留引号等结构）
+ * 与规则归一化样本（挖掘粗模式口径），任一命中即算覆盖。
  */
 export function sampleReplayRate(
   def: TemplateToolDefinition,
@@ -74,8 +75,7 @@ export function sampleReplayRate(
   const regex = templateToRegex(def.commandTemplate);
   let matched = 0;
   for (const sample of pattern.samples) {
-    // 草拟基于归一化后的粗模式，样本也按同一口径归一化后匹配
-    if (regex.test(normalize(sample))) matched++;
+    if (regex.test(sample) || regex.test(normalize(sample))) matched++;
   }
   return matched / pattern.samples.length;
 }

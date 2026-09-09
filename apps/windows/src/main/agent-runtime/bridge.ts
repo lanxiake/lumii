@@ -519,6 +519,12 @@ export class AgentRuntimeBridge {
     this.refreshAllInstanceTools()
   }
 
+  /** 注销进化工具（禁用/删除），并使现有实例失效 */
+  unregisterEvolvedTool(name: string): void {
+    this.toolRegistry.unregister(name)
+    this.refreshAllInstanceTools()
+  }
+
   /** 已注册工具名快照（重名检查） */
   getRegisteredToolNames(): string[] {
     return this.toolRegistry.getAll().map((t) => t.name)

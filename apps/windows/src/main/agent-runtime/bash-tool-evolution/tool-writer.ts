@@ -18,8 +18,8 @@ import type { ToolDraft } from '@mtbot/agent-runtime'
 
 /** 落盘工具定义 = 草稿 + 元数据 */
 export interface StoredToolDefinition extends TemplateToolDefinition {
-  /** approved：已注册生效 */
-  status: 'approved'
+  /** approved：已注册生效；disabled：用户已禁用（保留文件，可重新启用） */
+  status: 'approved' | 'disabled'
   /** 原始命令样本（审计/回放参考） */
   samples: string[]
   createdAt: string
@@ -116,8 +116,8 @@ export function saveApprovedTool(
   })
 }
 
-/** 读取已批准工具（启动时注册用；缺失/损坏文件跳过） */
-export function loadApprovedTools(): StoredToolDefinition[] {
+/** 读取全部已落盘工具（含禁用，管理 UI 用；缺失/损坏文件跳过） */
+export function loadStoredTools(): Array<{ def: StoredToolDefinition; status: 'approved' | 'disabled' }> {
   const dir = resolveToolsDir()
   let entries: fs.Dirent[]
   try {
@@ -125,20 +125,45 @@ export function loadApprovedTools(): StoredToolDefinition[] {
   } catch {
     return []
   }
-  const tools: StoredToolDefinition[] = []
+  const out: Array<{ def: StoredToolDefinition; status: 'approved' | 'disabled' }> = []
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
     try {
       const raw = fs.readFileSync(path.join(dir, entry.name, 'tool.json'), 'utf-8')
       const parsed = JSON.parse(raw) as Record<string, unknown>
-      if (parsed.status === 'approved' && typeof parsed.name === 'string') {
-        tools.push(parsed as unknown as StoredToolDefinition)
+      if (typeof parsed.name === 'string' && (parsed.status === 'approved' || parsed.status === 'disabled')) {
+        out.push({
+          def: parsed as unknown as StoredToolDefinition,
+          status: parsed.status,
+        })
       }
     } catch {
       // 跳过损坏文件
     }
   }
-  return tools
+  return out
+}
+
+/** 读取已批准工具（启动时注册用；缺失/损坏文件跳过） */
+export function loadApprovedTools(): StoredToolDefinition[] {
+  return loadStoredTools()
+    .filter((e) => e.status === 'approved')
+    .map((e) => e.def)
+}
+
+/** 更新工具启用状态（approved / disabled） */
+export function updateToolStatus(name: string, status: 'approved' | 'disabled'): boolean {
+  try {
+    const file = toolFilePath(name)
+    const raw = fs.readFileSync(file, 'utf-8')
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    if (parsed.status === status) return true
+    parsed.status = status
+    fs.writeFileSync(file, JSON.stringify(parsed, null, 2), 'utf-8')
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** 删除已批准工具（后续「停用工具」治理用） */

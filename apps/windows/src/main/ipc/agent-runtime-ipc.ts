@@ -46,6 +46,15 @@ import {
   handleSkillDeprecate,
 } from './agent-runtime/skill-commands'
 import {
+  handleToolEvolutionList,
+  handleToolEvolutionConfirm,
+  handleToolEvolutionReject,
+  handleToolEvolutionSetEnabled,
+  handleToolEvolutionRemove,
+  handleToolEvolutionSimulate,
+  handleToolEvolutionMine,
+} from './agent-runtime/tool-commands'
+import {
   handleCodingDevSetBackend,
   handleCodingDevGetBackend,
   handleCodingDevListBackends,
@@ -1347,6 +1356,28 @@ export async function handleCommand(
 
       case 'skill:deprecate':
         return handleSkillDeprecate(bridge, command)
+
+      // ---- bash 命令工具进化（设置页管理 UI） ----
+      case 'tool-evolution:list':
+        return handleToolEvolutionList(bridge, command)
+
+      case 'tool-evolution:confirm':
+        return handleToolEvolutionConfirm(bridge, command)
+
+      case 'tool-evolution:reject':
+        return handleToolEvolutionReject(bridge, command)
+
+      case 'tool-evolution:set-enabled':
+        return handleToolEvolutionSetEnabled(bridge, command)
+
+      case 'tool-evolution:remove':
+        return handleToolEvolutionRemove(bridge, command)
+
+      case 'tool-evolution:simulate':
+        return handleToolEvolutionSimulate(bridge, command)
+
+      case 'tool-evolution:mine':
+        return handleToolEvolutionMine(bridge)
 
       // ---- 会话级技能开关（技能中心的启用/禁用是全局总开关） ----
       case 'skill:setSessionEnabled':

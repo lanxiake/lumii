@@ -54,4 +54,18 @@ describe("schema V36 bash_command_log", () => {
     expect(repo.count()).toBe(0);
     db.close();
   });
+
+  it("deleteByAgent 按 agent 删除记录（CLI 模拟数据清理）", () => {
+    const db = createMigratedTestDb();
+    const repo = new BashCommandRepo(db);
+    repo.log({ agentId: "cli-simulator", toolCallId: "tc-1", command: "git status --short" });
+    repo.log({ agentId: "cli-simulator", toolCallId: "tc-2", command: "pnpm --filter ./apps/windows build" });
+    repo.log({ agentId: "agent-1", toolCallId: "tc-3", command: "pnpm --filter ./apps/windows build" });
+
+    const removed = repo.deleteByAgent("cli-simulator");
+    expect(removed).toBe(2);
+    expect(repo.count()).toBe(1);
+    expect(repo.listRecent(10)[0]?.agent_id).toBe("agent-1");
+    db.close();
+  });
 });

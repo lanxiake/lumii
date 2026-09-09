@@ -25,6 +25,7 @@ export type MergedSettingsCategory =
   | 'channels'
   | 'codingDev'
   | 'searchTools'
+  | 'toolEvolution'
   | 'pet'
   | 'usage'
   | 'privacy'

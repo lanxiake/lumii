@@ -67,6 +67,12 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'autonomous:capabilities', 'autonomous:reflections', 'autonomous:satisfaction:history',
   'autonomous:prompt:variants', 'autonomous:enable', 'autonomous:disable', 'autonomous:reflect',
   'autonomous:settings:get', 'autonomous:settings:update',
+  // 工具进化：列表/审批/启停/删除走既有 settings 管理路径；simulate 只写本地 bash_command_log
+  // （agentId 固定 cli-simulator 可整批清理），mine 触发一次挖掘周期（内部 LLM 调用，
+  // 产物进待审批队列、不会自动注册），均为实验性调试命令，不涉文件系统/配置注入。
+  'tool-evolution:list', 'tool-evolution:confirm', 'tool-evolution:reject',
+  'tool-evolution:set-enabled', 'tool-evolution:remove',
+  'tool-evolution:simulate', 'tool-evolution:mine',
 ])
 
 /** 判断命令 type 是否在白名单内 */

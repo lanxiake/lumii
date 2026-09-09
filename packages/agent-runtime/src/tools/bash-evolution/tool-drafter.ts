@@ -57,6 +57,14 @@ function isToolDraft(value: unknown): value is ToolDraft {
   return true;
 }
 
+/**
+ * 模板规范化：剥离占位符周围的引号（LLM 常照抄样本引号，如 `git commit -m "{{msg}}"`）。
+ * 渲染层统一用单引号包裹参数值，模板保留引号会让值被双引号内的字面单引号污染。
+ */
+export function normalizeDraftTemplate(template: string): string {
+  return template.replace(/(["'])\{\{([A-Za-z][A-Za-z0-9_]*)\}\}\1/g, "{{$2}}");
+}
+
 /** 草拟 prompt 组装 */
 export function buildDraftPrompt(
   pattern: CommandPattern,
@@ -94,6 +102,7 @@ export function buildDraftPrompt(
     "4. 以下破坏性命令直接拒绝草拟（返回 {\\\"error\\\": \\\"destructive\\\"}）：",
     "   rm -rf、git reset --hard、git push --force、DROP、TRUNCATE、chmod -R 777、mkfs；",
     `5. 工具名不能与现有工具重名。现有工具：${existingToolNames.join(", ")}；`,
+    "6. 模板中参数位不要保留引号：样本里的引号内容已抽象为占位符（如 `git commit -m {{msg}}` 而非 `git commit -m \"{{msg}}\"`）；",
     "",
     `命令模式（规则粗归一化）：${pattern.pattern}`,
     `统计：共 ${pattern.count} 次，失败 ${pattern.errorCount} 次，出现 ${pattern.distinctDays} 天`,
@@ -119,7 +128,7 @@ export async function draftToolFromPattern(
     if (!parsed) return null;
     if (parsed.error) return null; // LLM 判定破坏性命令
     if (!isToolDraft(parsed)) return null;
-    return parsed;
+    return { ...parsed, commandTemplate: normalizeDraftTemplate(parsed.commandTemplate) };
   } catch {
     return null;
   }

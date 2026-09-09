@@ -29,6 +29,9 @@ import {
   savePendingDrafts,
   saveApprovedTool,
   loadApprovedTools,
+  loadStoredTools,
+  updateToolStatus,
+  removeApprovedTool,
   newDraftId,
   type PendingToolDraft,
 } from './tool-writer'
@@ -39,6 +42,8 @@ export interface ToolEvolutionEngineDeps {
   callLLM: (prompt: string) => Promise<string>
   /** 注册生效动作：registry.register + 使现有实例失效（bridge 注入） */
   registerEvolvedTool: (def: TemplateToolDefinition) => void
+  /** 注销动作：registry.unregister + 使现有实例失效（bridge 注入） */
+  unregisterTool: (name: string) => void
   /** 已注册工具名（重名检查） */
   getRegisteredToolNames: () => string[]
   /** 发出对话内审批提问（宿主注入 inject_message wiring） */
@@ -66,6 +71,15 @@ interface ToolEvolutionEngineEvents {
 /** 确认/拒绝关键词（先测拒绝再测确认，避免「不用」被「用」误判） */
 const REJECT_RE = /(不用|不要|不需要|拒绝|取消|忽略|跳过|no|reject|skip)/i
 const CONFIRM_RE = /(启用|好的|保存|同意|可以|确认|好|yes|enable|ok)/i
+
+/**
+ * 模板参数位归一：{{workspacePackagePath}} → {{p}}。
+ * 用于等价模式比较——同一命令模式经 LLM 草拟会得到不同参数名
+ * （如 {{pkg}} / {{appPath}}），不做归一无法识别为重复。
+ */
+export function canonicalizeParamSlots(template: string): string {
+  return template.replace(/\{\{[^}]+\}\}/g, '{{p}}')
+}
 
 export function buildApprovalPrompt(draft: PendingToolDraft): string {
   return (
@@ -154,13 +168,23 @@ export class ToolEvolutionEngine extends EventEmitter {
     const maxCandidates = this.deps.maxCandidatesPerRun ?? 2
     const existingNames = this.deps.getRegisteredToolNames()
 
+    // 已批准工具的等价模式（参数位归一后比较）：同模式不再重复草拟，
+    // 也让低频模式有机会轮上 maxCandidatesPerRun 的名额
+    const approvedCanonical = new Set(
+      loadStoredTools().map(({ def }) => canonicalizeParamSlots(def.commandTemplate)),
+    )
+
     for (const pattern of patterns) {
       if (summary.drafted >= maxCandidates) break
       if (this.pending.length >= maxPending) break
 
-      // 已在待审批队列的模式去重（已注册工具的样本不落库，无法按模式比对，
-      // 重名检查由质量门兜底）
-      if (this.pending.some((d) => d.pattern === pattern.pattern)) {
+      const canonical = canonicalizeParamSlots(pattern.pattern)
+      // 已在待审批队列的等价模式去重（同模式不同 LLM 命名也识别）
+      if (this.pending.some((d) => canonicalizeParamSlots(d.pattern) === canonical)) {
+        continue
+      }
+      // 已批准工具的等价模式跳过
+      if (approvedCanonical.has(canonical)) {
         continue
       }
 
@@ -228,29 +252,115 @@ export class ToolEvolutionEngine extends EventEmitter {
     const isConfirm = !isReject && CONFIRM_RE.test(text)
     if (!isReject && !isConfirm) return false
 
-    if (isConfirm) {
-      // 确认：落盘 + 注册 + 实例失效
+    await this.consumePending(head.name, isConfirm)
+    return true
+  }
+
+  /**
+   * 消费指定名称的候选（设置页 UI / 对话内审批共用）。
+   * 确认 → 落盘 + 注册 + 实例失效；拒绝 → 丢弃。
+   */
+  async consumePending(toolName: string, confirm: boolean): Promise<boolean> {
+    const index = this.pending.findIndex((d) => d.name === toolName)
+    if (index < 0) return false
+    const [draft] = this.pending.splice(index, 1)
+
+    if (confirm) {
       try {
-        const def: TemplateToolDefinition = { ...head, needsPermission: true }
-        await saveApprovedTool(def, head.samples)
+        const def: TemplateToolDefinition = { ...draft, needsPermission: true }
+        await saveApprovedTool(def, draft.samples)
         this.deps.registerEvolvedTool(def)
-        this.emit('tool_activated', { toolName: head.name })
-        log.info(`[ToolEvolution] 工具已批准并注册: ${head.name}`)
+        this.emit('tool_activated', { toolName: draft.name })
+        log.info(`[ToolEvolution] 工具已批准并注册: ${draft.name}`)
       } catch (err) {
-        log.error(`[ToolEvolution] 工具注册失败 name=${head.name}:`, err)
+        log.error(`[ToolEvolution] 工具注册失败 name=${draft.name}:`, err)
       }
-      this.deps.emitApprovalPrompt(`已注册系统工具「${head.name}」，后续可直接调用。`)
+      this.deps.emitApprovalPrompt(`已注册系统工具「${draft.name}」，后续可直接调用。`)
     } else {
-      this.emit('draft_rejected', { toolName: head.name })
-      this.deps.emitApprovalPrompt(`已丢弃候选工具「${head.name}」。`)
+      this.emit('draft_rejected', { toolName: draft.name })
+      this.deps.emitApprovalPrompt(`已丢弃候选工具「${draft.name}」。`)
     }
 
-    this.pending.shift()
     try {
       await savePendingDrafts(this.pending)
     } catch {
       // 落盘失败不影响状态机内存态
     }
+    return true
+  }
+
+  /** 进化工具列表 + 待审批候选（设置页管理 UI 数据源） */
+  listEvolvedTools(): {
+    tools: Array<{
+      name: string
+      description: string
+      commandTemplate: string
+      isReadOnly: boolean
+      enabled: boolean
+      sampleCount: number
+      approvedAt: string
+    }>
+    pending: Array<{
+      name: string
+      description: string
+      pattern: string
+      commandTemplate: string
+      createdAt: string
+    }>
+  } {
+    const stored = loadStoredTools()
+
+    return {
+      tools: stored.map(({ def, status }) => ({
+        name: def.name,
+        description: def.description,
+        commandTemplate: def.commandTemplate,
+        isReadOnly: def.isReadOnly,
+        enabled: status === 'approved',
+        sampleCount: def.samples?.length ?? 0,
+        approvedAt: def.approvedAt,
+      })),
+      pending: this.pending.map((d) => ({
+        name: d.name,
+        description: d.description,
+        pattern: d.pattern,
+        commandTemplate: d.commandTemplate,
+        createdAt: d.createdAt,
+      })),
+    }
+  }
+
+  /**
+   * 启用/禁用已批准工具（设置页开关，状态持久化到 tool.json）。
+   * 禁用：注销 + 实例失效；启用：重新注册。
+   */
+  setToolEnabled(toolName: string, enabled: boolean): boolean {
+    const stored = loadStoredTools().find((e) => e.def.name === toolName)
+    if (!stored) return false
+
+    if (enabled) {
+      if (!updateToolStatus(toolName, 'approved')) return false
+      this.deps.registerEvolvedTool(stored.def)
+      log.info(`[ToolEvolution] 工具已启用: ${toolName}`)
+    } else {
+      if (!updateToolStatus(toolName, 'disabled')) return false
+      this.deps.unregisterTool(toolName)
+      log.info(`[ToolEvolution] 工具已禁用: ${toolName}`)
+    }
+    return true
+  }
+
+  /** 删除已批准工具（移除文件 + 注销，不可恢复） */
+  removeTool(toolName: string): boolean {
+    const exists = loadStoredTools().some((e) => e.def.name === toolName)
+    if (!exists) return false
+    try {
+      removeApprovedTool(toolName)
+    } catch (err) {
+      log.warn(`[ToolEvolution] 删除工具文件失败 name=${toolName}:`, err)
+    }
+    this.deps.unregisterTool(toolName)
+    log.info(`[ToolEvolution] 工具已删除: ${toolName}`)
     return true
   }
 }

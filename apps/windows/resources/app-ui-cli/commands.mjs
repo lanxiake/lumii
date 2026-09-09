@@ -1293,4 +1293,128 @@ export const COMMANDS = [
       return {}
     },
   },
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // 工具进化
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  {
+    name: 'tool-evolution list',
+    group: '工具进化',
+    usage: 'tool-evolution list',
+    summary: '列出进化工具（已批准）与待审批候选',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [],
+    build() {
+      return { type: 'tool-evolution:list' }
+    },
+  },
+  {
+    name: 'tool-evolution simulate',
+    group: '工具进化',
+    usage: 'tool-evolution simulate --data <json>|- [--cleanup]',
+    summary: '向 bash 命令日志写入模拟数据（commands 数组 JSON；--cleanup 先清空旧模拟数据）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [
+      { flag: '--data <json>', desc: '命令数组 JSON，如 ["git status --short", ...]，或 "-" 从 stdin 读' },
+      { flag: '--cleanup', desc: '写入前先删除此前的 cli-simulator 模拟数据' },
+    ],
+    build(args, extra) {
+      const raw = args.flags.data
+      if (raw === undefined) return null
+      const text = raw === '-' ? extra?.stdin ?? '' : raw
+      if (typeof text !== 'string' || text.length === 0) return null
+      try {
+        const parsed = JSON.parse(text)
+        if (!Array.isArray(parsed) || parsed.some((c) => typeof c !== 'string')) return null
+        const body = { type: 'tool-evolution:simulate', commands: parsed }
+        if (args.flags.cleanup === true || args.flags.cleanup === 'true') body.cleanup = true
+        return body
+      } catch {
+        return null
+      }
+    },
+  },
+  {
+    name: 'tool-evolution mine',
+    group: '工具进化',
+    usage: 'tool-evolution mine',
+    summary: '立即触发一次挖掘周期（真实调用 LLM，产出候选进待审批队列）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [],
+    build() {
+      return { type: 'tool-evolution:mine' }
+    },
+  },
+  {
+    name: 'tool-evolution confirm',
+    group: '工具进化',
+    usage: 'tool-evolution confirm <toolName>',
+    summary: '批准候选工具（注册生效，Agent 可直接调用）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<toolName>', desc: '候选工具名' }],
+    build(args) {
+      const toolName = args.positional[0]
+      if (typeof toolName !== 'string' || toolName.length === 0) return null
+      return { type: 'tool-evolution:confirm', toolName }
+    },
+  },
+  {
+    name: 'tool-evolution reject',
+    group: '工具进化',
+    usage: 'tool-evolution reject <toolName>',
+    summary: '丢弃待审批候选',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<toolName>', desc: '候选工具名' }],
+    build(args) {
+      const toolName = args.positional[0]
+      if (typeof toolName !== 'string' || toolName.length === 0) return null
+      return { type: 'tool-evolution:reject', toolName }
+    },
+  },
+  {
+    name: 'tool-evolution enable',
+    group: '工具进化',
+    usage: 'tool-evolution enable <toolName>',
+    summary: '启用已批准工具（重新注册）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<toolName>', desc: '工具名' }],
+    build(args) {
+      const toolName = args.positional[0]
+      if (typeof toolName !== 'string' || toolName.length === 0) return null
+      return { type: 'tool-evolution:set-enabled', toolName, enabled: true }
+    },
+  },
+  {
+    name: 'tool-evolution disable',
+    group: '工具进化',
+    usage: 'tool-evolution disable <toolName>',
+    summary: '禁用已批准工具（注销并持久化状态）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<toolName>', desc: '工具名' }],
+    build(args) {
+      const toolName = args.positional[0]
+      if (typeof toolName !== 'string' || toolName.length === 0) return null
+      return { type: 'tool-evolution:set-enabled', toolName, enabled: false }
+    },
+  },
+  {
+    name: 'tool-evolution remove',
+    group: '工具进化',
+    usage: 'tool-evolution remove <toolName>',
+    summary: '删除已批准工具（不可恢复）',
+    layer: 'A',
+    route: { method: 'POST', path: '/command' },
+    options: [{ flag: '<toolName>', desc: '工具名' }],
+    build(args) {
+      const toolName = args.positional[0]
+      if (typeof toolName !== 'string' || toolName.length === 0) return null
+      return { type: 'tool-evolution:remove', toolName }
+    },
+  },
 ]

@@ -86,6 +86,7 @@ export function initToolEvolutionRuntime(deps: {
       bashCommandRepo: repo,
       callLLM: (prompt) => bridge.callLLM(prompt, undefined, 'tool_evolution'),
       registerEvolvedTool: (def) => bridge.registerEvolvedTool(def),
+      unregisterTool: (name) => bridge.unregisterEvolvedTool(name),
       getRegisteredToolNames: () => bridge.getRegisteredToolNames(),
       emitApprovalPrompt: buildApprovalPromptEmitter(bridge, deps.getMainWindow),
     })

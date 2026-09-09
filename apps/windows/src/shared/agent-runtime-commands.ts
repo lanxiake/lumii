@@ -1451,6 +1451,77 @@ export interface SkillDeprecateCommand {
 }
 
 // ============================================================
+// bash 命令工具进化命令（设置页管理 UI）
+// ============================================================
+
+/** 进化工具条目（列表展示） */
+export interface EvolvedToolInfo {
+  readonly name: string
+  readonly description: string
+  /** 命令模板（参数位 {{name}}） */
+  readonly commandTemplate: string
+  readonly isReadOnly: boolean
+  /** 是否已注册且启用（用户禁用集合为空位） */
+  readonly enabled: boolean
+  /** 样本数（审计参考） */
+  readonly sampleCount: number
+  readonly approvedAt: string
+}
+
+/** 待审批候选条目 */
+export interface PendingToolInfo {
+  readonly name: string
+  readonly description: string
+  readonly pattern: string
+  readonly commandTemplate: string
+  readonly createdAt: string
+}
+
+/** 拉取进化工具列表 + 待审批候选 */
+export interface ToolEvolutionListCommand {
+  readonly type: 'tool-evolution:list'
+}
+
+/** 确认待审批候选（注册生效） */
+export interface ToolEvolutionConfirmCommand {
+  readonly type: 'tool-evolution:confirm'
+  readonly toolName: string
+}
+
+/** 拒绝待审批候选 */
+export interface ToolEvolutionRejectCommand {
+  readonly type: 'tool-evolution:reject'
+  readonly toolName: string
+}
+
+/** 启用/禁用已批准工具 */
+export interface ToolEvolutionSetEnabledCommand {
+  readonly type: 'tool-evolution:set-enabled'
+  readonly toolName: string
+  readonly enabled: boolean
+}
+
+/** 删除已批准工具（不可恢复） */
+export interface ToolEvolutionRemoveCommand {
+  readonly type: 'tool-evolution:remove'
+  readonly toolName: string
+}
+
+/** CLI 模拟 bash 命令数据（工具进化测试用；agentId 固定 cli-simulator 可整批清理） */
+export interface ToolEvolutionSimulateCommand {
+  readonly type: 'tool-evolution:simulate'
+  /** 要写入 bash_command_log 的命令列表（逐条 log） */
+  readonly commands: readonly string[]
+  /** 写入前先清空此前的模拟数据 */
+  readonly cleanup?: boolean
+}
+
+/** 手动触发一次挖掘周期（不等每日定时器） */
+export interface ToolEvolutionMineCommand {
+  readonly type: 'tool-evolution:mine'
+}
+
+// ============================================================
 // 联合类型
 // ============================================================
 
@@ -1626,6 +1697,13 @@ export type AgentRuntimeCommand =
   | SkillConfirmDraftCommand
   | SkillRejectDraftCommand
   | SkillDeprecateCommand
+  | ToolEvolutionListCommand
+  | ToolEvolutionConfirmCommand
+  | ToolEvolutionRejectCommand
+  | ToolEvolutionSetEnabledCommand
+  | ToolEvolutionRemoveCommand
+  | ToolEvolutionSimulateCommand
+  | ToolEvolutionMineCommand
 
 // ============================================================
 // 命令返回类型映射
