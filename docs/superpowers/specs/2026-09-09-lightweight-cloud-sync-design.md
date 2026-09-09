@@ -121,12 +121,21 @@ def merge_record(local, remote, timestamp_field, delete_field):
     
     if remote_ts > local_ts:
         return remote  # 远端更新，覆盖本地
+    elif remote_ts < local_ts:
+        return local   # 本地更新，保持本地
     else:
-        return local   # 本地更新或同时，保持本地
+        # 时间戳相同时，处理删除标记
+        local_deleted = local.get(delete_field)
+        remote_deleted = remote.get(delete_field)
+        
+        if remote_deleted is not None and local_deleted is None:
+            return remote  # 优先传播删除操作
+        return local   # 否则保持本地
 ```
 
 **删除处理**：
 - 如果导入的记录中删除字段非空，执行软删除（更新该字段）
+- 时间戳相同时，优先采纳有删除标记的版本（传播删除）
 - 不做物理DELETE，保持记录在数据库中
 
 ### 4.2 去掉的复杂设计
@@ -143,11 +152,11 @@ def merge_record(local, remote, timestamp_field, delete_field):
 ### 5.1 冲突分类
 
 **自动合并**（不产生冲突）：
-- 所有 `.jsonl` 文件：按时间戳规则自动合并，不会产生git冲突
+- 所有 `.jsonl` 文件：通过"先import再export"避免git冲突（详见§6流程）
 
 **需要解决的冲突**：
-- `profile/*.md`：文本文件，git检测到冲突
-- `skills/**`：脚本文件，git检测到冲突
+- `profile/*.md`：文本文件，git merge时可能产生冲突
+- `skills/**`：脚本文件，git merge时可能产生冲突
 
 ### 5.2 Agent辅助解决
 
@@ -175,45 +184,68 @@ def merge_record(local, remote, timestamp_field, delete_field):
 
 ## 6. 同步流程（syncInner）
 
+### 6.1 核心流程（修正版）
+
 ```
 START
   ↓
 1. 检查异常状态
    - 有MERGE_HEAD？ → git merge --abort → 重启
-   - 本地ahead of remote？ → 直接跳到步骤5
    ↓
-2. 检查本地改动
-   - git status有改动？
-     ↓ 是
-     - export（加锁）
-     - git add .
-     - git commit -m "sync: export at <timestamp>"
-   ↓
-3. fetch远端
+2. fetch远端
    - git fetch origin
    - 失败？ → 记录错误，结束（网络问题）
    ↓
-4. 检测冲突
-   - git merge origin/main
-   - 有冲突？
-     ↓ 是
-     - 调用Agent解决
-     - git add .
-     - git commit -m "sync: resolve conflicts"
+3. import远端数据
+   - 读取远端 .jsonl 文件
+   - 按时间戳规则merge到本地数据库
+   - 此步骤后，数据库已包含远端+本地的合并结果
    ↓
-5. 推送
+4. export完整状态
+   - 基于当前数据库状态（已含远端数据）重新导出
+   - 加锁：在数据库事务中读取数据，防止写入竞争
+   - 生成 .jsonl 文件
+   ↓
+5. 提交和推送
+   - git add .
+   - git commit -m "sync: merge and export at <timestamp>"
    - git push origin main
-   - 被拒绝？ → 回到步骤3（别人刚推送了）
+   - 被拒绝？ → 回到步骤2（别人刚推送了，重新merge）
    ↓
-6. 导入
-   - import（应用远端改动到数据库）
+6. 检测冲突（仅文本文件）
+   - 如果步骤5的merge产生冲突（profile/*.md, skills/**）
+   - 调用Agent解决冲突
+   - git add .
+   - git commit -m "sync: resolve conflicts"
+   - git push origin main
    ↓
 END
 ```
 
-### 6.1 去掉的复杂设计
+### 6.2 为什么这个顺序？
 
-- ❌ 不单独处理commit后push失败的状态（统一用ahead检测）
+**关键洞察**：先import再export，避免jsonl文件产生git冲突
+
+**旧方案问题**（export → fetch → merge）：
+```
+设备A: export [e1'] → commit → push
+设备B: export [e1, e2] → commit → fetch → merge冲突！
+```
+两个设备的jsonl内容不同，git会检测到冲突。
+
+**新方案优势**（fetch → import → export）：
+```
+设备A: fetch → import(无) → export [e1'] → push
+设备B: fetch → import(拉到e1') → merge到DB → export [e1', e2] → push
+```
+设备B的export已经包含了远端的e1'，所以文件内容是远端的超集，不会冲突。
+
+**唯一可能的冲突**：两设备同时在push前的窗口期，都基于旧的远端状态export。解决方案：push被拒后重新执行fetch → import → export。
+
+### 6.3 去掉的复杂设计
+
+- ❌ 不检查本地ahead状态（统一走fetch → import → export流程）
+- ❌ 不单独处理commit后push失败的状态
 - ❌ 不做push失败的指数退避（简单重试，最多3次）
 - ❌ 不做import崩溃恢复（依靠数据库事务）
 
@@ -221,29 +253,41 @@ END
 
 ## 7. 窗口期保护
 
-**问题**：export到push之间，数据库可能被修改，导致：
-- export的文件不包含新改动
-- push后import会覆盖这些新改动
+**问题场景**：
+```
+export(加锁读取DB) → 释放锁 → 写文件 → commit → push(2秒网络延迟)
+                      ↑ 这期间用户修改数据库成功
+```
 
-**简化方案**：在export期间锁数据库
+**分析**：
+- 锁释放后到push完成期间，用户可以修改数据库
+- 这些修改不会包含在本次export的文件中
+- 但这些修改仍在数据库中，下次sync会导出
+
+**结论**：✅ 不是问题
+- 用户修改会在下次sync时导出
+- 不会丢失数据
+- 不需要额外保护
+
+**export期间的保护**：使用数据库事务锁
 
 ```typescript
 async function exportWithLock() {
   await db.transaction(async (tx) => {
-    // 在事务中读取所有数据（其他写入会等待）
-    const memories = await tx.query('SELECT * FROM agent_memories');
-    const sources = await tx.query('SELECT * FROM wiki_sources');
+    // 在事务中读取所有数据（阻止其他写入，时间<1秒）
+    const memories = await tx.query('SELECT * FROM agent_memories WHERE deleted_at IS NULL OR deleted_at > ?', [now - 30days]);
+    const sources = await tx.query('SELECT * FROM wiki_sources WHERE archived_at IS NULL');
     // ...
     
-    // 生成jsonl内容（内存操作）
+    // 生成jsonl内容（内存操作，快速）
     const files = generateJsonlFiles({memories, sources, ...});
     
-    // 返回文件内容
+    // 事务结束，锁释放
     return files;
   });
   
-  // 事务结束后，写入文件到磁盘
-  await writeFilesToSync(files);
+  // 写文件到磁盘（事务外，不阻塞数据库）
+  await writeFilesToDisk(files);
 }
 ```
 
@@ -372,3 +416,239 @@ ALTER TABLE agent_memories ADD COLUMN deleted_at TIMESTAMP;
 | 验证标准 | 8项 | 7项 |
 
 **核心理念**：够用就好，简单可靠，快速实现。
+
+---
+
+## 13. 场景验证
+
+### 13.1 场景1：正常A→B单向同步
+
+**初始状态**：
+- 设备A：entity e1 (updated_at=T1)
+- 设备B：无数据
+- 远端：空
+
+**操作序列**：
+1. 设备A sync: fetch(无) → import(无) → export [e1] → push成功
+2. 设备B sync: fetch [e1] → import到DB → export [e1] → push(无改动)
+
+**结果**：✅ B成功获得e1
+
+---
+
+### 13.2 场景2：AB同时修改不同记录
+
+**初始状态**：
+- A和B都有 e1 (updated_at=T1)
+- 远端：e1 (T1)
+
+**操作**：
+- A修改e1 → e1' (T2)
+- B创建e2 (T3)
+
+**推演**：
+1. A先sync: fetch → import(无变化) → export [e1'] → push成功
+   - 远端: [e1']
+2. B后sync: 
+   - fetch拉到 [e1']
+   - import: e1'(T2) > e1(T1) → 更新本地e1为e1'
+   - 本地DB现在有 [e1', e2]
+   - export [e1', e2]
+   - push成功
+
+**结果**：✅ 远端和两设备都有 [e1', e2]
+
+**关键**：B的export已包含远端数据，不会产生jsonl冲突
+
+---
+
+### 13.3 场景3：AB同时修改同一记录
+
+**初始状态**：
+- A和B都有 e1 (name="old", updated_at=T1)
+
+**操作**：
+- A修改: e1 (name="A-modified", updated_at=T2)
+- B修改: e1 (name="B-modified", updated_at=T3, T3>T2)
+
+**推演**：
+1. A先sync: fetch → import → export [e1(name="A-modified", T2)] → push
+2. B后sync:
+   - fetch拉到 [e1(T2)]
+   - import: T2 < T3 → 保持本地 (name="B-modified", T3)
+   - export [e1(name="B-modified", T3)]
+   - push成功
+3. A再sync:
+   - fetch拉到 [e1(T3)]
+   - import: T3 > T2 → 更新为 (name="B-modified", T3)
+
+**结果**：✅ 时间戳大的胜出，A的修改被覆盖（符合预期）
+
+---
+
+### 13.4 场景4：删除传播
+
+**初始状态**：
+- A和B都有 e1 (updated_at=T1, deleted_at=null)
+
+**操作**：
+- A删除e1: 设置 deleted_at=T2
+
+**推演**：
+1. A sync: fetch → import → export [e1(T1, deleted_at=T2)] → push
+2. B sync:
+   - fetch拉到 [e1(deleted_at=T2)]
+   - import: 
+     - 比较updated_at: T1 = T1
+     - 时间戳相同，检查deleted_at
+     - remote.deleted_at=T2, local.deleted_at=null
+     - 采纳远端（传播删除）
+   - 本地e1现在 deleted_at=T2
+
+**结果**：✅ 删除成功传播
+
+---
+
+### 13.5 场景5：窗口期写入保护
+
+**操作**：
+```
+设备A:
+1. sync开始
+2. fetch → import
+3. export加锁（事务开始）
+4. 读取数据: [e1, e2]
+5. 生成jsonl内容（内存）
+6. 事务结束（锁释放）
+7. 写文件到磁盘
+8. commit + push（网络2秒）
+
+用户在步骤6之后修改:
+9. 创建e3 → 写入数据库成功（锁已释放）
+
+10. push完成，本地DB有 [e1, e2, e3]
+11. 下次sync会export [e1, e2, e3]
+```
+
+**结果**：✅ e3被保护，下次sync导出
+
+---
+
+### 13.6 场景6：push被拒绝（竞争）
+
+**操作**：
+```
+设备A和B同时sync:
+1. A: fetch(远端v1)
+2. B: fetch(远端v1)
+3. A: import → export → push成功（远端v2）
+4. B: import → export → push失败（远端已是v2）
+```
+
+**B的处理**：
+```
+5. B检测到push被拒
+6. 重试（最多3次）:
+   - fetch拉到v2
+   - import v2数据到DB（merge）
+   - export新状态（包含v2+B的merge）
+   - push成功
+```
+
+**结果**：✅ 重试机制有效
+
+---
+
+### 13.7 场景7：文本文件冲突
+
+**操作**：
+- A修改soul.md添加"爱好编程"
+- B修改soul.md添加"爱好阅读"
+
+**推演**：
+1. A sync: fetch → import → export + commit soul.md → push
+2. B sync:
+   - fetch远端
+   - git merge检测到soul.md冲突:
+     ```
+     <<<<<<< HEAD
+     爱好阅读
+     =======
+     爱好编程
+     >>>>>>> origin/main
+     ```
+   - 调用Agent: cloud_sync_read_file("profile/soul.md")
+   - Agent调用: resolve_sync_conflict("keep-remote", ["profile/soul.md"])
+   - git add + commit
+   - push成功
+
+**结果**：✅ 冲突解决，B采用了A的版本
+
+---
+
+### 13.8 场景8：export崩溃恢复
+
+**操作**：
+```
+1. fetch → import
+2. export加锁 → 读取 → 生成jsonl → 释放锁
+3. 写文件到一半 → 崩溃！（entities.jsonl损坏）
+```
+
+**下次启动**：
+```
+1. sync开始
+2. fetch（可能无变化）
+3. import（可能跳过或重新应用）
+4. export重新生成完整文件（覆盖损坏文件）
+5. commit + push
+```
+
+**结果**：✅ 自动恢复，数据从DB重新导出
+
+---
+
+### 13.9 场景9：旧格式迁移
+
+**设备A（旧版）**：
+```
+sync生成 wiki/data.json (整包)
+push成功
+```
+
+**设备B（新版v3）**：
+```
+1. fetch拉到 wiki/data.json
+2. 检测到data.json存在
+3. 读取并转换为 wiki/*.jsonl
+4. git rm wiki/data.json
+5. git add wiki/*.jsonl
+6. commit "migrate: split wiki"
+7. push
+```
+
+**设备A（旧版）再sync**：
+```
+1. fetch发现data.json被删，多了*.jsonl
+2. 旧版不识别 → 需要升级
+```
+
+**结果**：⚠️ 旧设备需尽快升级（可接受限制）
+
+---
+
+### 13.10 验证总结
+
+| 场景 | 状态 | 说明 |
+|------|------|------|
+| A→B单向 | ✅ | 基础同步正常 |
+| 不同记录 | ✅ | 无冲突，自动合并 |
+| 同一记录 | ✅ | 时间戳规则生效，记录级覆盖 |
+| 删除传播 | ✅ | deleted_at特殊处理正确 |
+| 窗口保护 | ✅ | export锁有效，后续修改不丢失 |
+| push竞争 | ✅ | 重试机制有效 |
+| 文本冲突 | ✅ | Agent解决流程正常 |
+| 崩溃恢复 | ✅ | 基于DB重建，自动修复 |
+| 旧格式 | ⚠️ | 需升级，可接受 |
+
+**结论**：修正后的v3方案通过所有核心场景验证，可以实施。
