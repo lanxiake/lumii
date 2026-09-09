@@ -57,8 +57,8 @@ const FIXED_NAV_CONTEXT: Record<string, { title: string; subtitle: string }> = {
   archived: { title: '已归档', subtitle: '已移出活跃目录、可随时恢复的资料' },
   parking: { title: '临时存放', subtitle: '你主动搁置、暂不进入正式目录的文件' },
   cleanup: { title: '清理', subtitle: '扫描并处理需要维护的资料' },
-  reclassify: { title: '重新编目', subtitle: 'AI 的目录调整建议，接受后才生效' },
-  migrate: { title: '整理入库', subtitle: '文件夹映射方案，确认后才归档' },
+  reclassify: { title: '重新编目', subtitle: 'AI 自动调整已入库资料的目录' },
+  migrate: { title: '整理入库', subtitle: 'AI 规划并直接归档文件夹导入的资料' },
 }
 
 /** migrate 进行中阶段（可取消） */
@@ -372,7 +372,7 @@ export const WikiTab: React.FC = () => {
   handleMigrateCancelRef.current = handleMigrateCancel
 
   /**
-   * 根据 migrate 终态更新任务中心（review 视为成功待确认）。
+   * 根据 migrate 终态更新任务中心。
    */
   const finalizeMigrateTask = useCallback(
     (taskId: string, progress: WikiMigrateProgressItem, error?: string | null): void => {
@@ -393,11 +393,14 @@ export const WikiTab: React.FC = () => {
         return
       }
       if (progress.phase === 'review') {
+        // 兼容旧进度：不再打开确认页，停留收件箱并提示仍有映射
         tc.completeTask(taskId, {
-          detail: progress.total > 0 ? `${progress.total} 条映射待确认` : '映射方案待确认',
+          detail: progress.total > 0 ? `${progress.total} 条映射已规划` : '映射已规划',
           migratePhase: 'review',
         })
-        void refreshMigrateRun().then(() => setNav({ kind: 'migrate' }))
+        void refreshMigrateRun()
+        void refreshInbox()
+        void refreshSources()
         return
       }
       if (progress.phase === 'succeeded' || progress.phase === 'partial') {
@@ -406,12 +409,14 @@ export const WikiTab: React.FC = () => {
           migratePhase: progress.phase as WikiMigratePhase,
           appliedCount: applied,
         })
+        void refreshInbox()
+        void refreshSources()
         if (applied > 0) setMigrateUndoPrompt({ appliedCount: applied })
         return
       }
       tc.completeTask(taskId, { detail: progress.phaseLabel })
     },
-    [refreshMigrateRun],
+    [refreshMigrateRun, refreshInbox, refreshSources],
   )
 
   /**
@@ -459,17 +464,13 @@ export const WikiTab: React.FC = () => {
     return unsubscribe
   }, [finalizeMigrateTask, subscribeMigrateProgress])
 
-  /** 进页时恢复进行中的 migrate 任务；若有 review 方案则同步状态 */
+  /** 进页时恢复进行中的 migrate 任务 */
   useEffect(() => {
     void getMigrateRun().then((run) => {
       if (!run) return
       setMigrateRun(run)
       if (isMigrateBusyPhase(run.phase)) {
         registerMigrateTask(run)
-        return
-      }
-      if (run.phase === 'review') {
-        setNav((prev) => (prev.kind === 'inbox' ? { kind: 'migrate' } : prev))
       }
     })
   }, [getMigrateRun, registerMigrateTask])
@@ -785,12 +786,10 @@ export const WikiTab: React.FC = () => {
   )
 
   /**
-   * 启动重新编目并跳到候选视图。
-   * running 期间轮询进度；已有待审阅批次时后端会拒绝，这里把中文原因抛给任务中心。
+   * 启动重新编目：后台跑完后自动落库，停留当前视图并刷新列表。
    */
   const handleRunReclassify = useCallback(
     async (scope: WikiReclassifyScopeDto, opts?: { force?: boolean; enableRename?: boolean }) => {
-      setNav({ kind: 'reclassify' })
       const taskId = taskCenter.startTask({ kind: 'reclassify', title: '重新编目' })
       const started = await runReclassify(scope, opts)
       if (!started.ok) {
@@ -805,16 +804,22 @@ export const WikiTab: React.FC = () => {
           if (run?.status === 'failed') {
             taskCenter.failTask(taskId, run.error ?? '重新编目失败')
           } else {
+            const pending = run?.candidates.filter((c) => c.decision === 'pending').length ?? 0
             taskCenter.completeTask(taskId, {
-              detail: run ? `${run.candidates.length} 条建议` : undefined,
+              detail: run
+                ? pending > 0
+                  ? `完成 · 仍有 ${pending} 条未应用`
+                  : '已自动调整目录'
+                : '已自动调整目录',
             })
+            await refreshSources()
           }
           return
         }
         await new Promise((resolve) => window.setTimeout(resolve, 400))
       }
     },
-    [runReclassify, getReclassifyRun, taskCenter],
+    [runReclassify, getReclassifyRun, refreshSources, taskCenter],
   )
 
   const handleApplyReclassify = useCallback(
@@ -941,7 +946,7 @@ export const WikiTab: React.FC = () => {
   }, [discardMigrate])
 
   /**
-   * 重跑盘点 + 映射，进入 review。
+   * 重跑盘点 + 映射并直接入库。
    */
   const handleReplanMigrate = useCallback(async () => {
     const taskId = taskCenter.startTask({ kind: 'migrate', title: '重新规划映射' })
@@ -955,16 +960,9 @@ export const WikiTab: React.FC = () => {
       migrateTaskRef.current = { taskId, runId: run.runId }
       return
     }
-    if (run.phase === 'review') {
-      taskCenter.completeTask(taskId, {
-        detail: `${run.mappings.length} 条映射待确认`,
-        migratePhase: 'review',
-      })
-      setNav({ kind: 'migrate' })
-    } else {
-      taskCenter.completeTask(taskId, { detail: run.progress.phaseLabel })
-    }
-  }, [replanMigrate, taskCenter])
+    finalizeMigrateTask(taskId, run.progress, run.error)
+    setNav({ kind: 'inbox' })
+  }, [replanMigrate, taskCenter, finalizeMigrateTask])
 
   /**
    * 撤销本次已整理项并退回收件箱。
@@ -978,7 +976,7 @@ export const WikiTab: React.FC = () => {
   }, [undoMigrate, refreshInbox, refreshSources, toast])
 
   /**
-   * 撤销后重新规划映射并打开预览。
+   * 撤销后重新规划并直接入库。
    */
   const handleUndoAndReplanMigrate = useCallback(async () => {
     setMigrateUndoPrompt(null)
@@ -988,13 +986,14 @@ export const WikiTab: React.FC = () => {
   }, [undoMigrate, refreshInbox, refreshSources, handleReplanMigrate])
 
   /**
-   * 从任务中心打开 migrate 预览页。
+   * 从任务中心回到收件箱查看整理结果（不再打开确认页）。
    */
   const handleOpenMigrateReview = useCallback(() => {
     setIsTaskCenterOpen(false)
     void refreshMigrateRun()
-    setNav({ kind: 'migrate' })
-  }, [refreshMigrateRun])
+    setNav({ kind: 'inbox' })
+    void Promise.all([refreshInbox(), refreshSources()])
+  }, [refreshMigrateRun, refreshInbox, refreshSources])
 
   /**
    * 应用一次主题树变更，成功后刷新树与文件列表。
@@ -1150,11 +1149,15 @@ export const WikiTab: React.FC = () => {
       if (autoClassifyEnabled && imported.migrateRun) {
         registerMigrateTask(imported.migrateRun)
         setMigrateRun(imported.migrateRun)
-        if (imported.migrateRun.phase === 'review') {
-          setNav({ kind: 'migrate' })
+        const applied = imported.migrateRun.progress.appliedCount ?? 0
+        if (imported.migrateRun.phase === 'succeeded' || imported.migrateRun.phase === 'partial') {
           toast.success(
-            `已导入 ${imported.imported} 个文件 · ${imported.migrateRun.progress.total} 条映射待确认`,
+            applied > 0
+              ? `已导入 ${imported.imported} 个文件 · 已整理入库 ${applied} 项`
+              : `已导入 ${imported.imported} 个文件 · 整理完成`,
           )
+        } else if (isMigrateBusyPhase(imported.migrateRun.phase)) {
+          toast.success(`已导入 ${imported.imported} 个文件 · 正在整理入库`)
         } else {
           toast.success(`已导入 ${imported.imported} 个文件 · 正在整理入库`)
         }
@@ -1420,7 +1423,7 @@ export const WikiTab: React.FC = () => {
                 void handleRunReclassify({ kind: 'all' }, { force: true, enableRename: reclassifyEnableRename })
               }}
             >
-              {reclassifyConfirm?.estimate?.fileCount === 0 ? '去收件箱分类' : '开始并查看建议'}
+              {reclassifyConfirm?.estimate?.fileCount === 0 ? '去收件箱分类' : '开始编目'}
             </Button>
           </>
         }
@@ -1430,7 +1433,7 @@ export const WikiTab: React.FC = () => {
             ? reclassifyConfirm.estimate.note
             : `将扫描 ${reclassifyConfirm?.count ?? 0} 个已归档文件，不会改临时存放。`}
         </p>
-        <p className="wiki-reclassify-hint">AI 只给建议，接受后才生效。</p>
+        <p className="wiki-reclassify-hint">AI 会直接调整目录；有问题可删除后重新导入或再编目。</p>
         <label className="wiki-reclassify-rename-toggle">
           <input
             type="checkbox"

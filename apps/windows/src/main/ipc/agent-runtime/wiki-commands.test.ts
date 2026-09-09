@@ -686,7 +686,7 @@ describe('wiki commands', () => {
     ).rejects.toThrow(/sourceId/)
   })
 
-  it('reclassify:run 后 get 返回批次，discard 后清空', async () => {
+  it('reclassify:run 后 get 为空（已自动应用），discard 仍安全', async () => {
     const repo = createWikiRepo()
     const bridge = buildBridge(repo)
     const source = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: '白皮书' })
@@ -699,11 +699,20 @@ describe('wiki commands', () => {
     } as never)
     expect(r.runId).toBeTruthy()
 
-    const got = handleWikiReclassifyGet(bridge, {
+    // 异步 run 可能尚未结束：等待至清空或超时
+    let got = handleWikiReclassifyGet(bridge, {
       type: 'wiki:reclassify:get',
       agentId: 'assistant',
     } as never)
-    expect((got.run as { status: string }).status).toBe('review')
+    const startedAt = Date.now()
+    while (got.run && Date.now() - startedAt < 5_000) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      got = handleWikiReclassifyGet(bridge, {
+        type: 'wiki:reclassify:get',
+        agentId: 'assistant',
+      } as never)
+    }
+    expect(got.run).toBeNull()
 
     handleWikiReclassifyDiscard(bridge, { type: 'wiki:reclassify:discard', agentId: 'assistant' } as never)
     expect(
@@ -841,7 +850,7 @@ describe('wiki commands', () => {
     expect(rows[0]?.topicSubtopic).toBe('例行')
   })
 
-  it('folder import 默认进入 migrate review 而非静默 archive', async () => {
+  it('folder import 开启自动分类时 plan 后直接 apply 入库', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wiki-cmd-migrate-'))
     const outputs = path.join(root, 'outputs')
     const proj = path.join(outputs, 'proj')
@@ -862,10 +871,10 @@ describe('wiki commands', () => {
       type: 'wiki:folder:import',
       agentId: 'assistant',
       dir: outputs,
-    }) as { migrateRun?: { phase: string } }
+    }) as { migrateRun?: { phase: string; appliedSourceIds?: string[] } }
 
-    expect(r.migrateRun?.phase).toBe('review')
-    expect(repo.listSources('assistant', 'local-user').filter((s) => s.topic_category)).toHaveLength(0)
+    expect(r.migrateRun?.phase).toBe('succeeded')
+    expect(repo.listSources('assistant', 'local-user').filter((s) => s.topic_category)).toHaveLength(2)
     expect(llm).toHaveBeenCalled()
 
     fs.rmSync(root, { recursive: true, force: true })

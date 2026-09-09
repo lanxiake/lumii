@@ -73,7 +73,7 @@ describe("WikiReclassifier 两轮制", () => {
     const callLLM = scriptedLLM({ [s.id]: { category: "学习", subtopic: "在学" } });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     expect(callLLM).toHaveBeenCalledTimes(1);
     const got = reclassifier.get("ag", "u")!;
     expect(got.candidates).toHaveLength(1);
@@ -89,7 +89,7 @@ describe("WikiReclassifier 两轮制", () => {
     );
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     expect(callLLM).toHaveBeenCalledTimes(2);
     const got = reclassifier.get("ag", "u")!;
     expect(got.candidates).toHaveLength(1);
@@ -103,7 +103,7 @@ describe("WikiReclassifier 两轮制", () => {
     const callLLM = scriptedLLM({ [s.id]: { needContent: true, reason: "无正文判不了" } });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     // 无正文，不该触发内容轮调用
     expect(callLLM).toHaveBeenCalledTimes(1);
     const got = reclassifier.get("ag", "u")!;
@@ -139,7 +139,7 @@ describe("WikiReclassifier 两轮制", () => {
     });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, enableRename: true });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, enableRename: true, autoApply: false });
     const got = reclassifier.get("ag", "u")!;
     expect(got.candidates).toHaveLength(1);
     expect(got.candidates[0]!.renameTitle).toBe("2026年Q3技术调研报告");
@@ -169,7 +169,7 @@ describe("WikiReclassifier 两轮制", () => {
     });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, enableRename: true });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, enableRename: true, autoApply: false });
     const got = reclassifier.get("ag", "u")!;
     expect(got.candidates[0]!.renameTitle).toBeUndefined();
   });
@@ -196,7 +196,7 @@ describe("WikiReclassifier 两轮制", () => {
     });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     const got = reclassifier.get("ag", "u")!;
     expect(got.candidates[0]!.renameTitle).toBeUndefined();
     void s;
@@ -208,7 +208,7 @@ describe("WikiReclassifier 两轮制", () => {
     const callLLM = scriptedLLM({ [s.id]: { category: "学习", subtopic: "在学", confidence: 0.3 } });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     const got = reclassifier.get("ag", "u")!;
     expect(got.candidates).toHaveLength(0);
     expect(got.unchanged).toBe(1);
@@ -220,7 +220,7 @@ describe("WikiReclassifier 两轮制", () => {
     const callLLM = scriptedLLM({ [s.id]: { category: "工作", subtopic: "项目" } });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     const got = reclassifier.get("ag", "u")!;
     expect(got.candidates).toHaveLength(0);
     expect(got.unchanged).toBe(1);
@@ -232,7 +232,7 @@ describe("WikiReclassifier 两轮制", () => {
     const callLLM = scriptedLLM({ [s.id]: { category: "学习", subtopic: "在学" } });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     const got = reclassifier.get("ag", "u")!;
     expect(got.candidates[0]).toMatchObject({ fromCategory: null, fromSubtopic: null });
   });
@@ -243,7 +243,7 @@ describe("WikiReclassifier 两轮制", () => {
     const callLLM = scriptedLLM({ [s.id]: { category: "学习", subtopic: null } });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     const got = reclassifier.get("ag", "u")!;
     expect(got.candidates[0]).toMatchObject({ toCategory: "学习", toSubtopic: null });
   });
@@ -256,7 +256,7 @@ describe("WikiReclassifier 两轮制", () => {
     const callLLM = scriptedLLM(decisions);
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     expect(callLLM).toHaveBeenCalledTimes(1);
   });
 
@@ -277,7 +277,7 @@ describe("WikiReclassifier 两轮制", () => {
     const reclassifier = new WikiReclassifier(repo, failThenSucceed, mkId);
 
     await expect(
-      reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT }),
+      reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false }),
     ).rejects.toThrow(/模型不可用/);
 
     const failed = reclassifier.get("ag", "u")!;
@@ -291,7 +291,7 @@ describe("WikiReclassifier 两轮制", () => {
       return JSON.stringify({ items });
     });
     const resumed = new WikiReclassifier(repo, resumeLLM, mkId);
-    await resumed.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, force: true });
+    await resumed.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, force: true, autoApply: false });
 
     expect(resumeLLM).toHaveBeenCalledTimes(1); // 只处理了第二批
     const done = resumed.get("ag", "u")!;
@@ -307,14 +307,14 @@ describe("WikiReclassifier 两轮制", () => {
     const callLLM = scriptedLLM({ [s.id]: { category: "学习", subtopic: "在学" } });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     expect(reclassifier.get("ag", "u")!.status).toBe("review");
 
     await expect(
-      reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT }),
+      reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false }),
     ).rejects.toThrow(/已有/);
     await expect(
-      reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, force: true }),
+      reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, force: true, autoApply: false }),
     ).resolves.toBeTruthy();
   });
 });
@@ -332,7 +332,7 @@ describe("WikiReclassifier 状态机（scope/apply/discard）", () => {
 
     const callLLM = scriptedLLM({ [parked.id]: { category: "学习", subtopic: "在学" } });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
-    await reclassifier.run("ag", "u", { kind: "source", sourceId: parked.id }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "source", sourceId: parked.id }, { vaultRoot: VAULT_ROOT, autoApply: false });
     const got = reclassifier.get("ag", "u")!;
     expect(got.total).toBe(1);
     expect(callLLM).toHaveBeenCalled();
@@ -352,7 +352,7 @@ describe("WikiReclassifier 状态机（scope/apply/discard）", () => {
 
     const callLLM = scriptedLLM({});
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     const got = reclassifier.get("ag", "u")!;
     // 已归档 1 条 + 收件箱 1 条 = 2；搁置（临时存放）被排除
     expect(got.total).toBe(2);
@@ -370,18 +370,32 @@ describe("WikiReclassifier 状态机（scope/apply/discard）", () => {
       "ag",
       "u",
       { kind: "subtopic", category: "工作", subtopic: "例行" },
-      { vaultRoot: VAULT_ROOT },
+      { vaultRoot: VAULT_ROOT, autoApply: false },
     );
     expect(reclassifier.get("ag", "u")!.total).toBe(1);
   });
 
-  it("run 成功后 status = review；apply 部分接受后写两列并标 applied", async () => {
+  it("run 默认自动 apply：写两列并清空批次", async () => {
     const { repo, mkFiled } = setup();
     const s = mkFiled("技术白皮书");
     const callLLM = scriptedLLM({ [s.id]: { category: "学习", subtopic: "在学", reason: "技术调研" } });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
     await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    expect(reclassifier.get("ag", "u")).toBeNull();
+
+    const after = repo.findSourceById(s.id)!;
+    expect(after.topic_category).toBe("学习");
+    expect(after.topic_subtopic).toBe("在学");
+  });
+
+  it("autoApply=false 时停在 review，apply 部分接受后写两列并标 applied", async () => {
+    const { repo, mkFiled } = setup();
+    const s = mkFiled("技术白皮书");
+    const callLLM = scriptedLLM({ [s.id]: { category: "学习", subtopic: "在学", reason: "技术调研" } });
+    const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
+
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     const got = reclassifier.get("ag", "u")!;
     expect(got.status).toBe("review");
     expect(got.candidates).toHaveLength(1);
@@ -419,7 +433,7 @@ describe("WikiReclassifier 状态机（scope/apply/discard）", () => {
     });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     const got = reclassifier.get("ag", "u")!;
     expect(got.candidates).toHaveLength(2);
 
@@ -450,7 +464,7 @@ describe("WikiReclassifier 状态机（scope/apply/discard）", () => {
     });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     const got = reclassifier.get("ag", "u")!;
     reclassifier.apply("ag", "u", [got.candidates[0]!.id]);
     expect(reclassifier.get("ag", "u")).not.toBeNull();
@@ -465,7 +479,7 @@ describe("WikiReclassifier 状态机（scope/apply/discard）", () => {
     const callLLM = scriptedLLM({ [s.id]: { category: "学习", subtopic: "在学" } });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
 
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     expect(reclassifier.get("ag", "u")).not.toBeNull();
 
     reclassifier.discard("ag", "u");
@@ -483,7 +497,7 @@ describe("WikiReclassifier 状态机（scope/apply/discard）", () => {
     );
 
     await expect(
-      reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT }),
+      reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false }),
     ).rejects.toThrow(/模型不可用/);
     const got = reclassifier.get("ag", "u")!;
     expect(got.status).toBe("failed");
@@ -496,7 +510,7 @@ describe("WikiReclassifier 状态机（scope/apply/discard）", () => {
     const s = mkFiled("白皮书");
     const callLLM = scriptedLLM({ [s.id]: { category: "学习", subtopic: "在学" } });
     const reclassifier = new WikiReclassifier(repo, callLLM, mkId);
-    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT });
+    await reclassifier.run("ag", "u", { kind: "all" }, { vaultRoot: VAULT_ROOT, autoApply: false });
     expect(reclassifier.apply("ag", "u", [])).toEqual({ applied: 0, failed: 0, appliedSourceIds: [] });
     expect(reclassifier.get("ag", "u")!.candidates).toHaveLength(1);
   });

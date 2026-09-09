@@ -44,7 +44,7 @@ function formatConfidence(confidence: number): string {
 /**
  * 库级迁移映射预览审阅主区。
  *
- * 映射是「建议」不是「已改」：只有点确认整理才写主题两列。
+ * 映射默认自动应用：本页仅作兼容旧进度的只读兜底。
  * 冲突未处理完时禁用确认；用户可改落点、批准小类或忽略文件夹。
  */
 export const WikiMigrateReviewView: React.FC<WikiMigrateReviewViewProps> = ({
@@ -60,7 +60,7 @@ export const WikiMigrateReviewView: React.FC<WikiMigrateReviewViewProps> = ({
   const unresolvedConflicts = useMemo(() => hasUnresolvedConflicts(mappings), [mappings])
 
   if (!run) {
-    return <p className="wiki-migrate-review-empty">还没有整理入库方案。从收件箱导入文件夹并开启 AI 自动分类后开始。</p>
+    return <p className="wiki-migrate-review-empty">整理入库已改为自动执行。导入文件夹并开启 AI 自动分类后，会直接归档到目录。</p>
   }
 
   if (run.phase === 'inventorying' || run.phase === 'planning') {

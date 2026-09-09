@@ -905,7 +905,7 @@ export function handleWikiReclassifyEstimate(
   } else if (fileCount === 0) {
     note = '当前没有可编目的资料。请先把文件导入收件箱并分类到工作 / 学习 / 生活 / 收藏。'
   } else {
-    note = `将对 ${fileCount} 份已入库资料给出调整建议，预计 ${structureCalls + estimatedContentCalls} 次模型调用。接受预览后才会改目录。`
+    note = `将对 ${fileCount} 份已入库资料自动调整目录，预计 ${structureCalls + estimatedContentCalls} 次模型调用。有问题可删除后重来。`
     if (inboxCount > 0) {
       note += ` 收件箱另有 ${inboxCount} 条未分类，不会出现在本次建议里。`
     }

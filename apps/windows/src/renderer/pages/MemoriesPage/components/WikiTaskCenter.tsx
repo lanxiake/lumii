@@ -116,9 +116,13 @@ const WikiTaskItem: React.FC<{
     )}
     {task.phase !== 'running' && (
       <div className="wiki-task-center-actions">
-        {task.kind === 'migrate' && task.migratePhase === 'review' && onOpenMigrateReview && (
+        {task.kind === 'migrate' &&
+          (task.migratePhase === 'succeeded' ||
+            task.migratePhase === 'partial' ||
+            task.migratePhase === 'review') &&
+          onOpenMigrateReview && (
           <Button variant="secondary" size="sm" onClick={onOpenMigrateReview}>
-            查看映射
+            查看收件箱
           </Button>
         )}
         {task.retryable && (

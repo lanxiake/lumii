@@ -110,19 +110,6 @@ export class CloudSyncManager extends EventEmitter {
         fs.mkdirSync(this.syncDir, { recursive: true })
       }
 
-      // ===== 新增：推送前导出数据 =====
-      logger.info('[sync] 1. 导出数据到 sync/...')
-      const exporter = new SyncExporter({
-        dbPath: this.dbPath,
-        syncDir: this.syncDir,
-        workspaceDir: this.workspaceDir,
-        dataDir: this.dataDir,
-      })
-      const exportResult = await exporter.export()
-      if (!exportResult.success) {
-        logger.warn(`[sync] 导出有错误: ${exportResult.errors.join(', ')}`)
-      }
-
       // 使用 sync 目录作为 Git 仓库
       const p: GitParams = {
         fs,
@@ -144,37 +131,20 @@ export class CloudSyncManager extends EventEmitter {
         logger.info('[sync] 初始化 Git 仓库')
       }
 
-      // 1.5 写入 .gitignore，忽略每次导出都会重写时间戳的同步清单，
-      // 避免 statusMatrix 把 .sync-manifest.json 的时间戳变化当作真实变更、产生空提交。
+      // 1.5 写入 .gitignore
       this.ensureSyncGitignore()
 
-      // 2. 检查是否有变更
-      const status = await git.statusMatrix({ ...p })
-      const hasChanges = status.some(([_, head, workdir, stage]) => head !== workdir || workdir !== stage)
-
-      if (hasChanges) {
-        // 添加所有文件
-        await git.add({ ...p, filepath: '.' })
-
-        // 提交
-        await git.commit({
-          ...p,
-          message: `云同步自动提交 ${new Date().toISOString()}`,
-          author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
-        })
-        logger.info('[sync] 已提交本地变更')
-      } else {
-        logger.info('[sync] 无本地变更')
-      }
-
-      // 3. 确保 remote origin
+      // 2. 确保 remote origin
       try {
         await git.addRemote({ ...p, remote: 'origin', url, force: true })
       } catch (err) {
         // 已存在，忽略
       }
 
-      // 4. fetch
+      // ===== 新流程：fetch → import → export → push =====
+
+      // 3. fetch 远端
+      logger.info('[sync] 1. Fetch 远端数据...')
       let remoteOid: string | null
       try {
         await git.fetch({ ...p, http, remote: 'origin', ref: branch, singleBranch: true, onAuth: auth })
@@ -185,58 +155,63 @@ export class CloudSyncManager extends EventEmitter {
 
       const localOid = await git.resolveRef({ ...p, ref: 'HEAD' }).catch(() => null)
 
-      // 5. 首推
+      // 4. 首次推送（远端为空）
       if (remoteOid === null) {
+        logger.info('[sync] 远端为空，准备首次推送')
+        // 导出 → 提交 → 推送
+        await this.exportAndCommit(p)
         await this.push(p, url, localRef, auth)
         this.setState('idle', '首次推送完成')
         return { success: true, state: 'idle' }
       }
-      if (remoteOid === localOid) {
-        // ===== 新增：拉取后导入数据 =====
-        logger.info('[sync] 已是最新，检查是否需要导入...')
-        await this.importDataIfNeeded()
-        this.setState('idle', '已是最新')
-        return { success: true, state: 'idle' }
-      }
 
-      // 6. 分支判定
+      // 5. 本地无提交（首次拉取）
       if (!localOid) {
-        // 本地无提交，直接拉取远程
+        logger.info('[sync] 本地无提交，拉取远端')
         await git.fetch({ ...p, http, remote: 'origin', ref: branch, onAuth: auth })
         await git.checkout({ ...p, ref: branch, force: true })
-        await this.importDataIfNeeded()
+        await this.importData()
         this.setState('idle', '已拉取远程数据')
         return { success: true, state: 'idle' }
       }
 
+      // 6. 判断远端和本地的关系
       const baseOids = await git.findMergeBase({ ...p, oids: [localOid, remoteOid] })
 
       if (baseOids.length === 0) {
         // 无关历史：采用远端
         await this.adoptRemote(p, localRef, remoteOid)
-        await this.importDataIfNeeded()
+        await this.importData()
         this.setState('idle', '已采用远端历史作为本地主线')
         return { success: true, state: 'idle' }
       }
 
       const baseOid = baseOids[0]
 
+      // 7. 远端无变化（仅本地新）
       if (baseOid === remoteOid) {
-        // 仅本地新 → push
+        logger.info('[sync] 仅本地有新提交')
+        // 导出 → 提交 → 推送
+        await this.exportAndCommit(p)
         await this.push(p, url, localRef, auth)
         this.setState('idle', '同步完成')
         return { success: true, state: 'idle' }
       }
+
+      // 8. 本地无变化（仅远端新）
       if (baseOid === localOid) {
-        // 仅远程新 → 快进
+        logger.info('[sync] 仅远端有新提交，快进合并')
         await git.writeRef({ ...p, ref: localRef, value: remoteOid, force: true })
         await git.checkout({ ...p, ref: localRef, force: true })
-        await this.importDataIfNeeded()
+        await this.importData()
         this.setState('idle', '已拉取远程变更')
         return { success: true, state: 'idle' }
       }
 
-      // 双方都新 → 尝试 merge
+      // 9. 双方都有新提交 → merge → import → export → push
+      logger.info('[sync] 双方都有新提交，执行三方合并')
+
+      // 9.1 先尝试 merge（可能产生冲突）
       try {
         await git.merge({
           ...p,
@@ -257,8 +232,16 @@ export class CloudSyncManager extends EventEmitter {
       }
 
       await git.checkout({ ...p, ref: 'HEAD', force: true })
-      await this.importDataIfNeeded()
+
+      // 9.2 导入远端数据（merge 后的文件包含远端更新）
+      await this.importData()
+
+      // 9.3 导出当前状态（包含本地+远端合并后的结果）
+      await this.exportAndCommit(p)
+
+      // 9.4 推送
       await this.push(p, url, localRef, auth)
+
       this.setState('idle', '同步完成')
       return { success: true, state: 'idle' }
     } catch (err) {
@@ -324,11 +307,55 @@ export class CloudSyncManager extends EventEmitter {
   }
 
   /**
-   * 导入数据（拉取后）
+   * 导出数据并提交（如果有变更）
+   *
+   * 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
+   * - 在事务中导出，确保一致性快照
+   * - 导出后检查 git status，有变更才提交
    */
-  private async importDataIfNeeded(): Promise<void> {
+  private async exportAndCommit(p: GitParams): Promise<void> {
+    logger.info('[exportAndCommit] 导出数据到 sync/...')
+    const exporter = new SyncExporter({
+      dbPath: this.dbPath,
+      syncDir: this.syncDir,
+      workspaceDir: this.workspaceDir,
+      dataDir: this.dataDir,
+    })
+    const exportResult = await exporter.export()
+    if (!exportResult.success) {
+      logger.warn(`[exportAndCommit] 导出有错误: ${exportResult.errors.join(', ')}`)
+    }
+
+    // 检查是否有变更
+    const status = await git.statusMatrix({ ...p })
+    const hasChanges = status.some(([_, head, workdir, stage]) => head !== workdir || workdir !== stage)
+
+    if (hasChanges) {
+      // 添加所有文件
+      await git.add({ ...p, filepath: '.' })
+
+      // 提交
+      await git.commit({
+        ...p,
+        message: `sync: merge and export at ${new Date().toISOString()}`,
+        author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
+      })
+      logger.info('[exportAndCommit] 已提交本地变更')
+    } else {
+      logger.info('[exportAndCommit] 无变更需要提交')
+    }
+  }
+
+  /**
+   * 导入数据（从 sync/ 目录）
+   *
+   * 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
+   * - 按时间戳merge规则合并远端数据到本地数据库
+   * - 在事务中执行，确保一致性
+   */
+  private async importData(): Promise<void> {
     try {
-      logger.info('[importDataIfNeeded] 导入远程数据...')
+      logger.info('[importData] 导入远程数据...')
       const importer = new SyncImporter({
         dbPath: this.dbPath,
         syncDir: this.syncDir,
@@ -337,12 +364,12 @@ export class CloudSyncManager extends EventEmitter {
       })
       const result = await importer.import()
       if (result.success) {
-        logger.info(`[importDataIfNeeded] 导入成功: Wiki=${result.stats.wikiRows}, 记忆=${result.stats.memoriesImported}`)
+        logger.info(`[importData] 导入成功: Wiki=${result.stats.wikiRows}, 记忆=${result.stats.memoriesImported}`)
       } else {
-        logger.warn(`[importDataIfNeeded] 导入有错误: ${result.errors.join(', ')}`)
+        logger.warn(`[importData] 导入有错误: ${result.errors.join(', ')}`)
       }
     } catch (err) {
-      logger.error('[importDataIfNeeded] 导入失败:', err)
+      logger.error('[importData] 导入失败:', err)
       // 导入失败不应阻止同步流程
     }
   }

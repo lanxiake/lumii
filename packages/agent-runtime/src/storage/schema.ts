@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 37;
+export const SCHEMA_VERSION = 38;
 
 /**
  * V1 DDL — 初始 schema
@@ -1324,6 +1324,35 @@ ALTER TABLE wiki_sources ADD COLUMN topic_project TEXT;
 DROP INDEX IF EXISTS idx_wiki_sources_topic;
 CREATE INDEX IF NOT EXISTS idx_wiki_sources_topic
   ON wiki_sources (agent_id, user_id, topic_category, topic_subtopic, topic_project);
+`,
+  ],
+  // V38: 云同步软删除支持 — 为同步表添加 deleted_at 字段
+  //
+  // 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
+  // 为需要跨设备同步的4个表添加软删除标记，支持删除操作的传播。
+  // 软删除记录不物理删除，通过 deleted_at IS NULL 过滤活跃记录。
+  [
+    38,
+    `
+-- agent_memories：Agent 记忆软删除
+ALTER TABLE agent_memories ADD COLUMN deleted_at TEXT;
+CREATE INDEX IF NOT EXISTS idx_memories_deleted
+  ON agent_memories (agent_id, user_id, deleted_at);
+
+-- wiki_entities：Wiki 实体软删除
+ALTER TABLE wiki_entities ADD COLUMN deleted_at TEXT;
+CREATE INDEX IF NOT EXISTS idx_entities_deleted
+  ON wiki_entities (agent_id, user_id, deleted_at);
+
+-- wiki_relations：Wiki 关系软删除
+ALTER TABLE wiki_relations ADD COLUMN deleted_at TEXT;
+CREATE INDEX IF NOT EXISTS idx_relations_deleted
+  ON wiki_relations (agent_id, user_id, deleted_at);
+
+-- wiki_syntheses：Wiki 综述软删除
+ALTER TABLE wiki_syntheses ADD COLUMN deleted_at TEXT;
+CREATE INDEX IF NOT EXISTS idx_syntheses_deleted
+  ON wiki_syntheses (agent_id, user_id, deleted_at);
 `,
   ],
 ] as const;

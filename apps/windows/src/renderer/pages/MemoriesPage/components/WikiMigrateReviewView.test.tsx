@@ -140,6 +140,6 @@ describe('WikiMigrateReviewView', () => {
       />,
     )
 
-    expect(screen.getByText(/还没有整理入库方案/)).toBeInTheDocument()
+    expect(screen.getByText(/整理入库已改为自动执行/)).toBeInTheDocument()
   })
 })

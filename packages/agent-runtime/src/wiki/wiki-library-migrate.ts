@@ -1,7 +1,7 @@
 /**
- * WikiLibraryMigrate — 库级迁移状态机（plan / cancel / discard / replan）
+ * WikiLibraryMigrate — 库级迁移状态机（plan / cancel / discard / replan / apply）
  *
- * 盘点零 LLM；规划以文件夹簇为单元分批调 LLM；默认停在 review，apply 在 Task 5。
+ * 盘点零 LLM；规划以文件夹簇为单元分批调 LLM；默认规划结束后自动 apply。
  * 与 WikiReclassifier 互斥：reclassify running 时拒绝启动 migrate。
  *
  * 设计：docs/design/记忆设计/2026-09-05-wiki-library-migrate-design.md
@@ -34,12 +34,16 @@ export interface WikiLibraryMigratePlanOptions {
   readonly inboxIds: readonly string[];
   readonly workspaceRoot?: string;
   readonly vaultRoot: string;
+  /** 规划完成后是否自动归档；默认 true（跳过人工确认页） */
+  readonly autoApply?: boolean;
 }
 
 /** replan 额外入参（vaultRoot 供盘点复用） */
 export interface WikiLibraryMigrateReplanOptions {
   readonly vaultRoot: string;
   readonly workspaceRoot?: string;
+  /** 透传给 plan；默认 true */
+  readonly autoApply?: boolean;
 }
 
 /** updateMapping 可改字段 */
@@ -98,8 +102,8 @@ export class WikiLibraryMigrate {
   }
 
   /**
-   * 盘点 + 分批规划 → review。
-   * reclassify running 或已有 busy migrate 时抛错；不写入 wiki_sources。
+   * 盘点 + 分批规划；默认随后自动 apply。
+   * reclassify running 或已有 busy migrate 时抛错。
    */
   async plan(opts: WikiLibraryMigratePlanOptions): Promise<WikiMigrateRun> {
     this.assertCanStartPlan(opts.agentId, opts.userId);
@@ -197,15 +201,21 @@ export class WikiLibraryMigrate {
       return run;
     }
 
+    const prepared =
+      opts.autoApply === false ? mappings : this.prepareMappingsForAutoApply(mappings);
     run = {
       ...run,
       phase: "review",
-      mappings,
+      mappings: prepared,
       finishedAt: new Date().toISOString(),
-      progress: this.makeProgress(runId, "review", mappings.length, mappings.length, null),
+      progress: this.makeProgress(runId, "review", prepared.length, prepared.length, null),
     };
     this.persistRun(opts.agentId, opts.userId, run);
-    return run;
+
+    if (opts.autoApply === false) {
+      return run;
+    }
+    return this.apply(opts.agentId, opts.userId);
   }
 
   /**
@@ -264,7 +274,7 @@ export class WikiLibraryMigrate {
   }
 
   /**
-   * 对仍 pending 的 inbox 子集重跑盘点 + 规划 → review。
+   * 对仍 pending 的 inbox 子集重跑盘点 + 规划；默认随后自动 apply。
    * 会先清空当前 run 再 plan。
    */
   async replan(
@@ -291,6 +301,7 @@ export class WikiLibraryMigrate {
       inboxIds: pendingIds,
       workspaceRoot: opts.workspaceRoot,
       vaultRoot: opts.vaultRoot,
+      autoApply: opts.autoApply,
     });
   }
 
@@ -454,9 +465,29 @@ export class WikiLibraryMigrate {
     if (WikiLibraryMigrate.isBusy(existing)) {
       throw new Error("已有正在进行的库级迁移，请稍候");
     }
+    // 自动入库模式下不再保留待确认方案：丢弃残留 review，避免卡住新导入
     if (existing?.phase === "review") {
-      throw new Error("已有待确认的迁移方案，请先处理或丢弃");
+      this.repo.setMigrateRun(agentId, userId, null);
     }
+  }
+
+  /**
+   * 自动批准可执行的新小类提案，便于跳过人工确认直接 apply。
+   * conflict / needContent 仍跳过，条目留在收件箱。
+   */
+  private prepareMappingsForAutoApply(
+    mappings: readonly MigrateFolderMapping[],
+  ): MigrateFolderMapping[] {
+    return mappings.map((mapping) => {
+      if (mapping.status !== "ok" || !mapping.category || !mapping.proposedSubtopic) {
+        return mapping;
+      }
+      return {
+        ...mapping,
+        approvedProposedSubtopic: true,
+        subtopic: mapping.subtopic ?? mapping.proposedSubtopic,
+      };
+    });
   }
 
   /** 解析 inboxIds 为仍 pending 的条目 */

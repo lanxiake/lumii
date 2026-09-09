@@ -84,11 +84,19 @@ export class SyncExporter {
         errors.push(`profile: ${msg}`)
       }
 
-      // 2. 导出 Wiki（SQL dump）
+      // 2. 导出 Wiki（JSONL 格式，每表一个文件）
       logger.info('[export] 2. 导出 Wiki 知识库...')
       try {
         await this.exportWiki()
-        exportedFiles.push('wiki/data.json')
+        exportedFiles.push(
+          'wiki/wiki_inbox.jsonl',
+          'wiki/wiki_sources.jsonl',
+          'wiki/wiki_entities.jsonl',
+          'wiki/wiki_observations.jsonl',
+          'wiki/wiki_relations.jsonl',
+          'wiki/wiki_syntheses.jsonl',
+          'wiki/wiki_organize_runs.jsonl'
+        )
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         logger.error('[export] Wiki 导出失败:', msg)
@@ -193,14 +201,17 @@ export class SyncExporter {
   }
 
   /**
-   * 导出 Wiki 知识库（JSON，与 node:sqlite 同源，避免 sqlite3/gzip 命令与 better-sqlite3 原生依赖）
+   * 导出 Wiki 知识库（JSONL 格式，每表一个文件，每行一条记录）
+   *
+   * 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
+   * - 每表独立 .jsonl 文件，避免单文件过大导致 git merge 冲突扩散
+   * - 在事务中读取，防止导出期间数据被修改（窗口期保护）
+   * - 软删除记录也导出（deleted_at 字段），确保删除操作能传播到其他设备
    */
   private async exportWiki(): Promise<void> {
     const wikiDir = path.join(this.options.syncDir, 'wiki')
 
-    // 实际存在的 wiki 核心表（库中无 wiki_pages，见 sqlite_master 实查）。
-    // 排除 wiki_source_embeddings：embedding 是 BLOB 向量缓存，JSON 序列化会失真且无法再绑定，
-    // 属于可重建的派生数据，由 wiki_sources.content 源数据在导入侧按需重建。
+    // Wiki 核心表（排除派生数据：wiki_source_embeddings, wiki_sources_fts, wiki_index_meta）
     const wikiTables = [
       'wiki_inbox',
       'wiki_sources',
@@ -209,29 +220,67 @@ export class SyncExporter {
       'wiki_relations',
       'wiki_syntheses',
       'wiki_organize_runs',
-      'wiki_index_meta',
     ]
 
     const db = await openReadonlyDb(this.options.dbPath)
     try {
-      const data: Record<string, unknown[]> = {}
-      for (const table of wikiTables) {
-        try {
-          data[table] = db.prepare(`SELECT * FROM ${table}`).all() as unknown[]
-        } catch {
-          // 表不存在或查询失败，记空数组，不阻断其它表
-          data[table] = []
+      // 开启事务，确保所有表的导出是一致性快照
+      db.exec('BEGIN IMMEDIATE TRANSACTION')
+
+      try {
+        for (const table of wikiTables) {
+          await this.exportTableToJsonl(db, table, wikiDir)
         }
+
+        db.exec('COMMIT')
+      } catch (err) {
+        db.exec('ROLLBACK')
+        throw err
       }
-      const jsonFile = path.join(wikiDir, 'data.json')
-      fs.writeFileSync(jsonFile, JSON.stringify(data, null, 2))
     } finally {
       db.close()
     }
   }
 
   /**
-   * 导出 Agent 记忆（JSONL）
+   * 导出单个表为 JSONL 格式
+   * @param db 数据库连接
+   * @param tableName 表名
+   * @param outputDir 输出目录
+   */
+  private async exportTableToJsonl(
+    db: InstanceType<typeof DatabaseSync>,
+    tableName: string,
+    outputDir: string,
+  ): Promise<void> {
+    try {
+      const rows = db.prepare(`SELECT * FROM ${tableName}`).all() as unknown[]
+      const jsonlFile = path.join(outputDir, `${tableName}.jsonl`)
+
+      if (rows.length === 0) {
+        // 空表写入空文件
+        fs.writeFileSync(jsonlFile, '')
+        return
+      }
+
+      // 每行一条记录
+      const lines = rows.map((row) => JSON.stringify(row)).join('\n')
+      fs.writeFileSync(jsonlFile, lines + '\n') // 末尾加换行符，符合 JSONL 规范
+    } catch (err) {
+      // 表不存在，写入空文件
+      logger.warn(`[exportTableToJsonl] 表 ${tableName} 不存在或查询失败`)
+      const jsonlFile = path.join(outputDir, `${tableName}.jsonl`)
+      fs.writeFileSync(jsonlFile, '')
+    }
+  }
+
+  /**
+   * 导出 Agent 记忆（JSONL 格式）
+   *
+   * 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
+   * - 在事务中读取，防止导出期间数据被修改
+   * - 包含软删除记录（deleted_at IS NOT NULL），确保删除传播
+   * - 不再过滤 is_archived，软删除字段已取代归档标记
    */
   private async exportMemories(): Promise<void> {
     const db = await openReadonlyDb(this.options.dbPath)
@@ -240,17 +289,31 @@ export class SyncExporter {
     const jsonlFile = path.join(memoryDir, 'agent-memories.jsonl')
 
     try {
-      const memories = db.prepare(`
-        SELECT id, agent_id, user_id, category, content,
-               importance, tags, created_at, last_used,
-               use_count, is_archived
-        FROM agent_memories
-        WHERE is_archived = 0
-        ORDER BY created_at ASC
-      `).all()
+      // 开启事务，确保导出是一致性快照
+      db.exec('BEGIN IMMEDIATE TRANSACTION')
 
-      const lines = memories.map((m) => JSON.stringify(m)).join('\n')
-      fs.writeFileSync(jsonlFile, lines)
+      try {
+        // 导出所有记忆，包括软删除的（deleted_at 字段会随记录导出）
+        const memories = db.prepare(`
+          SELECT id, agent_id, user_id, category, content,
+                 importance, tags, created_at, last_used,
+                 use_count, is_archived, deleted_at
+          FROM agent_memories
+          ORDER BY created_at ASC
+        `).all()
+
+        if (memories.length === 0) {
+          fs.writeFileSync(jsonlFile, '')
+        } else {
+          const lines = memories.map((m) => JSON.stringify(m)).join('\n')
+          fs.writeFileSync(jsonlFile, lines + '\n')
+        }
+
+        db.exec('COMMIT')
+      } catch (err) {
+        db.exec('ROLLBACK')
+        throw err
+      }
     } catch (err) {
       logger.warn('[exportMemories] agent_memories 表不存在或为空')
       fs.writeFileSync(jsonlFile, '')

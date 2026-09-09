@@ -1,9 +1,8 @@
 /**
  * WikiReclassifier — 全库编目 v2：两轮制（结构优先、正文按需）+ 断点续跑
  *
- * 与自动归档（WikiOrganizer）的区别：重编目**不直接写库**，先落候选态，
- * 用户接受后才改主题两列。每 agent+user 同时只允许一个批次。
- * AI 只能在当前树里选节点，不能自造、不能写临时存放。
+ * 与自动归档（WikiOrganizer）的区别：重编目先产候选，默认自动应用全部建议。
+ * 每 agent+user 同时只允许一个批次。AI 只能在当前树里选节点，不能自造、不能写临时存放。
  *
  * 算法（P5 v1.1）：
  * (1) 盘点线 — buildLibraryInventory：纯 DB+文件系统，输出全局视野。
@@ -79,7 +78,7 @@ export class WikiReclassifier {
   }
 
   /**
-   * 启动一批编目：盘点 → 结构轮（分批）→ 内容轮（仅 needContent 且有正文）→ review。
+   * 启动一批编目：盘点 → 结构轮（分批）→ 内容轮 → 默认自动应用全部候选。
    * 已有 running 一律拒绝；review/failed 需要 force。
    * failed 批次续跑：按 resumeCursor 跳过已完成的批次，已产候选按 sourceId 去重不重复生成。
    */
@@ -87,7 +86,13 @@ export class WikiReclassifier {
     agentId: string,
     userId: string,
     scope: WikiReclassifyScope,
-    opts: { readonly force?: boolean; readonly vaultRoot: string; readonly enableRename?: boolean },
+    opts: {
+      readonly force?: boolean
+      readonly vaultRoot: string
+      readonly enableRename?: boolean
+      /** 跑完后是否自动应用全部候选；默认 true */
+      readonly autoApply?: boolean
+    },
   ): Promise<string> {
     if (WikiLibraryMigrate.isBusy(this.repo.getMigrateRun(agentId, userId))) {
       throw new Error("已有正在进行的库级迁移，请等它结束后再重新编目");
@@ -127,8 +132,7 @@ export class WikiReclassifier {
     this.repo.setReclassifyRun(agentId, userId, run);
 
     if (inv.files.length === 0) {
-      run = { ...run, status: "review", updatedAt: new Date().toISOString() };
-      this.repo.setReclassifyRun(agentId, userId, run);
+      this.repo.setReclassifyRun(agentId, userId, null);
       return runId;
     }
 
@@ -270,11 +274,26 @@ export class WikiReclassifier {
     }
 
     const { resumeCursor: _drop, ...settled } = run;
+    const settledCandidates = [...candidates];
     this.repo.setReclassifyRun(agentId, userId, {
       ...settled,
       status: "review",
+      candidates: settledCandidates,
       updatedAt: new Date().toISOString(),
     });
+
+    if (opts.autoApply === false) {
+      return runId;
+    }
+
+    const pendingIds = settledCandidates
+      .filter((c) => c.decision === "pending")
+      .map((c) => c.id);
+    if (pendingIds.length > 0) {
+      this.apply(agentId, userId, pendingIds);
+    } else {
+      this.repo.setReclassifyRun(agentId, userId, null);
+    }
     return runId;
   }
 

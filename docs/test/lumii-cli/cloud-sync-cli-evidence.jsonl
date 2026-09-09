@@ -1,0 +1,25 @@
+{"timestamp":"2026-09-09T08:28:45.649Z","level":"INFO","message":"开始测试 Schema V38 Migration..."}
+{"timestamp":"2026-09-09T08:28:49.297Z","level":"TEST","message":"Schema V38: 版本检查: FAIL","name":"Schema V38: 版本检查","status":"FAIL","expected":">=38","actual":null}
+{"timestamp":"2026-09-09T08:28:49.298Z","level":"INFO","message":"开始测试 JSONL 导出格式..."}
+{"timestamp":"2026-09-09T08:28:49.299Z","level":"WARN","message":"JSONL 文件不存在: wiki_inbox.jsonl"}
+{"timestamp":"2026-09-09T08:28:49.299Z","level":"WARN","message":"JSONL 文件不存在: wiki_sources.jsonl"}
+{"timestamp":"2026-09-09T08:28:49.299Z","level":"WARN","message":"JSONL 文件不存在: wiki_entities.jsonl"}
+{"timestamp":"2026-09-09T08:28:49.300Z","level":"WARN","message":"JSONL 文件不存在: wiki_observations.jsonl"}
+{"timestamp":"2026-09-09T08:28:49.300Z","level":"WARN","message":"JSONL 文件不存在: wiki_relations.jsonl"}
+{"timestamp":"2026-09-09T08:28:49.300Z","level":"WARN","message":"JSONL 文件不存在: wiki_syntheses.jsonl"}
+{"timestamp":"2026-09-09T08:28:49.300Z","level":"WARN","message":"JSONL 文件不存在: wiki_organize_runs.jsonl"}
+{"timestamp":"2026-09-09T08:28:49.300Z","level":"INFO","message":"JSONL 格式验证通过"}
+{"timestamp":"2026-09-09T08:28:49.301Z","level":"INFO","message":"开始测试 Merge 规则..."}
+{"timestamp":"2026-09-09T08:28:50.218Z","level":"TEST","message":"Merge 规则: 创建测试记忆: PASS","name":"Merge 规则: 创建测试记忆","status":"PASS","id":"test-memory-1788942529301"}
+{"timestamp":"2026-09-09T08:28:51.086Z","level":"TEST","message":"Merge 规则: 查询测试记忆: PASS","name":"Merge 规则: 查询测试记忆","status":"PASS"}
+{"timestamp":"2026-09-09T08:28:51.939Z","level":"TEST","message":"Merge 规则: 清理测试数据: PASS","name":"Merge 规则: 清理测试数据","status":"PASS"}
+{"timestamp":"2026-09-09T08:28:51.940Z","level":"INFO","message":"开始测试软删除功能..."}
+{"timestamp":"2026-09-09T08:28:52.802Z","level":"TEST","message":"软删除: 创建测试实体: PASS","name":"软删除: 创建测试实体","status":"PASS","id":"test-entity-1788942531940"}
+{"timestamp":"2026-09-09T08:28:53.661Z","level":"TEST","message":"软删除: 标记删除: PASS","name":"软删除: 标记删除","status":"PASS"}
+{"timestamp":"2026-09-09T08:28:54.517Z","level":"TEST","message":"软删除: deleted_at 字段验证: PASS","name":"软删除: deleted_at 字段验证","status":"PASS","deleted_at":"[Security] 安全工具初始化完成\n[Main] 灵栖 Lumii 启动中...\n[Main] 应用即将退出，等待清理完成...\n[Main] 开始清理资源...\n[Main] 资源清理完成\n[Main] 清理完成，调用 app.exit(0) 强制退出所有进程"}
+{"timestamp":"2026-09-09T08:28:55.394Z","level":"TEST","message":"软删除: 清理测试数据: PASS","name":"软删除: 清理测试数据","status":"PASS"}
+{"timestamp":"2026-09-09T08:28:55.395Z","level":"INFO","message":"开始测试同步工具可用性..."}
+{"timestamp":"2026-09-09T08:28:55.395Z","level":"TEST","message":"同步工具: 配置文件存在: SKIP","name":"同步工具: 配置文件存在","status":"SKIP","reason":"配置文件不存在（用户未配置云同步）"}
+{"timestamp":"2026-09-09T08:28:55.395Z","level":"TEST","message":"同步工具: 目录结构检查: PASS","name":"同步工具: 目录结构检查","status":"PASS","dirs":["profile","wiki","memory","autonomous","workspace"]}
+{"timestamp":"2026-09-09T08:28:55.396Z","level":"INFO","message":"======== 测试完成 ========"}
+{"timestamp":"2026-09-09T08:28:55.396Z","level":"INFO","message":"总计: 10, 通过: 8, 失败: 1, 跳过: 1"}

@@ -33,7 +33,7 @@ function setupInboxPair(repo: WikiRepo): { id1: string; id2: string } {
   return { id1, id2 };
 }
 
-function planOpts(inboxIds: readonly string[]) {
+function planOpts(inboxIds: readonly string[], extra?: { autoApply?: boolean }) {
   return {
     agentId: "ag",
     userId: "u",
@@ -41,6 +41,7 @@ function planOpts(inboxIds: readonly string[]) {
     inboxIds,
     workspaceRoot: WORKSPACE_ROOT,
     vaultRoot: VAULT_ROOT,
+    ...extra,
   };
 }
 
@@ -79,7 +80,7 @@ describe("WikiLibraryMigrate.isBusy", () => {
 });
 
 describe("WikiLibraryMigrate plan", () => {
-  it("plan 结束后 phase=review，同夹映射一致且未 archive", async () => {
+  it("plan 默认自动 apply：phase=succeeded 且已归档", async () => {
     const repo = new WikiRepo(createMigratedTestDb());
     const { id1, id2 } = setupInboxPair(repo);
     const llm = vi.fn(async () =>
@@ -90,15 +91,30 @@ describe("WikiLibraryMigrate plan", () => {
     const mig = new WikiLibraryMigrate(repo, llm, mkId);
     const run = await mig.plan(planOpts([id1, id2]));
 
-    expect(run.phase).toBe("review");
+    expect(run.phase).toBe("succeeded");
     expect(run.mappings).toHaveLength(1);
-    expect(run.mappings[0]!.folderRel).toBe("proj");
-    expect(run.mappings[0]!.inboxIds).toHaveLength(2);
-    expect(run.mappings[0]!.category).toBe("工作");
+    expect(run.appliedSourceIds).toHaveLength(2);
+    expect(repo.findInboxById(id1)!.status).toBe("organized");
+    expect(repo.findInboxById(id2)!.status).toBe("organized");
+    expect(llm).toHaveBeenCalledTimes(1);
+  });
+
+  it("autoApply=false 时停在 review，不归档", async () => {
+    const repo = new WikiRepo(createMigratedTestDb());
+    const { id1, id2 } = setupInboxPair(repo);
+    const mig = new WikiLibraryMigrate(
+      repo,
+      async () =>
+        JSON.stringify([
+          { folderRel: "proj", category: "工作", subtopic: "项目", confidence: 0.9, reason: "同项目" },
+        ]),
+      mkId,
+    );
+    const run = await mig.plan({ ...planOpts([id1, id2]), autoApply: false });
+
+    expect(run.phase).toBe("review");
     expect(repo.listSources("ag", "u").filter((s) => s.topic_category)).toHaveLength(0);
     expect(repo.findInboxById(id1)!.status).toBe("pending");
-    expect(repo.findInboxById(id2)!.status).toBe("pending");
-    expect(llm).toHaveBeenCalledTimes(1);
   });
 
   it("reclassify running 时拒绝 plan", async () => {
@@ -179,7 +195,11 @@ describe("WikiLibraryMigrate cancel", () => {
       ]),
     );
     const mig2 = new WikiLibraryMigrate(repo, llm2, mkId);
-    const replanned = await mig2.replan("ag", "u", { vaultRoot: VAULT_ROOT, workspaceRoot: WORKSPACE_ROOT });
+    const replanned = await mig2.replan("ag", "u", {
+      vaultRoot: VAULT_ROOT,
+      workspaceRoot: WORKSPACE_ROOT,
+      autoApply: false,
+    });
     expect(replanned.phase).toBe("review");
     expect(replanned.mappings[0]!.category).toBe("学习");
   });
@@ -197,7 +217,7 @@ describe("WikiLibraryMigrate discard", () => {
         ]),
       mkId,
     );
-    await mig.plan(planOpts([id1, id2]));
+    await mig.plan(planOpts([id1, id2], { autoApply: false }));
     expect(mig.get("ag", "u")).not.toBeNull();
 
     mig.discard("ag", "u");
@@ -226,7 +246,7 @@ describe("WikiLibraryMigrate updateMapping", () => {
         ]),
       mkId,
     );
-    await mig.plan(planOpts([id1]));
+    await mig.plan(planOpts([id1], { autoApply: false }));
     const updated = mig.updateMapping("ag", "u", "proj", {
       category: "工作",
       subtopic: "项目",
@@ -249,7 +269,7 @@ describe("WikiLibraryMigrate updateMapping", () => {
         ]),
       mkId,
     );
-    await mig.plan(planOpts([id1]));
+    await mig.plan(planOpts([id1], { autoApply: false }));
     const updated = mig.updateMapping("ag", "u", "proj", { ignored: true });
     expect(updated.mappings[0]!.ignored).toBe(true);
   });
@@ -274,7 +294,7 @@ function setupTwoFolderInbox(repo: WikiRepo): { id1: string; id2: string } {
 }
 
 async function planTwoFoldersToReview(mig: WikiLibraryMigrate, id1: string, id2: string) {
-  return mig.plan(planOpts([id1, id2]));
+  return mig.plan(planOpts([id1, id2], { autoApply: false }));
 }
 
 describe("WikiLibraryMigrate apply", () => {
@@ -289,7 +309,7 @@ describe("WikiLibraryMigrate apply", () => {
         ]),
       mkId,
     );
-    await mig.plan(planOpts([id1, id2]));
+    await mig.plan(planOpts([id1, id2], { autoApply: false }));
     const run = await mig.apply("ag", "u");
 
     expect(run.phase).toBe("succeeded");
@@ -340,7 +360,7 @@ describe("WikiLibraryMigrate apply", () => {
       undefined,
       { onSourceCreated: (s) => created.push(s) },
     );
-    await mig.plan(planOpts([id1]));
+    await mig.plan(planOpts([id1], { autoApply: false }));
     await mig.apply("ag", "u");
     expect(created).toHaveLength(1);
     expect(created[0]!.topic_category).toBe("工作");
@@ -424,7 +444,7 @@ describe("WikiLibraryMigrate undo", () => {
         ]),
       mkId,
     );
-    await mig.plan(planOpts([id1, id2]));
+    await mig.plan(planOpts([id1, id2], { autoApply: false }));
     const applied = await mig.apply("ag", "u");
     const sourceIds = [...applied.appliedSourceIds];
 
@@ -445,7 +465,7 @@ describe("WikiLibraryMigrate undo", () => {
     );
     const mig2 = new WikiLibraryMigrate(repo, llm2, mkId);
     const replanned = await mig2.plan(planOpts([id1, id2]));
-    expect(replanned.phase).toBe("review");
+    expect(replanned.phase).toBe("succeeded");
   });
 
   it("不修改本 run 之外已归档资料的 topic", async () => {
@@ -469,7 +489,6 @@ describe("WikiLibraryMigrate undo", () => {
       mkId,
     );
     await mig.plan(planOpts([id1, id2]));
-    await mig.apply("ag", "u");
 
     expect(repo.findSourceById(preexisting.id)!.topic_category).toBe("学习");
     expect(repo.findSourceById(preexisting.id)!.topic_subtopic).toBe("参考");
