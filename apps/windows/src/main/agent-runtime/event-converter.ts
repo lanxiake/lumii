@@ -426,6 +426,8 @@ export function convertOldEventToIpcEvents(
         messagesBefore: oldEvent.messagesBefore,
         messagesAfter: oldEvent.messagesAfter,
         timestamp: now,
+        // 透传策略：bridge 据此决定是否展示压缩卡片（仅 summary 展示，micro/hard-trim 静默）
+        strategy: oldEvent.strategy,
       }]
     }
 

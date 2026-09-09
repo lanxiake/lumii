@@ -59,25 +59,31 @@ export interface WikiTopicTreeLike {
  * 也不能用空格拼：大类名可能带空格，`「做事 记录」` 会和 `「做事」+「记录」` 撞 key。
  * 直接序列化两列，天然无歧义，且不引入不可见的分隔符。
  *
+ * v1.2（三级分类）：支持 project 参数（可选）。
  * 语义必须与 agent-runtime 侧 `wiki-topic-mutate.ts` 的同名函数完全一致。
  */
-export function topicCountKey(category: string, subtopic?: string | null): string {
+export function topicCountKey(category: string, subtopic?: string | null, project?: string | null): string {
+  if (project) return JSON.stringify([category, subtopic, project])
   return subtopic ? JSON.stringify([category, subtopic]) : JSON.stringify([category])
 }
 
 /**
  * 解析 topicCountKey。坏 key 返回 null，避免芯片列表被脏计数打穿。
+ * v1.2：返回值加 project 字段。
  */
-export function parseTopicCountKey(key: string): { category: string; subtopic: string | null } | null {
+export function parseTopicCountKey(key: string): { category: string; subtopic: string | null; project: string | null } | null {
   try {
     const parsed: unknown = JSON.parse(key)
-    if (!Array.isArray(parsed) || parsed.length < 1 || parsed.length > 2) return null
+    if (!Array.isArray(parsed) || parsed.length < 1 || parsed.length > 3) return null
     const category = parsed[0]
     if (typeof category !== 'string') return null
-    if (parsed.length === 1) return { category, subtopic: null }
+    if (parsed.length === 1) return { category, subtopic: null, project: null }
     const subtopic = parsed[1]
     if (typeof subtopic !== 'string') return null
-    return { category, subtopic }
+    if (parsed.length === 2) return { category, subtopic, project: null }
+    const project = parsed[2]
+    if (typeof project !== 'string') return null
+    return { category, subtopic, project }
   } catch {
     return null
   }
@@ -106,11 +112,13 @@ export function navSectionLabel(section: WikiNavSection): string {
 }
 
 /**
- * 把 DB 中的主题两列格式化为用户可见文案。
+ * 把 DB 中的主题三列格式化为用户可见文案。
  * 小类为空是合法状态（小类可选），此时只显示大类名。
+ * v1.2（三级分类）：支持 project 参数，显示「域 / 小类 / 项目」。
  */
-export function formatTopicDisplay(category: string | null, subtopic: string | null): string {
+export function formatTopicDisplay(category: string | null, subtopic: string | null, project?: string | null): string {
   if (!category) return '收件箱'
   if (category === PARKING_CATEGORY) return '临时存放'
+  if (project) return subtopic ? `${category} / ${subtopic} / ${project}` : `${category} / ${project}`
   return subtopic ? `${category} / ${subtopic}` : category
 }

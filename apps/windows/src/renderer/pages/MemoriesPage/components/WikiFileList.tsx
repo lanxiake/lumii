@@ -166,7 +166,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
         <ul className="wiki-file-list-items">
           {visible.slice(0, visibleCount).map((item) => {
             const Icon = MEDIA_ICONS[(item.mediaType ?? 'document') as keyof typeof MEDIA_ICONS] ?? FileText
-            const topic = formatTopicDisplay(item.topicCategory, item.topicSubtopic)
+            const topic = formatTopicDisplay(item.topicCategory, item.topicSubtopic, item.topicProject)
             const summary = resolveItemSummary(item)
             const titleButton = (
               <button

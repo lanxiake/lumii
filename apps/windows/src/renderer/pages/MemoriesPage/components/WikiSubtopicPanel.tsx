@@ -24,6 +24,9 @@ interface WikiSubtopicPanelProps {
   readonly sectionFileCount: number
   readonly activeFilter: WikiSubtopicFilter
   readonly onSelectFilter: (filter: WikiSubtopicFilter) => void
+  /** 当前选中的项目（三级分类） */
+  readonly activeProject?: string | null
+  readonly onSelectProject?: (project: string | null) => void
 }
 
 /**
@@ -36,6 +39,8 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
   sectionFileCount,
   activeFilter,
   onSelectFilter,
+  activeProject,
+  onSelectProject,
 }) => {
   /** 除「全部」外的小类 chip */
   const subtopicChips = useMemo(() => {
@@ -78,6 +83,26 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
 
     return items
   }, [section, topicTree, topicCounts])
+
+  /** 当前小类下的项目列表（三级分类） */
+  const projectChips = useMemo(() => {
+    if (!onSelectProject || activeFilter === WIKI_SUBTOPIC_FILTER_ALL || activeFilter === WIKI_SUBTOPIC_FILTER_UNFILED) {
+      return []
+    }
+    const items: Array<{ key: string; label: string; count: number }> = []
+    const subtopic = activeFilter
+    for (const [key, count] of Object.entries(topicCounts)) {
+      if (count <= 0) continue
+      const parsed = parseTopicCountKey(key)
+      if (!parsed || parsed.category !== section || parsed.subtopic !== subtopic || !parsed.project) continue
+      items.push({
+        key: parsed.project,
+        label: parsed.project,
+        count,
+      })
+    }
+    return items.sort((a, b) => b.count - a.count)
+  }, [section, activeFilter, topicCounts, onSelectProject])
 
   if (!topicTree) {
     return <p className="wiki-empty-hint">加载分类结构…</p>
@@ -134,6 +159,47 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
           </li>
         ))}
       </ul>
+
+      {projectChips.length > 0 && onSelectProject && (
+        <>
+          <p className="wiki-subtopic-panel-intro wiki-subtopic-panel-intro--projects">
+            项目筛选
+          </p>
+          <ul className="wiki-subtopic-chips" role="tablist" aria-label="项目筛选">
+            <li role="presentation">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeProject === null}
+                className={`wiki-subtopic-chip${activeProject === null ? ' wiki-subtopic-chip--active' : ''}`}
+                onClick={() => onSelectProject(null)}
+              >
+                <span>全部项目</span>
+              </button>
+            </li>
+            {projectChips.map((chip) => (
+              <li key={chip.key} role="presentation">
+                <Tooltip
+                  content={`只显示「${chip.label}」项目下的资料`}
+                  placement="bottom"
+                  className="wiki-subtopic-chip-tooltip wiki-tooltip-below"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeProject === chip.key}
+                    className={`wiki-subtopic-chip${activeProject === chip.key ? ' wiki-subtopic-chip--active' : ''}`}
+                    onClick={() => onSelectProject(chip.key)}
+                  >
+                    <span>{chip.label}</span>
+                    {chip.count > 0 && <span className="wiki-subtopic-chip-count">{chip.count}</span>}
+                  </button>
+                </Tooltip>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   )
 }

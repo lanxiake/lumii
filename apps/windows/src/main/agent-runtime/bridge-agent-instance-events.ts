@@ -904,13 +904,7 @@ export function createAgentInstanceRuntimeEventHandler(
         resetAppUiToolTurnQuotas()
       }
       if (ipcEvent.type === 'agent:context:compacted' && compactionOverlay) {
-        ipcChannel.forwardIpcEvent({
-          ...ipcEvent,
-          previousTokenCount: compactionOverlay.previousTokenCount,
-          newTokenCount: compactionOverlay.newTokenCount,
-          conversationTokensBefore: compactionOverlay.conversationTokensBefore,
-          conversationTokensAfter: compactionOverlay.conversationTokensAfter,
-        })
+        // 占用条更新始终推送：micro / hard-trim 也会释放 tokens，占用必须实时反映
         ipcChannel.forwardIpcEvent({
           type: 'agent:context:usage',
           sessionKey: ctx.rootSessionKey,
@@ -918,6 +912,18 @@ export function createAgentInstanceRuntimeEventHandler(
           contextWindow: compactionOverlay.contextWindow,
           triggerThreshold: compactionOverlay.triggerThreshold,
         } as unknown as RendererIpcEvent)
+        // 对话流「上下文压缩」卡片只在 LLM 摘要压缩时展示；micro / hard-trim 是
+        // 确定性静默清理，一次请求的工具循环里可能触发十多次，展示卡片会刷屏。
+        if (ipcEvent.strategy === 'summary') {
+          ipcChannel.forwardIpcEvent({
+            ...ipcEvent,
+            runId: ctx.runId,
+            previousTokenCount: compactionOverlay.previousTokenCount,
+            newTokenCount: compactionOverlay.newTokenCount,
+            conversationTokensBefore: compactionOverlay.conversationTokensBefore,
+            conversationTokensAfter: compactionOverlay.conversationTokensAfter,
+          })
+        }
       } else {
         ipcChannel.forwardIpcEvent(ipcEvent)
       }

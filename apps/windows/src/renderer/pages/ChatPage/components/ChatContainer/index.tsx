@@ -515,16 +515,24 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       }
       if (best && bestDist <= 60_000) {
         best.summaryText = leftover.text
-      } else if (!cards.some((c) => c.summaryText === leftover.text)) {
-        cards.push({
-          itemType: 'compaction',
-          id: `summary-${leftover.timestamp.getTime()}`,
-          timestamp: leftover.timestamp,
-          tokensBefore: 0,
-          tokensAfter: 0,
-          messagesRemoved: 0,
-          summaryText: leftover.text,
-        })
+      } else {
+        // 同一次请求内的连续压缩（压缩链）合并为一张卡片后，链上落库的多条
+        // 摘要消息不再各自生成卡片：附近已有压缩卡片（含已填摘要的合并卡片）时
+        // 直接丢弃，避免与实时合并结果重复展示。
+        const nearCard = cards.some(
+          (c) => Math.abs(c.timestamp.getTime() - leftover.timestamp.getTime()) <= 60_000,
+        )
+        if (!nearCard && !cards.some((c) => c.summaryText === leftover.text)) {
+          cards.push({
+            itemType: 'compaction',
+            id: `summary-${leftover.timestamp.getTime()}`,
+            timestamp: leftover.timestamp,
+            tokensBefore: 0,
+            tokensAfter: 0,
+            messagesRemoved: 0,
+            summaryText: leftover.text,
+          })
+        }
       }
     }
 

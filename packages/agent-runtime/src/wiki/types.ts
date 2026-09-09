@@ -55,6 +55,7 @@ export interface WikiSource {
   readonly created_at: string;
   readonly topic_category: string | null;
   readonly topic_subtopic: string | null;
+  readonly topic_project: string | null;
   readonly last_used: string | null;
   readonly use_count: number;
   readonly origin_url: string | null;

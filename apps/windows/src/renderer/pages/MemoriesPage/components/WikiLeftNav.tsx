@@ -9,6 +9,7 @@ export { topicCountKey }
 
 /**
  * P0 左栏显示用途目录、临时存放与更多入口。
+ * v1.2（三级分类）：subtopic 类型加 project 字段。
  */
 export type WikiNav =
   | { kind: 'inbox' }
@@ -21,7 +22,7 @@ export type WikiNav =
   | { kind: 'graph' }
   | { kind: 'category'; name: string }
   /** subtopic 为 null 表示该大类下的「未细分」分组（小类可选，见设计 §2.1.1） */
-  | { kind: 'subtopic'; category: string; subtopic: string | null }
+  | { kind: 'subtopic'; category: string; subtopic: string | null; project?: string | null }
 
 interface WikiLeftNavProps {
   active: WikiNav | { kind: 'more' }

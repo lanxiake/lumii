@@ -12,6 +12,8 @@ interface TopicTarget {
   readonly category: string
   /** null = 暂不细分（小类可选，见设计 §2.1.1） */
   readonly subtopic: string | null
+  /** null = 不归属项目（项目可选，三级分类） */
+  readonly project: string | null
 }
 
 interface WikiTopicPickerProps {
@@ -24,8 +26,8 @@ interface WikiTopicPickerProps {
   /** 是否在第一步提供「已归档」；收件箱批量归档场景传 false（不进冷存储） */
   includeArchived?: boolean
   onCancel: () => void
-  /** 写入主题树；subtopic 为 null 表示只归大类、暂不细分 */
-  onConfirm: (category: string, subtopic: string | null) => void
+  /** 写入主题树；subtopic 为 null 表示只归大类、暂不细分；project 为 null 表示不归属项目 */
+  onConfirm: (category: string, subtopic: string | null, project: string | null) => void
   /** 选中「已归档」分区时调用，不走 update-topic */
   onConfirmArchive?: () => void
   /** 提供时显示次要按钮「让 AI 建议」 */
@@ -60,12 +62,14 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
 }) => {
   const [section, setSection] = useState<WikiNavSection | null>(null)
   const [target, setTarget] = useState<TopicTarget | null>(null)
+  const [projectInput, setProjectInput] = useState<string>('')
 
   /** 每次重新打开都回到分区选择，避免沿用上一个条目的选择造成误归档 */
   useEffect(() => {
     if (open) {
       setSection(null)
       setTarget(null)
+      setProjectInput('')
     }
   }, [open])
 
@@ -91,7 +95,10 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
       onConfirmArchive?.()
       return
     }
-    if (target) onConfirm(target.category, target.subtopic)
+    if (target) {
+      const finalProject = projectInput.trim() || null
+      onConfirm(target.category, target.subtopic, finalProject)
+    }
   }
 
   return (
@@ -167,7 +174,7 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
                     type="button"
                     className={`wiki-topic-picker-option${active ? ' wiki-topic-picker-option--active' : ''}`}
                     aria-pressed={active}
-                    onClick={() => setTarget({ category: section, subtopic: name })}
+                    onClick={() => setTarget({ category: section, subtopic: name, project: null })}
                   >
                     {name}
                   </button>
@@ -182,11 +189,25 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
                     : ''
                 }`}
                 aria-pressed={target?.category === section && target?.subtopic === null}
-                onClick={() => setTarget({ category: section, subtopic: null })}
+                onClick={() => setTarget({ category: section, subtopic: null, project: null })}
               >
                 暂不细分
               </button>
             </div>
+          </section>
+        )}
+
+        {section && !isArchiveSection && target && (
+          <section className="wiki-topic-picker-section">
+            <h4 className="wiki-topic-picker-heading">项目名（可选）</h4>
+            <input
+              type="text"
+              className="wiki-topic-picker-input"
+              placeholder="如：二十四史学习规划"
+              value={projectInput}
+              onChange={(e) => setProjectInput(e.target.value)}
+            />
+            <p className="wiki-topic-picker-hint-small">留空表示不归属具体项目</p>
           </section>
         )}
 

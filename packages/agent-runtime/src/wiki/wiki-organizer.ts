@@ -254,7 +254,7 @@ export class WikiOrganizer {
         }
 
         try {
-          const source = this.repo.archiveInboxItem(item, result.category, result.subtopic);
+          const source = this.repo.archiveInboxItem(item, result.category, result.subtopic, result.project);
           await this.finalizeCreatedSource(source);
           totalOrganized += 1;
           allDetailItems.push({
@@ -683,7 +683,7 @@ export class WikiOrganizer {
       }
 
       try {
-        const source = this.repo.archiveInboxItem(item, result.category, result.subtopic);
+        const source = this.repo.archiveInboxItem(item, result.category, result.subtopic, result.project);
         await this.finalizeCreatedSource(source);
         detailItems.push({
           inboxId: item.id,

@@ -156,6 +156,7 @@ export const WikiTab: React.FC = () => {
 
   const [nav, setNav] = useState<WikiNav>({ kind: 'inbox' })
   const [sectionSubtopicFilter, setSectionSubtopicFilter] = useState<WikiSubtopicFilter>(WIKI_SUBTOPIC_FILTER_ALL)
+  const [sectionProjectFilter, setSectionProjectFilter] = useState<string | null>(null)
   const [topicTree, setTopicTree] = useState<WikiTopicTree | null>(null)
   const [sources, setSources] = useState<readonly WikiSourceListItem[]>([])
   const [sectionCounts, setSectionCounts] = useState<Record<string, number>>({})
@@ -515,18 +516,30 @@ export const WikiTab: React.FC = () => {
   const visibleSources = useMemo(() => {
     if (categorySectionName) {
       // section/category 已按大类服务端过滤；小类芯片仍可在前端收窄
-      if (nav.kind === 'subtopic') return sources
-      if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL) return sources
-      if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_UNFILED) {
-        return sources.filter((item) => !item.topicSubtopic)
+      let filtered = sources
+
+      if (nav.kind === 'subtopic') {
+        // 小类详情页不再筛选
+      } else if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_ALL) {
+        // 全部小类
+      } else if (effectiveSubtopicFilter === WIKI_SUBTOPIC_FILTER_UNFILED) {
+        filtered = filtered.filter((item) => !item.topicSubtopic)
+      } else {
+        filtered = filtered.filter((item) => item.topicSubtopic === effectiveSubtopicFilter)
       }
-      return sources.filter((item) => item.topicSubtopic === effectiveSubtopicFilter)
+
+      // 项目筛选（三级分类）
+      if (sectionProjectFilter) {
+        filtered = filtered.filter((item) => item.topicProject === sectionProjectFilter)
+      }
+
+      return filtered
     }
     if (nav.kind === 'parking') {
       return parkingSources
     }
     return []
-  }, [categorySectionName, effectiveSubtopicFilter, nav.kind, sources, parkingSources])
+  }, [categorySectionName, effectiveSubtopicFilter, sectionProjectFilter, nav.kind, sources, parkingSources])
 
   /**
    * 打开任务中心并清除失败任务的未读提示。
@@ -607,6 +620,7 @@ export const WikiTab: React.FC = () => {
   const handleSubtopicFilter = useCallback(
     (filter: WikiSubtopicFilter) => {
       setSectionSubtopicFilter(filter)
+      setSectionProjectFilter(null) // 切换小类时重置项目筛选
       if (categorySectionName && nav.kind === 'subtopic') {
         setNav({ kind: 'section', name: categorySectionName })
       }
@@ -615,6 +629,12 @@ export const WikiTab: React.FC = () => {
     },
     [categorySectionName, nav.kind],
   )
+
+  const handleProjectFilter = useCallback((project: string | null) => {
+    setSectionProjectFilter(project)
+    setSelectedSourceIds(new Set())
+    setHighlightSourceId(null)
+  }, [])
 
   const toggleSelectSource = useCallback((id: string) => {
     setSelectedSourceIds((prev) => {
@@ -667,17 +687,17 @@ export const WikiTab: React.FC = () => {
   }, [picker, trackedArchiveSources, refreshSources, refreshArchivedSources])
 
   const handleConfirmPicker = useCallback(
-    async (category: string, subtopic: string | null) => {
+    async (category: string, subtopic: string | null, project: string | null) => {
       const target = picker
       setPicker(null)
       setSuggestion(null)
       setSuggestionState('idle')
       if (!target) return
       if (target.mode === 'inbox') {
-        await organizeInbox(target.item.id, category, subtopic)
+        await organizeInbox(target.item.id, category, subtopic, project)
         await refreshInbox()
       } else {
-        await updateSourceTopic(target.item.id, category, subtopic)
+        await updateSourceTopic(target.item.id, category, subtopic, project)
       }
       await refreshSources()
     },
@@ -707,9 +727,9 @@ export const WikiTab: React.FC = () => {
 
   /** 批量移动：逐条走确定性写入路径 */
   const handleMoveSelected = useCallback(
-    async (category: string, subtopic: string | null) => {
+    async (category: string, subtopic: string | null, project: string | null) => {
       for (const id of selectedSourceIds) {
-        await updateSourceTopic(id, category, subtopic)
+        await updateSourceTopic(id, category, subtopic, project)
       }
       setSelectedSourceIds(new Set())
       await refreshSources()
@@ -1182,14 +1202,14 @@ export const WikiTab: React.FC = () => {
    * 批量归档：队列条目走 organizeInbox，待补分走 updateSourceTopic。
    */
   const handleBatchOrganizeInbox = useCallback(
-    async (category: string, subtopic: string | null) => {
+    async (category: string, subtopic: string | null, project: string | null) => {
       const inboxIds = [...selectedInboxIdsRef.current]
       const unfiledIds = [...selectedUnfiledIdsRef.current]
       for (const id of inboxIds) {
-        await organizeInbox(id, category, subtopic)
+        await organizeInbox(id, category, subtopic, project)
       }
       for (const id of unfiledIds) {
-        await updateSourceTopic(id, category, subtopic)
+        await updateSourceTopic(id, category, subtopic, project)
       }
       setSelectedInboxIds(new Set())
       setSelectedUnfiledIds(new Set())
@@ -1590,6 +1610,8 @@ export const WikiTab: React.FC = () => {
                 sectionFileCount={sectionCounts[categorySectionName] ?? 0}
                 activeFilter={effectiveSubtopicFilter}
                 onSelectFilter={handleSubtopicFilter}
+                activeProject={sectionProjectFilter}
+                onSelectProject={handleProjectFilter}
               />
             </div>
             <WikiFileList
@@ -1704,9 +1726,9 @@ export const WikiTab: React.FC = () => {
         includeArchived={false}
         itemTitle={`已选 ${selectedInboxIds.size + selectedUnfiledIds.size} 项`}
         onCancel={() => setInboxBatchPickerOpen(false)}
-        onConfirm={(category, subtopic) => {
+        onConfirm={(category, subtopic, project) => {
           setInboxBatchPickerOpen(false)
-          void handleBatchOrganizeInbox(category, subtopic)
+          void handleBatchOrganizeInbox(category, subtopic, project)
         }}
       />
 
@@ -1716,9 +1738,9 @@ export const WikiTab: React.FC = () => {
         title="批量移动到…"
         itemTitle={`已选 ${selectedSourceIds.size} 个文件`}
         onCancel={() => setBatchPickerOpen(false)}
-        onConfirm={(category, subtopic) => {
+        onConfirm={(category, subtopic, project) => {
           setBatchPickerOpen(false)
-          void handleMoveSelected(category, subtopic)
+          void handleMoveSelected(category, subtopic, project)
         }}
         onConfirmArchive={() => void handleArchiveSelected()}
       />
@@ -1732,7 +1754,7 @@ export const WikiTab: React.FC = () => {
           setSuggestion(null)
           setSuggestionState('idle')
         }}
-        onConfirm={(category, subtopic) => void handleConfirmPicker(category, subtopic)}
+        onConfirm={(category, subtopic, project) => void handleConfirmPicker(category, subtopic, project)}
         onConfirmArchive={picker?.mode === 'source' ? () => void handleArchivePickerTarget() : undefined}
         includeArchived={picker?.mode !== 'inbox'}
         // 只有已进资料层的文件能让 AI 建议：inbox 条目还没 source id

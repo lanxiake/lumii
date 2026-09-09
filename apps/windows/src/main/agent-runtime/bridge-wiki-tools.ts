@@ -59,7 +59,7 @@ export function registerWikiTools(
       return jsonToolResult({
         ok: true,
         countsByCategory: counts,
-        recentSources: recent.map((s) => ({ title: s.title, category: s.topic_category, subtopic: s.topic_subtopic })),
+        recentSources: recent.map((s) => ({ title: s.title, category: s.topic_category, subtopic: s.topic_subtopic, project: s.topic_project })),
       })
     },
   }
@@ -83,6 +83,7 @@ export function registerWikiTools(
           title: h.source.title,
           category: h.source.topic_category,
           subtopic: h.source.topic_subtopic,
+          project: h.source.topic_project,
           content: h.snippet,
         })),
       })
@@ -106,6 +107,8 @@ export function registerWikiTools(
         path: source.source_path,
         title: source.title,
         category: source.topic_category,
+        subtopic: source.topic_subtopic,
+        project: source.topic_project,
         content: source.extracted_text ?? source.content_md ?? '',
       })
     },

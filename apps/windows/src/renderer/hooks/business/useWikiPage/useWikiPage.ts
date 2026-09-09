@@ -306,6 +306,7 @@ export interface WikiSourceListItem {
   readonly mediaType: string
   readonly topicCategory: string | null
   readonly topicSubtopic: string | null
+  readonly topicProject: string | null
   /** extracted_text 字符数，用于识别短文碎片 */
   readonly textLength: number
   readonly updatedAt: number
@@ -397,8 +398,10 @@ export function useWikiPage() {
       category: string,
       /** null = 只归大类、暂不细分（小类可选） */
       subtopic: string | null,
+      /** null = 不归属项目（项目可选，三级分类） */
+      project: string | null,
       title?: string,
-    ): Promise<{ sourceId: string; category: string; subtopic: string | null } | null> => {
+    ): Promise<{ sourceId: string; category: string; subtopic: string | null; project: string | null } | null> => {
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return null
       try {
@@ -407,8 +410,9 @@ export function useWikiPage() {
           inboxId,
           category,
           subtopic,
+          project,
           title,
-        })) as { sourceId: string; category: string; subtopic: string | null }
+        })) as { sourceId: string; category: string; subtopic: string | null; project: string | null }
       } catch {
         return null
       }
@@ -947,7 +951,7 @@ export function useWikiPage() {
   }, [])
 
   const updateSourceTopic = useCallback(
-    async (sourceId: string, category: string, subtopic: string | null): Promise<boolean> => {
+    async (sourceId: string, category: string, subtopic: string | null, project: string | null): Promise<boolean> => {
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return false
       try {
@@ -957,6 +961,7 @@ export function useWikiPage() {
           sourceId,
           category,
           subtopic,
+          project,
         })) as { id: string }
         return !!r?.id
       } catch {

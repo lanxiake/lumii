@@ -186,6 +186,8 @@ export interface RuntimeCompactionEvent {
   readonly messagesAfter: number
   /** LLM 摘要正文，供压缩卡片展开查看 */
   readonly summaryText?: string
+  /** 所属请求 runId；同一 run 内的多次压缩合并为一张卡片 */
+  readonly runId?: string
 }
 
 /** Agent 生成文件事件（文件附件卡片数据） */

@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 36;
+export const SCHEMA_VERSION = 37;
 
 /**
  * V1 DDL — 初始 schema
@@ -1313,3 +1313,17 @@ CREATE INDEX IF NOT EXISTS idx_bash_cmd_created
 `,
   ],
 ] as const;
+  // V37: Wiki 三级分类 — 域 → 小类 → 项目
+  // 
+  // 加第三列 topic_project（可选，NULL = 未细分到项目）。
+  // 项目名自由新增、无需预设树。已归档数据零迁移（新列默认 NULL）。
+  [
+    37,
+    `
+ALTER TABLE wiki_sources ADD COLUMN topic_project TEXT;
+
+DROP INDEX IF EXISTS idx_wiki_sources_topic;
+CREATE INDEX IF NOT EXISTS idx_wiki_sources_topic
+  ON wiki_sources (agent_id, user_id, topic_category, topic_subtopic, topic_project);
+`,
+  ],

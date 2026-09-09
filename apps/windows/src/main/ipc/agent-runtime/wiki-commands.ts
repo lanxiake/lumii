@@ -183,9 +183,9 @@ export function handleWikiInboxOrganize(
     throw new Error('整理入口不允许归到临时存放，请在文件列表中操作')
   }
 
-  const updated = repo.archiveInboxItem(item, command.category, command.subtopic, command.title)
+  const updated = repo.archiveInboxItem(item, command.category, command.subtopic, command.project, command.title)
   vaultSyncSource(bridge, updated.id, command.agentId)
-  return { sourceId: updated.id, category: updated.topic_category!, subtopic: updated.topic_subtopic! }
+  return { sourceId: updated.id, category: updated.topic_category!, subtopic: updated.topic_subtopic!, project: updated.topic_project ?? null }
 }
 
 /**
@@ -538,6 +538,7 @@ export async function handleWikiSearch(
         title: source.title,
         category: source.topic_category,
         subtopic: source.topic_subtopic,
+        project: source.topic_project,
         snippet: hit?.snippet ?? '',
         mediaType: source.media_type,
         sourcePath: source.source_path,
@@ -580,6 +581,7 @@ export function handleWikiSourceGet(
     originContext: source.origin_context,
     topicCategory: source.topic_category,
     topicSubtopic: source.topic_subtopic,
+    topicProject: source.topic_project,
     createdAt: new Date(source.created_at).getTime(),
   }
 }
@@ -969,6 +971,7 @@ function mapSourceListItem(
     mediaType: source.media_type,
     topicCategory: source.topic_category,
     topicSubtopic: source.topic_subtopic,
+    topicProject: source.topic_project,
     textLength: summary?.length ?? 0,
     updatedAt: new Date(source.last_used ?? source.created_at).getTime(),
     useCount: source.use_count,
@@ -1039,7 +1042,7 @@ export function handleWikiSourceCounts(
 export function handleWikiSourceUpdateTopic(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:source:update-topic' }>,
-): { id: string; topicCategory: string | null; topicSubtopic: string | null } {
+): { id: string; topicCategory: string | null; topicSubtopic: string | null; topicProject: string | null } {
   const agentId = resolveAgentIdForWiki(bridge, undefined, command.agentId)
   const updated = bridge.wikiRepo.updateSourceTopic(
     agentId,
@@ -1047,15 +1050,16 @@ export function handleWikiSourceUpdateTopic(
     command.sourceId,
     command.category,
     command.subtopic,
+    command.project,
   )
   vaultSyncSource(bridge, updated.id, command.agentId)
-  return { id: updated.id, topicCategory: updated.topic_category, topicSubtopic: updated.topic_subtopic }
+  return { id: updated.id, topicCategory: updated.topic_category, topicSubtopic: updated.topic_subtopic, topicProject: updated.topic_project }
 }
 
 export function handleWikiSourceMoveToParking(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:source:move-to-parking' }>,
-): { id: string; topicCategory: string | null; topicSubtopic: string | null } {
+): { id: string; topicCategory: string | null; topicSubtopic: string | null; topicProject: string | null } {
   const agentId = resolveAgentIdForWiki(bridge, undefined, command.agentId)
   const updated = bridge.wikiRepo.updateSourceTopic(
     agentId,
@@ -1063,9 +1067,10 @@ export function handleWikiSourceMoveToParking(
     command.sourceId,
     PARKING_CATEGORY,
     null,
+    null,
   )
   vaultSyncSource(bridge, updated.id, command.agentId)
-  return { id: updated.id, topicCategory: updated.topic_category, topicSubtopic: updated.topic_subtopic }
+  return { id: updated.id, topicCategory: updated.topic_category, topicSubtopic: updated.topic_subtopic, topicProject: updated.topic_project }
 }
 
 /** 打开资料原文件；缺失或系统层打开失败均抛错中文提示，不静默返回 success */
@@ -1185,6 +1190,7 @@ export function handleWikiCleanupScan(
     reason: s.reason,
     topicCategory: s.source.topic_category,
     topicSubtopic: s.source.topic_subtopic,
+    topicProject: s.source.topic_project,
     ...(s.suggestedAction ? { suggestedAction: s.suggestedAction } : {}),
     ...(s.duplicateOfSourceId ? { duplicateOfSourceId: s.duplicateOfSourceId } : {}),
   }))

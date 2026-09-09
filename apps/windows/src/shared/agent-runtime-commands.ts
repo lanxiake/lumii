@@ -379,6 +379,7 @@ export interface WikiInboxOrganizeCommand {
   readonly inboxId: string
   readonly category: string
   readonly subtopic: string
+  readonly project?: string
   readonly title?: string
 }
 
@@ -765,6 +766,7 @@ export interface WikiSourceUpdateTopicCommand {
   readonly sourceId: string
   readonly category: string
   readonly subtopic: string | null
+  readonly project?: string | null
 }
 
 export interface WikiSourceMoveToParkingCommand {
@@ -1880,7 +1882,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:inbox:count' ? { total: number; pending: number; unfiled: number }
   : T extends 'wiki:inbox:retry' ? { success: boolean }
   : T extends 'wiki:inbox:discard' ? { success: boolean }
-  : T extends 'wiki:inbox:organize' ? { sourceId: string; category: string; subtopic: string }
+  : T extends 'wiki:inbox:organize' ? { sourceId: string; category: string; subtopic: string; project: string | null }
   : T extends 'wiki:folder:scan' ? {
       dir: string
       candidates: readonly {
@@ -2037,6 +2039,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       id: string
       topicCategory: string | null
       topicSubtopic: string | null
+      topicProject: string | null
     }
   : T extends 'wiki:source:move-to-parking' ? {
       id: string

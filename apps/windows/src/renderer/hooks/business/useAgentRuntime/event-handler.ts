@@ -1451,20 +1451,35 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
           ?? (prev.contextUsage?.breakdown && convBefore != null && convAfter != null
             ? patchBreakdownAfterConversationCompact(prev.contextUsage.breakdown, convBefore, convAfter)
             : prev.contextUsage?.breakdown)
+        // 同一 run 内的连续压缩（压缩链）合并为一张卡片：保留首次 tokensBefore、
+        // 累计移出消息数、更新时间戳与最新摘要，避免一次请求刷出一排卡片。
+        const last = prev.compactionEvents[prev.compactionEvents.length - 1]
+        const mergeable = event.runId != null && last?.runId === event.runId
         const newCompactionEvent: RuntimeCompactionEvent = {
-          id: `compaction-${event.timestamp}`,
+          id: mergeable && last ? last.id : `compaction-${event.timestamp}`,
           timestamp: event.timestamp,
-          tokensBefore: event.previousTokenCount,
+          tokensBefore: mergeable && last ? last.tokensBefore : event.previousTokenCount,
           tokensAfter: event.newTokenCount,
-          messagesRemoved: event.messagesRemoved,
-          messagesBefore: event.messagesBefore ?? event.messagesRemoved,
-          messagesAfter: event.messagesAfter ?? 0,
-          ...(event.summaryText ? { summaryText: event.summaryText } : {}),
+          messagesRemoved: mergeable && last ? last.messagesRemoved + event.messagesRemoved : event.messagesRemoved,
+          messagesBefore: mergeable && last ? last.messagesBefore : (event.messagesBefore ?? event.messagesRemoved),
+          messagesAfter: event.messagesAfter ?? (mergeable && last ? last.messagesAfter : 0),
+          ...(event.runId
+            ? { runId: event.runId }
+            : mergeable && last?.runId
+              ? { runId: last.runId }
+              : {}),
+          ...(event.summaryText
+            ? { summaryText: event.summaryText }
+            : mergeable && last?.summaryText
+              ? { summaryText: last.summaryText }
+              : {}),
         }
         return {
           ...prev,
           isAutoCompacting: false,
-          compactionEvents: [...prev.compactionEvents, newCompactionEvent],
+          compactionEvents: mergeable && last
+            ? [...prev.compactionEvents.slice(0, -1), newCompactionEvent]
+            : [...prev.compactionEvents, newCompactionEvent],
           ...(prev.contextUsage ? {
             contextUsage: {
               ...prev.contextUsage,

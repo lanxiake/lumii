@@ -309,7 +309,13 @@ export class WikiRepo {
    * 会留下一条主题为空的孤儿资料，而条目仍是 pending，下次重试再建一条——createSource
    * 不按 content_hash 去重，重试几次就是几份。主题校验放在事务外先做，尽早失败。
    */
-  archiveInboxItem(item: WikiInboxItem, category: string, subtopic: string | null, title?: string): WikiSource {
+  archiveInboxItem(
+    item: WikiInboxItem,
+    category: string,
+    subtopic: string | null,
+    project?: string | null,
+    title?: string,
+  ): WikiSource {
     const tree = this.getOrCreateTopicTree();
     const valid = validateTopicAssignment(tree, category, subtopic, { allowParking: true });
     if (!valid.ok) throw new Error(valid.reason);
@@ -331,7 +337,7 @@ export class WikiRepo {
         extractedText: item.content_preview ?? undefined,
         originContext,
       });
-      const updated = this.updateSourceTopic(item.agent_id, item.user_id, source.id, category, subtopic);
+      const updated = this.updateSourceTopic(item.agent_id, item.user_id, source.id, category, subtopic, project ?? null);
       this.indexSource(source.id);
       this.markInboxOrganized(item.id, source.id);
       return updated;
@@ -439,8 +445,8 @@ export class WikiRepo {
         `INSERT INTO wiki_sources
          (id, agent_id, user_id, title, source_path, content_md, content_hash, mime_type,
           media_type, extracted_text, media_meta, preview_path, origin_context, created_at,
-          topic_category, topic_subtopic, last_used, use_count, origin_url, storage_mode)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          topic_category, topic_subtopic, topic_project, last_used, use_count, origin_url, storage_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -457,6 +463,7 @@ export class WikiRepo {
         params.previewPath ?? null,
         params.originContext ?? null,
         now,
+        null,
         null,
         null,
         null,
@@ -482,6 +489,7 @@ export class WikiRepo {
       created_at: now,
       topic_category: null,
       topic_subtopic: null,
+      topic_project: null,
       last_used: null,
       use_count: 0,
       origin_url: params.originUrl ?? null,
@@ -853,6 +861,7 @@ export class WikiRepo {
   /**
    * 按用途过滤资料列表。`parking` 与 `unfiled` 互斥，不应同时传 true。
    * 默认排除已归档（archived_at 非空）；`archived: true` 时只返回已归档项且忽略分类过滤。
+   * v1.2（三级分类）：加 project 过滤（可选，与 subtopic 联用）。
    */
   listSourcesByTopic(
     agentId: string,
@@ -862,6 +871,7 @@ export class WikiRepo {
       readonly subtopic?: string;
       /** 与 category 同用：只要该大类下「未细分」（小类为空）的资料 */
       readonly subtopicUnfiled?: boolean;
+      readonly project?: string;
       readonly parking?: boolean;
       readonly unfiled?: boolean;
       readonly archived?: boolean;
@@ -888,6 +898,10 @@ export class WikiRepo {
       // 「大类下未细分」分组：小类可选带来的新视图（设计 §2.1.1）
       conditions.push("topic_category = ?", "topic_subtopic IS NULL");
       params.push(filter.category);
+    } else if (filter.category && filter.subtopic && filter.project) {
+      // 三级精确过滤：域 + 小类 + 项目
+      conditions.push("topic_category = ?", "topic_subtopic = ?", "topic_project = ?");
+      params.push(filter.category, filter.subtopic, filter.project);
     } else if (filter.category && filter.subtopic) {
       conditions.push("topic_category = ?", "topic_subtopic = ?");
       params.push(filter.category, filter.subtopic);
@@ -964,6 +978,7 @@ export class WikiRepo {
    * v1.1：category 放宽为 `string | null`，支持「整类退回收件箱」语义
    * （category=null 时 subtopic 必须同为 null，直接落两列为 NULL，不经 validateTopicAssignment——
    * 语义等价 clearSourceTopic，但走这个方法能让调用方统一走一个入口）。
+   * v1.2（三级分类）：加 project 参数（可选，NULL = 未细分到项目）。
    */
   updateSourceTopic(
     agentId: string,
@@ -971,6 +986,7 @@ export class WikiRepo {
     sourceId: string,
     category: string | null,
     subtopic: string | null,
+    project?: string | null,
   ): WikiSource {
     if (category === null) {
       if (subtopic !== null) {
@@ -985,9 +1001,9 @@ export class WikiRepo {
     }
     const info = this.db
       .prepare(
-        "UPDATE wiki_sources SET topic_category = ?, topic_subtopic = ? WHERE id = ? AND agent_id = ? AND user_id = ?",
+        "UPDATE wiki_sources SET topic_category = ?, topic_subtopic = ?, topic_project = ? WHERE id = ? AND agent_id = ? AND user_id = ?",
       )
-      .run(category, subtopic, sourceId, agentId, userId);
+      .run(category, subtopic, project ?? null, sourceId, agentId, userId);
     if (info.changes === 0) throw new Error(`资料不存在: ${sourceId}`);
     const source = this.findSourceById(sourceId);
     if (!source) throw new Error(`资料不存在: ${sourceId}`);
@@ -1007,13 +1023,13 @@ export class WikiRepo {
   }
 
   /**
-   * 把资料退回未分类（两列置 NULL）。不走 validateTopicAssignment——清空不是一次归属，
+   * 把资料退回未分类（三列置 NULL）。不走 validateTopicAssignment——清空不是一次归属，
    * 没有「越权」可言；用户撤销误分类时不该被树校验挡住。
    */
   clearSourceTopic(agentId: string, userId: string, sourceId: string): WikiSource {
     const info = this.db
       .prepare(
-        "UPDATE wiki_sources SET topic_category = NULL, topic_subtopic = NULL WHERE id = ? AND agent_id = ? AND user_id = ?",
+        "UPDATE wiki_sources SET topic_category = NULL, topic_subtopic = NULL, topic_project = NULL WHERE id = ? AND agent_id = ? AND user_id = ?",
       )
       .run(sourceId, agentId, userId);
     if (info.changes === 0) throw new Error(`资料不存在: ${sourceId}`);

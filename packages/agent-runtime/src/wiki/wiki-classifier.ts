@@ -20,6 +20,7 @@ export interface ClassifiedItem {
   readonly inboxId: string;
   readonly category: string | null;
   readonly subtopic: string | null;
+  readonly project: string | null;
   /** 模型主动判定无法归类 */
   readonly skip?: boolean;
   /** skip 原因（模型给出） */
@@ -77,7 +78,9 @@ export function buildClassifyPrompt(
     list,
     "",
     "## 输出",
-    '仅 JSON 数组: {"id":"<inboxId>","category":"<大类或空>","subtopic":"<小类或空>","skip":false,"reason":""}',
+    '仅 JSON 数组: {"id":"<inboxId>","category":"<大类或空>","subtopic":"<小类或空>","project":"<项目名或空>","skip":false,"reason":""}',
+    "项目名（project）是可选的第三级分类，用于归档同一主题/课程的多个文件（如「二十四史学习规划」「Lumii使用指南」）。",
+    "同一文件夹下的文件通常属于同一项目，可填相同的 project 值；无法确定项目时留空。",
     "仅输出 JSON，不要包含其他文字。",
   );
 
@@ -209,6 +212,7 @@ export function parseClassifyResponse(
         inboxId: item.id,
         category: null,
         subtopic: null,
+        project: null,
         skip: true,
         ...(typeof record.reason === "string" && record.reason ? { reason: record.reason } : {}),
         degraded: true,
@@ -219,6 +223,7 @@ export function parseClassifyResponse(
 
     const category = typeof record.category === "string" && record.category ? record.category : null;
     const subtopic = typeof record.subtopic === "string" && record.subtopic ? record.subtopic : null;
+    const project = typeof record.project === "string" && record.project ? record.project : null;
     const valid = category !== null && validateTopicAssignment(topicTree, category, subtopic).ok;
 
     if (!valid) {
@@ -226,13 +231,14 @@ export function parseClassifyResponse(
         inboxId: item.id,
         category: null,
         subtopic: null,
+        project: null,
         degraded: true,
         degradeReason: `分类不在当前主题树内: ${category ?? "(空)"} / ${subtopic ?? "(空)"}`,
       });
       continue;
     }
 
-    results.push({ inboxId: item.id, category, subtopic });
+    results.push({ inboxId: item.id, category, subtopic, project });
   }
 
   // 模型漏答的条目同样不能丢：标记待整理，不臆造分类
@@ -242,6 +248,7 @@ export function parseClassifyResponse(
         inboxId: item.id,
         category: null,
         subtopic: null,
+        project: null,
         degraded: true,
         degradeReason: "模型未返回该条目的分类结果",
       });
@@ -255,6 +262,7 @@ function fallbackAll(items: readonly WikiInboxItem[], reason: string): readonly 
     inboxId: item.id,
     category: null,
     subtopic: null,
+    project: null,
     degraded: true as const,
     degradeReason: reason,
   }));

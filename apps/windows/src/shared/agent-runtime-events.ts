@@ -416,6 +416,17 @@ export interface AgentContextCompactedEvent {
   readonly conversationTokensBefore?: number
   /** 压缩后对话历史估算 */
   readonly conversationTokensAfter?: number
+  /**
+   * 本次压缩采用的策略。
+   * - "summary"：LLM 全历史摘要（对话流展示压缩卡片）
+   * - "micro" / "hard-trim"：确定性静默清理（不展示卡片，仅更新占用条）
+   */
+  readonly strategy?: 'micro' | 'summary' | 'hard-trim' | 'none'
+  /**
+   * 所属请求 runId（自动压缩由 bridge 注入）。
+   * 同一 run 内的多次压缩由渲染端合并为一张卡片，避免一次请求刷屏。
+   */
+  readonly runId?: string
 }
 
 // ============================================================
