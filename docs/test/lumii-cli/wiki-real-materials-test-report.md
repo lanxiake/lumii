@@ -1,6 +1,6 @@
 # Wiki 真实材料端到端测试报告
 
-- 日期：2026-09-01T05:29:33.162Z
+- 日期：2026-09-09T07:38:21.343Z
 - 材料目录：C:\myself\projects\my\open-source\lumii\docs\test\lumii-cli\测试材料
 - 环境：lumii-ui + ~/.lumii/data/agent-runtime.db
 - 汇总：**PASS 22** / **FAIL 0** / **SKIP 0** / 合计 22
@@ -10,7 +10,7 @@
 本轮测试产生的 wiki_sources 行已按用户选择的「归档保留（推荐）」策略处理：
 调用 `wiki:source:archive` 置位 `archived_at`，不做物理删除，保留审计轨迹，
 且已验证不再出现在正式目录/默认检索结果中，随时可通过 `wiki:source:restore` 恢复。
-涉及 sourceId：9648768b294bee898746a29a0da19bdd, 379d851448b9b50780072c8a982e5a38, 7de94b92ecbb8f83bd0abe2b18b03639, 8c9b79e1ad251991593558f12b382563, 11cf3e9507f7edfa3d321659ef4de131, 62e1278c0d72b11afa1a11e8d4e49400
+涉及 sourceId：ddd6a0c68ae35e469bd17c2edf03f23e, c5eb6e7c1e0b3d39da15cfd78767ac2e, 847f17fa2512adec514c85d2e729eaf6, 3f27e8995cec86c4c6161b16ea049690, f65aa36496002f8441ade3d4e69b30fc, 48277eff6180d1391c0a0ad76781927b
 
 ## 结论
 
@@ -24,21 +24,21 @@
 | M02 | PASS | docx2 chars=14458 |
 | M03 | PASS | pdf上册 pages=118 chars=36909 |
 | M04 | PASS | pdf下册 pages=127 chars=54336 |
-| I-docx1 | PASS | sourceId=9648768b294bee898746a29a0da19bdd 学习/参考 |
-| I-docx2 | PASS | sourceId=379d851448b9b50780072c8a982e5a38 学习/参考 |
-| I-pdfUp | PASS | sourceId=7de94b92ecbb8f83bd0abe2b18b03639 学习/在学 |
-| I-pdfDown | PASS | sourceId=8c9b79e1ad251991593558f12b382563 学习/在学 |
-| I-mp4_1 | PASS | sourceId=11cf3e9507f7edfa3d321659ef4de131 收藏/可复用 |
-| I-mp4_2 | PASS | sourceId=62e1278c0d72b11afa1a11e8d4e49400 收藏/可复用 |
+| I-docx1 | PASS | sourceId=ddd6a0c68ae35e469bd17c2edf03f23e 学习/参考 |
+| I-docx2 | PASS | sourceId=c5eb6e7c1e0b3d39da15cfd78767ac2e 学习/参考 |
+| I-pdfUp | PASS | sourceId=847f17fa2512adec514c85d2e729eaf6 学习/在学 |
+| I-pdfDown | PASS | sourceId=3f27e8995cec86c4c6161b16ea049690 学习/在学 |
+| I-mp4_1 | PASS | sourceId=f65aa36496002f8441ade3d4e69b30fc 收藏/可复用 |
+| I-mp4_2 | PASS | sourceId=48277eff6180d1391c0a0ad76781927b 收藏/可复用 |
 | V01 | PASS | mp4_1 mediaType=video |
 | D01 | PASS | wiki_pages 表已随 P3 移除（organize 路径天然不写摘要页） |
-| R-docx1 | PASS | 关键词「WordPress」命中 sourceId=9648768b294bee898746a29a0da19bdd |
-| R-docx2 | PASS | 关键词「GITHUB」命中 sourceId=379d851448b9b50780072c8a982e5a38 |
-| R-pdfUp | PASS | 关键词「识字」命中 sourceId=7de94b92ecbb8f83bd0abe2b18b03639 |
-| R-pdfDown | PASS | 关键词「课文」命中 sourceId=8c9b79e1ad251991593558f12b382563 |
+| R-docx1 | PASS | 关键词「WordPress」命中 sourceId=ddd6a0c68ae35e469bd17c2edf03f23e |
+| R-docx2 | PASS | 关键词「GITHUB」命中 sourceId=c5eb6e7c1e0b3d39da15cfd78767ac2e |
+| R-pdfUp | PASS | 关键词「识字」命中 sourceId=847f17fa2512adec514c85d2e729eaf6 |
+| R-pdfDown | PASS | 关键词「课文」命中 sourceId=3f27e8995cec86c4c6161b16ea049690 |
 | R-rare | PASS | 稀有词 + enableVector:false 空结果 |
-| R-rare-hybrid | PASS | 默认 hybrid 模式 hits=2（观察项：向量兜底无零相似度概念，恒返回近邻，enableVector:false 才是真正的空结果判定） |
-| O-open | PASS | sourceId=9648768b294bee898746a29a0da19bdd success=true |
+| R-rare-hybrid | PASS | 默认 hybrid 模式 hits=0（观察项：向量兜底无零相似度概念，恒返回近邻，enableVector:false 才是真正的空结果判定） |
+| O-open | PASS | sourceId=ddd6a0c68ae35e469bd17c2edf03f23e success=true |
 | A-archive | PASS | archived=6/6 |
 | A-verify | PASS | 全部 6 条 archived_at 已置位 |
 | A-search-excluded | PASS | 归档后再搜索仍命中=false（观察项，searchSources 显式排除 archived_at IS NULL） |

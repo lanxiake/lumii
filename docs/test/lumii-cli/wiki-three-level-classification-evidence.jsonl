@@ -1,0 +1,13 @@
+{"ts":"2026-09-09T07:41:47.654Z","id":"T1.1","status":"PASS","note":"创建收件箱条目 inboxId=6b888427479c2cf5849a657cb33c89cc"}
+{"ts":"2026-09-09T07:41:47.739Z","id":"T1.2","status":"FAIL","note":"归档失败: command_failed"}
+{"ts":"2026-09-09T07:41:47.743Z","id":"T2.1","status":"PASS","note":"创建收件箱条目 inboxId=77028486d570dac78509526de8a10aef"}
+{"ts":"2026-09-09T07:41:47.831Z","id":"T2.2","status":"PASS","note":"归档成功（未指定项目） sourceId=37fc2f824a8052170211c5ca82c4216c"}
+{"ts":"2026-09-09T07:41:47.833Z","id":"T2.3","status":"PASS","note":"初始 topic_project 为 null"}
+{"ts":"2026-09-09T07:41:47.916Z","id":"T2.4","status":"PASS","note":"更新主题成功，添加项目: AI学习计划"}
+{"ts":"2026-09-09T07:41:47.916Z","id":"T2.5","status":"PASS","note":"返回值包含更新后的 project: AI学习计划"}
+{"ts":"2026-09-09T07:41:47.918Z","id":"T2.6","status":"PASS","note":"数据库中 topic_project 已更新: AI学习计划"}
+{"ts":"2026-09-09T07:41:48.002Z","id":"T2.7","status":"PASS","note":"项目名称更新成功: 机器学习专项"}
+{"ts":"2026-09-09T07:41:48.087Z","id":"T2.8","status":"PASS","note":"清除项目成功，topic_project 恢复为 null"}
+{"ts":"2026-09-09T07:41:48.189Z","id":"T3.1","status":"PASS","note":"空字符串项目名正确处理为 null"}
+{"ts":"2026-09-09T07:41:48.276Z","id":"T3.2","status":"FAIL","note":"长项目名存储失败: {\"ok\":false,\"error\":\"command_failed\",\"message\":\"小类不存在：工作 / 开发\"}\n"}
+{"ts":"2026-09-09T07:41:48.359Z","id":"T3.3","status":"FAIL","note":"特殊字符项目名归档失败: {\"ok\":false,\"error\":\"command_failed\",\"message\":\"小类不存在：工作 / 开发\"}\n"}
