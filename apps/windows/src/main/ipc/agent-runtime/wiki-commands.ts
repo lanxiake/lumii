@@ -175,7 +175,7 @@ export function handleWikiInboxDiscard(
 export function handleWikiInboxOrganize(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:inbox:organize' }>,
-): { sourceId: string; category: string; subtopic: string } {
+): { sourceId: string; category: string; subtopic: string; project?: string | null; userPath?: string[] | null; tags?: string[] | null; description?: string | null } {
   const repo = bridge.wikiRepo
   const item = repo.findInboxById(command.inboxId)
   if (!item) throw new Error(`收件箱条目不存在: ${command.inboxId}`)
@@ -183,9 +183,33 @@ export function handleWikiInboxOrganize(
     throw new Error('整理入口不允许归到临时存放，请在文件列表中操作')
   }
 
-  const updated = repo.archiveInboxItem(item, command.category, command.subtopic, command.project, command.title)
+  const updated = repo.archiveInboxItem(
+    item,
+    command.category,
+    command.subtopic,
+    command.project,
+    command.title,
+    {
+      userPath: command.userPath,
+      tags: command.tags,
+      description: command.description,
+    }
+  )
   vaultSyncSource(bridge, updated.id, command.agentId)
-  return { sourceId: updated.id, category: updated.topic_category!, subtopic: updated.topic_subtopic!, project: updated.topic_project ?? null }
+
+  // 解析 JSON 字段
+  const userPath = updated.user_path ? JSON.parse(updated.user_path) : null
+  const tags = updated.tags ? JSON.parse(updated.tags) : null
+
+  return {
+    sourceId: updated.id,
+    category: updated.topic_category!,
+    subtopic: updated.topic_subtopic!,
+    project: updated.topic_project ?? null,
+    userPath,
+    tags,
+    description: updated.description ?? null,
+  }
 }
 
 /**
@@ -1042,7 +1066,7 @@ export function handleWikiSourceCounts(
 export function handleWikiSourceUpdateTopic(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'wiki:source:update-topic' }>,
-): { id: string; topicCategory: string | null; topicSubtopic: string | null; topicProject: string | null } {
+): { id: string; topicCategory: string | null; topicSubtopic: string | null; topicProject: string | null; userPath?: string[] | null; tags?: string[] | null; description?: string | null } {
   const agentId = resolveAgentIdForWiki(bridge, undefined, command.agentId)
   const updated = bridge.wikiRepo.updateSourceTopic(
     agentId,
@@ -1050,10 +1074,28 @@ export function handleWikiSourceUpdateTopic(
     command.sourceId,
     command.category,
     command.subtopic,
-    command.project,
+    {
+      project: command.project,
+      userPath: command.userPath,
+      tags: command.tags,
+      description: command.description,
+    },
   )
   vaultSyncSource(bridge, updated.id, command.agentId)
-  return { id: updated.id, topicCategory: updated.topic_category, topicSubtopic: updated.topic_subtopic, topicProject: updated.topic_project }
+
+  // 解析 JSON 字段
+  const userPath = updated.user_path ? JSON.parse(updated.user_path) : null
+  const tags = updated.tags ? JSON.parse(updated.tags) : null
+
+  return {
+    id: updated.id,
+    topicCategory: updated.topic_category,
+    topicSubtopic: updated.topic_subtopic,
+    topicProject: updated.topic_project,
+    userPath,
+    tags,
+    description: updated.description ?? null,
+  }
 }
 
 export function handleWikiSourceMoveToParking(
@@ -1067,7 +1109,7 @@ export function handleWikiSourceMoveToParking(
     command.sourceId,
     PARKING_CATEGORY,
     null,
-    null,
+    {},
   )
   vaultSyncSource(bridge, updated.id, command.agentId)
   return { id: updated.id, topicCategory: updated.topic_category, topicSubtopic: updated.topic_subtopic, topicProject: updated.topic_project }

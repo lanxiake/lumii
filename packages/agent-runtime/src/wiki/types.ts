@@ -55,7 +55,14 @@ export interface WikiSource {
   readonly created_at: string;
   readonly topic_category: string | null;
   readonly topic_subtopic: string | null;
+  /** @deprecated 已移除，使用 user_path 替代 */
   readonly topic_project: string | null;
+  /** 用户目录路径（JSON 数组字符串）：["outputs", "Lumii使用指南", "assets"] */
+  readonly user_path: string | null;
+  /** 标签（JSON 数组字符串）：["文档", "教程", "Lumii"] */
+  readonly tags: string | null;
+  /** AI 生成的简短描述 */
+  readonly description: string | null;
   readonly last_used: string | null;
   readonly use_count: number;
   readonly origin_url: string | null;

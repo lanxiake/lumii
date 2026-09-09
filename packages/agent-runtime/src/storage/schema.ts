@@ -1355,4 +1355,33 @@ CREATE INDEX IF NOT EXISTS idx_syntheses_deleted
   ON wiki_syntheses (agent_id, user_id, deleted_at);
 `,
   ],
+  // V39: Wiki 多级路径分类 — 移除项目字段，添加用户路径和标签
+  //
+  // 设计：保留两级固定分类（大类、小类），用户目录结构作为多级路径，
+  // 添加灵活的标签系统。移除 topic_project，用 user_path 替代。
+  [
+    39,
+    `
+-- 添加用户目录路径（JSON 数组）
+ALTER TABLE wiki_sources ADD COLUMN user_path TEXT;
+
+-- 添加标签（JSON 数组）
+ALTER TABLE wiki_sources ADD COLUMN tags TEXT;
+
+-- 添加描述（可选）
+ALTER TABLE wiki_sources ADD COLUMN description TEXT;
+
+-- 重建索引（移除 topic_project）
+DROP INDEX IF EXISTS idx_wiki_sources_topic;
+CREATE INDEX IF NOT EXISTS idx_wiki_sources_topic
+  ON wiki_sources (agent_id, user_id, topic_category, topic_subtopic);
+
+-- 新增索引
+CREATE INDEX IF NOT EXISTS idx_wiki_sources_user_path
+  ON wiki_sources (user_path);
+
+CREATE INDEX IF NOT EXISTS idx_wiki_sources_tags
+  ON wiki_sources (tags);
+`,
+  ],
 ] as const;

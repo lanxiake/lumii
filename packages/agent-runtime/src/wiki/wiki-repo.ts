@@ -315,6 +315,11 @@ export class WikiRepo {
     subtopic: string | null,
     project?: string | null,
     title?: string,
+    options?: {
+      userPath?: string[] | null;
+      tags?: string[] | null;
+      description?: string | null;
+    },
   ): WikiSource {
     const tree = this.getOrCreateTopicTree();
     const valid = validateTopicAssignment(tree, category, subtopic, { allowParking: true });
@@ -337,7 +342,12 @@ export class WikiRepo {
         extractedText: item.content_preview ?? undefined,
         originContext,
       });
-      const updated = this.updateSourceTopic(item.agent_id, item.user_id, source.id, category, subtopic, project ?? null);
+      const updated = this.updateSourceTopic(item.agent_id, item.user_id, source.id, category, subtopic, {
+        project: project ?? null,
+        userPath: options?.userPath ?? null,
+        tags: options?.tags ?? null,
+        description: options?.description ?? null,
+      });
       this.indexSource(source.id);
       this.markInboxOrganized(item.id, source.id);
       return updated;
@@ -445,8 +455,9 @@ export class WikiRepo {
         `INSERT INTO wiki_sources
          (id, agent_id, user_id, title, source_path, content_md, content_hash, mime_type,
           media_type, extracted_text, media_meta, preview_path, origin_context, created_at,
-          topic_category, topic_subtopic, topic_project, last_used, use_count, origin_url, storage_mode)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          topic_category, topic_subtopic, topic_project, user_path, tags, description,
+          last_used, use_count, origin_url, storage_mode)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -463,6 +474,9 @@ export class WikiRepo {
         params.previewPath ?? null,
         params.originContext ?? null,
         now,
+        null,
+        null,
+        null,
         null,
         null,
         null,
@@ -490,6 +504,9 @@ export class WikiRepo {
       topic_category: null,
       topic_subtopic: null,
       topic_project: null,
+      user_path: null,
+      tags: null,
+      description: null,
       last_used: null,
       use_count: 0,
       origin_url: params.originUrl ?? null,
@@ -979,6 +996,7 @@ export class WikiRepo {
    * （category=null 时 subtopic 必须同为 null，直接落两列为 NULL，不经 validateTopicAssignment——
    * 语义等价 clearSourceTopic，但走这个方法能让调用方统一走一个入口）。
    * v1.2（三级分类）：加 project 参数（可选，NULL = 未细分到项目）。
+   * v1.3（多级路径）：移除 project，添加 userPath、tags、description。
    */
   updateSourceTopic(
     agentId: string,
@@ -986,7 +1004,12 @@ export class WikiRepo {
     sourceId: string,
     category: string | null,
     subtopic: string | null,
-    project?: string | null,
+    options?: {
+      project?: string | null;  // 保留向后兼容，但已废弃
+      userPath?: string[] | null;
+      tags?: string[] | null;
+      description?: string | null;
+    },
   ): WikiSource {
     if (category === null) {
       if (subtopic !== null) {
@@ -999,11 +1022,25 @@ export class WikiRepo {
     if (!result.ok) {
       throw new Error(result.reason);
     }
+
+    const userPathJson = options?.userPath ? JSON.stringify(options.userPath) : null;
+    const tagsJson = options?.tags ? JSON.stringify(options.tags) : null;
+
     const info = this.db
       .prepare(
-        "UPDATE wiki_sources SET topic_category = ?, topic_subtopic = ?, topic_project = ? WHERE id = ? AND agent_id = ? AND user_id = ?",
+        "UPDATE wiki_sources SET topic_category = ?, topic_subtopic = ?, topic_project = ?, user_path = ?, tags = ?, description = ? WHERE id = ? AND agent_id = ? AND user_id = ?",
       )
-      .run(category, subtopic, project ?? null, sourceId, agentId, userId);
+      .run(
+        category,
+        subtopic,
+        options?.project ?? null,
+        userPathJson,
+        tagsJson,
+        options?.description ?? null,
+        sourceId,
+        agentId,
+        userId,
+      );
     if (info.changes === 0) throw new Error(`资料不存在: ${sourceId}`);
     const source = this.findSourceById(sourceId);
     if (!source) throw new Error(`资料不存在: ${sourceId}`);
@@ -1023,13 +1060,14 @@ export class WikiRepo {
   }
 
   /**
-   * 把资料退回未分类（三列置 NULL）。不走 validateTopicAssignment——清空不是一次归属，
+   * 把资料退回未分类（置 NULL）。不走 validateTopicAssignment——清空不是一次归属，
    * 没有「越权」可言；用户撤销误分类时不该被树校验挡住。
+   * v1.3: 同时清除 user_path、tags、description。
    */
   clearSourceTopic(agentId: string, userId: string, sourceId: string): WikiSource {
     const info = this.db
       .prepare(
-        "UPDATE wiki_sources SET topic_category = NULL, topic_subtopic = NULL, topic_project = NULL WHERE id = ? AND agent_id = ? AND user_id = ?",
+        "UPDATE wiki_sources SET topic_category = NULL, topic_subtopic = NULL, topic_project = NULL, user_path = NULL, tags = NULL, description = NULL WHERE id = ? AND agent_id = ? AND user_id = ?",
       )
       .run(sourceId, agentId, userId);
     if (info.changes === 0) throw new Error(`资料不存在: ${sourceId}`);

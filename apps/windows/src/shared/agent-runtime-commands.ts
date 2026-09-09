@@ -379,7 +379,11 @@ export interface WikiInboxOrganizeCommand {
   readonly inboxId: string
   readonly category: string
   readonly subtopic: string
+  /** @deprecated 已废弃，使用 userPath 替代 */
   readonly project?: string
+  readonly userPath?: string[]
+  readonly tags?: string[]
+  readonly description?: string
   readonly title?: string
 }
 
@@ -766,7 +770,11 @@ export interface WikiSourceUpdateTopicCommand {
   readonly sourceId: string
   readonly category: string
   readonly subtopic: string | null
+  /** @deprecated 已废弃，使用 userPath 替代 */
   readonly project?: string | null
+  readonly userPath?: string[] | null
+  readonly tags?: string[] | null
+  readonly description?: string | null
 }
 
 export interface WikiSourceMoveToParkingCommand {
@@ -1882,7 +1890,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:inbox:count' ? { total: number; pending: number; unfiled: number }
   : T extends 'wiki:inbox:retry' ? { success: boolean }
   : T extends 'wiki:inbox:discard' ? { success: boolean }
-  : T extends 'wiki:inbox:organize' ? { sourceId: string; category: string; subtopic: string; project: string | null }
+  : T extends 'wiki:inbox:organize' ? { sourceId: string; category: string; subtopic: string; project: string | null; userPath?: string[] | null; tags?: string[] | null; description?: string | null }
   : T extends 'wiki:folder:scan' ? {
       dir: string
       candidates: readonly {
@@ -2040,6 +2048,9 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       topicCategory: string | null
       topicSubtopic: string | null
       topicProject: string | null
+      userPath?: string[] | null
+      tags?: string[] | null
+      description?: string | null
     }
   : T extends 'wiki:source:move-to-parking' ? {
       id: string

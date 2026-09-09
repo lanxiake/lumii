@@ -127,6 +127,9 @@ export interface WikiSourceDetail {
   readonly originContext: string | null
   readonly topicCategory: string | null
   readonly topicSubtopic: string | null
+  readonly userPath?: string[] | null
+  readonly tags?: string[] | null
+  readonly description?: string | null
   readonly createdAt: number
 }
 
@@ -306,7 +309,11 @@ export interface WikiSourceListItem {
   readonly mediaType: string
   readonly topicCategory: string | null
   readonly topicSubtopic: string | null
+  /** @deprecated 已废弃，使用 userPath 替代 */
   readonly topicProject: string | null
+  readonly userPath?: string[] | null
+  readonly tags?: string[] | null
+  readonly description?: string | null
   /** extracted_text 字符数，用于识别短文碎片 */
   readonly textLength: number
   readonly updatedAt: number
@@ -398,10 +405,15 @@ export function useWikiPage() {
       category: string,
       /** null = 只归大类、暂不细分（小类可选） */
       subtopic: string | null,
-      /** null = 不归属项目（项目可选，三级分类） */
+      /** @deprecated 使用 userPath 替代 */
       project: string | null,
       title?: string,
-    ): Promise<{ sourceId: string; category: string; subtopic: string | null; project: string | null } | null> => {
+      options?: {
+        userPath?: string[] | null;
+        tags?: string[] | null;
+        description?: string | null;
+      },
+    ): Promise<{ sourceId: string; category: string; subtopic: string | null; project: string | null; userPath?: string[] | null; tags?: string[] | null; description?: string | null } | null> => {
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return null
       try {
@@ -412,7 +424,10 @@ export function useWikiPage() {
           subtopic,
           project,
           title,
-        })) as { sourceId: string; category: string; subtopic: string | null; project: string | null }
+          userPath: options?.userPath,
+          tags: options?.tags,
+          description: options?.description,
+        })) as { sourceId: string; category: string; subtopic: string | null; project: string | null; userPath?: string[] | null; tags?: string[] | null; description?: string | null }
       } catch {
         return null
       }
@@ -951,7 +966,18 @@ export function useWikiPage() {
   }, [])
 
   const updateSourceTopic = useCallback(
-    async (sourceId: string, category: string, subtopic: string | null, project: string | null): Promise<boolean> => {
+    async (
+      sourceId: string,
+      category: string,
+      subtopic: string | null,
+      /** @deprecated 使用 options.userPath 替代 */
+      project: string | null,
+      options?: {
+        userPath?: string[] | null;
+        tags?: string[] | null;
+        description?: string | null;
+      },
+    ): Promise<boolean> => {
       const api = window.electronAPI?.agentRuntime
       if (!api?.sendCommand) return false
       try {
@@ -962,6 +988,9 @@ export function useWikiPage() {
           category,
           subtopic,
           project,
+          userPath: options?.userPath,
+          tags: options?.tags,
+          description: options?.description,
         })) as { id: string }
         return !!r?.id
       } catch {

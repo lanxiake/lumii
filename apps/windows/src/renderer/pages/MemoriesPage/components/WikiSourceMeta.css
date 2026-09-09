@@ -1,0 +1,68 @@
+/* WikiSourceMeta - 资料元数据样式 */
+
+.wiki-source-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.wiki-source-meta-label {
+  font-weight: 500;
+  margin-right: 6px;
+  color: var(--text-tertiary);
+}
+
+/* 用户路径 */
+.wiki-source-meta-path {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.wiki-source-meta-segment {
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.wiki-source-meta-separator {
+  color: var(--text-tertiary);
+  margin: 0 2px;
+}
+
+/* 标签 */
+.wiki-source-meta-tags {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.wiki-source-meta-tag {
+  color: var(--accent-primary);
+  background: var(--accent-bg);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* 描述 */
+.wiki-source-meta-description {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.wiki-source-meta-description-text {
+  color: var(--text-secondary);
+  line-height: 1.4;
+  flex: 1;
+}

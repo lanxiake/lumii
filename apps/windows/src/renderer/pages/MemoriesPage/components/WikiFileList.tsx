@@ -5,6 +5,7 @@ import type { WikiSourceListItem } from '../../../hooks/business/useWikiPage'
 import { formatRelativeTime } from './wikiStatusLabels'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 import { formatTopicDisplay, UNFILED_SUBTOPIC_LABEL } from './wikiTopicDisplay'
+import { WikiSourceMeta } from './WikiSourceMeta'
 import {
   formatWikiExtBadgeLabel,
   resolveWikiFileExt,
@@ -232,6 +233,13 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                       {showTopic && <span className="wiki-file-list-topic">{topic}</span>}
                       <span className="wiki-file-list-time">{formatRelativeTime(item.updatedAt)}</span>
                     </div>
+                    {/* 显示用户路径、标签和描述 */}
+                    <WikiSourceMeta
+                      userPath={item.userPath}
+                      tags={item.tags}
+                      description={item.description}
+                      compact={true}
+                    />
                   </div>
                 </div>
                 <div className="wiki-file-list-actions">

@@ -804,7 +804,7 @@ export const WikiTab: React.FC = () => {
           if (run?.status === 'failed') {
             taskCenter.failTask(taskId, run.error ?? '重新编目失败')
           } else {
-            const pending = run?.candidates.filter((c) => c.decision === 'pending').length ?? 0
+            const pending = run?.candidates.filter((c) => c.applyError).length ?? 0
             taskCenter.completeTask(taskId, {
               detail: run
                 ? pending > 0
@@ -1325,6 +1325,7 @@ export const WikiTab: React.FC = () => {
         mediaType: hit.mediaType,
         topicCategory: hit.category,
         topicSubtopic: hit.subtopic,
+        topicProject: null,
         textLength: 0,
         updatedAt: hit.updatedAt,
         useCount: 0,
@@ -1796,7 +1797,7 @@ export const WikiTab: React.FC = () => {
         suggestionState={suggestionState}
         onAdoptSuggestion={
           suggestion
-            ? () => void handleConfirmPicker(suggestion.category, suggestion.subtopic)
+            ? () => void handleConfirmPicker(suggestion.category, suggestion.subtopic, null)
             : undefined
         }
       />
