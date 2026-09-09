@@ -1312,9 +1312,8 @@ CREATE INDEX IF NOT EXISTS idx_bash_cmd_created
   ON bash_command_log (created_at);
 `,
   ],
-] as const;
   // V37: Wiki 三级分类 — 域 → 小类 → 项目
-  // 
+  //
   // 加第三列 topic_project（可选，NULL = 未细分到项目）。
   // 项目名自由新增、无需预设树。已归档数据零迁移（新列默认 NULL）。
   [
@@ -1327,3 +1326,4 @@ CREATE INDEX IF NOT EXISTS idx_wiki_sources_topic
   ON wiki_sources (agent_id, user_id, topic_category, topic_subtopic, topic_project);
 `,
   ],
+] as const;
