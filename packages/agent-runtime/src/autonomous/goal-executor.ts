@@ -35,7 +35,6 @@ const GOAL_EXECUTION_TOOLS: readonly string[] = [
   'memory_manage',
   'message',
   // T1：读 + 知识
-  'bing_search',
   'file_read',
   'list_dir',
   'glob',

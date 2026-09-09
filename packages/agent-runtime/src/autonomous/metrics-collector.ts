@@ -138,7 +138,6 @@ export function extractKnowledgeGrowth(metrics: SessionMetrics): number {
 const KNOWLEDGE_QUERY_TOOLS = new Set([
   'web_search',
   'web_fetch',
-  'bing_search',
   'memory_search',
   'memory_read',
   'wiki_read',

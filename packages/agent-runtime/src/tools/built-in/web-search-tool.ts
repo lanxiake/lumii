@@ -38,6 +38,12 @@ const WebSearchInput = Type.Object({
       default: "zh-CN",
     }),
   ),
+  offset: Type.Optional(
+    Type.Number({
+      description: "Result offset for pagination (default: 0, only supported by Bing provider)",
+      default: 0,
+    }),
+  ),
 });
 
 /** LangSearch API 响应类型 */
@@ -215,7 +221,7 @@ export const webSearchToolConfig: MtBotToolConfig<typeof WebSearchInput> = {
   name: "web_search",
   label: "Web Search",
   description:
-    "Search the web and return structured results. Priority: Bing (built-in, no config) → LangSearch API (requires LANGSEARCH_API_KEY) → SearXNG (requires SEARXNG_BASE_URL).",
+    "Search the web and return structured results. Default provider: Bing (built-in, no config). Fallbacks: LangSearch API (requires LANGSEARCH_API_KEY) → SearXNG (requires SEARXNG_BASE_URL). Supports pagination via offset (Bing only).",
   parameters: WebSearchInput,
   category: "web",
   isReadOnly: true,
@@ -225,8 +231,9 @@ export const webSearchToolConfig: MtBotToolConfig<typeof WebSearchInput> = {
     const query = params.query.trim();
     const count = Math.min(Math.max(params.count ?? 8, 1), 20);
     const language = params.language ?? "zh-CN";
+    const offset = Math.max(params.offset ?? 0, 0);
 
-    console.log(`[web_search] execute 开始: query="${query}" count=${count} language=${language}`);
+    console.log(`[web_search] execute 开始: query="${query}" count=${count} language=${language} offset=${offset}`);
     console.log(
       `[web_search] 环境变量: LANGSEARCH_API_KEY=${process.env.LANGSEARCH_API_KEY ? "已配置" : "未配置"} SEARXNG_BASE_URL=${resolveSearxngBaseUrl() ?? "未配置"}`,
     );
@@ -243,11 +250,11 @@ export const webSearchToolConfig: MtBotToolConfig<typeof WebSearchInput> = {
     let langSearchError: Error | null = null;
     let searxngError: Error | null = null;
 
-    // 优先尝试内置 Bing 搜索（无需配置）
-    console.log(`[web_search] 尝试内置 Bing 搜索: query="${query}"`);
+    // 优先尝试内置 Bing 搜索（无需配置，默认第一项）
+    console.log(`[web_search] 尝试内置 Bing 搜索: query="${query}" offset=${offset}`);
     try {
       const { fetchBingSearchHtml, parseBingSearchHtml } = await import("./bing-search-tool.js");
-      const html = await fetchBingSearchHtml(query, 0);
+      const html = await fetchBingSearchHtml(query, offset);
       const bingItems = parseBingSearchHtml(html, count);
       if (bingItems.length > 0) {
         items = bingItems.map((item) => ({

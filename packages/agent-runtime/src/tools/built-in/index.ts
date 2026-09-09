@@ -14,7 +14,6 @@ export { globToolConfig } from "./glob-tool.js";
 export { grepToolConfig } from "./grep-tool.js";
 export { webFetchToolConfig } from "./web-fetch-tool.js";
 export { webSearchToolConfig } from "./web-search-tool.js";
-export { bingSearchToolConfig } from "./bing-search-tool.js";
 export { spawnAgentToolConfig } from "./spawn-agent-tool.js";
 export { sendMessageToolConfig } from "./send-message-tool.js";
 export { todoWriteToolConfig } from "./task-tools.js";
@@ -96,7 +95,6 @@ import { globToolConfig } from "./glob-tool.js";
 import { grepToolConfig } from "./grep-tool.js";
 import { webFetchToolConfig } from "./web-fetch-tool.js";
 import { webSearchToolConfig } from "./web-search-tool.js";
-import { bingSearchToolConfig } from "./bing-search-tool.js";
 import { spawnAgentToolConfig } from "./spawn-agent-tool.js";
 import { sendMessageToolConfig } from "./send-message-tool.js";
 import { todoWriteToolConfig } from "./task-tools.js";
@@ -158,7 +156,6 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   globToolConfig,
   grepToolConfig,
   webFetchToolConfig,
-  bingSearchToolConfig,
   webSearchToolConfig,
   spawnAgentToolConfig,
   sendMessageToolConfig,

@@ -1,0 +1,38 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.switchCard {
+  flex-shrink: 0;
+}
+
+.switchHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--mt-border-hairline, var(--color-border));
+}
+
+.switchTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mt-fg-1, var(--color-text-primary));
+}
+
+.switchRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+
+.switchHint {
+  font-size: 12px;
+  color: var(--mt-fg-3, var(--color-text-tertiary));
+  margin-left: 24px;
+}

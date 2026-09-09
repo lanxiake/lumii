@@ -108,7 +108,6 @@ export type AppUiSettingsCategory =
   | 'voice'
   | 'channels'
   | 'codingDev'
-  | 'searchTools'
   | 'pet'
   | 'usage'
   | 'privacy'

@@ -107,8 +107,8 @@
   margin: 16px 0 24px;
   padding: 16px;
   border-radius: 12px;
-  background: linear-gradient(135deg, var(--mt-bg-2, #f8fafc) 0%, var(--mt-bg-3, #f1f5f9) 100%);
-  border: 1px solid var(--mt-border, var(--border-color, #e2e8f0));
+  background: var(--mt-bg-secondary, var(--color-bg-secondary));
+  border: 1px solid var(--mt-border, var(--color-border));
 }
 
 .statsTitle {
@@ -118,7 +118,7 @@
   margin: 0 0 16px;
   font-size: 14px;
   font-weight: 600;
-  color: var(--mt-fg-1, var(--text-primary, #1a202c));
+  color: var(--mt-fg-1, var(--color-text-primary));
 }
 
 .statsGrid {
@@ -134,13 +134,13 @@
   gap: 12px;
   padding: 14px 16px;
   border-radius: 10px;
-  background: white;
-  border: 1px solid var(--mt-border-hairline, var(--border-color, #e2e8f0));
+  background: var(--mt-bg-primary, var(--color-bg-primary));
+  border: 1px solid var(--mt-border, var(--color-border));
   transition: all 0.2s;
 }
 
 .statCard:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   transform: translateY(-1px);
 }
 
@@ -151,8 +151,8 @@
   width: 40px;
   height: 40px;
   border-radius: 8px;
-  background: var(--mt-primary-subtle, var(--color-primary-subtle, #ebf8ff));
-  color: var(--mt-primary, var(--color-primary, #4299e1));
+  background: var(--mt-primary-subtle, var(--color-primary-subtle));
+  color: var(--mt-primary, var(--color-primary));
 }
 
 .statContent {
@@ -164,12 +164,12 @@
   font-size: 24px;
   font-weight: 700;
   line-height: 1.2;
-  color: var(--mt-fg-1, var(--text-primary, #1a202c));
+  color: var(--mt-fg-1, var(--color-text-primary));
 }
 
 .statLabel {
   font-size: 12px;
-  color: var(--mt-fg-3, var(--text-tertiary, #718096));
+  color: var(--mt-fg-3, var(--color-text-tertiary));
   margin-top: 2px;
 }
 
@@ -178,15 +178,15 @@
   margin-top: 16px;
   padding: 14px;
   border-radius: 8px;
-  background: white;
-  border: 1px solid var(--mt-border-hairline, var(--border-color, #e2e8f0));
+  background: var(--mt-bg-primary, var(--color-bg-primary));
+  border: 1px solid var(--mt-border, var(--color-border));
 }
 
 .topCommandsTitle {
   margin: 0 0 12px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--mt-fg-1, var(--text-primary, #1a202c));
+  color: var(--mt-fg-1, var(--color-text-primary));
 }
 
 .commandList {
@@ -201,7 +201,7 @@
   gap: 10px;
   padding: 8px 10px;
   border-radius: 6px;
-  background: var(--mt-bg-2, var(--bg-secondary, #f7fafc));
+  background: var(--mt-bg-secondary, var(--color-bg-secondary));
   font-size: 12px;
 }
 
@@ -215,7 +215,7 @@
   border-radius: 4px;
   font-weight: 700;
   font-size: 11px;
-  background: var(--mt-primary, var(--color-primary, #4299e1));
+  background: var(--mt-primary, var(--color-primary));
   color: white;
 }
 
@@ -223,7 +223,7 @@
   flex: 1;
   font-family: var(--mt-font-mono, Consolas, Monaco, monospace);
   font-size: 12px;
-  color: var(--mt-fg-2, #4a5568);
+  color: var(--mt-fg-2, var(--color-text-secondary));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -231,7 +231,7 @@
 
 .commandCount {
   font-weight: 600;
-  color: var(--mt-fg-2, var(--text-secondary, #4a5568));
+  color: var(--mt-fg-2, var(--color-text-secondary));
   white-space: nowrap;
 }
 
@@ -243,12 +243,12 @@
   margin-top: 12px;
   padding: 10px 12px;
   border-radius: 6px;
-  background: white;
-  border: 1px solid var(--mt-border-hairline, var(--border-color, #e2e8f0));
+  background: var(--mt-bg-primary, var(--color-bg-primary));
+  border: 1px solid var(--mt-border, var(--color-border));
   font-size: 12px;
-  color: var(--mt-fg-3, var(--text-tertiary, #718096));
+  color: var(--mt-fg-3, var(--color-text-tertiary));
 }
 
 .separator {
-  color: var(--mt-border, var(--border-color, #cbd5e0));
+  color: var(--mt-border, var(--color-border));
 }

@@ -45,7 +45,6 @@ const TOOL_TO_DIMENSION: Record<string, CapabilityDimension> = {
   // 网络检索
   web_search: CapabilityDimension.WEB_SEARCH,
   web_fetch: CapabilityDimension.WEB_SEARCH,
-  bing_search: CapabilityDimension.WEB_SEARCH,
   // 多步规划/编排
   spawn_agent: CapabilityDimension.MULTI_STEP_PLANNING,
   todo_write: CapabilityDimension.MULTI_STEP_PLANNING,

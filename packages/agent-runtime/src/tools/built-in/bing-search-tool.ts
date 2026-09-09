@@ -1,8 +1,9 @@
 /**
- * Bing Search Tool — 必应搜索（内置爬虫版）
+ * Bing Search 内部模块 — 必应搜索爬虫
  *
  * 直接爬取 cn.bing.com 搜索结果，无需 API Key。
- * 同时作为 web_search 的首选 provider（见 web-search-tool.ts）。
+ * 已合并到 web_search 工具作为默认第一 provider（见 web-search-tool.ts），
+ * 不再作为独立工具注册。fetchBingSearchHtml / parseBingSearchHtml 供 web_search 内部调用。
  */
 
 import { Type } from "@sinclair/typebox";

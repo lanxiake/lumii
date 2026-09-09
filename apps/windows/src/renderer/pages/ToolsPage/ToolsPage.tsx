@@ -13,7 +13,7 @@ import { Input } from '../../components/ui/Input/Input'
 import { Loading } from '../../components/ui/Loading/Loading'
 import { Empty } from '../../components/ui/Empty/Empty'
 import { ToolCard } from '../SkillsPage/components/ToolCard'
-import { EvolvedToolsSection } from '../SettingsPage/components/EvolvedToolsSection'
+import { ToolEvolutionPanel } from './ToolEvolutionPanel'
 import { SearchToolsSection } from '../SettingsPage/components/SearchToolsSection'
 import { useToolSearch } from '../../hooks/business/useToolSearch'
 import { CATEGORY_LABELS, CATEGORY_ORDER } from '../SkillsPage/SkillsPage.const'
@@ -88,7 +88,7 @@ export const ToolsPage: React.FC<ToolsPageProps> = ({ embedded = false }) => {
               className={styles.search}
             />
           </div>
-          <Card className={styles.card}>
+          <Card className={styles.card} bodyClassName={styles.cardBody}>
             {isToolsLoading ? (
               <Loading text="加载工具中..." />
             ) : builtinTools.length === 0 ? (
@@ -125,7 +125,7 @@ export const ToolsPage: React.FC<ToolsPageProps> = ({ embedded = false }) => {
         </>
       )}
 
-      {activeTab === 'evolution' && <EvolvedToolsSection />}
+      {activeTab === 'evolution' && <ToolEvolutionPanel />}
 
       {activeTab === 'search' && <SearchToolsSection />}
     </div>

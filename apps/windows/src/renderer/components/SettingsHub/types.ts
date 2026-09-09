@@ -26,7 +26,6 @@ export type MergedSettingsCategory =
   | 'voice'
   | 'channels'
   | 'codingDev'
-  | 'searchTools'
   | 'pet'
   | 'usage'
   | 'privacy'

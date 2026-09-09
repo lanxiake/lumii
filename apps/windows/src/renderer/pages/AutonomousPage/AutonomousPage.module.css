@@ -19,6 +19,40 @@
   margin: 0;
 }
 
+/* 嵌入模式：设置面板内容区宽度受限，媒体查询（视口口径）不可靠，
+   改用 auto-fit 让网格按容器宽度自动折行，避免图表被挤压变形 */
+.pageEmbedded .overviewGrid,
+.pageEmbedded .capabilitiesGrid,
+.pageEmbedded .reflectionsGrid,
+.pageEmbedded .innerGrid {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-rows: none;
+  align-content: start;
+  flex: none;
+}
+
+/* 嵌入模式：内容区整体可滚动，避免图表被截断 */
+.pageEmbedded .content {
+  overflow-y: auto;
+}
+
+.pageEmbedded .overviewGoals {
+  grid-column: auto;
+}
+
+.pageEmbedded .overviewScore,
+.pageEmbedded .overviewTrend,
+.pageEmbedded .overviewGoals,
+.pageEmbedded .radarCol,
+.pageEmbedded .dimensionsCol,
+.pageEmbedded .reflectionListCol,
+.pageEmbedded .reflectionDetailCol,
+.pageEmbedded .concernsCard,
+.pageEmbedded .diaryCard {
+  height: auto;
+  min-height: 200px;
+}
+
 /* 页头：标题 + 开关同行 */
 .header {
   display: flex;

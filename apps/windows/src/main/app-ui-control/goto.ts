@@ -23,7 +23,6 @@ const VALID_CATEGORIES: ReadonlySet<string> = new Set<AppUiSettingsCategory>([
   'voice',
   'channels',
   'codingDev',
-  'searchTools',
   'pet',
   'usage',
   'privacy',

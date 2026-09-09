@@ -11,7 +11,6 @@ import {
   Wrench,
   Info,
   Zap,
-  Search,
   FlaskConical,
 } from '../../components/ui/Icon'
 import { FileText } from 'lucide-react'
@@ -37,7 +36,6 @@ import { WorkspaceSection } from './components/WorkspaceSection'
 import { CloudSyncSection } from './components/CloudSyncSection'
 import { NotificationSection } from './components/NotificationSection'
 import { PrivacySection } from './components/PrivacySection'
-import { SearchToolsSection } from './components/SearchToolsSection'
 import { ExperimentalSection } from './components/ExperimentalSection'
 import type {
   MergedSettingsCategory,
@@ -62,7 +60,6 @@ const CATEGORIES: Array<{ id: MergedSettingsCategory; label: string; icon: React
   { id: 'voice', label: '语音设置', icon: <Mic size={SETTINGS_ICON_SIZE} /> },
   { id: 'channels', label: '渠道设置', icon: <Radio size={SETTINGS_ICON_SIZE} /> },
   { id: 'codingDev', label: 'ACP 设置', icon: <Wrench size={SETTINGS_ICON_SIZE} /> },
-  { id: 'searchTools', label: '搜索工具', icon: <Search size={SETTINGS_ICON_SIZE} /> },
   { id: 'pet', label: '宠物模式', icon: <Smartphone size={SETTINGS_ICON_SIZE} /> },
   { id: 'usage', label: '用量与花费', icon: <Zap size={SETTINGS_ICON_SIZE} /> },
   { id: 'privacy', label: '隐私与数据', icon: <Shield size={SETTINGS_ICON_SIZE} /> },
@@ -862,8 +859,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         return renderChannelsSettings()
       case 'codingDev':
         return renderCodingDevSettings()
-      case 'searchTools':
-        return <SearchToolsSection />
       case 'privacy':
         return renderPrivacySettings()
       case 'experimental':
