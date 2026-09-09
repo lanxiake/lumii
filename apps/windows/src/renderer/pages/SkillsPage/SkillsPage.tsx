@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
-import { Package, ShoppingBag, Wrench, Radio, Loader2, FolderOpen, Download, Circle, ChevronDown, ChevronRight } from 'lucide-react'
+import { Package, ShoppingBag, Loader2, FolderOpen, Download, ChevronDown, ChevronRight } from 'lucide-react'
 import clsx from 'clsx'
 import { Card } from '../../components/ui/Card/Card'
 import { Button } from '../../components/ui/Button/Button'
@@ -11,12 +11,9 @@ import { PageHeader } from '../../components/ui/PageHeader/PageHeader'
 import { ErrorBanner } from '../../components/ui/ErrorBanner/ErrorBanner'
 import { Select } from '../../components/ui/Select/Select'
 import { SkillStoreView } from '../../components/business/SkillStoreView'
-import { ToolCard } from './components/ToolCard'
 import { MySkillDetailModal } from './components/MySkillDetailModal'
 import { SkillRow } from './components/SkillRow'
 import { useSkills } from '../../hooks/business/useSkills'
-import { useToolSearch } from '../../hooks/business/useToolSearch'
-import { CATEGORY_LABELS, CATEGORY_ORDER } from './SkillsPage.const'
 import type { MySkillDetailInfo, TabType, FilterStatus, SkillsPageProps } from './SkillsPage.types'
 import styles from './SkillsPage.module.css'
 
@@ -35,7 +32,6 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
   mcpOnly = false,
 }) => {
   const { installedSkills, stats: skillStats, isLoading, error, loadInstalledSkills, enableSkill, disableSkill, uninstallSkill } = useSkills()
-  const { filtered: filteredTools, grouped: groupedTools, stats: toolStats, query: toolQuery, setQuery: setToolQuery, isLoading: isToolsLoading, togglingTool, toggleTool, mcpStatus } = useToolSearch()
 
   // 标签页状态（Composer「管理」可经 sessionStorage 指定初始 Tab）
   const [activeTab, setActiveTab] = useState<TabType>(() => {
@@ -355,7 +351,7 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
 
   return (
     <div className={clsx(styles['skills-page'], embedded && styles['skills-page--embedded'])}>
-      {/* 标签页导航：我的技能 → 技能商店 → 工具 → MCP工具 */}
+      {/* 标签页导航：我的技能 → 技能商店 */}
       {!mcpOnly && (
       <div className={styles['skills-tabs']}>
         <button
@@ -373,33 +369,6 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
           <span className={styles['tab-icon']}><ShoppingBag size={14} /></span>
           <span className={styles['tab-label']}>技能商店</span>
         </button>
-        <button
-          className={clsx(styles['skills-tab'], activeTab === 'tools' && styles['active'])}
-          onClick={() => setActiveTab('tools')}
-        >
-          <span className={styles['tab-icon']}><Wrench size={14} /></span>
-          <span className={styles['tab-label']}>工具</span>
-          <span className={styles['tab-badge']}>{toolStats.total - (groupedTools.get('channel')?.length ?? 0)}</span>
-        </button>
-        {!hideMcpTab && (
-        <button
-          className={clsx(styles['skills-tab'], activeTab === 'mcp' && styles['active'])}
-          onClick={() => setActiveTab('mcp')}
-        >
-          <span className={styles['tab-icon']}><Radio size={14} /></span>
-          <span className={styles['tab-label']}>MCP 工具</span>
-          {/* 修复: 只统计有对应 MCP Server 的 channel 工具,避免与页面内容不一致 */}
-          {(() => {
-            const channelTools = groupedTools.get('channel') ?? []
-            const mcpToolCount = channelTools.filter(tool => 
-              mcpStatus.some(server => tool.name.startsWith(`mcp__${server.name}__`))
-            ).length
-            return mcpToolCount > 0 ? (
-              <span className={styles['tab-badge']}>{mcpToolCount}</span>
-            ) : null
-          })()}
-        </button>
-        )}
       </div>
       )}
 
@@ -586,136 +555,6 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
               </div>
             </div>
           )}
-        </>
-      )}
-
-      {/* 工具管理标签页（内建工具，不含 MCP） */}
-      {activeTab === 'tools' && (
-        <>
-          <PageHeader
-            title="工具管理"
-            subtitle={`共 ${toolStats.total - (groupedTools.get('channel')?.length ?? 0)} 个内建工具`}
-          />
-          <div className={styles['skills-toolbar']}>
-            <div className={styles['skills-filters']}>
-              <Input
-                placeholder="搜索工具..."
-                value={toolQuery}
-                onChange={(e) => setToolQuery(e.target.value)}
-                className={styles['skills-search']}
-              />
-            </div>
-          </div>
-          <Card className={styles['skills-list-card']}>
-            {isToolsLoading ? (
-              <Loading text="加载工具中..." />
-            ) : filteredTools.filter(t => t.category !== 'channel').length === 0 ? (
-              <Empty description={toolQuery ? '没有找到匹配的工具' : '暂无内建工具'} />
-            ) : (
-              <div className={styles['skills-list']}>
-                {[...groupedTools.entries()]
-                  .filter(([category]) => category !== 'channel')
-                  .sort(([a], [b]) => (CATEGORY_ORDER[a] ?? 99) - (CATEGORY_ORDER[b] ?? 99))
-                  .map(([category, categoryTools]) => (
-                    <div key={category} className={styles['skill-group']}>
-                      <h3 className={styles['skill-group-title']}>
-                        {CATEGORY_LABELS[category] ?? category}（{categoryTools.length}）
-                      </h3>
-                      {categoryTools.map((tool) => (
-                        <ToolCard
-                          key={tool.name}
-                          name={tool.name}
-                          label={tool.label}
-                          description={tool.description}
-                          category={tool.category}
-                          isReadOnly={tool.isReadOnly}
-                          enabled={tool.enabled}
-                          usageCount={tool.usageCount}
-                          lastUsedAt={tool.lastUsedAt}
-                          isToggling={togglingTool === tool.name}
-                          onToggle={(enabled) => toggleTool(tool.name, enabled)}
-                        />
-                      ))}
-                    </div>
-                  ))}
-              </div>
-            )}
-          </Card>
-        </>
-      )}
-
-      {/* MCP 工具标签页 */}
-      {activeTab === 'mcp' && (
-        <>
-          {/* 连接数由上方 McpServersPanel 展示，这里只讲工具 */}
-          <PageHeader
-            title="MCP 工具"
-            subtitle={`已加载 ${groupedTools.get('channel')?.length ?? 0} 个工具，可单独开关`}
-          />
-          <div className={styles['skills-toolbar']}>
-            <div className={styles['skills-filters']}>
-              <Input
-                placeholder="搜索 MCP 工具..."
-                value={toolQuery}
-                onChange={(e) => setToolQuery(e.target.value)}
-                className={styles['skills-search']}
-              />
-            </div>
-          </div>
-          <Card className={styles['skills-list-card']}>
-            {mcpStatus.length === 0 ? (
-              <div style={{ padding: '16px', color: 'var(--mt-fg-3, var(--color-text-secondary))', fontSize: 13 }}>
-                暂无 MCP Server。在上方「添加」里配置后立即生效。
-              </div>
-            ) : (() => {
-              const mcpTools = filteredTools.filter(t => t.category === 'channel')
-              if (mcpTools.length === 0) {
-                return <Empty description={toolQuery ? '没有找到匹配的 MCP 工具' : '所有 MCP Server 均未提供工具'} />
-              }
-              return (
-                <div className={styles['skills-list']}>
-                  {mcpStatus.map(server => {
-                    const serverTools = mcpTools.filter(t => t.name.startsWith(`mcp__${server.name}__`))
-                    if (serverTools.length === 0) return null
-                    return (
-                      <div key={server.name} className={styles['skill-group']}>
-                        <h3 className={styles['skill-group-title']}>
-                          {server.connected
-                            ? <Circle size={8} className={styles['status-dot-online']} />
-                            : <Circle size={8} className={styles['status-dot-offline']} />
-                          }{' '}
-                          {server.name}（{serverTools.length} 个工具）
-                          {server.lastError && !server.connected ? (
-                            <span
-                              style={{ marginLeft: 8, color: 'var(--mt-error)', fontWeight: 400, fontSize: 12 }}
-                              title={server.lastError}
-                            >
-                              {server.lastError}
-                            </span>
-                          ) : null}
-                        </h3>
-                        {serverTools.map((tool) => (
-                          <ToolCard
-                            key={tool.name}
-                            name={tool.name}
-                            label={tool.label}
-                            description={tool.description}
-                            category={tool.category}
-                            isReadOnly={tool.isReadOnly}
-                            enabled={tool.enabled}
-                            usageCount={tool.usageCount}
-                            lastUsedAt={tool.lastUsedAt}
-                            isToggling={togglingTool === tool.name}
-                            onToggle={(enabled) => toggleTool(tool.name, enabled)}
-                          />
-                        ))}
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })()}
-          </Card>
         </>
       )}
 

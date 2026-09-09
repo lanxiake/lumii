@@ -53,6 +53,9 @@ import {
   handleToolEvolutionRemove,
   handleToolEvolutionSimulate,
   handleToolEvolutionMine,
+  handleToolEvolutionGetEnabled,
+  handleToolEvolutionSetFeatureEnabled,
+  handleToolEvolutionStats,
 } from './agent-runtime/tool-commands'
 import {
   handleCodingDevSetBackend,
@@ -1378,6 +1381,15 @@ export async function handleCommand(
 
       case 'tool-evolution:mine':
         return handleToolEvolutionMine(bridge)
+
+      case 'tool-evolution:get-enabled':
+        return handleToolEvolutionGetEnabled(bridge)
+
+      case 'tool-evolution:set-feature-enabled':
+        return handleToolEvolutionSetFeatureEnabled(bridge, command)
+
+      case 'tool-evolution:stats':
+        return handleToolEvolutionStats(bridge)
 
       // ---- 会话级技能开关（技能中心的启用/禁用是全局总开关） ----
       case 'skill:setSessionEnabled':

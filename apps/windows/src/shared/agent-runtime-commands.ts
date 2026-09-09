@@ -1531,6 +1531,22 @@ export interface ToolEvolutionMineCommand {
   readonly type: 'tool-evolution:mine'
 }
 
+/** 获取工具进化功能总开关状态 */
+export interface ToolEvolutionGetEnabledCommand {
+  readonly type: 'tool-evolution:get-enabled'
+}
+
+/** 设置工具进化功能总开关（启用/禁用整个功能） */
+export interface ToolEvolutionSetFeatureEnabledCommand {
+  readonly type: 'tool-evolution:set-feature-enabled'
+  readonly enabled: boolean
+}
+
+/** 获取工具进化统计数据（用于设置页展示） */
+export interface ToolEvolutionStatsCommand {
+  readonly type: 'tool-evolution:stats'
+}
+
 // ============================================================
 // 联合类型
 // ============================================================
@@ -1714,6 +1730,9 @@ export type AgentRuntimeCommand =
   | ToolEvolutionRemoveCommand
   | ToolEvolutionSimulateCommand
   | ToolEvolutionMineCommand
+  | ToolEvolutionGetEnabledCommand
+  | ToolEvolutionSetFeatureEnabledCommand
+  | ToolEvolutionStatsCommand
 
 // ============================================================
 // 命令返回类型映射

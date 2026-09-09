@@ -127,6 +127,8 @@ export interface BridgeInstanceFactoryDeps {
   getAuditRepo: () => AuditRepo | null
   /** bash 命令采集仓库（工具进化 M1） */
   getBashCommandRepo: () => BashCommandRepo | null
+  /** 工具进化引擎（M2：调用次数触发） */
+  getToolEvolutionEngine: () => import('./bash-tool-evolution/index').ToolEvolutionEngine | null
   getConversationRepo: () => ConversationRepo | null
   /**
    * 该会话禁用的 MCP server 名（设置页是全局总开关，这里是会话覆盖）。
@@ -440,10 +442,19 @@ export class BridgeInstanceFactory {
       skillHitRateTracker.hook,
       createToolUsageHook(),
       // 工具进化 M1：逐条采集 bash 命令原文（模式挖掘数据源），失败静默不影响主链路
+      // M2：添加调用次数触发，记录后实时检查是否达到阈值
       createBashCommandLogHook({
         repo: this.deps.getBashCommandRepo() ?? undefined,
         getAgentId: () => instanceId,
         getConversationId: () => this.deps.instanceToConversation.get(instanceId),
+        onCommandLogged: async () => {
+          // 实时检查是否应该触发挖掘（异步，不阻塞主流程）
+          const engine = this.deps.getToolEvolutionEngine()
+          const repo = this.deps.getBashCommandRepo()
+          if (engine && repo) {
+            await engine.checkAndTriggerIfNeeded(repo)
+          }
+        },
       }),
     ]
 

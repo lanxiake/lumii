@@ -101,3 +101,154 @@
   gap: 6px;
   flex-shrink: 0;
 }
+
+/* 统计概览 */
+.statsOverview {
+  margin: 16px 0 24px;
+  padding: 16px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--mt-bg-2, #f8fafc) 0%, var(--mt-bg-3, #f1f5f9) 100%);
+  border: 1px solid var(--mt-border, var(--border-color, #e2e8f0));
+}
+
+.statsTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--mt-fg-1, var(--text-primary, #1a202c));
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.statCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: white;
+  border: 1px solid var(--mt-border-hairline, var(--border-color, #e2e8f0));
+  transition: all 0.2s;
+}
+
+.statCard:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}
+
+.statIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--mt-primary-subtle, var(--color-primary-subtle, #ebf8ff));
+  color: var(--mt-primary, var(--color-primary, #4299e1));
+}
+
+.statContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.statValue {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--mt-fg-1, var(--text-primary, #1a202c));
+}
+
+.statLabel {
+  font-size: 12px;
+  color: var(--mt-fg-3, var(--text-tertiary, #718096));
+  margin-top: 2px;
+}
+
+/* 高频命令列表 */
+.topCommands {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 8px;
+  background: white;
+  border: 1px solid var(--mt-border-hairline, var(--border-color, #e2e8f0));
+}
+
+.topCommandsTitle {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mt-fg-1, var(--text-primary, #1a202c));
+}
+
+.commandList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.commandItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--mt-bg-2, var(--bg-secondary, #f7fafc));
+  font-size: 12px;
+}
+
+.commandRank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 11px;
+  background: var(--mt-primary, var(--color-primary, #4299e1));
+  color: white;
+}
+
+.commandText {
+  flex: 1;
+  font-family: var(--mt-font-mono, Consolas, Monaco, monospace);
+  font-size: 12px;
+  color: var(--mt-fg-2, #4a5568);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commandCount {
+  font-weight: 600;
+  color: var(--mt-fg-2, var(--text-secondary, #4a5568));
+  white-space: nowrap;
+}
+
+/* 分析时间信息 */
+.analysisInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: white;
+  border: 1px solid var(--mt-border-hairline, var(--border-color, #e2e8f0));
+  font-size: 12px;
+  color: var(--mt-fg-3, var(--text-tertiary, #718096));
+}
+
+.separator {
+  color: var(--mt-border, var(--border-color, #cbd5e0));
+}

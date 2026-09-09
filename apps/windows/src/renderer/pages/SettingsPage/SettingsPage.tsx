@@ -38,7 +38,7 @@ import { CloudSyncSection } from './components/CloudSyncSection'
 import { NotificationSection } from './components/NotificationSection'
 import { PrivacySection } from './components/PrivacySection'
 import { SearchToolsSection } from './components/SearchToolsSection'
-import { EvolvedToolsSection } from './components/EvolvedToolsSection'
+import { ExperimentalSection } from './components/ExperimentalSection'
 import type {
   MergedSettingsCategory,
 } from '../../components/SettingsHub/types'
@@ -46,7 +46,6 @@ import styles from './SettingsPage.module.css'
 import { StorageInfo } from './components/StorageInfo'
 import { SecurityLogViewer } from './components/SecurityLogViewer/SecurityLogViewer'
 import { PerformanceDiagnostics } from './components/PerformanceDiagnostics/PerformanceDiagnostics'
-import { AutonomousPage } from '../AutonomousPage/AutonomousPage'
 
 /**
  * 设置分类图标尺寸
@@ -64,11 +63,10 @@ const CATEGORIES: Array<{ id: MergedSettingsCategory; label: string; icon: React
   { id: 'channels', label: '渠道设置', icon: <Radio size={SETTINGS_ICON_SIZE} /> },
   { id: 'codingDev', label: 'ACP 设置', icon: <Wrench size={SETTINGS_ICON_SIZE} /> },
   { id: 'searchTools', label: '搜索工具', icon: <Search size={SETTINGS_ICON_SIZE} /> },
-  { id: 'toolEvolution', label: '工具进化（实验）', icon: <FlaskConical size={SETTINGS_ICON_SIZE} /> },
   { id: 'pet', label: '宠物模式', icon: <Smartphone size={SETTINGS_ICON_SIZE} /> },
   { id: 'usage', label: '用量与花费', icon: <Zap size={SETTINGS_ICON_SIZE} /> },
   { id: 'privacy', label: '隐私与数据', icon: <Shield size={SETTINGS_ICON_SIZE} /> },
-  { id: 'autonomous', label: '自主进化（实验）', icon: <FlaskConical size={SETTINGS_ICON_SIZE} /> },
+  { id: 'experimental', label: '实验功能', icon: <FlaskConical size={SETTINGS_ICON_SIZE} /> },
   { id: 'aboutAndUpdate', label: '关于与更新', icon: <Info size={SETTINGS_ICON_SIZE} /> },
 ]
 
@@ -866,16 +864,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         return renderCodingDevSettings()
       case 'searchTools':
         return <SearchToolsSection />
-      case 'toolEvolution':
-        return <EvolvedToolsSection />
       case 'privacy':
         return renderPrivacySettings()
-      case 'autonomous':
-        return (
-          <div className={styles['autonomous-embed']}>
-            <AutonomousPage embedded />
-          </div>
-        )
+      case 'experimental':
+        return <ExperimentalSection />
       case 'pet':
         return <PetSettingsSection />
       case 'usage':

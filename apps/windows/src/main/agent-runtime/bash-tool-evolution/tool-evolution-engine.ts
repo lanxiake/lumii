@@ -91,6 +91,7 @@ export function buildApprovalPrompt(draft: PendingToolDraft): string {
 
 export class ToolEvolutionEngine extends EventEmitter {
   private readonly pending: PendingToolDraft[] = []
+  private featureEnabled: boolean = true
 
   constructor(private readonly deps: ToolEvolutionEngineDeps) {
     super()
@@ -362,5 +363,107 @@ export class ToolEvolutionEngine extends EventEmitter {
     this.deps.unregisterTool(toolName)
     log.info(`[ToolEvolution] 工具已删除: ${toolName}`)
     return true
+  }
+
+  /** 获取功能开关状态 */
+  isFeatureEnabled(): boolean {
+    return this.featureEnabled
+  }
+
+  /** 设置功能开关（启用/禁用整个工具进化功能） */
+  setFeatureEnabled(enabled: boolean): void {
+    this.featureEnabled = enabled
+    log.info(`[ToolEvolution] 功能已${enabled ? '启用' : '禁用'}`)
+  }
+
+  /** 获取统计数据（用于设置页展示） */
+  getStats(repo: BashCommandRepo): {
+    trackedPatterns: number
+    recentCalls: number
+    highFrequencyCommands: Array<{ command: string; count: number }>
+    lastAnalysisTime: string | null
+    nextScheduledTime: string | null
+    totalGenerated: number
+    approved: number
+    rejected: number
+    pending: number
+  } {
+    // 获取最近 24 小时的命令
+    const rows = repo.listRecent(2000)
+    const now = Date.now()
+    const oneDayAgo = now - 24 * 60 * 60 * 1000
+
+    const recentRows = rows.filter(r => new Date(r.created_at).getTime() > oneDayAgo)
+
+    // 统计高频命令（简化版，基于归一化后的模式）
+    const commandCounts = new Map<string, number>()
+    for (const row of recentRows) {
+      const normalized = normalizeCommand(row.command)
+      commandCounts.set(normalized, (commandCounts.get(normalized) || 0) + 1)
+    }
+
+    const highFrequencyCommands = Array.from(commandCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([command, count]) => ({ command, count }))
+
+    // 统计已批准和已拒绝的工具数（从磁盘读取）
+    const stored = loadStoredTools()
+    const approved = stored.filter(t => t.status === 'approved').length
+    const disabled = stored.filter(t => t.status === 'disabled').length
+
+    return {
+      trackedPatterns: commandCounts.size,
+      recentCalls: recentRows.length,
+      highFrequencyCommands,
+      lastAnalysisTime: null, // TODO: 从持久化状态读取
+      nextScheduledTime: null, // TODO: 从 cron 任务读取
+      totalGenerated: stored.length + this.pending.length,
+      approved: approved + disabled,
+      rejected: 0, // TODO: 记录拒绝历史
+      pending: this.pending.length,
+    }
+  }
+
+  /**
+   * 实时触发检查：在记录新命令后调用，检查是否应该触发挖掘。
+   * 阈值策略：过去 24 小时内累计达到一定次数（默认 50 次）时触发一次分析。
+   * 为避免频繁触发，使用简单的冷却机制：触发后 1 小时内不再检查。
+   */
+  private lastTriggerCheckTime = 0
+  private readonly triggerCooldownMs = 60 * 60 * 1000 // 1 小时冷却
+  private readonly triggerThreshold = 50 // 过去 24h 累计 50 次调用触发
+
+  async checkAndTriggerIfNeeded(repo: BashCommandRepo): Promise<boolean> {
+    // 功能未启用时跳过
+    if (!this.featureEnabled) return false
+
+    // 冷却期内跳过
+    const now = Date.now()
+    if (now - this.lastTriggerCheckTime < this.triggerCooldownMs) {
+      return false
+    }
+
+    // 检查最近 24 小时的调用次数
+    const rows = repo.listRecent(2000)
+    const oneDayAgo = now - 24 * 60 * 60 * 1000
+    const recentCount = rows.filter(r => new Date(r.created_at).getTime() > oneDayAgo).length
+
+    // 未达到阈值
+    if (recentCount < this.triggerThreshold) {
+      return false
+    }
+
+    // 达到阈值，触发挖掘
+    log.info(`[ToolEvolution] 调用次数达到阈值（${recentCount}/${this.triggerThreshold}），触发实时挖掘`)
+    this.lastTriggerCheckTime = now
+
+    try {
+      await this.runMiningCycle()
+      return true
+    } catch (err) {
+      log.error('[ToolEvolution] 实时触发挖掘失败:', err)
+      return false
+    }
   }
 }

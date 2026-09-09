@@ -11,6 +11,7 @@ export type SettingsHubTab =
   | 'settings'
   | 'agents'
   | 'skills'
+  | 'tools'
   | 'mcp'
   | 'cron'
   | 'memories'
@@ -26,11 +27,10 @@ export type MergedSettingsCategory =
   | 'channels'
   | 'codingDev'
   | 'searchTools'
-  | 'toolEvolution'
   | 'pet'
   | 'usage'
   | 'privacy'
-  | 'autonomous'
+  | 'experimental'
   | 'aboutAndUpdate'
 
 export interface SettingsHubState {
@@ -50,6 +50,7 @@ export const SETTINGS_HUB_TABS: Array<{ id: SettingsHubTab; label: string }> = [
   { id: 'settings', label: '设置' },
   { id: 'agents', label: 'AI 团队' },
   { id: 'skills', label: '技能' },
+  { id: 'tools', label: '工具' },
   { id: 'mcp', label: 'MCP' },
   { id: 'cron', label: '定时任务' },
   { id: 'memories', label: '记忆' },
@@ -62,6 +63,7 @@ export const HUB_VIEW_TABS = [
   'settings',
   'agents',
   'skills',
+  'tools',
   'mcp',
   'cron',
   'memories',

@@ -169,3 +169,64 @@ export async function handleToolEvolutionMine(
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
+
+export function handleToolEvolutionGetEnabled(
+  bridge: AgentRuntimeBridge,
+): { ok: boolean; enabled: boolean; error?: string } {
+  try {
+    const engine = getEngine(bridge)
+    const enabled = engine.isFeatureEnabled()
+    log.info(`[tool-evolution:get-enabled] 当前状态: ${enabled}`)
+    return { ok: true, enabled }
+  } catch (err) {
+    log.error('[tool-evolution:get-enabled] 失败:', err)
+    return { ok: false, enabled: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export function handleToolEvolutionSetFeatureEnabled(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'tool-evolution:set-feature-enabled' }>,
+): { ok: boolean; error?: string } {
+  try {
+    const engine = getEngine(bridge)
+    engine.setFeatureEnabled(command.enabled)
+    log.info(`[tool-evolution:set-feature-enabled] 已${command.enabled ? '启用' : '禁用'}工具进化`)
+    return { ok: true }
+  } catch (err) {
+    log.error('[tool-evolution:set-feature-enabled] 失败:', err)
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export function handleToolEvolutionStats(
+  bridge: AgentRuntimeBridge,
+): {
+  ok: boolean
+  stats?: {
+    trackedPatterns: number
+    recentCalls: number
+    highFrequencyCommands: Array<{ command: string; count: number }>
+    lastAnalysisTime: string | null
+    nextScheduledTime: string | null
+    totalGenerated: number
+    approved: number
+    rejected: number
+    pending: number
+  }
+  error?: string
+} {
+  try {
+    const engine = getEngine(bridge)
+    const repo = bridge.bashCommandRepo
+    if (!repo) throw new Error('bash 命令仓库未就绪')
+
+    const stats = engine.getStats(repo)
+    log.info(`[tool-evolution:stats] 统计数据:`, stats)
+    return { ok: true, stats }
+  } catch (err) {
+    log.error('[tool-evolution:stats] 失败:', err)
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+

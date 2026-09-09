@@ -2,12 +2,13 @@
  * EvolvedToolsSection — 工具进化管理（设置页）
  *
  * 展示 bash 命令工具进化管道的产物：
+ * - 统计概览：追踪命令数、调用次数、高频命令、分析时间等
  * - 待审批候选：确认（注册生效）/ 拒绝（丢弃）
  * - 已批准工具：启用/禁用开关、查看模板、删除（不可恢复）
  */
 
 import React, { useCallback, useEffect, useState } from 'react'
-import { FlaskConical, Trash2, Check, X, Inbox, Hammer } from 'lucide-react'
+import { FlaskConical, Trash2, Check, X, Inbox, Hammer, TrendingUp, Clock, Activity } from 'lucide-react'
 import { Card } from '../../../../components/ui/Card/Card'
 import { Button } from '../../../../components/ui/Button/Button'
 import { useToast } from '../../../../components/ui/Toast/useToast'
@@ -39,6 +40,22 @@ interface ListResult {
   error?: string
 }
 
+interface StatsResult {
+  ok: boolean
+  stats?: {
+    trackedPatterns: number
+    recentCalls: number
+    highFrequencyCommands: Array<{ command: string; count: number }>
+    lastAnalysisTime: string | null
+    nextScheduledTime: string | null
+    totalGenerated: number
+    approved: number
+    rejected: number
+    pending: number
+  }
+  error?: string
+}
+
 async function sendCommand<T>(command: unknown): Promise<T> {
   return window.electronAPI.agentRuntime.sendCommand(command) as Promise<T>
 }
@@ -49,6 +66,7 @@ export function EvolvedToolsSection() {
   const [error, setError] = useState<string | null>(null)
   const [tools, setTools] = useState<EvolvedToolInfo[]>([])
   const [pending, setPending] = useState<PendingToolInfo[]>([])
+  const [stats, setStats] = useState<StatsResult['stats'] | null>(null)
   /** 正在操作的名称集合（防重复点击） */
   const [busy, setBusy] = useState<Set<string>>(new Set())
 
@@ -56,10 +74,19 @@ export function EvolvedToolsSection() {
     setLoading(true)
     setError(null)
     try {
-      const res = await sendCommand<ListResult>({ type: 'tool-evolution:list' })
-      if (!res.ok) throw new Error(res.error || '加载失败')
-      setTools(res.tools)
-      setPending(res.pending)
+      // 并行加载列表和统计数据
+      const [listRes, statsRes] = await Promise.all([
+        sendCommand<ListResult>({ type: 'tool-evolution:list' }),
+        sendCommand<StatsResult>({ type: 'tool-evolution:stats' }),
+      ])
+      
+      if (!listRes.ok) throw new Error(listRes.error || '加载失败')
+      setTools(listRes.tools)
+      setPending(listRes.pending)
+      
+      if (statsRes.ok && statsRes.stats) {
+        setStats(statsRes.stats)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载工具列表失败')
     } finally {
@@ -127,6 +154,87 @@ export function EvolvedToolsSection() {
 
           {!loading && !error && (
             <>
+              {/* 统计概览 */}
+              {stats && (
+                <div className={styles.statsOverview}>
+                  <h4 className={styles.statsTitle}>
+                    <Activity size={16} /> 统计概览
+                  </h4>
+                  <div className={styles.statsGrid}>
+                    <div className={styles.statCard}>
+                      <div className={styles.statIcon}>
+                        <TrendingUp size={20} />
+                      </div>
+                      <div className={styles.statContent}>
+                        <div className={styles.statValue}>{stats.trackedPatterns}</div>
+                        <div className={styles.statLabel}>已追踪命令模式</div>
+                      </div>
+                    </div>
+                    <div className={styles.statCard}>
+                      <div className={styles.statIcon}>
+                        <Activity size={20} />
+                      </div>
+                      <div className={styles.statContent}>
+                        <div className={styles.statValue}>{stats.recentCalls}</div>
+                        <div className={styles.statLabel}>过去 24h 调用总数</div>
+                      </div>
+                    </div>
+                    <div className={styles.statCard}>
+                      <div className={styles.statIcon}>
+                        <FlaskConical size={20} />
+                      </div>
+                      <div className={styles.statContent}>
+                        <div className={styles.statValue}>{stats.totalGenerated}</div>
+                        <div className={styles.statLabel}>总生成候选数</div>
+                      </div>
+                    </div>
+                    <div className={styles.statCard}>
+                      <div className={styles.statIcon}>
+                        <Check size={20} />
+                      </div>
+                      <div className={styles.statContent}>
+                        <div className={styles.statValue}>{stats.approved}</div>
+                        <div className={styles.statLabel}>已批准工具数</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 高频命令 Top 5 */}
+                  {stats.highFrequencyCommands.length > 0 && (
+                    <div className={styles.topCommands}>
+                      <h5 className={styles.topCommandsTitle}>
+                        🔥 高频命令 Top {stats.highFrequencyCommands.length}（过去 24h）
+                      </h5>
+                      <div className={styles.commandList}>
+                        {stats.highFrequencyCommands.map((cmd, idx) => (
+                          <div key={idx} className={styles.commandItem}>
+                            <span className={styles.commandRank}>#{idx + 1}</span>
+                            <code className={styles.commandText}>{cmd.command}</code>
+                            <span className={styles.commandCount}>{cmd.count} 次</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 分析时间信息 */}
+                  <div className={styles.analysisInfo}>
+                    <Clock size={14} />
+                    <span>
+                      {stats.lastAnalysisTime
+                        ? `上次分析：${new Date(stats.lastAnalysisTime).toLocaleString('zh-CN')}`
+                        : '尚未运行过分析'}
+                    </span>
+                    {stats.nextScheduledTime && (
+                      <>
+                        <span className={styles.separator}>·</span>
+                        <span>下次自动分析：{new Date(stats.nextScheduledTime).toLocaleString('zh-CN')}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* 待审批候选 */}
               <h4 className={styles.groupTitle}>
                 <Inbox size={14} /> 待审批候选（{pending.length}）

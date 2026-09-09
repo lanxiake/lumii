@@ -108,10 +108,11 @@ export type AppUiSettingsCategory =
   | 'voice'
   | 'channels'
   | 'codingDev'
+  | 'searchTools'
   | 'pet'
   | 'usage'
   | 'privacy'
-  | 'autonomous'
+  | 'experimental'
   | 'aboutAndUpdate'
 
 /** app_goto 工具入参 */

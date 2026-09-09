@@ -1347,6 +1347,7 @@ export class AgentRuntimeBridge {
       getOrchestrator: () => this.lifecycle.ensureOrchestrator(),
       getAuditRepo: () => this._auditRepo,
       getBashCommandRepo: () => this._bashCommandRepo,
+      getToolEvolutionEngine: () => this._toolEvolutionEngine,
       getConversationRepo: () => this._conversationRepo,
       getFileRepo: () => this._fileRepo,
       getSessionDisabledMcpServers: (sk) => this.getSessionDisabledMcpServers(sk),
