@@ -36,7 +36,7 @@ import { WikiInboxPanel, inboxItemToPreviewSnapshot } from './WikiInboxPanel'
 import { WikiSubtopicPanel } from './WikiSubtopicPanel'
 import { isUrlSourceItem } from './wikiSourcePreview'
 import { WikiHelpDrawer } from './WikiHelpDrawer'
-import { consumeWikiInitNav, OPEN_MEMORIES_TAB_EVENT } from '../../../utils/open-wiki-library'
+import { consumeWikiInitNav, OPEN_WIKI_LIBRARY_EVENT } from '../../../utils/open-wiki-library'
 import { WIKI_INBOX_INTRO, WIKI_FOLDER_IMPORT_TOOLTIP } from './wikiTooltips'
 import { WikiMoreMenu } from './WikiMoreMenu'
 import { WikiSourceDetailDrawer, type WikiSourcePreviewSnapshot } from './WikiSourceDetailDrawer'
@@ -324,7 +324,7 @@ export const WikiTab: React.FC = () => {
     [autoClassifyEnabled, setAutoClassifyEnabled, toast, refreshInbox, refreshSources],
   )
 
-  /** 外部入口要求打开待整理：首次挂载或 Hub 已打开时再次触发 */
+  /** 外部入口要求打开待整理：首次挂载或 Hub 已打开资料库时再次触发 */
   useEffect(() => {
     const applyWikiInitNav = (): void => {
       if (consumeWikiInitNav() === 'inbox') {
@@ -332,12 +332,11 @@ export const WikiTab: React.FC = () => {
       }
     }
     applyWikiInitNav()
-    const onOpenWiki = (e: Event) => {
-      const tab = (e as CustomEvent<{ tab?: string }>).detail?.tab
-      if (tab === 'wiki') applyWikiInitNav()
+    const onOpenWiki = (): void => {
+      applyWikiInitNav()
     }
-    window.addEventListener(OPEN_MEMORIES_TAB_EVENT, onOpenWiki)
-    return () => window.removeEventListener(OPEN_MEMORIES_TAB_EVENT, onOpenWiki)
+    window.addEventListener(OPEN_WIKI_LIBRARY_EVENT, onOpenWiki)
+    return () => window.removeEventListener(OPEN_WIKI_LIBRARY_EVENT, onOpenWiki)
   }, [])
 
   /** 进入归档分区时按需拉取列表并同步左栏角标。 */
@@ -538,8 +537,19 @@ export const WikiTab: React.FC = () => {
     if (nav.kind === 'parking') {
       return parkingSources
     }
+    if (nav.kind === 'archived') {
+      return archivedSources
+    }
     return []
-  }, [categorySectionName, effectiveSubtopicFilter, sectionProjectFilter, nav.kind, sources, parkingSources])
+  }, [
+    categorySectionName,
+    effectiveSubtopicFilter,
+    sectionProjectFilter,
+    nav.kind,
+    sources,
+    parkingSources,
+    archivedSources,
+  ])
 
   /**
    * 打开任务中心并清除失败任务的未读提示。
@@ -1537,6 +1547,24 @@ export const WikiTab: React.FC = () => {
               showTopic
               moveLabel="恢复"
               showParkAction={false}
+              selectable
+              selectedIds={selectedSourceIds}
+              onToggleSelect={toggleSelectSource}
+              onToggleSelectAll={toggleSelectAllSources}
+              headerActions={
+                selectedSourceIds.size > 0 ? (
+                  <>
+                    <span className="wiki-file-list-batch-count">
+                      已选 {selectedSourceIds.size} 项
+                    </span>
+                    <Tooltip content="永久删除所选资料，不可恢复" placement="bottom">
+                      <Button variant="ghost" size="sm" onClick={handleDeleteSelectedSources}>
+                        批量删除
+                      </Button>
+                    </Tooltip>
+                  </>
+                ) : null
+              }
               onPreview={handlePreviewSourceItem}
               onMove={(item) => void handleRestoreArchived(item)}
               onDelete={handleDeleteSource}

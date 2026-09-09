@@ -616,6 +616,20 @@
   color: var(--color-text-tertiary);
 }
 
+/** 标题旁扩展名徽章：手绘笔记色由 inline style 注入 */
+.wiki-file-list-ext-badge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
 .wiki-file-list-main {
   display: flex;
   flex: 1;

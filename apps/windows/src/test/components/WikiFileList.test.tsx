@@ -6,6 +6,10 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { WikiFileList } from '../../renderer/pages/MemoriesPage/components/WikiFileList'
 import type { WikiSourceListItem } from '../../renderer/hooks/business/useWikiPage'
+import {
+  wikiFileExtBadgeColor,
+  wikiMediaTypeIconColor,
+} from '../../renderer/pages/MemoriesPage/components/wikiFileExtDisplay'
 
 function makeItem(overrides: Partial<WikiSourceListItem> = {}): WikiSourceListItem {
   return {
@@ -15,6 +19,7 @@ function makeItem(overrides: Partial<WikiSourceListItem> = {}): WikiSourceListIt
     mediaType: 'document',
     topicCategory: '工作',
     topicSubtopic: '例行',
+    topicProject: null,
     textLength: 0,
     updatedAt: Date.now(),
     useCount: 0,
@@ -247,5 +252,29 @@ describe('WikiFileList 懒加载', () => {
 
     expect(screen.getByText('文件29.md')).toBeInTheDocument()
     expect(document.querySelector('.wiki-file-list-sentinel')).not.toBeInTheDocument()
+  })
+})
+
+describe('WikiFileList 后缀徽章与图标色', () => {
+  it('标题无后缀时显示彩色扩展名徽章', () => {
+    const item = makeItem({ title: '周报', sourcePath: 'wiki/周报.md', mediaType: 'document' })
+    render(<WikiFileList items={[item]} emptyHint="空" onPreview={noop} onMove={noop} />)
+    const badge = screen.getByText('MD')
+    expect(badge).toHaveClass('wiki-file-list-ext-badge')
+    expect(badge).toHaveStyle({ color: wikiFileExtBadgeColor('md') })
+  })
+
+  it('标题已含后缀时不重复显示徽章', () => {
+    render(<WikiFileList items={[makeItem()]} emptyHint="空" onPreview={noop} onMove={noop} />)
+    expect(screen.queryByText('DOCX')).not.toBeInTheDocument()
+  })
+
+  it('图标按 mediaType 着色', () => {
+    const item = makeItem({ title: '截图.png', sourcePath: 'a.png', mediaType: 'image' })
+    const { container } = render(
+      <WikiFileList items={[item]} emptyHint="空" onPreview={noop} onMove={noop} />,
+    )
+    const icon = container.querySelector('.wiki-file-list-icon')
+    expect(icon).toHaveStyle({ color: wikiMediaTypeIconColor('image') })
   })
 })

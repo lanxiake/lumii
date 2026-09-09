@@ -5,6 +5,13 @@ import type { WikiSourceListItem } from '../../../hooks/business/useWikiPage'
 import { formatRelativeTime } from './wikiStatusLabels'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 import { formatTopicDisplay, UNFILED_SUBTOPIC_LABEL } from './wikiTopicDisplay'
+import {
+  formatWikiExtBadgeLabel,
+  resolveWikiFileExt,
+  shouldShowWikiExtBadge,
+  wikiFileExtBadgeColor,
+  wikiMediaTypeIconColor,
+} from './wikiFileExtDisplay'
 
 /** 芯片粒度和 media_type 不是一对一：音视频一个芯片覆盖 audio + video 两种类型 */
 export type WikiMediaChip = 'all' | 'document' | 'image' | 'av'
@@ -168,6 +175,9 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
             const Icon = MEDIA_ICONS[(item.mediaType ?? 'document') as keyof typeof MEDIA_ICONS] ?? FileText
             const topic = formatTopicDisplay(item.topicCategory, item.topicSubtopic, item.topicProject)
             const summary = resolveItemSummary(item)
+            const ext = resolveWikiFileExt(item.sourcePath, item.title)
+            const showExtBadge = shouldShowWikiExtBadge(item.title, ext)
+            const iconColor = wikiMediaTypeIconColor(item.mediaType)
             const titleButton = (
               <button
                 type="button"
@@ -190,7 +200,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                     onChange={() => onToggleSelect?.(item.id)}
                   />
                 )}
-                <Icon size={15} className="wiki-file-list-icon" />
+                <Icon size={15} className="wiki-file-list-icon" style={{ color: iconColor }} aria-hidden />
                 <div className="wiki-file-list-main">
                   <div className="wiki-file-list-title-row">
                     <div className="wiki-file-list-title-cluster">
@@ -210,6 +220,15 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                       ) : (
                         titleButton
                       )}
+                      {showExtBadge && ext ? (
+                        <span
+                          className="wiki-file-list-ext-badge"
+                          style={{ color: wikiFileExtBadgeColor(ext) }}
+                          title={`.${ext}`}
+                        >
+                          {formatWikiExtBadgeLabel(ext)}
+                        </span>
+                      ) : null}
                       {showTopic && <span className="wiki-file-list-topic">{topic}</span>}
                       <span className="wiki-file-list-time">{formatRelativeTime(item.updatedAt)}</span>
                     </div>
