@@ -316,6 +316,8 @@ userAtClient = (channelType === 'ipc')
 
 **飞书入站非 text 消息的 content 结构**（对齐 SDK 事件 `im.message.receive_v1`）：`audio`/`file` 类 content JSON 内带 `file_key`；`image` 带 `image_key`。下载统一走 `im.messageResource.get({ path: { message_id, file_key }, params: { type } })`，返回 `getReadableStream()`。
 
+> 实测更正（2026-09-10）：`messageResource.get` 的 `type` 参数**仅接受 `image` / `file`**，传 `audio` 会返回 HTTP 400（`Request failed with status code 400`）。语音消息须以 `type: 'file'` 下载原始 opus，再走 ffmpeg → 16k PCM → ASR 转文字。
+
 **企微入站媒体结构**（对齐 `@wecom/aibot-node-sdk` `types/message.d.ts`）：`ImageContent`/`FileContent`/`VideoContent` 均带 `url`（5 分钟内有效，已加密）+ `aeskey`；`VoiceContent` 只有转写文字 `content`。下载统一走 `WSClient.downloadFile(url, aeskey)` 返回 `{ buffer, filename }`。
 
 **验证用例（验收标准）**：
@@ -324,6 +326,8 @@ userAtClient = (channelType === 'ipc')
 3. 企微发图片/文件 → 同上（`downloadFile` 解密落地）
 4. 客户端生成文件发飞书/企微 → 对方收到文件（`sendFileReply`）
 5. 微信现有四类互传回归无回归
+
+> 语音载体语义（2026-09-10 实测确认）：微信/飞书语音消息只把 `[语音转录: …]` 注入 prompt，**不**附带原始音频文件路径（`.silk`/`.opus` Agent 读不了，附上会被当成噪声）。无转录结果时给占位文案，不静默吞消息。
 
 ### 5.8 qbot（QQ 机器人）渠道接入（P1）
 
@@ -359,6 +363,7 @@ userAtClient = (channelType === 'ipc')
 | Adapter | `QbotChannelAdapter`：复用 `StatelessContextStrategy` + `SlashCommandRegistry`（help/new/clear/compact/stop） | 新增 `adapters/qbot-channel-adapter.ts` |
 | 出站 Provider | `QbotChannelProvider`：`native_push`（openid/群 openid），文本 + 富媒体（msg_type=7） | 新增 `providers/qbot-outbound-provider.ts` |
 | 注册接线 | `channel-registry.ts` order 增加 `qbot`；`channel-hub-bootstrap.ts` 注入；`index.ts` 初始化 + 状态事件转发 | 改 3 处 |
+| 前端展示 | 设置页 `QbotChannelSettings` 卡片（扫码建应用 + AppID/AppSecret 表单兜底）；preload 暴露 `qbotService`（含 `saveCredentials`）；侧栏 QQ 会话分组；`ChannelBrandIcon` QQ 字标 | 新增/改 7 处渲染进程文件 |
 
 **qbot 在场/详略语义**：与其它非 ipc 渠道一致 —— `channelType = 'qbot'`，自动落入「不在客户端」分支，注入段 `channelLabel = QQ`，零额外改动（§3.1 渠道不写死的设计红利）。
 

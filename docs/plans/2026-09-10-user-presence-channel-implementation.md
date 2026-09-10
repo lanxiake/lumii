@@ -1,7 +1,7 @@
 # 用户在场感知与渠道自适应 — 代码实施计划
 
 > 日期：2026-09-10
-> 状态：已实施（P0 + P1.0–P1.4 完成；P2/P3 未做）
+> 状态：已实施（P0 + P1.0–P1.4 完成；P2/P3 未做）。2026-09-10 增补：飞书语音 400 修复、微信语音 .silk 过滤、qbot 前端展示
 > 规格：`docs/design/2026-09-09-user-presence-channel-design.md`（v1.3）
 > 代码根：`apps/windows/src/main/`
 
@@ -32,6 +32,15 @@
 | qbot 被动回复用 REST 近似 | `POST /v2/users\|groups/{id}/messages`，未联网核对真实被动回复的 msg_id 关联 |
 | 飞书群聊文件 `sendFileReply` | `to=chatId` 仍走 `open_id`，群聊可能收不到；留作开放验证项（§5.7 验收若测出再补 `receiveIdType`） |
 | 渠道工厂 `createChannelFactory` 未落地 | 三渠道形状差异大（微信最重），硬抽象反向复杂化；qbot 只按既有样板补了第四段初始化，未抽工厂 |
+
+## 联调修复记录（2026-09-10 实测问题）
+
+| 问题 | 根因 | 修复 |
+|------|------|------|
+| 飞书语音报错 HTTP 400 | `im.messageResource.get` 的 `type` 只接受 `image`/`file`，原代码把 `audio` 原样传入 | `feishu-login-service.ts`：audio 一律用 `type: 'file'` 下载原始 opus |
+| 微信语音 .silk 路径漏进 prompt | 过滤正则 `/\.silk[)\s]*\]$/` 对 `[media attached: ...xxx.silk]`（无括号空格）不匹配 | `weixin-channel-adapter.ts`：改为精确整行匹配 `[media attached: ...*.silk(可选 (文件名))]` |
+| 飞书语音附带 opus 路径 | 语音消息同时注入转录文字与 `[media attached]`，Agent 把 opus 当噪声 | `feishu-channel-adapter.ts`：语音只注入 `[语音转录: …]`，无转录给占位文案 |
+| qbot 前端不展示 | 后端已接入但渲染进程无对应卡片/图标/IPC 桥 | 补 `QbotChannelSettings` 卡片 + `qbotService` preload + 侧栏 QQ 分组 + `ChannelBrandIcon` + `channel-service-ipc` 校验放开 `qbot` |
 
 ---
 
@@ -431,6 +440,7 @@ export async function liteCreateApp(idempotencyKey: string): Promise<{ appid: st
 - [ ] P1.2：客户端发文件飞书/企微 → 对方收到（代码已就绪，待联调）
 - [x] P1.3：HTML 报告模板 `html-report-template.ts` + 飞书/企微 `sendFileReply` 通路打通
 - [ ] P1.4：QQ 扫码接入 + 文本互传（代码已就绪，富媒体发送降级 `UNSUPPORTED_MEDIA`，待联调）
+- [x] 联调修复：飞书语音 400 修复、微信 .silk 过滤、飞书语音语义、qbot 前端展示（见「联调修复记录」）
 
 ---
 
