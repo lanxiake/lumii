@@ -169,7 +169,9 @@ export const WikiTab: React.FC = () => {
   const [archivedCount, setArchivedCount] = useState(0)
   const [inboxItems, setInboxItems] = useState<readonly WikiInboxItem[]>([])
   const [inboxPending, setInboxPending] = useState(0)
-  const [query, setQuery] = useState('')
+  /** 已确认的搜索条件（点击路径/标签或回车加入），渲染为芯片 */
+  const [searchTerms, setSearchTerms] = useState<readonly string[]>([])
+  const [searchDraft, setSearchDraft] = useState('')
   const [searchResults, setSearchResults] = useState<readonly WikiSourceListItem[] | null>(null)
   const [searchDegradeReason, setSearchDegradeReason] = useState<string | null>(null)
   const [removeConfirm, setRemoveConfirm] = useState<{
@@ -1323,40 +1325,93 @@ export const WikiTab: React.FC = () => {
   }, [inboxItems, retryInbox, refreshInbox])
 
   /**
-   * 主搜索框只检索资料层正文，历史页面检索留在「历史页面」视图内。
+   * 用指定关键词执行一次资料层检索（不依赖 state，供芯片集合与点击词条时用）。
+   */
+  const handleSearchWithKeyword = useCallback(
+    async (keyword: string) => {
+      if (!keyword.trim()) {
+        setSearchResults(null)
+        setSearchDegradeReason(null)
+        return
+      }
+      const result = await searchSources(keyword)
+      setSearchResults(
+        result.hits.map((hit) => ({
+          id: hit.sourceId,
+          title: hit.title,
+          sourcePath: hit.sourcePath,
+          mediaType: hit.mediaType,
+          topicCategory: hit.category,
+          topicSubtopic: hit.subtopic,
+          topicProject: null,
+          userPath: hit.userPath ?? null,
+          tags: hit.tags ?? null,
+          description: null,
+          textLength: 0,
+          updatedAt: hit.updatedAt,
+          useCount: 0,
+        })),
+      )
+      setSearchDegradeReason(result.degradeReason)
+    },
+    [searchSources],
+  )
+
+  /** 按当前条件集合执行检索；无条件时回到普通列表 */
+  const runSearch = useCallback(
+    async (terms: readonly string[]) => {
+      if (terms.length === 0) {
+        setSearchResults(null)
+        setSearchDegradeReason(null)
+        return
+      }
+      await handleSearchWithKeyword(terms.join(' '))
+    },
+    [handleSearchWithKeyword],
+  )
+
+  /**
+   * 提交搜索：把输入框草稿并入条件集合并检索。
    */
   const handleSearch = useCallback(async () => {
-    if (!query.trim()) {
-      setSearchResults(null)
-      setSearchDegradeReason(null)
-      return
-    }
-    const result = await searchSources(query)
-    setSearchResults(
-      result.hits.map((hit) => ({
-        id: hit.sourceId,
-        title: hit.title,
-        sourcePath: hit.sourcePath,
-        mediaType: hit.mediaType,
-        topicCategory: hit.category,
-        topicSubtopic: hit.subtopic,
-        topicProject: null,
-        userPath: hit.userPath ?? null,
-        tags: hit.tags ?? null,
-        description: null,
-        textLength: 0,
-        updatedAt: hit.updatedAt,
-        useCount: 0,
-      })),
-    )
-    setSearchDegradeReason(result.degradeReason)
-  }, [query, searchSources])
+    const t = searchDraft.trim()
+    const next = t ? [...searchTerms, t] : [...searchTerms]
+    setSearchTerms(next)
+    setSearchDraft('')
+    await runSearch(next)
+  }, [searchDraft, searchTerms, runSearch])
+
+  /** 删除单个条件并重新检索 */
+  const handleRemoveSearchTerm = useCallback(
+    (term: string) => {
+      const next = searchTerms.filter((x) => x !== term)
+      setSearchTerms(next)
+      void runSearch(next)
+    },
+    [searchTerms, runSearch],
+  )
 
   const handleClearSearch = useCallback(() => {
-    setQuery('')
+    setSearchTerms([])
+    setSearchDraft('')
     setSearchResults(null)
     setSearchDegradeReason(null)
   }, [])
+
+  /**
+   * 点击路径/标签：作为独立条件加入芯片集合并检索（多条件叠加）。
+   */
+  const handleAddSearchTerm = useCallback(
+    (term: string) => {
+      const t = term.trim()
+      if (!t) return
+      if (searchTerms.includes(t)) return
+      const next = [...searchTerms, t]
+      setSearchTerms(next)
+      void runSearch(next)
+    },
+    [searchTerms, runSearch],
+  )
 
   /**
    * 在任务中心追踪索引重建，主内容保持当前页面不变。
@@ -1478,9 +1533,11 @@ export const WikiTab: React.FC = () => {
           breadcrumbs={currentContext.breadcrumbs}
           breadcrumbSuffix={currentContext.breadcrumbSuffix}
           onBreadcrumbNavigate={handleSelectNav}
-          query={query}
-          onQueryChange={setQuery}
-          onSearch={() => void handleSearch()}
+          terms={searchTerms}
+          draft={searchDraft}
+          onDraftChange={setSearchDraft}
+          onSubmit={() => void handleSearch()}
+          onRemoveTerm={handleRemoveSearchTerm}
           onClearSearch={handleClearSearch}
           pillText={taskCenter.pillText}
           pillTone={taskCenter.pillTone}
@@ -1516,6 +1573,7 @@ export const WikiTab: React.FC = () => {
               onMove={(item) => setPicker({ mode: 'source', item })}
               onPark={(item) => void handlePark(item)}
               onDelete={handleDeleteSource}
+              onSearchTerm={handleAddSearchTerm}
             />
           </div>
         ) : nav.kind === 'inbox' ? (
@@ -1590,6 +1648,7 @@ export const WikiTab: React.FC = () => {
               onPreview={handlePreviewSourceItem}
               onMove={(item) => void handleRestoreArchived(item)}
               onDelete={handleDeleteSource}
+              onSearchTerm={handleAddSearchTerm}
             />
           </div>
         ) : nav.kind === 'parking' ? (
@@ -1622,6 +1681,7 @@ export const WikiTab: React.FC = () => {
               onPreview={handlePreviewSourceItem}
               onMove={(item) => setPicker({ mode: 'source', item })}
               onDelete={handleDeleteSource}
+              onSearchTerm={handleAddSearchTerm}
             />
           </div>
         ) : nav.kind === 'cleanup' ? (
@@ -1747,6 +1807,7 @@ export const WikiTab: React.FC = () => {
               onMove={(item) => setPicker({ mode: 'source', item })}
               onPark={(item) => void handlePark(item)}
               onDelete={handleDeleteSource}
+              onSearchTerm={handleAddSearchTerm}
             />
           </div>
         ) : null}

@@ -12,9 +12,13 @@ interface WikiTopBarProps {
   breadcrumbs?: readonly WikiBreadcrumbItem[] | null
   breadcrumbSuffix?: string
   onBreadcrumbNavigate?: (nav: WikiNav) => void
-  query: string
-  onQueryChange: (query: string) => void
-  onSearch: () => void
+  /** 已确认的搜索条件（点击路径/标签或回车加入），渲染为可删除芯片 */
+  terms: readonly string[]
+  /** 输入框草稿，回车后转为条件 */
+  draft: string
+  onDraftChange: (draft: string) => void
+  onSubmit: () => void
+  onRemoveTerm: (term: string) => void
   onClearSearch?: () => void
   pillText: string | null
   pillTone: 'running' | 'success' | 'error' | 'idle'
@@ -24,6 +28,7 @@ interface WikiTopBarProps {
 
 /**
  * 渲染 Wiki 工作区顶栏，集中承载搜索、分区上下文与任务状态。
+ * 搜索区为「芯片 + 输入」的多条件控件：已确认条件以芯片包裹在输入框内，可单独删除。
  */
 export const WikiTopBar: React.FC<WikiTopBarProps> = ({
   title,
@@ -31,9 +36,11 @@ export const WikiTopBar: React.FC<WikiTopBarProps> = ({
   breadcrumbs,
   breadcrumbSuffix,
   onBreadcrumbNavigate,
-  query,
-  onQueryChange,
-  onSearch,
+  terms,
+  draft,
+  onDraftChange,
+  onSubmit,
+  onRemoveTerm,
   onClearSearch,
   pillText,
   pillTone,
@@ -45,27 +52,44 @@ export const WikiTopBar: React.FC<WikiTopBarProps> = ({
    */
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>): void => {
     event.preventDefault()
-    onSearch()
+    onSubmit()
   }
+
+  const hasCondition = terms.length > 0 || draft.trim().length > 0
 
   return (
     <header className="wiki-top-bar">
       <Tooltip content={WIKI_SEARCH_TOOLTIP} placement="bottom">
         <form className="wiki-top-bar-search" role="search" onSubmit={handleSubmit}>
           <Search size={14} aria-hidden="true" />
-          <input
-            type="search"
-            placeholder="搜索 Wiki…"
-            aria-label="搜索 Wiki"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter') return
-              event.preventDefault()
-              onSearch()
-            }}
-          />
-          {query && onClearSearch && (
+          <div className="wiki-search-input-cluster">
+            {terms.map((term) => (
+              <span key={term} className="wiki-search-chip">
+                <span className="wiki-search-chip-text">{term}</span>
+                <button
+                  type="button"
+                  className="wiki-search-chip-remove"
+                  aria-label={`移除筛选 ${term}`}
+                  onClick={() => onRemoveTerm(term)}
+                >
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+            <input
+              type="text"
+              placeholder={terms.length === 0 ? '搜索 Wiki…' : '添加筛选条件…'}
+              aria-label="搜索 Wiki"
+              value={draft}
+              onChange={(event) => onDraftChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                onSubmit()
+              }}
+            />
+          </div>
+          {hasCondition && onClearSearch && (
             <button type="button" className="wiki-top-bar-clear" onClick={onClearSearch} aria-label="清除搜索">
               <X size={13} />
             </button>

@@ -14,8 +14,8 @@ import {
 } from './wikiFileExtDisplay'
 
 /** 路径前缀分隔符，与面包屑风格一致 */
-function joinPathPrefix(userPath: readonly string[]): string {
-  return userPath.join(' / ')
+function joinPathPrefix(userPath: readonly string[] | null | undefined): string {
+  return (userPath ?? []).join(' / ')
 }
 
 /** 芯片粒度和 media_type 不是一对一：音视频一个芯片覆盖 audio + video 两种类型 */
@@ -78,6 +78,8 @@ interface WikiFileListProps {
   onMove: (item: WikiSourceListItem) => void
   onPark?: (item: WikiSourceListItem) => void
   onDelete?: (item: WikiSourceListItem) => void
+  /** 点击路径/标签时把词加入搜索框并触发搜索（未传则只读展示） */
+  onSearchTerm?: (term: string) => void
 }
 
 /**
@@ -101,6 +103,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
   onMove,
   onPark,
   onDelete,
+  onSearchTerm,
 }) => {
   const [chip, setChip] = useState<WikiMediaChip>('all')
   const [visibleCount, setVisibleCount] = useState(WIKI_FILE_LIST_PAGE)
@@ -213,11 +216,16 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                 <Icon size={15} className="wiki-file-list-icon" style={{ color: iconColor }} aria-hidden />
                 <div className="wiki-file-list-main">
                   <div className="wiki-file-list-title-row">
-                    {/* 用户路径前缀 */}
+                    {/* 用户路径前缀：可点击加入搜索 */}
                     {item.userPath?.length ? (
-                      <span className="wiki-file-list-path-prefix" title={joinPathPrefix(item.userPath)}>
+                      <button
+                        type="button"
+                        className="wiki-file-list-path-prefix wiki-file-list-term"
+                        title={`搜索路径 ${joinPathPrefix(item.userPath)}`}
+                        onClick={() => onSearchTerm?.(joinPathPrefix(item.userPath))}
+                      >
                         {joinPathPrefix(item.userPath)}/
-                      </span>
+                      </button>
                     ) : null}
                     {showSubtopicPrefix && (
                       <span className="wiki-file-list-subtopic-prefix">
@@ -244,19 +252,21 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                         {formatWikiExtBadgeLabel(ext)}
                       </span>
                     ) : null}
-                    {/* 标签（行内，超长省略 + 悬浮查全） */}
+                    {/* 标签（行内芯片）：可点击加入搜索 */}
                     {item.tags?.length ? (
-                      <Tooltip
-                        content={<span>{item.tags.join('、')}</span>}
-                        placement="bottom"
-                        className="wiki-tooltip-below"
-                      >
-                        <span className="wiki-file-list-tags-inline">
-                          {item.tags.map((tag, i) => (
-                            <span key={i} className="wiki-file-list-tag-chip">{tag}</span>
-                          ))}
-                        </span>
-                      </Tooltip>
+                      <span className="wiki-file-list-tags-inline">
+                        {item.tags.map((tag, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            className="wiki-file-list-tag-chip"
+                            title={`搜索标签 ${tag}`}
+                            onClick={() => onSearchTerm?.(tag)}
+                          >
+                            {tag}
+                          </button>
+                        ))}
+                      </span>
                     ) : null}
                     {showTopic && <span className="wiki-file-list-topic">{topic}</span>}
                     <span className="wiki-file-list-time">{formatRelativeTime(item.updatedAt)}</span>

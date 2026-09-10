@@ -241,7 +241,7 @@
 
 .wiki-top-bar {
   display: grid;
-  grid-template-columns: minmax(180px, 280px) minmax(0, 1fr) minmax(120px, auto);
+  grid-template-columns: minmax(280px, 460px) minmax(0, 1fr) minmax(120px, auto);
   align-items: center;
   gap: 20px;
   min-height: 68px;
@@ -268,12 +268,61 @@
 
 .wiki-top-bar-search input {
   flex: 1;
-  min-width: 0;
+  min-width: 40px;
   border: none;
   outline: none;
   background: none;
   color: var(--color-text-primary);
   font-size: 13px;
+}
+
+/* 芯片 + 草稿输入组成的多条件搜索簇 */
+.wiki-search-input-cluster {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 已确认的搜索条件芯片，包裹在输入框内 */
+.wiki-search-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 180px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.wiki-search-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiki-search-chip-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.wiki-search-chip-remove:hover {
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  opacity: 1;
 }
 
 .wiki-top-bar-clear {
@@ -521,11 +570,6 @@
     gap: 10px;
     padding: 10px 14px;
   }
-
-  .wiki-top-bar-search {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
 }
 
 .wiki-empty-hint {
@@ -712,13 +756,29 @@
   justify-content: flex-start;
 }
 
-/* 用户路径前缀：文件名前的目录路径，类似面包屑 */
+/* 用户路径前缀：文件名前的目录路径，类似面包屑；可点击加入搜索 */
 .wiki-file-list-path-prefix {
   flex-shrink: 0;
   color: var(--color-text-tertiary);
   font-size: 11px;
   white-space: nowrap;
   opacity: 0.7;
+}
+
+/* 可点击的搜索词（路径/标签）：重置 button 默认样式，hover 高亮提示可点 */
+.wiki-file-list-term {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.wiki-file-list-term:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
 }
 
 /* 行内标签：一排调节芯片，超长截断 + 悬浮看全 */
@@ -735,6 +795,7 @@
 .wiki-file-list-tag-chip {
   flex-shrink: 0;
   padding: 1px 7px;
+  border: none;
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
   color: var(--color-accent);
@@ -742,6 +803,11 @@
   font-weight: 500;
   white-space: nowrap;
   line-height: 1.5;
+  cursor: pointer;
+}
+
+.wiki-file-list-tag-chip:hover {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
 }
 
 /* 标签区域窄窗时进一步收缩 */
