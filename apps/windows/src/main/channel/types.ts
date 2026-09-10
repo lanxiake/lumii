@@ -115,3 +115,17 @@ export interface IChannelAdapter {
   /** 切换活跃 sessionKey（/new、/resume、/link 命令调用，可选） */
   setActiveSessionKey?(channelUserId: string, sessionKey: string): void
 }
+
+// ── 渠道标签映射 ──────────────────────────────────────────────────────────────
+
+/** 渠道标识 → 中文名；未知渠道 fallback「消息渠道」。ipc 返回 undefined（客户端默认，不强加） */
+export function channelLabelOf(channelType: string): string | undefined {
+  if (channelType === 'ipc') return undefined
+  const map: Record<string, string> = {
+    weixin: '微信',
+    feishu: '飞书',
+    wecom: '企业微信',
+    qbot: 'QQ',
+  }
+  return map[channelType] ?? '消息渠道'
+}

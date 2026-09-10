@@ -28,7 +28,7 @@ export class ChannelRegistry {
    * 返回已注册的全部 Provider（固定 feishu → weixin → wecom 顺序优先）。
    */
   listProviders(): IChannelOutboundProvider[] {
-    const order: OutboundChannelId[] = ['feishu', 'weixin', 'wecom']
+    const order: OutboundChannelId[] = ['feishu', 'weixin', 'wecom', 'qbot']
     const result: IChannelOutboundProvider[] = []
     for (const id of order) {
       const p = this.providers.get(id)

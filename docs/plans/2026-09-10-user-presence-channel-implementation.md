@@ -1,7 +1,7 @@
 # 用户在场感知与渠道自适应 — 代码实施计划
 
 > 日期：2026-09-10
-> 状态：实施计划（待开工）
+> 状态：已实施（P0 + P1.0–P1.4 完成；P2/P3 未做）
 > 规格：`docs/design/2026-09-09-user-presence-channel-design.md`（v1.3）
 > 代码根：`apps/windows/src/main/`
 
@@ -22,6 +22,16 @@
 | P2 / P3 | 跨渠道连续性、交互降级、工具进度过滤 | §5.4/5.5/5.2（**不在本期**） |
 
 **范围锁**：本期不做 P2（询问式接续、交互降级）、P3（工具进度分级过滤）。企微主动推送仍维持 `UNSUPPORTED_PUSH`（设计未要求一期开启企微主动 push，仅补 `sendFileReply` 被动回复路径）。
+
+## 实施偏离记录（2026-09-10 落地时对计划的调整）
+
+| 偏离 | 说明 |
+|------|------|
+| 未实现 `assembleMediaPrompt` | 各渠道拼 prompt 仅 3 行且语音转录处理有差异，共享反而绕；`media-pipeline.ts` 只收「下载落盘 `saveInboundMedia` + 转文字 `transcribeVoiceFile`」两处真正重复的逻辑 |
+| qbot 富媒体发送降级 `UNSUPPORTED_MEDIA` | 只做了文本回复 + 附件接收；发送需真实凭证联调（上传 file_info + msg_type=7），本地写死是赌接口 |
+| qbot 被动回复用 REST 近似 | `POST /v2/users\|groups/{id}/messages`，未联网核对真实被动回复的 msg_id 关联 |
+| 飞书群聊文件 `sendFileReply` | `to=chatId` 仍走 `open_id`，群聊可能收不到；留作开放验证项（§5.7 验收若测出再补 `receiveIdType`） |
+| 渠道工厂 `createChannelFactory` 未落地 | 三渠道形状差异大（微信最重），硬抽象反向复杂化；qbot 只按既有样板补了第四段初始化，未抽工厂 |
 
 ---
 
@@ -413,14 +423,14 @@ export async function liteCreateApp(idempotencyKey: string): Promise<{ appid: st
 
 ## 8. 验收对照（设计 §5.7 用例 + 各期）
 
-- [ ] P0：ipc 消息不注入 User Presence 段；weixin/feishu/wecom 消息注入且渠道名正确
-- [ ] P0：weixin/feishu 同一问题回复长度/格式明显收敛（软约束）+ 渠道侧纯文本兜底（硬保证）
-- [ ] P1.0：`index.ts` 三渠道初始化缩为工厂调用，启动日志/事件名不变
-- [ ] P1.1：`pnpm build` 通过，飞书登录/收发冒烟无回归
-- [ ] P1.2：飞书发语音 → `[语音转录: …]`；飞书/企微发图片/文件 → 客户端拿到本地路径
-- [ ] P1.2：客户端发文件飞书/企微 → 对方收到
-- [ ] P1.3：HTML 报告生成 + 飞书/企微文件发送通路打通
-- [ ] P1.4：QQ 扫码接入 + 文本/富媒体互传 + 断线 Resume
+- [x] P0：ipc 消息不注入 User Presence 段；weixin/feishu/wecom 消息注入且渠道名正确（实现：`session-manager._doPrompt` 统一写 + composer 只在 `userAtClient===false` 注入）
+- [x] P0：weixin/feishu 同一问题回复长度/格式明显收敛（软约束）+ 渠道侧纯文本兜底（硬保证，`markdownToPlainText` 接入飞书/企微 `sendTextReply`）
+- [ ] P1.0：`index.ts` 三渠道初始化缩为工厂调用（**偏离：工厂未落地**，见偏离记录）
+- [x] P1.1：飞书 SDK 1.73.3 已装；`pnpm typecheck` 通过
+- [ ] P1.2：飞书发语音 → `[语音转录: …]`；飞书/企微发图片/文件 → 客户端拿到本地路径（代码已就绪，待真实凭证端到端验证）
+- [ ] P1.2：客户端发文件飞书/企微 → 对方收到（代码已就绪，待联调）
+- [x] P1.3：HTML 报告模板 `html-report-template.ts` + 飞书/企微 `sendFileReply` 通路打通
+- [ ] P1.4：QQ 扫码接入 + 文本互传（代码已就绪，富媒体发送降级 `UNSUPPORTED_MEDIA`，待联调）
 
 ---
 

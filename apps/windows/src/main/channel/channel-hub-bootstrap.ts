@@ -8,17 +8,20 @@ import path from 'node:path'
 import type { FeishuLoginService } from '../feishu-login-service'
 import type { WeixinLoginService } from '../weixin-login-service'
 import type { WecomLoginService } from '../wecom-login-service'
+import type { QbotLoginService } from '../qbot-login-service'
 import { ChannelRegistry } from './channel-registry'
 import { ChannelOutboundRouter } from './channel-outbound-router'
 import { WeixinReplyContextStore } from './weixin-reply-context-store'
 import { FeishuChannelProvider } from './providers/feishu-outbound-provider'
 import { WeixinChannelProvider } from './providers/weixin-outbound-provider'
 import { WecomChannelProvider } from './providers/wecom-outbound-provider'
+import { QbotChannelProvider } from './providers/qbot-outbound-provider'
 
 export interface ChannelHubDeps {
   feishu: FeishuLoginService
   weixin: WeixinLoginService
   wecom: WecomLoginService
+  qbot?: QbotLoginService
   /** 客户端数据根（默认 ~/.lumii） */
   dataRoot: string
   /** 可注入已有 store（微信 adapter 需更早持有同一实例） */
@@ -57,6 +60,7 @@ export function createChannelHub(deps: ChannelHubDeps): ChannelHub {
   registry.register(new FeishuChannelProvider(deps.feishu))
   registry.register(new WeixinChannelProvider(deps.weixin, weixinStore))
   registry.register(wecomProvider)
+  if (deps.qbot) registry.register(new QbotChannelProvider(deps.qbot))
   const router = new ChannelOutboundRouter(registry)
   return { router, registry, weixinStore, wecomProvider }
 }

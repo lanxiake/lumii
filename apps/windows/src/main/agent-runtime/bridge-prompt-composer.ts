@@ -84,6 +84,20 @@ function buildConcernSection(description: string): string {
   ].join("\n")
 }
 
+/** User Presence 注入段（P0：仅在用户不在客户端时调用） */
+function buildUserPresenceSection(presence: { userAtClient: boolean; channelLabel?: string }): string {
+  const label = presence.channelLabel ?? '消息渠道'
+  return [
+    "## User Presence（本轮回复载体）",
+    `用户此刻不在桌面客户端面前，只能收到纯文本（渠道：${label}），Markdown 记号原样显示为噪声，看不到工具卡片与文件树。`,
+    "- 风格：结论前置（1-2 句摘要开头）；口语化短句；用「1. 2. 3.」编号替代列表与表格。",
+    "- 详略：默认 ≤200 字；用户明确要求\"详细\"时再展开（仍用纯文本结构，不分层标题）。",
+    "- 禁忌：不输出表格、代码块、分层标题；不写「见左侧文件树」「点击下方按钮」等 UI 依赖表述。",
+    "- 生成文件时：告知文件名与保存位置；长内容（报告/笔记）写成 HTML 文件发送，聊天内只发 3 行摘要。",
+    "",
+  ].join("\n")
+}
+
 /** 模块级诊断缓存（所有 Composer 实例共享，保证 prompt 连续轮次间命中缓存） */
 let diagCache: { value: ClientDiagnostics; expiresAt: number } | null = null
 
@@ -417,6 +431,16 @@ export class BridgePromptComposer {
     } catch (err) {
       // 诊断采样挂了绝不影响对话主流程，只记录日志
       log.warn('[buildPromptWithMemory] 客户端诊断采样失败，跳过注入:', err instanceof Error ? err.message : String(err))
+    }
+
+    // User Presence 段：本轮回复载体（P0：二元在场信号）。仅在用户不在客户端时注入。
+    try {
+      const presence = this.deps.instanceStates.get(instanceId)?.presence
+      if (presence && !presence.userAtClient) {
+        dynamicParts.push(buildUserPresenceSection(presence))
+      }
+    } catch (err) {
+      log.warn('[buildPromptWithMemory] User Presence 注入失败，跳过:', err instanceof Error ? err.message : String(err))
     }
 
     const dynamicPrompt = dynamicParts.join('')

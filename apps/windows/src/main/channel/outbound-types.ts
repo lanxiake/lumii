@@ -5,7 +5,7 @@
  */
 
 /** Agent / cron 使用的渠道标识（一期） */
-export type OutboundChannelId = 'feishu' | 'weixin' | 'wecom'
+export type OutboundChannelId = 'feishu' | 'weixin' | 'wecom' | 'qbot'
 
 /** 出站能力模式：真 Push / 缓存 token 伪 Push / 仅被动回复 */
 export type ChannelPushMode = 'native_push' | 'cached_reply' | 'reply_only'

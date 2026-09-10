@@ -2003,6 +2003,15 @@ export class AgentRuntimeBridge {
     log.info(`[markInstanceAsExternalChannel] 已标记: instanceId=${instanceId}`)
   }
 
+  /** 写入本轮在场状态（P0：二元在场信号），由 SessionManager 在 prompt 前调用 */
+  setInstancePresence(
+    instanceId: string,
+    presence: { userAtClient: boolean; channelLabel?: string },
+  ): void {
+    const s = this.instanceStates.get(instanceId)
+    if (s) s.presence = presence
+  }
+
   /** 等待 Agent 实例进入 idle 状态 */
   async waitForInstanceIdle(instanceId: string): Promise<void> {
     const instance = this.agentRegistry.get(instanceId)

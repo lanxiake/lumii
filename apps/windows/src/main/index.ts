@@ -94,6 +94,8 @@ import { WecomLoginService } from './wecom-login-service'
 import { WecomChannelAdapter } from './channel/adapters/wecom-channel-adapter'
 import { FeishuLoginService } from './feishu-login-service'
 import { FeishuChannelAdapter } from './channel/adapters/feishu-channel-adapter'
+import { QbotLoginService } from './qbot-login-service'
+import { QbotChannelAdapter } from './channel/adapters/qbot-channel-adapter'
 import { AcpBackendManager } from './channel/acp-backend-manager'
 import {
   createChannelHub,
@@ -102,6 +104,7 @@ import {
 } from './channel/channel-hub-bootstrap'
 import { handleChannelList, handleChannelSend } from './channel/channel-service-ipc'
 import { resolveWindowsClientDataRoot } from './client-data-root'
+import { transcribeVoiceFile } from './channel/media-pipeline'
 import {
   setActiveWorkspaceDirGetter,
   ensureWorkspaceTempLayout,
@@ -281,6 +284,7 @@ let configManager: ConfigManager | null = null
 let weixinLoginService: WeixinLoginService | null = null  // 微信(iLink)登录服务
 let wecomLoginService: WecomLoginService | null = null  // 企业微信 AI Bot 扫码服务
 let feishuLoginService: FeishuLoginService | null = null  // 飞书扫码服务
+let qbotLoginService: QbotLoginService | null = null  // QQ 机器人扫码服务
 let channelHub: ChannelHub | null = null  // 渠道出站 Hub（list/send）
 let agentRuntimeBridge: AgentRuntimeBridge | null = null  // 客户端 Agent Runtime
 let voiceCallService: VoiceCallService | null = null  // 语音通话服务
@@ -1041,6 +1045,7 @@ function setupIpcHandlers(): void {
     getWeixinLoginService: () => weixinLoginService,
     getWecomLoginService: () => wecomLoginService,
     getFeishuLoginService: () => feishuLoginService,
+    getQbotLoginService: () => qbotLoginService,
     getChannelHub: () => channelHub,
     getAgentRuntimeBridge: () => agentRuntimeBridge,
     getWorkspaceDir,
@@ -1447,6 +1452,8 @@ async function initialize(): Promise<void> {
       try {
         feishuLoginService = new FeishuLoginService()
         await feishuLoginService.initialize()
+        // 注入语音转文字回调（飞书 opus 语音消息 → ASR）
+        feishuLoginService.asrCallback = (absPath) => transcribeVoiceFile(absPath, (samples, sampleRate) => voiceCallService!.transcribePcm(samples, sampleRate))
         const feishuChannelAdapter = new FeishuChannelAdapter(feishuLoginService, agentRuntimeBridge!)
         feishuChannelAdapter.startListening()
         feishuLoginService.on('statusChange', (status: string, session?: unknown) => {
@@ -1463,11 +1470,30 @@ async function initialize(): Promise<void> {
         log.warn('飞书服务初始化失败:', err instanceof Error ? err.message : err)
       }
 
+      // 初始化 QQ 机器人扫码服务
+      try {
+        qbotLoginService = new QbotLoginService()
+        await qbotLoginService.initialize()
+        qbotLoginService.asrCallback = (absPath) => transcribeVoiceFile(absPath, (samples, sampleRate) => voiceCallService!.transcribePcm(samples, sampleRate))
+        const qbotChannelAdapter = new QbotChannelAdapter(qbotLoginService, agentRuntimeBridge!)
+        qbotChannelAdapter.startListening()
+        qbotLoginService.on('statusChange', (status: string, session?: unknown) => {
+          mainWindow?.webContents.send('qbot:statusChange', status, session)
+        })
+        qbotLoginService.on('error', (message: string) => {
+          mainWindow?.webContents.send('qbot:error', message)
+        })
+        log.info('QQ 机器人服务已初始化')
+      } catch (err) {
+        log.warn('QQ 机器人服务初始化失败:', err instanceof Error ? err.message : err)
+      }
+
       // 装配渠道出站 Hub（Agent channel_list/send + cron 同源）
       channelHub = createChannelHub({
         feishu: feishuLoginService!,
         weixin: weixinLoginService!,
         wecom: wecomLoginService!,
+        qbot: qbotLoginService ?? undefined,
         dataRoot: resolveWindowsClientDataRoot(),
         weixinStore: weixinReplyContextStore,
       })

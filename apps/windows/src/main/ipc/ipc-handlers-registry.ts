@@ -13,6 +13,7 @@ import type { TrayManager } from '../tray-manager'
 import type { WeixinLoginService } from '../weixin-login-service'
 import type { WecomLoginService } from '../wecom-login-service'
 import type { FeishuLoginService } from '../feishu-login-service'
+import type { QbotLoginService } from '../qbot-login-service'
 import type { ChannelHub } from '../channel/channel-hub-bootstrap'
 import type { AgentRuntimeBridge } from '../agent-runtime'
 
@@ -69,6 +70,7 @@ export interface IpcHandlersDeps {
   getWeixinLoginService: () => WeixinLoginService | null
   getWecomLoginService: () => WecomLoginService | null
   getFeishuLoginService: () => FeishuLoginService | null
+  getQbotLoginService: () => QbotLoginService | null
   getChannelHub: () => ChannelHub | null
   getAgentRuntimeBridge: () => AgentRuntimeBridge | null
   getWorkspaceDir: () => string
@@ -112,6 +114,7 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
     getWeixinLoginService: deps.getWeixinLoginService,
     getWecomLoginService: deps.getWecomLoginService,
     getFeishuLoginService: deps.getFeishuLoginService,
+    getQbotLoginService: deps.getQbotLoginService,
     getChannelHub: deps.getChannelHub,
   })
 

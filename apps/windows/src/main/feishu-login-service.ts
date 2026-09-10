@@ -19,6 +19,8 @@ import {
   type FeishuDomain,
 } from './feishu-app-registration.js'
 import { FeishuSessionStore, type FeishuSession } from './feishu-session-store.js'
+import { saveInboundMedia } from './channel/media-pipeline.js'
+import { resolveActiveWorkspaceDir } from './workspace-paths.js'
 
 export type FeishuLoginStatus =
   | 'idle'
@@ -41,8 +43,13 @@ export interface FeishuNormalizedMessage {
   channelUserId: string
   chatId: string
   chatType: 'p2p' | 'group'
-  type: 'text'
-  text: string
+  type: 'text' | 'audio' | 'image' | 'file'
+  /** 文本内容（text 直接取，audio 为转录结果，image/file 为空） */
+  text?: string
+  /** 已落盘媒体相对 workspace 路径（image/audio/file 下载成功后） */
+  mediaPath?: string
+  /** 原文件名（file 类） */
+  fileName?: string
   msgId: string
   timestamp: number
 }
@@ -108,6 +115,9 @@ export class FeishuLoginService extends EventEmitter {
   private pollTimer: ReturnType<typeof setTimeout> | null = null
   private pollAbort = false
   private stopping = false
+
+  /** 语音转文字回调（主进程注入 voiceCallService.transcribePcm，用于飞书 opus 语音） */
+  asrCallback: ((absPath: string) => Promise<string>) | null = null
 
   /**
    * 启动时恢复本地会话并重连。
@@ -432,7 +442,7 @@ export class FeishuLoginService extends EventEmitter {
     const dispatcher = new Lark.EventDispatcher({})
     dispatcher.register({
       'im.message.receive_v1': async (data) => {
-        const normalized = this.normalizeMessageEvent(data)
+        const normalized = await this.normalizeMessageEvent(data)
         if (normalized) this.emit('message', normalized)
       },
     })
@@ -459,9 +469,10 @@ export class FeishuLoginService extends EventEmitter {
   }
 
   /**
-   * 将飞书消息事件规范化。
+   * 将飞书消息事件规范化。text 直接返回；audio/image/file 先下载落盘再回填 mediaPath。
+   * 失败（下载/转码异常）降级为 null，避免脏数据进入 Agent。
    */
-  private normalizeMessageEvent(data: unknown): FeishuNormalizedMessage | null {
+  private async normalizeMessageEvent(data: unknown): Promise<FeishuNormalizedMessage | null> {
     const event = data as {
       sender?: { sender_id?: { open_id?: string }; sender_type?: string }
       message?: {
@@ -481,32 +492,79 @@ export class FeishuLoginService extends EventEmitter {
     const openId = event.sender?.sender_id?.open_id
     if (!openId) return null
 
-    if (msg.message_type !== 'text') {
-      log.info('Skip non-text message:', msg.message_type)
-      return null
-    }
-
-    let text = ''
-    try {
-      const parsed = JSON.parse(msg.content ?? '{}') as { text?: string }
-      text = (parsed.text ?? '').trim()
-    } catch {
-      return null
-    }
-    if (!text) return null
-
-    const chatType = msg.chat_type === 'group' ? 'group' : 'p2p'
+    const chatType: 'p2p' | 'group' = msg.chat_type === 'group' ? 'group' : 'p2p'
     const createMs = msg.create_time ? Number(msg.create_time) : Date.now()
-
-    return {
-      channel: 'feishu',
+    const timestamp = createMs < 1e12 ? createMs * 1000 : createMs
+    const base = {
+      channel: 'feishu' as const,
       channelUserId: openId,
       chatId: msg.chat_id,
       chatType,
-      type: 'text',
-      text,
       msgId: msg.message_id,
-      timestamp: createMs < 1e12 ? createMs * 1000 : createMs,
+      timestamp,
+    }
+
+    const mt = msg.message_type
+    if (mt === 'text') {
+      let text = ''
+      try {
+        const parsed = JSON.parse(msg.content ?? '{}') as { text?: string }
+        text = (parsed.text ?? '').trim()
+      } catch {
+        return null
+      }
+      if (!text) return null
+      return { ...base, type: 'text', text }
+    }
+
+    // 非 text：audio / image / file，下载资源并落盘
+    if (mt !== 'audio' && mt !== 'image' && mt !== 'file') {
+      log.info('Skip unsupported message type:', mt)
+      return null
+    }
+    if (!this.httpClient) {
+      log.warn('normalizeMessageEvent: HTTP client not ready, skip media')
+      return null
+    }
+
+    let fileKey = ''
+    let fileName = ''
+    try {
+      const parsed = JSON.parse(msg.content ?? '{}') as {
+        file_key?: string
+        image_key?: string
+        file_name?: string
+      }
+      fileKey = parsed.file_key ?? parsed.image_key ?? ''
+      fileName = parsed.file_name ?? ''
+    } catch {
+      return null
+    }
+    if (!fileKey) return null
+
+    const ext = mt === 'image' ? '.jpg' : mt === 'audio' ? '.opus' : path.extname(fileName) || '.bin'
+    if (!fileName) fileName = `feishu_${mt}_${Date.now()}${ext}`
+
+    try {
+      const res = await this.httpClient.im.messageResource.get({
+        path: { message_id: msg.message_id, file_key: fileKey },
+        params: { type: mt },
+      })
+      const stream = res.getReadableStream()
+      const chunks: Buffer[] = []
+      for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+      const buffer = Buffer.concat(chunks)
+      const localPath = await saveInboundMedia(fileName, buffer)
+
+      if (mt === 'audio') {
+        const absPath = path.join(resolveActiveWorkspaceDir(), localPath)
+        const transcript = this.asrCallback ? await this.asrCallback(absPath) : ''
+        return { ...base, type: 'audio', mediaPath: localPath, fileName, text: transcript }
+      }
+      return { ...base, type: mt, mediaPath: localPath, fileName }
+    } catch (err) {
+      log.warn('normalizeMessageEvent: media download failed:', err instanceof Error ? err.message : String(err))
+      return null
     }
   }
 

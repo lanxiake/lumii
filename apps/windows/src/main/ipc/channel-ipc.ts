@@ -6,12 +6,14 @@ import { handleChannelList, handleChannelSend } from '../channel/channel-service
 import type { WeixinLoginService } from '../weixin-login-service'
 import type { WecomLoginService } from '../wecom-login-service'
 import type { FeishuLoginService } from '../feishu-login-service'
+import type { QbotLoginService } from '../qbot-login-service'
 import type { ChannelHub } from '../channel/channel-hub-bootstrap'
 
 interface ChannelIpcDeps {
   getWeixinLoginService: () => WeixinLoginService | null
   getWecomLoginService: () => WecomLoginService | null
   getFeishuLoginService: () => FeishuLoginService | null
+  getQbotLoginService: () => QbotLoginService | null
   getChannelHub: () => ChannelHub | null
 }
 
@@ -85,6 +87,33 @@ export function registerChannelIpcHandlers(): void {
 
   ipcMain.handle('feishu:getSession', () => {
     return deps!.getFeishuLoginService()?.getSessionPublic() ?? null
+  })
+
+  // === QQ 机器人渠道 ===
+  ipcMain.handle('qbot:startLogin', async () => {
+    const qbotLoginService = deps!.getQbotLoginService()
+    if (!qbotLoginService) return null
+    return qbotLoginService.startLogin()
+  })
+
+  ipcMain.handle('qbot:saveCredentials', async (_event, appId: string, appSecret: string) => {
+    const qbotLoginService = deps!.getQbotLoginService()
+    if (!qbotLoginService) return
+    return qbotLoginService.saveCredentials(appId, appSecret)
+  })
+
+  ipcMain.handle('qbot:logout', async () => {
+    const qbotLoginService = deps!.getQbotLoginService()
+    if (!qbotLoginService) return
+    return qbotLoginService.logout()
+  })
+
+  ipcMain.handle('qbot:getStatus', () => {
+    return deps!.getQbotLoginService()?.getStatus() ?? 'idle'
+  })
+
+  ipcMain.handle('qbot:getSession', () => {
+    return deps!.getQbotLoginService()?.getSessionPublic() ?? null
   })
 
   // === 渠道出站 Hub（与 Agent channel_list/channel_send 同源，仅供 Settings 面板只读展示/调试） ===

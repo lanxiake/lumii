@@ -30,6 +30,13 @@ export interface InstanceState {
   ctx: RunContext
   /** 是否跳过 Session Tasks 注入到系统提示词（外部通道如微信） */
   skipTaskInjection: boolean
+  /** 本轮消息来源的在场/渠道标签（P0：二元在场信号） */
+  presence?: {
+    /** channelType === 'ipc' 时用户在客户端面前 */
+    userAtClient: boolean
+    /** 渠道中文名（微信/飞书/企业微信/QQ/消息渠道），ipc 为 undefined */
+    channelLabel?: string
+  }
   /** toolCallId → 工具入参（tool:end 时合并写入 messages） */
   toolCallArgs: Map<string, Record<string, unknown>>
   /** 当前助手轮次的结构化时间线，是正文、思考与工具状态的唯一真相 */

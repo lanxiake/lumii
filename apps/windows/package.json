@@ -46,7 +46,7 @@
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@img/sharp-win32-x64": "^0.34.5",
-    "@larksuiteoapi/node-sdk": "^1.71.1",
+    "@larksuiteoapi/node-sdk": "^1.73.3",
     "@mtbot/agent-runtime": "workspace:*",
     "@mtbot/browser-control": "workspace:*",
     "@mtbot/pet-core": "workspace:*",

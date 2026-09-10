@@ -14,9 +14,12 @@
  */
 
 import { EventEmitter } from 'events'
+import path from 'node:path'
+import fs from 'node:fs'
 import QRCode from 'qrcode'
-import { WSClient, generateReqId, MessageType } from '@wecom/aibot-node-sdk'
+import { WSClient, generateReqId, MessageType, type WeComMediaType } from '@wecom/aibot-node-sdk'
 import { WecomSessionStore, type WecomSession } from './wecom-session-store.js'
+import { saveInboundMedia } from './channel/media-pipeline.js'
 
 const QR_GENERATE_URL = 'https://work.weixin.qq.com/ai/qc/generate'
 const QR_QUERY_URL = 'https://work.weixin.qq.com/ai/qc/query_result'
@@ -47,8 +50,12 @@ export interface WecomNormalizedMessage {
   channelUserId: string
   chatId: string
   chatType: 'single' | 'group'
-  type: 'text' | 'voice' | 'other'
+  type: 'text' | 'voice' | 'image' | 'file'
   text?: string
+  /** 已落盘媒体相对 workspace 路径（image/file 下载成功后） */
+  mediaPath?: string
+  /** 原文件名（file 类） */
+  fileName?: string
   msgId: string
   timestamp: number
   /** 原始 WS 帧，回复时需带上 headers */
@@ -293,21 +300,24 @@ export class WecomLoginService extends EventEmitter {
       this.emit('error', err?.message ?? String(err))
     })
 
-    const handleInbound = (frame: unknown) => {
-      const normalized = this.normalizeFrame(frame)
+    const handleInbound = async (frame: unknown) => {
+      const normalized = await this.normalizeFrame(frame)
       if (normalized) this.emit('message', normalized)
     }
     client.on('message.text', handleInbound)
     client.on('message.voice', handleInbound)
     client.on('message.mixed', handleInbound)
+    client.on('message.image', handleInbound)
+    client.on('message.file', handleInbound)
 
     client.connect()
   }
 
   /**
    * 将 WS 帧规范化为 Channel 层可用的消息。
+   * image/file 下载并解密落盘；voice 直接用 SDK 转写文字。
    */
-  private normalizeFrame(frame: unknown): WecomNormalizedMessage | null {
+  private async normalizeFrame(frame: unknown): Promise<WecomNormalizedMessage | null> {
     const f = frame as {
       body?: {
         msgid?: string
@@ -317,7 +327,9 @@ export class WecomLoginService extends EventEmitter {
         from?: { userid?: string; user_id?: string }
         text?: { content?: string }
         voice?: { content?: string }
-        mixed?: { msg_item?: Array<{ msgtype?: string; text?: { content?: string } }> }
+        image?: { url?: string; aeskey?: string }
+        file?: { url?: string; aeskey?: string; file_name?: string }
+        mixed?: { msg_item?: Array<{ msgtype?: string; text?: { content?: string }; image?: { url?: string; aeskey?: string } }> }
         create_time?: number
       }
     }
@@ -327,24 +339,7 @@ export class WecomLoginService extends EventEmitter {
     const userId = body.from?.userid || body.from?.user_id || ''
     if (!userId) return null
 
-    let text = ''
-    const msgtype = body.msgtype ?? ''
-    if (msgtype === MessageType.Text || msgtype === 'text') {
-      text = body.text?.content?.trim() ?? ''
-    } else if (msgtype === MessageType.Voice || msgtype === 'voice') {
-      text = body.voice?.content?.trim() ?? ''
-    } else if (msgtype === MessageType.Mixed || msgtype === 'mixed') {
-      text =
-        body.mixed?.msg_item
-          ?.filter((i) => i.msgtype === 'text')
-          .map((i) => i.text?.content ?? '')
-          .join('\n')
-          .trim() ?? ''
-    }
-
-    if (!text) return null
-
-    const chatType = body.chattype === 'group' ? 'group' : 'single'
+    const chatType: 'single' | 'group' = body.chattype === 'group' ? 'group' : 'single'
     const chatId = body.chatid || userId
     const createTime = body.create_time
     const timestamp =
@@ -353,17 +348,73 @@ export class WecomLoginService extends EventEmitter {
           ? createTime * 1000
           : createTime
         : Date.now()
+    const msgId = body.msgid ?? `wecom-${Date.now()}`
+    const base = { channel: 'wecom' as const, channelUserId: userId, chatId, chatType, msgId, timestamp, rawFrame: frame }
 
-    return {
-      channel: 'wecom',
-      channelUserId: userId,
-      chatId,
-      chatType,
-      type: msgtype === 'voice' ? 'voice' : 'text',
-      text,
-      msgId: body.msgid ?? `wecom-${Date.now()}`,
-      timestamp,
-      rawFrame: frame,
+    const msgtype = body.msgtype ?? ''
+    if (msgtype === MessageType.Text || msgtype === 'text') {
+      const text = body.text?.content?.trim() ?? ''
+      if (!text) return null
+      return { ...base, type: 'text', text }
+    }
+    if (msgtype === MessageType.Voice || msgtype === 'voice') {
+      const text = body.voice?.content?.trim() ?? ''
+      if (!text) return null
+      return { ...base, type: 'voice', text }
+    }
+    if (msgtype === MessageType.Mixed || msgtype === 'mixed') {
+      const text =
+        body.mixed?.msg_item
+          ?.filter((i) => i.msgtype === 'text')
+          .map((i) => i.text?.content ?? '')
+          .join('\n')
+          .trim() ?? ''
+      if (!text) return null
+      return { ...base, type: 'text', text }
+    }
+    // image / file：下载解密落盘
+    if ((msgtype === MessageType.Image || msgtype === 'image') && body.image?.url) {
+      try {
+        const { buffer, filename } = await this.client!.downloadFile(body.image.url, body.image.aeskey)
+        const localPath = await saveInboundMedia(filename ?? `wecom_image_${Date.now()}.jpg`, buffer)
+        return { ...base, type: 'image', mediaPath: localPath, fileName: filename }
+      } catch (err) {
+        log.warn('image download failed:', err instanceof Error ? err.message : String(err))
+        return null
+      }
+    }
+    if ((msgtype === MessageType.File || msgtype === 'file') && body.file?.url) {
+      try {
+        const { buffer, filename } = await this.client!.downloadFile(body.file.url, body.file.aeskey)
+        const localPath = await saveInboundMedia(filename ?? `wecom_file_${Date.now()}`, buffer)
+        return { ...base, type: 'file', mediaPath: localPath, fileName: filename }
+      } catch (err) {
+        log.warn('file download failed:', err instanceof Error ? err.message : String(err))
+        return null
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * 被动回复媒体文件（P1.2）：读文件 → 按扩展名映射 image/file → uploadMedia → replyMedia。
+   */
+  async replyMediaFile(rawFrame: unknown, filePath: string): Promise<boolean> {
+    if (!this.client?.isConnected) {
+      log.warn('replyMediaFile: WS not connected')
+      return false
+    }
+    try {
+      const buf = await fs.promises.readFile(filePath)
+      const ext = path.extname(filePath).toLowerCase()
+      const type: WeComMediaType = /\.(jpg|jpeg|png|gif|webp|bmp)$/.test(ext) ? 'image' : 'file'
+      const { media_id } = await this.client.uploadMedia(buf, { type, filename: path.basename(filePath) })
+      await this.client.replyMedia(rawFrame as { headers: { req_id: string } }, type, media_id)
+      return true
+    } catch (err) {
+      log.error('replyMediaFile failed:', err instanceof Error ? err.message : String(err))
+      return false
     }
   }
 

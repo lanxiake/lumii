@@ -8,6 +8,7 @@
  */
 
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
+import { channelLabelOf } from './types'
 import type { ContextStrategy, IChannelAdapter, ChannelSession } from './types'
 
 const log = {
@@ -104,7 +105,7 @@ export class SessionManager {
   // ── 内部实现 ──────────────────────────────────────────────────────────────
 
   private async _doPrompt(params: PromptParams): Promise<void> {
-    const { instanceId, sessionKey, message, strategy, imageAttachmentPaths, pendingUserMsgId } = params
+    const { instanceId, sessionKey, message, strategy, imageAttachmentPaths, pendingUserMsgId, session } = params
 
     log.info(
       `[_doPrompt] 开始: instanceId=${instanceId} sessionKey=${sessionKey} msgLen=${message.length} imageCount=${imageAttachmentPaths?.length ?? 0}`,
@@ -112,6 +113,12 @@ export class SessionManager {
 
     await strategy.beforePrompt(instanceId, sessionKey, pendingUserMsgId)
     try {
+      // 统一写入本轮在场状态（P0：二元在场信号）。所有主 Agent 路径都经此入口，
+      // 一处写点替代各 adapter 各自写，channelLabel 映射也收敛到 channelLabelOf。
+      this.bridge.setInstancePresence(instanceId, {
+        userAtClient: session.channelType === 'ipc',
+        channelLabel: channelLabelOf(session.channelType),
+      })
       // pendingUserMsgId 继续透传给 bridge.prompt：prompt() 内的自动压缩块会从 DB
       // 重载历史做剪枝/摘要，同样必须排除本条消息，否则它会被 replaceMessages
       // 注入实例内存、又被 instance.prompt() 追加一次，发送末尾出现重复 user。

@@ -28,8 +28,8 @@ importers:
         specifier: ^0.34.5
         version: 0.34.5
       '@larksuiteoapi/node-sdk':
-        specifier: ^1.71.1
-        version: 1.72.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+        specifier: ^1.73.3
+        version: 1.73.3(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       '@mtbot/agent-runtime':
         specifier: workspace:*
         version: link:../../packages/agent-runtime
@@ -1308,8 +1308,8 @@ packages:
   '@juggle/resize-observer@3.4.0':
     resolution: {integrity: sha512-dfLbk+PwWvFzSxwk3n5ySL0hfBog779o8h68wK/7/APo/7cgyWp5jcXockbxdk5kFRkbeXWm4Fbi9FrdN381sA==}
 
-  '@larksuiteoapi/node-sdk@1.72.0':
-    resolution: {integrity: sha512-8oKnaTxRFRNPQfeeG69yafdLzWvvrvXlIqX3QRvozR1/6kvZyi9iMhp6lwC+hMgJA/GCFwMZRadkJzlUE+kyvQ==}
+  '@larksuiteoapi/node-sdk@1.73.3':
+    resolution: {integrity: sha512-14Zj8r3f5CEIvpRuzb5HSYyp6O092N1kQkGHg6Kwi/c7B0CmXeCHBVM3Pmn0ozP5JvvAQd/PXBzW48rMH6cj4Q==}
 
   '@malept/cross-spawn-promise@2.0.0':
     resolution: {integrity: sha512-1DpKU0Z5ThltBwjNySMC14g0CkbyhCaz9FkhxqNsZI6uAPJXFS8cMXlBKo26FJ8ZuW6S9GCMcR9IO5k2X5/9Fg==}
@@ -6265,9 +6265,9 @@ snapshots:
 
   '@juggle/resize-observer@3.4.0': {}
 
-  '@larksuiteoapi/node-sdk@1.72.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)':
+  '@larksuiteoapi/node-sdk@1.73.3(bufferutil@4.1.0)(utf-8-validate@6.0.6)':
     dependencies:
-      axios: 1.19.0
+      axios: 1.20.0
       lodash.identity: 3.0.0
       lodash.merge: 4.6.2
       lodash.pickby: 4.6.0

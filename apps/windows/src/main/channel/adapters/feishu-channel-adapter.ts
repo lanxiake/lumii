@@ -34,6 +34,7 @@ import {
   CHANNEL_ACK_TEXT,
   buildChannelErrorMessage,
 } from '../channel-error-helper'
+import { markdownToPlainText } from '../../agent-runtime/cron-notify-format.js'
 
 /**
  * 飞书专用 /new。
@@ -107,9 +108,20 @@ export class FeishuChannelAdapter implements IChannelAdapter {
       log.warn(`[sendTextReply] 缺少 msgId/chatId: channelUserId=${session.channelUserId}`)
       return
     }
-    const ok = await this.feishuLoginService.replyText(msgId, chatId, chatType, text)
+    const ok = await this.feishuLoginService.replyText(msgId, chatId, chatType, markdownToPlainText(text))
     if (!ok) {
       log.error(`[sendTextReply] 回复失败: channelUserId=${session.channelUserId}`)
+    }
+  }
+
+  /**
+   * 向飞书用户发送文件回复（P1.2，复用 LoginService.pushMedia）。
+   */
+  async sendFileReply(session: ChannelSession, filePath: string): Promise<void> {
+    const chatId = session.replyContext?.chatId as string | undefined
+    const res = await this.feishuLoginService.pushMedia(filePath, chatId, undefined)
+    if (!res.ok) {
+      log.error(`[sendFileReply] 失败: ${res.error}`)
     }
   }
 
@@ -168,14 +180,21 @@ export class FeishuChannelAdapter implements IChannelAdapter {
   }
 
   /**
-   * 处理入站文本。
+   * 处理入站文本/媒体。
    */
   private async handleMessage(msg: FeishuNormalizedMessage): Promise<void> {
-    const prompt = msg.text?.trim() ?? ''
-    if (!prompt) return
+    // 拼入站 prompt：文本 / 语音转录 / 媒体附件行，与微信 adapter 同款语义
+    const userText = msg.text?.trim() ?? ''
+    const mediaLine = msg.mediaPath ? `[media attached: ${msg.mediaPath}${msg.fileName ? ` (${msg.fileName})` : ''}]` : ''
+    const parts: string[] = []
+    if (msg.type === 'text' && userText) parts.push(userText)
+    if (msg.type === 'audio' && userText) parts.push(`[语音转录: ${userText}]`)
+    if (mediaLine) parts.push(mediaLine)
+    if (parts.length === 0) return
+    const prompt = parts.join('\n')
 
     const session = this.buildSession(msg)
-    log.info(`[handleMessage] sessionKey=${session.sessionKey} len=${prompt.length}`)
+    log.info(`[handleMessage] sessionKey=${session.sessionKey} type=${msg.type} len=${prompt.length}`)
 
     try {
       this.bridge.ensureConversationExists(session.sessionKey, `飞书 - ${msg.channelUserId}`)
