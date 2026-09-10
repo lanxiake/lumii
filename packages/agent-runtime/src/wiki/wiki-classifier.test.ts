@@ -75,7 +75,7 @@ describe("parseClassifyResponse", () => {
       items,
       LEGACY_TOPIC_TREE_V1,
     );
-    expect(res).toEqual([{ inboxId: "i1", category: "学习资料", subtopic: "课堂&课程笔记" }]);
+    expect(res).toEqual([{ inboxId: "i1", category: "学习资料", subtopic: "课堂&课程笔记", project: null }]);
   });
 
   it("容忍代码围栏与前后说明文字", () => {
@@ -101,6 +101,7 @@ describe("parseClassifyResponse", () => {
         inboxId: "i1",
         category: null,
         subtopic: null,
+        project: null,
         skip: true,
         reason: "像聊天记录",
         degraded: true,

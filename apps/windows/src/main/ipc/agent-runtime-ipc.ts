@@ -146,6 +146,7 @@ import {
   handleWikiReclassifyApply,
   handleWikiReclassifyIgnore,
   handleWikiReclassifyDiscard,
+  handleWikiReclassifyCancel,
   handleWikiMigrateGet,
   handleWikiMigrateApply,
   handleWikiMigrateCancel,
@@ -1044,6 +1045,9 @@ export async function handleCommand(
 
       case 'wiki:reclassify:discard':
         return handleWikiReclassifyDiscard(bridge, command)
+
+      case 'wiki:reclassify:cancel':
+        return handleWikiReclassifyCancel(bridge, command)
 
       case 'wiki:migrate:get':
         return handleWikiMigrateGet(bridge, command)

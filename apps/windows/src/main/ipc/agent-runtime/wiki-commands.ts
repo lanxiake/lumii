@@ -563,6 +563,8 @@ export async function handleWikiSearch(
         category: source.topic_category,
         subtopic: source.topic_subtopic,
         project: source.topic_project,
+        userPath: safeParseJsonArray(source.user_path),
+        tags: safeParseJsonArray(source.tags),
         snippet: hit?.snippet ?? '',
         mediaType: source.media_type,
         sourcePath: source.source_path,
@@ -606,6 +608,9 @@ export function handleWikiSourceGet(
     topicCategory: source.topic_category,
     topicSubtopic: source.topic_subtopic,
     topicProject: source.topic_project,
+    userPath: safeParseJsonArray(source.user_path),
+    tags: safeParseJsonArray(source.tags),
+    description: source.description ?? null,
     createdAt: new Date(source.created_at).getTime(),
   }
 }
@@ -981,6 +986,15 @@ export function handleWikiReclassifyDiscard(
   return { success: true }
 }
 
+/** 请求停止当前 running 的重新编目；非 running 态直接返回现状 */
+export function handleWikiReclassifyCancel(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'wiki:reclassify:cancel' }>,
+): { run: unknown | null } {
+  const run = bridge.wikiReclassifier.cancel(command.agentId, command.userId ?? LOCAL_USER_ID)
+  return { run }
+}
+
 /**
  * 列表 DTO：不读 vault ref、不带正文，避免 800+ 条时逐条磁盘 IO 与巨型 IPC。
  */
@@ -988,6 +1002,8 @@ function mapSourceListItem(
   source: NonNullable<ReturnType<AgentRuntimeBridge['wikiRepo']['findSourceById']>>,
 ) {
   const summary = source.summary ?? null
+  const userPath = source.user_path ? safeParseJsonArray(source.user_path) : null
+  const tags = source.tags ? safeParseJsonArray(source.tags) : null
   return {
     id: source.id,
     title: titleWithOriginalExt(source.title, source.source_path),
@@ -996,11 +1012,25 @@ function mapSourceListItem(
     topicCategory: source.topic_category,
     topicSubtopic: source.topic_subtopic,
     topicProject: source.topic_project,
+    userPath,
+    tags,
+    description: source.description ?? null,
     textLength: summary?.length ?? 0,
     updatedAt: new Date(source.last_used ?? source.created_at).getTime(),
     useCount: source.use_count,
     summary,
     extractedTextPreview: summary ? summary.slice(0, 60) : '',
+  }
+}
+
+/** 解析 JSON 数组字段，损坏时返回 null（不阻断列表渲染） */
+function safeParseJsonArray(raw: string | null): string[] | null {
+  if (!raw) return null
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as string[]) : null
+  } catch {
+    return null
   }
 }
 

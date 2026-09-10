@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 38;
+export const SCHEMA_VERSION = 39;
 
 /**
  * V1 DDL — 初始 schema
@@ -1359,24 +1359,22 @@ CREATE INDEX IF NOT EXISTS idx_syntheses_deleted
   //
   // 设计：保留两级固定分类（大类、小类），用户目录结构作为多级路径，
   // 添加灵活的标签系统。移除 topic_project，用 user_path 替代。
+  //
+  // 幂等说明：ALTER TABLE ADD COLUMN 无 IF NOT EXISTS，重复执行会报「duplicate column」。
+  // 老库可能在 b78d90a 构建（SCHEMA_VERSION 仍是 38）期间已跑过一次 V39 DDL，
+  // 版本号却未记 39；再次升级时 V39 会重放。migrate() 的 isMigrationAlreadyApplied
+  // 对 V39 按「wiki_sources.user_path 列已存在」判定，让重放安全跳过。
   [
     39,
     `
--- 添加用户目录路径（JSON 数组）
 ALTER TABLE wiki_sources ADD COLUMN user_path TEXT;
-
--- 添加标签（JSON 数组）
 ALTER TABLE wiki_sources ADD COLUMN tags TEXT;
-
--- 添加描述（可选）
 ALTER TABLE wiki_sources ADD COLUMN description TEXT;
 
--- 重建索引（移除 topic_project）
 DROP INDEX IF EXISTS idx_wiki_sources_topic;
 CREATE INDEX IF NOT EXISTS idx_wiki_sources_topic
   ON wiki_sources (agent_id, user_id, topic_category, topic_subtopic);
 
--- 新增索引
 CREATE INDEX IF NOT EXISTS idx_wiki_sources_user_path
   ON wiki_sources (user_path);
 

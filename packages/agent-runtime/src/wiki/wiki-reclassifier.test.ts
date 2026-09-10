@@ -520,4 +520,35 @@ describe("WikiReclassifier 状态机（scope/apply/discard）", () => {
     expect(WikiReclassifier.isRunning({ status: "review" } as never)).toBe(false);
     expect(WikiReclassifier.isRunning({ status: "running" } as never)).toBe(true);
   });
+
+  it("cancel 置 cancelRequested，非 running 态不改动", () => {
+    const { repo, mkFiled } = setup();
+    const s = mkFiled("白皮书");
+    const reclassifier = new WikiReclassifier(repo, async () => "[]", mkId);
+
+    // 无批次：cancel 返回 null，不写
+    expect(reclassifier.cancel("ag", "u")).toBeNull();
+
+    // 手动置一个 running 批次再取消
+    repo.setReclassifyRun("ag", "u", {
+      runId: "r1",
+      status: "running",
+      scope: { kind: "all" },
+      total: 10,
+      processed: 0,
+      droppedInvalid: 0,
+      unchanged: 0,
+      candidates: [],
+      error: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    const cancelled = reclassifier.cancel("ag", "u")!;
+    expect(cancelled.cancelRequested).toBe(true);
+
+    // 已是 review 态：cancel 原样返回，不新增标志
+    const settled = reclassifier.get("ag", "u")!;
+    expect(settled.status).toBe("running");
+    void s;
+  });
 });

@@ -7,6 +7,7 @@ import { X } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import { Loading } from '../../../components/ui/Loading/Loading'
 import { FilePreviewModal } from '../../../components/FilePreviewModal/FilePreviewModal'
+import { WikiSourceMeta } from './WikiSourceMeta'
 import type { WikiSourceDetail } from '../../../hooks/business/useWikiPage'
 import { resolveItemSourceUrl, resolvePreviewMode } from './wikiSourcePreview'
 import { openExternalUrl } from '../../../utils/markdown-external-link'
@@ -282,6 +283,17 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
 
           {!loading && !error && (
             <>
+              {(detail?.userPath?.length || detail?.tags?.length || detail?.description) && (
+                <section className="wiki-source-detail-summary" aria-label="分类信息">
+                  <WikiSourceMeta
+                    userPath={detail.userPath}
+                    tags={detail.tags}
+                    description={detail.description}
+                    compact={false}
+                  />
+                </section>
+              )}
+
               {summary && previewMode !== 'web' && (
                 <section className="wiki-source-detail-summary" aria-label="摘要">
                   <h3>摘要</h3>

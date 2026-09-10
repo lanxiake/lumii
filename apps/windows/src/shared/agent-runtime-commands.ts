@@ -646,6 +646,12 @@ export interface WikiReclassifyDiscardCommand {
   readonly userId?: string
 }
 
+export interface WikiReclassifyCancelCommand {
+  readonly type: 'wiki:reclassify:cancel'
+  readonly agentId: string
+  readonly userId?: string
+}
+
 // ---- 库级迁移（文件夹导入 plan→review）----
 
 /** migrate run IPC DTO（与 summarizeMigrateRun 对齐） */
@@ -1626,6 +1632,7 @@ export type AgentRuntimeCommand =
   | WikiReclassifyApplyCommand
   | WikiReclassifyIgnoreCommand
   | WikiReclassifyDiscardCommand
+  | WikiReclassifyCancelCommand
   | WikiMigrateGetCommand
   | WikiMigrateApplyCommand
   | WikiMigrateCancelCommand
@@ -2035,6 +2042,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'wiki:reclassify:apply' ? { applied: number; failed: number }
   : T extends 'wiki:reclassify:ignore' ? { success: true }
   : T extends 'wiki:reclassify:discard' ? { success: true }
+  : T extends 'wiki:reclassify:cancel' ? { run: unknown | null }
   : T extends 'wiki:migrate:get' ? { run: WikiMigrateRunDto | null }
   : T extends 'wiki:migrate:apply' ? { run: WikiMigrateRunDto }
   : T extends 'wiki:migrate:cancel' ? { run: WikiMigrateRunDto | null }

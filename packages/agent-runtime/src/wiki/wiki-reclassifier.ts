@@ -78,6 +78,27 @@ export class WikiReclassifier {
   }
 
   /**
+   * 请求停止当前 running 批次：置 cancelRequested，循环在下一批边界停下。
+   * 非 running 态不写、直接返回现状。
+   */
+  cancel(agentId: string, userId: string): WikiReclassifyRun | null {
+    const run = this.get(agentId, userId);
+    if (!run || run.status !== "running") return run;
+    const updated: WikiReclassifyRun = {
+      ...run,
+      cancelRequested: true,
+      updatedAt: new Date().toISOString(),
+    };
+    this.repo.setReclassifyRun(agentId, userId, updated);
+    return updated;
+  }
+
+  /** 循环内读取消标志（以 repo 为准，支持外部 cancel 调用） */
+  private isCancelRequested(agentId: string, userId: string): boolean {
+    return this.get(agentId, userId)?.cancelRequested === true;
+  }
+
+  /**
    * 启动一批编目：盘点 → 结构轮（分批）→ 内容轮 → 默认自动应用全部候选。
    * 已有 running 一律拒绝；review/failed 需要 force。
    * failed 批次续跑：按 resumeCursor 跳过已完成的批次，已产候选按 sourceId 去重不重复生成。
@@ -150,6 +171,7 @@ export class WikiReclassifier {
       const structureStart = resumeCursor?.pass === "structure" ? resumeCursor.batchIndex : 0;
 
       for (let bi = structureStart; bi < structureBatches.length; bi++) {
+        if (this.isCancelRequested(agentId, userId)) break;
         const batch = structureBatches[bi]!;
         const impression = buildLibraryImpression(inv);
         const raw = await this.callLLM(buildStructurePrompt(tree, impression, batch));
@@ -201,6 +223,7 @@ export class WikiReclassifier {
       const summarizer = new WikiSummarizer(this.repo, this.callLLM);
 
       for (let bi = contentStart; bi < contentBatches.length; bi++) {
+        if (this.isCancelRequested(agentId, userId)) break;
         const batch = contentBatches[bi]!;
         const summaries = new Map<string, string>();
         for (const f of batch) {
@@ -275,14 +298,19 @@ export class WikiReclassifier {
 
     const { resumeCursor: _drop, ...settled } = run;
     const settledCandidates = [...candidates];
+    const wasCancelled = this.isCancelRequested(agentId, userId);
+
+    // 用户请求停止：保留已产出的候选（下次 force 续跑按 sourceId 去重），不自动应用。
+    // 落为 review 让用户仍可审阅/应用已跑出的部分建议；cancelRequested 保留供 UI 显示「已停止」。
     this.repo.setReclassifyRun(agentId, userId, {
       ...settled,
       status: "review",
       candidates: settledCandidates,
+      cancelRequested: wasCancelled,
       updatedAt: new Date().toISOString(),
     });
 
-    if (opts.autoApply === false) {
+    if (opts.autoApply === false || wasCancelled) {
       return runId;
     }
 

@@ -285,13 +285,14 @@ export interface WikiReclassifyCandidateItem {
 
 export interface WikiReclassifyRunItem {
   readonly runId: string
-  readonly status: 'running' | 'review' | 'applying' | 'failed' | 'discarded'
+  readonly status: 'running' | 'review' | 'applying' | 'failed' | 'discarded' | 'cancelled'
   readonly total: number
   readonly processed: number
   readonly droppedInvalid: number
   readonly unchanged: number
   readonly error: string | null
   readonly candidates: readonly WikiReclassifyCandidateItem[]
+  readonly cancelRequested?: boolean
 }
 
 export interface WikiReclassifyEstimateItem {
@@ -330,6 +331,9 @@ export interface WikiSourceSearchHit {
   readonly title: string
   readonly category: string | null
   readonly subtopic: string | null
+  readonly project?: string | null
+  readonly userPath?: string[] | null
+  readonly tags?: string[] | null
   readonly snippet: string
   readonly mediaType: string
   readonly sourcePath: string | null
@@ -900,6 +904,17 @@ export function useWikiPage() {
     }
   }, [])
 
+  const cancelReclassify = useCallback(async (): Promise<boolean> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) return false
+    try {
+      await api.sendCommand({ type: 'wiki:reclassify:cancel', agentId: DEFAULT_AGENT_ID })
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
   const listSources = useCallback(
     async (filter?: {
       category?: string
@@ -1262,6 +1277,7 @@ export function useWikiPage() {
     applyReclassify,
     ignoreReclassify,
     discardReclassify,
+    cancelReclassify,
     listSources,
     loadSourceCounts,
     updateSourceTopic,

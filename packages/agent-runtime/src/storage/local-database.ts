@@ -715,6 +715,8 @@ export class LocalDatabase {
           return hasColumn("conversations", "is_pinned");
         case 12:
           return hasColumn("messages", "compacted_at");
+        case 39:
+          return hasColumn("wiki_sources", "user_path");
         default:
           return false;
       }

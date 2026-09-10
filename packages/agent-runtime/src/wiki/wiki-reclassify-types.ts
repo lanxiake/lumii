@@ -10,7 +10,7 @@
 /** wiki_index_meta 中存放重编目批次的键前缀（实际键含 agentId/userId） */
 export const RECLASSIFY_RUN_META_KEY = "reclassify_run";
 
-export type WikiReclassifyStatus = "running" | "review" | "applying" | "failed" | "discarded";
+export type WikiReclassifyStatus = "running" | "review" | "applying" | "failed" | "discarded" | "cancelled";
 
 export type WikiReclassifyScope =
   | { readonly kind: "source"; readonly sourceId: string }
@@ -50,6 +50,8 @@ export interface WikiReclassifyRun {
   readonly error: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /** 用户请求停止：结构轮/内容轮循环检查此标志，尽快停在下一批边界 */
+  readonly cancelRequested?: boolean;
   /** 断点续跑游标：run 中途失败时记录当前进行到哪一轮哪一批，续跑时跳过已完成的批次 */
   readonly resumeCursor?: { readonly pass: "structure" | "content"; readonly batchIndex: number };
 }

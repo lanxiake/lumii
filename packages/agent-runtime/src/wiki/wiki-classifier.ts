@@ -21,6 +21,12 @@ export interface ClassifiedItem {
   readonly category: string | null;
   readonly subtopic: string | null;
   readonly project: string | null;
+  /** 多级用户目录路径（来自源目录结构，尽量原样保留） */
+  readonly userPath?: string[] | null;
+  /** 标签（内容主题/类型关键词） */
+  readonly tags?: string[] | null;
+  /** 一句话描述 */
+  readonly description?: string | null;
   /** 模型主动判定无法归类 */
   readonly skip?: boolean;
   /** skip 原因（模型给出） */
@@ -78,8 +84,10 @@ export function buildClassifyPrompt(
     list,
     "",
     "## 输出",
-    '仅 JSON 数组: {"id":"<inboxId>","category":"<大类或空>","subtopic":"<小类或空>","project":"<项目名或空>","skip":false,"reason":""}',
+    '仅 JSON 数组: {"id":"<inboxId>","category":"<大类或空>","subtopic":"<小类或空>","project":"<项目名或空>","userPath":["<目录段…>"],"tags":["<标签…>"],"description":"<一句话描述>","skip":false,"reason":""}',
     "项目名（project）是可选的第三级分类，用于归档同一主题/课程的多个文件（如「二十四史学习规划」「Lumii使用指南」）。",
+    "userPath 是该文件在用户 outputs/ 目录里的相对路径段（不含文件名），尽量原样保留用户的目录结构语义，无法确定时留空数组 []。",
+    "tags 是 3-5 个描述内容主题与类型的关键词，不要简单照抄目录名；description 一句话说明这批资料的用途。",
     "同一文件夹下的文件通常属于同一项目，可填相同的 project 值；无法确定项目时留空。",
     "仅输出 JSON，不要包含其他文字。",
   );
@@ -226,6 +234,12 @@ export function parseClassifyResponse(
     const project = typeof record.project === "string" && record.project ? record.project : null;
     const valid = category !== null && validateTopicAssignment(topicTree, category, subtopic).ok;
 
+    // userPath / tags：模型可能漏答、给错类型或给空数组，统一归一化，避免脏值写入数据库
+    const userPath = normalizeStringArray(record.userPath);
+    const tags = normalizeStringArray(record.tags);
+    const description =
+      typeof record.description === "string" && record.description.trim() ? record.description.trim() : null;
+
     if (!valid) {
       results.push({
         inboxId: item.id,
@@ -238,7 +252,15 @@ export function parseClassifyResponse(
       continue;
     }
 
-    results.push({ inboxId: item.id, category, subtopic, project });
+    results.push({
+      inboxId: item.id,
+      category,
+      subtopic,
+      project,
+      ...(userPath ? { userPath } : {}),
+      ...(tags ? { tags } : {}),
+      ...(description ? { description } : {}),
+    });
   }
 
   // 模型漏答的条目同样不能丢：标记待整理，不臆造分类
@@ -266,6 +288,16 @@ function fallbackAll(items: readonly WikiInboxItem[], reason: string): readonly 
     degraded: true as const,
     degradeReason: reason,
   }));
+}
+
+/** 归一化模型返回的字符串数组字段：非数组或元素非字符串 → null；过滤空串 */
+function normalizeStringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const items = value
+    .filter((v): v is string => typeof v === "string")
+    .map((v) => v.trim())
+    .filter(Boolean);
+  return items.length > 0 ? items : null;
 }
 
 /**

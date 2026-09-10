@@ -115,6 +115,13 @@ export class BridgeContextCompactor {
     const context: import('@mariozechner/pi-ai').Context = {
       messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
     }
+    // 单次后台 LLM 调用（分类/摘要/整理）也落一份输入输出到日志文件，供 LLM 服务器侧对照排错。
+    // 对话走的是 instance stream（bridge-instance-factory 的审计落库），这条旁路不重复进审计，
+    // 只写文件，避免与安全日志面板混淆。
+    log.info(
+      `[callLLM] purpose=${purpose} model=${model.id} promptLen=${prompt.length} prompt=${JSON.stringify(prompt)}`,
+    )
+    const startedAt = Date.now()
     const streamResult = await innerStream(model, context, { purpose } as Parameters<InnerStreamRef>[2])
     let text = ''
     for await (const event of streamResult) {
@@ -122,6 +129,9 @@ export class BridgeContextCompactor {
         text += event.delta
       }
     }
+    log.info(
+      `[callLLM] purpose=${purpose} done duration=${Date.now() - startedAt}ms outputLen=${text.length} output=${JSON.stringify(text)}`,
+    )
     return text.trim()
   }
 

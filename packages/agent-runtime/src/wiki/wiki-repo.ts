@@ -941,6 +941,7 @@ export class WikiRepo {
                 NULL AS content_md, content_hash, mime_type, media_type,
                 NULL AS extracted_text, media_meta, preview_path, origin_context,
                 archived_at, created_at, topic_category, topic_subtopic,
+                topic_project, user_path, tags, description,
                 last_used, use_count, origin_url, storage_mode, legacy_subtopic,
                 title_locked, summary, summary_hash, summary_level
          FROM wiki_sources
@@ -1044,6 +1045,7 @@ export class WikiRepo {
     if (info.changes === 0) throw new Error(`资料不存在: ${sourceId}`);
     const source = this.findSourceById(sourceId);
     if (!source) throw new Error(`资料不存在: ${sourceId}`);
+    this.indexSource(sourceId);
     return source;
   }
 
@@ -1073,6 +1075,7 @@ export class WikiRepo {
     if (info.changes === 0) throw new Error(`资料不存在: ${sourceId}`);
     const source = this.findSourceById(sourceId);
     if (!source) throw new Error(`资料不存在: ${sourceId}`);
+    this.indexSource(sourceId);
     return source;
   }
 
@@ -1345,12 +1348,12 @@ export class WikiRepo {
   /** 把一条资料写入/覆盖资料层 FTS 索引；供归档流水线调用，避免 organizer 直接碰 db */
   indexSource(sourceId: string): void {
     const row = this.db
-      .prepare<{ rowid: number; title: string; extracted_text: string | null }>(
-        "SELECT rowid, title, extracted_text FROM wiki_sources WHERE id = ?",
+      .prepare<{ rowid: number; title: string; extracted_text: string | null; tags: string | null; description: string | null }>(
+        "SELECT rowid, title, extracted_text, tags, description FROM wiki_sources WHERE id = ?",
       )
       .get(sourceId);
     if (!row) return;
-    this.indexRepo.upsertSourceRow(row.rowid, row.title, row.extracted_text);
+    this.indexRepo.upsertSourceRow(row.rowid, row.title, row.extracted_text, row.tags, row.description);
   }
 
   /** 归档资料条目：置 archived_at，返回实际改动行数 */

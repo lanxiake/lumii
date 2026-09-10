@@ -19,15 +19,33 @@ export function wikiBigramJoin(text: string | null | undefined): string {
   return [...tokenizeBigram(text)].join(" ");
 }
 
+/**
+ * 把标签/描述一并并入检索语料：标签 JSON 里的 `[` `"` `,` 会被 bigram 分词器当成
+ * 非词字符忽略，直接拼接即可命中（如 tag「Lumii」→ "lumii"，「教程」→ "教程"）。
+ */
+export function wikiContentTokens(
+  extractedText: string | null | undefined,
+  tags: string | null | undefined,
+  description: string | null | undefined,
+): string {
+  return wikiBigramJoin([extractedText, tags, description].filter(Boolean).join(" "));
+}
+
 export class WikiIndexRepo {
   constructor(private readonly db: DatabaseAdapter) {}
 
   /** 写入/覆盖一条资料索引行（先删后插） */
-  upsertSourceRow(rowid: number | bigint, title: string, extractedText: string | null): void {
+  upsertSourceRow(
+    rowid: number | bigint,
+    title: string,
+    extractedText: string | null,
+    tags?: string | null,
+    description?: string | null,
+  ): void {
     this.db.prepare("DELETE FROM wiki_sources_fts WHERE rowid = ?").run(rowid);
     this.db
       .prepare("INSERT INTO wiki_sources_fts (rowid, title_tokens, content_tokens) VALUES (?, ?, ?)")
-      .run(rowid, wikiBigramJoin(title), wikiBigramJoin(extractedText));
+      .run(rowid, wikiBigramJoin(title), wikiContentTokens(extractedText, tags, description));
   }
 
   /** 删除单条资料索引行 */
@@ -42,15 +60,19 @@ export class WikiIndexRepo {
   rebuildSourceFts(): number {
     this.db.exec("DELETE FROM wiki_sources_fts");
     const rows = this.db
-      .prepare<{ rowid: number; title: string; extracted_text: string | null }>(
-        "SELECT rowid, title, extracted_text FROM wiki_sources",
+      .prepare<{ rowid: number; title: string; extracted_text: string | null; tags: string | null; description: string | null }>(
+        "SELECT rowid, title, extracted_text, tags, description FROM wiki_sources",
       )
       .all();
     const insert = this.db.prepare(
       "INSERT INTO wiki_sources_fts (rowid, title_tokens, content_tokens) VALUES (?, ?, ?)",
     );
     for (const row of rows) {
-      insert.run(row.rowid, wikiBigramJoin(row.title), wikiBigramJoin(row.extracted_text));
+      insert.run(
+        row.rowid,
+        wikiBigramJoin(row.title),
+        wikiContentTokens(row.extracted_text, row.tags, row.description),
+      );
     }
     return rows.length;
   }

@@ -128,6 +128,7 @@ export const WikiTab: React.FC = () => {
     applyReclassify,
     ignoreReclassify,
     discardReclassify,
+    cancelReclassify,
     listSources,
     loadSourceCounts,
     updateSourceTopic,
@@ -797,12 +798,20 @@ export const WikiTab: React.FC = () => {
         setReclassifyRun(await getReclassifyRun())
         return
       }
+      // 把停止回调挂到任务中心，运行中的任务才显示「停止」按钮
+      taskCenter.updateTask(taskId, {
+        onCancel: async () => {
+          await cancelReclassify()
+        },
+      })
       for (;;) {
         const run = await getReclassifyRun()
         setReclassifyRun(run)
         if (!run || run.status !== 'running') {
           if (run?.status === 'failed') {
             taskCenter.failTask(taskId, run.error ?? '重新编目失败')
+          } else if (run?.cancelRequested) {
+            taskCenter.completeTask(taskId, { detail: '已停止' })
           } else {
             const pending = run?.candidates.filter((c) => c.applyError).length ?? 0
             taskCenter.completeTask(taskId, {
@@ -816,10 +825,16 @@ export const WikiTab: React.FC = () => {
           }
           return
         }
+        const total = run.total ?? 0
+        const processed = run.processed ?? 0
+        taskCenter.updateTask(taskId, {
+          progress: total > 0 ? { done: Math.min(processed, total), total } : undefined,
+          detail: total > 0 ? `正在分析文件目录 ${processed}/${total}` : '正在分析文件目录',
+        })
         await new Promise((resolve) => window.setTimeout(resolve, 400))
       }
     },
-    [runReclassify, getReclassifyRun, refreshSources, taskCenter],
+    [runReclassify, getReclassifyRun, cancelReclassify, refreshSources, taskCenter],
   )
 
   const handleApplyReclassify = useCallback(
@@ -1326,6 +1341,9 @@ export const WikiTab: React.FC = () => {
         topicCategory: hit.category,
         topicSubtopic: hit.subtopic,
         topicProject: null,
+        userPath: hit.userPath ?? null,
+        tags: hit.tags ?? null,
+        description: null,
         textLength: 0,
         updatedAt: hit.updatedAt,
         useCount: 0,
