@@ -1946,6 +1946,9 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
         title: string
         category: string | null
         subtopic: string | null
+        project?: string | null
+        userPath?: string[] | null
+        tags?: string[] | null
         snippet: string
         mediaType: string
         sourcePath: string | null
@@ -1965,6 +1968,9 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
       originContext: string | null
       topicCategory: string | null
       topicSubtopic: string | null
+      userPath?: string[] | null
+      tags?: string[] | null
+      description?: string | null
       createdAt: number
     } | null
   : T extends 'wiki:runs:list' ? readonly {
@@ -2032,6 +2038,9 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
           toSubtopic: string | null
           reason: string
           decidedBy: 'structure' | 'content'
+          userPath?: string[] | null
+          tags?: string[] | null
+          description?: string | null
           renameTitle?: string
           applyError?: string
         }[]
@@ -2058,6 +2067,9 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
         mediaType: string
         topicCategory: string | null
         topicSubtopic: string | null
+        userPath?: string[] | null
+        tags?: string[] | null
+        description?: string | null
         updatedAt: number
         useCount: number
       }[]

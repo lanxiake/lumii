@@ -1348,12 +1348,12 @@ export class WikiRepo {
   /** 把一条资料写入/覆盖资料层 FTS 索引；供归档流水线调用，避免 organizer 直接碰 db */
   indexSource(sourceId: string): void {
     const row = this.db
-      .prepare<{ rowid: number; title: string; extracted_text: string | null; tags: string | null; description: string | null }>(
-        "SELECT rowid, title, extracted_text, tags, description FROM wiki_sources WHERE id = ?",
+      .prepare<{ rowid: number; title: string; extracted_text: string | null; user_path: string | null; tags: string | null; description: string | null }>(
+        "SELECT rowid, title, extracted_text, user_path, tags, description FROM wiki_sources WHERE id = ?",
       )
       .get(sourceId);
     if (!row) return;
-    this.indexRepo.upsertSourceRow(row.rowid, row.title, row.extracted_text, row.tags, row.description);
+    this.indexRepo.upsertSourceRow(row.rowid, row.title, row.extracted_text, row.user_path, row.tags, row.description);
   }
 
   /** 归档资料条目：置 archived_at，返回实际改动行数 */

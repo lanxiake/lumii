@@ -44,6 +44,12 @@ export interface MigrateFolderMapping {
   readonly approvedProposedSubtopic?: boolean;
   readonly ignored?: boolean;
   readonly status: "ok" | "conflict" | "needContent";
+  /** 多级用户目录路径（源目录结构，由 folderRel 派生，确定性，不靠 LLM） */
+  readonly userPath?: string[] | null;
+  /** 标签（内容主题/类型关键词，LLM 返回） */
+  readonly tags?: string[] | null;
+  /** 一句话描述（LLM 返回） */
+  readonly description?: string | null;
   readonly exceptions?: readonly {
     readonly inboxId: string;
     readonly category: string | null;

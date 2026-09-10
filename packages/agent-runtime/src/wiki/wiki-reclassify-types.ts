@@ -28,6 +28,12 @@ export interface WikiReclassifyCandidate {
   readonly toCategory: string;
   /** null = 只定大类，不细分 */
   readonly toSubtopic: string | null;
+  /** 多级用户目录路径（源目录结构，尽量原样保留） */
+  readonly userPath?: string[] | null;
+  /** 标签（内容主题/类型关键词） */
+  readonly tags?: string[] | null;
+  /** 一句话描述 */
+  readonly description?: string | null;
   readonly reason: string;
   /** 结构轮（不带正文）还是内容轮（补了摘要）判定的（P5 §5.1-§5.2） */
   readonly decidedBy: "structure" | "content";

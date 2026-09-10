@@ -25,10 +25,11 @@ export function wikiBigramJoin(text: string | null | undefined): string {
  */
 export function wikiContentTokens(
   extractedText: string | null | undefined,
+  userPath: string | null | undefined,
   tags: string | null | undefined,
   description: string | null | undefined,
 ): string {
-  return wikiBigramJoin([extractedText, tags, description].filter(Boolean).join(" "));
+  return wikiBigramJoin([extractedText, userPath, tags, description].filter(Boolean).join(" "));
 }
 
 export class WikiIndexRepo {
@@ -39,13 +40,14 @@ export class WikiIndexRepo {
     rowid: number | bigint,
     title: string,
     extractedText: string | null,
+    userPath?: string | null,
     tags?: string | null,
     description?: string | null,
   ): void {
     this.db.prepare("DELETE FROM wiki_sources_fts WHERE rowid = ?").run(rowid);
     this.db
       .prepare("INSERT INTO wiki_sources_fts (rowid, title_tokens, content_tokens) VALUES (?, ?, ?)")
-      .run(rowid, wikiBigramJoin(title), wikiContentTokens(extractedText, tags, description));
+      .run(rowid, wikiBigramJoin(title), wikiContentTokens(extractedText, userPath, tags, description));
   }
 
   /** 删除单条资料索引行 */
@@ -60,8 +62,8 @@ export class WikiIndexRepo {
   rebuildSourceFts(): number {
     this.db.exec("DELETE FROM wiki_sources_fts");
     const rows = this.db
-      .prepare<{ rowid: number; title: string; extracted_text: string | null; tags: string | null; description: string | null }>(
-        "SELECT rowid, title, extracted_text, tags, description FROM wiki_sources",
+      .prepare<{ rowid: number; title: string; extracted_text: string | null; user_path: string | null; tags: string | null; description: string | null }>(
+        "SELECT rowid, title, extracted_text, user_path, tags, description FROM wiki_sources",
       )
       .all();
     const insert = this.db.prepare(
@@ -71,7 +73,7 @@ export class WikiIndexRepo {
       insert.run(
         row.rowid,
         wikiBigramJoin(row.title),
-        wikiContentTokens(row.extracted_text, row.tags, row.description),
+        wikiContentTokens(row.extracted_text, row.user_path, row.tags, row.description),
       );
     }
     return rows.length;

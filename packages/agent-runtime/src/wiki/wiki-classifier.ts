@@ -291,7 +291,7 @@ function fallbackAll(items: readonly WikiInboxItem[], reason: string): readonly 
 }
 
 /** 归一化模型返回的字符串数组字段：非数组或元素非字符串 → null；过滤空串 */
-function normalizeStringArray(value: unknown): string[] | null {
+export function normalizeStringArray(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
   const items = value
     .filter((v): v is string => typeof v === "string")

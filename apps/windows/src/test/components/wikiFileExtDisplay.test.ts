@@ -26,6 +26,12 @@ describe('resolveWikiFileExt', () => {
     expect(resolveWikiFileExt('.gitignore', '.gitignore')).toBeNull()
     expect(resolveWikiFileExt(null, '')).toBeNull()
   })
+
+  it('.lumii-ref 侧车不当作后缀，剥掉后无后缀则回退 title 的真实后缀', () => {
+    expect(resolveWikiFileExt('wiki/收藏/可复用/拍照姿势21.lumii-ref', '拍照姿势21.mp4')).toBe('mp4')
+    // url ref 剥掉 .url.lumii-ref 后无真实文件后缀，回退 title 也无后缀 → null
+    expect(resolveWikiFileExt('wiki/收藏/链接示例.url.lumii-ref', '链接示例')).toBeNull()
+  })
 })
 
 describe('shouldShowWikiExtBadge', () => {

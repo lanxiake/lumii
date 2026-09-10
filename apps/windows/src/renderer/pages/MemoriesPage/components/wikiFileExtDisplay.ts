@@ -98,13 +98,17 @@ export function wikiFileExtBadgeColor(ext: string): string {
 
 /**
  * 从 basename 提取扩展名；忽略以点开头的隐藏名（无扩展名）。
+ * 先剥掉 vault 侧车后缀（.lumii-ref / .url.lumii-ref）——它们是引用指针不是真正的文件后缀，
+ * 否则列表里每个 ref 文件都会错误地展示成同一个「LUMII-REF」徽章（与 wiki-display-title 的
+ * originalFileExtension 口径一致）。
  */
 function extractExt(input: string): string | null {
   const normalized = input.replace(/\\/g, '/').trim()
   if (!normalized) return null
   const base = normalized.includes('/') ? normalized.slice(normalized.lastIndexOf('/') + 1) : normalized
   if (!base || base.startsWith('.')) return null
-  const dot = base.lastIndexOf('.')
-  if (dot <= 0 || dot === base.length - 1) return null
-  return base.slice(dot + 1).toLowerCase()
+  const stripped = base.replace(/\.(url\.)?lumii-ref$/i, '')
+  const dot = stripped.lastIndexOf('.')
+  if (dot <= 0 || dot === stripped.length - 1) return null
+  return stripped.slice(dot + 1).toLowerCase()
 }

@@ -279,6 +279,9 @@ export interface WikiReclassifyCandidateItem {
   readonly toSubtopic: string | null
   readonly reason: string
   readonly decidedBy: 'structure' | 'content'
+  readonly userPath?: string[] | null
+  readonly tags?: string[] | null
+  readonly description?: string | null
   readonly renameTitle?: string
   readonly applyError?: string
 }

@@ -5,7 +5,6 @@ import type { WikiSourceListItem } from '../../../hooks/business/useWikiPage'
 import { formatRelativeTime } from './wikiStatusLabels'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 import { formatTopicDisplay, UNFILED_SUBTOPIC_LABEL } from './wikiTopicDisplay'
-import { WikiSourceMeta } from './WikiSourceMeta'
 import {
   formatWikiExtBadgeLabel,
   resolveWikiFileExt,
@@ -13,6 +12,11 @@ import {
   wikiFileExtBadgeColor,
   wikiMediaTypeIconColor,
 } from './wikiFileExtDisplay'
+
+/** 路径前缀分隔符，与面包屑风格一致 */
+function joinPathPrefix(userPath: readonly string[]): string {
+  return userPath.join(' / ')
+}
 
 /** 芯片粒度和 media_type 不是一对一：音视频一个芯片覆盖 audio + video 两种类型 */
 export type WikiMediaChip = 'all' | 'document' | 'image' | 'av'
@@ -101,10 +105,15 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
   const [chip, setChip] = useState<WikiMediaChip>('all')
   const [visibleCount, setVisibleCount] = useState(WIKI_FILE_LIST_PAGE)
   const sentinelRef = useRef<HTMLLIElement | null>(null)
-  const visible = useMemo(
-    () => (showMediaChips ? items.filter((item) => matchesChip(item.mediaType, chip)) : items),
-    [items, chip, showMediaChips],
-  )
+  const visible = useMemo(() => {
+    const filtered = showMediaChips ? items.filter((item) => matchesChip(item.mediaType, chip)) : items
+    // 按 user_path 目录聚簇排序；同目录内保持后端返回顺序（created_at DESC），不重排
+    return [...filtered].sort((a, b) => {
+      const pa = (a.userPath ?? []).join('/')
+      const pb = (b.userPath ?? []).join('/')
+      return pa.localeCompare(pb)
+    })
+  }, [items, chip, showMediaChips])
 
   // 切换大类或文档类型筛选时，回到默认渲染条数
   useEffect(() => {
@@ -204,42 +213,53 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                 <Icon size={15} className="wiki-file-list-icon" style={{ color: iconColor }} aria-hidden />
                 <div className="wiki-file-list-main">
                   <div className="wiki-file-list-title-row">
-                    <div className="wiki-file-list-title-cluster">
-                      {showSubtopicPrefix && (
-                        <span className="wiki-file-list-subtopic-prefix">
-                          {item.topicSubtopic ?? UNFILED_SUBTOPIC_LABEL}
+                    {/* 用户路径前缀 */}
+                    {item.userPath?.length ? (
+                      <span className="wiki-file-list-path-prefix" title={joinPathPrefix(item.userPath)}>
+                        {joinPathPrefix(item.userPath)}/
+                      </span>
+                    ) : null}
+                    {showSubtopicPrefix && (
+                      <span className="wiki-file-list-subtopic-prefix">
+                        {item.topicSubtopic ?? UNFILED_SUBTOPIC_LABEL}
+                      </span>
+                    )}
+                    {summary ? (
+                      <Tooltip
+                        content={<div className="wiki-file-list-summary-tooltip-content">{summary}</div>}
+                        placement="bottom"
+                        className="wiki-file-list-summary-tooltip wiki-tooltip-below"
+                      >
+                        {titleButton}
+                      </Tooltip>
+                    ) : (
+                      titleButton
+                    )}
+                    {showExtBadge && ext ? (
+                      <span
+                        className="wiki-file-list-ext-badge"
+                        style={{ color: wikiFileExtBadgeColor(ext) }}
+                        title={`.${ext}`}
+                      >
+                        {formatWikiExtBadgeLabel(ext)}
+                      </span>
+                    ) : null}
+                    {/* 标签（行内，超长省略 + 悬浮查全） */}
+                    {item.tags?.length ? (
+                      <Tooltip
+                        content={<span>{item.tags.join('、')}</span>}
+                        placement="bottom"
+                        className="wiki-tooltip-below"
+                      >
+                        <span className="wiki-file-list-tags-inline">
+                          {item.tags.map((tag, i) => (
+                            <span key={i} className="wiki-file-list-tag-chip">{tag}</span>
+                          ))}
                         </span>
-                      )}
-                      {summary ? (
-                        <Tooltip
-                          content={<div className="wiki-file-list-summary-tooltip-content">{summary}</div>}
-                          placement="bottom"
-                          className="wiki-file-list-summary-tooltip wiki-tooltip-below"
-                        >
-                          {titleButton}
-                        </Tooltip>
-                      ) : (
-                        titleButton
-                      )}
-                      {showExtBadge && ext ? (
-                        <span
-                          className="wiki-file-list-ext-badge"
-                          style={{ color: wikiFileExtBadgeColor(ext) }}
-                          title={`.${ext}`}
-                        >
-                          {formatWikiExtBadgeLabel(ext)}
-                        </span>
-                      ) : null}
-                      {showTopic && <span className="wiki-file-list-topic">{topic}</span>}
-                      <span className="wiki-file-list-time">{formatRelativeTime(item.updatedAt)}</span>
-                    </div>
-                    {/* 显示用户路径、标签和描述 */}
-                    <WikiSourceMeta
-                      userPath={item.userPath}
-                      tags={item.tags}
-                      description={item.description}
-                      compact={true}
-                    />
+                      </Tooltip>
+                    ) : null}
+                    {showTopic && <span className="wiki-file-list-topic">{topic}</span>}
+                    <span className="wiki-file-list-time">{formatRelativeTime(item.updatedAt)}</span>
                   </div>
                 </div>
                 <div className="wiki-file-list-actions">

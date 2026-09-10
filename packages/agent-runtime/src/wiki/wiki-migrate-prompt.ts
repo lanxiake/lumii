@@ -7,7 +7,7 @@
  * 设计：docs/design/记忆设计/2026-09-05-wiki-library-migrate-design.md §3.2
  */
 
-import { extractJsonPayload } from "./wiki-classifier.js";
+import { extractJsonPayload, normalizeStringArray } from "./wiki-classifier.js";
 import type { MigrateFolderCluster, MigrateInventory } from "./wiki-migrate-inventory.js";
 import type { MigrateFolderMapping } from "./wiki-migrate-types.js";
 import { buildTaxonomyGuide } from "./wiki-taxonomy-prompt.js";
@@ -57,9 +57,10 @@ export function buildMigratePlanPrompt(
     "- 路径语义明显不足、需要读正文才能判断的，输出 needContent: true（尽量少用）",
     `- confidence < ${MIGRATE_CONFIDENCE_THRESHOLD} 或无法确定大类 → category 留 null（服务端标 conflict）`,
     "- exceptions 仅用于簇内极少数例外文件，需强 reason；默认不要用",
+    "- tags 是 3-5 个描述该文件夹内容主题/类型的关键词，description 一句话说明用途（不要简单照抄目录名）",
     "",
     "## 输出 JSON",
-    '[{"folderRel":"proj","category":"工作","subtopic":"项目","confidence":0.9,"reason":"同项目资料","proposedSubtopic":"可选新小类名","needContent":false,"exceptions":[]}]',
+    '[{"folderRel":"proj","category":"工作","subtopic":"项目","confidence":0.9,"reason":"同项目资料","proposedSubtopic":"可选新小类名","tags":["..."],"description":"...","needContent":false,"exceptions":[]}]',
     "仅输出 JSON 数组，不要包含其他文字。",
   ].join("\n");
 }
@@ -106,6 +107,11 @@ function normalizeMapping(
     typeof record.proposedSubtopic === "string" && record.proposedSubtopic.trim()
       ? record.proposedSubtopic.trim()
       : undefined;
+  // 用户路径由 folderRel 确定性派生（同一文件夹 → 同一路径），不依赖 LLM 返回。
+  const userPath = folderRel ? folderRel.split("/").filter(Boolean) : null;
+  const tags = normalizeStringArray(record.tags);
+  const description =
+    typeof record.description === "string" && record.description.trim() ? record.description.trim() : null;
 
   const rawCategory = typeof record.category === "string" && record.category ? record.category : null;
   const rawSubtopic = typeof record.subtopic === "string" && record.subtopic ? record.subtopic : null;
@@ -156,6 +162,9 @@ function normalizeMapping(
     status: "ok",
     exceptions: exceptions.length > 0 ? exceptions : undefined,
     inboxIds,
+    ...(userPath ? { userPath } : {}),
+    ...(tags ? { tags } : {}),
+    ...(description ? { description } : {}),
   };
 }
 

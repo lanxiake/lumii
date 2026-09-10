@@ -374,7 +374,11 @@ export class WikiLibraryMigrate {
       if (entry.category === null) continue;
 
       try {
-        const source = this.repo.archiveInboxItem(item, entry.category, entry.subtopic);
+        const source = this.repo.archiveInboxItem(item, entry.category, entry.subtopic, undefined, undefined, {
+          userPath: entry.userPath ?? null,
+          tags: entry.tags ?? null,
+          description: entry.description ?? null,
+        });
         this.hooks?.onSourceCreated?.(source);
         appliedSourceIds.push(source.id);
         appliedInboxIds.push(item.id);
@@ -627,8 +631,15 @@ export class WikiLibraryMigrate {
   /** 从可执行映射展开 inbox 归档队列（跳过 ignored / conflict / needContent） */
   private buildApplyQueue(
     mappings: readonly MigrateFolderMapping[],
-  ): { readonly inboxId: string; readonly category: string | null; readonly subtopic: string | null }[] {
-    const queue: { inboxId: string; category: string | null; subtopic: string | null }[] = [];
+  ): {
+    readonly inboxId: string;
+    readonly category: string | null;
+    readonly subtopic: string | null;
+    readonly userPath?: string[] | null;
+    readonly tags?: string[] | null;
+    readonly description?: string | null;
+  }[] {
+    const queue: { inboxId: string; category: string | null; subtopic: string | null; userPath?: string[] | null; tags?: string[] | null; description?: string | null }[] = [];
 
     for (const mapping of mappings) {
       if (mapping.ignored || mapping.status === "conflict" || mapping.status === "needContent") {
@@ -647,6 +658,9 @@ export class WikiLibraryMigrate {
             inboxId,
             category: mapping.category,
             subtopic: mapping.subtopic,
+            userPath: mapping.userPath ?? null,
+            tags: mapping.tags ?? null,
+            description: mapping.description ?? null,
           });
         }
       }

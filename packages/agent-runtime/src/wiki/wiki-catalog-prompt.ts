@@ -7,7 +7,7 @@
  * 设计：docs/plans/记忆重构/2026-08-31-wiki-intelligent-vault-p5-cataloging.md Task 2
  */
 
-import { extractJsonPayload } from "./wiki-classifier.js";
+import { extractJsonPayload, normalizeStringArray } from "./wiki-classifier.js";
 import { buildTaxonomyGuide } from "./wiki-taxonomy-prompt.js";
 import { validateTopicAssignment, type WikiTopicTree } from "./wiki-topic-tree.js";
 import type { LibraryInventory, InventoryFileRow } from "./wiki-library-inventory.js";
@@ -78,9 +78,10 @@ export function buildStructurePrompt(
     "- 文件夹路径往往已经表达了用户的意图，优先采信",
     "- 光看文件名和路径判不了的，输出 needContent: true，不要硬猜",
     "- 无正文的图片/音视频：靠路径语义 + 同目录已定分类判断；判不了就 needContent（但它没有正文可读，等价于留收件箱并说明原因）",
+    "- 每条输出 userPath（该文件在源目录里的相对路径段，不含文件名，保留用户的目录语义，无法确定留空数组）、tags（3-5 个内容主题/类型关键词）、description（一句话说明用途）",
     "",
     "## 输出 JSON",
-    '{"items":[{"id":"...","category":"工作","subtopic":"例行","confidence":0.9,"reason":"..."},{"id":"...","needContent":true,"reason":"..."}]}',
+    '{"items":[{"id":"...","category":"工作","subtopic":"例行","confidence":0.9,"reason":"...","userPath":["..."],"tags":["..."],"description":"..."},{"id":"...","needContent":true,"reason":"..."}]}',
     "仅输出 JSON，不要包含其他文字。",
   ].join("\n");
 }
@@ -129,11 +130,12 @@ export function buildContentPrompt(
     "## 本批规则",
     "- 优先把同一文件夹下的文件归到同一处",
     "- 结合摘要与路径综合判断；仍拿不准就只给大类、留空小类，而不是继续 needContent",
+    "- 每条输出 userPath（该文件在源目录里的相对路径段，不含文件名，保留用户的目录语义，无法确定留空数组）、tags（3-5 个内容主题/类型关键词）、description（一句话说明用途）",
     "",
     "## 输出 JSON",
     opts?.enableRename
-      ? '{"items":[{"id":"...","category":"工作","subtopic":"例行","confidence":0.9,"reason":"...","renameTitle":"更有信息量的标题"}]}'
-      : '{"items":[{"id":"...","category":"工作","subtopic":"例行","confidence":0.9,"reason":"..."}]}',
+      ? '{"items":[{"id":"...","category":"工作","subtopic":"例行","confidence":0.9,"reason":"...","userPath":["..."],"tags":["..."],"description":"...","renameTitle":"更有信息量的标题"}]}'
+      : '{"items":[{"id":"...","category":"工作","subtopic":"例行","confidence":0.9,"reason":"...","userPath":["..."],"tags":["..."],"description":"..."}]}',
     "仅输出 JSON，不要包含其他文字。",
   ].join("\n");
 }
@@ -145,6 +147,12 @@ export interface StructureDecision {
   readonly confidence: number;
   readonly reason: string;
   readonly needContent: boolean;
+  /** 多级用户目录路径（源目录结构，尽量原样保留） */
+  readonly userPath?: string[] | null;
+  /** 标签（内容主题/类型关键词） */
+  readonly tags?: string[] | null;
+  /** 一句话描述 */
+  readonly description?: string | null;
   /** 内容轮 enableRename=true 时可能给出的改名提案；服务端校验前的原始值 */
   readonly renameTitle?: string;
 }
@@ -199,6 +207,10 @@ export function parseStructureResponse(
     const confidence = typeof record.confidence === "number" ? record.confidence : 0;
     const renameTitle =
       typeof record.renameTitle === "string" && record.renameTitle.trim() ? record.renameTitle.trim() : undefined;
+    const userPath = normalizeStringArray(record.userPath);
+    const tags = normalizeStringArray(record.tags);
+    const description =
+      typeof record.description === "string" && record.description.trim() ? record.description.trim() : null;
 
     // needContent 与 category 同时给出时以 category 为准
     if (category !== null) {
@@ -206,7 +218,18 @@ export function parseStructureResponse(
         droppedInvalid++;
         continue;
       }
-      decisions.push({ id, category, subtopic, confidence, reason, needContent: false, renameTitle });
+      decisions.push({
+        id,
+        category,
+        subtopic,
+        confidence,
+        reason,
+        needContent: false,
+        renameTitle,
+        ...(userPath ? { userPath } : {}),
+        ...(tags ? { tags } : {}),
+        ...(description ? { description } : {}),
+      });
       continue;
     }
 

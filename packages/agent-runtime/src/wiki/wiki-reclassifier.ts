@@ -201,6 +201,9 @@ export class WikiReclassifier {
             reason: d.reason,
             decidedBy: "structure",
             decision: "pending",
+            ...(d.userPath ? { userPath: d.userPath } : {}),
+            ...(d.tags ? { tags: d.tags } : {}),
+            ...(d.description ? { description: d.description } : {}),
           });
         }
 
@@ -272,6 +275,9 @@ export class WikiReclassifier {
             reason: d.reason,
             decidedBy: "content",
             decision: "pending",
+            ...(d.userPath ? { userPath: d.userPath } : {}),
+            ...(d.tags ? { tags: d.tags } : {}),
+            ...(d.description ? { description: d.description } : {}),
             ...(renameTitle ? { renameTitle } : {}),
           });
         }
@@ -352,7 +358,11 @@ export class WikiReclassifier {
         return { ...c, applyError: `目标目录已不存在：${c.toCategory}${c.toSubtopic ? ` / ${c.toSubtopic}` : ""}` };
       }
       try {
-        this.repo.updateSourceTopic(agentId, userId, c.sourceId, c.toCategory, c.toSubtopic);
+        this.repo.updateSourceTopic(agentId, userId, c.sourceId, c.toCategory, c.toSubtopic, {
+          userPath: c.userPath ?? null,
+          tags: c.tags ?? null,
+          description: c.description ?? null,
+        });
         applied++;
         appliedSourceIds.push(c.sourceId);
         const { applyError: _drop, ...rest } = c;

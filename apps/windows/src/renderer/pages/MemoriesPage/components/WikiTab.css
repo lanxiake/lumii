@@ -706,18 +706,49 @@
 .wiki-file-list-title-row {
   display: flex;
   align-items: baseline;
+  gap: 8px;
   min-width: 0;
   flex: 1;
   justify-content: flex-start;
 }
 
-/** 小类、文件名、时间紧凑左对齐，不与右侧操作区拉开 */
-.wiki-file-list-title-cluster {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
+/* 用户路径前缀：文件名前的目录路径，类似面包屑 */
+.wiki-file-list-path-prefix {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+/* 行内标签：一排调节芯片，超长截断 + 悬浮看全 */
+.wiki-file-list-tags-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
-  max-width: 100%;
+  max-width: 220px;
+  overflow: hidden;
+  flex-shrink: 1;
+}
+
+.wiki-file-list-tag-chip {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+
+/* 标签区域窄窗时进一步收缩 */
+@media (max-width: 900px) {
+  .wiki-file-list-tags-inline {
+    max-width: 120px;
+  }
 }
 
 .wiki-file-list-subtopic-prefix {
