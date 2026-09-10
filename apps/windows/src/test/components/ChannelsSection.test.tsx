@@ -32,6 +32,7 @@ function mockChannelServices(overrides: {
   }
   ;(window as any).wecomService = { ...base }
   ;(window as any).feishuService = { ...base }
+  ;(window as any).qbotService = { ...base }
   ;(window as any).channelService = {
     list: vi.fn(async () => ({ channels: overrides.channels ?? [] })),
     send: vi.fn(),
@@ -43,14 +44,15 @@ describe('ChannelsSection', () => {
     vi.restoreAllMocks()
   })
 
-  it('三个渠道均未连接时汇总显示 0 / 3', async () => {
+  it('三个渠道均未连接时汇总显示 0 / 4', async () => {
     mockChannelServices({})
     render(<ChannelsSection />)
 
-    expect(await screen.findByText('0 / 3 渠道已连接')).toBeInTheDocument()
+    expect(await screen.findByText('0 / 4 渠道已连接')).toBeInTheDocument()
     expect(screen.getByText('微信（个人）')).toBeInTheDocument()
     expect(screen.getByText('企业微信')).toBeInTheDocument()
     expect(screen.getByText('飞书')).toBeInTheDocument()
+    expect(screen.getByText('QQ')).toBeInTheDocument()
   })
 
   it('微信已连接时展示 meta 与可发送对象芯片', async () => {
@@ -68,7 +70,7 @@ describe('ChannelsSection', () => {
     })
     render(<ChannelsSection />)
 
-    expect(await screen.findByText('1 / 3 渠道已连接')).toBeInTheDocument()
+    expect(await screen.findByText('1 / 4 渠道已连接')).toBeInTheDocument()
     expect(screen.getByText('可发送对象 · 1')).toBeInTheDocument()
     expect(screen.getByText('小明')).toBeInTheDocument()
     expect(screen.getByText('wxid_a1b2c3')).toBeInTheDocument()

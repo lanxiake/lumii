@@ -3,7 +3,7 @@
  */
 import { ipcRenderer } from 'electron'
 
-function makeChannelApi(prefix: 'weixin' | 'wecom' | 'feishu') {
+function makeChannelApi(prefix: 'weixin' | 'wecom' | 'feishu' | 'qbot') {
   return {
     startLogin: (): Promise<string> => ipcRenderer.invoke(`${prefix}:startLogin`),
     logout: (): Promise<void> => ipcRenderer.invoke(`${prefix}:logout`),
@@ -40,12 +40,19 @@ export const wecomApi = makeChannelApi('wecom')
 
 export const feishuApi = makeChannelApi('feishu')
 
+export const qbotApi = {
+  ...makeChannelApi('qbot'),
+  /** 手动填写 AppID/AppSecret 收尾（扫码建应用降级路径） */
+  saveCredentials: (appId: string, appSecret: string): Promise<void> =>
+    ipcRenderer.invoke('qbot:saveCredentials', appId, appSecret),
+}
+
 export const channelApi = {
   /** 列出已注册渠道快照（含未连接渠道） */
   list: (): Promise<{ channels: unknown[] }> => ipcRenderer.invoke('channel:list'),
   /** 向指定 channel + to 发送文本/富媒体；仅供调试，非 Agent 主路径 */
   send: (params: {
-    channel: 'feishu' | 'weixin' | 'wecom'
+    channel: 'feishu' | 'weixin' | 'wecom' | 'qbot'
     to: string
     text: string
     mediaPath?: string

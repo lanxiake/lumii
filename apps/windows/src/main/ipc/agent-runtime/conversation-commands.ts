@@ -572,12 +572,13 @@ export async function handleConversationFork(
 export function resolveConversationChannel(
   conversationId: string,
   weixinConvIds: Set<string>,
-): 'default' | 'wechat' | 'wecom' | 'feishu' | 'cron' | 'evolution' {
+): 'default' | 'wechat' | 'wecom' | 'feishu' | 'qbot' | 'cron' | 'evolution' {
   if (weixinConvIds.has(conversationId) || conversationId.startsWith('weixin:')) {
     return 'wechat'
   }
   if (conversationId.startsWith('wecom:')) return 'wecom'
   if (conversationId.startsWith('feishu:')) return 'feishu'
+  if (conversationId.startsWith('qbot:')) return 'qbot'
   if (conversationId === EVOLUTION_CONVERSATION_ID) return 'evolution'
   if (conversationId.startsWith('cron:')) return 'cron'
   return 'default'

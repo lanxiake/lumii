@@ -546,9 +546,10 @@ export class FeishuLoginService extends EventEmitter {
     if (!fileName) fileName = `feishu_${mt}_${Date.now()}${ext}`
 
     try {
+      // message.resource 的 type 只支持 image/file；audio 消息以 file 类型下载原始 opus
       const res = await this.httpClient.im.messageResource.get({
         path: { message_id: msg.message_id, file_key: fileKey },
-        params: { type: mt },
+        params: { type: mt === 'image' ? 'image' : 'file' },
       })
       const stream = res.getReadableStream()
       const chunks: Buffer[] = []

@@ -11,7 +11,7 @@ import { Button } from '../../../../components/ui/Button/Button'
 import { Tag } from '../../../../components/ui/Tag/Tag'
 import styles from './ChannelBindModal.module.css'
 
-type BindableChannel = 'wechat' | 'wecom' | 'feishu'
+type BindableChannel = 'wechat' | 'wecom' | 'feishu' | 'qbot'
 
 type ChannelRowStatus = 'idle' | 'waiting' | 'connected' | 'error'
 
@@ -48,6 +48,12 @@ const CHANNEL_DEFS: Array<Omit<ChannelRow, 'status' | 'detail'>> = [
     icon: '飞书',
     description: '扫码一键创建飞书机器人应用',
   },
+  {
+    id: 'qbot',
+    name: 'QQ',
+    icon: 'QQ',
+    description: '扫码建应用或填写 AppID/AppSecret 接入',
+  },
 ]
 
 /**
@@ -61,7 +67,7 @@ function normalizeStatus(channel: BindableChannel, raw: string): ChannelRowStatu
     return 'idle'
   }
   if (raw === 'connected') return 'connected'
-  if (raw === 'waiting_qrcode' || raw === 'scanned') return 'waiting'
+  if (raw === 'waiting_qrcode' || raw === 'scanned' || raw === 'waiting_credential') return 'waiting'
   if (raw === 'error') return 'error'
   return 'idle'
 }
@@ -122,6 +128,12 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClos
             | { botIdMasked?: string }
             | null
           if (sess?.botIdMasked) detail = `Bot ${sess.botIdMasked}`
+        } else if (def.id === 'qbot') {
+          raw = (await window.qbotService?.getStatus?.()) ?? 'idle'
+          const sess = (await window.qbotService?.getSession?.()) as
+            | { appIdMasked?: string }
+            | null
+          if (sess?.appIdMasked) detail = `App ${sess.appIdMasked}`
         } else {
           raw = (await window.feishuService?.getStatus?.()) ?? 'idle'
           const sess = (await window.feishuService?.getSession?.()) as
@@ -234,6 +246,19 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClos
         done: ['connected'],
       },
     )
+    attach(
+      'qbot',
+      window.qbotService?.onStatusChange
+        ? (cb) => window.qbotService.onStatusChange((s) => cb(s))
+        : undefined,
+      window.qbotService?.onQrcode,
+      window.qbotService?.onError,
+      {
+        qr: '扫码建应用',
+        hint: '请使用手机 QQ 扫描二维码授权创建机器人',
+        done: ['connected'],
+      },
+    )
 
     return () => {
       cleanups.forEach((fn) => fn())
@@ -250,6 +275,7 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClos
     try {
       if (id === 'wechat') await window.weixinService?.startLogin?.()
       else if (id === 'wecom') await window.wecomService?.startLogin?.()
+      else if (id === 'qbot') await window.qbotService?.startLogin?.()
       else await window.feishuService?.startLogin?.()
     } catch (e: unknown) {
       setErrorMsg(e instanceof Error ? e.message : String(e))
@@ -267,6 +293,7 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClos
       try {
         if (id === 'wechat') await window.weixinService?.logout?.()
         else if (id === 'wecom') await window.wecomService?.logout?.()
+        else if (id === 'qbot') await window.qbotService?.logout?.()
         else await window.feishuService?.logout?.()
         await refreshStatuses()
       } catch (e: unknown) {

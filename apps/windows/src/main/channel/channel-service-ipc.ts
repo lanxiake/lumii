@@ -33,11 +33,11 @@ export async function handleChannelSend(
   }
   const p = (params ?? {}) as Record<string, unknown>
   const channel = String(p.channel ?? '').trim()
-  if (channel !== 'feishu' && channel !== 'weixin' && channel !== 'wecom') {
+  if (channel !== 'feishu' && channel !== 'weixin' && channel !== 'wecom' && channel !== 'qbot') {
     return {
       ok: false,
       errorCode: 'PEER_NOT_FOUND',
-      message: "channel 必须是 'feishu' | 'weixin' | 'wecom'",
+      message: "channel 必须是 'feishu' | 'weixin' | 'wecom' | 'qbot'",
     }
   }
   return hub.router.send({

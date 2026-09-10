@@ -4,7 +4,7 @@
 
 import React from 'react'
 
-export type ChannelBrandKind = 'weixin' | 'wecom' | 'feishu'
+export type ChannelBrandKind = 'weixin' | 'wecom' | 'feishu' | 'qbot'
 
 const BRAND: Record<
   ChannelBrandKind,
@@ -13,6 +13,7 @@ const BRAND: Record<
   weixin: { bg: '#07C160', fg: '#fff', label: '微', title: '微信' },
   wecom: { bg: '#2B7BD6', fg: '#fff', label: '企', title: '企业微信' },
   feishu: { bg: '#3370FF', fg: '#fff', label: '飞', title: '飞书' },
+  qbot: { bg: '#12B7F5', fg: '#fff', label: 'Q', title: 'QQ' },
 }
 
 export interface ChannelBrandIconProps {

@@ -5,8 +5,8 @@ import { useAgents } from '../../../../hooks/business/useAgents/useAgents'
 import type { ChatSession } from '../../../../hooks/business/useChat'
 import styles from './ChatSidebar.module.css'
 
-/** 会话来源：系统默认 / 个人微信 / 企业微信 / 飞书 / 定时任务 / 自主进化 */
-type SessionChannel = 'default' | 'wechat' | 'wecom' | 'feishu' | 'cron' | 'evolution'
+/** 会话来源：系统默认 / 个人微信 / 企业微信 / 飞书 / QQ / 定时任务 / 自主进化 */
+type SessionChannel = 'default' | 'wechat' | 'wecom' | 'feishu' | 'qbot' | 'cron' | 'evolution'
 
 /** 侧栏顶层 tab */
 type SidebarTab = 'default' | 'channel' | 'system'
@@ -24,6 +24,7 @@ const CHANNEL_META: readonly ChannelMeta[] = [
   { id: 'wechat', label: '个人微信', icon: '微信', tab: 'channel' },
   { id: 'wecom', label: '企业微信', icon: '企微', tab: 'channel' },
   { id: 'feishu', label: '飞书', icon: '飞书', tab: 'channel' },
+  { id: 'qbot', label: 'QQ', icon: 'QQ', tab: 'channel' },
   { id: 'cron', label: '定时任务', icon: '定时', tab: 'system' },
   { id: 'evolution', label: '自主进化', icon: '进化', tab: 'system' },
 ]
@@ -46,6 +47,7 @@ function normalizeChannel(channel?: string): SessionChannel {
     channel === 'wechat' ||
     channel === 'wecom' ||
     channel === 'feishu' ||
+    channel === 'qbot' ||
     channel === 'cron' ||
     channel === 'evolution'
   ) {

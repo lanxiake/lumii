@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /** 出站渠道标识，与主进程 outbound-types 对齐 */
-export type OutboundChannelId = 'feishu' | 'weixin' | 'wecom'
+export type OutboundChannelId = 'feishu' | 'weixin' | 'wecom' | 'qbot'
 
 /** 渠道推送能力 */
 export type ChannelPushMode = 'native_push' | 'cached_reply' | 'reply_only'
@@ -69,6 +69,7 @@ export function useChannelSnapshots(): UseChannelSnapshotsResult {
       window.weixinService?.onStatusChange?.(() => void refresh()),
       window.wecomService?.onStatusChange?.(() => void refresh()),
       window.feishuService?.onStatusChange?.(() => void refresh()),
+      window.qbotService?.onStatusChange?.(() => void refresh()),
     ]
 
     return () => {

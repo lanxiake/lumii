@@ -30,6 +30,7 @@ import {
   weixinApi,
   wecomApi,
   feishuApi,
+  qbotApi,
   channelApi,
   apiServerApi,
   apiServerHttpApi,
@@ -1417,6 +1418,9 @@ contextBridge.exposeInMainWorld('wecomService', wecomApi)
 // === 飞书渠道 API ===
 contextBridge.exposeInMainWorld('feishuService', feishuApi)
 
+// === QQ 机器人渠道 API ===
+contextBridge.exposeInMainWorld('qbotService', qbotApi)
+
 // === 渠道出站 Hub（与 Agent channel_list/channel_send 同源，仅供 Settings 面板只读展示/调试） ===
 contextBridge.exposeInMainWorld('channelService', channelApi)
 
@@ -1454,10 +1458,20 @@ declare global {
       onQrcode: (callback: (dataUrl: string) => void) => (() => void)
       onError: (callback: (message: string) => void) => (() => void)
     }
+    qbotService: {
+      startLogin: () => Promise<void>
+      saveCredentials: (appId: string, appSecret: string) => Promise<void>
+      logout: () => Promise<void>
+      getStatus: () => Promise<string>
+      getSession: () => Promise<unknown>
+      onStatusChange: (callback: (status: string, session?: unknown) => void) => (() => void)
+      onQrcode: (callback: (dataUrl: string) => void) => (() => void)
+      onError: (callback: (message: string) => void) => (() => void)
+    }
     channelService: {
       list: () => Promise<{ channels: unknown[] }>
       send: (params: {
-        channel: 'feishu' | 'weixin' | 'wecom'
+        channel: 'feishu' | 'weixin' | 'wecom' | 'qbot'
         to: string
         text: string
         mediaPath?: string

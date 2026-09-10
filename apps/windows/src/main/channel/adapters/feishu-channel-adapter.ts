@@ -187,9 +187,14 @@ export class FeishuChannelAdapter implements IChannelAdapter {
     const userText = msg.text?.trim() ?? ''
     const mediaLine = msg.mediaPath ? `[media attached: ${msg.mediaPath}${msg.fileName ? ` (${msg.fileName})` : ''}]` : ''
     const parts: string[] = []
-    if (msg.type === 'text' && userText) parts.push(userText)
-    if (msg.type === 'audio' && userText) parts.push(`[语音转录: ${userText}]`)
-    if (mediaLine) parts.push(mediaLine)
+    if (msg.type === 'audio') {
+      // 语音：只给转录文字；opus 文件路径 Agent 读不了，附上只会当噪声
+      if (userText) parts.push(`[语音转录: ${userText}]`)
+      else parts.push('[语音消息，未识别出内容]')
+    } else {
+      if (userText) parts.push(userText)
+      if (mediaLine) parts.push(mediaLine)
+    }
     if (parts.length === 0) return
     const prompt = parts.join('\n')
 

@@ -197,7 +197,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     this.pendingMediaLines.delete(msg.channelUserId)
     // 语音文件已转成文字，.silk 路径 Agent 读不了，附上只会当成噪声
     const currentMediaLines = extractMediaAttachmentLines(rawText).filter(
-      (l) => !/\.silk[)\s]*\]$/.test(l.trim()),
+      (l) => !/^\[media attached: [^\]]*\.silk(?:\s*\([^)]*\))?\]$/.test(l.trim()),
     )
     const userTextOnly = rawText.split('\n').filter((l) => !/^\[media attached:/.test(l.trim())).join('\n').trim()
     const allMediaLines = [...pending, ...currentMediaLines]
