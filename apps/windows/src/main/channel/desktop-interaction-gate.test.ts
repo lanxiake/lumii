@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from 'vitest'
 import {
+  canChannelHandleQuestions,
   resolveAskUserDelivery,
   resolvePermissionDelivery,
 } from './desktop-interaction-gate'
@@ -67,5 +68,31 @@ describe('resolvePermissionDelivery', () => {
         ipcAvailable: true,
       }),
     ).toBe('auto-approve')
+  })
+})
+
+describe('canChannelHandleQuestions（§5.5 交互降级）', () => {
+  const opts = (n: number) => Array.from({ length: n }, (_, i) => ({ label: `选项${i + 1}` }))
+
+  it('≤3 个单选选项渠道可承载', () => {
+    expect(canChannelHandleQuestions([{ options: opts(3) }])).toBe(true)
+  })
+
+  it('>3 个选项超出纯文字可读范围，回客户端', () => {
+    expect(canChannelHandleQuestions([{ options: opts(4) }])).toBe(false)
+  })
+
+  it('多选要求用户拼序号，易错，回客户端', () => {
+    expect(canChannelHandleQuestions([{ options: opts(2), multiSelect: true }])).toBe(false)
+  })
+
+  it('多问题里只要有一个超限就整体降级', () => {
+    expect(
+      canChannelHandleQuestions([{ options: opts(2) }, { options: opts(5) }]),
+    ).toBe(false)
+  })
+
+  it('空问题列表按可承载处理（不误降级）', () => {
+    expect(canChannelHandleQuestions([])).toBe(true)
   })
 })

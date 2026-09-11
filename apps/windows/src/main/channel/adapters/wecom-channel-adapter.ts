@@ -25,6 +25,8 @@ import {
   buildChannelErrorMessage,
 } from '../channel-error-helper'
 import { markdownToPlainText } from '../../agent-runtime/cron-notify-format.js'
+import { resolveContinuityForChannel } from '../cross-channel-continuity'
+import { getChannelFeatures } from '../channel-feature-store'
 import {
   pendingAttachments,
   makePendingKey,
@@ -156,7 +158,7 @@ export class WecomChannelAdapter implements IChannelAdapter {
     log.info('[startListening] 企业微信消息监听已启动')
   }
 
-  /** 插队处理提问/审批答复与 /stop（详见 tryHandleChannelOutOfBand） */
+  /** 插队处理提问/审批/接续答复与 /stop（详见 tryHandleChannelOutOfBand） */
   private tryHandleOutOfBand(msg: WecomNormalizedMessage): boolean {
     return tryHandleChannelOutOfBand({
       hub: this.interactionHub,
@@ -165,8 +167,17 @@ export class WecomChannelAdapter implements IChannelAdapter {
       session: this.buildSession(msg),
       text: msg.text?.trim() ?? '',
       sessionManager: this.sessionManager,
+      continuity: this.continuity(),
       onError: (err) =>
         log.error(`[tryHandleOutOfBand] 失败: ${err instanceof Error ? err.message : String(err)}`),
+    })
+  }
+
+  /** 跨渠道接续状态机（§5.4）；开关每次读，设置页关掉即时生效 */
+  private continuity() {
+    return resolveContinuityForChannel({
+      enabled: getChannelFeatures().crossChannelContinuityEnabled,
+      bridge: this.bridge,
     })
   }
 
@@ -219,6 +230,18 @@ export class WecomChannelAdapter implements IChannelAdapter {
         })
       }
       return
+    }
+
+    // 跨渠道接续询问（§5.4）：必须在 drain 之前扣住整条消息，
+    // 否则挂起附件已被取走，重放时只剩文本，附件丢失。
+    // 斜杠命令不问：它是明确的会话操作，不该被接续打断。
+    if (!userText.startsWith('/')) {
+      const asked = this.continuity()?.maybeAsk({
+        adapter: this,
+        session: this.buildSession(msg),
+        replay: () => void this.handleMessage(msg),
+      })
+      if (asked) return
     }
 
     // 有指令：取出挂起的附件合并

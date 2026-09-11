@@ -16,6 +16,7 @@ import {
   parsePermissionReply,
   type ChannelInteraction,
 } from './channel-interaction-store'
+import { CHANNEL_DOWNGRADE_TEXT, canChannelHandleQuestions } from './desktop-interaction-gate'
 
 const log = {
   info: (...args: unknown[]) => console.log('[ChannelInteractionHub]', ...args),
@@ -101,6 +102,18 @@ export class ChannelInteractionHub {
       return false
     }
 
+    // §5.5 交互降级：选项过多/需多选的提问，纯文字无法可靠承载，引导回客户端。
+    // 返回 false 让 bridge 侧的门控回落到桌面弹窗。
+    if (req.kind === 'ask' && !canChannelHandleQuestions(req.questions)) {
+      void route.adapter.sendTextReply(route.session, CHANNEL_DOWNGRADE_TEXT).catch((err) => {
+        log.warn(`[onInteraction] 降级提示推送失败 sessionKey=${req.sessionKey}: ${err}`)
+      })
+      log.info(
+        `[onInteraction] 提问超出渠道承载能力，降级到客户端 sessionKey=${req.sessionKey} questions=${req.questions.length}`,
+      )
+      return false
+    }
+
     let interaction: ChannelInteraction
     let text: string
     if (req.kind === 'permission') {
@@ -144,12 +157,13 @@ export function getChannelInteractionHub(bridge: AgentRuntimeBridge): ChannelInt
 }
 
 /**
- * 插队处理：绕过 adapter 的 userQueues 直接消费两类消息。
+ * 插队处理：绕过 adapter 的 userQueues 直接消费三类消息。
  *
  * 1. 挂起的提问/审批答复 —— 正在跑的那一轮正等着它，排队会死锁
- * 2. /stop 打断 —— 目的就是终止正在跑的那一轮，排在它后面毫无意义
+ * 2. 挂起的跨渠道接续答复（§5.4）—— 同理，且它扣着用户那条待投递的消息
+ * 3. /stop 打断 —— 目的就是终止正在跑的那一轮，排在它后面毫无意义
  *
- * 三个渠道 adapter 的逻辑完全一致，抽出来避免三份拷贝各自漂移。
+ * 四个渠道 adapter 的逻辑完全一致，抽出来避免四份拷贝各自漂移。
  *
  * @returns true 表示已插队消费，调用方不要再入队
  */
@@ -161,8 +175,14 @@ export function tryHandleChannelOutOfBand(params: {
   text: string
   sessionManager: { clearLock: (sessionKey: string) => void }
   onError: (err: unknown) => void
+  /** 跨渠道接续状态机（§5.4，功能关闭时为 undefined） */
+  continuity?: {
+    hasPending: (sessionKey: string) => boolean
+    tryConsumeReply: (sessionKey: string, text: string) => boolean
+    clear: (sessionKey: string) => void
+  }
 }): boolean {
-  const { hub: interactionHub, bridge, adapter, session, text, sessionManager, onError } = params
+  const { hub: interactionHub, bridge, adapter, session, text, sessionManager, onError, continuity } = params
   if (!text) return false
   const { sessionKey } = session
   interactionHub.trackSession(adapter, session)
@@ -172,9 +192,15 @@ export function tryHandleChannelOutOfBand(params: {
     return true
   }
 
+  // 接续答复也必须插队：它扣着用户那条原始消息，排在运行中的轮次后面等于永远不投递
+  if (continuity?.hasPending(sessionKey) && continuity.tryConsumeReply(sessionKey, text)) {
+    return true
+  }
+
   if (text === '/stop' || text === '/abort') {
     const aborted = bridge.abortSession(sessionKey)
     interactionHub.clear(sessionKey)
+    continuity?.clear(sessionKey)
     sessionManager.clearLock(sessionKey)
     void adapter
       .sendTextReply(

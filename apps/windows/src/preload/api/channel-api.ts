@@ -47,9 +47,20 @@ export const qbotApi = {
     ipcRenderer.invoke('qbot:saveCredentials', appId, appSecret),
 }
 
+/** 渠道实验性功能开关（§5.4 跨渠道接续） */
+export interface ChannelFeatureSettings {
+  crossChannelContinuityEnabled: boolean
+}
+
 export const channelApi = {
   /** 列出已注册渠道快照（含未连接渠道） */
   list: (): Promise<{ channels: unknown[] }> => ipcRenderer.invoke('channel:list'),
+  /** 读取渠道实验性功能开关 */
+  getFeatures: (): Promise<ChannelFeatureSettings> => ipcRenderer.invoke('channel:getFeatures'),
+  /** 写入渠道实验性功能开关（patch 合并） */
+  setFeatures: (
+    patch: Partial<ChannelFeatureSettings>,
+  ): Promise<ChannelFeatureSettings> => ipcRenderer.invoke('channel:setFeatures', patch),
   /** 向指定 channel + to 发送文本/富媒体；仅供调试，非 Agent 主路径 */
   send: (params: {
     channel: 'feishu' | 'weixin' | 'wecom' | 'qbot'

@@ -77,6 +77,52 @@
   color: var(--mt-fg-4);
 }
 
+/* 实验性功能开关行（跨渠道，不属于任何单个渠道卡片） */
+.experimental {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--mt-border);
+  border-radius: var(--mt-radius-lg);
+  background: var(--mt-surface-2);
+}
+
+.experimentalBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.experimentalLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: var(--mt-fw-medium);
+  line-height: 20px;
+  color: var(--mt-fg-1);
+}
+
+.experimentalTag {
+  padding: 1px 6px;
+  border-radius: var(--mt-radius-sm);
+  background: var(--mt-surface-3);
+  font-size: 11px;
+  font-weight: var(--mt-fw-medium);
+  line-height: 16px;
+  color: var(--mt-fg-3);
+}
+
+.experimentalHint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--mt-fg-3);
+}
+
 @media (max-width: 720px) {
   .header {
     flex-direction: column;

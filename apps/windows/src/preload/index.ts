@@ -1470,6 +1470,10 @@ declare global {
     }
     channelService: {
       list: () => Promise<{ channels: unknown[] }>
+      getFeatures: () => Promise<{ crossChannelContinuityEnabled: boolean }>
+      setFeatures: (patch: {
+        crossChannelContinuityEnabled?: boolean
+      }) => Promise<{ crossChannelContinuityEnabled: boolean }>
       send: (params: {
         channel: 'feishu' | 'weixin' | 'wecom' | 'qbot'
         to: string

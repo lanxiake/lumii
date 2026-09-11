@@ -3,6 +3,11 @@
  */
 import { ipcMain } from 'electron'
 import { handleChannelList, handleChannelSend } from '../channel/channel-service-ipc'
+import {
+  getChannelFeatures,
+  setChannelFeatures,
+  type ChannelFeatureSettings,
+} from '../channel/channel-feature-store'
 import type { WeixinLoginService } from '../weixin-login-service'
 import type { WecomLoginService } from '../wecom-login-service'
 import type { FeishuLoginService } from '../feishu-login-service'
@@ -119,4 +124,10 @@ export function registerChannelIpcHandlers(): void {
   // === 渠道出站 Hub（与 Agent channel_list/channel_send 同源，仅供 Settings 面板只读展示/调试） ===
   ipcMain.handle('channel:list', async () => handleChannelList(deps!.getChannelHub()))
   ipcMain.handle('channel:send', async (_event, params: unknown) => handleChannelSend(deps!.getChannelHub(), params))
+
+  // === 渠道实验性功能开关（§5.4 跨渠道接续） ===
+  ipcMain.handle('channel:getFeatures', () => getChannelFeatures())
+  ipcMain.handle('channel:setFeatures', (_event, patch: Partial<ChannelFeatureSettings>) =>
+    setChannelFeatures(patch ?? {}),
+  )
 }
