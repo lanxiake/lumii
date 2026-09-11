@@ -1,10 +1,10 @@
 /**
- * ToolEvolutionAssembly — 工具进化引擎宿主装配（M2/M3 接线）
+ * ToolEvolutionAssembly — 工具进化引擎宿主装配
  *
  * 在 bridge 初始化完成后调用一次（index.ts）：
  * 1. 创建 ToolEvolutionEngine（注入 repo / LLM / 注册动作 / 审批提问通道）
  * 2. 启动时注册已批准工具（workspace/tools/<name>/tool.json）
- * 3. 挂每日挖掘定时器（M3：每天一次，产出候选走对话内审批）
+ * 3. 挂定时条件检查（默认每 6h；启动时立即检查一次；有候选且不在冷却期才挖）
  *
  * 开关：runtime_state 键 tool-evolution.enabled，缺省开启；
  * 设 "false" 可整体关闭（实验性功能，保留逃生通道）。
@@ -14,18 +14,12 @@ import type { BrowserWindow } from 'electron'
 import { EVOLUTION_CONVERSATION_ID } from '@mtbot/agent-runtime'
 import {
   ToolEvolutionEngine,
-  DEFAULT_TRIGGER_THRESHOLD,
-  TRIGGER_THRESHOLD_KEY,
-  clampTriggerThreshold,
+  DEFAULT_CHECK_INTERVAL_MS,
+  LAST_MINING_AT_KEY,
 } from './tool-evolution-engine'
 import type { AgentRuntimeBridge } from '../bridge'
 import { agentRuntimeLog as log } from '../bridge-utils'
 import { showDesktopTaskNotification } from '../../desktop-notify'
-
-const ENABLED_KEY = 'tool-evolution.enabled'
-/** 每日挖掘时间（本地时间小时，默认凌晨 3 点） */
-const DAILY_HOUR = 3
-const DAY_MS = 24 * 60 * 60 * 1000
 
 /** 工具进化审批通知标题 */
 const TOOL_EVO_NOTIFY_TITLE = 'Lumii · 工具进化'
@@ -93,6 +87,8 @@ export function initToolEvolutionRuntime(deps: {
   getMainWindow: () => BrowserWindow | null
   /** 读开关（缺省开启） */
   isEnabled?: () => boolean
+  /** 条件检查间隔（默认 6h；单测可缩短） */
+  checkIntervalMs?: number
 }): ToolEvolutionEngine | null {
   const { bridge } = deps
   const isEnabled = deps.isEnabled ?? (() => true)
@@ -108,16 +104,6 @@ export function initToolEvolutionRuntime(deps: {
       return null
     }
 
-    const triggerThreshold = (() => {
-      try {
-        const raw = bridge.runtimeStateRepo.get(TRIGGER_THRESHOLD_KEY)
-        if (raw == null || raw === '') return DEFAULT_TRIGGER_THRESHOLD
-        return clampTriggerThreshold(Number(raw))
-      } catch {
-        return DEFAULT_TRIGGER_THRESHOLD
-      }
-    })()
-
     const engine = new ToolEvolutionEngine({
       bashCommandRepo: repo,
       callLLM: (prompt) => bridge.callLLM(prompt, undefined, 'tool_evolution'),
@@ -125,26 +111,35 @@ export function initToolEvolutionRuntime(deps: {
       unregisterTool: (name) => bridge.unregisterEvolvedTool(name),
       getRegisteredToolNames: () => bridge.getRegisteredToolNames(),
       emitApprovalPrompt: buildApprovalPromptEmitter(bridge, deps.getMainWindow),
-      triggerThreshold,
+      getLastMiningAt: () => {
+        try {
+          const raw = bridge.runtimeStateRepo.get(LAST_MINING_AT_KEY)
+          return raw && raw.length > 0 ? raw : null
+        } catch {
+          return null
+        }
+      },
+      setLastMiningAt: (iso) => {
+        try {
+          bridge.runtimeStateRepo.set(LAST_MINING_AT_KEY, iso)
+        } catch (err) {
+          log.warn('[ToolEvolution] 持久化 lastMiningAt 失败:', err)
+        }
+      },
     })
 
     bridge.setToolEvolutionEngine(engine)
     engine.loadApprovedTools()
-    log.info(`[ToolEvolution] 引擎已装配（triggerThreshold=${triggerThreshold}）`)
+    log.info('[ToolEvolution] 引擎已装配（周窗口 Top5 / count>100 / 单次 LLM）')
 
-    // M3：每日挖掘定时器（进程内，非持久 cron——重启后重新计时，可接受）
-    const scheduleDaily = () => {
-      const now = new Date()
-      const next = new Date(now)
-      next.setHours(DAILY_HOUR, 0, 0, 0)
-      if (next.getTime() <= now.getTime()) next.setTime(next.getTime() + DAY_MS)
-      setTimeout(() => {
-        void engine.runMiningCycle()
-        scheduleDaily()
-      }, next.getTime() - now.getTime())
+    const intervalMs = deps.checkIntervalMs ?? DEFAULT_CHECK_INTERVAL_MS
+    const runCheck = () => {
+      void engine.runConditionalCheck()
     }
-    scheduleDaily()
-    log.info('[ToolEvolution] 每日挖掘任务已排定（本地时间 3:00）')
+    // 启动时立即检查一次：条件满足即可产出，不依赖定点时刻
+    runCheck()
+    setInterval(runCheck, intervalMs)
+    log.info(`[ToolEvolution] 条件检查已排定（每 ${Math.round(intervalMs / 3600000)} 小时）`)
 
     return engine
   } catch (err) {

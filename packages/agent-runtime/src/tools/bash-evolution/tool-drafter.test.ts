@@ -83,6 +83,20 @@ describe("draftToolFromPattern", () => {
     expect(captured).toContain("pnpm --filter ./apps/windows build");
   });
 
+  it("单次 prompt 合并语义化模板要求与工具草拟（无需先 refine）", async () => {
+    let captured = "";
+    await draftToolFromPattern(pattern, null, {
+      callLLM: async (p) => {
+        captured = p;
+        return goodDraftJson;
+      },
+      existingToolNames: [],
+    });
+    expect(captured).toContain("语义化");
+    expect(captured).toContain("同一次输出");
+    expect(captured).not.toContain("已有精归一化模板");
+  });
+
   it("LLM 模板保留引号时草拟结果自动剥离占位符引号", async () => {
     const quoted = JSON.stringify({
       ...JSON.parse(goodDraftJson),

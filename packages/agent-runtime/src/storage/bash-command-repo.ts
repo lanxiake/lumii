@@ -54,7 +54,7 @@ export class BashCommandRepo {
       );
   }
 
-  /** 拉取用于挖掘的近期记录（升序） */
+  /** 拉取用于挖掘的近期记录（升序拉取再按时间倒序 LIMIT） */
   listRecent(limit = 2000): readonly BashCommandRow[] {
     const n = Math.min(Math.max(1, limit), 20000);
     return this.db
@@ -65,6 +65,24 @@ export class BashCommandRepo {
          LIMIT ?`,
       )
       .all(n);
+  }
+
+  /**
+   * 拉取不早于 cutoffIso 的记录（近 N 天窗口用）。
+   * @param cutoffIso ISO 时间下界（含）
+   * @param limit 最大条数（上限 50000）
+   */
+  listSince(cutoffIso: string, limit = 20000): readonly BashCommandRow[] {
+    const n = Math.min(Math.max(1, limit), 50000);
+    return this.db
+      .prepare<BashCommandRow>(
+        `SELECT id, agent_id, conversation_id, tool_call_id, command, cwd, is_error, duration_ms, created_at
+         FROM bash_command_log
+         WHERE created_at >= ?
+         ORDER BY created_at DESC
+         LIMIT ?`,
+      )
+      .all(cutoffIso, n);
   }
 
   /** 清理早于 cutoff（ISO 字符串）的记录，控制库体积 */

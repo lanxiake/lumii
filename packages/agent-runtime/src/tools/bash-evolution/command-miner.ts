@@ -178,3 +178,30 @@ export function mineCommandPatterns(
   })
   return candidates
 }
+
+/** LLM 草拟默认门槛：次数必须严格大于该值（默认 100 → 至少 101） */
+export const DEFAULT_MIN_COUNT_EXCLUSIVE = 100
+/** 每周最多送入 LLM 的模式数 */
+export const DEFAULT_TOP_N_FOR_LLM = 5
+
+export interface HighValuePatternOptions {
+  /** 次数必须严格大于该值（默认 100） */
+  minCountExclusive?: number
+  /** 按次数降序取前 N 个（默认 5） */
+  topN?: number
+}
+
+/**
+ * 从挖掘结果中选出值得调用 LLM 的高频模式：count > 门槛，按次数 Top N。
+ */
+export function selectHighValuePatterns(
+  patterns: readonly CommandPattern[],
+  options: HighValuePatternOptions = {},
+): CommandPattern[] {
+  const minCountExclusive = options.minCountExclusive ?? DEFAULT_MIN_COUNT_EXCLUSIVE
+  const topN = options.topN ?? DEFAULT_TOP_N_FOR_LLM
+  return patterns
+    .filter((p) => p.count > minCountExclusive)
+    .sort((a, b) => b.count - a.count || b.errorRate - a.errorRate)
+    .slice(0, Math.max(0, topN))
+}

@@ -9,9 +9,12 @@ export {
   buildApprovalPrompt,
   clampTriggerThreshold,
   DEFAULT_TRIGGER_THRESHOLD,
+  DEFAULT_CHECK_INTERVAL_MS,
   MIN_TRIGGER_THRESHOLD,
   MAX_TRIGGER_THRESHOLD,
   TRIGGER_THRESHOLD_KEY,
+  LAST_MINING_AT_KEY,
+  WEEK_MS,
 } from './tool-evolution-engine'
 export type { ToolEvolutionEngineDeps, MiningSummary } from './tool-evolution-engine'
 export {

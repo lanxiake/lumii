@@ -181,7 +181,7 @@ export function EvolvedToolsSection() {
                       </div>
                       <div className={styles.statContent}>
                         <div className={styles.statValue}>{stats.recentCalls}</div>
-                        <div className={styles.statLabel}>过去 24h 调用总数</div>
+                        <div className={styles.statLabel}>近一周调用总数</div>
                       </div>
                     </div>
                     <div className={styles.statCard}>
@@ -208,7 +208,7 @@ export function EvolvedToolsSection() {
                   {stats.highFrequencyCommands.length > 0 && (
                     <div className={styles.topCommands}>
                       <h5 className={styles.topCommandsTitle}>
-                        🔥 高频命令 Top {stats.highFrequencyCommands.length}（过去 24h）
+                        🔥 高频命令 Top {stats.highFrequencyCommands.length}（近一周）
                       </h5>
                       <div className={styles.commandList}>
                         {stats.highFrequencyCommands.map((cmd, idx) => (

@@ -7,7 +7,7 @@
  * 采集失败绝不抛错（非 critical hook，ToolRunner 会吞掉），
  * 且 repo 未注入时整体跳过，保证不影响 Agent 主链路。
  *
- * V2: 添加调用次数触发 - 记录命令后实时检查是否达到阈值，触发工具进化分析。
+ * 挖掘由宿主定时条件检查触发；可选 onCommandLogged 仅作扩展点，默认不接实时触发。
  */
 
 import type { ToolHook } from "../tool-hooks.js";
@@ -21,8 +21,7 @@ export interface BashCommandLogHookDeps {
   /** 当前实例的 conversationId（可为空） */
   getConversationId?: () => string | undefined;
   /**
-   * 调用次数触发检查回调（可选）
-   * 记录命令后调用，检查是否达到阈值触发工具进化分析
+   * 命令落库后的可选扩展回调（主路径不再用于实时触发挖掘）
    */
   onCommandLogged?: (command: string) => void | Promise<void>;
 }

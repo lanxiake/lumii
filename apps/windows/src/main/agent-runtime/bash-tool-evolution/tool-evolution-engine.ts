@@ -1,15 +1,15 @@
 /**
  * ToolEvolutionEngine — bash 命令工具进化引擎（宿主装配）
  *
- * 管道（设计见 docs/plans/2026-09-08-bash-命令工具进化-design.md）：
+ * 管道：
  *
- *   runMiningCycle()：bash_command_log → 规则粗聚类 → LLM 精归一化 → LLM 草拟
- *   → 质量门 → 入待审批队列 → 对话内提问
+ *   runMiningCycle()：近 7 天 bash_command_log → 规则粗聚类
+ *   → count>100 且次数 Top5 → 单次 LLM 草拟 → 质量门 → 待审批
  *
- *   handleUserMessage()：用户回复「启用/不用」→ 注册工具 + 实例失效 / 丢弃草稿
+ *   runConditionalCheck()：定时条件检查（默认每 6h）；有候选且不在冷却期才挖掘。
+ *   无实时触发；成功进 LLM 后 7 天冷却，避免周内反复消耗。
  *
  * 所有 LLM 失败 / 质量门不通过都静默丢弃候选，不影响 Agent 主链路。
- * 每天最多产出 maxCandidatesPerRun 个候选；队列积压超过 maxPendingQueue 时暂停草拟。
  */
 
 import { EventEmitter } from 'node:events'
@@ -20,7 +20,9 @@ import {
   mineCommandPatterns,
   normalizeCommand,
   openTemplateRejectionReason,
-  refinePatternWithLLM,
+  selectHighValuePatterns,
+  DEFAULT_MIN_COUNT_EXCLUSIVE,
+  DEFAULT_TOP_N_FOR_LLM,
   type CommandSample,
   type TemplateToolDefinition,
 } from '@mtbot/agent-runtime'
@@ -37,6 +39,13 @@ import {
   type PendingToolDraft,
 } from './tool-writer'
 
+/** 统计与冷却窗口：7 天 */
+export const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+/** 定时条件检查间隔：6 小时 */
+export const DEFAULT_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
+/** 近一周日志拉取上限 */
+const WEEKLY_LOG_LIMIT = 50000
+
 export interface ToolEvolutionEngineDeps {
   bashCommandRepo: BashCommandRepo
   /** LLM 调用（宿主导入会话模型，三级降级由宿主负责） */
@@ -49,22 +58,37 @@ export interface ToolEvolutionEngineDeps {
   getRegisteredToolNames: () => string[]
   /** 发出对话内审批提问（宿主注入 inject_message wiring） */
   emitApprovalPrompt: (text: string) => void
-  /** 每次挖掘最多草拟的候选数（默认 2） */
+  /** 每次挖掘最多草拟的候选数（默认 Top 5） */
   maxCandidatesPerRun?: number
   /** 待审批队列积压上限，超过则暂停草拟（默认 5） */
   maxPendingQueue?: number
-  /** 过去 24h 累计调用触发挖掘的阈值（默认 50，范围 10–500） */
-  triggerThreshold?: number
+  /**
+   * 进 LLM 的次数门槛：count 必须严格大于该值（默认 100）。
+   * 单测可下调以加快造数。
+   */
+  minCountExclusive?: number
+  /** 统计窗口毫秒（默认 7 天） */
+  statsWindowMs?: number
+  /** 成功进 LLM 后的冷却毫秒（默认 7 天） */
+  miningCooldownMs?: number
+  /** 读取上次成功挖掘时间（ISO）；宿主可持久化到 runtime_state */
+  getLastMiningAt?: () => string | null
+  /** 写入上次成功挖掘时间（ISO） */
+  setLastMiningAt?: (iso: string) => void
+  /** 可注入时钟（单测用） */
+  now?: () => number
 }
 
-/** 默认：过去 24h 累计 50 次 bash 调用触发一次分析 */
+/** @deprecated 实时触发已移除；保留常量以免旧 IPC/UI 引用崩掉 */
 export const DEFAULT_TRIGGER_THRESHOLD = 50
 export const MIN_TRIGGER_THRESHOLD = 10
 export const MAX_TRIGGER_THRESHOLD = 500
-/** runtime_state 键：过去 24h 调用次数触发阈值 */
+/** runtime_state 键：历史触发阈值（已弃用，仅兼容） */
 export const TRIGGER_THRESHOLD_KEY = 'tool-evolution.trigger-threshold'
+/** runtime_state 键：上次成功挖掘时间 */
+export const LAST_MINING_AT_KEY = 'tool-evolution.last-mining-at'
 
-/** 将用户输入的触发阈值钳制到合法范围 */
+/** 将用户输入的触发阈值钳制到合法范围（兼容旧设置页） */
 export function clampTriggerThreshold(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_TRIGGER_THRESHOLD
   return Math.min(MAX_TRIGGER_THRESHOLD, Math.max(MIN_TRIGGER_THRESHOLD, Math.round(value)))
@@ -73,8 +97,10 @@ export function clampTriggerThreshold(value: number): number {
 export interface MiningSummary {
   samplesScanned: number
   patternsFound: number
+  highValuePatterns: number
   drafted: number
   gatedOut: number
+  llmCalls: number
   skippedReason: string | null
 }
 
@@ -105,7 +131,7 @@ export function buildApprovalPrompt(draft: PendingToolDraft): string {
   const whenToUse = draft.whenToUse?.trim()
   const whenNotToUse = draft.whenNotToUse?.trim()
   const lines = [
-    `检测到命令模式最近被高频使用（样本 ${draft.samples.length} 条），已草拟参数化工具「${draft.name}」。`,
+    `检测到命令模式近一周高频使用（样本 ${draft.samples.length} 条），已草拟参数化工具「${draft.name}」。`,
     ``,
     `用途：${draft.description}`,
   ]
@@ -139,16 +165,19 @@ export function findSimilarApprovedTools(
 export class ToolEvolutionEngine extends EventEmitter {
   private readonly pending: PendingToolDraft[] = []
   private featureEnabled: boolean = true
-  private triggerThreshold: number
+  /** @deprecated 仅兼容旧 IPC */
+  private triggerThreshold: number = DEFAULT_TRIGGER_THRESHOLD
 
   constructor(private readonly deps: ToolEvolutionEngineDeps) {
     super()
-    this.triggerThreshold = clampTriggerThreshold(
-      deps.triggerThreshold ?? DEFAULT_TRIGGER_THRESHOLD,
-    )
     // 启动时恢复待审批队列
     this.pending.push(...loadPendingDrafts())
     log.info(`[ToolEvolution] 恢复待审批候选 ${this.pending.length} 条`)
+  }
+
+  /** 当前时间（可注入） */
+  private nowMs(): number {
+    return this.deps.now?.() ?? Date.now()
   }
 
   /** 待审批候选数 */
@@ -174,16 +203,55 @@ export class ToolEvolutionEngine extends EventEmitter {
     return registered
   }
 
+  /** 是否仍在挖掘冷却期内 */
+  isInMiningCooldown(): boolean {
+    const cooldownMs = this.deps.miningCooldownMs ?? WEEK_MS
+    if (cooldownMs <= 0) return false
+    const last = this.deps.getLastMiningAt?.() ?? null
+    if (!last) return false
+    const lastMs = Date.parse(last)
+    if (!Number.isFinite(lastMs)) return false
+    return this.nowMs() - lastMs < cooldownMs
+  }
+
+  /** 标记一次成功进入 LLM 的挖掘周期（进入冷却） */
+  private markMiningDone(): void {
+    const iso = new Date(this.nowMs()).toISOString()
+    try {
+      this.deps.setLastMiningAt?.(iso)
+    } catch (err) {
+      log.warn('[ToolEvolution] 写入 lastMiningAt 失败:', err)
+    }
+  }
+
   /**
-   * 一次挖掘周期：采集 → 粗聚类 → 精归一化 → 草拟 → 质量门 → 入队提问。
-   * 由 cron 每日调度（M3 接线）；数据不足时静默跳过。
+   * 定时条件检查：冷却中或功能关闭则跳过；否则跑一次挖掘周期。
+   * 由宿主按固定间隔调用（默认 6h），不是定点 cron。
+   */
+  async runConditionalCheck(): Promise<MiningSummary | null> {
+    if (!this.featureEnabled) {
+      log.info('[ToolEvolution] 条件检查跳过：功能已关闭')
+      return null
+    }
+    if (this.isInMiningCooldown()) {
+      log.info('[ToolEvolution] 条件检查跳过：仍在 7 天冷却期内')
+      return null
+    }
+    return this.runMiningCycle()
+  }
+
+  /**
+   * 一次挖掘周期：近 7 天采集 → 粗聚类 → 高频 Top5 → 单次 LLM 草拟 → 质量门 → 入队。
+   * 无高价值候选时静默跳过且不进入冷却。
    */
   async runMiningCycle(): Promise<MiningSummary> {
     const summary: MiningSummary = {
       samplesScanned: 0,
       patternsFound: 0,
+      highValuePatterns: 0,
       drafted: 0,
       gatedOut: 0,
+      llmCalls: 0,
       skippedReason: null,
     }
 
@@ -193,15 +261,18 @@ export class ToolEvolutionEngine extends EventEmitter {
       return summary
     }
 
+    const windowMs = this.deps.statsWindowMs ?? WEEK_MS
+    const cutoffIso = new Date(this.nowMs() - windowMs).toISOString()
+
     let rows
     try {
-      rows = this.deps.bashCommandRepo.listRecent(2000)
+      rows = this.deps.bashCommandRepo.listSince(cutoffIso, WEEKLY_LOG_LIMIT)
     } catch (err) {
       summary.skippedReason = `读取命令日志失败: ${err instanceof Error ? err.message : String(err)}`
       return summary
     }
     if (rows.length < 5) {
-      summary.skippedReason = `命令日志不足（${rows.length} 条）`
+      summary.skippedReason = `近一周命令日志不足（${rows.length} 条）`
       return summary
     }
 
@@ -213,38 +284,49 @@ export class ToolEvolutionEngine extends EventEmitter {
     }))
     summary.samplesScanned = samples.length
 
-    const patterns = mineCommandPatterns(samples)
+    // 粗挖掘用较低门槛聚合；真正进 LLM 再由 selectHighValuePatterns 卡 >100
+    const patterns = mineCommandPatterns(samples, { minSamples: 5 })
     summary.patternsFound = patterns.length
-    if (patterns.length === 0) return summary
+    if (patterns.length === 0) {
+      summary.skippedReason = '无可用命令模式'
+      return summary
+    }
 
-    const maxCandidates = this.deps.maxCandidatesPerRun ?? 2
+    const minCountExclusive = this.deps.minCountExclusive ?? DEFAULT_MIN_COUNT_EXCLUSIVE
+    const maxCandidates = this.deps.maxCandidatesPerRun ?? DEFAULT_TOP_N_FOR_LLM
+    const highValue = selectHighValuePatterns(patterns, {
+      minCountExclusive,
+      topN: maxCandidates,
+    })
+    summary.highValuePatterns = highValue.length
+    if (highValue.length === 0) {
+      summary.skippedReason = `近一周无 count>${minCountExclusive} 的高频模式`
+      return summary
+    }
+
     const existingNames = this.deps.getRegisteredToolNames()
-
-    // 已批准工具的等价模式（参数位归一后比较）：同模式不再重复草拟，
-    // 也让低频模式有机会轮上 maxCandidatesPerRun 的名额
     const approvedCanonical = new Set(
       loadStoredTools().map(({ def }) => canonicalizeParamSlots(def.commandTemplate)),
     )
 
-    for (const pattern of patterns) {
+    let attemptedLlm = false
+
+    for (const pattern of highValue) {
       if (summary.drafted >= maxCandidates) break
       if (this.pending.length >= maxPending) break
 
       const canonical = canonicalizeParamSlots(pattern.pattern)
-      // 已在待审批队列的等价模式去重（同模式不同 LLM 命名也识别）
       if (this.pending.some((d) => canonicalizeParamSlots(d.pattern) === canonical)) {
         continue
       }
-      // 已批准工具的等价模式跳过
       if (approvedCanonical.has(canonical)) {
         continue
       }
 
-      // 二级精归一化（LLM，失败回退规则模式，草拟 prompt 会自动降级）
-      const refined = await refinePatternWithLLM(pattern, { callLLM: this.deps.callLLM })
-
-      // LLM 草拟
-      const draft = await draftToolFromPattern(pattern, refined, {
+      // 单次 LLM：语义化模板 + 工具定义合并草拟
+      attemptedLlm = true
+      summary.llmCalls++
+      const draft = await draftToolFromPattern(pattern, null, {
         callLLM: this.deps.callLLM,
         existingToolNames: [...existingNames, ...this.pending.map((d) => d.name)],
       })
@@ -253,7 +335,6 @@ export class ToolEvolutionEngine extends EventEmitter {
         continue
       }
 
-      // 草拟后的 commandTemplate 再与已批准 / 待审队列去重（pattern 预检可能漏掉参数位差异）
       const draftCanonical = canonicalizeParamSlots(draft.commandTemplate)
       if (
         approvedCanonical.has(draftCanonical) ||
@@ -263,7 +344,6 @@ export class ToolEvolutionEngine extends EventEmitter {
         continue
       }
 
-      // 质量门
       const gate = checkToolDraft(
         { ...draft, needsPermission: true },
         pattern,
@@ -275,12 +355,11 @@ export class ToolEvolutionEngine extends EventEmitter {
         continue
       }
 
-      // 入队 + 落盘 + 提问
       const pending: PendingToolDraft = {
         ...draft,
         pattern: pattern.pattern,
         samples: pattern.samples,
-        createdAt: new Date().toISOString(),
+        createdAt: new Date(this.nowMs()).toISOString(),
         draftId: newDraftId(),
       }
       this.pending.push(pending)
@@ -295,9 +374,14 @@ export class ToolEvolutionEngine extends EventEmitter {
       this.emit('approval_asked', { text, toolName: pending.name })
     }
 
+    if (attemptedLlm) {
+      this.markMiningDone()
+    }
+
     log.info(
       `[ToolEvolution] 挖掘周期完成: scanned=${summary.samplesScanned} patterns=${summary.patternsFound} ` +
-        `drafted=${summary.drafted} gatedOut=${summary.gatedOut}`,
+        `highValue=${summary.highValuePatterns} drafted=${summary.drafted} gatedOut=${summary.gatedOut} ` +
+        `llmCalls=${summary.llmCalls}`,
     )
     return summary
   }
@@ -452,18 +536,15 @@ export class ToolEvolutionEngine extends EventEmitter {
     log.info(`[ToolEvolution] 功能已${enabled ? '启用' : '禁用'}`)
   }
 
-  /** 获取过去 24h 调用次数触发阈值 */
+  /** @deprecated 实时触发已移除 */
   getTriggerThreshold(): number {
     return this.triggerThreshold
   }
 
-  /**
-   * 设置过去 24h 调用次数触发阈值（钳制到 10–500）。
-   * 返回实际生效值。
-   */
+  /** @deprecated 实时触发已移除，仅兼容旧 IPC */
   setTriggerThreshold(value: number): number {
     this.triggerThreshold = clampTriggerThreshold(value)
-    log.info(`[ToolEvolution] 触发阈值已更新为 ${this.triggerThreshold}`)
+    log.info(`[ToolEvolution] 触发阈值已更新为 ${this.triggerThreshold}（已弃用，不影响调度）`)
     return this.triggerThreshold
   }
 
@@ -479,14 +560,10 @@ export class ToolEvolutionEngine extends EventEmitter {
     rejected: number
     pending: number
   } {
-    // 获取最近 24 小时的命令
-    const rows = repo.listRecent(2000)
-    const now = Date.now()
-    const oneDayAgo = now - 24 * 60 * 60 * 1000
+    const windowMs = this.deps.statsWindowMs ?? WEEK_MS
+    const cutoffIso = new Date(this.nowMs() - windowMs).toISOString()
+    const recentRows = repo.listSince(cutoffIso, WEEKLY_LOG_LIMIT)
 
-    const recentRows = rows.filter(r => new Date(r.created_at).getTime() > oneDayAgo)
-
-    // 统计高频命令（简化版，基于归一化后的模式）
     const commandCounts = new Map<string, number>()
     for (const row of recentRows) {
       const normalized = normalizeCommand(row.command)
@@ -498,62 +575,27 @@ export class ToolEvolutionEngine extends EventEmitter {
       .slice(0, 5)
       .map(([command, count]) => ({ command, count }))
 
-    // 统计已批准和已拒绝的工具数（从磁盘读取）
     const stored = loadStoredTools()
-    const approved = stored.filter(t => t.status === 'approved').length
-    const disabled = stored.filter(t => t.status === 'disabled').length
+    const approved = stored.filter((t) => t.status === 'approved').length
+    const disabled = stored.filter((t) => t.status === 'disabled').length
 
     return {
       trackedPatterns: commandCounts.size,
       recentCalls: recentRows.length,
       highFrequencyCommands,
-      lastAnalysisTime: null, // TODO: 从持久化状态读取
-      nextScheduledTime: null, // TODO: 从 cron 任务读取
+      lastAnalysisTime: this.deps.getLastMiningAt?.() ?? null,
+      nextScheduledTime: null,
       totalGenerated: stored.length + this.pending.length,
       approved: approved + disabled,
-      rejected: 0, // TODO: 记录拒绝历史
+      rejected: 0,
       pending: this.pending.length,
     }
   }
 
   /**
-   * 实时触发检查：在记录新命令后调用，检查是否应该触发挖掘。
-   * 阈值策略：过去 24 小时内累计达到 triggerThreshold 次时触发一次分析。
-   * 为避免频繁触发，使用简单的冷却机制：触发后 1 小时内不再检查。
+   * @deprecated 实时触发已移除。保留空实现以免旧调用方崩溃；请改用 runConditionalCheck。
    */
-  private lastTriggerCheckTime = 0
-  private readonly triggerCooldownMs = 60 * 60 * 1000 // 1 小时冷却
-
-  async checkAndTriggerIfNeeded(repo: BashCommandRepo): Promise<boolean> {
-    // 功能未启用时跳过
-    if (!this.featureEnabled) return false
-
-    // 冷却期内跳过
-    const now = Date.now()
-    if (now - this.lastTriggerCheckTime < this.triggerCooldownMs) {
-      return false
-    }
-
-    // 检查最近 24 小时的调用次数
-    const rows = repo.listRecent(2000)
-    const oneDayAgo = now - 24 * 60 * 60 * 1000
-    const recentCount = rows.filter(r => new Date(r.created_at).getTime() > oneDayAgo).length
-
-    // 未达到阈值
-    if (recentCount < this.triggerThreshold) {
-      return false
-    }
-
-    // 达到阈值，触发挖掘
-    log.info(`[ToolEvolution] 调用次数达到阈值（${recentCount}/${this.triggerThreshold}），触发实时挖掘`)
-    this.lastTriggerCheckTime = now
-
-    try {
-      await this.runMiningCycle()
-      return true
-    } catch (err) {
-      log.error('[ToolEvolution] 实时触发挖掘失败:', err)
-      return false
-    }
+  async checkAndTriggerIfNeeded(_repo: BashCommandRepo): Promise<boolean> {
+    return false
   }
 }

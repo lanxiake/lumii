@@ -43,6 +43,7 @@ import {
   canonicalizeParamSlots,
   clampTriggerThreshold,
   DEFAULT_TRIGGER_THRESHOLD,
+  WEEK_MS,
 } from './tool-evolution-engine'
 import type { ToolEvolutionEngineDeps } from './tool-evolution-engine'
 import type { PendingToolDraft } from './tool-writer'
@@ -72,6 +73,7 @@ function makeRepo(): BashCommandRepo {
   return new BashCommandRepo(createMigratedTestDb())
 }
 
+/** 单测默认放宽次数门槛；生产默认仍为 count>100 */
 async function makeEngine(opts: Partial<ToolEvolutionEngineDeps> = {}) {
   const repo = makeRepo()
   for (const command of PATTERN_SAMPLES) {
@@ -87,6 +89,7 @@ async function makeEngine(opts: Partial<ToolEvolutionEngineDeps> = {}) {
   const calls: string[] = []
   const registered: string[] = []
   const prompts: string[] = []
+  let lastMiningAt: string | null = null
 
   const deps: ToolEvolutionEngineDeps = {
     bashCommandRepo: repo,
@@ -101,11 +104,17 @@ async function makeEngine(opts: Partial<ToolEvolutionEngineDeps> = {}) {
     },
     getRegisteredToolNames: () => ['bash', 'file_read'],
     emitApprovalPrompt: (text) => prompts.push(text),
+    minCountExclusive: 4,
+    miningCooldownMs: 0,
+    getLastMiningAt: () => lastMiningAt,
+    setLastMiningAt: (iso) => {
+      lastMiningAt = iso
+    },
     ...opts,
   }
 
   const engine = new ToolEvolutionEngine(deps)
-  return { engine, calls, registered, prompts, repo }
+  return { engine, calls, registered, prompts, repo, getLastMiningAt: () => lastMiningAt }
 }
 
 beforeEach(() => {
@@ -118,14 +127,16 @@ afterEach(() => {
 })
 
 describe('runMiningCycle', () => {
-  it('完整周期：采集→精修→草拟→质量门→入队提问', async () => {
+  it('完整周期：采集→单次 LLM 草拟→质量门→入队提问', async () => {
     const { engine, calls, prompts } = await makeEngine()
     const summary = await engine.runMiningCycle()
 
     expect(summary.samplesScanned).toBe(5)
     expect(summary.drafted).toBe(1)
     expect(summary.gatedOut).toBe(0)
-    expect(calls.length).toBeGreaterThanOrEqual(2) // refine + draft 各一次 LLM
+    expect(summary.llmCalls).toBe(1)
+    expect(calls.length).toBe(1)
+    expect(calls[0]).toContain('同一次输出')
     expect(engine.pendingCount).toBe(1)
     expect(prompts.length).toBe(1)
     expect(prompts[0]).toContain('pnpm-build')
@@ -145,10 +156,20 @@ describe('runMiningCycle', () => {
       unregisterTool: () => {},
       getRegisteredToolNames: () => [],
       emitApprovalPrompt: () => {},
+      minCountExclusive: 4,
     })
     const summary = await engine.runMiningCycle()
     expect(summary.skippedReason).toContain('不足')
     expect(summary.drafted).toBe(0)
+  })
+
+  it('无 count>门槛 的模式时跳过且不调 LLM', async () => {
+    const { engine, calls } = await makeEngine({ minCountExclusive: 100 })
+    const summary = await engine.runMiningCycle()
+    expect(summary.drafted).toBe(0)
+    expect(summary.highValuePatterns).toBe(0)
+    expect(summary.skippedReason).toMatch(/>100|高频/)
+    expect(calls.length).toBe(0)
   })
 
   it('LLM 草拟失败计入 gatedOut 且不入队', async () => {
@@ -170,7 +191,6 @@ describe('runMiningCycle', () => {
   })
 
   it('已批准工具的等价模式不再重复草拟（参数名归一比对）', async () => {
-    // 已批准工具 commandTemplate 用 LLM 语义参数名 {{pkg}}，与模式 {{path}} 等价
     approvedStore.push({
       name: 'pnpm-build',
       description: '构建指定的 workspace 包',
@@ -192,7 +212,6 @@ describe('runMiningCycle', () => {
   })
 
   it('草拟后的 commandTemplate 与已批准工具等价时跳过（不只比 pattern）', async () => {
-    // 已批准模板有两个粘连占位符；挖掘 pattern 只有一个 {{path}}，预检不会命中
     approvedStore.push({
       name: 'workspace-package-builder',
       description: '构建指定 workspace 包并可附加额外 flags',
@@ -253,10 +272,38 @@ describe('runMiningCycle', () => {
       unregisterTool: () => {},
       getRegisteredToolNames: () => ['bash'],
       emitApprovalPrompt: () => {},
+      minCountExclusive: 4,
+      miningCooldownMs: 0,
     })
     const summary = await engine.runMiningCycle()
     expect(summary.drafted).toBe(0)
     expect(engine.pendingCount).toBe(0)
+  })
+
+  it('进 LLM 后写入 lastMiningAt；冷却期内条件检查跳过', async () => {
+    let clock = Date.parse('2026-09-11T12:00:00.000Z')
+    let lastMiningAt: string | null = null
+    const { engine } = await makeEngine({
+      miningCooldownMs: WEEK_MS,
+      now: () => clock,
+      getLastMiningAt: () => lastMiningAt,
+      setLastMiningAt: (iso) => {
+        lastMiningAt = iso
+      },
+    })
+
+    const first = await engine.runConditionalCheck()
+    expect(first?.drafted).toBe(1)
+    expect(lastMiningAt).toBeTruthy()
+
+    clock += 60 * 60 * 1000 // +1h，仍在冷却
+    const second = await engine.runConditionalCheck()
+    expect(second).toBeNull()
+    expect(engine.isInMiningCooldown()).toBe(true)
+
+    clock += WEEK_MS // 冷却结束
+    const third = await engine.runConditionalCheck()
+    expect(third).not.toBeNull()
   })
 })
 
@@ -292,7 +339,7 @@ describe('buildApprovalPrompt', () => {
   })
 })
 
-describe('triggerThreshold', () => {
+describe('triggerThreshold（兼容残留）', () => {
   it('clampTriggerThreshold 限制在 10–500', () => {
     expect(clampTriggerThreshold(5)).toBe(10)
     expect(clampTriggerThreshold(50)).toBe(50)
@@ -309,12 +356,9 @@ describe('triggerThreshold', () => {
     expect(engine.setTriggerThreshold(3)).toBe(10)
   })
 
-  it('未达阈值时 checkAndTriggerIfNeeded 不触发挖掘', async () => {
+  it('checkAndTriggerIfNeeded 已弃用，恒为 false', async () => {
     const { engine, repo } = await makeEngine()
-    engine.setTriggerThreshold(100)
-    // makeEngine 只写入 5 条样本，远低于 100
-    const triggered = await engine.checkAndTriggerIfNeeded(repo)
-    expect(triggered).toBe(false)
+    expect(await engine.checkAndTriggerIfNeeded(repo)).toBe(false)
   })
 })
 
@@ -400,10 +444,9 @@ describe('管理方法（设置页 UI）', () => {
   }
 
   it('listEvolvedTools 返回已批准与待审批', async () => {
-    // 已批准工具用不同模式（git commit），避免被等价模式去重跳过草拟
     approvedStore.push(structuredClone({ ...approvedDef, name: 'git-commit', commandTemplate: 'git commit -m {{msg}}' }))
     const { engine } = await makeEngine()
-    await engine.runMiningCycle() // 产生 1 个 pending
+    await engine.runMiningCycle()
 
     const { tools, pending } = engine.listEvolvedTools()
     expect(tools).toHaveLength(1)
@@ -496,12 +539,10 @@ describe('管理方法（设置页 UI）', () => {
     await engine.runMiningCycle()
     expect(engine.pendingCount).toBe(1)
 
-    // 按名确认
     expect(await engine.consumePending('pnpm-build', true)).toBe(true)
     expect(registered).toEqual(['pnpm-build'])
     expect(engine.pendingCount).toBe(0)
 
-    // 不存在返回 false
     expect(await engine.consumePending('ghost', true)).toBe(false)
   })
 })

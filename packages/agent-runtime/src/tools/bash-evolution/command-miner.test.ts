@@ -7,6 +7,7 @@ import {
   hasDedicatedTool,
   mineCommandPatterns,
   normalizeCommand,
+  selectHighValuePatterns,
   splitCommandChain,
   type CommandSample,
 } from "./command-miner.js";
@@ -125,5 +126,70 @@ describe("mineCommandPatterns", () => {
     const [p] = mineCommandPatterns(input, { minSamples: 5 });
     expect(p?.count).toBe(8);
     expect(p?.distinctDays).toBe(2);
+  });
+});
+
+describe("selectHighValuePatterns", () => {
+  it("只保留 count>100 并按次数降序取 Top N", () => {
+    const patterns = [
+      {
+        pattern: "pnpm --filter {{path}} build",
+        count: 150,
+        errorCount: 0,
+        errorRate: 0,
+        avgDurationMs: 1000,
+        distinctDays: 3,
+        samples: ["pnpm --filter ./a build"],
+      },
+      {
+        pattern: "git commit -m {{msg}}",
+        count: 120,
+        errorCount: 1,
+        errorRate: 0.01,
+        avgDurationMs: 200,
+        distinctDays: 2,
+        samples: ['git commit -m "x"'],
+      },
+      {
+        pattern: "npx vitest run {{path}}",
+        count: 100,
+        errorCount: 0,
+        errorRate: 0,
+        avgDurationMs: 500,
+        distinctDays: 2,
+        samples: ["npx vitest run a.ts"],
+      },
+      {
+        pattern: "node {{path}}",
+        count: 80,
+        errorCount: 0,
+        errorRate: 0,
+        avgDurationMs: 100,
+        distinctDays: 1,
+        samples: ["node a.js"],
+      },
+    ];
+    const selected = selectHighValuePatterns(patterns, { minCountExclusive: 100, topN: 5 });
+    expect(selected.map((p) => p.pattern)).toEqual([
+      "pnpm --filter {{path}} build",
+      "git commit -m {{msg}}",
+    ]);
+    expect(selected.every((p) => p.count > 100)).toBe(true);
+  });
+
+  it("超过 topN 时截断", () => {
+    const patterns = Array.from({ length: 8 }, (_, i) => ({
+      pattern: `cmd-${i} --flag {{path}}`,
+      count: 200 - i,
+      errorCount: 0,
+      errorRate: 0,
+      avgDurationMs: null,
+      distinctDays: 2,
+      samples: [`cmd-${i} --flag ./x`],
+    }));
+    const selected = selectHighValuePatterns(patterns, { minCountExclusive: 100, topN: 5 });
+    expect(selected).toHaveLength(5);
+    expect(selected[0]?.count).toBe(200);
+    expect(selected[4]?.count).toBe(196);
   });
 });
