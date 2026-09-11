@@ -172,3 +172,18 @@
   font-size: var(--font-size-xs);
   font-style: italic;
 }
+
+/* 拖拽目标：目录节点高亮 */
+.node--dropTarget {
+  background: color-mix(in srgb, var(--mt-accent-500) 18%, transparent);
+  outline: 1px dashed var(--mt-accent-500);
+  outline-offset: -1px;
+}
+
+/* 拖拽到树空白区 = 移动到工作区根目录 */
+.tree--dropTarget {
+  background: color-mix(in srgb, var(--mt-accent-500) 6%, transparent);
+  outline: 1px dashed var(--mt-accent-500);
+  outline-offset: -2px;
+  border-radius: var(--mt-radius-md, 8px);
+}

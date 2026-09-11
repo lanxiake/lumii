@@ -295,6 +295,22 @@ export class SystemService {
       await fs.rename(safeSourcePath, safeDestPath)
       log.debug(`文件移动成功`)
     } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code
+      // 跨盘移动：rename 无法跨越盘符（Windows 报 EXDEV，Linux 同样报 EXDEV），
+      // 退化为「复制 + 删除源」。目录走 fs.cp 递归复制，复用 copyFile 的 junction/symlink 处理。
+      if (code === 'EXDEV') {
+        log.info(`跨盘移动，改用复制+删除: ${safeSourcePath} -> ${safeDestPath}`)
+        const stats = await fs.lstat(safeSourcePath)
+        if (stats.isDirectory()) {
+          await fs.cp(safeSourcePath, safeDestPath, { recursive: true, force: true, dereference: true })
+          await fs.rm(safeSourcePath, { recursive: true, force: true })
+        } else {
+          await fs.copyFile(safeSourcePath, safeDestPath)
+          await fs.unlink(safeSourcePath)
+        }
+        log.debug(`文件移动成功（跨盘）`)
+        return
+      }
       log.error(`移动文件失败`, error)
       throw error
     }

@@ -346,7 +346,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
     workspaceDir ? { initialPath: workspaceDir, rootPath: workspaceDir, watchIntervalMs: 0 } : undefined
   )
   const projectsApi = useCodingDevProjects()
-  const { uncommittedDiff } = useWorkspaceVcs()
+  const { uncommittedDiff, refresh: refreshVcs } = useWorkspaceVcs()
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   /** 外部定位请求的目标路径（驱动 FileTree 展开并滚动到该节点） */
@@ -359,7 +359,11 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
   const [deleteTarget, setDeleteTarget] = useState<FileItem | null>(null)
   const [createFileParent, setCreateFileParent] = useState<FileItem | null>(null)
   const [createFolderParent, setCreateFolderParent] = useState<FileItem | null>(null)
-  const [refreshToken, setRefreshToken] = useState(0)
+  /** 整体重拉已展开目录（外部刷新按钮 / 项目增删） */
+  const [refreshKey, setRefreshKey] = useState(0)
+  /** 局部刷新：只重拉这些目录，避免整树清空重建造成的闪动 */
+  const [dirRefresh, setDirRefresh] = useState<{ dirs: string[]; token: number } | null>(null)
+  const dirRefreshSeq = useRef(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
   /** 检测到 git 状态变化但未手动刷新时，在刷新按钮上提示 */
   const [hasPendingUpdate, setHasPendingUpdate] = useState(false)
@@ -387,7 +391,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
   // 面板每次重新打开时刷新文件列表与项目列表
   useEffect(() => {
     if (open && workspaceDir) {
-      setRefreshToken((t) => t + 1)
+      setRefreshKey((t) => t + 1)
       void projectsApi.reload()
     }
   }, [open, workspaceDir]) // eslint-disable-line react-hooks/exhaustive-deps -- 仅在打开/工作区变更时刷新
@@ -461,7 +465,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
 
   /** 项目增删后刷新文件树 */
   const handleTreeRefresh = useCallback(() => {
-    setRefreshToken((t) => t + 1)
+    setRefreshKey((t) => t + 1)
   }, [])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, item: FileItem) => {
@@ -479,7 +483,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true)
     setHasPendingUpdate(false)
-    setRefreshToken((t) => t + 1)
+    setRefreshKey((t) => t + 1)
     setTimeout(() => setIsRefreshing(false), 600)
   }, [])
 
@@ -492,31 +496,52 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
     }
   }, [handleRefresh, refreshRef])
 
+  /** 请求局部刷新指定目录（删除/移动后使用，不闪动整树） */
+  const requestDirRefresh = useCallback((dirs: string[]) => {
+    const norm = [...new Set(dirs.filter(Boolean).map((d) => d.replace(/\\/g, '/').replace(/\/+$/, '')))]
+    if (norm.length === 0) return
+    dirRefreshSeq.current += 1
+    setDirRefresh({ dirs: norm, token: dirRefreshSeq.current })
+  }, [])
+
+  /** 从文件绝对路径推出其所在目录（用于删除后局部刷新） */
+  const handleTreeMutated = useCallback((dirs: string[]) => {
+    requestDirRefresh(dirs)
+    // git 徽标与磁盘状态解耦，改动后单独重取；不触发树重拉
+    void refreshVcs()
+  }, [requestDirRefresh, refreshVcs])
+
   const handleRename = useCallback(async (newName: string) => {
     if (!renameTarget) return
+    const oldPath = renameTarget.path
     try {
-      await renameFile(renameTarget.path, newName)
-      setRefreshToken((t) => t + 1)
+      await renameFile(oldPath, newName)
+      // 重命名 = 同目录改名，只刷父目录
+      requestDirRefresh([oldPath.replace(/\\/g, '/').split('/').slice(0, -1).join('/')])
+      void refreshVcs()
     } catch (err) {
       console.error('[WorkspaceFilePanel] 重命名失败:', err)
     } finally {
       setRenameTarget(null)
     }
-  }, [renameTarget, renameFile])
+  }, [renameTarget, renameFile, requestDirRefresh, refreshVcs])
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return
+    const targetPath = deleteTarget.path
     try {
-      await window.electronAPI.file.delete(deleteTarget.path)
-      if (selectedPath === deleteTarget.path) setSelectedPath(null)
-      if (previewFile?.path === deleteTarget.path) setPreviewFile(null)
-      setRefreshToken((t) => t + 1)
+      await window.electronAPI.file.delete(targetPath)
+      if (selectedPath === targetPath) setSelectedPath(null)
+      if (previewFile?.path === targetPath) setPreviewFile(null)
+      // 仅重拉父目录：整树重拉会清空缓存并重建所有已展开节点，连续删除时一直闪
+      requestDirRefresh([targetPath.replace(/\\/g, '/').split('/').slice(0, -1).join('/')])
+      void refreshVcs()
     } catch (err) {
       console.error('[WorkspaceFilePanel] 删除失败:', err)
     } finally {
       setDeleteTarget(null)
     }
-  }, [deleteTarget, selectedPath, previewFile])
+  }, [deleteTarget, selectedPath, previewFile, requestDirRefresh, refreshVcs])
 
   const handleOpenExternal = useCallback((item: FileItem) => {
     window.electronAPI.app.showItemInFolder(item.path)
@@ -545,7 +570,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
       const parentPath = createFileParent.path.replace(/\\/g, '/').replace(/\/+$/, '')
       const filePath = `${parentPath}/${trimmed}`
       await window.electronAPI.file.write(filePath, '')
-      setRefreshToken((t) => t + 1)
+      setRefreshKey((t) => t + 1)
       // 展开父目录并选中新文件
       setRevealPath(filePath)
       setRevealToken((t) => t + 1)
@@ -563,7 +588,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
       const parentPath = createFolderParent.path.replace(/\\/g, '/').replace(/\/+$/, '')
       const folderPath = `${parentPath}/${trimmed}`
       await window.electronAPI.file.createDir(folderPath)
-      setRefreshToken((t) => t + 1)
+      setRefreshKey((t) => t + 1)
       // 展开父目录
       setRevealPath(folderPath)
       setRevealToken((t) => t + 1)
@@ -650,7 +675,9 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
                 onSelect={handleSelect}
                 onContextMenu={handleContextMenu}
                 onMoreClick={handleMoreClick}
-                refreshToken={refreshToken}
+                refreshToken={refreshKey}
+                dirRefresh={dirRefresh}
+                onTreeMutated={handleTreeMutated}
               />
             )}
           </div>

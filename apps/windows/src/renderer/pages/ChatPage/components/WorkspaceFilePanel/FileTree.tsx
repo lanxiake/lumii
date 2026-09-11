@@ -7,7 +7,7 @@
  * - refreshToken 变化时清空缓存，重新加载已展开目录
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from 'react'
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import clsx from 'clsx'
 import type { FileItem } from '../../../../hooks/business/useFiles/useFiles.types'
 import { useCodingDevProjects } from '../../../../hooks/business/useCodingDevProjects'
@@ -168,6 +168,13 @@ function normPath(p: string): string {
   return p.replace(/\\/g, '/').replace(/\/+$/, '')
 }
 
+/** 取父目录路径（POSIX 规范化后） */
+function parentOf(p: string): string {
+  const n = normPath(p)
+  const i = n.lastIndexOf('/')
+  return i <= 0 ? n : n.slice(0, i)
+}
+
 // ── 单节点（递归） ────────────────────────────────────────────────────────
 
 // ── 相对路径（用于拖入输入框作 @引用） ──
@@ -194,18 +201,20 @@ interface FileTreeNodeProps {
   onSelect: (item: FileItem) => void
   onContextMenu: (e: React.MouseEvent, item: FileItem) => void
   onMoreClick: (e: React.MouseEvent, item: FileItem) => void
+  onDropMove: (dragPath: string, targetDir: string) => void
 }
 
 const FileTreeNode: React.FC<FileTreeNodeProps> = ({
   item, depth, rootPath, isExpanded, isSelected, isLoading, children,
   expandedDirs, dirContents, loadingDirs, selectedPath, gitMap,
-  onToggle, onSelect, onContextMenu, onMoreClick,
+  onToggle, onSelect, onContextMenu, onMoreClick, onDropMove,
 }) => {
   const indent = depth * 16 + 8
 
   const relPath = toRelative(rootPath, item.path)
   const gitState = getGitState(relPath, item.isDirectory, gitMap)
   const isWikiRootFolder = item.isDirectory && relPath === 'wiki'
+  const [isDropTarget, setIsDropTarget] = useState(false)
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation()
@@ -231,8 +240,45 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
     })
     e.dataTransfer.setData('application/x-mtbot-file', payload)
     e.dataTransfer.setData('text/plain', `@${relativePath}`)
-    e.dataTransfer.effectAllowed = 'copy'
+    // 文件树内的拖拽同时可作为「移动到文件夹」的来源；MIME 沿用同一份 payload，
+    // 输入框只按 x-mtbot-file 解析，复制语义不受影响
+    e.dataTransfer.effectAllowed = 'copyMove'
   }, [rootPath, item.path, item.name, item.isDirectory])
+
+  // ── 拖拽移入文件夹：仅目录节点接受 ──
+  // 树内拖拽（自带 x-mtbot-file）或系统文件管理器拖入的真实文件（Files）均可作来源
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (!item.isDirectory) return
+    const types = e.dataTransfer.types
+    if (!types.includes('application/x-mtbot-file') && !types.includes('Files')) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'move'
+    setIsDropTarget(true)
+  }, [item.isDirectory])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.stopPropagation()
+    setIsDropTarget(false)
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    if (!item.isDirectory) return
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDropTarget(false)
+    const raw = e.dataTransfer.getData('application/x-mtbot-file')
+    if (raw) {
+      try {
+        const ref = JSON.parse(raw) as { absolutePath?: string }
+        if (ref.absolutePath) onDropMove(ref.absolutePath, item.path)
+      } catch (err) {
+        console.error('[FileTree] 解析拖入文件失败:', err)
+      }
+    }
+  }, [item.isDirectory, item.path, onDropMove])
+
+  const handleDragEnd = useCallback(() => setIsDropTarget(false), [])
 
   return (
     <>
@@ -241,11 +287,16 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
           styles.node,
           isSelected && styles['node--selected'],
           isWikiRootFolder && styles['node--wiki'],
+          isDropTarget && styles['node--dropTarget'],
         )}
         style={{ paddingLeft: indent }}
         data-tree-path={item.path}
         draggable
         onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
         onClick={handleClick}
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onContextMenu(e, item) }}
         title={item.name}
@@ -313,6 +364,7 @@ const FileTreeNode: React.FC<FileTreeNodeProps> = ({
               onSelect={onSelect}
               onContextMenu={onContextMenu}
               onMoreClick={onMoreClick}
+              onDropMove={onDropMove}
             />
           ))}
         </>
@@ -333,10 +385,14 @@ export interface FileTreeProps {
   onContextMenu: (e: React.MouseEvent, item: FileItem) => void
   onMoreClick: (e: React.MouseEvent, item: FileItem) => void
   refreshToken: number
+  /** 局部刷新：仅重拉指定目录，不闪动 */
+  dirRefresh: { dirs: string[]; token: number } | null
+  /** 树内操作（移动等）完成后回调，参数为需要局部重拉的目录 */
+  onTreeMutated: (dirs: string[]) => void
 }
 
 export const FileTree: React.FC<FileTreeProps> = ({
-  rootPath, selectedPath, revealPath, revealToken, onSelect, onContextMenu, onMoreClick, refreshToken,
+  rootPath, selectedPath, revealPath, revealToken, onSelect, onContextMenu, onMoreClick, refreshToken, dirRefresh, onTreeMutated,
 }) => {
   const rootNorm = normPath(rootPath)
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(() => new Set([rootNorm]))
@@ -426,15 +482,25 @@ export const FileTree: React.FC<FileTreeProps> = ({
   }, [rootPath])
 
   // refreshToken 变化时重新加载所有已展开目录
+  // 注意：不清空 dirContents —— 清空会让整棵树先卸载再重建，表现为闪动；
+  // 保留旧内容 + loadDir 完成后再替换，节点 key 不变故不重新挂载，视觉上无跳变
   useEffect(() => {
     if (refreshToken === 0) return
-    setDirContents(new Map())
     const toReload = new Set(expandedDirs)
     toReload.forEach((dir) => {
       void loadDir(dir, true)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshToken])
+
+  // 局部刷新：只重拉受影响的目录（删除/移动后由父组件指定），不动整棵树
+  useEffect(() => {
+    if (!dirRefresh) return
+    dirRefresh.dirs.forEach((dir) => {
+      void loadDir(dir, true)
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirRefresh?.token])
 
   // 文件树刷新时同步刷新 git 状态，保证徽标与磁盘一致
   useEffect(() => {
@@ -515,8 +581,73 @@ export const FileTree: React.FC<FileTreeProps> = ({
     onContextMenu(e, rootItem)
   }, [rootPath, onContextMenu])
 
+  /** 计算拖拽移动需要的局部刷新目录；同目录/移入自身或子孙目录属无效操作，返回 null */
+  const computeMoveDirs = useCallback((dragPath: string, targetDir: string): string[] | null => {
+    const src = normPath(dragPath)
+    const dest = normPath(targetDir)
+    if (src === dest) return null
+    // 拖入自身或自己的子孙目录：Windows 会直接失败，预先拦掉
+    if (dest === src || dest.startsWith(src + '/')) return null
+    if (parentOf(src) === dest) return null
+    const dirs = [parentOf(src), dest]
+    // 目标父目录也重拉：目标目录可能是刚创建、尚未加载的
+    return [...new Set([parentOf(dest), ...dirs])]
+  }, [])
+
+  const handleDropMove = useCallback(async (dragPath: string, targetDir: string) => {
+    const src = normPath(dragPath)
+    const dest = normPath(targetDir)
+    const dirs = computeMoveDirs(src, dest)
+    if (!dirs) return
+    const name = src.split('/').filter(Boolean).pop()
+    if (!name) return
+    try {
+      await window.electronAPI.file.move(src, `${dest}/${name}`)
+    } catch (err) {
+      // 顶层兜底：文件树内重名只能在 drop 时发现，静默失败会让人以为拖拽没生效
+      console.error('[FileTree] 移动失败:', err)
+      window.alert(`移动失败：${err instanceof Error ? err.message : String(err)}`)
+      return
+    }
+    onTreeMutated(dirs)
+  }, [computeMoveDirs, onTreeMutated])
+
+  const rootDropRef = useRef<HTMLDivElement>(null)
+  const handleRootDragOver = useCallback((e: React.DragEvent) => {
+    // 子节点已 stopPropagation 处理；到达容器说明落在空白区，即移动到工作区根目录
+    const types = e.dataTransfer.types
+    if (!types.includes('application/x-mtbot-file') && !types.includes('Files')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    rootDropRef.current?.classList.add(styles['tree--dropTarget']!)
+  }, [])
+
+  const handleRootDragLeave = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget === e.target) rootDropRef.current?.classList.remove(styles['tree--dropTarget']!)
+  }, [])
+
+  const handleRootDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    rootDropRef.current?.classList.remove(styles['tree--dropTarget']!)
+    const raw = e.dataTransfer.getData('application/x-mtbot-file')
+    if (!raw) return
+    try {
+      const ref = JSON.parse(raw) as { absolutePath?: string }
+      if (ref.absolutePath) void handleDropMove(ref.absolutePath, rootPath)
+    } catch (err) {
+      console.error('[FileTree] 解析拖入文件失败:', err)
+    }
+  }, [handleDropMove, rootPath])
+
   return (
-    <div className={styles.tree} onContextMenu={handleTreeContextMenu}>
+    <div
+      ref={rootDropRef}
+      className={styles.tree}
+      onContextMenu={handleTreeContextMenu}
+      onDragOver={handleRootDragOver}
+      onDragLeave={handleRootDragLeave}
+      onDrop={handleRootDrop}
+    >
       {isRootLoading && (
         <div className={styles.loadingRow} style={{ paddingLeft: 8 }}>
           <span className={styles.loadingSpinner} />
@@ -542,6 +673,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
           onSelect={onSelect}
           onContextMenu={onContextMenu}
           onMoreClick={onMoreClick}
+          onDropMove={handleDropMove}
         />
       ))}
     </div>
