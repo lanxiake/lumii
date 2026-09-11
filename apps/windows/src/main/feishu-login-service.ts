@@ -560,7 +560,8 @@ export class FeishuLoginService extends EventEmitter {
       if (mt === 'audio') {
         const absPath = path.join(resolveActiveWorkspaceDir(), localPath)
         const transcript = this.asrCallback ? await this.asrCallback(absPath) : ''
-        return { ...base, type: 'audio', mediaPath: localPath, fileName, text: transcript }
+        // 转录失败留「[语音消息]」标记，adapter 按有指令处理
+        return { ...base, type: 'audio', mediaPath: localPath, fileName, text: transcript || '[语音消息]' }
       }
       return { ...base, type: mt, mediaPath: localPath, fileName }
     } catch (err) {

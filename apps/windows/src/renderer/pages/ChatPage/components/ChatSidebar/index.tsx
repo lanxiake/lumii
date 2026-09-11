@@ -112,6 +112,23 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   }, [sessions, searchQuery])
 
   /**
+   * 汇总运行中会话：按渠道、按顶层 Tab，供折叠分组与 Tab 脉冲点使用。
+   * Tab 指示用全量 sessions（不受搜索过滤），避免搜索时误藏跨 Tab 运行态。
+   */
+  const runningIndicators = useMemo(() => {
+    const byChannel = new Set<SessionChannel>()
+    const byTab = new Set<SidebarTab>()
+    for (const session of sessions) {
+      if (!session.isStreaming) continue
+      const ch = normalizeChannel(session.channel)
+      byChannel.add(ch)
+      const meta = CHANNEL_META.find((m) => m.id === ch)
+      if (meta) byTab.add(meta.tab)
+    }
+    return { byChannel, byTab }
+  }, [sessions])
+
+  /**
    * 按渠道分组：渠道 → { pinned, sessions(按时间) }；搜索时额外按今天/昨天/更早切分。
    */
   const channelGroups = useMemo(() => {
@@ -259,7 +276,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
     <div className={styles['chat-sidebar']}>
       <ChannelBindModal open={bindModalOpen} onClose={() => setBindModalOpen(false)} onGoToQbotSettings={handleGoToQbotSettings} />
 
-      {/* 默认 / 渠道 / 系统 三态切换 */}
+      {/* 默认 / 渠道 / 系统 三态切换；有运行中 Agent 时显示脉冲点 */}
       <div className={styles['session-seg']} role="tablist">
         <button
           role="tab"
@@ -268,6 +285,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
           onClick={() => setTab('default')}
         >
           默认
+          {runningIndicators.byTab.has('default') && (
+            <span className={styles['running-dot']} aria-label="有运行中的对话" />
+          )}
         </button>
         <button
           role="tab"
@@ -276,6 +296,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
           onClick={() => setTab('channel')}
         >
           渠道
+          {runningIndicators.byTab.has('channel') && (
+            <span className={styles['running-dot']} aria-label="有运行中的对话" />
+          )}
         </button>
         <button
           role="tab"
@@ -284,6 +307,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
           onClick={() => setTab('system')}
         >
           系统
+          {runningIndicators.byTab.has('system') && (
+            <span className={styles['running-dot']} aria-label="有运行中的对话" />
+          )}
         </button>
       </div>
 
@@ -335,9 +361,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
           channelGroups.visible.map((group) => {
             const key = group.meta.id
             const isCollapsed = collapsedChannels.has(key)
+            const groupHasRunning = runningIndicators.byChannel.has(key)
             return (
               <div key={key} className={styles['channel-group']}>
-                {/* 默认 tab 只有一个分组，tab 本身已表明来源，不再重复渠道标题 */}
+                {/* 默认 tab 只有一个分组，tab 本身已表明来源，不再重复渠道标题；折叠且有运行中会话时显示脉冲点 */}
                 {tab !== 'default' && <div
                   className={`${styles['channel-group-label']} ${styles['channel-group-label--collapsible']}`}
                   onClick={() => toggleChannel(key)}
@@ -353,6 +380,9 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                   <span className={styles['group-icon']}>{group.meta.icon}</span>
                   <span>{group.meta.label}</span>
                   <span className={styles['group-count']}>({group.total})</span>
+                  {isCollapsed && groupHasRunning && (
+                    <span className={styles['running-dot']} aria-label="有运行中的对话" />
+                  )}
                   <span
                     className={`${styles['group-chevron']}${isCollapsed ? ` ${styles['group-chevron--collapsed']}` : ''}`}
                   >

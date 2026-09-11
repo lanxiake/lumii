@@ -123,9 +123,9 @@ importers:
       sherpa-onnx-node:
         specifier: ^1.11.3
         version: 1.13.4
-      silk-sdk:
-        specifier: ^0.2.2
-        version: 0.2.2
+      silk-wasm:
+        specifier: ^3.7.1
+        version: 3.7.1
       utf-8-validate:
         specifier: ^6.0.6
         version: 6.0.6
@@ -4733,9 +4733,9 @@ packages:
     resolution: {integrity: sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw==}
     engines: {node: '>=14'}
 
-  silk-sdk@0.2.2:
-    resolution: {integrity: sha512-DnhFzCFUpb2FnkulKaerv6qryQJ70CVs+19OsskVOHYkB0MwiyoWwcoB8TwuL2wJd+kskqBRBHml0UKo8UPcPA==}
-    hasBin: true
+  silk-wasm@3.7.1:
+    resolution: {integrity: sha512-mXPwLRtZxrYV3TZx41jMAeKc80wvmyrcXIcs8HctFxK15Ahz2OJQENYhNgEPeCEOdI6Mbx1NxQsqxzwc3DKerw==}
+    engines: {node: '>=16.11.0'}
 
   simple-concat@1.0.1:
     resolution: {integrity: sha512-cSFtAPtRhljv69IK0hTVZQ+OfE9nePi/rtJmw5UjHeVyVroEqJXP1sFztKUy1qU+xvz3u/sfYJLa947b7nAN2Q==}
@@ -10393,10 +10393,7 @@ snapshots:
 
   signal-exit@4.1.0: {}
 
-  silk-sdk@0.2.2:
-    dependencies:
-      bindings: 1.5.0
-      cac: 6.7.14
+  silk-wasm@3.7.1: {}
 
   simple-concat@1.0.1: {}
 

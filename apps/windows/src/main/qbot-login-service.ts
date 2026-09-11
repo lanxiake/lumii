@@ -553,13 +553,13 @@ export class QbotLoginService extends EventEmitter {
         const absPath = path.join(resolveActiveWorkspaceDir(), localPath)
         const transcript = this.asrCallback ? await this.asrCallback(absPath) : ''
         if (!transcript) {
-          log.warn('语音转录为空，降级为媒体行交给 Agent')
+          log.warn('语音转录失败，标记为 [语音消息]')
         }
-        // 转录成功则把文字并进 text，Agent 才拿得到语音内容；失败保持原样只留媒体行
-        const merged = [text, transcript ? transcriptLine(transcript) : '']
+        // 转录成功则把文字并进 text；失败留「[语音消息]」标记，adapter 按有指令处理
+        const merged = [text, transcript ? transcriptLine(transcript) : '[语音消息]']
           .filter(Boolean)
           .join('\n')
-        return { ...base, type: 'voice', mediaPath: localPath, fileName, text: merged || undefined }
+        return { ...base, type: 'voice', mediaPath: localPath, fileName, text: merged }
       }
       return { ...base, type: 'file', mediaPath: localPath, fileName, text }
     } catch (err) {

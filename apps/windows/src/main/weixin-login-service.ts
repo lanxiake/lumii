@@ -413,13 +413,14 @@ export class WeixinLoginService extends EventEmitter {
                   const absPath = path.join(workspaceDir, item.localPath)
                   try {
                     // eslint-disable-next-line @typescript-eslint/no-require-imports
-                    const silk = require('silk-sdk')
-                    const silkBuf = fs.readFileSync(absPath)
-                    // decode 返回 Buffer，16-bit PCM at 24000Hz；传入 {fsHz:16000} 直接重采样
-                    const pcmBuf: Buffer = silk.decode(silkBuf, { fsHz: 16000 })
-                    const int16 = new Int16Array(pcmBuf.buffer, pcmBuf.byteOffset, pcmBuf.length / 2)
-                    const float32 = new Float32Array(int16.length)
-                    for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768
+                    const { decode } = require('silk-wasm')
+                    const silkBuf = await fs.promises.readFile(absPath)
+                    // decode 返回 { data: Int16Array, sampleRate: number }
+                    const result = await decode(silkBuf, 16000)
+                    const float32 = new Float32Array(result.data.length)
+                    for (let i = 0; i < result.data.length; i++) {
+                      float32[i] = result.data[i] / 32768
+                    }
                     const transcript = await this.silkAsrCallback(float32, 16000)
                     if (transcript) {
                       normalized.text = normalized.text

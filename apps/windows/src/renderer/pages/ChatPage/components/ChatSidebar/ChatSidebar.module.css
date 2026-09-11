@@ -63,6 +63,11 @@
 }
 
 .seg-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   flex: 1;
   height: 26px;
   border: none;
@@ -85,6 +90,39 @@
   color: var(--mt-accent-500);
   font-weight: var(--mt-fw-medium);
   box-shadow: var(--mt-shadow-xs);
+}
+
+/* 运行中指示：强调色小圆点 + 轻脉冲，用于 Tab / 折叠分组标题 */
+.running-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--mt-accent-500);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+  animation: mt-running-dot-pulse 1.8s ease-out infinite;
+}
+
+@keyframes mt-running-dot-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--mt-accent-500) 45%, transparent);
+    opacity: 1;
+  }
+  70% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--mt-accent-500) 0%, transparent);
+    opacity: 0.85;
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--mt-accent-500) 0%, transparent);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .running-dot {
+    animation: none;
+    box-shadow: none;
+  }
 }
 
 

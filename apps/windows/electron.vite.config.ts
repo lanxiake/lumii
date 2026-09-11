@@ -199,6 +199,8 @@ export default defineConfig({
           // MODULE_NOT_FOUND。内联则走它正确的 ESM 产物。
           // 其传递依赖 qrcode-terminal 由 resolve.alias 换成 stub（见下）。
           '@tencent-connect/qqbot-connector',
+          // silk-wasm（SILK 音频解码）必须外部化：WASM 二进制文件无法被 Rollup 内联打包
+          'silk-wasm',
         ]
       }),
     ],

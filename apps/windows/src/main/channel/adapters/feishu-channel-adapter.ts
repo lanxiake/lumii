@@ -439,6 +439,7 @@ export class FeishuChannelAdapter implements IChannelAdapter {
     if (cachedId) {
       const instances = this.bridge.getInstances()
       if (instances.some((i: { id: string }) => i.id === cachedId)) return cachedId
+      log.warn(`[getOrCreateInstance] 缓存实例已销毁，重建: ${cachedId}`)
       this.sessionToInstance.delete(sessionKey)
     }
     const instanceId = await this.bridge.createInstanceById('main', sessionKey, sessionKey)

@@ -51,7 +51,7 @@ function pcmToFloat32(buf: Buffer): Float32Array {
 /**
  * 判断是否 SILK 音频。
  *
- * ffmpeg 没有 SILK 解码器，这类文件必须交给 silk-sdk，否则 ffmpeg 直接报错。
+ * ffmpeg 没有 SILK 解码器，这类文件必须交给 silk-wasm，否则 ffmpeg 直接报错。
  * 微信/QQ 的 silk 可能在魔数前多一个 \x02 前缀，所以在头部若干字节里找而不是前缀匹配。
  */
 function isSilkAudio(head: Buffer): boolean {
@@ -84,15 +84,24 @@ export function describeHead(head: Buffer): string {
   return `hex=${hex} ascii="${ascii}"`
 }
 
-/** SILK → 16k 单声道 PCM Float32（走 silk-sdk，ffmpeg 不支持该格式） */
+/** SILK → 16k 单声道 PCM Float32（走 silk-wasm，纯 WASM 无需原生编译） */
 async function decodeSilk(absPath: string): Promise<Float32Array> {
-  // silk-sdk 含原生模块，随 electron-builder 打进 node_modules，运行时 require
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const silk = require('silk-sdk')
-  const silkBuf = await fs.readFile(absPath)
-  // decode 默认输出 24000Hz，传 fsHz 让它直接重采样到 16k
-  const pcmBuf: Buffer = silk.decode(silkBuf, { fsHz: 16000 })
-  return pcmToFloat32(pcmBuf)
+  try {
+    // silk-wasm 是纯 WASM 实现，无原生依赖
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { decode } = require('silk-wasm')
+    const silkBuf = await fs.readFile(absPath)
+    // decode 返回 { data: Int16Array, sampleRate: number }
+    const result = await decode(silkBuf, 16000)
+    // 转 Float32Array（[-1, 1)）
+    const f32 = new Float32Array(result.data.length)
+    for (let i = 0; i < result.data.length; i++) {
+      f32[i] = result.data[i] / 32768
+    }
+    return f32
+  } catch (e) {
+    throw new Error(`silk-wasm 解码失败: ${e instanceof Error ? e.message : String(e)}`)
+  }
 }
 
 /** 任意 ffmpeg 可解格式（amr / opus / m4a / mp3 …）→ 16k 单声道 PCM Float32 */
@@ -124,7 +133,7 @@ async function decodeViaFfmpeg(absPath: string): Promise<Float32Array> {
  * 语音文件 → 16k 单声道 PCM → ASR，返回识别文字。
  * 任一环节失败（解码失败/ffmpeg 缺失/ASR 返回空）都降级为 ''，不抛。
  *
- * 按内容嗅探格式：QQ 语音是 SILK（ffmpeg 解不了）走 silk-sdk，
+ * 按内容嗅探格式：QQ 语音是 SILK（ffmpeg 解不了）走 silk-wasm，
  * 其余（飞书 opus、企微 amr 等）交给 ffmpeg。不依赖扩展名，因为
  * 各渠道给的 filename 未必准。
  *
@@ -147,7 +156,7 @@ export async function transcribeVoiceFile(
     }
 
     const silk = isSilkAudio(head)
-    log.info(`[transcribeVoiceFile] 解码方式=${silk ? 'silk-sdk' : 'ffmpeg'} file=${path.basename(absPath)}`)
+    log.info(`[transcribeVoiceFile] 解码方式=${silk ? 'silk-wasm' : 'ffmpeg'} file=${path.basename(absPath)}`)
     const samples = silk ? await decodeSilk(absPath) : await decodeViaFfmpeg(absPath)
 
     const text = (await asr(samples, 16000)).trim()

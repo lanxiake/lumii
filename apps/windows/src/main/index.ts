@@ -1454,7 +1454,15 @@ async function initialize(): Promise<void> {
         feishuLoginService = new FeishuLoginService()
         await feishuLoginService.initialize()
         // 注入语音转文字回调（飞书 opus 语音消息 → ASR）
-        feishuLoginService.asrCallback = (absPath) => transcribeVoiceFile(absPath, (samples, sampleRate) => voiceCallService!.transcribePcm(samples, sampleRate))
+        // 模型未就绪时返回空字符串，不阻塞消息处理
+        feishuLoginService.asrCallback = async (absPath) => {
+          try {
+            return await transcribeVoiceFile(absPath, (samples, sampleRate) => voiceCallService!.transcribePcm(samples, sampleRate))
+          } catch (e) {
+            console.warn('[Feishu ASR] 转录失败（可能语音模型未下载）:', e instanceof Error ? e.message : String(e))
+            return ''
+          }
+        }
         const feishuChannelAdapter = new FeishuChannelAdapter(feishuLoginService, agentRuntimeBridge!)
         feishuChannelAdapter.startListening()
         feishuLoginService.on('statusChange', (status: string, session?: unknown) => {
@@ -1475,7 +1483,16 @@ async function initialize(): Promise<void> {
       try {
         qbotLoginService = new QbotLoginService()
         await qbotLoginService.initialize()
-        qbotLoginService.asrCallback = (absPath) => transcribeVoiceFile(absPath, (samples, sampleRate) => voiceCallService!.transcribePcm(samples, sampleRate))
+        // 注入语音转文字回调（QQ amr/silk 语音消息 → ASR）
+        // silk-wasm 未加载或模型未就绪时返回空字符串，不阻塞消息处理
+        qbotLoginService.asrCallback = async (absPath) => {
+          try {
+            return await transcribeVoiceFile(absPath, (samples, sampleRate) => voiceCallService!.transcribePcm(samples, sampleRate))
+          } catch (e) {
+            console.warn('[Qbot ASR] 转录失败（silk-wasm 未加载或语音模型未下载）:', e instanceof Error ? e.message : String(e))
+            return ''
+          }
+        }
         const qbotChannelAdapter = new QbotChannelAdapter(qbotLoginService, agentRuntimeBridge!)
         qbotChannelAdapter.startListening()
         qbotLoginService.on('statusChange', (status: string, session?: unknown) => {
