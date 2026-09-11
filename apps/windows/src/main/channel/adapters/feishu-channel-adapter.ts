@@ -35,12 +35,18 @@ import {
   buildChannelErrorMessage,
 } from '../channel-error-helper'
 import { markdownToPlainText } from '../../agent-runtime/cron-notify-format.js'
+import { resolveContinuityForChannel } from '../cross-channel-continuity'
+import { getChannelFeatures } from '../channel-feature-store'
 import {
   pendingAttachments,
   makePendingKey,
   ATTACHMENT_HELD_HINT,
   type PendingAttachment,
 } from '../pending-attachments'
+import {
+  getChannelVoiceAsrFailedHint,
+  isChannelVoiceAsrFailed,
+} from '../channel-voice-asr-hint.js'
 
 /**
  * 飞书专用 /new。
@@ -163,7 +169,7 @@ export class FeishuChannelAdapter implements IChannelAdapter {
     log.info('[startListening] 飞书消息监听已启动')
   }
 
-  /** 插队处理提问/审批答复与 /stop（详见 tryHandleChannelOutOfBand） */
+  /** 插队处理提问/审批/接续答复与 /stop（详见 tryHandleChannelOutOfBand） */
   private tryHandleOutOfBand(msg: FeishuNormalizedMessage): boolean {
     return tryHandleChannelOutOfBand({
       hub: this.interactionHub,
@@ -172,8 +178,17 @@ export class FeishuChannelAdapter implements IChannelAdapter {
       session: this.buildSession(msg),
       text: msg.text?.trim() ?? '',
       sessionManager: this.sessionManager,
+      continuity: this.continuity(),
       onError: (err) =>
         log.error(`[tryHandleOutOfBand] 失败: ${err instanceof Error ? err.message : String(err)}`),
+    })
+  }
+
+  /** 跨渠道接续状态机（§5.4）；开关每次读，设置页关掉即时生效 */
+  private continuity() {
+    return resolveContinuityForChannel({
+      enabled: getChannelFeatures().crossChannelContinuityEnabled,
+      bridge: this.bridge,
     })
   }
 
@@ -192,6 +207,16 @@ export class FeishuChannelAdapter implements IChannelAdapter {
     const userText = msg.text?.trim() ?? ''
     const pendingKey = makePendingKey('feishu', msg.channelUserId)
 
+    // 语音 ASR 失败：提示下载 Paraformer / 重说，不交给 Agent
+    if (isChannelVoiceAsrFailed(msg.type, msg.text)) {
+      const session = this.buildSession(msg)
+      log.info(`[handleMessage] 语音 ASR 失败，提示用户 channelUserId=${msg.channelUserId}`)
+      await this.sendTextReply(session, getChannelVoiceAsrFailedHint()).catch((err) => {
+        log.warn(`[handleMessage] 发送语音 ASR 提示失败: ${err instanceof Error ? err.message : String(err)}`)
+      })
+      return
+    }
+
     // 判定「有指令」：语音类型必须有转录文字，其他类型有文本即可
     let hasCommand = false
     const commandParts: string[] = []
@@ -200,7 +225,7 @@ export class FeishuChannelAdapter implements IChannelAdapter {
         hasCommand = true
         commandParts.push(`[语音转录: ${userText}]`)
       }
-      // 转录失败：算附件，不带 opus 路径（Agent 读不了）
+      // 转录失败已在上方拦截；此处仅处理成功转录
     } else {
       if (userText) {
         hasCommand = true
@@ -229,6 +254,18 @@ export class FeishuChannelAdapter implements IChannelAdapter {
         })
       }
       return
+    }
+
+    // 跨渠道接续询问（§5.4）：必须在 drain 之前扣住整条消息，
+    // 否则挂起附件已被取走，重放时只剩文本，附件丢失。
+    // 斜杠命令不问：它是明确的会话操作，不该被接续打断。
+    if (!userText.startsWith('/')) {
+      const asked = this.continuity()?.maybeAsk({
+        adapter: this,
+        session: this.buildSession(msg),
+        replay: () => void this.handleMessage(msg),
+      })
+      if (asked) return
     }
 
     // 有指令：取出挂起的附件合并

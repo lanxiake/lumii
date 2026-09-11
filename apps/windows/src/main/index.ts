@@ -161,6 +161,7 @@ import { VoiceModelManager } from './voice/model-manager.js'
 import { VoiceCallService } from './voice/voice-service.js'
 import { registerVoiceIpc } from './voice/voice-ipc.js'
 import { loadVoiceEngineConfig } from './voice/voice-config-store.js'
+import { setChannelAsrReadyChecker } from './channel/channel-voice-asr-hint.js'
 import { getWorkspaceVcs, resetWorkspaceVcs } from './workspace-vcs/vcs-snapshot'
 import { getProjectGitStatus } from './project-git/project-git-status'
 import { findBuiltInAgent, mapApiRecordToAgentDefinition } from '@mtbot/agent-runtime'
@@ -884,6 +885,8 @@ async function initAgentRuntime(): Promise<void> {
   )
   registerVoiceIpc(mainWindow!, voiceCallService, voiceModelManager, performanceMonitor ?? undefined)
   performanceMonitor?.recordStartupPhase('voice-service', performance.now() - voiceServiceStartTime)
+  // 渠道语音失败提示：按 Paraformer 是否已下载分流文案
+  setChannelAsrReadyChecker(() => voiceModelManager.isModelDownloaded('asr-paraformer-zh'))
   // 注入音频 ASR 转录能力到文件导入 IPC
   setAudioTranscribeCallback((base64, mimeType) => voiceCallService!.transcribeAudioBuffer(base64, mimeType))
   log.info('语音通话服务已注册')

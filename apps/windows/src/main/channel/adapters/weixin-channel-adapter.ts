@@ -44,6 +44,12 @@ import {
   ATTACHMENT_HELD_HINT,
   type PendingAttachment,
 } from '../pending-attachments'
+import { resolveContinuityForChannel } from '../cross-channel-continuity'
+import { getChannelFeatures } from '../channel-feature-store'
+import {
+  getChannelVoiceAsrFailedHint,
+  isWeixinSilkAsrFailed,
+} from '../channel-voice-asr-hint.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WeixinChannelAdapter]', ...args),
@@ -158,7 +164,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     log.info('[startListening] 微信消息监听已启动')
   }
 
-  /** 插队处理提问/审批答复与 /stop（详见 tryHandleChannelOutOfBand） */
+  /** 插队处理提问/审批/接续答复与 /stop（详见 tryHandleChannelOutOfBand） */
   private tryHandleOutOfBand(msg: WeixinNormalizedMessage): boolean {
     return tryHandleChannelOutOfBand({
       hub: this.interactionHub,
@@ -167,8 +173,17 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       session: this.buildSession(msg),
       text: msg.text?.trim() ?? '',
       sessionManager: this.sessionManager,
+      continuity: this.continuity(),
       onError: (err) =>
         log.error(`[tryHandleOutOfBand] 失败: ${err instanceof Error ? err.message : String(err)}`),
+    })
+  }
+
+  /** 跨渠道接续状态机（§5.4）；开关每次读，设置页关掉即时生效 */
+  private continuity() {
+    return resolveContinuityForChannel({
+      enabled: getChannelFeatures().crossChannelContinuityEnabled,
+      bridge: this.bridge,
     })
   }
 
@@ -212,6 +227,28 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       })
       .filter((a) => a.mediaPath)
 
+    // SILK 语音 ASR 失败：提示下载 Paraformer / 重说（可同时挂起其它附件）
+    if (
+      isWeixinSilkAsrFailed({
+        mediaLines,
+        transcript,
+        hasUserText: hasCommand,
+      })
+    ) {
+      const session = this.buildSession(msg)
+      log.info(`[handleMessage] 语音 ASR 失败，提示用户 channelUserId=${msg.channelUserId}`)
+      this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`)
+      this.bridge.notifyIncomingMessage(session.sessionKey, rawText)
+      this.bridge.notifyNavigateToSession(session.sessionKey)
+      if (currentAttachments.length > 0) {
+        pendingAttachments.add(pendingKey, currentAttachments)
+      }
+      await this.sendTextReply(session, getChannelVoiceAsrFailedHint()).catch((err) => {
+        log.warn(`[handleMessage] 发送语音 ASR 提示失败: ${err instanceof Error ? err.message : String(err)}`)
+      })
+      return
+    }
+
     if (!hasCommand && currentAttachments.length === 0) {
       log.info(`[handleMessage] 无指令/附件，跳过 channelUserId=${msg.channelUserId}`)
       return
@@ -234,6 +271,21 @@ export class WeixinChannelAdapter implements IChannelAdapter {
         })
       }
       return
+    }
+
+    // 跨渠道接续询问（§5.4）：必须在 drain 之前扣住整条消息，
+    // 否则挂起附件已被取走，重放时只剩文本，附件丢失。
+    // 斜杠命令不问：它是明确的会话操作，不该被接续打断。
+    if (!userTextOnly.startsWith('/')) {
+      const asked = this.continuity()?.maybeAsk({
+        adapter: this,
+        session: this.buildSession(msg),
+        replay: () => void this.handleMessage(msg),
+        // 微信有持久化绑定层，接续后重启仍生效（复用 /link 的存储）
+        bind: (channelUserId, conversationId) =>
+          this.bindingManager.bind(channelUserId, conversationId),
+      })
+      if (asked) return
     }
 
     // 有指令：取出挂起的附件合并

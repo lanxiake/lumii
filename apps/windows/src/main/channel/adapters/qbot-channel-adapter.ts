@@ -24,12 +24,18 @@ import {
   buildChannelErrorMessage,
 } from '../channel-error-helper'
 import { markdownToPlainText } from '../../agent-runtime/cron-notify-format.js'
+import { resolveContinuityForChannel } from '../cross-channel-continuity'
+import { getChannelFeatures } from '../channel-feature-store'
 import {
   pendingAttachments,
   makePendingKey,
   ATTACHMENT_HELD_HINT,
   type PendingAttachment,
 } from '../pending-attachments'
+import {
+  getChannelVoiceAsrFailedHint,
+  isChannelVoiceAsrFailed,
+} from '../channel-voice-asr-hint.js'
 
 const qbotNewCommand: CommandHandler = {
   description: '新建独立会话',
@@ -125,8 +131,17 @@ export class QbotChannelAdapter implements IChannelAdapter {
       session: this.buildSession(msg),
       text: msg.text?.trim() ?? '',
       sessionManager: this.sessionManager,
+      continuity: this.continuity(),
       onError: (err) =>
         log.error(`[tryHandleOutOfBand] 失败: ${err instanceof Error ? err.message : String(err)}`),
+    })
+  }
+
+  /** 跨渠道接续状态机（§5.4）；开关每次读，设置页关掉即时生效 */
+  private continuity() {
+    return resolveContinuityForChannel({
+      enabled: getChannelFeatures().crossChannelContinuityEnabled,
+      bridge: this.bridge,
     })
   }
 
@@ -143,6 +158,16 @@ export class QbotChannelAdapter implements IChannelAdapter {
     const mediaLine = msg.mediaPath ? `[media attached: ${msg.mediaPath}${msg.fileName ? ` (${msg.fileName})` : ''}]` : ''
 
     const pendingKey = makePendingKey('qbot', msg.channelUserId)
+
+    // 语音 ASR 失败：提示下载 Paraformer / 重说，不把「[语音消息]」交给 Agent
+    if (isChannelVoiceAsrFailed(msg.type, msg.text)) {
+      const session = this.buildSession(msg)
+      log.info(`[handleMessage] 语音 ASR 失败，提示用户 channelUserId=${msg.channelUserId}`)
+      await this.sendTextReply(session, getChannelVoiceAsrFailedHint()).catch((err) => {
+        log.warn(`[handleMessage] 发送语音 ASR 提示失败: ${err instanceof Error ? err.message : String(err)}`)
+      })
+      return
+    }
 
     // 判定「有指令」= 有用户文本（语音转录成功也会在 text 里）
     const hasCommand = userText.length > 0
@@ -170,6 +195,18 @@ export class QbotChannelAdapter implements IChannelAdapter {
         })
       }
       return
+    }
+
+    // 跨渠道接续询问（§5.4）：必须在 drain 之前扣住整条消息，
+    // 否则挂起附件已被取走，重放时只剩文本，附件丢失。
+    // 斜杠命令不问：它是明确的会话操作，不该被接续打断。
+    if (!userText.startsWith('/')) {
+      const asked = this.continuity()?.maybeAsk({
+        adapter: this,
+        session: this.buildSession(msg),
+        replay: () => void this.handleMessage(msg),
+      })
+      if (asked) return
     }
 
     // 有指令：取出挂起的附件合并
