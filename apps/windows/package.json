@@ -50,6 +50,7 @@
     "@mtbot/agent-runtime": "workspace:*",
     "@mtbot/browser-control": "workspace:*",
     "@mtbot/pet-core": "workspace:*",
+    "@tencent-connect/qqbot-connector": "1.2.0",
     "@wecom/aibot-node-sdk": "^1.0.7",
     "@xenova/transformers": "^2.17.2",
     "ajv": "^8.18.0",

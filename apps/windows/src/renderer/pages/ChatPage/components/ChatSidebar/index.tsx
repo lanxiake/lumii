@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { SessionItem } from '../SessionItem'
 import { ChannelBindModal } from '../ChannelBindModal'
 import { useAgents } from '../../../../hooks/business/useAgents/useAgents'
+import { useSettingsHub } from '../../../../components/SettingsHub'
 import type { ChatSession } from '../../../../hooks/business/useChat'
 import styles from './ChatSidebar.module.css'
 
@@ -89,6 +90,13 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
 
   const { agents } = useAgents()
   const agentsMap = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents])
+
+  const { openHub } = useSettingsHub()
+
+  /** QQ 渠道无扫码流程，引导到设置页填写凭证 */
+  const handleGoToQbotSettings = useCallback(() => {
+    openHub('settings', 'channels')
+  }, [openHub])
 
   /**
    * 搜索过滤后的会话。
@@ -249,7 +257,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
 
   return (
     <div className={styles['chat-sidebar']}>
-      <ChannelBindModal open={bindModalOpen} onClose={() => setBindModalOpen(false)} />
+      <ChannelBindModal open={bindModalOpen} onClose={() => setBindModalOpen(false)} onGoToQbotSettings={handleGoToQbotSettings} />
 
       {/* 默认 / 渠道 / 系统 三态切换 */}
       <div className={styles['session-seg']} role="tablist">

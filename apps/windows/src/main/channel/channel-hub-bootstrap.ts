@@ -19,7 +19,7 @@ import { QbotChannelProvider } from './providers/qbot-outbound-provider'
 
 export interface ChannelHubDeps {
   feishu: FeishuLoginService
-  weixin: WeixinLoginService
+  weixin?: WeixinLoginService
   wecom: WecomLoginService
   qbot?: QbotLoginService
   /** 客户端数据根（默认 ~/.lumii） */
@@ -58,7 +58,7 @@ export function createChannelHub(deps: ChannelHubDeps): ChannelHub {
   const registry = new ChannelRegistry()
   const wecomProvider = new WecomChannelProvider(deps.wecom)
   registry.register(new FeishuChannelProvider(deps.feishu))
-  registry.register(new WeixinChannelProvider(deps.weixin, weixinStore))
+  if (deps.weixin) registry.register(new WeixinChannelProvider(deps.weixin, weixinStore))
   registry.register(wecomProvider)
   if (deps.qbot) registry.register(new QbotChannelProvider(deps.qbot))
   const router = new ChannelOutboundRouter(registry)

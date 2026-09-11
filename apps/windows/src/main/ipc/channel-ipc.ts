@@ -92,19 +92,19 @@ export function registerChannelIpcHandlers(): void {
   // === QQ 机器人渠道 ===
   ipcMain.handle('qbot:startLogin', async () => {
     const qbotLoginService = deps!.getQbotLoginService()
-    if (!qbotLoginService) return null
+    if (!qbotLoginService) throw new Error('QQ 机器人服务尚未就绪，请稍后再试')
     return qbotLoginService.startLogin()
   })
 
   ipcMain.handle('qbot:saveCredentials', async (_event, appId: string, appSecret: string) => {
     const qbotLoginService = deps!.getQbotLoginService()
-    if (!qbotLoginService) return
+    if (!qbotLoginService) throw new Error('QQ 机器人服务尚未就绪，请稍后再试')
     return qbotLoginService.saveCredentials(appId, appSecret)
   })
 
   ipcMain.handle('qbot:logout', async () => {
     const qbotLoginService = deps!.getQbotLoginService()
-    if (!qbotLoginService) return
+    if (!qbotLoginService) throw new Error('QQ 机器人服务尚未就绪，请稍后再试')
     return qbotLoginService.logout()
   })
 

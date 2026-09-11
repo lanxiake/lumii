@@ -1386,6 +1386,10 @@ async function initialize(): Promise<void> {
   // 装配逻辑保留，失败仅记日志。channelHub 依赖三者实例，一并放入后台完成。
   setImmediate(() => {
     void (async () => {
+      // 声明 weixin 变量（在 try/catch 外层，供后续 channelHub 装配使用）
+      let weixinReplyContextStore: ReturnType<typeof createWeixinReplyContextStore> | undefined
+      let weixinChannelAdapter: WeixinChannelAdapter | undefined
+
       // 初始化微信(iLink)登录服务
       try {
         weixinLoginService = new WeixinLoginService()
@@ -1394,13 +1398,16 @@ async function initialize(): Promise<void> {
         weixinLoginService.silkAsrCallback = (samples, sampleRate) => voiceCallService!.transcribePcm(samples, sampleRate)
       } catch (err) {
         log.warn('微信(iLink)服务初始化失败:', err instanceof Error ? err.message : err)
-        return
+        // 不 return：微信失败不应阻断企微/飞书/QQ 的初始化
+        weixinLoginService = null as any
       }
+
+      if (weixinLoginService) {
 
       // 微信消息：通过 WeixinChannelAdapter 处理，支持完整斜杠命令集和 ACP 后端路由
       const weixinAcpBackendManager = new AcpBackendManager()
-      const weixinReplyContextStore = createWeixinReplyContextStore(resolveWindowsClientDataRoot())
-      const weixinChannelAdapter = new WeixinChannelAdapter(
+      weixinReplyContextStore = createWeixinReplyContextStore(resolveWindowsClientDataRoot())
+      weixinChannelAdapter = new WeixinChannelAdapter(
         weixinLoginService!,
         agentRuntimeBridge!,
         weixinAcpBackendManager,
@@ -1420,6 +1427,7 @@ async function initialize(): Promise<void> {
         mainWindow?.webContents.send('weixin:error', message)
       })
       log.info('微信(iLink)服务已初始化')
+      }
 
       // 初始化企业微信 AI Bot 扫码服务
       try {
@@ -1473,6 +1481,9 @@ async function initialize(): Promise<void> {
         qbotLoginService.on('statusChange', (status: string, session?: unknown) => {
           mainWindow?.webContents.send('qbot:statusChange', status, session)
         })
+        qbotLoginService.on('qrcode', (dataUrl: string) => {
+          mainWindow?.webContents.send('qbot:qrcode', dataUrl)
+        })
         qbotLoginService.on('error', (message: string) => {
           mainWindow?.webContents.send('qbot:error', message)
         })
@@ -1484,13 +1495,15 @@ async function initialize(): Promise<void> {
       // 装配渠道出站 Hub（Agent channel_list/send + cron 同源）
       channelHub = createChannelHub({
         feishu: feishuLoginService!,
-        weixin: weixinLoginService!,
+        weixin: weixinLoginService ?? undefined,
         wecom: wecomLoginService!,
         qbot: qbotLoginService ?? undefined,
         dataRoot: resolveWindowsClientDataRoot(),
         weixinStore: weixinReplyContextStore,
       })
-      weixinChannelAdapter.setReplyContextStore(channelHub.weixinStore)
+      if (weixinChannelAdapter) {
+        weixinChannelAdapter.setReplyContextStore(channelHub.weixinStore)
+      }
       log.info('渠道出站 Hub 已装配')
     })()
   })

@@ -27,6 +27,8 @@ interface ChannelRow {
 interface ChannelBindModalProps {
   open: boolean
   onClose: () => void
+  /** QQ 扫码失败降级手填时，导航到设置页填写 AppID/AppSecret */
+  onGoToQbotSettings?: () => void
 }
 
 const CHANNEL_DEFS: Array<Omit<ChannelRow, 'status' | 'detail'>> = [
@@ -52,7 +54,7 @@ const CHANNEL_DEFS: Array<Omit<ChannelRow, 'status' | 'detail'>> = [
     id: 'qbot',
     name: 'QQ',
     icon: 'QQ',
-    description: '扫码建应用或填写 AppID/AppSecret 接入',
+    description: '手机 QQ 扫码绑定已创建的机器人',
   },
 ]
 
@@ -68,7 +70,7 @@ function normalizeStatus(channel: BindableChannel, raw: string): ChannelRowStatu
   }
   if (raw === 'connected') return 'connected'
   if (raw === 'waiting_qrcode' || raw === 'scanned') return 'waiting'
-  // qbot 的 waiting_credential 表示扫码建应用失败、需手动填凭证；弹窗内无表单，归为异常态提示去设置页填写
+  // qbot 的 waiting_credential 表示扫码失败、需手动填凭证；弹窗内无表单，归为异常态提示去设置页填写
   if (raw === 'error' || raw === 'waiting_credential') return 'error'
   return 'idle'
 }
@@ -90,7 +92,7 @@ const STATUS_COLOR: Record<ChannelRowStatus, 'default' | 'success' | 'warning' |
 /**
  * 聊天页渠道快捷绑定弹窗。
  */
-export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClose }) => {
+export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClose, onGoToQbotSettings }) => {
   const [rows, setRows] = useState<ChannelRow[]>(() =>
     CHANNEL_DEFS.map((d) => ({ ...d, status: 'idle' as ChannelRowStatus })),
   )
@@ -255,8 +257,8 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClos
       window.qbotService?.onQrcode,
       window.qbotService?.onError,
       {
-        qr: '扫码建应用',
-        hint: '请使用手机 QQ 扫描二维码授权创建机器人',
+        qr: '扫码绑定 QQ 机器人',
+        hint: '请使用手机 QQ 扫码，并选择要绑定的机器人',
         done: ['connected'],
       },
     )
@@ -367,6 +369,16 @@ export const ChannelBindModal: React.FC<ChannelBindModalProps> = ({ open, onClos
                   {row.status === 'waiting' && qrDataUrl && (
                     <Button variant="secondary" size="sm" onClick={() => setQrOpen(true)}>
                       查看二维码
+                    </Button>
+                  )}
+                  {/* 扫码失败降级手填时，弹窗内没有表单，引导去设置页 */}
+                  {row.id === 'qbot' && row.status === 'error' && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => { onGoToQbotSettings?.(); onClose?.() }}
+                    >
+                      去设置页手填凭证
                     </Button>
                   )}
                 </div>

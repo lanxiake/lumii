@@ -193,6 +193,12 @@ export default defineConfig({
         exclude: [
           'electron-updater', 'ws', 'bufferutil', 'utf-8-validate', 'iconv-lite',
           '@mtbot/agent-runtime', '@mtbot/browser-control',
+          // @tencent-connect/qqbot-connector（QQ 扫码绑定）必须内联：它的 dist/cjs
+          // 缺少 {"type":"commonjs"} 标记，而 package.json 是 "type":"module"，
+          // 外部化后 Electron 主进程 require() 会把 CJS 产物当 ESM 解析并抛
+          // MODULE_NOT_FOUND。内联则走它正确的 ESM 产物。
+          // 其传递依赖 qrcode-terminal 由 resolve.alias 换成 stub（见下）。
+          '@tencent-connect/qqbot-connector',
         ]
       }),
     ],
@@ -244,6 +250,9 @@ export default defineConfig({
         '@mtbot/browser-control': resolve(ROOT, 'packages/browser-control/src/index.ts'),
         // src/browser/ 依赖的网关内部模块 → Windows 客户端 stubs
         // 使用绝对路径 alias 确保 Vite 能正确解析跨包引用
+        // qqbot-connector 的传递依赖，仅用于终端打印二维码；客户端用不到，
+        // 且其 CJS require 形式 Rollup 无法静态解析，内联会构建失败
+        'qrcode-terminal': resolve(__dirname, 'src/main/stubs/qrcode-terminal.ts'),
         [resolve(ROOT, 'src/logging/subsystem.js')]: resolve(__dirname, 'src/main/stubs/logging-subsystem.ts'),
         [resolve(ROOT, 'src/infra/ports.js')]: resolve(__dirname, 'src/main/stubs/infra-ports.ts'),
         [resolve(ROOT, 'src/utils.js')]: resolve(__dirname, 'src/main/stubs/utils.ts'),
