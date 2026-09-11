@@ -32,6 +32,24 @@
   font-weight: var(--mt-fw-semibold);
 }
 
+.tip-meta {
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--mt-border-hairline);
+  color: var(--mt-fg-3);
+  font-family: var(--mt-font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tip-model-meta {
+  margin: -1px 0 4px 16px;
+  color: var(--mt-fg-4);
+  font-family: var(--mt-font-mono);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
 .tip-row {
   display: grid;
   grid-template-columns: 8px 1fr auto;

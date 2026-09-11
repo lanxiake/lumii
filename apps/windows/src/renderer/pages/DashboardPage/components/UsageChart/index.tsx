@@ -70,9 +70,17 @@ interface ChartRow {
   costYuan: number
   unpricedCalls: number
   /** 全部模型的花费明细（含本桶无调用的模型，花费记 0），供 Tooltip 展示 */
-  byModel: Array<{ model: string; costYuan: number }>
+  byModel: Array<{
+    model: string
+    calls: number
+    costYuan: number
+    promptTokens: number
+    completionTokens: number
+    cacheReadTokens: number
+    cacheWriteTokens: number
+  }>
   /** 动态键：`${model}::in` / `${model}::out` */
-  [modelKey: string]: number | string | Array<{ model: string; costYuan: number }>
+  [modelKey: string]: number | string | ChartRow['byModel']
 }
 
 interface TipPayloadItem {
@@ -83,7 +91,7 @@ interface TipPayloadItem {
 }
 
 /**
- * 自定义悬停卡片：总计 + 按模型花费明细（降序，含 0 花费模型）
+ * 自定义悬停卡片：总计（费用 + 调用次数 + token）+ 按模型花费明细（降序，含 0 花费模型）
  */
 function UsageTooltip({
   active,
@@ -100,6 +108,10 @@ function UsageTooltip({
   const row = payload[0]?.payload
   if (!row) return null
 
+  const totalInput = row.byModel.reduce((sum, m) => sum + m.promptTokens, 0)
+  const totalCache = row.byModel.reduce((sum, m) => sum + m.cacheReadTokens, 0)
+  const totalOutput = row.byModel.reduce((sum, m) => sum + m.completionTokens, 0)
+
   return (
     <div className={styles.tip}>
       <div className={styles['tip-title']}>{label}</div>
@@ -108,11 +120,19 @@ function UsageTooltip({
         <span>总计</span>
         <b>{formatCostYuan(row.costYuan)}</b>
       </div>
+      <div className={styles['tip-meta']}>
+        {row.请求} 次 · 输入 {fmtTok(totalInput)} · 缓存 {fmtTok(totalCache)} · 输出 {fmtTok(totalOutput)}
+      </div>
       {row.byModel.map((m) => (
-        <div className={styles['tip-row']} key={m.model}>
-          <i style={{ background: colorForModel.get(m.model) ?? '#888' }} />
-          <span>{m.model}</span>
-          <b>{formatCostYuan(m.costYuan)}</b>
+        <div key={m.model}>
+          <div className={styles['tip-row']}>
+            <i style={{ background: colorForModel.get(m.model) ?? '#888' }} />
+            <span>{m.model}</span>
+            <b>{formatCostYuan(m.costYuan)}</b>
+          </div>
+          <div className={styles['tip-model-meta']}>
+            {m.calls}次 · 入{fmtTok(m.promptTokens)} · 缓{fmtTok(m.cacheReadTokens)} · 出{fmtTok(m.completionTokens)}
+          </div>
         </div>
       ))}
       {row.unpricedCalls > 0 ? (
@@ -173,7 +193,18 @@ export const UsageChart: React.FC<UsageChartProps> = ({ buckets, groupBy }) => {
           costYuan: b.costYuan,
           unpricedCalls: b.unpricedCalls,
           byModel: models
-            .map((m) => ({ model: m, costYuan: b.byModel.find((x) => x.model === m)?.costYuan ?? 0 }))
+            .map((m) => {
+              const stat = b.byModel.find((x) => x.model === m)
+              return {
+                model: m,
+                calls: stat?.calls ?? 0,
+                costYuan: stat?.costYuan ?? 0,
+                promptTokens: stat?.promptTokens ?? 0,
+                completionTokens: stat?.completionTokens ?? 0,
+                cacheReadTokens: stat?.cacheReadTokens ?? 0,
+                cacheWriteTokens: stat?.cacheWriteTokens ?? 0,
+              }
+            })
             .sort((a, b2) => b2.costYuan - a.costYuan),
         }
         for (const m of models) {

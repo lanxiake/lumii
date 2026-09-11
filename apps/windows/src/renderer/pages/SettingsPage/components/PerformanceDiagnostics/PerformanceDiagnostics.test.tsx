@@ -84,9 +84,22 @@ describe('PerformanceDiagnostics', () => {
     renderWithToast()
 
     await waitFor(() => {
-      expect(screen.getByText('42')).toBeInTheDocument() // 总调用数
-      expect(screen.getByText('85ms')).toBeInTheDocument() // 平均延迟
-      expect(screen.getByText('1000ms')).toBeInTheDocument() // 启动耗时
+      expect(screen.getByText('42')).toBeInTheDocument() // 总调用数（计数保持整数）
+      expect(screen.getByText('85.0ms')).toBeInTheDocument() // 平均延迟
+      expect(screen.getByText('1000.0ms')).toBeInTheDocument() // 启动耗时
+    })
+  })
+
+  it('should render durations and memory sizes with one decimal place', async () => {
+    renderWithToast()
+
+    await waitFor(() => {
+      expect(screen.getByText('100.0MB')).toBeInTheDocument() // 当前堆内存
+      expect(screen.getByText('150.0MB')).toBeInTheDocument() // 峰值堆内存
+      expect(screen.getByText('300.0MB')).toBeInTheDocument() // 当前 RSS
+      expect(screen.getByText('100.0ms')).toBeInTheDocument() // 启动阶段 preload
+      expect(screen.getByText('500.0ms')).toBeInTheDocument() // 启动阶段 window
+      expect(screen.getByText('20 次 · 平均 50.0ms')).toBeInTheDocument() // IPC 通道
     })
   })
 

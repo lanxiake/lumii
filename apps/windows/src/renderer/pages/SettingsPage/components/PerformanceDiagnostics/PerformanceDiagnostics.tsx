@@ -60,6 +60,11 @@ function bytesToMb(bytes: number): number {
   return Math.round((bytes / 1024 / 1024) * 10) / 10
 }
 
+/** 统一保留一位小数，避免同一面板出现 0 位、1 位与原始浮点混排 */
+function fixed1(value: number): string {
+  return value.toFixed(1)
+}
+
 interface MemoryChartRow {
   label: string
   rss: number
@@ -193,7 +198,9 @@ export const PerformanceDiagnostics: React.FC = () => {
         <div className={styles['perf-metrics']}>
           <div className={styles['perf-metric']}>
             <span className={styles['perf-metric-label']}>启动耗时</span>
-            <span className={styles['perf-metric-value']}>{report.startupStats.totalDuration}ms</span>
+            <span className={styles['perf-metric-value']}>
+              {fixed1(report.startupStats.totalDuration)}ms
+            </span>
           </div>
           <div className={styles['perf-metric']}>
             <span className={styles['perf-metric-label']}>总调用数</span>
@@ -202,7 +209,7 @@ export const PerformanceDiagnostics: React.FC = () => {
           <div className={styles['perf-metric']}>
             <span className={styles['perf-metric-label']}>平均延迟</span>
             <span className={styles['perf-metric-value']}>
-              {Math.round(report.ipcStats.averageLatency)}ms
+              {fixed1(report.ipcStats.averageLatency)}ms
             </span>
           </div>
           <div className={styles['perf-metric']}>
@@ -230,10 +237,10 @@ export const PerformanceDiagnostics: React.FC = () => {
                   tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
                   axisLine={false}
                   tickLine={false}
-                  width={44}
-                  tickFormatter={(v: number) => `${v}MB`}
+                  width={52}
+                  tickFormatter={(v: number) => `${fixed1(v)}MB`}
                 />
-                <Tooltip formatter={(v: number) => `${v}MB`} />
+                <Tooltip formatter={(v: number) => `${fixed1(v)}MB`} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Line
                   type="monotone"
@@ -284,10 +291,14 @@ export const PerformanceDiagnostics: React.FC = () => {
                   tick={{ fontSize: 10, fill: 'var(--color-text-secondary)' }}
                   axisLine={false}
                   tickLine={false}
-                  width={44}
-                  tickFormatter={(v: number) => `${v}ms`}
+                  width={52}
+                  tickFormatter={(v: number) => `${fixed1(v)}ms`}
                 />
-                <Tooltip />
+                <Tooltip
+                  formatter={(v: number, name: string) =>
+                    name === '平均延迟' ? `${fixed1(v)}ms` : `${v} 次`
+                  }
+                />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 {ipcChart.channels.map((channel, i) => (
                   <Bar
@@ -325,7 +336,7 @@ export const PerformanceDiagnostics: React.FC = () => {
               {Object.entries(report.startupStats.phases).map(([phase, duration]) => (
                 <div key={phase} className={styles['perf-item']}>
                   <span className={styles['perf-item-label']}>{phase}</span>
-                  <span className={styles['perf-item-value']}>{duration}ms</span>
+                  <span className={styles['perf-item-value']}>{fixed1(duration)}ms</span>
                 </div>
               ))}
             </div>
@@ -340,7 +351,7 @@ export const PerformanceDiagnostics: React.FC = () => {
                 <div key={channel} className={styles['perf-item']}>
                   <span className={styles['perf-item-label']}>{channel}</span>
                   <span className={styles['perf-item-meta']}>
-                    {stats.totalCalls} 次 · 平均 {Math.round(stats.averageDuration)}ms
+                    {stats.totalCalls} 次 · 平均 {fixed1(stats.averageDuration)}ms
                   </span>
                 </div>
               ))}
@@ -354,19 +365,19 @@ export const PerformanceDiagnostics: React.FC = () => {
             <div className={styles['perf-item']}>
               <span className={styles['perf-item-label']}>当前堆内存</span>
               <span className={styles['perf-item-value']}>
-                {(report.memoryStats.current.mainProcess.heapUsed / 1024 / 1024).toFixed(1)}MB
+                {fixed1(bytesToMb(report.memoryStats.current.mainProcess.heapUsed))}MB
               </span>
             </div>
             <div className={styles['perf-item']}>
               <span className={styles['perf-item-label']}>峰值堆内存</span>
               <span className={styles['perf-item-value']}>
-                {(report.memoryStats.peak.mainProcess.heapUsed / 1024 / 1024).toFixed(1)}MB
+                {fixed1(bytesToMb(report.memoryStats.peak.mainProcess.heapUsed))}MB
               </span>
             </div>
             <div className={styles['perf-item']}>
               <span className={styles['perf-item-label']}>当前 RSS</span>
               <span className={styles['perf-item-value']}>
-                {(report.memoryStats.current.mainProcess.rss / 1024 / 1024).toFixed(1)}MB
+                {fixed1(bytesToMb(report.memoryStats.current.mainProcess.rss))}MB
               </span>
             </div>
           </div>
