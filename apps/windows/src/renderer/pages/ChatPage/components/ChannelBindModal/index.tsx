@@ -67,8 +67,9 @@ function normalizeStatus(channel: BindableChannel, raw: string): ChannelRowStatu
     return 'idle'
   }
   if (raw === 'connected') return 'connected'
-  if (raw === 'waiting_qrcode' || raw === 'scanned' || raw === 'waiting_credential') return 'waiting'
-  if (raw === 'error') return 'error'
+  if (raw === 'waiting_qrcode' || raw === 'scanned') return 'waiting'
+  // qbot 的 waiting_credential 表示扫码建应用失败、需手动填凭证；弹窗内无表单，归为异常态提示去设置页填写
+  if (raw === 'error' || raw === 'waiting_credential') return 'error'
   return 'idle'
 }
 
