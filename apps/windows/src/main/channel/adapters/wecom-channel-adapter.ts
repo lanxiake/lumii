@@ -25,6 +25,12 @@ import {
   buildChannelErrorMessage,
 } from '../channel-error-helper'
 import { markdownToPlainText } from '../../agent-runtime/cron-notify-format.js'
+import {
+  pendingAttachments,
+  makePendingKey,
+  ATTACHMENT_HELD_HINT,
+  type PendingAttachment,
+} from '../pending-attachments'
 
 /**
  * 企微专用 /new：新建 wecom: 前缀会话。
@@ -184,17 +190,48 @@ export class WecomChannelAdapter implements IChannelAdapter {
    * 处理入站文本/媒体消息。
    */
   private async handleMessage(msg: WecomNormalizedMessage): Promise<void> {
-    // 拼入站 prompt：文本 / 语音转写 / 媒体附件行，与微信 adapter 同款语义
     const userText = msg.text?.trim() ?? ''
-    const mediaLine = msg.mediaPath ? `[media attached: ${msg.mediaPath}${msg.fileName ? ` (${msg.fileName})` : ''}]` : ''
-    const parts: string[] = []
-    if (userText) parts.push(userText)
-    if (mediaLine) parts.push(mediaLine)
-    if (parts.length === 0) {
+    const pendingKey = makePendingKey('wecom', msg.channelUserId)
+
+    // 判定「有指令」= 有用户文本
+    const hasCommand = userText.length > 0
+
+    // 当前消息的附件
+    const currentAttachments: PendingAttachment[] = msg.mediaPath
+      ? [{ mediaPath: msg.mediaPath, fileName: msg.fileName, at: Date.now() }]
+      : []
+
+    if (!hasCommand && currentAttachments.length === 0) {
       log.info(`[handleMessage] 无文本/媒体，跳过 channelUserId=${msg.channelUserId}`)
       return
     }
+
+    // 纯附件消息：挂起并提醒
+    if (!hasCommand) {
+      const isFirstOfBatch = pendingAttachments.add(pendingKey, currentAttachments)
+      log.info(
+        `[handleMessage] 纯附件消息已挂起 channelUserId=${msg.channelUserId} count=${pendingAttachments.count(pendingKey)}`,
+      )
+      if (isFirstOfBatch) {
+        const session = this.buildSession(msg)
+        await this.sendTextReply(session, ATTACHMENT_HELD_HINT).catch((err) => {
+          log.warn(`[handleMessage] 发送附件提醒失败: ${err instanceof Error ? err.message : String(err)}`)
+        })
+      }
+      return
+    }
+
+    // 有指令：取出挂起的附件合并
+    const pending = pendingAttachments.drain(pendingKey)
+    const allMediaLines = [...pending, ...currentAttachments].map(
+      (a) => `[media attached: ${a.mediaPath}${a.fileName ? ` (${a.fileName})` : ''}]`,
+    )
+    const parts: string[] = [userText, ...allMediaLines]
     const prompt = parts.join('\n')
+
+    if (pending.length > 0) {
+      log.info(`[handleMessage] 合并 ${pending.length} 个挂起附件 channelUserId=${msg.channelUserId}`)
+    }
 
     const session = this.buildSession(msg)
     log.info(`[handleMessage] sessionKey=${session.sessionKey} type=${msg.type} promptLen=${prompt.length}`)

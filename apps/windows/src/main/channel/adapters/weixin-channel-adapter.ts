@@ -38,6 +38,12 @@ import {
   extractMediaAttachmentLines,
   isPureMediaMessage,
 } from '../../weixin-message-utils.js'
+import {
+  pendingAttachments,
+  makePendingKey,
+  ATTACHMENT_HELD_HINT,
+  type PendingAttachment,
+} from '../pending-attachments'
 
 const log = {
   info: (...args: unknown[]) => console.log('[WeixinChannelAdapter]', ...args),
@@ -53,8 +59,6 @@ export class WeixinChannelAdapter implements IChannelAdapter {
   private readonly sessionToInstance = new Map<string, string>()
   /** channelUserId → 当前活跃 sessionKey */
   private readonly activeSession = new Map<string, string>()
-  /** channelUserId → 待合并的媒体附件行列表 */
-  private readonly pendingMediaLines = new Map<string, string[]>()
   /** channelUserId → 串行处理队列 */
   private readonly userQueues = new Map<string, Promise<void>>()
 
@@ -177,31 +181,75 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       return
     }
 
-    if (isPureMediaMessage(msg)) {
-      const mediaLines = extractMediaAttachmentLines(rawText)
-      const existing = this.pendingMediaLines.get(msg.channelUserId) ?? []
-      this.pendingMediaLines.set(msg.channelUserId, [...existing, ...mediaLines])
-      log.info(`[handleMessage] 纯媒体消息：缓存 ${mediaLines.length} 个附件 channelUserId=${msg.channelUserId}`)
-      const fileNames = mediaLines.map((l: string) => l.match(/\(([^)]+)\)\]$/)?.[1] ?? l).join('、')
-      const session = this.buildSession(msg)
-      // 通知渲染进程展示用户发来的文件消息，避免客户端对话出现消息断层
-      this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`)
-      this.bridge.notifyIncomingMessage(session.sessionKey, rawText)
-      this.bridge.notifyNavigateToSession(session.sessionKey)
-      await this.sendTextReply(session, `📎 已收到文件：${fileNames}\n请发送文字说明你想如何处理这些文件。`)
+    const pendingKey = makePendingKey('weixin', msg.channelUserId)
+
+    // 微信特殊：媒体行已在 login-service 并入 text，要拆回来
+    const mediaLines = extractMediaAttachmentLines(rawText)
+    const userTextOnly = rawText
+      .split('\n')
+      .filter((l) => !/^\[media attached:/.test(l.trim()) && !/^\[语音转录:/.test(l.trim()))
+      .join('\n')
+      .trim()
+
+    // 语音转录文字（hasUserText=true 时才有意义）
+    const transcriptMatch = rawText.match(/\[语音转录:\s*([^\]]+)\]/)
+    const transcript = transcriptMatch?.[1]?.trim() ?? ''
+
+    // 判定「有指令」= msg.hasUserText（这才是真实判空，避开媒体行干扰）
+    const hasCommand = msg.hasUserText === true
+
+    // 当前消息的附件（排除 .silk，Agent 读不了）
+    const currentAttachments: PendingAttachment[] = mediaLines
+      .filter((l) => !/^\[media attached: [^\]]*\.silk(?:\s*\([^)]*\))?\]$/.test(l.trim()))
+      .map((line) => {
+        const pathMatch = line.match(/\[media attached:\s*([^\]()]+)/)
+        const fileMatch = line.match(/\(([^)]+)\)\]$/)
+        return {
+          mediaPath: pathMatch?.[1]?.trim() ?? '',
+          fileName: fileMatch?.[1],
+          at: Date.now(),
+        }
+      })
+      .filter((a) => a.mediaPath)
+
+    if (!hasCommand && currentAttachments.length === 0) {
+      log.info(`[handleMessage] 无指令/附件，跳过 channelUserId=${msg.channelUserId}`)
       return
     }
 
-    // 合并缓存的媒体附件
-    const pending = this.pendingMediaLines.get(msg.channelUserId) ?? []
-    this.pendingMediaLines.delete(msg.channelUserId)
-    // 语音文件已转成文字，.silk 路径 Agent 读不了，附上只会当成噪声
-    const currentMediaLines = extractMediaAttachmentLines(rawText).filter(
-      (l) => !/^\[media attached: [^\]]*\.silk(?:\s*\([^)]*\))?\]$/.test(l.trim()),
+    // 纯附件消息：挂起并提醒
+    if (!hasCommand) {
+      const isFirstOfBatch = pendingAttachments.add(pendingKey, currentAttachments)
+      log.info(
+        `[handleMessage] 纯附件消息已挂起 channelUserId=${msg.channelUserId} count=${pendingAttachments.count(pendingKey)}`,
+      )
+      if (isFirstOfBatch) {
+        const session = this.buildSession(msg)
+        // 通知渲染进程展示用户消息，避免对话断层
+        this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`)
+        this.bridge.notifyIncomingMessage(session.sessionKey, rawText)
+        this.bridge.notifyNavigateToSession(session.sessionKey)
+        await this.sendTextReply(session, ATTACHMENT_HELD_HINT).catch((err) => {
+          log.warn(`[handleMessage] 发送附件提醒失败: ${err instanceof Error ? err.message : String(err)}`)
+        })
+      }
+      return
+    }
+
+    // 有指令：取出挂起的附件合并
+    const pending = pendingAttachments.drain(pendingKey)
+    const allMediaLines = [...pending, ...currentAttachments].map(
+      (a) => `[media attached: ${a.mediaPath}${a.fileName ? ` (${a.fileName})` : ''}]`,
     )
-    const userTextOnly = rawText.split('\n').filter((l) => !/^\[media attached:/.test(l.trim())).join('\n').trim()
-    const allMediaLines = [...pending, ...currentMediaLines]
-    const prompt = allMediaLines.length > 0 ? `${userTextOnly}\n${allMediaLines.join('\n')}`.trim() : rawText
+    // 指令部分 = 用户纯文本 + 语音转录（如果有）
+    const commandParts: string[] = []
+    if (userTextOnly) commandParts.push(userTextOnly)
+    if (transcript) commandParts.push(`[语音转录: ${transcript}]`)
+    const prompt = [...commandParts, ...allMediaLines].join('\n')
+
+    if (pending.length > 0) {
+      log.info(`[handleMessage] 合并 ${pending.length} 个挂起附件 channelUserId=${msg.channelUserId}`)
+    }
 
     const session = this.buildSession(msg)
     log.info(`[handleMessage] 开始处理消息: sessionKey=${session.sessionKey} promptLen=${prompt.length}`)
@@ -386,7 +434,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
 
   /** 清除媒体附件缓存（切换会话时调用） */
   clearPendingMedia(channelUserId: string): void {
-    this.pendingMediaLines.delete(channelUserId)
+    pendingAttachments.clear(makePendingKey('weixin', channelUserId))
   }
 
   /** 获取或创建 Agent 实例（复用同一实例保持对话历史） */
