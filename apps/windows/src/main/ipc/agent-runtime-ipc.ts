@@ -55,6 +55,7 @@ import {
   handleToolEvolutionMine,
   handleToolEvolutionGetEnabled,
   handleToolEvolutionSetFeatureEnabled,
+  handleToolEvolutionSetTriggerThreshold,
   handleToolEvolutionStats,
 } from './agent-runtime/tool-commands'
 import {
@@ -1391,6 +1392,9 @@ export async function handleCommand(
 
       case 'tool-evolution:set-feature-enabled':
         return handleToolEvolutionSetFeatureEnabled(bridge, command)
+
+      case 'tool-evolution:set-trigger-threshold':
+        return handleToolEvolutionSetTriggerThreshold(bridge, command)
 
       case 'tool-evolution:stats':
         return handleToolEvolutionStats(bridge)

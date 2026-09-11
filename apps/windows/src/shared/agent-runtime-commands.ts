@@ -1548,6 +1548,12 @@ export interface ToolEvolutionSetFeatureEnabledCommand {
   readonly enabled: boolean
 }
 
+/** 设置过去 24h 调用次数触发分析的频率阈值 */
+export interface ToolEvolutionSetTriggerThresholdCommand {
+  readonly type: 'tool-evolution:set-trigger-threshold'
+  readonly threshold: number
+}
+
 /** 获取工具进化统计数据（用于设置页展示） */
 export interface ToolEvolutionStatsCommand {
   readonly type: 'tool-evolution:stats'
@@ -1739,6 +1745,7 @@ export type AgentRuntimeCommand =
   | ToolEvolutionMineCommand
   | ToolEvolutionGetEnabledCommand
   | ToolEvolutionSetFeatureEnabledCommand
+  | ToolEvolutionSetTriggerThresholdCommand
   | ToolEvolutionStatsCommand
 
 // ============================================================

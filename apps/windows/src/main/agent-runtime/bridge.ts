@@ -948,7 +948,7 @@ export class AgentRuntimeBridge {
 
     const db = this.localDb.db
     // 查当前 executing 的 system-maintenance 目标
-    let goal = db
+    let goal: { id: string; type: string; description: string } | undefined | null = db
       .prepare<{ id: string; type: string; description: string }>(
         `SELECT id, type, description FROM autonomous_goals
          WHERE agent_id = 'assistant' AND type = 'system-maintenance' AND status = 'executing'

@@ -73,6 +73,8 @@ export const COMMAND_ALLOWLIST: ReadonlySet<string> = new Set([
   'tool-evolution:list', 'tool-evolution:confirm', 'tool-evolution:reject',
   'tool-evolution:set-enabled', 'tool-evolution:remove',
   'tool-evolution:simulate', 'tool-evolution:mine',
+  'tool-evolution:get-enabled', 'tool-evolution:set-feature-enabled',
+  'tool-evolution:set-trigger-threshold', 'tool-evolution:stats',
 ])
 
 /** 判断命令 type 是否在白名单内 */

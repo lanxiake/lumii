@@ -36,3 +36,26 @@
   color: var(--mt-fg-3, var(--color-text-tertiary));
   margin-left: 24px;
 }
+
+.thresholdRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 14px;
+}
+
+.thresholdLabel {
+  font-size: 13px;
+  color: var(--mt-fg-2, var(--color-text-secondary));
+}
+
+.thresholdInput {
+  width: 88px;
+  flex: 0 0 auto;
+}
+
+.thresholdSuffix {
+  font-size: 13px;
+  color: var(--mt-fg-3, var(--color-text-tertiary));
+}

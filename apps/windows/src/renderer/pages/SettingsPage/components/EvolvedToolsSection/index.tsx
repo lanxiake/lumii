@@ -31,6 +31,11 @@ interface PendingToolInfo {
   pattern: string
   commandTemplate: string
   createdAt: string
+  whenToUse?: string
+  whenNotToUse?: string
+  samples?: string[]
+  similarApproved?: string[]
+  lowValueReason?: string | null
 }
 
 interface ListResult {
@@ -146,7 +151,7 @@ export function EvolvedToolsSection() {
         <div className={settingsStyles.settingCardContent}>
           <p className={styles.intro}>
             自动挖掘高频 bash 命令，草拟参数化工具供 Agent 直接调用，降低命令编写出错率。
-            每日凌晨自动产出候选（最多 2 个），在此审批；已批准工具可随时禁用或删除。
+            在此审批候选；已批准工具可随时禁用或删除。
           </p>
 
           {loading && <p className={styles.status}>加载中…</p>}
@@ -249,8 +254,46 @@ export function EvolvedToolsSection() {
                       <span className={styles.toolName}>{p.name}</span>
                       <span className={styles.meta}>候选 · {new Date(p.createdAt).toLocaleDateString()}</span>
                     </div>
-                    <p className={styles.desc}>{p.description}</p>
+                    <p className={styles.desc}>
+                      <span className={styles.fieldLabel}>用途</span>
+                      {p.description}
+                    </p>
+                    {(p.whenToUse || p.whenNotToUse) && (
+                      <div className={styles.advice}>
+                        {p.whenToUse && (
+                          <p className={styles.adviceLine}>
+                            <span className={styles.fieldLabel}>建议使用</span>
+                            {p.whenToUse}
+                          </p>
+                        )}
+                        {p.whenNotToUse && (
+                          <p className={styles.adviceLine}>
+                            <span className={styles.fieldLabel}>不建议</span>
+                            {p.whenNotToUse}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {p.similarApproved && p.similarApproved.length > 0 && (
+                      <p className={styles.dupWarn}>
+                        疑似与已批准工具重复：{p.similarApproved.join('、')}。建议点「不用」。
+                      </p>
+                    )}
+                    {p.lowValueReason && (
+                      <p className={styles.dupWarn}>
+                        低价值候选：{p.lowValueReason}。建议点「不用」。
+                      </p>
+                    )}
                     <code className={styles.template}>{p.commandTemplate}</code>
+                    {p.samples && p.samples.length > 0 && (
+                      <ul className={styles.sampleList}>
+                        {p.samples.slice(0, 3).map((s) => (
+                          <li key={s}>
+                            <code className={styles.sampleCmd}>{s}</code>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                   <div className={styles.itemActions}>
                     <Button

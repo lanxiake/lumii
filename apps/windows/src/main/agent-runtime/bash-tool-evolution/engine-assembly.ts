@@ -11,26 +11,42 @@
  */
 
 import type { BrowserWindow } from 'electron'
-import { ToolEvolutionEngine } from './tool-evolution-engine'
+import { EVOLUTION_CONVERSATION_ID } from '@mtbot/agent-runtime'
+import {
+  ToolEvolutionEngine,
+  DEFAULT_TRIGGER_THRESHOLD,
+  TRIGGER_THRESHOLD_KEY,
+  clampTriggerThreshold,
+} from './tool-evolution-engine'
 import type { AgentRuntimeBridge } from '../bridge'
 import { agentRuntimeLog as log } from '../bridge-utils'
+import { showDesktopTaskNotification } from '../../desktop-notify'
 
 const ENABLED_KEY = 'tool-evolution.enabled'
 /** 每日挖掘时间（本地时间小时，默认凌晨 3 点） */
 const DAILY_HOUR = 3
 const DAY_MS = 24 * 60 * 60 * 1000
 
-/** 审批提问落库 + 推送到最近活跃会话（对话内审批） */
+/** 工具进化审批通知标题 */
+const TOOL_EVO_NOTIFY_TITLE = 'Lumii · 工具进化'
+
+/**
+ * 审批提问落库 + 推送到自主进化独白会话（不干扰用户当前对话）+ 系统桌面通知。
+ *
+ * 工具进化审批消息写入「自主进化 · 内心独白」会话（evolution:main），
+ * 不再注入用户当前活跃会话，避免打断正常对话上下文。
+ * 同时发送系统桌面通知，点击可跳转到进化会话查看详情。
+ */
 export function buildApprovalPromptEmitter(
   bridge: AgentRuntimeBridge,
   getMainWindow: () => BrowserWindow | null,
 ): (text: string) => void {
   return (text: string) => {
-    const sessionKey = bridge.getLastActiveConversationId()
-    if (!sessionKey) {
-      log.info(`[ToolEvolution] 无活跃会话，审批提问仅记日志: ${text.slice(0, 80)}`)
-      return
-    }
+    const sessionKey = EVOLUTION_CONVERSATION_ID
+
+    // 确保自主进化独白会话存在
+    bridge.ensureConversationExists(sessionKey, '自主进化 · 内心独白')
+
     const msgId = `tool-evo-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
     try {
       bridge.conversationRepo?.saveMessage?.({
@@ -42,6 +58,8 @@ export function buildApprovalPromptEmitter(
     } catch (err) {
       log.warn(`[ToolEvolution] 审批提问持久化失败: ${err instanceof Error ? err.message : String(err)}`)
     }
+
+    // IPC 推送到进化会话（若用户正在查看该会话则可实时看到）
     const win = getMainWindow()
     if (win && !win.isDestroyed()) {
       win.webContents.send('agent-runtime:event', {
@@ -55,6 +73,14 @@ export function buildApprovalPromptEmitter(
         },
       })
     }
+
+    // 系统桌面通知：提醒用户有待审批的工具候选
+    showDesktopTaskNotification(
+      TOOL_EVO_NOTIFY_TITLE,
+      text.slice(0, 120),
+      sessionKey,
+      { getMainWindow },
+    )
   }
 }
 
@@ -82,6 +108,16 @@ export function initToolEvolutionRuntime(deps: {
       return null
     }
 
+    const triggerThreshold = (() => {
+      try {
+        const raw = bridge.runtimeStateRepo.get(TRIGGER_THRESHOLD_KEY)
+        if (raw == null || raw === '') return DEFAULT_TRIGGER_THRESHOLD
+        return clampTriggerThreshold(Number(raw))
+      } catch {
+        return DEFAULT_TRIGGER_THRESHOLD
+      }
+    })()
+
     const engine = new ToolEvolutionEngine({
       bashCommandRepo: repo,
       callLLM: (prompt) => bridge.callLLM(prompt, undefined, 'tool_evolution'),
@@ -89,11 +125,12 @@ export function initToolEvolutionRuntime(deps: {
       unregisterTool: (name) => bridge.unregisterEvolvedTool(name),
       getRegisteredToolNames: () => bridge.getRegisteredToolNames(),
       emitApprovalPrompt: buildApprovalPromptEmitter(bridge, deps.getMainWindow),
+      triggerThreshold,
     })
 
     bridge.setToolEvolutionEngine(engine)
     engine.loadApprovedTools()
-    log.info('[ToolEvolution] 引擎已装配')
+    log.info(`[ToolEvolution] 引擎已装配（triggerThreshold=${triggerThreshold}）`)
 
     // M3：每日挖掘定时器（进程内，非持久 cron——重启后重新计时，可接受）
     const scheduleDaily = () => {

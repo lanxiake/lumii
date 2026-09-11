@@ -6,6 +6,11 @@
 
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
+import {
+  clampTriggerThreshold,
+  DEFAULT_TRIGGER_THRESHOLD,
+  TRIGGER_THRESHOLD_KEY,
+} from '../../agent-runtime/bash-tool-evolution/tool-evolution-engine'
 
 const log = {
   info: (...args: unknown[]) => console.log('[agent-runtime-ipc/tool-evolution]', ...args),
@@ -16,6 +21,22 @@ function getEngine(bridge: AgentRuntimeBridge) {
   const engine = bridge.getToolEvolutionEngine()
   if (!engine) throw new Error('ToolEvolutionEngine 未初始化')
   return engine
+}
+
+/** 从 runtime_state 读取触发阈值（非法/缺失时回落默认） */
+export function readStoredTriggerThreshold(bridge: AgentRuntimeBridge): number {
+  try {
+    const raw = bridge.runtimeStateRepo.get(TRIGGER_THRESHOLD_KEY)
+    if (raw == null || raw === '') return DEFAULT_TRIGGER_THRESHOLD
+    return clampTriggerThreshold(Number(raw))
+  } catch {
+    return DEFAULT_TRIGGER_THRESHOLD
+  }
+}
+
+/** 将触发阈值写入 runtime_state */
+function persistTriggerThreshold(bridge: AgentRuntimeBridge, threshold: number): void {
+  bridge.runtimeStateRepo.set(TRIGGER_THRESHOLD_KEY, String(threshold))
 }
 
 export function handleToolEvolutionList(
@@ -172,15 +193,21 @@ export async function handleToolEvolutionMine(
 
 export function handleToolEvolutionGetEnabled(
   bridge: AgentRuntimeBridge,
-): { ok: boolean; enabled: boolean; error?: string } {
+): { ok: boolean; enabled: boolean; triggerThreshold: number; error?: string } {
   try {
     const engine = getEngine(bridge)
     const enabled = engine.isFeatureEnabled()
-    log.info(`[tool-evolution:get-enabled] 当前状态: ${enabled}`)
-    return { ok: true, enabled }
+    const triggerThreshold = engine.getTriggerThreshold()
+    log.info(`[tool-evolution:get-enabled] 当前状态: ${enabled}, threshold=${triggerThreshold}`)
+    return { ok: true, enabled, triggerThreshold }
   } catch (err) {
     log.error('[tool-evolution:get-enabled] 失败:', err)
-    return { ok: false, enabled: false, error: err instanceof Error ? err.message : String(err) }
+    return {
+      ok: false,
+      enabled: false,
+      triggerThreshold: DEFAULT_TRIGGER_THRESHOLD,
+      error: err instanceof Error ? err.message : String(err),
+    }
   }
 }
 
@@ -195,6 +222,22 @@ export function handleToolEvolutionSetFeatureEnabled(
     return { ok: true }
   } catch (err) {
     log.error('[tool-evolution:set-feature-enabled] 失败:', err)
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export function handleToolEvolutionSetTriggerThreshold(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'tool-evolution:set-trigger-threshold' }>,
+): { ok: boolean; threshold?: number; error?: string } {
+  try {
+    const engine = getEngine(bridge)
+    const threshold = engine.setTriggerThreshold(command.threshold)
+    persistTriggerThreshold(bridge, threshold)
+    log.info(`[tool-evolution:set-trigger-threshold] 已设为 ${threshold}`)
+    return { ok: true, threshold }
+  } catch (err) {
+    log.error('[tool-evolution:set-trigger-threshold] 失败:', err)
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 }

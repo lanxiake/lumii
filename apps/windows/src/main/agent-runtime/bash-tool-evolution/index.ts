@@ -4,7 +4,15 @@
  * 详见 docs/plans/2026-09-08-bash-命令工具进化-design.md
  */
 
-export { ToolEvolutionEngine, buildApprovalPrompt } from './tool-evolution-engine'
+export {
+  ToolEvolutionEngine,
+  buildApprovalPrompt,
+  clampTriggerThreshold,
+  DEFAULT_TRIGGER_THRESHOLD,
+  MIN_TRIGGER_THRESHOLD,
+  MAX_TRIGGER_THRESHOLD,
+  TRIGGER_THRESHOLD_KEY,
+} from './tool-evolution-engine'
 export type { ToolEvolutionEngineDeps, MiningSummary } from './tool-evolution-engine'
 export {
   loadPendingDrafts,

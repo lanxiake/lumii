@@ -83,6 +83,54 @@
   word-break: break-all;
 }
 
+.fieldLabel {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mt-fg-3, #718096);
+}
+
+.advice {
+  margin: 0 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.adviceLine {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--mt-fg-2, #4a5568);
+}
+
+.dupWarn {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+}
+
+.sampleList {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sampleCmd {
+  font-family: var(--mt-font-mono, Consolas, Monaco, monospace);
+  font-size: 11px;
+  color: var(--mt-fg-3, #718096);
+  word-break: break-all;
+}
+
 .template {
   display: block;
   padding: 6px 10px;

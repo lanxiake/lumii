@@ -37,8 +37,15 @@ vi.mock('./tool-writer', () => ({
   newDraftId: () => 'draft-1',
 }))
 
-import { ToolEvolutionEngine, canonicalizeParamSlots } from './tool-evolution-engine'
+import {
+  ToolEvolutionEngine,
+  buildApprovalPrompt,
+  canonicalizeParamSlots,
+  clampTriggerThreshold,
+  DEFAULT_TRIGGER_THRESHOLD,
+} from './tool-evolution-engine'
 import type { ToolEvolutionEngineDeps } from './tool-evolution-engine'
+import type { PendingToolDraft } from './tool-writer'
 
 const PATTERN_SAMPLES = [
   'pnpm --filter ./apps/windows build',
@@ -123,6 +130,10 @@ describe('runMiningCycle', () => {
     expect(prompts.length).toBe(1)
     expect(prompts[0]).toContain('pnpm-build')
     expect(prompts[0]).toContain('启用')
+    expect(prompts[0]).toContain('构建指定的 workspace 包')
+    expect(prompts[0]).toContain('需要重新构建某个包时')
+    expect(prompts[0]).toContain('只想跑测试时不要用')
+    expect(prompts[0]).toContain('pnpm --filter {{pkg}} build')
   })
 
   it('数据不足时静默跳过', async () => {
@@ -178,6 +189,132 @@ describe('runMiningCycle', () => {
     expect(summary.patternsFound).toBe(1)
     expect(engine.pendingCount).toBe(0)
     expect(prompts.length).toBe(0)
+  })
+
+  it('草拟后的 commandTemplate 与已批准工具等价时跳过（不只比 pattern）', async () => {
+    // 已批准模板有两个粘连占位符；挖掘 pattern 只有一个 {{path}}，预检不会命中
+    approvedStore.push({
+      name: 'workspace-package-builder',
+      description: '构建指定 workspace 包并可附加额外 flags',
+      parameters: {
+        type: 'object',
+        properties: {
+          pkg: { type: 'string' },
+          extraFlags: { type: 'string' },
+        },
+      },
+      commandTemplate: 'workspace-package-builder {{pkg}}{{extraFlags}}',
+      isReadOnly: false,
+      needsPermission: true,
+      status: 'approved',
+      samples: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      approvedAt: '2026-01-01T00:00:00.000Z',
+    })
+
+    const repo = makeRepo()
+    const samples = [
+      'workspace-package-builder ./apps/windows',
+      'workspace-package-builder ./packages/agent-runtime',
+      'workspace-package-builder ./apps/windows',
+      'workspace-package-builder ./packages/agent-runtime',
+      'workspace-package-builder ./apps/windows',
+    ]
+    for (const command of samples) {
+      repo.log({
+        agentId: 'agent-1',
+        toolCallId: `tc-${Math.random()}`,
+        command,
+        isError: false,
+        durationMs: 100,
+      })
+    }
+
+    const draftJson = JSON.stringify({
+      name: 'workspace-pkg-builder',
+      description: '构建指定 workspace 包并可附加额外 flags',
+      whenToUse: '需要构建包时',
+      whenNotToUse: '只需类型检查时',
+      parameters: {
+        type: 'object',
+        properties: {
+          app: { type: 'string', description: '包路径' },
+          flags: { type: 'string', description: '额外 flags' },
+        },
+      },
+      commandTemplate: 'workspace-package-builder {{app}}{{flags}}',
+      isReadOnly: false,
+    })
+
+    const engine = new ToolEvolutionEngine({
+      bashCommandRepo: repo,
+      callLLM: async () => draftJson,
+      registerEvolvedTool: () => {},
+      unregisterTool: () => {},
+      getRegisteredToolNames: () => ['bash'],
+      emitApprovalPrompt: () => {},
+    })
+    const summary = await engine.runMiningCycle()
+    expect(summary.drafted).toBe(0)
+    expect(engine.pendingCount).toBe(0)
+  })
+})
+
+describe('buildApprovalPrompt', () => {
+  it('包含用途、AI 建议、模板与样本', () => {
+    const draft: PendingToolDraft = {
+      name: 'pnpm-build',
+      description: '构建指定的 workspace 包',
+      whenToUse: '需要重新构建某个包时',
+      whenNotToUse: '只想跑测试时不要用',
+      parameters: {
+        type: 'object',
+        properties: { pkg: { type: 'string', description: '包路径' } },
+      },
+      commandTemplate: 'pnpm --filter {{pkg}} build',
+      isReadOnly: false,
+      pattern: 'pnpm --filter {{path}} build',
+      samples: [
+        'pnpm --filter ./apps/windows build',
+        'pnpm --filter ./packages/agent-runtime build',
+      ],
+      createdAt: '2026-09-11T00:00:00.000Z',
+      draftId: 'd1',
+    }
+    const text = buildApprovalPrompt(draft)
+    expect(text).toContain('用途：构建指定的 workspace 包')
+    expect(text).toContain('建议使用：需要重新构建某个包时')
+    expect(text).toContain('不建议：只想跑测试时不要用')
+    expect(text).toContain('pnpm --filter {{pkg}} build')
+    expect(text).toContain('pnpm --filter ./apps/windows build')
+    expect(text).toContain('启用')
+    expect(text).toContain('不用')
+  })
+})
+
+describe('triggerThreshold', () => {
+  it('clampTriggerThreshold 限制在 10–500', () => {
+    expect(clampTriggerThreshold(5)).toBe(10)
+    expect(clampTriggerThreshold(50)).toBe(50)
+    expect(clampTriggerThreshold(999)).toBe(500)
+    expect(clampTriggerThreshold(12.6)).toBe(13)
+    expect(clampTriggerThreshold(Number.NaN)).toBe(DEFAULT_TRIGGER_THRESHOLD)
+  })
+
+  it('setTriggerThreshold 立即影响 getTriggerThreshold', async () => {
+    const { engine } = await makeEngine()
+    expect(engine.getTriggerThreshold()).toBe(DEFAULT_TRIGGER_THRESHOLD)
+    expect(engine.setTriggerThreshold(20)).toBe(20)
+    expect(engine.getTriggerThreshold()).toBe(20)
+    expect(engine.setTriggerThreshold(3)).toBe(10)
+  })
+
+  it('未达阈值时 checkAndTriggerIfNeeded 不触发挖掘', async () => {
+    const { engine, repo } = await makeEngine()
+    engine.setTriggerThreshold(100)
+    // makeEngine 只写入 5 条样本，远低于 100
+    const triggered = await engine.checkAndTriggerIfNeeded(repo)
+    expect(triggered).toBe(false)
   })
 })
 
@@ -275,6 +412,59 @@ describe('管理方法（设置页 UI）', () => {
     expect(tools[0]?.sampleCount).toBe(1)
     expect(pending).toHaveLength(1)
     expect(pending[0]?.commandTemplate).toBe('pnpm --filter {{pkg}} build')
+    expect(pending[0]?.whenToUse).toBe('需要重新构建某个包时')
+    expect(pending[0]?.whenNotToUse).toBe('只想跑测试时不要用')
+    expect(pending[0]?.samples?.length).toBeGreaterThan(0)
+    expect(pending[0]?.similarApproved).toEqual([])
+  })
+
+  it('listEvolvedTools 对待审模板标注疑似重复的已批准工具', async () => {
+    approvedStore.push(
+      structuredClone({
+        ...approvedDef,
+        name: 'run-powershell-outputs-script',
+        commandTemplate:
+          'powershell -NoProfile -ExecutionPolicy Bypass -File outputs\\{{scriptFile}}{{postCommand}}',
+      }),
+    )
+    pendingStore.push({
+      name: 'run-outputs-temp-ps1',
+      description: '执行 outputs 目录下的临时 PowerShell 脚本',
+      whenToUse: '跑临时 ps1',
+      whenNotToUse: '已有同类工具时',
+      parameters: { type: 'object', properties: {} },
+      commandTemplate:
+        'powershell -NoProfile -ExecutionPolicy Bypass -File outputs\\{{tmp_script}}{{chained_action}}',
+      isReadOnly: false,
+      pattern: 'powershell ...',
+      samples: ['powershell -NoProfile -ExecutionPolicy Bypass -File outputs\\a.ps1'],
+      createdAt: '2026-09-11T00:00:00.000Z',
+      draftId: 'd-dup',
+    } as never)
+
+    const { engine } = await makeEngine()
+    const { pending } = engine.listEvolvedTools()
+    expect(pending[0]?.similarApproved).toContain('run-powershell-outputs-script')
+  })
+
+  it('listEvolvedTools 对开放式低价值待审标注 lowValueReason', async () => {
+    pendingStore.push({
+      name: 'run-node-command-chain',
+      description: '按参数串联执行最多三个 node 命令',
+      whenToUse: '需要连跑 node 时',
+      whenNotToUse: '单次调用时',
+      parameters: { type: 'object', properties: {} },
+      commandTemplate: 'node {{first_node_args}}{{node_chain_1}}{{node_chain_2}}',
+      isReadOnly: false,
+      pattern: 'node ...',
+      samples: ['node a.js'],
+      createdAt: '2026-09-11T00:00:00.000Z',
+      draftId: 'd-open',
+    } as never)
+
+    const { engine } = await makeEngine()
+    const { pending } = engine.listEvolvedTools()
+    expect(pending[0]?.lowValueReason).toMatch(/解释器|开放/)
   })
 
   it('setToolEnabled 禁用后 list 反映状态且可重新启用', async () => {

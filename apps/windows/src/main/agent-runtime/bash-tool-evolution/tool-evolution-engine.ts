@@ -19,6 +19,7 @@ import {
   draftToolFromPattern,
   mineCommandPatterns,
   normalizeCommand,
+  openTemplateRejectionReason,
   refinePatternWithLLM,
   type CommandSample,
   type TemplateToolDefinition,
@@ -52,6 +53,21 @@ export interface ToolEvolutionEngineDeps {
   maxCandidatesPerRun?: number
   /** 待审批队列积压上限，超过则暂停草拟（默认 5） */
   maxPendingQueue?: number
+  /** 过去 24h 累计调用触发挖掘的阈值（默认 50，范围 10–500） */
+  triggerThreshold?: number
+}
+
+/** 默认：过去 24h 累计 50 次 bash 调用触发一次分析 */
+export const DEFAULT_TRIGGER_THRESHOLD = 50
+export const MIN_TRIGGER_THRESHOLD = 10
+export const MAX_TRIGGER_THRESHOLD = 500
+/** runtime_state 键：过去 24h 调用次数触发阈值 */
+export const TRIGGER_THRESHOLD_KEY = 'tool-evolution.trigger-threshold'
+
+/** 将用户输入的触发阈值钳制到合法范围 */
+export function clampTriggerThreshold(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_TRIGGER_THRESHOLD
+  return Math.min(MAX_TRIGGER_THRESHOLD, Math.max(MIN_TRIGGER_THRESHOLD, Math.round(value)))
 }
 
 export interface MiningSummary {
@@ -81,20 +97,55 @@ export function canonicalizeParamSlots(template: string): string {
   return template.replace(/\{\{[^}]+\}\}/g, '{{p}}')
 }
 
+/**
+ * 组装对话内 / 通知用的审批文案：用途、AI 建议、模板与样本。
+ */
 export function buildApprovalPrompt(draft: PendingToolDraft): string {
-  return (
-    `检测到命令模式 \`${draft.pattern}\` 最近被高频使用（样本 ${draft.samples.length} 条），` +
-    `已草拟参数化工具「${draft.name}」。\n` +
-    `回复「启用」将其注册为系统工具（之后 Agent 直接调用，不再重写命令）；回复「不用」丢弃。`
+  const samples = draft.samples.slice(0, 3).map((s) => `  - ${s}`).join('\n')
+  const whenToUse = draft.whenToUse?.trim()
+  const whenNotToUse = draft.whenNotToUse?.trim()
+  const lines = [
+    `检测到命令模式最近被高频使用（样本 ${draft.samples.length} 条），已草拟参数化工具「${draft.name}」。`,
+    ``,
+    `用途：${draft.description}`,
+  ]
+  if (whenToUse) lines.push(`建议使用：${whenToUse}`)
+  if (whenNotToUse) lines.push(`不建议：${whenNotToUse}`)
+  lines.push(`命令模板：\`${draft.commandTemplate}\``)
+  if (samples) {
+    lines.push(`真实样本：`)
+    lines.push(samples)
+  }
+  lines.push(``)
+  lines.push(
+    `回复「启用」将其注册为系统工具（之后 Agent 直接调用，不再重写命令）；回复「不用」丢弃。`,
   )
+  return lines.join('\n')
+}
+
+/**
+ * 找出与候选模板等价（参数位归一后相同）的已批准工具名。
+ */
+export function findSimilarApprovedTools(
+  commandTemplate: string,
+  approved: Array<{ name: string; commandTemplate: string }>,
+): string[] {
+  const canonical = canonicalizeParamSlots(commandTemplate)
+  return approved
+    .filter((t) => canonicalizeParamSlots(t.commandTemplate) === canonical)
+    .map((t) => t.name)
 }
 
 export class ToolEvolutionEngine extends EventEmitter {
   private readonly pending: PendingToolDraft[] = []
   private featureEnabled: boolean = true
+  private triggerThreshold: number
 
   constructor(private readonly deps: ToolEvolutionEngineDeps) {
     super()
+    this.triggerThreshold = clampTriggerThreshold(
+      deps.triggerThreshold ?? DEFAULT_TRIGGER_THRESHOLD,
+    )
     // 启动时恢复待审批队列
     this.pending.push(...loadPendingDrafts())
     log.info(`[ToolEvolution] 恢复待审批候选 ${this.pending.length} 条`)
@@ -199,6 +250,16 @@ export class ToolEvolutionEngine extends EventEmitter {
       })
       if (!draft) {
         summary.gatedOut++
+        continue
+      }
+
+      // 草拟后的 commandTemplate 再与已批准 / 待审队列去重（pattern 预检可能漏掉参数位差异）
+      const draftCanonical = canonicalizeParamSlots(draft.commandTemplate)
+      if (
+        approvedCanonical.has(draftCanonical) ||
+        this.pending.some((d) => canonicalizeParamSlots(d.commandTemplate) === draftCanonical)
+      ) {
+        log.info(`[ToolEvolution] 草稿模板与已有工具等价，跳过 name=${draft.name}`)
         continue
       }
 
@@ -307,9 +368,19 @@ export class ToolEvolutionEngine extends EventEmitter {
       pattern: string
       commandTemplate: string
       createdAt: string
+      whenToUse?: string
+      whenNotToUse?: string
+      samples: string[]
+      similarApproved: string[]
+      /** 开放式低价值模板原因（已入队历史候选也可能命中） */
+      lowValueReason: string | null
     }>
   } {
     const stored = loadStoredTools()
+    const approvedForSimilarity = stored.map(({ def }) => ({
+      name: def.name,
+      commandTemplate: def.commandTemplate,
+    }))
 
     return {
       tools: stored.map(({ def, status }) => ({
@@ -327,6 +398,11 @@ export class ToolEvolutionEngine extends EventEmitter {
         pattern: d.pattern,
         commandTemplate: d.commandTemplate,
         createdAt: d.createdAt,
+        whenToUse: d.whenToUse,
+        whenNotToUse: d.whenNotToUse,
+        samples: d.samples.slice(0, 5),
+        similarApproved: findSimilarApprovedTools(d.commandTemplate, approvedForSimilarity),
+        lowValueReason: openTemplateRejectionReason(d.commandTemplate),
       })),
     }
   }
@@ -374,6 +450,21 @@ export class ToolEvolutionEngine extends EventEmitter {
   setFeatureEnabled(enabled: boolean): void {
     this.featureEnabled = enabled
     log.info(`[ToolEvolution] 功能已${enabled ? '启用' : '禁用'}`)
+  }
+
+  /** 获取过去 24h 调用次数触发阈值 */
+  getTriggerThreshold(): number {
+    return this.triggerThreshold
+  }
+
+  /**
+   * 设置过去 24h 调用次数触发阈值（钳制到 10–500）。
+   * 返回实际生效值。
+   */
+  setTriggerThreshold(value: number): number {
+    this.triggerThreshold = clampTriggerThreshold(value)
+    log.info(`[ToolEvolution] 触发阈值已更新为 ${this.triggerThreshold}`)
+    return this.triggerThreshold
   }
 
   /** 获取统计数据（用于设置页展示） */
@@ -427,12 +518,11 @@ export class ToolEvolutionEngine extends EventEmitter {
 
   /**
    * 实时触发检查：在记录新命令后调用，检查是否应该触发挖掘。
-   * 阈值策略：过去 24 小时内累计达到一定次数（默认 50 次）时触发一次分析。
+   * 阈值策略：过去 24 小时内累计达到 triggerThreshold 次时触发一次分析。
    * 为避免频繁触发，使用简单的冷却机制：触发后 1 小时内不再检查。
    */
   private lastTriggerCheckTime = 0
   private readonly triggerCooldownMs = 60 * 60 * 1000 // 1 小时冷却
-  private readonly triggerThreshold = 50 // 过去 24h 累计 50 次调用触发
 
   async checkAndTriggerIfNeeded(repo: BashCommandRepo): Promise<boolean> {
     // 功能未启用时跳过
