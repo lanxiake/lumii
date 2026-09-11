@@ -444,6 +444,7 @@ export {
   diffLines,
   WikiCleanupScanner,
   shouldSkipWikiIngestPath,
+  resolveWikiAutoIngestItemType,
   DEFAULT_EXCLUDED_WIKI_INGEST_EXTENSIONS,
   resolveWikiSourceFileExists,
   listBrokenWikiSources,

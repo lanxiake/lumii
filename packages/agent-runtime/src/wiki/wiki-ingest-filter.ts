@@ -57,6 +57,23 @@ export function stripWikiRefSuffix(fileName: string): string {
 }
 
 /**
+ * 自动摄入的目录白名单：只有工作区 uploads/ 与 outputs/ 下的文件会被自动收录。
+ * skills/、projects/、files/、system/ 等目录里的文件由 Agent 自行维护，
+ * 自动灌进 Wiki 只会引入脏数据；需要收录时走手动文件夹导入。
+ *
+ * 同时兼容两种路径形态：相对工作区根（uploads/2026-01-01/a.pdf）与绝对路径
+ * （C:\...\workspace\outputs\未归类\a.md）。
+ *
+ * @returns 命中白名单时返回对应的条目类型；不在白名单内返回 null。
+ */
+export function resolveWikiAutoIngestItemType(sourcePath: string): "upload" | "output" | null {
+  const normalized = sourcePath.replace(/\\/g, "/").toLowerCase();
+  if (normalized.startsWith("uploads/") || normalized.includes("/uploads/")) return "upload";
+  if (normalized.startsWith("outputs/") || normalized.includes("/outputs/")) return "output";
+  return null;
+}
+
+/**
  * 判断路径是否应跳过 Wiki 自动摄入。
  * @returns 跳过原因字符串；null 表示可摄入。
  */

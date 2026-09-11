@@ -17,6 +17,7 @@ import {
   diffTurnSnapshots,
   finalizeAssistantParts,
   providerPromptTokens,
+  resolveWikiAutoIngestItemType,
   shouldSkipWikiIngestPath,
 } from '@mtbot/agent-runtime'
 import { convertOldEventToIpcEvents, parseThinkTagsFromRaw, type RunContext } from './event-converter'
@@ -531,15 +532,15 @@ export function createAgentInstanceRuntimeEventHandler(
             log.error(`[file:created] 注册文件元数据失败 instanceId=${instanceId}:`, err)
           })
       }
-      // Wiki 摄入（P0）：上传/产物文件写入后同步插入收件箱，钩子内部已吞异常，此处不额外 try-catch
+      // Wiki 摄入（P0）：只收 uploads/ 与 outputs/ 下的文件，skills/ 等其余目录不自动入库，
+      // 避免脏数据灌进收件箱；钩子内部已吞异常，此处不额外 try-catch
       if (isContentWriteTool && !event.isError) {
         if (writtenPath) {
-          const hook = getWikiIngestHook()
-          const normalized = writtenPath.replace(/\\/g, '/').toLowerCase()
-          const isUpload = normalized.startsWith('uploads/') || normalized.includes('/uploads/')
+          const itemType = resolveWikiAutoIngestItemType(writtenPath)
           const title = writtenPath.split(/[/\\]/).pop() ?? writtenPath
-          if (!shouldSkipWikiIngestPath(writtenPath, title)) {
-            hook?.[isUpload ? 'ingestUpload' : 'ingestOutput'](
+          if (itemType && !shouldSkipWikiIngestPath(writtenPath, title)) {
+            const hook = getWikiIngestHook()
+            hook?.[itemType === 'upload' ? 'ingestUpload' : 'ingestOutput'](
               resolveWikiAgentId(),
               'local-user',
               writtenPath,

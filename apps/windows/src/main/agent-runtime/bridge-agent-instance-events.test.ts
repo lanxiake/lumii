@@ -89,6 +89,26 @@ describe("Wiki 摄入钩子接线", () => {
     expect(ingestUpload).toHaveBeenCalledWith("assistant", "local-user", "uploads/photo.png", "photo.png");
   });
 
+  it("uploads/outputs 之外的目录不自动摄入（避免脏数据）", () => {
+    const ingestUpload = vi.fn();
+    const ingestOutput = vi.fn();
+    const { handler } = buildHandler(() => ({ ingestUpload, ingestOutput } as never));
+
+    for (const filePath of [
+      "skills/my-skill/SKILL.md",
+      "workspace/skills/my-skill/reference.md",
+      "projects/demo/README.md",
+      "files/note.md",
+      "draft.md",
+    ]) {
+      handler({ type: "tool:start", toolCallId: filePath, toolName: "file_write", args: { filePath } } as never);
+      handler({ type: "tool:end", toolCallId: filePath, toolName: "file_write", isError: false, result: {} } as never);
+    }
+
+    expect(ingestUpload).not.toHaveBeenCalled();
+    expect(ingestOutput).not.toHaveBeenCalled();
+  });
+
   it("工具失败时不摄入", () => {
     const ingestOutput = vi.fn();
     const { handler } = buildHandler(() => ({ ingestUpload: vi.fn(), ingestOutput } as never));

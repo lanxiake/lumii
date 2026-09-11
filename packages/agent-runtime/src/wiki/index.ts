@@ -16,6 +16,7 @@ export type {
 
 export {
   DEFAULT_EXCLUDED_WIKI_INGEST_EXTENSIONS,
+  resolveWikiAutoIngestItemType,
   shouldSkipWikiIngestPath,
   wikiIngestFileExtension,
 } from "./wiki-ingest-filter.js";
