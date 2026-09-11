@@ -13,6 +13,7 @@ import { loadCloudSyncConfig, saveConfigFromView, toConfigView, decryptToken } f
 import { getProvider } from './git-provider'
 import { loadSyncLogs } from './sync-log'
 import { resolveActiveWorkspaceDir } from '../workspace-paths'
+import { getAgentRuntimeBridge } from '../ipc/agent-runtime-ipc'
 import type { CloudSyncConfig, CloudSyncConfigView } from './types'
 
 interface CloudSyncIpcDeps {
@@ -98,6 +99,16 @@ export function registerCloudSyncIpcHandlers(): void {
       return { success: true, data: await m.readFileAt(oid, filepath) }
     },
   )
+
+  // 手动重试 Agent 处理冲突（设置页「重试处理」按钮）
+  ipcMain.handle('cloudSync:retryConflict', async () => {
+    const m = getCloudSyncManager()
+    if (!m?.getConflict()) return { success: false, error: '当前无冲突' }
+    const bridge = getAgentRuntimeBridge()
+    if (!bridge?.isInitialized) return { success: false, error: 'Agent 运行时未就绪' }
+    const summary = await bridge.executeSyncConflictGoal()
+    return { success: true, result: summary ?? '无冲突待处理' }
+  })
 
   // 状态推送：manager EventEmitter → 渲染层；冲突态过渡时弹系统通知
   let lastPushedState: string | null = null

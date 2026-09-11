@@ -47,6 +47,7 @@ export enum GoalType {
   CAPABILITY_IMPROVEMENT = 'capability-improvement',
   SKILL_ENHANCEMENT = 'skill-enhancement',
   MEMORY_OPTIMIZATION = 'memory-optimization',
+  SYSTEM_MAINTENANCE = 'system-maintenance',
 }
 
 /**

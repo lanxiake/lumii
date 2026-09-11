@@ -29,6 +29,16 @@ describe('buildGoalPrompt', () => {
     expect(prompt).toContain('测试目标描述');
   });
 
+  it('system-maintenance 含冲突解决指令', () => {
+    const prompt = buildGoalPrompt(makeGoal(GoalType.SYSTEM_MAINTENANCE));
+    expect(prompt).toContain('cloud_sync_read_file');
+    expect(prompt).toContain('resolve_sync_conflict');
+    expect(prompt).toContain('keep-local');
+    expect(prompt).toContain('keep-remote');
+    expect(prompt).toContain('per-file');
+    expect(prompt).toContain('如实');
+  });
+
   it('审慎状态时含复查护栏', () => {
     const prompt = buildGoalPrompt(makeGoal(GoalType.LEARNING), true);
     expect(prompt).toContain('复查');
@@ -65,6 +75,12 @@ describe('getGoalToolAllowlist', () => {
     expect(allowlist).not.toContain('bash');
     expect(allowlist).not.toContain('spawn_agent');
     expect(allowlist).not.toContain('channel_send');
+  });
+
+  it('白名单含云同步冲突解决工具（system-maintenance 专用）', () => {
+    const allowlist = getGoalToolAllowlist('system-maintenance');
+    expect(allowlist).toContain('cloud_sync_read_file');
+    expect(allowlist).toContain('resolve_sync_conflict');
   });
 });
 

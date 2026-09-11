@@ -62,7 +62,7 @@ export interface AutonomousStatus {
  */
 export interface AutonomousGoal {
   id: string
-  type: 'learning' | 'proactive-message' | 'capability-improvement' | 'skill-enhancement' | 'memory-optimization'
+  type: 'learning' | 'proactive-message' | 'capability-improvement' | 'skill-enhancement' | 'memory-optimization' | 'system-maintenance'
   description: string
   triggerReason: string
   status: 'pending' | 'approved' | 'rejected' | 'executing' | 'completed'

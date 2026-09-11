@@ -31,6 +31,25 @@ describe('handleEvolutionTick', () => {
     expect(await handleEvolutionTick(deps)).toBe('skipped: user turn in progress')
   })
 
+  it('有冲突目标时优先驱动（不受自主进化开关/用户回合约束）', async () => {
+    const driveConflictGoal = vi.fn(async () => 'conflict-goal: resolved')
+    // 即使自主进化关闭、用户正在对话，冲突驱动仍应执行
+    const deps = makeDeps({
+      isAutonomousEnabled: () => false,
+      hasActiveUserTurn: () => true,
+      driveConflictGoal,
+    })
+    expect(await handleEvolutionTick(deps)).toBe('conflict-goal: resolved')
+    expect(driveConflictGoal).toHaveBeenCalledTimes(1)
+  })
+
+  it('driveConflictGoal 返回 null 时继续正常流程', async () => {
+    const driveConflictGoal = vi.fn(async () => null)
+    const deps = makeDeps({ driveConflictGoal })
+    expect(await handleEvolutionTick(deps)).toBe('idle: liveness-ok')
+    expect(driveConflictGoal).toHaveBeenCalledTimes(1)
+  })
+
   it('无已批准目标时 idle（健康保活）', async () => {
     const deps = makeDeps()
     expect(await handleEvolutionTick(deps)).toBe('idle: liveness-ok')

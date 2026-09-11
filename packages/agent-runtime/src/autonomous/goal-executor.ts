@@ -56,6 +56,9 @@ const GOAL_EXECUTION_TOOLS: readonly string[] = [
   'file_move',
   'file_copy',
   'dashboard_feed_write',
+  // 云同步冲突解决（system-maintenance 类型专用，仅在存在冲突时可用）
+  'cloud_sync_read_file',
+  'resolve_sync_conflict',
 ];
 
 /** 护栏 prompt（拼进 systemPromptAppend / 正文头部）。安全约束是硬底线，措辞上仍保持「灵栖」的生命感 */
@@ -82,6 +85,8 @@ export function buildGoalPrompt(goal: { type: string; description: string }, sel
       return `${base}\n\n你想主动跟用户说一句话：把想说的、值得说的说清楚就好。若此刻没什么可说的，就说明原因。`;
     case GoalType.CAPABILITY_IMPROVEMENT:
       return `${base}\n\n你在打磨自己的一项能力：围绕它做有针对性的练习，或产出一份改进方案。做不到就如实说明。`;
+    case GoalType.SYSTEM_MAINTENANCE:
+      return `${base}\n\n你在处理一项系统维护任务。用 cloud_sync_read_file 读取冲突文件的 local/remote/base 三方内容，判断应保留哪一侧，再调用 resolve_sync_conflict 解决（策略：keep-local 保留本地 / keep-remote 采用远端 / per-file 逐文件指定）。处理完后用一句话说明决定与原因。若无法判断，采用 keep-local 保留本地数据，确保不丢失本地工作。`;
     default:
       return `${base}\n\n去做这件事。做不了就如实停下。`;
   }

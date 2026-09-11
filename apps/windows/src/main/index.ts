@@ -1264,36 +1264,22 @@ async function initialize(): Promise<void> {
   syncScheduler = new SyncScheduler(cloudSyncManager)
   setCloudSyncWorkspaceChangedHandler(() => syncScheduler?.onWorkspaceChanged())
 
-  // 注入云同步冲突回调：检测到冲突时创建自主目标让 Agent 处理
+  // 注入云同步冲突回调：检测到冲突时创建系统维护目标 + 立即驱动 Agent 处理
   cloudSyncManager.setOnConflictDetected((conflict) => {
-    if (!agentRuntimeBridge) {
-      log.warn('[CloudSync] 检测到冲突但 agentRuntimeBridge 未就绪，跳过目标创建')
+    if (!agentRuntimeBridge || !agentRuntimeBridge.isInitialized) {
+      log.warn('[CloudSync] 检测到冲突但 agentRuntimeBridge 未就绪，仅创建目标等待心跳驱动')
       return
     }
-    try {
-      const db = agentRuntimeBridge.db
-      const goalId = `goal-sync-conflict-${Date.now()}`
-      const now = new Date().toISOString()
-      db.prepare(
-        `INSERT INTO autonomous_goals
-         (id, agent_id, type, description, trigger_reason, status, priority, metadata, created_at, approved_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        goalId,
-        'assistant',
-        'system-maintenance',
-        `解决云同步冲突：${conflict.files.length} 个文件冲突（${conflict.files.slice(0, 3).join(', ')}${conflict.files.length > 3 ? '...' : ''}）`,
-        'cloud-sync-conflict',
-        'executing', // 直接进入 executing 状态，无需审批
-        0.9, // 高优先级
-        JSON.stringify({ conflictFiles: conflict.files, localOid: conflict.localOid, remoteOid: conflict.remoteOid }),
-        now,
-        now,
-      )
-      log.info(`[CloudSync] 已创建冲突处理目标 ${goalId}，files=${conflict.files.length}`)
-    } catch (err) {
-      log.error('[CloudSync] 创建冲突处理目标失败:', err instanceof Error ? err.message : String(err))
-    }
+    // 委托 bridge 创建 system-maintenance 冲突目标并立即驱动 Agent（受限实例）。
+    // bridge.executeSyncConflictGoal 内部有 in-flight 守卫，不重入。
+    void agentRuntimeBridge.executeSyncConflictGoal().then(
+      (summary) => {
+        if (summary) log.info(`[CloudSync] 冲突 Agent 处理完成: ${summary}`)
+      },
+      (err) => {
+        log.error('[CloudSync] 冲突 Agent 处理异常:', err instanceof Error ? err.message : String(err))
+      },
+    )
   })
 
   setupIpcHandlers()
@@ -1378,6 +1364,13 @@ async function initialize(): Promise<void> {
   await initAgentRuntime()
   performanceMonitor?.recordStartupPhase('agent-runtime', performance.now() - agentRuntimeStartTime)
   log.info('[Main] initAgentRuntime 完成')
+
+  // 注入云同步冲突 Agent 重试回调：SyncScheduler 每次 tick 若仍处于 conflict 且冷却已过，
+  // 自动驱动 Agent 重新处理（与心跳 evolution-tick 同路径）
+  syncScheduler?.setOnConflictPending(async () => {
+    if (!agentRuntimeBridge?.isInitialized) return
+    await agentRuntimeBridge.executeSyncConflictGoal()
+  })
 
   // 启动浏览器控制服务（控制用户本机浏览器）
   const browserStarted = await startBrowserService()

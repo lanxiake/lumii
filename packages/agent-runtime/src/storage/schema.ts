@@ -6,7 +6,7 @@
  */
 
 /** 当前 schema 版本号 */
-export const SCHEMA_VERSION = 39;
+export const SCHEMA_VERSION = 40;
 
 /**
  * V1 DDL — 初始 schema
@@ -1380,6 +1380,50 @@ CREATE INDEX IF NOT EXISTS idx_wiki_sources_user_path
 
 CREATE INDEX IF NOT EXISTS idx_wiki_sources_tags
   ON wiki_sources (tags);
+`,
+  ],
+  // V40: 云同步冲突处理目标 —— 扩展 autonomous_goals 的 type 约束以支持 system-maintenance
+  // （SQLite 不支持 ALTER COLUMN MODIFY CHECK，需用重建表模式）。
+  // 冲突处理目标由 CloudSyncManager 在 enterConflict 时直接插入（status='executing'），
+  // 由自主进化心跳（handleEvolutionTick）或 SyncScheduler 驱动执行。
+  [
+    40,
+    `
+CREATE TABLE IF NOT EXISTS autonomous_goals_v40 (
+  id                   TEXT PRIMARY KEY,
+  agent_id             TEXT NOT NULL,
+  type                 TEXT NOT NULL CHECK (type IN ('learning', 'proactive-message', 'capability-improvement', 'skill-enhancement', 'memory-optimization', 'system-maintenance')),
+  description          TEXT NOT NULL,
+  trigger_reason       TEXT NOT NULL,
+  status               TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'approved', 'rejected', 'executing', 'completed', 'failed')),
+  priority             REAL NOT NULL CHECK (priority BETWEEN 0 AND 1),
+  satisfaction_before  REAL,
+  satisfaction_after   REAL,
+  metadata             TEXT,
+  created_at           TEXT NOT NULL,
+  approved_at          TEXT,
+  executed_at          TEXT,
+  completed_at         TEXT,
+  reflection_id        TEXT,
+  scheduled_for        TEXT,
+  planned_by           TEXT
+);
+
+INSERT INTO autonomous_goals_v40
+  SELECT id, agent_id, type, description, trigger_reason, status,
+         priority, satisfaction_before, satisfaction_after,
+         metadata, created_at, approved_at, executed_at,
+         completed_at, reflection_id, scheduled_for, planned_by
+  FROM autonomous_goals;
+
+DROP TABLE autonomous_goals;
+ALTER TABLE autonomous_goals_v40 RENAME TO autonomous_goals;
+
+CREATE INDEX IF NOT EXISTS idx_goals_agent_status_created
+  ON autonomous_goals (agent_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_goals_created
+  ON autonomous_goals (created_at DESC);
 `,
   ],
 ] as const;

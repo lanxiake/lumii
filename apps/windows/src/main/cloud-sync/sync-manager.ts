@@ -412,6 +412,20 @@ export class CloudSyncManager extends EventEmitter {
     return enqueueWorkspace(this.workspaceDir, () => this.resolveInner(strategy, choices))
   }
 
+  /** 标记 Agent 开始处理冲突（仅更新 message + 日志，state 保持 conflict） */
+  markConflictProcessing(): void {
+    if (this.state !== 'conflict') return
+    this.setState('conflict', `Agent 正在处理 ${this.conflict?.files.length ?? 0} 个冲突文件…`)
+  }
+
+  /** 记录一次 Agent 处理冲突失败（保留 conflict 状态，记日志） */
+  recordConflictResolutionFailure(reason: string): void {
+    if (this.state !== 'conflict') return
+    const safeReason = reason.length > 200 ? `${reason.slice(0, 200)}…` : reason
+    logger.error(`[冲突处理] Agent 处理失败: ${safeReason}`)
+    this.setState('conflict', `Agent 处理冲突失败：${safeReason}`)
+  }
+
   private async resolveInner(
     strategy: 'keep-local' | 'keep-remote' | 'per-file',
     choices?: { path: string; side: 'local' | 'remote' }[],
@@ -460,6 +474,7 @@ export class CloudSyncManager extends EventEmitter {
       const reason = err instanceof Error ? err.message : String(err)
       const safeReason = token ? reason.split(token).join('***') : reason
       logger.error(`[resolveConflict] 解决失败: ${safeReason}`)
+      this.recordConflictResolutionFailure(safeReason)
       return { success: false, error: safeReason }
     }
   }

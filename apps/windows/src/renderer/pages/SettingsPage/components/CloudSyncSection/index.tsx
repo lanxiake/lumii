@@ -23,6 +23,7 @@ export function CloudSyncSection() {
   const [testing, setTesting] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [retrying, setRetrying] = useState(false)
   const [guideOpen, setGuideOpen] = useState(true)
   const [logs, setLogs] = useState<SyncLogEntry[]>([])
 
@@ -88,6 +89,23 @@ export function CloudSyncSection() {
       await window.electronAPI.cloudSync.syncNow()
     } finally {
       setSyncing(false)
+    }
+  }
+
+  const retryConflict = async () => {
+    setRetrying(true)
+    try {
+      const r = await window.electronAPI.cloudSync.retryConflict()
+      if (r.success) {
+        toast.info('已触发 Agent 重新处理冲突')
+        void refreshStatusAndLogs()
+      } else {
+        toast.error(r.error || '重试失败')
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '重试失败')
+    } finally {
+      setRetrying(false)
     }
   }
 
@@ -249,6 +267,13 @@ export function CloudSyncSection() {
           {status.state === 'conflict' && status.conflict && (
             <div className={styles['setting-hint']}>
               冲突文件（{status.conflict.files.length}）：{status.conflict.files.join('、')}
+            </div>
+          )}
+          {status.state === 'conflict' && (
+            <div style={{ marginTop: 8 }}>
+              <Button variant="secondary" onClick={retryConflict} loading={retrying}>
+                Agent 处理冲突
+              </Button>
             </div>
           )}
         </div>

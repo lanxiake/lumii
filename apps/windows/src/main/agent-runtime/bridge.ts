@@ -159,6 +159,9 @@ import { RouterService } from './router/router-service'
 import { RouterLlmCallerImpl } from './router/llm-caller'
 import { RouterHitRateTracker } from './router/router-hit-rate-tracker'
 import type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot } from './bridge-types'
+import { appendSyncLog } from '../cloud-sync/sync-log'
+import { getCloudSyncManager } from '../cloud-sync/sync-accessor'
+import type { ConflictInfo } from '../cloud-sync/types'
 import { ensureProviderBaseUrl } from '../provider-config'
 
 /** 单机客户端固定 userId，与 wiki-commands 一致 */
@@ -186,6 +189,7 @@ export class AgentRuntimeBridge {
   private config: AgentRuntimeBridgeConfig
   private featureFlags: AgentRuntimeFeatureFlags
   private initialized = false
+  get isInitialized(): boolean { return this.initialized }
   private readonly permissionController = new PermissionController()
   private readonly askUserQuestionController = new AskUserQuestionController()
   /** instanceId → conversationId（独立维护，非 per-instance 状态） */
@@ -921,6 +925,156 @@ export class AgentRuntimeBridge {
     return this.runPlannerNow()
   }
 
+  /** 云同步冲突目标执行的 in-flight 守卫（进程内互斥，防重复驱动） */
+  private _syncConflictInFlight = false
+
+  /**
+   * 供云同步冲突处理调用（心跳 tick / SyncScheduler / 手动重试按钮 同路径）。
+   *
+   * 查找或创建 executing 的 system-maintenance 冲突目标，
+   * 用受限实例 + 冲突工具（cloud_sync_read_file / resolve_sync_conflict）驱动 Agent 解决。
+   *
+   * 返回 null 表示当前无冲突或已在执行中；非 null 为执行结果摘要。
+   */
+  async executeSyncConflictGoal(): Promise<string | null> {
+    if (this._syncConflictInFlight) return 'already-running'
+    const m = getCloudSyncManager()
+    if (!m) return null
+    const conflict = m.getConflict()
+    if (!conflict) {
+      // 无冲突但存在残留 goal → 标记完成
+      this._cleanupStaleConflictGoal()
+      return null
+    }
+
+    const db = this.localDb.db
+    // 查当前 executing 的 system-maintenance 目标
+    let goal = db
+      .prepare<{ id: string; type: string; description: string }>(
+        `SELECT id, type, description FROM autonomous_goals
+         WHERE agent_id = 'assistant' AND type = 'system-maintenance' AND status = 'executing'
+         ORDER BY created_at ASC LIMIT 1`,
+      )
+      .get()
+
+    if (!goal) {
+      // 创建新的冲突处理目标
+      goal = this._createConflictGoal(conflict, db)
+      if (!goal) return null
+    }
+
+    // 标记 Agent 开始处理
+    m.markConflictProcessing()
+
+    this._syncConflictInFlight = true
+    try {
+      const convId = EVOLUTION_CONVERSATION_ID
+      this.ensureConversationExists(convId, '自主进化 · 内心独白')
+      const baseDef = this.definitionStore ? await this.definitionStore.get('assistant') : null
+      if (!baseDef) {
+        finalizeGoal(db, goal.id, { success: false, output: 'assistant 定义缺失，无法执行' })
+        // 保留 executing 供后续重试
+        db.prepare(`UPDATE autonomous_goals SET status = 'executing' WHERE id = ?`).run(goal.id)
+        return 'unavailable'
+      }
+
+      const restrictedDef: AgentDefinition = {
+        ...baseDef,
+        canSpawnSubAgents: false,
+        tools: getGoalToolAllowlist(goal.type),
+      }
+      const instanceId = await this.createInstance(restrictedDef, convId, convId)
+      try {
+        await this.prompt(instanceId, buildGoalPrompt(goal, false))
+        await this.waitForInstanceIdle(instanceId)
+        const output = this.getAssistantOutputFromInstance(instanceId) ?? ''
+        const ok = output.trim().length > 0
+
+        // 持久化独白
+        if (ok) {
+          this._conversationRepo?.saveMessage({
+            conversationId: convId,
+            agentId: 'assistant',
+            role: 'user',
+            contentJson: { type: 'text', text: `完成目标：${goal.description}` },
+          })
+          this._conversationRepo?.saveMessage({
+            conversationId: convId,
+            agentId: 'assistant',
+            role: 'assistant',
+            contentJson: { type: 'text', text: output },
+          })
+        }
+
+        // 判断冲突是否已解决
+        const resolved = m.getStatus().state !== 'conflict'
+        if (resolved) {
+          finalizeGoal(db, goal.id, { success: true, output: output || '冲突已解决' })
+          return `resolved: ${output.slice(0, 80)}`
+        }
+
+        // 未解决 → 保留 executing 待下轮重试
+        db.prepare(`UPDATE autonomous_goals SET status = 'executing' WHERE id = ?`).run(goal.id)
+        const reason = output.trim() || 'Agent 未产出有效处理结果'
+        m.recordConflictResolutionFailure(reason)
+        log.warn(`[executeSyncConflictGoal] 未解决: ${reason.slice(0, 120)} goalId=${goal.id}`)
+        return `retry: ${reason.slice(0, 80)}`
+      } finally {
+        this.destroy(instanceId)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log.error('[executeSyncConflictGoal] 执行异常:', msg)
+      // 保持 executing 待重试
+      if (goal) {
+        db.prepare(`UPDATE autonomous_goals SET status = 'executing' WHERE id = ?`).run(goal.id)
+      }
+      m.recordConflictResolutionFailure(msg)
+      return `error: ${msg}`
+    } finally {
+      this._syncConflictInFlight = false
+    }
+  }
+
+  /** 创建冲突处理目标 */
+  private _createConflictGoal(
+    conflict: ConflictInfo,
+    db: DatabaseAdapter,
+  ): { id: string; type: string; description: string } | null {
+    try {
+      const goalId = `goal-sync-conflict-${Date.now()}`
+      const now = new Date().toISOString()
+      const description = `解决云同步冲突：${conflict.files.length} 个文件冲突（${conflict.files.slice(0, 3).join(', ')}${conflict.files.length > 3 ? '...' : ''}）`
+      db
+        .prepare(
+          `INSERT INTO autonomous_goals (id, agent_id, type, description, trigger_reason, status, priority, metadata, created_at, approved_at)
+         VALUES (?, 'assistant', 'system-maintenance', ?, 'cloud-sync-conflict', 'executing', 0.9, '{}', ?, ?)`,
+        )
+        .run(goalId, description, now, now)
+      return { id: goalId, type: 'system-maintenance', description }
+    } catch (err) {
+      log.warn('[executeSyncConflictGoal] 创建冲突目标失败:', err instanceof Error ? err.message : String(err))
+      return null
+    }
+  }
+
+  /** 清理无冲突时残留的 executing system-maintenance 目标 */
+  private _cleanupStaleConflictGoal(): void {
+    try {
+      const result = this.localDb.db
+        .prepare(
+          `UPDATE autonomous_goals SET status = 'completed', completed_at = ?
+         WHERE agent_id = 'assistant' AND type = 'system-maintenance' AND status = 'executing'`,
+        )
+        .run(new Date().toISOString())
+      if (result.changes > 0) {
+        log.info(`[executeSyncConflictGoal] 清理 ${result.changes} 条残留冲突目标（冲突已不存在）`)
+      }
+    } catch (err) {
+      log.warn('[executeSyncConflictGoal] 清理残留目标失败:', err)
+    }
+  }
+
   private countAgentSelfCronJobs(): number {
     try {
       const row = this.localDb.db
@@ -1041,6 +1195,7 @@ export class AgentRuntimeBridge {
               handleEvolutionTick({
                 getDb: () => this.localDb.db,
                 isAutonomousEnabled: () => readAutonomousEnabled(this.localDb.db),
+                driveConflictGoal: () => this.executeSyncConflictGoal(),
                 hasActiveUserTurn: () => {
                   // 只认「真实用户会话」的流式消息。后台 cron 任务（cron:% 前缀会话）与
                   // 自主进化自己的独白（evolution:main）在流式期间不算用户回合，否则

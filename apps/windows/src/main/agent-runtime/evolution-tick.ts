@@ -43,6 +43,10 @@ export interface EvolutionTickDeps {
   plan?: () => Promise<string | null>
   /** 当前时间（可注入，默认 new Date()；测试用于固定静默时段） */
   now?: () => Date
+  /** 驱动待处理的云同步冲突目标（系统维护，独立于自主进化开关与能量/预算门闩）。
+   *  由 bridge 注入，在心跳 tick 中检测到 type='system-maintenance' 的 executing 目标时调用。
+   *  返回 null 表示无冲突待处理；非 null 为执行结果摘要。 */
+  driveConflictGoal?: () => Promise<string | null>
 }
 
 /**
@@ -53,6 +57,19 @@ export interface EvolutionTickDeps {
  */
 export async function handleEvolutionTick(deps: EvolutionTickDeps): Promise<string> {
   try {
+    // ── 云同步冲突目标优先处理 ──
+    // 系统维护任务，独立于自主进化开关 / 能量 / token 预算 / 用户对话阻塞。
+    // 由 bridge 注入的 driveConflictGoal 负责找到 executing 的 system-maintenance 目标
+    // 并用受限实例 + 冲突工具驱动 Agent 解决。
+    if (deps.driveConflictGoal) {
+      try {
+        const maintenance = await deps.driveConflictGoal()
+        if (maintenance) return maintenance
+      } catch (err) {
+        log.warn('[handleEvolutionTick] 冲突驱动失败:', err instanceof Error ? err.message : String(err))
+      }
+    }
+
     if (!deps.isAutonomousEnabled()) return 'skipped: disabled'
     if (deps.hasActiveUserTurn()) return 'skipped: user turn in progress'
 
@@ -113,10 +130,14 @@ export async function handleEvolutionTick(deps: EvolutionTickDeps): Promise<stri
 }
 
 /**
- * 播种 evolution tick cron job（幂等）。enabled 跟随 autonomous.enabled 开关，
+ * 播种 evolution tick cron job（幂等）。
+ *
+ * 始终启用（enabled=1）：心跳除了承担自主进化行为（日记/反思/学习目标）外，
+ * 还承担云同步冲突处理（system-maintenance 目标）的系统维护职责。
+ * 云同步冲突分支在 handleEvolutionTick 最前面执行，不依赖自主进化开关。
  * interval_ms 读 readSettings().tickIntervalMinutes（设置页改动后重播一次即生效）。
  */
-export function ensureEvolutionCronJobSeeded(db: DatabaseAdapter, isEnabled: boolean): void {
+export function ensureEvolutionCronJobSeeded(db: DatabaseAdapter, _isEnabled: boolean): void {
   try {
     const intervalMs = readSettings(db).tickIntervalMinutes * 60_000
     const existing = db
@@ -127,12 +148,13 @@ export function ensureEvolutionCronJobSeeded(db: DatabaseAdapter, isEnabled: boo
       // 自愈：__evolution_tick__ 是魔法指令，只能由 companion 拦截（agent_id 必须为 NULL）。
       // 若被改成 agent 驱动（agent_id 非空），cron 会把它当真实 prompt 驱动 assistant，导致 tick 失效。
       // 这里每次启动强制复位为 companion 指令形态。
+      // 始终启用（enabled=1）：心跳同时承担云同步冲突的系统维护职责。
       db.prepare(
-        `UPDATE local_cron_jobs SET enabled = ?, interval_ms = ?, agent_id = NULL,
+        `UPDATE local_cron_jobs SET enabled = 1, interval_ms = ?, agent_id = NULL,
          schedule_type = 'every', schedule_expr = '',
          active_hour_start = NULL, active_hour_end = NULL, notify_targets = NULL
          WHERE id = ?`,
-      ).run(isEnabled ? 1 : 0, intervalMs, EVOLUTION_TICK_CRON_ID)
+      ).run(intervalMs, EVOLUTION_TICK_CRON_ID)
       return
     }
 
@@ -140,14 +162,13 @@ export function ensureEvolutionCronJobSeeded(db: DatabaseAdapter, isEnabled: boo
     db.prepare(
       `INSERT INTO local_cron_jobs
        (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at)
-       VALUES (?, ?, ?, NULL, 'every', '', ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, NULL, 'every', '', ?, ?, 1, ?)`,
     ).run(
       EVOLUTION_TICK_CRON_ID,
       EVOLUTION_TICK_NAME,
       EVOLUTION_TICK_INSTRUCTION,
       now,
       intervalMs,
-      isEnabled ? 1 : 0,
       now,
     )
     log.info(`[ensureEvolutionCronJobSeeded] 新建 job id=${EVOLUTION_TICK_CRON_ID} intervalMs=${intervalMs}`)

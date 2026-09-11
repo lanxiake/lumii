@@ -31,6 +31,9 @@ export const cloudSyncApi = {
     filepath: string,
   ): Promise<{ success: boolean; data?: string | null }> =>
     ipcRenderer.invoke('cloudSync:readFileAt', oid, filepath),
+  /** 手动触发 Agent 重新处理云同步冲突（设置页「重试处理」按钮） */
+  retryConflict: (): Promise<{ success: boolean; result?: string; error?: string }> =>
+    ipcRenderer.invoke('cloudSync:retryConflict'),
   onStatusChange: (callback: (status: SyncStatus) => void): (() => void) => {
     const handler = (_e: Electron.IpcRendererEvent, status: SyncStatus) => callback(status)
     ipcRenderer.on('cloudSync:status', handler)

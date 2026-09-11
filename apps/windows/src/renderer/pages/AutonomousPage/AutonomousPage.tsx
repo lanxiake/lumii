@@ -1140,6 +1140,7 @@ function GoalCard({ goal, onApprove, onReject, onJump }: GoalCardProps) {
     'capability-improvement': '能力提升',
     'skill-enhancement': '技能增强',
     'memory-optimization': '记忆优化',
+    'system-maintenance': '系统维护',
   }
 
   const typeClass = goal.type.replace(/-/g, '')
@@ -1214,6 +1215,7 @@ function PlannedGoalCard({ goal, onDelete }: { goal: PlannedGoal; onDelete: (goa
     'capability-improvement': '能力提升',
     'skill-enhancement': '技能增强',
     'memory-optimization': '记忆优化',
+    'system-maintenance': '系统维护',
   }
   const typeClass = goal.type.replace(/-/g, '')
   const scheduledLabel = goal.scheduledFor
