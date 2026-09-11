@@ -24,5 +24,9 @@ export { refinePatternWithLLM } from "./refine-patterns.js";
 export type { RefinedPattern, RefinePatternDeps } from "./refine-patterns.js";
 export { draftToolFromPattern, buildDraftPrompt } from "./tool-drafter.js";
 export type { ToolDraft, DraftToolDeps } from "./tool-drafter.js";
-export { checkToolDraft, sampleReplayRate } from "./tool-quality-gate.js";
+export {
+  checkToolDraft,
+  sampleReplayRate,
+  openTemplateRejectionReason,
+} from "./tool-quality-gate.js";
 export type { QualityGateResult } from "./tool-quality-gate.js";

@@ -92,6 +92,7 @@ export {
   buildDraftPrompt,
   checkToolDraft,
   sampleReplayRate,
+  openTemplateRejectionReason,
 } from "./tools/bash-evolution/index.js";
 export type {
   BashCommandLogHookDeps,

@@ -31,6 +31,7 @@ const GOAL_TYPE_LABELS: Record<GoalType, string> = {
   'capability-improvement': '能力提升',
   'skill-enhancement': '技能增强',
   'memory-optimization': '记忆优化',
+  'system-maintenance': '系统维护',
 }
 
 /**

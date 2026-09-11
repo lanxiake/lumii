@@ -6,6 +6,7 @@
  * 2. 样本回放：模板能覆盖 ≥80% 的观察样本（约束 LLM 不瞎编命令结构）
  * 3. 危险命令黑名单
  * 4. 与内置/已注册工具重名
+ * 5. 开放式低价值模板（近似 bash，约束面不缩小）
  */
 
 import {
@@ -43,9 +44,51 @@ const RESERVED_TOOL_NAMES = new Set([
   "send_message", "ask_user_question",
 ]);
 
+/** 常见解释器：其后若几乎全是占位符，则近似开放 bash */
+const INTERPRETER_SKELETON_RE =
+  /^(node|nodejs|npx|python3?|pwsh|powershell|bash|sh|cmd(?:\.exe)?|deno|bun)(\s+(-NoProfile|-ExecutionPolicy\s+Bypass))*$/i;
+
+/** 尾部可拼接任意命令的占位符名 */
+const OPEN_TRAILING_PARAM_RE = /(chain|command|cmd|args|post)/i;
+
 export interface QualityGateResult {
   passed: boolean;
   errors: string[];
+}
+
+/**
+ * 判断模板是否「近似开放 bash」（工具化价值低）。
+ * 返回拒绝原因；通过则返回 null。
+ */
+export function openTemplateRejectionReason(template: string): string | null {
+  const t = template.trim();
+  if (!t) return "命令模板为空";
+
+  // 1. 以占位符开头 → 可注入任意前置命令
+  if (/^\{\{/.test(t)) {
+    return "模板以参数占位符开头，可注入任意前置命令";
+  }
+
+  const placeholders = extractPlaceholders(t);
+  const skeleton = t.replace(/\{\{[^}]+\}\}/g, "").replace(/\s+/g, " ").trim();
+
+  // 2. 固定骨架过短且占位符过多
+  if (placeholders.length >= 2 && skeleton.length < 12) {
+    return "固定命令骨架过短，参数过多，近似开放 bash";
+  }
+
+  // 3. 解释器 + 仅占位符参数
+  if (INTERPRETER_SKELETON_RE.test(skeleton) && placeholders.length >= 1) {
+    return "解释器后几乎全是开放参数，工具化价值低";
+  }
+
+  // 4. 尾部链式/命令类开放参数
+  const trailing = t.match(/\{\{([A-Za-z][A-Za-z0-9_]*)\}\}\s*$/);
+  if (trailing?.[1] && OPEN_TRAILING_PARAM_RE.test(trailing[1])) {
+    return `尾部开放参数「${trailing[1]}」可拼接任意命令，工具化价值低`;
+  }
+
+  return null;
 }
 
 /** 把模板正则化：占位符 → 捕获组，用于样本回放匹配 */
@@ -115,7 +158,13 @@ export function checkToolDraft(
     errors.push(`工具名 "${draft.name}" 与现有工具重名`);
   }
 
-  // 4. 样本回放
+  // 4. 开放式低价值模板
+  const openReason = openTemplateRejectionReason(draft.commandTemplate);
+  if (openReason) {
+    errors.push(openReason);
+  }
+
+  // 5. 样本回放
   const normalize = opts.normalize ?? ((cmd: string) => cmd);
   const rate = sampleReplayRate(draft, pattern, normalize);
   const minRate = opts.minReplayRate ?? 0.8;

@@ -129,6 +129,7 @@ export const TIMEOUT_POLICIES: Record<GoalType, TimeoutPolicy> = {
   'capability-improvement': { ttlMs: 4 * 3600_000, onTimeout: 'approved' },
   'skill-enhancement': { ttlMs: 24 * 3600_000, onTimeout: 'expired' },
   'memory-optimization': { ttlMs: 4 * 3600_000, onTimeout: 'approved' },
+  'system-maintenance': { ttlMs: 4 * 3600_000, onTimeout: 'approved' },
 }
 
 /**
