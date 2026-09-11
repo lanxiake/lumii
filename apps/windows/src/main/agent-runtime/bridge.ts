@@ -117,6 +117,7 @@ import { readWorkspaceTextForWiki } from './wiki-text-reader'
 import { syncWikiSourceToVault } from './wiki-vault-host'
 import { isWikiVectorEnabled } from './wiki-embedding-config'
 import { AskUserQuestionController } from './ask-user-question-controller'
+import { resolveAskUserDelivery } from '../channel/desktop-interaction-gate'
 import { FileMemoryHandler } from './file-memory-handler'
 import { SegmentMemoryService } from './segment-memory-service'
 import { CronScheduler } from './cron-scheduler'
@@ -832,23 +833,16 @@ export class AgentRuntimeBridge {
           ? (this.instanceToRootSessionKey.get(instanceId) ??
             this.instanceToConversation.get(instanceId))
           : undefined
-        this.ipcChannel.forwardIpcEvent({
-          type: 'agent:ask-user:request',
-          requestId: input.requestId,
-          instanceId,
-          rootSessionKey: sessionKey,
-          questions: input.questions,
-          timeoutMs,
-        })
-        // 渠道会话没有弹窗，同步把问题文字化推给渠道用户
+        // 优先文字化推给渠道；渠道已承接则不再向客户端弹 AskUserModal（maskClosable=false）
+        let channelHandled = false
         if (sessionKey) {
-          const pushed = this.notifyChannelInteraction({
+          channelHandled = this.notifyChannelInteraction({
             kind: 'ask',
             requestId: input.requestId,
             sessionKey,
             questions: input.questions,
           })
-          if (!pushed) {
+          if (!channelHandled) {
             log.warn(
               `[askUserQuestion] 渠道未承接提问 sessionKey=${sessionKey} requestId=${input.requestId}`,
             )
@@ -857,6 +851,16 @@ export class AgentRuntimeBridge {
           log.warn(
             `[askUserQuestion] 无法解析 sessionKey，跳过渠道提问推送 requestId=${input.requestId} instanceId=${instanceId ?? 'none'}`,
           )
+        }
+        if (resolveAskUserDelivery(channelHandled) === 'desktop') {
+          this.ipcChannel.forwardIpcEvent({
+            type: 'agent:ask-user:request',
+            requestId: input.requestId,
+            instanceId,
+            rootSessionKey: sessionKey,
+            questions: input.questions,
+            timeoutMs,
+          })
         }
         return this.askUserQuestionController.waitForAnswer(input.requestId, timeoutMs)
       },
@@ -2312,8 +2316,8 @@ export class AgentRuntimeBridge {
   }
 
   /**
-   * 渠道交互通知器：渠道层注册后，提问/审批除推 IPC 弹窗外还会文字化推给渠道用户。
-   * 返回 true 表示该会话确实由某个渠道承接（用于判断是否需要延长等待超时）。
+   * 渠道交互通知器：把提问/审批文字化推给渠道用户。
+   * 返回 true 表示该会话由渠道承接——此时调用方不得再向渲染进程推送桌面弹窗。
    */
   private channelInteractionNotifier:
     | ((interaction: ChannelInteractionRequest) => boolean)
@@ -2350,7 +2354,7 @@ export class AgentRuntimeBridge {
       return this.channelInteractionNotifier?.(interaction) ?? false
     } catch (err) {
       log.warn(
-        `[notifyChannelInteraction] 渠道通知失败（不影响桌面弹窗）: ${err instanceof Error ? err.message : String(err)}`,
+        `[notifyChannelInteraction] 渠道通知失败（将回退桌面弹窗）: ${err instanceof Error ? err.message : String(err)}`,
       )
       return false
     }

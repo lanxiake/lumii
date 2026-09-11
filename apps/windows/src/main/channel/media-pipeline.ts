@@ -91,12 +91,15 @@ async function decodeSilk(absPath: string): Promise<Float32Array> {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { decode } = require('silk-wasm')
     const silkBuf = await fs.readFile(absPath)
-    // decode 返回 { data: Int16Array, sampleRate: number }
+    // decode 返回 { data: Uint8Array (PCM s16le 字节流), duration: number }
+    // 注意：data 是字节数组，需要按 16-bit 小端序解析成 Int16Array
     const result = await decode(silkBuf, 16000)
+    // 将 Uint8Array 转为 Int16Array（小端序）
+    const int16 = new Int16Array(result.data.buffer, result.data.byteOffset, result.data.byteLength / 2)
     // 转 Float32Array（[-1, 1)）
-    const f32 = new Float32Array(result.data.length)
-    for (let i = 0; i < result.data.length; i++) {
-      f32[i] = result.data[i] / 32768
+    const f32 = new Float32Array(int16.length)
+    for (let i = 0; i < int16.length; i++) {
+      f32[i] = int16[i] / 32768
     }
     return f32
   } catch (e) {

@@ -415,11 +415,13 @@ export class WeixinLoginService extends EventEmitter {
                     // eslint-disable-next-line @typescript-eslint/no-require-imports
                     const { decode } = require('silk-wasm')
                     const silkBuf = await fs.promises.readFile(absPath)
-                    // decode 返回 { data: Int16Array, sampleRate: number }
+                    // decode 返回 { data: Uint8Array (PCM s16le 字节流), duration: number }
                     const result = await decode(silkBuf, 16000)
-                    const float32 = new Float32Array(result.data.length)
-                    for (let i = 0; i < result.data.length; i++) {
-                      float32[i] = result.data[i] / 32768
+                    // 将 Uint8Array 转为 Int16Array（小端序）
+                    const int16 = new Int16Array(result.data.buffer, result.data.byteOffset, result.data.byteLength / 2)
+                    const float32 = new Float32Array(int16.length)
+                    for (let i = 0; i < int16.length; i++) {
+                      float32[i] = int16[i] / 32768
                     }
                     const transcript = await this.silkAsrCallback(float32, 16000)
                     if (transcript) {

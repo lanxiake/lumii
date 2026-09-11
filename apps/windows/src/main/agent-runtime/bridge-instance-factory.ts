@@ -57,6 +57,7 @@ import {
 import type { McpStdioClient } from '@mtbot/agent-runtime'
 import type { PermissionController } from './permission-controller'
 import type { ChannelInteractionRequest } from '../channel/types'
+import { resolvePermissionDelivery } from '../channel/desktop-interaction-gate'
 import type { AgentRuntimeBridgeConfig } from './bridge'
 import type { InstanceStateStore } from './bridge-instance-state'
 import { createInstanceState, type InstanceState } from './bridge-instance-state'
@@ -375,28 +376,12 @@ export class BridgeInstanceFactory {
       })
     }
 
-    // 用户确认交互（IPC 弹窗 → 失败回退 native dialog → 等待响应），封装成注入式 PermissionProvider
+    // 用户确认交互：渠道文字 / IPC 弹窗 / native dialog；渠道已承接则不向客户端弹审批卡
     const permission: PermissionProvider = {
       requestPermission: async (input) => {
         const timeoutMs = 5 * 60 * 1000
-        // 主进程直接放行：不依赖 ChatPage 挂载，纯渠道场景也不会推送 IM 审批或挂起等待
-        if (this.deps.isAutoApproveEnabled()) {
-          this.deps.ipcChannel.forwardIpcEvent({
-            type: 'agent:permission:request',
-            requestId: input.requestId,
-            runId: input.runId,
-            toolName: input.toolName,
-            toolArgs: input.toolArgs,
-            riskLevel: riskLevelForTool(input.toolName),
-            description: input.description,
-            timeoutMs,
-            instanceId: input.instanceId,
-            rootSessionKey: input.rootSessionKey,
-          })
-          return 'allow-once'
-        }
-        const ipcSent = this.deps.ipcChannel.forwardIpcEvent({
-          type: 'agent:permission:request',
+        const permissionEvent = {
+          type: 'agent:permission:request' as const,
           requestId: input.requestId,
           runId: input.runId,
           toolName: input.toolName,
@@ -406,11 +391,16 @@ export class BridgeInstanceFactory {
           timeoutMs,
           instanceId: input.instanceId,
           rootSessionKey: input.rootSessionKey,
-        })
-        // 渠道会话没有弹窗，把审批文字化推给渠道用户
+        }
+        // 自动审批：主进程直接放行，不依赖 ChatPage 挂载
+        if (this.deps.isAutoApproveEnabled()) {
+          this.deps.ipcChannel.forwardIpcEvent(permissionEvent)
+          return 'allow-once'
+        }
+        // 先尝试渠道文字审批；门控决定是否再推桌面弹窗
         const sessionKey =
           input.rootSessionKey ?? this.deps.instanceToConversation.get(input.instanceId)
-        const viaChannel = sessionKey
+        const channelHandled = sessionKey
           ? this.deps.notifyChannelInteraction({
               kind: 'permission',
               requestId: input.requestId,
@@ -419,14 +409,22 @@ export class BridgeInstanceFactory {
               description: input.description,
             })
           : false
-        // 渠道已承接时不再弹 native dialog（用户在 IM 里回复即可）
-        if (!ipcSent && !viaChannel) {
+        const ipcSent = channelHandled
+          ? false
+          : this.deps.ipcChannel.forwardIpcEvent(permissionEvent)
+        const delivery = resolvePermissionDelivery({
+          autoApprove: false,
+          channelHandled,
+          ipcAvailable: ipcSent,
+        })
+        if (delivery === 'desktop-native') {
           return showNativeToolPermissionDialog({
             parent: this.deps.config.getWindow(),
             toolName: input.toolName,
             description: input.description,
           })
         }
+        // channel-only / desktop-ipc：等待用户在 IM 或审批卡中回复
         return this.deps.permissionController.waitForPermission(input.requestId, timeoutMs)
       },
     }
