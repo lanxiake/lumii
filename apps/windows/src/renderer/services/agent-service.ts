@@ -15,6 +15,8 @@ export interface Agent {
   isEnabled: boolean
   isDefault?: boolean
   userId?: string
+  /** 系统 Agent 是否出现在会话选择器（仅对话型系统 Agent 为 true） */
+  selectable?: boolean
   modelTier?: ModelTier
   identity?: {
     name?: string

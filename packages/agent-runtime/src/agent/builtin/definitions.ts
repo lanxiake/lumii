@@ -19,6 +19,10 @@
  *    - `builtin:explore`：快速代码探索子 Agent
  *    - `builtin:plan`：架构规划子 Agent
  *    - `builtin:verify`：对抗性验证子 Agent
+ *    - `code-dev`（灵栖开发）：绑定项目的开发会话（selectable 对话型系统 Agent）
+ *    - `system-keeper`（灵栖维护）：资产维护 + 代操客户端（selectable 对话型系统 Agent）
+ *    - `chronicler`（灵栖记事）：日报 / 周复盘 / 早间简报 / 专注提醒
+ *    - `info-curator`（灵栖情报）：按偏好的资讯策展
  *
  * 命名空间：新增内置子 Agent 使用 `builtin:` 前缀，避免与用户/API Agent 冲突。
  */
@@ -26,22 +30,41 @@
 import type { AgentDefinition } from "../../types/agent-definition.js";
 import {
   ASK_USER_QUESTION_TOOL_NAME,
+  BASH_TOOL_NAME,
   FILE_COPY_TOOL_NAME,
   FILE_EDIT_TOOL_NAME,
   FILE_MKDIR_TOOL_NAME,
   FILE_MOVE_TOOL_NAME,
+  FILE_READ_TOOL_NAME,
   FILE_WRITE_TOOL_NAME,
+  GLOB_TOOL_NAME,
+  GREP_TOOL_NAME,
+  LIST_DIR_TOOL_NAME,
   SEND_MESSAGE_TOOL_NAME,
+  SKILL_INVOKE_TOOL_NAME,
+  SKILL_LIST_TOOL_NAME,
+  SKILL_SEARCH_TOOL_NAME,
   SPAWN_AGENT_TOOL_NAME,
+  TODO_WRITE_TOOL_NAME,
+  WEB_FETCH_TOOL_NAME,
+  WEB_SEARCH_TOOL_NAME,
 } from "../../tools/built-in/tool-names.js";
 import {
   ASSISTANT_PERSONALITY,
   ASSISTANT_PROMPT,
   ASSISTANT_WHEN_TO_USE,
+  CODE_DEV_PROMPT,
+  CODE_DEV_WHEN_TO_USE,
+  CHRONICLER_PROMPT,
+  CHRONICLER_WHEN_TO_USE,
   EXPLORE_AGENT_PROMPT,
   EXPLORE_WHEN_TO_USE,
+  INFO_CURATOR_PROMPT,
+  INFO_CURATOR_WHEN_TO_USE,
   PLAN_AGENT_PROMPT,
   PLAN_WHEN_TO_USE,
+  SYSTEM_KEEPER_PROMPT,
+  SYSTEM_KEEPER_WHEN_TO_USE,
   VERIFY_AGENT_PROMPT,
   VERIFY_CRITICAL_REMINDER,
   VERIFY_WHEN_TO_USE,
@@ -149,6 +172,183 @@ const VERIFY_DEF: AgentDefinition = {
   isActive: true,
 };
 
+// --- Code Dev（灵栖开发：绑定项目的开发会话） ---
+
+/**
+ * 对话型系统 Agent：出现在会话选择器（selectable），
+ * 有 CLI 绑定时走 ACP 直达，无绑定时用下列内置工具兜底。
+ */
+const CODE_DEV_DEF: AgentDefinition = {
+  id: "code-dev",
+  name: "灵栖开发",
+  description: CODE_DEV_WHEN_TO_USE,
+  sourceType: "system",
+  version: 1,
+  systemPrompt: CODE_DEV_PROMPT,
+  modelTier: "balanced",
+  defaultPurpose: "chat",
+  // 内置内核兜底档的工具面（有 CLI 绑定时走 ACP，不经这里的工具）
+  tools: [
+    BASH_TOOL_NAME,
+    FILE_READ_TOOL_NAME,
+    FILE_WRITE_TOOL_NAME,
+    FILE_EDIT_TOOL_NAME,
+    FILE_MKDIR_TOOL_NAME,
+    FILE_MOVE_TOOL_NAME,
+    FILE_COPY_TOOL_NAME,
+    LIST_DIR_TOOL_NAME,
+    GLOB_TOOL_NAME,
+    GREP_TOOL_NAME,
+    TODO_WRITE_TOOL_NAME,
+    "profile_memory",
+    SKILL_LIST_TOOL_NAME,
+    SKILL_SEARCH_TOOL_NAME,
+    SKILL_INVOKE_TOOL_NAME,
+    WEB_SEARCH_TOOL_NAME,
+    WEB_FETCH_TOOL_NAME,
+  ],
+  maxTurns: 80,
+  // v1 工具面收敛：不派生子 Agent（后续按需开放）
+  canSpawnSubAgents: false,
+  memory: { scope: "user", autoExtract: true },
+  selectable: true,
+  isActive: true,
+};
+
+/**
+ * system-keeper 的客户端面板工具集（app_* 前缀；均在工具注册表中存在）
+ */
+const APP_UI_TOOL_NAMES: readonly string[] = [
+  "app_screenshot",
+  "app_goto",
+  "app_act",
+  "app_fill_form",
+  "app_scroll_to_text",
+  "app_scroll_to_bottom",
+  "app_goto_and_screenshot",
+];
+
+// --- System Keeper（灵栖维护：资产维护 + 代操客户端） ---
+
+/**
+ * 对话型系统 Agent：出现在会话选择器（selectable）。
+ * 交互档工具面在此；自主档工具面由 getAutonomousToolsForAgent 收窄
+ * （无 bash / file_write / app_*，见 goal-executor.ts）。
+ */
+const SYSTEM_KEEPER_DEF: AgentDefinition = {
+  id: "system-keeper",
+  name: "灵栖维护",
+  description: SYSTEM_KEEPER_WHEN_TO_USE,
+  sourceType: "system",
+  version: 1,
+  systemPrompt: SYSTEM_KEEPER_PROMPT,
+  modelTier: "balanced",
+  defaultPurpose: "chat",
+  tools: [
+    BASH_TOOL_NAME,
+    FILE_READ_TOOL_NAME,
+    FILE_WRITE_TOOL_NAME,
+    FILE_EDIT_TOOL_NAME,
+    LIST_DIR_TOOL_NAME,
+    GLOB_TOOL_NAME,
+    GREP_TOOL_NAME,
+    "cron_create",
+    "cron_list",
+    "cron_delete",
+    "cron_guide",
+    "wiki_overview",
+    "wiki_search",
+    "wiki_read",
+    "memory_search",
+    "memory_read",
+    "memory_manage",
+    "profile_memory",
+    "scene_memory",
+    SKILL_LIST_TOOL_NAME,
+    SKILL_SEARCH_TOOL_NAME,
+    SKILL_INVOKE_TOOL_NAME,
+    TODO_WRITE_TOOL_NAME,
+    ...APP_UI_TOOL_NAMES,
+  ],
+  maxTurns: 60,
+  canSpawnSubAgents: false,
+  memory: { scope: "user", autoExtract: true },
+  selectable: true,
+  isActive: true,
+};
+
+// --- Chronicler（灵栖记事：工作痕迹管家） ---
+
+/**
+ * 对话型系统 Agent：日报 / 周复盘 / 早间简报 / 专注提醒的执行者。
+ * 只读汇总者：无 web / 无 bash / 无文件写。
+ */
+const CHRONICLER_DEF: AgentDefinition = {
+  id: "chronicler",
+  name: "灵栖记事",
+  description: CHRONICLER_WHEN_TO_USE,
+  sourceType: "system",
+  version: 1,
+  systemPrompt: CHRONICLER_PROMPT,
+  modelTier: "balanced",
+  defaultPurpose: "chat",
+  tools: [
+    "work_report_read",
+    "memory_search",
+    "memory_read",
+    "memory_manage",
+    "wiki_search",
+    "wiki_read",
+    SKILL_LIST_TOOL_NAME,
+    SKILL_SEARCH_TOOL_NAME,
+    SKILL_INVOKE_TOOL_NAME,
+    TODO_WRITE_TOOL_NAME,
+    "message",
+  ],
+  maxTurns: 30,
+  canSpawnSubAgents: false,
+  memory: { scope: "user", autoExtract: true },
+  selectable: true,
+  isActive: true,
+};
+
+// --- Info Curator（灵栖情报：按偏好的资讯策展） ---
+
+/**
+ * 对话型系统 Agent：资讯抓取与综述的执行者（接管 news-pipeline）。
+ * 无 bash / 无文件写；偏好经记忆工具读写。
+ */
+const INFO_CURATOR_DEF: AgentDefinition = {
+  id: "info-curator",
+  name: "灵栖情报",
+  description: INFO_CURATOR_WHEN_TO_USE,
+  sourceType: "system",
+  version: 1,
+  systemPrompt: INFO_CURATOR_PROMPT,
+  modelTier: "balanced",
+  defaultPurpose: "chat",
+  tools: [
+    WEB_SEARCH_TOOL_NAME,
+    WEB_FETCH_TOOL_NAME,
+    "bing_search",
+    "dashboard_feed_write",
+    "memory_search",
+    "memory_read",
+    "memory_manage",
+    "profile_memory",
+    "wiki_search",
+    SKILL_LIST_TOOL_NAME,
+    SKILL_SEARCH_TOOL_NAME,
+    SKILL_INVOKE_TOOL_NAME,
+    TODO_WRITE_TOOL_NAME,
+  ],
+  maxTurns: 40,
+  canSpawnSubAgents: false,
+  memory: { scope: "user", autoExtract: true },
+  selectable: true,
+  isActive: true,
+};
+
 /**
  * 客户端内置 Agent 离线镜像
  *
@@ -161,6 +361,10 @@ export const BUILTIN_AGENT_DEFINITIONS: readonly AgentDefinition[] = [
   EXPLORE_DEF,
   PLAN_DEF,
   VERIFY_DEF,
+  CODE_DEV_DEF,
+  SYSTEM_KEEPER_DEF,
+  CHRONICLER_DEF,
+  INFO_CURATOR_DEF,
 ];
 
 /**

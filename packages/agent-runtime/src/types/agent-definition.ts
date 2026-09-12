@@ -237,6 +237,12 @@ export interface AgentDefinition {
   readonly bundledSkills?: readonly string[]
   /** UI 展示分类（learning / writing / coding / life / other / general） */
   readonly category?: string
+  /**
+   * 是否出现在会话选择器（默认 false）。
+   * 仅为对话型系统 Agent（如 code-dev / system-keeper）开启；
+   * builtin:* 子 Agent 与普通系统 Agent 不进选择器。
+   */
+  readonly selectable?: boolean
 
   // ==================== 元数据 ====================
   /** 是否激活 */

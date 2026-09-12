@@ -17,6 +17,25 @@ export interface CodingDevProject {
 }
 
 /**
+ * 开发类 Agent 的本机绑定：把一个 Agent 身份接到某个 CLI 与工作目录。
+ *
+ * 归属本机的原因：workspace 是本机绝对路径、backendId 取决于本机装了什么 CLI，
+ * 都不该跨设备同步。Agent 删除后 binding 成为孤儿，读取时忽略（不级联清理）。
+ */
+export interface AgentDevBinding {
+  /** 对应的 AgentDefinition.id（如 'code-dev'） */
+  agentId: string
+  /** 本机 CLI 后端 */
+  backendId: 'claude' | 'codex' | 'cursor' | 'opencode'
+  /** 工作目录绝对路径；缺省回退全局活动项目 */
+  workspace?: string
+  /** 是否启用（停用后该 Agent 退回内置内核） */
+  enabled: boolean
+  /** 可选的权限模式覆盖（如 'bypassPermissions'；缺省按后端默认，见编码 CLI 参数策略） */
+  permissionMode?: string
+}
+
+/**
  * 应用配置
  */
 export interface AppConfig {
@@ -43,6 +62,13 @@ export interface AppConfig {
   codingDevProjects?: CodingDevProject[]
   /** 当前活动项目名（其 realPath 写入 MTBOT_*_ACP_CWD） */
   codingDevActiveProject?: string
+  /**
+   * 开启自主能力的 Agent id 列表（assistant 恒参与，无需列入）。
+   * 心跳 tick 遍历 assistant + 本列表；缺省/空表示仅 assistant 参与。
+   */
+  autonomousAgents?: string[]
+  /** 开发类 Agent 的本机绑定列表（Agent → CLI 后端 + 工作目录） */
+  codingDevAgentBindings?: AgentDevBinding[]
 }
 
 /**

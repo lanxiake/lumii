@@ -10,6 +10,7 @@
 import { ipcMain } from 'electron'
 import { getAgentRuntimeBridge } from './agent-runtime-ipc'
 import type { AgentRuntimeBridge } from '../agent-runtime/bridge'
+import type { ConfigManager } from '../config-manager'
 import { notifyAutonomousGoalApproved } from '../agent-runtime/autonomous-wiring'
 import { readSettings, writeSettings } from '@mtbot/agent-runtime'
 import type { AutonomousSettings } from '@mtbot/agent-runtime'
@@ -17,6 +18,13 @@ import { readMood, readConcerns, EVOLUTION_CONVERSATION_ID } from '@mtbot/agent-
 
 const ENABLED_KEY = 'autonomous.enabled'
 const DEFAULT_AGENT_ID = 'assistant'
+
+/** app 配置访问（由 ipc-handlers-registry 注入；未注入时相关 handler 降级为空） */
+let _getConfigManager: (() => ConfigManager | null) | null = null
+
+export function setAutonomousIpcDeps(deps: { getConfigManager: () => ConfigManager | null }): void {
+  _getConfigManager = deps.getConfigManager
+}
 
 /** bridge 未就绪时抛出，由各 handler 兜底为降级返回值 */
 function requireBridge(): AgentRuntimeBridge {
@@ -382,6 +390,27 @@ ipcMain.handle(
 ipcMain.handle('autonomous:getApprovalSettings', async () => null)
 
 ipcMain.handle('autonomous:updateApprovalSettings', async () => {})
+
+/** 读取开启自主能力的额外 Agent id 列表（除 assistant 外；assistant 恒参与不列入） */
+ipcMain.handle('autonomous:getAgents', async () => {
+  return _getConfigManager?.()?.getAppConfig().autonomousAgents ?? []
+})
+
+/** 设置开启自主能力的额外 Agent id 列表（去重、去空、排除 assistant） */
+ipcMain.handle('autonomous:setAgents', async (_event, agentIds: unknown) => {
+  const raw = Array.isArray(agentIds) ? agentIds : []
+  const sanitized = [
+    ...new Set(
+      raw
+        .map((v) => String(v ?? '').trim())
+        .filter((v) => v && v !== DEFAULT_AGENT_ID),
+    ),
+  ]
+  await _getConfigManager?.()?.updateAppConfig({
+    autonomousAgents: sanitized.length > 0 ? sanitized : undefined,
+  })
+  return { ok: true }
+})
 
 export function registerAutonomousIpcHandlers() {
   // handler 已在模块加载时通过 ipcMain.handle 注册

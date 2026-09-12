@@ -262,4 +262,18 @@ export const autonomousApi = {
   getDiary: (limit?: number, before?: { timestamp: number; id: string }): Promise<DiaryPage> => {
     return ipcRenderer.invoke('autonomous:getDiary', limit, before)
   },
+
+  /**
+   * 获取开启自主能力的额外 Agent id 列表（除 assistant 外；心跳 tick 遍历 assistant + 本列表）
+   */
+  getAutonomousAgents: (): Promise<string[]> => {
+    return ipcRenderer.invoke('autonomous:getAgents')
+  },
+
+  /**
+   * 设置开启自主能力的额外 Agent id 列表
+   */
+  setAutonomousAgents: (agentIds: string[]): Promise<{ ok: boolean }> => {
+    return ipcRenderer.invoke('autonomous:setAgents', agentIds)
+  },
 }

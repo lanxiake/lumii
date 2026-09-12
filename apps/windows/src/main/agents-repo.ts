@@ -27,6 +27,8 @@ export interface AgentRecord {
   /** 有值 = 用户 Agent；无值 = 系统 Agent */
   userId?: string
   sourceType?: string
+  /** 系统 Agent 是否出现在会话选择器（仅对话型系统 Agent 为 true） */
+  selectable?: boolean
   modelTier?: string
   primaryModel?: string
   identity?: { emoji?: string; theme?: string; avatar?: string }
@@ -49,6 +51,8 @@ function systemAgentRecords(): AgentRecord[] {
     systemPrompt: def.systemPrompt,
     isEnabled: def.isActive !== false,
     isDefault: def.id === 'assistant',
+    sourceType: def.sourceType,
+    selectable: def.selectable,
     modelTier: def.modelTier,
     primaryModel: def.model,
     skillFilter: def.skills ? [...def.skills] : undefined,

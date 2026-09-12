@@ -8,6 +8,8 @@ export interface Agent {
   systemPrompt?: string
   userId?: string
   isDefault?: boolean
+  /** 系统 Agent 是否出现在会话选择器（仅对话型系统 Agent 为 true） */
+  selectable?: boolean
   modelTier?: ModelTier
   model?: { primary?: string }
   identity?: { emoji?: string; theme?: string }

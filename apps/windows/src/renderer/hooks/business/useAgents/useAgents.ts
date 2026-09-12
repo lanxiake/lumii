@@ -27,6 +27,8 @@ export interface UseAgentsReturn {
   systemAgents: Agent[]
   /** 用户 Agent 列表 */
   userAgents: Agent[]
+  /** 会话选择器可选集合（用户 Agent + selectable 系统 Agent，如「灵栖开发」「灵栖维护」） */
+  selectableAgents: Agent[]
   /** 主系统 Agent 的 ID（用于"系统默认"对话） */
   mainAgentId: string | null
   /** 当前选中的用户 Agent（null 表示使用系统默认） */
@@ -68,6 +70,11 @@ export function useAgents(): UseAgentsReturn {
   // 过滤系统 Agent 和用户 Agent（用户 Agent 按名称字母序排列，编辑后顺序稳定）
   const systemAgents = agents.filter((a) => !a.userId)
   const userAgents = agents.filter((a) => a.userId).sort((a, b) => a.name.localeCompare(b.name, 'zh'))
+  // 会话选择器可选集合 = 用户 Agent + 标记了 selectable 的系统 Agent（如「灵栖开发」）。
+  // 与 userAgents 分开：团队页需要按 系统/用户 分组展示，重复合并会让系统 Agent 出现在两组。
+  const selectableAgents = agents
+    .filter((a) => a.userId || a.selectable)
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh'))
 
   /**
    * 从主进程拉取 DefinitionStore 同步状态并映射为 UI 分类
@@ -125,10 +132,10 @@ export function useAgents(): UseAgentsReturn {
       const resolvedMainId = defaultSys?.id ?? assistantSys?.id ?? mainSys?.id ?? firstSys?.id ?? null
       setMainAgentId(resolvedMainId)
 
-      // 仅从用户 Agent 中恢复选中状态，系统 Agent 固定为"系统默认"
+      // 仅从可选 Agent（用户 Agent + selectable 系统 Agent）中恢复选中状态
       const savedAgentId = localStorage.getItem(STORAGE_KEY)
       if (savedAgentId) {
-        const savedAgent = loadedAgents.find((a) => a.id === savedAgentId && a.userId)
+        const savedAgent = loadedAgents.find((a) => a.id === savedAgentId && (a.userId || a.selectable))
         if (savedAgent) {
           setSelectedAgent(savedAgent)
         } else {
@@ -255,6 +262,7 @@ export function useAgents(): UseAgentsReturn {
     agents,
     systemAgents,
     userAgents,
+    selectableAgents,
     mainAgentId,
     selectedAgent,
     isLoading,

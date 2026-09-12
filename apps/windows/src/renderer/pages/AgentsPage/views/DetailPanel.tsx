@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import type { Agent } from './types'
 import { TIER_LABELS, agentColor } from './types'
 import { getAgentLifecycleSnapshot } from '../../../services/agent-service'
+import { getAutonomousAgents, setAutonomousAgents } from '../../../services/autonomous-service'
 import { MessageSquare, PenLine, Trash2, X, GitBranch } from 'lucide-react'
 import styles from './DetailPanel.module.css'
 
@@ -58,6 +59,40 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
 }) => {
   const color = agentColor(agent)
   const [lifecycle, setLifecycle] = useState<LifecycleSnapshot | null | undefined>(undefined)
+  // 自主能力开关（assistant 恒参与不显示）：null = 加载中
+  const [autonomousOn, setAutonomousOn] = useState<boolean | null>(null)
+
+  const refreshAutonomous = useCallback(async () => {
+    try {
+      const ids = await getAutonomousAgents()
+      setAutonomousOn(ids.includes(agent.id))
+    } catch {
+      setAutonomousOn(false)
+    }
+  }, [agent.id])
+
+  useEffect(() => {
+    void refreshAutonomous()
+  }, [refreshAutonomous])
+
+  const handleToggleAutonomous = useCallback(
+    async (next: boolean) => {
+      try {
+        const ids = await getAutonomousAgents()
+        const set = new Set(ids)
+        if (next) {
+          set.add(agent.id)
+        } else {
+          set.delete(agent.id)
+        }
+        await setAutonomousAgents([...set])
+        setAutonomousOn(next)
+      } catch {
+        // 保存失败保持原状态
+      }
+    },
+    [agent.id],
+  )
 
   const refreshLifecycle = useCallback(async () => {
     try {
@@ -92,9 +127,16 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
 
         <div className={styles.actions}>
           {isSystem ? (
-            <button className={styles['btn--primary']} onClick={() => onFork(agent)}>
-              <GitBranch size={13} /> 基于此创建
-            </button>
+            <>
+              {agent.selectable && (
+                <button className={styles['btn--chat']} onClick={() => onStartChat(agent.id)}>
+                  <MessageSquare size={13} /> 发起对话
+                </button>
+              )}
+              <button className={styles['btn--primary']} onClick={() => onFork(agent)}>
+                <GitBranch size={13} /> 基于此创建
+              </button>
+            </>
           ) : (
             <>
               <button className={styles['btn--chat']} onClick={() => onStartChat(agent.id)}>
@@ -185,6 +227,29 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
             <div className={styles.promptText}>{agent.systemPrompt}</div>
           </div>
         )}
+
+        <div className={styles.section}>
+          <div className={styles['section-title']}>自主能力</div>
+          {agent.id === 'assistant' ? (
+            <p className={styles.muted}>随全局开关参与自主行为，无需单独配置</p>
+          ) : autonomousOn === null ? (
+            <p className={styles.muted}>加载中…</p>
+          ) : (
+            <>
+              <label className={styles.infoRow}>
+                <span className={styles.infoLabel}>参与自主心跳</span>
+                <input
+                  type="checkbox"
+                  checked={autonomousOn}
+                  onChange={(e) => void handleToggleAutonomous(e.target.checked)}
+                />
+              </label>
+              <p className={styles.muted}>
+                开启后该 Agent 会按心跳周期参与自主行为（反思 / 目标执行），消耗 LLM 调用。
+              </p>
+            </>
+          )}
+        </div>
 
         {isSystem && (
           <div className={styles.systemBadge}>系统内置 Agent · 不可编辑</div>
