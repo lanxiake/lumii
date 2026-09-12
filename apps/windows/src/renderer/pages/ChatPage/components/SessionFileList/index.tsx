@@ -16,6 +16,7 @@ import clsx from 'clsx'
 import { createPortal } from 'react-dom'
 import { FilePreviewModal } from '../../../../components/FilePreviewModal/FilePreviewModal'
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
+import { saveFile } from '../../../../services/dialog-service'
 import { useWorkspace } from '../../../../hooks/business/useWorkspace'
 import {
   updateSessionState,
@@ -224,10 +225,7 @@ const FileRow: React.FC<{
     setIsSaving(true)
     setError(null)
     try {
-      const result = await window.electronAPI.dialog?.showSaveDialog?.({
-        defaultPath: file.fileName,
-      })
-      const savePath = result?.filePath
+      const savePath = await saveFile({ defaultPath: file.fileName })
       if (savePath) {
         await window.electronAPI.agentRuntime.sendCommand({
           type: 'files:save-as',
@@ -457,10 +455,7 @@ const InlineFileRow: React.FC<{
     setMenuPos(null)
     setBusy('save')
     try {
-      const result = await window.electronAPI.dialog?.showSaveDialog?.({
-        defaultPath: file.fileName,
-      })
-      const savePath = result?.filePath
+      const savePath = await saveFile({ defaultPath: file.fileName })
       if (savePath) {
         await window.electronAPI.agentRuntime.sendCommand({
           type: 'files:save-as',

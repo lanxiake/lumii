@@ -1,7 +1,7 @@
 /**
  * FileTree — 懒加载树形目录组件
  *
- * - 文件夹首次展开时按需加载子内容（window.electronAPI.file.list）
+ * - 文件夹首次展开时按需加载子内容（file-service.listDirectory）
  * - 展开状态用 Set<string> 维护，目录内容缓存在 Map<string, FileItem[]>
  * - 图标使用 SVG（lucide-react），不使用 emoji
  * - refreshToken 变化时清空缓存，重新加载已展开目录
@@ -12,6 +12,8 @@ import clsx from 'clsx'
 import type { FileItem } from '../../../../hooks/business/useFiles/useFiles.types'
 import { useCodingDevProjects } from '../../../../hooks/business/useCodingDevProjects'
 import { useWorkspaceVcs } from '../../../../hooks/business/useWorkspaceVcs'
+import { listDirectory, moveFile } from '../../../../services/file-service'
+import { getProjectGitStatus } from '../../../../services/app-service'
 import type { ProjectGitStatus } from '@main/project-git/types'
 import styles from './FileTree.module.css'
 
@@ -147,7 +149,7 @@ function getExtension(filename: string): string {
 
 function parseRawItem(raw: {
   name: string; path: string; isDirectory: boolean
-  size: number; modifiedAt: string; createdAt: string
+  size: number; modifiedAt: string | Date; createdAt: string | Date
 }): FileItem {
   const ext = raw.isDirectory ? undefined : getExtension(raw.name)
   return {
@@ -156,8 +158,8 @@ function parseRawItem(raw: {
     path: raw.path.replace(/\\/g, '/'),
     isDirectory: raw.isDirectory,
     size: raw.size,
-    modifiedAt: new Date(raw.modifiedAt),
-    createdAt: new Date(raw.createdAt),
+    modifiedAt: raw.modifiedAt instanceof Date ? raw.modifiedAt : new Date(raw.modifiedAt),
+    createdAt: raw.createdAt instanceof Date ? raw.createdAt : new Date(raw.createdAt),
     extension: ext,
     icon: '',
   }
@@ -426,7 +428,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
       return
     }
     const entries = await Promise.all(
-      projects.map(async (p) => [p.name, await window.electronAPI.app.getProjectGitStatus(p.name)] as const),
+      projects.map(async (p) => [p.name, await getProjectGitStatus(p.name)] as const),
     )
     setProjectGitStatuses(new Map(entries))
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -461,11 +463,8 @@ export const FileTree: React.FC<FileTreeProps> = ({
     if (!force && loadingDirs.has(key)) return
     setLoadingDirs((prev) => new Set(prev).add(key))
     try {
-      // Electron file:list 在 Windows 上接受 / 与 \；统一用规范化路径请求
-      const raw = await window.electronAPI.file.list(key) as Array<{
-        name: string; path: string; isDirectory: boolean
-        size: number; modifiedAt: string; createdAt: string
-      }>
+      // 底层 file:list 在 Windows 上接受 / 与 \；统一用规范化路径请求
+      const raw = await listDirectory(key)
       const items = raw
         .map(parseRawItem)
         .sort((a, b) => {
@@ -604,7 +603,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
     const name = src.split('/').filter(Boolean).pop()
     if (!name) return
     try {
-      await window.electronAPI.file.move(src, `${dest}/${name}`)
+      await moveFile(src, `${dest}/${name}`)
     } catch (err) {
       // 顶层兜底：文件树内重名只能在 drop 时发现，静默失败会让人以为拖拽没生效
       console.error('[FileTree] 移动失败:', err)

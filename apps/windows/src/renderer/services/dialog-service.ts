@@ -13,3 +13,12 @@ export async function pickDirectory(options?: { title?: string; buttonLabel?: st
   })
   return !result.canceled && result.filePaths.length > 0 ? result.filePaths[0] : null
 }
+
+/**
+ * 打开系统保存对话框，返回目标路径；取消或接口不可用返回 null。
+ * 对话框自身失败向调用方抛出（原调用点负责提示错误）。
+ */
+export async function saveFile(options: { defaultPath?: string } = {}): Promise<string | null> {
+  const result = await window.electronAPI.dialog?.showSaveDialog?.(options)
+  return result?.filePath ?? null
+}

@@ -17,6 +17,8 @@ import { useWorkspaceVcs } from '../../../../hooks/business/useWorkspaceVcs'
 import type { FileItem } from '../../../../hooks/business/useFiles/useFiles.types'
 import { FilePreviewModal } from '../../../../components/FilePreviewModal'
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
+import { deleteFile, writeFile, createDirectory } from '../../../../services/file-service'
+import { showItemInFolder } from '../../../../services/app-service'
 import { FileTree } from './FileTree'
 import { FileSearchBar } from './FileSearchBar'
 import { ProjectsSection } from './ProjectsSection'
@@ -530,7 +532,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
     if (!deleteTarget) return
     const targetPath = deleteTarget.path
     try {
-      await window.electronAPI.file.delete(targetPath)
+      await deleteFile(targetPath)
       if (selectedPath === targetPath) setSelectedPath(null)
       if (previewFile?.path === targetPath) setPreviewFile(null)
       // 仅重拉父目录：整树重拉会清空缓存并重建所有已展开节点，连续删除时一直闪
@@ -544,7 +546,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
   }, [deleteTarget, selectedPath, previewFile, requestDirRefresh, refreshVcs])
 
   const handleOpenExternal = useCallback((item: FileItem) => {
-    window.electronAPI.app.showItemInFolder(item.path)
+    void showItemInFolder(item.path)
   }, [])
 
   const handleCopy = useCallback((item: FileItem, kind: 'name' | 'relative' | 'absolute') => {
@@ -569,7 +571,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
     try {
       const parentPath = createFileParent.path.replace(/\\/g, '/').replace(/\/+$/, '')
       const filePath = `${parentPath}/${trimmed}`
-      await window.electronAPI.file.write(filePath, '')
+      await writeFile(filePath, '')
       setRefreshKey((t) => t + 1)
       // 展开父目录并选中新文件
       setRevealPath(filePath)
@@ -587,7 +589,7 @@ export const WorkspaceFilePanel: React.FC<WorkspaceFilePanelProps> = ({
     try {
       const parentPath = createFolderParent.path.replace(/\\/g, '/').replace(/\/+$/, '')
       const folderPath = `${parentPath}/${trimmed}`
-      await window.electronAPI.file.createDir(folderPath)
+      await createDirectory(folderPath)
       setRefreshKey((t) => t + 1)
       // 展开父目录
       setRevealPath(folderPath)

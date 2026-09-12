@@ -46,6 +46,17 @@ export async function switchPetMode(mode: AppMode, modelId?: string): Promise<Pe
   return api.switchMode(mode, modelId)
 }
 
+/** 同步宠物窗口当前跟随的会话 key；接口不可用或失败时静默（原调用点为静默降级） */
+export async function setActiveSessionKey(sessionKey: string): Promise<void> {
+  const api = window.electronAPI?.pet
+  if (!api) return
+  try {
+    await api.setActiveSessionKey(sessionKey)
+  } catch {
+    /* 静默 */
+  }
+}
+
 /** 订阅模式变更广播（托盘 / 快捷键 / 控制坞触发），返回取消订阅函数 */
 export function subscribePetModeChanged(handler: (mode: unknown) => void): () => void {
   if (!window.electronAPI?.pet) return () => {}

@@ -13,6 +13,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import clsx from 'clsx'
 import type { FileItem } from '../../../../hooks/business/useFiles/useFiles.types'
+import { searchFiles } from '../../../../services/file-service'
 import styles from './FileSearchBar.module.css'
 
 /** 按类型分组的扩展名集合（与 file-attachment-strategy 保持一致） */
@@ -173,15 +174,11 @@ export const FileSearchBar: React.FC<FileSearchBarProps> = ({
       const maxResults = typeExts ? TYPE_FILTER_MAX_RESULTS : NAME_SEARCH_MAX_RESULTS
       try {
         const pattern = userPattern ?? ''
-        const raw = await window.electronAPI.file.search(rootPath, pattern, {
+        const raw = await searchFiles(rootPath, pattern, {
           recursive: true,
           maxResults,
           ...(typeExts ? { extensions: [...typeExts] } : {}),
-        }) as Array<{
-          name: string; path: string; isDirectory: boolean
-          size: number; modifiedAt: string | Date; createdAt: string | Date
-          extension?: string
-        }>
+        })
         if (myRequestId !== requestIdRef.current) return
         const parsed = raw.map(parseRawItem).filter((f) => !f.isDirectory)
         parsed.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN', { numeric: true }))

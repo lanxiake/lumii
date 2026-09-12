@@ -4,6 +4,8 @@ import { ChatInput } from './components/ChatInput'
 import type { Agent } from '../../services/agent-service'
 import type { ModelOption } from '../../services/model-config-service'
 import { fetchModelCatalog, fetchChatModelChoices, saveChatModel } from '../../services/model-config-service'
+import { notifyDesktop } from '../../services/app-service'
+import { setActiveSessionKey, switchPetMode } from '../../services/pet-service'
 import { ConfirmModal } from '../../components/ui/Modal/ConfirmModal'
 import { useToast } from '../../components/ui/Toast/useToast'
 import { useAgents } from '../../hooks/business/useAgents'
@@ -820,12 +822,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     if (runtimeLastTaskCompletion.timestamp <= handledDesktopNotifyTsRef.current) return
     handledDesktopNotifyTsRef.current = runtimeLastTaskCompletion.timestamp
     if (typeof document !== 'undefined' && document.hasFocus()) return
-    const api = window.electronAPI?.notifyDesktop
-    if (!api) return
     const sessionTitle = localRuntimeSession?.title?.trim() || '当前对话'
     const summary = runtimeLastTaskCompletion.summary?.trim()
     const body = summary || (sessionTitle.length > 120 ? `${sessionTitle.slice(0, 117)}…` : sessionTitle)
-    void api('MtBot · 任务已完成', body).catch(() => undefined)
+    notifyDesktop('MtBot · 任务已完成', body)
   }, [runtimeLastTaskCompletion, localRuntimeSession?.title])
 
   // 本地 Runtime 自动审批：检测到待审批权限请求且 autoApprove 开启时自动放行
@@ -1325,9 +1325,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
 
   const handleEnterPetMode = useCallback(async () => {
     if (runtimeCurrentSessionKey) {
-      await window.electronAPI?.pet?.setActiveSessionKey(runtimeCurrentSessionKey).catch(() => {})
+      await setActiveSessionKey(runtimeCurrentSessionKey)
     }
-    const result = await window.electronAPI?.pet?.switchMode('pet')
+    const result = await switchPetMode('pet')
     if (result && !result.success) {
       toast.error(`进入宠物模式失败：${result.error ?? '未知错误'}`)
     }
