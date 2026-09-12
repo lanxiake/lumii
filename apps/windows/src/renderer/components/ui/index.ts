@@ -23,10 +23,6 @@ export type { CardProps } from './Card';
 export { default as Select } from './Select';
 export type { SelectProps, SelectOption } from './Select';
 
-// Table
-export { default as Table } from './Table';
-export type { TableProps, TableColumn } from './Table';
-
 // Loading
 export { default as Loading } from './Loading';
 export type { LoadingProps, LoadingSize } from './Loading';
@@ -46,10 +42,6 @@ export { ErrorBanner, type ErrorBannerProps } from './ErrorBanner';
 // Checkbox
 export { Checkbox } from './Checkbox/Checkbox';
 export type { CheckboxProps } from './Checkbox/Checkbox';
-
-// Radio
-export { Radio, RadioGroup } from './Radio/Radio';
-export type { RadioProps, RadioGroupProps } from './Radio/Radio';
 
 // Switch
 export { Switch } from './Switch/Switch';
@@ -73,23 +65,6 @@ export type { BadgeProps } from './Badge/Badge';
 
 // ========== Data Display Components (NEW) ==========
 
-// Avatar
-export { Avatar } from './Avatar/Avatar';
-export type { AvatarProps } from './Avatar/Avatar';
-
 // Tag
 export { Tag } from './Tag/Tag';
 export type { TagProps } from './Tag/Tag';
-
-// Divider
-export { Divider } from './Divider/Divider';
-export type { DividerProps } from './Divider/Divider';
-
-// Skeleton
-export { Skeleton } from './Skeleton/Skeleton';
-export type { SkeletonProps } from './Skeleton/Skeleton';
-
-// ========== Responsive Components (NEW) ==========
-
-export { Show, Hide } from './Responsive/Responsive';
-export type { ShowProps, HideProps } from './Responsive/Responsive';

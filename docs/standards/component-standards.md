@@ -37,24 +37,18 @@ components/
 
 | 组件 | 路径 | 状态 | 用途 |
 |------|------|------|------|
-| Avatar | `ui/Avatar/` | ✅ 已实施 | 头像组件 |
 | Badge | `ui/Badge/` | ✅ 已实施 | 徽章组件 |
 | Button | `ui/Button/` | ✅ 已实施 | 按钮组件 |
 | Card | `ui/Card/` | ✅ 已实施 | 卡片容器 |
 | Checkbox | `ui/Checkbox/` | ✅ 已实施 | 复选框 |
-| Divider | `ui/Divider/` | ✅ 已实施 | 分割线 |
 | Empty | `ui/Empty/` | ✅ 已实施 | 空状态 |
 | ErrorBanner | `ui/ErrorBanner/` | ✅ 已实施 | 错误展示 |
 | Input | `ui/Input/` | ✅ 已实施 | 文本输入 |
 | Loading | `ui/Loading/` | ✅ 已实施 | 加载状态 |
 | Modal | `ui/Modal/` | ✅ 已实施 | 模态框 |
 | PageHeader | `ui/PageHeader/` | ✅ 已实施 | 页面标题 |
-| Radio | `ui/Radio/` | ✅ 已实施 | 单选框 |
-| Responsive | `ui/Responsive/` | ✅ 已实施 | 响应式组件 |
 | Select | `ui/Select/` | ✅ 已实施 | 下拉选择 |
-| Skeleton | `ui/Skeleton/` | ✅ 已实施 | 骨架屏 |
 | Switch | `ui/Switch/` | ✅ 已实施 | 开关 |
-| Table | `ui/Table/` | ✅ 已实施 | 数据表格 |
 | Tag | `ui/Tag/` | ✅ 已实施 | 标签 |
 | Toast | `ui/Toast/` | ✅ 已实施 | 消息提示 |
 | Tooltip | `ui/Tooltip/` | ✅ 已实施 | 工具提示 |
@@ -586,11 +580,9 @@ import {
   Card, 
   Modal, 
   Select,
-  Table,
   Loading,
   Empty,
   Toast,
-  Skeleton,
   ErrorBanner,
   PageHeader 
 } from '@/components/ui';
