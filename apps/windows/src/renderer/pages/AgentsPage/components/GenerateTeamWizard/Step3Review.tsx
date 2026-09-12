@@ -3,6 +3,7 @@
  */
 
 import React, { useState } from 'react'
+import { forkAgent, updateAgent } from '../../../../services/agent-service'
 import type { GeneratedAgent, GeneratedAgentForm, CapabilityOption } from './types'
 import { capabilitiesToSkillBlacklist, encodeGroupToDescription } from './utils'
 import styles from './GenerateTeamWizard.module.css'
@@ -44,15 +45,13 @@ export const Step3Review: React.FC<Step3ReviewProps> = ({
       updateForm(i, { status: 'creating' })
 
       try {
-        const forkResp = await window.electronAPI.api.forkAgent(firstSystemAgentId, {
+        const created = await forkAgent(firstSystemAgentId, {
           name: form.name,
           description: form.description,
           systemPrompt: form.systemPrompt,
-        } as any)
+        })
 
-        // forkAgent 返回 ApiResponse<Agent>，需从 .data 中取 id
-        const newAgentId: string | undefined =
-          (forkResp as any)?.data?.id ?? (forkResp as any)?.id
+        const newAgentId: string | undefined = created.id
 
         if (!newAgentId) throw new Error('Fork Agent 未返回有效 id')
 
@@ -65,18 +64,18 @@ export const Step3Review: React.FC<Step3ReviewProps> = ({
           .map((id) => skillIdToName.get(id))
           .filter((n): n is string => !!n)
 
-        await window.electronAPI.api.updateAgent(newAgentId, {
+        await updateAgent(newAgentId, {
           systemPrompt: form.systemPrompt,
           skillBlacklist: skillBlacklist.length > 0 ? skillBlacklist : null,
           skillFilter: skillFilterNames.length > 0 ? skillFilterNames : null,
           modelTier: form.modelTier,
-        } as any)
+        })
 
         // 将分组信息写入 description 末尾（用于后续展示分组标识）
         if (form.groupId) {
-          await window.electronAPI.api.updateAgent(newAgentId, {
+          await updateAgent(newAgentId, {
             description: encodeGroupToDescription(form.description, form.groupId, form.groupName, form.groupRole),
-          } as any)
+          })
         }
 
         updateForm(i, { id: newAgentId, status: 'success' })

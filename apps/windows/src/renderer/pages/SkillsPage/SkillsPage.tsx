@@ -14,6 +14,14 @@ import { SkillStoreView } from '../../components/business/SkillStoreView'
 import { MySkillDetailModal } from './components/MySkillDetailModal'
 import { SkillRow } from './components/SkillRow'
 import { useSkills } from '../../hooks/business/useSkills'
+import {
+  refreshSkills,
+  refreshSkillsInBackground,
+  getSkillDir,
+  importSkillDirectory,
+} from '../../services/skills-service'
+import { showItemInFolder, getPathForFile } from '../../services/app-service'
+import { pickDirectory } from '../../services/dialog-service'
 import type { MySkillDetailInfo, TabType, FilterStatus, SkillsPageProps } from './SkillsPage.types'
 import styles from './SkillsPage.module.css'
 
@@ -125,7 +133,7 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true)
     try {
-      const result = await window.electronAPI.skills.refresh() as { success: boolean; count: number }
+      const result = await refreshSkills()
       await loadInstalledSkills()
       setResultMessage({ type: 'success', text: `已刷新，检测到 ${result.count} 个技能` })
     } catch (err) {
@@ -153,7 +161,7 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
         setResultMessage({ type: 'success', text: '技能已启用' })
       }
       // 状态变更后触发上报（fire-and-forget，不阻塞 UI）
-      window.electronAPI.skills.refresh().catch(() => {})
+      refreshSkillsInBackground()
     } catch (err) {
       setResultMessage({
         type: 'error',
@@ -179,7 +187,7 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
         setDetailSkillInfo(null)
       }
       // 卸载后触发上报
-      window.electronAPI.skills.refresh().catch(() => {})
+      refreshSkillsInBackground()
     } catch (err) {
       setResultMessage({
         type: 'error',
@@ -198,8 +206,8 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
    */
   const handleOpenDir = useCallback(async (skillItemId: string) => {
     try {
-      const dirPath = await window.electronAPI.skills.getSkillDir(skillItemId)
-      await window.electronAPI.app.showItemInFolder(dirPath)
+      const dirPath = await getSkillDir(skillItemId)
+      await showItemInFolder(dirPath)
     } catch (err) {
       setResultMessage({ type: 'error', text: err instanceof Error ? err.message : '打开目录失败' })
       setTimeout(() => setResultMessage(null), 3000)
@@ -220,7 +228,7 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
   const handleInstallFromDirectory = useCallback(async (sourcePath: string) => {
     setIsInstalling(true)
     try {
-      await window.electronAPI.skills.importDirectory(sourcePath)
+      await importSkillDirectory(sourcePath)
       await loadInstalledSkills()
       setResultMessage({ type: 'success', text: `技能 ${sourcePath.split(/[\\/]/).pop()} 导入成功` })
     } catch (err) {
@@ -236,13 +244,9 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
    */
   const handleDropZoneClick = useCallback(async () => {
     try {
-      const result = await window.electronAPI.dialog.showOpenDialog({
-        properties: ['openDirectory'],
-        title: '选择技能目录',
-        buttonLabel: '导入技能',
-      })
-      if (!result.canceled && result.filePaths.length > 0) {
-        await handleInstallFromDirectory(result.filePaths[0])
+      const dir = await pickDirectory({ title: '选择技能目录', buttonLabel: '导入技能' })
+      if (dir) {
+        await handleInstallFromDirectory(dir)
       }
     } catch (err) {
       setResultMessage({ type: 'error', text: err instanceof Error ? err.message : '无法打开目录选择器' })
@@ -283,7 +287,7 @@ const SkillsPage: React.FC<SkillsPageProps> = ({
     if (!file) return
 
     // 用 Electron webUtils.getPathForFile 获取真实本地路径
-    const filePath = window.electronAPI.app.getPathForFile(file)
+    const filePath = getPathForFile(file)
     if (!filePath) {
       setResultMessage({ type: 'error', text: '无法获取路径，请尝试点击选择目录' })
       setTimeout(() => setResultMessage(null), 3000)

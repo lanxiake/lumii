@@ -9,7 +9,8 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { Zap, Rocket, Network, LayoutGrid, List, RefreshCw, Check, X, Loader2, Sparkles } from 'lucide-react'
 import clsx from 'clsx'
 import { useAgents } from '../../hooks/business/useAgents/useAgents'
-import { updateAgent, deleteAgent, type ModelTier } from '../../services/agent-service'
+import { updateAgent, deleteAgent, getAgentLifecycleSnapshot, type ModelTier } from '../../services/agent-service'
+import { listInstalledSkills, searchStoreSkills, installStoreSkill } from '../../services/skills-service'
 import { MapView } from './views/MapView'
 import { GridView } from './views/GridView'
 import { FeedView } from './views/FeedView'
@@ -91,24 +92,15 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
   useEffect(() => {
     const fetchSkills = async () => {
       try {
-        const raw = await window.electronAPI.skills.listLocalInstalled()
-        // IPC 返回 { success, data } 格式，兼容旧版裸数组
-        const localSkills: Array<{
-          id: string
-          name?: string
-          description?: string
-          enabled?: boolean
-        }> = Array.isArray(raw) ? raw : ((raw as any)?.data ?? [])
-        if (Array.isArray(localSkills)) {
-          const skills: UserSkill[] = localSkills
-            .filter((s) => s.enabled !== false)
-            .map((s) => ({
-              id: s.id,
-              name: s.name || s.id,
-              description: s.description,
-            }))
-          setUserSkills(skills)
-        }
+        const localSkills = await listInstalledSkills()
+        const skills: UserSkill[] = localSkills
+          .filter((s) => s.enabled !== false)
+          .map((s) => ({
+            id: s.id,
+            name: s.name || s.id,
+            description: s.description,
+          }))
+        setUserSkills(skills)
       } catch {
         // 技能列表加载失败不影响页面主功能
       }
@@ -128,9 +120,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
     }
     const detect = async () => {
       try {
-        const raw = await window.electronAPI.skills.listLocalInstalled()
-        const localSkills: Array<{ id: string; name?: string; enabled?: boolean }> =
-          Array.isArray(raw) ? raw : ((raw as any)?.data ?? [])
+        const localSkills = await listInstalledSkills()
         const installedNames = new Set(
           localSkills.filter((s) => s.enabled !== false).map((s) => (s.name || s.id).toLowerCase()),
         )
@@ -152,22 +142,13 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
         // 批量查商店（去重，每个名字只查一次）
         const skillLookup = new Map<string, { id: string; name: string; inStore: boolean }>()
         for (const skillName of allMissingNames) {
-          try {
-            const result = await (window.electronAPI.api as any).getStoreSkills?.({ search: skillName, limit: 1 })
-            // data 可能是数组（旧格式）或 { items, meta }（新格式）
-            const rawData = result?.data
-            const items: Array<{ id: string; name?: string }> = Array.isArray(rawData)
-              ? rawData
-              : (rawData?.items ?? result?.items ?? [])
-            skillLookup.set(
-              skillName.toLowerCase(),
-              items.length > 0
-                ? { id: items[0].id, name: items[0].name ?? skillName, inStore: true }
-                : { id: skillName, name: skillName, inStore: false },
-            )
-          } catch {
-            skillLookup.set(skillName.toLowerCase(), { id: skillName, name: skillName, inStore: false })
-          }
+          const items = await searchStoreSkills(skillName, 1)
+          skillLookup.set(
+            skillName.toLowerCase(),
+            items.length > 0
+              ? { id: items[0].id, name: items[0].name ?? skillName, inStore: true }
+              : { id: skillName, name: skillName, inStore: false },
+          )
         }
 
         // 构建 per-agent 缺失映射
@@ -196,8 +177,8 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
   const handleInstallSkill = useCallback(
     async (agentId: string, skillId: string, skillName: string): Promise<boolean> => {
       try {
-        const result = await (window.electronAPI.api as any).installStoreSkill(skillId)
-        if (result?.success === false) return false
+        const installed = await installStoreSkill(skillId)
+        if (!installed) return false
         setAgentMissingSkills((prev) => {
           const agentList = prev[agentId]
           if (!agentList) return prev
@@ -209,9 +190,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
           return { ...prev, [agentId]: newList }
         })
         // 刷新本地技能列表
-        const raw = await window.electronAPI.skills.listLocalInstalled()
-        const localSkills: Array<{ id: string; name?: string; description?: string; enabled?: boolean }> =
-          Array.isArray(raw) ? raw : ((raw as any)?.data ?? [])
+        const localSkills = await listInstalledSkills()
         setUserSkills(
           localSkills
             .filter((s) => s.enabled !== false)
@@ -438,14 +417,12 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
    * 使用 ref 读取最新 userAgents，避免依赖变化导致定时器频繁重置、Map 节点消失。
    */
   const refreshRuntimeStates = useCallback(async () => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.getLifecycleSnapshot) return
     const ids = userAgentsRef.current.map((a) => a.id)
     if (ids.length === 0) return  // 不清空已有数据，等列表加载完再更新
     const entries = await Promise.all(
       ids.map(async (id) => {
         try {
-          const snapshot = await api.getLifecycleSnapshot(id) as { anyRunning?: boolean; runningCount?: number }
+          const snapshot = await getAgentLifecycleSnapshot(id)
           return [id, { anyRunning: !!snapshot.anyRunning, runningCount: Number(snapshot.runningCount ?? 0) } satisfies AgentRuntimeState] as const
         } catch {
           return [id, undefined] as const

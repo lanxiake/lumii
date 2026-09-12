@@ -9,6 +9,13 @@ import React, { useEffect, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import { Card } from '../../../../components/ui/Card/Card'
 import type { PetModelConfigDTO } from '../../../../../shared/pet-mode'
+import {
+  listPetModels,
+  getCurrentPetModelId,
+  getPetMode,
+  switchPetMode,
+  subscribePetModeChanged,
+} from '../../../../services/pet-service'
 import clsx from 'clsx'
 import styles from './VirtualHuman.module.css'
 
@@ -20,15 +27,13 @@ export const VirtualHuman: React.FC = () => {
   const [error, setError] = useState<string>()
 
   useEffect(() => {
-    const pet = window.electronAPI?.pet
-    if (!pet) return
-    void pet.listModels().then(setModels).catch(() => {})
-    void pet.getCurrentModelId().then(setModelId).catch(() => {})
-    void pet.getMode().then((mode) => setIsPetMode(mode === 'pet')).catch(() => {})
+    void listPetModels().then(setModels)
+    void getCurrentPetModelId().then(setModelId)
+    void getPetMode().then((mode) => {
+      if (mode) setIsPetMode(mode === 'pet')
+    })
     // 托盘 / 快捷键 / 控制坞切换也会广播到主窗口，状态由这一处统一同步
-    const onModeChanged = (mode: unknown) => setIsPetMode(mode === 'pet')
-    window.electronAPI.on('pet-mode-changed', onModeChanged)
-    return () => window.electronAPI.off('pet-mode-changed', onModeChanged)
+    return subscribePetModeChanged((mode) => setIsPetMode(mode === 'pet'))
   }, [])
 
   const model = models.find((m) => m.id === modelId) ?? models[0]
@@ -37,7 +42,7 @@ export const VirtualHuman: React.FC = () => {
     setBusy(true)
     setError(undefined)
     try {
-      const result = await window.electronAPI?.pet?.switchMode(isPetMode ? 'desktop' : 'pet')
+      const result = await switchPetMode(isPetMode ? 'desktop' : 'pet')
       if (result && !result.success) setError(result.error ?? '切换失败')
     } finally {
       setBusy(false)

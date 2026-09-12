@@ -12,6 +12,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Newspaper, RefreshCw, Sparkles } from 'lucide-react'
 import { Card } from '../../../../components/ui/Card/Card'
 import type { ViewType } from '../../../../components/layout/Sidebar/Sidebar'
+import {
+  fetchFeedMeta,
+  fetchFeedPage,
+  refreshDashboardFeed,
+} from '../../../../services/dashboard-feed-service'
 import { openExternalUrl } from '../../../../utils/markdown-external-link'
 import styles from './NewsFeed.module.css'
 
@@ -91,13 +96,10 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
 
   // 加载一页：before 为 null 拉首屏；否则拉下一页累加
   const loadPage = useCallback(async (before: FeedCursor | null) => {
-    const res = await window.electronAPI?.dashboardFeed?.page('news', {
+    return fetchFeedPage('news', {
       limit: PAGE_SIZE,
       before,
     })
-    if (!res) throw new Error('资讯接口不可用')
-    if (!res.success) throw new Error(res.error ?? '读取资讯失败')
-    return res.data ?? { feedId: 'news', items: [], nextCursor: null }
   }, [])
 
   // 首屏 / 重置后加载（拉 meta + 第一页）
@@ -107,21 +109,16 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
       setLoading(true)
       setError(undefined)
       try {
-        const api = window.electronAPI?.dashboardFeed
-        if (!api) throw new Error('资讯接口不可用')
-        const [metaRes, pageRes] = await Promise.all([
-          api.meta('news'),
-          api.page('news', { limit: PAGE_SIZE, before: null }),
+        const [meta, page] = await Promise.all([
+          fetchFeedMeta('news'),
+          fetchFeedPage('news', { limit: PAGE_SIZE, before: null }),
         ])
         if (cancelled) return
-        const meta = metaRes?.success ? metaRes.data : null
         if (meta) {
           setTitle(meta.title ?? '最近资讯')
           setSummary(meta.summary)
           setUpdatedAt(meta.updatedAt)
         }
-        if (!pageRes?.success) throw new Error(pageRes?.error ?? '读取资讯失败')
-        const page = pageRes.data ?? { feedId: 'news', items: [], nextCursor: null }
         setItems(page.items)
         cursorRef.current = page.nextCursor
         setHasMore(page.nextCursor !== null && page.items.length > 0)
@@ -174,13 +171,9 @@ export const NewsFeed: React.FC<NewsFeedProps> = ({ onViewChange }) => {
     setRefreshing(true)
     setError(undefined)
     try {
-      const res = await window.electronAPI?.dashboardFeed?.refresh()
-      if (res?.success) {
-        // 抓取是 DB 累积合并，抓完从第 0 条重新拉，避免游标错位
-        reset()
-      } else {
-        setError(res?.error ?? '抓取失败')
-      }
+      await refreshDashboardFeed()
+      // 抓取是 DB 累积合并，抓完从第 0 条重新拉，避免游标错位
+      reset()
     } catch (err) {
       setError(err instanceof Error ? err.message : '抓取失败')
     } finally {

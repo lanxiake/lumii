@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import type { Agent } from './types'
 import { TIER_LABELS, agentColor } from './types'
+import { getAgentLifecycleSnapshot } from '../../../services/agent-service'
 import { MessageSquare, PenLine, Trash2, X, GitBranch } from 'lucide-react'
 import styles from './DetailPanel.module.css'
 
@@ -59,13 +60,8 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
   const [lifecycle, setLifecycle] = useState<LifecycleSnapshot | null | undefined>(undefined)
 
   const refreshLifecycle = useCallback(async () => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.getLifecycleSnapshot) {
-      setLifecycle(null)
-      return
-    }
     try {
-      const s = await api.getLifecycleSnapshot(agent.id)
+      const s = await getAgentLifecycleSnapshot(agent.id)
       setLifecycle(s as LifecycleSnapshot)
     } catch {
       setLifecycle(null)

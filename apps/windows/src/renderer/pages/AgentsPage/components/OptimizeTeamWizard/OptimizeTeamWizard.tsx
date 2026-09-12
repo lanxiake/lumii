@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react'
+import { updateAgent, type AgentUpdatePayload } from '../../../../services/agent-service'
 import type {
   AgentIdleEvent,
   AgentMessageDeltaEvent,
@@ -191,11 +192,11 @@ export const OptimizeTeamWizard: React.FC<OptimizeTeamWizardProps> = ({
       if (!item.id) continue
       setApplyStatuses((prev) => ({ ...prev, [item.id]: 'applying' }))
       try {
-        const patch: Record<string, unknown> = {}
+        const patch: AgentUpdatePayload = {}
         if (item.name) patch.name = item.name
         if (item.description) patch.description = item.description
         if (item.systemPrompt) patch.systemPrompt = item.systemPrompt
-        await window.electronAPI.api.updateAgent(item.id, patch as any)
+        await updateAgent(item.id, patch)
         setApplyStatuses((prev) => ({ ...prev, [item.id]: 'success' }))
       } catch {
         setApplyStatuses((prev) => ({ ...prev, [item.id]: 'error' }))
