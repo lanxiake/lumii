@@ -171,10 +171,10 @@ describe.skipIf(!hasFts5Db)('预置定时任务端到端', () => {
     }
   })
 
-  it('全部预置任务默认开启，资讯任务挂 assistant Agent', () => {
+  it('全部预置任务默认开启，资讯任务挂 info-curator Agent', () => {
     const jobs = listJobs(db)
     const news = jobs.find((j) => j.id === 'news-pipeline')
-    expect(news?.agent_id).toBe('assistant')
+    expect(news?.agent_id).toBe('info-curator')
     for (const job of jobs) {
       expect(job.enabled, job.id).toBe(1)
     }
@@ -430,7 +430,7 @@ describe.skipIf(!hasFts5Db)('预置定时任务端到端', () => {
         `SELECT agent_id, task_text, system_prompt FROM local_cron_jobs WHERE id = 'news-pipeline'`,
       )
       .get()
-    expect(row?.agent_id).toBe('assistant')
+    expect(row?.agent_id).toBe('info-curator')
     expect(row?.task_text).not.toContain('__lumii_workflow__')
     expect(row?.task_text).toContain('dashboard_feed_write')
     expect(row?.system_prompt?.trim()).toBeTruthy()
