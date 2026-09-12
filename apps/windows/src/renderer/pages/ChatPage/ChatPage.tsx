@@ -1205,11 +1205,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [runtimeActions, runtimeCurrentSessionKey, toast])
 
   const handleRegenerateMessage = useCallback((messageId: string) => {
-    const sessionKey = runtimeCurrentSessionKey
+    // 点击时实时读 store，而不是闭包捕获 runtimeMessages：后者每次流式增量都会
+    // 换新引用，作为依赖会让本回调 identity 每 token 变化一次，传下去会把
+    // ChatContainer / ChatMessageRow / ChatMessage 的 memo 全部击穿。
+    const state = runtimeStore.getState()
+    const sessionKey = state.currentSessionKey
     if (!sessionKey) return
     // 统一语义：回到对应的用户提问 → 删除其后所有消息 → 复用原文重新回答。
     // assistant 消息回退到它前面最近的 user；user 消息就以自身为锚点。
-    const messages = runtimeMessages
+    const messages = state.sessions.get(sessionKey)?.messages ?? []
     const msgIndex = messages.findIndex((m) => m.id === messageId)
     if (msgIndex === -1) return
     let anchor: typeof messages[0] | null = null
@@ -1228,7 +1232,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       logger.error(`[handleRegenerateMessage] 重新生成失败: ${err instanceof Error ? err.message : String(err)}`)
       toast.error('重新生成失败，请重试')
     })
-  }, [runtimeActions, runtimeCurrentSessionKey, runtimeMessages, toast])
+  }, [runtimeActions, toast])
 
   // Session management handlers
   const handlePinSession = useCallback(async (sessionId: string) => {
