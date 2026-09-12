@@ -8,6 +8,7 @@ import {
   outcomeLabel,
   runStatusLabel,
 } from './wikiStatusLabels'
+import styles from './WikiTaskCenter.module.css'
 
 export interface WikiTaskCenterProps {
   readonly open: boolean
@@ -28,6 +29,18 @@ const TASK_SECTIONS: readonly {
   { phase: 'succeeded', title: '最近完成' },
 ]
 
+/** 任务阶段 → 模块类名（条目边框色/状态文字色） */
+const TASK_PHASE_ITEM_CLASS: Record<WikiTaskPhase, string> = {
+  failed: styles['wiki-task-center-item--failed'],
+  running: styles['wiki-task-center-item--running'],
+  succeeded: styles['wiki-task-center-item--succeeded'],
+}
+const TASK_PHASE_STATUS_CLASS: Record<WikiTaskPhase, string> = {
+  failed: styles['wiki-task-center-status--failed'],
+  running: styles['wiki-task-center-status--running'],
+  succeeded: styles['wiki-task-center-status--succeeded'],
+}
+
 /**
  * 格式化任务进度；无确定进度时返回对应中文状态。
  */
@@ -46,11 +59,11 @@ const WikiTaskRunDetail: React.FC<{ task: WikiLocalTask }> = ({ task }) => {
   if (items.length === 0) return null
 
   return (
-    <details className="wiki-task-center-detail">
+    <details className={styles['wiki-task-center-detail']}>
       <summary>查看明细（{items.length}）</summary>
       {items.map((item) => (
-        <div className="wiki-task-center-detail-item" key={`${item.inboxId}-${item.path}`}>
-          <div className="wiki-task-center-detail-heading">
+        <div className={styles['wiki-task-center-detail-item']} key={`${item.inboxId}-${item.path}`}>
+          <div className={styles['wiki-task-center-detail-heading']}>
             <strong>{item.title}</strong>
             <span>{outcomeLabel(item.outcome)} · {extractLabel(item.extract)}</span>
           </div>
@@ -85,24 +98,24 @@ const WikiTaskItem: React.FC<{
   }
 
   return (
-  <article className={`wiki-task-center-item wiki-task-center-item--${task.phase}`}>
-    <div className="wiki-task-center-item-heading">
+  <article className={`${styles['wiki-task-center-item']} ${TASK_PHASE_ITEM_CLASS[task.phase]}`}>
+    <div className={styles['wiki-task-center-item-heading']}>
       <div>
         <strong>{task.title}</strong>
         <span>{formatRelativeTime(task.finishedAt ?? task.createdAt)}</span>
       </div>
-      <span className={`wiki-task-center-status wiki-task-center-status--${task.phase}`}>
+      <span className={`${styles['wiki-task-center-status']} ${TASK_PHASE_STATUS_CLASS[task.phase]}`}>
         {formatTaskStatus(task)}
       </span>
     </div>
-    {task.detail && <p className="wiki-task-center-message">{task.detail}</p>}
+    {task.detail && <p className={styles['wiki-task-center-message']}>{task.detail}</p>}
     {task.currentItem && (
-      <p className="wiki-task-center-message">当前：{task.currentItem}</p>
+      <p className={styles['wiki-task-center-message']}>当前：{task.currentItem}</p>
     )}
-    {task.error && <p className="wiki-task-center-error">{task.error}</p>}
+    {task.error && <p className={styles['wiki-task-center-error']}>{task.error}</p>}
     <WikiTaskRunDetail task={task} />
     {task.phase === 'running' && task.onCancel && (
-      <div className="wiki-task-center-actions">
+      <div className={styles['wiki-task-center-actions']}>
         <Button
           variant="secondary"
           size="sm"
@@ -115,7 +128,7 @@ const WikiTaskItem: React.FC<{
       </div>
     )}
     {task.phase !== 'running' && (
-      <div className="wiki-task-center-actions">
+      <div className={styles['wiki-task-center-actions']}>
         {task.kind === 'migrate' &&
           (task.migratePhase === 'succeeded' ||
             task.migratePhase === 'partial' ||
@@ -172,20 +185,20 @@ export const WikiTaskCenter: React.FC<WikiTaskCenterProps> = ({
   if (!open) return null
 
   return (
-    <div className="wiki-task-center-overlay">
+    <div className={styles['wiki-task-center-overlay']}>
       <button
         type="button"
-        className="wiki-task-center-mask"
+        className={styles['wiki-task-center-mask']}
         aria-label="关闭任务中心"
         onClick={onClose}
       />
       <aside
-        className="wiki-task-center-drawer"
+        className={styles['wiki-task-center-drawer']}
         role="dialog"
         aria-modal="true"
         aria-label="任务中心"
       >
-        <header className="wiki-task-center-header">
+        <header className={styles['wiki-task-center-header']}>
           <div>
             <h2>任务中心</h2>
             <p>查看 Wiki 后台任务与最近运行历史</p>
@@ -195,15 +208,15 @@ export const WikiTaskCenter: React.FC<WikiTaskCenterProps> = ({
           </Button>
         </header>
 
-        <div className="wiki-task-center-content">
-          {tasks.length === 0 && <p className="wiki-task-center-empty">暂无任务记录</p>}
+        <div className={styles['wiki-task-center-content']}>
+          {tasks.length === 0 && <p className={styles['wiki-task-center-empty']}>暂无任务记录</p>}
           {TASK_SECTIONS.map((section) => {
             const sectionTasks = tasks
               .filter((task) => task.phase === section.phase)
               .sort((left, right) => right.createdAt - left.createdAt)
             if (sectionTasks.length === 0) return null
             return (
-              <section className="wiki-task-center-section" key={section.phase}>
+              <section className={styles['wiki-task-center-section']} key={section.phase}>
                 <h3>{section.title}</h3>
                 {sectionTasks.map((task) => (
                   <WikiTaskItem

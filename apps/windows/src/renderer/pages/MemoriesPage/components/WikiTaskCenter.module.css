@@ -1,0 +1,202 @@
+/* WikiTaskCenter — 由 WikiTab.css 迁出（第 3 片 B4） */
+
+/* Wiki 任务中心 */
+
+.wiki-task-center-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-overlay);
+}
+
+.wiki-task-center-mask {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: rgba(15, 23, 42, 0.28);
+}
+
+.wiki-task-center-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(420px, 100%);
+  height: 100%;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+  box-shadow: var(--shadow-lg);
+}
+
+.wiki-task-center-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.wiki-task-center-header h2,
+.wiki-task-center-header p {
+  margin: 0;
+}
+
+.wiki-task-center-header h2 {
+  color: var(--color-text-primary);
+  font-size: 16px;
+}
+
+.wiki-task-center-header p {
+  margin-top: 4px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.wiki-task-center-content {
+  flex: 1;
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+
+.wiki-task-center-empty {
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.wiki-task-center-section {
+  margin-bottom: 20px;
+}
+
+.wiki-task-center-section h3 {
+  margin: 0 0 8px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.wiki-task-center-item {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+}
+
+.wiki-task-center-item--running {
+  border-left-color: var(--color-primary);
+}
+
+.wiki-task-center-item--failed {
+  border-left-color: var(--color-error);
+}
+
+.wiki-task-center-item--succeeded {
+  border-left-color: var(--color-success);
+}
+
+.wiki-task-center-item-heading,
+.wiki-task-center-item-heading > div,
+.wiki-task-center-detail-heading,
+.wiki-task-center-actions {
+  display: flex;
+  align-items: center;
+}
+
+.wiki-task-center-item-heading {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wiki-task-center-item-heading > div {
+  min-width: 0;
+  gap: 8px;
+}
+
+.wiki-task-center-item-heading strong {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiki-task-center-item-heading span,
+.wiki-task-center-status {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.wiki-task-center-status {
+  flex-shrink: 0;
+}
+
+.wiki-task-center-status--running {
+  color: var(--color-primary);
+}
+
+.wiki-task-center-status--failed,
+.wiki-task-center-error {
+  color: var(--color-error);
+}
+
+.wiki-task-center-status--succeeded {
+  color: var(--color-success);
+}
+
+.wiki-task-center-message,
+.wiki-task-center-error,
+.wiki-task-center-detail-item p {
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.wiki-task-center-message,
+.wiki-task-center-detail-item p {
+  color: var(--color-text-secondary);
+}
+
+.wiki-task-center-detail {
+  margin-top: 8px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.wiki-task-center-detail summary {
+  cursor: pointer;
+}
+
+.wiki-task-center-detail-item {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--color-bg-primary);
+}
+
+.wiki-task-center-detail-heading {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.wiki-task-center-detail-heading strong {
+  color: var(--color-text-primary);
+  font-size: 12px;
+}
+
+.wiki-task-center-actions {
+  gap: 6px;
+  margin-top: 8px;
+}
+
+@media (max-width: 720px) {
+  .wiki-task-center-drawer {
+    width: 100%;
+    min-width: 0;
+  }
+}

@@ -1,0 +1,222 @@
+/* WikiSourceDetailDrawer — 由 WikiTab.css 迁出（第 3 片 B4） */
+
+/* 页面详情抽屉 */
+
+.wiki-detail-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-overlay);
+}
+
+.wiki-detail-overlay--fixed {
+  position: fixed;
+  /* 高于设置中心 Hub（--z-settings-hub），避免详情抽屉被挡住 */
+  z-index: calc(var(--z-settings-hub, 12000) + 40);
+}
+
+.wiki-detail-overlay--centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.wiki-detail-overlay--centered .wiki-detail-mask {
+  position: fixed;
+  inset: 0;
+}
+
+.wiki-source-detail-modal {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(92vw, 880px);
+  height: min(84vh, 720px);
+  max-height: calc(100vh - 48px);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-bg-primary);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.wiki-source-detail-modal .wiki-source-detail-body {
+  padding: 0;
+}
+
+.wiki-detail-mask {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: rgba(15, 23, 42, 0.28);
+  cursor: default;
+}
+
+@media (max-width: 720px) {
+  .wiki-detail-overlay--centered {
+    padding: 12px;
+  }
+
+  .wiki-source-detail-modal {
+    width: 100%;
+    height: calc(100vh - 24px);
+    max-height: none;
+    border-radius: 10px;
+  }
+}
+
+/* 资料详情抽屉 */
+
+.wiki-source-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.wiki-source-detail-heading {
+  min-width: 0;
+  flex: 1;
+}
+
+.wiki-source-detail-url {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.wiki-source-detail-body .wiki-source-web-preview-host {
+  flex: 1;
+  min-height: 0;
+  margin-top: 0;
+}
+
+.wiki-source-detail-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.wiki-source-detail-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.wiki-source-detail-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.wiki-source-detail-close:hover {
+  background: var(--color-bg-hover);
+}
+
+.wiki-source-detail-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 16px 20px 24px;
+}
+
+.wiki-source-detail-loading {
+  display: flex;
+  justify-content: center;
+  padding: 24px;
+}
+
+.wiki-source-detail-error {
+  color: var(--color-danger, #dc2626);
+  font-size: 13px;
+}
+
+.wiki-source-detail-summary h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+}
+
+.wiki-source-detail-summary {
+  flex-shrink: 0;
+  max-height: 28vh;
+  overflow-y: auto;
+}
+
+.wiki-source-detail-summary p {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.wiki-source-web-preview-host {
+  flex: 1;
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wiki-source-web-preview {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  min-height: 240px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+}
+
+.wiki-source-web-preview-error {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  min-height: 240px;
+  padding: 20px;
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+}
+
+.wiki-source-web-preview-error-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.wiki-source-web-preview-error-hint {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}

@@ -11,6 +11,8 @@ import { WikiSourceMeta } from './WikiSourceMeta'
 import type { WikiSourceDetail } from '../../../hooks/business/useWikiPage'
 import { resolveItemSourceUrl, resolvePreviewMode } from './wikiSourcePreview'
 import { openExternalUrl } from '../../../utils/markdown-external-link'
+import shared from './wiki-shared.module.css'
+import styles from './WikiSourceDetailDrawer.module.css'
 
 /** Electron webview 导航事件（非标准 DOM 类型） */
 type WebviewNavigateEvent = Event & {
@@ -109,11 +111,11 @@ const WikiWebPreviewFrame: React.FC<{ url: string; title: string }> = ({ url, ti
   }
 
   return (
-    <div ref={hostRef} className="wiki-source-web-preview-host">
+    <div ref={hostRef} className={styles['wiki-source-web-preview-host']}>
       {loadError ? (
-        <div className="wiki-source-web-preview-error" role="alert">
-          <p className="wiki-source-web-preview-error-title">{loadError}</p>
-          <p className="wiki-source-web-preview-error-hint">
+        <div className={styles['wiki-source-web-preview-error']} role="alert">
+          <p className={styles['wiki-source-web-preview-error-title']}>{loadError}</p>
+          <p className={styles['wiki-source-web-preview-error-hint']}>
             部分网站禁止内嵌预览，或当前网络无法访问。你仍可在系统浏览器中打开链接。
           </p>
           <Button variant="secondary" size="sm" onClick={openInSystemBrowser}>
@@ -125,7 +127,7 @@ const WikiWebPreviewFrame: React.FC<{ url: string; title: string }> = ({ url, ti
         ref={webviewRef as React.RefObject<never>}
         src={url}
         title={title}
-        className="wiki-source-web-preview"
+        className={styles['wiki-source-web-preview']}
         hidden={loadError !== null}
       />
     </div>
@@ -233,22 +235,22 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
 
   const drawer = (
     <div
-      className="wiki-detail-overlay wiki-detail-overlay--fixed wiki-detail-overlay--centered"
+      className={`${styles['wiki-detail-overlay']} ${styles['wiki-detail-overlay--fixed']} ${styles['wiki-detail-overlay--centered']}`}
       role="presentation"
     >
-      <button type="button" className="wiki-detail-mask" aria-label="关闭资料详情" onClick={onClose} />
+      <button type="button" className={styles['wiki-detail-mask']} aria-label="关闭资料详情" onClick={onClose} />
       <div
-        className="wiki-source-detail-modal"
+        className={styles['wiki-source-detail-modal']}
         role="dialog"
         aria-label="资料详情"
         aria-modal="true"
       >
-        <header className="wiki-source-detail-header">
-          <div className="wiki-source-detail-heading">
-            <h2 className="wiki-source-detail-title">{title}</h2>
+        <header className={styles['wiki-source-detail-header']}>
+          <div className={styles['wiki-source-detail-heading']}>
+            <h2 className={styles['wiki-source-detail-title']}>{title}</h2>
             {sourceUrl && (
               <a
-                className="wiki-source-detail-url"
+                className={styles['wiki-source-detail-url']}
                 href={sourceUrl}
                 onClick={(e) => e.preventDefault()}
                 title={sourceUrl}
@@ -257,7 +259,7 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
               </a>
             )}
           </div>
-          <div className="wiki-source-detail-header-actions">
+          <div className={styles['wiki-source-detail-header-actions']}>
             {sourceUrl && previewMode === 'web' && (
               <Button
                 variant="ghost"
@@ -267,24 +269,24 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
                 在浏览器打开
               </Button>
             )}
-            <button type="button" className="wiki-source-detail-close" aria-label="关闭" onClick={onClose}>
+            <button type="button" className={styles['wiki-source-detail-close']} aria-label="关闭" onClick={onClose}>
               <X size={18} />
             </button>
           </div>
         </header>
 
-        <div className="wiki-source-detail-body">
+        <div className={styles['wiki-source-detail-body']}>
           {loading && (
-            <div className="wiki-source-detail-loading">
+            <div className={styles['wiki-source-detail-loading']}>
               <Loading text="加载详情…" />
             </div>
           )}
-          {error && <p className="wiki-source-detail-error" role="alert">{error}</p>}
+          {error && <p className={styles['wiki-source-detail-error']} role="alert">{error}</p>}
 
           {!loading && !error && (
             <>
               {(detail?.userPath?.length || detail?.tags?.length || detail?.description) && (
-                <section className="wiki-source-detail-summary" aria-label="分类信息">
+                <section className={styles['wiki-source-detail-summary']} aria-label="分类信息">
                   <WikiSourceMeta
                     userPath={detail.userPath}
                     tags={detail.tags}
@@ -295,7 +297,7 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
               )}
 
               {summary && previewMode !== 'web' && (
-                <section className="wiki-source-detail-summary" aria-label="摘要">
+                <section className={styles['wiki-source-detail-summary']} aria-label="摘要">
                   <h3>摘要</h3>
                   <p>{summary}</p>
                 </section>
@@ -305,12 +307,12 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
                 <WikiWebPreviewFrame url={sourceUrl} title={title} />
               )}
               {previewMode === 'text-only' && summary && (
-                <section className="wiki-source-detail-summary" aria-label="正文">
+                <section className={styles['wiki-source-detail-summary']} aria-label="正文">
                   <p>{summary}</p>
                 </section>
               )}
               {previewMode === 'text-only' && !summary && (
-                <p className="wiki-empty-hint">暂无可预览内容</p>
+                <p className={shared['wiki-empty-hint']}>暂无可预览内容</p>
               )}
             </>
           )}
