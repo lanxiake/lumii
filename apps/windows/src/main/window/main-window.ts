@@ -1,9 +1,10 @@
-import { BrowserWindow, Menu, screen, shell } from 'electron'
+import { BrowserWindow, Menu, screen } from 'electron'
 import { join } from 'path'
 import { getAppIconPath } from '../asset-paths'
 import { setIpcMainWindow } from '../agent-runtime'
 import type { ScreenRecordService } from '../screen-record'
 import { installPreviewZoomGuard } from './preview-zoom-guard'
+import { openExternalWithFallback } from './in-app-browser'
 
 export interface MainWindowLogger {
   info: (...args: unknown[]) => void
@@ -161,7 +162,7 @@ export function createMainWindow(
    */
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) {
-      void shell.openExternal(url)
+      void openExternalWithFallback(url, (message) => logger.warn(message))
     }
     return { action: 'deny' }
   })
@@ -174,7 +175,7 @@ export function createMainWindow(
     const devOrigin = process.env.ELECTRON_RENDERER_URL
     if (devOrigin && targetUrl.startsWith(devOrigin)) return
     event.preventDefault()
-    void shell.openExternal(targetUrl)
+    void openExternalWithFallback(targetUrl, (message) => logger.warn(message))
   })
 
   // 渲染进程诊断：把渲染层 console / 崩溃 / 加载失败转写到文件日志。

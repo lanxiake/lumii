@@ -7,6 +7,7 @@ import { promises as fs, existsSync } from 'fs'
 import type { SystemService } from '../system-service'
 import { validatePid, validateUrl } from '../security-utils'
 import { fileLogger } from '../file-logger'
+import { openExternalWithFallback } from '../window/in-app-browser'
 
 interface FileSystemIpcDeps {
   getSystemService: () => SystemService | null
@@ -242,7 +243,8 @@ export function registerFileSystemIpcHandlers(): void {
   ipcMain.handle('app:openExternal', async (_event, url: string) => {
     // 验证 URL 安全性
     const safeUrl = validateUrl(url, { allowedProtocols: ['http:', 'https:'] })
-    return shell.openExternal(safeUrl)
+    // 系统无默认浏览器（关联失效）时退回应用内浏览器窗口，不让点击静默失败
+    await openExternalWithFallback(safeUrl, (message) => deps!.log.warn(message))
   })
 
   ipcMain.handle('app:showItemInFolder', (_event, filePath: string) => {
