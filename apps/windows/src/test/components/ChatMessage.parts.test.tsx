@@ -7,10 +7,25 @@ import { describe, it, expect, vi } from 'vitest'
 import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { ChatMessage } from '../../renderer/pages/ChatPage/components/ChatMessage'
+import {
+  ChatMessageActionsProvider,
+  type ChatMessageActions,
+} from '../../renderer/pages/ChatPage/contexts/ChatMessageActionsContext'
 import type { ChatMessage as ChatMessageType } from '../../renderer/hooks/business/useChat'
 import type { AssistantPart } from '@mtbot/agent-runtime/browser'
 
 const noop = vi.fn()
+
+/** 消息级交互动作已收敛到 Context（原先由 props 逐个传入） */
+const messageActions: ChatMessageActions = {
+  formatTime: () => '10:00',
+  copyMessage: noop,
+  editMessage: noop,
+  deleteMessage: noop,
+  regenerateMessage: noop,
+  replayFromMessage: noop,
+  reviewFileChanges: noop,
+}
 
 /** 构造带 4 段 parts 的助手消息（thinking → tool → text → text） */
 function buildPartsMessage(parts: AssistantPart[]): ChatMessageType {
@@ -38,14 +53,9 @@ describe('ChatMessage parts 时间线', () => {
     ]
 
     const { container } = render(
-      <ChatMessage
-        message={buildPartsMessage(parts)}
-        formatTime={() => '10:00'}
-        onCopy={noop}
-        onEdit={noop}
-        onDelete={noop}
-        onRegenerate={noop}
-      />,
+      <ChatMessageActionsProvider value={messageActions}>
+        <ChatMessage message={buildPartsMessage(parts)} />
+      </ChatMessageActionsProvider>,
     )
 
     const text = container.textContent ?? ''
@@ -71,14 +81,9 @@ describe('ChatMessage parts 时间线', () => {
     ]
 
     const { getByText } = render(
-      <ChatMessage
-        message={buildPartsMessage(parts)}
-        formatTime={() => '10:00'}
-        onCopy={noop}
-        onEdit={noop}
-        onDelete={noop}
-        onRegenerate={noop}
-      />,
+      <ChatMessageActionsProvider value={messageActions}>
+        <ChatMessage message={buildPartsMessage(parts)} />
+      </ChatMessageActionsProvider>,
     )
 
     // 摘要按家族计数：读取 2 个文件 · 搜索 1 次
@@ -87,21 +92,18 @@ describe('ChatMessage parts 时间线', () => {
 
   it('空 parts 且流式中时显示正在思考占位', () => {
     const { getByText } = render(
-      <ChatMessage
-        message={{
-          id: 'msg-stream',
-          role: 'assistant',
-          content: '',
-          timestamp: new Date(),
-          isStreaming: true,
-          parts: [],
-        }}
-        formatTime={() => ''}
-        onCopy={noop}
-        onEdit={noop}
-        onDelete={noop}
-        onRegenerate={noop}
-      />,
+      <ChatMessageActionsProvider value={messageActions}>
+        <ChatMessage
+          message={{
+            id: 'msg-stream',
+            role: 'assistant',
+            content: '',
+            timestamp: new Date(),
+            isStreaming: true,
+            parts: [],
+          }}
+        />
+      </ChatMessageActionsProvider>,
     )
 
     expect(getByText(/正在思考/)).toBeInTheDocument()

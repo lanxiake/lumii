@@ -45,6 +45,10 @@ import { useWorkspacePanels } from './hooks/useWorkspacePanels'
 import { useChatPageZoom } from './hooks/useChatPageZoom'
 import { ChatToolbar } from './layout/ChatToolbar'
 import { ChatBottomOverlay } from './layout/ChatBottomOverlay'
+import {
+  ChatMessageActionsProvider,
+  type ChatMessageActions,
+} from './contexts/ChatMessageActionsContext'
 import { useStableMapById } from '../../utils/useStableMapById'
 import { openWikiLibrary } from '../../utils/open-wiki-library'
 import type { RuntimeMessage } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
@@ -1364,6 +1368,29 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     }
   }, [])
 
+  /**
+   * 消息级交互动作打包给 Context：只放引用稳定的回调。
+   * 流式/打字期间 value 保持不变，消息行的 memo 不受 Context 传播影响；
+   * 仅会话切换（edit/delete）与 workspace 初始化（review）时会换新。
+   */
+  const chatMessageActions = useMemo<ChatMessageActions>(() => ({
+    formatTime,
+    copyMessage: handleCopyMessage,
+    editMessage: handleEditMessage,
+    deleteMessage: handleDeleteMessage,
+    regenerateMessage: handleRegenerateMessage,
+    replayFromMessage: handleReplayFromMessage,
+    reviewFileChanges: handleReviewTurnFileChange,
+  }), [
+    formatTime,
+    handleCopyMessage,
+    handleEditMessage,
+    handleDeleteMessage,
+    handleRegenerateMessage,
+    handleReplayFromMessage,
+    handleReviewTurnFileChange,
+  ])
+
   // 实时朗读模式开关：开启=启动静默持续 micless 播报（右上角按钮，波纹见 readAloudSpeaking）
   const readAloudActive = voiceCallState.readAloudActive
   const handleToggleReadAloud = useCallback(() => {
@@ -1483,29 +1510,24 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       >
         {/* 消息层：全屏滚动，顶部/底部浮层可透视；字号跟全局 --chat-font-size */}
         <div className={styles['chat-main-body']}>
-          <ChatContainer
-            session={localRuntimeSession}
-            workflowItems={workflowItems}
-            isLoading={false}
-            isStreaming={runtimeIsStreaming}
-            isSending={isSending}
-            formatTime={formatTime}
-            onCopyMessage={handleCopyMessage}
-            onEditMessage={handleEditMessage}
-            onDeleteMessage={handleDeleteMessage}
-            onRegenerateMessage={handleRegenerateMessage}
-            onSuggestionClick={handleSuggestionClick}
-            streamingThinkingText={runtimeThinkingLive}
-            fileEvents={runtimeFileEvents}
-            compactionEvents={runtimeCompactionEvents}
-            onReplayFromMessage={handleReplayFromMessage}
-            replayMessageId={conversationReplay.replayMessageId}
-            todoCalls={sessionTodoCalls}
-            onReviewFileChanges={handleReviewTurnFileChange}
-            hasMoreHistory={runtimeHistoryPaging?.hasMore ?? false}
-            isLoadingHistory={runtimeHistoryPaging?.isLoading ?? false}
-            onLoadOlderMessages={handleLoadOlderMessages}
-          />
+          <ChatMessageActionsProvider value={chatMessageActions}>
+            <ChatContainer
+              session={localRuntimeSession}
+              workflowItems={workflowItems}
+              isLoading={false}
+              isStreaming={runtimeIsStreaming}
+              isSending={isSending}
+              onSuggestionClick={handleSuggestionClick}
+              streamingThinkingText={runtimeThinkingLive}
+              fileEvents={runtimeFileEvents}
+              compactionEvents={runtimeCompactionEvents}
+              replayMessageId={conversationReplay.replayMessageId}
+              todoCalls={sessionTodoCalls}
+              hasMoreHistory={runtimeHistoryPaging?.hasMore ?? false}
+              isLoadingHistory={runtimeHistoryPaging?.isLoading ?? false}
+              onLoadOlderMessages={handleLoadOlderMessages}
+            />
+          </ChatMessageActionsProvider>
         </div>
 
         {/* 顶部毛玻璃浮层：会话标题 + 工具栏 */}

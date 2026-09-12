@@ -63,9 +63,6 @@ interface CompactionItem {
 
 type ChatItem = MessageItem | CompactionItem
 
-/** 稳定的空回调兜底，避免 `prop || (() => {})` 每次渲染生成新函数引用击穿子组件 memo */
-const NOOP_STRING = (_: string) => {}
-const NOOP_STRING_STRING = (_a: string, _b: string) => {}
 const EMPTY_TOOL_ITEMS: readonly AgentWorkflowItem[] = []
 
 interface ChatContainerProps {
@@ -74,11 +71,6 @@ interface ChatContainerProps {
   isLoading: boolean
   isStreaming: boolean
   isSending: boolean
-  formatTime: (date: Date) => string
-  onCopyMessage?: (content: string) => void
-  onEditMessage?: (messageId: string, newContent: string) => void
-  onDeleteMessage?: (messageId: string) => void
-  onRegenerateMessage?: (messageId: string) => void
   onSuggestionClick?: (suggestion: string) => void
   /**
    * 本地 Agent Runtime：当前轮次流式思考文本（与最后一条 assistant 气泡同步展示）
@@ -88,10 +80,6 @@ interface ChatContainerProps {
   fileEvents?: readonly RuntimeFileEvent[]
   /** 本次会话的上下文压缩事件，按 timestamp 插入对话流，渲染为压缩卡片 */
   compactionEvents?: readonly RuntimeCompactionEvent[]
-  /** 当前登录用户 ID，用于文件 IPC 操作 */
-  userId?: string
-  /** 从指定消息开始回放对话 */
-  onReplayFromMessage?: (messageId: string) => void
   /** 当前正在回放的消息 ID（用于高亮显示） */
   replayMessageId?: string | null
   /** 当前会话 todo 工具调用（渲染为对话流内轻量任务卡） */
@@ -102,8 +90,6 @@ interface ChatContainerProps {
     result?: unknown
     output?: unknown
   }[]
-  /** 点击回合文件变更卡「查看」：透传文件相对路径与状态，交由上层打开 Workbench 并定位 */
-  onReviewFileChanges?: (path: string, status: 'added' | 'modified' | 'deleted') => void
   /** 是否还有更早的历史消息可懒加载 */
   hasMoreHistory?: boolean
   /** 更早历史正在加载中 */
@@ -134,20 +120,12 @@ function extractCompactSummaryFromMessage(item: MessageItem): string | null {
 interface ChatMessageRowProps {
   item: MessageItem
   index: number
-  formatTime: (date: Date) => string
-  onCopyMessage?: (content: string) => void
-  onEditMessage?: (messageId: string, newContent: string) => void
-  onDeleteMessage?: (messageId: string) => void
-  onRegenerateMessage?: (messageId: string) => void
   isStreaming: boolean
   isLatestAssistant: boolean
   streamingThinkingText?: string
   noEnterMessages: boolean
   fileAttachments?: readonly RuntimeFileEvent[]
-  userId?: string
-  onReplayFromMessage?: (messageId: string) => void
   replayMessageId?: string | null
-  onReviewFileChanges?: (path: string, status: 'added' | 'modified' | 'deleted') => void
   workflowToolItems: readonly AgentWorkflowItem[]
 }
 
@@ -160,20 +138,12 @@ interface ChatMessageRowProps {
 const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
   item,
   index,
-  formatTime,
-  onCopyMessage,
-  onEditMessage,
-  onDeleteMessage,
-  onRegenerateMessage,
   isStreaming,
   isLatestAssistant,
   streamingThinkingText,
   noEnterMessages,
   fileAttachments,
-  userId,
-  onReplayFromMessage,
   replayMessageId,
-  onReviewFileChanges,
   workflowToolItems,
 }) => {
   const message: ChatMessageType = useMemo(() => ({
@@ -227,11 +197,6 @@ const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
     <ChatMessage
       key={`${item.id}-${index}`}
       message={message}
-      formatTime={formatTime}
-      onCopy={onCopyMessage ?? NOOP_STRING}
-      onEdit={onEditMessage ?? NOOP_STRING_STRING}
-      onDelete={onDeleteMessage ?? NOOP_STRING}
-      onRegenerate={onRegenerateMessage ?? NOOP_STRING}
       sessionBusy={isStreaming}
       toolItems={toolItems}
       streamingThinkingText={
@@ -241,10 +206,7 @@ const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
       }
       noEnter={noEnterMessages}
       fileAttachments={fileAttachments}
-      userId={userId}
-      onReplay={onReplayFromMessage}
       replayMessageId={replayMessageId}
-      onReviewFileChanges={onReviewFileChanges}
     />
   )
 }
@@ -256,20 +218,12 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   isLoading,
   isStreaming,
   isSending,
-  formatTime,
-  onCopyMessage,
-  onEditMessage,
-  onDeleteMessage,
-  onRegenerateMessage,
   onSuggestionClick,
   streamingThinkingText,
   fileEvents,
   compactionEvents,
-  userId,
-  onReplayFromMessage,
   replayMessageId,
   todoCalls = [],
-  onReviewFileChanges,
   hasMoreHistory = false,
   isLoadingHistory = false,
   onLoadOlderMessages,
@@ -613,20 +567,12 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               key={`${item.id}-${index}`}
               item={item}
               index={index}
-              formatTime={formatTime}
-              onCopyMessage={onCopyMessage}
-              onEditMessage={onEditMessage}
-              onDeleteMessage={onDeleteMessage}
-              onRegenerateMessage={onRegenerateMessage}
               isStreaming={isStreaming}
               isLatestAssistant={isLatestAssistant}
               streamingThinkingText={streamingThinkingText}
               noEnterMessages={noEnterMessages}
               fileAttachments={fileAttachments}
-              userId={userId}
-              onReplayFromMessage={onReplayFromMessage}
               replayMessageId={replayMessageId}
-              onReviewFileChanges={onReviewFileChanges}
               workflowToolItems={workflowToolItems}
             />
           )

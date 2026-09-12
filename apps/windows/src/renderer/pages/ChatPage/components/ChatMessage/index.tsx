@@ -32,15 +32,11 @@ import { TurnFileChangesCard } from '../TurnFileChangesCard'
 import { ToolBatchGroup, summarizeToolBatch } from '../ToolBatchGroup'
 import { getStatusLabel } from '../ToolCallCard'
 import { ActivityFold } from '../ActivityFold'
+import { useChatMessageActions } from '../../contexts/ChatMessageActionsContext'
 import styles from './ChatMessage.module.css'
 
 interface ChatMessageProps {
   message: ChatMessageType
-  formatTime: (date: Date) => string
-  onCopy: (content: string) => void
-  onEdit: (messageId: string, newContent: string) => void
-  onDelete: (messageId: string) => void
-  onRegenerate: (messageId: string) => void
   /** 会话是否正在流式输出：为 true 时禁用「重新生成」入口 */
   sessionBusy?: boolean
   /** 关联的工具调用项，按 textPositionAtStart 与文字交错显示 */
@@ -57,14 +53,8 @@ interface ChatMessageProps {
   noEnter?: boolean
   /** 与本条消息关联的 Agent 输出文件（仅 assistant 消息展示） */
   fileAttachments?: readonly RuntimeFileEvent[]
-  /** 当前登录用户 ID，传给文件操作 IPC */
-  userId?: string
-  /** 从此消息开始回放对话（语音消息专用） */
-  onReplay?: (messageId: string) => void
   /** 当前正在回放的消息 ID */
   replayMessageId?: string | null
-  /** 点击回合文件变更卡片的「查看」，透传文件相对路径与状态 */
-  onReviewFileChanges?: (path: string, status: 'added' | 'modified' | 'deleted') => void
 }
 
 // ---------------------------------------------------------------
@@ -430,21 +420,16 @@ function buildCurrentStatus(process: RenderUnit[]): string {
 
 const ChatMessage: React.FC<ChatMessageProps> = ({
   message,
-  formatTime,
-  onCopy,
-  onEdit,
-  onDelete,
-  onRegenerate,
   sessionBusy = false,
   toolItems,
   streamingThinkingText,
   noEnter = false,
   fileAttachments,
-  userId = 'local-user',
-  onReplay,
   replayMessageId,
-  onReviewFileChanges,
 }) => {
+  // 复制/编辑/删除/重新生成/回放/文件变更定位等消息级动作由 Context 提供，
+  // 不再逐层 props 穿透（见 ChatMessageActionsContext 的稳定性契约）
+  const actions = useChatMessageActions()
   const [isEditing, setIsEditing] = useState(false)
   const [memoryExpanded, setMemoryExpanded] = useState(false)
   const [previewFileId, setPreviewFileId] = useState<string | null>(null)
@@ -495,7 +480,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         : newContent
     // 内容有实质变化才触发「删后续重答」，未变则视为取消编辑
     if (toSave.trim() !== message.content.trim()) {
-      onEdit(message.id, toSave)
+      actions.editMessage(message.id, toSave)
     }
     setIsEditing(false)
   }
@@ -555,8 +540,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   }, [message.content, message.role, message.thinkingText, message.parts, streamingThinkingText, toolItems])
 
   const handleCopy = useCallback(() => {
-    onCopy(buildCopyContent())
-  }, [onCopy, buildCopyContent])
+    actions.copyMessage(buildCopyContent())
+  }, [actions, buildCopyContent])
 
   // 根据当前流式状态构建 markdown 组件映射（流式时 Artifact 不自动预览）
   // useMemo 确保引用稳定，避免 ReactMarkdown 不必要的重渲染
@@ -708,7 +693,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         {message.fileChanges && message.fileChanges.length > 0 && (
           <TurnFileChangesCard
             changes={message.fileChanges}
-            onReview={onReviewFileChanges}
+            onReview={actions.reviewFileChanges}
           />
         )}
       </div>
@@ -763,7 +748,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         {message.fileChanges && message.fileChanges.length > 0 && (
           <TurnFileChangesCard
             changes={message.fileChanges}
-            onReview={onReviewFileChanges}
+            onReview={actions.reviewFileChanges}
           />
         )}
       </>
@@ -1037,7 +1022,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         <FilePreviewModal
           fileId={previewFileId}
           fileName={previewFileName}
-          userId={userId}
+          userId="local-user"
           mdBasePath={previewEditablePath}
           editablePath={previewEditablePath}
           onClose={() => { setPreviewFileId(null); setPreviewEditablePath(undefined) }}
@@ -1047,7 +1032,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
         <FilePreviewModal
           filePath={previewByPath.filePath}
           fileName={previewByPath.fileName}
-          userId={userId}
+          userId="local-user"
           {...(typeof previewByPath.startLine === 'number' ? { startLine: previewByPath.startLine } : {})}
           {...(typeof previewByPath.endLine === 'number' ? { endLine: previewByPath.endLine } : {})}
           onClose={() => setPreviewByPath(null)}
@@ -1080,12 +1065,12 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             onEditStart={handleEditStart}
             onEditCancel={handleEditCancel}
             onEditSave={handleEditSave}
-            onDelete={onDelete}
-            onRegenerate={onRegenerate}
+            onDelete={actions.deleteMessage}
+            onRegenerate={actions.regenerateMessage}
             sessionBusy={sessionBusy}
             isVoice={message.isVoice}
             isReplaying={replayMessageId === message.id}
-            onReplay={onReplay ? () => onReplay(message.id) : undefined}
+            onReplay={() => actions.replayFromMessage(message.id)}
             bubbleRef={messageBubbleRef}
           />
           </div>
@@ -1095,7 +1080,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
           {message.acpBackendLabel && (
             <span className={styles['acp-backend-badge']}>{message.acpBackendLabel}</span>
           )}
-          {formatTime(message.timestamp)}
+          {actions.formatTime(message.timestamp)}
         </div>
       </div>
     </div>
