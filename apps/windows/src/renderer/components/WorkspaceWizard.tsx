@@ -6,6 +6,14 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useSettings } from '../hooks/business/useSettings/useSettings'
+import { fileExists, listDirectory, copyFile } from '../services/file-service'
+import {
+  selectWorkspaceDir,
+  getWorkspaceDir,
+  ensureWorkspaceDir,
+  setWorkspaceDir,
+  notifyWorkspaceChanged,
+} from '../services/workspace-service'
 import styles from './WorkspaceWizard.module.css'
 
 // 首次登录标记 key
@@ -20,13 +28,13 @@ type WizardState = 'hidden' | 'selecting' | 'migrating'
 async function migrateWorkspaceData(oldDir: string, newDir: string): Promise<void> {
   console.log('[WorkspaceWizard] 工作空间迁移:', oldDir, '->', newDir)
   try {
-    const exists = await window.electronAPI.file.exists(oldDir)
+    const exists = await fileExists(oldDir)
     if (!exists) {
       console.log('[WorkspaceWizard] 旧工作空间不存在，跳过迁移')
       return
     }
 
-    const entries = await window.electronAPI.file.list(oldDir) as Array<{ name: string; isDirectory: boolean }>
+    const entries = await listDirectory(oldDir)
     for (const entry of entries) {
       if (entry.name === '.lumii' || entry.name === 'projects') {
         console.log('[WorkspaceWizard] 跳过客户端内部/外部项目目录:', entry.name)
@@ -34,7 +42,7 @@ async function migrateWorkspaceData(oldDir: string, newDir: string): Promise<voi
       }
       const srcPath = `${oldDir}/${entry.name}`
       const dstPath = `${newDir}/${entry.name}`
-      await window.electronAPI.file.copy(srcPath, dstPath)
+      await copyFile(srcPath, dstPath)
     }
     console.log('[WorkspaceWizard] 工作空间数据已复制到新目录')
   } catch (err) {
@@ -73,7 +81,7 @@ export const WorkspaceWizard: React.FC = () => {
    * 选择目录
    */
   const handleSelectDir = useCallback(async () => {
-    const selectedPath = await window.electronAPI.workspace.selectDir()
+    const selectedPath = await selectWorkspaceDir()
     if (selectedPath) {
       setSelectedDir(selectedPath)
     }
@@ -90,8 +98,8 @@ export const WorkspaceWizard: React.FC = () => {
     setWizardState('migrating')
 
     try {
-      const oldDir = await window.electronAPI.workspace.getDir()
-      await window.electronAPI.workspace.ensureDir(selectedDir)
+      const oldDir = await getWorkspaceDir()
+      await ensureWorkspaceDir(selectedDir)
 
       // 规范化路径以便比较（统一分隔符和大小写）
       const normalizeDir = (dir: string) => dir.replace(/\\/g, '/').toLowerCase().replace(/\/+$/, '')
@@ -103,8 +111,8 @@ export const WorkspaceWizard: React.FC = () => {
       }
 
       // 主进程权威源：setDir 与 notifyChanged 双写，确保重启后仍生效
-      await window.electronAPI.workspace.setDir(selectedDir)
-      await window.electronAPI.workspace.notifyChanged(selectedDir)
+      await setWorkspaceDir(selectedDir)
+      await notifyWorkspaceChanged(selectedDir)
 
       updateWorkspace({ directory: selectedDir })
       // 直接写入 localStorage，避免 updateWorkspace 后立刻 saveSettings 读到旧闭包

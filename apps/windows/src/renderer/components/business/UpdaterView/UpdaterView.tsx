@@ -6,6 +6,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { Button } from '../../ui/Button/Button'
 import { Loading } from '../../ui/Loading/Loading'
 import { useToast } from '../../ui/Toast/useToast'
+import { getAppVersion } from '../../../services/app-service'
 import clsx from 'clsx'
 import styles from './UpdaterView.module.css'
 
@@ -27,7 +28,7 @@ export const UpdaterView: React.FC<UpdaterViewProps> = ({ standalone = false }) 
    * 获取当前版本
    */
   useEffect(() => {
-    window.electronAPI.app.getVersion().then(setCurrentVersion).catch(() => {
+    getAppVersion().then(setCurrentVersion).catch(() => {
       console.warn('[UpdaterView] 获取版本失败')
     })
   }, [])

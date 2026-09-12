@@ -9,6 +9,7 @@ import { Button, Checkbox, Input } from '../ui'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import type { ScreenRecordSource, ScreenRecordRecordingItem } from '../../../shared/screen-record'
 import * as screenRecordApi from '../../services/screen-record-api'
+import { showItemInFolder } from '../../services/app-service'
 import { RecordingSubtitleEditor } from './RecordingSubtitleEditor'
 import styles from './ScreenRecord.module.css'
 
@@ -227,7 +228,7 @@ export const ScreenRecordPanel: React.FC<ScreenRecordPanelProps> = ({
 
   /** 成片操作：打开所在目录 */
   const revealPath = (p: string) => {
-    void window.electronAPI?.app?.showItemInFolder(p)
+    void showItemInFolder(p)
   }
 
   /** 删除成片及其字幕工程附属文件，并刷新成片库。 */

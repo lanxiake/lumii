@@ -17,6 +17,11 @@ export async function ensureWorkspaceDir(dirPath: string): Promise<string> {
   return window.electronAPI.workspace.ensureDir(dirPath)
 }
 
+/** 验证并设置工作空间目录（返回主进程实际采用的路径） */
+export async function setWorkspaceDir(dirPath: string): Promise<string> {
+  return window.electronAPI.workspace.setDir(dirPath)
+}
+
 /** 通知主进程工作空间目录已更改（节点重连并上报新路径，无需重启应用） */
 export async function notifyWorkspaceChanged(newDirPath?: string): Promise<void> {
   await window.electronAPI.workspace.notifyChanged(newDirPath)

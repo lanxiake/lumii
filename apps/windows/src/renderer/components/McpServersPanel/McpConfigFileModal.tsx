@@ -7,6 +7,7 @@
 import React, { useEffect, useState } from 'react'
 import { Button } from '../ui'
 import { Modal } from '../ui/Modal/Modal'
+import { showItemInFolder } from '../../services/app-service'
 import styles from './McpServersPanel.module.css'
 
 export interface McpConfigFileModalProps {
@@ -73,7 +74,7 @@ export const McpConfigFileModal: React.FC<McpConfigFileModalProps> = ({
 
   /** 在资源管理器中定位该文件 */
   const revealInFolder = () => {
-    if (path) void window.electronAPI.app.showItemInFolder(path)
+    if (path) void showItemInFolder(path)
   }
 
   return (

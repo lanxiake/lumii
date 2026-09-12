@@ -43,6 +43,16 @@ export async function moveFile(sourcePath: string, destPath: string): Promise<vo
   await window.electronAPI.file.move(sourcePath, destPath)
 }
 
+/** 复制文件或目录 */
+export async function copyFile(sourcePath: string, destPath: string): Promise<void> {
+  await window.electronAPI.file.copy(sourcePath, destPath)
+}
+
+/** 路径是否存在 */
+export async function fileExists(filePath: string): Promise<boolean> {
+  return window.electronAPI.file.exists(filePath)
+}
+
 /** 删除文件或目录 */
 export async function deleteFile(filePath: string): Promise<void> {
   await window.electronAPI.file.delete(filePath)
