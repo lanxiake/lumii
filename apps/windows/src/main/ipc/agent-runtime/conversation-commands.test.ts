@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { handleConversationDelete, setConversationDependencies, resolveConversationChannel } from './conversation-commands'
-import { EVOLUTION_CONVERSATION_ID } from '@mtbot/agent-runtime'
+import { EVOLUTION_CONVERSATION_ID, isEvolutionConversationId } from '@mtbot/agent-runtime'
 
 describe('conversation:delete 自主进化会话守卫', () => {
   it('拒绝删除自主进化专属会话', () => {
@@ -8,6 +8,15 @@ describe('conversation:delete 自主进化会话守卫', () => {
       handleConversationDelete({} as never, {
         type: 'conversation:delete',
         sessionKey: EVOLUTION_CONVERSATION_ID,
+      } as never),
+    ).toThrow('拒绝删除自主进化会话')
+  })
+
+  it('多 Agent 自主会话同样拒绝删除（evolution:<agentId>）', () => {
+    expect(() =>
+      handleConversationDelete({} as never, {
+        type: 'conversation:delete',
+        sessionKey: 'evolution:code-dev',
       } as never),
     ).toThrow('拒绝删除自主进化会话')
   })
@@ -46,6 +55,10 @@ describe('resolveConversationChannel 会话来源推导', () => {
     expect(resolveConversationChannel(EVOLUTION_CONVERSATION_ID, emptyWeixin)).toBe('evolution')
   })
 
+  it('evolution:<agentId> → evolution（多 Agent 自主会话）', () => {
+    expect(resolveConversationChannel('evolution:code-dev', emptyWeixin)).toBe('evolution')
+  })
+
   it('本地新建 → default', () => {
     expect(resolveConversationChannel('conversation-1', emptyWeixin)).toBe('default')
   })
@@ -62,5 +75,14 @@ describe('resolveConversationChannel 会话来源推导', () => {
   it('wecom:/feishu: 前缀 → 对应渠道', () => {
     expect(resolveConversationChannel('wecom:u1', emptyWeixin)).toBe('wecom')
     expect(resolveConversationChannel('feishu:ou_1', emptyWeixin)).toBe('feishu')
+  })
+})
+
+describe('isEvolutionConversationId 前缀判定', () => {
+  it('覆盖 evolution:main 与 evolution:<agentId>，不误伤普通会话', () => {
+    expect(isEvolutionConversationId(EVOLUTION_CONVERSATION_ID)).toBe(true)
+    expect(isEvolutionConversationId('evolution:code-dev')).toBe(true)
+    expect(isEvolutionConversationId('evolutionary:x')).toBe(false)
+    expect(isEvolutionConversationId('conversation-1')).toBe(false)
   })
 })

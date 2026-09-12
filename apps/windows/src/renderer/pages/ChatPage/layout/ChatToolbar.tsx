@@ -10,6 +10,8 @@ export interface ChatToolbarProps {
   readAloudActive: boolean
   readAloudSpeaking: boolean
   workbenchOpen: boolean
+  /** 开发上下文 chip（非主 Agent 后端时展示「工具 · 项目」） */
+  devContextChip?: React.ReactNode
   onToggleSidebar: () => void
   onResetZoom: () => void
   onToggleAutoApprove: () => void
@@ -26,6 +28,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   readAloudActive,
   readAloudSpeaking,
   workbenchOpen,
+  devContextChip,
   onToggleSidebar,
   onResetZoom,
   onToggleAutoApprove,
@@ -39,6 +42,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       <PanelLeft size={16} strokeWidth={1.8} />
     </button>
     <h2 className={styles['chat-title']}>{title}</h2>
+    {devContextChip}
     <div className={styles['toolbar-actions']}>
       {pageZoom !== 1 && (
         <button type="button" className={styles['icon-btn']} onClick={onResetZoom} title="Reset zoom" aria-label="Reset zoom" style={{ fontSize: 11, fontWeight: 600 }}>

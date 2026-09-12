@@ -22,7 +22,11 @@ import {
   previewUninstallCodingDevTool,
   uninstallCodingDevTool,
   loginCodingDevTool,
+  getCodingDevAgentBindings,
+  setCodingDevAgentBindings,
+  type CodingDevAgentBinding,
 } from '../../../../services/coding-dev-service'
+import { getAgents } from '../../../../services/agent-service'
 import styles from './CodingDevAcpPanel.module.css'
 
 export type LocalAcpToolStatusView = {
@@ -159,6 +163,87 @@ export const CodingDevAcpPanel: React.FC = () => {
   const projectsApi = useCodingDevProjects()
   const { projects, activeProject, error: opErr, setActive } = projectsApi
   const { closeHub } = useSettingsHub()
+
+  /** 开发类 Agent 绑定：Agent → CLI + 工作目录（缺省跟随全局活动项目） */
+  const [bindings, setBindings] = useState<CodingDevAgentBinding[]>([])
+  const [bindableAgents, setBindableAgents] = useState<Array<{ id: string; name: string }>>([])
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [list, agentRes] = await Promise.all([getCodingDevAgentBindings(), getAgents()])
+        if (!aliveRef.current) return
+        setBindings(Array.isArray(list) ? list : [])
+        setBindableAgents(
+          (agentRes.agents ?? [])
+            .filter((a) => a.userId || a.selectable)
+            .map((a) => ({ id: a.id, name: a.name }))
+            .sort((a, b) => a.name.localeCompare(b.name, 'zh')),
+        )
+      } catch {
+        if (!aliveRef.current) return
+        setBindings([])
+      }
+    }
+    void load()
+  }, [])
+
+  const upsertBinding = useCallback((agentId: string, patch: Partial<CodingDevAgentBinding>) => {
+    setBindings((prev) => {
+      const exists = prev.find((b) => b.agentId === agentId)
+      const next = exists
+        ? prev.map((b) => (b.agentId === agentId ? { ...b, ...patch } : b))
+        : [...prev, { agentId, backendId: 'claude' as const, enabled: true, ...patch }]
+      void setCodingDevAgentBindings(next).catch(() => {})
+      return next
+    })
+  }, [])
+
+  const removeBinding = useCallback((agentId: string) => {
+    setBindings((prev) => {
+      const next = prev.filter((b) => b.agentId !== agentId)
+      void setCodingDevAgentBindings(next).catch(() => {})
+      return next
+    })
+  }, [])
+
+  /** 全局默认编码后端（会话/绑定都未显式指定时生效） */
+  const [defaultBackend, setDefaultBackend] = useState<string>('lumii')
+  const backendOptions = [
+    { id: 'lumii', label: '灵栖主 Agent（默认）' },
+    { id: 'claude', label: 'Claude Code' },
+    { id: 'codex', label: 'Codex' },
+    { id: 'cursor', label: 'Cursor Agent' },
+    { id: 'opencode', label: 'OpenCode' },
+  ] as const
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const api = window.electronAPI?.agentRuntime
+        if (!api?.sendCommand) return
+        const res = (await api.sendCommand({ type: 'codingDev:getBackend' })) as { backendId?: string }
+        if (!aliveRef.current) return
+        setDefaultBackend(res?.backendId ?? 'lumii')
+      } catch {
+        /* 运行时未就绪时保持默认展示 */
+      }
+    }
+    void load()
+  }, [])
+
+  const handleDefaultBackendChange = useCallback(async (backendId: string) => {
+    setDefaultBackend(backendId)
+    try {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return
+      // 不带 sessionKey = 写 user-global 全局默认
+      await api.sendCommand({ type: 'codingDev:setBackend', backendId })
+      window.dispatchEvent(new CustomEvent('mtbot:backend-changed', { detail: { backendId } }))
+    } catch {
+      /* 失败保持展示值（下次进入面板会重新读取） */
+    }
+  }, [])
   /** 逐个探测期间面板被关掉就停下，避免卸载后 setState（StrictMode 会重挂，故挂载时重置为 true） */
   const aliveRef = useRef(true)
   useEffect(() => {
@@ -534,6 +619,88 @@ export const CodingDevAcpPanel: React.FC = () => {
                   <button type="button" className={styles.dangerBtn} onClick={() => beginRemove(p.name)}>
                     移除
                   </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div className={styles.sectionLabel}>Agent 绑定</div>
+        <div className={styles.hint}>
+          未在会话或绑定里显式指定时，使用下列全局默认后端：
+        </div>
+        <div className={styles.projectRow}>
+          <div className={styles.projectMain}>
+            <span className={styles.toolName}>默认编码后端</span>
+          </div>
+          <div className={styles.toolActions}>
+            <select
+              value={defaultBackend}
+              onChange={(e) => void handleDefaultBackendChange(e.target.value)}
+              title="全局默认编码后端"
+            >
+              {backendOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className={styles.hint}>
+          为「灵栖开发」这类 Agent 固定「用哪个 CLI、改哪个项目」；启用后该 Agent 的对话直达 CLI，留空项目则跟随全局活动项目。
+        </div>
+        <div className={styles.projectList}>
+          {bindableAgents.length === 0 && <div className={styles.empty}>暂无可用 Agent。</div>}
+          {bindableAgents.map((a) => {
+            const binding = bindings.find((b) => b.agentId === a.id)
+            const enabled = binding?.enabled === true
+            return (
+              <div key={a.id} className={`${styles.projectRow} ${enabled ? styles.projectActive : ''}`}>
+                <div className={styles.projectMain}>
+                  <span className={styles.toolName}>{a.name}</span>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      onChange={(e) => upsertBinding(a.id, { enabled: e.target.checked })}
+                    />
+                    启用
+                  </label>
+                </div>
+                <div className={styles.toolActions}>
+                  <select
+                    value={binding?.backendId ?? 'claude'}
+                    disabled={!enabled}
+                    onChange={(e) =>
+                      upsertBinding(a.id, { backendId: e.target.value as CodingDevAgentBinding['backendId'] })
+                    }
+                    title="使用的编码 CLI"
+                  >
+                    {(['claude', 'codex', 'cursor', 'opencode'] as const).map((id) => (
+                      <option key={id} value={id}>
+                        {id}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={binding?.workspace ?? ''}
+                    disabled={!enabled}
+                    onChange={(e) => upsertBinding(a.id, { workspace: e.target.value })}
+                    title="绑定的项目目录（缺省跟随全局活动项目）"
+                  >
+                    <option value="">跟随全局活动项目</option>
+                    {projects.map((p) => (
+                      <option key={p.name} value={p.realPath}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                  {binding && (
+                    <button type="button" className={styles.dangerBtn} onClick={() => removeBinding(a.id)}>
+                      移除
+                    </button>
+                  )}
                 </div>
               </div>
             )

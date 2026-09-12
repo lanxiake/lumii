@@ -15,6 +15,7 @@ import type { AgentRuntimeEvent } from '../shared/agent-runtime-events'
 import { runCodingDevAcpPrompt } from './coding-dev-backends-stub/run-coding-dev-acp-prompt.js'
 import { resolveAcpTimeoutMs } from './coding-dev-backends-stub/acp-config.js'
 import type {
+  CodingDevLightweightBackendOutput,
   CodingDevLightweightBackendProgress,
   CodingDevToolProgress,
 } from './coding-dev-backends-stub/contracts.js'
@@ -53,9 +54,41 @@ export type AcpRunStartOptions = {
   pushEvent: (event: AgentRuntimeEvent) => void
   accountId?: string
   senderId?: string
+  /** 本次 run 的工作目录（会话开发上下文解析结果）；缺省走 MTBOT_*_ACP_CWD 全局链 */
+  cwd?: string
 }
 
 const DEFAULT_DELTA_FLUSH_MS = 16
+
+/** runtime_state 键：CLI 续接会话 id（按后端 + 会话隔离；会话删除时清理） */
+export function acpSessionStateKey(backendId: string, sessionKey: string): string {
+  return `acp-session:${backendId}:${sessionKey}`
+}
+
+/** 读取会话的 CLI 续接 id（runtimeStateRepo 未初始化等场景静默降级） */
+function readStoredCliSession(bridge: AgentRuntimeBridge, key: string): string | undefined {
+  try {
+    return bridge.runtimeStateRepo.get(key)?.trim() || undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeStoredCliSession(bridge: AgentRuntimeBridge, key: string, sessionId: string): void {
+  try {
+    bridge.runtimeStateRepo.set(key, sessionId)
+  } catch {
+    /* 忽略：续接是增强能力，不因持久化失败阻断本轮 */
+  }
+}
+
+function clearStoredCliSession(bridge: AgentRuntimeBridge, key: string): void {
+  try {
+    bridge.runtimeStateRepo.delete(key)
+  } catch {
+    /* 忽略 */
+  }
+}
 
 /**
  * 移除 CLI 输出开头对用户输入的回显。
@@ -85,6 +118,9 @@ export class AcpRunController {
 
     const abortController = new AbortController()
     const timeoutMs = resolveAcpTimeoutMs()
+    // CLI 续接：同一条 Lumii 会话的多轮消息共享 CLI 上下文（有键则 resume，成功后回写新键）
+    const sessionStateKey = acpSessionStateKey(backendId, sessionKey)
+    const storedCliSessionId = readStoredCliSession(bridge, sessionStateKey)
 
     const handle: AcpRunHandle = {
       runId,
@@ -127,15 +163,38 @@ export class AcpRunController {
     })
 
     try {
-      const output = await runCodingDevAcpPrompt({
-        backendId,
-        text,
-        accountId,
-        peerId: sessionKey,
-        senderId,
-        emitProgress: (progress) => this.handleProgress(progress, handle, pushEvent),
-        abortSignal: abortController.signal,
-      })
+      let output: CodingDevLightweightBackendOutput | void
+      let contextReset = false
+      try {
+        output = await runCodingDevAcpPrompt({
+          backendId,
+          text,
+          accountId,
+          peerId: sessionKey,
+          senderId,
+          cwd: opts.cwd,
+          cliSessionId: storedCliSessionId,
+          emitProgress: (progress) => this.handleProgress(progress, handle, pushEvent),
+          abortSignal: abortController.signal,
+        })
+      } catch (firstErr) {
+        // 续接失效降级：非中止且本次带了 resume → 清键后全新重跑一次（只重试一次）
+        if (abortController.signal.aborted || !storedCliSessionId) throw firstErr
+        const message = firstErr instanceof Error ? firstErr.message : String(firstErr)
+        log.warn(`[startRun] CLI 续接失败，清键后全新重跑: ${message}`)
+        clearStoredCliSession(bridge, sessionStateKey)
+        output = await runCodingDevAcpPrompt({
+          backendId,
+          text,
+          accountId,
+          peerId: sessionKey,
+          senderId,
+          cwd: opts.cwd,
+          emitProgress: (progress) => this.handleProgress(progress, handle, pushEvent),
+          abortSignal: abortController.signal,
+        })
+        contextReset = true
+      }
 
       if (handle.settled) return
       this.clearTimeout(handle)
@@ -143,7 +202,15 @@ export class AcpRunController {
 
       const rawFinalText = output?.text ?? this.pendingMessageDelta.get(sessionKey)?.text ?? ''
       // output.text 是整段聚合输出，没走过 handleProgress 的逐条剥离，这里再兜一次
-      const finalText = stripUserEcho(rawFinalText, text)
+      const resetHint = contextReset
+        ? '\n\n（CLI 上下文已重置——上一次会话已失效，本轮为全新开始）'
+        : ''
+      const finalText = stripUserEcho(rawFinalText, text) + resetHint
+
+      // 持久化本轮 CLI 会话 id，供下一轮续接
+      const newCliSessionId = output?.cliSessionId?.trim()
+      if (newCliSessionId) writeStoredCliSession(bridge, sessionStateKey, newCliSessionId)
+
       const content = [{ type: 'text' as const, text: finalText }]
 
       // 渲染进程的 message:end 用流式累积的文本、不用 event.content（见 event-handler

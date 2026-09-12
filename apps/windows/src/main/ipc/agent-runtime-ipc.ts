@@ -61,6 +61,8 @@ import {
 import {
   handleCodingDevSetBackend,
   handleCodingDevGetBackend,
+  handleCodingDevSetProject,
+  handleCodingDevGetDevContext,
   handleCodingDevListBackends,
   setAcpBackendManagerGetter,
 } from './agent-runtime/coding-dev-commands'
@@ -1276,6 +1278,12 @@ export async function handleCommand(
 
       case 'codingDev:listBackends':
         return handleCodingDevListBackends()
+
+      case 'codingDev:setProject':
+        return handleCodingDevSetProject(command)
+
+      case 'codingDev:getDevContext':
+        return handleCodingDevGetDevContext(bridge, command)
 
       // ---- 自主进化 ----
       case 'autonomous:status':

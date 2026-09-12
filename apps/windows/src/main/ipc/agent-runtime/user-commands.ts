@@ -13,6 +13,7 @@ import { recordFeedbackSignal } from '../../agent-runtime/autonomous-wiring'
 import { StatefulContextStrategy } from '../../channel/context-strategy/stateful-strategy'
 import type { CodingDevBackendId } from '../../coding-dev-backends-stub/contracts.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
+import { getCodingDevConfig, resolveDevContext } from '../../coding-dev-env.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -60,6 +61,8 @@ interface UserDependencies {
       instanceId: string
       bridge: AgentRuntimeBridge
       pushEvent: (event: AgentRuntimeEvent) => void
+      /** 本次 run 的工作目录（开发上下文解析结果；缺省走全局环境变量链） */
+      cwd?: string
     }) => Promise<void>
     abortRun: (runId: string, reason: 'user_cancel' | 'timeout') => boolean
     abortSession: (sessionKey: string, reason: 'user_cancel' | 'timeout') => number
@@ -194,11 +197,21 @@ export async function handleUserSend(
   const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
   deps!.trackRunInstance(runId, instanceId)
 
-  // 检查 ACP 后端：per-peer 优先，回退到 user-global，再回退到默认主代理
+  // 检查 ACP 后端：会话显式开发上下文 > Agent 绑定 > user-global > 默认主代理
   const acpMgr = deps!.getAcpBackendManager()
-  const currentBackend = acpMgr.getBackendWithFallback(LOCAL_USER_ID, command.sessionKey)
+  const manualBackend = acpMgr.getBackendWithFallback(LOCAL_USER_ID, command.sessionKey)
+  const devContext = resolveDevContext({
+    appConfig: getCodingDevConfig(),
+    accountId: LOCAL_USER_ID,
+    sessionKey: command.sessionKey,
+    agentId: bridge.conversationRepo.getAgentParticipantId(command.sessionKey),
+    fallbackBackendId: manualBackend,
+  })
+  const currentBackend = devContext.backendId
   if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
-    log.info(`[user:send] ACP 路径: backendId=${currentBackend} sessionKey=${command.sessionKey}`)
+    log.info(
+      `[user:send] ACP 路径: backendId=${currentBackend} sessionKey=${command.sessionKey} source=${devContext.source} cwd=${devContext.projectPath ?? '(全局)'}`,
+    )
     // Controller 内部负责：turn:start / message:start / delta / tool:start/progress/end /
     // message:end / idle / timeout / abort / DB 持久化。异步执行，不阻塞 IPC 响应。
     const controller = deps!.getAcpRunController()
@@ -209,6 +222,7 @@ export async function handleUserSend(
       text: command.content,
       instanceId,
       bridge,
+      cwd: devContext.projectPath,
       pushEvent: (event) => {
         const win = deps!.ipcMainWindowRef
         if (win && !win.isDestroyed()) deps!.pushEvent(win, event)

@@ -173,6 +173,37 @@ export function registerCodingDevIpcHandlers(options: CodingDevIpcOptions): void
     }
   })
 
+  // === 开发类 Agent 本机绑定（Agent → CLI + 工作目录） ===
+  ipcMain.handle('app:getCodingDevAgentBindings', async () => {
+    return getConfigManager()?.getAppConfig().codingDevAgentBindings ?? []
+  })
+
+  ipcMain.handle('app:setCodingDevAgentBindings', async (_event, bindings: unknown) => {
+    const list = Array.isArray(bindings) ? bindings : []
+    const sanitized = list
+      .filter(
+        (b): b is { agentId: string; backendId: string; workspace?: string; enabled?: boolean; permissionMode?: string } =>
+          Boolean(b && typeof b === 'object' && typeof (b as { agentId?: unknown }).agentId === 'string' && (b as { agentId: string }).agentId.trim()),
+      )
+      .map((b) => ({
+        agentId: b.agentId.trim(),
+        backendId: (['claude', 'codex', 'cursor', 'opencode'].includes(b.backendId) ? b.backendId : 'claude') as
+          | 'claude'
+          | 'codex'
+          | 'cursor'
+          | 'opencode',
+        ...(typeof b.workspace === 'string' && b.workspace.trim() ? { workspace: b.workspace.trim() } : {}),
+        enabled: b.enabled !== false,
+        ...(typeof b.permissionMode === 'string' && b.permissionMode.trim()
+          ? { permissionMode: b.permissionMode.trim() }
+          : {}),
+      }))
+    await getConfigManager()!.updateAppConfig({
+      codingDevAgentBindings: sanitized.length > 0 ? sanitized : undefined,
+    })
+    return { ok: true, bindings: sanitized }
+  })
+
   ipcMain.handle('app:createCodingDevProject', async (_event, name: string) => {
     if (!getConfigManager() || !directoryManager) throw new Error('未初始化')
     const projectsDir = join(getActiveWorkspaceDir(), 'projects')

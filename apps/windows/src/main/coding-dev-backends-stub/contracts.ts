@@ -36,6 +36,8 @@ export type CodingDevLightweightBackendOutput = {
   text?: string;
   mediaUrl?: string;
   mediaUrls?: string[];
+  /** CLI 会话 id（claude/cursor 的 init 事件捕获），用于多轮续接 */
+  cliSessionId?: string;
 };
 
 /** 工具调用进度阶段 */

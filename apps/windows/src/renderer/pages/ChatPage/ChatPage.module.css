@@ -102,6 +102,28 @@
   white-space: nowrap;
 }
 
+/* 开发上下文 chip：会话头显示「工具 · 项目」，点击退出开发模式 */
+.dev-context-chip {
+  flex: none;
+  margin-left: var(--mt-space-2);
+  padding: 1px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  background: rgba(96, 165, 250, 0.12);
+  color: var(--mt-fg-1);
+  font-size: 11px;
+  line-height: 18px;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dev-context-chip:hover {
+  background: rgba(96, 165, 250, 0.22);
+}
+
 /* 工具栏右侧操作按钮组 */
 .toolbar-actions {
   display: flex;

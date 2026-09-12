@@ -38,3 +38,24 @@ export async function uninstallCodingDevTool(toolId: string) {
 export async function loginCodingDevTool(toolId: string) {
   return window.electronAPI.app.loginCodingDevTool(toolId)
 }
+
+/** 开发类 Agent 的本机绑定（Agent → CLI + 工作目录） */
+export type CodingDevAgentBinding = {
+  agentId: string
+  backendId: 'claude' | 'codex' | 'cursor' | 'opencode'
+  workspace?: string
+  enabled: boolean
+  permissionMode?: string
+}
+
+/** 读取开发类 Agent 的本机绑定列表 */
+export async function getCodingDevAgentBindings(): Promise<CodingDevAgentBinding[]> {
+  return window.electronAPI.app.getCodingDevAgentBindings() as Promise<CodingDevAgentBinding[]>
+}
+
+/** 覆盖式保存开发类 Agent 的本机绑定列表 */
+export async function setCodingDevAgentBindings(
+  bindings: CodingDevAgentBinding[],
+): Promise<{ ok: boolean }> {
+  return window.electronAPI.app.setCodingDevAgentBindings(bindings)
+}

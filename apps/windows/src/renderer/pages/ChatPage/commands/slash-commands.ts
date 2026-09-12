@@ -71,6 +71,12 @@ const CLIENT_ONLY_COMMANDS: SlashCommand[] = [
     usage: '/lumii',
     category: 'backend',
   },
+  {
+    name: '/project',
+    description: '查看 / 切换当前会话的开发项目（ACP 工作目录）',
+    usage: '/project [项目名|off]',
+    category: 'backend',
+  },
   // ── 设置选项 ──────────────────────────────────────────────────
   {
     name: '/models',

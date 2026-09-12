@@ -26,6 +26,8 @@ import {
 } from '../channel-interaction-hub'
 import { backendCommand } from '../slash-commands/backend'
 import { createSwitchBackendCommand, lumiiCommand } from '../slash-commands/switch-backend'
+import { projectCommand } from '../slash-commands/project'
+import { getCodingDevConfig, resolveDevContext } from '../../coding-dev-env.js'
 import { linkCommand, unlinkCommand } from '../slash-commands/link'
 import { runCodingDevAcpPrompt } from '../../coding-dev-backends-stub/run-coding-dev-acp-prompt.js'
 import { resolveAcpTimeoutMs } from '../../coding-dev-backends-stub/acp-config.js'
@@ -342,11 +344,18 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       this.bridge.notifyIncomingMessage(session.sessionKey, prompt)
       this.bridge.notifyNavigateToSession(session.sessionKey)
 
-      // 检查当前后端：非主代理走 ACP 子进程路径
-      const currentBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
+      // 检查当前后端：会话开发上下文（项目/工具）> peer 级后端选择；非主代理走 ACP 子进程路径
+      const manualBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
+      const devContext = resolveDevContext({
+        appConfig: getCodingDevConfig(),
+        accountId: msg.channelUserId,
+        sessionKey: session.sessionKey,
+        fallbackBackendId: manualBackend,
+      })
+      const currentBackend = devContext.backendId
       if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
         try {
-          await this.handleAcpPrompt(msg, session, prompt, currentBackend)
+          await this.handleAcpPrompt(msg, session, prompt, currentBackend, devContext.projectPath)
         } catch (err) {
           log.error(`[handleMessage] ACP 处理异常: ${err instanceof Error ? err.message : String(err)}`)
           try {
@@ -516,6 +525,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     session: ChannelSession,
     prompt: string,
     backendId: string,
+    cwd?: string,
   ): Promise<void> {
     log.info(`[handleAcpPrompt] 走 ACP 路径: backendId=${backendId} sessionKey=${session.sessionKey}`)
 
@@ -545,6 +555,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
         senderId: msg.channelUserId,
         contextToken: msg.contextToken,
         timestamp: msg.timestamp,
+        cwd,
         emitProgress: async (progress) => {
           if (abortController.signal.aborted) {
             return
@@ -641,6 +652,8 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     registry.register('codex', createSwitchBackendCommand('codex'))
     registry.register('opencode', createSwitchBackendCommand('opencode'))
     registry.register('cursor', createSwitchBackendCommand('cursor'))
+    // 开发项目切换（对话级，写 dev-context）
+    registry.register('project', projectCommand)
     // 跨通道绑定
     registry.register('link', linkCommand)
     registry.register('unlink', unlinkCommand)

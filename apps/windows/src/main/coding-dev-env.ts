@@ -3,8 +3,10 @@
  * 独立版仅连接本机 CLI，不再依赖 Gateway 侧环境变量说明。
  */
 import { join } from 'path'
-import type { AppConfig } from './config/types.js'
+import type { AgentDevBinding, AppConfig } from './config/types.js'
 import { resolveActiveProjectPath } from './coding-dev-projects.js'
+import { getDevContext } from './coding-dev-dev-context.js'
+import type { CodingDevBackendId } from './coding-dev-backends-stub/contracts.js'
 
 /** 与各本机 CLI 的 cwd 环境变量一致 */
 export const CODING_DEV_ACP_CWD_ENV_KEYS = [
@@ -50,12 +52,88 @@ export function resolveCodingDevAcpWorkspacePath(params: {
 }
 
 /**
- * 将各 MTBOT_*_ACP_CWD 写入当前进程环境，供本机 CLI 子进程继承。
+ * 从各 MTBOT_*_ACP_CWD 写入当前进程环境，供本机 CLI 子进程继承。
  */
 export function applyCodingDevAcpEnvToProcess(workspacePath: string): void {
   const normalized = workspacePath.replace(/\\/g, '/')
   for (const key of CODING_DEV_ACP_CWD_ENV_KEYS) {
     process.env[key] = normalized
+  }
+}
+
+/** 开发相关配置切片（codingDev* 字段）；解析器只依赖这两个字段，避免耦合完整 AppConfig */
+export type CodingDevConfigSlice = Pick<AppConfig, 'codingDevProjects' | 'codingDevAgentBindings'>
+
+/**
+ * 本机开发配置访问（由 index.ts 注入）。
+ * 渠道命令 / 命令处理器等以统一方式读取 codingDev* 配置；未注入时返回空切片。
+ */
+let _devConfigGetter: (() => CodingDevConfigSlice) | null = null
+
+export function setCodingDevConfigGetter(getter: () => CodingDevConfigSlice): void {
+  _devConfigGetter = getter
+}
+
+export function getCodingDevConfig(): CodingDevConfigSlice {
+  return _devConfigGetter?.() ?? {}
+}
+
+/**
+ * 解析会话绑定 Agent 的开发绑定（Agent → CLI + 工作目录）。
+ * 未配置或未启用返回 undefined。
+ */
+export function resolveAgentDevBinding(
+  appConfig: CodingDevConfigSlice,
+  agentId: string | undefined,
+): AgentDevBinding | undefined {
+  if (!agentId) return undefined
+  return appConfig.codingDevAgentBindings?.find((b) => b.agentId === agentId && b.enabled)
+}
+
+/**
+ * 按项目名解析 realPath（会话级 /project 选择用）。
+ * 项目不存在或未注册时返回 undefined（调用方回退）。
+ */
+export function resolveProjectPathByName(
+  appConfig: CodingDevConfigSlice,
+  name: string | undefined,
+): string | undefined {
+  const trimmed = name?.trim()
+  if (!trimmed) return undefined
+  return appConfig.codingDevProjects?.find((p) => p.name === trimmed)?.realPath
+}
+
+/** 会话的最终开发上下文（供路由与模式 chip 共用） */
+export type ResolvedDevContext = {
+  backendId: CodingDevBackendId
+  projectName?: string
+  projectPath?: string
+  /** 命中来源：会话显式 > Agent 绑定 > 全局默认 */
+  source: 'session' | 'binding' | 'global'
+}
+
+/**
+ * 解析会话的最终开发上下文：会话显式（dev-context）> Agent 绑定 > 全局默认（调用方传入）。
+ * 桌面与渠道共用（渠道无 Agent 绑定层，agentId 传 undefined）。
+ */
+export function resolveDevContext(params: {
+  appConfig: CodingDevConfigSlice
+  accountId: string
+  sessionKey: string
+  agentId?: string
+  fallbackBackendId: CodingDevBackendId
+}): ResolvedDevContext {
+  const devCtx = getDevContext(params.accountId, params.sessionKey)
+  const binding = resolveAgentDevBinding(params.appConfig, params.agentId)
+  const backendId = devCtx?.backendId ?? binding?.backendId ?? params.fallbackBackendId
+  const projectName = devCtx?.projectName
+  const projectPath = resolveProjectPathByName(params.appConfig, projectName) ?? binding?.workspace
+  const source: ResolvedDevContext['source'] = devCtx ? 'session' : binding ? 'binding' : 'global'
+  return {
+    backendId,
+    ...(projectName ? { projectName } : {}),
+    ...(projectPath ? { projectPath } : {}),
+    source,
   }
 }
 

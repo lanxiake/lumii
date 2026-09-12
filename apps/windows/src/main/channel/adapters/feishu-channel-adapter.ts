@@ -27,6 +27,8 @@ import { compactCommand } from '../slash-commands/compact'
 import { stopCommand } from '../slash-commands/stop'
 import { backendCommand } from '../slash-commands/backend'
 import { createSwitchBackendCommand, lumiiCommand } from '../slash-commands/switch-backend'
+import { projectCommand } from '../slash-commands/project'
+import { getCodingDevConfig, resolveDevContext } from '../../coding-dev-env.js'
 import { getAcpRunController } from '../../coding-dev-acp-run.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
 import { pushAgentRuntimeEvent } from '../../ipc/agent-runtime-ipc.js'
@@ -318,10 +320,17 @@ export class FeishuChannelAdapter implements IChannelAdapter {
       this.bridge.notifyIncomingMessage(session.sessionKey, prompt)
       this.bridge.notifyNavigateToSession(session.sessionKey)
 
-      // 非主代理后端：走本机 ACP 子进程路径
-      const currentBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
+      // 非主代理后端：会话开发上下文（项目/工具）> peer 级后端选择；走本机 ACP 子进程路径
+      const manualBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
+      const devContext = resolveDevContext({
+        appConfig: getCodingDevConfig(),
+        accountId: msg.channelUserId,
+        sessionKey: session.sessionKey,
+        fallbackBackendId: manualBackend,
+      })
+      const currentBackend = devContext.backendId
       if (currentBackend !== DEFAULT_CODING_DEV_BACKEND_ID) {
-        await this.handleAcpPrompt(session, prompt, currentBackend)
+        await this.handleAcpPrompt(session, prompt, currentBackend, devContext.projectPath)
         return
       }
 
@@ -400,6 +409,7 @@ export class FeishuChannelAdapter implements IChannelAdapter {
     session: ChannelSession,
     prompt: string,
     backendId: string,
+    cwd?: string,
   ): Promise<void> {
     log.info(`[handleAcpPrompt] 走 ACP 路径: backendId=${backendId} sessionKey=${session.sessionKey}`)
 
@@ -419,6 +429,7 @@ export class FeishuChannelAdapter implements IChannelAdapter {
       bridge: this.bridge,
       accountId: session.channelUserId,
       senderId: session.channelUserId,
+      cwd,
       pushEvent: (event) => {
         // 先转发给渲染进程，客户端对话页由此渲染工具卡片与流式文本
         pushAgentRuntimeEvent(event)
@@ -501,6 +512,8 @@ export class FeishuChannelAdapter implements IChannelAdapter {
     registry.register('codex', createSwitchBackendCommand('codex'))
     registry.register('opencode', createSwitchBackendCommand('opencode'))
     registry.register('cursor', createSwitchBackendCommand('cursor'))
+    // 开发项目切换（对话级，写 dev-context）
+    registry.register('project', projectCommand)
     return registry
   }
 }

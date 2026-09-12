@@ -412,6 +412,14 @@ export interface ElectronAPI {
     setCodingDevAcpWorkspace: (dirPath: string | undefined) => Promise<void>
     /** 列出 ACP 项目及当前活动项�?*/
     listCodingDevProjects: () => Promise<{ projects: CodingDevProject[]; activeProject?: string }>
+    /** 读取开发类 Agent 的本机绑定（Agent → CLI + 工作目录） */
+    getCodingDevAgentBindings: () => Promise<
+      Array<{ agentId: string; backendId: string; workspace?: string; enabled: boolean; permissionMode?: string }>
+    >
+    /** 覆盖式保存开发类 Agent 的本机绑定 */
+    setCodingDevAgentBindings: (
+      bindings: Array<{ agentId: string; backendId: string; workspace?: string; enabled: boolean; permissionMode?: string }>,
+    ) => Promise<{ ok: boolean }>
     /** 新建项目（在 projects 目录下创建），成功后设为活动项目 */
     createCodingDevProject: (name: string) => Promise<{ projects: CodingDevProject[]; activeProject?: string }>
     /** 打开已有项目（软链接挂载�?projects 目录），成功后设为活动项�?*/

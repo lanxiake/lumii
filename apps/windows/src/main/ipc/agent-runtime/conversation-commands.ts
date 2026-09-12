@@ -8,7 +8,8 @@ import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { parseThinkTagsFromRaw } from '../../agent-runtime/event-converter'
 import { isCompactSummaryText } from '../../../shared/compact-summary-text'
-import { EVOLUTION_CONVERSATION_ID } from '@mtbot/agent-runtime'
+import { isEvolutionConversationId } from '@mtbot/agent-runtime'
+import { acpSessionStateKey } from '../../coding-dev-acp-run.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -290,7 +291,7 @@ export function handleConversationDelete(
   command: Extract<AgentRuntimeCommand, { type: 'conversation:delete' }>,
 ): void {
   const { sessionKey } = command
-  if (sessionKey === EVOLUTION_CONVERSATION_ID) {
+  if (isEvolutionConversationId(sessionKey)) {
     log.warn(`[conversation:delete] 拒绝删除自主进化会话 sessionKey=${sessionKey}`)
     throw new Error('拒绝删除自主进化会话')
   }
@@ -306,6 +307,15 @@ export function handleConversationDelete(
   }
 
   bridge.clearSessionPreferredModel(sessionKey)
+
+  // 清理该会话的 CLI 续接键（4 个 ACP 后端各一条；键由 coding-dev-acp-run 维护）
+  for (const backendId of ['claude', 'codex', 'cursor', 'opencode'] as const) {
+    try {
+      bridge.runtimeStateRepo.delete(acpSessionStateKey(backendId, sessionKey))
+    } catch {
+      /* runtimeStateRepo 未初始化等场景忽略 */
+    }
+  }
 
   // 软删除该对话关联的所有文件
   try {
@@ -579,7 +589,7 @@ export function resolveConversationChannel(
   if (conversationId.startsWith('wecom:')) return 'wecom'
   if (conversationId.startsWith('feishu:')) return 'feishu'
   if (conversationId.startsWith('qbot:')) return 'qbot'
-  if (conversationId === EVOLUTION_CONVERSATION_ID) return 'evolution'
+  if (isEvolutionConversationId(conversationId)) return 'evolution'
   if (conversationId.startsWith('cron:')) return 'cron'
   return 'default'
 }

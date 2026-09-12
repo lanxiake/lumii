@@ -20,6 +20,8 @@ export type CodingDevAcpPromptNodeParams = {
   contextToken?: string
   timestamp?: number
   cwd?: string
+  /** 上一轮的 CLI 会话 id（多轮续接） */
+  cliSessionId?: string
   emitProgress?: (progress: CodingDevLightweightBackendProgress) => Promise<void> | void
   abortSignal?: AbortSignal
 }
@@ -35,12 +37,14 @@ export async function runCodingDevAcpPrompt(
     process.env.MTBOT_CURSOR_ACP_CWD?.trim() ||
     process.env.MTBOT_CLAUDE_ACP_CWD?.trim() ||
     process.env.MTBOT_CODEX_ACP_CWD?.trim() ||
+    process.env.MTBOT_OPENCODE_ACP_CWD?.trim() ||
     process.env.MTBOT_COPILOT_ACP_CWD?.trim() ||
     process.cwd()
   return runLocalAcpCli({
     backendId: params.backendId,
     text: params.text,
     cwd,
+    cliSessionId: params.cliSessionId,
     emitProgress: params.emitProgress,
     abortSignal: params.abortSignal,
   })

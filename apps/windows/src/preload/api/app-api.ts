@@ -23,6 +23,9 @@ export const appApi = {
   setCodingDevAcpWorkspace: (dirPath: string | undefined) =>
     ipcRenderer.invoke('app:setCodingDevAcpWorkspace', dirPath),
   listCodingDevProjects: () => ipcRenderer.invoke('app:listCodingDevProjects'),
+  getCodingDevAgentBindings: () => ipcRenderer.invoke('app:getCodingDevAgentBindings'),
+  setCodingDevAgentBindings: (bindings: unknown) =>
+    ipcRenderer.invoke('app:setCodingDevAgentBindings', bindings),
   createCodingDevProject: (name: string) => ipcRenderer.invoke('app:createCodingDevProject', name),
   openCodingDevProject: (name: string, targetPath: string) =>
     ipcRenderer.invoke('app:openCodingDevProject', name, targetPath),

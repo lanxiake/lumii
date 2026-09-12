@@ -16,6 +16,7 @@ type ParsedLine =
   | { kind: 'message'; text: string }
   | { kind: 'ignore' }
   | { kind: 'final_result'; text: string }
+  | { kind: 'session'; sessionId: string }
 
 // 调试日志开关（可通过环境变量 DEBUG_ACP_PARSER=1 启用）
 const DEBUG = process.env.DEBUG_ACP_PARSER === '1'
@@ -42,7 +43,11 @@ function parseClaudeJsonLine(line: string): ParsedLine {
     debugLog('claude', '解析到 JSON 对象', { type: obj.type, subtype: obj.subtype })
 
     if (obj.type === 'system') {
-      // hook_started/hook_response/init 等系统事件，不作为消息展示，避免刷屏
+      // init 事件携带 CLI 会话 id（多轮续接用）；hook 等其他系统事件忽略
+      if (obj.subtype === 'init' && typeof obj.session_id === 'string' && obj.session_id) {
+        return { kind: 'session', sessionId: obj.session_id }
+      }
+      // hook_started/hook_response 等系统事件，不作为消息展示，避免刷屏
       return { kind: 'ignore' }
     }
 
@@ -126,6 +131,27 @@ function parseCodexJsonLine(line: string): ParsedLine {
         },
       }
     }
+    // 文件改动事件：沙箱拒绝写入时 status='failed'——必须作为失败工具暴露，
+    // 否则模型回复"完成"而用户以为改好了（实测 2026-09-13：Windows 上沙箱写文件失败但静默）
+    if ((obj.type === 'item.started' || obj.type === 'item.completed') && obj.item?.type === 'file_change') {
+      const changes = Array.isArray(obj.item.changes) ? obj.item.changes : []
+      const paths = changes
+        .map((c: { path?: string }) => c?.path)
+        .filter((p: unknown): p is string => typeof p === 'string')
+      const failed = obj.item.status === 'failed'
+      return {
+        kind: 'tool',
+        tool: {
+          toolCallId: obj.item.id ?? `file-${Date.now()}`,
+          toolName: 'file_change',
+          phase: obj.type === 'item.started' ? 'start' : 'end',
+          args: { paths },
+          ...(obj.type === 'item.completed'
+            ? { result: failed ? '文件写入失败（沙箱拒绝？）' : '文件已更新', isError: failed }
+            : {}),
+        },
+      }
+    }
     // codex 可能输出 type:"message" 或其他文本事件
     if (obj.type === 'message' && obj.text) {
       return { kind: 'message', text: obj.text }
@@ -156,8 +182,11 @@ function parseCursorJsonLine(line: string): ParsedLine {
     const obj = JSON.parse(line)
     debugLog('cursor', '解析到 JSON 对象', { type: obj.type, subtype: obj.subtype })
 
-    // 系统事件：init、hook 等，静默忽略
+    // 系统事件：init 捕获会话 id（多轮续接用），其余静默忽略
     if (obj.type === 'system') {
+      if (obj.subtype === 'init' && typeof obj.session_id === 'string' && obj.session_id) {
+        return { kind: 'session', sessionId: obj.session_id }
+      }
       return { kind: 'ignore' }
     }
 
@@ -272,6 +301,13 @@ export type AcpParsedProgress =
 export class AcpToolStreamParser {
   private parser: ((line: string) => ParsedLine) | null
   private readonly backendId: LightweightCodingDevBackendId
+  /** 从 system/init 事件捕获的 CLI 会话 id（多轮续接用）；未捕获为 null */
+  private _cliSessionId: string | null = null
+
+  /** 该后端是否捕获到 CLI 会话 id（claude/cursor 的 init 事件携带） */
+  getCliSessionId(): string | null {
+    return this._cliSessionId
+  }
 
   /** 该后端是否有 JSONL 解析器。有解析器意味着 stdout 是 JSONL，不可直接展示给用户 */
   get hasParser(): boolean {
@@ -313,6 +349,11 @@ export class AcpToolStreamParser {
     }
     if (parsed.kind === 'final_result') {
       return { kind: 'final_result', text: parsed.text }
+    }
+    if (parsed.kind === 'session') {
+      // 捕获会话 id，不产生可见进度事件
+      this._cliSessionId = parsed.sessionId
+      return null
     }
     return null
   }

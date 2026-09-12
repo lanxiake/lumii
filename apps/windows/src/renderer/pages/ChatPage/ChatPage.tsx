@@ -20,7 +20,7 @@ import {
 import { AskUserModal } from '../../components/AskUserModal'
 import type { ViewType } from '../../components/Router'
 import { SIDEBAR_SESSION_SLOT_ID, SIDEBAR_TOGGLE_EVENT } from '../../components/layout/Sidebar'
-import { executeSlashCommand } from './commands/slash-command-executor'
+import { executeSlashCommand, BACKEND_INFO } from './commands/slash-command-executor'
 import { loadSlashCommandsFromIpc } from './commands/slash-commands'
 import { updateSessionState } from '../../hooks/business/useAgentRuntime/agent-runtime-store'
 import clsx from 'clsx'
@@ -146,7 +146,7 @@ const EMPTY_WORKFLOW_ITEMS: never[] = []
 
 const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewChange }) => {
   // Hooks
-  const { agents, userAgents, selectedAgent, isLoading: agentsLoading, selectAgent, selectAgentById, mainAgentId, agentsMap, refreshAgents } = useAgents()
+  const { agents, selectableAgents, selectedAgent, isLoading: agentsLoading, selectAgent, selectAgentById, mainAgentId, agentsMap, refreshAgents } = useAgents()
 
   // 本地 Agent Runtime hooks（Feature Flag 开启时生效）
   const runtimeActions = useAgentRuntimeActions()
@@ -1323,6 +1323,70 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
    */
   const handleLocateFile = locateAbsoluteFile
 
+  /**
+   * 开发上下文 chip：当前会话走非主 Agent 后端（claude/codex/...）时在会话头展示
+   * 「工具 · 项目」；点击退出开发模式（显式写 lumii，压制 Agent 绑定）。
+   */
+  const [devContext, setDevContext] = useState<{
+    backendId: string
+    projectName?: string
+    projectPath?: string
+  } | null>(null)
+
+  const refreshDevContext = useCallback(async () => {
+    const key = runtimeCurrentSessionKey
+    if (!key) {
+      setDevContext(null)
+      return
+    }
+    try {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return
+      const ctx = (await api.sendCommand({
+        type: 'codingDev:getDevContext',
+        sessionKey: key,
+      })) as { backendId?: string; projectName?: string; projectPath?: string }
+      if (ctx?.backendId && ctx.backendId !== 'lumii') {
+        setDevContext({
+          backendId: ctx.backendId,
+          ...(ctx.projectName ? { projectName: ctx.projectName } : {}),
+          ...(ctx.projectPath ? { projectPath: ctx.projectPath } : {}),
+        })
+      } else {
+        setDevContext(null)
+      }
+    } catch {
+      setDevContext(null)
+    }
+  }, [runtimeCurrentSessionKey])
+
+  useEffect(() => {
+    void refreshDevContext()
+  }, [refreshDevContext])
+
+  useEffect(() => {
+    const onChanged = () => void refreshDevContext()
+    window.addEventListener('mtbot:backend-changed', onChanged)
+    window.addEventListener('mtbot:dev-context-changed', onChanged)
+    return () => {
+      window.removeEventListener('mtbot:backend-changed', onChanged)
+      window.removeEventListener('mtbot:dev-context-changed', onChanged)
+    }
+  }, [refreshDevContext])
+
+  const handleExitDevMode = useCallback(() => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand || !runtimeCurrentSessionKey) return
+    void api
+      .sendCommand({
+        type: 'codingDev:setBackend',
+        backendId: 'lumii',
+        sessionKey: runtimeCurrentSessionKey,
+      })
+      .then(() => refreshDevContext())
+      .catch(() => {})
+  }, [runtimeCurrentSessionKey, refreshDevContext])
+
   const handleEnterPetMode = useCallback(async () => {
     if (runtimeCurrentSessionKey) {
       await setActiveSessionKey(runtimeCurrentSessionKey)
@@ -1539,6 +1603,19 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             readAloudActive={readAloudActive}
             readAloudSpeaking={voiceCallState.readAloudSpeaking}
             workbenchOpen={workbench.open}
+            devContextChip={
+              devContext ? (
+                <button
+                  type="button"
+                  className={styles['dev-context-chip']}
+                  title={`${devContext.projectPath ?? devContext.projectName ?? '未绑定项目'}\n点击退出开发模式`}
+                  onClick={handleExitDevMode}
+                >
+                  {BACKEND_INFO[devContext.backendId]?.label ?? devContext.backendId}
+                  {devContext.projectName ? ` · ${devContext.projectName}` : ''}
+                </button>
+              ) : undefined
+            }
             onToggleSidebar={toggleOuterSidebar}
             onResetZoom={resetPageZoom}
             onToggleAutoApprove={handleToggleAutoApprove}
@@ -1580,7 +1657,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             isStreaming={runtimeIsStreaming}
             turnEndAt={runtimeLastTurnEndAt}
             isConnected={true}
-            agents={userAgents}
+            agents={selectableAgents}
             selectedAgent={selectedAgent}
             agentsLoading={agentsLoading}
             onAgentChange={handleComposerAgentChange}

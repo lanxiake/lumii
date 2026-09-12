@@ -537,6 +537,8 @@ async function initAgentRuntime(): Promise<void> {
       const appConfig = configManager?.getAppConfig()
       return appConfig?.workspaceDirectory ?? directoryManager.getDirectory('workspace')
     },
+    // 开启自主能力的额外 Agent（除 assistant 外）——来自本机配置，缺省为空表示仅 assistant 参与心跳
+    getAutonomousAgents: () => configManager?.getAppConfig().autonomousAgents ?? [],
     getSkills: async () => {
       if (!skillRuntime) return []
       const installed = await skillRuntime.listLocalInstalled()
@@ -1312,6 +1314,16 @@ async function initialize(): Promise<void> {
     const { setBackendSelectionBaseDir } = await import('./coding-dev-backends-stub/backend-selection.js')
     setBackendSelectionBaseDir(directoryManager.getDirectory('config'))
   }
+  // 会话级开发上下文（项目 + 工具）同样落 config 目录
+  {
+    const { setDevContextBaseDir } = await import('./coding-dev-dev-context.js')
+    setDevContextBaseDir(directoryManager.getDirectory('config'))
+  }
+  // 开发配置切片（项目列表 / Agent 绑定）统一访问点：渠道命令与命令处理器共用
+  {
+    const { setCodingDevConfigGetter } = await import('./coding-dev-env.js')
+    setCodingDevConfigGetter(() => configManager?.getAppConfig() ?? {})
+  }
   log.info('目录和配置管理器初始化完成')
 
   // 录屏/截图临时目录跟随「工作空间目录」设置
@@ -1577,6 +1589,15 @@ async function performCleanup(): Promise<void> {
       log.info('[performCleanup] 开始销毁 Agent Runtime Bridge')
       agentRuntimeBridge.destroyAll()
       log.info('[performCleanup] Agent Runtime Bridge 已销毁')
+    }
+
+    // 终止所有运行中的 ACP CLI 子进程（dispose 内部 abort 全部 run 并清理定时器）
+    try {
+      const { getAcpRunController } = await import('./coding-dev-acp-run.js')
+      getAcpRunController().dispose()
+      log.info('[performCleanup] ACP 运行控制器已释放')
+    } catch (err) {
+      log.warn('[performCleanup] ACP 运行清理失败:', err)
     }
 
     // 工具调用计数是 debounce 落盘的，退出前补一次，避免丢掉最后几次调用

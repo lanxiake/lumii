@@ -355,18 +355,74 @@ function handleBackend(backend: string, ctx: CommandContext): void {
     logger.error('[handleBackend] 无法写入 localStorage:', err)
   }
 
-  // 通知主进程（如果 agentRuntime.sendCommand 可用）
+  // 通知主进程（如果 agentRuntime.sendCommand 可用）——带 sessionKey 时写会话级覆盖
   const api = window.electronAPI?.agentRuntime
   if (api?.sendCommand) {
     api.sendCommand({
       type: 'codingDev:setBackend',
       backendId: info.acpBackendId,
+      sessionKey: ctx.sessionKey,
     }).catch((err: unknown) => {
       logger.info('[handleBackend] codingDev:setBackend 未实现或失败，仅本地生效')
     })
   }
 
   ctx.showToast?.(`已切换到 ${info.label}`, 'success')
+}
+
+/**
+ * /project — 查看 / 切换当前会话的开发项目（写会话级 dev-context）。
+ * 无参数列出已注册项目；`off` 清除并回落全局活动项目。
+ */
+async function handleProject(args: string, ctx: CommandContext): Promise<void> {
+  const api = window.electronAPI?.agentRuntime
+  if (!api?.sendCommand) {
+    ctx.addSystemMessage('❌ 无法切换项目：Agent Runtime 未就绪')
+    return
+  }
+  const target = args.trim()
+  try {
+    if (!target) {
+      const res = await window.electronAPI.app.listCodingDevProjects()
+      const projects = (res?.projects ?? []) as Array<{ name: string; realPath: string; isExternal?: boolean }>
+      const current = (await api.sendCommand({
+        type: 'codingDev:getDevContext',
+        sessionKey: ctx.sessionKey,
+      })) as { projectName?: string; projectPath?: string }
+
+      const lines: string[] = ['**开发项目**', '']
+      if (projects.length === 0) {
+        lines.push('还没有注册项目——请到「设置 → 开发类 AI 工具」里打开已有项目。')
+      } else {
+        for (const p of projects) {
+          lines.push(`${p.name === current?.projectName ? '→' : '  '} \`${p.name}\`${p.isExternal ? '（外部）' : ''}`)
+        }
+        lines.push('')
+        lines.push('用法：`/project <项目名>` 切换本会话项目；`/project off` 清除并回落到全局活动项目。')
+        if (current?.projectPath) lines.push(`当前工作目录：\`${current.projectPath}\``)
+      }
+      ctx.addSystemMessage(lines.join('\n'))
+      return
+    }
+
+    const projectName = target === 'off' ? null : target
+    await api.sendCommand({
+      type: 'codingDev:setProject',
+      sessionKey: ctx.sessionKey,
+      projectName,
+    })
+    // 通知同页面组件（会话头 chip）刷新开发上下文
+    window.dispatchEvent(new CustomEvent('mtbot:dev-context-changed'))
+    if (projectName) {
+      ctx.showToast?.(`开发项目：${projectName}`, 'success')
+      ctx.addSystemMessage(`✅ 本会话开发项目已切换为 **${projectName}**`)
+    } else {
+      ctx.showToast?.('已清除会话项目', 'info')
+      ctx.addSystemMessage('✅ 已清除本会话项目，回落全局活动项目')
+    }
+  } catch (err) {
+    ctx.addSystemMessage(`❌ 切换项目失败：${err instanceof Error ? err.message : '未知错误'}`)
+  }
 }
 
 async function handleModels(args: string, ctx: CommandContext): Promise<void> {
@@ -522,6 +578,9 @@ export async function executeSlashCommand(
         break
       case '/models':
         await handleModels(args, ctx)
+        break
+      case '/project':
+        await handleProject(args, ctx)
         break
       default:
         // 有注册但无 handler 的命令，fallthrough 给 LLM

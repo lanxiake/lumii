@@ -1371,6 +1371,24 @@ export interface CodingDevSetBackendCommand {
   readonly accountId: string
   /** 会话 sessionKey（scope='peer' 时必填） */
   readonly peerId?: string
+  /**
+   * 桌面开发会话级覆盖：有值时写 dev-context（优先于 user-global 与 Agent 绑定），
+   * 供会话内 /claude、/lumii 切换使用。
+   */
+  readonly sessionKey?: string
+}
+
+export interface CodingDevSetProjectCommand {
+  readonly type: 'codingDev:setProject'
+  /** 桌面会话 id（sessionKey === conversationId）；渠道请用 /project 命令走 peer 级 */
+  readonly sessionKey: string
+  /** 项目名；null 表示清除会话级项目（回落 Agent 绑定 / 全局活动项目） */
+  readonly projectName: string | null
+}
+
+export interface CodingDevGetDevContextCommand {
+  readonly type: 'codingDev:getDevContext'
+  readonly sessionKey: string
 }
 
 export interface CodingDevGetBackendCommand {
@@ -1730,6 +1748,8 @@ export type AgentRuntimeCommand =
   | CodingDevSetBackendCommand
   | CodingDevGetBackendCommand
   | CodingDevListBackendsCommand
+  | CodingDevSetProjectCommand
+  | CodingDevGetDevContextCommand
   | ImageRecognizeCommand
   | ImageGenerateCommand
   | ImageProcessCommand

@@ -23,6 +23,8 @@ export type LocalAcpRunParams = {
   backendId: string
   text: string
   cwd: string
+  /** 上一轮的 CLI 会话 id（多轮续接）：有值时按后端拼接 resume 参数 */
+  cliSessionId?: string
   emitProgress?: (progress: CodingDevLightweightBackendProgress) => Promise<void> | void
   abortSignal?: AbortSignal
 }
@@ -39,34 +41,52 @@ export function quoteForCmd(arg: string): string {
 }
 
 /**
- * 为各工具构造本机非交互命令行
+ * 为各工具构造本机非交互命令行。
+ *
+ * cliSessionId 有值时按后端拼接续接参数（claude/cursor: --resume；codex: exec resume 子命令；
+ * opencode: --session），使同一条 Lumii 会话的多轮消息共享 CLI 上下文。
+ * 各后端 resume 参数形态按官方 --help 编写；codex/opencode/cursor 的实际行为待 P0 实测校准。
  */
-function buildLocalCliArgs(
+export function buildLocalCliArgs(
   toolId: PrimaryLocalAcpToolId,
   resolvedCommand: string,
   prompt: string,
+  cliSessionId?: string,
 ): { command: string; args: string[]; shell?: boolean } {
   switch (toolId) {
-    case 'claude':
-      return {
-        command: resolvedCommand,
-        args: ['-p', prompt, '--output-format', 'stream-json', '--verbose'],
-      }
-    case 'codex':
-      return {
-        command: resolvedCommand,
-        args: ['exec', '--skip-git-repo-check', '--json', prompt],
-      }
-    case 'cursor':
-      return {
-        command: resolvedCommand,
-        args: ['-p', prompt, '--output-format', 'stream-json', '--trust'],
-      }
-    case 'opencode':
-      return {
-        command: resolvedCommand,
-        args: ['run', prompt],
-      }
+    case 'claude': {
+      // 权限策略：不显式传 --permission-mode —— 尊重用户自己的 Claude Code 配置
+      // （实测本机 ~/.claude/settings.json defaultMode=bypassPermissions，可写文件/跑命令，2026-09-13）。
+      // 显式 acceptEdits 反而会拒掉 Bash 类工具（挡住"跑测试"）；后续按 binding.permissionMode 提供覆盖。
+      const args = ['-p', prompt]
+      if (cliSessionId) args.push('--resume', cliSessionId)
+      args.push('--output-format', 'stream-json', '--verbose')
+      return { command: resolvedCommand, args }
+    }
+    case 'codex': {
+      // 沙箱参数（实测 2026-09-13，Windows）：-s workspace-write 仍无法写文件（沙箱在 Windows 不可用），
+      // 且失败时模型会回复"完成"（静默假成功）——Windows 必须 bypass；非 Windows 保留 workspace-write。
+      const sandboxArgs =
+        process.platform === 'win32'
+          ? ['--dangerously-bypass-approvals-and-sandbox']
+          : ['-s', 'workspace-write']
+      const args = cliSessionId
+        ? ['exec', 'resume', cliSessionId, '--skip-git-repo-check', ...sandboxArgs, '--json', prompt]
+        : ['exec', '--skip-git-repo-check', ...sandboxArgs, '--json', prompt]
+      return { command: resolvedCommand, args }
+    }
+    case 'cursor': {
+      const args = ['-p', prompt]
+      if (cliSessionId) args.push('--resume', cliSessionId)
+      args.push('--output-format', 'stream-json', '--trust')
+      return { command: resolvedCommand, args }
+    }
+    case 'opencode': {
+      const args = ['run']
+      if (cliSessionId) args.push('--session', cliSessionId)
+      args.push('--format', 'json', prompt)
+      return { command: resolvedCommand, args }
+    }
   }
 }
 
@@ -95,7 +115,7 @@ export async function runLocalAcpCli(
   }
 
   const cmdName = status.resolvedCommand ?? status.commands[0]
-  const { command, args } = buildLocalCliArgs(id, status.resolvedPath, params.text)
+  const { command, args } = buildLocalCliArgs(id, status.resolvedPath, params.text, params.cliSessionId)
 
   await params.emitProgress?.({
     kind: 'status',
@@ -200,10 +220,10 @@ export async function runLocalAcpCli(
       }
       if (code !== 0 && text) {
         // 部分 CLI 非 0 仍有有用输出
-        resolve({ text: `${text}\n\n（进程退出码 ${code}）` })
+        resolve({ text: `${text}\n\n（进程退出码 ${code}）`, cliSessionId: parser.getCliSessionId() ?? undefined })
         return
       }
-      resolve({ text: text || `（${status.label} 无输出）` })
+      resolve({ text: text || `（${status.label} 无输出）`, cliSessionId: parser.getCliSessionId() ?? undefined })
     })
   })
 }

@@ -67,6 +67,22 @@ describe('AcpToolStreamParser', () => {
     expect(hookResponse).toBeNull()
   })
 
+  it('claude: system/init 捕获 CLI 会话 id（多轮续接用），且不产生可见事件', () => {
+    const parser = new AcpToolStreamParser('claude')
+    expect(parser.getCliSessionId()).toBeNull()
+
+    const init = parser.parseLine('{"type":"system","subtype":"init","session_id":"sess-abc","tools":["Bash"]}')
+    expect(init).toBeNull()
+    expect(parser.getCliSessionId()).toBe('sess-abc')
+  })
+
+  it('cursor: system/init 同样捕获会话 id', () => {
+    const parser = new AcpToolStreamParser('cursor')
+    const init = parser.parseLine('{"type":"system","subtype":"init","session_id":"cursor-1"}')
+    expect(init).toBeNull()
+    expect(parser.getCliSessionId()).toBe('cursor-1')
+  })
+
   it('claude: result 事件转为最终消息', () => {
     const parser = new AcpToolStreamParser('claude')
     const result = parser.parseLine('{"type":"result","subtype":"success","result":"任务完成"}')
