@@ -217,11 +217,37 @@ pnpm build                                  # 批次 0/1 必跑
 |---|---|---|
 | 批次 0 清库 | **A 级已完成并通过验证** | 24 个文件删除 + 5 个文件修改，净 -2592 行 |
 | 批次 0 清库 | **B 级已完成并通过验证** | 4 个死 flag、3 个 api-ipc 桩、Plan/Gateway 审批死 UI、零散死代码、browser-control 旧层；B1 barrel 用户决策不动；B4/B5 复核后判定必须保留 |
-| 批次 1 立门禁 | 未开始 | 另见 §3.5 与下方"执行期新增发现" |
+| 批次 1 立门禁 | **1a + 1b 已完成** | tsconfig 统一 extends base、别名收敛到单一来源、行数守卫脚本、GitHub Actions CI。1c（ESLint/Prettier 全量、测试树合并、修存量失败）经评估延后 |
 | 批次 2 抽象落地 | 未开始 | |
 | 批次 3 大文件拆分 | 未开始 | 沿用既有计划 |
 
 > B 级清单与复核证据见 [dead-code-cleanup-list.md](./dead-code-cleanup-list.md) 的 B 级章节。**B 级复核推翻了原分析的三处结论**（autonomous 6 模块、segment-memory-service、contracts 导出数量），详见该文档。
+
+### 批次 1（1a + 1b）交付内容 — 2026-09-12
+
+| 项 | 内容 |
+|---|---|
+| tsconfig 统一 | `tsconfig.base.json` 改为只承载真正共享的选项（此前形同废弃、无人 extends）；5 个 tsconfig 全部改为 extends 它，各自只覆盖 module/target/lib 等差异项；删除 `apps/windows` 指向不存在路径的死 include |
+| 别名收敛 | 新增 `apps/windows/paths.ts` 作为单一来源；`electron.vite.config.ts`（main / renderer 两块）、`vitest.config.ts`、`vite.test.config.ts` 四处不再各自 `resolve(__dirname, ...)` |
+| **修复别名分歧** | `@` 在 electron.vite 指向 `src/renderer`、在 tsconfig/vitest 指向 `src`。此前只有 `import type` 用到 `@/`（构建期擦除）故未暴露，任何值导入都会构建失败。现统一为 `@` → `src`，renderer 目录由 `@renderer` 表达 |
+| 行数守卫 | `scripts/check-large-files.mjs` —— 棘轮式：只禁止存量超标文件继续变大（阈值 800 行 / 容忍 +20），不要求一次性拆分；`--update` 在拆分后收紧基线。基线 33 个文件 / 43074 行 |
+| CI | `.github/workflows/ci.yml` —— 行数守卫（无依赖，秒级）+ 类型检查（windows runner） |
+| 其他 | `.editorconfig`；根 `package.json` 声明 `engines.node>=22.5` 并新增 `check:large-files` 脚本 |
+
+**验证**：`pnpm typecheck` 与 `pnpm build` 通过（renderer bundle 体积无变化，6389.44 kB）；`apps/windows` 的 `src/test` 子集 21 个失败与基线文件/数量逐一吻合。
+
+**未验证项**：CI workflow 无法在本机执行 GitHub Actions，首次运行可能需要微调。
+
+### 为什么 1c 被延后
+
+原计划的 1c 包含 ESLint 全量接入、Prettier 格式化整个仓库、测试树合并、修复 39 个存量失败。延后理由：
+
+- **Prettier 全量格式化会重写数千文件**，与正在进行的「场景记忆」「多 Agent」开发大面积冲突，rebase 成本由开发者承担
+- **ESLint 开 warn 级不构成门禁**（不阻断），开 error 级会瞬间产生上千条存量告警（仅 `console.*` 就有 671 处），无法收场
+- 真正能立即生效且零噪音的门禁只有 typecheck 与行数守卫，已在本批次落地
+
+1c 建议在存量失败修复后、或在功能开发低峰期单独排期。
+
 
 ### 批次 0（A 级）验证结果 — 2026-09-12
 
