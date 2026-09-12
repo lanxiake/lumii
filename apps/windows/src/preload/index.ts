@@ -41,6 +41,7 @@ import {
   cloudSyncApi,
 } from './api'
 import type { BundledUserGuideContent, BundledUserGuideIndex } from '../shared/user-guides-types'
+import { createEventListenerRegistry } from './event-listener-registry'
 
 // 日志输出
 const log = {
@@ -1165,17 +1166,19 @@ function createEventListener(channel: string, callback: (...args: unknown[]) => 
   }
 }
 
+/** 通用事件监听注册表：on 包装后由 off 精确移除（见 event-listener-registry.ts） */
+const eventListenerRegistry = createEventListenerRegistry(ipcRenderer)
+
 /**
  * 暴露给渲染进程的 API
  */
 const electronAPI: ElectronAPI = {
   // 通用事件监听
   on: (channel: string, callback: (...args: unknown[]) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, ...args: unknown[]) => callback(...args)
-    ipcRenderer.on(channel, listener)
+    eventListenerRegistry.on(channel, callback)
   },
   off: (channel: string, callback: (...args: unknown[]) => void) => {
-    ipcRenderer.removeListener(channel, callback as (...args: unknown[]) => void)
+    eventListenerRegistry.off(channel, callback)
   },
 
   // 文件操作 API
