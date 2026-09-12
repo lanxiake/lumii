@@ -1,10 +1,12 @@
 /**
  * useWikiPage — 通过 Agent Runtime IPC 管理 Wiki 知识库（P0）
  *
- * 范式同 useMemoryUsage：window.electronAPI.agentRuntime.sendCommand 通用透传。
+ * 范式同 useMemoryUsage：window.electronAPI.agentRuntime.sendCommand 通用透传；
+ * 命令统一经 wiki-command.ts 的 sendWikiCommand（运行时守卫 + agentId 注入）。
  */
 
 import { useCallback, useState } from 'react'
+import { sendWikiCommand } from './wiki-command'
 import type {
   WikiInboxItem,
   WikiFolderScanResult,
@@ -31,20 +33,14 @@ import type {
   WikiMigrateMappingPatch,
 } from './useWikiPage.types'
 
-/** 单机应用固定单一 agent；主进程侧同样兜底 'assistant'（wiki-commands.ts resolveAgentIdForWiki） */
-const DEFAULT_AGENT_ID = 'assistant'
-
 export function useWikiPage() {
   const [loading, setLoading] = useState(false)
 
   const listInbox = useCallback(async (status?: string): Promise<readonly WikiInboxItem[]> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return []
     setLoading(true)
     try {
-      const rows = (await api.sendCommand({
+      const rows = (await sendWikiCommand({
         type: 'wiki:inbox:list',
-        agentId: DEFAULT_AGENT_ID,
         status,
       })) as WikiInboxItem[]
       return Array.isArray(rows) ? rows : []
@@ -57,12 +53,9 @@ export function useWikiPage() {
 
   /** 返回收件箱条数（角标用，不受 list LIMIT 影响） */
   const countInbox = useCallback(async (status?: string): Promise<number> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return 0
     try {
-      const r = (await api.sendCommand({
+      const r = (await sendWikiCommand({
         type: 'wiki:inbox:count',
-        agentId: DEFAULT_AGENT_ID,
         status: status as 'pending' | 'organized' | 'discarded' | undefined,
       })) as { total: number; pending: number; unfiled: number }
       if (status) {
@@ -75,10 +68,8 @@ export function useWikiPage() {
   }, [])
 
   const retryInbox = useCallback(async (inboxId: string): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
     try {
-      const r = (await api.sendCommand({ type: 'wiki:inbox:retry', inboxId })) as { success: boolean }
+      const r = (await sendWikiCommand({ type: 'wiki:inbox:retry', inboxId })) as { success: boolean }
       return !!r?.success
     } catch {
       return false
@@ -86,10 +77,8 @@ export function useWikiPage() {
   }, [])
 
   const discardInbox = useCallback(async (inboxId: string): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
     try {
-      const r = (await api.sendCommand({ type: 'wiki:inbox:discard', inboxId })) as { success: boolean }
+      const r = (await sendWikiCommand({ type: 'wiki:inbox:discard', inboxId })) as { success: boolean }
       return !!r?.success
     } catch {
       return false
@@ -112,10 +101,8 @@ export function useWikiPage() {
         description?: string | null;
       },
     ): Promise<{ sourceId: string; category: string; subtopic: string | null; project: string | null; userPath?: string[] | null; tags?: string[] | null; description?: string | null } | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
       try {
-        return (await api.sendCommand({
+        return (await sendWikiCommand({
           type: 'wiki:inbox:organize',
           inboxId,
           category,
@@ -137,12 +124,9 @@ export function useWikiPage() {
    * 预览目录内可导入 Wiki 的文件（不写库）。
    */
   const scanFolder = useCallback(async (dir: string, recursive = true): Promise<WikiFolderScanResult | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
     try {
-      return (await api.sendCommand({
+      return (await sendWikiCommand({
         type: 'wiki:folder:scan',
-        agentId: DEFAULT_AGENT_ID,
         dir,
         recursive,
       })) as WikiFolderScanResult
@@ -159,12 +143,9 @@ export function useWikiPage() {
       dir: string,
       options?: { recursive?: boolean; dryRun?: boolean; autoClassify?: boolean },
     ): Promise<WikiFolderImportResult | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
       try {
-        return (await api.sendCommand({
+        return (await sendWikiCommand({
           type: 'wiki:folder:import',
-          agentId: DEFAULT_AGENT_ID,
           dir,
           recursive: options?.recursive ?? true,
           dryRun: options?.dryRun,
@@ -181,12 +162,9 @@ export function useWikiPage() {
    * 读取 Wiki「新资料 AI 自动分类」开关（默认关闭）。
    */
   const loadAutoClassifySetting = useCallback(async (): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
     try {
-      const r = (await api.sendCommand({
+      const r = (await sendWikiCommand({
         type: 'wiki:auto-classify:get',
-        agentId: DEFAULT_AGENT_ID,
       })) as { enabled: boolean }
       return r?.enabled === true
     } catch {
@@ -198,12 +176,9 @@ export function useWikiPage() {
    * 保存 Wiki「新资料 AI 自动分类」开关。
    */
   const setAutoClassifyEnabled = useCallback(async (enabled: boolean): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
     try {
-      await api.sendCommand({
+      await sendWikiCommand({
         type: 'wiki:auto-classify:set',
-        agentId: DEFAULT_AGENT_ID,
         enabled,
       })
       return true
@@ -226,12 +201,9 @@ export function useWikiPage() {
       status: string
       summary: string | null
     } | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
       try {
-        return (await api.sendCommand({
+        return (await sendWikiCommand({
           type: 'wiki:organize:run',
-          agentId: DEFAULT_AGENT_ID,
           mode: options?.mode ?? 'intake',
           itemType: (options?.itemType as 'upload' | 'output' | 'search' | 'chat') ?? 'output',
           inboxIds: options?.inboxIds,
@@ -245,10 +217,8 @@ export function useWikiPage() {
   )
 
   const listRuns = useCallback(async (limit?: number): Promise<readonly WikiRunItem[]> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return []
     try {
-      const rows = (await api.sendCommand({ type: 'wiki:runs:list', limit })) as WikiRunItem[]
+      const rows = (await sendWikiCommand({ type: 'wiki:runs:list', limit })) as WikiRunItem[]
       return Array.isArray(rows) ? rows : []
     } catch {
       return []
@@ -256,10 +226,8 @@ export function useWikiPage() {
   }, [])
 
   const rebuildIndex = useCallback(async (): Promise<number> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return 0
     try {
-      const r = (await api.sendCommand({ type: 'wiki:index:rebuild' })) as { rebuiltCount: number }
+      const r = (await sendWikiCommand({ type: 'wiki:index:rebuild' })) as { rebuiltCount: number }
       return r?.rebuiltCount ?? 0
     } catch {
       return 0
@@ -267,11 +235,9 @@ export function useWikiPage() {
   }, [])
 
   const cleanupScan = useCallback(async (staleDays?: number): Promise<readonly WikiCleanupSuggestionItem[]> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return []
     setLoading(true)
     try {
-      const rows = (await api.sendCommand({
+      const rows = (await sendWikiCommand({
         type: 'wiki:cleanup:scan',
         staleDays,
       })) as WikiCleanupSuggestionItem[]
@@ -284,10 +250,8 @@ export function useWikiPage() {
   }, [])
 
   const archiveSources = useCallback(async (sourceIds: readonly string[]): Promise<number> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return 0
     try {
-      const r = (await api.sendCommand({ type: 'wiki:source:archive', sourceIds })) as { archived: number }
+      const r = (await sendWikiCommand({ type: 'wiki:source:archive', sourceIds })) as { archived: number }
       return r?.archived ?? 0
     } catch {
       return 0
@@ -295,10 +259,8 @@ export function useWikiPage() {
   }, [])
 
   const restoreSources = useCallback(async (sourceIds: readonly string[]): Promise<number> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return 0
     try {
-      const r = (await api.sendCommand({ type: 'wiki:source:restore', sourceIds })) as { restored: number }
+      const r = (await sendWikiCommand({ type: 'wiki:source:restore', sourceIds })) as { restored: number }
       return r?.restored ?? 0
     } catch {
       return 0
@@ -306,10 +268,8 @@ export function useWikiPage() {
   }, [])
 
   const deleteSources = useCallback(async (sourceIds: readonly string[]): Promise<number> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return 0
     try {
-      const r = (await api.sendCommand({ type: 'wiki:source:delete', sourceIds })) as { deleted: number }
+      const r = (await sendWikiCommand({ type: 'wiki:source:delete', sourceIds })) as { deleted: number }
       return r?.deleted ?? 0
     } catch {
       return 0
@@ -318,11 +278,9 @@ export function useWikiPage() {
 
   const exportSources = useCallback(
     async (targetDir: string): Promise<WikiExportResultItem | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
       setLoading(true)
       try {
-        const r = (await api.sendCommand({
+        const r = (await sendWikiCommand({
           type: 'wiki:export',
           targetDir,
         })) as WikiExportResultItem
@@ -340,10 +298,8 @@ export function useWikiPage() {
    * 三期：图谱数据查询，支持三层架构与小类范围。
    */
   const getGraphData = useCallback(async (query: WikiGraphQuery): Promise<WikiGraphDataItem | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
     try {
-      return (await api.sendCommand({
+      return (await sendWikiCommand({
         type: 'wiki:graph:data',
         category: query.category,
         subtopic: query.subtopic,
@@ -364,10 +320,8 @@ export function useWikiPage() {
       subtopic?: string
       sourceIds?: readonly string[]
     }): Promise<WikiEroExtractSourceResult | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
       try {
-        return (await api.sendCommand({
+        return (await sendWikiCommand({
           type: 'wiki:ero:extract',
           target: 'sources',
           category: scope.category,
@@ -385,10 +339,9 @@ export function useWikiPage() {
    * 三期：实体出现于哪些资料（实体侧栏）。
    */
   const listEntitySources = useCallback(async (entityId: string): Promise<readonly WikiEntitySourceRef[]> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand || !entityId) return []
+    if (!entityId) return []
     try {
-      const r = (await api.sendCommand({
+      const r = (await sendWikiCommand({
         type: 'wiki:ero:entity-sources',
         entityId,
       })) as { sources: readonly WikiEntitySourceRef[] }
@@ -399,12 +352,9 @@ export function useWikiPage() {
   }, [])
 
   const loadTopicTree = useCallback(async (): Promise<WikiTopicTree | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
     try {
-      const r = (await api.sendCommand({
+      const r = (await sendWikiCommand({
         type: 'wiki:topic:tree:get',
-        agentId: DEFAULT_AGENT_ID,
       })) as { tree: WikiTopicTree }
       return r?.tree ?? null
     } catch {
@@ -413,12 +363,9 @@ export function useWikiPage() {
   }, [])
 
   const setTopicTree = useCallback(async (tree: WikiTopicTree): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
     try {
-      const r = (await api.sendCommand({
+      const r = (await sendWikiCommand({
         type: 'wiki:topic:tree:set',
-        agentId: DEFAULT_AGENT_ID,
         tree,
       })) as { success: boolean }
       return !!r?.success
@@ -433,12 +380,9 @@ export function useWikiPage() {
    */
   const mutateTopic = useCallback(
     async (mutation: WikiTopicMutation): Promise<WikiTopicMutateResult> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return { ok: false, error: '运行时不可用' }
       try {
-        const r = (await api.sendCommand({
+        const r = (await sendWikiCommand({
           type: 'wiki:topic:mutate',
-          agentId: DEFAULT_AGENT_ID,
           mutation,
         })) as { tree: WikiTopicTree; movedCount: number }
         return { ok: true, tree: r.tree, movedCount: r.movedCount ?? 0 }
@@ -457,12 +401,9 @@ export function useWikiPage() {
       subtopic: string | null,
       title?: string,
     ): Promise<{ sourceId: string; title: string } | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
       try {
-        const r = (await api.sendCommand({
+        const r = (await sendWikiCommand({
           type: 'wiki:source:create-note',
-          agentId: DEFAULT_AGENT_ID,
           category,
           subtopic,
           title,
@@ -476,12 +417,9 @@ export function useWikiPage() {
   )
 
   const renameSource = useCallback(async (sourceId: string, title: string): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
     try {
-      await api.sendCommand({
+      await sendWikiCommand({
         type: 'wiki:source:rename',
-        agentId: DEFAULT_AGENT_ID,
         sourceId,
         title,
       })
@@ -499,12 +437,9 @@ export function useWikiPage() {
       scope: WikiReclassifyScopeDto,
       opts?: { force?: boolean; enableRename?: boolean },
     ): Promise<{ ok: true; runId: string } | { ok: false; error: string }> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return { ok: false, error: '运行时不可用' }
       try {
-        const r = (await api.sendCommand({
+        const r = (await sendWikiCommand({
           type: 'wiki:reclassify:run',
-          agentId: DEFAULT_AGENT_ID,
           scope: scope.kind,
           sourceId: scope.kind === 'source' ? scope.sourceId : undefined,
           category: scope.kind === 'subtopic' ? scope.category : undefined,
@@ -523,12 +458,9 @@ export function useWikiPage() {
   /** 预估某次编目将调用多少次模型，供确认弹窗展示。 */
   const estimateReclassify = useCallback(
     async (scope: WikiReclassifyScopeDto): Promise<WikiReclassifyEstimateItem | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
       try {
-        return (await api.sendCommand({
+        return (await sendWikiCommand({
           type: 'wiki:reclassify:estimate',
-          agentId: DEFAULT_AGENT_ID,
           scope: scope.kind,
           sourceId: scope.kind === 'source' ? scope.sourceId : undefined,
           category: scope.kind === 'subtopic' ? scope.category : undefined,
@@ -542,12 +474,9 @@ export function useWikiPage() {
   )
 
   const getReclassifyRun = useCallback(async (): Promise<WikiReclassifyRunItem | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
     try {
-      const r = (await api.sendCommand({
+      const r = (await sendWikiCommand({
         type: 'wiki:reclassify:get',
-        agentId: DEFAULT_AGENT_ID,
       })) as { run: WikiReclassifyRunItem | null }
       return r?.run ?? null
     } catch {
@@ -557,12 +486,9 @@ export function useWikiPage() {
 
   const applyReclassify = useCallback(
     async (candidateIds: readonly string[]): Promise<{ applied: number; failed: number }> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return { applied: 0, failed: 0 }
       try {
-        return (await api.sendCommand({
+        return (await sendWikiCommand({
           type: 'wiki:reclassify:apply',
-          agentId: DEFAULT_AGENT_ID,
           candidateIds,
         })) as { applied: number; failed: number }
       } catch {
@@ -573,12 +499,9 @@ export function useWikiPage() {
   )
 
   const ignoreReclassify = useCallback(async (candidateId: string): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
     try {
-      await api.sendCommand({
+      await sendWikiCommand({
         type: 'wiki:reclassify:ignore',
-        agentId: DEFAULT_AGENT_ID,
         candidateId,
       })
       return true
@@ -588,10 +511,8 @@ export function useWikiPage() {
   }, [])
 
   const discardReclassify = useCallback(async (): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
     try {
-      await api.sendCommand({ type: 'wiki:reclassify:discard', agentId: DEFAULT_AGENT_ID })
+      await sendWikiCommand({ type: 'wiki:reclassify:discard' })
       return true
     } catch {
       return false
@@ -599,10 +520,8 @@ export function useWikiPage() {
   }, [])
 
   const cancelReclassify = useCallback(async (): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
     try {
-      await api.sendCommand({ type: 'wiki:reclassify:cancel', agentId: DEFAULT_AGENT_ID })
+      await sendWikiCommand({ type: 'wiki:reclassify:cancel' })
       return true
     } catch {
       return false
@@ -619,13 +538,10 @@ export function useWikiPage() {
       archived?: boolean
       mediaType?: string
     }): Promise<readonly WikiSourceListItem[]> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return []
       setLoading(true)
       try {
-        const r = (await api.sendCommand({
+        const r = (await sendWikiCommand({
           type: 'wiki:source:list',
-          agentId: DEFAULT_AGENT_ID,
           category: filter?.category,
           subtopic: filter?.subtopic,
           subtopicUnfiled: filter?.subtopicUnfiled,
@@ -655,12 +571,9 @@ export function useWikiPage() {
     filed: number
     archived: number
   } | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
     try {
-      return (await api.sendCommand({
+      return (await sendWikiCommand({
         type: 'wiki:source:counts',
-        agentId: DEFAULT_AGENT_ID,
       })) as {
         sectionCounts: Record<string, number>
         topicCounts: Record<string, number>
@@ -687,12 +600,9 @@ export function useWikiPage() {
         description?: string | null;
       },
     ): Promise<boolean> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return false
       try {
-        const r = (await api.sendCommand({
+        const r = (await sendWikiCommand({
           type: 'wiki:source:update-topic',
-          agentId: DEFAULT_AGENT_ID,
           sourceId,
           category,
           subtopic,
@@ -710,12 +620,9 @@ export function useWikiPage() {
   )
 
   const moveToParking = useCallback(async (sourceId: string): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
     try {
-      const r = (await api.sendCommand({
+      const r = (await sendWikiCommand({
         type: 'wiki:source:move-to-parking',
-        agentId: DEFAULT_AGENT_ID,
         sourceId,
       })) as { id: string }
       return !!r?.id
@@ -726,17 +633,13 @@ export function useWikiPage() {
 
   /** 失败把 error 抛给调用方，让 UI 展示「无法打开原文件」等具体原因 */
   const openSource = useCallback(async (sourceId: string): Promise<void> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) throw new Error('agentRuntime 不可用')
-    await api.sendCommand({ type: 'wiki:source:open', agentId: DEFAULT_AGENT_ID, sourceId })
+    await sendWikiCommand({ type: 'wiki:source:open', sourceId })
   }, [])
 
   /** 读取单条资料详情，供预览抽屉使用 */
   const getSource = useCallback(async (sourceId: string): Promise<WikiSourceDetail | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
     try {
-      return (await api.sendCommand({
+      return (await sendWikiCommand({
         type: 'wiki:source:get',
         sourceId,
       })) as WikiSourceDetail | null
@@ -751,15 +654,13 @@ export function useWikiPage() {
       keyword: string,
       limit?: number,
     ): Promise<{ hits: readonly WikiSourceSearchHit[]; mode: SearchMode; degradeReason: string | null }> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand || !keyword.trim()) {
+      if (!keyword.trim()) {
         return { hits: [], mode: 'fts', degradeReason: null }
       }
       setLoading(true)
       try {
-        const r = (await api.sendCommand({
+        const r = (await sendWikiCommand({
           type: 'wiki:search',
-          agentId: DEFAULT_AGENT_ID,
           keyword,
           limit,
         })) as { hits: WikiSourceSearchHit[]; mode: SearchMode; degradeReason: string | null }
@@ -784,12 +685,9 @@ export function useWikiPage() {
    */
   const ensureVaultLayout = useCallback(
     async (opts?: { backfill?: boolean }): Promise<{ vaultRoot: string; synced: number } | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
       try {
-        return (await api.sendCommand({
+        return (await sendWikiCommand({
           type: 'wiki:vault:ensure-layout',
-          agentId: DEFAULT_AGENT_ID,
           backfill: opts?.backfill === true,
         })) as { vaultRoot: string; synced: number }
       } catch {
@@ -803,12 +701,9 @@ export function useWikiPage() {
    * 读取当前库级迁移 run（含 progress）。
    */
   const getMigrateRun = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
     try {
-      const r = (await api.sendCommand({
+      const r = (await sendWikiCommand({
         type: 'wiki:migrate:get',
-        agentId: DEFAULT_AGENT_ID,
       })) as { run: WikiMigrateRunItem | null }
       return r?.run ?? null
     } catch {
@@ -820,12 +715,9 @@ export function useWikiPage() {
    * 请求停止当前 migrate（inventory / planning / applying）。
    */
   const cancelMigrate = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
     try {
-      const r = (await api.sendCommand({
+      const r = (await sendWikiCommand({
         type: 'wiki:migrate:cancel',
-        agentId: DEFAULT_AGENT_ID,
       })) as { run: WikiMigrateRunItem | null }
       return r?.run ?? null
     } catch {
@@ -854,12 +746,9 @@ export function useWikiPage() {
    * 用户确认 review 映射后执行 apply，逐条归档 inbox。
    */
   const applyMigrate = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
     try {
-      const r = (await api.sendCommand({
+      const r = (await sendWikiCommand({
         type: 'wiki:migrate:apply',
-        agentId: DEFAULT_AGENT_ID,
       })) as { run: WikiMigrateRunItem }
       return r?.run ?? null
     } catch {
@@ -871,12 +760,9 @@ export function useWikiPage() {
    * 丢弃当前 migrate 映射方案；inbox 保持 pending。
    */
   const discardMigrate = useCallback(async (): Promise<boolean> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return false
     try {
-      await api.sendCommand({
+      await sendWikiCommand({
         type: 'wiki:migrate:discard',
-        agentId: DEFAULT_AGENT_ID,
       })
       return true
     } catch {
@@ -888,12 +774,9 @@ export function useWikiPage() {
    * 撤销本 run 已落位的 source，退回收件箱。
    */
   const undoMigrate = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
     try {
-      const r = (await api.sendCommand({
+      const r = (await sendWikiCommand({
         type: 'wiki:migrate:undo',
-        agentId: DEFAULT_AGENT_ID,
       })) as { run: WikiMigrateRunItem }
       return r?.run ?? null
     } catch {
@@ -905,12 +788,9 @@ export function useWikiPage() {
    * 对仍 pending 的本批 inbox 重跑盘点 + 映射 → review。
    */
   const replanMigrate = useCallback(async (): Promise<WikiMigrateRunItem | null> => {
-    const api = window.electronAPI?.agentRuntime
-    if (!api?.sendCommand) return null
     try {
-      const r = (await api.sendCommand({
+      const r = (await sendWikiCommand({
         type: 'wiki:migrate:replan',
-        agentId: DEFAULT_AGENT_ID,
       })) as { run: WikiMigrateRunItem }
       return r?.run ?? null
     } catch {
@@ -923,12 +803,9 @@ export function useWikiPage() {
    */
   const updateMigrateMapping = useCallback(
     async (folderRel: string, patch: WikiMigrateMappingPatch): Promise<WikiMigrateRunItem | null> => {
-      const api = window.electronAPI?.agentRuntime
-      if (!api?.sendCommand) return null
       try {
-        const r = (await api.sendCommand({
+        const r = (await sendWikiCommand({
           type: 'wiki:migrate:update-mapping',
-          agentId: DEFAULT_AGENT_ID,
           folderRel,
           patch,
         })) as { run: WikiMigrateRunItem }

@@ -527,7 +527,7 @@ describe('WikiTab', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /重建索引/ }))
 
     await waitFor(() => {
-      expect(sendCommand).toHaveBeenCalledWith({ type: 'wiki:index:rebuild' })
+      expect(sendCommand).toHaveBeenCalledWith({ agentId: 'assistant', type: 'wiki:index:rebuild' })
     })
     expect(screen.getByText(/暂无收件箱条目/)).toBeInTheDocument()
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
@@ -583,7 +583,7 @@ describe('WikiTab', () => {
     await waitFor(() => {
       expect(
         (window as any).electronAPI.agentRuntime.sendCommand,
-      ).toHaveBeenCalledWith({ type: 'wiki:runs:list' })
+      ).toHaveBeenCalledWith({ agentId: 'assistant', type: 'wiki:runs:list' })
     })
     expect(screen.queryByRole('button', { name: /任务失败/ })).not.toBeInTheDocument()
   })
