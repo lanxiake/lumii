@@ -1,14 +1,10 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
@@ -21,6 +17,6 @@
       "@app-assets/*": ["assets/*"]
     }
   },
-  "include": ["src/**/*", "assets/**/*.d.ts", "../../src/coding-dev-backends/**/*.ts"],
+  "include": ["src/**/*", "assets/**/*.d.ts"],
   "exclude": ["node_modules", "dist", "release"]
 }

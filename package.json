@@ -4,6 +4,9 @@
   "private": true,
   "description": "灵栖 / Lumii — 本地优先的 AI 桌面伙伴（开源独立版）",
   "packageManager": "pnpm@10.23.0",
+  "engines": {
+    "node": ">=22.5"
+  },
   "scripts": {
     "build": "pnpm --filter ./apps/windows build",
     "dev": "pnpm --filter ./apps/windows dev",
@@ -13,7 +16,9 @@
     "dist": "pnpm --filter ./apps/windows package:win",
     "package:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/package-win.ps1",
     "typecheck": "pnpm -r typecheck",
-    "verify": "pnpm typecheck && pnpm --filter lumii-windows test:all",
+    "check:large-files": "node scripts/check-large-files.mjs",
+    "check:large-files:update": "node scripts/check-large-files.mjs --update",
+    "verify": "pnpm typecheck && pnpm check:large-files && pnpm --filter lumii-windows test:all",
     "prepare": "echo skip githooks"
   }
 }

@@ -3,9 +3,7 @@ import react from '@vitejs/plugin-react'
 import { readFile } from 'fs'
 import { resolve, join, normalize, extname } from 'path'
 import type { Plugin } from 'vite'
-
-// monorepo 根目录
-const ROOT = resolve(__dirname, '../..')
+import { appPath, workspacePath } from './paths'
 
 /**
  * Vite/Rollup 插件：修补 Electron 打包产物中的 Node 兼容性问题
@@ -244,15 +242,15 @@ export default defineConfig({
     },
     resolve: {
       alias: {
-        '@main': resolve(__dirname, 'src/main'),
-        '@shared': resolve(__dirname, 'src/shared'),
+        '@main': appPath.main,
+        '@shared': appPath.shared,
         // monorepo workspace 包 - 指向源码确保 Vite 能正确解析
-        '@mtbot/agent-runtime/browser': resolve(ROOT, 'packages/agent-runtime/src/browser.ts'),
-        '@mtbot/agent-runtime': resolve(ROOT, 'packages/agent-runtime/src/index.ts'),
-        '@mtbot/browser-control': resolve(ROOT, 'packages/browser-control/src/index.ts'),
+        '@mtbot/agent-runtime/browser': workspacePath.agentRuntimeBrowser,
+        '@mtbot/agent-runtime': workspacePath.agentRuntime,
+        '@mtbot/browser-control': workspacePath.browserControl,
         // qqbot-connector 的传递依赖，仅用于终端打印二维码；客户端用不到，
         // 且其 CJS require 形式 Rollup 无法静态解析，内联会构建失败
-        'qrcode-terminal': resolve(__dirname, 'src/main/stubs/qrcode-terminal.ts'),
+        'qrcode-terminal': appPath.qrcodeTerminalStub,
       },
       // 确保能正确解析 pnpm workspace 中的 TypeScript 源码包
       conditions: ['module', 'jsnext:main', 'jsnext', 'main'],
@@ -294,15 +292,16 @@ export default defineConfig({
     },
     resolve: {
       alias: {
-        '@': resolve(__dirname, 'src/renderer'),
-        '@renderer': resolve(__dirname, 'src/renderer'),
-        '@shared': resolve(__dirname, 'src/shared'),
-        '@app-assets': resolve(__dirname, 'assets'),
+        // `@` 统一指向 src（与 tsconfig paths、vitest 一致）；renderer 目录由 @renderer 表达
+        '@': appPath.src,
+        '@renderer': appPath.renderer,
+        '@shared': appPath.shared,
+        '@app-assets': appPath.assets,
         // Node built-in stub: renderer 无 nodeIntegration，object-inspect 等库顶层访问
         // util.inspect.custom 会导致模块初始化崩溃（白屏）。提供最小 stub 解决。
-        'util': resolve(__dirname, 'src/renderer/stubs/util.ts'),
+        'util': appPath.rendererUtilStub,
         // 仅允许 browser 子路径进入 renderer；主入口含 tools/sqlite 等 Node 代码
-        '@mtbot/agent-runtime/browser': resolve(ROOT, 'packages/agent-runtime/src/browser.ts'),
+        '@mtbot/agent-runtime/browser': workspacePath.agentRuntimeBrowser,
       },
       // 明确指定模块查找路径
       mainFields: ['module', 'jsnext:main', 'jsnext', 'main']

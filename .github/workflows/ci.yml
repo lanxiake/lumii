@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 无依赖，秒级完成：拦截"已拆分的大文件重新膨胀"
+  large-files:
+    name: 超大文件守卫
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/check-large-files.mjs
+
+  # 需要装依赖；用 windows-latest 与开发环境保持一致
+  # （apps/windows 依赖 Windows 专属的原生包，Linux 上安装行为未经验证）
+  typecheck:
+    name: 类型检查
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      # --ignore-scripts 跳过 electron-rebuild 等原生模块编译：
+      # 类型检查只需要声明文件，不需要可运行的二进制。
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm typecheck

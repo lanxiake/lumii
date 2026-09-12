@@ -4,16 +4,17 @@
  */
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { resolve } from 'path'
+import { appPath } from './paths'
 
 export default defineConfig({
-  root: resolve(__dirname, 'src/renderer'),
+  root: appPath.renderer,
   plugins: [react()],
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src/renderer'),
-      '@renderer': resolve(__dirname, 'src/renderer'),
-      '@shared': resolve(__dirname, 'src/shared'),
+      // `@` 统一指向 src（与 tsconfig paths、vitest、electron.vite 一致）
+      '@': appPath.src,
+      '@renderer': appPath.renderer,
+      '@shared': appPath.shared,
     },
   },
   server: {
