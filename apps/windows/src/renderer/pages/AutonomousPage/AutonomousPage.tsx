@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { Button } from '../../components/ui/Button/Button'
 import { Card } from '../../components/ui/Card/Card'
 import { Tooltip } from '../../components/ui/Tooltip/Tooltip'
 import { Modal } from '../../components/ui/Modal/Modal'
@@ -622,13 +623,14 @@ export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}
               <div className={styles.plannedHeader}>
                 <TitledHeader title={`规划任务 (${plannedGoals.length})`} tip={TIP_PENDING_GOALS} />
                 <Tooltip content="清除今日规划并让 Agent 重新排期未来 24 小时" placement="bottom">
-                  <button
-                    className={styles.btnSecondary}
+                  <Button
+                    variant="ghost"
+                    size="md"
                     disabled={replanning}
                     onClick={handleReplan}
                   >
                     {replanning ? '规划中…' : '重置规划'}
-                  </button>
+                  </Button>
                 </Tooltip>
               </div>
             }
@@ -901,13 +903,15 @@ export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}
                 </div>
 
                 <div className={styles.settingsActions}>
-                  <button
-                    className={styles.btnPrimary}
+                  <Button
+                    variant="primary"
+                    size="md"
+                    className={styles.saveBtn}
                     disabled={settingsSaving}
                     onClick={handleSaveSettings}
                   >
                     {settingsSaving ? '保存中…' : '保存设置'}
-                  </button>
+                  </Button>
                   {settingsSaved && <span className={styles.settingsSaved}>已保存</span>}
                 </div>
               </div>
@@ -1191,12 +1195,12 @@ function GoalCard({ goal, onApprove, onReject, onJump }: GoalCardProps) {
       </div>
       {isPending ? (
         <div className={styles.goalActions}>
-          <button className={styles.btnPrimary} onClick={() => onApprove(goal.id)}>
+          <Button variant="primary" size="md" className={styles.flexBtn} onClick={() => onApprove(goal.id)}>
             批准并执行
-          </button>
-          <button className={styles.btnSecondary} onClick={() => onReject(goal.id)}>
+          </Button>
+          <Button variant="ghost" size="md" className={styles.flexBtn} onClick={() => onReject(goal.id)}>
             拒绝
-          </button>
+          </Button>
         </div>
       ) : jumpable ? (
         <div className={styles.goalJumpHint}>查看关联反思 →</div>

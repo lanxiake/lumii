@@ -664,36 +664,14 @@
   font-weight: var(--mt-fw-semibold);
 }
 
-.btnPrimary,
-.btnSecondary {
+/* 按钮外观由 ui/Button 提供（见 AutonomousPage.tsx），此处仅保留布局类 */
+.flexBtn {
   flex: 1;
-  padding: var(--spacing-2) var(--spacing-3);
-  border-radius: var(--mt-radius-md);
-  font-size: var(--font-size-xs);
-  font-weight: var(--mt-fw-semibold);
-  cursor: pointer;
-  transition: all var(--mt-dur-fast) var(--mt-ease-standard);
 }
 
-.btnPrimary {
-  border: none;
-  background: var(--mt-accent-500);
-  color: white;
-}
-
-.btnPrimary:hover {
-  background: var(--mt-accent-600);
-}
-
-.btnSecondary {
-  border: 1px solid var(--mt-border);
-  background: transparent;
-  color: var(--mt-fg-2);
-}
-
-.btnSecondary:hover {
-  border-color: var(--mt-accent-500);
-  color: var(--mt-accent-500);
+.saveBtn {
+  flex: 0 0 auto;
+  min-width: 120px;
 }
 
 /* ── 规划任务 tab ── */
@@ -823,11 +801,6 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-3);
-}
-
-.settingsActions .btnPrimary {
-  flex: 0 0 auto;
-  min-width: 120px;
 }
 
 .settingsSaved {
