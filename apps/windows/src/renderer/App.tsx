@@ -27,6 +27,8 @@ import {
 } from './hooks/business/useAgentRuntime/useAgentRuntime'
 import { readPersistedSessionThinkingPrefs } from '../shared/session-thinking-prefs'
 import { getProviderConfig, isChatProviderReady } from './services/model-config-service'
+import { setActiveSessionKey } from './services/pet-service'
+import { subscribeMainEvent } from './services/event-bus-service'
 import {
   removeEarlySplashIfPresent,
   shouldSkipSplash,
@@ -41,7 +43,7 @@ const PetSessionSync: React.FC = () => {
   const runtimeActions = useAgentRuntimeActions()
   useEffect(() => {
     if (!currentSessionKey) return
-    void window.electronAPI?.pet?.setActiveSessionKey(currentSessionKey)
+    void setActiveSessionKey(currentSessionKey)
     const prefs = readPersistedSessionThinkingPrefs()
     void runtimeActions.setSessionThinkingPrefs(currentSessionKey, prefs)
   }, [currentSessionKey, runtimeActions])
@@ -131,10 +133,7 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
     const handleNavigateToSettings = () => {
       openHub('settings')
     }
-    window.electronAPI.on('navigate-to-settings', handleNavigateToSettings)
-    return () => {
-      window.electronAPI.off('navigate-to-settings', handleNavigateToSettings)
-    }
+    return subscribeMainEvent('navigate-to-settings', handleNavigateToSettings)
   }, [openHub])
 
   /**
@@ -155,10 +154,7 @@ const AuthenticatedApp: React.FC<AuthenticatedAppProps> = ({ onShellReady }) => 
       }
       handleViewChange(view)
     }
-    window.electronAPI.on('app-ui:goto', handleAppUiGoto)
-    return () => {
-      window.electronAPI.off('app-ui:goto', handleAppUiGoto)
-    }
+    return subscribeMainEvent('app-ui:goto', handleAppUiGoto)
   }, [handleViewChange, openHub, openHubForView])
 
   /**
