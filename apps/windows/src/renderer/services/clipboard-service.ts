@@ -6,3 +6,8 @@
 export async function writeClipboardText(text: string): Promise<void> {
   await window.electronAPI.clipboard.writeText(text)
 }
+
+/** 将文件对象写入剪贴板，可在资源管理器/聊天框直接粘贴出文件 */
+export async function writeClipboardFiles(filePaths: string[]): Promise<void> {
+  await window.electronAPI.clipboard.writeFiles(filePaths)
+}

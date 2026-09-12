@@ -22,6 +22,9 @@ import {
   ZoomOut,
 } from 'lucide-react'
 import { MarkdownExternalLink } from '../../utils/markdown-external-link'
+import { writeFile } from '../../services/file-service'
+import { openFilePreviewWindow } from '../../services/file-preview-service'
+import { writeClipboardFiles } from '../../services/clipboard-service'
 import { useDataThemeColorMode } from '../../hooks/common/useDataThemeColorMode'
 import { PdfJsPreview } from './PdfJsPreview'
 import { ExcelPreview } from './ExcelPreview'
@@ -493,7 +496,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   /** 弹出独立窗口，关闭当前应用内预览 */
   const handlePopOut = useCallback(async () => {
     try {
-      await window.electronAPI.filePreview.open({
+      await openFilePreviewWindow({
         fileName,
         fileId,
         filePath,
@@ -612,7 +615,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
     setIsSaving(true)
     setSaveError(null)
     try {
-      await window.electronAPI.file.write(writePath, editingContent)
+      await writeFile(writePath, editingContent)
       // 回写到 result，使预览立即反映最新内容
       setResult((prev) => prev ? { ...prev, content: editingContent } : prev)
       // 图片路径可能已变更，递增版本号使图片缓存失效并重新拉取
@@ -787,7 +790,7 @@ export const FilePreviewModal: React.FC<FilePreviewModalProps> = ({
   const handleCopyFile = useCallback(async () => {
     if (!copyableFilePath) return
     try {
-      await window.electronAPI.clipboard.writeFiles([copyableFilePath])
+      await writeClipboardFiles([copyableFilePath])
       setCopyHint('file')
     } catch {
       setCopyHint('err')

@@ -219,3 +219,14 @@ export function onEvent(cb: (event: ScreenRecordEvent) => void): () => void {
     cb(event)
   })
 }
+
+/**
+ * 订阅录屏事件的原始流，不驱动采集单例。
+ *
+ * 仅供只需监听事件（如 persist-always-allow）的组件使用：
+ * 驱动版 {@link onEvent} 会响应采集类事件，与之并存时对该流重复订阅
+ * 会导致 start-capture 被执行两次。
+ */
+export function onEventRaw(cb: (event: ScreenRecordEvent) => void): () => void {
+  return window.electronAPI.screenRecord.onEvent((raw) => cb(raw as ScreenRecordEvent))
+}

@@ -8,7 +8,6 @@ import {
   useSettings,
 } from '../../hooks/business/useSettings'
 import type { AppSettings } from '../../hooks/business/useSettings/useSettings.types'
-import type { ScreenRecordEvent } from '../../../shared/screen-record'
 import { useScreenRecordContext } from './ScreenRecordContext'
 import { ScreenRecordPanel, formatDuration } from './ScreenRecordPanel'
 import { ScreenRecordConfirmDialog } from './ScreenRecordConfirmDialog'
@@ -150,16 +149,15 @@ export const ScreenRecordRoot: React.FC = () => {
   )
 
   useEffect(() => {
-    // 直接订阅 preload 事件而不复用 screen-record-api.onEvent：
-    // 后者会驱动采集单例，重复订阅将导致 start-capture 被执行两次
-    const unsub = window.electronAPI?.screenRecord?.onEvent((raw) => {
-      const e = raw as ScreenRecordEvent
+    // 用 onEventRaw 订阅（不驱动采集单例）：驱动版 onEvent 由 useScreenRecord 使用，
+    // 此处若同样订阅驱动版将导致 start-capture 被执行两次
+    const unsub = screenRecordApi.onEventRaw((e) => {
       if (e.type === 'screen-record:persist-always-allow') {
         persistAlwaysAllow(Boolean(e.value))
       }
     })
     return () => {
-      unsub?.()
+      unsub()
     }
   }, [persistAlwaysAllow])
 

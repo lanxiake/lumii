@@ -10,6 +10,11 @@ import {
   type FilePreviewModalProps,
 } from '../components/FilePreviewModal'
 import { ThemeProvider } from '../contexts/ThemeContext/ThemeContext'
+import {
+  closeFilePreviewWindow,
+  getFilePreviewPayload,
+  onFilePreviewPayloadUpdated,
+} from '../services/file-preview-service'
 import type { FilePreviewWindowPayload } from '../../shared/file-preview-window'
 
 type PreviewProps = Omit<FilePreviewModalProps, 'onClose' | 'variant'>
@@ -52,8 +57,7 @@ const FilePreviewWindowInner: React.FC = () => {
 
   useEffect(() => {
     let cancelled = false
-    void window.electronAPI.filePreview
-      .getPayload()
+    void getFilePreviewPayload()
       .then((p) => {
         if (!cancelled) applyPayload(p)
       })
@@ -63,7 +67,7 @@ const FilePreviewWindowInner: React.FC = () => {
         }
       })
 
-    const off = window.electronAPI.filePreview.onPayloadUpdated((p) => {
+    const off = onFilePreviewPayloadUpdated((p) => {
       applyPayload(p)
     })
     return () => {
@@ -73,7 +77,7 @@ const FilePreviewWindowInner: React.FC = () => {
   }, [applyPayload])
 
   const handleClose = useCallback(() => {
-    void window.electronAPI.filePreview.close()
+    void closeFilePreviewWindow()
   }, [])
 
   if (error) {
