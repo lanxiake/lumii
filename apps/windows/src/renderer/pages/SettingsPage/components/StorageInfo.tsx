@@ -6,6 +6,9 @@ import React, { useCallback, useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { Button } from '../../../components/ui/Button/Button'
 import { Input } from '../../../components/ui/Input/Input'
+import { showMessageBox, saveFile } from '../../../services/dialog-service'
+import { writeFile } from '../../../services/file-service'
+import { showItemInFolder } from '../../../services/app-service'
 import styles from '../SettingsPage.module.css'
 
 export interface LocalStorageStatsView {
@@ -129,7 +132,7 @@ export const StorageInfo: React.FC<StorageInfoProps> = ({ toast }) => {
     const api = window.electronAPI?.agentRuntime
     if (!api?.restoreDatabaseFromBackup) return
 
-    const { response } = await window.electronAPI.dialog.showMessageBox({
+    const { response } = await showMessageBox({
       type: 'warning',
       title: '从备份恢复聊天记录',
       message:
@@ -171,7 +174,7 @@ export const StorageInfo: React.FC<StorageInfoProps> = ({ toast }) => {
     }
 
     const latest = backups[0]!
-    const { response } = await window.electronAPI.dialog.showMessageBox({
+    const { response } = await showMessageBox({
       type: 'warning',
       title: '从最新备份恢复',
       message:
@@ -209,7 +212,7 @@ export const StorageInfo: React.FC<StorageInfoProps> = ({ toast }) => {
     const api = window.electronAPI?.agentRuntime
     if (!api?.deleteDatabaseBackup) return
 
-    const { response } = await window.electronAPI.dialog.showMessageBox({
+    const { response } = await showMessageBox({
       type: 'warning',
       title: '删除备份',
       message: `确定要删除备份「${backupFileName}」吗？\n\n此操作不可撤销。`,
@@ -241,15 +244,15 @@ export const StorageInfo: React.FC<StorageInfoProps> = ({ toast }) => {
       const api = window.electronAPI?.agentRuntime
       if (!api?.exportLocalDataJSONL) return
       const text = await api.exportLocalDataJSONL()
-      const { filePath, canceled } = await window.electronAPI.dialog.showSaveDialog({
+      const filePath = await saveFile({
         title: '导出本地聊天记录',
         defaultPath: 'agent-runtime-messages.jsonl',
         filters: [{ name: 'JSON Lines', extensions: ['jsonl'] }],
       })
-      if (canceled || !filePath) {
+      if (!filePath) {
         return
       }
-      await window.electronAPI.file.write(filePath, text)
+      await writeFile(filePath, text)
       toast.success('已导出到所选文件')
     } catch (e) {
       toast.error(e instanceof Error ? e.message : '导出失败')
@@ -262,7 +265,7 @@ export const StorageInfo: React.FC<StorageInfoProps> = ({ toast }) => {
     const api = window.electronAPI?.agentRuntime
     if (!api?.clearMalformedMessages) return
 
-    const { response } = await window.electronAPI.dialog.showMessageBox({
+    const { response } = await showMessageBox({
       type: 'warning',
       title: '清理异常消息',
       message: '将删除本地库中 content_json 无法解析的消息行。是否继续？',
@@ -351,7 +354,7 @@ export const StorageInfo: React.FC<StorageInfoProps> = ({ toast }) => {
           <Input readOnly value={stats.dbPath} style={{ flex: 1, fontSize: 12 }} />
           <Button
             variant="secondary"
-            onClick={() => window.electronAPI.app.showItemInFolder(stats.dbPath)}
+            onClick={() => void showItemInFolder(stats.dbPath)}
           >
             打开所在文件夹
           </Button>
@@ -396,7 +399,7 @@ export const StorageInfo: React.FC<StorageInfoProps> = ({ toast }) => {
           </Button>
           <Button
             variant="secondary"
-            onClick={() => window.electronAPI.app.showItemInFolder(stats.backupDir)}
+            onClick={() => void showItemInFolder(stats.backupDir)}
             disabled={busy}
           >
             打开备份文件夹
