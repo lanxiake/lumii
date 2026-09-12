@@ -4,6 +4,7 @@ import { Button } from '../../../components/ui/Button/Button'
 import type { WikiReclassifyRunItem } from '../../../hooks/business/useWikiPage'
 import { formatTopicDisplay } from './wikiTopicDisplay'
 import shared from './wiki-shared.module.css'
+import styles from './WikiReclassifyView.module.css'
 
 interface WikiReclassifyViewProps {
   run: WikiReclassifyRunItem | null
@@ -37,8 +38,8 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
 
   if (run.status === 'running') {
     return (
-      <div className="wiki-reclassify">
-        <p className="wiki-reclassify-progress">
+      <div className={styles['wiki-reclassify']}>
+        <p className={styles['wiki-reclassify-progress']}>
           正在重新编目 {run.processed} / {run.total}
         </p>
         <p className={shared['wiki-reclassify-hint']}>
@@ -50,8 +51,8 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
 
   if (run.status === 'failed') {
     return (
-      <div className="wiki-reclassify">
-        <p className="wiki-reclassify-error" role="alert">
+      <div className={styles['wiki-reclassify']}>
+        <p className={styles['wiki-reclassify-error']} role="alert">
           重新编目失败：{run.error ?? '未知原因'}
         </p>
         <Button variant="ghost" size="sm" onClick={onDiscard}>
@@ -63,7 +64,7 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
 
   if (run.candidates.length === 0) {
     return (
-      <div className="wiki-reclassify">
+      <div className={styles['wiki-reclassify']}>
         <p className={shared['wiki-reclassify-empty']}>
           {run.total === 0
             ? '没有已进目录的文件可编目。收件箱里的资料请勾选后点「让 AI 分类」。'
@@ -87,13 +88,13 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
   }
 
   return (
-    <div className="wiki-reclassify">
-      <header className="wiki-reclassify-header">
-        <span className="wiki-reclassify-count">
+    <div className={styles['wiki-reclassify']}>
+      <header className={styles['wiki-reclassify-header']}>
+        <span className={styles['wiki-reclassify-count']}>
           {run.candidates.length} 条建议（请勾选后点接受才会改目录）
           {run.unchanged > 0 && `（另有 ${run.unchanged} 个文件无需调整）`}
         </span>
-        <div className="wiki-reclassify-actions">
+        <div className={styles['wiki-reclassify-actions']}>
           <Button
             variant="primary"
             size="sm"
@@ -111,47 +112,47 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
         </div>
       </header>
 
-      <ul className="wiki-reclassify-list">
+      <ul className={styles['wiki-reclassify-list']}>
         {run.candidates.map((c) => (
-          <li key={c.id} className="wiki-reclassify-item">
+          <li key={c.id} className={styles['wiki-reclassify-item']}>
             <input
               type="checkbox"
               aria-label={`选择 ${c.title}`}
               checked={selected.has(c.id)}
               onChange={() => toggle(c.id)}
             />
-            <div className="wiki-reclassify-body">
-              <p className="wiki-reclassify-title">
+            <div className={styles['wiki-reclassify-body']}>
+              <p className={styles['wiki-reclassify-title']}>
                 {c.title}
                 <span
-                  className="wiki-reclassify-decided-by"
+                  className={styles['wiki-reclassify-decided-by']}
                   title={c.decidedBy === 'content' ? '结合摘要判定' : '仅按文件名/路径判定'}
                 >
                   {c.decidedBy === 'content' ? '内容' : '结构'}
                 </span>
               </p>
-              <p className="wiki-reclassify-move">
+              <p className={styles['wiki-reclassify-move']}>
                 <span>{formatTopicDisplay(c.fromCategory, c.fromSubtopic)}</span>
                 <ArrowRight size={13} />
-                <span className="wiki-reclassify-target">
+                <span className={styles['wiki-reclassify-target']}>
                   {formatTopicDisplay(c.toCategory, c.toSubtopic)}
                 </span>
               </p>
               {c.renameTitle && (
-                <p className="wiki-reclassify-rename">
+                <p className={styles['wiki-reclassify-rename']}>
                   <span>{c.title}</span>
                   <ArrowRight size={13} />
-                  <span className="wiki-reclassify-target">{c.renameTitle}</span>
+                  <span className={styles['wiki-reclassify-target']}>{c.renameTitle}</span>
                 </p>
               )}
-              {c.reason && <p className="wiki-reclassify-reason">{c.reason}</p>}
+              {c.reason && <p className={styles['wiki-reclassify-reason']}>{c.reason}</p>}
               {c.applyError && (
-                <p className="wiki-reclassify-error" role="alert">
+                <p className={styles['wiki-reclassify-error']} role="alert">
                   {c.applyError}
                 </p>
               )}
             </div>
-            <div className="wiki-reclassify-item-actions">
+            <div className={styles['wiki-reclassify-item-actions']}>
               <Button variant="ghost" size="sm" onClick={() => onApply([c.id])}>
                 接受
               </Button>

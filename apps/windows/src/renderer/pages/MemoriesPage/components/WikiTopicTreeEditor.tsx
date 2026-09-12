@@ -10,6 +10,7 @@ import type {
   WikiTopicMutation,
   WikiTopicTree,
 } from '../../../hooks/business/useWikiPage'
+import styles from './WikiTopicTreeEditor.module.css'
 
 interface WikiTopicTreeEditorProps {
   open: boolean
@@ -194,7 +195,7 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
 
   const renderNameInput = (label: string, placeholder: string) => (
     <input
-      className="wiki-tree-editor-input"
+      className={styles['wiki-tree-editor-input']}
       aria-label={label}
       placeholder={placeholder}
       autoFocus
@@ -226,26 +227,26 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
       }
     >
       <div className="wiki-tree-editor">
-        <p className="wiki-tree-editor-hint">
+        <p className={styles['wiki-tree-editor-hint']}>
           每次改动立即生效。删除仍有文件的目录时需要先指定文件去向。
         </p>
         {error && (
-          <p className="wiki-tree-editor-error" role="alert">
+          <p className={styles['wiki-tree-editor-error']} role="alert">
             {error}
           </p>
         )}
 
-        <div className="wiki-tree-editor-columns">
-          <section className="wiki-tree-editor-column" aria-label="大类">
+        <div className={styles['wiki-tree-editor-columns']}>
+          <section className={styles['wiki-tree-editor-column']} aria-label="大类">
             {categories.map((cat) => (
-              <div key={cat.name} className="wiki-tree-editor-row">
+              <div key={cat.name} className={styles['wiki-tree-editor-row']}>
                 {editing?.kind === 'renameCategory' && editing.name === cat.name ? (
                   renderNameInput('大类名称', '大类名称')
                 ) : (
                   <>
                     <button
                       type="button"
-                      className={`wiki-tree-editor-name${current?.name === cat.name ? ' wiki-tree-editor-name--active' : ''}`}
+                      className={`${styles['wiki-tree-editor-name']}${current?.name === cat.name ? ` ${styles['wiki-tree-editor-name--active']}` : ''}`}
                       onClick={() => setActiveCategory(cat.name)}
                     >
                       {cat.name}
@@ -253,7 +254,7 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
                     </button>
                     <button
                       type="button"
-                      className="wiki-tree-editor-icon"
+                      className={styles['wiki-tree-editor-icon']}
                       aria-label={`重命名大类 ${cat.name}`}
                       onClick={() => {
                         setEditing({ kind: 'renameCategory', name: cat.name })
@@ -264,7 +265,7 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
                     </button>
                     <button
                       type="button"
-                      className="wiki-tree-editor-icon"
+                      className={styles['wiki-tree-editor-icon']}
                       aria-label={`删除大类 ${cat.name}`}
                       onClick={() => void requestDeleteCategory(cat.name)}
                     >
@@ -280,7 +281,7 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
             ) : (
               <button
                 type="button"
-                className="wiki-tree-editor-add"
+                className={styles['wiki-tree-editor-add']}
                 onClick={() => {
                   setEditing({ kind: 'newCategory' })
                   setDraft('')
@@ -291,22 +292,22 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
             )}
           </section>
 
-          <section className="wiki-tree-editor-column" aria-label="小类">
+          <section className={styles['wiki-tree-editor-column']} aria-label="小类">
             {current?.subtopics.map((sub) => (
-              <div key={sub} className="wiki-tree-editor-row">
+              <div key={sub} className={styles['wiki-tree-editor-row']}>
                 {editing?.kind === 'renameSubtopic' &&
                 editing.category === current.name &&
                 editing.name === sub ? (
                   renderNameInput('小类名称', '小类名称')
                 ) : (
                   <>
-                    <span className="wiki-tree-editor-name">
+                    <span className={styles['wiki-tree-editor-name']}>
                       {sub}
                       <small>{countOf(current.name, sub)}</small>
                     </span>
                     <button
                       type="button"
-                      className="wiki-tree-editor-icon"
+                      className={styles['wiki-tree-editor-icon']}
                       aria-label={`重命名小类 ${sub}`}
                       onClick={() => {
                         setEditing({ kind: 'renameSubtopic', category: current.name, name: sub })
@@ -317,7 +318,7 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
                     </button>
                     <button
                       type="button"
-                      className="wiki-tree-editor-icon"
+                      className={styles['wiki-tree-editor-icon']}
                       aria-label={`删除小类 ${sub}`}
                       onClick={() => void requestDeleteSubtopic(current.name, sub)}
                     >
@@ -334,7 +335,7 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
               ) : (
                 <button
                   type="button"
-                  className="wiki-tree-editor-add"
+                  className={styles['wiki-tree-editor-add']}
                   onClick={() => {
                     setEditing({ kind: 'newSubtopic', category: current.name })
                     setDraft('')
@@ -347,11 +348,11 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
         </div>
 
         {pendingDelete && (
-          <section className="wiki-tree-editor-disposition" aria-label="选择文件去向">
+          <section className={styles['wiki-tree-editor-disposition']} aria-label="选择文件去向">
             <h4>
               「{pendingDelete.name}」下还有 {pendingDelete.fileCount} 个文件，请选择去向
             </h4>
-            <label className="wiki-tree-editor-radio">
+            <label className={styles['wiki-tree-editor-radio']}>
               <input
                 type="radio"
                 name="wiki-disposition"
@@ -360,7 +361,7 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
               />
               移到临时存放
             </label>
-            <label className="wiki-tree-editor-radio">
+            <label className={styles['wiki-tree-editor-radio']}>
               <input
                 type="radio"
                 name="wiki-disposition"
@@ -371,7 +372,7 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
             </label>
             {choice === 'move' && (
               <select
-                className="wiki-tree-editor-select"
+                className={styles['wiki-tree-editor-select']}
                 aria-label="选择去向小类"
                 value={moveTarget}
                 onChange={(e) => setMoveTarget(e.target.value)}
@@ -384,7 +385,7 @@ export const WikiTopicTreeEditor: React.FC<WikiTopicTreeEditorProps> = ({
                 ))}
               </select>
             )}
-            <div className="wiki-tree-editor-disposition-actions">
+            <div className={styles['wiki-tree-editor-disposition-actions']}>
               <Button
                 variant="ghost"
                 size="sm"

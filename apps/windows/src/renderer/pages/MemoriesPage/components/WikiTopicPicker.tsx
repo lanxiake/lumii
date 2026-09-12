@@ -4,6 +4,7 @@ import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import { Button } from '../../../components/ui/Button/Button'
 import type { WikiTopicTree } from '../../../hooks/business/useWikiPage'
 import { navSectionLabel, type WikiNavSection } from './wikiTopicDisplay'
+import styles from './WikiTopicPicker.module.css'
 
 /** 「已归档」是系统分区，与树中的大类并列出现在第一步 */
 const ARCHIVED_SECTION: WikiNavSection = 'archived'
@@ -130,26 +131,26 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
       }
     >
       <div className="wiki-topic-picker">
-        {itemTitle && <p className="wiki-topic-picker-item">{itemTitle}</p>}
+        {itemTitle && <p className={styles['wiki-topic-picker-item']}>{itemTitle}</p>}
 
-        {suggestionState === 'loading' && <p className="wiki-topic-picker-hint">正在请求 AI 建议…</p>}
+        {suggestionState === 'loading' && <p className={styles['wiki-topic-picker-hint']}>正在请求 AI 建议…</p>}
         {suggestionState === 'failed' && (
-          <p className="wiki-topic-picker-error">建议失败：模型不可用或返回格式错误</p>
+          <p className={styles['wiki-topic-picker-error']}>建议失败：模型不可用或返回格式错误</p>
         )}
         {suggestion && (
-          <p className="wiki-topic-picker-suggestion">
+          <p className={styles['wiki-topic-picker-suggestion']}>
             AI 建议：{suggestion.category} / {suggestion.subtopic} — {suggestion.reason}
           </p>
         )}
 
-        <section className="wiki-topic-picker-section">
-          <h4 className="wiki-topic-picker-heading">选择分区</h4>
-          <div className="wiki-topic-picker-options">
+        <section className={styles['wiki-topic-picker-section']}>
+          <h4 className={styles['wiki-topic-picker-heading']}>选择分区</h4>
+          <div className={styles['wiki-topic-picker-options']}>
             {sections.map((item) => (
               <button
                 key={item}
                 type="button"
-                className={`wiki-topic-picker-option${section === item ? ' wiki-topic-picker-option--active' : ''}`}
+                className={`${styles['wiki-topic-picker-option']}${section === item ? ` ${styles['wiki-topic-picker-option--active']}` : ''}`}
                 aria-pressed={section === item}
                 onClick={() => {
                   setSection(item)
@@ -163,16 +164,16 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
         </section>
 
         {section && !isArchiveSection && (
-          <section className="wiki-topic-picker-section">
-            <h4 className="wiki-topic-picker-heading">选择小类</h4>
-            <div className="wiki-topic-picker-options">
+          <section className={styles['wiki-topic-picker-section']}>
+            <h4 className={styles['wiki-topic-picker-heading']}>选择小类</h4>
+            <div className={styles['wiki-topic-picker-options']}>
               {subtopics.map((name) => {
                 const active = target?.category === section && target?.subtopic === name
                 return (
                   <button
                     key={name}
                     type="button"
-                    className={`wiki-topic-picker-option${active ? ' wiki-topic-picker-option--active' : ''}`}
+                    className={`${styles['wiki-topic-picker-option']}${active ? ` ${styles['wiki-topic-picker-option--active']}` : ''}`}
                     aria-pressed={active}
                     onClick={() => setTarget({ category: section, subtopic: name, project: null })}
                   >
@@ -183,9 +184,9 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
               {/* 小类可选：拿不准就只归大类，不逼用户硬选一个（设计 §2.1.1） */}
               <button
                 type="button"
-                className={`wiki-topic-picker-option${
+                className={`${styles['wiki-topic-picker-option']}${
                   target?.category === section && target?.subtopic === null
-                    ? ' wiki-topic-picker-option--active'
+                    ? ` ${styles['wiki-topic-picker-option--active']}`
                     : ''
                 }`}
                 aria-pressed={target?.category === section && target?.subtopic === null}
@@ -198,8 +199,8 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
         )}
 
         {section && !isArchiveSection && target && (
-          <section className="wiki-topic-picker-section">
-            <h4 className="wiki-topic-picker-heading">项目名（可选）</h4>
+          <section className={styles['wiki-topic-picker-section']}>
+            <h4 className={styles['wiki-topic-picker-heading']}>项目名（可选）</h4>
             <input
               type="text"
               className="wiki-topic-picker-input"
@@ -212,10 +213,10 @@ export const WikiTopicPicker: React.FC<WikiTopicPickerProps> = ({
         )}
 
         {isArchiveSection && (
-          <p className="wiki-topic-picker-hint">移入「已归档」后资料不再出现在活跃分区，可随时恢复。</p>
+          <p className={styles['wiki-topic-picker-hint']}>移入「已归档」后资料不再出现在活跃分区，可随时恢复。</p>
         )}
 
-        {!section && <p className="wiki-topic-picker-hint">先选一个分区，再选具体小类。</p>}
+        {!section && <p className={styles['wiki-topic-picker-hint']}>先选一个分区，再选具体小类。</p>}
         {extraSection}
       </div>
     </Modal>

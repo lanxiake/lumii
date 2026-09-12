@@ -7,6 +7,14 @@ import type {
   WikiTopicTree,
 } from '../../../hooks/business/useWikiPage'
 import { formatTopicDisplay } from './wikiTopicDisplay'
+import styles from './WikiMigrateReviewView.module.css'
+
+/** 映射状态 → 模块类名 */
+const MIGRATE_STATUS_CLASS: Record<WikiMigrateMappingItem['status'], string> = {
+  ok: styles['wiki-migrate-review-status--ok'],
+  conflict: styles['wiki-migrate-review-status--conflict'],
+  needContent: styles['wiki-migrate-review-status--needContent'],
+}
 
 interface WikiMigrateReviewViewProps {
   readonly run: WikiMigrateRunItem | null
@@ -60,18 +68,18 @@ export const WikiMigrateReviewView: React.FC<WikiMigrateReviewViewProps> = ({
   const unresolvedConflicts = useMemo(() => hasUnresolvedConflicts(mappings), [mappings])
 
   if (!run) {
-    return <p className="wiki-migrate-review-empty">整理入库已改为自动执行。导入文件夹并开启 AI 自动分类后，会直接归档到目录。</p>
+    return <p className={styles['wiki-migrate-review-empty']}>整理入库已改为自动执行。导入文件夹并开启 AI 自动分类后，会直接归档到目录。</p>
   }
 
   if (run.phase === 'inventorying' || run.phase === 'planning') {
     return (
-      <div className="wiki-migrate-review">
-        <p className="wiki-migrate-review-progress">
+      <div className={styles['wiki-migrate-review']}>
+        <p className={styles['wiki-migrate-review-progress']}>
           {run.progress.phaseLabel || '正在规划目录映射'}
           {run.progress.total > 0 && ` · ${run.progress.done}/${run.progress.total}`}
         </p>
         {run.progress.currentItem && (
-          <p className="wiki-migrate-review-hint">当前：{run.progress.currentItem}</p>
+          <p className={styles['wiki-migrate-review-hint']}>当前：{run.progress.currentItem}</p>
         )}
       </div>
     )
@@ -79,12 +87,12 @@ export const WikiMigrateReviewView: React.FC<WikiMigrateReviewViewProps> = ({
 
   if (run.phase === 'applying') {
     return (
-      <div className="wiki-migrate-review">
-        <p className="wiki-migrate-review-progress">
+      <div className={styles['wiki-migrate-review']}>
+        <p className={styles['wiki-migrate-review-progress']}>
           正在整理入库 {run.progress.done}/{run.progress.total}
         </p>
         {run.progress.currentItem && (
-          <p className="wiki-migrate-review-hint">当前：{run.progress.currentItem}</p>
+          <p className={styles['wiki-migrate-review-hint']}>当前：{run.progress.currentItem}</p>
         )}
       </div>
     )
@@ -92,8 +100,8 @@ export const WikiMigrateReviewView: React.FC<WikiMigrateReviewViewProps> = ({
 
   if (run.phase === 'failed') {
     return (
-      <div className="wiki-migrate-review">
-        <p className="wiki-migrate-review-error" role="alert">
+      <div className={styles['wiki-migrate-review']}>
+        <p className={styles['wiki-migrate-review-error']} role="alert">
           整理入库失败：{run.error ?? '未知原因'}
         </p>
         <Button variant="ghost" size="sm" onClick={onDiscard}>
@@ -105,8 +113,8 @@ export const WikiMigrateReviewView: React.FC<WikiMigrateReviewViewProps> = ({
 
   if (mappings.length === 0) {
     return (
-      <div className="wiki-migrate-review">
-        <p className="wiki-migrate-review-empty">没有可执行的文件夹映射。</p>
+      <div className={styles['wiki-migrate-review']}>
+        <p className={styles['wiki-migrate-review-empty']}>没有可执行的文件夹映射。</p>
         <Button variant="ghost" size="sm" onClick={onDiscard}>
           知道了
         </Button>
@@ -131,12 +139,12 @@ export const WikiMigrateReviewView: React.FC<WikiMigrateReviewViewProps> = ({
   }
 
   return (
-    <div className="wiki-migrate-review">
-      <header className="wiki-migrate-review-header">
-        <span className="wiki-migrate-review-count">
+    <div className={styles['wiki-migrate-review']}>
+      <header className={styles['wiki-migrate-review-header']}>
+        <span className={styles['wiki-migrate-review-count']}>
           {mappings.length} 条文件夹映射（请确认后点「确认整理」才会归档）
         </span>
-        <div className="wiki-migrate-review-actions">
+        <div className={styles['wiki-migrate-review-actions']}>
           <Button
             variant="primary"
             size="sm"
@@ -155,12 +163,12 @@ export const WikiMigrateReviewView: React.FC<WikiMigrateReviewViewProps> = ({
       </header>
 
       {unresolvedConflicts && (
-        <p className="wiki-migrate-review-hint" role="status">
+        <p className={styles['wiki-migrate-review-hint']} role="status">
           仍有冲突未处理：请改落点、批准新建小类或忽略对应文件夹后再确认。
         </p>
       )}
 
-      <table className="wiki-migrate-review-table">
+      <table className={styles['wiki-migrate-review-table']}>
         <thead>
           <tr>
             <th scope="col">源文件夹</th>
@@ -176,20 +184,20 @@ export const WikiMigrateReviewView: React.FC<WikiMigrateReviewViewProps> = ({
           {mappings.map((m) => {
             const subtopics = categories.find((c) => c.name === m.category)?.subtopics ?? []
             const rowClass = m.ignored
-              ? 'wiki-migrate-review-row--ignored'
+              ? styles['wiki-migrate-review-row--ignored']
               : m.status === 'conflict'
-                ? 'wiki-migrate-review-row--conflict'
+                ? styles['wiki-migrate-review-row--conflict']
                 : undefined
 
             return (
               <tr key={m.folderRel} className={rowClass}>
-                <td className="wiki-migrate-review-folder">{m.folderRel}</td>
+                <td className={styles['wiki-migrate-review-folder']}>{m.folderRel}</td>
                 <td>{m.inboxIds.length}</td>
                 <td>
                   {m.ignored ? (
-                    <span className="wiki-migrate-review-ignored-label">已忽略</span>
+                    <span className={styles['wiki-migrate-review-ignored-label']}>已忽略</span>
                   ) : (
-                    <div className="wiki-migrate-review-target">
+                    <div className={styles['wiki-migrate-review-target']}>
                       <select
                         aria-label={`${m.folderRel} 目标大类`}
                         value={m.category ?? ''}
@@ -221,7 +229,7 @@ export const WikiMigrateReviewView: React.FC<WikiMigrateReviewViewProps> = ({
                         )}
                       </select>
                       {m.proposedSubtopic && (
-                        <label className="wiki-migrate-review-approve">
+                        <label className={styles['wiki-migrate-review-approve']}>
                           <input
                             type="checkbox"
                             aria-label={`批准新建小类「${m.proposedSubtopic}」`}
@@ -233,17 +241,17 @@ export const WikiMigrateReviewView: React.FC<WikiMigrateReviewViewProps> = ({
                           批准新建小类「{m.proposedSubtopic}」
                         </label>
                       )}
-                      <span className="wiki-migrate-review-target-preview">
+                      <span className={styles['wiki-migrate-review-target-preview']}>
                         {formatTopicDisplay(m.category, m.subtopic)}
                       </span>
                     </div>
                   )}
                 </td>
                 <td>{formatConfidence(m.confidence)}</td>
-                <td className="wiki-migrate-review-reason">{m.reason}</td>
+                <td className={styles['wiki-migrate-review-reason']}>{m.reason}</td>
                 <td>
                   <span
-                    className={`wiki-migrate-review-status wiki-migrate-review-status--${m.status}`}
+                    className={`${styles['wiki-migrate-review-status']} ${MIGRATE_STATUS_CLASS[m.status]}`}
                   >
                     {mappingStatusLabel(m.status)}
                   </span>

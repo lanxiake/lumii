@@ -1,0 +1,66 @@
+/* WikiTopicPicker — 由 WikiTab.css 迁出（第 3 片 B5） */
+
+/* 归档选择器 */
+
+.wiki-topic-picker-item {
+  margin: 0 0 12px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.wiki-topic-picker-section + .wiki-topic-picker-section {
+  margin-top: 14px;
+}
+
+.wiki-topic-picker-heading {
+  margin: 0 0 8px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wiki-topic-picker-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wiki-topic-picker-option {
+  padding: 5px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wiki-topic-picker-option:hover {
+  background: var(--color-bg-hover);
+}
+
+.wiki-topic-picker-option--active {
+  border-color: var(--color-primary);
+  background: var(--color-bg-active);
+}
+
+.wiki-topic-picker-hint {
+  margin: 14px 0 0;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+
+.wiki-topic-picker-suggestion {
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+  font-size: 12px;
+}
+
+.wiki-topic-picker-error {
+  margin: 0 0 12px;
+  color: var(--color-danger);
+  font-size: 12px;
+}

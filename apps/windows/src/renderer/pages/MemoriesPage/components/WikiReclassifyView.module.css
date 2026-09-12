@@ -1,0 +1,114 @@
+/* WikiReclassifyView — 由 WikiTab.css 迁出（第 3 片 B5） */
+
+/* 重新编目候选 */
+
+.wiki-reclassify {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wiki-reclassify-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wiki-reclassify-count {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.wiki-reclassify-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.wiki-reclassify-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wiki-reclassify-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.wiki-reclassify-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.wiki-reclassify-title {
+  margin: 0 0 4px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wiki-reclassify-decided-by {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.wiki-reclassify-move {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+
+.wiki-reclassify-rename {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}
+
+.wiki-reclassify-target {
+  color: var(--color-primary);
+}
+
+.wiki-reclassify-reason {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.wiki-reclassify-item-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.wiki-reclassify-progress {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+.wiki-reclassify-error {
+  margin: 4px 0 0;
+  color: var(--color-danger);
+  font-size: 12px;
+}
