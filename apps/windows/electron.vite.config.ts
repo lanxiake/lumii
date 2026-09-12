@@ -250,15 +250,9 @@ export default defineConfig({
         '@mtbot/agent-runtime/browser': resolve(ROOT, 'packages/agent-runtime/src/browser.ts'),
         '@mtbot/agent-runtime': resolve(ROOT, 'packages/agent-runtime/src/index.ts'),
         '@mtbot/browser-control': resolve(ROOT, 'packages/browser-control/src/index.ts'),
-        // src/browser/ 依赖的网关内部模块 → Windows 客户端 stubs
-        // 使用绝对路径 alias 确保 Vite 能正确解析跨包引用
         // qqbot-connector 的传递依赖，仅用于终端打印二维码；客户端用不到，
         // 且其 CJS require 形式 Rollup 无法静态解析，内联会构建失败
         'qrcode-terminal': resolve(__dirname, 'src/main/stubs/qrcode-terminal.ts'),
-        [resolve(ROOT, 'src/logging/subsystem.js')]: resolve(__dirname, 'src/main/stubs/logging-subsystem.ts'),
-        [resolve(ROOT, 'src/infra/ports.js')]: resolve(__dirname, 'src/main/stubs/infra-ports.ts'),
-        [resolve(ROOT, 'src/utils.js')]: resolve(__dirname, 'src/main/stubs/utils.ts'),
-        [resolve(ROOT, 'src/process/exec.js')]: resolve(__dirname, 'src/main/stubs/process-exec.ts'),
       },
       // 确保能正确解析 pnpm workspace 中的 TypeScript 源码包
       conditions: ['module', 'jsnext:main', 'jsnext', 'main'],

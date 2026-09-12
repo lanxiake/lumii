@@ -91,6 +91,22 @@ git ls-files "apps/windows/apps/windows" "packages/agent-runtime/packages"
 | `renderer/hooks/business/useCron/usePipelines.ts` | 47 | 文件注释自述"独立版：无网关，故列表恒为空、增删改查均 no-op，仅保留接口以兼容 PipelinesTab"。PipelinesTab 删除后该 hook 失去唯一存在理由 |
 | `renderer/pages/CronPage/components/shared/CreatePipelineModal.tsx` | 173 | 仅被 `PipelinesTab.tsx:12,148` 引用（含 `CreatePipelineModal.module.css`） |
 
+**执行期新发现的同簇文件**（原清单未列出，但因只被上述死代码引用而必须同删）：
+
+| 文件 | 行数 | 唯一引用方 |
+|---|---|---|
+| `renderer/pages/CronPage/components/PipelinesTab/PipelineGraph.tsx` | 185 | `PipelinesTab.tsx:13` |
+| `renderer/pages/CronPage/utils/pipeline-utils.ts` | 135 | `CreatePipelineModal.tsx:13`（仅 `hasCycle`；其余 5 个导出全仓零引用） |
+| `renderer/pages/CronPage/components/PipelinesTab/PipelinesTab.module.css` | 169 | `PipelinesTab.tsx:9` |
+| `renderer/pages/CronPage/components/ScheduleTab/ScheduleTab.module.css` | 84 | `ScheduleTab.tsx:9` |
+
+**随之失效的类型定义**（已从 `useCron/types.ts` 与 `useCron/index.ts` 移除）：
+
+| 符号 | 说明 |
+|---|---|
+| `Pipeline` / `PipelineEdge` | 仅被上述 Pipeline 死代码簇使用，删除后全仓零引用 |
+| `CronViewTab` | 定义为 `'overview' \| 'schedule' \| 'pipelines' \| 'history'`，但全仓从未作为类型使用；引用已删的 schedule/pipelines 视图 |
+
 > ⚠️ **不要删除** `shared/CreateJobModal/CreateJobModal.tsx` 及其 `schedule-helpers.ts` / `NextRunPreview.tsx` —— 它们被 `CronPage.tsx` 正常使用。
 
 **验证命令**
@@ -214,14 +230,30 @@ preload 已在 `api-server-api.ts:38-47`、`api-server-http-api.ts:181-227`、`i
 
 ## 执行检查清单
 
-- [ ] 删除前记录基线：`pnpm typecheck` 与 `pnpm --filter lumii-windows test:all` 通过
-- [ ] A1 嵌套脏拷贝目录
-- [ ] A2 `main/stubs/` 4 文件 + `electron.vite.config.ts` 死 alias 5 条
-- [ ] A3 零引用源文件 5 个
-- [ ] A4 CronPage 死组件 6 个 + 连带项确认
-- [ ] A5 `registerAgentRuntimeIPC` 死导出
-- [ ] 全量验证：`pnpm typecheck` + `pnpm build` + `pnpm --filter lumii-windows test:all` + 启动冒烟
+- [x] 删除前记录基线：`pnpm typecheck` 通过
+- [x] A1 嵌套脏拷贝目录（2 文件）
+- [x] A2 `main/stubs/` 4 文件 + `electron.vite.config.ts` 死 alias 4 条
+- [x] A3 零引用源文件 5 个
+- [x] A4 CronPage 死组件簇（10 文件 + 3 个失效类型定义）
+- [x] A5 `registerAgentRuntimeIPC` 死导出
+- [x] 全量验证：`pnpm typecheck` ✅ + `pnpm build` ✅ + agent-runtime 1832 用例 ✅ + apps/windows 无新增失败 ✅
 - [ ] B 级各项逐个确认后再动
+
+## 实际执行结果（2026-09-12）
+
+| 项 | 文件数 | 删除行数 |
+|---|---|---|
+| A1 嵌套脏拷贝 | 2 | 253 |
+| A2 stubs + 死 alias 配置 | 4 文件 + 1 配置 | 98 + 6 = 104 |
+| A3 零引用源文件 | 5 | 561 |
+| A4 CronPage 死组件簇 | 13 | 1640 |
+| A4 失效类型定义 | — | 27 |
+| A5 死导出 | — | 29 |
+| **合计** | **24 文件 + 6 处配置/类型** | **2614** |
+
+> 净变化：`24 个文件删除 + 5 个文件修改`，`-2592 行`（含修改文件中的少量新增行）。A4 因执行期发现额外同簇文件（`PipelineGraph.tsx`、`pipeline-utils.ts`、两个 `.module.css`）而大于原计划，详见 A4 章节。
+
+**验证结论**：`pnpm build` 通过；`@mtbot/agent-runtime` 1832 个用例全绿；`lumii-windows` 的 39 个失败用例经 stash 对照证明为**既有失败**（见 [README 执行记录](./README.md#七执行记录)）。
 
 ## 预期收益
 

@@ -215,7 +215,29 @@ pnpm build                                  # 批次 0/1 必跑
 
 | 批次 | 状态 | 备注 |
 |---|---|---|
-| 批次 0 清库 | 未开始 | 清单见 [dead-code-cleanup-list.md](./dead-code-cleanup-list.md) |
-| 批次 1 立门禁 | 未开始 | |
+| 批次 0 清库 | **A 级已完成并通过验证** | 24 个文件删除 + 5 个文件修改，净 -2592 行；清单见 [dead-code-cleanup-list.md](./dead-code-cleanup-list.md) |
+| 批次 1 立门禁 | 未开始 | 另见 §3.5 与下方"执行期新增发现" |
 | 批次 2 抽象落地 | 未开始 | |
 | 批次 3 大文件拆分 | 未开始 | 沿用既有计划 |
+
+### 批次 0（A 级）验证结果 — 2026-09-12
+
+| 验证项 | 命令 | 结果 |
+|---|---|---|
+| 类型检查 | `pnpm typecheck` | ✅ 4 个 workspace 包全部通过 |
+| 生产构建 | `pnpm build` | ✅ `built in 2m 3s`（验证 electron.vite.config.ts 死 alias 删除无副作用） |
+| agent-runtime 测试 | `pnpm --filter @mtbot/agent-runtime test` | ✅ 183/183 文件、1832/1832 用例通过 |
+| apps/windows 测试 | `pnpm --filter lumii-windows test:all` | ⚠️ 8 文件 / 39 用例失败 —— **已证明为既有失败，与本次改动无关** |
+
+**既有失败的归因方法**（可复用于后续批次）：用 `git stash push -- apps packages` 仅回退本次改动，对同样的 8 个文件重跑测试，得到**完全相同的 39 个失败用例**（文件名与用例名逐一吻合）。失败原因是测试相对源码过期——例如 `wiki-commands.ts` 最后修改于 2026-09-10，而 `wiki-commands.test.ts` 停留在 2026-09-09。
+
+涉及文件：`bridge-wiki-tools.test.ts`(1)、`command-allowlist.test.ts`(1)、`goto.test.ts`(1)、`sync-manager.test.ts`(14)、`ChatPage.test.tsx`(6)、`ChatSidebar.test.tsx`(13)、`WikiTopicPicker.test.tsx`(2)、`wiki-commands.test.ts`(1)。
+
+> 这 39 个既有失败应单独开一个修复任务，**不要**与重构批次混在一起。
+
+### 执行期新增发现（2026-09-12，需并入批次 1）
+
+1. **`apps/windows/tsconfig.json` 存在死 include** —— `"../../src/coding-dev-backends/**/*.ts"` 指向仓库根级 `src/`，该目录不存在。属闭源版遗留配置。
+2. **A4 实际依赖簇比原清单更大** —— 除清单所列 6 个死组件外，`PipelineGraph.tsx`(185)、`pipeline-utils.ts`(135)、`PipelinesTab.module.css`(169)、`ScheduleTab.module.css`(84) 同样只被死代码引用；`useCron/types.ts` 的 `Pipeline` / `PipelineEdge` / `CronViewTab` 随之失效。详见 [清单](./dead-code-cleanup-list.md) 的 A4 章节。
+3. **`@xyflow/react` 与 `@dagrejs/dagre` 仍在使用中** —— 删掉 `PipelineGraph.tsx` 后经核查，`AgentsPage/views/MapView.tsx` 与 `MemoriesPage/components/WikiGraphView.tsx` 仍依赖二者，**不可**从依赖中移除。
+4. **`pnpm build` 会改写 `apps/windows/resources/user-guides/manifest.json` 的 `generatedAt` 时间戳** —— 属正常构建产物，注意与手写改动区分。

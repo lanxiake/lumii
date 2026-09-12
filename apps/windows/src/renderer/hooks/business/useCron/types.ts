@@ -59,28 +59,6 @@ export interface CronRun {
   totalTokens?: number | null
 }
 
-/** Pipeline */
-export interface Pipeline {
-  id: string
-  userId: string
-  name: string
-  description?: string | null
-  enabled: boolean
-  edges: PipelineEdge[]
-  createdAt: string
-  updatedAt: string
-}
-
-/** Pipeline 边 */
-export interface PipelineEdge {
-  id: string
-  pipelineId: string
-  fromJobId: string
-  toJobId: string
-  artifact?: string | null
-  sortOrder: number
-}
-
 /** 创建任务参数 */
 export interface CreateCronJobParams {
   agentId: string
@@ -105,5 +83,3 @@ export interface CronRunStats {
   totalDurationMs: number
 }
 
-/** Cron 视图 Tab */
-export type CronViewTab = 'overview' | 'schedule' | 'pipelines' | 'history'

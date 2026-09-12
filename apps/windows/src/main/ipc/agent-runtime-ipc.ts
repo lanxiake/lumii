@@ -793,34 +793,6 @@ export async function submitVoiceTranscript(sessionKey: string, content: string,
 }
 
 /**
- * 注册所有 Agent Runtime IPC 处理器（新协议）
- *
- * 单一 'agent-runtime:command' 通道处理所有命令。
- * 使用 exhaustive switch 确保类型安全。
- *
- * @param mainWindow - Electron 主窗口
- * @param bridge - AgentRuntimeBridge 实例
- * @returns 清理函数，用于注销 IPC 处理器
- */
-export function registerAgentRuntimeIPC(
-  _mainWindow: BrowserWindow,
-  bridge: AgentRuntimeBridge,
-): () => void {
-  setAgentRuntimeBridgeForIpc(bridge)
-  ipcMainWindowRef = _mainWindow
-  log.info('Agent Runtime Bridge 已挂接到 IPC（agent-runtime:command）')
-
-  return () => {
-    setAgentRuntimeBridgeForIpc(null)
-    sessionToInstance.clear()
-    runIdToInstance.clear()
-    instanceToRunIds.clear()
-    getAcpRunController().dispose()
-    log.info('Agent Runtime Bridge 已从 IPC 卸载，session maps cleared')
-  }
-}
-
-/**
  * 处理单个命令（IPC 与本机控制口共用）
  *
  * TODO: 继续按命令前缀拆分到 agent-runtime/ 子目录（参考 docs/plans/大文件重构分析处理/README.md P0-05）

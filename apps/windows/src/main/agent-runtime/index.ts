@@ -1,6 +1,5 @@
 export { AgentRuntimeBridge, type AgentRuntimeBridgeConfig, type AgentLifecycleSnapshot } from './bridge'
 export {
-  registerAgentRuntimeIPC,
   installAgentRuntimeCommandIpc,
   setAgentRuntimeBridgeForIpc,
   setWeixinBindingManagerForIpc,
