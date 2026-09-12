@@ -29,6 +29,9 @@ import { ChannelsSection } from './components/ChannelsSection'
 import { UsagePanel } from './components/UsagePanel'
 import { LumiiLogo } from '../../components/brand/LumiiLogo'
 import { openExternalUrl } from '../../utils/markdown-external-link'
+import { getAutonomousStatus } from '../../services/autonomous-service'
+import { getWorkspaceDir, ensureWorkspaceDir, notifyWorkspaceChanged } from '../../services/workspace-service'
+import { getAppVersion, getOpenAtLogin, setOpenAtLogin as applyOpenAtLogin, openLogFile } from '../../services/app-service'
 import { PetSettingsSection } from './components/PetSettingsSection'
 import { ModelConfigSection } from './components/ModelConfigSection'
 import { VoiceSettingsSection } from './components/VoiceSettingsSection'
@@ -107,7 +110,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     let cancelled = false
     const load = async () => {
       try {
-        const status = await window.electronAPI?.autonomous?.getStatus()
+        const status = await getAutonomousStatus()
         if (!cancelled && typeof status?.pendingGoalsCount === 'number') {
           setPendingAutonomousGoals(status.pendingGoalsCount)
         }
@@ -148,9 +151,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       await saveSettings()
       // 确保新工作空间目录及其子目录结构存在
       const targetDir = value.directory || defaultWorkspaceDir
-      await window.electronAPI.workspace.ensureDir(targetDir)
+      await ensureWorkspaceDir(targetDir)
       // 通知主进程工作空间目录已更改
-      await window.electronAPI.workspace.notifyChanged(value.directory || '')
+      await notifyWorkspaceChanged(value.directory || '')
     }
   })
 
@@ -198,7 +201,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
    * 获取工作空间路径：以主进程 getDir 为权威源并回填展示
    */
   useEffect(() => {
-    window.electronAPI.workspace?.getDir().then((dir) => {
+    getWorkspaceDir().then((dir) => {
       if (!dir) return
       setDefaultWorkspaceDir(dir)
       // 主进程权威路径回填到设置草稿，避免 Wizard/setDir 与 localStorage 不同步时仍显示默认目录
@@ -214,7 +217,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
    * 初始化开机启动状态
    */
   useEffect(() => {
-    window.electronAPI.app.getOpenAtLogin().then(setOpenAtLogin).catch(() => {
+    getOpenAtLogin().then(setOpenAtLogin).catch(() => {
       console.warn('[SettingsPage] 获取开机启动状态失败')
     })
   }, [])
@@ -226,12 +229,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     console.log('[SettingsPage] 切换开机启动:', enable)
     setOpenAtLoginLoading(true)
     try {
-      const actual = await window.electronAPI.app.setOpenAtLogin(enable)
+      const actual = await applyOpenAtLogin(enable)
       setOpenAtLogin(actual)
       console.log('[SettingsPage] 开机启动设置完成:', actual)
       if (enable && !actual) {
         // 开发模式下 Electron 不支持 setLoginItemSettings；打包后失败可能是系统安全策略拦截
-        const isDev = (await window.electronAPI.app.getVersion()).includes('dev')
+        const isDev = (await getAppVersion()).includes('dev')
         if (isDev) {
           toast.error('开发模式下无法设置开机启动，打包后生效')
         } else {
@@ -694,7 +697,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               variant="secondary"
               onClick={async () => {
                 try {
-                  const res = await window.electronAPI.app.openLogFile()
+                  const res = await openLogFile()
                   if (!res.success) {
                     toast.error(res.error || '打开日志失败')
                   }

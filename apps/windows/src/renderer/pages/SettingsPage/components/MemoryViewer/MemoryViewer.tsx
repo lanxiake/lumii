@@ -9,6 +9,7 @@ import {
   type MemoryListItem,
   type MemoryProvenanceResult,
 } from '../../../../hooks/business/useMemoryUsage'
+import { writeClipboardText } from '../../../../services/clipboard-service'
 import styles from './MemoryViewer.module.css'
 
 /** 工作记忆分类标签（仅 project/reference/general） */
@@ -154,7 +155,7 @@ const MemoryViewer: React.FC = () => {
   const handleExport = async () => {
     try {
       const json = await exportJson()
-      await window.electronAPI.clipboard.writeText(json)
+      await writeClipboardText(json)
       toast.success('记忆 JSON 已复制到剪贴板')
     } catch {
       toast.error('导出失败')

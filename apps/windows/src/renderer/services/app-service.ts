@@ -27,3 +27,23 @@ export async function getProjectGitStatus(projectName: string): Promise<ProjectG
 export function notifyDesktop(title: string, body: string): void {
   void window.electronAPI?.notifyDesktop?.(title, body)?.catch(() => {})
 }
+
+/** 获取应用版本 */
+export async function getAppVersion(): Promise<string> {
+  return window.electronAPI.app.getVersion()
+}
+
+/** 读取开机自启状态 */
+export async function getOpenAtLogin(): Promise<boolean> {
+  return window.electronAPI.app.getOpenAtLogin()
+}
+
+/** 设置开机自启；返回实际生效状态 */
+export async function setOpenAtLogin(enable: boolean): Promise<boolean> {
+  return window.electronAPI.app.setOpenAtLogin(enable)
+}
+
+/** 在资源管理器中打开当前应用日志文件 */
+export async function openLogFile(): Promise<{ success: boolean; path?: string; error?: string }> {
+  return window.electronAPI.app.openLogFile()
+}

@@ -4,6 +4,7 @@ import { Button } from '../../../../components/ui/Button/Button'
 import { Input } from '../../../../components/ui/Input/Input'
 import { useToast } from '../../../../components/ui/Toast/useToast'
 import type { AppSettings, WorkspaceConfig, UseCategorySettingsReturn } from '../../../../hooks/business/useSettings'
+import { selectWorkspaceDir } from '../../../../services/workspace-service'
 import styles from '../../SettingsPage.module.css'
 
 interface WorkspaceSectionProps {
@@ -23,7 +24,7 @@ export function WorkspaceSection({
 
   const handleSelectWorkspaceDir = async () => {
     try {
-      const selectedDir = await window.electronAPI.workspace.selectDir(
+      const selectedDir = await selectWorkspaceDir(
         settings.workspace.directory || defaultWorkspaceDir
       )
       if (selectedDir) {

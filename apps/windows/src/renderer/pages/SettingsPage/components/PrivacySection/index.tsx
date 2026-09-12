@@ -8,6 +8,7 @@ import { useToast } from '../../../../components/ui/Toast/useToast'
 import { StorageInfo } from '../StorageInfo'
 import { SecurityLogViewer } from '../SecurityLogViewer/SecurityLogViewer'
 import type { AppSettings, PrivacyConfig, UseCategorySettingsReturn } from '../../../../hooks/business/useSettings'
+import { openLogFile } from '../../../../services/app-service'
 import styles from '../../SettingsPage.module.css'
 
 const DEFAULT_SCREEN_RECORD = {
@@ -278,7 +279,7 @@ export function PrivacySection({
             variant="secondary"
             onClick={async () => {
               try {
-                const res = await window.electronAPI.app.openLogFile()
+                const res = await openLogFile()
                 if (!res.success) {
                   toast.error(res.error || '打开日志失败')
                 }

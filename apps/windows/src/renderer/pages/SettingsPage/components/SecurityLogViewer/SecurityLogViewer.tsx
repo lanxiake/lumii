@@ -6,6 +6,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react'
 import { Button } from '../../../../components/ui/Button/Button'
+import { writeClipboardText } from '../../../../services/clipboard-service'
 import styles from './SecurityLogViewer.module.css'
 
 type AuditRow = {
@@ -63,7 +64,7 @@ export const SecurityLogViewer: React.FC = () => {
       .filter(Boolean)
       .join('\n')
     try {
-      await window.electronAPI.clipboard.writeText(text)
+      await writeClipboardText(text)
       setCopiedId(row.id)
       window.setTimeout(() => setCopiedId((cur) => (cur === row.id ? null : cur)), 1500)
     } catch {
