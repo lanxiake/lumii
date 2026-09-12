@@ -9,6 +9,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { ExternalLink, KeyRound } from 'lucide-react'
 import { Button, Input, Modal } from '../ui'
+import { openExternalUrl } from '../../utils/markdown-external-link'
 import type { McpServerConfigInput } from '@shared/agent-runtime-commands'
 import { findMcpPreset } from '@shared/mcp-presets'
 import { parseMcpJson } from './parse-mcp-json'
@@ -197,7 +198,7 @@ export const McpServerEditModal: React.FC<McpServerEditModalProps> = ({ open, ed
                 <button
                   type="button"
                   className={styles['field-key-link']}
-                  onClick={() => void window.electronAPI.app.openExternal(preset.keyUrl!)}
+                  onClick={() => openExternalUrl(preset.keyUrl!)}
                 >
                   <KeyRound size={12} />
                   前往 {new URL(preset.keyUrl).host} 获取密钥

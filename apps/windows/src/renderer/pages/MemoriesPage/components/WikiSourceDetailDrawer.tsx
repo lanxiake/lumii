@@ -107,7 +107,7 @@ const WikiWebPreviewFrame: React.FC<{ url: string; title: string }> = ({ url, ti
 
   /** 在系统默认浏览器中打开当前 URL */
   const openInSystemBrowser = (): void => {
-    void window.electronAPI?.app?.openExternal(url)
+    openExternalUrl(url)
   }
 
   return (
@@ -264,7 +264,7 @@ export const WikiSourceDetailDrawer: React.FC<WikiSourceDetailDrawerProps> = ({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => void window.electronAPI?.app?.openExternal(sourceUrl)}
+                onClick={() => openExternalUrl(sourceUrl)}
               >
                 在浏览器打开
               </Button>

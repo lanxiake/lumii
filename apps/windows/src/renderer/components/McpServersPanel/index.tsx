@@ -11,6 +11,7 @@ import { Button, Empty, Input, Loading, Switch } from '../ui'
 import { useToast } from '../ui/Toast/useToast'
 import { formatToolUsageCount, formatToolUsageTitle, useToolSearch } from '../../hooks/business/useToolSearch'
 import { formatTokenCount } from '../../utils/format-token-count'
+import { openExternalUrl } from '../../utils/markdown-external-link'
 import { ConfirmModal } from '../ui/Modal/ConfirmModal'
 import type { McpServerConfigInput } from '@shared/agent-runtime-commands'
 import { findMcpPreset } from '@shared/mcp-presets'
@@ -299,7 +300,7 @@ export const McpServersPanel: React.FC = () => {
                         type="button"
                         className={styles['server-key-link']}
                         title={`${preset.todo ?? '需要填写密钥后才能启用'}\n\n点击打开 ${preset.keyUrl}`}
-                        onClick={() => void window.electronAPI.app.openExternal(preset.keyUrl!)}
+                        onClick={() => openExternalUrl(preset.keyUrl!)}
                       >
                         <KeyRound size={12} />
                         获取密钥

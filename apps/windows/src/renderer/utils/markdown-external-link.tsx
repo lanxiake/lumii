@@ -10,11 +10,15 @@ export function isHttpUrl(url: string | null | undefined): boolean {
 
 /**
  * 在系统默认浏览器中打开 URL（非 http(s) 时静默忽略）。
+ * 打开失败（如系统未注册 http/https 的默认程序，0x800401F5）只记日志，
+ * 不向上抛：调用点多为 onClick / void，未处理的 Promise 拒绝会刷屏且无意义。
  */
 export function openExternalUrl(url: string): void {
   const trimmed = url.trim()
   if (!isHttpUrl(trimmed)) return
-  void window.electronAPI?.app?.openExternal(trimmed)
+  void window.electronAPI?.app?.openExternal(trimmed)?.catch((err) => {
+    console.warn('[openExternalUrl] 打开外部链接失败:', err)
+  })
 }
 
 export interface MarkdownExternalLinkProps

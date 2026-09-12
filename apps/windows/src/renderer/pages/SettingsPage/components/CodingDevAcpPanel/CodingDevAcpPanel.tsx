@@ -6,6 +6,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '../../../../components/ui/Button/Button'
+import { openExternalUrl } from '../../../../utils/markdown-external-link'
 import { Card } from '../../../../components/ui/Card/Card'
 import { ConfirmModal } from '../../../../components/ui/Modal/ConfirmModal'
 import { useSettingsHub } from '../../../../components/SettingsHub'
@@ -236,7 +237,7 @@ export const CodingDevAcpPanel: React.FC = () => {
    * 打开外部链接
    */
   const openUrl = useCallback((url: string) => {
-    void window.electronAPI.app.openExternal(url)
+    openExternalUrl(url)
   }, [])
 
   /**

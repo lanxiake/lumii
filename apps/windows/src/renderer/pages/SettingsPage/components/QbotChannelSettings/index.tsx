@@ -10,6 +10,7 @@ import { ChannelCard, type ChannelMetaItem } from '../ChannelCard'
 import type { ChannelConnectionState } from '../ChannelStatusPill'
 import { ChannelBrandIcon } from '../../../../components/brand/ChannelBrandIcon'
 import type { ChannelSnapshot } from '../ChannelsSection/useChannelSnapshots'
+import { openExternalUrl } from '../../../../utils/markdown-external-link'
 
 type QbotStatus = 'idle' | 'waiting_qrcode' | 'waiting_credential' | 'connected' | 'error'
 
@@ -225,7 +226,7 @@ export const QbotChannelSettings: React.FC<QbotChannelSettingsProps> = ({
                     href={BOT_CONSOLE_URL}
                     onClick={(e) => {
                       e.preventDefault()
-                      void window.electronAPI?.app?.openExternal?.(BOT_CONSOLE_URL)
+                      openExternalUrl(BOT_CONSOLE_URL)
                     }}
                     style={{ color: 'var(--mt-accent-500)', cursor: 'pointer' }}
                   >

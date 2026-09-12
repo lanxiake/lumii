@@ -28,6 +28,7 @@ import { CodingDevAcpPanel } from './components/CodingDevAcpPanel'
 import { ChannelsSection } from './components/ChannelsSection'
 import { UsagePanel } from './components/UsagePanel'
 import { LumiiLogo } from '../../components/brand/LumiiLogo'
+import { openExternalUrl } from '../../utils/markdown-external-link'
 import { PetSettingsSection } from './components/PetSettingsSection'
 import { ModelConfigSection } from './components/ModelConfigSection'
 import { VoiceSettingsSection } from './components/VoiceSettingsSection'
@@ -747,13 +748,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         <div className={styles['panel-actions']}>
           <Button
             variant="secondary"
-            onClick={() => window.electronAPI.app.openExternal('https://github.com/lanxiake/lumii')}
+            onClick={() => openExternalUrl('https://github.com/lanxiake/lumii')}
           >
             项目主页
           </Button>
           <Button
             variant="secondary"
-            onClick={() => window.electronAPI.app.openExternal('https://github.com/lanxiake/lumii/issues')}
+            onClick={() => openExternalUrl('https://github.com/lanxiake/lumii/issues')}
           >
             问题反馈
           </Button>
