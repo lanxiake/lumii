@@ -1,0 +1,83 @@
+/* CleanupView — 由 WikiTab.css 迁出（第 3 片 B3） */
+
+/* 清理视图 */
+
+.wiki-cleanup-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.wiki-cleanup-filter-chip {
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg-secondary);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.wiki-cleanup-filter-chip:hover {
+  background: var(--color-bg-hover);
+}
+
+.wiki-cleanup-filter-chip--active {
+  border-color: var(--color-primary, #3b82f6);
+  background: var(--color-primary-bg, #eff6ff);
+  color: var(--color-primary, #3b82f6);
+}
+
+.wiki-cleanup-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.wiki-cleanup-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+
+.wiki-cleanup-item-title {
+  flex: 1;
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+.wiki-cleanup-item-topic {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.wiki-cleanup-item-reason {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-tertiary);
+}
+
+.wiki-cleanup-item-reason--stale {
+  background: var(--color-bg-secondary);
+}
+
+.wiki-cleanup-item-reason--broken_source {
+  background: var(--color-danger-bg, #fee2e2);
+  color: var(--color-danger, #dc2626);
+}
+
+.wiki-cleanup-item-reason--duplicate_content {
+  background: var(--color-warning-bg, #fef3c7);
+  color: var(--color-warning-text, #92400e);
+}

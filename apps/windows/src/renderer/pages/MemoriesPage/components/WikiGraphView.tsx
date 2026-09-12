@@ -30,6 +30,7 @@ import type {
 import type { WikiNav } from './WikiLeftNav'
 import { formatTopicDisplay } from './wikiTopicDisplay'
 import shared from './wiki-shared.module.css'
+import styles from './WikiGraphView.module.css'
 
 const NODE_W = 160
 const NODE_H = 56
@@ -432,7 +433,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
   }, [loading, filteredGraph, layer])
 
   return (
-    <div className="wiki-graph-view">
+    <div className={styles['wiki-graph-view']}>
       <div className={shared['wiki-cleanup-header']}>
         <h3>知识图谱</h3>
         <div className={shared['wiki-cleanup-actions']}>
@@ -446,14 +447,14 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
       </div>
 
       {graph && (
-        <div className="wiki-graph-layer-chips" role="tablist" aria-label="图谱图层">
+        <div className={styles['wiki-graph-layer-chips']} role="tablist" aria-label="图谱图层">
           {LAYER_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
               role="tab"
               aria-selected={layer === opt.value}
-              className={`wiki-graph-layer-chip${layer === opt.value ? ' wiki-graph-layer-chip--active' : ''}`}
+              className={`${styles['wiki-graph-layer-chip']}${layer === opt.value ? ` ${styles['wiki-graph-layer-chip--active']}` : ''}`}
               onClick={() => handleLayerChange(opt.value)}
             >
               {opt.label}
@@ -467,8 +468,8 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
       {emptyHint && nodes.length === 0 ? (
         <p className={shared['wiki-empty-hint']}>{emptyHint}</p>
       ) : (
-        <div className="wiki-graph-body">
-          <div className="wiki-graph-canvas" style={{ height: 420, border: '1px solid var(--color-border)', borderRadius: 8 }}>
+        <div className={styles['wiki-graph-body']}>
+          <div className={styles['wiki-graph-canvas']} style={{ height: 420, border: '1px solid var(--color-border)', borderRadius: 8 }}>
             <ReactFlow
               nodes={nodes}
               edges={edges}
@@ -483,12 +484,12 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
             </ReactFlow>
           </div>
           {selectedEntity && (
-            <aside className="wiki-graph-entity-sidebar" aria-label="实体详情">
-              <div className="wiki-graph-entity-sidebar-header">
+            <aside className={styles['wiki-graph-entity-sidebar']} aria-label="实体详情">
+              <div className={styles['wiki-graph-entity-sidebar-header']}>
                 <h4>{selectedEntity.title}</h4>
                 <button
                   type="button"
-                  className="wiki-graph-entity-sidebar-close"
+                  className={styles['wiki-graph-entity-sidebar-close']}
                   aria-label="关闭侧栏"
                   onClick={() => setSelectedEntity(null)}
                 >
@@ -496,7 +497,7 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
                 </button>
               </div>
               {selectedEntity.entityType && (
-                <p className="wiki-graph-entity-type">{selectedEntity.entityType}</p>
+                <p className={styles['wiki-graph-entity-type']}>{selectedEntity.entityType}</p>
               )}
               <section className="wiki-graph-entity-sources" aria-label="出现于以下资料">
                 <h5>出现于以下资料</h5>

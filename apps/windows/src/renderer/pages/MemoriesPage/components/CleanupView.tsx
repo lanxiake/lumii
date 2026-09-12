@@ -14,11 +14,19 @@ import type { WikiCleanupSuggestionItem } from '../../../hooks/business/useWikiP
 import { filterCleanupSuggestions, type CleanupReasonFilter } from './cleanupSelection'
 import { formatTopicDisplay } from './wikiTopicDisplay'
 import shared from './wiki-shared.module.css'
+import styles from './CleanupView.module.css'
 
 const REASON_LABEL: Record<WikiCleanupSuggestionItem['reason'], string> = {
   stale: '长期未用',
   broken_source: '来源失效',
   duplicate_content: '内容重复',
+}
+
+/** 清理原因 → 模块类名 */
+const REASON_CLASS: Record<WikiCleanupSuggestionItem['reason'], string> = {
+  stale: styles['wiki-cleanup-item-reason--stale'],
+  broken_source: styles['wiki-cleanup-item-reason--broken_source'],
+  duplicate_content: styles['wiki-cleanup-item-reason--duplicate_content'],
 }
 
 /** 建议动作文案（二期 §12） */
@@ -152,12 +160,12 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
         </p>
       ) : (
         <>
-          <div className="wiki-cleanup-filters" role="group" aria-label="按原因筛选">
+          <div className={styles['wiki-cleanup-filters']} role="group" aria-label="按原因筛选">
             {FILTER_CHIPS.map(({ key, label }) => (
               <button
                 key={key}
                 type="button"
-                className={`wiki-cleanup-filter-chip${reasonFilter === key ? ' wiki-cleanup-filter-chip--active' : ''}`}
+                className={`${styles['wiki-cleanup-filter-chip']}${reasonFilter === key ? ` ${styles['wiki-cleanup-filter-chip--active']}` : ''}`}
                 onClick={() => setReasonFilter(key)}
               >
                 {label}
@@ -165,7 +173,7 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
             ))}
           </div>
 
-          <div className="wiki-cleanup-toolbar">
+          <div className={styles['wiki-cleanup-toolbar']}>
             <Button variant="ghost" size="sm" onClick={handleToggleSelectAllVisible}>
               {allVisibleSelected ? '取消全选' : '全选当前'}
             </Button>
@@ -197,15 +205,15 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
           </div>
 
           {visible.map((s) => (
-            <label key={s.sourceId} className="wiki-cleanup-item">
+            <label key={s.sourceId} className={styles['wiki-cleanup-item']}>
               <input
                 type="checkbox"
                 checked={selected.has(s.sourceId)}
                 onChange={() => toggleSelected(s.sourceId)}
               />
-              <span className="wiki-cleanup-item-title">{s.title}</span>
-              <span className="wiki-cleanup-item-topic">{cleanupTopicLabel(s)}</span>
-              <span className={`wiki-cleanup-item-reason wiki-cleanup-item-reason--${s.reason}`}>
+              <span className={styles['wiki-cleanup-item-title']}>{s.title}</span>
+              <span className={styles['wiki-cleanup-item-topic']}>{cleanupTopicLabel(s)}</span>
+              <span className={`${styles['wiki-cleanup-item-reason']} ${REASON_CLASS[s.reason]}`}>
                 {REASON_LABEL[s.reason]}
               </span>
               {s.suggestedAction && (
