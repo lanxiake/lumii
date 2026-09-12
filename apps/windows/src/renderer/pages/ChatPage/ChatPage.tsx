@@ -27,7 +27,6 @@ import {
   writePersistedReasoningEffort,
 } from '../../../shared/session-thinking-prefs'
 import styles from './ChatPage.module.css'
-import './ChatPage.global.css'
 import { processFilesWithStrategies, appendAttachmentsToMessage } from './utils/file-attachment-strategy'
 import { useVoiceCall } from '../../hooks/business/useVoiceCall'
 import { useConversationReplay } from '../../hooks/business/useConversationReplay'

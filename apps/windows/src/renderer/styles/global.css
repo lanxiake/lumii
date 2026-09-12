@@ -125,6 +125,12 @@ a:hover {
   color: var(--mt-accent-600);
 }
 
+/* 键盘焦点样式（可访问性）— 全应用默认，各组件可用更高优先级覆盖 */
+*:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 /* Toggle Switch - 全局开关组件 */
 .toggle-switch {
   position: relative;
