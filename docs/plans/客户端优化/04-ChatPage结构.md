@@ -1,6 +1,6 @@
 # 第 4 片 · ChatPage 结构 — 实施计划
 
-> 创建：2026-09-12 · 状态：**待决策确认**（决策记录见第六节）
+> 创建：2026-09-12 · 状态：**已完成**（2026-09-12，3 个执行提交，见执行记录）
 > 上位文档：[客户端优化切片计划](./README.md)
 > 复核方式：逐行读完 4 个核心文件 + import 说明符解析脚本（不仅字符串搜索）+ 测试基线实测（vitest 单跑 2 个受影响文件）
 
@@ -156,3 +156,24 @@ export interface ChatMessageActions {
 1. **Context 范围：仅收敛纯穿透回调**（7 个回调进 Context + 删死 prop `userId`）。流式/回放等状态类 props 保持显式传递，保住现有 memo 门控。
 2. **零消费者桶：仅删 Toast 导出行**；整桶零引用的结论只登记在 1.3 节，未动。
 3. **提交粒度：三个独立提交**（4a / 4b / 4c），各自可单独验证与回滚。
+
+---
+
+## 七、执行记录（2026-09-12）
+
+三个批次全部完成，共 3 个执行提交（另加计划文档提交 `d5a1355`）：
+
+| 批次 | 提交 | 内容 | 验证 |
+|---|---|---|---|
+| 4a | `49781b8` | 本地 Toast 退场：22 处调用点改 `useToast`；删 `components/Toast`（43+65 行）、`FloatingOverlays`（19 行）、桶导出行；`ChatPage.test.tsx` 包 `ToastProvider` | 残留扫描零命中；typecheck + build 通过；2 个测试文件与基线逐一吻合（3 通过 / 6 失败） |
+| 4b | `ae8584a` | `handleRegenerateMessage` 改读 `runtimeStore.getState()`，deps 去掉 `runtimeMessages` | typecheck + build 通过 |
+| 4c | `153e593` | 新增 `contexts/ChatMessageActionsContext.tsx`（39 行）；`ChatContainer`/`ChatMessageRow`/`ChatMessage` props 各下线 8 个；`ChatMessage.parts.test.tsx` 包 Provider | typecheck + build 通过；渲染层全量测试 **21 失败 = 基线**（ChatPage 6 + ChatSidebar 13 + WikiTopicPicker 2），零新增；全仓旧 props 名残留扫描零命中 |
+
+**最终 props 数**：ChatContainer 22→14、ChatMessageRow 17→9、ChatMessage 15→7；`onReviewFileChanges` 的 4 层下传链路消除，改为 Context 直取。
+
+**执行期发现（登记未动）**：
+
+1. `components/index.ts` 桶全仓零消费者（按决策仅删其 Toast 行）。
+2. `WorkspaceVersionPanel.tsx:176-215` 存在另一套组件内联提示（`toast` state + 3s 定时器），与本次退场的 ChatPage 本地 Toast 非同一实现，属切片 5（组件/数据层规范）范围。
+
+**待人工冒烟**（清单见 2e）：流式对话打字/滚动、消息复制/编辑/删除/重新生成、语音消息回放、文件变更卡「查看」定位、Toast 各类型展示；重点确认长对话流式期间历史消息不再全量重渲染（4b 修复的实际效果）。
