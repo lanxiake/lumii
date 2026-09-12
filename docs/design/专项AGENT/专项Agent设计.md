@@ -301,14 +301,14 @@ Lumii ：✅ 已收到，正在处理…
 | 项 | claude | codex | opencode | cursor-agent |
 |----|--------|-------|----------|--------------|
 | 非交互可运行 | ✅ | ✅ | ✅ | 待测 |
-| 默认能否写文件 | ✅（本机；受 `~/.claude` 配置影响，跨机器不保证） | ❌ **沙箱拒绝**（`Set-Content` UnauthorizedAccess，exit 1），模型却回复「完成」→ **静默假成功** | ✅ | 待测 |
-| 可用权限参数 | `--permission-mode acceptEdits/bypassPermissions`、`--dangerously-skip-permissions`、`--add-dir` | `-s workspace-write` / `--full-auto` / `--dangerously-bypass-approvals-and-sandbox` | 配置/flag（待测） | `-f/--force`、`--auto-review`、`--sandbox` |
+| 默认能否写文件 | ✅（本机；受 `~/.claude` 配置影响，跨机器不保证） | ❌ **沙箱拒绝**（`Set-Content` UnauthorizedAccess，exit 1），模型却回复「完成」→ **静默假成功**；**2026-09-13 补充实测：Windows 上 `-s workspace-write` 仍失败，`--dangerously-bypass-approvals-and-sandbox` 实测可写** | ✅ | 待测 |
+| 可用权限参数 | `--permission-mode acceptEdits/bypassPermissions`、`--dangerously-skip-permissions`、`--add-dir` | `-s workspace-write` / `--full-auto` / `--dangerously-bypass-approvals-and-sandbox`（Windows 必须用后者档） | 配置/flag（待测） | `-f/--force`、`--auto-review`、`--sandbox` |
 | 会话续接 | `-p --resume <id>` ✅ **实测通过**（复述上一轮内容，cache 命中，成本约为新跑 1/9） | `codex exec resume <id> [prompt]`（prompt 用 `-` 走 stdin；`--last`） | `-c/--continue`、`-s/--session <id>` | `--resume [chatId]`、`--continue` |
 | 多行 argv | ✅（.exe） | 待测（shim） | 待测 | 风险高（`.cmd` shim，会截断到第一行） |
 | stdin 传 prompt | ✅ 实测可用 | ✅（prompt 传 `-`） | 待测 | 待测 |
 | 单次新跑输入 token | ≈26k（系统提示+全局 CLAUDE.md+工具定义） | ≈144k（本次实测） | — | — |
 
-> 实测命令与输出摘要见附录 A.5。**claude 默认可写恰好说明「默认行为不可依赖」**——它受用户本机 `~/.claude` 配置影响；设计取「显式传参」策略（§5.7）。
+> 实测命令与输出摘要见附录 A.5。**claude 默认可写的原因已查明（2026-09-13）**：本机 `~/.claude/settings.json` 的 `defaultMode=bypassPermissions`——即权限档由用户自己的 Claude Code 配置决定，因此实现取「不显式传参、尊重用户 CLI 配置」策略（§5.7）；显式 `acceptEdits` 反而会拒掉 Bash 类工具（挡住「跑测试」）。
 
 ### 4.2 Agent 定义与工具
 
@@ -490,10 +490,10 @@ Lumii 仓库的 `AGENTS.md` 已是现成的「仓库手册」——这正是 cod
 
 | 后端 | 建议参数 | 说明 |
 |------|---------|------|
-| claude | `--permission-mode acceptEdits`（默认）；binding 可覆盖为 `bypassPermissions` | acceptEdits 下文件编辑自动通过；命令类工具可能被拒 → P0 实测后决定默认档 |
-| codex | `-s workspace-write`（或 `--full-auto`） | **不加则静默假成功**，必须加 |
-| opencode | 先观察（默认已可写），P0 决定 | — |
-| cursor | `-f/--force`（替换疑似无效的 `--trust`） | P0 实测 |
+| claude | **不显式传参**（尊重用户 `~/.claude` 配置；本机实测 `defaultMode=bypassPermissions` 可写文件可跑命令）；binding 可覆盖为显式档 | `acceptEdits` 会拒 Bash 类工具（挡住「跑测试」），不做默认 |
+| codex | Windows：`--dangerously-bypass-approvals-and-sandbox`（实测沙箱在 Windows 不可用，`-s workspace-write` 仍写失败）；非 Windows：`-s workspace-write` | **不加则静默假成功**，必须加 |
+| opencode | 暂不加（默认已可写，实测） | 观察 |
+| cursor | `-f/--force`（替换疑似无效的 `--trust`；**待登录后实测**） | 当前保留 `--trust`，仅加 resume |
 
 **高风险点（保留）**：workspace 配错会误改其他项目。P3 校验：workspace 存在且是 git 仓库，否则启动前二次确认。Lumii 侧的权限闸门不覆盖 ACP 路径（CLI 有自己的权限系统），v1 不引入外层确认。
 
@@ -776,6 +776,8 @@ run 成功结束后 `git status --porcelain`（在 workspace 执行）→ 消息
 
 ## 11. 待实测 / 待确认
 
+> 2026-09-13 实施后状态：多轮续接已落地（claude 实测通过，codex/opencode/cursor 的参数按官方 --help 实现、会话标识字段待补测）；权限策略已按实测校准（见 §5.7）；cursor-agent 本机未登录，`-f`/`--trust` 待登录后实测。
+
 1. cursor-agent：`-f/--force` 行为；`.cmd` 多行 argv；stdin 支持；其 stream-json 的 session id 字段。
 2. codex/opencode：JSONL 流中的会话标识字段名（用于续接）；codex `exec resume` 与 `--json` 组合输出；opencode `--format json` 的事件形态。
 3. claude 在 `--permission-mode acceptEdits` 下 Bash 工具（如 `pnpm typecheck`）是否被拒——决定默认档。
@@ -828,6 +830,10 @@ run 成功结束后 `git status --porcelain`（在 workspace 执行）→ 消息
 | `opencode run "创建文件..."` | 文件创建成功；输出为格式化文本 + 插件迁移噪音（需 `--format json`） |
 | `cursor-agent --help` | 确认 `--resume/--continue/-f/--force/--output-format/--stream-partial-output/--auto-review/--sandbox`；**无 `--trust`** |
 | `codex exec resume --help` | `resume [SESSION_ID] [PROMPT]`，prompt 传 `-` 读 stdin，`--last` 续最近 |
+| `codex exec ... -s workspace-write "创建文件..."`（2026-09-13） | 文件写入**仍失败**（`item.completed/file_change status:"failed"`），模型仍回复「完成」→ Windows 上沙箱不可用 |
+| `codex exec ... --dangerously-bypass-approvals-and-sandbox "创建文件..."`（2026-09-13） | 文件**真实创建**（`Get-Content` 读回 ok）；单次 input ≈94k tokens |
+| `cursor-agent -p "..." --output-format json`（2026-09-13） | 未登录：`Authentication required. Please run 'agent login' first, or set CURSOR_API_KEY` → `-f`/`--trust` 行为待登录后实测 |
+| `~/.claude/settings.json` 检查（2026-09-13） | `defaultMode=bypassPermissions`——解释 claude 默认可写；权限档随用户 CLI 配置 |
 
 ## 附录 B：与现有机制的关系
 
