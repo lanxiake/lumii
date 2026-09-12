@@ -383,3 +383,24 @@
 .evolution-entry-label {
   font-weight: var(--mt-fw-medium);
 }
+
+/* 分组内会话列表：固定高度（约 5 条），超出部分组内滚轮滑动，不影响其他分组布局 */
+.group-scroll {
+  max-height: 160px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scroll-snap-type: y proximity;
+}
+
+.group-scroll > * {
+  scroll-snap-align: start;
+}
+
+.group-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.group-scroll::-webkit-scrollbar-thumb {
+  background: var(--mt-border-hairline);
+  border-radius: 3px;
+}

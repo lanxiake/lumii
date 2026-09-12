@@ -212,6 +212,80 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
     return { isSearch, visible }
   }, [filteredSessions, searchQuery, tab])
 
+  /**
+   * 默认 tab 视图：把「系统默认」渠道的会话按 Agent 分组。
+   * 主助手（agentId 为空/default/assistant）恒为第一组且无标题；其余每个有会话的 Agent 一组，按最近活跃排序。
+   */
+  const agentGroups = useMemo(() => {
+    if (tab !== 'default') return []
+    const today = new Date()
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const isSearch = Boolean(searchQuery.trim())
+
+    const groups = new Map<
+      string,
+      {
+        key: string
+        agentId: string | null
+        pinned: ChatSession[]
+        sessions: ChatSession[]
+        today: ChatSession[]
+        yesterday: ChatSession[]
+        earlier: ChatSession[]
+        total: number
+        latest: number
+      }
+    >()
+
+    for (const session of filteredSessions) {
+      if (normalizeChannel(session.channel) !== 'default') continue
+      const isMain = !session.agentId || session.agentId === 'default' || session.agentId === 'assistant'
+      const key = isMain ? '__main__' : session.agentId!
+      let g = groups.get(key)
+      if (!g) {
+        g = { key, agentId: isMain ? null : session.agentId!, pinned: [], sessions: [], today: [], yesterday: [], earlier: [], total: 0, latest: 0 }
+        groups.set(key, g)
+      }
+      g.total++
+      g.latest = Math.max(g.latest, session.updatedAt.getTime())
+      if (session.isPinned) {
+        g.pinned.push(session)
+        continue
+      }
+      if (isSearch) {
+        if (isSameDay(session.updatedAt, today)) g.today.push(session)
+        else if (isSameDay(session.updatedAt, yesterday)) g.yesterday.push(session)
+        else g.earlier.push(session)
+      } else {
+        g.sessions.push(session)
+      }
+    }
+
+    const sortByUpdated = (a: ChatSession, b: ChatSession) =>
+      b.updatedAt.getTime() - a.updatedAt.getTime()
+    const list = [...groups.values()]
+    for (const g of list) {
+      g.pinned.sort(sortByUpdated)
+      g.sessions.sort(sortByUpdated)
+      g.today.sort(sortByUpdated)
+      g.yesterday.sort(sortByUpdated)
+      g.earlier.sort(sortByUpdated)
+    }
+    // 主助手组置顶；其余按最近活跃倒序
+    list.sort((a, b) =>
+      a.key === '__main__' ? -1 : b.key === '__main__' ? 1 : b.latest - a.latest,
+    )
+    return list
+  }, [filteredSessions, searchQuery, tab])
+
+  /** 非搜索态会话列表：固定高度容器，约 5 条可见，滚轮在组内滑动分页（布局不动） */
+  const renderSessionsScrollable = (groupKey: string, list: ChatSession[]) => (
+    <div className={styles['group-scroll']} data-group={groupKey}>
+      {renderSessionItems(list)}
+    </div>
+  )
+
   // 新出现的非默认渠道默认折叠，避免列表过长抢焦点
   const prevChannelKeysRef = useRef<string[]>([])
   useEffect(() => {
@@ -347,16 +421,71 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       </div>
 
       <div className={styles['conversations-list']}>
-        {channelGroups.visible.length === 0 ? (
-          <div className={styles['no-conversations']}>
-            {tab === 'channel'
-              ? '暂无渠道会话，先绑定渠道'
-              : tab === 'system'
-                ? '暂无系统会话'
-                : '暂无会话，点击上方按钮创建'}
-          </div>
-        ) : searchQuery.trim() && filteredSessions.length === 0 ? (
+        {searchQuery.trim() && filteredSessions.length === 0 ? (
           <div className={styles['no-search-results']}>未找到匹配的会话</div>
+        ) : tab === 'default' ? (
+          agentGroups.length === 0 ? (
+            <div className={styles['no-conversations']}>暂无会话，点击上方按钮创建</div>
+          ) : (
+            agentGroups.map((g) => {
+              const collapseKey = `agent:${g.key}`
+              const isCollapsed = collapsedChannels.has(collapseKey)
+              const groupHasRunning = [...g.pinned, ...g.sessions].some((s) => s.isStreaming)
+              const agentInfo = g.agentId ? agentsMap.get(g.agentId) : null
+              const groupLabel = g.agentId ? (agentInfo?.name ?? g.agentId) : '主助手'
+              return (
+                <div key={g.key} className={styles['channel-group']}>
+                  <div
+                    className={`${styles['channel-group-label']} ${styles['channel-group-label--collapsible']}`}
+                    onClick={() => toggleChannel(collapseKey)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        toggleChannel(collapseKey)
+                      }
+                    }}
+                  >
+                    <span>{groupLabel}</span>
+                    <span className={styles['group-count']}>({g.total})</span>
+                    {isCollapsed && groupHasRunning && (
+                      <span className={styles['running-dot']} aria-label="有运行中的对话" />
+                    )}
+                    <span
+                      className={`${styles['group-chevron']}${isCollapsed ? ` ${styles['group-chevron--collapsed']}` : ''}`}
+                    >
+                      ▾
+                    </span>
+                  </div>
+
+                  <div
+                    className={`${styles['channel-group-body']}${isCollapsed ? ` ${styles['channel-group-body--collapsed']}` : ''}`}
+                  >
+                    {g.pinned.length > 0 && (
+                      <div className={styles['channel-subgroup']}>
+                        <div className={styles['channel-subgroup-label']}>置顶</div>
+                        {renderSessionItems(g.pinned)}
+                      </div>
+                    )}
+                    {channelGroups.isSearch ? (
+                      <>
+                        {renderTimeSubGroup('今天', g.today)}
+                        {renderTimeSubGroup('昨天', g.yesterday)}
+                        {renderTimeSubGroup('更早', g.earlier)}
+                      </>
+                    ) : (
+                      renderSessionsScrollable(g.key, g.sessions)
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          )
+        ) : channelGroups.visible.length === 0 ? (
+          <div className={styles['no-conversations']}>
+            {tab === 'channel' ? '暂无渠道会话，先绑定渠道' : '暂无系统会话'}
+          </div>
         ) : (
           channelGroups.visible.map((group) => {
             const key = group.meta.id
@@ -364,8 +493,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
             const groupHasRunning = runningIndicators.byChannel.has(key)
             return (
               <div key={key} className={styles['channel-group']}>
-                {/* 默认 tab 只有一个分组，tab 本身已表明来源，不再重复渠道标题；折叠且有运行中会话时显示脉冲点 */}
-                {tab !== 'default' && <div
+                <div
                   className={`${styles['channel-group-label']} ${styles['channel-group-label--collapsible']}`}
                   onClick={() => toggleChannel(key)}
                   role="button"
@@ -388,10 +516,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                   >
                     ▾
                   </span>
-                </div>}
+                </div>
 
                 <div
-                  className={`${styles['channel-group-body']}${tab !== 'default' && isCollapsed ? ` ${styles['channel-group-body--collapsed']}` : ''}`}
+                  className={`${styles['channel-group-body']}${isCollapsed ? ` ${styles['channel-group-body--collapsed']}` : ''}`}
                 >
                   {group.total === 0 ? (
                     group.meta.id === 'evolution' && tab === 'system' ? (
@@ -421,7 +549,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                           {renderTimeSubGroup('更早', group.earlier)}
                         </>
                       ) : (
-                        renderSessionItems(group.sessions)
+                        renderSessionsScrollable(`ch:${key}`, group.sessions)
                       )}
                     </>
                   )}
