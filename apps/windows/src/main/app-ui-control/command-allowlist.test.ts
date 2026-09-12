@@ -38,6 +38,11 @@ describe('COMMAND_ALLOWLIST', () => {
     expect(COMMAND_ALLOWLIST.has('mcp:status')).toBe(true)
   })
 
+  it('放行开发上下文命令（会话级项目设置与查询，B 片）', () => {
+    expect(isCommandExposed('codingDev:setProject')).toBe(true)
+    expect(isCommandExposed('codingDev:getDevContext')).toBe(true)
+  })
+
   it('放行 Task 6 新增记忆命令（search/stats/archiveCold/unarchive/rebuildIndex）', () => {
     for (const t of [
       'agent:memories:search',
