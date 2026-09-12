@@ -11,6 +11,7 @@ import { Sidebar, SIDEBAR_TOGGLE_EVENT, ViewType } from '../Sidebar';
 import { TitleBar } from '../TitleBar';
 import { StatusBar } from '../StatusBar';
 import { WindowEdgeGlow } from '../WindowEdgeGlow';
+import { isWindowMaximized } from '../../../services/window-service';
 import styles from './MainLayout.module.css';
 
 export interface MainLayoutProps {
@@ -32,14 +33,6 @@ export interface MainLayoutProps {
   version?: string;
   /** 侧边栏是否默认折叠 */
   defaultSidebarCollapsed?: boolean;
-  /** Electron API */
-  electronAPI?: {
-    window: {
-      minimize: () => void;
-      maximize: () => void;
-      close: () => void;
-    };
-  };
   /** 自定义类名 */
   className?: string;
   /** 是否禁用侧边栏 */
@@ -67,7 +60,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   isConnected = false,
   version = 'v0.1.3',
   defaultSidebarCollapsed = false,
-  electronAPI,
   className = '',
   disableSidebar = false,
   customTitleBar,
@@ -85,9 +77,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
    */
   const refreshMaximized = useCallback(async () => {
     try {
-      const api = electronAPI?.window ?? window.electronAPI?.window;
-      if (api && 'isMaximized' in api && typeof api.isMaximized === 'function') {
-        setIsMaximized(await api.isMaximized());
+      const max = await isWindowMaximized();
+      if (max !== null) {
+        setIsMaximized(max);
         return;
       }
     } catch {
@@ -97,7 +89,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       window.outerWidth >= window.screen.availWidth - 2
       && window.outerHeight >= window.screen.availHeight - 2,
     );
-  }, [electronAPI]);
+  }, []);
 
   // 检测移动端
   useEffect(() => {
@@ -172,7 +164,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           isConnected={isConnected}
           onMenuClick={disableSidebar ? undefined : handleMenuClick}
           showMenuButton={!disableSidebar}
-          electronAPI={electronAPI}
           themeToggle={themeToggle}
           extraActions={extraActions}
         />

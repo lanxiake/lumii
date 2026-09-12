@@ -9,6 +9,7 @@
  */
 
 import React, { useEffect, useRef } from 'react'
+import { getCursorClientPos } from '../../../services/window-service'
 import styles from './WindowEdgeGlow.module.css'
 
 type Edge = 'top' | 'right' | 'bottom' | 'left'
@@ -276,11 +277,9 @@ export const WindowEdgeGlow: React.FC<WindowEdgeGlowProps> = ({ disabled = false
      * 从主进程拉取光标（可穿透标题栏 drag 区）
      */
     const pollCursor = () => {
-      const api = window.electronAPI?.window
-      if (!api || typeof api.getCursorClientPos !== 'function') return
       if (pollInFlight.current) return
       pollInFlight.current = true
-      void api.getCursorClientPos()
+      void getCursorClientPos()
         .then((pos) => {
           if (!alive || !pos) return
           applyPos(pos.x, pos.y, pos.inside)

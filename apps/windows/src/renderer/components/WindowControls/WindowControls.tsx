@@ -5,19 +5,20 @@
  */
 
 import React from 'react'
+import { minimizeWindow, maximizeWindow, closeWindow } from '../../services/window-service'
 import styles from './WindowControls.module.css'
 
 export const WindowControls: React.FC = () => {
   const handleMinimize = () => {
-    window.electronAPI.window.minimize()
+    minimizeWindow()
   }
 
   const handleMaximize = () => {
-    window.electronAPI.window.maximize()
+    maximizeWindow()
   }
 
   const handleClose = () => {
-    window.electronAPI.window.close()
+    closeWindow()
   }
 
   return (

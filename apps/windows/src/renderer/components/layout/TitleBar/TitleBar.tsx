@@ -8,6 +8,7 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { Type } from 'lucide-react';
 import { useAppFontScale } from '../../../contexts/AppFontScaleContext/AppFontScaleContext';
+import { minimizeWindow, maximizeWindow, closeWindow } from '../../../services/window-service';
 import styles from './TitleBar.module.css';
 
 export interface TitleBarProps {
@@ -29,14 +30,6 @@ export interface TitleBarProps {
   themeToggle?: React.ReactNode;
   /** 额外操作区（录屏等，放在字号按钮旁） */
   extraActions?: React.ReactNode;
-  /** Electron API 对象（用于窗口控制） */
-  electronAPI?: {
-    window: {
-      minimize: () => void;
-      maximize: () => void;
-      close: () => void;
-    };
-  };
 }
 
 /**
@@ -52,7 +45,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   className = '',
   themeToggle,
   extraActions,
-  electronAPI,
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
   const { level, label, cycle } = useAppFontScale();
@@ -78,34 +70,22 @@ export const TitleBar: React.FC<TitleBarProps> = ({
    * 最小化窗口
    */
   const handleMinimize = useCallback(() => {
-    if (electronAPI?.window?.minimize) {
-      electronAPI.window.minimize();
-    } else if (typeof window !== 'undefined' && (window as any).electronAPI?.window?.minimize) {
-      (window as any).electronAPI.window.minimize();
-    }
-  }, [electronAPI]);
+    minimizeWindow();
+  }, []);
 
   /**
    * 最大化/还原窗口
    */
   const handleMaximize = useCallback(() => {
-    if (electronAPI?.window?.maximize) {
-      electronAPI.window.maximize();
-    } else if (typeof window !== 'undefined' && (window as any).electronAPI?.window?.maximize) {
-      (window as any).electronAPI.window.maximize();
-    }
-  }, [electronAPI]);
+    maximizeWindow();
+  }, []);
 
   /**
    * 关闭窗口
    */
   const handleClose = useCallback(() => {
-    if (electronAPI?.window?.close) {
-      electronAPI.window.close();
-    } else if (typeof window !== 'undefined' && (window as any).electronAPI?.window?.close) {
-      (window as any).electronAPI.window.close();
-    }
-  }, [electronAPI]);
+    closeWindow();
+  }, []);
 
   return (
     <header className={`${styles['title-bar']} ${className}`}>
