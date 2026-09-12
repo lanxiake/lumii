@@ -175,6 +175,21 @@ function parentOf(p: string): string {
   return i <= 0 ? n : n.slice(0, i)
 }
 
+/**
+ * 拖拽移动后可局部刷新的目录集合；无效操作返回 null。
+ * 无效：拖到自身 / 拖到自己子孙目录（Windows 会直接失败）/ 已在本目录（无变化）。
+ * 除源父目录与目标目录外，还带上目标父目录——目标可能是刚建好、尚未加载的目录。
+ */
+export function moveRefreshDirs(dragPath: string, targetDir: string): string[] | null {
+  const src = normPath(dragPath)
+  const dest = normPath(targetDir)
+  if (!src || !dest) return null
+  if (dest === src || dest.startsWith(src + '/')) return null
+  const srcParent = parentOf(src)
+  if (srcParent === dest) return null
+  return [...new Set([parentOf(dest), srcParent, dest])]
+}
+
 // ── 单节点（递归） ────────────────────────────────────────────────────────
 
 // ── 相对路径（用于拖入输入框作 @引用） ──
@@ -581,24 +596,11 @@ export const FileTree: React.FC<FileTreeProps> = ({
     onContextMenu(e, rootItem)
   }, [rootPath, onContextMenu])
 
-  /** 计算拖拽移动需要的局部刷新目录；同目录/移入自身或子孙目录属无效操作，返回 null */
-  const computeMoveDirs = useCallback((dragPath: string, targetDir: string): string[] | null => {
-    const src = normPath(dragPath)
-    const dest = normPath(targetDir)
-    if (src === dest) return null
-    // 拖入自身或自己的子孙目录：Windows 会直接失败，预先拦掉
-    if (dest === src || dest.startsWith(src + '/')) return null
-    if (parentOf(src) === dest) return null
-    const dirs = [parentOf(src), dest]
-    // 目标父目录也重拉：目标目录可能是刚创建、尚未加载的
-    return [...new Set([parentOf(dest), ...dirs])]
-  }, [])
-
   const handleDropMove = useCallback(async (dragPath: string, targetDir: string) => {
+    const dirs = moveRefreshDirs(dragPath, targetDir)
+    if (!dirs) return
     const src = normPath(dragPath)
     const dest = normPath(targetDir)
-    const dirs = computeMoveDirs(src, dest)
-    if (!dirs) return
     const name = src.split('/').filter(Boolean).pop()
     if (!name) return
     try {
@@ -610,7 +612,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
       return
     }
     onTreeMutated(dirs)
-  }, [computeMoveDirs, onTreeMutated])
+  }, [onTreeMutated])
 
   const rootDropRef = useRef<HTMLDivElement>(null)
   const handleRootDragOver = useCallback((e: React.DragEvent) => {
