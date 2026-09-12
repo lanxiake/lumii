@@ -172,6 +172,23 @@ describe('ScreenRecordService — 状态机基础（设计 §9.1）', () => {
     expect(statusOf(svc)).toBe('idle')
   })
 
+  it('pending_confirm 时 status 携带恢复字段（sourceType/purpose/剩余秒）', async () => {
+    const r = await svc.start({ sourceId: 'screen-1' })
+    expect(r.ok && r.status).toBe('needs_confirmation')
+    const s = svc.getStatus()
+    expect(s).toMatchObject({
+      ok: true,
+      status: 'pending_confirm',
+      pendingConfirm: true,
+      sourceType: 'screen',
+      purpose: 'record',
+    })
+    if (s.ok) {
+      expect(typeof s.confirmStartedAt).toBe('number')
+      expect(typeof s.confirmTimeoutSec).toBe('number')
+    }
+  })
+
   it('非自身源 + alwaysAllow=true → 直接 recording，跳过 pending_confirm', async () => {
     deps = makeFakeDeps({ alwaysAllow: true })
     svc = createScreenRecordService(deps)

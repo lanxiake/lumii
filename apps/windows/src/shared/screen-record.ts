@@ -225,6 +225,10 @@ export type ScreenRecordStatusResult =
       includeMic?: boolean
       /** 目标窗口被最小化/遮挡导致画面丢失，成片已冻结最后一帧 */
       targetHidden?: boolean
+      /** 确认恢复用：pending_confirm 时的源类型（刷新窗口后重建弹窗） */
+      sourceType?: 'screen' | 'window'
+      /** 确认恢复用：pending_confirm 时的用途（record / screenshot） */
+      purpose?: 'record' | 'screenshot'
     }
   | { ok: false; error: ScreenRecordErrorCode }
 

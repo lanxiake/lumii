@@ -149,6 +149,8 @@ interface InternalState {
   writer: ScreenRecordWriteStream | null
   confirmStartedAt: number | null
   confirmTimeoutSec: number
+  /** 确认用途（status 回读给刷新后的渲染层恢复弹窗用） */
+  confirmPurpose: 'record' | 'screenshot' | null
   confirmTimer: ReturnType<typeof setTimeout> | null
   maxDurationTimer: ReturnType<typeof setTimeout> | null
   nextChunkIndex: number
@@ -221,6 +223,7 @@ function createIdleState(): InternalState {
     writer: null,
     confirmStartedAt: null,
     confirmTimeoutSec: SCREEN_RECORD_SETTINGS_DEFAULTS.confirmTimeoutSec,
+    confirmPurpose: null,
     confirmTimer: null,
     maxDurationTimer: null,
     nextChunkIndex: 0,
@@ -317,6 +320,14 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       const elapsed = Math.floor((now - state.confirmStartedAt) / 1000)
       confirmTimeoutSec = Math.max(0, state.confirmTimeoutSec - elapsed)
     }
+    // 刷新窗口后恢复确认弹窗所需（仅确认中提供；缩略图在录屏确认流本就不提供）
+    const confirmRestore =
+      state.status === 'pending_confirm'
+        ? {
+            sourceType: state.sourceType ?? undefined,
+            purpose: state.confirmPurpose ?? undefined,
+          }
+        : {}
     return {
       ok: true,
       status: state.status,
@@ -330,6 +341,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
       confirmStartedAt: state.confirmStartedAt ?? undefined,
       includeMic: state.includeMic,
       targetHidden: state.targetHidden || undefined,
+      ...confirmRestore,
     }
   }
 
@@ -764,6 +776,7 @@ export function createScreenRecordService(deps: ScreenRecordServiceDeps): Screen
           maxDurationSec,
           confirmStartedAt: startedAt,
           confirmTimeoutSec: settings.confirmTimeoutSec,
+          confirmPurpose: 'record',
           startLock: false,
         }
         deps.notifyRendererConfirmRequested({

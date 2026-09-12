@@ -89,6 +89,20 @@ export function useScreenRecord() {
         setElapsedMs(s.elapsedMs ?? 0)
         setSessionId(s.sessionId)
         setSourceName(s.sourceName)
+        if (s.status === 'pending_confirm' && s.pendingConfirm && s.sessionId) {
+          // 刷新窗口后恢复确认弹窗（主进程确认态与定时器仍在）；
+          // Dialog 倒计时按 timeoutSec-(now-startedAt) 计，故 startedAt 取恢复时刻、
+          // timeoutSec 取剩余秒，与主进程超时截止点一致
+          setPendingConfirm({
+            sessionId: s.sessionId,
+            sourceName: s.sourceName ?? '',
+            sourceType: s.sourceType ?? 'window',
+            sourceId: s.sourceId ?? '',
+            timeoutSec: s.confirmTimeoutSec ?? 0,
+            startedAt: Date.now(),
+            purpose: s.purpose ?? 'record',
+          })
+        }
       }
     })
 
