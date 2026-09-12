@@ -90,7 +90,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const toast = useToast()
   const {
     settings,
-    hasChanges,
     updateNotification,
     updatePrivacy,
     updateWorkspace,

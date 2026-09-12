@@ -65,7 +65,7 @@ export function buildReadScript(keyPath?: string): string {
 /**
  * 生成在渲染进程内原子完成「读-merge-写-广播」的注入脚本。
  * patch 经 JSON.stringify 后直接内嵌（已是合法 JS 字面量，禁止二次 stringify）。
- * deepMerge 语义对齐 useSettings.ts:91-112。
+ * deepMerge 语义对齐 renderer 侧 settings-core.ts 的 deepMerge。
  */
 export function buildPatchScript(patch: Record<string, unknown>): string {
   return `(() => {

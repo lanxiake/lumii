@@ -2,7 +2,8 @@
  * useSettings/index.ts - 设置管理统一导出
  */
 
-export { useSettings, SETTINGS_STORAGE_KEY, SETTINGS_UPDATE_EVENT } from './useSettings'
+export { useSettings } from './useSettings'
+export { SETTINGS_STORAGE_KEY, SETTINGS_UPDATE_EVENT } from './settings-core'
 export { useCategorySettings } from './useCategorySettings'
 export type { UseSettingsReturn } from './useSettings'
 export type { UseCategorySettingsReturn } from './useCategorySettings'
