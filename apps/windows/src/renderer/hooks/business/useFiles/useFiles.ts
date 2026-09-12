@@ -7,6 +7,7 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { useQuery } from '../../common/useQuery'
+import { writeClipboardText } from '../../../services/clipboard-service'
 import type {
   FileItem,
   UserPaths,
@@ -363,7 +364,7 @@ export function useFiles(config?: FileManagerConfig) {
    * 复制文件路径到系统剪贴板。
    */
   const copyPathToClipboard = useCallback((path: string): void => {
-    void window.electronAPI.clipboard.writeText(path)
+    void writeClipboardText(path)
   }, [])
 
   /** 搜索文件 */

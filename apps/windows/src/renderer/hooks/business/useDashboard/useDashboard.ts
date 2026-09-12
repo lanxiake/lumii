@@ -8,6 +8,7 @@
 
 import { useCallback, useMemo, useState } from 'react'
 import { useQuery } from '../../common/useQuery'
+import { queryUsage } from '../../../services/usage-service'
 import type { RuntimeGauges, SkillStats, UsageRange, UsageView } from './useDashboard.types'
 
 /** 系统信息轮询间隔。CPU 是两次采样差分，间隔即统计窗口 */
@@ -84,11 +85,8 @@ export function useDashboard() {
   const { from, to, groupBy } = useMemo(() => resolveRange(usageRange), [usageRange])
 
   const fetchUsage = useCallback(async (): Promise<UsageView> => {
-    const res = await window.electronAPI.usage.query({ from, to, groupBy })
-    if (!res.success || !res.data) {
-      throw new Error(res.error || '查询用量失败')
-    }
-    return { ...res.data, buckets: [...res.data.buckets], groupBy }
+    const data = await queryUsage({ from, to, groupBy })
+    return { ...data, buckets: [...data.buckets], groupBy }
   }, [from, to, groupBy])
 
   const {
