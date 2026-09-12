@@ -239,7 +239,7 @@
 }
 
 .listNameError {
-  color: var(--mt-danger, #e5484d);
+  color: var(--mt-error, #e5484d);
   font-weight: 400;
 }
 
@@ -252,12 +252,12 @@
 }
 
 .listDescError {
-  color: var(--mt-danger, #e5484d);
+  color: var(--mt-error, #e5484d);
 }
 
 .listStatus {
   font-size: 11px;
-  color: var(--mt-danger, #e5484d);
+  color: var(--mt-error, #e5484d);
   flex-shrink: 0;
 }
 

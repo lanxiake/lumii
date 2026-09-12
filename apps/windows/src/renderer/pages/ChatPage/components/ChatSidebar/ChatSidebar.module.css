@@ -260,7 +260,7 @@
   color: var(--mt-fg-2);
   font-family: var(--mt-font-mono);
   font-size: calc(11px * var(--app-font-scale, 1));
-  font-weight: var(--mt-fw-normal);
+  font-weight: var(--mt-fw-regular);
   line-height: 1.6;
   letter-spacing: var(--mt-tracking-wide);
 }

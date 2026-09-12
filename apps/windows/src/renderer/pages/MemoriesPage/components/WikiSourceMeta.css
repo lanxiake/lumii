@@ -46,8 +46,8 @@
 }
 
 .wiki-source-meta-tag {
-  color: var(--accent-primary);
-  background: var(--accent-bg);
+  color: var(--mt-accent-500);
+  background: rgba(var(--mt-accent-rgb), 0.12);
   padding: 2px 8px;
   border-radius: 10px;
   font-size: 11px;

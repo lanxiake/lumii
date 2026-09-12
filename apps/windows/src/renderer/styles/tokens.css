@@ -203,6 +203,7 @@
   --spacing-sm: var(--spacing-2);
   --spacing-md: var(--spacing-4);
   --spacing-lg: var(--spacing-6);
+  --spacing-xl: var(--spacing-8);
 }
 
 /* ============================================================
@@ -309,7 +310,69 @@
   --text-muted:    var(--mt-fg-4);
   --border-color:  var(--mt-border);
   --border-radius: var(--mt-radius-lg);
+  --border-radius-lg: var(--radius-lg);
   --font-family:   var(--mt-font-sans);
+  --font-mono:     var(--mt-font-mono);
+
+  /* ============================================================
+     补齐：此前「被引用但从未定义」的变量（2026-09）
+     这些变量在组件样式里被引用，但全仓从未定义 → 全部落到各自的 fallback 上，
+     同一语义存在多种色值且不随主题切换。此处统一收口。
+     ============================================================ */
+
+  /* 文字/其他旧名 */
+  --text-tertiary:      var(--color-text-tertiary);
+  --color-text-muted:   var(--mt-fg-3);
+  --color-text:         var(--mt-fg-1);
+  --color-text-light:   var(--mt-slate-50);   /* A2UI 主按钮上的亮色文字，不随主题变 */
+  --color-primary-rgb:  var(--mt-accent-rgb);
+  --color-primary-dark: var(--mt-accent-600);
+  --color-code-bg:      var(--mt-code-bg);
+  --bg-code:            var(--mt-code-bg);
+  --color-bg:           var(--mt-bg-primary);
+  --bg-surface:         var(--mt-bg-secondary);
+
+  /* 表面/叠加：用 fg-1 混色 —— 暗色下≈原白叠加，浅色下自动转为深叠加 */
+  --color-bg-hover:         color-mix(in srgb, var(--mt-fg-1) 6%, transparent);
+  --color-bg-active:        color-mix(in srgb, var(--mt-fg-1) 10%, transparent);
+  --color-surface:          color-mix(in srgb, var(--mt-fg-1) 4%, transparent);
+  --color-surface-hover:    color-mix(in srgb, var(--mt-fg-1) 6%, transparent);
+  --color-surface-elevated: color-mix(in srgb, var(--mt-fg-1) 5%, transparent);
+  --color-surface-raised:   color-mix(in srgb, var(--mt-fg-1) 3%, transparent);
+  --color-bg-subtle:        rgba(var(--mt-accent-rgb), 0.06);
+  --color-bg-inverse:       var(--mt-slate-800);
+  --color-bg-input:         var(--mt-bg-primary);
+  --color-input-bg:         var(--mt-bg-overlay);
+  --color-border-hover:     var(--mt-border-light);
+  --color-border-strong:    var(--mt-border-light);
+  --color-border-subtle:    var(--mt-border-hairline);
+
+  /* 语义色变体与色板补全
+   * 注: 浅底深字的"芯片色板"（#fef2f2 等）按原 fallback 固定，不做主题化——
+   * 主题化会破坏对比度；集中于此便于将来单点替换。 */
+  --color-danger:         var(--mt-error);
+  --color-danger-bg:      #fee2e2;
+  --color-danger-50:      #fef2f2;
+  --color-danger-600:     #dc2626;
+  --color-error-bg:       var(--color-danger-bg);
+  --color-success-bg:     #d1fae5;
+  --color-success-50:     #f0fdf4;
+  --color-success-600:    #16a34a;
+  --color-success-text:   #065f46;
+  --color-warning-bg:     #fef3c7;
+  --color-warning-50:     #fffbeb;
+  --color-warning-600:    #d97706;
+  --color-warning-text:   #92400e;
+  --color-warning-border: var(--mt-warning);
+  --color-warning-10:     rgba(var(--mt-warning-rgb), 0.10);
+  --color-info-bg:        rgba(var(--mt-accent-rgb), 0.10);
+  --color-info-border:    rgba(var(--mt-accent-rgb), 0.30);
+  --color-info-10:        rgba(var(--mt-accent-rgb), 0.10);
+  --color-primary-10:     rgba(var(--mt-accent-rgb), 0.10);
+  --color-primary-light:  rgba(var(--mt-accent-rgb), 0.08);
+  --color-primary-bg:     #eff6ff;
+  --color-primary-subtle: #dbeafe;
+  --color-shadow-dark:    rgba(0, 0, 0, 0.35);
 }
 
 /* ============================================================

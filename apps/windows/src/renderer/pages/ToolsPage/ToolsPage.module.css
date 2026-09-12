@@ -34,13 +34,13 @@
 }
 
 .tab:hover {
-  background: var(--mt-bg-hover, var(--color-bg-hover));
+  background: var(--mt-bg-tertiary, var(--color-bg-hover));
   color: var(--mt-fg-1, var(--color-text-primary));
 }
 
 .tab.active {
-  background: var(--mt-primary-subtle, var(--color-primary-subtle));
-  color: var(--mt-primary, var(--color-primary));
+  background: rgba(var(--mt-accent-rgb), 0.12);
+  color: var(--mt-accent-500, var(--color-primary));
 }
 
 .badge {
@@ -50,14 +50,14 @@
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
-  background: var(--mt-bg-3, var(--color-bg-tertiary));
+  background: var(--mt-bg-tertiary, var(--color-bg-tertiary));
   border-radius: 10px;
   font-size: 11px;
   font-weight: 600;
 }
 
 .tab.active .badge {
-  background: var(--mt-primary, var(--color-primary));
+  background: var(--mt-accent-500, var(--color-primary));
   color: white;
 }
 

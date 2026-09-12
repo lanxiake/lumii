@@ -54,7 +54,7 @@
 }
 
 .status-text.info {
-  color: var(--primary-color, #6366f1);
+  color: var(--mt-accent-500, #6366f1);
 }
 
 .status-text.error {
@@ -84,7 +84,7 @@
 
 .progress-fill {
   height: 100%;
-  background-color: var(--primary-color, #6366f1);
+  background-color: var(--mt-accent-500, #6366f1);
   transition: width 0.3s ease;
 }
 

@@ -150,7 +150,7 @@
   gap: var(--mt-space-2, 8px);
   margin-top: var(--mt-space-3, 12px);
   padding: var(--mt-space-3, 12px);
-  border: 1px solid var(--mt-border-1);
+  border: 1px solid var(--mt-border);
   border-radius: var(--mt-radius-lg, 8px);
   background: var(--mt-bg-secondary);
 }
@@ -160,7 +160,7 @@
   resize: vertical;
   min-height: 72px;
   padding: var(--mt-space-2, 8px);
-  border: 1px solid var(--mt-border-1);
+  border: 1px solid var(--mt-border);
   border-radius: var(--mt-radius-md, 6px);
   background: var(--mt-bg-primary);
   color: var(--mt-fg-1);
@@ -502,7 +502,7 @@
 
 .tabActive {
   color: var(--mt-fg-1);
-  background: color-mix(in srgb, var(--mt-accent, #3b82f6) 12%, transparent);
+  background: color-mix(in srgb, var(--mt-accent-500, #3b82f6) 12%, transparent);
   font-weight: var(--mt-fw-semibold, 600);
 }
 
@@ -551,7 +551,7 @@
 
 .chipActive {
   border-color: transparent;
-  background: color-mix(in srgb, var(--mt-accent, #3b82f6) 16%, transparent);
+  background: color-mix(in srgb, var(--mt-accent-500, #3b82f6) 16%, transparent);
   color: var(--mt-fg-1);
 }
 
@@ -642,8 +642,8 @@
 }
 
 .libraryItemActive {
-  border-color: var(--mt-accent, #3b82f6);
-  background: color-mix(in srgb, var(--mt-accent, #3b82f6) 10%, transparent);
+  border-color: var(--mt-accent-500, #3b82f6);
+  background: color-mix(in srgb, var(--mt-accent-500, #3b82f6) 10%, transparent);
 }
 
 .libraryName {
@@ -810,8 +810,8 @@
 }
 
 .cueItemActive {
-  border-color: var(--mt-accent, #3b82f6);
-  background: color-mix(in srgb, var(--mt-accent, #3b82f6) 8%, transparent);
+  border-color: var(--mt-accent-500, #3b82f6);
+  background: color-mix(in srgb, var(--mt-accent-500, #3b82f6) 8%, transparent);
 }
 
 .cueMeta {
@@ -824,7 +824,7 @@
 .cueJump {
   border: none;
   background: transparent;
-  color: var(--mt-accent, #3b82f6);
+  color: var(--mt-accent-500, #3b82f6);
   cursor: pointer;
   font-weight: 600;
   padding: 0 4px;

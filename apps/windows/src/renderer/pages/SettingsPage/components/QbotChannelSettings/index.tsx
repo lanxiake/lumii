@@ -227,7 +227,7 @@ export const QbotChannelSettings: React.FC<QbotChannelSettingsProps> = ({
                       e.preventDefault()
                       void window.electronAPI?.app?.openExternal?.(BOT_CONSOLE_URL)
                     }}
-                    style={{ color: 'var(--mt-accent)', cursor: 'pointer' }}
+                    style={{ color: 'var(--mt-accent-500)', cursor: 'pointer' }}
                   >
                     q.qq.com/qqbot/openclaw/login.html
                   </a>
