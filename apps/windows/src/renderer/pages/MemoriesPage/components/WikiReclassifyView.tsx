@@ -3,6 +3,7 @@ import { ArrowRight } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
 import type { WikiReclassifyRunItem } from '../../../hooks/business/useWikiPage'
 import { formatTopicDisplay } from './wikiTopicDisplay'
+import shared from './wiki-shared.module.css'
 
 interface WikiReclassifyViewProps {
   run: WikiReclassifyRunItem | null
@@ -31,7 +32,7 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
   const allIds = useMemo(() => (run?.candidates ?? []).map((c) => c.id), [run])
 
   if (!run) {
-    return <p className="wiki-reclassify-empty">还没有重新编目记录。从「更多 → 全库重新编目」开始。</p>
+    return <p className={shared['wiki-reclassify-empty']}>还没有重新编目记录。从「更多 → 全库重新编目」开始。</p>
   }
 
   if (run.status === 'running') {
@@ -40,7 +41,7 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
         <p className="wiki-reclassify-progress">
           正在重新编目 {run.processed} / {run.total}
         </p>
-        <p className="wiki-reclassify-hint">
+        <p className={shared['wiki-reclassify-hint']}>
           期间新上传的文件会留在收件箱，不会丢；编目结束后自动归档恢复。
         </p>
       </div>
@@ -63,12 +64,12 @@ export const WikiReclassifyView: React.FC<WikiReclassifyViewProps> = ({
   if (run.candidates.length === 0) {
     return (
       <div className="wiki-reclassify">
-        <p className="wiki-reclassify-empty">
+        <p className={shared['wiki-reclassify-empty']}>
           {run.total === 0
             ? '没有已进目录的文件可编目。收件箱里的资料请勾选后点「让 AI 分类」。'
             : `已检查 ${run.total} 个已归档文件，没有需要调整的目录建议。`}
         </p>
-        {inboxHint ? <p className="wiki-reclassify-hint">{inboxHint}</p> : null}
+        {inboxHint ? <p className={shared['wiki-reclassify-hint']}>{inboxHint}</p> : null}
         <Button variant="ghost" size="sm" onClick={onDiscard}>
           知道了
         </Button>

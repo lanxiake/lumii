@@ -46,6 +46,7 @@ import { buildWikiRemoveConfirmContent } from './wikiRemoveConfirm'
 import { WikiTaskCenter } from './WikiTaskCenter'
 import { useWikiTaskCenter, type WikiLocalTask, type WikiMigratePhase } from './useWikiTaskCenter'
 import './WikiTab.css'
+import shared from './wiki-shared.module.css'
 
 /** 归档选择器的目标：inbox 队列条目，或已进资料层但待补分/需要移动的文件 */
 type PickerTarget =
@@ -1507,7 +1508,7 @@ export const WikiTab: React.FC = () => {
             ? reclassifyConfirm.estimate.note
             : `将扫描 ${reclassifyConfirm?.count ?? 0} 个已归档文件，不会改临时存放。`}
         </p>
-        <p className="wiki-reclassify-hint">AI 会直接调整目录；有问题可删除后重新导入或再编目。</p>
+        <p className={shared['wiki-reclassify-hint']}>AI 会直接调整目录；有问题可删除后重新导入或再编目。</p>
         <label className="wiki-reclassify-rename-toggle">
           <input
             type="checkbox"
@@ -1593,7 +1594,7 @@ export const WikiTab: React.FC = () => {
             </div>
             <p className="wiki-inbox-intro">{WIKI_INBOX_INTRO}</p>
             {inboxItems.length < inboxPending && (
-              <p className="wiki-empty-hint">仅显示最近 {inboxItems.length} 条</p>
+              <p className={shared['wiki-empty-hint']}>仅显示最近 {inboxItems.length} 条</p>
             )}
             <WikiInboxPanel
               items={inboxItems}
@@ -1711,7 +1712,7 @@ export const WikiTab: React.FC = () => {
             onReplan={() => void handleReplanMigrate()}
           />
         ) : isCategoryBrowse && categorySectionName ? (
-          <div className="wiki-category-view">
+          <div className={shared['wiki-category-view']}>
             <div ref={subtopicBarRef} className="wiki-subtopic-bar">
               <WikiSubtopicPanel
                 section={categorySectionName}

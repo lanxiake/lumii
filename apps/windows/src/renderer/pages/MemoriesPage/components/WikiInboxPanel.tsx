@@ -6,6 +6,8 @@ import type { WikiInboxItem, WikiSourceListItem } from '../../../hooks/business/
 import { inboxStatusLabel, formatRelativeTime } from './wikiStatusLabels'
 import { isHttpUrl } from './wikiSourcePreview'
 import type { WikiSourcePreviewSnapshot } from './WikiSourceDetailDrawer'
+import styles from './WikiInboxPanel.module.css'
+import shared from './wiki-shared.module.css'
 
 interface WikiInboxPanelProps {
   readonly items: readonly WikiInboxItem[]
@@ -36,6 +38,15 @@ const INBOX_TYPE_LABELS: Record<string, string> = {
   upload: '上传',
   task: '任务产物',
   search: '网页资料',
+}
+
+/** 收件箱状态 → 模块类名（未知状态无样式） */
+const INBOX_STATUS_CLASS: Record<string, string> = {
+  pending: styles['wiki-inbox-item-status--pending'],
+  processing: styles['wiki-inbox-item-status--processing'],
+  failed: styles['wiki-inbox-item-status--failed'],
+  organized: styles['wiki-inbox-item-status--organized'],
+  discarded: styles['wiki-inbox-item-status--discarded'],
 }
 
 type InboxListRow =
@@ -121,7 +132,7 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
 
   if (totalSelectable === 0) {
     return (
-      <p className="wiki-empty-hint">
+      <p className={shared['wiki-empty-hint']}>
         暂无收件箱条目。上传文件或任务产物会自动出现在这里。
       </p>
     )
@@ -129,8 +140,8 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
 
   return (
     <>
-      <div className="wiki-inbox-toolbar">
-        <label className="wiki-inbox-select-all">
+      <div className={styles['wiki-inbox-toolbar']}>
+        <label className={styles['wiki-inbox-select-all']}>
           <input
             type="checkbox"
             checked={allSelected}
@@ -141,7 +152,7 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
         </label>
         {totalSelected > 0 ? (
           <>
-            <span className="wiki-inbox-batch-count">已选 {totalSelected} 项</span>
+            <span className={styles['wiki-inbox-batch-count']}>已选 {totalSelected} 项</span>
             <Tooltip content="根据文件名与正文，由 AI 归档到工作 / 学习 / 生活 / 收藏（可与手动归档并用）" placement="bottom">
               <Button variant="primary" size="sm" disabled={aiClassifyBusy} onClick={onAiClassify}>
                 {aiClassifyBusy ? 'AI 分类中…' : '让 AI 分类'}
@@ -191,45 +202,45 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
       <div className="wiki-inbox-list">
         {rows.map((row) =>
           row.kind === 'queue' ? (
-            <article key={`queue-${row.item.id}`} className="wiki-inbox-item">
-              <div className="wiki-inbox-item-row">
+            <article key={`queue-${row.item.id}`} className={styles['wiki-inbox-item']}>
+              <div className={styles['wiki-inbox-item-row']}>
                 <input
                   type="checkbox"
-                  className="wiki-inbox-checkbox"
+                  className={styles['wiki-inbox-checkbox']}
                   checked={selectedInboxIds.has(row.item.id)}
                   onChange={() => onToggleInboxSelect(row.item.id)}
                   aria-label={`选择 ${row.item.title}`}
                 />
-                <div className="wiki-inbox-item-main">
-                  <div className="wiki-inbox-item-header">
-                    <span className="wiki-inbox-item-type">
+                <div className={styles['wiki-inbox-item-main']}>
+                  <div className={styles['wiki-inbox-item-header']}>
+                    <span className={styles['wiki-inbox-item-type']}>
                       {INBOX_TYPE_LABELS[row.item.itemType] ?? row.item.itemType}
                     </span>
                     <button
                       type="button"
-                      className="wiki-inbox-item-title wiki-inbox-item-title--link"
+                      className={`${styles['wiki-inbox-item-title']} ${styles['wiki-inbox-item-title--link']}`}
                       onClick={() => onPreviewInbox(row.item)}
                     >
                       {row.item.title}
                     </button>
-                    <span className={`wiki-inbox-item-status wiki-inbox-item-status--${row.item.status}`}>
+                    <span className={`${styles['wiki-inbox-item-status']} ${INBOX_STATUS_CLASS[row.item.status] ?? ''}`}>
                       {inboxStatusLabel(row.item.status)}
                     </span>
                   </div>
                   {row.item.contentPreview ? (
-                    <p className="wiki-inbox-item-preview">{row.item.contentPreview}</p>
+                    <p className={styles['wiki-inbox-item-preview']}>{row.item.contentPreview}</p>
                   ) : null}
                   {row.item.lastError ? (
                     row.item.lastOutcome === 'degraded' ? (
-                      <p className="wiki-inbox-item-hint">待人工归档: {row.item.lastError}</p>
+                      <p className={styles['wiki-inbox-item-hint']}>待人工归档: {row.item.lastError}</p>
                     ) : (
-                      <p className="wiki-inbox-item-error">
+                      <p className={styles['wiki-inbox-item-error']}>
                         失败原因: {row.item.lastError}（已重试 {row.item.attemptCount} 次）
                       </p>
                     )
                   ) : null}
                 </div>
-                <div className="wiki-inbox-item-actions">
+                <div className={styles['wiki-inbox-item-actions']}>
                   <Button variant="ghost" size="sm" onClick={() => onPreviewInbox(row.item)}>
                     <Eye size={13} />
                     详情
@@ -249,28 +260,28 @@ export const WikiInboxPanel: React.FC<WikiInboxPanelProps> = ({
               </div>
             </article>
           ) : (
-            <article key={`unfiled-${row.item.id}`} className="wiki-inbox-item">
-              <div className="wiki-inbox-item-row">
+            <article key={`unfiled-${row.item.id}`} className={styles['wiki-inbox-item']}>
+              <div className={styles['wiki-inbox-item-row']}>
                 <input
                   type="checkbox"
-                  className="wiki-inbox-checkbox"
+                  className={styles['wiki-inbox-checkbox']}
                   checked={selectedUnfiledIds.has(row.item.id)}
                   onChange={() => onToggleUnfiledSelect(row.item.id)}
                   aria-label={`选择 ${row.item.title}`}
                 />
-                <div className="wiki-inbox-item-main">
-                  <div className="wiki-inbox-item-header">
+                <div className={styles['wiki-inbox-item-main']}>
+                  <div className={styles['wiki-inbox-item-header']}>
                     <button
                       type="button"
-                      className="wiki-inbox-item-title wiki-inbox-item-title--link"
+                      className={`${styles['wiki-inbox-item-title']} ${styles['wiki-inbox-item-title--link']}`}
                       onClick={() => onPreviewSource(row.item)}
                     >
                       {row.item.title}
                     </button>
-                    <span className="wiki-inbox-item-status">{formatRelativeTime(row.item.updatedAt)}</span>
+                    <span className={styles['wiki-inbox-item-status']}>{formatRelativeTime(row.item.updatedAt)}</span>
                   </div>
                 </div>
-                <div className="wiki-inbox-item-actions">
+                <div className={styles['wiki-inbox-item-actions']}>
                   <Button variant="ghost" size="sm" onClick={() => onPreviewSource(row.item)}>
                     <Eye size={13} />
                     详情

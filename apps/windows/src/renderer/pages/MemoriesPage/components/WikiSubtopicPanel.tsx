@@ -14,6 +14,8 @@ import {
   type WikiNavSection,
   type WikiSubtopicFilter,
 } from './wikiTopicDisplay'
+import styles from './WikiSubtopicPanel.module.css'
+import shared from './wiki-shared.module.css'
 
 interface WikiSubtopicPanelProps {
   /** v1.1：分区即树中的大类名 */
@@ -105,31 +107,31 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
   }, [section, activeFilter, topicCounts, onSelectProject])
 
   if (!topicTree) {
-    return <p className="wiki-empty-hint">加载分类结构…</p>
+    return <p className={shared['wiki-empty-hint']}>加载分类结构…</p>
   }
 
   return (
     <div className="wiki-subtopic-panel">
-      <p className="wiki-subtopic-panel-intro">
+      <p className={styles['wiki-subtopic-panel-intro']}>
         共 {sectionFileCount} 个文件 · 按小类筛选
       </p>
-      <ul className="wiki-subtopic-chips" role="tablist" aria-label={`${navSectionLabel(section)}小类筛选`}>
+      <ul className={styles['wiki-subtopic-chips']} role="tablist" aria-label={`${navSectionLabel(section)}小类筛选`}>
         <li role="presentation">
           <Tooltip
             content={`显示「${section}」下的全部文件`}
             placement="bottom"
-            className="wiki-subtopic-chip-tooltip wiki-tooltip-below"
+            className={`${styles['wiki-subtopic-chip-tooltip']} ${shared['wiki-tooltip-below']}`}
           >
             <button
               type="button"
               role="tab"
               aria-selected={activeFilter === WIKI_SUBTOPIC_FILTER_ALL}
-              className={`wiki-subtopic-chip${activeFilter === WIKI_SUBTOPIC_FILTER_ALL ? ' wiki-subtopic-chip--active' : ''}`}
+              className={`${styles['wiki-subtopic-chip']}${activeFilter === WIKI_SUBTOPIC_FILTER_ALL ? ` ${styles['wiki-subtopic-chip--active']}` : ''}`}
               onClick={() => onSelectFilter(WIKI_SUBTOPIC_FILTER_ALL)}
             >
               <span>全部</span>
               {sectionFileCount > 0 && (
-                <span className="wiki-subtopic-chip-count">{sectionFileCount}</span>
+                <span className={styles['wiki-subtopic-chip-count']}>{sectionFileCount}</span>
               )}
             </button>
           </Tooltip>
@@ -143,17 +145,17 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
                   : `只显示「${chip.label}」小类下的资料`
               }
               placement="bottom"
-              className="wiki-subtopic-chip-tooltip wiki-tooltip-below"
+              className={`${styles['wiki-subtopic-chip-tooltip']} ${shared['wiki-tooltip-below']}`}
             >
               <button
                 type="button"
                 role="tab"
                 aria-selected={activeFilter === chip.filter}
-                className={`wiki-subtopic-chip${activeFilter === chip.filter ? ' wiki-subtopic-chip--active' : ''}`}
+                className={`${styles['wiki-subtopic-chip']}${activeFilter === chip.filter ? ` ${styles['wiki-subtopic-chip--active']}` : ''}`}
                 onClick={() => onSelectFilter(chip.filter)}
               >
                 <span>{chip.label}</span>
-                {chip.count > 0 && <span className="wiki-subtopic-chip-count">{chip.count}</span>}
+                {chip.count > 0 && <span className={styles['wiki-subtopic-chip-count']}>{chip.count}</span>}
               </button>
             </Tooltip>
           </li>
@@ -162,16 +164,16 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
 
       {projectChips.length > 0 && onSelectProject && (
         <>
-          <p className="wiki-subtopic-panel-intro wiki-subtopic-panel-intro--projects">
+          <p className={`${styles['wiki-subtopic-panel-intro']} wiki-subtopic-panel-intro--projects`}>
             项目筛选
           </p>
-          <ul className="wiki-subtopic-chips" role="tablist" aria-label="项目筛选">
+          <ul className={styles['wiki-subtopic-chips']} role="tablist" aria-label="项目筛选">
             <li role="presentation">
               <button
                 type="button"
                 role="tab"
                 aria-selected={activeProject === null}
-                className={`wiki-subtopic-chip${activeProject === null ? ' wiki-subtopic-chip--active' : ''}`}
+                className={`${styles['wiki-subtopic-chip']}${activeProject === null ? ` ${styles['wiki-subtopic-chip--active']}` : ''}`}
                 onClick={() => onSelectProject(null)}
               >
                 <span>全部项目</span>
@@ -182,17 +184,17 @@ export const WikiSubtopicPanel: React.FC<WikiSubtopicPanelProps> = ({
                 <Tooltip
                   content={`只显示「${chip.label}」项目下的资料`}
                   placement="bottom"
-                  className="wiki-subtopic-chip-tooltip wiki-tooltip-below"
+                  className={`${styles['wiki-subtopic-chip-tooltip']} ${shared['wiki-tooltip-below']}`}
                 >
                   <button
                     type="button"
                     role="tab"
                     aria-selected={activeProject === chip.key}
-                    className={`wiki-subtopic-chip${activeProject === chip.key ? ' wiki-subtopic-chip--active' : ''}`}
+                    className={`${styles['wiki-subtopic-chip']}${activeProject === chip.key ? ` ${styles['wiki-subtopic-chip--active']}` : ''}`}
                     onClick={() => onSelectProject(chip.key)}
                   >
                     <span>{chip.label}</span>
-                    {chip.count > 0 && <span className="wiki-subtopic-chip-count">{chip.count}</span>}
+                    {chip.count > 0 && <span className={styles['wiki-subtopic-chip-count']}>{chip.count}</span>}
                   </button>
                 </Tooltip>
               </li>

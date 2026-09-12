@@ -12,6 +12,8 @@ import {
   wikiFileExtBadgeColor,
   wikiMediaTypeIconColor,
 } from './wikiFileExtDisplay'
+import styles from './WikiFileList.module.css'
+import shared from './wiki-shared.module.css'
 
 /** 路径前缀分隔符，与面包屑风格一致 */
 function joinPathPrefix(userPath: readonly string[] | null | undefined): string {
@@ -149,9 +151,9 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
   return (
     <div className="wiki-file-list">
       {(showMediaChips || headerActions || (selectable && visible.length > 0)) && (
-        <div className="wiki-file-list-header">
+        <div className={shared['wiki-file-list-header']}>
           {selectable && visible.length > 0 && (
-            <label className="wiki-file-list-select-all">
+            <label className={styles['wiki-file-list-select-all']}>
               <input
                 type="checkbox"
                 aria-label="全选"
@@ -162,12 +164,12 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
             </label>
           )}
           {showMediaChips && (
-            <div className="wiki-file-list-chips" role="group" aria-label="按文件类型筛选">
+            <div className={styles['wiki-file-list-chips']} role="group" aria-label="按文件类型筛选">
               {MEDIA_CHIPS.map(({ key, label }) => (
                 <button
                   key={key}
                   type="button"
-                  className={`wiki-file-list-chip${chip === key ? ' wiki-file-list-chip--active' : ''}`}
+                  className={`${styles['wiki-file-list-chip']}${chip === key ? ` ${styles['wiki-file-list-chip--active']}` : ''}`}
                   aria-pressed={chip === key}
                   onClick={() => setChip(key)}
                 >
@@ -176,14 +178,14 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
               ))}
             </div>
           )}
-          {headerActions && <div className="wiki-file-list-header-actions">{headerActions}</div>}
+          {headerActions && <div className={styles['wiki-file-list-header-actions']}>{headerActions}</div>}
         </div>
       )}
 
       {visible.length === 0 ? (
-        <p className="wiki-empty-hint">{emptyHint}</p>
+        <p className={shared['wiki-empty-hint']}>{emptyHint}</p>
       ) : (
-        <ul className="wiki-file-list-items">
+        <ul className={styles['wiki-file-list-items']}>
           {visible.slice(0, visibleCount).map((item) => {
             const Icon = MEDIA_ICONS[(item.mediaType ?? 'document') as keyof typeof MEDIA_ICONS] ?? FileText
             const topic = formatTopicDisplay(item.topicCategory, item.topicSubtopic, item.topicProject)
@@ -194,7 +196,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
             const titleButton = (
               <button
                 type="button"
-                className="wiki-file-list-title wiki-file-list-title--link"
+                className={`${styles['wiki-file-list-title']} ${styles['wiki-file-list-title--link']}`}
                 onClick={() => onPreview(item)}
               >
                 {item.title}
@@ -203,7 +205,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
             return (
               <li
                 key={item.id}
-                className={`wiki-file-list-item${item.id === highlightId ? ' wiki-file-list-item--highlight' : ''}`}
+                className={`${styles['wiki-file-list-item']}${item.id === highlightId ? ` ${styles['wiki-file-list-item--highlight']}` : ''}`}
               >
                 {selectable && (
                   <input
@@ -213,14 +215,14 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                     onChange={() => onToggleSelect?.(item.id)}
                   />
                 )}
-                <Icon size={15} className="wiki-file-list-icon" style={{ color: iconColor }} aria-hidden />
-                <div className="wiki-file-list-main">
-                  <div className="wiki-file-list-title-row">
+                <Icon size={15} className={styles['wiki-file-list-icon']} style={{ color: iconColor }} aria-hidden />
+                <div className={styles['wiki-file-list-main']}>
+                  <div className={styles['wiki-file-list-title-row']}>
                     {/* 用户路径前缀：可点击加入搜索 */}
                     {item.userPath?.length ? (
                       <button
                         type="button"
-                        className="wiki-file-list-path-prefix wiki-file-list-term"
+                        className={`${styles['wiki-file-list-path-prefix']} ${styles['wiki-file-list-term']}`}
                         title={`搜索路径 ${joinPathPrefix(item.userPath)}`}
                         onClick={() => onSearchTerm?.(joinPathPrefix(item.userPath))}
                       >
@@ -228,15 +230,15 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                       </button>
                     ) : null}
                     {showSubtopicPrefix && (
-                      <span className="wiki-file-list-subtopic-prefix">
+                      <span className={styles['wiki-file-list-subtopic-prefix']}>
                         {item.topicSubtopic ?? UNFILED_SUBTOPIC_LABEL}
                       </span>
                     )}
                     {summary ? (
                       <Tooltip
-                        content={<div className="wiki-file-list-summary-tooltip-content">{summary}</div>}
+                        content={<div className={styles['wiki-file-list-summary-tooltip-content']}>{summary}</div>}
                         placement="bottom"
-                        className="wiki-file-list-summary-tooltip wiki-tooltip-below"
+                        className={`${styles['wiki-file-list-summary-tooltip']} ${shared['wiki-tooltip-below']}`}
                       >
                         {titleButton}
                       </Tooltip>
@@ -245,7 +247,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                     )}
                     {showExtBadge && ext ? (
                       <span
-                        className="wiki-file-list-ext-badge"
+                        className={styles['wiki-file-list-ext-badge']}
                         style={{ color: wikiFileExtBadgeColor(ext) }}
                         title={`.${ext}`}
                       >
@@ -254,12 +256,12 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                     ) : null}
                     {/* 标签（行内芯片）：可点击加入搜索 */}
                     {item.tags?.length ? (
-                      <span className="wiki-file-list-tags-inline">
+                      <span className={styles['wiki-file-list-tags-inline']}>
                         {item.tags.map((tag, i) => (
                           <button
                             key={i}
                             type="button"
-                            className="wiki-file-list-tag-chip"
+                            className={styles['wiki-file-list-tag-chip']}
                             title={`搜索标签 ${tag}`}
                             onClick={() => onSearchTerm?.(tag)}
                           >
@@ -268,16 +270,16 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                         ))}
                       </span>
                     ) : null}
-                    {showTopic && <span className="wiki-file-list-topic">{topic}</span>}
-                    <span className="wiki-file-list-time">{formatRelativeTime(item.updatedAt)}</span>
+                    {showTopic && <span className={styles['wiki-file-list-topic']}>{topic}</span>}
+                    <span className={styles['wiki-file-list-time']}>{formatRelativeTime(item.updatedAt)}</span>
                   </div>
                 </div>
-                <div className="wiki-file-list-actions">
+                <div className={styles['wiki-file-list-actions']}>
                   <Tooltip content="查看详情" placement="bottom">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="wiki-file-list-action-btn"
+                      className={styles['wiki-file-list-action-btn']}
                       aria-label="查看详情"
                       onClick={() => onPreview(item)}
                     >
@@ -288,7 +290,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="wiki-file-list-action-btn"
+                      className={styles['wiki-file-list-action-btn']}
                       aria-label={moveLabel}
                       onClick={() => onMove(item)}
                     >
@@ -300,7 +302,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="wiki-file-list-action-btn"
+                        className={styles['wiki-file-list-action-btn']}
                         aria-label="存到临时存放"
                         onClick={() => onPark(item)}
                       >
@@ -313,7 +315,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="wiki-file-list-action-btn"
+                        className={styles['wiki-file-list-action-btn']}
                         aria-label="删除"
                         onClick={() => onDelete(item)}
                       >
@@ -325,7 +327,7 @@ export const WikiFileList: React.FC<WikiFileListProps> = ({
               </li>
             )
           })}
-          {hasMore && <li ref={sentinelRef} className="wiki-file-list-sentinel" aria-hidden="true" />}
+          {hasMore && <li ref={sentinelRef} className={styles['wiki-file-list-sentinel']} aria-hidden="true" />}
         </ul>
       )}
     </div>

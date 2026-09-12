@@ -1,0 +1,57 @@
+/* WikiSubtopicPanel — 由 WikiTab.css 迁出（第 3 片 B2） */
+
+.wiki-subtopic-chip-tooltip {
+  z-index: var(--z-tooltip, 1200);
+}
+
+.wiki-subtopic-panel-intro {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  line-height: 1.4;
+}
+
+.wiki-subtopic-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.wiki-subtopic-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 999px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.wiki-subtopic-chip:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.wiki-subtopic-chip--active {
+  background: var(--color-accent-subtle, var(--color-bg-hover));
+  color: var(--color-accent, var(--color-text-primary));
+  font-weight: 600;
+}
+
+.wiki-subtopic-chip-count {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-bg-secondary);
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  text-align: center;
+}

@@ -29,6 +29,7 @@ import type {
 } from '../../../hooks/business/useWikiPage'
 import type { WikiNav } from './WikiLeftNav'
 import { formatTopicDisplay } from './wikiTopicDisplay'
+import shared from './wiki-shared.module.css'
 
 const NODE_W = 160
 const NODE_H = 56
@@ -432,9 +433,9 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
 
   return (
     <div className="wiki-graph-view">
-      <div className="wiki-cleanup-header">
+      <div className={shared['wiki-cleanup-header']}>
         <h3>知识图谱</h3>
-        <div className="wiki-cleanup-actions">
+        <div className={shared['wiki-cleanup-actions']}>
           <Button variant="primary" size="sm" disabled={loading} onClick={() => void load()}>
             刷新
           </Button>
@@ -461,10 +462,10 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
         </div>
       )}
 
-      {extractMsg && <p className="wiki-empty-hint">{extractMsg}</p>}
-      {graph?.truncated && <p className="wiki-empty-hint">节点已截断至上限</p>}
+      {extractMsg && <p className={shared['wiki-empty-hint']}>{extractMsg}</p>}
+      {graph?.truncated && <p className={shared['wiki-empty-hint']}>节点已截断至上限</p>}
       {emptyHint && nodes.length === 0 ? (
-        <p className="wiki-empty-hint">{emptyHint}</p>
+        <p className={shared['wiki-empty-hint']}>{emptyHint}</p>
       ) : (
         <div className="wiki-graph-body">
           <div className="wiki-graph-canvas" style={{ height: 420, border: '1px solid var(--color-border)', borderRadius: 8 }}>
@@ -500,9 +501,9 @@ export const WikiGraphView: React.FC<WikiGraphViewProps> = ({
               <section className="wiki-graph-entity-sources" aria-label="出现于以下资料">
                 <h5>出现于以下资料</h5>
                 {sourcesLoading ? (
-                  <p className="wiki-empty-hint">加载中…</p>
+                  <p className={shared['wiki-empty-hint']}>加载中…</p>
                 ) : entitySources.length === 0 ? (
-                  <p className="wiki-empty-hint">暂无资料</p>
+                  <p className={shared['wiki-empty-hint']}>暂无资料</p>
                 ) : (
                   <ul className="wiki-graph-entity-source-list">
                     {entitySources.map((src) => (

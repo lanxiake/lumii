@@ -13,6 +13,7 @@ import { WIKI_MODAL_LAYER } from './wikiModalLayer'
 import type { WikiCleanupSuggestionItem } from '../../../hooks/business/useWikiPage'
 import { filterCleanupSuggestions, type CleanupReasonFilter } from './cleanupSelection'
 import { formatTopicDisplay } from './wikiTopicDisplay'
+import shared from './wiki-shared.module.css'
 
 const REASON_LABEL: Record<WikiCleanupSuggestionItem['reason'], string> = {
   stale: '长期未用',
@@ -137,7 +138,7 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
 
   return (
     <div className="wiki-cleanup-view">
-      <div className="wiki-cleanup-header">
+      <div className={shared['wiki-cleanup-header']}>
         <h3>清理建议（{suggestions.length}）</h3>
         <Button variant="ghost" size="sm" onClick={() => void runScan()} disabled={scanning}>
           <RefreshCw size={12} style={{ marginRight: 4 }} />
@@ -146,7 +147,7 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
       </div>
 
       {suggestions.length === 0 ? (
-        <p className="wiki-empty-hint">
+        <p className={shared['wiki-empty-hint']}>
           {scanning ? '扫描中...' : '暂无清理建议。长期未用、来源失效、内容重复的资料会出现在这里。'}
         </p>
       ) : (
@@ -173,7 +174,7 @@ export const CleanupView: React.FC<CleanupViewProps> = ({
             </Button>
           </div>
 
-          <div className="wiki-cleanup-actions">
+          <div className={shared['wiki-cleanup-actions']}>
             <Button variant="secondary" size="sm" onClick={() => void handleBatchArchive()} disabled={selected.size === 0}>
               批量归档（{selected.size}）
             </Button>

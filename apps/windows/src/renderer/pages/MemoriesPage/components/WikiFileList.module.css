@@ -1,0 +1,276 @@
+/* WikiFileList — 由 WikiTab.css 迁出（第 3 片 B2） */
+
+/* 用途目录文件列表 */
+
+.wiki-file-list-chips {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.wiki-file-list-chip {
+  padding: 3px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wiki-file-list-chip:hover {
+  background: var(--color-bg-hover);
+}
+
+.wiki-file-list-chip--active {
+  border-color: var(--color-primary);
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+.wiki-file-list-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wiki-file-list-item {
+  /* 大列表（数百～上千行）跳过屏外布局/绘制，显著降低切换大类时的主线程卡顿 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.wiki-file-list-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.wiki-file-list-item--highlight {
+  background: var(--color-bg-active);
+  border-left: 2px solid var(--color-primary);
+}
+
+.wiki-file-list-icon {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+/* 标题旁扩展名徽章：手绘笔记色由 inline style 注入 */
+
+.wiki-file-list-ext-badge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+.wiki-file-list-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.wiki-file-list-title {
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 标题可点击预览：重置 button 默认样式，避免深色主题下文字不可读 */
+
+.wiki-file-list-title--link {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.wiki-file-list-time {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.wiki-file-list-topic {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.wiki-file-list-summary-tooltip {
+  max-width: min(420px, calc(100vw - 48px));
+  z-index: var(--z-tooltip, 1200);
+}
+
+.wiki-file-list-summary-tooltip-content {
+  max-width: 400px;
+  max-height: min(280px, 45vh);
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.55;
+  text-align: left;
+}
+
+.wiki-file-list-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  justify-content: flex-start;
+}
+
+/* 用户路径前缀：文件名前的目录路径，类似面包屑；可点击加入搜索 */
+
+.wiki-file-list-path-prefix {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+/* 可点击的搜索词（路径/标签）：重置 button 默认样式，hover 高亮提示可点 */
+
+.wiki-file-list-term {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.wiki-file-list-term:hover {
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+
+/* 行内标签：一排调节芯片，超长截断 + 悬浮看全 */
+
+.wiki-file-list-tags-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  flex-shrink: 1;
+}
+
+.wiki-file-list-tag-chip {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border: none;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.wiki-file-list-tag-chip:hover {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+/* 标签区域窄窗时进一步收缩 */
+
+@media (max-width: 900px) {
+  .wiki-file-list-tags-inline {
+    max-width: 120px;
+  }
+}
+
+.wiki-file-list-subtopic-prefix {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.wiki-file-list-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+/* 行内操作：仅图标，紧凑方形按钮 */
+
+.wiki-file-list-action-btn {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 !important;
+  border: none !important;
+}
+
+.wiki-file-list-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 多选批量条 */
+
+.wiki-file-list-select-all {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.wiki-file-list-select-all {
+  cursor: pointer;
+}
+
+.wiki-file-list-sentinel {
+  height: 1px;
+  flex-shrink: 0;
+}
+
+.wiki-file-list-title--link:hover {
+  color: var(--color-primary-500, var(--color-primary));
+  text-decoration: underline;
+}
