@@ -8,6 +8,7 @@ import { render, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import ChatPage from '../../renderer/pages/ChatPage/ChatPage'
 import { SIDEBAR_SESSION_SLOT_ID } from '../../renderer/components/layout/Sidebar'
+import { ToastProvider } from '../../renderer/components/ui/Toast/ToastContainer'
 
 // Mock hooks
 vi.mock('../../renderer/hooks/business/useChat', () => ({
@@ -43,6 +44,15 @@ function mountSidebarSlot(): HTMLElement {
   return slot
 }
 
+/** ChatPage 的 Toast 已统一走全局 ui/Toast，渲染时必须提供 ToastProvider */
+function renderChatPage() {
+  return render(
+    <ToastProvider>
+      <ChatPage />
+    </ToastProvider>,
+  )
+}
+
 describe('Phase 1: 架构重构 - ChatPage组件', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -55,30 +65,30 @@ describe('Phase 1: 架构重构 - ChatPage组件', () => {
 
   describe('TC-1.1 组件拆分测试', () => {
     it('TC-1.1.1: ChatPage 组件存在并正常渲染', () => {
-      const { container } = render(<ChatPage />)
+      const { container } = renderChatPage()
       expect(container.querySelector('.chat-page')).toBeInTheDocument()
     })
 
     it('TC-1.1.2: ChatSidebar 组件渲染', () => {
-      render(<ChatPage />)
+      renderChatPage()
       // portal 到 body 上的挂载点，不在 render 返回的 container 里
       expect(document.querySelector('.chat-sidebar')).toBeInTheDocument()
     })
 
     it('TC-1.1.3: ChatContainer 组件渲染', () => {
-      const { container } = render(<ChatPage />)
+      const { container } = renderChatPage()
       expect(container.querySelector('.chat-container')).toBeInTheDocument()
     })
 
     it('TC-1.1.5: ChatInput 组件渲染', () => {
-      const { container } = render(<ChatPage />)
+      const { container } = renderChatPage()
       expect(container.querySelector('.chat-input-wrapper')).toBeInTheDocument()
     })
   })
 
   describe('TC-1.2 组件集成测试', () => {
     it('TC-1.2.1: ChatPage 渲染所有主要子组件', () => {
-      const { container } = render(<ChatPage />)
+      const { container } = renderChatPage()
 
       // 检查主要子组件都存在（sidebar 是 portal，查 document）
       expect(document.querySelector('.chat-sidebar')).toBeInTheDocument()
@@ -87,7 +97,7 @@ describe('Phase 1: 架构重构 - ChatPage组件', () => {
     })
 
     it('TC-1.2.2: 侧边栏可以切换显示/隐藏', () => {
-      const { container } = render(<ChatPage />)
+      const { container } = renderChatPage()
 
       // 默认显示侧边栏
       expect(document.querySelector('.chat-sidebar')).toBeInTheDocument()

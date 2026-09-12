@@ -5,6 +5,7 @@ import type { Agent } from '../../services/agent-service'
 import type { ModelOption } from '../../services/model-config-service'
 import { fetchModelCatalog, fetchChatModelChoices, saveChatModel } from '../../services/model-config-service'
 import { ConfirmModal } from '../../components/ui/Modal/ConfirmModal'
+import { useToast } from '../../components/ui/Toast/useToast'
 import { useAgents } from '../../hooks/business/useAgents'
 import {
   useAgentRuntimeActions,
@@ -37,7 +38,6 @@ import {
   serializeRecognitionResults,
   type ImageProcessingResult,
 } from './utils/image-processing-strategy'
-import { FloatingOverlays } from './layout/FloatingOverlays'
 import { WorkspaceWorkbenchArea } from './layout/WorkspaceWorkbenchArea'
 import { ChatSidebarArea } from './layout/ChatSidebarArea'
 import { useSessionDrafts } from './hooks/useSessionDrafts'
@@ -770,8 +770,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
    * 通过 CSS zoom 同时放大/缩小布局与字体。范围 0.6 ~ 2.0，存 localStorage。
    */
   const { pageZoom, resetPageZoom, chatPageRef } = useChatPageZoom()
-  // Toast state
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null)
+  // Toast：统一走全局 ui/Toast（本地实现已退场），返回值引用稳定
+  const toast = useToast()
 
   // 任务完成不再显示 Toast 提示（用户可通过工具卡片等 UI 元素获得反馈）
   // 原监听 task_complete 工具调用的逻辑已移除
@@ -844,10 +844,10 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       return sessionKey
     } catch (err) {
       logger.error(`[handleNewConversation] ${err instanceof Error ? err.message : String(err)}`)
-      setToast({ message: '创建本地会话失败', type: 'error' })
+      toast.error('创建本地会话失败')
       return null
     }
-  }, [selectedAgent, mainAgentId, selectedModelId, runtimeActions, refreshLocalSessions])
+  }, [selectedAgent, mainAgentId, selectedModelId, runtimeActions, refreshLocalSessions, toast])
 
   // 检测来自 AI 团队页面的“发起对话”指令：自动新建对话并选中对应 Agent
   useEffect(() => {
@@ -873,7 +873,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       if (!api?.sendCommand) return
       // 手动压缩：立即设置压缩中状态，让按钮显示 spinner
       updateSessionState(sessionKey, (prev) => ({ ...prev, isAutoCompacting: true }))
-      setToast({ message: '正在压缩上下文，请稍候...', type: 'info' })
+      toast.info('正在压缩上下文，请稍候...')
       const result = await api.sendCommand({
         type: 'user:compact-context',
         sessionKey,
@@ -881,24 +881,24 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       }) as { success: boolean; previousMessageCount: number; newMessageCount: number; messagesRemoved: number; hadSummary?: boolean }
       if (result.success) {
         if (result.previousMessageCount === 0) {
-          setToast({ message: '当前没有消息可压缩', type: 'info' })
+          toast.info('当前没有消息可压缩')
         } else if (result.messagesRemoved === 0 && !result.hadSummary) {
-          setToast({ message: '压缩未完成，会话未修改', type: 'info' })
+          toast.info('压缩未完成，会话未修改')
         } else {
           const summaryNote = result.hadSummary ? '，已生成摘要保留关键信息' : ''
-          setToast({ message: `上下文已压缩${summaryNote}`, type: 'success' })
+          toast.success(`上下文已压缩${summaryNote}`)
         }
         // 重新加载会话消息（agent:context:compacted 事件会清除 isAutoCompacting）
         await runtimeActions.switchSession(sessionKey)
       }
     } catch (err) {
       logger.error('[handleCompactContext] 压缩失败:', err)
-      setToast({ message: '压缩失败', type: 'error' })
+      toast.error('压缩失败')
     } finally {
       // compacted 事件只在成功时推送，失败/未压缩时必须自己收尾，否则 spinner 永久转
       updateSessionState(sessionKey, (prev) => ({ ...prev, isAutoCompacting: false }))
     }
-  }, [runtimeCurrentSessionKey, runtimeActions])
+  }, [runtimeCurrentSessionKey, runtimeActions, toast])
 
   /** 停止正在进行的手动压缩 */
   const handleStopCompactContext = useCallback(async () => {
@@ -909,11 +909,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       if (!api?.sendCommand) return
       await api.sendCommand({ type: 'user:abort-compact-context', sessionKey })
       updateSessionState(sessionKey, (prev) => ({ ...prev, isAutoCompacting: false }))
-      setToast({ message: '已停止压缩', type: 'info' })
+      toast.info('已停止压缩')
     } catch (err) {
       logger.error('[handleStopCompactContext] 停止压缩失败:', err)
     }
-  }, [runtimeCurrentSessionKey])
+  }, [runtimeCurrentSessionKey, toast])
 
   /** 向当前会话注入一条虚拟 system 消息（不持久化、不发给 LLM） */
   const addSystemMessage = useCallback((text: string) => {
@@ -975,10 +975,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         if (!visionModelId) {
           // 系统内一个支持视觉的模型都没有 → 提示用户并给出占位文本
           logger.warn(`[handleSend] 系统内未配置任何视觉模型，无法识别图片`)
-          setToast({
-            message: '当前没有可用的视觉模型，请联系管理员配置或切换到支持图片的模型',
-            type: 'error',
-          })
+          toast.error('当前没有可用的视觉模型，请联系管理员配置或切换到支持图片的模型')
           const placeholderLines = needsRecognition
             .map((a) => `[图片附件: ${a.fileName}] 系统未配置视觉模型，未能识别图片内容`)
             .join('\n')
@@ -987,7 +984,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           logger.info(
             `[handleSend] 当前模型(${selectedModelId})不支持视觉，使用视觉模型 ${visionModelId} 识别 ${needsRecognition.length} 张图片`,
           )
-          setToast({ message: `正在用视觉模型识别 ${needsRecognition.length} 张图片...`, type: 'info' })
+          toast.info(`正在用视觉模型识别 ${needsRecognition.length} 张图片...`)
           try {
             const strategies = getDefaultStrategies()
             const recognized = await runImageProcessing(
@@ -1025,10 +1022,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
               return outcomes?.some((r) => r.kind === 'failed' && r.errorCode === 'MODEL_NO_VISION')
             })
             if (hasNoVisionError) {
-              setToast({
-                message: `所选视觉模型不支持图像输入，请在模型列表中选择支持"图片"的模型`,
-                type: 'error',
-              })
+              toast.error(`所选视觉模型不支持图像输入，请在模型列表中选择支持"图片"的模型`)
             }
             if (failedFiles.length > 0) {
               logger.warn(
@@ -1046,7 +1040,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             logger.warn(
               `[handleSend] 图片识别整体失败，注入占位文本: ${err instanceof Error ? err.message : String(err)}`,
             )
-            setToast({ message: '图片识别失败，将以占位文本发送', type: 'error' })
+            toast.error('图片识别失败，将以占位文本发送')
             const placeholderLines = needsRecognition
               .map((a) => `[图片附件: ${a.fileName}] 识别调用失败，未能提取图片内容`)
               .join('\n')
@@ -1090,7 +1084,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           sessionKey,
           agentId: selectedAgent?.id ?? mainAgentId ?? undefined,
           addSystemMessage,
-          showToast: (message, type) => setToast({ message, type }),
+          showToast: (message, type) => toast[type](message),
           compactContext: handleCompactContext,
           createSession: async () => {
             await handleNewConversation()
@@ -1144,7 +1138,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       setPendingAttachments([])
     } catch (err) {
       logger.error(`[handleSend] 发送失败: ${err instanceof Error ? err.message : String(err)}`)
-      setToast({ message: `发送失败: ${err instanceof Error ? err.message : '未知错误'}`, type: 'error' })
+      toast.error(`发送失败: ${err instanceof Error ? err.message : '未知错误'}`)
     } finally {
       setSendingSessionIds((prev) => { const next = new Set(prev); next.delete(sendingSessionId); return next })
     }
@@ -1165,6 +1159,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     handleNewConversation,
     handleSelectChatModel,
     clearCurrentInputState,
+    toast,
   ])
 
   const handleToggleAutoApprove = useCallback(() => {
@@ -1196,18 +1191,18 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     if (!sessionKey) return
     void runtimeActions.editAndResend(messageId, newContent, { sessionKey }).catch((err) => {
       logger.error(`[handleEditMessage] 编辑失败: ${err instanceof Error ? err.message : String(err)}`)
-      setToast({ message: '编辑失败，请重试', type: 'error' })
+      toast.error('编辑失败，请重试')
     })
-  }, [runtimeActions, runtimeCurrentSessionKey])
+  }, [runtimeActions, runtimeCurrentSessionKey, toast])
 
   const handleDeleteMessage = useCallback((messageId: string) => {
     const sessionKey = runtimeCurrentSessionKey
     if (!sessionKey) return
     void runtimeActions.deleteMessage(messageId, { sessionKey }).catch((err) => {
       logger.error(`[handleDeleteMessage] 删除失败: ${err instanceof Error ? err.message : String(err)}`)
-      setToast({ message: '删除失败，请重试', type: 'error' })
+      toast.error('删除失败，请重试')
     })
-  }, [runtimeActions, runtimeCurrentSessionKey])
+  }, [runtimeActions, runtimeCurrentSessionKey, toast])
 
   const handleRegenerateMessage = useCallback((messageId: string) => {
     const sessionKey = runtimeCurrentSessionKey
@@ -1228,12 +1223,12 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
 
     const removedCount = messages.length - anchorIdx - 1
     void runtimeActions.editAndResend(anchor.id, userContent, { sessionKey }).then(() => {
-      if (removedCount > 0) setToast({ message: `已删除后续 ${removedCount} 条消息`, type: 'info' })
+      if (removedCount > 0) toast.info(`已删除后续 ${removedCount} 条消息`)
     }).catch((err) => {
       logger.error(`[handleRegenerateMessage] 重新生成失败: ${err instanceof Error ? err.message : String(err)}`)
-      setToast({ message: '重新生成失败，请重试', type: 'error' })
+      toast.error('重新生成失败，请重试')
     })
-  }, [runtimeActions, runtimeCurrentSessionKey, runtimeMessages])
+  }, [runtimeActions, runtimeCurrentSessionKey, runtimeMessages, toast])
 
   // Session management handlers
   const handlePinSession = useCallback(async (sessionId: string) => {
@@ -1251,14 +1246,14 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     try {
       await runtimeActions.deleteSession(sessionToDelete)
       await refreshLocalSessions()
-      setToast({ message: '会话已删除', type: 'info' })
+      toast.info('会话已删除')
     } catch (err) {
       logger.error('[handleConfirmDeleteSession] 删除会话失败:', err)
-      setToast({ message: '删除会话失败', type: 'error' })
+      toast.error('删除会话失败')
     }
     setIsDeleteSessionModalOpen(false)
     setSessionToDelete(null)
-  }, [sessionToDelete, runtimeActions, refreshLocalSessions])
+  }, [sessionToDelete, runtimeActions, refreshLocalSessions, toast])
 
   const handleCancelDeleteSession = useCallback(() => {
     setIsDeleteSessionModalOpen(false)
@@ -1326,9 +1321,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     }
     const result = await window.electronAPI?.pet?.switchMode('pet')
     if (result && !result.success) {
-      setToast({ message: `进入宠物模式失败：${result.error ?? '未知错误'}`, type: 'error' })
+      toast.error(`进入宠物模式失败：${result.error ?? '未知错误'}`)
     }
-  }, [runtimeCurrentSessionKey])
+  }, [runtimeCurrentSessionKey, toast])
 
   /**
    * 从输入框发起语音通话。
@@ -1373,7 +1368,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       return
     }
     if (!runtimeCurrentSessionKey) {
-      setToast({ message: '请先开始一个对话再开启实时朗读', type: 'info' })
+      toast.info('请先开始一个对话再开启实时朗读')
       return
     }
     void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id, {
@@ -1381,7 +1376,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       persistent: true,
       silent: true,
     })
-  }, [readAloudActive, voiceCallActions, runtimeCurrentSessionKey, selectedAgent])
+  }, [readAloudActive, voiceCallActions, runtimeCurrentSessionKey, selectedAgent, toast])
 
   // 切换会话时停止实时朗读（避免朗读上一会话）
   useEffect(() => {
@@ -1392,8 +1387,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   // 处理手动中断 Agent
   const handleAbort = useCallback(async () => {
     await runtimeActions.abort()
-    setToast({ message: '已中断回复', type: 'info' })
-  }, [runtimeActions])
+    toast.info('已中断回复')
+  }, [runtimeActions, toast])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1591,12 +1586,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
           }
         />
       </div>
-
-      {/* Toast notification */}
-      <FloatingOverlays
-        toast={toast ? { message: toast.message, type: toast.type } : null}
-        onCloseToast={() => setToast(null)}
-      />
 
       {/* Delete Session Confirm Modal */}
       <ConfirmModal

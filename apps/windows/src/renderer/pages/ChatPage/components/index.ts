@@ -8,7 +8,6 @@ export { MessageActions } from './MessageActions'
 export { ContextMenu } from './ContextMenu'
 export { SessionItem } from './SessionItem'
 export { EmptyState } from './EmptyState'
-export { Toast } from './Toast'
 
 // Types
 export type { MessageItem, ChatItem } from './ChatContainer'
