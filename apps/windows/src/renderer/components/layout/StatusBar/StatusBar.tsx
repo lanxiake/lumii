@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react'
 import { useAgentRuntimeState } from '../../../hooks/business/useAgentRuntime'
 import { formatCostYuan } from '../../../../shared/model-pricing'
 import { sessionMetrics } from './session-metrics'
+import { getUsageLatency } from '../../../services/usage-service'
 import styles from './StatusBar.module.css'
 
 /** 延迟读数来自最近 N 次 TTFB 中位数，主进程侧已聚合，这里只需低频取值 */
@@ -38,7 +39,7 @@ export const StatusBar: React.FC = () => {
   useEffect(() => {
     let alive = true
     const pull = async () => {
-      const res = await window.electronAPI.usage.latency()
+      const res = await getUsageLatency()
       if (alive && res.data) setLatency(res.data)
     }
     void pull()

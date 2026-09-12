@@ -30,6 +30,7 @@ import { CronPage } from '../../pages/CronPage/CronPage'
 import { MemoriesPage } from '../../pages/MemoriesPage/MemoriesPage'
 import { WikiTab } from '../../pages/MemoriesPage/components/WikiTab'
 import { PluginCenterPage } from '../../pages/PluginCenterPage/PluginCenterPage'
+import { getAutonomousStatus } from '../../services/autonomous-service'
 import type { ViewType } from '../Router'
 import { useSettingsHub } from './SettingsHubContext'
 import { SettingsCategoryNav } from './SettingsCategoryNav'
@@ -74,7 +75,7 @@ export const SettingsHubModal: React.FC<{
     let cancelled = false
     const load = async () => {
       try {
-        const status = await window.electronAPI?.autonomous?.getStatus()
+        const status = await getAutonomousStatus()
         if (!cancelled && typeof status?.pendingGoalsCount === 'number') {
           setPendingAutonomousGoals(status.pendingGoalsCount)
         }

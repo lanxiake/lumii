@@ -17,6 +17,7 @@ import type {
   SystemConfig,
   MemoryConfig,
 } from './useSettings.types'
+import { updateMemoryInjection } from '../../../services/settings-service'
 
 /** localStorage 中应用设置的存储 key（渲染进程与主进程读取需保持一致） */
 export const SETTINGS_STORAGE_KEY = 'mtbot-assistant-settings'
@@ -171,7 +172,7 @@ export function useSettings() {
         const merged = deepMerge(effectiveDefaults, base)
         setSettings(merged)
         setSavedSettings(merged)
-        void window.electronAPI?.settings?.updateMemoryInjection?.({
+        void updateMemoryInjection({
           injectPersonalMemory: merged.memory?.injectPersonalMemory !== false,
           injectWorkMemory: merged.memory?.injectWorkMemory !== false,
         })

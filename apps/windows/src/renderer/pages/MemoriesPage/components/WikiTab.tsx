@@ -37,6 +37,7 @@ import { WikiSubtopicPanel } from './WikiSubtopicPanel'
 import { isUrlSourceItem } from './wikiSourcePreview'
 import { WikiHelpDrawer } from './WikiHelpDrawer'
 import { consumeWikiInitNav, OPEN_WIKI_LIBRARY_EVENT } from '../../../utils/open-wiki-library'
+import { pickDirectory } from '../../../services/dialog-service'
 import { WIKI_INBOX_INTRO, WIKI_FOLDER_IMPORT_TOOLTIP } from './wikiTooltips'
 import { WikiMoreMenu } from './WikiMoreMenu'
 import { WikiSourceDetailDrawer, type WikiSourcePreviewSnapshot } from './WikiSourceDetailDrawer'
@@ -1107,18 +1108,9 @@ export const WikiTab: React.FC = () => {
    * 选择文件夹并批量导入 Wiki 收件箱（scan 预览 → 确认 → import → intake）。
    */
   const handleImportFromFolder = useCallback(async () => {
-    const dialog = window.electronAPI?.dialog
-    if (!dialog?.showOpenDialog) {
-      toast.error('当前环境不支持文件夹选择')
-      return
-    }
-    const result = await dialog.showOpenDialog({
-      properties: ['openDirectory'],
-      title: '选择要导入 Wiki 的文件夹',
-    })
-    if (result.canceled || result.filePaths.length === 0) return
+    const dir = await pickDirectory({ title: '选择要导入 Wiki 的文件夹' })
+    if (!dir) return
 
-    const dir = result.filePaths[0]!
     setFolderImportBusy(true)
     try {
       const preview = await scanFolder(dir, true)

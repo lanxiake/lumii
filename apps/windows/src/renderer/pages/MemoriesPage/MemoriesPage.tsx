@@ -27,6 +27,7 @@ import {
   SETTINGS_UPDATE_EVENT,
 } from '../../hooks/business/useSettings'
 import { Checkbox } from '../../components/ui/Checkbox/Checkbox'
+import { updateMemoryInjection } from '../../services/settings-service'
 import { SOUL_TEMPLATES } from './soul-templates'
 import { DEFAULT_SOUL_CONTENT } from '../../../../../../packages/agent-runtime/src/prompt/default-soul'
 import { MemPalaceViewer } from './MemPalaceViewer'
@@ -107,7 +108,7 @@ export const MemoriesPage: React.FC<MemoriesPageProps> = ({
       try {
         localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings))
         window.dispatchEvent(new CustomEvent(SETTINGS_UPDATE_EVENT, { detail: nextSettings }))
-        void window.electronAPI?.settings?.updateMemoryInjection?.({
+        void updateMemoryInjection({
           injectPersonalMemory: nextSettings.memory.injectPersonalMemory,
           injectWorkMemory: nextSettings.memory.injectWorkMemory,
         })

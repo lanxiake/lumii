@@ -4,6 +4,7 @@ import { MarkdownExternalLink } from '../../../utils/markdown-external-link'
 import remarkGfm from 'remark-gfm'
 import { HelpCircle, X } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
+import { readUserGuide } from '../../../services/user-guides-service'
 import styles from './WikiHelpDrawer.module.css'
 
 interface WikiHelpDrawerProps {
@@ -68,13 +69,12 @@ export const WikiHelpDrawer: React.FC<WikiHelpDrawerProps> = ({ open, onClose })
     setManualLoading(true)
     setManualError(null)
     try {
-      const api = window.electronAPI?.userGuides
-      if (!api?.read) {
+      const content = await readUserGuide('wiki')
+      if (!content) {
         setManualError('当前环境无法读取内置手册')
         setManualMd(null)
         return
       }
-      const content = await api.read('wiki')
       setManualMd(content.markdown)
     } catch (err) {
       setManualError(err instanceof Error ? err.message : '加载手册失败')

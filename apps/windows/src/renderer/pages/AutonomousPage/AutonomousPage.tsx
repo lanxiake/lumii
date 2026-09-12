@@ -17,6 +17,7 @@ import { SatisfactionChart, type SatisfactionDataPoint } from '../../components/
 import { PromptVariantStats, type PromptFragmentStats } from '../../components/PromptVariantStats/PromptVariantStats'
 import { LabeledMetric, MetricTip, TitledHeader } from './MetricTip'
 import { MoodAvatar } from './MoodAvatar'
+import * as autonomousService from '../../services/autonomous-service'
 import {
   TIP_BREAKDOWN,
   TIP_CAPABILITY_DIMENSIONS,
@@ -123,28 +124,6 @@ type DiaryPage = {
 
 const DIARY_PAGE_SIZE = 8
 
-const api = window.electronAPI?.autonomous || {
-  getStatus: () => Promise.reject(new Error('API not available')),
-  getPendingGoals: () => Promise.reject(new Error('API not available')),
-  getGoals: () => Promise.reject(new Error('API not available')),
-  getPlannedGoals: () => Promise.reject(new Error('API not available')),
-  deleteGoal: () => Promise.reject(new Error('API not available')),
-  replan: () => Promise.reject(new Error('API not available')),
-  approveGoal: () => Promise.reject(new Error('API not available')),
-  rejectGoal: () => Promise.reject(new Error('API not available')),
-  getCapabilities: () => Promise.reject(new Error('API not available')),
-  getCapabilityTests: () => Promise.reject(new Error('API not available')),
-  getReflections: () => Promise.reject(new Error('API not available')),
-  getSatisfactionHistory: () => Promise.reject(new Error('API not available')),
-  getPromptStats: () => Promise.reject(new Error('API not available')),
-  setEnabled: () => Promise.reject(new Error('API not available')),
-  getSettings: () => Promise.reject(new Error('API not available')),
-  updateSettings: () => Promise.reject(new Error('API not available')),
-  getMood: () => Promise.reject(new Error('API not available')),
-  getConcerns: () => Promise.reject(new Error('API not available')),
-  getDiary: () => Promise.reject(new Error('API not available')),
-}
-
 type TabType = 'overview' | 'capabilities' | 'planned' | 'reflections' | 'prompt' | 'settings' | 'inner'
 
 const TRIGGER_LABELS: Record<string, string> = {
@@ -206,18 +185,18 @@ export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}
   async function loadData() {
     try {
       const [statusData, goalsData, plannedGoalsData, capabilitiesData, capabilityTestsData, reflectionsData, historyData, promptData, settingsData, moodData, concernsData, diaryData] = await Promise.all([
-        api.getStatus(),
-        api.getGoals(20),
-        api.getPlannedGoals(50).catch(() => []),
-        api.getCapabilities().catch(() => ({})),
-        api.getCapabilityTests().catch(() => []),
-        api.getReflections(20).catch(() => []),
-        api.getSatisfactionHistory('7d').catch(() => ({ dataPoints: [] })),
-        api.getPromptStats().catch(() => []),
-        api.getSettings().catch(() => null),
-        api.getMood().catch(() => null),
-        api.getConcerns().catch(() => []),
-        api.getDiary(DIARY_PAGE_SIZE).catch(() => ({ items: [], hasMore: false, nextBefore: null })),
+        autonomousService.getAutonomousStatus(),
+        autonomousService.getGoals(20),
+        autonomousService.getPlannedGoals(50).catch(() => []),
+        autonomousService.getCapabilities().catch(() => ({})),
+        autonomousService.getCapabilityTests().catch(() => []),
+        autonomousService.getReflections(20).catch(() => []),
+        autonomousService.getSatisfactionHistory('7d').catch(() => ({ dataPoints: [] })),
+        autonomousService.getPromptStats().catch(() => []),
+        autonomousService.getAutonomousSettings().catch(() => null),
+        autonomousService.getMood().catch(() => null),
+        autonomousService.getConcerns().catch(() => []),
+        autonomousService.getDiary(DIARY_PAGE_SIZE).catch(() => ({ items: [], hasMore: false, nextBefore: null })),
       ])
       setStatus(statusData)
       setGoals(goalsData)
@@ -262,7 +241,7 @@ export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}
     if (!diaryCursor || diaryLoadingMore) return
     setDiaryLoadingMore(true)
     try {
-      const page = await api.getDiary(DIARY_PAGE_SIZE, diaryCursor)
+      const page = await autonomousService.getDiary(DIARY_PAGE_SIZE, diaryCursor)
       setDiary((prev) => [...prev, ...(page.items ?? [])])
       setDiaryHasMore(page.hasMore ?? false)
       setDiaryCursor(page.nextBefore ?? null)
@@ -276,7 +255,7 @@ export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}
   /** 批准目标 */
   async function handleApprove(goalId: string) {
     try {
-      await api.approveGoal(goalId)
+      await autonomousService.approveGoal(goalId)
       await loadData()
     } catch (error) {
       console.error('[AutonomousPage] 批准目标失败:', error)
@@ -286,7 +265,7 @@ export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}
   /** 拒绝目标 */
   async function handleReject(goalId: string) {
     try {
-      await api.rejectGoal(goalId)
+      await autonomousService.rejectGoal(goalId)
       await loadData()
     } catch (error) {
       console.error('[AutonomousPage] 拒绝目标失败:', error)
@@ -296,7 +275,7 @@ export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}
   /** 删除规划目标（硬删，供「规划任务」tab） */
   async function handleDeletePlannedGoal(goalId: string) {
     try {
-      await api.deleteGoal(goalId)
+      await autonomousService.deleteGoal(goalId)
       setPlannedGoals((prev) => prev.filter((g) => g.id !== goalId))
     } catch (error) {
       console.error('[AutonomousPage] 删除规划目标失败:', error)
@@ -308,7 +287,7 @@ export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}
     if (replanning) return
     setReplanning(true)
     try {
-      await api.replan()
+      await autonomousService.replan()
       await loadData()
     } catch (error) {
       console.error('[AutonomousPage] 重新规划失败:', error)
@@ -327,7 +306,7 @@ export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}
   /** 切换自主进化开关 */
   function handleToggleAutonomous(enabled: boolean) {
     setAutonomousEnabled(enabled)
-    api.setEnabled(enabled).then(() => {
+    autonomousService.setAutonomousEnabled(enabled).then(() => {
       console.log('[AutonomousPage] 自主进化开关已更新:', enabled)
     }).catch((error) => {
       console.error('[AutonomousPage] 更新自主进化开关失败:', error)
@@ -341,7 +320,7 @@ export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}
     setSettingsSaving(true)
     setSettingsSaved(false)
     try {
-      const updated = await api.updateSettings(settings)
+      const updated = await autonomousService.updateAutonomousSettings(settings)
       setSettings(updated)
       setSettingsSaved(true)
       setTimeout(() => setSettingsSaved(false), 2000)
