@@ -28,6 +28,12 @@ import type {
   IpcAggregateEvent,
   MemorySnapshotEvent,
 } from '../../../../../main/perf/performance-types'
+import {
+  getPerformanceReport,
+  getPerformanceHistory,
+  capturePerformanceSnapshot,
+  openPerformanceLogFolder,
+} from '../../../../services/performance-service'
 import styles from './PerformanceDiagnostics.module.css'
 
 const HEALTH_LABEL: Record<PerformanceReport['health'], string> = {
@@ -127,8 +133,8 @@ export const PerformanceDiagnostics: React.FC = () => {
       setLoading(true)
       setError(null)
       const [reportData, historyData] = await Promise.all([
-        window.electronAPI.performance.getReport(),
-        window.electronAPI.performance.getHistory(),
+        getPerformanceReport(),
+        getPerformanceHistory(),
       ])
       setReport(reportData)
       setIpcAggregates(historyData.ipcAggregates)
@@ -147,7 +153,7 @@ export const PerformanceDiagnostics: React.FC = () => {
 
   const handleCapture = useCallback(async () => {
     try {
-      const result = await window.electronAPI.performance.capture()
+      const result = await capturePerformanceSnapshot()
       if (result.success) {
         toast.success('性能快照已捕获')
         await loadReport()
@@ -161,7 +167,7 @@ export const PerformanceDiagnostics: React.FC = () => {
 
   const handleOpenLogs = useCallback(async () => {
     try {
-      const result = await window.electronAPI.performance.openLogFolder()
+      const result = await openPerformanceLogFolder()
       if (!result.success) {
         toast.error(result.error || '打开日志失败')
       }

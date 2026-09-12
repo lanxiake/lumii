@@ -14,6 +14,15 @@ import {
   useCodingDevProjects,
   useCodingDevProjectModals,
 } from '../../../../hooks/business/useCodingDevProjects'
+import {
+  getCodingDevEnvInfo,
+  detectCodingDevTool,
+  listCodingDevToolsMetadata,
+  installCodingDevTool,
+  previewUninstallCodingDevTool,
+  uninstallCodingDevTool,
+  loginCodingDevTool,
+} from '../../../../services/coding-dev-service'
 import styles from './CodingDevAcpPanel.module.css'
 
 export type LocalAcpToolStatusView = {
@@ -162,7 +171,7 @@ export const CodingDevAcpPanel: React.FC = () => {
    */
   const reloadEnv = useCallback(async () => {
     try {
-      const envInfo = await window.electronAPI.app.getCodingDevEnvInfo()
+      const envInfo = await getCodingDevEnvInfo()
       setInfo(envInfo)
       setLoadErr(null)
     } catch (e: unknown) {
@@ -177,7 +186,7 @@ export const CodingDevAcpPanel: React.FC = () => {
     if (!aliveRef.current) return
     setTools((prev) => prev.map((t) => (t.id === toolId ? { ...t, detectState: 'detecting' } : t)))
     try {
-      const status = await window.electronAPI.app.detectCodingDevTool(toolId)
+      const status = await detectCodingDevTool(toolId)
       if (!aliveRef.current) return
       setTools((prev) =>
         prev.map((t) => (t.id === toolId ? { ...t, ...status, detectState: 'done' } : t)),
@@ -195,7 +204,7 @@ export const CodingDevAcpPanel: React.FC = () => {
   const reloadTools = useCallback(async () => {
     setDetecting(true)
     try {
-      const metas = await window.electronAPI.app.listCodingDevToolsMetadata()
+      const metas = await listCodingDevToolsMetadata()
       if (!aliveRef.current) return
       setTools(metas.map((m) => ({ ...m, installed: false, detectState: 'pending' as const })))
       setLoadErr(null)
@@ -259,7 +268,7 @@ export const CodingDevAcpPanel: React.FC = () => {
     setInstallingId(toolId)
     setInstallMsg('正在执行官方安装脚本，请稍候…')
     try {
-      const result = await window.electronAPI.app.installCodingDevTool(toolId)
+      const result = await installCodingDevTool(toolId)
       setInstallMsg(result.message)
       await detectOne(toolId)
     } catch (e: unknown) {
@@ -274,7 +283,7 @@ export const CodingDevAcpPanel: React.FC = () => {
    */
   const beginUninstall = useCallback(async (toolId: string) => {
     try {
-      const preview = await window.electronAPI.app.previewUninstallCodingDevTool(toolId)
+      const preview = await previewUninstallCodingDevTool(toolId)
       setUninstallTarget(preview)
     } catch (e: unknown) {
       setInstallMsg(e instanceof Error ? e.message : String(e))
@@ -291,7 +300,7 @@ export const CodingDevAcpPanel: React.FC = () => {
     setUninstallingId(target.toolId)
     setInstallMsg(`正在卸载 ${target.label}…`)
     try {
-      const result = await window.electronAPI.app.uninstallCodingDevTool(target.toolId)
+      const result = await uninstallCodingDevTool(target.toolId)
       setInstallMsg(result.message)
       await detectOne(target.toolId)
     } catch (e: unknown) {
@@ -308,7 +317,7 @@ export const CodingDevAcpPanel: React.FC = () => {
     setLoggingInId(toolId)
     setInstallMsg('正在打开登录窗口，请在浏览器中完成授权…')
     try {
-      const result = await window.electronAPI.app.loginCodingDevTool(toolId)
+      const result = await loginCodingDevTool(toolId)
       setInstallMsg(result.message)
       if (result.success) {
         await detectOne(toolId)

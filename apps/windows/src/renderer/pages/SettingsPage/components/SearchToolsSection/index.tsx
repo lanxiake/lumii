@@ -4,6 +4,7 @@ import { Card } from '../../../../components/ui/Card/Card'
 import { Button } from '../../../../components/ui/Button/Button'
 import { Input } from '../../../../components/ui/Input/Input'
 import { useToast } from '../../../../components/ui/Toast/useToast'
+import { fetchSearchConfig, saveSearchConfig } from '../../../../services/search-config-service'
 import styles from '../../SettingsPage.module.css'
 
 export function SearchToolsSection() {
@@ -18,11 +19,11 @@ export function SearchToolsSection() {
   // 加载配置
   useEffect(() => {
     setLoading(true)
-    window.electronAPI.api.getSearchConfig()
-      .then((res: any) => {
-        if (res.success && res.data) {
-          setLangSearchApiKey(res.data.langSearchApiKey || '')
-          setSearxngBaseUrl(res.data.searxngBaseUrl || '')
+    fetchSearchConfig()
+      .then((config) => {
+        if (config) {
+          setLangSearchApiKey(config.langSearchApiKey || '')
+          setSearxngBaseUrl(config.searxngBaseUrl || '')
         }
       })
       .catch((err: Error) => {
@@ -41,7 +42,7 @@ export function SearchToolsSection() {
   const handleSave = async () => {
     setSaving(true)
     try {
-      const res = await window.electronAPI.api.setSearchConfig({
+      const res = await saveSearchConfig({
         langSearchApiKey: langSearchApiKey || undefined,
         searxngBaseUrl: searxngBaseUrl || undefined,
       })
