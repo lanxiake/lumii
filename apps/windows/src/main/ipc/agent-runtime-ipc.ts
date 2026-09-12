@@ -651,7 +651,9 @@ export function installAgentRuntimeCommandIpc(performanceMonitor?: PerformanceMo
 
   // 初始化 user-commands 的依赖
   setUserDependencies({
-    ipcMainWindowRef,
+    // 传 getter 而非当前值：本函数在窗口创建前调用，值快照会永远是 null，
+    // 导致 ACP 路径事件被静默丢弃（实时气泡/工具卡不显示）。
+    getIpcMainWindow: () => ipcMainWindowRef,
     sessionToInstance,
     runIdToInstance,
     trackRunInstance,

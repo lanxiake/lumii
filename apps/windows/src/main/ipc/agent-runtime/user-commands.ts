@@ -28,7 +28,8 @@ const LOCAL_USER_ID = 'local-user'
 // ============================================================
 
 interface UserDependencies {
-  ipcMainWindowRef: BrowserWindow | null
+  /** 延迟取主窗口（安装时窗口可能尚未创建，必须每事件实时解析，不能用值快照） */
+  getIpcMainWindow: () => BrowserWindow | null
   sessionToInstance: Map<string, string>
   runIdToInstance: Map<string, string>
   trackRunInstance: (runId: string, instanceId: string) => void
@@ -224,7 +225,7 @@ export async function handleUserSend(
       bridge,
       cwd: devContext.projectPath,
       pushEvent: (event) => {
-        const win = deps!.ipcMainWindowRef
+        const win = deps!.getIpcMainWindow()
         if (win && !win.isDestroyed()) deps!.pushEvent(win, event)
       },
     })
