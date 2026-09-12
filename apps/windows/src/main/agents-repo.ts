@@ -16,6 +16,28 @@ import { resolveWindowsClientDataRoot } from './client-data-root.js'
 
 const LOCAL_USER_ID = 'local-user'
 
+/**
+ * 定义只读详情（团队页「详情」面板展示用）。
+ *
+ * ⚠️ 必须嵌在 `AgentRecord.definition` 里，不得铺平到顶层：
+ * `mapApiRecordToAgentDefinition`（packages/agent-runtime/src/agent/api-agent-mapper.ts）
+ * 会把顶层的 `tools` 当作工具白名单、`maxTurns` / `permissionMode` 当作运行时参数，
+ * 且 `forkAgentRecord` 的展开会把顶层字段复制进用户 Agent —— 铺平会让内置 Agent
+ * 的工具面悄悄套到用户 Agent 头上。
+ */
+export interface AgentDefinitionDetail {
+  tools?: string[]
+  disallowedTools?: string[]
+  bundledSkills?: string[]
+  whenToUse?: string
+  triggerExamples?: string[]
+  category?: string
+  maxTurns?: number
+  canSpawnSubAgents?: boolean
+  permissionMode?: string
+  memoryScope?: string
+}
+
 /** api-record 形态的 Agent 记录（对齐 apps/api-server transformAgentForFrontend） */
 export interface AgentRecord {
   id: string
@@ -34,6 +56,8 @@ export interface AgentRecord {
   identity?: { emoji?: string; theme?: string; avatar?: string }
   skillFilter?: string[]
   skillBlacklist?: string[]
+  /** 只读定义详情（系统 Agent 由内置定义镜像；用户 Agent 无此字段） */
+  definition?: AgentDefinitionDetail
   createdAt: string
   updatedAt: string
 }
@@ -56,6 +80,18 @@ function systemAgentRecords(): AgentRecord[] {
     modelTier: def.modelTier,
     primaryModel: def.model,
     skillFilter: def.skills ? [...def.skills] : undefined,
+    definition: {
+      ...(def.tools ? { tools: [...def.tools] } : {}),
+      ...(def.disallowedTools ? { disallowedTools: [...def.disallowedTools] } : {}),
+      ...(def.bundledSkills ? { bundledSkills: [...def.bundledSkills] } : {}),
+      ...(def.whenToUse ? { whenToUse: def.whenToUse } : {}),
+      ...(def.triggerExamples ? { triggerExamples: [...def.triggerExamples] } : {}),
+      ...(def.category ? { category: def.category } : {}),
+      ...(def.maxTurns !== undefined ? { maxTurns: def.maxTurns } : {}),
+      ...(def.canSpawnSubAgents !== undefined ? { canSpawnSubAgents: def.canSpawnSubAgents } : {}),
+      ...(def.permissionMode ? { permissionMode: def.permissionMode } : {}),
+      ...(def.memory?.scope ? { memoryScope: def.memory.scope } : {}),
+    },
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
   }))
@@ -107,8 +143,10 @@ export function forkAgentRecord(
   const source = getAgentRecord(sourceAgentId)
   if (!source) throw new Error(`源 Agent 不存在: ${sourceAgentId}`)
   const now = new Date().toISOString()
+  // definition 是源 Agent 的只读定义镜像，不属于用户 Agent 自身
+  const { definition: _definition, ...sourceRest } = source
   const forked: AgentRecord = {
-    ...source,
+    ...sourceRest,
     id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     name: data.name?.trim() || `${source.name} 副本`,
     description: data.description ?? source.description,

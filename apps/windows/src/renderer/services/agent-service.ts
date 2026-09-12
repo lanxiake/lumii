@@ -7,6 +7,20 @@
 
 export type ModelTier = 'basic' | 'balanced' | 'performance'
 
+/** 只读定义详情（系统 Agent 由主进程从内置定义镜像，见 main/agents-repo.ts） */
+export interface AgentDefinitionDetail {
+  tools?: string[]
+  disallowedTools?: string[]
+  bundledSkills?: string[]
+  whenToUse?: string
+  triggerExamples?: string[]
+  category?: string
+  maxTurns?: number
+  canSpawnSubAgents?: boolean
+  permissionMode?: string
+  memoryScope?: string
+}
+
 export interface Agent {
   id: string
   name: string
@@ -34,6 +48,13 @@ export interface Agent {
   }
   skillFilter?: string[]
   skillBlacklist?: string[]
+  /** 路由信号（用户 Agent 可编辑；系统 Agent 的填在 definition.whenToUse） */
+  whenToUse?: string
+  triggerExamples?: string[]
+  bundledSkills?: string[]
+  category?: string
+  /** 只读定义详情：系统 Agent 有值，用户 Agent 无 */
+  definition?: AgentDefinitionDetail
   createdAt: string
   updatedAt: string
 }
