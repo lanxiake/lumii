@@ -9,6 +9,16 @@ import { Checkbox } from '../../../../components/ui/Checkbox/Checkbox'
 import { Select } from '../../../../components/ui/Select/Select'
 import { useToast } from '../../../../components/ui/Toast/useToast'
 import { getAgents, type Agent } from '../../../../services/agent-service'
+import {
+  subscribePetModeChanged,
+  listPetModels,
+  getCurrentPetModelId,
+  getPetMode,
+  getVirtualHumanSettings,
+  setVirtualHumanSettings,
+  setCurrentPetModelId,
+  switchPetMode,
+} from '../../../../services/pet-service'
 import type { PetModelConfigDTO } from '../../../../../shared/pet-mode'
 import {
   type VirtualHumanSettingsDTO,
@@ -35,12 +45,10 @@ export const PetSettingsSection: React.FC = () => {
    */
   useEffect(() => {
     getAgents().then((r) => setPetAgents(r.agents ?? [])).catch(() => {})
-    const pet = window.electronAPI?.pet
-    if (!pet) return
-    pet.listModels?.().then((m) => setVhModels(m ?? [])).catch(() => {})
-    pet.getCurrentModelId?.().then(setVhCurrentModelId).catch(() => {})
-    pet.getVirtualHumanSettings?.().then(setVhSettings).catch(() => {})
-    pet.getMode?.().then((mode) => setIsPetModeActive(mode === 'pet')).catch(() => {})
+    void listPetModels().then((m) => setVhModels([...m]))
+    void getCurrentPetModelId().then(setVhCurrentModelId)
+    void getVirtualHumanSettings().then((s) => { if (s) setVhSettings(s) })
+    void getPetMode().then((mode) => setIsPetModeActive(mode === 'pet'))
   }, [])
 
   /**
@@ -50,17 +58,14 @@ export const PetSettingsSection: React.FC = () => {
     const handleModeChanged = (mode: unknown) => {
       setIsPetModeActive(mode === 'pet')
     }
-    window.electronAPI.on('pet-mode-changed', handleModeChanged)
-    return () => {
-      window.electronAPI.off('pet-mode-changed', handleModeChanged)
-    }
+    return subscribePetModeChanged(handleModeChanged)
   }, [])
 
   const currentModel = vhModels.find((m) => m.id === vhCurrentModelId) ?? vhModels[0]
   const patchVh = async (patch: Partial<VirtualHumanSettingsDTO>) => {
     setVhSettings((prev) => ({ ...prev, ...patch }))
     try {
-      const next = await window.electronAPI?.pet?.setVirtualHumanSettings?.(patch)
+      const next = await setVirtualHumanSettings(patch)
       if (next) setVhSettings(next)
     } catch { /* 忽略 */ }
   }
@@ -98,7 +103,7 @@ export const PetSettingsSection: React.FC = () => {
                 onChange={(e) => {
                   const id = e.target.value
                   setVhCurrentModelId(id)
-                  void window.electronAPI?.pet?.setCurrentModelId?.(id)
+                  void setCurrentPetModelId(id)
                 }}
                 className={styles['setting-select']}
               />
@@ -250,7 +255,7 @@ export const PetSettingsSection: React.FC = () => {
               variant="primary"
               onClick={async () => {
                 const target = isPetModeActive ? 'desktop' : 'pet'
-                const r = await window.electronAPI?.pet?.switchMode(target)
+                const r = await switchPetMode(target)
                 if (r && !r.success) {
                   toast.error(`${isPetModeActive ? '退出' : '进入'}宠物模式失败：${r.error ?? '未知错误'}`)
                 }

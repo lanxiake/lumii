@@ -4,7 +4,7 @@
  * 读取类接口失败时返回兜底值（原调用点均为「静默降级」）；
  * 切换模式保留结果对象让调用方处理错误提示。
  */
-import type { AppMode, PetModeSwitchResult, PetModelConfigDTO } from '../../shared/pet-mode'
+import type { AppMode, PetModeSwitchResult, PetModelConfigDTO, VirtualHumanSettingsDTO } from '../../shared/pet-mode'
 
 /** 获取虚拟人模型列表（主进程已规范化配置）；失败返回空列表 */
 export async function listPetModels(): Promise<readonly PetModelConfigDTO[]> {
@@ -52,6 +52,37 @@ export async function setActiveSessionKey(sessionKey: string): Promise<void> {
   if (!api) return
   try {
     await api.setActiveSessionKey(sessionKey)
+  } catch {
+    /* 静默 */
+  }
+}
+
+/** 获取虚拟人个性化设置；接口不可用或失败返回 null（调用方跳过状态更新） */
+export async function getVirtualHumanSettings(): Promise<VirtualHumanSettingsDTO | null> {
+  const api = window.electronAPI?.pet
+  if (!api) return null
+  try {
+    return await api.getVirtualHumanSettings()
+  } catch {
+    return null
+  }
+}
+
+/** 更新虚拟人设置（返回保存后的完整设置）；接口不可用返回 null，错误抛给调用方 */
+export async function setVirtualHumanSettings(
+  patch: Partial<VirtualHumanSettingsDTO>,
+): Promise<VirtualHumanSettingsDTO | null> {
+  const api = window.electronAPI?.pet
+  if (!api) return null
+  return api.setVirtualHumanSettings(patch)
+}
+
+/** 切换当前虚拟人模型；接口不可用或失败时静默（原调用点为 void 未捕获，顺带消除潜在未处理拒绝） */
+export async function setCurrentPetModelId(modelId: string): Promise<void> {
+  const api = window.electronAPI?.pet
+  if (!api) return
+  try {
+    await api.setCurrentModelId(modelId)
   } catch {
     /* 静默 */
   }
