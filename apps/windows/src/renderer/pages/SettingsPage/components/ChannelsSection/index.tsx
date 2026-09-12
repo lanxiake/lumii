@@ -59,7 +59,7 @@ export const ChannelsSection: React.FC = () => {
           </label>
           <p className={styles.experimentalHint}>
             在渠道里发消息时，若你近期在客户端或其它渠道有进行中的对话，先问一句是否接续；
-            回复 1 接续，0 或 30 秒不回复则留在当前会话。同一会话只问一次。
+            回复 1 接续，0 不接续；1 分钟不回复则默认接续。同一会话只问一次。
           </p>
         </div>
         <Switch

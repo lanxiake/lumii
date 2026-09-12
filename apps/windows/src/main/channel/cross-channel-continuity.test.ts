@@ -1,5 +1,5 @@
 /**
- * 跨渠道接续（§5.4）：候选判定 + 询问状态机 + 30s 超时。
+ * 跨渠道接续（§5.4）：候选判定 + 询问状态机 + 1 分钟超时。
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
@@ -184,13 +184,14 @@ describe('CrossChannelContinuity 状态机', () => {
     expect(replay).toHaveBeenCalledTimes(1)
   })
 
-  it('30 秒超时 → 默认不接续，消息不丢', () => {
+  it('1 分钟超时 → 默认接续，消息不丢', () => {
     const c = make()
     c.maybeAsk({ adapter, session, replay, bind })
 
     vi.advanceTimersByTime(CONTINUITY_TIMEOUT_MS)
 
-    expect(bind).not.toHaveBeenCalled()
+    expect(bind).toHaveBeenCalledWith('u1', 'conv-client')
+    expect(setActive).toHaveBeenCalledWith('u1', 'conv-client')
     expect(replay).toHaveBeenCalledTimes(1)
     expect(c.hasPending('weixin:u1')).toBe(false)
   })

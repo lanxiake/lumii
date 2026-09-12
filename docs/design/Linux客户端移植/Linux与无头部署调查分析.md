@@ -15,8 +15,9 @@
 | 能否部署到无图形界面的终端 | **能，且基础比预期好。**`packages/agent-runtime/src` 中 **零 `electron` 导入**（已 grep 验证）；控制面已是 `127.0.0.1` HTTP + Bearer token（`app-ui-control/server.ts:42,561`），配套 `lumii-ui` 零依赖 CLI 已存在 |
 | 最大工作量 | 不是打包，而是 **① 运行时对 Windows 工具链（PowerShell / taskkill / WMI / PATHEXT）的依赖**、**② 桌宠悬浮窗的穿透交互机制在 Linux 上失效** |
 | 最大技术风险 | 桌宠窗依赖 `setIgnoreMouseEvents(ignore, { forward: true })`，而 `forward` 是 **darwin/win32 专属**（`electron.d.ts:20601-20609`）。Linux 下必须改用「主进程光标轮询 + 区域命中」重写 |
-| Wayland 怎么办 | 首版 **强制 X11**（`--ozone-platform=x11`，Ubuntu 默认带 XWayland）；Wayland 原生会话下透明窗/全局置顶/全局光标坐标均受限，桌宠需屏蔽 |
-| 无头模式的最大缺口 | **扫码登录无出口**：微信/QQ 登录二维码当前只发往渲染进程（`index.ts:1505` `mainWindow?.webContents.send('qbot:qrcode')`），无窗口时静默丢失 |
+| Wayland 怎么办 | **已决策：屏蔽**（D1）。首版 **强制 X11**（`--ozone-platform=x11`，Ubuntu 默认带 XWayland）；Wayland 原生会话下透明窗/全局置顶/全局光标坐标均受限，受影响功能直接屏蔽入口并提示 |
+| 无头模式的最大缺口 | **扫码登录无出口**：微信/QQ 登录二维码当前只发往渲染进程（`index.ts:1505` `mainWindow?.webContents.send('qbot:qrcode')`），无窗口时静默丢失。**已决策（D3）：无头下打印二维码到终端** |
+| 与前端解耦（D10） | **基础比预期完整**：`packages/agent-runtime` 零 Electron 依赖，且 `host-kit` 注入契约（`EventSink` / `PermissionProvider` / `ConfigProvider` / `assembleAgent`）已存在并被 Windows 侧实际使用（`bridge-instance-factory.ts:380,614,675`）。缺的是**宿主进程缝**——桌面 UI 虽是 5 个渠道 adapter 之一，但 adapter 必须与 `AgentRuntimeBridge` 同进程同仓（`channel/types.ts:7`）。详见 §7 |
 | 渠道功能是否需要重写 | **不需要。** 微信/QQ/飞书/企微均为网络桥接，无 wxauto/UIAutomation 类客户端自动化；`wecom-login-service.ts:29` 已映射 linux=3 |
 | 浏览器控制是否需要重写 | **基本不需要。** `chrome.executables.ts:217-227,574-591,686-695` 的 Linux 探测分支已实现 |
 | 原生产物 | `better-sqlite3` / `sharp` / `onnxruntime-node` / `@napi-rs/canvas` 均有 linux-x64 产物，只需按平台声明依赖并打包对应二进制 |
@@ -24,13 +25,29 @@
 
 **粗估**：桌面形态达到「能启动 + 桌宠可用 + 核心功能可用」约 2-3 周；无头形态在其之上再加约 1-2 周（主要是启动路径分叉与扫码登录出口）。
 
+### 0.1 已确认的决策（2026-09-12）
+
+| # | 议题 | 决策 | 影响 |
+|---|------|------|------|
+| **D1** | Wayland 支持 | **屏蔽**。首版仅支持 X11 / XWayland；Wayland 原生会话下不与平台对抗，直接屏蔽受影响功能（桌宠模式等）并在 UI 说明 | 取消 Wayland 兼容探索；`--ozone-platform=x11` 为默认，`LUMII_OZONE_PLATFORM` 保留为逃生口 |
+| **D2** | 无头启动路线 | **路线 A**：`xvfb-run` 包裹 Electron + `--headless` 跳过窗口创建 | 复用全部现有服务装配逻辑；路线 B（纯 Node 化）列为后续优化项 |
+| **D3** | 无头扫码登录出口 | **终端打印二维码**（不做 HTTP/CLI 渲染路径） | 实现载体建议用已有的**直接依赖** `qrcode`（见 §6.4 说明），而非 `qrcode-terminal` |
+| **D6** | 首版 TTS 默认 | **默认 MeloTTS**（本地，无需下载 Torch）；**语音克隆按需下载** CPU 版 Torch | 首启动体积可控；克隆作为高级选项在设置页按需触发（见 §5.5 ②） |
+| **D7** | CI | **引入**（GitHub Actions，`ubuntu-22.04` 构建以获得更好的 glibc 兼容） | 新增 `.github/workflows/`；含「`packages/agent-runtime` 零 electron 导入」守卫（§7.5 L6） |
+| **D8** | 分发渠道 | **AppImage 与 deb 均作为主推** | 两条产物线都要保证质量与文档：AppImage 支持自动更新，deb 系统集成更好 |
+| **D9** | `apps/windows` 是否改名 | **不改名** | 保留目录与包名，避免波及 workspace filter / lockfile / 文档路径 |
+| **D10** | agent-runtime 与前端解耦 | **解耦，以支持后续其他客户端（移动端、macOS）** | 详见 §7 |
+| **D11** | 解耦的立项与执行顺序 | **已立项**（`docs/plans/客户端解耦/`）；**先移植、后解耦** | 移植期间在宿主缝上「只做不返工的部分」：无头模式的事件出口必须做成接口（L1 雏形），而非再加一处平行分支。理由见 §7.6 |
+
+> 仍未确认的次要项见 §13.2。
+
 ---
 
 ## 1. 调查范围与方法
 
 - **代码事实核查**：逐项 grep/read 确认，文中每条结论均附 `文件:行号`。
 - **平台能力核查**：直接读取本地安装的 Electron 36.9.5 类型定义（`node_modules/.pnpm/electron@36.9.5/node_modules/electron/electron.d.ts`），以官方 `@platform` 标注为准，而非经验判断。
-- **未做的部分**：本文不含实测。所有标注「需实测」的条目必须在真实 Ubuntu 环境验证后才能作为结论使用（见 §10、§11）。
+- **未做的部分**：本文不含实测。所有标注「需实测」的条目必须在真实 Ubuntu 环境验证后才能作为结论使用（见 §11、§12）。
 
 ---
 
@@ -41,7 +58,7 @@
 | 场景 | Ubuntu 22.04/24.04 桌面，用户可视化交互 | 服务器/容器/无显示器的终端，长期驻留 |
 | 主要交互入口 | 主窗口 + 桌宠 + 托盘 | `lumii-ui` CLI + 渠道消息（微信/QQ/飞书/企微） |
 | 形态约束 | 透明窗、置顶、穿透、托盘、通知 | **无显示服务器**，或仅 `xvfb` 虚拟显示 |
-| 会话类型 | X11 / XWayland（Wayland 需降级） | 不适用 |
+| 会话类型 | X11 / XWayland（Wayland 下屏蔽受影响功能，D1） | 不适用 |
 | 产物 | AppImage + deb | deb（或 tar + systemd user service） |
 | 与形态 A 的关系 | — | **共享 P0 打包与 P1 平台层的全部工作**，额外需要启动路径分叉与入口替代 |
 
@@ -128,7 +145,7 @@
 | 依赖平台化 | `apps/windows/package.json:48,87-88` | `@img/sharp-win32-x64` 从 `dependencies` 移入 `optionalDependencies`；补 linux 平台包 |
 | 打包脚本跨平台化 | `apps/windows/scripts/package-windows.js`（569 行） | 已是 Node 脚本，改造为 `package-app.js` + `--platform`；收敛 4 处 Windows 专属点：`stepVerify`（强制 `icon.ico`+`installer.nsh`）、`killLockedAppProcesses`（`:169-190`）、EPERM 重试（`:438-465`）、产物扩展名过滤（`:470-485` 只认 `.exe/.zip/.7z`） |
 | 图标生成 | `scripts/generate-icon.cjs:147-159` | 现只输出 `icon.ico` 与 32px `tray-icon.png`，需追加 512px PNG |
-| ffmpeg 打包 | `electron-builder.json:11-41` | `@ffmpeg-installer/**` 在 `asarUnpack` 中但**不在 `files` 白名单**；是否实际打包平台二进制存疑（见 §9 缺陷 3）。建议改为「extraResources 内置 → `@ffmpeg-installer` → 系统 PATH」三级解析 |
+| ffmpeg 打包 | `electron-builder.json:11-41` | `@ffmpeg-installer/**` 在 `asarUnpack` 中但**不在 `files` 白名单**；是否实际打包平台二进制存疑（见 §10 缺陷 3）。建议改为「extraResources 内置 → `@ffmpeg-installer` → 系统 PATH」三级解析 |
 | 构建方式 | — | **在 Ubuntu 上原生构建**，不做 Windows→Linux 交叉打包（原生模块必须在目标平台 rebuild；pnpm 无 `supportedArchitectures`，自动安装宿主平台 optional 包） |
 
 **打包流程现状**（`package-windows.js` 控制流）：
@@ -256,7 +273,9 @@ export function killPidTree(pid: number): void                            // 外
 | `screen.getCursorScreenPoint()` | 支持 | **协议受限** |
 | 跨工作区可见 | `_NET_WM_DESKTOP` sticky | 不支持 |
 
-→ Wayland 原生会话下核心机制与形态都不成立，**宠物模式需屏蔽入口**并提示用户登录时选择「Ubuntu on Xorg」。
+→ Wayland 原生会话下核心机制与形态都不成立。**已决策（D1）：不在 Wayland 上做兼容探索，直接屏蔽宠物模式入口**，并提示用户登录时选择「Ubuntu on Xorg」。
+
+**屏蔽的具体形态**：检测到 Wayland 原生会话（无 `DISPLAY` 仅有 `WAYLAND_DISPLAY`）时，主窗口内「宠物模式」入口置灰 + 说明文案；应用其余功能完全正常。若用户设置 `LUMII_OZONE_PLATFORM=x11` 且系统有 XWayland，则走 X11 路径、桌宠正常可用。
 
 ### 5.4 P1：桌面集成（托盘 / 通知 / 自启）
 
@@ -287,12 +306,12 @@ export function killPidTree(pid: number): void                            // 外
 |------|---------|------|
 | sherpa-onnx 加载 | `require('sherpa-onnx-node')`，其 loader 按 `sherpa-onnx-${platform}-${arch}` 找包（`addon.js:8-22`） | 补 `sherpa-onnx-linux-x64`（lockfile 已有该条目）；**需实测 asar 打包下 `.so` 能否被找到**，必要时设 `LD_LIBRARY_PATH` |
 | 模型下载 | 平台无关（ModelScope / hf-mirror / GitHub 代理） | 保留 |
-| PyTorch | `model-manager.ts:98-99` 硬编码 `torch-2.5.1+cu121-cp311-cp311-win_amd64.whl` | 换 `linux_x86_64` wheel；首版建议 CPU 版（~800MB，无 CUDA 依赖），GPU 作为显式开关并校验 `nvidia-smi` |
+| PyTorch | `model-manager.ts:98-99` 硬编码 `torch-2.5.1+cu121-cp311-cp311-win_amd64.whl` | 换 `linux_x86_64` wheel。**已决策（D6）：首版默认不下发 Torch**，仅当用户开启「语音克隆」时才按需下载 CPU 版；GPU 作为进一步的显式开关并校验 `nvidia-smi` |
 | tar 解压 | `model-manager.ts:1129` win32 用 `C:\Windows\System32\tar.exe`，否则 `tar` | 已有分支 ✓ |
 | Edge TTS | `msedge-tts`，网络服务 | 平台无关 ✓ |
 | SILK 解码 | WASM（`channel/media-pipeline.ts:92`） | 平台无关 ✓ |
 
-**必须保证「至少一条 TTS 链路可用」**：本地 sherpa(MeloTTS) → 在线 Edge → 语音克隆，逐级回退，否则语音回复完全失效。
+**必须保证「至少一条 TTS 链路可用」**：本地 sherpa(MeloTTS) → 在线 Edge → 语音克隆，逐级回退，否则语音回复完全失效。**默认链路是 MeloTTS**（D6），即开箱即用且不依赖 Torch 下载。
 
 **③ ffmpeg 与屏幕录制**
 
@@ -322,13 +341,13 @@ export function killPidTree(pid: number): void                            // 外
 
 | 项 | 分析与处置 |
 |----|-----------|
-| 自动更新 | `updater-service.ts` 用 `electron-updater`，**无平台守卫**。AppImage 支持自动更新（需 `APPIMAGE` 环境变量 + `latest-linux.yml`，由 electron-builder 自动产出）；**deb 不支持** → 仅提示 + 打开下载页。不建议应用内 `pkexec dpkg -i`（提权执行下载内容有安全风险） |
+| 自动更新 | `updater-service.ts` 用 `electron-updater`，**无平台守卫**。AppImage 支持自动更新（需 `APPIMAGE` 环境变量 + `latest-linux.yml`，由 electron-builder 自动产出）；**deb 不支持** → 仅提示 + 打开下载页。不建议应用内 `pkexec dpkg -i`（提权执行下载内容有安全风险）。**已决策（D8）：AppImage 与 deb 均作为主推渠道**，两条线都要保证质量与文档 |
 | desktop 集成 | `.desktop` 与图标由 electron-builder 从 `linux.desktop` 配置自动生成。`Name` 含中文在 deb 中合法，若排序/搜索异常改用 `Name=lumii` + `Name[zh_CN]=灵栖 Lumii` |
 | deb 元数据 | 包名需小写 `lumii`；`depends` 只列 22.04/24.04 都存在的包（`libasound2` 在 24.04 更名 `libasound2t64`，故不列）；`libayatana-appindicator3-1` 与 `ffmpeg` 放 `recommends`（缺失不阻塞安装） |
 | 卸载清理 | 自动启的 `~/.config/autostart/lumii.desktop` 需 deb 的 `prerm`/`postrm` 删除；`~/.lumii/` 用户数据**保留**（与 `deleteAppDataOnUninstall: false` 语义一致） |
 | **平台文案** | `runtime-section.ts:31-38` 在 `channel === 'windows-agent-runtime'` 或 host 匹配 `/MtBot Windows/i` 时，向模型注入「You are running inside the **MtBot Windows desktop client**」——**Linux 上会向模型谎报平台**，且品牌名仍是旧的 MtBot。应改为按 `params.osInfo`（已由 `bridge-instance-factory.ts:624` 传入 `${process.platform} ${process.arch}`）动态拼接 |
-| 命名 | 建议**保留** `apps/windows` 与 `lumii-windows`：改名会波及 workspace filter、lockfile、`AGENTS.md` 命令示例、所有文档路径，收益仅为语义。若改，应作为独立的机械提交 |
-| CI | 仓库**当前无任何 CI**（无 `.github/`、`.gitlab-ci.yml`、`Jenkinsfile`）。建议在 `ubuntu-22.04` 上构建（glibc 2.35，向后兼容 24.04） |
+| 命名 | **已决策（D9）：不改名**，保留 `apps/windows` 与 `lumii-windows`。理由：改名会波及 workspace filter、lockfile、`AGENTS.md` 命令示例、所有文档路径，收益仅为语义。若将来要改，应作为独立的机械提交 |
+| CI | **已决策（D7）：引入**。仓库当前无任何 CI（无 `.github/`、`.gitlab-ci.yml`、`Jenkinsfile`）。采用 GitHub Actions，在 `ubuntu-22.04` 上构建（glibc 2.35，向后兼容 24.04）；除产出 Linux 产物外，还须包含 typecheck、`test:all` 与「`packages/agent-runtime` 零 electron 导入」守卫（§7.5 L6） |
 
 ---
 
@@ -367,13 +386,13 @@ export function killPidTree(pid: number): void                            // 外
 | 适用 | 有 X11 库的常规服务器 | 最小容器镜像、资源受限环境 |
 | 风险 | 无显示时 Electron 启动失败（`Missing X server or $DISPLAY`） | agent-runtime 虽零 Electron 依赖，但主进程装配层（`index.ts` 约 1500 行）重度依赖 Electron |
 
-**建议**：首版走**路线 A**，理由是改动可控且复用全部现有服务装配逻辑；路线 B 作为后续优化项（其可行性已由「agent-runtime 零 Electron 依赖」这一事实支撑）。
+**决策（D2，已确认）：采用路线 A。** 理由是改动可控且复用全部现有服务装配逻辑；路线 B 作为后续优化项（其可行性已由「agent-runtime 零 Electron 依赖」这一事实支撑），在路线 A 稳定后再评估。
 
 ### 6.4 无头下的具体缺口
 
 | 缺口 | 说明 | 可能的方向 |
 |------|------|-----------|
-| **扫码登录无出口** | 微信/QQ/企微登录二维码当前只发往渲染进程 | 复用已是传递依赖的 `qrcode-terminal`（现被 stub，见 `main/stubs/qrcode-terminal.ts`）打印到终端；或经 HTTP 返回二维码，由 `lumii-ui` 渲染为 ASCII/图片 |
+| **扫码登录无出口** | 微信/QQ/企微登录二维码当前只发往渲染进程 | **已决策（D3）：终端打印二维码**。实现载体建议用**已有的直接依赖 `qrcode`**（`apps/windows/package.json:78`，自带 `lib/renderer/terminal.js`，调用 `QRCode.toString(text, { type: 'terminal' })`），**而非 `qrcode-terminal`**——后者是 `@tencent-connect/qqbot-connector` 的传递依赖，已被 `electron.vite.config.ts:253` 的 `resolve.alias` 换成 stub（其 CJS require 形式会让构建失败），解开 stub 会重新引入构建风险 |
 | 依赖 `mainWindow` 的代码路径 | 大量 `mainWindow?.webContents.send(...)` 散落（如 `index.ts:1505-1509`） | `?.` 已保证不崩溃，但需系统排查「静默不生效」的功能点，转为 CLI/日志出口 |
 | UI 控制类命令失效 | `lumii-ui` 的 `screenshot` / `goto` / `click` / `act` / `pet mode` 依赖渲染进程 | 无头下在 CLI 层直接报「当前无界面」并返回非零退出码 |
 | 首启动配置 | 模型/渠道/技能的初始配置依赖设置页 | 已由 `settings set` / `model set` / `skill enable` 等 CLI 命令覆盖 ✓ |
@@ -396,7 +415,99 @@ export function killPidTree(pid: number): void                            // 外
 
 ---
 
-## 7. 功能处置矩阵
+## 7. agent-runtime 与前端解耦（多客户端方向）
+
+> **决策 D10**：agent-runtime 与前端解耦，以支持后续开发其他客户端（移动端、macOS 等）。
+> 本节是**现状调查**：解耦已经走到哪一步、还差什么。**不含实施方案**；解耦已按 D11 独立立项（`docs/plans/客户端解耦/`），且在移植完成前不启动。
+
+### 7.1 已经具备的基础（比预期完整）
+
+| 基础 | 证据 |
+|------|------|
+| runtime 内核零 Electron 依赖 | `packages/agent-runtime/src` grep `from 'electron'` → **0 命中**；`packages/agent-runtime/package.json:19-25` 依赖仅 pi-agent-core / pi-ai / typebox / axios / cheerio |
+| **宿主注入契约已存在** | `packages/agent-runtime/src/host-kit/types.ts:40-219`：`EventSink`、`PermissionProvider`、`ConfigProvider`（密钥仅宿主持有）、`PromptContextProvider`、`StreamFnFactory`、`AssembleAgentOptions`；装配入口 `assembleAgent()`（`host-kit/assemble-agent.ts:105`） |
+| **契约已被实际使用** | Windows 侧：`bridge-instance-factory.ts:380`（PermissionProvider）、`:614`（EventSink）、`:675`（assembleAgent） |
+| 命令与事件是可序列化 JSON | `shared/agent-runtime-commands.ts:16-46`、`shared/agent-runtime-events.ts:50-521` |
+| 已证明「非 Electron 客户端可驱动命令总线」 | HTTP 控制面复用同一 `handleCommand`（`app-ui-control/server.ts:12,281`），配套 `lumii-ui` 零依赖 CLI |
+| 存储路径由宿主注入 | `DatabaseAdapter`（`storage/local-database.ts:143-150`）、`dbPath` 必填由宿主提供（`:331`） |
+| 会话/记忆/Wiki 数据模型在 portable 包 | `storage/conversation-repo.ts`、`packages/agent-runtime/src/index.ts:321-577` |
+| 渠道抽象已把「客户端」视为一种 adapter | `channel/types.ts:103-117` 的 `IChannelAdapter`，5 个实现之一是 `ipc-channel-adapter.ts` |
+
+### 7.2 关键结论：消息客户端缝已存在，宿主进程缝不存在
+
+桌面 UI **确实**被建模为渠道之一（`IpcChannelAdapter`），新增 IM 客户端原则上可以只加 adapter、不动 agent-runtime。**但**：
+
+1. `IpcChannelAdapter` 不在 `ChannelRegistry` 中（`channel-registry.ts:11-41` 只管 outbound providers），由 `agent-runtime-ipc.ts:1461-1468` 单例构造；
+2. 它的 `sendTextReply` 是 no-op（`ipc-channel-adapter.ts:36-39`），输出走 `agent-runtime:event` 流；
+3. 它比接口多出一个非契约方法 `sendPrompt`（`:60-83`），被 IPC 命令路径直接调用（`user-commands.ts:232`）；
+4. **`channel/types.ts:7` 直接 import `AgentRuntimeBridge`（apps 主进程）** → adapter 必须与 bridge 同进程同仓。
+
+即：**新增的消息客户端可以只加 adapter，但那个 adapter 仍然必须跑在 Electron 主进程里。** 这对移动端 / 无头端不成立。
+
+### 7.3 硬耦合清单
+
+| # | 耦合 | 位置 |
+|---|------|------|
+| 1 | 事件出口是多处平行的 `webContents.send` | `bridge-renderer-ipc.ts:41,58`；`ipc/agent-runtime-ipc.ts:725,734`；`bash-tool-evolution/engine-assembly.ts:59`；`index.ts:935`；`desktop-notify.ts:76` |
+| 2 | 宿主组合根与生命周期绑 Electron | `bridge.ts:10,613-618,704`；默认库路径 `bridge.ts:2530-2532` |
+| 3 | 数据 / 凭据落盘绑 `app.getPath` + `safeStorage` | `provider-config.ts:11,163,176`；`channel-feature-store.ts:32`；`feishu-session-store.ts:26`；`cloud-sync/sync-config.ts:10,30,41` |
+| 4 | 自定义 protocol 注册 | `local-media-protocol.ts:68,87` |
+| 5 | 原生对话框 | `permission-native-dialog.ts:5,35`；`ipc/dialog-clipboard-ipc.ts:28,34`；`ipc/workspace-ipc.ts:104` |
+| 6 | `screen`（多显示器 / 光标） | `pet/pet-window-manager.ts:130,144,156`；`window/main-window.ts:33` |
+| 7 | 通知 | `desktop-notify.ts:63`；`cloud-sync/sync-ipc.ts:121` |
+| 8 | 自动更新（electron-updater） | `updater-service.ts:8,115,258,299` |
+| 9 | 渲染端脚本注入（读 localStorage / 操作 DOM） | `bridge-tool-registrar.ts:326`；`app-ui-control/controller.ts:643,745,931` |
+| 10 | `BrowserWindow` 类型进入边界层 | `bridge-types.ts:7,21`；`bridge-app-ui-tools.ts:17,118`；`channel/adapters/ipc-channel-adapter.ts:8,30` |
+| 11 | 应用生命周期 / 自启 / 快捷键 / 托盘 / 鼠标穿透 | `bridge.ts:10,704`；`ipc/api-ipc.ts:251`；`pet/pet-mode-ipc.ts:230`；`tray-manager.ts:77` |
+| 12 | 语音 / 桌宠进程内总线 | `bridge-renderer-ipc.ts:7,9`；`bridge.ts:135-136`；`bridge-prompt-composer.ts:19-20` |
+| 13 | 控制面自身也耦合 Electron | `app-ui-control/server.ts:11-12,58`；`app-ui-control/controller.ts:3,168` |
+
+**量级**：`apps/windows/src/main` 的 340 个非测试文件中 **64 个 import electron**；边界目录 `agent-runtime/` 内 7 个直接/类型 import，另有约 10 个经 renderer-IPC / pet / voice / native-dialog 传递耦合。
+
+### 7.4 数据与状态归属（解耦的有利面）
+
+- 会话历史、消息 schema、记忆、Wiki **全部在 portable 包内**（`storage/conversation-repo.ts`、`packages/agent-runtime/src/index.ts:321-577`）；
+- Agent 实例与运行态是内存态：`AgentRegistry` 在包内（`bridge.ts:181` 实例化），生命周期编排在 apps 侧（`bridge-agent-instance-events.ts`、`bridge-lifecycle.ts`）；
+- 渲染进程只是镜像（`useAgentRuntime.ts:315` 注释「数据仅来自客户端本地 SQLite」）；
+- 用户消息先落库再 prompt（`user-commands.ts:137,151`），保证换客户端可恢复。
+
+→ **唯一不 portable 的是「路径从哪来」与「谁持有 bridge 生命周期」**——都是宿主职责，正好可以用 host-kit 已有的注入模式解决。
+
+### 7.5 解耦的分层方向（已立项，见 `docs/plans/客户端解耦/`）
+
+| 层 | 目标 | 现状缺口 |
+|----|------|---------|
+| **L1 传输** | 事件出口唯一化：把 `EventSink` 从「进程内回调」升级为真正的传输接口，删除 5 处平行 `webContents.send` | `EventSink` 定义已存在（`host-kit/types.ts:40-42`），但未被用作传输抽象 |
+| **L2 宿主组合根** | 拆出「不依赖 Electron 即可构造」的 host 装配 | `AgentRuntimeBridge` 是 2500+ 行、import `app` 的宿主类 |
+| **L3 存储与凭据** | `dataRoot` 与 secret store 注入化（`safeStorage` → 接口 + 平台实现） | `LUMII_CLIENT_DATA_DIR` 是现成基础；`safeStorage` 无抽象 |
+| **L4 客户端能力协商** | 客户端声明 capabilities（有无 UI / 能否扫码 / 能否发通知 / 能否选文件），运行时据此分流 | `desktop-interaction-gate.ts:55-64` 的降级链（auto-approve → channel-only → desktop-ipc → desktop-native）是雏形 |
+| **L5 渠道与宿主解耦** | `channel/types.ts:7` 对 `AgentRuntimeBridge` 的 import 换成接口 | adapter 目前在架构上必须与 bridge 同进程 |
+| **L6 防腐守卫** | CI 增加「`packages/agent-runtime` 零 electron 导入」守卫 | 当前靠自觉，无自动化（并入 D7 的 CI） |
+
+### 7.6 与本次移植的关系（已决策：先移植、后解耦）
+
+**结论（D11）：移植优先，解耦在其完成后启动。** 理由：
+
+1. **需求来源**：无头形态（D2 路线 A）本身就是「宿主进程缝」的第一个非桌面宿主。§7.2 的结论（消息客户端缝已存在、宿主进程缝不存在）正是本次移植调查才发现的——**先解耦等于在没有真实需求的情况下设计抽象**。
+2. **正交性**：P0 打包链路与解耦完全无关；P1 平台抽象层属于「宿主实现细节」，将来随宿主一起搬进 host 包是机械搬运，返工成本低。
+3. **风险隔离**：L2 要拆 2500+ 行的 `AgentRuntimeBridge`；与移植并行会造成改动叠加、回归归因困难（仓库现有 39 个既有失败已是归因噪声）。
+4. **交付价值**：移植有近期可交付物（Ubuntu 桌面 + 无头可部署）；移动端没有近期时间压力。
+
+**对移植的约束（避免返工）**：
+
+- 无头模式必然需要一个**非 `webContents` 的事件出口**（当前 5 处平行 `webContents.send` 的其中一处会失效）。移植时必须把它做成**接口**（即 L1 的雏形），而不是在 `index.ts` 里再加一处 `if (headless)` 分支；
+- `dataRoot` 注入（L3 的一部分）与移植的路径平台化天然重叠，一并做掉，不额外拆两份；
+- 其余分层（L2 宿主组合根、L4 能力协商、L5 渠道解耦）移植期间**不动**。
+
+**其他提示**：
+
+- 路线 A 仍是 Electron 宿主。真正支撑移动端 / 其他平台的是 **L2 + L3**（可脱离 Electron 构造的 host）。
+- **移动端定位**：不是「移植桌面客户端」，而是「重写一个客户端 + 复用 `packages/agent-runtime`」；其可行性取决于 L1-L4 是否落地。
+- **macOS 路径最短**——Electron 已支持，代码中已有 darwin 分支。
+
+---
+
+## 8. 功能处置矩阵
 
 > 三档处置：**保留**（功能完整）/ **降级**（可用但明确弱于 Windows）/ **屏蔽**（入口关闭 + 文案说明，禁止静默失败）。
 
@@ -418,11 +529,11 @@ export function killPidTree(pid: number): void                            // 外
 | 自动更新 | ✅ AppImage | ✅ | ⚠️ | deb 仅提示；无头建议手动/CI |
 | 剪贴板文件复制 | ⚠️ 仅路径文本 | ⚠️ | ❌ | 降级并提示 |
 | `.ps1/.bat/.cmd` 技能脚本 | ❌ | ❌ | ❌ | 执行时明确报错 + 提示改用 `.sh` |
-| 微信/QQ 扫码登录 | ✅ | ✅ | ❌（待补） | 桌面保留；无头需补终端出口 |
+| 微信/QQ 扫码登录 | ✅ | ✅ | ✅（D3） | 桌面保留现状；无头打印二维码到终端 |
 
 ---
 
-## 8. 改动清点（汇总，按优先级）
+## 9. 改动清点（汇总，按优先级）
 
 > 本节只列出「需要改什么」，不含实施。
 
@@ -472,7 +583,7 @@ export function killPidTree(pid: number): void                            // 外
 | `src/main/index.ts:1139-1160,1535` | 新增 `--headless` 启动分叉：`whenReady` 后初始化服务但跳过窗口/托盘/宠物 |
 | `main-window.ts` / `pet-window-manager.ts` / `tray-manager.ts` / `screen-record/*` | 无头模式下不加载 |
 | `desktop-notify.ts` | 无窗口时降级为日志 + 渠道推送 |
-| 渠道登录服务 | 二维码增加终端/HTTP 出口（当前仅 `webContents.send`） |
+| 渠道登录服务 | 二维码增加终端出口：**无头模式下用 `qrcode` 的 `type: 'terminal'` 打印二维码到 stdout**（D3），桌面模式维持现状（发给渲染进程） |
 | `app-ui-control/commands.mjs` + `lumii-ui.mjs` | UI 类命令在无头下明确报错并返回非零退出码 |
 | 新增 | systemd user service 模板 + `loginctl enable-linger` 说明 |
 
@@ -496,13 +607,13 @@ export function killPidTree(pid: number): void                            // 外
 | `updater-service.ts` | `getUpdateCapability()`：AppImage 自动 / deb 仅提示 |
 | `packages/agent-runtime/src/prompt/sections/runtime-section.ts:29-40` | 平台文案按 `osInfo` 动态化；品牌名改回 Lumii |
 | `electron-builder.json` + `build-resources/deb-*.sh` | 卸载清理 autostart |
-| `pnpm-workspace.yaml:22`、`.npmrc:5`、`apps/windows/package.json:26` | 清理陈旧条目（见 §9） |
+| `pnpm-workspace.yaml:22`、`.npmrc:5`、`apps/windows/package.json:26` | 清理陈旧条目（见 §10） |
 | `README.md` / `AGENTS.md` | Linux 与无头部署章节 |
 | `.github/workflows/build-linux.yml`（可选） | CI |
 
 ---
 
-## 9. 本次调查中发现的存量缺陷
+## 10. 本次调查中发现的存量缺陷
 
 以下问题**在 Windows 上同样存在**，与是否移植无关，属于调查过程的顺带发现。
 
@@ -519,7 +630,7 @@ export function killPidTree(pid: number): void                            // 外
 
 ---
 
-## 10. 验证方式
+## 11. 验证方式
 
 | 层级 | 手段 | 覆盖 |
 |------|------|------|
@@ -528,6 +639,7 @@ export function killPidTree(pid: number): void                            // 外
 | 打包冒烟 | 手动 checklist | `release/linux-unpacked/resources/app.asar.unpacked/node_modules/` 含 linux 平台包；启动无 `Cannot find module` |
 | 端到端 | Playwright（现有 `test:e2e`） | 主窗口对话链路；桌宠为人工验证（Playwright 无法驱动透明穿透窗） |
 | 无头冒烟 | `xvfb-run` + `lumii-ui` 命令 | `settings get` / `memory stats` / `cron list` 返回成功；渠道收发可用 |
+| CI（D7） | `.github/workflows/build-linux.yml` | typecheck + `test:all` + Linux 打包（AppImage/deb）通过；**「`packages/agent-runtime` 零 electron 导入」守卫检查通过** |
 | 人工验收 | §功能处置矩阵逐项 | 见下方清单 |
 
 **人工验收清单**：
@@ -543,6 +655,7 @@ export function killPidTree(pid: number): void                            // 外
 □ 语音：录音 → 转写 → TTS 回复；至少一条 TTS 链路可用
 □ 录屏 30s（屏幕 + 麦克风），中文字幕烧录正常，含空格/中文/引号路径
 □ 卸载 deb：应用文件清除、~/.lumii 保留、autostart 文件清除
+□ Wayland 原生会话启动：宠物入口置灰且有说明文案，其余功能完全正常
 无头形态
 □ xvfb-run 启动，进程常驻，日志正常写入 ~/.lumii/logs
 □ lumii-ui 非 UI 类命令全部可用；UI 类命令返回明确错误并退出码非零
@@ -553,7 +666,7 @@ export function killPidTree(pid: number): void                            // 外
 
 ---
 
-## 11. 风险与未验证假设
+## 12. 风险与未验证假设
 
 | 类型 | 内容 | 应对 |
 |------|------|------|
@@ -567,16 +680,32 @@ export function killPidTree(pid: number): void                            // 外
 | 环境风险 | `deb` 依赖在 22.04/24.04 间包名差异 | 只列两版都存在的；其余交 AppImage 兜底 |
 | 环境风险 | AppImage 在无 FUSE 环境无法运行 | 文档提示 `--appimage-extract-and-run`；deb 作主推渠道 |
 | 时间风险 | Python/Torch 体积大（CPU 版 ~800MB） | 分步下载 + 断点续传；UI 显示体积 |
-| 流程风险 | 无头模式的扫码登录改造涉及渠道登录服务内部 | 单独评估，不阻塞桌面形态交付 |
+| 流程风险 | ~~无头模式的扫码登录改造涉及渠道登录服务内部~~ | D3 已定方案，改造点局限在登录服务的二维码分发处（渲染进程 / stdout 二选一），不阻塞桌面形态交付 |
 
 ---
 
-## 12. 待确认项
+## 13. 决策记录
 
-1. **Wayland 接受度**：是否接受首版仅 X11 / XWayland（Ubuntu 24.04 默认走 Wayland，用户需在登录界面切换，或由应用强制 XWayland）？
-2. **无头路线的选择**：首版走「`xvfb-run` + 跳窗口」（改动小）还是直接投入「纯 Node 化」（资源占用低但工作量大）？
-3. **无头扫码登录出口的形式**：终端 ASCII 二维码（复用已有的 `qrcode-terminal` 传递依赖）还是经 HTTP 返回给 `lumii-ui` 渲染？
-4. **首版 TTS 默认**：默认下载 CPU 版 Torch（+800MB，支持语音克隆），还是默认 MeloTTS、把语音克隆作为按需下载的高级选项？
-5. **CI 是否引入**：仓库当前无 CI，新增涉及仓库设置与密钥。
-6. **主推分发渠道**：AppImage（可自动更新）还是 deb（系统集成好、更新靠手动）？
-7. 上一轮已提出但尚未确认的两项：功能降级范围（现已改为「屏蔽」策略，见 §7）、`apps/windows` 是否改名。
+### 13.1 已确认（2026-09-12）
+
+全部决策见 **§0.1**，共 10 条：
+
+| 编号 | 议题 | 结论 |
+|------|------|------|
+| D1 | Wayland | **屏蔽**（首版仅 X11 / XWayland） |
+| D2 | 无头启动路线 | **路线 A**（`xvfb-run` + `--headless` 跳过窗口创建） |
+| D3 | 无头扫码登录出口 | **终端打印二维码**（载体用已有直接依赖 `qrcode`） |
+| D4 | 功能不支持时的处置 | **屏蔽**入口 + 文案说明，不做静默失败（矩阵见 §8） |
+| D5 | 「不支持功能」的范围 | 核心 = 对话 / 记忆 / Wiki / 渠道 / 定时任务 / 技能 / 浏览器控制 必须可用 |
+| D6 | 首版 TTS 默认 | **默认 MeloTTS**；**语音克隆按需下载** Torch |
+| D7 | CI | **引入**（GitHub Actions，ubuntu-22.04） |
+| D8 | 分发渠道 | **AppImage 与 deb 均主推** |
+| D9 | `apps/windows` 改名 | **不改名** |
+| D10 | agent-runtime 与前端解耦 | **解耦**（支持移动端 / macOS），详见 §7 |
+| D11 | 解耦立项与顺序 | **已立项** `docs/plans/客户端解耦/`；**先移植、后解耦**（§7.6） |
+
+### 13.2 待确认
+
+1. **CI 平台**：D7 已定「引入」，默认按 GitHub Actions 实施（与 `electron-builder.json:176-181` 的 `publish: github` 一致），需确认仓库权限与密钥可用。
+2. **deb 是否 GPG 签名**：electron-builder 支持 `deb.signingKey`；首版可不签，由用户 `dpkg -i` 安装。
+3. 解耦（D10/D11）的执行顺序已定为「先移植、后解耦」（§7.6）——若希望提前并行，需重新评估改动叠加风险。

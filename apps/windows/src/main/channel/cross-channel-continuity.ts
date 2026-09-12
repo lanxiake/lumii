@@ -10,7 +10,7 @@
  *   回一条「检测到你在【客户端】有进行中的对话：<标题>，回 1 接续 / 0 不接续」
  *         ├─ 回 1  → 绑定到该会话，后续消息走它
  *         ├─ 回 0  → 留在当前会话
- *         └─ 30s 无回复 → 默认不接续
+ *         └─ 1 分钟无回复 → 默认接续
  *
  * 「只问一次」用内存 Map：重启后重问一次的成本可接受，不值得落库（设计 §5.4）。
  */
@@ -22,8 +22,8 @@ const log = {
   warn: (...args: unknown[]) => console.warn('[CrossChannelContinuity]', ...args),
 }
 
-/** 询问超时（设计 §5.4：30 秒内不回复默认不接续） */
-export const CONTINUITY_TIMEOUT_MS = 30_000
+/** 询问超时（设计 §5.4：1 分钟内不回复默认接续） */
+export const CONTINUITY_TIMEOUT_MS = 60_000
 
 /** 候选会话：来自其它渠道的近期活跃会话 */
 export interface ContinuityCandidate {
@@ -123,7 +123,7 @@ export function formatContinuityPrompt(candidate: ContinuityCandidate): string {
     `检测到你在【${candidate.channelLabel}】有进行中的对话：`,
     `「${candidate.title}」`,
     '',
-    '是否接续该对话？回复 1 接续，0 不接续（30 秒内不回复默认不接续）。',
+    '是否接续该对话？回复 1 接续，0 不接续（1 分钟内不回复默认接续）。',
   ].join('\n')
 }
 
@@ -214,9 +214,9 @@ export class CrossChannelContinuity {
     }
 
     const timer = setTimeout(() => {
-      this.resolve(sessionKey, false, '超时')
+      this.resolve(sessionKey, true, '超时')
     }, CONTINUITY_TIMEOUT_MS)
-    // 询问是可选增强，不该让 Electron 进程为它多活 30 秒
+    // 询问是可选增强，不该让 Electron 进程为它多活 1 分钟
     timer.unref?.()
 
     this.pending.set(sessionKey, { candidate, adapter, session, timer, replay, bind })
