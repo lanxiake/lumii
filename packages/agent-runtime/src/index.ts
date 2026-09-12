@@ -126,6 +126,7 @@ export {
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,
+  sceneMemoryToolConfig,
   systemPromptToolConfig,
   speechGenerateToolConfig,
   wikiOverviewToolConfig,

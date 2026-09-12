@@ -142,6 +142,67 @@ export const profileMemoryToolConfig: MtBotToolConfig<typeof ProfileMemoryParams
   },
 };
 
+const SceneMemoryParams = Type.Object({
+  action: Type.Union([
+    Type.Literal("list"),
+    Type.Literal("read"),
+    Type.Literal("write"),
+    Type.Literal("append"),
+    Type.Literal("remove_section"),
+  ]),
+  scene: Type.Optional(
+    Type.Union([Type.Literal("project"), Type.Literal("channel")], {
+      description:
+        "Scene kind. 'project' = conventions/preferences for ONE project; 'channel' = behavior preferences for ONE IM channel. Not needed for action='list'.",
+    }),
+  ),
+  key: Type.Optional(
+    Type.String({
+      description:
+        "Project name or path for scene='project' (e.g. 'lumii'); channel type for scene='channel' ('weixin'|'feishu'|'wecom'|'qbot'). For 'channel', omit to use the current conversation's channel.",
+    }),
+  ),
+  path: Type.Optional(
+    Type.String({
+      description:
+        "For scene='project': the project's root directory. When provided, memory is stored at <path>/.lumii/memory.md (travels with the project). Omit for concept-only projects (stored under the client data dir).",
+    }),
+  ),
+  content: Type.Optional(
+    Type.String({
+      description:
+        "For 'write': full new document. For 'append': a markdown block to add (e.g. '## 约定\\n- ...').",
+    }),
+  ),
+  section: Type.Optional(
+    Type.String({
+      description:
+        "For 'remove_section': heading text of the '## ' section to delete (matched without the leading '## ').",
+    }),
+  ),
+});
+type SceneMemoryInput = Static<typeof SceneMemoryParams>;
+
+export const sceneMemoryToolConfig: MtBotToolConfig<typeof SceneMemoryParams> = {
+  name: "scene_memory",
+  label: "Scene Memory",
+  description:
+    "Read/edit SCENE memory: per-project conventions (scene='project') or per-IM-channel preferences (scene='channel'). Anything true for only ONE project (e.g. 'this repo uses pnpm') or ONE channel (e.g. 'keep WeChat replies short') MUST go here, NOT into profile_memory — global profile memory is injected into every conversation and scene content there becomes noise elsewhere. Project memory is stored at <project>/.lumii/memory.md when a path is known. Prefer 'append' over 'write'. Use action='list' to see all known scenes.",
+  parameters: SceneMemoryParams,
+  category: "memory",
+  isReadOnly: false,
+  needsPermission: false,
+  async execute(
+    _toolCallId: string,
+    _params: SceneMemoryInput,
+  ): Promise<AgentToolResult<unknown>> {
+    return {
+      content: [{ type: "text", text: JSON.stringify({ status: "not_implemented" }) }],
+      details: undefined,
+    };
+  },
+};
+
 const SystemPromptParams = Type.Object({
   action: Type.Union([Type.Literal("read"), Type.Literal("update"), Type.Literal("reset")]),
   content: Type.Optional(Type.String()),

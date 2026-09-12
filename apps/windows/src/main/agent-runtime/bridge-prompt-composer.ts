@@ -19,6 +19,8 @@ import { agentRuntimeLog as log } from './bridge-utils'
 import { getVirtualHumanContext } from '../pet/virtual-human-activation'
 import { renderVirtualHumanPromptSection } from '../pet/virtual-human-context'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
+import { resolveSceneHits } from './scene-resolver'
+import { readSceneMemory } from './scene-memory-store'
 
 /** 记忆注入开关（个人记忆 / 工作记忆） */
 export interface MemoryInjectionSettings {
@@ -312,11 +314,13 @@ export class BridgePromptComposer {
    * 将最新用户记忆注入到动态部分，同时刷新活跃任务，返回完整系统提示词。
    *
    * @param memoryInjection 可选：由调用方预取的注入开关，避免与 dispatcher 重复读 localStorage
+   * @param userMessage 可选：本轮用户消息，用于项目场景匹配（创建实例时无消息，只可能命中渠道）
    */
   async buildPromptWithMemory(
     instanceId: string,
     result: SystemPromptResult,
     memoryInjection?: MemoryInjectionSettings,
+    userMessage?: string,
   ): Promise<string> {
     const { staticPrompt } = result
 
@@ -338,32 +342,31 @@ export class BridgePromptComposer {
           ].join('\n')
         : ''
 
+    // 个人记忆/场景记忆注入开关（未显式传入时读设置，默认开启）
+    let injPersonal = memoryInjection?.injectPersonalMemory
+    if (injPersonal === undefined) {
+      try {
+        injPersonal = (await this.deps.getMemoryInjectionSettings?.())?.injectPersonalMemory ?? true
+      } catch (err) {
+        log.warn('[buildPromptWithMemory] 读取记忆注入设置失败，按开启处理:', err)
+        injPersonal = true
+      }
+    }
+
     let memorySection = ''
     try {
       // 个人记忆在此注入；工作记忆由 AgentInstance.loadAndInjectMemories 单独控制
-      const injPersonal =
-        memoryInjection?.injectPersonalMemory ??
-        (await this.deps.getMemoryInjectionSettings?.())?.injectPersonalMemory ??
-        true
       if (injPersonal !== false) {
         const userMemory = await this.deps.loadUserMemory()
-        let userMemoryContent = userMemory?.content ?? ''
-        this.HTML_COMMENT_REGEX.lastIndex = 0
-        this.TRIPLE_NEWLINE_REGEX.lastIndex = 0
-        this.EMPTY_SECTION_REGEX.lastIndex = 0
-        userMemoryContent = userMemoryContent
-          .replace(this.HTML_COMMENT_REGEX, '')
-          .replace(this.TRIPLE_NEWLINE_REGEX, '\n\n')
-          .trim()
-        this.EMPTY_SECTION_REGEX.lastIndex = 0
-        this.TRIPLE_NEWLINE_REGEX.lastIndex = 0
-        userMemoryContent = userMemoryContent
-          .replace(this.EMPTY_SECTION_REGEX, '')
-          .replace(this.TRIPLE_NEWLINE_REGEX, '\n\n')
-          .trim()
+        const userMemoryContent = this.cleanMarkdown(userMemory?.content ?? '')
         if (userMemoryContent) {
-          userMemoryContent = this.budgetUserMemory(userMemoryContent)
-          memorySection = formatUserMemoryForPrompt(userMemoryContent)
+          memorySection = formatUserMemoryForPrompt(
+            this.budgetMarkdown(
+              userMemoryContent,
+              this.USER_MEMORY_MAX_CHARS,
+              '（个人记忆较长，此处仅注入核心部分；需要更多用户画像/偏好时用 `profile_memory` 的 `read_memory` 读取完整文档）',
+            ),
+          )
         }
       }
     } catch (err) {
@@ -394,6 +397,15 @@ export class BridgePromptComposer {
     }
     if (memorySection) {
       dynamicParts.push(memorySection)
+    }
+
+    // 场景记忆段（项目/渠道）：命中才注入、不常驻
+    // 设计：docs/design/记忆设计/2026-09-12-scene-memory-design.md
+    if (injPersonal !== false) {
+      const sceneSections = await this.buildSceneMemorySections(instanceId, userMessage)
+      for (const section of sceneSections) {
+        dynamicParts.push(section)
+      }
     }
 
     // 宠物模式：按 sessionKey 注入表情/动作/persona 段（ADR-14，主进程单一数据源）
@@ -454,12 +466,104 @@ export class BridgePromptComposer {
    */
   private readonly USER_MEMORY_MAX_CHARS = 2400
 
+  /** 项目记忆注入预算：项目约定可以比用户画像更长 */
+  private readonly PROJECT_MEMORY_MAX_CHARS = 4000
+
+  /** 渠道偏好注入预算：渠道偏好天然短 */
+  private readonly CHANNEL_MEMORY_MAX_CHARS = 1200
+
   /**
-   * 将个人记忆按 `## ` 章节边界截断到预算内（尽量保留完整章节）。
-   * 未超预算时原样返回；截断时在末尾追加"按需读取完整记忆"的提示。
+   * 构建场景记忆注入段（项目/渠道）。
+   * 渠道由 sessionKey 解析；项目由当前用户消息匹配注册表别名——未命中不注入。
+   * 创建实例时无消息传入，此时只可能命中渠道。
    */
-  private budgetUserMemory(content: string): string {
-    const max = this.USER_MEMORY_MAX_CHARS
+  private async buildSceneMemorySections(instanceId: string, userMessage?: string): Promise<string[]> {
+    const sessionKey = this.deps.instanceToConversation.get(instanceId)
+    if (!sessionKey && !userMessage) return []
+
+    try {
+      const hits = await resolveSceneHits({
+        baseDir: resolveWindowsClientDataRoot(),
+        sessionKey,
+        userMessage,
+      })
+      const sections: string[] = []
+      for (const hit of hits) {
+        const file = await readSceneMemory(hit.filePath)
+        const content = this.cleanMarkdown(file?.content ?? '')
+        if (!content) continue
+
+        if (hit.scene === 'project') {
+          const budgeted = this.budgetMarkdown(
+            content,
+            this.PROJECT_MEMORY_MAX_CHARS,
+            '（项目记忆较长，此处仅注入核心部分；完整内容用 `scene_memory` 工具 read 读取）',
+          )
+          sections.push(
+            [
+              '',
+              `## 项目记忆：${hit.name}（仅适用于本项目）`,
+              '',
+              '以下内容仅在与该项目相关的任务中生效，其他场景不要套用；与用户当前陈述冲突时以当前为准。',
+              '',
+              budgeted,
+              '',
+            ].join('\n'),
+          )
+        } else {
+          const budgeted = this.budgetMarkdown(
+            content,
+            this.CHANNEL_MEMORY_MAX_CHARS,
+            '（渠道偏好较长，已截断）',
+          )
+          sections.push(
+            [
+              '',
+              `## 渠道偏好：${hit.name}（仅在${hit.name}渠道生效）`,
+              '',
+              `以下内容仅在通过${hit.name}交流时生效，其他渠道不要套用。`,
+              '',
+              budgeted,
+              '',
+            ].join('\n'),
+          )
+        }
+        log.info(
+          `[buildSceneMemorySections] 注入场景记忆 scene=${hit.scene} key=${hit.key} chars=${content.length}`,
+        )
+      }
+      return sections
+    } catch (err) {
+      log.warn(
+        `[buildSceneMemorySections] 场景记忆加载失败（跳过注入）: ${err instanceof Error ? err.message : String(err)}`,
+      )
+      return []
+    }
+  }
+
+  /** 清洗 Markdown：去 HTML 注释、压空行、去空章节 */
+  private cleanMarkdown(content: string): string {
+    this.HTML_COMMENT_REGEX.lastIndex = 0
+    this.TRIPLE_NEWLINE_REGEX.lastIndex = 0
+    this.EMPTY_SECTION_REGEX.lastIndex = 0
+    let out = content
+      .replace(this.HTML_COMMENT_REGEX, '')
+      .replace(this.TRIPLE_NEWLINE_REGEX, '\n\n')
+      .trim()
+    this.EMPTY_SECTION_REGEX.lastIndex = 0
+    this.TRIPLE_NEWLINE_REGEX.lastIndex = 0
+    out = out
+      .replace(this.EMPTY_SECTION_REGEX, '')
+      .replace(this.TRIPLE_NEWLINE_REGEX, '\n\n')
+      .trim()
+    return out
+  }
+
+  /**
+   * 按 `## ` 章节边界把 Markdown 截断到预算内（尽量保留完整章节）。
+   * 未超预算时原样返回；截断时在末尾追加按需读取提示 hint。
+   */
+  private budgetMarkdown(content: string, max: number, hint: string): string {
     if (content.length <= max) return content
 
     const lines = content.split(/\r?\n/)
@@ -486,10 +590,7 @@ export class BridgePromptComposer {
     if (result.length > max * 1.5) {
       result = result.slice(0, max)
     }
-    return (
-      result.trimEnd() +
-      '\n\n（个人记忆较长，此处仅注入核心部分；需要更多用户画像/偏好时用 `profile_memory` 的 `read_memory` 读取完整文档）'
-    )
+    return result.trimEnd() + '\n\n' + hint
   }
 
   /**

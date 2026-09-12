@@ -320,6 +320,7 @@ export class BridgePromptDispatcher {
         instanceId,
         baseResult,
         injSettings,
+        message,
       )
       instance.setSystemPrompt(freshPrompt)
       log.info(`[prompt] 已刷新系统提示词（记忆+任务+模型）instanceId=${instanceId}, model=${currentModelId ?? 'default'}`)

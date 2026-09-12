@@ -174,6 +174,7 @@ export function buildMemorySection(
   const hasMemoryTools =
     toolNames.includes("profile_memory") ||
     toolNames.includes("memory_search") ||
+    toolNames.includes("scene_memory") ||
     toolNames.includes("memory_manage") ||
     toolNames.includes("memory_get")
 
@@ -211,10 +212,11 @@ export function buildMemorySection(
       }
     }
     lines.push(
-      "Three layers: personal memory (profile and preferences) → working memory (current task and resources) → memory palace (historical detail, recalled via `memory_search`).",
-      "- Personal memory (user/feedback): managed with `profile_memory`; prefer incremental append/remove_section edits. Global and slow-changing.",
+      "Four layers: personal memory (profile and preferences) → scene memory (per-project / per-channel conventions) → working memory (current task and resources) → memory palace (historical detail, recalled via `memory_search`).",
+      "- Personal memory (user/feedback): managed with `profile_memory`; prefer incremental append/remove_section edits. Must hold in EVERY scenario — if something is only true for one project or one IM channel (e.g. 'this repo uses pnpm', 'keep WeChat replies short'), use `scene_memory` instead, never `profile_memory`.",
+      "- Scene memory (project/channel): managed with `scene_memory`; loaded automatically only when the matching project (by name in the message) or channel is active. Use it for project conventions and channel-specific style.",
       "- Working memory (project/reference/general): extracted automatically, editable per entry with `memory_manage`. Correct stale or wrong entries when you notice them.",
-      "- Conflict resolution: the user's current statement outranks memory, and newer rules outrank older ones. Task-scoped rules must state their scope.",
+      "- Conflict resolution: the user's current statement outranks memory, and newer rules outrank older ones.",
       "- Do not restate the same topic across entries; for tool or method changes, follow the user's latest instruction.",
       "- Memory is a snapshot: verify a remembered file, function, or resource still exists before acting on it.",
       "",

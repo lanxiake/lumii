@@ -25,6 +25,7 @@ export {
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,
+  sceneMemoryToolConfig,
   systemPromptToolConfig,
   speechGenerateToolConfig,
 } from "./integration-tools.js";
@@ -106,6 +107,7 @@ import {
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,
+  sceneMemoryToolConfig,
   systemPromptToolConfig,
   speechGenerateToolConfig,
 } from "./integration-tools.js";
@@ -171,6 +173,7 @@ export const ALL_BUILT_IN_TOOL_CONFIGS: readonly MtBotToolConfig<any, any>[] = [
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,
+  sceneMemoryToolConfig,
   systemPromptToolConfig,
   speechGenerateToolConfig,
   wikiOverviewToolConfig,

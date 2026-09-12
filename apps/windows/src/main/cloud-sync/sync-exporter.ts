@@ -77,7 +77,7 @@ export class SyncExporter {
       logger.info('[export] 1. 导出用户配置...')
       try {
         await this.exportProfile()
-        exportedFiles.push('profile/soul.md', 'profile/user-memory.md')
+        exportedFiles.push('profile/soul.md', 'profile/user-memory.md', 'profile/scene-memory/')
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         logger.error('[export] Profile 导出失败:', msg)
@@ -197,6 +197,15 @@ export class SyncExporter {
       fs.copyFileSync(memSrc, memDst)
     } else {
       fs.writeFileSync(memDst, '# User Memory\n\n(待记录)')
+    }
+
+    // 复制场景记忆目录（无目录项目 + 渠道记忆）
+    // 有目录项目的记忆在 <项目>/.lumii/memory.md，随项目自身管理（git 等），不纳入同步
+    const sceneSrc = path.join(this.options.dataDir, 'scene-memory')
+    const sceneDst = path.join(profileDir, 'scene-memory')
+    if (fs.existsSync(sceneSrc)) {
+      fs.rmSync(sceneDst, { recursive: true, force: true })
+      fs.cpSync(sceneSrc, sceneDst, { recursive: true })
     }
   }
 

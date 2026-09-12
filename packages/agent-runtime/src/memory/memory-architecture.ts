@@ -6,7 +6,7 @@
  */
 
 /** 记忆层级标识 */
-export type MemoryLayer = "personal" | "work" | "palace";
+export type MemoryLayer = "personal" | "scene" | "work" | "palace";
 
 /** 记忆层级元信息 */
 export interface MemoryLayerInfo {
@@ -19,17 +19,28 @@ export interface MemoryLayerInfo {
   readonly readTools: readonly string[];
 }
 
-/** 三层记忆架构定义 */
+/** 记忆分层架构定义 */
 export const MEMORY_LAYERS: readonly MemoryLayerInfo[] = [
   {
     id: "personal",
     label: "个人记忆",
-    storage: "PostgreSQL user_memory（Markdown 全文）",
+    storage: "本地 Markdown（~/.lumii/data/user-memory.md）",
     categories: ["user", "feedback"],
     purpose:
-      "跨会话稳定的用户画像与交互偏好：身份、风格、长期习惯、纠正与确认。变化慢、全局适用。",
+      "跨会话稳定、**任何场景都成立**的用户画像与交互偏好：身份、风格、长期习惯、纠正与确认。变化慢、全局注入。",
     writeTools: ["profile_memory"],
     readTools: ["profile_memory", "memory_search"],
+  },
+  {
+    id: "scene",
+    label: "场景记忆",
+    storage:
+      "项目目录 .lumii/memory.md（有目录时）/ ~/.lumii/data/scene-memory/（无目录项目、渠道）",
+    categories: ["项目约定", "渠道偏好"],
+    purpose:
+      "仅对某个项目/技能/渠道成立的偏好（如「某仓库用 pnpm」「微信回复要简短」）。不做常驻注入，命中场景（当前项目/渠道）时才加载。",
+    writeTools: ["scene_memory"],
+    readTools: ["scene_memory", "命中自动注入", "memory_search"],
   },
   {
     id: "work",
@@ -63,10 +74,11 @@ export const WORK_MEMORY_CATEGORIES = ["project", "reference", "general"] as con
  * 记忆分层协作规则（注入 prompt 的硬约束摘要）
  */
 export const MEMORY_LAYER_RULES = [
-  "**分层职责**：个人记忆管「你是谁、你怎么喜欢被对待」；工作记忆管「你在做什么、用什么资源」；记忆宫殿管「过去说过什么、搜得到的细节」。",
-  "**写入路由**：user/feedback → 个人记忆（profile_memory）；project/reference/general → 工作记忆（自动提取）；大量对话原文 → 记忆宫殿（memory_search 召回）。",
-  "**冲突消解**：同一主题多条规则时，以「最近用户明确陈述」为准；任务级规则（如某系列配图数量）不得覆盖全局偏好（如回复风格）；不同项目/系列的规则须标注适用范围。",
-  "**去重原则**：语义相同只保留一条，合并为「规则 + 原因 + 应用 + 适用范围」；禁止重复罗列同一约束。",
+  "**分层职责**：个人记忆管「你是谁、你怎么喜欢被对待」；场景记忆管「某个项目/渠道下的约定」；工作记忆管「你在做什么、用什么资源」；记忆宫殿管「过去说过什么、搜得到的细节」。",
+  "**写入路由**：user/feedback 且任何场景都成立 → 个人记忆（profile_memory）；仅对某项目/渠道成立 → 场景记忆（scene_memory），不得写入个人记忆；project/reference/general → 工作记忆（自动提取）；大量对话原文 → 记忆宫殿（memory_search 召回）。",
+  "**判据**：换个项目/渠道还成立吗？成立 → 个人记忆；不成立 → 场景记忆。",
+  "**冲突消解**：同一主题多条规则时，以「最近用户明确陈述」为准；任务级规则（如某系列配图数量）不得覆盖全局偏好（如回复风格）。",
+  "**去重原则**：语义相同只保留一条，合并为「规则 + 原因 + 应用」；禁止重复罗列同一约束。",
   "**召回顺序**：先查工作记忆（当前任务）→ 再查个人记忆（偏好画像）→ 需要历史细节时用 memory_search 搜记忆宫殿，命中后用 memory_read 按 drawer_id 读归档原文。",
 ] as const;
 
@@ -83,7 +95,7 @@ export function memoryCategoryToLayer(category: string): MemoryLayer {
  * 构建记忆分层架构说明（用于提取/整理 prompt）
  */
 export function buildMemoryArchitectureSection(): string {
-  const lines: string[] = ["## 记忆系统三层架构", ""];
+  const lines: string[] = ["## 记忆系统分层架构", ""];
 
   for (const layer of MEMORY_LAYERS) {
     lines.push(

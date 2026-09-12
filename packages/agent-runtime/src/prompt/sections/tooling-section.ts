@@ -65,6 +65,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   memory_search: "Recall past work, decisions, preferences",
   memory_read: "Read one archived drawer by drawer_id",
   memory_manage: "Fix or remove stale working-memory entries",
+  scene_memory: "Per-project / per-channel memory (conventions true only for ONE project or channel)",
   work_report_read: "Read recent work reports (daily/weekly) for real progress/priorities",
 
   // Self-Configuration
@@ -146,6 +147,7 @@ const MEMORY_TOOLS = new Set([
   "memory_search",
   "memory_read",
   "memory_manage",
+  "scene_memory",
   "work_report_read",
   "wiki_overview",
   "wiki_search",

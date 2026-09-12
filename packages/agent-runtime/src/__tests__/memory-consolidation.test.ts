@@ -46,7 +46,7 @@ describe("buildMemoryConsolidationPrompt", () => {
     expect(prompt).toContain("用户是架构师");
     expect(prompt).toContain("image_generate");
     expect(prompt).toContain("冲突消解");
-    expect(prompt).toContain("三层架构");
+    expect(prompt).toContain("分层架构");
   });
 
   it("无新候选时进入仅整理模式", () => {

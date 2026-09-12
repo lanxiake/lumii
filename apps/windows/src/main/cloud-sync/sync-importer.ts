@@ -198,6 +198,14 @@ export class SyncImporter {
     if (fs.existsSync(memSrc)) {
       fs.copyFileSync(memSrc, memDst)
     }
+
+    // 导入场景记忆目录（无目录项目 + 渠道记忆）；整目录覆盖，与 user-memory.md 的覆盖语义一致
+    const sceneSrc = path.join(profileDir, 'scene-memory')
+    const sceneDst = path.join(this.options.dataDir, 'scene-memory')
+    if (fs.existsSync(sceneSrc)) {
+      fs.rmSync(sceneDst, { recursive: true, force: true })
+      fs.cpSync(sceneSrc, sceneDst, { recursive: true })
+    }
   }
 
   /**

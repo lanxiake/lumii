@@ -16,12 +16,24 @@ import {
   memorySearchToolConfig,
   memoryReadToolConfig,
   profileMemoryToolConfig,
+  sceneMemoryToolConfig,
   systemPromptToolConfig,
   speechGenerateToolConfig,
   imageGenerateToolConfig,
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log, jsonToolResult, removeMarkdownSection } from './bridge-utils'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
+import { resolveWindowsClientDataRoot } from '../client-data-root'
+import {
+  findProject,
+  listScenes,
+  loadRegistry,
+  readSceneMemory,
+  registerProject,
+  resolveSceneFilePath,
+  writeSceneMemory,
+} from './scene-memory-store'
+import { resolveChannel } from './scene-resolver'
 
 /**
  * 注册渠道出站工具 channel_list / channel_send（走 ChannelOutboundRouter）。
@@ -200,25 +212,50 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
         }
       }
 
-      // 降级：从 user_memory 文本文档做关键词搜索
+      // 降级：从 user_memory 文本文档 + 场景记忆文件（项目/渠道）做关键词搜索
+      const q = query.toLowerCase()
+      const matched: Array<{ content: string; line?: number; score: number; source: string }> = []
+
       const memory = await deps.config.getUserMemory?.()
       const content = memory?.content ?? ''
-      if (!content.trim()) {
-        return jsonToolResult({ results: [], provider: 'user-memory', note: 'empty memory document' })
+      if (content.trim()) {
+        content.split(/\r?\n/).forEach((line, idx) => {
+          if (line.toLowerCase().includes(q)) {
+            matched.push({ content: line.trim(), line: idx + 1, score: 0.8, source: 'user_memory' })
+          }
+        })
       }
-      const lines = content.split(/\r?\n/)
-      const q = query.toLowerCase()
-      const matched = lines
-        .map((line, idx) => ({ line, idx }))
-        .filter((row) => row.line.toLowerCase().includes(q))
-        .slice(0, limit)
-        .map((row) => ({
-          content: row.line.trim(),
-          line: row.idx + 1,
-          score: 0.8,
-          source: 'user_memory',
-        }))
-      return jsonToolResult({ results: matched, provider: 'user-memory', updatedAt: memory?.updatedAt })
+
+      // 场景记忆：来源标注适用范围，方便 agent 判断该规则是否适用于当前任务
+      try {
+        const baseDir = resolveWindowsClientDataRoot()
+        const scenes = await listScenes(baseDir)
+        for (const scene of scenes) {
+          if (!scene.hasMemory) continue
+          const file = await readSceneMemory(
+            resolveSceneFilePath(baseDir, scene.scene, scene.key, scene.path),
+          )
+          if (!file?.content) continue
+          const sourceLabel =
+            scene.scene === 'project' ? `项目记忆:${scene.name}` : `渠道记忆:${scene.name}`
+          file.content.split(/\r?\n/).forEach((line, idx) => {
+            if (line.toLowerCase().includes(q)) {
+              matched.push({ content: line.trim(), line: idx + 1, score: 0.75, source: sourceLabel })
+            }
+          })
+        }
+      } catch {
+        // 场景记忆读取失败不影响全局记忆搜索
+      }
+
+      if (matched.length === 0) {
+        return jsonToolResult({ results: [], provider: 'user-memory', note: 'no match' })
+      }
+      return jsonToolResult({
+        results: matched.slice(0, limit),
+        provider: 'user-memory',
+        updatedAt: memory?.updatedAt,
+      })
     },
   }
   deps.toolRegistry.register(createMtBotTool(memorySearchTool, ctx))
@@ -329,6 +366,140 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
     },
   }
   deps.toolRegistry.register(createMtBotTool(profileMemoryTool, ctx))
+
+  const sceneMemoryTool: MtBotToolConfig = {
+    ...sceneMemoryToolConfig,
+    execute: async (_id, rawParams) => {
+      const p = rawParams as {
+        action?: string
+        scene?: string
+        key?: string
+        path?: string
+        content?: string
+        section?: string
+      }
+      const action = (p.action ?? '').trim()
+      const baseDir = resolveWindowsClientDataRoot()
+
+      if (action === 'list') {
+        const scenes = await listScenes(baseDir)
+        return jsonToolResult({ ok: true, scenes })
+      }
+
+      const scene = (p.scene ?? '').trim() as 'project' | 'channel' | ''
+      if (scene !== 'project' && scene !== 'channel') {
+        return jsonToolResult({ ok: false, message: "scene must be 'project' or 'channel'" })
+      }
+      const key = (p.key ?? '').trim()
+
+      // 解析目标文件：渠道缺省用当前会话渠道；项目按 key/路径登记或查找
+      let filePath: string
+      let targetName: string
+      if (scene === 'channel') {
+        let channelType = key
+        if (!channelType) {
+          const instanceId = deps.getCurrentToolExecutorInstanceId()
+          const sessionKey = instanceId ? deps.instanceToConversation.get(instanceId) : undefined
+          const channel = resolveChannel(sessionKey)
+          if (!channel) {
+            return jsonToolResult({
+              ok: false,
+              message:
+                'key is required for scene=channel（当前会话不是渠道会话，无法推断渠道；请显式指定 weixin/feishu/wecom/qbot）',
+            })
+          }
+          channelType = channel.channelType
+        }
+        filePath = resolveSceneFilePath(baseDir, 'channel', channelType)
+        targetName = channelType
+      } else {
+        if (!key) {
+          return jsonToolResult({
+            ok: false,
+            message: "key is required for scene=project（项目名或路径）",
+          })
+        }
+        const registry = await loadRegistry(baseDir)
+        let project = findProject(registry, key)
+        if (!project) {
+          project = await registerProject(baseDir, {
+            name: key,
+            path: p.path?.trim() || null,
+          })
+        } else if (p.path?.trim() && !project.path) {
+          // 已知项目补全目录
+          project = await registerProject(baseDir, { name: project.name, path: p.path.trim() })
+        }
+        filePath = resolveSceneFilePath(baseDir, 'project', project.key, project.path)
+        targetName = project.name
+      }
+
+      if (action === 'read') {
+        const file = await readSceneMemory(filePath)
+        return jsonToolResult({
+          ok: true,
+          scene,
+          key: targetName,
+          path: filePath,
+          content: file?.content ?? '',
+          updatedAt: file?.updatedAt,
+        })
+      }
+
+      if (action === 'write' || action === 'append') {
+        const content = (p.content ?? '').trim()
+        if (!content) {
+          return jsonToolResult({ ok: false, message: `content is required for ${action}` })
+        }
+        let next: string
+        if (action === 'write') {
+          next = content
+        } else {
+          const existing = (await readSceneMemory(filePath))?.content ?? ''
+          next = existing.trim() ? `${existing.trimEnd()}\n\n${content}\n` : `${content}\n`
+        }
+        const ok = await writeSceneMemory(filePath, next)
+        if (!ok) {
+          return jsonToolResult({
+            ok: false,
+            message: '写入失败（内容可能超出容量上限），请精简后重试',
+          })
+        }
+        log.info(
+          `[scene_memory] ${action} scene=${scene} key=${targetName} path=${filePath} chars=${content.length}`,
+        )
+        return jsonToolResult({
+          ok: true,
+          scene,
+          key: targetName,
+          path: filePath,
+          updatedAt: new Date().toISOString(),
+          note:
+            '已写入场景记忆。该项目/渠道相关的偏好会在此后相关对话中自动加载；请勿重复写入 profile_memory（全局记忆）。',
+        })
+      }
+
+      if (action === 'remove_section') {
+        const section = (p.section ?? '').trim()
+        if (!section) {
+          return jsonToolResult({ ok: false, message: 'section is required for remove_section' })
+        }
+        const existing = (await readSceneMemory(filePath))?.content ?? ''
+        if (!existing.trim()) {
+          return jsonToolResult({ ok: false, message: '场景记忆文档为空' })
+        }
+        const { content: next, removed } = removeMarkdownSection(existing, section)
+        if (!removed) {
+          return jsonToolResult({ ok: false, message: `section not found: ${section}` })
+        }
+        const ok = await writeSceneMemory(filePath, next)
+        return jsonToolResult({ ok, removed: true, scene, key: targetName, path: filePath })
+      }
+
+      return jsonToolResult({ ok: false, message: `unknown action: ${action}` })
+    },
+  }
+  deps.toolRegistry.register(createMtBotTool(sceneMemoryTool, ctx))
 
   const systemPromptTool: MtBotToolConfig = {
     ...systemPromptToolConfig,
@@ -461,5 +632,5 @@ export function registerIntegrationTools(deps: BridgeToolRegistrarDeps): void {
   }
   deps.toolRegistry.register(createMtBotTool(imageGenerateTool, ctx))
 
-  log.info('[registerToolOverrides] integration tools registered: message/memory/profile/system_prompt/speech_generate/image_generate')
+  log.info('[registerToolOverrides] integration tools registered: message/memory/scene_memory/profile/system_prompt/speech_generate/image_generate')
 }
