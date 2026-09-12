@@ -5,6 +5,7 @@
 import React from 'react'
 import clsx from 'clsx'
 import type { MergedSettingsCategory, SettingsCategoryItem } from './types'
+import { Badge } from '../ui/Badge/Badge'
 import styles from './SettingsHubModal.module.css'
 
 interface SettingsCategoryNavProps {
@@ -33,6 +34,7 @@ export const SettingsCategoryNav: React.FC<SettingsCategoryNavProps> = ({
         >
           <span className={styles.categoryIcon}>{item.icon}</span>
           <span className={styles.categoryLabel}>{item.label}</span>
+          {item.badgeDot && <Badge dot />}
         </button>
       ))}
     </nav>

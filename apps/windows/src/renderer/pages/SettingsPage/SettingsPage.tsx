@@ -101,6 +101,28 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const setActiveCategory = setInternalCategory
   const [appVersion, setAppVersion] = useState<string>('0.1.3')
 
+  /** 待审批目标数：整页模式「实验功能」导航红点（挂载时拉取，30s 刷新） */
+  const [pendingAutonomousGoals, setPendingAutonomousGoals] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      try {
+        const status = await window.electronAPI?.autonomous?.getStatus()
+        if (!cancelled && typeof status?.pendingGoalsCount === 'number') {
+          setPendingAutonomousGoals(status.pendingGoalsCount)
+        }
+      } catch {
+        /* 控制面不可用时静默（红点非关键路径） */
+      }
+    }
+    void load()
+    const timer = window.setInterval(() => void load(), 30_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [])
+
   // 账户设置状态
 
   // 工作空间设置状态
@@ -893,6 +915,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             >
               <span className={styles['nav-icon']}>{category.icon}</span>
               <span className={styles['nav-label']}>{category.label}</span>
+              {category.id === 'experimental' && pendingAutonomousGoals > 0 && <Badge dot />}
             </button>
           ))}
         </nav>

@@ -225,6 +225,8 @@ export class CronScheduler {
   private readonly localCronTimers = new Map<string, ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>>()
   private readonly localCronRunningJobs = new Set<string>()
   private readonly cronInstances = new Map<string, Cron>()
+  /** 本次进程内已补跑过的过期 every 任务（防 reloadLocalCronScheduler 重复补跑） */
+  private readonly caughtUpEveryJobs = new Set<string>()
 
   constructor(
     private readonly localDb: LocalDatabase,
@@ -486,6 +488,20 @@ export class CronScheduler {
         }, wait)
         this.localCronTimers.set(job.id, firstHandle)
       } else {
+        // next_run_at 已过期（进程重启跨过了调度点）：先补跑一次再进入周期调度。
+        // 若直接挂 interval，错过的一次会永远不执行——应用每次重启都把首触发再推迟
+        // 一整个周期，长周期任务（12h/24h）在会话时长短于周期时永远轮不到
+        // （2026-09-12 EVO 缺陷 #3）。caughtUpEveryJobs 保证每次进程生命周期内
+        // 每个任务只补跑一次，reloadLocalCronScheduler 不会重复补跑。
+        if (!this.caughtUpEveryJobs.has(job.id)) {
+          this.caughtUpEveryJobs.add(job.id)
+          log.info(`[scheduleJob] every 任务已过期，补跑一次 jobId=${job.id} next_run_at=${job.next_run_at}`)
+          void this.runLocalCronJob(job).finally(() => {
+            this.localDb.db
+              .prepare(`UPDATE local_cron_jobs SET next_run_at = ? WHERE id = ?`)
+              .run(Date.now() + intervalMs, job.id)
+          })
+        }
         const intervalHandle = setInterval(() => {
           void this.runLocalCronJob(job).finally(() => {
             this.localDb.db

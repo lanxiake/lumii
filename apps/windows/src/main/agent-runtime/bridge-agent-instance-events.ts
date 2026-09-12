@@ -406,6 +406,28 @@ export function createAgentInstanceRuntimeEventHandler(
         if (!convExists) {
           log.info(`[event] agent:start 跳过占位行：对话已不存在 conversationId=${convId}`)
         } else {
+          // 兜底自愈：清扫该会话中无主实例的孤儿流式占位（如 abort 竞态遗留），
+          // keepMessageIds 保护其他实例（同会话并发子 Agent）的活跃占位
+          try {
+            const keepMessageIds = new Set<string>()
+            for (const [otherId, otherState] of instanceStates.entries()) {
+              if (otherId === instanceId) continue
+              const otherMsgId = otherState?.streamingAssistantMsgId
+              if (otherMsgId) keepMessageIds.add(otherMsgId)
+            }
+            const swept = conversationRepo.finalizeStreamingMessagesForConversation(convId, {
+              keepMessageIds,
+            })
+            if (swept.finalized > 0 || swept.deleted > 0) {
+              log.info(
+                `[event] agent:start 清扫会话孤儿流式占位: conversationId=${convId}, finalized=${swept.finalized}, deleted=${swept.deleted}`,
+              )
+            }
+          } catch (err) {
+            log.warn(
+              `[event] agent:start 清扫孤儿流式占位异常: ${err instanceof Error ? err.message : String(err)}`,
+            )
+          }
           try {
             const row = conversationRepo.saveMessage({
               conversationId: convId,
@@ -702,7 +724,9 @@ export function createAgentInstanceRuntimeEventHandler(
           state.pendingParts = []
         }
       }
-      if (state) {
+      // 身份守卫：仅当指针仍指向本 handler 处理的消息时才清空
+      // （防御迟到的旧 error 事件在新回合 agent:start 之后到达、误删新占位）
+      if (state && state.streamingAssistantMsgId === msgId) {
         state.streamingAssistantMsgId = undefined
         state.lastAssistantUsage = undefined
       }
@@ -718,6 +742,9 @@ export function createAgentInstanceRuntimeEventHandler(
       const msgId = state?.streamingAssistantMsgId
       let persistedMessageId = msgId
       const usage = state?.lastAssistantUsage
+      // await 让出期间，abort 后立即重发的新回合可能在 agent:start 里改写 state
+      // （清空 pendingParts / 换新占位指针）；先取 parts 快照，避免把新回合的空状态写进旧消息
+      const partsSnapshot = [...(state?.pendingParts ?? [])]
       let fileChanges: FileChangeEntry[] | undefined
       const turnSnapshotStart = state?.turnSnapshotStart
       if (state) state.turnSnapshotStart = undefined
@@ -733,7 +760,7 @@ export function createAgentInstanceRuntimeEventHandler(
           log.warn(`[turn-snapshot] end failed: ${err instanceof Error ? err.message : String(err)}`)
         }
       }
-      const contentJson = createAssistantPartsContent(state?.pendingParts ?? [], {
+      const contentJson = createAssistantPartsContent(partsSnapshot, {
         usage,
         sourceAgent: sourceAgentInfo,
         fileChanges,
@@ -797,7 +824,14 @@ export function createAgentInstanceRuntimeEventHandler(
       if (persistSuccess || !convId) {
         // 在清空之前保存本轮工具调用记录，供技能进化使用
         const toolsBeforeClear = toolParts.filter((part) => part.status !== 'running')
-        if (state) {
+        // 身份守卫：仅当 state 指针仍属于本 handler 时才清空（persistedMessageId 覆盖
+        // 占位降级重建路径；msgId 覆盖无占位路径）。await 窗口内若新回合已建新占位
+        // （abort 后立即重发），此处不得误清新指针
+        if (
+          state &&
+          (state.streamingAssistantMsgId === persistedMessageId ||
+            state.streamingAssistantMsgId === msgId)
+        ) {
           state.pendingParts = []
           state.streamingAssistantMsgId = undefined
           state.lastAssistantUsage = undefined

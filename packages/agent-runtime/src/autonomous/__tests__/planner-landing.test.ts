@@ -124,4 +124,46 @@ describe('landPlannerPlan', () => {
     expect(result.cronJobs).toHaveLength(0);
     db.close();
   });
+
+  it('与近 7 天目标重复（归一化比对）时跳过，不重复落库', () => {
+    const db = createMigratedTestDb();
+    db.prepare(
+      `INSERT INTO autonomous_goals (id, agent_id, type, description, trigger_reason, status, priority, created_at)
+       VALUES (?, 'assistant', 'learning', ?, 'test', 'pending', 0.5, ?)`,
+    ).run('old-goal-1', '学习简洁表达。', new Date(now.getTime() - 24 * 3600_000).toISOString());
+
+    const plan: PlannerPlan = {
+      goals: [
+        // 与旧目标仅差尾部标点 → 归一化后相同，应被跳过
+        { description: '学习简洁表达', type: 'learning', scheduled_for: null, priority: 0.6 },
+        { description: '一个全新的方向', type: 'learning', scheduled_for: null, priority: 0.5 },
+      ],
+      cronJobs: [],
+      todos: [],
+    };
+    const result = landPlannerPlan(db, 'assistant', plan, { approvalMode: 'always', now });
+    expect(result.goalIds).toHaveLength(1);
+    const rows = db
+      .prepare<{ description: string }>(`SELECT description FROM autonomous_goals ORDER BY created_at`)
+      .all();
+    expect(rows.map((r) => r.description)).toEqual(['学习简洁表达。', '一个全新的方向']);
+    db.close();
+  });
+
+  it('超过 7 天的同描述目标不参与去重（窗口外可再排）', () => {
+    const db = createMigratedTestDb();
+    db.prepare(
+      `INSERT INTO autonomous_goals (id, agent_id, type, description, trigger_reason, status, priority, created_at)
+       VALUES (?, 'assistant', 'learning', ?, 'test', 'completed', 0.5, ?)`,
+    ).run('old-goal-2', '很久以前的方向', new Date(now.getTime() - 10 * 24 * 3600_000).toISOString());
+
+    const plan: PlannerPlan = {
+      goals: [{ description: '很久以前的方向', type: 'learning', scheduled_for: null, priority: 0.5 }],
+      cronJobs: [],
+      todos: [],
+    };
+    const result = landPlannerPlan(db, 'assistant', plan, { approvalMode: 'always', now });
+    expect(result.goalIds).toHaveLength(1);
+    db.close();
+  });
 });

@@ -59,11 +59,14 @@ docs/test/lumii-cli/
 |---|---|
 | [autonomous-test-cases.md](./autonomous/autonomous-test-cases.md) | 15 条 DB/算法用例（SQL 播种 + CLI 回读） |
 | [autonomous-life-test-cases.md](./autonomous/autonomous-life-test-cases.md) | 心跳 tick/主动消息/Mood/牵挂/日记/token 预算 |
+| [autonomous-effectiveness-test-cases.md](./autonomous/autonomous-effectiveness-test-cases.md) | **有效性验证（EVO-A/B/C）**：变体淘汰学习 / 短板闭环 / 生命感——回答「是否真的有用、能否真的自主进化」 |
 | [run-autonomous-cli-suite.mjs](./autonomous/run-autonomous-cli-suite.mjs) | 数据链路执行器 |
 | [run-autonomous-e2e.mjs](./autonomous/run-autonomous-e2e.mjs) | 真实对话触发回合结束管道（满意度/能力/进化反馈） |
 | [run-autonomous-full-e2e.mjs](./autonomous/run-autonomous-full-e2e.mjs) | 全链路：目标→执行→审批→反思 |
 | [run-autonomous-life-e2e.mjs](./autonomous/run-autonomous-life-e2e.mjs) | 生命化：心跳/主动消息/日记/预算 |
 | [run-autonomous-planning-e2e.mjs](./autonomous/run-autonomous-planning-e2e.mjs) | 主动规划链路 |
+| [run-autonomous-effectiveness-e2e.mjs](./autonomous/run-autonomous-effectiveness-e2e.mjs) | **有效性加速实验执行器**（EVO_ONLY=A/B/C、EVO_DIGEST_ONLY、EVO_SKIP_LLM 等开关） |
+| [autonomous-effectiveness-report.md](./autonomous/autonomous-effectiveness-report.md) | 有效性验证报告（含三问结论、缺陷清单、条件清单） |
 
 ### 云同步专项（cloud-sync/）
 
@@ -101,6 +104,8 @@ WIKI_CLI_SKIP_AGENT=1 node docs/test/lumii-cli/wiki/run-wiki-cli-suite.mjs
 
 # 自主进化
 node docs/test/lumii-cli/autonomous/run-autonomous-e2e.mjs
+# 自主进化有效性验证（EVO 加速实验，A/B/C 可分批；产物含结论报告）
+EVO_ONLY=A node docs/test/lumii-cli/autonomous/run-autonomous-effectiveness-e2e.mjs
 
 # 云同步
 node docs/test/lumii-cli/cloud-sync/run-cloud-sync-suite.mjs
@@ -117,10 +122,12 @@ node docs/test/lumii-cli/cloud-sync/run-cloud-sync-suite.mjs
 | `chat/run-chat-memory-suite.mjs` | **8/9**（1 SKIP） | 场景记忆注入正/负例、`scene_memory` 写入、无污染、提取落盘均通过；渠道记忆需真实渠道 SKIP |
 | `chat/run-chat-compression-suite.mjs` | **6/6** | compact 基本流/压缩后回忆/usage/原文保留/中止 |
 | `chat/run-chat-wiki-suite.mjs` | **4/5**（1 SKIP） | 检索工具调用、聊天不自动摄入（负例）、未找到行为；导入闭环（WIKI-05）异步超时 SKIP |
+| `autonomous/run-autonomous-effectiveness-e2e.mjs` | **A 4/4、B 6/7（1 SKIP）、C 3/4+补验** | 有效性验证：变体学习因果链 12/12、闭环产出真实训练工程、Mood/日记事件驱动；**发现 abort 残留致心跳瘫痪等 6 项缺陷**（详见 [有效性报告](./autonomous/autonomous-effectiveness-report.md)） |
 | 场景记忆存量迁移 | **已执行并验证** | 2 条项目偏好迁入 `scene-memory/`；真实数据聊天验证：注入日志命中 + 负例零误注入 |
 
 ## 相关规范与设计
 
 - [CLI-TEST-SPEC.md](./CLI-TEST-SPEC.md) — 测试规范（分层/方法/格式/安全）
+- [autonomous/autonomous-effectiveness-report.md](./autonomous/autonomous-effectiveness-report.md) — 自主进化有效性验证报告（三问结论 / 缺陷清单 / 条件清单）
 - `docs/design/记忆设计/2026-09-12-scene-memory-design.md` — 场景记忆设计（chat 记忆套件的验证对象）
 - `docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md` — 云同步设计

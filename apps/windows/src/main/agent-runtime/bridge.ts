@@ -149,7 +149,14 @@ import { BridgeImageServices } from './bridge-image-services'
 import { BridgeContextCompactor, createLlmSummaryGenerator } from './bridge-context-compactor'
 import { BridgeConversationManager } from './bridge-conversation-manager'
 import { BridgeLifecycle } from './bridge-lifecycle'
-import { initAutonomousRuntime, shutdownAutonomousRuntime, readAutonomousEnabled, reflectAutonomous } from './autonomous-wiring'
+import {
+  initAutonomousRuntime,
+  shutdownAutonomousRuntime,
+  readAutonomousEnabled,
+  reflectAutonomous,
+  setAutonomousNotifier,
+  notifyNewPendingGoals,
+} from './autonomous-wiring'
 import { handleEvolutionTick, ensureEvolutionCronJobSeeded } from './evolution-tick'
 import { runPlanner, shouldFallbackPlan } from './planner-wiring'
 import { OUTREACH_SYSTEM_NOTIFY_TITLE } from '../desktop-notify'
@@ -673,6 +680,9 @@ export class AgentRuntimeBridge {
     this._autonomousRepo = new AutonomousRepo(db)
     // 自主进化引擎接线：装配失败已在内部降级，不影响运行时启动。
     // 反思引擎复用桥接的独立 LLM 管道（同记忆提取/整理），无实例时走 callLLM 兜底 stream。
+    setAutonomousNotifier((title, body, convId) =>
+      this.config.showCronNotification?.(title, body, convId),
+    )
     initAutonomousRuntime(db, (prompt) => this.callLLM(prompt, undefined, 'reflection'))
     this._fileRepo = new FileRepo(db)
 
@@ -916,6 +926,8 @@ export class AgentRuntimeBridge {
         scheduleCron: (job) => this.cronScheduler?.scheduleJob(job),
         countAgentSelfCronJobs: () => this.countAgentSelfCronJobs(),
       })
+      // planner 目标可能已落库为 pending；做待审批增量提醒
+      if (plan !== null) notifyNewPendingGoals()
       return plan !== null
     } catch (err) {
       log.warn('[planner] 主动规划失败:', err instanceof Error ? err.message : err)
@@ -1082,7 +1094,7 @@ export class AgentRuntimeBridge {
     try {
       const row = this.localDb.db
         .prepare<{ count: number }>(
-          `SELECT COUNT(*) as count FROM local_cron_jobs WHERE id LIKE 'agent-self:%'`,
+          `SELECT COUNT(*) as count FROM local_cron_jobs WHERE id LIKE 'agent-self:%' AND enabled = 1`,
         )
         .get()
       return row?.count ?? 0
@@ -1203,13 +1215,62 @@ export class AgentRuntimeBridge {
                   // 只认「真实用户会话」的流式消息。后台 cron 任务（cron:% 前缀会话）与
                   // 自主进化自己的独白（evolution:main）在流式期间不算用户回合，否则
                   // 后台定时任务一跑起来，心跳 tick 就会全部误判为「用户正在对话」而空转。
-                  const row = this.localDb.db.prepare<{ count: number }>(
-                    `SELECT COUNT(*) as count FROM messages
-                     WHERE is_streaming = 1
-                       AND conversation_id NOT LIKE 'cron:%'
-                       AND conversation_id != 'evolution:main'`,
-                  ).get()
-                  return (row?.count ?? 0) > 0
+                  const rows = this.localDb.db
+                    .prepare<{ conversation_id: string }>(
+                      `SELECT DISTINCT conversation_id FROM messages
+                       WHERE is_streaming = 1
+                         AND conversation_id NOT LIKE 'cron:%'
+                         AND conversation_id != 'evolution:main'`,
+                    )
+                    .all()
+                  if (rows.length === 0) return false
+
+                  // 活跃实例对账（2026-09-12 EVO 缺陷修复）：正在运行的实例所辖会话视为
+                  // 真实回合；无运行实例指向且超出宽限期的流式会话视为孤儿占位
+                  // （abort 竞态等场景可能残留 is_streaming=1 而无人收尾），兜底清扫后
+                  // 不再阻塞心跳。宽限期保护「占位已建、实例尚未标记 running」的瞬态。
+                  const runningConvIds = new Set<string>()
+                  for (const [instanceId, state] of this.instanceStates.entries()) {
+                    if (state?.metrics?.runningStartedAt != null) {
+                      const convId = this.instanceToConversation.get(instanceId)
+                      if (convId) runningConvIds.add(convId)
+                    }
+                  }
+                  const ORPHAN_GRACE_MS = 2 * 60 * 1000
+                  const now = Date.now()
+                  let hasActive = false
+                  for (const row of rows) {
+                    if (runningConvIds.has(row.conversation_id)) {
+                      hasActive = true
+                      continue
+                    }
+                    const latest = this.localDb.db
+                      .prepare<{ ts: string | null }>(
+                        `SELECT MAX(timestamp) as ts FROM messages
+                         WHERE conversation_id = ? AND is_streaming = 1`,
+                      )
+                      .get(row.conversation_id)
+                    const tsMs = latest?.ts ? Date.parse(latest.ts) : Number.NaN
+                    if (!Number.isNaN(tsMs) && now - tsMs > ORPHAN_GRACE_MS) {
+                      try {
+                        const swept = this._conversationRepo?.finalizeStreamingMessagesForConversation(
+                          row.conversation_id,
+                        )
+                        if (swept && (swept.finalized > 0 || swept.deleted > 0)) {
+                          log.warn(
+                            `[evolution-tick] 清扫孤儿流式占位: conversationId=${row.conversation_id}, finalized=${swept.finalized}, deleted=${swept.deleted}（无运行实例且超宽限期）`,
+                          )
+                        }
+                      } catch (err) {
+                        log.warn(
+                          `[evolution-tick] 清扫孤儿流式占位失败: ${err instanceof Error ? err.message : String(err)}`,
+                        )
+                      }
+                    } else {
+                      hasActive = true
+                    }
+                  }
+                  return hasActive
                 },
                 appendEvolutionMessage: (text) => {
                   this.ensureConversationExists(EVOLUTION_CONVERSATION_ID, '自主进化 · 内心独白')
@@ -1269,6 +1330,14 @@ export class AgentRuntimeBridge {
                     }
                     finalizeGoal(this.localDb.db, goal.id, { success: ok, output })
                     this.recordMoodEvent(ok ? 'goal_completed' : 'task_failed')
+                    // 目标完成 → 通知用户查看产出（点击跳 evolution:main，解决「产出只在库里」）
+                    if (ok) {
+                      this.config.showCronNotification?.(
+                        'Lumii',
+                        `完成了：${goal.description}`.slice(0, 80),
+                        EVOLUTION_CONVERSATION_ID,
+                      )
+                    }
                     return ok ? 'completed' : 'failed'
                   } finally {
                     this.destroy(instanceId)
@@ -1365,17 +1434,50 @@ export class AgentRuntimeBridge {
                   const goals = repo.listGoals('assistant')
                   const reflections = repo.reflections('assistant', 5)
                   const recentDiaries = listRecentDiaries(this.localDb.db, 'assistant', 5)
+                  // 今日真实事件（目标完成 / 有信息量的定时任务结果）→ 日记落到具体事，防空洞开场
+                  const todayStartMs = new Date().setHours(0, 0, 0, 0)
+                  const todayEvents: string[] = []
+                  try {
+                    const doneToday = this.localDb.db
+                      .prepare<{ description: string }>(
+                        `SELECT description FROM autonomous_goals
+                         WHERE agent_id = 'assistant' AND status = 'completed' AND completed_at >= ?
+                         ORDER BY completed_at DESC LIMIT 5`,
+                      )
+                      .all(new Date(todayStartMs).toISOString())
+                    for (const g of doneToday) {
+                      todayEvents.push(`完成目标：${g.description}`)
+                    }
+                  } catch {
+                    /* 事件素材缺失不阻断日记 */
+                  }
+                  try {
+                    const runs = this.localDb.db
+                      .prepare<{ job_id: string; summary: string | null }>(
+                        `SELECT job_id, summary FROM local_cron_runs
+                         WHERE started_at >= ? AND summary IS NOT NULL
+                         ORDER BY started_at DESC LIMIT 12`,
+                      )
+                      .all(todayStartMs)
+                    for (const r of runs) {
+                      const s = String(r.summary ?? '')
+                      if (!s || /^(idle|skipped)/.test(s)) continue
+                      todayEvents.push(`定时任务（${r.job_id}）：${s.slice(0, 80)}`)
+                      if (todayEvents.length >= 6) break
+                    }
+                  } catch {
+                    /* 事件素材缺失不阻断日记 */
+                  }
                   const context = buildDiaryContext({
                     goals: goals.map((g) => ({ description: g.description, status: g.status })),
                     reflections: reflections.map((r) => ({ primaryIssue: r.primary_issue })),
                     concerns: readConcerns(this.localDb.db),
                     mood: readMood(this.localDb.db),
                     recentDiaries,
+                    todayEvents,
                   })
-                  const historyBlock = recentDiaries.length
-                    ? `\n\n你最近的日记：\n${recentDiaries.map((d) => `- ${d.diaryDate}：${d.content}`).join('\n')}`
-                    : ''
-                  const prompt = `${DIARY_PROMPT}${historyBlock}\n\n今日素材：${JSON.stringify(context)}`
+                  // recentDiaries 已含在 context 中，不再单独拼接（防双份注入强化套话开场）
+                  const prompt = `${DIARY_PROMPT}\n\n今日素材：${JSON.stringify(context)}`
                   const diary = await this.callLLM(prompt, undefined, 'diary')
                   this.ensureConversationExists(EVOLUTION_CONVERSATION_ID, '自主进化 · 内心独白')
                   this._conversationRepo?.saveMessage({
@@ -2466,6 +2568,8 @@ export class AgentRuntimeBridge {
 
   createLocalCronJobRecord(params: Parameters<CronScheduler['createLocalCronJobRecord']>[0]): void {
     this.cronScheduler.createLocalCronJobRecord(params)
+    // IPC 增删改后即时生效：运行中的调度器无 DB 轮询，必须显式重载才能感知新任务
+    this.cronScheduler.reloadLocalCronScheduler()
   }
 
   listLocalCronJobRecords(includeDisabled: boolean): ReturnType<CronScheduler['listLocalCronJobRecords']> {
@@ -2476,10 +2580,17 @@ export class AgentRuntimeBridge {
     return this.cronScheduler.getLocalCronJobRecordById(id)
   }
 
-  deleteLocalCronJobRecord(id: string): number { return this.cronScheduler.deleteLocalCronJobRecord(id) }
+  deleteLocalCronJobRecord(id: string): number {
+    const deleted = this.cronScheduler.deleteLocalCronJobRecord(id)
+    this.cronScheduler.reloadLocalCronScheduler()
+    return deleted
+  }
 
   updateLocalCronJobRecord(params: Parameters<CronScheduler['updateLocalCronJobRecord']>[0]): number {
-    return this.cronScheduler.updateLocalCronJobRecord(params)
+    const updated = this.cronScheduler.updateLocalCronJobRecord(params)
+    // 表达式/开关变更需要重注册计时器（含重新启用已禁用任务）
+    this.cronScheduler.reloadLocalCronScheduler()
+    return updated
   }
 
   listLocalCronRuns(jobId: string, limit: number): ReturnType<CronScheduler['listLocalCronRuns']> {

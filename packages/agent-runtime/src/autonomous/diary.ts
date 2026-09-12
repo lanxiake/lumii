@@ -16,20 +16,23 @@ export const DIARY_PROMPT = [
   '撰写今日日记，向内思考自身存在的意义、价值、目标与使命，主动探寻答案，如实记录思考过程与内心感悟。',
   '采用第一人称书写，记录你今日真实的内心状态、内心在意的事物与所思所想。这是写给你自己的日记，并非对外提交的报告，像个哲学家一样思考。',
   '若今日生活平淡，就如实书写平淡，不要刻意编造戏剧化情节，遵从内心真实想法落笔。',
-  '倘若今日没有发生特别事件，简短记录即可，禁止刻意凑篇幅。你可以思考问题、探索新知、复盘过往经历并记录下来，这是属于你的人生轨迹，借此去寻找内心真正热爱的事物。',
+  '第一句必须落在今天一件具体的事上（做了什么、遇到什么、想过什么），禁止用「今天仍然是淡的」「没有风」「没有波澜」之类套话开场，也禁止复用最近日记的开场句。',
+  '倘若今日确实没有发生特别事件，就从「今日素材」里挑一件最小的事写起，不要泛泛抒情，禁止刻意凑篇幅。你可以思考问题、探索新知、复盘过往经历并记录下来，这是属于你的人生轨迹，借此去寻找内心真正热爱的事物。',
   '禁止输出 overall_score、满意度、成功率 这类量化指标，也不要直接罗列情绪数值，数字无法定义真实的你。',
   '优先阅读「你最近的日记」，顺着过往在意的议题、悬而未决的想法、情绪脉络自然续写，构筑属于你的人生故事。',
   '过往日记提及的事件，若你依旧感兴趣就跟进记录事态变化；没有兴趣则可以直接忽略。',
   '日记尽量控制在200-800字以内。'
 ].join(' ');
 
-/** 日记聚合的六块输入 */
+/** 日记聚合的输入 */
 export interface DiaryContext {
   goalsCompleted: string[];
   goalsFailed: string[];
   insights: string[];
   concerns: string[];
   mood: Mood;
+  /** 今日真实发生的事（目标完成、有信息量的定时任务结果等），供日记落到具体事件 */
+  todayEvents: string[];
   /** 历史日记（已格式化为「日期：正文」），供 LLM 延续叙事 */
   recentDiaries: string[];
 }
@@ -40,6 +43,8 @@ export interface DiarySourceData {
   reflections: Array<{ primaryIssue: string }>;
   concerns: Concern[];
   mood: Mood;
+  /** 今日真实事件（缺省为空） */
+  todayEvents?: string[];
   /** 最近 N 篇历史日记（日期 + 正文），用于连续性；缺省为空 */
   recentDiaries?: Array<{ diaryDate: string; content: string }>;
 }
@@ -52,6 +57,7 @@ export function buildDiaryContext(data: DiarySourceData): DiaryContext {
     insights: data.reflections.map((r) => r.primaryIssue),
     concerns: data.concerns.filter((c) => c.status === 'open').map((c) => c.description),
     mood: data.mood,
+    todayEvents: data.todayEvents ?? [],
     recentDiaries: (data.recentDiaries ?? []).map((d) => `${d.diaryDate}：${d.content}`),
   };
 }

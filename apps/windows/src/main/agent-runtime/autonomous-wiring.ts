@@ -26,6 +26,7 @@ import {
   EMA_ALPHA,
   AUTONOMOUS_ENABLED,
   AUTONOMOUS_GOAL_TYPES,
+  EVOLUTION_CONVERSATION_ID,
   readMood,
   computeExplorationRate,
   readConcerns,
@@ -114,6 +115,51 @@ export interface AutonomousRuntime {
 let runtime: AutonomousRuntime | null = null
 let runtimeDb: DatabaseAdapter | null = null
 
+/** 系统通知能力（桥接注入；未注入时静默）——签名与 showCronNotification 一致 */
+let goalNotifier: ((title: string, body: string, convId?: string) => void) | null = null
+/** 上次已知的 pending 目标数（增量提醒基线；null 表示尚未初始化） */
+let lastPendingGoalCount: number | null = null
+
+/** 由桥接在装配自主进化运行时时注入系统通知能力（一次即可） */
+export function setAutonomousNotifier(
+  fn: (title: string, body: string, convId?: string) => void,
+): void {
+  goalNotifier = fn
+}
+
+/**
+ * 待审批目标增量提醒：pending 数较上次增加时发一条系统通知。
+ *
+ * 三条目标生成路径（回合结束低满意 / 反思建议 / planner）落库后调用；
+ * 只提醒增量（批准/拒绝后数量回落不触发），首次调用仅建立基线。
+ */
+export function notifyNewPendingGoals(): void {
+  if (!runtimeDb) return
+  try {
+    const row = runtimeDb
+      .prepare<{ count: number }>(
+        `SELECT COUNT(*) as count FROM autonomous_goals WHERE agent_id = 'assistant' AND status = 'pending'`,
+      )
+      .get()
+    const count = row?.count ?? 0
+    if (lastPendingGoalCount === null) {
+      lastPendingGoalCount = count
+      return
+    }
+    if (count > lastPendingGoalCount) {
+      const added = count - lastPendingGoalCount
+      goalNotifier?.(
+        'Lumii',
+        `有 ${added} 个新目标待你审批（共 ${count} 个），点击查看`,
+        EVOLUTION_CONVERSATION_ID,
+      )
+    }
+    lastPendingGoalCount = count
+  } catch (err) {
+    log.warn('[autonomous] 待审批目标提醒失败:', err instanceof Error ? err.message : err)
+  }
+}
+
 /**
  * 由 bridge 初始化完成后调用一次。重复调用会替换旧实例（dev 热重启场景）。
  * callLLM 复用桥接的独立 LLM 管道（同记忆提取/整理），用于反思引擎。
@@ -142,7 +188,10 @@ export async function reflectAutonomous(
   triggerReason: 'scheduled' | 'low-satisfaction' | 'user-request',
 ): Promise<ReflectionOutput> {
   if (!runtime) throw new Error('自主进化运行时未装配')
-  return runtime.reflect(agentId, triggerReason)
+  const result = await runtime.reflect(agentId, triggerReason)
+  // 反思建议目标已在 reflect 内部落库（landSuggestedGoals）；此处做待审批增量提醒
+  notifyNewPendingGoals()
+  return result
 }
 
 /**
@@ -235,6 +284,8 @@ export async function notifyAutonomousTurnEnd(conversationId: string): Promise<v
       )
       .get(conversationId)
     await runtime.onTurnEnd(conversationId, row?.agent_id ?? 'assistant')
+    // 低满意目标可能已在上面的管道中生成；做待审批增量提醒
+    notifyNewPendingGoals()
   } catch (err) {
     log.warn('[autonomous] 回合结束通知失败:', err instanceof Error ? err.message : err)
   }

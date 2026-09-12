@@ -108,18 +108,17 @@ function computePlannerBudget(
 ): PlannerBudget {
   const settings = readSettings(db);
   const repo = new AutonomousRepo(db);
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-  const openToday = repo
+  // 卡单即停发：统计全部 open 目标（历史 pending 卡住时不再产新，防重复累积；
+  // 修复前只统计当天新建，旧目标卡死反而每天继续产新——2026-09-12 EVO 缺陷 #4）
+  const openCount = repo
     .listGoals('assistant')
     .filter(
-      (g) =>
-        (g.status === 'pending' || g.status === 'approved' || g.status === 'executing') &&
-        g.created_at >= todayStart,
+      (g) => g.status === 'pending' || g.status === 'approved' || g.status === 'executing',
     ).length;
   return {
     tokensRemaining: settings.maxTokensPerDay - readTodayTokenUsage(db, now),
     outreachRemaining: settings.maxOutreachPerDay - getOutreachUsedToday(db, now),
-    goalsRemaining: Math.max(0, settings.maxGoalsPerDay - openToday),
+    goalsRemaining: Math.max(0, settings.maxGoalsPerDay - openCount),
     cronSlotsRemaining: Math.max(0, MAX_SELF_CRON_JOBS - countAgentSelfCronJobs()),
   };
 }
@@ -168,6 +167,16 @@ export async function runPlanner(deps: PlannerWiringDeps): Promise<PlannerPlan |
       scheduledFor: g.scheduled_for,
     }));
 
+    // 近 7 天已完成/已拒绝的目标：作为提示词原料显式排除，防规划重复自我
+    const sevenDaysAgoIso = new Date(now.getTime() - 7 * 24 * 3_600_000).toISOString();
+    const recentDone = repo
+      .listGoals('assistant')
+      .filter(
+        (g) => (g.status === 'completed' || g.status === 'rejected') && g.created_at >= sevenDaysAgoIso,
+      )
+      .slice(0, 20)
+      .map((g) => ({ description: g.description, status: g.status }));
+
     const concerns = readConcerns(db)
       .filter((c) => c.status === 'open')
       .map((c) => ({ description: c.description, origin: c.origin }));
@@ -178,6 +187,7 @@ export async function runPlanner(deps: PlannerWiringDeps): Promise<PlannerPlan |
     const input: PlannerInput = {
       reflection,
       currentGoals,
+      recentDone,
       concerns,
       mood: { energy: mood.energy, valence: mood.valence, arousal: mood.arousal },
       budget,

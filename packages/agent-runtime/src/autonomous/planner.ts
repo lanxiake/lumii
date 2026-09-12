@@ -55,6 +55,8 @@ export interface PlannerInput {
   } | null;
   /** 当前未完成目标（pending/executing） */
   currentGoals: Array<{ description: string; status: string; scheduledFor: string | null }>;
+  /** 近 7 天已完成/已拒绝的目标（供提示词「不要重复近期方向」，防规划重复自我） */
+  recentDone?: Array<{ description: string; status: string }>;
   /** open 状态的牵挂 */
   concerns: Array<{ description: string; origin: string }>;
   /** 当前情绪（已接线） */
@@ -77,6 +79,9 @@ const PLANNER_PROMPT_TEMPLATE = `
 
     ### 手上还没做完的事
     {{currentGoals}}
+
+    ### 最近做过/拒过、不用再排的事
+    {{recentDone}}
 
     ### 心里在意、还没理清的念头
     {{concerns}}
@@ -139,7 +144,7 @@ const PLANNER_PROMPT_TEMPLATE = `
     }
     \`\`\`
 
-    注意：只按上面给的状态来排，别编；拿不准就少排甚至不排（空数组可以）。
+    注意：只按上面给的状态来排，别编；不得重复「最近做过/拒过、不用再排的事」里的方向；拿不准就少排甚至不排（空数组可以）。
 `;
 
 /** 把反思结构化为一段可读文本 */
@@ -175,6 +180,11 @@ function formatConcerns(concerns: PlannerInput['concerns']): string {
   return concerns.map((c) => `- ${c.description}（来自：${c.origin || '未知'}）`).join('\n');
 }
 
+function formatRecentDone(items: PlannerInput['recentDone']): string {
+  if (!items || items.length === 0) return '（没有近期记录）';
+  return items.map((g) => `- [${g.status}] ${g.description}`).join('\n');
+}
+
 /** 构造规划器提示词：把真实原料与预算拼进模板 */
 export function buildPlannerPrompt(input: PlannerInput): string {
   const b = input.budget;
@@ -184,6 +194,7 @@ export function buildPlannerPrompt(input: PlannerInput): string {
   return PLANNER_PROMPT_TEMPLATE
     .replace('{{reflection}}', formatReflection(input.reflection))
     .replace('{{currentGoals}}', formatGoals(input.currentGoals))
+    .replace('{{recentDone}}', formatRecentDone(input.recentDone))
     .replace('{{concerns}}', formatConcerns(input.concerns))
     .replace('{{energy}}', input.mood.energy.toFixed(2))
     .replace('{{valence}}', input.mood.valence.toFixed(2))

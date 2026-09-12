@@ -4,7 +4,7 @@
  * 顶部横栏切换模块；「设置」Tab 内左侧分类 + 右侧面板。
  */
 
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { Modal } from '../ui/Modal/Modal'
 import {
@@ -67,6 +67,39 @@ export const SettingsHubModal: React.FC<{
 }> = ({ onViewChange }) => {
   const { state, isOpen, closeHub, setTab, setCategory, openHub } = useSettingsHub()
 
+  /** 待审批目标数：为「实验功能」导航项显示红点提醒（Hub 打开时拉取，30s 刷新） */
+  const [pendingAutonomousGoals, setPendingAutonomousGoals] = useState(0)
+  useEffect(() => {
+    if (!isOpen) return
+    let cancelled = false
+    const load = async () => {
+      try {
+        const status = await window.electronAPI?.autonomous?.getStatus()
+        if (!cancelled && typeof status?.pendingGoalsCount === 'number') {
+          setPendingAutonomousGoals(status.pendingGoalsCount)
+        }
+      } catch {
+        /* 控制面不可用时静默（红点非关键路径） */
+      }
+    }
+    void load()
+    const timer = window.setInterval(() => void load(), 30_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [isOpen])
+
+  const settingsCategories = useMemo(
+    () =>
+      SETTINGS_CATEGORIES.map((item) =>
+        item.id === 'experimental' && pendingAutonomousGoals > 0
+          ? { ...item, badgeDot: true }
+          : item,
+      ),
+    [pendingAutonomousGoals],
+  )
+
   const header = useMemo(
     () => (
       <div className={styles.hubHeader}>
@@ -108,7 +141,7 @@ export const SettingsHubModal: React.FC<{
         return (
           <div className={styles.settingsPane}>
             <SettingsCategoryNav
-              categories={SETTINGS_CATEGORIES}
+              categories={settingsCategories}
               activeCategory={state.category}
               onChange={setCategory}
             />

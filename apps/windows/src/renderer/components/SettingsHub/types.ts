@@ -92,4 +92,6 @@ export interface SettingsCategoryItem {
   id: MergedSettingsCategory
   label: string
   icon: ReactNode
+  /** 导航项红点提醒（如「实验功能」页有 N 个待审批目标） */
+  badgeDot?: boolean
 }

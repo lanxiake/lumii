@@ -120,6 +120,34 @@ function insertGoal(
 }
 
 /**
+ * 目标描述归一化（去空白与标点、统一小写），用于重复比对。
+ */
+function normalizeGoalText(text: string): string {
+  return text
+    .replace(/[\s，。！？、：；""''（）()【】\[\]…—\-·,.:;!?"'`~@#$%^&*+=|\\/<>]/g, '')
+    .toLowerCase();
+}
+
+/** 近 7 天目标描述集合（归一化），供落地去重（含 open 与已完成/已拒绝） */
+function loadRecentGoalDescriptions(
+  db: DatabaseAdapter,
+  agentId: string,
+  nowMs: number,
+): Set<string> {
+  const since = new Date(nowMs - 7 * 24 * 3_600_000).toISOString();
+  try {
+    const rows = db
+      .prepare<{ description: string }>(
+        `SELECT description FROM autonomous_goals WHERE agent_id = ? AND created_at >= ?`,
+      )
+      .all(agentId, since);
+    return new Set(rows.map((r) => normalizeGoalText(r.description)));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
  * 落地一个规划：目标 → autonomous_goals、定时任务 → local_cron_jobs、待办 → agent_memories。
  * 任何单条失败都记日志跳过，不因一条坏数据拖垮整次落地。
  */
@@ -132,9 +160,20 @@ export function landPlannerPlan(
   const nowMs = opts.now?.getTime() ?? Date.now();
   const nowIso = new Date(nowMs).toISOString();
 
+  // 与近 7 天目标去重（提示词侧已有排除指令，落地侧做兜底，防重复自我）
+  const recentDescriptions = loadRecentGoalDescriptions(db, agentId, nowMs);
+
   // 1. 目标
   const goalIds: string[] = [];
   for (const g of plan.goals) {
+    const norm = normalizeGoalText(g.description);
+    if (norm && recentDescriptions.has(norm)) {
+      console.warn(
+        `[landPlannerPlan] 与近 7 天目标重复，跳过: "${g.description.slice(0, 40)}"`,
+      );
+      continue;
+    }
+    recentDescriptions.add(norm);
     const status = shouldRequireApproval(g.type, opts.approvalMode) ? 'pending' : 'executing';
     // scheduled_for 必须落在未来 24h 窗口内，否则按「尽快」处理（跨天/跨周计划不属于未来 24h 排期）
     const scheduledFor = clampScheduledFor(g.scheduled_for, nowMs);
@@ -149,7 +188,12 @@ export function landPlannerPlan(
   const cronJobs: LandedCronJob[] = [];
   for (const cj of plan.cronJobs) {
     const resolved = resolveCronSchedule(cj.scheduleType, cj.scheduleExpr, nowMs);
-    if (!resolved) continue;
+    if (!resolved) {
+      console.warn(
+        `[landPlannerPlan] 定时任务表达式无法解析，跳过: type=${cj.scheduleType} expr="${cj.scheduleExpr}" task="${cj.task.slice(0, 40)}"`,
+      );
+      continue;
+    }
     const id = generateId(SELF_CRON_ID_PREFIX);
     const row: LandedCronJob = {
       id,

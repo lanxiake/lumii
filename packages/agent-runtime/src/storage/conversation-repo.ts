@@ -125,6 +125,26 @@ export interface MessagePage {
   readonly hasMore: boolean;
 }
 
+/**
+ * 判断流式消息内容是否为空壳（无文本、无工具调用）。
+ * 判据与 bridge-agent-instance-events.ts 的 finalizeStreamingAssistantMessage 保持一致。
+ */
+function isEmptyAssistantContent(contentJson: string | null): boolean {
+  if (!contentJson) return true;
+  try {
+    const parsed = JSON.parse(contentJson) as {
+      parts?: ReadonlyArray<{ type?: string; text?: string }>;
+    };
+    const parts = parsed?.parts ?? [];
+    return !parts.some(
+      (part) => part?.type === "tool" || (typeof part?.text === "string" && part.text.trim().length > 0),
+    );
+  } catch {
+    // 解析失败按有内容处理，保守保留
+    return false;
+  }
+}
+
 // ─── Repo 实现 ───
 
 export class ConversationRepo {
@@ -370,6 +390,54 @@ export class ConversationRepo {
     }
     console.log(`[finalizeAllStreamingMessages] 已将 ${rows.length} 条消息标记为已完成`)
     return rows.length;
+  }
+
+  /**
+   * 收尾指定会话中残留的流式消息（孤儿占位自愈，供 agent:start 建新占位前调用）。
+   *
+   * 与 finalizeAllStreamingMessages 的差异：
+   * - 只处理单个会话；keepMessageIds 可跳过其他实例的活跃占位（同会话并发子 Agent）
+   * - 空壳行删除（不留无主占位），有内容的行置 is_streaming=0 保留
+   * - 不改 timestamp / last_msg_at：孤儿留在原位，避免跳到会话末尾
+   */
+  finalizeStreamingMessagesForConversation(
+    conversationId: string,
+    opts?: { readonly keepMessageIds?: ReadonlySet<string> },
+  ): { finalized: number; deleted: number } {
+    const rows = this.db
+      .prepare<MessageRow>(
+        "SELECT * FROM messages WHERE conversation_id = ? AND role = 'assistant' AND is_streaming = 1",
+      )
+      .all(conversationId) as MessageRow[];
+    const keep = opts?.keepMessageIds;
+    const targets = keep ? rows.filter((row) => !keep.has(row.id)) : rows;
+    if (targets.length === 0) return { finalized: 0, deleted: 0 };
+
+    let finalized = 0;
+    let deleted = 0;
+    withTransaction(this.db, () => {
+      for (const row of targets) {
+        if (isEmptyAssistantContent(row.content_json)) {
+          this.db
+            .prepare("DELETE FROM messages WHERE id = ? AND conversation_id = ?")
+            .run(row.id, row.conversation_id);
+          deleted++;
+        } else {
+          this.db
+            .prepare("UPDATE messages SET is_streaming = 0 WHERE id = ? AND conversation_id = ?")
+            .run(row.id, row.conversation_id);
+          finalized++;
+        }
+      }
+    });
+    for (const row of targets) {
+      this.conversationCache.delete(row.conversation_id);
+      this.messageCache.deleteWhere((k) => k.startsWith(`${row.conversation_id}|`));
+    }
+    console.log(
+      `[finalizeStreamingMessagesForConversation] conversationId=${conversationId} finalized=${finalized} deleted=${deleted}`,
+    );
+    return { finalized, deleted };
   }
 
   /**

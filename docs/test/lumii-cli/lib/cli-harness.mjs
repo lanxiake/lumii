@@ -5,7 +5,8 @@
  * 用途：通过 lumii-ui CLI 驱动真实运行的 Lumii 客户端（真实会话 + 真实 LLM），
  *       提供会话驱动、回合等待、DB 只读查询、日志游标、证据与报告等公共能力。
  *
- * 边界：仅供 docs/test/lumii-cli/chat/* 使用；历史脚本按需逐步迁移，禁止复制本库 helper。
+ * 边界：供 docs/test/lumii-cli/chat/* 与 autonomous/run-autonomous-effectiveness-e2e.mjs 使用；
+ *       历史脚本按需逐步迁移，禁止复制本库 helper。
  */
 
 import { spawnSync } from 'node:child_process'
@@ -65,7 +66,7 @@ export function sleep(ms) {
  * @returns {{code:number, json:any|null, out:string, stderr:string}}
  */
 export function ui(args, { retries = 6, timeoutMs } = {}) {
-  let last = { code: 1, json: null, out: '', stderr: '' }
+  let last = { code: 1, json: null, out: '', stderr: '', timedOut: false }
   for (let i = 0; i <= retries; i++) {
     const r = spawnSync(process.execPath, [LUMII_UI, ...args], {
       cwd: ROOT,
@@ -84,7 +85,13 @@ export function ui(args, { retries = 6, timeoutMs } = {}) {
         /* 非 JSON 输出保留在 out */
       }
     }
-    last = { code: r.status ?? 1, json, out, stderr }
+    last = {
+      code: r.status ?? 1,
+      json,
+      out,
+      stderr,
+      timedOut: r.error?.code === 'ETIMEDOUT' || r.signal === 'SIGTERM',
+    }
     if (json?.error !== 'rate_limited' && !/rate_limited/.test(out)) return last
     sleep(Math.min(20000, 5000 * (i + 1)))
   }
@@ -287,6 +294,16 @@ export function dbGet(sql, ...params) {
 /** 计数快捷方式 */
 export function dbCount(table, where = '1=1', params = []) {
   return dbGet(`SELECT COUNT(*) c FROM ${table} WHERE ${where}`, ...params)?.c ?? 0
+}
+
+/** 写库（WRITE：仅测试探针/快照恢复使用，命名明示副作用） */
+export function dbExec(sql, ...params) {
+  const db = openDb(false)
+  try {
+    return db.prepare(sql).run(...params)
+  } finally {
+    db.close()
+  }
 }
 
 // ────────────────────────────────────────────────
@@ -516,6 +533,148 @@ export function runCase(ev, id, fn, { fails } = {}) {
     }
   }
   return true
+}
+
+// ────────────────────────────────────────────────
+// 自主进化（EVO 套件）：runtime_state / 变体 / tick
+// ────────────────────────────────────────────────
+
+/** 读 runtime_state 单键（不存在返回 undefined） */
+export function readRuntimeState(key) {
+  return dbGet('SELECT value FROM runtime_state WHERE key = ?', key)?.value
+}
+
+/** 写 runtime_state 单键（WRITE：仅测试探针/快照恢复使用） */
+export function writeRuntimeState(key, value) {
+  dbExec(
+    `INSERT INTO runtime_state (key, value, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    key,
+    value,
+    new Date().toISOString(),
+  )
+}
+
+/** 删除 runtime_state 键（WRITE） */
+export function deleteRuntimeState(key) {
+  dbExec('DELETE FROM runtime_state WHERE key = ?', key)
+}
+
+/** 批量快照 runtime_state 键 → {key: value|undefined} */
+export function snapshotRuntimeState(keys) {
+  const snap = {}
+  for (const k of keys) snap[k] = readRuntimeState(k)
+  return snap
+}
+
+/** 恢复 snapshotRuntimeState 的产物（值为 undefined 的键删除）（WRITE） */
+export function restoreRuntimeState(snap) {
+  for (const [k, v] of Object.entries(snap ?? {})) {
+    if (v === undefined) deleteRuntimeState(k)
+    else writeRuntimeState(k, v)
+  }
+}
+
+/** 会话创建时选中的 Prompt 变体 id（conversation create 同步写入，创建即可读） */
+export function variantOfSession(sk) {
+  return readRuntimeState(`prompt-variant:${sk}`) ?? null
+}
+
+/** prompt_variants 全量（DB 列名） */
+export function readPromptVariants() {
+  return dbQuery('SELECT id, is_baseline, trial_count, success_count, avg_satisfaction FROM prompt_variants')
+}
+
+/**
+ * 本地重算各变体 UCB（c=2.0，与 UCB_CONFIDENCE 对齐），按 UCB 降序。
+ * 注意：表内 ucb_score 是死列（从未写入，恒 0/NULL），不可读，必须本地重算。
+ */
+export function computeUcb(c = 2.0) {
+  const rows = readPromptVariants()
+  const T = rows.reduce((s, r) => s + (r.trial_count ?? 0), 0)
+  const lnT = Math.log(Math.max(T, 2))
+  return rows
+    .map((r) => ({
+      id: r.id,
+      isBaseline: r.is_baseline === 1,
+      n: r.trial_count ?? 0,
+      avg: r.avg_satisfaction ?? 0,
+      ucb:
+        (r.trial_count ?? 0) > 0
+          ? (r.avg_satisfaction ?? 0) + c * Math.sqrt(lnT / r.trial_count)
+          : Infinity,
+    }))
+    .sort((a, b) => b.ucb - a.ucb)
+}
+
+/** 会话最新满意度评分行 */
+export function readLatestSatisfaction(sk) {
+  return dbGet(
+    'SELECT overall_score, task_completion, user_feedback, efficiency, knowledge_growth, created_at FROM autonomous_satisfaction_scores WHERE session_id = ? ORDER BY created_at DESC LIMIT 1',
+    sk,
+  )
+}
+
+/** 本地日期键 YYYY-MM-DD（与 autonomous.tokens/outreach 键、last_diary_date 同口径） */
+export function localDateKey(d = new Date()) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** 读 mood（JSON 解析；缺失返回 null） */
+export function readMood() {
+  const v = readRuntimeState('autonomous.mood')
+  if (!v) return null
+  try {
+    return JSON.parse(v)
+  } catch {
+    return null
+  }
+}
+
+/** 播种 mood（WRITE；测试用） */
+export function seedMood(mood) {
+  writeRuntimeState('autonomous.mood', JSON.stringify({ ...mood, updatedAt: new Date().toISOString() }))
+}
+
+/** 手动触发心跳（cron run；manual 分支绕过 cron enabled，但不绕静默时段） */
+export function cronTick(jobId = 'autonomous-tick', { timeoutMs = 60000 } = {}) {
+  return ui(['cron', 'run', jobId], { retries: 0, timeoutMs })
+}
+
+/** 最新一次 cron 运行行（summary/status/error） */
+export function lastCronRunSummary(jobId = 'autonomous-tick') {
+  return dbGet(
+    'SELECT summary, status, error, started_at FROM local_cron_runs WHERE job_id = ? ORDER BY started_at DESC LIMIT 1',
+    jobId,
+  )
+}
+
+/** 禁用全部后台定时任务（防抢 LLM/IPC）；返回被禁 id 供恢复 */
+export function disableBackgroundCronJobs() {
+  const rows = dbQuery('SELECT id FROM local_cron_jobs WHERE enabled = 1')
+  for (const r of rows) dbExec('UPDATE local_cron_jobs SET enabled = 0 WHERE id = ?', r.id)
+  return rows.map((r) => r.id)
+}
+
+/** 恢复 disableBackgroundCronJobs 禁用的任务 */
+export function restoreBackgroundCronJobs(ids) {
+  for (const id of ids ?? []) dbExec('UPDATE local_cron_jobs SET enabled = 1 WHERE id = ?', id)
+}
+
+/** evolution:main 会话消息数 */
+export function evolutionMessageCount() {
+  return dbCount('messages', "conversation_id = 'evolution:main'")
+}
+
+/** evolution:main 最新一条消息文本 */
+export function latestEvolutionText() {
+  const row = dbGet(
+    "SELECT content_json FROM messages WHERE conversation_id = 'evolution:main' ORDER BY timestamp DESC LIMIT 1",
+  )
+  return row ? assistantText({ contentJson: row.content_json }) : null
 }
 
 // ────────────────────────────────────────────────

@@ -1,0 +1,24 @@
+{"ts":"2026-09-12T15:09:27.557Z","id":"PREFLIGHT","status":"INFO","note":"预检通过"}
+{"ts":"2026-09-12T15:09:27.715Z","id":"SNAPSHOT","status":"INFO","note":"runtime_state 快照 9 键；后台 cron 禁用 20 个"}
+{"ts":"2026-09-12T15:09:27.717Z","id":"ENABLE","status":"INFO","note":"autonomous 已处于启用状态"}
+{"ts":"2026-09-12T15:09:27.719Z","id":"EVO-C1","status":"SKIP","note":"依赖 EVO-B4（目标完成事件）","durationMs":0}
+{"ts":"2026-09-12T15:09:34.915Z","id":"EVO-C2","status":"PASS","note":"日记 825 字落库；真实事件引用未命中（soft，证据留存人工评审）；二次 tick 未重写；last_diary_date 更新","durationMs":7195}
+{"ts":"2026-09-12T15:09:36.540Z","id":"EVO-C3","status":"PASS","note":"牵挂 raisedCount=1，nextRaiseAfter 后移，status=open","durationMs":1624}
+{"ts":"2026-09-12T15:09:36.543Z","id":"EVO-C4","status":"PASS","note":"今日 token 累计 2000（预算计费真实生效）","durationMs":2}
+{"ts":"2026-09-12T15:09:36.775Z","id":"RESTORE","status":"INFO","note":"快照已恢复（enabled=true，cron 恢复 20 个）"}
+{"ts":"2026-09-12T15:10:19.609Z","id":"EVO-A1","status":"PASS","run":"run2","note":"现状：argmax=67_6oeogvx(baseline, avg=0.776 n=64)｜UCB: base=1.3458 k2yezex=1.3403 tdoqc88=1.3361｜注入前 6 探针分布：baseline×6"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-A2","status":"PASS","run":"run2","note":"对当前 argmax(baseline) 注入 1 条低分（overall 0.488，2×abort+失败工具配方）；trial 64→66，avg 0.7764→0.7716（反馈真实回写）"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-A3","status":"PASS","run":"run2","note":"UCB 立即重排：argmax baseline→k2yezex（baseline UCB 1.3458→1.3329，跌至第 3 位）；注入 1 条低分即触发选择翻转"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-A4","status":"PASS","run":"run2","note":"选择跟随 UCB：12 个新会话 12/12 全部选新 argmax（注入前该变体仅被选 0 次）——反馈→重排→选择改变的完整因果链"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-B0","status":"PASS","run":"run2","note":"临时参数（approvalMode=always / maxGoalsPerDay=20 / maxOutreach=0）生效；第一轮遗留 executing 积压 1 个，1 次 tick 消化（execute-goal: completed）"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-B1","status":"SKIP","run":"run2","note":"低分 overall=0.488 达成但未生成新 pending 目标——同描述目标已在 pending（去重拦截，产品既有行为）；第 1 次运行同用例 PASS（生成「改善用户反馈质量：学习更好的交互模式」）"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-B2","status":"PASS","run":"run2","note":"autonomous reflect 落库（user-request）「在需要文档分析、信息整合和证据支撑的任务中，我的响应质量与用户反馈不够稳定」；建议 3 条全部落为新 pending 目标"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-B3","status":"PASS","run":"run2","note":"目标 07-t4p0kos 批准 → executing「完成 document_analysis 专项校准：选取30至50个长文档、报告」（审批流真实流转）"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-B4","status":"FAIL","run":"run2-中断","note":"tick 6 次 skipped: user turn in progress（B1 低分会话的 abort 残留 streaming 占位导致心跳瘫痪——产品缺陷，见报告缺陷清单）"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-B4","status":"PASS","run":"resume","note":"残留清理后补跑：tick 执行 goal-1789225 → completed（evolution:main 49→53）；执行产出真实建了训练语料 outputs/document-analysis-training/（含协议/Rubric/4 样本，Agent 自评轮2有效分 74.5 并排期 9/14 轮3盲测）"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-B5","status":"PASS","run":"resume","note":"学习沉淀：工作记忆「document_analysis 专项校准本轮完成。总结如下：…」+ Wiki 知识页「学习成果 · 完成 document_analysis 专项校准…」"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-B6","status":"PASS","run":"resume","note":"修正（原 FAIL 为测试关键词截断 bug「document_a」）：完整关键词 memory search「document_analysis」命中 7 条记忆（含训练语料/评分/排期详情）；复测同类任务 overall=0.763≥0.6、task=0.75（未盲从失败工具，vs 低分基线 task=0.5）"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-B7","status":"PASS","run":"resume+run1","note":"自建任务手动执行成功（2 例）：「把小提示写出来」→「先问一句…再查一句…」；「碰到文档先按事实/约束/验收/证据四层」→ 产出规则文件"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-C1","status":"PASS","run":"verify","note":"Mood 事件驱动（B4 goal_completed 前 seed {valence:0.6,arousal:0.5} → 后现读 {0.783,0.118}）：Δvalence +0.183 / Δarousal -0.382，方向符合「goal_completed: +0.25/-0.15」设计"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-C2-REVIEW","status":"PASS","run":"manual","note":"日记真实事件引用人工评审成立：825 字日记「我只是继续坐在一些长文档面前，练习把一句结论拆开」（对应专项校准训练）；同日另一篇「今天还处理了一次记忆文件里的同步冲突」（对应云同步事件）——对比 9/8 纯思辨日记为质变"}
+{"ts":"2026-09-12T15:10:19.611Z","id":"EVO-DEFECT-ABORT","status":"FAIL","run":"n/a","note":"产品缺陷（2 次稳定复现）：abort 打断生成后残留 streaming=1 占位消息（parts 空，len 37）→ hasActiveUserTurn 永久为真 → 心跳全部 skipped: user turn in progress（自主进化静默死亡）；触发条件=日常打断操作"}
