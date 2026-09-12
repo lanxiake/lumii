@@ -137,7 +137,7 @@ node docs/test/lumii-cli/cloud-sync/run-cloud-sync-suite.mjs
 | `chat/run-chat-compression-suite.mjs` | **6/6** | compact 基本流/压缩后回忆/usage/原文保留/中止 |
 | `chat/run-chat-wiki-suite.mjs` | **4/5**（1 SKIP） | 检索工具调用、聊天不自动摄入（负例）、未找到行为；导入闭环（WIKI-05）异步超时 SKIP |
 | `autonomous/run-autonomous-effectiveness-e2e.mjs` | **A 4/4、B 6/7（1 SKIP）、C 3/4+补验** | 有效性验证：变体学习因果链 12/12、闭环产出真实训练工程、Mood/日记事件驱动；**发现 abort 残留致心跳瘫痪等 6 项缺陷**（详见 [有效性报告](./autonomous/autonomous-effectiveness-report.md)） |
-| `agent-team/run-agent-team-e2e.mjs`（2026-09-13） | **10/11（1 SKIP）** | 场景化：灵栖开发列目录 / 灵栖维护记忆体检（红线零改动）/ 灵栖情报偏好落 agent_memories / 日报由 chronicler 真实产出（agent_id 硬验证）/ claude 两轮续接（node 版本追答复述）/ 日常聊天回归；tick 多 Agent 条件用例待配置 autonomousAgents 后重跑 |
+| `agent-team/run-agent-team-e2e.mjs`（2026-09-13） | **14/14** | 场景化 + UI 级：四位成员真实办事（开发看环境 / 维护记忆体检零改动 / 情报偏好落记忆 / 记事日报送达）/ claude 两轮续接 + **回复界面实时可见**（修复「事件被静默丢弃」回归护栏）/ 日常聊天回归 / 真实点击自主开关（配置 diff 验证写入并还原）/ 侧栏分组结构 / tick 多 Agent 汇总（assistant + chronicler）；详见 [报告](./agent-team/agent-team-report.md) |
 | 场景记忆存量迁移 | **已执行并验证** | 2 条项目偏好迁入 `scene-memory/`；真实数据聊天验证：注入日志命中 + 负例零误注入 |
 
 ## 相关规范与设计

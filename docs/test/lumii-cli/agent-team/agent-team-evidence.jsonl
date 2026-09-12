@@ -1,0 +1,16 @@
+{"ts":"2026-09-12T19:15:52.374Z","id":"AT-ENV","status":"INFO","note":"预检通过；日志通道可用；LLM=真实；claude=启用；tick=启用；AT_ONLY=(全量)"}
+{"ts":"2026-09-12T19:15:52.457Z","id":"AT-ENV","status":"INFO","note":"dev-context 快照完成（173 字节）；后台 cron 临时禁用 19 条"}
+{"ts":"2026-09-12T19:15:52.548Z","id":"AT-L1-01","status":"PASS","note":"commands=77，命令面完整","durationMs":90}
+{"ts":"2026-09-12T19:15:52.699Z","id":"AT-L2-01","status":"PASS","note":"四位 Agent 定义均可见（code-dev/system-keeper/chronicler/info-curator）","durationMs":150}
+{"ts":"2026-09-12T19:15:52.711Z","id":"AT-L2-02","status":"PASS","note":"5 条转正落地（4→chronicler、news→info-curator）；新闻 prompt 升级标记=含「先读用户偏好」","durationMs":11}
+{"ts":"2026-09-12T19:15:55.963Z","id":"AT-L2-03","status":"PASS","note":"session 级 claude→lumii 往返、敲错项目名被拒","durationMs":3251}
+{"ts":"2026-09-12T19:16:08.418Z","id":"AT-S1","status":"PASS","note":"participant=code-dev；回复 209 字（11s）：「当前工作目录（E:\\testsoft\\Lumii-data）下的前 5 个项目： 1. `.git…」","durationMs":12454}
+{"ts":"2026-09-12T19:16:26.003Z","id":"AT-S2","status":"PASS","note":"体检回复 786 字；记忆原有内容零改动","durationMs":17584}
+{"ts":"2026-09-12T19:16:38.493Z","id":"AT-S3","status":"PASS","note":"偏好写入 agent_memories（1 条），探针已清理","durationMs":12489}
+{"ts":"2026-09-12T19:16:49.512Z","id":"AT-S4","status":"PASS","note":"日报由 chronicler 产出（302 字）：「三处核查完毕（工作记忆 0 条、日报存档、记忆宫殿检索），均无今天（09-12）…」","durationMs":11018}
+{"ts":"2026-09-12T19:17:02.214Z","id":"AT-S6","status":"PASS","note":"participant=default；回复「收到」（与 Agent 团队上线前行为一致）","durationMs":12701}
+{"ts":"2026-09-12T19:17:45.406Z","id":"AT-S5","status":"PASS","note":"两轮续接成功：首轮报 v22.13.1，追问复述一致；无降级标记","durationMs":43191}
+{"ts":"2026-09-12T19:17:49.347Z","id":"AT-UI-01","status":"PASS","note":"真实点击「info-curator」开关：开启→app.json 落盘；再点→还原初始","durationMs":3941}
+{"ts":"2026-09-12T19:17:51.360Z","id":"AT-UI-02","status":"PASS","note":"主助手组头 + 灵栖开发/灵栖维护/灵栖情报 组头均在；无展开按钮（滚动分页）","durationMs":2012}
+{"ts":"2026-09-12T19:18:09.324Z","id":"AT-UI-03","status":"PASS","note":"渲染层实时收到事件；UI 无需重启可见回复","durationMs":17963}
+{"ts":"2026-09-12T19:18:09.481Z","id":"AT-L2-04","status":"PASS","note":"汇总覆盖 assistant + chronicler：assistant=idle; chronicler=idle","durationMs":157}
