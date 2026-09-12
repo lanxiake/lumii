@@ -5,7 +5,7 @@
  * 真实调用 lumii-ui CLI 的 10 个 autonomous 命令，并回查 agent-runtime.db
  * 校验落库结果，覆盖算法一致性与异常路径。
  *
- * 用法: node docs/test/lumii-cli/run-autonomous-cli-suite.mjs
+ * 用法: node docs/test/lumii-cli/autonomous/run-autonomous-cli-suite.mjs
  *
  * 前置: pnpm dev 已启动，~/.lumii/runtime/app-ui.json 可读。
  *
@@ -26,7 +26,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '../../..')
+const ROOT = path.resolve(__dirname, '../../../..')
 const LUMII_UI = path.join(ROOT, 'apps/windows/resources/app-ui-cli/lumii-ui.mjs')
 const DB_PATH = path.join(os.homedir(), '.lumii', 'data', 'agent-runtime.db')
 const EVID = path.join(__dirname, 'autonomous-cli-evidence.jsonl')

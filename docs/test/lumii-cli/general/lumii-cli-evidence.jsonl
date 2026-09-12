@@ -1,0 +1,16 @@
+{"ts":"2026-09-12T12:56:19.196Z","id":"TEST_START","status":"info","note":"开始测试，时间: 2026-09-12T12:56:19.194Z"}
+{"ts":"2026-09-12T12:57:09.612Z","id":"A.G1","status":"pass","note":"help 命令返回分组列表"}
+{"ts":"2026-09-12T12:57:09.724Z","id":"A.G3","status":"pass","note":"help --json 返回 77 个命令"}
+{"ts":"2026-09-12T12:57:10.222Z","id":"A1","status":"pass","note":"screenshot 返回截图和 59 个元素"}
+{"ts":"2026-09-12T12:57:10.837Z","id":"A2","status":"pass","note":"screenshot --annotate 返回 snapshotId: 5..."}
+{"ts":"2026-09-12T12:57:11.157Z","id":"A3.dashboard","status":"pass","note":"goto --view dashboard 成功"}
+{"ts":"2026-09-12T12:57:12.059Z","id":"A3.settings","status":"pass","note":"goto --view settings 成功"}
+{"ts":"2026-09-12T12:57:12.943Z","id":"A3.chat","status":"pass","note":"goto --view chat 成功"}
+{"ts":"2026-09-12T12:57:13.636Z","id":"B1","status":"pass","note":"wiki source list 返回 187 个资料","json":{"count":187}}
+{"ts":"2026-09-12T12:57:13.798Z","id":"B2","status":"pass","note":"wiki search 返回 0 个结果"}
+{"ts":"2026-09-12T12:57:14.027Z","id":"C1","status":"pass","note":"conversation list 返回 172 个会话"}
+{"ts":"2026-09-12T12:57:14.188Z","id":"D1","status":"pass","note":"cron list 返回 14 个任务"}
+{"ts":"2026-09-12T12:57:14.344Z","id":"E1","status":"pass","note":"memory search 返回 0 个记忆"}
+{"ts":"2026-09-12T12:57:14.432Z","id":"F1","status":"pass","note":"无效命令正确返回错误"}
+{"ts":"2026-09-12T12:57:14.518Z","id":"F2","status":"pass","note":"缺少参数正确返回错误","code":2}
+{"ts":"2026-09-12T12:57:14.519Z","id":"TEST_END","status":"info","note":"测试结束，时间: 2026-09-12T12:57:14.519Z"}

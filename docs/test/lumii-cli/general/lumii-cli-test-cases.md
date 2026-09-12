@@ -1,5 +1,8 @@
 # Lumii CLI 完整测试用例
 
+> ⚠️ **过时标注（2026-09-12）**：本文原始版本引用的以下命令已下线：`agent list`、`agent info`、`agent send`、`cron create`、`cron delete`、`wiki overview`、`wiki read`、`wiki capture`、`memory read`。`wiki search`/`memory search` 现为位置参数（非 `--q`）。
+> 执行器 [run-lumii-cli-suite.mjs](./run-lumii-cli-suite.mjs) 已按当前命令面修复（2026-09-12 全通过），以执行器与 `lumii-ui help --json` 为准。详见 [CLI-TEST-SPEC.md](../CLI-TEST-SPEC.md) §7。
+
 ## 测试目标
 
 验证 lumii-ui CLI 的核心功能在真实环境下可正常工作，确保：
@@ -11,8 +14,8 @@
 ## 测试环境
 
 - **CLI 路径**: `apps/windows/resources/app-ui-cli/lumii-ui.mjs`
-- **控制口端口**: 默认 3333
-- **测试数据**: docs/test/lumii-cli/测试材料/
+- **控制口端口**: 见 `~/.lumii/runtime/app-ui.json`（非固定端口）
+- **测试数据**: `docs/test/lumii-cli/materials/`（真实材料套件用；本通用套件不依赖）
 
 ## 测试分组
 

@@ -3,7 +3,7 @@
  * Lumii CLI 通用功能测试套件
  * 覆盖 UI、Agent、Cron、Memory 等核心命令
  *
- * 用法：node docs/test/lumii-cli/run-lumii-cli-suite.mjs
+ * 用法：node docs/test/lumii-cli/general/run-lumii-cli-suite.mjs
  *
  * 环境变量：
  * - LUMII_CLI_VERBOSE=1  详细日志
@@ -14,7 +14,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '../../..')
+const ROOT = path.resolve(__dirname, '../../../..')
 const LUMII_UI = path.join(ROOT, 'apps/windows/resources/app-ui-cli/lumii-ui.mjs')
 const EVID = path.join(__dirname, 'lumii-cli-evidence.jsonl')
 const REPORT = path.join(__dirname, 'lumii-cli-test-report.md')
@@ -139,8 +139,8 @@ function testHelp() {
   // A.G3: JSON 格式帮助
   try {
     const r = ui(['help', '--json'])
-    if (r.code === 0 && r.json && Array.isArray(r.json)) {
-      record('A.G3', 'pass', `help --json 返回 ${r.json.length} 个命令`)
+    if (r.code === 0 && r.json && Array.isArray(r.json.commands)) {
+      record('A.G3', 'pass', `help --json 返回 ${r.json.commands.length} 个命令`)
     } else {
       record('A.G3', 'fail', 'help --json 未返回有效 JSON', { output: r.out })
     }
@@ -154,14 +154,14 @@ function testScreenshot() {
   try {
     const r = ui(['screenshot'])
     if (r.code === 0 && r.json) {
-      const hasJpeg = typeof r.json.jpeg === 'string' && r.json.jpeg.length > 100
-      const hasElements = Array.isArray(r.json.elements)
-      if (hasJpeg && hasElements) {
-        record('A1', 'pass', `screenshot 返回截图和 ${r.json.elements.length} 个元素`)
+      const hasImage = typeof r.json.previewPath === 'string' || typeof r.json.imagePath === 'string'
+      const hasRefs = Array.isArray(r.json.refs)
+      if (r.json.ok === true && hasImage && hasRefs) {
+        record('A1', 'pass', `screenshot 返回截图和 ${r.json.refs.length} 个元素`)
       } else {
         record('A1', 'fail', 'screenshot 返回数据不完整', {
-          hasJpeg,
-          hasElements,
+          hasImage,
+          hasRefs,
           output: JSON.stringify(r.json).substring(0, 200)
         })
       }
@@ -177,11 +177,11 @@ function testScreenshot() {
     const r = ui(['screenshot', '--annotate'])
     if (r.code === 0 && r.json) {
       const hasSnapshotId = typeof r.json.snapshotId === 'string'
-      const hasJpeg = typeof r.json.jpeg === 'string'
-      if (hasSnapshotId && hasJpeg) {
+      const hasRefs = Array.isArray(r.json.refs) && r.json.refs.length > 0
+      if (hasSnapshotId && hasRefs) {
         record('A2', 'pass', `screenshot --annotate 返回 snapshotId: ${r.json.snapshotId.substring(0, 8)}...`)
       } else {
-        record('A2', 'fail', 'screenshot --annotate 缺少字段', { hasSnapshotId, hasJpeg })
+        record('A2', 'fail', 'screenshot --annotate 缺少字段', { hasSnapshotId, hasRefs })
       }
     } else {
       record('A2', 'fail', 'screenshot --annotate 失败', { code: r.code })
@@ -197,7 +197,7 @@ function testGoto() {
   for (const view of views) {
     try {
       const r = ui(['goto', '--view', view])
-      if (r.code === 0 && r.json?.success) {
+      if (r.code === 0 && r.json?.ok === true) {
         record(`A3.${view}`, 'pass', `goto --view ${view} 成功`)
       } else {
         record(`A3.${view}`, 'fail', `goto --view ${view} 失败`, { code: r.code, json: r.json })
@@ -214,33 +214,32 @@ function testGoto() {
 function testWikiOverview() {
   console.log('\n📚 B. Wiki 功能测试\n')
 
-  // B1: Wiki 概览
+  // B1: Wiki 资料列表（原 wiki overview 命令已下线）
   try {
-    const r = ui(['wiki', 'overview'])
+    const r = ui(['wiki', 'source', 'list'])
     if (r.code === 0 && r.json) {
-      const hasSources = typeof r.json.sources === 'number'
-      const hasEntities = typeof r.json.entities === 'number'
-      if (hasSources) {
-        record('B1', 'pass', `wiki overview 返回 ${r.json.sources} 个资料`, { json: r.json })
+      const sources = asArray(r.json.sources)
+      if (sources) {
+        record('B1', 'pass', `wiki source list 返回 ${sources.length} 个资料`, { json: { count: sources.length } })
       } else {
-        record('B1', 'fail', 'wiki overview 返回数据不完整', { json: r.json })
+        record('B1', 'fail', 'wiki source list 返回数据不完整', { json: r.json })
       }
     } else {
-      record('B1', 'fail', 'wiki overview 失败', { code: r.code, output: r.out })
+      record('B1', 'fail', 'wiki source list 失败', { code: r.code, output: r.out })
     }
   } catch (e) {
-    record('B1', 'fail', `wiki overview 异常: ${e.message}`)
+    record('B1', 'fail', `wiki source list 异常: ${e.message}`)
   }
 }
 
 function testWikiSearch() {
-  // B2: Wiki 搜索
+  // B2: Wiki 搜索（位置参数）
   try {
-    const r = ui(['wiki', 'search', '--q', 'test'])
+    const r = ui(['wiki', 'search', 'test'])
     if (r.code === 0 && r.json) {
-      const results = asArray(r.json.results) || asArray(r.json)
-      if (results) {
-        record('B2', 'pass', `wiki search 返回 ${results.length} 个结果`)
+      const hits = asArray(r.json.hits) || asArray(r.json)
+      if (hits) {
+        record('B2', 'pass', `wiki search 返回 ${hits.length} 个结果`)
       } else {
         record('B2', 'warn', 'wiki search 返回格式异常', { json: r.json })
       }
@@ -252,26 +251,26 @@ function testWikiSearch() {
   }
 }
 
-/** ============ C. Agent 功能测试 ============ */
+/** ============ C. 会话功能测试 ============ */
 
 function testAgentList() {
-  console.log('\n🤖 C. Agent 功能测试\n')
+  console.log('\n🤖 C. 会话功能测试\n')
 
-  // C1: Agent 列表
+  // C1: 会话列表（原 agent list 命令已下线，改用 conversation list）
   try {
-    const r = ui(['agent', 'list'])
+    const r = ui(['conversation', 'list'])
     if (r.code === 0 && r.json) {
-      const agents = asArray(r.json.agents) || asArray(r.json)
-      if (agents) {
-        record('C1', 'pass', `agent list 返回 ${agents.length} 个 Agent`)
+      const convs = asArray(r.json.conversations) || asArray(r.json)
+      if (convs) {
+        record('C1', 'pass', `conversation list 返回 ${convs.length} 个会话`)
       } else {
-        record('C1', 'fail', 'agent list 返回格式异常', { json: r.json })
+        record('C1', 'fail', 'conversation list 返回格式异常', { json: r.json })
       }
     } else {
-      record('C1', 'fail', 'agent list 失败', { code: r.code, output: r.out })
+      record('C1', 'fail', 'conversation list 失败', { code: r.code, output: r.out })
     }
   } catch (e) {
-    record('C1', 'fail', `agent list 异常: ${e.message}`)
+    record('C1', 'fail', `conversation list 异常: ${e.message}`)
   }
 }
 
@@ -284,7 +283,7 @@ function testCronList() {
   try {
     const r = ui(['cron', 'list'])
     if (r.code === 0 && r.json) {
-      const crons = asArray(r.json.crons) || asArray(r.json)
+      const crons = asArray(r.json.jobs) || asArray(r.json)
       if (crons !== null) {
         record('D1', 'pass', `cron list 返回 ${crons.length} 个任务`)
       } else {
@@ -305,7 +304,7 @@ function testMemorySearch() {
 
   // E1: Memory 搜索
   try {
-    const r = ui(['memory', 'search', '--q', 'user'])
+    const r = ui(['memory', 'search', 'user'])
     if (r.code === 0 && r.json) {
       const memories = asArray(r.json.memories) || asArray(r.json.results) || asArray(r.json)
       if (memories !== null) {
@@ -329,7 +328,7 @@ function testErrorHandling() {
   // F1: 无效命令
   try {
     const r = ui(['invalid-command-xyz'])
-    if (r.code !== 0 && (r.out.includes('Unknown') || r.stderr.includes('Unknown'))) {
+    if (r.code !== 0 && (r.out.includes('未知命令') || r.stderr.includes('未知命令'))) {
       record('F1', 'pass', '无效命令正确返回错误')
     } else {
       record('F1', 'fail', '无效命令未正确处理', { code: r.code, output: r.out })

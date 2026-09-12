@@ -22,8 +22,10 @@ const __dirname = path.dirname(__filename)
 
 // 配置
 const CONFIG = {
-  // Lumii 客户端路径（Windows）
-  lumiiExe: 'C:\\Users\\75791\\AppData\\Local\\Programs\\lumii\\lumii.exe',
+  // Lumii 客户端路径（Windows）：优先环境变量，缺省用当前用户安装位置
+  lumiiExe:
+    process.env.LUMII_EXE ??
+    path.join(process.env.LOCALAPPDATA ?? '', 'Programs', 'lumii', 'lumii.exe'),
   // 测试数据目录
   testDataDir: path.join(__dirname, 'test-data-sync'),
   // 日志文件

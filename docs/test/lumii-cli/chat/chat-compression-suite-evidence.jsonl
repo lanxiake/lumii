@@ -1,0 +1,7 @@
+{"ts":"2026-09-12T13:41:30.627Z","id":"PREFLIGHT","status":"INFO","note":"预检通过"}
+{"ts":"2026-09-12T13:42:08.367Z","id":"CHAT-CMP-01","status":"PASS","note":"compact 成功；返回字段 [success,previousMessageCount,newMessageCount,messagesRemoved,hadSummary,conversationTokensBefore,conversationTokensAfter,reason]；消息 4 条（含疑似摘要 0 条）；DB 4→4 保留；usage 字段 [usedTokens,contextWindow,triggerThreshold,breakdown]","durationMs":37738}
+{"ts":"2026-09-12T13:43:11.848Z","id":"CHAT-CMP-02","status":"PASS","note":"压缩后仍记得 47：「你的幸运数字是 47。…」","durationMs":63481}
+{"ts":"2026-09-12T13:43:12.028Z","id":"CHAT-CMP-03","status":"PASS","note":"usedTokens=25819 contextWindow=256000（字段: usedTokens,contextWindow,triggerThreshold,breakdown）","durationMs":179}
+{"ts":"2026-09-12T13:44:59.230Z","id":"CHAT-CMP-04","status":"PASS","note":"压缩后新回合正常（8.2s），DB 累计 6 条","durationMs":107201}
+{"ts":"2026-09-12T13:45:50.210Z","id":"CHAT-CMP-05","status":"PASS","note":"原文保留：DB 4 → 4（roles: user,assistant）","durationMs":50980}
+{"ts":"2026-09-12T13:45:50.559Z","id":"CHAT-CMP-06","status":"PASS","note":"abort 明确响应（code=0，接受）；会话仍可读（6 条）","durationMs":348}

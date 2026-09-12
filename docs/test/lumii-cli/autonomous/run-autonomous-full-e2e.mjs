@@ -15,7 +15,7 @@
  *   6. 审批/拒绝     —— CLI approve/reject → executing/rejected + 人格事件
  *   7. 反思          —— CLI autonomous reflect → reflections 落库
  *
- * 用法: node docs/test/lumii-cli/run-autonomous-full-e2e.mjs
+ * 用法: node docs/test/lumii-cli/autonomous/run-autonomous-full-e2e.mjs
  * 前置: pnpm dev 已启动，chat provider 已配置（~/.lumii/config/provider.json）。
  *
  * 环境变量:
@@ -35,7 +35,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '../../..')
+const ROOT = path.resolve(__dirname, '../../../..')
 const LUMII_UI = path.join(ROOT, 'apps/windows/resources/app-ui-cli/lumii-ui.mjs')
 const DB_PATH = path.join(os.homedir(), '.lumii', 'data', 'agent-runtime.db')
 const EVID = path.join(__dirname, 'autonomous-full-e2e-evidence.jsonl')

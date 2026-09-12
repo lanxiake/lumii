@@ -12,7 +12,7 @@
  *   - 探针目标 / 运行时状态播种用 node:sqlite，读取回查 DB 验证落库
  *   - 对 touched 的 runtime_state 键做快照/恢复，不污染用户真实状态
  *
- * 用法: node docs/test/lumii-cli/run-autonomous-life-e2e.mjs
+ * 用法: node docs/test/lumii-cli/autonomous/run-autonomous-life-e2e.mjs
  * 前置: pnpm dev 已启动，chat provider 已配置（~/.lumii/config/provider.json）。
  *
  * 环境变量:
@@ -30,7 +30,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '../../..')
+const ROOT = path.resolve(__dirname, '../../../..')
 const LUMII_UI = path.join(ROOT, 'apps/windows/resources/app-ui-cli/lumii-ui.mjs')
 const DB_PATH = path.join(os.homedir(), '.lumii', 'data', 'agent-runtime.db')
 const EVID = path.join(__dirname, 'autonomous-life-e2e-evidence.jsonl')

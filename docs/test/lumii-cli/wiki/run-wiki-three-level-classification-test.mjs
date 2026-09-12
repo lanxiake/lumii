@@ -8,7 +8,7 @@
  * 3. 验证数据库中 topic_project 字段正确存储
  * 4. 验证查询和列表接口返回项目信息
  *
- * 用法：node docs/test/lumii-cli/run-wiki-three-level-classification-test.mjs
+ * 用法：node docs/test/lumii-cli/wiki/run-wiki-three-level-classification-test.mjs
  */
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '../../..')
+const ROOT = path.resolve(__dirname, '../../../..')
 const LUMII_UI = path.join(ROOT, 'apps/windows/resources/app-ui-cli/lumii-ui.mjs')
 const EVID = path.join(__dirname, 'wiki-three-level-classification-evidence.jsonl')
 const REPORT = path.join(__dirname, 'wiki-three-level-classification-report.md')

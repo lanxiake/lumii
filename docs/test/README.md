@@ -2,9 +2,9 @@
 
 本目录存放 **CLI / 真实环境** 测试用例与报告（非单元测试源码）。
 
-## Wiki CLI（P0/P1/P2，2026-08-27）
+## Lumii CLI 真实环境测试（2026-09-12 重组）
 
-见子目录 [lumii-cli/](./lumii-cli/README.md)：用例、执行器 `run-wiki-cli-suite.mjs`、报告与 evidence。
+见子目录 [lumii-cli/](./lumii-cli/README.md)，现按功能域组织：`general/`（通用 CLI）、`chat/`（真实聊天模拟，L3）、`wiki/`、`autonomous/`、`cloud-sync/`。规范见 [CLI-TEST-SPEC.md](./lumii-cli/CLI-TEST-SPEC.md)。
 
 ## Agent 能力（2026-08-27）
 

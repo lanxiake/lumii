@@ -57,10 +57,10 @@ docs/
 │   ├── 2026-09-07-focused-sync-implementation.md   [实施文档]
 │   └── 2026-09-07-cloud-sync-complete-summary.md   [完整总结]
 ├── test/
-│   ├── lumii-cli/
-│   │   ├── run-sync-cli-suite.mjs                  [测试脚本]
-│   │   ├── sync-cli-test-report.md                 [测试报告]
-│   │   └── sync-cli-evidence.jsonl                 [测试证据]
+│   ├── lumii-cli/cloud-sync/
+│   │   ├── run-cloud-sync-suite.mjs                [测试脚本]
+│   │   ├── cloud-sync-cli-test-report.md           [测试报告]
+│   │   └── cloud-sync-cli-evidence.jsonl           [测试证据]
 │   └── 2026-09-07-cloud-sync-cli-test-summary.md   [测试总结]
 ├── fix-cloud-sync-conflict-detection-2026-09-07.md [修复文档]
 └── README-SYNC.md                                   [本文档]
@@ -95,10 +95,10 @@ node apps/windows/resources/app-ui-cli/lumii-sync.mjs --help
 
 ```bash
 # 运行测试套件
-node docs/test/lumii-cli/run-sync-cli-suite.mjs
+node docs/test/lumii-cli/cloud-sync/run-cloud-sync-suite.mjs
 
 # 查看测试报告
-cat docs/test/lumii-cli/sync-cli-test-report.md
+cat docs/test/lumii-cli/cloud-sync/cloud-sync-cli-test-report.md
 ```
 
 ### 查看导出的数据
@@ -149,7 +149,7 @@ cd ~/.lumii/sync && git log --oneline -5
 
 阅读顺序：
 1. [测试总结](test/2026-09-07-cloud-sync-cli-test-summary.md) - 测试结果
-2. [测试报告](test/lumii-cli/sync-cli-test-report.md) - 详细数据
+2. [测试报告](test/lumii-cli/cloud-sync/cloud-sync-cli-test-report.md) - 详细数据
 
 ### 4. 查看代码（30分钟）
 

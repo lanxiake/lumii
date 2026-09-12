@@ -20,7 +20,7 @@
  *   `wiki:source:archive`，不删除，保留审计轨迹，且验证 archived_at 可逆
  *   （不额外调用 restore，只验证字段已置位，避免把探测态和真实态混在一起）。
  *
- * 用法：node docs/test/lumii-cli/run-wiki-real-materials-suite.mjs
+ * 用法：node docs/test/lumii-cli/wiki/run-wiki-real-materials-suite.mjs
  *
  * 环境变量：
  * - WIKI_CLI_SKIP_OPEN=1  跳过 wiki:source:open（会拉起系统程序，无头环境建议跳过）
@@ -36,9 +36,9 @@ import mammoth from 'mammoth'
 import { PDFParse } from 'pdf-parse'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '../../..')
+const ROOT = path.resolve(__dirname, '../../../..')
 const LUMII_UI = path.join(ROOT, 'apps/windows/resources/app-ui-cli/lumii-ui.mjs')
-const MATERIALS_DIR = path.join(__dirname, '测试材料')
+const MATERIALS_DIR = path.join(__dirname, '../materials')
 const EVID = path.join(__dirname, 'wiki-real-materials-evidence.jsonl')
 const REPORT = path.join(__dirname, 'wiki-real-materials-test-report.md')
 const DB_PATH = path.join(os.homedir(), '.lumii', 'data', 'agent-runtime.db')
@@ -150,7 +150,7 @@ async function main() {
     console.error('控制口不可达，请先启动应用（pnpm dev）')
     process.exit(3)
   }
-  assert(fs.existsSync(MATERIALS_DIR), `测试材料目录不存在: ${MATERIALS_DIR}`)
+  assert(fs.existsSync(MATERIALS_DIR), `materials 目录不存在: ${MATERIALS_DIR}`)
 
   const files = {
     docx1: path.join(MATERIALS_DIR, '01-Claude Code For Secondary Sites.docx'),

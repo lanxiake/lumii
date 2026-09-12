@@ -1,0 +1,10 @@
+{"ts":"2026-09-12T13:20:31.921Z","id":"PREFLIGHT","status":"INFO","note":"预检通过"}
+{"ts":"2026-09-12T13:20:44.738Z","id":"CHAT-CORE-01","status":"PASS","note":"回合 10.9s，消息 2 条，DB 2 条，回复「收到…」","durationMs":12816}
+{"ts":"2026-09-12T13:21:23.691Z","id":"CHAT-CORE-02","status":"PASS","note":"第 3 轮回复包含 47：「47…」","durationMs":38952}
+{"ts":"2026-09-12T13:21:49.947Z","id":"CHAT-CORE-03","status":"PASS","note":"消息 c914d256 编辑落库成功","durationMs":26255}
+{"ts":"2026-09-12T13:22:09.501Z","id":"CHAT-CORE-04","status":"PASS","note":"重发触发新回复：「世界…」","durationMs":19553}
+{"ts":"2026-09-12T13:22:35.328Z","id":"CHAT-CORE-05","status":"PASS","note":"abort 接受且会话可用，后续回复「海是地球上最古老的存在。它比山更耐心，比…」（中止为尽力而为语义，前序生成可能完成）","durationMs":25826}
+{"ts":"2026-09-12T13:22:57.726Z","id":"CHAT-CORE-06","status":"PASS","note":"双会话消息完全隔离","durationMs":22396}
+{"ts":"2026-09-12T13:22:59.546Z","id":"CHAT-CORE-07","status":"PASS","note":"两个错误场景均正确拒绝（退出码 2/2），无副作用","durationMs":1819}
+{"ts":"2026-09-12T13:23:00.985Z","id":"CHAT-CORE-08","status":"PASS","note":"会话列表包含探针标题（共 193 个会话）","durationMs":1438}
+{"ts":"2026-09-12T13:23:00.988Z","id":"CLEANUP","status":"INFO","note":"已从 user-memory.md 移除测试产物（幸运数字 47，1 行）"}

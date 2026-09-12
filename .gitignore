@@ -53,7 +53,8 @@ docs/temp/
 .worktrees/
 .worktree/
 .claude/worktrees/
-docs/test/lumii-cli/测试材料/
+.claude/
+docs/test/lumii-cli/materials/
 
 # Wiki 嵌入模型运行时缓存（约 140MB，不提交 Git）
 **/.lumii/models/wiki-embeddings/

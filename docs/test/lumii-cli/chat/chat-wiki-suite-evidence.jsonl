@@ -1,0 +1,7 @@
+{"ts":"2026-09-12T13:50:57.463Z","id":"PREFLIGHT","status":"INFO","note":"预检通过"}
+{"ts":"2026-09-12T13:50:57.660Z","id":"CORPUS","status":"INFO","note":"Wiki 库现有资料 188 条"}
+{"ts":"2026-09-12T13:51:12.939Z","id":"CHAT-WIKI-01","status":"PASS","note":"调用 [wiki_overview]；回复含资料名（1 次工具调用）","durationMs":15278}
+{"ts":"2026-09-12T13:51:28.669Z","id":"CHAT-WIKI-02","status":"PASS","note":"聊天未产生收件箱条目（inbox 计数保持 0）","durationMs":15729}
+{"ts":"2026-09-12T13:51:46.613Z","id":"CHAT-WIKI-03","status":"PASS","note":"调用 [wiki_search,wiki_read,wiki_read]；概括「我来查一下知识库里的这篇文档。\n\n\n\n内容较长，我快速浏览一下完整结构再概括。\n\n\n\n读完了。这篇《…」","durationMs":17943}
+{"ts":"2026-09-12T13:52:07.395Z","id":"CHAT-WIKI-04","status":"PASS","note":"如实回应未找到：「我来查一下知识库（先看下整体结构，再按关键词搜索）。\n\n\n\n\n再单独搜一次「面条」，确认是否有相关词…」","durationMs":20781}
+{"ts":"2026-09-12T13:52:30.449Z","id":"CHAT-WIKI-05","status":"SKIP","note":"导入后 20s 内既未出现在收件箱也未归档（异步链路，见 wiki 套件）","durationMs":23053}

@@ -4,7 +4,7 @@
  *
  * 测试核心 UI 交互命令，确保代码执行流程和用户体验一致
  *
- * 用法: node docs/test/lumii-cli/run-ui-cli-suite.mjs
+ * 用法: node docs/test/lumii-cli/general/run-ui-cli-suite.mjs
  *
  * 环境变量:
  * - LUMII_CLI_VERBOSE=1  显示详细输出
@@ -17,7 +17,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '../../..')
+const ROOT = path.resolve(__dirname, '../../../..')
 const LUMII_UI = path.join(ROOT, 'apps/windows/resources/app-ui-cli/lumii-ui.mjs')
 const EVID = path.join(__dirname, 'ui-cli-evidence.jsonl')
 const REPORT = path.join(__dirname, 'ui-cli-test-report.md')

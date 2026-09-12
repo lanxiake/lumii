@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Wiki P0/P1/P2 CLI 补强套件：覆盖全部 wiki CLI 子命令 + 关键 IPC GAP（via command）。
- * 用法：node docs/test/lumii-cli/run-wiki-cli-suite.mjs
+ * 用法：node docs/test/lumii-cli/wiki/run-wiki-cli-suite.mjs
  *
  * 环境变量：
  * - WIKI_CLI_ALLOW_DELETE=1  允许 source:delete（默认只删 wiki-cli-* 页面）
@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '../../..')
+const ROOT = path.resolve(__dirname, '../../../..')
 const LUMII_UI = path.join(ROOT, 'apps/windows/resources/app-ui-cli/lumii-ui.mjs')
 const EVID = path.join(__dirname, 'wiki-cli-evidence.jsonl')
 const REPORT = path.join(__dirname, 'wiki-cli-test-report.md')

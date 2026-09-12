@@ -7,7 +7,7 @@
  * 验证引擎接线（回合结束 → 满意度评分 → 能力追踪 → Prompt 进化反馈 → 反思），
  * 即运行时真正触发的那条链路。
  *
- * 用法: node docs/test/lumii-cli/run-autonomous-e2e.mjs
+ * 用法: node docs/test/lumii-cli/autonomous/run-autonomous-e2e.mjs
  * 前置: pnpm dev 已启动（~/.lumii/runtime/app-ui.json 可读），且 chat 模型已配置。
  *
  * 环境变量:
@@ -23,7 +23,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '../../..')
+const ROOT = path.resolve(__dirname, '../../../..')
 const LUMII_UI = path.join(ROOT, 'apps/windows/resources/app-ui-cli/lumii-ui.mjs')
 const DB_PATH = path.join(os.homedir(), '.lumii', 'data', 'agent-runtime.db')
 

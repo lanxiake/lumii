@@ -10,7 +10,7 @@
  * 探针播种/回查用 node:sqlite。规划器由心跳兜底触发（静默时段 + 距上次规划满 24h），
  * 故本脚本把静默时段设到当前小时并清掉 last_plan_at 来主动拉起一次规划。
  *
- * 用法: node docs/test/lumii-cli/run-autonomous-planning-e2e.mjs
+ * 用法: node docs/test/lumii-cli/autonomous/run-autonomous-planning-e2e.mjs
  * 前置: pnpm dev 已启动，chat provider 已配置。
  *
  * 环境变量:
@@ -27,7 +27,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '../../..')
+const ROOT = path.resolve(__dirname, '../../../..')
 const LUMII_UI = path.join(ROOT, 'apps/windows/resources/app-ui-cli/lumii-ui.mjs')
 const DB_PATH = path.join(os.homedir(), '.lumii', 'data', 'agent-runtime.db')
 const EVID = path.join(__dirname, 'autonomous-planning-e2e-evidence.jsonl')

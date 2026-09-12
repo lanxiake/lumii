@@ -1,5 +1,7 @@
 # Wiki P0 CLI 测试用例（补强版）
 
+> ⚠️ **过时标注（2026-09-12）**：部分用例基于已下线的命令/签名——`wiki page *` 无 CLI（需经 `command` 总线）、`wiki inbox organize` 的 `--path` 签名已废（现为 category/subtopic）。其余（收件箱 list/count/retry/discard、金标检索）现行有效。当前执行器与报告：`run-wiki-cli-suite.mjs` / `wiki-cli-test-report.md`。
+
 - 日期：2026-08-27
 - 计划：`docs/plans/记忆重构/2026-08-25-wiki-p0-implementation.md`
 - CLI：`node apps/windows/resources/app-ui-cli/lumii-ui.mjs`

@@ -393,7 +393,7 @@ apps/windows/src/main/
 - [实施记录文档](docs/implementation/2026-09-07-focused-sync-implementation.md)
 - [冲突修复文档](docs/fix-cloud-sync-conflict-detection-2026-09-07.md)
 - [CLI 测试总结](docs/test/2026-09-07-cloud-sync-cli-test-summary.md)
-- [测试报告](docs/test/lumii-cli/sync-cli-test-report.md)
+- [测试报告](docs/test/lumii-cli/cloud-sync/cloud-sync-cli-test-report.md)
 
 ### 命令快速参考
 
@@ -408,7 +408,7 @@ node apps/windows/resources/app-ui-cli/lumii-sync.mjs import
 node apps/windows/resources/app-ui-cli/lumii-sync.mjs status
 
 # 运行测试套件
-node docs/test/lumii-cli/run-sync-cli-suite.mjs
+node docs/test/lumii-cli/cloud-sync/run-cloud-sync-suite.mjs
 
 # 查看导出的数据
 ls -la ~/.lumii/sync/
