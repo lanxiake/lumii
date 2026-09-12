@@ -109,22 +109,35 @@ describe('ensureSeedCronJobsSeeded', () => {
     expect(db.jobs.has('seed-morning-briefing')).toBe(true)
   })
 
-  it('资讯任务挂 assistant、静默通知（Agent 直接写卡片），任务指令为自然语言', () => {
+  it('资讯任务挂 info-curator、静默通知（Agent 直接写卡片），任务指令为自然语言', () => {
     const db = createFakeDb()
     ensureSeedCronJobsSeeded(db.adapter)
     const row = db.jobs.get('news-pipeline')!
-    expect(row[COL.agentId]).toBe('assistant')
+    expect(row[COL.agentId]).toBe('info-curator')
     // silent：Agent 通过 dashboard_feed_write 直接写卡片，派发器不再重复塞入原始回复
     expect(row[COL.notifyTargets]).toBe('silent')
     expect(row[COL.taskText]).not.toContain('__lumii_workflow__')
     expect(String(row[COL.taskText])).toContain('dashboard_feed_write')
   })
 
-  it('Agent 类预置任务挂到 assistant', () => {
+  it('简报类预置任务挂到 chronicler（团队转正）', () => {
     const db = createFakeDb()
     ensureSeedCronJobsSeeded(db.adapter)
     const row = db.jobs.get('seed-morning-briefing')!
-    expect(row[COL.agentId]).toBe('assistant')
+    expect(row[COL.agentId]).toBe('chronicler')
+  })
+
+  it('SEED_JOBS 定义：简报类挂 chronicler，资讯任务挂 info-curator', () => {
+    for (const id of ['seed-morning-briefing', 'seed-daily-report', 'seed-weekly-review', 'seed-focus-check'] as const) {
+      expect(__testables.SEED_JOBS.find((j) => j.id === id)?.agentId, id).toBe('chronicler')
+    }
+    expect(__testables.SEED_JOBS.find((j) => j.id === 'news-pipeline')?.agentId).toBe('info-curator')
+  })
+
+  it('资讯任务 system_prompt 已升级：先读偏好 + 记录筛选依据', () => {
+    const job = __testables.SEED_JOBS.find((j) => j.id === 'news-pipeline')
+    expect(job?.systemPrompt).toContain('先读用户偏好')
+    expect(job?.systemPrompt).toContain('筛选依据')
   })
 
   it('除专注提醒外，其余预置任务默认开启', () => {

@@ -54,10 +54,12 @@ export const NEWS_PIPELINE_TASK_TEXT =
 
 export const NEWS_PIPELINE_SYSTEM_PROMPT = [
   '你在为用户生成资讯汇总，请：',
+  '0. 先读用户偏好（profile_memory / memory_search）：关注的领域、反感的内容类型，按偏好调整选题侧重；',
   '1. 用 web_search 搜索今天的热门资讯；',
   '2. 挑选 10-12 条有实质信息量的条目，逐条给出：标题、一句话正文摘要、来源站点、原文链接。',
   '   摘要精简成一句话，交代清楚事件本身即可，不要长篇展开；',
   '3. 最后写一段不超过 120 字的整体综述，点出这批资讯里最值得关注的 1-2 个趋势。',
+  '4. 完成后用 memory_manage 记一条本次筛选依据（侧重什么、排除了什么及原因）。',
   '搜索失败或没有找到有效资讯时，不要编造条目。',
 ].join('\n')
 
@@ -68,7 +70,8 @@ const SEED_JOBS: readonly SeedJob[] = [
     name: '资讯抓取与综述',
     taskText: NEWS_PIPELINE_TASK_TEXT,
     systemPrompt: NEWS_PIPELINE_SYSTEM_PROMPT,
-    agentId: DEFAULT_AGENT_ID,
+    // 资讯类任务的执行者（团队转正：接管 news-pipeline）
+    agentId: 'info-curator',
     scheduleType: 'cron',
     /** 每 2 小时整点抓一次：资讯源本身更新频率有限，再密只是白跑 */
     scheduleExpr: '0 */2 * * *',
@@ -80,6 +83,8 @@ const SEED_JOBS: readonly SeedJob[] = [
   },
   {
     id: 'seed-morning-briefing',
+    // 团队转正（2026-09-13）：早间简报由「灵栖记事」执行
+    agentId: 'chronicler',
     name: '早间简报',
     taskText: '汇总我今天需要关注的事项，生成一份早间简报。',
     systemPrompt: [
@@ -101,6 +106,8 @@ const SEED_JOBS: readonly SeedJob[] = [
   },
   {
     id: 'seed-daily-report',
+    // 团队转正（2026-09-13）：工作日报由「灵栖记事」执行
+    agentId: 'chronicler',
     name: '工作日报整理',
     taskText: '整理我今天的工作进度，生成一份简短日报。',
     systemPrompt: [
@@ -121,6 +128,8 @@ const SEED_JOBS: readonly SeedJob[] = [
   },
   {
     id: 'seed-weekly-review',
+    // 团队转正（2026-09-13）：周复盘由「灵栖记事」执行
+    agentId: 'chronicler',
     name: '每周复盘',
     taskText: '汇总本周完成的事项、遗留问题和下周计划，生成一份复盘。',
     systemPrompt: [
@@ -142,6 +151,8 @@ const SEED_JOBS: readonly SeedJob[] = [
   },
   {
     id: 'seed-focus-check',
+    // 团队转正（2026-09-13）：专注提醒由「灵栖记事」执行
+    agentId: 'chronicler',
     name: '专注提醒',
     taskText: '提醒我确认当前最重要的一件事。',
     systemPrompt: [
@@ -207,6 +218,8 @@ function initialNextRunAt(job: SeedJob, now: number): number {
 export function ensureSeedCronJobsSeeded(db: DatabaseAdapter): void {
   const now = Date.now()
   migrateLegacyNewsPipeline(db)
+  migrateWorkReportsToChronicler(db)
+  migrateNewsPipelineToInfoCurator(db)
   migrateRemovedWikiEroExtractCron(db)
   migrateRemovedWikiAutoSynthesisCron(db)
   migrateSystemPromptsForWorkReports(db)
@@ -427,3 +440,53 @@ function migrateLegacyNewsPipeline(db: DatabaseAdapter): void {
 
 /** 仅供单测：断言「入库条数 == 定义条数」需要拿到定义本身 */
 export const __testables = { SEED_JOBS, seededKey }
+
+/**
+ * 工作简报类任务转正（2026-09-13 团队蓝图）：执行者 assistant → chronicler。
+ * 仅迁移「未被用户改过」的行（agent_id 仍为 'assistant'）；改过 / 删过的不碰。
+ */
+function migrateWorkReportsToChronicler(db: DatabaseAdapter): void {
+  const jobIds = ['seed-morning-briefing', 'seed-daily-report', 'seed-weekly-review', 'seed-focus-check'] as const
+  for (const id of jobIds) {
+    try {
+      const result = db
+        .prepare(`UPDATE local_cron_jobs SET agent_id = 'chronicler' WHERE id = ? AND agent_id = 'assistant'`)
+        .run(id)
+      if (result.changes > 0) {
+        log.info(`[migrateWorkReportsToChronicler] ${id} → chronicler`)
+      }
+    } catch (err) {
+      log.error(`[migrateWorkReportsToChronicler] ${id} 迁移失败:`, err)
+    }
+  }
+}
+
+/**
+ * 资讯任务转正（2026-09-13）：agent_id assistant → info-curator，
+ * 并把 system_prompt 升级为「先读偏好 + 记录筛选依据」版（仅在命中旧文案特征时升级，用户手改过的不覆盖）。
+ */
+function migrateNewsPipelineToInfoCurator(db: DatabaseAdapter): void {
+  try {
+    const row = db
+      .prepare<{ agent_id: string | null; system_prompt: string | null }>(
+        `SELECT agent_id, system_prompt FROM local_cron_jobs WHERE id = 'news-pipeline'`,
+      )
+      .get()
+    if (!row) return
+
+    if (row.agent_id === 'assistant') {
+      db.prepare(`UPDATE local_cron_jobs SET agent_id = 'info-curator' WHERE id = 'news-pipeline'`).run()
+      log.info('[migrateNewsPipelineToInfoCurator] news-pipeline → info-curator')
+    }
+
+    const sp = row.system_prompt ?? ''
+    if (sp.includes('用 web_search 搜索今天的热门资讯') && !sp.includes('先读用户偏好')) {
+      db.prepare(`UPDATE local_cron_jobs SET system_prompt = ? WHERE id = 'news-pipeline'`).run(
+        NEWS_PIPELINE_SYSTEM_PROMPT,
+      )
+      log.info('[migrateNewsPipelineToInfoCurator] system_prompt 已升级（先读偏好 + 记录筛选依据）')
+    }
+  } catch (err) {
+    log.error('[migrateNewsPipelineToInfoCurator] 迁移失败:', err)
+  }
+}
