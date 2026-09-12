@@ -335,4 +335,4 @@ export async function browserSnapshot(
   });
 }
 
-// Actions beyond the basic read-only commands live in client-actions.ts.
+// Actions beyond the basic read-only commands live in pw-tools-core.* and are exposed via pw-ai.ts.

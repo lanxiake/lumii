@@ -10,6 +10,9 @@
  *   18790 - Bridge
  *   18791 - Browser control server
  *   18792-18799 - Reserved for future one-off services (canvas at 18793)
+ *
+ * @roadmap 当前全仓零引用（多 profile 启动功能尚未接线）。保留为路线图代码：
+ * 这些工具函数在全仓没有替代实现，删除会丢失唯一实现。启用多 profile 时从这里接线。
  */
 
 export const CDP_PORT_RANGE_START = 18800;

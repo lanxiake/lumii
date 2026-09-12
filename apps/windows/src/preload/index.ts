@@ -663,16 +663,6 @@ export interface ElectronAPI {
     /** 更新 AI 灵魂内容（本地文件） */
     updateSoulContent: (content: string) => Promise<unknown>
 
-    // --- 文件上传 ---
-    /** 上传技能文件（Base64，通过 API Server）*/
-    uploadSkillFile: (params: {
-      skillId: string
-      fileType: string
-      originalName: string
-      contentType: string
-      data: string
-    }) => Promise<unknown>
-
     // --- 文件管理接口 ---
     /** 获取文件列表 */
     getFileList: (path?: string) => Promise<unknown>
@@ -730,10 +720,6 @@ export interface ElectronAPI {
     clearAppLogs: () => Promise<unknown>
     /** 获取模型 catalog（全部模�?+ 元数据，来源 LiteLLM�?*/
     getConfigModels: () => Promise<unknown>
-    /** 获取 chat 槽候选模型与用户当前选择 */
-    getChatModels: () => Promise<unknown>
-    /** 保存用户选择�?chat 模型 */
-    setChatModel: (modelId: string) => Promise<unknown>
     /** 获取 Agent 列表 */
     getAgents: () => Promise<unknown>
     /** 获取 Agent 详情 */

@@ -215,10 +215,13 @@ pnpm build                                  # 批次 0/1 必跑
 
 | 批次 | 状态 | 备注 |
 |---|---|---|
-| 批次 0 清库 | **A 级已完成并通过验证** | 24 个文件删除 + 5 个文件修改，净 -2592 行；清单见 [dead-code-cleanup-list.md](./dead-code-cleanup-list.md) |
+| 批次 0 清库 | **A 级已完成并通过验证** | 24 个文件删除 + 5 个文件修改，净 -2592 行 |
+| 批次 0 清库 | **B 级已完成并通过验证** | 4 个死 flag、3 个 api-ipc 桩、Plan/Gateway 审批死 UI、零散死代码、browser-control 旧层；B1 barrel 用户决策不动；B4/B5 复核后判定必须保留 |
 | 批次 1 立门禁 | 未开始 | 另见 §3.5 与下方"执行期新增发现" |
 | 批次 2 抽象落地 | 未开始 | |
 | 批次 3 大文件拆分 | 未开始 | 沿用既有计划 |
+
+> B 级清单与复核证据见 [dead-code-cleanup-list.md](./dead-code-cleanup-list.md) 的 B 级章节。**B 级复核推翻了原分析的三处结论**（autonomous 6 模块、segment-memory-service、contracts 导出数量），详见该文档。
 
 ### 批次 0（A 级）验证结果 — 2026-09-12
 

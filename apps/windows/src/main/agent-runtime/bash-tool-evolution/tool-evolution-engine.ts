@@ -591,11 +591,4 @@ export class ToolEvolutionEngine extends EventEmitter {
       pending: this.pending.length,
     }
   }
-
-  /**
-   * @deprecated 实时触发已移除。保留空实现以免旧调用方崩溃；请改用 runConditionalCheck。
-   */
-  async checkAndTriggerIfNeeded(_repo: BashCommandRepo): Promise<boolean> {
-    return false
-  }
 }

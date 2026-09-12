@@ -256,11 +256,6 @@ export function registerApiIpcHandlers(): void {
     return app.getLoginItemSettings().openAtLogin
   })
 
-  // === 灵栖/Lumii 独立版：无后端，云端技能文件上传接口降级为本地报错 ===
-  ipcMain.handle('api:uploadSkillFile', async () => {
-    return { success: false, error: '独立版不支持技能文件上传' }
-  })
-
   // --- Agent 管理接口 ---
 
   /**
@@ -279,20 +274,6 @@ export function registerApiIpcHandlers(): void {
     const mapping = agentRuntimeBridge?.getModelMapping() ?? {}
     const modelIds = [...new Set(Object.values(mapping))]
     return { success: true, data: modelIds.map((id) => ({ id, label: id })) }
-  })
-
-  /**
-   * 获取 chat 槽候选模型与用户当前选择
-   */
-  ipcMain.handle('api:getChatModels', async () => {
-    return { success: true, data: { candidates: [], selected: '' } }
-  })
-
-  /**
-   * 保存用户选择的 chat 模型（独立版无后端，noop）
-   */
-  ipcMain.handle('api:setChatModel', async () => {
-    return { success: true }
   })
 
   /**

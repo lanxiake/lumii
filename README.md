@@ -213,8 +213,7 @@ lumii/
 - **富消息展示**：Markdown（GFM + 数学公式 KaTeX）、代码高亮（highlight.js）、表格、任务列表
 - **多模态输入**：拖拽文件（支持 PDF/Word/Excel/PPT/图片/代码…）、粘贴图片、Composer Plus 菜单（@技能、#Agent、/斜杠命令）
 - **工具调用可视化**：`ToolCallCard` 展示工具入参/结果、`ToolBatchGroup` 批量分组、`TurnFileChangesCard` 展示本轮文件增删改 diff
-- **审批流**：高风险工具（Shell / 文件写入 / 联网…）弹出 `ApprovalCard`，支持单步/永久/拒绝，可在设置中预设白名单
-- **计划审批**：复杂任务由 Agent 先出 `PlanApprovalCard`，用户确认后再分步执行
+- **工具权限确认**：高风险工具（Shell / 文件读写 / 联网…）弹出 `ConfirmationDialog`，可选「仅本次允许 / 总是允许（同类 24h 免询问）/ 拒绝」，超时自动拒绝；来自后台渠道的请求会标注来源会话
 - **上下文压缩卡**：触发压缩时 `CompactionCard` 展示 token 变化、摘要、可展开旧消息
 - **Todo 进度面板**：Agent 拆解的子任务实时完成率
 - **工作区工作台**：`WorkspaceFilePanel` 文件树 + `WorkspaceVersionPanel` Git 快照 + `WorkspaceWorkbench` 任务工作台三合一

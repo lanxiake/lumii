@@ -135,12 +135,9 @@ import {
   readAutoApproveEnabled,
 } from '../../../shared/auto-approve-prefs'
 
-// 本地 Runtime 不走 Gateway 审批/workflow，这些占位恒为空。
-// 提到模块级常量（而非每次 render 新建数组/Set），避免破坏 ChatContainer 的 React.memo 浅比较。
-const EMPTY_APPROVAL_ITEMS: never[] = []
-const EMPTY_PLAN_APPROVAL_ITEMS: never[] = []
+// 本地 Runtime 不走 Gateway workflow，此占位恒为空。
+// 提到模块级常量（而非每次 render 新建数组），避免破坏 ChatContainer 的 React.memo 浅比较。
 const EMPTY_WORKFLOW_ITEMS: never[] = []
-const EMPTY_RESOLVING_IDS: Set<string> = new Set<string>()
 
 const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewChange }) => {
   // Hooks
@@ -745,12 +742,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     })
   }, [runtimeCurrentSessionKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 所有会话的审批项，每项携带 sessionKey 实现会话隔离（已移除 Gateway 审批 state，本地 Runtime 使用 runtimePendingPermission）
-  // 用模块级稳定空占位，保持 ChatContainer 接口兼容且不破坏 memo
-  const approvalItems = EMPTY_APPROVAL_ITEMS
-  const resolvingIds = EMPTY_RESOLVING_IDS
-  const planApprovalItems = EMPTY_PLAN_APPROVAL_ITEMS
-  const planResolvingIds = EMPTY_RESOLVING_IDS
+  // Gateway workflow 项（本地 Runtime 恒为空），用模块级稳定空占位保持 ChatContainer 接口兼容且不破坏 memo
   const workflowItems = EMPTY_WORKFLOW_ITEMS
   const {
     workbench,
@@ -1176,19 +1168,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     clearCurrentInputState,
   ])
 
-  // approvalItems/planApprovalItems 始终为空，这些 handler 不会被触发，为了保持接口兼容而保留
-  const handleApprovalDecision = useCallback((_id: string, _decision: unknown) => {
-    // Gateway 审批已禁用
-  }, [])
-
-  const handlePlanApprove = useCallback(async (_requestId: string) => {
-    // Gateway 计划审批已禁用
-  }, [])
-
-  const handlePlanReject = useCallback(async (_requestId: string, _feedback?: string) => {
-    // Gateway 计划审批已禁用
-  }, [])
-
   const handleToggleAutoApprove = useCallback(() => {
     setAutoApprove((v) => !v)
   }, [])
@@ -1508,18 +1487,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         <div className={styles['chat-main-body']}>
           <ChatContainer
             session={localRuntimeSession}
-            approvalItems={approvalItems}
-            planApprovalItems={planApprovalItems}
             workflowItems={workflowItems}
             isLoading={false}
             isStreaming={runtimeIsStreaming}
             isSending={isSending}
-            resolvingIds={resolvingIds}
-            planResolvingIds={planResolvingIds}
             formatTime={formatTime}
-            onApprovalDecision={handleApprovalDecision as any}
-            onPlanApprove={handlePlanApprove}
-            onPlanReject={handlePlanReject}
             onCopyMessage={handleCopyMessage}
             onEditMessage={handleEditMessage}
             onDeleteMessage={handleDeleteMessage}

@@ -177,15 +177,6 @@ export const apiServerHttpApi = {
   getSoulContent: () => ipcRenderer.invoke('api:getSoulContent'),
   updateSoulContent: (content: string) => ipcRenderer.invoke('api:updateSoulContent', content),
 
-  // --- 文件上传 ---
-  uploadSkillFile: (params: {
-    skillId: string
-    fileType: string
-    originalName: string
-    contentType: string
-    data: string
-  }) => ipcRenderer.invoke('api:uploadSkillFile', params),
-
   // --- 文件管理接口 ---
   getFileList: (path?: string) => ipcRenderer.invoke('api:getFileList', path),
   uploadFile: (file: unknown) => ipcRenderer.invoke('api:uploadFile', file),
@@ -223,8 +214,6 @@ export const apiServerHttpApi = {
   getAppLogs: (params?: unknown) => ipcRenderer.invoke('api:getAppLogs', params),
   clearAppLogs: () => ipcRenderer.invoke('api:clearAppLogs'),
   getConfigModels: () => ipcRenderer.invoke('api:getConfigModels'),
-  getChatModels: () => ipcRenderer.invoke('api:getChatModels'),
-  setChatModel: (modelId: string) => ipcRenderer.invoke('api:setChatModel', modelId),
   getAgents: () => ipcRenderer.invoke('api:getAgents'),
   getAgent: (agentId: string) => ipcRenderer.invoke('api:getAgent', agentId),
   forkAgent: (systemAgentId: string, data: { name?: string; description?: string }) =>

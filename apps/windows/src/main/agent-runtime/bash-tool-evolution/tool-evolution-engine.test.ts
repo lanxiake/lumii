@@ -355,11 +355,6 @@ describe('triggerThreshold（兼容残留）', () => {
     expect(engine.getTriggerThreshold()).toBe(20)
     expect(engine.setTriggerThreshold(3)).toBe(10)
   })
-
-  it('checkAndTriggerIfNeeded 已弃用，恒为 false', async () => {
-    const { engine, repo } = await makeEngine()
-    expect(await engine.checkAndTriggerIfNeeded(repo)).toBe(false)
-  })
 })
 
 describe('canonicalizeParamSlots', () => {

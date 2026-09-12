@@ -2,8 +2,6 @@ import React, { useRef, useEffect, useLayoutEffect, useCallback, useMemo, useSta
 import clsx from 'clsx'
 import { Loading } from '../../../../components/ui/Loading/Loading'
 import { ChatMessage } from '../ChatMessage'
-import { ApprovalCard } from '../ApprovalCard'
-import { PlanApprovalCard } from '../PlanApprovalCard'
 import { TypingIndicator } from '../TypingIndicator'
 import { EmptyState } from '../EmptyState'
 import { CompactionCard } from '../CompactionCard'
@@ -12,32 +10,9 @@ import { useStableMapById } from '../../../../utils/useStableMapById'
 import type { ChatSession, ChatMessage as ChatMessageType, AgentWorkflowItem, ToolCall } from '../../../../hooks/business/useChat'
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import { mergeAssistantParts, mergeFileChanges } from './mergeAssistantParts'
-import type { ExecApprovalRequest, ExecApprovalDecision } from '../../../../types/exec-approvals'
-import type { PlanApprovalRequest } from '../../../../types/plan-approval'
 import type { RuntimeFileEvent, RuntimeCompactionEvent } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import { isCompactSummaryText, unwrapCompactSummaryText } from '../../../../../shared/compact-summary-text'
 import styles from './ChatContainer.module.css'
-
-interface ApprovalItem {
-  id: string
-  itemType: 'approval'
-  approval: ExecApprovalRequest
-  decision?: ExecApprovalDecision
-  resolvedBy?: string
-  timestamp: Date
-  /** 关联的会话 Key（serverKey 或本地 sessionId），用于会话隔离过滤 */
-  sessionKey?: string
-}
-
-interface PlanApprovalItem {
-  id: string
-  itemType: 'plan-approval'
-  request: PlanApprovalRequest
-  decision?: 'approved' | 'rejected'
-  timestamp: Date
-  /** 关联的会话 Key（serverKey 或本地 sessionId），用于会话隔离过滤 */
-  sessionKey?: string
-}
 
 interface MessageItem {
   itemType: 'message'
@@ -86,7 +61,7 @@ interface CompactionItem {
   summaryText?: string
 }
 
-type ChatItem = MessageItem | ApprovalItem | PlanApprovalItem | CompactionItem
+type ChatItem = MessageItem | CompactionItem
 
 /** 稳定的空回调兜底，避免 `prop || (() => {})` 每次渲染生成新函数引用击穿子组件 memo */
 const NOOP_STRING = (_: string) => {}
@@ -95,18 +70,11 @@ const EMPTY_TOOL_ITEMS: readonly AgentWorkflowItem[] = []
 
 interface ChatContainerProps {
   session: ChatSession | null
-  approvalItems: ApprovalItem[]
-  planApprovalItems?: PlanApprovalItem[]
   workflowItems: AgentWorkflowItem[]
   isLoading: boolean
   isStreaming: boolean
   isSending: boolean
-  resolvingIds: Set<string>
-  planResolvingIds?: Set<string>
   formatTime: (date: Date) => string
-  onApprovalDecision: (id: string, decision: ExecApprovalDecision) => void
-  onPlanApprove?: (requestId: string) => void
-  onPlanReject?: (requestId: string, feedback?: string) => void
   onCopyMessage?: (content: string) => void
   onEditMessage?: (messageId: string, newContent: string) => void
   onDeleteMessage?: (messageId: string) => void
@@ -284,18 +252,11 @@ const ChatMessageRowMemo = React.memo(ChatMessageRow)
 
 const ChatContainer: React.FC<ChatContainerProps> = ({
   session,
-  approvalItems,
-  planApprovalItems = [],
   workflowItems,
   isLoading,
   isStreaming,
   isSending,
-  resolvingIds,
-  planResolvingIds = new Set(),
   formatTime,
-  onApprovalDecision,
-  onPlanApprove,
-  onPlanReject,
   onCopyMessage,
   onEditMessage,
   onDeleteMessage,
@@ -411,7 +372,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     if (stickToBottomRef.current) {
       scrollToBottom()
     }
-  }, [session?.messages, approvalItems, planApprovalItems, workflowItems, scrollToBottom])
+  }, [session?.messages, workflowItems, scrollToBottom])
 
   // 按 messageId 分组文件事件，用于关联到对应的 assistant 消息
   const filesByMessageId = useMemo(() => {
@@ -540,7 +501,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
   }, [compactionEvents, messages])
 
   const chatItems: ChatItem[] = useMemo(() => {
-    const sorted: ChatItem[] = [...messages, ...approvalItems, ...planApprovalItems, ...compactionItems]
+    const sorted: ChatItem[] = [...messages, ...compactionItems]
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
 
     const result: ChatItem[] = []
@@ -576,7 +537,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
       result.push(item)
     }
     return result
-  }, [messages, approvalItems, planApprovalItems, compactionItems])
+  }, [messages, compactionItems])
 
   // Check if we need to show typing indicator (sending state OR streaming with last message from user)
   const showTypingIndicator = (isSending || isStreaming) && messages.length > 0 && messages[messages.length - 1].role === 'user'
@@ -621,34 +582,6 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
         )}
 
         {chatItems.map((item, index) => {
-          if (item.itemType === 'approval') {
-            const isResolving = resolvingIds.has(item.id)
-            return (
-              <ApprovalCard
-                key={`approval-${item.id}-${index}`}
-                approval={item.approval}
-                decision={item.decision}
-                resolvedBy={item.resolvedBy}
-                isResolving={isResolving}
-                onDecision={(decision) => onApprovalDecision(item.id, decision)}
-              />
-            )
-          }
-
-          if (item.itemType === 'plan-approval') {
-            const isResolving = planResolvingIds.has(item.id)
-            return (
-              <PlanApprovalCard
-                key={`plan-approval-${item.id}-${index}`}
-                request={item.request}
-                decision={item.decision}
-                isResolving={isResolving}
-                onApprove={() => onPlanApprove?.(item.id)}
-                onReject={(feedback) => onPlanReject?.(item.id, feedback)}
-              />
-            )
-          }
-
           if (item.itemType === 'compaction') {
             return (
               <CompactionCard
@@ -742,4 +675,4 @@ export default ChatContainer
 // 避免拖慢中文输入法（IME）的逐字上屏。前提：ChatPage 已稳定化传入的回调与占位数组。
 const ChatContainerMemo = React.memo(ChatContainer)
 export { ChatContainerMemo as ChatContainer }
-export type { ApprovalItem, PlanApprovalItem, MessageItem, CompactionItem, ChatItem }
+export type { MessageItem, CompactionItem, ChatItem }

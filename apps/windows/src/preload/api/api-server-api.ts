@@ -35,8 +35,6 @@ export const apiServerApi = {
   // Agent 管理
   getAgents: () => ipcRenderer.invoke('api:getAgents'),
   getConfigModels: () => ipcRenderer.invoke('api:getConfigModels'),
-  getChatModels: () => ipcRenderer.invoke('api:getChatModels'),
-  setChatModel: (modelId: string) => ipcRenderer.invoke('api:setChatModel', modelId),
   getAgent: (agentId: string) => ipcRenderer.invoke('api:getAgent', agentId),
   forkAgent: (systemAgentId: string, data: { name?: string; description?: string }) =>
     ipcRenderer.invoke('api:forkAgent', systemAgentId, data),
@@ -44,7 +42,6 @@ export const apiServerApi = {
     ipcRenderer.invoke('api:updateAgent', agentId, data),
   deleteAgent: (agentId: string) => ipcRenderer.invoke('api:deleteAgent', agentId),
   getUserSkills: () => ipcRenderer.invoke('api:getUserSkills'),
-  uploadSkillFile: () => ipcRenderer.invoke('api:uploadSkillFile'),
 
   // 搜索配置
   getSearchConfig: () => ipcRenderer.invoke('api:getSearchConfig'),

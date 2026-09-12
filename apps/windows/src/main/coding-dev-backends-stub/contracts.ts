@@ -32,22 +32,6 @@ export const CODING_DEV_BACKEND_LABELS: Record<CodingDevBackendId, string> = {
   opencode: "OpenCode",
 };
 
-export type BackendSelectionSource = "default" | "stored" | "fallback";
-
-export type CodingDevLightweightBackendInput = {
-  accountId: string;
-  peerId: string;
-  senderId: string;
-  text: string;
-  imagePaths: string[];
-  contextToken?: string;
-  messageId?: string;
-  timestamp?: number;
-  emitProgress?: (progress: CodingDevLightweightBackendProgress) => Promise<void> | void;
-  /** 外部中止信号：aborted 时应 cancel ACP session 并尽快返回 */
-  abortSignal?: AbortSignal;
-};
-
 export type CodingDevLightweightBackendOutput = {
   text?: string;
   mediaUrl?: string;
@@ -74,21 +58,6 @@ export type CodingDevLightweightBackendProgress = {
   tool?: CodingDevToolProgress;
 };
 
-export type CodingDevLightweightBackendAdapter = {
-  id: LightweightCodingDevBackendId;
-  mode: "lightweight";
-  reply: (
-    input: CodingDevLightweightBackendInput,
-  ) => Promise<CodingDevLightweightBackendOutput | void>;
-};
-
-export type ResolvedCodingDevBackend = {
-  requestedBackendId: CodingDevBackendId;
-  backendId: ImplementedCodingDevBackendId;
-  source: BackendSelectionSource;
-  warning?: string;
-};
-
 export function isCodingDevBackendId(value: string): value is CodingDevBackendId {
   return (CODING_DEV_BACKEND_IDS as readonly string[]).includes(value);
 }
@@ -97,23 +66,4 @@ export function isImplementedCodingDevBackendId(
   value: CodingDevBackendId,
 ): value is ImplementedCodingDevBackendId {
   return (IMPLEMENTED_CODING_DEV_BACKEND_IDS as readonly string[]).includes(value);
-}
-
-export function isLightweightCodingDevBackendId(
-  value: ImplementedCodingDevBackendId,
-): value is LightweightCodingDevBackendId {
-  return value !== DEFAULT_CODING_DEV_BACKEND_ID;
-}
-
-/**
- * 将用户输入规范化为后端 ID（兼容别名）。
- */
-export function normalizeCodingDevBackendId(raw: string): CodingDevBackendId | undefined {
-  const trimmed = raw.trim().toLowerCase();
-  if (!trimmed) return undefined;
-  if (trimmed === "claude-code") return "claude";
-  if (trimmed === "open-code" || trimmed === "opencode-ai") return "opencode";
-  if (trimmed === "cursor-cli" || trimmed === "cursor-agent") return "cursor";
-  if (trimmed === "mtbot" || trimmed === "main") return DEFAULT_CODING_DEV_BACKEND_ID;
-  return isCodingDevBackendId(trimmed) ? trimmed : undefined;
 }

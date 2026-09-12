@@ -14,14 +14,6 @@ export interface AgentRuntimeFeatureFlags {
 
   /** 启用 Skill 激活解析器（when_to_use + pathGlobs 触发） */
   readonly ENABLE_SKILL_ACTIVATION: boolean;
-  /** 启用 ask_user_question 结构化提问工具 */
-  readonly ENABLE_ASK_USER_QUESTION: boolean;
-  /** 启用内置 Explore/Plan/Verify 子 Agent 类型 */
-  readonly ENABLE_BUILTIN_SUB_AGENTS: boolean;
-  /** 启用 Coordinator 运行时（并行/聚合/失败策略沉淀到运行时） */
-  readonly ENABLE_COORDINATOR_ENGINE: boolean;
-  /** 启用 Plan-only 会话模式（批准前禁止写工具） */
-  readonly ENABLE_PLAN_ONLY_MODE: boolean;
 
   // === AGENT 多轮对话优化：主题1 文件工具契约层 ===
 
@@ -68,10 +60,6 @@ export const DEFAULT_FEATURE_FLAGS: AgentRuntimeFeatureFlags = {
   WEB_TOOLS: true,
   // v12 扩展默认关闭，保持现网行为不变
   ENABLE_SKILL_ACTIVATION: false,
-  ENABLE_ASK_USER_QUESTION: false,
-  ENABLE_BUILTIN_SUB_AGENTS: false,
-  ENABLE_COORDINATOR_ENGINE: false,
-  ENABLE_PLAN_ONLY_MODE: false,
   // AGENT 多轮对话优化 flags（当前无用户，无需灰度，全部默认开启）
   ENABLE_FILE_READ_DEDUP: true,
   ENABLE_READ_BEFORE_WRITE: true,
