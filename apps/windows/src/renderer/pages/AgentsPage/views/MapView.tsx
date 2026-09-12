@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react'
+import React, { useMemo, useCallback, useEffect } from 'react'
 import {
   ReactFlow,
   Background,
@@ -19,7 +19,6 @@ import { Bot, Wrench, Cpu } from '../../../components/ui/Icon'
 import type { ViewProps, Agent } from './types'
 import { agentColor, TIER_LABELS } from './types'
 import { decodeGroupFromDescription } from '../components/GenerateTeamWizard/utils'
-import { DetailPanel } from './DetailPanel'
 import styles from './MapView.module.css'
 
 const NODE_W = 260
@@ -108,12 +107,8 @@ export const MapView: React.FC<ViewProps> = ({
   systemAgents,
   searchQuery,
   runtimeStateMap,
-  onEdit,
-  onDelete,
-  onFork,
-  onStartChat,
+  onOpenDetail,
 }) => {
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
 
   const { nodes: layoutedNodes, edges: layoutedEdges } = useMemo(() => {
     const nodes: Node[] = []
@@ -179,15 +174,14 @@ export const MapView: React.FC<ViewProps> = ({
     )
   }, [runtimeStateMap, setNodes])
 
-  const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
-    if (node.type === 'agentNode') setSelectedAgent(node.data.agent as Agent)
-  }, [])
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedAgent(null) }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [])
+  const handleNodeClick = useCallback(
+    (_: React.MouseEvent, node: Node) => {
+      if (node.type === 'agentNode' || node.type === 'systemNode') {
+        onOpenDetail(node.data.agent as Agent)
+      }
+    },
+    [onOpenDetail],
+  )
 
   return (
     <div className={styles.mapContainer}>
@@ -197,7 +191,6 @@ export const MapView: React.FC<ViewProps> = ({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
-        onPaneClick={() => setSelectedAgent(null)}
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.3 }}
@@ -208,18 +201,6 @@ export const MapView: React.FC<ViewProps> = ({
         <Background color="rgba(255,255,255,0.03)" gap={24} />
         <Controls showInteractive={false} className={styles.controls} />
       </ReactFlow>
-
-      {selectedAgent && (
-        <DetailPanel
-          agent={selectedAgent}
-          isSystem={!selectedAgent.userId}
-          onClose={() => setSelectedAgent(null)}
-          onStartChat={onStartChat}
-          onEdit={onEdit}
-          onDelete={onDelete}
-          onFork={onFork}
-        />
-      )}
     </div>
   )
 }

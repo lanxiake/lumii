@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import type { ViewProps, Agent } from './types'
 import { TIER_LABELS } from './types'
 import { SkillMissingBadge } from './SkillMissingBadge'
+import { AutonomousToggle } from '../components/AutonomousToggle'
 import styles from './FeedView.module.css'
 
 export const FeedView: React.FC<ViewProps> = ({
@@ -14,6 +15,7 @@ export const FeedView: React.FC<ViewProps> = ({
   onDelete,
   onFork,
   onStartChat,
+  onOpenDetail,
   missingSkillsMap,
   onInstallSkill,
   onNavigateToStore,
@@ -84,14 +86,23 @@ export const FeedView: React.FC<ViewProps> = ({
             className={styles['row-actions']}
             onClick={(e) => e.stopPropagation()}
           >
+            <AutonomousToggle agentId={agent.id} />
             {isSystem ? (
-              <button className={styles['btn--primary']} onClick={() => onFork(agent)}>
-                基于此创建
-              </button>
+              <>
+                <button className={styles['btn--secondary']} onClick={() => onOpenDetail(agent)}>
+                  详情
+                </button>
+                <button className={styles['btn--primary']} onClick={() => onFork(agent)}>
+                  基于此创建
+                </button>
+              </>
             ) : (
               <>
                 <button className={styles['btn--chat']} onClick={() => onStartChat(agent.id)}>
                   发起对话
+                </button>
+                <button className={styles['btn--secondary']} onClick={() => onOpenDetail(agent)}>
+                  详情
                 </button>
                 <button className={styles['btn--secondary']} onClick={() => onEdit(agent)}>
                   编辑

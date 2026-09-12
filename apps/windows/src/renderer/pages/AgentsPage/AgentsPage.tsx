@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Zap, Rocket, Network, LayoutGrid, List, RefreshCw, Check, X, Loader2, Sparkles } from 'lucide-react'
+import { Zap, Rocket, Network, LayoutGrid, List, Check, X, Sparkles } from 'lucide-react'
 import clsx from 'clsx'
 import { useAgents } from '../../hooks/business/useAgents/useAgents'
 import { updateAgent, deleteAgent, getAgentLifecycleSnapshot, type ModelTier } from '../../services/agent-service'
@@ -14,10 +14,10 @@ import { listInstalledSkills, searchStoreSkills, installStoreSkill } from '../..
 import { MapView } from './views/MapView'
 import { GridView } from './views/GridView'
 import { FeedView } from './views/FeedView'
+import { DetailPanel } from './views/DetailPanel'
 import { getStoredView, VIEW_STORAGE_KEY, type AgentView, type Agent as ViewAgent } from './views/types'
 import { GenerateTeamWizard } from './components/GenerateTeamWizard/GenerateTeamWizard'
 import { OptimizeTeamWizard } from './components/OptimizeTeamWizard/OptimizeTeamWizard'
-import { EmptyStateGuide } from './components/EmptyStateGuide/EmptyStateGuide'
 import { AgentBasicFields } from './components/AgentFormModal/AgentBasicFields'
 import { AgentRoutingFields } from './components/AgentFormModal/AgentRoutingFields'
 import { AgentCategoryModelFields } from './components/AgentFormModal/AgentCategoryModelFields'
@@ -75,6 +75,8 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
   const [resultMessage, setResultMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [userSkills, setUserSkills] = useState<UserSkill[]>([])
   const [runtimeStateMap, setRuntimeStateMap] = useState<Record<string, AgentRuntimeState | undefined>>({})
+  /** 详情面板当前展示的 Agent（null = 关闭） */
+  const [detailAgent, setDetailAgent] = useState<ViewAgent | null>(null)
   // 用 ref 持有最新的 userAgents，避免 refreshRuntimeStates 依赖 userAgents 导致定时器频繁重置
   const userAgentsRef = useRef(userAgents)
 
@@ -471,6 +473,11 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
     [handleForkSystem],
   )
 
+  // 详情面板：三视图共用同一实例，避免各视图各挂一份
+  const handleOpenDetail = useCallback((agent: ViewAgent) => {
+    setDetailAgent(agent)
+  }, [])
+
   return (
     <div className={clsx(styles['agents-page'], embedded && styles['agents-page--embedded'])}>
       {/* Header */}
@@ -502,14 +509,6 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
           )}
           <button className={styles['agents-create-btn']} onClick={handleCreateBlank}>
             + 新建 Agent
-          </button>
-          <button
-            className={styles['agents-sync-btn']}
-            onClick={() => { void syncUserAgentDefinitions() }}
-            disabled={definitionSync.kind === 'syncing'}
-            title="将 Agent 配置同步到本地运行时"
-          >
-            {definitionSync.kind === 'syncing' ? <><Loader2 size={14} className="animate-spin" /> 同步中…</> : <><RefreshCw size={14} /> 同步定义</>}
           </button>
         </div>
       </div>
@@ -594,7 +593,8 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
       </div>
 
       {/* Content */}
-      <div className={clsx(styles['agents-content'], currentView === 'map' && styles['agents-content--map'])}>
+      <div className={styles['agents-content-wrap']}>
+        <div className={clsx(styles['agents-content'], currentView === 'map' && styles['agents-content--map'])}>
         {isLoading ? (
           <div className={styles['agents-loading']}>加载中...</div>
         ) : error ? (
@@ -609,6 +609,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
             onDelete={handleViewDelete}
             onFork={handleViewFork}
             onStartChat={handleStartChat}
+            onOpenDetail={handleOpenDetail}
             missingSkillsMap={agentMissingSkills}
             onInstallSkill={handleInstallSkill}
             onNavigateToStore={handleNavigateToStore}
@@ -623,6 +624,7 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
             onDelete={handleViewDelete}
             onFork={handleViewFork}
             onStartChat={handleStartChat}
+            onOpenDetail={handleOpenDetail}
             missingSkillsMap={agentMissingSkills}
             onInstallSkill={handleInstallSkill}
             onNavigateToStore={handleNavigateToStore}
@@ -637,9 +639,23 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
             onDelete={handleViewDelete}
             onFork={handleViewFork}
             onStartChat={handleStartChat}
+            onOpenDetail={handleOpenDetail}
             missingSkillsMap={agentMissingSkills}
             onInstallSkill={handleInstallSkill}
             onNavigateToStore={handleNavigateToStore}
+          />
+        )}
+        </div>
+
+        {detailAgent && (
+          <DetailPanel
+            agent={detailAgent}
+            isSystem={!detailAgent.userId}
+            onClose={() => setDetailAgent(null)}
+            onStartChat={handleStartChat}
+            onEdit={handleViewEdit}
+            onDelete={handleViewDelete}
+            onFork={handleViewFork}
           />
         )}
       </div>
@@ -761,14 +777,6 @@ const AgentsPage: React.FC<AgentsPageProps> = ({ onViewChange, embedded = false 
             </div>
           </div>
         </div>
-      )}
-
-      {/* 空状态引导 */}
-      {!isLoading && !error && userAgents.length === 0 && (
-        <EmptyStateGuide
-          onGenerate={() => setShowGenerateWizard(true)}
-          onCreateBlank={handleCreateBlank}
-        />
       )}
 
       {/* AI 生成团队向导 */}

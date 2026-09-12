@@ -89,6 +89,35 @@
   color: var(--mt-fg-4);
 }
 
+/* 能力标签（白话分组；悬停看原始工具名） */
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--mt-fg-2, var(--mt-fg-3));
+  background: var(--mt-bg-tertiary);
+  border: 1px solid var(--mt-border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipCount {
+  font-size: 10px;
+  color: var(--mt-fg-4);
+}
+
 .lifecycleRow {
   display: flex;
   align-items: center;

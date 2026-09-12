@@ -1,0 +1,35 @@
+.row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--mt-fg-3);
+  user-select: none;
+}
+
+.row:hover {
+  background: var(--mt-border-hairline);
+}
+
+.row--panel {
+  font-size: 13px;
+  padding: 4px 0;
+  color: var(--mt-fg-1);
+}
+
+.row input[type='checkbox'] {
+  accent-color: var(--mt-accent-400);
+  cursor: pointer;
+}
+
+.label {
+  white-space: nowrap;
+}
+
+.loading {
+  font-size: 12px;
+  color: var(--mt-fg-4);
+}

@@ -1,4 +1,5 @@
 import type { ModelTier } from '../../../services/agent-service'
+import type { AgentDefinitionDetail } from '../../../services/agent-service'
 
 // Agent 数据结构（与 agent-service 保持一致）
 export interface Agent {
@@ -15,6 +16,12 @@ export interface Agent {
   identity?: { emoji?: string; theme?: string }
   skillBlacklist?: string[]
   skillFilter?: string[]
+  whenToUse?: string
+  triggerExamples?: string[]
+  bundledSkills?: string[]
+  category?: string
+  /** 只读定义详情：系统 Agent 有值，用户 Agent 无 */
+  definition?: AgentDefinitionDetail
 }
 
 export interface MissingSkill {
@@ -67,6 +74,8 @@ export interface ViewProps {
   onDelete: (agentId: string) => void
   onFork: (agent: Agent) => void
   onStartChat: (agentId: string) => void
+  /** 打开详情面板（三视图共用同一个面板实例，由 AgentsPage 挂载） */
+  onOpenDetail: (agent: Agent) => void
   missingSkillsMap?: Record<string, MissingSkill[]>
   onInstallSkill?: (agentId: string, skillId: string, skillName: string) => Promise<boolean>
   onNavigateToStore?: (skillName: string) => void

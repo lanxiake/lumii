@@ -4,6 +4,7 @@ import { Bot } from '../../../components/ui/Icon'
 import type { ViewProps, Agent } from './types'
 import { TIER_LABELS } from './types'
 import { SkillMissingBadge } from './SkillMissingBadge'
+import { AutonomousToggle } from '../components/AutonomousToggle'
 import { decodeGroupFromDescription } from '../components/GenerateTeamWizard/utils'
 import styles from './GridView.module.css'
 
@@ -26,6 +27,7 @@ function AgentCard({
   onStartChat,
   isSystem = false,
   onFork,
+  onOpenDetail,
   missingSkills,
   onInstallSkill,
   onNavigateToStore,
@@ -37,6 +39,7 @@ function AgentCard({
   onStartChat: (id: string) => void
   isSystem?: boolean
   onFork?: (a: Agent) => void
+  onOpenDetail: (a: Agent) => void
   missingSkills?: import('./types').MissingSkill[]
   onInstallSkill?: (agentId: string, skillId: string, skillName: string) => Promise<boolean>
   onNavigateToStore?: (skillName: string) => void
@@ -92,12 +95,17 @@ function AgentCard({
           )}
         </div>
       )}
+      <AutonomousToggle agentId={agent.id} />
       <div className={styles.actions}>
         {isSystem ? (
-          <button className={styles['btn--primary']} onClick={() => onFork?.(agent)}>基于此创建</button>
+          <>
+            <button className={styles['btn--secondary']} onClick={() => onOpenDetail(agent)}>详情</button>
+            <button className={styles['btn--primary']} onClick={() => onFork?.(agent)}>基于此创建</button>
+          </>
         ) : (
           <>
             <button className={styles['btn--chat']} onClick={() => onStartChat(agent.id)}>对话</button>
+            <button className={styles['btn--secondary']} onClick={() => onOpenDetail(agent)}>详情</button>
             <button className={styles['btn--secondary']} onClick={() => onEdit(agent)}>编辑</button>
             <button className={styles['btn--danger']} onClick={() => onDelete(agent.id)}>删除</button>
           </>
@@ -116,6 +124,7 @@ export const GridView: React.FC<ViewProps> = ({
   onDelete,
   onFork,
   onStartChat,
+  onOpenDetail,
   missingSkillsMap,
   onInstallSkill,
   onNavigateToStore,
@@ -139,7 +148,7 @@ export const GridView: React.FC<ViewProps> = ({
     )
   }
 
-  const cardProps = { runtimeStateMap, onEdit, onDelete, onStartChat }
+  const cardProps = { runtimeStateMap, onEdit, onDelete, onStartChat, onOpenDetail }
 
   return (
     <div className={styles.container}>
