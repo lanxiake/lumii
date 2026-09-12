@@ -2,9 +2,11 @@
  * useWorkspaceVcs — 工作空间 Git 版本管理 Hook
  *
  * 对 window.electronAPI.vcs 命名空间做轻量封装，返回版本历史、未提交变更与操作方法。
+ * 历史与未提交变更的拉取走通用 useQuery（竞态保护 + 5 分钟缓存）；其余为命令式方法。
  */
 
-import { useState, useCallback, useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
+import { useQuery } from '../../common/useQuery'
 
 /** 运行时读取 VCS API（勿在模块顶层缓存，避免 preload 热更后仍指向旧对象） */
 function getVcs() {
@@ -56,40 +58,38 @@ export interface VcsRollbackResult {
 }
 
 export function useWorkspaceVcs() {
-  const [history, setHistory] = useState<VcsLogEntry[]>([])
-  const [uncommittedDiff, setUncommittedDiff] = useState<VcsDiffItem[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  /**
+   * 历史与未提交变更改走通用 useQuery 承载状态（竞态保护 + 5 分钟缓存）。
+   * 刻意不用它的「挂载自动加载」：主进程 ensureInit 首次并发会两次通过
+   * 未初始化检查、产生重复初始提交，因此必须保持「先 ensureInit 再查询」
+   * 的既有顺序，由 refresh() 显式驱动。
+   */
+  const historyQuery = useQuery<VcsLogEntry[]>({
+    queryKey: ['workspace-vcs', 'history'],
+    queryFn: async () => {
+      const vcs = getVcs()
+      if (!vcs) return []
+      const res = await vcs.log({ limit: 50 })
+      return res.success && res.data ? (res.data as VcsLogEntry[]) : []
+    },
+    enabled: false,
+  })
+
+  const uncommittedQuery = useQuery<VcsDiffItem[]>({
+    queryKey: ['workspace-vcs', 'uncommitted'],
+    queryFn: async () => {
+      const vcs = getVcs()
+      if (!vcs) return []
+      const res = await vcs.statusDiff()
+      return res.success && res.data ? (res.data as VcsDiffItem[]) : []
+    },
+    enabled: false,
+  })
 
   const ensureInit = useCallback(async () => {
     const vcs = getVcs()
     if (!vcs) return
     await vcs.ensureInit()
-  }, [])
-
-  const loadHistory = useCallback(async (limit = 50) => {
-    const vcs = getVcs()
-    if (!vcs) return
-    setLoading(true)
-    try {
-      const res = await vcs.log({ limit })
-      if (res.success && res.data) setHistory(res.data as VcsLogEntry[])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const loadUncommitted = useCallback(async () => {
-    const vcs = getVcs()
-    if (!vcs) return
-    try {
-      const res = await vcs.statusDiff()
-      if (res.success && res.data) setUncommittedDiff(res.data as VcsDiffItem[])
-    } catch {
-      // 静默处理
-    }
   }, [])
 
   const commit = useCallback(async (message?: string) => {
@@ -186,12 +186,20 @@ export function useWorkspaceVcs() {
 
   const refresh = useCallback(async () => {
     await ensureInit()
-    await Promise.all([loadHistory(), loadUncommitted()])
-  }, [ensureInit, loadHistory, loadUncommitted])
+    // allSettled：与原实现一致——单个查询失败不向调用方抛错（错误经 error 暴露或被静默）
+    await Promise.allSettled([historyQuery.refetch(), uncommittedQuery.refetch()])
+  }, [ensureInit, historyQuery.refetch, uncommittedQuery.refetch])
 
   useEffect(() => {
     void refresh()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const history = historyQuery.data ?? []
+  const uncommittedDiff = uncommittedQuery.data ?? []
+  /** 与原实现一致：仅历史拉取计入 loading（未提交变更静默刷新） */
+  const loading = historyQuery.isLoading
+  /** 与原实现一致：仅历史拉取失败暴露 error */
+  const error = historyQuery.error ? historyQuery.error.message : null
 
   return {
     history,
