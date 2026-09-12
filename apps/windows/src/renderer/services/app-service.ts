@@ -13,6 +13,11 @@ export function getPathForFile(file: File): string {
   return window.electronAPI.app.getPathForFile(file)
 }
 
+/** 用系统默认浏览器打开外链；失败抛出（如默认浏览器关联失效），由调用方决定降级 */
+export async function openExternal(url: string): Promise<void> {
+  await window.electronAPI.app.openExternal(url)
+}
+
 /** 只读获取挂载项目的 Git 状态（分支 / ahead-behind / 远端 / 文件状态） */
 export async function getProjectGitStatus(projectName: string): Promise<ProjectGitStatus> {
   return window.electronAPI.app.getProjectGitStatus(projectName)

@@ -6,6 +6,18 @@ import { Switch } from '../../../../components/ui/Switch/Switch'
 import { useToast } from '../../../../components/ui/Toast/useToast'
 import type { CloudSyncConfigView, SyncStatus } from '../../../../../main/cloud-sync/types'
 import type { SyncLogEntry } from '../../../../../main/cloud-sync/sync-log'
+import {
+  fetchCloudSyncConfig,
+  fetchCloudSyncStatus,
+  fetchCloudSyncLogs,
+  saveCloudSyncConfig,
+  testCloudSyncConnection,
+  syncCloudSyncNow,
+  retryCloudSyncConflict,
+  subscribeCloudSyncStatus,
+} from '../../../../services/cloud-sync-service'
+import { openExternal } from '../../../../services/app-service'
+import { writeClipboardText } from '../../../../services/clipboard-service'
 import styles from '../../SettingsPage.module.css'
 
 const STATE_LABEL: Record<string, string> = {
@@ -28,24 +40,24 @@ export function CloudSyncSection() {
   const [logs, setLogs] = useState<SyncLogEntry[]>([])
 
   const load = useCallback(async () => {
-    const cfg = await window.electronAPI.cloudSync.getConfig()
-    if (cfg.success && cfg.data) setForm(cfg.data)
-    const st = await window.electronAPI.cloudSync.getStatus()
-    if (st.success && st.data) setStatus(st.data)
-    const lg = await window.electronAPI.cloudSync.getLogs()
-    if (lg.success && lg.data) setLogs(lg.data)
+    const cfg = await fetchCloudSyncConfig()
+    if (cfg) setForm(cfg)
+    const st = await fetchCloudSyncStatus()
+    if (st) setStatus(st)
+    const lg = await fetchCloudSyncLogs()
+    if (lg) setLogs(lg)
   }, [])
 
   const refreshStatusAndLogs = useCallback(async () => {
-    const st = await window.electronAPI.cloudSync.getStatus()
-    if (st.success && st.data) setStatus(st.data)
-    const lg = await window.electronAPI.cloudSync.getLogs()
-    if (lg.success && lg.data) setLogs(lg.data)
+    const st = await fetchCloudSyncStatus()
+    if (st) setStatus(st)
+    const lg = await fetchCloudSyncLogs()
+    if (lg) setLogs(lg)
   }, [])
 
   useEffect(() => {
     load()
-    return window.electronAPI.cloudSync.onStatusChange(() => {
+    return subscribeCloudSyncStatus(() => {
       void refreshStatusAndLogs()
     })
   }, [load, refreshStatusAndLogs])
@@ -54,7 +66,7 @@ export function CloudSyncSection() {
     if (!form) return
     setSaving(true)
     try {
-      const r = await window.electronAPI.cloudSync.setConfig({ ...form, token })
+      const r = await saveCloudSyncConfig({ ...form, token })
       if (r.success) {
         setToken('')
         if (r.data) setForm(r.data)
@@ -73,7 +85,7 @@ export function CloudSyncSection() {
     if (!form) return
     setTesting(true)
     try {
-      const r = await window.electronAPI.cloudSync.testConnection({ ...form, token })
+      const r = await testCloudSyncConnection({ ...form, token })
       if (r.success) toast.success('连接成功')
       else toast.error(r.error || '连接失败')
     } catch (err) {
@@ -86,7 +98,7 @@ export function CloudSyncSection() {
   const syncNow = async () => {
     setSyncing(true)
     try {
-      await window.electronAPI.cloudSync.syncNow()
+      await syncCloudSyncNow()
     } finally {
       setSyncing(false)
     }
@@ -95,7 +107,7 @@ export function CloudSyncSection() {
   const retryConflict = async () => {
     setRetrying(true)
     try {
-      const r = await window.electronAPI.cloudSync.retryConflict()
+      const r = await retryCloudSyncConflict()
       if (r.success) {
         toast.info('已触发 Agent 重新处理冲突')
         void refreshStatusAndLogs()
@@ -112,11 +124,11 @@ export function CloudSyncSection() {
   const openGitCode = async () => {
     const url = 'https://gitcode.com'
     try {
-      await window.electronAPI.app.openExternal(url)
+      await openExternal(url)
     } catch {
       // 环境未配置默认浏览器时降级：复制链接并提示手动打开
       try {
-        await window.electronAPI.clipboard.writeText(url)
+        await writeClipboardText(url)
         toast.info('已复制 GitCode 链接，请在浏览器中粘贴打开')
       } catch {
         toast.error('无法打开浏览器，请手动访问 https://gitcode.com')
