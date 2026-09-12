@@ -155,7 +155,7 @@ export const WikiLeftNav: React.FC<WikiLeftNavProps> = ({
           <button
             ref={moreButtonRef}
             type="button"
-            className={`wiki-left-nav-item${active.kind === 'more' ? ' wiki-left-nav-item--active' : ''}`}
+            className={`${styles['wiki-left-nav-item']}${active.kind === 'more' ? ` ${styles['wiki-left-nav-item--active']}` : ''}`}
             onClick={onOpenMore}
             aria-expanded={active.kind === 'more'}
           >
