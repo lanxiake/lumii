@@ -30,6 +30,7 @@ export {
   formatUserMemoryForPrompt,
   formatUnifiedMemoryBlock,
   injectMemories,
+  stripMemoryPlaceholder,
   MEMORY_PLACEHOLDER,
 } from "./memory-injector.js";
 export type { UnifiedMemoryLimits } from "./memory-injector.js";

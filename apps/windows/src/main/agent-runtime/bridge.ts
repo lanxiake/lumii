@@ -268,6 +268,19 @@ export class AgentRuntimeBridge {
       writeConcerns(this.localDb.db, markConcernRaised(concerns, concern.id, Date.now()))
       return concern.description
     },
+    // 工作记忆注入（构建期填充占位符）：main Agent 的 agent_memories 数据 agent_id='assistant'
+    fillWorkMemoryPlaceholder: (prompt, query) => {
+      const mgr = this._memoryManager
+      if (!mgr) return null
+      const { updatedPrompt, injected } = mgr.injectIntoSystemPrompt(
+        prompt,
+        'assistant',
+        LOCAL_USER_ID,
+        undefined,
+        query,
+      )
+      return { prompt: updatedPrompt, injected: injected.length }
+    },
   })
 
   private readonly mcpClients = new Map<string, McpStdioClient>()

@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SystemPromptResult } from '@mtbot/agent-runtime'
-import { BridgePromptComposer } from './bridge-prompt-composer'
+import { BridgePromptComposer, type BridgePromptComposerDeps } from './bridge-prompt-composer'
 import { _resetWindowsClientDataRootCacheForTest } from '../client-data-root'
 import { registerProject, resolveSceneFilePath, writeSceneMemory } from './scene-memory-store'
 
@@ -38,7 +38,10 @@ describe('BridgePromptComposer 场景记忆注入', () => {
     dynamicPrompt: '\nDYNAMIC-PROMPT',
   } as unknown as SystemPromptResult
 
-  function makeComposer(sessionKey: string): BridgePromptComposer {
+  function makeComposer(
+    sessionKey: string,
+    extraDeps: Partial<BridgePromptComposerDeps> = {},
+  ): BridgePromptComposer {
     return new BridgePromptComposer({
       getCwd: () => cwd,
       loadUserMemory: async () => ({ content: '## 基本信息\n\n- 用户是程序员' }),
@@ -49,6 +52,7 @@ describe('BridgePromptComposer 场景记忆注入', () => {
       getTaskRepo: () => null,
       instanceToConversation: new Map([['inst-1', sessionKey]]),
       instanceStates: new Map() as never,
+      ...extraDeps,
     })
   }
 
@@ -147,5 +151,52 @@ describe('BridgePromptComposer 场景记忆注入', () => {
 
     expect(prompt).not.toContain('## 项目记忆')
     expect(prompt).toContain('STATIC-PROMPT')
+  })
+
+  describe('工作记忆填充（占位符）', () => {
+    const withPlaceholder = {
+      staticPrompt: 'STATIC\n{{LUMII_MEMORY_BLOCK}}',
+      dynamicPrompt: '\nDYNAMIC-PROMPT',
+    } as unknown as SystemPromptResult
+
+    it('开关开启时调用填充回调：query 透传、占位符被替换', async () => {
+      const calls: Array<{ query?: string }> = []
+      const composer = makeComposer('conv-abc', {
+        fillWorkMemoryPlaceholder: (prompt, query) => {
+          calls.push({ query })
+          return { prompt: prompt.replace('{{LUMII_MEMORY_BLOCK}}', '### 工作记忆\n- 探针'), injected: 1 }
+        },
+      })
+      const prompt = await composer.buildPromptWithMemory('inst-1', withPlaceholder, undefined, '蓝鲸计划')
+      expect(calls).toHaveLength(1)
+      expect(calls[0].query).toBe('蓝鲸计划')
+      expect(prompt).toContain('- 探针')
+      expect(prompt).not.toContain('{{LUMII_MEMORY_BLOCK}}')
+    })
+
+    it('开关关闭时不调用回调，占位符出清', async () => {
+      let called = false
+      const composer = makeComposer('conv-abc', {
+        fillWorkMemoryPlaceholder: (prompt) => {
+          called = true
+          return { prompt, injected: 0 }
+        },
+      })
+      const prompt = await composer.buildPromptWithMemory(
+        'inst-1',
+        withPlaceholder,
+        { injectPersonalMemory: true, injectWorkMemory: false },
+        '你好',
+      )
+      expect(called).toBe(false)
+      expect(prompt).not.toContain('{{LUMII_MEMORY_BLOCK}}')
+    })
+
+    it('未配置填充回调时占位符出清（防字面量泄漏）', async () => {
+      const composer = makeComposer('conv-abc')
+      const prompt = await composer.buildPromptWithMemory('inst-1', withPlaceholder, undefined, '你好')
+      expect(prompt).not.toContain('{{LUMII_MEMORY_BLOCK}}')
+      expect(prompt).toContain('STATIC')
+    })
   })
 })

@@ -384,4 +384,18 @@ describe("MemoryManager", () => {
     expect(updatedPrompt).toBe("base");
     expect(injected).toHaveLength(0);
   });
+
+  it("injectIntoSystemPrompt 无记忆时清除占位符（防泄漏）", () => {
+    const repo = {
+      loadTopMemories: () => [] as MemoryEntry[],
+    } as unknown as AgentMemoryRepo;
+    const mgr = new MemoryManager(repo);
+    const { updatedPrompt, injected } = mgr.injectIntoSystemPrompt(
+      "SYS {{LUMII_MEMORY_BLOCK}} END",
+      "x",
+      "y",
+    );
+    expect(updatedPrompt).toBe("SYS  END");
+    expect(injected).toHaveLength(0);
+  });
 });

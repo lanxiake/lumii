@@ -59,7 +59,7 @@ export interface HotMemoryConfig {
   readonly maxTokenBudget: number;
   /** 类别优先级权重 */
   readonly categoryWeights: Readonly<Record<MemoryCategory, number>>;
-  /** 相关性加分权重（query 与记忆内容 overlap 的系数），默认 1.0 */
+  /** 相关性加分权重（query 与记忆内容 overlap 的系数），默认 2.0（2026-09-13 由 1.0 提高，排序更偏向相关） */
   readonly relevanceBonus?: number;
   /** recency 加分权重，默认 0.1（P0 新增，原硬编码于 loadTopMemories） */
   readonly recencyWeight?: number;
@@ -77,7 +77,7 @@ export interface HotMemoryConfig {
 
 /** 默认热记忆配置 */
 export const DEFAULT_HOT_MEMORY_CONFIG: HotMemoryConfig = {
-  maxItems: 20,
+  maxItems: 6,
   maxTokenBudget: 1024,
   categoryWeights: {
     user: 1.2,
@@ -86,7 +86,7 @@ export const DEFAULT_HOT_MEMORY_CONFIG: HotMemoryConfig = {
     reference: 0.8,
     general: 0.6,
   },
-  relevanceBonus: 1.0,
+  relevanceBonus: 2.0,
   recencyWeight: 0.1,
   recencyHalfLifeDays: 30,
   minQueryTokens: 2,

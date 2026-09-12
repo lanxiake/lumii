@@ -80,6 +80,37 @@ describe("MemoryIntegration", () => {
       expect(manager.injectIntoSystemPrompt).not.toHaveBeenCalled();
     });
 
+    it("开关关闭时清除占位符（防字面量泄漏）", () => {
+      const manager = makeManager();
+      const { deps, state } = makeDeps([userMsg("hi")], manager, { getInjectWorkMemory: () => false });
+      state.prompt = "SYS\n{{LUMII_MEMORY_BLOCK}}\nEND";
+      new MemoryIntegration(deps).loadAndInjectMemories();
+      expect(state.prompt).toBe("SYS\n\nEND");
+      expect(manager.injectIntoSystemPrompt).not.toHaveBeenCalled();
+    });
+
+    it("无 manager 时清除占位符", () => {
+      const { deps, state } = makeDeps([userMsg("hi")], undefined);
+      state.prompt = "before {{LUMII_MEMORY_BLOCK}} after";
+      new MemoryIntegration(deps).loadAndInjectMemories();
+      expect(state.prompt).toBe("before  after");
+    });
+
+    it("无命中记忆但含占位符：占位符出清、快照为空", () => {
+      const manager = makeManager({
+        injectIntoSystemPrompt: vi.fn((p: string) => ({
+          updatedPrompt: p.replace("{{LUMII_MEMORY_BLOCK}}", ""),
+          injected: [] as MemoryEntry[],
+        })),
+      });
+      const { deps, state } = makeDeps([userMsg("q")], manager);
+      state.prompt = "base {{LUMII_MEMORY_BLOCK}}";
+      const mi = new MemoryIntegration(deps);
+      mi.loadAndInjectMemories();
+      expect(state.prompt).toBe("base ");
+      expect(mi.injectedSnapshot).toEqual([]);
+    });
+
     it("有命中记忆：写回系统提示词并记录快照", () => {
       const injected = [fakeMemory("用户喜欢简洁")];
       const manager = makeManager({

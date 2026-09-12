@@ -16,7 +16,7 @@ import {
   consolidateExistingPersonalMemory,
   needsPersonalMemoryConsolidation,
 } from "./memory-consolidation.js";
-import { injectMemories } from "./memory-injector.js";
+import { injectMemories, stripMemoryPlaceholder } from "./memory-injector.js";
 import { mergeCandidates } from "./merge.js";
 import type { MemoryEntry, MemoryCategory, HotMemoryConfig, ExtractedCandidate } from "./types.js";
 import { DEFAULT_HOT_MEMORY_CONFIG, isPersonalCategory } from "./types.js";
@@ -110,7 +110,8 @@ export class MemoryManager {
   ): { readonly updatedPrompt: string; readonly injected: readonly MemoryEntry[] } {
     const injected = this.repo.loadTopMemories(agentId, userId, config, query);
     if (injected.length === 0) {
-      return { updatedPrompt: systemPrompt, injected: [] };
+      // 占位符必须出清：无记忆可注入时替换为空串，防字面量泄漏进模型输入
+      return { updatedPrompt: stripMemoryPlaceholder(systemPrompt), injected: [] };
     }
     return {
       updatedPrompt: injectMemories(systemPrompt, injected),

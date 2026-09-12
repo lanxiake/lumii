@@ -413,11 +413,9 @@ export class AgentInstance {
           this.budgetTracker = createBudgetTracker();
         }
         this.startTimeoutTimer();
-        // 加载热记忆并注入系统提示词（自愈重试时跳过，已注入过）
-        // 停用：自动记忆注入方案待重新设计，暂不按对话轮次自动注入（记忆查询功能保留）
-        // if (!this.selfHeal.isHealing) {
-        //   this.memoryIntegration.loadAndInjectMemories();
-        // }
+        // 工作记忆注入已迁到 BridgePromptComposer 构建期：pi-agent-core 的 _runLoop 在每轮 run
+        // 开始时快照 systemPrompt，agent_start 时注入晚于快照、到达不了本轮模型请求（2026-09-13 实测）。
+        // 此处不再调用 loadAndInjectMemories（方法保留，供测试与未来复用）。
       }
       if (event.type === "agent_end") {
         // 自愈层：检测可恢复的 LLM 错误并重试

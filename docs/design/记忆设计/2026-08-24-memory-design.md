@@ -5,6 +5,15 @@
 > 范围：本文只覆盖**记忆**。Wiki 知识库见 `2026-08-24-wiki-design.md`。
 > 定位：完整设计，按 **P0 / P1 / P2** 优先级分批落地，不再区分 MVP。
 
+> **修订记录（2026-09-13）**：工作记忆主动注入打通并防污染加固，真实客户端实测验收通过。
+> ① **注入时机**：原设计未明确"谁在何时填充占位符"，P0 落地后实测发现 agent:start 注入
+> 晚于 pi-agent-core 的 run 快照（`_runLoop` 在每轮开始时快照 systemPrompt），**永远进不了
+> 本轮模型**（模型视野里只有裸的 `{{LUMII_MEMORY_BLOCK}}` 字面量）；现改为
+> `BridgePromptComposer.buildPromptWithMemory` **构建期**填充（见 §4.4）。
+> ② **相关性门控**：取消 hot 免门控——importance 高 ≠ 与当前话题相关，实测"问蓝鲸计划注入
+> 11 条全无关旧记忆"的上下文污染（也是用户此前关闭该功能的直接原因）；**无有效 query 不注入**；
+> `relevanceBonus` 1.0→2.0；`maxItems` 20→6（见 §2.2 / §3.4 / §4.3）。个人类（user/feedback）豁免保留。
+
 ---
 
 ## 1. 设计定位
@@ -107,7 +116,7 @@ Agent 每次对话都从零开始，用户必须反复交代同样的事：自�
         importance 高
              ↑
     ┌────────┼────────┐
-    │  hot   │  hot   │   hot  → 优先注入，不做相关性门控
+    │  hot   │  hot   │   hot  → 排序有 recency 加分；不豁免相关性门控（09-13 修订）
     ├────────┼────────┤   warm → 注入前需过相关性门控
     │  warm  │  warm  │   cold → 不注入，仅显式搜索时返回
     ├────────┼────────┤
@@ -254,11 +263,15 @@ END;
 
 | 温度 | 判定 | 检索行为 |
 |------|------|---------|
-| `hot` | 个人类；或 7 天内使用过；或 `importance >= 0.8` | 优先注入，跳过相关性门控 |
+| `hot` | 个人类；或 7 天内使用过；或 `importance >= 0.8` | 排序有 recency 加分；**不豁免相关性门控**（2026-09-13 修订） |
 | `warm` | 7~30 天未用，且 `importance >= 0.4` | 注入前须过相关性门控 |
 | `cold` | 超 30 天未用，或 `importance < 0.4` 且 7 天未用 | 不参与注入，仅显式搜索可见 |
 
 阈值（7 / 30 天、0.8 / 0.4）是初始经验值，收进配置对象供调参，不散落在代码里。
+
+> **2026-09-13 修订**：相关性门控只对个人类（user/feedback）豁免；contextual 类
+> （project/reference/general）**不论温度**一律须过 `relevance >= 0.15`。无有效 query
+> （缺省或过短）时不注入任何工作记忆——宁可零召回，不做"全量退化"。
 
 ### 3.5 P1 新增列：`scope`
 
@@ -403,20 +416,26 @@ export interface HotMemoryConfig {
 与 SQL 查询、相关性计算、去重、预算截断揉在一起，**一个方法 85 行，混了 6 件事**。
 P0 的改进就是抽出 `scoreMemory` 纯函数，单独测试，不夹带 `db` 依赖。
 
-**③ 相关性门控**（`memory-repo.ts:90-96`）
+**③ 相关性门控**（`memory-repo.ts`，2026-09-13 修订）
 
 ```typescript
-if (
-  cfg.gateContextualByRelevance &&
-  !isPersonalCategory(row.category) &&
-  overlap < 0.15
-) {
-  continue;  // 过滤
-}
+// 无有效 query 且门控开启：不注入（无法判断相关性，宁缺毋滥）
+if (!useRelevance && gateContextual) return [];
+
+const gated = scored.filter(({ row, relevance }) => {
+  // 显式关配置：相关性仅加分，不过滤（保留旧行为开关）
+  if (!useRelevance || !gateContextual) return true;
+  const temp = computeTemperature(...);
+  if (temp === "cold") return false;
+  if (isPersonalCategory(row.category)) return true; // 个人类独占豁免
+  return relevance >= RELEVANCE_GATE_THRESHOLD;      // hot / warm 一视同仁
+});
 ```
 
 个人记忆（`user` / `feedback`）不做门控，因为它们是"Agent 的底层人设与规则"，
-跟当前问题无关也要遵守。工作记忆若相关性太低，注入了也是噪音。
+跟当前问题无关也要遵守。**2026-09-13 修订：原实现对 hot（importance≥0.8 或 7 天内用过）
+同样跳过门控，实测造成"问 A 话题注入 11 条无关旧记忆"的上下文污染（用户此前关闭该功能的
+直接原因），已取消——现在只有个人类豁免，hot/warm 一律过 `relevance >= 0.15`。**
 
 **④ 内容去重**（`memory-repo.ts:100-107`）
 
@@ -533,17 +552,21 @@ export function injectMemories(
 `user`→关于用户、`feedback`→交互偏好、`project`→进行中的事、
 `reference`→外部资源、`general`→其他。
 
-**个人记忆与工作记忆的注入位置不同**（`bridge-prompt-composer.ts:398`）：
+**注入位置与责任链（2026-09-13 修订后）**：工作记忆块由
+`BridgePromptComposer.buildPromptWithMemory` 在**构建期**填充——
+`dynamicParts` 组装完成后（`staticPrompt + CACHE_BOUNDARY_MARKER + dynamicPrompt`），
+调用 `fillWorkMemoryPlaceholder(prompt, userMessage)` 把占位符就地替换为热记忆块
+（内部 `MemoryManager.injectIntoSystemPrompt` → `loadTopMemories(agentId, userId, cfg, query)`，
+query = 本轮用户消息）；开关关闭 / 回调未配置 / 无命中时用 `stripMemoryPlaceholder`
+清除占位符，**保证 `{{LUMII_MEMORY_BLOCK}}` 字面量永不进入模型输入**。
 
-```
-staticPrompt（含个人记忆，走 prompt cache）
-  + CACHE_BOUNDARY_MARKER
-  + dynamicPrompt（含工作记忆 + 活跃任务 + 诊断采样）
-```
-
-个人记忆放静态段是因为它几乎不变，可以吃到 prompt cache 的折扣；
-工作记忆每轮都可能变，必须放在缓存边界之后。**这个边界不能破**，
-否则每轮对话的 prompt cache 全部失效，成本显著上升。
+**为什么必须在构建期而不是 agent:start**：pi-agent-core 的 `_runLoop` 在每轮 run 开始时
+**快照** `state.systemPrompt` 进请求 context，此后任何 `setSystemPrompt`（如原设计在
+agent:start 事件里的注入）只影响下一轮、**永远晚一拍**，且下一轮会被 composer 的新构建
+覆盖——实测模型视野里只有裸占位符、没有工作记忆段。占位符本身位于 `dynamicPrompt` 段
+（builder 的 D1 位置，cache 边界之后），构建期替换只动缓存边界后的内容，
+不破坏 prompt cache 的静态前缀。**这个边界不能破**，否则每轮对话的
+prompt cache 全部失效，成本显著上升。
 
 ### 4.5 个人记忆整理：LLM 去重合并
 
@@ -1223,6 +1246,7 @@ export function checkToolConflicts(content: string): { conflict: boolean; reason
 | 注入预算截断（个人记忆） | `bridge-prompt-composer.ts:413` | ✅ 完整 |
 | 归档（软删除） | `memory-repo.ts:276-310` | ✅ 有，缺温度归档 |
 | prompt cache 边界 | `bridge-prompt-composer.ts:398` | ✅ 完整 |
+| **工作记忆注入（构建期填充）** | `bridge-prompt-composer.ts` `fillWorkMemoryPlaceholder` | ✅ 2026-09-13 打通（占位符就地替换 + strip 兜底 + 全量相关性门控） |
 
 ### 10.2 已验证的技术结论
 
@@ -1260,3 +1284,7 @@ P0 补齐检索（FTS5）、打分（纯函数）、注入（占位符）、整�
 P1 加 `scope` 字段、冲突检测可扩展化与整理可见性；
 P2 的语义能力必须先有中文评测集才动手。
 定时整理（已有，fast 30min / deep 6h）是必要能力，保留并强化防护，不删除。**
+
+**2026-09-13 修订补**：工作记忆注入在 **composer 构建期**填充占位符（agent:start 注入因
+`_runLoop` 快照永远到不了本轮模型）；相关性门控对 hot 与 warm 一视同仁（仅个人类豁免），
+无有效 query 不注入——以"宁缺毋滥"换"不污染上下文"。

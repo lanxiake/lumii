@@ -61,16 +61,16 @@ describe("温度流转：cold/warm/hot 分档与归档", () => {
     expect(r.some((m) => m.content.includes("温记忆"))).toBe(true);
   });
 
-  it("hot 记忆跳过门控：即使与 query 无关也保留（高重要度）", () => {
+  it("hot 记忆同样受相关性门控：与 query 无关时不注入（2026-09-13 防污染修订）", () => {
     saveWithAge("高重要度的热记忆-项目截止日期", 0.9, 20);
     const r = repo.loadTopMemories(A, U, DEFAULT_HOT_MEMORY_CONFIG, "今天天气怎么样");
-    expect(r.some((m) => m.content.includes("热记忆"))).toBe(true);
+    expect(r.some((m) => m.content.includes("热记忆"))).toBe(false);
   });
 
-  it("hot 记忆跳过门控：最近使用（7天内）即使与 query 无关也保留", () => {
+  it("最近使用的记忆同样受相关性门控：无关话题不注入", () => {
     saveWithAge("最近用过的记忆-会议安排", 0.5, 3);
     const r = repo.loadTopMemories(A, U, DEFAULT_HOT_MEMORY_CONFIG, "今天天气怎么样");
-    expect(r.some((m) => m.content.includes("会议安排"))).toBe(true);
+    expect(r.some((m) => m.content.includes("会议安排"))).toBe(false);
   });
 
   it("personal 类（user/feedback）恒为 hot，不受温度衰减影响", () => {

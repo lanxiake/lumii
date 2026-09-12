@@ -17,6 +17,9 @@ import {
   type TemperatureThresholds,
 } from "./temperature.js";
 
+/** 相关性门控阈值：与当前 query 的 overlap 低于此值的记忆不注入（宁缺毋滥，防上下文污染） */
+const RELEVANCE_GATE_THRESHOLD = 0.15;
+
 /** 粗估 token 数（中文约 2 字符 = 1 token，英文约 4 字符 = 1 token） */
 function estimateTokens(text: string): number {
   let cjk = 0;
@@ -100,13 +103,17 @@ export class AgentMemoryRepo {
       return { row, score, relevance };
     });
 
-    // 2.1 温度分档过滤（Task 4 P0）：cold 记忆直接丢弃不注入；warm 记忆需过相关性门控；
-    //     hot 记忆（personal类 / 最近使用 / 高重要度）跳过门控直接进排序。
-    //     gateContextualByRelevance=false 时回退到纯加分行为（不过滤任何记忆）。
-    const gateContextual = useRelevance && (config.gateContextualByRelevance ?? true);
+    // 2.1 相关性门控（2026-09-13 修订）：取消 hot 免门控——importance 高 ≠ 与当前话题相关，
+    //     高重要度旧记忆每轮无条件注入会污染上下文（实测问"蓝鲸计划"注入 11 条全无关）。
+    //     宁缺毋滥：与当前消息不相关的记忆一律不注入。
+    const gateContextual = config.gateContextualByRelevance ?? true;
+    // 无有效 query 且门控开启：无法判断相关性，不注入任何工作记忆
+    if (!useRelevance && gateContextual) {
+      return [];
+    }
     const gated = scored.filter(({ row, relevance }) => {
-      // 门控关闭时保留所有记忆（退回老行为：相关性仅做加分，不做过滤）
-      if (!gateContextual) return true;
+      // 显式关闭门控（配置）：相关性仅做加分，不过滤
+      if (!useRelevance || !gateContextual) return true;
 
       const temp = computeTemperature(
         {
@@ -119,10 +126,10 @@ export class AgentMemoryRepo {
       );
       // cold → 不注入
       if (temp === "cold") return false;
-      // hot（personal / 最近用过 / 高重要度）→ 跳过门控
-      if (temp === "hot") return true;
-      // warm → 必须过相关性门控（relevance < 0.15 时丢弃）
-      return relevance >= 0.15;
+      // 个人类（画像/交互偏好）是 Agent 底层人设，始终注入、不受相关性门控
+      if (isPersonalCategory(row.category as MemoryCategory)) return true;
+      // hot / warm 的上下文类记忆一律过相关性门槛
+      return relevance >= RELEVANCE_GATE_THRESHOLD;
     });
 
     gated.sort((a, b) => b.score - a.score);

@@ -348,6 +348,7 @@ export {
   computeTemperature,
   DEFAULT_TEMPERATURE_THRESHOLDS,
   MEMORY_PLACEHOLDER,
+  stripMemoryPlaceholder,
 } from "./memory/index.js";
 export type {
   ExistingMemoryContext,

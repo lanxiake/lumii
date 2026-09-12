@@ -10,6 +10,7 @@ import type { MemoryManager } from "../memory/manager.js";
 import type { MemoryEntry } from "../memory/types.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 import { hasMemoryTrigger } from "../memory/memory-extractor.js";
+import { stripMemoryPlaceholder } from "../memory/memory-injector.js";
 
 /** 记忆集成所需的最小 agent 状态访问能力（避免依赖 pi-agent-core 具体类型） */
 export interface AgentStateAccessor {
@@ -80,13 +81,17 @@ export class MemoryIntegration {
   /** 加载热记忆并注入到系统提示词 */
   loadAndInjectMemories(): void {
     const { memoryManager, userId, memoryConfig, definitionId, instanceId } = this.deps;
-    if (!memoryManager || !userId) return;
-    if (memoryConfig?.scope === "none") return;
-    if (!this.deps.getInjectWorkMemory()) return;
+    const agent = this.deps.getAgent();
+    const currentPrompt = agent.systemPrompt ?? "";
+
+    // 不注入的分支：仍需清除占位符，防字面量泄漏进模型输入
+    if (!memoryManager || !userId || memoryConfig?.scope === "none" || !this.deps.getInjectWorkMemory()) {
+      const stripped = stripMemoryPlaceholder(currentPrompt);
+      if (stripped !== currentPrompt) agent.setSystemPrompt(stripped);
+      return;
+    }
 
     try {
-      const agent = this.deps.getAgent();
-      const currentPrompt = agent.systemPrompt ?? "";
       // 用当前用户消息作 query，做相关性召回（S9）
       const query = this.pickLatestUserText() ?? undefined;
       const { updatedPrompt, injected } = memoryManager.injectIntoSystemPrompt(
@@ -102,6 +107,8 @@ export class MemoryIntegration {
         console.log(`[AgentInstance:${instanceId}] 注入 ${injected.length} 条热记忆到系统提示词`);
       } else {
         this._injectedSnapshot = [];
+        // 无命中时占位符也应出清（manager 已替换为空串）
+        if (updatedPrompt !== currentPrompt) agent.setSystemPrompt(updatedPrompt);
       }
     } catch (err) {
       console.error(`[AgentInstance:${instanceId}] 加载热记忆失败:`, err);

@@ -15,7 +15,9 @@ import type { DatabaseAdapter } from "../storage/local-database.js";
 const A = "assistant";
 const U = "local-user";
 
-/** 门控测试依赖 warm 温度——刚写入的记忆 last_used=now 恒为 hot，会跳过相关性门控 */
+/**
+ * 说明（2026-09-13 起 hot 同样受相关性门控，降温步骤已非必需；保留以模拟真实时间分布）
+ */
 function ageToWarm(db: DatabaseAdapter, agentId: string, userId: string): void {
   const fifteenDaysAgo = new Date(Date.now() - 15 * 86_400_000).toISOString();
   db.prepare(
@@ -65,14 +67,14 @@ describe("记忆场景：召回相关性门控（用户反馈的核心问题）"
     expect(r.some((m) => m.category === "user")).toBe(true);
   });
 
-  it("无 query（新会话首轮）→ 退化标量，全部可注入", () => {
+  it("无 query（新会话首轮）→ 不注入工作记忆（相关性无法判断，宁缺毋滥）", () => {
     const r = repo.loadTopMemories(A, U);
-    expect(r.length).toBe(3);
+    expect(r.length).toBe(0);
   });
 
-  it("无意义短 query（嗯/好的）→ 退化标量，不误门控", () => {
+  it("无意义短 query（嗯/好的）→ 不注入（不再全量退化）", () => {
     const r = repo.loadTopMemories(A, U, DEFAULT_HOT_MEMORY_CONFIG, "嗯");
-    expect(r.length).toBe(3);
+    expect(r.length).toBe(0);
   });
 });
 

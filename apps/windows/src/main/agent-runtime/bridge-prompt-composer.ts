@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process'
 import {
   CACHE_BOUNDARY_MARKER,
   formatUserMemoryForPrompt,
+  stripMemoryPlaceholder,
   type ActiveTaskInfo,
   type ContextFile,
   type SystemPromptResult,
@@ -40,6 +41,14 @@ export interface BridgePromptComposerDeps {
   instanceStates: InstanceStateStore
   /** 取一条可提起的牵挂并标记已提起（返回牵挂描述或 null 表示无可提） */
   consumeConcernToRaise?: (conversationId: string) => string | null
+  /**
+   * 工作记忆填充：把 prompt 中的 {{LUMII_MEMORY_BLOCK}} 占位符替换为与当前消息相关的热记忆块。
+   * 返回 null 表示未配置（调用方清除占位符兜底）。
+   */
+  fillWorkMemoryPlaceholder?: (
+    prompt: string,
+    query?: string,
+  ) => { prompt: string; injected: number } | null
 }
 
 /** 诊断采样结果（单进程共享缓存） */
@@ -342,14 +351,18 @@ export class BridgePromptComposer {
           ].join('\n')
         : ''
 
-    // 个人记忆/场景记忆注入开关（未显式传入时读设置，默认开启）
+    // 个人记忆/场景记忆/工作记忆注入开关（未显式传入时读设置，默认开启）
     let injPersonal = memoryInjection?.injectPersonalMemory
-    if (injPersonal === undefined) {
+    let injWork = memoryInjection?.injectWorkMemory
+    if (injPersonal === undefined || injWork === undefined) {
       try {
-        injPersonal = (await this.deps.getMemoryInjectionSettings?.())?.injectPersonalMemory ?? true
+        const s = await this.deps.getMemoryInjectionSettings?.()
+        if (injPersonal === undefined) injPersonal = s?.injectPersonalMemory ?? true
+        if (injWork === undefined) injWork = s?.injectWorkMemory ?? true
       } catch (err) {
         log.warn('[buildPromptWithMemory] 读取记忆注入设置失败，按开启处理:', err)
-        injPersonal = true
+        if (injPersonal === undefined) injPersonal = true
+        if (injWork === undefined) injWork = true
       }
     }
 
@@ -456,7 +469,29 @@ export class BridgePromptComposer {
     }
 
     const dynamicPrompt = dynamicParts.join('')
-    return dynamicPrompt ? `${staticPrompt}${CACHE_BOUNDARY_MARKER}${dynamicPrompt}` : staticPrompt
+    let finalPrompt = dynamicPrompt ? `${staticPrompt}${CACHE_BOUNDARY_MARKER}${dynamicPrompt}` : staticPrompt
+
+    // 工作记忆：构建期就地填充 dynamic 段占位符（2026-09-13 由 agent_start 迁移——pi-agent-core
+    // 在 run 开始时快照 systemPrompt，agent_start 注入晚一拍、进不了本轮模型；构建期填充保证当轮必达）
+    if (injWork !== false) {
+      let filled: { prompt: string; injected: number } | null = null
+      try {
+        filled = this.deps.fillWorkMemoryPlaceholder?.(finalPrompt, userMessage) ?? null
+        if (filled) {
+          log.info(
+            `[buildPromptWithMemory] 工作记忆注入 ${filled.injected} 条 instanceId=${instanceId}`,
+          )
+        }
+      } catch (err) {
+        log.error('[buildPromptWithMemory] 工作记忆注入失败:', err)
+      }
+      // 未配置回调或失败：占位符必须出清，防字面量泄漏进模型输入
+      finalPrompt = filled ? filled.prompt : stripMemoryPlaceholder(finalPrompt)
+    } else {
+      // 开关关闭：占位符出清
+      finalPrompt = stripMemoryPlaceholder(finalPrompt)
+    }
+    return finalPrompt
   }
 
   /**

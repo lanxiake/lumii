@@ -186,3 +186,15 @@ export function injectMemories(systemPrompt: string, memories: readonly MemoryEn
   console.warn(`[injectMemories] 缺少占位符，记忆未注入`);
   return systemPrompt;
 }
+
+/**
+ * 宽容清除占位符（不抛错，无占位符时原样返回）。
+ *
+ * 用于"本轮不注入"的分支（开关关闭 / 无管理器 / 无命中记忆）：
+ * 占位符必须出清，不能让 `{{LUMII_MEMORY_BLOCK}}` 字面量进入模型输入。
+ */
+export function stripMemoryPlaceholder(systemPrompt: string): string {
+  return systemPrompt.includes(MEMORY_PLACEHOLDER)
+    ? systemPrompt.replaceAll(MEMORY_PLACEHOLDER, "")
+    : systemPrompt;
+}

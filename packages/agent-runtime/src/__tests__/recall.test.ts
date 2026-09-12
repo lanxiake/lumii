@@ -19,8 +19,7 @@ describe("loadTopMemories 相关性召回", () => {
     repo.saveCandidate({ agentId: "a1", userId: "u1", category: "project", content: "用户计划七月去日本旅行预算两万", importance: 0.5, tags: [] });
     repo.saveCandidate({ agentId: "a1", userId: "u1", category: "project", content: "用户在准备 CPA 注册会计师考试", importance: 0.5, tags: [] });
     repo.saveCandidate({ agentId: "a1", userId: "u1", category: "project", content: "用户在学习吉他每周练习两次", importance: 0.5, tags: [] });
-    // 门控测试依赖 warm 温度（7~30 天未用）——刚创建的记忆 last_used=now 恒为 hot，会跳过门控，
-    // 故统一把 last_used 拨回 15 天前，让 importance=0.5 的记忆落在 warm 档以触发相关性门控。
+    // 说明（2026-09-13 起 hot 同样受相关性门控，此步骤已非必需；保留以模拟真实时间分布）
     const fifteenDaysAgo = new Date(Date.now() - 15 * 86_400_000).toISOString();
     db.prepare("UPDATE agent_memories SET last_used = ? WHERE agent_id = 'a1' AND user_id = 'u1'").run(
       fifteenDaysAgo,
@@ -37,15 +36,15 @@ describe("loadTopMemories 相关性召回", () => {
     expect(r[0].content).toContain("CPA");
   });
 
-  it("无 query 时退化为标量评分（不报错，返回全部）", () => {
+  it("无 query 时不注入（相关性无法判断，防无关记忆污染）", () => {
     const r = repo.loadTopMemories("a1", "u1");
-    expect(r).toHaveLength(3);
+    expect(r).toHaveLength(0);
   });
 
-  it("query 过短（< minQueryTokens）跳过相关性，退化标量", () => {
+  it("query 过短（< minQueryTokens）时不注入", () => {
     // "嗯" 只有 1 个 token，不足门槛 2
     const r = repo.loadTopMemories("a1", "u1", DEFAULT_HOT_MEMORY_CONFIG, "嗯");
-    expect(r).toHaveLength(3); // 不因相关性为 0 而排除任何项
+    expect(r).toHaveLength(0);
   });
 
   it("上下文类无关记忆被相关性门控排除（只留相关的）", () => {
