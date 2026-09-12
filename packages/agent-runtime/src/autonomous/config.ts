@@ -151,6 +151,18 @@ export const AUTONOMOUS_GOAL_TYPES: GoalType[] = (process.env.AUTONOMOUS_GOAL_TY
 export const EVOLUTION_CONVERSATION_ID = 'evolution:main';
 
 /**
+ * 自主会话 ID 前缀。
+ * 多 Agent 下每个开启自主的 Agent 拥有 `evolution:<agentId>` 会话
+ * （assistant 保持 `evolution:main` 兼容存量数据）。
+ */
+export const EVOLUTION_CONVERSATION_PREFIX = 'evolution:';
+
+/** 判定是否自主进化专属会话（覆盖全部 evolution:<agentId>） */
+export function isEvolutionConversationId(id: string): boolean {
+  return id.startsWith(EVOLUTION_CONVERSATION_PREFIX);
+}
+
+/**
  * 心跳间隔（毫秒）
  * 来源：设计文档 10-心跳与外部交互设计.md §4
  * 默认 10 分钟；Step 7 参数化后可经设置页即时调整。

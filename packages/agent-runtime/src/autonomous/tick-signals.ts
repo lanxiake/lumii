@@ -95,7 +95,7 @@ export function collectTickSignals(db: DatabaseAdapter, agentId: string, now = n
     outreachLastSentAt: getLastOutreachAt(db),
     minOutreachIntervalMinutes: settings.minOutreachIntervalMinutes,
     reflectionDue: computeReflectionDue(repo, agentId, now, settings.quietHours),
-    diaryDue: computeDiaryDue(db, now, settings.quietHours),
+    diaryDue: computeDiaryDue(db, agentId, now, settings.quietHours),
     tokenUsedToday: readTodayTokenUsage(db, now),
     tokenLimit: settings.maxTokensPerDay,
     willDoHeavyWork: decisionParams.willDoHeavyWork,
@@ -135,8 +135,9 @@ function isInQuietHours(hour: number, start: number, end: number): boolean {
   return hour >= start || hour < end;
 }
 
-/** 静默时段内且今天尚未写日记才触发 */
-function computeDiaryDue(db: DatabaseAdapter, now: Date, quietHours: [number, number]): boolean {
+/** 静默时段内且今天尚未写日记才触发。日记属生命感系统（assistant 人格专属），其他自主 Agent 不参与。 */
+function computeDiaryDue(db: DatabaseAdapter, agentId: string, now: Date, quietHours: [number, number]): boolean {
+  if (agentId !== 'assistant') return false;
   const inQuietHours = isInQuietHours(now.getHours(), quietHours[0], quietHours[1]);
   return inQuietHours && !hasWrittenDiaryToday(db, now);
 }

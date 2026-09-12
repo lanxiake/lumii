@@ -77,6 +77,7 @@ describe('handleEvolutionTick', () => {
         type: 'learning',
         description: '学点东西',
       },
+      'assistant',
       false,
     )
   })
@@ -131,5 +132,39 @@ describe('handleEvolutionTick', () => {
     const result = await handleEvolutionTick(deps)
     expect(result).toContain('diary')
     expect(writeDiary).toHaveBeenCalled()
+  })
+
+  it('多 Agent：逐个遍历并汇总为 agentId=结果', async () => {
+    const deps = makeDeps({
+      listAutonomousAgentIds: () => ['assistant', 'chronicler'],
+    })
+    const result = await handleEvolutionTick(deps)
+    expect(result).toBe('assistant=idle: liveness-ok; chronicler=idle: liveness-ok')
+  })
+
+  it('多 Agent：单个 Agent 失败不影响其余', async () => {
+    const executeGoal = vi.fn(async (_goal, agentId: string) => {
+      if (agentId === 'assistant') throw new Error('boom')
+      return 'completed: g1'
+    })
+    const deps = makeDeps({
+      listAutonomousAgentIds: () => ['assistant', 'chronicler'],
+      getDb: () =>
+        ({
+          prepare: () => ({
+            all: () => [{ id: 'g1', type: 'learning', description: '学点东西' }],
+            get: () => undefined,
+            run: () => undefined,
+          }),
+        }) as never,
+      executeGoal,
+    })
+    const result = await handleEvolutionTick(deps)
+    expect(result).toBe('assistant=error: boom; chronicler=execute-goal: completed: g1')
+  })
+
+  it('单 Agent 返回格式与改造前一致（不加 agentId 前缀）', async () => {
+    const deps = makeDeps({ listAutonomousAgentIds: () => ['assistant'] })
+    expect(await handleEvolutionTick(deps)).toBe('idle: liveness-ok')
   })
 })

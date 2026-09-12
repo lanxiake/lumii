@@ -187,8 +187,9 @@ export interface CronSchedulerDeps {
   /** 通知渲染进程有新的用户消息（不落库，仅推送 UI 展示；不跳转视图，避免打断用户当前操作） */
   notifyIncomingMessage: (sessionKey: string, text: string) => void
   /** 落库一条消息到指定会话。cron 实例不走 UI 流式落库路径，产出只在内存，
-   *  必须手动持久化任务指令与 Agent 产出，否则会话历史在重启后为空。 */
-  saveMessage?: (params: { conversationId: string; role: 'user' | 'assistant'; text: string }) => void
+   *  必须手动持久化任务指令与 Agent 产出，否则会话历史在重启后为空。
+   *  agentId 为任务执行者归属（缺省回落 assistant），用于多 Agent 的产出归属。 */
+  saveMessage?: (params: { conversationId: string; role: 'user' | 'assistant'; text: string; agentId?: string }) => void
   /** 获取文件仓储（用于文件清理任务） */
   getFileRepo: () => FileRepo | null
   /** 获取 workspace 根目录（用于文件清理任务） */
@@ -200,7 +201,7 @@ export interface CronSchedulerDeps {
    */
   getChannelRouter?: () => import('../channel/channel-outbound-router').ChannelOutboundRouter | null | undefined
   /** 写入一条 Agent 记忆（notify_targets 含 focus 时用，概览页「近期关注」读记忆） */
-  addMemory?: (content: string) => void
+  addMemory?: (content: string, agentId?: string) => void
   /**
    * 将指定定时任务产出持久化到 Wiki（失败由实现方记日志，不抛错）。
    */
@@ -690,7 +691,7 @@ export class CronScheduler {
    * 飞书/微信出站优先走 ChannelOutboundRouter（与 Agent channel_send 同源）。
    */
   private async dispatchNotifications(
-    job: { id: string; name: string; task_text: string },
+    job: { id: string; name: string; task_text: string; agent_id?: string | null },
     notifyTargets: string | null,
     output: string,
   ): Promise<void> {
@@ -737,7 +738,7 @@ export class CronScheduler {
               log.info(`[dispatchNotifications] 跳过 focus 写工作记忆 jobId=${job.id}`)
               break
             }
-            this.deps.addMemory?.(payload.body)
+            this.deps.addMemory?.(payload.body, job.agent_id ?? DEFAULT_AGENT_ID)
             break
           case 'feishu': {
             const router = this.deps.getChannelRouter?.()
@@ -890,11 +891,13 @@ export class CronScheduler {
         conversationId: convId,
         role: 'user',
         text: job.task_text,
+        agentId,
       })
       this.deps.saveMessage?.({
         conversationId: convId,
         role: 'assistant',
         text: output,
+        agentId,
       })
       return output
     } finally {
@@ -1007,7 +1010,7 @@ export class CronScheduler {
         }
       }
       await this.dispatchNotifications(
-        { id: job.id, name: currentRow.name, task_text: job.task_text },
+        { id: job.id, name: currentRow.name, task_text: job.task_text, agent_id: job.agent_id },
         notifyTargets,
         output,
       )

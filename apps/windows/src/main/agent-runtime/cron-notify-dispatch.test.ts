@@ -36,7 +36,7 @@ function makeScheduler(overrides: Partial<Deps> = {}) {
   const dispatch = (
     scheduler as unknown as {
       dispatchNotifications: (
-        job: { id: string; name: string; task_text: string },
+        job: { id: string; name: string; task_text: string; agent_id?: string | null },
         targets: string | null,
         output: string,
       ) => Promise<void>
@@ -72,7 +72,7 @@ describe('dispatchNotifications', () => {
     const s = makeScheduler()
     await s.dispatch(job, 'system,news,focus', '今天三件事')
     expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '今天三件事', 'cron:custom-job')
-    expect(s.addMemory).toHaveBeenCalledWith('测试提醒：今天三件事')
+    expect(s.addMemory).toHaveBeenCalledWith('测试提醒：今天三件事', 'assistant')
     expect(prependMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: '测试提醒', summary: '今天三件事', source: '定时任务' }),
     )
@@ -101,7 +101,13 @@ describe('dispatchNotifications', () => {
   it('任务名为空时用任务指令首句兜底', async () => {
     const s = makeScheduler()
     await s.dispatch({ id: 't-empty', name: '  ', task_text: '汇总今天要做的事' }, 'focus', '结果')
-    expect(s.addMemory).toHaveBeenCalledWith('汇总今天要做的事：结果')
+    expect(s.addMemory).toHaveBeenCalledWith('汇总今天要做的事：结果', 'assistant')
+  })
+
+  it('focus 记忆写入携带任务执行者归属（agent_id 透传）', async () => {
+    const s = makeScheduler()
+    await s.dispatch({ ...job, agent_id: 'chronicler' }, 'focus', '结果')
+    expect(s.addMemory).toHaveBeenCalledWith('测试提醒：结果', 'chronicler')
   })
 
   it('feishu 走 channelRouter.send，默认 peer 来自 list', async () => {

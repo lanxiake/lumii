@@ -101,6 +101,36 @@ export function getGoalToolAllowlist(_goalType: string): string[] {
 }
 
 /**
+ * system-keeper 的自主档工具白名单：维护类只读 + 记忆写入 + 自组织。
+ * 不含 bash / file_write / app_* —— 维护者自主运行只出建议，改动类动作需用户在场（设计 §6.4）。
+ */
+const SYSTEM_KEEPER_AUTONOMOUS_TOOLS: readonly string[] = [
+  'cron_list',
+  'cron_create',
+  'cron_delete',
+  'wiki_overview',
+  'wiki_search',
+  'wiki_read',
+  'memory_search',
+  'memory_read',
+  'memory_manage',
+  'profile_memory',
+  'skill_list',
+  'skill_search',
+  'skill_invoke',
+  'todo_write',
+];
+
+/**
+ * 按执行者选择自主档工具白名单：system-keeper 用维护白名单（无写类工具），
+ * 其余 Agent 沿用 getGoalToolAllowlist（含 T2 写类，受 token 预算约束）。
+ */
+export function getAutonomousToolsForAgent(agentId: string, goalType: string): string[] {
+  if (agentId === 'system-keeper') return [...SYSTEM_KEEPER_AUTONOMOUS_TOOLS];
+  return getGoalToolAllowlist(goalType);
+}
+
+/**
  * 目标执行结果落库：success → completed，否则 → failed。
  * 空 output 视为失败（防止「假 completed」），见执行层调用约束。
  */

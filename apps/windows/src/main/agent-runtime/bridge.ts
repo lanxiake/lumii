@@ -56,8 +56,10 @@ import {
   decideIdleCooldownMs,
   IDLE_COOLDOWN_FAILURE_MS,
   EVOLUTION_CONVERSATION_ID,
+  isEvolutionConversationId,
   buildGoalPrompt,
   getGoalToolAllowlist,
+  getAutonomousToolsForAgent,
   finalizeGoal,
   canSendOutreach,
   recordOutreach,
@@ -261,7 +263,7 @@ export class AgentRuntimeBridge {
     instanceToConversation: this.instanceToConversation,
     instanceStates: this.instanceStates,
     consumeConcernToRaise: (conversationId) => {
-      if (!this.localDb || conversationId === EVOLUTION_CONVERSATION_ID) return null
+      if (!this.localDb || isEvolutionConversationId(conversationId)) return null
       const concerns = readConcerns(this.localDb.db)
       const concern = pickConcernToRaise(concerns, Date.now())
       if (!concern) return null
@@ -1116,6 +1118,26 @@ export class AgentRuntimeBridge {
     }
   }
 
+  /** 该 Agent 的自主会话 ID（assistant 保持 evolution:main，兼容存量数据） */
+  private evolutionConversationIdFor(agentId: string): string {
+    return agentId === 'assistant' ? EVOLUTION_CONVERSATION_ID : `evolution:${agentId}`
+  }
+
+  /** 该 Agent 的自主会话标题 */
+  private evolutionConversationTitleFor(agentId: string): string {
+    return agentId === 'assistant' ? '自主进化 · 内心独白' : `自主 · ${agentId}`
+  }
+
+  /** 参与心跳遍历的自主 Agent：assistant 恒参与，其余来自 app.json autonomousAgents */
+  private listAutonomousAgentIds(): string[] {
+    const ids = ['assistant']
+    for (const raw of this.config.getAutonomousAgents?.() ?? []) {
+      const id = raw?.trim()
+      if (id && !ids.includes(id)) ids.push(id)
+    }
+    return ids
+  }
+
   /** initialize() 子块 3/7：构造 CronScheduler、迁移/播种 companion cron、订阅 vhSettings 变更、start() */
   private initializeCronScheduler(): void {
     this.cronScheduler = new CronScheduler(this.localDb, {
@@ -1129,7 +1151,7 @@ export class AgentRuntimeBridge {
         const restrictedDef: AgentDefinition = {
           ...baseDef,
           canSpawnSubAgents: false,
-          tools: getGoalToolAllowlist('learning'),
+          tools: getAutonomousToolsForAgent(agentId, 'learning'),
         }
         return this.createInstance(restrictedDef, sessionKey, conversationId)
       },
@@ -1142,7 +1164,7 @@ export class AgentRuntimeBridge {
       saveMessage: (params) => {
         this._conversationRepo?.saveMessage({
           conversationId: params.conversationId,
-          agentId: 'assistant',
+          agentId: params.agentId ?? 'assistant',
           role: params.role,
           contentJson: { type: 'text', text: params.text },
         })
@@ -1153,10 +1175,10 @@ export class AgentRuntimeBridge {
       ...(this.config.getChannelRouter
         ? { getChannelRouter: this.config.getChannelRouter }
         : {}),
-      addMemory: (content: string) => {
+      addMemory: (content: string, agentId?: string) => {
         // category 用 project：概览页「近期关注」的默认分段就是它
         this._memoryManager?.addMemory({
-          agentId: 'assistant',
+          agentId: agentId ?? 'assistant',
           userId: 'local-user',
           category: 'project',
           content,
@@ -1224,16 +1246,17 @@ export class AgentRuntimeBridge {
                 getDb: () => this.localDb.db,
                 isAutonomousEnabled: () => readAutonomousEnabled(this.localDb.db),
                 driveConflictGoal: () => this.executeSyncConflictGoal(),
+                listAutonomousAgentIds: () => this.listAutonomousAgentIds(),
                 hasActiveUserTurn: () => {
                   // 只认「真实用户会话」的流式消息。后台 cron 任务（cron:% 前缀会话）与
-                  // 自主进化自己的独白（evolution:main）在流式期间不算用户回合，否则
+                  // 自主进化自己的独白（evolution:* 全部自主会话）在流式期间不算用户回合，否则
                   // 后台定时任务一跑起来，心跳 tick 就会全部误判为「用户正在对话」而空转。
                   const rows = this.localDb.db
                     .prepare<{ conversation_id: string }>(
                       `SELECT DISTINCT conversation_id FROM messages
                        WHERE is_streaming = 1
                          AND conversation_id NOT LIKE 'cron:%'
-                         AND conversation_id != 'evolution:main'`,
+                         AND conversation_id NOT LIKE 'evolution:%'`,
                     )
                     .all()
                   if (rows.length === 0) return false
@@ -1285,31 +1308,32 @@ export class AgentRuntimeBridge {
                   }
                   return hasActive
                 },
-                appendEvolutionMessage: (text) => {
-                  this.ensureConversationExists(EVOLUTION_CONVERSATION_ID, '自主进化 · 内心独白')
+                appendEvolutionMessage: (agentId, text) => {
+                  const convId = this.evolutionConversationIdFor(agentId)
+                  this.ensureConversationExists(convId, this.evolutionConversationTitleFor(agentId))
                   this._conversationRepo?.saveMessage({
-                    conversationId: EVOLUTION_CONVERSATION_ID,
-                    agentId: 'assistant',
+                    conversationId: convId,
+                    agentId,
                     role: 'assistant',
                     contentJson: { type: 'text', text },
                   })
                 },
-                executeGoal: async (goal, selfCheckBias) => {
-                  const convId = EVOLUTION_CONVERSATION_ID
-                  this.ensureConversationExists(convId, '自主进化 · 内心独白')
-                  // 硬防线：目标执行实例只挂白名单内的只读工具，不继承 assistant 全量工具，
+                executeGoal: async (goal, agentId, selfCheckBias) => {
+                  const convId = this.evolutionConversationIdFor(agentId)
+                  this.ensureConversationExists(convId, this.evolutionConversationTitleFor(agentId))
+                  // 硬防线：目标执行实例只挂白名单内的只读工具，不继承执行者的全量工具，
                   // 即使护栏 prompt 被绕过也无法执行 bash / 文件写入 / 渠道群发。
                   const baseDef = this.definitionStore
-                    ? await this.definitionStore.get('assistant')
+                    ? await this.definitionStore.get(agentId)
                     : null
                   if (!baseDef) {
-                    finalizeGoal(this.localDb.db, goal.id, { success: false, output: 'assistant 定义缺失，无法执行' })
+                    finalizeGoal(this.localDb.db, goal.id, { success: false, output: `${agentId} 定义缺失，无法执行` })
                     return 'unavailable'
                   }
                   const restrictedDef: AgentDefinition = {
                     ...baseDef,
                     canSpawnSubAgents: false,
-                    tools: getGoalToolAllowlist(goal.type),
+                    tools: getAutonomousToolsForAgent(agentId, goal.type),
                   }
                   const instanceId = await this.createInstance(restrictedDef, convId, convId)
                   try {
@@ -1322,13 +1346,13 @@ export class AgentRuntimeBridge {
                       // 不能依赖 message:end 自动持久化——内部 cron 实例不走 UI 流式落库路径。
                       this._conversationRepo?.saveMessage({
                         conversationId: convId,
-                        agentId: 'assistant',
+                        agentId,
                         role: 'user',
                         contentJson: { type: 'text', text: `完成目标：${goal.description}` },
                       })
                       this._conversationRepo?.saveMessage({
                         conversationId: convId,
-                        agentId: 'assistant',
+                        agentId,
                         role: 'assistant',
                         contentJson: { type: 'text', text: output },
                       })
@@ -1338,17 +1362,38 @@ export class AgentRuntimeBridge {
                           { memoryManager: this._memoryManager, wikiRepo: this._wikiRepo },
                           goal,
                           output,
+                          agentId,
                         )
                       }
                     }
                     finalizeGoal(this.localDb.db, goal.id, { success: ok, output })
-                    this.recordMoodEvent(ok ? 'goal_completed' : 'task_failed')
-                    // 目标完成 → 通知用户查看产出（点击跳 evolution:main，解决「产出只在库里」）
+                    // Mood 属生命感系统（assistant 人格专属），其他自主 Agent 不参与
+                    if (agentId === 'assistant') this.recordMoodEvent(ok ? 'goal_completed' : 'task_failed')
+                    // 目标完成 → 通知用户查看产出（点击跳该 Agent 的自主会话，解决「产出只在库里」）
                     if (ok) {
                       this.config.showCronNotification?.(
                         'Lumii',
                         `完成了：${goal.description}`.slice(0, 80),
-                        EVOLUTION_CONVERSATION_ID,
+                        convId,
+                      )
+                    } else {
+                      // 失败可见性（A5）：失败也落会话 + 通知——目标静默失败会让用户无从知晓
+                      this._conversationRepo?.saveMessage({
+                        conversationId: convId,
+                        agentId,
+                        role: 'user',
+                        contentJson: { type: 'text', text: `目标未完成：${goal.description}` },
+                      })
+                      this._conversationRepo?.saveMessage({
+                        conversationId: convId,
+                        agentId,
+                        role: 'assistant',
+                        contentJson: { type: 'text', text: output.slice(0, 500) || '（无输出）' },
+                      })
+                      this.config.showCronNotification?.(
+                        'Lumii',
+                        `目标未完成：${goal.description}`.slice(0, 80),
+                        convId,
                       )
                     }
                     return ok ? 'completed' : 'failed'
@@ -1356,7 +1401,8 @@ export class AgentRuntimeBridge {
                     this.destroy(instanceId)
                   }
                 },
-                sendOutreach: async (goal) => {
+                sendOutreach: async (goal, agentId) => {
+                  const convId = this.evolutionConversationIdFor(agentId)
                   const now = new Date()
                   const settings = readSettings(this.localDb.db)
                   if (!canSendOutreach(this.localDb.db, now, settings.maxOutreachPerDay)) {
@@ -1376,7 +1422,7 @@ export class AgentRuntimeBridge {
                         this.config.showCronNotification?.(
                           OUTREACH_SYSTEM_NOTIFY_TITLE,
                           goal.description,
-                          EVOLUTION_CONVERSATION_ID,
+                          convId,
                         )
                       } else if (kind === 'feishu') {
                         const router = this.config.getChannelRouter?.()
@@ -1415,33 +1461,37 @@ export class AgentRuntimeBridge {
                   }
                   recordOutreach(this.localDb.db, now)
                   finalizeGoal(this.localDb.db, goal.id, { success: true, output: goal.description })
-                  this.recordMoodEvent('user_initiates')
+                  if (agentId === 'assistant') this.recordMoodEvent('user_initiates')
                   if (this._memoryManager) {
-                    recordProactiveAction(this._memoryManager, goal, 'sent')
+                    recordProactiveAction(this._memoryManager, goal, 'sent', agentId)
                   }
                   return 'sent'
                 },
-                reflect: async () => {
-                  const output = await reflectAutonomous('assistant', 'scheduled')
+                reflect: async (agentId) => {
+                  const output = await reflectAutonomous(agentId, 'scheduled')
                   const summary = output.diagnosis.primaryIssue
-                  this.ensureConversationExists(EVOLUTION_CONVERSATION_ID, '自主进化 · 内心独白')
+                  const convId = this.evolutionConversationIdFor(agentId)
+                  this.ensureConversationExists(convId, this.evolutionConversationTitleFor(agentId))
                   this._conversationRepo?.saveMessage({
-                    conversationId: EVOLUTION_CONVERSATION_ID,
-                    agentId: 'assistant',
+                    conversationId: convId,
+                    agentId,
                     role: 'user',
                     contentJson: { type: 'text', text: '回顾一下最近的自己' },
                   })
                   this._conversationRepo?.saveMessage({
-                    conversationId: EVOLUTION_CONVERSATION_ID,
-                    agentId: 'assistant',
+                    conversationId: convId,
+                    agentId,
                     role: 'assistant',
                     contentJson: { type: 'text', text: summary },
                   })
-                  // 反思之后立即主动规划一次（低频，静默时段内，继承反思的触发节奏）
-                  await this.runPlannerNow()
+                  // 反思之后立即主动规划一次（v1 规划器仍只服务 assistant）
+                  if (agentId === 'assistant') await this.runPlannerNow()
                   return summary
                 },
-                writeDiary: async () => {
+                writeDiary: async (agentId) => {
+                  // 日记属生命感系统（assistant 人格专属）：collectTickSignals 已对非 assistant 不产 diaryDue，
+                  // 这里再兜一层防御，避免误写
+                  if (agentId !== 'assistant') return 'diary-skipped'
                   const repo = this._autonomousRepo
                   if (!repo) return 'diary-unavailable'
                   const goals = repo.listGoals('assistant')
@@ -1509,7 +1559,9 @@ export class AgentRuntimeBridge {
                   markDiaryWritten(this.localDb.db)
                   return diary.slice(0, 60)
                 },
-                plan: async () => {
+                plan: async (agentId) => {
+                  // v1：规划器只服务 assistant（landing 写 agent_id='assistant'）
+                  if (agentId !== 'assistant') return null
                   // 心跳兜底：静默时段 + 距上次规划满 24h 才拉起规划，否则返回 null 表示不规划
                   if (!shouldFallbackPlan(this.localDb.db, new Date())) return null
                   const ok = await this.runPlannerNow()

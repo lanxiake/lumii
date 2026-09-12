@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildGoalPrompt, getGoalToolAllowlist, finalizeGoal } from '../goal-executor';
+import {
+  buildGoalPrompt,
+  getGoalToolAllowlist,
+  getAutonomousToolsForAgent,
+  finalizeGoal,
+} from '../goal-executor';
 import { GoalType, GoalStatus, type AutonomousGoal } from '../types';
 
 function makeGoal(type: GoalType): AutonomousGoal {
@@ -47,6 +52,27 @@ describe('buildGoalPrompt', () => {
   it('非审慎状态时不含复查护栏', () => {
     const prompt = buildGoalPrompt(makeGoal(GoalType.LEARNING), false);
     expect(prompt).not.toContain('复查');
+  });
+});
+
+describe('getAutonomousToolsForAgent', () => {
+  it('system-keeper 走维护白名单：无 bash / file_write / app_*，含记忆与 cron', () => {
+    const tools = getAutonomousToolsForAgent('system-keeper', 'learning');
+    expect(tools).toContain('profile_memory');
+    expect(tools).toContain('memory_manage');
+    expect(tools).toContain('cron_create');
+    expect(tools).toContain('wiki_read');
+    expect(tools).toContain('skill_invoke');
+    expect(tools).not.toContain('bash');
+    expect(tools).not.toContain('file_write');
+    expect(tools).not.toContain('app_act');
+    expect(tools).not.toContain('file_edit');
+  });
+
+  it('其他 Agent 沿用通用白名单（行为不变）', () => {
+    const tools = getAutonomousToolsForAgent('assistant', 'learning');
+    expect(tools).toEqual(getGoalToolAllowlist('learning'));
+    expect(tools).toContain('file_write');
   });
 });
 

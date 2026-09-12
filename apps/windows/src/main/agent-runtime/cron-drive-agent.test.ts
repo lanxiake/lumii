@@ -95,4 +95,46 @@ describe.skipIf(!hasFts5Db)('cron driveAgent 产出回读', () => {
     expect(run?.summary).toBe(agentReply)
     expect(run?.summary).not.toBe(taskText)
   })
+
+  it('产出落库携带任务执行者归属（saveMessage.agentId 透传）', async () => {
+    const convId = 'cron:test-chronicler'
+    const taskText = '整理今天的工作'
+    db.prepare(
+      `INSERT INTO local_cron_jobs
+       (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, notify_targets, system_prompt)
+       VALUES ('test-chronicler', '测试记事', ?, 'chronicler', 'cron', '0 18 * * *', 0, NULL, 1, 0, 'silent', '写日报')`,
+    ).run(taskText)
+    db.prepare(
+      `INSERT INTO conversations (id, user_id, type, title, created_at) VALUES (?, 'local-user', 'direct', '定时任务', ?)`,
+    ).run(convId, new Date().toISOString())
+
+    const saveMessage = vi.fn()
+    const scheduler = new CronScheduler({ isOpen: true, db } as never, {
+      showCronNotification: vi.fn(),
+      getLastActiveConvId: () => null,
+      ensureConversationExists: () => true,
+      notifyIncomingMessage: vi.fn(),
+      createInstanceById: async () => 'inst-a',
+      waitForInstanceIdle: async () => undefined,
+      getAssistantOutputFromInstance: () => '产出',
+      prompt: async () => undefined,
+      destroy: () => undefined,
+      getFileRepo: () => null,
+      getCwd: () => 'C:/tmp',
+      saveMessage,
+    } as never)
+
+    await (
+      scheduler as unknown as {
+        runLocalCronJob: (
+          job: { id: string; task_text: string; agent_id: string | null },
+          options?: { manual?: boolean },
+        ) => Promise<void>
+      }
+    ).runLocalCronJob({ id: 'test-chronicler', task_text: taskText, agent_id: 'chronicler' }, { manual: true })
+
+    expect(saveMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ role: 'assistant', text: '产出', agentId: 'chronicler' }),
+    )
+  })
 })

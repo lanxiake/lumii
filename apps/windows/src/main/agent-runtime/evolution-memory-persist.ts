@@ -39,11 +39,12 @@ function buildTitle(goal: ApprovedGoalSignal): string {
   return `学习成果 · ${base}`
 }
 
-/** 学习目标完成后，产出沉淀进工作记忆 + Wiki 知识页（两者都留存） */
+/** 学习目标完成后，产出沉淀进工作记忆 + Wiki 知识页（两者都留存）。agentId 为产出归属（缺省 assistant）。 */
 export function persistLearningOutcome(
   deps: EvolutionPersistDeps,
   goal: ApprovedGoalSignal,
   output: string,
+  agentId: string = AGENT_ID,
 ): void {
   const body = output.trim()
   if (!body) return
@@ -51,7 +52,7 @@ export function persistLearningOutcome(
   // 1) 工作记忆（可 FTS 检索、后续注入 prompt 复用）
   try {
     deps.memoryManager.addMemory({
-      agentId: AGENT_ID,
+      agentId,
       userId: LOCAL_USER_ID,
       category: 'reference',
       content: truncate(body),
@@ -67,7 +68,7 @@ export function persistLearningOutcome(
     const title = buildTitle(goal)
     const markdown = `# ${title}\n\n> 来源：自主进化 · 学习目标（${goal.type}）\n\n${body}\n`
     const source = deps.wikiRepo.createSource({
-      agentId: AGENT_ID,
+      agentId,
       userId: LOCAL_USER_ID,
       title,
       mediaType: 'document',
@@ -80,7 +81,7 @@ export function persistLearningOutcome(
     })
     deps.wikiRepo.indexSource(source.id)
     try {
-      deps.wikiRepo.updateSourceTopic(AGENT_ID, LOCAL_USER_ID, source.id, '学习', '成果')
+      deps.wikiRepo.updateSourceTopic(agentId, LOCAL_USER_ID, source.id, '学习', '成果')
     } catch (err) {
       // 用户自定义分类树可能不含「学习/成果」，分类失败不阻断已留存的资料
       log.warn('[persistLearningOutcome] Wiki 分类失败（资料已留存为未分类）:', err)
@@ -90,15 +91,16 @@ export function persistLearningOutcome(
   }
 }
 
-/** 主动操作（主动消息）完成后，记录一条「我主动做了什么」的工作记忆 */
+/** 主动操作（主动消息）完成后，记录一条「我主动做了什么」的工作记忆（agentId 缺省 assistant） */
 export function recordProactiveAction(
   memoryManager: MemoryManager,
   goal: ApprovedGoalSignal,
   outcome: string,
+  agentId: string = AGENT_ID,
 ): void {
   try {
     memoryManager.addMemory({
-      agentId: AGENT_ID,
+      agentId,
       userId: LOCAL_USER_ID,
       category: 'reference',
       content: `主动联系用户：${goal.description}（${outcome}）`,

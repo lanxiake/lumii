@@ -60,6 +60,11 @@ export interface AgentRuntimeBridgeConfig {
    */
   showCronNotification?: (title: string, body: string, convId?: string) => void
   /**
+   * 开启自主能力的额外 Agent（除 assistant 外；来自 app.json autonomousAgents）。
+   * 心跳 tick 遍历 assistant + 本列表；缺省/空表示仅 assistant 参与。
+   */
+  getAutonomousAgents?: () => readonly string[]
+  /**
    * 主动推送文本到飞书（由 index.ts 注入，调用 feishuLoginService.pushText）。
    * 收件人是登录时记录的 openId，定时任务结果推送用。
    */
