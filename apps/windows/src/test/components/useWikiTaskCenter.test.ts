@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { WikiRunItem } from '../../renderer/hooks/business/useWikiPage/useWikiPage'
+import type { WikiRunItem } from '../../renderer/hooks/business/useWikiPage'
 import { createWikiTaskCenterStore } from '../../renderer/pages/MemoriesPage/components/useWikiTaskCenter'
 
 afterEach(() => {

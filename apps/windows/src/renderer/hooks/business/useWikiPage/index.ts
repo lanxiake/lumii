@@ -1,5 +1,5 @@
+export { useWikiPage } from './useWikiPage'
 export {
-  useWikiPage,
   type WikiInboxItem,
   type WikiFolderCandidateItem,
   type WikiFolderScanResult,
@@ -29,4 +29,4 @@ export {
   type WikiSourceDetail,
   type WikiSourceSearchHit,
   type SearchMode,
-} from './useWikiPage'
+} from './useWikiPage.types'

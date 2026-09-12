@@ -1,5 +1,5 @@
 import { useRef, useSyncExternalStore } from 'react'
-import type { WikiRunItem } from '../../../hooks/business/useWikiPage/useWikiPage'
+import type { WikiRunItem } from '../../../hooks/business/useWikiPage'
 
 export type WikiTaskKind = 'archive' | 'cleanup' | 'rebuild' | 'graph' | 'reclassify' | 'migrate'
 export type WikiTaskPhase = 'running' | 'succeeded' | 'failed'
