@@ -20,7 +20,7 @@
 | 2 · ui 组件库收敛 | 6 个零引用 ui 组件逐个复核后清理、桶导出处理、补 IconButton/Tabs 场景，按页替换标准按钮 | 组件层，可多次提交 | 低 | **已完成**（2026-09-12）→ [实施计划](./02-ui组件库收敛.md)；按钮替换试点已回退（见文档"试点结论"） |
 | 3 · Wiki 样式归位 | 3 个全局样式文件 2847 行 / 310 个类 → 19 个 module.css，消除 18 文件 × 325 处字面类名耦合；含 58 个死类名 496 行退场（B0） | 大但机械 | 中 | **已完成**（2026-09-12，9 个提交）→ [实施计划](./03-Wiki样式归位.md) · [类名归属对照表](./03a-Wiki类名归属对照表.md) |
 | 4 · ChatPage 结构 | 21 个 props 穿透收敛（引 Chat 会话 Context）+ 删除与 ui/Toast 重复的本地 Toast | 中 | 中 | **已完成**（2026-09-12，3 个执行提交）→ [实施计划](./04-ChatPage结构.md) |
-| 5 · 数据层规范 | 16 个 hook 迁移到 useQuery/useAsync；pages/components 中 169 处直调 electronAPI 收敛到 services | 大，可再细分 | 中 | **进行中**（2026-09-12，拆为 5A hooks / 5B services / 5C 大 hook 评估）→ [实施计划](./05-数据层规范.md) |
+| 5 · 数据层规范 | 16 个 hook 迁移到 useQuery/useAsync；pages/components 中 169 处直调 electronAPI 收敛到 services | 大，可再细分 | 中 | **5B 已完成**（2026-09-13：services 收敛收官，渲染层非白名单直调归零，仅剩 agentRuntime 命令面白名单与按计划不动的 `pet/`；详见 [05 文档 §八](./05-数据层规范.md)）；5A hooks 2 迁移 / 14 豁免；5C 大 hook 评估待执行 |
 
 ## 三、切片依据（体检结论摘要，证据均为 file:line）
 
