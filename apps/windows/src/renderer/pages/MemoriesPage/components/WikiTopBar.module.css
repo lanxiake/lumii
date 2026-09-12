@@ -1,0 +1,195 @@
+/* WikiTopBar — 由 WikiTab.css 迁出（第 3 片 B1） */
+
+.wiki-top-bar {
+  display: grid;
+  grid-template-columns: minmax(280px, 460px) minmax(0, 1fr) minmax(120px, auto);
+  align-items: center;
+  gap: 20px;
+  min-height: 68px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+}
+
+.wiki-top-bar-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-tertiary);
+}
+
+.wiki-top-bar-search:focus-within {
+  border-color: var(--color-primary);
+}
+
+.wiki-top-bar-search input {
+  flex: 1;
+  min-width: 40px;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+/* 芯片 + 草稿输入组成的多条件搜索簇 */
+
+.wiki-search-input-cluster {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 已确认的搜索条件芯片，包裹在输入框内 */
+
+.wiki-search-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 180px;
+  padding: 2px 4px 2px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.wiki-search-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiki-search-chip-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.wiki-search-chip-remove:hover {
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  opacity: 1;
+}
+
+.wiki-top-bar-clear {
+  display: flex;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+.wiki-top-bar-heading {
+  min-width: 0;
+}
+
+.wiki-top-bar-heading h2,
+.wiki-top-bar-heading p {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiki-top-bar-heading h2 {
+  color: var(--color-text-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.wiki-top-bar-heading p {
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+}
+
+.wiki-top-bar-tasks {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.wiki-top-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--mt-space-2);
+  flex-shrink: 0;
+}
+
+.wiki-top-bar-help {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.wiki-top-bar-help:hover {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+}
+
+.wiki-task-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, transparent);
+  border-radius: 999px;
+  background: var(--color-accent-soft);
+  color: var(--color-primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.wiki-task-pill-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--color-text-tertiary);
+}
+
+.wiki-task-pill--running .wiki-task-pill-dot {
+  background: var(--color-primary);
+}
+
+.wiki-task-pill--success .wiki-task-pill-dot {
+  background: var(--color-success);
+}
+
+.wiki-task-pill--error .wiki-task-pill-dot {
+  background: var(--color-error);
+}
+
+@media (max-width: 720px) {
+  .wiki-top-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 10px 14px;
+  }
+}

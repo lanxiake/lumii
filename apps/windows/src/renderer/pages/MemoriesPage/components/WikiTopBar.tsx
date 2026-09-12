@@ -5,6 +5,7 @@ import { WIKI_SEARCH_TOOLTIP, WIKI_TASK_PILL_TOOLTIP } from './wikiTooltips'
 import { WikiBreadcrumb } from './WikiBreadcrumb'
 import type { WikiNav } from './WikiLeftNav'
 import type { WikiBreadcrumbItem } from './wikiBreadcrumbs'
+import styles from './WikiTopBar.module.css'
 
 interface WikiTopBarProps {
   title: string
@@ -24,6 +25,14 @@ interface WikiTopBarProps {
   pillTone: 'running' | 'success' | 'error' | 'idle'
   onOpenTasks: () => void
   onOpenHelp?: () => void
+}
+
+/** 任务胶囊色调 → 模块类名（idle 无对应样式，渲染为空） */
+const TASK_PILL_TONE_CLASS: Record<WikiTopBarProps['pillTone'], string> = {
+  running: styles['wiki-task-pill--running'],
+  success: styles['wiki-task-pill--success'],
+  error: styles['wiki-task-pill--error'],
+  idle: '',
 }
 
 /**
@@ -58,17 +67,17 @@ export const WikiTopBar: React.FC<WikiTopBarProps> = ({
   const hasCondition = terms.length > 0 || draft.trim().length > 0
 
   return (
-    <header className="wiki-top-bar">
+    <header className={styles['wiki-top-bar']}>
       <Tooltip content={WIKI_SEARCH_TOOLTIP} placement="bottom">
-        <form className="wiki-top-bar-search" role="search" onSubmit={handleSubmit}>
+        <form className={styles['wiki-top-bar-search']} role="search" onSubmit={handleSubmit}>
           <Search size={14} aria-hidden="true" />
-          <div className="wiki-search-input-cluster">
+          <div className={styles['wiki-search-input-cluster']}>
             {terms.map((term) => (
-              <span key={term} className="wiki-search-chip">
-                <span className="wiki-search-chip-text">{term}</span>
+              <span key={term} className={styles['wiki-search-chip']}>
+                <span className={styles['wiki-search-chip-text']}>{term}</span>
                 <button
                   type="button"
-                  className="wiki-search-chip-remove"
+                  className={styles['wiki-search-chip-remove']}
                   aria-label={`移除筛选 ${term}`}
                   onClick={() => onRemoveTerm(term)}
                 >
@@ -90,14 +99,14 @@ export const WikiTopBar: React.FC<WikiTopBarProps> = ({
             />
           </div>
           {hasCondition && onClearSearch && (
-            <button type="button" className="wiki-top-bar-clear" onClick={onClearSearch} aria-label="清除搜索">
+            <button type="button" className={styles['wiki-top-bar-clear']} onClick={onClearSearch} aria-label="清除搜索">
               <X size={13} />
             </button>
           )}
         </form>
       </Tooltip>
 
-      <div className="wiki-top-bar-heading">
+      <div className={styles['wiki-top-bar-heading']}>
         {breadcrumbs && breadcrumbs.length > 0 && onBreadcrumbNavigate ? (
           <WikiBreadcrumb
             items={breadcrumbs}
@@ -110,12 +119,12 @@ export const WikiTopBar: React.FC<WikiTopBarProps> = ({
         <p>{subtitle}</p>
       </div>
 
-      <div className="wiki-top-bar-actions">
+      <div className={styles['wiki-top-bar-actions']}>
         {onOpenHelp && (
           <Tooltip content="打开 Wiki 使用指引与操作说明" placement="bottom">
             <button
               type="button"
-              className="wiki-top-bar-help"
+              className={styles['wiki-top-bar-help']}
               onClick={onOpenHelp}
               aria-label="使用指引"
             >
@@ -123,15 +132,15 @@ export const WikiTopBar: React.FC<WikiTopBarProps> = ({
             </button>
           </Tooltip>
         )}
-        <div className="wiki-top-bar-tasks">
+        <div className={styles['wiki-top-bar-tasks']}>
           {pillText && (
             <Tooltip content={WIKI_TASK_PILL_TOOLTIP} placement="bottom">
               <button
                 type="button"
-                className={`wiki-task-pill wiki-task-pill--${pillTone}`}
+                className={`${styles['wiki-task-pill']} ${TASK_PILL_TONE_CLASS[pillTone]}`}
                 onClick={onOpenTasks}
               >
-                <span className="wiki-task-pill-dot" aria-hidden="true" />
+                <span className={styles['wiki-task-pill-dot']} aria-hidden="true" />
                 {pillText}
               </button>
             </Tooltip>

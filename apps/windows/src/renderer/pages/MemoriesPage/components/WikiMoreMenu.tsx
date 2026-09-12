@@ -8,6 +8,7 @@ import {
 import { Switch } from '../../../components/ui/Switch/Switch'
 import { Tooltip } from '../../../components/ui/Tooltip/Tooltip'
 import { WIKI_MORE_MENU_TOOLTIPS } from './wikiTooltips'
+import styles from './WikiMoreMenu.module.css'
 
 interface WikiMoreMenuProps {
   readonly open: boolean
@@ -81,7 +82,7 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
   if (!open) return null
 
   return (
-    <div ref={menuRef} className="wiki-more-menu" role="menu" aria-label="更多工具">
+    <div ref={menuRef} className={styles['wiki-more-menu']} role="menu" aria-label="更多工具">
       {MENU_ITEMS.map(({ key, label, description, icon: Icon }) => {
         const handleClick = () => {
           if (key === 'reclassifyAll') onReclassifyAll()
@@ -97,7 +98,7 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
           <Tooltip key={key} content={tooltip} placement="right">
             <button
               type="button"
-              className="wiki-more-menu-item"
+              className={styles['wiki-more-menu-item']}
               role="menuitem"
               onClick={handleClick}
             >
@@ -110,9 +111,9 @@ export const WikiMoreMenu: React.FC<WikiMoreMenuProps> = ({
           </Tooltip>
         )
       })}
-      <div className="wiki-more-menu-divider" role="separator" />
+      <div className={styles['wiki-more-menu-divider']} role="separator" />
       <Tooltip content={WIKI_MORE_MENU_TOOLTIPS.autoClassify} placement="right">
-        <div className="wiki-more-menu-toggle">
+        <div className={styles['wiki-more-menu-toggle']}>
           <span>
             <strong>AI 自动分类</strong>
             <small>新资料导入后自动归档到目录</small>

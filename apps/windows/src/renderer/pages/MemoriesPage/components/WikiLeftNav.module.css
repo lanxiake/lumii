@@ -1,0 +1,83 @@
+/* WikiLeftNav — 由 WikiTab.css 迁出（第 3 片 B1） */
+
+.wiki-left-nav {
+  display: flex;
+  flex-direction: column;
+  width: 192px;
+  min-width: 148px;
+  min-height: 0;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
+  padding: 14px 10px;
+  overflow: visible;
+}
+
+.wiki-left-nav-primary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.wiki-left-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.wiki-left-nav-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.wiki-left-nav-item--active {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.wiki-left-nav-count {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--color-bg-secondary);
+  font-size: 11px;
+  text-align: center;
+  color: var(--color-text-tertiary);
+}
+
+.wiki-left-nav-footer {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.wiki-left-nav-count--warn {
+  background: var(--color-error);
+  color: #fff;
+}
+
+/* 窄窗口：左栏折叠为图标条，顶栏允许搜索独占一行。 */
+
+@media (max-width: 720px) {
+  .wiki-left-nav {
+    width: 56px;
+    min-width: 56px;
+  }
+
+  .wiki-left-nav-label,
+  .wiki-left-nav-count {
+    display: none;
+  }
+}

@@ -3,6 +3,7 @@
  */
 import React from 'react'
 import { ChevronRight } from 'lucide-react'
+import styles from './WikiBreadcrumb.module.css'
 import type { WikiNav } from './WikiLeftNav'
 import type { WikiBreadcrumbItem } from './wikiBreadcrumbs'
 
@@ -20,28 +21,28 @@ export const WikiBreadcrumb: React.FC<WikiBreadcrumbProps> = ({ items, suffix, o
   if (items.length === 0) return null
 
   return (
-    <nav className="wiki-breadcrumb" aria-label="当前位置">
-      <ol className="wiki-breadcrumb-list">
+    <nav className={styles['wiki-breadcrumb']} aria-label="当前位置">
+      <ol className={styles['wiki-breadcrumb-list']}>
         {items.map((item, index) => {
           const isLast = index === items.length - 1
           const canNavigate = Boolean(item.nav) && !isLast
 
           return (
-            <li key={`${item.label}-${index}`} className="wiki-breadcrumb-item">
+            <li key={`${item.label}-${index}`} className={styles['wiki-breadcrumb-item']}>
               {index > 0 && (
-                <ChevronRight size={12} className="wiki-breadcrumb-sep" aria-hidden="true" />
+                <ChevronRight size={12} className={styles['wiki-breadcrumb-sep']} aria-hidden="true" />
               )}
               {canNavigate && item.nav ? (
                 <button
                   type="button"
-                  className="wiki-breadcrumb-link"
+                  className={styles['wiki-breadcrumb-link']}
                   onClick={() => onNavigate(item.nav!)}
                 >
                   {item.label}
                 </button>
               ) : (
                 <span
-                  className="wiki-breadcrumb-current"
+                  className={styles['wiki-breadcrumb-current']}
                   aria-current={isLast ? 'page' : undefined}
                   // 面包屑激活时是主区唯一的标题来源，末级需要 heading 语义，
                   // 否则无障碍工具与依赖 heading 角色定位标题的测试都找不到当前页标题。
