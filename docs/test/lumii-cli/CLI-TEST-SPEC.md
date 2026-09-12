@@ -155,6 +155,7 @@ ID 规则：`<域大写>-<子域>-<序号>`（`CHAT-CORE-01`、`MEM-03`、`CMP-0
 | 上下文压缩 | context usage/messages | — | `chat/run-chat-compression-suite` |
 | Wiki | wiki* 命令面 | `wiki/run-wiki-cli-suite`、三级分类 | `chat/run-chat-wiki-suite`（聊天摄入） |
 | 自主进化 | autonomous 命令面 | `autonomous/run-autonomous-cli-suite` | `autonomous/run-autonomous-{e2e,full-e2e,life-e2e,planning-e2e}` |
+| 专项 Agent 团队（定义/开发上下文/多轮续接） | `agent-team` AT-L1-01 | `agent-team/run-agent-team-e2e.mjs`（AT-L2-01~04） | `agent-team/run-agent-team-e2e.mjs`（S1-S6 场景化旅程） |
 | 云同步 | cloudsync status | `cloud-sync/run-cloud-sync-suite` | 缺口（多设备同步难以单机模拟，见各报告限制） |
 | 工具进化 | tool-evolution* 命令面 | 缺口 | 缺口 |
 | 技能 / 设置 / 桌宠 | 缺口（无专用套件） | — | — |

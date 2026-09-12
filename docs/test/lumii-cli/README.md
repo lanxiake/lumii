@@ -14,6 +14,7 @@ docs/test/lumii-cli/
 ├── chat/                  # 真实聊天模拟（L3）：核心对话/记忆/压缩/Wiki 摄入
 ├── wiki/                  # Wiki 知识库专项
 ├── autonomous/            # 自主进化专项
+├── agent-team/            # 一等公民 Agent 团队：场景化旅程（成员会话/日报送达/开发模式续接）
 ├── cloud-sync/            # 云同步专项
 └── materials/             # 真实文档样本（docx/mp4/PDF，gitignore 不提交）
 ```
@@ -68,6 +69,14 @@ docs/test/lumii-cli/
 | [run-autonomous-effectiveness-e2e.mjs](./autonomous/run-autonomous-effectiveness-e2e.mjs) | **有效性加速实验执行器**（EVO_ONLY=A/B/C、EVO_DIGEST_ONLY、EVO_SKIP_LLM 等开关） |
 | [autonomous-effectiveness-report.md](./autonomous/autonomous-effectiveness-report.md) | 有效性验证报告（含三问结论、缺陷清单、条件清单） |
 
+### 一等公民 Agent 团队（agent-team/）— 场景化用户旅程
+
+| 文件 | 说明 |
+|---|---|
+| [agent-team-test-cases.md](./agent-team/agent-team-test-cases.md) | 旅程地图 + 用例：找成员办事（开发/维护/情报）、日报送达、开发模式续接、日常回归 + L1/L2 数据链路 |
+| [run-agent-team-e2e.mjs](./agent-team/run-agent-team-e2e.mjs) | 执行器（`AT_ONLY=S3` 选择性运行、`AT_SKIP_LLM=1` 离线只跑 L1/L2、`AT_SKIP_CLI=1` 跳过 claude 场景、`AT_TICK=1` 启用 tick 条件用例） |
+| [agent-team-report.md](./agent-team/agent-team-report.md) | 最新报告（含副作用声明与覆盖限制） |
+
 ### 云同步专项（cloud-sync/）
 
 | 文件 | 说明 |
@@ -107,13 +116,18 @@ node docs/test/lumii-cli/autonomous/run-autonomous-e2e.mjs
 # 自主进化有效性验证（EVO 加速实验，A/B/C 可分批；产物含结论报告）
 EVO_ONLY=A node docs/test/lumii-cli/autonomous/run-autonomous-effectiveness-e2e.mjs
 
+# 一等公民 Agent 团队（场景化；S1-S6 真实 LLM）
+node docs/test/lumii-cli/agent-team/run-agent-team-e2e.mjs
+AT_ONLY=S3 node docs/test/lumii-cli/agent-team/run-agent-team-e2e.mjs     # 只跑「记偏好」场景
+AT_SKIP_LLM=1 node docs/test/lumii-cli/agent-team/run-agent-team-e2e.mjs # 离线只跑 L1/L2
+
 # 云同步
 node docs/test/lumii-cli/cloud-sync/run-cloud-sync-suite.mjs
 ```
 
 通用环境变量（chat 套件）：`CHAT_ONLY=<用例ID前缀>` 过滤、`CHAT_SKIP_LLM=1` 跳过真实 LLM 用例、`CHAT_TURN_TIMEOUT_MS` 回合超时、`LUMII_CLI_VERBOSE=1` 详细日志。
 
-## 最近执行（2026-09-12，真实客户端）
+## 最近执行（2026-09-12 ~ 09-13，真实客户端）
 
 | 套件 | 结果 | 说明 |
 |---|---|---|
@@ -123,6 +137,7 @@ node docs/test/lumii-cli/cloud-sync/run-cloud-sync-suite.mjs
 | `chat/run-chat-compression-suite.mjs` | **6/6** | compact 基本流/压缩后回忆/usage/原文保留/中止 |
 | `chat/run-chat-wiki-suite.mjs` | **4/5**（1 SKIP） | 检索工具调用、聊天不自动摄入（负例）、未找到行为；导入闭环（WIKI-05）异步超时 SKIP |
 | `autonomous/run-autonomous-effectiveness-e2e.mjs` | **A 4/4、B 6/7（1 SKIP）、C 3/4+补验** | 有效性验证：变体学习因果链 12/12、闭环产出真实训练工程、Mood/日记事件驱动；**发现 abort 残留致心跳瘫痪等 6 项缺陷**（详见 [有效性报告](./autonomous/autonomous-effectiveness-report.md)） |
+| `agent-team/run-agent-team-e2e.mjs`（2026-09-13） | **10/11（1 SKIP）** | 场景化：灵栖开发列目录 / 灵栖维护记忆体检（红线零改动）/ 灵栖情报偏好落 agent_memories / 日报由 chronicler 真实产出（agent_id 硬验证）/ claude 两轮续接（node 版本追答复述）/ 日常聊天回归；tick 多 Agent 条件用例待配置 autonomousAgents 后重跑 |
 | 场景记忆存量迁移 | **已执行并验证** | 2 条项目偏好迁入 `scene-memory/`；真实数据聊天验证：注入日志命中 + 负例零误注入 |
 
 ## 相关规范与设计
