@@ -45,7 +45,7 @@ import { buildWikiBreadcrumbs } from './wikiBreadcrumbs'
 import { buildWikiRemoveConfirmContent } from './wikiRemoveConfirm'
 import { WikiTaskCenter } from './WikiTaskCenter'
 import { useWikiTaskCenter, type WikiLocalTask, type WikiMigratePhase } from './useWikiTaskCenter'
-import './WikiTab.css'
+import styles from './WikiTab.module.css'
 import shared from './wiki-shared.module.css'
 
 /** 归档选择器的目标：inbox 队列条目，或已进资料层但待补分/需要移动的文件 */
@@ -1445,7 +1445,7 @@ export const WikiTab: React.FC = () => {
       : { title: FIXED_NAV_CONTEXT[nav.kind]?.title ?? 'Wiki', subtitle: FIXED_NAV_CONTEXT[nav.kind]?.subtitle ?? '', breadcrumbs: null as null, breadcrumbSuffix: undefined }
 
   return (
-    <div className="wiki-tab">
+    <div className={styles['wiki-tab']}>
       <WikiLeftNav
         active={isMoreMenuOpen ? { kind: 'more' } : nav}
         inboxCount={pendingCount}
@@ -1509,7 +1509,7 @@ export const WikiTab: React.FC = () => {
             : `将扫描 ${reclassifyConfirm?.count ?? 0} 个已归档文件，不会改临时存放。`}
         </p>
         <p className={shared['wiki-reclassify-hint']}>AI 会直接调整目录；有问题可删除后重新导入或再编目。</p>
-        <label className="wiki-reclassify-rename-toggle">
+        <label className={styles['wiki-reclassify-rename-toggle']}>
           <input
             type="checkbox"
             checked={reclassifyEnableRename}
@@ -1527,7 +1527,7 @@ export const WikiTab: React.FC = () => {
         onClose={() => setIsTreeEditorOpen(false)}
       />
 
-      <div className="wiki-tab-right">
+      <div className={styles['wiki-tab-right']}>
         <WikiTopBar
           title={currentContext.title}
           subtitle={currentContext.subtitle}
@@ -1546,14 +1546,14 @@ export const WikiTab: React.FC = () => {
           onOpenHelp={() => setHelpOpen(true)}
         />
 
-        <main className="wiki-tab-content">
+        <main className={styles['wiki-tab-content']}>
           {loading && !isCategoryBrowse && (
-            <div className="wiki-loading">
+            <div className={styles['wiki-loading']}>
               <Loading text="加载中..." />
             </div>
           )}
           {openError && (
-            <p className="wiki-open-error" role="alert">
+            <p className={styles['wiki-open-error']} role="alert">
               {openError}
             </p>
           )}
@@ -1561,7 +1561,7 @@ export const WikiTab: React.FC = () => {
           <div className="wiki-search-results">
             <h3>搜索结果（{searchResults.length}）</h3>
             {searchDegradeReason && (
-              <p className="wiki-search-degrade" role="status">
+              <p className={styles['wiki-search-degrade']} role="status">
                 {searchDegradeReason}
               </p>
             )}
@@ -1579,7 +1579,7 @@ export const WikiTab: React.FC = () => {
           </div>
         ) : nav.kind === 'inbox' ? (
           <div className="wiki-inbox-view">
-            <div className="wiki-inbox-view-header">
+            <div className={styles['wiki-inbox-view-header']}>
               <h3>收件箱（{pendingCount}）</h3>
               <Tooltip content={WIKI_FOLDER_IMPORT_TOOLTIP}>
                 <Button
@@ -1592,7 +1592,7 @@ export const WikiTab: React.FC = () => {
                 </Button>
               </Tooltip>
             </div>
-            <p className="wiki-inbox-intro">{WIKI_INBOX_INTRO}</p>
+            <p className={styles['wiki-inbox-intro']}>{WIKI_INBOX_INTRO}</p>
             {inboxItems.length < inboxPending && (
               <p className={shared['wiki-empty-hint']}>仅显示最近 {inboxItems.length} 条</p>
             )}
@@ -1635,7 +1635,7 @@ export const WikiTab: React.FC = () => {
               headerActions={
                 selectedSourceIds.size > 0 ? (
                   <>
-                    <span className="wiki-file-list-batch-count">
+                    <span className={styles['wiki-file-list-batch-count']}>
                       已选 {selectedSourceIds.size} 项
                     </span>
                     <Tooltip content="永久删除所选资料，不可恢复" placement="bottom">
@@ -1668,7 +1668,7 @@ export const WikiTab: React.FC = () => {
               headerActions={
                 selectedSourceIds.size > 0 ? (
                   <>
-                    <span className="wiki-file-list-batch-count">
+                    <span className={styles['wiki-file-list-batch-count']}>
                       已选 {selectedSourceIds.size} 项
                     </span>
                     <Tooltip content="永久删除所选资料，不可恢复" placement="bottom">
@@ -1713,7 +1713,7 @@ export const WikiTab: React.FC = () => {
           />
         ) : isCategoryBrowse && categorySectionName ? (
           <div className={shared['wiki-category-view']}>
-            <div ref={subtopicBarRef} className="wiki-subtopic-bar">
+            <div ref={subtopicBarRef} className={styles['wiki-subtopic-bar']}>
               <WikiSubtopicPanel
                 section={categorySectionName}
                 topicTree={topicTree}
@@ -1741,7 +1741,7 @@ export const WikiTab: React.FC = () => {
               headerActions={
                 selectedSourceIds.size > 0 ? (
                   <>
-                    <span className="wiki-file-list-batch-count">
+                    <span className={styles['wiki-file-list-batch-count']}>
                       已选 {selectedSourceIds.size} 项
                     </span>
                     <Tooltip content="将所选资料移动到另一个分类目录" placement="bottom">

@@ -1,4 +1,4 @@
-/* WikiTab — Wiki 知识库两栏布局（样式限定在本组件作用域） */
+/* WikiTab — 由 WikiTab.css 迁出（第 3 片 B6） */
 
 .wiki-tab {
   position: relative;
@@ -61,30 +61,7 @@
   font-size: 12px;
 }
 
-.wiki-inbox-item-status--pending {
-  background: var(--color-warning-bg, #fef3c7);
-  color: var(--color-warning-text, #92400e);
-}
-
-.wiki-inbox-item-status--processing {
-  background: color-mix(in srgb, var(--color-primary, #3b82f6) 12%, transparent);
-  color: var(--color-primary, #3b82f6);
-}
-
-.wiki-inbox-item-status--failed {
-  background: var(--color-danger-bg, #fee2e2);
-  color: var(--color-danger, #dc2626);
-}
-
-.wiki-inbox-item-status--organized {
-  background: var(--color-success-bg, #d1fae5);
-  color: var(--color-success-text, #065f46);
-}
-
-.wiki-inbox-item-status--discarded {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-tertiary);
-}
+/* 搜索结果降级提示 */
 
 .wiki-search-degrade {
   margin: 8px 0 12px;
@@ -114,7 +91,6 @@
   white-space: nowrap;
 }
 
-/* 搜索结果降级提示 */
 .wiki-search-degrade {
   margin: 0 0 8px;
   padding: 6px 10px;
@@ -125,6 +101,7 @@
 }
 
 /* 大类视图：小分类条与文件列表头（全选/文档类型/新建笔记）在滚动时固定，不随列表滚走 */
+
 .wiki-subtopic-bar {
   position: sticky;
   top: 0;

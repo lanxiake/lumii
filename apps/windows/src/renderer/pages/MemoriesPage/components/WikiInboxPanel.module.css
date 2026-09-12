@@ -141,3 +141,28 @@
   color: var(--color-primary-500, var(--color-primary));
   text-decoration: underline;
 }
+
+.wiki-inbox-item-status--pending {
+  background: var(--color-warning-bg, #fef3c7);
+  color: var(--color-warning-text, #92400e);
+}
+
+.wiki-inbox-item-status--processing {
+  background: color-mix(in srgb, var(--color-primary, #3b82f6) 12%, transparent);
+  color: var(--color-primary, #3b82f6);
+}
+
+.wiki-inbox-item-status--failed {
+  background: var(--color-danger-bg, #fee2e2);
+  color: var(--color-danger, #dc2626);
+}
+
+.wiki-inbox-item-status--organized {
+  background: var(--color-success-bg, #d1fae5);
+  color: var(--color-success-text, #065f46);
+}
+
+.wiki-inbox-item-status--discarded {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-tertiary);
+}
