@@ -4,7 +4,7 @@ import { MarkdownExternalLink } from '../../../utils/markdown-external-link'
 import remarkGfm from 'remark-gfm'
 import { HelpCircle, X } from 'lucide-react'
 import { Button } from '../../../components/ui/Button/Button'
-import './WikiHelpDrawer.css'
+import styles from './WikiHelpDrawer.module.css'
 
 interface WikiHelpDrawerProps {
   readonly open: boolean
@@ -100,29 +100,29 @@ export const WikiHelpDrawer: React.FC<WikiHelpDrawerProps> = ({ open, onClose })
   if (!open) return null
 
   return (
-    <div className="wiki-help-overlay" role="presentation" onClick={onClose}>
+    <div className={styles['wiki-help-overlay']} role="presentation" onClick={onClose}>
       <aside
-        className="wiki-help-drawer"
+        className={styles['wiki-help-drawer']}
         role="dialog"
         aria-label="Wiki 使用指引"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="wiki-help-header">
+        <header className={styles['wiki-help-header']}>
           <h2>
             <HelpCircle size={18} aria-hidden />
             Wiki 使用指引
           </h2>
-          <button type="button" className="wiki-help-close" onClick={onClose} aria-label="关闭">
+          <button type="button" className={styles['wiki-help-close']} onClick={onClose} aria-label="关闭">
             <X size={16} />
           </button>
         </header>
 
-        <div className="wiki-help-tabs" role="tablist" aria-label="指引类型">
+        <div className={styles['wiki-help-tabs']} role="tablist" aria-label="指引类型">
           <button
             type="button"
             role="tab"
             aria-selected={tab === 'quick'}
-            className={tab === 'quick' ? 'wiki-help-tab wiki-help-tab--active' : 'wiki-help-tab'}
+            className={tab === 'quick' ? `${styles['wiki-help-tab']} ${styles['wiki-help-tab--active']}` : styles['wiki-help-tab']}
             onClick={() => setTab('quick')}
           >
             快速指引
@@ -131,18 +131,18 @@ export const WikiHelpDrawer: React.FC<WikiHelpDrawerProps> = ({ open, onClose })
             type="button"
             role="tab"
             aria-selected={tab === 'manual'}
-            className={tab === 'manual' ? 'wiki-help-tab wiki-help-tab--active' : 'wiki-help-tab'}
+            className={tab === 'manual' ? `${styles['wiki-help-tab']} ${styles['wiki-help-tab--active']}` : styles['wiki-help-tab']}
             onClick={() => setTab('manual')}
           >
             完整手册
           </button>
         </div>
 
-        <div className="wiki-help-body">
+        <div className={styles['wiki-help-body']}>
           {tab === 'quick' ? (
             <>
               {QUICK_SECTIONS.map((section) => (
-                <section key={section.title} className="wiki-help-section">
+                <section key={section.title} className={styles['wiki-help-section']}>
                   <h3>{section.title}</h3>
                   <p>
                     {section.body.split('\n').map((line, i) => (
@@ -154,16 +154,16 @@ export const WikiHelpDrawer: React.FC<WikiHelpDrawerProps> = ({ open, onClose })
                   </p>
                 </section>
               ))}
-              <p className="wiki-help-footnote">完整版见「完整手册」标签（随应用安装包内置，离线可用）。</p>
+              <p className={styles['wiki-help-footnote']}>完整版见「完整手册」标签（随应用安装包内置，离线可用）。</p>
             </>
           ) : manualLoading ? (
-            <p className="wiki-help-loading">正在加载内置手册…</p>
+            <p className={styles['wiki-help-loading']}>正在加载内置手册…</p>
           ) : manualError ? (
-            <p className="wiki-help-error" role="alert">
+            <p className={styles['wiki-help-error']} role="alert">
               {manualError}
             </p>
           ) : manualMd ? (
-            <article className="wiki-help-markdown">
+            <article className={styles['wiki-help-markdown']}>
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{ a: MarkdownExternalLink }}
@@ -174,7 +174,7 @@ export const WikiHelpDrawer: React.FC<WikiHelpDrawerProps> = ({ open, onClose })
           ) : null}
         </div>
 
-        <footer className="wiki-help-footer">
+        <footer className={styles['wiki-help-footer']}>
           <Button variant="primary" size="sm" onClick={onClose}>
             知道了
           </Button>

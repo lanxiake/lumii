@@ -3,7 +3,7 @@
  */
 
 import React from 'react'
-import './WikiSourceMeta.css'
+import styles from './WikiSourceMeta.module.css'
 
 interface WikiSourceMetaProps {
   userPath?: string[] | null
@@ -23,15 +23,15 @@ export const WikiSourceMeta: React.FC<WikiSourceMetaProps> = ({
   if (!hasAnyMeta) return null
 
   return (
-    <div className="wiki-source-meta">
+    <div className={styles['wiki-source-meta']}>
       {/* 用户路径 - 面包屑 */}
       {userPath && userPath.length > 0 && (
-        <div className="wiki-source-meta-path">
-          <span className="wiki-source-meta-label">路径:</span>
+        <div className={styles['wiki-source-meta-path']}>
+          <span className={styles['wiki-source-meta-label']}>路径:</span>
           {userPath.map((segment, index) => (
             <React.Fragment key={index}>
-              {index > 0 && <span className="wiki-source-meta-separator">/</span>}
-              <span className="wiki-source-meta-segment">{segment}</span>
+              {index > 0 && <span className={styles['wiki-source-meta-separator']}>/</span>}
+              <span className={styles['wiki-source-meta-segment']}>{segment}</span>
             </React.Fragment>
           ))}
         </div>
@@ -39,10 +39,10 @@ export const WikiSourceMeta: React.FC<WikiSourceMetaProps> = ({
 
       {/* 标签 */}
       {tags && tags.length > 0 && (
-        <div className="wiki-source-meta-tags">
-          <span className="wiki-source-meta-label">标签:</span>
+        <div className={styles['wiki-source-meta-tags']}>
+          <span className={styles['wiki-source-meta-label']}>标签:</span>
           {tags.map((tag, index) => (
-            <span key={index} className="wiki-source-meta-tag">
+            <span key={index} className={styles['wiki-source-meta-tag']}>
               {tag}
             </span>
           ))}
@@ -51,9 +51,9 @@ export const WikiSourceMeta: React.FC<WikiSourceMetaProps> = ({
 
       {/* 描述 */}
       {description && !compact && (
-        <div className="wiki-source-meta-description">
-          <span className="wiki-source-meta-label">描述:</span>
-          <span className="wiki-source-meta-description-text">{description}</span>
+        <div className={styles['wiki-source-meta-description']}>
+          <span className={styles['wiki-source-meta-label']}>描述:</span>
+          <span className={styles['wiki-source-meta-description-text']}>{description}</span>
         </div>
       )}
     </div>
