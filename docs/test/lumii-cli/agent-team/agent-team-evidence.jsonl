@@ -1,18 +1,18 @@
-{"ts":"2026-09-13T12:17:52.332Z","id":"AT-ENV","status":"INFO","note":"预检通过；日志通道可用；LLM=真实；claude=启用；tick=启用；AT_ONLY=(全量)"}
-{"ts":"2026-09-13T12:17:52.474Z","id":"AT-ENV","status":"INFO","note":"dev-context 快照完成（308 字节）；后台 cron 临时禁用 9 条"}
-{"ts":"2026-09-13T12:17:52.576Z","id":"AT-L1-01","status":"PASS","note":"commands=77，命令面完整","durationMs":101}
-{"ts":"2026-09-13T12:17:52.752Z","id":"AT-L2-01","status":"PASS","note":"四位 Agent 定义均可见（code-dev/system-keeper/chronicler/info-curator）","durationMs":175}
-{"ts":"2026-09-13T12:17:52.764Z","id":"AT-L2-02","status":"PASS","note":"5 条转正落地（4→chronicler、news→info-curator）；新闻 prompt 升级标记=含「先读用户偏好」","durationMs":11}
-{"ts":"2026-09-13T12:17:57.307Z","id":"AT-L2-03","status":"PASS","note":"session 级 claude→lumii 往返、敲错项目名被拒","durationMs":4542}
-{"ts":"2026-09-13T12:18:33.592Z","id":"AT-S1","status":"PASS","note":"participant=code-dev；回复 326 字（35s）：「当前工作目录 `E:\\testsoft\\Lumii-data\\handoff-demo` 下共有 9…」","durationMs":36284}
-{"ts":"2026-09-13T12:18:51.022Z","id":"AT-S2","status":"PASS","note":"体检回复 1104 字；记忆原有内容零改动","durationMs":17429}
-{"ts":"2026-09-13T12:19:03.102Z","id":"AT-S3","status":"PASS","note":"偏好写入 agent_memories（1 条），探针已清理","durationMs":12079}
-{"ts":"2026-09-13T12:19:19.172Z","id":"AT-S4","status":"PASS","note":"日报由 chronicler 产出（281 字）：「今天完成 - 改好日期脚本：输出日期＋中文星期（如 `2026-09-13 星期…」","durationMs":16070}
-{"ts":"2026-09-13T12:19:31.209Z","id":"AT-S6","status":"PASS","note":"participant=default；回复「收到」（与 Agent 团队上线前行为一致）","durationMs":12036}
-{"ts":"2026-09-13T12:20:14.370Z","id":"AT-S5","status":"PASS","note":"两轮续接成功：首轮报 v22.13.1，追问复述一致；无降级标记","durationMs":43160}
-{"ts":"2026-09-13T12:25:11.223Z","id":"AT-S7","status":"PASS","note":"第 1 次尝试委托成功（spawn_agent → system-keeper, status=done），回复 678 字；user-memory 零改动","durationMs":296852}
-{"ts":"2026-09-13T12:27:28.514Z","id":"AT-F2","status":"PASS","note":"提案 → CLI 确认（UI 点击链路不可用，soft 降级） → 新开发会话直达 claude（binding）；沙箱 pager.js 已被修复；原会话收到结果汇报","durationMs":137290}
-{"ts":"2026-09-13T12:27:32.773Z","id":"AT-UI-01","status":"PASS","note":"真实点击「info-curator」开关：开启→app.json 落盘；再点→还原初始","durationMs":4258}
-{"ts":"2026-09-13T12:27:34.967Z","id":"AT-UI-02","status":"FAIL","note":"侧栏缺少「主助手」分组标题","durationMs":2193,"stack":"Error: 侧栏缺少「主助手」分组标题\n    at Module.assert (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:110:20)\n    at caseUISidebarGroups (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-team/run-agent-team-e2e.mjs:748:5)\n    at Module.runCase (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:518:18)\n    at file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-team/run-agent-team-e2e.mjs:1028:11\n    at ModuleJob.run (node:internal/modules/esm/module_job:271:25)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:547:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)"}
-{"ts":"2026-09-13T12:27:55.942Z","id":"AT-UI-03","status":"PASS","note":"渲染层实时收到事件；acp-session 键存在；(soft) 会话未出现在侧栏可视区（3 次重试，可能受并行操作影响），UI 可见性未断言","durationMs":20974}
-{"ts":"2026-09-13T12:33:26.307Z","id":"AT-L2-04","status":"FAIL","note":"tick 未产生新运行记录（code=1）: ","durationMs":330364,"stack":"Error: tick 未产生新运行记录（code=1）: \n    at Module.assert (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:110:20)\n    at caseL2Tick (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-team/run-agent-team-e2e.mjs:919:5)\n    at Module.runCase (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:518:18)\n    at file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-team/run-agent-team-e2e.mjs:1028:11\n    at ModuleJob.run (node:internal/modules/esm/module_job:271:25)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:547:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)"}
+{"ts":"2026-09-13T13:05:18.163Z","id":"AT-ENV","status":"INFO","note":"预检通过；日志通道可用；LLM=真实；claude=启用；tick=启用；AT_ONLY=L2-04"}
+{"ts":"2026-09-13T13:05:18.230Z","id":"AT-ENV","status":"INFO","note":"dev-context 快照完成（308 字节）；后台 cron 临时禁用 10 条"}
+{"ts":"2026-09-13T13:05:18.323Z","id":"AT-L1-01","status":"PASS","note":"commands=77，命令面完整","durationMs":92}
+{"ts":"2026-09-13T13:05:18.479Z","id":"AT-L2-01","status":"PASS","note":"四位 Agent 定义均可见（code-dev/system-keeper/chronicler/info-curator）","durationMs":155}
+{"ts":"2026-09-13T13:05:18.491Z","id":"AT-L2-02","status":"PASS","note":"5 条转正落地（4→chronicler、news→info-curator）；新闻 prompt 升级标记=含「先读用户偏好」","durationMs":11}
+{"ts":"2026-09-13T13:05:21.664Z","id":"AT-L2-03","status":"PASS","note":"session 级 claude→lumii 往返、敲错项目名被拒","durationMs":3136}
+{"ts":"2026-09-13T13:05:21.665Z","id":"AT-S1","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":1}
+{"ts":"2026-09-13T13:05:21.665Z","id":"AT-S2","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:05:21.666Z","id":"AT-S3","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:05:21.667Z","id":"AT-S4","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:05:21.668Z","id":"AT-S6","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:05:21.668Z","id":"AT-S5","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:05:21.669Z","id":"AT-S7","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:05:21.670Z","id":"AT-F2","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:05:21.671Z","id":"AT-UI-01","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":1}
+{"ts":"2026-09-13T13:05:21.671Z","id":"AT-UI-02","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:05:21.672Z","id":"AT-UI-03","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:05:21.851Z","id":"AT-L2-04","status":"FAIL","note":"summary 缺少「assistant=」：already-running","durationMs":170,"stack":"Error: summary 缺少「assistant=」：already-running\n    at Module.assert (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:110:20)\n    at caseL2Tick (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-team/run-agent-team-e2e.mjs:926:7)\n    at Module.runCase (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:518:18)\n    at file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-team/run-agent-team-e2e.mjs:1029:11\n    at ModuleJob.run (node:internal/modules/esm/module_job:271:25)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:547:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)"}

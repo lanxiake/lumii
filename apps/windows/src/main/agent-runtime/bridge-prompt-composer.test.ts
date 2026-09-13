@@ -159,17 +159,18 @@ describe('BridgePromptComposer 场景记忆注入', () => {
       dynamicPrompt: '\nDYNAMIC-PROMPT',
     } as unknown as SystemPromptResult
 
-    it('开关开启时调用填充回调：query 透传、占位符被替换', async () => {
-      const calls: Array<{ query?: string }> = []
+    it('开关开启时调用填充回调：query 与 instanceId 透传、占位符被替换', async () => {
+      const calls: Array<{ query?: string; instanceId?: string }> = []
       const composer = makeComposer('conv-abc', {
-        fillWorkMemoryPlaceholder: (prompt, query) => {
-          calls.push({ query })
+        fillWorkMemoryPlaceholder: (prompt, query, instanceId) => {
+          calls.push({ query, instanceId })
           return { prompt: prompt.replace('{{LUMII_MEMORY_BLOCK}}', '### 工作记忆\n- 探针'), injected: 1 }
         },
       })
       const prompt = await composer.buildPromptWithMemory('inst-1', withPlaceholder, undefined, '蓝鲸计划')
       expect(calls).toHaveLength(1)
       expect(calls[0].query).toBe('蓝鲸计划')
+      expect(calls[0].instanceId).toBe('inst-1')
       expect(prompt).toContain('- 探针')
       expect(prompt).not.toContain('{{LUMII_MEMORY_BLOCK}}')
     })

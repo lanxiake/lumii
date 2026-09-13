@@ -2,8 +2,8 @@
  * Wiki 知识库 Agent 工具接线（P0）
  *
  * wiki_overview / wiki_search / wiki_read 只读。wiki_capture 已下线。
- * agentId 解析范式同 memory_manage（bridge-tool-registrar-client-cmd.ts:129）：
- * toolCallId → instanceId → definitionId，取不到则退到 'default'。
+ * 库归属：全队共享同一个用户资料库（SHARED_WIKI_LIBRARY_AGENT_ID）——2026-09-13 拍板
+ * 「维护官策展、全员检索」；此前按实例 definitionId 隔离，专家看见的是各自的空库。
  *
  * 设计：docs/design/记忆设计/2026-08-25-wiki-design-p0p1p2.md §3.9
  */
@@ -16,18 +16,14 @@ import {
   type MtBotToolConfig,
   type ToolExecutionContext,
   type WikiRepo,
-  type WikiIngestHook,
 } from '@mtbot/agent-runtime'
 import { jsonToolResult } from './bridge-utils'
+import { SHARED_WIKI_LIBRARY_AGENT_ID } from './wiki-library'
 
 const LOCAL_USER_ID = 'local-user'
 
 export interface WikiToolsDeps {
-  toolCallInstanceMap: Map<string, string>
-  getCurrentToolExecutorInstanceId: () => string | undefined
-  getDefinitionIdByInstanceId: (instanceId: string) => string | undefined
   getWikiRepo: () => WikiRepo | null
-  getWikiIngestHook: () => WikiIngestHook | null
 }
 
 export function registerWikiTools(
@@ -35,18 +31,13 @@ export function registerWikiTools(
   ctx: ToolExecutionContext,
   deps: WikiToolsDeps,
 ): void {
-  const resolveAgentId = (toolCallId: string): string => {
-    const instanceId =
-      deps.toolCallInstanceMap.get(toolCallId) ?? deps.getCurrentToolExecutorInstanceId()
-    return (instanceId && deps.getDefinitionIdByInstanceId(instanceId)) ?? 'default'
-  }
+  const agentId = SHARED_WIKI_LIBRARY_AGENT_ID
 
   const overviewConfig: MtBotToolConfig = {
     ...wikiOverviewToolConfig,
-    execute: async (toolCallId) => {
+    execute: async () => {
       const repo = deps.getWikiRepo()
       if (!repo) return jsonToolResult({ ok: false, message: 'wiki repo not initialized' })
-      const agentId = resolveAgentId(toolCallId)
       const sources = repo.listSources(agentId, LOCAL_USER_ID)
       const counts: Record<string, number> = {}
       for (const s of sources) {
@@ -67,13 +58,12 @@ export function registerWikiTools(
 
   const searchConfig: MtBotToolConfig = {
     ...wikiSearchToolConfig,
-    execute: async (toolCallId, rawParams) => {
+    execute: async (_toolCallId, rawParams) => {
       const repo = deps.getWikiRepo()
       if (!repo) return jsonToolResult({ ok: false, message: 'wiki repo not initialized' })
       const p = rawParams as { query?: string; limit?: number }
       const query = (p.query ?? '').trim()
       if (!query) return jsonToolResult({ ok: false, message: 'query is required' })
-      const agentId = resolveAgentId(toolCallId)
       const limit = Math.max(1, Math.min(p.limit ?? 10, 50))
       const hits = repo.searchSources(agentId, LOCAL_USER_ID, query, limit)
       return jsonToolResult({
@@ -93,12 +83,11 @@ export function registerWikiTools(
 
   const readConfig: MtBotToolConfig = {
     ...wikiReadToolConfig,
-    execute: async (toolCallId, rawParams) => {
+    execute: async (_toolCallId, rawParams) => {
       const repo = deps.getWikiRepo()
       if (!repo) return jsonToolResult({ ok: false, message: 'wiki repo not initialized' })
       const path = String((rawParams as { path?: string }).path ?? '').trim()
       if (!path) return jsonToolResult({ ok: false, message: 'path is required' })
-      const agentId = resolveAgentId(toolCallId)
       const source = repo.findSourceBySourcePath(agentId, LOCAL_USER_ID, path)
       if (!source) return jsonToolResult({ ok: false, message: `page not found: ${path}` })
       repo.touchSource(agentId, LOCAL_USER_ID, source.id)

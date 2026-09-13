@@ -738,20 +738,21 @@ function caseUIToggleAutonomous() {
   }
 }
 
-/** AT-UI-02 侧栏分组结构（主助手组头 + Agent 组头；无展开按钮） */
+/** AT-UI-02 侧栏分组结构（主助手组头「默认(N)」+ Agent 短名组头「开发/维护/记事/情报(N)」；无展开按钮） */
 function caseUISidebarGroups() {
   if (!selected('UI-02')) throw new Error('SKIP: 未选中（AT_ONLY）')
   h.ui(['goto', '--view', 'chat'])
-  h.sleep(1200)
+  h.sleep(1500)
   const snap = screenshotRefs()
   const names = (snap.refs || []).map((r) => r.name || '')
-  h.assert(names.some((n) => n.startsWith('主助手')), '侧栏缺少「主助手」分组标题')
-  const agentGroupHits = AGENT_TEAM.map((a) => a.name).filter((name) =>
-    names.some((n) => n.startsWith(name)),
-  )
-  h.assert(agentGroupHits.length >= 1, `侧栏未出现任何 Agent 分组标题（${AGENT_TEAM.map((a) => a.name).join('/')}）`)
+  const preview = names.filter(Boolean).slice(0, 15).join(' / ')
+  // 侧栏系统组用两字短名（ChatSidebar SIDEBAR_SYSTEM_GROUP_UI）：主助手组 =「默认」，组头形如「默认(353)」
+  h.assert(names.some((n) => n.startsWith('默认')), `侧栏缺少「默认」分组标题（主助手组）；实际 refs: ${preview}`)
+  const SHORT_NAMES = ['开发', '维护', '记事', '情报']
+  const agentGroupHits = SHORT_NAMES.filter((name) => names.some((n) => n.startsWith(name)))
+  h.assert(agentGroupHits.length >= 1, `侧栏未出现任何 Agent 分组标题（${SHORT_NAMES.join('/')}）；实际 refs: ${preview}`)
   h.assert(!names.some((n) => n.includes('展开更多')), '不应存在「展开更多」按钮（已改为滚动分页）')
-  return `主助手组头 + ${agentGroupHits.join('/')} 组头均在；无展开按钮（滚动分页）`
+  return `「默认」组头 + ${agentGroupHits.join('/')} 组头均在；无展开按钮（滚动分页）`
 }
 
 /** AT-UI-03 ACP 回复在界面实时可见（无需重启的回归护栏） */

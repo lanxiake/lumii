@@ -271,13 +271,15 @@ export class AgentRuntimeBridge {
       writeConcerns(this.localDb.db, markConcernRaised(concerns, concern.id, Date.now()))
       return concern.description
     },
-    // 工作记忆注入（构建期填充占位符）：main Agent 的 agent_memories 数据 agent_id='assistant'
-    fillWorkMemoryPlaceholder: (prompt, query) => {
+    // 工作记忆注入（构建期填充占位符）：按实例 definitionId 注入对应 Agent 的 agent_memories
+    // （2026-09-13 共享层修正：此前硬编码 'assistant'，专家自己积累的记忆注不进模型）
+    fillWorkMemoryPlaceholder: (prompt, query, instanceId) => {
       const mgr = this._memoryManager
       if (!mgr) return null
+      const agentId = this.agentRegistry.get(instanceId)?.definitionId ?? 'assistant'
       const { updatedPrompt, injected } = mgr.injectIntoSystemPrompt(
         prompt,
-        'assistant',
+        agentId,
         LOCAL_USER_ID,
         undefined,
         query,

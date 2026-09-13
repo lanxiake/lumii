@@ -43,11 +43,13 @@ export interface BridgePromptComposerDeps {
   consumeConcernToRaise?: (conversationId: string) => string | null
   /**
    * 工作记忆填充：把 prompt 中的 {{LUMII_MEMORY_BLOCK}} 占位符替换为与当前消息相关的热记忆块。
+   * instanceId 决定记忆归属（宿主按实例 definitionId 注入对应 Agent 的 agent_memories）。
    * 返回 null 表示未配置（调用方清除占位符兜底）。
    */
   fillWorkMemoryPlaceholder?: (
     prompt: string,
-    query?: string,
+    query: string | undefined,
+    instanceId: string,
   ) => { prompt: string; injected: number } | null
 }
 
@@ -368,7 +370,7 @@ export class BridgePromptComposer {
 
     let memorySection = ''
     try {
-      // 个人记忆在此注入；工作记忆由 AgentInstance.loadAndInjectMemories 单独控制
+      // 个人记忆在此注入；工作记忆由 fillWorkMemoryPlaceholder 回调在构建期就地填充（见方法尾部）
       if (injPersonal !== false) {
         const userMemory = await this.deps.loadUserMemory()
         const userMemoryContent = this.cleanMarkdown(userMemory?.content ?? '')
@@ -476,7 +478,7 @@ export class BridgePromptComposer {
     if (injWork !== false) {
       let filled: { prompt: string; injected: number } | null = null
       try {
-        filled = this.deps.fillWorkMemoryPlaceholder?.(finalPrompt, userMessage) ?? null
+        filled = this.deps.fillWorkMemoryPlaceholder?.(finalPrompt, userMessage, instanceId) ?? null
         if (filled) {
           log.info(
             `[buildPromptWithMemory] 工作记忆注入 ${filled.injected} 条 instanceId=${instanceId}`,

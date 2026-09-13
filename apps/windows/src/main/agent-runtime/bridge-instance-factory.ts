@@ -71,6 +71,7 @@ import {
   type InstanceRuntimeMetrics,
 } from './bridge-agent-instance-events'
 import { agentRuntimeLog as log, filterToolsByDefinition } from './bridge-utils'
+import { SHARED_WIKI_LIBRARY_AGENT_ID } from './wiki-library'
 import { ensureProviderBaseUrl } from '../provider-config'
 import { resizeImageIfNeeded } from './image-resizer'
 import type { FileMemoryHandler } from './file-memory-handler'
@@ -557,9 +558,9 @@ export class BridgeInstanceFactory {
       fileRepo: this.deps.getFileRepo(),
       fileMemoryHandler: this.deps.fileMemoryHandler,
       getWikiIngestHook: this.deps.getWikiIngestHook,
-      // 与 bridge-wiki-tools 的 resolveAgentId 同口径（Agent 定义 id），
-      // 否则摄入落在会话 id 命名空间，UI / CLI 默认视图查不到
-      resolveWikiAgentId: () => this.deps.agentRegistry.get(instanceId)?.definitionId ?? 'default',
+      // 用户级共享库（2026-09-13 拍板）：所有 Agent 写的文件摄入同一个资料库，
+      // 与 bridge-wiki-tools 同口径（否则专家产出进各自私库，用户看不见）
+      resolveWikiAgentId: () => SHARED_WIKI_LIBRARY_AGENT_ID,
       instanceStates: this.deps.instanceStates,
       instanceToConversation: this.deps.instanceToConversation,
       agentName: def.name,

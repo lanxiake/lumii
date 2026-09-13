@@ -1,19 +1,19 @@
 /**
- * Wiki Agent 工具接线测试：真实内存 WikiRepo/WikiIngestHook + registerWikiTools，
- * 验证 4 个工具正确注册、agentId 解析、execute 结果结构。
+ * Wiki Agent 工具接线测试：真实内存 WikiRepo + registerWikiTools，
+ * 验证 3 个只读工具正确注册、共享库归属、execute 结果结构。
  *
  * node:sqlite 内存库同 wiki-commands.test.ts 手法（createRequire 绕过 vite-node 解析）。
  */
 import { describe, expect, it } from 'vitest'
 import {
   WikiRepo,
-  WikiIngestHook,
   type DatabaseAdapter,
   type ToolExecutionContext,
 } from '@mtbot/agent-runtime'
 import { MIGRATIONS } from '../../../../../packages/agent-runtime/src/storage/schema'
 import { createTestSqliteAdapter } from '../../../../../packages/agent-runtime/src/__tests__/helpers/sqlite-test-db'
 import { registerWikiTools, type WikiToolsDeps } from './bridge-wiki-tools'
+import { SHARED_WIKI_LIBRARY_AGENT_ID } from './wiki-library'
 
 function createMigratedDb(): DatabaseAdapter {
   const db = createTestSqliteAdapter()
@@ -23,17 +23,12 @@ function createMigratedDb(): DatabaseAdapter {
 
 function setup() {
   const repo = new WikiRepo(createMigratedDb())
-  const hook = new WikiIngestHook(repo)
   const registry: { register: ReturnType<typeof mockRegister> } = { register: mockRegister() }
   const deps: WikiToolsDeps = {
-    toolCallInstanceMap: new Map(),
-    getCurrentToolExecutorInstanceId: () => 'instance-1',
-    getDefinitionIdByInstanceId: () => 'assistant',
     getWikiRepo: () => repo,
-    getWikiIngestHook: () => hook,
   }
   registerWikiTools(registry, {} as ToolExecutionContext, deps)
-  return { repo, hook, registry }
+  return { repo, registry }
 }
 
 function mockRegister() {
@@ -63,6 +58,16 @@ describe('registerWikiTools', () => {
     ])
   })
 
+  it('统一读取共享资料库：全队同库，不随调用实例隔离（2026-09-13 拍板）', async () => {
+    const { repo, registry } = setup()
+    repo.createSource({ agentId: SHARED_WIKI_LIBRARY_AGENT_ID, userId: 'local-user', title: '共享条目' })
+    repo.createSource({ agentId: 'system-keeper', userId: 'local-user', title: '旧私库条目' })
+
+    const result = await callTool(registry, 'wiki_overview', {})
+    expect(result.ok).toBe(true)
+    expect(result.recentSources.map((s: { title: string }) => s.title)).toEqual(['共享条目'])
+  })
+
   it('wiki_overview 返回分类统计与最近资料', async () => {
     const { repo, registry } = setup()
     const s = repo.createSource({ agentId: 'assistant', userId: 'local-user', title: 'A' })
@@ -71,7 +76,9 @@ describe('registerWikiTools', () => {
     const result = await callTool(registry, 'wiki_overview', {})
     expect(result.ok).toBe(true)
     expect(result.countsByCategory['工作']).toBe(1)
-    expect(result.recentSources).toEqual([{ title: 'A', category: '工作', subtopic: '例行' }])
+    expect(result.recentSources).toEqual([
+      { title: 'A', category: '工作', subtopic: '例行', project: null },
+    ])
   })
 
   it('wiki_search 返回命中全文', async () => {
