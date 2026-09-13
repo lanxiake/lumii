@@ -7,6 +7,7 @@ import {
   __clearHandoffsForTest,
   consumeHandoff,
   findLatestHandoffFor,
+  isChannelSession,
   isHandoffConfirmText,
   proposeHandoff,
 } from './handoff-store'
@@ -68,6 +69,15 @@ describe('handoff-store（F2 转交提案）', () => {
     }
     for (const t of ['2', '好的', '是', '帮我改一下', '取消', '']) {
       expect(isHandoffConfirmText(t)).toBe(false)
+    }
+  })
+
+  it('isChannelSession：渠道前缀命中，桌面 uuid/系统会话不命中', () => {
+    for (const sk of ['qbot:2C77AAC2', 'feishu:ou_xxx', 'weixin:wxid_1', 'wecom:user-1']) {
+      expect(isChannelSession(sk)).toBe(true)
+    }
+    for (const sk of ['9d1f28762c99c39eb6dbfe6ba22bc450', 'evolution:main', 'cron:seed-daily-report']) {
+      expect(isChannelSession(sk)).toBe(false)
     }
   })
 })

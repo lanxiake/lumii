@@ -10,7 +10,7 @@ import { Type } from '@sinclair/typebox'
 import { createMtBotTool, type MtBotToolConfig, type ToolExecutionContext } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log, jsonToolResult } from './bridge-utils'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
-import { proposeHandoff } from './handoff-store'
+import { isChannelSession, proposeHandoff } from './handoff-store'
 
 const ProposeDevHandoffParams = Type.Object({
   task: Type.String({
@@ -68,10 +68,10 @@ export function registerHandoffTools(deps: BridgeToolRegistrarDeps, ctx: ToolExe
       log.info(
         `[propose_dev_handoff] 提案 handoffId=${handoff.id} mode=${handoff.sessionMode} origin=${originSessionKey || '(未知)'} summary="${handoff.summary}"`,
       )
-      // 确认方式分渠道：微信/渠道无卡片按钮 → 回复 1；桌面 → 点卡片按钮
-      const inChannel = !!deps.weixinCtx.getCurrent()
+      // 确认方式按会话渠道分流：渠道（QQ/微信/飞书/企微）无卡片按钮 → 回复 1；桌面 → 点卡片
+      const inChannel = isChannelSession(originSessionKey)
       const message = inChannel
-        ? '已生成转交提案。用户在微信渠道（无卡片按钮）：请在回复中明确写「回复 1 确认」，确认后任务才会开始执行；用户回复其它内容则表示继续讨论。'
+        ? '已生成转交提案。用户当前在渠道（没有卡片按钮）：请在回复中明确写「回复 1 确认」，确认后任务才会开始执行；用户回复其它内容则表示继续讨论。'
         : '已生成转交提案。请在回复中明确告诉用户：点击下方卡片上的「交给灵栖开发」按钮即可开始执行（点击前不会启动任何开发任务）。'
       return jsonToolResult({
         status: 'proposed',
