@@ -27,13 +27,11 @@ import {
   buildSkillActivationSection,
   buildSelfLearningSection,
   skillKey,
-  filterSkillsByRouter,
 } from "./sections/skills-section.js"
 import {
   filterAgentsForCollaborationPrompt,
   buildAgentCollaborationSection,
   buildTaskOrchestrationSection,
-  filterAgentsByRouter,
   buildRoutingRationaleSection,
 } from "./sections/agent-collaboration-section.js"
 import {
@@ -127,22 +125,15 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     contextFiles,
   } = params
 
-  // ─── Pre-LLM Router 过滤 ────────────────────────────────────
-  // 若宿主注入了 routerResult 且未降级，根据置信度决定行为：
-  // - confidence ≥ 0.6 → 用 topAgents/topSkills 过滤主 prompt
-  // - confidence < 0.6 但 needsClarification → 不过滤（让主 LLM 看完整能力），但注入澄清提示
-  // - confidence < 0.6 且不澄清 → 走旧路径（与未提供 router 等同）
+  // ─── Pre-LLM Router 接入 ────────────────────────────────────
+  // Router 结果只用于动态路由建议（Routing rationale）与澄清提示。
+  // P2 缓存修复（2026-09-13）：不再用它过滤静态 skills/agents 列表——
+  // 按轮过滤会改写静态前缀（高置信任务回合与闲聊回合字节不同），使整份
+  // 系统提示词的 cache_control 断点失配；静态列表保持恒定完整。
   const routerOk = !!params.routerResult && params.routerResult.fallback === "none"
   const routerHighConf = routerOk && params.routerResult!.confidence >= 0.6
   const routerClarify = routerOk && !!params.routerResult!.needsClarification
   const useRouter = routerHighConf || routerClarify
-  // 仅在高置信度时才过滤；澄清模式不过滤（用户可能改主意）
-  const routerFilteredSkills = routerHighConf
-    ? filterSkillsByRouter(skills ?? [], params.routerResult!.topSkills)
-    : skills
-  const routerFilteredAgents = routerHighConf
-    ? filterAgentsByRouter(customAgents ?? [], params.routerResult!.topAgents)
-    : customAgents
   const runtimeChannel = params.runtimeInfo?.channel?.trim().toLowerCase()
   const style = params.promptStyle ?? "detailed"
 
@@ -326,7 +317,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   // === 3.5. Skills（按白名单过滤）===
   if (skills && skills.length > 0) {
     const allowedSkills = agentDefinition.skills
-    const baseSkills = routerFilteredSkills ?? skills
+    const baseSkills = skills
     const filteredSkills = allowedSkills && allowedSkills.length > 0
       ? baseSkills.filter((s) => allowedSkills.includes(s.name))
       : baseSkills
@@ -393,7 +384,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     customAgents && customAgents.length > 0 &&
     (effectiveToolNames.includes("spawn_agent") || effectiveToolNames.includes("send_message"))
   ) {
-    const baseAgents = routerFilteredAgents ?? customAgents
+    const baseAgents = customAgents
     const filteredAgents = filterAgentsForCollaborationPrompt(
       baseAgents,
       agentDefinition.allowedSubAgents,

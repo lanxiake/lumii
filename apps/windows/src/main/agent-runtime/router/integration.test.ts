@@ -1,7 +1,9 @@
 /**
  * Router → buildClientSystemPromptStructured 端到端集成测试
  *
- * 验证：Router 输出真的能让主 prompt 中 Skills/Agents section 仅包含筛选过的子集。
+ * P2 缓存修复（2026-09-13）后的语义：Router 结果只注入动态 Routing rationale，
+ * 不再过滤静态区 skills/agents 列表（按轮过滤会改写静态前缀、破坏整份提示词缓存）。
+ * 本文件守护：路由建议可达 + 静态区逐字节稳定。
  */
 
 import { describe, expect, it } from "vitest"
@@ -47,7 +49,7 @@ const BASE_PARAMS = {
   cwd: "/tmp",
 }
 
-describe("Router 集成：buildClientSystemPromptStructured 用 routerResult 过滤", () => {
+describe("Router 集成：routerResult 只进动态 Routing rationale，静态区保持稳定", () => {
   it("无 routerResult 时主 prompt 包含全部 skills/agents", () => {
     const skills = makeSkills(100)
     const agents = makeAgents(10)
@@ -61,7 +63,7 @@ describe("Router 集成：buildClientSystemPromptStructured 用 routerResult 过
     expect(result.fullPrompt.length).toBeGreaterThan(0)
   })
 
-  it("confidence ≥ 0.6 + fallback=none 时 Skills section 仅包含 topSkills", () => {
+  it("confidence ≥ 0.6 + fallback=none：路由建议进动态段，静态列表不被过滤", () => {
     const skills = makeSkills(100)
     const agents = makeAgents(10)
     const routerResult: RouterResultLite = {
@@ -80,16 +82,22 @@ describe("Router 集成：buildClientSystemPromptStructured 用 routerResult 过
       customAgents: agents,
       routerResult,
     })
+    const plain = buildClientSystemPromptStructured({
+      ...BASE_PARAMS,
+      skills,
+      customAgents: agents,
+    })
 
-    // 主 prompt 应包含 Routing rationale section
+    // 路由建议以 Routing rationale（动态段）承载
     expect(result.fullPrompt).toContain("Routing rationale")
     expect(result.fullPrompt).toContain("image_gen")
     expect(result.fullPrompt).toContain("agent-3")
     expect(result.fullPrompt).toContain("skill-7")
-    // 未被推荐的 agent-5 不应出现在 Agents section 渲染中
-    // （注意：reason 字符串可能包含数字，所以用更严格的边界检测）
-    expect(result.fullPrompt).not.toMatch(/`agent-5`/)
-    expect(result.fullPrompt).not.toMatch(/`skill-99`/)
+    // 未推荐成员仍完整在列（静态区不再被裁剪）
+    expect(result.fullPrompt).toMatch(/`agent-5`/)
+    expect(result.fullPrompt).toMatch(/`agent-0`/)
+    // 缓存稳定性：有无 routerResult 的静态区逐字节一致
+    expect(result.staticPrompt).toBe(plain.staticPrompt)
   })
 
   it("fallback != none 时走旧路径（不过滤）", () => {
@@ -133,17 +141,17 @@ describe("Router 集成：buildClientSystemPromptStructured 用 routerResult 过
     expect(result.fullPrompt).not.toContain("Routing rationale")
   })
 
-  it("Token 节省验证：100 技能 → 2 技能时主 prompt 显著缩短", () => {
+  it("缓存稳定性：有无 routerResult 的 staticPrompt 逐字节一致（P2 修复回归守卫）", () => {
     const skills = makeSkills(100)
     const agents = makeAgents(10)
 
-    const promptFull = buildClientSystemPromptStructured({
+    const plain = buildClientSystemPromptStructured({
       ...BASE_PARAMS,
       skills,
       customAgents: agents,
-    }).fullPrompt
+    })
 
-    const promptRouter = buildClientSystemPromptStructured({
+    const routed = buildClientSystemPromptStructured({
       ...BASE_PARAMS,
       skills,
       customAgents: agents,
@@ -154,22 +162,21 @@ describe("Router 集成：buildClientSystemPromptStructured 用 routerResult 过
         topAgents: [{ id: "agent-0", score: 0.9, reason: "test" }],
         topSkills: [{ id: "skill-0", score: 0.9, reason: "test" }],
       },
-    }).fullPrompt
+    })
 
-    // Router 模式下主 prompt 应该缩短（具体多少取决于工具化/静态模式）
-    const ratio = promptRouter.length / promptFull.length
-    console.log(`Prompt 长度对比: full=${promptFull.length} router=${promptRouter.length} ratio=${ratio.toFixed(2)}`)
-    expect(promptRouter.length).toBeLessThan(promptFull.length)
+    expect(routed.staticPrompt).toBe(plain.staticPrompt)
+    // 差异只应出现在 dynamic（Routing rationale）
+    expect(routed.fullPrompt).toContain("Routing rationale")
+    expect(plain.fullPrompt).not.toContain("Routing rationale")
   })
 
-  it("Agent 过滤显著缩短 prompt（10 agent → 1 agent）", () => {
-    // 只过滤 agents（无 skills），验证 agent 过滤的真实效果
+  it("全量 agent 列表完整保留（router 结果不再裁剪静态区）", () => {
     const agents = makeAgents(20)
-    const promptFull = buildClientSystemPromptStructured({
+    const plain = buildClientSystemPromptStructured({
       ...BASE_PARAMS,
       customAgents: agents,
     }).fullPrompt
-    const promptRouter = buildClientSystemPromptStructured({
+    const routed = buildClientSystemPromptStructured({
       ...BASE_PARAMS,
       customAgents: agents,
       routerResult: {
@@ -180,12 +187,12 @@ describe("Router 集成：buildClientSystemPromptStructured 用 routerResult 过
         topSkills: [],
       },
     }).fullPrompt
-    const ratio = promptRouter.length / promptFull.length
-    console.log(`Agent 过滤效果: full=${promptFull.length} router=${promptRouter.length} ratio=${ratio.toFixed(2)}`)
-    // 20 个 agent → 1 个，agent collaboration section 应明显缩水
-    expect(promptRouter.length).toBeLessThan(promptFull.length)
-    // 期望减少至少 5%（agent collaboration section 的相对占比）
-    expect(ratio).toBeLessThan(0.95)
+    // 全部 agent 仍在列
+    expect(routed).toMatch(/`agent-0`/)
+    expect(routed).toMatch(/`agent-15`/)
+    expect(routed).toMatch(/`agent-19`/)
+    // 路由只追加建议，不再缩短提示词
+    expect(routed.length).toBeGreaterThanOrEqual(plain.length)
   })
 
   it("bundledSkillIds 注入 Your bundled capabilities section", () => {

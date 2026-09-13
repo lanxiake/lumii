@@ -197,19 +197,6 @@ export function buildTaskOrchestrationSection(toolNames: readonly string[]): str
 }
 
 /**
- * 按 Router 推荐 ID 过滤 Agent。
- * 输入空数组时返回空数组（让上层走"无可用 Agent"分支）。
- */
-export function filterAgentsByRouter(
-  all: readonly CustomAgentInfo[],
-  topAgents: ReadonlyArray<{ readonly id: string }>,
-): readonly CustomAgentInfo[] {
-  if (topAgents.length === 0) return []
-  const ids = new Set(topAgents.map((t) => t.id))
-  return all.filter((a) => ids.has(a.id))
-}
-
-/**
  * 构建 "Routing rationale" section。
  * 说明 Router 的决策与候选，主 LLM 可参考也可 override。
  */

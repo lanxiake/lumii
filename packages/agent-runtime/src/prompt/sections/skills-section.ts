@@ -254,16 +254,3 @@ export function buildSelfLearningSection(toolNames: readonly string[]): string[]
 export function skillKey(s: SkillInfo): string {
   return (s.id ?? s.name).trim()
 }
-
-/**
- * 按 Router 推荐 ID 过滤技能。
- * 输入空数组时返回空数组（让上层走"无 Skill"分支，而不是 fallback 全量）。
- */
-export function filterSkillsByRouter(
-  all: readonly SkillInfo[],
-  topSkills: ReadonlyArray<{ readonly id: string }>,
-): readonly SkillInfo[] {
-  if (topSkills.length === 0) return []
-  const ids = new Set(topSkills.map((t) => t.id))
-  return all.filter((s) => ids.has(skillKey(s)))
-}
