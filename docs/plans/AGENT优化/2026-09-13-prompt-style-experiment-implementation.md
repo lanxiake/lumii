@@ -29,10 +29,10 @@
 
 **P1 — 两态落地**
 
-- [ ] P1-T1 `section-guides.ts` + `prompt_guide` 工具
-- [ ] P1-T2 风格接线 + 移除 PromptDetail 全链（迁移映射执行）
-- [ ] P1-T3 首批 5 段 terse 渲染 + UI 开关启用
-- [ ] P1-T4 测试重写与新增（含守卫测试）
+- [x] P1-T1 `section-guides.ts` + `prompt_guide` 工具
+- [x] P1-T2 风格接线 + 移除 PromptDetail 全链（迁移映射执行）
+- [x] P1-T3 首批 5 段 terse 渲染 + UI 开关启用
+- [x] P1-T4 测试重写与新增（含守卫测试）
 - [ ] P1-T5 场景化验收
 
 **P2 — 扩展（另开计划细化）**
@@ -65,6 +65,40 @@
 - 跑一轮真实对话，控制台可见 `[prompt-section]` 汇总/逐段日志；
 - 改 localStorage `promptStyle.style` 后主进程 `getPromptStyleSettings()` 返回同步值；
 - 实验页面板可见、无交互开关。
+
+### P1（2026-09-13 完成 T1–T4）
+
+| Task | 提交 | 关键产出 |
+|------|------|---------|
+| P1-T1 | `8a77bcc` | `section-guides.ts` 首批 5 段英文完整正文 + `prompt_guide` 工具（TypeBox 参数、未命中兜底 available_sections）；单测 3 例 |
+| P1-T2 | `6cd7c22` | `PromptStyle` 取代 `PromptDetail` 全链（迁移映射 26 项执行），grep 零残留；快照 diff 47 行纯新增（声明见下） |
+| P1-T3 | `65bc3d8` | 首批 5 段 terse 渲染；段元数据 terse 位置 true；实验页二选一开关（localStorage + IPC，下一轮生效）；单测 3 + 4 例 |
+| P1-T4 | `6617723` | 守卫测试 8 例（元数据完整性 + 引导可发现性渲染级） + dispatcher 风格传递测试 2 例 |
+
+**P1-T2 快照 diff 声明**（`git diff` 逐行核对：**47 行纯新增、0 删除**）：
+
+| 迁移项 | 内容 | 影响面 |
+|--------|------|--------|
+| #7 | Tool Naming Contract 由 full 专属升格 detailed | 4 组配置各 +5 行 |
+| #13 | Disk-Index Pattern 由 full 专属并入 detailed | 4 组配置各 +3 行 |
+| #18 | 「When writing code」代码细则由 full 专属升格 detailed | 3 组非子 Agent 配置各 +5 行 |
+
+注意：验收行写「例外仅 #7/#18」，#13 的 Disk-Index 属设计 §4.1「detailed 吸收 full 专属段」+ §9.1「先并入 detailed 保持信息不丢」范围，一并声明（去留判定仍留 P2，见设计 §9.1）。
+
+**P1 实施偏差与澄清**：
+
+1. **terse 落地范围**：迁移表 #5（progressUpdates terse=原 compact 文案）与 #7（terse 不注入命名契约）在 T2 即生效；其余段的 terse 文案按 T3 范围只做首批 5 段，非试点段 terse 档渲染暂与 detailed 相同（设计 §5「不支持者保持详细」）。
+2. **messaging terse 条件渲染**：按工具可用性给 1–2 行（仅 message / 仅 channel / 二者均有）；WeChat 行仅在 weixin 渠道或 `weixin_send_guide` 存在时出现（与 detailed 同款条件）。
+3. **守卫测试语义**：`expandVia=prompt-guide` 段断言 `prompt_guide(section: "<id>")` 字面量；`expandVia=existing-tool`（messaging）断言指向既有工具名（`weixin_send_guide` 等），避免对 M1 段误用 M2 断言。
+4. **P0-T2 记**：`language` 与 `taskCompletion` 拆为两个 `emit`（对齐段 ID 表，行序列不变）。
+
+**待人工验证（P1-T5 场景化验收，需真实客户端会话 + 微信渠道）**：
+
+- [ ] 双档对照：微信定时提醒（观察 `cron_guide` 调用）/ 微信发文件（`weixin_send_guide`）/ 代码修改任务（terse 下工程原则展开调用或等价行为）；
+- [ ] 切换开关后下一轮 `system_prompt`（工具读回）呈现 terse 形态；
+- [ ] 控制台 `[prompt-section]` 段级日志可见（含 `style=`）；
+- [ ] 长对话 + 记忆保存无回归（红线回归项）；
+- [ ] 记录：完成率 / 轮数 / 工具错误 / guide 调用分布 / 提示词 token（归档于下方「验收记录」）。
 
 ---
 
