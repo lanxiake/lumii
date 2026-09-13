@@ -1,0 +1,8 @@
+{"ts":"2026-09-13T09:06:17.538Z","id":"PS-LOG-01","status":"PASS","note":"detailed 档转储形态正确（chars=33079，10945ms）","durationMs":12984}
+{"ts":"2026-09-13T09:06:30.606Z","id":"PS-LOG-02","status":"PASS","note":"terse 档转储形态正确（chars=28809，10902ms）","durationMs":13067}
+{"ts":"2026-09-13T09:06:48.866Z","id":"PS-TASK-01-DETAILED","status":"PASS","note":"已创建提醒 at=1789376400000；guideHit=false；16208ms","durationMs":18259}
+{"ts":"2026-09-13T09:07:04.345Z","id":"PS-TASK-01-TERSE","status":"PASS","note":"已创建提醒 at=1789347600000；guideHit=false；13558ms","durationMs":15478}
+{"ts":"2026-09-13T09:07:38.274Z","id":"PS-TASK-02-DETAILED","status":"PASS","note":"产物 print_today.py（轮1 13615ms / 轮2 17375ms；chars=33079）","durationMs":33928}
+{"ts":"2026-09-13T09:08:10.716Z","id":"PS-TASK-02-TERSE","status":"PASS","note":"产物 print_today.py（轮1 16280ms / 轮2 13603ms；chars=28810）","durationMs":32441}
+{"ts":"2026-09-13T09:08:59.348Z","id":"PS-TASK-03-DETAILED","status":"PASS","note":"连续性命中（轮1 18955ms / 轮2 16266ms）","durationMs":48631}
+{"ts":"2026-09-13T09:09:26.172Z","id":"PS-TASK-03-TERSE","status":"PASS","note":"连续性命中（轮1 10883ms / 轮2 13741ms）","durationMs":26823}

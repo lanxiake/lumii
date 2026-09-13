@@ -163,24 +163,32 @@ function runLogShapeCase(style, id) {
 // PS-TASK-01：定时提醒（真实任务，双档）
 // ────────────────────────────────────────────────
 
+/** 提醒探针关键词：模型会对 task_text 做改写，用关键词组合而非整句匹配 */
+const REMINDER_PROBE_RE = /物业|快递/
+
 function runReminderCase(style) {
   const id = `PS-TASK-01-${style.toUpperCase()}`
   return maybe(id, () => {
     setStyle(style)
     const sk = createSession(`${style} 定时提醒`, { prefix: SESSION_PREFIX })
     const cursor = logCursor()
-    const before = dbQuery('SELECT id FROM local_cron_jobs WHERE task_text LIKE ?', `%${CRON_PROBE_PHRASE}%`).length
+    // 基线：既有任务 id 集合；只认「新增 + 关键词命中」的行（模型会改写 task_text，
+    // 整句 LIKE 会被改写漏掉——2026-09-13 实测："给物业打电话，确认快递的事"）
+    const baselineIds = new Set(dbQuery('SELECT id FROM local_cron_jobs').map((r) => r.id))
+    const createdIds = []
     try {
       const { assistant, text, elapsedMs } = sendAndWait(sk, '明天早上九点提醒我给物业打电话确认快递', {
         timeoutMs: TURN_TIMEOUT_MS,
       })
-      const rows = pollUntil(
-        () => dbQuery('SELECT id, name, task_text, schedule_type, schedule_expr FROM local_cron_jobs WHERE task_text LIKE ?', `%${CRON_PROBE_PHRASE}%`),
-        20000,
-        2000,
-      )
-      assert(Array.isArray(rows) && rows.length > before, 'local_cron_jobs 未出现探针提醒行（任务未落地）')
+      const rows = pollUntil(() => {
+        const fresh = dbQuery('SELECT id, name, task_text, schedule_type, schedule_expr FROM local_cron_jobs').filter(
+          (r) => !baselineIds.has(r.id) && (REMINDER_PROBE_RE.test(r.name || '') || REMINDER_PROBE_RE.test(r.task_text || '')),
+        )
+        return fresh.length > 0 ? fresh : null
+      }, 20000, 2000)
+      assert(rows, '未发现新创建的探针提醒行（任务未落地）')
       const row = rows[rows.length - 1]
+      createdIds.push(...rows.map((r) => r.id))
 
       const block = waitPromptBlock(cursor)
       const toolRaw = JSON.stringify(assistant ?? {})
@@ -192,7 +200,10 @@ function runReminderCase(style) {
       })
       return `已创建提醒 ${row.schedule_type}=${row.schedule_expr}；guideHit=${guideHit}；${elapsedMs}ms${replyOk ? '' : '；(soft) 回复未含「提醒」语义，供引导句迭代参考'}`
     } finally {
-      cleanupCronProbe()
+      for (const jobId of createdIds) {
+        dbExec('DELETE FROM local_cron_runs WHERE job_id = ?', jobId)
+        dbExec('DELETE FROM local_cron_jobs WHERE id = ?', jobId)
+      }
     }
   })
 }

@@ -33,7 +33,7 @@
 - [x] P1-T2 风格接线 + 移除 PromptDetail 全链（迁移映射执行）
 - [x] P1-T3 首批 5 段 terse 渲染 + UI 开关启用
 - [x] P1-T4 测试重写与新增（含守卫测试）
-- [ ] P1-T5 场景化验收
+- [x] P1-T5 场景化验收
 
 **P2 — 扩展（另开计划细化）**
 
@@ -95,13 +95,18 @@
 3. **守卫测试语义**：`expandVia=prompt-guide` 段断言 `prompt_guide(section: "<id>")` 字面量；`expandVia=existing-tool`（messaging）断言指向既有工具名（`weixin_send_guide` 等），避免对 M1 段误用 M2 断言。
 4. **P0-T2 记**：`language` 与 `taskCompletion` 拆为两个 `emit`（对齐段 ID 表，行序列不变）。
 
-**待人工验证（P1-T5 场景化验收，需真实客户端会话 + 微信渠道）**：
+**P1-T5 验收记录（2026-09-13，CLI 套件 8/8 通过）**：
 
-- [ ] 双档对照：微信定时提醒（观察 `cron_guide` 调用）/ 微信发文件（`weixin_send_guide`）/ 代码修改任务（terse 下工程原则展开调用或等价行为）；
-- [ ] 切换开关后下一轮 `system_prompt`（工具读回）呈现 terse 形态；
-- [ ] 控制台 `[prompt-section]` 段级日志可见（含 `style=`）；
-- [ ] 长对话 + 记忆保存无回归（红线回归项）；
-- [ ] 记录：完成率 / 轮数 / 工具错误 / guide 调用分布 / 提示词 token（归档于下方「验收记录」）。
+- 手段：真实客户端（`pnpm dev` 当前分支）+ lumii-ui CLI 驱动 + `[llm-prompt]` 全量转储断言；套件
+  `docs/test/lumii-cli/prompt-style/`（用例 + 执行器 + evidence + report + analysis）；
+- 编排正确性（硬断言）：两档真实转储与设计一致（terse 4 引导句在场、Disk-Index/命名契约正确缺席、红线段完整）；
+- 段级体量（实测）：试点 4 段 −70%~87%，整份提示词 −12.9%（Memory 等未索引段 0% 变化）；
+- 任务实施：定时提醒 / 代码小任务 / 会话连续性 双档全部落地，无质量下降；terse 多数回合略快；
+  两档均未触发 `prompt_guide`（索引句已足够，guide 为兜底路径，符合设计预期）；
+- 观测能力：`[llm-prompt]` 转储 + `[prompt-section]` 段级日志已在真实运行验证可用；
+- 探针清理：cron 探针行零残留、outputs 产物已清理；风格已恢复运行前取值（terse）。
+- 遗留人工项：微信渠道两场景（`cron_guide` / `weixin_send_guide` 观察）需真实微信会话；
+  详细分析见 [prompt-style-analysis.md](../../test/lumii-cli/prompt-style/prompt-style-analysis.md)。
 
 ---
 
