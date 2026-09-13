@@ -21,11 +21,11 @@
 
 **P0 — 结构基座（行为零变化）**
 
-- [ ] P0-T1 快照基线测试（先于一切改动）
-- [ ] P0-T2 段元数据表 + `emit()` 包装 + `sectionStats`
-- [ ] P0-T3 宿主侧段日志
-- [ ] P0-T4 设置存储与读取链（无消费）
-- [ ] P0-T5 只读段清单面板（实验页）
+- [x] P0-T1 快照基线测试（先于一切改动）
+- [x] P0-T2 段元数据表 + `emit()` 包装 + `sectionStats`
+- [x] P0-T3 宿主侧段日志
+- [x] P0-T4 设置存储与读取链（无消费）
+- [x] P0-T5 只读段清单面板（实验页）
 
 **P1 — 两态落地**
 
@@ -38,6 +38,33 @@
 **P2 — 扩展（另开计划细化）**
 
 - [ ] 其余段 terse 覆盖 / 段级 token 面板 / Disk-Index 与 Tool Naming Contract 去留判定 / A/B 观测
+
+---
+
+## 实施记录
+
+### P0（2026-09-13 完成，分支 `feat/prompt-style-experiment`）
+
+| Task | 提交 | 关键产出 |
+|------|------|---------|
+| P0-T1 | `f54cbe2` | `system-prompt-snapshot.test.ts`：冻结时间 2026-01-01，4 组配置（最小/全能力/子Agent/微信）byte 级快照，共 996 行 |
+| P0-T2 | `84cf453` | `prompt-sections.ts`（37 段元数据：静态 27 + 动态 10）；builder 全部 push 点改 `emit()`；`sectionStats` 计量；快照零 diff |
+| P0-T3 | `d18fce8` | dispatcher rebuild 后 `[prompt-section]` info 汇总 + debug 逐段；`agentRuntimeLog` 补 debug 级 |
+| P0-T4 | `fa6b038` | `AppSettings.promptStyle` → localStorage → `settings:updatePromptStyle` IPC → 主进程缓存 → `getPromptStyleSettings()`；含 settings-ipc 单测 |
+| P0-T5 | `00996a0` | 实验页只读段清单（直接导入 `PROMPT_SECTIONS`）；组件测试 3 例 |
+
+**P0 实施偏差与澄清（相对本计划原文）**：
+
+1. **P0-T5 导入路径**：渲染层已有 `@mtbot/agent-runtime` 依赖（11 个文件），但统一走 `browser` 轻入口（主入口会拉 Node 代码导致渲染进程崩溃）——`PROMPT_SECTIONS` 经 `src/browser.ts` 新导出，未在页面内维护展示常量。
+2. **P0-T4 bridge.ts 透传**：`bridge.ts:255` 的 `getMemoryInjectionSettings` 包装是 composer 专用，promptStyle 无 composer 消费方——dispatcher/factory 从 `deps.config.getPromptStyleSettings` 直接读（P1-T2 接线），故 bridge.ts 未改动。
+3. **P0-T2 emit 粒度**：`language` 与 `taskCompletion` 原为一次 push，拆为两个 `emit` 以对齐段 ID 表（行序列逐字节不变，快照验证）。
+4. **P0-T3 debug 级**：`agentRuntimeLog` 原无 `debug` 方法，补 `console.debug` 映射。
+
+**待人工验证（并入 P1-T5 一并执行）**：
+
+- 跑一轮真实对话，控制台可见 `[prompt-section]` 汇总/逐段日志；
+- 改 localStorage `promptStyle.style` 后主进程 `getPromptStyleSettings()` 返回同步值；
+- 实验页面板可见、无交互开关。
 
 ---
 
