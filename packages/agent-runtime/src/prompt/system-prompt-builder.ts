@@ -350,14 +350,14 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
   // === 3.7. 自我学习与进化（仅主 Agent） ===
   if (!params.isSubAgent) {
-    emit("static", "selfLearning", [...tagged("skills", buildSelfLearningSection(effectiveToolNames))])
+    emit("static", "selfLearning", [...tagged("skills", buildSelfLearningSection(effectiveToolNames, style))])
   }
 
   // === 3.8. Browser ===
   emit("static", "browser", [...buildBrowserSection(effectiveToolNames, style)])
 
   // === 3.9. Wiki ===
-  emit("static", "wiki", [...buildWikiKnowledgeSection(effectiveToolNames)])
+  emit("static", "wiki", [...buildWikiKnowledgeSection(effectiveToolNames, style)])
 
   // ═══ ④ 协作块 ═══
 
@@ -398,7 +398,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   }
 
   // === 4.3. Device Node Control ===
-  emit("static", "deviceControl", [...buildDeviceControlSection(params.userDevices, effectiveToolNames)])
+  emit("static", "deviceControl", [...buildDeviceControlSection(params.userDevices, effectiveToolNames, style)])
 
   // ═══ ⑤ 渠道 ═══
 
@@ -433,7 +433,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   emit("dynamic", "projectContext", [...buildProjectContextSection(contextFiles)])
 
   // === D4. User Devices（设备在线状态可能变化） ===
-  emit("dynamic", "userDevices", [...buildUserDevicesSection(params.userDevices)])
+  emit("dynamic", "userDevices", [...buildUserDevicesSection(params.userDevices, style)])
 
   // === D5. Active Tasks（活跃任务列表，防止目标偏移） ===
   emit("dynamic", "activeTasks", [...buildActiveTasksSection(params.activeTasks)])
@@ -442,7 +442,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   emit("dynamic", "runtime", [...buildRuntimeSection(params, params.currentModelId)])
 
   // === D6.1. 上下文自动压缩告知（紧邻 Runtime，对齐 Claude Code Context management） ===
-  emit("dynamic", "contextManagement", [...buildContextManagementSection(effectiveToolNames)])
+  emit("dynamic", "contextManagement", [...buildContextManagementSection(effectiveToolNames, style)])
 
   // === D6.5. Skill Activation（动态激活提示，对齐 CCR SkillTool/prompt.ts） ===
   if (params.skillActivations && params.skillActivations.length > 0) {

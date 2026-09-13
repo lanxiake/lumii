@@ -247,11 +247,29 @@ function extractSkillBaseDir(skills: readonly SkillInfo[]): string | null {
   return commonDir || null
 }
 
-export function buildSelfLearningSection(toolNames: readonly string[]): string[] {
+export function buildSelfLearningSection(
+  toolNames: readonly string[],
+  style: PromptStyle = "detailed",
+): string[] {
   const hasMemory = toolNames.includes("profile_memory") || toolNames.includes("memory_search")
   const hasSoul = toolNames.includes("system_prompt")
   const hasSkillTools = toolNames.includes("skill_search") || toolNames.includes("skill_list")
   if (!hasMemory && !hasSoul && !hasSkillTools) return []
+
+  // terse（P2）：一行版（按能力条件拼接子句）
+  if (style === "terse") {
+    const parts: string[] = []
+    if (hasMemory) {
+      parts.push("save corrected lessons and confirmed non-obvious approaches as feedback memories (`profile_memory`)")
+    }
+    if (hasSoul) {
+      parts.push("when your identity, style, or boundaries sharpen, update SOUL via `system_prompt`")
+    }
+    if (hasSkillTools) {
+      parts.push("a recurring stable procedure → propose a skill")
+    }
+    return ["## Self-Improvement", `- ${parts.join("; ")}.`, ""]
+  }
 
   const lines: string[] = [
     "## Self-Improvement",

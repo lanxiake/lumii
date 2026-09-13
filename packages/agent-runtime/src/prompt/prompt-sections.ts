@@ -44,7 +44,6 @@ export type PromptSectionId =
   | "messaging"
   | "wiki"
   | "browser"
-  | "cron"
   | "fileOutput"
   | "silentReplies"
   // —— 动态段 ——
@@ -60,16 +59,16 @@ export type PromptSectionId =
   | "criticalReminder"
 
 /** 展开方式：terse 段引导句指向的展开路径 */
-export type PromptExpandRoute = "prompt-guide" | "existing-tool"
+export type PromptExpandRoute = "prompt-guide" | "existing-tool" | "none"
 
 export interface PromptSectionMeta {
   readonly id: PromptSectionId
   readonly group: PromptSectionGroup
   readonly zone: "static" | "dynamic"
   /**
-   * 是否具备 terse 渲染（首批 5 段已落地：operatingPrinciples / progressiveLoading /
-   * fileOutput / browser / messaging；其余段 P2 覆盖）。
-   * 红线段（safety / verification / language / taskCompletion）永久 false。
+   * 是否具备 terse 渲染（P1 首批 5 段 + P2 扩容：tooling/skills/协作/编排/wiki/
+   * selfLearning/deviceControl/动态段等；红线段 safety/verification/language/
+   * taskCompletion 永久 false）。P2 后仅剩身份/权限/红线类与少数能力段不做 terse。
    */
   readonly terse: boolean
   /** 展开方式（terse 为 true 时必填） */
@@ -101,28 +100,28 @@ export const PROMPT_SECTIONS: readonly PromptSectionMeta[] = [
   { id: "progressiveLoading", group: "capabilities", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "mcp", group: "capabilities", zone: "static", terse: false },
   { id: "skills", group: "capabilities", zone: "static", terse: true, expandVia: "existing-tool", expandTool: "skill_search" },
-  { id: "selfLearning", group: "capabilities", zone: "static", terse: false },
+  { id: "selfLearning", group: "capabilities", zone: "static", terse: true, expandVia: "existing-tool", expandTool: "profile_memory" },
   { id: "taskOrchestration", group: "collaboration", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "subagentRole", group: "collaboration", zone: "static", terse: false },
   { id: "agentCollaboration", group: "collaboration", zone: "static", terse: true, expandVia: "prompt-guide" },
-  { id: "deviceControl", group: "collaboration", zone: "static", terse: false },
+  { id: "deviceControl", group: "collaboration", zone: "static", terse: true, expandVia: "none" },
   { id: "safety", group: "rules", zone: "static", terse: false },
   { id: "language", group: "rules", zone: "static", terse: false },
   { id: "taskCompletion", group: "rules", zone: "static", terse: false },
   { id: "messaging", group: "channel", zone: "static", terse: true, expandVia: "existing-tool", expandTool: "weixin_send_guide" },
-  { id: "wiki", group: "capabilities", zone: "static", terse: false },
+  { id: "wiki", group: "capabilities", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "browser", group: "capabilities", zone: "static", terse: true, expandVia: "prompt-guide" },
-  { id: "cron", group: "capabilities", zone: "static", terse: false },
+  // Cron 已无独立段：规则在 Tooling 的 TOOL_SUMMARIES/GROUP_NOTES（P2-6 清理 stale id）
   { id: "fileOutput", group: "rules", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "silentReplies", group: "rules", zone: "static", terse: false },
   // —— 动态段 ——
   { id: "memory", group: "memory", zone: "dynamic", terse: false },
   { id: "workspace", group: "runtime", zone: "dynamic", terse: false },
   { id: "projectContext", group: "runtime", zone: "dynamic", terse: false },
-  { id: "userDevices", group: "runtime", zone: "dynamic", terse: false },
+  { id: "userDevices", group: "runtime", zone: "dynamic", terse: true, expandVia: "none" },
   { id: "activeTasks", group: "runtime", zone: "dynamic", terse: false },
   { id: "runtime", group: "runtime", zone: "dynamic", terse: false },
-  { id: "contextManagement", group: "runtime", zone: "dynamic", terse: false },
+  { id: "contextManagement", group: "runtime", zone: "dynamic", terse: true, expandVia: "none" },
   { id: "skillActivation", group: "capabilities", zone: "dynamic", terse: false },
   { id: "routingRationale", group: "collaboration", zone: "dynamic", terse: false },
   { id: "criticalReminder", group: "rules", zone: "dynamic", terse: false },

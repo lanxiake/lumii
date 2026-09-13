@@ -80,7 +80,7 @@ describe("buildClientSystemPromptStructured — capability-driven sections", () 
     expect(dynamicPrompt).toContain("memory_read");
   });
 
-  it("terse 档下上下文压缩告知仍注入（红线段未 terse 化，行为=detailed 渲染）", () => {
+  it("terse 档下上下文压缩告知仍注入（P2 起为一行版）", () => {
     const { dynamicPrompt } = buildClientSystemPromptStructured({
       agentDefinition: BASE_DEF,
       toolNames: ["memory_search", "memory_read"],
@@ -89,6 +89,8 @@ describe("buildClientSystemPromptStructured — capability-driven sections", () 
     });
     expect(dynamicPrompt).toContain("## Context Compaction");
     expect(dynamicPrompt).toContain("memory_read");
+    // terse 一行版：不再含详细句式的"回查原文"说明
+    expect(dynamicPrompt).not.toContain("obtain a `drawer_id`");
   });
 
   it("keeps recall guidance inside the memory tag", () => {
@@ -303,5 +305,43 @@ describe("terse 极致覆盖（P2）", () => {
     const tc = terse.sectionStats.find((s) => s.id === "taskOrchestration")?.chars ?? 0;
     const dc = detailed.sectionStats.find((s) => s.id === "taskOrchestration")?.chars ?? 0;
     expect(tc / dc).toBeLessThan(0.5);
+  });
+
+  it("wiki terse：读序 + CLI 指引 + guide；folder import 流程移出提示词", () => {
+    const buildWiki = (promptStyle: "detailed" | "terse") =>
+      buildClientSystemPromptStructured({
+        agentDefinition: BASE_DEF,
+        toolNames: [...P2_TOOLS, "bash", "wiki_overview"],
+        cwd: "/workspace",
+        promptStyle,
+      });
+    const terse = buildWiki("terse");
+    const detailed = buildWiki("detailed");
+
+    expect(terse.fullPrompt).toContain('prompt_guide(section: "wiki")');
+    expect(terse.fullPrompt).toContain("wiki_overview");
+    expect(terse.fullPrompt).not.toContain("folder scan");
+    expect(detailed.fullPrompt).toContain("folder scan");
+  });
+
+  it("selfLearning terse：一行版（feedback 记忆 / SOUL 更新）", () => {
+    const buildSl = (promptStyle: "detailed" | "terse") =>
+      buildClientSystemPromptStructured({
+        agentDefinition: BASE_DEF,
+        toolNames: [...P2_TOOLS, "profile_memory", "system_prompt"],
+        cwd: "/workspace",
+        promptStyle,
+      });
+    const terse = buildSl("terse");
+    const detailed = buildSl("detailed");
+
+    expect(terse.fullPrompt).toContain("## Self-Improvement");
+    expect(terse.fullPrompt).toContain("profile_memory");
+    expect(terse.fullPrompt).not.toContain("When the user corrects you, save the reusable lesson");
+    expect(detailed.fullPrompt).toContain("When the user corrects you, save the reusable lesson");
+
+    const tc = terse.sectionStats.find((s) => s.id === "selfLearning")?.chars ?? 0;
+    const dc = detailed.sectionStats.find((s) => s.id === "selfLearning")?.chars ?? 0;
+    expect(tc / dc).toBeLessThan(0.6);
   });
 });

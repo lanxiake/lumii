@@ -223,14 +223,31 @@ export function buildMemorySection(
 
 /**
  * Wiki 资料库读写分工：进程内工具只读；写入/导入/整理走 `lumii-ui` CLI（经 `bash`）。
+ * terse 档（P2）：只留读序与 CLI 指引两行；folder import 流程移入 `prompt_guide(section: "wiki")`。
  */
-export function buildWikiKnowledgeSection(toolNames: readonly string[]): string[] {
+export function buildWikiKnowledgeSection(
+  toolNames: readonly string[],
+  style: PromptStyle = "detailed",
+): string[] {
   const hasWikiRead =
     toolNames.includes("wiki_overview") ||
     toolNames.includes("wiki_search") ||
     toolNames.includes("wiki_read");
   const hasBash = toolNames.includes("bash");
   if (!hasWikiRead && !hasBash) return [];
+
+  if (style === "terse") {
+    const lines: string[] = ["## Wiki Knowledge Base (资料库)"];
+    if (hasWikiRead) {
+      lines.push("**Read** (in-process): `wiki_overview` → `wiki_search` → `wiki_read` (overview first).");
+    }
+    if (hasBash) {
+      lines.push("**Import / organize / archive**: CLI via `bash` (`lumii-ui wiki …`; discover with `lumii-ui help --json`).");
+      lines.push('Details (folder import flow): `prompt_guide(section: "wiki")`.');
+    }
+    lines.push("");
+    return lines;
+  }
 
   const lines: string[] = ["## Wiki Knowledge Base (资料库)"];
 
@@ -470,8 +487,30 @@ export function buildProjectContextSection(contextFiles?: readonly ContextFile[]
 
 /**
  */
-export function buildUserDevicesSection(devices?: readonly UserDeviceInfo[]): string[] {
+export function buildUserDevicesSection(
+  devices?: readonly UserDeviceInfo[],
+  style: PromptStyle = "detailed",
+): string[] {
   if (!devices?.length) return []
+
+  if (style === "terse") {
+    const lines: string[] = [
+      "## User Devices",
+      "",
+      "Use the `node` parameter to target a specific device; omit it for the primary device.",
+      "",
+    ]
+    for (const device of devices) {
+      const parts: string[] = [`nodeId=${device.nodeId}`]
+      if (device.displayName) parts.push(`name="${device.displayName}"`)
+      if (device.platform) parts.push(`platform=${device.platform}`)
+      parts.push(`primary=${device.isPrimary}`)
+      parts.push(`connected=${device.connected}`)
+      lines.push(`- ${parts.join(" | ")}`)
+    }
+    lines.push("")
+    return lines
+  }
 
   const lines: string[] = [
     "## User Devices",
@@ -501,10 +540,12 @@ export function buildUserDevicesSection(devices?: readonly UserDeviceInfo[]): st
 /**
  * Build the Device Node Control section.
  * Guides device-targeting behavior when user devices are available.
+ * terse 档（P2）：单行版。
  */
 export function buildDeviceControlSection(
   devices?: readonly UserDeviceInfo[],
   toolNames?: readonly string[],
+  style: PromptStyle = "detailed",
 ): string[] {
   if (!devices?.length) return []
 
@@ -517,6 +558,15 @@ export function buildDeviceControlSection(
   const hasBash = toolSet.has("bash")
 
   if (!hasFileTools && !hasBash) return []
+
+  if (style === "terse") {
+    return [
+      "## Device Node Control",
+      "",
+      "Your tools run on the user's paired device node (primary by default); specify the target device when several are bound.",
+      "",
+    ]
+  }
 
   const lines: string[] = [
     "## Device Node Control",

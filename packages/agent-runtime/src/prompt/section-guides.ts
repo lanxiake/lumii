@@ -62,6 +62,26 @@ Prefer \`spawn_agent mode=sync\` when you need the result in the same turn. Use 
 Finally, mark everything complete or cancelled with \`todo_write action=batch_update\`, then call \`task_complete\`.`,
   },
 
+  wiki: {
+    title: "Wiki Knowledge Base (full)",
+    body: `## Wiki Knowledge Base (资料库)
+
+**Import / organize / archive** (CLI via \`bash\`, not \`wiki_*\`): discover commands with \`lumii-ui help --json\`.
+Typical **folder → Wiki** flow when the user asks to organize \`outputs/\` or a directory:
+1. \`lumii-ui wiki folder scan "<dir>" --recursive\` — preview importable count, directoryTree, topicOccupancy
+2. Confirm with the user when many files or binary docs (pdf/docx)
+3. \`lumii-ui wiki folder import "<dir>" --recursive --item-type output\` — imports AND auto-classifies (default)
+   LLM sees: source paths, directory tree, existing topic occupancy, full topic tree, content previews (up to 500 chars/file)
+4. Check \`organizeRun.summary\` in response; verify with \`wiki inbox count --status pending\`
+
+Use \`--no-auto-classify\` only if user wants manual filing; then \`wiki organize run --mode organize\` if auto-classify enabled in settings.
+Manual filing: \`lumii-ui wiki inbox organize <inboxId> --category <c> --subtopic <s>\`.
+UI partitions: 工作/学习/生活/收藏 + subtopic. CLI \`--category\` uses legacy tree names: 工作→做事记录, 学习→学习资料, 生活→计划与复盘|证件凭据, 收藏→模板参考|随笔创作 (match subtopic owner).
+\`@outputs\` / "上述目录" → \`<cwd>/outputs\` or the subfolder the user named.
+Reference-first: imports register paths; do not move or delete original files.
+Files only: do not save URLs or web search results as separate wiki entries — embed links in document content when needed.`,
+  },
+
   operatingPrinciples: {
     title: "Operating Principles (full)",
     body: `## Operating Principles

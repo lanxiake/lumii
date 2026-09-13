@@ -26,13 +26,17 @@ const GUARD_TOOLS = [
   "weixin_send_guide",
   "browser_screenshot",
   "browser_eval",
-  // P2：skills / taskOrchestration / agentCollaboration
+  // P2：skills / taskOrchestration / agentCollaboration / wiki / selfLearning
   "skill_list",
   "skill_search",
   "skill_invoke",
   "spawn_agent",
   "send_message",
   "todo_write",
+  "bash",
+  "wiki_overview",
+  "wiki_search",
+  "profile_memory",
 ];
 
 const GUARD_SKILLS: SkillInfo[] = [
@@ -80,7 +84,7 @@ describe("PROMPT_SECTIONS 元数据守卫", () => {
     for (const s of PROMPT_SECTIONS) {
       if (s.terse) {
         expect(s.expandVia, s.id).toBeDefined();
-        expect(["prompt-guide", "existing-tool"], s.id).toContain(s.expandVia);
+        expect(["prompt-guide", "existing-tool", "none"], s.id).toContain(s.expandVia);
       }
     }
   });

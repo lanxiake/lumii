@@ -2,7 +2,7 @@
  * Runtime & Workspace sections
  */
 
-import type { ClientSystemPromptParams, WorkspaceLayout, ActiveTaskInfo } from "../system-prompt.types.js"
+import type { ClientSystemPromptParams, WorkspaceLayout, ActiveTaskInfo, PromptStyle } from "../system-prompt.types.js"
 
 /**
  * Build the Runtime section (detailed format).
@@ -55,12 +55,23 @@ export function buildRuntimeSection(params: ClientSystemPromptParams, currentMod
  * 告知 Agent：对话接近上下文上限时系统会自动压缩历史并以摘要继续，
  * 无需提前收尾或中途交接；若需要被压缩掉的精确原文，可用记忆检索回查。
  * 仅当具备记忆检索工具时才给出"回查原文"指针，避免对无记忆能力的会话误导。
+ * terse 档（P2）：一行版（保留持久化契约与回查指针）。
  */
-export function buildContextManagementSection(toolNames: readonly string[]): string[] {
+export function buildContextManagementSection(
+  toolNames: readonly string[],
+  style: PromptStyle = "detailed",
+): string[] {
   const canRecall =
     toolNames.includes("memory_search") || toolNames.includes("memory_read")
   const hasFileWrite = toolNames.includes("file_write")
   const persistTarget = hasFileWrite ? "`file_write` or memory" : "memory"
+
+  if (style === "terse") {
+    const line =
+      `When the conversation grows, the system may summarize older history and continue with that summary. Continue normally; keep important decisions, paths, and results in ${persistTarget} because compaction is lossy.` +
+      (canRecall ? " Recover exact details via `memory_search` → `memory_read`." : "")
+    return ["## Context Compaction", line, ""]
+  }
 
   const lines = [
     "## Context Compaction",
