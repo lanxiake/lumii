@@ -47,3 +47,12 @@ export { serializeAttachmentReference } from "./wiki/wiki-attachments.js";
 // 临时存放常量是纯字符串，渲染进程用于选择器排除项与文件列表操作按钮判断
 export { PARKING_CATEGORY } from "./wiki/wiki-topic-tree.js";
 export { wikiRecordsShareFileIdentity } from "./wiki/wiki-source-identity.js";
+
+// 提示词段元数据是纯常量（无 Node 依赖），渲染进程实验页只读段清单直接消费
+export { PROMPT_SECTIONS } from "./prompt/prompt-sections.js";
+export type {
+  PromptSectionId,
+  PromptSectionGroup,
+  PromptSectionMeta,
+  PromptExpandRoute,
+} from "./prompt/prompt-sections.js";
