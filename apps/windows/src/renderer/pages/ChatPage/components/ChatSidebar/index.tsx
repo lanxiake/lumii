@@ -3,7 +3,7 @@ import { SessionItem } from '../SessionItem'
 import { ChannelBindModal } from '../ChannelBindModal'
 import { ContextMenu } from '../ContextMenu'
 import type { ContextMenuItem } from '../ContextMenu'
-import { MoreHorizontal, Trash2 } from '../../../../components/ui/Icon'
+import { MoreHorizontal, Plus, Trash2 } from '../../../../components/ui/Icon'
 import { useAgents } from '../../../../hooks/business/useAgents/useAgents'
 import { useSettingsHub } from '../../../../components/SettingsHub'
 import type { ClearGroupHistoryRequest } from '../../clearGroupPlan'
@@ -79,6 +79,49 @@ const isSameDay = (date1: Date, date2: Date): boolean => {
 }
 
 /**
+ * 默认 Tab 系统分组的侧栏短名与空态中文说明（仅 UI，不改 Agent 定义）。
+ * key：`__main__` = 系统默认；其余为内置 selectable Agent id。
+ */
+const SIDEBAR_SYSTEM_GROUP_UI: Record<string, { label: string; emptyDesc: string }> = {
+  __main__: {
+    label: '默认',
+    emptyDesc: '通用助手，处理日常问答与多步任务',
+  },
+  'code-dev': {
+    label: '开发',
+    emptyDesc: '绑定项目，完成可验证的代码改动',
+  },
+  'system-keeper': {
+    label: '维护',
+    emptyDesc: '维护 Wiki、记忆与用户指南，并可代操客户端设置',
+  },
+  chronicler: {
+    label: '记事',
+    emptyDesc: '日报、周复盘、早间简报与专注提醒',
+  },
+  'info-curator': {
+    label: '情报',
+    emptyDesc: '按偏好策展资讯，筛选噪声并整理推送',
+  },
+}
+
+/**
+ * 解析侧栏分组显示名：系统五组用两字短名，其余回退 Agent 全名。
+ */
+function resolveSidebarGroupLabel(agentId: string | null, fallbackName: string): string {
+  const key = agentId ?? '__main__'
+  return SIDEBAR_SYSTEM_GROUP_UI[key]?.label ?? fallbackName
+}
+
+/**
+ * 解析空组中文功能描述：系统五组用侧栏文案，其余回退 Agent description。
+ */
+function resolveSidebarEmptyDesc(agentId: string | null, fallback?: string): string {
+  const key = agentId ?? '__main__'
+  return SIDEBAR_SYSTEM_GROUP_UI[key]?.emptyDesc ?? (fallback?.trim() || '暂无会话')
+}
+
+/**
  * 聊天侧边栏：按渠道分组展示历史会话。
  */
 const ChatSidebar: React.FC<ChatSidebarProps> = ({
@@ -99,7 +142,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   const [bindModalOpen, setBindModalOpen] = useState(false)
   /** 默认会话 / 渠道会话 / 系统会话 三态切换 */
   const [tab, setTab] = useState<SidebarTab>('default')
-  /** 分组「⋯」菜单（清空历史） */
+  /** 分组「⋯」菜单（新建 / 清空历史） */
   const [groupMenu, setGroupMenu] = useState<{
     x: number
     y: number
@@ -242,7 +285,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   /**
    * 默认 tab 视图：把「系统默认」渠道的会话按 Agent 分组。
    * 系统默认（agentId 为空/default/assistant）恒为第一组且无标题；其余每个有会话的 Agent 一组，按最近活跃排序。
-   * 非搜索态下没有会话的 Agent 也占位展示（含职责说明与「+」），便于发现和发起。
+   * 非搜索态下没有会话的 Agent 也占位展示（含职责说明与「⋯」），便于发现和发起。
    */
   const agentGroups = useMemo(() => {
     if (tab !== 'default') return []
@@ -290,7 +333,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       }
     }
 
-    // 非搜索态：系统默认组恒存在，没有会话的成员 Agent 也占位（空组只展示说明与「+」）
+    // 非搜索态：系统默认组恒存在，没有会话的成员 Agent 也占位（空组展示说明与「⋯」）
     if (!isSearch) {
       if (!groups.has('__main__')) {
         groups.set('__main__', {
@@ -332,9 +375,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       g.yesterday.sort(sortByUpdated)
       g.earlier.sort(sortByUpdated)
     }
-    // 系统默认组置顶；其余按最近活跃倒序；同为空的组按名称排
+    // 系统默认组置顶；其余按最近活跃倒序；同为空的组按侧栏显示名排
     const labelOf = (g: (typeof list)[number]) =>
-      g.agentId ? (agentsMap.get(g.agentId)?.name ?? g.agentId) : ''
+      resolveSidebarGroupLabel(
+        g.agentId,
+        g.agentId ? (agentsMap.get(g.agentId)?.name ?? g.agentId) : '默认',
+      )
     list.sort((a, b) => {
       if (a.key === '__main__') return -1
       if (b.key === '__main__') return 1
@@ -399,34 +445,55 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   )
 
   /**
-   * 打开分组「⋯」菜单：清空历史（保留最近 5 条）/ 清空全部历史。
-   * 执行时跳过置顶与运行中会话（由 ChatPage 侧统一处理并二次确认）。
+   * 打开分组「⋯」菜单。
+   * 默认 Tab 可附带「在此新建对话」；渠道/系统仅清空项。
+   * 清空执行时跳过置顶与运行中会话（由 ChatPage 侧统一处理并二次确认）。
    */
   const openGroupMenu = useCallback(
-    (e: React.MouseEvent, label: string, groupSessions: ChatSession[]) => {
+    (
+      e: React.MouseEvent,
+      label: string,
+      groupSessions: ChatSession[],
+      options?: { createAgentId?: string | null },
+    ) => {
       e.stopPropagation()
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+      const items: ContextMenuItem[] = []
+
+      if (options && 'createAgentId' in options) {
+        const agentId = options.createAgentId ?? null
+        items.push({
+          id: 'create-in-group',
+          label: '在此新建对话',
+          icon: <Plus size={14} strokeWidth={1.8} />,
+          onClick: () => onCreateSessionInGroup(agentId),
+        })
+      }
+
+      items.push(
+        {
+          id: 'clear-keep-recent',
+          label: '清空历史（保留最近 5 条）',
+          icon: <Trash2 size={14} strokeWidth={1.8} />,
+          separatorBefore: items.length > 0,
+          onClick: () => onClearGroupHistory({ label, sessions: groupSessions, keepRecent: 5 }),
+        },
+        {
+          id: 'clear-all',
+          label: '清空全部历史',
+          icon: <Trash2 size={14} strokeWidth={1.8} />,
+          danger: true,
+          onClick: () => onClearGroupHistory({ label, sessions: groupSessions, keepRecent: null }),
+        },
+      )
+
       setGroupMenu({
         x: Math.max(8, rect.right - 168),
         y: rect.bottom + 4,
-        items: [
-          {
-            id: 'clear-keep-recent',
-            label: '清空历史（保留最近 5 条）',
-            icon: <Trash2 size={14} strokeWidth={1.8} />,
-            onClick: () => onClearGroupHistory({ label, sessions: groupSessions, keepRecent: 5 }),
-          },
-          {
-            id: 'clear-all',
-            label: '清空全部历史',
-            icon: <Trash2 size={14} strokeWidth={1.8} />,
-            danger: true,
-            onClick: () => onClearGroupHistory({ label, sessions: groupSessions, keepRecent: null }),
-          },
-        ],
+        items,
       })
     },
-    [onClearGroupHistory],
+    [onClearGroupHistory, onCreateSessionInGroup],
   )
 
   /**
@@ -553,7 +620,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
               const isCollapsed = collapsedChannels.has(collapseKey)
               const groupHasRunning = [...g.pinned, ...g.sessions].some((s) => s.isStreaming)
               const agentInfo = g.agentId ? agentsMap.get(g.agentId) : null
-              const groupLabel = g.agentId ? (agentInfo?.name ?? g.agentId) : '系统默认'
+              const groupLabel = resolveSidebarGroupLabel(
+                g.agentId,
+                g.agentId ? (agentInfo?.name ?? g.agentId) : '默认',
+              )
+              const emptyDesc = resolveSidebarEmptyDesc(g.agentId, agentInfo?.description)
               return (
                 <div key={g.key} className={styles['channel-group']}>
                   <div
@@ -562,7 +633,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => {
-                      // 只在组头自身聚焦时响应；避免吞掉「+」「⋯」按钮上的 Enter/空格
+                      // 只在组头自身聚焦时响应；避免吞掉「⋯」按钮上的 Enter/空格
                       if (e.target !== e.currentTarget) return
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
@@ -579,29 +650,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                       <button
                         type="button"
                         className={styles['group-action-btn']}
-                        title={`在「${groupLabel}」下新建对话`}
-                        aria-label={`在「${groupLabel}」下新建对话`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onCreateSessionInGroup(g.agentId)
-                        }}
-                      >
-                        +
-                      </button>
-                      <button
-                        type="button"
-                        className={styles['group-action-btn']}
                         title={`「${groupLabel}」更多操作`}
                         aria-label={`「${groupLabel}」更多操作`}
-                        onClick={(e) => openGroupMenu(e, groupLabel, sessionsOfAgentGroup(g.agentId))}
+                        onClick={(e) =>
+                          openGroupMenu(e, groupLabel, sessionsOfAgentGroup(g.agentId), {
+                            createAgentId: g.agentId,
+                          })
+                        }
                       >
                         <MoreHorizontal size={14} strokeWidth={1.8} />
                       </button>
-                      <span
-                        className={`${styles['group-chevron']}${isCollapsed ? ` ${styles['group-chevron--collapsed']}` : ''}`}
-                      >
-                        ▾
-                      </span>
                     </span>
                   </div>
 
@@ -609,9 +667,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                     className={`${styles['channel-group-body']}${isCollapsed ? ` ${styles['channel-group-body--collapsed']}` : ''}`}
                   >
                     {g.total === 0 ? (
-                      <div className={styles['group-empty-desc']} title={agentInfo?.description || undefined}>
-                        {agentInfo?.description || '暂无会话'}
-                      </div>
+                      <div className={styles['group-empty-desc']}>{emptyDesc}</div>
                     ) : (
                       <>
                         {g.pinned.length > 0 && (
@@ -680,11 +736,6 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                         <MoreHorizontal size={14} strokeWidth={1.8} />
                       </button>
                     )}
-                    <span
-                      className={`${styles['group-chevron']}${isCollapsed ? ` ${styles['group-chevron--collapsed']}` : ''}`}
-                    >
-                      ▾
-                    </span>
                   </span>
                 </div>
 

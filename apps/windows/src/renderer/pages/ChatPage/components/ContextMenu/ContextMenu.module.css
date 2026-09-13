@@ -23,6 +23,12 @@
   }
 }
 
+.context-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--mt-glass-stroke);
+}
+
 .context-menu-item {
   display: flex;
   align-items: center;
