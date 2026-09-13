@@ -1,18 +1,18 @@
-{"ts":"2026-09-13T09:40:18.780Z","id":"AT-ENV","status":"INFO","note":"预检通过；日志通道可用；LLM=真实；claude=启用；tick=未启用；AT_ONLY=F2"}
-{"ts":"2026-09-13T09:40:18.844Z","id":"AT-ENV","status":"INFO","note":"dev-context 快照完成（308 字节）；后台 cron 临时禁用 9 条"}
-{"ts":"2026-09-13T09:40:18.946Z","id":"AT-L1-01","status":"PASS","note":"commands=77，命令面完整","durationMs":101}
-{"ts":"2026-09-13T09:40:19.139Z","id":"AT-L2-01","status":"PASS","note":"四位 Agent 定义均可见（code-dev/system-keeper/chronicler/info-curator）","durationMs":193}
-{"ts":"2026-09-13T09:40:19.151Z","id":"AT-L2-02","status":"PASS","note":"5 条转正落地（4→chronicler、news→info-curator）；新闻 prompt 升级标记=含「先读用户偏好」","durationMs":11}
-{"ts":"2026-09-13T09:40:22.664Z","id":"AT-L2-03","status":"PASS","note":"session 级 claude→lumii 往返、敲错项目名被拒","durationMs":3512}
-{"ts":"2026-09-13T09:40:22.665Z","id":"AT-S1","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T09:40:22.666Z","id":"AT-S2","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T09:40:22.667Z","id":"AT-S3","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T09:40:22.668Z","id":"AT-S4","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T09:40:22.669Z","id":"AT-S6","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T09:40:22.670Z","id":"AT-S5","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T09:40:22.671Z","id":"AT-S7","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T09:41:29.490Z","id":"AT-F2","status":"PASS","note":"提案 → CLI 确认（UI 点击链路不可用，soft 降级） → 新开发会话直达 claude（binding）；沙箱 pager.js 已被修复","durationMs":66819}
-{"ts":"2026-09-13T09:41:29.491Z","id":"AT-UI-01","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T09:41:29.492Z","id":"AT-UI-02","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T09:41:29.492Z","id":"AT-UI-03","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T09:41:29.493Z","id":"AT-L2-04","status":"SKIP","note":"未启用（AT_TICK=1 且 app.json autonomousAgents 非空时运行；人工验收：AgentsPage 对系统 Agent 打开自主开关后重跑）","durationMs":0}
+{"ts":"2026-09-13T11:06:09.169Z","id":"AT-ENV","status":"INFO","note":"预检通过；日志通道可用；LLM=真实；claude=启用；tick=未启用；AT_ONLY=F2"}
+{"ts":"2026-09-13T11:06:09.234Z","id":"AT-ENV","status":"INFO","note":"dev-context 快照完成（308 字节）；后台 cron 临时禁用 9 条"}
+{"ts":"2026-09-13T11:06:09.349Z","id":"AT-L1-01","status":"PASS","note":"commands=77，命令面完整","durationMs":113}
+{"ts":"2026-09-13T11:06:09.615Z","id":"AT-L2-01","status":"PASS","note":"四位 Agent 定义均可见（code-dev/system-keeper/chronicler/info-curator）","durationMs":266}
+{"ts":"2026-09-13T11:06:09.629Z","id":"AT-L2-02","status":"PASS","note":"5 条转正落地（4→chronicler、news→info-curator）；新闻 prompt 升级标记=含「先读用户偏好」","durationMs":13}
+{"ts":"2026-09-13T11:06:15.036Z","id":"AT-L2-03","status":"PASS","note":"session 级 claude→lumii 往返、敲错项目名被拒","durationMs":5363}
+{"ts":"2026-09-13T11:06:15.037Z","id":"AT-S1","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":1}
+{"ts":"2026-09-13T11:06:15.037Z","id":"AT-S2","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T11:06:15.038Z","id":"AT-S3","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T11:06:15.039Z","id":"AT-S4","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T11:06:15.039Z","id":"AT-S6","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T11:06:15.040Z","id":"AT-S5","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T11:06:15.041Z","id":"AT-S7","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T11:14:20.844Z","id":"AT-F2","status":"PASS","note":"提案 → CLI 确认（UI 点击链路不可用，soft 降级） → 新开发会话直达 claude（binding）；沙箱 pager.js 已被修复；原会话收到结果汇报","durationMs":485803}
+{"ts":"2026-09-13T11:14:21.083Z","id":"AT-UI-01","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":1}
+{"ts":"2026-09-13T11:14:21.084Z","id":"AT-UI-02","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T11:14:21.085Z","id":"AT-UI-03","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T11:14:21.087Z","id":"AT-L2-04","status":"SKIP","note":"未启用（AT_TICK=1 且 app.json autonomousAgents 非空时运行；人工验收：AgentsPage 对系统 Agent 打开自主开关后重跑）","durationMs":1}

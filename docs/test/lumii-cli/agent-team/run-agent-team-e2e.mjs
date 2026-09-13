@@ -533,25 +533,40 @@ function caseF2() {
     throw new Error('SKIP: 未配置 code-dev 的 Agent 绑定（见用例文档「F2 环境准备」）')
   }
   const pagerPath = `${String(devBind.workspace).replace(/\\/g, '/')}/pager.js`
-  // 重置沙箱为已知 off-by-one 版本（用例自包含、可重复）
-  fs.writeFileSync(
-    pagerPath,
-    "/**\n * 简单分页工具（handoff 沙箱）\n */\nfunction pageCount(totalItems, pageSize) {\n  if (pageSize <= 0) throw new Error('pageSize must be > 0')\n  return Math.floor(totalItems / pageSize)\n}\n\nmodule.exports = { pageCount }\n",
-    'utf-8',
-  )
+  const resetSandbox = () => {
+    fs.writeFileSync(
+      pagerPath,
+      "/**\n * 简单分页工具（handoff 沙箱）\n */\nfunction pageCount(totalItems, pageSize) {\n  if (pageSize <= 0) throw new Error('pageSize must be > 0')\n  return Math.floor(totalItems / pageSize)\n}\n\nmodule.exports = { pageCount }\n",
+      'utf-8',
+    )
+  }
 
-  const sk = h.createSession('F2 转交闭环', { prefix: PREFIX })
-  const cursor = h.logCursor()
-  const t = waitTurnDone(
-    sk,
-    '沙箱项目里 pager.js 的分页有 off-by-one：11 条数据每页 5 条应该是 3 页，现在只算出 2 页。帮我修掉，改完在项目里验证一下。',
-    Math.max(TURN_TIMEOUT, 300000),
-  )
-  const propose = findToolCall(h.fetchMessages(sk, 60), 'propose_dev_handoff')
+  // 提案阶段容错：模型在「转交 / 自理」间存在随机性（「修 bug 型 + 注册项目名」也偶有自理）——
+  // 未提案则重置沙箱后重试一次；两次都自理说明提示词回归，判 FAIL。
+  const TASK =
+    'handoff-demo 项目里 pager.js 的分页有 off-by-one：11 条数据每页 5 条应该是 3 页，现在只算出 2 页。帮我修掉，改完在项目里验证一下。'
+  let sk = ''
+  let propose = null
+  let lastReply = ''
+  for (let attempt = 1; attempt <= 2 && !propose; attempt++) {
+    resetSandbox()
+    sk = h.createSession(`F2 转交闭环(第${attempt}次)`, { prefix: PREFIX })
+    const t = waitTurnDone(sk, TASK, Math.max(TURN_TIMEOUT, 300000))
+    lastReply = t.text || ''
+    propose = findToolCall(h.fetchMessages(sk, 60), 'propose_dev_handoff')
+    if (!propose) {
+      ev.record(
+        'AT-F2',
+        'INFO',
+        `第 ${attempt} 次未出现提案（主助手可能自理）；回复前 120 字：${lastReply.slice(0, 120)}`,
+      )
+    }
+  }
   h.assert(
     propose,
-    `未出现 propose_dev_handoff 提案（主助手可能自己动手或未识别为项目开发）；回复前 200 字：${(t.text || '').slice(0, 200)}`,
+    `两次尝试均未出现 propose_dev_handoff 提案（主助手可能自己动手或未识别为项目开发）；末次回复前 200 字：${lastReply.slice(0, 200)}`,
   )
+  const cursor = h.logCursor()
   let handoffId = null
   try {
     const txt = propose.result?.content?.[0]?.text
@@ -578,20 +593,29 @@ function caseF2() {
     for (let attempt = 1; attempt <= 3 && !viaUi; attempt++) {
       const snap = screenshotRefs()
       const convBtn = (snap.refs || []).find((r) => (r.name || '').includes('F2 转交闭环'))
-      if (convBtn) {
-        h.ui(['click', '--ref', convBtn.ref, '--snapshot-id', String(snap.snapshotId)])
-        h.sleep(1800)
+      if (!convBtn) {
+        h.sleep(1200)
+        continue
       }
+      h.ui(['click', '--ref', convBtn.ref, '--snapshot-id', String(snap.snapshotId)])
+      h.sleep(1800)
       // 会话刚切换时消息区可能还在渲染：按钮出现与否独立重试
       for (let round = 1; round <= 3 && !viaUi; round++) {
         const snap2 = screenshotRefs()
         const confirmBtn = (snap2.refs || []).find((r) => (r.name || '').includes('交给灵栖开发'))
-        if (confirmBtn) {
-          h.ui(['click', '--ref', confirmBtn.ref, '--snapshot-id', String(snap2.snapshotId)])
-          viaUi = true
-        } else {
+        if (!confirmBtn) {
           h.sleep(1500)
+          continue
         }
+        const cr = h.ui(['click', '--ref', confirmBtn.ref, '--snapshot-id', String(snap2.snapshotId)])
+        if (cr.code !== 0 || cr.json?.ok === false) {
+          h.sleep(1000)
+          continue
+        }
+        // 以日志确认点击真实生效（防点到旧卡片/无效元素的假成功）
+        h.sleep(2500)
+        const okLines = h.logSince(cursor, /handoff:confirm/)
+        if (okLines.some((l) => /已转交/.test(String(l)))) viaUi = true
       }
     }
   } catch {
@@ -619,7 +643,23 @@ function caseF2() {
   )
   h.assert(fixed, '240s 内沙箱文件未被修复（claude 未完成或未执行）')
 
-  return `提案 → ${confirmNote} → 新开发会话直达 claude（binding）；沙箱 pager.js 已被修复`
+  // 断言：完成后结果异步汇报回原会话（执行与汇报分离：原会话必须知道任务结果）
+  const reported = h.pollUntil(
+    () => {
+      const items = h.fetchMessages(sk, 40)
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].role !== 'assistant') continue
+        const txt = h.messageText(items[i]) || ''
+        if (/转交完成|转交执行失败/.test(txt)) return txt
+      }
+      return null
+    },
+    180000,
+    8000,
+  )
+  h.assert(reported, '完成后 3 分钟内原会话未收到转交结果汇报')
+
+  return `提案 → ${confirmNote} → 新开发会话直达 claude（binding）；沙箱 pager.js 已被修复；原会话收到结果汇报`
 }
 
 /** AT-UI-01 在 AI 团队页真实点击「参与自主心跳」开关（位置无关 + 状态无关：点击→diff 识别翻转→再点→还原） */

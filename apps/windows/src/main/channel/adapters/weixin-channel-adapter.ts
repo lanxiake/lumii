@@ -52,6 +52,7 @@ import {
   findLatestHandoffFor,
   isHandoffConfirmText,
 } from '../../agent-runtime/handoff-store'
+import { formatHandoffReport, runDevHandoff } from '../../ipc/agent-runtime/dev-handoff-executor'
 import { getChannelFeatures } from '../channel-feature-store'
 import {
   getChannelVoiceAsrFailedHint,
@@ -657,7 +658,27 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       session,
       `✅ 已确认，交给灵栖开发执行${devContext.projectName ? `（项目：${devContext.projectName}）` : ''}…`,
     ).catch(() => undefined)
-    await this.handleAcpPrompt(msg, session, handoff.task, devContext.backendId, devContext.projectPath)
+
+    // 执行空间 = 灵栖开发的开发会话（新建/复用最近）；完成后异步把结果汇报回本会话
+    try {
+      await runDevHandoff({
+        bridge: this.bridge,
+        task: handoff.task,
+        sessionMode: handoff.sessionMode,
+        title: handoff.summary,
+        report: (payload) =>
+          this.sendTextReply(session, formatHandoffReport(handoff.summary, payload)).catch((err) => {
+            log.warn(
+              `[tryConsumeHandoffConfirm] 完成汇报失败: ${err instanceof Error ? err.message : String(err)}`,
+            )
+          }),
+      })
+    } catch (err) {
+      await this.sendTextReply(
+        session,
+        `❌ 转交发起失败：${err instanceof Error ? err.message : String(err)}`,
+      ).catch(() => undefined)
+    }
     return true
   }
 

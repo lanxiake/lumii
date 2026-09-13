@@ -1,16 +1,14 @@
 /**
  * 转交确认执行（F2）：handoff:confirm
  *
- * 用户在转交卡片上点击确认后：取出提案 → 新建或复用灵栖开发会话 →
- * 把背景包作为任务消息发出。发送复用 handleUserSend 的完整路径
- * （落库 + 广播 + 开发上下文解析 + ACP 直达 / pi 兜底分流），不重复实现路由。
+ * 用户在转交卡片上点确认后：取出提案 → runDevHandoff 把任务发到「灵栖开发」的开发会话
+ * （新建/复用最近），完成后异步把结果汇报回本（主助手）会话——保证原会话知道任务结果。
  */
 
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { consumeHandoff } from '../../agent-runtime/handoff-store'
-import { handleConversationCreate, handleConversationList } from './conversation-commands'
-import { handleUserSend } from './user-commands'
+import { formatHandoffReport, runDevHandoff, type DevHandoffReport } from './dev-handoff-executor'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -18,19 +16,41 @@ const log = {
   error: (...args: unknown[]) => console.error('[AgentRuntime:IPC]', ...args),
 }
 
-const CODE_DEV_AGENT_ID = 'code-dev'
-
-/** 由摘要生成会话标题（单行、截断） */
-function titleFromSummary(summary: string): string {
-  const one = summary.replace(/\s+/g, ' ').trim()
-  if (!one) return '开发任务'
-  return one.length > 24 ? `${one.slice(0, 24)}…` : one
+/** 完成后把结果写回原会话（主助手会话），保证「原会话知道任务结果」 */
+function reportToOriginSession(
+  bridge: AgentRuntimeBridge,
+  originSessionKey: string,
+  summary: string,
+  payload: DevHandoffReport,
+): void {
+  if (!originSessionKey) return
+  const text = formatHandoffReport(summary, payload)
+  try {
+    const id = bridge.conversationRepo.saveMessage({
+      conversationId: originSessionKey,
+      role: 'assistant',
+      contentJson: { type: 'text', text },
+    })
+    bridge.forwardIpcEvent({
+      type: 'conversation:message:new',
+      sessionKey: originSessionKey,
+      message: {
+        id: String(id),
+        role: 'assistant',
+        content: [{ type: 'text', text }],
+        timestamp: Date.now(),
+      },
+    })
+    log.info(`[handoff:confirm] 已向原会话汇报结果 sessionKey=${originSessionKey}`)
+  } catch (err) {
+    log.error(`[handoff:confirm] 原会话汇报失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 export async function handleHandoffConfirm(
   bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'handoff:confirm' }>,
-): Promise<{ ok: boolean; sessionKey?: string; title?: string; runId?: string; error?: string }> {
+): Promise<{ ok: boolean; sessionKey?: string; title?: string; error?: string }> {
   const handoff = consumeHandoff(command.handoffId)
   if (!handoff) {
     return {
@@ -42,50 +62,19 @@ export async function handleHandoffConfirm(
     `[handoff:confirm] 确认转交 handoffId=${handoff.id} mode=${handoff.sessionMode} summary="${handoff.summary}"`,
   )
 
-  // 1. 目标会话：recent=灵栖开发最近的用户会话；否则新开（标题取摘要）
-  let targetSk: string | undefined
-  let title: string | undefined
-  if (handoff.sessionMode === 'recent') {
-    try {
-      const recent = handleConversationList(bridge)
-        .filter(
-          (c) =>
-            c.agentId === CODE_DEV_AGENT_ID &&
-            !c.id.startsWith('evolution:') &&
-            !c.id.startsWith('cron:'),
-        )
-        .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0]
-      if (recent) {
-        targetSk = recent.sessionKey
-        title = recent.title
-        log.info(`[handoff:confirm] 复用最近会话 ${targetSk}（${title}）`)
-      }
-    } catch (err) {
-      log.warn(`[handoff:confirm] 查找最近会话失败，回退新开: ${err instanceof Error ? err.message : String(err)}`)
-    }
-  }
-
   try {
-    if (!targetSk) {
-      const created = await handleConversationCreate(bridge, {
-        type: 'conversation:create',
-        title: titleFromSummary(handoff.summary),
-        agentId: CODE_DEV_AGENT_ID,
-      })
-      targetSk = created.sessionKey
-      title = titleFromSummary(handoff.summary)
-      log.info(`[handoff:confirm] 新建开发会话 ${targetSk}（${title}）`)
-    }
-
-    // 2. 复用用户消息路径发起：落库 + 广播 + 开发上下文解析 + ACP/pi 分流
-    const { runId } = await handleUserSend(bridge, {
-      type: 'user:send',
-      sessionKey: targetSk,
-      content: handoff.task,
-      agentId: CODE_DEV_AGENT_ID,
+    const { devSessionKey, title } = await runDevHandoff({
+      bridge,
+      task: handoff.task,
+      sessionMode: handoff.sessionMode,
+      title: handoff.summary,
+      report: (payload) =>
+        reportToOriginSession(bridge, handoff.originSessionKey, handoff.summary, payload),
     })
-    log.info(`[handoff:confirm] 已转交 handoffId=${handoff.id} → sessionKey=${targetSk} runId=${runId}`)
-    return { ok: true, sessionKey: targetSk, title, runId }
+    log.info(
+      `[handoff:confirm] 已转交 handoffId=${handoff.id} → 开发会话 ${devSessionKey}（完成后汇报回原会话）`,
+    )
+    return { ok: true, sessionKey: devSessionKey, title }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     log.error(`[handoff:confirm] 执行失败 handoffId=${handoff.id}: ${message}`)

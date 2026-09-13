@@ -1,6 +1,6 @@
 # 一等公民 Agent 团队 E2E（场景化） 测试报告
 
-- **生成时间**: 2026-09-13T09:41:29.574Z（开始 2026-09-13T09:38:22.882Z）
+- **生成时间**: 2026-09-13T11:14:21.129Z（开始 2026-09-13T11:04:13.246Z）
 - **驱动方式**: 全部经 lumii-ui CLI 真实调用（conversation/send/context 等），真实客户端 + 真实 LLM，无 SQL 播种
 - **数据库**: C:\Users\Administrator\.lumii\data\agent-runtime.db
 - **场景范围**: AT_ONLY=F2
@@ -22,21 +22,21 @@
 | ID | 状态 | 说明 | 耗时 |
 |---|---|---|---|
 | AT-L1-01 | ✅ | commands=77，命令面完整 | 0.1s |
-| AT-L2-01 | ✅ | 四位 Agent 定义均可见（code-dev/system-keeper/chronicler/info-curator） | 0.2s |
+| AT-L2-01 | ✅ | 四位 Agent 定义均可见（code-dev/system-keeper/chronicler/info-curator） | 0.3s |
 | AT-L2-02 | ✅ | 5 条转正落地（4→chronicler、news→info-curator）；新闻 prompt 升级标记=含「先读用户偏好」 | 0.0s |
-| AT-L2-03 | ✅ | session 级 claude→lumii 往返、敲错项目名被拒 | 3.5s |
-| AT-S1 | ⏭️ | 未选中（AT_ONLY） | - |
+| AT-L2-03 | ✅ | session 级 claude→lumii 往返、敲错项目名被拒 | 5.4s |
+| AT-S1 | ⏭️ | 未选中（AT_ONLY） | 0.0s |
 | AT-S2 | ⏭️ | 未选中（AT_ONLY） | - |
 | AT-S3 | ⏭️ | 未选中（AT_ONLY） | - |
 | AT-S4 | ⏭️ | 未选中（AT_ONLY） | - |
 | AT-S6 | ⏭️ | 未选中（AT_ONLY） | - |
 | AT-S5 | ⏭️ | 未选中（AT_ONLY） | - |
 | AT-S7 | ⏭️ | 未选中（AT_ONLY） | - |
-| AT-F2 | ✅ | 提案 → CLI 确认（UI 点击链路不可用，soft 降级） → 新开发会话直达 claude（binding）；沙箱 pager.js 已被修复 | 66.8s |
-| AT-UI-01 | ⏭️ | 未选中（AT_ONLY） | - |
+| AT-F2 | ✅ | 提案 → CLI 确认（UI 点击链路不可用，soft 降级） → 新开发会话直达 claude（binding）；沙箱 pager.js 已被修复；原会话收到结果汇报 | 485.8s |
+| AT-UI-01 | ⏭️ | 未选中（AT_ONLY） | 0.0s |
 | AT-UI-02 | ⏭️ | 未选中（AT_ONLY） | - |
 | AT-UI-03 | ⏭️ | 未选中（AT_ONLY） | - |
-| AT-L2-04 | ⏭️ | 未启用（AT_TICK=1 且 app.json autonomousAgents 非空时运行；人工验收：AgentsPage 对系统 Agent 打开自主开关后重跑） | - |
+| AT-L2-04 | ⏭️ | 未启用（AT_TICK=1 且 app.json autonomousAgents 非空时运行；人工验收：AgentsPage 对系统 Agent 打开自主开关后重跑） | 0.0s |
 
 ## 失败与跳过明细
 

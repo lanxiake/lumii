@@ -30,9 +30,8 @@ import {
   isHandoffConfirmText,
 } from '../../agent-runtime/handoff-store'
 import { getCodingDevConfig, resolveDevContext } from '../../coding-dev-env.js'
-import { getAcpRunController } from '../../coding-dev-acp-run.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
-import { pushAgentRuntimeEvent } from '../../ipc/agent-runtime-ipc.js'
+import { formatHandoffReport, runDevHandoff } from '../../ipc/agent-runtime/dev-handoff-executor'
 import { resolveContinuityForChannel } from '../cross-channel-continuity'
 import { getChannelFeatures } from '../channel-feature-store'
 import {
@@ -68,14 +67,6 @@ const log = {
   info: (...args: unknown[]) => console.log('[QbotChannelAdapter]', ...args),
   warn: (...args: unknown[]) => console.warn('[QbotChannelAdapter]', ...args),
   error: (...args: unknown[]) => console.error('[QbotChannelAdapter]', ...args),
-}
-
-/** ACP 事件里取文本内容（agent:message:end / controller 的错误提示消息） */
-function textOfAcpContent(content: ReadonlyArray<{ type: string; text?: string }>): string {
-  return content
-    .filter((c) => c.type === 'text' && c.text)
-    .map((c) => c.text ?? '')
-    .join('')
 }
 
 export class QbotChannelAdapter implements IChannelAdapter {
@@ -370,69 +361,28 @@ export class QbotChannelAdapter implements IChannelAdapter {
       session,
       `✅ 已确认，交给灵栖开发执行${devContext.projectName ? `（项目：${devContext.projectName}）` : ''}…`,
     ).catch(() => undefined)
-    await this.handleAcpPrompt(session, handoff.task, devContext.backendId, devContext.projectPath)
-    return true
-  }
 
-  /**
-   * ACP 直达路径（F3）：startRun + 事件回执。
-   * 工具进度与完成结果按渠道习惯以短消息回 QQ；事件同时转发渲染进程（客户端对话页可见完整过程）。
-   */
-  private async handleAcpPrompt(
-    session: ChannelSession,
-    prompt: string,
-    backendId: string,
-    cwd?: string,
-  ): Promise<void> {
-    log.info(`[handleAcpPrompt] 走 ACP 路径: backendId=${backendId} sessionKey=${session.sessionKey}`)
-    const runId = `qbot-acp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-    const sentToolIds = new Set<string>()
-    const ACP_STATUS_THROTTLE_MS = 3000
-    let lastStatusSentAt = 0
-    let finalText = ''
-    let errorText = ''
-
-    await getAcpRunController().startRun({
-      runId,
-      sessionKey: session.sessionKey,
-      backendId,
-      text: prompt,
-      instanceId: session.instanceId ?? session.sessionKey,
-      bridge: this.bridge,
-      accountId: session.channelUserId,
-      senderId: session.channelUserId,
-      cwd,
-      pushEvent: (event) => {
-        pushAgentRuntimeEvent(event)
-        if (event.type === 'agent:tool:start' && !sentToolIds.has(event.toolCallId)) {
-          sentToolIds.add(event.toolCallId)
-          void this.sendTextReply(session, `🔧 执行中：${event.toolName || '工具'}`)
-          return
-        }
-        if (event.type === 'agent:thinking:delta') {
-          const now = Date.now()
-          if (now - lastStatusSentAt > ACP_STATUS_THROTTLE_MS) {
-            lastStatusSentAt = now
-            void this.sendTextReply(session, '💭 思考中…')
-          }
-          return
-        }
-        if (event.type === 'agent:message:end') {
-          finalText = textOfAcpContent(event.content)
-          return
-        }
-        if (event.type === 'conversation:message:new' && event.message.role === 'assistant') {
-          errorText = textOfAcpContent(event.message.content)
-        }
-      },
-    })
-
-    if (errorText) {
-      await this.sendTextReply(session, errorText)
-      return
+    // 执行空间 = 灵栖开发的开发会话（新建/复用最近）；完成后异步把结果汇报回本会话
+    try {
+      await runDevHandoff({
+        bridge: this.bridge,
+        task: handoff.task,
+        sessionMode: handoff.sessionMode,
+        title: handoff.summary,
+        report: (payload) =>
+          this.sendTextReply(session, formatHandoffReport(handoff.summary, payload)).catch((err) => {
+            log.warn(
+              `[tryConsumeHandoffConfirm] 完成汇报失败: ${err instanceof Error ? err.message : String(err)}`,
+            )
+          }),
+      })
+    } catch (err) {
+      await this.sendTextReply(
+        session,
+        `❌ 转交发起失败：${err instanceof Error ? err.message : String(err)}`,
+      ).catch(() => undefined)
     }
-    log.info(`[handleAcpPrompt] ACP 完成，回复长度=${finalText.length}`)
-    await this.sendTextReply(session, finalText || '✅ ACP 任务完成（无文本输出）。')
+    return true
   }
 
   private buildSession(msg: QbotNormalizedMessage): ChannelSession {
