@@ -1,0 +1,106 @@
+[
+  {
+    "title": "[pc-suite] detailed 文件工具链",
+    "sessionKey": "ffe97a2035cd774d7787350e1123315b",
+    "updatedAt": "2026-09-13T10:31:29.236Z",
+    "toolCount": 15,
+    "tools": [
+      "todo_write",
+      "file_write",
+      "todo_write",
+      "file_write",
+      "file_write",
+      "todo_write",
+      "file_write",
+      "todo_write",
+      "bash",
+      "todo_write",
+      "file_write",
+      "glob",
+      "todo_write",
+      "task_complete",
+      "bash"
+    ],
+    "fileWritePaths": []
+  },
+  {
+    "title": "[pc-suite] terse 文件工具链",
+    "sessionKey": "f891985c975f19fc4d9306fc95989dba",
+    "updatedAt": "2026-09-13T10:32:10.756Z",
+    "toolCount": 14,
+    "tools": [
+      "todo_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "file_write",
+      "todo_write",
+      "bash",
+      "file_write",
+      "list_dir",
+      "todo_write",
+      "list_dir",
+      "task_complete"
+    ],
+    "fileWritePaths": []
+  },
+  {
+    "title": "[pc-suite] detailed 调研简报",
+    "sessionKey": "6869ccda355fe0895352f93f47a1db4a",
+    "updatedAt": "2026-09-13T10:32:55.081Z",
+    "toolCount": 12,
+    "tools": [
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_fetch",
+      "web_fetch",
+      "web_fetch",
+      "web_fetch",
+      "file_write",
+      "file_edit",
+      "task_complete"
+    ],
+    "fileWritePaths": []
+  },
+  {
+    "title": "[pc-suite] terse 调研简报",
+    "sessionKey": "863fff44d4054da2b83b313795c9221f",
+    "updatedAt": "2026-09-13T10:33:31.500Z",
+    "toolCount": 6,
+    "tools": [
+      "web_search",
+      "web_search",
+      "web_search",
+      "web_fetch",
+      "file_write",
+      "task_complete"
+    ],
+    "fileWritePaths": []
+  },
+  {
+    "title": "[pc-suite] detailed 技能命中",
+    "sessionKey": "840808c5a9ffd755280e3c25a43acc34",
+    "updatedAt": "2026-09-13T10:33:50.268Z",
+    "toolCount": 1,
+    "tools": [
+      "web_fetch"
+    ],
+    "fileWritePaths": []
+  },
+  {
+    "title": "[pc-suite] terse 技能命中",
+    "sessionKey": "bef7b491d6488e1bb8902f733a86e2b8",
+    "updatedAt": "2026-09-13T10:34:13.785Z",
+    "toolCount": 2,
+    "tools": [
+      "web_search",
+      "bash"
+    ],
+    "fileWritePaths": []
+  }
+]

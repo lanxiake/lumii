@@ -103,4 +103,9 @@
 2. `agentCollaboration` 降幅有限（−31%）：Agent 列表是索引本体必须保留，且含用户手调的 propose_dev_handoff 决策行（保留原文不裁）；
 3. terse 引导字面量守卫升级：新增 `expandTool` 元数据 + existing-tool 渲染级校验（skills→skill_search、selfLearning→profile_memory、messaging→weixin_send_guide）。
 
-**遗留（未含本批）：** 段级 token 面板 / A/B 分流 / 真实客户端双档转储实测（需重启加载新代码后跑 `docs/test/lumii-cli/prompt-style/run-prompt-style-e2e.mjs`）。
+**遗留（未含本批）：** 段级 token 面板 / A/B 分流。
+
+**真实客户端复杂任务实测（2026-09-13 18:31，P2 bundle 已加载）：** 3 场景 × 双档 6 轮全部落地；
+terse 提示词 18220–18742 vs detailed 33690（−45%）；工具使用无退化（C1 15 vs 14 次调用，均含 todo/file/bash/task_complete）。
+报告与分析：[`docs/test/lumii-cli/prompt-style/prompt-style-complex-analysis.md`](../../test/lumii-cli/prompt-style/prompt-style-complex-analysis.md)
+（含观测器修复记录：parts 结构 / sendAndWait 提前返回 / 全量轨迹）。
