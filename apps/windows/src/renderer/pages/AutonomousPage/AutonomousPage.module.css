@@ -13,22 +13,32 @@
   overflow: hidden;
 }
 
-/* 嵌入设置页时：去掉居中最大宽度，撑满内容区 */
+/* 嵌入设置页时：去掉居中最大宽度，撑满内容区；单列优先避免窄宽挤压 */
 .pageEmbedded {
   max-width: none;
   margin: 0;
 }
 
-/* 嵌入模式：设置面板内容区宽度受限，媒体查询（视口口径）不可靠，
-   改用 auto-fit 让网格按容器宽度自动折行，避免图表被挤压变形 */
+.pageEmbedded .title {
+  display: none;
+}
+
+.pageEmbedded .header {
+  margin-bottom: var(--spacing-2);
+  justify-content: flex-end;
+}
+
 .pageEmbedded .overviewGrid,
 .pageEmbedded .capabilitiesGrid,
 .pageEmbedded .reflectionsGrid,
 .pageEmbedded .innerGrid {
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  grid-template-rows: none;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-3);
   flex: none;
+  min-height: 0;
+  grid-template-columns: none;
+  grid-template-rows: none;
 }
 
 /* 嵌入模式：内容区整体可滚动，避免图表被截断 */
@@ -50,7 +60,31 @@
 .pageEmbedded .concernsCard,
 .pageEmbedded .diaryCard {
   height: auto;
-  min-height: 200px;
+  min-height: 0;
+}
+
+.pageEmbedded .overviewScore,
+.pageEmbedded .overviewTrend {
+  min-height: 160px;
+}
+
+.pageEmbedded .tabs {
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  gap: var(--spacing-1);
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.pageEmbedded .tab {
+  flex: 0 0 auto;
+  padding: var(--spacing-2) var(--spacing-3);
+  white-space: nowrap;
+}
+
+.pageEmbedded .satisfactionScore {
+  font-size: 32px;
 }
 
 /* 页头：标题 + 开关同行 */

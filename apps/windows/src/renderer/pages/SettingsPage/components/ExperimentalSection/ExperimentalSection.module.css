@@ -4,11 +4,139 @@
   height: 100%;
   min-height: 0;
   gap: var(--spacing-4);
+  max-width: 640px;
 }
 
-/* 只读段清单卡片：固定在顶部，不参与 AutonomousPage 的伸展 */
-.prompt-style-card {
+.listHeader {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.listTitle {
+  margin: 0;
+  font-size: var(--font-size-lg, 1.125rem);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.listHint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.featureList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-2);
+}
+
+.featureRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  width: 100%;
+  padding: var(--spacing-3) var(--spacing-4);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary, transparent);
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.featureRow:hover {
+  border-color: var(--color-primary-600, var(--mt-accent-500));
+  background: color-mix(in srgb, var(--color-primary-600, var(--mt-accent-500)) 6%, transparent);
+}
+
+.featureMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.featureTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.featureBadge {
   flex-shrink: 0;
+}
+
+.featureSummary {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.featureChevron {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  opacity: 0.7;
+}
+
+/* 详情子页 */
+.detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: var(--spacing-3);
+}
+
+.detailHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: var(--spacing-1) var(--spacing-2);
+  margin-left: calc(-1 * var(--spacing-2));
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.backBtn:hover {
+  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-text-primary) 6%, transparent);
+}
+
+.detailTitle {
+  margin: 0;
+  font-size: var(--font-size-lg, 1.125rem);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detailBody {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 
 /* 二选一风格开关（radiogroup 语义的分段控件） */
@@ -35,39 +163,4 @@
 .style-switch button.style-switch-active {
   background: var(--color-primary-600);
   color: #fff;
-}
-
-.prompt-sections-scroll {
-  max-height: 260px;
-  overflow-y: auto;
-  border: 1px solid var(--color-border-light);
-  border-radius: var(--radius-md);
-}
-
-.prompt-sections-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-primary);
-}
-
-.prompt-sections-table th,
-.prompt-sections-table td {
-  padding: var(--spacing-1) var(--spacing-2);
-  text-align: left;
-  white-space: nowrap;
-  border-bottom: 1px solid var(--color-border-light);
-}
-
-.prompt-sections-table thead th {
-  position: sticky;
-  top: 0;
-  background: var(--color-bg-secondary);
-  color: var(--color-text-secondary);
-  font-weight: 500;
-}
-
-.prompt-sections-table code {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
 }

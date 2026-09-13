@@ -1,14 +1,14 @@
 /**
  * ExperimentalSection - 实验功能设置
  *
- * 自主进化页面入口。工具进化已移至「工具」菜单（含功能开关与审批管理）。
- * 「提示词风格（实验）」：全局两态开关（详细/简要）+ 只读段清单
- * （数据源 PROMPT_SECTIONS）。切换写 localStorage 并经 IPC 同步主进程缓存，
- * 下一轮对话生效（pi 每轮快照系统提示词）。
+ * 列表入口 + 设置内栈式详情：提示词风格、自主进化。
+ * 工具进化已移至「工具」菜单。提示词风格切换写 localStorage 并经 IPC
+ * 同步主进程缓存，下一轮对话生效。
  */
 
-import React, { useCallback } from 'react'
-import { PROMPT_SECTIONS } from '@mtbot/agent-runtime/browser'
+import React, { useCallback, useEffect, useState } from 'react'
+import { ChevronLeft, ChevronRight } from '../../../../components/ui/Icon'
+import { Badge } from '../../../../components/ui/Badge/Badge'
 import { AutonomousPage } from '../../../AutonomousPage/AutonomousPage'
 import {
   useSettings,
@@ -16,57 +16,14 @@ import {
   SETTINGS_UPDATE_EVENT,
 } from '../../../../hooks/business/useSettings'
 import { updatePromptStyle } from '../../../../services/settings-service'
+import { getAutonomousStatus } from '../../../../services/autonomous-service'
 import settingsStyles from '../../SettingsPage.module.css'
 import styles from './ExperimentalSection.module.css'
 
-const GROUP_LABELS: Record<string, string> = {
-  identity: '身份',
-  rules: '规则',
-  capabilities: '能力',
-  collaboration: '协作',
-  memory: '记忆',
-  runtime: '运行时',
-  channel: '渠道',
-}
+type ExperimentalView = 'list' | 'promptStyle' | 'autonomous'
 
-const EXPAND_ROUTE_LABELS: Record<string, string> = {
-  'prompt-guide': 'prompt_guide',
-  'existing-tool': '既有工具',
-}
-
-/** 只读段清单：段 ID / 分组 / 分区 / 索引化支持 / 展开方式 */
-function PromptSectionsTable() {
-  return (
-    <div className={styles['prompt-sections-scroll']}>
-      <table className={styles['prompt-sections-table']}>
-        <thead>
-          <tr>
-            <th>段 ID</th>
-            <th>分组</th>
-            <th>分区</th>
-            <th>索引化支持</th>
-            <th>展开方式</th>
-          </tr>
-        </thead>
-        <tbody>
-          {PROMPT_SECTIONS.map((s) => (
-            <tr key={s.id}>
-              <td>
-                <code>{s.id}</code>
-              </td>
-              <td>{GROUP_LABELS[s.group] ?? s.group}</td>
-              <td>{s.zone === 'static' ? '静态' : '动态'}</td>
-              <td>{s.terse ? '✓' : '—'}</td>
-              <td>{s.expandVia ? (EXPAND_ROUTE_LABELS[s.expandVia] ?? s.expandVia) : '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-export function ExperimentalSection() {
+/** 提示词风格详情：详细/简要切换与说明（无段清单表） */
+function PromptStyleDetail({ onBack }: { onBack: () => void }) {
   const { settings } = useSettings()
   const currentStyle = settings.promptStyle?.style === 'terse' ? 'terse' : 'detailed'
 
@@ -89,9 +46,9 @@ export function ExperimentalSection() {
   )
 
   return (
-    <div className={styles.wrap}>
-      <div className={`${settingsStyles['settings-section']} ${styles['prompt-style-card']}`}>
-        <h3>提示词风格（实验）</h3>
+    <div className={styles.detail}>
+      <DetailHeader title="提示词风格（实验）" onBack={onBack} />
+      <div className={`${settingsStyles['settings-section']} ${styles.detailBody}`}>
         <div className={settingsStyles['setting-row']}>
           <span className={settingsStyles['setting-label']}>全局风格</span>
           <div className={styles['style-switch']} role="radiogroup" aria-label="系统提示词风格">
@@ -117,12 +74,127 @@ export function ExperimentalSection() {
         </div>
         <p className={settingsStyles['setting-hint']}>
           简要档按索引式渲染系统提示词段落（段尾附展开引导，模型可按需获取完整规则），
-          面向强模型减少冗余描述；切换后下一轮对话生效。下方为只读段清单，用于调试与理解提示词结构。
+          面向强模型减少冗余描述；切换后下一轮对话生效。
         </p>
-        <PromptSectionsTable />
       </div>
-      <div className={settingsStyles['autonomous-embed']}>
-        <AutonomousPage embedded />
+    </div>
+  )
+}
+
+/** 详情子页顶栏：返回 + 标题 */
+function DetailHeader({ title, onBack }: { title: string; onBack: () => void }) {
+  return (
+    <div className={styles.detailHeader}>
+      <button type="button" className={styles.backBtn} onClick={onBack} aria-label="返回实验功能列表">
+        <ChevronLeft size={18} aria-hidden />
+        <span>返回</span>
+      </button>
+      <h3 className={styles.detailTitle}>{title}</h3>
+    </div>
+  )
+}
+
+/** 实验功能列表行 */
+function FeatureRow({
+  title,
+  summary,
+  badge,
+  onClick,
+}: {
+  title: string
+  summary: string
+  badge?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button type="button" className={styles.featureRow} onClick={onClick}>
+      <div className={styles.featureMain}>
+        <span className={styles.featureTitle}>
+          {title}
+          {badge ? <Badge dot className={styles.featureBadge} /> : null}
+        </span>
+        <span className={styles.featureSummary}>{summary}</span>
+      </div>
+      <ChevronRight size={18} className={styles.featureChevron} aria-hidden />
+    </button>
+  )
+}
+
+/**
+ * 实验功能设置：默认列表；点选进入提示词风格或自主进化详情子页。
+ */
+export function ExperimentalSection() {
+  const { settings } = useSettings()
+  const [view, setView] = useState<ExperimentalView>('list')
+  const [autonomousEnabled, setAutonomousEnabled] = useState<boolean | null>(null)
+  const [pendingGoals, setPendingGoals] = useState(0)
+
+  const currentStyle = settings.promptStyle?.style === 'terse' ? 'terse' : 'detailed'
+  const styleSummary = currentStyle === 'terse' ? '当前：简要' : '当前：详细'
+  const autonomousSummary =
+    autonomousEnabled === null
+      ? '加载中…'
+      : autonomousEnabled
+        ? '状态：已启用'
+        : '状态：已禁用'
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const status = await getAutonomousStatus()
+        if (cancelled) return
+        setAutonomousEnabled(Boolean(status?.enabled))
+        setPendingGoals(typeof status?.pendingGoalsCount === 'number' ? status.pendingGoalsCount : 0)
+      } catch {
+        if (!cancelled) {
+          setAutonomousEnabled(false)
+          setPendingGoals(0)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [view])
+
+  const goList = useCallback(() => setView('list'), [])
+
+  if (view === 'promptStyle') {
+    return <PromptStyleDetail onBack={goList} />
+  }
+
+  if (view === 'autonomous') {
+    return (
+      <div className={styles.detail}>
+        <DetailHeader title="自主进化" onBack={goList} />
+        <div className={`${settingsStyles['autonomous-embed']} ${styles.detailBody}`}>
+          <AutonomousPage embedded />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={styles.wrap}>
+      <div className={styles.listHeader}>
+        <h3 className={styles.listTitle}>实验功能</h3>
+        <p className={styles.listHint}>
+          实验项可能随版本调整；部分配置在下一轮对话后生效。点选条目进入详情进行启用或修改。
+        </p>
+      </div>
+      <div className={styles.featureList}>
+        <FeatureRow
+          title="提示词风格（实验）"
+          summary={styleSummary}
+          onClick={() => setView('promptStyle')}
+        />
+        <FeatureRow
+          title="自主进化"
+          summary={autonomousSummary}
+          badge={pendingGoals > 0}
+          onClick={() => setView('autonomous')}
+        />
       </div>
     </div>
   )

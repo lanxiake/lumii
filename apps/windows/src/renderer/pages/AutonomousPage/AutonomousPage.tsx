@@ -144,8 +144,8 @@ const GOAL_STATUS_LABELS: Record<string, string> = {
 /**
  * 自主进化仪表板
  *
- * embedded=true 时作为设置页「自主进化（实验）」分类嵌入展示：
- * 去掉居中最大宽度，撑满设置内容区；其余逻辑与独立页完全一致。
+ * embedded=true 时作为设置→实验功能详情子页嵌入：单列布局、Tab 可横滑；
+ * 外层 DetailHeader 已提供标题，页内隐藏 h1，保留启用开关。
  */
 export function AutonomousPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [status, setStatus] = useState<AutonomousStatus | null>(null)
