@@ -20,6 +20,8 @@ import {
   looksLikeAudio,
   describeHead,
 } from './channel/media-pipeline.js'
+import { markdownToPlainText } from './agent-runtime/cron-notify-format.js'
+import { compileForQbot } from './channel/format/channel-message-compiler.js'
 import { resolveActiveWorkspaceDir } from './workspace-paths.js'
 
 const API_BASE = 'https://api.bot.qq.com'
@@ -266,12 +268,42 @@ export class QbotLoginService extends EventEmitter {
     text: string,
     chatType: 'p2p' | 'group' = 'p2p',
   ): Promise<boolean> {
+    return this.sendMessage(chatId, chatType, 0, text)
+  }
+
+  /**
+   * 回复 Markdown 消息（msg_type=2）：报告类内容的富文本形态，编译为单条
+   * （被动回复窗口内每轮条数有限，禁止分段）。
+   *
+   * QQ 平台的 markdown 能力需要申请开通；未开通时服务端会拒，
+   * 这里降级为纯文本重发一次，行为与旧版一致（不丢消息）。
+   */
+  async replyMarkdown(
+    chatId: string,
+    md: string,
+    chatType: 'p2p' | 'group' = 'p2p',
+    title?: string,
+  ): Promise<boolean> {
+    const compiled = compileForQbot(md, title)
+    const ok = await this.sendMessage(chatId, chatType, 2, compiled)
+    if (ok) return true
+    log.warn('replyMarkdown: markdown 发送失败（平台可能未开通），降级纯文本重试')
+    return this.sendMessage(chatId, chatType, 0, markdownToPlainText(compiled))
+  }
+
+  /** 实际发送：组装被动回复参数并 POST。 */
+  private async sendMessage(
+    chatId: string,
+    chatType: 'p2p' | 'group',
+    msgType: number,
+    content: string,
+  ): Promise<boolean> {
     if (!this.accessToken) {
-      log.warn('replyText: no access token')
+      log.warn('sendMessage: no access token')
       return false
     }
     const base = chatType === 'group' ? `/v2/groups/${chatId}` : `/v2/users/${chatId}`
-    const body: Record<string, unknown> = { content: text, msg_type: 0 }
+    const body: Record<string, unknown> = { content, msg_type: msgType }
 
     const inbound = this.lastInbound.get(chatId)
     if (inbound && Date.now() - inbound.at < PASSIVE_REPLY_WINDOW_MS) {
@@ -279,7 +311,7 @@ export class QbotLoginService extends EventEmitter {
       body.msg_id = inbound.msgId
       body.msg_seq = inbound.seq
     } else {
-      log.warn(`replyText: 被动回复窗口已过期，改为主动推送 chatId=${chatId}`)
+      log.warn(`sendMessage: 被动回复窗口已过期，改为主动推送 chatId=${chatId}`)
     }
 
     try {
@@ -293,10 +325,10 @@ export class QbotLoginService extends EventEmitter {
         signal: AbortSignal.timeout(10_000),
       })
       if (resp.ok) return true
-      log.error('replyText failed:', resp.status, await resp.text().catch(() => ''))
+      log.error('sendMessage failed:', resp.status, await resp.text().catch(() => ''))
       return false
     } catch (err) {
-      log.error('replyText threw:', err instanceof Error ? err.message : String(err))
+      log.error('sendMessage threw:', err instanceof Error ? err.message : String(err))
       return false
     }
   }

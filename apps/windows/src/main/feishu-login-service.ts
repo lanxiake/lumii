@@ -20,6 +20,7 @@ import {
 } from './feishu-app-registration.js'
 import { FeishuSessionStore, type FeishuSession } from './feishu-session-store.js'
 import { saveInboundMedia } from './channel/media-pipeline.js'
+import { compileForFeishu, type FeishuCardJson } from './channel/format/channel-message-compiler.js'
 import { resolveActiveWorkspaceDir } from './workspace-paths.js'
 
 export type FeishuLoginStatus =
@@ -195,18 +196,22 @@ export class FeishuLoginService extends EventEmitter {
   }
 
   /**
-   * 回复文本消息（优先 reply，失败则 create）。
+   * 回复消息：优先 reply，失败则 create。content 为已序列化的渠道消息体。
    */
-  async replyText(msgId: string, chatId: string, _chatType: 'p2p' | 'group', text: string): Promise<boolean> {
+  private async sendWithReplyFallback(
+    msgId: string,
+    chatId: string,
+    msgType: string,
+    content: string,
+  ): Promise<boolean> {
     if (!this.httpClient) {
       log.warn('replyText: HTTP client not ready')
       return false
     }
-    const content = JSON.stringify({ text })
     try {
       const replyRes = await this.httpClient.im.message.reply({
         path: { message_id: msgId },
-        data: { content, msg_type: 'text' },
+        data: { content, msg_type: msgType },
       })
       if (replyRes.code === 0) return true
       log.warn('reply failed, fallback create:', replyRes.code, replyRes.msg)
@@ -217,7 +222,7 @@ export class FeishuLoginService extends EventEmitter {
     try {
       const createRes = await this.httpClient.im.message.create({
         params: { receive_id_type: 'chat_id' },
-        data: { receive_id: chatId, content, msg_type: 'text' },
+        data: { receive_id: chatId, content, msg_type: msgType },
       })
       if (createRes.code === 0) return true
       log.error('create message failed:', createRes.code, createRes.msg)
@@ -229,28 +234,90 @@ export class FeishuLoginService extends EventEmitter {
   }
 
   /**
-   * 主动推送文本（无需入站消息）。
+   * 回复文本消息（优先 reply，失败则 create）。
+   */
+  async replyText(msgId: string, chatId: string, _chatType: 'p2p' | 'group', text: string): Promise<boolean> {
+    return this.sendWithReplyFallback(msgId, chatId, 'text', JSON.stringify({ text }))
+  }
+
+  /**
+   * 智能回复：按内容自动选择形态 —— 短消息走 text，报告类走互动卡片；
+   * 卡片发送失败回退纯文本，保证消息不丢。
+   */
+  async replySmart(
+    msgId: string,
+    chatId: string,
+    chatType: 'p2p' | 'group',
+    text: string,
+    title?: string,
+  ): Promise<boolean> {
+    const compiled = compileForFeishu(text, title)
+    if (compiled.kind === 'text') {
+      return this.replyText(msgId, chatId, chatType, compiled.text)
+    }
+    const ok = await this.sendWithReplyFallback(msgId, chatId, 'interactive', JSON.stringify(compiled.card))
+    if (ok) return true
+    log.warn('replySmart: 卡片发送失败，回退纯文本')
+    return this.replyText(msgId, chatId, chatType, compiled.fallbackText)
+  }
+
+  /**
+   * 以 open_id 主动发消息。content 为已序列化的渠道消息体。
    *
-   * @param text 文本内容
+   * @param msgType text / interactive / image / file / media / audio
    * @param to 可选收件人 open_id；缺省为登录会话的 openId
    */
-  async pushText(text: string, to?: string): Promise<{ ok: boolean; error?: string }> {
+  private async pushToOpenId(
+    msgType: string,
+    content: string,
+    to?: string,
+  ): Promise<{ ok: boolean; error?: string }> {
     if (!this.httpClient) return { ok: false, error: '飞书未连接' }
     const receiveId = (to?.trim() || this.session?.openId || '').trim()
     if (!receiveId) return { ok: false, error: '飞书会话缺少 openId，请重新扫码登录' }
     try {
       const res = await this.httpClient.im.message.create({
         params: { receive_id_type: 'open_id' },
-        data: { receive_id: receiveId, content: JSON.stringify({ text }), msg_type: 'text' },
+        data: { receive_id: receiveId, content, msg_type: msgType },
       })
       if (res.code === 0) return { ok: true }
-      log.error('pushText failed:', res.code, res.msg)
+      log.error('push failed:', msgType, res.code, res.msg)
       return { ok: false, error: `飞书返回 ${res.code}: ${res.msg}` }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
-      log.error('pushText threw:', msg)
+      log.error('push threw:', msgType, msg)
       return { ok: false, error: msg }
     }
+  }
+
+  /**
+   * 主动推送文本（无需入站消息）。
+   *
+   * @param text 文本内容
+   * @param to 可选收件人 open_id；缺省为登录会话的 openId
+   */
+  async pushText(text: string, to?: string): Promise<{ ok: boolean; error?: string }> {
+    return this.pushToOpenId('text', JSON.stringify({ text }), to)
+  }
+
+  /**
+   * 主动推送互动卡片（报告类内容的富文本形态）。
+   */
+  async pushCard(card: FeishuCardJson, to?: string): Promise<{ ok: boolean; error?: string }> {
+    return this.pushToOpenId('interactive', JSON.stringify(card), to)
+  }
+
+  /**
+   * 智能主动推送：按内容自动选择形态 —— 短消息走 text，报告类走互动卡片；
+   * 卡片发送失败回退纯文本，保证消息不丢。
+   */
+  async pushSmart(text: string, to?: string, title?: string): Promise<{ ok: boolean; error?: string }> {
+    const compiled = compileForFeishu(text, title)
+    if (compiled.kind === 'text') return this.pushText(compiled.text, to)
+    const res = await this.pushCard(compiled.card, to)
+    if (res.ok) return res
+    log.warn('pushSmart: 卡片发送失败，回退纯文本:', res.error)
+    return this.pushText(compiled.fallbackText, to)
   }
 
   /**

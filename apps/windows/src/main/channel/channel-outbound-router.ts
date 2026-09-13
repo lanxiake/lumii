@@ -38,6 +38,7 @@ export class ChannelOutboundRouter {
     const channel = params.channel
     const to = typeof params.to === 'string' ? params.to.trim() : ''
     const text = typeof params.text === 'string' ? params.text : ''
+    const title = typeof params.title === 'string' ? params.title.trim() : ''
     const mediaPath = typeof params.mediaPath === 'string' ? params.mediaPath.trim() : ''
 
     if (!to) {
@@ -84,7 +85,7 @@ export class ChannelOutboundRouter {
 
     const result = mediaPath
       ? await this.dispatchMedia(provider, { to, text, mediaPath, fileName: params.fileName })
-      : await provider.sendText({ to, text })
+      : await provider.sendText({ to, text, ...(title ? { title } : {}) })
     return {
       ...result,
       channel: result.channel ?? channel,

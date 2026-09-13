@@ -23,7 +23,6 @@ import {
   CHANNEL_ACK_TEXT,
   buildChannelErrorMessage,
 } from '../channel-error-helper'
-import { markdownToPlainText } from '../../agent-runtime/cron-notify-format.js'
 import {
   consumeHandoff,
   findLatestHandoffFor,
@@ -98,7 +97,8 @@ export class QbotChannelAdapter implements IChannelAdapter {
       log.warn(`[sendTextReply] 缺少 chatId: channelUserId=${session.channelUserId}`)
       return
     }
-    const ok = await this.qbotLoginService.replyText(chatId, markdownToPlainText(text))
+    // Markdown 由登录层编译为单条；平台未开通时自动降级纯文本
+    const ok = await this.qbotLoginService.replyMarkdown(chatId, text)
     if (!ok) {
       log.error(`[sendTextReply] 回复失败: channelUserId=${session.channelUserId}`)
     }

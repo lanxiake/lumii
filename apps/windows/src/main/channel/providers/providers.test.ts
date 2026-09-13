@@ -11,28 +11,28 @@ import os from 'node:os'
 import path from 'node:path'
 
 describe('FeishuChannelProvider', () => {
-  it('connected 时 peers 含 openId，send 调用 pushText(to)', async () => {
-    const pushText = vi.fn(async () => ({ ok: true }))
+  it('connected 时 peers 含 openId，send 调用 pushSmart(to, title)', async () => {
+    const pushSmart = vi.fn(async () => ({ ok: true }))
     const login = {
       getStatus: () => 'connected' as const,
       getSessionPublic: () => ({ openId: 'ou_me' }),
-      pushText,
+      pushSmart,
     }
     const provider = new FeishuChannelProvider(login as never)
     const snap = provider.getSnapshot()
     expect(snap.peers[0]?.id).toBe('ou_me')
-    const res = await provider.sendText({ to: 'ou_me', text: 'hi' })
+    const res = await provider.sendText({ to: 'ou_me', text: 'hi', title: '日报' })
     expect(res.ok).toBe(true)
-    expect(pushText).toHaveBeenCalledWith('hi', 'ou_me')
+    expect(pushSmart).toHaveBeenCalledWith('hi', 'ou_me', '日报')
   })
 
   it('sendMedia 先发随附文本再发文件', async () => {
-    const pushText = vi.fn(async () => ({ ok: true }))
+    const pushSmart = vi.fn(async () => ({ ok: true }))
     const pushMedia = vi.fn(async () => ({ ok: true }))
     const login = {
       getStatus: () => 'connected' as const,
       getSessionPublic: () => ({ openId: 'ou_me' }),
-      pushText,
+      pushSmart,
       pushMedia,
     }
     const provider = new FeishuChannelProvider(login as never)
@@ -43,7 +43,7 @@ describe('FeishuChannelProvider', () => {
       fileName: 'a.png',
     })
     expect(res.ok).toBe(true)
-    expect(pushText).toHaveBeenCalledWith('请查收', 'ou_me')
+    expect(pushSmart).toHaveBeenCalledWith('请查收', 'ou_me')
     expect(pushMedia).toHaveBeenCalledWith('C:/tmp/a.png', 'ou_me', 'a.png')
   })
 
@@ -51,7 +51,7 @@ describe('FeishuChannelProvider', () => {
     const login = {
       getStatus: () => 'connected' as const,
       getSessionPublic: () => ({ openId: 'ou_me' }),
-      pushText: vi.fn(async () => ({ ok: true })),
+      pushSmart: vi.fn(async () => ({ ok: true })),
       pushMedia: vi.fn(async () => ({ ok: false, error: '飞书图片上传失败 234001: bad file' })),
     }
     const provider = new FeishuChannelProvider(login as never)

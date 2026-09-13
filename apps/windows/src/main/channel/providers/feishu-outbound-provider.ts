@@ -37,12 +37,17 @@ export class FeishuChannelProvider implements IChannelOutboundProvider {
   }
 
   /**
-   * 向指定 open_id 推送文本。
+   * 向指定 open_id 推送文本。内容形态由登录层的编译器决定：
+   * 短消息走 text，报告类走互动卡片（失败自动回退纯文本）。
    */
-  async sendText(params: { to: string; text: string }): Promise<ChannelSendResult> {
+  async sendText(params: { to: string; text: string; title?: string }): Promise<ChannelSendResult> {
     const blocked = this.checkConnected(params.to)
     if (blocked) return blocked
-    return this.toResult(params.to, await this.login.pushText(params.text, params.to), '飞书推送失败')
+    return this.toResult(
+      params.to,
+      await this.login.pushSmart(params.text, params.to, params.title),
+      '飞书推送失败',
+    )
   }
 
   /**
@@ -53,7 +58,7 @@ export class FeishuChannelProvider implements IChannelOutboundProvider {
     if (blocked) return blocked
     // 图片/文件消息不带正文，说明性文字需独立成条
     if (params.text?.trim()) {
-      const textRes = await this.login.pushText(params.text, params.to)
+      const textRes = await this.login.pushSmart(params.text, params.to)
       if (!textRes.ok) {
         return this.toResult(params.to, textRes, '飞书随附文本发送失败，已中止文件发送')
       }

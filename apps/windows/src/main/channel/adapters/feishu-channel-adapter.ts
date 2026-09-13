@@ -36,7 +36,6 @@ import {
   CHANNEL_ACK_TEXT,
   buildChannelErrorMessage,
 } from '../channel-error-helper'
-import { markdownToPlainText } from '../../agent-runtime/cron-notify-format.js'
 import { resolveContinuityForChannel } from '../cross-channel-continuity'
 import { getChannelFeatures } from '../channel-feature-store'
 import {
@@ -112,7 +111,8 @@ export class FeishuChannelAdapter implements IChannelAdapter {
   }
 
   /**
-   * 向飞书用户发送文本回复。
+   * 向飞书用户发送回复。形态由登录层编译器决定：短消息走 text，
+   * 报告类走互动卡片（失败自动回退纯文本）。
    */
   async sendTextReply(session: ChannelSession, text: string): Promise<void> {
     const msgId = session.replyContext?.msgId as string | undefined
@@ -122,7 +122,7 @@ export class FeishuChannelAdapter implements IChannelAdapter {
       log.warn(`[sendTextReply] 缺少 msgId/chatId: channelUserId=${session.channelUserId}`)
       return
     }
-    const ok = await this.feishuLoginService.replyText(msgId, chatId, chatType, markdownToPlainText(text))
+    const ok = await this.feishuLoginService.replySmart(msgId, chatId, chatType, text)
     if (!ok) {
       log.error(`[sendTextReply] 回复失败: channelUserId=${session.channelUserId}`)
     }

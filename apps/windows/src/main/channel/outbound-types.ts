@@ -52,6 +52,8 @@ export interface ChannelSendParams {
   /** 必填收件人 */
   to: string
   text: string
+  /** 报告类内容的标题（可选）：飞书卡片 header、微信·企微·QQ 的标题行 */
+  title?: string
   /** 富媒体本地绝对路径；给出时走 Provider.sendMedia */
   mediaPath?: string
   /** 展示文件名，缺省时从 mediaPath 取 basename */
@@ -95,8 +97,8 @@ export interface IChannelOutboundProvider {
   readonly channel: OutboundChannelId
   /** 聚合连接态 + peers + 能力 */
   getSnapshot(): ChannelSnapshot | Promise<ChannelSnapshot>
-  /** 向指定 peer 发文本；不支持时返回 UNSUPPORTED_PUSH */
-  sendText(params: { to: string; text: string }): Promise<ChannelSendResult>
+  /** 向指定 peer 发文本；不支持时返回 UNSUPPORTED_PUSH。title 供渠道富文本作标题 */
+  sendText(params: { to: string; text: string; title?: string }): Promise<ChannelSendResult>
   /** 向指定 peer 发富媒体；未实现的渠道由 Router 兜底为 UNSUPPORTED_MEDIA */
   sendMedia?(params: ChannelSendMediaParams): Promise<ChannelSendResult>
 }

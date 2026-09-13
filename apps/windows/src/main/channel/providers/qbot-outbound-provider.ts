@@ -45,7 +45,7 @@ export class QbotChannelProvider implements IChannelOutboundProvider {
     }
   }
 
-  async sendText(params: { to: string; text: string }): Promise<ChannelSendResult> {
+  async sendText(params: { to: string; text: string; title?: string }): Promise<ChannelSendResult> {
     if (this.login.getStatus() !== 'connected') {
       return {
         ok: false,
@@ -57,7 +57,9 @@ export class QbotChannelProvider implements IChannelOutboundProvider {
     }
     const isGroup = params.to.startsWith('group:')
     const chatId = isGroup ? params.to.slice('group:'.length) : params.to
-    const ok = await this.login.replyText(chatId, params.text, isGroup ? 'group' : 'p2p')
+    // Markdown 由登录层编译为单条（被动回复窗口内条数有限）；
+    // 平台未开通 markdown 时登录层自动降级纯文本
+    const ok = await this.login.replyMarkdown(chatId, params.text, isGroup ? 'group' : 'p2p', params.title)
     return ok
       ? { ok: true, channel: 'qbot', to: params.to }
       : { ok: false, errorCode: 'UPSTREAM_ERROR', message: 'QQ 消息发送失败', channel: 'qbot', to: params.to }

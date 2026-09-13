@@ -115,8 +115,9 @@ export class WeixinChannelProvider implements IChannelOutboundProvider {
 
   /**
    * 用持久化 token 调用 sendTextReply；失败硬失败。
+   * 内容编译（手机友好文本 + 段落分段）在 sendTextReply 内部完成。
    */
-  async sendText(params: { to: string; text: string }): Promise<ChannelSendResult> {
+  async sendText(params: { to: string; text: string; title?: string }): Promise<ChannelSendResult> {
     const ctx = this.resolveOutboundContext(params.to)
     if ('failure' in ctx) return ctx.failure
     const rec = ctx.record
@@ -127,6 +128,7 @@ export class WeixinChannelProvider implements IChannelOutboundProvider {
         rec.contextToken,
         rec.botToken,
         rec.ilinkBaseUrl,
+        params.title,
       )
       return this.toResult(
         params.to,

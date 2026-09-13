@@ -227,3 +227,101 @@ describe('FeishuLoginService.pushMedia', () => {
     })
   })
 })
+
+type ImRequest = { data: { content: string; msg_type: string } }
+
+/** 构造 reply/push 双通道 mock 实例，用于 replySmart / pushSmart 分流测试 */
+function makeSmartService() {
+  const reply = vi.fn(async (_req?: unknown) => ({ code: 0, msg: 'ok' }))
+  const create = vi.fn(async (_req?: unknown) => ({ code: 0, msg: 'ok' }))
+  const service = new FeishuLoginService()
+  const instance = service as unknown as {
+    httpClient: unknown
+    session: { openId?: string } | null
+  }
+  instance.httpClient = { im: { message: { reply, create } } }
+  instance.session = { openId: 'ou_abc123' }
+  return { service, reply, create }
+}
+
+describe('FeishuLoginService.replySmart', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('短消息走 text，且 Markdown 记号已降级', async () => {
+    const { service, reply } = makeSmartService()
+    const ok = await service.replySmart('om_msg1', 'oc_chat', 'p2p', '**完成**了')
+    expect(ok).toBe(true)
+    const req = reply.mock.calls[0]?.[0] as ImRequest
+    expect(req.data.msg_type).toBe('text')
+    expect(JSON.parse(req.data.content)).toEqual({ text: '完成了' })
+  })
+
+  it('报告类内容走 interactive 卡片，标题进 header', async () => {
+    const { service, reply } = makeSmartService()
+    const ok = await service.replySmart('om_msg1', 'oc_chat', 'p2p', '# 今日要闻\n\n1. 甲\n2. 乙', '工作日报')
+    expect(ok).toBe(true)
+    const req = reply.mock.calls[0]?.[0] as ImRequest
+    expect(req.data.msg_type).toBe('interactive')
+    const card = JSON.parse(req.data.content) as { header: { title: { content: string } } }
+    expect(card.header.title.content).toBe('工作日报')
+  })
+
+  it('卡片发送失败时回退纯文本，消息不丢', async () => {
+    const { service, reply, create } = makeSmartService()
+    let replyCount = 0
+    reply.mockImplementation(async (_req?: unknown) => {
+      replyCount += 1
+      // 第一次是卡片，失败；回退的文本重试成功
+      return replyCount === 1 ? { code: 9001, msg: 'card not allowed' } : { code: 0, msg: 'ok' }
+    })
+    create.mockImplementation(async (_req?: unknown) => ({ code: 9001, msg: 'card not allowed' }))
+
+    const ok = await service.replySmart('om_msg1', 'oc_chat', 'p2p', '# 标题\n\n正文内容', '标签')
+    expect(ok).toBe(true)
+    expect(reply).toHaveBeenCalledTimes(2)
+    const fallbackReq = reply.mock.calls[1]?.[0] as ImRequest
+    expect(fallbackReq.data.msg_type).toBe('text')
+    expect(JSON.parse(fallbackReq.data.content)).toEqual({ text: '【标签】\n标题\n\n正文内容' })
+  })
+})
+
+describe('FeishuLoginService.pushSmart', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('短消息走 text', async () => {
+    const { service, create } = makeSmartService()
+    const result = await service.pushSmart('**提醒**喝水')
+    expect(result).toEqual({ ok: true })
+    const req = create.mock.calls[0]?.[0] as ImRequest
+    expect(req.data.msg_type).toBe('text')
+  })
+
+  it('报告类内容走 interactive 卡片', async () => {
+    const { service, create } = makeSmartService()
+    const result = await service.pushSmart('# 早间简报\n\n1. 甲\n2. 乙', undefined, '早间简报')
+    expect(result).toEqual({ ok: true })
+    const req = create.mock.calls[0]?.[0] as ImRequest
+    expect(req.data.msg_type).toBe('interactive')
+    const card = JSON.parse(req.data.content) as { header: { title: { content: string } } }
+    expect(card.header.title.content).toBe('早间简报')
+  })
+
+  it('卡片失败时回退纯文本', async () => {
+    const { service, create } = makeSmartService()
+    let n = 0
+    create.mockImplementation(async (_req?: unknown) => {
+      n += 1
+      return n === 1 ? { code: 9001, msg: 'card not allowed' } : { code: 0, msg: 'ok' }
+    })
+    const result = await service.pushSmart('# 标题\n\n正文', 'ou_target', '标签')
+    expect(result).toEqual({ ok: true })
+    expect(create).toHaveBeenCalledTimes(2)
+    const fallbackReq = create.mock.calls[1]?.[0] as ImRequest & { data: { receive_id: string } }
+    expect(fallbackReq.data.msg_type).toBe('text')
+    expect(fallbackReq.data.receive_id).toBe('ou_target')
+  })
+})

@@ -24,7 +24,6 @@ import {
   CHANNEL_ACK_TEXT,
   buildChannelErrorMessage,
 } from '../channel-error-helper'
-import { markdownToPlainText } from '../../agent-runtime/cron-notify-format.js'
 import { resolveContinuityForChannel } from '../cross-channel-continuity'
 import { getChannelFeatures } from '../channel-feature-store'
 import {
@@ -88,7 +87,7 @@ export class WecomChannelAdapter implements IChannelAdapter {
   }
 
   /**
-   * 向企微用户发送文本回复（通过 WS replyStream）。
+   * 向企微用户发送文本回复（通过 WS replyStream，content 原生支持 Markdown）。
    */
   async sendTextReply(session: ChannelSession, text: string): Promise<void> {
     const rawFrame = session.replyContext?.rawFrame
@@ -96,7 +95,7 @@ export class WecomChannelAdapter implements IChannelAdapter {
       log.warn(`[sendTextReply] 缺少 rawFrame: channelUserId=${session.channelUserId}`)
       return
     }
-    const ok = await this.wecomLoginService.replyText(rawFrame, markdownToPlainText(text))
+    const ok = await this.wecomLoginService.replyText(rawFrame, text)
     if (!ok) {
       log.error(`[sendTextReply] 回复失败: channelUserId=${session.channelUserId}`)
     }

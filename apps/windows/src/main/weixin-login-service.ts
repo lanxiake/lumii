@@ -38,6 +38,7 @@ import {
 import type { QRStatusResponse, WeixinRawMessage, GetUpdatesResponse } from './weixin-message-utils.js'
 import { apiFetchQrCode, apiPollLoginStatus, apiGetUpdates } from './weixin-ilink-api.js'
 import { sendMediaReply as sendMediaReplyImpl, apiSendTextChunk } from './weixin-media-reply.js'
+import { compileForWeixin } from './channel/format/channel-message-compiler.js'
 
 const ILINK_DEFAULT_URL = 'https://ilinkai.weixin.qq.com'
 
@@ -46,6 +47,9 @@ const ILINK_DEFAULT_URL = 'https://ilinkai.weixin.qq.com'
 const CHECK_LOGIN_INTERVAL_MS = 2_000
 const POLL_RETRY_DELAY_MS = 5_000
 const LONG_POLL_TIMEOUT_MS = 35_000
+
+/** 分段发送的段间隔：连发多条时降低风控与刷屏感 */
+const SEGMENT_SEND_INTERVAL_MS = 400
 
 export type WeixinLoginStatus =
   | 'idle'
@@ -533,12 +537,15 @@ export class WeixinLoginService extends EventEmitter {
 
   /**
    * 向指定微信用户发送文本回复（本地直接调用 iLink API，无需经过 Gateway）。
+   * 内容先编译为手机友好文本并分段（单段 ≤1000 字、最多 5 段），段间加间隔，
+   * 避免连发多条触发风控或被用户当刷屏。
    *
    * @param toUserId     接收者的微信用户 ID（WeixinNormalizedMessage.channelUserId）
-   * @param text         回复文本
+   * @param text         Markdown 正文（编译在此完成，调用方无需预处理）
    * @param contextToken 来自入站消息的 context_token（iLink 会话路由必需）
    * @param botToken     来自 session 的 bot_token，不传则使用当前 session
    * @param ilinkBaseUrl 来自 session 的 baseUrl，不传则使用当前 session
+   * @param title        报告类内容的标题，编译为首段【标题】
    */
   async sendTextReply(
     toUserId: string,
@@ -546,6 +553,7 @@ export class WeixinLoginService extends EventEmitter {
     contextToken: string,
     botToken?: string,
     ilinkBaseUrl?: string,
+    title?: string,
   ): Promise<boolean> {
     const session = await this.sessionStore.loadSession()
     const token = botToken ?? session?.botToken
@@ -560,16 +568,16 @@ export class WeixinLoginService extends EventEmitter {
       return false
     }
 
-    const CHUNK = 2000
     const url = `${baseUrl}/ilink/bot/sendmessage`
+    const segments = compileForWeixin(text, title)
     let allOk = true
 
-    for (let i = 0; i < text.length; i += CHUNK) {
-      const chunk = text.slice(i, i + CHUNK)
-      const ok = await apiSendTextChunk(url, toUserId, chunk, token, contextToken)
+    for (let i = 0; i < segments.length; i++) {
+      if (i > 0) await new Promise((resolve) => setTimeout(resolve, SEGMENT_SEND_INTERVAL_MS))
+      const ok = await apiSendTextChunk(url, toUserId, segments[i], token, contextToken)
       if (!ok) {
         allOk = false
-        console.error(`[WeixinLogin] [sendTextReply] 发送第 ${Math.floor(i / CHUNK) + 1} 段失败`)
+        console.error(`[WeixinLogin] [sendTextReply] 发送第 ${i + 1}/${segments.length} 段失败`)
         break
       }
     }
