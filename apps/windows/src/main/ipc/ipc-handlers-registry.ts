@@ -80,6 +80,7 @@ export interface IpcHandlersDeps {
     injectPersonalMemory?: boolean
     injectWorkMemory?: boolean
   }) => void
+  setPromptStyleSettings: (settings: { style?: 'detailed' | 'terse' }) => void
   isQuittingGetter: () => boolean
   setIsQuitting: (value: boolean) => void
   restartCloudSyncScheduler?: (cfg: CloudSyncConfig) => void
@@ -143,6 +144,7 @@ export function registerAllIpcHandlers(deps: IpcHandlersDeps): void {
 
   setSettingsIpcDeps({
     setMemoryInjectionSettings: deps.setMemoryInjectionSettings,
+    setPromptStyleSettings: deps.setPromptStyleSettings,
   })
 
   setAutonomousIpcDeps({

@@ -76,6 +76,15 @@ export interface MemoryConfig {
   injectWorkMemory: boolean
 }
 
+/**
+ * 系统提示词风格（实验功能）
+ * - detailed：现状基线（参数/作用/规则描述清楚），默认
+ * - terse：索引式 + 渐进式加载（段尾引导句按需展开），面向强模型
+ */
+export interface PromptStyleConfig {
+  style: 'detailed' | 'terse'
+}
+
 /** 录屏设置（设计 §4.5） */
 export interface ScreenRecordConfig {
   /** 总开关；关闭后四工具一律 disabled */
@@ -104,6 +113,8 @@ export interface AppSettings {
   window: WindowConfig
   system: SystemConfig
   memory: MemoryConfig
+  /** 系统提示词风格（实验：详细 / 简要） */
+  promptStyle: PromptStyleConfig
   /** 录屏（AI 可控 + 简易 UI） */
   screenRecord: ScreenRecordConfig
   language: 'zh-CN' | 'zh-TW' | 'en-US' | 'ja-JP' | 'ko-KR'

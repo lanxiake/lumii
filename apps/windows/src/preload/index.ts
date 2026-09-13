@@ -876,6 +876,8 @@ export interface ElectronAPI {
       injectPersonalMemory?: boolean
       injectWorkMemory?: boolean
     }) => Promise<void>
+    /** 同步系统提示词风格（实验：detailed/terse）到主进程缓存 */
+    updatePromptStyle: (config: { style: 'detailed' | 'terse' }) => Promise<void>
   }
 
   // 认证 Token 安全存储（主进程 DPAPI 加密�?
@@ -1329,6 +1331,9 @@ const electronAPI: ElectronAPI = {
       injectPersonalMemory?: boolean
       injectWorkMemory?: boolean
     }): Promise<void> => ipcRenderer.invoke('settings:updateMemoryInjection', config),
+    /** 同步系统提示词风格（实验：detailed/terse）到主进程缓存 */
+    updatePromptStyle: (config: { style: 'detailed' | 'terse' }): Promise<void> =>
+      ipcRenderer.invoke('settings:updatePromptStyle', config),
   },
 
   // 语音通话 API（voice:event 经单路复用，避免设置页多面板叠加触发 MaxListenersExceeded�?

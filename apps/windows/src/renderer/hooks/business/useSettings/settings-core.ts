@@ -60,6 +60,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
     injectPersonalMemory: true,
     injectWorkMemory: true,
   },
+  promptStyle: {
+    style: 'detailed',
+  },
   screenRecord: {
     enabled: true,
     alwaysAllow: false,

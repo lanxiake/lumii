@@ -13,7 +13,7 @@ import type {
   SystemConfig,
   MemoryConfig,
 } from './useSettings.types'
-import { updateMemoryInjection } from '../../../services/settings-service'
+import { updateMemoryInjection, updatePromptStyle } from '../../../services/settings-service'
 import {
   SETTINGS_STORAGE_KEY,
   SETTINGS_UPDATE_EVENT,
@@ -34,6 +34,10 @@ export function useSettings() {
       void updateMemoryInjection({
         injectPersonalMemory: merged.memory?.injectPersonalMemory !== false,
         injectWorkMemory: merged.memory?.injectWorkMemory !== false,
+      })
+      // 提示词风格（实验）：启动时同步一次主进程缓存，默认 detailed
+      void updatePromptStyle({
+        style: merged.promptStyle?.style === 'terse' ? 'terse' : 'detailed',
       })
     } catch (error) {
       console.error('[useSettings] 解析设置失败:', error)

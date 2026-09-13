@@ -8,6 +8,7 @@ interface SettingsIpcDeps {
     injectPersonalMemory?: boolean
     injectWorkMemory?: boolean
   }) => void
+  setPromptStyleSettings: (settings: { style?: 'detailed' | 'terse' }) => void
 }
 
 let deps: SettingsIpcDeps | null = null
@@ -25,6 +26,15 @@ export function registerSettingsIpcHandlers(): void {
     async (_event, payload: { injectPersonalMemory?: boolean; injectWorkMemory?: boolean }) => {
       if (!payload || typeof payload !== 'object') return
       deps!.setMemoryInjectionSettings(payload)
+    },
+  )
+
+  // === 系统提示词风格（实验功能；主进程缓存，供每轮 prompt 重建读取）===
+  ipcMain.handle(
+    'settings:updatePromptStyle',
+    async (_event, payload: { style?: 'detailed' | 'terse' }) => {
+      if (!payload || typeof payload !== 'object') return
+      deps!.setPromptStyleSettings(payload)
     },
   )
 }

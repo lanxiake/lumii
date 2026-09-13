@@ -711,6 +711,18 @@ async function initAgentRuntime(): Promise<void> {
       memoryInjectionSettingsCache = resolved
       return resolved
     },
+    /** 读取系统提示词风格（实验功能；从渲染进程 localStorage 同步，默认 detailed） */
+    getPromptStyleSettings: async () => {
+      if (promptStyleSettingsCache) {
+        return promptStyleSettingsCache
+      }
+      const settings = await getRendererSettings()
+      const resolved = {
+        style: settings?.promptStyle?.style === 'terse' ? ('terse' as const) : ('detailed' as const),
+      }
+      promptStyleSettingsCache = resolved
+      return resolved
+    },
     /**
      * 段原文归档进 MemPalace（诉求 A · 宫殿互引）。
      * MemPalace 3.5.x 的 mempalace_add_drawer 仅接受 wing/room/content/source_file/added_by，
@@ -983,9 +995,22 @@ function setMemoryInjectionSettingsCache(settings: {
   }
 }
 
+/** 系统提示词风格主进程缓存（避免 executeJavaScript 失败时始终回退为 detailed） */
+let promptStyleSettingsCache: { style: 'detailed' | 'terse' } | null = null
+
+/**
+ * 同步系统提示词风格到主进程缓存（渲染进程切换时 IPC 调用；实验功能）
+ */
+function setPromptStyleSettingsCache(settings: { style?: 'detailed' | 'terse' }): void {
+  promptStyleSettingsCache = {
+    style: settings.style === 'terse' ? 'terse' : 'detailed',
+  }
+}
+
 async function getRendererSettings(): Promise<{
   workspace?: { directory?: string }
   memory?: { injectPersonalMemory?: boolean; injectWorkMemory?: boolean }
+  promptStyle?: { style?: 'detailed' | 'terse' }
 } | null> {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return null
@@ -1056,6 +1081,7 @@ function setupIpcHandlers(): void {
     getWorkspaceDir,
     reapplyCodingDevAcpEnv: reapplyCodingDevAcpEnvFromConfig,
     setMemoryInjectionSettings: setMemoryInjectionSettingsCache,
+    setPromptStyleSettings: setPromptStyleSettingsCache,
     isQuittingGetter: () => isQuitting,
     setIsQuitting: (value: boolean) => { isQuitting = value },
     restartCloudSyncScheduler: (cfg) => { syncScheduler?.start(cfg) },
