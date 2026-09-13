@@ -1,5 +1,5 @@
 /**
- * 渐进式加载指南工具（a2ui_guide / cron_guide / weixin_send_guide）
+ * 渐进式加载指南工具（a2ui_guide / cron_guide / weixin_send_guide / prompt_guide）
  * 与 skill_list / skill_search / skill_invoke 覆盖注册。
  *
  * 从 bridge-tool-registrar.ts 抽离，纯函数式注册，仅依赖注入的 deps。
@@ -7,17 +7,21 @@
 
 import {
   createMtBotTool,
+  type MtBotTool,
   type MtBotToolConfig,
   type SkillInfo,
   skillListToolConfig,
   skillSearchToolConfig,
   skillInvokeToolConfig,
+  getPromptSectionGuide,
+  listPromptGuideSections,
 } from '@mtbot/agent-runtime'
+import { Type } from '@sinclair/typebox'
 import { agentRuntimeLog as log, jsonToolResult } from './bridge-utils'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 
 /**
- * 注册渐进式加载指南工具（a2ui_guide / cron_guide）。
+ * 注册渐进式加载指南工具（a2ui_guide / cron_guide / weixin_send_guide / prompt_guide）。
  * 系统提示词只保留工具名+一句话描述，完整文档由工具调用时返回，节省每轮 ~150 tokens。
  */
 export function registerGuideTools(deps: BridgeToolRegistrarDeps): void {
@@ -168,6 +172,41 @@ export function registerGuideTools(deps: BridgeToolRegistrarDeps): void {
   }
   deps.toolRegistry.register(createMtBotTool(weixinSendGuide, ctx))
 
+  // 提示词段渐进加载（terse 风格）：系统提示词只留索引句 + 引导句，完整规则由本工具按需返回
+  const PromptGuideParams = Type.Object({
+    section: Type.String({
+      description:
+        'Prompt section id shown in the terse hint, e.g. "operatingPrinciples", "fileOutput"',
+    }),
+  })
+
+  const promptGuide: MtBotToolConfig<typeof PromptGuideParams> = {
+    name: 'prompt_guide',
+    label: 'Prompt Guide',
+    description:
+      'Get the full rules for a prompt section — call when a terse hint in the system prompt is not enough. Pass the `section` id shown in the hint.',
+    parameters: PromptGuideParams,
+    category: 'agent' as const,
+    isReadOnly: true,
+    needsPermission: false,
+    execute: async (_toolCallId, params) => {
+      const guide = getPromptSectionGuide(params.section)
+      if (!guide) {
+        return jsonToolResult({
+          error: `Unknown prompt section: ${params.section}`,
+          available_sections: listPromptGuideSections(),
+        })
+      }
+      return jsonToolResult({
+        section: params.section,
+        title: guide.title,
+        body: guide.body,
+      })
+    },
+  }
+  // 泛型参数逆变：带类型参数的 MtBotTool 与 registry 的 MtBotTool<TSchema> 不重叠，需经 unknown 断言
+  deps.toolRegistry.register(createMtBotTool(promptGuide, ctx) as unknown as MtBotTool)
+
   // 注册 skill_list / skill_search / skill_invoke
   // 覆盖 built-in 版本，注入 getSkills（从 instanceStates 按 instanceId 查找 skillsSnapshot）
   const getSkillsForCall = (toolCallId: string): readonly SkillInfo[] => {
@@ -198,5 +237,5 @@ export function registerGuideTools(deps: BridgeToolRegistrarDeps): void {
   deps.toolRegistry.register(createMtBotTool(skillSearchOverride, ctx))
   deps.toolRegistry.register(createMtBotTool(skillInvokeOverride, ctx))
 
-  log.info('[registerGuideTools] a2ui_guide / cron_guide / weixin_send_guide / skill_list / skill_search / skill_invoke 已注册')
+  log.info('[registerGuideTools] a2ui_guide / cron_guide / weixin_send_guide / prompt_guide / skill_list / skill_search / skill_invoke 已注册')
 }

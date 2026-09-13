@@ -32,6 +32,14 @@ export {
   TOOL_SUMMARIES,
 } from "./sections/tooling-section.js";
 
+/** 段完整指南（terse 引导句 prompt_guide 的展开内容） */
+export {
+  PROMPT_GUIDE_SECTIONS,
+  getPromptSectionGuide,
+  listPromptGuideSections,
+  type PromptSectionGuide,
+} from "./section-guides.js";
+
 export { MEMORY_GUIDE_CONTENT } from "./guides/index.js";
 export { TASK_GUIDE_CONTENT } from "./guides/index.js";
 export { A2UI_GUIDE_CONTENT } from "./guides/index.js";
