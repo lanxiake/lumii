@@ -15,6 +15,7 @@ type ParsedLine =
   | { kind: 'tool'; tool: CodingDevToolProgress }
   | { kind: 'message'; text: string }
   | { kind: 'ignore' }
+  | { kind: 'status'; text: string }
   | { kind: 'final_result'; text: string }
   | { kind: 'session'; sessionId: string }
 
@@ -362,6 +363,10 @@ export class AcpToolStreamParser {
       // 捕获会话 id，不产生可见进度事件
       this._cliSessionId = parsed.sessionId
       return null
+    }
+    if (parsed.kind === 'status') {
+      // 空文本心跳：上层据此得知进程仍在推进并刷新超时窗口
+      return { kind: 'status', text: parsed.text }
     }
     return null
   }
