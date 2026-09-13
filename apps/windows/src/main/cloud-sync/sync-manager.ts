@@ -7,6 +7,8 @@
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import path from 'node:path'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import git from 'isomorphic-git'
 import type { PromiseFsClient } from 'isomorphic-git'
 import http from 'isomorphic-git/http/node'
@@ -22,9 +24,23 @@ import { SyncExporter } from './sync-exporter'
 import { SyncImporter } from './sync-importer'
 
 const logger = createLogger('cloud-sync/manager')
+const execFileAsync = promisify(execFile)
 
 /** push 超时，避免 Agent 工具永久挂起（错误仓库或超大对象库时） */
 const PUSH_TIMEOUT_MS = 120_000
+
+/**
+ * 冲突落决总超时。
+ * sync/.git 若因重复 fetch 膨胀到数 GB，全量 checkout/push 可能卡数十分钟；
+ * 必须让 Agent 工具在有限时间内返回，否则 UI 一直停在「正在调用 resolve_sync_conflict」。
+ */
+const RESOLVE_TIMEOUT_MS = 90_000
+
+/** 冲突落决路径上的 push 超时（短于总超时，给 import/收尾留余量） */
+const RESOLVE_PUSH_TIMEOUT_MS = 60_000
+
+/** isomorphic-git 每次 fetch 会新增 pack；超过此数量则触发系统 git gc */
+const PACK_GC_THRESHOLD = 3
 
 type GitParams = { fs: PromiseFsClient; dir: string; gitdir: string }
 
@@ -33,6 +49,23 @@ type AuthFn = () => { username: string; password: string }
 type PushOptions = {
   /** true：被拒时抛错（冲突落决必须成功推送，禁止假成功） */
   failOnReject?: boolean
+  /** 覆盖默认 PUSH_TIMEOUT_MS */
+  timeoutMs?: number
+}
+
+/**
+ * 给 Promise 加超时；超时后原 Promise 仍可能在后台继续，但调用方立即收到错误。
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    promise.finally(() => {
+      if (timer) clearTimeout(timer)
+    }),
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms)
+    }),
+  ])
 }
 
 interface MergeConflictErrorData {
@@ -173,8 +206,7 @@ export class CloudSyncManager extends EventEmitter {
         // 导出 → 提交 → 推送
         await this.exportAndCommit(p)
         await this.push(p, url, localRef, auth)
-        this.setState('idle', '首次推送完成')
-        return { success: true, state: 'idle' }
+        return this.finishIdle('首次推送完成')
       }
 
       // 5. 本地无提交（首次拉取）
@@ -183,8 +215,7 @@ export class CloudSyncManager extends EventEmitter {
         await git.fetch({ ...p, http, remote: 'origin', ref: branch, onAuth: auth })
         await git.checkout({ ...p, ref: branch, force: true })
         await this.importData()
-        this.setState('idle', '已拉取远程数据')
-        return { success: true, state: 'idle' }
+        return this.finishIdle('已拉取远程数据')
       }
 
       // 6. 判断远端和本地的关系
@@ -194,8 +225,7 @@ export class CloudSyncManager extends EventEmitter {
         // 无关历史：采用远端
         await this.adoptRemote(p, localRef, remoteOid)
         await this.importData()
-        this.setState('idle', '已采用远端历史作为本地主线')
-        return { success: true, state: 'idle' }
+        return this.finishIdle('已采用远端历史作为本地主线')
       }
 
       const baseOid = baseOids[0]
@@ -206,8 +236,7 @@ export class CloudSyncManager extends EventEmitter {
         // 导出 → 提交 → 推送
         await this.exportAndCommit(p)
         await this.push(p, url, localRef, auth)
-        this.setState('idle', '同步完成')
-        return { success: true, state: 'idle' }
+        return this.finishIdle('同步完成')
       }
 
       // 8. 本地无变化（仅远端新）
@@ -216,8 +245,7 @@ export class CloudSyncManager extends EventEmitter {
         await git.writeRef({ ...p, ref: localRef, value: remoteOid, force: true })
         await git.checkout({ ...p, ref: localRef, force: true })
         await this.importData()
-        this.setState('idle', '已拉取远程变更')
-        return { success: true, state: 'idle' }
+        return this.finishIdle('已拉取远程变更')
       }
 
       // 9. 双方都有新提交 → merge → import → export → push
@@ -254,8 +282,7 @@ export class CloudSyncManager extends EventEmitter {
       // 9.4 推送
       await this.push(p, url, localRef, auth)
 
-      this.setState('idle', '同步完成')
-      return { success: true, state: 'idle' }
+      return this.finishIdle('同步完成')
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err)
       const token = decryptToken(cfg.tokenEnc)
@@ -284,6 +311,47 @@ export class CloudSyncManager extends EventEmitter {
   }
 
   /**
+   * isomorphic-git 每次 fetch 都会落一份新 pack，不会自动 gc。
+   * pack 数超过阈值时调用系统 git gc，避免对象库滚到数十 GB 拖死冲突落决。
+   */
+  private async maybePruneObjectStore(): Promise<void> {
+    const packDir = path.join(this.syncDir, '.git', 'objects', 'pack')
+    let packCount = 0
+    try {
+      packCount = fs
+        .readdirSync(packDir)
+        .filter((name) => name.endsWith('.pack'))
+        .length
+    } catch {
+      return
+    }
+    if (packCount <= PACK_GC_THRESHOLD) return
+
+    logger.warn(`[maybePruneObjectStore] 检测到 ${packCount} 个 pack（阈值 ${PACK_GC_THRESHOLD}），执行 git gc…`)
+    try {
+      await execFileAsync('git', ['gc', '--prune=now'], {
+        cwd: this.syncDir,
+        timeout: 180_000,
+        windowsHide: true,
+      })
+      logger.info('[maybePruneObjectStore] git gc 完成')
+    } catch (err) {
+      logger.warn(
+        `[maybePruneObjectStore] git gc 失败（可忽略，不影响同步）: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      )
+    }
+  }
+
+  /** 成功收尾：先尝试压缩 pack，再切回 idle */
+  private async finishIdle(message: string): Promise<{ success: true; state: 'idle' }> {
+    await this.maybePruneObjectStore()
+    this.setState('idle', message)
+    return { success: true, state: 'idle' }
+  }
+
+  /**
    * 推送；普通 sync 被拒不强推等下轮；冲突落决传 failOnReject 禁止假成功。
    * 带超时，避免网络/错误仓库导致 Agent 工具永久挂起。
    */
@@ -294,6 +362,7 @@ export class CloudSyncManager extends EventEmitter {
     auth: AuthFn,
     opts?: PushOptions,
   ): Promise<void> {
+    const timeoutMs = opts?.timeoutMs ?? PUSH_TIMEOUT_MS
     const pushPromise = git.push({
       ...p,
       http,
@@ -302,17 +371,8 @@ export class CloudSyncManager extends EventEmitter {
       remoteRef: localRef,
       onAuth: auth,
     })
-    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      await Promise.race([
-        pushPromise,
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(
-            () => reject(new Error(`git push 超时（${PUSH_TIMEOUT_MS}ms），已中止等待`)),
-            PUSH_TIMEOUT_MS,
-          )
-        }),
-      ])
+      await withTimeout(pushPromise, timeoutMs, `git push 超时（${timeoutMs}ms），已中止等待`)
     } catch (err) {
       if (isRejectedPush(err)) {
         if (opts?.failOnReject) throw err
@@ -320,8 +380,6 @@ export class CloudSyncManager extends EventEmitter {
         return
       }
       throw err
-    } finally {
-      if (timer) clearTimeout(timer)
     }
   }
 
@@ -450,7 +508,18 @@ export class CloudSyncManager extends EventEmitter {
     strategy: 'keep-local' | 'keep-remote' | 'per-file',
     choices?: { path: string; side: 'local' | 'remote' }[],
   ): Promise<{ success: boolean; error?: string }> {
-    return enqueueWorkspace(this.workspaceDir, () => this.resolveInner(strategy, choices))
+    return enqueueWorkspace(this.workspaceDir, () =>
+      withTimeout(
+        this.resolveInner(strategy, choices),
+        RESOLVE_TIMEOUT_MS,
+        `解决冲突超时（${RESOLVE_TIMEOUT_MS}ms）。若 ~/.lumii/sync/.git 体积过大，请清理后重试或暂时关闭云同步。`,
+      ).catch((err) => {
+        const reason = err instanceof Error ? err.message : String(err)
+        logger.error(`[resolveConflict] 解决失败: ${reason}`)
+        this.recordConflictResolutionFailure(reason)
+        return { success: false as const, error: reason }
+      }),
+    )
   }
 
   /** 标记 Agent 开始处理冲突（仅更新 message + 日志，state 保持 conflict） */
@@ -465,6 +534,16 @@ export class CloudSyncManager extends EventEmitter {
     const safeReason = reason.length > 200 ? `${reason.slice(0, 200)}…` : reason
     logger.error(`[冲突处理] Agent 处理失败: ${safeReason}`)
     this.setState('conflict', `Agent 处理冲突失败：${safeReason}`)
+  }
+
+  /**
+   * 将 HEAD 挂回本地分支，不重写整个工作树。
+   * 全量 `git.checkout({ force: true })` 在对象库膨胀（多 GB pack）时会卡数十分钟，
+   * 导致 resolve_sync_conflict 工具无响应；冲突文件已在落决循环中按需 checkout。
+   */
+  private async attachHeadToBranch(p: GitParams, localRef: string): Promise<void> {
+    const headPath = path.join(p.gitdir, 'HEAD')
+    await fs.promises.writeFile(headPath, `ref: ${localRef}\n`, 'utf8')
   }
 
   private async resolveInner(
@@ -484,8 +563,17 @@ export class CloudSyncManager extends EventEmitter {
     const p = this.getSyncGitParams()
 
     try {
-      // 冲突后 HEAD 可能 detached：用冲突记录的 localOid 作为「本地侧」
-      const oursRef = c.localOid
+      // 冲突快照里已有 remoteOid：即使 tracking ref 丢失也要能落决（历史故障：Could not find refs/remotes/origin/main）
+      try {
+        await git.writeRef({ ...p, ref: remoteRef, value: c.remoteOid, force: true })
+      } catch (err) {
+        logger.warn(
+          `[resolveConflict] 回写 ${remoteRef} 失败（继续用 oid）:`,
+          err instanceof Error ? err.message : String(err),
+        )
+      }
+
+      // 冲突后 HEAD 可能 detached：用冲突记录的 oid 作为两侧内容源（禁止再 resolveRef 远端）
       for (const f of c.files) {
         const side =
           strategy === 'per-file'
@@ -493,9 +581,10 @@ export class CloudSyncManager extends EventEmitter {
             : strategy === 'keep-local'
               ? 'local'
               : 'remote'
+        const sideOid = side === 'local' ? c.localOid : c.remoteOid
         await git.checkout({
           ...p,
-          ref: side === 'local' ? oursRef : remoteRef,
+          ref: sideOid,
           filepaths: [f],
           force: true,
           noUpdateHead: true,
@@ -503,17 +592,19 @@ export class CloudSyncManager extends EventEmitter {
         // 清掉 index 冲突 stage，否则双亲 commit 可能失败
         await git.add({ ...p, filepath: f })
       }
-      const remoteOid = await git.resolveRef({ ...p, ref: remoteRef })
       await git.commit({
         ...p,
         ref: localRef,
         message: `解决云同步冲突（${strategy}）`,
-        parent: [oursRef, remoteOid],
+        parent: [c.localOid, c.remoteOid],
         author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
       })
-      // 挂回分支，避免继续 detached
-      await git.checkout({ ...p, ref: localRef, force: true })
-      await this.push(p, cfg.repoUrl.trim(), localRef, auth, { failOnReject: true })
+      // 挂回分支指针，避免 detached；禁止全量 force checkout（对象库过大时会挂死工具）
+      await this.attachHeadToBranch(p, localRef)
+      await this.push(p, cfg.repoUrl.trim(), localRef, auth, {
+        failOnReject: true,
+        timeoutMs: RESOLVE_PUSH_TIMEOUT_MS,
+      })
       // 落决后把 sync 内容导回本地 data/workspace
       await this.importData()
       this.conflict = undefined
@@ -534,14 +625,9 @@ export class CloudSyncManager extends EventEmitter {
     const c = this.conflict
     if (!c) return null
     const p = this.getSyncGitParams()
-    const branch = loadCloudSyncConfig().branch || 'main'
     try {
-      const oid =
-        side === 'base'
-          ? c.baseOid
-          : side === 'local'
-            ? c.localOid
-            : await git.resolveRef({ ...p, ref: `refs/remotes/origin/${branch}` })
+      // remote 侧优先用冲突快照里的 remoteOid，避免 tracking ref 丢失时读失败
+      const oid = side === 'base' ? c.baseOid : side === 'local' ? c.localOid : c.remoteOid
       const { blob } = await git.readBlob({ ...p, oid, filepath })
       return new TextDecoder().decode(blob)
     } catch {

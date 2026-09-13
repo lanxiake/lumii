@@ -73,12 +73,31 @@ export function registerSyncConflictTool(deps: BridgeToolRegistrarDeps): void {
         choices?: { path: string; side: 'local' | 'remote' }[]
       }
       if (p.strategy === 'per-file' && !p.choices?.length) {
-        return jsonToolResult({ status: 'error', message: 'strategy=per-file 时必须提供 choices' })
+        return {
+          ...jsonToolResult({ status: 'error', message: 'strategy=per-file 时必须提供 choices' }),
+          isError: true,
+        }
       }
       const m = getCloudSyncManager()
-      if (!m) return jsonToolResult({ status: 'error', message: '云同步未初始化' })
+      if (!m) {
+        return {
+          ...jsonToolResult({ status: 'error', message: '云同步未初始化' }),
+          isError: true,
+        }
+      }
       const r = await m.resolveConflict(p.strategy, p.choices)
-      return jsonToolResult({ status: r.success ? 'ok' : 'error', ...r })
+      if (!r.success) {
+        return {
+          ...jsonToolResult({
+            status: 'error',
+            success: false,
+            error: r.error ?? '解决冲突失败',
+            hint: '若持续超时，请到设置关闭云同步，或清理 ~/.lumii/sync/.git 后重试；不要反复调用本工具。',
+          }),
+          isError: true,
+        }
+      }
+      return jsonToolResult({ status: 'ok', success: true })
     },
   }
   deps.toolRegistry.register(createMtBotTool(resolve, ctx))

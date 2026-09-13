@@ -302,6 +302,28 @@ describe('CloudSyncManager', () => {
     expect(readSync('profile/user-memory.md')).toBe('local-memory')
   })
 
+  it('resolveConflict：远端 tracking ref 丢失时仍可用 conflict.remoteOid 落决', async () => {
+    await setupBase()
+    writeSync('profile/user-memory.md', 'local-memory')
+    await commitSync('local memory')
+    await commitRemote('profile/user-memory.md', 'remote-memory')
+    await manager.sync()
+    expect(manager.getStatus().state).toBe('conflict')
+
+    // 模拟历史故障：refs/remotes/origin/main 被删
+    const syncGitdir = path.join(syncDir, '.git')
+    const remoteTracking = path.join(syncGitdir, 'refs', 'remotes', 'origin', 'main')
+    fs.rmSync(remoteTracking, { force: true })
+
+    const r = await manager.resolveConflict('keep-local')
+    expect(r.success).toBe(true)
+    expect(manager.getStatus().state).toBe('idle')
+    expect(readSync('profile/user-memory.md')).toBe('local-memory')
+    // HEAD 应挂回分支（非 detached）
+    const head = fs.readFileSync(path.join(syncGitdir, 'HEAD'), 'utf-8').trim()
+    expect(head).toBe('ref: refs/heads/main')
+  })
+
   it('resolveConflict keep-remote → syncDir 变为远程版本', async () => {
     await setupBase()
     writeSync('shared.md', 'local')
