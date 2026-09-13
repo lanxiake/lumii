@@ -295,8 +295,8 @@ describe.skipIf(!hasFts5Db)('预置定时任务端到端', () => {
     // 通知：单行、无 Markdown 记号
     expect(captured.notifications[0].title).toBe('灵栖 · 日报')
     expect(captured.notifications[0].body).toBe('今天完成 · 写了 方案 · 过了评审')
-    // 飞书：保留换行、带任务名前缀
-    expect(captured.feishu[0]).toBe('【日报】\n今天完成\n\n· 写了 方案\n· 过了评审')
+    // 飞书：Router 不可用时走兜底直发——text 消息不渲染 Markdown，先经编译器降级为纯文本
+    expect(captured.feishu[0]).toBe('【日报】\n【今天完成】\n\n· 写了 方案\n· 过了评审')
     // 记忆：单行、任务名前缀
     expect(captured.memories[0]).toBe('日报：今天完成 · 写了 方案 · 过了评审')
     // 资讯卡片：标题 + 摘要两槽位

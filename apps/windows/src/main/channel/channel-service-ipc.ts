@@ -44,6 +44,7 @@ export async function handleChannelSend(
     channel: channel as OutboundChannelId,
     to: String(p.to ?? ''),
     text: String(p.text ?? ''),
+    ...(typeof p.title === 'string' && p.title ? { title: p.title } : {}),
     ...(typeof p.mediaPath === 'string' && p.mediaPath ? { mediaPath: p.mediaPath } : {}),
     ...(typeof p.fileName === 'string' && p.fileName ? { fileName: p.fileName } : {}),
   })

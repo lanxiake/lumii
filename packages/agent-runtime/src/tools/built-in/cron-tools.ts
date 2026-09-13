@@ -41,7 +41,9 @@ const CronCreateParams = Type.Object({
   notifyTargets: Type.Optional(
     Type.String({
       description:
-        "Comma-separated notification targets (system/news/focus/feishu). " +
+        "Comma-separated notification targets. " +
+        "Local: system (desktop notification) / news (dashboard feed) / focus (work memory) / silent. " +
+        "Channels: feishu / qbot:<peerId> / weixin:<peerId> — weixin and qbot require an explicit peer id. " +
         "If omitted, defaults to the channel this conversation is happening in.",
     }),
   ),

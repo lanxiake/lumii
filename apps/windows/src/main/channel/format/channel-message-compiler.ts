@@ -10,7 +10,7 @@
  * 只负责把编译结果交给协议层发送。
  */
 
-import { markdownToPlainText, truncate } from '../../agent-runtime/cron-notify-format.js'
+import { truncate } from '../../agent-runtime/cron-notify-format.js'
 import { parseMarkdownBlocks, type MdBlock } from './markdown-blocks.js'
 
 /** 飞书超过此长度或有标题结构就走卡片；短对话消息维持 text */
@@ -28,12 +28,43 @@ const WEIXIN_SEGMENT_MAX_CHARS = 1000
 /** 微信单次最多段数，超出截断（连发过多条易打扰） */
 const WEIXIN_MAX_SEGMENTS = 5
 /** 微信超长截断的尾部提示 */
-const WEIXIN_OVERFLOW_NOTE = '…（内容过长，完整报告请在客户端查看）'
+const WEIXIN_OVERFLOW_NOTE = '…（内容过长已截断）'
 
 export interface FeishuCardJson {
   config: { wide_screen_mode: boolean }
   header: { template: string; title: { tag: 'plain_text'; content: string } }
   elements: Array<{ tag: 'div'; text: { tag: 'lark_md'; content: string } } | { tag: 'hr' }>
+}
+
+/**
+ * 行内记号降级（保守版）。
+ *
+ * 不复用 cron-notify-format.markdownToPlainText：它的斜体规则 `(\*|_)(.*?)\1`
+ * 会把词内记号当斜体吞掉（user_id_x → useridx、__init__ → init），技术类
+ * 回复会静默失真。这里只处理明确成对、被词边界包围的记号；`__` 粗体不处理
+ * （dunder 变量名远多于该写法）。
+ */
+export function stripInlineMarkdown(text: string): string {
+  return text
+    // 图片先于链接处理，否则 ![alt](url) 会剩一个孤立的 !
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+    // 链接保留文字：URL 在手机上点不了，只占地方
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/~~([^~]+)~~/g, '$1')
+    // 单星/单下划线：只认被空白或标点包围、且紧贴内容的成对记号（词内记号原样保留）
+    .replace(/(^|[\s(（「])_(?!\s)([^_\n]+?)(?<!\s)_(?=$|[\s)）,.，。!！?？:：;；」])/g, '$1$2')
+    .replace(/(^|[\s(（「])\*(?!\s)([^*\n]+?)(?<!\s)\*(?=$|[\s)）,.，。!！?？:：;；」])/g, '$1$2')
+    // 行内代码去反引号保内容
+    .replace(/`([^`]+)`/g, '$1')
+}
+
+/** 整篇 Markdown → 手机可读纯文本（块渲染拼接，行内保护与微信一致）。 */
+function plainTextOf(md: string): string {
+  return parseMarkdownBlocks(md)
+    .map(blockToMobileText)
+    .filter((s) => s.trim().length > 0)
+    .join('\n\n')
 }
 
 export type FeishuCompiled =
@@ -49,8 +80,8 @@ export function compileForFeishu(md: string, title?: string): FeishuCompiled {
   const blocks = parseMarkdownBlocks(md)
   const useCard = md.length > FEISHU_CARD_MIN_CHARS || blocks.some((b) => b.kind === 'heading')
   const t = title?.trim()
-  const prefix = t ? `【${markdownToPlainText(t)}】\n` : ''
-  const fallbackText = truncate(prefix + markdownToPlainText(md), FEISHU_TEXT_MAX_CHARS)
+  const prefix = t ? `【${stripInlineMarkdown(t)}】\n` : ''
+  const fallbackText = truncate(prefix + plainTextOf(md), FEISHU_TEXT_MAX_CHARS)
 
   if (!useCard) {
     return { kind: 'text', text: fallbackText }
@@ -64,6 +95,10 @@ export function compileForFeishu(md: string, title?: string): FeishuCompiled {
       derivedTitle = (blocks[idx] as Extract<MdBlock, { kind: 'heading' }>).text
       rest = blocks.filter((_, j) => j !== idx)
     }
+  }
+  // 正文没有可放卡片的文本（如全文只有一个标题）：空卡片会被飞书拒绝，直接走 text
+  if (rest.every((b) => b.kind === 'hr' || !blockToLarkMd(b).trim())) {
+    return { kind: 'text', text: fallbackText }
   }
 
   const elements: FeishuCardJson['elements'] = []
@@ -123,13 +158,16 @@ export function compileForQbot(md: string, title?: string): string {
  * 去装饰、列表带序号、标题转【】独立成段；按段打包，超段数上限截断加提示。
  */
 export function compileForWeixin(md: string, title?: string): string[] {
-  const chunks = parseMarkdownBlocks(md)
-    .map(blockToMobileText)
-    .filter((c) => c.trim().length > 0)
-  let body = chunks.join('\n\n')
+  let body = plainTextOf(md)
   const t = title?.trim()
-  if (t) body = `【${markdownToPlainText(t)}】\n\n${body}`
-  return packSegments(body, WEIXIN_SEGMENT_MAX_CHARS, WEIXIN_MAX_SEGMENTS)
+  if (t) body = `【${stripInlineMarkdown(t)}】\n\n${body}`
+  const segments = packSegments(body, WEIXIN_SEGMENT_MAX_CHARS, WEIXIN_MAX_SEGMENTS)
+  if (segments.length === 0) {
+    // 极端输入（纯分隔线/只有标记没有正文）编译为空：非空原文退回原样，保证有内容可发
+    const raw = md.trim()
+    return raw ? [raw] : []
+  }
+  return segments
 }
 
 /** 块 → 飞书 lark_md 内容（卡片元素正文）。 */
@@ -172,7 +210,7 @@ function blockToChatMarkdown(b: MdBlock): string {
     case 'code':
       return b.text
     case 'table':
-      return b.rows.map((r) => r.map((c) => markdownToPlainText(c)).join(' | ')).join('\n')
+      return b.rows.map((r) => r.map((c) => stripInlineMarkdown(c)).join(' | ')).join('\n')
     case 'hr':
       return '---'
   }
@@ -182,19 +220,19 @@ function blockToChatMarkdown(b: MdBlock): string {
 function blockToMobileText(b: MdBlock): string {
   switch (b.kind) {
     case 'heading':
-      return `【${markdownToPlainText(b.text)}】`
+      return `【${stripInlineMarkdown(b.text)}】`
     case 'paragraph':
-      return markdownToPlainText(b.text)
+      return stripInlineMarkdown(b.text)
     case 'list':
       return b.items
-        .map((it, i) => (b.ordered ? `${i + 1}. ${markdownToPlainText(it)}` : `· ${markdownToPlainText(it)}`))
+        .map((it, i) => (b.ordered ? `${i + 1}. ${stripInlineMarkdown(it)}` : `· ${stripInlineMarkdown(it)}`))
         .join('\n')
     case 'quote':
-      return markdownToPlainText(b.text)
+      return stripInlineMarkdown(b.text)
     case 'code':
       return b.text
     case 'table':
-      return b.rows.map((r) => r.map((c) => markdownToPlainText(c)).join(' | ')).join('\n')
+      return b.rows.map((r) => r.map((c) => stripInlineMarkdown(c)).join(' | ')).join('\n')
     case 'hr':
       return ''
   }

@@ -80,12 +80,12 @@ describe('dispatchNotifications', () => {
     )
   })
 
-  it('Markdown 正文按渠道分流：通知压单行、飞书原文交渠道层编译', async () => {
+  it('Markdown 正文按渠道分流：通知压单行、飞书走编译器的纯文本兜底', async () => {
     const s = makeScheduler()
     await s.dispatch(job, 'system,feishu', '## 今天\n\n- 写方案\n- **评审**')
     expect(s.showCronNotification).toHaveBeenCalledWith('灵栖 · 测试提醒', '今天 · 写方案 · 评审', 'cron:custom-job')
-    // Router 不可用时飞书走兜底直发：原始 Markdown + 任务名前缀（富文本化由渠道层负责）
-    expect(s.sendFeishuMessage).toHaveBeenCalledWith('【测试提醒】\n## 今天\n\n- 写方案\n- **评审**')
+    // Router 不可用时飞书走兜底直发：text 消息不渲染 Markdown，需先经编译器降级
+    expect(s.sendFeishuMessage).toHaveBeenCalledWith('【测试提醒】\n【今天】\n\n· 写方案\n· 评审')
   })
 
   it('企微目标只 warn 跳过，不伪装成功', async () => {

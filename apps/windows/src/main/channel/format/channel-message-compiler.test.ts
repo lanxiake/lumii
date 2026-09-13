@@ -45,14 +45,14 @@ describe('compileForFeishu', () => {
     expect(r.kind).toBe('card')
   })
 
-  it('正文超上限时截断并附客户端提示，fallbackText 始终可用', () => {
+  it('正文超上限时截断并附提示，fallbackText 始终可用', () => {
     const r = compileForFeishu('字'.repeat(9000), '长报告')
     expect(r.kind).toBe('card')
     if (r.kind === 'card') {
       const texts = r.card.elements
         .filter((e) => e.tag === 'div')
         .map((e) => (e as { text: { content: string } }).text.content)
-      expect(texts[texts.length - 1]).toContain('完整报告请在客户端查看')
+      expect(texts[texts.length - 1]).toContain('内容过长已截断')
       expect(r.fallbackText.length).toBeGreaterThan(0)
       expect(r.fallbackText).not.toContain('**')
     }
@@ -63,6 +63,14 @@ describe('compileForFeishu', () => {
     expect(r.kind).toBe('card')
     if (r.kind === 'card') {
       expect(r.card.header.title.content).toBe('灵栖')
+    }
+  })
+
+  it('全文只有一个标题时没有卡片正文可放，回落 text', () => {
+    const r = compileForFeishu('# 只有标题')
+    expect(r.kind).toBe('text')
+    if (r.kind === 'text') {
+      expect(r.text).toBe('【只有标题】')
     }
   })
 })
@@ -125,6 +133,28 @@ describe('compileForWeixin', () => {
     const paras = Array.from({ length: 6 }, (_, i) => `第${i + 1}段${'字'.repeat(600)}`)
     const segs = compileForWeixin(paras.join('\n\n'))
     expect(segs).toHaveLength(5)
-    expect(segs[4]).toContain('完整报告请在客户端查看')
+    expect(segs[4]).toContain('内容过长已截断')
+  })
+
+  it('单行超过段上限时硬切，每段不超限', () => {
+    const segs = compileForWeixin('字'.repeat(2500))
+    expect(segs).toHaveLength(3)
+    for (const s of segs) expect(s.length).toBeLessThanOrEqual(1000)
+  })
+
+  it('极端输入（纯分隔线）编译为空时退回原文，不静默丢失', () => {
+    expect(compileForWeixin('---')).toEqual(['---'])
+    expect(compileForWeixin('   \n\n  ')).toEqual([])
+  })
+
+  it('词内下划线/星号原样保留（user_id_x、__init__、a*b 不被当斜体吞掉）', () => {
+    const segs = compileForWeixin('运行 `user_id_x`，调用 __init__，计算 a*b，再看 _强调_ 与 *斜体*')
+    expect(segs[0]).toContain('user_id_x')
+    expect(segs[0]).toContain('__init__')
+    expect(segs[0]).toContain('a*b')
+    expect(segs[0]).toContain('强调')
+    expect(segs[0]).not.toContain('_强调_')
+    expect(segs[0]).toContain('斜体')
+    expect(segs[0]).not.toContain('*斜体*')
   })
 })

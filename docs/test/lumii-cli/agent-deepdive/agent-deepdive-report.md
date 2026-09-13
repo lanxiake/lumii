@@ -1,9 +1,9 @@
 # 体验深挖 · 地基篇（G1-G4）真实使用旅程 E2E 测试报告
 
-- **生成时间**: 2026-09-13T16:18:22.883Z（开始 2026-09-13T16:09:38.406Z）
+- **生成时间**: 2026-09-13T16:37:13.314Z（开始 2026-09-13T16:31:49.723Z）
 - **驱动方式**: 全部经 lumii-ui CLI 真实调用（conversation/send/context 等），真实客户端 + 真实 LLM，无 SQL 播种
 - **数据库**: C:\Users\Administrator\.lumii\data\agent-runtime.db
-- **场景范围**: DD_ONLY=G2-02,G3-01,G4-01
+- **场景范围**: 全量场景
 - **环境**: 真实 LLM；转交场景未启用
 - **执行方式**: 父进程编排（并行 + UI 串行）
 - **应用日志**: C:\Users\Administrator\.lumii\logs\app\mtbot-2026-09-14.log
@@ -12,38 +12,51 @@
 
 | 指标 | 值 |
 |---|---|
-| 总数 | 3 |
-| 通过 | 1 |
+| 总数 | 9 |
+| 通过 | 6 |
 | 失败 | 2 |
-| 跳过 | 0 |
-| 通过率 | 33.3% |
+| 跳过 | 1 |
+| 通过率 | 66.7% |
 
 ## 逐条结果
 
 | ID | 状态 | 说明 | 耗时 |
 |---|---|---|---|
-| DD-G4-01 | ❌ | 两次尝试主助手均未使用 send_message 带话（回复尾：mplete has already been called and the summary has been presented. Following the silent response rule, if there's nothing to say, respond with NO_REPLY. The user has already received the full report.
-）—— 传话通路未被触发 | 246.2s |
-| DD-G2-02 | ❌ | 后台委托完成后未外推桌面通知（用户已切到别的会话：「G4-01 传话(第2次)」）；窗口内 DesktopNotify 尾：[2026-09-14 00:16:34.577] [INFO] [Main] [DesktopNotify] title="Lumii · info-curator 已完成" body="本轮任务已完成：看板资讯流已写入今日 5 条 AI 行业动态（政策 1 条 + 编程工具/厂商 4 条，全部来自 IT之家且链接验证有效），筛选依据已记入工作记" convId="d0d7fc85799817000de37074a6d1bfb8" | 57.5s |
-| DD-G3-01 | ✅ | 本用例现场发起委托：界面渲染「团队委托灵栖情报已完成详情」；点击展开可见任务/产出 | 104.4s |
+| DD-G2-01 | ✅ | 失败任务「DD探针·必失败任务」触发通知（2 条日志），标题含任务名、点击跳转 cron:d4f38f82-fd36-4dc5-ae89-aa1b4c0517a3；失败原因=Agent definition not found: __dd_missing_agent_definition__ | 2.6s |
+| DD-G1-02 | ✅ | 维护官调用 wiki_overview 读到共享库 308 条（共享库 308 条 / 它自有仅 4 条）；资料零改动；回复「只看不动，已完成统计。你的资料库目前共 **308 条资料**，按一级分类分布： \| 分类 \| 条数 \| 说明 \| \|…」 | 20.1s |
+| DD-G1-01 | ✅ | 记忆落库 agent_memories(agent_id=system-keeper)；新会话复述成功（10s）：「LUMII-DD-913」 | 29.4s |
+| DD-REG-01 | ✅ | participant=default；回复「收到」 | 13.1s |
+| DD-REG-02 | ✅ | 口令落 assistant；新会话复述成功（6s）：「LUMII-DD-REG2」 | 21.9s |
+| DD-G4-01 | ✅ | 追加成功（send_message ok，to=agent-1789317246028-gvcc0x）；会话中出现「【传话】系统默认 → 灵栖情报：用户补充提醒：优先看中文来源（IT之家、量子位、机器之心、新智元等），英文源只做交叉验证，不占 8 条名额。请确认选题以中文来源」 | 203.7s |
+| DD-G2-02 | ❌ | conversation create 退出码 3: {"ok":false,"error":"app_not_running"}
+ | 0.1s |
+| DD-G3-01 | ❌ | conversation create 退出码 3: {"ok":false,"error":"app_not_running"}
+ | 0.1s |
+| DD-G2-03 | ⏭️ | 未启用（DD_WITH_HANDOFF=1 且需 code-dev 绑定 + claude CLI） | - |
 
 ## 失败与跳过明细
 
-- **DD-G4-01** FAIL: 两次尝试主助手均未使用 send_message 带话（回复尾：mplete has already been called and the summary has been presented. Following the silent response rule, if there's nothing to say, respond with NO_REPLY. The user has already received the full report.
-）—— 传话通路未被触发
+- **DD-G2-02** FAIL: conversation create 退出码 3: {"ok":false,"error":"app_not_running"}
+
   ```
-  Error: 两次尝试主助手均未使用 send_message 带话（回复尾：mplete has already been called and the summary has been presented. Following the silent response rule, if there's nothing to say, respond with NO_REPLY. The user has already received the full report.
-）—— 传话通路未被触发
-    at Module.assert (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:110:20)
-    at caseG401 (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-deepdive/run-agent-deepdive-e2e.mjs:721:5)
-    at Modul
+  Error: conversation create 退出码 3: {"ok":false,"error":"app_not_running"}
+
+    at assert (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:110:20)
+    at okJson (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:103:3)
+    at Module.createSession (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:130:13)
+    at caseG202 (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-deepdive/run-agent-de
   ```
-- **DD-G2-02** FAIL: 后台委托完成后未外推桌面通知（用户已切到别的会话：「G4-01 传话(第2次)」）；窗口内 DesktopNotify 尾：[2026-09-14 00:16:34.577] [INFO] [Main] [DesktopNotify] title="Lumii · info-curator 已完成" body="本轮任务已完成：看板资讯流已写入今日 5 条 AI 行业动态（政策 1 条 + 编程工具/厂商 4 条，全部来自 IT之家且链接验证有效），筛选依据已记入工作记" convId="d0d7fc85799817000de37074a6d1bfb8"
+- **DD-G3-01** FAIL: conversation create 退出码 3: {"ok":false,"error":"app_not_running"}
+
   ```
-  Error: 后台委托完成后未外推桌面通知（用户已切到别的会话：「G4-01 传话(第2次)」）；窗口内 DesktopNotify 尾：[2026-09-14 00:16:34.577] [INFO] [Main] [DesktopNotify] title="Lumii · info-curator 已完成" body="本轮任务已完成：看板资讯流已写入今日 5 条 AI 行业动态（政策 1 条 + 编程工具/厂商 4 条，全部来自 IT之家且链接验证有效），筛选依据已记入工作记" convId="d0d7fc85799817000de37074a6d1bfb8"
-    at Module.assert (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:110:20)
-    at caseG202 (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-deepdive/run-agent-
+  Error: conversation create 退出码 3: {"ok":false,"error":"app_not_running"}
+
+    at assert (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:110:20)
+    at okJson (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:103:3)
+    at Module.createSession (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:130:13)
+    at caseG301 (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-deepdive/run-agent-de
   ```
+- **DD-G2-03** SKIP: 未启用（DD_WITH_HANDOFF=1 且需 code-dev 绑定 + claude CLI）
 
 ## 副作用声明
 

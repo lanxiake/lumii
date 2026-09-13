@@ -51,7 +51,7 @@ export class WecomChannelProvider implements IChannelOutboundProvider {
   /**
    * 一期不对企微做伪 Push。
    */
-  async sendText(params: { to: string; text: string }): Promise<ChannelSendResult> {
+  async sendText(params: { to: string; text: string; title?: string }): Promise<ChannelSendResult> {
     return this.unsupported(params.to)
   }
 

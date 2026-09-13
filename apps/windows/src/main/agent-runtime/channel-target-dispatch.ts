@@ -11,6 +11,7 @@
  */
 
 import type { ChannelOutboundRouter } from '../channel/channel-outbound-router'
+import { compileForFeishu } from '../channel/format/channel-message-compiler'
 
 const log = {
   warn: (...args: unknown[]) => console.warn('[ChannelTargetDispatch]', ...args),
@@ -54,7 +55,9 @@ export async function dispatchChannelTarget(
   const router = deps.getChannelRouter?.()
   if (!router) {
     if (kind === 'feishu' && deps.sendFeishuMessage) {
-      const plain = title ? `【${title}】\n${text}` : text
+      // 兜底是 text 消息（不渲染 Markdown），用编译器的纯文本形态，避免 `##`/`**` 噪声
+      const compiled = compileForFeishu(text, title)
+      const plain = compiled.kind === 'text' ? compiled.text : compiled.fallbackText
       const res = await deps.sendFeishuMessage(plain)
       if (!res.ok) log.warn('飞书兜底推送失败:', res.error)
       return
