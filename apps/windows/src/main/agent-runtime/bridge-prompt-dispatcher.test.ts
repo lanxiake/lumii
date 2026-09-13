@@ -289,3 +289,91 @@ describe("BridgePromptDispatcher auto-compact pendingUserMsgId exclusion", () =>
     }
   });
 });
+
+describe("BridgePromptDispatcher 提示词风格传递（P1-T4）", () => {
+  function makeHarness(configExtra: Record<string, unknown> = {}) {
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-prompt-style-"));
+    const ctx = createRunContext("conversation-1", "instance-1", "conversation-1");
+    const state = createInstanceState(ctx, {
+      definitionId: "agent",
+      runningStartedAt: null,
+      completedTurns: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    const rebuilder = vi.fn(() => ({
+      staticPrompt: "static",
+      dynamicPrompt: "",
+      fullPrompt: "static",
+      sectionStats: [],
+    }));
+    state.promptRebuilder = rebuilder;
+    const instanceStates = new InstanceStateStore();
+    instanceStates.set("instance-1", state);
+
+    const setSystemPrompt = vi.fn();
+    const dispatcher = new BridgePromptDispatcher({
+      agentRegistry: {
+        get: () => ({
+          state: "idle",
+          setSystemPrompt,
+          setMemoryInjectionFlags: () => {},
+          prompt: async () => {},
+        }),
+      },
+      instanceStates,
+      instanceToConversation: new Map([["instance-1", "conversation-1"]]),
+      instanceToRootSessionKey: new Map([["instance-1", "conversation-1"]]),
+      sessionModelCatalog: {
+        getPreferredModelRawForStream: () => undefined,
+        getCompactionForRootSession: () => ({
+          contextWindow: 128_000,
+          outputReserveTokens: 8_000,
+          summaryReserveTokens: 4_000,
+        }),
+      },
+      promptComposer: {
+        buildPromptWithMemory: async () => "fresh prompt",
+      },
+      featureFlags: {},
+      ipcChannel: { forwardIpcEvent: () => {} },
+      compactor: {},
+      instanceFactory: { buildImageContents: async () => undefined },
+      modelRouter: {},
+      config: {
+        getCwd: () => workspaceDir,
+        getMemoryInjectionSettings: () => undefined,
+        ...configExtra,
+      },
+      getSkillEvolutionEngine: () => undefined,
+      getConversationRepo: () => ({ loadMessagesAsPiFormat: () => [] }),
+    } as never);
+
+    return { dispatcher, rebuilder, setSystemPrompt, workspaceDir };
+  }
+
+  it("settings 返回 terse 时 rebuilder 收到第 4 参 terse，并生效系统提示词", async () => {
+    const { dispatcher, rebuilder, setSystemPrompt, workspaceDir } = makeHarness({
+      getPromptStyleSettings: async () => ({ style: "terse" }),
+    });
+    try {
+      await dispatcher.prompt("instance-1", "新消息");
+      expect(rebuilder).toHaveBeenCalledTimes(1);
+      expect(rebuilder.mock.calls[0]![3]).toBe("terse");
+      expect(setSystemPrompt).toHaveBeenCalledWith("fresh prompt");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("未注入 getPromptStyleSettings 时第 4 参为 undefined（默认 detailed 路径）", async () => {
+    const { dispatcher, rebuilder, workspaceDir } = makeHarness();
+    try {
+      await dispatcher.prompt("instance-1", "新消息");
+      expect(rebuilder).toHaveBeenCalledTimes(1);
+      expect(rebuilder.mock.calls[0]![3]).toBeUndefined();
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+});
