@@ -24,6 +24,7 @@ const CLIENT_REGISTERED_NAMES: readonly string[] = [
   "a2ui_guide",
   "cron_guide",
   "weixin_send_guide",
+  "prompt_guide",
   "browser_navigate",
   "browser_screenshot",
   "browser_click",

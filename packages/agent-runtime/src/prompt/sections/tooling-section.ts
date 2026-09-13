@@ -55,6 +55,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   a2ui_guide: "A2UI component docs — call before emitting UI components",
   cron_guide: "cron_create parameter format",
   weixin_send_guide: "WeChat file/image delivery method",
+  prompt_guide: "Full rules for a prompt section — pass the section id from a terse hint",
 
   // Skills
   skill_list: "List available skills",
@@ -142,7 +143,7 @@ const TASK_TOOLS = new Set(["todo_write", "task_complete"])
 const AGENT_TOOLS = new Set(["spawn_agent", "send_message"])
 const SCHEDULING_TOOLS = new Set(["cron_create", "cron_list", "cron_delete"])
 const SKILL_TOOLS = new Set(["skill_list", "skill_search", "skill_invoke", "execute_skill"])
-const GUIDE_TOOLS = new Set(["a2ui_guide", "cron_guide", "weixin_send_guide"])
+const GUIDE_TOOLS = new Set(["a2ui_guide", "cron_guide", "weixin_send_guide", "prompt_guide"])
 const MEMORY_TOOLS = new Set([
   "memory_search",
   "memory_read",
