@@ -91,6 +91,72 @@ describe("AgentOrchestrator", () => {
     expect(bus.pendingCount("b1")).toBe(1);
   });
 
+  it("sendMessage 目标空闲 → prompt 唤醒（followUp 只在运行中队列里被消费）", async () => {
+    const followUp = vi.fn();
+    const prompt = vi.fn().mockResolvedValue(undefined);
+    const idleTarget = { id: "b1", state: "idle" } as unknown as AgentInstance;
+
+    const orch = new AgentOrchestrator(registry, bus, {
+      resolveDefinition: async () => mockDef("assistant"),
+      createChildInstance: async () => "x",
+      prompt,
+      followUp,
+      destroy: vi.fn(),
+      getInstance: () => idleTarget,
+      findInstanceByRecipient: () => idleTarget,
+      getDisplayNameForInstance: (id) => id,
+    });
+
+    const r = await orch.sendMessage({ to: "b1", message: "ping", fromInstanceId: "a1" });
+    expect(r.status).toBe("ok");
+    expect(prompt).toHaveBeenCalledWith("b1", "ping");
+    expect(followUp).not.toHaveBeenCalled();
+    // 消息仍进邮箱，`message` 工具可回读
+    expect(bus.pendingCount("b1")).toBe(1);
+  });
+
+  it("sendMessage 目标运行中 → followUp 排队，不打断当前回合", async () => {
+    const followUp = vi.fn();
+    const prompt = vi.fn().mockResolvedValue(undefined);
+    const runningTarget = { id: "b1", state: "running" } as unknown as AgentInstance;
+
+    const orch = new AgentOrchestrator(registry, bus, {
+      resolveDefinition: async () => mockDef("assistant"),
+      createChildInstance: async () => "x",
+      prompt,
+      followUp,
+      destroy: vi.fn(),
+      getInstance: () => runningTarget,
+      findInstanceByRecipient: () => runningTarget,
+      getDisplayNameForInstance: (id) => id,
+    });
+
+    await orch.sendMessage({ to: "b1", message: "ping", fromInstanceId: "a1" });
+    expect(followUp).toHaveBeenCalledWith("b1", "ping");
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it("sendMessage 目标状态未知/不可投 → 保持入队不丢消息", async () => {
+    const followUp = vi.fn();
+    const prompt = vi.fn().mockResolvedValue(undefined);
+    const paused = { id: "b1", state: "paused" } as unknown as AgentInstance;
+
+    const orch = new AgentOrchestrator(registry, bus, {
+      resolveDefinition: async () => mockDef("assistant"),
+      createChildInstance: async () => "x",
+      prompt,
+      followUp,
+      destroy: vi.fn(),
+      getInstance: () => paused,
+      findInstanceByRecipient: () => paused,
+      getDisplayNameForInstance: (id) => id,
+    });
+
+    await orch.sendMessage({ to: "b1", message: "ping", fromInstanceId: "a1" });
+    expect(followUp).toHaveBeenCalledWith("b1", "ping");
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
   it("spawn builtin:verify (sync) → 解析 VERDICT 并前置机器摘要", async () => {
     // 模拟子实例：subscribe 时立刻推送 verify 输出，waitForIdle 立即返回
     const verifyOutput =

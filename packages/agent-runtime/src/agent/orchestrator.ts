@@ -608,9 +608,9 @@ export class AgentOrchestrator {
         try {
           this.messageBus.send(inst.id, busMsg);
         } catch {
-          // 邮箱未注册时仍尝试 followUp
+          // 邮箱未注册时仍尝试投递
         }
-        this.deps.followUp(inst.id, message);
+        this.deliverMessage(inst, message);
         sent++;
       }
       return { status: "ok", broadcast: true, recipientCount: sent };
@@ -626,10 +626,35 @@ export class AgentOrchestrator {
     try {
       this.messageBus.send(target.id, busMsg);
     } catch {
-      // 仍投递 followUp
+      // 仍尝试投递
+    }
+    this.deliverMessage(target, message);
+    return { status: "ok", broadcast: false, to, delivered: true };
+  }
+
+  /**
+   * 把 send_message 的消息投给目标实例（设计 §7.5 空闲唤醒最小版）。
+   *
+   * followUp 仅在目标已有 prompt 循环内被消费——空闲实例收到 followUp 会永远躺在队列里，
+   * 表现为「消息发出去了，对方毫无反应」。按状态分流：
+   * running → followUp 排队；idle → prompt 唤醒开新回合；
+   * 其余（paused/error/aborted/destroyed）保持入队，恢复后仍可被消费，不静默丢消息。
+   */
+  private deliverMessage(target: AgentInstance, message: string): void {
+    if (target.state === "running") {
+      this.deps.followUp(target.id, message);
+      return;
+    }
+    if (target.state === "idle") {
+      void this.deps.prompt(target.id, message).catch((err) => {
+        console.log(
+          `[AgentOrchestrator] send_message idle wake failed to=${target.id}: ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
+      });
+      return;
     }
     this.deps.followUp(target.id, message);
-    return { status: "ok", broadcast: false, to, delivered: true };
   }
 
   /**
