@@ -601,4 +601,14 @@ describe('handleRuntimeEvent 异步子 Agent 完成通知', () => {
       'conv-parent',
     )
   })
+
+  it('摘要为 NO_REPLY 哨兵时同样走兜底文案（哨兵不是内容）', () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    handleRuntimeEvent(completedEvent({ summaryPreview: '\n\nNO_REPLY' }))
+    expect(notifyDesktop).toHaveBeenCalledWith(
+      'Lumii · 灵栖情报 已完成',
+      '结果已汇入会话，点击查看',
+      'conv-parent',
+    )
+  })
 })

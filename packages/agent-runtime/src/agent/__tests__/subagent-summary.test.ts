@@ -28,6 +28,16 @@ describe("guardSubagentSummary", () => {
     expect(r.spillPath).toBeUndefined();
   });
 
+  it("NO_REPLY 哨兵归一化为无产出文案（否则完成通知正文就成了 NO_REPLY）", () => {
+    expect(guardSubagentSummary("NO_REPLY").summary).toBe("（子 Agent 本轮无文本产出）");
+    expect(guardSubagentSummary("\n\n no_reply \n").summary).toBe("（子 Agent 本轮无文本产出）");
+  });
+
+  it("正文里出现 NO_REPLY 字样但非整条哨兵时原样保留", () => {
+    const text = "调研结论：NO_REPLY 是本地无话可说的协议哨兵";
+    expect(guardSubagentSummary(text).summary).toBe(text);
+  });
+
   it("超长截断并落盘，末尾保留 VERDICT", () => {
     const cwd = mkdtempSync(path.join(tmpdir(), "subagent-summary-"));
     try {

@@ -151,6 +151,119 @@ describe("Wiki 摄入钩子接线", () => {
   });
 });
 
+describe("NO_REPLY 哨兵轮的落库处理", () => {
+  function buildHandler(conversationRepo: Record<string, unknown>) {
+    const ctx = createRunContext("session", "instance", "session");
+    const instanceStates = new InstanceStateStore();
+    const state = createInstanceState(ctx, {
+      definitionId: "agent",
+      runningStartedAt: null,
+      completedTurns: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    });
+    state.streamingAssistantMsgId = "message-1";
+    instanceStates.set("instance", state);
+    const handler = createAgentInstanceRuntimeEventHandler({
+      instanceId: "instance",
+      ctx,
+      ipcChannel: { forwardIpcEvent: vi.fn(), forwardToRenderer: vi.fn() } as never,
+      conversationRepo: conversationRepo as never,
+      fileRepo: null,
+      fileMemoryHandler: {} as never,
+      getWikiIngestHook: () => null,
+      resolveWikiAgentId: () => "assistant",
+      instanceStates,
+      instanceToConversation: new Map([["instance", "conversation-1"]]),
+      toolCallInstanceMap: new Map(),
+      toolStartTimeMap: new Map(),
+      nodeStreamCallbacks: new Map(),
+      getCompactionForRootSession: () => ({
+        contextWindow: 128_000,
+        outputReserveTokens: 8_000,
+        summaryReserveTokens: 4_000,
+      }),
+      getSessionContextUsage: () => ({
+        usedTokens: 0,
+        contextWindow: 128_000,
+        triggerThreshold: 102_400,
+      }),
+      setSessionProviderInputTokens: vi.fn(),
+      calibrateSessionCharsPerToken: vi.fn(),
+      clearSessionProviderInputTokens: vi.fn(),
+      setCurrentToolExecutorInstanceId: vi.fn(),
+      getCwd: () => os.tmpdir(),
+    });
+    return { handler, state };
+  }
+
+  it("整轮就是 NO_REPLY → 不落库并删除占位行（否则重开会话看到 NO_REPLY 气泡）", async () => {
+    const updateMessageContent = vi.fn();
+    const deleteMessage = vi.fn();
+    const { handler, state } = buildHandler({
+      updateMessageContent,
+      deleteMessage,
+      saveMessage: vi.fn(),
+      getConversation: vi.fn().mockReturnValue({ id: "conversation-1" }),
+      finalizeStreamingMessagesForConversation: vi.fn(),
+    });
+    state.pendingParts = [{ type: "text", id: "t1", text: "NO_REPLY", status: "done" }];
+
+    await handler({ type: "agent:end" } as never);
+
+    expect(updateMessageContent).not.toHaveBeenCalled();
+    expect(deleteMessage).toHaveBeenCalledWith("message-1", "conversation-1");
+  });
+
+  it("带工具轨迹的 NO_REPLY 轮 → 保留工具 part，只剔除哨兵文本", async () => {
+    const updateMessageContent = vi.fn();
+    const { handler, state } = buildHandler({
+      updateMessageContent,
+      deleteMessage: vi.fn(),
+      saveMessage: vi.fn(),
+      getConversation: vi.fn().mockReturnValue({ id: "conversation-1" }),
+      finalizeStreamingMessagesForConversation: vi.fn(),
+    });
+    state.pendingParts = [
+      {
+        type: "tool",
+        id: "tool-1",
+        name: "file_read",
+        args: { path: "README.md" },
+        result: "ok",
+        isError: false,
+        status: "done",
+      },
+      { type: "text", id: "t1", text: "NO_REPLY", status: "done" },
+    ];
+
+    await handler({ type: "agent:end" } as never);
+
+    expect(updateMessageContent).toHaveBeenCalled();
+    const arg = updateMessageContent.mock.calls.at(-1)![0] as { contentJson: unknown };
+    const serialized = JSON.stringify(arg.contentJson);
+    expect(serialized).not.toContain("NO_REPLY");
+    expect(serialized).toContain("file_read");
+  });
+
+  it("正常回复不受影响（照常落库）", async () => {
+    const updateMessageContent = vi.fn();
+    const { handler, state } = buildHandler({
+      updateMessageContent,
+      deleteMessage: vi.fn(),
+      saveMessage: vi.fn(),
+      getConversation: vi.fn().mockReturnValue({ id: "conversation-1" }),
+      finalizeStreamingMessagesForConversation: vi.fn(),
+    });
+    state.pendingParts = [{ type: "text", id: "t1", text: "今天的天气不错", status: "done" }];
+
+    await handler({ type: "agent:end" } as never);
+
+    const arg = updateMessageContent.mock.calls.at(-1)![0] as { contentJson: unknown };
+    expect(JSON.stringify(arg.contentJson)).toContain("今天的天气不错");
+  });
+});
+
 describe("assistant parts bridge persistence", () => {
   it("实例状态只以 pendingParts 保存助手轮次内容", () => {
     const state = createInstanceState(

@@ -37,10 +37,20 @@ export function extractLastVerdictLine(text: string): string | undefined {
 /**
  * 截断子 Agent 输出；超长则 persistLargeResult；保留末尾 VERDICT 行（若有）。
  */
+/**
+ * NO_REPLY 哨兵（协议：无话可说时整条回复就是它）在本地是「无产出」而非内容。
+ * 子 Agent 以此收尾时若原样当摘要，完成投递文案与桌面通知正文都会变成 NO_REPLY。
+ */
+const NO_REPLY_SUMMARY = "（子 Agent 本轮无文本产出）";
+
 export function guardSubagentSummary(
   text: string,
   opts: GuardSubagentSummaryOptions = {},
 ): GuardSubagentSummaryResult {
+  if (/^no_reply$/i.test(text.trim())) {
+    return { summary: NO_REPLY_SUMMARY };
+  }
+
   const maxChars = opts.maxChars ?? SUBAGENT_DEFAULTS.maxSummaryChars;
   if (text.length <= maxChars) {
     return { summary: text };

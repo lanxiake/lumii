@@ -1426,7 +1426,9 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       if (focusedOnParent) break
       const statusText = event.status === 'succeeded' ? '已完成' : event.status === 'stale' ? '已超时' : '执行失败'
       const preview = event.summaryPreview.trim()
-      const body = preview
+      // 哨兵值不是内容：整条摘要就是 NO_REPLY 时按「无摘要」走兜底文案
+      const hasSummary = preview.length > 0 && !/^no_reply$/i.test(preview)
+      const body = hasSummary
         ? preview.length > 120
           ? `${preview.slice(0, 120)}…`
           : preview

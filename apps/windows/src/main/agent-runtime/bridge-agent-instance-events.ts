@@ -50,6 +50,15 @@ export interface InstanceRuntimeMetrics {
 type AssistantPartsMetadata = Pick<AssistantPartsContent, 'usage' | 'sourceAgent' | 'fileChanges'>
 
 /**
+ * NO_REPLY 哨兵：整轮回复就是这个值 = 本轮没有面向用户的话要说。
+ * 渠道适配器（微信/飞书/QQ）已按此跳过投递；本地会话此前只在渲染层实时移除占位，
+ * 落库侧没有对应处理 —— 重开会话就会看到一个「NO_REPLY」气泡。
+ */
+export function isNoReplySentinel(text: string | undefined): boolean {
+  return typeof text === 'string' && text.trim().toUpperCase() === 'NO_REPLY'
+}
+
+/**
  * 将 parts 收尾为数据库内容，并兼容仅通过原始 <think> 标签提供思考内容的模型。
  */
 export function createAssistantPartsContent(
@@ -773,14 +782,35 @@ export function createAgentInstanceRuntimeEventHandler(
         .filter((part) => part.type === 'thinking')
         .reduce((length, part) => length + part.text.length, 0)
 
+      // NO_REPLY 协议：带工具的轮次保留工具轨迹、只去掉哨兵文本；
+      // 整轮就是哨兵时视为「无可展示内容」，不落库（见下方 persist 分支）。
+      const partsForPersist = contentJson.parts.filter(
+        (part) => !(part.type === 'text' && isNoReplySentinel(part.text)),
+      )
+      const hasVisiblePart = partsForPersist.some((part) => part.type === 'text' || part.type === 'tool')
+      const contentJsonForPersist =
+        partsForPersist.length === contentJson.parts.length
+          ? contentJson
+          : { ...contentJson, parts: partsForPersist }
+
       let persistSuccess = false
-      if (convId && msgId && conversationRepo) {
+      if (isNoReplySentinel(text) && !hasVisiblePart) {
+        if (msgId && convId && conversationRepo && msgId !== '__PLACEHOLDER_FAILED__') {
+          try {
+            conversationRepo.deleteMessage(msgId, convId)
+            log.info(`[event] agent:end 纯 NO_REPLY 轮：已删除占位行 msgId=${msgId}, conversationId=${convId}`)
+          } catch (err) {
+            log.warn(`[event] agent:end 删除 NO_REPLY 占位行失败:`, err)
+          }
+        }
+        persistSuccess = true
+      } else if (convId && msgId && conversationRepo) {
         try {
           if (msgId === '__PLACEHOLDER_FAILED__') {
             const row = conversationRepo.saveMessage({
               conversationId: convId,
               role: 'assistant',
-              contentJson,
+              contentJson: contentJsonForPersist,
               isStreaming: false,
             })
             if (state) state.streamingAssistantMsgId = row.id
@@ -789,10 +819,10 @@ export function createAgentInstanceRuntimeEventHandler(
             conversationRepo.updateMessageContent({
               messageId: msgId,
               conversationId: convId,
-              contentJson,
+              contentJson: contentJsonForPersist,
               isStreaming: false,
             })
-            log.info(`[event] agent:end 最终确认消息: msgId=${msgId}, conversationId=${convId}, is_streaming=0, contentLength=${JSON.stringify(contentJson).length}`)
+            log.info(`[event] agent:end 最终确认消息: msgId=${msgId}, conversationId=${convId}, is_streaming=0, contentLength=${JSON.stringify(contentJsonForPersist).length}`)
           }
           log.info(`[event] 持久化 AI 回复（收尾） conversationId=${convId}, len=${text.length}, tools=${toolParts.length}, thinkingLen=${thinkingLength}`)
           persistSuccess = true
@@ -808,7 +838,7 @@ export function createAgentInstanceRuntimeEventHandler(
             const row = conversationRepo?.saveMessage({
               conversationId: convId,
               role: 'assistant',
-              contentJson,
+              contentJson: contentJsonForPersist,
             })
             persistedMessageId = row?.id
             log.info(
