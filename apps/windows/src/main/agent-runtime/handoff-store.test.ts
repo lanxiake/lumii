@@ -3,7 +3,13 @@
  */
 
 import { beforeEach, describe, expect, it } from 'vitest'
-import { __clearHandoffsForTest, consumeHandoff, proposeHandoff } from './handoff-store'
+import {
+  __clearHandoffsForTest,
+  consumeHandoff,
+  findLatestHandoffFor,
+  isHandoffConfirmText,
+  proposeHandoff,
+} from './handoff-store'
 
 describe('handoff-store（F2 转交提案）', () => {
   beforeEach(() => __clearHandoffsForTest())
@@ -39,5 +45,29 @@ describe('handoff-store（F2 转交提案）', () => {
     }
     expect(consumeHandoff(ids[0]!)).toBeUndefined()
     expect(consumeHandoff(ids[50]!)).toBeDefined()
+  })
+
+  it('findLatestHandoffFor：按会话找最新提案；时间窗外/已消费/他会话均找不到', () => {
+    const h1 = proposeHandoff({ originSessionKey: 'sk-a', task: 't1', summary: 's1', sessionMode: 'new' })
+    const h2 = proposeHandoff({ originSessionKey: 'sk-a', task: 't2', summary: 's2', sessionMode: 'new' })
+    const hb = proposeHandoff({ originSessionKey: 'sk-b', task: 't3', summary: 's3', sessionMode: 'new' })
+
+    expect(findLatestHandoffFor('sk-a', 60000)?.id).toBe(h2.id)
+    expect(findLatestHandoffFor('sk-b', 60000)?.id).toBe(hb.id)
+    expect(findLatestHandoffFor('sk-none', 60000)).toBeUndefined()
+    // 时间窗（withinMs 为负 → 全部过期）
+    expect(findLatestHandoffFor('sk-a', -1)).toBeUndefined()
+    // 最新一条被消费后回退到更早一条
+    consumeHandoff(h2.id)
+    expect(findLatestHandoffFor('sk-a', 60000)?.id).toBe(h1.id)
+  })
+
+  it('isHandoffConfirmText：仅保守确认词命中，避免误伤正常聊天', () => {
+    for (const t of ['1', ' 1 ', '确认', 'OK', 'y', 'yes']) {
+      expect(isHandoffConfirmText(t)).toBe(true)
+    }
+    for (const t of ['2', '好的', '是', '帮我改一下', '取消', '']) {
+      expect(isHandoffConfirmText(t)).toBe(false)
+    }
   })
 })

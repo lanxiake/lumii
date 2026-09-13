@@ -82,7 +82,7 @@ export function buildAgentCollaborationSection(
   }
   if (toolNames.includes("propose_dev_handoff")) {
     selectionLines.push(
-      "- Code development in a bound project → propose a handoff with `propose_dev_handoff` (for session-based specialists, never `spawn_agent`); the user confirms on the handoff card before the dev session starts",
+      "- Code development in a registered/bound project (user names a project and asks for fixes/features there) → propose a handoff with `propose_dev_handoff` (session-based specialists are never spawned); the user confirms on the handoff card before the dev session starts. Small one-off snippets or casual edits outside a project dev workflow → handle them yourself; do not over-escalate",
     )
   }
   selectionLines.push("- No match → omit `agentType` and describe the role in `prompt`")

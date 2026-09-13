@@ -211,13 +211,13 @@ function waitTurnDone(sk, text, timeoutMs) {
   return { text: lastText, elapsedMs: Date.now() - start, messageId: lastId, timedOut: true }
 }
 
-/** 在会话消息 parts 里找 spawn_agent 工具调用（args.agentType 命中 target） */
-function findSpawnCall(items, target) {
+/** 在会话消息 parts 里找工具调用（可按 args 字段过滤）；返回 { args, status, result } */
+function findToolCall(items, toolName, matchArg) {
   for (const it of items) {
     const cj = h.parseContentJson(it)
     if (!Array.isArray(cj?.parts)) continue
     for (const p of cj.parts) {
-      if (p?.type !== 'tool' || p?.name !== 'spawn_agent') continue
+      if (p?.type !== 'tool' || p?.name !== toolName) continue
       let args = p.args
       if (typeof args === 'string') {
         try {
@@ -226,8 +226,11 @@ function findSpawnCall(items, target) {
           args = null
         }
       }
-      const at = String(args?.agentType ?? args?.agent_type ?? '')
-      if (at.includes(target)) return { args, status: p.status }
+      if (matchArg) {
+        const v = String(args?.[matchArg.key] ?? '')
+        if (!v.includes(matchArg.value)) continue
+      }
+      return { args, status: p.status, result: p.result }
     }
   }
   return null
@@ -473,7 +476,10 @@ function caseS7() {
     const sk = h.createSession(`AT-S7 整理记忆(第${attempt}次)`, { prefix: PREFIX })
     const t = waitTurnDone(sk, TASK, delegTimeout)
     lastReply = t.text || ''
-    spawnHit = findSpawnCall(h.fetchMessages(sk, 60), 'system-keeper')
+    spawnHit = findToolCall(h.fetchMessages(sk, 60), 'spawn_agent', {
+      key: 'agentType',
+      value: 'system-keeper',
+    })
     if (!spawnHit) {
       ev.record(
         'AT-S7',
@@ -505,6 +511,115 @@ function caseS7() {
   for (const r of rows) h.dbExec('DELETE FROM agent_memories WHERE id = ?', r.id)
 
   return `第 ${attempt - 1} 次尝试委托成功（spawn_agent → system-keeper, status=${spawnHit.status}），回复 ${lastReply.length} 字；user-memory 零改动${rows.length ? `；清理探针记忆 ${rows.length} 条` : ''}`
+}
+
+/**
+ * AT-F2 队长制（F2）：主助手识别项目开发请求 → propose_dev_handoff → 卡片确认 → 开发会话直达 CLI。
+ *
+ * 前置（缺失则 SKIP）：code-dev 的 Agent 绑定已配置（backendId=claude + workspace 指向沙箱目录），
+ * 见 agent-team-test-cases.md「F2 环境准备」。
+ * 步骤：重置沙箱为已知 bug 版 → 主助手接单（真实口吻）→ 断言提案 → UI 真实点击确认
+ *      （点击链路不可用时退回 CLI confirm，soft 降级并在返回值注明）→ 断言新会话 + 绑定直达 + 沙箱被修复。
+ * 副作用：真实 claude 调用；沙箱文件被修改（下次运行会重置）。
+ */
+function caseF2() {
+  if (!selected('F2')) throw new Error('SKIP: 未选中（AT_ONLY）')
+  if (SKIP_LLM) throw new Error('SKIP: AT_SKIP_LLM=1')
+  if (SKIP_CLI) throw new Error('SKIP: AT_SKIP_CLI=1（需本机 claude CLI）')
+
+  const binds = readAppConfig().codingDevAgentBindings ?? []
+  const devBind = binds.find((b) => b.agentId === 'code-dev' && b.enabled && b.workspace)
+  if (!devBind?.workspace) {
+    throw new Error('SKIP: 未配置 code-dev 的 Agent 绑定（见用例文档「F2 环境准备」）')
+  }
+  const pagerPath = `${String(devBind.workspace).replace(/\\/g, '/')}/pager.js`
+  // 重置沙箱为已知 off-by-one 版本（用例自包含、可重复）
+  fs.writeFileSync(
+    pagerPath,
+    "/**\n * 简单分页工具（handoff 沙箱）\n */\nfunction pageCount(totalItems, pageSize) {\n  if (pageSize <= 0) throw new Error('pageSize must be > 0')\n  return Math.floor(totalItems / pageSize)\n}\n\nmodule.exports = { pageCount }\n",
+    'utf-8',
+  )
+
+  const sk = h.createSession('F2 转交闭环', { prefix: PREFIX })
+  const cursor = h.logCursor()
+  const t = waitTurnDone(
+    sk,
+    '沙箱项目里 pager.js 的分页有 off-by-one：11 条数据每页 5 条应该是 3 页，现在只算出 2 页。帮我修掉，改完在项目里验证一下。',
+    Math.max(TURN_TIMEOUT, 300000),
+  )
+  const propose = findToolCall(h.fetchMessages(sk, 60), 'propose_dev_handoff')
+  h.assert(
+    propose,
+    `未出现 propose_dev_handoff 提案（主助手可能自己动手或未识别为项目开发）；回复前 200 字：${(t.text || '').slice(0, 200)}`,
+  )
+  let handoffId = null
+  try {
+    const txt = propose.result?.content?.[0]?.text
+    handoffId = txt ? JSON.parse(txt).handoffId : null
+  } catch {
+    handoffId = null
+  }
+  h.assert(
+    typeof handoffId === 'string' && handoffId.length > 0,
+    `提案结果缺少 handoffId: ${JSON.stringify(propose.result).slice(0, 200)}`,
+  )
+
+  // 确认：优先 UI 真实点击（真实用户路径）；链路不可用时退回 CLI confirm（soft 降级）
+  let viaUi = false
+  h.ui(['goto', '--view', 'chat'])
+  h.sleep(1200)
+  try {
+    const snapTab = screenshotRefs()
+    const tab = (snapTab.refs || []).find((r) => (r.name || '').includes('默认') && r.role === 'tab')
+    if (tab) {
+      h.ui(['click', '--ref', tab.ref, '--snapshot-id', String(snapTab.snapshotId)])
+      h.sleep(1000)
+    }
+    for (let attempt = 1; attempt <= 3 && !viaUi; attempt++) {
+      const snap = screenshotRefs()
+      const convBtn = (snap.refs || []).find((r) => (r.name || '').includes('F2 转交闭环'))
+      if (convBtn) {
+        h.ui(['click', '--ref', convBtn.ref, '--snapshot-id', String(snap.snapshotId)])
+        h.sleep(1800)
+      }
+      // 会话刚切换时消息区可能还在渲染：按钮出现与否独立重试
+      for (let round = 1; round <= 3 && !viaUi; round++) {
+        const snap2 = screenshotRefs()
+        const confirmBtn = (snap2.refs || []).find((r) => (r.name || '').includes('交给灵栖开发'))
+        if (confirmBtn) {
+          h.ui(['click', '--ref', confirmBtn.ref, '--snapshot-id', String(snap2.snapshotId)])
+          viaUi = true
+        } else {
+          h.sleep(1500)
+        }
+      }
+    }
+  } catch {
+    viaUi = false
+  }
+  let confirmNote = 'UI 真实点击'
+  if (!viaUi) {
+    h.okJson(h.ui(['command', 'handoff:confirm', '--data', JSON.stringify({ handoffId })]), 'handoff:confirm')
+    confirmNote = 'CLI 确认（UI 点击链路不可用，soft 降级）'
+  }
+
+  // 断言：转交执行 + Agent 绑定直达 CLI
+  const lines = h.logSince(cursor, /handoff:confirm|ACP 路径/)
+  h.assert(lines.some((l) => /已转交/.test(String(l))), '日志未见 handoff:confirm 已转交')
+  h.assert(
+    lines.some((l) => /ACP 路径: backendId=claude/.test(String(l)) && /source=binding/.test(String(l))),
+    '开发任务未走 Agent 绑定直达 CLI（日志缺「ACP 路径 source=binding」）',
+  )
+
+  // 断言：沙箱被修复（等 claude 完成）
+  const fixed = h.pollUntil(
+    () => (/Math\.ceil/.test(h.fileRead(pagerPath) || '') ? true : null),
+    240000,
+    5000,
+  )
+  h.assert(fixed, '240s 内沙箱文件未被修复（claude 未完成或未执行）')
+
+  return `提案 → ${confirmNote} → 新开发会话直达 claude（binding）；沙箱 pager.js 已被修复`
 }
 
 /** AT-UI-01 在 AI 团队页真实点击「参与自主心跳」开关（位置无关 + 状态无关：点击→diff 识别翻转→再点→还原） */
@@ -857,6 +972,7 @@ try {
     ['AT-S6', '场景 · 日常聊天回归', caseS6],
     ['AT-S5', '场景 · claude 开发对话两轮', caseS5],
     ['AT-S7', 'F1 队长制 · 主助手接单委托', caseS7],
+    ['AT-F2', 'F2 队长制 · 一键转交闭环', caseF2],
     ['AT-UI-01', 'UI · 自主开关真实点击', caseUIToggleAutonomous],
     ['AT-UI-02', 'UI · 侧栏分组结构', caseUISidebarGroups],
     ['AT-UI-03', 'UI · ACP 回复界面实时可见', caseUIAcpVisible],

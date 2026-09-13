@@ -33,8 +33,11 @@ export function registerHandoffTools(deps: BridgeToolRegistrarDeps, ctx: ToolExe
     name: 'propose_dev_handoff',
     label: 'Propose Dev Handoff',
     description:
-      'Propose handing a code-development task to 灵栖开发 (code-dev), the resident dev specialist, ' +
-      'when the user asks to modify code / fix bugs / implement features in a bound project. ' +
+      'Propose handing a code-development task to 灵栖开发 (code-dev), the resident dev specialist. ' +
+      'Use ONLY for project-level development in a registered/bound project — the user names a project ' +
+      '(e.g. "帮我把 X 项目里的 Y 修了") and asks for bug fixes / features / refactors in that repository. ' +
+      'For small one-off snippets or casual file edits outside a project dev workflow, handle them yourself ' +
+      'with basic tools — do not over-escalate. ' +
       'This only creates a confirmation proposal — after calling it you MUST tell the user to click the ' +
       'confirm button on the handoff card; the dev session starts only after that click. ' +
       'Do NOT spawn code-dev via spawn_agent.',
@@ -65,12 +68,16 @@ export function registerHandoffTools(deps: BridgeToolRegistrarDeps, ctx: ToolExe
       log.info(
         `[propose_dev_handoff] 提案 handoffId=${handoff.id} mode=${handoff.sessionMode} origin=${originSessionKey || '(未知)'} summary="${handoff.summary}"`,
       )
+      // 确认方式分渠道：微信/渠道无卡片按钮 → 回复 1；桌面 → 点卡片按钮
+      const inChannel = !!deps.weixinCtx.getCurrent()
+      const message = inChannel
+        ? '已生成转交提案。用户在微信渠道（无卡片按钮）：请在回复中明确写「回复 1 确认」，确认后任务才会开始执行；用户回复其它内容则表示继续讨论。'
+        : '已生成转交提案。请在回复中明确告诉用户：点击下方卡片上的「交给灵栖开发」按钮即可开始执行（点击前不会启动任何开发任务）。'
       return jsonToolResult({
         status: 'proposed',
         handoffId: handoff.id,
         summary: handoff.summary,
-        message:
-          '已生成转交提案。请在回复中明确告诉用户：点击下方卡片上的「交给灵栖开发」按钮即可开始执行（点击前不会启动任何开发任务）。',
+        message,
       })
     },
   }

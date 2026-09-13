@@ -110,4 +110,40 @@ describe('ChatMessage parts 时间线', () => {
 
     expect(getByText(/正在思考/)).toBeInTheDocument()
   })
+
+  it('转交卡片（propose_dev_handoff）永远露在折叠区外：确认按钮默认可见', () => {
+    // 回归护栏（F2）：propose 之后模型还会有一段 thinking，若按「最后一个 thinking 划过程区」
+    // 的规则会把卡片折叠进 ActivityFold（收起时不渲染 children）→ 用户点不到。
+    const parts: AssistantPart[] = [
+      { type: 'thinking', id: 'th-1', text: 'MARKER_THINK_A', status: 'done' },
+      { type: 'tool', id: 'tool-1', name: 'file_read', args: {}, status: 'done' },
+      { type: 'thinking', id: 'th-2', text: 'MARKER_THINK_B', status: 'done' },
+      {
+        type: 'tool',
+        id: 't-handoff',
+        name: 'propose_dev_handoff',
+        args: { summary: '修复分页 off-by-one' },
+        status: 'done',
+        result: {
+          content: [
+            { type: 'text', text: JSON.stringify({ status: 'proposed', handoffId: 'h-1' }) },
+          ],
+        },
+      },
+      { type: 'thinking', id: 'th-3', text: 'MARKER_THINK_C', status: 'done' },
+      { type: 'text', id: 'tx-1', text: 'MARKER_FINAL', status: 'done' },
+    ]
+
+    const { getByRole, container } = render(
+      <ChatMessageActionsProvider value={messageActions}>
+        <ChatMessage message={buildPartsMessage(parts)} />
+      </ChatMessageActionsProvider>,
+    )
+
+    // 折叠区仍然收起（思考原文不进 DOM）
+    expect(container.textContent ?? '').not.toContain('MARKER_THINK_A')
+    // 但卡片与确认按钮必须可见可点
+    expect(getByRole('button', { name: '交给灵栖开发' })).toBeInTheDocument()
+    expect(container.textContent ?? '').toContain('修复分页 off-by-one')
+  })
 })

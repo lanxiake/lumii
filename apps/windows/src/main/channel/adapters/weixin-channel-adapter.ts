@@ -47,6 +47,11 @@ import {
   type PendingAttachment,
 } from '../pending-attachments'
 import { resolveContinuityForChannel } from '../cross-channel-continuity'
+import {
+  consumeHandoff,
+  findLatestHandoffFor,
+  isHandoffConfirmText,
+} from '../../agent-runtime/handoff-store'
 import { getChannelFeatures } from '../channel-feature-store'
 import {
   getChannelVoiceAsrFailedHint,
@@ -309,6 +314,10 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     log.info(`[handleMessage] 开始处理消息: sessionKey=${session.sessionKey} promptLen=${prompt.length}`)
 
     try {
+      // 转交确认（F3）：主助手在本会话提出过待确认的转交提案，本条即确认回复——
+      // 必须在普通消息处理之前拦截，否则「1」会被当成新需求发给主助手。
+      if (await this.tryConsumeHandoffConfirm(msg, session, userTextOnly)) return
+
       this.bridge.ensureConversationExists(session.sessionKey, `微信对话 - ${msg.channelUserId}`)
 
       // 斜杠命令处理
@@ -606,6 +615,50 @@ export class WeixinChannelAdapter implements IChannelAdapter {
         await this.sendTextReply(session, `❌ ACP 执行失败：${err instanceof Error ? err.message : String(err)}`)
       }
     }
+  }
+
+  /**
+   * 转交确认（F3）：主助手在本会话提出过转交提案（10 分钟内）且用户回复确认词 →
+   * 消费提案，按开发上下文（含 code-dev 的 Agent 绑定，与桌面 F2 同一套配置）直达 CLI，
+   * 完整复用 ACP 回执链（工具进度 + 完成原文）。返回 true 表示本条消息已消费。
+   */
+  private async tryConsumeHandoffConfirm(
+    msg: WeixinNormalizedMessage,
+    session: ChannelSession,
+    text: string,
+  ): Promise<boolean> {
+    if (!isHandoffConfirmText(text)) return false
+    const handoff = findLatestHandoffFor(session.sessionKey, 10 * 60 * 1000)
+    if (!handoff) return false
+    consumeHandoff(handoff.id)
+
+    const manualBackend = this.acpBackendManager.getBackend(msg.channelUserId, session.sessionKey)
+    const devContext = resolveDevContext({
+      appConfig: getCodingDevConfig(),
+      accountId: msg.channelUserId,
+      sessionKey: session.sessionKey,
+      // 以「灵栖开发」的名义解析：命中 code-dev 的 Agent 绑定（与桌面同一套）
+      agentId: 'code-dev',
+      fallbackBackendId: manualBackend,
+    })
+    log.info(
+      `[tryConsumeHandoffConfirm] 确认转交 handoffId=${handoff.id} backend=${devContext.backendId} source=${devContext.source} cwd=${devContext.projectPath ?? '(无)'}`,
+    )
+
+    if (devContext.backendId === DEFAULT_CODING_DEV_BACKEND_ID) {
+      await this.sendTextReply(
+        session,
+        '⚠️ 灵栖开发还没有绑定项目/工具，无法直接执行。请在桌面客户端为「灵栖开发」配置开发绑定（或在本会话 /claude 切换工具）后再发起。',
+      ).catch(() => undefined)
+      return true
+    }
+
+    await this.sendTextReply(
+      session,
+      `✅ 已确认，交给灵栖开发执行${devContext.projectName ? `（项目：${devContext.projectName}）` : ''}…`,
+    ).catch(() => undefined)
+    await this.handleAcpPrompt(msg, session, handoff.task, devContext.backendId, devContext.projectPath)
+    return true
   }
 
   /** 销毁指定 sessionKey 的实例缓存 */

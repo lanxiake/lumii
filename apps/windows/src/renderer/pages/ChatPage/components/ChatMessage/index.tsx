@@ -686,25 +686,31 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   /**
    * 按 parts 时间线渲染助手气泡（Cursor 式）：
    * 中间过程（思考 + 工具 + 中间文本）折叠进 ActivityFold，最终答案露在外面。
+   * 转交卡片（handoff）是用户必须可点的动作，永远拣出折叠区之外渲染——
+   * 否则 propose 之后的 thinking 会把卡片划进「过程区」而被折叠隐藏。
    */
   const renderPartsTimeline = () => {
     const units = buildRenderUnits(message.parts ?? [], message)
     const { process, answer } = splitProcessAndAnswer(units)
     const isStreaming = !!message.isStreaming
+    const handoffUnits = [...process, ...answer].filter((u) => u.kind === 'handoff')
+    const processOnly = process.filter((u) => u.kind !== 'handoff')
+    const answerOnly = answer.filter((u) => u.kind !== 'handoff')
     return (
       <div className={styles['parts-timeline']}>
-        {process.length > 0 && (
+        {processOnly.length > 0 && (
           <ActivityFold
-            summary={buildProcessSummary(process)}
-            currentStatus={isStreaming ? buildCurrentStatus(process) : undefined}
+            summary={buildProcessSummary(processOnly)}
+            currentStatus={isStreaming ? buildCurrentStatus(processOnly) : undefined}
             isStreaming={isStreaming}
             durationMs={message.streamMetrics?.durationMs}
             startTime={message.timestamp}
           >
-            {process.map((u) => renderUnit(u, true))}
+            {processOnly.map((u) => renderUnit(u, true))}
           </ActivityFold>
         )}
-        {answer.map((u) => renderUnit(u, false))}
+        {handoffUnits.map((u) => renderUnit(u, false))}
+        {answerOnly.map((u) => renderUnit(u, false))}
         {message.fileChanges && message.fileChanges.length > 0 && (
           <TurnFileChangesCard
             changes={message.fileChanges}
