@@ -14,6 +14,7 @@ import {
   type ConversationRepo,
   type FileChangeEntry,
   type ModelRouter,
+  type PromptSectionStat,
   type SkillActivationHint,
   type SkillInfo,
   type CustomAgentInfo,
@@ -98,6 +99,22 @@ export interface BridgePromptDispatcherDeps {
    * 不提供时：直接用用户选择的生图模型，不做自动分级。
    */
   imageIntentLlmCaller?: RouterLlmCaller
+}
+
+/**
+ * 段级计量日志（P0-T3）：info 汇总 + debug 逐段；sectionStats 缺失时静默跳过。
+ * 段 ID 与元数据见 @mtbot/agent-runtime 的 PROMPT_SECTIONS。
+ */
+function logPromptSections(
+  instanceId: string,
+  stats: readonly PromptSectionStat[] | undefined,
+): void {
+  if (!stats?.length) return
+  const totalChars = stats.reduce((n, s) => n + s.chars, 0)
+  log.info(`[prompt-section] instanceId=${instanceId} sections=${stats.length} totalChars=${totalChars}`)
+  for (const s of stats) {
+    log.debug(`[prompt-section] id=${s.id} zone=${s.zone} chars=${s.chars}`)
+  }
 }
 
 export class BridgePromptDispatcher {
@@ -303,6 +320,7 @@ export class BridgePromptDispatcher {
         }
         baseResult = rebuilder(hints, currentModelId, routerLite)
         if (state) state.basePrompt = baseResult
+        logPromptSections(instanceId, baseResult.sectionStats)
       } catch (err) {
         log.error('[prompt] 重建系统提示词失败（回退缓存提示词）:', err)
       }

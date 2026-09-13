@@ -19,6 +19,7 @@ export const CHILD_AGENT_DISALLOWED_TOOLS: readonly string[] = ['spawn_agent', '
 /** 主进程 Agent Runtime 日志前缀 */
 export const agentRuntimeLog = {
   info: (...args: unknown[]) => console.log('[AgentRuntime]', ...args),
+  debug: (...args: unknown[]) => console.debug('[AgentRuntime]', ...args),
   warn: (...args: unknown[]) => console.warn('[AgentRuntime]', ...args),
   error: (...args: unknown[]) => console.error('[AgentRuntime]', ...args),
 }
