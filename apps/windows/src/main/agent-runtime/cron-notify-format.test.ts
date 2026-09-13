@@ -64,9 +64,10 @@ describe('渠道策略', () => {
     expect(out.body).toBe('第一行 第二行')
   })
 
-  it('feishu 保留换行并加任务名前缀', () => {
-    const out = NOTIFY_STRATEGIES.feishu.format('日报', '甲\n乙')
-    expect(out.body).toBe('【日报】\n甲\n乙')
+  it('feishu 正文原样交给渠道层编译，任务名走 title', () => {
+    const out = NOTIFY_STRATEGIES.feishu.format('日报', '**甲**\n乙')
+    expect(out.title).toBe('日报')
+    expect(out.body).toBe('**甲**\n乙')
   })
 
   it('news 产出标题 + 摘要两个槽位', () => {
@@ -92,7 +93,9 @@ describe('渠道策略', () => {
 
 describe('formatForTarget', () => {
   it('已注册渠道走对应策略', () => {
-    expect(formatForTarget('feishu', '日报', '正文').body).toBe('【日报】\n正文')
+    const out = formatForTarget('feishu', '日报', '正文')
+    expect(out.body).toBe('正文')
+    expect(out.title).toBe('日报')
   })
 
   it('未注册渠道回落纯文本，不原样吐 Markdown', () => {

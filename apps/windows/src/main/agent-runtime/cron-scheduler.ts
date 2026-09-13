@@ -19,6 +19,7 @@ import { prependActiveDashboardFeedItem, readDashboardFeedSnapshot, getDashboard
 import { DEFAULT_AGENT_ID } from '../seed-cron-jobs'
 import { formatForTarget, formatDashboardFeedForPush } from './cron-notify-format'
 import { shouldSkipCronFocusMemoryWrite } from './cron-focus-memory'
+import { dispatchChannelTarget } from './channel-target-dispatch'
 
 const log = {
   info: (...args: unknown[]) => console.log('[CronScheduler]', ...args),
@@ -119,15 +120,24 @@ function buildNotifyToolsPrompt(notifyTargets: string | null): string {
         break
       case 'feishu':
         toolInstructions.push(
-          '- 飞书：完成任务后，输出适合即时通讯的消息格式（支持 Markdown）。' +
-          '保持简洁，突出关键信息，系统会自动推送到飞书。'
+          '- 飞书：完成任务后，输出手机友好的报告正文（系统会按长度渲染成卡片或消息）。' +
+          '要点式、每条一行、带序号；避免表格与代码块；控制在 400 字内。'
         )
         break
       case 'weixin':
         toolInstructions.push(
-          '- 微信：完成任务后，输出简短的文本消息（不支持 Markdown）。' +
-          '控制在 500 字内，系统会自动推送到指定的微信联系人。'
+          '- 微信：输出手机友好的纯文本报告（系统会编译并分段发送）。' +
+          '要点式、每条一行、带序号；避免表格与代码块；控制在 400 字内。'
         )
+        break
+      case 'qbot':
+        toolInstructions.push(
+          '- QQ：输出手机友好的报告正文（系统会按平台能力渲染 Markdown 或纯文本）。' +
+          '要点式、每条一行、带序号；控制在 400 字内。'
+        )
+        break
+      case 'wecom':
+        // 企微为 reply_only，主动推送会被跳过，无需给 Agent 输出指导
         break
       case 'silent':
         // silent 不需要额外指导
@@ -726,7 +736,6 @@ export class CronScheduler {
       try {
         const colon = target.indexOf(':')
         const kind = colon > 0 ? target.slice(0, colon) : target
-        const peerFromTarget = colon > 0 ? target.slice(colon + 1).trim() : ''
 
         switch (kind) {
           case 'system':
@@ -756,52 +765,14 @@ export class CronScheduler {
             }
             this.deps.addMemory?.(payload.body, job.agent_id ?? DEFAULT_AGENT_ID)
             break
-          case 'feishu': {
-            const router = this.deps.getChannelRouter?.()
-            if (router) {
-              const snaps = await router.list()
-              const feishu = snaps.find((s) => s.channel === 'feishu')
-              const to = peerFromTarget || feishu?.peers.find((p) => p.canSend)?.id || feishu?.peers[0]?.id
-              if (!to) {
-                log.warn('[dispatchNotifications] 飞书无可用 peer，已跳过')
-                break
-              }
-              const res = await router.send({ channel: 'feishu', to, text: payload.body })
-              if (!res.ok) {
-                log.warn('[dispatchNotifications] 飞书推送失败:', res.errorCode, res.message)
-              }
-            } else if (this.deps.sendFeishuMessage) {
-              const res = await this.deps.sendFeishuMessage(payload.body)
-              if (!res.ok) log.warn('[dispatchNotifications] 飞书推送失败:', res.error)
-            } else {
-              log.warn('[dispatchNotifications] 飞书 Router/sendFeishuMessage 均未注入，已跳过')
-            }
+          case 'feishu':
+          case 'weixin':
+          case 'qbot':
+          case 'wecom':
+            // 正文以原始 Markdown 交给渠道层编译（飞书卡片 / 企微·QQ markdown / 微信分段），
+            // 任务名走 title；wecom 不支持主动推送，由派发层记日志跳过
+            await dispatchChannelTarget(target, payload.body, payload.title ?? label, this.deps)
             break
-          }
-          case 'weixin': {
-            const router = this.deps.getChannelRouter?.()
-            if (!peerFromTarget) {
-              log.warn('[dispatchNotifications] weixin 目标缺少 peerId，请使用 weixin:<peerId>，已跳过')
-              break
-            }
-            if (!router) {
-              log.warn('[dispatchNotifications] ChannelOutboundRouter 未就绪，weixin 推送已跳过')
-              break
-            }
-            const res = await router.send({
-              channel: 'weixin',
-              to: peerFromTarget,
-              text: payload.body,
-            })
-            if (!res.ok) {
-              log.warn('[dispatchNotifications] 微信推送失败:', res.errorCode, res.message)
-            }
-            break
-          }
-          case 'wecom': {
-            log.warn('[dispatchNotifications] 企业微信不支持主动推送（reply_only），已跳过')
-            break
-          }
           case 'silent':
             // 与多渠道混用时的显式空操作（单独 'silent' 已在上方提前返回）
             break

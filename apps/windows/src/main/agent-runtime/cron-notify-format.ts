@@ -1,11 +1,13 @@
 /**
  * 定时任务推送内容的渠道适配格式化（策略模式）。
  *
- * Agent 的回复是 Markdown，但下游渠道没有一个能原样渲染它：
+ * Agent 的回复是 Markdown，本地客户端目标没有一个能原样渲染它：
  * - Windows 通知：纯文本，行数极有限，Markdown 记号会原样显示成噪声
- * - 飞书 text 消息：纯文本，不解析 Markdown，但保留换行
  * - 概览页资讯卡片：标题 + 摘要两个纯文本槽位，卡片高度固定
  * - 记忆条目：单行陈述句，越短越可复用
+ *
+ * 渠道目标（飞书/微信/QQ/企微）不在这里降级：正文以原始 Markdown 交给
+ * channel/format 的渠道编译器（卡片 / markdown / 分段），本模块只做超长兜底。
  *
  * 每个渠道一个策略对象，派发时按 notify_targets 从注册表里取对应策略 ——
  * 只加载命中的那一个，不把全部渠道的格式规则堆到一处。
@@ -104,19 +106,22 @@ export const NOTIFY_STRATEGIES: Record<string, NotifyFormatStrategy> = {
     },
   },
 
-  /** 飞书 text 消息：纯文本、保留换行，带任务名前缀便于区分来源 */
+  /**
+   * 飞书：正文以原始 Markdown 交给渠道层编译（短消息 text / 报告卡片），
+   * 这里只做超长兜底；任务名走 title 槽位，不再拼进正文。
+   */
   feishu: {
-    limit: 1500,
+    limit: 6000,
     format(label, output) {
-      return { body: `【${label}】\n${truncate(markdownToPlainText(output), this.limit)}` }
+      return { body: truncate(output, this.limit), title: label }
     },
   },
 
-  /** 微信主动推送：与飞书同级纯文本（经 ChannelOutboundRouter） */
+  /** 微信主动推送：同上（渠道层编译手机友好文本 + 段落分段） */
   weixin: {
-    limit: 1500,
+    limit: 6000,
     format(label, output) {
-      return { body: `【${label}】\n${truncate(markdownToPlainText(output), this.limit)}` }
+      return { body: truncate(output, this.limit), title: label }
     },
   },
 

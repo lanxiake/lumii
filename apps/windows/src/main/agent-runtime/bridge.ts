@@ -123,6 +123,7 @@ import { resolveAskUserDelivery } from '../channel/desktop-interaction-gate'
 import { FileMemoryHandler } from './file-memory-handler'
 import { SegmentMemoryService } from './segment-memory-service'
 import { CronScheduler } from './cron-scheduler'
+import { dispatchChannelTarget } from './channel-target-dispatch'
 import { persistCronOutputToWiki } from './cron-wiki-persist'
 import { persistLearningOutcome, recordProactiveAction } from './evolution-memory-persist'
 import { purgeCronFocusNoiseMemories } from './cron-focus-memory'
@@ -1449,44 +1450,18 @@ export class AgentRuntimeBridge {
                     try {
                       const colon = channel.indexOf(':')
                       const kind = colon > 0 ? channel.slice(0, colon) : channel
-                      const peerFromChannel = colon > 0 ? channel.slice(colon + 1).trim() : ''
                       if (kind === 'system') {
                         this.config.showCronNotification?.(
                           OUTREACH_SYSTEM_NOTIFY_TITLE,
                           goal.description,
                           convId,
                         )
-                      } else if (kind === 'feishu') {
-                        const router = this.config.getChannelRouter?.()
-                        if (!router) {
-                          log.warn('[sendOutreach] ChannelOutboundRouter 未就绪，飞书推送已跳过')
-                          continue
-                        }
-                        const feishu = (await router.list()).find((s) => s.channel === 'feishu')
-                        const to = peerFromChannel || feishu?.peers.find((p) => p.canSend)?.id || feishu?.peers[0]?.id
-                        if (!to) {
-                          log.warn('[sendOutreach] 飞书无可用 peer，已跳过')
-                          continue
-                        }
-                        const res = await router.send({ channel: 'feishu', to, text: goal.description })
-                        if (!res.ok) log.warn('[sendOutreach] 飞书推送失败:', res.errorCode)
-                      } else if (kind === 'weixin') {
-                        const router = this.config.getChannelRouter?.()
-                        if (!peerFromChannel) {
-                          log.warn('[sendOutreach] weixin 目标缺少 peerId，请使用 weixin:<peerId>，已跳过')
-                          continue
-                        }
-                        if (!router) {
-                          log.warn('[sendOutreach] ChannelOutboundRouter 未就绪，微信推送已跳过')
-                          continue
-                        }
-                        const res = await router.send({ channel: 'weixin', to: peerFromChannel, text: goal.description })
-                        if (!res.ok) log.warn('[sendOutreach] 微信推送失败:', res.errorCode)
-                      } else if (kind === 'wecom') {
-                        log.warn('[sendOutreach] 企业微信不支持主动推送（reply_only），已跳过')
-                      } else {
-                        log.warn(`[sendOutreach] 未知主动消息渠道，已忽略: ${channel}`)
+                        continue
                       }
+                      // 渠道目标与 cron 派发共用同一实现（正文交给渠道层编译）
+                      await dispatchChannelTarget(channel, goal.description, OUTREACH_SYSTEM_NOTIFY_TITLE, {
+                        getChannelRouter: this.config.getChannelRouter,
+                      })
                     } catch (err) {
                       log.warn(`[sendOutreach] 渠道 ${channel} 推送失败:`, err instanceof Error ? err.message : err)
                     }
