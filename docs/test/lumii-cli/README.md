@@ -15,6 +15,7 @@ docs/test/lumii-cli/
 ├── wiki/                  # Wiki 知识库专项
 ├── autonomous/            # 自主进化专项
 ├── agent-team/            # 一等公民 Agent 团队：场景化旅程（成员会话/日报送达/开发模式续接）
+├── prompt-style/          # 提示词风格实验（PS）：两档转储形态 + 真实任务双档对照
 ├── cloud-sync/            # 云同步专项
 └── materials/             # 真实文档样本（docx/mp4/PDF，gitignore 不提交）
 ```
@@ -76,6 +77,13 @@ docs/test/lumii-cli/
 | [agent-team-test-cases.md](./agent-team/agent-team-test-cases.md) | 旅程地图 + 用例：找成员办事（开发/维护/情报）、日报送达、开发模式续接、日常回归 + L1/L2 数据链路 |
 | [run-agent-team-e2e.mjs](./agent-team/run-agent-team-e2e.mjs) | 执行器（`AT_ONLY=S3` 选择性运行、`AT_SKIP_LLM=1` 离线只跑 L1/L2、`AT_SKIP_CLI=1` 跳过 claude 场景、`AT_TICK=1` 启用 tick 条件用例） |
 | [agent-team-report.md](./agent-team/agent-team-report.md) | 最新报告（含副作用声明与覆盖限制） |
+
+### 提示词风格实验（prompt-style/）— 两档对照
+
+| 文件 | 说明 |
+|---|---|
+| [prompt-style-test-cases.md](./prompt-style/prompt-style-test-cases.md) | 用例：提示词转储形态（硬）+ 真实任务双档对照（定时提醒/代码小任务/会话连续性）+ 人工验证补充 |
+| [run-prompt-style-e2e.mjs](./prompt-style/run-prompt-style-e2e.mjs) | 执行器（`PS_ONLY=PS-LOG` 选择性运行、`PS_NO_RESTORE=1` 保留风格切换、末尾自动恢复原风格） |
 
 ### 云同步专项（cloud-sync/）
 

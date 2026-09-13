@@ -399,14 +399,19 @@ export function logCursor() {
   return { path: DEV_LOG, lines: content.split(/\r?\n/).length }
 }
 
-/** 返回 cursor 之后匹配 regex 的行（cursor 为 null 时返回 []；跨天/文件缺失时回退到当前日志全量） */
-export function logSince(cursor, regex) {
+/** 返回 cursor 之后的全部原始行（不做过滤；用于提取多行日志块，如 [llm-prompt:full:begin/end]） */
+export function logLinesSince(cursor) {
   if (!cursor) return []
   let content = fileRead(cursor.path)
   if (content === null) content = fileRead(DEV_LOG)
   if (content === null) return []
   const lines = content.split(/\r?\n/)
-  return lines.slice(Math.min(cursor.lines, lines.length)).filter((l) => regex.test(l))
+  return lines.slice(Math.min(cursor.lines, lines.length))
+}
+
+/** 返回 cursor 之后匹配 regex 的行（cursor 为 null 时返回 []；跨天/文件缺失时回退到当前日志全量） */
+export function logSince(cursor, regex) {
+  return logLinesSince(cursor).filter((l) => regex.test(l))
 }
 
 /** 日志通道是否可用（日志文件缺失时注入类断言降级为 SKIP） */
