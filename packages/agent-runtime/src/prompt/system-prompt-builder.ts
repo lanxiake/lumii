@@ -384,14 +384,14 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   ])
 
   // === 9. Messaging 指导（静态规则） ===
-  emit("static", "messaging", [...buildMessagingSection({ toolNames: effectiveToolNames, runtimeChannel })])
+  emit("static", "messaging", [...buildMessagingSection({ toolNames: effectiveToolNames, runtimeChannel, style })])
   emit("static", "wiki", [...buildWikiKnowledgeSection(effectiveToolNames)])
-  emit("static", "browser", [...buildBrowserSection(effectiveToolNames)])
+  emit("static", "browser", [...buildBrowserSection(effectiveToolNames, style)])
 
   // === 10. Cron / Scheduled Tasks（已索引化：规则在 Tooling 的 TOOL_SUMMARIES/GROUP_NOTES，无独立段） ===
 
   // === 10.5. File Output Standards（始终注入，不依赖 task/spawn 工具） ===
-  emit("static", "fileOutput", [...buildFileOutputSection(effectiveToolNames)])
+  emit("static", "fileOutput", [...buildFileOutputSection(effectiveToolNames, style)])
 
   // === 11. A2UI 动态 UI 能力（暂时屏蔽：效果不好，待优化后重新启用） ===
   // staticLines.push(...buildA2UISection(effectiveToolNames))

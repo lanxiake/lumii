@@ -115,14 +115,15 @@ export function buildOperatingPrinciplesSection(
   style: PromptStyle = "detailed",
   hasCodeTools = false,
 ): string[] {
-  // 两档暂同文案（terse 索引句在 P1-T3 落地）
-  void style
   const lines = [
     "## Operating Principles",
-    "- Infer the user's real goal from context; do not answer vague requests mechanically.\n- Complete the requested scope without speculative features, abstractions, or unrelated refactors.\n- Find root causes; never bypass checks or hooks just to hide an error.\n- For exploratory questions, recommend an approach and its main trade-off before acting.\n- Prefer editing existing files. Do not create documentation unless requested.\n- Keep solutions minimal: no premature design, half-finished work, impossible-case defenses, or compatibility shims.",
+    style === "terse"
+      ? 'Infer the real goal, stay within scope, fix root causes, and avoid speculative design.\nFull principles: `prompt_guide(section: "operatingPrinciples")`.'
+      : "- Infer the user's real goal from context; do not answer vague requests mechanically.\n- Complete the requested scope without speculative features, abstractions, or unrelated refactors.\n- Find root causes; never bypass checks or hooks just to hide an error.\n- For exploratory questions, recommend an approach and its main trade-off before acting.\n- Prefer editing existing files. Do not create documentation unless requested.\n- Keep solutions minimal: no premature design, half-finished work, impossible-case defenses, or compatibility shims.",
   ]
 
-  if (hasCodeTools) {
+  // 代码细则：detailed 档注入（terse 档细节由 prompt_guide 展开）
+  if (style === "detailed" && hasCodeTools) {
     lines.push(
       "",
       "When writing code:",
@@ -263,10 +264,12 @@ export function buildWikiKnowledgeSection(toolNames: readonly string[]): string[
 
 /**
  * 构建消息投递 section（message 或 channel_* 工具可用时注入）。
+ * terse 档：核心投递规则压缩 + 引导（WeChat 走既有 weixin_send_guide 工具链）。
  */
 export function buildMessagingSection(params: {
   toolNames: readonly string[];
   runtimeChannel?: string;
+  style?: PromptStyle;
 }): string[] {
   const hasMessage = params.toolNames.includes("message")
   const hasChannelOutbound =
@@ -274,6 +277,25 @@ export function buildMessagingSection(params: {
   if (!hasMessage && !hasChannelOutbound) {
     return []
   }
+  const isWeixin =
+    params.runtimeChannel === "weixin" || params.toolNames.includes("weixin_send_guide")
+
+  if (params.style === "terse") {
+    const lines = ["## Messaging"]
+    if (hasMessage && hasChannelOutbound) {
+      lines.push("- `message` = in-turn reply only (NO_REPLY flow); cross-peer delivery uses `channel_send` (call `channel_list` first).")
+    } else if (hasMessage) {
+      lines.push("- `message` = in-turn reply only in the current conversation (NO_REPLY flow).")
+    } else {
+      lines.push("- Cross-peer delivery uses `channel_send` (call `channel_list` first; never guess the recipient).")
+    }
+    if (isWeixin) {
+      lines.push("- WeChat file/image delivery: call `weixin_send_guide` first.")
+    }
+    lines.push("")
+    return lines
+  }
+
   const lines: string[] = [
     "## Messaging",
   ]
@@ -311,10 +333,19 @@ export function buildMessagingSection(params: {
 
 /**
  * 构建浏览器操作 section（仅在 browser_* 工具可用时注入）。
+ * terse 档：操作要点压缩为一句 + prompt_guide 引导。
  */
-export function buildBrowserSection(toolNames: readonly string[]): string[] {
+export function buildBrowserSection(toolNames: readonly string[], style: PromptStyle = "detailed"): string[] {
   const hasBrowser = toolNames.some((t) => t.startsWith("browser_"))
   if (!hasBrowser) return []
+  if (style === "terse") {
+    return [
+      "",
+      "## Browser Control",
+      'You control a live browser; after each action take a `browser_screenshot`, and locate elements via `browser_eval`.\nDetails: `prompt_guide(section: "browser")`.',
+      "",
+    ]
+  }
   // 工具清单已在「## Tooling → Browser Tools」列出，此处只讲操作要点，不重复罗列
   return [
     "",
@@ -377,9 +408,18 @@ export function buildA2UISection(toolNames: readonly string[]): string[] {
  *
  * 始终注入静态部分（不依赖 todo_write/spawn_agent），确保任何文件生成场景
  * 都能输出 FilePreview A2UI 组件供用户预览和下载（R5 缓解）。
+ * terse 档：路径纪律核心句 + prompt_guide 引导。
  */
-export function buildFileOutputSection(toolNames: readonly string[]): string[] {
+export function buildFileOutputSection(toolNames: readonly string[], style: PromptStyle = "detailed"): string[] {
   if (!toolNames.includes("file_write")) return []
+
+  if (style === "terse") {
+    return [
+      "## File Output Standards",
+      'Write deliverables under `outputs/<task>/` (never flat, never workspace root); reuse the task directory for continued work.\nPath discipline: use returned paths verbatim; verify before citing.\nDetails: `prompt_guide(section: "fileOutput")`.',
+      "",
+    ]
+  }
 
   return [
     "## File Output Standards",

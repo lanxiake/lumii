@@ -112,3 +112,54 @@ describe("buildClientSystemPromptStructured — capability-driven sections", () 
     expect(staticPrompt).not.toContain("`screen_record_start`");
   });
 });
+
+describe("首批 5 段 terse/detailed 双渲染（P1-T3）", () => {
+  const PILOT_TOOLS = [
+    "file_read",
+    "file_write",
+    "message",
+    "channel_list",
+    "channel_send",
+    "weixin_send_guide",
+    "browser_screenshot",
+    "browser_eval",
+  ];
+
+  const build = (promptStyle: "detailed" | "terse") =>
+    buildClientSystemPromptStructured({
+      agentDefinition: BASE_DEF,
+      toolNames: PILOT_TOOLS,
+      cwd: "/workspace",
+      runtimeInfo: { channel: "weixin" },
+      promptStyle,
+    });
+
+  it("terse 档：5 段均出现展开引导（prompt_guide 字面量 / 既有工具）", () => {
+    const { fullPrompt } = build("terse");
+    expect(fullPrompt).toContain('prompt_guide(section: "operatingPrinciples")');
+    expect(fullPrompt).toContain('prompt_guide(section: "progressiveLoading")');
+    expect(fullPrompt).toContain('prompt_guide(section: "fileOutput")');
+    expect(fullPrompt).toContain('prompt_guide(section: "browser")');
+    // messaging 走既有工具链（weixin_send_guide）
+    expect(fullPrompt).toContain("weixin_send_guide");
+    expect(fullPrompt).toContain("channel_send");
+    // terse 档不注入详细细则
+    expect(fullPrompt).not.toContain("### Disk-Index Pattern");
+    expect(fullPrompt).not.toContain("## Channel outbound");
+  });
+
+  it("terse 档静态段体量显著小于 detailed（索引化生效）", () => {
+    const terse = build("terse");
+    const detailed = build("detailed");
+    expect(terse.staticPrompt.length).toBeLessThan(detailed.staticPrompt.length);
+    // detailed 侧保留完整细则
+    expect(detailed.fullPrompt).toContain("### Disk-Index Pattern");
+    expect(detailed.fullPrompt).toContain("## Channel outbound");
+    expect(detailed.fullPrompt).not.toContain("prompt_guide(section:");
+  });
+
+  it("terse 档保留操作原则红线句（根因 / 不越界）", () => {
+    const { fullPrompt } = build("terse");
+    expect(fullPrompt).toContain("stay within scope, fix root causes");
+  });
+});

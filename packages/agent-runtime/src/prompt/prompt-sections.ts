@@ -67,7 +67,8 @@ export interface PromptSectionMeta {
   readonly group: PromptSectionGroup
   readonly zone: "static" | "dynamic"
   /**
-   * 是否具备 terse 渲染（P0 阶段全部 false；P1-T3 起首批 5 段置 true 并落地渲染）。
+   * 是否具备 terse 渲染（首批 5 段已落地：operatingPrinciples / progressiveLoading /
+   * fileOutput / browser / messaging；其余段 P2 覆盖）。
    * 红线段（safety / verification / language / taskCompletion）永久 false。
    */
   readonly terse: boolean
@@ -90,12 +91,12 @@ export const PROMPT_SECTIONS: readonly PromptSectionMeta[] = [
   { id: "tooling", group: "capabilities", zone: "static", terse: false },
   { id: "systemRules", group: "rules", zone: "static", terse: false },
   { id: "toolPreference", group: "capabilities", zone: "static", terse: false },
-  { id: "operatingPrinciples", group: "rules", zone: "static", terse: false },
+  { id: "operatingPrinciples", group: "rules", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "bundledCapabilities", group: "capabilities", zone: "static", terse: false },
   { id: "progressUpdates", group: "rules", zone: "static", terse: false },
   { id: "verification", group: "rules", zone: "static", terse: false },
   { id: "toolNamingContract", group: "rules", zone: "static", terse: false },
-  { id: "progressiveLoading", group: "capabilities", zone: "static", terse: false },
+  { id: "progressiveLoading", group: "capabilities", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "mcp", group: "capabilities", zone: "static", terse: false },
   { id: "skills", group: "capabilities", zone: "static", terse: false },
   { id: "selfLearning", group: "capabilities", zone: "static", terse: false },
@@ -106,11 +107,11 @@ export const PROMPT_SECTIONS: readonly PromptSectionMeta[] = [
   { id: "safety", group: "rules", zone: "static", terse: false },
   { id: "language", group: "rules", zone: "static", terse: false },
   { id: "taskCompletion", group: "rules", zone: "static", terse: false },
-  { id: "messaging", group: "channel", zone: "static", terse: false },
+  { id: "messaging", group: "channel", zone: "static", terse: true, expandVia: "existing-tool" },
   { id: "wiki", group: "capabilities", zone: "static", terse: false },
-  { id: "browser", group: "capabilities", zone: "static", terse: false },
+  { id: "browser", group: "capabilities", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "cron", group: "capabilities", zone: "static", terse: false },
-  { id: "fileOutput", group: "rules", zone: "static", terse: false },
+  { id: "fileOutput", group: "rules", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "silentReplies", group: "rules", zone: "static", terse: false },
   // —— 动态段 ——
   { id: "memory", group: "memory", zone: "dynamic", terse: false },

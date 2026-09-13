@@ -283,12 +283,19 @@ export function categorizeTools(toolNames: readonly string[]): string[] {
  * 去留见设计 §9.1，P2 评估）。terse 档改渲染核心句 + prompt_guide 引导，P1-T3 落地。
  */
 export function buildProgressiveLoadingSection(toolNames: readonly string[], style: PromptStyle = "detailed"): string[] {
-  // 两档暂同文案（terse 核心句在 P1-T3 落地）
-  void style
   const hasFileRead = toolNames.includes("file_read")
   const hasGrep = toolNames.includes("grep")
 
   if (!hasFileRead && !hasGrep) return []
+
+  // terse：核心句 + prompt_guide 引导（细节按需展开）
+  if (style === "terse") {
+    return [
+      "## Context and Input Handling",
+      'Use bounded, progressive reads: inspect indexes or summaries first, then load only what is needed.\nDetails: `prompt_guide(section: "progressiveLoading")`.',
+      "",
+    ]
+  }
 
   const lines: string[] = [
     "## Context and Input Handling",
