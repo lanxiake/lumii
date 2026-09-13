@@ -68,3 +68,39 @@
 - 快照仅搬家校验通过（detailed 内容多重集不变）；
 - 守卫：红线段 terse:false 恒定、terse 段必带 expandVia、guide 字面量可发现（含新段）；
 - 真实日志双档对照：terse 相对 detailed 的整份与段级降幅达标。
+
+---
+
+## 6. 实施记录（2026-09-13）
+
+| 步 | 提交 | 内容 |
+|---|---|---|
+| P2-1 | `4603733` | 结构重排（五块，纯搬家；快照行多重集校验相等） |
+| P2-2 | `ed1f21b` | Router 静态过滤修复（静态区逐字节稳定守卫；删废用过滤函数） |
+| P2-3 | `a89d1d0` | Tooling 折叠 + prompt_guide("tooling") 同源生成 |
+| P2-4 | `94c157f` | Skills 折叠 / 协作与编排压缩 + wiki guide 之外的 guide 增补 |
+| P2-5/6 | `8c23479` | wiki/selfLearning/设备/压缩告知 terse + 注册表收敛（"none" 路、清 stale cron） |
+
+**实测（59 工具 + 30 技能 + 5 团队 Agent + 双设备配置，sectionStats）：**
+
+| 段 | detailed | terse | 降幅 |
+|---|---|---|---|
+| tooling | 4334 | 560 | −87% |
+| skills | 1739 | 345 | −80% |
+| wiki | 1495 | 286 | −81% |
+| taskOrchestration | 1483 | 549 | −63% |
+| agentCollaboration | 2223 | 1534 | −31% |
+| selfLearning | 479 | 274 | −43% |
+| messaging | 1538 | 194 | −87%（P1） |
+| **整份** | **26851** | **13982** | **−48%** |
+| **静态区** | **21022** | **8429** | **−60%** |
+
+红线段（verification 762 / safety 1380 / language 204 / taskCompletion 439）逐字节不变。
+
+**执行期修订：**
+
+1. `systemRules` 经评估**不做 terse 化**——4 行本就极简，进一步压缩会削弱反注入/防臆造 URL 语义（注册表维持 terse:false）；
+2. `agentCollaboration` 降幅有限（−31%）：Agent 列表是索引本体必须保留，且含用户手调的 propose_dev_handoff 决策行（保留原文不裁）；
+3. terse 引导字面量守卫升级：新增 `expandTool` 元数据 + existing-tool 渲染级校验（skills→skill_search、selfLearning→profile_memory、messaging→weixin_send_guide）。
+
+**遗留（未含本批）：** 段级 token 面板 / A/B 分流 / 真实客户端双档转储实测（需重启加载新代码后跑 `docs/test/lumii-cli/prompt-style/run-prompt-style-e2e.mjs`）。
