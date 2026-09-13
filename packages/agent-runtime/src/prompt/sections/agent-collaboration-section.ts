@@ -40,16 +40,22 @@ export function buildAgentCollaborationSection(
   if (agents.length === 0) return []
 
   const builtinAgents = agents.filter((a) => a.id.startsWith("builtin:"))
-  const userAgents = agents.filter((a) => !a.id.startsWith("builtin:"))
+  const systemAgents = agents.filter((a) => !a.id.startsWith("builtin:") && a.sourceType === "system")
+  const userAgents = agents.filter((a) => !a.id.startsWith("builtin:") && a.sourceType !== "system")
 
   const renderAgent = (a: CustomAgentInfo) =>
     `- **${a.name}** (id: \`${a.id}\`): ${a.description ?? "General-purpose assistant"}`
 
-  // 内建与用户自定义 Agent 统一在同一列表，按类型分组
+  // 内建、常驻专家与用户自定义 Agent 统一在同一列表，按类型分组
   const agentListLines: string[] = []
   if (builtinAgents.length > 0) {
     agentListLines.push("**系统内置专家 (Built-in):**", "")
     agentListLines.push(...builtinAgents.map(renderAgent))
+    agentListLines.push("")
+  }
+  if (systemAgents.length > 0) {
+    agentListLines.push("**团队专家 (Team specialists):**", "")
+    agentListLines.push(...systemAgents.map(renderAgent))
     agentListLines.push("")
   }
   if (userAgents.length > 0) {
@@ -60,6 +66,26 @@ export function buildAgentCollaborationSection(
 
   const hasExecutionPlan = toolNames.includes("create_execution_plan")
   const hasDelegate = toolNames.includes("delegate_to_agent")
+
+  // 团队专家条目仅在确有系统成员时渲染，避免指向空组的规则污染提示词
+  const selectionLines = [
+    "Delegate with `spawn_agent` (`agentType` = agent id):",
+    "- Code exploration, search, file reading → `builtin:explore`",
+    "- Planning, design, architecture, unclear scope → `builtin:plan`",
+    "- Build, test, verify, debug → `builtin:verify`",
+    "- A user-defined agent whose name or description matches the domain → prefer it over built-ins",
+  ]
+  if (systemAgents.length > 0) {
+    selectionLines.push(
+      "- A team specialist (under Team specialists) whose description covers the task → you MUST delegate to it (`agentType` = its id); it owns that domain, do not handle the task yourself with basic tools",
+    )
+  }
+  if (toolNames.includes("propose_dev_handoff")) {
+    selectionLines.push(
+      "- Code development in a bound project → propose a handoff with `propose_dev_handoff` (for session-based specialists, never `spawn_agent`); the user confirms on the handoff card before the dev session starts",
+    )
+  }
+  selectionLines.push("- No match → omit `agentType` and describe the role in `prompt`")
 
   const lines: string[] = [
     "## Multi-Agent Collaboration",
@@ -72,12 +98,7 @@ export function buildAgentCollaborationSection(
     ...agentListLines,
     "### Selection",
     "",
-    "Delegate with `spawn_agent` (`agentType` = agent id):",
-    "- Code exploration, search, file reading → `builtin:explore`",
-    "- Planning, design, architecture, unclear scope → `builtin:plan`",
-    "- Build, test, verify, debug → `builtin:verify`",
-    "- A user-defined agent whose name or description matches the domain → prefer it over built-ins",
-    "- No match → omit `agentType` and describe the role in `prompt`",
+    ...selectionLines,
     "",
     "`spawn_agent` is the only delegation mechanism; do not delegate via `send_message`.",
     "",

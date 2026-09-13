@@ -30,6 +30,7 @@ import type { RuntimeFileEvent } from '../../../../hooks/business/useAgentRuntim
 import { parseMediaAttachments, mergeEditedUserMessage } from '../../utils/file-attachment-strategy'
 import { TurnFileChangesCard } from '../TurnFileChangesCard'
 import { ToolBatchGroup, summarizeToolBatch } from '../ToolBatchGroup'
+import { HandoffCard } from '../HandoffCard'
 import { getStatusLabel } from '../ToolCallCard'
 import { ActivityFold } from '../ActivityFold'
 import { useChatMessageActions } from '../../contexts/ChatMessageActionsContext'
@@ -329,16 +330,18 @@ function toWorkflowItem(
   }
 }
 
-/** 时间线渲染单元：思考 / 文本 / 工具批次组 */
+/** 时间线渲染单元：思考 / 文本 / 工具批次组 / 转交卡片 */
 type RenderUnit =
   | { kind: 'thinking'; part: Extract<AssistantPart, { type: 'thinking' }> }
   | { kind: 'text'; part: Extract<AssistantPart, { type: 'text' }> }
   | { kind: 'toolGroup'; items: AgentWorkflowItem[]; key: string }
+  | { kind: 'handoff'; part: Extract<AssistantPart, { type: 'tool' }> }
 
 /**
  * 把扁平的 parts 折叠成渲染单元序列：
  * 1. 先过滤 trim 后为空的 text part（根治空气泡）
  * 2. 连续的 tool part 合并为一个批次组，遇到 thinking/text 即结束当前组
+ * 3. propose_dev_handoff 单独成卡（F2）：按钮必须露在折叠区外，不能进工具批次组
  */
 function buildRenderUnits(parts: readonly AssistantPart[], message: ChatMessageType): RenderUnit[] {
   const meaningful = parts.filter((p) => p.type !== 'text' || p.text.trim().length > 0)
@@ -358,6 +361,11 @@ function buildRenderUnits(parts: readonly AssistantPart[], message: ChatMessageT
 
   for (const part of meaningful) {
     if (part.type === 'tool') {
+      if (part.name === 'propose_dev_handoff') {
+        flush()
+        units.push({ kind: 'handoff', part })
+        continue
+      }
       pending.push(part)
       continue
     }
@@ -658,6 +666,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
           {unit.part.status === 'streaming' && message.isStreaming && (
             <span className={styles['streaming-cursor']} />
           )}
+        </div>
+      )
+    }
+    if (unit.kind === 'handoff') {
+      return (
+        <div key={unit.part.id} className={styles['part-block']}>
+          <HandoffCard part={unit.part} />
         </div>
       )
     }

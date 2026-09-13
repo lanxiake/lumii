@@ -639,15 +639,43 @@ async function initAgentRuntime(): Promise<void> {
       await store.updateAutoScopeBatch(deltas)
     },
     getCustomAgents: async () => {
-      // 灵栖/Lumii：从本地 agents 仓库读取用户自建 Agent（注入系统提示词多 Agent 段）
-      return listUserAgentRecords()
-        .filter((a) => a.isEnabled !== false)
-        .map((a) => ({
-          id: a.id,
-          name: a.name,
-          description: a.description,
-          emoji: a.identity?.emoji,
+      // 灵栖/Lumii：用户自建 Agent + 常驻专家团队（注入系统提示词多 Agent 段，同时进入 Router 候选）。
+      // 常驻专家供主助手经 spawn_agent 委托执行（子实例记忆归属 = 其 definitionId）。
+      // 不含 code-dev：ACP 会话型，交接走「转交」流程（见 docs/plans/专项Agent/05-队长制-主助手接团队.md）。
+      const delegatableSystemAgentIds = ['system-keeper', 'chronicler', 'info-curator']
+      const systemExperts = delegatableSystemAgentIds
+        .map((id) => findBuiltInAgent(id))
+        .filter((d): d is NonNullable<typeof d> => Boolean(d))
+        .map((d) => ({
+          id: d.id,
+          name: d.name,
+          description: d.description,
+          whenToUse: d.description,
+          sourceType: 'system' as const,
         }))
+      // code-dev（灵栖开发）：会话型专家——交接走 propose_dev_handoff 一键转交（F2），
+      // 不能用 spawn 委托（ACP 直达是会话级路由，spawn 出来的是 pi 兜底实例、不绑项目）。
+      const codeDev = findBuiltInAgent('code-dev')
+      if (codeDev) {
+        systemExperts.push({
+          id: codeDev.id,
+          name: codeDev.name,
+          description: `${codeDev.description} Session-based specialist: hand it off with the \`propose_dev_handoff\` tool (do NOT spawn it).`,
+          whenToUse: codeDev.description,
+          sourceType: 'system' as const,
+        })
+      }
+      return [
+        ...listUserAgentRecords()
+          .filter((a) => a.isEnabled !== false)
+          .map((a) => ({
+            id: a.id,
+            name: a.name,
+            description: a.description,
+            emoji: a.identity?.emoji,
+          })),
+        ...systemExperts,
+      ]
     },
     /** 独立版无跨设备概念，返回空列表 */
     getUserDevices: async () => [],

@@ -232,6 +232,7 @@ import {
   handleUserAbortCompactContext,
   setUserDependencies,
 } from './agent-runtime/user-commands'
+import { handleHandoffConfirm } from './agent-runtime/handoff-commands'
 import {
   handleSessionPreferredModelSet,
   handleSessionPreferredModelPrime,
@@ -827,6 +828,10 @@ export async function handleCommand(
       // ---- 用户交互 ----
       case 'user:send':
         return handleUserSend(bridge, command)
+
+      // 转交确认（F2 队长制）：主助手提案 → 用户点卡片确认 → 新建/复用开发会话并发起任务
+      case 'handoff:confirm':
+        return handleHandoffConfirm(bridge, command)
 
       case 'user:steer':
         handleUserSteer(bridge, command)

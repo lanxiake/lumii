@@ -33,6 +33,7 @@ import { registerLocalCronTools, registerDashboardFeedTool, registerWorkReportRe
 import { registerSyncConflictTool } from './bridge-tool-registrar-sync'
 import { registerChannelTools, registerIntegrationTools } from './bridge-tool-registrar-integration'
 import { registerClientCommandTools, registerAgentManagementTools } from './bridge-tool-registrar-client-cmd'
+import { registerHandoffTools } from './bridge-tool-registrar-handoff'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
 
 export type { BridgeToolRegistrarDeps, WeixinCtxAccessor } from './bridge-tool-registrar-types'
@@ -73,6 +74,8 @@ export class BridgeToolRegistrar {
       registerIntegrationTools(this.deps)
       registerClientCommandTools(this.deps, ctx)
       registerAgentManagementTools(this.deps, ctx)
+      // 开发任务转交工具（F2 队长制）：propose_dev_handoff（提案 → 卡片确认 → handoff:confirm 执行）
+      registerHandoffTools(this.deps, ctx)
       // Wiki 知识库工具（P0）：wiki_overview/wiki_search/wiki_read/wiki_capture
       registerWikiTools(this.deps.toolRegistry, ctx, this.deps)
     }

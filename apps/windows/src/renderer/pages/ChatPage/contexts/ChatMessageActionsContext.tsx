@@ -18,6 +18,15 @@ export interface ChatMessageActions {
   regenerateMessage(messageId: string): void
   replayFromMessage(messageId: string): void
   reviewFileChanges(path: string, status: 'added' | 'modified' | 'deleted'): void
+  /** 转交确认（F2 队长制）：执行 handoff:confirm；返回目标开发会话或错误 */
+  confirmHandoff(handoffId: string): Promise<{
+    ok: boolean
+    sessionKey?: string
+    title?: string
+    error?: string
+  }>
+  /** 打开指定会话（转交成功后跳去开发会话看进度） */
+  openSession(sessionKey: string): void
 }
 
 const ChatMessageActionsContext = createContext<ChatMessageActions | null>(null)

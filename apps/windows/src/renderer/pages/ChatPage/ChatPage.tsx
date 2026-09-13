@@ -1526,6 +1526,34 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [])
 
   /**
+   * 转交卡片（F2）用的稳定回调。
+   * runtimeActions 引用可能随渲染变化，经 ref 取最新值，保证 Context 的稳定性契约。
+   */
+  const runtimeActionsRef = useRef(runtimeActions)
+  runtimeActionsRef.current = runtimeActions
+
+  const handleConfirmHandoff = useCallback(
+    async (handoffId: string): Promise<{ ok: boolean; sessionKey?: string; title?: string; error?: string }> => {
+      const api = window.electronAPI?.agentRuntime
+      if (!api?.sendCommand) return { ok: false, error: '运行时不可用' }
+      try {
+        const res = (await api.sendCommand({ type: 'handoff:confirm', handoffId })) as
+          | { ok?: boolean; sessionKey?: string; title?: string; error?: string }
+          | undefined
+        if (!res || res.ok === false) return { ok: false, error: res?.error || '转交失败' }
+        return { ok: true, sessionKey: res.sessionKey, title: res.title }
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) }
+      }
+    },
+    [],
+  )
+
+  const handleOpenSession = useCallback((sk: string) => {
+    void runtimeActionsRef.current.switchSession(sk)
+  }, [])
+
+  /**
    * 消息级交互动作打包给 Context：只放引用稳定的回调。
    * 流式/打字期间 value 保持不变，消息行的 memo 不受 Context 传播影响；
    * 仅会话切换（edit/delete）与 workspace 初始化（review）时会换新。
@@ -1538,6 +1566,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     regenerateMessage: handleRegenerateMessage,
     replayFromMessage: handleReplayFromMessage,
     reviewFileChanges: handleReviewTurnFileChange,
+    confirmHandoff: handleConfirmHandoff,
+    openSession: handleOpenSession,
   }), [
     formatTime,
     handleCopyMessage,
@@ -1546,6 +1576,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     handleRegenerateMessage,
     handleReplayFromMessage,
     handleReviewTurnFileChange,
+    handleConfirmHandoff,
+    handleOpenSession,
   ])
 
   // 实时朗读模式开关：开启=启动静默持续 micless 播报（右上角按钮，波纹见 readAloudSpeaking）

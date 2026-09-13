@@ -60,6 +60,16 @@ export interface UserAbortCommand {
   readonly sessionKey?: string
 }
 
+/**
+ * 转交确认（F2 队长制）：用户在转交卡片上点击「交给灵栖开发」后发出。
+ * 取出 propose_dev_handoff 登记的提案并执行（新建/复用开发会话 → 发起 run）。
+ */
+export interface HandoffConfirmCommand {
+  readonly type: 'handoff:confirm'
+  /** propose_dev_handoff 返回的提案 ID */
+  readonly handoffId: string
+}
+
 // ============================================================
 // 权限响应命令
 // ============================================================
@@ -1594,6 +1604,7 @@ export type AgentRuntimeCommand =
   | UserSendCommand
   | UserSteerCommand
   | UserAbortCommand
+  | HandoffConfirmCommand
   | UserPermissionRespondCommand
   | UserAskUserRespondCommand
   | UserAutoApproveSetCommand

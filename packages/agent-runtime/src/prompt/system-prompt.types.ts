@@ -100,6 +100,11 @@ export interface CustomAgentInfo {
   readonly category?: string
   /** UI 展示 emoji */
   readonly emoji?: string
+  /**
+   * 来源：system = 客户端预置的常驻专家（提示词中单列「团队专家」组，可被主 Agent 委托）。
+   * 缺省视为 user（用户自建）。
+   */
+  readonly sourceType?: "system" | "user"
 }
 
 /** Workspace 子目录布局配置 */

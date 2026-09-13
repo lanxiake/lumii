@@ -179,6 +179,61 @@ function clickRefByName(namePart, { role } = {}) {
 }
 
 // ────────────────────────────────────────────────
+// 队长制（F1）辅助
+// ────────────────────────────────────────────────
+
+/**
+ * 发送消息并等到「回合真正结束」（流式行 is_streaming=0）再返回。
+ * 与 sendAndWait 的区别：不把流式中间态当最终回复（委托场景会先出开场白）。
+ */
+function waitTurnDone(sk, text, timeoutMs) {
+  const base = h.lastAssistant(sk, 60)
+  const baseId = base?.id ?? null
+  h.send(sk, text)
+  const start = Date.now()
+  let lastText = ''
+  let lastId = null
+  while (Date.now() - start < timeoutMs) {
+    h.sleep(3000)
+    const cur = h.lastAssistant(sk, 60)
+    if (!cur || cur.id === baseId) continue
+    const t = h.assistantText(cur) || ''
+    const streaming = h.dbGet('SELECT is_streaming FROM messages WHERE id = ?', cur.id)?.is_streaming
+    if (streaming === 0) {
+      const cur2 = h.lastAssistant(sk, 60)
+      if (cur2?.id === cur.id) {
+        return { text: h.assistantText(cur2) || t, elapsedMs: Date.now() - start, messageId: cur.id }
+      }
+    }
+    lastText = t
+    lastId = cur.id
+  }
+  return { text: lastText, elapsedMs: Date.now() - start, messageId: lastId, timedOut: true }
+}
+
+/** 在会话消息 parts 里找 spawn_agent 工具调用（args.agentType 命中 target） */
+function findSpawnCall(items, target) {
+  for (const it of items) {
+    const cj = h.parseContentJson(it)
+    if (!Array.isArray(cj?.parts)) continue
+    for (const p of cj.parts) {
+      if (p?.type !== 'tool' || p?.name !== 'spawn_agent') continue
+      let args = p.args
+      if (typeof args === 'string') {
+        try {
+          args = JSON.parse(args)
+        } catch {
+          args = null
+        }
+      }
+      const at = String(args?.agentType ?? args?.agent_type ?? '')
+      if (at.includes(target)) return { args, status: p.status }
+    }
+  }
+  return null
+}
+
+// ────────────────────────────────────────────────
 // 场景用例（L3）
 // ────────────────────────────────────────────────
 
@@ -393,6 +448,63 @@ function caseS5() {
       /* 退出开发模式尽力执行 */
     }
   }
+}
+
+/**
+ * AT-S7 队长制（F1）：用户在普通对话里说「帮我整理下我的记忆」——
+ * 按团队分工，主助手应把这件事委托给常驻专家「灵栖维护」（真实使用旅程；委托成功即证明清单注入生效）。
+ * 护栏（同 AT-S2 模式）：user-memory 快照对比（红线：不得未经确认改动）+ 清理本轮探针记忆行。
+ */
+function caseS7() {
+  if (!selected('S7')) throw new Error('SKIP: 未选中（AT_ONLY）')
+  if (SKIP_LLM) throw new Error('SKIP: AT_SKIP_LLM=1')
+
+  const umBefore = readUserMemory()
+  h.assert(umBefore, `user-memory.md 不可读: ${USER_MEMORY_PATH}`)
+  const beforeLines = umBefore.split(/\r?\n/).filter((l) => l.trim())
+  const startIso = new Date(Date.now() - 2000).toISOString()
+
+  const TASK = '帮我整理下我的记忆'
+  const delegTimeout = Math.max(TURN_TIMEOUT, 480000)
+  let spawnHit = null
+  let lastReply = ''
+  let attempt = 0
+  for (attempt = 1; attempt <= 2 && !spawnHit; attempt++) {
+    const sk = h.createSession(`AT-S7 整理记忆(第${attempt}次)`, { prefix: PREFIX })
+    const t = waitTurnDone(sk, TASK, delegTimeout)
+    lastReply = t.text || ''
+    spawnHit = findSpawnCall(h.fetchMessages(sk, 60), 'system-keeper')
+    if (!spawnHit) {
+      ev.record(
+        'AT-S7',
+        'INFO',
+        `第 ${attempt} 次未委托给灵栖维护（timedOut=${!!t.timedOut}）；回复前 120 字：${lastReply.slice(0, 120)}`,
+      )
+    }
+  }
+  h.assert(
+    spawnHit,
+    `两次尝试均未委托灵栖维护（spawn_agent → system-keeper）；末次回复前 200 字：${lastReply.slice(0, 200)}`,
+  )
+  h.assert(lastReply.trim().length > 0, '委托后最终回复为空（专家产出未回流）')
+
+  // 红线：整理应先出方案、经确认再动手 —— user-memory 原有行零改动
+  const umAfter = readUserMemory()
+  const afterSet = new Set(umAfter.split(/\r?\n/))
+  const missing = beforeLines.filter((l) => !afterSet.has(l))
+  h.assert(
+    missing.length === 0,
+    `user-memory 原有 ${missing.length} 行被改动/删除（红线；.bak 可人工恢复）：${missing[0]?.slice(0, 60)}`,
+  )
+
+  // 清理：本测试窗口内新增的探针记忆行（保守关键词）
+  const rows = h.dbQuery(
+    "SELECT id FROM agent_memories WHERE created_at > ? AND (content LIKE '%记忆体检%' OR content LIKE '%整理方案%' OR content LIKE '%审计%')",
+    startIso,
+  )
+  for (const r of rows) h.dbExec('DELETE FROM agent_memories WHERE id = ?', r.id)
+
+  return `第 ${attempt - 1} 次尝试委托成功（spawn_agent → system-keeper, status=${spawnHit.status}），回复 ${lastReply.length} 字；user-memory 零改动${rows.length ? `；清理探针记忆 ${rows.length} 条` : ''}`
 }
 
 /** AT-UI-01 在 AI 团队页真实点击「参与自主心跳」开关（位置无关 + 状态无关：点击→diff 识别翻转→再点→还原） */
@@ -744,6 +856,7 @@ try {
     ['AT-S4', '场景 · 灵栖记事日报送达', caseS4],
     ['AT-S6', '场景 · 日常聊天回归', caseS6],
     ['AT-S5', '场景 · claude 开发对话两轮', caseS5],
+    ['AT-S7', 'F1 队长制 · 主助手接单委托', caseS7],
     ['AT-UI-01', 'UI · 自主开关真实点击', caseUIToggleAutonomous],
     ['AT-UI-02', 'UI · 侧栏分组结构', caseUISidebarGroups],
     ['AT-UI-03', 'UI · ACP 回复界面实时可见', caseUIAcpVisible],

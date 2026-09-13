@@ -25,6 +25,8 @@ const messageActions: ChatMessageActions = {
   regenerateMessage: noop,
   replayFromMessage: noop,
   reviewFileChanges: noop,
+  confirmHandoff: vi.fn(async () => ({ ok: true })),
+  openSession: noop,
 }
 
 /** 构造带 4 段 parts 的助手消息（thinking → tool → text → text） */

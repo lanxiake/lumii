@@ -1,0 +1,89 @@
+/* 转交确认卡片（F2 队长制） */
+
+.card {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  background: var(--mt-surface-3, rgba(255, 255, 255, 0.04));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mt-accent-400, #60a5fa) 18%, transparent);
+  color: var(--mt-accent-400, #60a5fa);
+}
+
+.target {
+  color: var(--mt-fg-3, rgba(255, 255, 255, 0.55));
+}
+
+.summary {
+  font-size: 13px;
+  color: var(--mt-fg-1, rgba(255, 255, 255, 0.92));
+  line-height: 1.5;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--mt-fg-4, rgba(255, 255, 255, 0.45));
+}
+
+.doneText {
+  font-size: 12.5px;
+  color: var(--mt-success, #34d399);
+}
+
+.errorText {
+  font-size: 12.5px;
+  color: var(--mt-error, #dc2626);
+}
+
+.primaryBtn {
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: #fff;
+  background: var(--mt-accent-400, #3b82f6);
+  transition: opacity var(--mt-dur-normal, 0.15s) var(--mt-ease-standard, ease);
+}
+
+.primaryBtn:hover {
+  opacity: 0.88;
+}
+
+.secondaryBtn {
+  padding: 4px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--mt-fg-1, rgba(255, 255, 255, 0.92));
+  background: transparent;
+  border: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.16));
+  transition: background var(--mt-dur-normal, 0.15s) var(--mt-ease-standard, ease);
+}
+
+.secondaryBtn:hover {
+  background: var(--mt-surface-3, rgba(255, 255, 255, 0.06));
+}
