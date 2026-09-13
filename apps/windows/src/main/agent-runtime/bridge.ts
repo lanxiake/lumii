@@ -185,6 +185,21 @@ function formatWikiEroExtractSummary(result: WikiEroExtractSourceResult): string
   return `scanned:${result.sourcesScanned} skipped:${result.sourcesSkipped} failed:${result.sourcesFailed} entities:${result.entitiesUpserted} relations:${result.relationsUpserted} obs:${result.observationsAdded}${errPart}`
 }
 
+/** 给 Promise 加超时兜底；超时仅 reject 竞速结果，不取消原 Promise（调用方负责 destroy 实例等清理） */
+function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms)
+    timer.unref?.()
+  })
+  return Promise.race([p, timeout]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
+
+/** 云同步冲突处理单轮执行超时：实例被用户中止（cascade abort）时 prompt/waitForIdle 可能不 settle，需兜底释放互斥 */
+const SYNC_CONFLICT_EXEC_TIMEOUT_MS = 10 * 60 * 1000
+
 export type { AgentRuntimeBridgeConfig, AgentLifecycleSnapshot }
 
 export class AgentRuntimeBridge {
@@ -1022,8 +1037,16 @@ export class AgentRuntimeBridge {
       }
       const instanceId = await this.createInstance(restrictedDef, convId, convId)
       try {
-        await this.prompt(instanceId, buildGoalPrompt(goal, false))
-        await this.waitForInstanceIdle(instanceId)
+        // 用户可在界面中止该回合（cascade abort）——中止后 prompt/waitForIdle 未必 settle，
+        // 若无超时则 finally 不执行、_syncConflictInFlight 永久为 true，之后 tick 恒被跳过（already-running）
+        await withTimeout(
+          (async () => {
+            await this.prompt(instanceId, buildGoalPrompt(goal, false))
+            await this.waitForInstanceIdle(instanceId)
+          })(),
+          SYNC_CONFLICT_EXEC_TIMEOUT_MS,
+          '冲突处理执行超时（10 分钟），已放弃本轮（目标保留待重试）',
+        )
         const output = this.getAssistantOutputFromInstance(instanceId) ?? ''
         const ok = output.trim().length > 0
 
@@ -1481,18 +1504,20 @@ export class AgentRuntimeBridge {
                   const summary = output.diagnosis.primaryIssue
                   const convId = this.evolutionConversationIdFor(agentId)
                   this.ensureConversationExists(convId, this.evolutionConversationTitleFor(agentId))
-                  this._conversationRepo?.saveMessage({
+                  const askRow = this._conversationRepo?.saveMessage({
                     conversationId: convId,
                     agentId,
                     role: 'user',
                     contentJson: { type: 'text', text: '回顾一下最近的自己' },
                   })
-                  this._conversationRepo?.saveMessage({
+                  const replyRow = this._conversationRepo?.saveMessage({
                     conversationId: convId,
                     agentId,
                     role: 'assistant',
                     contentJson: { type: 'text', text: summary },
                   })
+                  if (askRow) this.pushSavedMessage(convId, askRow.id, 'user', '回顾一下最近的自己')
+                  if (replyRow) this.pushSavedMessage(convId, replyRow.id, 'assistant', summary)
                   // 反思之后立即主动规划一次（v1 规划器仍只服务 assistant）
                   if (agentId === 'assistant') await this.runPlannerNow()
                   return summary
@@ -1552,18 +1577,20 @@ export class AgentRuntimeBridge {
                   const prompt = `${DIARY_PROMPT}\n\n今日素材：${JSON.stringify(context)}`
                   const diary = await this.callLLM(prompt, undefined, 'diary')
                   this.ensureConversationExists(EVOLUTION_CONVERSATION_ID, '自主进化 · 内心独白')
-                  this._conversationRepo?.saveMessage({
+                  const askRow = this._conversationRepo?.saveMessage({
                     conversationId: EVOLUTION_CONVERSATION_ID,
                     agentId: 'assistant',
                     role: 'user',
                     contentJson: { type: 'text', text: '写今天的日记' },
                   })
-                  this._conversationRepo?.saveMessage({
+                  const diaryRow = this._conversationRepo?.saveMessage({
                     conversationId: EVOLUTION_CONVERSATION_ID,
                     agentId: 'assistant',
                     role: 'assistant',
                     contentJson: { type: 'text', text: diary },
                   })
+                  if (askRow) this.pushSavedMessage(EVOLUTION_CONVERSATION_ID, askRow.id, 'user', '写今天的日记')
+                  if (diaryRow) this.pushSavedMessage(EVOLUTION_CONVERSATION_ID, diaryRow.id, 'assistant', diary)
                   saveDiary(this.localDb.db, 'assistant', todayDateKey(), diary)
                   markDiaryWritten(this.localDb.db)
                   return diary.slice(0, 60)
@@ -2390,8 +2417,25 @@ export class AgentRuntimeBridge {
   listRecentConversations(limit = 10): readonly { id: string; title: string; updatedAt: string }[] { return this.conversationManager.listRecentConversations(limit) }
   notifyIncomingMessage(sessionKey: string, text: string, messageId?: string): void { this.lifecycle.notifyIncomingMessage(sessionKey, text, messageId) }
   notifyNavigateToSession(sessionKey: string, title?: string): void { this.lifecycle.notifyNavigateToSession(sessionKey, title) }
-  triggerCronNotification(title: string, body: string): void { this.lifecycle.triggerCronNotification(title, body) }
+  triggerCronNotification(title: string, body: string, convId?: string): void { this.lifecycle.triggerCronNotification(title, body, convId) }
   setLastActiveConversation(sessionKey: string): void { this.lifecycle.setLastActiveConversation(sessionKey) }
+
+  /**
+   * 把已落库的自主产出（反思 / 日记）推给渲染层：会话开着时实时可见。
+   * 不弹桌面通知——反思与日记只在静默时段产生，弹窗会违反用户设置的静默语义。
+   */
+  private pushSavedMessage(sessionKey: string, id: string, role: 'user' | 'assistant', text: string): void {
+    this.ipcChannel.forwardIpcEvent({
+      type: 'conversation:message:new',
+      sessionKey,
+      message: {
+        id: String(id),
+        role,
+        content: [{ type: 'text', text }],
+        timestamp: Date.now(),
+      },
+    })
+  }
 
   /** 记录一次情绪事件：衰减后叠加冲击并落库（best-effort，失败只记日志） */
   private recordMoodEvent(event: string): void {
