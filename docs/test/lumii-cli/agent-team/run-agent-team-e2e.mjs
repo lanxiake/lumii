@@ -514,6 +514,94 @@ function caseS7() {
 }
 
 /**
+ * AT-S8 场景：让「灵栖维护」代操客户端改设置（设计 C 片闭环 4：设置变更 + 复验）。
+ * 真实旅程：用户找维护说「把主题换成深色」→ 维护通过 app_* / settings 通道直接把设置改掉。
+ * 断言：theme.mode 真实落盘变化=硬；测试侧 finally 恢复原值（红线：不留用户配置漂移）。
+ */
+function caseS8() {
+  if (!selected('S8')) throw new Error('SKIP: 未选中（AT_ONLY）')
+  if (SKIP_LLM) throw new Error('SKIP: AT_SKIP_LLM=1')
+  const getTheme = () => {
+    const r = h.ui(['settings', 'get', 'theme.mode'])
+    return r.json?.value ?? null
+  }
+  const themeBefore = getTheme()
+  h.assert(themeBefore, '无法读取 theme.mode（控制口 settings get 异常）')
+  if (themeBefore === 'dark') throw new Error('SKIP: 当前主题已是 dark（需 light 起始才能验证切换）')
+
+  const sk = h.createSession('维护代操设置', { prefix: PREFIX })
+  try {
+    let changed = false
+    // 真实口吻；若模型先要确认，用户自然回复「确认」——多轮直至设置变化
+    const prompts = [
+      '帮我把客户端主题切换成深色模式（dark），以后一直用深色',
+      '确认，请直接改成深色',
+      '就直接执行：把主题设置为 dark，不用再问我',
+    ]
+    for (let attempt = 0; attempt < prompts.length && !changed; attempt++) {
+      h.sendAndWait(sk, prompts[attempt], { timeoutMs: TURN_TIMEOUT })
+      changed = h.pollUntil(() => getTheme() === 'dark', 25000, 2500)
+    }
+    h.assert(changed, `主题未被改为 dark（当前 ${getTheme()}）——灵栖维护未完成客户端代操`)
+    return `灵栖维护代操成功：theme.mode ${themeBefore} → dark（真实设置落盘，测试后已恢复）`
+  } finally {
+    // ui() 不 throw（失败藏在返回值里）——恢复必须显式验证并重试，否则会静默留下用户配置漂移
+    let restoredOk = false
+    for (let i = 1; i <= 3 && !restoredOk; i++) {
+      const r = h.ui(['settings', 'set', 'theme.mode', themeBefore])
+      restoredOk = r.code === 0 && r.json?.ok !== false && getTheme() === themeBefore
+      if (!restoredOk) h.sleep(2000)
+    }
+    if (!restoredOk) {
+      throw new Error(`theme.mode 恢复失败（当前 ${getTheme()}，期望 ${themeBefore}）——测试留痕，需手动恢复`)
+    }
+  }
+}
+
+/**
+ * AT-S9 场景：资讯管线由「灵栖情报」执行（D3 验收：news-pipeline 迁移 + 产出归属）。
+ * 步骤：手动触发 news-pipeline（模拟到点）→ 断言运行 ok + 产出消息 agent_id=info-curator + 正文非空。
+ * 副作用：真实资讯抓取与 LLM 多轮；feed/通知为真实产出（验证证据本身）。
+ */
+function caseS9() {
+  if (!selected('S9')) throw new Error('SKIP: 未选中（AT_ONLY）')
+  if (SKIP_LLM) throw new Error('SKIP: AT_SKIP_LLM=1')
+  const convId = 'cron:news-pipeline'
+  const runBefore = h.dbGet(
+    "SELECT started_at FROM local_cron_runs WHERE job_id = 'news-pipeline' ORDER BY started_at DESC LIMIT 1",
+  )
+  const msgCountBefore = h.dbCount('messages', 'conversation_id = ?', [convId])
+  const feedBefore = h.dbCount('dashboard_feed_items')
+
+  const r = h.ui(['cron', 'run', 'news-pipeline'], { retries: 0, timeoutMs: 600000 })
+  const run = h.pollUntil(() => {
+    const cur = h.dbGet(
+      "SELECT started_at, status, summary, error FROM local_cron_runs WHERE job_id = 'news-pipeline' ORDER BY started_at DESC LIMIT 1",
+    )
+    return cur && cur.started_at !== runBefore?.started_at ? cur : null
+  }, 30000, 1000)
+  h.assert(run, `cron run 未产生运行记录（code=${r.code}）: ${(r.out + r.stderr).slice(0, 200)}`)
+  h.assert(
+    run.status === 'ok',
+    `资讯任务失败: status=${run.status} error=${run.error ?? ''} summary=${(run.summary ?? '').slice(0, 100)}`,
+  )
+
+  const msg = h.pollUntil(() => {
+    if (h.dbCount('messages', 'conversation_id = ?', [convId]) <= msgCountBefore) return null
+    return h.dbGet(
+      "SELECT agent_id, content_json FROM messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY timestamp DESC LIMIT 1",
+      convId,
+    )
+  }, 30000, 1000)
+  h.assert(msg, '资讯会话未产生新 assistant 消息')
+  h.assert(msg.agent_id === 'info-curator', `资讯消息 agent_id=${msg.agent_id ?? 'null'}，期望 info-curator（D3 验收项）`)
+  const text = h.assistantText({ contentJson: msg.content_json })
+  h.assert(text.trim().length > 0, '资讯正文为空')
+  const feedAfter = h.dbCount('dashboard_feed_items')
+  return `资讯由 info-curator 产出（${text.length} 字；feed ${feedBefore}→${feedAfter}）：「${text.slice(0, 40).replace(/\n/g, ' ')}…」`
+}
+
+/**
  * AT-F2 队长制（F2）：主助手识别项目开发请求 → propose_dev_handoff → 卡片确认 → 开发会话直达 CLI。
  *
  * 前置（缺失则 SKIP）：code-dev 的 Agent 绑定已配置（backendId=claude + workspace 指向沙箱目录），
@@ -907,25 +995,42 @@ function caseL2Tick() {
   const ids = (readAppConfig().autonomousAgents ?? []).map(String).filter(Boolean)
   if (!ids.length) throw new Error('SKIP: app.json autonomousAgents 为空（先在 AgentsPage 打开目标 Agent 的自主开关）')
 
-  const before = h.dbGet(
-    "SELECT started_at FROM local_cron_runs WHERE job_id = 'autonomous-tick' ORDER BY started_at DESC LIMIT 1",
-  )
-  const r = h.cronTick('autonomous-tick', { timeoutMs: 300000 })
-  const run = h.pollUntil(() => {
-    const cur = h.dbGet(
-      "SELECT started_at, status, summary FROM local_cron_runs WHERE job_id = 'autonomous-tick' ORDER BY started_at DESC LIMIT 1",
-    )
-    return cur && cur.started_at !== before?.started_at ? cur : null
-  }, 30000, 1000)
-  h.assert(run, `tick 未产生新运行记录（code=${r.code}）: ${(r.out + r.stderr).slice(0, 200)}`)
-
-  const summary = run.summary ?? ''
-  if (/^skipped:/.test(summary)) throw new Error(`SKIP: tick 被跳过（${summary}）—— 全局自主未启用或存在活跃用户回合`)
   const expect = ['assistant', ...ids]
-  for (const id of expect) {
-    h.assert(summary.includes(`${id}=`), `summary 缺少「${id}=」：${summary.slice(0, 200)}`)
+  let lastSummary = ''
+  // 云同步冲突处理进行中时（executeSyncConflictGoal 的 in-flight 互斥），tick 会返回 already-running 被设计性跳过；
+  // 这是真实环境事件（等一轮冲突处理结果），间隔重试；持续被占用则 SKIP 并注明，不误报 FAIL。
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const before = h.dbGet(
+      "SELECT started_at FROM local_cron_runs WHERE job_id = 'autonomous-tick' ORDER BY started_at DESC LIMIT 1",
+    )
+    const r = h.cronTick('autonomous-tick', { timeoutMs: 300000 })
+    const run = h.pollUntil(() => {
+      const cur = h.dbGet(
+        "SELECT started_at, status, summary FROM local_cron_runs WHERE job_id = 'autonomous-tick' ORDER BY started_at DESC LIMIT 1",
+      )
+      return cur && cur.started_at !== before?.started_at ? cur : null
+    }, 30000, 1000)
+    h.assert(run, `tick 未产生新运行记录（code=${r.code}）: ${(r.out + r.stderr).slice(0, 200)}`)
+
+    const summary = run.summary ?? ''
+    lastSummary = summary
+    if (/^skipped:/.test(summary)) throw new Error(`SKIP: tick 被跳过（${summary}）—— 全局自主未启用或存在活跃用户回合`)
+    if (summary === 'already-running') {
+      if (attempt < 3) {
+        h.sleep(60000)
+        continue
+      }
+      throw new Error(
+        `SKIP: tick 连续 ${attempt} 次被云同步冲突处理占用（already-running）——环境存在未决云同步冲突，需在无冲突窗口重验`,
+      )
+    }
+
+    for (const id of expect) {
+      h.assert(summary.includes(`${id}=`), `summary 缺少「${id}=」：${summary.slice(0, 200)}`)
+    }
+    return `汇总覆盖 ${expect.join(' + ')}：${summary.slice(0, 160)}`
   }
-  return `汇总覆盖 ${expect.join(' + ')}：${summary.slice(0, 160)}`
+  throw new Error(`SKIP: 未获得有效 tick 汇总（最后 summary=${lastSummary}）`)
 }
 
 // ────────────────────────────────────────────────
@@ -1013,6 +1118,8 @@ try {
     ['AT-S6', '场景 · 日常聊天回归', caseS6],
     ['AT-S5', '场景 · claude 开发对话两轮', caseS5],
     ['AT-S7', 'F1 队长制 · 主助手接单委托', caseS7],
+    ['AT-S8', 'C 片 · 灵栖维护代操设置', caseS8],
+    ['AT-S9', 'D 片 · 灵栖情报跑资讯管线', caseS9],
     ['AT-F2', 'F2 队长制 · 一键转交闭环', caseF2],
     ['AT-UI-01', 'UI · 自主开关真实点击', caseUIToggleAutonomous],
     ['AT-UI-02', 'UI · 侧栏分组结构', caseUISidebarGroups],

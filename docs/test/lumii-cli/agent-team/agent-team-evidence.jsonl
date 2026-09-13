@@ -1,18 +1,20 @@
-{"ts":"2026-09-13T13:05:18.163Z","id":"AT-ENV","status":"INFO","note":"预检通过；日志通道可用；LLM=真实；claude=启用；tick=启用；AT_ONLY=L2-04"}
-{"ts":"2026-09-13T13:05:18.230Z","id":"AT-ENV","status":"INFO","note":"dev-context 快照完成（308 字节）；后台 cron 临时禁用 10 条"}
-{"ts":"2026-09-13T13:05:18.323Z","id":"AT-L1-01","status":"PASS","note":"commands=77，命令面完整","durationMs":92}
-{"ts":"2026-09-13T13:05:18.479Z","id":"AT-L2-01","status":"PASS","note":"四位 Agent 定义均可见（code-dev/system-keeper/chronicler/info-curator）","durationMs":155}
-{"ts":"2026-09-13T13:05:18.491Z","id":"AT-L2-02","status":"PASS","note":"5 条转正落地（4→chronicler、news→info-curator）；新闻 prompt 升级标记=含「先读用户偏好」","durationMs":11}
-{"ts":"2026-09-13T13:05:21.664Z","id":"AT-L2-03","status":"PASS","note":"session 级 claude→lumii 往返、敲错项目名被拒","durationMs":3136}
-{"ts":"2026-09-13T13:05:21.665Z","id":"AT-S1","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":1}
-{"ts":"2026-09-13T13:05:21.665Z","id":"AT-S2","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T13:05:21.666Z","id":"AT-S3","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T13:05:21.667Z","id":"AT-S4","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T13:05:21.668Z","id":"AT-S6","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T13:05:21.668Z","id":"AT-S5","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T13:05:21.669Z","id":"AT-S7","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T13:05:21.670Z","id":"AT-F2","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T13:05:21.671Z","id":"AT-UI-01","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":1}
-{"ts":"2026-09-13T13:05:21.671Z","id":"AT-UI-02","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T13:05:21.672Z","id":"AT-UI-03","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
-{"ts":"2026-09-13T13:05:21.851Z","id":"AT-L2-04","status":"FAIL","note":"summary 缺少「assistant=」：already-running","durationMs":170,"stack":"Error: summary 缺少「assistant=」：already-running\n    at Module.assert (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:110:20)\n    at caseL2Tick (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-team/run-agent-team-e2e.mjs:926:7)\n    at Module.runCase (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:518:18)\n    at file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-team/run-agent-team-e2e.mjs:1029:11\n    at ModuleJob.run (node:internal/modules/esm/module_job:271:25)\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:547:26)\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:116:5)"}
+{"ts":"2026-09-13T13:35:52.841Z","id":"AT-ENV","status":"INFO","note":"预检通过；日志通道可用；LLM=真实；claude=启用；tick=未启用；AT_ONLY=S8,S9"}
+{"ts":"2026-09-13T13:35:53.063Z","id":"AT-ENV","status":"INFO","note":"dev-context 快照完成（308 字节）；后台 cron 临时禁用 10 条"}
+{"ts":"2026-09-13T13:35:53.296Z","id":"AT-L1-01","status":"PASS","note":"commands=77，命令面完整","durationMs":231}
+{"ts":"2026-09-13T13:35:54.933Z","id":"AT-L2-01","status":"PASS","note":"四位 Agent 定义均可见（code-dev/system-keeper/chronicler/info-curator）","durationMs":1636}
+{"ts":"2026-09-13T13:35:54.947Z","id":"AT-L2-02","status":"PASS","note":"5 条转正落地（4→chronicler、news→info-curator）；新闻 prompt 升级标记=含「先读用户偏好」","durationMs":13}
+{"ts":"2026-09-13T13:35:58.297Z","id":"AT-L2-03","status":"PASS","note":"session 级 claude→lumii 往返、敲错项目名被拒","durationMs":3349}
+{"ts":"2026-09-13T13:35:58.298Z","id":"AT-S1","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:35:58.299Z","id":"AT-S2","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:35:58.300Z","id":"AT-S3","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":1}
+{"ts":"2026-09-13T13:35:58.301Z","id":"AT-S4","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":1}
+{"ts":"2026-09-13T13:35:58.301Z","id":"AT-S6","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:35:58.302Z","id":"AT-S5","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:35:58.303Z","id":"AT-S7","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:37:37.314Z","id":"AT-S8","status":"PASS","note":"灵栖维护代操成功：theme.mode light → dark（真实设置落盘，测试后已恢复）","durationMs":99011}
+{"ts":"2026-09-13T13:39:37.174Z","id":"AT-S9","status":"PASS","note":"资讯由 info-curator 产出（1060 字；feed 166→175）：「已完成筛选并写入概览页「最近资讯」卡片（12 条）。以下是精简版：  **今日资…」","durationMs":119859}
+{"ts":"2026-09-13T13:39:37.176Z","id":"AT-F2","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":1}
+{"ts":"2026-09-13T13:39:37.176Z","id":"AT-UI-01","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:39:37.177Z","id":"AT-UI-02","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":0}
+{"ts":"2026-09-13T13:39:37.178Z","id":"AT-UI-03","status":"SKIP","note":"未选中（AT_ONLY）","durationMs":1}
+{"ts":"2026-09-13T13:39:37.178Z","id":"AT-L2-04","status":"SKIP","note":"未启用（AT_TICK=1 且 app.json autonomousAgents 非空时运行；人工验收：AgentsPage 对系统 Agent 打开自主开关后重跑）","durationMs":0}
