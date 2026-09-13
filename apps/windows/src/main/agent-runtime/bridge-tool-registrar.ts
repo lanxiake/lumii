@@ -298,6 +298,10 @@ export class BridgeToolRegistrar {
         if (result.status === 'error') {
           return jsonToolResult({ status: 'error', message: result.message })
         }
+        // 传话落库（G4）：单播成功后写入会话消息流，用户可见这次协作
+        if (!result.broadcast) {
+          this.recordAgentMessageDelivered(fromId, result.to, p.message)
+        }
         if (result.broadcast) {
           return jsonToolResult({ status: 'ok', broadcast: true, recipientCount: result.recipientCount })
         }
@@ -307,6 +311,51 @@ export class BridgeToolRegistrar {
 
     this.deps.toolRegistry.register(createMtBotTool(realConfig, ctx))
     log.info('[registerToolOverrides] send_message 已覆盖 stub')
+  }
+
+  /**
+   * 传话落库（G4）：把「谁传给谁、说了什么」写进发送方所在会话的消息流。
+   *
+   * 消息本体只进对方上下文（followUp / prompt），不落库则历史与 UI 都看不到协作痕迹，
+   * 用户视角就是「各自为战」。文本自带来源前缀（sender → recipient），
+   * 刻意不写 content-level sourceAgent：带来源的子 Agent 消息会在渲染层被并入父消息的
+   * 过程折叠区（默认收起），传话记录反而看不见了。
+   */
+  private recordAgentMessageDelivered(fromId: string, to: string, message: string): void {
+    const repo = this.deps.getConversationRepo()
+    const conversationId = this.deps.instanceToConversation.get(fromId)
+    if (!repo || !conversationId) return
+    try {
+      const agents = this.deps.ensureOrchestrator().getActiveAgents()
+      const fromLabel =
+        agents.find((a) => a.agentId === fromId)?.name
+        ?? this.deps.getDefinitionIdByInstanceId(fromId)
+        ?? fromId
+      const toLabel = agents.find((a) => a.agentId === to || a.name === to)?.name ?? to
+      const text = `【传话】${fromLabel} → ${toLabel}：${message}`
+      const row = repo.saveMessage({
+        conversationId,
+        agentId: this.deps.getDefinitionIdByInstanceId(fromId),
+        role: 'assistant',
+        contentJson: {
+          type: 'assistant_parts',
+          parts: [{ type: 'text', id: `relay-${Date.now()}`, text, status: 'done' }],
+        },
+      })
+      this.deps.ipcChannel.forwardIpcEvent({
+        type: 'conversation:message:new',
+        sessionKey: conversationId,
+        message: {
+          id: String(row.id),
+          role: 'assistant',
+          content: [{ type: 'text', text }],
+          timestamp: Date.now(),
+        },
+      })
+      log.info(`[send_message] 传话已落库 ${fromLabel} → ${toLabel} conversation=${conversationId}`)
+    } catch (err) {
+      log.warn(`[send_message] 传话落库失败: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   private registerBrowserTools(): void {
