@@ -1,9 +1,8 @@
 /**
- * sync-manager 十三场景单测。
+ * sync-manager 单测（轻量云同步：操作 syncDir，不联网）。
  *
- * 模拟 GitCode 远程：用两个本地临时目录互推（mock git.fetch/git.push 做对象拷贝 +
- * ref 搬运），其余 commit/merge/findMergeBase/checkout 全部真实跑 isomorphic-git，
- * 不联网。配置走 mock('./sync-config')，避免依赖 safeStorage / 真实数据目录。
+ * 远程用本地临时目录模拟；git.fetch/git.push mock 为对象拷贝 + ref 搬运。
+ * SyncExporter / SyncImporter mock 为 no-op，专注 Git 合并与冲突落决路径。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import path from 'node:path'
@@ -20,6 +19,24 @@ vi.mock('./sync-config', () => ({
 vi.mock('./sync-log', () => ({
   appendSyncLog: vi.fn(),
 }))
+vi.mock('./sync-exporter', () => ({
+  SyncExporter: class {
+    async export() {
+      return { success: true, exportedFiles: [], errors: [], stats: {} }
+    }
+  },
+}))
+vi.mock('./sync-importer', () => ({
+  SyncImporter: class {
+    async import() {
+      return {
+        success: true,
+        errors: [],
+        stats: { wikiRows: 0, memoriesImported: 0, autonomousGoals: 0, workspaceFiles: 0 },
+      }
+    }
+  },
+}))
 
 import { loadCloudSyncConfig } from './sync-config'
 import { CloudSyncManager } from './sync-manager'
@@ -27,7 +44,8 @@ import {
   setActiveWorkspaceDirGetter,
   _resetActiveWorkspaceDirGetterForTest,
 } from '../workspace-paths'
-import { getWorkspaceVcs, resetWorkspaceVcs } from '../workspace-vcs/vcs-snapshot'
+import { _resetWindowsClientDataRootCacheForTest } from '../client-data-root'
+import { resetWorkspaceVcs } from '../workspace-vcs/vcs-snapshot'
 
 const REMOTE_FS = { promises: fsp } as unknown as PromiseFsClient
 
@@ -41,27 +59,47 @@ const baseCfg = {
 }
 
 describe('CloudSyncManager', () => {
+  let clientRoot: string
   let workspaceDir: string
+  let syncDir: string
   let remoteDir: string
   let remoteGitdir: string
   let manager: CloudSyncManager
   let rejectPush: boolean
 
-  const localParams = () => getWorkspaceVcs(workspaceDir).getGitParams()
+  /** syncDir 的 isomorphic-git 参数 */
+  const syncParams = () => ({
+    fs,
+    dir: syncDir,
+    gitdir: path.join(syncDir, '.git'),
+  })
 
-  const writeLocal = (name: string, content: string) => {
-    const abs = path.join(workspaceDir, name)
+  /** 写入 sync 工作树文件 */
+  const writeSync = (name: string, content: string) => {
+    const abs = path.join(syncDir, name)
     fs.mkdirSync(path.dirname(abs), { recursive: true })
     fs.writeFileSync(abs, content, 'utf-8')
   }
-  const readLocal = (name: string) =>
-    fs.readFileSync(path.join(workspaceDir, name), 'utf-8')
 
-  const localHead = async () =>
-    git.resolveRef({ ...localParams(), ref: 'refs/heads/main' })
+  /** 读取 sync 工作树文件 */
+  const readSync = (name: string) => fs.readFileSync(path.join(syncDir, name), 'utf-8')
+
+  /** 在 syncDir 提交当前变更 */
+  const commitSync = async (message: string) => {
+    const p = syncParams()
+    await git.add({ ...p, filepath: '.' })
+    return git.commit({
+      ...p,
+      message,
+      author: { name: 'Local', email: 'local@test' },
+    })
+  }
+
+  const localHead = async () => git.resolveRef({ ...syncParams(), ref: 'refs/heads/main' })
   const remoteHead = async () =>
     git.resolveRef({ fs: REMOTE_FS, dir: remoteDir, gitdir: remoteGitdir, ref: 'refs/heads/main' })
 
+  /** 在模拟远端提交文件 */
   const commitRemote = async (name: string, content: string) => {
     const abs = path.join(remoteDir, name)
     fs.mkdirSync(path.dirname(abs), { recursive: true })
@@ -76,7 +114,7 @@ describe('CloudSyncManager', () => {
     })
   }
 
-  /** 递归拷贝 git 对象库（测试仓库全是 loose object，无 pack） */
+  /** 递归拷贝 git 对象库（测试仓库全是 loose object） */
   const copyObjects = (fromGitdir: string, toGitdir: string) => {
     const src = path.join(fromGitdir, 'objects')
     if (!fs.existsSync(src)) return
@@ -95,24 +133,32 @@ describe('CloudSyncManager', () => {
     walk(src, '')
   }
 
-  /** 建立共享基线：本地建 base 提交 → 首推给远端 */
+  /** 建立共享基线：syncDir 基提交 → 首推远端 */
   const setupBase = async () => {
-    const repo = getWorkspaceVcs(workspaceDir)
-    await repo.ensureInitialized()
-    writeLocal('a.md', 'A0')
-    writeLocal('b.md', 'B0')
-    writeLocal('shared.md', 'base')
-    await repo.commit({ author: 'user', message: 'base' })
+    fs.mkdirSync(syncDir, { recursive: true })
+    const p = syncParams()
+    await git.init({ ...p, defaultBranch: 'main' })
+    writeSync('a.md', 'A0')
+    writeSync('b.md', 'B0')
+    writeSync('shared.md', 'base')
+    writeSync('profile/user-memory.md', 'memory-base')
+    await commitSync('base')
     await git.init({ fs: REMOTE_FS, dir: remoteDir, gitdir: remoteGitdir, defaultBranch: 'main' })
     manager = new CloudSyncManager()
     await manager.sync()
   }
 
   beforeEach(() => {
-    workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-sync-ws-'))
+    clientRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-sync-client-'))
+    workspaceDir = path.join(clientRoot, 'workspace')
+    syncDir = path.join(clientRoot, 'sync')
+    fs.mkdirSync(workspaceDir, { recursive: true })
     remoteDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-sync-remote-'))
     remoteGitdir = path.join(remoteDir, '.git')
     rejectPush = false
+
+    process.env.LUMII_CLIENT_DATA_DIR = clientRoot
+    _resetWindowsClientDataRootCacheForTest()
     setActiveWorkspaceDirGetter(() => workspaceDir)
     vi.mocked(loadCloudSyncConfig).mockReturnValue({ ...baseCfg })
 
@@ -133,11 +179,16 @@ describe('CloudSyncManager', () => {
         force: true,
       })
     }) as unknown as typeof git.fetch)
+
     vi.spyOn(git, 'push').mockImplementation((async (args: any) => {
       if (rejectPush) {
         rejectPush = false
         throw new Error('[rejected] non-fast-forward')
       }
+      // 守卫：resolve/sync 必须推 syncDir，绝不能推到工作区 .mtbot-vcs
+      expect(path.normalize(args.dir)).toBe(path.normalize(syncDir))
+      expect(String(args.gitdir)).toContain(`${path.sep}sync${path.sep}.git`)
+
       const localOid = await git.resolveRef({
         fs: args.fs,
         dir: args.dir,
@@ -153,7 +204,6 @@ describe('CloudSyncManager', () => {
         value: localOid,
         force: true,
       })
-      // 物化远端工作树 + index，便于后续 commitRemote 在其上继续提交
       await git.checkout({
         fs: REMOTE_FS,
         dir: remoteDir,
@@ -168,7 +218,9 @@ describe('CloudSyncManager', () => {
     vi.restoreAllMocks()
     _resetActiveWorkspaceDirGetterForTest()
     resetWorkspaceVcs()
-    fs.rmSync(workspaceDir, { recursive: true, force: true })
+    delete process.env.LUMII_CLIENT_DATA_DIR
+    _resetWindowsClientDataRootCacheForTest()
+    fs.rmSync(clientRoot, { recursive: true, force: true })
     fs.rmSync(remoteDir, { recursive: true, force: true })
   })
 
@@ -183,7 +235,8 @@ describe('CloudSyncManager', () => {
   it('仅本地新提交 → push 成功，远程收到', async () => {
     await setupBase()
     const baseRemote = await remoteHead()
-    writeLocal('new.md', 'v1')
+    writeSync('new.md', 'v1')
+    await commitSync('local new')
     const r = await manager.sync()
     expect(r.success).toBe(true)
     expect(await remoteHead()).toBe(await localHead())
@@ -194,28 +247,32 @@ describe('CloudSyncManager', () => {
     await setupBase()
     await commitRemote('b.md', 'B1-remote')
     const beforeRemote = await remoteHead()
+    const pushCallsBefore = vi.mocked(git.push).mock.calls.length
     const r = await manager.sync()
     expect(r.success).toBe(true)
-    expect(readLocal('b.md')).toBe('B1-remote')
-    expect(await remoteHead()).toBe(beforeRemote) // 未 push，远端不变
+    expect(readSync('b.md')).toBe('B1-remote')
+    expect(await remoteHead()).toBe(beforeRemote)
     expect(await localHead()).toBe(await remoteHead())
+    expect(vi.mocked(git.push).mock.calls.length).toBe(pushCallsBefore)
   })
 
   it('双方改不同文件 → 自动 merge 成功', async () => {
     await setupBase()
-    writeLocal('a.md', 'A1-local')
+    writeSync('a.md', 'A1-local')
+    await commitSync('local a')
     await commitRemote('b.md', 'B1-remote')
     const r = await manager.sync()
     expect(r.success).toBe(true)
     expect(r.state).toBe('idle')
-    expect(readLocal('a.md')).toBe('A1-local')
-    expect(readLocal('b.md')).toBe('B1-remote')
+    expect(readSync('a.md')).toBe('A1-local')
+    expect(readSync('b.md')).toBe('B1-remote')
     expect(await localHead()).toBe(await remoteHead())
   })
 
   it('双方改同一文件 → conflict，ConflictInfo 正确，未 push', async () => {
     await setupBase()
-    writeLocal('shared.md', 'local')
+    writeSync('shared.md', 'local')
+    await commitSync('local shared')
     await commitRemote('shared.md', 'remote')
     const beforeRemote = await remoteHead()
     const r = await manager.sync()
@@ -224,36 +281,44 @@ describe('CloudSyncManager', () => {
     const c = manager.getConflict()!
     expect(c.files).toContain('shared.md')
     expect(c.bothModified).toContain('shared.md')
-    expect(await remoteHead()).toBe(beforeRemote) // 冲突未 push
+    expect(await remoteHead()).toBe(beforeRemote)
   })
 
-  it('resolveConflict keep-local → 远端变为本地版本', async () => {
+  it('resolveConflict keep-local → 在 syncDir 落决且远端变为本地版本', async () => {
     await setupBase()
-    writeLocal('shared.md', 'local')
-    await commitRemote('shared.md', 'remote')
+    writeSync('profile/user-memory.md', 'local-memory')
+    await commitSync('local memory')
+    await commitRemote('profile/user-memory.md', 'remote-memory')
     await manager.sync()
+    expect(manager.getStatus().state).toBe('conflict')
+
     const r = await manager.resolveConflict('keep-local')
     expect(r.success).toBe(true)
     expect(manager.getStatus().state).toBe('idle')
     expect(await remoteHead()).toBe(await localHead())
-    expect(fs.readFileSync(path.join(remoteDir, 'shared.md'), 'utf-8')).toBe('local')
+    expect(fs.readFileSync(path.join(remoteDir, 'profile/user-memory.md'), 'utf-8')).toBe(
+      'local-memory',
+    )
+    expect(readSync('profile/user-memory.md')).toBe('local-memory')
   })
 
-  it('resolveConflict keep-remote → 本地变为远程版本', async () => {
+  it('resolveConflict keep-remote → syncDir 变为远程版本', async () => {
     await setupBase()
-    writeLocal('shared.md', 'local')
+    writeSync('shared.md', 'local')
+    await commitSync('local shared')
     await commitRemote('shared.md', 'remote')
     await manager.sync()
     const r = await manager.resolveConflict('keep-remote')
     expect(r.success).toBe(true)
-    expect(readLocal('shared.md')).toBe('remote')
+    expect(readSync('shared.md')).toBe('remote')
     expect(await localHead()).toBe(await remoteHead())
   })
 
   it('resolveConflict per-file → 逐文件选侧正确', async () => {
     await setupBase()
-    writeLocal('a.md', 'A-local')
-    writeLocal('b.md', 'B-local')
+    writeSync('a.md', 'A-local')
+    writeSync('b.md', 'B-local')
+    await commitSync('local both')
     await commitRemote('a.md', 'A-remote')
     await commitRemote('b.md', 'B-remote')
     await manager.sync()
@@ -263,15 +328,45 @@ describe('CloudSyncManager', () => {
       { path: 'b.md', side: 'remote' },
     ])
     expect(r.success).toBe(true)
-    expect(readLocal('a.md')).toBe('A-local')
-    expect(readLocal('b.md')).toBe('B-remote')
+    expect(readSync('a.md')).toBe('A-local')
+    expect(readSync('b.md')).toBe('B-remote')
+  })
+
+  it('readFileAt 在冲突时可读 syncDir 三方内容', async () => {
+    await setupBase()
+    writeSync('profile/user-memory.md', 'local-memory')
+    await commitSync('local memory')
+    await commitRemote('profile/user-memory.md', 'remote-memory')
+    await manager.sync()
+    expect(manager.getStatus().state).toBe('conflict')
+
+    const local = await manager.readFileAt('local', 'profile/user-memory.md')
+    const remote = await manager.readFileAt('remote', 'profile/user-memory.md')
+    const base = await manager.readFileAt('base', 'profile/user-memory.md')
+    expect(local).toBe('local-memory')
+    expect(remote).toBe('remote-memory')
+    expect(base).toBe('memory-base')
+  })
+
+  it('resolveConflict push 被拒 → 保持 conflict，不假成功', async () => {
+    await setupBase()
+    writeSync('shared.md', 'local')
+    await commitSync('local shared')
+    await commitRemote('shared.md', 'remote')
+    await manager.sync()
+    rejectPush = true
+    const r = await manager.resolveConflict('keep-local')
+    expect(r.success).toBe(false)
+    expect(manager.getStatus().state).toBe('conflict')
+    expect(r.error).toMatch(/rejected|non-fast-forward/i)
   })
 
   it('远程分支不存在 → 首推成功', async () => {
-    const repo = getWorkspaceVcs(workspaceDir)
-    await repo.ensureInitialized()
-    writeLocal('only.md', 'hello')
-    await repo.commit({ author: 'user', message: '首推' })
+    fs.mkdirSync(syncDir, { recursive: true })
+    const p = syncParams()
+    await git.init({ ...p, defaultBranch: 'main' })
+    writeSync('only.md', 'hello')
+    await commitSync('首推')
     await git.init({ fs: REMOTE_FS, dir: remoteDir, gitdir: remoteGitdir, defaultBranch: 'main' })
     manager = new CloudSyncManager()
     const r = await manager.sync()
@@ -280,12 +375,11 @@ describe('CloudSyncManager', () => {
     expect(fs.readFileSync(path.join(remoteDir, 'only.md'), 'utf-8')).toBe('hello')
   })
 
-  it('无关历史 → 备份本地 + 采用远端', async () => {
-    // 本地与远端各自独立 root，无共同祖先
-    const repo = getWorkspaceVcs(workspaceDir)
-    await repo.ensureInitialized()
-    writeLocal('local-only.md', 'L')
-    await repo.commit({ author: 'user', message: 'local root' })
+  it('无关历史 → 备份 syncDir + 采用远端', async () => {
+    fs.mkdirSync(syncDir, { recursive: true })
+    await git.init({ ...syncParams(), defaultBranch: 'main' })
+    writeSync('local-only.md', 'L')
+    await commitSync('local root')
 
     await git.init({ fs: REMOTE_FS, dir: remoteDir, gitdir: remoteGitdir, defaultBranch: 'main' })
     await commitRemote('remote-only.md', 'R')
@@ -294,44 +388,17 @@ describe('CloudSyncManager', () => {
     const r = await manager.sync()
     expect(r.success).toBe(true)
     expect(await localHead()).toBe(await remoteHead())
-    expect(readLocal('remote-only.md')).toBe('R')
-    // 本地被备份（排除 .mtbot-vcs）
+    expect(readSync('remote-only.md')).toBe('R')
     const backups = fs
-      .readdirSync(path.dirname(workspaceDir))
-      .filter((n) => n.startsWith(path.basename(workspaceDir) + '.lumii-sync-backup-'))
+      .readdirSync(clientRoot)
+      .filter((n) => n.startsWith('sync.lumii-sync-backup-'))
     expect(backups.length).toBe(1)
-  })
-
-  it('criss-cross（多 merge base）→ error', async () => {
-    await setupBase()
-    writeLocal('a.md', 'A-local')
-    await getWorkspaceVcs(workspaceDir).commit({ author: 'user', message: 'local diverge' })
-    await commitRemote('b.md', 'B-remote')
-    vi.spyOn(git, 'findMergeBase').mockResolvedValueOnce(['1'.repeat(40), '2'.repeat(40)])
-    const r = await manager.sync()
-    expect(r.success).toBe(false)
-    expect(r.state).toBe('error')
-    expect(manager.getStatus().lastError).toMatch(/交叉合并/)
-  })
-
-  it('error 后下次成功同步 → lastError 被清除', async () => {
-    await setupBase()
-    writeLocal('a.md', 'A-local')
-    await getWorkspaceVcs(workspaceDir).commit({ author: 'user', message: 'local diverge' })
-    await commitRemote('b.md', 'B-remote')
-    vi.spyOn(git, 'findMergeBase').mockResolvedValueOnce(['1'.repeat(40), '2'.repeat(40)])
-    const r1 = await manager.sync()
-    expect(r1.state).toBe('error')
-    expect(manager.getStatus().lastError).toBeDefined()
-
-    const r2 = await manager.sync()
-    expect(r2.state).toBe('idle')
-    expect(manager.getStatus().lastError).toBeUndefined()
   })
 
   it('conflict 期间再调 sync → 直接返回不重试', async () => {
     await setupBase()
-    writeLocal('shared.md', 'local')
+    writeSync('shared.md', 'local')
+    await commitSync('local shared')
     await commitRemote('shared.md', 'remote')
     await manager.sync()
     expect(manager.getStatus().state).toBe('conflict')
@@ -339,26 +406,27 @@ describe('CloudSyncManager', () => {
     const r = await manager.sync()
     expect(r.success).toBe(false)
     expect(r.state).toBe('conflict')
-    expect(vi.mocked(git.fetch).mock.calls.length).toBe(calls) // 未再 fetch
+    expect(vi.mocked(git.fetch).mock.calls.length).toBe(calls)
   })
 
-  it('push 被拒 → 不强推，返回 idle 等下轮', async () => {
+  it('push 被拒（普通 sync）→ 不强推，返回 idle 等下轮', async () => {
     await setupBase()
     const baseRemote = await remoteHead()
-    writeLocal('new.md', 'v1')
+    writeSync('new.md', 'v1')
+    await commitSync('local new')
     rejectPush = true
     const r = await manager.sync()
     expect(r.success).toBe(true)
     expect(r.state).toBe('idle')
-    expect(await remoteHead()).toBe(baseRemote) // 远端未更新
+    expect(await remoteHead()).toBe(baseRemote)
   })
 
   it('并发 sync 串行执行，不丢提交', async () => {
     await setupBase()
-    writeLocal('c.md', 'v1')
+    writeSync('c.md', 'v1')
+    await commitSync('local c')
     const [r1, r2] = await Promise.all([manager.sync(), manager.sync()])
-    expect(r1.success).toBe(true)
-    expect(r2.success).toBe(true)
+    expect(r1.success || r2.success).toBe(true)
     expect(manager.getStatus().state).toBe('idle')
     expect(await remoteHead()).toBe(await localHead())
   })

@@ -1,9 +1,8 @@
 /**
  * CloudSyncManager — 云同步主流程。
  *
- * 唯一有分支逻辑的模块。复用 workspace-vcs 的同一仓库实例与串行队列
- * （enqueueWorkspace），避免与 Turn 快照并发操作 index/HEAD 丢提交。
- * isomorphic-git 关键行为已对照 1.40.0 源码核实（见计划 §1.1）。
+ * Git 仓库位于 `~/.lumii/sync`（syncDir）；与 Turn 快照通过 enqueueWorkspace 串行，
+ * 避免并发操作 index/HEAD。冲突读写/落决必须使用 getSyncGitParams()，禁止落到工作区 .mtbot-vcs。
  */
 import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
@@ -11,7 +10,7 @@ import path from 'node:path'
 import git from 'isomorphic-git'
 import type { PromiseFsClient } from 'isomorphic-git'
 import http from 'isomorphic-git/http/node'
-import { getWorkspaceVcs, enqueueWorkspace } from '../workspace-vcs/vcs-snapshot'
+import { enqueueWorkspace } from '../workspace-vcs/vcs-snapshot'
 import { resolveActiveWorkspaceDir } from '../workspace-paths'
 import { resolveWindowsClientDataRoot } from '../client-data-root'
 import { createLogger } from '../logger'
@@ -24,9 +23,17 @@ import { SyncImporter } from './sync-importer'
 
 const logger = createLogger('cloud-sync/manager')
 
+/** push 超时，避免 Agent 工具永久挂起（错误仓库或超大对象库时） */
+const PUSH_TIMEOUT_MS = 120_000
+
 type GitParams = { fs: PromiseFsClient; dir: string; gitdir: string }
 
 type AuthFn = () => { username: string; password: string }
+
+type PushOptions = {
+  /** true：被拒时抛错（冲突落决必须成功推送，禁止假成功） */
+  failOnReject?: boolean
+}
 
 interface MergeConflictErrorData {
   filepaths: string[]
@@ -76,6 +83,15 @@ export class CloudSyncManager extends EventEmitter {
     return path.join(this.dataDir, 'agent-runtime.db')
   }
 
+  /** syncDir 仓库的 git 参数（冲突读写/落决必须用此，禁止落到工作区 .mtbot-vcs） */
+  private getSyncGitParams(): GitParams {
+    return {
+      fs,
+      dir: this.syncDir,
+      gitdir: path.join(this.syncDir, '.git'),
+    }
+  }
+
   /** 设置冲突检测回调（由 main/index.ts 注入，用于创建自主目标） */
   setOnConflictDetected(callback: (conflict: ConflictInfo) => void): void {
     this.onConflictDetected = callback
@@ -111,11 +127,7 @@ export class CloudSyncManager extends EventEmitter {
       }
 
       // 使用 sync 目录作为 Git 仓库
-      const p: GitParams = {
-        fs,
-        dir: this.syncDir,
-        gitdir: path.join(this.syncDir, '.git'),
-      }
+      const p = this.getSyncGitParams()
 
       const provider = getProvider(cfg.provider)
       const token = decryptToken(cfg.tokenEnc)
@@ -271,16 +283,45 @@ export class CloudSyncManager extends EventEmitter {
     logger.info('[sync] 已写入 .gitignore 忽略同步清单')
   }
 
-  /** 推送；被拒不强推，等下轮（remote 又变） */
-  private async push(p: GitParams, url: string, localRef: string, auth: AuthFn): Promise<void> {
+  /**
+   * 推送；普通 sync 被拒不强推等下轮；冲突落决传 failOnReject 禁止假成功。
+   * 带超时，避免网络/错误仓库导致 Agent 工具永久挂起。
+   */
+  private async push(
+    p: GitParams,
+    _url: string,
+    localRef: string,
+    auth: AuthFn,
+    opts?: PushOptions,
+  ): Promise<void> {
+    const pushPromise = git.push({
+      ...p,
+      http,
+      remote: 'origin',
+      ref: localRef,
+      remoteRef: localRef,
+      onAuth: auth,
+    })
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      await git.push({ ...p, http, remote: 'origin', ref: localRef, remoteRef: localRef, onAuth: auth })
+      await Promise.race([
+        pushPromise,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`git push 超时（${PUSH_TIMEOUT_MS}ms），已中止等待`)),
+            PUSH_TIMEOUT_MS,
+          )
+        }),
+      ])
     } catch (err) {
       if (isRejectedPush(err)) {
+        if (opts?.failOnReject) throw err
         logger.warn('[sync] 远程有更新，下轮重试')
         return
       }
       throw err
+    } finally {
+      if (timer) clearTimeout(timer)
     }
   }
 
@@ -439,33 +480,42 @@ export class CloudSyncManager extends EventEmitter {
     const remoteRef = `refs/remotes/origin/${branch}`
     const token = decryptToken(cfg.tokenEnc)
     const auth = (): ReturnType<AuthFn> => getProvider(cfg.provider).auth(token)
-    const p = getWorkspaceVcs(this.workspaceDir).getGitParams()
+    // 必须操作 syncDir，与 syncInner / 冲突文件路径一致（禁止工作区 .mtbot-vcs）
+    const p = this.getSyncGitParams()
 
     try {
+      // 冲突后 HEAD 可能 detached：用冲突记录的 localOid 作为「本地侧」
+      const oursRef = c.localOid
       for (const f of c.files) {
-        const side = strategy === 'per-file'
-          ? (choices?.find((x) => x.path === f)?.side ?? 'local')
-          : strategy === 'keep-local'
-            ? 'local'
-            : 'remote'
+        const side =
+          strategy === 'per-file'
+            ? (choices?.find((x) => x.path === f)?.side ?? 'local')
+            : strategy === 'keep-local'
+              ? 'local'
+              : 'remote'
         await git.checkout({
           ...p,
-          ref: side === 'local' ? 'HEAD' : remoteRef,
+          ref: side === 'local' ? oursRef : remoteRef,
           filepaths: [f],
           force: true,
           noUpdateHead: true,
         })
+        // 清掉 index 冲突 stage，否则双亲 commit 可能失败
+        await git.add({ ...p, filepath: f })
       }
-      const localOid = await git.resolveRef({ ...p, ref: 'HEAD' })
       const remoteOid = await git.resolveRef({ ...p, ref: remoteRef })
       await git.commit({
         ...p,
         ref: localRef,
         message: `解决云同步冲突（${strategy}）`,
-        parent: [localOid, remoteOid],
+        parent: [oursRef, remoteOid],
         author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
       })
-      await this.push(p, cfg.repoUrl.trim(), localRef, auth)
+      // 挂回分支，避免继续 detached
+      await git.checkout({ ...p, ref: localRef, force: true })
+      await this.push(p, cfg.repoUrl.trim(), localRef, auth, { failOnReject: true })
+      // 落决后把 sync 内容导回本地 data/workspace
+      await this.importData()
       this.conflict = undefined
       this.status.conflict = undefined
       this.setState('idle', '冲突已解决')
@@ -479,12 +529,24 @@ export class CloudSyncManager extends EventEmitter {
     }
   }
 
-  /** 读三方任一版本内容，供 Agent 判断 */
-  async readFileAt(oid: 'local' | 'remote' | 'base', filepath: string): Promise<string | null> {
+  /** 读三方任一版本内容（syncDir），供 Agent 判断 */
+  async readFileAt(side: 'local' | 'remote' | 'base', filepath: string): Promise<string | null> {
     const c = this.conflict
     if (!c) return null
-    const ref = oid === 'local' ? 'HEAD' : oid === 'remote' ? `refs/remotes/origin/${loadCloudSyncConfig().branch || 'main'}` : c.baseOid
-    return getWorkspaceVcs(this.workspaceDir).readFileAt(ref, filepath)
+    const p = this.getSyncGitParams()
+    const branch = loadCloudSyncConfig().branch || 'main'
+    try {
+      const oid =
+        side === 'base'
+          ? c.baseOid
+          : side === 'local'
+            ? c.localOid
+            : await git.resolveRef({ ...p, ref: `refs/remotes/origin/${branch}` })
+      const { blob } = await git.readBlob({ ...p, oid, filepath })
+      return new TextDecoder().decode(blob)
+    } catch {
+      return null
+    }
   }
 
   private setState(state: SyncState, message: string): void {
