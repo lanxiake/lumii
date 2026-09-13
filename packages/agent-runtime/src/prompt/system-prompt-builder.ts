@@ -168,6 +168,13 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
   const toolLines = categorizeTools(effectiveToolNames)
 
+  // 技能正文与动态激活提示共用（P2 重排上提：段序调整不影响计算顺序）
+  const readToolName = effectiveToolNames.includes("file_read")
+    ? "file_read"
+    : effectiveToolNames.includes("read")
+      ? "read"
+      : "file_read"
+
   // ========== 输出缓冲与段级计量（段 ID 见 prompt-sections.ts） ==========
   const staticLines: string[] = []
   const dynamicLines: string[] = []
@@ -181,8 +188,13 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   }
 
   // ========== 静态部分（实例生命周期内不变） ==========
+  // 段序（P2 结构重排，2026-09-13）：① 身份 → ② 规则 → ③ 能力索引 → ④ 协作 → ⑤ 渠道。
+  // 同类相邻（对齐 PROMPT_SECTIONS.group）；identity 恒为首；重排为缓存中性变更
+  // （渲染仍确定性，仅段序不同 = 一次性重建）。
 
-  // === 1. Identity ===
+  // ═══ ① 身份 ═══
+
+  // === 1.1. Identity ===
   const identityLines = [identityLine]
   // personality 注入（拼接在 identity 之后）
   if (agentDefinition.personality) {
@@ -190,7 +202,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   }
   emit("static", "identity", identityLines)
 
-  // permissionMode 感知提示
+  // === 1.2. permissionMode 感知提示 ===
   const permissionModeLines: string[] = []
   if (agentDefinition.permissionMode === "readOnly") {
     permissionModeLines.push(
@@ -207,7 +219,74 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   }
   emit("static", "permissionMode", permissionModeLines)
 
-  // === 2. Tooling ===
+  // ═══ ② 规则块（行为契约与红线） ═══
+
+  // === 2.1. 系统运行规则（对齐 Claude Code # System：工具被拒不重试 / 标签语义 / 防臆造 URL / 防注入） ===
+  emit("static", "systemRules", ["", ...buildSystemRulesSection(effectiveToolNames)])
+
+  // === 2.2. 工作原则（做任务的工程原则） ===
+  // 子 Agent 已有专门的角色约束，避免与执行风格冲突，仅主 Agent 注入。
+  // 代码细则仅当具备代码类工具时注入（能力驱动条件注入）。
+  if (!params.isSubAgent) {
+    const hasCodeTools =
+      effectiveToolNames.includes("file_edit") ||
+      effectiveToolNames.includes("file_write") ||
+      effectiveToolNames.includes("bash")
+    emit("static", "operatingPrinciples", ["", ...buildOperatingPrinciplesSection(style, hasCodeTools)])
+  }
+
+  // === 2.3. 进度更新（迁移映射 #5：terse 档用原 compact 精简文案） ===
+  if (style === "terse") {
+    emit("static", "progressUpdates", [
+      "## Progress Updates",
+      "Before the first tool call, state the intent in one sentence. During execution, speak only for key findings, direction changes, or blockers. End with the result and next step; omit filler.",
+      "",
+    ])
+  } else {
+    emit("static", "progressUpdates", [
+      "## Progress Updates",
+      "Before the first tool call, state what you will do and why. Batch independent calls. During execution, report only key findings, direction changes, or blockers. End with a concise result, output location, and next step. Do not narrate hidden reasoning or use filler.",
+      "",
+    ])
+  }
+
+  // === 2.4. 诚实与完成验证（治长对话/压缩后的工具调用幻觉与虚假完成；子 Agent 也需遵守） ===
+  emit("static", "verification", [...buildVerificationSection(effectiveToolNames)])
+
+  // === 2.5. 工具命名契约：仅 detailed 档注入（terse 档不注入，迁移映射 #7） ===
+  if (style === "detailed") {
+    emit("static", "toolNamingContract", [...buildToolNamingContractSection(effectiveToolNames)])
+  }
+
+  // === 2.6. 安全与边界（操作守则 + 红线，合并为一段） ===
+  emit("static", "safety", [...buildSafetySection(effectiveToolNames)])
+
+  // === 2.7. Language & Task Completion ===
+  emit("static", "language", [
+    "## Language",
+    "Always respond in **Chinese (Simplified)** unless the user explicitly writes in another language.",
+    "This applies to all text output: explanations, summaries, tool narration, and error messages.",
+    "",
+  ])
+  emit("static", "taskCompletion", [
+    "## Task Completion",
+    "`task_complete` is the only completion signal and must be called. See the Session Tasks section for timing.",
+    "- Before calling it, confirm outputs exist and actions actually ran (see Honesty and Verification).",
+    "- Provide a 1–3 sentence summary: what was done, key result or output file, any important caveat.",
+    "- Client todo updates and desktop notifications depend on this call; saying 'done' in text does not trigger them.",
+    "",
+  ])
+
+  // === 2.8. Silent Replies（NO_REPLY 协议） ===
+  emit("static", "silentReplies", [...buildSilentRepliesSection()])
+
+  // === 2.9. File Output Standards（始终注入，不依赖 task/spawn 工具） ===
+  emit("static", "fileOutput", [...buildFileOutputSection(effectiveToolNames, style)])
+
+  // ═══ ③ 能力索引块 ═══
+  // Cron / Scheduled Tasks 已索引化：规则在 Tooling 的 TOOL_SUMMARIES/GROUP_NOTES，无独立段。
+
+  // === 3.1. Tooling ===
   emit("static", "tooling", [
     "",
     ...tagged("tooling", [
@@ -219,10 +298,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     ]),
   ])
 
-  // === 2.05. 系统运行规则（对齐 Claude Code # System：工具被拒不重试 / 标签语义 / 防臆造 URL / 防注入） ===
-  emit("static", "systemRules", ["", ...buildSystemRulesSection(effectiveToolNames)])
-
-  // === 2.1. 工具选择优先级（主 Agent 恒注入） ===
+  // === 3.2. 工具选择优先级（主 Agent 恒注入） ===
   if (!params.isSubAgent) {
     const hasWebTools = effectiveToolNames.includes("web_search") || effectiveToolNames.includes("web_fetch")
     const hasSkillTools = effectiveToolNames.includes("skill_search")
@@ -239,18 +315,31 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     }
   }
 
-  // === 2.2. 工作原则（做任务的工程原则，紧跟身份之后） ===
-  // 子 Agent 已有专门的角色约束，避免与执行风格冲突，仅主 Agent 注入。
-  // 代码细则仅当具备代码类工具时注入（能力驱动条件注入）。
-  if (!params.isSubAgent) {
-    const hasCodeTools =
-      effectiveToolNames.includes("file_edit") ||
-      effectiveToolNames.includes("file_write") ||
-      effectiveToolNames.includes("bash")
-    emit("static", "operatingPrinciples", ["", ...buildOperatingPrinciplesSection(style, hasCodeTools)])
+  // === 3.3. Progressive Loading & Context Management ===
+  emit("static", "progressiveLoading", [...buildProgressiveLoadingSection(effectiveToolNames, style)])
+
+  // === 3.4. MCP Server Instructions ===
+  if (params.mcpServerHints && params.mcpServerHints.length > 0) {
+    emit("static", "mcp", [...tagged("mcp_servers", buildMcpSection(params.mcpServerHints))])
   }
 
-  // === 2.5. Bundled Capabilities（Agent 自带技能包，仅在 bundledSkillIds 非空时插入） ===
+  // === 3.5. Skills（按白名单过滤）===
+  if (skills && skills.length > 0) {
+    const allowedSkills = agentDefinition.skills
+    const baseSkills = routerFilteredSkills ?? skills
+    const filteredSkills = allowedSkills && allowedSkills.length > 0
+      ? baseSkills.filter((s) => allowedSkills.includes(s.name))
+      : baseSkills
+
+    if (filteredSkills.length > 0) {
+      const hasSkillTools = effectiveToolNames.includes("skill_list")
+      emit("static", "skills", [
+        ...tagged("skills", buildSkillsSection(filteredSkills, readToolName, hasSkillTools)),
+      ])
+    }
+  }
+
+  // === 3.6. Bundled Capabilities（Agent 自带技能包，仅在 bundledSkillIds 非空时插入） ===
   if (params.bundledSkillIds && params.bundledSkillIds.length > 0 && skills) {
     const bundledSet = new Set(params.bundledSkillIds.map((id) => id.trim()))
     const bundledSkills = skills.filter((s) => bundledSet.has(skillKey(s)))
@@ -268,69 +357,25 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     }
   }
 
-  // 进度更新双版（迁移映射 #5）：terse 档用原 compact 精简文案
-  if (style === "terse") {
-    emit("static", "progressUpdates", [
-      "## Progress Updates",
-      "Before the first tool call, state the intent in one sentence. During execution, speak only for key findings, direction changes, or blockers. End with the result and next step; omit filler.",
-      "",
-    ])
-  } else {
-    emit("static", "progressUpdates", [
-      "## Progress Updates",
-      "Before the first tool call, state what you will do and why. Batch independent calls. During execution, report only key findings, direction changes, or blockers. End with a concise result, output location, and next step. Do not narrate hidden reasoning or use filler.",
-      "",
-    ])
-  }
-
-  // === 2.6. 诚实与完成验证（治长对话/压缩后的工具调用幻觉与虚假完成；子 Agent 也需遵守） ===
-  emit("static", "verification", [...buildVerificationSection(effectiveToolNames)])
-
-  // 工具命名契约：仅 detailed 档注入（terse 档不注入，迁移映射 #7）
-  if (style === "detailed") {
-    emit("static", "toolNamingContract", [...buildToolNamingContractSection(effectiveToolNames)])
-  }
-
-  // === 2.5. Progressive Loading & Context Management ===
-  emit("static", "progressiveLoading", [...buildProgressiveLoadingSection(effectiveToolNames, style)])
-
-  // === 3. MCP Server Instructions ===
-  if (params.mcpServerHints && params.mcpServerHints.length > 0) {
-    emit("static", "mcp", [...tagged("mcp_servers", buildMcpSection(params.mcpServerHints))])
-  }
-
-  // === 4. Skills（按白名单过滤）===
-  const readToolName = effectiveToolNames.includes("file_read")
-    ? "file_read"
-    : effectiveToolNames.includes("read")
-      ? "read"
-      : "file_read"
-  if (skills && skills.length > 0) {
-    const allowedSkills = agentDefinition.skills
-    const baseSkills = routerFilteredSkills ?? skills
-    const filteredSkills = allowedSkills && allowedSkills.length > 0
-      ? baseSkills.filter((s) => allowedSkills.includes(s.name))
-      : baseSkills
-
-    if (filteredSkills.length > 0) {
-      const hasSkillTools = effectiveToolNames.includes("skill_list")
-      emit("static", "skills", [
-        ...tagged("skills", buildSkillsSection(filteredSkills, readToolName, hasSkillTools)),
-      ])
-    }
-  }
-
-  // === 4.5. 自我学习与进化（仅主 Agent） ===
+  // === 3.7. 自我学习与进化（仅主 Agent） ===
   if (!params.isSubAgent) {
     emit("static", "selfLearning", [...tagged("skills", buildSelfLearningSection(effectiveToolNames))])
   }
 
-  // === 5. Task Orchestration（按能力条件化）===
+  // === 3.8. Browser ===
+  emit("static", "browser", [...buildBrowserSection(effectiveToolNames, style)])
+
+  // === 3.9. Wiki ===
+  emit("static", "wiki", [...buildWikiKnowledgeSection(effectiveToolNames)])
+
+  // ═══ ④ 协作块 ═══
+
+  // === 4.1. Task Orchestration（按能力条件化）===
   if (effectiveToolNames.includes("spawn_agent") || effectiveToolNames.includes("todo_write")) {
     emit("static", "taskOrchestration", [...buildTaskOrchestrationSection(effectiveToolNames)])
   }
 
-  // === 6. Multi-Agent Collaboration ===
+  // === 4.2. Multi-Agent Collaboration ===
   if (params.isSubAgent) {
     // 子 Agent：仅注入角色约束，不列出 Agent 目录（防止递归委派 R1）
     emit("static", "subagentRole", [
@@ -361,43 +406,16 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     }
   }
 
-  // === 7. Device Node Control ===
+  // === 4.3. Device Node Control ===
   emit("static", "deviceControl", [...buildDeviceControlSection(params.userDevices, effectiveToolNames)])
 
-  // === 8. 安全与边界（操作守则 + 红线，合并为一段） ===
-  emit("static", "safety", [...buildSafetySection(effectiveToolNames)])
+  // ═══ ⑤ 渠道 ═══
 
-  // === 8.5. Language & Task Completion ===
-  emit("static", "language", [
-    "## Language",
-    "Always respond in **Chinese (Simplified)** unless the user explicitly writes in another language.",
-    "This applies to all text output: explanations, summaries, tool narration, and error messages.",
-    "",
-  ])
-  emit("static", "taskCompletion", [
-    "## Task Completion",
-    "`task_complete` is the only completion signal and must be called. See the Session Tasks section for timing.",
-    "- Before calling it, confirm outputs exist and actions actually ran (see Honesty and Verification).",
-    "- Provide a 1–3 sentence summary: what was done, key result or output file, any important caveat.",
-    "- Client todo updates and desktop notifications depend on this call; saying 'done' in text does not trigger them.",
-    "",
-  ])
-
-  // === 9. Messaging 指导（静态规则） ===
+  // === 5.1. Messaging 指导（静态规则） ===
   emit("static", "messaging", [...buildMessagingSection({ toolNames: effectiveToolNames, runtimeChannel, style })])
-  emit("static", "wiki", [...buildWikiKnowledgeSection(effectiveToolNames)])
-  emit("static", "browser", [...buildBrowserSection(effectiveToolNames, style)])
 
-  // === 10. Cron / Scheduled Tasks（已索引化：规则在 Tooling 的 TOOL_SUMMARIES/GROUP_NOTES，无独立段） ===
-
-  // === 10.5. File Output Standards（始终注入，不依赖 task/spawn 工具） ===
-  emit("static", "fileOutput", [...buildFileOutputSection(effectiveToolNames, style)])
-
-  // === 11. A2UI 动态 UI 能力（暂时屏蔽：效果不好，待优化后重新启用） ===
+  // A2UI 动态 UI 能力（暂时屏蔽：效果不好，待优化后重新启用）
   // staticLines.push(...buildA2UISection(effectiveToolNames))
-
-  // === 12. Silent Replies（NO_REPLY 协议） ===
-  emit("static", "silentReplies", [...buildSilentRepliesSection()])
 
   // ========== 动态部分（每轮可能变化） ==========
 
