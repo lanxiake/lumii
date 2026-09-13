@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
-import { render } from '@testing-library/react'
+import { render, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { ChatMessage } from '../../renderer/pages/ChatPage/components/ChatMessage'
 import {
@@ -145,5 +145,136 @@ describe('ChatMessage parts 时间线', () => {
     // 但卡片与确认按钮必须可见可点
     expect(getByRole('button', { name: '交给灵栖开发' })).toBeInTheDocument()
     expect(container.textContent ?? '').toContain('修复分页 off-by-one')
+  })
+})
+
+describe('ChatMessage 团队委托卡片（spawn_agent）', () => {
+  /** 构造一条 spawn_agent 工具 part（jsonToolResult 包装与主进程一致） */
+  function spawnPart(overrides: Partial<Extract<AssistantPart, { type: 'tool' }>> = {}): Extract<AssistantPart, { type: 'tool' }> {
+    return {
+      type: 'tool',
+      id: 't-spawn',
+      name: 'spawn_agent',
+      args: {
+        name: '竞品调研员',
+        agentType: 'info-curator',
+        mode: 'sync',
+        description: '调研竞品最近的版本更新',
+        prompt: 'MARKER_SPAWN_PROMPT 完整任务描述',
+      },
+      status: 'done',
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              status: 'ok',
+              instanceId: 'inst-child-1',
+              mode: 'sync',
+              output: 'MARKER_SPAWN_OUTPUT 三条结论',
+            }),
+          },
+        ],
+      },
+      ...overrides,
+    }
+  }
+
+  function renderMessage(parts: AssistantPart[]) {
+    return render(
+      <ChatMessageActionsProvider value={messageActions}>
+        <ChatMessage message={buildPartsMessage(parts)} />
+      </ChatMessageActionsProvider>,
+    )
+  }
+
+  it('委托卡片露在折叠区外：专家名 / 任务 / 产出摘要可见，不被工具批次吞掉', () => {
+    const parts: AssistantPart[] = [
+      { type: 'thinking', id: 'th-1', text: 'MARKER_SPAWN_THINK', status: 'done' },
+      { type: 'tool', id: 'tool-1', name: 'file_read', args: {}, status: 'done' },
+      spawnPart(),
+      { type: 'thinking', id: 'th-2', text: 'MARKER_SPAWN_THINK_2', status: 'done' },
+      { type: 'text', id: 'tx-1', text: 'MARKER_SPAWN_FINAL', status: 'done' },
+    ]
+
+    const { container } = renderMessage(parts)
+    const text = container.textContent ?? ''
+
+    // 折叠区仍收起（思考原文不进 DOM），委托卡片必须在折叠区外
+    expect(text).not.toContain('MARKER_SPAWN_THINK')
+    expect(text).toContain('团队委托')
+    expect(text).toContain('灵栖情报')
+    expect(text).toContain('调研竞品最近的版本更新')
+    expect(text).toContain('已完成')
+    // 产出摘要内联可见，不用展开
+    expect(text).toContain('三条结论')
+  })
+
+  it('运行中的委托显示执行中提示', () => {
+    const parts: AssistantPart[] = [
+      spawnPart({ status: 'running', result: undefined }),
+    ]
+    const { container } = renderMessage(parts)
+    const text = container.textContent ?? ''
+    expect(text).toContain('执行中')
+    expect(text).toContain('正在等待这位专家执行')
+  })
+
+  it('后台委托完成后提示会自动汇报', () => {
+    const parts: AssistantPart[] = [
+      spawnPart({
+        args: {
+          name: '调研员',
+          agentType: 'info-curator',
+          mode: 'async',
+          description: '后台整理情报',
+          prompt: '整理情报',
+        },
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ status: 'ok', instanceId: 'inst-2', mode: 'async', message: 'task dispatched' }),
+            },
+          ],
+        },
+      }),
+    ]
+    const { container } = renderMessage(parts)
+    const text = container.textContent ?? ''
+    expect(text).toContain('已派发')
+    expect(text).toContain('后台')
+    expect(text).toContain('完成后会自动汇报')
+  })
+
+  it('委托失败显示失败原因', () => {
+    const parts: AssistantPart[] = [
+      spawnPart({
+        status: 'done',
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ status: 'error', message: 'MARKER_SPAWN_FAIL 并发上限已满' }),
+            },
+          ],
+        },
+      }),
+    ]
+    const { container } = renderMessage(parts)
+    const text = container.textContent ?? ''
+    expect(text).toContain('失败')
+    expect(text).toContain('并发上限已满')
+  })
+
+  it('详情展开后显示完整任务与完整产出', () => {
+    const { getByRole, container } = renderMessage([spawnPart()])
+    expect(container.textContent ?? '').not.toContain('MARKER_SPAWN_PROMPT')
+
+    fireEvent.click(getByRole('button', { name: /团队委托/ }))
+
+    const text = container.textContent ?? ''
+    expect(text).toContain('MARKER_SPAWN_PROMPT')
+    expect(text).toContain('MARKER_SPAWN_OUTPUT')
   })
 })
