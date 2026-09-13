@@ -1,7 +1,8 @@
 /**
- * send_message 工具 — Agent 间消息通信
+ * send_message 工具 — 给「正在跑的任务」追加指令
  *
- * 向指定 Agent 或广播发送消息。
+ * 语义（2026-09-13 拍板）：不是委派通道，而是对已在运行的专家/子任务补要求、纠偏、传话。
+ * 委派仍走 spawn_agent；目标实例完成后即回收，此时应重新委托而不是重复调用本工具。
  */
 
 import { Type, type Static } from "@sinclair/typebox";
@@ -10,9 +11,10 @@ import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 
 const SendMessageParams = Type.Object({
   to: Type.String({
-    description: 'Recipient: agent name, agent ID, or "*" for broadcast to all agents',
+    description:
+      'Running agent to append to: agent name, agent ID, or a sub-agent instance id from spawn_agent. "*" broadcasts to all agents.',
   }),
-  message: Type.String({ description: "Message content to send" }),
+  message: Type.String({ description: "Instruction or message to append to that running task" }),
   summary: Type.Optional(
     Type.String({ description: "A 5-10 word summary shown as a preview in the UI" }),
   ),
@@ -28,7 +30,10 @@ type SendMessageInput = Static<typeof SendMessageParams>;
 export const sendMessageToolConfig: MtBotToolConfig<typeof SendMessageParams> = {
   name: "send_message",
   label: "Send Message",
-  description: "Send a message to another agent teammate",
+  description:
+    "Append an instruction to a task that is already running (a delegated sub-agent). " +
+    "Use it to refine, correct or add requirements mid-flight instead of spawning the same task again. " +
+    "Not a delegation channel.",
   parameters: SendMessageParams,
   category: "agent",
   isReadOnly: false,

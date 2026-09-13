@@ -485,6 +485,12 @@ Delegate with \`spawn_agent\` (\`agentType\` = agent id):
 
 \`spawn_agent\` is the only delegation mechanism; do not delegate via \`send_message\`.
 
+### Messaging a Running Task
+
+\`send_message\` appends to work that is already running: pass \`to\` = the sub-agent instance id returned by \`spawn_agent\` (or the specialist's name).
+Use it to add requirements, correct course, or relay the user's follow-up mid-flight — instead of spawning a second agent for the same job.
+A finished task cannot receive messages (its instance is recycled): if \`send_message\` reports the agent is not running, delegate the work again with \`spawn_agent\` rather than retrying.
+
 ### Writing a Delegation Prompt
 
 A sub-agent cannot see this conversation. Brief it like a colleague who just walked in:

@@ -618,7 +618,15 @@ export class AgentOrchestrator {
 
     const target = this.deps.findInstanceByRecipient(to);
     if (!target) {
-      return { status: "error", message: `Agent "${to}" not found` };
+      // 目标不在运行最常见的原因是任务已完成、实例已回收（2026-09-13 拍板不做持久信箱）。
+      // 此时反复重试 send_message 没有意义：错误信息里直接给出正确出路。
+      return {
+        status: "error",
+        message:
+          `Agent "${to}" not found — it is not running right now. A specialist instance is destroyed ` +
+          `once its task finishes, so a finished task cannot receive messages. ` +
+          `To continue that work, delegate again with spawn_agent instead of retrying send_message.`,
+      };
     }
     if (!this.messageBus.has(target.id)) {
       this.messageBus.register(target.id);

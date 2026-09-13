@@ -157,6 +157,26 @@ describe("AgentOrchestrator", () => {
     expect(prompt).not.toHaveBeenCalled();
   });
 
+  it("sendMessage 目标不在运行 → 错误信息引导改用 spawn_agent 重新委托", async () => {
+    const orch = new AgentOrchestrator(registry, bus, {
+      resolveDefinition: async () => mockDef("assistant"),
+      createChildInstance: async () => "x",
+      prompt: vi.fn(),
+      followUp: vi.fn(),
+      destroy: vi.fn(),
+      getInstance: () => undefined,
+      findInstanceByRecipient: () => undefined,
+      getDisplayNameForInstance: (id) => id,
+    });
+
+    const r = await orch.sendMessage({ to: "灵栖情报", message: "补充要求", fromInstanceId: "a1" });
+    expect(r.status).toBe("error");
+    if (r.status === "error") {
+      expect(r.message).toContain("not running");
+      expect(r.message).toContain("spawn_agent");
+    }
+  });
+
   it("spawn builtin:verify (sync) → 解析 VERDICT 并前置机器摘要", async () => {
     // 模拟子实例：subscribe 时立刻推送 verify 输出，waitForIdle 立即返回
     const verifyOutput =

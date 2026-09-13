@@ -67,6 +67,7 @@ export function buildAgentCollaborationSection(
 
   const hasExecutionPlan = toolNames.includes("create_execution_plan")
   const hasDelegate = toolNames.includes("delegate_to_agent")
+  const hasSendMessage = toolNames.includes("send_message")
 
   // 团队专家条目仅在确有系统成员时渲染，避免指向空组的规则污染提示词
   const selectionLines = [
@@ -123,18 +124,30 @@ export function buildAgentCollaborationSection(
   ]
 
   if (style === "terse") {
-    lines.push(
-      "`spawn_agent` is the only delegation mechanism; do not delegate via `send_message`.",
-      "",
-      'Delegation brief & result handling: `prompt_guide(section: "agentCollaboration")`.',
-      "",
-    )
+    lines.push("`spawn_agent` is the only delegation mechanism; do not delegate via `send_message`.")
+    if (hasSendMessage) {
+      lines.push(
+        "`send_message` appends to work that is already running (to = instance id from `spawn_agent`, or the specialist's name): use it to add requirements or correct course mid-flight instead of spawning the same task again. A finished task cannot receive messages — delegate again in that case.",
+      )
+    }
+    lines.push("", 'Delegation brief & result handling: `prompt_guide(section: "agentCollaboration")`.', "")
     return lines
   }
 
+  lines.push("`spawn_agent` is the only delegation mechanism; do not delegate via `send_message`.", "")
+
+  if (hasSendMessage) {
+    lines.push(
+      "### Messaging a Running Task",
+      "",
+      "`send_message` appends to work that is already running: pass `to` = the sub-agent instance id returned by `spawn_agent` (or the specialist's name).",
+      "Use it to add requirements, correct course, or relay the user's follow-up mid-flight — instead of spawning a second agent for the same job.",
+      "A finished task cannot receive messages (its instance is recycled): if `send_message` reports the agent is not running, delegate the work again with `spawn_agent` rather than retrying.",
+      "",
+    )
+  }
+
   lines.push(
-    "`spawn_agent` is the only delegation mechanism; do not delegate via `send_message`.",
-    "",
     "### Writing a Delegation Prompt",
     "",
     "A sub-agent cannot see this conversation. Brief it like a colleague who just walked in:",
