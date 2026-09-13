@@ -5,6 +5,9 @@
  */
 
 import type { AgentDefinition } from "../types/agent-definition.js"
+import type { PromptSectionStat } from "./prompt-sections.js"
+
+export type { PromptSectionStat }
 
 /** 技能描述（用于注入系统提示词） */
 export interface SkillInfo {
@@ -177,6 +180,8 @@ export interface SystemPromptResult {
   readonly dynamicPrompt: string
   /** 完整提示词 = staticPrompt + CACHE_BOUNDARY + dynamicPrompt */
   readonly fullPrompt: string
+  /** 段级计量（逐段字符数；段 ID / 元数据见 prompt-sections.ts） */
+  readonly sectionStats?: readonly PromptSectionStat[]
 }
 
 /** 缓存断点标记（分隔静态/动态部分） */

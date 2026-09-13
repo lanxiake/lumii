@@ -10,6 +10,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { buildClientSystemPromptStructured } from "../prompt/system-prompt-builder.js"
+import { PROMPT_SECTIONS } from "../prompt/prompt-sections.js"
 import type {
   ActiveTaskInfo,
   CustomAgentInfo,
@@ -260,5 +261,52 @@ describe("系统提示词快照基线（重构对照，勿随意更新快照）"
       promptDetail: "standard",
     })
     expect(result.fullPrompt).toMatchSnapshot()
+  })
+})
+
+describe("sectionStats 段级计量（P0-T2）", () => {
+  it("段 ID 均在元数据表登记，字符总量与 fullPrompt 相称", () => {
+    const { fullPrompt, sectionStats } = buildClientSystemPromptStructured({
+      agentDefinition: FULL_DEF,
+      toolNames: [
+        "file_read",
+        "file_write",
+        "file_edit",
+        "bash",
+        "memory_search",
+        "message",
+        "todo_write",
+        "task_complete",
+        "cron_create",
+        "browser_screenshot",
+      ],
+      cwd: "C:/Users/test/.mtbot/workspace",
+      skills: SKILLS,
+      customAgents: CUSTOM_AGENTS,
+      activeTasks: ACTIVE_TASKS,
+      promptDetail: "standard",
+    })
+
+    expect(sectionStats).toBeDefined()
+    const stats = sectionStats!
+    const known = new Set(PROMPT_SECTIONS.map((s) => s.id))
+    for (const s of stats) {
+      expect(known.has(s.id)).toBe(true)
+    }
+
+    const ids = stats.map((s) => s.id)
+    expect(ids).toContain("identity")
+    expect(ids).toContain("tooling")
+    expect(ids).toContain("memory")
+    expect(ids).toContain("workspace")
+    expect(ids).toContain("runtime")
+    expect(stats.some((s) => s.zone === "static")).toBe(true)
+    expect(stats.some((s) => s.zone === "dynamic")).toBe(true)
+
+    // 段字符总量 ≈ fullPrompt 长度（仅差段间换行与 CACHE_BOUNDARY 分隔符）
+    const total = stats.reduce((n, s) => n + s.chars, 0)
+    expect(total).toBeGreaterThan(0)
+    expect(total).toBeLessThanOrEqual(fullPrompt.length)
+    expect(total).toBeGreaterThan(fullPrompt.length * 0.9)
   })
 })

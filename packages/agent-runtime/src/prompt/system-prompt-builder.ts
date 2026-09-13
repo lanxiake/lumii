@@ -12,6 +12,7 @@ import type {
   PromptDetail,
 } from "./system-prompt.types.js"
 import { CACHE_BOUNDARY_MARKER, PROMPT_SECTION_TAGS } from "./system-prompt.types.js"
+import type { PromptSectionId, PromptSectionStat } from "./prompt-sections.js"
 import { MEMORY_PLACEHOLDER } from "../memory/memory-injector.js"
 import { DEFAULT_SOUL_CONTENT } from "./default-soul.js"
 import { extractToolName } from "../security/param-permission-parser.js"
@@ -77,6 +78,14 @@ export type {
   RouterResultLite,
 } from "./system-prompt.types.js"
 export { CACHE_BOUNDARY_MARKER, PROMPT_SECTION_TAGS } from "./system-prompt.types.js"
+export { PROMPT_SECTIONS } from "./prompt-sections.js"
+export type {
+  PromptSectionId,
+  PromptSectionGroup,
+  PromptSectionMeta,
+  PromptSectionStat,
+  PromptExpandRoute,
+} from "./prompt-sections.js"
 
 // 导出工具函数供外部使用
 export { filterAgentsForCollaborationPrompt } from "./sections/agent-collaboration-section.js"
@@ -160,34 +169,47 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
   const toolLines = categorizeTools(effectiveToolNames)
 
-  // ========== 静态部分（实例生命周期内不变） ==========
+  // ========== 输出缓冲与段级计量（段 ID 见 prompt-sections.ts） ==========
   const staticLines: string[] = []
-
-  // === 1. Identity ===
-  staticLines.push(identityLine)
-
-  // personality 注入（拼接在 identity 之后）
-  if (agentDefinition.personality) {
-    staticLines.push("", agentDefinition.personality)
+  const dynamicLines: string[] = []
+  const stats: PromptSectionStat[] = []
+  /** 段级写入：空数组跳过（与原 push 行为一致），同时记录段级计量 */
+  const emit = (zone: "static" | "dynamic", id: PromptSectionId, lines: string[]): void => {
+    if (lines.length === 0) return
+    if (zone === "static") staticLines.push(...lines)
+    else dynamicLines.push(...lines)
+    stats.push({ id, zone, chars: lines.join("\n").length })
   }
 
+  // ========== 静态部分（实例生命周期内不变） ==========
+
+  // === 1. Identity ===
+  const identityLines = [identityLine]
+  // personality 注入（拼接在 identity 之后）
+  if (agentDefinition.personality) {
+    identityLines.push("", agentDefinition.personality)
+  }
+  emit("static", "identity", identityLines)
+
   // permissionMode 感知提示
+  const permissionModeLines: string[] = []
   if (agentDefinition.permissionMode === "readOnly") {
-    staticLines.push(
+    permissionModeLines.push(
       "",
       "## Permission Mode: Read-Only",
       "You are in read-only mode. Never create, modify, or delete files; only search and read.",
     )
   } else if (agentDefinition.permissionMode === "acceptEdits") {
-    staticLines.push(
+    permissionModeLines.push(
       "",
       "## Permission Mode: Auto-Edit",
       "You may apply file edits automatically without per-edit user confirmation.",
     )
   }
+  emit("static", "permissionMode", permissionModeLines)
 
   // === 2. Tooling ===
-  staticLines.push(
+  emit("static", "tooling", [
     "",
     ...tagged("tooling", [
       "## Tooling",
@@ -196,10 +218,10 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
       "",
       ...toolLines,
     ]),
-  )
+  ])
 
   // === 2.05. 系统运行规则（对齐 Claude Code # System：工具被拒不重试 / 标签语义 / 防臆造 URL / 防注入） ===
-  staticLines.push("", ...buildSystemRulesSection(effectiveToolNames, detail))
+  emit("static", "systemRules", ["", ...buildSystemRulesSection(effectiveToolNames, detail)])
 
   // === 2.1. 工具选择优先级（仅 standard/full 模式注入） ===
   if (detail !== "compact" && !params.isSubAgent) {
@@ -209,12 +231,12 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     // 「优先用专用文件工具而非 bash」已由 Tooling → File Tools 的组注承担，
     // 此处只保留信息获取的优先级链路，避免同一条规则说两遍。
     if (hasSkillTools || hasMemoryTools || hasWebTools) {
-      staticLines.push(
+      emit("static", "toolPreference", [
         "",
         "**Tool preference:**",
         "- 信息获取优先级：成套任务先 `skill_search` → 历史偏好先 `memory_search` → 时效事实用 `web_search` → 指定网页用 `web_fetch`",
         "",
-      )
+      ])
     }
   }
 
@@ -226,7 +248,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
       effectiveToolNames.includes("file_edit") ||
       effectiveToolNames.includes("file_write") ||
       effectiveToolNames.includes("bash")
-    staticLines.push("", ...buildOperatingPrinciplesSection(detail, hasCodeTools))
+    emit("static", "operatingPrinciples", ["", ...buildOperatingPrinciplesSection(detail, hasCodeTools)])
   }
 
   // === 2.5. Bundled Capabilities（Agent 自带技能包，仅在 bundledSkillIds 非空时插入） ===
@@ -234,45 +256,46 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     const bundledSet = new Set(params.bundledSkillIds.map((id) => id.trim()))
     const bundledSkills = skills.filter((s) => bundledSet.has(skillKey(s)))
     if (bundledSkills.length > 0) {
-      staticLines.push("", "## Your bundled capabilities", "")
-      staticLines.push(
+      const bundledLines = ["", "## Your bundled capabilities", ""]
+      bundledLines.push(
         "The following skills are pre-loaded and activated for this Agent — use them directly without skill_search:",
       )
       for (const s of bundledSkills) {
         const desc = s.description.length > 80 ? s.description.slice(0, 79) + "…" : s.description
-        staticLines.push(`- **${s.name}**: ${desc}`)
+        bundledLines.push(`- **${s.name}**: ${desc}`)
       }
-      staticLines.push("")
+      bundledLines.push("")
+      emit("static", "bundledCapabilities", bundledLines)
     }
   }
 
   if (detail === "compact") {
-    staticLines.push(
+    emit("static", "progressUpdates", [
       "## Progress Updates",
       "Before the first tool call, state the intent in one sentence. During execution, speak only for key findings, direction changes, or blockers. End with the result and next step; omit filler.",
       "",
-    )
+    ])
   } else {
-    staticLines.push(
+    emit("static", "progressUpdates", [
       "## Progress Updates",
       "Before the first tool call, state what you will do and why. Batch independent calls. During execution, report only key findings, direction changes, or blockers. End with a concise result, output location, and next step. Do not narrate hidden reasoning or use filler.",
       "",
-    )
+    ])
   }
 
   // === 2.6. 诚实与完成验证（治长对话/压缩后的工具调用幻觉与虚假完成；子 Agent 也需遵守） ===
-  staticLines.push(...buildVerificationSection(effectiveToolNames, detail))
+  emit("static", "verification", [...buildVerificationSection(effectiveToolNames, detail)])
 
-  staticLines.push(...buildToolNamingContractSection(effectiveToolNames, detail))
+  emit("static", "toolNamingContract", [...buildToolNamingContractSection(effectiveToolNames, detail)])
 
   // === 2.5. Progressive Loading & Context Management ===
   if (detail !== "compact") {
-    staticLines.push(...buildProgressiveLoadingSection(effectiveToolNames, detail))
+    emit("static", "progressiveLoading", [...buildProgressiveLoadingSection(effectiveToolNames, detail)])
   }
 
   // === 3. MCP Server Instructions ===
   if (params.mcpServerHints && params.mcpServerHints.length > 0) {
-    staticLines.push(...tagged("mcp_servers", buildMcpSection(params.mcpServerHints)))
+    emit("static", "mcp", [...tagged("mcp_servers", buildMcpSection(params.mcpServerHints))])
   }
 
   // === 4. Skills（按白名单过滤，支持 promptDetail 详度控制）===
@@ -290,26 +313,26 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
     if (filteredSkills.length > 0) {
       const hasSkillTools = effectiveToolNames.includes("skill_list")
-      staticLines.push(
+      emit("static", "skills", [
         ...tagged("skills", buildSkillsSection(filteredSkills, readToolName, detail, hasSkillTools)),
-      )
+      ])
     }
   }
 
   // === 4.5. 自我学习与进化（仅主 Agent；compact 模式跳过以省 token） ===
   if (!params.isSubAgent && detail !== "compact") {
-    staticLines.push(...tagged("skills", buildSelfLearningSection(effectiveToolNames)))
+    emit("static", "selfLearning", [...tagged("skills", buildSelfLearningSection(effectiveToolNames))])
   }
 
   // === 5. Task Orchestration（按能力条件化）===
   if (effectiveToolNames.includes("spawn_agent") || effectiveToolNames.includes("todo_write")) {
-    staticLines.push(...buildTaskOrchestrationSection(effectiveToolNames))
+    emit("static", "taskOrchestration", [...buildTaskOrchestrationSection(effectiveToolNames)])
   }
 
   // === 6. Multi-Agent Collaboration ===
   if (params.isSubAgent) {
     // 子 Agent：仅注入角色约束，不列出 Agent 目录（防止递归委派 R1）
-    staticLines.push(
+    emit("static", "subagentRole", [
       "## Role Constraint",
       "You are a sub-agent executing a delegated task. Execute directly using your tools.",
       "Do NOT spawn sub-agents, do NOT call todo_write, do NOT delegate further.",
@@ -319,7 +342,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
       "State: what was done, key result or file produced, any important caveat.",
       "No preamble, no lists, no padding. Straight to the point.",
       "",
-    )
+    ])
   } else if (
     customAgents && customAgents.length > 0 &&
     (effectiveToolNames.includes("spawn_agent") || effectiveToolNames.includes("send_message"))
@@ -331,123 +354,124 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     )
 
     if (filteredAgents.length > 0) {
-      staticLines.push(
+      emit("static", "agentCollaboration", [
         ...tagged("subagents", buildAgentCollaborationSection(filteredAgents, effectiveToolNames)),
-      )
+      ])
     }
   }
 
   // === 7. Device Node Control（compact 模式压缩为单行） ===
   if (detail === "compact") {
     if (params.userDevices?.length) {
-      staticLines.push(
+      emit("static", "deviceControl", [
         "## Device Node Control",
         "Tools execute on user's primary device by default. Specify target device in tool params if needed.",
         "",
-      )
+      ])
     }
   } else {
-    staticLines.push(...buildDeviceControlSection(params.userDevices, effectiveToolNames))
+    emit("static", "deviceControl", [...buildDeviceControlSection(params.userDevices, effectiveToolNames)])
   }
 
   // === 8. 安全与边界（操作守则 + 红线，合并为一段） ===
-  staticLines.push(...buildSafetySection(effectiveToolNames, detail))
+  emit("static", "safety", [...buildSafetySection(effectiveToolNames, detail)])
 
   // === 8.5. Language & Task Completion ===
-  staticLines.push(
+  emit("static", "language", [
     "## Language",
     "Always respond in **Chinese (Simplified)** unless the user explicitly writes in another language.",
     "This applies to all text output: explanations, summaries, tool narration, and error messages.",
     "",
+  ])
+  emit("static", "taskCompletion", [
     "## Task Completion",
     "`task_complete` is the only completion signal and must be called. See the Session Tasks section for timing.",
     "- Before calling it, confirm outputs exist and actions actually ran (see Honesty and Verification).",
     "- Provide a 1–3 sentence summary: what was done, key result or output file, any important caveat.",
     "- Client todo updates and desktop notifications depend on this call; saying 'done' in text does not trigger them.",
     "",
-  )
+  ])
 
   // === 9. Messaging 指导（静态规则） ===
-  staticLines.push(...buildMessagingSection({ toolNames: effectiveToolNames, runtimeChannel }))
-  staticLines.push(...buildWikiKnowledgeSection(effectiveToolNames))
-  staticLines.push(...buildBrowserSection(effectiveToolNames))
+  emit("static", "messaging", [...buildMessagingSection({ toolNames: effectiveToolNames, runtimeChannel })])
+  emit("static", "wiki", [...buildWikiKnowledgeSection(effectiveToolNames)])
+  emit("static", "browser", [...buildBrowserSection(effectiveToolNames)])
 
   // === 10. Cron / Scheduled Tasks（compact 模式精简） ===
   if (detail === "compact") {
     if (effectiveToolNames.includes("cron_create")) {
-      staticLines.push(
+      emit("static", "cron", [
         "## Scheduled Tasks",
         "Use `cron_create`/`cron_list`/`cron_delete` to manage recurring or one-time scheduled tasks.",
         "",
-      )
+      ])
     }
   } else {
-    staticLines.push(...buildCronSection(effectiveToolNames))
+    emit("static", "cron", [...buildCronSection(effectiveToolNames)])
   }
 
   // === 10.5. File Output Standards（始终注入，不依赖 task/spawn 工具） ===
-  staticLines.push(...buildFileOutputSection(effectiveToolNames))
+  emit("static", "fileOutput", [...buildFileOutputSection(effectiveToolNames)])
 
   // === 11. A2UI 动态 UI 能力（暂时屏蔽：效果不好，待优化后重新启用） ===
   // staticLines.push(...buildA2UISection(effectiveToolNames))
 
   // === 12. Silent Replies（NO_REPLY 协议） ===
-  staticLines.push(...buildSilentRepliesSection())
+  emit("static", "silentReplies", [...buildSilentRepliesSection()])
 
   // ========== 动态部分（每轮可能变化） ==========
-  const dynamicLines: string[] = []
 
   // === D1. Memory（摘要版或完整版，由 includeFullMemoryGuide 控制）===
   if (agentDefinition.memory?.scope !== "none") {
-    dynamicLines.push(
+    // 工作记忆注入锚点（Task 3 P0）：injectMemories() 按占位符查找替换，
+    // 必须落在 cache boundary 之后的 dynamic 段——工作记忆每轮变化，
+    // 放进 static 段会让 prompt cache 每轮失效。
+    emit("dynamic", "memory", [
       ...tagged(
         "memory",
         buildMemorySection(effectiveToolNames, userMemoryContent, params.includeFullMemoryGuide),
       ),
-    )
-    // 工作记忆注入锚点（Task 3 P0）：injectMemories() 按占位符查找替换，
-    // 必须落在 cache boundary 之后的 dynamic 段——工作记忆每轮变化，
-    // 放进 static 段会让 prompt cache 每轮失效。
-    dynamicLines.push(MEMORY_PLACEHOLDER)
+      MEMORY_PLACEHOLDER,
+    ])
   }
 
   // === D2. Workspace ===
   if (cwd) {
-    dynamicLines.push(...buildWorkspaceSection(cwd, params.workspaceLayout))
+    emit("dynamic", "workspace", [...buildWorkspaceSection(cwd, params.workspaceLayout)])
   }
 
   // === D3. Project Context（BOOTSTRAP.md 等） ===
-  dynamicLines.push(...buildProjectContextSection(contextFiles))
+  emit("dynamic", "projectContext", [...buildProjectContextSection(contextFiles)])
 
   // === D4. User Devices（设备在线状态可能变化） ===
-  dynamicLines.push(...buildUserDevicesSection(params.userDevices))
+  emit("dynamic", "userDevices", [...buildUserDevicesSection(params.userDevices)])
 
   // === D5. Active Tasks（活跃任务列表，防止目标偏移） ===
-  dynamicLines.push(...buildActiveTasksSection(params.activeTasks))
+  emit("dynamic", "activeTasks", [...buildActiveTasksSection(params.activeTasks)])
 
   // === D6. Runtime（含日期等动态信息） ===
-  dynamicLines.push(...buildRuntimeSection(params, params.currentModelId))
+  emit("dynamic", "runtime", [...buildRuntimeSection(params, params.currentModelId)])
 
   // === D6.1. 上下文自动压缩告知（紧邻 Runtime，对齐 Claude Code Context management） ===
   if (detail !== "compact") {
-    dynamicLines.push(...buildContextManagementSection(effectiveToolNames))
+    emit("dynamic", "contextManagement", [...buildContextManagementSection(effectiveToolNames)])
   }
 
   // === D6.5. Skill Activation（动态激活提示，对齐 CCR SkillTool/prompt.ts） ===
   if (params.skillActivations && params.skillActivations.length > 0) {
-    dynamicLines.push(
+    emit("dynamic", "skillActivation", [
       ...buildSkillActivationSection(params.skillActivations, readToolName),
-    )
+    ])
   }
 
   // === D6.6. Routing Rationale（Pre-LLM Router 输出，仅在 useRouter 时插入） ===
   if (useRouter && params.routerResult) {
-    dynamicLines.push(...buildRoutingRationaleSection(params.routerResult))
+    emit("dynamic", "routingRationale", [...buildRoutingRationaleSection(params.routerResult)])
   }
 
   // === D7. Critical Reminder（放在 prompt 最末尾） ===
   if (agentDefinition.criticalReminder) {
-    dynamicLines.push("", "## CRITICAL REMINDER", agentDefinition.criticalReminder)
+    emit("dynamic", "criticalReminder", ["", "## CRITICAL REMINDER", agentDefinition.criticalReminder])
   }
 
   // 拼接最终结果（保留空行分隔符，仅过滤 undefined/null）
@@ -458,7 +482,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     ? `${staticPrompt}${CACHE_BOUNDARY_MARKER}${dynamicPrompt}`
     : staticPrompt
 
-  return { staticPrompt, dynamicPrompt, fullPrompt }
+  return { staticPrompt, dynamicPrompt, fullPrompt, sectionStats: stats }
 }
 
 /**
