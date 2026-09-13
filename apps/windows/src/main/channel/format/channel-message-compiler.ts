@@ -27,8 +27,8 @@ const QBOT_MAX_CHARS = 3500
 const WEIXIN_SEGMENT_MAX_CHARS = 1000
 /** 微信单次最多段数，超出截断（连发过多条易打扰） */
 const WEIXIN_MAX_SEGMENTS = 5
-/** 微信超长截断的尾部提示 */
-const WEIXIN_OVERFLOW_NOTE = '…（内容过长已截断）'
+/** 超长截断的尾部提示（微信分段与飞书卡片共用） */
+const OVERFLOW_NOTE = '…（内容过长已截断）'
 
 export interface FeishuCardJson {
   config: { wide_screen_mode: boolean }
@@ -125,7 +125,7 @@ export function compileForFeishu(md: string, title?: string): FeishuCompiled {
     elements.push({ tag: 'hr' })
     elements.push({
       tag: 'div',
-      text: { tag: 'lark_md', content: '…（内容过长，完整报告请在客户端查看）' },
+      text: { tag: 'lark_md', content: OVERFLOW_NOTE },
     })
   }
 
@@ -297,7 +297,7 @@ function packSegments(body: string, max: number, limit: number): string[] {
   if (!dropped) flush()
 
   if (dropped && segments.length > 0) {
-    segments[segments.length - 1] = `${segments[segments.length - 1]}\n${WEIXIN_OVERFLOW_NOTE}`
+    segments[segments.length - 1] = `${segments[segments.length - 1]}\n${OVERFLOW_NOTE}`
   }
   return segments
 }
