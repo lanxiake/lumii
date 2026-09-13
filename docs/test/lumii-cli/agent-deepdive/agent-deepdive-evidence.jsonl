@@ -1,0 +1,2 @@
+{"ts":"2026-09-13T15:59:51.552Z","id":"DD-ENV","status":"INFO","note":"预检通过；日志通道可用；LLM=真实；DD_ONLY=(全量)"}
+{"ts":"2026-09-13T15:59:51.638Z","id":"DD-ENV","status":"INFO","note":"后台 cron 临时禁用 10 条"}

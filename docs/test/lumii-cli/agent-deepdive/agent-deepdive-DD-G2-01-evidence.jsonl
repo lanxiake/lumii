@@ -1,0 +1,1 @@
+{"ts":"2026-09-13T15:59:55.147Z","id":"DD-G2-01","status":"PASS","note":"失败任务「DD探针·必失败任务」触发通知（2 条日志），标题含任务名、点击跳转 cron:928ac56d-184d-4d9b-82d0-9f76ccb63edd；失败原因=Agent definition not found: __dd_missing_agent_definition__","durationMs":3372}
