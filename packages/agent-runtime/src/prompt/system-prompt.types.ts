@@ -206,8 +206,12 @@ export const PROMPT_SECTION_TAGS = [
 
 export type PromptSectionTag = (typeof PROMPT_SECTION_TAGS)[number]
 
-/** 提示词详度控制（根据模型能力自动选择） */
-export type PromptDetail = "compact" | "standard" | "full"
+/**
+ * 系统提示词风格（全局两态，实验功能，取代旧「按模型档位调详度」调度）
+ * - detailed：现状基线（standard 为主，吸收旧 full 专属段），默认
+ * - terse：索引式 + 渐进式加载（段尾引导句经 prompt_guide / 既有工具按需展开）
+ */
+export type PromptStyle = "detailed" | "terse"
 
 export interface ClientSystemPromptParams {
   /** Agent 定义（含系统提示词和描述） */
@@ -259,12 +263,11 @@ export interface ClientSystemPromptParams {
   readonly activeTasks?: readonly ActiveTaskInfo[]
 
   /**
-   * 提示词详度控制（根据模型 tier 自动选择）
-   * - compact: 精简版，适合 basic tier 小模型（节省 ~30% token）
-   * - standard: 标准版（默认，当前行为）
-   * - full: 完整版，适合 performance tier 大模型
+   * 系统提示词风格（实验功能，默认 detailed；由宿主按用户全局设置注入）
+   * - detailed: 现状基线（参数/作用/规则描述清楚）
+   * - terse: 索引式 + 渐进式加载，段尾引导句按需展开
    */
-  readonly promptDetail?: PromptDetail
+  readonly promptStyle?: PromptStyle
 
   /**
    * 是否注入完整记忆管理指南（默认 false）

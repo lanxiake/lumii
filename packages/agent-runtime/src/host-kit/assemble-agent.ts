@@ -24,7 +24,7 @@ import type { SummaryGeneratorFn } from "../compact/index.js";
 import type { ToolRunLifecycle } from "../tools/tool-hooks.js";
 import type { ToolRunnerLogger } from "../tools/hooks/logging-hook.js";
 import type { PermissionMemory } from "../security/permission-memory.js";
-import type { ActiveTaskInfo, WorkspaceLayout, PromptDetail } from "../prompt/system-prompt-builder.js";
+import type { ActiveTaskInfo, WorkspaceLayout, PromptStyle } from "../prompt/system-prompt-builder.js";
 import { assembleTools } from "./tool-assembly.js";
 import { assembleSystemPrompt, type AssembledSystemPrompt } from "./prompt-assembly.js";
 import type { AssembleAgentOptions, AssembledAgent, ResolvedModel } from "./types.js";
@@ -50,8 +50,8 @@ export interface AssembleAgentRuntime {
   };
   /** Workspace 子目录布局 */
   readonly workspaceLayout?: WorkspaceLayout;
-  /** 提示词详度（按模型 tier） */
-  readonly promptDetail?: PromptDetail;
+  /** 提示词风格（全局两态：detailed/terse，实验功能） */
+  readonly promptStyle?: PromptStyle;
   /** 是否子 Agent（影响提示词协作段与委派约束） */
   readonly isSubAgent?: boolean;
   /** 活跃任务取值（每轮提示词重建时实时读取） */
@@ -160,7 +160,7 @@ export async function assembleAgent(
     modelId: resolved.model.id,
     workspaceLayout: runtime.workspaceLayout,
     runtimeInfo: runtime.runtimeInfo,
-    promptDetail: runtime.promptDetail,
+    promptStyle: runtime.promptStyle,
     isSubAgent: runtime.isSubAgent,
     getActiveTasks: runtime.getActiveTasks,
   });

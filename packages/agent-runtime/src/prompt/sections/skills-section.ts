@@ -2,7 +2,7 @@
  * Skills section 构建函数（技能列表、激活提示、自我学习）
  */
 
-import type { SkillInfo, SkillActivationHint, PromptDetail } from "../system-prompt.types.js"
+import type { SkillInfo, SkillActivationHint } from "../system-prompt.types.js"
 
 /**
  * 构建 Skills section
@@ -16,7 +16,6 @@ import type { SkillInfo, SkillActivationHint, PromptDetail } from "../system-pro
 export function buildSkillsSection(
   skills: readonly SkillInfo[],
   readToolName: string,
-  _promptDetail: PromptDetail = "standard",
   hasSkillTools = false,
 ): string[] {
   if (skills.length === 0) return []

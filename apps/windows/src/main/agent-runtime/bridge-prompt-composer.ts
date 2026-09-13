@@ -663,22 +663,6 @@ export class BridgePromptComposer {
   }
 
   /**
-   * 根据模型 tier 选择提示词详度
-   */
-  resolvePromptDetail(tier: string): 'compact' | 'standard' | 'full' {
-    switch (tier) {
-      case 'basic':
-        return 'compact'
-      case 'balanced':
-        return 'standard'
-      case 'performance':
-        return 'full'
-      default:
-        return 'standard'
-    }
-  }
-
-  /**
    * 加载项目上下文文件（BOOTSTRAP.md 等）
    */
   loadContextFiles(): ContextFile[] {

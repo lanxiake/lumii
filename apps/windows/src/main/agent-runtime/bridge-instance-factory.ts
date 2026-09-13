@@ -629,7 +629,8 @@ export class BridgeInstanceFactory {
         thinkingLevel: 'low',
       },
       workspaceLayout: { uploadsDir: 'uploads', outputsDir: 'outputs', filesDir: 'files' },
-      promptDetail: this.deps.promptComposer.resolvePromptDetail(def.modelTier),
+      // 提示词风格（实验功能）：创建时读一次作为初始快照；每轮由 dispatcher 传入最新值覆盖
+      promptStyle: (await this.deps.config.getPromptStyleSettings?.())?.style,
       // 注意：此处仅控制「系统提示词」是否走子 Agent 分支。改前 bridge 的 buildClientSystemPromptStructured
       // 从不传 isSubAgent（恒为 undefined→falsy），故保持 false 以等价复现旧提示词。
       // 子 Agent 的事件处理分支由下方 createAgentInstanceRuntimeEventHandler 的 isSubAgent 独立控制。

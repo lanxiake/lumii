@@ -14,7 +14,7 @@ export {
   type ClientSystemPromptParams,
   type SystemPromptResult,
   type ActiveTaskInfo,
-  type PromptDetail,
+  type PromptStyle,
   type SkillInfo,
   type SkillActivationHint,
   type CustomAgentInfo,

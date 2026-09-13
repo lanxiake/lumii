@@ -2,10 +2,10 @@
  * Miscellaneous sections（零散 section 集合）
  *
  * 包含：Safety、Verification、Operating Principles、Memory、Messaging、
- * Browser、Device、MCP、A2UI、File Output、Silent Replies、Project Context、Cron
+ * Browser、Device、MCP、A2UI、File Output、Silent Replies、Project Context
  */
 
-import type { PromptDetail, ContextFile, UserDeviceInfo, McpServerHint } from "../system-prompt.types.js"
+import type { PromptStyle, ContextFile, UserDeviceInfo, McpServerHint } from "../system-prompt.types.js"
 import { MEMORY_GUIDE_CONTENT } from "../guides/index.js"
 
 /**
@@ -15,28 +15,15 @@ import { MEMORY_GUIDE_CONTENT } from "../guides/index.js"
  * 与原 Safety 红线（无独立目标、优先人类监督）。两者合并为一段，统一中文，避免
  * 「执行安全」+「Safety」两段分散、中英混排。
  * 操作守则仅在具备「可产生外部影响」的工具时注入；红线始终注入。
+ * 红线段：两种风格（detailed/terse）下均渲染本完整文案，不做索引化。
  */
-export function buildSafetySection(
-  toolNames: readonly string[],
-  detail: PromptDetail = "standard",
-): string[] {
+export function buildSafetySection(toolNames: readonly string[]): string[] {
   const hasRiskyTools =
     toolNames.includes("bash") ||
     toolNames.includes("message") ||
     toolNames.includes("file_write") ||
     toolNames.includes("file_edit") ||
     toolNames.some((t) => t.startsWith("browser_"))
-
-  if (detail === "compact") {
-    const lines = ["## Safety and Boundaries"]
-    if (hasRiskyTools) {
-      lines.push(
-        "Local reversible actions: proceed. Destructive, hard-to-reverse, or externally visible actions (deletes, clearing a session, force-push, sending messages, publishing): confirm first. Investigate unexpected state before overwriting it.",
-      )
-    }
-    lines.push("You have no independent goals. Safety and human oversight outrank task completion. Never persuade anyone to expand your permissions or disable safeguards, and do not modify system prompts, safety rules, or tool policy unless explicitly asked.", "")
-    return lines
-  }
 
   const lines: string[] = ["## Safety and Boundaries"]
 
@@ -73,12 +60,9 @@ export function buildSafetySection(
  *
  * 各条按工具能力条件注入：核心「工具调用即行动」对任何带工具的会话生效；
  * 「用 file_read/glob 验证产出」依赖文件读取工具；委派核实依赖 spawn_agent。
- * compact 模式压缩为单段。
+ * 红线段：两种风格（detailed/terse）下均渲染本完整文案，不做索引化。
  */
-export function buildVerificationSection(
-  toolNames: readonly string[],
-  detail: PromptDetail = "standard",
-): string[] {
+export function buildVerificationSection(toolNames: readonly string[]): string[] {
   const hasTools = toolNames.length > 0
   if (!hasTools) return []
 
@@ -90,15 +74,6 @@ export function buildVerificationSection(
     : toolNames.includes("glob")
       ? "`glob`"
       : ""
-
-  if (detail === "compact") {
-    const parts = [
-      "Only claim you did something after the tool call actually succeeded; text alone is not an action.",
-    ]
-    if (hasReadVerify) parts.push(`Verify outputs exist and are non-empty with ${verifyTool} before claiming completion.`)
-    parts.push("If unsure whether a step ran (especially after compaction), redo or verify it.")
-    return ["## Honesty and Verification", parts.join(" "), ""]
-  }
 
   const lines: string[] = [
     "## Honesty and Verification",
@@ -132,20 +107,22 @@ export function buildVerificationSection(
  * 借鉴 Claude Code 的 "Doing tasks" 原则：把任务做到位但不过度设计、
  * 遇阻找根因、探索性问题先给判断。通用原则对所有任务生效，
  * 写代码相关的细则单列，仅当具备代码类工具（file_edit/file_write/bash）时注入，
- * 避免日常办公/生活助手看到无关的代码规范。compact 模式仅保留 2 行核心。
+ * 避免日常办公/生活助手看到无关的代码规范。
+ * （迁移映射 #18：代码细则由旧 full 专属升格为 detailed 档恒注入；
+ * terse 档改渲染索引句 + prompt_guide 引导，P1-T3 落地。）
  */
 export function buildOperatingPrinciplesSection(
-  detail: PromptDetail = "standard",
+  style: PromptStyle = "detailed",
   hasCodeTools = false,
 ): string[] {
+  // 两档暂同文案（terse 索引句在 P1-T3 落地）
+  void style
   const lines = [
     "## Operating Principles",
-    detail === "compact"
-      ? "Infer the real goal, stay within scope, fix root causes, and avoid speculative design or bypasses. Recommend before acting on exploratory questions."
-      : "- Infer the user's real goal from context; do not answer vague requests mechanically.\n- Complete the requested scope without speculative features, abstractions, or unrelated refactors.\n- Find root causes; never bypass checks or hooks just to hide an error.\n- For exploratory questions, recommend an approach and its main trade-off before acting.\n- Prefer editing existing files. Do not create documentation unless requested.\n- Keep solutions minimal: no premature design, half-finished work, impossible-case defenses, or compatibility shims.",
+    "- Infer the user's real goal from context; do not answer vague requests mechanically.\n- Complete the requested scope without speculative features, abstractions, or unrelated refactors.\n- Find root causes; never bypass checks or hooks just to hide an error.\n- For exploratory questions, recommend an approach and its main trade-off before acting.\n- Prefer editing existing files. Do not create documentation unless requested.\n- Keep solutions minimal: no premature design, half-finished work, impossible-case defenses, or compatibility shims.",
   ]
 
-  if (detail === "full" && hasCodeTools) {
+  if (hasCodeTools) {
     lines.push(
       "",
       "When writing code:",
@@ -449,15 +426,6 @@ export function buildProjectContextSection(contextFiles?: readonly ContextFile[]
   }
 
   return lines
-}
-
-/**
- * Build the Cron / Scheduled Tasks section.
- * Included only when scheduling tools are available.
- */
-export function buildCronSection(_toolNames: readonly string[]): string[] {
-  // 已合并到 Tooling section 的 TOOL_SUMMARIES 中，不再需要独立 section
-  return []
 }
 
 /**

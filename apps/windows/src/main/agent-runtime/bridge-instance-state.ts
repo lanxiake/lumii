@@ -45,11 +45,12 @@ export interface InstanceState {
   turnSnapshotStart?: Map<string, string>
   /** 不含用户记忆的结构化基础提示词（用于每轮刷新记忆和活跃任务注入） */
   basePrompt?: SystemPromptResult
-  /** 每轮重建系统提示词的闭包（v12 Skill Activation + Router 注入） */
+  /** 每轮重建系统提示词的闭包（v12 Skill Activation + Router 注入 + 提示词风格） */
   promptRebuilder?: (
     hints: readonly SkillActivationHint[],
     currentModelId?: string,
     routerResult?: RouterResultLite,
+    promptStyle?: 'detailed' | 'terse',
   ) => SystemPromptResult
   /** 本实例当前的 skills 快照（用于 ActivationResolver 输入） */
   skillsSnapshot: readonly SkillInfo[]

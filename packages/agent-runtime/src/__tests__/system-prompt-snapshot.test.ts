@@ -161,7 +161,6 @@ describe("系统提示词快照基线（重构对照，勿随意更新快照）"
         "task_complete",
       ],
       cwd: "C:/Users/test/.mtbot/workspace",
-      promptDetail: "standard",
     })
     expect(result.fullPrompt).toMatchSnapshot()
   })
@@ -220,7 +219,6 @@ describe("系统提示词快照基线（重构对照，勿随意更新快照）"
         channel: "windows-agent-runtime",
         thinkingLevel: "low",
       },
-      promptDetail: "standard",
     })
     expect(result.fullPrompt).toMatchSnapshot()
   })
@@ -232,7 +230,6 @@ describe("系统提示词快照基线（重构对照，勿随意更新快照）"
       cwd: "C:/Users/test/.mtbot/workspace",
       osInfo: "win32 10.0.22621",
       isSubAgent: true,
-      promptDetail: "standard",
     })
     expect(result.fullPrompt).toMatchSnapshot()
   })
@@ -258,7 +255,6 @@ describe("系统提示词快照基线（重构对照，勿随意更新快照）"
           detail: "用户提到「本周工作总结」",
         },
       ],
-      promptDetail: "standard",
     })
     expect(result.fullPrompt).toMatchSnapshot()
   })
@@ -284,7 +280,6 @@ describe("sectionStats 段级计量（P0-T2）", () => {
       skills: SKILLS,
       customAgents: CUSTOM_AGENTS,
       activeTasks: ACTIVE_TASKS,
-      promptDetail: "standard",
     })
 
     expect(sectionStats).toBeDefined()

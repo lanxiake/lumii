@@ -20,15 +20,16 @@ import {
   type RouterResultLite,
   type WorkspaceLayout,
   type ActiveTaskInfo,
-  type PromptDetail,
+  type PromptStyle,
 } from "../prompt/system-prompt-builder.js";
 import type { PromptContextProvider } from "./types.js";
 
-/** buildPrompt 闭包签名：每轮可变的 skillActivations / currentModelId / routerResult */
+/** buildPrompt 闭包签名：每轮可变的 skillActivations / currentModelId / routerResult / promptStyle */
 export type SystemPromptBuilder = (
   hints?: readonly SkillActivationHint[],
   currentModelId?: string,
   routerResult?: RouterResultLite,
+  promptStyle?: PromptStyle,
 ) => SystemPromptResult;
 
 /** 提示词装配入参 */
@@ -48,7 +49,7 @@ export interface AssembleSystemPromptOptions {
     readonly channel?: string;
     readonly thinkingLevel?: string;
   };
-  readonly promptDetail?: PromptDetail;
+  readonly promptStyle?: PromptStyle;
   readonly includeFullMemoryGuide?: boolean;
   readonly isSubAgent?: boolean;
   /** 活跃任务取值（每轮闭包调用时实时读取，对齐 bridge 行为） */
@@ -121,7 +122,7 @@ export async function assembleSystemPrompt(
   const resolveSoul = (): string | undefined =>
     pc.getSoulContentLive ? pc.getSoulContentLive() : soulSnapshot;
 
-  const buildPrompt: SystemPromptBuilder = (hints = [], currentModelId, routerResult) =>
+  const buildPrompt: SystemPromptBuilder = (hints = [], currentModelId, routerResult, promptStyle) =>
     buildClientSystemPromptStructured({
       agentDefinition: def,
       toolNames: opts.toolNames,
@@ -139,7 +140,8 @@ export async function assembleSystemPrompt(
       soulContent: resolveSoul(),
       mcpServerHints,
       activeTasks: opts.getActiveTasks?.(),
-      promptDetail: opts.promptDetail,
+      // 每轮传入的风格优先；缺省回退创建时快照
+      promptStyle: promptStyle ?? opts.promptStyle,
       includeFullMemoryGuide: opts.includeFullMemoryGuide ?? false,
       isSubAgent: opts.isSubAgent,
       skillActivations: hints.length > 0 ? hints : undefined,

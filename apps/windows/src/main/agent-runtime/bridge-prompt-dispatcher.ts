@@ -108,10 +108,13 @@ export interface BridgePromptDispatcherDeps {
 function logPromptSections(
   instanceId: string,
   stats: readonly PromptSectionStat[] | undefined,
+  style?: 'detailed' | 'terse',
 ): void {
   if (!stats?.length) return
   const totalChars = stats.reduce((n, s) => n + s.chars, 0)
-  log.info(`[prompt-section] instanceId=${instanceId} sections=${stats.length} totalChars=${totalChars}`)
+  log.info(
+    `[prompt-section] instanceId=${instanceId} sections=${stats.length} totalChars=${totalChars}${style ? ` style=${style}` : ''}`,
+  )
   for (const s of stats) {
     log.debug(`[prompt-section] id=${s.id} zone=${s.zone} chars=${s.chars}`)
   }
@@ -318,9 +321,11 @@ export class BridgePromptDispatcher {
             }
           }
         }
-        baseResult = rebuilder(hints, currentModelId, routerLite)
+        // 提示词风格（实验功能）：每轮读取最新设置；pi 每轮快照系统提示词，故下一轮对话生效
+        const promptStyle = (await this.deps.config.getPromptStyleSettings?.())?.style
+        baseResult = rebuilder(hints, currentModelId, routerLite, promptStyle)
         if (state) state.basePrompt = baseResult
-        logPromptSections(instanceId, baseResult.sectionStats)
+        logPromptSections(instanceId, baseResult.sectionStats, promptStyle)
       } catch (err) {
         log.error('[prompt] 重建系统提示词失败（回退缓存提示词）:', err)
       }

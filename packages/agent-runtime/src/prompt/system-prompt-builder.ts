@@ -9,7 +9,7 @@ import type {
   ClientSystemPromptParams,
   SystemPromptResult,
   PromptSectionTag,
-  PromptDetail,
+  PromptStyle,
 } from "./system-prompt.types.js"
 import { CACHE_BOUNDARY_MARKER, PROMPT_SECTION_TAGS } from "./system-prompt.types.js"
 import type { PromptSectionId, PromptSectionStat } from "./prompt-sections.js"
@@ -55,7 +55,6 @@ import {
   buildFileOutputSection,
   buildSilentRepliesSection,
   buildProjectContextSection,
-  buildCronSection,
   buildUserDevicesSection,
   buildDeviceControlSection,
 } from "./sections/misc-sections.js"
@@ -73,7 +72,7 @@ export type {
   McpToolInfo,
   McpServerHint,
   ActiveTaskInfo,
-  PromptDetail,
+  PromptStyle,
   PromptSectionTag,
   RouterResultLite,
 } from "./system-prompt.types.js"
@@ -145,7 +144,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     ? filterAgentsByRouter(customAgents ?? [], params.routerResult!.topAgents)
     : customAgents
   const runtimeChannel = params.runtimeInfo?.channel?.trim().toLowerCase()
-  const detail = params.promptDetail ?? "standard"
+  const style = params.promptStyle ?? "detailed"
 
   // 如果 agentDefinition.systemPrompt 是内建简短默认值，使用 SOUL 内容
   const rawPrompt = agentDefinition.systemPrompt?.trim()
@@ -221,10 +220,10 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   ])
 
   // === 2.05. 系统运行规则（对齐 Claude Code # System：工具被拒不重试 / 标签语义 / 防臆造 URL / 防注入） ===
-  emit("static", "systemRules", ["", ...buildSystemRulesSection(effectiveToolNames, detail)])
+  emit("static", "systemRules", ["", ...buildSystemRulesSection(effectiveToolNames)])
 
-  // === 2.1. 工具选择优先级（仅 standard/full 模式注入） ===
-  if (detail !== "compact" && !params.isSubAgent) {
+  // === 2.1. 工具选择优先级（主 Agent 恒注入） ===
+  if (!params.isSubAgent) {
     const hasWebTools = effectiveToolNames.includes("web_search") || effectiveToolNames.includes("web_fetch")
     const hasSkillTools = effectiveToolNames.includes("skill_search")
     const hasMemoryTools = effectiveToolNames.includes("memory_search")
@@ -248,7 +247,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
       effectiveToolNames.includes("file_edit") ||
       effectiveToolNames.includes("file_write") ||
       effectiveToolNames.includes("bash")
-    emit("static", "operatingPrinciples", ["", ...buildOperatingPrinciplesSection(detail, hasCodeTools)])
+    emit("static", "operatingPrinciples", ["", ...buildOperatingPrinciplesSection(style, hasCodeTools)])
   }
 
   // === 2.5. Bundled Capabilities（Agent 自带技能包，仅在 bundledSkillIds 非空时插入） ===
@@ -269,7 +268,8 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     }
   }
 
-  if (detail === "compact") {
+  // 进度更新双版（迁移映射 #5）：terse 档用原 compact 精简文案
+  if (style === "terse") {
     emit("static", "progressUpdates", [
       "## Progress Updates",
       "Before the first tool call, state the intent in one sentence. During execution, speak only for key findings, direction changes, or blockers. End with the result and next step; omit filler.",
@@ -284,21 +284,22 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   }
 
   // === 2.6. 诚实与完成验证（治长对话/压缩后的工具调用幻觉与虚假完成；子 Agent 也需遵守） ===
-  emit("static", "verification", [...buildVerificationSection(effectiveToolNames, detail)])
+  emit("static", "verification", [...buildVerificationSection(effectiveToolNames)])
 
-  emit("static", "toolNamingContract", [...buildToolNamingContractSection(effectiveToolNames, detail)])
+  // 工具命名契约：仅 detailed 档注入（terse 档不注入，迁移映射 #7）
+  if (style === "detailed") {
+    emit("static", "toolNamingContract", [...buildToolNamingContractSection(effectiveToolNames)])
+  }
 
   // === 2.5. Progressive Loading & Context Management ===
-  if (detail !== "compact") {
-    emit("static", "progressiveLoading", [...buildProgressiveLoadingSection(effectiveToolNames, detail)])
-  }
+  emit("static", "progressiveLoading", [...buildProgressiveLoadingSection(effectiveToolNames, style)])
 
   // === 3. MCP Server Instructions ===
   if (params.mcpServerHints && params.mcpServerHints.length > 0) {
     emit("static", "mcp", [...tagged("mcp_servers", buildMcpSection(params.mcpServerHints))])
   }
 
-  // === 4. Skills（按白名单过滤，支持 promptDetail 详度控制）===
+  // === 4. Skills（按白名单过滤）===
   const readToolName = effectiveToolNames.includes("file_read")
     ? "file_read"
     : effectiveToolNames.includes("read")
@@ -314,13 +315,13 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     if (filteredSkills.length > 0) {
       const hasSkillTools = effectiveToolNames.includes("skill_list")
       emit("static", "skills", [
-        ...tagged("skills", buildSkillsSection(filteredSkills, readToolName, detail, hasSkillTools)),
+        ...tagged("skills", buildSkillsSection(filteredSkills, readToolName, hasSkillTools)),
       ])
     }
   }
 
-  // === 4.5. 自我学习与进化（仅主 Agent；compact 模式跳过以省 token） ===
-  if (!params.isSubAgent && detail !== "compact") {
+  // === 4.5. 自我学习与进化（仅主 Agent） ===
+  if (!params.isSubAgent) {
     emit("static", "selfLearning", [...tagged("skills", buildSelfLearningSection(effectiveToolNames))])
   }
 
@@ -360,21 +361,11 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     }
   }
 
-  // === 7. Device Node Control（compact 模式压缩为单行） ===
-  if (detail === "compact") {
-    if (params.userDevices?.length) {
-      emit("static", "deviceControl", [
-        "## Device Node Control",
-        "Tools execute on user's primary device by default. Specify target device in tool params if needed.",
-        "",
-      ])
-    }
-  } else {
-    emit("static", "deviceControl", [...buildDeviceControlSection(params.userDevices, effectiveToolNames)])
-  }
+  // === 7. Device Node Control ===
+  emit("static", "deviceControl", [...buildDeviceControlSection(params.userDevices, effectiveToolNames)])
 
   // === 8. 安全与边界（操作守则 + 红线，合并为一段） ===
-  emit("static", "safety", [...buildSafetySection(effectiveToolNames, detail)])
+  emit("static", "safety", [...buildSafetySection(effectiveToolNames)])
 
   // === 8.5. Language & Task Completion ===
   emit("static", "language", [
@@ -397,18 +388,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   emit("static", "wiki", [...buildWikiKnowledgeSection(effectiveToolNames)])
   emit("static", "browser", [...buildBrowserSection(effectiveToolNames)])
 
-  // === 10. Cron / Scheduled Tasks（compact 模式精简） ===
-  if (detail === "compact") {
-    if (effectiveToolNames.includes("cron_create")) {
-      emit("static", "cron", [
-        "## Scheduled Tasks",
-        "Use `cron_create`/`cron_list`/`cron_delete` to manage recurring or one-time scheduled tasks.",
-        "",
-      ])
-    }
-  } else {
-    emit("static", "cron", [...buildCronSection(effectiveToolNames)])
-  }
+  // === 10. Cron / Scheduled Tasks（已索引化：规则在 Tooling 的 TOOL_SUMMARIES/GROUP_NOTES，无独立段） ===
 
   // === 10.5. File Output Standards（始终注入，不依赖 task/spawn 工具） ===
   emit("static", "fileOutput", [...buildFileOutputSection(effectiveToolNames)])
@@ -453,9 +433,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
   emit("dynamic", "runtime", [...buildRuntimeSection(params, params.currentModelId)])
 
   // === D6.1. 上下文自动压缩告知（紧邻 Runtime，对齐 Claude Code Context management） ===
-  if (detail !== "compact") {
-    emit("dynamic", "contextManagement", [...buildContextManagementSection(effectiveToolNames)])
-  }
+  emit("dynamic", "contextManagement", [...buildContextManagementSection(effectiveToolNames)])
 
   // === D6.5. Skill Activation（动态激活提示，对齐 CCR SkillTool/prompt.ts） ===
   if (params.skillActivations && params.skillActivations.length > 0) {
