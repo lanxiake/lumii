@@ -9,6 +9,8 @@
  * 段 ID 与 prompt-sections.ts 的 PromptSectionId 对应，守卫测试保证覆盖。
  */
 
+import { buildFullToolIndexGuideText } from "./sections/tooling-section.js"
+
 export interface PromptSectionGuide {
   /** 段标题（含 "(full)" 后缀，表明为完整版） */
   readonly title: string
@@ -17,6 +19,12 @@ export interface PromptSectionGuide {
 }
 
 export const PROMPT_GUIDE_SECTIONS: Record<string, PromptSectionGuide> = {
+  tooling: {
+    title: "Tooling (full)",
+    // 与 detailed 渲染同源生成（分组/摘要/组注），避免双处维护漂移
+    body: buildFullToolIndexGuideText(),
+  },
+
   operatingPrinciples: {
     title: "Operating Principles (full)",
     body: `## Operating Principles

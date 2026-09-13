@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import { buildClientSystemPromptStructured } from "../prompt/system-prompt-builder.js";
+import { getPromptSectionGuide } from "../prompt/section-guides.js";
 import type { AgentDefinition } from "../types/agent-definition.js";
 
 /** 最小 Agent 定义，用于隔离提示词 section 测试 */
@@ -161,5 +162,71 @@ describe("首批 5 段 terse/detailed 双渲染（P1-T3）", () => {
   it("terse 档保留操作原则红线句（根因 / 不越界）", () => {
     const { fullPrompt } = build("terse");
     expect(fullPrompt).toContain("stay within scope, fix root causes");
+  });
+});
+
+describe("terse 极致覆盖（P2）", () => {
+  const P2_TOOLS = [
+    "file_read",
+    "file_write",
+    "file_edit",
+    "glob",
+    "grep",
+    "bash",
+    "web_search",
+    "web_fetch",
+    "cron_create",
+    "cron_list",
+    "cron_delete",
+    "cron_guide",
+    "skill_search",
+    "skill_invoke",
+    "memory_search",
+    "message",
+    "channel_list",
+    "channel_send",
+  ];
+
+  const build = (promptStyle: "detailed" | "terse") =>
+    buildClientSystemPromptStructured({
+      agentDefinition: BASE_DEF,
+      toolNames: P2_TOOLS,
+      cwd: "/workspace",
+      promptStyle,
+    });
+
+  const toolingChars = (r: ReturnType<typeof build>) =>
+    r.sectionStats.find((s) => s.id === "tooling")?.chars ?? 0;
+
+  it("tooling 折叠：terse 只报组名+数量+引导，不再逐工具列条目", () => {
+    const terse = build("terse");
+    const detailed = build("detailed");
+
+    expect(terse.fullPrompt).toContain("Groups: File Tools (5), Shell (1)");
+    expect(terse.fullPrompt).toContain('prompt_guide(section: "tooling")');
+    expect(terse.fullPrompt).not.toContain("- `file_read`:");
+
+    // detailed 侧不变：逐工具摘要 + 组注完整
+    expect(detailed.fullPrompt).toContain("- `file_read`:");
+    expect(detailed.fullPrompt).toContain("**Default first**");
+  });
+
+  it("tooling 段体量：terse 不足 detailed 的 30%", () => {
+    const terse = build("terse");
+    const detailed = build("detailed");
+    const t = toolingChars(terse);
+    const d = toolingChars(detailed);
+    expect(t).toBeGreaterThan(0);
+    expect(d).toBeGreaterThan(1000);
+    expect(t / d).toBeLessThan(0.3);
+  });
+
+  it("prompt_guide(\"tooling\") 正文与 detailed 渲染同源（含分组与摘要）", () => {
+    const guide = getPromptSectionGuide("tooling");
+    expect(guide).not.toBeNull();
+    expect(guide!.title).toContain("(full)");
+    expect(guide!.body).toContain("### File Tools");
+    expect(guide!.body).toContain("- `file_read`:");
+    expect(guide!.body).toContain("**Default first**");
   });
 });

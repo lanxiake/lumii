@@ -212,24 +212,55 @@ export const PROMPT_TOOL_GROUPS: Readonly<Record<string, ReadonlySet<string>>> =
 
 export { TOOL_SUMMARIES }
 
-export function categorizeTools(toolNames: readonly string[]): string[] {
-  const lines: string[] = []
+/** 工具集分区：正式分组 + Other / Desktop Control（terse 与 detailed 共用同一划分） */
+function partitionToolNames(toolNames: readonly string[]) {
+  const groups: Array<{ label: string; matching: string[] }> = []
+  for (const [label, tools] of Object.entries(PROMPT_TOOL_GROUPS)) {
+    const matching = toolNames.filter((t) => tools.has(t))
+    if (matching.length > 0) groups.push({ label, matching })
+  }
+  const knownTools = new Set<string>()
+  for (const s of Object.values(PROMPT_TOOL_GROUPS)) {
+    s.forEach((t) => knownTools.add(t))
+  }
+  const lowFrequency = toolNames.filter(
+    (t) => t.startsWith("app_") || t.startsWith("screen_record_") || t === "screen_screenshot",
+  )
+  const otherTools = toolNames.filter((t) => !knownTools.has(t) && !t.startsWith("mcp__") && !lowFrequency.includes(t))
+  return { groups, otherTools, lowFrequency }
+}
 
-  const groups: Array<{ label: string; tools: ReadonlySet<string> }> = Object.entries(
-    PROMPT_TOOL_GROUPS,
-  ).map(([label, tools]) => ({ label, tools }))
+/**
+ * terse 折叠渲染（P2-T1）：只报「组名 + 数量」与两条高价值组注，
+ * 逐工具摘要与全部组注走 `prompt_guide(section: "tooling")`（展开不回流系统提示词）。
+ */
+function buildTerseToolingLines(toolNames: readonly string[]): string[] {
+  const { groups, otherTools, lowFrequency } = partitionToolNames(toolNames)
+  const parts = groups.map((g) => `${g.label} (${g.matching.length})`)
+  if (otherTools.length > 0) parts.push(`Other Tools (${otherTools.length})`)
+  if (lowFrequency.length > 0) parts.push(`Desktop Control (${lowFrequency.length})`)
+  return [
+    `Groups: ${parts.join(", ")}.`,
+    "Prefer File Tools over `bash` for file work; call `cron_guide` before scheduling.",
+    'Details: `prompt_guide(section: "tooling")`.',
+    "",
+  ]
+}
+
+export function categorizeTools(toolNames: readonly string[], style: PromptStyle = "detailed"): string[] {
+  if (style === "terse") return buildTerseToolingLines(toolNames)
+
+  const lines: string[] = []
+  const { groups, otherTools, lowFrequency } = partitionToolNames(toolNames)
 
   for (const group of groups) {
-    const matching = toolNames.filter((t) => group.tools.has(t))
-    if (matching.length === 0) continue
-
     lines.push(`### ${group.label}`)
 
     if (FOLDED_GROUPS.has(group.label)) {
       // 折叠渲染：只报数量，逐条描述交给 schema 与对应正文 section
-      lines.push(`\`${group.label === "Browser Tools" ? "browser_*" : "tools"}\` (${matching.length} tools)`)
+      lines.push(`\`${group.label === "Browser Tools" ? "browser_*" : "tools"}\` (${group.matching.length} tools)`)
     } else {
-      for (const name of matching) {
+      for (const name of group.matching) {
         const summary = TOOL_SUMMARIES[name] ?? ""
         lines.push(summary ? `- \`${name}\`: ${summary}` : `- \`${name}\``)
       }
@@ -240,14 +271,6 @@ export function categorizeTools(toolNames: readonly string[]): string[] {
     lines.push("")
   }
 
-  const knownTools = new Set<string>()
-  for (const s of Object.values(PROMPT_TOOL_GROUPS)) {
-    s.forEach((t) => knownTools.add(t))
-  }
-  const lowFrequency = toolNames.filter(
-    (t) => t.startsWith("app_") || t.startsWith("screen_record_") || t === "screen_screenshot",
-  )
-  const otherTools = toolNames.filter((t) => !knownTools.has(t) && !t.startsWith("mcp__") && !lowFrequency.includes(t))
   if (otherTools.length > 0) {
     lines.push("### Other Tools")
     for (const name of otherTools) {
@@ -272,6 +295,22 @@ export function categorizeTools(toolNames: readonly string[]): string[] {
   }
 
   return lines
+}
+
+/**
+ * 完整工具索引（全量目录）——供 `prompt_guide(section: "tooling")` 返回。
+ * 与 detailed 渲染同源（同分组、同摘要、同组注），不依赖实例实际工具集。
+ */
+export function buildFullToolIndexGuideText(): string {
+  const allTools: string[] = []
+  for (const s of Object.values(PROMPT_TOOL_GROUPS)) s.forEach((t) => allTools.push(t))
+  const lines = categorizeTools(allTools, "detailed")
+  return [
+    "## Tooling",
+    "Tool names are case-sensitive. Call tools exactly as listed.",
+    "",
+    ...lines,
+  ].join("\n").trim()
 }
 
 /**

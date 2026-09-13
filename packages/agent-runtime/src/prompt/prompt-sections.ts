@@ -88,7 +88,7 @@ export const PROMPT_SECTIONS: readonly PromptSectionMeta[] = [
   // —— 静态段（渲染顺序与 builder 中 emit 顺序一致） ——
   { id: "identity", group: "identity", zone: "static", terse: false },
   { id: "permissionMode", group: "rules", zone: "static", terse: false },
-  { id: "tooling", group: "capabilities", zone: "static", terse: false },
+  { id: "tooling", group: "capabilities", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "systemRules", group: "rules", zone: "static", terse: false },
   { id: "toolPreference", group: "capabilities", zone: "static", terse: false },
   { id: "operatingPrinciples", group: "rules", zone: "static", terse: true, expandVia: "prompt-guide" },

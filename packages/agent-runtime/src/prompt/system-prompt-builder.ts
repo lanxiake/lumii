@@ -157,7 +157,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
       })()
     : afterBlacklist
 
-  const toolLines = categorizeTools(effectiveToolNames)
+  const toolLines = categorizeTools(effectiveToolNames, style)
 
   // 技能正文与动态激活提示共用（P2 重排上提：段序调整不影响计算顺序）
   const readToolName = effectiveToolNames.includes("file_read")
