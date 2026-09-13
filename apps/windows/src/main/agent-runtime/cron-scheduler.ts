@@ -3,7 +3,7 @@
  *
  * 职责：
  * - 启动时从 SQLite 恢复任务定时器
- * - 调度 at/every 类型任务（cron 类型依赖 Gateway）
+ * - 调度 at/every/cron 类型任务（cron 表达式由本地 croner 解析，时区 Asia/Shanghai）
  * - 执行任务：驱动 Agent 或发送系统通知
  * - 文件清理定时器（30 天软删除硬清理）
  * - CRUD：提供 DB 记录的增删改查接口
@@ -174,6 +174,12 @@ export interface CronSchedulerDeps {
    * 未提供时 agent-self 任务回落普通 createInstanceById（兼容旧装配）。
    */
   createRestrictedInstanceById?: (agentId: string, sessionKey?: string, conversationId?: string) => Promise<string>
+  /**
+   * bridge 是否已完成初始化（instanceFactory / promptDispatcher 就绪）。
+   * 未就绪时不注册任何计时器——过期 every 任务会立即补跑，若此时工厂尚未创建，
+   * driveAgent 会抛 "Cannot read properties of undefined (reading 'createInstanceById')"。
+   */
+  isReady?: () => boolean
   /** 向指定 Agent 实例发送消息 */
   prompt: (instanceId: string, message: string) => Promise<void>
   /** 等待 Agent 实例进入 idle（prompt 返回后事件落库可能仍在进行） */
@@ -346,6 +352,8 @@ export class CronScheduler {
    * 删除本地 Cron 任务，返回受影响行数。
    */
   deleteLocalCronJobRecord(id: string): number {
+    // 连带删除运行记录：与 pruneExpiredOneShotJobs 口径一致，避免删除后留下不可见的孤儿 runs
+    this.localDb.db.prepare(`DELETE FROM local_cron_runs WHERE job_id = ?`).run(id)
     const result = this.localDb.db.prepare(`DELETE FROM local_cron_jobs WHERE id = ?`).run(id)
     return result.changes
   }
@@ -556,12 +564,14 @@ export class CronScheduler {
    */
   private pruneExpiredOneShotJobs(): void {
     try {
+      // 只裁「真正过期」的一次性任务（执行时刻已过）；未来时间的 at 任务
+      // 可能只是被开关暂停（如自主进化关闭时挂起的计划），不能当作失效清掉
       const stale = this.localDb.db.prepare<{ id: string }>(
         `SELECT id FROM local_cron_jobs
-         WHERE schedule_type = 'at' AND enabled = 0
+         WHERE schedule_type = 'at' AND enabled = 0 AND next_run_at <= ?
          ORDER BY last_run_at DESC NULLS LAST
          LIMIT -1 OFFSET ?`
-      ).all(CronScheduler.MAX_EXPIRED_ONE_SHOT_JOBS)
+      ).all(Date.now(), CronScheduler.MAX_EXPIRED_ONE_SHOT_JOBS)
       if (stale.length === 0) return
       const deleteJob = this.localDb.db.prepare(`DELETE FROM local_cron_jobs WHERE id = ?`)
       const deleteRuns = this.localDb.db.prepare(`DELETE FROM local_cron_runs WHERE job_id = ?`)
@@ -582,6 +592,12 @@ export class CronScheduler {
    */
   private startLocalCronScheduler(): void {
     if (!this.localDb.isOpen) return
+    // 桥接层未就绪（initialize 尚未走到末尾）时不注册计时器：
+    // 过期任务补跑会立刻驱动 Agent，而实例工厂此时还不存在（见 CronSchedulerDeps.isReady）
+    if (this.deps.isReady && !this.deps.isReady()) {
+      log.warn('[startLocalCronScheduler] bridge 尚未就绪，跳过本次调度注册')
+      return
+    }
     type JobRow = {
       id: string
       name: string

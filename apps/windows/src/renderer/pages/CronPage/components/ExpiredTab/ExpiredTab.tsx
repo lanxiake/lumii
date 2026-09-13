@@ -8,7 +8,7 @@
  */
 import type { FC } from 'react'
 import { useState } from 'react'
-import { AlertCircle, Clock3, Loader2, Pencil, Play, Trash2 } from 'lucide-react'
+import { AlertCircle, Clock3, Loader2, Pencil, Play, Trash2, XCircle } from 'lucide-react'
 import styles from '../OverviewTab/OverviewTab.module.css'
 import type { CronJob } from '../../../../hooks/business/useCron/types'
 import { describeCron } from '../../utils/cron-utils'
@@ -20,6 +20,7 @@ interface ExpiredTabProps {
   onEdit: (job: CronJob) => void
   onRun: (id: string, force?: boolean) => Promise<boolean>
   onDelete: (id: string) => Promise<boolean>
+  onDeleteMany: (ids: string[]) => Promise<{ success: string[]; failed: string[] }>
 }
 
 function formatLastRun(job: CronJob): string {
@@ -27,13 +28,34 @@ function formatLastRun(job: CronJob): string {
   return `执行于 ${new Date(job.lastRunAt).toLocaleString()}`
 }
 
-export const ExpiredTab: FC<ExpiredTabProps> = ({ jobs, onEdit, onRun, onDelete }) => {
+export const ExpiredTab: FC<ExpiredTabProps> = ({ jobs, onEdit, onRun, onDelete, onDeleteMany }) => {
   const [deleteTarget, setDeleteTarget] = useState<CronJob | null>(null)
+  const [cleanupOpen, setCleanupOpen] = useState(false)
+  const [cleaning, setCleaning] = useState(false)
   const toast = useToast()
+
+  async function cleanupAll(): Promise<void> {
+    setCleaning(true)
+    try {
+      const { success, failed } = await onDeleteMany(jobs.map((job) => job.id))
+      if (failed.length === 0) toast.success(`已清理 ${success.length} 条已失效任务`)
+      else toast.error(`清理完成：成功 ${success.length} 条，失败 ${failed.length} 条`)
+    } finally {
+      setCleaning(false)
+      setCleanupOpen(false)
+    }
+  }
 
   return (
     <div className={styles.overviewTab}>
-      <div className={styles.summary}>{`共 ${jobs.length} 个已失效的一次性任务（最多保留近 20 条）。`}</div>
+      <div className={styles.summaryRow}>
+        <div className={styles.summary}>{`共 ${jobs.length} 个已失效的一次性任务（最多保留近 20 条）。`}</div>
+        {jobs.length > 0 && (
+          <button type="button" className={styles.cleanupBtn} onClick={() => setCleanupOpen(true)} disabled={cleaning}>
+            <XCircle size={14} />清理全部
+          </button>
+        )}
+      </div>
 
       {jobs.length === 0 ? (
         <div className={styles.emptyList}>还没有已失效的任务。一次性任务执行完成后会自动归档到这里。</div>
@@ -87,6 +109,17 @@ export const ExpiredTab: FC<ExpiredTabProps> = ({ jobs, onEdit, onRun, onDelete 
           setDeleteTarget(null)
         }}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmModal
+        open={cleanupOpen}
+        layer="aboveHub"
+        title="清理全部已失效任务"
+        content={`确定清理全部 ${jobs.length} 条已失效的一次性任务吗？删除后无法恢复。`}
+        confirmText="全部清理"
+        confirmVariant="danger"
+        onConfirm={() => void cleanupAll()}
+        onCancel={() => setCleanupOpen(false)}
       />
     </div>
   )

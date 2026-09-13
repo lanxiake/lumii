@@ -38,12 +38,12 @@
 
 #### A1. settings get 返回全量默认值
 - **步骤**：`autonomous settings get`
-- **预期**：返回 9 字段，与 `DEFAULT_SETTINGS` 一致：`enabled=true`、`tickIntervalMinutes=10`、`quietHours=[23,8]`、`maxOutreachPerDay=20`、`minOutreachIntervalMinutes=60`、`outreachChannels=['system']`、`maxTokensPerDay=100000`、`maxGoalsPerDay=7`、`approvalMode='always'`
+- **预期**：返回 8 字段，与 `DEFAULT_SETTINGS` 一致：`tickIntervalMinutes=10`、`quietHours=[23,8]`、`maxOutreachPerDay=20`、`minOutreachIntervalMinutes=60`、`outreachChannels=['system']`、`maxTokensPerDay=100000`、`maxGoalsPerDay=7`、`approvalMode='always'`（总开关不在此结构里，唯一真相是 `runtime_state` 键 `autonomous.enabled`）
 - **回读**：`runtime_state` 键 `autonomous.settings`（若从未写过则返回默认，不落库）
 
 #### A2. settings set 部分覆盖不丢默认
 - **步骤**：`autonomous settings set --data '{"maxOutreachPerDay":10}'`
-- **预期**：`maxOutreachPerDay=10`，其余 8 字段保持默认；再次 `settings get` 回读一致
+- **预期**：`maxOutreachPerDay=10`，其余 7 字段保持默认；再次 `settings get` 回读一致
 - **回读**：`autonomous.settings` JSON 含 `maxOutreachPerDay:10` 且含默认 `quietHours:[23,8]`
 
 #### A3. 非法值回落默认（越界数字 / 非法枚举）

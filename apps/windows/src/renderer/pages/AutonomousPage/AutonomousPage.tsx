@@ -81,7 +81,6 @@ type CapabilityTest = {
 }
 
 type AutonomousSettings = {
-  enabled: boolean
   tickIntervalMinutes: number
   quietHours: [number, number]
   maxOutreachPerDay: number

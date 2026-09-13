@@ -3,12 +3,15 @@
  *
  * 对应设计文档 11 §1：三档参数暴露。用户可调的是心跳频率、配额、审批模式等；
  * 算法权重（SATISFACTION_WEIGHTS / EMA_ALPHA / UCB_CONFIDENCE）绝不暴露。
+ *
+ * 总开关不在这里——唯一真相是 runtime_state 键 `autonomous.enabled`
+ * （apps/windows 侧 readAutonomousEnabled）。历史上本结构曾有 enabled 字段，
+ * 与独立键并存导致两处状态打架，已删除（2026-09-13）。
  */
 
 import type { DatabaseAdapter } from '../storage/local-database.js';
 
 export interface AutonomousSettings {
-  enabled: boolean;
   tickIntervalMinutes: number;      // 默认 10，范围 5-60
   quietHours: [number, number];     // 默认 [23, 8]
   maxOutreachPerDay: number;        // 默认 20，范围 0-50
@@ -22,7 +25,6 @@ export interface AutonomousSettings {
 }
 
 export const DEFAULT_SETTINGS: AutonomousSettings = {
-  enabled: false,
   tickIntervalMinutes: 10,
   quietHours: [23, 8],
   maxOutreachPerDay: 20,
@@ -58,7 +60,6 @@ export function readSettings(db: DatabaseAdapter): AutonomousSettings {
     const parsed = JSON.parse(row.value) as Partial<AutonomousSettings>;
     const qh = Array.isArray(parsed.quietHours) ? parsed.quietHours : DEFAULT_SETTINGS.quietHours;
     return {
-      enabled: parsed.enabled === true,
       tickIntervalMinutes: clampInt(parsed.tickIntervalMinutes, 5, 60, DEFAULT_SETTINGS.tickIntervalMinutes),
       quietHours: [
         clampInt(qh[0], 0, 23, DEFAULT_SETTINGS.quietHours[0]),
@@ -92,9 +93,10 @@ export function readSettings(db: DatabaseAdapter): AutonomousSettings {
   }
 }
 
-/** 写设置（部分覆盖） */
+/** 写设置（部分覆盖）；enabled 字段已废弃，写入前剥离防止旧调用把总开关状态混进设置 JSON */
 export function writeSettings(db: DatabaseAdapter, settings: Partial<AutonomousSettings>): void {
-  const merged = { ...readSettings(db), ...settings };
+  const merged: Record<string, unknown> = { ...readSettings(db), ...settings };
+  delete merged.enabled;
   db.prepare(
     `INSERT INTO runtime_state (key, value, updated_at)
      VALUES (?, ?, ?)

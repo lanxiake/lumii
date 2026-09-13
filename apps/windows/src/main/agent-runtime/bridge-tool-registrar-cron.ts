@@ -92,10 +92,11 @@ export function registerLocalCronTools(deps: BridgeToolRegistrarDeps): void {
         }
         nextRunAt = atMs
       } else {
-        // 独立版无 Gateway，cron 表达式调度目前无本地实现，明确报错
+        // 客户端调度器本身支持 cron 表达式，但 Agent 工具暂只开放 at/every：
+        // 让模型自己写标准 cron 表达式容易出错，需要周期任务时用 every + intervalMs。
         return jsonToolResult({
           status: 'error',
-          message: 'Local mode currently supports only "at" and "every" schedule types, not "cron".',
+          message: 'cron_create supports "at" and "every" only. Use "every" with intervalMs for recurring tasks.',
         })
       }
 

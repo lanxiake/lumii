@@ -1,5 +1,10 @@
 .overviewTab { display: flex; flex-direction: column; gap: 10px; }
 .summary { padding: 10px 0 14px; border-bottom: 1px solid var(--color-border); color: var(--color-text-secondary); font-size: 13px; }
+.summaryRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.summaryRow .summary { flex: 1; }
+.cleanupBtn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border: 1px solid var(--color-border); border-radius: 5px; background: transparent; color: var(--color-text-secondary); font-size: 12px; cursor: pointer; flex-shrink: 0; }
+.cleanupBtn:hover { border-color: var(--color-error, #dc2626); color: var(--color-error, #dc2626); }
+.cleanupBtn:disabled { opacity: 0.45; cursor: not-allowed; }
 .jobList { display: flex; flex-direction: column; gap: 8px; }
 .jobItem { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px; border: 1px solid var(--color-border); border-radius: 6px; background: var(--color-bg-primary); }
 .jobMain { min-width: 0; }
@@ -25,5 +30,13 @@
 .switch input:checked + span { background: var(--color-primary-500); }
 .switch input:checked + span::after { transform: translateX(14px); }
 .switch input:focus-visible + span { outline: 2px solid var(--color-primary-400); outline-offset: 2px; }
+.switch:has(input:disabled) { cursor: not-allowed; }
+.switch input:disabled + span { opacity: 0.5; }
+.group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 6px; }
+.groupHeader { display: flex; align-items: baseline; gap: 8px; padding-top: 4px; }
+.groupTitle { margin: 0; color: var(--color-text-primary); font-size: 13px; font-weight: 600; }
+.groupCount { color: var(--color-text-secondary); font-size: 12px; }
+.groupNote { color: var(--color-text-secondary); font-size: 12px; opacity: 0.8; }
+.managedNote { color: var(--color-text-secondary); font-size: 12px; font-style: italic; }
 .emptyList { padding: 48px 16px; text-align: center; color: var(--color-text-secondary); font-size: 13px; }
 @media (max-width: 620px) { .jobItem { align-items: flex-start; flex-direction: column; gap: 10px; } .jobControls { align-self: flex-end; } }

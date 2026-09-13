@@ -159,7 +159,8 @@ import {
   setAutonomousNotifier,
   notifyNewPendingGoals,
 } from './autonomous-wiring'
-import { handleEvolutionTick, ensureEvolutionCronJobSeeded } from './evolution-tick'
+import { handleEvolutionTick } from './evolution-tick'
+import { syncAutonomousManagedCronJobs } from './autonomous-cron-linkage'
 import { runPlanner, shouldFallbackPlan } from './planner-wiring'
 import { OUTREACH_SYSTEM_NOTIFY_TITLE } from '../desktop-notify'
 import { BridgeInstanceFactory } from './bridge-instance-factory'
@@ -942,7 +943,11 @@ export class AgentRuntimeBridge {
         countAgentSelfCronJobs: () => this.countAgentSelfCronJobs(),
       })
       // planner 目标可能已落库为 pending；做待审批增量提醒
-      if (plan !== null) notifyNewPendingGoals()
+      if (plan !== null) {
+        notifyNewPendingGoals()
+        // 兜底：手动 replan 在开关关闭时也会落地 enabled=1 的自建任务，同步一次立刻挂起
+        syncAutonomousManagedCronJobs(this.localDb.db, readAutonomousEnabled(this.localDb.db))
+      }
       return plan !== null
     } catch (err) {
       log.warn('[planner] 主动规划失败:', err instanceof Error ? err.message : err)
@@ -1138,11 +1143,13 @@ export class AgentRuntimeBridge {
     return ids
   }
 
-  /** initialize() 子块 3/7：构造 CronScheduler、迁移/播种 companion cron、订阅 vhSettings 变更、start() */
+  /** initialize() 子块 3/7：构造 CronScheduler、迁移/播种 companion cron、订阅 vhSettings 变更。
+   *  start() 推迟到 finalizeInitialize（7/7），此时实例工厂已就绪，过期任务补跑不会打空。 */
   private initializeCronScheduler(): void {
     this.cronScheduler = new CronScheduler(this.localDb, {
       showCronNotification: this.config.showCronNotification,
       getLastActiveConvId: () => this.lastActiveConvId,
+      isReady: () => this.initialized,
       createInstanceById: (agentId, sessionKey, conversationId) =>
         this.createInstanceById(agentId, sessionKey, conversationId),
       createRestrictedInstanceById: async (agentId, sessionKey, conversationId) => {
@@ -1576,7 +1583,8 @@ export class AgentRuntimeBridge {
     // 旧版 local_companion_prefs 一次性迁移到 vhSettings（幂等，需先于 seed 执行）
     migrateLocalCompanionPrefsToVhSettings(this.localDb.db)
     ensureCompanionCronJobsSeeded(this.localDb.db)
-    ensureEvolutionCronJobSeeded(this.localDb.db, readAutonomousEnabled(this.localDb.db))
+    // 心跳与 Agent 自建任务跟随自主进化总开关：关闭时一并暂停，开启时恢复
+    syncAutonomousManagedCronJobs(this.localDb.db, readAutonomousEnabled(this.localDb.db))
     // 资讯任务已并入 ensureSeedCronJobsSeeded，不再单独播种
     ensureSeedCronJobsSeeded(this.localDb.db)
     this.purgeCronFocusNoiseMemoriesOnce()
@@ -1587,7 +1595,8 @@ export class AgentRuntimeBridge {
       syncCompanionTickJobEnabled(this.localDb.db, patch.proactiveCareEnabled)
       this.cronScheduler?.reloadLocalCronScheduler()
     })
-    this.cronScheduler.start()
+    // 调度器 start() 不在这里调用：过期 every 任务会立即补跑并驱动 Agent，
+    // 需等 instanceFactory / promptDispatcher 就绪（见 finalizeInitialize）
 
     // 启动即检查主动规划：启用自主进化且今天还没规划过 → 异步补一次未来 24h 的规划。
     // 不阻塞启动流程；runPlannerNow 内部已 try-catch，失败只记日志。
@@ -1731,6 +1740,10 @@ export class AgentRuntimeBridge {
     this.initialized = true
     log.info(`Initialized with ${this.toolRegistry.size} built-in tools (stub overrides applied)`)
     this.ipcChannel.forwardToRenderer({ type: 'runtime:ready', timestamp: Date.now() })
+
+    // 定时任务调度在初始化末尾启动：此时 instanceFactory / promptDispatcher 已就绪，
+    // 过期 every 任务的立即补跑（scheduleJob 的 caughtUp 分支）才有完整的驱动链路
+    this.cronScheduler.start()
 
     // 启动 Idle Compaction 轮询（60s 间隔扫描所有实例）
     this.startIdleCompactionPolling()
@@ -2624,10 +2637,10 @@ export class AgentRuntimeBridge {
   // ── Cron 公共接口 ──
   reloadLocalCronScheduler(): void { this.cronScheduler.reloadLocalCronScheduler() }
 
-  /** 设置页改动心跳周期后重播 cron job（interval_ms 读 readSettings().tickIntervalMinutes）+ 重载调度器 */
+  /** 开关切换/设置页改动心跳周期后：同步托管任务状态（enabled 跟随开关）+ 重载调度器 */
   syncEvolutionTickSettings(): void {
     if (!this.localDb) return
-    ensureEvolutionCronJobSeeded(this.localDb.db, readAutonomousEnabled(this.localDb.db))
+    syncAutonomousManagedCronJobs(this.localDb.db, readAutonomousEnabled(this.localDb.db))
     this.cronScheduler?.reloadLocalCronScheduler()
   }
 

@@ -11,6 +11,12 @@ export type CronJobStatus = 'ok' | 'error' | 'idle' | 'running'
 /** 运行状态 */
 export type CronRunStatus = 'ok' | 'error' | 'running'
 
+/** 来源：系统播种 / Agent 自建（agent-self:*、local-cron-*）/ 用户创建 */
+export type CronJobSource = 'system' | 'agent' | 'user'
+
+/** 启停被哪个开关接管；null 表示用户自管 */
+export type CronJobManagedBy = 'autonomous' | 'companion'
+
 /** 定时任务 */
 export interface CronJob {
   id: string
@@ -38,6 +44,10 @@ export interface CronJob {
   activeHourEnd?: number | null
   /** 逗号分隔的推送目标：system/news/focus/feishu */
   notifyTargets?: string | null
+  source: CronJobSource
+  managedBy?: CronJobManagedBy | null
+  /** 删除后下次启动会重建（系统种子）；UI 隐藏删除入口 */
+  reseeded?: boolean
 }
 
 /** 运行记录 */

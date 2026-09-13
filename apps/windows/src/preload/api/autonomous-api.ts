@@ -76,17 +76,6 @@ export interface AutonomousGoal {
 }
 
 /**
- * 审批设置
- */
-export interface ApprovalSettings {
-  channel: 'feishu' | 'weixin' | 'wecom' | 'local' | 'off'
-  peerId?: string
-  autoApproveInternal: boolean
-  ttlOverrides?: Record<string, number>
-  quietHours?: { start: number; end: number }
-}
-
-/**
  * 能力测试记录
  */
 export interface CapabilityTest {
@@ -198,20 +187,6 @@ export const autonomousApi = {
    */
   getSatisfactionHistory: (window?: string): Promise<any> => {
     return ipcRenderer.invoke('autonomous:getSatisfactionHistory', window)
-  },
-
-  /**
-   * 获取审批设置
-   */
-  getApprovalSettings: (userId: string): Promise<ApprovalSettings | null> => {
-    return ipcRenderer.invoke('autonomous:getApprovalSettings', userId)
-  },
-
-  /**
-   * 更新审批设置
-   */
-  updateApprovalSettings: (userId: string, settings: Partial<ApprovalSettings>): Promise<void> => {
-    return ipcRenderer.invoke('autonomous:updateApprovalSettings', userId, settings)
   },
 
   /**

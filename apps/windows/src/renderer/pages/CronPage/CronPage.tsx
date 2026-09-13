@@ -12,9 +12,12 @@ import { ExpiredTab } from './components/ExpiredTab/ExpiredTab'
 import { CreateJobModal } from './components/shared/CreateJobModal'
 import { useToast } from '../../components/ui/Toast/useToast'
 
-/** 一次性任务执行完自动禁用后归为「已失效」；用户手动暂停的重复任务仍留在「任务列表」 */
+/** 一次性任务执行完自动禁用后归为「已失效」；用户手动暂停的重复任务、被开关暂停的未来任务仍留在「任务列表」 */
 function isExpired(job: CronJob): boolean {
-  return job.scheduleType === 'at' && !job.enabled
+  if (job.scheduleType !== 'at' || job.enabled) return false
+  if (!job.nextRunAt) return true
+  const next = Date.parse(job.nextRunAt)
+  return Number.isNaN(next) || next <= Date.now()
 }
 
 export const CronPage: FC<{ embedded?: boolean }> = ({ embedded = false }) => {
@@ -22,7 +25,7 @@ export const CronPage: FC<{ embedded?: boolean }> = ({ embedded = false }) => {
   const [editingJob, setEditingJob] = useState<CronJob | null>(null)
   const [view, setView] = useState<'active' | 'expired' | 'history'>('active')
   const toast = useToast()
-  const { jobs, loading, error, fetchJobs, addJob, updateJob, removeJob, runJob, toggleJob } = useCronJobs()
+  const { jobs, loading, error, fetchJobs, addJob, updateJob, removeJob, removeJobs, runJob, toggleJob } = useCronJobs()
   const { agents, mainAgentId } = useAgents()
 
   const activeJobs = jobs.filter((job) => !isExpired(job))
@@ -55,7 +58,7 @@ export const CronPage: FC<{ embedded?: boolean }> = ({ embedded = false }) => {
           : view === 'history'
             ? <HistoryTab jobs={jobs} />
             : view === 'expired'
-              ? <ExpiredTab jobs={expiredJobs} onEdit={setEditingJob} onRun={runJob} onDelete={removeJob} />
+              ? <ExpiredTab jobs={expiredJobs} onEdit={setEditingJob} onRun={runJob} onDelete={removeJob} onDeleteMany={removeJobs} />
               : <OverviewTab jobs={activeJobs} agents={agents} onToggle={toggleJob} onRun={runJob} onDelete={removeJob} onEdit={setEditingJob} />}
       </div>
 

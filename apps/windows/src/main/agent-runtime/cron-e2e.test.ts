@@ -395,6 +395,37 @@ describe.skipIf(!hasFts5Db)('预置定时任务端到端', () => {
     expect(orphanRuns?.c).toBe(0)
   })
 
+  it('未来时间的一次性任务不参与失效裁剪（被开关暂停的计划不被误删）', () => {
+    // 25 条真过期（next_run_at 已过，last_run_at 递增）
+    for (let i = 0; i < 25; i++) {
+      db.prepare(
+        `INSERT INTO local_cron_jobs
+         (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, last_run_at, notify_targets)
+         VALUES (?, ?, '内容', 'assistant', 'at', '0', 0, NULL, 0, 0, ?, 'silent')`,
+      ).run(`old-${i}`, `过期任务${i}`, 1000 + i)
+    }
+    // 3 条未来时间但被暂停（自主进化关闭时挂起的计划，last_run_at 为空）
+    const futureIds = ['future-1', 'future-2', 'future-3']
+    for (const id of futureIds) {
+      db.prepare(
+        `INSERT INTO local_cron_jobs
+         (id, name, task_text, agent_id, schedule_type, schedule_expr, next_run_at, interval_ms, enabled, created_at, notify_targets)
+         VALUES (?, ?, '未来的事', 'assistant', 'at', '0', ?, NULL, 0, 0, 'silent')`,
+      ).run(id, id, Date.now() + 3_600_000)
+    }
+
+    const { scheduler } = makeScheduler(db, null)
+    ;(scheduler as unknown as { pruneExpiredOneShotJobs: () => void }).pruneExpiredOneShotJobs()
+
+    const remaining = db
+      .prepare<{ id: string }>(`SELECT id FROM local_cron_jobs WHERE schedule_type = 'at' AND enabled = 0`)
+      .all()
+    const ids = remaining.map((r) => r.id)
+    // 未来的 3 条全部保住；过期的裁到 20 条
+    for (const id of futureIds) expect(ids).toContain(id)
+    expect(ids.filter((id) => id.startsWith('old-'))).toHaveLength(20)
+  })
+
   it('scheduleJob 能为每条预置任务注册定时器且算出未来的 next_run_at', () => {
     const { scheduler } = makeScheduler(db, '产出')
     const jobs = listJobs(db)

@@ -387,10 +387,6 @@ ipcMain.handle(
   },
 )
 
-ipcMain.handle('autonomous:getApprovalSettings', async () => null)
-
-ipcMain.handle('autonomous:updateApprovalSettings', async () => {})
-
 /** 读取开启自主能力的额外 Agent id 列表（除 assistant 外；assistant 恒参与不列入） */
 ipcMain.handle('autonomous:getAgents', async () => {
   return _getConfigManager?.()?.getAppConfig().autonomousAgents ?? []

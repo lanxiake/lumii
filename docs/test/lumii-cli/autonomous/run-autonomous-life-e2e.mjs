@@ -421,8 +421,8 @@ function run() {
       assert(j.maxTokensPerDay === 100000, `maxTokensPerDay 默认 100000`)
       assert(j.maxGoalsPerDay === 7, `maxGoalsPerDay 默认 7`)
       assert(j.approvalMode === 'always', `approvalMode 默认 always`)
-      assert(j.enabled === true, `enabled 默认 true`)
-      return '9 字段与 DEFAULT_SETTINGS 一致'
+      assert(j.enabled === undefined, `enabled 不在设置里（总开关是 runtime_state 独立键）`)
+      return '8 字段与 DEFAULT_SETTINGS 一致'
     })
 
     runTest('A2', 'settings set 部分覆盖不丢默认', () => {
@@ -433,7 +433,7 @@ function run() {
       assert(j.maxOutreachPerDay === 10, `maxOutreachPerDay 应 10: ${j.maxOutreachPerDay}`)
       assert(JSON.stringify(j.quietHours) === '[23,8]', `quietHours 应保持默认 [23,8]`)
       assert(j.maxGoalsPerDay === 7, `maxGoalsPerDay 应保持默认 7`)
-      return '只覆盖 maxOutreachPerDay，其余 8 字段保持默认'
+      return '只覆盖 maxOutreachPerDay，其余 7 字段保持默认'
     })
 
     runTest('A3', '非法值回落默认', () => {

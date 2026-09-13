@@ -1,79 +1,28 @@
 /**
  * useCronJobs - 定时任务 CRUD Hook
  *
- * 通过 Gateway WebSocket 管理定时任务
+ * 经 agent-runtime IPC 命令通道（cron:list/create/update/delete/run/runs）管理本地定时任务
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { CronJob, CronScheduleType, CreateCronJobParams } from './types'
+import type { CronJob, CreateCronJobParams } from './types'
 
 /**
- * 将后端嵌套 CronJob 格式转换为客户端扁平格式
- *
- * 后端返回：{ schedule: { kind, expr/everyMs/atMs, tz }, state: { lastRunAtMs, ... }, ... }
- * 客户端期望：{ scheduleType, scheduleExpr, scheduleTz, lastRunAt, status, ... }
+ * 规范化后端返回的扁平 CronJob：ms 时间戳转 ISO 字符串、lastStatus 映射到 status。
+ * 来源/受管字段缺失时兜底为 user / null（旧数据或非列表接口的返回）。
  */
 function normalizeJob(raw: Record<string, unknown>): CronJob {
-  // 已经是扁平格式（本地 Cron 任务，有 scheduleType 字段）
-  if (typeof raw.scheduleType === 'string' && typeof raw.scheduleExpr === 'string') {
-    // 将 lastRunAt (ms number) 转为 ISO string，lastStatus 映射到 status
-    const lastRunAtMs = raw.lastRunAt as number | undefined
-    const lastStatus = raw.lastStatus as 'ok' | 'error' | 'running' | undefined
-    return {
-      ...raw as unknown as CronJob,
-      lastRunAt: lastRunAtMs ? new Date(lastRunAtMs).toISOString() : (raw.lastRunAt as string | null | undefined) ?? null,
-      // nextRunAt 来自 nextRunAt (ms number)
-      nextRunAt: raw.nextRunAt ? new Date(raw.nextRunAt as number).toISOString() : null,
-      status: lastStatus ?? (raw.status as CronJob['status']) ?? 'idle',
-      updatedAt: raw.updatedAt as string ?? (raw.createdAt as string) ?? '',
-    }
-  }
-
-  const schedule = raw.schedule as Record<string, unknown> | undefined
-  const state = raw.state as Record<string, unknown> | undefined
-  const payload = raw.payload as Record<string, unknown> | undefined
-
-  let scheduleType: CronScheduleType = 'cron'
-  let scheduleExpr = ''
-  let scheduleTz: string | undefined
-
-  if (schedule) {
-    const kind = schedule.kind as string
-    scheduleType = kind === 'at' ? 'at' : kind === 'every' ? 'every' : 'cron'
-
-    if (kind === 'at') {
-      scheduleExpr = String(schedule.atMs ?? '')
-    } else if (kind === 'every') {
-      scheduleExpr = String(schedule.everyMs ?? '')
-    } else {
-      scheduleExpr = (schedule.expr as string) ?? ''
-      scheduleTz = schedule.tz as string | undefined
-    }
-  }
-
+  const lastRunAtMs = raw.lastRunAt as number | undefined
+  const lastStatus = raw.lastStatus as 'ok' | 'error' | 'running' | undefined
   return {
-    id: raw.id as string,
-    userId: (raw.userId as string) ?? '',
-    agentId: (raw.agentId as string) ?? '',
-    name: (raw.name as string) ?? '',
-    description: raw.description as string | undefined,
-    enabled: (raw.enabled as boolean) ?? true,
-    scheduleType,
-    scheduleExpr,
-    scheduleTz,
-    taskText: (payload?.message as string) ?? (payload?.text as string) ?? '',
-    status: (state?.lastStatus as CronJob['status']) ?? (raw.status as CronJob['status']) ?? 'idle',
-    lastRunAt: state?.lastRunAtMs ? new Date(state.lastRunAtMs as number).toISOString() : undefined,
-    nextRunAt: state?.nextRunAtMs ? new Date(state.nextRunAtMs as number).toISOString() : undefined,
-    lastError: state?.lastError as string | undefined,
-    consecutiveErrors: (state?.consecutiveErrors as number) ?? 0,
-    lastDurationMs: state?.lastDurationMs as number | undefined,
-    createdAt: raw.createdAtMs
-      ? new Date(raw.createdAtMs as number).toISOString()
-      : (raw.createdAt as string) ?? '',
-    updatedAt: raw.updatedAtMs
-      ? new Date(raw.updatedAtMs as number).toISOString()
-      : (raw.updatedAt as string) ?? '',
+    ...raw as unknown as CronJob,
+    lastRunAt: lastRunAtMs ? new Date(lastRunAtMs).toISOString() : (raw.lastRunAt as string | null | undefined) ?? null,
+    nextRunAt: raw.nextRunAt ? new Date(raw.nextRunAt as number).toISOString() : null,
+    status: lastStatus ?? (raw.status as CronJob['status']) ?? 'idle',
+    updatedAt: raw.updatedAt as string ?? (raw.createdAt as string) ?? '',
+    source: (raw.source as CronJob['source']) ?? 'user',
+    managedBy: (raw.managedBy as CronJob['managedBy']) ?? null,
+    reseeded: (raw.reseeded as boolean) ?? false,
   }
 }
 

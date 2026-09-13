@@ -167,8 +167,8 @@ const SEED_JOBS: readonly SeedJob[] = [
     activeHourStart: 10,
     activeHourEnd: 18,
     notifyTargets: 'system',
-    // 默认关闭：与其它预置任务不同，这条每 2 小时就触发一次，
-    // 容易让用户觉得「这应用怎么老弹东西」，装好后由用户自己按需打开。
+    // 默认开启（用户可在定时任务页关闭）：这条每 2 小时触发一次，
+    // 若觉得打扰，关闭后种子哨兵保证不会在重启时被重新打开。
     enabled: true,
   },
   {

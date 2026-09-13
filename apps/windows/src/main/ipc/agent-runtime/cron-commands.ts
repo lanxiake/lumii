@@ -8,6 +8,7 @@ import { Cron } from 'croner'
 import { randomUUID } from 'node:crypto'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
+import { classifyCronJobSource, getCronJobManagedBy, isReseededCronJob } from '../../agent-runtime/cron-job-meta'
 
 const log = {
   info: (...args: unknown[]) => console.log('[agent-runtime-ipc/cron]', ...args),
@@ -133,7 +134,7 @@ export function handleCronCreate(
 export function handleCronList(
   bridge: AgentRuntimeBridge,
   includeDisabled: boolean,
-): { status: 'ok'; jobs: Array<{ id: string; name: string; taskText: string; agentId?: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number; enabled: boolean; createdAt: number; lastRunAt?: number; lastStatus?: 'ok' | 'error' | 'running'; activeDays?: string; activeHourStart?: number; activeHourEnd?: number; notifyTargets?: string }>; total: number } {
+): { status: 'ok'; jobs: Array<{ id: string; name: string; taskText: string; agentId?: string; scheduleType: 'at' | 'every' | 'cron'; scheduleExpr: string; nextRunAt: number; intervalMs?: number; enabled: boolean; createdAt: number; lastRunAt?: number; lastStatus?: 'ok' | 'error' | 'running'; activeDays?: string; activeHourStart?: number; activeHourEnd?: number; notifyTargets?: string; source: 'system' | 'agent' | 'user'; managedBy: 'autonomous' | 'companion' | null; reseeded: boolean }>; total: number } {
   const rows = bridge.listLocalCronJobRecords(includeDisabled)
   return {
     status: 'ok',
@@ -148,6 +149,9 @@ export function handleCronList(
       intervalMs: r.interval_ms ?? undefined,
       enabled: r.enabled === 1,
       createdAt: r.created_at,
+      source: classifyCronJobSource(r.id),
+      managedBy: getCronJobManagedBy(r.id),
+      reseeded: isReseededCronJob(r.id),
       ...(r.last_run_at != null ? { lastRunAt: r.last_run_at } : {}),
       ...(r.last_status != null ? { lastStatus: r.last_status } : {}),
       ...(r.active_days != null ? { activeDays: r.active_days } : {}),

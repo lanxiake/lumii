@@ -31,9 +31,9 @@ describe('handleEvolutionTick', () => {
     expect(await handleEvolutionTick(deps)).toBe('skipped: user turn in progress')
   })
 
-  it('有冲突目标时优先驱动（不受自主进化开关/用户回合约束）', async () => {
+  it('有冲突目标时优先驱动（tick 运行期间不受开关/用户回合约束；心跳关闭时任务本身不调度）', async () => {
     const driveConflictGoal = vi.fn(async () => 'conflict-goal: resolved')
-    // 即使自主进化关闭、用户正在对话，冲突驱动仍应执行
+    // 手动 run / 心跳运行期间：即使自主进化关闭、用户正在对话，冲突驱动仍应执行
     const deps = makeDeps({
       isAutonomousEnabled: () => false,
       hasActiveUserTurn: () => true,

@@ -49,11 +49,7 @@ export const HistoryTab: FC<HistoryTabProps> = ({ jobs }) => {
             .then((result) => {
               const entries = result?.entries ?? []
               return entries.map((r): CronRun => {
-                const tsMs = typeof r.startedAt === 'number' ? r.startedAt
-                  : typeof r.ts === 'number' ? r.ts
-                  : typeof r.runAtMs === 'number' ? r.runAtMs
-                  : typeof r.startedAt === 'string' ? new Date(r.startedAt).getTime()
-                  : Date.now()
+                const tsMs = typeof r.startedAt === 'number' ? r.startedAt : Date.now()
                 return {
                   id: typeof r.id === 'string' ? r.id : `${job.id}-${tsMs}`,
                   jobId: job.id,
