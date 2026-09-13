@@ -1,32 +1,49 @@
 # 体验深挖 · 地基篇（G1-G4）真实使用旅程 E2E 测试报告
 
-- **生成时间**: 2026-09-13T15:56:08.377Z（开始 2026-09-13T15:52:58.945Z）
+- **生成时间**: 2026-09-13T16:18:22.883Z（开始 2026-09-13T16:09:38.406Z）
 - **驱动方式**: 全部经 lumii-ui CLI 真实调用（conversation/send/context 等），真实客户端 + 真实 LLM，无 SQL 播种
 - **数据库**: C:\Users\Administrator\.lumii\data\agent-runtime.db
-- **场景范围**: DD_ONLY=G2-02
+- **场景范围**: DD_ONLY=G2-02,G3-01,G4-01
 - **环境**: 真实 LLM；转交场景未启用
 - **执行方式**: 父进程编排（并行 + UI 串行）
-- **应用日志**: C:\Users\Administrator\.lumii\logs\app\mtbot-2026-09-13.log
+- **应用日志**: C:\Users\Administrator\.lumii\logs\app\mtbot-2026-09-14.log
 
 ## 概要
 
 | 指标 | 值 |
 |---|---|
-| 总数 | 1 |
+| 总数 | 3 |
 | 通过 | 1 |
-| 失败 | 0 |
+| 失败 | 2 |
 | 跳过 | 0 |
-| 通过率 | 100.0% |
+| 通过率 | 33.3% |
 
 ## 逐条结果
 
 | ID | 状态 | 说明 | 耗时 |
 |---|---|---|---|
-| DD-G2-02 | ✅ | 后台委托「灵栖情报」完成；用户切走后收到桌面通知（含父会话跳转 c32dccc173a2af300da95a9069067917）：「[2026-09-13 23:56:02.807] [INFO] [Main] [DesktopNotify] title="Lumii · 灵栖情报 已完成" body="3 条要点已在上方完整列出（含原文链接与解读），并已同步到看板信息」 | 73.2s |
+| DD-G4-01 | ❌ | 两次尝试主助手均未使用 send_message 带话（回复尾：mplete has already been called and the summary has been presented. Following the silent response rule, if there's nothing to say, respond with NO_REPLY. The user has already received the full report.
+）—— 传话通路未被触发 | 246.2s |
+| DD-G2-02 | ❌ | 后台委托完成后未外推桌面通知（用户已切到别的会话：「G4-01 传话(第2次)」）；窗口内 DesktopNotify 尾：[2026-09-14 00:16:34.577] [INFO] [Main] [DesktopNotify] title="Lumii · info-curator 已完成" body="本轮任务已完成：看板资讯流已写入今日 5 条 AI 行业动态（政策 1 条 + 编程工具/厂商 4 条，全部来自 IT之家且链接验证有效），筛选依据已记入工作记" convId="d0d7fc85799817000de37074a6d1bfb8" | 57.5s |
+| DD-G3-01 | ✅ | 本用例现场发起委托：界面渲染「团队委托灵栖情报已完成详情」；点击展开可见任务/产出 | 104.4s |
 
 ## 失败与跳过明细
 
-无。
+- **DD-G4-01** FAIL: 两次尝试主助手均未使用 send_message 带话（回复尾：mplete has already been called and the summary has been presented. Following the silent response rule, if there's nothing to say, respond with NO_REPLY. The user has already received the full report.
+）—— 传话通路未被触发
+  ```
+  Error: 两次尝试主助手均未使用 send_message 带话（回复尾：mplete has already been called and the summary has been presented. Following the silent response rule, if there's nothing to say, respond with NO_REPLY. The user has already received the full report.
+）—— 传话通路未被触发
+    at Module.assert (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:110:20)
+    at caseG401 (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-deepdive/run-agent-deepdive-e2e.mjs:721:5)
+    at Modul
+  ```
+- **DD-G2-02** FAIL: 后台委托完成后未外推桌面通知（用户已切到别的会话：「G4-01 传话(第2次)」）；窗口内 DesktopNotify 尾：[2026-09-14 00:16:34.577] [INFO] [Main] [DesktopNotify] title="Lumii · info-curator 已完成" body="本轮任务已完成：看板资讯流已写入今日 5 条 AI 行业动态（政策 1 条 + 编程工具/厂商 4 条，全部来自 IT之家且链接验证有效），筛选依据已记入工作记" convId="d0d7fc85799817000de37074a6d1bfb8"
+  ```
+  Error: 后台委托完成后未外推桌面通知（用户已切到别的会话：「G4-01 传话(第2次)」）；窗口内 DesktopNotify 尾：[2026-09-14 00:16:34.577] [INFO] [Main] [DesktopNotify] title="Lumii · info-curator 已完成" body="本轮任务已完成：看板资讯流已写入今日 5 条 AI 行业动态（政策 1 条 + 编程工具/厂商 4 条，全部来自 IT之家且链接验证有效），筛选依据已记入工作记" convId="d0d7fc85799817000de37074a6d1bfb8"
+    at Module.assert (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/lib/cli-harness.mjs:110:20)
+    at caseG202 (file:///E:/my-project/open-source/lumii/docs/test/lumii-cli/agent-deepdive/run-agent-
+  ```
 
 ## 副作用声明
 

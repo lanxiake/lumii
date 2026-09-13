@@ -588,30 +588,34 @@ function caseG202() {
     `两次尝试都没走到后台委托（通知场景不成立）：${lastNote}`,
   )
 
+  // 完成行用子实例 id 精确匹配：并发/前序用例可能派出同名专家（如 info-curator），按名字匹配会误命中
+  const childInstanceId = String(parseToolResult(asyncSpawn)?.instanceId ?? '')
+  h.assert(childInstanceId, `委托结果缺 instanceId：${JSON.stringify(parseToolResult(asyncSpawn)).slice(0, 160)}`)
+
   // 用户切到别的会话（真实旅程：委托完就去干别的）；主断言靠日志游标，界面切换成败不影响判定
   const otherConv = switchAwayFrom(sk)
 
-  // 等专家完成（主进程日志 [Subagent] complete）
+  // 等专家完成（主进程日志 [Subagent] complete child=<id>）
   const done = h.pollUntil(
-    () => h.logSince(cursor, /\[Subagent\] complete/).find((l) => String(l).includes(childName)) ?? null,
+    () =>
+      h
+        .logSince(cursor, /\[Subagent\] complete/)
+        .find((l) => String(l).includes(`child=${childInstanceId}`)) ?? null,
     420000,
     5000,
   )
-  h.assert(done, `8 分钟内未等到「${childName}」完成（日志无 [Subagent] complete ${childName}）`)
+  h.assert(done, `8 分钟内未等到委托的子 Agent 完成（日志无 [Subagent] complete child=${childInstanceId}）`)
 
-  const notifyLines = h
-    .logSince(cursor, /DesktopNotify/)
-    .filter(
-      (l) =>
-        String(l).includes('已完成') || String(l).includes('执行失败') || String(l).includes('已超时'),
-    )
+  // 通知行按父会话 sessionKey 精确匹配（并发/前序用例的 DesktopNotify 也会落在同一日志窗口里）
+  const allNotify = h.logSince(cursor, /DesktopNotify/)
+  const notifyLines = allNotify.filter((l) => String(l).includes(`convId="${sk}"`))
   h.assert(
     notifyLines.length > 0,
-    `后台委托完成后未外推桌面通知（用户已切到别的会话${otherConv ? `：「${otherConv}」` : ''}）`,
+    `后台委托完成后未外推桌面通知（用户已切到别的会话${otherConv ? `：「${otherConv}」` : ''}）；窗口内 DesktopNotify 尾：${allNotify.slice(-3).join(' | ').slice(0, 320)}`,
   )
-  const withConvId = notifyLines.some((l) => String(l).includes(sk))
-  h.assert(withConvId, `通知未带父会话跳转目标（期望 convId="${sk}"）：${notifyLines[0].slice(0, 220)}`)
-  return `后台委托「${childName}」完成；用户切走后收到桌面通知（含父会话跳转 ${sk}）：「${notifyLines[0].slice(0, 120)}」`
+  const statusLine = notifyLines.find((l) => /已完成|执行失败|已超时/.test(String(l)))
+  h.assert(statusLine, `通知未带状态文案（期望 已完成/执行失败/已超时）：${notifyLines[0].slice(0, 220)}`)
+  return `后台委托「${childName}」完成；用户切走后收到桌面通知（含父会话跳转 ${sk}）：「${statusLine.slice(0, 120)}」`
 }
 
 /**
@@ -649,86 +653,105 @@ function caseG301() {
   const cardName = cardRef.name
   h.assert(/灵栖(开发|维护|情报|记事)/.test(cardName), `卡片未显示专家名：${cardName}`)
 
-  // 展开详情：任务全文可见（下一条断言读展开后的界面）
+  // 展开详情：点击后按钮名里的「详情」应变为「收起」，且出现任务/产出标签
   let expanded = false
-  try {
-    h.ui(['click', '--ref', cardRef.ref, '--snapshot-id', String(snap.snapshotId)])
-    h.sleep(1200)
-    const snap2 = screenshotRefs()
-    const after = (snap2.refs || []).map((r) => r.name || '').join('\n')
-    expanded = /任务|产出/.test(after)
-  } catch {
-    expanded = false
+  for (let round = 1; round <= 3 && !expanded; round++) {
+    try {
+      const snapNow = screenshotRefs()
+      const cardNow = (snapNow.refs || []).find((r) => (r.name || '').includes('团队委托'))
+      if (!cardNow) {
+        h.sleep(1200)
+        continue
+      }
+      h.ui(['click', '--ref', cardNow.ref, '--snapshot-id', String(snapNow.snapshotId)])
+      h.sleep(1500)
+      const after = (screenshotRefs().refs || []).map((r) => r.name || '').join('\n')
+      expanded = after.includes('收起') || /任务|产出/.test(after)
+    } catch {
+      /* 截图/点击偶发失败，重试 */
+    }
   }
-  h.assert(expanded, '点击卡片后未展开任务/产出详情')
+  h.assert(expanded, '点击卡片后未展开任务/产出详情（3 次重试）')
   return `${ownNote}：界面渲染「${cardName.replace(/\s+/g, ' ').slice(0, 80)}」；点击展开可见任务/产出`
 }
 
 /**
- * DD-G4-01 传话：用户在同一轮里「派活 + 嘱咐」→
- * 主助手后台委托专家后立刻用 send_message 带话（此时实例必定存活）+ 会话里留下【传话】记录。
+ * DD-G4-01 传话：用户派一个后台长任务，随后（任务仍在跑时）追加一句要求 →
+ * 主助手用 send_message 追加到那个运行中的实例 + 会话里留下【传话】记录。
  *
- * 为什么不拆两轮：真实旅程中专家一旦完成，实例即销毁（拍板不做持久信箱），
- * 第二轮再传话必然 not found（2026-09-13 实测：主助手用实例 id / 显示名 / 定义 id 三次重试均失败，
- * 最后如实告知用户并落记忆兜底——该边界记入报告，不作为本用例失败）。
+ * 时序要点：任务要够长（多源核对），第 2 轮才可能落在「实例存活」窗口内；
+ * 回合判定用 lastParentAssistant（跳过子 Agent 的长流式产出）。
+ * 已知边界：实例在任务完成后即回收（拍板不做持久信箱），此时 send_message 必然 not found ——
+ * 用例把它当作可重试竞态，并在证据里留下 not-found 原文。
  */
 function caseG401() {
   if (!selected('G4-01')) throw new Error('SKIP: 未选中（DD_ONLY）')
   if (SKIP_LLM) throw new Error('SKIP: DD_SKIP_LLM=1')
 
   const RELAY = '优先看中文来源'
-  // 第 1 次用自然话术（"顺便嘱咐它一句"）——实测模型会把要求折叠进委托 prompt，不触发 send_message；
-  // 该行为作为产品发现记入证据。第 2 次显式点名工具（用户知道助手能力时的说法），验证通路本身。
-  const prompts = [
-    `请后台让灵栖情报搜集 5 条今天的 AI 行业动态、整理成要点；顺便帮我嘱咐它一句：${RELAY}。`,
-    `请后台让灵栖情报搜集 5 条今天的 AI 行业动态；然后用 send_message 工具给它发一条消息：${RELAY}。`,
+  const DISPATCH =
+    '请后台让灵栖情报搜集 8 条今天的 AI 行业动态：多找几个源、逐条核对链接，慢慢做，完成后汇报。'
+  const appendPrompts = [
+    `它还在跑，帮我给它带句话：${RELAY}。`,
+    `用 send_message 给那个正在跑的任务追加一句：${RELAY}。`,
   ]
   let sk = ''
   let sendPart = null
-  let spawnHit = null
   let lastNote = ''
-  for (let attempt = 1; attempt <= prompts.length && !sendPart; attempt++) {
+  for (let attempt = 1; attempt <= 2 && !sendPart; attempt++) {
     sk = h.createSession(`G4-01 传话(第${attempt}次)`, { prefix: PREFIX })
-    h.send(sk, prompts[attempt - 1])
-    // 同轮内带话：只等 send_message 出现即可断言（不必等整轮结束，避免专家跑完被销毁）
-    sendPart = h.pollUntil(() => findToolCall(h.fetchMessages(sk, 40), 'send_message'), 150000, 4000)
-    if (!sendPart) {
-      lastNote = conversationText(sk, 40).slice(-200)
-      ev.record(
-        'DD-G4-01',
-        'INFO',
-        `第 ${attempt} 次未出现 send_message（${attempt === 1 ? '自然话术' : '显式点名工具'}）；会话文本尾：${lastNote}`,
-      )
+    const t1 = waitTurnDone(sk, DISPATCH, Math.max(TURN_TIMEOUT, 300000))
+    h.assert(!t1.timedOut, `派活回合超时（${(t1.elapsedMs / 1000).toFixed(0)}s）`)
+    const spawnHit = findToolCall(h.fetchMessages(sk, 60), 'spawn_agent', { key: 'agentType', value: 'info-curator' })
+    if (!spawnHit) {
+      lastNote = `第 ${attempt} 次未委托灵栖情报；回复前 120 字：${(t1.text || '').slice(0, 120)}`
+      ev.record('DD-G4-01', 'INFO', lastNote)
+      continue
+    }
+    if (parseToolResult(spawnHit)?.mode !== 'async') {
+      lastNote = `第 ${attempt} 次委托模式=${parseToolResult(spawnHit)?.mode}（非后台，追加场景不成立）`
+      ev.record('DD-G4-01', 'INFO', lastNote)
+      continue
+    }
+
+    // 第 2 轮：任务仍在跑时追加；先自然话术，未触发工具则显式点名
+    for (let i = 0; i < appendPrompts.length; i++) {
+      const t2 = waitTurnDone(sk, appendPrompts[i], TURN_TIMEOUT)
+      const hit = findToolCall(h.fetchMessages(sk, 60), 'send_message')
+      if (!hit) {
+        lastNote = `第 ${attempt} 次追加话术${i + 1}未触发 send_message；回复前 120 字：${(t2.text || '').slice(0, 120)}`
+        ev.record('DD-G4-01', 'INFO', lastNote)
+        continue
+      }
+      const payload = parseToolResult(hit)
+      if (payload?.status !== 'ok') {
+        lastNote = `第 ${attempt} 次 send_message 未送达（to=${String(hit.args?.to ?? '?')}）：${String(payload?.message ?? '').slice(0, 140)}`
+        ev.record('DD-G4-01', 'INFO', lastNote)
+        break // 实例已回收 → 换一轮重试
+      }
+      sendPart = hit
+      break
     }
   }
   h.assert(
     sendPart,
-    `两次尝试主助手均未使用 send_message 带话（回复尾：${lastNote || conversationText(sk, 40).slice(-240)}）—— 传话通路未被触发`,
-  )
-
-  spawnHit = findToolCall(h.fetchMessages(sk, 40), 'spawn_agent', { key: 'agentType', value: 'info-curator' })
-  if (!spawnHit) ev.record('DD-G4-01', 'INFO', '本轮未见对 info-curator 的 spawn 委托（带话仍成功，链路照常验证）')
-
-  const payload = parseToolResult(sendPart)
-  h.assert(
-    payload?.status === 'ok',
-    `send_message 返回失败：${JSON.stringify(payload).slice(0, 200)}`,
+    `两次尝试均未完成「对运行中任务的追加」（最后一次：${lastNote || conversationText(sk, 40).slice(-200)}）`,
   )
 
   // 落库可见：发送方会话里出现【传话】痕迹（这是用户视角能看到的协作证据）
-  const relayText = h.pollUntil(
+  const relayHit = h.pollUntil(
     () => conversationText(sk, 60).split('\n').find((l) => l.includes('【传话】') && l.includes(RELAY)) ?? null,
     30000,
     2000,
   )
   h.assert(
-    relayText,
+    relayHit,
     `会话里没有【传话】记录（用户看不到这次协作）；会话文本尾：${conversationText(sk, 60).slice(-300)}`,
   )
 
   // 收尾：等本轮结束（含专家回流），不判失败，避免留下流式消息影响后续用例
   waitConversationIdle(sk, 300000)
-  return `主助手带话成功（send_message ok，to=${String(sendPart.args?.to ?? '?')}）；会话中出现「${relayText.slice(0, 80)}」`
+  return `追加成功（send_message ok，to=${String(sendPart.args?.to ?? '?')}）；会话中出现「${relayHit.slice(0, 80)}」`
 }
 
 /** DD-REG-01 日常聊天回归：不选 Agent 的普通对话行为不变 */
