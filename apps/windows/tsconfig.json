@@ -8,14 +8,13 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@main/*": ["src/main/*"],
-      "@renderer/*": ["src/renderer/*"],
-      "@shared/*": ["src/shared/*"],
-      "@app-assets/*": ["assets/*"]
-    }
+      "@/*": ["./src/*"],
+      "@main/*": ["./src/main/*"],
+      "@renderer/*": ["./src/renderer/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@app-assets/*": ["./assets/*"]
+      }
   },
   "include": ["src/**/*", "assets/**/*.d.ts"],
   "exclude": ["node_modules", "dist", "release"]
