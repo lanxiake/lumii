@@ -263,6 +263,8 @@ export class BridgePromptDispatcher {
     // 每轮发消息前刷新动态部分（用户记忆 + 活跃任务），确保 AI 拿到最新内容
     const stateForRebuild = this.deps.instanceStates.get(instanceId)
     let baseResult = stateForRebuild?.basePrompt
+    /** 本轮实际使用的提示词风格（用于完整提示词打印日志；未重建时保持 undefined） */
+    let turnPromptStyle: 'detailed' | 'terse' | undefined
 
     // 获取用户当前选择的模型 ID（用于 Runtime section 实时更新）
     const ctx = stateForRebuild?.ctx
@@ -322,10 +324,10 @@ export class BridgePromptDispatcher {
           }
         }
         // 提示词风格（实验功能）：每轮读取最新设置；pi 每轮快照系统提示词，故下一轮对话生效
-        const promptStyle = (await this.deps.config.getPromptStyleSettings?.())?.style
-        baseResult = rebuilder(hints, currentModelId, routerLite, promptStyle)
+        turnPromptStyle = (await this.deps.config.getPromptStyleSettings?.())?.style
+        baseResult = rebuilder(hints, currentModelId, routerLite, turnPromptStyle)
         if (state) state.basePrompt = baseResult
-        logPromptSections(instanceId, baseResult.sectionStats, promptStyle)
+        logPromptSections(instanceId, baseResult.sectionStats, turnPromptStyle)
       } catch (err) {
         log.error('[prompt] 重建系统提示词失败（回退缓存提示词）:', err)
       }
@@ -347,6 +349,16 @@ export class BridgePromptDispatcher {
       )
       instance.setSystemPrompt(freshPrompt)
       log.info(`[prompt] 已刷新系统提示词（记忆+任务+模型）instanceId=${instanceId}, model=${currentModelId ?? 'default'}`)
+      // 实验观测（提示词风格实验 P1-T5）：转储真实送入 LLM 的完整系统提示词（记忆注入后的最终形态），
+      // 供 CLI 套件与人工日志分析提示词编排；begin/end 标记便于脚本截取块内容。
+      const styleLabel = turnPromptStyle ?? 'detailed'
+      log.info(
+        `[llm-prompt] instanceId=${instanceId} style=${styleLabel} chars=${freshPrompt.length} ` +
+          `static=${baseResult.staticPrompt.length} dynamic=${baseResult.dynamicPrompt.length}`,
+      )
+      log.info(`[llm-prompt:full:begin] instanceId=${instanceId} style=${styleLabel}`)
+      log.info(freshPrompt)
+      log.info(`[llm-prompt:full:end] instanceId=${instanceId}`)
     }
 
     // 自动压缩：在发送消息前检查当前消息历史 token 预算，超过触发阈值时触发异步压缩

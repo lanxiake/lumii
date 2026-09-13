@@ -74,6 +74,9 @@
 | P1-T2 | `6cd7c22` | `PromptStyle` 取代 `PromptDetail` 全链（迁移映射 26 项执行），grep 零残留；快照 diff 47 行纯新增（声明见下） |
 | P1-T3 | `65bc3d8` | 首批 5 段 terse 渲染；段元数据 terse 位置 true；实验页二选一开关（localStorage + IPC，下一轮生效）；单测 3 + 4 例 |
 | P1-T4 | `6617723` | 守卫测试 8 例（元数据完整性 + 引导可发现性渲染级） + dispatcher 风格传递测试 2 例 |
+| 补记 | `cd91f85` | prompt_guide 归入 Reference Guides 工具组：apps/windows 工具分组守卫（「全部工具不落进 Other Tools」）与包内 tooling-section 漂移守卫（死键/幽灵名）双双命中，补齐 TOOL_SUMMARIES / GUIDE_TOOLS / 守卫测试客户端名单三处 |
+
+**apps/windows 全量对照**：修复前 21 失败 / 7 文件；`cd91f85` 修复后 20 失败 / 6 文件，且经定点复跑核对恰好等于既有基线剩余集合（sync-manager 14 / WikiTopicPicker 2 / bridge-wiki-tools 1 / command-allowlist 1 / goto 1 / wiki-commands 1；原基线的 ChatSidebar/ChatPage 已被用户并行工作修复）——本次改动零新增失败。
 
 **P1-T2 快照 diff 声明**（`git diff` 逐行核对：**47 行纯新增、0 删除**）：
 

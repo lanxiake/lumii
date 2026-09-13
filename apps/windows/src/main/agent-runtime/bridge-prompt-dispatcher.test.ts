@@ -301,12 +301,19 @@ describe("BridgePromptDispatcher 提示词风格传递（P1-T4）", () => {
       inputTokens: 0,
       outputTokens: 0,
     });
-    const rebuilder = vi.fn(() => ({
-      staticPrompt: "static",
-      dynamicPrompt: "",
-      fullPrompt: "static",
-      sectionStats: [],
-    }));
+    const rebuilder = vi.fn(
+      (
+        _hints?: readonly unknown[],
+        _currentModelId?: string,
+        _routerResult?: unknown,
+        _promptStyle?: 'detailed' | 'terse',
+      ) => ({
+        staticPrompt: "static",
+        dynamicPrompt: "",
+        fullPrompt: "static",
+        sectionStats: [],
+      }),
+    );
     state.promptRebuilder = rebuilder;
     const instanceStates = new InstanceStateStore();
     instanceStates.set("instance-1", state);

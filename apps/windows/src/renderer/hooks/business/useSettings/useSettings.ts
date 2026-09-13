@@ -23,6 +23,28 @@ import {
   readStoredSettings,
 } from './settings-core'
 
+/**
+ * 把 localStorage 中「主进程需要感知」的设置同步到主进程缓存。
+ *
+ * 覆盖记忆注入开关与提示词风格（实验）。任何设置变更事件（本组件保存 / 其他
+ * 组件广播 / app-ui CLI /settings/write 直写）都应调用本函数——主进程缓存
+ * 只在 IPC 推送时更新，缺了这步会出现 CLI 改设置但每轮提示词仍读旧值。
+ */
+function syncSettingsToMain(): void {
+  try {
+    const stored = readStoredSettings()
+    void updateMemoryInjection({
+      injectPersonalMemory: stored?.memory?.injectPersonalMemory !== false,
+      injectWorkMemory: stored?.memory?.injectWorkMemory !== false,
+    })
+    void updatePromptStyle({
+      style: stored?.promptStyle?.style === 'terse' ? 'terse' : 'detailed',
+    })
+  } catch {
+    // 忽略本地读取失败（主进程侧各自有默认值兜底）
+  }
+}
+
 export function useSettings() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
 
@@ -31,14 +53,7 @@ export function useSettings() {
     try {
       const merged = loadInitialSettings()
       setSettings(merged)
-      void updateMemoryInjection({
-        injectPersonalMemory: merged.memory?.injectPersonalMemory !== false,
-        injectWorkMemory: merged.memory?.injectWorkMemory !== false,
-      })
-      // 提示词风格（实验）：启动时同步一次主进程缓存，默认 detailed
-      void updatePromptStyle({
-        style: merged.promptStyle?.style === 'terse' ? 'terse' : 'detailed',
-      })
+      syncSettingsToMain()
     } catch (error) {
       console.error('[useSettings] 解析设置失败:', error)
     }
@@ -58,6 +73,9 @@ export function useSettings() {
           setSettings((prev) => deepMerge(prev, parsed))
         }
       }
+      // 任何来源的设置变更（含 app-ui CLI /settings/write 直写）都同步主进程缓存，
+      // 否则主进程缓存陈旧，每轮提示词读取到旧值
+      syncSettingsToMain()
     }
 
     window.addEventListener(SETTINGS_UPDATE_EVENT, handleSettingsUpdate)
