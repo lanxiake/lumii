@@ -9,6 +9,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const prependMock = vi.fn(async () => undefined)
 vi.mock('../dashboard-feed-store', () => ({
   prependActiveDashboardFeedItem: prependMock,
+  getDashboardFeedWriteVersion: () => 0,
+  readDashboardFeedSnapshot: async () => null,
 }))
 
 const { CronScheduler } = await import('./cron-scheduler')
@@ -167,5 +169,70 @@ describe('dispatchNotifications', () => {
       '今天完成\n- 修了 bug',
     )
     expect(s.addMemory).not.toHaveBeenCalled()
+  })
+})
+
+describe('runLocalCronJob 失败通知', () => {
+  /** 造一个执行必然失败的调度器：任务行可读，但驱动 Agent 的实例创建抛错 */
+  function makeFailingScheduler() {
+    const showCronNotification = vi.fn()
+    const db = {
+      prepare: () => ({
+        get: () => ({
+          name: '测试任务',
+          enabled: 1,
+          active_days: null,
+          active_hour_start: null,
+          active_hour_end: null,
+          system_prompt: null,
+          notify_targets: null,
+        }),
+        run: () => undefined,
+      }),
+    }
+    const deps = {
+      showCronNotification,
+      getLastActiveConvId: () => null,
+      createInstanceById: async () => {
+        throw new Error('实例创建失败：Provider 未配置')
+      },
+      prompt: async () => undefined,
+      destroy: () => undefined,
+      ensureConversationExists: () => true,
+      notifyIncomingMessage: () => undefined,
+      saveMessage: () => undefined,
+      getFileRepo: () => null,
+      getCwd: () => 'C:/tmp',
+    } as unknown as Deps
+    const scheduler = new CronScheduler({ isOpen: true, db } as never, deps)
+    const run = (
+      scheduler as unknown as {
+        runLocalCronJob: (
+          job: { id: string; task_text: string; agent_id: string | null },
+          options?: { manual?: boolean },
+        ) => Promise<void>
+      }
+    ).runLocalCronJob.bind(scheduler)
+    return { run, showCronNotification }
+  }
+
+  it('执行失败补系统通知：标题含任务名、正文含失败原因、点击跳任务会话', async () => {
+    const s = makeFailingScheduler()
+    await s.run({ id: 'job-fail', task_text: '汇总今天要做的事', agent_id: 'assistant' })
+    expect(s.showCronNotification).toHaveBeenCalledWith(
+      '灵栖 · 测试任务',
+      expect.stringContaining('实例创建失败'),
+      'cron:job-fail',
+    )
+  })
+
+  it('失败通知发送异常不影响失败记账（状态仍落库）', async () => {
+    const s = makeFailingScheduler()
+    s.showCronNotification.mockImplementation(() => {
+      throw new Error('通知通道异常')
+    })
+    await expect(
+      s.run({ id: 'job-fail-2', task_text: '汇总今天要做的事', agent_id: 'assistant' }),
+    ).resolves.toBeUndefined()
   })
 })

@@ -284,9 +284,10 @@ export interface ElectronAPI {
   }
 
   /**
-   * 与定时任务相同的桌面通知（主进程 Notification + 托盘 + 失焦时任务栏闪烁�?
+   * 与定时任务相同的桌面通知（主进程 Notification + 托盘 + 失焦时任务栏闪烁）
+   * convId 可选：点击通知时跳转到该会话
    */
-  notifyDesktop: (title: string, body: string) => Promise<void>
+  notifyDesktop: (title: string, body: string, convId?: string) => Promise<void>
 
   // 应用操作
   /** 本地 LLM Provider 配置（按能力�?chat/vision/image�?*/
@@ -1220,8 +1221,8 @@ const electronAPI: ElectronAPI = {
   // 窗口操作 API
   window: windowApi,
 
-  notifyDesktop: (title: string, body: string) =>
-    notifyApi.desktop({ title, body }) as Promise<void>,
+  notifyDesktop: (title: string, body: string, convId?: string) =>
+    notifyApi.desktop({ title, body, ...(convId ? { convId } : {}) }) as Promise<void>,
 
   // 本地 LLM Provider 配置（按能力槽）
   provider: {

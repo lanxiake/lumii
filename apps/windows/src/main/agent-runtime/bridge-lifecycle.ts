@@ -518,6 +518,8 @@ export class BridgeLifecycle {
   private emitSubagentCompleted(payload: SubagentCompletionPayload): void {
     const summaryPreview =
       payload.summary.length > 200 ? `${payload.summary.slice(0, 200)}…` : payload.summary
+    // 父实例所在会话：渲染层据此路由事件，并在用户未查看该会话时弹桌面完成通知
+    const sessionKey = this.deps.instanceToConversation.get(payload.parentId)
     this.deps.ipcChannel.forwardIpcEvent({
       type: 'agent:subagent:completed',
       parentInstanceId: payload.parentId,
@@ -525,6 +527,7 @@ export class BridgeLifecycle {
       name: payload.name,
       status: payload.status,
       summaryPreview,
+      ...(sessionKey ? { sessionKey } : {}),
     })
     log.info(
       `[Subagent] complete parent=${payload.parentId} child=${payload.childId} name=${payload.name} status=${payload.status} previewLen=${summaryPreview.length}`,
@@ -564,11 +567,11 @@ export class BridgeLifecycle {
     log.info(`[notifyNavigateToSession] 已推送导航事件: sessionKey=${sessionKey}`)
   }
 
-  /** 触发系统级 Cron 通知 */
-  triggerCronNotification(title: string, body: string): void {
+  /** 触发系统级 Cron 通知；convId 可选，点击通知跳转到对应会话 */
+  triggerCronNotification(title: string, body: string, convId?: string): void {
     if (this.deps.showCronNotification) {
-      this.deps.showCronNotification(title, body)
-      log.info(`[triggerCronNotification] 已发送系统通知 title="${title}" body="${body.slice(0, 60)}"`)
+      this.deps.showCronNotification(title, body, convId)
+      log.info(`[triggerCronNotification] 已发送系统通知 title="${title}" body="${body.slice(0, 60)}" convId="${convId ?? ''}"`)
     } else {
       log.warn(`[triggerCronNotification] showCronNotification 未注入，通知丢失 body="${body.slice(0, 60)}"`)
     }

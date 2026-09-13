@@ -351,6 +351,8 @@ export interface AgentSubagentCompletedEvent {
   readonly status: 'succeeded' | 'failed' | 'cancelled' | 'stale'
   /** 截断到约 200 字供 UI 预览 */
   readonly summaryPreview: string
+  /** 父实例所在会话：完成结果汇入的会话，供 UI 路由与「是否正在看该会话」判断 */
+  readonly sessionKey?: string
 }
 
 // ============================================================

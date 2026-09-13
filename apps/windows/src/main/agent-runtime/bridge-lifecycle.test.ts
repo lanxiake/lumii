@@ -127,3 +127,26 @@ describe('BridgeLifecycle.destroy 的运行中兜底', () => {
     expect(types).not.toContain('agent:error')
   })
 })
+
+describe('BridgeLifecycle.emitSubagentCompleted', () => {
+  it('事件携带父实例所在会话 sessionKey（渲染层据此弹完成通知 / 路由）', () => {
+    const { lifecycle, forwardIpcEvent } = createLifecycle('idle')
+    const emit = (
+      lifecycle as unknown as { emitSubagentCompleted: (payload: unknown) => void }
+    ).emitSubagentCompleted.bind(lifecycle)
+
+    emit({
+      childId: 'child-1',
+      parentId: INSTANCE_ID,
+      name: '灵栖情报',
+      status: 'succeeded',
+      summary: 'x'.repeat(300),
+    })
+
+    const event = forwardIpcEvent.mock.calls
+      .map(([e]) => e as { type: string; sessionKey?: string; summaryPreview?: string })
+      .find((e) => e.type === 'agent:subagent:completed')
+    expect(event?.sessionKey).toBe(SESSION_KEY)
+    expect(event?.summaryPreview).toHaveLength(201)
+  })
+})

@@ -1055,6 +1055,16 @@ export class CronScheduler {
         `INSERT INTO local_cron_runs (id, job_id, status, started_at, finished_at, duration_ms, summary, error)
          VALUES (?, ?, 'error', ?, ?, ?, NULL, ?)`
       ).run(runId, job.id, startedAt, finishedAt, finishedAt - startedAt, message)
+
+      // 失败必须外推：成功路径按 notify_targets 派发，失败此前零通知，
+      // 命中的任务会静默消失（状态只在定时任务页里可见），用户无从知晓。
+      const failLabel = currentRow.name?.trim() || job.task_text.slice(0, 20)
+      const failBody = `执行失败：${message}`.slice(0, 120)
+      try {
+        this.deps.showCronNotification?.(`灵栖 · ${failLabel}`, failBody, `cron:${job.id}`)
+      } catch (notifyErr) {
+        log.warn(`[runLocalCronJob] 失败通知发送异常 jobId=${job.id}:`, notifyErr)
+      }
     } finally {
       this.localCronRunningJobs.delete(job.id)
     }

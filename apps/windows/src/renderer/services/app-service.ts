@@ -24,8 +24,8 @@ export async function getProjectGitStatus(projectName: string): Promise<ProjectG
 }
 
 /** 桌面通知（主进程 Notification + 托盘 + 任务栏闪烁）；接口不可用或失败时静默 */
-export function notifyDesktop(title: string, body: string): void {
-  void window.electronAPI?.notifyDesktop?.(title, body)?.catch(() => {})
+export function notifyDesktop(title: string, body: string, convId?: string): void {
+  void window.electronAPI?.notifyDesktop?.(title, body, convId)?.catch(() => {})
 }
 
 /** 获取应用版本 */

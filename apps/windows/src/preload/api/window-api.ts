@@ -12,6 +12,6 @@ export const windowApi = {
 }
 
 export const notifyApi = {
-  desktop: (payload: { title?: string; body?: string }) =>
+  desktop: (payload: { title?: string; body?: string; convId?: string }) =>
     ipcRenderer.invoke('notify:desktop', payload),
 }

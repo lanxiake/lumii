@@ -17,7 +17,7 @@ const log = {
 }
 
 /** 完成后把结果写回原会话（主助手会话），保证「原会话知道任务结果」 */
-function reportToOriginSession(
+export function reportToOriginSession(
   bridge: AgentRuntimeBridge,
   originSessionKey: string,
   summary: string,
@@ -42,6 +42,16 @@ function reportToOriginSession(
       },
     })
     log.info(`[handoff:confirm] 已向原会话汇报结果 sessionKey=${originSessionKey}`)
+
+    // 用户不在原会话时补桌面通知（点击直达）；在原会话则消息已实时可见，不打扰
+    if (bridge.getLastActiveConversationId() !== originSessionKey) {
+      const label = summary.length > 40 ? `${summary.slice(0, 40)}…` : summary
+      bridge.triggerCronNotification(
+        `Lumii · 转交${payload.ok ? '完成' : '失败'}`,
+        payload.ok ? `「${label}」已完成，点击查看结果` : `「${label}」执行失败：${payload.text.slice(0, 80)}`,
+        originSessionKey,
+      )
+    }
   } catch (err) {
     log.error(`[handoff:confirm] 原会话汇报失败: ${err instanceof Error ? err.message : String(err)}`)
   }

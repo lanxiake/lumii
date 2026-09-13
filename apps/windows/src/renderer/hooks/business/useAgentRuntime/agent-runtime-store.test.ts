@@ -18,6 +18,7 @@ import {
   handleRuntimeEvent,
   resetAgentRuntimeEventHandlerForTests,
 } from './event-handler'
+import type { AgentSubagentCompletedEvent } from '../../../../shared/agent-runtime-events'
 
 describe('findAnyPendingPermission', () => {
   beforeEach(() => {
@@ -519,5 +520,85 @@ describe('handleRuntimeEvent assistant parts', () => {
       expect.objectContaining({ text: '第一段', status: 'done' }),
       expect.objectContaining({ text: '\n\n第二段', status: 'done' }),
     ])
+  })
+})
+
+describe('handleRuntimeEvent 异步子 Agent 完成通知', () => {
+  let notifyDesktop: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    resetRuntimeStore()
+    resetAgentRuntimeEventHandlerForTests()
+    notifyDesktop = vi.fn(async () => undefined)
+    ;(window as unknown as { electronAPI?: unknown }).electronAPI = { notifyDesktop }
+    runtimeStore.setState((prev) => ({ ...prev, currentSessionKey: 'local:desktop' }))
+  })
+
+  afterEach(() => {
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI
+    vi.restoreAllMocks()
+  })
+
+  function completedEvent(overrides: Partial<AgentSubagentCompletedEvent> = {}): AgentSubagentCompletedEvent {
+    return {
+      type: 'agent:subagent:completed',
+      parentInstanceId: 'inst-parent',
+      childInstanceId: 'inst-child',
+      name: '灵栖情报',
+      status: 'succeeded',
+      summaryPreview: '调研完成，产出 3 条结论',
+      sessionKey: 'conv-parent',
+      ...overrides,
+    }
+  }
+
+  it('用户不在父会话时弹桌面通知，点击跳转父会话', () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    handleRuntimeEvent(completedEvent())
+    expect(notifyDesktop).toHaveBeenCalledWith(
+      'Lumii · 灵栖情报 已完成',
+      expect.stringContaining('调研完成'),
+      'conv-parent',
+    )
+  })
+
+  it('用户正在父会话且窗口聚焦时不弹（结果实时可见，不打扰）', () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    runtimeStore.setState((prev) => ({ ...prev, currentSessionKey: 'conv-parent' }))
+    handleRuntimeEvent(completedEvent())
+    expect(notifyDesktop).not.toHaveBeenCalled()
+  })
+
+  it('窗口不在前台时即使正在父会话也弹', () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false)
+    runtimeStore.setState((prev) => ({ ...prev, currentSessionKey: 'conv-parent' }))
+    handleRuntimeEvent(completedEvent())
+    expect(notifyDesktop).toHaveBeenCalledTimes(1)
+  })
+
+  it('失败状态通知文案为执行失败', () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    handleRuntimeEvent(completedEvent({ status: 'failed', summaryPreview: '工具调用报错：权限不足' }))
+    expect(notifyDesktop).toHaveBeenCalledWith(
+      'Lumii · 灵栖情报 执行失败',
+      expect.stringContaining('权限不足'),
+      'conv-parent',
+    )
+  })
+
+  it('已取消的子 Agent 完成不通知', () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    handleRuntimeEvent(completedEvent({ status: 'cancelled' }))
+    expect(notifyDesktop).not.toHaveBeenCalled()
+  })
+
+  it('摘要为空时用兜底文案', () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true)
+    handleRuntimeEvent(completedEvent({ summaryPreview: '   ' }))
+    expect(notifyDesktop).toHaveBeenCalledWith(
+      'Lumii · 灵栖情报 已完成',
+      '结果已汇入会话，点击查看',
+      'conv-parent',
+    )
   })
 })

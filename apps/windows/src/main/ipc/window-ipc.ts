@@ -26,12 +26,13 @@ export function setWindowIpcDeps(d: WindowIpcDeps): void {
  *
  * @param title - 通知标题
  * @param body - 正文（宜简短）
+ * @param convId - 可选；点击通知时跳转到该会话
  */
-function showDesktopTaskNotification(title: string, body: string): void {
+function showDesktopTaskNotification(title: string, body: string, convId?: string): void {
   if (!deps) return
 
   const trayManager = deps.getTrayManager()
-  showDesktopNotify(title, body, undefined, {
+  showDesktopNotify(title, body, convId, {
     log: deps.log,
     getMainWindow: deps.getMainWindow,
     showTrayBalloon: (t, b) => trayManager?.showNotification(t, b),
@@ -84,10 +85,11 @@ export function registerWindowIpcHandlers(): void {
     }
   })
 
-  /** 渲染进程请求桌面通知（如 Agent 回合结束且窗口在后台） */
-  ipcMain.handle('notify:desktop', async (_event, payload: { title?: string; body?: string }) => {
+  /** 渲染进程请求桌面通知（如 Agent 回合结束、异步子 Agent 完成且用户不在该会话） */
+  ipcMain.handle('notify:desktop', async (_event, payload: { title?: string; body?: string; convId?: string }) => {
     const title = typeof payload?.title === 'string' && payload.title.trim() ? payload.title.trim() : 'Lumii'
     const body = typeof payload?.body === 'string' ? payload.body : ''
-    showDesktopTaskNotification(title, body)
+    const convId = typeof payload?.convId === 'string' && payload.convId.trim() ? payload.convId.trim() : undefined
+    showDesktopTaskNotification(title, body, convId)
   })
 }

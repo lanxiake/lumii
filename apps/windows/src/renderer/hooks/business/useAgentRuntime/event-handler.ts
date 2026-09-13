@@ -20,6 +20,7 @@ import {
   type AssistantPartEvent,
   type LlmErrorDetail,
 } from '@mtbot/agent-runtime/browser'
+import { notifyDesktop } from '../../../services/app-service'
 
 /** 仅在开发环境输出详细日志，避免生产环境噪音 */
 const debugLog = process.env.NODE_ENV === 'development'
@@ -1415,7 +1416,22 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
     }
 
     case 'agent:subagent:completed': {
-      // P1：事件先可达；UI 卡片接入非本阶段阻塞项
+      // 异步子 Agent 完成：结果已投回父会话（父 Agent 接着产出回复）。
+      // 用户不在父会话（或窗口不在前台）时弹桌面通知，点击直达父会话。
+      if (event.status === 'cancelled') break
+      const focusedOnParent =
+        typeof document !== 'undefined'
+        && document.hasFocus()
+        && runtimeStore.getState().currentSessionKey === sessionKey
+      if (focusedOnParent) break
+      const statusText = event.status === 'succeeded' ? '已完成' : event.status === 'stale' ? '已超时' : '执行失败'
+      const preview = event.summaryPreview.trim()
+      const body = preview
+        ? preview.length > 120
+          ? `${preview.slice(0, 120)}…`
+          : preview
+        : '结果已汇入会话，点击查看'
+      notifyDesktop(`Lumii · ${event.name} ${statusText}`, body, sessionKey)
       break
     }
 
