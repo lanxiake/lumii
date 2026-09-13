@@ -10,6 +10,7 @@ import { parseThinkTagsFromRaw } from '../../agent-runtime/event-converter'
 import { isCompactSummaryText } from '../../../shared/compact-summary-text'
 import { isEvolutionConversationId } from '@mtbot/agent-runtime'
 import { acpSessionStateKey } from '../../coding-dev-acp-run.js'
+import { normalizeAgentIdForBinding } from '../../coding-dev-env.js'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -339,6 +340,71 @@ export function handleConversationDelete(
   bridge.conversationRepo.deleteConversation(sessionKey)
 
   log.info(`[conversation:delete] sessionKey=${sessionKey}`)
+}
+
+/**
+ * 切换 Agent = 转移当前会话：更新会话的 Agent 归属，保留历史消息。
+ * - 拒绝自主进化会话（归属由进化机制固定）；
+ * - 会话回复中拒绝（避免实例切换竞态）；
+ * - 销毁旧 Agent 实例并清 CLI 续接键，下条消息由新 Agent 重新建实例。
+ * 注：会话级 dev-context（/claude 等）是会话属性，转移时保留。
+ */
+export function handleConversationTransferAgent(
+  bridge: AgentRuntimeBridge,
+  command: Extract<AgentRuntimeCommand, { type: 'conversation:transfer-agent' }>,
+): { ok: boolean } {
+  const { sessionKey } = command
+  if (isEvolutionConversationId(sessionKey)) {
+    log.warn(`[conversation:transfer-agent] 拒绝转移自主进化会话 sessionKey=${sessionKey}`)
+    throw new Error('拒绝转移自主进化会话')
+  }
+  if (sessionKey.startsWith('cron:')) {
+    log.warn(`[conversation:transfer-agent] 拒绝转移定时任务会话 sessionKey=${sessionKey}`)
+    throw new Error('定时任务会话的归属由任务定义决定，无法手动切换 Agent')
+  }
+  assertConversationExists(bridge, sessionKey)
+  if (bridge.hasStreamingMessages(sessionKey)) {
+    throw new Error('会话正在回复中，请稍后再切换 Agent')
+  }
+
+  const targetAgentId = command.agentId ?? 'default'
+  const currentAgentId = bridge.conversationRepo.getAgentParticipantId(sessionKey)
+  // 'default' 与 'assistant' 是「系统默认」Agent 的两种存法，归一化后比较避免无谓的实例销毁
+  if (
+    currentAgentId &&
+    normalizeAgentIdForBinding(currentAgentId) === normalizeAgentIdForBinding(targetAgentId)
+  ) {
+    return { ok: true }
+  }
+
+  const instanceId = deps!.sessionToInstance.get(sessionKey)
+  if (instanceId) {
+    try {
+      bridge.destroy(instanceId)
+    } catch (err) {
+      log.error(`[conversation:transfer-agent] failed to destroy instance ${instanceId}:`, err)
+    }
+    deps!.untrackInstanceRuns(instanceId)
+    deps!.sessionToInstance.delete(sessionKey)
+  }
+
+  bridge.clearSessionPreferredModel(sessionKey)
+
+  // 清 CLI 续接键：旧 CLI 会话带着旧 Agent 的上下文，不能给新 Agent 续接
+  for (const backendId of ['claude', 'codex', 'cursor', 'opencode'] as const) {
+    try {
+      bridge.runtimeStateRepo.delete(acpSessionStateKey(backendId, sessionKey))
+    } catch {
+      /* runtimeStateRepo 未初始化等场景忽略 */
+    }
+  }
+
+  bridge.conversationRepo.updateAgentParticipant(sessionKey, targetAgentId)
+
+  log.info(
+    `[conversation:transfer-agent] sessionKey=${sessionKey} ${currentAgentId ?? '(none)'} → ${targetAgentId}`,
+  )
+  return { ok: true }
 }
 
 export function handleConversationRename(

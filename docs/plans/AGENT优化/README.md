@@ -6,6 +6,7 @@
 |------|------|------|
 | [2026-08-26-agent-subagent-p0p1-implementation.md](./2026-08-26-agent-subagent-p0p1-implementation.md) | P0 + P1 | 子 Agent 协作代码实施计划 |
 | [2026-08-28-tooling-prompt-refactor-implementation.md](./2026-08-28-tooling-prompt-refactor-implementation.md) | P0 / P1 / P2 | Tooling 提示词重构：修漂移、压冗余、注册表驱动分组 |
+| [2026-09-13-prompt-style-experiment-implementation.md](./2026-09-13-prompt-style-experiment-implementation.md) | P0 / P1（P2 另开） | 提示词风格实验：全局两态风格、段元数据与计量、prompt_guide、移除旧 tier 详度调度 |
 
 **子 Agent 协作不在本阶段**：P2 worktree / orchestrator 嵌套、P3 MOA、跨进程 SQLite 委派恢复。
 

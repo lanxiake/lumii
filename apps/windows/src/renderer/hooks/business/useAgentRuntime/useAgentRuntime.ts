@@ -661,6 +661,25 @@ export function useAgentRuntimeActions() {
     return (result as { isPinned: boolean }).isPinned
   }, [])
 
+  /**
+   * 切换 Agent = 转移当前会话：保留历史消息，下条消息起由目标 Agent 处理。
+   * agentId 为 null 表示转回系统默认。
+   */
+  const transferSession = useCallback(async (sessionKey: string, agentId: string | null): Promise<void> => {
+    const api = window.electronAPI?.agentRuntime
+    if (!api?.sendCommand) {
+      throw new Error('Agent Runtime new protocol not available')
+    }
+    const result = await api.sendCommand({
+      type: 'conversation:transfer-agent',
+      sessionKey,
+      ...(agentId ? { agentId } : {}),
+    })
+    if (isCommandError(result)) {
+      throw new Error(result.error || '切换 Agent 失败')
+    }
+  }, [])
+
   // 所有方法均为稳定 useCallback；用 useMemo 包裹返回对象，保证 identity 稳定，
   // 避免消费方（如 PetModeShell mount 副作用）因每次渲染拿到新对象而反复执行。
   return useMemo(
@@ -685,6 +704,7 @@ export function useAgentRuntimeActions() {
       deleteSession,
       renameSession,
       pinSession,
+      transferSession,
     }),
     [
       sendMessage,
@@ -707,6 +727,7 @@ export function useAgentRuntimeActions() {
       deleteSession,
       renameSession,
       pinSession,
+      transferSession,
     ],
   )
 }

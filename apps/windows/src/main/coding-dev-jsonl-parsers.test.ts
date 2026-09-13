@@ -54,17 +54,24 @@ describe('AcpToolStreamParser', () => {
     expect(msg).toEqual({ kind: 'message', text: 'Hello world' })
   })
 
-  it('claude: system/hook 事件被忽略，不产生进度事件', () => {
+  it('claude: system/hook 事件报成心跳而非静默，防长任务被误判卡死', () => {
     const parser = new AcpToolStreamParser('claude')
     const hookStarted = parser.parseLine(
       '{"type":"system","subtype":"hook_started","hook_id":"7562c964-7395-4b7b-a5de-001a487bbfb7","hook_name":"SessionStart:startup","hook_event":"SessionStart","uuid":"e44262ab-5d10-490c-800c-7fb0554ac821","session_id":"dd2a3b11-a74f-4fdc-a1a1-6bd966c9c214"}',
     )
-    expect(hookStarted).toBeNull()
+    // 空文本心跳：上层只用来刷新超时窗口，不渲染
+    expect(hookStarted).toEqual({ kind: 'status', text: '' })
 
     const hookResponse = parser.parseLine(
       '{"type":"system","subtype":"hook_response","hook_id":"7562c964-7395-4b7b-a5de-001a487bbfb7","hook_name":"SessionStart:startup","hook_event":"SessionStart","output":"PONYTAIL MODE ACTIVE"}',
     )
-    expect(hookResponse).toBeNull()
+    expect(hookResponse).toEqual({ kind: 'status', text: '' })
+  })
+
+  it('claude: 未识别的 JSON 事件同样报心跳', () => {
+    const parser = new AcpToolStreamParser('claude')
+    const unknown = parser.parseLine('{"type":"stream_event","event":{"delta":{"text":"a"}}}')
+    expect(unknown).toEqual({ kind: 'status', text: '' })
   })
 
   it('claude: system/init 捕获 CLI 会话 id（多轮续接用），且不产生可见事件', () => {
@@ -104,7 +111,10 @@ describe('AcpToolStreamParser', () => {
     for (const ev of out) {
       if (ev?.kind === 'message') expect(ev.text.trimStart().startsWith('{')).toBe(false)
     }
-    expect(out.filter((e) => e === null)).toHaveLength(3) // 3 条 system 全被忽略
+    // 3 条 system 全报心跳（不产可见内容）；init 那条返回 null 但捕获了会话 id
+    expect(out.filter((e) => e?.kind === 'status')).toHaveLength(2)
+    expect(out[0]).toBeNull()
+    expect(parser.getCliSessionId()).toBe('s1')
     expect(out[3]?.tool?.toolName).toBe('WebSearch')
     expect(out[4]?.tool?.toolName).toBe('WebSearch') // end 回填
     expect(out[5]).toEqual({ kind: 'final_result', text: '今天成都多云。' })

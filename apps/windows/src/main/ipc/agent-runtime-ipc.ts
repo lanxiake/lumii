@@ -84,6 +84,7 @@ import {
   handleConversationContextUsage,
   handleConversationDismissInterrupt,
   handleConversationContinueInterrupted,
+  handleConversationTransferAgent,
   handleConversationFork,
   setConversationDependencies,
 } from './agent-runtime/conversation-commands'
@@ -894,6 +895,9 @@ export async function handleCommand(
       case 'conversation:continue-interrupted':
         return handleConversationContinueInterrupted(bridge, command)
 
+      case 'conversation:transfer-agent':
+        return handleConversationTransferAgent(bridge, command)
+
       case 'cron:create':
         return handleCronCreate(bridge, command)
 
@@ -1273,7 +1277,7 @@ export async function handleCommand(
 
       // ---- ACP 多后端管理 ----
       case 'codingDev:setBackend':
-        return handleCodingDevSetBackend(command)
+        return handleCodingDevSetBackend(bridge, command)
 
       case 'codingDev:getBackend':
         return handleCodingDevGetBackend()

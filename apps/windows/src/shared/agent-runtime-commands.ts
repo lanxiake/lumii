@@ -210,6 +210,14 @@ export interface ConversationContinueInterruptedCommand {
   readonly sessionKey: string
 }
 
+/** 切换 Agent = 转移当前会话：保留历史，下条消息起由目标 Agent 处理 */
+export interface ConversationTransferAgentCommand {
+  readonly type: 'conversation:transfer-agent'
+  readonly sessionKey: string
+  /** 目标 Agent id；省略表示系统默认 */
+  readonly agentId?: string
+}
+
 export interface CronCreateCommand {
   readonly type: 'cron:create'
   readonly name: string
@@ -1603,6 +1611,7 @@ export type AgentRuntimeCommand =
   | ConversationPinToggleCommand
   | ConversationDismissInterruptCommand
   | ConversationContinueInterruptedCommand
+  | ConversationTransferAgentCommand
   | CronCreateCommand
   | CronListCommand
   | CronDeleteCommand
@@ -1825,6 +1834,7 @@ export type AgentRuntimeCommandResult<T extends AgentRuntimeCommand['type']> =
   : T extends 'conversation:pin-toggle' ? { isPinned: boolean }
   : T extends 'conversation:dismiss-interrupt' ? { ok: boolean }
   : T extends 'conversation:continue-interrupted' ? { ok: boolean; error?: string }
+  : T extends 'conversation:transfer-agent' ? { ok: boolean }
   : T extends 'cron:create' ? {
       status: 'ok' | 'error'
       job?: {

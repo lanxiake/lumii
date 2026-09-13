@@ -109,6 +109,16 @@ export class AcpRunController {
   private pendingMessageDelta = new Map<string, { messageId: string; text: string }>()
   private deltaFlushTimer: ReturnType<typeof setTimeout> | undefined
 
+  /** 重置单个 run 的超时窗口；进度事件到达时调用，避免长任务被总时长限打死 */
+  private touchTimeout(handle: AcpRunHandle): void {
+    const timeoutMs = resolveAcpTimeoutMs()
+    if (timeoutMs === undefined || timeoutMs <= 0) return
+    if (handle.timeoutHandle) clearTimeout(handle.timeoutHandle)
+    handle.timeoutHandle = setTimeout(() => {
+      this.abortRun(handle.runId, 'timeout')
+    }, timeoutMs)
+  }
+
   async startRun(opts: AcpRunStartOptions): Promise<void> {
     const { runId, sessionKey, backendId, text, instanceId, bridge, pushEvent } = opts
     const accountId = opts.accountId ?? 'local-user'
@@ -144,6 +154,9 @@ export class AcpRunController {
         this.abortRun(runId, 'timeout')
       }, timeoutMs)
     }
+    log.info(
+      `[startRun] runId=${runId} backendId=${backendId} 超时=${timeoutMs === undefined ? '不限制' : `${timeoutMs}ms(滑动)`}`,
+    )
 
     pushEvent({
       type: 'agent:turn:start',
@@ -357,6 +370,9 @@ export class AcpRunController {
   ): Promise<void> | void {
     const { runId, sessionKey, messageId } = handle
 
+    // 有进度即视为任务存活，滑动刷新超时窗口
+    this.touchTimeout(handle)
+
     switch (progress.kind) {
       case 'message': {
         let delta = progress.text
@@ -381,6 +397,8 @@ export class AcpRunController {
         return
       }
       case 'status': {
+        // 空文本是纯心跳（进程仍活着），只用于刷新超时窗口，不产生可见事件
+        if (progress.text.trim() === '') return
         if (progress.text === 'thinking' && !handle.thinkingEmitted) {
           handle.thinkingEmitted = true
           pushEvent({

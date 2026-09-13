@@ -6,6 +6,7 @@
 |------|------|
 | [2026-08-26-hermes-moa-vs-lumii-对比与优化.md](./2026-08-26-hermes-moa-vs-lumii-对比与优化.md) | 四层协作对照、差距清单、分阶段优化方案与非目标 |
 | [P0+P1 实施计划](../../plans/AGENT优化/2026-08-26-agent-subagent-p0p1-implementation.md) | 异步投递 / 深度并发 / 生命周期 / stale / 摘要护栏代码计划 |
+| [2026-09-13-prompt-style-experiment-design.md](./2026-09-13-prompt-style-experiment-design.md) | 提示词风格实验（v2）：全局两态风格（简要/详细）、段注册表与渐进加载、prompt_guide 展开、移除旧 tier 详度调度 |
 
 **实施状态（2026-08-26）：** P0/P1 计划已输出；分支 `feat/agent-subagent-p0p1` 已落地 P0（异步完成投递、深度=1、并发帽、提示词诚实化）与 P1（生命周期 API、stale、摘要护栏、allowedTools 校验、IPC `agent:subagent:completed`）。不含 worktree / MOA / 嵌套深度>1（P2+）。
 

@@ -216,6 +216,27 @@ export class ConversationRepo {
     return row?.participant_id;
   }
 
+  /**
+   * 更新对话绑定的 Agent 参与者（「切换 Agent = 转移当前会话」）。
+   * 不存在 agent 参与者行时补插一条。
+   */
+  updateAgentParticipant(conversationId: string, agentId: string): void {
+    const result = this.db
+      .prepare(
+        `UPDATE conversation_participants SET participant_id = ?
+         WHERE conversation_id = ? AND participant_type = 'agent'`,
+      )
+      .run(agentId, conversationId);
+    if (result.changes === 0) {
+      this.db
+        .prepare(
+          `INSERT INTO conversation_participants (conversation_id, participant_type, participant_id, joined_at)
+           VALUES (?, 'agent', ?, ?)`,
+        )
+        .run(conversationId, agentId, new Date().toISOString());
+    }
+  }
+
   closeConversation(conversationId: string): void {
     this.db.prepare("UPDATE conversations SET is_active = 0 WHERE id = ?").run(conversationId);
     this.conversationCache.delete(conversationId);

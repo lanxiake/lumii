@@ -39,6 +39,8 @@ interface ChatInputProps {
   agents?: Agent[]
   /** 当前选中的 Agent */
   selectedAgent?: Agent | null
+  /** 当前会话解析后的实际后端（来自主进程 dev-context）；缺省回退本地缓存值 */
+  resolvedBackendId?: string
   /** Agent 加载中 */
   agentsLoading?: boolean
   /** Agent 选择回调（与 useAgents.selectAgent 签名一致） */
@@ -142,6 +144,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   placeholder,
   agents = [],
   selectedAgent,
+  resolvedBackendId,
   agentsLoading,
   onAgentChange,
   modelChoices = [],
@@ -212,6 +215,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
     window.addEventListener('mtbot:backend-changed', handleBackendChanged)
     return () => window.removeEventListener('mtbot:backend-changed', handleBackendChanged)
   }, [])
+  // 展示用后端：优先当前会话解析后的实际值（主进程 dev-context），回退本地缓存
+  const badgeBackend = resolvedBackendId ?? currentBackend
   // 斜杠命令补全面板
   const [slashSuggestions, setSlashSuggestions] = useState<SlashCommand[]>([])
   const [slashSuggestionIndex, setSlashSuggestionIndex] = useState(0)
@@ -947,9 +952,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
           {/* 右侧：工具按钮 + 发送 */}
           <div className={styles['toolbar-right']}>
             {/* 当前后端标识（非默认时显示） */}
-            {currentBackend !== MAIN_BACKEND_ID && (
-              <span className={styles['backend-badge']} title={`当前后端: ${currentBackend}`}>
-                {Object.values(BACKEND_INFO).find(b => b.acpBackendId === currentBackend)?.label ?? currentBackend}
+            {badgeBackend !== MAIN_BACKEND_ID && (
+              <span className={styles['backend-badge']} title={`当前后端: ${badgeBackend}`}>
+                {Object.values(BACKEND_INFO).find(b => b.acpBackendId === badgeBackend)?.label ?? badgeBackend}
               </span>
             )}
             {/* AI 运行状态（紧凑展示，替代大块占位） */}

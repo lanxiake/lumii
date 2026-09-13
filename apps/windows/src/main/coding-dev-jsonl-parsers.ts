@@ -44,11 +44,16 @@ function parseClaudeJsonLine(line: string): ParsedLine {
 
     if (obj.type === 'system') {
       // init 事件携带 CLI 会话 id（多轮续接用）；hook 等其他系统事件忽略
-      if (obj.subtype === 'init' && typeof obj.session_id === 'string' && obj.session_id) {
-        return { kind: 'session', sessionId: obj.session_id }
+      if (obj.subtype === 'init') {
+        // 系统事件不作为消息展示（避免刷屏），但 init 仍带会话 id 需捕获
+        return typeof obj.session_id === 'string' && obj.session_id
+          ? { kind: 'session', sessionId: obj.session_id }
+          : { kind: 'ignore' }
       }
-      // hook_started/hook_response 等系统事件，不作为消息展示，避免刷屏
-      return { kind: 'ignore' }
+      // hook_started/hook_response 等系统事件，不作为消息展示，避免刷屏。
+      // 但必须报成「心跳」而非 ignore —— 长时间任务里这些是仅有的存活信号，
+      // 完全静默会被上层当作卡死。
+      return { kind: 'status', text: '' }
     }
 
     if ((obj.type === 'assistant' || obj.type === 'user') && Array.isArray(obj.message?.content)) {
@@ -88,6 +93,9 @@ function parseClaudeJsonLine(line: string): ParsedLine {
       debugLog('claude', '识别到最终结果', { result: obj.result.slice(0, 100) })
       return { kind: 'final_result', text: obj.result }
     }
+
+    // 未识别的 JSON 事件（stream_event 等）报成心跳，让上层知道进程仍在推进
+    return { kind: 'status', text: '' }
   } catch (err) {
     /* 非 JSON 或结构不匹配，回落普通文本 */
     debugLog('claude', 'JSON 解析失败，回落文本', { error: err instanceof Error ? err.message : String(err), line: line.slice(0, 100) })

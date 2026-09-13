@@ -1321,8 +1321,11 @@ async function initialize(): Promise<void> {
   }
   // 开发配置切片（项目列表 / Agent 绑定）统一访问点：渠道命令与命令处理器共用
   {
-    const { setCodingDevConfigGetter } = await import('./coding-dev-env.js')
+    const { setCodingDevConfigGetter, setCodingDevConfigWriter } = await import('./coding-dev-env.js')
     setCodingDevConfigGetter(() => configManager?.getAppConfig() ?? {})
+    setCodingDevConfigWriter(async (patch) => {
+      await configManager?.updateAppConfig(patch)
+    })
   }
   log.info('目录和配置管理器初始化完成')
 

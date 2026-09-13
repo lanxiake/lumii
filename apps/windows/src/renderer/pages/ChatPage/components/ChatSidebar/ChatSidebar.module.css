@@ -270,6 +270,47 @@
   color: var(--color-text-tertiary);
 }
 
+/* 组头右侧操作区（新建 / 更多 + 折叠箭头） */
+.group-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.group-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--color-text-tertiary, rgba(128, 128, 128, 0.65));
+  font-size: calc(14px * var(--app-font-scale, 1));
+  line-height: 1;
+  cursor: pointer;
+}
+
+.group-action-btn:hover {
+  background: var(--color-bg-tertiary, rgba(128, 128, 128, 0.12));
+  color: var(--color-text, inherit);
+}
+
+/* 空组占位说明（Agent 职责） */
+.group-empty-desc {
+  padding: 2px 16px 10px;
+  font-size: calc(12px * var(--app-font-scale, 1));
+  line-height: 1.5;
+  color: var(--color-text-tertiary, rgba(128, 128, 128, 0.65));
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* Empty states */
 .no-conversations,
 .no-search-results {

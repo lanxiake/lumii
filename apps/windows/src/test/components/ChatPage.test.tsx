@@ -9,6 +9,9 @@ import '@testing-library/jest-dom'
 import ChatPage from '../../renderer/pages/ChatPage/ChatPage'
 import { SIDEBAR_SESSION_SLOT_ID } from '../../renderer/components/layout/Sidebar'
 import { ToastProvider } from '../../renderer/components/ui/Toast/ToastContainer'
+import { SettingsHubProvider } from '../../renderer/components/SettingsHub/SettingsHubContext'
+import { computeClearGroupPlan } from '../../renderer/pages/ChatPage/clearGroupPlan'
+import type { ChatSession } from '../../renderer/hooks/business/useChat'
 
 // Mock hooks
 vi.mock('../../renderer/hooks/business/useChat', () => ({
@@ -44,12 +47,14 @@ function mountSidebarSlot(): HTMLElement {
   return slot
 }
 
-/** ChatPage 的 Toast 已统一走全局 ui/Toast，渲染时必须提供 ToastProvider */
+/** ChatPage 的 Toast 已统一走全局 ui/Toast，渲染时必须提供 ToastProvider；ChatSidebar 需要 SettingsHubProvider */
 function renderChatPage() {
   return render(
-    <ToastProvider>
-      <ChatPage />
-    </ToastProvider>,
+    <SettingsHubProvider>
+      <ToastProvider>
+        <ChatPage />
+      </ToastProvider>
+    </SettingsHubProvider>,
   )
 }
 
@@ -108,6 +113,44 @@ describe('Phase 1: 架构重构 - ChatPage组件', () => {
         fireEvent.click(toggleBtn)
         // 侧边栏应该隐藏（实际测试需要根据实现调整）
       }
+    })
+  })
+
+  describe('computeClearGroupPlan 分组清空计划', () => {
+    const mk = (id: string, patch: Partial<ChatSession> = {}): ChatSession =>
+      ({
+        id,
+        title: id,
+        messages: [],
+        createdAt: new Date('2026-01-01'),
+        updatedAt: new Date('2026-01-01'),
+        source: 'local',
+        ...patch,
+      }) as ChatSession
+
+    it('置顶豁免、运行中跳过、自主进化会话剔除', () => {
+      const sessions = [
+        mk('a', { updatedAt: new Date('2026-01-04') }),
+        mk('b', { isPinned: true }),
+        mk('c', { isStreaming: true }),
+        mk('d', { channel: 'evolution' }),
+      ]
+
+      const plan = computeClearGroupPlan({ label: '系统默认', sessions, keepRecent: null })
+
+      expect(plan.pinned).toBe(1)
+      expect(plan.streaming).toBe(1)
+      expect(plan.toDelete.map((s) => s.id)).toEqual(['a'])
+    })
+
+    it('保留最近 5 条：删除更早的（按更新时间倒序）', () => {
+      const sessions = Array.from({ length: 7 }, (_, i) =>
+        mk(`s${i}`, { updatedAt: new Date(2026, 0, i + 1) }),
+      )
+
+      const plan = computeClearGroupPlan({ label: '系统默认', sessions, keepRecent: 5 })
+
+      expect(plan.toDelete.map((s) => s.id)).toEqual(['s1', 's0'])
     })
   })
 })

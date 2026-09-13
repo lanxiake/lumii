@@ -42,6 +42,7 @@ import {
 } from './utils/image-processing-strategy'
 import { WorkspaceWorkbenchArea } from './layout/WorkspaceWorkbenchArea'
 import { ChatSidebarArea } from './layout/ChatSidebarArea'
+import { computeClearGroupPlan, type ClearGroupHistoryRequest } from './clearGroupPlan'
 import { useSessionDrafts } from './hooks/useSessionDrafts'
 import { useWorkspacePanels } from './hooks/useWorkspacePanels'
 import { useChatPageZoom } from './hooks/useChatPageZoom'
@@ -146,7 +147,7 @@ const EMPTY_WORKFLOW_ITEMS: never[] = []
 
 const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewChange }) => {
   // Hooks
-  const { agents, selectableAgents, selectedAgent, isLoading: agentsLoading, selectAgent, selectAgentById, mainAgentId, agentsMap, refreshAgents } = useAgents()
+  const { selectableAgents, isLoading: agentsLoading, mainAgentId, agentsMap, refreshAgents } = useAgents()
 
   // 本地 Agent Runtime hooks（Feature Flag 开启时生效）
   const runtimeActions = useAgentRuntimeActions()
@@ -310,6 +311,21 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       (s) => s.sessionKey === runtimeCurrentSessionKey
     )?.title ?? '本地 Agent Runtime'
   }, [localRuntimeSessions, runtimeCurrentSessionKey])
+
+  /**
+   * 当前打开会话所属的 Agent（null = 系统默认）。
+   * 输入框展示、新建会话归属、发送时携带的 agentId 都跟随它，而不是全局记住的选择。
+   */
+  const activeAgent = useMemo(() => {
+    const agentId = localRuntimeSessions.find(
+      (s) => s.sessionKey === runtimeCurrentSessionKey,
+    )?.agentId
+    if (!agentId || agentId === 'default' || agentId === 'assistant') return null
+    return agentsMap.get(agentId) ?? null
+  }, [localRuntimeSessions, runtimeCurrentSessionKey, agentsMap])
+
+  /** 当前会话的 Agent 标识（用于 IPC 参数）：系统默认时回落到主 Agent 的 id */
+  const activeAgentId = activeAgent?.id ?? mainAgentId ?? undefined
 
   // 本地 Runtime 模式下，构造虚拟 session 给 ChatContainer
   // 用 useStableMapById 而非内联 .map()：未变化的 RuntimeMessage 复用同一个输出对象引用，
@@ -788,6 +804,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   // Confirm modal state for session deletion
   const [isDeleteSessionModalOpen, setIsDeleteSessionModalOpen] = useState(false)
   const [sessionToDelete, setSessionToDelete] = useState<string | null>(null)
+  // 分组「⋯」清空历史请求（二次确认后执行）
+  const [clearGroupRequest, setClearGroupRequest] = useState<ClearGroupHistoryRequest | null>(null)
 
   // Refs
   const autoApproveRef = useRef(autoApprove)
@@ -837,11 +855,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
 
   // Event handlers
   const handleNewConversation = useCallback(async (agentId?: string): Promise<string | null> => {
-    // 若调用方未指定 agentId（如侧边栏“新建对话”按鈕），使用当前选中的 Agent 作为默认值
+    // 未指定 agentId 时（如侧栏「新建对话」按钮）跟随当前打开会话的 Agent；无会话时为系统默认
     // 防御：onClick 回调会将 MouseEvent 作为第一个参数传入，需要过滤非 string 值
     const safeAgentId = typeof agentId === 'string' ? agentId : undefined
-    const effectiveAgentId = safeAgentId ?? selectedAgent?.id ?? mainAgentId ?? undefined
-  
+    const effectiveAgentId = safeAgentId ?? activeAgent?.id ?? mainAgentId ?? undefined
+
     try {
       const sessionKey = await runtimeActions.createSession('新对话', effectiveAgentId, selectedModelId || undefined)
       void refreshLocalSessions()
@@ -851,22 +869,20 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       toast.error('创建本地会话失败')
       return null
     }
-  }, [selectedAgent, mainAgentId, selectedModelId, runtimeActions, refreshLocalSessions, toast])
+  }, [activeAgent, mainAgentId, selectedModelId, runtimeActions, refreshLocalSessions, toast])
 
   // 检测来自 AI 团队页面的“发起对话”指令：自动新建对话并选中对应 Agent
   useEffect(() => {
     const handleStartChat = (e: Event) => {
       const agentId = (e as CustomEvent<string>).detail
       if (!agentId) return
-      const targetAgent = agents.find((a) => a.id === agentId)
-      if (targetAgent) selectAgent(targetAgent)
       void runtimeActions.createSession('新对话', agentId, selectedModelId || undefined).then(() => {
         void refreshLocalSessions()
       })
     }
     window.addEventListener('mtbot:start-chat-agent', handleStartChat)
     return () => window.removeEventListener('mtbot:start-chat-agent', handleStartChat)
-  }, [agents, selectAgent, runtimeActions, refreshLocalSessions, selectedModelId])
+  }, [runtimeActions, refreshLocalSessions, selectedModelId])
   
   // 手动压缩上下文（定义在 handleSend 之前，供命令执行器引用）
   const handleCompactContext = useCallback(async () => {
@@ -1086,7 +1102,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       if (sessionKey) {
         const handled = await executeSlashCommand(valueToSend.trim(), {
           sessionKey,
-          agentId: selectedAgent?.id ?? mainAgentId ?? undefined,
+          agentId: activeAgentId,
           addSystemMessage,
           showToast: (message, type) => toast[type](message),
           compactContext: handleCompactContext,
@@ -1113,7 +1129,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     const sendingSessionId = runtimeCurrentSessionKey ?? ''
     setSendingSessionIds((prev) => new Set(prev).add(sendingSessionId))
     try {
-      const agentId = selectedAgent?.id ?? mainAgentId ?? undefined
+      const agentId = activeAgentId
       const modelId = selectedModelId || undefined
       // 仅当模型支持视觉时，把图片路径以结构化方式传给主进程，
       // 由 bridge 读盘转 base64 注入 LLM 的 vision API；
@@ -1151,8 +1167,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     pendingAttachments,
     isSending,
     runtimeCurrentSessionKey,
-    selectedAgent,
-    mainAgentId,
+    activeAgentId,
     selectedModelId,
     availableModels,
     pickVisionModelId,
@@ -1275,6 +1290,56 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [runtimeActions, refreshLocalSessions])
 
   /**
+   * 侧栏分组「⋯」清空历史：置顶豁免、运行中跳过；keepRecent=5 时保留最近 5 条（按更新时间倒序）。
+   * 无可删会话时直接提示，不弹确认框。
+   */
+  const handleClearGroupHistory = useCallback((request: ClearGroupHistoryRequest) => {
+    const plan = computeClearGroupPlan(request)
+    if (plan.toDelete.length === 0) {
+      toast.info('没有可删除的会话（置顶与运行中的会话已跳过）')
+      return
+    }
+    setClearGroupRequest(request)
+  }, [toast])
+
+  /** 待确认清空请求的执行计划：可删列表 / 置顶保留数 / 运行中跳过数 */
+  const pendingClearStats = useMemo(
+    () => (clearGroupRequest ? computeClearGroupPlan(clearGroupRequest) : null),
+    [clearGroupRequest],
+  )
+
+  const handleConfirmClearGroup = useCallback(async () => {
+    const stats = pendingClearStats
+    setClearGroupRequest(null)
+    if (!stats) return
+    // 复核：确认期间可能有会话开始流式 / 已被删除，按当前列表再过滤一次
+    const currentById = new Map(localRuntimeSessionsAsChatSessions.map((s) => [s.id, s]))
+    const toDelete = stats.toDelete.filter((s) => {
+      const current = currentById.get(s.id)
+      return current !== undefined && !current.isPinned && !current.isStreaming
+    })
+    if (toDelete.length === 0) {
+      toast.info('没有可删除的会话（置顶与运行中的会话已跳过）')
+      return
+    }
+    let failed = 0
+    for (const s of toDelete) {
+      try {
+        await runtimeActions.deleteSession(s.id)
+      } catch (err) {
+        failed += 1
+        logger.error(`[handleConfirmClearGroup] 删除会话失败 ${s.id}:`, err)
+      }
+    }
+    await refreshLocalSessions()
+    if (failed > 0) {
+      toast.error(`已删除 ${toDelete.length - failed} 个会话，${failed} 个失败`)
+    } else {
+      toast.info(`已删除 ${toDelete.length} 个会话`)
+    }
+  }, [pendingClearStats, localRuntimeSessionsAsChatSessions, runtimeActions, refreshLocalSessions, toast])
+
+  /**
    * 侧栏点选会话：切到对话视图并切换 runtime 会话。
    */
   const handleSelectSidebarSession = useCallback((sessionKey: string) => {
@@ -1283,26 +1348,45 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
   }, [onViewChange, runtimeActions, selectedModelId])
 
   /**
-   * 侧栏新建对话。
+   * 侧栏底部「新建对话」：跟随当前打开会话的 Agent（无会话时为系统默认）。
    */
   const handleCreateSidebarSession = useCallback(() => {
     onViewChange?.('chat')
-    void (async () => {
-      await runtimeActions.createSession('新对话', selectedAgent?.id, selectedModelId || undefined)
-      void refreshLocalSessions()
-    })()
-  }, [onViewChange, runtimeActions, selectedAgent?.id, selectedModelId, refreshLocalSessions])
+    void handleNewConversation()
+  }, [onViewChange, handleNewConversation])
 
   /**
-   * 输入框切换 Agent：选中后开一个新会话。
+   * 侧栏分组「+」：在指定 Agent 分组下新建会话（null = 系统默认）。
+   */
+  const handleCreateSessionInGroup = useCallback((agentId: string | null) => {
+    onViewChange?.('chat')
+    void handleNewConversation(agentId ?? mainAgentId ?? undefined)
+  }, [onViewChange, handleNewConversation, mainAgentId])
+
+  /**
+   * 输入框切换 Agent：把当前会话转移给目标 Agent（保留历史，不等同于新建）；
+   * 没有打开中的会话时退化为新建。目标为「系统默认」时用主 Agent id 落库。
    */
   const handleComposerAgentChange = useCallback((agent: Agent | null) => {
-    selectAgent(agent)
-    if (!agent) return
-    void runtimeActions.createSession('新对话', agent.id, selectedModelId || undefined).then(() => {
-      void refreshLocalSessions()
-    })
-  }, [selectAgent, runtimeActions, selectedModelId, refreshLocalSessions])
+    const targetAgentId = agent?.id ?? mainAgentId ?? null
+    if (!runtimeCurrentSessionKey) {
+      if (targetAgentId) void handleNewConversation(targetAgentId)
+      return
+    }
+    if ((activeAgent?.id ?? null) === (agent?.id ?? null)) return
+    void (async () => {
+      try {
+        await runtimeActions.transferSession(runtimeCurrentSessionKey, targetAgentId)
+        await refreshLocalSessions()
+        // 新 Agent 的默认后端绑定可能不同：通知会话头 chip 与后端徽标重新解析
+        window.dispatchEvent(new Event('mtbot:dev-context-changed'))
+        toast.info(`已切换到「${agent?.name ?? '系统默认'}」`)
+      } catch (err) {
+        logger.error(`[handleComposerAgentChange] ${err instanceof Error ? err.message : String(err)}`)
+        toast.error(err instanceof Error ? err.message : '切换 Agent 失败')
+      }
+    })()
+  }, [runtimeCurrentSessionKey, activeAgent?.id, mainAgentId, runtimeActions, refreshLocalSessions, toast, handleNewConversation])
 
   /**
    * 输入框切换模型。
@@ -1333,10 +1417,17 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     projectPath?: string
   } | null>(null)
 
+  /**
+   * 当前会话解析后的实际后端 id（含 'lumii'，即系统默认内核）；
+   * null = 尚未解析到（无会话/查询失败）。输入框徽标据此区分「就是默认」与「未知」，不再回退全局缓存。
+   */
+  const [resolvedBackendId, setResolvedBackendId] = useState<string | null>(null)
+
   const refreshDevContext = useCallback(async () => {
     const key = runtimeCurrentSessionKey
     if (!key) {
       setDevContext(null)
+      setResolvedBackendId(null)
       return
     }
     try {
@@ -1346,6 +1437,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         type: 'codingDev:getDevContext',
         sessionKey: key,
       })) as { backendId?: string; projectName?: string; projectPath?: string }
+      setResolvedBackendId(ctx?.backendId ?? null)
       if (ctx?.backendId && ctx.backendId !== 'lumii') {
         setDevContext({
           backendId: ctx.backendId,
@@ -1357,6 +1449,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       }
     } catch {
       setDevContext(null)
+      setResolvedBackendId(null)
     }
   }, [runtimeCurrentSessionKey])
 
@@ -1402,8 +1495,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
    */
   const handleVoiceCallStart = useCallback(() => {
     if (!runtimeCurrentSessionKey) return
-    void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id)
-  }, [runtimeCurrentSessionKey, voiceCallActions, selectedAgent?.id])
+    void voiceCallActions.startCall(runtimeCurrentSessionKey, activeAgent?.id)
+  }, [runtimeCurrentSessionKey, voiceCallActions, activeAgent?.id])
 
   // Handle suggestion click from empty state
   const handleSuggestionClick = useCallback((suggestion: string) => {
@@ -1466,12 +1559,12 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       toast.info('请先开始一个对话再开启实时朗读')
       return
     }
-    void voiceCallActions.startCall(runtimeCurrentSessionKey, selectedAgent?.id, {
+    void voiceCallActions.startCall(runtimeCurrentSessionKey, activeAgent?.id, {
       micless: true,
       persistent: true,
       silent: true,
     })
-  }, [readAloudActive, voiceCallActions, runtimeCurrentSessionKey, selectedAgent, toast])
+  }, [readAloudActive, voiceCallActions, runtimeCurrentSessionKey, activeAgent, toast])
 
   // 切换会话时停止实时朗读（避免朗读上一会话）
   useEffect(() => {
@@ -1555,6 +1648,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         activeSessionId={runtimeCurrentSessionKey ?? null}
         onSelectSession={handleSelectSidebarSession}
         onCreateSession={handleCreateSidebarSession}
+        onCreateSessionInGroup={handleCreateSessionInGroup}
+        onClearGroupHistory={handleClearGroupHistory}
         onPinSession={handlePinSession}
         onDeleteSession={handleDeleteSession}
         onRenameSession={handleRenameSession}
@@ -1658,7 +1753,8 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
             turnEndAt={runtimeLastTurnEndAt}
             isConnected={true}
             agents={selectableAgents}
-            selectedAgent={selectedAgent}
+            selectedAgent={activeAgent}
+            resolvedBackendId={resolvedBackendId ?? undefined}
             agentsLoading={agentsLoading}
             onAgentChange={handleComposerAgentChange}
             modelChoices={chatModelChoiceItems}
@@ -1700,6 +1796,35 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
         confirmVariant="danger"
         onConfirm={handleConfirmDeleteSession}
         onCancel={handleCancelDeleteSession}
+      />
+
+      {/* 分组清空历史确认 Modal */}
+      <ConfirmModal
+        open={clearGroupRequest !== null}
+        title={`清空「${clearGroupRequest?.label ?? ''}」历史`}
+        content={
+          clearGroupRequest
+            ? [
+                clearGroupRequest.keepRecent != null
+                  ? `将保留最近 ${clearGroupRequest.keepRecent} 条，删除其余 ${pendingClearStats?.toDelete.length ?? 0} 个会话。`
+                  : `将删除该分组全部 ${pendingClearStats?.toDelete.length ?? 0} 个会话。`,
+                '删除后消息不可恢复。',
+                pendingClearStats && pendingClearStats.pinned > 0
+                  ? `置顶的 ${pendingClearStats.pinned} 个会话将保留。`
+                  : '',
+                pendingClearStats && pendingClearStats.streaming > 0
+                  ? `正在回复的 ${pendingClearStats.streaming} 个会话将跳过。`
+                  : '',
+              ]
+                .filter(Boolean)
+                .join(' ')
+            : ''
+        }
+        confirmText="删除"
+        cancelText="取消"
+        confirmVariant="danger"
+        onConfirm={() => void handleConfirmClearGroup()}
+        onCancel={() => setClearGroupRequest(null)}
       />
 
       {runtimePendingAskUser ? (

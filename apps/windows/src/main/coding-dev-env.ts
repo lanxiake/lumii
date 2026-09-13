@@ -79,6 +79,14 @@ export function getCodingDevConfig(): CodingDevConfigSlice {
 }
 
 /**
+ * 主系统 Agent 参与者 id 归一化：会话 participant 可能存 'default'（旧）或 'assistant'（新），
+ * Agent 绑定统一按 'assistant' 匹配。
+ */
+export function normalizeAgentIdForBinding(agentId: string): string {
+  return agentId === 'default' ? 'assistant' : agentId
+}
+
+/**
  * 解析会话绑定 Agent 的开发绑定（Agent → CLI + 工作目录）。
  * 未配置或未启用返回 undefined。
  */
@@ -87,7 +95,68 @@ export function resolveAgentDevBinding(
   agentId: string | undefined,
 ): AgentDevBinding | undefined {
   if (!agentId) return undefined
-  return appConfig.codingDevAgentBindings?.find((b) => b.agentId === agentId && b.enabled)
+  const normalized = normalizeAgentIdForBinding(agentId)
+  return appConfig.codingDevAgentBindings?.find(
+    (b) => normalizeAgentIdForBinding(b.agentId) === normalized && b.enabled,
+  )
+}
+
+/** 「按 Agent 粘住后端」支持写绑定的 ACP 后端（与 AgentDevBinding.backendId 一致） */
+const STICKY_BINDING_BACKEND_IDS = ['claude', 'codex', 'cursor', 'opencode'] as const
+
+/**
+ * 计算「按 Agent 粘住后端」的绑定列表变更（用户在某 Agent 的会话里切换 /claude 等）：
+ * - `lumii`：停用该 Agent 的现有绑定（保留 workspace / permissionMode，设置页可再启用）；
+ * - 受支持的 4 个 ACP 后端：upsert 并启用，保留已有 workspace / permissionMode；
+ * - 其余后端（gemini 等）：仅会话级生效，返回 null。
+ * 返回 null 表示无需写盘。
+ */
+export function computeAgentBackendBindingUpdate(
+  bindings: readonly AgentDevBinding[] | undefined,
+  agentId: string,
+  backendId: string,
+): AgentDevBinding[] | null {
+  const list = bindings ?? []
+  const normalized = normalizeAgentIdForBinding(agentId)
+  const index = list.findIndex((b) => normalizeAgentIdForBinding(b.agentId) === normalized)
+  const existing = index >= 0 ? list[index] : undefined
+
+  if (backendId === 'lumii') {
+    if (!existing?.enabled) return null
+    const next = [...list]
+    next[index] = { ...existing, enabled: false }
+    return next
+  }
+
+  if (!(STICKY_BINDING_BACKEND_IDS as readonly string[]).includes(backendId)) return null
+  if (existing?.enabled && existing.backendId === backendId) return null
+
+  const nextBinding: AgentDevBinding = {
+    ...(existing ?? {}),
+    agentId: normalized,
+    backendId: backendId as AgentDevBinding['backendId'],
+    enabled: true,
+  }
+  const next = [...list]
+  if (index >= 0) next[index] = nextBinding
+  else next.push(nextBinding)
+  return next
+}
+
+/** 开发配置写入口（由 index.ts 注入）；未注入时写操作返回 false */
+let _devConfigWriter: ((patch: { codingDevAgentBindings?: AgentDevBinding[] }) => Promise<void>) | null = null
+
+export function setCodingDevConfigWriter(
+  writer: (patch: { codingDevAgentBindings?: AgentDevBinding[] }) => Promise<void>,
+): void {
+  _devConfigWriter = writer
+}
+
+/** 写入 Agent 绑定列表（空数组写 undefined，保持配置干净）；未注入写入口时返回 false */
+export async function writeCodingDevAgentBindings(bindings: AgentDevBinding[]): Promise<boolean> {
+  if (!_devConfigWriter) return false
+  await _devConfigWriter({ codingDevAgentBindings: bindings.length > 0 ? bindings : undefined })
+  return true
 }
 
 /**

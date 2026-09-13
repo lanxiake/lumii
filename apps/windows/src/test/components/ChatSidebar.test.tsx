@@ -6,7 +6,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
+import type { ComponentProps } from 'react'
 import ChatSidebar from '../../renderer/pages/ChatPage/components/ChatSidebar'
+import { SettingsHubProvider } from '../../renderer/components/SettingsHub/SettingsHubContext'
 import type { ChatSession } from '../../renderer/hooks/business/useChat'
 
 describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
@@ -33,10 +35,19 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
     activeSessionId: null,
     onSelectSession: vi.fn(),
     onCreateSession: vi.fn(),
+    onCreateSessionInGroup: vi.fn(),
+    onClearGroupHistory: vi.fn(),
     onPinSession: vi.fn(),
     onDeleteSession: vi.fn(),
     onRenameSession: vi.fn(),
   }
+
+  const renderSidebar = (overrides: Partial<ComponentProps<typeof ChatSidebar>> = {}) =>
+    render(
+      <SettingsHubProvider>
+        <ChatSidebar {...mockProps} {...overrides} />
+      </SettingsHubProvider>,
+    )
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -44,7 +55,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
 
   describe('TC-4.1 SessionSearch 搜索功能', () => {
     it('TC-4.1.1: 搜索框正常渲染', () => {
-      render(<ChatSidebar {...mockProps} />)
+      renderSidebar()
 
       const searchInput = screen.getByPlaceholderText('搜索会话...')
       expect(searchInput).toBeInTheDocument()
@@ -55,7 +66,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
         createMockSession({ id: 's1', title: 'React开发' }),
         createMockSession({ id: 's2', title: 'Vue项目' }),
       ]
-      render(<ChatSidebar {...mockProps} sessions={sessions} />)
+      renderSidebar({ sessions })
 
       const searchInput = screen.getByPlaceholderText('搜索会话...')
       fireEvent.change(searchInput, { target: { value: 'React' } })
@@ -92,7 +103,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
           ],
         }),
       ]
-      render(<ChatSidebar {...mockProps} sessions={sessions} />)
+      renderSidebar({ sessions })
 
       const searchInput = screen.getByPlaceholderText('搜索会话...')
       fireEvent.change(searchInput, { target: { value: 'TypeScript' } })
@@ -106,7 +117,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
         createMockSession({ id: 's1', title: 'React' }),
         createMockSession({ id: 's2', title: 'Vue' }),
       ]
-      render(<ChatSidebar {...mockProps} sessions={sessions} />)
+      renderSidebar({ sessions })
 
       const searchInput = screen.getByPlaceholderText('搜索会话...')
 
@@ -122,7 +133,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
 
     it('TC-4.1.5: 搜索无结果显示提示', () => {
       const sessions = [createMockSession({ id: 's1', title: 'React' })]
-      render(<ChatSidebar {...mockProps} sessions={sessions} />)
+      renderSidebar({ sessions })
 
       const searchInput = screen.getByPlaceholderText('搜索会话...')
       fireEvent.change(searchInput, { target: { value: '不存在的内容' } })
@@ -131,7 +142,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
     })
 
     it('TC-4.1.6: 点击清除按钮清空搜索', () => {
-      render(<ChatSidebar {...mockProps} />)
+      renderSidebar()
 
       const searchInput = screen.getByPlaceholderText('搜索会话...') as HTMLInputElement
       fireEvent.change(searchInput, { target: { value: 'test' } })
@@ -160,7 +171,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
           updatedAt: today,
         }),
       ]
-      render(<ChatSidebar {...mockProps} sessions={sessions} />)
+      renderSidebar({ sessions })
 
       // 置顶分组应该存在
       expect(screen.getByText('置顶')).toBeInTheDocument()
@@ -178,7 +189,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
           updatedAt: today,
         }),
       ]
-      render(<ChatSidebar {...mockProps} sessions={sessions} />)
+      renderSidebar({ sessions })
       fireEvent.change(screen.getByPlaceholderText('搜索会话...'), { target: { value: '会话' } })
 
       expect(screen.getByText('今天')).toBeInTheDocument()
@@ -194,7 +205,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
           updatedAt: yesterday,
         }),
       ]
-      render(<ChatSidebar {...mockProps} sessions={sessions} />)
+      renderSidebar({ sessions })
       fireEvent.change(screen.getByPlaceholderText('搜索会话...'), { target: { value: '会话' } })
 
       expect(screen.getByText('昨天')).toBeInTheDocument()
@@ -210,7 +221,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
           updatedAt: earlier,
         }),
       ]
-      render(<ChatSidebar {...mockProps} sessions={sessions} />)
+      renderSidebar({ sessions })
       fireEvent.change(screen.getByPlaceholderText('搜索会话...'), { target: { value: '会话' } })
 
       expect(screen.getByText('更早')).toBeInTheDocument()
@@ -224,7 +235,7 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
         createMockSession({ id: 's1', channel: 'wechat', updatedAt: today }),
         createMockSession({ id: 's2', channel: 'wechat', updatedAt: today }),
       ]
-      render(<ChatSidebar {...mockProps} sessions={sessions} />)
+      renderSidebar({ sessions })
       fireEvent.click(screen.getByRole('tab', { name: '渠道' }))
 
       expect(screen.getByText('(2)')).toBeInTheDocument()
@@ -233,10 +244,10 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
 
   describe('TC-4.3 新建会话功能', () => {
     it('TC-4.3.1: 点击新建按钮触发回调', () => {
-      render(<ChatSidebar {...mockProps} />)
+      renderSidebar()
 
-      // 「+」是独立 span，文本被拆开，按可访问名匹配整个按钮
-      const newBtn = screen.getByRole('button', { name: /新建对话/ })
+      // 底部按钮有独立 aria-label；组头「+」的可访问名是「在「xx」下新建对话」，不会被精确匹配命中
+      const newBtn = screen.getByRole('button', { name: '新建对话' })
       fireEvent.click(newBtn)
 
       expect(mockProps.onCreateSession).toHaveBeenCalled()
@@ -245,11 +256,97 @@ describe('Phase 4: 会话管理 - ChatSidebar组件', () => {
 
   describe('TC-4.4 空状态显示', () => {
     it('TC-4.4.1: 无会话时显示提示', () => {
-      render(<ChatSidebar {...mockProps} sessions={[]} />)
+      renderSidebar({ sessions: [] })
 
       // 默认 tab 下「系统默认」分组始终渲染（total=0 也不隐藏），
       // 因此走的是分组内空态「暂无会话」，而非顶层「暂无会话，点击上方按钮创建」
       expect(screen.getByText('暂无会话')).toBeInTheDocument()
+    })
+  })
+
+  describe('TC-4.5 默认 tab 多 Agent 分组', () => {
+    const codeDevAgent = {
+      id: 'code-dev',
+      name: '灵栖开发',
+      description: '负责代码开发与项目维护',
+      selectable: true,
+    }
+
+    beforeEach(() => {
+      ;(window as any).electronAPI = {
+        ...(window as any).electronAPI,
+        api: {
+          getAgents: vi.fn().mockResolvedValue({
+            success: true,
+            data: { agents: [codeDevAgent] },
+          }),
+        },
+      }
+    })
+
+    it('TC-4.5.1: 无会话时成员 Agent 空组带职责说明', async () => {
+      renderSidebar()
+
+      expect(await screen.findByText('灵栖开发')).toBeInTheDocument()
+      expect(screen.getByText('负责代码开发与项目维护')).toBeInTheDocument()
+      expect(screen.getByText('系统默认')).toBeInTheDocument()
+    })
+
+    it('TC-4.5.2: 点击成员组「+」在该组新建会话', async () => {
+      renderSidebar()
+
+      const addBtn = await screen.findByRole('button', { name: '在「灵栖开发」下新建对话' })
+      fireEvent.click(addBtn)
+
+      expect(mockProps.onCreateSessionInGroup).toHaveBeenCalledWith('code-dev')
+    })
+
+    it('TC-4.5.3: 系统默认组「+」以 null 回调（系统默认）', async () => {
+      renderSidebar()
+
+      const addBtn = await screen.findByRole('button', { name: '在「系统默认」下新建对话' })
+      fireEvent.click(addBtn)
+
+      expect(mockProps.onCreateSessionInGroup).toHaveBeenCalledWith(null)
+    })
+  })
+
+  describe('TC-4.6 分组「⋯」清空历史', () => {
+    it('TC-4.6.1: 菜单含两个清空选项，「清空全部历史」回调携带分组会话', () => {
+      const sessions = [
+        createMockSession({ id: 's1', title: '会话A' }),
+        createMockSession({ id: 's2', title: '会话B' }),
+      ]
+      renderSidebar({ sessions })
+
+      fireEvent.click(screen.getByRole('button', { name: '「系统默认」更多操作' }))
+      expect(screen.getByText('清空历史（保留最近 5 条）')).toBeInTheDocument()
+      expect(screen.getByText('清空全部历史')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByText('清空全部历史'))
+      expect(mockProps.onClearGroupHistory).toHaveBeenCalledWith({
+        label: '系统默认',
+        sessions,
+        keepRecent: null,
+      })
+    })
+
+    it('TC-4.6.2: 「保留最近 5 条」回调 keepRecent=5', () => {
+      renderSidebar({ sessions: [createMockSession({ id: 's1' })] })
+
+      fireEvent.click(screen.getByRole('button', { name: '「系统默认」更多操作' }))
+      fireEvent.click(screen.getByText('清空历史（保留最近 5 条）'))
+
+      expect(mockProps.onClearGroupHistory).toHaveBeenCalledWith(
+        expect.objectContaining({ label: '系统默认', keepRecent: 5 }),
+      )
+    })
+
+    it('TC-4.6.3: 自主进化组不提供清空菜单（会话不可删除）', () => {
+      renderSidebar()
+
+      fireEvent.click(screen.getByRole('tab', { name: '系统' }))
+      expect(screen.queryByRole('button', { name: '「自主进化」更多操作' })).not.toBeInTheDocument()
     })
   })
 })

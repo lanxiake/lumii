@@ -16,7 +16,18 @@ import {
   type CodingDevBackendId,
 } from '../../coding-dev-backends-stub/contracts.js'
 import { setDevContext } from '../../coding-dev-dev-context.js'
-import { getCodingDevConfig, resolveDevContext, type ResolvedDevContext } from '../../coding-dev-env.js'
+import {
+  computeAgentBackendBindingUpdate,
+  getCodingDevConfig,
+  resolveDevContext,
+  writeCodingDevAgentBindings,
+  type ResolvedDevContext,
+} from '../../coding-dev-env.js'
+
+const log = {
+  info: (...args: unknown[]) => console.info('[AgentRuntime:IPC]', ...args),
+  warn: (...args: unknown[]) => console.warn('[AgentRuntime:IPC]', ...args),
+}
 
 // 从主文件导入单例访问器（避免循环依赖）
 let _getAcpBackendManager: (() => import('../../channel/acp-backend-manager').AcpBackendManager) | null = null
@@ -36,6 +47,7 @@ function getAcpBackendManager() {
 const LOCAL_USER_ID = 'local-user'
 
 export async function handleCodingDevSetBackend(
+  bridge: AgentRuntimeBridge,
   command: Extract<AgentRuntimeCommand, { type: 'codingDev:setBackend' }>,
 ): Promise<{ ok: boolean }> {
   // 桌面开发会话级覆盖：写 dev-context（优先于 user-global 与 Agent 绑定）
@@ -44,6 +56,8 @@ export async function handleCodingDevSetBackend(
       throw new Error(`未知后端: ${command.backendId}`)
     }
     setDevContext(LOCAL_USER_ID, command.sessionKey, { backendId: command.backendId })
+    // 按 Agent 粘住：同一切换同时写为该 Agent 的默认后端（其他 Agent 不受影响）
+    await persistAgentBackendDefault(bridge, command.sessionKey, command.backendId)
     return { ok: true }
   }
   const mgr = getAcpBackendManager()
@@ -54,6 +68,36 @@ export async function handleCodingDevSetBackend(
     LOCAL_USER_ID,
   )
   return { ok: true }
+}
+
+/**
+ * 「按 Agent 粘住」：把本次切换写为该会话所属 Agent 的默认后端绑定。
+ * - 判定逻辑见 computeAgentBackendBindingUpdate（lumii 停用绑定 / 其余 upsert）；
+ * - 写盘失败不阻塞切换本身（会话级 dev-context 已生效）。
+ */
+async function persistAgentBackendDefault(
+  bridge: AgentRuntimeBridge,
+  sessionKey: string,
+  backendId: string,
+): Promise<void> {
+  try {
+    const agentId = bridge.conversationRepo.getAgentParticipantId(sessionKey)
+    if (!agentId) return
+    const next = computeAgentBackendBindingUpdate(
+      getCodingDevConfig().codingDevAgentBindings,
+      agentId,
+      backendId,
+    )
+    if (!next) return
+    const written = await writeCodingDevAgentBindings(next)
+    if (written) {
+      log.info(
+        `[codingDev:setBackend] 已按 Agent 粘住后端 agentId=${agentId} backendId=${backendId} sessionKey=${sessionKey}`,
+      )
+    }
+  } catch (err) {
+    log.warn('[codingDev:setBackend] 写入 Agent 默认后端失败（仅会话级生效）:', err)
+  }
 }
 
 export function handleCodingDevGetBackend(): { backendId: CodingDevBackendId } {
