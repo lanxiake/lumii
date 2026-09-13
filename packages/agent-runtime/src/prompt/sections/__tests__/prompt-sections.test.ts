@@ -11,11 +11,12 @@ import { PROMPT_SECTIONS } from "../../prompt-sections.js";
 import { PROMPT_GUIDE_SECTIONS } from "../../section-guides.js";
 import { buildClientSystemPromptStructured } from "../../system-prompt-builder.js";
 import type { AgentDefinition } from "../../../types/agent-definition.js";
+import type { CustomAgentInfo, SkillInfo } from "../../../prompt/system-prompt.types.js";
 
 /** 红线段：安全 / 验证 / 语言 / 完成契约，永久不做 terse 化 */
 const RED_LINE_SECTION_IDS = ["safety", "verification", "language", "taskCompletion"] as const;
 
-/** 触发全部首批 terse 段所需的能力面（P2 扩容时同步扩充本配置） */
+/** 触发全部 terse 段所需的能力面（P2 扩容时同步扩充本配置） */
 const GUARD_TOOLS = [
   "file_read",
   "file_write",
@@ -25,6 +26,23 @@ const GUARD_TOOLS = [
   "weixin_send_guide",
   "browser_screenshot",
   "browser_eval",
+  // P2：skills / taskOrchestration / agentCollaboration
+  "skill_list",
+  "skill_search",
+  "skill_invoke",
+  "spawn_agent",
+  "send_message",
+  "todo_write",
+];
+
+const GUARD_SKILLS: SkillInfo[] = [
+  { id: "skill-a", name: "竞品调研", description: "Competitor research workflow", location: "/skills/a/SKILL.md" },
+  { id: "skill-b", name: "report-writer", description: "Write structured reports", location: "/skills/b/SKILL.md" },
+];
+
+const GUARD_AGENTS: CustomAgentInfo[] = [
+  { id: "builtin:explore", name: "探索者", description: "Code exploration specialist" },
+  { id: "agent-writer", name: "写手", description: "User-defined writing agent" },
 ];
 
 const GUARD_DEF: AgentDefinition = {
@@ -41,6 +59,17 @@ const GUARD_DEF: AgentDefinition = {
   isActive: true,
 };
 
+const GUARD_BUILD = (promptStyle: "detailed" | "terse") =>
+  buildClientSystemPromptStructured({
+    agentDefinition: GUARD_DEF,
+    toolNames: GUARD_TOOLS,
+    cwd: "/workspace",
+    runtimeInfo: { channel: "weixin" },
+    skills: GUARD_SKILLS,
+    customAgents: GUARD_AGENTS,
+    promptStyle,
+  });
+
 describe("PROMPT_SECTIONS 元数据守卫", () => {
   it("段 ID 无重复", () => {
     const ids = PROMPT_SECTIONS.map((s) => s.id);
@@ -52,6 +81,15 @@ describe("PROMPT_SECTIONS 元数据守卫", () => {
       if (s.terse) {
         expect(s.expandVia, s.id).toBeDefined();
         expect(["prompt-guide", "existing-tool"], s.id).toContain(s.expandVia);
+      }
+    }
+  });
+
+  it("expandVia=existing-tool 的段必须声明 expandTool", () => {
+    for (const s of PROMPT_SECTIONS) {
+      if (s.expandVia === "existing-tool") {
+        expect(s.expandTool, s.id).toBeDefined();
+        expect(s.expandTool!.length, s.id).toBeGreaterThan(0);
       }
     }
   });
@@ -83,13 +121,7 @@ describe("PROMPT_SECTIONS 元数据守卫", () => {
 
 describe("terse 引导可发现性守卫（渲染级）", () => {
   it("每个 prompt-guide 段的 terse 渲染携带对应 prompt_guide(section: \"<id>\") 字面量", () => {
-    const { fullPrompt } = buildClientSystemPromptStructured({
-      agentDefinition: GUARD_DEF,
-      toolNames: GUARD_TOOLS,
-      cwd: "/workspace",
-      runtimeInfo: { channel: "weixin" },
-      promptStyle: "terse",
-    });
+    const { fullPrompt } = GUARD_BUILD("terse");
 
     for (const s of PROMPT_SECTIONS) {
       if (!s.terse || s.expandVia !== "prompt-guide") continue;
@@ -97,25 +129,17 @@ describe("terse 引导可发现性守卫（渲染级）", () => {
     }
   });
 
-  it("existing-tool 段（messaging）的 terse 渲染指向既有工具链", () => {
-    const { fullPrompt } = buildClientSystemPromptStructured({
-      agentDefinition: GUARD_DEF,
-      toolNames: GUARD_TOOLS,
-      cwd: "/workspace",
-      runtimeInfo: { channel: "weixin" },
-      promptStyle: "terse",
-    });
-    expect(fullPrompt).toContain("weixin_send_guide");
+  it("每个 existing-tool 段的 terse 渲染指向其 expandTool 工具链", () => {
+    const { fullPrompt } = GUARD_BUILD("terse");
+
+    for (const s of PROMPT_SECTIONS) {
+      if (s.expandVia !== "existing-tool") continue;
+      expect(fullPrompt, s.id).toContain(s.expandTool!);
+    }
   });
 
   it("detailed 档不出现任何 prompt_guide 引导字面量", () => {
-    const { fullPrompt } = buildClientSystemPromptStructured({
-      agentDefinition: GUARD_DEF,
-      toolNames: GUARD_TOOLS,
-      cwd: "/workspace",
-      runtimeInfo: { channel: "weixin" },
-      promptStyle: "detailed",
-    });
+    const { fullPrompt } = GUARD_BUILD("detailed");
     expect(fullPrompt).not.toContain("prompt_guide(section:");
   });
 });

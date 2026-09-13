@@ -325,7 +325,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
     if (filteredSkills.length > 0) {
       const hasSkillTools = effectiveToolNames.includes("skill_list")
       emit("static", "skills", [
-        ...tagged("skills", buildSkillsSection(filteredSkills, readToolName, hasSkillTools)),
+        ...tagged("skills", buildSkillsSection(filteredSkills, readToolName, hasSkillTools, style)),
       ])
     }
   }
@@ -363,7 +363,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
   // === 4.1. Task Orchestration（按能力条件化）===
   if (effectiveToolNames.includes("spawn_agent") || effectiveToolNames.includes("todo_write")) {
-    emit("static", "taskOrchestration", [...buildTaskOrchestrationSection(effectiveToolNames)])
+    emit("static", "taskOrchestration", [...buildTaskOrchestrationSection(effectiveToolNames, style)])
   }
 
   // === 4.2. Multi-Agent Collaboration ===
@@ -392,7 +392,7 @@ export function buildClientSystemPromptStructured(params: ClientSystemPromptPara
 
     if (filteredAgents.length > 0) {
       emit("static", "agentCollaboration", [
-        ...tagged("subagents", buildAgentCollaborationSection(filteredAgents, effectiveToolNames)),
+        ...tagged("subagents", buildAgentCollaborationSection(filteredAgents, effectiveToolNames, style)),
       ])
     }
   }

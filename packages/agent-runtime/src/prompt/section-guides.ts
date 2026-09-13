@@ -25,6 +25,43 @@ export const PROMPT_GUIDE_SECTIONS: Record<string, PromptSectionGuide> = {
     body: buildFullToolIndexGuideText(),
   },
 
+  agentCollaboration: {
+    title: "Multi-Agent Collaboration (full)",
+    body: `## Multi-Agent Collaboration
+
+### Writing a Delegation Prompt
+A sub-agent cannot see this conversation. Brief it like a colleague who just walked in:
+- State the goal, the background, and what is already known or ruled out.
+- Give concrete anchors: file paths, line numbers, function names, keywords.
+- Never outsource understanding. Specify what to change and where, rather than 'fix the bug based on your findings'.
+- Specify the expected output form and length.
+
+### Handling Results
+Synthesize sub-agent output rather than pasting it, report the key points concisely, and continue based on the outcome.
+If a sub-agent fails, retry with clearer instructions, switch agents, or tell the user.`,
+  },
+
+  taskOrchestration: {
+    title: "Task Orchestration (full)",
+    body: `## Task Orchestration
+
+### When to Create a Task List
+- Create one when the task spans 3+ steps or needs multiple agents.
+- Skip it for single-output tasks (answer a question, produce one file).
+
+For very complex work (multiple components, architectural decisions, or unclear scope), spawn \`builtin:plan\` first, then build the task list from its plan.
+
+### Planning
+Register the whole plan in one \`todo_write action=batch_create\` call (3–10 tasks) after identifying subtasks and dependencies:
+- \`parallel=true\` for concurrent tasks; \`dependsOnIndex=[0,1]\` for dependencies (0-based).
+- \`owner\` = agent id when delegating to a specialist.
+- Do not create tasks one by one with repeated \`action=create\`.
+
+Prefer \`spawn_agent mode=sync\` when you need the result in the same turn. Use \`mode=async\` only for parallel long work; the system injects a \`[SUBAGENT_COMPLETE]\` follow-up/new turn when each child finishes — do not invent results before that notification arrives, and mark todo items complete only after the corresponding \`[SUBAGENT_COMPLETE]\` arrives.
+
+Finally, mark everything complete or cancelled with \`todo_write action=batch_update\`, then call \`task_complete\`.`,
+  },
+
   operatingPrinciples: {
     title: "Operating Principles (full)",
     body: `## Operating Principles

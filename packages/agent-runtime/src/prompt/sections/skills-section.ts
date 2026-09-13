@@ -2,7 +2,7 @@
  * Skills section 构建函数（技能列表、激活提示、自我学习）
  */
 
-import type { SkillInfo, SkillActivationHint } from "../system-prompt.types.js"
+import type { SkillInfo, SkillActivationHint, PromptStyle } from "../system-prompt.types.js"
 
 /**
  * 构建 Skills section
@@ -12,11 +12,15 @@ import type { SkillInfo, SkillActivationHint } from "../system-prompt.types.js"
  *   技能列表/内容通过 skill_list/skill_search/skill_invoke 工具按需获取。
  * - 静态模式（向后兼容）：宿主未注册 skill_* 工具时，回退到原有静态列表注入。
  *   description 截断到 150 字符。
+ *
+ * terse 档（P2）：仅列 top-12 技能名（去描述）+ 计数 + 一行用法，
+ * 完整列表由 `skill_search` 按需检索。
  */
 export function buildSkillsSection(
   skills: readonly SkillInfo[],
   readToolName: string,
   hasSkillTools = false,
+  style: PromptStyle = "detailed",
 ): string[] {
   if (skills.length === 0) return []
 
@@ -27,6 +31,30 @@ export function buildSkillsSection(
   if (hasSkillTools) {
     // 按 usageCount 降序排序，未提供时视为 0
     const sorted = [...skills].sort((a, b) => (b.usageCount ?? 0) - (a.usageCount ?? 0))
+
+    if (style === "terse") {
+      const MAX_TERSE = 12
+      const visible = sorted.slice(0, MAX_TERSE)
+      const hiddenCount = sorted.length - visible.length
+      const executable = visible.filter((s) => s.executable && s.id)
+      const normal = visible.filter((s) => !(s.executable && s.id))
+      const nameList = (list: readonly SkillInfo[]) => list.map((s) => `\`${s.name}\``).join(", ")
+      const lines: string[] = [
+        "## Skills",
+        "",
+        `Available skills (${sorted.length}, by usage): ${nameList(normal)}${hiddenCount > 0 ? ` (+${hiddenCount} more via \`skill_search\`)` : ""}`,
+      ]
+      if (executable.length > 0) {
+        lines.push(`Executable skills (run via \`execute_skill(id)\`): ${nameList(executable)}`)
+      }
+      lines.push(
+        "",
+        "When a skill matches the task, you MUST use it instead of improvising: `skill_invoke(name)` loads its full SKILL.md.",
+        "",
+      )
+      return lines
+    }
+
     const visible = sorted.slice(0, MAX_INLINE)
     const hiddenCount = sorted.length - visible.length
 

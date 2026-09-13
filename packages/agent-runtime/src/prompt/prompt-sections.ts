@@ -74,6 +74,8 @@ export interface PromptSectionMeta {
   readonly terse: boolean
   /** 展开方式（terse 为 true 时必填） */
   readonly expandVia?: PromptExpandRoute
+  /** expandVia=existing-tool 时：指向的既有工具名（terse 文案中必须可发现） */
+  readonly expandTool?: string
 }
 
 /** 单段计量（sectionStats 元素） */
@@ -98,16 +100,16 @@ export const PROMPT_SECTIONS: readonly PromptSectionMeta[] = [
   { id: "toolNamingContract", group: "rules", zone: "static", terse: false },
   { id: "progressiveLoading", group: "capabilities", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "mcp", group: "capabilities", zone: "static", terse: false },
-  { id: "skills", group: "capabilities", zone: "static", terse: false },
+  { id: "skills", group: "capabilities", zone: "static", terse: true, expandVia: "existing-tool", expandTool: "skill_search" },
   { id: "selfLearning", group: "capabilities", zone: "static", terse: false },
-  { id: "taskOrchestration", group: "collaboration", zone: "static", terse: false },
+  { id: "taskOrchestration", group: "collaboration", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "subagentRole", group: "collaboration", zone: "static", terse: false },
-  { id: "agentCollaboration", group: "collaboration", zone: "static", terse: false },
+  { id: "agentCollaboration", group: "collaboration", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "deviceControl", group: "collaboration", zone: "static", terse: false },
   { id: "safety", group: "rules", zone: "static", terse: false },
   { id: "language", group: "rules", zone: "static", terse: false },
   { id: "taskCompletion", group: "rules", zone: "static", terse: false },
-  { id: "messaging", group: "channel", zone: "static", terse: true, expandVia: "existing-tool" },
+  { id: "messaging", group: "channel", zone: "static", terse: true, expandVia: "existing-tool", expandTool: "weixin_send_guide" },
   { id: "wiki", group: "capabilities", zone: "static", terse: false },
   { id: "browser", group: "capabilities", zone: "static", terse: true, expandVia: "prompt-guide" },
   { id: "cron", group: "capabilities", zone: "static", terse: false },

@@ -229,4 +229,79 @@ describe("terse 极致覆盖（P2）", () => {
     expect(guide!.body).toContain("- `file_read`:");
     expect(guide!.body).toContain("**Default first**");
   });
+
+  it("skills 折叠：terse 仅列 top-12 名称 + 计数，描述不入提示词", () => {
+    const skills = Array.from({ length: 30 }, (_, i) => ({
+      id: `sk-${i}`,
+      name: `skill-${i}`,
+      description: `Description for skill ${i}`,
+      location: `/skills/skill-${i}/SKILL.md`,
+    }));
+    const buildWithSkills = (promptStyle: "detailed" | "terse") =>
+      buildClientSystemPromptStructured({
+        agentDefinition: BASE_DEF,
+        toolNames: [...P2_TOOLS, "skill_list"],
+        cwd: "/workspace",
+        skills,
+        promptStyle,
+      });
+    const terse = buildWithSkills("terse");
+    const detailed = buildWithSkills("detailed");
+
+    expect(terse.fullPrompt).toContain("Available skills (30, by usage):");
+    expect(terse.fullPrompt).toContain("`skill-0`");
+    expect(terse.fullPrompt).toContain("(+18 more via `skill_search`");
+    expect(terse.fullPrompt).not.toContain("Description for skill 0");
+    expect(detailed.fullPrompt).toContain("Description for skill 0");
+
+    const tc = terse.sectionStats.find((s) => s.id === "skills")?.chars ?? 0;
+    const dc = detailed.sectionStats.find((s) => s.id === "skills")?.chars ?? 0;
+    expect(dc).toBeGreaterThan(1500);
+    expect(tc / dc).toBeLessThan(0.3);
+  });
+
+  it("Multi-Agent 协作 terse：Agent 列表保留，委派话术/结果处理移入 guide", () => {
+    const agents = [
+      { id: "builtin:explore", name: "探索者", description: "Code exploration specialist" },
+      { id: "agent-writer", name: "写手", description: "User-defined writing agent" },
+    ];
+    const buildWithAgents = (promptStyle: "detailed" | "terse") =>
+      buildClientSystemPromptStructured({
+        agentDefinition: BASE_DEF,
+        toolNames: [...P2_TOOLS, "spawn_agent", "send_message"],
+        cwd: "/workspace",
+        customAgents: agents,
+        promptStyle,
+      });
+    const terse = buildWithAgents("terse");
+    const detailed = buildWithAgents("detailed");
+
+    expect(terse.fullPrompt).toContain("builtin:explore");
+    expect(terse.fullPrompt).toMatch(/agent-writer/);
+    expect(terse.fullPrompt).toContain('prompt_guide(section: "agentCollaboration")');
+    expect(terse.fullPrompt).not.toContain("Writing a Delegation Prompt");
+    expect(detailed.fullPrompt).toContain("Writing a Delegation Prompt");
+    expect(detailed.fullPrompt).toContain("Handling Results");
+  });
+
+  it("Task Orchestration terse：要点行 + guide；detailed 保留分节细则", () => {
+    const buildOrch = (promptStyle: "detailed" | "terse") =>
+      buildClientSystemPromptStructured({
+        agentDefinition: BASE_DEF,
+        toolNames: [...P2_TOOLS, "todo_write"],
+        cwd: "/workspace",
+        promptStyle,
+      });
+    const terse = buildOrch("terse");
+    const detailed = buildOrch("detailed");
+
+    expect(terse.fullPrompt).toContain("batch_create");
+    expect(terse.fullPrompt).toContain('prompt_guide(section: "taskOrchestration")');
+    expect(terse.fullPrompt).not.toContain("### When to Create a Task List");
+    expect(detailed.fullPrompt).toContain("### When to Create a Task List");
+
+    const tc = terse.sectionStats.find((s) => s.id === "taskOrchestration")?.chars ?? 0;
+    const dc = detailed.sectionStats.find((s) => s.id === "taskOrchestration")?.chars ?? 0;
+    expect(tc / dc).toBeLessThan(0.5);
+  });
 });

@@ -2,7 +2,7 @@
  * Agent Collaboration & Task Orchestration sections
  */
 
-import type { CustomAgentInfo, RouterResultLite } from "../system-prompt.types.js"
+import type { CustomAgentInfo, RouterResultLite, PromptStyle } from "../system-prompt.types.js"
 
 /**
  * 过滤注入「Multi-Agent Collaboration」段的 Agent 列表。
@@ -36,6 +36,7 @@ export function filterAgentsForCollaborationPrompt(
 export function buildAgentCollaborationSection(
   agents: readonly CustomAgentInfo[],
   toolNames: readonly string[],
+  style: PromptStyle = "detailed",
 ): string[] {
   if (agents.length === 0) return []
 
@@ -87,6 +88,25 @@ export function buildAgentCollaborationSection(
   }
   selectionLines.push("- No match → omit `agentType` and describe the role in `prompt`")
 
+  // terse（P2）：选择规则压缩为一行映射 + 条件行；委派话术/结果处理移入 guide
+  function buildTerseSelectionLines(): string[] {
+    const terse = [
+      "Delegate with `spawn_agent` (`agentType` = agent id): explore/search/read → `builtin:explore`; plan/design → `builtin:plan`; build/test/verify → `builtin:verify`; a user-defined agent matching the domain → prefer it.",
+    ]
+    if (systemAgents.length > 0) {
+      terse.push(
+        "- A team specialist covering the task → you MUST delegate to it (`agentType` = its id); it owns that domain.",
+      )
+    }
+    if (toolNames.includes("propose_dev_handoff")) {
+      terse.push(
+        "- Code development in a registered/bound project (user names a project and asks for fixes/features there) → propose a handoff with `propose_dev_handoff` (session-based specialists are never spawned); the user confirms on the handoff card before the dev session starts. Small one-off snippets or casual edits outside a project dev workflow → handle them yourself; do not over-escalate",
+      )
+    }
+    terse.push("- No match → omit `agentType` and describe the role in `prompt`.")
+    return terse
+  }
+
   const lines: string[] = [
     "## Multi-Agent Collaboration",
     "",
@@ -98,8 +118,21 @@ export function buildAgentCollaborationSection(
     ...agentListLines,
     "### Selection",
     "",
-    ...selectionLines,
+    ...(style === "terse" ? buildTerseSelectionLines() : selectionLines),
     "",
+  ]
+
+  if (style === "terse") {
+    lines.push(
+      "`spawn_agent` is the only delegation mechanism; do not delegate via `send_message`.",
+      "",
+      'Delegation brief & result handling: `prompt_guide(section: "agentCollaboration")`.',
+      "",
+    )
+    return lines
+  }
+
+  lines.push(
     "`spawn_agent` is the only delegation mechanism; do not delegate via `send_message`.",
     "",
     "### Writing a Delegation Prompt",
@@ -115,7 +148,7 @@ export function buildAgentCollaborationSection(
     "Synthesize sub-agent output rather than pasting it, report the key points concisely, and continue based on the outcome.",
     "If a sub-agent fails, retry with clearer instructions, switch agents, or tell the user.",
     "",
-  ]
+  )
 
   // 高级编排模式（仅在相关工具存在时注入）
   if (hasExecutionPlan || hasDelegate) {
@@ -144,12 +177,35 @@ export function buildAgentCollaborationSection(
  *
  * 职责：何时创建任务列表、如何规划依赖、如何收尾。
  * 不包含委派规则（由 buildAgentCollaborationSection 负责）。
+ * terse 档（P2）：收成 3 行要点 + guide，细则走 `prompt_guide(section: "taskOrchestration")`。
  */
-export function buildTaskOrchestrationSection(toolNames: readonly string[]): string[] {
+export function buildTaskOrchestrationSection(
+  toolNames: readonly string[],
+  style: PromptStyle = "detailed",
+): string[] {
   const hasSpawn = toolNames.includes("spawn_agent")
   const hasTodo = toolNames.includes("todo_write")
 
   if (!hasSpawn && !hasTodo) return []
+
+  if (style === "terse") {
+    const terseLines: string[] = [
+      "## Task Orchestration",
+      "- Create a task list when the task spans 3+ steps or multiple agents; skip single-output tasks.",
+      "- Register the whole plan in one `todo_write action=batch_create` call (3–10 tasks; `parallel=true`, `dependsOnIndex` for dependencies, `owner` = agent id).",
+    ]
+    if (hasSpawn) {
+      terseLines.push(
+        "- `spawn_agent mode=async`: mark tasks complete only after the matching `[SUBAGENT_COMPLETE]` arrives; use `mode=sync` when you need the result now.",
+      )
+    }
+    terseLines.push(
+      "- Finish with `todo_write action=batch_update`, then `task_complete`.",
+      'Details: `prompt_guide(section: "taskOrchestration")`.',
+      "",
+    )
+    return terseLines
+  }
 
   const lines: string[] = [
     "## Task Orchestration",
