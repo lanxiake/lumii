@@ -98,7 +98,7 @@ const TOOL_SUMMARIES: Record<string, string> = {
   agent_remove: "Delete a user-created agent",
 
   // Interaction
-  ask_user_question: "Ask a clarifying question when you cannot safely proceed",
+  ask_user_question: "Ask a clarifying question with options and your recommended answer",
 
   // Dashboard
   dashboard_feed_write: "Persist news items to the dashboard feed card",

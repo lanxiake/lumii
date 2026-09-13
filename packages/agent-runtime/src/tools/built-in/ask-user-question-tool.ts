@@ -6,7 +6,8 @@
  * - src/tools/AskUserQuestionTool/AskUserQuestionTool.tsx
  *
  * 设计要点（对照设计文档 §八 ask_user_question）：
- * 1. 入参：1-4 个问题；每个问题 2-4 个选项；支持 multiSelect 与 option.preview
+ * 1. 入参：1-4 个问题；每个问题 2-4 个选项；支持 multiSelect、option.preview
+ *    与 AI 推荐（option.recommended / option.recommendReason）
  * 2. 出参：answers（按 question 文本 keyed）+ 可选 annotations（notes/preview）
  * 3. tool_result 文本格式：
  *    `User has answered your questions: "<q>"="<a>" [...]`
@@ -35,6 +36,20 @@ const QuestionOption = Type.Object({
       description:
         "Optional preview content rendered when this option is focused. Use for mockups, " +
         "code snippets, or visual comparisons. Only supported for single-select questions.",
+    }),
+  ),
+  recommended: Type.Optional(
+    Type.Boolean({
+      description:
+        "Mark this option as your recommendation. The UI highlights it as an AI suggestion. " +
+        "Set at most one recommended option per question and always pair it with recommendReason.",
+    }),
+  ),
+  recommendReason: Type.Optional(
+    Type.String({
+      description:
+        "One short sentence explaining WHY this option is your recommendation (used together " +
+        "with recommended: true). Be concrete — users decide based on this line.",
     }),
   ),
 });
@@ -96,7 +111,11 @@ const ASK_DESCRIPTION =
   "Ask the user 1-4 structured multiple-choice questions to gather preferences, clarify " +
   "ambiguity, or offer implementation choices. Each question has 2-4 options. Users can " +
   "always select an automatically-provided 'Other' option to write free-form text. " +
-  "IMPORTANT: do NOT use this tool for plan approval — for plan approval use plan mode completion.";
+  "IMPORTANT: do NOT use this tool for plan approval — for plan approval use plan mode completion. " +
+  "RECOMMENDATION: whenever you have any basis for a preference, mark your suggested option with " +
+  "recommended: true and explain why in recommendReason (one sentence) — the UI highlights it and " +
+  "the user can adopt all recommendations in one click, which greatly reduces their decision cost. " +
+  "Only omit the recommendation when the choice is purely personal and you truly have no basis to advise.";
 
 /**
  * 统一的 stub 实现：在未注入 controller 时返回 not_implemented 错误，

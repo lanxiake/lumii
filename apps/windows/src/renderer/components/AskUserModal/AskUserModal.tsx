@@ -4,7 +4,7 @@
  * 多问题使用 Tab 页切换，每次只展示一个问题，减少竖向滚动。
  */
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Modal } from '../ui/Modal/Modal'
 import { Button } from '../ui/Button/Button'
 import styles from './AskUserModal.module.css'
@@ -17,6 +17,10 @@ export interface AskUserModalQuestion {
     readonly label: string
     readonly description: string
     readonly preview?: string
+    /** AI 推荐项标记（UI 高亮；每问至多一个） */
+    readonly recommended?: boolean
+    /** 推荐理由（一句话，配合 recommended 使用） */
+    readonly recommendReason?: string
   }[]
 }
 
@@ -41,6 +45,8 @@ interface PerQuestionState {
 }
 
 const OTHER_LABEL = 'Other'
+/** 单选点选后的自动前进延迟；多选、Other 与带 preview 的选项不参与自动前进 */
+const AUTO_ADVANCE_DELAY_MS = 300
 
 export const AskUserModal: React.FC<AskUserModalProps> = ({
   open,
@@ -52,6 +58,7 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
   const [busy, setBusy] = useState(false)
   const [leftSec, setLeftSec] = useState(() => Math.max(1, Math.ceil(timeoutMs / 1000)))
   const [activeTab, setActiveTab] = useState(0)
+  const autoAdvanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const defaultState: Record<number, PerQuestionState> = useMemo(
     () =>
@@ -64,34 +71,68 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
 
   const [perQ, setPerQ] = useState<Record<number, PerQuestionState>>(defaultState)
 
+  const clearAutoAdvance = useCallback((): void => {
+    if (autoAdvanceTimer.current !== null) {
+      clearTimeout(autoAdvanceTimer.current)
+      autoAdvanceTimer.current = null
+    }
+  }, [])
+
   useEffect(() => {
+    clearAutoAdvance()
     setPerQ(defaultState)
     setActiveTab(0)
-  }, [defaultState])
+  }, [defaultState, clearAutoAdvance])
 
   useEffect(() => {
     if (!open) {
+      clearAutoAdvance()
       setBusy(false)
       return
     }
     setLeftSec(Math.max(1, Math.ceil(timeoutMs / 1000)))
     const t = setInterval(() => setLeftSec((s) => (s <= 1 ? 1 : s - 1)), 1000)
     return () => clearInterval(t)
-  }, [open, timeoutMs])
+  }, [open, timeoutMs, clearAutoAdvance])
+
+  useEffect(() => () => clearAutoAdvance(), [clearAutoAdvance])
 
   function toggleOption(qIdx: number, label: string, multiSelect: boolean): void {
-    setPerQ((prev) => {
-      const cur = prev[qIdx] ?? { selected: [], otherText: '', notes: '' }
-      let nextSelected: string[]
-      if (multiSelect) {
-        nextSelected = cur.selected.includes(label)
-          ? cur.selected.filter((l) => l !== label)
-          : [...cur.selected, label]
-      } else {
-        nextSelected = [label]
+    clearAutoAdvance()
+    const cur = perQ[qIdx] ?? { selected: [], otherText: '', notes: '' }
+    const nextSelected = multiSelect
+      ? cur.selected.includes(label)
+        ? cur.selected.filter((l) => l !== label)
+        : [...cur.selected, label]
+      : [label]
+    const nextState: Record<number, PerQuestionState> = {
+      ...perQ,
+      [qIdx]: { ...cur, selected: nextSelected },
+    }
+    setPerQ(nextState)
+
+    if (multiSelect || label === OTHER_LABEL) return
+    const opt = questions[qIdx]?.options.find((o) => o.label === label)
+    // 带 preview 的选项需要停留阅读，不自动前进
+    if (opt?.preview) return
+    scheduleAutoAdvance(qIdx, nextState)
+  }
+
+  /** 单选点选后自动前进：非末题切下一题；末题全部答完自动提交，否则跳到第一个未答完的题 */
+  function scheduleAutoAdvance(fromIdx: number, state: Record<number, PerQuestionState>): void {
+    autoAdvanceTimer.current = setTimeout(() => {
+      autoAdvanceTimer.current = null
+      if (fromIdx < questions.length - 1) {
+        setActiveTab(fromIdx + 1)
+        return
       }
-      return { ...prev, [qIdx]: { ...cur, selected: nextSelected } }
-    })
+      const firstInvalid = questions.findIndex((_, idx) => !isQuestionValidIn(state, idx))
+      if (firstInvalid === -1) {
+        void submitWith(state)
+      } else if (firstInvalid !== fromIdx) {
+        setActiveTab(firstInvalid)
+      }
+    }, AUTO_ADVANCE_DELAY_MS)
   }
 
   function updateOtherText(qIdx: number, text: string): void {
@@ -108,27 +149,32 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
     })
   }
 
-  function isQuestionValid(idx: number): boolean {
-    const s = perQ[idx]
+  function isQuestionValidIn(state: Record<number, PerQuestionState>, idx: number): boolean {
+    const s = state[idx]
     if (!s) return false
     const hasSelection = s.selected.length > 0
     const hasOther = s.selected.includes(OTHER_LABEL) ? s.otherText.trim().length > 0 : true
     return hasSelection && hasOther
   }
 
-  function isValid(): boolean {
-    return questions.every((_, idx) => isQuestionValid(idx))
+  function isQuestionValid(idx: number): boolean {
+    return isQuestionValidIn(perQ, idx)
   }
 
-  async function handleSubmit(): Promise<void> {
+  function isValid(): boolean {
+    return questions.every((_, idx) => isQuestionValidIn(perQ, idx))
+  }
+
+  async function submitWith(state: Record<number, PerQuestionState>): Promise<void> {
     if (busy) return
-    if (!isValid()) return
+    if (!questions.every((_, idx) => isQuestionValidIn(state, idx))) return
     setBusy(true)
     try {
       const answers: Record<string, string> = {}
       const annotations: Record<string, { preview?: string; notes?: string }> = {}
       questions.forEach((q, idx) => {
-        const s = perQ[idx]!
+        const s = state[idx]
+        if (!s) return
         const labels = s.selected.map((l) => (l === OTHER_LABEL ? s.otherText.trim() : l))
         answers[q.question] = labels.join(', ')
         if (!q.multiSelect && s.selected.length === 1) {
@@ -149,6 +195,10 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
     } finally {
       setBusy(false)
     }
+  }
+
+  async function handleSubmit(): Promise<void> {
+    await submitWith(perQ)
   }
 
   async function handleDecline(): Promise<void> {
@@ -174,10 +224,35 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
       ? q?.options.find((o) => o.label === state.selected[0])
       : undefined
 
+  const allHaveRecommendation =
+    questions.length > 0 && questions.every((q) => q.options.some((o) => o.recommended))
+
+  /** 一键采用所有推荐项并提交（仅当每问都有推荐项时可用） */
+  function applyAllRecommendations(): void {
+    clearAutoAdvance()
+    const next: Record<number, PerQuestionState> = {}
+    questions.forEach((q, idx) => {
+      const cur = perQ[idx] ?? { selected: [], otherText: '', notes: '' }
+      const rec = q.options.find((o) => o.recommended)
+      next[idx] = rec ? { ...cur, selected: [rec.label], otherText: '' } : cur
+    })
+    setPerQ(next)
+    void submitWith(next)
+  }
+
   const footer = (
     <div className={styles.footer}>
       <p className={styles.countdown}>{leftSec}s</p>
       <div className={styles.footerActions}>
+        {allHaveRecommendation && (
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={() => applyAllRecommendations()}
+          >
+            全部采用推荐
+          </Button>
+        )}
         <Button variant="secondary" disabled={busy} onClick={() => void handleDecline()}>
           拒绝回答
         </Button>
@@ -208,7 +283,10 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
               <button
                 key={idx}
                 className={`${styles.tab} ${activeTab === idx ? styles.tabActive : ''} ${isQuestionValid(idx) ? styles.tabDone : ''}`}
-                onClick={() => setActiveTab(idx)}
+                onClick={() => {
+                  clearAutoAdvance()
+                  setActiveTab(idx)
+                }}
               >
                 <span className={styles.tabChip}>{tq.header}</span>
                 {isQuestionValid(idx) && <span className={styles.tabCheck}>✓</span>}
@@ -222,7 +300,7 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
           <div className={styles.question}>
             <div className={styles.qHeader}>
               <span className={styles.chip}>{q.header}</span>
-              <span className={styles.hint}>{isMulti ? '可多选' : '单选'}</span>
+              <span className={styles.hint}>{isMulti ? '可多选' : '单选 · 选后自动进入下一题'}</span>
             </div>
             <p className={styles.qText}>{q.question}</p>
             <div className={styles.options}>
@@ -240,8 +318,14 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
                       onChange={() => toggleOption(activeTab, opt.label, isMulti)}
                     />
                     <div className={styles.optBody}>
-                      <div className={styles.optLabel}>{opt.label}</div>
+                      <div className={styles.optLabel}>
+                        {opt.label}
+                        {opt.recommended && <span className={styles.recBadge}>AI 推荐</span>}
+                      </div>
                       <div className={styles.optDesc}>{opt.description}</div>
+                      {opt.recommended && opt.recommendReason && (
+                        <div className={styles.recReason}>理由：{opt.recommendReason}</div>
+                      )}
                     </div>
                   </label>
                 )
@@ -286,7 +370,10 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
             <button
               className={styles.tabNavBtn}
               disabled={activeTab === 0}
-              onClick={() => setActiveTab((p) => p - 1)}
+              onClick={() => {
+                clearAutoAdvance()
+                setActiveTab((p) => p - 1)
+              }}
             >
               ← 上一题
             </button>
@@ -294,7 +381,10 @@ export const AskUserModal: React.FC<AskUserModalProps> = ({
             <button
               className={styles.tabNavBtn}
               disabled={activeTab === questions.length - 1}
-              onClick={() => setActiveTab((p) => p + 1)}
+              onClick={() => {
+                clearAutoAdvance()
+                setActiveTab((p) => p + 1)
+              }}
             >
               下一题 →
             </button>

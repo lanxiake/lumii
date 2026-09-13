@@ -149,6 +149,10 @@ export interface AskUserQuestionContextInput {
       readonly label: string;
       readonly description: string;
       readonly preview?: string;
+      /** AI 推荐项标记（UI 高亮；每问至多一个） */
+      readonly recommended?: boolean;
+      /** 推荐理由（一句话，配合 recommended 使用） */
+      readonly recommendReason?: string;
     }[];
   }[];
   /** 可选 timeout，默认由主进程控制（常规 10 min） */

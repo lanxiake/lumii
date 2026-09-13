@@ -257,6 +257,10 @@ export interface AgentAskUserRequestEvent {
       readonly label: string
       readonly description: string
       readonly preview?: string
+      /** AI 推荐项标记（UI 高亮；每问至多一个） */
+      readonly recommended?: boolean
+      /** 推荐理由（一句话，配合 recommended 使用） */
+      readonly recommendReason?: string
     }[]
   }[]
   readonly timeoutMs: number
