@@ -78,12 +78,12 @@ export function registerChannelTools(deps: BridgeToolRegistrarDeps): void {
         mediaPath?: string
         fileName?: string
       }
-      const channel = String(p.channel ?? '').trim() as 'feishu' | 'weixin' | 'wecom'
-      if (channel !== 'feishu' && channel !== 'weixin' && channel !== 'wecom') {
+      const channel = String(p.channel ?? '').trim() as 'feishu' | 'weixin' | 'qbot' | 'wecom'
+      if (channel !== 'feishu' && channel !== 'weixin' && channel !== 'qbot' && channel !== 'wecom') {
         return jsonToolResult({
           ok: false,
           errorCode: 'PEER_NOT_FOUND',
-          message: "channel 必须是 'feishu' | 'weixin' | 'wecom'",
+          message: "channel 必须是 'feishu' | 'weixin' | 'qbot' | 'wecom'",
         })
       }
       const result = await router.send({

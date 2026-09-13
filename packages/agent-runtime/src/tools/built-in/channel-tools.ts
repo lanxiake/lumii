@@ -20,7 +20,7 @@ export const channelListToolConfig: MtBotToolConfig<typeof ChannelListParams> = 
   name: CHANNEL_LIST_TOOL_NAME,
   label: "Channel List",
   description:
-    "List connected messaging channels (feishu/weixin/wecom), their pushMode, and addressable peers. " +
+    "List connected messaging channels (feishu/weixin/qbot/wecom), their pushMode, and addressable peers. " +
     "Call this BEFORE channel_send to obtain valid peer ids. Do not guess recipient ids.",
   parameters: ChannelListParams,
   category: "channel",
@@ -46,15 +46,21 @@ const ChannelSendParams = Type.Object({
   channel: Type.Union([
     Type.Literal("feishu"),
     Type.Literal("weixin"),
+    Type.Literal("qbot"),
     Type.Literal("wecom"),
   ], { description: "Target channel id from channel_list" }),
   to: Type.String({ description: "Peer id from channel_list (required). Do not guess." }),
-  text: Type.String({ description: "Plain text to send. With mediaPath, sent as a separate leading message; may be empty." }),
+  text: Type.String({
+    description:
+      "Message body. Markdown is welcome — each channel renders it in its best form " +
+      "(Feishu rich card / WeCom·QQ markdown / WeChat mobile-friendly text). " +
+      "With mediaPath, sent as a separate leading message; may be empty.",
+  }),
   mediaPath: Type.Optional(
     Type.String({
       description:
         "Absolute local path of a file to send (image/document/audio/video). " +
-        "Feishu and WeChat only; WeCom hard-fails. Omit for text-only messages.",
+        "Feishu and WeChat only; WeCom and QQ hard-fail. Omit for text-only messages.",
     }),
   ),
   fileName: Type.Optional(
@@ -70,7 +76,9 @@ export const channelSendToolConfig: MtBotToolConfig<typeof ChannelSendParams> = 
   description:
     "Send a text and/or a local file to an explicit channel peer. Always call channel_list first. " +
     "'to' is required. Set 'mediaPath' to an absolute local path to send images/documents/audio/video. " +
+    "For reports/long content, pass the source Markdown — don't pre-flatten it to plain text. " +
     "WeChat needs a prior inbound message (cached context token). " +
+    "QQ replies are only deliverable within ~5 minutes of the peer's last message (passive window). " +
     "WeCom does not support proactive push (will hard-fail). " +
     "On failure, report errorCode/message honestly — never pretend success. " +
     "For in-turn WeChat replies in the active session, prefer the legacy `message` tool.",
