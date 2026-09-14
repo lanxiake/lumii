@@ -195,13 +195,18 @@ export const fileEditToolConfig: MtBotToolConfig<typeof FileEditInput> = {
     "Make line-based edits to a text file by replacing exact string sequences with new content. " +
     "The old_string must be unique unless replaceAll is true. " +
     "If exact match fails, retries with whitespace/indentation-tolerant matching. " +
-    "Only works within the workspace. Prefer this over `bash` sed/awk.",
+    "Works within the workspace and any project directories registered in Settings → Development. " +
+    "Prefer this over `bash` sed/awk.",
   parameters: FileEditInput,
   category: "filesystem",
   isReadOnly: false,
   needsPermission: true,
   execute: async (_toolCallId, params, context) => {
-    const filePath = resolveAgentFilePath(params.filePath, context.getCwd());
+    const filePath = resolveAgentFilePath(
+      params.filePath,
+      context.getCwd(),
+      context.getAllowedRoots?.(),
+    );
     const content = await context.readFile(filePath);
     const { oldString, newString, replaceAll = false } = params;
 

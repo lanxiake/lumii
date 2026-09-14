@@ -31,15 +31,15 @@ export const fileCopyToolConfig: MtBotToolConfig<typeof FileCopyInput> = {
   description:
     "Copy files and directories within the workspace. Directories are copied recursively. " +
     "If the destination exists, the operation will fail. Both source and destination " +
-    "must be within the workspace. Prefer this over `bash` cp/Copy-Item.",
+    "must be within the workspace or a project directory registered in Settings → Development. " +
+    "Prefer this over `bash` cp/Copy-Item.",
   parameters: FileCopyInput,
   category: "filesystem",
   isReadOnly: false,
   needsPermission: true,
   execute: async (_toolCallId, params, context) => {
-    const cwd = context.getCwd();
-    const source = resolveFsPath(params.source, cwd);
-    const destination = resolveFsPath(params.destination, cwd);
+    const source = resolveFsPath(params.source, context);
+    const destination = resolveFsPath(params.destination, context);
 
     if (await pathExists(destination)) {
       return {

@@ -20,6 +20,11 @@ export interface AgentRuntimeBridgeConfig {
   getProviderConfig?: () => import('../provider-config.js').LocalProviderConfigView
   getWindow: () => BrowserWindow | null
   getCwd: () => string
+  /**
+   * workspace 之外额外允许文件工具访问的根目录（本机注册的项目目录）。
+   * 省略或返回空数组 = 仅 workspace 单根。见 packages 侧 resolveAgentFilePath。
+   */
+  getAllowedRoots?: () => readonly string[]
   /** 自定义数据库路径（默认 ~/.lumii/data/agent-runtime.db） */
   dbPath?: string
   /** 获取已启用的技能列表（用于注入系统提示词） */

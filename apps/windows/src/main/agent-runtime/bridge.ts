@@ -757,6 +757,8 @@ export class AgentRuntimeBridge {
     this.fileMemoryHandler = new FileMemoryHandler({
       getFileRepo: () => this._fileRepo,
       getCwd: () => this.config.getCwd(),
+      // 与文件工具一致：项目目录里新建的文件同样登记，避免「写进去了但列表里没有」
+      getAllowedRoots: () => this.config.getAllowedRoots?.() ?? [],
       instanceToConversation: this.instanceToConversation,
       instanceStates: this.instanceStates,
       forwardIpcEvent: this.ipcChannel.forwardIpcEvent.bind(this.ipcChannel),
@@ -845,30 +847,42 @@ export class AgentRuntimeBridge {
     log.info(`Database opened: ${dbPath}`)
   }
 
+  /**
+   * 解析 Agent 传入的文件路径：workspace 根 + 宿主注册的项目目录（`getAllowedRoots`）。
+   * pi 内核路径统一走这里；ACP 路径（灵栖开发的 CLI 子进程）不经过。
+   */
+  private resolveAgentPath(filePath: string): string {
+    return resolveAgentFilePath(filePath, this.config.getCwd(), this.config.getAllowedRoots?.())
+  }
+
   /** initialize() 子块 2/7：构造 toolContext、注册内建工具、构造并调用 BridgeToolRegistrar。必须晚于 initializeDatabaseAndRepos（依赖 Repos 已创建） */
   private initializeToolContextAndRegistry(): void {
     const toolContext: ToolExecutionContext = {
       executeCommand: executeLocalCommand,
       readFile: (filePath, opts) =>
-        readLocalFile(resolveAgentFilePath(filePath, this.config.getCwd()), opts),
+        readLocalFile(this.resolveAgentPath(filePath), opts),
       writeFile: (filePath, content) =>
-        writeLocalFile(resolveAgentFilePath(filePath, this.config.getCwd()), content),
+        writeLocalFile(this.resolveAgentPath(filePath), content),
       glob: (pattern, opts) => {
         const cwd = this.config.getCwd();
         const resolvedCwd = opts?.cwd
-          ? resolveAgentFilePath(opts.cwd, cwd)
+          ? this.resolveAgentPath(opts.cwd)
           : cwd;
         return globLocal(pattern, { ...opts, cwd: resolvedCwd });
       },
       grep: (pattern, opts) => {
         const cwd = this.config.getCwd();
         const resolvedPath = opts?.path
-          ? resolveAgentFilePath(opts.path, cwd)
+          ? this.resolveAgentPath(opts.path)
           : cwd;
         return grepLocal(pattern, { ...opts, path: resolvedPath });
       },
       fetch: fetchLocal,
       getCwd: () => this.config.getCwd(),
+      // 本机注册的项目目录（codingDevProjects）纳入文件工具允许范围，
+      // 使主助手 / pi 兜底 Agent 无需绕道 bash 即可读改项目文件。
+      // 注意：灵栖开发的 ACP 路径走 CLI 子进程（见 coding-dev-local-runner），不经过此处。
+      getAllowedRoots: () => this.config.getAllowedRoots?.() ?? [],
       askUserQuestion: async (input) => {
         const timeoutMs = input.timeoutMs ?? 10 * 60 * 1000
         const instanceId =

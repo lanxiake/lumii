@@ -134,6 +134,10 @@ export class BridgeImageServices {
    * 逐张做格式嗅探与压缩，避免超大原图把请求体撑爆。
    * 路径经 resolveAgentFilePath 校验：参考图内容会上传到第三方生图服务商，
    * 必须挡住 ../ 穿越与工作区外的绝对路径，避免本地任意图片被外传。
+   *
+   * 注意：此处**刻意不传** `getAllowedRoots`（已注册项目）——该链路属数据外传
+   * （内容离开本机），与 file_* 的本地文件访问性质不同，边界不同步放开。
+   * 若将来要放开，需先回答「项目里的图片可否上传第三方」这一产品问题。
    */
   private async loadReferenceImages(paths: string[]): Promise<string[]> {
     const cwd = this.deps.getCwd()

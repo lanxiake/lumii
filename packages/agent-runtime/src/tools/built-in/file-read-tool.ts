@@ -253,13 +253,17 @@ export const fileReadToolConfig: MtBotToolConfig<typeof FileReadInput> = {
     `Default reads the first ${DEFAULT_READ_LIMIT} lines (max ${MAX_READ_LIMIT} per call). ` +
     "Use offset/limit (1-based line numbers) to page through large files. " +
     "Do not use this tool for image, audio, video, PDF, or Office binaries — those formats are rejected with guidance. " +
-    "Only works within the workspace.",
+    "Works within the workspace and any project directories registered in Settings → Development.",
   parameters: FileReadInput,
   category: "filesystem",
   isReadOnly: true,
   needsPermission: false,
   execute: async (_toolCallId, params, context) => {
-    const filePath = resolveAgentFilePath(params.filePath, context.getCwd());
+    const filePath = resolveAgentFilePath(
+      params.filePath,
+      context.getCwd(),
+      context.getAllowedRoots?.(),
+    );
     const instanceId = context.instanceId ?? "default";
     const state = getTrackerState(instanceId);
     capTrackerSize();

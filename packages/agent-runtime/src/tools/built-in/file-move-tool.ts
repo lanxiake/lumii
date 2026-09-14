@@ -32,15 +32,15 @@ export const fileMoveToolConfig: MtBotToolConfig<typeof FileMoveInput> = {
     "and rename them in a single operation. If the destination exists, the " +
     "operation will fail. Works across different directories and can be used " +
     "for simple renaming within the same directory. Both source and destination " +
-    "must be within the workspace. Prefer this over `bash` mv/Move-Item.",
+    "must be within the workspace or a project directory registered in Settings → Development. " +
+    "Prefer this over `bash` mv/Move-Item.",
   parameters: FileMoveInput,
   category: "filesystem",
   isReadOnly: false,
   needsPermission: true,
   execute: async (_toolCallId, params, context) => {
-    const cwd = context.getCwd();
-    const source = resolveFsPath(params.source, cwd);
-    const destination = resolveFsPath(params.destination, cwd);
+    const source = resolveFsPath(params.source, context);
+    const destination = resolveFsPath(params.destination, context);
 
     if (await pathExists(destination)) {
       return {

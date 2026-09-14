@@ -26,13 +26,13 @@ export const fileMkdirToolConfig: MtBotToolConfig<typeof FileMkdirInput> = {
     "structures for projects or ensuring required paths exist. " +
     "Writing a file with `file_write` already creates missing parent directories — " +
     "use this tool when you need an empty directory without writing a file. " +
-    "Only works within the workspace.",
+    "Works within the workspace and any project directories registered in Settings → Development.",
   parameters: FileMkdirInput,
   category: "filesystem",
   isReadOnly: false,
   needsPermission: true,
   execute: async (_toolCallId, params, context) => {
-    const dirPath = resolveFsPath(params.path, context.getCwd());
+    const dirPath = resolveFsPath(params.path, context);
     await fs.mkdir(dirPath, { recursive: true });
     return {
       content: [

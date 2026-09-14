@@ -537,6 +537,11 @@ async function initAgentRuntime(): Promise<void> {
       const appConfig = configManager?.getAppConfig()
       return appConfig?.workspaceDirectory ?? directoryManager.getDirectory('workspace')
     },
+    // 本机注册的项目目录（设置 → 开发 → 项目管理）：纳入文件工具允许范围，
+    // 使主助手 / pi 兜底 Agent 可直接读改项目文件（此前只能写脚本绕道 bash）。
+    // 只在用户显式注册后扩大边界；外部项目（isExternal）的 realPath 是 workspace 外的真实路径。
+    getAllowedRoots: () =>
+      (configManager?.getAppConfig().codingDevProjects ?? []).map((p) => p.realPath),
     // 开启自主能力的额外 Agent（除 assistant 外）——来自本机配置，缺省为空表示仅 assistant 参与心跳
     getAutonomousAgents: () => configManager?.getAppConfig().autonomousAgents ?? [],
     getSkills: async () => {

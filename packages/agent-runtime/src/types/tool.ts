@@ -93,6 +93,17 @@ export interface ToolExecutionContext {
   getCwd: () => string;
 
   /**
+   * 获取 workspace 之外额外允许访问的根目录（可选，由宿主注入）。
+   *
+   * Windows 宿主用它把用户在本机注册的项目目录（`codingDevProjects`）纳入文件工具
+   * 的允许范围，使主助手与 pi 兜底 Agent 无需绕道 bash 即可读改项目文件。
+   *
+   * 未注入或返回空数组 = 仅 workspace 单根（与历史行为一致）。
+   * 注意：ACP 路径（灵栖开发走 CLI 子进程）不经过此处，其文件访问由 CLI 自行管理。
+   */
+  getAllowedRoots?: () => readonly string[];
+
+  /**
    * 获取当前 Agent 可用的技能列表（由宿主 bridge 注入）
    * 未注入时 skill_* 工具降级为"无技能可用"
    */

@@ -16,9 +16,10 @@ function textOf(result: { content: Array<{ type: string; text?: string }> }): st
   return result.content.map((part) => part.text ?? "").join("\n");
 }
 
-function mockContext(cwd: string): ToolExecutionContext {
+function mockContext(cwd: string, allowedRoots?: readonly string[]): ToolExecutionContext {
   return {
     getCwd: () => cwd,
+    ...(allowedRoots ? { getAllowedRoots: () => allowedRoots } : {}),
     executeCommand: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
     readFile: async () => "",
     writeFile: async () => {},
@@ -55,7 +56,7 @@ describe("workspace 文件结构工具", () => {
 
     it("拒绝越出工作空间的路径", async () => {
       await expect(listDirToolConfig.execute("t1", { path: ".." }, ctx)).rejects.toThrow(
-        /不在工作空间内/,
+        /不在允许范围内/,
       );
     });
   });
@@ -116,5 +117,52 @@ describe("workspace 文件结构工具", () => {
       );
       expect(textOf(conflict)).toMatch(/exists/i);
     });
+  });
+});
+
+describe("已注册项目目录（getAllowedRoots）", () => {
+  let workspace: string;
+  let project: string;
+
+  beforeEach(() => {
+    workspace = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-ws-"));
+    project = fs.mkdtempSync(path.join(os.tmpdir(), "lumii-proj-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(workspace, { recursive: true, force: true });
+    fs.rmSync(project, { recursive: true, force: true });
+  });
+
+  it("list_dir 可列出项目目录内容（绝对路径在 extraRoots 内）", async () => {
+    fs.writeFileSync(path.join(project, "index.ts"), "export {}");
+    const result = await listDirToolConfig.execute(
+      "t1",
+      { path: project },
+      mockContext(workspace, [project]),
+    );
+    expect(textOf(result)).toContain("[FILE] index.ts");
+  });
+
+  it("file_mkdir 可在项目目录内创建子目录", async () => {
+    const target = path.join(project, "src", "nested");
+    await fileMkdirToolConfig.execute("t1", { path: target }, mockContext(workspace, [project]));
+    expect(fs.statSync(target).isDirectory()).toBe(true);
+  });
+
+  it("file_copy 可从 workspace 复制到项目目录", async () => {
+    fs.writeFileSync(path.join(workspace, "a.txt"), "payload");
+    await fileCopyToolConfig.execute(
+      "t1",
+      { source: path.join(workspace, "a.txt"), destination: path.join(project, "b.txt") },
+      mockContext(workspace, [project]),
+    );
+    expect(fs.readFileSync(path.join(project, "b.txt"), "utf-8")).toBe("payload");
+  });
+
+  it("未注入 getAllowedRoots 时项目目录仍被拒（向后兼容）", async () => {
+    await expect(
+      listDirToolConfig.execute("t1", { path: project }, mockContext(workspace)),
+    ).rejects.toThrow(/不在允许范围内/);
   });
 });

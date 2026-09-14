@@ -25,6 +25,8 @@ export interface FileMemoryHandlerDeps {
   getFileRepo: () => FileRepo | null
   /** 获取 Agent workspace 根目录 */
   getCwd: () => string
+  /** workspace 之外额外允许的根目录（本机注册的项目），与文件工具保持一致；缺省 = 单根 */
+  getAllowedRoots?: () => readonly string[]
   /** instanceId → conversationId 映射 */
   instanceToConversation: Map<string, string>
   /** Per-instance 聚合状态存储（提供 ctx / streamingAssistantMsgId） */
@@ -114,7 +116,7 @@ export class FileMemoryHandler {
     // 相对路径（如 outputs/foo.pdf）必须相对 agent cwd，而非 Electron process.cwd()
     let resolvedAbs: string
     try {
-      resolvedAbs = resolveAgentFilePath(absPath, cwd)
+      resolvedAbs = resolveAgentFilePath(absPath, cwd, this.deps.getAllowedRoots?.())
     } catch (err) {
       log.warn(
         `[file:created] 路径无效或超出 workspace，拒绝注册: path=${absPath} cwd=${cwd}`,

@@ -129,13 +129,18 @@ export const fileWriteToolConfig: MtBotToolConfig<typeof FileWriteInput> = {
     "Missing parent directories are created automatically. " +
     "Supports overwrite (default), append (mode='append'), or line-range replace " +
     "(mode='range' with startLine/endLine, 1-based inclusive). " +
-    "Only works within the workspace. Prefer this over `bash` echo/redirection.",
+    "Works within the workspace and any project directories registered in Settings → Development. " +
+    "Prefer this over `bash` echo/redirection.",
   parameters: FileWriteInput,
   category: "filesystem",
   isReadOnly: false,
   needsPermission: true,
   execute: async (_toolCallId, params, context) => {
-    const filePath = resolveAgentFilePath(params.filePath, context.getCwd());
+    const filePath = resolveAgentFilePath(
+      params.filePath,
+      context.getCwd(),
+      context.getAllowedRoots?.(),
+    );
     const { content, mode, startLine, endLine } = params;
     const effectiveMode = mode ?? (startLine !== undefined ? "range" : "overwrite");
 
