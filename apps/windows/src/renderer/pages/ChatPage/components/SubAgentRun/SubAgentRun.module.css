@@ -1,0 +1,141 @@
+/* SubAgentRunBlock — 被委派子 Agent 的运行块
+   与父气泡明确区分：左侧色条 + 嵌套描边，一眼看出「这段属于另一位专家」 */
+
+.run {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--spacing-1, 4px);
+  margin-bottom: var(--spacing-1, 4px);
+  border: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.06));
+  border-left: 3px solid var(--color-primary-400, #818cf8);
+  border-radius: var(--mt-radius-lg, 8px);
+  background: color-mix(in srgb, var(--mt-surface-2) 45%, transparent);
+  overflow: hidden;
+}
+
+/* 嵌在委托卡片内：去掉外描边与背景，只留左侧色条，避免「卡中卡」 */
+.run--embedded {
+  border: none;
+  border-left: 2px solid color-mix(in srgb, var(--color-primary-400, #818cf8) 45%, transparent);
+  border-radius: 0;
+  background: transparent;
+  margin-top: 0;
+}
+
+.run--streaming {
+  border-left-color: var(--color-primary-400, #818cf8);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 10px;
+  min-height: 30px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  user-select: none;
+  transition: background var(--mt-dur-normal) var(--mt-ease-standard);
+}
+
+.header:hover {
+  background: color-mix(in srgb, var(--mt-accent-500) 8%, transparent);
+}
+
+.header--expanded {
+  border-bottom: 1px solid var(--mt-border-hairline, rgba(255, 255, 255, 0.06));
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--color-primary-400, #818cf8);
+  transition: transform var(--mt-dur-normal) var(--mt-ease-spring);
+}
+
+.chevron--open {
+  transform: rotate(90deg);
+}
+
+/* 专家名：这是「谁在干」的唯一线索，给足对比度 */
+.name {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mt-fg-1, #e2e8f0);
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-family: var(--mt-font-mono, monospace);
+}
+
+.status--running {
+  color: var(--color-primary-400, #818cf8);
+  background: color-mix(in srgb, var(--color-primary-400, #818cf8) 14%, transparent);
+}
+
+.status--done {
+  color: var(--mt-fg-3, #94a3b8);
+  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
+}
+
+.spinner {
+  animation: subAgentSpin 0.8s linear infinite;
+}
+
+@keyframes subAgentSpin {
+  to { transform: rotate(360deg); }
+}
+
+.meta {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--mt-fg-4, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 右侧展开/收起提示：与 ActivityFold 的交互语义保持一致 */
+.hint {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--mt-fg-3, #94a3b8);
+  background: color-mix(in srgb, var(--mt-accent-500) 10%, transparent);
+  transition: color var(--mt-dur-fast) var(--mt-ease-standard),
+              background var(--mt-dur-fast) var(--mt-ease-standard);
+}
+
+.header:hover .hint {
+  color: var(--color-primary-400, #818cf8);
+  background: color-mix(in srgb, var(--color-primary-400, #818cf8) 16%, transparent);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+}
+
+/* 嵌在卡片里时不再叠加缩进，避免层层内缩 */
+.run--embedded .body {
+  padding: 6px 4px 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+  .chevron { transition: none; }
+}

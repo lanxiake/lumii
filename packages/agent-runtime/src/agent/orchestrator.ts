@@ -60,6 +60,15 @@ export type SpawnAgentResult =
       readonly status: "ok";
       readonly mode: "sync";
       readonly instanceId: string;
+      /**
+       * 规范化后的子 Agent 定义 id 与显示名（取自 resolveDefinition 的结果）。
+       *
+       * 回传给宿主的原因：父 Agent 传入的 `agentType` 可能是不规范写法（`default`）甚至是
+       * 模型自造的字符串（`worker`），而显示名只有定义侧才权威（用户自建 Agent 不在内置表里）。
+       * 渲染层据此渲染委托卡片，不再靠硬编码表猜（见 docs/plans/专项Agent/08-委托可见性.md）。
+       */
+      readonly agentDefinitionId: string;
+      readonly agentName: string;
       readonly output: string;
       /** 当子 Agent 为 builtin:verify 时，解析出的结构化验证结论（主题5 P0-1） */
       readonly verdict?: Verdict;
@@ -68,6 +77,9 @@ export type SpawnAgentResult =
       readonly status: "ok";
       readonly mode: "async";
       readonly instanceId: string;
+      /** 同 sync 分支：规范化定义 id 与权威显示名 */
+      readonly agentDefinitionId: string;
+      readonly agentName: string;
       readonly message: string;
     }
   | { readonly status: "error"; readonly message: string };
@@ -516,12 +528,21 @@ export class AgentOrchestrator {
           status: "ok",
           mode: "sync",
           instanceId: childInstanceId,
+          agentDefinitionId: agentDef.id,
+          agentName: agentDef.name,
           output: `${banner}\n\n${guardedOutput}`,
           verdict,
         };
       }
 
-      return { status: "ok", mode: "sync", instanceId: childInstanceId, output: guardedOutput };
+      return {
+        status: "ok",
+        mode: "sync",
+        instanceId: childInstanceId,
+        agentDefinitionId: agentDef.id,
+        agentName: agentDef.name,
+        output: guardedOutput,
+      };
     }
 
     // async：后台跑完后入完成队列，由 bridge 投递（destroy 亦由投递成功后执行）
@@ -565,6 +586,8 @@ export class AgentOrchestrator {
       status: "ok",
       mode: "async",
       instanceId: childInstanceId,
+      agentDefinitionId: agentDef.id,
+      agentName: agentDef.name,
       message: `Sub-agent "${params.name}" is running in the background.`,
     };
   }

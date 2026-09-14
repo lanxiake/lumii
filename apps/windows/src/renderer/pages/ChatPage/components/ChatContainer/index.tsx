@@ -9,7 +9,7 @@ import { TodoPanel } from '../TodoPanel'
 import { useStableMapById } from '../../../../utils/useStableMapById'
 import type { ChatSession, ChatMessage as ChatMessageType, AgentWorkflowItem, ToolCall } from '../../../../hooks/business/useChat'
 import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
-import { mergeAssistantParts, mergeFileChanges } from './mergeAssistantParts'
+import { groupSubAgentRuns, type SubAgentRun } from './sub-agent-runs'
 import type { RuntimeFileEvent, RuntimeCompactionEvent } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import { isCompactSummaryText, unwrapCompactSummaryText } from '../../../../../shared/compact-summary-text'
 import styles from './ChatContainer.module.css'
@@ -127,6 +127,8 @@ interface ChatMessageRowProps {
   fileAttachments?: readonly RuntimeFileEvent[]
   replayMessageId?: string | null
   workflowToolItems: readonly AgentWorkflowItem[]
+  /** 挂在本条消息下的子 Agent 运行（按 instanceId 归组，见 sub-agent-runs.ts） */
+  subAgentRuns?: readonly SubAgentRun[]
 }
 
 /**
@@ -145,6 +147,7 @@ const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
   fileAttachments,
   replayMessageId,
   workflowToolItems,
+  subAgentRuns,
 }) => {
   const message: ChatMessageType = useMemo(() => ({
     id: item.id,
@@ -207,6 +210,7 @@ const ChatMessageRow: React.FC<ChatMessageRowProps> = ({
       noEnter={noEnterMessages}
       fileAttachments={fileAttachments}
       replayMessageId={replayMessageId}
+      subAgentRuns={subAgentRuns}
     />
   )
 }
@@ -454,43 +458,28 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
     return cards
   }, [compactionEvents, messages])
 
-  const chatItems: ChatItem[] = useMemo(() => {
-    const sorted: ChatItem[] = [...messages, ...compactionItems]
+  /**
+   * 时间线单元 + 子 Agent 运行归属。
+   *
+   * 子消息**不再把 parts 拼接进父消息**（见 components/ChatContainer/sub-agent-runs.ts）：
+   * 那会污染父气泡的「执行过程」，且父 isStreaming=true 会让其中每个思考块同时显活。
+   * 现在子轨迹按 instanceId 归组，交给 ChatMessage 渲染进对应的委托卡片；
+   * 找不到父的子消息保留为独立单元，内容不丢。
+   */
+  const { chatItems, subAgentRunsByParent } = useMemo(() => {
+    const flowMessages = messages.filter((msg) => !extractCompactSummaryFromMessage(msg))
+    const { runsByParent, attachedMessageIds } = groupSubAgentRuns(flowMessages)
+
+    const sorted: ChatItem[] = [...flowMessages, ...compactionItems]
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
 
-    const result: ChatItem[] = []
+    const items: ChatItem[] = []
     for (const item of sorted) {
-      if ((item as MessageItem).itemType === 'message' && extractCompactSummaryFromMessage(item as MessageItem)) {
-        continue
-      }
-      const msgItem = item as MessageItem
-      const srcAgent = msgItem.sourceAgent
-
-      if (srcAgent?.instanceId && msgItem.itemType === 'message') {
-        // 找前一条主 Agent 消息（无 sourceAgent 的 assistant 消息）
-        let parentIdx = -1
-        for (let i = result.length - 1; i >= 0; i--) {
-          const prev = result[i] as MessageItem
-          if (prev.itemType === 'message' && prev.role === 'assistant' && !prev.sourceAgent) {
-            parentIdx = i
-            break
-          }
-        }
-        if (parentIdx >= 0) {
-          const parent = result[parentIdx] as MessageItem
-          result[parentIdx] = {
-            ...parent,
-            parts: mergeAssistantParts(parent.parts, msgItem.parts),
-            fileChanges: mergeFileChanges(parent.fileChanges, msgItem.fileChanges),
-            isStreaming: msgItem.isStreaming ? true : parent.isStreaming,
-          }
-        }
-        continue
-      }
-
-      result.push(item)
+      if (item.itemType === 'message' && attachedMessageIds.has(item.id)) continue
+      items.push(item)
     }
-    return result
+
+    return { chatItems: items, subAgentRunsByParent: runsByParent }
   }, [messages, compactionItems])
 
   // Check if we need to show typing indicator (sending state OR streaming with last message from user)
@@ -574,6 +563,7 @@ const ChatContainer: React.FC<ChatContainerProps> = ({
               fileAttachments={fileAttachments}
               replayMessageId={replayMessageId}
               workflowToolItems={workflowToolItems}
+              subAgentRuns={subAgentRunsByParent.get(item.id)}
             />
           )
         })}

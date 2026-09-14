@@ -268,3 +268,10 @@ export {
   BUILTIN_AGENT_ID_PREFIX,
   isBuiltInSubAgentId,
 } from "../agent/builtin/definitions.js";
+// 显示名表：零依赖纯常量，渲染进程经 `browser` 入口消费（委托卡片解析专家名）
+export {
+  BUILTIN_AGENT_DISPLAY_NAMES,
+  BUILTIN_AGENT_ID_ALIASES,
+  normalizeAgentTypeId,
+  resolveBuiltinDisplayName,
+} from "../agent/builtin/agent-display-names.js";

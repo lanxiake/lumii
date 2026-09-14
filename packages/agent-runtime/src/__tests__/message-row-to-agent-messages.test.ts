@@ -122,4 +122,81 @@ describe("finalizeAllStreamingMessages", () => {
     );
     expect(textBlock?.text).toContain("第18篇");
   });
+
+  it("残留里仍停在 running 的工具 part 收尾为 interrupted（否则永久显示「执行中」）", () => {
+    const db = createMigratedTestDb();
+    seedConversation(db);
+    const repo = new ConversationRepo(db);
+
+    repo.saveMessage({
+      id: "stream-2",
+      conversationId: "conv-1",
+      role: "assistant",
+      contentJson: {
+        type: "assistant_parts",
+        parts: [
+          { type: "thinking", id: "th1", text: "想", status: "streaming" },
+          {
+            type: "tool",
+            id: "t1",
+            name: "spawn_agent",
+            args: { name: "24shi-b12-fix" },
+            status: "running",
+          } as never,
+          {
+            type: "tool",
+            id: "t2",
+            name: "bash",
+            args: {},
+            result: "ok",
+            isError: false,
+            status: "done",
+          } as never,
+        ],
+      },
+      isStreaming: true,
+    });
+
+    repo.finalizeAllStreamingMessages();
+
+    const row = db
+      .prepare("SELECT content_json FROM messages WHERE id = ?")
+      .get("stream-2") as { content_json: string };
+    const parts = (
+      JSON.parse(row.content_json) as { parts: Array<{ id: string; status: string; result?: unknown }> }
+    ).parts;
+
+    expect(parts.find((p) => p.id === "th1")?.status).toBe("done");
+    expect(parts.find((p) => p.id === "t1")?.status).toBe("interrupted");
+    // 已完成的工具不受影响
+    expect(parts.find((p) => p.id === "t2")?.status).toBe("done");
+    // 不补 result：渲染层靠「无结果 + 消息已结束」判定中断
+    expect(parts.find((p) => p.id === "t1")).not.toHaveProperty("result");
+  });
+
+  it("无 running 工具时不重写 content_json（不做无谓写入）", () => {
+    const db = createMigratedTestDb();
+    seedConversation(db);
+    const repo = new ConversationRepo(db);
+
+    const original = JSON.stringify({
+      type: "assistant_parts",
+      parts: [{ type: "text", id: "tx1", text: "半句", status: "streaming" }],
+    });
+    repo.saveMessage({
+      id: "stream-3",
+      conversationId: "conv-1",
+      role: "assistant",
+      contentJson: JSON.parse(original),
+      isStreaming: true,
+    });
+
+    repo.finalizeAllStreamingMessages();
+
+    const row = db
+      .prepare("SELECT content_json FROM messages WHERE id = ?")
+      .get("stream-3") as { content_json: string };
+    // thinking/text 的收尾由渲染层做；这里只负责工具 part，故内容保持原样
+    expect(row.content_json).toBe(original);
+  });
 });

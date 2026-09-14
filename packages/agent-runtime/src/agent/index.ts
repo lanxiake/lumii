@@ -17,6 +17,12 @@ export {
   isBuiltInSubAgentId,
 } from "./builtin/definitions.js";
 export {
+  BUILTIN_AGENT_DISPLAY_NAMES,
+  BUILTIN_AGENT_ID_ALIASES,
+  normalizeAgentTypeId,
+  resolveBuiltinDisplayName,
+} from "./builtin/agent-display-names.js";
+export {
   HookExecutor,
   type HookContext,
   type HookResult,

@@ -134,6 +134,10 @@ function createStreamingAssistantPartsContent(
 /**
  * 将流式中的 assistant 消息落库为已完成状态，保留已有文本与工具调用记录。
  * 用于 agent:error / 自愈重试等场景，避免删除导致「继续」时历史丢失。
+ *
+ * `interrupted`（默认 true）：这些场景里工具不会再有 tool_end，把仍停在 `running` 的
+ * 工具 part 收尾为 `interrupted`，否则它们会永久显示「执行中」
+ * （见 docs/plans/专项Agent/08-委托可见性.md §5）。
  */
 function finalizeStreamingAssistantMessage(params: {
   conversationRepo: ConversationRepo
@@ -143,9 +147,11 @@ function finalizeStreamingAssistantMessage(params: {
   usage?: { inputTokens: number; outputTokens: number; cacheRead?: number; cacheWrite?: number }
   sourceAgent?: { instanceId: string; label: string }
   logTag: string
+  interrupted?: boolean
 }): boolean {
   const { conversationRepo, messageId, conversationId, parts, usage, sourceAgent, logTag } = params
-  const contentJson = createAssistantPartsContent(parts, { usage, sourceAgent })
+  const finalizedParts = finalizeAssistantParts(parts, { interrupted: params.interrupted !== false })
+  const contentJson = createAssistantPartsContent(finalizedParts, { usage, sourceAgent })
   const hasContent = contentJson.parts.some(
     (part) => part.type === 'tool' || part.text.trim().length > 0,
   )

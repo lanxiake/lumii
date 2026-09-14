@@ -13,6 +13,7 @@ import type {
   AssistantPartsContent,
   ToolAssistantPart,
 } from "./assistant-parts.js";
+import { finalizeAssistantParts } from "./assistant-parts.js";
 import {
   parseMessageContentJson,
   type ToolCallRecord,
@@ -142,6 +143,27 @@ function isEmptyAssistantContent(contentJson: string | null): boolean {
   } catch {
     // 解析失败按有内容处理，保守保留
     return false;
+  }
+}
+
+/**
+ * 把残留消息里仍停在 `running` 的工具 part 收尾为 `interrupted`。
+ *
+ * 进程被杀 / 回合被中止后，工具不会再有 `tool_end`；只把 `is_streaming` 置 0 的话，
+ * 这些 part 会永久显示「执行中」（见 docs/plans/专项Agent/08-委托可见性.md §5）。
+ * 返回新的 content_json；无需变更或解析失败时返回 null。
+ */
+function finalizeInterruptedToolParts(contentJson: string): string | null {
+  try {
+    const parsed = JSON.parse(contentJson) as { type?: string; parts?: AssistantPart[] };
+    if (parsed?.type !== "assistant_parts" || !Array.isArray(parsed.parts)) return null;
+    if (!parsed.parts.some((part) => part?.type === "tool" && part.status === "running")) return null;
+    return JSON.stringify({
+      ...parsed,
+      parts: finalizeAssistantParts(parsed.parts, { interrupted: true }),
+    });
+  } catch {
+    return null;
   }
 }
 
@@ -392,6 +414,13 @@ export class ConversationRepo {
 
     if (rows.length === 0) return 0;
 
+    // 顺带把残留里仍停在 running 的工具 part 收尾为 interrupted。
+    // 进程被杀后工具不会再有 tool_end，只把 is_streaming 置 0 的话，
+    // 这些 part 会永久显示「执行中」（见 docs/plans/专项Agent/08-委托可见性.md §5）。
+    const contentUpdates = rows
+      .map((row) => ({ id: row.id, contentJson: finalizeInterruptedToolParts(row.content_json) }))
+      .filter((u): u is { id: string; contentJson: string } => u.contentJson !== null);
+
     const now = new Date().toISOString();
     withTransaction(this.db, () => {
       for (const row of rows) {
@@ -404,12 +433,20 @@ export class ConversationRepo {
           .prepare("UPDATE conversations SET last_msg_at = ? WHERE id = ?")
           .run(now, row.conversation_id);
       }
+      for (const update of contentUpdates) {
+        this.db
+          .prepare("UPDATE messages SET content_json = ? WHERE id = ?")
+          .run(update.contentJson, update.id);
+      }
     });
     for (const row of rows) {
       this.conversationCache.delete(row.conversation_id);
       this.messageCache.deleteWhere((k) => k.startsWith(`${row.conversation_id}|`));
     }
-    console.log(`[finalizeAllStreamingMessages] 已将 ${rows.length} 条消息标记为已完成`)
+    console.log(
+      `[finalizeAllStreamingMessages] 已将 ${rows.length} 条消息标记为已完成` +
+        `（其中 ${contentUpdates.length} 条收尾了未完成的工具调用）`,
+    )
     return rows.length;
   }
 

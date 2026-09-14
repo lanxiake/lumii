@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest'
-import { render, fireEvent } from '@testing-library/react'
+import { render, fireEvent, within } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { ChatMessage } from '../../renderer/pages/ChatPage/components/ChatMessage'
 import {
@@ -13,6 +13,7 @@ import {
 } from '../../renderer/pages/ChatPage/contexts/ChatMessageActionsContext'
 import type { ChatMessage as ChatMessageType } from '../../renderer/hooks/business/useChat'
 import type { AssistantPart } from '@mtbot/agent-runtime/browser'
+import type { SubAgentRun } from '../../renderer/pages/ChatPage/components/ChatContainer/sub-agent-runs'
 
 const noop = vi.fn()
 
@@ -30,7 +31,7 @@ const messageActions: ChatMessageActions = {
 }
 
 /** 构造带 4 段 parts 的助手消息（thinking → tool → text → text） */
-function buildPartsMessage(parts: AssistantPart[]): ChatMessageType {
+function buildPartsMessage(parts: AssistantPart[], isStreaming = false): ChatMessageType {
   return {
     id: 'msg-parts-1',
     role: 'assistant',
@@ -39,8 +40,29 @@ function buildPartsMessage(parts: AssistantPart[]): ChatMessageType {
       .map((p) => p.text)
       .join('\n\n'),
     timestamp: new Date('2026-08-08T10:00:00'),
+    isStreaming,
     parts,
   }
+}
+
+/**
+ * 渲染一条 assistant 消息（可选挂载子 Agent 运行），两个 describe 共用
+ *
+ * @param isStreaming 本条消息是否仍在流式 —— 委托卡片判「执行中 / 已中断」的必要条件
+ */
+function renderMessage(
+  parts: AssistantPart[],
+  subAgentRuns?: SubAgentRun[],
+  isStreaming = false,
+) {
+  return render(
+    <ChatMessageActionsProvider value={messageActions}>
+      <ChatMessage
+        message={buildPartsMessage(parts, isStreaming)}
+        subAgentRuns={subAgentRuns}
+      />
+    </ChatMessageActionsProvider>,
+  )
 }
 
 describe('ChatMessage parts 时间线', () => {
@@ -180,14 +202,6 @@ describe('ChatMessage 团队委托卡片（spawn_agent）', () => {
     }
   }
 
-  function renderMessage(parts: AssistantPart[]) {
-    return render(
-      <ChatMessageActionsProvider value={messageActions}>
-        <ChatMessage message={buildPartsMessage(parts)} />
-      </ChatMessageActionsProvider>,
-    )
-  }
-
   it('委托卡片露在折叠区外：专家名 / 任务 / 产出摘要可见，不被工具批次吞掉', () => {
     const parts: AssistantPart[] = [
       { type: 'thinking', id: 'th-1', text: 'MARKER_SPAWN_THINK', status: 'done' },
@@ -214,10 +228,40 @@ describe('ChatMessage 团队委托卡片（spawn_agent）', () => {
     const parts: AssistantPart[] = [
       spawnPart({ status: 'running', result: undefined }),
     ]
-    const { container } = renderMessage(parts)
+    // 真实场景里「运行中」必然伴随消息仍在流式（判据见 08-委托可见性.md §5）
+    const { container } = renderMessage(parts, undefined, true)
     const text = container.textContent ?? ''
     expect(text).toContain('执行中')
     expect(text).toContain('正在等待这位专家执行')
+  })
+
+  it('中断残留不再显示「执行中」：消息已结束 + part 停在 running → 已中断', () => {
+    // 中断/重启后 tool part 永久停在 running（finalizeAssistantParts 只收尾 thinking/text），
+    // 旧判据 `part.status === 'running' || result === undefined` 会让卡片永远显示执行中
+    const parts: AssistantPart[] = [spawnPart({ status: 'running', result: undefined })]
+    const { container } = renderMessage(parts, undefined, false)
+    const text = container.textContent ?? ''
+
+    expect(text).toContain('已中断')
+    expect(text).not.toContain('执行中')
+    expect(text).not.toContain('失败')
+    expect(text).toContain('重新委托')
+  })
+
+  it('已收尾为 interrupted 的工具行显示「已中断」，不再报「正在」', () => {
+    const parts: AssistantPart[] = [
+      { type: 'text', id: 'tx-1', text: '先跑个命令', status: 'done' },
+      { type: 'tool', id: 't-1', name: 'bash', args: { command: 'ls' }, status: 'interrupted' },
+    ]
+    const { container, getAllByRole } = renderMessage(parts)
+
+    // 展开过程折叠区 → 展开工具批次组 → 看到单个工具行
+    fireEvent.click(getAllByRole('button', { name: /执行过程/ })[0]!)
+    fireEvent.click(getAllByRole('button', { name: /展开$/ })[0]!)
+
+    const text = container.textContent ?? ''
+    expect(text).toContain('已中断')
+    expect(text).not.toContain('正在')
   })
 
   it('后台委托完成后提示会自动汇报', () => {
@@ -276,5 +320,206 @@ describe('ChatMessage 团队委托卡片（spawn_agent）', () => {
     const text = container.textContent ?? ''
     expect(text).toContain('MARKER_SPAWN_PROMPT')
     expect(text).toContain('MARKER_SPAWN_OUTPUT')
+  })
+
+  // --- 专家名解析（见 docs/plans/专项Agent/08-委托可见性.md §3） ---
+
+  it('agentType=default 显示「系统默认」，不回退模型自填的编码名', () => {
+    // 实测数据：模型传 agentType="default" + name="24shi-b12-fix"，
+    // 旧实现查表落空后会把这串编码直接当专家名显示
+    const parts: AssistantPart[] = [
+      spawnPart({
+        args: {
+          name: '24shi-b12-fix',
+          agentType: 'default',
+          mode: 'async',
+          description: '写作并构建第 12 讲 HTML',
+          prompt: 'MARKER_SPAWN_PROMPT',
+        },
+      }),
+    ]
+    const text = renderMessage(parts).container.textContent ?? ''
+
+    expect(text).toContain('系统默认')
+    expect(text).not.toContain('24shi-b12-fix')
+  })
+
+  it('builtin:* 子 Agent 显示中文名而非 id 字面量', () => {
+    const parts: AssistantPart[] = [
+      spawnPart({ args: { name: '探索代码', agentType: 'builtin:explore', mode: 'sync', prompt: 'p' } }),
+    ]
+    const text = renderMessage(parts).container.textContent ?? ''
+
+    expect(text).toContain('Explore (代码探索)')
+    expect(text).not.toContain('builtin:explore')
+  })
+
+  it('工具结果回传的权威名优先（用户自建 Agent 不在内置表里也能显示真名）', () => {
+    const parts: AssistantPart[] = [
+      spawnPart({
+        args: { name: 'user-1757000000000-abc123', agentType: 'user-1757000000000-abc123', mode: 'sync', prompt: 'p' },
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                status: 'ok',
+                instanceId: 'inst-child-9',
+                mode: 'sync',
+                agentDefinitionId: 'user-1757000000000-abc123',
+                agentName: '竞品调研助手',
+                output: '产出',
+              }),
+            },
+          ],
+        },
+      }),
+    ]
+    const text = renderMessage(parts).container.textContent ?? ''
+
+    expect(text).toContain('竞品调研助手')
+    expect(text).not.toContain('user-1757000000000-abc123')
+  })
+
+  it('历史消息（结果无 agentName）仍按内置表解析，不再显示 id', () => {
+    const parts: AssistantPart[] = [
+      spawnPart({ args: { name: '24shi-b11', agentType: 'default', mode: 'sync', prompt: 'p' } }),
+    ]
+    const text = renderMessage(parts).container.textContent ?? ''
+
+    expect(text).toContain('系统默认')
+    expect(text).not.toContain('24shi-b11')
+  })
+})
+
+/**
+ * 子 Agent 执行过程归属（docs/plans/专项Agent/08-委托可见性.md §4）
+ *
+ * 回归背景：子消息的 parts 曾被纯拼接进父气泡 —— 父的「执行过程」被子的工具污染，
+ * 且父 isStreaming=true 会让每个思考块都变 live（用户看到「两个思考中都在跑」）。
+ * 现在子轨迹按 instanceId 归组，只出现在对应委托卡片下方。
+ */
+describe('ChatMessage 子 Agent 执行过程归属', () => {
+  /** 委托卡片：结果带 instanceId（与主进程一致），用于把子运行挂到卡片下 */
+  function spawnCardPart(instanceId: string): Extract<AssistantPart, { type: 'tool' }> {
+    return {
+      type: 'tool',
+      id: 't-spawn',
+      name: 'spawn_agent',
+      args: { name: '维护官', agentType: 'system-keeper', mode: 'sync', prompt: 'MARKER_SPAWN_PROMPT' },
+      status: 'done',
+      result: {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({ status: 'ok', instanceId, mode: 'sync', output: 'MARKER_SPAWN_OUTPUT' }),
+          },
+        ],
+      },
+    }
+  }
+
+  const childThinking: AssistantPart = {
+    type: 'thinking',
+    id: 'child-th-1',
+    text: 'MARKER_CHILD_THINK',
+    status: 'done',
+  }
+  const childTool: AssistantPart = { type: 'tool', id: 'child-t-1', name: 'file_write', args: {}, status: 'done' }
+
+  function makeRun(overrides: Partial<SubAgentRun> = {}): SubAgentRun {
+    return {
+      instanceId: 'inst-child-1',
+      label: '灵栖维护',
+      isStreaming: false,
+      parts: [childThinking, childTool],
+      timestamp: new Date('2026-08-08T10:00:01'),
+      ...overrides,
+    }
+  }
+
+  /**
+   * 渲染一条含委托卡片的父消息。
+   * @param cardInstanceId 卡片结果里声明的子实例 id（默认 inst-child-1，用于认领测试）
+   */
+  function renderParentWithRuns(runs: SubAgentRun[], cardInstanceId = 'inst-child-1') {
+    const parts: AssistantPart[] = [
+      { type: 'thinking', id: 'p-th-1', text: 'MARKER_PARENT_THINK', status: 'done' },
+      { type: 'tool', id: 'p-t-1', name: 'file_read', args: {}, status: 'done' },
+      spawnCardPart(cardInstanceId),
+      { type: 'text', id: 'p-tx-1', text: 'MARKER_PARENT_FINAL', status: 'done' },
+    ]
+    return renderMessage(parts, runs)
+  }
+
+  it('父气泡的「执行过程」不含子 Agent 的工具（核心回归）', () => {
+    const { container, getAllByRole } = renderParentWithRuns([makeRun()])
+
+    // DOM 顺序上父的过程折叠先于卡片；子运行默认收起，不参与计数
+    const parentFold = getAllByRole('button', { name: /执行过程/ })[0]!
+    expect(parentFold.textContent).toContain('读取 1 个文件')
+    expect(parentFold.textContent).not.toContain('编辑')
+
+    // 子的轨迹没丢：挂在委托卡片下
+    const runBlocks = container.querySelectorAll('[data-testid="sub-agent-run"]')
+    expect(runBlocks).toHaveLength(1)
+    expect(runBlocks[0]!.textContent).toContain('灵栖维护')
+  })
+
+  it('展开卡片下的子运行块 → 看到该专家自己的执行过程', () => {
+    const { container } = renderParentWithRuns([makeRun()])
+
+    // 收起态：只露身份与计数，过程正文不渲染
+    const runBlock = container.querySelector('[data-testid="sub-agent-run"]') as HTMLElement
+    expect(runBlock.textContent).toContain('灵栖维护')
+    expect(runBlock.textContent).not.toContain('编辑')
+
+    // 点运行块自己的头部（不是委托卡片头部）
+    fireEvent.click(within(runBlock).getByRole('button'))
+
+    // 子运行内部有自己的「执行过程」，属于这位专家（子的工具不在父的摘要里）
+    const childFold = within(runBlock).getAllByRole('button', { name: /执行过程/ })[0]!
+    expect(childFold.textContent).toContain('编辑 1 个文件')
+  })
+
+  it('流式中的子运行默认展开（正文直接可见）', () => {
+    const { container, getAllByRole } = renderParentWithRuns([makeRun({ isStreaming: true })])
+
+    const runBlock = container.querySelector('[data-testid="sub-agent-run"]')!
+    expect(runBlock).toHaveAttribute('data-streaming', 'true')
+    expect(runBlock.textContent).toContain('执行中')
+    // 默认展开 → 子的执行过程正文已在 DOM 中
+    expect(within(runBlock as HTMLElement).getAllByRole('button', { name: /执行过程/ })[0]!.textContent)
+      .toContain('编辑 1 个文件')
+
+    const parentFold = getAllByRole('button', { name: /执行过程/ })[0]!
+    expect(parentFold.textContent).toContain('读取 1 个文件')
+    expect(parentFold.textContent).not.toContain('编辑')
+  })
+
+  it('认领不到卡片的子运行作为独立块渲染，内容不丢', () => {
+    const { container } = renderParentWithRuns(
+      [makeRun({ instanceId: 'inst-orphan', label: '灵栖情报' })],
+      'inst-child-unrelated',
+    )
+
+    // 卡片声明的是 inst-child-unrelated，这条 inst-orphan 无人认领
+    const runBlocks = container.querySelectorAll('[data-testid="sub-agent-run"]')
+    expect(runBlocks).toHaveLength(1)
+    expect(runBlocks[0]).toHaveAttribute('data-instance-id', 'inst-orphan')
+    expect(runBlocks[0]!.textContent).toContain('灵栖情报')
+  })
+
+  it('多个实例各自成块，不互相吞并', () => {
+    const runs = [
+      makeRun({ instanceId: 'inst-child-1', label: '灵栖维护' }),
+      makeRun({ instanceId: 'inst-child-2', label: '灵栖情报' }),
+    ]
+    const { container } = renderParentWithRuns(runs)
+
+    const ids = [...container.querySelectorAll('[data-testid="sub-agent-run"]')].map((el) =>
+      el.getAttribute('data-instance-id'),
+    )
+    expect(ids).toEqual(['inst-child-1', 'inst-child-2'])
   })
 })

@@ -71,6 +71,12 @@
   color: var(--mt-error, #dc2626);
 }
 
+/* 中断不是失败：用中性灰，避免用户以为出了错 */
+.status--interrupted {
+  background: color-mix(in srgb, var(--mt-fg-4, rgba(255, 255, 255, 0.45)) 18%, transparent);
+  color: var(--mt-fg-3, rgba(255, 255, 255, 0.6));
+}
+
 .toggle {
   margin-left: auto;
   color: var(--mt-fg-4, rgba(255, 255, 255, 0.45));
@@ -130,4 +136,12 @@
   word-break: break-word;
   max-height: 320px;
   overflow: auto;
+}
+
+/* 子 Agent 执行过程区：常驻卡片下方，与卡片的任务/产出详情分段 */
+.runs {
+  display: flex;
+  flex-direction: column;
+  margin-top: 2px;
+  padding-left: 2px;
 }

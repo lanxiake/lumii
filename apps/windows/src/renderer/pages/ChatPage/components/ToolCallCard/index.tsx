@@ -304,8 +304,10 @@ export function getStatusLabel(item: AgentWorkflowItem): string {
 
   const isRunning = item.status === 'running'
   const isFailed = item.status === 'failed'
+  const isInterrupted = item.status === 'interrupted'
 
-  const prefix = isRunning ? '正在' : isFailed ? '失败' : '已'
+  // 中断不是失败：用中性前缀，避免读成「失败查看 X」或「已查看 X」
+  const prefix = isRunning ? '正在' : isInterrupted ? '已中断 · ' : isFailed ? '失败' : '已'
 
   /** todo_write 含 "write"，必须在 write/create 分支之前匹配 */
   if (lname.includes('todo')) {
@@ -1162,7 +1164,7 @@ const ToolCallCard: React.FC<ToolCallCardProps> = ({ item }) => {
             <span className={styles.fileChipRange}>{chip.label}</span>
           </span>
         ))}
-        {(item.status === 'completed' || item.status === 'failed' || item.status === 'running') && (
+        {(item.status === 'completed' || item.status === 'failed' || item.status === 'running' || item.status === 'interrupted') && (
           <span className={styles.duration}>
             {formatDuration(item.startTime, item.endTime ?? liveNow, item.status !== 'running' ? item.durationMs : undefined)}
           </span>

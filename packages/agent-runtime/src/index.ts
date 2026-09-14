@@ -30,6 +30,10 @@ export {
   findBuiltInAgent,
   BUILTIN_AGENT_ID_PREFIX,
   isBuiltInSubAgentId,
+  BUILTIN_AGENT_DISPLAY_NAMES,
+  BUILTIN_AGENT_ID_ALIASES,
+  normalizeAgentTypeId,
+  resolveBuiltinDisplayName,
   mapAgentEvent,
 } from "./types/index.js";
 

@@ -13,7 +13,11 @@ export type AssistantPart =
       args: Record<string, unknown>;
       result?: unknown;
       isError?: boolean;
-      status: "running" | "done" | "error";
+      /**
+       * 工具执行状态。
+       * `interrupted` = 回合被中止/进程重启，工具不会再有 tool_end —— 终端态，不是错误。
+       */
+      status: "running" | "done" | "error" | "interrupted";
       meta?: { sourceAgent?: { instanceId: string; label: string } };
     };
 
@@ -194,14 +198,31 @@ export function applyAssistantPartEvent(
   }
 }
 
-/** idle 时把 streaming thinking/text 标为 done；running tool 保持不变 */
-export function finalizeAssistantParts(parts: readonly AssistantPart[]): AssistantPart[] {
+/**
+ * 回合收尾：把 streaming 的 thinking/text 标为 done。
+ *
+ * `options.interrupted = true` 时，**还把仍停在 `running` 的 tool part 标为 `interrupted`**。
+ * 中断/进程重启后工具不会再有 `tool_end`，不收尾就会永久显示「执行中」——
+ * 这是「同一个会话里两个执行过程似乎都在跑」的存储侧根因
+ * （见 docs/plans/专项Agent/08-委托可见性.md §5）。
+ *
+ * 刻意**不**给这些 part 补 `result` 占位：渲染层用「无结果 + 消息已结束」判定中断，
+ * 补一个假 result 反而会让它被当成正常完成。默认 `false` 保持既有语义不变。
+ */
+export function finalizeAssistantParts(
+  parts: readonly AssistantPart[],
+  options?: { interrupted?: boolean },
+): AssistantPart[] {
+  const interrupted = options?.interrupted === true;
   return parts.map((part) => {
     if (part.type === "thinking" && part.status === "streaming") {
       return { ...part, status: "done" };
     }
     if (part.type === "text" && part.status === "streaming") {
       return { ...part, status: "done" };
+    }
+    if (interrupted && part.type === "tool" && part.status === "running") {
+      return { ...part, status: "interrupted" };
     }
     return part;
   });

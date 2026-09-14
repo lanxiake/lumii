@@ -25,13 +25,15 @@ import { FilePreviewModal } from '../../../../components/FilePreviewModal/FilePr
 import { ImageLightbox } from '../../../../components/ImageLightbox'
 import { useWorkspace } from '../../../../hooks/business/useWorkspace'
 import type { ChatMessage as ChatMessageType, AgentWorkflowItem } from '../../../../hooks/business/useChat'
-import type { AssistantPart } from '@mtbot/agent-runtime/browser'
+import type { AssistantPart, FileChangeEntry } from '@mtbot/agent-runtime/browser'
 import type { RuntimeFileEvent } from '../../../../hooks/business/useAgentRuntime/agent-runtime-store'
 import { parseMediaAttachments, mergeEditedUserMessage } from '../../utils/file-attachment-strategy'
 import { TurnFileChangesCard } from '../TurnFileChangesCard'
 import { ToolBatchGroup, summarizeToolBatch } from '../ToolBatchGroup'
 import { HandoffCard } from '../HandoffCard'
-import { SpawnAgentCard } from '../SpawnAgentCard'
+import { SpawnAgentCard, parseSpawnResult } from '../SpawnAgentCard'
+import { SubAgentRunBlock } from '../SubAgentRun'
+import type { SubAgentRun } from '../ChatContainer/sub-agent-runs'
 import { getStatusLabel } from '../ToolCallCard'
 import { ActivityFold } from '../ActivityFold'
 import { useChatMessageActions } from '../../contexts/ChatMessageActionsContext'
@@ -57,6 +59,14 @@ interface ChatMessageProps {
   fileAttachments?: readonly RuntimeFileEvent[]
   /** 当前正在回放的消息 ID */
   replayMessageId?: string | null
+  /**
+   * 挂在本条消息下的子 Agent 运行（由 ChatContainer 按 instanceId 归组，见
+   * components/ChatContainer/sub-agent-runs.ts）。
+   *
+   * 这些轨迹**不再并入父消息的 parts** —— 父的「执行过程」只属于父，
+   * 子运行按 spawn 卡片的 instanceId 渲染进卡片内部，未认领的作为独立运行块兜底。
+   */
+  subAgentRuns?: readonly SubAgentRun[]
 }
 
 // ---------------------------------------------------------------
@@ -306,10 +316,16 @@ const ThinkingBlock: React.FC<ThinkingBlockProps> = ({ thinkingText, isStreaming
   )
 }
 
+/** 时间线渲染上下文：父回合与子运行共用（子运行没有 runId / streamMetrics） */
+interface TimelineContext {
+  timestamp: Date
+  runId?: string
+}
+
 /** 将 tool part 映射为 ToolCallCard 所需的 AgentWorkflowItem */
 function toWorkflowItem(
   part: Extract<AssistantPart, { type: 'tool' }>,
-  message: ChatMessageType,
+  context: TimelineContext,
 ): AgentWorkflowItem {
   return {
     id: part.id,
@@ -317,18 +333,31 @@ function toWorkflowItem(
     name: part.name,
     status: part.status === 'running'
       ? 'running'
-      : part.status === 'error'
-        ? 'failed'
-        : 'completed',
+      : part.status === 'interrupted'
+        ? 'interrupted'
+        : part.status === 'error'
+          ? 'failed'
+          : 'completed',
     title: part.name,
     input: part.args,
     output: part.result,
     error: part.isError ? String(part.result ?? '工具执行失败') : undefined,
-    startTime: message.timestamp,
-    runId: message.runId ?? '',
+    startTime: context.timestamp,
+    runId: context.runId ?? '',
     toolCallId: part.id,
     agentLabel: part.meta?.sourceAgent?.label,
   }
+}
+
+/**
+ * 从 spawn 工具 part 读出子实例 id —— 用于把子 Agent 运行挂到对应的委托卡片下。
+ * 同步执行中结果尚未返回时读不到，此时子运行走「独立运行块」兜底渲染。
+ */
+function readSpawnInstanceId(
+  part: Extract<AssistantPart, { type: 'tool' }>,
+): string | undefined {
+  const instanceId = parseSpawnResult(part.result)?.instanceId
+  return typeof instanceId === 'string' && instanceId ? instanceId : undefined
 }
 
 /** 时间线渲染单元：思考 / 文本 / 工具批次组 / 转交卡片 / 团队委托卡片 */
@@ -346,7 +375,7 @@ type RenderUnit =
  * 3. propose_dev_handoff 单独成卡（F2）：按钮必须露在折叠区外，不能进工具批次组
  * 4. spawn_agent 单独成卡（G3）：委托对象 / 状态 / 结果必须露在折叠区外
  */
-function buildRenderUnits(parts: readonly AssistantPart[], message: ChatMessageType): RenderUnit[] {
+function buildRenderUnits(parts: readonly AssistantPart[], context: TimelineContext): RenderUnit[] {
   const meaningful = parts.filter((p) => p.type !== 'text' || p.text.trim().length > 0)
 
   const units: RenderUnit[] = []
@@ -356,7 +385,7 @@ function buildRenderUnits(parts: readonly AssistantPart[], message: ChatMessageT
     if (pending.length === 0) return
     units.push({
       kind: 'toolGroup',
-      items: pending.map((t) => toWorkflowItem(t, message)),
+      items: pending.map((t) => toWorkflowItem(t, context)),
       key: `grp-${pending[0]!.id}`,
     })
     pending = []
@@ -442,6 +471,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   noEnter = false,
   fileAttachments,
   replayMessageId,
+  subAgentRuns,
 }) => {
   // 复制/编辑/删除/重新生成/回放/文件变更定位等消息级动作由 Context 提供，
   // 不再逐层 props 穿透（见 ChatMessageActionsContext 的稳定性契约）
@@ -619,23 +649,28 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   }
 
   /**
-   * 子 Agent 消息外层套嵌套边框与标题
-   * 流式中展开，完成后折叠，避免多条子 Agent 消息堆叠导致界面混乱
+   * 子 Agent 消息**作为独立时间线单元**渲染时的外层运行块。
+   *
+   * 只在没有父消息可挂时走到这里（已被父消息归组吸收的子消息在 ChatContainer 就被摘走了，
+   * 由 SpawnAgentCard 内嵌渲染）。运行块给出身份（专家名）+ 状态 + 工具计数，
+   * 让「谁在干、干到哪」一眼可见，而不是把子的过程糊进父气泡。
    */
   const wrapSubAgent = (node: React.ReactNode) => {
     if (!message.sourceAgent) return node
-    const toolCount = message.parts
-      ? message.parts.filter((part) => part.type === 'tool').length
-      : (toolItems?.length ?? 0)
-    const label = message.sourceAgent.label ?? '子 Agent'
-    const summaryText = message.isStreaming
-      ? `${label} · 执行中${toolCount > 0 ? `（${toolCount} 工具）` : '...'}`
-      : `${label} · 已完成${toolCount > 0 ? `（${toolCount} 个工具调用）` : ''}`
+    const run: SubAgentRun = {
+      instanceId: message.sourceAgent.instanceId,
+      label: message.sourceAgent.label ?? '子 Agent',
+      isStreaming: !!message.isStreaming,
+      parts: message.parts ?? [],
+      ...(message.fileChanges && message.fileChanges.length > 0
+        ? { fileChanges: message.fileChanges }
+        : {}),
+      timestamp: message.timestamp,
+    }
     return (
-      <details className={styles['sub-agent-wrap']} open={!!message.isStreaming}>
-        <summary className={styles['sub-agent-label']}>{summaryText}</summary>
+      <SubAgentRunBlock run={run}>
         <div className={styles['sub-agent-inner']}>{node}</div>
-      </details>
+      </SubAgentRunBlock>
     )
   }
 
@@ -652,7 +687,12 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
    * inFold=true 时为「执行过程」内的中间单元，文本用低调的说明样式，
    * 与折叠块外的最终答案（玻璃气泡）区分开。
    */
-  const renderUnit = (unit: RenderUnit, inFold: boolean) => {
+  const renderUnit = (
+    unit: RenderUnit,
+    inFold: boolean,
+    runs: readonly SubAgentRun[] = [],
+    isStreaming = false,
+  ) => {
     if (unit.kind === 'thinking') {
       return (
         <ThinkingBlock
@@ -685,9 +725,23 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
       )
     }
     if (unit.kind === 'spawn') {
+      // 按 spawn 结果里的 instanceId 把子运行挂到这张卡片下（见 08-委托可见性.md §4）
+      const instanceId = readSpawnInstanceId(unit.part)
+      const claimed = instanceId ? runs.filter((r) => r.instanceId === instanceId) : []
       return (
         <div key={unit.part.id} className={styles['part-block']}>
-          <SpawnAgentCard part={unit.part} />
+          <SpawnAgentCard
+            part={unit.part}
+            messageStreaming={isStreaming}
+            runs={claimed.length > 0 ? claimed : undefined}
+            renderRunBody={(run) =>
+              renderTimeline(run.parts, {
+                timestamp: run.timestamp,
+                isStreaming: run.isStreaming,
+                ...(run.fileChanges ? { fileChanges: run.fileChanges } : {}),
+              })
+            }
+          />
         </div>
       )
     }
@@ -699,20 +753,42 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   }
 
   /**
-   * 按 parts 时间线渲染助手气泡（Cursor 式）：
+   * 按 parts 时间线渲染一段回复（Cursor 式）：父回合与子运行共用。
    * 中间过程（思考 + 工具 + 中间文本）折叠进 ActivityFold，最终答案露在外面。
    * 转交卡片（handoff）是用户必须可点的动作、委托卡片（spawn）是「团队在干什么」的
    * 主要线索，二者永远拣出折叠区之外渲染——否则后续的 thinking 会把卡片划进「过程区」
    * 而被折叠隐藏。
    */
-  const renderPartsTimeline = () => {
-    const units = buildRenderUnits(message.parts ?? [], message)
+  const renderTimeline = (
+    parts: readonly AssistantPart[],
+    context: {
+      timestamp: Date
+      runId?: string
+      isStreaming: boolean
+      durationMs?: number
+      fileChanges?: readonly FileChangeEntry[]
+      /** 本条时间线可认领的子运行（仅父回合传入；子运行内部不再嵌套） */
+      subAgentRuns?: readonly SubAgentRun[]
+    },
+  ) => {
+    const units = buildRenderUnits(parts, context)
     const { process, answer } = splitProcessAndAnswer(units)
-    const isStreaming = !!message.isStreaming
+    const isStreaming = context.isStreaming
     const isPinned = (u: RenderUnit) => u.kind === 'handoff' || u.kind === 'spawn'
     const pinnedUnits = [...process, ...answer].filter(isPinned)
     const processOnly = process.filter((u) => !isPinned(u))
     const answerOnly = answer.filter((u) => !isPinned(u))
+
+    // 子运行归属：被 spawn 卡片按 instanceId 认领的渲染进卡片内部；
+    // 其余（同步执行中尚未拿到 instanceId、或卡片缺失）作为独立运行块兜底——内容永不丢。
+    const runs = context.subAgentRuns ?? []
+    const claimedInstanceIds = new Set(
+      pinnedUnits
+        .map((u) => (u.kind === 'spawn' ? readSpawnInstanceId(u.part) : undefined))
+        .filter((id): id is string => Boolean(id)),
+    )
+    const unclaimedRuns = runs.filter((run) => !claimedInstanceIds.has(run.instanceId))
+
     return (
       <div className={styles['parts-timeline']}>
         {processOnly.length > 0 && (
@@ -720,23 +796,43 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
             summary={buildProcessSummary(processOnly)}
             currentStatus={isStreaming ? buildCurrentStatus(processOnly) : undefined}
             isStreaming={isStreaming}
-            durationMs={message.streamMetrics?.durationMs}
-            startTime={message.timestamp}
+            durationMs={context.durationMs}
+            startTime={context.timestamp}
           >
-            {processOnly.map((u) => renderUnit(u, true))}
+            {processOnly.map((u) => renderUnit(u, true, [], isStreaming))}
           </ActivityFold>
         )}
-        {pinnedUnits.map((u) => renderUnit(u, false))}
-        {answerOnly.map((u) => renderUnit(u, false))}
-        {message.fileChanges && message.fileChanges.length > 0 && (
+        {pinnedUnits.map((u) => renderUnit(u, false, runs, isStreaming))}
+        {unclaimedRuns.map((run) => (
+          <SubAgentRunBlock key={run.instanceId} run={run}>
+            {renderTimeline(run.parts, {
+              timestamp: run.timestamp,
+              isStreaming: run.isStreaming,
+              ...(run.fileChanges ? { fileChanges: run.fileChanges } : {}),
+            })}
+          </SubAgentRunBlock>
+        ))}
+        {answerOnly.map((u) => renderUnit(u, false, [], isStreaming))}
+        {context.fileChanges && context.fileChanges.length > 0 && (
           <TurnFileChangesCard
-            changes={message.fileChanges}
+            changes={context.fileChanges}
             onReview={actions.reviewFileChanges}
           />
         )}
       </div>
     )
   }
+
+  /** 父回合的时间线（渲染入口，保持既有调用点不变） */
+  const renderPartsTimeline = () =>
+    renderTimeline(message.parts ?? [], {
+      timestamp: message.timestamp,
+      runId: message.runId,
+      isStreaming: !!message.isStreaming,
+      durationMs: message.streamMetrics?.durationMs,
+      ...(message.fileChanges ? { fileChanges: message.fileChanges } : {}),
+      ...(subAgentRuns && subAgentRuns.length > 0 ? { subAgentRuns } : {}),
+    })
 
   /**
    * 无 parts 时的旧消息回退：正文 + 末尾工具卡片（Gateway 或未迁移历史）

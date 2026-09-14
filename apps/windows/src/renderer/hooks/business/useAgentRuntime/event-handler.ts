@@ -21,6 +21,7 @@ import {
   type LlmErrorDetail,
 } from '@mtbot/agent-runtime/browser'
 import { notifyDesktop } from '../../../services/app-service'
+import { resolveBackfilledAgentLabel } from './sub-agent-label'
 
 /** 仅在开发环境输出详细日志，避免生产环境噪音 */
 const debugLog = process.env.NODE_ENV === 'development'
@@ -395,10 +396,14 @@ function trimMessages(messages: readonly RuntimeMessage[]): readonly RuntimeMess
 
 /**
  * 仅收尾仍含流式 part 的助手消息，避免 idle 时重建全部历史消息引用。
+ *
+ * @param interrupted 中止/错误路径传 true：把仍停在 `running` 的工具 part 一并收尾为
+ *   `interrupted`，否则它们会永久显示「执行中」（见 08-委托可见性.md §5）
  */
 function finalizeStreamingAssistantMessages(
   messages: readonly RuntimeMessage[],
   closeMessages = false,
+  interrupted = false,
 ): readonly RuntimeMessage[] {
   let changed = false
   const next = messages.map((message) => {
@@ -406,11 +411,16 @@ function finalizeStreamingAssistantMessages(
     const hasStreamingPart = message.parts.some(
       (part) => (part.type === 'thinking' || part.type === 'text') && part.status === 'streaming',
     )
-    if (!hasStreamingPart && !(closeMessages && message.isStreaming)) return message
+    const hasRunningTool = interrupted && message.parts.some(
+      (part) => part.type === 'tool' && part.status === 'running',
+    )
+    if (!hasStreamingPart && !hasRunningTool && !(closeMessages && message.isStreaming)) return message
     changed = true
     return {
       ...message,
-      parts: hasStreamingPart ? finalizeAssistantParts(message.parts) : message.parts,
+      parts: hasStreamingPart || hasRunningTool
+        ? finalizeAssistantParts(message.parts, { interrupted })
+        : message.parts,
       ...(closeMessages ? { isStreaming: false } : {}),
     }
   })
@@ -1198,7 +1208,7 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       })
       updateSessionState(sessionKey, (prev) => ({
         ...prev,
-        messages: finalizeStreamingAssistantMessages(prev.messages, true),
+        messages: finalizeStreamingAssistantMessages(prev.messages, true, true),
         error: {
           code: event.errorCode,
           message: event.errorMessage,
@@ -1233,9 +1243,30 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
       flushPendingDeltas()
       // 中止路径：turn:end 不会到来，需在此清理映射
       unregisterRunSession(event.runId)
+      // 子 Agent 被中止不重置**会话级**流式态（与 turn:start / turn:end / idle 同一判据）：
+      // 级联中止时子事件会把父会话的 isStreaming/isThinking/activeRunId 一起清掉，
+      // 父气泡随即表现为「凭空结束」。这里只收尾该子 Agent 自己的消息 ——
+      // 它的工具不会再有 tool_end，不收尾会永久显示「执行中」。
+      if (isSubAgentStreamEvent(event)) {
+        const abortedInstanceId = event.instanceId
+        updateSessionState(sessionKey, (prev) => ({
+          ...prev,
+          messages: prev.messages.map((msg) => {
+            // 只动子 Agent 消息；缺 instanceId 时退化为「收尾全部子消息」，父气泡仍不受影响
+            if (msg.role !== 'assistant' || !msg.sourceAgent) return msg
+            if (abortedInstanceId && msg.sourceAgent.instanceId !== abortedInstanceId) return msg
+            return {
+              ...msg,
+              parts: finalizeAssistantParts(msg.parts, { interrupted: true }),
+              isStreaming: false,
+            }
+          }),
+        }))
+        break
+      }
       updateSessionState(sessionKey, (prev) => ({
         ...prev,
-        messages: finalizeStreamingAssistantMessages(prev.messages, true),
+        messages: finalizeStreamingAssistantMessages(prev.messages, true, true),
         activeRunId: null,
         isStreaming: false,
         isThinking: false,
@@ -1391,15 +1422,20 @@ export function handleRuntimeEvent(event: AgentRuntimeEvent): void {
 
     case 'agent:activity:snapshot': {
       // snapshot 到达时同步更新 activeAgents，并回填子 Agent 消息中可能遗留的占位 label
-      // （处理 agent:message:start 先于 snapshot 到达的竞态场景）
+      // （处理 agent:message:start 先于 snapshot 到达的竞态场景）。
+      // 只回填占位值，绝不覆盖定义侧的真实名——快照名可能退化成 user-… 编码 id，
+      // 见 sub-agent-label.ts 文件头。
       updateSessionState(sessionKey, (prev) => {
         const idToName = new Map(event.agents.map((a) => [a.instanceId, a.name]))
         let messagesChanged = false
         const nextMessages = prev.messages.map((msg) => {
           if (!msg.sourceAgent) return msg
-          const preferredName = idToName.get(msg.sourceAgent.instanceId)
+          const preferredName = resolveBackfilledAgentLabel(
+            msg.sourceAgent.label,
+            msg.sourceAgent.instanceId,
+            idToName.get(msg.sourceAgent.instanceId),
+          )
           if (!preferredName) return msg
-          if (msg.sourceAgent.label === preferredName) return msg
           messagesChanged = true
           return {
             ...msg,

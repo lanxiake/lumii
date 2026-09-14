@@ -245,6 +245,10 @@ export class BridgeToolRegistrar {
             status: 'ok',
             instanceId: result.instanceId,
             mode: 'sync' as const,
+            // 权威显示名回传渲染层：父 Agent 传的 agentType 可能不规范（default）或
+            // 是自造串（worker），渲染层无法自行解析（用户自建 Agent 不在内置表里）
+            agentDefinitionId: result.agentDefinitionId,
+            agentName: result.agentName,
             output: result.output,
             ...(result.verdict ? { verdict: result.verdict } : {}),
             note:
@@ -257,6 +261,8 @@ export class BridgeToolRegistrar {
           status: 'ok',
           instanceId: result.instanceId,
           mode: 'async' as const,
+          agentDefinitionId: result.agentDefinitionId,
+          agentName: result.agentName,
           message: result.message,
         })
       },

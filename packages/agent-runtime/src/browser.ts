@@ -30,6 +30,15 @@ export type {
   ToolCallRecord,
 } from "./storage/message-content-json.js";
 
+// 内置 Agent 显示名：零依赖纯常量表。渲染层委托卡片据此把 agentType 解析成专家名，
+// 与主进程共用同一份事实源（见 agent/builtin/agent-display-names.ts 文件头）
+export {
+  BUILTIN_AGENT_DISPLAY_NAMES,
+  BUILTIN_AGENT_ID_ALIASES,
+  normalizeAgentTypeId,
+  resolveBuiltinDisplayName,
+} from "./agent/builtin/agent-display-names.js";
+
 export {
   describeLlmError,
   normalizeLlmError,

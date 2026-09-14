@@ -214,7 +214,11 @@ export interface AgentWorkflowItem {
   id: string
   type: 'tool' | 'subagent'
   name: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  /**
+   * `interrupted` = 回合被中止/进程重启，工具不会再有结果 —— 终端态，既不是成功也不是失败
+   * （由 finalizeAssistantParts 收尾，见 docs/plans/专项Agent/08-委托可见性.md §5）
+   */
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'interrupted'
   /** 显示标题 */
   title: string
   /** 详细描述 */

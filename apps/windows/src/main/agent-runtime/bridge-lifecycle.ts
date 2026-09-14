@@ -492,7 +492,13 @@ export class BridgeLifecycle {
         const run = orch?.broker.getRun(inst.id)
         return {
           instanceId: inst.id,
-          name: findBuiltInAgent(inst.definitionId)?.name ?? inst.definitionId,
+          // 显示名优先取实例上下文里的权威名（创建实例时由 def.name 写入）：
+          // findBuiltInAgent 只认内置定义，用户自建 Agent 会回落成 `user-…` 编码 id，
+          // 而该值会被渲染层回填进 sourceAgent.label（见 08-委托可见性.md §3）
+          name:
+            this.deps.instanceStates.get(inst.id)?.ctx.agentName ??
+            findBuiltInAgent(inst.definitionId)?.name ??
+            inst.definitionId,
           state: inst.state,
           isSubAgent: Boolean(this.deps.agentRegistry.getParentId(inst.id)),
           ...(run

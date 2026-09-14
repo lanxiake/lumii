@@ -73,7 +73,7 @@ describe("finalizeAssistantParts", () => {
     expect(parts[2]).toMatchObject({ status: "done" });
   });
 
-  it("running tool 保持不变", () => {
+  it("默认不收尾 running tool（保持既有语义）", () => {
     const running = {
       type: "tool" as const,
       id: "t1",
@@ -102,6 +102,50 @@ describe("finalizeAssistantParts", () => {
     expect(parts[0]).toMatchObject({ status: "running" });
     expect(parts[1]).toMatchObject({ status: "done" });
     expect(parts[2]).toMatchObject({ status: "error" });
+  });
+
+  it("interrupted=true 时把 running tool 收尾为 interrupted（中断残留不再永久「执行中」）", () => {
+    const running = {
+      type: "tool" as const,
+      id: "t1",
+      name: "spawn_agent",
+      args: {},
+      status: "running" as const,
+    };
+    const done = {
+      type: "tool" as const,
+      id: "t2",
+      name: "bash",
+      args: {},
+      status: "done" as const,
+      result: "ok",
+    };
+    const error = {
+      type: "tool" as const,
+      id: "t3",
+      name: "bash",
+      args: {},
+      status: "error" as const,
+      result: "fail",
+      isError: true,
+    };
+    const streaming = { type: "text" as const, id: "tx-1", text: "半句", status: "streaming" as const };
+
+    const parts = finalizeAssistantParts([running, done, error, streaming], { interrupted: true });
+
+    expect(parts[0]).toMatchObject({ status: "interrupted" });
+    // 已收尾的工具不受影响：中断不能把成功/失败改写成中断
+    expect(parts[1]).toMatchObject({ status: "done" });
+    expect(parts[2]).toMatchObject({ status: "error" });
+    expect(parts[3]).toMatchObject({ status: "done" });
+  });
+
+  it("interrupted 收尾不补 result：渲染层靠「无结果」判定中断，假 result 会被当成正常完成", () => {
+    const parts = finalizeAssistantParts(
+      [{ type: "tool", id: "t1", name: "bash", args: {}, status: "running" }],
+      { interrupted: true },
+    );
+    expect(parts[0]).not.toHaveProperty("result");
   });
 });
 
