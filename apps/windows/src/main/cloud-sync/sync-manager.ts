@@ -771,6 +771,74 @@ export class CloudSyncManager extends EventEmitter {
     await fs.promises.writeFile(headPath, `ref: ${localRef}\n`, 'utf8')
   }
 
+  /**
+   * 落决前把「远端相对 merge base 的非冲突变更」合进 sync 工作树与 index。
+   *
+   * 为什么必须补这一步：isomorphic-git 的 merge 默认 `abortOnConflict: true`，
+   * 冲突时 index 与工作树**完全不动**。于是落决 commit 的 tree 只含本地内容 +
+   * 冲突文件的选定侧；而它的 parent 是 [localOid, remoteOid]，相对 remoteOid
+   * 而言，远端那次提交里新增/修改的其他文件就成了「被删除」—— push 后远端
+   * 一起丢，再传播回所有设备。
+   *
+   * 同理，jsonl 也要在这里补齐：工作树里仍是本地上次导出的版本，
+   * 不补的话 importData 读到的就是它，远端新增的 wiki/记忆记录会整批丢失。
+   * （补进去的是远端版本，下一次完整同步的 export 会从合并后的 DB 重新生成。）
+   *
+   * 为什么不用 `abortOnConflict: false`：那会把 index 留成未合并状态，
+   * 落决一旦超时（RESOLVE_TIMEOUT_MS）或失败，后续所有同步都会卡在
+   * `GitIndexManager.acquire({ allowUnmerged: false })` 上。
+   */
+  private async applyRemoteNonConflictingChanges(
+    p: GitParams,
+    conflictFiles: readonly string[],
+  ): Promise<void> {
+    const c = this.conflict
+    if (!c) return
+
+    const changes = await this.computeFileChanges(p, c.baseOid, c.remoteOid)
+    if (!changes || changes === 'all') {
+      logger.info('[applyRemoteNonConflicting] 无基线或无变更，跳过')
+      return
+    }
+
+    const conflicts = new Set(conflictFiles)
+    let applied = 0
+
+    for (const repoPath of changes.copy) {
+      if (conflicts.has(repoPath)) continue // 冲突文件由落决策略选边决定
+      try {
+        const { blob } = await git.readBlob({ ...p, oid: c.remoteOid, filepath: repoPath })
+        const abs = path.join(this.syncDir, repoPath)
+        fs.mkdirSync(path.dirname(abs), { recursive: true })
+        fs.writeFileSync(abs, Buffer.from(blob))
+        await git.add({ ...p, filepath: repoPath })
+        applied += 1
+      } catch (err) {
+        logger.warn(
+          `[applyRemoteNonConflicting] 应用失败已跳过: ${repoPath} (${err instanceof Error ? err.message : String(err)})`,
+        )
+      }
+    }
+
+    for (const repoPath of changes.delete) {
+      if (conflicts.has(repoPath)) continue
+      try {
+        const abs = path.join(this.syncDir, repoPath)
+        if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true })
+        await git.remove({ ...p, filepath: repoPath })
+        applied += 1
+      } catch (err) {
+        logger.warn(
+          `[applyRemoteNonConflicting] 删除失败已跳过: ${repoPath} (${err instanceof Error ? err.message : String(err)})`,
+        )
+      }
+    }
+
+    logger.info(
+      `[applyRemoteNonConflicting] 已补齐远端非冲突变更 ${applied} 项（冲突 ${conflicts.size} 项走选边）`,
+    )
+  }
+
   private async resolveInner(
     strategy: 'keep-local' | 'keep-remote' | 'per-file',
     choices?: { path: string; side: 'local' | 'remote' }[],
@@ -797,6 +865,10 @@ export class CloudSyncManager extends EventEmitter {
           err instanceof Error ? err.message : String(err),
         )
       }
+
+      // 先把远端相对 base 的非冲突变更合进工作树与 index ——
+      // 不做这一步，落决 commit 会把它们（含远端新增的 jsonl 记录）当成删除推给远端
+      await this.applyRemoteNonConflictingChanges(p, c.files)
 
       // 冲突后 HEAD 可能 detached：用冲突记录的 oid 作为两侧内容源（禁止再 resolveRef 远端）
       for (const f of c.files) {

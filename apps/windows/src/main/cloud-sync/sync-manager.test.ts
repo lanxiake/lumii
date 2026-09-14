@@ -358,6 +358,58 @@ describe('CloudSyncManager', () => {
     expect(readSync('b.md')).toBe('B-remote')
   })
 
+  it('resolveConflict：远端非冲突变更不会在落决时被丢弃', async () => {
+    await setupBase()
+    // 本地改 shared.md —— 会与远端冲突
+    writeSync('shared.md', 'local')
+    await commitSync('local shared')
+    // 远端改同一文件（冲突），同时新增另一文件（非冲突）
+    await commitRemote('shared.md', 'remote')
+    await commitRemote('new-from-remote.md', 'R-new')
+
+    expect((await manager.sync()).state).toBe('conflict')
+
+    const r = await manager.resolveConflict('keep-local')
+    expect(r.success).toBe(true)
+
+    // 冲突文件按策略落决
+    expect(readSync('shared.md')).toBe('local')
+    // 关键：远端的非冲突新增必须存活 ——
+    // 落决 commit 的 parent 含 remoteOid，tree 里若没有它，就等于把它删了
+    expect(readSync('new-from-remote.md')).toBe('R-new')
+    expect(fs.existsSync(path.join(remoteDir, 'new-from-remote.md'))).toBe(true)
+    expect(await localHead()).toBe(await remoteHead())
+  })
+
+  it('resolveConflict：远端非冲突的删除同样会传播', async () => {
+    await setupBase()
+    // 本地改 a.md（不冲突）
+    writeSync('a.md', 'A-local')
+    await commitSync('local a')
+    // 远端改 shared.md（与下面本地的改动冲突）并删除 b.md
+    await commitRemote('shared.md', 'remote-shared')
+    fs.rmSync(path.join(remoteDir, 'b.md'))
+    // 只能 git.remove：add 对已删除的文件会抛 NotFoundError（工作树遍历不到它）
+    await git.remove({ fs: REMOTE_FS, dir: remoteDir, gitdir: remoteGitdir, filepath: 'b.md' })
+    await git.commit({
+      fs: REMOTE_FS,
+      dir: remoteDir,
+      gitdir: remoteGitdir,
+      message: 'remote: delete b.md',
+      author: { name: 'Remote', email: 'remote@test' },
+    })
+    writeSync('shared.md', 'local-shared')
+    await commitSync('local shared')
+
+    expect((await manager.sync()).state).toBe('conflict')
+
+    const r = await manager.resolveConflict('keep-local')
+    expect(r.success).toBe(true)
+
+    expect(readSync('a.md')).toBe('A-local')
+    expect(fs.existsSync(path.join(remoteDir, 'b.md'))).toBe(false)
+  })
+
   it('readFileAt 在冲突时可读 syncDir 三方内容', async () => {
     await setupBase()
     writeSync('profile/user-memory.md', 'local-memory')
