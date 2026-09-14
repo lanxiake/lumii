@@ -1632,6 +1632,8 @@ async function performCleanup(): Promise<void> {
     disposePetModeIpc()
 
     await skillWatcher?.stop()
+    // 云同步：停掉定时器与 workspace 文件监听（fs.watch 句柄需显式关闭）
+    syncScheduler?.stop()
     await stopAppUiControlServer()
     await stopBrowserService()
 

@@ -57,6 +57,37 @@ export interface SyncImportResult {
   }
 }
 
+/**
+ * 用户文件的导入变更集。
+ *
+ * 由 `CloudSyncManager` 用 `git.walk(TREE(baseline), TREE(head))` 从 git 记录里算出，
+ * 而不是扫描 sync 目录与本地目录做差集 —— 两侧状态无法区分「删除」与「新增」，
+ * 扫描式镜像会在首次同步时把本地独有文件当成多余项删掉。
+ *
+ * `'all'`：无基线（首次同步 / 无关历史），只复制不删除。
+ */
+export type FileChangeSet = { copy: string[]; delete: string[] } | 'all'
+
+/**
+ * Wiki 各表的合并配置：表名 → (主键, 时间戳字段, 删除标记字段)
+ *
+ * `archived_at` / `retired_at` 是 `wiki_sources` / `wiki_observations` 真实在用的软删除标记
+ * （设计文档 §2.3），此前没配上 `del` 导致归档传不出去。
+ *
+ * 已知限制：这两张表没有 `updated_at`，`created_at` 恒定，合并永远落在
+ * 「时间戳相同 → 优先采纳有删除标记的一侧」。所以归档只**单向**传播 ——
+ * 取消归档会被远端推回。要支持反向传播需给表加 `updated_at`，本轮不做。
+ */
+const WIKI_TABLE_MERGE_CONFIG: Record<string, { pk: string; ts: string; del?: string }> = {
+  wiki_inbox: { pk: 'id', ts: 'created_at' },
+  wiki_sources: { pk: 'id', ts: 'created_at', del: 'archived_at' },
+  wiki_entities: { pk: 'id', ts: 'updated_at', del: 'deleted_at' },
+  wiki_observations: { pk: 'id', ts: 'created_at', del: 'retired_at' },
+  wiki_relations: { pk: 'id', ts: 'updated_at', del: 'deleted_at' },
+  wiki_syntheses: { pk: 'id', ts: 'created_at', del: 'deleted_at' },
+  wiki_organize_runs: { pk: 'id', ts: 'created_at' },
+}
+
 export class SyncImporter {
   private options: SyncImportOptions
 
@@ -66,8 +97,11 @@ export class SyncImporter {
 
   /**
    * 完整导入流程
+   *
+   * @param options.fileChanges 用户文件变更集；缺省为 `'all'`（只增不删，最安全）
    */
-  async import(): Promise<SyncImportResult> {
+  async import(options?: { fileChanges?: FileChangeSet }): Promise<SyncImportResult> {
+    const fileChanges: FileChangeSet = options?.fileChanges ?? 'all'
     const startTime = Date.now()
     const importedFiles: string[] = []
     const errors: string[] = []
@@ -133,7 +167,7 @@ export class SyncImporter {
       // 6. 导入用户文件
       logger.info('[import] 6. 导入用户文件...')
       try {
-        stats.filesImported = await this.importUserFiles()
+        stats.filesImported = await this.importUserFiles(fileChanges)
         importedFiles.push('workspace/*')
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -227,17 +261,7 @@ export class SyncImporter {
       return await this.migrateFromOldFormat(oldJsonFile, wikiDir)
     }
 
-    // 新格式：JSONL 文件
-    // Wiki 核心表配置：表名 → (主键字段, 时间戳字段, 删除标记字段)
-    const wikiTables: Record<string, { pk: string; ts: string; del?: string }> = {
-      wiki_inbox: { pk: 'id', ts: 'created_at' },
-      wiki_sources: { pk: 'id', ts: 'created_at' },
-      wiki_entities: { pk: 'id', ts: 'updated_at', del: 'deleted_at' },
-      wiki_observations: { pk: 'id', ts: 'created_at' },
-      wiki_relations: { pk: 'id', ts: 'updated_at', del: 'deleted_at' },
-      wiki_syntheses: { pk: 'id', ts: 'created_at', del: 'deleted_at' },
-      wiki_organize_runs: { pk: 'id', ts: 'created_at' },
-    }
+    // 新格式：JSONL 文件（表配置见 WIKI_TABLE_MERGE_CONFIG）
 
     const db = await openWritableDb(this.options.dbPath)
     let totalRows = 0
@@ -246,7 +270,7 @@ export class SyncImporter {
       db.exec('BEGIN IMMEDIATE TRANSACTION')
 
       try {
-        for (const [table, config] of Object.entries(wikiTables)) {
+        for (const [table, config] of Object.entries(WIKI_TABLE_MERGE_CONFIG)) {
           const jsonlFile = path.join(wikiDir, `${table}.jsonl`)
           if (!fs.existsSync(jsonlFile)) continue
 
@@ -288,17 +312,6 @@ export class SyncImporter {
     const content = fs.readFileSync(oldJsonFile, 'utf-8')
     const data = JSON.parse(content) as Record<string, unknown[]>
 
-    // Wiki 表配置（与新格式相同）
-    const wikiTables: Record<string, { pk: string; ts: string; del?: string }> = {
-      wiki_inbox: { pk: 'id', ts: 'created_at' },
-      wiki_sources: { pk: 'id', ts: 'created_at' },
-      wiki_entities: { pk: 'id', ts: 'updated_at', del: 'deleted_at' },
-      wiki_observations: { pk: 'id', ts: 'created_at' },
-      wiki_relations: { pk: 'id', ts: 'updated_at', del: 'deleted_at' },
-      wiki_syntheses: { pk: 'id', ts: 'created_at', del: 'deleted_at' },
-      wiki_organize_runs: { pk: 'id', ts: 'created_at' },
-    }
-
     const db = await openWritableDb(this.options.dbPath)
     let totalRows = 0
 
@@ -307,7 +320,7 @@ export class SyncImporter {
 
       try {
         // 导入数据到数据库（使用 merge 规则）
-        for (const [table, config] of Object.entries(wikiTables)) {
+        for (const [table, config] of Object.entries(WIKI_TABLE_MERGE_CONFIG)) {
           const rows = data[table] as Array<Record<string, SQLInputValue>> | undefined
           if (!rows || rows.length === 0) continue
 
@@ -321,10 +334,11 @@ export class SyncImporter {
         logger.info(`[migrateFromOldFormat] 导入 ${totalRows} 行到数据库`)
 
         // 生成 JSONL 文件
-        for (const [table, config] of Object.entries(wikiTables)) {
+        for (const table of Object.keys(WIKI_TABLE_MERGE_CONFIG)) {
           const rows = data[table] as Array<Record<string, SQLInputValue>> | undefined
           if (!rows || rows.length === 0) {
-            // 写入空文件
+            // 写入空文件：这里「表为空」是确定的（数据来自旧格式快照本身），
+            // 与 exportTableToJsonl 的查询失败不同，可以安全落空文件
             fs.writeFileSync(path.join(wikiDir, `${table}.jsonl`), '')
             continue
           }
@@ -598,23 +612,61 @@ export class SyncImporter {
   }
 
   /**
-   * 导入用户文件（同样跳过 .git 等；单文件失败跳过继续）
+   * 导入用户文件：files + outputs 两个子树
+   *
+   * 绝不使用扫描式镜像 —— 删除只按 `changes.delete`（来自 git 树差异）执行，
+   * 无基线时（`'all'`）只增不删。
    */
-  private async importUserFiles(): Promise<number> {
-    let imported = 0
+  private async importUserFiles(changes: FileChangeSet): Promise<number> {
+    return this.applyFileChanges(changes, 'files') + this.applyFileChanges(changes, 'outputs')
+  }
 
-    const srcFiles = path.join(this.options.syncDir, 'workspace/files')
-    const dstFiles = path.join(this.options.workspaceDir, 'files')
-    if (fs.existsSync(srcFiles)) {
-      imported += copySyncDirectory(srcFiles, dstFiles).copied
+  /**
+   * 把变更集应用到本地某个同步子目录。
+   *
+   * @param sub 相对 `workspace/` 的子目录名
+   */
+  private applyFileChanges(changes: FileChangeSet, sub: 'files' | 'outputs'): number {
+    const srcRoot = path.join(this.options.syncDir, 'workspace', sub)
+    const dstRoot = path.join(this.options.workspaceDir, sub)
+
+    if (changes === 'all') {
+      if (!fs.existsSync(srcRoot)) return 0
+      return copySyncDirectory(srcRoot, dstRoot).copied
     }
 
-    const srcOutputs = path.join(this.options.syncDir, 'workspace/outputs')
-    const dstOutputs = path.join(this.options.workspaceDir, 'outputs')
-    if (fs.existsSync(srcOutputs)) {
-      imported += copySyncDirectory(srcOutputs, dstOutputs).copied
+    const prefix = `workspace/${sub}/`
+    let count = 0
+
+    for (const rel of changes.copy) {
+      if (!rel.startsWith(prefix)) continue
+      const src = path.join(srcRoot, rel.slice(prefix.length))
+      const dst = path.join(dstRoot, rel.slice(prefix.length))
+      try {
+        if (!fs.existsSync(src)) continue
+        fs.mkdirSync(path.dirname(dst), { recursive: true })
+        fs.copyFileSync(src, dst)
+        count += 1
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.warn(`[applyFileChanges] 复制失败已跳过: ${rel} (${msg})`)
+      }
     }
 
-    return imported
+    for (const rel of changes.delete) {
+      if (!rel.startsWith(prefix)) continue
+      const dst = path.join(dstRoot, rel.slice(prefix.length))
+      try {
+        if (!fs.existsSync(dst)) continue
+        fs.rmSync(dst, { recursive: true, force: true })
+        count += 1
+        logger.info(`[applyFileChanges] 已删除本地多余文件: ${rel}`)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.warn(`[applyFileChanges] 删除失败已跳过: ${rel} (${msg})`)
+      }
+    }
+
+    return count
   }
 }

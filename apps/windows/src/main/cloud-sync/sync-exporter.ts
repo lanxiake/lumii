@@ -15,6 +15,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import { SQLITE_BUSY_TIMEOUT_MS } from '@mtbot/agent-runtime'
 import { createLogger } from '../logger'
 import { SYNC_OUTPUTS_MAX_BYTES, copySyncDirectory } from './sync-copy'
+import type { CopySyncDirectoryResult } from './sync-copy'
+import { appendSyncLog } from './sync-log'
 
 const logger = createLogger('cloud-sync/exporter')
 
@@ -128,8 +130,9 @@ export class SyncExporter {
       // 5. 导出用户文件
       logger.info('[export] 5. 导出用户文件...')
       try {
-        await this.exportUserFiles()
+        const fileErrors = await this.exportUserFiles()
         exportedFiles.push('workspace/files/**')
+        errors.push(...fileErrors)
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         logger.error('[export] 用户文件导出失败:', msg)
@@ -155,6 +158,44 @@ export class SyncExporter {
   }
 
   /**
+   * 轻量导出：只导出「用户文件类」内容（profile + workspace/files + workspace/outputs），
+   * 跳过数据库全量 dump。
+   *
+   * 用途有二，都需要「本地改动立刻进 git 成为一次 commit」而不重写整份 jsonl：
+   *  1. 同步流程第 0 步 —— 把本地改动固定成三方合并的 ours（等价于 Unison 的 archive）
+   *  2. 文件监听触发的自动 commit —— 避免每次编辑都重扫全表
+   */
+  async exportLocalEdits(): Promise<SyncExportResult> {
+    const timestamp = new Date().toISOString()
+    const exportedFiles: string[] = []
+    const errors: string[] = []
+
+    this.ensureSyncDirectories()
+
+    try {
+      await this.exportProfile()
+      exportedFiles.push('profile/soul.md', 'profile/user-memory.md', 'profile/scene-memory/')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      logger.error('[exportLocalEdits] Profile 导出失败:', msg)
+      errors.push(`profile: ${msg}`)
+    }
+
+    try {
+      const fileErrors = await this.exportUserFiles()
+      exportedFiles.push('workspace/files/**', 'workspace/outputs/**')
+      errors.push(...fileErrors)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      logger.error('[exportLocalEdits] 用户文件导出失败:', msg)
+      errors.push(`workspace: ${msg}`)
+    }
+
+    logger.info(`[exportLocalEdits] 完成，错误 ${errors.length}`)
+    return { success: errors.length === 0, exportedFiles, errors, timestamp }
+  }
+
+  /**
    * 确保 sync 目录结构
    */
   private ensureSyncDirectories(): void {
@@ -176,6 +217,11 @@ export class SyncExporter {
 
   /**
    * 导出 profile（soul.md, user-memory.md）
+   *
+   * 源文件不存在时**跳过而非写默认值**：写默认内容会把「本机尚未创建」当成
+   * 「内容就是默认值」，push 后覆盖掉其他设备上的真实配置。
+   * 同理也不做镜像删除 —— 新设备首次同步时 data/ 本就可能是空的，
+   * 那不是「用户删了 soul.md」的信号。
    */
   private async exportProfile(): Promise<void> {
     const profileDir = path.join(this.options.syncDir, 'profile')
@@ -186,8 +232,7 @@ export class SyncExporter {
     if (fs.existsSync(soulSrc)) {
       fs.copyFileSync(soulSrc, soulDst)
     } else {
-      // 创建默认 soul.md
-      fs.writeFileSync(soulDst, '# SOUL Who You Are\n\n(待定义)')
+      logger.info('[exportProfile] soul.md 不存在，跳过（不写默认值）')
     }
 
     // 复制 user-memory.md
@@ -196,7 +241,7 @@ export class SyncExporter {
     if (fs.existsSync(memSrc)) {
       fs.copyFileSync(memSrc, memDst)
     } else {
-      fs.writeFileSync(memDst, '# User Memory\n\n(待记录)')
+      logger.info('[exportProfile] user-memory.md 不存在，跳过（不写默认值）')
     }
 
     // 复制场景记忆目录（无目录项目 + 渠道记忆）
@@ -276,10 +321,9 @@ export class SyncExporter {
       const lines = rows.map((row) => JSON.stringify(row)).join('\n')
       fs.writeFileSync(jsonlFile, lines + '\n') // 末尾加换行符，符合 JSONL 规范
     } catch (err) {
-      // 表不存在，写入空文件
-      logger.warn(`[exportTableToJsonl] 表 ${tableName} 不存在或查询失败`)
-      const jsonlFile = path.join(outputDir, `${tableName}.jsonl`)
-      fs.writeFileSync(jsonlFile, '')
+      // 表不存在或查询失败：保持 sync 侧现有文件不动。
+      // 绝不写空文件 —— 空 jsonl 与「整表已删」无法区分，会把导出故障放大成数据事故。
+      logger.warn(`[exportTableToJsonl] 表 ${tableName} 不存在或查询失败，保持现有导出文件不变`)
     }
   }
 
@@ -324,8 +368,8 @@ export class SyncExporter {
         throw err
       }
     } catch (err) {
-      logger.warn('[exportMemories] agent_memories 表不存在或为空')
-      fs.writeFileSync(jsonlFile, '')
+      // 表不存在或导出失败：保持 sync 侧现有文件不动（同 exportTableToJsonl，不写空文件）
+      logger.warn('[exportMemories] agent_memories 表不存在或导出失败，保持现有导出文件不变')
     } finally {
       db.close()
     }
@@ -353,9 +397,8 @@ export class SyncExporter {
           const jsonFile = path.join(autoDir, `${table}.json`)
           fs.writeFileSync(jsonFile, JSON.stringify(rows, null, 2))
         } catch (err) {
-          logger.warn(`[exportAutonomous] 表 ${table} 不存在或为空`)
-          const jsonFile = path.join(autoDir, `${table}.json`)
-          fs.writeFileSync(jsonFile, '[]')
+          // 同 exportTableToJsonl：不写 '[]'，避免把导出故障伪装成「表已清空」
+          logger.warn(`[exportAutonomous] 表 ${table} 不存在或导出失败，保持现有导出文件不变`)
         }
       }
     } finally {
@@ -365,21 +408,29 @@ export class SyncExporter {
 
   /**
    * 导出用户文件（跳过 .git 等重目录；outputs 单文件 >5MB 跳过；单文件失败不阻断）
+   *
+   * 开启镜像：本地删掉的文件要从 sync 侧一并删除，否则 git 看不到变更，
+   * 删除既进不了 commit，下次 import 还会把残留文件复制回本地（「删了又回来」）。
+   * 镜像删除自带安全阀（见 sync-copy），源目录异常时整批放弃而非误删。
    */
-  private async exportUserFiles(): Promise<void> {
+  private async exportUserFiles(): Promise<string[]> {
     const errors: string[] = []
 
     const srcFiles = path.join(this.options.workspaceDir, 'files')
     const dstFiles = path.join(this.options.syncDir, 'workspace/files')
     if (fs.existsSync(srcFiles)) {
-      const r = copySyncDirectory(srcFiles, dstFiles)
+      const r = copySyncDirectory(srcFiles, dstFiles, { mirror: true })
       errors.push(...r.errors)
+      this.logMirrorResult('workspace/files', r)
     }
 
     const srcOutputs = path.join(this.options.workspaceDir, 'outputs')
     const dstOutputs = path.join(this.options.syncDir, 'workspace/outputs')
     if (fs.existsSync(srcOutputs)) {
-      const r = copySyncDirectory(srcOutputs, dstOutputs, { maxSize: SYNC_OUTPUTS_MAX_BYTES })
+      const r = copySyncDirectory(srcOutputs, dstOutputs, {
+        maxSize: SYNC_OUTPUTS_MAX_BYTES,
+        mirror: true,
+      })
       errors.push(...r.errors)
       if (r.skippedLarge > 0) {
         logger.info(`[exportUserFiles] outputs 跳过大文件 ${r.skippedLarge} 个（阈值 ${SYNC_OUTPUTS_MAX_BYTES} bytes）`)
@@ -387,6 +438,7 @@ export class SyncExporter {
       if (r.skippedDirs > 0) {
         logger.info(`[exportUserFiles] 跳过目录 ${r.skippedDirs} 个（含 .git/node_modules 等）`)
       }
+      this.logMirrorResult('workspace/outputs', r)
     }
 
     // 单文件失败已在 copy 内跳过；仅告警，不阻断整次导出（避免偶发 EPERM 拖垮同步）
@@ -394,6 +446,22 @@ export class SyncExporter {
       logger.warn(
         `[exportUserFiles] ${errors.length} 个文件复制失败已跳过: ${errors.slice(0, 3).join('; ')}${errors.length > 3 ? ' …' : ''}`,
       )
+    }
+    return errors
+  }
+
+  /** 记录镜像删除结果；阈值熔断时明确告警，让用户知道删除没传播出去 */
+  private logMirrorResult(label: string, r: CopySyncDirectoryResult): void {
+    if (r.deleted > 0) {
+      logger.info(`[exportUserFiles] ${label} 镜像删除 ${r.deleted} 项`)
+    }
+    if (r.deleteAborted) {
+      const msg =
+        `${label} 本次删除未同步出去：待删条目超安全阈值（源目录可能异常，或一次删得太多）。` +
+        `若确为批量删除，请分次操作或手动清理 ~/.lumii/sync 后重试。`
+      logger.warn(`[exportUserFiles] ${msg}`)
+      // 写进同步日志（设置页「同步日志」可见），否则用户会以为删除已生效
+      appendSyncLog('error', msg)
     }
   }
 

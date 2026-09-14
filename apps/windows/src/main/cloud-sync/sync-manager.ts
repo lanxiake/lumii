@@ -9,8 +9,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import git from 'isomorphic-git'
-import type { PromiseFsClient } from 'isomorphic-git'
+import git, { TREE } from 'isomorphic-git'
+import type { PromiseFsClient, WalkerEntry } from 'isomorphic-git'
 import http from 'isomorphic-git/http/node'
 import { enqueueWorkspace } from '../workspace-vcs/vcs-snapshot'
 import { resolveActiveWorkspaceDir } from '../workspace-paths'
@@ -22,6 +22,7 @@ import { appendSyncLog } from './sync-log'
 import type { SyncState, SyncStatus, ConflictInfo } from './types'
 import { SyncExporter } from './sync-exporter'
 import { SyncImporter } from './sync-importer'
+import type { FileChangeSet } from './sync-importer'
 
 const logger = createLogger('cloud-sync/manager')
 const execFileAsync = promisify(execFile)
@@ -41,6 +42,16 @@ const RESOLVE_PUSH_TIMEOUT_MS = 60_000
 
 /** isomorphic-git 每次 fetch 会新增 pack；超过此数量则触发系统 git gc */
 const PACK_GC_THRESHOLD = 3
+
+/**
+ * 取 blob 型条目的 oid；目录条目与缺失条目一律返回 null。
+ * 用于 git.walk 树差异：目录的 oid 是 tree oid，其内容变化由子条目各自体现。
+ */
+async function blobOid(entry: WalkerEntry | null): Promise<string | null> {
+  if (!entry) return null
+  if ((await entry.type()) !== 'blob') return null
+  return (await entry.oid()) ?? null
+}
 
 type GitParams = { fs: PromiseFsClient; dir: string; gitdir: string }
 
@@ -93,6 +104,9 @@ export class CloudSyncManager extends EventEmitter {
   private status: SyncStatus = { state: 'idle' }
   private conflict: ConflictInfo | undefined
   private onConflictDetected?: (conflict: ConflictInfo) => void
+
+  /** 轻量自动提交进行中（防重入；不改 state，state 归完整同步所有） */
+  private localCommitInFlight = false
 
   /** 不缓存目录，每次惰性取（切工作空间无需重建实例） */
   private get workspaceDir(): string {
@@ -186,10 +200,19 @@ export class CloudSyncManager extends EventEmitter {
         // 已存在，忽略
       }
 
-      // ===== 新流程：fetch → import → export → push =====
+      // ===== 流程：export 本地 → fetch → merge → import → export → push =====
+      // 用户文件方向的 export 必须早于 import：export 产生的 commit 就是三方合并的
+      // ours（等价于 Unison 的 archive）。反过来先 import，会拿陈旧的 sync 内容覆盖
+      // 本地尚未导出的改动。jsonl 那类「数据库生成物」才适用先 import 后 export。
 
-      // 3. fetch 远端
-      logger.info('[sync] 1. Fetch 远端数据...')
+      // 3. 先把本地改动固定成一次 commit（不 push），其 oid 作为本次合并基线
+      logger.info('[sync] 1. 导出本地改动...')
+      const baselineOid =
+        (await this.exportAndCommit(p, { localEditsOnly: true })) ??
+        (await git.resolveRef({ ...p, ref: 'HEAD' }).catch(() => null))
+
+      // 4. fetch 远端
+      logger.info('[sync] 2. Fetch 远端数据...')
       let remoteOid: string | null
       try {
         await git.fetch({ ...p, http, remote: 'origin', ref: branch, singleBranch: true, onAuth: auth })
@@ -200,58 +223,56 @@ export class CloudSyncManager extends EventEmitter {
 
       const localOid = await git.resolveRef({ ...p, ref: 'HEAD' }).catch(() => null)
 
-      // 4. 首次推送（远端为空）
+      // 5. 首次推送（远端为空）
       if (remoteOid === null) {
         logger.info('[sync] 远端为空，准备首次推送')
-        // 导出 → 提交 → 推送
         await this.exportAndCommit(p)
         await this.push(p, url, localRef, auth)
         return this.finishIdle('首次推送完成')
       }
 
-      // 5. 本地无提交（首次拉取）
+      // 6. 本地无 commit（全新设备）：只增不删地拉取远端
       if (!localOid) {
         logger.info('[sync] 本地无提交，拉取远端')
-        await git.fetch({ ...p, http, remote: 'origin', ref: branch, onAuth: auth })
         await git.checkout({ ...p, ref: branch, force: true })
-        await this.importData()
+        await this.importData(p, null)
         return this.finishIdle('已拉取远程数据')
       }
 
-      // 6. 判断远端和本地的关系
+      // 7. 判断远端和本地的关系
       const baseOids = await git.findMergeBase({ ...p, oids: [localOid, remoteOid] })
 
       if (baseOids.length === 0) {
-        // 无关历史：采用远端
-        await this.adoptRemote(p, localRef, remoteOid)
-        await this.importData()
-        return this.finishIdle('已采用远端历史作为本地主线')
+        logger.info('[sync] 与远端历史无关，做双亲合并（保留本地）')
+        await this.mergeUnrelatedHistory(p, localRef, localOid, remoteOid)
+        await this.exportAndCommit(p)
+        await this.push(p, url, localRef, auth)
+        return this.finishIdle('已合并远端历史')
       }
 
       const baseOid = baseOids[0]
 
-      // 7. 远端无变化（仅本地新）
+      // 8. 远端无变化（仅本地新）
       if (baseOid === remoteOid) {
         logger.info('[sync] 仅本地有新提交')
-        // 导出 → 提交 → 推送
         await this.exportAndCommit(p)
         await this.push(p, url, localRef, auth)
         return this.finishIdle('同步完成')
       }
 
-      // 8. 本地无变化（仅远端新）
+      // 9. 本地无变化（仅远端新）→ 快进
       if (baseOid === localOid) {
         logger.info('[sync] 仅远端有新提交，快进合并')
         await git.writeRef({ ...p, ref: localRef, value: remoteOid, force: true })
         await git.checkout({ ...p, ref: localRef, force: true })
-        await this.importData()
+        await this.importData(p, baselineOid)
         return this.finishIdle('已拉取远程变更')
       }
 
-      // 9. 双方都有新提交 → merge → import → export → push
+      // 10. 双方都有新提交 → merge → import → export → push
       logger.info('[sync] 双方都有新提交，执行三方合并')
 
-      // 9.1 先尝试 merge（可能产生冲突）
+      // 10.1 先尝试 merge（可能产生冲突）
       try {
         await git.merge({
           ...p,
@@ -271,15 +292,17 @@ export class CloudSyncManager extends EventEmitter {
         throw err
       }
 
-      await git.checkout({ ...p, ref: 'HEAD', force: true })
+      // 不带 force：本地改动已在步骤 3 落成 commit，工作树理应干净；
+      // 若仍有未提交修改，宁可报错也不要静默丢弃
+      await git.checkout({ ...p, ref: 'HEAD' })
 
-      // 9.2 导入远端数据（merge 后的文件包含远端更新）
-      await this.importData()
+      // 10.2 导入：jsonl 走时间戳 merge，用户文件走 git 树差异
+      await this.importData(p, baselineOid)
 
-      // 9.3 导出当前状态（包含本地+远端合并后的结果）
+      // 10.3 导出当前状态（本地 + 远端合并后的结果）
       await this.exportAndCommit(p)
 
-      // 9.4 推送
+      // 10.4 推送
       await this.push(p, url, localRef, auth)
 
       return this.finishIdle('同步完成')
@@ -383,26 +406,176 @@ export class CloudSyncManager extends EventEmitter {
     }
   }
 
-  /** 无关历史：备份本地 → 分支钉到远端 HEAD → checkout 远端内容 */
-  private async adoptRemote(p: GitParams, localRef: string, remoteOid: string): Promise<void> {
+  /**
+   * 无关历史（首次同步且两边都有数据）：保留本地历史，与远端做双亲合并。
+   *
+   * 旧实现（adoptRemote）把分支直接钉到远端 HEAD，本地 git 历史丢失，
+   * 本地独有文件只能靠 import 的「只增不删」侥幸留下。现在改为：
+   * 远端独有的文件补入本地（**本地优先，同名不覆盖**），再提交一个
+   * parent 为 [localOid, remoteOid] 的合并提交，两条历史都保留。
+   *
+   * 为什么不用 isomorphic-git 的 `merge({ allowUnrelatedHistories: true })`：
+   * 它以**空树**作 merge base，于是两边都存在的同名文件一律判定为
+   * 「双方各自新增且内容不同」→ 全部冲突。首次同步时同名文件往往几十个，
+   * 会把冲突 Agent 拖进一个极重的任务。这里的语义是用户明确选择的
+   * 「本地文件优先、远端文件补入」，无冲突且可预期。
+   */
+  private async mergeUnrelatedHistory(
+    p: GitParams,
+    localRef: string,
+    localOid: string,
+    remoteOid: string,
+  ): Promise<void> {
+    this.backupSyncDir()
+
+    // 1. 远端独有的用户文件补入本地（本地已存在的同名文件一律不覆盖）
+    await this.adoptRemoteOnlyFiles(p, localOid, remoteOid)
+
+    // 2. 远端 jsonl 合入数据库（时间戳 merge，只动数据库不动文件）
+    await this.importData(p, null)
+
+    // 3. 把合并后的本地状态（本地 ∪ 远端）镜像进工作树
+    const exporter = new SyncExporter({
+      dbPath: this.dbPath,
+      syncDir: this.syncDir,
+      workspaceDir: this.workspaceDir,
+      dataDir: this.dataDir,
+    })
+    await exporter.export()
+
+    // 4. stage 后提交双亲 commit（不传 tree：commit 会从 index 生成，index 此刻就是本地状态）
+    await this.stageAllChanges(p)
+    await git.commit({
+      ...p,
+      ref: localRef,
+      parent: [localOid, remoteOid],
+      message: '合并无关历史的远端数据',
+      author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
+    })
+    // 挂回分支指针，避免 detached（否则后续 commit 落到游离提交、push 推空）
+    await this.attachHeadToBranch(p, localRef)
+    logger.info('[mergeUnrelatedHistory] 已提交双亲合并，本地历史保留')
+  }
+
+  /**
+   * 无关历史合并用：把远端相对本地**新增**的文件复制到本地。
+   *
+   * - 本地已存在同名文件 → 一律跳过（本地优先）
+   * - 远端删除的文件 → 忽略（无关历史时「远端没有」不构成删除信号）
+   */
+  private async adoptRemoteOnlyFiles(
+    p: GitParams,
+    localOid: string,
+    remoteOid: string,
+  ): Promise<void> {
+    const changes = await this.computeFileChanges(p, localOid, remoteOid)
+    if (!changes || changes === 'all') return
+
+    let adopted = 0
+    for (const repoPath of changes.copy) {
+      const localPath = this.toLocalPath(repoPath)
+      if (!localPath) continue
+      if (fs.existsSync(localPath)) continue
+      try {
+        const { blob } = await git.readBlob({ ...p, oid: remoteOid, filepath: repoPath })
+        fs.mkdirSync(path.dirname(localPath), { recursive: true })
+        fs.writeFileSync(localPath, Buffer.from(blob))
+        adopted += 1
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.warn(`[adoptRemoteOnlyFiles] 补入失败已跳过: ${repoPath} (${msg})`)
+      }
+    }
+    logger.info(`[adoptRemoteOnlyFiles] 补入远端独有文件 ${adopted} 个（本地同名文件全部保留）`)
+  }
+
+  /** 备份 sync 目录（无关历史合并前兜底；失败不阻断同步） */
+  private backupSyncDir(): void {
     const backupDir = `${this.syncDir}.lumii-sync-backup-${Date.now()}`
     try {
-      // 使用 errorOnExist: true 选项，在 Windows 上遇到符号链接时会忽略而不是抛出 EPERM 错误
       fs.cpSync(this.syncDir, backupDir, {
         recursive: true,
         filter: (src) => !src.includes('.git'),
-        // Windows 上复制符号链接需要管理员权限，使用 verbatimSymlinks: false 跟随链接而非复制它
+        // Windows 上复制符号链接需要管理员权限，跟随链接而非复制它
         verbatimSymlinks: false,
       })
-      logger.warn(`[adoptRemote] 检测到无关历史，本地已备份到 ${backupDir}`)
+      logger.warn(`[backupSyncDir] 检测到无关历史，本地已备份到 ${backupDir}`)
     } catch (err) {
-      // 备份失败不应阻止同步，记录警告并继续
-      logger.warn(`[adoptRemote] 备份失败（将继续同步）: ${err instanceof Error ? err.message : String(err)}`)
+      logger.warn(`[backupSyncDir] 备份失败（将继续同步）: ${err instanceof Error ? err.message : String(err)}`)
     }
-    await git.writeRef({ ...p, ref: localRef, value: remoteOid, force: true })
-    // 用分支名而非 oid checkout，避免 HEAD 进入 detached 状态（否则后续 commit 落到游离提交、push 推空）
-    await git.checkout({ ...p, ref: localRef, force: true })
-    logger.info('[adoptRemote] 已采用远端历史作为本地主线')
+  }
+
+  /**
+   * 计算两个提交之间所有路径的增删改。
+   *
+   * 这是删除传播的唯一依据 —— 不扫描目录做差集：只看两侧状态无法区分
+   * 「本地删了」与「远端新增」，扫描式镜像会在首次同步时删空本地独有文件。
+   *
+   * @returns null 表示无可用基线（首次同步 / 无变化），调用方应退化为只增不删
+   */
+  private async computeFileChanges(
+    p: GitParams,
+    baselineOid: string | null,
+    headOid: string | null,
+  ): Promise<FileChangeSet | null> {
+    if (!baselineOid || !headOid || baselineOid === headOid) return null
+
+    const copy: string[] = []
+    const deleted: string[] = []
+
+    await git.walk({
+      ...p,
+      trees: [TREE({ ref: baselineOid }), TREE({ ref: headOid })],
+      map: async (filepath, entries) => {
+        // 注意：返回 undefined 不会剪枝子树，返回 null 才会 —— 这里必须返回 undefined
+        if (filepath === '.') return
+        const [before, after] = entries as Array<WalkerEntry | null>
+        const beforeOid = await blobOid(before)
+        const afterOid = await blobOid(after)
+        if (beforeOid === afterOid) return
+        if (afterOid === null) deleted.push(filepath)
+        else copy.push(filepath)
+      },
+    })
+
+    logger.info(`[computeFileChanges] 树差异：写入 ${copy.length} 项，删除 ${deleted.length} 项`)
+    return { copy, delete: deleted }
+  }
+
+  /**
+   * 把工作树的变化 stage 进 index，返回是否有变更。
+   *
+   * isomorphic-git 的 add 从目录遍历文件，**已删除的文件不在遍历结果里** ——
+   * 删除必须显式 git.remove，否则永远进不了 commit（「删了又回来」的根因之一）。
+   */
+  private async stageAllChanges(p: GitParams): Promise<boolean> {
+    const status = await git.statusMatrix({ ...p })
+    const hasChanges = status.some(([, head, workdir, stage]) => head !== workdir || workdir !== stage)
+    if (!hasChanges) return false
+
+    for (const [filepath, head, workdir] of status) {
+      if (head !== 0 && workdir === 0) {
+        await git.remove({ ...p, filepath })
+      }
+    }
+    await git.add({ ...p, filepath: '.' })
+    return true
+  }
+
+  /**
+   * sync 仓库内路径 → 本地绝对路径；不属于「用户文件类」时返回 null。
+   * 与 exporter 的导入范围一一对应。
+   */
+  private toLocalPath(repoPath: string): string | null {
+    const mappings: Array<{ prefix: string; base: string }> = [
+      { prefix: 'profile/', base: this.dataDir },
+      { prefix: 'workspace/files/', base: path.join(this.workspaceDir, 'files') },
+      { prefix: 'workspace/outputs/', base: path.join(this.workspaceDir, 'outputs') },
+    ]
+    for (const { prefix, base } of mappings) {
+      if (repoPath.startsWith(prefix)) return path.join(base, repoPath.slice(prefix.length))
+    }
+    return null
   }
 
   /**
@@ -410,58 +583,110 @@ export class CloudSyncManager extends EventEmitter {
    *
    * 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
    * - 在事务中导出，确保一致性快照
-   * - 导出后检查 git status，有变更才提交
+   * - 导出后检查 git status，有变更才提交（删除需显式 stage，见 stageAllChanges）
+   *
+   * @param opts.localEditsOnly 只导出 profile + workspace 用户文件，跳过数据库全量 dump。
+   *        用于同步流程第 0 步 —— 把本地改动固定成三方合并的 ours，无需重写整份 jsonl。
+   * @returns 新提交的 oid；无变更时返回 null
    */
-  private async exportAndCommit(p: GitParams): Promise<void> {
-    logger.info('[exportAndCommit] 导出数据到 sync/...')
+  private async exportAndCommit(
+    p: GitParams,
+    opts?: { localEditsOnly?: boolean },
+  ): Promise<string | null> {
+    logger.info(`[exportAndCommit] 导出数据到 sync/${opts?.localEditsOnly ? '（仅用户文件类）' : ''}...`)
     const exporter = new SyncExporter({
       dbPath: this.dbPath,
       syncDir: this.syncDir,
       workspaceDir: this.workspaceDir,
       dataDir: this.dataDir,
     })
-    const exportResult = await exporter.export()
+    const exportResult = opts?.localEditsOnly
+      ? await exporter.exportLocalEdits()
+      : await exporter.export()
     if (!exportResult.success) {
       logger.warn(`[exportAndCommit] 导出有错误: ${exportResult.errors.join(', ')}`)
     }
 
-    // 检查是否有变更
-    const status = await git.statusMatrix({ ...p })
-    const hasChanges = status.some(([_, head, workdir, stage]) => head !== workdir || workdir !== stage)
-
-    if (hasChanges) {
-      // 添加所有文件
-      await git.add({ ...p, filepath: '.' })
-
-      // 提交
-      await git.commit({
-        ...p,
-        message: `sync: merge and export at ${new Date().toISOString()}`,
-        author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
-      })
-      logger.info('[exportAndCommit] 已提交本地变更')
-    } else {
+    const hasChanges = await this.stageAllChanges(p)
+    if (!hasChanges) {
       logger.info('[exportAndCommit] 无变更需要提交')
+      return null
     }
+
+    const oid = await git.commit({
+      ...p,
+      message: `sync: export at ${new Date().toISOString()}`,
+      author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
+    })
+    logger.info(`[exportAndCommit] 已提交本地变更 ${oid.slice(0, 8)}`)
+    return oid
+  }
+
+  /**
+   * 文件监听触发的轻量提交：只把本地用户文件类改动导出并提交，不 fetch、不 push。
+   *
+   * 与 sync() 共用同一串行队列；不改 state —— state 归完整同步所有，
+   * 否则会和 watcher 自身的抑制条件（state !== idle 即抑制）互相打架。
+   */
+  async commitLocalChanges(): Promise<boolean> {
+    const cfg = loadCloudSyncConfig()
+    if (!cfg.enabled || !cfg.repoUrl) return false
+
+    return enqueueWorkspace(this.workspaceDir, async () => {
+      // 队列内重新判定：同步可能已在此期间占用了 state
+      if (this.state !== 'idle') return false
+      if (this.localCommitInFlight) return false
+      this.localCommitInFlight = true
+      try {
+        const p = this.getSyncGitParams()
+        if (!fs.existsSync(path.join(this.syncDir, '.git'))) return false
+        const oid = await this.exportAndCommit(p, { localEditsOnly: true })
+        if (oid) logger.info(`[commitLocalChanges] 自动提交 ${oid.slice(0, 8)}`)
+        return oid !== null
+      } catch (err) {
+        // 失败不抛出：变更仍留在本地，下一次完整同步的步骤 0 会兜底
+        logger.warn(
+          `[commitLocalChanges] 自动提交失败（下次同步兜底）: ${err instanceof Error ? err.message : String(err)}`,
+        )
+        return false
+      } finally {
+        this.localCommitInFlight = false
+      }
+    })
   }
 
   /**
    * 导入数据（从 sync/ 目录）
    *
    * 设计：docs/superpowers/specs/2026-09-09-lightweight-cloud-sync-design.md
-   * - 按时间戳merge规则合并远端数据到本地数据库
-   * - 在事务中执行，确保一致性
+   * - jsonl 按时间戳 merge 规则合并到本地数据库，在事务中执行
+   * - 用户文件按 git 树差异应用（新增/修改复制、删除删除），**不做目录扫描式镜像**
+   *
+   * @param baselineOid 本次合并前的本地 HEAD，用于算出「远端带来的用户文件变更」。
+   *        传 null 时退化为只增不删（首次同步 / 本地无 commit）。
    */
-  private async importData(): Promise<void> {
+  private async importData(p: GitParams, baselineOid: string | null): Promise<void> {
     try {
       logger.info('[importData] 导入远程数据...')
+
+      const headOid = await git.resolveRef({ ...p, ref: 'HEAD' }).catch(() => null)
+      let fileChanges: FileChangeSet = 'all'
+      try {
+        fileChanges = (await this.computeFileChanges(p, baselineOid, headOid)) ?? 'all'
+      } catch (err) {
+        // 树差异算不出时退化为只增不删：宁可删除不传播，也不能用不可信的差异去删本地文件
+        logger.warn(
+          `[importData] 树差异计算失败，本次退化为只增不删: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+
       const importer = new SyncImporter({
         dbPath: this.dbPath,
         syncDir: this.syncDir,
         workspaceDir: this.workspaceDir,
         dataDir: this.dataDir,
       })
-      const result = await importer.import()
+      const result = await importer.import({ fileChanges })
       if (result.success) {
         logger.info(`[importData] 导入成功: Wiki=${result.stats.wikiRows}, 记忆=${result.stats.memoriesImported}`)
       } else {
@@ -605,8 +830,9 @@ export class CloudSyncManager extends EventEmitter {
         failOnReject: true,
         timeoutMs: RESOLVE_PUSH_TIMEOUT_MS,
       })
-      // 落决后把 sync 内容导回本地 data/workspace
-      await this.importData()
+      // 落决后把 sync 内容导回本地 data/workspace：
+      // 以冲突时的本地 oid 为基线，选 keep-remote 的文件会复制回本地，keep-local 的为 no-op
+      await this.importData(p, c.localOid)
       this.conflict = undefined
       this.status.conflict = undefined
       this.setState('idle', '冲突已解决')

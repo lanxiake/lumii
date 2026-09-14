@@ -24,6 +24,10 @@ vi.mock('./sync-exporter', () => ({
     async export() {
       return { success: true, exportedFiles: [], errors: [], stats: {} }
     }
+    /** 同步流程第 0 步的轻量导出（只 profile + workspace 用户文件） */
+    async exportLocalEdits() {
+      return { success: true, exportedFiles: [], errors: [], stats: {} }
+    }
   },
 }))
 vi.mock('./sync-importer', () => ({
@@ -397,7 +401,7 @@ describe('CloudSyncManager', () => {
     expect(fs.readFileSync(path.join(remoteDir, 'only.md'), 'utf-8')).toBe('hello')
   })
 
-  it('无关历史 → 备份 syncDir + 采用远端', async () => {
+  it('无关历史 → 备份 syncDir + 保留本地做双亲合并', async () => {
     fs.mkdirSync(syncDir, { recursive: true })
     await git.init({ ...syncParams(), defaultBranch: 'main' })
     writeSync('local-only.md', 'L')
@@ -409,8 +413,15 @@ describe('CloudSyncManager', () => {
     manager = new CloudSyncManager()
     const r = await manager.sync()
     expect(r.success).toBe(true)
+
+    // 本地内容保留（旧行为 adoptRemote 会把本地历史整个丢掉）
+    expect(readSync('local-only.md')).toBe('L')
     expect(await localHead()).toBe(await remoteHead())
-    expect(readSync('remote-only.md')).toBe('R')
+
+    // 合并提交有两个父提交：本地一条、远端一条，两条历史都保留
+    const { commit } = await git.readCommit({ ...syncParams(), oid: await localHead() })
+    expect(commit.parent.length).toBe(2)
+
     const backups = fs
       .readdirSync(clientRoot)
       .filter((n) => n.startsWith('sync.lumii-sync-backup-'))

@@ -113,4 +113,111 @@ describe('sync-copy', () => {
     expect(fs.existsSync(path.join(dst, 'repo', '.git'))).toBe(false)
     expect(fs.readFileSync(path.join(dst, 'repo', 'ok.txt'), 'utf8')).toBe('x')
   })
+
+  // ── mirror 模式：删除传播 ──────────────────────────────────────────────
+
+  it('mirror 默认关闭：目标侧多余文件保留', () => {
+    const { src, dst } = makePair()
+    fs.mkdirSync(dst, { recursive: true })
+    fs.writeFileSync(path.join(src, 'a.txt'), 'a')
+    fs.writeFileSync(path.join(dst, 'stale.txt'), 's')
+
+    const result = copySyncDirectory(src, dst)
+
+    expect(result.deleted).toBe(0)
+    expect(result.deleteAborted).toBe(false)
+    expect(fs.existsSync(path.join(dst, 'stale.txt'))).toBe(true)
+  })
+
+  it('mirror：删除目标侧源侧已不存在的文件与目录', () => {
+    const { src, dst } = makePair()
+    fs.mkdirSync(path.join(src, 'keep'), { recursive: true })
+    fs.writeFileSync(path.join(src, 'keep', 'a.md'), 'a')
+    fs.mkdirSync(path.join(dst, 'keep'), { recursive: true })
+    fs.writeFileSync(path.join(dst, 'keep', 'a.md'), 'old')
+    fs.mkdirSync(path.join(dst, 'gone'), { recursive: true })
+    fs.writeFileSync(path.join(dst, 'gone', 'b.md'), 'b')
+    fs.writeFileSync(path.join(dst, 'gone-file.md'), 'c')
+
+    const result = copySyncDirectory(src, dst, { mirror: true })
+
+    expect(result.deleted).toBe(2)
+    expect(result.deleteAborted).toBe(false)
+    expect(result.errors).toEqual([])
+    expect(fs.readFileSync(path.join(dst, 'keep', 'a.md'), 'utf8')).toBe('a')
+    expect(fs.existsSync(path.join(dst, 'gone'))).toBe(false)
+    expect(fs.existsSync(path.join(dst, 'gone-file.md'))).toBe(false)
+  })
+
+  it('mirror：源目录不存在时不做任何删除', () => {
+    const { src, dst } = makePair()
+    fs.mkdirSync(dst, { recursive: true })
+    fs.writeFileSync(path.join(dst, 'stale.txt'), 's')
+    fs.rmSync(src, { recursive: true, force: true })
+
+    const result = copySyncDirectory(src, dst, { mirror: true })
+
+    expect(result.deleted).toBe(0)
+    expect(result.deleteAborted).toBe(false)
+    expect(fs.existsSync(path.join(dst, 'stale.txt'))).toBe(true)
+  })
+
+  it('mirror：待删数量超 maxDeletes 时整批放弃，一个都不删', () => {
+    const { src, dst } = makePair()
+    fs.mkdirSync(dst, { recursive: true })
+    for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(dst, `f${i}.txt`), 'x')
+
+    const result = copySyncDirectory(src, dst, { mirror: true, maxDeletes: 3 })
+
+    expect(result.deleteAborted).toBe(true)
+    expect(result.deleted).toBe(0)
+    for (let i = 0; i < 5; i++) {
+      expect(fs.existsSync(path.join(dst, `f${i}.txt`))).toBe(true)
+    }
+  })
+
+  it('mirror：待删占比超阈值时整批放弃', () => {
+    const { src, dst } = makePair()
+    fs.writeFileSync(path.join(src, 'keep.txt'), 'k')
+    fs.mkdirSync(dst, { recursive: true })
+    fs.writeFileSync(path.join(dst, 'keep.txt'), 'k')
+    // 目标 20 项、待删 19 项 → 95% 且 ≥ SYNC_MIRROR_RATIO_MIN_COUNT，触发比例阈值
+    for (let i = 0; i < 19; i++) fs.writeFileSync(path.join(dst, `stale${i}.txt`), 'x')
+
+    const result = copySyncDirectory(src, dst, { mirror: true })
+
+    expect(result.deleteAborted).toBe(true)
+    expect(result.deleted).toBe(0)
+    expect(fs.existsSync(path.join(dst, 'stale0.txt'))).toBe(true)
+  })
+
+  it('mirror：小目录不套用比例阈值，正常删除', () => {
+    const { src, dst } = makePair()
+    fs.writeFileSync(path.join(src, 'a.txt'), 'a')
+    fs.mkdirSync(dst, { recursive: true })
+    fs.writeFileSync(path.join(dst, 'a.txt'), 'a')
+    fs.writeFileSync(path.join(dst, 'stale.txt'), 'x')
+
+    const result = copySyncDirectory(src, dst, { mirror: true })
+
+    expect(result.deleteAborted).toBe(false)
+    expect(result.deleted).toBe(1)
+    expect(fs.existsSync(path.join(dst, 'stale.txt'))).toBe(false)
+  })
+
+  it('mirror：源侧大文件被跳过时，目标侧同名文件不被误删', () => {
+    const { src, dst } = makePair()
+    fs.writeFileSync(path.join(src, 'big.bin'), Buffer.alloc(6 * 1024 * 1024, 1))
+    fs.mkdirSync(dst, { recursive: true })
+    fs.writeFileSync(path.join(dst, 'big.bin'), 'old-version')
+
+    const result = copySyncDirectory(src, dst, {
+      mirror: true,
+      maxSize: SYNC_OUTPUTS_MAX_BYTES,
+    })
+
+    expect(result.skippedLarge).toBe(1)
+    expect(result.deleted).toBe(0)
+    expect(fs.readFileSync(path.join(dst, 'big.bin'), 'utf8')).toBe('old-version')
+  })
 })
