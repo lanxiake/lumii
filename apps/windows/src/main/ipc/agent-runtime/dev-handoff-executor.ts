@@ -12,6 +12,7 @@
 
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { setDevContext } from '../../coding-dev-dev-context'
+import { isAcpRunFailureText } from '../../coding-dev-acp-messages'
 import { getCodingDevConfig, resolveDevContext } from '../../coding-dev-env'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts'
 import { handleConversationCreate, handleConversationList } from './conversation-commands'
@@ -242,10 +243,15 @@ function startWatchCompletion(
       if (!last || last.id === baseMsgId || last.streaming) return
       if (!bridge.hasStreamingMessages(devSessionKey)) {
         clearInterval(timer)
-        log.info(`[runDevHandoff] 开发任务完成 devSessionKey=${devSessionKey} textLen=${last.text.length}`)
+        // ACP 失败/中止的消息同样落库（09-P3b），据此把「完成」判成「失败」——
+        // 否则只能白等到 90 分钟超时才汇报，而用户在会话里早已看到错误。
+        const failed = isAcpRunFailureText(last.text)
+        log.info(
+          `[runDevHandoff] 开发任务${failed ? '失败' : '完成'} devSessionKey=${devSessionKey} textLen=${last.text.length}`,
+        )
         void Promise.resolve(
           report({
-            ok: true,
+            ok: !failed,
             devSessionKey,
             devSessionTitle: title,
             text: last.text,

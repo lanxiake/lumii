@@ -28,11 +28,14 @@ import { setAcpBackendManagerGetter } from './coding-dev-commands'
 import { NO_CLI_BINDING_HINT, runDevHandoff, type DevHandoffReport } from './dev-handoff-executor'
 import { handleUserSend } from './user-commands'
 
-function makeBridge(): AgentRuntimeBridge {
+/** 会话消息快照：用例可在 runDevHandoff 发起后改写它，模拟「ACP 把结果/错误落库」 */
+type MessageSnapshot = { messages: unknown[] }
+
+function makeBridge(snapshot: MessageSnapshot = { messages: [] }): AgentRuntimeBridge {
   return {
     conversationRepo: {
       getConversation: () => ({ title: '开发任务' }),
-      loadRecentMessages: () => [],
+      loadRecentMessages: () => snapshot.messages,
     },
     hasStreamingMessages: () => false,
   } as unknown as AgentRuntimeBridge
@@ -207,5 +210,74 @@ describe('runDevHandoff · 绑定预检（P3）', () => {
 
     expect(handleUserSend).not.toHaveBeenCalled()
     expect(reports[0]?.ok).toBe(false)
+  })
+})
+
+describe('runDevHandoff · 完成判定（P3b）', () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = newTempDir('lumii-handoff-watch-')
+    setDevContextBaseDir(dir)
+    vi.clearAllMocks()
+    bindCli()
+    setUserGlobalBackend('lumii')
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  /** 发起一轮（会话此刻为空）后写入落库消息，再让监听轮询一次 */
+  async function runThenLand(
+    landedText: string,
+    msgId: string,
+  ): Promise<DevHandoffReport[]> {
+    vi.useFakeTimers()
+    const snapshot: MessageSnapshot = { messages: [] }
+    const reports: DevHandoffReport[] = []
+
+    await runDevHandoff({
+      bridge: makeBridge(snapshot),
+      task: 't',
+      sessionMode: 'new',
+      title: 's',
+      report: (p) => void reports.push(p),
+    })
+    expect(reports).toHaveLength(0) // 刚发起，尚未轮询
+
+    snapshot.messages = [
+      {
+        id: msgId,
+        role: 'assistant',
+        is_streaming: 0,
+        content_json: JSON.stringify({ type: 'text', text: landedText }),
+      },
+    ]
+    await vi.advanceTimersByTimeAsync(6000)
+    return reports
+  }
+
+  it('开发会话出现 ACP 失败消息 → 立即汇报失败，不必等到 90 分钟超时', async () => {
+    const reports = await runThenLand('❌ ACP 执行失败：spawn claude ENOENT', 'acp-msg-1')
+
+    expect(reports).toHaveLength(1)
+    expect(reports[0]!.ok).toBe(false)
+    expect(reports[0]!.text).toContain('ACP 执行失败')
+  })
+
+  it('用户取消也算失败（不当成完成）', async () => {
+    const reports = await runThenLand('已取消 ACP 执行。', 'acp-msg-2')
+
+    expect(reports[0]?.ok).toBe(false)
+  })
+
+  it('正常产出仍汇报完成（回归保护）', async () => {
+    const reports = await runThenLand('已修复分页边界，改动 2 个文件。', 'acp-msg-3')
+
+    expect(reports).toHaveLength(1)
+    expect(reports[0]!.ok).toBe(true)
+    expect(reports[0]!.text).toContain('已修复分页边界')
   })
 })

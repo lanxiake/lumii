@@ -14,6 +14,7 @@ import type { AgentRuntimeBridge } from './agent-runtime/bridge'
 import type { AgentRuntimeEvent } from '../shared/agent-runtime-events'
 import { runCodingDevAcpPrompt } from './coding-dev-backends-stub/run-coding-dev-acp-prompt.js'
 import { resolveAcpTimeoutMs } from './coding-dev-backends-stub/acp-config.js'
+import { ACP_CANCELLED_PREFIX, ACP_ERROR_PREFIX } from './coding-dev-acp-messages.js'
 import type {
   CodingDevLightweightBackendOutput,
   CodingDevLightweightBackendProgress,
@@ -272,13 +273,16 @@ export class AcpRunController {
       const isAbort = abortController.signal.aborted
       const errorMessage = err instanceof Error ? err.message : String(err)
 
+      // 失败/中止也要**落库**（09-P3b）：此前只 pushEvent 给渲染层，进程重启后这条错误就消失了；
+      // 而转交完成监听读的是数据库（loadRecentMessages），看不到它 → 只能白等到 90 分钟超时。
+      // 复用本轮预分配的 messageId（agent:message:start 已用它建气泡），避免同一轮出现两条消息。
       if (isAbort) {
         const reason = handle.abortReason ?? 'user_cancel'
         const waitedMinutes = Math.max(1, Math.round((Date.now() - startedAt) / 60_000))
         const friendlyMessage =
           reason === 'timeout'
-            ? `❌ ACP 执行超时（已等待 ${waitedMinutes} 分钟）。任务已中止。若任务较重，可设置 MTBOT_ACP_TIMEOUT_MS=0 取消限制，或拆分任务后重试。`
-            : '已取消 ACP 执行。'
+            ? `${ACP_ERROR_PREFIX}执行超时（已等待 ${waitedMinutes} 分钟）。任务已中止。若任务较重，可设置 MTBOT_ACP_TIMEOUT_MS=0 取消限制，或拆分任务后重试。`
+            : `${ACP_CANCELLED_PREFIX}。`
 
         pushEvent({
           type: 'agent:abort',
@@ -286,32 +290,35 @@ export class AcpRunController {
           sessionKey,
           reason,
         })
+        this.persistAssistantMessage(bridge, sessionKey, messageId, friendlyMessage)
         pushEvent({
           type: 'conversation:message:new',
           sessionKey,
           message: {
-            id: `acp-err-${Date.now()}`,
+            id: messageId,
             role: 'assistant',
             content: [{ type: 'text', text: friendlyMessage }],
             timestamp: Date.now(),
           },
         })
       } else {
+        const failText = `${ACP_ERROR_PREFIX}执行失败：${errorMessage}`
         pushEvent({
           type: 'agent:error',
           runId,
           sessionKey,
           errorCode: 'ACP_FAILED',
-          errorMessage: `❌ ACP 执行失败：${errorMessage}`,
+          errorMessage: failText,
           isRetryable: false,
         })
+        this.persistAssistantMessage(bridge, sessionKey, messageId, failText)
         pushEvent({
           type: 'conversation:message:new',
           sessionKey,
           message: {
-            id: `acp-err-${Date.now()}`,
+            id: messageId,
             role: 'assistant',
-            content: [{ type: 'text', text: `❌ ACP 执行失败：${errorMessage}` }],
+            content: [{ type: 'text', text: failText }],
             timestamp: Date.now(),
           },
         })
