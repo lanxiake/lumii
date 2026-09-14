@@ -87,7 +87,8 @@ const TOOL_SUMMARIES: Record<string, string> = {
   session_create: "Start a fresh conversation session",
   session_clear: "Delete all messages in this session",
   session_compact: "Drop older messages, keep recent turns",
-  session_resume: "Switch to a previous session by sessionKey",
+  session_resume: "Switch to another session (key from session_list)",
+  session_list: "List recent sessions with source channel",
   settings_think: "Set reasoning level: off / low / medium / high",
   settings_backend: "Switch ACP coding backend",
   info_status: "Current message count and active model",
@@ -123,6 +124,8 @@ const GROUP_NOTES: Record<string, string> = {
   "Memory & Knowledge":
     "Order matters: `memory_search` → `memory_read`; `wiki_overview` → `wiki_search` → `wiki_read`. Wiki **writes** (folder import, organize, archive) use `bash` + `lumii-ui`, not `wiki_*` tools — see `## Wiki Knowledge Base`.",
   "Browser Tools": "See `## Browser Control` for the interaction loop.",
+  "Session & Settings":
+    "Referring to a conversation by name? Call `session_list` first, then `session_resume` with the returned key — never invent a sessionKey. On a chat channel the switch also redirects the user's subsequent messages to that session.",
 }
 
 const FILE_TOOLS = new Set([
@@ -174,6 +177,7 @@ const SESSION_TOOLS = new Set([
   "session_clear",
   "session_compact",
   "session_resume",
+  "session_list",
   "settings_think",
   "settings_backend",
   "info_status",

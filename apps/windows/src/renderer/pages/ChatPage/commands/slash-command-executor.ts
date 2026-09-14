@@ -234,8 +234,10 @@ async function handleCompact(args: string, ctx: CommandContext): Promise<void> {
         const summaryNote = result.hadSummary ? '，已生成摘要' : ''
         ctx.showToast?.(`上下文已压缩，移出 ${result.messagesRemoved} 条旧消息（历史仍可回看）${summaryNote}`, 'success')
       }
-      // 重新加载当前会话消息
-      await api.sendCommand({ type: 'conversation:switch', sessionKey: ctx.sessionKey })
+      // 重新加载当前会话消息（压缩后 DB 里少了旧消息，视图要跟着刷新）。
+      // 不能用 api.sendCommand({type:'conversation:switch'})：该类型不在 AgentRuntimeCommand
+      // 联合里，主进程会抛 Unknown command type，被外层 catch 成「压缩失败」——压缩其实已成功。
+      await ctx.switchSession?.(ctx.sessionKey)
     } else {
       ctx.addSystemMessage('压缩失败')
     }

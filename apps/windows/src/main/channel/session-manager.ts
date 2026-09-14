@@ -115,9 +115,12 @@ export class SessionManager {
     try {
       // 统一写入本轮在场状态（P0：二元在场信号）。所有主 Agent 路径都经此入口，
       // 一处写点替代各 adapter 各自写，channelLabel 映射也收敛到 channelLabelOf。
+      // channelType/channelUserId 是「消息来源」，供会话切换工具判断该改哪个渠道的路由。
       this.bridge.setInstancePresence(instanceId, {
         userAtClient: session.channelType === 'ipc',
         channelLabel: channelLabelOf(session.channelType),
+        channelType: session.channelType,
+        channelUserId: session.channelUserId,
       })
       // pendingUserMsgId 继续透传给 bridge.prompt：prompt() 内的自动压缩块会从 DB
       // 重载历史做剪枝/摘要，同样必须排除本条消息，否则它会被 replaceMessages

@@ -36,6 +36,16 @@ export interface InstanceState {
     userAtClient: boolean
     /** 渠道中文名（微信/飞书/企业微信/QQ/消息渠道），ipc 为 undefined */
     channelLabel?: string
+    /**
+     * 本轮消息来源的渠道类型（ipc / weixin / feishu / wecom / qbot）。
+     *
+     * 记的是**消息从哪来**，不是会话归属 —— 跨渠道接续之后 sessionKey 会变成目标
+     * 会话的 key（可能是客户端或另一个渠道的），从它反推不出这条消息的来源。
+     * 会话切换类工具据此决定该改哪个渠道的路由。
+     */
+    channelType?: string
+    /** 本轮消息的渠道用户 ID（与 channelType 一起用于把后续消息路由到目标会话） */
+    channelUserId?: string
   }
   /** toolCallId → 工具入参（tool:end 时合并写入 messages） */
   toolCallArgs: Map<string, Record<string, unknown>>

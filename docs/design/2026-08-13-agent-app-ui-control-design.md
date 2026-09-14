@@ -135,7 +135,7 @@
 
 | 域 | 已有工具 | 缺口（完整目标补，非 MVP） |
 |----|----------|---------------------------|
-| 会话 | `session_create/clear/compact/resume`、`info_status` | 列会话、重命名 |
+| 会话 | `session_create/clear/compact/resume`、`session_list`、`info_status` | 重命名 |
 | 思考/ACP | `settings_think`、`settings_backend` | 改对话模型、改视觉/生图槽位 |
 | 记忆 | `memory_search/read/manage`、`profile_memory` | 无 |
 | 技能 | `skill_list/search/invoke`、`execute_skill` | 启用/停用 |

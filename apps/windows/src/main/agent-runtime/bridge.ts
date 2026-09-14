@@ -946,6 +946,7 @@ export class AgentRuntimeBridge {
         markSentViaTool: () => { this.promptDispatcher.markWeixinMessageSentViaTool() },
       },
       getChannelRouter: () => this.config.getChannelRouter?.() ?? null,
+      compactSession: (sessionKey, keepRecentTurns) => this.compactSessionForTool(sessionKey, keepRecentTurns),
       generateImage: (params) => this.generateImage(params),
     })
     this.toolRegistrar.registerAll()
@@ -2348,7 +2349,7 @@ export class AgentRuntimeBridge {
   /** 写入本轮在场状态（P0：二元在场信号），由 SessionManager 在 prompt 前调用 */
   setInstancePresence(
     instanceId: string,
-    presence: { userAtClient: boolean; channelLabel?: string },
+    presence: { userAtClient: boolean; channelLabel?: string; channelType?: string; channelUserId?: string },
   ): void {
     const s = this.instanceStates.get(instanceId)
     if (s) s.presence = presence
@@ -2477,6 +2478,39 @@ export class AgentRuntimeBridge {
 
   compactContext(sessionKey: string, keepRecentTurns = 6): { success: boolean; previousMessageCount: number; newMessageCount: number; messagesRemoved: number } {
     return this.compactor.compactContext(sessionKey, keepRecentTurns)
+  }
+
+  /**
+   * session_compact 工具的入口：压缩指定会话的上下文。
+   *
+   * 与 `/compact` 斜杠命令共用同一套 compactContextAsync（LLM 摘要 + DB 清理 +
+   * 内存同步），区别是不经渲染层 —— 渠道场景没有客户端窗口，光发 IPC 事件
+   * 等于什么都不发生。
+   */
+  async compactSessionForTool(
+    sessionKey: string,
+    keepRecentTurns = 6,
+  ): Promise<{ success: boolean; messagesRemoved: number; hadSummary: boolean; error?: string }> {
+    if (!this.conversationRepo.getConversation(sessionKey)) {
+      return { success: false, messagesRemoved: 0, hadSummary: false, error: `会话不存在：${sessionKey}` }
+    }
+    // 优先用该会话已挂着的实例：摘要要跑 LLM，需要实例上的模型配置
+    const instanceId = this.findInstanceIdForConversation(sessionKey)
+    if (!instanceId) {
+      // 没有活实例（重启后常见）：降级为同步压缩，无 LLM 摘要
+      const r = this.compactContext(sessionKey, keepRecentTurns)
+      return { success: r.success, messagesRemoved: r.messagesRemoved, hadSummary: false }
+    }
+    const r = await this.compactContextAsync(instanceId, sessionKey, keepRecentTurns)
+    return { success: r.success, messagesRemoved: r.messagesRemoved, hadSummary: r.hadSummary }
+  }
+
+  /** 按会话反查仍存活的实例（instanceToConversation 的反向查找） */
+  private findInstanceIdForConversation(sessionKey: string): string | undefined {
+    for (const [instanceId, conversationId] of this.instanceToConversation) {
+      if (conversationId === sessionKey && this.agentRegistry.get(instanceId)) return instanceId
+    }
+    return undefined
   }
 
   /** sessionKey → 正在进行的手动压缩的 AbortController，供 abortCompactContext 中止 */

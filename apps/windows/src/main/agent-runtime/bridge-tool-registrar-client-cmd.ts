@@ -13,6 +13,7 @@ import {
   sessionClearToolConfig,
   sessionCompactToolConfig,
   sessionResumeToolConfig,
+  sessionListToolConfig,
   settingsThinkToolConfig,
   settingsBackendToolConfig,
   infoStatusToolConfig,
@@ -23,6 +24,34 @@ import {
 } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log, jsonToolResult } from './bridge-utils'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
+import { buildSessionListRows, SESSION_SCAN_LIMIT } from './session-list-rows'
+import { getChannelAdapter } from '../channel/channel-adapter-registry'
+
+/** 本地单用户标识（与 bridge-conversation-manager 的用法一致） */
+const LOCAL_USER_ID = 'local-user'
+
+/**
+ * 反查本轮消息的来源渠道，用于把会话切换落到正确的渠道 adapter 上。
+ *
+ * 走 instance 的 presence 而不是 sessionKey 前缀：跨渠道接续之后 sessionKey 属于
+ * 目标会话（可能是客户端或另一个渠道的），从它反推出来的是「会话归属」而不是
+ * 「这条消息从哪来」——而该改的是后者。
+ */
+function resolveOriginChannel(
+  deps: BridgeToolRegistrarDeps,
+  toolCallId: string,
+): { channelType: string; channelUserId: string; channelLabel: string } | null {
+  const instanceId = deps.toolCallInstanceMap.get(toolCallId) ?? deps.getCurrentToolExecutorInstanceId()
+  if (!instanceId) return null
+  const presence = deps.instanceStates.get(instanceId)?.presence
+  // ipc = 用户在客户端，本来就没有渠道路由要改
+  if (!presence?.channelType || !presence.channelUserId || presence.channelType === 'ipc') return null
+  return {
+    channelType: presence.channelType,
+    channelUserId: presence.channelUserId,
+    channelLabel: presence.channelLabel ?? presence.channelType,
+  }
+}
 
 /** 注册客户端命令工具（斜杠命令的 Agent 可调用版本） */
 export function registerClientCommandTools(deps: BridgeToolRegistrarDeps, ctx: ToolExecutionContext): void {
@@ -58,24 +87,119 @@ export function registerClientCommandTools(deps: BridgeToolRegistrarDeps, ctx: T
   }
   deps.toolRegistry.register(createMtBotTool(sessionClearConfig, ctx))
 
-  // session_compact — 压缩上下文
+  // session_compact — 直接在主进程压缩。
+  // 原实现只发 session:compact-request 事件，而渲染层无人监听该事件（真正的手动压缩
+  // 走 user:compact-context），于是工具回 ok 却什么都没发生；渠道场景更是连窗口都没有。
   const sessionCompactConfig: MtBotToolConfig = {
     ...sessionCompactToolConfig,
-    execute: async (_id, rawParams) => {
-      const { sessionKey, keepRecentTurns = 6 } = rawParams as { sessionKey: string; keepRecentTurns?: number }
-      forwardIpcEvent({ type: 'session:compact-request', sessionKey, keepRecentTurns })
-      return jsonToolResult({ ok: true, message: `已请求压缩会话 ${sessionKey}，保留最近 ${keepRecentTurns} 轮` })
+    execute: async (toolCallId, rawParams) => {
+      const { sessionKey, keepRecentTurns = 6 } = rawParams as { sessionKey?: string; keepRecentTurns?: number }
+      // 缺省压缩当前会话：模型手里本来就没有别的 key，强迫它填只会诱发编造
+      const target =
+        sessionKey?.trim() ||
+        (() => {
+          const instanceId = deps.toolCallInstanceMap.get(toolCallId) ?? deps.getCurrentToolExecutorInstanceId()
+          return instanceId ? deps.instanceToConversation.get(instanceId) : undefined
+        })()
+      if (!target) {
+        return jsonToolResult({ ok: false, message: '未指定会话，且无法确定当前会话（可用 session_list 查看）。' })
+      }
+
+      const result = await deps.compactSession(target, keepRecentTurns)
+      if (!result.success) {
+        return jsonToolResult({ ok: false, message: result.error ?? `压缩失败：${target}` })
+      }
+      // 压缩已完成；这条事件只用来让渲染层把视图刷新成压缩后的样子，没有窗口时静默丢弃
+      forwardIpcEvent({ type: 'session:compact-request', sessionKey: target, keepRecentTurns })
+      return jsonToolResult({
+        ok: true,
+        sessionKey: target,
+        messagesRemoved: result.messagesRemoved,
+        hadSummary: result.hadSummary,
+        message:
+          result.messagesRemoved > 0
+            ? `已压缩会话，移出 ${result.messagesRemoved} 条较早的消息${result.hadSummary ? '（并生成摘要）' : ''}。`
+            : '当前没有可压缩的消息。',
+      })
     },
   }
   deps.toolRegistry.register(createMtBotTool(sessionCompactConfig, ctx))
 
-  // session_resume — 切换到指定会话
+  // session_list — 列出最近会话（含来源渠道与当前会话标记），供模型挑一个再切
+  const sessionListConfig: MtBotToolConfig = {
+    ...sessionListToolConfig,
+    execute: async (toolCallId, rawParams) => {
+      const { query, limit } = rawParams as { query?: string; limit?: number }
+      const conversationRepo = getConversationRepo()
+      if (!conversationRepo) return jsonToolResult({ ok: false, message: 'conversationRepo not initialized' })
+
+      const instanceId = deps.toolCallInstanceMap.get(toolCallId) ?? deps.getCurrentToolExecutorInstanceId()
+      const currentSessionKey = instanceId ? deps.instanceToConversation.get(instanceId) : undefined
+
+      const sessions = buildSessionListRows(
+        conversationRepo.listActiveConversations(LOCAL_USER_ID, SESSION_SCAN_LIMIT),
+        { keyword: query, limit, currentSessionKey },
+      )
+
+      return jsonToolResult({
+        ok: true,
+        count: sessions.length,
+        currentSessionKey: currentSessionKey ?? null,
+        sessions,
+      })
+    },
+  }
+  deps.toolRegistry.register(createMtBotTool(sessionListConfig, ctx))
+
+  // session_resume — 切换到指定会话（客户端界面 + 渠道消息路由）
   const sessionResumeConfig: MtBotToolConfig = {
     ...sessionResumeToolConfig,
-    execute: async (_id, rawParams) => {
+    execute: async (toolCallId, rawParams) => {
       const { sessionKey } = rawParams as { sessionKey: string }
-      forwardIpcEvent({ type: 'session:switch-request', sessionKey })
-      return jsonToolResult({ ok: true, message: `已请求切换到会话 ${sessionKey}` })
+      const target = String(sessionKey ?? '').trim()
+      if (!target) return jsonToolResult({ ok: false, message: 'sessionKey is required' })
+
+      const conversationRepo = getConversationRepo()
+      const conv = conversationRepo?.getConversation(target)
+      if (!conv) {
+        return jsonToolResult({
+          ok: false,
+          message: `会话不存在：${target}。请先用 session_list 查看可切换的会话。`,
+        })
+      }
+      const title = conv.title ?? target
+
+      // 客户端界面切过去（原有行为）
+      forwardIpcEvent({ type: 'session:switch-request', sessionKey: target })
+
+      // 来源是聊天渠道时，还要把该渠道后续消息路由到目标会话 ——
+      // 只发上面的 IPC 事件的话，用户在微信里说「切到 X」只有客户端切了，
+      // 下一条微信消息仍旧回到原会话。
+      const origin = resolveOriginChannel(deps, toolCallId)
+      if (!origin) {
+        return jsonToolResult({ ok: true, sessionKey: target, title, message: `已切换到会话「${title}」。` })
+      }
+
+      const adapter = getChannelAdapter(origin.channelType)
+      if (!adapter?.setActiveSessionKey) {
+        return jsonToolResult({
+          ok: true,
+          sessionKey: target,
+          title,
+          message: `客户端已切到会话「${title}」，但${origin.channelLabel}当前不可路由，该渠道后续消息可能仍在原会话。`,
+        })
+      }
+
+      adapter.setActiveSessionKey(origin.channelUserId, target)
+      log.info(
+        `[session_resume] 渠道路由已切换 channel=${origin.channelType} user=${origin.channelUserId} → ${target}`,
+      )
+      return jsonToolResult({
+        ok: true,
+        sessionKey: target,
+        title,
+        message: `已切换到会话「${title}」。后续来自${origin.channelLabel}的消息将进入该会话。`,
+      })
     },
   }
   deps.toolRegistry.register(createMtBotTool(sessionResumeConfig, ctx))

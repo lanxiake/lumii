@@ -150,6 +150,7 @@ export {
   sessionClearToolConfig,
   sessionCompactToolConfig,
   sessionResumeToolConfig,
+  sessionListToolConfig,
   settingsThinkToolConfig,
   settingsBackendToolConfig,
   infoStatusToolConfig,

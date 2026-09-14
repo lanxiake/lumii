@@ -64,6 +64,16 @@ export interface BridgeToolRegistrarDeps {
   weixinCtx: WeixinCtxAccessor
   /** 惰性获取渠道出站 Router（channel_list / channel_send） */
   getChannelRouter: () => import('../channel/channel-outbound-router').ChannelOutboundRouter | null
+  /**
+   * 压缩指定会话的上下文（session_compact 工具用）。
+   *
+   * 直接在主进程完成，不经渲染层 —— 渠道场景没有客户端窗口，
+   * 靠 forwardIpcEvent 通知渲染层去压缩等于什么都不发生。
+   */
+  compactSession: (
+    sessionKey: string,
+    keepRecentTurns: number,
+  ) => Promise<{ success: boolean; messagesRemoved: number; hadSummary: boolean; error?: string }>
   /** 图片生成（image_generate 工具用） */
   generateImage: (params: {
     prompt: string

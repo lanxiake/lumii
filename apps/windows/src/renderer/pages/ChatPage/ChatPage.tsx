@@ -1636,6 +1636,14 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
       const { sessionKey } = (e as CustomEvent<{ sessionKey: string }>).detail ?? {}
       if (sessionKey) void runtimeActions.switchSession(sessionKey)
     }
+    // session_compact 工具已在主进程完成压缩，这里只把视图刷新成压缩后的样子
+    // （被移出的旧消息不该继续显示）。压缩的是别的会话时不动，免得把用户从当前会话拽走。
+    const onCompactRequest = (e: Event) => {
+      const { sessionKey } = (e as CustomEvent<{ sessionKey: string }>).detail ?? {}
+      if (sessionKey && sessionKey === runtimeCurrentSessionKey) {
+        void runtimeActions.switchSession(sessionKey)
+      }
+    }
     // 概览页点资讯卡片 → 预填输入框但不自动发送，用户还能改。
     // newSession=true 时先开一个干净会话：解读某条资讯和用户当前对话无关，
     // 塞进正在进行的会话里会污染上下文。
@@ -1658,13 +1666,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ activeView = 'dashboard', onViewCha
     }
     window.addEventListener('mtbot:session-create-request', onCreateRequest)
     window.addEventListener('mtbot:session-switch-request', onSwitchRequest)
+    window.addEventListener('mtbot:compact-request', onCompactRequest)
     window.addEventListener('mtbot:chat-draft-request', onDraftRequest)
     return () => {
       window.removeEventListener('mtbot:session-create-request', onCreateRequest)
       window.removeEventListener('mtbot:session-switch-request', onSwitchRequest)
+      window.removeEventListener('mtbot:compact-request', onCompactRequest)
       window.removeEventListener('mtbot:chat-draft-request', onDraftRequest)
     }
-  }, [handleNewConversation, runtimeActions, setInputValue])
+  }, [handleNewConversation, runtimeActions, setInputValue, runtimeCurrentSessionKey])
 
   return (
     <div

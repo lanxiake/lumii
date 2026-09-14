@@ -51,7 +51,11 @@ export const sessionClearToolConfig: MtBotToolConfig<typeof SessionClearParams> 
 };
 
 const SessionCompactParams = Type.Object({
-  sessionKey: Type.String({ description: "Session key/ID to compact." }),
+  sessionKey: Type.Optional(
+    Type.String({
+      description: "Session key/ID to compact. Omit to compact the current session.",
+    }),
+  ),
   keepRecentTurns: Type.Optional(
     Type.Number({ description: "Number of recent turns to keep (default: 6).", minimum: 1 }),
   ),
@@ -79,12 +83,46 @@ type SessionResumeInput = Static<typeof SessionResumeParams>;
 export const sessionResumeToolConfig: MtBotToolConfig<typeof SessionResumeParams> = {
   name: "session_resume",
   label: "Resume Session",
-  description: "Switch to a previous conversation session by its sessionKey.",
+  description:
+    "Switch the conversation to another session so the user continues there. " +
+    "Pass the sessionKey returned by session_list (do not invent one). " +
+    "On a chat channel the switch also redirects the user's subsequent messages to that session.",
   parameters: SessionResumeParams,
   category: "agent",
   isReadOnly: false,
   needsPermission: false,
   async execute(_id: string, _p: SessionResumeInput): Promise<AgentToolResult<unknown>> {
+    return notImplemented();
+  },
+};
+
+const SessionListParams = Type.Object({
+  query: Type.Optional(
+    Type.String({ description: "Optional keyword to filter sessions by title." }),
+  ),
+  limit: Type.Optional(
+    Type.Number({
+      description: "Maximum number of sessions to return (default: 20).",
+      minimum: 1,
+      maximum: 50,
+    }),
+  ),
+});
+type SessionListInput = Static<typeof SessionListParams>;
+
+export const sessionListToolConfig: MtBotToolConfig<typeof SessionListParams> = {
+  name: "session_list",
+  label: "List Sessions",
+  description:
+    "List the user's recent conversations, each with its short id, title, source channel " +
+    "(desktop/WeChat/Feishu/WeCom/QQ), last-updated time and whether it is the current one. " +
+    "Call this first when the user refers to a conversation by name, or asks what conversations " +
+    "they have — then pass the returned sessionKey to session_resume.",
+  parameters: SessionListParams,
+  category: "agent",
+  isReadOnly: true,
+  needsPermission: false,
+  async execute(_id: string, _p: SessionListInput): Promise<AgentToolResult<unknown>> {
     return notImplemented();
   },
 };
