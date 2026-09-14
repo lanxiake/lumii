@@ -180,6 +180,7 @@ export function tryHandleChannelOutOfBand(params: {
     hasPending: (sessionKey: string) => boolean
     tryConsumeReply: (sessionKey: string, text: string) => boolean
     clear: (sessionKey: string) => void
+    abandonWithReplay: (sessionKey: string) => void
   }
 }): boolean {
   const { hub: interactionHub, bridge, adapter, session, text, sessionManager, onError, continuity } = params
@@ -187,14 +188,28 @@ export function tryHandleChannelOutOfBand(params: {
   const { sessionKey } = session
   interactionHub.trackSession(adapter, session)
 
-  if (interactionHub.hasPending(sessionKey)) {
-    void interactionHub.tryConsumeReply(sessionKey, text).catch(onError)
-    return true
-  }
+  // 斜杠命令是用户明确的会话操作（/resume、/new、/back…），优先级高于所有挂起项：
+  // 否则用户想切会话时，命令会被当成「提问的答案」或「接续答复」吞掉，看起来就像命令失效。
+  if (text.startsWith('/')) {
+    if (interactionHub.hasPending(sessionKey)) {
+      interactionHub.clear(sessionKey)
+      log.info(`[tryHandleChannelOutOfBand] 斜杠命令作废挂起提问 sessionKey=${sessionKey}`)
+    }
+    // 接续询问同理要让路，但它扣着用户更早发的那条消息，得补投出去
+    if (continuity?.hasPending(sessionKey)) {
+      continuity.abandonWithReplay(sessionKey)
+      log.info(`[tryHandleChannelOutOfBand] 斜杠命令让接续询问让路 sessionKey=${sessionKey}`)
+    }
+  } else {
+    if (interactionHub.hasPending(sessionKey)) {
+      void interactionHub.tryConsumeReply(sessionKey, text).catch(onError)
+      return true
+    }
 
-  // 接续答复也必须插队：它扣着用户那条原始消息，排在运行中的轮次后面等于永远不投递
-  if (continuity?.hasPending(sessionKey) && continuity.tryConsumeReply(sessionKey, text)) {
-    return true
+    // 接续答复也必须插队：它扣着用户那条原始消息，排在运行中的轮次后面等于永远不投递
+    if (continuity?.hasPending(sessionKey) && continuity.tryConsumeReply(sessionKey, text)) {
+      return true
+    }
   }
 
   if (text === '/stop' || text === '/abort') {

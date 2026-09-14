@@ -16,6 +16,9 @@ import { clearCommand } from '../slash-commands/clear'
 import { createHelpCommand } from '../slash-commands/help'
 import { compactCommand } from '../slash-commands/compact'
 import { stopCommand } from '../slash-commands/stop'
+import { resumeCommand } from '../slash-commands/resume'
+import { linkCommand, unlinkCommand } from '../slash-commands/link'
+import { backCommand } from '../slash-commands/back'
 import {
   getChannelInteractionHub,
   tryHandleChannelOutOfBand,
@@ -26,6 +29,8 @@ import {
 } from '../channel-error-helper'
 import { compileForWecom } from '../format/channel-message-compiler'
 import { resolveContinuityForChannel } from '../cross-channel-continuity'
+import { ChannelSessionStore } from '../channel-session-store'
+import { registerChannelAdapter } from '../channel-adapter-registry'
 import { getChannelFeatures } from '../channel-feature-store'
 import {
   pendingAttachments,
@@ -69,6 +74,8 @@ export class WecomChannelAdapter implements IChannelAdapter {
 
   private readonly sessionToInstance = new Map<string, string>()
   private readonly activeSession = new Map<string, string>()
+  /** 活跃会话路由的持久化（重启后仍能回到上次用的会话） */
+  private readonly sessionStore: ChannelSessionStore
   private readonly userQueues = new Map<string, Promise<void>>()
   private readonly contextStrategy: StatelessContextStrategy
   private readonly registry: SlashCommandRegistry
@@ -84,7 +91,14 @@ export class WecomChannelAdapter implements IChannelAdapter {
     this.sessionManager = new SessionManager(bridge)
     this.interactionHub = getChannelInteractionHub(bridge)
     this.acpBackendManager = new AcpBackendManager()
+    this.sessionStore = new ChannelSessionStore({
+      repo: bridge.runtimeStateRepo,
+      channelType: 'wecom',
+      listRecent: (limit) => bridge.listRecentConversations(limit),
+      conversationExists: (id) => Boolean(bridge.conversationRepo.getConversation(id)),
+    })
     this.registry = this.buildRegistry()
+    registerChannelAdapter(this)
   }
 
   /**
@@ -185,17 +199,29 @@ export class WecomChannelAdapter implements IChannelAdapter {
   /**
    * 获取当前活跃 sessionKey。
    */
+  /** 获取当前活跃 sessionKey（优先级：内存覆盖 > 持久化覆盖 > 默认） */
   getActiveSessionKey(channelUserId: string): string {
-    const active = this.activeSession.get(channelUserId)
-    if (active) return active
-    return `wecom:${channelUserId}`
+    return (
+      this.activeSession.get(channelUserId) ??
+      this.sessionStore.getActive(channelUserId) ??
+      `wecom:${channelUserId}`
+    )
   }
 
-  /**
-   * 设置活跃 sessionKey（/new 等命令）。
-   */
+  /** 设置活跃 sessionKey（由 /new、/resume 命令与跨渠道接续调用） */
   setActiveSessionKey(channelUserId: string, sessionKey: string): void {
     this.activeSession.set(channelUserId, sessionKey)
+    this.sessionStore.setActive(channelUserId, sessionKey)
+  }
+
+  /** 回到本渠道自己的会话（跨渠道接续被拒、/back 调用） */
+  resetToChannelSession(channelUserId: string): string {
+    const previous = this.getActiveSessionKey(channelUserId)
+    const own = this.sessionStore.getOwn(channelUserId) ?? `wecom:${channelUserId}`
+    this.activeSession.set(channelUserId, own)
+    this.sessionStore.setActive(channelUserId, own)
+    log.info(`[resetToChannelSession] channelUserId=${channelUserId} ${previous} → ${own}`)
+    return own
   }
 
   /**
@@ -400,6 +426,11 @@ export class WecomChannelAdapter implements IChannelAdapter {
     registry.register('clear', clearCommand)
     registry.register('compact', compactCommand)
     registry.register('stop', stopCommand, ['abort'])
+    // 会话切换与跨渠道接续回退
+    registry.register('resume', resumeCommand)
+    registry.register('back', backCommand)
+    registry.register('link', linkCommand)
+    registry.register('unlink', unlinkCommand)
     return registry
   }
 }

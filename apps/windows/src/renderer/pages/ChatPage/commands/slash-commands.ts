@@ -4,8 +4,8 @@
  * 基础命令（help/status/clear/new/resume/compact/memory/think）由主进程 IPC 提供
  * （命令类型 'commands:list'），客户端本地追加 backend-switching 等客户端专属命令。
  *
- * 这样命令元数据只在一处（agent-runtime-ipc.ts 的 BASE_SLASH_COMMANDS）维护，
- * 跨渠道变更只需改那一处。
+ * 这样命令元数据只在一处（主进程 ipc/agent-runtime/misc-commands.ts 的
+ * BASE_SLASH_COMMANDS）维护，跨渠道变更只需改那一处。
  */
 
 import type { CommandListEntry } from '../../../../shared/agent-runtime-commands'
@@ -122,7 +122,7 @@ export function getSlashCommands(): SlashCommand[] {
   return getBuiltinCommands()
 }
 
-/** 内置默认命令列表（与 agent-runtime-ipc.ts 中 BASE_SLASH_COMMANDS 保持一致） */
+/** 内置默认命令列表（与主进程 misc-commands.ts 中 BASE_SLASH_COMMANDS 保持一致） */
 function getBuiltinCommands(): SlashCommand[] {
   return [
     // ── 信息查询 ──────────────────────────────────────────────────
@@ -131,7 +131,7 @@ function getBuiltinCommands(): SlashCommand[] {
     // ── 会话管理 ──────────────────────────────────────────────────
     { name: '/clear', description: '清空当前会话的所有消息（保留会话）', usage: '/clear', category: 'session' },
     { name: '/new', aliases: ['/n'], description: '新建一个空白会话', usage: '/new', category: 'session' },
-    { name: '/resume', aliases: ['/r'], description: '查看最近 10 个会话，可恢复对话', usage: '/resume [编号]', category: 'session' },
+    { name: '/resume', aliases: ['/r'], description: '查看最近会话，可恢复对话', usage: '/resume [编号]', category: 'session' },
     { name: '/compact', aliases: ['/compress'], description: 'AI 总结历史消息并重构上下文，释放 token 空间', usage: '/compact [自定义压缩指令]', category: 'session' },
     // ── 记忆管理 ──────────────────────────────────────────────────
     { name: '/memory', description: '查看当前 Agent 的记忆列表，支持 clear 子命令', usage: '/memory [clear]', category: 'memory' },

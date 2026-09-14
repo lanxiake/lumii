@@ -25,6 +25,11 @@ const log = {
 /** 询问超时（设计 §5.4：1 分钟内不回复默认接续） */
 export const CONTINUITY_TIMEOUT_MS = 60_000
 
+/**
+ * 候选扫描条数。底层列表是「置顶优先」序，取太少会让真正最近的渠道会话排不进来。
+ */
+const CANDIDATE_SCAN_LIMIT = 50
+
 /** 候选会话：来自其它渠道的近期活跃会话 */
 export interface ContinuityCandidate {
   conversationId: string
@@ -97,15 +102,25 @@ export function pickContinuityCandidate(params: {
     windowMs = 3 * 24 * 60 * 60 * 1000,
   } = params
 
-  for (const conv of recent) {
+  // 当前会话并不属于本渠道 —— 用户已经在别的会话里了（/link 绑定，或上次接续的结果）。
+  // 此时再问「是否接续」既没有语义，又危险：回 0 会把他从自己选定的会话里踢出去。
+  if (channelOfSessionKey(currentSessionKey).channelType !== currentChannelType) return null
+
+  // 底层列表是「置顶优先」序而非时间序（conversation-repo.listActiveConversations），
+  // 置顶的旧会话会压过真正最近的会话。自己按时间排一遍，否则会挑到两天前的闲聊。
+  const ordered = recent
+    .map((conv) => ({ conv, ts: Date.parse(conv.updatedAt) }))
+    .filter((entry) => Number.isFinite(entry.ts))
+    .sort((a, b) => b.ts - a.ts)
+
+  for (const { conv, ts } of ordered) {
     if (conv.id === currentSessionKey) continue
 
     const { channelType, label } = channelOfSessionKey(conv.id)
     // 同渠道 / 非用户会话不作候选
     if (channelType === currentChannelType || !label) continue
 
-    const ts = Date.parse(conv.updatedAt)
-    if (!Number.isFinite(ts) || now - ts > windowMs) continue
+    if (now - ts > windowMs) continue
 
     return {
       conversationId: conv.id,
@@ -199,7 +214,7 @@ export class CrossChannelContinuity {
     let candidate: ContinuityCandidate | null = null
     try {
       candidate = pickContinuityCandidate({
-        recent: this.deps.listRecent(10),
+        recent: this.deps.listRecent(CANDIDATE_SCAN_LIMIT),
         currentSessionKey: sessionKey,
         currentChannelType: channelType,
       })
@@ -242,9 +257,9 @@ export class CrossChannelContinuity {
 
     const decision = parseContinuityReply(text)
     if (decision === null) {
-      // 没看懂：不消费，当普通消息放行（用户可能压根不想理这个询问，直接换了话题）
-      this.clearPending(sessionKey)
-      log.info(`[tryConsumeReply] 未识别为接续答复，放行为普通消息 sessionKey=${sessionKey}`)
+      // 没看懂：本条不消费，当普通消息放行（用户可能压根不想理这个询问，直接换了话题）。
+      // 但被扣住的那条必须补投 —— 它从没进过 Agent、也没落库，一走了之就是凭空消失。
+      this.abandon(sessionKey, { replayHeld: true, reason: '答复无法识别' })
       return false
     }
 
@@ -254,11 +269,50 @@ export class CrossChannelContinuity {
 
   /** /clear、/new、中止时清掉挂起询问，避免陈旧询问吃掉下一条正常消息 */
   clear(sessionKey: string): void {
-    this.clearPending(sessionKey)
+    // 被扣住的旧消息不补投：用户已明确作废这个会话（清空 / 新建 / 打断）
+    this.abandon(sessionKey, { replayHeld: false, reason: 'clear' })
     this.asked.delete(sessionKey)
   }
 
+  /**
+   * 放弃挂起询问，但把被扣住的那条消息补投出去。
+   *
+   * 用于「斜杠命令插队」：用户发的是一条明确的会话操作（/resume、/new…），
+   * 不能被接续询问扣住；而他在此之前发的那条消息仍然要处理，不能跟着一起丢。
+   */
+  abandonWithReplay(sessionKey: string): void {
+    this.abandon(sessionKey, { replayHeld: true, reason: '斜杠命令插队' })
+  }
+
   // ── 内部 ────────────────────────────────────────────────────────────────────
+
+  /**
+   * 放弃挂起的询问。所有「丢弃 pending」的路径都必须经过这里。
+   *
+   * @param replayHeld 是否把被扣住的那条消息投出去。被扣的消息从没进过 Agent，
+   *   任何一走了之的路径都会让它凭空消失（用户发了消息却永远等不到回音）。
+   */
+  private abandon(sessionKey: string, opts: { replayHeld: boolean; reason: string }): void {
+    const entry = this.pending.get(sessionKey)
+    if (!entry) return
+    this.clearPending(sessionKey)
+    log.info(
+      `[abandon] 放弃挂起询问 sessionKey=${sessionKey} reason=${opts.reason} replay=${opts.replayHeld}`,
+    )
+    if (opts.replayHeld) this.replaySafely(entry, opts.reason)
+  }
+
+  /** 重放被扣住的消息；失败时明确告知用户（否则这条消息既不落库也无回音，只能干等） */
+  private replaySafely(entry: PendingAsk, reason: string): void {
+    try {
+      entry.replay()
+    } catch (err) {
+      log.warn(`[replay] 被扣消息重放失败（${reason}）: ${err instanceof Error ? err.message : err}`)
+      void entry.adapter
+        .sendTextReply(entry.session, '⚠️ 你上一条消息没能投递出去，麻烦再发一次。')
+        .catch(() => {})
+    }
+  }
 
   private clearPending(sessionKey: string): void {
     const entry = this.pending.get(sessionKey)
@@ -273,7 +327,7 @@ export class CrossChannelContinuity {
     if (!entry) return
     this.clearPending(sessionKey)
 
-    const { candidate, adapter, session, replay, bind } = entry
+    const { candidate, adapter, session, bind } = entry
     log.info(`[resolve] sessionKey=${sessionKey} accepted=${accepted} reason=${reason}`)
 
     if (accepted) {
@@ -285,20 +339,32 @@ export class CrossChannelContinuity {
         void adapter
           .sendTextReply(
             { ...session, sessionKey: candidate.conversationId, instanceId: null },
-            `✅ 已接续「${candidate.title}」，继续处理你刚才的消息…`,
+            `✅ 已接续「${candidate.title}」，继续处理你刚才的消息…\n（发送 /back 可回到本渠道会话）`,
           )
           .catch(() => {})
       } catch (err) {
         log.warn(`[resolve] 绑定失败，留在原会话: ${err instanceof Error ? err.message : err}`)
       }
+    } else {
+      // 不接续：把路由显式改回本渠道自己的会话。
+      // 不能只「什么都不做」—— 残留的跨渠道覆盖会让消息继续落到别的会话，
+      // 而回落到一个从没用过的 {渠道}:{uid} 又会被 ensureConversationExists 建成空会话。
+      try {
+        const own = adapter.resetToChannelSession?.(session.channelUserId)
+        if (own && own !== sessionKey) {
+          // 重放时 buildSession 拿到的是新 sessionKey，不标记就会被当成「新会话」再问一次
+          this.asked.add(own)
+          void adapter
+            .sendTextReply(session, '好的，已回到你自己渠道的会话继续。')
+            .catch(() => {})
+        }
+      } catch (err) {
+        log.warn(`[resolve] 回到本渠道会话失败: ${err instanceof Error ? err.message : err}`)
+      }
     }
 
     // 重放：adapter 重新 buildSession()，接续后路由自然落到目标会话
-    try {
-      replay()
-    } catch (err) {
-      log.warn(`[resolve] 消息重放失败: ${err instanceof Error ? err.message : err}`)
-    }
+    this.replaySafely(entry, reason)
   }
 }
 

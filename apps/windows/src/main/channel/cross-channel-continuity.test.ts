@@ -15,7 +15,8 @@ import type { ChannelSession, IChannelAdapter } from './types'
 
 const NOW = Date.parse('2026-09-11T12:00:00.000Z')
 const iso = (msAgo: number) => new Date(NOW - msAgo).toISOString()
-const HOUR = 60 * 60 * 1000
+const MINUTE = 60 * 1000
+const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 
 describe('channelOfSessionKey', () => {
@@ -75,6 +76,27 @@ describe('pickContinuityCandidate', () => {
     expect(pickContinuityCandidate({ ...base, recent })).toBeNull()
   })
 
+  // 守卫：当前会话已经不属于本渠道（/link 绑定、或上次接续的结果）时不能再问。
+  // 否则回 0 会把用户从他明确选定的会话里踢出去。
+  it('当前会话不属于本渠道时直接不问', () => {
+    const recent: RecentConversation[] = [
+      { id: 'conv-client', title: '客户端里的另一个会话', updatedAt: iso(HOUR) },
+    ]
+    // 微信用户已 /link 到某个客户端会话
+    expect(
+      pickContinuityCandidate({ ...base, currentSessionKey: 'conv-bound', recent }),
+    ).toBeNull()
+    // 飞书用户上次接续进了微信会话
+    expect(
+      pickContinuityCandidate({
+        ...base,
+        currentSessionKey: 'weixin:u9',
+        currentChannelType: 'feishu',
+        recent,
+      }),
+    ).toBeNull()
+  })
+
   it('时间戳损坏时跳过而不是崩', () => {
     const recent: RecentConversation[] = [
       { id: 'conv-bad', title: '坏数据', updatedAt: 'not-a-date' },
@@ -86,6 +108,15 @@ describe('pickContinuityCandidate', () => {
     const recent: RecentConversation[] = [
       { id: 'feishu:u9', title: '飞书会话', updatedAt: iso(HOUR) },
       { id: 'conv-client', title: '客户端会话', updatedAt: iso(3 * HOUR) },
+    ]
+    expect(pickContinuityCandidate({ ...base, recent })?.conversationId).toBe('feishu:u9')
+  })
+
+  // 底层列表是「置顶优先」序：置顶的旧会话会排在真正最近的会话前面
+  it('列表乱序（置顶优先）时仍取时间上最近的那个', () => {
+    const recent: RecentConversation[] = [
+      { id: 'conv-pinned-old', title: '两天前置顶的闲聊', updatedAt: iso(48 * HOUR) },
+      { id: 'feishu:u9', title: '五分钟前的会话', updatedAt: iso(5 * MINUTE) },
     ]
     expect(pickContinuityCandidate({ ...base, recent })?.conversationId).toBe('feishu:u9')
   })
@@ -184,6 +215,32 @@ describe('CrossChannelContinuity 状态机', () => {
     expect(replay).toHaveBeenCalledTimes(1)
   })
 
+  it('回复 0 → 路由显式改回本渠道会话，且新 key 不再被追问', () => {
+    const reset = vi.fn(() => 'weixin:u1:169')
+    const c = make()
+    c.maybeAsk({ adapter: { ...adapter, resetToChannelSession: reset }, session, replay })
+    expect(c.tryConsumeReply('weixin:u1', '0')).toBe(true)
+
+    expect(reset).toHaveBeenCalledWith('u1')
+    expect(replay).toHaveBeenCalledTimes(1)
+    // 重放后 buildSession 拿到的是 own（新 key），不标记就会被当作新会话再问一次
+    const afterReset: ChannelSession = { ...session, sessionKey: 'weixin:u1:169' }
+    expect(
+      c.maybeAsk({ adapter: { ...adapter, resetToChannelSession: reset }, session: afterReset, replay }),
+    ).toBe(false)
+  })
+
+  it('回到本渠道会话失败时不阻断重放', () => {
+    const reset = vi.fn(() => {
+      throw new Error('store 不可用')
+    })
+    const c = make()
+    c.maybeAsk({ adapter: { ...adapter, resetToChannelSession: reset }, session, replay })
+    expect(() => c.tryConsumeReply('weixin:u1', '0')).not.toThrow()
+
+    expect(replay).toHaveBeenCalledTimes(1)
+  })
+
   it('1 分钟超时 → 默认接续，消息不丢', () => {
     const c = make()
     c.maybeAsk({ adapter, session, replay, bind })
@@ -196,12 +253,14 @@ describe('CrossChannelContinuity 状态机', () => {
     expect(c.hasPending('weixin:u1')).toBe(false)
   })
 
-  it('答复无法识别 → 放行为普通消息，不吃掉它', () => {
+  it('答复无法识别 → 放行为普通消息，且被扣住的那条补投出去', () => {
     const c = make()
     c.maybeAsk({ adapter, session, replay })
     // 用户压根没理询问，直接换了话题
     expect(c.tryConsumeReply('weixin:u1', '帮我查下天气')).toBe(false)
     expect(c.hasPending('weixin:u1')).toBe(false)
+    // 被扣的消息从没进过 Agent，必须补投，否则用户发了消息永远等不到回音
+    expect(replay).toHaveBeenCalledTimes(1)
   })
 
   it('同一会话只问一次', () => {
@@ -261,11 +320,13 @@ describe('CrossChannelContinuity 状态机', () => {
     expect(replay).toHaveBeenCalledTimes(1)
   })
 
-  it('clear 后可重新询问（/clear、/new 语义）', () => {
+  it('clear 后可重新询问，且不补投被扣消息（/clear、/new 语义）', () => {
     const c = make()
     c.maybeAsk({ adapter, session, replay })
     c.clear('weixin:u1')
     expect(c.hasPending('weixin:u1')).toBe(false)
+    // 用户已明确作废该会话，被扣的旧消息不投递
+    expect(replay).not.toHaveBeenCalled()
     expect(c.maybeAsk({ adapter, session, replay })).toBe(true)
   })
 })

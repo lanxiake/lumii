@@ -114,6 +114,15 @@ export interface IChannelAdapter {
   getContextStrategy(): ContextStrategy
   /** 切换活跃 sessionKey（/new、/resume、/link 命令调用，可选） */
   setActiveSessionKey?(channelUserId: string, sessionKey: string): void
+  /** 当前活跃 sessionKey（可选） */
+  getActiveSessionKey?(channelUserId: string): string
+  /**
+   * 回到本渠道自己的会话：清掉跨渠道接续借来的路由，回落到该渠道最近用的会话
+   * （`/back` 命令与「不接续」时调用）。
+   *
+   * @returns 回落后的 sessionKey
+   */
+  resetToChannelSession?(channelUserId: string): string
 }
 
 // ── 渠道标签映射 ──────────────────────────────────────────────────────────────

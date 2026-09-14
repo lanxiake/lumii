@@ -29,6 +29,7 @@ import { createSwitchBackendCommand, lumiiCommand } from '../slash-commands/swit
 import { projectCommand } from '../slash-commands/project'
 import { getCodingDevConfig, resolveDevContext } from '../../coding-dev-env.js'
 import { linkCommand, unlinkCommand } from '../slash-commands/link'
+import { backCommand } from '../slash-commands/back'
 import { runCodingDevAcpPrompt } from '../../coding-dev-backends-stub/run-coding-dev-acp-prompt.js'
 import { resolveAcpTimeoutMs } from '../../coding-dev-backends-stub/acp-config.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
@@ -47,6 +48,8 @@ import {
   type PendingAttachment,
 } from '../pending-attachments'
 import { resolveContinuityForChannel } from '../cross-channel-continuity'
+import { ChannelSessionStore } from '../channel-session-store'
+import { registerChannelAdapter } from '../channel-adapter-registry'
 import {
   consumeHandoff,
   findLatestHandoffFor,
@@ -80,6 +83,8 @@ export class WeixinChannelAdapter implements IChannelAdapter {
   private readonly registry: SlashCommandRegistry
   private readonly sessionManager: SessionManager
   readonly bindingManager: WeixinSessionBindingManager
+  /** 活跃会话路由的持久化（重启后仍能回到上次用的会话） */
+  private readonly sessionStore: ChannelSessionStore
 
   /** 入站时 upsert context_token，供 channel_send 伪 Push */
   private replyContextStore: WeixinReplyContextStore | null = null
@@ -98,7 +103,14 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     this.interactionHub = getChannelInteractionHub(bridge)
     this.bindingManager = new WeixinSessionBindingManager(bridge.runtimeStateRepo)
     this.bindingManager.initialize()
+    this.sessionStore = new ChannelSessionStore({
+      repo: bridge.runtimeStateRepo,
+      channelType: 'weixin',
+      listRecent: (limit) => bridge.listRecentConversations(limit),
+      conversationExists: (id) => Boolean(bridge.conversationRepo.getConversation(id)),
+    })
     this.registry = this.buildRegistry()
+    registerChannelAdapter(this)
   }
 
   /**
@@ -289,9 +301,8 @@ export class WeixinChannelAdapter implements IChannelAdapter {
         adapter: this,
         session: this.buildSession(msg),
         replay: () => void this.handleMessage(msg),
-        // 微信有持久化绑定层，接续后重启仍生效（复用 /link 的存储）
-        bind: (channelUserId, conversationId) =>
-          this.bindingManager.bind(channelUserId, conversationId),
+        // 不写 bindingManager：那是 /link 的显式绑定，接续只是临时借用别的会话。
+        // 走 setActiveSessionKey → ChannelSessionStore，同样持久化，但不会覆盖用户的 /link。
       })
       if (asked) return
     }
@@ -477,30 +488,47 @@ export class WeixinChannelAdapter implements IChannelAdapter {
 
   // ── 会话管理 ──────────────────────────────────────────────────────────────
 
-  /** 获取当前活跃 sessionKey（优先级：activeSession > 绑定会话 > 默认） */
+  /** 获取当前活跃 sessionKey（优先级：内存覆盖 > 持久化覆盖 > /link 绑定 > 默认） */
   getActiveSessionKey(channelUserId: string): string {
-    // 1. /new 或 /resume 切换后的活跃会话（优先级最高）
+    // 1. /new、/resume、/link、跨渠道接续在本进程内设过的路由
     const active = this.activeSession.get(channelUserId)
     if (active) return active
 
-    // 2. /link 绑定的 Windows 会话
+    // 2. 同上的持久化副本：重启后依然生效，用户不必重新切一次
+    const stored = this.sessionStore.getActive(channelUserId)
+    if (stored) return stored
+
+    // 3. /link 绑定的 Windows 会话
     const bound = this.bindingManager.getBoundConversationId(channelUserId)
     if (bound) return bound
 
-    // 3. 默认：基于 channelUserId 的独立会话
+    // 4. 默认：基于 channelUserId 的独立会话
     return `weixin:${channelUserId}`
   }
 
-  /** 设置活跃 sessionKey（由 /new、/resume、/link 命令调用） */
+  /** 设置活跃 sessionKey（由 /new、/resume、/link 命令与跨渠道接续调用） */
   setActiveSessionKey(channelUserId: string, sessionKey: string): void {
     this.activeSession.set(channelUserId, sessionKey)
+    this.sessionStore.setActive(channelUserId, sessionKey)
     log.info(`[setActiveSessionKey] channelUserId=${channelUserId} → sessionKey=${sessionKey}`)
   }
 
-  /** 清除 activeSession 覆盖（/unlink 后恢复绑定路由或默认路由） */
-  clearActiveSession(channelUserId: string): void {
-    this.activeSession.delete(channelUserId)
-    log.info(`[clearActiveSession] channelUserId=${channelUserId} 已清除 activeSession 覆盖`)
+  /**
+   * 回到本渠道自己的会话（跨渠道接续被拒、/back 调用）。
+   *
+   * 只在「当前路由恰好就是那条 /link 绑定」时才解绑：否则用户自己显式 /link 的会话
+   * 会被一个接续答复顺手拆掉。显式解绑请走 /unlink。
+   */
+  resetToChannelSession(channelUserId: string): string {
+    const previous = this.getActiveSessionKey(channelUserId)
+    if (this.bindingManager.getBoundConversationId(channelUserId) === previous) {
+      this.bindingManager.unbind(channelUserId)
+    }
+    const own = this.sessionStore.getOwn(channelUserId) ?? `weixin:${channelUserId}`
+    this.activeSession.set(channelUserId, own)
+    this.sessionStore.setActive(channelUserId, own)
+    log.info(`[resetToChannelSession] channelUserId=${channelUserId} ${previous} → ${own}`)
+    return own
   }
 
   /** 清除媒体附件缓存（切换会话时调用） */
@@ -731,6 +759,8 @@ export class WeixinChannelAdapter implements IChannelAdapter {
     // 跨通道绑定
     registry.register('link', linkCommand)
     registry.register('unlink', unlinkCommand)
+    // 回到本渠道自己的会话（取消跨渠道接续）
+    registry.register('back', backCommand)
     return registry
   }
 }

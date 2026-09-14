@@ -6,6 +6,7 @@
  */
 
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
+import { BASE_SLASH_COMMANDS } from '../../../shared/slash-command-metadata'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { StatefulContextStrategy } from '../../channel/context-strategy/stateful-strategy'
 import { recordFeedbackSignal } from '../../agent-runtime/autonomous-wiring'
@@ -15,45 +16,6 @@ const log = {
   warn: (...args: unknown[]) => console.warn('[AgentRuntime:IPC]', ...args),
   error: (...args: unknown[]) => console.error('[AgentRuntime:IPC]', ...args),
 }
-
-// ============================================================
-// 常量
-// ============================================================
-
-/**
- * 基础斜杠命令列表（前端 /commands 展示；部分由后端拦截实现，部分前端自行处理）
- */
-const BASE_SLASH_COMMANDS = [
-  // ── 信息查询 ──────────────────────────────────────────────────
-  {
-    key: 'help',
-    name: '/help',
-    aliases: [],
-    description: '显示所有可用命令',
-    usage: '/help',
-    category: 'info',
-    acceptsArgs: false,
-  },
-  {
-    key: 'status',
-    name: '/status',
-    aliases: [],
-    description: '查看当前 Agent 状态（上下文用量、模型等）',
-    usage: '/status',
-    category: 'info',
-    acceptsArgs: false,
-  },
-  // ── 会话管理 ──────────────────────────────────────────────────
-  {
-    key: 'clear',
-    name: '/clear',
-    aliases: [],
-    description: '清空当前会话的所有消息（保留会话）',
-    usage: '/clear',
-    category: 'session',
-    acceptsArgs: false,
-  },
-]
 
 // ============================================================
 // 依赖注入接口
