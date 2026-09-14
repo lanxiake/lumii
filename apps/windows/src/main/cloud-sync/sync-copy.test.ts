@@ -205,6 +205,25 @@ describe('sync-copy', () => {
     expect(fs.existsSync(path.join(dst, 'stale.txt'))).toBe(false)
   })
 
+  it('mirror：forceDeletes 跳过安全阀直接执行（用户二次确认）', () => {
+    const { src, dst } = makePair()
+    fs.mkdirSync(dst, { recursive: true })
+    for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(dst, `f${i}.txt`), 'x')
+
+    // 同样的输入，不给 forceDeletes 会被 maxDeletes=3 挡下
+    const blocked = copySyncDirectory(src, dst, { mirror: true, maxDeletes: 3 })
+    expect(blocked.deleteAborted).toBe(true)
+    expect(blocked.deleted).toBe(0)
+
+    const forced = copySyncDirectory(src, dst, {
+      mirror: true,
+      maxDeletes: 3,
+      forceDeletes: true,
+    })
+    expect(forced.deleteAborted).toBe(false)
+    expect(forced.deleted).toBe(5)
+  })
+
   it('mirror：源侧大文件被跳过时，目标侧同名文件不被误删', () => {
     const { src, dst } = makePair()
     fs.writeFileSync(path.join(src, 'big.bin'), Buffer.alloc(6 * 1024 * 1024, 1))

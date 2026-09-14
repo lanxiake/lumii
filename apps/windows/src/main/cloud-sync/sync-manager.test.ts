@@ -260,7 +260,7 @@ describe('CloudSyncManager', () => {
     expect(vi.mocked(git.push).mock.calls.length).toBe(pushCallsBefore)
   })
 
-  it('双方改不同文件 → 自动 merge 成功', async () => {
+  it('双方改不同文件 → 自动 merge 成功，且分支指针指向合并结果', async () => {
     await setupBase()
     writeSync('a.md', 'A1-local')
     await commitSync('local a')
@@ -270,6 +270,17 @@ describe('CloudSyncManager', () => {
     expect(r.state).toBe('idle')
     expect(readSync('a.md')).toBe('A1-local')
     expect(readSync('b.md')).toBe('B1-remote')
+
+    // HEAD 必须仍挂在分支上。isomorphic-git 的 merge 以 ours 为 ref 直接 writeRef，
+    // 传 'HEAD' 会把 .git/HEAD 覆盖成裸 oid（detached）且 refs/heads/main 不动，
+    // 之后 commit 落到游离提交、push 推的还是旧 main。
+    const head = fs.readFileSync(path.join(syncDir, '.git', 'HEAD'), 'utf-8').trim()
+    expect(head).toBe('ref: refs/heads/main')
+
+    // 远端必须同时拿到双方改动。只断言 localHead() === remoteHead() 会假绿 ——
+    // 分支指针没更新时两者都是旧值，照样相等。
+    expect(fs.readFileSync(path.join(remoteDir, 'a.md'), 'utf-8')).toBe('A1-local')
+    expect(fs.readFileSync(path.join(remoteDir, 'b.md'), 'utf-8')).toBe('B1-remote')
     expect(await localHead()).toBe(await remoteHead())
   })
 

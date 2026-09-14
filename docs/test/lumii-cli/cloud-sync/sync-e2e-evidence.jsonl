@@ -1,0 +1,18 @@
+{"ts":"2026-09-14T03:09:06.533Z","id":"SYNC-E2E-01","status":"PASS","note":"首次同步把本地 workspace 文件推送到远端 —— 远端已收到 workspace/files/first.md","durationMs":750,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:07.217Z","id":"SYNC-E2E-02","status":"PASS","note":"本地新增文件同步后出现在远端 —— 新增已传播","durationMs":683,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:08.450Z","id":"SYNC-E2E-03","status":"PASS","note":"本地修改文件同步后远端内容更新 —— 修改已传播","durationMs":1232,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:09.812Z","id":"SYNC-E2E-04","status":"PASS","note":"本地删除文件同步后从远端消失（核心回归） —— 删除已传播，无关文件未受影响","durationMs":1362,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:11.547Z","id":"SYNC-E2E-05","status":"PASS","note":"outputs 目录的删除同样传播 —— outputs 增删均传播","durationMs":1735,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:14.134Z","id":"SYNC-E2E-06","status":"PASS","note":"远端新增文件同步后出现在本地 —— 远端新增已拉取到本地","durationMs":2586,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:16.093Z","id":"SYNC-E2E-07","status":"PASS","note":"远端删除文件同步后本地也删除 —— 远端删除已传播到本地","durationMs":1959,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:18.221Z","id":"SYNC-E2E-08","status":"PASS","note":"远端修改文件同步后本地内容更新 —— 远端修改已拉取到本地","durationMs":2128,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:21.233Z","id":"SYNC-E2E-09","status":"PASS","note":"本地与远端改不同文件时自动合并，双方内容都保留 —— 无冲突自动合并成功","durationMs":3011,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:22.815Z","id":"SYNC-E2E-10","status":"PASS","note":"git 服务端 5xx 时同步失败但不崩、状态可恢复 —— 故障期 state=error，恢复后同步成功","durationMs":1581,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:23.797Z","id":"SYNC-E2E-11","status":"PASS","note":"认证失败（token 不匹配）时同步不成功且不污染远端 —— 认证失败未污染远端（state=error）","durationMs":982,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:23.985Z","id":"SYNC-E2E-12","status":"PASS","note":"未启用云同步时 sync 返回 success:false 且不改动任何数据 —— 未启用时安全短路","durationMs":187,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:26.278Z","id":"SYNC-E2E-13","status":"PASS","note":"批量删除超安全阈值时挡一次，再次同步即确认执行 —— 首次被安全阀挡下；再次同步确认后正常删除","durationMs":2291,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:28.055Z","id":"SYNC-E2E-14","status":"PASS","note":"嵌套目录结构完整同步，删除也传播 —— 嵌套目录增删均正确","durationMs":1776,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:28.831Z","id":"SYNC-E2E-15","status":"PASS","note":"排除 .git 与 node_modules，不进同步仓 —— 重目录被正确剪枝","durationMs":775,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:29.825Z","id":"SYNC-E2E-16","status":"PASS","note":"profile（soul.md）随同步传播 —— profile 已同步","durationMs":994,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:31.092Z","id":"SYNC-E2E-17","status":"PASS","note":"重复同步幂等：无变更时不产生额外提交 —— 重复同步不产生空提交","durationMs":1267,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}
+{"ts":"2026-09-14T03:09:34.218Z","id":"SYNC-E2E-18","status":"PASS","note":"双方改同一文件时进入 conflict 状态且不误推送 —— 进入 conflict 且远端未被覆盖（涉及 1 个文件）","durationMs":3125,"headBefore":"ref: refs/heads/main","headAfter":"ref: refs/heads/main"}

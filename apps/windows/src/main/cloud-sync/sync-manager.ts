@@ -108,6 +108,17 @@ export class CloudSyncManager extends EventEmitter {
   /** 轻量自动提交进行中（防重入；不改 state，state 归完整同步所有） */
   private localCommitInFlight = false
 
+  /**
+   * 删除安全阀的二次确认。
+   *
+   * 熔断只是「挡一次」：源侧待删集合不会因为被挡而减少，若永久拒绝，
+   * 用户的批量删除（或清理动作）就再也传不出去了。所以被挡下后置位，
+   * 下一次同步放行；用户若不想删，那期间把文件恢复即可（源侧恢复后不再有待删项）。
+   */
+  private massDeleteConfirmed = false
+  /** 本次完整同步是否获准跳过安全阀（syncInner 开头从 massDeleteConfirmed 消费一次） */
+  private allowMassDeleteThisSync = false
+
   /** 不缓存目录，每次惰性取（切工作空间无需重建实例） */
   private get workspaceDir(): string {
     return resolveActiveWorkspaceDir()
@@ -165,6 +176,10 @@ export class CloudSyncManager extends EventEmitter {
     }
     if (this.state === 'conflict') return { success: false, state: 'conflict' }
     if (this.state === 'syncing') return { success: false, state: 'syncing' }
+
+    // 消费一次二次确认（放在重入守卫之后：被挡回的重入不该消耗掉它）
+    this.allowMassDeleteThisSync = this.massDeleteConfirmed
+    this.massDeleteConfirmed = false
 
     this.setState('syncing', '开始同步')
     try {
@@ -276,7 +291,11 @@ export class CloudSyncManager extends EventEmitter {
       try {
         await git.merge({
           ...p,
-          ours: 'HEAD',
+          // 必须传分支名而非 'HEAD'：isomorphic-git 内部用 GitRefManager.writeRef
+          // **直接覆盖该 ref 文件**，传 'HEAD' 会把 .git/HEAD 写成裸 oid（detached），
+          // 且 refs/heads/<branch> 根本不动。后果是随后的 commit 落到游离提交、
+          // push 推的还是旧 main —— 多设备场景下表现为「本地改动推不上去」。
+          ours: localRef,
           theirs: remoteRef,
           author: { name: 'Lumii CloudSync', email: 'sync@lumii.local' },
           message: '合并远程变更',
@@ -292,9 +311,10 @@ export class CloudSyncManager extends EventEmitter {
         throw err
       }
 
+      // 刷新工作树到合并结果。同样传分支名：传 'HEAD' 会把 HEAD 写成 detached。
       // 不带 force：本地改动已在步骤 3 落成 commit，工作树理应干净；
       // 若仍有未提交修改，宁可报错也不要静默丢弃
-      await git.checkout({ ...p, ref: 'HEAD' })
+      await git.checkout({ ...p, ref: localRef })
 
       // 10.2 导入：jsonl 走时间戳 merge，用户文件走 git 树差异
       await this.importData(p, baselineOid)
@@ -440,6 +460,7 @@ export class CloudSyncManager extends EventEmitter {
       syncDir: this.syncDir,
       workspaceDir: this.workspaceDir,
       dataDir: this.dataDir,
+      allowMassDelete: this.allowMassDeleteThisSync,
     })
     await exporter.export()
 
@@ -599,12 +620,17 @@ export class CloudSyncManager extends EventEmitter {
       syncDir: this.syncDir,
       workspaceDir: this.workspaceDir,
       dataDir: this.dataDir,
+      allowMassDelete: this.allowMassDeleteThisSync,
     })
     const exportResult = opts?.localEditsOnly
       ? await exporter.exportLocalEdits()
       : await exporter.export()
     if (!exportResult.success) {
       logger.warn(`[exportAndCommit] 导出有错误: ${exportResult.errors.join(', ')}`)
+    }
+    // 被安全阀挡下 → 置位，下次同步放行（二次确认）
+    if (exportResult.deleteAborted) {
+      this.massDeleteConfirmed = true
     }
 
     const hasChanges = await this.stageAllChanges(p)
@@ -636,6 +662,8 @@ export class CloudSyncManager extends EventEmitter {
       // 队列内重新判定：同步可能已在此期间占用了 state
       if (this.state !== 'idle') return false
       if (this.localCommitInFlight) return false
+      // 轻量提交不参与二次确认的放行：它是自动触发的，不代表用户「再次确认」
+      this.allowMassDeleteThisSync = false
       this.localCommitInFlight = true
       try {
         const p = this.getSyncGitParams()

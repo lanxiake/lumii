@@ -46,6 +46,11 @@ export interface SyncExportOptions {
   syncDir: string
   workspaceDir: string
   dataDir: string
+  /**
+   * true：跳过镜像删除的安全阀（用户已二次确认的批量删除）。
+   * 由 CloudSyncManager 在上一次同步被挡下后置位。
+   */
+  allowMassDelete?: boolean
 }
 
 export interface SyncExportResult {
@@ -53,10 +58,14 @@ export interface SyncExportResult {
   exportedFiles: string[]
   errors: string[]
   timestamp: string
+  /** 本次镜像删除被安全阀挡下（源目录可能异常，删除未传播） */
+  deleteAborted: boolean
 }
 
 export class SyncExporter {
   private options: SyncExportOptions
+  /** 本次导出中任一子树的镜像删除被安全阀挡下 */
+  private deleteAborted = false
 
   constructor(options: SyncExportOptions) {
     this.options = options
@@ -150,6 +159,7 @@ export class SyncExporter {
         exportedFiles,
         errors,
         timestamp,
+        deleteAborted: this.deleteAborted,
       }
     } catch (err) {
       logger.error('[export] 导出失败:', err)
@@ -192,7 +202,13 @@ export class SyncExporter {
     }
 
     logger.info(`[exportLocalEdits] 完成，错误 ${errors.length}`)
-    return { success: errors.length === 0, exportedFiles, errors, timestamp }
+    return {
+      success: errors.length === 0,
+      exportedFiles,
+      errors,
+      timestamp,
+      deleteAborted: this.deleteAborted,
+    }
   }
 
   /**
@@ -415,11 +431,12 @@ export class SyncExporter {
    */
   private async exportUserFiles(): Promise<string[]> {
     const errors: string[] = []
+    const copyOpts = this.options.allowMassDelete ? { forceDeletes: true } : {}
 
     const srcFiles = path.join(this.options.workspaceDir, 'files')
     const dstFiles = path.join(this.options.syncDir, 'workspace/files')
     if (fs.existsSync(srcFiles)) {
-      const r = copySyncDirectory(srcFiles, dstFiles, { mirror: true })
+      const r = copySyncDirectory(srcFiles, dstFiles, { mirror: true, ...copyOpts })
       errors.push(...r.errors)
       this.logMirrorResult('workspace/files', r)
     }
@@ -430,6 +447,7 @@ export class SyncExporter {
       const r = copySyncDirectory(srcOutputs, dstOutputs, {
         maxSize: SYNC_OUTPUTS_MAX_BYTES,
         mirror: true,
+        ...copyOpts,
       })
       errors.push(...r.errors)
       if (r.skippedLarge > 0) {
@@ -456,9 +474,10 @@ export class SyncExporter {
       logger.info(`[exportUserFiles] ${label} 镜像删除 ${r.deleted} 项`)
     }
     if (r.deleteAborted) {
+      this.deleteAborted = true
       const msg =
         `${label} 本次删除未同步出去：待删条目超安全阈值（源目录可能异常，或一次删得太多）。` +
-        `若确为批量删除，请分次操作或手动清理 ~/.lumii/sync 后重试。`
+        `已挡下一次；再同步一次即视为确认并执行。`
       logger.warn(`[exportUserFiles] ${msg}`)
       // 写进同步日志（设置页「同步日志」可见），否则用户会以为删除已生效
       appendSyncLog('error', msg)

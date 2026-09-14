@@ -47,6 +47,11 @@ export interface CopySyncDirectoryOptions {
   mirror?: boolean
   /** 覆盖 SYNC_MIRROR_MAX_DELETES */
   maxDeletes?: number
+  /**
+   * true：跳过全部安全阀，直接执行镜像删除。
+   * 用于「用户已二次确认」的批量删除 —— 见 CloudSyncManager 的二次确认逻辑。
+   */
+  forceDeletes?: boolean
 }
 
 export interface CopySyncDirectoryResult {
@@ -190,6 +195,14 @@ function applyMirrorDeletes(ctx: CopyContext): void {
   const { options, result, stale } = ctx
   if (!options?.mirror || stale.length === 0) return
 
+  if (options.forceDeletes) {
+    logger.warn(`[copySyncDirectory] 跳过安全阀，直接删除 ${stale.length} 项（用户已确认）`)
+    for (const target of stale) {
+      if (removeEntry(target, result)) result.deleted += 1
+    }
+    return
+  }
+
   const maxDeletes = options.maxDeletes ?? SYNC_MIRROR_MAX_DELETES
   const ratio = stale.length / Math.max(1, ctx.scanned)
   const ratioExceeded =
@@ -198,9 +211,10 @@ function applyMirrorDeletes(ctx: CopyContext): void {
   if (stale.length > maxDeletes || ratioExceeded) {
     result.deleteAborted = true
     logger.warn(
-      `[copySyncDirectory] 镜像删除已放弃：待删 ${stale.length} 项 / 目标 ${ctx.scanned} 项` +
+      `[copySyncDirectory] 镜像删除已挡下一次：待删 ${stale.length} 项 / 目标 ${ctx.scanned} 项` +
         `（上限 ${maxDeletes} 项或 ${SYNC_MIRROR_MAX_DELETE_RATIO * 100}%）。` +
-        `源目录可能异常，本次删除未传播。样例: ${stale.slice(0, 3).join(', ')}`,
+        `源目录可能异常，本次删除未传播；再次同步即视为用户确认并执行。` +
+        `样例: ${stale.slice(0, 3).join(', ')}`,
     )
     return
   }
