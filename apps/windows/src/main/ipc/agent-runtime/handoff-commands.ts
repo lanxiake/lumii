@@ -78,6 +78,8 @@ export async function handleHandoffConfirm(
       task: handoff.task,
       sessionMode: handoff.sessionMode,
       title: handoff.summary,
+      // 项目名进开发会话的 dev-context → resolveDevContext 命中 → cwd 落在项目目录
+      ...(handoff.projectName ? { projectName: handoff.projectName } : {}),
       report: (payload) =>
         reportToOriginSession(bridge, handoff.originSessionKey, handoff.summary, payload),
     })

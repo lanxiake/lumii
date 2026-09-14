@@ -12,7 +12,7 @@ import {
   setDevContext,
   setDevContextBaseDir,
 } from './coding-dev-dev-context'
-import { resolveAgentDevBinding, resolveProjectPathByName } from './coding-dev-env'
+import { resolveAgentDevBinding, resolveDevContext, resolveProjectPathByName } from './coding-dev-env'
 import type { AppConfig } from './config/types'
 
 let dir: string
@@ -88,5 +88,52 @@ describe('resolveAgentDevBinding / resolveProjectPathByName', () => {
     expect(resolveProjectPathByName(appConfig, 'nope')).toBeUndefined()
     expect(resolveProjectPathByName(appConfig, '  ')).toBeUndefined()
     expect(resolveProjectPathByName(appConfig, undefined)).toBeUndefined()
+  })
+})
+
+/**
+ * 09-P2 的核心链路：runDevHandoff 把提案项目写进开发会话的 dev-context，
+ * resolveDevContext 随即命中会话级来源、把 cwd 解析到项目目录。
+ * 最后一例同时钉住 P3 的拦截判据（无绑定 → 后端回落 lumii → 应拒绝执行）。
+ */
+describe('resolveDevContext · 转交写入项目后的解析（09-P2 链路）', () => {
+  const appConfig = {
+    codingDevProjects: [
+      { name: 'lumii', realPath: 'E:/proj/lumii', isExternal: true },
+      { name: 'blog', realPath: 'E:/proj/blog', isExternal: false },
+    ],
+    codingDevAgentBindings: [
+      { agentId: 'code-dev', backendId: 'claude', workspace: 'E:/proj/binding-ws', enabled: true },
+    ],
+  } as unknown as AppConfig
+
+  const resolve = (sessionKey: string, cfg: unknown = appConfig) =>
+    resolveDevContext({
+      appConfig: cfg as AppConfig,
+      accountId: 'local-user',
+      sessionKey,
+      agentId: 'code-dev',
+      fallbackBackendId: 'lumii',
+    })
+
+  it('会话级项目优先于 Agent 绑定的 workspace，且 source=session', () => {
+    setDevContext('local-user', 'dev-conv-1', { projectName: 'blog' })
+    const ctx = resolve('dev-conv-1')
+    expect(ctx.source).toBe('session')
+    expect(ctx.projectName).toBe('blog')
+    expect(ctx.projectPath).toBe('E:/proj/blog') // 而非 binding.workspace
+    expect(ctx.backendId).toBe('claude') // 后端仍取自绑定
+  })
+
+  it('未写 dev-context 时回落到绑定的 workspace（P2 之前的行为，回归保护）', () => {
+    const ctx = resolve('dev-conv-2')
+    expect(ctx.source).toBe('binding')
+    expect(ctx.projectPath).toBe('E:/proj/binding-ws')
+  })
+
+  it('无 dev-context 也无绑定时后端回落 fallback=lumii（P3 据此拒绝静默降级）', () => {
+    const ctx = resolve('dev-conv-3', { codingDevProjects: appConfig.codingDevProjects })
+    expect(ctx.backendId).toBe('lumii')
+    expect(ctx.projectPath).toBeUndefined()
   })
 })

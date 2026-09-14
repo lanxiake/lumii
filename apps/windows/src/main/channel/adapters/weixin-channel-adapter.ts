@@ -682,9 +682,12 @@ export class WeixinChannelAdapter implements IChannelAdapter {
       return true
     }
 
+    // 提案指定的项目优先于渠道会话自身的 /project 选择（主助手已确认项目归属）
+    const effectiveProjectName = handoff.projectName ?? devContext.projectName
+
     await this.sendTextReply(
       session,
-      `✅ 已确认，交给灵栖开发执行${devContext.projectName ? `（项目：${devContext.projectName}）` : ''}…`,
+      `✅ 已确认，交给灵栖开发执行${effectiveProjectName ? `（项目：${effectiveProjectName}）` : ''}…`,
     ).catch(() => undefined)
 
     // 执行空间 = 灵栖开发的开发会话（新建/复用最近）；完成后异步把结果汇报回本会话
@@ -694,6 +697,7 @@ export class WeixinChannelAdapter implements IChannelAdapter {
         task: handoff.task,
         sessionMode: handoff.sessionMode,
         title: handoff.summary,
+        ...(handoff.projectName ? { projectName: handoff.projectName } : {}),
         report: (payload) =>
           this.sendTextReply(session, formatHandoffReport(handoff.summary, payload)).catch((err) => {
             log.warn(

@@ -21,6 +21,14 @@ export interface PendingHandoff {
   readonly summary: string
   /** 会话选择：new=新开；recent=复用灵栖开发最近的会话（由主助手按上下文判断） */
   readonly sessionMode: 'new' | 'recent'
+  /**
+   * 目标项目名（本机 `codingDevProjects` 中的 registered 项目）。
+   *
+   * 执行时写入**开发会话**的 dev-context，使 `resolveDevContext` 命中 `source: 'session'`
+   * 并把 cwd 解析到项目目录——这是「转交后项目不丢」的唯一通道
+   * （`codingDevProjects` 本身不参与解析，只认 dev-context 与 Agent 绑定）。
+   */
+  readonly projectName?: string
 }
 
 const pending = new Map<string, PendingHandoff>()

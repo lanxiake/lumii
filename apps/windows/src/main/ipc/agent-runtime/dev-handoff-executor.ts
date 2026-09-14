@@ -11,8 +11,11 @@
  */
 
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
+import { setDevContext } from '../../coding-dev-dev-context'
 import { handleConversationCreate, handleConversationList } from './conversation-commands'
 import { handleUserSend } from './user-commands'
+
+const LOCAL_USER_ID = 'local-user'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -41,6 +44,8 @@ export interface RunDevHandoffParams {
   sessionMode: 'new' | 'recent'
   /** 新建会话时的标题（一般传提案摘要） */
   title?: string
+  /** 目标项目名（来自提案）。给出时写入开发会话的 dev-context，决定 cwd 落在哪个项目目录 */
+  projectName?: string
   /** 完成后异步汇报（不阻塞调用方；异常自行捕获） */
   report: (payload: DevHandoffReport) => void | Promise<void>
 }
@@ -141,6 +146,17 @@ export async function runDevHandoff(
     devSessionKey = created.sessionKey
     title = bridge.conversationRepo.getConversation(devSessionKey)?.title ?? title
     log.info(`[runDevHandoff] 新建开发会话 ${devSessionKey}（${title ?? '无标题'}）`)
+  }
+
+  // 1.5 写入会话级开发上下文——项目名是「cwd 落在项目目录」的唯一通道：
+  // resolveDevContext 只认 dev-context 与 Agent 绑定（codingDevProjects 本身不参与解析），
+  // 不写这一步，即使项目已注册，开发会话也会退化成全局 workspace。
+  // 仅在提案指定了项目时写入；未指定则保持会话原状（recent 模式不覆盖用户既有选择）。
+  if (params.projectName) {
+    setDevContext(LOCAL_USER_ID, devSessionKey, { projectName: params.projectName })
+    log.info(
+      `[runDevHandoff] 写入开发上下文 projectName=${params.projectName} session=${devSessionKey}`,
+    )
   }
 
   const base = lastAssistantSnapshot(bridge, devSessionKey)

@@ -62,7 +62,14 @@ export function applyCodingDevAcpEnvToProcess(workspacePath: string): void {
 }
 
 /** 开发相关配置切片（codingDev* 字段）；解析器只依赖这两个字段，避免耦合完整 AppConfig */
-export type CodingDevConfigSlice = Pick<AppConfig, 'codingDevProjects' | 'codingDevAgentBindings'>
+/**
+ * 开发相关配置切片（codingDev* 字段）；解析器只依赖这几个字段，避免耦合完整 AppConfig。
+ * `codingDevActiveProject` 供转交提案推断「默认项目」（见 bridge-tool-registrar-handoff）。
+ */
+export type CodingDevConfigSlice = Pick<
+  AppConfig,
+  'codingDevProjects' | 'codingDevAgentBindings' | 'codingDevActiveProject'
+>
 
 /**
  * 本机开发配置访问（由 index.ts 注入）。

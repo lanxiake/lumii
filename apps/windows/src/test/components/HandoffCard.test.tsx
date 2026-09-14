@@ -1,6 +1,7 @@
 /**
  * HandoffCard（F2 转交卡片）交互测试
  * - 提案就绪：摘要 + 确认按钮
+ * - 目标项目：结果显示项目名（09-P2）；无项目名时回落通用文案
  * - 点击确认：调用 confirmHandoff(handoffId)，成功后显示「去会话查看」并可跳转
  * - 确认失败：展示错误文案
  * - 工具运行中：显示准备提示，不出按钮
@@ -54,6 +55,29 @@ describe('HandoffCard（F2 转交卡片）', () => {
     renderCard(readyPart, makeActions())
     expect(screen.getByText('订单页分页修复')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '交给灵栖开发' })).toBeInTheDocument()
+  })
+
+  it('结果带 projectName 时头部显示项目名（确认前可见目标项目）', () => {
+    renderCard(
+      {
+        ...readyPart,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ status: 'proposed', handoffId: 'h-2', projectName: 'lumii' }),
+            },
+          ],
+        },
+      },
+      makeActions(),
+    )
+    expect(screen.getByText('灵栖开发 · lumii')).toBeInTheDocument()
+  })
+
+  it('结果无 projectName 时回落到通用文案（兼容改动前落库的历史消息）', () => {
+    renderCard(readyPart, makeActions())
+    expect(screen.getByText('灵栖开发 · 绑定项目会话')).toBeInTheDocument()
   })
 
   it('点击确认：调用 confirmHandoff(handoffId)，成功后显示去会话查看并可跳转', async () => {

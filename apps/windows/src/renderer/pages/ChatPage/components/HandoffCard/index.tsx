@@ -29,8 +29,8 @@ type CardState =
   | { phase: 'done'; sessionKey?: string; title?: string }
   | { phase: 'failed'; message: string }
 
-/** 从工具结果里解析 handoffId（jsonToolResult 包装为 { content: [{ text: JSON }] }） */
-function parseProposed(result: unknown): { handoffId?: string } {
+/** 从工具结果里解析 handoffId / projectName（jsonToolResult 包装为 { content: [{ text: JSON }] }） */
+function parseProposed(result: unknown): { handoffId?: string; projectName?: string } {
   try {
     let text: string | undefined
     if (typeof result === 'string') {
@@ -43,8 +43,11 @@ function parseProposed(result: unknown): { handoffId?: string } {
       }
     }
     if (!text) return {}
-    const parsed = JSON.parse(text) as { handoffId?: unknown }
-    return typeof parsed.handoffId === 'string' ? { handoffId: parsed.handoffId } : {}
+    const parsed = JSON.parse(text) as { handoffId?: unknown; projectName?: unknown }
+    return {
+      ...(typeof parsed.handoffId === 'string' ? { handoffId: parsed.handoffId } : {}),
+      ...(typeof parsed.projectName === 'string' ? { projectName: parsed.projectName } : {}),
+    }
   } catch {
     return {}
   }
@@ -54,14 +57,14 @@ export const HandoffCard: React.FC<HandoffCardProps> = ({ part }) => {
   const actions = useChatMessageActions()
 
   const summary = typeof part.args?.summary === 'string' ? part.args.summary : ''
+  const proposed = useMemo(() => parseProposed(part.result), [part.result])
   const initial = useMemo<CardState>(() => {
     if (part.status === 'running' || part.result === undefined) return { phase: 'preparing' }
-    const { handoffId } = parseProposed(part.result)
-    if (part.isError || !handoffId) {
+    if (part.isError || !proposed.handoffId) {
       return { phase: 'failed', message: '提案生成失败，请让主助手重新发起。' }
     }
-    return { phase: 'ready', handoffId }
-  }, [part.status, part.result, part.isError])
+    return { phase: 'ready', handoffId: proposed.handoffId }
+  }, [part.status, part.result, part.isError, proposed])
 
   const [override, setOverride] = useState<CardState | null>(null)
   const state = override ?? initial
@@ -82,7 +85,9 @@ export const HandoffCard: React.FC<HandoffCardProps> = ({ part }) => {
     <div className={styles.card}>
       <div className={styles.header}>
         <span className={styles.badge}>开发任务转交</span>
-        <span className={styles.target}>灵栖开发 · 绑定项目会话</span>
+        <span className={styles.target}>
+          {proposed.projectName ? `灵栖开发 · ${proposed.projectName}` : '灵栖开发 · 绑定项目会话'}
+        </span>
       </div>
       {summary && <div className={styles.summary}>{summary}</div>}
 
