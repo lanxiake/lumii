@@ -1,8 +1,10 @@
 /**
- * 转交执行器（09-P2）：项目名写入**开发会话**的 dev-context。
+ * 转交执行器：项目上下文（09-P2）与绑定预检（09-P3）。
  *
- * 这是「转交后 cwd 落在项目目录」的唯一通道——`codingDevProjects` 本身不参与
- * `resolveDevContext` 解析，不写这一步，即使项目已注册，开发会话也会退化成全局 workspace。
+ * P2：项目名写入**开发会话**的 dev-context——这是「转交后 cwd 落在项目目录」的唯一通道
+ *     （`codingDevProjects` 本身不参与 `resolveDevContext` 解析）。
+ * P3：未绑定编码工具时**明确失败**，不静默降级为 pi 内核——pi 路径不消费 `projectPath`，
+ *     放行会让任务在错误目录里跑，而用户以为转交成功了。
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,8 +21,11 @@ vi.mock('./user-commands', () => ({
 }))
 
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
-import { getDevContext, setDevContextBaseDir } from '../../coding-dev-dev-context'
-import { runDevHandoff } from './dev-handoff-executor'
+import { getDevContext, setDevContext, setDevContextBaseDir } from '../../coding-dev-dev-context'
+import { setCodingDevConfigGetter } from '../../coding-dev-env'
+import { handleConversationCreate, handleConversationList } from './conversation-commands'
+import { setAcpBackendManagerGetter } from './coding-dev-commands'
+import { NO_CLI_BINDING_HINT, runDevHandoff, type DevHandoffReport } from './dev-handoff-executor'
 import { handleUserSend } from './user-commands'
 
 function makeBridge(): AgentRuntimeBridge {
@@ -33,13 +38,34 @@ function makeBridge(): AgentRuntimeBridge {
   } as unknown as AgentRuntimeBridge
 }
 
-describe('runDevHandoff · 项目上下文', () => {
+/** 已绑定：code-dev → claude CLI */
+function bindCli(): void {
+  setCodingDevConfigGetter(() => ({
+    codingDevProjects: [{ name: 'lumii', realPath: 'C:/work/lumii', isExternal: true }],
+    codingDevAgentBindings: [
+      { agentId: 'code-dev', backendId: 'claude', workspace: 'C:/work/lumii', enabled: true },
+    ],
+  }))
+}
+
+/** user-global 后端选择（未配 Agent 绑定时的回落值） */
+function setUserGlobalBackend(id: string): void {
+  setAcpBackendManagerGetter(() => ({ getBackend: () => id }) as never)
+}
+
+function newTempDir(prefix: string): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
+}
+
+describe('runDevHandoff · 项目上下文（P2）', () => {
   let dir: string
 
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumii-handoff-'))
+    dir = newTempDir('lumii-handoff-')
     setDevContextBaseDir(dir)
     vi.clearAllMocks()
+    bindCli()
+    setUserGlobalBackend('lumii')
   })
 
   afterEach(() => {
@@ -88,5 +114,98 @@ describe('runDevHandoff · 项目上下文', () => {
     })
 
     expect(seenAtSend).toEqual(['blog'])
+  })
+})
+
+describe('runDevHandoff · 绑定预检（P3）', () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = newTempDir('lumii-handoff-precheck-')
+    setDevContextBaseDir(dir)
+    vi.clearAllMocks()
+    setUserGlobalBackend('lumii')
+  })
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('未绑定（无 Agent 绑定且 user-global 为 lumii）→ 不建会话、不发消息，汇报可操作指引', async () => {
+    setCodingDevConfigGetter(() => ({}))
+
+    const reports: DevHandoffReport[] = []
+    const res = await runDevHandoff({
+      bridge: makeBridge(),
+      task: 't',
+      sessionMode: 'new',
+      title: 's',
+      projectName: 'lumii',
+      report: (p) => void reports.push(p),
+    })
+
+    expect(handleConversationCreate).not.toHaveBeenCalled()
+    expect(handleUserSend).not.toHaveBeenCalled()
+    expect(reports).toHaveLength(1)
+    expect(reports[0]!.ok).toBe(false)
+    expect(reports[0]!.text).toBe(NO_CLI_BINDING_HINT)
+    expect(res.devSessionKey).toBe('')
+  })
+
+  it('user-global 配了 CLI 时放行（不必配 code-dev 的 Agent 绑定）', async () => {
+    setCodingDevConfigGetter(() => ({}))
+    setUserGlobalBackend('claude')
+
+    await runDevHandoff({
+      bridge: makeBridge(),
+      task: 't',
+      sessionMode: 'new',
+      title: 's',
+      report: () => {},
+    })
+
+    expect(handleUserSend).toHaveBeenCalled()
+  })
+
+  it('已绑定时正常发起（回归保护）', async () => {
+    bindCli()
+
+    await runDevHandoff({
+      bridge: makeBridge(),
+      task: 't',
+      sessionMode: 'new',
+      title: 's',
+      report: () => {},
+    })
+
+    expect(handleConversationCreate).toHaveBeenCalled()
+    expect(handleUserSend).toHaveBeenCalled()
+  })
+
+  it('recent 模式下会话级压制为 lumii 时同样拒绝（会话级优先于全局）', async () => {
+    setCodingDevConfigGetter(() => ({}))
+    setUserGlobalBackend('claude') // 全局有 CLI，但该会话被显式压制
+    vi.mocked(handleConversationList).mockReturnValue([
+      {
+        id: 'dev-conv-1',
+        sessionKey: 'dev-conv-1',
+        agentId: 'code-dev',
+        title: '既有开发会话',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      } as never,
+    ])
+    setDevContext('local-user', 'dev-conv-1', { backendId: 'lumii' })
+
+    const reports: DevHandoffReport[] = []
+    await runDevHandoff({
+      bridge: makeBridge(),
+      task: 't',
+      sessionMode: 'recent',
+      title: 's',
+      report: (p) => void reports.push(p),
+    })
+
+    expect(handleUserSend).not.toHaveBeenCalled()
+    expect(reports[0]?.ok).toBe(false)
   })
 })

@@ -33,7 +33,11 @@ import {
 } from '../../agent-runtime/handoff-store'
 import { getCodingDevConfig, resolveDevContext } from '../../coding-dev-env.js'
 import { DEFAULT_CODING_DEV_BACKEND_ID } from '../../coding-dev-backends-stub/contracts.js'
-import { formatHandoffReport, runDevHandoff } from '../../ipc/agent-runtime/dev-handoff-executor'
+import {
+  NO_CLI_BINDING_HINT,
+  formatHandoffReport,
+  runDevHandoff,
+} from '../../ipc/agent-runtime/dev-handoff-executor'
 import { resolveContinuityForChannel } from '../cross-channel-continuity'
 import { ChannelSessionStore } from '../channel-session-store'
 import { registerChannelAdapter } from '../channel-adapter-registry'
@@ -381,10 +385,7 @@ export class QbotChannelAdapter implements IChannelAdapter {
     )
 
     if (devContext.backendId === DEFAULT_CODING_DEV_BACKEND_ID) {
-      await this.sendTextReply(
-        session,
-        '⚠️ 灵栖开发还没有绑定项目/工具，无法直接执行。请在桌面客户端为「灵栖开发」配置开发绑定（或在本会话 /claude 切换工具）后再发起。',
-      ).catch(() => undefined)
+      await this.sendTextReply(session, NO_CLI_BINDING_HINT).catch(() => undefined)
       return true
     }
 

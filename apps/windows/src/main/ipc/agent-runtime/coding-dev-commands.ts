@@ -36,7 +36,8 @@ export function setAcpBackendManagerGetter(getter: () => import('../../channel/a
   _getAcpBackendManager = getter
 }
 
-function getAcpBackendManager() {
+/** 供同目录模块（转交执行器的绑定预检）读取当前后端选择；未注入时抛错 */
+export function getAcpBackendManager() {
   if (!_getAcpBackendManager) {
     throw new Error('AcpBackendManager getter not set. Call setAcpBackendManagerGetter first.')
   }
