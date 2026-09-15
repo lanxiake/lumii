@@ -526,4 +526,186 @@ describe('CloudSyncManager', () => {
     expect(manager.getStatus().state).toBe('idle')
     expect(await remoteHead()).toBe(await localHead())
   })
+
+  it('fetch 不使用 singleBranch（否则本地有未推送提交时服务端无法增量协商）', async () => {
+    await setupBase()
+    writeSync('new.md', 'v1')
+    await commitSync('local new')
+    await manager.sync()
+    const calls = vi.mocked(git.fetch).mock.calls
+    expect(calls.length).toBeGreaterThan(0)
+    for (const [args] of calls) {
+      expect((args as { singleBranch?: boolean }).singleBranch).not.toBe(true)
+    }
+  })
+
+  // ── 生成物冲突自动落决（v3 设计不变量：DB 导出物不参与 git 文字合并）──
+
+  it('生成物冲突（wiki jsonl）自动取远端收尾，不进 conflict、不打扰 Agent', async () => {
+    await setupBase()
+    // 双方各自改了同一个生成物文件（本地的由 DB 导出、远端的来自另一台设备）
+    writeSync('wiki/wiki_inbox.jsonl', '{"id":"a","created_at":"T1"}\n')
+    await commitSync('local wiki base')
+    writeSync('wiki/wiki_inbox.jsonl', '{"id":"a","created_at":"T1"}\n{"id":"c","created_at":"T3"}\n')
+    await commitSync('local wiki edit')
+    await commitRemote(
+      'wiki/wiki_inbox.jsonl',
+      '{"id":"a","created_at":"T1"}\n{"id":"b","created_at":"T2"}\n',
+    )
+
+    const r = await manager.sync()
+    expect(r.success).toBe(true)
+    expect(r.state).toBe('idle')
+    // 不进入 conflict 状态，Agent 不会被唤醒
+    expect(manager.getConflict()).toBeUndefined()
+    // 落决取远端版本（本地记录由后续 import 并入 DB，再 export 重建文件）
+    expect(readSync('wiki/wiki_inbox.jsonl')).toBe(
+      '{"id":"a","created_at":"T1"}\n{"id":"b","created_at":"T2"}\n',
+    )
+    expect(await localHead()).toBe(await remoteHead())
+  })
+
+  it('生成物与用户文件混合冲突：只有用户文件交给 Agent，生成物已取远端', async () => {
+    await setupBase()
+    writeSync('wiki/wiki_sources.jsonl', '{"id":"s1","created_at":"T1"}\n')
+    writeSync('shared.md', 'local')
+    await commitSync('local edits')
+    await commitRemote('wiki/wiki_sources.jsonl', '{"id":"s1","created_at":"T1"}\n{"id":"s2","created_at":"T2"}\n')
+    await commitRemote('shared.md', 'remote')
+
+    const r = await manager.sync()
+    expect(r.state).toBe('conflict')
+    const c = manager.getConflict()!
+    // 冲突清单里只剩用户文件；生成物已自动落决
+    expect(c.files).toEqual(['shared.md'])
+    expect(readSync('wiki/wiki_sources.jsonl')).toContain('s2')
+
+    const rr = await manager.resolveConflict('keep-local')
+    expect(rr.success).toBe(true)
+    expect(readSync('shared.md')).toBe('local')
+    expect(readSync('wiki/wiki_sources.jsonl')).toContain('s2')
+    expect(await localHead()).toBe(await remoteHead())
+  })
+
+  // ── 冲突快照 CAS 刷新（落决期间远端前进）──
+
+  it('落决 push 被拒且远端已前进 → 刷新快照，下一轮落决收敛（不丢远端新提交）', async () => {
+    await setupBase()
+    writeSync('shared.md', 'local')
+    await commitSync('local shared')
+    await commitRemote('shared.md', 'remote')
+    expect((await manager.sync()).state).toBe('conflict')
+    const staleRemoteOid = manager.getConflict()!.remoteOid
+
+    // 冲突期间另一台设备又推了一次，远端前进
+    await commitRemote('shared.md', 'remote-v2')
+    const newRemoteOid = await remoteHead()
+    expect(newRemoteOid).not.toBe(staleRemoteOid)
+
+    // 本轮落决推送必然被拒（远端已不是快照里的 oid）
+    rejectPush = true
+    const r1 = await manager.resolveConflict('keep-local')
+    expect(r1.success).toBe(false)
+    expect(r1.error).toMatch(/刷新/)
+    // 快照已刷新为新远端 tip，仍在 conflict 等待重新处理
+    expect(manager.getStatus().state).toBe('conflict')
+    expect(manager.getConflict()!.remoteOid).toBe(newRemoteOid)
+
+    // 第二轮按新快照落决成功
+    const r2 = await manager.resolveConflict('keep-local')
+    expect(r2.success).toBe(true)
+    expect(manager.getStatus().state).toBe('idle')
+    expect(fs.readFileSync(path.join(remoteDir, 'shared.md'), 'utf-8')).toBe('local')
+    expect(await localHead()).toBe(await remoteHead())
+  })
+
+  it('落决 push 超时视为「服务端可能已接收」→ 刷新后复核收敛', async () => {
+    await setupBase()
+    writeSync('shared.md', 'local')
+    await commitSync('local shared')
+    await commitRemote('shared.md', 'remote')
+    expect((await manager.sync()).state).toBe('conflict')
+
+    // 模拟：服务端实际已接收落决提交（远端 main 前进到落决提交），但客户端等待回执超时
+    const pushMock = vi.mocked(git.push)
+    const original = pushMock.getMockImplementation()!
+    pushMock.mockImplementationOnce((async (args: {
+      dir: string
+      gitdir: string
+      fs: typeof fs
+      ref: string
+    }) => {
+      const localOid = await git.resolveRef({ ...args, ref: args.ref })
+      copyObjects(args.gitdir, remoteGitdir)
+      await git.writeRef({
+        fs: REMOTE_FS,
+        dir: remoteDir,
+        gitdir: remoteGitdir,
+        ref: 'refs/heads/main',
+        value: localOid,
+        force: true,
+      })
+      throw new Error('git push 超时（1ms），已中止等待')
+    }) as unknown as typeof git.push)
+
+    const r = await manager.resolveConflict('keep-local')
+    pushMock.mockImplementation(original)
+    expect(r.success).toBe(true)
+    expect(manager.getStatus().state).toBe('idle')
+    expect(await localHead()).toBe(await remoteHead())
+  })
+
+  it('落决 push 被拒且远端未前进 → 保持 conflict 并上报原错误', async () => {
+    await setupBase()
+    writeSync('shared.md', 'local')
+    await commitSync('local shared')
+    await commitRemote('shared.md', 'remote')
+    expect((await manager.sync()).state).toBe('conflict')
+    const before = manager.getConflict()!
+
+    rejectPush = true
+    const r = await manager.resolveConflict('keep-local')
+    expect(r.success).toBe(false)
+    expect(r.error).toMatch(/rejected|non-fast-forward/i)
+    expect(manager.getStatus().state).toBe('conflict')
+    expect(manager.getConflict()!.remoteOid).toBe(before.remoteOid)
+  })
+
+  it('删除/修改型冲突：keep-local 保持删除语义，不因选侧缺文件而失败', async () => {
+    await setupBase()
+    // 本地删除 shared.md 并提交（对应导出镜像的删除传播）
+    fs.rmSync(path.join(syncDir, 'shared.md'))
+    await git.remove({ ...syncParams(), filepath: 'shared.md' })
+    await commitSync('local delete shared')
+    // 远端修改了 shared.md（删除 vs 修改 → deleteByUs 冲突）
+    await commitRemote('shared.md', 'remote-modified')
+
+    expect((await manager.sync()).state).toBe('conflict')
+    const c = manager.getConflict()!
+    expect(c.deleteByUs).toContain('shared.md')
+
+    const r = await manager.resolveConflict('keep-local')
+    expect(r.success, `resolve 失败: ${r.error}`).toBe(true)
+    expect(manager.getStatus().state).toBe('idle')
+    // 删除语义保留：本地与远端都不再有这个文件
+    expect(fs.existsSync(path.join(syncDir, 'shared.md'))).toBe(false)
+    expect(fs.existsSync(path.join(remoteDir, 'shared.md'))).toBe(false)
+    expect(await localHead()).toBe(await remoteHead())
+  })
+
+  it('并发 resolveConflict 串行执行，最终一致收敛', async () => {
+    await setupBase()
+    writeSync('shared.md', 'local')
+    await commitSync('local shared')
+    await commitRemote('shared.md', 'remote')
+    expect((await manager.sync()).state).toBe('conflict')
+
+    const [r1, r2] = await Promise.all([
+      manager.resolveConflict('keep-local'),
+      manager.resolveConflict('keep-local'),
+    ])
+    expect(r1.success || r2.success).toBe(true)
+    expect(manager.getStatus().state).toBe('idle')
+    expect(await localHead()).toBe(await remoteHead())
+  })
 })

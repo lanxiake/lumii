@@ -1293,6 +1293,38 @@ export const COMMANDS = [
       return {}
     },
   },
+  {
+    name: 'cloudsync resolve',
+    group: '云同步',
+    usage: 'cloudsync resolve --strategy <keep-local|keep-remote|per-file> [--choices <json>|-]',
+    summary: '解决云同步冲突（等价于 Agent 的 resolve_sync_conflict 工具，供自动化/测试驱动）',
+    layer: 'B',
+    route: { method: 'POST', path: '/ipc/cloudsync/resolve' },
+    options: [
+      { flag: '--strategy <strategy>', desc: 'keep-local | keep-remote | per-file' },
+      {
+        flag: '--choices <json>',
+        desc: 'per-file 时的逐文件取侧数组，如 [{"path":"a.md","side":"local"}]，或 "-" 从 stdin 读',
+      },
+    ],
+    build(args, extra) {
+      const strategy = args.flags.strategy
+      if (strategy !== 'keep-local' && strategy !== 'keep-remote' && strategy !== 'per-file') {
+        return null
+      }
+      const out = { strategy }
+      const raw = args.flags.choices
+      if (raw !== undefined) {
+        const text = raw === '-' ? extra?.stdin ?? '' : raw
+        try {
+          out.choices = JSON.parse(text)
+        } catch {
+          return null
+        }
+      }
+      return out
+    },
+  },
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 工具进化
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

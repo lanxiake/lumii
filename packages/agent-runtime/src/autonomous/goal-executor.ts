@@ -86,7 +86,7 @@ export function buildGoalPrompt(goal: { type: string; description: string }, sel
     case GoalType.CAPABILITY_IMPROVEMENT:
       return `${base}\n\n你在打磨自己的一项能力：围绕它做有针对性的练习，或产出一份改进方案。做不到就如实说明。`;
     case GoalType.SYSTEM_MAINTENANCE:
-      return `${base}\n\n你在处理一项系统维护任务。用 cloud_sync_read_file 读取冲突文件的 local/remote/base 三方内容，判断应保留哪一侧，再调用 resolve_sync_conflict 解决（策略：keep-local 保留本地 / keep-remote 采用远端 / per-file 逐文件指定）。处理完后用一句话说明决定与原因。若无法判断，采用 keep-local 保留本地数据，确保不丢失本地工作。resolve_sync_conflict 只需调用一次：成功则收尾；若返回 error/超时，如实说明后停止，禁止反复重试同一工具。`;
+      return `${base}\n\n你在处理一项系统维护任务。用 cloud_sync_read_file 读取冲突文件的 local/remote/base 三方内容，判断应保留哪一侧，再调用 resolve_sync_conflict 解决（策略：keep-local 保留本地 / keep-remote 采用远端 / per-file 逐文件指定）。处理完后用一句话说明决定与原因。若无法判断，采用 keep-local 保留本地数据，确保不丢失本地工作。resolve_sync_conflict 只需调用一次：成功则收尾；若返回「冲突信息已刷新」，可重新读取三方内容后再处理一次；其余 error/超时如实说明后停止，禁止反复重试同一工具。`;
     default:
       return `${base}\n\n去做这件事。做不了就如实停下。`;
   }

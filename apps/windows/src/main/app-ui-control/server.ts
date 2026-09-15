@@ -317,6 +317,10 @@ async function handleRoute(
       await handleCloudSyncSyncRoute(res)
       return
     }
+    case '/ipc/cloudsync/resolve': {
+      await handleCloudSyncResolveRoute(body, res)
+      return
+    }
     default:
       sendJson(res, 404, { ok: false, error: 'not_found' })
   }
@@ -421,6 +425,39 @@ async function handleCloudSyncSyncRoute(res: http.ServerResponse): Promise<void>
   }
   const result = await m.sync()
   sendJson(res, 200, { ok: true, ...result })
+}
+
+/**
+ * B 层：解决云同步冲突（等价于 Agent 的 resolve_sync_conflict 工具，供自动化/测试驱动）。
+ */
+async function handleCloudSyncResolveRoute(body: unknown, res: http.ServerResponse): Promise<void> {
+  const m = getCloudSyncManager()
+  if (!m) {
+    sendJson(res, 200, { ok: false, error: 'not_ready' })
+    return
+  }
+  const b = (body ?? {}) as { strategy?: unknown; choices?: unknown }
+  const strategy = b.strategy
+  if (strategy !== 'keep-local' && strategy !== 'keep-remote' && strategy !== 'per-file') {
+    sendJson(res, 200, { ok: false, error: 'usage: strategy must be keep-local|keep-remote|per-file' })
+    return
+  }
+  let choices: { path: string; side: 'local' | 'remote' }[] | undefined
+  if (Array.isArray(b.choices)) {
+    choices = b.choices.filter(
+      (c): c is { path: string; side: 'local' | 'remote' } =>
+        !!c &&
+        typeof c === 'object' &&
+        typeof (c as { path?: unknown }).path === 'string' &&
+        ((c as { side?: unknown }).side === 'local' || (c as { side?: unknown }).side === 'remote'),
+    )
+  }
+  if (strategy === 'per-file' && (choices?.length ?? 0) === 0) {
+    sendJson(res, 200, { ok: false, error: 'per-file requires non-empty choices' })
+    return
+  }
+  const result = await m.resolveConflict(strategy, choices)
+  sendJson(res, 200, { ok: true, ...result, state: m.getStatus().state })
 }
 
 /**

@@ -493,8 +493,8 @@ defineCase('SYNC-E2E-17', '重复同步幂等：无变更时不产生额外提�
   return '重复同步不产生空提交'
 })
 
-// ── C 组续：真冲突放最后 —— 一旦进入 conflict，客户端会一直拒绝后续 sync
-//    （resolve_sync_conflict 无 CLI 入口），放在中间会连带卡死其余用例。 ──
+// ── C 组续：真冲突放最后 —— 进入 conflict 后，客户端会在后续 sync 上被重入守卫挡回，
+//    放中间会连带影响其余用例（用例内需用 cloudsync resolve 收尾）。 ──
 
 defineCase('SYNC-E2E-18', '双方改同一文件时进入 conflict 状态且不误推送', async () => {
   localWrite('files/contested.md', 'base')
@@ -520,7 +520,65 @@ defineCase('SYNC-E2E-18', '双方改同一文件时进入 conflict 状态且不�
   if (remoteRead('workspace/files/contested.md') !== remoteBefore) {
     throw new Error('冲突未解决时不应改动远端')
   }
-  return `进入 conflict 且远端未被覆盖（涉及 ${files.length} 个文件）`
+
+  // 收尾落决（本套件新增 cloudsync resolve CLI）：不停在 conflict，避免后续用例被挡
+  const rr = await uiAsync(['cloudsync', 'resolve', '--strategy', 'keep-local'], {
+    timeoutMs: 300_000,
+  })
+  if (rr.json?.success !== true) throw new Error(`冲突收尾落决失败: ${JSON.stringify(rr.json)}`)
+  return `进入 conflict 且远端未被覆盖（涉及 ${files.length} 个文件），落决收尾成功`
+})
+
+defineCase('SYNC-E2E-19', '冲突期间远端再前进：落决被拒后自动刷新快照并收敛（本 Incident 回归）', async () => {
+  localWrite('files/stale.md', 'base')
+  await syncNow()
+
+  localWrite('files/stale.md', 'from A')
+  await deviceBWrite('workspace/files/stale.md', 'from B')
+  await deviceBPush('B 改 stale')
+
+  const r = await syncNow({ allowFail: true, label: '冲突同步' })
+  if (r.state !== 'conflict') throw new Error(`期望 conflict，实际 ${r.state}`)
+
+  // 冲突期间另一台设备又推了一次：本地快照（remoteOid）就此过期
+  await deviceBWrite('workspace/files/b-extra.md', 'extra-from-b')
+  await deviceBPush('B 追加新文件')
+
+  // 第一轮落决：push 必被拒（远端已不是快照里的 oid）→ 应返回「已刷新」而非死循环重试。
+  // 旧实现此处会反复报 "Push rejected ... not a simple fast-forward" 永远卡死。
+  const r1 = await uiAsync(['cloudsync', 'resolve', '--strategy', 'keep-local'], {
+    timeoutMs: 300_000,
+  })
+  if (r1.json?.ok !== true) throw new Error(`resolve 调用失败: ${r1.out || r1.stderr}`)
+  if (r1.json.success !== false || !String(r1.json.error ?? '').includes('刷新')) {
+    throw new Error(`首轮落决应返回「已刷新」: ${JSON.stringify(r1.json)}`)
+  }
+  if (r1.json.state !== 'conflict') {
+    throw new Error(`刷新后应仍在 conflict 等待重新处理: ${JSON.stringify(r1.json)}`)
+  }
+
+  // 第二轮：按刷新后的快照落决，成功收尾
+  const r2 = await uiAsync(['cloudsync', 'resolve', '--strategy', 'keep-local'], {
+    timeoutMs: 300_000,
+  })
+  if (r2.json?.ok !== true || r2.json.success !== true) {
+    throw new Error(`第二轮落决应成功: ${JSON.stringify(r2.json)} / ${r2.out || r2.stderr}`)
+  }
+  const s = await uiAsync(['cloudsync', 'status'], { timeoutMs: 30_000 })
+  if (s.json?.status?.state !== 'idle') {
+    throw new Error(`落决后应回到 idle: ${JSON.stringify(s.json)}`)
+  }
+
+  // 收敛断言：本地版本胜出；远端在冲突期间的新提交没有被落决丢掉
+  const merged = remoteRead('workspace/files/stale.md')
+  if (merged?.trim() !== 'from A') {
+    throw new Error(`远端应为本地版本 from A，实际 ${merged}`)
+  }
+  const extra = remoteRead('workspace/files/b-extra.md')
+  if (extra?.trim() !== 'extra-from-b') {
+    throw new Error('冲突期间远端新增的文件在落决时被丢掉了（回归）')
+  }
+  return '落决被拒 → 快照自动刷新 → 二轮收敛，远端新提交未丢失'
 })
 
 // ────────────────────────────────────────────────
