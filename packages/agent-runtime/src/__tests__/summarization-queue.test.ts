@@ -29,6 +29,7 @@ describe("SummarizationQueue", () => {
     const onCalls: Array<{ seg: MemorySegment; cands: readonly ExtractedCandidate[] }> = [];
     const q = new SummarizationQueue({
       repo,
+      listPending: (limit) => repo.findClosed(limit),
       loadSegmentText: async () => "我打算去日本旅行",
       summarize: async () => sampleCandidates,
       onCandidates: (seg, cands) => { onCalls.push({ seg, cands }); },
@@ -46,6 +47,7 @@ describe("SummarizationQueue", () => {
     let summarizeCalled = false;
     const q = new SummarizationQueue({
       repo,
+      listPending: (limit) => repo.findClosed(limit),
       loadSegmentText: async () => "   ",
       summarize: async () => { summarizeCalled = true; return []; },
       onCandidates: () => {},
@@ -61,6 +63,7 @@ describe("SummarizationQueue", () => {
     let onCalled = false;
     const q = new SummarizationQueue({
       repo,
+      listPending: (limit) => repo.findClosed(limit),
       loadSegmentText: async () => "闲聊一句",
       summarize: async () => [],
       onCandidates: () => { onCalled = true; },
@@ -75,6 +78,7 @@ describe("SummarizationQueue", () => {
     seedClosed(repo, "s1");
     const q = new SummarizationQueue({
       repo,
+      listPending: (limit) => repo.findClosed(limit),
       loadSegmentText: async () => "内容",
       summarize: async () => { throw new Error("LLM 限流"); },
       onCandidates: () => {},
@@ -93,6 +97,7 @@ describe("SummarizationQueue", () => {
     repo.incrementRetry("s1"); // 已 2 次
     const q = new SummarizationQueue({
       repo,
+      listPending: (limit) => repo.findClosed(limit),
       loadSegmentText: async () => "内容",
       summarize: async () => { throw new Error("again"); },
       onCandidates: () => {},
@@ -109,6 +114,7 @@ describe("SummarizationQueue", () => {
     const processed: string[] = [];
     const q = new SummarizationQueue({
       repo,
+      listPending: (limit) => repo.findClosed(limit),
       loadSegmentText: async () => "内容",
       summarize: async (_t, seg) => { processed.push(seg.id); return sampleCandidates; },
       onCandidates: () => {},
@@ -126,6 +132,7 @@ describe("SummarizationQueue", () => {
     let summarizeCalled = false;
     const q = new SummarizationQueue({
       repo,
+      listPending: (limit) => repo.findClosed(limit),
       loadSegmentText: async () => "内容",
       summarize: async () => { summarizeCalled = true; return []; },
       onCandidates: () => {},
@@ -142,6 +149,7 @@ describe("SummarizationQueue", () => {
     let maxActive = 0;
     const q = new SummarizationQueue({
       repo,
+      listPending: (limit) => repo.findClosed(limit),
       loadSegmentText: async () => "内容",
       summarize: async () => {
         active++;
@@ -156,5 +164,35 @@ describe("SummarizationQueue", () => {
     q.enqueue("s2");
     await q.settle();
     expect(maxActive).toBe(1); // 串行：任意时刻至多 1 个在处理
+  });
+
+  it("start() 只恢复本作用域的段，不跨 agent（listPending 注入）", async () => {
+    seedClosed(repo, "mine"); // agentId=a1
+    // 另一 agent 的 closed 段：本 pipeline 的恢复扫描不应捞走它
+    repo.create({
+      id: "other-agent",
+      conversationId: "c9",
+      userId: "u1",
+      agentId: "a2",
+      startMessageId: "other-start",
+    });
+    repo.close("other-agent", "other-end", "topic_shift");
+
+    const processed: string[] = [];
+    const q = new SummarizationQueue({
+      repo,
+      listPending: (limit) => repo.findClosedByScope("a1", "u1", limit),
+      loadSegmentText: async () => "内容",
+      summarize: async (_t, seg) => {
+        processed.push(seg.id);
+        return sampleCandidates;
+      },
+      onCandidates: () => {},
+    });
+    q.start();
+    await q.settle();
+
+    expect(processed).toEqual(["mine"]);
+    expect(repo.findById("other-agent")?.status).toBe("closed"); // 仍待其归属 pipeline 处理
   });
 });

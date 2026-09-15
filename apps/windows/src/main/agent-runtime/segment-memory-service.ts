@@ -3,9 +3,10 @@
  *
  * 把 @mtbot/agent-runtime 的 SegmentMemoryPipeline 接进 Windows 客户端：
  * - 每个 agentId 一条 pipeline（记忆按 agent+user 隔离），按需创建并 start（重启恢复）
+ * - 启动时 recoverPending() 主动恢复遗留 closed 段（不必等用户发消息才触发）
  * - observe 仅在 user 消息持久化点调用——段边界只在 user 轮评估，段内 assistant 上下文
  *   由 pipeline 的 loadSegmentText 按时间区间回读自动补齐
- * - 灰度：默认关闭（环境变量 MTBOT_SEGMENT_MEMORY=1 开启），关闭时所有方法 no-op，
+ * - 灰度：默认开启（无正式用户，直接启用）；如需关闭设 MTBOT_SEGMENT_MEMORY=0，关闭时所有方法 no-op
  *   完全不影响旧逻辑
  *
  * 设计：.qoder/design/client-agent-runtime/2026-05-30-记忆系统升级-段落总结提取设计.md
@@ -22,6 +23,9 @@ import {
 import { agentRuntimeLog as log } from './bridge-utils'
 
 const LOCAL_USER_ID = 'local-user'
+
+/** 启动恢复一次最多接管的待总结段数（对齐 SummarizationQueue 的 recoverLimit 默认值） */
+const RECOVER_LIMIT = 100
 
 export interface SegmentMemoryServiceDeps {
   segmentRepo: SegmentRepo
@@ -73,6 +77,30 @@ export class SegmentMemoryService {
       })
     } catch (err) {
       log.error('[SegmentMemoryService] observeUserTurn 失败:', err)
+    }
+  }
+
+  /**
+   * 启动恢复：为所有存在待总结 closed 段的 agent 创建 pipeline（getPipeline 内部 start() 续跑）。
+   *
+   * 与 observeUserTurn 的懒创建互补：pipeline 只在首次 observe/flush 时创建，若只在彼时
+   * start()，退出时遗留的段会全部堆到「用户下一条消息」那一刻集中爆发（2026-09-15 实测
+   * 一条「你好」触发 9 次串行总结、53 秒）。改由应用启动后主动恢复，积压在后台安静消化。
+   */
+  recoverPending(): void {
+    if (!this.enabled) return
+    try {
+      const pending = this.deps.segmentRepo
+        .findClosed(RECOVER_LIMIT)
+        .filter((seg) => seg.userId === LOCAL_USER_ID)
+      if (pending.length === 0) return
+      const agentIds = new Set(pending.map((seg) => seg.agentId))
+      log.info(
+        `[SegmentMemoryService] 启动恢复：${pending.length} 个待总结段，涉及 ${agentIds.size} 个 agent`,
+      )
+      for (const agentId of agentIds) this.getPipeline(agentId)
+    } catch (err) {
+      log.error('[SegmentMemoryService] recoverPending 失败:', err)
     }
   }
 

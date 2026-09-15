@@ -4,7 +4,8 @@
  * 段落总结提取（记忆系统升级阶段①）的存储层：
  * - 段用 message-id 区间锚定（非 turnIndex，后者在 mtbot 不稳定）
  * - 三态：open → closed → summarised
- * - findClosed 供 SummarizationQueue worker 重启恢复（进程退出不丢未总结段）
+ * - findClosedByScope 供 SummarizationQueue worker 重启恢复（进程退出不丢未总结段，
+ *   且只恢复本 agent+user 作用域的段）；findClosed 为跨作用域巡检用。
  *
  * 设计：`.qoder/design/client-agent-runtime/2026-05-30-记忆系统升级-段落总结提取设计.md`
  */
@@ -191,7 +192,7 @@ export class SegmentRepo {
   }
 
   /**
-   * 取待总结的 closed 段（worker 重启恢复用）。
+   * 取待总结的 closed 段（跨作用域，清理/巡检用）。
    * 按创建时间升序，保证先进先总结。
    */
   findClosed(limit = 20): MemorySegment[] {
@@ -200,6 +201,20 @@ export class SegmentRepo {
         "SELECT * FROM memory_segments WHERE status = 'closed' ORDER BY created_at ASC LIMIT ?",
       )
       .all(limit)
+      .map(rowToSegment);
+  }
+
+  /**
+   * 取某作用域（agent+user）待总结的 closed 段——worker 重启恢复用。
+   * 与 findClosed 的区别：不跨 agent，避免一条 pipeline 总结到别的 agent 的段。
+   */
+  findClosedByScope(agentId: string, userId: string, limit = 20): MemorySegment[] {
+    return this.db
+      .prepare<SegmentRow>(
+        `SELECT * FROM memory_segments WHERE status = 'closed' AND agent_id = ? AND user_id = ?
+         ORDER BY created_at ASC LIMIT ?`,
+      )
+      .all(agentId, userId, limit)
       .map(rowToSegment);
   }
 

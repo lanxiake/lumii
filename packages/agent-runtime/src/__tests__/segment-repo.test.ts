@@ -76,6 +76,25 @@ describe("SegmentRepo", () => {
     expect(ids.indexOf("seg-a")).toBeLessThan(ids.indexOf("seg-b"));
   });
 
+  it("findClosedByScope 只返回本 agent+user 的 closed 段", () => {
+    repo.create({ ...baseCreate, id: "mine" });
+    repo.create({ ...baseCreate, id: "other-agent", conversationId: "conv-2", agentId: "a2" });
+    repo.create({
+      ...baseCreate,
+      id: "other-user",
+      conversationId: "conv-3",
+      userId: "u2",
+    });
+    // 同作用域但未关闭的段不参与恢复
+    repo.create({ ...baseCreate, id: "still-open", conversationId: "conv-4" });
+    repo.close("mine", "m-end", "app_quit");
+    repo.close("other-agent", "m-end", "app_quit");
+    repo.close("other-user", "m-end", "app_quit");
+
+    const scoped = repo.findClosedByScope(baseCreate.agentId, baseCreate.userId);
+    expect(scoped.map((s) => s.id)).toEqual(["mine"]);
+  });
+
   it("incrementRetry 累加", () => {
     repo.create(baseCreate);
     repo.close("seg-1", "m5", "capacity");

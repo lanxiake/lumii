@@ -71,6 +71,8 @@ export class SegmentMemoryPipeline {
   constructor(private readonly deps: SegmentMemoryPipelineDeps) {
     this.queue = new SummarizationQueue({
       repo: deps.segmentRepo,
+      // 重启恢复只捞本 pipeline 作用域（agent+user）的 closed 段，不跨 agent
+      listPending: (limit) => deps.segmentRepo.findClosedByScope(deps.agentId, deps.userId, limit),
       loadSegmentText: async (seg) =>
         deps.conversationRepo.loadSegmentText(
           seg.conversationId,

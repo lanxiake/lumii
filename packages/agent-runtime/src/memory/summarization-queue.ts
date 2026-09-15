@@ -3,7 +3,7 @@
  *
  * 职责：串行消费 closed 段 → 回读原文 → 总结 → 候选回调 → 标记 summarised。
  * - 串行：同一时刻只处理一个段，避免并发写记忆冲突
- * - 重启恢复：start() 扫描 DB 中遗留的 closed 段续处理（进程退出不丢）
+ * - 重启恢复：start() 经注入的 listPending 扫描本作用域遗留 closed 段续处理（进程退出不丢）
  * - 重试：失败 incrementRetry，超上限放弃（标 summarised），不阻塞
  * - 总结逻辑（prompt/LLM/解析）通过注入的 summarize 解耦，队列本身与模型无关
  *
@@ -15,6 +15,12 @@ import type { ExtractedCandidate } from "./types.js";
 
 export interface SummarizationQueueDeps {
   readonly repo: SegmentRepo;
+  /**
+   * 列出待恢复的 closed 段（start() 用）。
+   * 由调用方（SegmentMemoryPipeline）按自身 agent+user 作用域实现——
+   * 队列不自行决定扫描范围，避免一条 pipeline 总结到别的 agent 的段。
+   */
+  readonly listPending: (limit: number) => readonly MemorySegment[];
   /** 按 message-id 区间回读段落原文（拼成可总结文本）；返回空串表示无内容 */
   readonly loadSegmentText: (seg: MemorySegment) => Promise<string>;
   /** 对整段原文总结产出候选（内部调 LLM + 解析）；失败抛错 */
@@ -43,11 +49,11 @@ export class SummarizationQueue {
     this.kick();
   }
 
-  /** 启动：扫描遗留 closed 段续处理（重启恢复） */
+  /** 启动：扫描本作用域遗留 closed 段续处理（重启恢复） */
   start(): void {
     this.stopped = false;
     const limit = this.deps.recoverLimit ?? 100;
-    const pending = this.deps.repo.findClosed(limit);
+    const pending = this.deps.listPending(limit);
     if (pending.length > 0) {
       console.log(`[SegmentMemory] 重启恢复：发现 ${pending.length} 个待总结 closed 段`);
     }

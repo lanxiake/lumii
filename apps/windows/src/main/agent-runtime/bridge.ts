@@ -1764,6 +1764,10 @@ export class AgentRuntimeBridge {
       })
       .catch((err) => log.error('[initialize] 启动整理个人记忆失败:', err))
 
+    // 启动时恢复遗留的待总结段：pipeline 懒创建会让积压段堆到用户下一条消息时集中爆发
+    // LLM 调用（2026-09-15 实测一条「你好」触发 9 次串行总结），改为启动后台消化
+    this._segmentMemoryService?.recoverPending()
+
     this.initialized = true
     log.info(`Initialized with ${this.toolRegistry.size} built-in tools (stub overrides applied)`)
     this.ipcChannel.forwardToRenderer({ type: 'runtime:ready', timestamp: Date.now() })
