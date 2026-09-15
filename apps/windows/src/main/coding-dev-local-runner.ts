@@ -52,16 +52,21 @@ export function buildLocalCliArgs(
   resolvedCommand: string,
   prompt: string,
   cliSessionId?: string,
-): { command: string; args: string[]; shell?: boolean } {
+): { command: string; args: string[]; shell?: boolean; stdinPrompt?: boolean } {
   switch (toolId) {
     case 'claude': {
       // 权限策略：不显式传 --permission-mode —— 尊重用户自己的 Claude Code 配置
       // （实测本机 ~/.claude/settings.json defaultMode=bypassPermissions，可写文件/跑命令，2026-09-13）。
       // 显式 acceptEdits 反而会拒掉 Bash 类工具（挡住"跑测试"）；后续按 binding.permissionMode 提供覆盖。
-      const args = ['-p', prompt]
+      //
+      // prompt 改走 stdin（2026-09-15 修）：本机 claude 是 npm 的 .cmd shim（needsWindowsShell=true），
+      // 经 cmd shell 拼串时含换行的多行 prompt 会截断命令行，把排在它后面的 --output-format 一起吃掉：
+      // 表现为 Claude Code 退回默认文本输出 → JSONL 解析器整行丢弃 → 会话里只剩「（Claude Code 无输出）」，
+      // 执行过程与产出全丢。stdin 实测可用（`printf "..." | claude -p --output-format text`），
+      // 且彻底绕开 argv 放不下换行符的限制。
+      const args = ['-p', '--output-format', 'stream-json', '--verbose']
       if (cliSessionId) args.push('--resume', cliSessionId)
-      args.push('--output-format', 'stream-json', '--verbose')
-      return { command: resolvedCommand, args }
+      return { command: resolvedCommand, args, stdinPrompt: true }
     }
     case 'codex': {
       // 沙箱参数（实测 2026-09-13，Windows）：-s workspace-write 仍无法写文件（沙箱在 Windows 不可用），
@@ -76,9 +81,12 @@ export function buildLocalCliArgs(
       return { command: resolvedCommand, args }
     }
     case 'cursor': {
-      const args = ['-p', prompt]
+      // prompt 放最后：cursor-agent 是 .cmd shim，多行 prompt 会截断命令行，
+      // 排在其后的 --output-format 会一起丢失（与 claude 同因，见上方注释）。
+      // 未登录未实测，保守按「参数在前」排列；后续可同样改走 stdin。
+      const args = ['--output-format', 'stream-json', '--trust']
       if (cliSessionId) args.push('--resume', cliSessionId)
-      args.push('--output-format', 'stream-json', '--trust')
+      args.push('-p', prompt)
       return { command: resolvedCommand, args }
     }
     case 'opencode': {
@@ -115,7 +123,12 @@ export async function runLocalAcpCli(
   }
 
   const cmdName = status.resolvedCommand ?? status.commands[0]
-  const { command, args } = buildLocalCliArgs(id, status.resolvedPath, params.text, params.cliSessionId)
+  const { command, args, stdinPrompt } = buildLocalCliArgs(
+    id,
+    status.resolvedPath,
+    params.text,
+    params.cliSessionId,
+  )
 
   await params.emitProgress?.({
     kind: 'status',
@@ -133,13 +146,16 @@ export async function runLocalAcpCli(
     const spawnArgs = useShell ? [] : args
     // ponytail: stdin:'ignore' 防挂住 — codex/cursor 之类即使传了位置参数 prompt
     // 也会检测 stdin 可读性，有就阻塞等更多输入。关掉 stdin 让 CLI 知道这是单发。
+    // 例外：走 stdin 传 prompt 的后端（claude）必须开 pipe，见下方写入。
     const child = spawn(spawnCmd, spawnArgs, {
       cwd: params.cwd,
       windowsHide: true,
       env: { ...process.env },
       shell: useShell,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [stdinPrompt ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     })
+    // 一次写入并关闭：让 CLI 知道输入结束，不会等待更多内容而挂住
+    if (stdinPrompt) child.stdin?.end(params.text)
 
     let stdout = ''
     let stderr = ''

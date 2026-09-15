@@ -31,20 +31,38 @@ describe('quoteForCmd', () => {
 })
 
 describe('buildLocalCliArgs 多轮续接参数', () => {
-  it('claude：无续接保持原参；有续接追加 --resume', () => {
+  it('claude：prompt 走 stdin，argv 里不含 prompt；有续接追加 --resume', () => {
     expect(buildLocalCliArgs('claude', 'claude', 'hi')).toEqual({
       command: 'claude',
-      args: ['-p', 'hi', '--output-format', 'stream-json', '--verbose'],
+      args: ['-p', '--output-format', 'stream-json', '--verbose'],
+      stdinPrompt: true,
     })
     expect(buildLocalCliArgs('claude', 'claude', 'hi', 'sid-1').args).toEqual([
       '-p',
-      'hi',
-      '--resume',
-      'sid-1',
       '--output-format',
       'stream-json',
       '--verbose',
+      '--resume',
+      'sid-1',
     ])
+  })
+
+  it('claude：多行 prompt 不进 argv（回归：曾被 cmd shim 截断，连 --output-format 一起丢失）', () => {
+    const multi = '第一行\n\n第二行\n第三行'
+    const { args, stdinPrompt } = buildLocalCliArgs('claude', 'claude', multi)
+    // 走 stdin 才可能完整送达 —— 命令行放不下字面换行符
+    expect(stdinPrompt).toBe(true)
+    expect(args.join(' ')).not.toContain('第一行')
+    // 关键参数必须齐备，且不受 prompt 内容影响
+    expect(args).toContain('--output-format')
+    expect(args).toContain('stream-json')
+    expect(args).toContain('--verbose')
+  })
+
+  it('cursor：prompt 排在最后（同为 .cmd shim，截断时关键参数仍先生效）', () => {
+    const args = buildLocalCliArgs('cursor', 'cursor', 'hi').args
+    expect(args[args.length - 1]).toBe('hi')
+    expect(args.indexOf('--output-format')).toBeLessThan(args.indexOf('hi'))
   })
 
   it('codex：续接改子命令形态 exec resume；按平台带沙箱参数', () => {
@@ -82,15 +100,17 @@ describe('buildLocalCliArgs 多轮续接参数', () => {
     ])
   })
 
-  it('cursor：续接追加 --resume', () => {
-    expect(buildLocalCliArgs('cursor', 'cursor', 'hi', 'c1').args).toEqual([
-      '-p',
-      'hi',
-      '--resume',
-      'c1',
+  it('cursor：续接追加 --resume（prompt 仍排在最后）', () => {
+    const args = buildLocalCliArgs('cursor', 'cursor', 'hi', 'c1').args
+    expect(args).toEqual([
       '--output-format',
       'stream-json',
       '--trust',
+      '--resume',
+      'c1',
+      '-p',
+      'hi',
     ])
+    expect(args[args.length - 1]).toBe('hi')
   })
 })
