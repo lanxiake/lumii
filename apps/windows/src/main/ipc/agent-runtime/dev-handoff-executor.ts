@@ -8,6 +8,9 @@
  *
  * 发起复用 handleUserSend 的完整路径（任务消息落库 + 开发上下文解析 + ACP 直达 / pi 兜底），
  * 完成监听使用轮询（会话无流式消息且出现新的助手回复即为完成），不依赖额外事件基建。
+ *
+ * 2026-09-15：转交改为**自动执行**（不再等用户点确认卡片）——入口见 `runHandoffFromProposal`。
+ * 之所以放在主进程而不是让卡片自动点击：用户切走会话后卡片不渲染，转交就永远不会发生。
  */
 
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
@@ -265,4 +268,89 @@ function startWatchCompletion(
   }, WATCH_POLL_MS)
   // 不阻止进程退出
   if (typeof timer.unref === 'function') timer.unref()
+}
+
+/**
+ * 完成后把结果写回原会话（主助手会话），保证「原会话知道任务结果」。
+ *
+ * 从 `handoff-commands` 移入此处：它是执行链的收尾动作，且自动转交（见下）也要用。
+ */
+export function reportToOriginSession(
+  bridge: AgentRuntimeBridge,
+  originSessionKey: string,
+  summary: string,
+  payload: DevHandoffReport,
+): void {
+  if (!originSessionKey) return
+  const text = formatHandoffReport(summary, payload)
+  try {
+    const id = bridge.conversationRepo.saveMessage({
+      conversationId: originSessionKey,
+      role: 'assistant',
+      contentJson: { type: 'text', text },
+    })
+    bridge.forwardIpcEvent({
+      type: 'conversation:message:new',
+      sessionKey: originSessionKey,
+      message: {
+        id: String(id),
+        role: 'assistant',
+        content: [{ type: 'text', text }],
+        timestamp: Date.now(),
+      },
+    })
+    log.info(`[handoff] 已向原会话汇报结果 sessionKey=${originSessionKey}`)
+
+    // 用户不在原会话时补桌面通知（点击直达）；在原会话则消息已实时可见，不打扰
+    if (bridge.getLastActiveConversationId() !== originSessionKey) {
+      const label = summary.length > 40 ? `${summary.slice(0, 40)}…` : summary
+      bridge.triggerCronNotification(
+        `Lumii · 转交${payload.ok ? '完成' : '失败'}`,
+        payload.ok ? `「${label}」已完成，点击查看结果` : `「${label}」执行失败：${payload.text.slice(0, 80)}`,
+        originSessionKey,
+      )
+    }
+  } catch (err) {
+    log.error(`[handoff] 原会话汇报失败: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+/**
+ * 提案即执行（2026-09-15）：转交不再需要用户点确认卡片。
+ *
+ * 由 `propose_dev_handoff` 工具在生成提案后直接调用（主进程内），覆盖桌面与渠道——
+ * 用户切走会话、或客户端不在前台时，任务照常发起。
+ *
+ * 与「渲染层自动点击卡片」的区别：后者依赖卡片被渲染，切走会话就永远不会触发。
+ */
+export async function runHandoffFromProposal(params: {
+  bridge: AgentRuntimeBridge
+  originSessionKey: string
+  task: string
+  summary: string
+  sessionMode: 'new' | 'recent'
+  projectName?: string
+}): Promise<{ ok: boolean; devSessionKey?: string; title?: string; error?: string }> {
+  try {
+    const { devSessionKey, title } = await runDevHandoff({
+      bridge: params.bridge,
+      task: params.task,
+      sessionMode: params.sessionMode,
+      title: params.summary,
+      ...(params.projectName ? { projectName: params.projectName } : {}),
+      report: (payload) =>
+        reportToOriginSession(params.bridge, params.originSessionKey, params.summary, payload),
+    })
+    return { ok: true, devSessionKey, title }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    log.error(`[runHandoffFromProposal] 执行失败: ${message}`)
+    // 失败也要让原会话知道，否则用户以为转交生效了
+    reportToOriginSession(params.bridge, params.originSessionKey, params.summary, {
+      ok: false,
+      devSessionKey: '',
+      text: `转交发起失败：${message}`,
+    })
+    return { ok: false, error: message }
+  }
 }

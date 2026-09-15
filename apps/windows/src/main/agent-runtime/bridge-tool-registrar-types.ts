@@ -84,4 +84,17 @@ export interface BridgeToolRegistrarDeps {
     referenceImagePaths?: string[]
     signal?: AbortSignal
   }) => Promise<{ filePath: string; width: number; height: number; model: string; revisedPrompt: string }>
+  /**
+   * 转交自动执行入口（2026-09-15：转交不再需要用户点确认卡片）。
+   *
+   * 由 bridge 注入，实现内部完成「建/选开发会话 → 发任务 → 完成后汇报回原会话」。
+   * 未注入时 `propose_dev_handoff` 退回「仅生成提案」的旧行为（便于测试与宿主裁剪）。
+   */
+  autoRunHandoff?: (params: {
+    originSessionKey: string
+    task: string
+    summary: string
+    sessionMode: 'new' | 'recent'
+    projectName?: string
+  }) => Promise<{ ok: boolean; devSessionKey?: string; title?: string; error?: string }>
 }

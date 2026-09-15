@@ -962,6 +962,12 @@ export class AgentRuntimeBridge {
       getChannelRouter: () => this.config.getChannelRouter?.() ?? null,
       compactSession: (sessionKey, keepRecentTurns) => this.compactSessionForTool(sessionKey, keepRecentTurns),
       generateImage: (params) => this.generateImage(params),
+      // 转交自动执行（2026-09-15）：提案后直接发起，不再等用户点确认卡片。
+      // 动态 import 避免 bridge ↔ ipc 层的静态依赖（与下方 dev-context 的注入同一处理）。
+      autoRunHandoff: (params) =>
+        import('../ipc/agent-runtime/dev-handoff-executor').then(({ runHandoffFromProposal }) =>
+          runHandoffFromProposal({ bridge: this, ...params }),
+        ),
     })
     this.toolRegistrar.registerAll()
   }

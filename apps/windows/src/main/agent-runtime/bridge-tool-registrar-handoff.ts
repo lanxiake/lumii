@@ -11,7 +11,7 @@ import { Type } from '@sinclair/typebox'
 import { createMtBotTool, type MtBotToolConfig, type ToolExecutionContext } from '@mtbot/agent-runtime'
 import { agentRuntimeLog as log, jsonToolResult } from './bridge-utils'
 import type { BridgeToolRegistrarDeps } from './bridge-tool-registrar-types'
-import { isChannelSession, proposeHandoff } from './handoff-store'
+import { consumeHandoff, proposeHandoff } from './handoff-store'
 import { getCodingDevConfig, resolveProjectPathByName, type CodingDevConfigSlice } from '../coding-dev-env'
 
 /**
@@ -72,8 +72,8 @@ export function registerHandoffTools(deps: BridgeToolRegistrarDeps, ctx: ToolExe
       'Use when the user names a registered project and asks for work in it — bug fixes / features / refactors, ' +
       'AND project-scoped analysis, review or research (e.g. "根据这个项目的代码评审这份方案", "看看这个项目的架构"). ' +
       'For casual snippets outside any named project, handle them yourself with basic tools — do not over-escalate. ' +
-      'This only creates a confirmation proposal — after calling it you MUST tell the user to click the ' +
-      'confirm button on the handoff card; the dev session starts only after that click. ' +
+      'The dev task starts IMMEDIATELY — there is no confirmation step. After calling this, briefly tell the user ' +
+      'it has been handed off; never ask them to confirm, and do not paste the task text back. ' +
       'Do NOT spawn code-dev via spawn_agent.',
     parameters: ProposeDevHandoffParams,
     category: 'agent',
@@ -112,18 +112,51 @@ export function registerHandoffTools(deps: BridgeToolRegistrarDeps, ctx: ToolExe
       log.info(
         `[propose_dev_handoff] 提案 handoffId=${handoff.id} mode=${handoff.sessionMode} project=${projectName ?? '(活动项目)'} origin=${originSessionKey || '(未知)'} summary="${handoff.summary}"`,
       )
-      // 确认方式按会话渠道分流：渠道（QQ/微信/飞书/企微）无卡片按钮 → 回复 1；桌面 → 点卡片
-      const inChannel = isChannelSession(originSessionKey)
-      const projectHint = projectName ? `（目标项目：${projectName}）` : ''
-      const message = inChannel
-        ? `已生成转交提案${projectHint}。用户当前在渠道（没有卡片按钮）：请在回复中明确写「回复 1 确认」，确认后任务才会开始执行；用户回复其它内容则表示继续讨论。`
-        : `已生成转交提案${projectHint}。请在回复中明确告诉用户：点击下方卡片上的「交给灵栖开发」按钮即可开始执行（点击前不会启动任何开发任务）。`
-      return jsonToolResult({
-        status: 'proposed',
-        handoffId: handoff.id,
+
+      const projectHint = projectName ? `（项目：${projectName}）` : ''
+
+      // 宿主未注入执行入口（测试 / 裁剪场景）：退回「仅提案」的旧行为
+      if (!deps.autoRunHandoff) {
+        return jsonToolResult({
+          status: 'proposed',
+          handoffId: handoff.id,
+          summary: handoff.summary,
+          ...(projectName ? { projectName } : {}),
+          message: `已生成转交提案${projectHint}（宿主未启用自动执行）。`,
+        })
+      }
+
+      // 自动执行（2026-09-15）：不再等用户点确认卡片。
+      // 必须由主进程发起 —— 让渲染层自动点击的话，用户切走会话、卡片不渲染，转交就永远不会发生。
+      const started = await deps.autoRunHandoff({
+        originSessionKey,
+        task: handoff.task,
         summary: handoff.summary,
+        sessionMode: handoff.sessionMode,
         ...(projectName ? { projectName } : {}),
-        message,
+      })
+      // 立即消费提案：自动执行后已无需人工确认，若留在 pending 里，
+      // 渠道侧 10 分钟内的「回复 1」会被 tryConsumeHandoffConfirm 再触发一次（重复执行）。
+      consumeHandoff(handoff.id)
+
+      if (!started.ok) {
+        return jsonToolResult({
+          status: 'error',
+          handoffId: handoff.id,
+          ...(projectName ? { projectName } : {}),
+          message: `转交已发起但未能执行（${started.error ?? '未知原因'}）。请如实告知用户没有开始执行，不要声称任务已启动。`,
+        })
+      }
+
+      return jsonToolResult({
+        status: 'started',
+        handoffId: handoff.id,
+        ...(started.devSessionKey ? { devSessionKey: started.devSessionKey } : {}),
+        ...(started.title ? { title: started.title } : {}),
+        ...(projectName ? { projectName } : {}),
+        message:
+          `已自动发起转交${projectHint}，任务在「灵栖开发」会话中执行，完成后会把结果汇报回本会话。` +
+          '请在回复里简要告知用户已交给灵栖开发执行即可，不要重复任务全文，也不要让用户再确认什么。',
       })
     },
   }

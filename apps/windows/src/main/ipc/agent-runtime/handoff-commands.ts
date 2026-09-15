@@ -8,7 +8,7 @@
 import type { AgentRuntimeCommand } from '../../../shared/agent-runtime-commands'
 import type { AgentRuntimeBridge } from '../../agent-runtime/bridge'
 import { consumeHandoff } from '../../agent-runtime/handoff-store'
-import { formatHandoffReport, runDevHandoff, type DevHandoffReport } from './dev-handoff-executor'
+import { reportToOriginSession, runDevHandoff } from './dev-handoff-executor'
 
 const log = {
   info: (...args: unknown[]) => console.log('[AgentRuntime:IPC]', ...args),
@@ -16,46 +16,9 @@ const log = {
   error: (...args: unknown[]) => console.error('[AgentRuntime:IPC]', ...args),
 }
 
-/** 完成后把结果写回原会话（主助手会话），保证「原会话知道任务结果」 */
-export function reportToOriginSession(
-  bridge: AgentRuntimeBridge,
-  originSessionKey: string,
-  summary: string,
-  payload: DevHandoffReport,
-): void {
-  if (!originSessionKey) return
-  const text = formatHandoffReport(summary, payload)
-  try {
-    const id = bridge.conversationRepo.saveMessage({
-      conversationId: originSessionKey,
-      role: 'assistant',
-      contentJson: { type: 'text', text },
-    })
-    bridge.forwardIpcEvent({
-      type: 'conversation:message:new',
-      sessionKey: originSessionKey,
-      message: {
-        id: String(id),
-        role: 'assistant',
-        content: [{ type: 'text', text }],
-        timestamp: Date.now(),
-      },
-    })
-    log.info(`[handoff:confirm] 已向原会话汇报结果 sessionKey=${originSessionKey}`)
-
-    // 用户不在原会话时补桌面通知（点击直达）；在原会话则消息已实时可见，不打扰
-    if (bridge.getLastActiveConversationId() !== originSessionKey) {
-      const label = summary.length > 40 ? `${summary.slice(0, 40)}…` : summary
-      bridge.triggerCronNotification(
-        `Lumii · 转交${payload.ok ? '完成' : '失败'}`,
-        payload.ok ? `「${label}」已完成，点击查看结果` : `「${label}」执行失败：${payload.text.slice(0, 80)}`,
-        originSessionKey,
-      )
-    }
-  } catch (err) {
-    log.error(`[handoff:confirm] 原会话汇报失败: ${err instanceof Error ? err.message : String(err)}`)
-  }
-}
+// reportToOriginSession 已移入 dev-handoff-executor（执行链的收尾动作，自动转交也要用）。
+// 这里 re-export，保持既有 import 点（测试与调用方）不变。
+export { reportToOriginSession }
 
 export async function handleHandoffConfirm(
   bridge: AgentRuntimeBridge,

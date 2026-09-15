@@ -102,6 +102,56 @@ describe('HandoffCard（F2 转交卡片）', () => {
     await screen.findByText(/转交执行失败：无可用实例/)
   })
 
+  it('自动执行（status=started）：展示已交给灵栖开发 + 去会话查看，不出确认按钮', () => {
+    const actions = makeActions()
+    renderCard(
+      {
+        ...readyPart,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                status: 'started',
+                handoffId: 'h-2',
+                projectName: 'lumii',
+                devSessionKey: 'dev-1',
+                title: '评审方案',
+              }),
+            },
+          ],
+        },
+      },
+      actions,
+    )
+    expect(screen.getByText('已交给灵栖开发 · 评审方案')).toBeInTheDocument()
+    expect(screen.getByText('灵栖开发 · lumii')).toBeInTheDocument()
+    // 不再要求用户确认
+    expect(screen.queryByRole('button', { name: '交给灵栖开发' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '去会话查看' }))
+    expect(actions.openSession).toHaveBeenCalledWith('dev-1')
+  })
+
+  it('自动执行失败（status=error）：展示失败文案，不出确认按钮', () => {
+    renderCard(
+      {
+        ...readyPart,
+        result: {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ status: 'error', handoffId: 'h-3', message: '未绑定编码工具' }),
+            },
+          ],
+        },
+      },
+      makeActions(),
+    )
+    expect(screen.getByText(/转交未能发起/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '交给灵栖开发' })).not.toBeInTheDocument()
+  })
+
   it('工具运行中：显示准备提示，不出现确认按钮', () => {
     renderCard({ id: 'p2', args: { summary: 'x' }, status: 'running' }, makeActions())
     expect(screen.getByText('正在准备转交提案…')).toBeInTheDocument()
