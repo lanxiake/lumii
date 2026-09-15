@@ -472,6 +472,24 @@ export class AgentMemoryRepo {
   }
 
   /**
+   * 按标签删除某 Agent + User 的记忆行（含 FTS 索引同步），返回删除行数。
+   * 用于「同标签整批轮换」场景（如 planner 待办每批替换上一批），
+   * 与 removeById 的区别：只删带该标签的行，不按内容牵连其他来源的同文记忆。
+   */
+  removeByTag(agentId: string, userId: string, tag: string): number {
+    const rows = this.db
+      .prepare<{ rowid: number; id: string }>(
+        "SELECT rowid, id FROM agent_memories WHERE agent_id = ? AND user_id = ? AND tags LIKE ?",
+      )
+      .all(agentId, userId, `%"${tag}"%`);
+    if (rows.length === 0) return 0;
+    const del = this.db.prepare("DELETE FROM agent_memories WHERE id = ?");
+    for (const row of rows) del.run(row.id);
+    this.indexRepo.deleteRows(rows.map((r) => r.rowid));
+    return rows.length;
+  }
+
+  /**
    * 按 ID 更新单条记忆内容（用户在设置页手动编辑记忆时使用）。
    * 仅更新内容并刷新 last_used，不触碰其他字段。
    */

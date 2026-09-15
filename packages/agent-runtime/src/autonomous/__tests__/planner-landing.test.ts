@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { landPlannerPlan, resolveCronSchedule, SELF_CRON_ID_PREFIX } from '../planner-landing';
+import { landPlannerPlan, resolveCronSchedule, SELF_CRON_ID_PREFIX, PLANNER_TODO_TAG } from '../planner-landing';
 import type { PlannerPlan } from '../planner';
 import { createMigratedTestDb } from '../../__tests__/helpers/sqlite-test-db.js';
 
@@ -99,16 +99,64 @@ describe('landPlannerPlan', () => {
     db.close();
   });
 
-  it('待办落地 agent_memories（category=reference）', () => {
+  it('待办落地 agent_memories（category=reference，planner-todo 标签，local-user 作用域）', () => {
     const db = createMigratedTestDb();
     const result = landPlannerPlan(db, 'assistant', makePlan(), { approvalMode: 'always', now });
     expect(result.todoCount).toBe(2);
 
     const rows = db
-      .prepare<{ content: string; category: string }>(`SELECT content, category FROM agent_memories WHERE agent_id = 'assistant'`)
+      .prepare<{ content: string; category: string; user_id: string; tags: string | null }>(
+        `SELECT content, category, user_id, tags FROM agent_memories WHERE agent_id = 'assistant'`,
+      )
       .all();
     expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.category === 'reference')).toBe(true);
+    // 作用域必须是记忆系统实际读取的 local-user（历史缺陷写死 'local' 落入幽灵命名空间）
+    expect(rows.every((r) => r.user_id === 'local-user')).toBe(true);
+    expect(rows.every((r) => (r.tags ?? '').includes(PLANNER_TODO_TAG))).toBe(true);
+    db.close();
+  });
+
+  it('待办轮换：第二次规划替换上一批，不累积', () => {
+    const db = createMigratedTestDb();
+    landPlannerPlan(db, 'assistant', makePlan(), { approvalMode: 'always', now });
+    const second: PlannerPlan = {
+      goals: [],
+      cronJobs: [],
+      todos: ['新的待办一', '新的待办二', '新的待办三'],
+    };
+    const result = landPlannerPlan(db, 'assistant', second, { approvalMode: 'always', now });
+    expect(result.todoCount).toBe(3);
+
+    const todos = db
+      .prepare<{ content: string }>(
+        `SELECT content FROM agent_memories WHERE agent_id = 'assistant' AND category = 'reference'`,
+      )
+      .all();
+    expect(todos.map((t) => t.content).sort()).toEqual(['新的待办一', '新的待办三', '新的待办二']);
+    db.close();
+  });
+
+  it('待办轮换不影响其他来源的记忆（无标签行保留）', () => {
+    const db = createMigratedTestDb();
+    db.prepare(
+      `INSERT INTO agent_memories (id, agent_id, user_id, category, content, importance, created_at, last_used)
+       VALUES ('real-mem', 'assistant', 'local-user', 'project', '用户在推进 Lumii 项目', 0.8, ?, ?)`,
+    ).run(now.toISOString(), now.toISOString());
+
+    landPlannerPlan(db, 'assistant', makePlan(), { approvalMode: 'always', now });
+    landPlannerPlan(
+      db,
+      'assistant',
+      { goals: [], cronJobs: [], todos: ['只有这条'] },
+      { approvalMode: 'always', now },
+    );
+
+    const rows = db
+      .prepare<{ content: string }>(`SELECT content FROM agent_memories WHERE agent_id = 'assistant'`)
+      .all();
+    expect(rows.map((r) => r.content)).toContain('用户在推进 Lumii 项目');
+    expect(rows).toHaveLength(2); // 真实记忆 + 本批 1 条待办
     db.close();
   });
 

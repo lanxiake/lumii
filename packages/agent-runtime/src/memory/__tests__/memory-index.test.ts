@@ -66,4 +66,28 @@ describe("FTS5 派生索引", () => {
     expect(hits.length).toBe(1);
     expect(hits[0]!.content).toBe("用户喜欢爬山");
   });
+
+  it("removeByTag：按标签整批删除并同步索引", () => {
+    repo.saveCandidate({ agentId: "a1", userId: "u1", category: "reference", content: "先做小任务", tags: ["planner-todo"] });
+    repo.saveCandidate({ agentId: "a1", userId: "u1", category: "reference", content: "再写复盘记录", tags: ["planner-todo"] });
+    repo.saveCandidate({ agentId: "a1", userId: "u1", category: "project", content: "项目部署到生产环境" });
+
+    expect(repo.removeByTag("a1", "u1", "planner-todo")).toBe(2);
+    expect(repo.listActive("a1", "u1").map((m) => m.content)).toEqual(["项目部署到生产环境"]);
+    expect(repo.search("a1", "u1", "小任务", 5)).toHaveLength(0);
+    expect(indexRepo.checkFtsHealth().isHealthy).toBe(true);
+  });
+
+  it("removeByTag 只删带标签的行，不牵连同内容的无标签记忆", () => {
+    repo.saveCandidate({ agentId: "a1", userId: "u1", category: "reference", content: "同一条内容", tags: ["planner-todo"] });
+    // 裸插一条同内容、无标签的行（模拟其他来源；saveCandidate 会去重，故绕过它）
+    const ts = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO agent_memories (id, agent_id, user_id, category, content, importance, created_at, last_used, is_archived)
+       VALUES ('other-src', 'a1', 'u1', 'reference', '同一条内容', 0.5, ?, ?, 0)`,
+    ).run(ts, ts);
+
+    expect(repo.removeByTag("a1", "u1", "planner-todo")).toBe(1);
+    expect(repo.findById("other-src")).not.toBeNull();
+  });
 });

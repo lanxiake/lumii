@@ -4,13 +4,14 @@
  * 把 PlannerPlan 落成三样东西：
  * - goals       → autonomous_goals（planned_by='planner' + scheduled_for，走既有审批模式）
  * - cronJobs    → local_cron_jobs（id='agent-self:<uuid>'、agent_id='assistant'、notify_targets='silent' 静默）
- * - todos       → agent_memories（工作记忆，category='reference'）
+ * - todos       → agent_memories（工作记忆，category='reference'，标签 planner-todo，每批轮换）
  *
  * 只负责写库与调度表达式解析，返回新建的 cron 行供 windows 侧调用 cronScheduler.scheduleJob 启动计时器。
  */
 
 import type { DatabaseAdapter } from '../storage/local-database.js';
 import type { PlannerPlan, PlannerCronJob } from './planner';
+import { AgentMemoryRepo } from '../memory/memory-repo.js';
 
 /** 落地后需要交给调度器启动计时器的 cron 行 */
 export interface LandedCronJob {
@@ -34,7 +35,19 @@ export interface PlannerLandingResult {
 export interface PlannerLandingOptions {
   approvalMode: 'always' | 'risky-only' | 'never';
   now?: Date;
+  /**
+   * 待办写入工作记忆时使用的 user 作用域（默认 'local-user'，与客户端记忆注入一致）。
+   * 历史缺陷：曾裸 SQL 写死 user_id='local'——与记忆系统实际读取的 'local-user' 不一致，
+   * 落进幽灵命名空间（既不被注入也不可检索），16 天积压 375 条。
+   */
+  userId?: string;
 }
+
+/** 待办记忆的标签：整批轮换与定向清理都靠它识别 */
+export const PLANNER_TODO_TAG = 'planner-todo';
+
+/** 待办记忆的默认 user 作用域（单机应用与 LOCAL_USER_ID 对齐） */
+const DEFAULT_MEMORY_USER_ID = 'local-user';
 
 /** 自建任务的 id 前缀（cron_delete 守卫只允许删这个命名空间） */
 export const SELF_CRON_ID_PREFIX = 'agent-self:';
@@ -148,7 +161,7 @@ function loadRecentGoalDescriptions(
 }
 
 /**
- * 落地一个规划：目标 → autonomous_goals、定时任务 → local_cron_jobs、待办 → agent_memories。
+ * 落地一个规划：目标 → autonomous_goals、定时任务 → local_cron_jobs、待办 → agent_memories（每批轮换）。
  * 任何单条失败都记日志跳过，不因一条坏数据拖垮整次落地。
  */
 export function landPlannerPlan(
@@ -229,16 +242,27 @@ export function landPlannerPlan(
     }
   }
 
-  // 3. 待办 → 工作记忆（category='reference'）
+  // 3. 待办 → 工作记忆（category='reference'，标签 planner-todo）
+  //    轮换语义：每批替换上一批，只保留「当前计划」；直接 SQL 插入会绕过去重与 FTS 索引维护，
+  //    故统一走 AgentMemoryRepo（幂等写 + 索引同步）。
+  const userId = opts.userId ?? DEFAULT_MEMORY_USER_ID;
+  const memoryRepo = new AgentMemoryRepo(db);
   let todoCount = 0;
-  const insertTodo = db.prepare(
-    `INSERT INTO agent_memories
-     (id, agent_id, user_id, category, content, importance, created_at, last_used)
-     VALUES (?, ?, 'local', 'reference', ?, 0.5, ?, ?)`,
-  );
+  try {
+    memoryRepo.removeByTag(agentId, userId, PLANNER_TODO_TAG);
+  } catch (err) {
+    console.warn('[landPlannerPlan] 清理上一批待办失败，跳过:', err instanceof Error ? err.message : err);
+  }
   for (const todo of plan.todos) {
     try {
-      insertTodo.run(generateId('mem-'), agentId, todo, nowIso, nowIso);
+      memoryRepo.saveCandidate({
+        agentId,
+        userId,
+        category: 'reference',
+        content: todo,
+        importance: 0.5,
+        tags: [PLANNER_TODO_TAG],
+      });
       todoCount++;
     } catch (err) {
       console.warn('[landPlannerPlan] 写入待办失败，跳过:', err instanceof Error ? err.message : err);
