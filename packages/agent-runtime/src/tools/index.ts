@@ -46,3 +46,11 @@ export {
   type ToolMetricAggregate,
   type TelemetrySink,
 } from "./telemetry.js";
+export {
+  COMPLEX_TOOL_MIN_PARAMS,
+  COMPLEX_TOOL_NAMES,
+  applyToolDefinitionStyle,
+  isComplexTool,
+  stripToolDefinition,
+  type ToolDefinitionLike,
+} from "./tool-definition-style.js";

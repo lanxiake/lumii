@@ -70,6 +70,11 @@ export {
   validateTemplateToolDefinition,
   extractPlaceholders,
   renderTemplate,
+  applyToolDefinitionStyle,
+  isComplexTool,
+  stripToolDefinition,
+  COMPLEX_TOOL_NAMES,
+  COMPLEX_TOOL_MIN_PARAMS,
 } from "./tools/index.js";
 export type {
   MtBotToolConfig,
@@ -84,6 +89,7 @@ export type {
   ToolMetricAggregate,
   TelemetrySink,
   TemplateToolDefinition,
+  ToolDefinitionLike,
 } from "./tools/index.js";
 export {
   createBashCommandLogHook,
